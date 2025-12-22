@@ -1,0 +1,46 @@
+# Git
+.git
+.gitignore
+
+# Environment
+.env
+.env.*
+
+# Documentation
+*.md
+README.md
+EXEMPLOS_API.md
+DESENVOLVIMENTO.md
+DEPLOY.md
+
+# Scripts
+test_api.sh
+
+# IDEs
+.vscode
+.idea
+*.swp
+
+# Logs
+*.log
+logs/
+
+# Binários
+spuri
+*.exe
+
+# Temporários
+tmp/
+temp/
+
+# Backups
+backup_*.sql
+backups/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Railway/Render configs (não precisa no container)
+railway.json
+render.yaml
