@@ -12,9 +12,11 @@ import (
 )
 
 func main() {
-	// Carregar variáveis de ambiente
-	if err := godotenv.Load(); err != nil {
-		log.Println("⚠️  Arquivo .env não encontrado, usando variáveis de ambiente do sistema")
+	// Carregar variáveis de ambiente (apenas em desenvolvimento)
+	if os.Getenv("ENV") != "production" {
+		if err := godotenv.Load(); err != nil {
+			log.Println("⚠️  Arquivo .env não encontrado, usando variáveis de ambiente do sistema")
+		}
 	}
 
 	// Inicializar conexão com o banco de dados
@@ -55,6 +57,7 @@ func main() {
 			"status":  "ok",
 			"message": "Spuri está rodando!",
 			"version": "1.0.0",
+			"env":     os.Getenv("ENV"),
 		})
 	})
 
@@ -157,6 +160,7 @@ func main() {
 	})
 
 	// Iniciar servidor
+	// Railway usa a variável PORT automaticamente
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -165,8 +169,9 @@ func main() {
 	log.Printf("🚀 Servidor rodando em http://localhost:%s", port)
 	log.Printf("📚 Documentação: http://localhost:%s/", port)
 	log.Printf("❤️  Health check: http://localhost:%s/health", port)
+	log.Printf("🌍 Ambiente: %s", os.Getenv("ENV"))
 	
-	if err := router.Run(":" + port); err != nil {
+	if err := router.Run("0.0.0.0:" + port); err != nil {
 		log.Fatalf("❌ Erro ao iniciar servidor: %v", err)
 	}
 }

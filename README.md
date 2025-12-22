@@ -1,6 +1,6 @@
-# Spuri - Sistema de Gestão Acadêmica
+# Spuri - Sistema de Mapeamento Acadêmico
 
-Sistema de gestão acadêmica com Event Sourcing para Angola.
+Sistema de mapeamento acadêmico com Event Sourcing para Angola.
 
 ## 📁 Estrutura do Projeto
 
