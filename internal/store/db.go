@@ -14,17 +14,28 @@ var DB *sqlx.DB
 
 // InitDB inicializa a conexão com o banco de dados
 func InitDB() error {
-	host := getEnv("DB_HOST", "localhost")
-	port := getEnv("DB_PORT", "5432")
-	user := getEnv("DB_USER", "postgres")
-	password := getEnv("DB_PASSWORD", "")
-	dbname := getEnv("DB_NAME", "spuri")
-	sslmode := getEnv("DB_SSLMODE", "disable")
+	var connStr string
+	
+	// Prioridade 1: DATABASE_URL (Railway, Heroku, etc)
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL != "" {
+		connStr = databaseURL
+		log.Println("✅ Usando DATABASE_URL para conectar ao banco")
+	} else {
+		// Prioridade 2: Variáveis individuais
+		host := getEnv("DB_HOST", "localhost")
+		port := getEnv("DB_PORT", "5432")
+		user := getEnv("DB_USER", "postgres")
+		password := getEnv("DB_PASSWORD", "")
+		dbname := getEnv("DB_NAME", "spuri")
+		sslmode := getEnv("DB_SSLMODE", "disable")
 
-	connStr := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-		host, port, user, password, dbname, sslmode,
-	)
+		connStr = fmt.Sprintf(
+			"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+			host, port, user, password, dbname, sslmode,
+		)
+		log.Printf("✅ Conectando ao banco: %s@%s:%s/%s", user, host, port, dbname)
+	}
 
 	var err error
 	DB, err = sqlx.Connect("postgres", connStr)
