@@ -1,5 +1,6 @@
 -- Spuri Database Schema
 -- Event Sourcing Architecture
+-- Atualizado: 2025-12-22 - Campo provincia adicionado
 
 -- Extensão para UUID
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -15,6 +16,7 @@ CREATE TABLE escolas_universidades (
     nome VARCHAR(255) NOT NULL,
     codigo_academia VARCHAR(50) UNIQUE NOT NULL,
     senha_hash VARCHAR(255) NOT NULL,
+    provincia VARCHAR(3) NOT NULL,
     endereco TEXT NOT NULL,
     numero_telefone VARCHAR(20),
     email VARCHAR(100),
@@ -24,6 +26,8 @@ CREATE TABLE escolas_universidades (
     cursos JSONB DEFAULT '[]',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX idx_escolas_universidades_provincia ON escolas_universidades(provincia);
 
 -- Cursos
 CREATE TABLE cursos (
@@ -162,31 +166,8 @@ CREATE TRIGGER update_inscricoes_updated_at
     EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================
--- DADOS INICIAIS (Opcional)
+-- VIEWS
 -- ============================================
-
--- Inserir alguns cursos padrão
-INSERT INTO cursos (nome, type) VALUES
-    ('Ciências Físicas e Biológicas', 'medio'),
-    ('Ciências Económicas e Jurídicas', 'medio'),
-    ('Engenharia Informática', 'superior'),
-    ('Medicina', 'superior'),
-    ('Direito', 'superior'),
-    ('Economia', 'superior');
-
--- Conta admin padrão (senha: admin123)
--- IMPORTANTE: Mudar a senha em produção!
-INSERT INTO contas_adm (nome, senha_hash, role) VALUES
-    ('Administrador', '$2a$10$rXqVqE8Z8Z8Z8Z8Z8Z8Z8O5.5.5.5.5.5.5.5.5.5.5.5.5.5.5', 'fpp');
-
-COMMENT ON TABLE event_store IS 'Event Store: Fonte única da verdade. Todos os eventos são imutáveis.';
-COMMENT ON TABLE registro_notas IS 'Read Model: Projeção otimizada para consulta de notas.';
-COMMENT ON TABLE registro_faltas IS 'Read Model: Projeção otimizada para consulta de faltas.';
-COMMENT ON COLUMN event_store.aggregate_id IS 'ID da entidade (estudante, escola, etc.)';
-COMMENT ON COLUMN event_store.aggregate_type IS 'Tipo da entidade (Estudante, Academia, etc.)';
-COMMENT ON COLUMN event_store.event_type IS 'Tipo do evento (NotasRegistradas, FaltasRegistradas, etc.)';
-COMMENT ON COLUMN event_store.payload IS 'Dados completos do evento em JSON';
-COMMENT ON COLUMN event_store.metadata IS 'Metadados: IP, user agent, etc.';
 
 -- Visualização para auditoria rápida
 CREATE VIEW auditoria_eventos AS
@@ -205,3 +186,48 @@ FROM event_store e
 LEFT JOIN estudantes est ON e.aggregate_id = est.id AND e.aggregate_type = 'Estudante'
 LEFT JOIN escolas_universidades esc ON e.aggregate_id = esc.id AND e.aggregate_type = 'Academia'
 ORDER BY e.occurred_at DESC;
+
+-- Estatísticas de academias por província
+CREATE VIEW academias_por_provincia AS
+SELECT 
+    provincia,
+    COUNT(*) as total_academias,
+    COUNT(CASE WHEN type = 'escola' THEN 1 END) as total_escolas,
+    COUNT(CASE WHEN type = 'superior' THEN 1 END) as total_universidades,
+    COUNT(CASE WHEN status = 'ativo' THEN 1 END) as total_ativas
+FROM escolas_universidades
+GROUP BY provincia
+ORDER BY provincia;
+
+-- ============================================
+-- DADOS INICIAIS
+-- ============================================
+
+-- Inserir alguns cursos padrão
+INSERT INTO cursos (nome, type) VALUES
+    ('Ciências Físicas e Biológicas', 'medio'),
+    ('Ciências Económicas e Jurídicas', 'medio'),
+    ('Engenharia Informática', 'superior'),
+    ('Medicina', 'superior'),
+    ('Direito', 'superior'),
+    ('Economia', 'superior');
+
+-- Conta admin padrão (senha: admin123)
+-- IMPORTANTE: Mudar a senha em produção!
+INSERT INTO contas_adm (nome, senha_hash, role) VALUES
+    ('Administrador', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'fpp');
+
+-- ============================================
+-- COMENTÁRIOS
+-- ============================================
+
+COMMENT ON TABLE event_store IS 'Event Store: Fonte única da verdade. Todos os eventos são imutáveis.';
+COMMENT ON TABLE registro_notas IS 'Read Model: Projeção otimizada para consulta de notas.';
+COMMENT ON TABLE registro_faltas IS 'Read Model: Projeção otimizada para consulta de faltas.';
+COMMENT ON COLUMN event_store.aggregate_id IS 'ID da entidade (estudante, escola, etc.)';
+COMMENT ON COLUMN event_store.aggregate_type IS 'Tipo da entidade (Estudante, Academia, etc.)';
+COMMENT ON COLUMN event_store.event_type IS 'Tipo do evento (NotasRegistradas, FaltasRegistradas, etc.)';
+COMMENT ON COLUMN event_store.payload IS 'Dados completos do evento em JSON';
+COMMENT ON COLUMN event_store.metadata IS 'Metadados: IP, user agent, etc.';
+COMMENT ON COLUMN escolas_universidades.provincia IS 'Código da província angolana (BGO, BGU, BIE, CAB, CND, CNO, CUS, CBG, CNN, HUA, HUI, IBG, LUA, LNO, LSU, MAL, MOX, MXL, NAM, UIG, ZAI)';
+COMMENT ON VIEW academias_por_provincia IS 'Estatísticas de academias agrupadas por província';

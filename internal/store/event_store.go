@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"spuri/internal/domain"
 
@@ -142,7 +143,13 @@ func SaveNotasWithEvent(notas *domain.RegistroNotas, event *domain.Event) error 
 		return fmt.Errorf("erro ao salvar evento: %w", err)
 	}
 
-	// 2. Salvar a projeção (read model)
+	// 2. Converter materias para JSONB
+	materiasJSON, err := json.Marshal(notas.Materias)
+	if err != nil {
+		return fmt.Errorf("erro ao converter materias: %w", err)
+	}
+
+	// 3. Salvar a projeção (read model)
 	notasQuery := `
 		INSERT INTO registro_notas (
 			estudante_id, id_academia, ano_lectivo, periodo, materias, event_id
@@ -156,7 +163,7 @@ func SaveNotasWithEvent(notas *domain.RegistroNotas, event *domain.Event) error 
 		notas.IDAcademia,
 		notas.AnoLectivo,
 		notas.Periodo,
-		notas.Materias,
+		materiasJSON,
 		event.EventID,
 	).Scan(&notas.ID)
 
@@ -201,7 +208,13 @@ func SaveFaltasWithEvent(faltas *domain.RegistroFaltas, event *domain.Event) err
 		return fmt.Errorf("erro ao salvar evento: %w", err)
 	}
 
-	// 2. Salvar a projeção (read model)
+	// 2. Converter materias para JSONB
+	materiasJSON, err := json.Marshal(faltas.Materias)
+	if err != nil {
+		return fmt.Errorf("erro ao converter materias: %w", err)
+	}
+
+	// 3. Salvar a projeção (read model)
 	faltasQuery := `
 		INSERT INTO registro_faltas (
 			estudante_id, id_academia, ano_lectivo, periodo, materias, event_id
@@ -215,7 +228,7 @@ func SaveFaltasWithEvent(faltas *domain.RegistroFaltas, event *domain.Event) err
 		faltas.IDAcademia,
 		faltas.AnoLectivo,
 		faltas.Periodo,
-		faltas.Materias,
+		materiasJSON,
 		event.EventID,
 	).Scan(&faltas.ID)
 

@@ -2,7 +2,9 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"log"
 	"spuri/internal/domain"
 
 	"github.com/google/uuid"
@@ -11,7 +13,7 @@ import (
 // GetAcademiaByCodigoOrEmail obtém uma academia por código ou email
 func GetAcademiaByCodigoOrEmail(identifier string) (*domain.Academia, error) {
 	query := `
-		SELECT id, type, nome, codigo_academia, senha_hash, endereco,
+		SELECT id, type, nome, codigo_academia, senha_hash, provincia, endereco,
 		       numero_telefone, email, website, nivel_escolar, status, 
 		       COALESCE(cursos, '[]'::jsonb) as cursos, created_at
 		FROM escolas_universidades
@@ -20,12 +22,35 @@ func GetAcademiaByCodigoOrEmail(identifier string) (*domain.Academia, error) {
 	`
 
 	var academia domain.Academia
-	err := DB.Get(&academia, query, identifier)
+	var cursosJSON []byte
+
+	err := DB.QueryRow(query, identifier).Scan(
+		&academia.ID,
+		&academia.Type,
+		&academia.Nome,
+		&academia.CodigoAcademia,
+		&academia.SenhaHash,
+		&academia.Provincia,
+		&academia.Endereco,
+		&academia.NumeroTelefone,
+		&academia.Email,
+		&academia.Website,
+		&academia.NivelEscolar,
+		&academia.Status,
+		&cursosJSON,
+		&academia.CreatedAt,
+	)
+
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("erro ao buscar academia: %w", err)
+	}
+
+	// Deserializar JSONB de cursos
+	if err := json.Unmarshal(cursosJSON, &academia.Cursos); err != nil {
+		academia.Cursos = []string{} // Se falhar, usa array vazio
 	}
 
 	return &academia, nil
@@ -34,7 +59,7 @@ func GetAcademiaByCodigoOrEmail(identifier string) (*domain.Academia, error) {
 // GetAcademiaByID obtém uma academia por ID
 func GetAcademiaByID(id uuid.UUID) (*domain.Academia, error) {
 	query := `
-		SELECT id, type, nome, codigo_academia, senha_hash, endereco,
+		SELECT id, type, nome, codigo_academia, senha_hash, provincia, endereco,
 		       numero_telefone, email, website, nivel_escolar, status,
 		       COALESCE(cursos, '[]'::jsonb) as cursos, created_at
 		FROM escolas_universidades
@@ -42,12 +67,35 @@ func GetAcademiaByID(id uuid.UUID) (*domain.Academia, error) {
 	`
 
 	var academia domain.Academia
-	err := DB.Get(&academia, query, id)
+	var cursosJSON []byte
+
+	err := DB.QueryRow(query, id).Scan(
+		&academia.ID,
+		&academia.Type,
+		&academia.Nome,
+		&academia.CodigoAcademia,
+		&academia.SenhaHash,
+		&academia.Provincia,
+		&academia.Endereco,
+		&academia.NumeroTelefone,
+		&academia.Email,
+		&academia.Website,
+		&academia.NivelEscolar,
+		&academia.Status,
+		&cursosJSON,
+		&academia.CreatedAt,
+	)
+
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("erro ao buscar academia: %w", err)
+	}
+
+	// Deserializar JSONB de cursos
+	if err := json.Unmarshal(cursosJSON, &academia.Cursos); err != nil {
+		academia.Cursos = []string{} // Se falhar, usa array vazio
 	}
 
 	return &academia, nil
@@ -57,24 +105,31 @@ func GetAcademiaByID(id uuid.UUID) (*domain.Academia, error) {
 func CreateAcademia(academia *domain.Academia) error {
 	query := `
 		INSERT INTO escolas_universidades (
-			type, nome, codigo_academia, senha_hash, endereco,
+			type, nome, codigo_academia, senha_hash, provincia, endereco,
 			numero_telefone, email, website, nivel_escolar, cursos
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id, created_at
 	`
 
-	err := DB.QueryRow(
+	// Converter cursos para JSONB
+	cursosJSON, err := json.Marshal(academia.Cursos)
+	if err != nil {
+		return fmt.Errorf("erro ao converter cursos: %w", err)
+	}
+
+	err = DB.QueryRow(
 		query,
 		academia.Type,
 		academia.Nome,
 		academia.CodigoAcademia,
 		academia.SenhaHash,
+		academia.Provincia,
 		academia.Endereco,
 		academia.NumeroTelefone,
 		academia.Email,
 		academia.Website,
 		academia.NivelEscolar,
-		academia.Cursos,
+		cursosJSON,
 	).Scan(&academia.ID, &academia.CreatedAt)
 
 	if err != nil {
@@ -173,13 +228,41 @@ func GetNotasByEstudante(estudanteID uuid.UUID) ([]domain.RegistroNotas, error) 
 		ORDER BY created_at DESC
 	`
 
-	var notas []domain.RegistroNotas
-	err := DB.Select(&notas, query, estudanteID)
+	rows, err := DB.Queryx(query, estudanteID)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return []domain.RegistroNotas{}, nil
-		}
 		return nil, fmt.Errorf("erro ao buscar notas: %w", err)
+	}
+	defer rows.Close()
+
+	var notas []domain.RegistroNotas
+	for rows.Next() {
+		var nota domain.RegistroNotas
+		var materiasJSON []byte
+
+		err := rows.Scan(
+			&nota.ID,
+			&nota.EstudanteID,
+			&nota.IDAcademia,
+			&nota.AnoLectivo,
+			&nota.Periodo,
+			&materiasJSON,
+			&nota.CreatedAt,
+			&nota.EventID,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao escanear nota: %w", err)
+		}
+
+		// Deserializar JSONB de materias
+		if err := json.Unmarshal(materiasJSON, &nota.Materias); err != nil {
+			return nil, fmt.Errorf("erro ao deserializar materias: %w", err)
+		}
+
+		notas = append(notas, nota)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("erro ao iterar sobre notas: %w", err)
 	}
 
 	return notas, nil
@@ -195,13 +278,41 @@ func GetFaltasByEstudante(estudanteID uuid.UUID) ([]domain.RegistroFaltas, error
 		ORDER BY created_at DESC
 	`
 
-	var faltas []domain.RegistroFaltas
-	err := DB.Select(&faltas, query, estudanteID)
+	rows, err := DB.Queryx(query, estudanteID)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return []domain.RegistroFaltas{}, nil
-		}
 		return nil, fmt.Errorf("erro ao buscar faltas: %w", err)
+	}
+	defer rows.Close()
+
+	var faltas []domain.RegistroFaltas
+	for rows.Next() {
+		var falta domain.RegistroFaltas
+		var materiasJSON []byte
+
+		err := rows.Scan(
+			&falta.ID,
+			&falta.EstudanteID,
+			&falta.IDAcademia,
+			&falta.AnoLectivo,
+			&falta.Periodo,
+			&materiasJSON,
+			&falta.CreatedAt,
+			&falta.EventID,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao escanear falta: %w", err)
+		}
+
+		// Deserializar JSONB de materias
+		if err := json.Unmarshal(materiasJSON, &falta.Materias); err != nil {
+			return nil, fmt.Errorf("erro ao deserializar materias: %w", err)
+		}
+
+		faltas = append(faltas, falta)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("erro ao iterar sobre faltas: %w", err)
 	}
 
 	return faltas, nil
@@ -324,5 +435,6 @@ func VincularEstudanteAcademia(estudanteID, academiaID uuid.UUID) error {
 		return fmt.Errorf("estudante não encontrado")
 	}
 
+	log.Printf("✅ Estudante %s vinculado à academia %s", estudanteID, academiaID)
 	return nil
 }

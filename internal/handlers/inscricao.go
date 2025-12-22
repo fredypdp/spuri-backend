@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"spuri/internal/domain"
 	"spuri/internal/middleware"
@@ -190,18 +191,25 @@ func AprovarInscricao(c *gin.Context) {
 	// Apenas academias podem aprovar inscrições
 	userID, _ := middleware.GetUserID(c)
 
+	log.Printf("🔍 [AprovarInscricao] Academia ID: %s", userID)
+
 	inscricaoID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, domain.ErrorResponse{Error: "ID de inscrição inválido"})
 		return
 	}
 
+	log.Printf("🔍 [AprovarInscricao] Inscrição ID: %s", inscricaoID)
+
 	// Buscar inscrição (verificar se pertence a esta academia)
 	inscricoes, err := store.GetInscricoesByAcademia(userID, "espera")
 	if err != nil {
+		log.Printf("❌ Erro ao buscar inscrições: %v", err)
 		c.JSON(http.StatusInternalServerError, domain.ErrorResponse{Error: "erro ao buscar inscrição"})
 		return
 	}
+
+	log.Printf("🔍 [AprovarInscricao] Inscrições encontradas: %d", len(inscricoes))
 
 	var inscricao *domain.Inscricao
 	for i := range inscricoes {
@@ -212,21 +220,30 @@ func AprovarInscricao(c *gin.Context) {
 	}
 
 	if inscricao == nil {
+		log.Printf("❌ Inscrição não encontrada na lista")
 		c.JSON(http.StatusNotFound, domain.ErrorResponse{Error: "inscrição não encontrada"})
 		return
 	}
 
-	// Atualizar status
+	log.Printf("✅ Inscrição encontrada! Estudante ID: %s", inscricao.EstudanteID)
+
+	// Atualizar status da inscrição
+	log.Printf("🔄 Atualizando status para 'aprovado'...")
 	if err := store.UpdateInscricaoStatus(inscricaoID, "aprovado"); err != nil {
+		log.Printf("❌ Erro ao atualizar status: %v", err)
 		c.JSON(http.StatusInternalServerError, domain.ErrorResponse{Error: "erro ao aprovar inscrição"})
 		return
 	}
+	log.Printf("✅ Status atualizado!")
 
 	// Vincular estudante à academia
+	log.Printf("🔗 Vinculando estudante %s à academia %s...", inscricao.EstudanteID, userID)
 	if err := store.VincularEstudanteAcademia(inscricao.EstudanteID, userID); err != nil {
+		log.Printf("❌ Erro ao vincular estudante: %v", err)
 		c.JSON(http.StatusInternalServerError, domain.ErrorResponse{Error: "erro ao vincular estudante"})
 		return
 	}
+	log.Printf("✅ Estudante vinculado!")
 
 	// Criar evento
 	payload := domain.InscricaoAprovadaPayload{
@@ -254,6 +271,7 @@ func AprovarInscricao(c *gin.Context) {
 
 	if err == nil {
 		store.SaveEvent(event)
+		log.Printf("✅ Evento criado!")
 	}
 
 	c.JSON(http.StatusOK, domain.SuccessResponse{

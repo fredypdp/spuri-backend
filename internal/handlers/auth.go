@@ -105,6 +105,13 @@ func RegisterAcademia(c *gin.Context) {
 		return
 	}
 
+	// Validar província
+	codigoProvincia, err := validarProvincia(req.Provincia)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, domain.ErrorResponse{Error: err.Error()})
+		return
+	}
+
 	// Hash da senha
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Senha), bcrypt.DefaultCost)
 	if err != nil {
@@ -113,7 +120,7 @@ func RegisterAcademia(c *gin.Context) {
 	}
 
 	// Gerar código da academia
-	codigo := generateCodigoAcademia(req.Endereco)
+	codigo := generateCodigoAcademia(codigoProvincia)
 
 	// Criar academia
 	academia := &domain.Academia{
@@ -121,6 +128,7 @@ func RegisterAcademia(c *gin.Context) {
 		Nome:           req.Nome,
 		CodigoAcademia: codigo,
 		SenhaHash:      string(hashedPassword),
+		Provincia:      codigoProvincia,
 		Endereco:       req.Endereco,
 		NumeroTelefone: req.NumeroTelefone,
 		Email:          req.Email,
@@ -238,34 +246,117 @@ func RegisterEstudante(c *gin.Context) {
 	})
 }
 
-// generateCodigoAcademia gera um código único para a academia
-func generateCodigoAcademia(endereco string) string {
-	// Extrair província (última palavra geralmente)
-	parts := strings.Split(strings.TrimSpace(endereco), ",")
-	provincia := "UNK"
-	
-	if len(parts) > 0 {
-		lastPart := strings.TrimSpace(parts[len(parts)-1])
-		provincia = strings.ToUpper(lastPart[:3])
-	}
+// validarProvincia valida e retorna o código da província
+func validarProvincia(provincia string) (string, error) {
+	provinciaInput := strings.ToUpper(strings.TrimSpace(provincia))
 
-	// Mapa de províncias
+	// Mapa completo de províncias angolanas (ISO 3166-2:AO customizado)
 	provinciaMap := map[string]string{
-		"LUA": "LUA", "LUAN": "LUA",
-		"BEN": "BGO", "BENG": "BGU",
-		"HUA": "HUA", "HUAM": "HUA",
-		"CAB": "CAB", "CABI": "CAB",
+		// Bengo
+		"BENGO": "BGO",
+		"BGO":   "BGO",
+
+		// Benguela
+		"BENGUELA": "BGU",
+		"BGU":      "BGU",
+
+		// Bié
+		"BIE": "BIE",
+		"BIÉ": "BIE",
+
+		// Cabinda
+		"CABINDA": "CAB",
+		"CAB":     "CAB",
+
+		// Cuando Cubango
+		"CUANDO":         "CND",
+		"CND":            "CND",
+		"CUANDO CUBANGO": "CND",
+
+		// Cuanza Norte
+		"CUANZA NORTE": "CNO",
+		"CNO":          "CNO",
+		"KWANZA NORTE": "CNO",
+
+		// Cuanza Sul
+		"CUANZA SUL": "CUS",
+		"CUS":        "CUS",
+		"KWANZA SUL": "CUS",
+
+		// Cubango
+		"CUBANGO": "CBG",
+		"CBG":     "CBG",
+
+		// Cunene
+		"CUNENE": "CNN",
+		"CNN":    "CNN",
+
+		// Huambo
+		"HUAMBO": "HUA",
+		"HUA":    "HUA",
+
+		// Huíla
+		"HUILA": "HUI",
+		"HUÍLA": "HUI",
+		"HUI":   "HUI",
+
+		// Icolo e Bengo
+		"ICOLO E BENGO": "IBG",
+		"IBG":           "IBG",
+
+		// Luanda
+		"LUANDA": "LUA",
+		"LUA":    "LUA",
+
+		// Lunda Norte
+		"LUNDA NORTE": "LNO",
+		"LNO":         "LNO",
+
+		// Lunda Sul
+		"LUNDA SUL": "LSU",
+		"LSU":       "LSU",
+
+		// Malanje
+		"MALANJE": "MAL",
+		"MAL":     "MAL",
+
+		// Moxico
+		"MOXICO": "MOX",
+		"MOX":    "MOX",
+
+		// Moxico Leste
+		"MOXICO LESTE": "MXL",
+		"MXL":          "MXL",
+
+		// Namibe
+		"NAMIBE": "NAM",
+		"NAM":    "NAM",
+
+		// Uíge
+		"UIGE": "UIG",
+		"UÍGE": "UIG",
+		"UIG":  "UIG",
+
+		// Zaire
+		"ZAIRE": "ZAI",
+		"ZAI":   "ZAI",
 	}
 
-	if code, ok := provinciaMap[provincia]; ok {
-		provincia = code
+	// Buscar código da província
+	if code, ok := provinciaMap[provinciaInput]; ok {
+		return code, nil
 	}
 
+	return "", fmt.Errorf("província inválida: '%s'. Use uma das 21 províncias de Angola (ex: Luanda, Benguela, Huambo, etc)", provincia)
+}
+
+// generateCodigoAcademia gera um código único para a academia
+func generateCodigoAcademia(codigoProvincia string) string {
 	// Ano atual
 	ano := time.Now().Year()
 
 	// Número sequencial (simplificado - em produção usar contador no banco)
 	numero := time.Now().UnixNano() % 10000
 
-	return fmt.Sprintf("%s%d%d", provincia, ano, numero)
+	return fmt.Sprintf("%s%d%d", codigoProvincia, ano, numero)
 }

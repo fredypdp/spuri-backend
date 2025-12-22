@@ -13,6 +13,7 @@ type Academia struct {
 	Nome           string    `json:"nome" db:"nome"`
 	CodigoAcademia string    `json:"codigo_academia" db:"codigo_academia"`
 	SenhaHash      string    `json:"-" db:"senha_hash"`
+	Provincia      string    `json:"provincia" db:"provincia"`
 	Endereco       string    `json:"endereco" db:"endereco"`
 	NumeroTelefone *string   `json:"numero_telefone,omitempty" db:"numero_telefone"`
 	Email          *string   `json:"email,omitempty" db:"email"`
@@ -117,6 +118,7 @@ type RegisterAcademiaRequest struct {
 	Type           string   `json:"type" binding:"required"`
 	Senha          string   `json:"senha" binding:"required"`
 	Nome           string   `json:"nome" binding:"required"`
+	Provincia      string   `json:"provincia" binding:"required"`
 	Endereco       string   `json:"endereco" binding:"required"`
 	NumeroTelefone *string  `json:"numero_telefone"`
 	Email          *string  `json:"email"`
