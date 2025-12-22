@@ -12,7 +12,6 @@ spuri
 
 # Dependências Go
 vendor/
-go.sum
 
 # Arquivos de ambiente
 .env
