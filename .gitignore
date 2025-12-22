@@ -1,0 +1,59 @@
+# Binários compilados
+spuri
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Arquivos de teste
+*.test
+*.out
+
+# Dependências Go
+vendor/
+go.sum
+
+# Arquivos de ambiente
+.env
+.env.local
+.env.production
+
+# Logs
+*.log
+logs/
+
+# Banco de dados local
+*.db
+*.sqlite
+
+# Backups
+backup_*.sql
+*.sql.gz
+backups/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporários
+tmp/
+temp/
+*.tmp
+
+# Certificados e chaves (NUNCA commitar)
+*.pem
+*.key
+*.crt
+*.p12
+
+# Build
+dist/
+build/
