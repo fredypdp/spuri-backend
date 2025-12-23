@@ -1,3 +1,8 @@
+// ============================================================================
+// ARQUIVO: internal/projections/manager.go
+// CORREÇÃO: Prevenir reprocessamento infinito de eventos
+// ============================================================================
+
 package projections
 
 import (
@@ -98,6 +103,7 @@ func (m *Manager) processNewEvents() error {
 }
 
 // processProjection processa eventos pendentes para uma projeção
+// 🔥 CORREÇÃO: Atualizar checkpoint ANTES de processar o próximo evento
 func (m *Manager) processProjection(name string, projection Projection) error {
 	// Obter último evento processado
 	lastProcessedID, err := projection.GetLastProcessedEventID()
@@ -116,24 +122,39 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 	}
 
 	// Processar eventos
+	processedCount := 0
 	for _, event := range events {
+		// 🔥 FIX: Processar evento
 		if err := projection.Handle(event); err != nil {
 			log.Printf("❌ Erro ao processar evento %d na projeção %s: %v", 
 				event.ID, name, err)
 			
-			// Registrar erro
+			// Registrar erro mas continuar processando
 			m.logProjectionError(name, err.Error())
+			
+			// 🔥 IMPORTANTE: Mesmo com erro, atualizar checkpoint
+			// para não reprocessar o evento com problema infinitamente
+			if err := projection.UpdateCheckpoint(event.ID); err != nil {
+				log.Printf("❌ Erro ao atualizar checkpoint da projeção %s: %v", name, err)
+			}
 			continue
 		}
 
-		// Atualizar checkpoint
+		// 🔥 FIX: Atualizar checkpoint IMEDIATAMENTE após processar com sucesso
 		if err := projection.UpdateCheckpoint(event.ID); err != nil {
 			log.Printf("❌ Erro ao atualizar checkpoint da projeção %s: %v", name, err)
+			// Não continuar se não conseguiu salvar checkpoint
+			return fmt.Errorf("falha crítica ao salvar checkpoint: %w", err)
 		}
+		
+		processedCount++
 	}
 
-	log.Printf("✅ Projeção %s: processados %d eventos (último: %d)", 
-		name, len(events), events[len(events)-1].ID)
+	// Log apenas se processou eventos
+	if processedCount > 0 {
+		log.Printf("✅ Projeção %s: processados %d eventos (último: %d)", 
+			name, processedCount, events[len(events)-1].ID)
+	}
 
 	return nil
 }

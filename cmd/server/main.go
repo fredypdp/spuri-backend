@@ -124,6 +124,7 @@ func setupRouter() *gin.Engine {
 	router.Use(func(c *gin.Context) {
 		c.Set("repository", repository)
 		c.Set("projManager", projManager)
+		c.Set("genesisClient", genesisClient) // ← ADICIONADO: Cliente GenesisDB compartilhado
 		c.Next()
 	})
 

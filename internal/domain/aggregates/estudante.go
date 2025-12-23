@@ -1,3 +1,8 @@
+// ============================================================================
+// ARQUIVO: internal/domain/aggregates/estudante.go
+// CORREÇÃO: Adicionar SenhaHash ao agregado e eventos
+// ============================================================================
+
 package aggregates
 
 import (
@@ -14,6 +19,7 @@ type Estudante struct {
 	
 	// Estado
 	Nome                       string
+	SenhaHash                  string  // 🔥 ADICIONAR
 	BilheteIdentidade          *string
 	BilheteIdentidadeResp      *string
 	IDAcademia                 *uuid.UUID
@@ -114,9 +120,10 @@ func (e *Estudante) Apply(event DomainEvent) error {
 
 // Comandos - geram eventos
 
-// Criar cria um novo estudante
+// 🔥 FIX: Adicionar parâmetro senhaHash
 func (e *Estudante) Criar(
 	nome string,
+	senhaHash string, // 🔥 ADICIONAR
 	bilhete *string,
 	bilheteResp *string,
 	anoEscolar *string,
@@ -130,6 +137,9 @@ func (e *Estudante) Criar(
 	if nome == "" {
 		return fmt.Errorf("nome é obrigatório")
 	}
+	if senhaHash == "" { // 🔥 ADICIONAR
+		return fmt.Errorf("senha é obrigatória")
+	}
 	if bilhete == nil && bilheteResp == nil {
 		return fmt.Errorf("pelo menos um bilhete é obrigatório")
 	}
@@ -141,6 +151,7 @@ func (e *Estudante) Criar(
 			AggregateID: e.ID,
 		},
 		Nome:                  nome,
+		SenhaHash:             senhaHash, // 🔥 ADICIONAR
 		BilheteIdentidade:     bilhete,
 		BilheteIdentidadeResp: bilheteResp,
 		AnoEscolar:            anoEscolar,
@@ -300,6 +311,7 @@ func (e *Estudante) applyEstudanteCriado(event DomainEvent) error {
 
 	e.ID = event.GetAggregateID()
 	e.Nome = ev.Nome
+	e.SenhaHash = ev.SenhaHash // 🔥 ADICIONAR
 	e.BilheteIdentidade = ev.BilheteIdentidade
 	e.BilheteIdentidadeResp = ev.BilheteIdentidadeResp
 	e.AnoEscolar = ev.AnoEscolar
@@ -451,9 +463,11 @@ func (e *Estudante) applyVinculoAtualizado(event DomainEvent) error {
 
 // Eventos do Estudante
 
+// 🔥 FIX: Adicionar SenhaHash ao evento
 type EstudanteCriadoEvent struct {
 	BaseEvent
 	Nome                  string
+	SenhaHash             string  // 🔥 ADICIONAR
 	BilheteIdentidade     *string
 	BilheteIdentidadeResp *string
 	AnoEscolar            *string

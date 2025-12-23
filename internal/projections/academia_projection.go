@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"spuri/internal/genesisdb"
 	"time"
 
@@ -130,6 +131,10 @@ func (p *AcademiaProjection) clear() error {
 // Event Handlers
 
 func (p *AcademiaProjection) handleAcademiaCriada(event genesisdb.Event) error {
+	log.Printf("🔵 [PROJEÇÃO ACADEMIA] Iniciando processamento de AcademiaCriada")
+	log.Printf("   Event ID: %s", event.EventID)
+	log.Printf("   Aggregate ID: %s", event.AggregateID)
+	
 	var payload struct {
 		Type           string    `json:"Type"`
 		Nome           string    `json:"Nome"`
@@ -146,12 +151,28 @@ func (p *AcademiaProjection) handleAcademiaCriada(event genesisdb.Event) error {
 	}
 
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		log.Printf("❌ [PROJEÇÃO ACADEMIA] Erro ao parsear payload: %v", err)
+		log.Printf("   Payload raw: %s", string(event.Payload))
 		return fmt.Errorf("erro ao parsear payload: %w", err)
+	}
+
+	log.Printf("📊 [PROJEÇÃO ACADEMIA] Dados parseados:")
+	log.Printf("   Type: %s", payload.Type)
+	log.Printf("   Nome: %s", payload.Nome)
+	log.Printf("   Código: %s", payload.CodigoAcademia)
+	log.Printf("   Província: %s", payload.Provincia)
+	log.Printf("   SenhaHash existe: %v (length: %d)", payload.SenhaHash != "", len(payload.SenhaHash))
+
+	// Verificar se senha está no payload
+	if payload.SenhaHash == "" {
+		log.Printf("❌ [PROJEÇÃO ACADEMIA] SenhaHash vazio no evento!")
+		return fmt.Errorf("SenhaHash vazio no evento")
 	}
 
 	// Converter cursos para JSONB
 	cursosJSON, err := json.Marshal(payload.Cursos)
 	if err != nil {
+		log.Printf("❌ [PROJEÇÃO ACADEMIA] Erro ao converter cursos: %v", err)
 		return err
 	}
 
@@ -162,23 +183,24 @@ func (p *AcademiaProjection) handleAcademiaCriada(event genesisdb.Event) error {
 			status, cursos, version, created_at, updated_at, last_event_id
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		ON CONFLICT (id) DO UPDATE SET
-			type = $2,
-			nome = $3,
-			codigo_academia = $4,
-			senha_hash = $5,
-			provincia = $6,
-			endereco = $7,
-			numero_telefone = $8,
-			email = $9,
-			website = $10,
-			nivel_escolar = $11,
-			cursos = $13,
-			version = $14,
-			updated_at = $16,
-			last_event_id = $17
+			type = EXCLUDED.type,
+			nome = EXCLUDED.nome,
+			codigo_academia = EXCLUDED.codigo_academia,
+			senha_hash = EXCLUDED.senha_hash,
+			provincia = EXCLUDED.provincia,
+			endereco = EXCLUDED.endereco,
+			numero_telefone = EXCLUDED.numero_telefone,
+			email = EXCLUDED.email,
+			website = EXCLUDED.website,
+			nivel_escolar = EXCLUDED.nivel_escolar,
+			cursos = EXCLUDED.cursos,
+			version = EXCLUDED.version,
+			updated_at = EXCLUDED.updated_at,
+			last_event_id = EXCLUDED.last_event_id
 	`
 
-	_, err = p.client.DB().ExecContext(
+	log.Printf("🔄 [PROJEÇÃO ACADEMIA] Executando INSERT na tabela...")
+	result, err := p.client.DB().ExecContext(
 		p.ctx, query,
 		event.AggregateID,
 		payload.Type,
@@ -199,7 +221,21 @@ func (p *AcademiaProjection) handleAcademiaCriada(event genesisdb.Event) error {
 		event.EventID,
 	)
 
-	return err
+	if err != nil {
+		log.Printf("❌ [PROJEÇÃO ACADEMIA] Erro ao executar INSERT: %v", err)
+		return err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	log.Printf("✅ [PROJEÇÃO ACADEMIA] Academia salva com sucesso! (rows affected: %d)", rowsAffected)
+	
+	// Verificar se realmente salvou
+	var count int
+	checkQuery := `SELECT COUNT(*) FROM projection_academias WHERE id = $1`
+	p.client.DB().GetContext(p.ctx, &count, checkQuery, event.AggregateID)
+	log.Printf("🔍 [PROJEÇÃO ACADEMIA] Verificação: %d registro(s) encontrado(s) com ID %s", count, event.AggregateID)
+
+	return nil
 }
 
 func (p *AcademiaProjection) handleAcademiaAtivada(event genesisdb.Event) error {
@@ -361,6 +397,8 @@ func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
 
 // GetByCodigoOrEmail busca academia por código ou email
 func (p *AcademiaProjection) GetByCodigoOrEmail(identifier string) (*AcademiaDTO, error) {
+	log.Printf("🔍 [PROJEÇÃO ACADEMIA] GetByCodigoOrEmail: %s", identifier)
+	
 	query := `
 		SELECT 
 			id, type, nome, codigo_academia, senha_hash, provincia,
@@ -397,9 +435,11 @@ func (p *AcademiaProjection) GetByCodigoOrEmail(identifier string) (*AcademiaDTO
 	)
 
 	if err == sql.ErrNoRows {
+		log.Printf("❌ [PROJEÇÃO ACADEMIA] Nenhum registro encontrado")
 		return nil, nil
 	}
 	if err != nil {
+		log.Printf("❌ [PROJEÇÃO ACADEMIA] Erro na query: %v", err)
 		return nil, err
 	}
 
@@ -408,6 +448,7 @@ func (p *AcademiaProjection) GetByCodigoOrEmail(identifier string) (*AcademiaDTO
 		dto.Cursos = []string{}
 	}
 
+	log.Printf("✅ [PROJEÇÃO ACADEMIA] Academia encontrada: %s", dto.Nome)
 	return &dto, nil
 }
 

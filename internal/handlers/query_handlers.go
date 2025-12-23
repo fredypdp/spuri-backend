@@ -2,9 +2,7 @@ package handlers
 
 import (
 	"net/http"
-	"spuri/internal/genesisdb"
 	"spuri/internal/middleware"
-	"spuri/internal/projections"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -278,26 +276,4 @@ func ListarInscricoesPendentes(c *gin.Context) {
 	})
 }
 
-// Helper functions para obter projeções
-
-func getNotasProjection(c *gin.Context) *projections.NotasProjection {
-	client := getGenesisClientFromContext(c)
-	return projections.NewNotasProjection(client)
-}
-
-func getFaltasProjection(c *gin.Context) *projections.FaltasProjection {
-	client := getGenesisClientFromContext(c)
-	return projections.NewFaltasProjection(client)
-}
-
-func getInscricoesProjection(c *gin.Context) *projections.InscricoesProjection {
-	client := getGenesisClientFromContext(c)
-	return projections.NewInscricoesProjection(client)
-}
-
-func getGenesisClientFromContext(c *gin.Context) *genesisdb.Client {
-	// Criar client (idealmente deveria ser injetado)
-	config := genesisdb.DefaultConfig()
-	client, _ := genesisdb.NewClient(config)
-	return client
-}
+// Helper functions movidas para helpers.go

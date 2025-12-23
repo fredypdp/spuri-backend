@@ -22,9 +22,43 @@ TOTAL_TESTS=0
 ESCOLA_ID=""
 ESCOLA_TOKEN=""
 CODIGO_ACADEMIA=""
+UNIVERSIDADE_ID=""
+UNIVERSIDADE_TOKEN=""
+CODIGO_UNIVERSIDADE=""
 ESTUDANTE_ID=""
 ESTUDANTE_TOKEN=""
+ESTUDANTE_SUPERIOR_ID=""
+ESTUDANTE_SUPERIOR_TOKEN=""
 INSCRICAO_ID=""
+
+# Gerador de dados aleatórios
+RANDOM_SEED=$
+generate_random() {
+    echo $((RANDOM % 10000))
+}
+
+# Nomes aleatórios
+NOMES=("João Silva" "Maria Santos" "Pedro Costa" "Ana Oliveira" "Carlos Fernandes" "Juliana Almeida" "Ricardo Gomes" "Beatriz Rodrigues" "Fernando Martins" "Camila Sousa")
+SOBRENOMES=("Silva" "Santos" "Costa" "Oliveira" "Fernandes" "Almeida" "Gomes" "Rodrigues" "Martins" "Sousa")
+ESCOLAS=("Escola Primária" "Colégio" "Instituto" "Centro Educacional" "Escola Municipal")
+UNIVERSIDADES=("Universidade" "Instituto Superior" "Faculdade" "Academia Superior")
+PROVINCIAS=("Luanda" "Benguela" "Huambo" "Huíla" "Cabinda" "Malanje")
+
+get_random_item() {
+    local array=("$@")
+    local index=$((RANDOM % ${#array[@]}))
+    echo "${array[$index]}"
+}
+
+RANDOM_NUM=$(generate_random)
+NOME_ESCOLA="$(get_random_item "${ESCOLAS[@]}") Genesis $RANDOM_NUM"
+NOME_UNIVERSIDADE="$(get_random_item "${UNIVERSIDADES[@]}") de Angola $RANDOM_NUM"
+NOME_ESTUDANTE="$(get_random_item "${NOMES[@]}")"
+NOME_ESTUDANTE_SUPERIOR="$(get_random_item "${NOMES[@]}") $(get_random_item "${SOBRENOMES[@]}")"
+PROVINCIA_ESCOLA=$(get_random_item "${PROVINCIAS[@]}")
+PROVINCIA_UNI=$(get_random_item "${PROVINCIAS[@]}")
+BI_RESPONSAVEL="BI$(date +%Y)$(printf "%06d" $RANDOM_NUM)"
+BI_ESTUDANTE="BI$(date +%Y)$(printf "%06d" $((RANDOM_NUM + 1000)))"
 
 echo -e "${BOLD}${BLUE}"
 echo "╔════════════════════════════════════════════════════════╗"
@@ -32,7 +66,14 @@ echo "║  🧪 Testando Spuri Event Sourcing API v2.0           ║"
 echo "╚════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 echo -e "🌐 URL: ${YELLOW}$API_URL${NC}"
-echo -e "📅 Data: $(date '+%Y-%m-%d %H:%M:%S')\n"
+echo -e "📅 Data: $(date '+%Y-%m-%d %H:%M:%S')"
+echo -e "🎲 Seed: ${RANDOM_SEED}\n"
+echo -e "${BOLD}📋 Dados Aleatórios Gerados:${NC}"
+echo -e "  🏫 Escola: $NOME_ESCOLA"
+echo -e "  🎓 Universidade: $NOME_UNIVERSIDADE"
+echo -e "  👤 Estudante Fundamental: $NOME_ESTUDANTE"
+echo -e "  👤 Estudante Superior: $NOME_ESTUDANTE_SUPERIOR"
+echo -e "  📍 Províncias: $PROVINCIA_ESCOLA, $PROVINCIA_UNI\n"
 
 # =============================================================================
 # FUNÇÕES AUXILIARES
@@ -129,15 +170,15 @@ fi
 
 # Test 2: Registrar Academia
 test_case "Command - Registrar Academia (Event Sourcing)"
-escola_data='{
-    "type": "escola",
-    "senha": "escola2025",
-    "nome": "Escola Primária Genesis",
-    "provincia": "Luanda",
-    "endereco": "Rua da Missão, Bairro Operário, Luanda",
-    "email": "contato@escolagenesis.ao",
-    "nivel_escolar": "fundamental"
-}'
+escola_data="{
+    \"type\": \"escola\",
+    \"senha\": \"escola2025\",
+    \"nome\": \"$NOME_ESCOLA\",
+    \"provincia\": \"$PROVINCIA_ESCOLA\",
+    \"endereco\": \"Rua da Missão, Bairro Operário, $PROVINCIA_ESCOLA\",
+    \"email\": \"contato@escola${RANDOM_NUM}.ao\",
+    \"nivel_escolar\": \"fundamental\"
+}"
 
 escola_response=$(request "POST" "/academia/register" "$escola_data")
 ESCOLA_ID=$(extract_json "$escola_response" "id")
@@ -156,6 +197,10 @@ else
     TESTS_FAILED=$((TESTS_FAILED + 1))
     exit 1
 fi
+
+# AGUARDAR PROJEÇÃO PROCESSAR
+echo -e "${BLUE}⏳ Aguardando projeção processar escola (3s)...${NC}\n"
+sleep 3
 
 # Test 3: Login Academia
 test_case "Autenticação - Login Academia"
@@ -182,13 +227,13 @@ fi
 
 # Test 4: Registrar Estudante
 test_case "Command - Registrar Estudante (Event Sourcing)"
-estudante_data='{
-    "senha": "estudante2025",
-    "nome": "Maria Santos Silva",
-    "bilhete_identidade_responsavel": "TEST2025SPURI",
-    "ano_escolar": "quarto_fundamental",
-    "status_escolar": "ativo"
-}'
+estudante_data="{
+    \"senha\": \"estudante2025\",
+    \"nome\": \"$NOME_ESTUDANTE\",
+    \"bilhete_identidade_responsavel\": \"$BI_RESPONSAVEL\",
+    \"ano_escolar\": \"quarto_fundamental\",
+    \"status_escolar\": \"ativo\"
+}"
 
 estudante_response=$(request "POST" "/estudante/register" "$estudante_data")
 ESTUDANTE_ID=$(extract_json "$estudante_response" "id")
@@ -206,13 +251,17 @@ else
     exit 1
 fi
 
+# AGUARDAR PROJEÇÃO
+echo -e "${BLUE}⏳ Aguardando projeção processar estudante (2s)...${NC}\n"
+sleep 2
+
 # Test 5: Login Estudante
 test_case "Autenticação - Login Estudante"
-estudante_login='{
-    "usuario": "TEST2025SPURI",
-    "senha": "estudante2025",
-    "type": "estudante"
-}'
+estudante_login="{
+    \"usuario\": \"$BI_RESPONSAVEL\",
+    \"senha\": \"estudante2025\",
+    \"type\": \"estudante\"
+}"
 
 estudante_login_response=$(request "POST" "/login" "$estudante_login")
 ESTUDANTE_TOKEN=$(extract_json "$estudante_login_response" "token")
@@ -227,6 +276,111 @@ else
     echo ""
     TESTS_FAILED=$((TESTS_FAILED + 1))
     exit 1
+fi
+
+# Test 5.5: Registrar Universidade
+test_case "Command - Registrar Universidade (Event Sourcing)"
+universidade_data="{
+    \"type\": \"superior\",
+    \"senha\": \"uni2025\",
+    \"nome\": \"$NOME_UNIVERSIDADE\",
+    \"provincia\": \"$PROVINCIA_UNI\",
+    \"endereco\": \"Avenida Principal, Campus Central, $PROVINCIA_UNI\",
+    \"email\": \"info@universidade${RANDOM_NUM}.ao\",
+    \"cursos\": [\"Engenharia Informática\", \"Medicina\", \"Direito\"]
+}"
+
+uni_response=$(request "POST" "/academia/register" "$universidade_data")
+UNIVERSIDADE_ID=$(extract_json "$uni_response" "id")
+CODIGO_UNIVERSIDADE=$(extract_json "$uni_response" "codigo_academia")
+
+if [ -n "$UNIVERSIDADE_ID" ] && [ -n "$CODIGO_UNIVERSIDADE" ]; then
+    echo -e "${GREEN}✅ PASSOU - Universidade criada${NC}"
+    echo -e "${BLUE}   📍 ID: $UNIVERSIDADE_ID${NC}"
+    echo -e "${BLUE}   🔑 Código: $CODIGO_UNIVERSIDADE${NC}"
+    echo -e "${BLUE}   📝 Evento: AcademiaCriada → GenesisDB Ledger${NC}\n"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+else
+    echo -e "${RED}❌ FALHOU - Erro ao criar universidade${NC}"
+    show_response "$uni_response"
+    echo ""
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+
+echo -e "${BLUE}⏳ Aguardando projeção processar universidade (2s)...${NC}\n"
+sleep 2
+
+# Test 5.6: Login Universidade
+test_case "Autenticação - Login Universidade"
+uni_login="{
+    \"usuario\": \"$CODIGO_UNIVERSIDADE\",
+    \"senha\": \"uni2025\",
+    \"type\": \"academia\"
+}"
+
+uni_login_response=$(request "POST" "/login" "$uni_login")
+UNIVERSIDADE_TOKEN=$(extract_json "$uni_login_response" "token")
+
+if [ -n "$UNIVERSIDADE_TOKEN" ]; then
+    echo -e "${GREEN}✅ PASSOU - Login da universidade realizado${NC}"
+    echo -e "${BLUE}   🎫 Token JWT: ${UNIVERSIDADE_TOKEN:0:40}...${NC}\n"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+else
+    echo -e "${RED}❌ FALHOU - Erro no login da universidade${NC}"
+    show_response "$uni_login_response"
+    echo ""
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+
+# Test 5.7: Registrar Estudante Superior
+test_case "Command - Registrar Estudante Superior (Event Sourcing)"
+estudante_superior_data="{
+    \"senha\": \"estudante2025\",
+    \"nome\": \"$NOME_ESTUDANTE_SUPERIOR\",
+    \"bilhete_identidade\": \"$BI_ESTUDANTE\",
+    \"ano_superior\": \"primeiro_superior\",
+    \"curso_superior\": \"Engenharia Informática\",
+    \"status_superior\": \"ativo\"
+}"
+
+estudante_sup_response=$(request "POST" "/estudante/register" "$estudante_superior_data")
+ESTUDANTE_SUPERIOR_ID=$(extract_json "$estudante_sup_response" "id")
+
+if [ -n "$ESTUDANTE_SUPERIOR_ID" ]; then
+    echo -e "${GREEN}✅ PASSOU - Estudante superior criado${NC}"
+    echo -e "${BLUE}   📍 ID: $ESTUDANTE_SUPERIOR_ID${NC}"
+    echo -e "${BLUE}   📝 Evento: EstudanteCriado → GenesisDB Ledger${NC}\n"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+else
+    echo -e "${RED}❌ FALHOU - Erro ao criar estudante superior${NC}"
+    show_response "$estudante_sup_response"
+    echo ""
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+fi
+
+echo -e "${BLUE}⏳ Aguardando projeção processar estudante superior (2s)...${NC}\n"
+sleep 2
+
+# Test 5.8: Login Estudante Superior
+test_case "Autenticação - Login Estudante Superior"
+estudante_sup_login="{
+    \"usuario\": \"$BI_ESTUDANTE\",
+    \"senha\": \"estudante2025\",
+    \"type\": \"estudante\"
+}"
+
+estudante_sup_login_response=$(request "POST" "/login" "$estudante_sup_login")
+ESTUDANTE_SUPERIOR_TOKEN=$(extract_json "$estudante_sup_login_response" "token")
+
+if [ -n "$ESTUDANTE_SUPERIOR_TOKEN" ]; then
+    echo -e "${GREEN}✅ PASSOU - Login do estudante superior realizado${NC}"
+    echo -e "${BLUE}   🎫 Token JWT: ${ESTUDANTE_SUPERIOR_TOKEN:0:40}...${NC}\n"
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+else
+    echo -e "${RED}❌ FALHOU - Erro no login do estudante superior${NC}"
+    show_response "$estudante_sup_login_response"
+    echo ""
+    TESTS_FAILED=$((TESTS_FAILED + 1))
 fi
 
 # Test 6: Estudante Solicita Inscrição
@@ -499,9 +653,11 @@ if [ $TESTS_FAILED -eq 0 ]; then
     echo -e "  ✅ Validações de negócio\n"
     
     echo -e "${BOLD}💾 Dados de Teste Criados:${NC}"
-    echo -e "  🏫 Academia: $CODIGO_ACADEMIA"
-    echo -e "  👤 Estudante: TEST2025SPURI"
-    echo -e "  📝 Eventos no Ledger: ~12+"
+    echo -e "  🏫 Escola: $NOME_ESCOLA ($CODIGO_ACADEMIA)"
+    echo -e "  🎓 Universidade: $NOME_UNIVERSIDADE ($CODIGO_UNIVERSIDADE)"
+    echo -e "  👤 Estudante Fundamental: $NOME_ESTUDANTE ($BI_RESPONSAVEL)"
+    echo -e "  👤 Estudante Superior: $NOME_ESTUDANTE_SUPERIOR ($BI_ESTUDANTE)"
+    echo -e "  📝 Eventos no Ledger: ~15+"
     echo -e "  📊 Projeções atualizadas: 5\n"
     
     exit 0

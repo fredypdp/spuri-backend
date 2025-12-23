@@ -1,3 +1,8 @@
+// ============================================================================
+// ARQUIVO: internal/projections/estudante_projection.go
+// CORREÇÃO: Salvar senha_hash na projeção de estudantes
+// ============================================================================
+
 package projections
 
 import (
@@ -5,6 +10,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log" // 🔥 ADICIONAR
 	"spuri/internal/genesisdb"
 	"time"
 
@@ -124,9 +130,15 @@ func (p *EstudanteProjection) clear() error {
 
 // Event Handlers
 
+// 🔥 FIX: Adicionar SenhaHash ao payload e salvar na projeção
 func (p *EstudanteProjection) handleEstudanteCriado(event genesisdb.Event) error {
+	log.Printf("🔵 [PROJEÇÃO ESTUDANTE] Iniciando processamento de EstudanteCriado")
+	log.Printf("   Event ID: %s", event.EventID)
+	log.Printf("   Aggregate ID: %s", event.AggregateID)
+	
 	var payload struct {
 		Nome                  string     `json:"Nome"`
+		SenhaHash             string     `json:"SenhaHash"` // 🔥 ADICIONAR
 		BilheteIdentidade     *string    `json:"BilheteIdentidade"`
 		BilheteIdentidadeResp *string    `json:"BilheteIdentidadeResp"`
 		AnoEscolar            *string    `json:"AnoEscolar"`
@@ -139,35 +151,51 @@ func (p *EstudanteProjection) handleEstudanteCriado(event genesisdb.Event) error
 	}
 
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		log.Printf("❌ [PROJEÇÃO ESTUDANTE] Erro ao parsear payload: %v", err)
+		log.Printf("   Payload raw: %s", string(event.Payload))
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
+	log.Printf("📊 [PROJEÇÃO ESTUDANTE] Dados parseados:")
+	log.Printf("   Nome: %s", payload.Nome)
+	log.Printf("   SenhaHash existe: %v (length: %d)", payload.SenhaHash != "", len(payload.SenhaHash))
+	
+	// Verificar se senha está no payload
+	if payload.SenhaHash == "" {
+		log.Printf("❌ [PROJEÇÃO ESTUDANTE] SenhaHash vazio no evento!")
+		return fmt.Errorf("SenhaHash vazio no evento")
+	}
+
+	// 🔥 FIX: Incluir senha_hash na query INSERT
 	query := `
 		INSERT INTO projection_estudantes (
-			id, nome, bilhete_identidade, bilhete_identidade_responsavel,
+			id, nome, senha_hash, bilhete_identidade, bilhete_identidade_responsavel,
 			ano_escolar, ano_superior, curso_medio, curso_superior,
 			status_escolar, status_superior, version, created_at,
 			updated_at, last_event_id
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		ON CONFLICT (id) DO UPDATE SET
 			nome = $2,
-			bilhete_identidade = $3,
-			bilhete_identidade_responsavel = $4,
-			ano_escolar = $5,
-			ano_superior = $6,
-			curso_medio = $7,
-			curso_superior = $8,
-			status_escolar = $9,
-			status_superior = $10,
-			version = $11,
-			updated_at = $13,
-			last_event_id = $14
+			senha_hash = $3,
+			bilhete_identidade = $4,
+			bilhete_identidade_responsavel = $5,
+			ano_escolar = $6,
+			ano_superior = $7,
+			curso_medio = $8,
+			curso_superior = $9,
+			status_escolar = $10,
+			status_superior = $11,
+			version = $12,
+			updated_at = $14,
+			last_event_id = $15
 	`
 
-	_, err := p.client.DB().Exec(
+	log.Printf("🔄 [PROJEÇÃO ESTUDANTE] Executando INSERT na tabela...")
+	result, err := p.client.DB().Exec(
 		query,
 		event.AggregateID,
 		payload.Nome,
+		payload.SenhaHash, // 🔥 ADICIONAR
 		payload.BilheteIdentidade,
 		payload.BilheteIdentidadeResp,
 		payload.AnoEscolar,
@@ -182,7 +210,21 @@ func (p *EstudanteProjection) handleEstudanteCriado(event genesisdb.Event) error
 		event.EventID,
 	)
 
-	return err
+	if err != nil {
+		log.Printf("❌ [PROJEÇÃO ESTUDANTE] Erro ao executar INSERT: %v", err)
+		return err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	log.Printf("✅ [PROJEÇÃO ESTUDANTE] Estudante salvo com sucesso! (rows affected: %d)", rowsAffected)
+	
+	// Verificar se realmente salvou
+	var count int
+	checkQuery := `SELECT COUNT(*) FROM projection_estudantes WHERE id = $1`
+	p.client.DB().Get(&count, checkQuery, event.AggregateID)
+	log.Printf("🔍 [PROJEÇÃO ESTUDANTE] Verificação: %d registro(s) encontrado(s) com ID %s", count, event.AggregateID)
+
+	return nil
 }
 
 func (p *EstudanteProjection) handleInscricaoAprovada(event genesisdb.Event) error {
@@ -252,7 +294,7 @@ func (p *EstudanteProjection) handleVinculoAtualizado(event genesisdb.Event) err
 func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
 	query := `
 		SELECT 
-			id, nome, bilhete_identidade, bilhete_identidade_responsavel,
+			id, nome, senha_hash, bilhete_identidade, bilhete_identidade_responsavel,
 			id_academia, ano_escolar, ano_superior, curso_medio, curso_superior,
 			status_escolar, status_superior, created_at, updated_at,
 			total_notas, total_faltas, total_inscricoes, version
@@ -276,7 +318,7 @@ func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
 func (p *EstudanteProjection) GetByBilhete(bilhete string) (*EstudanteDTO, error) {
 	query := `
 		SELECT 
-			id, nome, bilhete_identidade, bilhete_identidade_responsavel,
+			id, nome, senha_hash, bilhete_identidade, bilhete_identidade_responsavel,
 			id_academia, ano_escolar, ano_superior, curso_medio, curso_superior,
 			status_escolar, status_superior, created_at, updated_at,
 			total_notas, total_faltas, total_inscricoes, version
@@ -301,6 +343,7 @@ func (p *EstudanteProjection) GetByBilhete(bilhete string) (*EstudanteDTO, error
 type EstudanteDTO struct {
 	ID                    uuid.UUID  `db:"id" json:"id"`
 	Nome                  string     `db:"nome" json:"nome"`
+	SenhaHash             string     `db:"senha_hash" json:"-"` // 🔥 ADICIONAR (nunca expor no JSON)
 	BilheteIdentidade     *string    `db:"bilhete_identidade" json:"bilhete_identidade,omitempty"`
 	BilheteIdentidadeResp *string    `db:"bilhete_identidade_responsavel" json:"bilhete_identidade_responsavel,omitempty"`
 	IDAcademia            *uuid.UUID `db:"id_academia" json:"id_academia,omitempty"`

@@ -1,3 +1,8 @@
+// ============================================================================
+// ARQUIVO: internal/genesisdb/repository.go
+// CORREÇÃO: Serialização correta dos eventos para o payload
+// ============================================================================
+
 package genesisdb
 
 import (
@@ -28,7 +33,6 @@ func NewAggregateRepository(client *Client) *AggregateRepository {
 }
 
 // Load carrega um agregado reconstruindo-o a partir dos eventos
-// Esta é a ESSÊNCIA do Event Sourcing
 func (r *AggregateRepository) Load(id uuid.UUID, aggregateType string) (aggregates.Aggregate, error) {
 	// 1. Carregar eventos do ledger
 	genesisEvents, err := r.eventStore.LoadEventStream(r.ctx, id)
@@ -155,15 +159,19 @@ func (r *AggregateRepository) VerifyIntegrity(id uuid.UUID) (bool, error) {
 }
 
 // convertToGenesisEvent converte evento de domínio para evento do GenesisDB
+// 🔥 CORREÇÃO: Serializar o payload completo do evento
 func (r *AggregateRepository) convertToGenesisEvent(
 	domainEvent aggregates.DomainEvent,
 	aggregateType string,
 	version int,
 ) (*Event, error) {
-	// Serializar payload
-	payloadJSON, err := domainEvent.ToJSON()
+	// 🔥 FIX: Obter o payload completo do evento
+	payload := domainEvent.GetPayload()
+	
+	// Serializar payload corretamente
+	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("erro ao serializar payload: %w", err)
 	}
 
 	// Criar metadata vazia por padrão

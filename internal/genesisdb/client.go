@@ -132,6 +132,11 @@ func (c *Client) Context() context.Context {
 	return c.ctx
 }
 
+// Config retorna a configuração
+func (c *Client) Config() *Config {
+	return c.config
+}
+
 // Health verifica a saúde da conexão
 func (c *Client) Health() error {
 	ctx, cancel := context.WithTimeout(c.ctx, 2*time.Second)

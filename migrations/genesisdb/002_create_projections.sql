@@ -10,6 +10,7 @@
 CREATE TABLE projection_estudantes (
     id UUID PRIMARY KEY,
     nome VARCHAR(255) NOT NULL,
+    senha_hash VARCHAR(255) NOT NULL, -- 🔥 ADICIONAR
     bilhete_identidade VARCHAR(50),
     bilhete_identidade_responsavel VARCHAR(50),
     id_academia UUID,
