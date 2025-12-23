@@ -1,37 +1,27 @@
-# Binários compilados
+# Binaries
 spuri
 *.exe
-*.exe~
 *.dll
 *.so
 *.dylib
 
-# Arquivos de teste
+# Test binary
 *.test
+
+# Output of the go coverage tool
 *.out
 
-# Dependências Go
+# Dependency directories
 vendor/
 
-# Arquivos de ambiente
+# Go workspace file
+go.work
+
+# Environment variables
 .env
 .env.local
-.env.production
 
-# Logs
-*.log
-logs/
-
-# Banco de dados local
-*.db
-*.sqlite
-
-# Backups
-backup_*.sql
-*.sql.gz
-backups/
-
-# IDEs
+# IDE
 .vscode/
 .idea/
 *.swp
@@ -42,17 +32,9 @@ backups/
 .DS_Store
 Thumbs.db
 
-# Temporários
-tmp/
-temp/
-*.tmp
+# Logs
+*.log
 
-# Certificados e chaves (NUNCA commitar)
-*.pem
-*.key
-*.crt
-*.p12
-
-# Build
-dist/
-build/
+# Database
+*.db
+*.sqlite
