@@ -1,6 +1,7 @@
 // ============================================================================
 // ARQUIVO: internal/projections/manager.go
-// CORREÇÃO: Prevenir reprocessamento infinito de eventos
+// Gerenciador de todas as projeções do sistema
+// VERSÃO: 2.1.0 - Corrigida e otimizada
 // ============================================================================
 
 package projections
@@ -12,24 +13,6 @@ import (
 	"spuri/internal/genesisdb"
 	"time"
 )
-
-// Projection interface para todas as projeções
-type Projection interface {
-	// Name retorna o nome da projeção
-	Name() string
-	
-	// Handle processa um evento
-	Handle(event genesisdb.Event) error
-	
-	// Rebuild reconstrói a projeção do zero
-	Rebuild() error
-	
-	// GetLastProcessedEventID retorna o último evento processado
-	GetLastProcessedEventID() (int64, error)
-	
-	// UpdateCheckpoint atualiza o checkpoint
-	UpdateCheckpoint(eventID int64) error
-}
 
 // Manager gerencia todas as projeções
 type Manager struct {
@@ -103,7 +86,6 @@ func (m *Manager) processNewEvents() error {
 }
 
 // processProjection processa eventos pendentes para uma projeção
-// 🔥 CORREÇÃO: Atualizar checkpoint ANTES de processar o próximo evento
 func (m *Manager) processProjection(name string, projection Projection) error {
 	// Obter último evento processado
 	lastProcessedID, err := projection.GetLastProcessedEventID()
@@ -124,26 +106,23 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 	// Processar eventos
 	processedCount := 0
 	for _, event := range events {
-		// 🔥 FIX: Processar evento
+		// Processar evento
 		if err := projection.Handle(event); err != nil {
-			log.Printf("❌ Erro ao processar evento %d na projeção %s: %v", 
-				event.ID, name, err)
+			log.Printf("❌ [%s] Erro ao processar evento %d: %v", name, event.ID, err)
 			
-			// Registrar erro mas continuar processando
+			// Registrar erro
 			m.logProjectionError(name, err.Error())
 			
-			// 🔥 IMPORTANTE: Mesmo com erro, atualizar checkpoint
-			// para não reprocessar o evento com problema infinitamente
+			// Atualizar checkpoint mesmo com erro para não reprocessar infinitamente
 			if err := projection.UpdateCheckpoint(event.ID); err != nil {
-				log.Printf("❌ Erro ao atualizar checkpoint da projeção %s: %v", name, err)
+				log.Printf("❌ [%s] Erro ao atualizar checkpoint: %v", name, err)
 			}
 			continue
 		}
 
-		// 🔥 FIX: Atualizar checkpoint IMEDIATAMENTE após processar com sucesso
+		// Atualizar checkpoint após processar com sucesso
 		if err := projection.UpdateCheckpoint(event.ID); err != nil {
-			log.Printf("❌ Erro ao atualizar checkpoint da projeção %s: %v", name, err)
-			// Não continuar se não conseguiu salvar checkpoint
+			log.Printf("❌ [%s] Erro ao atualizar checkpoint: %v", name, err)
 			return fmt.Errorf("falha crítica ao salvar checkpoint: %w", err)
 		}
 		
@@ -152,7 +131,7 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 
 	// Log apenas se processou eventos
 	if processedCount > 0 {
-		log.Printf("✅ Projeção %s: processados %d eventos (último: %d)", 
+		log.Printf("✅ [%s] Processados %d eventos (último: %d)", 
 			name, processedCount, events[len(events)-1].ID)
 	}
 
@@ -338,4 +317,19 @@ func (m *Manager) GetAllProjectionStatuses() ([]map[string]interface{}, error) {
 	}
 
 	return statuses, nil
+}
+
+// GetRegisteredProjections retorna lista de projeções registradas
+func (m *Manager) GetRegisteredProjections() []string {
+	names := make([]string, 0, len(m.projections))
+	for name := range m.projections {
+		names = append(names, name)
+	}
+	return names
+}
+
+// IsProjectionRegistered verifica se uma projeção está registrada
+func (m *Manager) IsProjectionRegistered(name string) bool {
+	_, exists := m.projections[name]
+	return exists
 }

@@ -1,7 +1,7 @@
 -- ============================================
--- SPURI EVENT SOURCING - MIGRATION ÚNICA
--- GenesisDB + Projeções + Código Estudante
--- Versão: 2.0.0
+-- SPURI EVENT SOURCING - SCHEMA COMPLETO
+-- GenesisDB + Projeções + Admin System
+-- Versão: 2.1.0
 -- ============================================
 
 -- ============================================
@@ -143,7 +143,7 @@ CREATE INDEX IF NOT EXISTS idx_snapshots_type ON aggregate_snapshots(aggregate_t
 CREATE TABLE IF NOT EXISTS projection_estudantes (
     id UUID PRIMARY KEY,
     nome VARCHAR(255) NOT NULL,
-    codigo_estudante VARCHAR(7) UNIQUE, -- 🔥 Código único
+    codigo_estudante VARCHAR(7) UNIQUE,
     senha_hash VARCHAR(255) NOT NULL,
     bilhete_identidade VARCHAR(50),
     bilhete_identidade_responsavel VARCHAR(50),
@@ -181,7 +181,7 @@ CREATE TABLE IF NOT EXISTS projection_academias (
     email VARCHAR(100),
     website VARCHAR(255),
     nivel_escolar VARCHAR(20),
-    status VARCHAR(20) DEFAULT 'ativo',
+    status VARCHAR(20) DEFAULT 'ativo' CHECK (status IN ('ativo', 'inativo')),
     cursos JSONB DEFAULT '[]',
     version INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL,
@@ -194,6 +194,28 @@ CREATE TABLE IF NOT EXISTS projection_academias (
 CREATE INDEX IF NOT EXISTS idx_proj_academia_provincia ON projection_academias(provincia);
 CREATE INDEX IF NOT EXISTS idx_proj_academia_codigo ON projection_academias(codigo_academia);
 CREATE INDEX IF NOT EXISTS idx_proj_academia_type ON projection_academias(type);
+CREATE INDEX IF NOT EXISTS idx_proj_academia_status ON projection_academias(status);
+
+-- Projeção: Admins
+CREATE TABLE IF NOT EXISTS projection_admins (
+    id UUID PRIMARY KEY,
+    nome VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    senha_hash VARCHAR(255) NOT NULL,
+    role VARCHAR(20) NOT NULL CHECK (role IN ('fpp', 'adm', 'gerente')),
+    status VARCHAR(20) DEFAULT 'ativo' CHECK (status IN ('ativo', 'inativo')),
+    created_by UUID REFERENCES projection_admins(id) ON DELETE SET NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    version INTEGER NOT NULL DEFAULT 0,
+    last_event_id UUID,
+    total_acoes_realizadas INTEGER DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_proj_admins_email ON projection_admins(email);
+CREATE INDEX IF NOT EXISTS idx_proj_admins_role ON projection_admins(role);
+CREATE INDEX IF NOT EXISTS idx_proj_admins_status ON projection_admins(status);
+CREATE INDEX IF NOT EXISTS idx_proj_admins_created_by ON projection_admins(created_by);
 
 -- Projeção: Notas
 CREATE TABLE IF NOT EXISTS projection_notas (
@@ -235,13 +257,13 @@ CREATE INDEX IF NOT EXISTS idx_proj_faltas_ano ON projection_faltas(ano_lectivo)
 CREATE TABLE IF NOT EXISTS projection_inscricoes (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     estudante_id UUID NOT NULL,
-    codigo_estudante VARCHAR(7), -- 🔥 NOVO
+    codigo_estudante VARCHAR(7),
     academia_id UUID NOT NULL,
-    codigo_academia VARCHAR(50), -- 🔥 NOVO
+    codigo_academia VARCHAR(50),
     tipo VARCHAR(20) NOT NULL,
     ano_inscricao VARCHAR(50) NOT NULL,
     curso VARCHAR(255),
-    status VARCHAR(20) NOT NULL,
+    status VARCHAR(20) NOT NULL CHECK (status IN ('espera', 'aprovado', 'reprovado')),
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     event_id UUID NOT NULL,
@@ -253,10 +275,34 @@ CREATE TABLE IF NOT EXISTS projection_inscricoes (
 CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_estudante ON projection_inscricoes(estudante_id);
 CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_academia ON projection_inscricoes(academia_id);
 CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_status ON projection_inscricoes(status);
-CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_codigo_estudante ON projection_inscricoes(codigo_estudante); -- 🔥 NOVO
-CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_codigo_academia ON projection_inscricoes(codigo_academia); -- 🔥 NOVO
+CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_codigo_estudante ON projection_inscricoes(codigo_estudante);
+CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_codigo_academia ON projection_inscricoes(codigo_academia);
 
--- Checkpoints
+-- ============================================
+-- LOG DE AÇÕES ADMINISTRATIVAS
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS admin_action_log (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    admin_id UUID NOT NULL REFERENCES projection_admins(id) ON DELETE CASCADE,
+    acao VARCHAR(100) NOT NULL,
+    detalhes JSONB,
+    target_type VARCHAR(50),
+    target_id UUID,
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    performed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_log_admin ON admin_action_log(admin_id);
+CREATE INDEX IF NOT EXISTS idx_admin_log_acao ON admin_action_log(acao);
+CREATE INDEX IF NOT EXISTS idx_admin_log_target ON admin_action_log(target_type, target_id);
+CREATE INDEX IF NOT EXISTS idx_admin_log_performed ON admin_action_log(performed_at DESC);
+
+-- ============================================
+-- CHECKPOINTS
+-- ============================================
+
 CREATE TABLE IF NOT EXISTS projection_checkpoints (
     projection_name VARCHAR(100) PRIMARY KEY,
     last_processed_event_id BIGINT NOT NULL DEFAULT 0,
@@ -273,15 +319,17 @@ INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, la
 VALUES
     ('estudantes', 0, CURRENT_TIMESTAMP),
     ('academias', 0, CURRENT_TIMESTAMP),
+    ('admins', 0, CURRENT_TIMESTAMP),
     ('notas', 0, CURRENT_TIMESTAMP),
     ('faltas', 0, CURRENT_TIMESTAMP),
     ('inscricoes', 0, CURRENT_TIMESTAMP)
 ON CONFLICT (projection_name) DO NOTHING;
 
 -- ============================================
--- FUNÇÃO: GERAR CÓDIGO ESTUDANTE
+-- FUNÇÕES AUXILIARES
 -- ============================================
 
+-- Gerar código estudante
 CREATE OR REPLACE FUNCTION generate_codigo_estudante()
 RETURNS VARCHAR AS $$
 DECLARE
@@ -291,16 +339,13 @@ DECLARE
     v_counter INTEGER := 0;
 BEGIN
     LOOP
-        -- Gerar 3 letras aleatórias
         v_codigo := 
             substring(v_letters from (floor(random() * 26) + 1)::int for 1) ||
             substring(v_letters from (floor(random() * 26) + 1)::int for 1) ||
             substring(v_letters from (floor(random() * 26) + 1)::int for 1);
         
-        -- Adicionar 4 números aleatórios
         v_codigo := v_codigo || lpad(floor(random() * 10000)::text, 4, '0');
         
-        -- Verificar se já existe
         SELECT EXISTS(
             SELECT 1 FROM projection_estudantes WHERE codigo_estudante = v_codigo
         ) INTO v_exists;
@@ -317,49 +362,32 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql VOLATILE;
 
--- ============================================
--- TRIGGERS DE ATUALIZAÇÃO
--- ============================================
-
-CREATE OR REPLACE FUNCTION update_projection_timestamp()
-RETURNS TRIGGER AS $$
+-- Registrar ação administrativa
+CREATE OR REPLACE FUNCTION registrar_acao_admin(
+    p_admin_id UUID,
+    p_acao VARCHAR(100),
+    p_detalhes JSONB DEFAULT NULL,
+    p_target_type VARCHAR(50) DEFAULT NULL,
+    p_target_id UUID DEFAULT NULL
+) RETURNS UUID AS $$
+DECLARE
+    v_log_id UUID;
 BEGIN
-    NEW.updated_at = CURRENT_TIMESTAMP;
-    RETURN NEW;
+    v_log_id := uuid_generate_v4();
+    
+    INSERT INTO admin_action_log (
+        id, admin_id, acao, detalhes,
+        target_type, target_id, performed_at
+    ) VALUES (
+        v_log_id, p_admin_id, p_acao, p_detalhes,
+        p_target_type, p_target_id, CURRENT_TIMESTAMP
+    );
+    
+    RETURN v_log_id;
 END;
 $$ LANGUAGE plpgsql;
 
-DROP TRIGGER IF EXISTS trigger_update_estudante_timestamp ON projection_estudantes;
-CREATE TRIGGER trigger_update_estudante_timestamp
-    BEFORE UPDATE ON projection_estudantes
-    FOR EACH ROW EXECUTE FUNCTION update_projection_timestamp();
-
-DROP TRIGGER IF EXISTS trigger_update_academia_timestamp ON projection_academias;
-CREATE TRIGGER trigger_update_academia_timestamp
-    BEFORE UPDATE ON projection_academias
-    FOR EACH ROW EXECUTE FUNCTION update_projection_timestamp();
-
-DROP TRIGGER IF EXISTS trigger_update_inscricao_timestamp ON projection_inscricoes;
-CREATE TRIGGER trigger_update_inscricao_timestamp
-    BEFORE UPDATE ON projection_inscricoes
-    FOR EACH ROW EXECUTE FUNCTION update_projection_timestamp();
-
--- ============================================
--- VIEWS
--- ============================================
-
-CREATE OR REPLACE VIEW v_estudante_completo AS
-SELECT 
-    e.*,
-    (SELECT json_agg(n.*) FROM projection_notas n WHERE n.estudante_id = e.id) as notas,
-    (SELECT json_agg(f.*) FROM projection_faltas f WHERE f.estudante_id = e.id) as faltas,
-    (SELECT json_agg(i.*) FROM projection_inscricoes i WHERE i.estudante_id = e.id) as inscricoes
-FROM projection_estudantes e;
-
--- ============================================
--- FUNÇÕES AUXILIARES
--- ============================================
-
+-- Verificar hash chain
 CREATE OR REPLACE FUNCTION verify_hash_chain(p_aggregate_id UUID)
 RETURNS TABLE(
     is_valid BOOLEAN,
@@ -411,17 +439,134 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ============================================
--- COMENTÁRIOS
+-- TRIGGERS DE ATUALIZAÇÃO
 -- ============================================
 
-COMMENT ON TABLE genesis_ledger IS 'Event Store principal - Imutável com hash chain';
-COMMENT ON TABLE projection_estudantes IS 'Projeção de leitura para estudantes';
-COMMENT ON TABLE projection_academias IS 'Projeção de leitura para academias';
-COMMENT ON COLUMN projection_estudantes.codigo_estudante IS 'Código único do estudante (formato: AAA1234)';
-COMMENT ON FUNCTION generate_codigo_estudante IS 'Gera código único AAA1234 para estudantes';
+CREATE OR REPLACE FUNCTION update_projection_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trigger_update_estudante_timestamp ON projection_estudantes;
+CREATE TRIGGER trigger_update_estudante_timestamp
+    BEFORE UPDATE ON projection_estudantes
+    FOR EACH ROW EXECUTE FUNCTION update_projection_timestamp();
+
+DROP TRIGGER IF EXISTS trigger_update_academia_timestamp ON projection_academias;
+CREATE TRIGGER trigger_update_academia_timestamp
+    BEFORE UPDATE ON projection_academias
+    FOR EACH ROW EXECUTE FUNCTION update_projection_timestamp();
+
+DROP TRIGGER IF EXISTS trigger_update_admin_timestamp ON projection_admins;
+CREATE TRIGGER trigger_update_admin_timestamp
+    BEFORE UPDATE ON projection_admins
+    FOR EACH ROW EXECUTE FUNCTION update_projection_timestamp();
+
+DROP TRIGGER IF EXISTS trigger_update_inscricao_timestamp ON projection_inscricoes;
+CREATE TRIGGER trigger_update_inscricao_timestamp
+    BEFORE UPDATE ON projection_inscricoes
+    FOR EACH ROW EXECUTE FUNCTION update_projection_timestamp();
 
 -- ============================================
--- LOG INICIAL
+-- VIEWS
+-- ============================================
+
+CREATE OR REPLACE VIEW v_estudante_completo AS
+SELECT 
+    e.*,
+    (SELECT json_agg(n.*) FROM projection_notas n WHERE n.estudante_id = e.id) as notas,
+    (SELECT json_agg(f.*) FROM projection_faltas f WHERE f.estudante_id = e.id) as faltas,
+    (SELECT json_agg(i.*) FROM projection_inscricoes i WHERE i.estudante_id = e.id) as inscricoes
+FROM projection_estudantes e;
+
+CREATE OR REPLACE VIEW v_admin_actions_recent AS
+SELECT 
+    l.id,
+    l.acao,
+    l.detalhes,
+    l.target_type,
+    l.target_id,
+    l.performed_at,
+    a.nome as admin_nome,
+    a.email as admin_email,
+    a.role as admin_role
+FROM admin_action_log l
+JOIN projection_admins a ON l.admin_id = a.id
+ORDER BY l.performed_at DESC
+LIMIT 100;
+
+-- ============================================
+-- CRIAR ADMIN FPP INICIAL
+-- ============================================
+
+DO $$
+DECLARE
+    v_admin_id UUID;
+    v_senha_hash TEXT;
+BEGIN
+    -- Verificar se já existe algum admin
+    IF NOT EXISTS (SELECT 1 FROM projection_admins LIMIT 1) THEN
+        v_admin_id := uuid_generate_v4();
+        
+        -- Hash da senha "fpp@2025" (bcrypt cost 10)
+        -- IMPORTANTE: Mudar após primeiro login!
+        v_senha_hash := '$2a$10$Xv8Y5Z6uKqWbN.jC7Mm4GOqVQ3xJ.FQEt8cY3Zm5yKMqX9Yr6Iw9i';
+        
+        -- Inserir admin FPP inicial
+        INSERT INTO projection_admins (
+            id, nome, email, senha_hash, role, status,
+            created_by, created_at, updated_at, version
+        ) VALUES (
+            v_admin_id,
+            'Administrador FPP',
+            'admin@spuri.ao',
+            v_senha_hash,
+            'fpp',
+            'ativo',
+            NULL,
+            CURRENT_TIMESTAMP,
+            CURRENT_TIMESTAMP,
+            0
+        );
+        
+        -- Criar evento no ledger
+        INSERT INTO genesis_ledger (
+            aggregate_id,
+            aggregate_type,
+            event_type,
+            event_version,
+            payload,
+            metadata,
+            occurred_at
+        ) VALUES (
+            v_admin_id,
+            'Admin',
+            'AdminCriado',
+            1,
+            jsonb_build_object(
+                'Nome', 'Administrador FPP',
+                'Email', 'admin@spuri.ao',
+                'SenhaHash', v_senha_hash,
+                'Role', 'fpp',
+                'CreatedBy', NULL,
+                'CreatedAt', CURRENT_TIMESTAMP
+            ),
+            jsonb_build_object('created_by', 'migration'),
+            CURRENT_TIMESTAMP
+        );
+        
+        RAISE NOTICE '✅ Admin FPP inicial criado!';
+        RAISE NOTICE '📧 Email: admin@spuri.ao';
+        RAISE NOTICE '🔑 Senha: fpp@2025';
+        RAISE NOTICE '⚠️  ALTERE A SENHA IMEDIATAMENTE!';
+    END IF;
+END $$;
+
+-- ============================================
+-- LOG INICIAL DO SISTEMA
 -- ============================================
 
 INSERT INTO genesis_ledger (
@@ -437,17 +582,59 @@ INSERT INTO genesis_ledger (
     'System',
     'SchemaCreated',
     1,
-    '{"version": "2.0.0", "name": "Spuri Event Sourcing", "features": ["event_sourcing", "cqrs", "codigo_estudante"]}'::jsonb,
-    '{"created_by": "migration_completa"}'::jsonb,
+    jsonb_build_object(
+        'version', '2.1.0',
+        'name', 'Spuri Event Sourcing',
+        'features', json_build_array(
+            'event_sourcing',
+            'cqrs',
+            'codigo_estudante',
+            'admin_system',
+            'role_hierarchy'
+        )
+    ),
+    jsonb_build_object('created_by', 'migration_completa'),
     CURRENT_TIMESTAMP
 )
 ON CONFLICT (aggregate_id, event_version) DO NOTHING;
 
 -- ============================================
+-- COMENTÁRIOS
+-- ============================================
+
+COMMENT ON TABLE genesis_ledger IS 'Event Store principal - Imutável com hash chain';
+COMMENT ON TABLE projection_estudantes IS 'Projeção de leitura para estudantes';
+COMMENT ON TABLE projection_academias IS 'Projeção de leitura para academias';
+COMMENT ON TABLE projection_admins IS 'Projeção de leitura para administradores';
+COMMENT ON TABLE admin_action_log IS 'Log de todas as ações administrativas';
+
+COMMENT ON COLUMN projection_estudantes.codigo_estudante IS 'Código único do estudante (formato: AAA1234)';
+COMMENT ON COLUMN projection_admins.role IS 'Hierarquia: fpp > adm > gerente';
+COMMENT ON COLUMN projection_academias.status IS 'Status da academia (ativo/inativo)';
+
+COMMENT ON FUNCTION generate_codigo_estudante IS 'Gera código único AAA1234 para estudantes';
+COMMENT ON FUNCTION registrar_acao_admin IS 'Registra uma ação administrativa no log';
+COMMENT ON FUNCTION verify_hash_chain IS 'Verifica integridade da cadeia de hashes de um agregado';
+
+-- ============================================
 -- VERIFICAÇÃO FINAL
 -- ============================================
 
-SELECT 
-    'Schema criado com sucesso!' as status,
-    (SELECT COUNT(*) FROM genesis_ledger) as total_eventos,
-    (SELECT COUNT(*) FROM projection_checkpoints) as total_checkpoints;
+DO $$
+DECLARE
+    v_total_eventos BIGINT;
+    v_total_checkpoints INT;
+    v_total_admins INT;
+BEGIN
+    SELECT COUNT(*) INTO v_total_eventos FROM genesis_ledger;
+    SELECT COUNT(*) INTO v_total_checkpoints FROM projection_checkpoints;
+    SELECT COUNT(*) INTO v_total_admins FROM projection_admins;
+    
+    RAISE NOTICE '════════════════════════════════════════';
+    RAISE NOTICE '✅ SCHEMA CRIADO COM SUCESSO!';
+    RAISE NOTICE '════════════════════════════════════════';
+    RAISE NOTICE 'Total de eventos: %', v_total_eventos;
+    RAISE NOTICE 'Total de checkpoints: %', v_total_checkpoints;
+    RAISE NOTICE 'Total de admins: %', v_total_admins;
+    RAISE NOTICE '════════════════════════════════════════';
+END $$;
