@@ -1,18 +1,27 @@
+// ============================================================================
+// ARQUIVO: internal/handlers/query_handlers.go
+// ATUALIZADO: Usar codigo_estudante nas rotas
+// ============================================================================
+
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"spuri/internal/middleware"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
-// GetNotasEstudante busca notas de um estudante (Query - CQRS Read)
+// 🔥 ATUALIZADO: GetNotasEstudante busca por CÓDIGO
 func GetNotasEstudante(c *gin.Context) {
-	estudanteID, err := uuid.Parse(c.Param("estudanteId"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de estudante inválido"})
+	codigoEstudante := c.Param("codigo") // 🔥 MUDOU de estudanteId para codigo
+
+	// 🔥 BUSCAR estudante por CÓDIGO
+	estudanteProj := getEstudanteProjection(c)
+	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
+	if err != nil || estudante == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
 		return
 	}
 
@@ -20,19 +29,12 @@ func GetNotasEstudante(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 
-	if userType == "estudante" && userID != estudanteID {
+	if userType == "estudante" && userID != estudante.ID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
 		return
 	}
 
 	if userType == "academia" {
-		// Verificar se estudante pertence a esta academia
-		estudanteProj := getEstudanteProjection(c)
-		estudante, err := estudanteProj.GetByID(estudanteID)
-		if err != nil || estudante == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
-			return
-		}
 		if estudante.IDAcademia == nil || *estudante.IDAcademia != userID {
 			c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
 			return
@@ -41,24 +43,29 @@ func GetNotasEstudante(c *gin.Context) {
 
 	// Buscar notas da projeção (CQRS - Read Model)
 	notasProj := getNotasProjection(c)
-	notas, err := notasProj.GetByEstudante(estudanteID)
+	notas, err := notasProj.GetByEstudante(estudante.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar notas"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"estudante_id": estudanteID,
-		"notas":        notas,
-		"total":        len(notas),
+		"codigo_estudante": codigoEstudante,
+		"nome": estudante.Nome,
+		"notas": notas,
+		"total": len(notas),
 	})
 }
 
-// GetFaltasEstudante busca faltas de um estudante (Query)
+// 🔥 ATUALIZADO: GetFaltasEstudante busca por CÓDIGO
 func GetFaltasEstudante(c *gin.Context) {
-	estudanteID, err := uuid.Parse(c.Param("estudanteId"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de estudante inválido"})
+	codigoEstudante := c.Param("codigo") // 🔥 MUDOU
+
+	// 🔥 BUSCAR estudante por CÓDIGO
+	estudanteProj := getEstudanteProjection(c)
+	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
+	if err != nil || estudante == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
 		return
 	}
 
@@ -66,18 +73,12 @@ func GetFaltasEstudante(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 
-	if userType == "estudante" && userID != estudanteID {
+	if userType == "estudante" && userID != estudante.ID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
 		return
 	}
 
 	if userType == "academia" {
-		estudanteProj := getEstudanteProjection(c)
-		estudante, err := estudanteProj.GetByID(estudanteID)
-		if err != nil || estudante == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
-			return
-		}
 		if estudante.IDAcademia == nil || *estudante.IDAcademia != userID {
 			c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
 			return
@@ -86,24 +87,29 @@ func GetFaltasEstudante(c *gin.Context) {
 
 	// Buscar faltas da projeção
 	faltasProj := getFaltasProjection(c)
-	faltas, err := faltasProj.GetByEstudante(estudanteID)
+	faltas, err := faltasProj.GetByEstudante(estudante.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar faltas"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"estudante_id": estudanteID,
-		"faltas":       faltas,
-		"total":        len(faltas),
+		"codigo_estudante": codigoEstudante,
+		"nome": estudante.Nome,
+		"faltas": faltas,
+		"total": len(faltas),
 	})
 }
 
-// GetHistoricoCompleto busca histórico completo do estudante (Query)
+// 🔥 ATUALIZADO: GetHistoricoCompleto busca por CÓDIGO
 func GetHistoricoCompleto(c *gin.Context) {
-	estudanteID, err := uuid.Parse(c.Param("estudanteId"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de estudante inválido"})
+	codigoEstudante := c.Param("codigo") // 🔥 MUDOU
+
+	// 🔥 BUSCAR estudante por CÓDIGO
+	estudanteProj := getEstudanteProjection(c)
+	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
+	if err != nil || estudante == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
 		return
 	}
 
@@ -111,16 +117,8 @@ func GetHistoricoCompleto(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 
-	if userType == "estudante" && userID != estudanteID {
+	if userType == "estudante" && userID != estudante.ID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
-		return
-	}
-
-	// Buscar dados das projeções
-	estudanteProj := getEstudanteProjection(c)
-	estudante, err := estudanteProj.GetByID(estudanteID)
-	if err != nil || estudante == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
 		return
 	}
 
@@ -134,15 +132,15 @@ func GetHistoricoCompleto(c *gin.Context) {
 
 	// Buscar notas
 	notasProj := getNotasProjection(c)
-	notas, _ := notasProj.GetByEstudante(estudanteID)
+	notas, _ := notasProj.GetByEstudante(estudante.ID)
 
 	// Buscar faltas
 	faltasProj := getFaltasProjection(c)
-	faltas, _ := faltasProj.GetByEstudante(estudanteID)
+	faltas, _ := faltasProj.GetByEstudante(estudante.ID)
 
 	// Buscar inscrições
 	inscProj := getInscricoesProjection(c)
-	inscricoes, _ := inscProj.GetByEstudante(estudanteID)
+	inscricoes, _ := inscProj.GetByEstudante(estudante.ID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"estudante":  estudante,
@@ -152,11 +150,15 @@ func GetHistoricoCompleto(c *gin.Context) {
 	})
 }
 
-// GetEventosEstudante retorna todos os eventos do estudante (Event Sourcing)
+// 🔥 ATUALIZADO: GetEventosEstudante busca por CÓDIGO
 func GetEventosEstudante(c *gin.Context) {
-	estudanteID, err := uuid.Parse(c.Param("estudanteId"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de estudante inválido"})
+	codigoEstudante := c.Param("codigo") // 🔥 MUDOU
+
+	// 🔥 BUSCAR estudante por CÓDIGO
+	estudanteProj := getEstudanteProjection(c)
+	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
+	if err != nil || estudante == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
 		return
 	}
 
@@ -164,46 +166,52 @@ func GetEventosEstudante(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 
-	if userType == "estudante" && userID != estudanteID {
+	if userType == "estudante" && userID != estudante.ID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
 		return
 	}
 
 	// Buscar eventos do ledger
 	repository := getRepository(c)
-	eventos, err := repository.GetEventHistory(estudanteID)
+	eventos, err := repository.GetEventHistory(estudante.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar eventos"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"estudante_id": estudanteID,
-		"eventos":      eventos,
-		"total":        len(eventos),
-		"message":      "Histórico completo de eventos (Event Sourcing)",
+		"codigo_estudante": codigoEstudante,
+		"nome": estudante.Nome,
+		"eventos": eventos,
+		"total": len(eventos),
+		"message": "Histórico completo de eventos (Event Sourcing)",
 	})
 }
 
-// VerificarIntegridade verifica integridade do ledger de um estudante
+// 🔥 ATUALIZADO: VerificarIntegridade busca por CÓDIGO
 func VerificarIntegridade(c *gin.Context) {
-	estudanteID, err := uuid.Parse(c.Param("estudanteId"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de estudante inválido"})
+	codigoEstudante := c.Param("codigo") // 🔥 MUDOU
+
+	// 🔥 BUSCAR estudante por CÓDIGO
+	estudanteProj := getEstudanteProjection(c)
+	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
+	if err != nil || estudante == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
 		return
 	}
 
 	// Verificar integridade da hash chain
 	repository := getRepository(c)
-	isValid, err := repository.VerifyIntegrity(estudanteID)
+	isValid, err := repository.VerifyIntegrity(estudante.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao verificar integridade"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"estudante_id": estudanteID,
-		"integro":      isValid,
+		"codigo_estudante": codigoEstudante,
+		"nome": estudante.Nome,
+		"integro": isValid,
 		"message": func() string {
 			if isValid {
 				return "Cadeia de hashes íntegra. Eventos não foram alterados."
@@ -276,4 +284,71 @@ func ListarInscricoesPendentes(c *gin.Context) {
 	})
 }
 
-// Helper functions movidas para helpers.go
+// 🔥 NOVO: ListarTodasInscricoes lista todas as inscrições (admin/consulta)
+func ListarTodasInscricoes(c *gin.Context) {
+	// Parâmetros de paginação
+	limit := 50
+	offset := 0
+	
+	if limitParam := c.Query("limit"); limitParam != "" {
+		fmt.Sscanf(limitParam, "%d", &limit)
+	}
+	if offsetParam := c.Query("offset"); offsetParam != "" {
+		fmt.Sscanf(offsetParam, "%d", &offset)
+	}
+	
+	// Filtro por status (opcional)
+	status := c.Query("status") // "espera", "aprovado", "reprovado", ou vazio para todos
+
+	inscProj := getInscricoesProjection(c)
+	
+	var inscricoes []interface{}
+	var err error
+	var total int
+	
+	if status != "" {
+		// Buscar por status específico
+		query := `
+			SELECT 
+				id, estudante_id, codigo_estudante, academia_id, codigo_academia,
+				tipo, ano_inscricao, curso, status, created_at, updated_at, 
+				event_id, version
+			FROM projection_inscricoes
+			WHERE status = $1
+			ORDER BY created_at DESC
+			LIMIT $2 OFFSET $3
+		`
+		client := getGenesisClient(c)
+		err = client.DB().Select(&inscricoes, query, status, limit, offset)
+		
+		// Contar total com filtro
+		countQuery := `SELECT COUNT(*) FROM projection_inscricoes WHERE status = $1`
+		client.DB().Get(&total, countQuery, status)
+	} else {
+		// Buscar todas
+		inscricoesDTO, errDTO := inscProj.GetAll(limit, offset)
+		if errDTO != nil {
+			err = errDTO
+		} else {
+			for _, i := range inscricoesDTO {
+				inscricoes = append(inscricoes, i)
+			}
+		}
+		
+		// Contar total
+		total, _ = inscProj.CountAll()
+	}
+	
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"inscricoes": inscricoes,
+		"total":      len(inscricoes),
+		"total_geral": total,
+		"limit":      limit,
+		"offset":     offset,
+	})
+}

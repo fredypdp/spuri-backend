@@ -1,6 +1,13 @@
+// ============================================================================
+// ARQUIVO: internal/handlers/command_handlers.go
+// CORRIGIDO: Validações de status de inscrições
+// ============================================================================
+
 package handlers
 
 import (
+	"fmt"
+	"log"
 	"net/http"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
@@ -11,18 +18,16 @@ import (
 
 // RegistrarNotasRequest representa requisição de registro de notas
 type RegistrarNotasRequest struct {
-	EstudanteID uuid.UUID `json:"estudante_id" binding:"required"`
-	AnoLectivo  string    `json:"ano_lectivo" binding:"required"`
-	Periodo     string    `json:"periodo" binding:"required"`
-	Materias    []struct {
+	CodigoEstudante string `json:"codigo_estudante" binding:"required"`
+	AnoLectivo      string `json:"ano_lectivo" binding:"required"`
+	Periodo         string `json:"periodo" binding:"required"`
+	Materias        []struct {
 		Nome string  `json:"nome" binding:"required"`
 		Nota float64 `json:"nota" binding:"required"`
 	} `json:"materias" binding:"required"`
 }
 
-// RegistrarNotas comando para registrar notas (CQRS - Write)
 func RegistrarNotas(c *gin.Context) {
-	// Apenas academias podem registrar notas
 	userID, _ := middleware.GetUserID(c)
 
 	var req RegistrarNotasRequest
@@ -31,15 +36,20 @@ func RegistrarNotas(c *gin.Context) {
 		return
 	}
 
-	// Validações
 	if len(req.Materias) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "materias não pode estar vazio"})
 		return
 	}
 
-	// Carregar agregado Estudante (Event Sourcing)
+	estudanteProj := getEstudanteProjection(c)
+	estudanteDTO, err := estudanteProj.GetByCodigo(req.CodigoEstudante)
+	if err != nil || estudanteDTO == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
+		return
+	}
+
 	repository := getRepository(c)
-	estudanteAgg, err := repository.Load(req.EstudanteID, "Estudante")
+	estudanteAgg, err := repository.Load(estudanteDTO.ID, "Estudante")
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
 		return
@@ -47,13 +57,11 @@ func RegistrarNotas(c *gin.Context) {
 
 	estudante := estudanteAgg.(*aggregates.Estudante)
 
-	// Verificar se estudante pertence a esta academia
 	if estudante.IDAcademia == nil || *estudante.IDAcademia != userID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
 		return
 	}
 
-	// Converter materias
 	materias := make([]aggregates.Materia, len(req.Materias))
 	for i, m := range req.Materias {
 		materias[i] = aggregates.Materia{
@@ -62,45 +70,35 @@ func RegistrarNotas(c *gin.Context) {
 		}
 	}
 
-	// Executar comando (gera eventos)
-	err = estudante.RegistrarNotas(
-		userID,
-		req.AnoLectivo,
-		req.Periodo,
-		materias,
-	)
-
+	err = estudante.RegistrarNotas(userID, req.AnoLectivo, req.Periodo, materias)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Salvar eventos (Event Sourcing)
 	if err := repository.Save(estudante); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao registrar notas"})
 		return
 	}
 
-	// CQRS: Não retornamos o estado, apenas confirmação
 	c.JSON(http.StatusOK, gin.H{
 		"message": "notas registradas com sucesso",
+		"codigo_estudante": req.CodigoEstudante,
 	})
 }
 
 // RegistrarFaltasRequest representa requisição de registro de faltas
 type RegistrarFaltasRequest struct {
-	EstudanteID uuid.UUID `json:"estudante_id" binding:"required"`
-	AnoLectivo  string    `json:"ano_lectivo" binding:"required"`
-	Periodo     string    `json:"periodo" binding:"required"`
-	Materias    []struct {
+	CodigoEstudante string `json:"codigo_estudante" binding:"required"`
+	AnoLectivo      string `json:"ano_lectivo" binding:"required"`
+	Periodo         string `json:"periodo" binding:"required"`
+	Materias        []struct {
 		Nome   string `json:"nome" binding:"required"`
 		Faltas int    `json:"faltas" binding:"required"`
 	} `json:"materias" binding:"required"`
 }
 
-// RegistrarFaltas comando para registrar faltas (CQRS - Write)
 func RegistrarFaltas(c *gin.Context) {
-	// Apenas academias podem registrar faltas
 	userID, _ := middleware.GetUserID(c)
 
 	var req RegistrarFaltasRequest
@@ -109,15 +107,20 @@ func RegistrarFaltas(c *gin.Context) {
 		return
 	}
 
-	// Validações
 	if len(req.Materias) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "materias não pode estar vazio"})
 		return
 	}
 
-	// Carregar agregado Estudante
+	estudanteProj := getEstudanteProjection(c)
+	estudanteDTO, err := estudanteProj.GetByCodigo(req.CodigoEstudante)
+	if err != nil || estudanteDTO == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
+		return
+	}
+
 	repository := getRepository(c)
-	estudanteAgg, err := repository.Load(req.EstudanteID, "Estudante")
+	estudanteAgg, err := repository.Load(estudanteDTO.ID, "Estudante")
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
 		return
@@ -125,13 +128,11 @@ func RegistrarFaltas(c *gin.Context) {
 
 	estudante := estudanteAgg.(*aggregates.Estudante)
 
-	// Verificar se estudante pertence a esta academia
 	if estudante.IDAcademia == nil || *estudante.IDAcademia != userID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
 		return
 	}
 
-	// Converter materias
 	materias := make([]aggregates.MateriaFaltas, len(req.Materias))
 	for i, m := range req.Materias {
 		materias[i] = aggregates.MateriaFaltas{
@@ -140,20 +141,12 @@ func RegistrarFaltas(c *gin.Context) {
 		}
 	}
 
-	// Executar comando
-	err = estudante.RegistrarFaltas(
-		userID,
-		req.AnoLectivo,
-		req.Periodo,
-		materias,
-	)
-
+	err = estudante.RegistrarFaltas(userID, req.AnoLectivo, req.Periodo, materias)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Salvar eventos
 	if err := repository.Save(estudante); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao registrar faltas"})
 		return
@@ -161,17 +154,17 @@ func RegistrarFaltas(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "faltas registradas com sucesso",
+		"codigo_estudante": req.CodigoEstudante,
 	})
 }
 
 // InscricaoEscolaRequest representa solicitação de inscrição em escola
 type InscricaoEscolaRequest struct {
-	IDAcademia          uuid.UUID `json:"id_academia" binding:"required"`
-	AnoEscolarInscricao string    `json:"ano_escolar_inscricao" binding:"required"`
-	CursoMedio          *string   `json:"curso_medio"`
+	CodigoAcademia       string  `json:"codigo_academia" binding:"required"`
+	AnoEscolarInscricao  string  `json:"ano_escolar_inscricao" binding:"required"`
+	CursoMedio           *string `json:"curso_medio"`
 }
 
-// InscricaoEscola comando para solicitar inscrição em escola
 func InscricaoEscola(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -181,7 +174,13 @@ func InscricaoEscola(c *gin.Context) {
 		return
 	}
 
-	// Carregar agregado Estudante
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByCodigo(req.CodigoAcademia)
+	if err != nil || academiaDTO == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
+		return
+	}
+
 	repository := getRepository(c)
 	estudanteAgg, err := repository.Load(userID, "Estudante")
 	if err != nil {
@@ -191,9 +190,8 @@ func InscricaoEscola(c *gin.Context) {
 
 	estudante := estudanteAgg.(*aggregates.Estudante)
 
-	// Executar comando
 	err = estudante.SolicitarInscricao(
-		req.IDAcademia,
+		academiaDTO.ID,
 		"escola",
 		req.AnoEscolarInscricao,
 		req.CursoMedio,
@@ -204,7 +202,6 @@ func InscricaoEscola(c *gin.Context) {
 		return
 	}
 
-	// Salvar eventos
 	if err := repository.Save(estudante); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao solicitar inscrição"})
 		return
@@ -212,17 +209,17 @@ func InscricaoEscola(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "inscrição solicitada com sucesso",
+		"codigo_academia": req.CodigoAcademia,
 	})
 }
 
 // InscricaoUniversidadeRequest representa solicitação de inscrição em universidade
 type InscricaoUniversidadeRequest struct {
-	IDAcademia           uuid.UUID `json:"id_academia" binding:"required"`
-	AnoSuperiorInscricao string    `json:"ano_superior_inscricao" binding:"required"`
-	CursoSuperior        string    `json:"curso_superior" binding:"required"`
+	CodigoAcademia        string `json:"codigo_academia" binding:"required"`
+	AnoSuperiorInscricao  string `json:"ano_superior_inscricao" binding:"required"`
+	CursoSuperior         string `json:"curso_superior" binding:"required"`
 }
 
-// InscricaoUniversidade comando para solicitar inscrição em universidade
 func InscricaoUniversidade(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -232,7 +229,13 @@ func InscricaoUniversidade(c *gin.Context) {
 		return
 	}
 
-	// Carregar agregado
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByCodigo(req.CodigoAcademia)
+	if err != nil || academiaDTO == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
+		return
+	}
+
 	repository := getRepository(c)
 	estudanteAgg, err := repository.Load(userID, "Estudante")
 	if err != nil {
@@ -242,9 +245,8 @@ func InscricaoUniversidade(c *gin.Context) {
 
 	estudante := estudanteAgg.(*aggregates.Estudante)
 
-	// Executar comando
 	err = estudante.SolicitarInscricao(
-		req.IDAcademia,
+		academiaDTO.ID,
 		"universidade",
 		req.AnoSuperiorInscricao,
 		&req.CursoSuperior,
@@ -255,7 +257,6 @@ func InscricaoUniversidade(c *gin.Context) {
 		return
 	}
 
-	// Salvar eventos
 	if err := repository.Save(estudante); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao solicitar inscrição"})
 		return
@@ -263,14 +264,16 @@ func InscricaoUniversidade(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "inscrição solicitada com sucesso",
+		"codigo_academia": req.CodigoAcademia,
 	})
 }
 
 // AprovarInscricao comando para aprovar inscrição
+// 🔥 CORRIGIDO: Validações robustas de status
 func AprovarInscricao(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
-	inscricaoID, err := uuid.Parse(c.Param("id"))
+	inscricaoID, err := parseUUID(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de inscrição inválido"})
 		return
@@ -281,6 +284,32 @@ func AprovarInscricao(c *gin.Context) {
 	inscricao, err := inscProj.GetByID(inscricaoID)
 	if err != nil || inscricao == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "inscrição não encontrada"})
+		return
+	}
+
+	// 🔥 VALIDAÇÕES DE STATUS - DEFINITIVAS
+	switch inscricao.Status {
+	case "aprovado":
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "esta inscrição já foi aprovada anteriormente",
+			"status_atual": "aprovado",
+			"message": "não é possível aprovar uma inscrição que já está aprovada",
+		})
+		return
+	case "reprovado":
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "esta inscrição foi reprovada e não pode ser aprovada",
+			"status_atual": "reprovado",
+			"message": "inscrições reprovadas são definitivas. O estudante deve fazer uma nova solicitação",
+		})
+		return
+	case "espera":
+		// OK, pode processar
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "status de inscrição inválido",
+			"status_atual": inscricao.Status,
+		})
 		return
 	}
 
@@ -342,14 +371,18 @@ func AprovarInscricao(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "inscrição aprovada com sucesso",
+		"codigo_estudante": inscricao.CodigoEstudante,
+		"status_anterior": "espera",
+		"status_atual": "aprovado",
 	})
 }
 
 // ReprovarInscricao comando para reprovar inscrição
+// 🔥 CORRIGIDO: Atualizar TANTO Estudante QUANTO Academia
 func ReprovarInscricao(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
-	inscricaoID, err := uuid.Parse(c.Param("id"))
+	inscricaoID, err := parseUUID(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de inscrição inválido"})
 		return
@@ -363,34 +396,115 @@ func ReprovarInscricao(c *gin.Context) {
 		return
 	}
 
+	// 🔥 VERIFICAR se já foi processada
+	if inscricao.Status != "espera" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": fmt.Sprintf("inscrição já foi processada com status '%s' e não pode ser alterada", inscricao.Status),
+			"status_atual": inscricao.Status,
+		})
+		return
+	}
+
 	// Verificar permissão
 	if inscricao.AcademiaID != userID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "inscrição não pertence a esta academia"})
 		return
 	}
 
-	// Carregar e executar comando na academia
 	repository := getRepository(c)
+
+	// 🔥 NOVO: Carregar agregado Estudante primeiro (para consistência)
+	log.Printf("📝 [REPROVAR] Carregando agregado Estudante: %s", inscricao.EstudanteID)
+	estudanteAgg, err := repository.Load(inscricao.EstudanteID, "Estudante")
+	if err != nil {
+		log.Printf("❌ [REPROVAR] Erro ao carregar estudante: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao carregar estudante"})
+		return
+	}
+
+	estudante := estudanteAgg.(*aggregates.Estudante)
+
+	// 🔥 NOVO: Verificar se estudante tem essa inscrição pendente
+	temInscricaoPendente := false
+	for _, insc := range estudante.Inscricoes {
+		if insc.AcademiaID == userID && insc.Status == "espera" {
+			temInscricaoPendente = true
+			break
+		}
+	}
+
+	if !temInscricaoPendente {
+		log.Printf("⚠️ [REPROVAR] Estudante não tem inscrição pendente nesta academia")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "estudante não possui inscrição pendente nesta academia",
+		})
+		return
+	}
+
+	// 🔥 NOVO: Aplicar evento de reprovação ao estudante
+	// (Usar o método que já existe no agregado)
+	log.Printf("⚡ [REPROVAR] Aplicando reprovação ao agregado Estudante...")
+	reprovadoEvent := &aggregates.InscricaoReprovadaEvent{
+		BaseEvent: aggregates.BaseEvent{
+			EventType:   "InscricaoReprovada",
+			AggregateID: estudante.ID,
+		},
+		InscricaoID: inscricaoID,
+		AcademiaID:  userID,
+	}
+	
+	if err := estudante.Apply(reprovadoEvent); err != nil {
+		log.Printf("❌ [REPROVAR] Erro ao aplicar evento ao estudante: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao processar reprovação"})
+		return
+	}
+	
+	estudante.RaiseEvent(reprovadoEvent)
+
+	// Salvar eventos do estudante
+	log.Printf("💾 [REPROVAR] Salvando eventos do estudante...")
+	if err := repository.Save(estudante); err != nil {
+		log.Printf("❌ [REPROVAR] Erro ao salvar estudante: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao salvar reprovação"})
+		return
+	}
+
+	// 🔥 Carregar e executar comando na academia (para estatísticas)
+	log.Printf("📝 [REPROVAR] Carregando agregado Academia: %s", userID)
 	academiaAgg, err := repository.Load(userID, "Academia")
 	if err != nil {
+		log.Printf("❌ [REPROVAR] Erro ao carregar academia: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao carregar academia"})
 		return
 	}
 
 	academia := academiaAgg.(*aggregates.Academia)
+	
+	log.Printf("⚡ [REPROVAR] Executando comando ReprovarInscricao na academia...")
 	err = academia.ReprovarInscricao(inscricao.EstudanteID, inscricaoID, "")
 	if err != nil {
+		log.Printf("❌ [REPROVAR] Erro no comando: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Salvar eventos
+	// Salvar eventos da academia
+	log.Printf("💾 [REPROVAR] Salvando eventos da academia...")
 	if err := repository.Save(academia); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao reprovar inscrição"})
+		log.Printf("❌ [REPROVAR] Erro ao salvar academia: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao registrar reprovação"})
 		return
 	}
 
+	log.Printf("✅ [REPROVAR] Inscrição reprovada com sucesso: %s", inscricaoID)
 	c.JSON(http.StatusOK, gin.H{
-		"message": "inscrição reprovada",
+		"message": "inscrição reprovada com sucesso",
+		"codigo_estudante": inscricao.CodigoEstudante,
+		"status": "reprovado",
 	})
+}
+
+// Helper para parse UUID
+func parseUUID(s string) (uuid.UUID, error) {
+	return uuid.Parse(s)
 }

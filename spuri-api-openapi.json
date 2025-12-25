@@ -1,0 +1,392 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_date": "2025-12-23T16:00:00.000Z",
+  "__export_source": "grok-generated-auto-chain",
+  "resources": [
+    {
+      "_id": "wrk_spuri",
+      "parentId": null,
+      "modified": 1734967200,
+      "created": 1734967200,
+      "name": "Spuri API v2.0 - Event Sourcing (Auto Chain)",
+      "description": "Coleção com extração automática de IDs e tokens via scripts",
+      "scope": "design",
+      "_type": "workspace"
+    },
+    {
+      "_id": "env_auto",
+      "parentId": "wrk_spuri",
+      "modified": 1734967200,
+      "created": 1734967200,
+      "name": "Spuri API - Auto Chain",
+      "data": {
+        "base_url": "http://localhost:8080",
+        "escola_id": "",
+        "escola_codigo": "",
+        "escola_token": "",
+        "universidade_id": "",
+        "universidade_codigo": "",
+        "universidade_token": "",
+        "estudante_fund_id": "",
+        "estudante_fund_bi_resp": "BI2025123456",
+        "estudante_fund_token": "",
+        "estudante_sup_id": "",
+        "estudante_sup_bi": "BI2025654321",
+        "estudante_sup_token": "",
+        "inscricao_escola_id": ""
+      },
+      "color": "#00bfff",
+      "_type": "environment"
+    },
+    {
+      "_id": "fld_1_setup",
+      "parentId": "wrk_spuri",
+      "name": "1. Setup",
+      "_type": "request_group"
+    },
+    {
+      "_id": "fld_2_academia",
+      "parentId": "wrk_spuri",
+      "name": "2. Academia (Register & Login)",
+      "_type": "request_group"
+    },
+    {
+      "_id": "fld_3_estudante",
+      "parentId": "wrk_spuri",
+      "name": "3. Estudante (Register & Login)",
+      "_type": "request_group"
+    },
+    {
+      "_id": "fld_4_inscricoes",
+      "parentId": "wrk_spuri",
+      "name": "4. Inscrições",
+      "_type": "request_group"
+    },
+    {
+      "_id": "fld_5_registros",
+      "parentId": "wrk_spuri",
+      "name": "5. Registros Acadêmicos",
+      "_type": "request_group"
+    },
+    {
+      "_id": "fld_6_consultas",
+      "parentId": "wrk_spuri",
+      "name": "6. Consultas (CQRS)",
+      "_type": "request_group"
+    },
+    {
+      "_id": "fld_7_events",
+      "parentId": "wrk_spuri",
+      "name": "7. Event Sourcing & Integridade",
+      "_type": "request_group"
+    },
+    {
+      "_id": "req_health",
+      "parentId": "fld_1_setup",
+      "name": "Health Check",
+      "url": "{{base_url}}/health",
+      "method": "GET",
+      "_type": "request"
+    },
+    {
+      "_id": "req_criar_escola",
+      "parentId": "fld_2_academia",
+      "name": "Criar Escola",
+      "url": "{{base_url}}/academia/register",
+      "method": "POST",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"type\": \"escola\",\n  \"senha\": \"escola2025\",\n  \"nome\": \"Escola Primária Nova Esperança\",\n  \"provincia\": \"Luanda\",\n  \"endereco\": \"Rua da Missão, Bairro Operário, Luanda\",\n  \"numero_telefone\": \"+244 923 456 789\",\n  \"email\": \"contato@escolanovaesperanca.ao\",\n  \"nivel_escolar\": \"fundamental\",\n  \"cursos\": []\n}"
+      },
+      "tests": [
+        {
+          "name": "Extrair ID e Código da Escola",
+          "script": "const json = await insomnia.response.json();\nif (json.data && json.data.id && json.data.codigo_academia) {\n  await insomnia.environment.set('escola_id', json.data.id);\n  await insomnia.environment.set('escola_codigo', json.data.codigo_academia);\n  console.log('Escola criada:', json.data.id, json.data.codigo_academia);\n}"
+        }
+      ],
+      "_type": "request"
+    },
+    {
+      "_id": "req_criar_uni",
+      "parentId": "fld_2_academia",
+      "name": "Criar Universidade",
+      "url": "{{base_url}}/academia/register",
+      "method": "POST",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"type\": \"superior\",\n  \"senha\": \"uni2025\",\n  \"nome\": \"Universidade Católica de Angola\",\n  \"provincia\": \"Luanda\",\n  \"endereco\": \"Avenida Pedro de Castro Van-Dúnem Loy, Luanda\",\n  \"numero_telefone\": \"+244 222 123 456\",\n  \"email\": \"info@ucan.ao\",\n  \"website\": \"https://www.ucan.ao\",\n  \"cursos\": [\n    \"Engenharia Informática\",\n    \"Medicina\",\n    \"Direito\",\n    \"Economia\",\n    \"Arquitetura\"\n  ]\n}"
+      },
+      "tests": [
+        {
+          "name": "Extrair ID e Código da Universidade",
+          "script": "const json = await insomnia.response.json();\nif (json.data && json.data.id && json.data.codigo_academia) {\n  await insomnia.environment.set('universidade_id', json.data.id);\n  await insomnia.environment.set('universidade_codigo', json.data.codigo_academia);\n}"
+        }
+      ],
+      "_type": "request"
+    },
+    {
+      "_id": "req_login_escola",
+      "parentId": "fld_2_academia",
+      "name": "Login Escola",
+      "url": "{{base_url}}/login",
+      "method": "POST",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"usuario\": \"{{escola_codigo}}\",\n  \"senha\": \"escola2025\",\n  \"type\": \"academia\"\n}"
+      },
+      "tests": [
+        {
+          "name": "Extrair Token da Escola",
+          "script": "const json = await insomnia.response.json();\nif (json.token) {\n  await insomnia.environment.set('escola_token', json.token);\n}"
+        }
+      ],
+      "_type": "request"
+    },
+    {
+      "_id": "req_login_uni",
+      "parentId": "fld_2_academia",
+      "name": "Login Universidade",
+      "url": "{{base_url}}/login",
+      "method": "POST",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"usuario\": \"{{universidade_codigo}}\",\n  \"senha\": \"uni2025\",\n  \"type\": \"academia\"\n}"
+      },
+      "tests": [
+        {
+          "name": "Extrair Token da Universidade",
+          "script": "const json = await insomnia.response.json();\nif (json.token) {\n  await insomnia.environment.set('universidade_token', json.token);\n}"
+        }
+      ],
+      "_type": "request"
+    },
+    {
+      "_id": "req_criar_est_fund",
+      "parentId": "fld_3_estudante",
+      "name": "Criar Estudante Fundamental",
+      "url": "{{base_url}}/estudante/register",
+      "method": "POST",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"senha\": \"estudante2025\",\n  \"nome\": \"João Manuel dos Santos\",\n  \"bilhete_identidade_responsavel\": \"{{estudante_fund_bi_resp}}\",\n  \"ano_escolar\": \"quarto_fundamental\",\n  \"status_escolar\": \"ativo\"\n}"
+      },
+      "tests": [
+        {
+          "name": "Extrair ID Estudante Fundamental",
+          "script": "const json = await insomnia.response.json();\nif (json.data && json.data.id) {\n  await insomnia.environment.set('estudante_fund_id', json.data.id);\n}"
+        }
+      ],
+      "_type": "request"
+    },
+    {
+      "_id": "req_criar_est_sup",
+      "parentId": "fld_3_estudante",
+      "name": "Criar Estudante Superior",
+      "url": "{{base_url}}/estudante/register",
+      "method": "POST",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"senha\": \"estudante2025\",\n  \"nome\": \"Maria Francisca Almeida\",\n  \"bilhete_identidade\": \"{{estudante_sup_bi}}\",\n  \"ano_superior\": \"primeiro_superior\",\n  \"curso_superior\": \"Engenharia Informática\",\n  \"status_superior\": \"ativo\"\n}"
+      },
+      "tests": [
+        {
+          "name": "Extrair ID Estudante Superior",
+          "script": "const json = await insomnia.response.json();\nif (json.data && json.data.id) {\n  await insomnia.environment.set('estudante_sup_id', json.data.id);\n}"
+        }
+      ],
+      "_type": "request"
+    },
+    {
+      "_id": "req_login_est_fund",
+      "parentId": "fld_3_estudante",
+      "name": "Login Estudante Fundamental",
+      "url": "{{base_url}}/login",
+      "method": "POST",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"usuario\": \"{{estudante_fund_bi_resp}}\",\n  \"senha\": \"estudante2025\",\n  \"type\": \"estudante\"\n}"
+      },
+      "tests": [
+        {
+          "name": "Extrair Token Estudante Fundamental",
+          "script": "const json = await insomnia.response.json();\nif (json.token) {\n  await insomnia.environment.set('estudante_fund_token', json.token);\n}"
+        }
+      ],
+      "_type": "request"
+    },
+    {
+      "_id": "req_login_est_sup",
+      "parentId": "fld_3_estudante",
+      "name": "Login Estudante Superior",
+      "url": "{{base_url}}/login",
+      "method": "POST",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"usuario\": \"{{estudante_sup_bi}}\",\n  \"senha\": \"estudante2025\",\n  \"type\": \"estudante\"\n}"
+      },
+      "tests": [
+        {
+          "name": "Extrair Token Estudante Superior",
+          "script": "const json = await insomnia.response.json();\nif (json.token) {\n  await insomnia.environment.set('estudante_sup_token', json.token);\n}"
+        }
+      ],
+      "_type": "request"
+    },
+    {
+      "_id": "req_solicitar_insc_escola",
+      "parentId": "fld_4_inscricoes",
+      "name": "Solicitar Inscrição na Escola",
+      "url": "{{base_url}}/estudante/inscricao-escola",
+      "method": "POST",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" },
+        { "name": "Authorization", "value": "Bearer {{estudante_fund_token}}" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"id_academia\": \"{{escola_id}}\",\n  \"ano_escolar_inscricao\": \"quinto_fundamental\",\n  \"curso_medio\": null\n}"
+      },
+      "_type": "request"
+    },
+    {
+      "_id": "req_listar_pendentes",
+      "parentId": "fld_4_inscricoes",
+      "name": "Listar Inscrições Pendentes (Escola)",
+      "url": "{{base_url}}/academia/inscricoes-pendentes",
+      "method": "GET",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{escola_token}}" }
+      ],
+      "tests": [
+        {
+          "name": "Extrair ID da Inscrição Pendente",
+          "script": "const json = await insomnia.response.json();\nif (json.inscricoes && json.inscricoes.length > 0) {\n  await insomnia.environment.set('inscricao_escola_id', json.inscricoes[0].id);\n  console.log('Inscrição ID capturado:', json.inscricoes[0].id);\n}"
+        }
+      ],
+      "_type": "request"
+    },
+    {
+      "_id": "req_aprovar_insc",
+      "parentId": "fld_4_inscricoes",
+      "name": "Aprovar Inscrição",
+      "url": "{{base_url}}/academia/inscricao/{{inscricao_escola_id}}/aprovar",
+      "method": "PUT",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{escola_token}}" }
+      ],
+      "_type": "request"
+    },
+    {
+      "_id": "req_registrar_notas",
+      "parentId": "fld_5_registros",
+      "name": "Registrar Notas",
+      "url": "{{base_url}}/academia/notas-aluno",
+      "method": "POST",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" },
+        { "name": "Authorization", "value": "Bearer {{escola_token}}" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"estudante_id\": \"{{estudante_fund_id}}\",\n  \"ano_lectivo\": \"2025/2026\",\n  \"periodo\": \"trimestre_1\",\n  \"materias\": [\n    { \"nome\": \"Matemática\", \"nota\": 17 },\n    { \"nome\": \"Português\", \"nota\": 16 },\n    { \"nome\": \"Ciências Naturais\", \"nota\": 18 },\n    { \"nome\": \"História\", \"nota\": 15 },\n    { \"nome\": \"Geografia\", \"nota\": 16 },\n    { \"nome\": \"Educação Física\", \"nota\": 19 }\n  ]\n}"
+      },
+      "_type": "request"
+    },
+    {
+      "_id": "req_registrar_faltas",
+      "parentId": "fld_5_registros",
+      "name": "Registrar Faltas",
+      "url": "{{base_url}}/academia/faltas-aluno",
+      "method": "POST",
+      "headers": [
+        { "name": "Content-Type", "value": "application/json" },
+        { "name": "Authorization", "value": "Bearer {{escola_token}}" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"estudante_id\": \"{{estudante_fund_id}}\",\n  \"ano_lectivo\": \"2025/2026\",\n  \"periodo\": \"trimestre_1\",\n  \"materias\": [\n    { \"nome\": \"Matemática\", \"faltas\": 1 },\n    { \"nome\": \"Português\", \"faltas\": 0 },\n    { \"nome\": \"Ciências Naturais\", \"faltas\": 2 },\n    { \"nome\": \"História\", \"faltas\": 0 },\n    { \"nome\": \"Geografia\", \"faltas\": 1 },\n    { \"nome\": \"Educação Física\", \"faltas\": 0 }\n  ]\n}"
+      },
+      "_type": "request"
+    },
+    {
+      "_id": "req_notas",
+      "parentId": "fld_6_consultas",
+      "name": "Consultar Notas",
+      "url": "{{base_url}}/notas-estudante/{{estudante_fund_id}}",
+      "method": "GET",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{estudante_fund_token}}" }
+      ],
+      "_type": "request"
+    },
+    {
+      "_id": "req_faltas",
+      "parentId": "fld_6_consultas",
+      "name": "Consultar Faltas",
+      "url": "{{base_url}}/faltas-estudante/{{estudante_fund_id}}",
+      "method": "GET",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{estudante_fund_token}}" }
+      ],
+      "_type": "request"
+    },
+    {
+      "_id": "req_historico",
+      "parentId": "fld_6_consultas",
+      "name": "Histórico Completo",
+      "url": "{{base_url}}/historico-estudante/{{estudante_fund_id}}",
+      "method": "GET",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{estudante_fund_token}}" }
+      ],
+      "_type": "request"
+    },
+    {
+      "_id": "req_eventos",
+      "parentId": "fld_7_events",
+      "name": "Timeline de Eventos",
+      "url": "{{base_url}}/eventos-estudante/{{estudante_fund_id}}",
+      "method": "GET",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{estudante_fund_token}}" }
+      ],
+      "_type": "request"
+    },
+    {
+      "_id": "req_integridade",
+      "parentId": "fld_7_events",
+      "name": "Verificar Integridade",
+      "url": "{{base_url}}/verificar-integridade/{{estudante_fund_id}}",
+      "method": "GET",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer {{estudante_fund_token}}" }
+      ],
+      "_type": "request"
+    }
+  ]
+}

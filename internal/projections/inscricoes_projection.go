@@ -1,9 +1,16 @@
+// ============================================================================
+// ARQUIVO: internal/projections/inscricoes_projection.go
+// CORRIGIDO: Usar payload.EstudanteID corretamente
+// ============================================================================
+
 package projections
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"spuri/internal/genesisdb"
 	"time"
 
@@ -124,17 +131,35 @@ func (p *InscricoesProjection) handleEstudanteInscrito(event genesisdb.Event) er
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
+	// 🔥 event.AggregateID é o ID do ESTUDANTE (evento vem do agregado Estudante)
+	estudanteID := event.AggregateID
+
+	// Buscar códigos do estudante e academia
+	var codigoEstudante, codigoAcademia string
+	
+	queryEstudante := `SELECT codigo_estudante FROM projection_estudantes WHERE id = $1`
+	p.client.DB().GetContext(p.ctx, &codigoEstudante, queryEstudante, estudanteID)
+	
+	queryAcademia := `SELECT codigo_academia FROM projection_academias WHERE id = $1`
+	p.client.DB().GetContext(p.ctx, &codigoAcademia, queryAcademia, payload.AcademiaID)
+
+	log.Printf("📝 [INSCRICAO] Criando inscrição - Estudante: %s (%s), Academia: %s (%s)", 
+		estudanteID, codigoEstudante, payload.AcademiaID, codigoAcademia)
+
 	query := `
 		INSERT INTO projection_inscricoes (
-			estudante_id, academia_id, tipo, ano_inscricao,
-			curso, status, created_at, updated_at, event_id, version
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			estudante_id, codigo_estudante, academia_id, codigo_academia,
+			tipo, ano_inscricao, curso, status, created_at, updated_at, 
+			event_id, version
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
 
 	_, err := p.client.DB().ExecContext(
 		p.ctx, query,
-		event.AggregateID,
+		estudanteID,
+		codigoEstudante,
 		payload.AcademiaID,
+		codigoAcademia,
 		payload.Tipo,
 		payload.AnoInscricao,
 		payload.Curso,
@@ -158,8 +183,10 @@ func (p *InscricoesProjection) handleEstudanteInscrito(event genesisdb.Event) er
 	return err
 }
 
+// 🔥 CORRIGIDO: handleInscricaoAprovada
 func (p *InscricoesProjection) handleInscricaoAprovada(event genesisdb.Event) error {
 	var payload struct {
+		EstudanteID  uuid.UUID `json:"EstudanteID"`  // 🔥 Vem do evento da Academia
 		InscricaoID  uuid.UUID `json:"InscricaoID"`
 		AcademiaID   uuid.UUID `json:"AcademiaID"`
 		Tipo         string    `json:"Tipo"`
@@ -171,50 +198,103 @@ func (p *InscricoesProjection) handleInscricaoAprovada(event genesisdb.Event) er
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	// Atualizar inscrição para aprovada
+	// 🔥 CORRIGIDO: Usar payload.EstudanteID, não event.AggregateID
+	estudanteID := payload.EstudanteID
+	if estudanteID == uuid.Nil {
+		// Fallback: se não vier no payload, usar aggregate (para eventos antigos)
+		estudanteID = event.AggregateID
+	}
+
+	log.Printf("✅ [INSCRICAO] Aprovando inscrição - Estudante: %s, Academia: %s", 
+		estudanteID, payload.AcademiaID)
+
+	// 🔥 ATUALIZAR apenas a inscrição em 'espera'
 	query := `
 		UPDATE projection_inscricoes
 		SET 
 			status = 'aprovado',
 			updated_at = CURRENT_TIMESTAMP
-		WHERE estudante_id = $1 AND academia_id = $2 AND status = 'espera'
+		WHERE estudante_id = $1 
+		  AND academia_id = $2 
+		  AND status = 'espera'
+		  AND tipo = $3
+		RETURNING id
 	`
 
-	_, err := p.client.DB().ExecContext(
+	var inscricaoID uuid.UUID
+	err := p.client.DB().QueryRowContext(
 		p.ctx, query,
-		event.AggregateID,
+		estudanteID,
 		payload.AcademiaID,
-	)
+		payload.Tipo,
+	).Scan(&inscricaoID)
 
-	return err
+	if err != nil {
+		if err == sql.ErrNoRows {
+			log.Printf("⚠️ [INSCRICAO] Nenhuma inscrição pendente para aprovar (Estudante: %s, Academia: %s)", 
+				estudanteID, payload.AcademiaID)
+			return nil // Não é erro, só não tinha pendente
+		}
+		return err
+	}
+
+	log.Printf("✅ [INSCRICAO] Inscrição aprovada com sucesso: %s", inscricaoID)
+	return nil
 }
 
+// 🔥 CORRIGIDO: handleInscricaoReprovada
 func (p *InscricoesProjection) handleInscricaoReprovada(event genesisdb.Event) error {
 	var payload struct {
+		EstudanteID uuid.UUID `json:"EstudanteID"` // 🔥 IMPORTANTE: vem do payload
 		InscricaoID uuid.UUID `json:"InscricaoID"`
 		AcademiaID  uuid.UUID `json:"AcademiaID"`
+		Motivo      string    `json:"Motivo"`
 	}
 
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	// Atualizar inscrição para reprovada
+	// 🔥 CORRIGIDO: Usar payload.EstudanteID
+	estudanteID := payload.EstudanteID
+	if estudanteID == uuid.Nil {
+		log.Printf("⚠️ [INSCRICAO] EstudanteID não encontrado no payload do evento!")
+		return fmt.Errorf("EstudanteID ausente no payload")
+	}
+
+	log.Printf("❌ [INSCRICAO] Reprovando inscrição - Estudante: %s, Academia: %s", 
+		estudanteID, payload.AcademiaID)
+
+	// 🔥 ATUALIZAR status para 'reprovado' apenas se estiver em 'espera'
 	query := `
 		UPDATE projection_inscricoes
 		SET 
 			status = 'reprovado',
 			updated_at = CURRENT_TIMESTAMP
-		WHERE estudante_id = $1 AND academia_id = $2 AND status = 'espera'
+		WHERE estudante_id = $1 
+		  AND academia_id = $2 
+		  AND status = 'espera'
+		RETURNING id
 	`
 
-	_, err := p.client.DB().ExecContext(
+	var inscricaoID uuid.UUID
+	err := p.client.DB().QueryRowContext(
 		p.ctx, query,
-		event.AggregateID,
+		estudanteID,
 		payload.AcademiaID,
-	)
+	).Scan(&inscricaoID)
 
-	return err
+	if err != nil {
+		if err == sql.ErrNoRows {
+			log.Printf("⚠️ [INSCRICAO] Nenhuma inscrição pendente para reprovar (Estudante: %s, Academia: %s)", 
+				estudanteID, payload.AcademiaID)
+			return nil // Não é erro
+		}
+		return err
+	}
+
+	log.Printf("✅ [INSCRICAO] Inscrição reprovada com sucesso: %s", inscricaoID)
+	return nil
 }
 
 // Query methods
@@ -223,8 +303,9 @@ func (p *InscricoesProjection) handleInscricaoReprovada(event genesisdb.Event) e
 func (p *InscricoesProjection) GetByEstudante(estudanteID uuid.UUID) ([]InscricaoDTO, error) {
 	query := `
 		SELECT 
-			id, estudante_id, academia_id, tipo, ano_inscricao,
-			curso, status, created_at, updated_at, event_id, version
+			id, estudante_id, codigo_estudante, academia_id, codigo_academia,
+			tipo, ano_inscricao, curso, status, created_at, updated_at, 
+			event_id, version
 		FROM projection_inscricoes
 		WHERE estudante_id = $1
 		ORDER BY created_at DESC
@@ -235,12 +316,13 @@ func (p *InscricoesProjection) GetByEstudante(estudanteID uuid.UUID) ([]Inscrica
 	return result, err
 }
 
-// GetByAcademia busca inscrições de uma academia
+// GetByAcademia busca inscrições de uma academia por status
 func (p *InscricoesProjection) GetByAcademia(academiaID uuid.UUID, status string) ([]InscricaoDTO, error) {
 	query := `
 		SELECT 
-			id, estudante_id, academia_id, tipo, ano_inscricao,
-			curso, status, created_at, updated_at, event_id, version
+			id, estudante_id, codigo_estudante, academia_id, codigo_academia,
+			tipo, ano_inscricao, curso, status, created_at, updated_at, 
+			event_id, version
 		FROM projection_inscricoes
 		WHERE academia_id = $1 AND status = $2
 		ORDER BY created_at DESC
@@ -251,12 +333,39 @@ func (p *InscricoesProjection) GetByAcademia(academiaID uuid.UUID, status string
 	return result, err
 }
 
+// GetAll retorna todas as inscrições
+func (p *InscricoesProjection) GetAll(limit, offset int) ([]InscricaoDTO, error) {
+	query := `
+		SELECT 
+			id, estudante_id, codigo_estudante, academia_id, codigo_academia,
+			tipo, ano_inscricao, curso, status, created_at, updated_at, 
+			event_id, version
+		FROM projection_inscricoes
+		ORDER BY created_at DESC
+		LIMIT $1 OFFSET $2
+	`
+
+	var result []InscricaoDTO
+	err := p.client.DB().SelectContext(p.ctx, &result, query, limit, offset)
+	return result, err
+}
+
+// CountAll conta total de inscrições
+func (p *InscricoesProjection) CountAll() (int, error) {
+	query := `SELECT COUNT(*) FROM projection_inscricoes`
+	
+	var count int
+	err := p.client.DB().GetContext(p.ctx, &count, query)
+	return count, err
+}
+
 // GetByID busca uma inscrição específica
 func (p *InscricoesProjection) GetByID(id uuid.UUID) (*InscricaoDTO, error) {
 	query := `
 		SELECT 
-			id, estudante_id, academia_id, tipo, ano_inscricao,
-			curso, status, created_at, updated_at, event_id, version
+			id, estudante_id, codigo_estudante, academia_id, codigo_academia,
+			tipo, ano_inscricao, curso, status, created_at, updated_at, 
+			event_id, version
 		FROM projection_inscricoes
 		WHERE id = $1
 	`
@@ -269,17 +378,19 @@ func (p *InscricoesProjection) GetByID(id uuid.UUID) (*InscricaoDTO, error) {
 	return &dto, nil
 }
 
-// InscricaoDTO DTO da projeção
+// InscricaoDTO com códigos
 type InscricaoDTO struct {
-	ID           uuid.UUID  `db:"id" json:"id"`
-	EstudanteID  uuid.UUID  `db:"estudante_id" json:"estudante_id"`
-	AcademiaID   uuid.UUID  `db:"academia_id" json:"academia_id"`
-	Tipo         string     `db:"tipo" json:"tipo"`
-	AnoInscricao string     `db:"ano_inscricao" json:"ano_inscricao"`
-	Curso        *string    `db:"curso" json:"curso,omitempty"`
-	Status       string     `db:"status" json:"status"`
-	CreatedAt    time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt    time.Time  `db:"updated_at" json:"updated_at"`
-	EventID      uuid.UUID  `db:"event_id" json:"event_id"`
-	Version      int        `db:"version" json:"version"`
+	ID              uuid.UUID  `db:"id" json:"id"`
+	EstudanteID     uuid.UUID  `db:"estudante_id" json:"estudante_id"`
+	CodigoEstudante string     `db:"codigo_estudante" json:"codigo_estudante"`
+	AcademiaID      uuid.UUID  `db:"academia_id" json:"academia_id"`
+	CodigoAcademia  string     `db:"codigo_academia" json:"codigo_academia"`
+	Tipo            string     `db:"tipo" json:"tipo"`
+	AnoInscricao    string     `db:"ano_inscricao" json:"ano_inscricao"`
+	Curso           *string    `db:"curso" json:"curso,omitempty"`
+	Status          string     `db:"status" json:"status"`
+	CreatedAt       time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt       time.Time  `db:"updated_at" json:"updated_at"`
+	EventID         uuid.UUID  `db:"event_id" json:"event_id"`
+	Version         int        `db:"version" json:"version"`
 }

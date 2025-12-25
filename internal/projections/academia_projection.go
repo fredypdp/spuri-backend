@@ -473,3 +473,60 @@ type AcademiaDTO struct {
 	TotalInscricoesPendentes int        `json:"total_inscricoes_pendentes"`
 	Version                  int        `json:"version"`
 }
+
+// 🔥 NOVO: GetByCodigo busca academia por código
+func (p *AcademiaProjection) GetByCodigo(codigo string) (*AcademiaDTO, error) {
+	log.Printf("🔍 [PROJEÇÃO ACADEMIA] GetByCodigo: %s", codigo)
+	
+	query := `
+		SELECT 
+			id, type, nome, codigo_academia, senha_hash, provincia,
+			endereco, numero_telefone, email, website, nivel_escolar,
+			status, cursos, created_at, updated_at,
+			total_estudantes, total_inscricoes_pendentes, version
+		FROM projection_academias
+		WHERE codigo_academia = $1
+		LIMIT 1
+	`
+
+	var dto AcademiaDTO
+	var cursosJSON []byte
+
+	err := p.client.DB().QueryRowContext(p.ctx, query, codigo).Scan(
+		&dto.ID,
+		&dto.Type,
+		&dto.Nome,
+		&dto.CodigoAcademia,
+		&dto.SenhaHash,
+		&dto.Provincia,
+		&dto.Endereco,
+		&dto.NumeroTelefone,
+		&dto.Email,
+		&dto.Website,
+		&dto.NivelEscolar,
+		&dto.Status,
+		&cursosJSON,
+		&dto.CreatedAt,
+		&dto.UpdatedAt,
+		&dto.TotalEstudantes,
+		&dto.TotalInscricoesPendentes,
+		&dto.Version,
+	)
+
+	if err == sql.ErrNoRows {
+		log.Printf("❌ [PROJEÇÃO ACADEMIA] Nenhum registro encontrado com código: %s", codigo)
+		return nil, nil
+	}
+	if err != nil {
+		log.Printf("❌ [PROJEÇÃO ACADEMIA] Erro na query: %v", err)
+		return nil, err
+	}
+
+	// Deserializar cursos
+	if err := json.Unmarshal(cursosJSON, &dto.Cursos); err != nil {
+		dto.Cursos = []string{}
+	}
+
+	log.Printf("✅ [PROJEÇÃO ACADEMIA] Academia encontrada: %s (Código: %s)", dto.Nome, dto.CodigoAcademia)
+	return &dto, nil
+}

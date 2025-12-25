@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/domain/aggregates/estudante.go
-// CORREÇÃO: Adicionar SenhaHash ao agregado e eventos
+// ATUALIZADO: Adicionar CodigoEstudante
 // ============================================================================
 
 package aggregates
@@ -19,7 +19,8 @@ type Estudante struct {
 	
 	// Estado
 	Nome                       string
-	SenhaHash                  string  // 🔥 ADICIONAR
+	CodigoEstudante            string     // 🔥 NOVO: Código único (ex: KAF7392)
+	SenhaHash                  string
 	BilheteIdentidade          *string
 	BilheteIdentidadeResp      *string
 	IDAcademia                 *uuid.UUID
@@ -120,10 +121,11 @@ func (e *Estudante) Apply(event DomainEvent) error {
 
 // Comandos - geram eventos
 
-// 🔥 FIX: Adicionar parâmetro senhaHash
+// 🔥 ATUALIZADO: Adicionar codigoEstudante
 func (e *Estudante) Criar(
 	nome string,
-	senhaHash string, // 🔥 ADICIONAR
+	codigoEstudante string, // 🔥 NOVO
+	senhaHash string,
 	bilhete *string,
 	bilheteResp *string,
 	anoEscolar *string,
@@ -137,7 +139,10 @@ func (e *Estudante) Criar(
 	if nome == "" {
 		return fmt.Errorf("nome é obrigatório")
 	}
-	if senhaHash == "" { // 🔥 ADICIONAR
+	if codigoEstudante == "" { // 🔥 NOVO
+		return fmt.Errorf("codigo_estudante é obrigatório")
+	}
+	if senhaHash == "" {
 		return fmt.Errorf("senha é obrigatória")
 	}
 	if bilhete == nil && bilheteResp == nil {
@@ -151,7 +156,8 @@ func (e *Estudante) Criar(
 			AggregateID: e.ID,
 		},
 		Nome:                  nome,
-		SenhaHash:             senhaHash, // 🔥 ADICIONAR
+		CodigoEstudante:       codigoEstudante, // 🔥 NOVO
+		SenhaHash:             senhaHash,
 		BilheteIdentidade:     bilhete,
 		BilheteIdentidadeResp: bilheteResp,
 		AnoEscolar:            anoEscolar,
@@ -243,6 +249,18 @@ func (e *Estudante) SolicitarInscricao(
 		return fmt.Errorf("tipo deve ser 'escola' ou 'universidade'")
 	}
 
+	// 🔥 VALIDAÇÃO: Não pode se inscrever se já pertence a esta academia
+	if e.IDAcademia != nil && *e.IDAcademia == academiaID {
+		return fmt.Errorf("você já está matriculado nesta academia")
+	}
+
+	// 🔥 VALIDAÇÃO: Não pode ter inscrição pendente nesta academia
+	for _, inscricao := range e.Inscricoes {
+		if inscricao.AcademiaID == academiaID && inscricao.Status == "espera" {
+			return fmt.Errorf("você já possui uma inscrição pendente nesta academia")
+		}
+	}
+
 	// Criar evento
 	event := &EstudanteInscritoEvent{
 		BaseEvent: BaseEvent{
@@ -295,6 +313,38 @@ func (e *Estudante) AprovarInscricao(
 	return e.Apply(event)
 }
 
+// 🔥 NOVO: ReprovarInscricao processa a reprovação de uma inscrição
+func (e *Estudante) ReprovarInscricao(
+	academiaID uuid.UUID,
+	inscricaoID uuid.UUID,
+) error {
+	// Buscar inscrição pendente
+	var inscricaoPendente *Inscricao
+	for i := range e.Inscricoes {
+		if e.Inscricoes[i].AcademiaID == academiaID && e.Inscricoes[i].Status == "espera" {
+			inscricaoPendente = &e.Inscricoes[i]
+			break
+		}
+	}
+
+	if inscricaoPendente == nil {
+		return fmt.Errorf("nenhuma inscrição pendente encontrada")
+	}
+
+	// Criar evento
+	event := &InscricaoReprovadaEvent{
+		BaseEvent: BaseEvent{
+			EventType:   "InscricaoReprovada",
+			AggregateID: e.ID,
+		},
+		InscricaoID: inscricaoID,
+		AcademiaID:  academiaID,
+	}
+
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
 // Event Handlers - aplicam eventos ao estado
 
 func (e *Estudante) applyEstudanteCriado(event DomainEvent) error {
@@ -311,7 +361,8 @@ func (e *Estudante) applyEstudanteCriado(event DomainEvent) error {
 
 	e.ID = event.GetAggregateID()
 	e.Nome = ev.Nome
-	e.SenhaHash = ev.SenhaHash // 🔥 ADICIONAR
+	e.CodigoEstudante = ev.CodigoEstudante // 🔥 NOVO
+	e.SenhaHash = ev.SenhaHash
 	e.BilheteIdentidade = ev.BilheteIdentidade
 	e.BilheteIdentidadeResp = ev.BilheteIdentidadeResp
 	e.AnoEscolar = ev.AnoEscolar
@@ -463,11 +514,12 @@ func (e *Estudante) applyVinculoAtualizado(event DomainEvent) error {
 
 // Eventos do Estudante
 
-// 🔥 FIX: Adicionar SenhaHash ao evento
+// 🔥 ATUALIZADO: Adicionar CodigoEstudante
 type EstudanteCriadoEvent struct {
 	BaseEvent
 	Nome                  string
-	SenhaHash             string  // 🔥 ADICIONAR
+	CodigoEstudante       string  // 🔥 NOVO
+	SenhaHash             string
 	BilheteIdentidade     *string
 	BilheteIdentidadeResp *string
 	AnoEscolar            *string

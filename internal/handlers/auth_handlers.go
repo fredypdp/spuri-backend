@@ -1,3 +1,8 @@
+// ============================================================================
+// ARQUIVO: internal/handlers/auth_handlers.go
+// ATUALIZADO: Usar codigo_estudante em vez de bilhete para login
+// ============================================================================
+
 package handlers
 
 import (
@@ -6,6 +11,7 @@ import (
 	"net/http"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
+	"spuri/internal/utils" // 🔥 NOVO: Import do gerador de código
 	"strings"
 	"time"
 
@@ -16,7 +22,7 @@ import (
 
 // LoginRequest representa uma requisição de login
 type LoginRequest struct {
-	Usuario string `json:"usuario" binding:"required"`
+	Usuario string `json:"usuario" binding:"required"` // codigo_estudante para estudantes, codigo_academia para academias
 	Senha   string `json:"senha" binding:"required"`
 	Type    string `json:"type" binding:"required"`
 }
@@ -29,7 +35,7 @@ type LoginResponse struct {
 	Type  string    `json:"type"`
 }
 
-// Login autentica um usuário (academia ou estudante)
+// 🔥 ATUALIZADO: Login usa codigo_estudante para estudantes
 func Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -52,7 +58,7 @@ func Login(c *gin.Context) {
 	var senhaHash string
 
 	if req.Type == "academia" {
-		// Buscar academia na projeção
+		// Buscar academia na projeção (código ou email)
 		log.Printf("🔍 [LOGIN] Buscando academia com código/email: %s", req.Usuario)
 		
 		academia, err := academiaProj.GetByCodigoOrEmail(req.Usuario)
@@ -68,17 +74,16 @@ func Login(c *gin.Context) {
 		}
 
 		log.Printf("✅ [LOGIN] Academia encontrada: %s (ID: %s)", academia.Nome, academia.ID)
-		log.Printf("🔐 [LOGIN] SenhaHash na projeção: %s", academia.SenhaHash[:20]+"...")
 
 		userID = academia.ID
 		userName = academia.Nome
 		senhaHash = academia.SenhaHash
 
 	} else {
-		// 🔥 ESTUDANTE - Adicionar logs detalhados
-		log.Printf("🔍 [LOGIN] Buscando estudante com bilhete: %s", req.Usuario)
+		// 🔥 ESTUDANTE - Buscar por CÓDIGO em vez de BILHETE
+		log.Printf("🔍 [LOGIN] Buscando estudante com código: %s", req.Usuario)
 		
-		estudante, err := estudanteProj.GetByBilhete(req.Usuario)
+		estudante, err := estudanteProj.GetByCodigo(req.Usuario)
 		if err != nil {
 			log.Printf("❌ [LOGIN] Erro ao buscar estudante: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar estudante"})
@@ -90,13 +95,7 @@ func Login(c *gin.Context) {
 			return
 		}
 
-		log.Printf("✅ [LOGIN] Estudante encontrado: %s (ID: %s)", estudante.Nome, estudante.ID)
-		log.Printf("🔐 [LOGIN] SenhaHash na projeção existe: %v (length: %d)", 
-			estudante.SenhaHash != "", len(estudante.SenhaHash))
-		
-		if estudante.SenhaHash != "" {
-			log.Printf("🔐 [LOGIN] SenhaHash (primeiros 20): %s", estudante.SenhaHash[:20]+"...")
-		}
+		log.Printf("✅ [LOGIN] Estudante encontrado: %s (Código: %s)", estudante.Nome, estudante.CodigoEstudante)
 
 		userID = estudante.ID
 		userName = estudante.Nome
@@ -128,12 +127,28 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	log.Printf("✅ [LOGIN] Login bem-sucedido para: %s (%s)", userName, req.Type)
-	c.JSON(http.StatusOK, LoginResponse{
-		Token: token,
-		ID:    userID,
-		Nome:  userName,
-		Type:  req.Type,
+	// 🔥 Preparar resposta com código
+	var codigo string
+	if req.Type == "academia" {
+		// Buscar novamente para pegar o código
+		academiaDTO, _ := academiaProj.GetByCodigoOrEmail(req.Usuario)
+		if academiaDTO != nil {
+			codigo = academiaDTO.CodigoAcademia
+		}
+	} else {
+		// Buscar novamente para pegar o código
+		estudanteDTO, _ := estudanteProj.GetByCodigo(req.Usuario)
+		if estudanteDTO != nil {
+			codigo = estudanteDTO.CodigoEstudante
+		}
+	}
+
+	log.Printf("✅ [LOGIN] Login bem-sucedido para: %s (%s) - Código: %s", userName, req.Type, codigo)
+	c.JSON(http.StatusOK, gin.H{
+		"token": token,
+		"codigo": codigo, // 🔥 Retorna codigo_estudante ou codigo_academia
+		"nome": userName,
+		"type": req.Type,
 	})
 }
 
@@ -191,11 +206,11 @@ func RegisterAcademia(c *gin.Context) {
 	log.Printf("✅ [REGISTER] Hash gerado: %s", string(hashedPassword[:20])+"...")
 
 	// Criar agregado Academia
-	log.Printf("📝 [REGISTER] Criando agregado Academia...")
+	log.Printf("🏗️ [REGISTER] Criando agregado Academia...")
 	repository := getRepository(c)
 	academia := aggregates.NewAcademia()
 
-	// Executar comando Criar - usando hashedPassword aqui
+	// Executar comando Criar
 	log.Printf("⚡ [REGISTER] Executando comando Criar...")
 	if err := academia.Criar(
 		req.Type,
@@ -248,7 +263,7 @@ type RegisterEstudanteRequest struct {
 	StatusSuperior        *string `json:"status_superior"`
 }
 
-// RegisterEstudante registra um novo estudante usando Event Sourcing
+// 🔥 ATUALIZADO: RegisterEstudante gera codigo_estudante automaticamente
 func RegisterEstudante(c *gin.Context) {
 	var req RegisterEstudanteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -262,7 +277,18 @@ func RegisterEstudante(c *gin.Context) {
 		return
 	}
 
-	// 🔥 FIX: Gerar hash da senha
+	// 🔥 GERAR CÓDIGO ÚNICO
+	client := getGenesisClient(c)
+	codigoEstudante, err := utils.GenerateUniqueCodigoEstudante(client.DB())
+	if err != nil {
+		log.Printf("❌ [REGISTER] Erro ao gerar código: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao gerar código de estudante"})
+		return
+	}
+	
+	log.Printf("🎫 [REGISTER] Código gerado: %s", codigoEstudante)
+
+	// Hash da senha
 	log.Printf("🔐 [REGISTER] Gerando hash da senha do estudante...")
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Senha), bcrypt.DefaultCost)
 	if err != nil {
@@ -273,15 +299,16 @@ func RegisterEstudante(c *gin.Context) {
 	log.Printf("✅ [REGISTER] Hash gerado: %s", string(hashedPassword[:20])+"...")
 
 	// Criar agregado Estudante
-	log.Printf("📝 [REGISTER] Criando agregado Estudante...")
+	log.Printf("🏗️ [REGISTER] Criando agregado Estudante...")
 	repository := getRepository(c)
 	estudante := aggregates.NewEstudante()
 
-	// 🔥 FIX: Executar comando Criar passando senhaHash
+	// 🔥 EXECUTAR comando Criar passando codigo_estudante
 	log.Printf("⚡ [REGISTER] Executando comando Criar...")
 	if err := estudante.Criar(
 		req.Nome,
-		string(hashedPassword), // 🔥 PASSAR SENHA HASH
+		codigoEstudante,          // 🔥 PASSAR CÓDIGO
+		string(hashedPassword),
 		req.BilheteIdentidade,
 		req.BilheteIdentidadeResp,
 		req.AnoEscolar,
@@ -304,17 +331,19 @@ func RegisterEstudante(c *gin.Context) {
 		return
 	}
 
-	log.Printf("✅ [REGISTER] Estudante criado com sucesso! ID: %s", estudante.ID)
+	log.Printf("✅ [REGISTER] Estudante criado com sucesso! ID: %s, Código: %s", estudante.ID, codigoEstudante)
 
+	// 🔥 RETORNAR codigo_estudante na resposta
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "estudante criado com sucesso",
 		"data": gin.H{
-			"id": estudante.ID,
+			"id":               estudante.ID,
+			"codigo_estudante": codigoEstudante, // 🔥 NOVO
 		},
 	})
 }
 
-// Helper functions movidas para helpers.go
+// Helper functions
 
 // validarProvincia valida e retorna o código da província
 func validarProvincia(provincia string) (string, error) {

@@ -175,7 +175,7 @@ func setupRouter() *gin.Engine {
 		academia := protected.Group("/academia")
 		academia.Use(middleware.RequireAcademia())
 		{
-			// Commands (CQRS - Write)
+			// Commands (CQRS - Write) - 🔥 USAM codigo_estudante no body
 			academia.POST("/notas-aluno", handlers.RegistrarNotas)
 			academia.POST("/faltas-aluno", handlers.RegistrarFaltas)
 			
@@ -185,21 +185,24 @@ func setupRouter() *gin.Engine {
 			academia.PUT("/inscricao/:id/reprovar", handlers.ReprovarInscricao)
 		}
 
-		// QUERIES (CQRS - Read)
-		protected.GET("/notas-estudante/:estudanteId", handlers.GetNotasEstudante)
-		protected.GET("/faltas-estudante/:estudanteId", handlers.GetFaltasEstudante)
-		protected.GET("/historico-estudante/:estudanteId", handlers.GetHistoricoCompleto)
+		// QUERIES (CQRS - Read) - 🔥 USAM codigo_estudante na rota
+		protected.GET("/notas-estudante/:codigo", handlers.GetNotasEstudante)
+		protected.GET("/faltas-estudante/:codigo", handlers.GetFaltasEstudante)
+		protected.GET("/historico-estudante/:codigo", handlers.GetHistoricoCompleto)
 		
-		// Event Sourcing - Auditoria
-		protected.GET("/eventos-estudante/:estudanteId", handlers.GetEventosEstudante)
-		protected.GET("/verificar-integridade/:estudanteId", handlers.VerificarIntegridade)
+		// 🔥 NOVO: Listar todas as inscrições (com paginação e filtro)
+		protected.GET("/inscricoes", handlers.ListarTodasInscricoes)
+		
+		// Event Sourcing - Auditoria - 🔥 USAM codigo_estudante na rota
+		protected.GET("/eventos-estudante/:codigo", handlers.GetEventosEstudante)
+		protected.GET("/verificar-integridade/:codigo", handlers.VerificarIntegridade)
 		
 		// Reconstrução de projeções (admin)
 		protected.POST("/admin/rebuild-projection/:name", handlers.RebuildProjection)
 	}
 
 	// ============================================
-	// DOCUMENTAÇÃO
+	// DOCUMENTAÇÃO - ATUALIZADA
 	// ============================================
 	router.GET("/", func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -211,35 +214,79 @@ func setupRouter() *gin.Engine {
 				"cqrs": "Separação entre comandos (escrita) e queries (leitura)",
 				"projections": "Read models otimizados reconstruídos automaticamente",
 			},
+			"mudancas_v2": gin.H{
+				"codigo_estudante": "Estudantes agora possuem código único (AAA1234)",
+				"codigo_academia": "Academias identificadas por código (BGO20251234)",
+				"referencias": "Todas as referências usam códigos em vez de UUIDs",
+				"login": "Login usa codigo_estudante para estudantes, codigo_academia para academias",
+			},
 			"rotas": gin.H{
 				"publicas": []string{
-					"POST /login",
-					"POST /academia/register",
-					"POST /estudante/register",
+					"POST /login (usa 'codigo_estudante' ou 'codigo_academia' em 'usuario')",
+					"POST /academia/register (retorna 'codigo_academia')",
+					"POST /estudante/register (retorna 'codigo_estudante')",
 					"GET /health",
 				},
 				"estudante": []string{
-					"POST /estudante/inscricao-escola",
-					"POST /estudante/inscricao-universidade",
+					"POST /estudante/inscricao-escola (body: codigo_academia)",
+					"POST /estudante/inscricao-universidade (body: codigo_academia)",
 					"GET /estudante/minhas-inscricoes",
 					"GET /estudante/meu-historico",
 				},
 				"academia": []string{
-					"POST /academia/notas-aluno (Command)",
-					"POST /academia/faltas-aluno (Command)",
+					"POST /academia/notas-aluno (body: codigo_estudante)",
+					"POST /academia/faltas-aluno (body: codigo_estudante)",
 					"GET /academia/inscricoes-pendentes (Query)",
 					"PUT /academia/inscricao/:id/aprovar (Command)",
 					"PUT /academia/inscricao/:id/reprovar (Command)",
 				},
 				"consultas": []string{
-					"GET /notas-estudante/:estudanteId",
-					"GET /faltas-estudante/:estudanteId",
-					"GET /historico-estudante/:estudanteId",
+					"GET /notas-estudante/:codigo (usa codigo_estudante)",
+					"GET /faltas-estudante/:codigo (usa codigo_estudante)",
+					"GET /historico-estudante/:codigo (usa codigo_estudante)",
 				},
 				"event_sourcing": []string{
-					"GET /eventos-estudante/:estudanteId (histórico completo)",
-					"GET /verificar-integridade/:estudanteId (verificar hash chain)",
+					"GET /eventos-estudante/:codigo (histórico completo)",
+					"GET /verificar-integridade/:codigo (verificar hash chain)",
 					"POST /admin/rebuild-projection/:name (reconstruir projeção)",
+				},
+			},
+			"exemplos": gin.H{
+				"registro_estudante": gin.H{
+					"request": map[string]interface{}{
+						"nome": "João Silva",
+						"senha": "senha123",
+						"bilhete_identidade_responsavel": "BI123456",
+						"ano_escolar": "quinto_fundamental",
+					},
+					"response": map[string]interface{}{
+						"message": "estudante criado com sucesso",
+						"data": map[string]string{
+							"id": "uuid-interno",
+							"codigo_estudante": "KAF7392",
+						},
+					},
+				},
+				"login_estudante": gin.H{
+					"request": map[string]string{
+						"usuario": "KAF7392",
+						"senha": "senha123",
+						"type": "estudante",
+					},
+				},
+				"registrar_notas": gin.H{
+					"request": map[string]interface{}{
+						"codigo_estudante": "KAF7392",
+						"ano_lectivo": "2025/2026",
+						"periodo": "trimestre_1",
+						"materias": []map[string]interface{}{
+							{"nome": "Matemática", "nota": 17},
+							{"nome": "Português", "nota": 16},
+						},
+					},
+				},
+				"consultar_notas": gin.H{
+					"url": "/notas-estudante/KAF7392",
 				},
 			},
 			"features": []string{
@@ -250,6 +297,8 @@ func setupRouter() *gin.Engine {
 				"✅ Auditoria completa de todas as operações",
 				"✅ Reconstrução de projeções a qualquer momento",
 				"✅ Integridade verificável do ledger",
+				"✅ Códigos fáceis de memorizar (estudantes e academias)",
+				"✅ Referências usando códigos em vez de UUIDs",
 			},
 		})
 	})
