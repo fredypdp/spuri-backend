@@ -1,7 +1,7 @@
 -- ============================================
 -- SPURI EVENT SOURCING - SCHEMA COMPLETO
 -- GenesisDB + Projeções + Admin System
--- Versão: 2.1.0
+-- Versão: 2.2.0 (com codigo_academia)
 -- ============================================
 
 -- ============================================
@@ -140,6 +140,7 @@ CREATE INDEX IF NOT EXISTS idx_snapshots_type ON aggregate_snapshots(aggregate_t
 -- ============================================
 
 -- Projeção: Estudantes
+-- 🔥 ATUALIZADO: codigo_academia VARCHAR(50) em vez de id_academia UUID
 CREATE TABLE IF NOT EXISTS projection_estudantes (
     id UUID PRIMARY KEY,
     nome VARCHAR(255) NOT NULL,
@@ -147,7 +148,7 @@ CREATE TABLE IF NOT EXISTS projection_estudantes (
     senha_hash VARCHAR(255) NOT NULL,
     bilhete_identidade VARCHAR(50),
     bilhete_identidade_responsavel VARCHAR(50),
-    id_academia UUID,
+    codigo_academia VARCHAR(50),  -- 🔥 MUDOU: VARCHAR em vez de UUID
     ano_escolar VARCHAR(50),
     ano_superior VARCHAR(50),
     curso_medio VARCHAR(255),
@@ -164,7 +165,7 @@ CREATE TABLE IF NOT EXISTS projection_estudantes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_proj_estudante_codigo ON projection_estudantes(codigo_estudante);
-CREATE INDEX IF NOT EXISTS idx_proj_estudante_academia ON projection_estudantes(id_academia);
+CREATE INDEX IF NOT EXISTS idx_proj_estudante_codigo_academia ON projection_estudantes(codigo_academia);
 CREATE INDEX IF NOT EXISTS idx_proj_estudante_bilhete ON projection_estudantes(bilhete_identidade);
 CREATE INDEX IF NOT EXISTS idx_proj_estudante_bilhete_resp ON projection_estudantes(bilhete_identidade_responsavel);
 
@@ -218,10 +219,11 @@ CREATE INDEX IF NOT EXISTS idx_proj_admins_status ON projection_admins(status);
 CREATE INDEX IF NOT EXISTS idx_proj_admins_created_by ON projection_admins(created_by);
 
 -- Projeção: Notas
+-- 🔥 ATUALIZADO: codigo_academia VARCHAR(50) em vez de id_academia UUID
 CREATE TABLE IF NOT EXISTS projection_notas (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     estudante_id UUID NOT NULL,
-    id_academia UUID NOT NULL,
+    codigo_academia VARCHAR(50) NOT NULL,  -- 🔥 MUDOU
     ano_lectivo VARCHAR(20) NOT NULL,
     periodo VARCHAR(50) NOT NULL,
     materias JSONB NOT NULL,
@@ -232,14 +234,15 @@ CREATE TABLE IF NOT EXISTS projection_notas (
 );
 
 CREATE INDEX IF NOT EXISTS idx_proj_notas_estudante ON projection_notas(estudante_id);
-CREATE INDEX IF NOT EXISTS idx_proj_notas_academia ON projection_notas(id_academia);
+CREATE INDEX IF NOT EXISTS idx_proj_notas_codigo_academia ON projection_notas(codigo_academia);
 CREATE INDEX IF NOT EXISTS idx_proj_notas_ano ON projection_notas(ano_lectivo);
 
 -- Projeção: Faltas
+-- 🔥 ATUALIZADO: codigo_academia VARCHAR(50) em vez de id_academia UUID
 CREATE TABLE IF NOT EXISTS projection_faltas (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     estudante_id UUID NOT NULL,
-    id_academia UUID NOT NULL,
+    codigo_academia VARCHAR(50) NOT NULL,  -- 🔥 MUDOU
     ano_lectivo VARCHAR(20) NOT NULL,
     periodo VARCHAR(50) NOT NULL,
     materias JSONB NOT NULL,
@@ -250,7 +253,7 @@ CREATE TABLE IF NOT EXISTS projection_faltas (
 );
 
 CREATE INDEX IF NOT EXISTS idx_proj_faltas_estudante ON projection_faltas(estudante_id);
-CREATE INDEX IF NOT EXISTS idx_proj_faltas_academia ON projection_faltas(id_academia);
+CREATE INDEX IF NOT EXISTS idx_proj_faltas_codigo_academia ON projection_faltas(codigo_academia);
 CREATE INDEX IF NOT EXISTS idx_proj_faltas_ano ON projection_faltas(ano_lectivo);
 
 -- Projeção: Inscrições
@@ -499,71 +502,11 @@ ORDER BY l.performed_at DESC
 LIMIT 100;
 
 -- ============================================
--- CRIAR ADMIN FPP INICIAL
+-- ADMIN INICIAL
 -- ============================================
-
-DO $$
-DECLARE
-    v_admin_id UUID;
-    v_senha_hash TEXT;
-BEGIN
-    -- Verificar se já existe algum admin
-    IF NOT EXISTS (SELECT 1 FROM projection_admins LIMIT 1) THEN
-        v_admin_id := uuid_generate_v4();
-        
-        -- Hash da senha "fpp@2025" (bcrypt cost 10)
-        -- IMPORTANTE: Mudar após primeiro login!
-        v_senha_hash := '$2a$10$Xv8Y5Z6uKqWbN.jC7Mm4GOqVQ3xJ.FQEt8cY3Zm5yKMqX9Yr6Iw9i';
-        
-        -- Inserir admin FPP inicial
-        INSERT INTO projection_admins (
-            id, nome, email, senha_hash, role, status,
-            created_by, created_at, updated_at, version
-        ) VALUES (
-            v_admin_id,
-            'Administrador FPP',
-            'admin@spuri.ao',
-            v_senha_hash,
-            'fpp',
-            'ativo',
-            NULL,
-            CURRENT_TIMESTAMP,
-            CURRENT_TIMESTAMP,
-            0
-        );
-        
-        -- Criar evento no ledger
-        INSERT INTO genesis_ledger (
-            aggregate_id,
-            aggregate_type,
-            event_type,
-            event_version,
-            payload,
-            metadata,
-            occurred_at
-        ) VALUES (
-            v_admin_id,
-            'Admin',
-            'AdminCriado',
-            1,
-            jsonb_build_object(
-                'Nome', 'Administrador FPP',
-                'Email', 'admin@spuri.ao',
-                'SenhaHash', v_senha_hash,
-                'Role', 'fpp',
-                'CreatedBy', NULL,
-                'CreatedAt', CURRENT_TIMESTAMP
-            ),
-            jsonb_build_object('created_by', 'migration'),
-            CURRENT_TIMESTAMP
-        );
-        
-        RAISE NOTICE '✅ Admin FPP inicial criado!';
-        RAISE NOTICE '📧 Email: admin@spuri.ao';
-        RAISE NOTICE '🔑 Senha: fpp@2025';
-        RAISE NOTICE '⚠️  ALTERE A SENHA IMEDIATAMENTE!';
-    END IF;
-END $$;
+-- NOTA: Admin deve ser criado manualmente via API
+-- Endpoint: POST /admin/register (requer token de admin existente)
+-- Para criar o primeiro admin, use uma rota especial ou script separado
 
 -- ============================================
 -- LOG INICIAL DO SISTEMA
@@ -583,17 +526,18 @@ INSERT INTO genesis_ledger (
     'SchemaCreated',
     1,
     jsonb_build_object(
-        'version', '2.1.0',
+        'version', '2.2.0',
         'name', 'Spuri Event Sourcing',
         'features', json_build_array(
             'event_sourcing',
             'cqrs',
             'codigo_estudante',
+            'codigo_academia',
             'admin_system',
             'role_hierarchy'
         )
     ),
-    jsonb_build_object('created_by', 'migration_completa'),
+    jsonb_build_object('created_by', 'migration_completa_v2.2'),
     CURRENT_TIMESTAMP
 )
 ON CONFLICT (aggregate_id, event_version) DO NOTHING;
@@ -609,6 +553,9 @@ COMMENT ON TABLE projection_admins IS 'Projeção de leitura para administradore
 COMMENT ON TABLE admin_action_log IS 'Log de todas as ações administrativas';
 
 COMMENT ON COLUMN projection_estudantes.codigo_estudante IS 'Código único do estudante (formato: AAA1234)';
+COMMENT ON COLUMN projection_estudantes.codigo_academia IS 'Código da academia à qual o estudante pertence';
+COMMENT ON COLUMN projection_notas.codigo_academia IS 'Código da academia que registrou as notas';
+COMMENT ON COLUMN projection_faltas.codigo_academia IS 'Código da academia que registrou as faltas';
 COMMENT ON COLUMN projection_admins.role IS 'Hierarquia: fpp > adm > gerente';
 COMMENT ON COLUMN projection_academias.status IS 'Status da academia (ativo/inativo)';
 
@@ -630,11 +577,12 @@ BEGIN
     SELECT COUNT(*) INTO v_total_checkpoints FROM projection_checkpoints;
     SELECT COUNT(*) INTO v_total_admins FROM projection_admins;
     
-    RAISE NOTICE '════════════════════════════════════════';
-    RAISE NOTICE '✅ SCHEMA CRIADO COM SUCESSO!';
-    RAISE NOTICE '════════════════════════════════════════';
+    RAISE NOTICE '╔══════════════════════════════════════╗';
+    RAISE NOTICE '║ SCHEMA CRIADO COM SUCESSO! v2.2.0   ║';
+    RAISE NOTICE '╚══════════════════════════════════════╝';
     RAISE NOTICE 'Total de eventos: %', v_total_eventos;
     RAISE NOTICE 'Total de checkpoints: %', v_total_checkpoints;
     RAISE NOTICE 'Total de admins: %', v_total_admins;
-    RAISE NOTICE '════════════════════════════════════════';
+    RAISE NOTICE '🔥 NOVIDADE: codigo_academia implementado';
+    RAISE NOTICE '╚══════════════════════════════════════╝';
 END $$;

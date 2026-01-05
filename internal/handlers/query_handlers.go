@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/handlers/query_handlers.go
-// ATUALIZADO: Usar codigo_estudante nas rotas
+// ATUALIZADO: Usar codigo_academia + nova lógica /inscricoes
 // ============================================================================
 
 package handlers
@@ -11,13 +11,14 @@ import (
 	"spuri/internal/middleware"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
-// 🔥 ATUALIZADO: GetNotasEstudante busca por CÓDIGO
+// GetNotasEstudante busca notas por código
 func GetNotasEstudante(c *gin.Context) {
-	codigoEstudante := c.Param("codigo") // 🔥 MUDOU de estudanteId para codigo
+	codigoEstudante := c.Param("codigo")
 
-	// 🔥 BUSCAR estudante por CÓDIGO
+	// Buscar estudante por código
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
@@ -34,14 +35,18 @@ func GetNotasEstudante(c *gin.Context) {
 		return
 	}
 
+	// 🔥 ATUALIZADO: Verificar codigo_academia
 	if userType == "academia" {
-		if estudante.IDAcademia == nil || *estudante.IDAcademia != userID {
+		academiaProj := getAcademiaProjection(c)
+		academiaDTO, _ := academiaProj.GetByID(userID)
+		
+		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
 			c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
 			return
 		}
 	}
 
-	// Buscar notas da projeção (CQRS - Read Model)
+	// Buscar notas
 	notasProj := getNotasProjection(c)
 	notas, err := notasProj.GetByEstudante(estudante.ID)
 	if err != nil {
@@ -51,17 +56,17 @@ func GetNotasEstudante(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"codigo_estudante": codigoEstudante,
-		"nome": estudante.Nome,
-		"notas": notas,
-		"total": len(notas),
+		"nome":             estudante.Nome,
+		"notas":            notas,
+		"total":            len(notas),
 	})
 }
 
-// 🔥 ATUALIZADO: GetFaltasEstudante busca por CÓDIGO
+// GetFaltasEstudante busca faltas por código
 func GetFaltasEstudante(c *gin.Context) {
-	codigoEstudante := c.Param("codigo") // 🔥 MUDOU
+	codigoEstudante := c.Param("codigo")
 
-	// 🔥 BUSCAR estudante por CÓDIGO
+	// Buscar estudante por código
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
@@ -78,14 +83,18 @@ func GetFaltasEstudante(c *gin.Context) {
 		return
 	}
 
+	// 🔥 ATUALIZADO: Verificar codigo_academia
 	if userType == "academia" {
-		if estudante.IDAcademia == nil || *estudante.IDAcademia != userID {
+		academiaProj := getAcademiaProjection(c)
+		academiaDTO, _ := academiaProj.GetByID(userID)
+		
+		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
 			c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
 			return
 		}
 	}
 
-	// Buscar faltas da projeção
+	// Buscar faltas
 	faltasProj := getFaltasProjection(c)
 	faltas, err := faltasProj.GetByEstudante(estudante.ID)
 	if err != nil {
@@ -95,17 +104,17 @@ func GetFaltasEstudante(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"codigo_estudante": codigoEstudante,
-		"nome": estudante.Nome,
-		"faltas": faltas,
-		"total": len(faltas),
+		"nome":             estudante.Nome,
+		"faltas":           faltas,
+		"total":            len(faltas),
 	})
 }
 
-// 🔥 ATUALIZADO: GetHistoricoCompleto busca por CÓDIGO
+// GetHistoricoCompleto busca histórico por código
 func GetHistoricoCompleto(c *gin.Context) {
-	codigoEstudante := c.Param("codigo") // 🔥 MUDOU
+	codigoEstudante := c.Param("codigo")
 
-	// 🔥 BUSCAR estudante por CÓDIGO
+	// Buscar estudante
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
@@ -122,9 +131,12 @@ func GetHistoricoCompleto(c *gin.Context) {
 		return
 	}
 
-	// Verificar permissão para academia
+	// 🔥 ATUALIZADO: Verificar codigo_academia
 	if userType == "academia" {
-		if estudante.IDAcademia == nil || *estudante.IDAcademia != userID {
+		academiaProj := getAcademiaProjection(c)
+		academiaDTO, _ := academiaProj.GetByID(userID)
+		
+		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
 			c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
 			return
 		}
@@ -150,11 +162,11 @@ func GetHistoricoCompleto(c *gin.Context) {
 	})
 }
 
-// 🔥 ATUALIZADO: GetEventosEstudante busca por CÓDIGO
+// GetEventosEstudante busca eventos por código
 func GetEventosEstudante(c *gin.Context) {
-	codigoEstudante := c.Param("codigo") // 🔥 MUDOU
+	codigoEstudante := c.Param("codigo")
 
-	// 🔥 BUSCAR estudante por CÓDIGO
+	// Buscar estudante
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
@@ -181,18 +193,18 @@ func GetEventosEstudante(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"codigo_estudante": codigoEstudante,
-		"nome": estudante.Nome,
-		"eventos": eventos,
-		"total": len(eventos),
-		"message": "Histórico completo de eventos (Event Sourcing)",
+		"nome":             estudante.Nome,
+		"eventos":          eventos,
+		"total":            len(eventos),
+		"message":          "Histórico completo de eventos (Event Sourcing)",
 	})
 }
 
-// 🔥 ATUALIZADO: VerificarIntegridade busca por CÓDIGO
+// VerificarIntegridade busca por código
 func VerificarIntegridade(c *gin.Context) {
-	codigoEstudante := c.Param("codigo") // 🔥 MUDOU
+	codigoEstudante := c.Param("codigo")
 
-	// 🔥 BUSCAR estudante por CÓDIGO
+	// Buscar estudante
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
@@ -200,7 +212,7 @@ func VerificarIntegridade(c *gin.Context) {
 		return
 	}
 
-	// Verificar integridade da hash chain
+	// Verificar integridade
 	repository := getRepository(c)
 	isValid, err := repository.VerifyIntegrity(estudante.ID)
 	if err != nil {
@@ -210,8 +222,8 @@ func VerificarIntegridade(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"codigo_estudante": codigoEstudante,
-		"nome": estudante.Nome,
-		"integro": isValid,
+		"nome":             estudante.Nome,
+		"integro":          isValid,
 		"message": func() string {
 			if isValid {
 				return "Cadeia de hashes íntegra. Eventos não foram alterados."
@@ -284,8 +296,13 @@ func ListarInscricoesPendentes(c *gin.Context) {
 	})
 }
 
-// 🔥 NOVO: ListarTodasInscricoes lista todas as inscrições (admin/consulta)
+// 🔥 NOVA FUNCIONALIDADE: ListarTodasInscricoes
+// Admin: lista TODAS as inscrições
+// Academia: lista apenas inscrições da própria academia
 func ListarTodasInscricoes(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
+	
 	// Parâmetros de paginação
 	limit := 50
 	offset := 0
@@ -298,45 +315,86 @@ func ListarTodasInscricoes(c *gin.Context) {
 	}
 	
 	// Filtro por status (opcional)
-	status := c.Query("status") // "espera", "aprovado", "reprovado", ou vazio para todos
+	status := c.Query("status") // "espera", "aprovado", "reprovado", ou vazio
 
 	inscProj := getInscricoesProjection(c)
+	client := getGenesisClient(c)
 	
 	var inscricoes []interface{}
 	var err error
 	var total int
 	
-	if status != "" {
-		// Buscar por status específico
-		query := `
-			SELECT 
-				id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-				tipo, ano_inscricao, curso, status, created_at, updated_at, 
-				event_id, version
-			FROM projection_inscricoes
-			WHERE status = $1
-			ORDER BY created_at DESC
-			LIMIT $2 OFFSET $3
-		`
-		client := getGenesisClient(c)
-		err = client.DB().Select(&inscricoes, query, status, limit, offset)
-		
-		// Contar total com filtro
-		countQuery := `SELECT COUNT(*) FROM projection_inscricoes WHERE status = $1`
-		client.DB().Get(&total, countQuery, status)
-	} else {
-		// Buscar todas
-		inscricoesDTO, errDTO := inscProj.GetAll(limit, offset)
-		if errDTO != nil {
-			err = errDTO
+	// 🔥 LÓGICA POR TIPO DE USUÁRIO
+	if userType == "admin" {
+		// ADMIN: Lista TODAS as inscrições
+		if status != "" {
+			// Com filtro de status
+			query := `
+				SELECT 
+					id, estudante_id, codigo_estudante, academia_id, codigo_academia,
+					tipo, ano_inscricao, curso, status, created_at, updated_at, 
+					event_id, version
+				FROM projection_inscricoes
+				WHERE status = $1
+				ORDER BY created_at DESC
+				LIMIT $2 OFFSET $3
+			`
+			err = client.DB().Select(&inscricoes, query, status, limit, offset)
+			
+			// Contar total
+			countQuery := `SELECT COUNT(*) FROM projection_inscricoes WHERE status = $1`
+			client.DB().Get(&total, countQuery, status)
 		} else {
-			for _, i := range inscricoesDTO {
-				inscricoes = append(inscricoes, i)
+			// Sem filtro
+			inscricoesDTO, errDTO := inscProj.GetAll(limit, offset)
+			if errDTO != nil {
+				err = errDTO
+			} else {
+				for _, i := range inscricoesDTO {
+					inscricoes = append(inscricoes, i)
+				}
 			}
+			
+			// Contar total
+			total, _ = inscProj.CountAll()
 		}
 		
-		// Contar total
-		total, _ = inscProj.CountAll()
+	} else if userType == "academia" {
+		// ACADEMIA: Lista apenas inscrições da própria academia
+		if status != "" {
+			// Com filtro de status
+			inscricoesDTO, errDTO := inscProj.GetByAcademia(userID, status)
+			if errDTO != nil {
+				err = errDTO
+			} else {
+				for _, i := range inscricoesDTO {
+					inscricoes = append(inscricoes, i)
+				}
+				total = len(inscricoesDTO)
+			}
+		} else {
+			// Sem filtro (todas as inscrições da academia)
+			query := `
+				SELECT 
+					id, estudante_id, codigo_estudante, academia_id, codigo_academia,
+					tipo, ano_inscricao, curso, status, created_at, updated_at, 
+					event_id, version
+				FROM projection_inscricoes
+				WHERE academia_id = $1
+				ORDER BY created_at DESC
+				LIMIT $2 OFFSET $3
+			`
+			err = client.DB().Select(&inscricoes, query, userID, limit, offset)
+			
+			// Contar total
+			countQuery := `SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = $1`
+			client.DB().Get(&total, countQuery, userID)
+		}
+		
+	} else {
+		// Outros tipos de usuário não têm acesso
+		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
+		return
 	}
 	
 	if err != nil {
@@ -345,10 +403,48 @@ func ListarTodasInscricoes(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"inscricoes": inscricoes,
-		"total":      len(inscricoes),
-		"total_geral": total,
-		"limit":      limit,
-		"offset":     offset,
+		"inscricoes":   inscricoes,
+		"total":        len(inscricoes),
+		"total_geral":  total,
+		"limit":        limit,
+		"offset":       offset,
+		"user_type":    userType,
+	})
+}
+
+// ListarTodasAcademias lista todas as academias (admin)
+func ListarTodasAcademias(c *gin.Context) {
+	query := `
+		SELECT 
+			id, nome, codigo_academia, type, provincia,
+			status, nivel_escolar, created_at,
+			total_estudantes, total_inscricoes_pendentes
+		FROM projection_academias
+		ORDER BY created_at DESC
+	`
+
+	type AcademiaSimples struct {
+		ID                       uuid.UUID `db:"id" json:"id"`
+		Nome                     string    `db:"nome" json:"nome"`
+		CodigoAcademia           string    `db:"codigo_academia" json:"codigo_academia"`
+		Type                     string    `db:"type" json:"type"`
+		Provincia                string    `db:"provincia" json:"provincia"`
+		Status                   string    `db:"status" json:"status"`
+		NivelEscolar             *string   `db:"nivel_escolar" json:"nivel_escolar"`
+		CreatedAt                string    `db:"created_at" json:"created_at"`
+		TotalEstudantes          int       `db:"total_estudantes" json:"total_estudantes"`
+		TotalInscricoesPendentes int       `db:"total_inscricoes_pendentes" json:"total_inscricoes_pendentes"`
+	}
+
+	var academias []AcademiaSimples
+	client := getGenesisClient(c)
+	if err := client.DB().Select(&academias, query); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar academias"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"academias": academias,
+		"total":     len(academias),
 	})
 }

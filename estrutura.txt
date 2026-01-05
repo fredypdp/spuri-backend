@@ -24,6 +24,7 @@
 │   │   ├── admin_auth_handlers.go
 │   │   ├── admin_handlers.go
 │   │   ├── admin_management_handlers.go
+│   │   ├── admin_registros_handlers.go
 │   │   ├── auth_handlers.go
 │   │   ├── command_handlers.go
 │   │   ├── helpers.go

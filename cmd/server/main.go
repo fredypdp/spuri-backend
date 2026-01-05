@@ -56,7 +56,7 @@ func main() {
 	log.Printf("❤️  Health check: http://localhost:%s/health", port)
 	log.Printf("🌍 Ambiente: %s", os.Getenv("ENV"))
 	log.Printf("🗃️  GenesisDB: Event Sourcing ativado")
-	log.Printf("👑 Admin FPP: admin@spuri.ao / fpp@2025")
+	log.Printf("🔑 Admin FPP: admin@spuri.ao / fpp@2025")
 	
 	if err := router.Run("0.0.0.0:" + port); err != nil {
 		log.Fatalf("❌ Erro ao iniciar servidor: %v", err)
@@ -140,9 +140,9 @@ func setupRouter() *gin.Engine {
 		c.JSON(200, gin.H{
 			"status":  "ok",
 			"message": "Spuri Event Sourcing rodando!",
-			"version": "2.1.0",
+			"version": "2.3.0",
 			"env":     os.Getenv("ENV"),
-			"architecture": "Event Sourcing com GenesisDB + Sistema Admin",
+			"architecture": "Event Sourcing com GenesisDB + Sistema Admin + Consultas de Perfil",
 			"db_stats": gin.H{
 				"open_connections": stats.OpenConnections,
 				"in_use": stats.InUse,
@@ -157,6 +157,14 @@ func setupRouter() *gin.Engine {
 	router.POST("/academia/register", handlers.RegisterAcademia)
 	router.POST("/estudante/register", handlers.RegisterEstudante)
 
+	// ============================================
+	// 🔥 NOVAS ROTAS DE PERFIL
+	// ============================================
+	
+	// Perfil do usuário logado (qualquer tipo)
+	router.GET("/meu-perfil", middleware.AuthMiddleware(), handlers.GetMeuPerfil)
+	router.GET("/academias", middleware.AuthMiddleware(), handlers.ListarTodasAcademias)
+	
 	// ============================================
 	// ROTAS DE ESTUDANTES (PROTEGIDAS)
 	// ============================================
@@ -178,7 +186,7 @@ func setupRouter() *gin.Engine {
 	academia := router.Group("/academia")
 	academia.Use(middleware.AuthMiddleware())
 	academia.Use(middleware.RequireAcademia())
-	academia.Use(middleware.ValidarStatusAcademia()) // 🔥 VALIDAR SE ESTÁ ATIVA
+	academia.Use(middleware.ValidarStatusAcademia())
 	{
 		// Commands (CQRS - Write)
 		academia.POST("/notas-aluno", handlers.RegistrarNotas)
@@ -188,6 +196,12 @@ func setupRouter() *gin.Engine {
 		academia.GET("/inscricoes-pendentes", handlers.ListarInscricoesPendentes)
 		academia.PUT("/inscricao/:id/aprovar", handlers.AprovarInscricao)
 		academia.PUT("/inscricao/:id/reprovar", handlers.ReprovarInscricao)
+		
+		// 🔥 NOVA: Consultar estudante por código
+		academia.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)
+		
+		// 🔥 NOVA: Consultar outra academia por código
+		academia.GET("/consultar-academia/:codigo", handlers.GetAcademiaPorCodigo)
 	}
 
 	// ============================================
@@ -206,8 +220,12 @@ func setupRouter() *gin.Engine {
 		protected.GET("/eventos-estudante/:codigo", handlers.GetEventosEstudante)
 		protected.GET("/verificar-integridade/:codigo", handlers.VerificarIntegridade)
 		
-		// Inscrições
+		// Inscrições - Admin lista todas, Academia lista só da própria academia
 		protected.GET("/inscricoes", handlers.ListarTodasInscricoes)
+		
+		// 🔥 NOVAS: Consultas públicas (academia e admin)
+		protected.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)
+		protected.GET("/consultar-academia/:codigo", handlers.GetAcademiaPorCodigo)
 	}
 
 	// ============================================
@@ -220,8 +238,15 @@ func setupRouter() *gin.Engine {
 	{
 		// Consultas (todos os admins)
 		admin.GET("/estudantes", handlers.ListarTodosEstudantes)
-		admin.GET("/academias", handlers.ListarTodasAcademias)
-		admin.GET("/inscricoes", handlers.ListarTodasInscricoes)
+		
+		// Todos os registros
+		admin.GET("/todos-registros", handlers.ListarTodosRegistros)
+		admin.GET("/registros/estudante/:codigo", handlers.ListarRegistrosPorEstudante)
+		admin.GET("/registros/academia/:codigo", handlers.ListarRegistrosPorAcademia)
+		
+		// 🔥 NOVAS: Consultas específicas admin
+		admin.GET("/consultar-admin/:email", handlers.GetAdminPorEmail)
+		admin.GET("/buscar-usuario", handlers.BuscarUsuario)
 		
 		// Gerenciamento de Academias (gerente+)
 		adminGerente := admin.Group("/")
@@ -260,14 +285,8 @@ func setupRouter() *gin.Engine {
 	// ============================================
 	router.GET("/", func(c *gin.Context) {
 		c.JSON(200, gin.H{
-			"message": "Bem-vindo ao Spuri API v2.1 - Event Sourcing + Admin",
-			"version": "2.1.0",
-			"admin_inicial": gin.H{
-				"email": "admin@spuri.ao",
-				"senha": "fpp@2025",
-				"role":  "fpp",
-				"aviso": "⚠️  ALTERE A SENHA APÓS O PRIMEIRO LOGIN!",
-			},
+			"message": "Bem-vindo ao Spuri API v2.3",
+			"version": "2.3.0",
 		})
 	})
 

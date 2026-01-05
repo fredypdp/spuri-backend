@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/domain/aggregates/estudante.go
-// ATUALIZADO: Adicionar CodigoEstudante
+// ATUALIZADO: Usar CodigoAcademia em vez de IDAcademia
 // ============================================================================
 
 package aggregates
@@ -19,11 +19,11 @@ type Estudante struct {
 	
 	// Estado
 	Nome                       string
-	CodigoEstudante            string     // 🔥 NOVO: Código único (ex: KAF7392)
+	CodigoEstudante            string     // Código único (ex: KAF7392)
 	SenhaHash                  string
 	BilheteIdentidade          *string
 	BilheteIdentidadeResp      *string
-	IDAcademia                 *uuid.UUID
+	CodigoAcademia             *string    // 🔥 MUDOU: string em vez de UUID
 	AnoEscolar                 *string
 	AnoSuperior                *string
 	CursoMedio                 *string
@@ -40,30 +40,30 @@ type Estudante struct {
 
 // RegistroNotas representa notas do estudante
 type RegistroNotas struct {
-	IDAcademia  uuid.UUID
-	AnoLectivo  string
-	Periodo     string
-	Materias    []Materia
-	RegisteredAt time.Time
+	CodigoAcademia string    // 🔥 MUDOU
+	AnoLectivo     string
+	Periodo        string
+	Materias       []Materia
+	RegisteredAt   time.Time
 }
 
 // RegistroFaltas representa faltas do estudante
 type RegistroFaltas struct {
-	IDAcademia  uuid.UUID
-	AnoLectivo  string
-	Periodo     string
-	Materias    []MateriaFaltas
-	RegisteredAt time.Time
+	CodigoAcademia string          // 🔥 MUDOU
+	AnoLectivo     string
+	Periodo        string
+	Materias       []MateriaFaltas
+	RegisteredAt   time.Time
 }
 
 // Inscricao representa uma inscrição
 type Inscricao struct {
-	AcademiaID   uuid.UUID
-	Tipo         string
-	AnoInscricao string
-	Curso        *string
-	Status       string
-	CreatedAt    time.Time
+	CodigoAcademia string    // 🔥 MUDOU
+	Tipo           string
+	AnoInscricao   string
+	Curso          *string
+	Status         string
+	CreatedAt      time.Time
 }
 
 // Materia representa uma matéria com nota
@@ -121,10 +121,9 @@ func (e *Estudante) Apply(event DomainEvent) error {
 
 // Comandos - geram eventos
 
-// 🔥 ATUALIZADO: Adicionar codigoEstudante
 func (e *Estudante) Criar(
 	nome string,
-	codigoEstudante string, // 🔥 NOVO
+	codigoEstudante string,
 	senhaHash string,
 	bilhete *string,
 	bilheteResp *string,
@@ -139,7 +138,7 @@ func (e *Estudante) Criar(
 	if nome == "" {
 		return fmt.Errorf("nome é obrigatório")
 	}
-	if codigoEstudante == "" { // 🔥 NOVO
+	if codigoEstudante == "" {
 		return fmt.Errorf("codigo_estudante é obrigatório")
 	}
 	if senhaHash == "" {
@@ -156,7 +155,7 @@ func (e *Estudante) Criar(
 			AggregateID: e.ID,
 		},
 		Nome:                  nome,
-		CodigoEstudante:       codigoEstudante, // 🔥 NOVO
+		CodigoEstudante:       codigoEstudante,
 		SenhaHash:             senhaHash,
 		BilheteIdentidade:     bilhete,
 		BilheteIdentidadeResp: bilheteResp,
@@ -174,14 +173,15 @@ func (e *Estudante) Criar(
 }
 
 // RegistrarNotas registra notas do estudante
+// 🔥 ATUALIZADO: Recebe codigoAcademia em vez de idAcademia
 func (e *Estudante) RegistrarNotas(
-	idAcademia uuid.UUID,
+	codigoAcademia string,
 	anoLectivo string,
 	periodo string,
 	materias []Materia,
 ) error {
 	// Validações
-	if e.IDAcademia == nil || *e.IDAcademia != idAcademia {
+	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
 	}
 	if len(materias) == 0 {
@@ -194,11 +194,11 @@ func (e *Estudante) RegistrarNotas(
 			EventType:   "NotasRegistradas",
 			AggregateID: e.ID,
 		},
-		IDAcademia: idAcademia,
-		AnoLectivo: anoLectivo,
-		Periodo:    periodo,
-		Materias:   materias,
-		RegisteredAt: time.Now(),
+		CodigoAcademia: codigoAcademia,
+		AnoLectivo:     anoLectivo,
+		Periodo:        periodo,
+		Materias:       materias,
+		RegisteredAt:   time.Now(),
 	}
 
 	e.RaiseEvent(event)
@@ -206,14 +206,15 @@ func (e *Estudante) RegistrarNotas(
 }
 
 // RegistrarFaltas registra faltas do estudante
+// 🔥 ATUALIZADO: Recebe codigoAcademia em vez de idAcademia
 func (e *Estudante) RegistrarFaltas(
-	idAcademia uuid.UUID,
+	codigoAcademia string,
 	anoLectivo string,
 	periodo string,
 	materias []MateriaFaltas,
 ) error {
 	// Validações
-	if e.IDAcademia == nil || *e.IDAcademia != idAcademia {
+	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
 	}
 	if len(materias) == 0 {
@@ -226,11 +227,11 @@ func (e *Estudante) RegistrarFaltas(
 			EventType:   "FaltasRegistradas",
 			AggregateID: e.ID,
 		},
-		IDAcademia: idAcademia,
-		AnoLectivo: anoLectivo,
-		Periodo:    periodo,
-		Materias:   materias,
-		RegisteredAt: time.Now(),
+		CodigoAcademia: codigoAcademia,
+		AnoLectivo:     anoLectivo,
+		Periodo:        periodo,
+		Materias:       materias,
+		RegisteredAt:   time.Now(),
 	}
 
 	e.RaiseEvent(event)
@@ -238,8 +239,9 @@ func (e *Estudante) RegistrarFaltas(
 }
 
 // SolicitarInscricao solicita inscrição em uma academia
+// 🔥 ATUALIZADO: Recebe codigoAcademia
 func (e *Estudante) SolicitarInscricao(
-	academiaID uuid.UUID,
+	codigoAcademia string,
 	tipo string,
 	anoInscricao string,
 	curso *string,
@@ -250,13 +252,13 @@ func (e *Estudante) SolicitarInscricao(
 	}
 
 	// 🔥 VALIDAÇÃO: Não pode se inscrever se já pertence a esta academia
-	if e.IDAcademia != nil && *e.IDAcademia == academiaID {
+	if e.CodigoAcademia != nil && *e.CodigoAcademia == codigoAcademia {
 		return fmt.Errorf("você já está matriculado nesta academia")
 	}
 
 	// 🔥 VALIDAÇÃO: Não pode ter inscrição pendente nesta academia
 	for _, inscricao := range e.Inscricoes {
-		if inscricao.AcademiaID == academiaID && inscricao.Status == "espera" {
+		if inscricao.CodigoAcademia == codigoAcademia && inscricao.Status == "espera" {
 			return fmt.Errorf("você já possui uma inscrição pendente nesta academia")
 		}
 	}
@@ -267,11 +269,11 @@ func (e *Estudante) SolicitarInscricao(
 			EventType:   "EstudanteInscrito",
 			AggregateID: e.ID,
 		},
-		AcademiaID:   academiaID,
-		Tipo:         tipo,
-		AnoInscricao: anoInscricao,
-		Curso:        curso,
-		CreatedAt:    time.Now(),
+		CodigoAcademia: codigoAcademia,
+		Tipo:           tipo,
+		AnoInscricao:   anoInscricao,
+		Curso:          curso,
+		CreatedAt:      time.Now(),
 	}
 
 	e.RaiseEvent(event)
@@ -279,14 +281,15 @@ func (e *Estudante) SolicitarInscricao(
 }
 
 // AprovarInscricao aprova uma inscrição
+// 🔥 ATUALIZADO: Recebe codigoAcademia
 func (e *Estudante) AprovarInscricao(
-	academiaID uuid.UUID,
+	codigoAcademia string,
 	inscricaoID uuid.UUID,
 ) error {
 	// Buscar inscrição pendente
 	var inscricaoPendente *Inscricao
 	for i := range e.Inscricoes {
-		if e.Inscricoes[i].AcademiaID == academiaID && e.Inscricoes[i].Status == "espera" {
+		if e.Inscricoes[i].CodigoAcademia == codigoAcademia && e.Inscricoes[i].Status == "espera" {
 			inscricaoPendente = &e.Inscricoes[i]
 			break
 		}
@@ -302,26 +305,27 @@ func (e *Estudante) AprovarInscricao(
 			EventType:   "InscricaoAprovada",
 			AggregateID: e.ID,
 		},
-		InscricaoID:  inscricaoID,
-		AcademiaID:   academiaID,
-		Tipo:         inscricaoPendente.Tipo,
-		AnoInscricao: inscricaoPendente.AnoInscricao,
-		Curso:        inscricaoPendente.Curso,
+		InscricaoID:    inscricaoID,
+		CodigoAcademia: codigoAcademia,
+		Tipo:           inscricaoPendente.Tipo,
+		AnoInscricao:   inscricaoPendente.AnoInscricao,
+		Curso:          inscricaoPendente.Curso,
 	}
 
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
 
-// 🔥 NOVO: ReprovarInscricao processa a reprovação de uma inscrição
+// ReprovarInscricao processa a reprovação de uma inscrição
+// 🔥 ATUALIZADO: Recebe codigoAcademia
 func (e *Estudante) ReprovarInscricao(
-	academiaID uuid.UUID,
+	codigoAcademia string,
 	inscricaoID uuid.UUID,
 ) error {
 	// Buscar inscrição pendente
 	var inscricaoPendente *Inscricao
 	for i := range e.Inscricoes {
-		if e.Inscricoes[i].AcademiaID == academiaID && e.Inscricoes[i].Status == "espera" {
+		if e.Inscricoes[i].CodigoAcademia == codigoAcademia && e.Inscricoes[i].Status == "espera" {
 			inscricaoPendente = &e.Inscricoes[i]
 			break
 		}
@@ -337,8 +341,8 @@ func (e *Estudante) ReprovarInscricao(
 			EventType:   "InscricaoReprovada",
 			AggregateID: e.ID,
 		},
-		InscricaoID: inscricaoID,
-		AcademiaID:  academiaID,
+		InscricaoID:    inscricaoID,
+		CodigoAcademia: codigoAcademia,
 	}
 
 	e.RaiseEvent(event)
@@ -361,7 +365,7 @@ func (e *Estudante) applyEstudanteCriado(event DomainEvent) error {
 
 	e.ID = event.GetAggregateID()
 	e.Nome = ev.Nome
-	e.CodigoEstudante = ev.CodigoEstudante // 🔥 NOVO
+	e.CodigoEstudante = ev.CodigoEstudante
 	e.SenhaHash = ev.SenhaHash
 	e.BilheteIdentidade = ev.BilheteIdentidade
 	e.BilheteIdentidadeResp = ev.BilheteIdentidadeResp
@@ -389,11 +393,11 @@ func (e *Estudante) applyNotasRegistradas(event DomainEvent) error {
 	}
 
 	e.Notas = append(e.Notas, RegistroNotas{
-		IDAcademia:   ev.IDAcademia,
-		AnoLectivo:   ev.AnoLectivo,
-		Periodo:      ev.Periodo,
-		Materias:     ev.Materias,
-		RegisteredAt: ev.RegisteredAt,
+		CodigoAcademia: ev.CodigoAcademia,
+		AnoLectivo:     ev.AnoLectivo,
+		Periodo:        ev.Periodo,
+		Materias:       ev.Materias,
+		RegisteredAt:   ev.RegisteredAt,
 	})
 
 	return nil
@@ -412,11 +416,11 @@ func (e *Estudante) applyFaltasRegistradas(event DomainEvent) error {
 	}
 
 	e.Faltas = append(e.Faltas, RegistroFaltas{
-		IDAcademia:   ev.IDAcademia,
-		AnoLectivo:   ev.AnoLectivo,
-		Periodo:      ev.Periodo,
-		Materias:     ev.Materias,
-		RegisteredAt: ev.RegisteredAt,
+		CodigoAcademia: ev.CodigoAcademia,
+		AnoLectivo:     ev.AnoLectivo,
+		Periodo:        ev.Periodo,
+		Materias:       ev.Materias,
+		RegisteredAt:   ev.RegisteredAt,
 	})
 
 	return nil
@@ -435,12 +439,12 @@ func (e *Estudante) applyEstudanteInscrito(event DomainEvent) error {
 	}
 
 	e.Inscricoes = append(e.Inscricoes, Inscricao{
-		AcademiaID:   ev.AcademiaID,
-		Tipo:         ev.Tipo,
-		AnoInscricao: ev.AnoInscricao,
-		Curso:        ev.Curso,
-		Status:       "espera",
-		CreatedAt:    ev.CreatedAt,
+		CodigoAcademia: ev.CodigoAcademia,
+		Tipo:           ev.Tipo,
+		AnoInscricao:   ev.AnoInscricao,
+		Curso:          ev.Curso,
+		Status:         "espera",
+		CreatedAt:      ev.CreatedAt,
 	})
 
 	return nil
@@ -460,14 +464,14 @@ func (e *Estudante) applyInscricaoAprovada(event DomainEvent) error {
 
 	// Atualizar status da inscrição
 	for i := range e.Inscricoes {
-		if e.Inscricoes[i].AcademiaID == ev.AcademiaID && e.Inscricoes[i].Status == "espera" {
+		if e.Inscricoes[i].CodigoAcademia == ev.CodigoAcademia && e.Inscricoes[i].Status == "espera" {
 			e.Inscricoes[i].Status = "aprovado"
 			break
 		}
 	}
 
 	// Vincular à academia
-	e.IDAcademia = &ev.AcademiaID
+	e.CodigoAcademia = &ev.CodigoAcademia
 
 	return nil
 }
@@ -486,7 +490,7 @@ func (e *Estudante) applyInscricaoReprovada(event DomainEvent) error {
 
 	// Atualizar status da inscrição
 	for i := range e.Inscricoes {
-		if e.Inscricoes[i].AcademiaID == ev.AcademiaID && e.Inscricoes[i].Status == "espera" {
+		if e.Inscricoes[i].CodigoAcademia == ev.CodigoAcademia && e.Inscricoes[i].Status == "espera" {
 			e.Inscricoes[i].Status = "reprovado"
 			break
 		}
@@ -507,18 +511,17 @@ func (e *Estudante) applyVinculoAtualizado(event DomainEvent) error {
 		return err
 	}
 
-	e.IDAcademia = &ev.NovaAcademiaID
+	e.CodigoAcademia = &ev.NovoCodigoAcademia
 
 	return nil
 }
 
 // Eventos do Estudante
 
-// 🔥 ATUALIZADO: Adicionar CodigoEstudante
 type EstudanteCriadoEvent struct {
 	BaseEvent
 	Nome                  string
-	CodigoEstudante       string  // 🔥 NOVO
+	CodigoEstudante       string
 	SenhaHash             string
 	BilheteIdentidade     *string
 	BilheteIdentidadeResp *string
@@ -535,71 +538,77 @@ func (e *EstudanteCriadoEvent) GetPayload() interface{} {
 	return e
 }
 
+// 🔥 ATUALIZADO
 type NotasRegistradasEvent struct {
 	BaseEvent
-	IDAcademia   uuid.UUID
-	AnoLectivo   string
-	Periodo      string
-	Materias     []Materia
-	RegisteredAt time.Time
+	CodigoAcademia string
+	AnoLectivo     string
+	Periodo        string
+	Materias       []Materia
+	RegisteredAt   time.Time
 }
 
 func (e *NotasRegistradasEvent) GetPayload() interface{} {
 	return e
 }
 
+// 🔥 ATUALIZADO
 type FaltasRegistradasEvent struct {
 	BaseEvent
-	IDAcademia   uuid.UUID
-	AnoLectivo   string
-	Periodo      string
-	Materias     []MateriaFaltas
-	RegisteredAt time.Time
+	CodigoAcademia string
+	AnoLectivo     string
+	Periodo        string
+	Materias       []MateriaFaltas
+	RegisteredAt   time.Time
 }
 
 func (e *FaltasRegistradasEvent) GetPayload() interface{} {
 	return e
 }
 
+// 🔥 ATUALIZADO
 type EstudanteInscritoEvent struct {
 	BaseEvent
-	AcademiaID   uuid.UUID
-	Tipo         string
-	AnoInscricao string
-	Curso        *string
-	CreatedAt    time.Time
+	CodigoAcademia string
+	Tipo           string
+	AnoInscricao   string
+	Curso          *string
+	CreatedAt      time.Time
 }
 
 func (e *EstudanteInscritoEvent) GetPayload() interface{} {
 	return e
 }
 
+// 🔥 ATUALIZADO
 type InscricaoAprovadaEvent struct {
 	BaseEvent
-	InscricaoID  uuid.UUID
-	AcademiaID   uuid.UUID
-	Tipo         string
-	AnoInscricao string
-	Curso        *string
+	InscricaoID    uuid.UUID
+	CodigoAcademia string
+	Tipo           string
+	AnoInscricao   string
+	Curso          *string
 }
 
 func (e *InscricaoAprovadaEvent) GetPayload() interface{} {
 	return e
 }
 
+// 🔥 ATUALIZADO
 type InscricaoReprovadaEvent struct {
 	BaseEvent
-	InscricaoID uuid.UUID
-	AcademiaID  uuid.UUID
+	InscricaoID    uuid.UUID
+	CodigoAcademia string
 }
 
 func (e *InscricaoReprovadaEvent) GetPayload() interface{} {
 	return e
 }
 
+// 🔥 ATUALIZADO
 type VinculoAtualizadoEvent struct {
 	BaseEvent
-	NovaAcademiaID uuid.UUID
+	NovoCodigoAcademia string
 }
 
 func (e *VinculoAtualizadoEvent) GetPayload() interface{} {

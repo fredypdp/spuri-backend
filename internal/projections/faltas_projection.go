@@ -40,12 +40,10 @@ func (p *FaltasProjection) Handle(event genesisdb.Event) error {
 
 // Rebuild reconstrói a projeção do zero
 func (p *FaltasProjection) Rebuild() error {
-	// Limpar projeção
 	if err := p.clear(); err != nil {
 		return err
 	}
 
-	// Buscar todos os eventos FaltasRegistradas
 	query := `
 		SELECT 
 			id, event_id, aggregate_id, aggregate_type, event_type,
@@ -104,13 +102,13 @@ func (p *FaltasProjection) clear() error {
 	return err
 }
 
-// handleFaltasRegistradas processa evento FaltasRegistradas
+// 🔥 ATUALIZADO: handleFaltasRegistradas usa CodigoAcademia
 func (p *FaltasProjection) handleFaltasRegistradas(event genesisdb.Event) error {
 	var payload struct {
-		IDAcademia   uuid.UUID `json:"IDAcademia"`
-		AnoLectivo   string    `json:"AnoLectivo"`
-		Periodo      string    `json:"Periodo"`
-		Materias     []struct {
+		CodigoAcademia string `json:"CodigoAcademia"` // 🔥 MUDOU
+		AnoLectivo     string `json:"AnoLectivo"`
+		Periodo        string `json:"Periodo"`
+		Materias       []struct {
 			Nome   string `json:"Nome"`
 			Faltas int    `json:"Faltas"`
 		} `json:"Materias"`
@@ -127,9 +125,10 @@ func (p *FaltasProjection) handleFaltasRegistradas(event genesisdb.Event) error 
 		return err
 	}
 
+	// 🔥 ATUALIZADO: codigo_academia
 	query := `
 		INSERT INTO projection_faltas (
-			estudante_id, id_academia, ano_lectivo, periodo,
+			estudante_id, codigo_academia, ano_lectivo, periodo,
 			materias, registered_at, event_id, version
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
@@ -137,7 +136,7 @@ func (p *FaltasProjection) handleFaltasRegistradas(event genesisdb.Event) error 
 	_, err = p.client.DB().ExecContext(
 		p.ctx, query,
 		event.AggregateID,
-		payload.IDAcademia,
+		payload.CodigoAcademia,
 		payload.AnoLectivo,
 		payload.Periodo,
 		materiasJSON,
@@ -146,7 +145,7 @@ func (p *FaltasProjection) handleFaltasRegistradas(event genesisdb.Event) error 
 		event.EventVersion,
 	)
 
-	// Atualizar contador no estudante
+	// Atualizar contador
 	if err == nil {
 		updateQuery := `
 			UPDATE projection_estudantes
@@ -165,7 +164,7 @@ func (p *FaltasProjection) handleFaltasRegistradas(event genesisdb.Event) error 
 func (p *FaltasProjection) GetByEstudante(estudanteID uuid.UUID) ([]FaltasDTO, error) {
 	query := `
 		SELECT 
-			id, estudante_id, id_academia, ano_lectivo, periodo,
+			id, estudante_id, codigo_academia, ano_lectivo, periodo,
 			materias, registered_at, event_id, version
 		FROM projection_faltas
 		WHERE estudante_id = $1
@@ -186,7 +185,7 @@ func (p *FaltasProjection) GetByEstudante(estudanteID uuid.UUID) ([]FaltasDTO, e
 		if err := rows.Scan(
 			&dto.ID,
 			&dto.EstudanteID,
-			&dto.IDAcademia,
+			&dto.CodigoAcademia,
 			&dto.AnoLectivo,
 			&dto.Periodo,
 			&materiasJSON,
@@ -208,14 +207,14 @@ func (p *FaltasProjection) GetByEstudante(estudanteID uuid.UUID) ([]FaltasDTO, e
 	return result, nil
 }
 
-// FaltasDTO DTO da projeção
+// 🔥 ATUALIZADO: FaltasDTO
 type FaltasDTO struct {
-	ID           uuid.UUID `json:"id"`
-	EstudanteID  uuid.UUID `json:"estudante_id"`
-	IDAcademia   uuid.UUID `json:"id_academia"`
-	AnoLectivo   string    `json:"ano_lectivo"`
-	Periodo      string    `json:"periodo"`
-	Materias     []struct {
+	ID             uuid.UUID `json:"id"`
+	EstudanteID    uuid.UUID `json:"estudante_id"`
+	CodigoAcademia string    `json:"codigo_academia"` // 🔥 MUDOU
+	AnoLectivo     string    `json:"ano_lectivo"`
+	Periodo        string    `json:"periodo"`
+	Materias       []struct {
 		Nome   string `json:"nome"`
 		Faltas int    `json:"faltas"`
 	} `json:"materias"`

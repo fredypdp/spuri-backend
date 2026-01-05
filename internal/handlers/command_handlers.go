@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/handlers/command_handlers.go
-// CORRIGIDO: Validações de status de inscrições
+// ATUALIZADO: Usar codigo_academia em vez de id_academia
 // ============================================================================
 
 package handlers
@@ -27,6 +27,7 @@ type RegistrarNotasRequest struct {
 	} `json:"materias" binding:"required"`
 }
 
+// 🔥 ATUALIZADO: Usar codigo_academia
 func RegistrarNotas(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -41,10 +42,19 @@ func RegistrarNotas(c *gin.Context) {
 		return
 	}
 
+	// Buscar estudante
 	estudanteProj := getEstudanteProjection(c)
 	estudanteDTO, err := estudanteProj.GetByCodigo(req.CodigoEstudante)
 	if err != nil || estudanteDTO == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
+		return
+	}
+
+	// Buscar código da academia logada
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByID(userID)
+	if err != nil || academiaDTO == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar academia"})
 		return
 	}
 
@@ -57,7 +67,8 @@ func RegistrarNotas(c *gin.Context) {
 
 	estudante := estudanteAgg.(*aggregates.Estudante)
 
-	if estudante.IDAcademia == nil || *estudante.IDAcademia != userID {
+	// 🔥 ATUALIZADO: Verificar codigo_academia em vez de ID
+	if estudante.CodigoAcademia == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
 		c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
 		return
 	}
@@ -70,7 +81,8 @@ func RegistrarNotas(c *gin.Context) {
 		}
 	}
 
-	err = estudante.RegistrarNotas(userID, req.AnoLectivo, req.Periodo, materias)
+	// 🔥 ATUALIZADO: Passar codigo_academia
+	err = estudante.RegistrarNotas(academiaDTO.CodigoAcademia, req.AnoLectivo, req.Periodo, materias)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -82,7 +94,7 @@ func RegistrarNotas(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "notas registradas com sucesso",
+		"message":          "notas registradas com sucesso",
 		"codigo_estudante": req.CodigoEstudante,
 	})
 }
@@ -98,6 +110,7 @@ type RegistrarFaltasRequest struct {
 	} `json:"materias" binding:"required"`
 }
 
+// 🔥 ATUALIZADO: Usar codigo_academia
 func RegistrarFaltas(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -112,10 +125,19 @@ func RegistrarFaltas(c *gin.Context) {
 		return
 	}
 
+	// Buscar estudante
 	estudanteProj := getEstudanteProjection(c)
 	estudanteDTO, err := estudanteProj.GetByCodigo(req.CodigoEstudante)
 	if err != nil || estudanteDTO == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
+		return
+	}
+
+	// Buscar código da academia logada
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByID(userID)
+	if err != nil || academiaDTO == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar academia"})
 		return
 	}
 
@@ -128,7 +150,8 @@ func RegistrarFaltas(c *gin.Context) {
 
 	estudante := estudanteAgg.(*aggregates.Estudante)
 
-	if estudante.IDAcademia == nil || *estudante.IDAcademia != userID {
+	// 🔥 ATUALIZADO: Verificar codigo_academia
+	if estudante.CodigoAcademia == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
 		c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
 		return
 	}
@@ -141,7 +164,8 @@ func RegistrarFaltas(c *gin.Context) {
 		}
 	}
 
-	err = estudante.RegistrarFaltas(userID, req.AnoLectivo, req.Periodo, materias)
+	// 🔥 ATUALIZADO: Passar codigo_academia
+	err = estudante.RegistrarFaltas(academiaDTO.CodigoAcademia, req.AnoLectivo, req.Periodo, materias)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -153,16 +177,16 @@ func RegistrarFaltas(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "faltas registradas com sucesso",
+		"message":          "faltas registradas com sucesso",
 		"codigo_estudante": req.CodigoEstudante,
 	})
 }
 
 // InscricaoEscolaRequest representa solicitação de inscrição em escola
 type InscricaoEscolaRequest struct {
-	CodigoAcademia       string  `json:"codigo_academia" binding:"required"`
-	AnoEscolarInscricao  string  `json:"ano_escolar_inscricao" binding:"required"`
-	CursoMedio           *string `json:"curso_medio"`
+	CodigoAcademia      string  `json:"codigo_academia" binding:"required"`
+	AnoEscolarInscricao string  `json:"ano_escolar_inscricao" binding:"required"`
+	CursoMedio          *string `json:"curso_medio"`
 }
 
 func InscricaoEscola(c *gin.Context) {
@@ -174,6 +198,7 @@ func InscricaoEscola(c *gin.Context) {
 		return
 	}
 
+	// Verificar se academia existe
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByCodigo(req.CodigoAcademia)
 	if err != nil || academiaDTO == nil {
@@ -190,8 +215,9 @@ func InscricaoEscola(c *gin.Context) {
 
 	estudante := estudanteAgg.(*aggregates.Estudante)
 
+	// 🔥 ATUALIZADO: Passar codigo_academia
 	err = estudante.SolicitarInscricao(
-		academiaDTO.ID,
+		req.CodigoAcademia,
 		"escola",
 		req.AnoEscolarInscricao,
 		req.CursoMedio,
@@ -208,16 +234,16 @@ func InscricaoEscola(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message": "inscrição solicitada com sucesso",
+		"message":         "inscrição solicitada com sucesso",
 		"codigo_academia": req.CodigoAcademia,
 	})
 }
 
 // InscricaoUniversidadeRequest representa solicitação de inscrição em universidade
 type InscricaoUniversidadeRequest struct {
-	CodigoAcademia        string `json:"codigo_academia" binding:"required"`
-	AnoSuperiorInscricao  string `json:"ano_superior_inscricao" binding:"required"`
-	CursoSuperior         string `json:"curso_superior" binding:"required"`
+	CodigoAcademia       string `json:"codigo_academia" binding:"required"`
+	AnoSuperiorInscricao string `json:"ano_superior_inscricao" binding:"required"`
+	CursoSuperior        string `json:"curso_superior" binding:"required"`
 }
 
 func InscricaoUniversidade(c *gin.Context) {
@@ -229,6 +255,7 @@ func InscricaoUniversidade(c *gin.Context) {
 		return
 	}
 
+	// Verificar se academia existe
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByCodigo(req.CodigoAcademia)
 	if err != nil || academiaDTO == nil {
@@ -245,8 +272,9 @@ func InscricaoUniversidade(c *gin.Context) {
 
 	estudante := estudanteAgg.(*aggregates.Estudante)
 
+	// 🔥 ATUALIZADO: Passar codigo_academia
 	err = estudante.SolicitarInscricao(
-		academiaDTO.ID,
+		req.CodigoAcademia,
 		"universidade",
 		req.AnoSuperiorInscricao,
 		&req.CursoSuperior,
@@ -263,13 +291,12 @@ func InscricaoUniversidade(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message": "inscrição solicitada com sucesso",
+		"message":         "inscrição solicitada com sucesso",
 		"codigo_academia": req.CodigoAcademia,
 	})
 }
 
 // AprovarInscricao comando para aprovar inscrição
-// 🔥 CORRIGIDO: Validações robustas de status
 func AprovarInscricao(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -279,7 +306,7 @@ func AprovarInscricao(c *gin.Context) {
 		return
 	}
 
-	// Buscar inscrição na projeção
+	// Buscar inscrição
 	inscProj := getInscricoesProjection(c)
 	inscricao, err := inscProj.GetByID(inscricaoID)
 	if err != nil || inscricao == nil {
@@ -287,28 +314,18 @@ func AprovarInscricao(c *gin.Context) {
 		return
 	}
 
-	// 🔥 VALIDAÇÕES DE STATUS - DEFINITIVAS
+	// Validações de status
 	switch inscricao.Status {
 	case "aprovado":
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "esta inscrição já foi aprovada anteriormente",
+			"error":        "esta inscrição já foi aprovada anteriormente",
 			"status_atual": "aprovado",
-			"message": "não é possível aprovar uma inscrição que já está aprovada",
 		})
 		return
 	case "reprovado":
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "esta inscrição foi reprovada e não pode ser aprovada",
+			"error":        "esta inscrição foi reprovada e não pode ser aprovada",
 			"status_atual": "reprovado",
-			"message": "inscrições reprovadas são definitivas. O estudante deve fazer uma nova solicitação",
-		})
-		return
-	case "espera":
-		// OK, pode processar
-	default:
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "status de inscrição inválido",
-			"status_atual": inscricao.Status,
 		})
 		return
 	}
@@ -319,7 +336,14 @@ func AprovarInscricao(c *gin.Context) {
 		return
 	}
 
-	// Carregar agregados
+	// Buscar código da academia
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByID(userID)
+	if err != nil || academiaDTO == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar academia"})
+		return
+	}
+
 	repository := getRepository(c)
 
 	// Carregar estudante e aprovar
@@ -330,13 +354,14 @@ func AprovarInscricao(c *gin.Context) {
 	}
 
 	estudante := estudanteAgg.(*aggregates.Estudante)
-	err = estudante.AprovarInscricao(userID, inscricaoID)
+	
+	// 🔥 ATUALIZADO: Passar codigo_academia
+	err = estudante.AprovarInscricao(academiaDTO.CodigoAcademia, inscricaoID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Salvar eventos do estudante
 	if err := repository.Save(estudante); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao aprovar inscrição"})
 		return
@@ -363,22 +388,20 @@ func AprovarInscricao(c *gin.Context) {
 		return
 	}
 
-	// Salvar eventos da academia
 	if err := repository.Save(academia); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao registrar aprovação"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "inscrição aprovada com sucesso",
+		"message":          "inscrição aprovada com sucesso",
 		"codigo_estudante": inscricao.CodigoEstudante,
-		"status_anterior": "espera",
-		"status_atual": "aprovado",
+		"status_anterior":  "espera",
+		"status_atual":     "aprovado",
 	})
 }
 
 // ReprovarInscricao comando para reprovar inscrição
-// 🔥 CORRIGIDO: Atualizar TANTO Estudante QUANTO Academia
 func ReprovarInscricao(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -396,10 +419,10 @@ func ReprovarInscricao(c *gin.Context) {
 		return
 	}
 
-	// 🔥 VERIFICAR se já foi processada
+	// Verificar se já foi processada
 	if inscricao.Status != "espera" {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": fmt.Sprintf("inscrição já foi processada com status '%s' e não pode ser alterada", inscricao.Status),
+			"error":        fmt.Sprintf("inscrição já foi processada com status '%s'", inscricao.Status),
 			"status_atual": inscricao.Status,
 		})
 		return
@@ -411,9 +434,17 @@ func ReprovarInscricao(c *gin.Context) {
 		return
 	}
 
+	// Buscar código da academia
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByID(userID)
+	if err != nil || academiaDTO == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar academia"})
+		return
+	}
+
 	repository := getRepository(c)
 
-	// 🔥 NOVO: Carregar agregado Estudante primeiro (para consistência)
+	// Carregar estudante
 	log.Printf("📝 [REPROVAR] Carregando agregado Estudante: %s", inscricao.EstudanteID)
 	estudanteAgg, err := repository.Load(inscricao.EstudanteID, "Estudante")
 	if err != nil {
@@ -424,41 +455,23 @@ func ReprovarInscricao(c *gin.Context) {
 
 	estudante := estudanteAgg.(*aggregates.Estudante)
 
-	// 🔥 NOVO: Verificar se estudante tem essa inscrição pendente
-	temInscricaoPendente := false
-	for _, insc := range estudante.Inscricoes {
-		if insc.AcademiaID == userID && insc.Status == "espera" {
-			temInscricaoPendente = true
-			break
-		}
-	}
-
-	if !temInscricaoPendente {
-		log.Printf("⚠️ [REPROVAR] Estudante não tem inscrição pendente nesta academia")
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "estudante não possui inscrição pendente nesta academia",
-		})
-		return
-	}
-
-	// 🔥 NOVO: Aplicar evento de reprovação ao estudante
-	// (Usar o método que já existe no agregado)
+	// Aplicar evento de reprovação
 	log.Printf("⚡ [REPROVAR] Aplicando reprovação ao agregado Estudante...")
 	reprovadoEvent := &aggregates.InscricaoReprovadaEvent{
 		BaseEvent: aggregates.BaseEvent{
 			EventType:   "InscricaoReprovada",
 			AggregateID: estudante.ID,
 		},
-		InscricaoID: inscricaoID,
-		AcademiaID:  userID,
+		InscricaoID:    inscricaoID,
+		CodigoAcademia: academiaDTO.CodigoAcademia, // 🔥 ATUALIZADO
 	}
-	
+
 	if err := estudante.Apply(reprovadoEvent); err != nil {
-		log.Printf("❌ [REPROVAR] Erro ao aplicar evento ao estudante: %v", err)
+		log.Printf("❌ [REPROVAR] Erro ao aplicar evento: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao processar reprovação"})
 		return
 	}
-	
+
 	estudante.RaiseEvent(reprovadoEvent)
 
 	// Salvar eventos do estudante
@@ -469,7 +482,7 @@ func ReprovarInscricao(c *gin.Context) {
 		return
 	}
 
-	// 🔥 Carregar e executar comando na academia (para estatísticas)
+	// Carregar academia
 	log.Printf("📝 [REPROVAR] Carregando agregado Academia: %s", userID)
 	academiaAgg, err := repository.Load(userID, "Academia")
 	if err != nil {
@@ -479,7 +492,7 @@ func ReprovarInscricao(c *gin.Context) {
 	}
 
 	academia := academiaAgg.(*aggregates.Academia)
-	
+
 	log.Printf("⚡ [REPROVAR] Executando comando ReprovarInscricao na academia...")
 	err = academia.ReprovarInscricao(inscricao.EstudanteID, inscricaoID, "")
 	if err != nil {
@@ -498,9 +511,9 @@ func ReprovarInscricao(c *gin.Context) {
 
 	log.Printf("✅ [REPROVAR] Inscrição reprovada com sucesso: %s", inscricaoID)
 	c.JSON(http.StatusOK, gin.H{
-		"message": "inscrição reprovada com sucesso",
+		"message":          "inscrição reprovada com sucesso",
 		"codigo_estudante": inscricao.CodigoEstudante,
-		"status": "reprovado",
+		"status":           "reprovado",
 	})
 }
 

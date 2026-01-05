@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/handlers/admin_auth_handlers.go
-// Handlers de autenticação e operações administrativas
+// ATUALIZADO: Usar codigo_academia nas verificações
 // ============================================================================
 
 package handlers
@@ -174,24 +174,24 @@ func ListarTodosEstudantes(c *gin.Context) {
 	query := `
 		SELECT 
 			id, nome, codigo_estudante, bilhete_identidade,
-			id_academia, ano_escolar, status_escolar,
+			codigo_academia, ano_escolar, status_escolar,
 			created_at, total_notas, total_faltas, total_inscricoes
 		FROM projection_estudantes
 		ORDER BY created_at DESC
 	`
 
 	type EstudanteSimples struct {
-		ID               uuid.UUID  `db:"id" json:"id"`
-		Nome             string     `db:"nome" json:"nome"`
-		CodigoEstudante  string     `db:"codigo_estudante" json:"codigo_estudante"`
-		BilheteID        *string    `db:"bilhete_identidade" json:"bilhete_identidade"`
-		IDAcademia       *uuid.UUID `db:"id_academia" json:"id_academia"`
-		AnoEscolar       *string    `db:"ano_escolar" json:"ano_escolar"`
-		StatusEscolar    *string    `db:"status_escolar" json:"status_escolar"`
-		CreatedAt        string     `db:"created_at" json:"created_at"`
-		TotalNotas       int        `db:"total_notas" json:"total_notas"`
-		TotalFaltas      int        `db:"total_faltas" json:"total_faltas"`
-		TotalInscricoes  int        `db:"total_inscricoes" json:"total_inscricoes"`
+		ID               uuid.UUID `db:"id" json:"id"`
+		Nome             string    `db:"nome" json:"nome"`
+		CodigoEstudante  string    `db:"codigo_estudante" json:"codigo_estudante"`
+		BilheteID        *string   `db:"bilhete_identidade" json:"bilhete_identidade"`
+		CodigoAcademia   *string   `db:"codigo_academia" json:"codigo_academia"` // 🔥 MUDOU
+		AnoEscolar       *string   `db:"ano_escolar" json:"ano_escolar"`
+		StatusEscolar    *string   `db:"status_escolar" json:"status_escolar"`
+		CreatedAt        string    `db:"created_at" json:"created_at"`
+		TotalNotas       int       `db:"total_notas" json:"total_notas"`
+		TotalFaltas      int       `db:"total_faltas" json:"total_faltas"`
+		TotalInscricoes  int       `db:"total_inscricoes" json:"total_inscricoes"`
 	}
 
 	var estudantes []EstudanteSimples
@@ -204,43 +204,6 @@ func ListarTodosEstudantes(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"estudantes": estudantes,
 		"total":      len(estudantes),
-	})
-}
-
-// ListarTodasAcademias lista todas as academias (admin)
-func ListarTodasAcademias(c *gin.Context) {
-	query := `
-		SELECT 
-			id, nome, codigo_academia, type, provincia,
-			status, nivel_escolar, created_at,
-			total_estudantes, total_inscricoes_pendentes
-		FROM projection_academias
-		ORDER BY created_at DESC
-	`
-
-	type AcademiaSimples struct {
-		ID                       uuid.UUID `db:"id" json:"id"`
-		Nome                     string    `db:"nome" json:"nome"`
-		CodigoAcademia           string    `db:"codigo_academia" json:"codigo_academia"`
-		Type                     string    `db:"type" json:"type"`
-		Provincia                string    `db:"provincia" json:"provincia"`
-		Status                   string    `db:"status" json:"status"`
-		NivelEscolar             *string   `db:"nivel_escolar" json:"nivel_escolar"`
-		CreatedAt                string    `db:"created_at" json:"created_at"`
-		TotalEstudantes          int       `db:"total_estudantes" json:"total_estudantes"`
-		TotalInscricoesPendentes int       `db:"total_inscricoes_pendentes" json:"total_inscricoes_pendentes"`
-	}
-
-	var academias []AcademiaSimples
-	client := getGenesisClient(c)
-	if err := client.DB().Select(&academias, query); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar academias"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"academias": academias,
-		"total":     len(academias),
 	})
 }
 
