@@ -54,7 +54,7 @@ func main() {
 	log.Printf("🚀 Spuri Event Sourcing rodando em http://localhost:%s", port)
 	log.Printf("📚 Documentação: http://localhost:%s/", port)
 	log.Printf("❤️  Health check: http://localhost:%s/health", port)
-	log.Printf("🌍 Ambiente: %s", os.Getenv("ENV"))
+	log.Printf("🌐 Ambiente: %s", os.Getenv("ENV"))
 	log.Printf("🗃️  GenesisDB: Event Sourcing ativado")
 	log.Printf("🔑 Admin FPP: admin@spuri.ao / fpp@2025")
 	
@@ -108,11 +108,28 @@ func initProjections() error {
 func setupRouter() *gin.Engine {
 	router := gin.Default()
 
-	// Middleware CORS
+	// Middleware CORS - Origins Específicos
 	router.Use(func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		// Origins permitidos
+		allowedOrigins := []string{
+			"https://spuripainel.vercel.app",
+			"http://localhost:3000",
+		}
+		
+		origin := c.Request.Header.Get("Origin")
+		
+		// Verificar se o origin está permitido
+		for _, allowedOrigin := range allowedOrigins {
+			if origin == allowedOrigin {
+				c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+				break
+			}
+		}
+		
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Max-Age", "86400") // 24 horas
 		
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)

@@ -1,0 +1,54 @@
+.
+├── Dockerfile
+├── README.md
+├── cmd
+│   └── server
+│       └── main.go
+├── create_admin_fpp.sql
+├── go.mod
+├── go.sum
+├── init_db.sh
+├── internal
+│   ├── domain
+│   │   ├── aggregates
+│   │   │   ├── academia.go
+│   │   │   ├── admin.go
+│   │   │   ├── aggregate.go
+│   │   │   └── estudante.go
+│   │   └── models.go
+│   ├── genesisdb
+│   │   ├── client.go
+│   │   ├── event_store.go
+│   │   └── repository.go
+│   ├── handlers
+│   │   ├── admin_auth_handlers.go
+│   │   ├── admin_handlers.go
+│   │   ├── admin_management_handlers.go
+│   │   ├── admin_registros_handlers.go
+│   │   ├── auth_handlers.go
+│   │   ├── command_handlers.go
+│   │   ├── helpers.go
+│   │   ├── profile_handlers.go
+│   │   └── query_handlers.go
+│   ├── middleware
+│   │   ├── academia_middleware.go
+│   │   ├── admin_auth_middleware.go
+│   │   └── auth.go
+│   ├── projections
+│   │   ├── academia_projection.go
+│   │   ├── admin_projection.go
+│   │   ├── estudante_projection.go
+│   │   ├── faltas_projection.go
+│   │   ├── inscricoes_projection.go
+│   │   ├── manager.go
+│   │   ├── notas_projection.go
+│   │   └── projection.go
+│   └── utils
+│       └── codigo_estudante.go
+├── migrations
+│   └── genesisdb
+│       └── 001_complete_schema.sql
+├── spuri-api-Insomnia_2025-12-25
+├── spuri-api-openapi.json
+└── test
+    └── test_api.sh
