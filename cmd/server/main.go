@@ -243,6 +243,9 @@ func setupRouter() *gin.Engine {
 		// 🔥 NOVAS: Consultas públicas (academia e admin)
 		protected.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)
 		protected.GET("/consultar-academia/:codigo", handlers.GetAcademiaPorCodigo)
+		
+		// 🔥 ATUALIZADO: Rota /estudantes (academia retorna seus estudantes, admin retorna todos)
+		protected.GET("/estudantes", handlers.ListarEstudantes)
 	}
 
 	// ============================================
@@ -253,9 +256,6 @@ func setupRouter() *gin.Engine {
 	admin.Use(middleware.AuthMiddleware())
 	admin.Use(middleware.RequireAdmin())
 	{
-		// Consultas (todos os admins)
-		admin.GET("/estudantes", handlers.ListarTodosEstudantes)
-		
 		// Todos os registros
 		admin.GET("/todos-registros", handlers.ListarTodosRegistros)
 		admin.GET("/registros/estudante/:codigo", handlers.ListarRegistrosPorEstudante)

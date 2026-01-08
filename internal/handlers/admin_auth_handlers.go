@@ -169,23 +169,19 @@ func RegisterAdmin(c *gin.Context) {
 // OPERAÇÕES ADMINISTRATIVAS - CONSULTAS
 // ============================================================================
 
-// ListarTodosEstudantes lista todos os estudantes (admin)
-func ListarTodosEstudantes(c *gin.Context) {
-	query := `
-		SELECT 
-			id, nome, codigo_estudante, bilhete_identidade,
-			codigo_academia, ano_escolar, status_escolar,
-			created_at, total_notas, total_faltas, total_inscricoes
-		FROM projection_estudantes
-		ORDER BY created_at DESC
-	`
+// ListarEstudantes lista estudantes baseado no tipo de usuário
+// - Academia: retorna apenas estudantes da própria academia
+// - Admin: retorna todos os estudantes do sistema
+func ListarEstudantes(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
 
 	type EstudanteSimples struct {
 		ID               uuid.UUID `db:"id" json:"id"`
 		Nome             string    `db:"nome" json:"nome"`
 		CodigoEstudante  string    `db:"codigo_estudante" json:"codigo_estudante"`
 		BilheteID        *string   `db:"bilhete_identidade" json:"bilhete_identidade"`
-		CodigoAcademia   *string   `db:"codigo_academia" json:"codigo_academia"` // 🔥 MUDOU
+		CodigoAcademia   *string   `db:"codigo_academia" json:"codigo_academia"`
 		AnoEscolar       *string   `db:"ano_escolar" json:"ano_escolar"`
 		StatusEscolar    *string   `db:"status_escolar" json:"status_escolar"`
 		CreatedAt        string    `db:"created_at" json:"created_at"`
@@ -196,15 +192,67 @@ func ListarTodosEstudantes(c *gin.Context) {
 
 	var estudantes []EstudanteSimples
 	client := getGenesisClient(c)
-	if err := client.DB().Select(&estudantes, query); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar estudantes"})
-		return
-	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"estudantes": estudantes,
-		"total":      len(estudantes),
-	})
+	if userType == "academia" {
+		// 🔥 ACADEMIA: Buscar apenas estudantes da própria academia
+		// Primeiro, buscar o código da academia logada
+		academiaProj := getAcademiaProjection(c)
+		academiaDTO, err := academiaProj.GetByID(userID)
+		if err != nil || academiaDTO == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar dados da academia"})
+			return
+		}
+
+		query := `
+			SELECT 
+				id, nome, codigo_estudante, bilhete_identidade,
+				codigo_academia, ano_escolar, status_escolar,
+				created_at, total_notas, total_faltas, total_inscricoes
+			FROM projection_estudantes
+			WHERE codigo_academia = $1
+			ORDER BY created_at DESC
+		`
+
+		if err := client.DB().Select(&estudantes, query, academiaDTO.CodigoAcademia); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar estudantes"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"estudantes":      estudantes,
+			"total":           len(estudantes),
+			"tipo_usuario":    "academia",
+			"codigo_academia": academiaDTO.CodigoAcademia,
+			"nome_academia":   academiaDTO.Nome,
+		})
+
+	} else if userType == "admin" {
+		// 🔥 ADMIN: Buscar TODOS os estudantes
+		query := `
+			SELECT 
+				id, nome, codigo_estudante, bilhete_identidade,
+				codigo_academia, ano_escolar, status_escolar,
+				created_at, total_notas, total_faltas, total_inscricoes
+			FROM projection_estudantes
+			ORDER BY created_at DESC
+		`
+
+		if err := client.DB().Select(&estudantes, query); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar estudantes"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"estudantes":   estudantes,
+			"total":        len(estudantes),
+			"tipo_usuario": "admin",
+		})
+
+	} else {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "acesso negado: apenas academias e administradores",
+		})
+	}
 }
 
 // ============================================================================
