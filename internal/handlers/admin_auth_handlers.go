@@ -183,7 +183,9 @@ func ListarEstudantes(c *gin.Context) {
 		BilheteID        *string   `db:"bilhete_identidade" json:"bilhete_identidade"`
 		CodigoAcademia   *string   `db:"codigo_academia" json:"codigo_academia"`
 		AnoEscolar       *string   `db:"ano_escolar" json:"ano_escolar"`
+		AnoSuperior      *string   `db:"ano_superior" json:"ano_superior"`
 		StatusEscolar    *string   `db:"status_escolar" json:"status_escolar"`
+		StatusSuperior   *string   `json:"status_superior" db:"status_superior"`
 		CreatedAt        string    `db:"created_at" json:"created_at"`
 		TotalNotas       int       `db:"total_notas" json:"total_notas"`
 		TotalFaltas      int       `db:"total_faltas" json:"total_faltas"`
@@ -205,8 +207,8 @@ func ListarEstudantes(c *gin.Context) {
 
 		query := `
 			SELECT 
-				id, nome, codigo_estudante, bilhete_identidade,
-				codigo_academia, ano_escolar, status_escolar,
+				id, nome, codigo_estudante, bilhete_identidade, ano_superior,
+				codigo_academia, ano_escolar, status_escolar, status_superior,
 				created_at, total_notas, total_faltas, total_inscricoes
 			FROM projection_estudantes
 			WHERE codigo_academia = $1
