@@ -1,8 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/projections/notas_projection.go
-// CORRIGIDO: Remover Context
-// ============================================================================
-
 package projections
 
 import (
@@ -15,11 +10,13 @@ import (
 	"github.com/google/uuid"
 )
 
+// NotasProjection projeção de notas
 type NotasProjection struct {
 	client *genesisdb.Client
 	ctx    context.Context
 }
 
+// NewNotasProjection cria nova projeção de notas
 func NewNotasProjection(client *genesisdb.Client) *NotasProjection {
 	return &NotasProjection{
 		client: client,
@@ -27,22 +24,28 @@ func NewNotasProjection(client *genesisdb.Client) *NotasProjection {
 	}
 }
 
+// Name implementa Projection
 func (p *NotasProjection) Name() string {
 	return "notas"
 }
 
+// Handle processa um evento
 func (p *NotasProjection) Handle(event genesisdb.Event) error {
 	if event.EventType != "NotasRegistradas" {
 		return nil
 	}
+
 	return p.handleNotasRegistradas(event)
 }
 
+// Rebuild reconstrói a projeção do zero
 func (p *NotasProjection) Rebuild() error {
+	// Limpar projeção
 	if err := p.clear(); err != nil {
 		return err
 	}
 
+	// Buscar todos os eventos NotasRegistradas
 	query := `
 		SELECT 
 			id, event_id, aggregate_id, aggregate_type, event_type,
@@ -67,6 +70,7 @@ func (p *NotasProjection) Rebuild() error {
 	return nil
 }
 
+// GetLastProcessedEventID implementa Projection
 func (p *NotasProjection) GetLastProcessedEventID() (int64, error) {
 	query := `
 		SELECT last_processed_event_id 
@@ -75,10 +79,11 @@ func (p *NotasProjection) GetLastProcessedEventID() (int64, error) {
 	`
 
 	var lastID int64
-	err := p.client.DB().Get(&lastID, query, p.Name())
+	err := p.client.DB().GetContext(p.ctx, &lastID, query, p.Name())
 	return lastID, err
 }
 
+// UpdateCheckpoint implementa Projection
 func (p *NotasProjection) UpdateCheckpoint(eventID int64) error {
 	query := `
 		UPDATE projection_checkpoints
@@ -89,21 +94,23 @@ func (p *NotasProjection) UpdateCheckpoint(eventID int64) error {
 		WHERE projection_name = $2
 	`
 
-	_, err := p.client.DB().Exec(query, eventID, p.Name())
+	_, err := p.client.DB().ExecContext(p.ctx, query, eventID, p.Name())
 	return err
 }
 
+// clear limpa a projeção
 func (p *NotasProjection) clear() error {
-	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_notas CASCADE`)
+	_, err := p.client.DB().ExecContext(p.ctx, `TRUNCATE TABLE projection_notas CASCADE`)
 	return err
 }
 
+// handleNotasRegistradas processa evento NotasRegistradas
 func (p *NotasProjection) handleNotasRegistradas(event genesisdb.Event) error {
 	var payload struct {
-		CodigoAcademia string `json:"CodigoAcademia"`
-		AnoLectivo     string `json:"AnoLectivo"`
-		Periodo        string `json:"Periodo"`
-		Materias       []struct {
+		IDAcademia   uuid.UUID `json:"IDAcademia"`
+		AnoLectivo   string    `json:"AnoLectivo"`
+		Periodo      string    `json:"Periodo"`
+		Materias     []struct {
 			Nome string  `json:"Nome"`
 			Nota float64 `json:"Nota"`
 		} `json:"Materias"`
@@ -114,6 +121,7 @@ func (p *NotasProjection) handleNotasRegistradas(event genesisdb.Event) error {
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
+	// Converter materias para JSONB
 	materiasJSON, err := json.Marshal(payload.Materias)
 	if err != nil {
 		return err
@@ -121,15 +129,15 @@ func (p *NotasProjection) handleNotasRegistradas(event genesisdb.Event) error {
 
 	query := `
 		INSERT INTO projection_notas (
-			estudante_id, codigo_academia, ano_lectivo, periodo,
+			estudante_id, id_academia, ano_lectivo, periodo,
 			materias, registered_at, event_id, version
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 
-	_, err = p.client.DB().Exec(
-		query,
+	_, err = p.client.DB().ExecContext(
+		p.ctx, query,
 		event.AggregateID,
-		payload.CodigoAcademia,
+		payload.IDAcademia,
 		payload.AnoLectivo,
 		payload.Periodo,
 		materiasJSON,
@@ -138,29 +146,33 @@ func (p *NotasProjection) handleNotasRegistradas(event genesisdb.Event) error {
 		event.EventVersion,
 	)
 
+	// Atualizar contador no estudante
 	if err == nil {
 		updateQuery := `
 			UPDATE projection_estudantes
 			SET total_notas = total_notas + 1
 			WHERE id = $1
 		`
-		p.client.DB().Exec(updateQuery, event.AggregateID)
+		p.client.DB().ExecContext(p.ctx, updateQuery, event.AggregateID)
 	}
 
 	return err
 }
 
+// Query methods
+
+// GetByEstudante busca notas de um estudante
 func (p *NotasProjection) GetByEstudante(estudanteID uuid.UUID) ([]NotasDTO, error) {
 	query := `
 		SELECT 
-			id, estudante_id, codigo_academia, ano_lectivo, periodo,
+			id, estudante_id, id_academia, ano_lectivo, periodo,
 			materias, registered_at, event_id, version
 		FROM projection_notas
 		WHERE estudante_id = $1
 		ORDER BY registered_at DESC
 	`
 
-	rows, err := p.client.DB().Query(query, estudanteID)
+	rows, err := p.client.DB().QueryContext(p.ctx, query, estudanteID)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +186,7 @@ func (p *NotasProjection) GetByEstudante(estudanteID uuid.UUID) ([]NotasDTO, err
 		if err := rows.Scan(
 			&dto.ID,
 			&dto.EstudanteID,
-			&dto.CodigoAcademia,
+			&dto.IDAcademia,
 			&dto.AnoLectivo,
 			&dto.Periodo,
 			&materiasJSON,
@@ -185,6 +197,7 @@ func (p *NotasProjection) GetByEstudante(estudanteID uuid.UUID) ([]NotasDTO, err
 			return nil, err
 		}
 
+		// Deserializar materias
 		if err := json.Unmarshal(materiasJSON, &dto.Materias); err != nil {
 			return nil, err
 		}
@@ -195,13 +208,14 @@ func (p *NotasProjection) GetByEstudante(estudanteID uuid.UUID) ([]NotasDTO, err
 	return result, nil
 }
 
+// NotasDTO DTO da projeção
 type NotasDTO struct {
-	ID             uuid.UUID `json:"id"`
-	EstudanteID    uuid.UUID `json:"estudante_id"`
-	CodigoAcademia string    `json:"codigo_academia"`
-	AnoLectivo     string    `json:"ano_lectivo"`
-	Periodo        string    `json:"periodo"`
-	Materias       []struct {
+	ID           uuid.UUID `json:"id"`
+	EstudanteID  uuid.UUID `json:"estudante_id"`
+	IDAcademia   uuid.UUID `json:"id_academia"`
+	AnoLectivo   string    `json:"ano_lectivo"`
+	Periodo      string    `json:"periodo"`
+	Materias     []struct {
 		Nome string  `json:"nome"`
 		Nota float64 `json:"nota"`
 	} `json:"materias"`

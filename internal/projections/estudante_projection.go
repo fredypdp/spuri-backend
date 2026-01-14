@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/projections/estudante_projection.go
-// CORRIGIDO: Remover Context de todas as queries
+// ATUALIZADO: Usar codigo_academia em vez de id_academia
 // ============================================================================
 
 package projections
@@ -156,6 +156,7 @@ func (p *EstudanteProjection) handleEstudanteCriado(event genesisdb.Event) error
 		return fmt.Errorf("CodigoEstudante vazio no evento")
 	}
 
+	// 🔥 ATUALIZADO: codigo_academia agora é VARCHAR
 	query := `
 		INSERT INTO projection_estudantes (
 			id, nome, codigo_estudante, senha_hash, bilhete_identidade, 
@@ -189,7 +190,7 @@ func (p *EstudanteProjection) handleEstudanteCriado(event genesisdb.Event) error
 		payload.SenhaHash,
 		payload.BilheteIdentidade,
 		payload.BilheteIdentidadeResp,
-		nil, // codigo_academia inicia NULL
+		nil, // 🔥 codigo_academia inicia NULL
 		payload.AnoEscolar,
 		payload.AnoSuperior,
 		payload.CursoMedio,
@@ -212,6 +213,7 @@ func (p *EstudanteProjection) handleEstudanteCriado(event genesisdb.Event) error
 	return nil
 }
 
+// 🔥 ATUALIZADO: Usar codigo_academia do payload
 func (p *EstudanteProjection) handleInscricaoAprovada(event genesisdb.Event) error {
 	var payload struct {
 		CodigoAcademia string `json:"CodigoAcademia"`
@@ -243,6 +245,7 @@ func (p *EstudanteProjection) handleInscricaoAprovada(event genesisdb.Event) err
 	return err
 }
 
+// 🔥 ATUALIZADO
 func (p *EstudanteProjection) handleVinculoAtualizado(event genesisdb.Event) error {
 	var payload struct {
 		NovoCodigoAcademia string `json:"NovoCodigoAcademia"`
@@ -353,7 +356,7 @@ func (p *EstudanteProjection) GetByBilhete(bilhete string) (*EstudanteDTO, error
 	return &dto, nil
 }
 
-// EstudanteDTO com CodigoAcademia
+// 🔥 ATUALIZADO: EstudanteDTO com CodigoAcademia
 type EstudanteDTO struct {
 	ID                    uuid.UUID `db:"id" json:"id"`
 	Nome                  string    `db:"nome" json:"nome"`
@@ -361,7 +364,7 @@ type EstudanteDTO struct {
 	SenhaHash             string    `db:"senha_hash" json:"-"`
 	BilheteIdentidade     *string   `db:"bilhete_identidade" json:"bilhete_identidade,omitempty"`
 	BilheteIdentidadeResp *string   `db:"bilhete_identidade_responsavel" json:"bilhete_identidade_responsavel,omitempty"`
-	CodigoAcademia        *string   `db:"codigo_academia" json:"codigo_academia,omitempty"`
+	CodigoAcademia        *string   `db:"codigo_academia" json:"codigo_academia,omitempty"` // 🔥 MUDOU
 	AnoEscolar            *string   `db:"ano_escolar" json:"ano_escolar,omitempty"`
 	AnoSuperior           *string   `db:"ano_superior" json:"ano_superior,omitempty"`
 	CursoMedio            *string   `db:"curso_medio" json:"curso_medio,omitempty"`
