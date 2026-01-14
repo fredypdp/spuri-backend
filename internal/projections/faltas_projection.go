@@ -1,3 +1,8 @@
+// ============================================================================
+// ARQUIVO: internal/projections/faltas_projection.go
+// CORRIGIDO: Remover Context
+// ============================================================================
+
 package projections
 
 import (
@@ -10,13 +15,11 @@ import (
 	"github.com/google/uuid"
 )
 
-// FaltasProjection projeÃ§Ã£o de faltas
 type FaltasProjection struct {
 	client *genesisdb.Client
 	ctx    context.Context
 }
 
-// NewFaltasProjection cria nova projeÃ§Ã£o de faltas
 func NewFaltasProjection(client *genesisdb.Client) *FaltasProjection {
 	return &FaltasProjection{
 		client: client,
@@ -24,21 +27,17 @@ func NewFaltasProjection(client *genesisdb.Client) *FaltasProjection {
 	}
 }
 
-// Name implementa Projection
 func (p *FaltasProjection) Name() string {
 	return "faltas"
 }
 
-// Handle processa um evento
 func (p *FaltasProjection) Handle(event genesisdb.Event) error {
 	if event.EventType != "FaltasRegistradas" {
 		return nil
 	}
-
 	return p.handleFaltasRegistradas(event)
 }
 
-// Rebuild reconstrÃ³i a projeÃ§Ã£o do zero
 func (p *FaltasProjection) Rebuild() error {
 	if err := p.clear(); err != nil {
 		return err
@@ -68,7 +67,6 @@ func (p *FaltasProjection) Rebuild() error {
 	return nil
 }
 
-// GetLastProcessedEventID implementa Projection
 func (p *FaltasProjection) GetLastProcessedEventID() (int64, error) {
 	query := `
 		SELECT last_processed_event_id 
@@ -77,11 +75,10 @@ func (p *FaltasProjection) GetLastProcessedEventID() (int64, error) {
 	`
 
 	var lastID int64
-	err := p.client.DB().GetContext(p.ctx, &lastID, query, p.Name())
+	err := p.client.DB().Get(&lastID, query, p.Name())
 	return lastID, err
 }
 
-// UpdateCheckpoint implementa Projection
 func (p *FaltasProjection) UpdateCheckpoint(eventID int64) error {
 	query := `
 		UPDATE projection_checkpoints
@@ -92,20 +89,18 @@ func (p *FaltasProjection) UpdateCheckpoint(eventID int64) error {
 		WHERE projection_name = $2
 	`
 
-	_, err := p.client.DB().ExecContext(p.ctx, query, eventID, p.Name())
+	_, err := p.client.DB().Exec(query, eventID, p.Name())
 	return err
 }
 
-// clear limpa a projeÃ§Ã£o
 func (p *FaltasProjection) clear() error {
-	_, err := p.client.DB().ExecContext(p.ctx, `TRUNCATE TABLE projection_faltas CASCADE`)
+	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_faltas CASCADE`)
 	return err
 }
 
-// ðŸ”¥ ATUALIZADO: handleFaltasRegistradas usa CodigoAcademia
 func (p *FaltasProjection) handleFaltasRegistradas(event genesisdb.Event) error {
 	var payload struct {
-		CodigoAcademia string `json:"CodigoAcademia"` // ðŸ”¥ MUDOU
+		CodigoAcademia string `json:"CodigoAcademia"`
 		AnoLectivo     string `json:"AnoLectivo"`
 		Periodo        string `json:"Periodo"`
 		Materias       []struct {
@@ -119,13 +114,11 @@ func (p *FaltasProjection) handleFaltasRegistradas(event genesisdb.Event) error 
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	// Converter materias para JSONB
 	materiasJSON, err := json.Marshal(payload.Materias)
 	if err != nil {
 		return err
 	}
 
-	// ðŸ”¥ ATUALIZADO: codigo_academia
 	query := `
 		INSERT INTO projection_faltas (
 			estudante_id, codigo_academia, ano_lectivo, periodo,
@@ -133,8 +126,8 @@ func (p *FaltasProjection) handleFaltasRegistradas(event genesisdb.Event) error 
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 
-	_, err = p.client.DB().ExecContext(
-		p.ctx, query,
+	_, err = p.client.DB().Exec(
+		query,
 		event.AggregateID,
 		payload.CodigoAcademia,
 		payload.AnoLectivo,
@@ -145,22 +138,18 @@ func (p *FaltasProjection) handleFaltasRegistradas(event genesisdb.Event) error 
 		event.EventVersion,
 	)
 
-	// Atualizar contador
 	if err == nil {
 		updateQuery := `
 			UPDATE projection_estudantes
 			SET total_faltas = total_faltas + 1
 			WHERE id = $1
 		`
-		p.client.DB().ExecContext(p.ctx, updateQuery, event.AggregateID)
+		p.client.DB().Exec(updateQuery, event.AggregateID)
 	}
 
 	return err
 }
 
-// Query methods
-
-// GetByEstudante busca faltas de um estudante
 func (p *FaltasProjection) GetByEstudante(estudanteID uuid.UUID) ([]FaltasDTO, error) {
 	query := `
 		SELECT 
@@ -171,7 +160,7 @@ func (p *FaltasProjection) GetByEstudante(estudanteID uuid.UUID) ([]FaltasDTO, e
 		ORDER BY registered_at DESC
 	`
 
-	rows, err := p.client.DB().QueryContext(p.ctx, query, estudanteID)
+	rows, err := p.client.DB().Query(query, estudanteID)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +185,6 @@ func (p *FaltasProjection) GetByEstudante(estudanteID uuid.UUID) ([]FaltasDTO, e
 			return nil, err
 		}
 
-		// Deserializar materias
 		if err := json.Unmarshal(materiasJSON, &dto.Materias); err != nil {
 			return nil, err
 		}
@@ -207,11 +195,10 @@ func (p *FaltasProjection) GetByEstudante(estudanteID uuid.UUID) ([]FaltasDTO, e
 	return result, nil
 }
 
-// ðŸ”¥ ATUALIZADO: FaltasDTO
 type FaltasDTO struct {
 	ID             uuid.UUID `json:"id"`
 	EstudanteID    uuid.UUID `json:"estudante_id"`
-	CodigoAcademia string    `json:"codigo_academia"` // ðŸ”¥ MUDOU
+	CodigoAcademia string    `json:"codigo_academia"`
 	AnoLectivo     string    `json:"ano_lectivo"`
 	Periodo        string    `json:"periodo"`
 	Materias       []struct {

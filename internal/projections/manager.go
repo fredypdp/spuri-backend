@@ -1,7 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/projections/manager.go
-// Gerenciador de todas as projeÃ§Ãµes do sistema
-// VERSÃƒO: 2.1.0 - Corrigida e otimizada
+// CORRIGIDO: Remover Context de todas as queries
 // ============================================================================
 
 package projections
@@ -14,7 +13,7 @@ import (
 	"time"
 )
 
-// Manager gerencia todas as projeÃ§Ãµes
+// Manager gerencia todas as projeções
 type Manager struct {
 	client      *genesisdb.Client
 	eventStore  *genesisdb.EventStore
@@ -22,12 +21,12 @@ type Manager struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	
-	// ConfiguraÃ§Ã£o
+	// Configuração
 	pollInterval time.Duration
 	batchSize    int
 }
 
-// NewManager cria um novo gerenciador de projeÃ§Ãµes
+// NewManager cria um novo gerenciador de projeções
 func NewManager(client *genesisdb.Client) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	
@@ -42,15 +41,15 @@ func NewManager(client *genesisdb.Client) *Manager {
 	}
 }
 
-// RegisterProjection registra uma nova projeÃ§Ã£o
+// RegisterProjection registra uma nova projeção
 func (m *Manager) RegisterProjection(name string, projection Projection) {
 	m.projections[name] = projection
-	log.Printf("ðŸ“Š ProjeÃ§Ã£o registrada: %s", name)
+	log.Printf("📊 Projeção registrada: %s", name)
 }
 
-// StartProcessing inicia o processamento contÃ­nuo de eventos
+// StartProcessing inicia o processamento contínuo de eventos
 func (m *Manager) StartProcessing() {
-	log.Println("â–¶ï¸  Iniciando processamento de projeÃ§Ãµes...")
+	log.Println("▶️  Iniciando processamento de projeções...")
 	
 	ticker := time.NewTicker(m.pollInterval)
 	defer ticker.Stop()
@@ -58,11 +57,11 @@ func (m *Manager) StartProcessing() {
 	for {
 		select {
 		case <-m.ctx.Done():
-			log.Println("â¹ï¸  Parando processamento de projeÃ§Ãµes")
+			log.Println("⏹️  Parando processamento de projeções")
 			return
 		case <-ticker.C:
 			if err := m.processNewEvents(); err != nil {
-				log.Printf("âŒ Erro ao processar eventos: %v", err)
+				log.Printf("❌ Erro ao processar eventos: %v", err)
 			}
 		}
 	}
@@ -73,21 +72,21 @@ func (m *Manager) Stop() {
 	m.cancel()
 }
 
-// processNewEvents processa novos eventos para todas as projeÃ§Ãµes
+// processNewEvents processa novos eventos para todas as projeções
 func (m *Manager) processNewEvents() error {
 	for name, projection := range m.projections {
 		if err := m.processProjection(name, projection); err != nil {
-			log.Printf("âŒ Erro ao processar projeÃ§Ã£o %s: %v", name, err)
-			// Continuar com outras projeÃ§Ãµes
+			log.Printf("❌ Erro ao processar projeção %s: %v", name, err)
+			// Continuar com outras projeções
 			continue
 		}
 	}
 	return nil
 }
 
-// processProjection processa eventos pendentes para uma projeÃ§Ã£o
+// processProjection processa eventos pendentes para uma projeção
 func (m *Manager) processProjection(name string, projection Projection) error {
-	// Obter Ãºltimo evento processado
+	// Obter último evento processado
 	lastProcessedID, err := projection.GetLastProcessedEventID()
 	if err != nil {
 		return fmt.Errorf("erro ao obter checkpoint: %w", err)
@@ -108,22 +107,22 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 	for _, event := range events {
 		// Processar evento
 		if err := projection.Handle(event); err != nil {
-			log.Printf("âŒ [%s] Erro ao processar evento %d: %v", name, event.ID, err)
+			log.Printf("❌ [%s] Erro ao processar evento %d: %v", name, event.ID, err)
 			
 			// Registrar erro
 			m.logProjectionError(name, err.Error())
 			
-			// Atualizar checkpoint mesmo com erro para nÃ£o reprocessar infinitamente
+			// Atualizar checkpoint mesmo com erro para não reprocessar infinitamente
 			if err := projection.UpdateCheckpoint(event.ID); err != nil {
-				log.Printf("âŒ [%s] Erro ao atualizar checkpoint: %v", name, err)
+				log.Printf("❌ [%s] Erro ao atualizar checkpoint: %v", name, err)
 			}
 			continue
 		}
 
-		// Atualizar checkpoint apÃ³s processar com sucesso
+		// Atualizar checkpoint após processar com sucesso
 		if err := projection.UpdateCheckpoint(event.ID); err != nil {
-			log.Printf("âŒ [%s] Erro ao atualizar checkpoint: %v", name, err)
-			return fmt.Errorf("falha crÃ­tica ao salvar checkpoint: %w", err)
+			log.Printf("❌ [%s] Erro ao atualizar checkpoint: %v", name, err)
+			return fmt.Errorf("falha crítica ao salvar checkpoint: %w", err)
 		}
 		
 		processedCount++
@@ -131,14 +130,14 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 
 	// Log apenas se processou eventos
 	if processedCount > 0 {
-		log.Printf("âœ… [%s] Processados %d eventos (Ãºltimo: %d)", 
+		log.Printf("✅ [%s] Processados %d eventos (último: %d)", 
 			name, processedCount, events[len(events)-1].ID)
 	}
 
 	return nil
 }
 
-// getNewEvents busca eventos novos a partir do Ãºltimo processado
+// getNewEvents busca eventos novos a partir do último processado
 func (m *Manager) getNewEvents(fromID int64) ([]genesisdb.Event, error) {
 	query := `
 		SELECT 
@@ -152,7 +151,7 @@ func (m *Manager) getNewEvents(fromID int64) ([]genesisdb.Event, error) {
 	`
 
 	var events []genesisdb.Event
-	err := m.client.DB().SelectContext(m.ctx, &events, query, fromID, m.batchSize)
+	err := m.client.DB().Select(&events, query, fromID, m.batchSize)
 	if err != nil {
 		return nil, err
 	}
@@ -160,52 +159,52 @@ func (m *Manager) getNewEvents(fromID int64) ([]genesisdb.Event, error) {
 	return events, nil
 }
 
-// RebuildProjection reconstrÃ³i uma projeÃ§Ã£o do zero
+// RebuildProjection reconstrói uma projeção do zero
 func (m *Manager) RebuildProjection(name string) error {
 	projection, exists := m.projections[name]
 	if !exists {
-		return fmt.Errorf("projeÃ§Ã£o nÃ£o encontrada: %s", name)
+		return fmt.Errorf("projeção não encontrada: %s", name)
 	}
 
-	log.Printf("ðŸ”¨ Reconstruindo projeÃ§Ã£o: %s", name)
+	log.Printf("🔨 Reconstruindo projeção: %s", name)
 
-	// Marcar como em reconstruÃ§Ã£o
+	// Marcar como em reconstrução
 	if err := m.markRebuildStart(name); err != nil {
 		return err
 	}
 
 	// Reconstruir
 	if err := projection.Rebuild(); err != nil {
-		log.Printf("âŒ Erro ao reconstruir projeÃ§Ã£o %s: %v", name, err)
+		log.Printf("❌ Erro ao reconstruir projeção %s: %v", name, err)
 		return err
 	}
 
-	// Marcar como concluÃ­do
+	// Marcar como concluído
 	if err := m.markRebuildComplete(name); err != nil {
 		return err
 	}
 
-	log.Printf("âœ… ProjeÃ§Ã£o %s reconstruÃ­da com sucesso", name)
+	log.Printf("✅ Projeção %s reconstruída com sucesso", name)
 	return nil
 }
 
-// RebuildAllProjections reconstrÃ³i todas as projeÃ§Ãµes
+// RebuildAllProjections reconstrói todas as projeções
 func (m *Manager) RebuildAllProjections() error {
-	log.Println("ðŸ”¨ Reconstruindo TODAS as projeÃ§Ãµes...")
+	log.Println("🔨 Reconstruindo TODAS as projeções...")
 
 	for name := range m.projections {
 		if err := m.RebuildProjection(name); err != nil {
-			log.Printf("âŒ Erro ao reconstruir %s: %v", name, err)
-			// Continuar com outras projeÃ§Ãµes
+			log.Printf("❌ Erro ao reconstruir %s: %v", name, err)
+			// Continuar com outras projeções
 			continue
 		}
 	}
 
-	log.Println("âœ… Todas as projeÃ§Ãµes reconstruÃ­das")
+	log.Println("✅ Todas as projeções reconstruídas")
 	return nil
 }
 
-// markRebuildStart marca inÃ­cio de reconstruÃ§Ã£o
+// markRebuildStart marca início de reconstrução
 func (m *Manager) markRebuildStart(name string) error {
 	query := `
 		UPDATE projection_checkpoints
@@ -215,16 +214,16 @@ func (m *Manager) markRebuildStart(name string) error {
 			last_processed_event_id = 0
 		WHERE projection_name = $1
 	`
-	_, err := m.client.DB().ExecContext(m.ctx, query, name)
+	_, err := m.client.DB().Exec(query, name)
 	return err
 }
 
-// markRebuildComplete marca conclusÃ£o de reconstruÃ§Ã£o
+// markRebuildComplete marca conclusão de reconstrução
 func (m *Manager) markRebuildComplete(name string) error {
-	// Obter Ãºltimo evento
+	// Obter último evento
 	var lastEventID int64
 	query := `SELECT COALESCE(MAX(id), 0) FROM genesis_ledger`
-	err := m.client.DB().GetContext(m.ctx, &lastEventID, query)
+	err := m.client.DB().Get(&lastEventID, query)
 	if err != nil {
 		return err
 	}
@@ -238,11 +237,11 @@ func (m *Manager) markRebuildComplete(name string) error {
 			last_processed_at = CURRENT_TIMESTAMP
 		WHERE projection_name = $2
 	`
-	_, err = m.client.DB().ExecContext(m.ctx, query, lastEventID, name)
+	_, err = m.client.DB().Exec(query, lastEventID, name)
 	return err
 }
 
-// logProjectionError registra erro em projeÃ§Ã£o
+// logProjectionError registra erro em projeção
 func (m *Manager) logProjectionError(name, errorMsg string) {
 	query := `
 		UPDATE projection_checkpoints
@@ -252,10 +251,10 @@ func (m *Manager) logProjectionError(name, errorMsg string) {
 			last_error_at = CURRENT_TIMESTAMP
 		WHERE projection_name = $2
 	`
-	m.client.DB().ExecContext(m.ctx, query, errorMsg, name)
+	m.client.DB().Exec(query, errorMsg, name)
 }
 
-// GetProjectionStatus retorna status de uma projeÃ§Ã£o
+// GetProjectionStatus retorna status de uma projeção
 func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, error) {
 	query := `
 		SELECT 
@@ -285,7 +284,7 @@ func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, erro
 	}
 
 	var status Status
-	err := m.client.DB().GetContext(m.ctx, &status, query, name)
+	err := m.client.DB().Get(&status, query, name)
 	if err != nil {
 		return nil, err
 	}
@@ -303,7 +302,7 @@ func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, erro
 	}, nil
 }
 
-// GetAllProjectionStatuses retorna status de todas as projeÃ§Ãµes
+// GetAllProjectionStatuses retorna status de todas as projeções
 func (m *Manager) GetAllProjectionStatuses() ([]map[string]interface{}, error) {
 	var statuses []map[string]interface{}
 
@@ -319,7 +318,7 @@ func (m *Manager) GetAllProjectionStatuses() ([]map[string]interface{}, error) {
 	return statuses, nil
 }
 
-// GetRegisteredProjections retorna lista de projeÃ§Ãµes registradas
+// GetRegisteredProjections retorna lista de projeções registradas
 func (m *Manager) GetRegisteredProjections() []string {
 	names := make([]string, 0, len(m.projections))
 	for name := range m.projections {
@@ -328,7 +327,7 @@ func (m *Manager) GetRegisteredProjections() []string {
 	return names
 }
 
-// IsProjectionRegistered verifica se uma projeÃ§Ã£o estÃ¡ registrada
+// IsProjectionRegistered verifica se uma projeção está registrada
 func (m *Manager) IsProjectionRegistered(name string) bool {
 	_, exists := m.projections[name]
 	return exists

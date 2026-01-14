@@ -12,13 +12,13 @@ import (
 	"github.com/google/uuid"
 )
 
-// AcademiaProjection projeÃ§Ã£o de academias
+// AcademiaProjection projeção de academias
 type AcademiaProjection struct {
 	client *genesisdb.Client
 	ctx    context.Context
 }
 
-// NewAcademiaProjection cria nova projeÃ§Ã£o de academia
+// NewAcademiaProjection cria nova projeção de academia
 func NewAcademiaProjection(client *genesisdb.Client) *AcademiaProjection {
 	return &AcademiaProjection{
 		client: client,
@@ -33,7 +33,6 @@ func (p *AcademiaProjection) Name() string {
 
 // Handle processa um evento
 func (p *AcademiaProjection) Handle(event genesisdb.Event) error {
-	// Processar apenas eventos de Academia
 	if event.AggregateType != "Academia" {
 		return nil
 	}
@@ -56,14 +55,12 @@ func (p *AcademiaProjection) Handle(event genesisdb.Event) error {
 	}
 }
 
-// Rebuild reconstrÃ³i a projeÃ§Ã£o do zero
+// Rebuild reconstrói a projeção do zero
 func (p *AcademiaProjection) Rebuild() error {
-	// 1. Limpar projeÃ§Ã£o existente
 	if err := p.clear(); err != nil {
 		return err
 	}
 
-	// 2. Buscar todos os eventos de Academia
 	query := `
 		SELECT 
 			id, event_id, aggregate_id, aggregate_type, event_type,
@@ -79,7 +76,6 @@ func (p *AcademiaProjection) Rebuild() error {
 		return err
 	}
 
-	// 3. Processar todos os eventos
 	for _, event := range events {
 		if err := p.Handle(event); err != nil {
 			return fmt.Errorf("erro ao processar evento %d: %w", event.ID, err)
@@ -98,7 +94,7 @@ func (p *AcademiaProjection) GetLastProcessedEventID() (int64, error) {
 	`
 
 	var lastID int64
-	err := p.client.DB().GetContext(p.ctx, &lastID, query, p.Name())
+	err := p.client.DB().Get(&lastID, query, p.Name())
 	if err != nil {
 		return 0, err
 	}
@@ -117,23 +113,21 @@ func (p *AcademiaProjection) UpdateCheckpoint(eventID int64) error {
 		WHERE projection_name = $2
 	`
 
-	_, err := p.client.DB().ExecContext(p.ctx, query, eventID, p.Name())
+	_, err := p.client.DB().Exec(query, eventID, p.Name())
 	return err
 }
 
-// clear limpa a projeÃ§Ã£o
+// clear limpa a projeção
 func (p *AcademiaProjection) clear() error {
 	query := `TRUNCATE TABLE projection_academias CASCADE`
-	_, err := p.client.DB().ExecContext(p.ctx, query)
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
 // Event Handlers
 
 func (p *AcademiaProjection) handleAcademiaCriada(event genesisdb.Event) error {
-	log.Printf("ðŸ”µ [PROJEÃ‡ÃƒO ACADEMIA] Iniciando processamento de AcademiaCriada")
-	log.Printf("   Event ID: %s", event.EventID)
-	log.Printf("   Aggregate ID: %s", event.AggregateID)
+	log.Printf("🔵 [PROJEÇÃO ACADEMIA] Iniciando processamento de AcademiaCriada")
 	
 	var payload struct {
 		Type           string    `json:"Type"`
@@ -151,28 +145,15 @@ func (p *AcademiaProjection) handleAcademiaCriada(event genesisdb.Event) error {
 	}
 
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		log.Printf("âŒ [PROJEÃ‡ÃƒO ACADEMIA] Erro ao parsear payload: %v", err)
-		log.Printf("   Payload raw: %s", string(event.Payload))
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	log.Printf("ðŸ“Š [PROJEÃ‡ÃƒO ACADEMIA] Dados parseados:")
-	log.Printf("   Type: %s", payload.Type)
-	log.Printf("   Nome: %s", payload.Nome)
-	log.Printf("   CÃ³digo: %s", payload.CodigoAcademia)
-	log.Printf("   ProvÃ­ncia: %s", payload.Provincia)
-	log.Printf("   SenhaHash existe: %v (length: %d)", payload.SenhaHash != "", len(payload.SenhaHash))
-
-	// Verificar se senha estÃ¡ no payload
 	if payload.SenhaHash == "" {
-		log.Printf("âŒ [PROJEÃ‡ÃƒO ACADEMIA] SenhaHash vazio no evento!")
 		return fmt.Errorf("SenhaHash vazio no evento")
 	}
 
-	// Converter cursos para JSONB
 	cursosJSON, err := json.Marshal(payload.Cursos)
 	if err != nil {
-		log.Printf("âŒ [PROJEÃ‡ÃƒO ACADEMIA] Erro ao converter cursos: %v", err)
 		return err
 	}
 
@@ -199,9 +180,8 @@ func (p *AcademiaProjection) handleAcademiaCriada(event genesisdb.Event) error {
 			last_event_id = EXCLUDED.last_event_id
 	`
 
-	log.Printf("ðŸ”„ [PROJEÃ‡ÃƒO ACADEMIA] Executando INSERT na tabela...")
-	result, err := p.client.DB().ExecContext(
-		p.ctx, query,
+	result, err := p.client.DB().Exec(
+		query,
 		event.AggregateID,
 		payload.Type,
 		payload.Nome,
@@ -222,18 +202,11 @@ func (p *AcademiaProjection) handleAcademiaCriada(event genesisdb.Event) error {
 	)
 
 	if err != nil {
-		log.Printf("âŒ [PROJEÃ‡ÃƒO ACADEMIA] Erro ao executar INSERT: %v", err)
 		return err
 	}
 
 	rowsAffected, _ := result.RowsAffected()
-	log.Printf("âœ… [PROJEÃ‡ÃƒO ACADEMIA] Academia salva com sucesso! (rows affected: %d)", rowsAffected)
-	
-	// Verificar se realmente salvou
-	var count int
-	checkQuery := `SELECT COUNT(*) FROM projection_academias WHERE id = $1`
-	p.client.DB().GetContext(p.ctx, &count, checkQuery, event.AggregateID)
-	log.Printf("ðŸ” [PROJEÃ‡ÃƒO ACADEMIA] VerificaÃ§Ã£o: %d registro(s) encontrado(s) com ID %s", count, event.AggregateID)
+	log.Printf("✅ [PROJEÇÃO ACADEMIA] Academia salva com sucesso! (rows: %d)", rowsAffected)
 
 	return nil
 }
@@ -249,8 +222,8 @@ func (p *AcademiaProjection) handleAcademiaAtivada(event genesisdb.Event) error 
 		WHERE id = $3
 	`
 
-	_, err := p.client.DB().ExecContext(
-		p.ctx, query,
+	_, err := p.client.DB().Exec(
+		query,
 		event.EventVersion,
 		event.EventID,
 		event.AggregateID,
@@ -270,8 +243,8 @@ func (p *AcademiaProjection) handleAcademiaDesativada(event genesisdb.Event) err
 		WHERE id = $3
 	`
 
-	_, err := p.client.DB().ExecContext(
-		p.ctx, query,
+	_, err := p.client.DB().Exec(
+		query,
 		event.EventVersion,
 		event.EventID,
 		event.AggregateID,
@@ -304,8 +277,8 @@ func (p *AcademiaProjection) handleCursosAtualizados(event genesisdb.Event) erro
 		WHERE id = $4
 	`
 
-	_, err = p.client.DB().ExecContext(
-		p.ctx, query,
+	_, err = p.client.DB().Exec(
+		query,
 		cursosJSON,
 		event.EventVersion,
 		event.EventID,
@@ -325,7 +298,7 @@ func (p *AcademiaProjection) handleInscricaoAprovada(event genesisdb.Event) erro
 		WHERE id = $1
 	`
 
-	_, err := p.client.DB().ExecContext(p.ctx, query, event.AggregateID)
+	_, err := p.client.DB().Exec(query, event.AggregateID)
 	return err
 }
 
@@ -338,13 +311,12 @@ func (p *AcademiaProjection) handleInscricaoReprovada(event genesisdb.Event) err
 		WHERE id = $1
 	`
 
-	_, err := p.client.DB().ExecContext(p.ctx, query, event.AggregateID)
+	_, err := p.client.DB().Exec(query, event.AggregateID)
 	return err
 }
 
 // Query methods
 
-// GetByID busca academia por ID na projeÃ§Ã£o
 func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
 	query := `
 		SELECT 
@@ -359,7 +331,7 @@ func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
 	var dto AcademiaDTO
 	var cursosJSON []byte
 
-	err := p.client.DB().QueryRowContext(p.ctx, query, id).Scan(
+	err := p.client.DB().QueryRow(query, id).Scan(
 		&dto.ID,
 		&dto.Type,
 		&dto.Nome,
@@ -387,7 +359,6 @@ func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
 		return nil, err
 	}
 
-	// Deserializar cursos
 	if err := json.Unmarshal(cursosJSON, &dto.Cursos); err != nil {
 		dto.Cursos = []string{}
 	}
@@ -395,10 +366,7 @@ func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
 	return &dto, nil
 }
 
-// GetByCodigoOrEmail busca academia por cÃ³digo ou email
 func (p *AcademiaProjection) GetByCodigoOrEmail(identifier string) (*AcademiaDTO, error) {
-	log.Printf("ðŸ” [PROJEÃ‡ÃƒO ACADEMIA] GetByCodigoOrEmail: %s", identifier)
-	
 	query := `
 		SELECT 
 			id, type, nome, codigo_academia, senha_hash, provincia,
@@ -413,7 +381,7 @@ func (p *AcademiaProjection) GetByCodigoOrEmail(identifier string) (*AcademiaDTO
 	var dto AcademiaDTO
 	var cursosJSON []byte
 
-	err := p.client.DB().QueryRowContext(p.ctx, query, identifier).Scan(
+	err := p.client.DB().QueryRow(query, identifier).Scan(
 		&dto.ID,
 		&dto.Type,
 		&dto.Nome,
@@ -435,24 +403,69 @@ func (p *AcademiaProjection) GetByCodigoOrEmail(identifier string) (*AcademiaDTO
 	)
 
 	if err == sql.ErrNoRows {
-		log.Printf("âŒ [PROJEÃ‡ÃƒO ACADEMIA] Nenhum registro encontrado")
 		return nil, nil
 	}
 	if err != nil {
-		log.Printf("âŒ [PROJEÃ‡ÃƒO ACADEMIA] Erro na query: %v", err)
 		return nil, err
 	}
 
-	// Deserializar cursos
 	if err := json.Unmarshal(cursosJSON, &dto.Cursos); err != nil {
 		dto.Cursos = []string{}
 	}
 
-	log.Printf("âœ… [PROJEÃ‡ÃƒO ACADEMIA] Academia encontrada: %s", dto.Nome)
 	return &dto, nil
 }
 
-// AcademiaDTO DTO da projeÃ§Ã£o
+func (p *AcademiaProjection) GetByCodigo(codigo string) (*AcademiaDTO, error) {
+	query := `
+		SELECT 
+			id, type, nome, codigo_academia, senha_hash, provincia,
+			endereco, numero_telefone, email, website, nivel_escolar,
+			status, cursos, created_at, updated_at,
+			total_estudantes, total_inscricoes_pendentes, version
+		FROM projection_academias
+		WHERE codigo_academia = $1
+		LIMIT 1
+	`
+
+	var dto AcademiaDTO
+	var cursosJSON []byte
+
+	err := p.client.DB().QueryRow(query, codigo).Scan(
+		&dto.ID,
+		&dto.Type,
+		&dto.Nome,
+		&dto.CodigoAcademia,
+		&dto.SenhaHash,
+		&dto.Provincia,
+		&dto.Endereco,
+		&dto.NumeroTelefone,
+		&dto.Email,
+		&dto.Website,
+		&dto.NivelEscolar,
+		&dto.Status,
+		&cursosJSON,
+		&dto.CreatedAt,
+		&dto.UpdatedAt,
+		&dto.TotalEstudantes,
+		&dto.TotalInscricoesPendentes,
+		&dto.Version,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if err := json.Unmarshal(cursosJSON, &dto.Cursos); err != nil {
+		dto.Cursos = []string{}
+	}
+
+	return &dto, nil
+}
+
 type AcademiaDTO struct {
 	ID                       uuid.UUID  `json:"id"`
 	Type                     string     `json:"type"`
@@ -472,61 +485,4 @@ type AcademiaDTO struct {
 	TotalEstudantes          int        `json:"total_estudantes"`
 	TotalInscricoesPendentes int        `json:"total_inscricoes_pendentes"`
 	Version                  int        `json:"version"`
-}
-
-// ðŸ”¥ NOVO: GetByCodigo busca academia por cÃ³digo
-func (p *AcademiaProjection) GetByCodigo(codigo string) (*AcademiaDTO, error) {
-	log.Printf("ðŸ” [PROJEÃ‡ÃƒO ACADEMIA] GetByCodigo: %s", codigo)
-	
-	query := `
-		SELECT 
-			id, type, nome, codigo_academia, senha_hash, provincia,
-			endereco, numero_telefone, email, website, nivel_escolar,
-			status, cursos, created_at, updated_at,
-			total_estudantes, total_inscricoes_pendentes, version
-		FROM projection_academias
-		WHERE codigo_academia = $1
-		LIMIT 1
-	`
-
-	var dto AcademiaDTO
-	var cursosJSON []byte
-
-	err := p.client.DB().QueryRowContext(p.ctx, query, codigo).Scan(
-		&dto.ID,
-		&dto.Type,
-		&dto.Nome,
-		&dto.CodigoAcademia,
-		&dto.SenhaHash,
-		&dto.Provincia,
-		&dto.Endereco,
-		&dto.NumeroTelefone,
-		&dto.Email,
-		&dto.Website,
-		&dto.NivelEscolar,
-		&dto.Status,
-		&cursosJSON,
-		&dto.CreatedAt,
-		&dto.UpdatedAt,
-		&dto.TotalEstudantes,
-		&dto.TotalInscricoesPendentes,
-		&dto.Version,
-	)
-
-	if err == sql.ErrNoRows {
-		log.Printf("âŒ [PROJEÃ‡ÃƒO ACADEMIA] Nenhum registro encontrado com cÃ³digo: %s", codigo)
-		return nil, nil
-	}
-	if err != nil {
-		log.Printf("âŒ [PROJEÃ‡ÃƒO ACADEMIA] Erro na query: %v", err)
-		return nil, err
-	}
-
-	// Deserializar cursos
-	if err := json.Unmarshal(cursosJSON, &dto.Cursos); err != nil {
-		dto.Cursos = []string{}
-	}
-
-	log.Printf("âœ… [PROJEÃ‡ÃƒO ACADEMIA] Academia encontrada: %s (CÃ³digo: %s)", dto.Nome, dto.CodigoAcademia)
-	return &dto, nil
 }
