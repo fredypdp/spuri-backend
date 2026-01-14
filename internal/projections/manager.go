@@ -1,6 +1,7 @@
 // ============================================================================
 // ARQUIVO: internal/projections/manager.go
-// CORRIGIDO: Query getNewEvents com context correto
+// Gerenciador de todas as projeções do sistema
+// VERSÃO: 2.1.0 - Corrigida e otimizada
 // ============================================================================
 
 package projections
@@ -137,7 +138,7 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 	return nil
 }
 
-// 🔥 CORRIGIDO: getNewEvents com Select ao invés de SelectContext
+// getNewEvents busca eventos novos a partir do último processado
 func (m *Manager) getNewEvents(fromID int64) ([]genesisdb.Event, error) {
 	query := `
 		SELECT 
@@ -151,8 +152,7 @@ func (m *Manager) getNewEvents(fromID int64) ([]genesisdb.Event, error) {
 	`
 
 	var events []genesisdb.Event
-	// 🔥 MUDOU: Select em vez de SelectContext
-	err := m.client.DB().Select(&events, query, fromID, m.batchSize)
+	err := m.client.DB().SelectContext(m.ctx, &events, query, fromID, m.batchSize)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +205,7 @@ func (m *Manager) RebuildAllProjections() error {
 	return nil
 }
 
-// 🔥 CORRIGIDO: markRebuildStart sem Context
+// markRebuildStart marca início de reconstrução
 func (m *Manager) markRebuildStart(name string) error {
 	query := `
 		UPDATE projection_checkpoints
@@ -215,16 +215,16 @@ func (m *Manager) markRebuildStart(name string) error {
 			last_processed_event_id = 0
 		WHERE projection_name = $1
 	`
-	_, err := m.client.DB().Exec(query, name)
+	_, err := m.client.DB().ExecContext(m.ctx, query, name)
 	return err
 }
 
-// 🔥 CORRIGIDO: markRebuildComplete sem Context
+// markRebuildComplete marca conclusão de reconstrução
 func (m *Manager) markRebuildComplete(name string) error {
 	// Obter último evento
 	var lastEventID int64
 	query := `SELECT COALESCE(MAX(id), 0) FROM genesis_ledger`
-	err := m.client.DB().Get(&lastEventID, query)
+	err := m.client.DB().GetContext(m.ctx, &lastEventID, query)
 	if err != nil {
 		return err
 	}
@@ -238,11 +238,11 @@ func (m *Manager) markRebuildComplete(name string) error {
 			last_processed_at = CURRENT_TIMESTAMP
 		WHERE projection_name = $2
 	`
-	_, err = m.client.DB().Exec(query, lastEventID, name)
+	_, err = m.client.DB().ExecContext(m.ctx, query, lastEventID, name)
 	return err
 }
 
-// 🔥 CORRIGIDO: logProjectionError sem Context
+// logProjectionError registra erro em projeção
 func (m *Manager) logProjectionError(name, errorMsg string) {
 	query := `
 		UPDATE projection_checkpoints
@@ -252,10 +252,10 @@ func (m *Manager) logProjectionError(name, errorMsg string) {
 			last_error_at = CURRENT_TIMESTAMP
 		WHERE projection_name = $2
 	`
-	m.client.DB().Exec(query, errorMsg, name)
+	m.client.DB().ExecContext(m.ctx, query, errorMsg, name)
 }
 
-// 🔥 CORRIGIDO: GetProjectionStatus sem Context
+// GetProjectionStatus retorna status de uma projeção
 func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, error) {
 	query := `
 		SELECT 
@@ -285,7 +285,7 @@ func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, erro
 	}
 
 	var status Status
-	err := m.client.DB().Get(&status, query, name)
+	err := m.client.DB().GetContext(m.ctx, &status, query, name)
 	if err != nil {
 		return nil, err
 	}
