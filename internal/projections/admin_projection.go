@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/projections/admin_projection.go
-// CORRIGIDO: Remover Context de todas as queries
+// ProjeÃ§Ã£o de leitura para administradores
 // ============================================================================
 
 package projections
@@ -17,13 +17,13 @@ import (
 	"github.com/google/uuid"
 )
 
-// AdminProjection projeção de administradores
+// AdminProjection projeÃ§Ã£o de administradores
 type AdminProjection struct {
 	client *genesisdb.Client
 	ctx    context.Context
 }
 
-// NewAdminProjection cria nova projeção de admin
+// NewAdminProjection cria nova projeÃ§Ã£o de admin
 func NewAdminProjection(client *genesisdb.Client) *AdminProjection {
 	return &AdminProjection{
 		client: client,
@@ -56,7 +56,7 @@ func (p *AdminProjection) Handle(event genesisdb.Event) error {
 	}
 }
 
-// Rebuild reconstrói a projeção do zero
+// Rebuild reconstrÃ³i a projeÃ§Ã£o do zero
 func (p *AdminProjection) Rebuild() error {
 	if err := p.clear(); err != nil {
 		return err
@@ -95,7 +95,7 @@ func (p *AdminProjection) GetLastProcessedEventID() (int64, error) {
 	`
 
 	var lastID int64
-	err := p.client.DB().Get(&lastID, query, p.Name())
+	err := p.client.DB().GetContext(p.ctx, &lastID, query, p.Name())
 	if err != nil {
 		return 0, err
 	}
@@ -114,21 +114,21 @@ func (p *AdminProjection) UpdateCheckpoint(eventID int64) error {
 		WHERE projection_name = $2
 	`
 
-	_, err := p.client.DB().Exec(query, eventID, p.Name())
+	_, err := p.client.DB().ExecContext(p.ctx, query, eventID, p.Name())
 	return err
 }
 
-// clear limpa a projeção
+// clear limpa a projeÃ§Ã£o
 func (p *AdminProjection) clear() error {
 	query := `TRUNCATE TABLE projection_admins CASCADE`
-	_, err := p.client.DB().Exec(query)
+	_, err := p.client.DB().ExecContext(p.ctx, query)
 	return err
 }
 
 // Event Handlers
 
 func (p *AdminProjection) handleAdminCriado(event genesisdb.Event) error {
-	log.Printf("🔵 [PROJEÇÃO ADMIN] Processando AdminCriado")
+	log.Printf("ðŸ”µ [PROJEÃ‡ÃƒO ADMIN] Processando AdminCriado")
 	
 	var payload struct {
 		Nome      string     `json:"Nome"`
@@ -159,8 +159,8 @@ func (p *AdminProjection) handleAdminCriado(event genesisdb.Event) error {
 			last_event_id = EXCLUDED.last_event_id
 	`
 
-	_, err := p.client.DB().Exec(
-		query,
+	_, err := p.client.DB().ExecContext(
+		p.ctx, query,
 		event.AggregateID,
 		payload.Nome,
 		payload.Email,
@@ -189,8 +189,8 @@ func (p *AdminProjection) handleAdminAtivado(event genesisdb.Event) error {
 		WHERE id = $3
 	`
 
-	_, err := p.client.DB().Exec(
-		query,
+	_, err := p.client.DB().ExecContext(
+		p.ctx, query,
 		event.EventVersion,
 		event.EventID,
 		event.AggregateID,
@@ -210,8 +210,8 @@ func (p *AdminProjection) handleAdminDesativado(event genesisdb.Event) error {
 		WHERE id = $3
 	`
 
-	_, err := p.client.DB().Exec(
-		query,
+	_, err := p.client.DB().ExecContext(
+		p.ctx, query,
 		event.EventVersion,
 		event.EventID,
 		event.AggregateID,
@@ -229,7 +229,7 @@ func (p *AdminProjection) handleAcaoAdminRegistrada(event genesisdb.Event) error
 		WHERE id = $1
 	`
 
-	_, err := p.client.DB().Exec(query, event.AggregateID)
+	_, err := p.client.DB().ExecContext(p.ctx, query, event.AggregateID)
 	return err
 }
 
@@ -247,7 +247,7 @@ func (p *AdminProjection) GetByID(id uuid.UUID) (*AdminDTO, error) {
 	`
 
 	var dto AdminDTO
-	err := p.client.DB().Get(&dto, query, id)
+	err := p.client.DB().GetContext(p.ctx, &dto, query, id)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -270,7 +270,7 @@ func (p *AdminProjection) GetByEmail(email string) (*AdminDTO, error) {
 	`
 
 	var dto AdminDTO
-	err := p.client.DB().Get(&dto, query, email)
+	err := p.client.DB().GetContext(p.ctx, &dto, query, email)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -293,11 +293,11 @@ func (p *AdminProjection) GetAll() ([]AdminDTO, error) {
 	`
 
 	var dtos []AdminDTO
-	err := p.client.DB().Select(&dtos, query)
+	err := p.client.DB().SelectContext(p.ctx, &dtos, query)
 	return dtos, err
 }
 
-// AdminDTO DTO da projeção
+// AdminDTO DTO da projeÃ§Ã£o
 type AdminDTO struct {
 	ID                   uuid.UUID  `db:"id" json:"id"`
 	Nome                 string     `db:"nome" json:"nome"`

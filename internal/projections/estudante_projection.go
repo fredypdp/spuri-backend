@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/projections/estudante_projection.go
-// CORRIGIDO: Remover Context de todas as queries
+// ATUALIZADO: Usar codigo_academia em vez de id_academia
 // ============================================================================
 
 package projections
@@ -17,13 +17,13 @@ import (
 	"github.com/google/uuid"
 )
 
-// EstudanteProjection projeção de estudantes
+// EstudanteProjection projeÃ§Ã£o de estudantes
 type EstudanteProjection struct {
 	client *genesisdb.Client
 	ctx    context.Context
 }
 
-// NewEstudanteProjection cria nova projeção de estudante
+// NewEstudanteProjection cria nova projeÃ§Ã£o de estudante
 func NewEstudanteProjection(client *genesisdb.Client) *EstudanteProjection {
 	return &EstudanteProjection{
 		client: client,
@@ -55,7 +55,7 @@ func (p *EstudanteProjection) Handle(event genesisdb.Event) error {
 	}
 }
 
-// Rebuild reconstrói a projeção do zero
+// Rebuild reconstrÃ³i a projeÃ§Ã£o do zero
 func (p *EstudanteProjection) Rebuild() error {
 	if err := p.clear(); err != nil {
 		return err
@@ -117,7 +117,7 @@ func (p *EstudanteProjection) UpdateCheckpoint(eventID int64) error {
 	return err
 }
 
-// clear limpa a projeção
+// clear limpa a projeÃ§Ã£o
 func (p *EstudanteProjection) clear() error {
 	query := `TRUNCATE TABLE projection_estudantes CASCADE`
 	_, err := p.client.DB().Exec(query)
@@ -127,7 +127,7 @@ func (p *EstudanteProjection) clear() error {
 // Event Handlers
 
 func (p *EstudanteProjection) handleEstudanteCriado(event genesisdb.Event) error {
-	log.Printf("🔵 [PROJEÇÃO ESTUDANTE] Processando EstudanteCriado")
+	log.Printf("ðŸ”µ [PROJEÃ‡ÃƒO ESTUDANTE] Processando EstudanteCriado")
 	
 	var payload struct {
 		Nome                  string     `json:"Nome"`
@@ -156,6 +156,7 @@ func (p *EstudanteProjection) handleEstudanteCriado(event genesisdb.Event) error
 		return fmt.Errorf("CodigoEstudante vazio no evento")
 	}
 
+	// ðŸ”¥ ATUALIZADO: codigo_academia agora Ã© VARCHAR
 	query := `
 		INSERT INTO projection_estudantes (
 			id, nome, codigo_estudante, senha_hash, bilhete_identidade, 
@@ -189,7 +190,7 @@ func (p *EstudanteProjection) handleEstudanteCriado(event genesisdb.Event) error
 		payload.SenhaHash,
 		payload.BilheteIdentidade,
 		payload.BilheteIdentidadeResp,
-		nil, // codigo_academia inicia NULL
+		nil, // ðŸ”¥ codigo_academia inicia NULL
 		payload.AnoEscolar,
 		payload.AnoSuperior,
 		payload.CursoMedio,
@@ -207,11 +208,12 @@ func (p *EstudanteProjection) handleEstudanteCriado(event genesisdb.Event) error
 	}
 
 	rowsAffected, _ := result.RowsAffected()
-	log.Printf("✅ [PROJEÇÃO ESTUDANTE] Salvo com sucesso! (rows: %d)", rowsAffected)
+	log.Printf("âœ… [PROJEÃ‡ÃƒO ESTUDANTE] Salvo com sucesso! (rows: %d)", rowsAffected)
 
 	return nil
 }
 
+// ðŸ”¥ ATUALIZADO: Usar codigo_academia do payload
 func (p *EstudanteProjection) handleInscricaoAprovada(event genesisdb.Event) error {
 	var payload struct {
 		CodigoAcademia string `json:"CodigoAcademia"`
@@ -243,6 +245,7 @@ func (p *EstudanteProjection) handleInscricaoAprovada(event genesisdb.Event) err
 	return err
 }
 
+// ðŸ”¥ ATUALIZADO
 func (p *EstudanteProjection) handleVinculoAtualizado(event genesisdb.Event) error {
 	var payload struct {
 		NovoCodigoAcademia string `json:"NovoCodigoAcademia"`
@@ -275,7 +278,7 @@ func (p *EstudanteProjection) handleVinculoAtualizado(event genesisdb.Event) err
 
 // Query methods
 
-// GetByID busca estudante por ID na projeção
+// GetByID busca estudante por ID na projeÃ§Ã£o
 func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
 	query := `
 		SELECT 
@@ -299,9 +302,9 @@ func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
 	return &dto, nil
 }
 
-// GetByCodigo busca estudante por código
+// GetByCodigo busca estudante por cÃ³digo
 func (p *EstudanteProjection) GetByCodigo(codigo string) (*EstudanteDTO, error) {
-	log.Printf("🔍 [PROJEÇÃO ESTUDANTE] GetByCodigo: %s", codigo)
+	log.Printf("ðŸ” [PROJEÃ‡ÃƒO ESTUDANTE] GetByCodigo: %s", codigo)
 	
 	query := `
 		SELECT 
@@ -316,15 +319,15 @@ func (p *EstudanteProjection) GetByCodigo(codigo string) (*EstudanteDTO, error) 
 	var dto EstudanteDTO
 	err := p.client.DB().Get(&dto, query, codigo)
 	if err == sql.ErrNoRows {
-		log.Printf("❌ [PROJEÇÃO ESTUDANTE] Não encontrado: %s", codigo)
+		log.Printf("âŒ [PROJEÃ‡ÃƒO ESTUDANTE] NÃ£o encontrado: %s", codigo)
 		return nil, nil
 	}
 	if err != nil {
-		log.Printf("❌ [PROJEÇÃO ESTUDANTE] Erro: %v", err)
+		log.Printf("âŒ [PROJEÃ‡ÃƒO ESTUDANTE] Erro: %v", err)
 		return nil, err
 	}
 
-	log.Printf("✅ [PROJEÇÃO ESTUDANTE] Encontrado: %s", dto.Nome)
+	log.Printf("âœ… [PROJEÃ‡ÃƒO ESTUDANTE] Encontrado: %s", dto.Nome)
 	return &dto, nil
 }
 
@@ -353,7 +356,7 @@ func (p *EstudanteProjection) GetByBilhete(bilhete string) (*EstudanteDTO, error
 	return &dto, nil
 }
 
-// EstudanteDTO com CodigoAcademia
+// ðŸ”¥ ATUALIZADO: EstudanteDTO com CodigoAcademia
 type EstudanteDTO struct {
 	ID                    uuid.UUID `db:"id" json:"id"`
 	Nome                  string    `db:"nome" json:"nome"`
@@ -361,7 +364,7 @@ type EstudanteDTO struct {
 	SenhaHash             string    `db:"senha_hash" json:"-"`
 	BilheteIdentidade     *string   `db:"bilhete_identidade" json:"bilhete_identidade,omitempty"`
 	BilheteIdentidadeResp *string   `db:"bilhete_identidade_responsavel" json:"bilhete_identidade_responsavel,omitempty"`
-	CodigoAcademia        *string   `db:"codigo_academia" json:"codigo_academia,omitempty"`
+	CodigoAcademia        *string   `db:"codigo_academia" json:"codigo_academia,omitempty"` // ðŸ”¥ MUDOU
 	AnoEscolar            *string   `db:"ano_escolar" json:"ano_escolar,omitempty"`
 	AnoSuperior           *string   `db:"ano_superior" json:"ano_superior,omitempty"`
 	CursoMedio            *string   `db:"curso_medio" json:"curso_medio,omitempty"`
