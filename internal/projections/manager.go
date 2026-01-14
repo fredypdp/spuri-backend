@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/projections/manager.go
-// CORRIGIDO: Query getNewEvents com context correto
+// CORRIGIDO: Remover Context de todas as queries
 // ============================================================================
 
 package projections
@@ -137,7 +137,7 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 	return nil
 }
 
-// 🔥 CORRIGIDO: getNewEvents com Select ao invés de SelectContext
+// getNewEvents busca eventos novos a partir do último processado
 func (m *Manager) getNewEvents(fromID int64) ([]genesisdb.Event, error) {
 	query := `
 		SELECT 
@@ -151,7 +151,6 @@ func (m *Manager) getNewEvents(fromID int64) ([]genesisdb.Event, error) {
 	`
 
 	var events []genesisdb.Event
-	// 🔥 MUDOU: Select em vez de SelectContext
 	err := m.client.DB().Select(&events, query, fromID, m.batchSize)
 	if err != nil {
 		return nil, err
@@ -205,7 +204,7 @@ func (m *Manager) RebuildAllProjections() error {
 	return nil
 }
 
-// 🔥 CORRIGIDO: markRebuildStart sem Context
+// markRebuildStart marca início de reconstrução
 func (m *Manager) markRebuildStart(name string) error {
 	query := `
 		UPDATE projection_checkpoints
@@ -219,7 +218,7 @@ func (m *Manager) markRebuildStart(name string) error {
 	return err
 }
 
-// 🔥 CORRIGIDO: markRebuildComplete sem Context
+// markRebuildComplete marca conclusão de reconstrução
 func (m *Manager) markRebuildComplete(name string) error {
 	// Obter último evento
 	var lastEventID int64
@@ -242,7 +241,7 @@ func (m *Manager) markRebuildComplete(name string) error {
 	return err
 }
 
-// 🔥 CORRIGIDO: logProjectionError sem Context
+// logProjectionError registra erro em projeção
 func (m *Manager) logProjectionError(name, errorMsg string) {
 	query := `
 		UPDATE projection_checkpoints
@@ -255,7 +254,7 @@ func (m *Manager) logProjectionError(name, errorMsg string) {
 	m.client.DB().Exec(query, errorMsg, name)
 }
 
-// 🔥 CORRIGIDO: GetProjectionStatus sem Context
+// GetProjectionStatus retorna status de uma projeção
 func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, error) {
 	query := `
 		SELECT 
