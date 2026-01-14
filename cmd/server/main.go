@@ -168,6 +168,10 @@ func setupRouter() *gin.Engine {
 		})
 	})
 
+	// 🔥 BOOTSTRAP: Criar primeiro admin FPP
+	// ⚠️  SÓ FUNCIONA SE NÃO EXISTIR NENHUM ADMIN
+	router.POST("/bootstrap/admin-fpp", handlers.BootstrapAdminFPP)
+
 	// Autenticação pública
 	router.POST("/login", handlers.Login)
 	router.POST("/admin/login", handlers.LoginAdmin)
