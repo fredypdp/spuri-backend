@@ -54,9 +54,9 @@ func main() {
 	log.Printf("🚀 Spuri Event Sourcing rodando em http://localhost:%s", port)
 	log.Printf("📚 Documentação: http://localhost:%s/", port)
 	log.Printf("❤️  Health check: http://localhost:%s/health", port)
-	log.Printf("🌐 Ambiente: %s", os.Getenv("ENV"))
+	log.Printf("🌍 Ambiente: %s", os.Getenv("ENV"))
 	log.Printf("🗃️  GenesisDB: Event Sourcing ativado")
-	log.Printf("🔑 Admin FPP: admin@spuri.ao / fpp@2025")
+	log.Printf("🔥 Bootstrap Admin: POST http://localhost:%s/bootstrap/admin-fpp", port)
 	
 	if err := router.Run("0.0.0.0:" + port); err != nil {
 		log.Fatalf("❌ Erro ao iniciar servidor: %v", err)
@@ -167,6 +167,10 @@ func setupRouter() *gin.Engine {
 			},
 		})
 	})
+
+	// 🔥 BOOTSTRAP: Criar primeiro admin FPP
+	// ⚠️  SÓ FUNCIONA SE NÃO EXISTIR NENHUM ADMIN
+	router.POST("/bootstrap/admin-fpp", handlers.BootstrapAdminFPP)
 
 	// Autenticação pública
 	router.POST("/login", handlers.Login)
@@ -304,6 +308,10 @@ func setupRouter() *gin.Engine {
 		c.JSON(200, gin.H{
 			"message": "Bem-vindo ao Spuri API v2.3",
 			"version": "2.3.0",
+			"bootstrap": gin.H{
+				"endpoint": "POST /bootstrap/admin-fpp",
+				"description": "Criar primeiro admin FPP (só funciona se não existir nenhum admin)",
+			},
 		})
 	})
 
