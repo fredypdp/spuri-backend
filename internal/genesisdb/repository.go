@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/genesisdb/repository.go
-// 🔥 CORRIGIDO: Todas as queries usando Query/Exec direto sem prepared statements
+// 🔥 CORRIGIDO: Todas as queries usando Exec/Query direto sem prepared statements
 // ============================================================================
 
 package genesisdb
@@ -257,6 +257,7 @@ type Snapshot struct {
 }
 
 // SaveSnapshot salva um snapshot (otimização para agregados com muitos eventos)
+// 🔥 CORRIGIDO: Usar Exec direto
 func (r *AggregateRepository) SaveSnapshot(aggregate aggregates.Aggregate) error {
 	// Serializar estado
 	stateJSON, err := json.Marshal(aggregate)
@@ -264,34 +265,35 @@ func (r *AggregateRepository) SaveSnapshot(aggregate aggregates.Aggregate) error
 		return err
 	}
 
-	query := `
+	query := fmt.Sprintf(`
 		INSERT INTO aggregate_snapshots (aggregate_id, aggregate_type, version, state)
-		VALUES ($1, $2, $3, $4)
+		VALUES ('%s', '%s', %d, '%s')
 		ON CONFLICT (aggregate_id) 
-		DO UPDATE SET version = $3, state = $4, created_at = CURRENT_TIMESTAMP
-	`
-
-	_, err = r.eventStore.client.db.Exec(
-		query,
-		aggregate.GetID(),
+		DO UPDATE SET version = %d, state = '%s', created_at = CURRENT_TIMESTAMP
+	`,
+		aggregate.GetID().String(),
 		aggregate.GetType(),
 		aggregate.GetVersion(),
-		stateJSON,
+		EscapeString(string(stateJSON)),
+		aggregate.GetVersion(),
+		EscapeString(string(stateJSON)),
 	)
 
+	_, err = r.eventStore.client.db.Exec(query)
 	return err
 }
 
 // LoadSnapshot carrega um snapshot
+// 🔥 CORRIGIDO: Usar QueryRow direto
 func (r *AggregateRepository) LoadSnapshot(id uuid.UUID) (*Snapshot, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT aggregate_id, aggregate_type, version, state, created_at
 		FROM aggregate_snapshots
-		WHERE aggregate_id = $1
-	`
+		WHERE aggregate_id = '%s'
+	`, id.String())
 
 	var snapshot Snapshot
-	err := r.eventStore.client.db.QueryRow(query, id).Scan(
+	err := r.eventStore.client.db.QueryRow(query).Scan(
 		&snapshot.AggregateID,
 		&snapshot.AggregateType,
 		&snapshot.Version,

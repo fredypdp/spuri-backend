@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/genesisdb/event_store.go
-// 🔥 CORRIGIDO: Todas as queries usando Query/Exec direto sem Context
+// 🔥 CORRIGIDO: Todas as queries usando Exec/Query direto sem prepared statements
 // ============================================================================
 
 package genesisdb
@@ -56,21 +56,29 @@ func NewEventStore(client *Client) *EventStore {
 }
 
 // Append adiciona um novo evento ao ledger (APPEND-ONLY)
-// Esta é a operação fundamental do Event Sourcing
+// 🔥 CORRIGIDO: Usar QueryRow direto sem prepared statement
 func (es *EventStore) Append(ctx context.Context, event *Event) error {
-	query := `INSERT INTO genesis_ledger (event_id, aggregate_id, aggregate_type, event_type, event_version, payload, metadata, occurred_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, recorded_at, ledger_hash, previous_hash`
-
-	row := es.client.db.QueryRow(
-		query,
-		event.EventID,
-		event.AggregateID,
+	query := fmt.Sprintf(`
+		INSERT INTO genesis_ledger (
+			event_id, aggregate_id, aggregate_type, event_type, 
+			event_version, payload, metadata, occurred_at
+		) VALUES (
+			'%s', '%s', '%s', '%s', 
+			%d, '%s', '%s', '%s'
+		) 
+		RETURNING id, recorded_at, ledger_hash, previous_hash
+	`,
+		event.EventID.String(),
+		event.AggregateID.String(),
 		event.AggregateType,
 		event.EventType,
 		event.EventVersion,
-		event.Payload,
-		event.Metadata,
-		event.OccurredAt,
+		escapeString(string(event.Payload)),
+		escapeString(string(event.Metadata)),
+		event.OccurredAt.Format(time.RFC3339),
 	)
+
+	row := es.client.db.QueryRow(query)
 
 	err := row.Scan(&event.ID, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash)
 	if err != nil {
@@ -81,7 +89,6 @@ func (es *EventStore) Append(ctx context.Context, event *Event) error {
 }
 
 // LoadEventStream carrega todos os eventos de um agregado
-// Esta é a função chave para reconstruir estado
 func (es *EventStore) LoadEventStream(ctx context.Context, aggregateID uuid.UUID) ([]Event, error) {
 	query := fmt.Sprintf(`
 		SELECT 
@@ -221,7 +228,6 @@ func (es *EventStore) GetAggregateVersion(ctx context.Context, aggregateID uuid.
 }
 
 // VerifyLedgerIntegrity verifica a integridade do ledger
-// GenesisDB garante imutabilidade através de hashes encadeados
 func (es *EventStore) VerifyLedgerIntegrity(ctx context.Context, aggregateID uuid.UUID) (bool, error) {
 	query := fmt.Sprintf(`
 		SELECT 
@@ -279,4 +285,9 @@ func (es *EventStore) CountEventsByAggregate(ctx context.Context, aggregateID uu
 	}
 
 	return count, nil
+}
+
+// 🔥 HELPER: Escapar strings para evitar SQL injection
+func escapeString(s string) string {
+	return EscapeString(s)
 }
