@@ -5,6 +5,7 @@
 │   └── server
 │       └── main.go
 ├── create_admin_fpp.sql
+├── estrutura.txt
 ├── go.mod
 ├── go.sum
 ├── init_db.sh
@@ -26,6 +27,7 @@
 │   │   ├── admin_management_handlers.go
 │   │   ├── admin_registros_handlers.go
 │   │   ├── auth_handlers.go
+│   │   ├── bootstrap_handler.go
 │   │   ├── command_handlers.go
 │   │   ├── helpers.go
 │   │   ├── profile_handlers.go
