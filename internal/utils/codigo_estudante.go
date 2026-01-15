@@ -1,14 +1,11 @@
 // ============================================================================
 // ARQUIVO: internal/utils/codigo_estudante.go
-// Gerador de código único para estudantes
-// Formato: AAA1234 (3 letras + 4 números)
-// Exemplo: KAF7392, PDL8421, XYZ0001
+// 🔥 CORRIGIDO: Usar query direta sem prepared statement
 // ============================================================================
 
 package utils
 
 import (
-	"context"
 	"fmt"
 	"math/rand"
 	"time"
@@ -37,17 +34,23 @@ func GenerateCodigoEstudante() string {
 }
 
 // GenerateUniqueCodigoEstudante gera código único verificando no banco
+// 🔥 CORRIGIDO: Usar query direta sem prepared statement
 func GenerateUniqueCodigoEstudante(db *sqlx.DB) (string, error) {
-	ctx := context.Background()
 	maxAttempts := 100
 	
 	for i := 0; i < maxAttempts; i++ {
 		codigo := GenerateCodigoEstudante()
 		
-		// Verificar se já existe
+		// 🔥 CORRIGIDO: Query direta sem prepared statement
+		query := fmt.Sprintf(`
+			SELECT EXISTS(
+				SELECT 1 FROM projection_estudantes 
+				WHERE codigo_estudante = '%s'
+			)
+		`, codigo)
+		
 		var exists bool
-		query := `SELECT EXISTS(SELECT 1 FROM projection_estudantes WHERE codigo_estudante = $1)`
-		err := db.GetContext(ctx, &exists, query, codigo)
+		err := db.QueryRow(query).Scan(&exists)
 		
 		if err != nil {
 			return "", fmt.Errorf("erro ao verificar código: %w", err)

@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/projections/academia_projection.go
-// 🔥 CORRIGIDO: GetLastProcessedEventID usando Query simples
+// 🔥 CORRIGIDO: TODAS as queries usando formato direto sem prepared statements
 // ============================================================================
 
 package projections
@@ -96,7 +96,6 @@ func (p *AcademiaProjection) Rebuild() error {
 	return rows.Err()
 }
 
-// 🔥 CORRIGIDO: Usar Query direto sem QueryRowContext
 func (p *AcademiaProjection) GetLastProcessedEventID() (int64, error) {
 	query := fmt.Sprintf(`
 		SELECT last_processed_event_id 
@@ -171,12 +170,17 @@ func (p *AcademiaProjection) handleAcademiaCriada(event genesisdb.Event) error {
 		return err
 	}
 
-	query := `
+	// 🔥 CORRIGIDO: Query direta sem prepared statement
+	query := fmt.Sprintf(`
 		INSERT INTO projection_academias (
 			id, type, nome, codigo_academia, senha_hash, provincia,
 			endereco, numero_telefone, email, website, nivel_escolar,
 			status, cursos, version, created_at, updated_at, last_event_id
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+		) VALUES (
+			'%s', '%s', '%s', '%s', '%s', '%s',
+			'%s', %s, %s, %s, %s,
+			'ativo', '%s', %d, '%s', '%s', '%s'
+		)
 		ON CONFLICT (id) DO UPDATE SET
 			type = EXCLUDED.type,
 			nome = EXCLUDED.nome,
@@ -192,59 +196,56 @@ func (p *AcademiaProjection) handleAcademiaCriada(event genesisdb.Event) error {
 			version = EXCLUDED.version,
 			updated_at = EXCLUDED.updated_at,
 			last_event_id = EXCLUDED.last_event_id
-	`
-
-	_, err = p.client.DB().Exec(
-		query,
-		event.AggregateID, payload.Type, payload.Nome, payload.CodigoAcademia,
-		payload.SenhaHash, payload.Provincia, payload.Endereco,
-		payload.NumeroTelefone, payload.Email, payload.Website,
-		payload.NivelEscolar, "ativo", cursosJSON, event.EventVersion,
-		payload.CreatedAt, time.Now(), event.EventID,
+	`,
+		event.AggregateID.String(),
+		payload.Type,
+		escapeString(payload.Nome),
+		payload.CodigoAcademia,
+		payload.SenhaHash,
+		payload.Provincia,
+		escapeString(payload.Endereco),
+		formatNullableString(payload.NumeroTelefone),
+		formatNullableString(payload.Email),
+		formatNullableString(payload.Website),
+		formatNullableString(payload.NivelEscolar),
+		escapeString(string(cursosJSON)),
+		event.EventVersion,
+		payload.CreatedAt.Format(time.RFC3339),
+		time.Now().Format(time.RFC3339),
+		event.EventID.String(),
 	)
 
+	_, err = p.client.DB().Exec(query)
 	return err
 }
 
 func (p *AcademiaProjection) handleAcademiaAtivada(event genesisdb.Event) error {
-	query := `
+	query := fmt.Sprintf(`
 		UPDATE projection_academias
 		SET 
 			status = 'ativo',
-			version = $1,
+			version = %d,
 			updated_at = CURRENT_TIMESTAMP,
-			last_event_id = $2
-		WHERE id = $3
-	`
+			last_event_id = '%s'
+		WHERE id = '%s'
+	`, event.EventVersion, event.EventID.String(), event.AggregateID.String())
 
-	_, err := p.client.DB().Exec(
-		query,
-		event.EventVersion,
-		event.EventID,
-		event.AggregateID,
-	)
-
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
 func (p *AcademiaProjection) handleAcademiaDesativada(event genesisdb.Event) error {
-	query := `
+	query := fmt.Sprintf(`
 		UPDATE projection_academias
 		SET 
 			status = 'inativo',
-			version = $1,
+			version = %d,
 			updated_at = CURRENT_TIMESTAMP,
-			last_event_id = $2
-		WHERE id = $3
-	`
+			last_event_id = '%s'
+		WHERE id = '%s'
+	`, event.EventVersion, event.EventID.String(), event.AggregateID.String())
 
-	_, err := p.client.DB().Exec(
-		query,
-		event.EventVersion,
-		event.EventID,
-		event.AggregateID,
-	)
-
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
@@ -262,71 +263,69 @@ func (p *AcademiaProjection) handleCursosAtualizados(event genesisdb.Event) erro
 		return err
 	}
 
-	query := `
+	query := fmt.Sprintf(`
 		UPDATE projection_academias
 		SET 
-			cursos = $1,
-			version = $2,
+			cursos = '%s',
+			version = %d,
 			updated_at = CURRENT_TIMESTAMP,
-			last_event_id = $3
-		WHERE id = $4
-	`
-
-	_, err = p.client.DB().Exec(
-		query,
-		cursosJSON,
+			last_event_id = '%s'
+		WHERE id = '%s'
+	`,
+		escapeString(string(cursosJSON)),
 		event.EventVersion,
-		event.EventID,
-		event.AggregateID,
+		event.EventID.String(),
+		event.AggregateID.String(),
 	)
 
+	_, err = p.client.DB().Exec(query)
 	return err
 }
 
 func (p *AcademiaProjection) handleInscricaoAprovada(event genesisdb.Event) error {
-	query := `
+	query := fmt.Sprintf(`
 		UPDATE projection_academias
 		SET 
 			total_estudantes = total_estudantes + 1,
 			total_inscricoes_pendentes = GREATEST(total_inscricoes_pendentes - 1, 0),
 			updated_at = CURRENT_TIMESTAMP
-		WHERE id = $1
-	`
+		WHERE id = '%s'
+	`, event.AggregateID.String())
 
-	_, err := p.client.DB().Exec(query, event.AggregateID)
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
 func (p *AcademiaProjection) handleInscricaoReprovada(event genesisdb.Event) error {
-	query := `
+	query := fmt.Sprintf(`
 		UPDATE projection_academias
 		SET 
 			total_inscricoes_pendentes = GREATEST(total_inscricoes_pendentes - 1, 0),
 			updated_at = CURRENT_TIMESTAMP
-		WHERE id = $1
-	`
+		WHERE id = '%s'
+	`, event.AggregateID.String())
 
-	_, err := p.client.DB().Exec(query, event.AggregateID)
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
-// Query methods
+// Query methods - 🔥 TODAS CORRIGIDAS
 
 func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT 
 			id, type, nome, codigo_academia, senha_hash, provincia,
 			endereco, numero_telefone, email, website, nivel_escolar,
 			status, cursos, created_at, updated_at,
 			total_estudantes, total_inscricoes_pendentes, version
 		FROM projection_academias
-		WHERE id = $1
-	`
+		WHERE id = '%s'
+	`, id.String())
 
 	var dto AcademiaDTO
 	var cursosJSON []byte
 
-	err := p.client.DB().QueryRow(query, id).Scan(
+	err := p.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.Type, &dto.Nome, &dto.CodigoAcademia,
 		&dto.SenhaHash, &dto.Provincia, &dto.Endereco,
 		&dto.NumeroTelefone, &dto.Email, &dto.Website,
@@ -351,21 +350,22 @@ func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
 }
 
 func (p *AcademiaProjection) GetByCodigoOrEmail(identifier string) (*AcademiaDTO, error) {
-	query := `
+	// 🔥 CORRIGIDO: Query direta
+	query := fmt.Sprintf(`
 		SELECT 
 			id, type, nome, codigo_academia, senha_hash, provincia,
 			endereco, numero_telefone, email, website, nivel_escolar,
 			status, cursos, created_at, updated_at,
 			total_estudantes, total_inscricoes_pendentes, version
 		FROM projection_academias
-		WHERE codigo_academia = $1 OR email = $1
+		WHERE codigo_academia = '%s' OR email = '%s'
 		LIMIT 1
-	`
+	`, identifier, identifier)
 
 	var dto AcademiaDTO
 	var cursosJSON []byte
 
-	err := p.client.DB().QueryRow(query, identifier).Scan(
+	err := p.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.Type, &dto.Nome, &dto.CodigoAcademia,
 		&dto.SenhaHash, &dto.Provincia, &dto.Endereco,
 		&dto.NumeroTelefone, &dto.Email, &dto.Website,
@@ -390,21 +390,22 @@ func (p *AcademiaProjection) GetByCodigoOrEmail(identifier string) (*AcademiaDTO
 }
 
 func (p *AcademiaProjection) GetByCodigo(codigo string) (*AcademiaDTO, error) {
-	query := `
+	// 🔥 CORRIGIDO: Query direta
+	query := fmt.Sprintf(`
 		SELECT 
 			id, type, nome, codigo_academia, senha_hash, provincia,
 			endereco, numero_telefone, email, website, nivel_escolar,
 			status, cursos, created_at, updated_at,
 			total_estudantes, total_inscricoes_pendentes, version
 		FROM projection_academias
-		WHERE codigo_academia = $1
+		WHERE codigo_academia = '%s'
 		LIMIT 1
-	`
+	`, codigo)
 
 	var dto AcademiaDTO
 	var cursosJSON []byte
 
-	err := p.client.DB().QueryRow(query, codigo).Scan(
+	err := p.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.Type, &dto.Nome, &dto.CodigoAcademia,
 		&dto.SenhaHash, &dto.Provincia, &dto.Endereco,
 		&dto.NumeroTelefone, &dto.Email, &dto.Website,
@@ -447,4 +448,27 @@ type AcademiaDTO struct {
 	TotalEstudantes          int        `json:"total_estudantes"`
 	TotalInscricoesPendentes int        `json:"total_inscricoes_pendentes"`
 	Version                  int        `json:"version"`
+}
+
+// Helpers
+
+func escapeString(s string) string {
+	result := ""
+	for _, char := range s {
+		if char == '\'' {
+			result += "''"
+		} else if char == '\\' {
+			result += "\\\\"
+		} else {
+			result += string(char)
+		}
+	}
+	return result
+}
+
+func formatNullableString(s *string) string {
+	if s == nil {
+		return "NULL"
+	}
+	return fmt.Sprintf("'%s'", escapeString(*s))
 }
