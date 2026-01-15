@@ -1,12 +1,13 @@
 // ============================================================================
 // ARQUIVO: internal/genesisdb/repository.go
-// CORREÇÃO: Serialização correta dos eventos para o payload
+// CORREÇÃO: Tratar agregados novos (primeira versão)
 // ============================================================================
 
 package genesisdb
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -73,11 +74,14 @@ func (r *AggregateRepository) Save(aggregate aggregates.Aggregate) error {
 		return nil // Nada para salvar
 	}
 
-	// Obter versão atual do agregado no ledger
+	// 🔥 CORREÇÃO: Obter versão atual do agregado no ledger
+	// Se o agregado não existir (sql.ErrNoRows), começar do zero
 	currentVersion, err := r.eventStore.GetAggregateVersion(r.ctx, aggregate.GetID())
-	if err != nil {
+	if err != nil && err != sql.ErrNoRows {
+		// Erro real, não apenas "não encontrado"
 		return fmt.Errorf("erro ao obter versão: %w", err)
 	}
+	// Se err == sql.ErrNoRows, currentVersion já é 0 (valor padrão)
 
 	// Salvar cada evento
 	for i, domainEvent := range uncommittedEvents {
@@ -159,13 +163,12 @@ func (r *AggregateRepository) VerifyIntegrity(id uuid.UUID) (bool, error) {
 }
 
 // convertToGenesisEvent converte evento de domínio para evento do GenesisDB
-// 🔥 CORREÇÃO: Serializar o payload completo do evento
 func (r *AggregateRepository) convertToGenesisEvent(
 	domainEvent aggregates.DomainEvent,
 	aggregateType string,
 	version int,
 ) (*Event, error) {
-	// 🔥 FIX: Obter o payload completo do evento
+	// Obter o payload completo do evento
 	payload := domainEvent.GetPayload()
 	
 	// Serializar payload corretamente
