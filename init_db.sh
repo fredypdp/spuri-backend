@@ -106,8 +106,8 @@ else
     echo ""
     echo "📝 Aplicando Migration 1: Genesis Ledger..."
     
-    if [ -f "migrations/genesisdb/create_admin_fpp.sql" ]; then
-        psql "$DB_CONNECTION" -f migrations/genesisdb/create_admin_fpp.sql
+    if [ -f "migrations/genesisdb/001_complete_schema.sql" ]; then
+        psql "$DB_CONNECTION" -f migrations/genesisdb/001_complete_schema.sql
         
         if [ $? -eq 0 ]; then
             echo "✅ Migration 1 aplicada com sucesso"
@@ -116,7 +116,7 @@ else
             exit 1
         fi
     else
-        echo "⚠️  Arquivo migrations/genesisdb/create_admin_fpp.sql não encontrado"
+        echo "⚠️  Arquivo migrations/genesisdb/001_complete_schema.sql não encontrado"
         exit 1
     fi
     
