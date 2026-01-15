@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"spuri/internal/domain/aggregates"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
@@ -82,11 +83,18 @@ func BootstrapAdminFPP(c *gin.Context) {
 
 	log.Printf("📋 [BOOTSTRAP] Criando admin: %s (%s)", req.Nome, req.Email)
 
-	// Hash da senha usando bcrypt do Go (CORRETO!)
+	// Verificar se email já existe
+	existing, _ := adminProj.GetByEmail(req.Email)
+	if existing != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "email já cadastrado"})
+		return
+	}
+
+	// Hash da senha - MESMO PADRÃO DE RegisterAdmin
 	log.Println("🔐 [BOOTSTRAP] Gerando hash bcrypt...")
 	hashedPassword, err := bcrypt.GenerateFromPassword(
 		[]byte(req.Senha), 
-		bcrypt.DefaultCost, // Cost 10
+		bcrypt.DefaultCost,
 	)
 	if err != nil {
 		log.Printf("❌ [BOOTSTRAP] Erro ao gerar hash: %v", err)
@@ -96,14 +104,14 @@ func BootstrapAdminFPP(c *gin.Context) {
 		return
 	}
 	
-	log.Printf("✅ [BOOTSTRAP] Hash gerado: %s...", string(hashedPassword[:30]))
+	log.Printf("✅ [BOOTSTRAP] Hash gerado (primeiros 30 chars): %s...", string(hashedPassword[:30]))
 
-	// Criar agregado Admin
+	// Criar agregado Admin - MESMO PADRÃO DE RegisterAdmin
 	repository := getRepository(c)
-	admin := aggregates.NewAdmin()
+	newAdmin := aggregates.NewAdmin()
 
-	log.Println("🏗️  [BOOTSTRAP] Criando agregado Admin...")
-	if err := admin.Criar(
+	log.Println("🗂️  [BOOTSTRAP] Criando agregado Admin...")
+	if err := newAdmin.Criar(
 		req.Nome,
 		req.Email,
 		string(hashedPassword),
@@ -117,9 +125,9 @@ func BootstrapAdminFPP(c *gin.Context) {
 		return
 	}
 
-	// Salvar eventos
+	// Salvar eventos - MESMO PADRÃO DE RegisterAdmin
 	log.Println("💾 [BOOTSTRAP] Salvando eventos no GenesisDB...")
-	if err := repository.Save(admin); err != nil {
+	if err := repository.Save(newAdmin); err != nil {
 		log.Printf("❌ [BOOTSTRAP] Erro ao salvar eventos: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "erro ao criar admin FPP",
@@ -136,12 +144,16 @@ func BootstrapAdminFPP(c *gin.Context) {
 		log.Println("⚠️  [BOOTSTRAP] Aviso: Hash pode não validar corretamente")
 	}
 
+	// Aguardar um pouco para garantir processamento da projeção
+	log.Println("⏳ [BOOTSTRAP] Aguardando processamento da projeção...")
+	time.Sleep(2 * time.Second)
+
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
 		"message": "✅ Admin FPP criado com sucesso!",
 		"data": gin.H{
-			"id":    admin.ID,
-			"nome":  admin.Nome,
+			"id":    newAdmin.ID,
+			"nome":  newAdmin.Nome,
 			"email": req.Email,
 			"role":  "fpp",
 		},
@@ -150,7 +162,7 @@ func BootstrapAdminFPP(c *gin.Context) {
 			"senha": req.Senha,
 		},
 		"next_steps": []string{
-			"1. Aguarde 2-3 segundos para a projeção processar",
+			"1. Projeção processada - pode fazer login agora",
 			"2. Faça login em POST /admin/login",
 			"3. Altere a senha após o primeiro acesso",
 			"4. Crie outros admins conforme necessário",
