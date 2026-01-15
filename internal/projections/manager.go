@@ -1,6 +1,6 @@
 // ============================================================================
-// ARQUIVO 2: internal/projections/manager.go
-// 🔥 CORRIGIDO: Todas as queries usando QueryContext + Scan manual
+// ARQUIVO: internal/projections/manager.go
+// 🔥 CORRIGIDO: getNewEvents com LIMIT fixo em vez de parametrizado
 // ============================================================================
 
 package projections
@@ -121,9 +121,10 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 	return nil
 }
 
-// 🔥 CORRIGIDO: getNewEvents usando QueryContext + Scan
+// 🔥 CORRIGIDO: LIMIT como valor fixo na string em vez de parâmetro
 func (m *Manager) getNewEvents(fromID int64) ([]genesisdb.Event, error) {
-	query := `
+	// 🔥 SOLUÇÃO: Usar fmt.Sprintf para inserir o LIMIT na query
+	query := fmt.Sprintf(`
 		SELECT 
 			id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
@@ -131,10 +132,11 @@ func (m *Manager) getNewEvents(fromID int64) ([]genesisdb.Event, error) {
 		FROM genesis_ledger
 		WHERE id > $1
 		ORDER BY id ASC
-		LIMIT $2
-	`
+		LIMIT %d
+	`, m.batchSize)
 
-	rows, err := m.client.DB().QueryContext(m.ctx, query, fromID, m.batchSize)
+	// 🔥 Agora só passa 1 parâmetro: fromID
+	rows, err := m.client.DB().QueryContext(m.ctx, query, fromID)
 	if err != nil {
 		return nil, err
 	}
