@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/projections/manager.go
-// 🔥 CORRIGIDO: getNewEvents com LIMIT fixo em vez de parametrizado
+// 🔥 CORREÇÃO FINAL: getNewEvents sem usar prepared statements
 // ============================================================================
 
 package projections
@@ -121,24 +121,24 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 	return nil
 }
 
-// 🔥 CORRIGIDO: LIMIT como valor fixo na string em vez de parâmetro
+// 🔥 CORREÇÃO FINAL: Usar Query simples sem prepared statement
 func (m *Manager) getNewEvents(fromID int64) ([]genesisdb.Event, error) {
-	// 🔥 SOLUÇÃO: Usar fmt.Sprintf para inserir o LIMIT na query
+	// Usar query direta com sprintf para evitar problemas de bind
 	query := fmt.Sprintf(`
 		SELECT 
 			id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM genesis_ledger
-		WHERE id > $1
+		WHERE id > %d
 		ORDER BY id ASC
 		LIMIT %d
-	`, m.batchSize)
+	`, fromID, m.batchSize)
 
-	// 🔥 Agora só passa 1 parâmetro: fromID
-	rows, err := m.client.DB().QueryContext(m.ctx, query, fromID)
+	// 🔥 USAR Query DIRETO sem Context para evitar prepared statement
+	rows, err := m.client.DB().Query(query)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("erro na query: %w", err)
 	}
 	defer rows.Close()
 
@@ -151,12 +151,16 @@ func (m *Manager) getNewEvents(fromID int64) ([]genesisdb.Event, error) {
 			&e.OccurredAt, &e.RecordedAt, &e.LedgerHash, &e.PreviousHash,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("erro ao escanear evento: %w", err)
 		}
 		events = append(events, e)
 	}
 
-	return events, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("erro ao iterar eventos: %w", err)
+	}
+
+	return events, nil
 }
 
 func (m *Manager) RebuildProjection(name string) error {
@@ -212,14 +216,16 @@ func (m *Manager) markRebuildStart(name string) error {
 }
 
 func (m *Manager) markRebuildComplete(name string) error {
-	var lastEventID int64
+	// Usar query direta sem prepared statement
 	query := `SELECT COALESCE(MAX(id), 0) FROM genesis_ledger`
-	err := m.client.DB().QueryRowContext(m.ctx, query).Scan(&lastEventID)
+	
+	var lastEventID int64
+	err := m.client.DB().QueryRow(query).Scan(&lastEventID)
 	if err != nil {
 		return err
 	}
 
-	query = `
+	updateQuery := `
 		UPDATE projection_checkpoints
 		SET 
 			is_rebuilding = FALSE,
@@ -228,7 +234,7 @@ func (m *Manager) markRebuildComplete(name string) error {
 			last_processed_at = CURRENT_TIMESTAMP
 		WHERE projection_name = $2
 	`
-	_, err = m.client.DB().ExecContext(m.ctx, query, lastEventID, name)
+	_, err = m.client.DB().ExecContext(m.ctx, updateQuery, lastEventID, name)
 	return err
 }
 
