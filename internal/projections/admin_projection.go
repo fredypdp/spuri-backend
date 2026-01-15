@@ -1,6 +1,6 @@
 // ============================================================================
-// ARQUIVO: internal/projections/admin_projection.go
-// Projeção de leitura para administradores
+// ARQUIVO 5: internal/projections/admin_projection.go
+// 🔥 CORRIGIDO: Todas as queries usando QueryRowContext
 // ============================================================================
 
 package projections
@@ -17,13 +17,11 @@ import (
 	"github.com/google/uuid"
 )
 
-// AdminProjection projeção de administradores
 type AdminProjection struct {
 	client *genesisdb.Client
 	ctx    context.Context
 }
 
-// NewAdminProjection cria nova projeção de admin
 func NewAdminProjection(client *genesisdb.Client) *AdminProjection {
 	return &AdminProjection{
 		client: client,
@@ -31,12 +29,10 @@ func NewAdminProjection(client *genesisdb.Client) *AdminProjection {
 	}
 }
 
-// Name implementa Projection
 func (p *AdminProjection) Name() string {
 	return "admins"
 }
 
-// Handle processa um evento
 func (p *AdminProjection) Handle(event genesisdb.Event) error {
 	if event.AggregateType != "Admin" {
 		return nil
@@ -56,7 +52,6 @@ func (p *AdminProjection) Handle(event genesisdb.Event) error {
 	}
 }
 
-// Rebuild reconstrói a projeção do zero
 func (p *AdminProjection) Rebuild() error {
 	if err := p.clear(); err != nil {
 		return err
@@ -72,21 +67,32 @@ func (p *AdminProjection) Rebuild() error {
 		ORDER BY id ASC
 	`
 
-	var events []genesisdb.Event
-	if err := p.client.DB().Select(&events, query); err != nil {
+	rows, err := p.client.DB().QueryContext(p.ctx, query)
+	if err != nil {
 		return err
 	}
+	defer rows.Close()
 
-	for _, event := range events {
+	for rows.Next() {
+		var event genesisdb.Event
+		err := rows.Scan(
+			&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
+			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
+			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash,
+		)
+		if err != nil {
+			return err
+		}
+
 		if err := p.Handle(event); err != nil {
 			return fmt.Errorf("erro ao processar evento %d: %w", event.ID, err)
 		}
 	}
 
-	return nil
+	return rows.Err()
 }
 
-// GetLastProcessedEventID implementa Projection
+// 🔥 CORRIGIDO
 func (p *AdminProjection) GetLastProcessedEventID() (int64, error) {
 	query := `
 		SELECT last_processed_event_id 
@@ -95,7 +101,7 @@ func (p *AdminProjection) GetLastProcessedEventID() (int64, error) {
 	`
 
 	var lastID int64
-	err := p.client.DB().GetContext(p.ctx, &lastID, query, p.Name())
+	err := p.client.DB().QueryRowContext(p.ctx, query, p.Name()).Scan(&lastID)
 	if err != nil {
 		return 0, err
 	}
@@ -103,7 +109,7 @@ func (p *AdminProjection) GetLastProcessedEventID() (int64, error) {
 	return lastID, nil
 }
 
-// UpdateCheckpoint implementa Projection
+// 🔥 CORRIGIDO
 func (p *AdminProjection) UpdateCheckpoint(eventID int64) error {
 	query := `
 		UPDATE projection_checkpoints
@@ -118,14 +124,10 @@ func (p *AdminProjection) UpdateCheckpoint(eventID int64) error {
 	return err
 }
 
-// clear limpa a projeção
 func (p *AdminProjection) clear() error {
-	query := `TRUNCATE TABLE projection_admins CASCADE`
-	_, err := p.client.DB().ExecContext(p.ctx, query)
+	_, err := p.client.DB().ExecContext(p.ctx, `TRUNCATE TABLE projection_admins CASCADE`)
 	return err
 }
-
-// Event Handlers
 
 func (p *AdminProjection) handleAdminCriado(event genesisdb.Event) error {
 	log.Printf("🔵 [PROJEÇÃO ADMIN] Processando AdminCriado")
@@ -161,18 +163,10 @@ func (p *AdminProjection) handleAdminCriado(event genesisdb.Event) error {
 
 	_, err := p.client.DB().ExecContext(
 		p.ctx, query,
-		event.AggregateID,
-		payload.Nome,
-		payload.Email,
-		payload.SenhaHash,
-		payload.Role,
-		"ativo",
-		payload.CreatedBy,
-		payload.CreatedAt,
-		time.Now(),
-		event.EventVersion,
-		0,
-		event.EventID,
+		event.AggregateID, payload.Nome, payload.Email,
+		payload.SenhaHash, payload.Role, "ativo",
+		payload.CreatedBy, payload.CreatedAt, time.Now(),
+		event.EventVersion, 0, event.EventID,
 	)
 
 	return err
@@ -235,7 +229,6 @@ func (p *AdminProjection) handleAcaoAdminRegistrada(event genesisdb.Event) error
 
 // Query methods
 
-// GetByID busca admin por ID
 func (p *AdminProjection) GetByID(id uuid.UUID) (*AdminDTO, error) {
 	query := `
 		SELECT 
@@ -247,7 +240,12 @@ func (p *AdminProjection) GetByID(id uuid.UUID) (*AdminDTO, error) {
 	`
 
 	var dto AdminDTO
-	err := p.client.DB().GetContext(p.ctx, &dto, query, id)
+	err := p.client.DB().QueryRowContext(p.ctx, query, id).Scan(
+		&dto.ID, &dto.Nome, &dto.Email, &dto.SenhaHash,
+		&dto.Role, &dto.Status, &dto.CreatedBy,
+		&dto.CreatedAt, &dto.UpdatedAt,
+		&dto.TotalAcoesRealizadas, &dto.Version,
+	)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -258,7 +256,6 @@ func (p *AdminProjection) GetByID(id uuid.UUID) (*AdminDTO, error) {
 	return &dto, nil
 }
 
-// GetByEmail busca admin por email
 func (p *AdminProjection) GetByEmail(email string) (*AdminDTO, error) {
 	query := `
 		SELECT 
@@ -270,7 +267,12 @@ func (p *AdminProjection) GetByEmail(email string) (*AdminDTO, error) {
 	`
 
 	var dto AdminDTO
-	err := p.client.DB().GetContext(p.ctx, &dto, query, email)
+	err := p.client.DB().QueryRowContext(p.ctx, query, email).Scan(
+		&dto.ID, &dto.Nome, &dto.Email, &dto.SenhaHash,
+		&dto.Role, &dto.Status, &dto.CreatedBy,
+		&dto.CreatedAt, &dto.UpdatedAt,
+		&dto.TotalAcoesRealizadas, &dto.Version,
+	)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -281,7 +283,6 @@ func (p *AdminProjection) GetByEmail(email string) (*AdminDTO, error) {
 	return &dto, nil
 }
 
-// GetAll lista todos os administradores
 func (p *AdminProjection) GetAll() ([]AdminDTO, error) {
 	query := `
 		SELECT 
@@ -292,12 +293,30 @@ func (p *AdminProjection) GetAll() ([]AdminDTO, error) {
 		ORDER BY created_at DESC
 	`
 
+	rows, err := p.client.DB().QueryContext(p.ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
 	var dtos []AdminDTO
-	err := p.client.DB().SelectContext(p.ctx, &dtos, query)
-	return dtos, err
+	for rows.Next() {
+		var dto AdminDTO
+		err := rows.Scan(
+			&dto.ID, &dto.Nome, &dto.Email, &dto.SenhaHash,
+			&dto.Role, &dto.Status, &dto.CreatedBy,
+			&dto.CreatedAt, &dto.UpdatedAt,
+			&dto.TotalAcoesRealizadas, &dto.Version,
+		)
+		if err != nil {
+			return nil, err
+		}
+		dtos = append(dtos, dto)
+	}
+
+	return dtos, rows.Err()
 }
 
-// AdminDTO DTO da projeção
 type AdminDTO struct {
 	ID                   uuid.UUID  `db:"id" json:"id"`
 	Nome                 string     `db:"nome" json:"nome"`

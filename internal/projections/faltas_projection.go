@@ -1,3 +1,8 @@
+// ============================================================================
+// ARQUIVO 7: internal/projections/faltas_projection.go
+// 🔥 CORRIGIDO
+// ============================================================================
+
 package projections
 
 import (
@@ -10,13 +15,11 @@ import (
 	"github.com/google/uuid"
 )
 
-// FaltasProjection projeção de faltas
 type FaltasProjection struct {
 	client *genesisdb.Client
 	ctx    context.Context
 }
 
-// NewFaltasProjection cria nova projeção de faltas
 func NewFaltasProjection(client *genesisdb.Client) *FaltasProjection {
 	return &FaltasProjection{
 		client: client,
@@ -24,12 +27,10 @@ func NewFaltasProjection(client *genesisdb.Client) *FaltasProjection {
 	}
 }
 
-// Name implementa Projection
 func (p *FaltasProjection) Name() string {
 	return "faltas"
 }
 
-// Handle processa um evento
 func (p *FaltasProjection) Handle(event genesisdb.Event) error {
 	if event.EventType != "FaltasRegistradas" {
 		return nil
@@ -38,7 +39,6 @@ func (p *FaltasProjection) Handle(event genesisdb.Event) error {
 	return p.handleFaltasRegistradas(event)
 }
 
-// Rebuild reconstrói a projeção do zero
 func (p *FaltasProjection) Rebuild() error {
 	if err := p.clear(); err != nil {
 		return err
@@ -54,21 +54,32 @@ func (p *FaltasProjection) Rebuild() error {
 		ORDER BY id ASC
 	`
 
-	var events []genesisdb.Event
-	if err := p.client.DB().Select(&events, query); err != nil {
+	rows, err := p.client.DB().QueryContext(p.ctx, query)
+	if err != nil {
 		return err
 	}
+	defer rows.Close()
 
-	for _, event := range events {
+	for rows.Next() {
+		var event genesisdb.Event
+		err := rows.Scan(
+			&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
+			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
+			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash,
+		)
+		if err != nil {
+			return err
+		}
+
 		if err := p.Handle(event); err != nil {
 			return fmt.Errorf("erro ao processar evento %d: %w", event.ID, err)
 		}
 	}
 
-	return nil
+	return rows.Err()
 }
 
-// GetLastProcessedEventID implementa Projection
+// 🔥 CORRIGIDO
 func (p *FaltasProjection) GetLastProcessedEventID() (int64, error) {
 	query := `
 		SELECT last_processed_event_id 
@@ -77,11 +88,15 @@ func (p *FaltasProjection) GetLastProcessedEventID() (int64, error) {
 	`
 
 	var lastID int64
-	err := p.client.DB().GetContext(p.ctx, &lastID, query, p.Name())
-	return lastID, err
+	err := p.client.DB().QueryRowContext(p.ctx, query, p.Name()).Scan(&lastID)
+	if err != nil {
+		return 0, err
+	}
+
+	return lastID, nil
 }
 
-// UpdateCheckpoint implementa Projection
+// 🔥 CORRIGIDO
 func (p *FaltasProjection) UpdateCheckpoint(eventID int64) error {
 	query := `
 		UPDATE projection_checkpoints
@@ -96,16 +111,14 @@ func (p *FaltasProjection) UpdateCheckpoint(eventID int64) error {
 	return err
 }
 
-// clear limpa a projeção
 func (p *FaltasProjection) clear() error {
 	_, err := p.client.DB().ExecContext(p.ctx, `TRUNCATE TABLE projection_faltas CASCADE`)
 	return err
 }
 
-// 🔥 ATUALIZADO: handleFaltasRegistradas usa CodigoAcademia
 func (p *FaltasProjection) handleFaltasRegistradas(event genesisdb.Event) error {
 	var payload struct {
-		CodigoAcademia string `json:"CodigoAcademia"` // 🔥 MUDOU
+		CodigoAcademia string `json:"CodigoAcademia"`
 		AnoLectivo     string `json:"AnoLectivo"`
 		Periodo        string `json:"Periodo"`
 		Materias       []struct {
@@ -119,13 +132,11 @@ func (p *FaltasProjection) handleFaltasRegistradas(event genesisdb.Event) error 
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	// Converter materias para JSONB
 	materiasJSON, err := json.Marshal(payload.Materias)
 	if err != nil {
 		return err
 	}
 
-	// 🔥 ATUALIZADO: codigo_academia
 	query := `
 		INSERT INTO projection_faltas (
 			estudante_id, codigo_academia, ano_lectivo, periodo,
@@ -145,7 +156,6 @@ func (p *FaltasProjection) handleFaltasRegistradas(event genesisdb.Event) error 
 		event.EventVersion,
 	)
 
-	// Atualizar contador
 	if err == nil {
 		updateQuery := `
 			UPDATE projection_estudantes
@@ -158,9 +168,6 @@ func (p *FaltasProjection) handleFaltasRegistradas(event genesisdb.Event) error 
 	return err
 }
 
-// Query methods
-
-// GetByEstudante busca faltas de um estudante
 func (p *FaltasProjection) GetByEstudante(estudanteID uuid.UUID) ([]FaltasDTO, error) {
 	query := `
 		SELECT 
@@ -182,21 +189,15 @@ func (p *FaltasProjection) GetByEstudante(estudanteID uuid.UUID) ([]FaltasDTO, e
 		var dto FaltasDTO
 		var materiasJSON []byte
 
-		if err := rows.Scan(
-			&dto.ID,
-			&dto.EstudanteID,
-			&dto.CodigoAcademia,
-			&dto.AnoLectivo,
-			&dto.Periodo,
-			&materiasJSON,
-			&dto.RegisteredAt,
-			&dto.EventID,
-			&dto.Version,
-		); err != nil {
+		err := rows.Scan(
+			&dto.ID, &dto.EstudanteID, &dto.CodigoAcademia,
+			&dto.AnoLectivo, &dto.Periodo, &materiasJSON,
+			&dto.RegisteredAt, &dto.EventID, &dto.Version,
+		)
+		if err != nil {
 			return nil, err
 		}
 
-		// Deserializar materias
 		if err := json.Unmarshal(materiasJSON, &dto.Materias); err != nil {
 			return nil, err
 		}
@@ -204,14 +205,13 @@ func (p *FaltasProjection) GetByEstudante(estudanteID uuid.UUID) ([]FaltasDTO, e
 		result = append(result, dto)
 	}
 
-	return result, nil
+	return result, rows.Err()
 }
 
-// 🔥 ATUALIZADO: FaltasDTO
 type FaltasDTO struct {
 	ID             uuid.UUID `json:"id"`
 	EstudanteID    uuid.UUID `json:"estudante_id"`
-	CodigoAcademia string    `json:"codigo_academia"` // 🔥 MUDOU
+	CodigoAcademia string    `json:"codigo_academia"`
 	AnoLectivo     string    `json:"ano_lectivo"`
 	Periodo        string    `json:"periodo"`
 	Materias       []struct {

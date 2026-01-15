@@ -1,6 +1,6 @@
 // ============================================================================
-// ARQUIVO: internal/projections/estudante_projection.go
-// ATUALIZADO: Usar codigo_academia em vez de id_academia
+// ARQUIVO 3: internal/projections/estudante_projection.go
+// 🔥 CORRIGIDO: GetLastProcessedEventID usando QueryRowContext
 // ============================================================================
 
 package projections
@@ -17,13 +17,11 @@ import (
 	"github.com/google/uuid"
 )
 
-// EstudanteProjection projeção de estudantes
 type EstudanteProjection struct {
 	client *genesisdb.Client
 	ctx    context.Context
 }
 
-// NewEstudanteProjection cria nova projeção de estudante
 func NewEstudanteProjection(client *genesisdb.Client) *EstudanteProjection {
 	return &EstudanteProjection{
 		client: client,
@@ -31,14 +29,11 @@ func NewEstudanteProjection(client *genesisdb.Client) *EstudanteProjection {
 	}
 }
 
-// Name implementa Projection
 func (p *EstudanteProjection) Name() string {
 	return "estudantes"
 }
 
-// Handle processa um evento
 func (p *EstudanteProjection) Handle(event genesisdb.Event) error {
-	// Processar apenas eventos de Estudante
 	if event.AggregateType != "Estudante" {
 		return nil
 	}
@@ -55,7 +50,6 @@ func (p *EstudanteProjection) Handle(event genesisdb.Event) error {
 	}
 }
 
-// Rebuild reconstrói a projeção do zero
 func (p *EstudanteProjection) Rebuild() error {
 	if err := p.clear(); err != nil {
 		return err
@@ -71,21 +65,32 @@ func (p *EstudanteProjection) Rebuild() error {
 		ORDER BY id ASC
 	`
 
-	var events []genesisdb.Event
-	if err := p.client.DB().Select(&events, query); err != nil {
+	rows, err := p.client.DB().QueryContext(p.ctx, query)
+	if err != nil {
 		return err
 	}
+	defer rows.Close()
 
-	for _, event := range events {
+	for rows.Next() {
+		var event genesisdb.Event
+		err := rows.Scan(
+			&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
+			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
+			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash,
+		)
+		if err != nil {
+			return err
+		}
+
 		if err := p.Handle(event); err != nil {
 			return fmt.Errorf("erro ao processar evento %d: %w", event.ID, err)
 		}
 	}
 
-	return nil
+	return rows.Err()
 }
 
-// GetLastProcessedEventID implementa Projection
+// 🔥 CORRIGIDO: GetLastProcessedEventID
 func (p *EstudanteProjection) GetLastProcessedEventID() (int64, error) {
 	query := `
 		SELECT last_processed_event_id 
@@ -94,7 +99,7 @@ func (p *EstudanteProjection) GetLastProcessedEventID() (int64, error) {
 	`
 
 	var lastID int64
-	err := p.client.DB().Get(&lastID, query, p.Name())
+	err := p.client.DB().QueryRowContext(p.ctx, query, p.Name()).Scan(&lastID)
 	if err != nil {
 		return 0, err
 	}
@@ -102,7 +107,7 @@ func (p *EstudanteProjection) GetLastProcessedEventID() (int64, error) {
 	return lastID, nil
 }
 
-// UpdateCheckpoint implementa Projection
+// 🔥 CORRIGIDO: UpdateCheckpoint
 func (p *EstudanteProjection) UpdateCheckpoint(eventID int64) error {
 	query := `
 		UPDATE projection_checkpoints
@@ -113,18 +118,14 @@ func (p *EstudanteProjection) UpdateCheckpoint(eventID int64) error {
 		WHERE projection_name = $2
 	`
 
-	_, err := p.client.DB().Exec(query, eventID, p.Name())
+	_, err := p.client.DB().ExecContext(p.ctx, query, eventID, p.Name())
 	return err
 }
 
-// clear limpa a projeção
 func (p *EstudanteProjection) clear() error {
-	query := `TRUNCATE TABLE projection_estudantes CASCADE`
-	_, err := p.client.DB().Exec(query)
+	_, err := p.client.DB().ExecContext(p.ctx, `TRUNCATE TABLE projection_estudantes CASCADE`)
 	return err
 }
-
-// Event Handlers
 
 func (p *EstudanteProjection) handleEstudanteCriado(event genesisdb.Event) error {
 	log.Printf("🔵 [PROJEÇÃO ESTUDANTE] Processando EstudanteCriado")
@@ -156,7 +157,6 @@ func (p *EstudanteProjection) handleEstudanteCriado(event genesisdb.Event) error
 		return fmt.Errorf("CodigoEstudante vazio no evento")
 	}
 
-	// 🔥 ATUALIZADO: codigo_academia agora é VARCHAR
 	query := `
 		INSERT INTO projection_estudantes (
 			id, nome, codigo_estudante, senha_hash, bilhete_identidade, 
@@ -182,25 +182,14 @@ func (p *EstudanteProjection) handleEstudanteCriado(event genesisdb.Event) error
 			last_event_id = $17
 	`
 
-	result, err := p.client.DB().Exec(
-		query,
-		event.AggregateID,
-		payload.Nome,
-		payload.CodigoEstudante,
-		payload.SenhaHash,
-		payload.BilheteIdentidade,
-		payload.BilheteIdentidadeResp,
-		nil, // 🔥 codigo_academia inicia NULL
-		payload.AnoEscolar,
-		payload.AnoSuperior,
-		payload.CursoMedio,
-		payload.CursoSuperior,
-		payload.StatusEscolar,
-		payload.StatusSuperior,
-		event.EventVersion,
-		payload.CreatedAt,
-		time.Now(),
-		event.EventID,
+	result, err := p.client.DB().ExecContext(
+		p.ctx, query,
+		event.AggregateID, payload.Nome, payload.CodigoEstudante,
+		payload.SenhaHash, payload.BilheteIdentidade, payload.BilheteIdentidadeResp,
+		nil, payload.AnoEscolar, payload.AnoSuperior,
+		payload.CursoMedio, payload.CursoSuperior, payload.StatusEscolar,
+		payload.StatusSuperior, event.EventVersion, payload.CreatedAt,
+		time.Now(), event.EventID,
 	)
 
 	if err != nil {
@@ -213,7 +202,6 @@ func (p *EstudanteProjection) handleEstudanteCriado(event genesisdb.Event) error
 	return nil
 }
 
-// 🔥 ATUALIZADO: Usar codigo_academia do payload
 func (p *EstudanteProjection) handleInscricaoAprovada(event genesisdb.Event) error {
 	var payload struct {
 		CodigoAcademia string `json:"CodigoAcademia"`
@@ -234,8 +222,8 @@ func (p *EstudanteProjection) handleInscricaoAprovada(event genesisdb.Event) err
 		WHERE id = $4
 	`
 
-	_, err := p.client.DB().Exec(
-		query,
+	_, err := p.client.DB().ExecContext(
+		p.ctx, query,
 		payload.CodigoAcademia,
 		event.EventVersion,
 		event.EventID,
@@ -245,7 +233,6 @@ func (p *EstudanteProjection) handleInscricaoAprovada(event genesisdb.Event) err
 	return err
 }
 
-// 🔥 ATUALIZADO
 func (p *EstudanteProjection) handleVinculoAtualizado(event genesisdb.Event) error {
 	var payload struct {
 		NovoCodigoAcademia string `json:"NovoCodigoAcademia"`
@@ -265,8 +252,8 @@ func (p *EstudanteProjection) handleVinculoAtualizado(event genesisdb.Event) err
 		WHERE id = $4
 	`
 
-	_, err := p.client.DB().Exec(
-		query,
+	_, err := p.client.DB().ExecContext(
+		p.ctx, query,
 		payload.NovoCodigoAcademia,
 		event.EventVersion,
 		event.EventID,
@@ -278,7 +265,6 @@ func (p *EstudanteProjection) handleVinculoAtualizado(event genesisdb.Event) err
 
 // Query methods
 
-// GetByID busca estudante por ID na projeção
 func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
 	query := `
 		SELECT 
@@ -291,7 +277,13 @@ func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
 	`
 
 	var dto EstudanteDTO
-	err := p.client.DB().Get(&dto, query, id)
+	err := p.client.DB().QueryRowContext(p.ctx, query, id).Scan(
+		&dto.ID, &dto.Nome, &dto.CodigoEstudante, &dto.SenhaHash,
+		&dto.BilheteIdentidade, &dto.BilheteIdentidadeResp, &dto.CodigoAcademia,
+		&dto.AnoEscolar, &dto.AnoSuperior, &dto.CursoMedio, &dto.CursoSuperior,
+		&dto.StatusEscolar, &dto.StatusSuperior, &dto.CreatedAt, &dto.UpdatedAt,
+		&dto.TotalNotas, &dto.TotalFaltas, &dto.TotalInscricoes, &dto.Version,
+	)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -302,7 +294,6 @@ func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
 	return &dto, nil
 }
 
-// GetByCodigo busca estudante por código
 func (p *EstudanteProjection) GetByCodigo(codigo string) (*EstudanteDTO, error) {
 	log.Printf("🔍 [PROJEÇÃO ESTUDANTE] GetByCodigo: %s", codigo)
 	
@@ -317,7 +308,13 @@ func (p *EstudanteProjection) GetByCodigo(codigo string) (*EstudanteDTO, error) 
 	`
 
 	var dto EstudanteDTO
-	err := p.client.DB().Get(&dto, query, codigo)
+	err := p.client.DB().QueryRowContext(p.ctx, query, codigo).Scan(
+		&dto.ID, &dto.Nome, &dto.CodigoEstudante, &dto.SenhaHash,
+		&dto.BilheteIdentidade, &dto.BilheteIdentidadeResp, &dto.CodigoAcademia,
+		&dto.AnoEscolar, &dto.AnoSuperior, &dto.CursoMedio, &dto.CursoSuperior,
+		&dto.StatusEscolar, &dto.StatusSuperior, &dto.CreatedAt, &dto.UpdatedAt,
+		&dto.TotalNotas, &dto.TotalFaltas, &dto.TotalInscricoes, &dto.Version,
+	)
 	if err == sql.ErrNoRows {
 		log.Printf("❌ [PROJEÇÃO ESTUDANTE] Não encontrado: %s", codigo)
 		return nil, nil
@@ -331,7 +328,6 @@ func (p *EstudanteProjection) GetByCodigo(codigo string) (*EstudanteDTO, error) 
 	return &dto, nil
 }
 
-// GetByBilhete busca por bilhete (compatibilidade)
 func (p *EstudanteProjection) GetByBilhete(bilhete string) (*EstudanteDTO, error) {
 	query := `
 		SELECT 
@@ -345,7 +341,13 @@ func (p *EstudanteProjection) GetByBilhete(bilhete string) (*EstudanteDTO, error
 	`
 
 	var dto EstudanteDTO
-	err := p.client.DB().Get(&dto, query, bilhete)
+	err := p.client.DB().QueryRowContext(p.ctx, query, bilhete).Scan(
+		&dto.ID, &dto.Nome, &dto.CodigoEstudante, &dto.SenhaHash,
+		&dto.BilheteIdentidade, &dto.BilheteIdentidadeResp, &dto.CodigoAcademia,
+		&dto.AnoEscolar, &dto.AnoSuperior, &dto.CursoMedio, &dto.CursoSuperior,
+		&dto.StatusEscolar, &dto.StatusSuperior, &dto.CreatedAt, &dto.UpdatedAt,
+		&dto.TotalNotas, &dto.TotalFaltas, &dto.TotalInscricoes, &dto.Version,
+	)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -356,7 +358,6 @@ func (p *EstudanteProjection) GetByBilhete(bilhete string) (*EstudanteDTO, error
 	return &dto, nil
 }
 
-// 🔥 ATUALIZADO: EstudanteDTO com CodigoAcademia
 type EstudanteDTO struct {
 	ID                    uuid.UUID `db:"id" json:"id"`
 	Nome                  string    `db:"nome" json:"nome"`
@@ -364,7 +365,7 @@ type EstudanteDTO struct {
 	SenhaHash             string    `db:"senha_hash" json:"-"`
 	BilheteIdentidade     *string   `db:"bilhete_identidade" json:"bilhete_identidade,omitempty"`
 	BilheteIdentidadeResp *string   `db:"bilhete_identidade_responsavel" json:"bilhete_identidade_responsavel,omitempty"`
-	CodigoAcademia        *string   `db:"codigo_academia" json:"codigo_academia,omitempty"` // 🔥 MUDOU
+	CodigoAcademia        *string   `db:"codigo_academia" json:"codigo_academia,omitempty"`
 	AnoEscolar            *string   `db:"ano_escolar" json:"ano_escolar,omitempty"`
 	AnoSuperior           *string   `db:"ano_superior" json:"ano_superior,omitempty"`
 	CursoMedio            *string   `db:"curso_medio" json:"curso_medio,omitempty"`

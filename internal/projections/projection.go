@@ -1,6 +1,5 @@
 // ============================================================================
-// ARQUIVO: internal/projections/projection.go
-// Interface base para todas as projeções
+// ARQUIVO 1: internal/projections/projection.go
 // ============================================================================
 
 package projections
