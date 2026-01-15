@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/projections/estudante_projection.go
-// 🔥 CORRIGIDO: GetLastProcessedEventID com tratamento de erro
+// 🔥 CORRIGIDO: GetLastProcessedEventID usando Query simples
 // ============================================================================
 
 package projections
@@ -65,7 +65,7 @@ func (p *EstudanteProjection) Rebuild() error {
 		ORDER BY id ASC
 	`
 
-	rows, err := p.client.DB().QueryContext(p.ctx, query)
+	rows, err := p.client.DB().Query(query)
 	if err != nil {
 		return err
 	}
@@ -90,16 +90,16 @@ func (p *EstudanteProjection) Rebuild() error {
 	return rows.Err()
 }
 
-// 🔥 CORRIGIDO: Tratamento de sql.ErrNoRows
+// 🔥 CORRIGIDO: Usar Query direto sem QueryRowContext
 func (p *EstudanteProjection) GetLastProcessedEventID() (int64, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT last_processed_event_id 
 		FROM projection_checkpoints 
-		WHERE projection_name = $1
-	`
+		WHERE projection_name = '%s'
+	`, p.Name())
 
 	var lastID int64
-	err := p.client.DB().QueryRowContext(p.ctx, query, p.Name()).Scan(&lastID)
+	err := p.client.DB().QueryRow(query).Scan(&lastID)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -111,26 +111,26 @@ func (p *EstudanteProjection) GetLastProcessedEventID() (int64, error) {
 }
 
 func (p *EstudanteProjection) UpdateCheckpoint(eventID int64) error {
-	query := `
+	query := fmt.Sprintf(`
 		INSERT INTO projection_checkpoints (
 			projection_name, 
 			last_processed_event_id, 
 			last_processed_at,
 			events_processed
-		) VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
+		) VALUES ('%s', %d, CURRENT_TIMESTAMP, 1)
 		ON CONFLICT (projection_name) 
 		DO UPDATE SET
-			last_processed_event_id = $2,
+			last_processed_event_id = %d,
 			last_processed_at = CURRENT_TIMESTAMP,
 			events_processed = projection_checkpoints.events_processed + 1
-	`
+	`, p.Name(), eventID, eventID)
 
-	_, err := p.client.DB().ExecContext(p.ctx, query, p.Name(), eventID)
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
 func (p *EstudanteProjection) clear() error {
-	_, err := p.client.DB().ExecContext(p.ctx, `TRUNCATE TABLE projection_estudantes CASCADE`)
+	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_estudantes CASCADE`)
 	return err
 }
 
@@ -189,8 +189,8 @@ func (p *EstudanteProjection) handleEstudanteCriado(event genesisdb.Event) error
 			last_event_id = $17
 	`
 
-	result, err := p.client.DB().ExecContext(
-		p.ctx, query,
+	result, err := p.client.DB().Exec(
+		query,
 		event.AggregateID, payload.Nome, payload.CodigoEstudante,
 		payload.SenhaHash, payload.BilheteIdentidade, payload.BilheteIdentidadeResp,
 		nil, payload.AnoEscolar, payload.AnoSuperior,
@@ -229,8 +229,8 @@ func (p *EstudanteProjection) handleInscricaoAprovada(event genesisdb.Event) err
 		WHERE id = $4
 	`
 
-	_, err := p.client.DB().ExecContext(
-		p.ctx, query,
+	_, err := p.client.DB().Exec(
+		query,
 		payload.CodigoAcademia,
 		event.EventVersion,
 		event.EventID,
@@ -259,8 +259,8 @@ func (p *EstudanteProjection) handleVinculoAtualizado(event genesisdb.Event) err
 		WHERE id = $4
 	`
 
-	_, err := p.client.DB().ExecContext(
-		p.ctx, query,
+	_, err := p.client.DB().Exec(
+		query,
 		payload.NovoCodigoAcademia,
 		event.EventVersion,
 		event.EventID,
@@ -284,7 +284,7 @@ func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
 	`
 
 	var dto EstudanteDTO
-	err := p.client.DB().QueryRowContext(p.ctx, query, id).Scan(
+	err := p.client.DB().QueryRow(query, id).Scan(
 		&dto.ID, &dto.Nome, &dto.CodigoEstudante, &dto.SenhaHash,
 		&dto.BilheteIdentidade, &dto.BilheteIdentidadeResp, &dto.CodigoAcademia,
 		&dto.AnoEscolar, &dto.AnoSuperior, &dto.CursoMedio, &dto.CursoSuperior,
@@ -302,7 +302,7 @@ func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
 }
 
 func (p *EstudanteProjection) GetByCodigo(codigo string) (*EstudanteDTO, error) {
-	log.Printf("🔍 [PROJEÇÃO ESTUDANTE] GetByCodigo: %s", codigo)
+	log.Printf("🔎 [PROJEÇÃO ESTUDANTE] GetByCodigo: %s", codigo)
 	
 	query := `
 		SELECT 
@@ -315,7 +315,7 @@ func (p *EstudanteProjection) GetByCodigo(codigo string) (*EstudanteDTO, error) 
 	`
 
 	var dto EstudanteDTO
-	err := p.client.DB().QueryRowContext(p.ctx, query, codigo).Scan(
+	err := p.client.DB().QueryRow(query, codigo).Scan(
 		&dto.ID, &dto.Nome, &dto.CodigoEstudante, &dto.SenhaHash,
 		&dto.BilheteIdentidade, &dto.BilheteIdentidadeResp, &dto.CodigoAcademia,
 		&dto.AnoEscolar, &dto.AnoSuperior, &dto.CursoMedio, &dto.CursoSuperior,
@@ -348,7 +348,7 @@ func (p *EstudanteProjection) GetByBilhete(bilhete string) (*EstudanteDTO, error
 	`
 
 	var dto EstudanteDTO
-	err := p.client.DB().QueryRowContext(p.ctx, query, bilhete).Scan(
+	err := p.client.DB().QueryRow(query, bilhete).Scan(
 		&dto.ID, &dto.Nome, &dto.CodigoEstudante, &dto.SenhaHash,
 		&dto.BilheteIdentidade, &dto.BilheteIdentidadeResp, &dto.CodigoAcademia,
 		&dto.AnoEscolar, &dto.AnoSuperior, &dto.CursoMedio, &dto.CursoSuperior,

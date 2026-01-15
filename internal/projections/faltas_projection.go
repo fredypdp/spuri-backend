@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/projections/faltas_projection.go
-// 🔥 CORRIGIDO: GetLastProcessedEventID com tratamento de erro
+// 🔥 CORRIGIDO: GetLastProcessedEventID usando Query simples
 // ============================================================================
 
 package projections
@@ -55,7 +55,7 @@ func (p *FaltasProjection) Rebuild() error {
 		ORDER BY id ASC
 	`
 
-	rows, err := p.client.DB().QueryContext(p.ctx, query)
+	rows, err := p.client.DB().Query(query)
 	if err != nil {
 		return err
 	}
@@ -80,16 +80,16 @@ func (p *FaltasProjection) Rebuild() error {
 	return rows.Err()
 }
 
-// 🔥 CORRIGIDO: Tratamento de sql.ErrNoRows
+// 🔥 CORRIGIDO: Usar Query direto sem QueryRowContext
 func (p *FaltasProjection) GetLastProcessedEventID() (int64, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT last_processed_event_id 
 		FROM projection_checkpoints 
-		WHERE projection_name = $1
-	`
+		WHERE projection_name = '%s'
+	`, p.Name())
 
 	var lastID int64
-	err := p.client.DB().QueryRowContext(p.ctx, query, p.Name()).Scan(&lastID)
+	err := p.client.DB().QueryRow(query).Scan(&lastID)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -101,26 +101,26 @@ func (p *FaltasProjection) GetLastProcessedEventID() (int64, error) {
 }
 
 func (p *FaltasProjection) UpdateCheckpoint(eventID int64) error {
-	query := `
+	query := fmt.Sprintf(`
 		INSERT INTO projection_checkpoints (
 			projection_name, 
 			last_processed_event_id, 
 			last_processed_at,
 			events_processed
-		) VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
+		) VALUES ('%s', %d, CURRENT_TIMESTAMP, 1)
 		ON CONFLICT (projection_name) 
 		DO UPDATE SET
-			last_processed_event_id = $2,
+			last_processed_event_id = %d,
 			last_processed_at = CURRENT_TIMESTAMP,
 			events_processed = projection_checkpoints.events_processed + 1
-	`
+	`, p.Name(), eventID, eventID)
 
-	_, err := p.client.DB().ExecContext(p.ctx, query, p.Name(), eventID)
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
 func (p *FaltasProjection) clear() error {
-	_, err := p.client.DB().ExecContext(p.ctx, `TRUNCATE TABLE projection_faltas CASCADE`)
+	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_faltas CASCADE`)
 	return err
 }
 
@@ -152,8 +152,8 @@ func (p *FaltasProjection) handleFaltasRegistradas(event genesisdb.Event) error 
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 
-	_, err = p.client.DB().ExecContext(
-		p.ctx, query,
+	_, err = p.client.DB().Exec(
+		query,
 		event.AggregateID,
 		payload.CodigoAcademia,
 		payload.AnoLectivo,
@@ -170,7 +170,7 @@ func (p *FaltasProjection) handleFaltasRegistradas(event genesisdb.Event) error 
 			SET total_faltas = total_faltas + 1
 			WHERE id = $1
 		`
-		p.client.DB().ExecContext(p.ctx, updateQuery, event.AggregateID)
+		p.client.DB().Exec(updateQuery, event.AggregateID)
 	}
 
 	return err
@@ -186,7 +186,7 @@ func (p *FaltasProjection) GetByEstudante(estudanteID uuid.UUID) ([]FaltasDTO, e
 		ORDER BY registered_at DESC
 	`
 
-	rows, err := p.client.DB().QueryContext(p.ctx, query, estudanteID)
+	rows, err := p.client.DB().Query(query, estudanteID)
 	if err != nil {
 		return nil, err
 	}

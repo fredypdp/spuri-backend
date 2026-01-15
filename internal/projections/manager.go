@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/projections/manager.go
-// 🔥 CORREÇÃO FINAL: getNewEvents sem usar prepared statements
+// 🔥 CORRIGIDO: Todas as queries usando Exec/Query direto sem prepared statements
 // ============================================================================
 
 package projections
@@ -46,7 +46,7 @@ func (m *Manager) RegisterProjection(name string, projection Projection) {
 }
 
 func (m *Manager) StartProcessing() {
-	log.Println("▶️  Iniciando processamento de projeções...")
+	log.Println("▶️ Iniciando processamento de projeções...")
 	
 	ticker := time.NewTicker(m.pollInterval)
 	defer ticker.Stop()
@@ -54,7 +54,7 @@ func (m *Manager) StartProcessing() {
 	for {
 		select {
 		case <-m.ctx.Done():
-			log.Println("⏹️  Parando processamento de projeções")
+			log.Println("⏹️ Parando processamento de projeções")
 			return
 		case <-ticker.C:
 			if err := m.processNewEvents(); err != nil {
@@ -121,9 +121,8 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 	return nil
 }
 
-// 🔥 CORREÇÃO FINAL: Usar Query simples sem prepared statement
+// 🔥 CORRIGIDO: Usar Query direto sem prepared statement
 func (m *Manager) getNewEvents(fromID int64) ([]genesisdb.Event, error) {
-	// Usar query direta com sprintf para evitar problemas de bind
 	query := fmt.Sprintf(`
 		SELECT 
 			id, event_id, aggregate_id, aggregate_type, event_type,
@@ -135,7 +134,6 @@ func (m *Manager) getNewEvents(fromID int64) ([]genesisdb.Event, error) {
 		LIMIT %d
 	`, fromID, m.batchSize)
 
-	// 🔥 USAR Query DIRETO sem Context para evitar prepared statement
 	rows, err := m.client.DB().Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("erro na query: %w", err)
@@ -202,21 +200,23 @@ func (m *Manager) RebuildAllProjections() error {
 	return nil
 }
 
+// 🔥 CORRIGIDO: Usar Exec direto
 func (m *Manager) markRebuildStart(name string) error {
-	query := `
+	query := fmt.Sprintf(`
 		UPDATE projection_checkpoints
 		SET 
 			is_rebuilding = TRUE,
 			rebuild_started_at = CURRENT_TIMESTAMP,
 			last_processed_event_id = 0
-		WHERE projection_name = $1
-	`
-	_, err := m.client.DB().ExecContext(m.ctx, query, name)
+		WHERE projection_name = '%s'
+	`, name)
+	
+	_, err := m.client.DB().Exec(query)
 	return err
 }
 
+// 🔥 CORRIGIDO: Usar Query/Exec direto
 func (m *Manager) markRebuildComplete(name string) error {
-	// Usar query direta sem prepared statement
 	query := `SELECT COALESCE(MAX(id), 0) FROM genesis_ledger`
 	
 	var lastEventID int64
@@ -225,42 +225,46 @@ func (m *Manager) markRebuildComplete(name string) error {
 		return err
 	}
 
-	updateQuery := `
+	updateQuery := fmt.Sprintf(`
 		UPDATE projection_checkpoints
 		SET 
 			is_rebuilding = FALSE,
 			rebuild_started_at = NULL,
-			last_processed_event_id = $1,
+			last_processed_event_id = %d,
 			last_processed_at = CURRENT_TIMESTAMP
-		WHERE projection_name = $2
-	`
-	_, err = m.client.DB().ExecContext(m.ctx, updateQuery, lastEventID, name)
+		WHERE projection_name = '%s'
+	`, lastEventID, name)
+	
+	_, err = m.client.DB().Exec(updateQuery)
 	return err
 }
 
+// 🔥 CORRIGIDO: Usar Exec direto
 func (m *Manager) logProjectionError(name, errorMsg string) {
-	query := `
+	query := fmt.Sprintf(`
 		UPDATE projection_checkpoints
 		SET 
 			error_count = error_count + 1,
-			last_error = $1,
+			last_error = '%s',
 			last_error_at = CURRENT_TIMESTAMP
-		WHERE projection_name = $2
-	`
-	m.client.DB().ExecContext(m.ctx, query, errorMsg, name)
+		WHERE projection_name = '%s'
+	`, errorMsg, name)
+	
+	m.client.DB().Exec(query)
 }
 
+// 🔥 CORRIGIDO: Usar QueryRow direto
 func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT 
 			projection_name, last_processed_event_id, last_processed_at,
 			events_processed, is_rebuilding, rebuild_started_at,
 			error_count, last_error, last_error_at
 		FROM projection_checkpoints
-		WHERE projection_name = $1
-	`
+		WHERE projection_name = '%s'
+	`, name)
 
-	row := m.client.DB().QueryRowContext(m.ctx, query, name)
+	row := m.client.DB().QueryRow(query)
 	
 	var (
 		projName       string

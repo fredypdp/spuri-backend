@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/projections/admin_projection.go
-// 🔥 CORRIGIDO: GetLastProcessedEventID com tratamento de erro
+// 🔥 CORRIGIDO: GetLastProcessedEventID usando Query simples
 // ============================================================================
 
 package projections
@@ -67,7 +67,7 @@ func (p *AdminProjection) Rebuild() error {
 		ORDER BY id ASC
 	`
 
-	rows, err := p.client.DB().QueryContext(p.ctx, query)
+	rows, err := p.client.DB().Query(query)
 	if err != nil {
 		return err
 	}
@@ -92,16 +92,16 @@ func (p *AdminProjection) Rebuild() error {
 	return rows.Err()
 }
 
-// 🔥 CORRIGIDO: Tratamento de sql.ErrNoRows
+// 🔥 CORRIGIDO: Usar Query direto sem QueryRowContext
 func (p *AdminProjection) GetLastProcessedEventID() (int64, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT last_processed_event_id 
 		FROM projection_checkpoints 
-		WHERE projection_name = $1
-	`
+		WHERE projection_name = '%s'
+	`, p.Name())
 
 	var lastID int64
-	err := p.client.DB().QueryRowContext(p.ctx, query, p.Name()).Scan(&lastID)
+	err := p.client.DB().QueryRow(query).Scan(&lastID)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -113,26 +113,26 @@ func (p *AdminProjection) GetLastProcessedEventID() (int64, error) {
 }
 
 func (p *AdminProjection) UpdateCheckpoint(eventID int64) error {
-	query := `
+	query := fmt.Sprintf(`
 		INSERT INTO projection_checkpoints (
 			projection_name, 
 			last_processed_event_id, 
 			last_processed_at,
 			events_processed
-		) VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
+		) VALUES ('%s', %d, CURRENT_TIMESTAMP, 1)
 		ON CONFLICT (projection_name) 
 		DO UPDATE SET
-			last_processed_event_id = $2,
+			last_processed_event_id = %d,
 			last_processed_at = CURRENT_TIMESTAMP,
 			events_processed = projection_checkpoints.events_processed + 1
-	`
+	`, p.Name(), eventID, eventID)
 
-	_, err := p.client.DB().ExecContext(p.ctx, query, p.Name(), eventID)
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
 func (p *AdminProjection) clear() error {
-	_, err := p.client.DB().ExecContext(p.ctx, `TRUNCATE TABLE projection_admins CASCADE`)
+	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_admins CASCADE`)
 	return err
 }
 
@@ -168,8 +168,8 @@ func (p *AdminProjection) handleAdminCriado(event genesisdb.Event) error {
 			last_event_id = EXCLUDED.last_event_id
 	`
 
-	_, err := p.client.DB().ExecContext(
-		p.ctx, query,
+	_, err := p.client.DB().Exec(
+		query,
 		event.AggregateID, payload.Nome, payload.Email,
 		payload.SenhaHash, payload.Role, "ativo",
 		payload.CreatedBy, payload.CreatedAt, time.Now(),
@@ -190,8 +190,8 @@ func (p *AdminProjection) handleAdminAtivado(event genesisdb.Event) error {
 		WHERE id = $3
 	`
 
-	_, err := p.client.DB().ExecContext(
-		p.ctx, query,
+	_, err := p.client.DB().Exec(
+		query,
 		event.EventVersion,
 		event.EventID,
 		event.AggregateID,
@@ -211,8 +211,8 @@ func (p *AdminProjection) handleAdminDesativado(event genesisdb.Event) error {
 		WHERE id = $3
 	`
 
-	_, err := p.client.DB().ExecContext(
-		p.ctx, query,
+	_, err := p.client.DB().Exec(
+		query,
 		event.EventVersion,
 		event.EventID,
 		event.AggregateID,
@@ -230,7 +230,7 @@ func (p *AdminProjection) handleAcaoAdminRegistrada(event genesisdb.Event) error
 		WHERE id = $1
 	`
 
-	_, err := p.client.DB().ExecContext(p.ctx, query, event.AggregateID)
+	_, err := p.client.DB().Exec(query, event.AggregateID)
 	return err
 }
 
@@ -247,7 +247,7 @@ func (p *AdminProjection) GetByID(id uuid.UUID) (*AdminDTO, error) {
 	`
 
 	var dto AdminDTO
-	err := p.client.DB().QueryRowContext(p.ctx, query, id).Scan(
+	err := p.client.DB().QueryRow(query, id).Scan(
 		&dto.ID, &dto.Nome, &dto.Email, &dto.SenhaHash,
 		&dto.Role, &dto.Status, &dto.CreatedBy,
 		&dto.CreatedAt, &dto.UpdatedAt,
@@ -274,7 +274,7 @@ func (p *AdminProjection) GetByEmail(email string) (*AdminDTO, error) {
 	`
 
 	var dto AdminDTO
-	err := p.client.DB().QueryRowContext(p.ctx, query, email).Scan(
+	err := p.client.DB().QueryRow(query, email).Scan(
 		&dto.ID, &dto.Nome, &dto.Email, &dto.SenhaHash,
 		&dto.Role, &dto.Status, &dto.CreatedBy,
 		&dto.CreatedAt, &dto.UpdatedAt,
@@ -300,7 +300,7 @@ func (p *AdminProjection) GetAll() ([]AdminDTO, error) {
 		ORDER BY created_at DESC
 	`
 
-	rows, err := p.client.DB().QueryContext(p.ctx, query)
+	rows, err := p.client.DB().Query(query)
 	if err != nil {
 		return nil, err
 	}
