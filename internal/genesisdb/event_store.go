@@ -1,3 +1,8 @@
+// ============================================================================
+// ARQUIVO: internal/genesisdb/event_store.go
+// 🔥 CORRIGIDO: Todas as queries usando Query/Exec direto sem Context
+// ============================================================================
+
 package genesisdb
 
 import (
@@ -53,24 +58,20 @@ func NewEventStore(client *Client) *EventStore {
 // Append adiciona um novo evento ao ledger (APPEND-ONLY)
 // Esta é a operação fundamental do Event Sourcing
 func (es *EventStore) Append(ctx context.Context, event *Event) error {
-	// Query explícita com 8 parâmetros
 	query := `INSERT INTO genesis_ledger (event_id, aggregate_id, aggregate_type, event_type, event_version, payload, metadata, occurred_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, recorded_at, ledger_hash, previous_hash`
 
-	// Executar com QueryRowContext
-	row := es.client.db.QueryRowContext(
-		ctx, 
+	row := es.client.db.QueryRow(
 		query,
-		event.EventID,        // $1
-		event.AggregateID,    // $2
-		event.AggregateType,  // $3
-		event.EventType,      // $4
-		event.EventVersion,   // $5
-		event.Payload,        // $6
-		event.Metadata,       // $7
-		event.OccurredAt,     // $8
+		event.EventID,
+		event.AggregateID,
+		event.AggregateType,
+		event.EventType,
+		event.EventVersion,
+		event.Payload,
+		event.Metadata,
+		event.OccurredAt,
 	)
 
-	// Scan dos valores retornados
 	err := row.Scan(&event.ID, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash)
 	if err != nil {
 		return fmt.Errorf("erro ao adicionar evento ao ledger: %w", err)
@@ -82,18 +83,18 @@ func (es *EventStore) Append(ctx context.Context, event *Event) error {
 // LoadEventStream carrega todos os eventos de um agregado
 // Esta é a função chave para reconstruir estado
 func (es *EventStore) LoadEventStream(ctx context.Context, aggregateID uuid.UUID) ([]Event, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT 
 			id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM genesis_ledger
-		WHERE aggregate_id = $1
+		WHERE aggregate_id = '%s'
 		ORDER BY event_version ASC, recorded_at ASC
-	`
+	`, aggregateID.String())
 
 	var events []Event
-	err := es.client.db.SelectContext(ctx, &events, query, aggregateID)
+	err := es.client.db.Select(&events, query)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao carregar event stream: %w", err)
 	}
@@ -107,18 +108,18 @@ func (es *EventStore) LoadEventStreamFromVersion(
 	aggregateID uuid.UUID, 
 	fromVersion int,
 ) ([]Event, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT 
 			id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM genesis_ledger
-		WHERE aggregate_id = $1 AND event_version >= $2
+		WHERE aggregate_id = '%s' AND event_version >= %d
 		ORDER BY event_version ASC, recorded_at ASC
-	`
+	`, aggregateID.String(), fromVersion)
 
 	var events []Event
-	err := es.client.db.SelectContext(ctx, &events, query, aggregateID, fromVersion)
+	err := es.client.db.Select(&events, query)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao carregar event stream: %w", err)
 	}
@@ -132,19 +133,19 @@ func (es *EventStore) GetEventsByType(
 	eventType string, 
 	limit int,
 ) ([]Event, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT 
 			id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM genesis_ledger
-		WHERE event_type = $1
+		WHERE event_type = '%s'
 		ORDER BY recorded_at DESC
-		LIMIT $2
-	`
+		LIMIT %d
+	`, eventType, limit)
 
 	var events []Event
-	err := es.client.db.SelectContext(ctx, &events, query, eventType, limit)
+	err := es.client.db.Select(&events, query)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar eventos por tipo: %w", err)
 	}
@@ -157,18 +158,18 @@ func (es *EventStore) GetAllEvents(
 	ctx context.Context, 
 	offset, limit int,
 ) ([]Event, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT 
 			id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM genesis_ledger
 		ORDER BY recorded_at DESC
-		LIMIT $1 OFFSET $2
-	`
+		LIMIT %d OFFSET %d
+	`, limit, offset)
 
 	var events []Event
-	err := es.client.db.SelectContext(ctx, &events, query, limit, offset)
+	err := es.client.db.Select(&events, query)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar todos eventos: %w", err)
 	}
@@ -178,17 +179,17 @@ func (es *EventStore) GetAllEvents(
 
 // GetEventByID busca um evento específico
 func (es *EventStore) GetEventByID(ctx context.Context, eventID uuid.UUID) (*Event, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT 
 			id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM genesis_ledger
-		WHERE event_id = $1
-	`
+		WHERE event_id = '%s'
+	`, eventID.String())
 
 	var event Event
-	err := es.client.db.GetContext(ctx, &event, query, eventID)
+	err := es.client.db.Get(&event, query)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar evento: %w", err)
 	}
@@ -198,14 +199,14 @@ func (es *EventStore) GetEventByID(ctx context.Context, eventID uuid.UUID) (*Eve
 
 // GetAggregateVersion retorna a versão atual de um agregado
 func (es *EventStore) GetAggregateVersion(ctx context.Context, aggregateID uuid.UUID) (int, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT COALESCE(MAX(event_version), 0)
 		FROM genesis_ledger
-		WHERE aggregate_id = $1
-	`
+		WHERE aggregate_id = '%s'
+	`, aggregateID.String())
 
 	var version int
-	err := es.client.db.QueryRowContext(ctx, query, aggregateID).Scan(&version)
+	err := es.client.db.QueryRow(query).Scan(&version)
 	
 	// Se não houver linhas, retornar 0 (agregado novo)
 	if err == sql.ErrNoRows {
@@ -222,13 +223,13 @@ func (es *EventStore) GetAggregateVersion(ctx context.Context, aggregateID uuid.
 // VerifyLedgerIntegrity verifica a integridade do ledger
 // GenesisDB garante imutabilidade através de hashes encadeados
 func (es *EventStore) VerifyLedgerIntegrity(ctx context.Context, aggregateID uuid.UUID) (bool, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT 
 			ledger_hash, previous_hash
 		FROM genesis_ledger
-		WHERE aggregate_id = $1
+		WHERE aggregate_id = '%s'
 		ORDER BY event_version ASC
-	`
+	`, aggregateID.String())
 
 	type hashPair struct {
 		LedgerHash   string  `db:"ledger_hash"`
@@ -236,7 +237,7 @@ func (es *EventStore) VerifyLedgerIntegrity(ctx context.Context, aggregateID uui
 	}
 
 	var hashes []hashPair
-	err := es.client.db.SelectContext(ctx, &hashes, query, aggregateID)
+	err := es.client.db.Select(&hashes, query)
 	if err != nil {
 		return false, fmt.Errorf("erro ao verificar integridade: %w", err)
 	}
@@ -259,7 +260,7 @@ func (es *EventStore) CountEvents(ctx context.Context) (int64, error) {
 	query := `SELECT COUNT(*) FROM genesis_ledger`
 	
 	var count int64
-	err := es.client.db.QueryRowContext(ctx, query).Scan(&count)
+	err := es.client.db.QueryRow(query).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("erro ao contar eventos: %w", err)
 	}
@@ -269,10 +270,10 @@ func (es *EventStore) CountEvents(ctx context.Context) (int64, error) {
 
 // CountEventsByAggregate retorna total de eventos de um agregado
 func (es *EventStore) CountEventsByAggregate(ctx context.Context, aggregateID uuid.UUID) (int64, error) {
-	query := `SELECT COUNT(*) FROM genesis_ledger WHERE aggregate_id = $1`
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM genesis_ledger WHERE aggregate_id = '%s'`, aggregateID.String())
 	
 	var count int64
-	err := es.client.db.QueryRowContext(ctx, query, aggregateID).Scan(&count)
+	err := es.client.db.QueryRow(query).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("erro ao contar eventos: %w", err)
 	}

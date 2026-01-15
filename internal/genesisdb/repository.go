@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/genesisdb/repository.go
-// CORRIGIDO: Tratar agregados novos corretamente
+// 🔥 CORRIGIDO: Todas as queries usando Query/Exec direto sem prepared statements
 // ============================================================================
 
 package genesisdb
@@ -74,9 +74,9 @@ func (r *AggregateRepository) Save(aggregate aggregates.Aggregate) error {
 		return nil // Nada para salvar
 	}
 
-	// 🔥 CORRIGIDO: Obter versão atual tratando caso de agregado novo
+	// 🔥 CORRIGIDO: Obter versão atual sem prepared statement
 	currentVersion := 0
-	version, err := r.eventStore.GetAggregateVersion(r.ctx, aggregate.GetID())
+	version, err := r.getAggregateVersionDirect(aggregate.GetID())
 	
 	// Se não houver erro, usar a versão retornada
 	if err == nil {
@@ -110,6 +110,29 @@ func (r *AggregateRepository) Save(aggregate aggregates.Aggregate) error {
 	aggregate.ClearUncommittedEvents()
 
 	return nil
+}
+
+// 🔥 NOVO MÉTODO: getAggregateVersionDirect sem prepared statement
+func (r *AggregateRepository) getAggregateVersionDirect(aggregateID uuid.UUID) (int, error) {
+	query := fmt.Sprintf(`
+		SELECT COALESCE(MAX(event_version), 0)
+		FROM genesis_ledger
+		WHERE aggregate_id = '%s'
+	`, aggregateID.String())
+
+	var version int
+	err := r.eventStore.client.db.QueryRow(query).Scan(&version)
+	
+	// Se não houver linhas, retornar 0 (agregado novo)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	
+	if err != nil {
+		return 0, fmt.Errorf("erro ao obter versão do agregado: %w", err)
+	}
+
+	return version, nil
 }
 
 // Exists verifica se um agregado existe
@@ -248,8 +271,8 @@ func (r *AggregateRepository) SaveSnapshot(aggregate aggregates.Aggregate) error
 		DO UPDATE SET version = $3, state = $4, created_at = CURRENT_TIMESTAMP
 	`
 
-	_, err = r.eventStore.client.db.ExecContext(
-		r.ctx, query,
+	_, err = r.eventStore.client.db.Exec(
+		query,
 		aggregate.GetID(),
 		aggregate.GetType(),
 		aggregate.GetVersion(),
@@ -268,7 +291,13 @@ func (r *AggregateRepository) LoadSnapshot(id uuid.UUID) (*Snapshot, error) {
 	`
 
 	var snapshot Snapshot
-	err := r.eventStore.client.db.GetContext(r.ctx, &snapshot, query, id)
+	err := r.eventStore.client.db.QueryRow(query, id).Scan(
+		&snapshot.AggregateID,
+		&snapshot.AggregateType,
+		&snapshot.Version,
+		&snapshot.State,
+		&snapshot.CreatedAt,
+	)
 	if err != nil {
 		return nil, err
 	}
