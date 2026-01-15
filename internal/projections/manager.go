@@ -1,7 +1,7 @@
 // ============================================================================
 // ARQUIVO: internal/projections/manager.go
 // Gerenciador de todas as projeções do sistema
-// VERSÃO: 2.1.0 - Corrigida e otimizada
+// VERSÃO: 2.1.1 - CORRIGIDO: Erro de prepared statement
 // ============================================================================
 
 package projections
@@ -93,8 +93,8 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 		return fmt.Errorf("erro ao obter checkpoint: %w", err)
 	}
 
-	// Buscar novos eventos
-	events, err := m.getNewEvents(lastProcessedID)
+	// 🔥 CORRIGIDO: Buscar novos eventos
+	events, err := m.getNewEvents(lastProcessedID, m.batchSize)
 	if err != nil {
 		return fmt.Errorf("erro ao buscar eventos: %w", err)
 	}
@@ -138,8 +138,9 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 	return nil
 }
 
-// getNewEvents busca eventos novos a partir do último processado
-func (m *Manager) getNewEvents(fromID int64) ([]genesisdb.Event, error) {
+// 🔥 CORRIGIDO: getNewEvents agora recebe batchSize explicitamente
+func (m *Manager) getNewEvents(fromID int64, limit int) ([]genesisdb.Event, error) {
+	// Query sem prepared statement cacheado
 	query := `
 		SELECT 
 			id, event_id, aggregate_id, aggregate_type, event_type,
@@ -152,9 +153,39 @@ func (m *Manager) getNewEvents(fromID int64) ([]genesisdb.Event, error) {
 	`
 
 	var events []genesisdb.Event
-	err := m.client.DB().SelectContext(m.ctx, &events, query, fromID, m.batchSize)
+	
+	// 🔥 SOLUÇÃO: Usar Query + Scan em vez de SelectContext
+	// Isso evita problemas de prepared statement cache
+	rows, err := m.client.DB().QueryContext(m.ctx, query, fromID, limit)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("erro na query: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var event genesisdb.Event
+		err := rows.Scan(
+			&event.ID,
+			&event.EventID,
+			&event.AggregateID,
+			&event.AggregateType,
+			&event.EventType,
+			&event.EventVersion,
+			&event.Payload,
+			&event.Metadata,
+			&event.OccurredAt,
+			&event.RecordedAt,
+			&event.LedgerHash,
+			&event.PreviousHash,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao scanear evento: %w", err)
+		}
+		events = append(events, event)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("erro ao iterar eventos: %w", err)
 	}
 
 	return events, nil
