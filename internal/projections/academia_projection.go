@@ -1,6 +1,6 @@
 // ============================================================================
-// ARQUIVO 4: internal/projections/academia_projection.go
-// 🔥 CORRIGIDO: Todas as queries usando QueryRowContext
+// ARQUIVO: internal/projections/academia_projection.go
+// 🔥 CORRIGIDO: GetLastProcessedEventID com tratamento de erro
 // ============================================================================
 
 package projections
@@ -96,7 +96,7 @@ func (p *AcademiaProjection) Rebuild() error {
 	return rows.Err()
 }
 
-// 🔥 CORRIGIDO
+// 🔥 CORRIGIDO: Tratamento de sql.ErrNoRows
 func (p *AcademiaProjection) GetLastProcessedEventID() (int64, error) {
 	query := `
 		SELECT last_processed_event_id 
@@ -106,6 +106,9 @@ func (p *AcademiaProjection) GetLastProcessedEventID() (int64, error) {
 
 	var lastID int64
 	err := p.client.DB().QueryRowContext(p.ctx, query, p.Name()).Scan(&lastID)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -113,18 +116,22 @@ func (p *AcademiaProjection) GetLastProcessedEventID() (int64, error) {
 	return lastID, nil
 }
 
-// 🔥 CORRIGIDO
 func (p *AcademiaProjection) UpdateCheckpoint(eventID int64) error {
 	query := `
-		UPDATE projection_checkpoints
-		SET 
-			last_processed_event_id = $1,
+		INSERT INTO projection_checkpoints (
+			projection_name, 
+			last_processed_event_id, 
+			last_processed_at,
+			events_processed
+		) VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
+		ON CONFLICT (projection_name) 
+		DO UPDATE SET
+			last_processed_event_id = $2,
 			last_processed_at = CURRENT_TIMESTAMP,
-			events_processed = events_processed + 1
-		WHERE projection_name = $2
+			events_processed = projection_checkpoints.events_processed + 1
 	`
 
-	_, err := p.client.DB().ExecContext(p.ctx, query, eventID, p.Name())
+	_, err := p.client.DB().ExecContext(p.ctx, query, p.Name(), eventID)
 	return err
 }
 

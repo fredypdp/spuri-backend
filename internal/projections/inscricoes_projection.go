@@ -1,6 +1,6 @@
 // ============================================================================
-// ARQUIVO 8: internal/projections/inscricoes_projection.go
-// 🔥 CORRIGIDO COMPLETAMENTE
+// ARQUIVO: internal/projections/inscricoes_projection.go
+// 🔥 CORRIGIDO: GetLastProcessedEventID com tratamento de erro
 // ============================================================================
 
 package projections
@@ -86,7 +86,7 @@ func (p *InscricoesProjection) Rebuild() error {
 	return rows.Err()
 }
 
-// 🔥 CORRIGIDO
+// 🔥 CORRIGIDO: Tratamento de sql.ErrNoRows
 func (p *InscricoesProjection) GetLastProcessedEventID() (int64, error) {
 	query := `
 		SELECT last_processed_event_id 
@@ -96,6 +96,9 @@ func (p *InscricoesProjection) GetLastProcessedEventID() (int64, error) {
 
 	var lastID int64
 	err := p.client.DB().QueryRowContext(p.ctx, query, p.Name()).Scan(&lastID)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -103,18 +106,22 @@ func (p *InscricoesProjection) GetLastProcessedEventID() (int64, error) {
 	return lastID, nil
 }
 
-// 🔥 CORRIGIDO
 func (p *InscricoesProjection) UpdateCheckpoint(eventID int64) error {
 	query := `
-		UPDATE projection_checkpoints
-		SET 
-			last_processed_event_id = $1,
+		INSERT INTO projection_checkpoints (
+			projection_name, 
+			last_processed_event_id, 
+			last_processed_at,
+			events_processed
+		) VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
+		ON CONFLICT (projection_name) 
+		DO UPDATE SET
+			last_processed_event_id = $2,
 			last_processed_at = CURRENT_TIMESTAMP,
-			events_processed = events_processed + 1
-		WHERE projection_name = $2
+			events_processed = projection_checkpoints.events_processed + 1
 	`
 
-	_, err := p.client.DB().ExecContext(p.ctx, query, eventID, p.Name())
+	_, err := p.client.DB().ExecContext(p.ctx, query, p.Name(), eventID)
 	return err
 }
 
@@ -124,7 +131,7 @@ func (p *InscricoesProjection) clear() error {
 }
 
 func (p *InscricoesProjection) handleEstudanteInscrito(event genesisdb.Event) error {
-	log.Printf("📘 [INSCRICAO] Processando EstudanteInscrito")
+	log.Printf("🔘 [INSCRICAO] Processando EstudanteInscrito")
 	
 	var payload struct {
 		CodigoAcademia string    `json:"CodigoAcademia"`
@@ -366,17 +373,17 @@ func (p *InscricoesProjection) GetByAcademia(academiaID uuid.UUID, status string
 }
 
 func (p *InscricoesProjection) GetAll(limit, offset int) ([]InscricaoDTO, error) {
-	query := `
+	query := fmt.Sprintf(`
 		SELECT 
 			id, estudante_id, codigo_estudante, academia_id, codigo_academia,
 			tipo, ano_inscricao, curso, status, created_at, updated_at, 
 			event_id, version
 		FROM projection_inscricoes
 		ORDER BY created_at DESC
-		LIMIT $1 OFFSET $2
-	`
+		LIMIT %d OFFSET %d
+	`, limit, offset)
 
-	rows, err := p.client.DB().QueryContext(p.ctx, query, limit, offset)
+	rows, err := p.client.DB().QueryContext(p.ctx, query)
 	if err != nil {
 		return nil, err
 	}
