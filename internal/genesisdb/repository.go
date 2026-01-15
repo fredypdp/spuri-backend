@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/genesisdb/repository.go
-// CORREÇÃO: Tratar agregados novos (primeira versão)
+// CORRIGIDO: Tratar agregados novos corretamente
 // ============================================================================
 
 package genesisdb
@@ -74,14 +74,19 @@ func (r *AggregateRepository) Save(aggregate aggregates.Aggregate) error {
 		return nil // Nada para salvar
 	}
 
-	// 🔥 CORREÇÃO: Obter versão atual do agregado no ledger
-	// Se o agregado não existir (sql.ErrNoRows), começar do zero
-	currentVersion, err := r.eventStore.GetAggregateVersion(r.ctx, aggregate.GetID())
+	// 🔥 CORRIGIDO: Obter versão atual tratando caso de agregado novo
+	currentVersion := 0
+	version, err := r.eventStore.GetAggregateVersion(r.ctx, aggregate.GetID())
+	
+	// Se não houver erro, usar a versão retornada
+	if err == nil {
+		currentVersion = version
+	}
+	// Se o erro for "no rows", currentVersion fica 0 (novo agregado)
+	// Qualquer outro erro é propagado
 	if err != nil && err != sql.ErrNoRows {
-		// Erro real, não apenas "não encontrado"
 		return fmt.Errorf("erro ao obter versão: %w", err)
 	}
-	// Se err == sql.ErrNoRows, currentVersion já é 0 (valor padrão)
 
 	// Salvar cada evento
 	for i, domainEvent := range uncommittedEvents {
