@@ -52,26 +52,25 @@ func NewEventStore(client *Client) *EventStore {
 // Append adiciona um novo evento ao ledger (APPEND-ONLY)
 // Esta é a operação fundamental do Event Sourcing
 func (es *EventStore) Append(ctx context.Context, event *Event) error {
-	query := `
-		INSERT INTO genesis_ledger (
-			event_id, aggregate_id, aggregate_type, event_type,
-			event_version, payload, metadata, occurred_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id, recorded_at, ledger_hash, previous_hash
-	`
+	// Query explícita com 8 parâmetros
+	query := `INSERT INTO genesis_ledger (event_id, aggregate_id, aggregate_type, event_type, event_version, payload, metadata, occurred_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, recorded_at, ledger_hash, previous_hash`
 
-	err := es.client.db.QueryRowContext(
-		ctx, query,
-		event.EventID,
-		event.AggregateID,
-		event.AggregateType,
-		event.EventType,
-		event.EventVersion,
-		event.Payload,
-		event.Metadata,
-		event.OccurredAt,
-	).Scan(&event.ID, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash)
+	// Executar com QueryRowContext
+	row := es.client.db.QueryRowContext(
+		ctx, 
+		query,
+		event.EventID,        // $1
+		event.AggregateID,    // $2
+		event.AggregateType,  // $3
+		event.EventType,      // $4
+		event.EventVersion,   // $5
+		event.Payload,        // $6
+		event.Metadata,       // $7
+		event.OccurredAt,     // $8
+	)
 
+	// Scan dos valores retornados
+	err := row.Scan(&event.ID, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash)
 	if err != nil {
 		return fmt.Errorf("erro ao adicionar evento ao ledger: %w", err)
 	}
