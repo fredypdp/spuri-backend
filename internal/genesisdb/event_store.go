@@ -259,7 +259,7 @@ func (es *EventStore) CountEvents(ctx context.Context) (int64, error) {
 	query := `SELECT COUNT(*) FROM genesis_ledger`
 	
 	var count int64
-	err := es.client.db.GetContext(ctx, &count, query)
+	err := es.client.db.QueryRowContext(ctx, query).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("erro ao contar eventos: %w", err)
 	}
@@ -272,7 +272,7 @@ func (es *EventStore) CountEventsByAggregate(ctx context.Context, aggregateID uu
 	query := `SELECT COUNT(*) FROM genesis_ledger WHERE aggregate_id = $1`
 	
 	var count int64
-	err := es.client.db.GetContext(ctx, &count, query, aggregateID)
+	err := es.client.db.QueryRowContext(ctx, query, aggregateID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("erro ao contar eventos: %w", err)
 	}
