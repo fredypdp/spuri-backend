@@ -2,6 +2,7 @@ package genesisdb
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -204,7 +205,13 @@ func (es *EventStore) GetAggregateVersion(ctx context.Context, aggregateID uuid.
 	`
 
 	var version int
-	err := es.client.db.GetContext(ctx, &version, query, aggregateID)
+	err := es.client.db.QueryRowContext(ctx, query, aggregateID).Scan(&version)
+	
+	// Se não houver linhas, retornar 0 (agregado novo)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	
 	if err != nil {
 		return 0, fmt.Errorf("erro ao obter versão do agregado: %w", err)
 	}
