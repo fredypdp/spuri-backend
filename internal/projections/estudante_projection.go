@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/projections/estudante_projection.go
-// 🔥 CORRIGIDO: GetLastProcessedEventID usando Query simples
+// 🔥 CORRIGIDO: TODAS as queries usando formato direto sem prepared statements
 // ============================================================================
 
 package projections
@@ -90,7 +90,6 @@ func (p *EstudanteProjection) Rebuild() error {
 	return rows.Err()
 }
 
-// 🔥 CORRIGIDO: Usar Query direto sem QueryRowContext
 func (p *EstudanteProjection) GetLastProcessedEventID() (int64, error) {
 	query := fmt.Sprintf(`
 		SELECT last_processed_event_id 
@@ -164,42 +163,60 @@ func (p *EstudanteProjection) handleEstudanteCriado(event genesisdb.Event) error
 		return fmt.Errorf("CodigoEstudante vazio no evento")
 	}
 
-	query := `
+	log.Printf("📋 [ESTUDANTE] Nome: %s, Código: %s", payload.Nome, payload.CodigoEstudante)
+	log.Printf("🔐 [ESTUDANTE] SenhaHash (primeiros 30): %s...", payload.SenhaHash[:30])
+
+	// 🔥 CORRIGIDO: Query direta sem prepared statement
+	query := fmt.Sprintf(`
 		INSERT INTO projection_estudantes (
 			id, nome, codigo_estudante, senha_hash, bilhete_identidade, 
 			bilhete_identidade_responsavel, codigo_academia, ano_escolar, ano_superior, 
 			curso_medio, curso_superior, status_escolar, status_superior, 
 			version, created_at, updated_at, last_event_id
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+		) VALUES (
+			'%s', '%s', '%s', '%s', %s, 
+			%s, NULL, %s, %s, 
+			%s, %s, %s, %s, 
+			%d, '%s', '%s', '%s'
+		)
 		ON CONFLICT (id) DO UPDATE SET
-			nome = $2,
-			codigo_estudante = $3,
-			senha_hash = $4,
-			bilhete_identidade = $5,
-			bilhete_identidade_responsavel = $6,
-			codigo_academia = $7,
-			ano_escolar = $8,
-			ano_superior = $9,
-			curso_medio = $10,
-			curso_superior = $11,
-			status_escolar = $12,
-			status_superior = $13,
-			version = $14,
-			updated_at = $16,
-			last_event_id = $17
-	`
-
-	result, err := p.client.DB().Exec(
-		query,
-		event.AggregateID, payload.Nome, payload.CodigoEstudante,
-		payload.SenhaHash, payload.BilheteIdentidade, payload.BilheteIdentidadeResp,
-		nil, payload.AnoEscolar, payload.AnoSuperior,
-		payload.CursoMedio, payload.CursoSuperior, payload.StatusEscolar,
-		payload.StatusSuperior, event.EventVersion, payload.CreatedAt,
-		time.Now(), event.EventID,
+			nome = EXCLUDED.nome,
+			codigo_estudante = EXCLUDED.codigo_estudante,
+			senha_hash = EXCLUDED.senha_hash,
+			bilhete_identidade = EXCLUDED.bilhete_identidade,
+			bilhete_identidade_responsavel = EXCLUDED.bilhete_identidade_responsavel,
+			codigo_academia = EXCLUDED.codigo_academia,
+			ano_escolar = EXCLUDED.ano_escolar,
+			ano_superior = EXCLUDED.ano_superior,
+			curso_medio = EXCLUDED.curso_medio,
+			curso_superior = EXCLUDED.curso_superior,
+			status_escolar = EXCLUDED.status_escolar,
+			status_superior = EXCLUDED.status_superior,
+			version = EXCLUDED.version,
+			updated_at = EXCLUDED.updated_at,
+			last_event_id = EXCLUDED.last_event_id
+	`,
+		event.AggregateID.String(),
+		escapeStringEstudante(payload.Nome),
+		payload.CodigoEstudante,
+		payload.SenhaHash, // NÃO escapar hash bcrypt
+		formatNullableStringEstudante(payload.BilheteIdentidade),
+		formatNullableStringEstudante(payload.BilheteIdentidadeResp),
+		formatNullableStringEstudante(payload.AnoEscolar),
+		formatNullableStringEstudante(payload.AnoSuperior),
+		formatNullableStringEstudante(payload.CursoMedio),
+		formatNullableStringEstudante(payload.CursoSuperior),
+		formatNullableStringEstudante(payload.StatusEscolar),
+		formatNullableStringEstudante(payload.StatusSuperior),
+		event.EventVersion,
+		payload.CreatedAt.Format(time.RFC3339),
+		time.Now().Format(time.RFC3339),
+		event.EventID.String(),
 	)
 
+	result, err := p.client.DB().Exec(query)
 	if err != nil {
+		log.Printf("❌ [ESTUDANTE] Erro ao salvar: %v", err)
 		return err
 	}
 
@@ -218,25 +235,24 @@ func (p *EstudanteProjection) handleInscricaoAprovada(event genesisdb.Event) err
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	query := `
+	// 🔥 CORRIGIDO: Query direta
+	query := fmt.Sprintf(`
 		UPDATE projection_estudantes
 		SET 
-			codigo_academia = $1,
-			version = $2,
+			codigo_academia = '%s',
+			version = %d,
 			updated_at = CURRENT_TIMESTAMP,
-			last_event_id = $3,
+			last_event_id = '%s',
 			total_inscricoes = total_inscricoes + 1
-		WHERE id = $4
-	`
-
-	_, err := p.client.DB().Exec(
-		query,
+		WHERE id = '%s'
+	`,
 		payload.CodigoAcademia,
 		event.EventVersion,
-		event.EventID,
-		event.AggregateID,
+		event.EventID.String(),
+		event.AggregateID.String(),
 	)
 
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
@@ -249,42 +265,42 @@ func (p *EstudanteProjection) handleVinculoAtualizado(event genesisdb.Event) err
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	query := `
+	// 🔥 CORRIGIDO: Query direta
+	query := fmt.Sprintf(`
 		UPDATE projection_estudantes
 		SET 
-			codigo_academia = $1,
-			version = $2,
+			codigo_academia = '%s',
+			version = %d,
 			updated_at = CURRENT_TIMESTAMP,
-			last_event_id = $3
-		WHERE id = $4
-	`
-
-	_, err := p.client.DB().Exec(
-		query,
+			last_event_id = '%s'
+		WHERE id = '%s'
+	`,
 		payload.NovoCodigoAcademia,
 		event.EventVersion,
-		event.EventID,
-		event.AggregateID,
+		event.EventID.String(),
+		event.AggregateID.String(),
 	)
 
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
-// Query methods
+// Query methods - 🔥 TODAS CORRIGIDAS
 
 func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
-	query := `
+	// 🔥 CORRIGIDO: Query direta
+	query := fmt.Sprintf(`
 		SELECT 
 			id, nome, codigo_estudante, senha_hash, bilhete_identidade, 
 			bilhete_identidade_responsavel, codigo_academia, ano_escolar, ano_superior, 
 			curso_medio, curso_superior, status_escolar, status_superior, 
 			created_at, updated_at, total_notas, total_faltas, total_inscricoes, version
 		FROM projection_estudantes
-		WHERE id = $1
-	`
+		WHERE id = '%s'
+	`, id.String())
 
 	var dto EstudanteDTO
-	err := p.client.DB().QueryRow(query, id).Scan(
+	err := p.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.Nome, &dto.CodigoEstudante, &dto.SenhaHash,
 		&dto.BilheteIdentidade, &dto.BilheteIdentidadeResp, &dto.CodigoAcademia,
 		&dto.AnoEscolar, &dto.AnoSuperior, &dto.CursoMedio, &dto.CursoSuperior,
@@ -304,18 +320,19 @@ func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
 func (p *EstudanteProjection) GetByCodigo(codigo string) (*EstudanteDTO, error) {
 	log.Printf("🔎 [PROJEÇÃO ESTUDANTE] GetByCodigo: %s", codigo)
 	
-	query := `
+	// 🔥 CORRIGIDO: Query direta
+	query := fmt.Sprintf(`
 		SELECT 
 			id, nome, codigo_estudante, senha_hash, bilhete_identidade, 
 			bilhete_identidade_responsavel, codigo_academia, ano_escolar, ano_superior, 
 			curso_medio, curso_superior, status_escolar, status_superior, 
 			created_at, updated_at, total_notas, total_faltas, total_inscricoes, version
 		FROM projection_estudantes
-		WHERE codigo_estudante = $1
-	`
+		WHERE codigo_estudante = '%s'
+	`, codigo)
 
 	var dto EstudanteDTO
-	err := p.client.DB().QueryRow(query, codigo).Scan(
+	err := p.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.Nome, &dto.CodigoEstudante, &dto.SenhaHash,
 		&dto.BilheteIdentidade, &dto.BilheteIdentidadeResp, &dto.CodigoAcademia,
 		&dto.AnoEscolar, &dto.AnoSuperior, &dto.CursoMedio, &dto.CursoSuperior,
@@ -336,19 +353,20 @@ func (p *EstudanteProjection) GetByCodigo(codigo string) (*EstudanteDTO, error) 
 }
 
 func (p *EstudanteProjection) GetByBilhete(bilhete string) (*EstudanteDTO, error) {
-	query := `
+	// 🔥 CORRIGIDO: Query direta
+	query := fmt.Sprintf(`
 		SELECT 
 			id, nome, codigo_estudante, senha_hash, bilhete_identidade, 
 			bilhete_identidade_responsavel, codigo_academia, ano_escolar, ano_superior, 
 			curso_medio, curso_superior, status_escolar, status_superior, 
 			created_at, updated_at, total_notas, total_faltas, total_inscricoes, version
 		FROM projection_estudantes
-		WHERE bilhete_identidade = $1 OR bilhete_identidade_responsavel = $1
+		WHERE bilhete_identidade = '%s' OR bilhete_identidade_responsavel = '%s'
 		LIMIT 1
-	`
+	`, bilhete, bilhete)
 
 	var dto EstudanteDTO
-	err := p.client.DB().QueryRow(query, bilhete).Scan(
+	err := p.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.Nome, &dto.CodigoEstudante, &dto.SenhaHash,
 		&dto.BilheteIdentidade, &dto.BilheteIdentidadeResp, &dto.CodigoAcademia,
 		&dto.AnoEscolar, &dto.AnoSuperior, &dto.CursoMedio, &dto.CursoSuperior,
@@ -385,4 +403,27 @@ type EstudanteDTO struct {
 	TotalFaltas           int       `db:"total_faltas" json:"total_faltas"`
 	TotalInscricoes       int       `db:"total_inscricoes" json:"total_inscricoes"`
 	Version               int       `db:"version" json:"version"`
+}
+
+// Helpers
+
+func escapeStringEstudante(s string) string {
+	result := ""
+	for _, char := range s {
+		if char == '\'' {
+			result += "''"
+		} else if char == '\\' {
+			result += "\\\\"
+		} else {
+			result += string(char)
+		}
+	}
+	return result
+}
+
+func formatNullableStringEstudante(s *string) string {
+	if s == nil {
+		return "NULL"
+	}
+	return fmt.Sprintf("'%s'", escapeStringEstudante(*s))
 }
