@@ -204,7 +204,6 @@ func InscricaoEscola(c *gin.Context) {
 	var req InscricaoEscolaRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		log.Printf("❌ [INSCRICAO] Erro no bind: %v", err)
-		log.Printf("❌ [INSCRICAO] Request recebido: %+v", req)
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("dados inválidos: %v", err)})
 		return
 	}
@@ -223,6 +222,24 @@ func InscricaoEscola(c *gin.Context) {
 
 	log.Printf("✅ [INSCRICAO] Academia encontrada: %s", academiaDTO.Nome)
 
+	// 🔥 VALIDAÇÃO: Verificar se já tem inscrição pendente USANDO A PROJEÇÃO
+	inscProj := getInscricoesProjection(c)
+	inscricoes, err := inscProj.GetByEstudante(userID)
+	if err != nil {
+		log.Printf("⚠️ [INSCRICAO] Erro ao buscar inscrições: %v", err)
+	} else {
+		// Verificar se já tem inscrição pendente nesta academia
+		for _, insc := range inscricoes {
+			if insc.CodigoAcademia == req.CodigoAcademia && insc.Status == "espera" {
+				log.Printf("❌ [INSCRICAO] Já existe inscrição pendente: %s", insc.ID)
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": "você já possui uma inscrição pendente nesta academia",
+				})
+				return
+			}
+		}
+	}
+
 	repository := getRepository(c)
 	estudanteAgg, err := repository.Load(userID, "Estudante")
 	if err != nil {
@@ -232,9 +249,10 @@ func InscricaoEscola(c *gin.Context) {
 	}
 
 	estudante := estudanteAgg.(*aggregates.Estudante)
-
-	// 🔥 ATUALIZADO: Passar codigo_academia
+	
 	log.Printf("⚡ [INSCRICAO] Executando SolicitarInscricao...")
+
+	// 🔥 EXECUTAR COMANDO - vai validar se já tem inscrição pendente
 	err = estudante.SolicitarInscricao(
 		req.CodigoAcademia,
 		"escola",
@@ -242,6 +260,7 @@ func InscricaoEscola(c *gin.Context) {
 		req.CursoMedio,
 	)
 
+	// 🔥 TRATAR ERRO ANTES DE SALVAR
 	if err != nil {
 		log.Printf("❌ [INSCRICAO] Erro no comando: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
