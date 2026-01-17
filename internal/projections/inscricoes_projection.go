@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/projections/inscricoes_projection.go
-// 🔥 CORRIGIDO: GetLastProcessedEventID usando Query simples
+// 🔥 ATUALIZADO: Removido método GetAll() que usava prepared statements
 // ============================================================================
 
 package projections
@@ -86,7 +86,6 @@ func (p *InscricoesProjection) Rebuild() error {
 	return rows.Err()
 }
 
-// 🔥 CORRIGIDO: Usar Query direto sem QueryRowContext
 func (p *InscricoesProjection) GetLastProcessedEventID() (int64, error) {
 	query := fmt.Sprintf(`
 		SELECT last_processed_event_id 
@@ -149,8 +148,8 @@ func (p *InscricoesProjection) handleEstudanteInscrito(event genesisdb.Event) er
 
 	// Buscar UUID da academia
 	var academiaID uuid.UUID
-	queryAcademiaID := `SELECT id FROM projection_academias WHERE codigo_academia = $1`
-	err := p.client.DB().QueryRow(queryAcademiaID, payload.CodigoAcademia).Scan(&academiaID)
+	queryAcademiaID := fmt.Sprintf(`SELECT id FROM projection_academias WHERE codigo_academia = '%s'`, payload.CodigoAcademia)
+	err := p.client.DB().QueryRow(queryAcademiaID).Scan(&academiaID)
 	if err != nil {
 		log.Printf("❌ [INSCRICAO] Academia não encontrada: %s", payload.CodigoAcademia)
 		return fmt.Errorf("academia não encontrada: %w", err)
@@ -158,42 +157,58 @@ func (p *InscricoesProjection) handleEstudanteInscrito(event genesisdb.Event) er
 
 	// Buscar código do estudante
 	var codigoEstudante string
-	queryEstudante := `SELECT codigo_estudante FROM projection_estudantes WHERE id = $1`
-	err = p.client.DB().QueryRow(queryEstudante, estudanteID).Scan(&codigoEstudante)
+	queryEstudante := fmt.Sprintf(`SELECT codigo_estudante FROM projection_estudantes WHERE id = '%s'`, estudanteID.String())
+	err = p.client.DB().QueryRow(queryEstudante).Scan(&codigoEstudante)
 	if err != nil {
 		return fmt.Errorf("estudante não encontrado: %w", err)
 	}
 
-	query := `
+	// 🔥 Insert com query direta
+	cursoStr := "NULL"
+	if payload.Curso != nil {
+		cursoStr = fmt.Sprintf("'%s'", *payload.Curso)
+	}
+
+	query := fmt.Sprintf(`
 		INSERT INTO projection_inscricoes (
 			estudante_id, codigo_estudante, academia_id, codigo_academia,
 			tipo, ano_inscricao, curso, status, created_at, updated_at, 
 			event_id, version
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-	`
-
-	_, err = p.client.DB().Exec(
-		query,
-		estudanteID, codigoEstudante, academiaID, payload.CodigoAcademia,
-		payload.Tipo, payload.AnoInscricao, payload.Curso, "espera",
-		payload.CreatedAt, time.Now(), event.EventID, event.EventVersion,
+		) VALUES (
+			'%s', '%s', '%s', '%s',
+			'%s', '%s', %s, 'espera',
+			'%s', CURRENT_TIMESTAMP,
+			'%s', %d
+		)
+	`,
+		estudanteID.String(),
+		codigoEstudante,
+		academiaID.String(),
+		payload.CodigoAcademia,
+		payload.Tipo,
+		payload.AnoInscricao,
+		cursoStr,
+		payload.CreatedAt.Format(time.RFC3339),
+		event.EventID.String(),
+		event.EventVersion,
 	)
 
+	_, err = p.client.DB().Exec(query)
 	if err == nil {
 		// Atualizar contadores
-		updateAcademia := `
+		updateAcademia := fmt.Sprintf(`
 			UPDATE projection_academias
 			SET total_inscricoes_pendentes = total_inscricoes_pendentes + 1
-			WHERE id = $1
-		`
-		p.client.DB().Exec(updateAcademia, academiaID)
+			WHERE id = '%s'
+		`, academiaID.String())
+		p.client.DB().Exec(updateAcademia)
 
-		updateEstudante := `
+		updateEstudante := fmt.Sprintf(`
 			UPDATE projection_estudantes
 			SET total_inscricoes = total_inscricoes + 1
-			WHERE id = $1
-		`
-		p.client.DB().Exec(updateEstudante, estudanteID)
+			WHERE id = '%s'
+		`, estudanteID.String())
+		p.client.DB().Exec(updateEstudante)
 	}
 
 	return err
@@ -220,29 +235,26 @@ func (p *InscricoesProjection) handleInscricaoAprovada(event genesisdb.Event) er
 
 	// Buscar UUID da academia
 	var academiaID uuid.UUID
-	queryAcademiaID := `SELECT id FROM projection_academias WHERE codigo_academia = $1`
-	err := p.client.DB().QueryRow(queryAcademiaID, payload.CodigoAcademia).Scan(&academiaID)
+	queryAcademiaID := fmt.Sprintf(`SELECT id FROM projection_academias WHERE codigo_academia = '%s'`, payload.CodigoAcademia)
+	err := p.client.DB().QueryRow(queryAcademiaID).Scan(&academiaID)
 	if err != nil {
 		return nil
 	}
 
-	query := `
+	query := fmt.Sprintf(`
 		UPDATE projection_inscricoes
 		SET 
 			status = 'aprovado',
 			updated_at = CURRENT_TIMESTAMP
-		WHERE estudante_id = $1 
-		  AND academia_id = $2 
+		WHERE estudante_id = '%s' 
+		  AND academia_id = '%s' 
 		  AND status = 'espera'
-		  AND tipo = $3
+		  AND tipo = '%s'
 		RETURNING id
-	`
+	`, estudanteID.String(), academiaID.String(), payload.Tipo)
 
 	var inscricaoID uuid.UUID
-	err = p.client.DB().QueryRow(
-		query,
-		estudanteID, academiaID, payload.Tipo,
-	).Scan(&inscricaoID)
+	err = p.client.DB().QueryRow(query).Scan(&inscricaoID)
 
 	if err != nil && err != sql.ErrNoRows {
 		return err
@@ -270,28 +282,25 @@ func (p *InscricoesProjection) handleInscricaoReprovada(event genesisdb.Event) e
 
 	// Buscar UUID da academia
 	var academiaID uuid.UUID
-	queryAcademiaID := `SELECT id FROM projection_academias WHERE codigo_academia = $1`
-	err := p.client.DB().QueryRow(queryAcademiaID, payload.CodigoAcademia).Scan(&academiaID)
+	queryAcademiaID := fmt.Sprintf(`SELECT id FROM projection_academias WHERE codigo_academia = '%s'`, payload.CodigoAcademia)
+	err := p.client.DB().QueryRow(queryAcademiaID).Scan(&academiaID)
 	if err != nil {
 		return nil
 	}
 
-	query := `
+	query := fmt.Sprintf(`
 		UPDATE projection_inscricoes
 		SET 
 			status = 'reprovado',
 			updated_at = CURRENT_TIMESTAMP
-		WHERE estudante_id = $1 
-		  AND academia_id = $2 
+		WHERE estudante_id = '%s' 
+		  AND academia_id = '%s' 
 		  AND status = 'espera'
 		RETURNING id
-	`
+	`, estudanteID.String(), academiaID.String())
 
 	var inscricaoID uuid.UUID
-	err = p.client.DB().QueryRow(
-		query,
-		estudanteID, academiaID,
-	).Scan(&inscricaoID)
+	err = p.client.DB().QueryRow(query).Scan(&inscricaoID)
 
 	if err != nil && err != sql.ErrNoRows {
 		return err
@@ -300,88 +309,18 @@ func (p *InscricoesProjection) handleInscricaoReprovada(event genesisdb.Event) e
 	return nil
 }
 
-// Query methods
+// Query methods - mantidos apenas os que usam queries diretas
 
 func (p *InscricoesProjection) GetByEstudante(estudanteID uuid.UUID) ([]InscricaoDTO, error) {
-	query := `
-		SELECT 
-			id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-			tipo, ano_inscricao, curso, status, created_at, updated_at, 
-			event_id, version
-		FROM projection_inscricoes
-		WHERE estudante_id = $1
-		ORDER BY created_at DESC
-	`
-
-	rows, err := p.client.DB().Query(query, estudanteID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var result []InscricaoDTO
-	for rows.Next() {
-		var dto InscricaoDTO
-		err := rows.Scan(
-			&dto.ID, &dto.EstudanteID, &dto.CodigoEstudante,
-			&dto.AcademiaID, &dto.CodigoAcademia, &dto.Tipo,
-			&dto.AnoInscricao, &dto.Curso, &dto.Status,
-			&dto.CreatedAt, &dto.UpdatedAt, &dto.EventID, &dto.Version,
-		)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, dto)
-	}
-
-	return result, rows.Err()
-}
-
-func (p *InscricoesProjection) GetByAcademia(academiaID uuid.UUID, status string) ([]InscricaoDTO, error) {
-	query := `
-		SELECT 
-			id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-			tipo, ano_inscricao, curso, status, created_at, updated_at, 
-			event_id, version
-		FROM projection_inscricoes
-		WHERE academia_id = $1 AND status = $2
-		ORDER BY created_at DESC
-	`
-
-	rows, err := p.client.DB().Query(query, academiaID, status)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var result []InscricaoDTO
-	for rows.Next() {
-		var dto InscricaoDTO
-		err := rows.Scan(
-			&dto.ID, &dto.EstudanteID, &dto.CodigoEstudante,
-			&dto.AcademiaID, &dto.CodigoAcademia, &dto.Tipo,
-			&dto.AnoInscricao, &dto.Curso, &dto.Status,
-			&dto.CreatedAt, &dto.UpdatedAt, &dto.EventID, &dto.Version,
-		)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, dto)
-	}
-
-	return result, rows.Err()
-}
-
-func (p *InscricoesProjection) GetAll(limit, offset int) ([]InscricaoDTO, error) {
 	query := fmt.Sprintf(`
 		SELECT 
 			id, estudante_id, codigo_estudante, academia_id, codigo_academia,
 			tipo, ano_inscricao, curso, status, created_at, updated_at, 
 			event_id, version
 		FROM projection_inscricoes
+		WHERE estudante_id = '%s'
 		ORDER BY created_at DESC
-		LIMIT %d OFFSET %d
-	`, limit, offset)
+	`, estudanteID.String())
 
 	rows, err := p.client.DB().Query(query)
 	if err != nil {
@@ -407,26 +346,56 @@ func (p *InscricoesProjection) GetAll(limit, offset int) ([]InscricaoDTO, error)
 	return result, rows.Err()
 }
 
-func (p *InscricoesProjection) CountAll() (int, error) {
-	query := `SELECT COUNT(*) FROM projection_inscricoes`
-	
-	var count int
-	err := p.client.DB().QueryRow(query).Scan(&count)
-	return count, err
-}
-
-func (p *InscricoesProjection) GetByID(id uuid.UUID) (*InscricaoDTO, error) {
-	query := `
+func (p *InscricoesProjection) GetByAcademia(academiaID uuid.UUID, status string) ([]InscricaoDTO, error) {
+	query := fmt.Sprintf(`
 		SELECT 
 			id, estudante_id, codigo_estudante, academia_id, codigo_academia,
 			tipo, ano_inscricao, curso, status, created_at, updated_at, 
 			event_id, version
 		FROM projection_inscricoes
-		WHERE id = $1
-	`
+		WHERE academia_id = '%s' AND status = '%s'
+		ORDER BY created_at DESC
+	`, academiaID.String(), status)
+
+	rows, err := p.client.DB().Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []InscricaoDTO
+	for rows.Next() {
+		var dto InscricaoDTO
+		err := rows.Scan(
+			&dto.ID, &dto.EstudanteID, &dto.CodigoEstudante,
+			&dto.AcademiaID, &dto.CodigoAcademia, &dto.Tipo,
+			&dto.AnoInscricao, &dto.Curso, &dto.Status,
+			&dto.CreatedAt, &dto.UpdatedAt, &dto.EventID, &dto.Version,
+		)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, dto)
+	}
+
+	return result, rows.Err()
+}
+
+// 🔥 REMOVIDO: GetAll() - não é mais usado
+// 🔥 REMOVIDO: CountAll() - queries diretas fazem o count inline
+
+func (p *InscricoesProjection) GetByID(id uuid.UUID) (*InscricaoDTO, error) {
+	query := fmt.Sprintf(`
+		SELECT 
+			id, estudante_id, codigo_estudante, academia_id, codigo_academia,
+			tipo, ano_inscricao, curso, status, created_at, updated_at, 
+			event_id, version
+		FROM projection_inscricoes
+		WHERE id = '%s'
+	`, id.String())
 
 	var dto InscricaoDTO
-	err := p.client.DB().QueryRow(query, id).Scan(
+	err := p.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.EstudanteID, &dto.CodigoEstudante,
 		&dto.AcademiaID, &dto.CodigoAcademia, &dto.Tipo,
 		&dto.AnoInscricao, &dto.Curso, &dto.Status,

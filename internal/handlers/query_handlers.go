@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/handlers/query_handlers.go
-// 🔥 CORRIGIDO: Remover type assertions desnecessárias
+// 🔥 CORRIGIDO: Todas as queries usando formato direto sem prepared statements
 // ============================================================================
 
 package handlers
@@ -21,10 +21,8 @@ import (
 
 // ListarInscricoes - Rota unificada GET /inscricoes
 func ListarInscricoes(c *gin.Context) {
-	// 📝 LOG: Início da requisição
 	log.Printf("🔵 [INSCRICOES] Iniciando ListarInscricoes")
 	
-	// Extrair dados do usuário do contexto
 	userID, exists := middleware.GetUserID(c)
 	if !exists {
 		log.Printf("❌ [INSCRICOES] user_id não encontrado no contexto")
@@ -60,7 +58,6 @@ func ListarInscricoes(c *gin.Context) {
 		log.Printf("🔍 [INSCRICOES] Filtro de status: %s", statusFilter)
 	}
 
-	inscProj := getInscricoesProjection(c)
 	client := getGenesisClient(c)
 	
 	// Estrutura para armazenar inscrições
@@ -89,185 +86,214 @@ func ListarInscricoes(c *gin.Context) {
 		log.Printf("👑 [INSCRICOES] Processando como ADMIN - retorna todas")
 		
 		if statusFilter != "" {
-			query := `
+			// 🔥 Query direta com parâmetros
+			query := fmt.Sprintf(`
 				SELECT 
-					id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-					tipo, ano_inscricao, curso, status, 
+					id::text,
+					estudante_id::text,
+					codigo_estudante,
+					academia_id::text,
+					codigo_academia,
+					tipo,
+					ano_inscricao,
+					curso,
+					status,
 					TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
 					TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at,
-					event_id::text as event_id, version
+					COALESCE(event_id::text, '') as event_id,
+					version
 				FROM projection_inscricoes
-				WHERE status = $1
+				WHERE status = '%s'
 				ORDER BY created_at DESC
-				LIMIT $2 OFFSET $3
-			`
+				LIMIT %d OFFSET %d
+			`, statusFilter, limit, offset)
 			
-			log.Printf("🔍 [INSCRICOES] Executando query com filtro de status")
-			err = client.DB().Select(&inscricoes, query, statusFilter, limit, offset)
-			if err != nil {
-				log.Printf("❌ [INSCRICOES] Erro na query com filtro: %v", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições", "details": err.Error()})
-				return
-			}
+			log.Printf("📝 [INSCRICOES] Executando query com filtro")
+			err = client.DB().Select(&inscricoes, query)
 			
-			countQuery := `SELECT COUNT(*) FROM projection_inscricoes WHERE status = $1`
-			err = client.DB().Get(&total, countQuery, statusFilter)
-			if err != nil {
-				log.Printf("⚠️ [INSCRICOES] Erro ao contar total: %v", err)
-				total = len(inscricoes)
-			}
+			countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM projection_inscricoes WHERE status = '%s'`, statusFilter)
+			client.DB().Get(&total, countQuery)
 		} else {
-			log.Printf("🔍 [INSCRICOES] Executando query sem filtro")
+			// 🔥 Query direta sem filtro
+			query := fmt.Sprintf(`
+				SELECT 
+					id::text,
+					estudante_id::text,
+					codigo_estudante,
+					academia_id::text,
+					codigo_academia,
+					tipo,
+					ano_inscricao,
+					curso,
+					status,
+					TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
+					TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at,
+					COALESCE(event_id::text, '') as event_id,
+					version
+				FROM projection_inscricoes
+				ORDER BY created_at DESC
+				LIMIT %d OFFSET %d
+			`, limit, offset)
 			
-			inscricoesDTO, errDTO := inscProj.GetAll(limit, offset)
-			if errDTO != nil {
-				log.Printf("❌ [INSCRICOES] Erro ao buscar todas: %v", errDTO)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições", "details": errDTO.Error()})
-				return
-			}
+			log.Printf("📝 [INSCRICOES] Executando query sem filtro")
+			err = client.DB().Select(&inscricoes, query)
 			
-			// Converter DTOs para formato detalhado
-			for _, i := range inscricoesDTO {
-				curso := i.Curso
-				eventID := ""
-				if i.EventID != uuid.Nil {
-					eventID = i.EventID.String()
-				}
-				
-				inscricoes = append(inscricoes, InscricaoDetalhada{
-					ID:              i.ID.String(),
-					EstudanteID:     i.EstudanteID.String(),
-					CodigoEstudante: i.CodigoEstudante,
-					AcademiaID:      i.AcademiaID.String(),
-					CodigoAcademia:  i.CodigoAcademia,
-					Tipo:            i.Tipo,
-					AnoInscricao:    i.AnoInscricao,
-					Curso:           curso,
-					Status:          i.Status,
-					CreatedAt:       i.CreatedAt.Format("2006-01-02T15:04:05Z"),
-					UpdatedAt:       i.UpdatedAt.Format("2006-01-02T15:04:05Z"),
-					EventID:         &eventID,
-					Version:         &i.Version,
-				})
-			}
-			
-			totalCount, _ := inscProj.CountAll()
-			total = totalCount
+			countQuery := `SELECT COUNT(*) FROM projection_inscricoes`
+			client.DB().Get(&total, countQuery)
 		}
 		
 	case "academia":
-		log.Printf("🏫 [INSCRICOES] Processando como ACADEMIA - apenas da própria academia")
+		log.Printf("🏫 [INSCRICOES] Processando como ACADEMIA")
 		
-		// 🔥 CORRIGIDO: userID já é uuid.UUID
-		academiaUUID := userID
-		
-		if statusFilter != "" {
-			inscricoesDTO, errDTO := inscProj.GetByAcademia(academiaUUID, statusFilter)
-			if errDTO != nil {
-				log.Printf("❌ [INSCRICOES] Erro ao buscar por academia com filtro: %v", errDTO)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições", "details": errDTO.Error()})
-				return
-			}
-			
-			// Converter DTOs
-			for _, i := range inscricoesDTO {
-				curso := i.Curso
-				eventID := ""
-				if i.EventID != uuid.Nil {
-					eventID = i.EventID.String()
-				}
-				
-				inscricoes = append(inscricoes, InscricaoDetalhada{
-					ID:              i.ID.String(),
-					EstudanteID:     i.EstudanteID.String(),
-					CodigoEstudante: i.CodigoEstudante,
-					AcademiaID:      i.AcademiaID.String(),
-					CodigoAcademia:  i.CodigoAcademia,
-					Tipo:            i.Tipo,
-					AnoInscricao:    i.AnoInscricao,
-					Curso:           curso,
-					Status:          i.Status,
-					CreatedAt:       i.CreatedAt.Format("2006-01-02T15:04:05Z"),
-					UpdatedAt:       i.UpdatedAt.Format("2006-01-02T15:04:05Z"),
-					EventID:         &eventID,
-					Version:         &i.Version,
-				})
-			}
-			total = len(inscricoes)
-		} else {
-			query := `
-				SELECT 
-					id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-					tipo, ano_inscricao, curso, status,
-					TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
-					TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at,
-					event_id::text as event_id, version
-				FROM projection_inscricoes
-				WHERE academia_id = $1
-				ORDER BY created_at DESC
-				LIMIT $2 OFFSET $3
-			`
-			
-			log.Printf("🔍 [INSCRICOES] Executando query para academia_id: %s", academiaUUID.String())
-			err = client.DB().Select(&inscricoes, query, academiaUUID, limit, offset)
-			if err != nil {
-				log.Printf("❌ [INSCRICOES] Erro na query academia: %v", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições", "details": err.Error()})
-				return
-			}
-			
-			countQuery := `SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = $1`
-			err = client.DB().Get(&total, countQuery, academiaUUID)
-			if err != nil {
-				log.Printf("⚠️ [INSCRICOES] Erro ao contar: %v", err)
-				total = len(inscricoes)
-			}
-		}
-		
-	case "estudante":
-		log.Printf("👨‍🎓 [INSCRICOES] Processando como ESTUDANTE - apenas próprias inscrições")
-		
-		// 🔥 CORRIGIDO: userID já é uuid.UUID
-		estudanteUUID := userID
-		
-		inscricoesDTO, errDTO := inscProj.GetByEstudante(estudanteUUID)
-		if errDTO != nil {
-			log.Printf("❌ [INSCRICOES] Erro ao buscar por estudante: %v", errDTO)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições", "details": errDTO.Error()})
+		// Converter userID para uuid.UUID
+		academiaUUID, ok := userID.(uuid.UUID)
+		if !ok {
+			log.Printf("❌ [INSCRICOES] Erro ao converter userID para UUID: %v", userID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao processar ID da academia"})
 			return
 		}
 		
-		// Aplicar filtro de status se fornecido e converter DTOs
-		for _, i := range inscricoesDTO {
-			if statusFilter == "" || i.Status == statusFilter {
-				curso := i.Curso
-				eventID := ""
-				if i.EventID != uuid.Nil {
-					eventID = i.EventID.String()
-				}
-				
-				inscricoes = append(inscricoes, InscricaoDetalhada{
-					ID:              i.ID.String(),
-					EstudanteID:     i.EstudanteID.String(),
-					CodigoEstudante: i.CodigoEstudante,
-					AcademiaID:      i.AcademiaID.String(),
-					CodigoAcademia:  i.CodigoAcademia,
-					Tipo:            i.Tipo,
-					AnoInscricao:    i.AnoInscricao,
-					Curso:           curso,
-					Status:          i.Status,
-					CreatedAt:       i.CreatedAt.Format("2006-01-02T15:04:05Z"),
-					UpdatedAt:       i.UpdatedAt.Format("2006-01-02T15:04:05Z"),
-					EventID:         &eventID,
-					Version:         &i.Version,
-				})
+		log.Printf("🏫 [INSCRICOES] Academia UUID: %s", academiaUUID.String())
+		
+		if statusFilter != "" {
+			// 🔥 Query direta com filtro
+			query := fmt.Sprintf(`
+				SELECT 
+					id::text,
+					estudante_id::text,
+					codigo_estudante,
+					academia_id::text,
+					codigo_academia,
+					tipo,
+					ano_inscricao,
+					curso,
+					status,
+					TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
+					TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at,
+					COALESCE(event_id::text, '') as event_id,
+					version
+				FROM projection_inscricoes
+				WHERE academia_id = '%s' AND status = '%s'
+				ORDER BY created_at DESC
+				LIMIT %d OFFSET %d
+			`, academiaUUID.String(), statusFilter, limit, offset)
+			
+			err = client.DB().Select(&inscricoes, query)
+			
+			countQuery := fmt.Sprintf(`
+				SELECT COUNT(*) 
+				FROM projection_inscricoes 
+				WHERE academia_id = '%s' AND status = '%s'
+			`, academiaUUID.String(), statusFilter)
+			client.DB().Get(&total, countQuery)
+		} else {
+			// 🔥 Query direta sem filtro
+			query := fmt.Sprintf(`
+				SELECT 
+					id::text,
+					estudante_id::text,
+					codigo_estudante,
+					academia_id::text,
+					codigo_academia,
+					tipo,
+					ano_inscricao,
+					curso,
+					status,
+					TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
+					TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at,
+					COALESCE(event_id::text, '') as event_id,
+					version
+				FROM projection_inscricoes
+				WHERE academia_id = '%s'
+				ORDER BY created_at DESC
+				LIMIT %d OFFSET %d
+			`, academiaUUID.String(), limit, offset)
+			
+			log.Printf("📝 [INSCRICOES] Query: %s", query)
+			err = client.DB().Select(&inscricoes, query)
+			
+			if err != nil {
+				log.Printf("❌ [INSCRICOES] Erro na query: %v", err)
 			}
+			
+			countQuery := fmt.Sprintf(`
+				SELECT COUNT(*) 
+				FROM projection_inscricoes 
+				WHERE academia_id = '%s'
+			`, academiaUUID.String())
+			client.DB().Get(&total, countQuery)
 		}
+		
+	case "estudante":
+		log.Printf("👨‍🎓 [INSCRICOES] Processando como ESTUDANTE")
+		
+		estudanteUUID, ok := userID.(uuid.UUID)
+		if !ok {
+			log.Printf("❌ [INSCRICOES] Erro ao converter userID para UUID: %v", userID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao processar ID do estudante"})
+			return
+		}
+		
+		if statusFilter != "" {
+			query := fmt.Sprintf(`
+				SELECT 
+					id::text,
+					estudante_id::text,
+					codigo_estudante,
+					academia_id::text,
+					codigo_academia,
+					tipo,
+					ano_inscricao,
+					curso,
+					status,
+					TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
+					TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at,
+					COALESCE(event_id::text, '') as event_id,
+					version
+				FROM projection_inscricoes
+				WHERE estudante_id = '%s' AND status = '%s'
+				ORDER BY created_at DESC
+			`, estudanteUUID.String(), statusFilter)
+			
+			err = client.DB().Select(&inscricoes, query)
+		} else {
+			query := fmt.Sprintf(`
+				SELECT 
+					id::text,
+					estudante_id::text,
+					codigo_estudante,
+					academia_id::text,
+					codigo_academia,
+					tipo,
+					ano_inscricao,
+					curso,
+					status,
+					TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
+					TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at,
+					COALESCE(event_id::text, '') as event_id,
+					version
+				FROM projection_inscricoes
+				WHERE estudante_id = '%s'
+				ORDER BY created_at DESC
+			`, estudanteUUID.String())
+			
+			err = client.DB().Select(&inscricoes, query)
+		}
+		
 		total = len(inscricoes)
 		
 	default:
 		log.Printf("❌ [INSCRICOES] Tipo de usuário inválido: %s", userType)
 		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
+		return
+	}
+	
+	if err != nil {
+		log.Printf("❌ [INSCRICOES] Erro ao buscar: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "erro ao buscar inscrições",
+			"details": err.Error(),
+		})
 		return
 	}
 	
@@ -293,7 +319,6 @@ func ListarInscricoesPendentes(c *gin.Context) {
 	
 	log.Printf("📋 [INSCRICOES-PENDENTES] UserType: %s", userType)
 	
-	inscProj := getInscricoesProjection(c)
 	client := getGenesisClient(c)
 	
 	type InscricaoDetalhada struct {
@@ -317,8 +342,15 @@ func ListarInscricoesPendentes(c *gin.Context) {
 	case "admin":
 		query := `
 			SELECT 
-				id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-				tipo, ano_inscricao, curso, status,
+				id::text,
+				estudante_id::text,
+				codigo_estudante,
+				academia_id::text,
+				codigo_academia,
+				tipo,
+				ano_inscricao,
+				curso,
+				status,
 				TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
 				TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
 			FROM projection_inscricoes
@@ -328,56 +360,46 @@ func ListarInscricoesPendentes(c *gin.Context) {
 		err = client.DB().Select(&inscricoes, query)
 		
 	case "academia":
-		// 🔥 CORRIGIDO: userID já é uuid.UUID
-		academiaUUID := userID
-		inscricoesDTO, errDTO := inscProj.GetByAcademia(academiaUUID, "espera")
-		if errDTO != nil {
-			err = errDTO
-		} else {
-			for _, i := range inscricoesDTO {
-				curso := i.Curso
-				inscricoes = append(inscricoes, InscricaoDetalhada{
-					ID:              i.ID.String(),
-					EstudanteID:     i.EstudanteID.String(),
-					CodigoEstudante: i.CodigoEstudante,
-					AcademiaID:      i.AcademiaID.String(),
-					CodigoAcademia:  i.CodigoAcademia,
-					Tipo:            i.Tipo,
-					AnoInscricao:    i.AnoInscricao,
-					Curso:           curso,
-					Status:          i.Status,
-					CreatedAt:       i.CreatedAt.Format("2006-01-02T15:04:05Z"),
-					UpdatedAt:       i.UpdatedAt.Format("2006-01-02T15:04:05Z"),
-				})
-			}
-		}
+		academiaUUID, _ := userID.(uuid.UUID)
+		query := fmt.Sprintf(`
+			SELECT 
+				id::text,
+				estudante_id::text,
+				codigo_estudante,
+				academia_id::text,
+				codigo_academia,
+				tipo,
+				ano_inscricao,
+				curso,
+				status,
+				TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
+				TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
+			FROM projection_inscricoes
+			WHERE academia_id = '%s' AND status = 'espera'
+			ORDER BY created_at DESC
+		`, academiaUUID.String())
+		err = client.DB().Select(&inscricoes, query)
 		
 	case "estudante":
-		// 🔥 CORRIGIDO: userID já é uuid.UUID
-		estudanteUUID := userID
-		inscricoesDTO, errDTO := inscProj.GetByEstudante(estudanteUUID)
-		if errDTO != nil {
-			err = errDTO
-		} else {
-			for _, i := range inscricoesDTO {
-				if i.Status == "espera" {
-					curso := i.Curso
-					inscricoes = append(inscricoes, InscricaoDetalhada{
-						ID:              i.ID.String(),
-						EstudanteID:     i.EstudanteID.String(),
-						CodigoEstudante: i.CodigoEstudante,
-						AcademiaID:      i.AcademiaID.String(),
-						CodigoAcademia:  i.CodigoAcademia,
-						Tipo:            i.Tipo,
-						AnoInscricao:    i.AnoInscricao,
-						Curso:           curso,
-						Status:          i.Status,
-						CreatedAt:       i.CreatedAt.Format("2006-01-02T15:04:05Z"),
-						UpdatedAt:       i.UpdatedAt.Format("2006-01-02T15:04:05Z"),
-					})
-				}
-			}
-		}
+		estudanteUUID, _ := userID.(uuid.UUID)
+		query := fmt.Sprintf(`
+			SELECT 
+				id::text,
+				estudante_id::text,
+				codigo_estudante,
+				academia_id::text,
+				codigo_academia,
+				tipo,
+				ano_inscricao,
+				curso,
+				status,
+				TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
+				TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
+			FROM projection_inscricoes
+			WHERE estudante_id = '%s' AND status = 'espera'
+			ORDER BY created_at DESC
+		`, estudanteUUID.String())
+		err = client.DB().Select(&inscricoes, query)
 		
 	default:
 		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
@@ -403,7 +425,6 @@ func ListarInscricoesPendentes(c *gin.Context) {
 func GetNotasEstudante(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
 
-	// Buscar estudante por código
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
@@ -411,7 +432,6 @@ func GetNotasEstudante(c *gin.Context) {
 		return
 	}
 
-	// Verificar permissões
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 
@@ -430,7 +450,6 @@ func GetNotasEstudante(c *gin.Context) {
 		}
 	}
 
-	// Buscar notas
 	notasProj := getNotasProjection(c)
 	notas, err := notasProj.GetByEstudante(estudante.ID)
 	if err != nil {
@@ -450,7 +469,6 @@ func GetNotasEstudante(c *gin.Context) {
 func GetFaltasEstudante(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
 
-	// Buscar estudante por código
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
@@ -458,7 +476,6 @@ func GetFaltasEstudante(c *gin.Context) {
 		return
 	}
 
-	// Verificar permissões
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 
@@ -477,7 +494,6 @@ func GetFaltasEstudante(c *gin.Context) {
 		}
 	}
 
-	// Buscar faltas
 	faltasProj := getFaltasProjection(c)
 	faltas, err := faltasProj.GetByEstudante(estudante.ID)
 	if err != nil {
@@ -497,7 +513,6 @@ func GetFaltasEstudante(c *gin.Context) {
 func GetHistoricoCompleto(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
 
-	// Buscar estudante
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
@@ -505,7 +520,6 @@ func GetHistoricoCompleto(c *gin.Context) {
 		return
 	}
 
-	// Verificar permissões
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 
@@ -524,15 +538,12 @@ func GetHistoricoCompleto(c *gin.Context) {
 		}
 	}
 
-	// Buscar notas
 	notasProj := getNotasProjection(c)
 	notas, _ := notasProj.GetByEstudante(estudante.ID)
 
-	// Buscar faltas
 	faltasProj := getFaltasProjection(c)
 	faltas, _ := faltasProj.GetByEstudante(estudante.ID)
 
-	// Buscar inscrições
 	inscProj := getInscricoesProjection(c)
 	inscricoes, _ := inscProj.GetByEstudante(estudante.ID)
 
@@ -548,7 +559,6 @@ func GetHistoricoCompleto(c *gin.Context) {
 func GetEventosEstudante(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
 
-	// Buscar estudante
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
@@ -556,7 +566,6 @@ func GetEventosEstudante(c *gin.Context) {
 		return
 	}
 
-	// Verificar permissões
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 
@@ -565,7 +574,6 @@ func GetEventosEstudante(c *gin.Context) {
 		return
 	}
 
-	// Buscar eventos do ledger
 	repository := getRepository(c)
 	eventos, err := repository.GetEventHistory(estudante.ID)
 	if err != nil {
@@ -586,7 +594,6 @@ func GetEventosEstudante(c *gin.Context) {
 func VerificarIntegridade(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
 
-	// Buscar estudante
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
@@ -594,7 +601,6 @@ func VerificarIntegridade(c *gin.Context) {
 		return
 	}
 
-	// Verificar integridade
 	repository := getRepository(c)
 	isValid, err := repository.VerifyIntegrity(estudante.ID)
 	if err != nil {
@@ -636,7 +642,6 @@ func GetMinhasInscricoes(c *gin.Context) {
 func GetMeuHistorico(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
-	// Buscar dados
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByID(userID)
 	if err != nil {
