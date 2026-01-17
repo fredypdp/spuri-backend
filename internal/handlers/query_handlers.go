@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/handlers/query_handlers.go
-// ATUALIZADO: Usar codigo_academia + nova lógica /inscricoes
+// 🔥 ATUALIZADO: Rotas unificadas de inscrições com lógica por tipo de usuário
 // ============================================================================
 
 package handlers
@@ -13,6 +13,208 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
+
+// ============================================================================
+// ROTAS UNIFICADAS DE INSCRIÇÕES
+// ============================================================================
+
+// ListarInscricoes - Rota unificada GET /inscricoes
+// - Admin: retorna TODAS as inscrições
+// - Academia: retorna apenas inscrições da própria academia
+// - Estudante: retorna apenas inscrições do próprio estudante
+func ListarInscricoes(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
+	
+	// Parâmetros de paginação
+	limit := 50
+	offset := 0
+	
+	if limitParam := c.Query("limit"); limitParam != "" {
+		fmt.Sscanf(limitParam, "%d", &limit)
+	}
+	if offsetParam := c.Query("offset"); offsetParam != "" {
+		fmt.Sscanf(offsetParam, "%d", &offset)
+	}
+	
+	// Filtro por status (opcional)
+	statusFilter := c.Query("status") // "espera", "aprovado", "reprovado", ou vazio
+
+	inscProj := getInscricoesProjection(c)
+	client := getGenesisClient(c)
+	
+	var inscricoes []interface{}
+	var err error
+	var total int
+	
+	switch userType {
+	case "admin":
+		// ADMIN: Lista TODAS as inscrições
+		if statusFilter != "" {
+			query := `
+				SELECT 
+					id, estudante_id, codigo_estudante, academia_id, codigo_academia,
+					tipo, ano_inscricao, curso, status, created_at, updated_at, 
+					event_id, version
+				FROM projection_inscricoes
+				WHERE status = $1
+				ORDER BY created_at DESC
+				LIMIT $2 OFFSET $3
+			`
+			err = client.DB().Select(&inscricoes, query, statusFilter, limit, offset)
+			
+			countQuery := `SELECT COUNT(*) FROM projection_inscricoes WHERE status = $1`
+			client.DB().Get(&total, countQuery, statusFilter)
+		} else {
+			inscricoesDTO, errDTO := inscProj.GetAll(limit, offset)
+			if errDTO != nil {
+				err = errDTO
+			} else {
+				for _, i := range inscricoesDTO {
+					inscricoes = append(inscricoes, i)
+				}
+			}
+			total, _ = inscProj.CountAll()
+		}
+		
+	case "academia":
+		// ACADEMIA: Lista apenas inscrições da própria academia
+		if statusFilter != "" {
+			inscricoesDTO, errDTO := inscProj.GetByAcademia(userID, statusFilter)
+			if errDTO != nil {
+				err = errDTO
+			} else {
+				for _, i := range inscricoesDTO {
+					inscricoes = append(inscricoes, i)
+				}
+				total = len(inscricoesDTO)
+			}
+		} else {
+			query := `
+				SELECT 
+					id, estudante_id, codigo_estudante, academia_id, codigo_academia,
+					tipo, ano_inscricao, curso, status, created_at, updated_at, 
+					event_id, version
+				FROM projection_inscricoes
+				WHERE academia_id = $1
+				ORDER BY created_at DESC
+				LIMIT $2 OFFSET $3
+			`
+			err = client.DB().Select(&inscricoes, query, userID, limit, offset)
+			
+			countQuery := `SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = $1`
+			client.DB().Get(&total, countQuery, userID)
+		}
+		
+	case "estudante":
+		// ESTUDANTE: Lista apenas suas próprias inscrições
+		inscricoesDTO, errDTO := inscProj.GetByEstudante(userID)
+		if errDTO != nil {
+			err = errDTO
+		} else {
+			// Aplicar filtro de status se fornecido
+			for _, i := range inscricoesDTO {
+				if statusFilter == "" || i.Status == statusFilter {
+					inscricoes = append(inscricoes, i)
+				}
+			}
+			total = len(inscricoes)
+		}
+		
+	default:
+		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
+		return
+	}
+	
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"inscricoes":   inscricoes,
+		"total":        len(inscricoes),
+		"total_geral":  total,
+		"limit":        limit,
+		"offset":       offset,
+		"status_filter": statusFilter,
+		"user_type":    userType,
+	})
+}
+
+// ListarInscricoesPendentes - Rota unificada GET /inscricoes-pendentes
+// - Admin: retorna TODAS as inscrições pendentes
+// - Academia: retorna apenas inscrições pendentes da própria academia
+// - Estudante: retorna apenas inscrições pendentes do próprio estudante
+func ListarInscricoesPendentes(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
+	
+	inscProj := getInscricoesProjection(c)
+	client := getGenesisClient(c)
+	
+	var inscricoes []interface{}
+	var err error
+	
+	switch userType {
+	case "admin":
+		// ADMIN: Todas as inscrições pendentes
+		query := `
+			SELECT 
+				id, estudante_id, codigo_estudante, academia_id, codigo_academia,
+				tipo, ano_inscricao, curso, status, created_at, updated_at, 
+				event_id, version
+			FROM projection_inscricoes
+			WHERE status = 'espera'
+			ORDER BY created_at DESC
+		`
+		err = client.DB().Select(&inscricoes, query)
+		
+	case "academia":
+		// ACADEMIA: Apenas inscrições pendentes da própria academia
+		inscricoesDTO, errDTO := inscProj.GetByAcademia(userID, "espera")
+		if errDTO != nil {
+			err = errDTO
+		} else {
+			for _, i := range inscricoesDTO {
+				inscricoes = append(inscricoes, i)
+			}
+		}
+		
+	case "estudante":
+		// ESTUDANTE: Apenas suas inscrições pendentes
+		inscricoesDTO, errDTO := inscProj.GetByEstudante(userID)
+		if errDTO != nil {
+			err = errDTO
+		} else {
+			for _, i := range inscricoesDTO {
+				if i.Status == "espera" {
+					inscricoes = append(inscricoes, i)
+				}
+			}
+		}
+		
+	default:
+		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
+		return
+	}
+	
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições pendentes"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"inscricoes": inscricoes,
+		"total":      len(inscricoes),
+		"status":     "espera",
+		"user_type":  userType,
+	})
+}
+
+// ============================================================================
+// OUTRAS ROTAS DE QUERY (mantidas para compatibilidade)
+// ============================================================================
 
 // GetNotasEstudante busca notas por código
 func GetNotasEstudante(c *gin.Context) {
@@ -35,7 +237,6 @@ func GetNotasEstudante(c *gin.Context) {
 		return
 	}
 
-	// 🔥 ATUALIZADO: Verificar codigo_academia
 	if userType == "academia" {
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, _ := academiaProj.GetByID(userID)
@@ -83,7 +284,6 @@ func GetFaltasEstudante(c *gin.Context) {
 		return
 	}
 
-	// 🔥 ATUALIZADO: Verificar codigo_academia
 	if userType == "academia" {
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, _ := academiaProj.GetByID(userID)
@@ -131,7 +331,6 @@ func GetHistoricoCompleto(c *gin.Context) {
 		return
 	}
 
-	// 🔥 ATUALIZADO: Verificar codigo_academia
 	if userType == "academia" {
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, _ := academiaProj.GetByID(userID)
@@ -279,140 +478,7 @@ func GetMeuHistorico(c *gin.Context) {
 	})
 }
 
-// ListarInscricoesPendentes lista inscrições pendentes de uma academia
-func ListarInscricoesPendentes(c *gin.Context) {
-	userID, _ := middleware.GetUserID(c)
-
-	inscProj := getInscricoesProjection(c)
-	inscricoes, err := inscProj.GetByAcademia(userID, "espera")
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"inscricoes": inscricoes,
-		"total":      len(inscricoes),
-	})
-}
-
-// 🔥 NOVA FUNCIONALIDADE: ListarTodasInscricoes
-// Admin: lista TODAS as inscrições
-// Academia: lista apenas inscrições da própria academia
-func ListarTodasInscricoes(c *gin.Context) {
-	userID, _ := middleware.GetUserID(c)
-	userType, _ := middleware.GetUserType(c)
-	
-	// Parâmetros de paginação
-	limit := 50
-	offset := 0
-	
-	if limitParam := c.Query("limit"); limitParam != "" {
-		fmt.Sscanf(limitParam, "%d", &limit)
-	}
-	if offsetParam := c.Query("offset"); offsetParam != "" {
-		fmt.Sscanf(offsetParam, "%d", &offset)
-	}
-	
-	// Filtro por status (opcional)
-	status := c.Query("status") // "espera", "aprovado", "reprovado", ou vazio
-
-	inscProj := getInscricoesProjection(c)
-	client := getGenesisClient(c)
-	
-	var inscricoes []interface{}
-	var err error
-	var total int
-	
-	// 🔥 LÓGICA POR TIPO DE USUÁRIO
-	if userType == "admin" {
-		// ADMIN: Lista TODAS as inscrições
-		if status != "" {
-			// Com filtro de status
-			query := `
-				SELECT 
-					id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-					tipo, ano_inscricao, curso, status, created_at, updated_at, 
-					event_id, version
-				FROM projection_inscricoes
-				WHERE status = $1
-				ORDER BY created_at DESC
-				LIMIT $2 OFFSET $3
-			`
-			err = client.DB().Select(&inscricoes, query, status, limit, offset)
-			
-			// Contar total
-			countQuery := `SELECT COUNT(*) FROM projection_inscricoes WHERE status = $1`
-			client.DB().Get(&total, countQuery, status)
-		} else {
-			// Sem filtro
-			inscricoesDTO, errDTO := inscProj.GetAll(limit, offset)
-			if errDTO != nil {
-				err = errDTO
-			} else {
-				for _, i := range inscricoesDTO {
-					inscricoes = append(inscricoes, i)
-				}
-			}
-			
-			// Contar total
-			total, _ = inscProj.CountAll()
-		}
-		
-	} else if userType == "academia" {
-		// ACADEMIA: Lista apenas inscrições da própria academia
-		if status != "" {
-			// Com filtro de status
-			inscricoesDTO, errDTO := inscProj.GetByAcademia(userID, status)
-			if errDTO != nil {
-				err = errDTO
-			} else {
-				for _, i := range inscricoesDTO {
-					inscricoes = append(inscricoes, i)
-				}
-				total = len(inscricoesDTO)
-			}
-		} else {
-			// Sem filtro (todas as inscrições da academia)
-			query := `
-				SELECT 
-					id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-					tipo, ano_inscricao, curso, status, created_at, updated_at, 
-					event_id, version
-				FROM projection_inscricoes
-				WHERE academia_id = $1
-				ORDER BY created_at DESC
-				LIMIT $2 OFFSET $3
-			`
-			err = client.DB().Select(&inscricoes, query, userID, limit, offset)
-			
-			// Contar total
-			countQuery := `SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = $1`
-			client.DB().Get(&total, countQuery, userID)
-		}
-		
-	} else {
-		// Outros tipos de usuário não têm acesso
-		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
-		return
-	}
-	
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"inscricoes":   inscricoes,
-		"total":        len(inscricoes),
-		"total_geral":  total,
-		"limit":        limit,
-		"offset":       offset,
-		"user_type":    userType,
-	})
-}
-
-// ListarTodasAcademias lista todas as academias (admin)
+// ListarTodasAcademias lista todas as academias
 func ListarTodasAcademias(c *gin.Context) {
 	query := `
 		SELECT 

@@ -54,7 +54,7 @@ func main() {
 	log.Printf("🚀 Spuri Event Sourcing rodando em http://localhost:%s", port)
 	log.Printf("📚 Documentação: http://localhost:%s/", port)
 	log.Printf("❤️  Health check: http://localhost:%s/health", port)
-	log.Printf("🌐 Ambiente: %s", os.Getenv("ENV"))
+	log.Printf("🌍 Ambiente: %s", os.Getenv("ENV"))
 	log.Printf("🗃️  GenesisDB: Event Sourcing ativado")
 	log.Printf("🔑 Admin FPP: admin@spuri.ao / fpp@2025")
 	
@@ -157,9 +157,9 @@ func setupRouter() *gin.Engine {
 		c.JSON(200, gin.H{
 			"status":  "ok",
 			"message": "Spuri Event Sourcing rodando!",
-			"version": "2.3.0",
+			"version": "2.4.0",
 			"env":     os.Getenv("ENV"),
-			"architecture": "Event Sourcing com GenesisDB + Sistema Admin + Consultas de Perfil",
+			"architecture": "Event Sourcing com GenesisDB + Rotas Unificadas de Inscrições",
 			"db_stats": gin.H{
 				"open_connections": stats.OpenConnections,
 				"in_use": stats.InUse,
@@ -169,7 +169,6 @@ func setupRouter() *gin.Engine {
 	})
 
 	// 🔥 BOOTSTRAP: Criar primeiro admin FPP
-	// ⚠️  SÓ FUNCIONA SE NÃO EXISTIR NENHUM ADMIN
 	router.POST("/bootstrap/admin-fpp", handlers.BootstrapAdminFPP)
 
 	// Autenticação pública
@@ -179,21 +178,49 @@ func setupRouter() *gin.Engine {
 	router.POST("/estudante/register", handlers.RegisterEstudante)
 
 	// ============================================
-	// 🔥 NOVAS ROTAS DE PERFIL
+	// ROTAS PROTEGIDAS - QUALQUER USUÁRIO LOGADO
 	// ============================================
 	
-	// Perfil do usuário logado (qualquer tipo)
-	router.GET("/meu-perfil", middleware.AuthMiddleware(), handlers.GetMeuPerfil)
-	router.GET("/academias", middleware.AuthMiddleware(), handlers.ListarTodasAcademias)
-	
+	protected := router.Group("/")
+	protected.Use(middleware.AuthMiddleware())
+	{
+		// Perfil do usuário logado
+		protected.GET("/meu-perfil", handlers.GetMeuPerfil)
+		
+		// Lista academias (todos podem ver)
+		protected.GET("/academias", handlers.ListarTodasAcademias)
+		
+		// 🔥 ROTAS UNIFICADAS DE INSCRIÇÕES
+		// Admin: todas | Academia: só suas | Estudante: só suas
+		protected.GET("/inscricoes", handlers.ListarInscricoes)
+		protected.GET("/inscricoes-pendentes", handlers.ListarInscricoesPendentes)
+		
+		// Consultas de notas/faltas/histórico
+		protected.GET("/notas-estudante/:codigo", handlers.GetNotasEstudante)
+		protected.GET("/faltas-estudante/:codigo", handlers.GetFaltasEstudante)
+		protected.GET("/historico-estudante/:codigo", handlers.GetHistoricoCompleto)
+		
+		// Event Sourcing - Auditoria
+		protected.GET("/eventos-estudante/:codigo", handlers.GetEventosEstudante)
+		protected.GET("/verificar-integridade/:codigo", handlers.VerificarIntegridade)
+		
+		// Consultas públicas (academia e admin)
+		protected.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)
+		protected.GET("/consultar-academia/:codigo", handlers.GetAcademiaPorCodigo)
+		
+		// Lista estudantes (academia: seus | admin: todos)
+		protected.GET("/estudantes", handlers.ListarEstudantes)
+	}
+
 	// ============================================
-	// ROTAS DE ESTUDANTES (PROTEGIDAS)
+	// ROTAS DE ESTUDANTES
 	// ============================================
 	
 	estudante := router.Group("/estudante")
 	estudante.Use(middleware.AuthMiddleware())
 	estudante.Use(middleware.RequireEstudante())
 	{
+		// Inscrições
 		estudante.POST("/inscricao-escola", handlers.InscricaoEscola)
 		estudante.POST("/inscricao-universidade", handlers.InscricaoUniversidade)
 		estudante.GET("/minhas-inscricoes", handlers.GetMinhasInscricoes)
@@ -201,7 +228,7 @@ func setupRouter() *gin.Engine {
 	}
 
 	// ============================================
-	// ROTAS DE ACADEMIAS (PROTEGIDAS + VALIDAÇÕES)
+	// ROTAS DE ACADEMIAS
 	// ============================================
 	
 	academia := router.Group("/academia")
@@ -213,43 +240,13 @@ func setupRouter() *gin.Engine {
 		academia.POST("/notas-aluno", handlers.RegistrarNotas)
 		academia.POST("/faltas-aluno", handlers.RegistrarFaltas)
 		
-		// Inscrições
-		academia.GET("/inscricoes-pendentes", handlers.ListarInscricoesPendentes)
+		// Inscrições - Aprovação/Reprovação
 		academia.PUT("/inscricao/:id/aprovar", handlers.AprovarInscricao)
 		academia.PUT("/inscricao/:id/reprovar", handlers.ReprovarInscricao)
 		
-		// 🔥 NOVA: Consultar estudante por código
+		// Consultas específicas academia
 		academia.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)
-		
-		// 🔥 NOVA: Consultar outra academia por código
 		academia.GET("/consultar-academia/:codigo", handlers.GetAcademiaPorCodigo)
-	}
-
-	// ============================================
-	// ROTAS PROTEGIDAS (ESTUDANTES, ACADEMIAS, ADMINS)
-	// ============================================
-	
-	protected := router.Group("/")
-	protected.Use(middleware.AuthMiddleware())
-	{
-		// Queries (CQRS - Read)
-		protected.GET("/notas-estudante/:codigo", handlers.GetNotasEstudante)
-		protected.GET("/faltas-estudante/:codigo", handlers.GetFaltasEstudante)
-		protected.GET("/historico-estudante/:codigo", handlers.GetHistoricoCompleto)
-		
-		// Event Sourcing - Auditoria
-		protected.GET("/eventos-estudante/:codigo", handlers.GetEventosEstudante)
-		protected.GET("/verificar-integridade/:codigo", handlers.VerificarIntegridade)
-		
-		// Inscrições - Admin lista todas, Academia lista só da própria academia
-		protected.GET("/inscricoes", handlers.ListarTodasInscricoes)
-		
-		// 🔥 NOVAS: Consultas públicas (academia e admin)
-		protected.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)
-		protected.GET("/consultar-academia/:codigo", handlers.GetAcademiaPorCodigo)
-		
-		// 🔥 ATUALIZADO: Rota /estudantes (academia retorna seus estudantes, admin retorna todos)
-		protected.GET("/estudantes", handlers.ListarEstudantes)
 	}
 
 	// ============================================
@@ -265,7 +262,7 @@ func setupRouter() *gin.Engine {
 		admin.GET("/registros/estudante/:codigo", handlers.ListarRegistrosPorEstudante)
 		admin.GET("/registros/academia/:codigo", handlers.ListarRegistrosPorAcademia)
 		
-		// 🔥 NOVAS: Consultas específicas admin
+		// Consultas específicas admin
 		admin.GET("/consultar-admin/:email", handlers.GetAdminPorEmail)
 		admin.GET("/buscar-usuario", handlers.BuscarUsuario)
 		
@@ -306,8 +303,28 @@ func setupRouter() *gin.Engine {
 	// ============================================
 	router.GET("/", func(c *gin.Context) {
 		c.JSON(200, gin.H{
-			"message": "Bem-vindo ao Spuri API v2.3",
-			"version": "2.3.0",
+			"message": "Bem-vindo ao Spuri API v2.4",
+			"version": "2.4.0",
+			"features": []string{
+				"Event Sourcing com GenesisDB",
+				"Sistema de Projeções CQRS",
+				"Autenticação JWT",
+				"Rotas Unificadas de Inscrições",
+				"Controle de Acesso por Tipo de Usuário",
+				"Auditoria Completa via Ledger",
+			},
+			"endpoints": gin.H{
+				"inscricoes": gin.H{
+					"admin":     "Retorna TODAS as inscrições",
+					"academia":  "Retorna apenas inscrições da própria academia",
+					"estudante": "Retorna apenas inscrições do próprio estudante",
+				},
+				"inscricoes-pendentes": gin.H{
+					"admin":     "Retorna TODAS as inscrições pendentes",
+					"academia":  "Retorna apenas inscrições pendentes da própria academia",
+					"estudante": "Retorna apenas inscrições pendentes do próprio estudante",
+				},
+			},
 		})
 	})
 
