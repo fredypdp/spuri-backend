@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/handlers/query_handlers.go
-// 🔥 ATUALIZADO: Debug e tratamento de erros melhorado
+// 🔥 CORRIGIDO: Remover type assertions desnecessárias
 // ============================================================================
 
 package handlers
@@ -21,7 +21,7 @@ import (
 
 // ListarInscricoes - Rota unificada GET /inscricoes
 func ListarInscricoes(c *gin.Context) {
-	// 🔍 LOG: Início da requisição
+	// 📝 LOG: Início da requisição
 	log.Printf("🔵 [INSCRICOES] Iniciando ListarInscricoes")
 	
 	// Extrair dados do usuário do contexto
@@ -102,7 +102,7 @@ func ListarInscricoes(c *gin.Context) {
 				LIMIT $2 OFFSET $3
 			`
 			
-			log.Printf("📝 [INSCRICOES] Executando query com filtro de status")
+			log.Printf("🔍 [INSCRICOES] Executando query com filtro de status")
 			err = client.DB().Select(&inscricoes, query, statusFilter, limit, offset)
 			if err != nil {
 				log.Printf("❌ [INSCRICOES] Erro na query com filtro: %v", err)
@@ -117,7 +117,7 @@ func ListarInscricoes(c *gin.Context) {
 				total = len(inscricoes)
 			}
 		} else {
-			log.Printf("📝 [INSCRICOES] Executando query sem filtro")
+			log.Printf("🔍 [INSCRICOES] Executando query sem filtro")
 			
 			inscricoesDTO, errDTO := inscProj.GetAll(limit, offset)
 			if errDTO != nil {
@@ -158,13 +158,8 @@ func ListarInscricoes(c *gin.Context) {
 	case "academia":
 		log.Printf("🏫 [INSCRICOES] Processando como ACADEMIA - apenas da própria academia")
 		
-		// Converter userID para uuid.UUID
-		academiaUUID, ok := userID.(uuid.UUID)
-		if !ok {
-			log.Printf("❌ [INSCRICOES] Erro ao converter userID para UUID: %v", userID)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao processar ID da academia"})
-			return
-		}
+		// 🔥 CORRIGIDO: userID já é uuid.UUID
+		academiaUUID := userID
 		
 		if statusFilter != "" {
 			inscricoesDTO, errDTO := inscProj.GetByAcademia(academiaUUID, statusFilter)
@@ -213,7 +208,7 @@ func ListarInscricoes(c *gin.Context) {
 				LIMIT $2 OFFSET $3
 			`
 			
-			log.Printf("📝 [INSCRICOES] Executando query para academia_id: %s", academiaUUID.String())
+			log.Printf("🔍 [INSCRICOES] Executando query para academia_id: %s", academiaUUID.String())
 			err = client.DB().Select(&inscricoes, query, academiaUUID, limit, offset)
 			if err != nil {
 				log.Printf("❌ [INSCRICOES] Erro na query academia: %v", err)
@@ -232,13 +227,8 @@ func ListarInscricoes(c *gin.Context) {
 	case "estudante":
 		log.Printf("👨‍🎓 [INSCRICOES] Processando como ESTUDANTE - apenas próprias inscrições")
 		
-		// Converter userID para uuid.UUID
-		estudanteUUID, ok := userID.(uuid.UUID)
-		if !ok {
-			log.Printf("❌ [INSCRICOES] Erro ao converter userID para UUID: %v", userID)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao processar ID do estudante"})
-			return
-		}
+		// 🔥 CORRIGIDO: userID já é uuid.UUID
+		estudanteUUID := userID
 		
 		inscricoesDTO, errDTO := inscProj.GetByEstudante(estudanteUUID)
 		if errDTO != nil {
@@ -338,7 +328,8 @@ func ListarInscricoesPendentes(c *gin.Context) {
 		err = client.DB().Select(&inscricoes, query)
 		
 	case "academia":
-		academiaUUID, _ := userID.(uuid.UUID)
+		// 🔥 CORRIGIDO: userID já é uuid.UUID
+		academiaUUID := userID
 		inscricoesDTO, errDTO := inscProj.GetByAcademia(academiaUUID, "espera")
 		if errDTO != nil {
 			err = errDTO
@@ -362,7 +353,8 @@ func ListarInscricoesPendentes(c *gin.Context) {
 		}
 		
 	case "estudante":
-		estudanteUUID, _ := userID.(uuid.UUID)
+		// 🔥 CORRIGIDO: userID já é uuid.UUID
+		estudanteUUID := userID
 		inscricoesDTO, errDTO := inscProj.GetByEstudante(estudanteUUID)
 		if errDTO != nil {
 			err = errDTO
@@ -406,9 +398,6 @@ func ListarInscricoesPendentes(c *gin.Context) {
 		"user_type":  userType,
 	})
 }
-
-// Resto das funções (GetNotasEstudante, GetFaltasEstudante, etc.) permanecem iguais...
-// [código anterior mantido]
 
 // GetNotasEstudante busca notas por código
 func GetNotasEstudante(c *gin.Context) {
