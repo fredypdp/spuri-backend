@@ -6,6 +6,8 @@
 package handlers
 
 import (
+	"bytes"
+	"io"
 	"fmt"
 	"log"
 	"net/http"
@@ -192,23 +194,39 @@ type InscricaoEscolaRequest struct {
 func InscricaoEscola(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
+	// 🔥 DEBUG: Ver o que está chegando
+	bodyBytes, _ := c.GetRawData()
+	log.Printf("📥 [INSCRICAO] Raw body: %s", string(bodyBytes))
+	
+	// 🔥 Restaurar o body para o ShouldBindJSON funcionar
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
 	var req InscricaoEscolaRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		log.Printf("❌ [INSCRICAO] Erro no bind: %v", err)
+		log.Printf("❌ [INSCRICAO] Request recebido: %+v", req)
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("dados inválidos: %v", err)})
 		return
 	}
+
+	log.Printf("✅ [INSCRICAO] Request válido: %+v", req)
+	log.Printf("📋 [INSCRICAO] UserID: %s", userID)
 
 	// Verificar se academia existe
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByCodigo(req.CodigoAcademia)
 	if err != nil || academiaDTO == nil {
+		log.Printf("❌ [INSCRICAO] Academia não encontrada: %s", req.CodigoAcademia)
 		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
 		return
 	}
 
+	log.Printf("✅ [INSCRICAO] Academia encontrada: %s", academiaDTO.Nome)
+
 	repository := getRepository(c)
 	estudanteAgg, err := repository.Load(userID, "Estudante")
 	if err != nil {
+		log.Printf("❌ [INSCRICAO] Erro ao carregar estudante: %v", err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
 		return
 	}
@@ -216,6 +234,7 @@ func InscricaoEscola(c *gin.Context) {
 	estudante := estudanteAgg.(*aggregates.Estudante)
 
 	// 🔥 ATUALIZADO: Passar codigo_academia
+	log.Printf("⚡ [INSCRICAO] Executando SolicitarInscricao...")
 	err = estudante.SolicitarInscricao(
 		req.CodigoAcademia,
 		"escola",
@@ -224,15 +243,19 @@ func InscricaoEscola(c *gin.Context) {
 	)
 
 	if err != nil {
+		log.Printf("❌ [INSCRICAO] Erro no comando: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
+	log.Printf("💾 [INSCRICAO] Salvando eventos...")
 	if err := repository.Save(estudante); err != nil {
+		log.Printf("❌ [INSCRICAO] Erro ao salvar: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao solicitar inscrição"})
 		return
 	}
 
+	log.Printf("✅ [INSCRICAO] Inscrição criada com sucesso!")
 	c.JSON(http.StatusCreated, gin.H{
 		"message":         "inscrição solicitada com sucesso",
 		"codigo_academia": req.CodigoAcademia,
