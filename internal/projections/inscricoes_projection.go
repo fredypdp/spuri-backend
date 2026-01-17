@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/projections/inscricoes_projection.go
-// 🔥 ATUALIZADO: Removido método GetAll() que usava prepared statements
+// 🔥 CORRIGIDO: Buscar codigo_estudante ANTES e validar
 // ============================================================================
 
 package projections
@@ -129,8 +129,10 @@ func (p *InscricoesProjection) clear() error {
 	return err
 }
 
+// 🔥 CORRIGIDO: Buscar TODOS os dados ANTES de inserir
 func (p *InscricoesProjection) handleEstudanteInscrito(event genesisdb.Event) error {
-	log.Printf("🔘 [INSCRICAO] Processando EstudanteInscrito")
+	log.Printf("📘 [INSCRICAO] Processando EstudanteInscrito - EventID: %s, AggregateID: %s", 
+		event.EventID.String(), event.AggregateID.String())
 	
 	var payload struct {
 		CodigoAcademia string    `json:"CodigoAcademia"`
@@ -144,26 +146,48 @@ func (p *InscricoesProjection) handleEstudanteInscrito(event genesisdb.Event) er
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
+	log.Printf("📋 [INSCRICAO] Payload - CodigoAcademia: %s, Tipo: %s", 
+		payload.CodigoAcademia, payload.Tipo)
+
 	estudanteID := event.AggregateID
 
-	// Buscar UUID da academia
-	var academiaID uuid.UUID
-	queryAcademiaID := fmt.Sprintf(`SELECT id FROM projection_academias WHERE codigo_academia = '%s'`, payload.CodigoAcademia)
-	err := p.client.DB().QueryRow(queryAcademiaID).Scan(&academiaID)
-	if err != nil {
-		log.Printf("❌ [INSCRICAO] Academia não encontrada: %s", payload.CodigoAcademia)
-		return fmt.Errorf("academia não encontrada: %w", err)
-	}
-
-	// Buscar código do estudante
+	// 🔥 1. Buscar codigo_estudante PRIMEIRO
 	var codigoEstudante string
-	queryEstudante := fmt.Sprintf(`SELECT codigo_estudante FROM projection_estudantes WHERE id = '%s'`, estudanteID.String())
-	err = p.client.DB().QueryRow(queryEstudante).Scan(&codigoEstudante)
+	queryEstudante := fmt.Sprintf(`
+		SELECT codigo_estudante 
+		FROM projection_estudantes 
+		WHERE id = '%s'
+	`, estudanteID.String())
+	
+	err := p.client.DB().QueryRow(queryEstudante).Scan(&codigoEstudante)
 	if err != nil {
+		log.Printf("❌ [INSCRICAO] Estudante não encontrado: %s - Erro: %v", 
+			estudanteID.String(), err)
 		return fmt.Errorf("estudante não encontrado: %w", err)
 	}
+	
+	log.Printf("✅ [INSCRICAO] Estudante encontrado: %s (Código: %s)", 
+		estudanteID.String(), codigoEstudante)
 
-	// 🔥 Insert com query direta
+	// 🔥 2. Buscar UUID da academia
+	var academiaID uuid.UUID
+	queryAcademiaID := fmt.Sprintf(`
+		SELECT id 
+		FROM projection_academias 
+		WHERE codigo_academia = '%s'
+	`, payload.CodigoAcademia)
+	
+	err = p.client.DB().QueryRow(queryAcademiaID).Scan(&academiaID)
+	if err != nil {
+		log.Printf("❌ [INSCRICAO] Academia não encontrada: %s - Erro: %v", 
+			payload.CodigoAcademia, err)
+		return fmt.Errorf("academia não encontrada: %w", err)
+	}
+	
+	log.Printf("✅ [INSCRICAO] Academia encontrada: %s (ID: %s)", 
+		payload.CodigoAcademia, academiaID.String())
+
+	// 🔥 3. Inserir inscrição com TODOS os dados validados
 	cursoStr := "NULL"
 	if payload.Curso != nil {
 		cursoStr = fmt.Sprintf("'%s'", *payload.Curso)
@@ -182,8 +206,8 @@ func (p *InscricoesProjection) handleEstudanteInscrito(event genesisdb.Event) er
 		)
 	`,
 		estudanteID.String(),
-		codigoEstudante,
-		academiaID.String(),
+		codigoEstudante,        // ✅ VALIDADO
+		academiaID.String(),     // ✅ VALIDADO
 		payload.CodigoAcademia,
 		payload.Tipo,
 		payload.AnoInscricao,
@@ -193,25 +217,33 @@ func (p *InscricoesProjection) handleEstudanteInscrito(event genesisdb.Event) er
 		event.EventVersion,
 	)
 
-	_, err = p.client.DB().Exec(query)
-	if err == nil {
-		// Atualizar contadores
-		updateAcademia := fmt.Sprintf(`
-			UPDATE projection_academias
-			SET total_inscricoes_pendentes = total_inscricoes_pendentes + 1
-			WHERE id = '%s'
-		`, academiaID.String())
-		p.client.DB().Exec(updateAcademia)
-
-		updateEstudante := fmt.Sprintf(`
-			UPDATE projection_estudantes
-			SET total_inscricoes = total_inscricoes + 1
-			WHERE id = '%s'
-		`, estudanteID.String())
-		p.client.DB().Exec(updateEstudante)
+	log.Printf("🔍 [INSCRICAO] Executando INSERT...")
+	result, err := p.client.DB().Exec(query)
+	if err != nil {
+		log.Printf("❌ [INSCRICAO] Erro ao inserir: %v", err)
+		return err
 	}
+	
+	rows, _ := result.RowsAffected()
+	log.Printf("✅ [INSCRICAO] Inserção OK! Rows: %d", rows)
 
-	return err
+	// 🔥 4. Atualizar contadores
+	updateAcademia := fmt.Sprintf(`
+		UPDATE projection_academias
+		SET total_inscricoes_pendentes = total_inscricoes_pendentes + 1
+		WHERE id = '%s'
+	`, academiaID.String())
+	p.client.DB().Exec(updateAcademia)
+
+	updateEstudante := fmt.Sprintf(`
+		UPDATE projection_estudantes
+		SET total_inscricoes = total_inscricoes + 1
+		WHERE id = '%s'
+	`, estudanteID.String())
+	p.client.DB().Exec(updateEstudante)
+
+	log.Printf("✅ [INSCRICAO] Processamento completo - Inscrição criada com status 'espera'")
+	return nil
 }
 
 func (p *InscricoesProjection) handleInscricaoAprovada(event genesisdb.Event) error {
@@ -309,7 +341,7 @@ func (p *InscricoesProjection) handleInscricaoReprovada(event genesisdb.Event) e
 	return nil
 }
 
-// Query methods - mantidos apenas os que usam queries diretas
+// Query methods
 
 func (p *InscricoesProjection) GetByEstudante(estudanteID uuid.UUID) ([]InscricaoDTO, error) {
 	query := fmt.Sprintf(`
@@ -380,9 +412,6 @@ func (p *InscricoesProjection) GetByAcademia(academiaID uuid.UUID, status string
 
 	return result, rows.Err()
 }
-
-// 🔥 REMOVIDO: GetAll() - não é mais usado
-// 🔥 REMOVIDO: CountAll() - queries diretas fazem o count inline
 
 func (p *InscricoesProjection) GetByID(id uuid.UUID) (*InscricaoDTO, error) {
 	query := fmt.Sprintf(`
