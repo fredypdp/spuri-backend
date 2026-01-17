@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/handlers/query_handlers.go
-// 🔥 CORRIGIDO: Todas as queries usando formato direto sem prepared statements
+// 🔥 CORREÇÃO FINAL: Removido type assertion desnecessário
 // ============================================================================
 
 package handlers
@@ -86,7 +86,6 @@ func ListarInscricoes(c *gin.Context) {
 		log.Printf("👑 [INSCRICOES] Processando como ADMIN - retorna todas")
 		
 		if statusFilter != "" {
-			// 🔥 Query direta com parâmetros
 			query := fmt.Sprintf(`
 				SELECT 
 					id::text,
@@ -114,7 +113,6 @@ func ListarInscricoes(c *gin.Context) {
 			countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM projection_inscricoes WHERE status = '%s'`, statusFilter)
 			client.DB().Get(&total, countQuery)
 		} else {
-			// 🔥 Query direta sem filtro
 			query := fmt.Sprintf(`
 				SELECT 
 					id::text,
@@ -145,18 +143,10 @@ func ListarInscricoes(c *gin.Context) {
 	case "academia":
 		log.Printf("🏫 [INSCRICOES] Processando como ACADEMIA")
 		
-		// Converter userID para uuid.UUID
-		academiaUUID, ok := userID.(uuid.UUID)
-		if !ok {
-			log.Printf("❌ [INSCRICOES] Erro ao converter userID para UUID: %v", userID)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao processar ID da academia"})
-			return
-		}
-		
-		log.Printf("🏫 [INSCRICOES] Academia UUID: %s", academiaUUID.String())
+		// 🔥 CORRIGIDO: userID já é uuid.UUID, não precisa converter
+		log.Printf("🏫 [INSCRICOES] Academia UUID: %s", userID.String())
 		
 		if statusFilter != "" {
-			// 🔥 Query direta com filtro
 			query := fmt.Sprintf(`
 				SELECT 
 					id::text,
@@ -176,7 +166,7 @@ func ListarInscricoes(c *gin.Context) {
 				WHERE academia_id = '%s' AND status = '%s'
 				ORDER BY created_at DESC
 				LIMIT %d OFFSET %d
-			`, academiaUUID.String(), statusFilter, limit, offset)
+			`, userID.String(), statusFilter, limit, offset)
 			
 			err = client.DB().Select(&inscricoes, query)
 			
@@ -184,10 +174,9 @@ func ListarInscricoes(c *gin.Context) {
 				SELECT COUNT(*) 
 				FROM projection_inscricoes 
 				WHERE academia_id = '%s' AND status = '%s'
-			`, academiaUUID.String(), statusFilter)
+			`, userID.String(), statusFilter)
 			client.DB().Get(&total, countQuery)
 		} else {
-			// 🔥 Query direta sem filtro
 			query := fmt.Sprintf(`
 				SELECT 
 					id::text,
@@ -207,7 +196,7 @@ func ListarInscricoes(c *gin.Context) {
 				WHERE academia_id = '%s'
 				ORDER BY created_at DESC
 				LIMIT %d OFFSET %d
-			`, academiaUUID.String(), limit, offset)
+			`, userID.String(), limit, offset)
 			
 			log.Printf("📝 [INSCRICOES] Query: %s", query)
 			err = client.DB().Select(&inscricoes, query)
@@ -220,20 +209,14 @@ func ListarInscricoes(c *gin.Context) {
 				SELECT COUNT(*) 
 				FROM projection_inscricoes 
 				WHERE academia_id = '%s'
-			`, academiaUUID.String())
+			`, userID.String())
 			client.DB().Get(&total, countQuery)
 		}
 		
 	case "estudante":
 		log.Printf("👨‍🎓 [INSCRICOES] Processando como ESTUDANTE")
 		
-		estudanteUUID, ok := userID.(uuid.UUID)
-		if !ok {
-			log.Printf("❌ [INSCRICOES] Erro ao converter userID para UUID: %v", userID)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao processar ID do estudante"})
-			return
-		}
-		
+		// 🔥 CORRIGIDO: userID já é uuid.UUID
 		if statusFilter != "" {
 			query := fmt.Sprintf(`
 				SELECT 
@@ -253,7 +236,7 @@ func ListarInscricoes(c *gin.Context) {
 				FROM projection_inscricoes
 				WHERE estudante_id = '%s' AND status = '%s'
 				ORDER BY created_at DESC
-			`, estudanteUUID.String(), statusFilter)
+			`, userID.String(), statusFilter)
 			
 			err = client.DB().Select(&inscricoes, query)
 		} else {
@@ -275,7 +258,7 @@ func ListarInscricoes(c *gin.Context) {
 				FROM projection_inscricoes
 				WHERE estudante_id = '%s'
 				ORDER BY created_at DESC
-			`, estudanteUUID.String())
+			`, userID.String())
 			
 			err = client.DB().Select(&inscricoes, query)
 		}
@@ -360,7 +343,7 @@ func ListarInscricoesPendentes(c *gin.Context) {
 		err = client.DB().Select(&inscricoes, query)
 		
 	case "academia":
-		academiaUUID, _ := userID.(uuid.UUID)
+		// 🔥 CORRIGIDO: userID já é uuid.UUID
 		query := fmt.Sprintf(`
 			SELECT 
 				id::text,
@@ -377,11 +360,11 @@ func ListarInscricoesPendentes(c *gin.Context) {
 			FROM projection_inscricoes
 			WHERE academia_id = '%s' AND status = 'espera'
 			ORDER BY created_at DESC
-		`, academiaUUID.String())
+		`, userID.String())
 		err = client.DB().Select(&inscricoes, query)
 		
 	case "estudante":
-		estudanteUUID, _ := userID.(uuid.UUID)
+		// 🔥 CORRIGIDO: userID já é uuid.UUID
 		query := fmt.Sprintf(`
 			SELECT 
 				id::text,
@@ -398,7 +381,7 @@ func ListarInscricoesPendentes(c *gin.Context) {
 			FROM projection_inscricoes
 			WHERE estudante_id = '%s' AND status = 'espera'
 			ORDER BY created_at DESC
-		`, estudanteUUID.String())
+		`, userID.String())
 		err = client.DB().Select(&inscricoes, query)
 		
 	default:
