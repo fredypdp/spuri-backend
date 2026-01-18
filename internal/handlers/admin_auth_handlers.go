@@ -262,13 +262,10 @@ func ListarEstudantes(c *gin.Context) {
 // ============================================================================
 
 // AtivarAcademia ativa uma academia (gerente, adm ou fpp)
+// 🔥 ATUALIZADO: Usa codigo_academia em vez de ID
 func AtivarAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
-	academiaID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
-		return
-	}
+	codigoAcademia := c.Param("codigo") // 🔥 MUDOU: de "id" para "codigo"
 
 	// Verificar permissão do admin
 	if err := verificarPermissaoAdmin(c, "gerente"); err != nil {
@@ -276,9 +273,17 @@ func AtivarAcademia(c *gin.Context) {
 		return
 	}
 
-	// Carregar academia
+	// Buscar academia pelo código
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByCodigo(codigoAcademia)
+	if err != nil || academiaDTO == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
+		return
+	}
+
+	// Carregar agregado
 	repository := getRepository(c)
-	academiaAgg, err := repository.Load(academiaID, "Academia")
+	academiaAgg, err := repository.Load(academiaDTO.ID, "Academia")
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
 		return
@@ -297,23 +302,22 @@ func AtivarAcademia(c *gin.Context) {
 
 	// Registrar ação do admin
 	registrarAcaoAdmin(c, userID, "academia_ativada", map[string]interface{}{
-		"academia_id": academiaID.String(),
+		"codigo_academia": codigoAcademia,
+		"academia_id":     academiaDTO.ID.String(),
 	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":         "academia ativada com sucesso",
 		"codigo_academia": academia.CodigoAcademia,
+		"nome":            academia.Nome,
 	})
 }
 
 // DesativarAcademia desativa uma academia (gerente, adm ou fpp)
+// 🔥 ATUALIZADO: Usa codigo_academia em vez de ID
 func DesativarAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
-	academiaID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
-		return
-	}
+	codigoAcademia := c.Param("codigo") // 🔥 MUDOU: de "id" para "codigo"
 
 	var req struct {
 		Motivo string `json:"motivo" binding:"required"`
@@ -329,9 +333,17 @@ func DesativarAcademia(c *gin.Context) {
 		return
 	}
 
-	// Carregar academia
+	// Buscar academia pelo código
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByCodigo(codigoAcademia)
+	if err != nil || academiaDTO == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
+		return
+	}
+
+	// Carregar agregado
 	repository := getRepository(c)
-	academiaAgg, err := repository.Load(academiaID, "Academia")
+	academiaAgg, err := repository.Load(academiaDTO.ID, "Academia")
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
 		return
@@ -350,13 +362,16 @@ func DesativarAcademia(c *gin.Context) {
 
 	// Registrar ação
 	registrarAcaoAdmin(c, userID, "academia_desativada", map[string]interface{}{
-		"academia_id": academiaID.String(),
-		"motivo":      req.Motivo,
+		"codigo_academia": codigoAcademia,
+		"academia_id":     academiaDTO.ID.String(),
+		"motivo":          req.Motivo,
 	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":         "academia desativada com sucesso",
 		"codigo_academia": academia.CodigoAcademia,
+		"nome":            academia.Nome,
+		"motivo":          req.Motivo,
 	})
 }
 

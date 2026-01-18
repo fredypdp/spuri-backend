@@ -36,7 +36,7 @@ func NewAcademia() *Academia {
 			Version:           0,
 			UncommittedEvents: []DomainEvent{},
 		},
-		Status: "inativo", // 🔥 Inicia inativa
+		Status: "inativo", // ✅ SEMPRE inicia inativa - precisa aprovação admin
 		Cursos: []string{},
 	}
 }
@@ -88,13 +88,12 @@ func (a *Academia) Criar(
 		return fmt.Errorf("código é obrigatório")
 	}
 	
-	// 🔥 ATUALIZADO: Validar nivel_escolar para escolas
+	// Validar nivel_escolar para escolas
 	if tipo == "escola" {
 		if nivelEscolar == nil {
 			return fmt.Errorf("nivel_escolar é obrigatório para escolas")
 		}
 		
-		// Validar valores permitidos
 		validNiveis := map[string]bool{
 			"fundamental": true,
 			"medio":       true,
@@ -137,7 +136,7 @@ func (a *Academia) AprovarInscricao(
 	curso *string,
 ) error {
 	if a.Status != "ativo" {
-		return fmt.Errorf("academia está inativa")
+		return fmt.Errorf("academia está inativa - não pode aprovar inscrições")
 	}
 
 	event := &InscricaoAprovadaPorAcademiaEvent{
@@ -164,7 +163,7 @@ func (a *Academia) ReprovarInscricao(
 	motivo string,
 ) error {
 	if a.Status != "ativo" {
-		return fmt.Errorf("academia está inativa")
+		return fmt.Errorf("academia está inativa - não pode reprovar inscrições")
 	}
 
 	event := &InscricaoReprovadaPorAcademiaEvent{
@@ -262,7 +261,7 @@ func (a *Academia) applyAcademiaCriada(event DomainEvent) error {
 	a.Website = ev.Website
 	a.NivelEscolar = ev.NivelEscolar
 	a.Cursos = ev.Cursos
-	a.Status = "inativo" // 🔥 Sempre inativa ao criar
+	a.Status = "inativo" // ✅ SEMPRE inativa ao criar - aguarda aprovação
 	a.CreatedAt = ev.CreatedAt
 
 	return nil

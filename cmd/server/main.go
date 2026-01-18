@@ -270,12 +270,12 @@ func setupRouter() *gin.Engine {
 		admin.GET("/consultar-admin/:email", handlers.GetAdminPorEmail)
 		admin.GET("/buscar-usuario", handlers.BuscarUsuario)
 		
-		// Gerenciamento de Academias (gerente+)
+		// 🔥 ATUALIZADO: Gerenciamento de Academias usando codigo_academia
 		adminGerente := admin.Group("/")
 		adminGerente.Use(middleware.RequireGerente())
 		{
-			adminGerente.PUT("/academia/:id/ativar", handlers.AtivarAcademia)
-			adminGerente.PUT("/academia/:id/desativar", handlers.DesativarAcademia)
+			adminGerente.PUT("/academia/:codigo/ativar", handlers.AtivarAcademia)     // 🔥 MUDOU
+			adminGerente.PUT("/academia/:codigo/desativar", handlers.DesativarAcademia) // 🔥 MUDOU
 		}
 		
 		// Gerenciamento de Admins (adm+)

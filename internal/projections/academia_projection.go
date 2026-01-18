@@ -170,7 +170,7 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 		return err
 	}
 
-	// 🔥 CORRIGIDO: Query direta sem prepared statement
+	// ✅ STATUS SEMPRE 'inativo' AO CRIAR
 	query := fmt.Sprintf(`
 		INSERT INTO projection_academias (
 			id, type, nome, codigo_academia, senha_hash, provincia,
@@ -179,7 +179,7 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 		) VALUES (
 			'%s', '%s', '%s', '%s', '%s', '%s',
 			'%s', %s, %s, %s, %s,
-			'ativo', '%s', %d, '%s', '%s', '%s'
+			'inativo', '%s', %d, '%s', '%s', '%s'
 		)
 		ON CONFLICT (id) DO UPDATE SET
 			type = EXCLUDED.type,
