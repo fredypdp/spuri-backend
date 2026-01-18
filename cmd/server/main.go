@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 	"os"
-	"spuri/internal/genesisdb"
+	"spuri/internal/db"
 	"spuri/internal/handlers"
 	"spuri/internal/middleware"
 	"spuri/internal/projections"
@@ -13,8 +13,8 @@ import (
 )
 
 var (
-	genesisClient *genesisdb.Client
-	repository    *genesisdb.AggregateRepository
+	dbClient *db.Client
+	repository    *db.AggregateRepository
 	projManager   *projections.Manager
 )
 
@@ -26,11 +26,11 @@ func main() {
 		}
 	}
 
-	// Inicializar GenesisDB
-	if err := initGenesisDB(); err != nil {
-		log.Fatalf("❌ Erro ao conectar ao GenesisDB: %v", err)
+	// Inicializar db
+	if err := initDB(); err != nil {
+		log.Fatalf("❌ Erro ao conectar ao banco de dados: %v", err)
 	}
-	defer genesisClient.Close()
+	defer dbClient.Close()
 
 	// Inicializar sistema de projeções
 	if err := initProjections(); err != nil {
@@ -55,7 +55,7 @@ func main() {
 	log.Printf("📚 Documentação: http://localhost:%s/", port)
 	log.Printf("❤️  Health check: http://localhost:%s/health", port)
 	log.Printf("🌍 Ambiente: %s", os.Getenv("ENV"))
-	log.Printf("🗃️  GenesisDB: Event Sourcing ativado")
+	log.Printf("🗃️  Banco de dados: Event Sourcing ativado")
 	log.Printf("🔑 Admin FPP: admin@spuri.ao / fpp@2025")
 	
 	if err := router.Run("0.0.0.0:" + port); err != nil {
@@ -63,39 +63,39 @@ func main() {
 	}
 }
 
-// initGenesisDB inicializa conexão com GenesisDB
-func initGenesisDB() error {
-	config := genesisdb.DefaultConfig()
+// initDB inicializa conexão com banco de dados
+func initDB() error {
+	config := db.DefaultConfig()
 	
 	var err error
-	genesisClient, err = genesisdb.NewClient(config)
+	dbClient, err = db.NewClient(config)
 	if err != nil {
 		return err
 	}
 
 	// Criar repositório de agregados
-	repository = genesisdb.NewAggregateRepository(genesisClient)
+	repository = db.NewAggregateRepository(dbClient)
 
 	// Verificar health
-	if err := genesisClient.Health(); err != nil {
+	if err := dbClient.Health(); err != nil {
 		return err
 	}
 
-	log.Println("✅ GenesisDB inicializado com Event Sourcing")
+	log.Println("✅ Banco de dados inicializado com Event Sourcing")
 	return nil
 }
 
 // initProjections inicializa sistema de projeções
 func initProjections() error {
-	projManager = projections.NewManager(genesisClient)
+	projManager = projections.NewManager(dbClient)
 	
 	// Registrar projeções
-	projManager.RegisterProjection("estudantes", projections.NewEstudanteProjection(genesisClient))
-	projManager.RegisterProjection("academias", projections.NewAcademiaProjection(genesisClient))
-	projManager.RegisterProjection("admins", projections.NewAdminProjection(genesisClient))
-	projManager.RegisterProjection("notas", projections.NewNotasProjection(genesisClient))
-	projManager.RegisterProjection("faltas", projections.NewFaltasProjection(genesisClient))
-	projManager.RegisterProjection("inscricoes", projections.NewInscricoesProjection(genesisClient))
+	projManager.RegisterProjection("estudantes", projections.NewEstudanteProjection(dbClient))
+	projManager.RegisterProjection("academias", projections.NewAcademiaProjection(dbClient))
+	projManager.RegisterProjection("admins", projections.NewAdminProjection(dbClient))
+	projManager.RegisterProjection("notas", projections.NewNotasProjection(dbClient))
+	projManager.RegisterProjection("faltas", projections.NewFaltasProjection(dbClient))
+	projManager.RegisterProjection("inscricoes", projections.NewInscricoesProjection(dbClient))
 
 	// Iniciar processamento em background
 	go projManager.StartProcessing()
@@ -143,7 +143,7 @@ func setupRouter() *gin.Engine {
 	router.Use(func(c *gin.Context) {
 		c.Set("repository", repository)
 		c.Set("projManager", projManager)
-		c.Set("genesisClient", genesisClient)
+		c.Set("dbClient", dbClient)
 		c.Next()
 	})
 
@@ -153,13 +153,12 @@ func setupRouter() *gin.Engine {
 	
 	// Health check
 	router.GET("/health", func(c *gin.Context) {
-		stats := genesisClient.Stats()
+		stats := dbClient.Stats()
 		c.JSON(200, gin.H{
 			"status":  "ok",
 			"message": "Spuri Event Sourcing rodando!",
 			"version": "2.4.0",
 			"env":     os.Getenv("ENV"),
-			"architecture": "Event Sourcing com GenesisDB + Rotas Unificadas de Inscrições",
 			"db_stats": gin.H{
 				"open_connections": stats.OpenConnections,
 				"in_use": stats.InUse,
@@ -221,10 +220,15 @@ func setupRouter() *gin.Engine {
 	estudante.Use(middleware.RequireEstudante())
 	{
 		// Inscrições
-		estudante.POST("/inscricao-escola", handlers.InscricaoEscola)
-		estudante.POST("/inscricao-universidade", handlers.InscricaoUniversidade)
 		estudante.GET("/minhas-inscricoes", handlers.GetMinhasInscricoes)
 		estudante.GET("/meu-historico", handlers.GetMeuHistorico)
+		estudante.PUT("/status-escolar", handlers.AtualizarStatusEscolar)
+		estudante.PUT("/status-superior", handlers.AtualizarStatusSuperior)
+		
+		estudante.POST("/inscricao-escola", handlers.InscricaoEscola)
+		estudante.POST("/inscricao-universidade", handlers.InscricaoUniversidade)
+		estudante.GET("/inscricoes-aprovadas", handlers.ListarInscricoesAprovadas)
+		estudante.POST("/vincular-academia", handlers.VincularAcademia)
 	}
 
 	// ============================================
@@ -306,7 +310,7 @@ func setupRouter() *gin.Engine {
 			"message": "Bem-vindo ao Spuri API v2.4",
 			"version": "2.4.0",
 			"features": []string{
-				"Event Sourcing com GenesisDB",
+				"Event Sourcing com NeonDB",
 				"Sistema de Projeções CQRS",
 				"Autenticação JWT",
 				"Rotas Unificadas de Inscrições",

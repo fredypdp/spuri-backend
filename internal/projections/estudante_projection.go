@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/projections/estudante_projection.go
-// 🔥 CORRIGIDO: TODAS as queries usando formato direto sem prepared statements
+// 🔥 COMPLETO COM NOVOS EVENTOS
 // ============================================================================
 
 package projections
@@ -11,18 +11,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"spuri/internal/genesisdb"
+	"spuri/internal/db"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 type EstudanteProjection struct {
-	client *genesisdb.Client
+	client *db.Client
 	ctx    context.Context
 }
 
-func NewEstudanteProjection(client *genesisdb.Client) *EstudanteProjection {
+func NewEstudanteProjection(client *db.Client) *EstudanteProjection {
 	return &EstudanteProjection{
 		client: client,
 		ctx:    context.Background(),
@@ -33,7 +33,7 @@ func (p *EstudanteProjection) Name() string {
 	return "estudantes"
 }
 
-func (p *EstudanteProjection) Handle(event genesisdb.Event) error {
+func (p *EstudanteProjection) Handle(event db.Event) error {
 	if event.AggregateType != "Estudante" {
 		return nil
 	}
@@ -43,8 +43,12 @@ func (p *EstudanteProjection) Handle(event genesisdb.Event) error {
 		return p.handleEstudanteCriado(event)
 	case "InscricaoAprovada":
 		return p.handleInscricaoAprovada(event)
-	case "VinculoAtualizado":
-		return p.handleVinculoAtualizado(event)
+	case "EstudanteVinculado": // 🔥 NOVO
+		return p.handleEstudanteVinculado(event)
+	case "StatusEscolarAtualizado": // 🔥 NOVO
+		return p.handleStatusEscolarAtualizado(event)
+	case "StatusSuperiorAtualizado": // 🔥 NOVO
+		return p.handleStatusSuperiorAtualizado(event)
 	default:
 		return nil
 	}
@@ -60,7 +64,7 @@ func (p *EstudanteProjection) Rebuild() error {
 			id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
-		FROM genesis_ledger
+		FROM spuri_ledger
 		WHERE aggregate_type = 'Estudante'
 		ORDER BY id ASC
 	`
@@ -72,7 +76,7 @@ func (p *EstudanteProjection) Rebuild() error {
 	defer rows.Close()
 
 	for rows.Next() {
-		var event genesisdb.Event
+		var event db.Event
 		err := rows.Scan(
 			&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
 			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
@@ -133,22 +137,23 @@ func (p *EstudanteProjection) clear() error {
 	return err
 }
 
-func (p *EstudanteProjection) handleEstudanteCriado(event genesisdb.Event) error {
+// 🔥 ATUALIZADO: Incluir status, status_escolar, status_superior
+func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 	log.Printf("🔵 [PROJEÇÃO ESTUDANTE] Processando EstudanteCriado")
-	
+
 	var payload struct {
-		Nome                  string     `json:"Nome"`
-		CodigoEstudante       string     `json:"CodigoEstudante"`
-		SenhaHash             string     `json:"SenhaHash"`
-		BilheteIdentidade     *string    `json:"BilheteIdentidade"`
-		BilheteIdentidadeResp *string    `json:"BilheteIdentidadeResp"`
-		AnoEscolar            *string    `json:"AnoEscolar"`
-		AnoSuperior           *string    `json:"AnoSuperior"`
-		CursoMedio            *string    `json:"CursoMedio"`
-		CursoSuperior         *string    `json:"CursoSuperior"`
-		StatusEscolar         *string    `json:"StatusEscolar"`
-		StatusSuperior        *string    `json:"StatusSuperior"`
-		CreatedAt             time.Time  `json:"CreatedAt"`
+		Nome                  string    `json:"Nome"`
+		CodigoEstudante       string    `json:"CodigoEstudante"`
+		SenhaHash             string    `json:"SenhaHash"`
+		BilheteIdentidade     *string   `json:"BilheteIdentidade"`
+		BilheteIdentidadeResp *string   `json:"BilheteIdentidadeResp"`
+		AnoEscolar            *string   `json:"AnoEscolar"`
+		AnoSuperior           *string   `json:"AnoSuperior"`
+		CursoMedio            *string   `json:"CursoMedio"`
+		CursoSuperior         *string   `json:"CursoSuperior"`
+		StatusEscolar         string    `json:"StatusEscolar"`  // 🔥 ADICIONADO
+		StatusSuperior        string    `json:"StatusSuperior"` // 🔥 ADICIONADO
+		CreatedAt             time.Time `json:"CreatedAt"`
 	}
 
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
@@ -158,7 +163,7 @@ func (p *EstudanteProjection) handleEstudanteCriado(event genesisdb.Event) error
 	if payload.SenhaHash == "" {
 		return fmt.Errorf("SenhaHash vazio no evento")
 	}
-	
+
 	if payload.CodigoEstudante == "" {
 		return fmt.Errorf("CodigoEstudante vazio no evento")
 	}
@@ -166,17 +171,20 @@ func (p *EstudanteProjection) handleEstudanteCriado(event genesisdb.Event) error
 	log.Printf("📋 [ESTUDANTE] Nome: %s, Código: %s", payload.Nome, payload.CodigoEstudante)
 	log.Printf("🔐 [ESTUDANTE] SenhaHash (primeiros 30): %s...", payload.SenhaHash[:30])
 
-	// 🔥 CORRIGIDO: Query direta sem prepared statement
 	query := fmt.Sprintf(`
 		INSERT INTO projection_estudantes (
 			id, nome, codigo_estudante, senha_hash, bilhete_identidade, 
-			bilhete_identidade_responsavel, codigo_academia, ano_escolar, ano_superior, 
-			curso_medio, curso_superior, status_escolar, status_superior, 
+			bilhete_identidade_responsavel, codigo_academia,
+			status, status_escolar, status_superior,
+			ano_escolar, ano_superior, 
+			curso_medio, curso_superior,
 			version, created_at, updated_at, last_event_id
 		) VALUES (
 			'%s', '%s', '%s', '%s', %s, 
-			%s, NULL, %s, %s, 
-			%s, %s, %s, %s, 
+			%s, NULL,
+			'inativo', '%s', '%s',
+			%s, %s, 
+			%s, %s,
 			%d, '%s', '%s', '%s'
 		)
 		ON CONFLICT (id) DO UPDATE SET
@@ -186,12 +194,13 @@ func (p *EstudanteProjection) handleEstudanteCriado(event genesisdb.Event) error
 			bilhete_identidade = EXCLUDED.bilhete_identidade,
 			bilhete_identidade_responsavel = EXCLUDED.bilhete_identidade_responsavel,
 			codigo_academia = EXCLUDED.codigo_academia,
+			status = EXCLUDED.status,
+			status_escolar = EXCLUDED.status_escolar,
+			status_superior = EXCLUDED.status_superior,
 			ano_escolar = EXCLUDED.ano_escolar,
 			ano_superior = EXCLUDED.ano_superior,
 			curso_medio = EXCLUDED.curso_medio,
 			curso_superior = EXCLUDED.curso_superior,
-			status_escolar = EXCLUDED.status_escolar,
-			status_superior = EXCLUDED.status_superior,
 			version = EXCLUDED.version,
 			updated_at = EXCLUDED.updated_at,
 			last_event_id = EXCLUDED.last_event_id
@@ -199,15 +208,15 @@ func (p *EstudanteProjection) handleEstudanteCriado(event genesisdb.Event) error
 		event.AggregateID.String(),
 		escapeStringEstudante(payload.Nome),
 		payload.CodigoEstudante,
-		payload.SenhaHash, // NÃO escapar hash bcrypt
+		payload.SenhaHash,
 		formatNullableStringEstudante(payload.BilheteIdentidade),
 		formatNullableStringEstudante(payload.BilheteIdentidadeResp),
+		payload.StatusEscolar,
+		payload.StatusSuperior,
 		formatNullableStringEstudante(payload.AnoEscolar),
 		formatNullableStringEstudante(payload.AnoSuperior),
 		formatNullableStringEstudante(payload.CursoMedio),
 		formatNullableStringEstudante(payload.CursoSuperior),
-		formatNullableStringEstudante(payload.StatusEscolar),
-		formatNullableStringEstudante(payload.StatusSuperior),
 		event.EventVersion,
 		payload.CreatedAt.Format(time.RFC3339),
 		time.Now().Format(time.RFC3339),
@@ -226,7 +235,7 @@ func (p *EstudanteProjection) handleEstudanteCriado(event genesisdb.Event) error
 	return nil
 }
 
-func (p *EstudanteProjection) handleInscricaoAprovada(event genesisdb.Event) error {
+func (p *EstudanteProjection) handleInscricaoAprovada(event db.Event) error {
 	var payload struct {
 		CodigoAcademia string `json:"CodigoAcademia"`
 	}
@@ -235,15 +244,45 @@ func (p *EstudanteProjection) handleInscricaoAprovada(event genesisdb.Event) err
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	// 🔥 CORRIGIDO: Query direta
+	// NÃO vincular ainda, só incrementar contador
 	query := fmt.Sprintf(`
 		UPDATE projection_estudantes
 		SET 
-			codigo_academia = '%s',
 			version = %d,
 			updated_at = CURRENT_TIMESTAMP,
 			last_event_id = '%s',
 			total_inscricoes = total_inscricoes + 1
+		WHERE id = '%s'
+	`,
+		event.EventVersion,
+		event.EventID.String(),
+		event.AggregateID.String(),
+	)
+
+	_, err := p.client.DB().Exec(query)
+	return err
+}
+
+// 🔥 NOVO: Vincular estudante à academia e tornar ativo
+func (p *EstudanteProjection) handleEstudanteVinculado(event db.Event) error {
+	log.Printf("🔗 [VINCULAÇÃO] Processando EstudanteVinculado")
+
+	var payload struct {
+		CodigoAcademia string `json:"CodigoAcademia"`
+	}
+
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("erro ao parsear payload: %w", err)
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE projection_estudantes
+		SET 
+			codigo_academia = '%s',
+			status = 'ativo',
+			version = %d,
+			updated_at = CURRENT_TIMESTAMP,
+			last_event_id = '%s'
 		WHERE id = '%s'
 	`,
 		payload.CodigoAcademia,
@@ -252,30 +291,45 @@ func (p *EstudanteProjection) handleInscricaoAprovada(event genesisdb.Event) err
 		event.AggregateID.String(),
 	)
 
-	_, err := p.client.DB().Exec(query)
-	return err
+	result, err := p.client.DB().Exec(query)
+	if err != nil {
+		log.Printf("❌ [VINCULAÇÃO] Erro: %v", err)
+		return err
+	}
+
+	rows, _ := result.RowsAffected()
+	log.Printf("✅ [VINCULAÇÃO] Estudante vinculado e ativado! (rows: %d)", rows)
+
+	return nil
 }
 
-func (p *EstudanteProjection) handleVinculoAtualizado(event genesisdb.Event) error {
+// 🔥 NOVO: Atualizar status escolar
+func (p *EstudanteProjection) handleStatusEscolarAtualizado(event db.Event) error {
 	var payload struct {
-		NovoCodigoAcademia string `json:"NovoCodigoAcademia"`
+		NovoStatus string `json:"NovoStatus"`
 	}
 
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	// 🔥 CORRIGIDO: Query direta
+	// Se escolar vira inativo, superior também
+	statusSuperior := ""
+	if payload.NovoStatus == "inativo" {
+		statusSuperior = ", status_superior = 'inativo'"
+	}
+
 	query := fmt.Sprintf(`
 		UPDATE projection_estudantes
 		SET 
-			codigo_academia = '%s',
+			status_escolar = '%s'%s,
 			version = %d,
 			updated_at = CURRENT_TIMESTAMP,
 			last_event_id = '%s'
 		WHERE id = '%s'
 	`,
-		payload.NovoCodigoAcademia,
+		payload.NovoStatus,
+		statusSuperior,
 		event.EventVersion,
 		event.EventID.String(),
 		event.AggregateID.String(),
@@ -285,15 +339,45 @@ func (p *EstudanteProjection) handleVinculoAtualizado(event genesisdb.Event) err
 	return err
 }
 
-// Query methods - 🔥 TODAS CORRIGIDAS
+// 🔥 NOVO: Atualizar status superior
+func (p *EstudanteProjection) handleStatusSuperiorAtualizado(event db.Event) error {
+	var payload struct {
+		NovoStatus string `json:"NovoStatus"`
+	}
+
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("erro ao parsear payload: %w", err)
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE projection_estudantes
+		SET 
+			status_superior = '%s',
+			version = %d,
+			updated_at = CURRENT_TIMESTAMP,
+			last_event_id = '%s'
+		WHERE id = '%s'
+	`,
+		payload.NovoStatus,
+		event.EventVersion,
+		event.EventID.String(),
+		event.AggregateID.String(),
+	)
+
+	_, err := p.client.DB().Exec(query)
+	return err
+}
+
+// Query methods
 
 func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
-	// 🔥 CORRIGIDO: Query direta
 	query := fmt.Sprintf(`
 		SELECT 
 			id, nome, codigo_estudante, senha_hash, bilhete_identidade, 
-			bilhete_identidade_responsavel, codigo_academia, ano_escolar, ano_superior, 
-			curso_medio, curso_superior, status_escolar, status_superior, 
+			bilhete_identidade_responsavel, codigo_academia,
+			status, status_escolar, status_superior,
+			ano_escolar, ano_superior, 
+			curso_medio, curso_superior,
 			created_at, updated_at, total_notas, total_faltas, total_inscricoes, version
 		FROM projection_estudantes
 		WHERE id = '%s'
@@ -303,8 +387,9 @@ func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
 	err := p.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.Nome, &dto.CodigoEstudante, &dto.SenhaHash,
 		&dto.BilheteIdentidade, &dto.BilheteIdentidadeResp, &dto.CodigoAcademia,
+		&dto.Status, &dto.StatusEscolar, &dto.StatusSuperior,
 		&dto.AnoEscolar, &dto.AnoSuperior, &dto.CursoMedio, &dto.CursoSuperior,
-		&dto.StatusEscolar, &dto.StatusSuperior, &dto.CreatedAt, &dto.UpdatedAt,
+		&dto.CreatedAt, &dto.UpdatedAt,
 		&dto.TotalNotas, &dto.TotalFaltas, &dto.TotalInscricoes, &dto.Version,
 	)
 	if err == sql.ErrNoRows {
@@ -319,13 +404,14 @@ func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
 
 func (p *EstudanteProjection) GetByCodigo(codigo string) (*EstudanteDTO, error) {
 	log.Printf("🔎 [PROJEÇÃO ESTUDANTE] GetByCodigo: %s", codigo)
-	
-	// 🔥 CORRIGIDO: Query direta
+
 	query := fmt.Sprintf(`
 		SELECT 
 			id, nome, codigo_estudante, senha_hash, bilhete_identidade, 
-			bilhete_identidade_responsavel, codigo_academia, ano_escolar, ano_superior, 
-			curso_medio, curso_superior, status_escolar, status_superior, 
+			bilhete_identidade_responsavel, codigo_academia,
+			status, status_escolar, status_superior,
+			ano_escolar, ano_superior, 
+			curso_medio, curso_superior,
 			created_at, updated_at, total_notas, total_faltas, total_inscricoes, version
 		FROM projection_estudantes
 		WHERE codigo_estudante = '%s'
@@ -335,8 +421,9 @@ func (p *EstudanteProjection) GetByCodigo(codigo string) (*EstudanteDTO, error) 
 	err := p.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.Nome, &dto.CodigoEstudante, &dto.SenhaHash,
 		&dto.BilheteIdentidade, &dto.BilheteIdentidadeResp, &dto.CodigoAcademia,
+		&dto.Status, &dto.StatusEscolar, &dto.StatusSuperior,
 		&dto.AnoEscolar, &dto.AnoSuperior, &dto.CursoMedio, &dto.CursoSuperior,
-		&dto.StatusEscolar, &dto.StatusSuperior, &dto.CreatedAt, &dto.UpdatedAt,
+		&dto.CreatedAt, &dto.UpdatedAt,
 		&dto.TotalNotas, &dto.TotalFaltas, &dto.TotalInscricoes, &dto.Version,
 	)
 	if err == sql.ErrNoRows {
@@ -353,12 +440,13 @@ func (p *EstudanteProjection) GetByCodigo(codigo string) (*EstudanteDTO, error) 
 }
 
 func (p *EstudanteProjection) GetByBilhete(bilhete string) (*EstudanteDTO, error) {
-	// 🔥 CORRIGIDO: Query direta
 	query := fmt.Sprintf(`
 		SELECT 
 			id, nome, codigo_estudante, senha_hash, bilhete_identidade, 
-			bilhete_identidade_responsavel, codigo_academia, ano_escolar, ano_superior, 
-			curso_medio, curso_superior, status_escolar, status_superior, 
+			bilhete_identidade_responsavel, codigo_academia,
+			status, status_escolar, status_superior,
+			ano_escolar, ano_superior, 
+			curso_medio, curso_superior,
 			created_at, updated_at, total_notas, total_faltas, total_inscricoes, version
 		FROM projection_estudantes
 		WHERE bilhete_identidade = '%s' OR bilhete_identidade_responsavel = '%s'
@@ -369,8 +457,9 @@ func (p *EstudanteProjection) GetByBilhete(bilhete string) (*EstudanteDTO, error
 	err := p.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.Nome, &dto.CodigoEstudante, &dto.SenhaHash,
 		&dto.BilheteIdentidade, &dto.BilheteIdentidadeResp, &dto.CodigoAcademia,
+		&dto.Status, &dto.StatusEscolar, &dto.StatusSuperior,
 		&dto.AnoEscolar, &dto.AnoSuperior, &dto.CursoMedio, &dto.CursoSuperior,
-		&dto.StatusEscolar, &dto.StatusSuperior, &dto.CreatedAt, &dto.UpdatedAt,
+		&dto.CreatedAt, &dto.UpdatedAt,
 		&dto.TotalNotas, &dto.TotalFaltas, &dto.TotalInscricoes, &dto.Version,
 	)
 	if err == sql.ErrNoRows {
@@ -391,12 +480,13 @@ type EstudanteDTO struct {
 	BilheteIdentidade     *string   `db:"bilhete_identidade" json:"bilhete_identidade,omitempty"`
 	BilheteIdentidadeResp *string   `db:"bilhete_identidade_responsavel" json:"bilhete_identidade_responsavel,omitempty"`
 	CodigoAcademia        *string   `db:"codigo_academia" json:"codigo_academia,omitempty"`
+	Status                string    `db:"status" json:"status"`                   // 🔥 NOVO
+	StatusEscolar         string    `db:"status_escolar" json:"status_escolar"`   // 🔥 ATUALIZADO
+	StatusSuperior        string    `db:"status_superior" json:"status_superior"` // 🔥 ATUALIZADO
 	AnoEscolar            *string   `db:"ano_escolar" json:"ano_escolar,omitempty"`
 	AnoSuperior           *string   `db:"ano_superior" json:"ano_superior,omitempty"`
 	CursoMedio            *string   `db:"curso_medio" json:"curso_medio,omitempty"`
 	CursoSuperior         *string   `db:"curso_superior" json:"curso_superior,omitempty"`
-	StatusEscolar         *string   `db:"status_escolar" json:"status_escolar,omitempty"`
-	StatusSuperior        *string   `db:"status_superior" json:"status_superior,omitempty"`
 	CreatedAt             time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt             time.Time `db:"updated_at" json:"updated_at"`
 	TotalNotas            int       `db:"total_notas" json:"total_notas"`

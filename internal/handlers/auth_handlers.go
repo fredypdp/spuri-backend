@@ -60,7 +60,7 @@ func Login(c *gin.Context) {
 	if req.Type == "academia" {
 		// Buscar academia na projeção (código ou email)
 		log.Printf("🔍 [LOGIN] Buscando academia com código/email: %s", req.Usuario)
-		
+
 		academia, err := academiaProj.GetByCodigoOrEmail(req.Usuario)
 		if err != nil {
 			log.Printf("❌ [LOGIN] Erro ao buscar academia: %v", err)
@@ -82,7 +82,7 @@ func Login(c *gin.Context) {
 	} else {
 		// 🔥 ESTUDANTE - Buscar por CÓDIGO em vez de BILHETE
 		log.Printf("🔍 [LOGIN] Buscando estudante com código: %s", req.Usuario)
-		
+
 		estudante, err := estudanteProj.GetByCodigo(req.Usuario)
 		if err != nil {
 			log.Printf("❌ [LOGIN] Erro ao buscar estudante: %v", err)
@@ -109,13 +109,13 @@ func Login(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "credenciais inválidas"})
 		return
 	}
-	
+
 	if err := bcrypt.CompareHashAndPassword([]byte(senhaHash), []byte(req.Senha)); err != nil {
 		log.Printf("❌ [LOGIN] Senha incorreta: %v", err)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "credenciais inválidas"})
 		return
 	}
-	
+
 	log.Printf("✅ [LOGIN] Senha correta!")
 
 	// Gerar token
@@ -145,10 +145,10 @@ func Login(c *gin.Context) {
 
 	log.Printf("✅ [LOGIN] Login bem-sucedido para: %s (%s) - Código: %s", userName, req.Type, codigo)
 	c.JSON(http.StatusOK, gin.H{
-		"token": token,
+		"token":  token,
 		"codigo": codigo, // 🔥 Retorna codigo_estudante ou codigo_academia
-		"nome": userName,
-		"type": req.Type,
+		"nome":   userName,
+		"type":   req.Type,
 	})
 }
 
@@ -231,7 +231,7 @@ func RegisterAcademia(c *gin.Context) {
 	}
 
 	// Salvar eventos (Event Sourcing)
-	log.Printf("💾 [REGISTER] Salvando eventos no GenesisDB...")
+	log.Printf("💾 [REGISTER] Salvando eventos no Banco de dados...")
 	if err := repository.Save(academia); err != nil {
 		log.Printf("❌ [REGISTER] Erro ao salvar eventos: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("erro ao criar academia: %v", err)})
@@ -278,14 +278,14 @@ func RegisterEstudante(c *gin.Context) {
 	}
 
 	// 🔥 GERAR CÓDIGO ÚNICO
-	client := getGenesisClient(c)
+	client := getDbClient(c)
 	codigoEstudante, err := utils.GenerateUniqueCodigoEstudante(client.DB())
 	if err != nil {
 		log.Printf("❌ [REGISTER] Erro ao gerar código: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao gerar código de estudante"})
 		return
 	}
-	
+
 	log.Printf("🎫 [REGISTER] Código gerado: %s", codigoEstudante)
 
 	// Hash da senha
@@ -307,7 +307,7 @@ func RegisterEstudante(c *gin.Context) {
 	log.Printf("⚡ [REGISTER] Executando comando Criar...")
 	if err := estudante.Criar(
 		req.Nome,
-		codigoEstudante,          // 🔥 PASSAR CÓDIGO
+		codigoEstudante, // 🔥 PASSAR CÓDIGO
 		string(hashedPassword),
 		req.BilheteIdentidade,
 		req.BilheteIdentidadeResp,
@@ -324,7 +324,7 @@ func RegisterEstudante(c *gin.Context) {
 	}
 
 	// Salvar eventos (Event Sourcing)
-	log.Printf("💾 [REGISTER] Salvando eventos no GenesisDB...")
+	log.Printf("💾 [REGISTER] Salvando eventos no Banco de dados...")
 	if err := repository.Save(estudante); err != nil {
 		log.Printf("❌ [REGISTER] Erro ao salvar eventos: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("erro ao criar estudante: %v", err)})

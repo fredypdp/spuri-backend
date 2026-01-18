@@ -21,11 +21,11 @@ else
     echo "📊 Ambiente: Local"
     
     # Construir connection string
-    DB_HOST="${GENESISDB_HOST:-localhost}"
-    DB_PORT="${GENESISDB_PORT:-5432}"
-    DB_USER="${GENESISDB_USER:-genesis}"
-    DB_PASS="${GENESISDB_PASSWORD:-genesis123}"
-    DB_NAME="${GENESISDB_NAME:-spuri_genesis}"
+    DB_HOST="${DB_HOST:-localhost}"
+    DB_PORT="${DB_PORT:-5432}"
+    DB_USER="${DB_USER:-fredypdp}"
+    DB_PASS="${DB_PASSWORD:-flamengo}"
+    DB_NAME="${DB_NAME:-spuri_db}"
     
     DB_CONNECTION="postgresql://${DB_USER}:${DB_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=disable"
     
@@ -67,12 +67,12 @@ fi
 echo ""
 echo "🔍 Verificando estado das migrations..."
 
-# Verificar se tabela genesis_ledger existe
+# Verificar se tabela spuri_ledger existe
 TABLE_EXISTS=$(psql "$DB_CONNECTION" -t -c "
     SELECT COUNT(*) 
     FROM information_schema.tables 
     WHERE table_schema = 'public' 
-    AND table_name = 'genesis_ledger';
+    AND table_name = 'spuri_ledger';
 " 2>/dev/null | tr -d ' ')
 
 if [ "$TABLE_EXISTS" = "1" ]; then
@@ -83,7 +83,7 @@ if [ "$TABLE_EXISTS" = "1" ]; then
     echo "📊 Estatísticas do Banco:"
     
     # Contar eventos
-    EVENT_COUNT=$(psql "$DB_CONNECTION" -t -c "SELECT COUNT(*) FROM genesis_ledger;" 2>/dev/null | tr -d ' ')
+    EVENT_COUNT=$(psql "$DB_CONNECTION" -t -c "SELECT COUNT(*) FROM spuri_ledger;" 2>/dev/null | tr -d ' ')
     echo "   Eventos no ledger: $EVENT_COUNT"
     
     # Contar estudantes
@@ -104,10 +104,10 @@ else
     # =============================================================================
     
     echo ""
-    echo "📝 Aplicando Migration 1: Genesis Ledger..."
+    echo "📝 Aplicando Migration 1: Spuri Ledger..."
     
-    if [ -f "migrations/genesisdb/001_complete_schema.sql" ]; then
-        psql "$DB_CONNECTION" -f migrations/genesisdb/001_complete_schema.sql
+    if [ -f "migrations/DB/001_complete_schema.sql" ]; then
+        psql "$DB_CONNECTION" -f migrations/DB/001_complete_schema.sql
         
         if [ $? -eq 0 ]; then
             echo "✅ Migration 1 aplicada com sucesso"
@@ -116,15 +116,15 @@ else
             exit 1
         fi
     else
-        echo "⚠️  Arquivo migrations/genesisdb/001_complete_schema.sql não encontrado"
+        echo "⚠️  Arquivo migrations/DB/001_complete_schema.sql não encontrado"
         exit 1
     fi
     
     echo ""
     echo "📝 Aplicando Migration 2: Projeções..."
     
-    if [ -f "migrations/genesisdb/002_create_projections.sql" ]; then
-        psql "$DB_CONNECTION" -f migrations/genesisdb/002_create_projections.sql
+    if [ -f "migrations/DB/002_create_projections.sql" ]; then
+        psql "$DB_CONNECTION" -f migrations/DB/002_create_projections.sql
         
         if [ $? -eq 0 ]; then
             echo "✅ Migration 2 aplicada com sucesso"
@@ -133,7 +133,7 @@ else
             exit 1
         fi
     else
-        echo "⚠️  Arquivo migrations/genesisdb/002_create_projections.sql não encontrado"
+        echo "⚠️  Arquivo migrations/DB/002_create_projections.sql não encontrado"
         exit 1
     fi
     

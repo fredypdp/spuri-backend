@@ -1,9 +1,9 @@
 // ============================================================================
-// ARQUIVO: internal/genesisdb/event_store.go
+// ARQUIVO: internal/db/event_store.go
 // 🔥 CORRIGIDO: Todas as queries usando Exec/Query direto sem prepared statements
 // ============================================================================
 
-package genesisdb
+package db
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// Event representa um evento no GenesisDB Ledger
+// Event representa um evento no Banco de dados Ledger
 type Event struct {
 	ID            int64           `json:"-" db:"id"`
 	EventID       uuid.UUID       `json:"event_id" db:"event_id"`
@@ -28,7 +28,7 @@ type Event struct {
 	OccurredAt    time.Time       `json:"occurred_at" db:"occurred_at"`
 	RecordedAt    time.Time       `json:"recorded_at" db:"recorded_at"`
 	
-	// GenesisDB specific - imutabilidade garantida
+	// Banco de dados specific - imutabilidade garantida
 	LedgerHash    string          `json:"ledger_hash" db:"ledger_hash"`
 	PreviousHash  *string         `json:"previous_hash,omitempty" db:"previous_hash"`
 }
@@ -43,7 +43,7 @@ type EventMetadata struct {
 	CausationID   string   `json:"causation_id,omitempty"`
 }
 
-// EventStore gerencia o armazenamento de eventos no GenesisDB
+// EventStore gerencia o armazenamento de eventos no Banco de dados
 type EventStore struct {
 	client *Client
 }
@@ -59,7 +59,7 @@ func NewEventStore(client *Client) *EventStore {
 // 🔥 CORRIGIDO: Usar QueryRow direto sem prepared statement
 func (es *EventStore) Append(ctx context.Context, event *Event) error {
 	query := fmt.Sprintf(`
-		INSERT INTO genesis_ledger (
+		INSERT INTO spuri_ledger (
 			event_id, aggregate_id, aggregate_type, event_type, 
 			event_version, payload, metadata, occurred_at
 		) VALUES (
@@ -95,7 +95,7 @@ func (es *EventStore) LoadEventStream(ctx context.Context, aggregateID uuid.UUID
 			id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
-		FROM genesis_ledger
+		FROM spuri_ledger
 		WHERE aggregate_id = '%s'
 		ORDER BY event_version ASC, recorded_at ASC
 	`, aggregateID.String())
@@ -120,7 +120,7 @@ func (es *EventStore) LoadEventStreamFromVersion(
 			id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
-		FROM genesis_ledger
+		FROM spuri_ledger
 		WHERE aggregate_id = '%s' AND event_version >= %d
 		ORDER BY event_version ASC, recorded_at ASC
 	`, aggregateID.String(), fromVersion)
@@ -145,7 +145,7 @@ func (es *EventStore) GetEventsByType(
 			id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
-		FROM genesis_ledger
+		FROM spuri_ledger
 		WHERE event_type = '%s'
 		ORDER BY recorded_at DESC
 		LIMIT %d
@@ -170,7 +170,7 @@ func (es *EventStore) GetAllEvents(
 			id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
-		FROM genesis_ledger
+		FROM spuri_ledger
 		ORDER BY recorded_at DESC
 		LIMIT %d OFFSET %d
 	`, limit, offset)
@@ -191,7 +191,7 @@ func (es *EventStore) GetEventByID(ctx context.Context, eventID uuid.UUID) (*Eve
 			id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
-		FROM genesis_ledger
+		FROM spuri_ledger
 		WHERE event_id = '%s'
 	`, eventID.String())
 
@@ -208,7 +208,7 @@ func (es *EventStore) GetEventByID(ctx context.Context, eventID uuid.UUID) (*Eve
 func (es *EventStore) GetAggregateVersion(ctx context.Context, aggregateID uuid.UUID) (int, error) {
 	query := fmt.Sprintf(`
 		SELECT COALESCE(MAX(event_version), 0)
-		FROM genesis_ledger
+		FROM spuri_ledger
 		WHERE aggregate_id = '%s'
 	`, aggregateID.String())
 
@@ -232,7 +232,7 @@ func (es *EventStore) VerifyLedgerIntegrity(ctx context.Context, aggregateID uui
 	query := fmt.Sprintf(`
 		SELECT 
 			ledger_hash, previous_hash
-		FROM genesis_ledger
+		FROM spuri_ledger
 		WHERE aggregate_id = '%s'
 		ORDER BY event_version ASC
 	`, aggregateID.String())
@@ -263,7 +263,7 @@ func (es *EventStore) VerifyLedgerIntegrity(ctx context.Context, aggregateID uui
 
 // CountEvents retorna o total de eventos
 func (es *EventStore) CountEvents(ctx context.Context) (int64, error) {
-	query := `SELECT COUNT(*) FROM genesis_ledger`
+	query := `SELECT COUNT(*) FROM spuri_ledger`
 	
 	var count int64
 	err := es.client.db.QueryRow(query).Scan(&count)
@@ -276,7 +276,7 @@ func (es *EventStore) CountEvents(ctx context.Context) (int64, error) {
 
 // CountEventsByAggregate retorna total de eventos de um agregado
 func (es *EventStore) CountEventsByAggregate(ctx context.Context, aggregateID uuid.UUID) (int64, error) {
-	query := fmt.Sprintf(`SELECT COUNT(*) FROM genesis_ledger WHERE aggregate_id = '%s'`, aggregateID.String())
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM spuri_ledger WHERE aggregate_id = '%s'`, aggregateID.String())
 	
 	var count int64
 	err := es.client.db.QueryRow(query).Scan(&count)

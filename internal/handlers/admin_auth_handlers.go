@@ -193,7 +193,7 @@ func ListarEstudantes(c *gin.Context) {
 	}
 
 	var estudantes []EstudanteSimples
-	client := getGenesisClient(c)
+	client := getDbClient(c)
 
 	if userType == "academia" {
 		// 🔥 ACADEMIA: Buscar apenas estudantes da própria academia
@@ -365,7 +365,7 @@ func DesativarAcademia(c *gin.Context) {
 // ============================================================================
 
 func getAdminProjection(c *gin.Context) *projections.AdminProjection {
-	client := getGenesisClient(c)
+	client := getDbClient(c)
 	return projections.NewAdminProjection(client)
 }
 

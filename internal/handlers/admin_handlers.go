@@ -99,9 +99,9 @@ func GetAllProjectionStatuses(c *gin.Context) {
 	})
 }
 
-// GetLedgerStats retorna estatísticas do GenesisDB Ledger
+// GetLedgerStats retorna estatísticas do Banco de dados Ledger
 func GetLedgerStats(c *gin.Context) {
-	client := getGenesisClientFromContext(c)
+	client := getDbClientFromContext(c)
 	
 	// Estatísticas do ledger via SQL
 	type LedgerStats struct {
@@ -119,7 +119,7 @@ func GetLedgerStats(c *gin.Context) {
 			TO_CHAR(MIN(occurred_at), 'YYYY-MM-DD HH24:MI:SS') as oldest_event,
 			TO_CHAR(MAX(occurred_at), 'YYYY-MM-DD HH24:MI:SS') as newest_event,
 			ROUND(COUNT(*)::NUMERIC / NULLIF(COUNT(DISTINCT aggregate_id), 0), 2) as avg_events_per_aggregate
-		FROM genesis_ledger
+		FROM spuri_ledger
 	`
 
 	var stats LedgerStats
@@ -138,7 +138,7 @@ func GetLedgerStats(c *gin.Context) {
 
 	queryTypes := `
 		SELECT event_type, COUNT(*) as count
-		FROM genesis_ledger
+		FROM spuri_ledger
 		GROUP BY event_type
 		ORDER BY count DESC
 	`
@@ -155,12 +155,12 @@ func GetLedgerStats(c *gin.Context) {
 
 // VerifyAllIntegrity verifica integridade de todos os agregados
 func VerifyAllIntegrity(c *gin.Context) {
-	client := getGenesisClientFromContext(c)
+	client := getDbClientFromContext(c)
 	
 	// Buscar todos os agregados distintos
 	query := `
 		SELECT DISTINCT aggregate_id, aggregate_type
-		FROM genesis_ledger
+		FROM spuri_ledger
 		ORDER BY aggregate_type, aggregate_id
 	`
 

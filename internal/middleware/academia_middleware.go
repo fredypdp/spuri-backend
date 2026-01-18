@@ -7,7 +7,7 @@ package middleware
 
 import (
 	"net/http"
-	"spuri/internal/genesisdb"
+	"spuri/internal/db"
 
 	"github.com/gin-gonic/gin"
 )
@@ -16,7 +16,7 @@ import (
 func ValidarStatusAcademia() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userType, _ := c.Get("user_type")
-		
+
 		// Aplicar apenas para academias
 		if userType != "academia" {
 			c.Next()
@@ -31,7 +31,7 @@ func ValidarStatusAcademia() gin.HandlerFunc {
 		`
 
 		// Obter cliente do banco
-		clientRaw, exists := c.Get("genesisClient")
+		clientRaw, exists := c.Get("dbClient")
 		if !exists {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": "erro ao verificar status da academia",
@@ -40,7 +40,7 @@ func ValidarStatusAcademia() gin.HandlerFunc {
 			return
 		}
 
-		client := clientRaw.(*genesisdb.Client)
+		client := clientRaw.(*db.Client)
 
 		var status string
 		err := client.DB().Get(&status, query, userID)
@@ -54,8 +54,8 @@ func ValidarStatusAcademia() gin.HandlerFunc {
 
 		if status != "ativo" {
 			c.JSON(http.StatusForbidden, gin.H{
-				"error": "academia inativa - não pode realizar operações",
-				"status": status,
+				"error":   "academia inativa - não pode realizar operações",
+				"status":  status,
 				"message": "Entre em contato com o suporte para reativar sua conta",
 			})
 			c.Abort()

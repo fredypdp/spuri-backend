@@ -22,44 +22,44 @@ import (
 // ListarInscricoes - Rota unificada GET /inscricoes
 func ListarInscricoes(c *gin.Context) {
 	log.Printf("🔵 [INSCRICOES] Iniciando ListarInscricoes")
-	
+
 	userID, exists := middleware.GetUserID(c)
 	if !exists {
 		log.Printf("❌ [INSCRICOES] user_id não encontrado no contexto")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "usuário não autenticado"})
 		return
 	}
-	
+
 	userType, exists := middleware.GetUserType(c)
 	if !exists {
 		log.Printf("❌ [INSCRICOES] user_type não encontrado no contexto")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "tipo de usuário não identificado"})
 		return
 	}
-	
+
 	log.Printf("📋 [INSCRICOES] UserID: %v, UserType: %s", userID, userType)
-	
+
 	// Parâmetros de paginação
 	limit := 50
 	offset := 0
-	
+
 	if limitParam := c.Query("limit"); limitParam != "" {
 		fmt.Sscanf(limitParam, "%d", &limit)
 	}
 	if offsetParam := c.Query("offset"); offsetParam != "" {
 		fmt.Sscanf(offsetParam, "%d", &offset)
 	}
-	
+
 	log.Printf("📊 [INSCRICOES] Paginação - Limit: %d, Offset: %d", limit, offset)
-	
+
 	// Filtro por status (opcional)
 	statusFilter := c.Query("status")
 	if statusFilter != "" {
 		log.Printf("🔍 [INSCRICOES] Filtro de status: %s", statusFilter)
 	}
 
-	client := getGenesisClient(c)
-	
+	client := getDbClient(c)
+
 	// Estrutura para armazenar inscrições
 	type InscricaoDetalhada struct {
 		ID              string  `db:"id" json:"id"`
@@ -76,15 +76,15 @@ func ListarInscricoes(c *gin.Context) {
 		EventID         *string `db:"event_id" json:"event_id,omitempty"`
 		Version         *int    `db:"version" json:"version,omitempty"`
 	}
-	
+
 	var inscricoes []InscricaoDetalhada
 	var err error
 	var total int
-	
+
 	switch userType {
 	case "admin":
 		log.Printf("👑 [INSCRICOES] Processando como ADMIN - retorna todas")
-		
+
 		if statusFilter != "" {
 			query := fmt.Sprintf(`
 				SELECT 
@@ -106,10 +106,10 @@ func ListarInscricoes(c *gin.Context) {
 				ORDER BY created_at DESC
 				LIMIT %d OFFSET %d
 			`, statusFilter, limit, offset)
-			
+
 			log.Printf("📝 [INSCRICOES] Executando query com filtro")
 			err = client.DB().Select(&inscricoes, query)
-			
+
 			countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM projection_inscricoes WHERE status = '%s'`, statusFilter)
 			client.DB().Get(&total, countQuery)
 		} else {
@@ -132,20 +132,20 @@ func ListarInscricoes(c *gin.Context) {
 				ORDER BY created_at DESC
 				LIMIT %d OFFSET %d
 			`, limit, offset)
-			
+
 			log.Printf("📝 [INSCRICOES] Executando query sem filtro")
 			err = client.DB().Select(&inscricoes, query)
-			
+
 			countQuery := `SELECT COUNT(*) FROM projection_inscricoes`
 			client.DB().Get(&total, countQuery)
 		}
-		
+
 	case "academia":
 		log.Printf("🏫 [INSCRICOES] Processando como ACADEMIA")
-		
+
 		// 🔥 CORRIGIDO: userID já é uuid.UUID, não precisa converter
 		log.Printf("🏫 [INSCRICOES] Academia UUID: %s", userID.String())
-		
+
 		if statusFilter != "" {
 			query := fmt.Sprintf(`
 				SELECT 
@@ -167,9 +167,9 @@ func ListarInscricoes(c *gin.Context) {
 				ORDER BY created_at DESC
 				LIMIT %d OFFSET %d
 			`, userID.String(), statusFilter, limit, offset)
-			
+
 			err = client.DB().Select(&inscricoes, query)
-			
+
 			countQuery := fmt.Sprintf(`
 				SELECT COUNT(*) 
 				FROM projection_inscricoes 
@@ -197,14 +197,14 @@ func ListarInscricoes(c *gin.Context) {
 				ORDER BY created_at DESC
 				LIMIT %d OFFSET %d
 			`, userID.String(), limit, offset)
-			
+
 			log.Printf("📝 [INSCRICOES] Query: %s", query)
 			err = client.DB().Select(&inscricoes, query)
-			
+
 			if err != nil {
 				log.Printf("❌ [INSCRICOES] Erro na query: %v", err)
 			}
-			
+
 			countQuery := fmt.Sprintf(`
 				SELECT COUNT(*) 
 				FROM projection_inscricoes 
@@ -212,10 +212,10 @@ func ListarInscricoes(c *gin.Context) {
 			`, userID.String())
 			client.DB().Get(&total, countQuery)
 		}
-		
+
 	case "estudante":
 		log.Printf("👨‍🎓 [INSCRICOES] Processando como ESTUDANTE")
-		
+
 		// 🔥 CORRIGIDO: userID já é uuid.UUID
 		if statusFilter != "" {
 			query := fmt.Sprintf(`
@@ -237,7 +237,7 @@ func ListarInscricoes(c *gin.Context) {
 				WHERE estudante_id = '%s' AND status = '%s'
 				ORDER BY created_at DESC
 			`, userID.String(), statusFilter)
-			
+
 			err = client.DB().Select(&inscricoes, query)
 		} else {
 			query := fmt.Sprintf(`
@@ -259,27 +259,27 @@ func ListarInscricoes(c *gin.Context) {
 				WHERE estudante_id = '%s'
 				ORDER BY created_at DESC
 			`, userID.String())
-			
+
 			err = client.DB().Select(&inscricoes, query)
 		}
-		
+
 		total = len(inscricoes)
-		
+
 	default:
 		log.Printf("❌ [INSCRICOES] Tipo de usuário inválido: %s", userType)
 		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
 		return
 	}
-	
+
 	if err != nil {
 		log.Printf("❌ [INSCRICOES] Erro ao buscar: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "erro ao buscar inscrições",
+			"error":   "erro ao buscar inscrições",
 			"details": err.Error(),
 		})
 		return
 	}
-	
+
 	log.Printf("✅ [INSCRICOES] Sucesso! Total: %d, Retornando: %d inscrições", total, len(inscricoes))
 
 	c.JSON(http.StatusOK, gin.H{
@@ -296,14 +296,14 @@ func ListarInscricoes(c *gin.Context) {
 // ListarInscricoesPendentes - Rota unificada GET /inscricoes-pendentes
 func ListarInscricoesPendentes(c *gin.Context) {
 	log.Printf("🔵 [INSCRICOES-PENDENTES] Iniciando")
-	
+
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
-	
+
 	log.Printf("📋 [INSCRICOES-PENDENTES] UserType: %s", userType)
-	
-	client := getGenesisClient(c)
-	
+
+	client := getDbClient(c)
+
 	type InscricaoDetalhada struct {
 		ID              string  `db:"id" json:"id"`
 		EstudanteID     string  `db:"estudante_id" json:"estudante_id"`
@@ -317,10 +317,10 @@ func ListarInscricoesPendentes(c *gin.Context) {
 		CreatedAt       string  `db:"created_at" json:"created_at"`
 		UpdatedAt       string  `db:"updated_at" json:"updated_at"`
 	}
-	
+
 	var inscricoes []InscricaoDetalhada
 	var err error
-	
+
 	switch userType {
 	case "admin":
 		query := `
@@ -341,7 +341,7 @@ func ListarInscricoesPendentes(c *gin.Context) {
 			ORDER BY created_at DESC
 		`
 		err = client.DB().Select(&inscricoes, query)
-		
+
 	case "academia":
 		// 🔥 CORRIGIDO: userID já é uuid.UUID
 		query := fmt.Sprintf(`
@@ -362,7 +362,7 @@ func ListarInscricoesPendentes(c *gin.Context) {
 			ORDER BY created_at DESC
 		`, userID.String())
 		err = client.DB().Select(&inscricoes, query)
-		
+
 	case "estudante":
 		// 🔥 CORRIGIDO: userID já é uuid.UUID
 		query := fmt.Sprintf(`
@@ -383,12 +383,12 @@ func ListarInscricoesPendentes(c *gin.Context) {
 			ORDER BY created_at DESC
 		`, userID.String())
 		err = client.DB().Select(&inscricoes, query)
-		
+
 	default:
 		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
 		return
 	}
-	
+
 	if err != nil {
 		log.Printf("❌ [INSCRICOES-PENDENTES] Erro: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições pendentes", "details": err.Error()})
@@ -426,7 +426,7 @@ func GetNotasEstudante(c *gin.Context) {
 	if userType == "academia" {
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, _ := academiaProj.GetByID(userID)
-		
+
 		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
 			c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
 			return
@@ -470,7 +470,7 @@ func GetFaltasEstudante(c *gin.Context) {
 	if userType == "academia" {
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, _ := academiaProj.GetByID(userID)
-		
+
 		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
 			c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
 			return
@@ -514,7 +514,7 @@ func GetHistoricoCompleto(c *gin.Context) {
 	if userType == "academia" {
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, _ := academiaProj.GetByID(userID)
-		
+
 		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
 			c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
 			return
@@ -674,7 +674,7 @@ func ListarTodasAcademias(c *gin.Context) {
 	}
 
 	var academias []AcademiaSimples
-	client := getGenesisClient(c)
+	client := getDbClient(c)
 	if err := client.DB().Select(&academias, query); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar academias"})
 		return

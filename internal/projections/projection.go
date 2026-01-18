@@ -4,7 +4,7 @@
 
 package projections
 
-import "spuri/internal/genesisdb"
+import "spuri/internal/db"
 
 // Projection interface para todas as projeções
 type Projection interface {
@@ -12,7 +12,7 @@ type Projection interface {
 	Name() string
 	
 	// Handle processa um evento
-	Handle(event genesisdb.Event) error
+	Handle(event db.Event) error
 	
 	// Rebuild reconstrói a projeção do zero
 	Rebuild() error

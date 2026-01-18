@@ -37,14 +37,14 @@ func GetMeuPerfil(c *gin.Context) {
 // getPerfilEstudante busca perfil de estudante logado
 func getPerfilEstudante(c *gin.Context, userID interface{}) {
 	estudanteProj := getEstudanteProjection(c)
-	
+
 	// Converter para uuid.UUID
 	id, ok := userID.(uuid.UUID)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao processar ID"})
 		return
 	}
-	
+
 	estudante, err := estudanteProj.GetByID(id)
 	if err != nil || estudante == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
@@ -66,25 +66,25 @@ func getPerfilEstudante(c *gin.Context, userID interface{}) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"tipo":    "estudante",
+		"tipo": "estudante",
 		"estudante": gin.H{
-			"id":                     estudante.ID,
-			"nome":                   estudante.Nome,
-			"codigo_estudante":       estudante.CodigoEstudante,
-			"bilhete_identidade":     estudante.BilheteIdentidade,
+			"id":                             estudante.ID,
+			"nome":                           estudante.Nome,
+			"codigo_estudante":               estudante.CodigoEstudante,
+			"bilhete_identidade":             estudante.BilheteIdentidade,
 			"bilhete_identidade_responsavel": estudante.BilheteIdentidadeResp,
-			"codigo_academia":        estudante.CodigoAcademia,
-			"academia_info":          academiaInfo,
-			"ano_escolar":            estudante.AnoEscolar,
-			"ano_superior":           estudante.AnoSuperior,
-			"curso_medio":            estudante.CursoMedio,
-			"curso_superior":         estudante.CursoSuperior,
-			"status_escolar":         estudante.StatusEscolar,
-			"status_superior":        estudante.StatusSuperior,
-			"created_at":             estudante.CreatedAt,
-			"total_notas":            estudante.TotalNotas,
-			"total_faltas":           estudante.TotalFaltas,
-			"total_inscricoes":       estudante.TotalInscricoes,
+			"codigo_academia":                estudante.CodigoAcademia,
+			"academia_info":                  academiaInfo,
+			"ano_escolar":                    estudante.AnoEscolar,
+			"ano_superior":                   estudante.AnoSuperior,
+			"curso_medio":                    estudante.CursoMedio,
+			"curso_superior":                 estudante.CursoSuperior,
+			"status_escolar":                 estudante.StatusEscolar,
+			"status_superior":                estudante.StatusSuperior,
+			"created_at":                     estudante.CreatedAt,
+			"total_notas":                    estudante.TotalNotas,
+			"total_faltas":                   estudante.TotalFaltas,
+			"total_inscricoes":               estudante.TotalInscricoes,
 		},
 	})
 }
@@ -92,14 +92,14 @@ func getPerfilEstudante(c *gin.Context, userID interface{}) {
 // getPerfilAcademia busca perfil de academia logada
 func getPerfilAcademia(c *gin.Context, userID interface{}) {
 	academiaProj := getAcademiaProjection(c)
-	
+
 	// Converter para uuid.UUID
 	id, ok := userID.(uuid.UUID)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao processar ID"})
 		return
 	}
-	
+
 	academia, err := academiaProj.GetByID(id)
 	if err != nil || academia == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
@@ -131,14 +131,14 @@ func getPerfilAcademia(c *gin.Context, userID interface{}) {
 // getPerfilAdmin busca perfil de admin logado
 func getPerfilAdmin(c *gin.Context, userID interface{}) {
 	adminProj := getAdminProjection(c)
-	
+
 	// Converter para uuid.UUID
 	id, ok := userID.(uuid.UUID)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao processar ID"})
 		return
 	}
-	
+
 	admin, err := adminProj.GetByID(id)
 	if err != nil || admin == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "administrador não encontrado"})
@@ -167,7 +167,7 @@ func getPerfilAdmin(c *gin.Context, userID interface{}) {
 // Permitido para: Academia (qualquer) e Admin
 func GetEstudantePorCodigo(c *gin.Context) {
 	userType, _ := middleware.GetUserType(c)
-	
+
 	// Verificar se é academia ou admin
 	if userType != "academia" && userType != "admin" {
 		c.JSON(http.StatusForbidden, gin.H{
@@ -204,22 +204,22 @@ func GetEstudantePorCodigo(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"estudante": gin.H{
-			"id":                     estudante.ID,
-			"nome":                   estudante.Nome,
-			"codigo_estudante":       estudante.CodigoEstudante,
-			"bilhete_identidade":     estudante.BilheteIdentidade,
-			"codigo_academia":        estudante.CodigoAcademia,
-			"academia_info":          academiaInfo,
-			"ano_escolar":            estudante.AnoEscolar,
-			"ano_superior":           estudante.AnoSuperior,
-			"curso_medio":            estudante.CursoMedio,
-			"curso_superior":         estudante.CursoSuperior,
-			"status_escolar":         estudante.StatusEscolar,
-			"status_superior":        estudante.StatusSuperior,
-			"created_at":             estudante.CreatedAt,
-			"total_notas":            estudante.TotalNotas,
-			"total_faltas":           estudante.TotalFaltas,
-			"total_inscricoes":       estudante.TotalInscricoes,
+			"id":                 estudante.ID,
+			"nome":               estudante.Nome,
+			"codigo_estudante":   estudante.CodigoEstudante,
+			"bilhete_identidade": estudante.BilheteIdentidade,
+			"codigo_academia":    estudante.CodigoAcademia,
+			"academia_info":      academiaInfo,
+			"ano_escolar":        estudante.AnoEscolar,
+			"ano_superior":       estudante.AnoSuperior,
+			"curso_medio":        estudante.CursoMedio,
+			"curso_superior":     estudante.CursoSuperior,
+			"status_escolar":     estudante.StatusEscolar,
+			"status_superior":    estudante.StatusSuperior,
+			"created_at":         estudante.CreatedAt,
+			"total_notas":        estudante.TotalNotas,
+			"total_faltas":       estudante.TotalFaltas,
+			"total_inscricoes":   estudante.TotalInscricoes,
 		},
 		"consultado_por": userType,
 	})
@@ -229,7 +229,7 @@ func GetEstudantePorCodigo(c *gin.Context) {
 // Permitido para: Academia (qualquer) e Admin
 func GetAcademiaPorCodigo(c *gin.Context) {
 	userType, _ := middleware.GetUserType(c)
-	
+
 	// Verificar se é academia ou admin
 	if userType != "academia" && userType != "admin" {
 		c.JSON(http.StatusForbidden, gin.H{
@@ -251,21 +251,21 @@ func GetAcademiaPorCodigo(c *gin.Context) {
 	// Buscar estatísticas adicionais apenas para admin
 	var estatisticas *gin.H
 	if userType == "admin" {
-		client := getGenesisClient(c)
-		
+		client := getDbClient(c)
+
 		var stats struct {
-			TotalInscricoesTotal     int `db:"total_inscricoes"`
-			TotalNotasRegistradas    int `db:"total_notas"`
-			TotalFaltasRegistradas   int `db:"total_faltas"`
+			TotalInscricoesTotal   int `db:"total_inscricoes"`
+			TotalNotasRegistradas  int `db:"total_notas"`
+			TotalFaltasRegistradas int `db:"total_faltas"`
 		}
-		
+
 		query := `
 			SELECT 
 				(SELECT COUNT(*) FROM projection_inscricoes WHERE codigo_academia = $1) as total_inscricoes,
 				(SELECT COUNT(*) FROM projection_notas WHERE codigo_academia = $1) as total_notas,
 				(SELECT COUNT(*) FROM projection_faltas WHERE codigo_academia = $1) as total_faltas
 		`
-		
+
 		if err := client.DB().Get(&stats, query, codigoAcademia); err == nil {
 			estatisticas = &gin.H{
 				"total_inscricoes_historico": stats.TotalInscricoesTotal,
@@ -340,7 +340,7 @@ func BuscarUsuario(c *gin.Context) {
 
 	if tipo == "" || identificador == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "parâmetros 'tipo' e 'id' são obrigatórios",
+			"error":   "parâmetros 'tipo' e 'id' são obrigatórios",
 			"exemplo": "/admin/buscar-usuario?tipo=estudante&id=KAF7392",
 		})
 		return
@@ -355,7 +355,7 @@ func BuscarUsuario(c *gin.Context) {
 		buscarAdminPorEmail(c, identificador)
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "tipo inválido",
+			"error":         "tipo inválido",
 			"tipos_validos": []string{"estudante", "academia", "admin"},
 		})
 	}
@@ -386,22 +386,22 @@ func buscarEstudanteAdmin(c *gin.Context, codigo string) {
 	c.JSON(http.StatusOK, gin.H{
 		"tipo": "estudante",
 		"dados": gin.H{
-			"id":                     estudante.ID,
-			"nome":                   estudante.Nome,
-			"codigo_estudante":       estudante.CodigoEstudante,
-			"bilhete_identidade":     estudante.BilheteIdentidade,
-			"codigo_academia":        estudante.CodigoAcademia,
-			"academia_info":          academiaInfo,
-			"ano_escolar":            estudante.AnoEscolar,
-			"ano_superior":           estudante.AnoSuperior,
-			"curso_medio":            estudante.CursoMedio,
-			"curso_superior":         estudante.CursoSuperior,
-			"status_escolar":         estudante.StatusEscolar,
-			"status_superior":        estudante.StatusSuperior,
-			"created_at":             estudante.CreatedAt,
-			"total_notas":            estudante.TotalNotas,
-			"total_faltas":           estudante.TotalFaltas,
-			"total_inscricoes":       estudante.TotalInscricoes,
+			"id":                 estudante.ID,
+			"nome":               estudante.Nome,
+			"codigo_estudante":   estudante.CodigoEstudante,
+			"bilhete_identidade": estudante.BilheteIdentidade,
+			"codigo_academia":    estudante.CodigoAcademia,
+			"academia_info":      academiaInfo,
+			"ano_escolar":        estudante.AnoEscolar,
+			"ano_superior":       estudante.AnoSuperior,
+			"curso_medio":        estudante.CursoMedio,
+			"curso_superior":     estudante.CursoSuperior,
+			"status_escolar":     estudante.StatusEscolar,
+			"status_superior":    estudante.StatusSuperior,
+			"created_at":         estudante.CreatedAt,
+			"total_notas":        estudante.TotalNotas,
+			"total_faltas":       estudante.TotalFaltas,
+			"total_inscricoes":   estudante.TotalInscricoes,
 		},
 	})
 }

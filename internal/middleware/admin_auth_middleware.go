@@ -7,8 +7,7 @@ package middleware
 
 import (
 	"net/http"
-	"spuri/internal/genesisdb"
-
+	"spuri/internal/db"
 	"github.com/gin-gonic/gin"
 )
 
@@ -40,7 +39,7 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 		}
 
 		// Buscar role do admin na projeção
-		clientRaw, exists := c.Get("genesisClient")
+		clientRaw, exists := c.Get("dbClient")
 		if !exists {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": "erro ao verificar permissões",
@@ -49,7 +48,7 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 			return
 		}
 
-		client := clientRaw.(*genesisdb.Client)
+		client := clientRaw.(*db.Client)
 
 		type AdminInfo struct {
 			Role   string `db:"role"`

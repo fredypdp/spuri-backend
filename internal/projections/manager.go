@@ -10,28 +10,28 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"spuri/internal/genesisdb"
+	"spuri/internal/db"
 	"time"
 )
 
 // Manager gerencia todas as projeções
 type Manager struct {
-	client      *genesisdb.Client
-	eventStore  *genesisdb.EventStore
+	client      *db.Client
+	eventStore  *db.EventStore
 	projections map[string]Projection
 	ctx         context.Context
 	cancel      context.CancelFunc
-	
+
 	pollInterval time.Duration
 	batchSize    int
 }
 
-func NewManager(client *genesisdb.Client) *Manager {
+func NewManager(client *db.Client) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	return &Manager{
 		client:       client,
-		eventStore:   genesisdb.NewEventStore(client),
+		eventStore:   db.NewEventStore(client),
 		projections:  make(map[string]Projection),
 		ctx:          ctx,
 		cancel:       cancel,
@@ -47,10 +47,10 @@ func (m *Manager) RegisterProjection(name string, projection Projection) {
 
 func (m *Manager) StartProcessing() {
 	log.Println("▶️ Iniciando processamento de projeções...")
-	
+
 	ticker := time.NewTicker(m.pollInterval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-m.ctx.Done():
@@ -98,7 +98,7 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 		if err := projection.Handle(event); err != nil {
 			log.Printf("❌ [%s] Erro ao processar evento %d: %v", name, event.ID, err)
 			m.logProjectionError(name, err.Error())
-			
+
 			if err := projection.UpdateCheckpoint(event.ID); err != nil {
 				log.Printf("❌ [%s] Erro ao atualizar checkpoint: %v", name, err)
 			}
@@ -109,12 +109,12 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 			log.Printf("❌ [%s] Erro ao atualizar checkpoint: %v", name, err)
 			return fmt.Errorf("falha crítica ao salvar checkpoint: %w", err)
 		}
-		
+
 		processedCount++
 	}
 
 	if processedCount > 0 {
-		log.Printf("✅ [%s] Processados %d eventos (último: %d)", 
+		log.Printf("✅ [%s] Processados %d eventos (último: %d)",
 			name, processedCount, events[len(events)-1].ID)
 	}
 
@@ -122,13 +122,13 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 }
 
 // 🔥 CORRIGIDO: Usar Query direto sem prepared statement
-func (m *Manager) getNewEvents(fromID int64) ([]genesisdb.Event, error) {
+func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
 	query := fmt.Sprintf(`
 		SELECT 
 			id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
-		FROM genesis_ledger
+		FROM spuri_ledger
 		WHERE id > %d
 		ORDER BY id ASC
 		LIMIT %d
@@ -140,9 +140,9 @@ func (m *Manager) getNewEvents(fromID int64) ([]genesisdb.Event, error) {
 	}
 	defer rows.Close()
 
-	var events []genesisdb.Event
+	var events []db.Event
 	for rows.Next() {
-		var e genesisdb.Event
+		var e db.Event
 		err := rows.Scan(
 			&e.ID, &e.EventID, &e.AggregateID, &e.AggregateType,
 			&e.EventType, &e.EventVersion, &e.Payload, &e.Metadata,
@@ -210,15 +210,15 @@ func (m *Manager) markRebuildStart(name string) error {
 			last_processed_event_id = 0
 		WHERE projection_name = '%s'
 	`, name)
-	
+
 	_, err := m.client.DB().Exec(query)
 	return err
 }
 
 // 🔥 CORRIGIDO: Usar Query/Exec direto
 func (m *Manager) markRebuildComplete(name string) error {
-	query := `SELECT COALESCE(MAX(id), 0) FROM genesis_ledger`
-	
+	query := `SELECT COALESCE(MAX(id), 0) FROM spuri_ledger`
+
 	var lastEventID int64
 	err := m.client.DB().QueryRow(query).Scan(&lastEventID)
 	if err != nil {
@@ -234,7 +234,7 @@ func (m *Manager) markRebuildComplete(name string) error {
 			last_processed_at = CURRENT_TIMESTAMP
 		WHERE projection_name = '%s'
 	`, lastEventID, name)
-	
+
 	_, err = m.client.DB().Exec(updateQuery)
 	return err
 }
@@ -249,7 +249,7 @@ func (m *Manager) logProjectionError(name, errorMsg string) {
 			last_error_at = CURRENT_TIMESTAMP
 		WHERE projection_name = '%s'
 	`, errorMsg, name)
-	
+
 	m.client.DB().Exec(query)
 }
 
@@ -265,17 +265,17 @@ func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, erro
 	`, name)
 
 	row := m.client.DB().QueryRow(query)
-	
+
 	var (
-		projName       string
-		lastEventID    int64
-		lastProcessed  time.Time
-		eventsProc     int64
-		rebuilding     bool
-		rebuildStart   sql.NullTime
-		errCount       int
-		lastErr        sql.NullString
-		lastErrAt      sql.NullTime
+		projName      string
+		lastEventID   int64
+		lastProcessed time.Time
+		eventsProc    int64
+		rebuilding    bool
+		rebuildStart  sql.NullTime
+		errCount      int
+		lastErr       sql.NullString
+		lastErrAt     sql.NullTime
 	)
 
 	err := row.Scan(

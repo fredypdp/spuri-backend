@@ -11,18 +11,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"spuri/internal/genesisdb"
+	"spuri/internal/db"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 type AdminProjection struct {
-	client *genesisdb.Client
+	client *db.Client
 	ctx    context.Context
 }
 
-func NewAdminProjection(client *genesisdb.Client) *AdminProjection {
+func NewAdminProjection(client *db.Client) *AdminProjection {
 	return &AdminProjection{
 		client: client,
 		ctx:    context.Background(),
@@ -33,7 +33,7 @@ func (p *AdminProjection) Name() string {
 	return "admins"
 }
 
-func (p *AdminProjection) Handle(event genesisdb.Event) error {
+func (p *AdminProjection) Handle(event db.Event) error {
 	if event.AggregateType != "Admin" {
 		return nil
 	}
@@ -62,7 +62,7 @@ func (p *AdminProjection) Rebuild() error {
 			id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
-		FROM genesis_ledger
+		FROM spuri_ledger
 		WHERE aggregate_type = 'Admin'
 		ORDER BY id ASC
 	`
@@ -74,7 +74,7 @@ func (p *AdminProjection) Rebuild() error {
 	defer rows.Close()
 
 	for rows.Next() {
-		var event genesisdb.Event
+		var event db.Event
 		err := rows.Scan(
 			&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
 			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
@@ -135,9 +135,9 @@ func (p *AdminProjection) clear() error {
 	return err
 }
 
-func (p *AdminProjection) handleAdminCriado(event genesisdb.Event) error {
+func (p *AdminProjection) handleAdminCriado(event db.Event) error {
 	log.Printf("🔵 [PROJEÇÃO ADMIN] Processando AdminCriado")
-	
+
 	var payload struct {
 		Nome      string     `json:"Nome"`
 		Email     string     `json:"Email"`
@@ -202,7 +202,7 @@ func (p *AdminProjection) handleAdminCriado(event genesisdb.Event) error {
 	return nil
 }
 
-func (p *AdminProjection) handleAdminAtivado(event genesisdb.Event) error {
+func (p *AdminProjection) handleAdminAtivado(event db.Event) error {
 	query := fmt.Sprintf(`
 		UPDATE projection_admins
 		SET 
@@ -217,7 +217,7 @@ func (p *AdminProjection) handleAdminAtivado(event genesisdb.Event) error {
 	return err
 }
 
-func (p *AdminProjection) handleAdminDesativado(event genesisdb.Event) error {
+func (p *AdminProjection) handleAdminDesativado(event db.Event) error {
 	query := fmt.Sprintf(`
 		UPDATE projection_admins
 		SET 
@@ -232,7 +232,7 @@ func (p *AdminProjection) handleAdminDesativado(event genesisdb.Event) error {
 	return err
 }
 
-func (p *AdminProjection) handleAcaoAdminRegistrada(event genesisdb.Event) error {
+func (p *AdminProjection) handleAcaoAdminRegistrada(event db.Event) error {
 	query := fmt.Sprintf(`
 		UPDATE projection_admins
 		SET 
@@ -276,7 +276,7 @@ func (p *AdminProjection) GetByID(id uuid.UUID) (*AdminDTO, error) {
 
 func (p *AdminProjection) GetByEmail(email string) (*AdminDTO, error) {
 	log.Printf("🔍 [ADMIN PROJECTION] GetByEmail: %s", email)
-	
+
 	// 🔥 CORRIGIDO: Query direta
 	query := fmt.Sprintf(`
 		SELECT 
@@ -294,7 +294,7 @@ func (p *AdminProjection) GetByEmail(email string) (*AdminDTO, error) {
 		&dto.CreatedAt, &dto.UpdatedAt,
 		&dto.TotalAcoesRealizadas, &dto.Version,
 	)
-	
+
 	if err == sql.ErrNoRows {
 		log.Printf("❌ [ADMIN PROJECTION] Não encontrado: %s", email)
 		return nil, nil

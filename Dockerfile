@@ -79,5 +79,5 @@ CMD sh -c "./init_db.sh && ./spuri"
 
 # Labels para metadata
 LABEL maintainer="Spuri Team"
-LABEL description="Spuri Event Sourcing API with GenesisDB"
+LABEL description="Spuri Event Sourcing API"
 LABEL version="2.0.0"

@@ -11,18 +11,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"spuri/internal/genesisdb"
+	"spuri/internal/db"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 type AcademiaProjection struct {
-	client *genesisdb.Client
+	client *db.Client
 	ctx    context.Context
 }
 
-func NewAcademiaProjection(client *genesisdb.Client) *AcademiaProjection {
+func NewAcademiaProjection(client *db.Client) *AcademiaProjection {
 	return &AcademiaProjection{
 		client: client,
 		ctx:    context.Background(),
@@ -33,7 +33,7 @@ func (p *AcademiaProjection) Name() string {
 	return "academias"
 }
 
-func (p *AcademiaProjection) Handle(event genesisdb.Event) error {
+func (p *AcademiaProjection) Handle(event db.Event) error {
 	if event.AggregateType != "Academia" {
 		return nil
 	}
@@ -66,7 +66,7 @@ func (p *AcademiaProjection) Rebuild() error {
 			id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
-		FROM genesis_ledger
+		FROM spuri_ledger
 		WHERE aggregate_type = 'Academia'
 		ORDER BY id ASC
 	`
@@ -78,7 +78,7 @@ func (p *AcademiaProjection) Rebuild() error {
 	defer rows.Close()
 
 	for rows.Next() {
-		var event genesisdb.Event
+		var event db.Event
 		err := rows.Scan(
 			&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
 			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
@@ -139,9 +139,9 @@ func (p *AcademiaProjection) clear() error {
 	return err
 }
 
-func (p *AcademiaProjection) handleAcademiaCriada(event genesisdb.Event) error {
+func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 	log.Printf("🔵 [PROJEÇÃO ACADEMIA] Processando AcademiaCriada")
-	
+
 	var payload struct {
 		Type           string    `json:"Type"`
 		Nome           string    `json:"Nome"`
@@ -219,7 +219,7 @@ func (p *AcademiaProjection) handleAcademiaCriada(event genesisdb.Event) error {
 	return err
 }
 
-func (p *AcademiaProjection) handleAcademiaAtivada(event genesisdb.Event) error {
+func (p *AcademiaProjection) handleAcademiaAtivada(event db.Event) error {
 	query := fmt.Sprintf(`
 		UPDATE projection_academias
 		SET 
@@ -234,7 +234,7 @@ func (p *AcademiaProjection) handleAcademiaAtivada(event genesisdb.Event) error 
 	return err
 }
 
-func (p *AcademiaProjection) handleAcademiaDesativada(event genesisdb.Event) error {
+func (p *AcademiaProjection) handleAcademiaDesativada(event db.Event) error {
 	query := fmt.Sprintf(`
 		UPDATE projection_academias
 		SET 
@@ -249,7 +249,7 @@ func (p *AcademiaProjection) handleAcademiaDesativada(event genesisdb.Event) err
 	return err
 }
 
-func (p *AcademiaProjection) handleCursosAtualizados(event genesisdb.Event) error {
+func (p *AcademiaProjection) handleCursosAtualizados(event db.Event) error {
 	var payload struct {
 		NovoCursos []string `json:"NovoCursos"`
 	}
@@ -282,7 +282,7 @@ func (p *AcademiaProjection) handleCursosAtualizados(event genesisdb.Event) erro
 	return err
 }
 
-func (p *AcademiaProjection) handleInscricaoAprovada(event genesisdb.Event) error {
+func (p *AcademiaProjection) handleInscricaoAprovada(event db.Event) error {
 	query := fmt.Sprintf(`
 		UPDATE projection_academias
 		SET 
@@ -296,7 +296,7 @@ func (p *AcademiaProjection) handleInscricaoAprovada(event genesisdb.Event) erro
 	return err
 }
 
-func (p *AcademiaProjection) handleInscricaoReprovada(event genesisdb.Event) error {
+func (p *AcademiaProjection) handleInscricaoReprovada(event db.Event) error {
 	query := fmt.Sprintf(`
 		UPDATE projection_academias
 		SET 
@@ -430,24 +430,24 @@ func (p *AcademiaProjection) GetByCodigo(codigo string) (*AcademiaDTO, error) {
 }
 
 type AcademiaDTO struct {
-	ID                       uuid.UUID  `json:"id"`
-	Type                     string     `json:"type"`
-	Nome                     string     `json:"nome"`
-	CodigoAcademia           string     `json:"codigo_academia"`
-	SenhaHash                string     `json:"-"`
-	Provincia                string     `json:"provincia"`
-	Endereco                 string     `json:"endereco"`
-	NumeroTelefone           *string    `json:"numero_telefone,omitempty"`
-	Email                    *string    `json:"email,omitempty"`
-	Website                  *string    `json:"website,omitempty"`
-	NivelEscolar             *string    `json:"nivel_escolar,omitempty"`
-	Status                   string     `json:"status"`
-	Cursos                   []string   `json:"cursos"`
-	CreatedAt                time.Time  `json:"created_at"`
-	UpdatedAt                time.Time  `json:"updated_at"`
-	TotalEstudantes          int        `json:"total_estudantes"`
-	TotalInscricoesPendentes int        `json:"total_inscricoes_pendentes"`
-	Version                  int        `json:"version"`
+	ID                       uuid.UUID `json:"id"`
+	Type                     string    `json:"type"`
+	Nome                     string    `json:"nome"`
+	CodigoAcademia           string    `json:"codigo_academia"`
+	SenhaHash                string    `json:"-"`
+	Provincia                string    `json:"provincia"`
+	Endereco                 string    `json:"endereco"`
+	NumeroTelefone           *string   `json:"numero_telefone,omitempty"`
+	Email                    *string   `json:"email,omitempty"`
+	Website                  *string   `json:"website,omitempty"`
+	NivelEscolar             *string   `json:"nivel_escolar,omitempty"`
+	Status                   string    `json:"status"`
+	Cursos                   []string  `json:"cursos"`
+	CreatedAt                time.Time `json:"created_at"`
+	UpdatedAt                time.Time `json:"updated_at"`
+	TotalEstudantes          int       `json:"total_estudantes"`
+	TotalInscricoesPendentes int       `json:"total_inscricoes_pendentes"`
+	Version                  int       `json:"version"`
 }
 
 // Helpers

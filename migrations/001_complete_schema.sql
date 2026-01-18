@@ -1,7 +1,6 @@
 -- ============================================
 -- SPURI EVENT SOURCING - SCHEMA COMPLETO
--- GenesisDB + Projeções + Admin System
--- Versão: 2.2.0 (com codigo_academia)
+-- Versão: 2.3.0 (com status e status_usado)
 -- ============================================
 
 -- ============================================
@@ -11,10 +10,10 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ============================================
--- GENESIS LEDGER - Event Store Principal
+-- Spuri LEDGER - Event Store Principal
 -- ============================================
 
-CREATE TABLE IF NOT EXISTS genesis_ledger (
+CREATE TABLE IF NOT EXISTS spuri_ledger (
     -- Identificação
     id BIGSERIAL PRIMARY KEY,
     event_id UUID UNIQUE NOT NULL DEFAULT uuid_generate_v4(),
@@ -72,7 +71,7 @@ DECLARE
     v_previous_hash VARCHAR(64);
 BEGIN
     SELECT ledger_hash INTO v_previous_hash
-    FROM genesis_ledger
+    FROM spuri_ledger
     WHERE aggregate_id = NEW.aggregate_id
     ORDER BY event_version DESC
     LIMIT 1;
@@ -90,9 +89,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-DROP TRIGGER IF EXISTS trigger_generate_ledger_hash ON genesis_ledger;
+DROP TRIGGER IF EXISTS trigger_generate_ledger_hash ON spuri_ledger;
 CREATE TRIGGER trigger_generate_ledger_hash
-    BEFORE INSERT ON genesis_ledger
+    BEFORE INSERT ON spuri_ledger
     FOR EACH ROW
     EXECUTE FUNCTION auto_generate_ledger_hash();
 
@@ -100,28 +99,28 @@ CREATE TRIGGER trigger_generate_ledger_hash
 CREATE OR REPLACE FUNCTION prevent_ledger_modification()
 RETURNS TRIGGER AS $$
 BEGIN
-    RAISE EXCEPTION 'Genesis Ledger é imutável. Operação % não permitida.', TG_OP;
+    RAISE EXCEPTION 'Spuri Ledger é imutável. Operação % não permitida.', TG_OP;
 END;
 $$ LANGUAGE plpgsql;
 
-DROP TRIGGER IF EXISTS prevent_update_ledger ON genesis_ledger;
+DROP TRIGGER IF EXISTS prevent_update_ledger ON spuri_ledger;
 CREATE TRIGGER prevent_update_ledger
-    BEFORE UPDATE ON genesis_ledger
+    BEFORE UPDATE ON spuri_ledger
     FOR EACH ROW
     EXECUTE FUNCTION prevent_ledger_modification();
 
-DROP TRIGGER IF EXISTS prevent_delete_ledger ON genesis_ledger;
+DROP TRIGGER IF EXISTS prevent_delete_ledger ON spuri_ledger;
 CREATE TRIGGER prevent_delete_ledger
-    BEFORE DELETE ON genesis_ledger
+    BEFORE DELETE ON spuri_ledger
     FOR EACH ROW
     EXECUTE FUNCTION prevent_ledger_modification();
 
 -- Índices
-CREATE INDEX IF NOT EXISTS idx_genesis_aggregate ON genesis_ledger(aggregate_id, event_version);
-CREATE INDEX IF NOT EXISTS idx_genesis_type ON genesis_ledger(event_type);
-CREATE INDEX IF NOT EXISTS idx_genesis_occurred ON genesis_ledger(occurred_at);
-CREATE INDEX IF NOT EXISTS idx_genesis_aggregate_type ON genesis_ledger(aggregate_type);
-CREATE INDEX IF NOT EXISTS idx_genesis_payload ON genesis_ledger USING GIN (payload);
+CREATE INDEX IF NOT EXISTS idx_spuri_aggregate ON spuri_ledger(aggregate_id, event_version);
+CREATE INDEX IF NOT EXISTS idx_spuri_type ON spuri_ledger(event_type);
+CREATE INDEX IF NOT EXISTS idx_spuri_occurred ON spuri_ledger(occurred_at);
+CREATE INDEX IF NOT EXISTS idx_spuri_aggregate_type ON spuri_ledger(aggregate_type);
+CREATE INDEX IF NOT EXISTS idx_spuri_payload ON spuri_ledger USING GIN (payload);
 
 -- Snapshots
 CREATE TABLE IF NOT EXISTS aggregate_snapshots (
@@ -140,21 +139,22 @@ CREATE INDEX IF NOT EXISTS idx_snapshots_type ON aggregate_snapshots(aggregate_t
 -- ============================================
 
 -- Projeção: Estudantes
--- 🔥 ATUALIZADO: codigo_academia VARCHAR(50) em vez de id_academia UUID
+-- 🔥 ATUALIZADO: codigo_academia VARCHAR(50) + status + constraints
 CREATE TABLE IF NOT EXISTS projection_estudantes (
     id UUID PRIMARY KEY,
     nome VARCHAR(255) NOT NULL,
-    codigo_estudante VARCHAR(7) UNIQUE,
+    codigo_estudante VARCHAR(7) UNIQUE NOT NULL,
     senha_hash VARCHAR(255) NOT NULL,
     bilhete_identidade VARCHAR(50),
     bilhete_identidade_responsavel VARCHAR(50),
-    codigo_academia VARCHAR(50),  -- 🔥 MUDOU: VARCHAR em vez de UUID
+    codigo_academia VARCHAR(50),
     ano_escolar VARCHAR(50),
     ano_superior VARCHAR(50),
     curso_medio VARCHAR(255),
     curso_superior VARCHAR(255),
-    status_escolar VARCHAR(20),
-    status_superior VARCHAR(20),
+    status VARCHAR(20) DEFAULT 'inativo' CHECK (status IN ('inativo', 'ativo', 'finalizado')),
+    status_escolar VARCHAR(20) DEFAULT 'inativo' CHECK (status_escolar IN ('inativo', 'em_andamento', 'finalizado')),
+    status_superior VARCHAR(20) DEFAULT 'inativo' CHECK (status_superior IN ('inativo', 'em_andamento', 'finalizado')),
     version INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -168,6 +168,7 @@ CREATE INDEX IF NOT EXISTS idx_proj_estudante_codigo ON projection_estudantes(co
 CREATE INDEX IF NOT EXISTS idx_proj_estudante_codigo_academia ON projection_estudantes(codigo_academia);
 CREATE INDEX IF NOT EXISTS idx_proj_estudante_bilhete ON projection_estudantes(bilhete_identidade);
 CREATE INDEX IF NOT EXISTS idx_proj_estudante_bilhete_resp ON projection_estudantes(bilhete_identidade_responsavel);
+CREATE INDEX IF NOT EXISTS idx_proj_estudante_status ON projection_estudantes(status);
 
 -- Projeção: Academias
 CREATE TABLE IF NOT EXISTS projection_academias (
@@ -182,7 +183,7 @@ CREATE TABLE IF NOT EXISTS projection_academias (
     email VARCHAR(100),
     website VARCHAR(255),
     nivel_escolar VARCHAR(20),
-    status VARCHAR(20) DEFAULT 'ativo' CHECK (status IN ('ativo', 'inativo')),
+    status VARCHAR(20) DEFAULT 'inativo' CHECK (status IN ('ativo', 'inativo')),
     cursos JSONB DEFAULT '[]',
     version INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL,
@@ -219,11 +220,10 @@ CREATE INDEX IF NOT EXISTS idx_proj_admins_status ON projection_admins(status);
 CREATE INDEX IF NOT EXISTS idx_proj_admins_created_by ON projection_admins(created_by);
 
 -- Projeção: Notas
--- 🔥 ATUALIZADO: codigo_academia VARCHAR(50) em vez de id_academia UUID
 CREATE TABLE IF NOT EXISTS projection_notas (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     estudante_id UUID NOT NULL,
-    codigo_academia VARCHAR(50) NOT NULL,  -- 🔥 MUDOU
+    codigo_academia VARCHAR(50) NOT NULL,
     ano_lectivo VARCHAR(20) NOT NULL,
     periodo VARCHAR(50) NOT NULL,
     materias JSONB NOT NULL,
@@ -238,11 +238,10 @@ CREATE INDEX IF NOT EXISTS idx_proj_notas_codigo_academia ON projection_notas(co
 CREATE INDEX IF NOT EXISTS idx_proj_notas_ano ON projection_notas(ano_lectivo);
 
 -- Projeção: Faltas
--- 🔥 ATUALIZADO: codigo_academia VARCHAR(50) em vez de id_academia UUID
 CREATE TABLE IF NOT EXISTS projection_faltas (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     estudante_id UUID NOT NULL,
-    codigo_academia VARCHAR(50) NOT NULL,  -- 🔥 MUDOU
+    codigo_academia VARCHAR(50) NOT NULL,
     ano_lectivo VARCHAR(20) NOT NULL,
     periodo VARCHAR(50) NOT NULL,
     materias JSONB NOT NULL,
@@ -257,6 +256,7 @@ CREATE INDEX IF NOT EXISTS idx_proj_faltas_codigo_academia ON projection_faltas(
 CREATE INDEX IF NOT EXISTS idx_proj_faltas_ano ON projection_faltas(ano_lectivo);
 
 -- Projeção: Inscrições
+-- 🔥 ATUALIZADO: campo status_usado adicionado
 CREATE TABLE IF NOT EXISTS projection_inscricoes (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     estudante_id UUID NOT NULL,
@@ -267,6 +267,7 @@ CREATE TABLE IF NOT EXISTS projection_inscricoes (
     ano_inscricao VARCHAR(50) NOT NULL,
     curso VARCHAR(255),
     status VARCHAR(20) NOT NULL CHECK (status IN ('espera', 'aprovado', 'reprovado')),
+    status_usado BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     event_id UUID NOT NULL,
@@ -280,6 +281,7 @@ CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_academia ON projection_inscricoes
 CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_status ON projection_inscricoes(status);
 CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_codigo_estudante ON projection_inscricoes(codigo_estudante);
 CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_codigo_academia ON projection_inscricoes(codigo_academia);
+CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_status_usado ON projection_inscricoes(status_usado);
 
 -- ============================================
 -- LOG DE AÇÕES ADMINISTRATIVAS
@@ -403,7 +405,7 @@ DECLARE
     v_event RECORD;
 BEGIN
     FOR v_event IN 
-        SELECT * FROM genesis_ledger 
+        SELECT * FROM spuri_ledger 
         WHERE aggregate_id = p_aggregate_id 
         ORDER BY event_version ASC
     LOOP
@@ -502,17 +504,10 @@ ORDER BY l.performed_at DESC
 LIMIT 100;
 
 -- ============================================
--- ADMIN INICIAL
--- ============================================
--- NOTA: Admin deve ser criado manualmente via API
--- Endpoint: POST /admin/register (requer token de admin existente)
--- Para criar o primeiro admin, use uma rota especial ou script separado
-
--- ============================================
 -- LOG INICIAL DO SISTEMA
 -- ============================================
 
-INSERT INTO genesis_ledger (
+INSERT INTO spuri_ledger (
     aggregate_id,
     aggregate_type,
     event_type,
@@ -526,7 +521,7 @@ INSERT INTO genesis_ledger (
     'SchemaCreated',
     1,
     jsonb_build_object(
-        'version', '2.2.0',
+        'version', '2.3.0',
         'name', 'Spuri Event Sourcing',
         'features', json_build_array(
             'event_sourcing',
@@ -534,10 +529,12 @@ INSERT INTO genesis_ledger (
             'codigo_estudante',
             'codigo_academia',
             'admin_system',
-            'role_hierarchy'
+            'role_hierarchy',
+            'status_validation',
+            'inscricao_vinculacao'
         )
     ),
-    jsonb_build_object('created_by', 'migration_completa_v2.2'),
+    jsonb_build_object('created_by', 'migration_completa_v2.3'),
     CURRENT_TIMESTAMP
 )
 ON CONFLICT (aggregate_id, event_version) DO NOTHING;
@@ -546,7 +543,7 @@ ON CONFLICT (aggregate_id, event_version) DO NOTHING;
 -- COMENTÁRIOS
 -- ============================================
 
-COMMENT ON TABLE genesis_ledger IS 'Event Store principal - Imutável com hash chain';
+COMMENT ON TABLE spuri_ledger IS 'Event Store principal - Imutável com hash chain';
 COMMENT ON TABLE projection_estudantes IS 'Projeção de leitura para estudantes';
 COMMENT ON TABLE projection_academias IS 'Projeção de leitura para academias';
 COMMENT ON TABLE projection_admins IS 'Projeção de leitura para administradores';
@@ -554,10 +551,17 @@ COMMENT ON TABLE admin_action_log IS 'Log de todas as ações administrativas';
 
 COMMENT ON COLUMN projection_estudantes.codigo_estudante IS 'Código único do estudante (formato: AAA1234)';
 COMMENT ON COLUMN projection_estudantes.codigo_academia IS 'Código da academia à qual o estudante pertence';
+COMMENT ON COLUMN projection_estudantes.status IS 'Status geral: inativo (sem vínculo), ativo (vinculado), finalizado';
+COMMENT ON COLUMN projection_estudantes.status_escolar IS 'Status ensino médio: inativo, em_andamento, finalizado';
+COMMENT ON COLUMN projection_estudantes.status_superior IS 'Status ensino superior: inativo, em_andamento, finalizado';
+
+COMMENT ON COLUMN projection_academias.status IS 'Status da academia: inativo (ao criar), ativo (aprovada por admin)';
+
+COMMENT ON COLUMN projection_inscricoes.status_usado IS 'Se esta inscrição já foi usada para vincular o estudante';
+
 COMMENT ON COLUMN projection_notas.codigo_academia IS 'Código da academia que registrou as notas';
 COMMENT ON COLUMN projection_faltas.codigo_academia IS 'Código da academia que registrou as faltas';
 COMMENT ON COLUMN projection_admins.role IS 'Hierarquia: fpp > adm > gerente';
-COMMENT ON COLUMN projection_academias.status IS 'Status da academia (ativo/inativo)';
 
 COMMENT ON FUNCTION generate_codigo_estudante IS 'Gera código único AAA1234 para estudantes';
 COMMENT ON FUNCTION registrar_acao_admin IS 'Registra uma ação administrativa no log';
@@ -573,16 +577,20 @@ DECLARE
     v_total_checkpoints INT;
     v_total_admins INT;
 BEGIN
-    SELECT COUNT(*) INTO v_total_eventos FROM genesis_ledger;
+    SELECT COUNT(*) INTO v_total_eventos FROM spuri_ledger;
     SELECT COUNT(*) INTO v_total_checkpoints FROM projection_checkpoints;
     SELECT COUNT(*) INTO v_total_admins FROM projection_admins;
     
-    RAISE NOTICE '╔══════════════════════════════════════╗';
-    RAISE NOTICE '║ SCHEMA CRIADO COM SUCESSO! v2.2.0   ║';
-    RAISE NOTICE '╚══════════════════════════════════════╝';
+    RAISE NOTICE '╔═══════════════════════════════════╗';
+    RAISE NOTICE '║ SCHEMA CRIADO COM SUCESSO! v2.3.0 ║';
+    RAISE NOTICE '╚═══════════════════════════════════╝';
     RAISE NOTICE 'Total de eventos: %', v_total_eventos;
     RAISE NOTICE 'Total de checkpoints: %', v_total_checkpoints;
     RAISE NOTICE 'Total de admins: %', v_total_admins;
-    RAISE NOTICE '🔥 NOVIDADE: codigo_academia implementado';
-    RAISE NOTICE '╚══════════════════════════════════════╝';
+    RAISE NOTICE '🔥 NOVIDADES v2.3.0:';
+    RAISE NOTICE '   ✅ Campo status em estudantes';
+    RAISE NOTICE '   ✅ Campo status_usado em inscrições';
+    RAISE NOTICE '   ✅ Academia inicia com status inativo';
+    RAISE NOTICE '   ✅ Constraints de validação de status';
+    RAISE NOTICE '╚═══════════════════════════════════╝';
 END $$;

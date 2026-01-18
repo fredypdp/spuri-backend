@@ -2,63 +2,63 @@ package handlers
 
 import (
 	"log"
-	"spuri/internal/genesisdb"
+	"spuri/internal/db"
 	"spuri/internal/projections"
 
 	"github.com/gin-gonic/gin"
 )
 
 // getRepository obtém o repositório do contexto
-func getRepository(c *gin.Context) *genesisdb.AggregateRepository {
+func getRepository(c *gin.Context) *db.AggregateRepository {
 	repo, _ := c.Get("repository")
-	return repo.(*genesisdb.AggregateRepository)
+	return repo.(*db.AggregateRepository)
 }
 
-// getGenesisClient obtém o cliente GenesisDB do contexto
-func getGenesisClient(c *gin.Context) *genesisdb.Client {
-	client, exists := c.Get("genesisClient")
+// getDbClient obtém o cliente Banco de dados do contexto
+func getDbClient(c *gin.Context) *db.Client {
+	client, exists := c.Get("dbClient")
 	if !exists {
 		// Fallback: criar novo (não ideal mas evita crash)
-		log.Printf("⚠️ Cliente GenesisDB não encontrado no contexto, criando novo")
-		config := genesisdb.DefaultConfig()
-		newClient, _ := genesisdb.NewClient(config)
+		log.Printf("⚠️ Cliente Banco de dados não encontrado no contexto, criando novo")
+		config := db.DefaultConfig()
+		newClient, _ := db.NewClient(config)
 		return newClient
 	}
-	return client.(*genesisdb.Client)
+	return client.(*db.Client)
 }
 
-// getGenesisClientFromContext é um alias para getGenesisClient
+// getDbClientFromContext é um alias para getDbClient
 // (usado em admin_handlers.go)
-func getGenesisClientFromContext(c *gin.Context) *genesisdb.Client {
-	return getGenesisClient(c)
+func getDbClientFromContext(c *gin.Context) *db.Client {
+	return getDbClient(c)
 }
 
 // getEstudanteProjection obtém a projeção de estudantes
 func getEstudanteProjection(c *gin.Context) *projections.EstudanteProjection {
-	client := getGenesisClient(c)
+	client := getDbClient(c)
 	return projections.NewEstudanteProjection(client)
 }
 
 // getAcademiaProjection obtém a projeção de academias
 func getAcademiaProjection(c *gin.Context) *projections.AcademiaProjection {
-	client := getGenesisClient(c)
+	client := getDbClient(c)
 	return projections.NewAcademiaProjection(client)
 }
 
 // getNotasProjection obtém a projeção de notas
 func getNotasProjection(c *gin.Context) *projections.NotasProjection {
-	client := getGenesisClient(c)
+	client := getDbClient(c)
 	return projections.NewNotasProjection(client)
 }
 
 // getFaltasProjection obtém a projeção de faltas
 func getFaltasProjection(c *gin.Context) *projections.FaltasProjection {
-	client := getGenesisClient(c)
+	client := getDbClient(c)
 	return projections.NewFaltasProjection(client)
 }
 
 // getInscricoesProjection obtém a projeção de inscrições
 func getInscricoesProjection(c *gin.Context) *projections.InscricoesProjection {
-	client := getGenesisClient(c)
+	client := getDbClient(c)
 	return projections.NewInscricoesProjection(client)
 }

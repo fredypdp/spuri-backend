@@ -1,9 +1,9 @@
 // ============================================================================
-// ARQUIVO: internal/genesisdb/helpers.go (NOVO)
+// ARQUIVO: internal/db/helpers.go (NOVO)
 // Funções auxiliares para trabalhar com queries diretas
 // ============================================================================
 
-package genesisdb
+package db
 
 import (
 	"strings"

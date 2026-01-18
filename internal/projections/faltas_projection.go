@@ -10,18 +10,18 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"spuri/internal/genesisdb"
+	"spuri/internal/db"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 type FaltasProjection struct {
-	client *genesisdb.Client
+	client *db.Client
 	ctx    context.Context
 }
 
-func NewFaltasProjection(client *genesisdb.Client) *FaltasProjection {
+func NewFaltasProjection(client *db.Client) *FaltasProjection {
 	return &FaltasProjection{
 		client: client,
 		ctx:    context.Background(),
@@ -32,7 +32,7 @@ func (p *FaltasProjection) Name() string {
 	return "faltas"
 }
 
-func (p *FaltasProjection) Handle(event genesisdb.Event) error {
+func (p *FaltasProjection) Handle(event db.Event) error {
 	if event.EventType != "FaltasRegistradas" {
 		return nil
 	}
@@ -50,7 +50,7 @@ func (p *FaltasProjection) Rebuild() error {
 			id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
-		FROM genesis_ledger
+		FROM spuri_ledger
 		WHERE event_type = 'FaltasRegistradas'
 		ORDER BY id ASC
 	`
@@ -62,7 +62,7 @@ func (p *FaltasProjection) Rebuild() error {
 	defer rows.Close()
 
 	for rows.Next() {
-		var event genesisdb.Event
+		var event db.Event
 		err := rows.Scan(
 			&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
 			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
@@ -124,7 +124,7 @@ func (p *FaltasProjection) clear() error {
 	return err
 }
 
-func (p *FaltasProjection) handleFaltasRegistradas(event genesisdb.Event) error {
+func (p *FaltasProjection) handleFaltasRegistradas(event db.Event) error {
 	var payload struct {
 		CodigoAcademia string `json:"CodigoAcademia"`
 		AnoLectivo     string `json:"AnoLectivo"`

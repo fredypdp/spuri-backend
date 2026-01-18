@@ -1,9 +1,9 @@
 // ============================================================================
-// ARQUIVO: internal/genesisdb/repository.go
+// ARQUIVO: internal/db/repository.go
 // 🔥 CORRIGIDO: Todas as queries usando Exec/Query direto sem prepared statements
 // ============================================================================
 
-package genesisdb
+package db
 
 import (
 	"context"
@@ -36,17 +36,17 @@ func NewAggregateRepository(client *Client) *AggregateRepository {
 // Load carrega um agregado reconstruindo-o a partir dos eventos
 func (r *AggregateRepository) Load(id uuid.UUID, aggregateType string) (aggregates.Aggregate, error) {
 	// 1. Carregar eventos do ledger
-	genesisEvents, err := r.eventStore.LoadEventStream(r.ctx, id)
+	dbEvents, err := r.eventStore.LoadEventStream(r.ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao carregar eventos: %w", err)
 	}
 
-	if len(genesisEvents) == 0 {
+	if len(dbEvents) == 0 {
 		return nil, fmt.Errorf("agregado não encontrado: %s", id)
 	}
 
-	// 2. Converter eventos do GenesisDB para eventos de domínio
-	domainEvents, err := r.convertToDomainEvents(genesisEvents)
+	// 2. Converter eventos do Banco de dados para eventos de domínio
+	domainEvents, err := r.convertToDomainEvents(dbEvents)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao converter eventos: %w", err)
 	}
@@ -90,8 +90,8 @@ func (r *AggregateRepository) Save(aggregate aggregates.Aggregate) error {
 
 	// Salvar cada evento
 	for i, domainEvent := range uncommittedEvents {
-		// Converter para evento do GenesisDB
-		genesisEvent, err := r.convertToGenesisEvent(
+		// Converter para evento do Banco de dados
+		dbEvent, err := r.dbEvent(
 			domainEvent,
 			aggregate.GetType(),
 			currentVersion+i+1,
@@ -101,7 +101,7 @@ func (r *AggregateRepository) Save(aggregate aggregates.Aggregate) error {
 		}
 
 		// Persistir no ledger
-		if err := r.eventStore.Append(r.ctx, genesisEvent); err != nil {
+		if err := r.eventStore.Append(r.ctx, dbEvent); err != nil {
 			return fmt.Errorf("erro ao salvar evento: %w", err)
 		}
 	}
@@ -116,7 +116,7 @@ func (r *AggregateRepository) Save(aggregate aggregates.Aggregate) error {
 func (r *AggregateRepository) getAggregateVersionDirect(aggregateID uuid.UUID) (int, error) {
 	query := fmt.Sprintf(`
 		SELECT COALESCE(MAX(event_version), 0)
-		FROM genesis_ledger
+		FROM spuri_ledger
 		WHERE aggregate_id = '%s'
 	`, aggregateID.String())
 
@@ -151,17 +151,17 @@ func (r *AggregateRepository) LoadFromVersion(
 	fromVersion int,
 ) (aggregates.Aggregate, error) {
 	// Carregar eventos a partir da versão
-	genesisEvents, err := r.eventStore.LoadEventStreamFromVersion(r.ctx, id, fromVersion)
+	dbEvents, err := r.eventStore.LoadEventStreamFromVersion(r.ctx, id, fromVersion)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao carregar eventos: %w", err)
 	}
 
-	if len(genesisEvents) == 0 {
+	if len(dbEvents) == 0 {
 		return nil, fmt.Errorf("nenhum evento encontrado")
 	}
 
 	// Converter e reconstruir
-	domainEvents, err := r.convertToDomainEvents(genesisEvents)
+	domainEvents, err := r.convertToDomainEvents(dbEvents)
 	if err != nil {
 		return nil, err
 	}
@@ -190,8 +190,8 @@ func (r *AggregateRepository) VerifyIntegrity(id uuid.UUID) (bool, error) {
 	return r.eventStore.VerifyLedgerIntegrity(r.ctx, id)
 }
 
-// convertToGenesisEvent converte evento de domínio para evento do GenesisDB
-func (r *AggregateRepository) convertToGenesisEvent(
+// dbEvent converte evento de domínio para evento do Banco de dados
+func (r *AggregateRepository) dbEvent(
 	domainEvent aggregates.DomainEvent,
 	aggregateType string,
 	version int,
@@ -223,11 +223,11 @@ func (r *AggregateRepository) convertToGenesisEvent(
 	}, nil
 }
 
-// convertToDomainEvents converte eventos do GenesisDB para eventos de domínio
-func (r *AggregateRepository) convertToDomainEvents(genesisEvents []Event) ([]aggregates.DomainEvent, error) {
-	domainEvents := make([]aggregates.DomainEvent, 0, len(genesisEvents))
+// convertToDomainEvents converte eventos do Banco de dados para eventos de domínio
+func (r *AggregateRepository) convertToDomainEvents(dbEvents []Event) ([]aggregates.DomainEvent, error) {
+	domainEvents := make([]aggregates.DomainEvent, 0, len(dbEvents))
 
-	for _, ge := range genesisEvents {
+	for _, ge := range dbEvents {
 		// Deserializar payload
 		var payload map[string]interface{}
 		if err := json.Unmarshal(ge.Payload, &payload); err != nil {

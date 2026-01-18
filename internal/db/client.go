@@ -1,4 +1,4 @@
-package genesisdb
+package db
 
 import (
 	"context"
@@ -12,14 +12,14 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// Client representa o cliente GenesisDB
+// Client representa o cliente Banco de dados
 type Client struct {
 	db     *sqlx.DB
 	config *Config
 	ctx    context.Context
 }
 
-// Config configuração do GenesisDB
+// Config configuração do Banco de dados
 type Config struct {
 	Host            string
 	Port            string
@@ -33,7 +33,7 @@ type Config struct {
 	DatabaseURL     string // ← NOVO: Para Railway
 }
 
-// NewClient cria uma nova instância do cliente GenesisDB
+// NewClient cria uma nova instância do cliente Banco de dados
 func NewClient(config *Config) (*Client, error) {
 	if config == nil {
 		config = DefaultConfig()
@@ -55,7 +55,7 @@ func NewClient(config *Config) (*Client, error) {
 
 	db, err := sqlx.Connect("postgres", connStr)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao conectar ao GenesisDB: %w", err)
+		return nil, fmt.Errorf("erro ao conectar ao Banco de dados: %w", err)
 	}
 
 	// Configurar pool de conexões
@@ -65,7 +65,7 @@ func NewClient(config *Config) (*Client, error) {
 
 	// Testar conexão
 	if err := db.Ping(); err != nil {
-		return nil, fmt.Errorf("erro ao pingar GenesisDB: %w", err)
+		return nil, fmt.Errorf("erro ao pingar Banco de dados: %w", err)
 	}
 
 	client := &Client{
@@ -76,16 +76,16 @@ func NewClient(config *Config) (*Client, error) {
 
 	// Log de conexão
 	if config.DatabaseURL != "" {
-		log.Printf("✅ GenesisDB conectado via DATABASE_URL")
+		log.Printf("✅ Banco de dados conectado via DATABASE_URL")
 	} else {
-		log.Printf("✅ GenesisDB conectado: %s@%s:%s/%s", 
+		log.Printf("✅ Banco de dados conectado: %s@%s:%s/%s", 
 			config.User, config.Host, config.Port, config.DBName)
 	}
 
 	return client, nil
 }
 
-// DefaultConfig retorna configuração padrão do GenesisDB
+// DefaultConfig retorna configuração padrão do Banco de dados
 func DefaultConfig() *Config {
 	// PRIORIDADE 1: DATABASE_URL (Railway, Heroku, etc)
 	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
@@ -102,19 +102,19 @@ func DefaultConfig() *Config {
 	// PRIORIDADE 2: Variáveis individuais (desenvolvimento local)
 	log.Println("📊 Usando variáveis de ambiente individuais")
 	return &Config{
-		Host:            getEnv("GENESISDB_HOST", "localhost"),
-		Port:            getEnv("GENESISDB_PORT", "5432"),
-		User:            getEnv("GENESISDB_USER", "genesis"),
-		Password:        getEnv("GENESISDB_PASSWORD", "genesis123"),
-		DBName:          getEnv("GENESISDB_NAME", "spuri_genesis"),
-		SSLMode:         getEnv("GENESISDB_SSLMODE", "disable"),
+		Host:            getEnv("DB_HOST", "localhost"),
+		Port:            getEnv("DB_PORT", "5432"),
+		User:            getEnv("DB_USER", "fredy"),
+		Password:        getEnv("DB_PASSWORD", "fredy123"),
+		DBName:          getEnv("DB_NAME", "spuri_db"),
+		SSLMode:         getEnv("DB_SSLMODE", "disable"),
 		MaxConnections:  25,
 		MaxIdleConns:    5,
 		ConnMaxLifetime: 5 * time.Minute,
 	}
 }
 
-// Close fecha a conexão com o GenesisDB
+// Close fecha a conexão com o Banco de dados
 func (c *Client) Close() error {
 	if c.db != nil {
 		return c.db.Close()
@@ -170,7 +170,7 @@ func (c *Client) Stats() sql.DBStats {
 func (c *Client) LogStats() {
 	stats := c.Stats()
 	log.Printf(`
-📊 GenesisDB Stats:
+📊 Banco de dados Stats:
   - Conexões abertas: %d
   - Conexões em uso: %d
   - Conexões ociosas: %d

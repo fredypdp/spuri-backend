@@ -14,25 +14,25 @@ import (
 
 // ListarTodosRegistros lista TODOS os registros de notas e faltas (apenas admin)
 func ListarTodosRegistros(c *gin.Context) {
-	client := getGenesisClient(c)
-	
+	client := getDbClient(c)
+
 	// Parâmetros de paginação
 	limit := 100
 	offset := 0
-	
+
 	if limitParam := c.Query("limit"); limitParam != "" {
 		_, _ = fmt.Sscanf(limitParam, "%d", &limit)
 	}
 	if offsetParam := c.Query("offset"); offsetParam != "" {
 		_, _ = fmt.Sscanf(offsetParam, "%d", &offset)
 	}
-	
+
 	// Filtro opcional por tipo
 	tipoFiltro := c.Query("tipo") // "notas", "faltas", ou vazio para ambos
-	
+
 	// Estrutura de resposta
 	response := gin.H{}
-	
+
 	// ========================================
 	// BUSCAR NOTAS
 	// ========================================
@@ -57,7 +57,7 @@ func ListarTodosRegistros(c *gin.Context) {
 			ORDER BY n.registered_at DESC
 			LIMIT $1 OFFSET $2
 		`
-		
+
 		type NotaCompleta struct {
 			ID              string      `db:"id" json:"id"`
 			EstudanteID     string      `db:"estudante_id" json:"estudante_id"`
@@ -72,27 +72,27 @@ func ListarTodosRegistros(c *gin.Context) {
 			EventID         string      `db:"event_id" json:"event_id"`
 			Version         int         `db:"version" json:"version"`
 		}
-		
+
 		var notas []NotaCompleta
 		err := client.DB().Select(&notas, queryNotas, limit, offset)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "erro ao buscar notas",
+				"error":   "erro ao buscar notas",
 				"details": err.Error(),
 			})
 			return
 		}
-		
+
 		// Contar total de notas
 		var totalNotas int
 		countQueryNotas := `SELECT COUNT(*) FROM projection_notas`
 		client.DB().Get(&totalNotas, countQueryNotas)
-		
+
 		response["notas"] = notas
 		response["total_notas"] = len(notas)
 		response["total_notas_geral"] = totalNotas
 	}
-	
+
 	// ========================================
 	// BUSCAR FALTAS
 	// ========================================
@@ -117,7 +117,7 @@ func ListarTodosRegistros(c *gin.Context) {
 			ORDER BY f.registered_at DESC
 			LIMIT $1 OFFSET $2
 		`
-		
+
 		type FaltaCompleta struct {
 			ID              string      `db:"id" json:"id"`
 			EstudanteID     string      `db:"estudante_id" json:"estudante_id"`
@@ -132,27 +132,27 @@ func ListarTodosRegistros(c *gin.Context) {
 			EventID         string      `db:"event_id" json:"event_id"`
 			Version         int         `db:"version" json:"version"`
 		}
-		
+
 		var faltas []FaltaCompleta
 		err := client.DB().Select(&faltas, queryFaltas, limit, offset)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "erro ao buscar faltas",
+				"error":   "erro ao buscar faltas",
 				"details": err.Error(),
 			})
 			return
 		}
-		
+
 		// Contar total de faltas
 		var totalFaltas int
 		countQueryFaltas := `SELECT COUNT(*) FROM projection_faltas`
 		client.DB().Get(&totalFaltas, countQueryFaltas)
-		
+
 		response["faltas"] = faltas
 		response["total_faltas"] = len(faltas)
 		response["total_faltas_geral"] = totalFaltas
 	}
-	
+
 	// ========================================
 	// ESTATÍSTICAS GERAIS
 	// ========================================
@@ -162,7 +162,7 @@ func ListarTodosRegistros(c *gin.Context) {
 		TotalNotas      int `db:"total_notas"`
 		TotalFaltas     int `db:"total_faltas"`
 	}
-	
+
 	queryStats := `
 		SELECT 
 			(SELECT COUNT(*) FROM projection_estudantes) as total_estudantes,
@@ -171,20 +171,20 @@ func ListarTodosRegistros(c *gin.Context) {
 			(SELECT COUNT(*) FROM projection_faltas) as total_faltas
 	`
 	client.DB().Get(&stats, queryStats)
-	
+
 	response["estatisticas"] = stats
 	response["limit"] = limit
 	response["offset"] = offset
 	response["filtro_tipo"] = tipoFiltro
-	
+
 	c.JSON(http.StatusOK, response)
 }
 
 // ListarRegistrosPorEstudante lista todos os registros de um estudante específico (admin)
 func ListarRegistrosPorEstudante(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
-	client := getGenesisClient(c)
-	
+	client := getDbClient(c)
+
 	// Buscar estudante
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
@@ -192,7 +192,7 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
 		return
 	}
-	
+
 	// Buscar todas as notas
 	queryNotas := `
 		SELECT 
@@ -208,7 +208,7 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 		WHERE n.estudante_id = $1
 		ORDER BY n.registered_at DESC
 	`
-	
+
 	type NotaSimples struct {
 		ID             string      `db:"id" json:"id"`
 		CodigoAcademia string      `db:"codigo_academia" json:"codigo_academia"`
@@ -218,10 +218,10 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 		Materias       interface{} `db:"materias" json:"materias"`
 		RegisteredAt   string      `db:"registered_at" json:"registered_at"`
 	}
-	
+
 	var notas []NotaSimples
 	client.DB().Select(&notas, queryNotas, estudante.ID)
-	
+
 	// Buscar todas as faltas
 	queryFaltas := `
 		SELECT 
@@ -237,7 +237,7 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 		WHERE f.estudante_id = $1
 		ORDER BY f.registered_at DESC
 	`
-	
+
 	type FaltaSimples struct {
 		ID             string      `db:"id" json:"id"`
 		CodigoAcademia string      `db:"codigo_academia" json:"codigo_academia"`
@@ -247,10 +247,10 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 		Materias       interface{} `db:"materias" json:"materias"`
 		RegisteredAt   string      `db:"registered_at" json:"registered_at"`
 	}
-	
+
 	var faltas []FaltaSimples
 	client.DB().Select(&faltas, queryFaltas, estudante.ID)
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"estudante": gin.H{
 			"codigo": estudante.CodigoEstudante,
@@ -267,8 +267,8 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 // ListarRegistrosPorAcademia lista todos os registros de uma academia (admin)
 func ListarRegistrosPorAcademia(c *gin.Context) {
 	codigoAcademia := c.Param("codigo")
-	client := getGenesisClient(c)
-	
+	client := getDbClient(c)
+
 	// Buscar academia
 	academiaProj := getAcademiaProjection(c)
 	academia, err := academiaProj.GetByCodigo(codigoAcademia)
@@ -276,7 +276,7 @@ func ListarRegistrosPorAcademia(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
 		return
 	}
-	
+
 	// Buscar todas as notas desta academia
 	queryNotas := `
 		SELECT 
@@ -293,7 +293,7 @@ func ListarRegistrosPorAcademia(c *gin.Context) {
 		WHERE n.codigo_academia = $1
 		ORDER BY n.registered_at DESC
 	`
-	
+
 	type NotaPorAcademia struct {
 		ID              string      `db:"id" json:"id"`
 		EstudanteID     string      `db:"estudante_id" json:"estudante_id"`
@@ -304,10 +304,10 @@ func ListarRegistrosPorAcademia(c *gin.Context) {
 		Materias        interface{} `db:"materias" json:"materias"`
 		RegisteredAt    string      `db:"registered_at" json:"registered_at"`
 	}
-	
+
 	var notas []NotaPorAcademia
 	client.DB().Select(&notas, queryNotas, codigoAcademia)
-	
+
 	// Buscar todas as faltas desta academia
 	queryFaltas := `
 		SELECT 
@@ -324,7 +324,7 @@ func ListarRegistrosPorAcademia(c *gin.Context) {
 		WHERE f.codigo_academia = $1
 		ORDER BY f.registered_at DESC
 	`
-	
+
 	type FaltaPorAcademia struct {
 		ID              string      `db:"id" json:"id"`
 		EstudanteID     string      `db:"estudante_id" json:"estudante_id"`
@@ -335,10 +335,10 @@ func ListarRegistrosPorAcademia(c *gin.Context) {
 		Materias        interface{} `db:"materias" json:"materias"`
 		RegisteredAt    string      `db:"registered_at" json:"registered_at"`
 	}
-	
+
 	var faltas []FaltaPorAcademia
 	client.DB().Select(&faltas, queryFaltas, codigoAcademia)
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"academia": gin.H{
 			"codigo": academia.CodigoAcademia,

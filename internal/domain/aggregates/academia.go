@@ -8,11 +8,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// Academia agregado raiz
 type Academia struct {
 	BaseAggregate
 	
-	// Estado
 	Type           string
 	Nome           string
 	CodigoAcademia string
@@ -23,16 +21,14 @@ type Academia struct {
 	Email          *string
 	Website        *string
 	NivelEscolar   *string
-	Status         string
+	Status         string // inativo, ativo
 	Cursos         []string
 	CreatedAt      time.Time
 	
-	// Estatísticas (reconstruídas de eventos)
 	TotalEstudantes          int
 	TotalInscricoesPendentes int
 }
 
-// NewAcademia cria um novo agregado Academia
 func NewAcademia() *Academia {
 	return &Academia{
 		BaseAggregate: BaseAggregate{
@@ -40,16 +36,15 @@ func NewAcademia() *Academia {
 			Version:           0,
 			UncommittedEvents: []DomainEvent{},
 		},
+		Status: "inativo", // 🔥 Inicia inativa
 		Cursos: []string{},
 	}
 }
 
-// GetType implementa Aggregate
 func (a *Academia) GetType() string {
 	return "Academia"
 }
 
-// Apply aplica eventos ao agregado
 func (a *Academia) Apply(event DomainEvent) error {
 	switch event.GetEventType() {
 	case "AcademiaCriada":
@@ -69,9 +64,6 @@ func (a *Academia) Apply(event DomainEvent) error {
 	}
 }
 
-// Comandos - geram eventos
-
-// Criar cria uma nova academia
 func (a *Academia) Criar(
 	tipo string,
 	nome string,
@@ -85,7 +77,6 @@ func (a *Academia) Criar(
 	nivelEscolar *string,
 	cursos []string,
 ) error {
-	// Validações
 	if tipo != "escola" && tipo != "superior" {
 		return fmt.Errorf("tipo deve ser 'escola' ou 'superior'")
 	}
@@ -99,7 +90,6 @@ func (a *Academia) Criar(
 		return fmt.Errorf("nivel_escolar é obrigatório para escolas")
 	}
 
-	// Criar evento
 	event := &AcademiaCriadaEvent{
 		BaseEvent: BaseEvent{
 			EventType:   "AcademiaCriada",
@@ -123,7 +113,6 @@ func (a *Academia) Criar(
 	return a.Apply(event)
 }
 
-// AprovarInscricao aprova uma inscrição de estudante
 func (a *Academia) AprovarInscricao(
 	estudanteID uuid.UUID,
 	inscricaoID uuid.UUID,
@@ -131,12 +120,10 @@ func (a *Academia) AprovarInscricao(
 	anoInscricao string,
 	curso *string,
 ) error {
-	// Validações
 	if a.Status != "ativo" {
 		return fmt.Errorf("academia está inativa")
 	}
 
-	// Criar evento
 	event := &InscricaoAprovadaPorAcademiaEvent{
 		BaseEvent: BaseEvent{
 			EventType:   "InscricaoAprovada",
@@ -155,18 +142,15 @@ func (a *Academia) AprovarInscricao(
 	return a.Apply(event)
 }
 
-// ReprovarInscricao reprova uma inscrição
 func (a *Academia) ReprovarInscricao(
 	estudanteID uuid.UUID,
 	inscricaoID uuid.UUID,
 	motivo string,
 ) error {
-	// Validações
 	if a.Status != "ativo" {
 		return fmt.Errorf("academia está inativa")
 	}
 
-	// Criar evento
 	event := &InscricaoReprovadaPorAcademiaEvent{
 		BaseEvent: BaseEvent{
 			EventType:   "InscricaoReprovada",
@@ -183,7 +167,6 @@ func (a *Academia) ReprovarInscricao(
 	return a.Apply(event)
 }
 
-// Ativar ativa a academia
 func (a *Academia) Ativar() error {
 	if a.Status == "ativo" {
 		return fmt.Errorf("academia já está ativa")
@@ -201,7 +184,6 @@ func (a *Academia) Ativar() error {
 	return a.Apply(event)
 }
 
-// Desativar desativa a academia
 func (a *Academia) Desativar(motivo string) error {
 	if a.Status == "inativo" {
 		return fmt.Errorf("academia já está inativa")
@@ -220,7 +202,6 @@ func (a *Academia) Desativar(motivo string) error {
 	return a.Apply(event)
 }
 
-// AtualizarCursos atualiza lista de cursos
 func (a *Academia) AtualizarCursos(cursos []string) error {
 	if a.Status != "ativo" {
 		return fmt.Errorf("academia está inativa")
@@ -239,7 +220,7 @@ func (a *Academia) AtualizarCursos(cursos []string) error {
 	return a.Apply(event)
 }
 
-// Event Handlers - aplicam eventos ao estado
+// Event Handlers
 
 func (a *Academia) applyAcademiaCriada(event DomainEvent) error {
 	payload := event.GetPayload()
@@ -265,14 +246,15 @@ func (a *Academia) applyAcademiaCriada(event DomainEvent) error {
 	a.Website = ev.Website
 	a.NivelEscolar = ev.NivelEscolar
 	a.Cursos = ev.Cursos
-	a.Status = "ativo"
+	a.Status = "inativo" // 🔥 Sempre inativa ao criar
 	a.CreatedAt = ev.CreatedAt
 
 	return nil
 }
 
 func (a *Academia) applyInscricaoAprovada(event DomainEvent) error {
-	a.TotalEstudantes++
+	// NÃO incrementa total_estudantes aqui
+	// Só quando estudante VINCULAR (usar a inscrição)
 	a.TotalInscricoesPendentes--
 	if a.TotalInscricoesPendentes < 0 {
 		a.TotalInscricoesPendentes = 0
@@ -314,7 +296,7 @@ func (a *Academia) applyCursosAtualizados(event DomainEvent) error {
 	return nil
 }
 
-// Eventos da Academia
+// Eventos
 
 type AcademiaCriadaEvent struct {
 	BaseEvent

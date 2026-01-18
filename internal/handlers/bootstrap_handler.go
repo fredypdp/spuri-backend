@@ -126,7 +126,7 @@ func BootstrapAdminFPP(c *gin.Context) {
 	}
 
 	// Salvar eventos - MESMO PADRÃO DE RegisterAdmin
-	log.Println("💾 [BOOTSTRAP] Salvando eventos no GenesisDB...")
+	log.Println("💾 [BOOTSTRAP] Salvando eventos no Banco de dados...")
 	if err := repository.Save(newAdmin); err != nil {
 		log.Printf("❌ [BOOTSTRAP] Erro ao salvar eventos: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
