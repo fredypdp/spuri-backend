@@ -180,9 +180,26 @@ func RegisterAcademia(c *gin.Context) {
 		return
 	}
 
-	if req.Type == "escola" && req.NivelEscolar == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "nivel_escolar é obrigatório para escolas"})
-		return
+	// 🔥 ATUALIZADO: Validar nivel_escolar para escolas
+	if req.Type == "escola" {
+		if req.NivelEscolar == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "nivel_escolar é obrigatório para escolas"})
+			return
+		}
+		
+		// Validar valores permitidos
+		validNiveis := map[string]bool{
+			"fundamental": true,
+			"medio":       true,
+			"misto":       true,
+		}
+		
+		if !validNiveis[*req.NivelEscolar] {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "nivel_escolar deve ser 'fundamental', 'medio' ou 'misto'",
+			})
+			return
+		}
 	}
 
 	// Validar província
@@ -206,7 +223,7 @@ func RegisterAcademia(c *gin.Context) {
 	log.Printf("✅ [REGISTER] Hash gerado: %s", string(hashedPassword[:20])+"...")
 
 	// Criar agregado Academia
-	log.Printf("🏗️ [REGISTER] Criando agregado Academia...")
+	log.Printf("🗃️ [REGISTER] Criando agregado Academia...")
 	repository := getRepository(c)
 	academia := aggregates.NewAcademia()
 

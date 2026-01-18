@@ -1,6 +1,6 @@
 -- ============================================
 -- SPURI EVENT SOURCING - SCHEMA COMPLETO
--- Versão: 2.3.0 (com status e status_usado)
+-- Versão: 2.3.0 (com nivel_escolar: misto)
 -- ============================================
 
 -- ============================================
@@ -139,20 +139,19 @@ CREATE INDEX IF NOT EXISTS idx_snapshots_type ON aggregate_snapshots(aggregate_t
 -- ============================================
 
 -- Projeção: Estudantes
--- 🔥 ATUALIZADO: codigo_academia VARCHAR(50) + status + constraints
 CREATE TABLE IF NOT EXISTS projection_estudantes (
     id UUID PRIMARY KEY,
     nome VARCHAR(255) NOT NULL,
-    codigo_estudante VARCHAR(7) UNIQUE NOT NULL,
+    codigo_estudante VARCHAR(7) UNIQUE,
     senha_hash VARCHAR(255) NOT NULL,
     bilhete_identidade VARCHAR(50),
     bilhete_identidade_responsavel VARCHAR(50),
     codigo_academia VARCHAR(50),
+    status VARCHAR(20) DEFAULT 'inativo' CHECK (status IN ('inativo', 'ativo', 'finalizado')),
     ano_escolar VARCHAR(50),
     ano_superior VARCHAR(50),
     curso_medio VARCHAR(255),
     curso_superior VARCHAR(255),
-    status VARCHAR(20) DEFAULT 'inativo' CHECK (status IN ('inativo', 'ativo', 'finalizado')),
     status_escolar VARCHAR(20) DEFAULT 'inativo' CHECK (status_escolar IN ('inativo', 'em_andamento', 'finalizado')),
     status_superior VARCHAR(20) DEFAULT 'inativo' CHECK (status_superior IN ('inativo', 'em_andamento', 'finalizado')),
     version INTEGER NOT NULL DEFAULT 0,
@@ -171,9 +170,10 @@ CREATE INDEX IF NOT EXISTS idx_proj_estudante_bilhete_resp ON projection_estudan
 CREATE INDEX IF NOT EXISTS idx_proj_estudante_status ON projection_estudantes(status);
 
 -- Projeção: Academias
+-- 🔥 ATUALIZADO: nivel_escolar aceita 'fundamental', 'medio', 'misto'
 CREATE TABLE IF NOT EXISTS projection_academias (
     id UUID PRIMARY KEY,
-    type VARCHAR(20) NOT NULL,
+    type VARCHAR(20) NOT NULL CHECK (type IN ('escola', 'superior')),
     nome VARCHAR(255) NOT NULL,
     codigo_academia VARCHAR(50) UNIQUE NOT NULL,
     senha_hash VARCHAR(255) NOT NULL,
@@ -182,7 +182,7 @@ CREATE TABLE IF NOT EXISTS projection_academias (
     numero_telefone VARCHAR(20),
     email VARCHAR(100),
     website VARCHAR(255),
-    nivel_escolar VARCHAR(20),
+    nivel_escolar VARCHAR(20) CHECK (nivel_escolar IN ('fundamental', 'medio', 'misto')),
     status VARCHAR(20) DEFAULT 'inativo' CHECK (status IN ('ativo', 'inativo')),
     cursos JSONB DEFAULT '[]',
     version INTEGER NOT NULL DEFAULT 0,
@@ -190,13 +190,21 @@ CREATE TABLE IF NOT EXISTS projection_academias (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_event_id UUID,
     total_estudantes INTEGER DEFAULT 0,
-    total_inscricoes_pendentes INTEGER DEFAULT 0
+    total_inscricoes_pendentes INTEGER DEFAULT 0,
+    
+    -- 🔥 Constraint: nivel_escolar obrigatório para escolas, NULL para superior
+    CONSTRAINT check_nivel_escolar_tipo CHECK (
+        (type = 'escola' AND nivel_escolar IN ('fundamental', 'medio', 'misto')) 
+        OR 
+        (type = 'superior' AND nivel_escolar IS NULL)
+    )
 );
 
 CREATE INDEX IF NOT EXISTS idx_proj_academia_provincia ON projection_academias(provincia);
 CREATE INDEX IF NOT EXISTS idx_proj_academia_codigo ON projection_academias(codigo_academia);
 CREATE INDEX IF NOT EXISTS idx_proj_academia_type ON projection_academias(type);
 CREATE INDEX IF NOT EXISTS idx_proj_academia_status ON projection_academias(status);
+CREATE INDEX IF NOT EXISTS idx_proj_academia_nivel ON projection_academias(nivel_escolar);
 
 -- Projeção: Admins
 CREATE TABLE IF NOT EXISTS projection_admins (
@@ -256,14 +264,13 @@ CREATE INDEX IF NOT EXISTS idx_proj_faltas_codigo_academia ON projection_faltas(
 CREATE INDEX IF NOT EXISTS idx_proj_faltas_ano ON projection_faltas(ano_lectivo);
 
 -- Projeção: Inscrições
--- 🔥 ATUALIZADO: campo status_usado adicionado
 CREATE TABLE IF NOT EXISTS projection_inscricoes (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     estudante_id UUID NOT NULL,
     codigo_estudante VARCHAR(7),
     academia_id UUID NOT NULL,
     codigo_academia VARCHAR(50),
-    tipo VARCHAR(20) NOT NULL,
+    tipo VARCHAR(20) NOT NULL CHECK (tipo IN ('escola', 'universidade')),
     ano_inscricao VARCHAR(50) NOT NULL,
     curso VARCHAR(255),
     status VARCHAR(20) NOT NULL CHECK (status IN ('espera', 'aprovado', 'reprovado')),
@@ -281,7 +288,6 @@ CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_academia ON projection_inscricoes
 CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_status ON projection_inscricoes(status);
 CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_codigo_estudante ON projection_inscricoes(codigo_estudante);
 CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_codigo_academia ON projection_inscricoes(codigo_academia);
-CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_status_usado ON projection_inscricoes(status_usado);
 
 -- ============================================
 -- LOG DE AÇÕES ADMINISTRATIVAS
@@ -530,8 +536,7 @@ INSERT INTO spuri_ledger (
             'codigo_academia',
             'admin_system',
             'role_hierarchy',
-            'status_validation',
-            'inscricao_vinculacao'
+            'nivel_misto'
         )
     ),
     jsonb_build_object('created_by', 'migration_completa_v2.3'),
@@ -551,17 +556,16 @@ COMMENT ON TABLE admin_action_log IS 'Log de todas as ações administrativas';
 
 COMMENT ON COLUMN projection_estudantes.codigo_estudante IS 'Código único do estudante (formato: AAA1234)';
 COMMENT ON COLUMN projection_estudantes.codigo_academia IS 'Código da academia à qual o estudante pertence';
-COMMENT ON COLUMN projection_estudantes.status IS 'Status geral: inativo (sem vínculo), ativo (vinculado), finalizado';
-COMMENT ON COLUMN projection_estudantes.status_escolar IS 'Status ensino médio: inativo, em_andamento, finalizado';
+COMMENT ON COLUMN projection_estudantes.status IS 'Status geral: inativo, ativo, finalizado';
+COMMENT ON COLUMN projection_estudantes.status_escolar IS 'Status ensino escolar: inativo, em_andamento, finalizado';
 COMMENT ON COLUMN projection_estudantes.status_superior IS 'Status ensino superior: inativo, em_andamento, finalizado';
 
-COMMENT ON COLUMN projection_academias.status IS 'Status da academia: inativo (ao criar), ativo (aprovada por admin)';
-
-COMMENT ON COLUMN projection_inscricoes.status_usado IS 'Se esta inscrição já foi usada para vincular o estudante';
-
+COMMENT ON COLUMN projection_academias.nivel_escolar IS 'Nível escolar: fundamental, medio, misto (obrigatório para type=escola)';
+COMMENT ON COLUMN projection_academias.status IS 'Status da academia (ativo/inativo) - academias iniciam inativas';
 COMMENT ON COLUMN projection_notas.codigo_academia IS 'Código da academia que registrou as notas';
 COMMENT ON COLUMN projection_faltas.codigo_academia IS 'Código da academia que registrou as faltas';
 COMMENT ON COLUMN projection_admins.role IS 'Hierarquia: fpp > adm > gerente';
+COMMENT ON COLUMN projection_inscricoes.status_usado IS 'Se a inscrição aprovada já foi usada para vincular';
 
 COMMENT ON FUNCTION generate_codigo_estudante IS 'Gera código único AAA1234 para estudantes';
 COMMENT ON FUNCTION registrar_acao_admin IS 'Registra uma ação administrativa no log';
@@ -587,10 +591,9 @@ BEGIN
     RAISE NOTICE 'Total de eventos: %', v_total_eventos;
     RAISE NOTICE 'Total de checkpoints: %', v_total_checkpoints;
     RAISE NOTICE 'Total de admins: %', v_total_admins;
-    RAISE NOTICE '🔥 NOVIDADES v2.3.0:';
-    RAISE NOTICE '   ✅ Campo status em estudantes';
-    RAISE NOTICE '   ✅ Campo status_usado em inscrições';
-    RAISE NOTICE '   ✅ Academia inicia com status inativo';
-    RAISE NOTICE '   ✅ Constraints de validação de status';
+    RAISE NOTICE '🔥 NOVIDADES:';
+    RAISE NOTICE '   - codigo_academia implementado';
+    RAISE NOTICE '   - nivel_escolar: fundamental, medio, misto';
+    RAISE NOTICE '   - status_usado em inscrições';
     RAISE NOTICE '╚═══════════════════════════════════╝';
 END $$;

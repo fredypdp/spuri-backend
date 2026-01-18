@@ -77,6 +77,7 @@ func (a *Academia) Criar(
 	nivelEscolar *string,
 	cursos []string,
 ) error {
+	// Validações básicas
 	if tipo != "escola" && tipo != "superior" {
 		return fmt.Errorf("tipo deve ser 'escola' ou 'superior'")
 	}
@@ -86,8 +87,23 @@ func (a *Academia) Criar(
 	if codigoAcademia == "" {
 		return fmt.Errorf("código é obrigatório")
 	}
-	if tipo == "escola" && nivelEscolar == nil {
-		return fmt.Errorf("nivel_escolar é obrigatório para escolas")
+	
+	// 🔥 ATUALIZADO: Validar nivel_escolar para escolas
+	if tipo == "escola" {
+		if nivelEscolar == nil {
+			return fmt.Errorf("nivel_escolar é obrigatório para escolas")
+		}
+		
+		// Validar valores permitidos
+		validNiveis := map[string]bool{
+			"fundamental": true,
+			"medio":       true,
+			"misto":       true,
+		}
+		
+		if !validNiveis[*nivelEscolar] {
+			return fmt.Errorf("nivel_escolar deve ser 'fundamental', 'medio' ou 'misto'")
+		}
 	}
 
 	event := &AcademiaCriadaEvent{
