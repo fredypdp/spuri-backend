@@ -62,3 +62,15 @@ func getInscricoesProjection(c *gin.Context) *projections.InscricoesProjection {
 	client := getDbClient(c)
 	return projections.NewInscricoesProjection(client)
 }
+
+// getCursosProjection obtém a projeção de cursos
+func getCursosProjection(c *gin.Context) *projections.CursosProjection {
+	client := getDbClient(c)
+	return projections.NewCursosProjection(client)
+}
+
+// getMateriasProjection obtém a projeção de matérias
+func getMateriasProjection(c *gin.Context) *projections.MateriasProjection {
+	client := getDbClient(c)
+	return projections.NewMateriasProjection(client)
+}

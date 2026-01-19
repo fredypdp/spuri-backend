@@ -96,6 +96,8 @@ func initProjections() error {
 	projManager.RegisterProjection("notas", projections.NewNotasProjection(dbClient))
 	projManager.RegisterProjection("faltas", projections.NewFaltasProjection(dbClient))
 	projManager.RegisterProjection("inscricoes", projections.NewInscricoesProjection(dbClient))
+	projManager.RegisterProjection("cursos", projections.NewCursosProjection(dbClient))
+	projManager.RegisterProjection("materias", projections.NewMateriasProjection(dbClient))
 
 	// Iniciar processamento em background
 	go projManager.StartProcessing()
@@ -251,6 +253,16 @@ func setupRouter() *gin.Engine {
 		// Consultas específicas academia
 		academia.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)
 		academia.GET("/consultar-academia/:codigo", handlers.GetAcademiaPorCodigo)
+
+		// Gerenciamento de Cursos
+		academia.POST("/cursos", handlers.CriarCurso)
+		academia.GET("/cursos", handlers.ListarCursos)
+		academia.PUT("/cursos/:id/ativar", handlers.AtivarCurso)
+		academia.PUT("/cursos/:id/desativar", handlers.DesativarCurso)
+		
+		// Gerenciamento de Matérias
+		academia.POST("/materias", handlers.CriarMateria)
+		academia.GET("/materias", handlers.ListarMaterias)
 	}
 
 	// ============================================

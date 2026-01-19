@@ -1,6 +1,6 @@
 -- ============================================
 -- SPURI EVENT SOURCING - SCHEMA COMPLETO
--- Versão: 2.3.0 (com nivel_escolar: misto)
+-- Versão: 2.4.0 (com Cursos e Matérias)
 -- ============================================
 
 -- ============================================
@@ -170,7 +170,6 @@ CREATE INDEX IF NOT EXISTS idx_proj_estudante_bilhete_resp ON projection_estudan
 CREATE INDEX IF NOT EXISTS idx_proj_estudante_status ON projection_estudantes(status);
 
 -- Projeção: Academias
--- 🔥 ATUALIZADO: nivel_escolar aceita 'fundamental', 'medio', 'misto'
 CREATE TABLE IF NOT EXISTS projection_academias (
     id UUID PRIMARY KEY,
     type VARCHAR(20) NOT NULL CHECK (type IN ('escola', 'superior')),
@@ -192,7 +191,7 @@ CREATE TABLE IF NOT EXISTS projection_academias (
     total_estudantes INTEGER DEFAULT 0,
     total_inscricoes_pendentes INTEGER DEFAULT 0,
     
-    -- 🔥 Constraint: nivel_escolar obrigatório para escolas, NULL para superior
+    -- Constraint: nivel_escolar obrigatório para escolas, NULL para superior
     CONSTRAINT check_nivel_escolar_tipo CHECK (
         (type = 'escola' AND nivel_escolar IN ('fundamental', 'medio', 'misto')) 
         OR 
@@ -290,6 +289,65 @@ CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_codigo_estudante ON projection_in
 CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_codigo_academia ON projection_inscricoes(codigo_academia);
 
 -- ============================================
+-- 🔥 PROJEÇÃO: CURSOS
+-- ============================================
+CREATE TABLE IF NOT EXISTS projection_cursos (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    nome VARCHAR(255) NOT NULL,
+    type VARCHAR(20) NOT NULL CHECK (type IN ('medio', 'superior')),
+    nivel JSONB NOT NULL, -- Array de anos: ["primeiro_medio", "segundo_medio"]
+    codigo_academia VARCHAR(50) NOT NULL,
+    status VARCHAR(20) DEFAULT 'ativo' CHECK (status IN ('ativo', 'inativo')),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    version INTEGER NOT NULL DEFAULT 0,
+    last_event_id UUID,
+    
+    FOREIGN KEY (codigo_academia) 
+        REFERENCES projection_academias(codigo_academia) 
+        ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_cursos_academia ON projection_cursos(codigo_academia);
+CREATE INDEX IF NOT EXISTS idx_cursos_type ON projection_cursos(type);
+CREATE INDEX IF NOT EXISTS idx_cursos_status ON projection_cursos(status);
+
+-- ============================================
+-- 🔥 PROJEÇÃO: MATÉRIAS DISCIPLINARES
+-- ============================================
+CREATE TABLE IF NOT EXISTS projection_materias (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    nome VARCHAR(255) NOT NULL,
+    type VARCHAR(20) NOT NULL CHECK (type IN ('fundamental', 'medio', 'superior')),
+    nivel JSONB, -- Array de anos apenas para fundamental
+    codigo_academia VARCHAR(50) NOT NULL,
+    curso_id UUID, -- NULL para fundamental, obrigatório para medio/superior
+    status VARCHAR(20) DEFAULT 'ativo' CHECK (status IN ('ativo', 'inativo')),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    version INTEGER NOT NULL DEFAULT 0,
+    last_event_id UUID,
+    
+    FOREIGN KEY (codigo_academia) 
+        REFERENCES projection_academias(codigo_academia) 
+        ON DELETE CASCADE,
+    FOREIGN KEY (curso_id) 
+        REFERENCES projection_cursos(id) 
+        ON DELETE CASCADE,
+    
+    -- Constraint: fundamental não tem curso_id
+    CONSTRAINT check_fundamental_sem_curso CHECK (
+        (type = 'fundamental' AND curso_id IS NULL) OR
+        (type IN ('medio', 'superior') AND curso_id IS NOT NULL)
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_materias_academia ON projection_materias(codigo_academia);
+CREATE INDEX IF NOT EXISTS idx_materias_curso ON projection_materias(curso_id);
+CREATE INDEX IF NOT EXISTS idx_materias_type ON projection_materias(type);
+CREATE INDEX IF NOT EXISTS idx_materias_status ON projection_materias(status);
+
+-- ============================================
 -- LOG DE AÇÕES ADMINISTRATIVAS
 -- ============================================
 
@@ -333,7 +391,9 @@ VALUES
     ('admins', 0, CURRENT_TIMESTAMP),
     ('notas', 0, CURRENT_TIMESTAMP),
     ('faltas', 0, CURRENT_TIMESTAMP),
-    ('inscricoes', 0, CURRENT_TIMESTAMP)
+    ('inscricoes', 0, CURRENT_TIMESTAMP),
+    ('cursos', 0, CURRENT_TIMESTAMP),
+    ('materias', 0, CURRENT_TIMESTAMP)
 ON CONFLICT (projection_name) DO NOTHING;
 
 -- ============================================
@@ -481,6 +541,16 @@ CREATE TRIGGER trigger_update_inscricao_timestamp
     BEFORE UPDATE ON projection_inscricoes
     FOR EACH ROW EXECUTE FUNCTION update_projection_timestamp();
 
+DROP TRIGGER IF EXISTS trigger_update_curso_timestamp ON projection_cursos;
+CREATE TRIGGER trigger_update_curso_timestamp
+    BEFORE UPDATE ON projection_cursos
+    FOR EACH ROW EXECUTE FUNCTION update_projection_timestamp();
+
+DROP TRIGGER IF EXISTS trigger_update_materia_timestamp ON projection_materias;
+CREATE TRIGGER trigger_update_materia_timestamp
+    BEFORE UPDATE ON projection_materias
+    FOR EACH ROW EXECUTE FUNCTION update_projection_timestamp();
+
 -- ============================================
 -- VIEWS
 -- ============================================
@@ -527,7 +597,7 @@ INSERT INTO spuri_ledger (
     'SchemaCreated',
     1,
     jsonb_build_object(
-        'version', '2.3.0',
+        'version', '2.4.0',
         'name', 'Spuri Event Sourcing',
         'features', json_build_array(
             'event_sourcing',
@@ -536,10 +606,11 @@ INSERT INTO spuri_ledger (
             'codigo_academia',
             'admin_system',
             'role_hierarchy',
-            'nivel_misto'
+            'nivel_misto',
+            'cursos_materias'
         )
     ),
-    jsonb_build_object('created_by', 'migration_completa_v2.3'),
+    jsonb_build_object('created_by', 'migration_completa_v2.4'),
     CURRENT_TIMESTAMP
 )
 ON CONFLICT (aggregate_id, event_version) DO NOTHING;
@@ -552,6 +623,8 @@ COMMENT ON TABLE spuri_ledger IS 'Event Store principal - Imutável com hash cha
 COMMENT ON TABLE projection_estudantes IS 'Projeção de leitura para estudantes';
 COMMENT ON TABLE projection_academias IS 'Projeção de leitura para academias';
 COMMENT ON TABLE projection_admins IS 'Projeção de leitura para administradores';
+COMMENT ON TABLE projection_cursos IS 'Projeção de cursos (médio/superior)';
+COMMENT ON TABLE projection_materias IS 'Projeção de matérias/disciplinas';
 COMMENT ON TABLE admin_action_log IS 'Log de todas as ações administrativas';
 
 COMMENT ON COLUMN projection_estudantes.codigo_estudante IS 'Código único do estudante (formato: AAA1234)';
@@ -562,6 +635,12 @@ COMMENT ON COLUMN projection_estudantes.status_superior IS 'Status ensino superi
 
 COMMENT ON COLUMN projection_academias.nivel_escolar IS 'Nível escolar: fundamental, medio, misto (obrigatório para type=escola)';
 COMMENT ON COLUMN projection_academias.status IS 'Status da academia (ativo/inativo) - academias iniciam inativas';
+COMMENT ON COLUMN projection_academias.cursos IS 'Array JSON com lista de nomes de cursos oferecidos';
+
+COMMENT ON COLUMN projection_cursos.nivel IS 'Array JSON com anos do curso: ["primeiro_medio","segundo_medio","terceiro_medio"]';
+COMMENT ON COLUMN projection_materias.curso_id IS 'NULL para fundamental, FK para medio/superior';
+COMMENT ON COLUMN projection_materias.nivel IS 'Apenas para fundamental: ["primeiro_fundamental","segundo_fundamental",...]';
+
 COMMENT ON COLUMN projection_notas.codigo_academia IS 'Código da academia que registrou as notas';
 COMMENT ON COLUMN projection_faltas.codigo_academia IS 'Código da academia que registrou as faltas';
 COMMENT ON COLUMN projection_admins.role IS 'Hierarquia: fpp > adm > gerente';
@@ -585,9 +664,9 @@ BEGIN
     SELECT COUNT(*) INTO v_total_checkpoints FROM projection_checkpoints;
     SELECT COUNT(*) INTO v_total_admins FROM projection_admins;
     
-    RAISE NOTICE '╔═══════════════════════════════════╗';
-    RAISE NOTICE '║ SCHEMA CRIADO COM SUCESSO! v2.3.0 ║';
-    RAISE NOTICE '╚═══════════════════════════════════╝';
+    RAISE NOTICE '╔══════════════════════════════════════╗';
+    RAISE NOTICE '║ SCHEMA CRIADO COM SUCESSO! v2.4.0   ║';
+    RAISE NOTICE '╚══════════════════════════════════════╝';
     RAISE NOTICE 'Total de eventos: %', v_total_eventos;
     RAISE NOTICE 'Total de checkpoints: %', v_total_checkpoints;
     RAISE NOTICE 'Total de admins: %', v_total_admins;
@@ -595,5 +674,6 @@ BEGIN
     RAISE NOTICE '   - codigo_academia implementado';
     RAISE NOTICE '   - nivel_escolar: fundamental, medio, misto';
     RAISE NOTICE '   - status_usado em inscrições';
-    RAISE NOTICE '╚═══════════════════════════════════╝';
+    RAISE NOTICE '   - Cursos e Matérias implementados';
+    RAISE NOTICE '╚══════════════════════════════════════╝';
 END $$;

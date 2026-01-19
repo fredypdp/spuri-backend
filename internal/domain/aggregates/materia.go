@@ -1,0 +1,219 @@
+// ============================================================================
+// ARQUIVO: internal/domain/aggregates/materia.go
+// Agregado Matéria (Event Sourcing)
+// ============================================================================
+
+package aggregates
+
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+type Materia struct {
+	BaseAggregate
+	
+	Nome           string
+	Type           string     // "fundamental", "medio", "superior"
+	Nivel          []string   // Apenas para fundamental: ["1ano", "2ano"]
+	CodigoAcademia string
+	CursoID        *uuid.UUID // NULL para fundamental
+	Status         string     // "ativo" ou "inativo"
+	CreatedAt      time.Time
+}
+
+func NewMateria() *Materia {
+	return &Materia{
+		BaseAggregate: BaseAggregate{
+			ID:                uuid.New(),
+			Version:           0,
+			UncommittedEvents: []DomainEvent{},
+		},
+		Status: "ativo",
+	}
+}
+
+func (m *Materia) GetType() string {
+	return "Materia"
+}
+
+func (m *Materia) Apply(event DomainEvent) error {
+	switch event.GetEventType() {
+	case "MateriaCriada":
+		return m.applyMateriaCriada(event)
+	case "MateriaAtivada":
+		return m.applyMateriaAtivada(event)
+	case "MateriaDesativada":
+		return m.applyMateriaDesativada(event)
+	default:
+		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
+	}
+}
+
+// Comandos
+
+func (m *Materia) Criar(
+	nome string,
+	tipo string,
+	nivel []string,
+	codigoAcademia string,
+	cursoID *uuid.UUID,
+) error {
+	// Validações
+	if nome == "" {
+		return fmt.Errorf("nome é obrigatório")
+	}
+	
+	if tipo != "fundamental" && tipo != "medio" && tipo != "superior" {
+		return fmt.Errorf("tipo deve ser 'fundamental', 'medio' ou 'superior'")
+	}
+	
+	if codigoAcademia == "" {
+		return fmt.Errorf("código da academia é obrigatório")
+	}
+
+	// Fundamental não pode ter curso_id
+	if tipo == "fundamental" && cursoID != nil {
+		return fmt.Errorf("matérias fundamentais não podem ter curso associado")
+	}
+
+	// Medio/Superior deve ter curso_id
+	if (tipo == "medio" || tipo == "superior") && cursoID == nil {
+		return fmt.Errorf("matérias de médio/superior devem ter curso associado")
+	}
+
+	// Fundamental deve ter nível
+	if tipo == "fundamental" && len(nivel) == 0 {
+		return fmt.Errorf("matérias fundamentais devem ter nível definido")
+	}
+	
+	// 🔥 Validar anos fundamentais
+	if tipo == "fundamental" {
+		if err := utils.ValidateAnosFundamental(nivel); err != nil {
+			return err
+		}
+	}
+
+	event := &MateriaCriadaEvent{
+		BaseEvent: BaseEvent{
+			EventType:   "MateriaCriada",
+			AggregateID: m.ID,
+		},
+		Nome:           nome,
+		Type:           tipo,
+		Nivel:          nivel,
+		CodigoAcademia: codigoAcademia,
+		CursoID:        cursoID,
+		CreatedAt:      time.Now(),
+	}
+
+	m.RaiseEvent(event)
+	return m.Apply(event)
+}
+
+func (m *Materia) Ativar() error {
+	if m.Status == "ativo" {
+		return fmt.Errorf("matéria já está ativa")
+	}
+
+	event := &MateriaAtivadaEvent{
+		BaseEvent: BaseEvent{
+			EventType:   "MateriaAtivada",
+			AggregateID: m.ID,
+		},
+		ActivatedAt: time.Now(),
+	}
+
+	m.RaiseEvent(event)
+	return m.Apply(event)
+}
+
+func (m *Materia) Desativar() error {
+	if m.Status == "inativo" {
+		return fmt.Errorf("matéria já está inativa")
+	}
+
+	event := &MateriaDesativadaEvent{
+		BaseEvent: BaseEvent{
+			EventType:   "MateriaDesativada",
+			AggregateID: m.ID,
+		},
+		DeactivatedAt: time.Now(),
+	}
+
+	m.RaiseEvent(event)
+	return m.Apply(event)
+}
+
+// Event Handlers
+
+func (m *Materia) applyMateriaCriada(event DomainEvent) error {
+	payload := event.GetPayload()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	var ev MateriaCriadaEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+
+	m.ID = event.GetAggregateID()
+	m.Nome = ev.Nome
+	m.Type = ev.Type
+	m.Nivel = ev.Nivel
+	m.CodigoAcademia = ev.CodigoAcademia
+	m.CursoID = ev.CursoID
+	m.Status = "ativo"
+	m.CreatedAt = ev.CreatedAt
+
+	return nil
+}
+
+func (m *Materia) applyMateriaAtivada(event DomainEvent) error {
+	m.Status = "ativo"
+	return nil
+}
+
+func (m *Materia) applyMateriaDesativada(event DomainEvent) error {
+	m.Status = "inativo"
+	return nil
+}
+
+// Eventos
+
+type MateriaCriadaEvent struct {
+	BaseEvent
+	Nome           string
+	Type           string
+	Nivel          []string
+	CodigoAcademia string
+	CursoID        *uuid.UUID
+	CreatedAt      time.Time
+}
+
+func (e *MateriaCriadaEvent) GetPayload() interface{} {
+	return e
+}
+
+type MateriaAtivadaEvent struct {
+	BaseEvent
+	ActivatedAt time.Time
+}
+
+func (e *MateriaAtivadaEvent) GetPayload() interface{} {
+	return e
+}
+
+type MateriaDesativadaEvent struct {
+	BaseEvent
+	DeactivatedAt time.Time
+}
+
+func (e *MateriaDesativadaEvent) GetPayload() interface{} {
+	return e
+}

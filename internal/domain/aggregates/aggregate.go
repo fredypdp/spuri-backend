@@ -99,6 +99,10 @@ func (f *DefaultAggregateFactory) Create(aggregateType string) (Aggregate, error
 		return NewAcademia(), nil
 	case "Admin":
 		return NewAdmin(), nil
+	case "Curso":         // 🔥 ADICIONAR
+		return NewCurso(), nil
+	case "Materia":       // 🔥 ADICIONAR
+		return NewMateria(), nil
 	default:
 		return nil, fmt.Errorf("tipo de agregado desconhecido: %s", aggregateType)
 	}
