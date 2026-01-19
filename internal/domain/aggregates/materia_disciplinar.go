@@ -1,6 +1,6 @@
 // ============================================================================
-// ARQUIVO: internal/domain/aggregates/materia.go
-// Agregado Matéria (Event Sourcing)
+// ARQUIVO: internal/domain/aggregates/materia_disciplinar.go
+// Agregado MatériaDisciplinar (Event Sourcing)
 // ============================================================================
 
 package aggregates
@@ -8,12 +8,13 @@ package aggregates
 import (
 	"encoding/json"
 	"fmt"
+	"spuri/internal/utils"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-type Materia struct {
+type MateriaDisciplinar struct {
 	BaseAggregate
 	
 	Nome           string
@@ -25,8 +26,8 @@ type Materia struct {
 	CreatedAt      time.Time
 }
 
-func NewMateria() *Materia {
-	return &Materia{
+func NewMateriaDisciplinar() *MateriaDisciplinar {
+	return &MateriaDisciplinar{
 		BaseAggregate: BaseAggregate{
 			ID:                uuid.New(),
 			Version:           0,
@@ -36,11 +37,11 @@ func NewMateria() *Materia {
 	}
 }
 
-func (m *Materia) GetType() string {
-	return "Materia"
+func (m *MateriaDisciplinar) GetType() string {
+	return "MateriaDisciplinar"
 }
 
-func (m *Materia) Apply(event DomainEvent) error {
+func (m *MateriaDisciplinar) Apply(event DomainEvent) error {
 	switch event.GetEventType() {
 	case "MateriaCriada":
 		return m.applyMateriaCriada(event)
@@ -55,7 +56,7 @@ func (m *Materia) Apply(event DomainEvent) error {
 
 // Comandos
 
-func (m *Materia) Criar(
+func (m *MateriaDisciplinar) Criar(
 	nome string,
 	tipo string,
 	nivel []string,
@@ -114,7 +115,7 @@ func (m *Materia) Criar(
 	return m.Apply(event)
 }
 
-func (m *Materia) Ativar() error {
+func (m *MateriaDisciplinar) Ativar() error {
 	if m.Status == "ativo" {
 		return fmt.Errorf("matéria já está ativa")
 	}
@@ -131,7 +132,7 @@ func (m *Materia) Ativar() error {
 	return m.Apply(event)
 }
 
-func (m *Materia) Desativar() error {
+func (m *MateriaDisciplinar) Desativar() error {
 	if m.Status == "inativo" {
 		return fmt.Errorf("matéria já está inativa")
 	}
@@ -150,7 +151,7 @@ func (m *Materia) Desativar() error {
 
 // Event Handlers
 
-func (m *Materia) applyMateriaCriada(event DomainEvent) error {
+func (m *MateriaDisciplinar) applyMateriaCriada(event DomainEvent) error {
 	payload := event.GetPayload()
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -174,12 +175,12 @@ func (m *Materia) applyMateriaCriada(event DomainEvent) error {
 	return nil
 }
 
-func (m *Materia) applyMateriaAtivada(event DomainEvent) error {
+func (m *MateriaDisciplinar) applyMateriaAtivada(event DomainEvent) error {
 	m.Status = "ativo"
 	return nil
 }
 
-func (m *Materia) applyMateriaDesativada(event DomainEvent) error {
+func (m *MateriaDisciplinar) applyMateriaDesativada(event DomainEvent) error {
 	m.Status = "inativo"
 	return nil
 }

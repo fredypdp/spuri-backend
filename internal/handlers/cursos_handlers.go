@@ -256,9 +256,9 @@ func CriarMateria(c *gin.Context) {
 		}
 	}
 
-	// Criar agregado Materia
+	// Criar agregado MateriaDisciplinar
 	repository := getRepository(c)
-	materia := aggregates.NewMateria()
+	materia := aggregates.NewMateriaDisciplinar()
 
 	if err := materia.Criar(
 		req.Nome,

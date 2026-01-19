@@ -32,7 +32,7 @@ func (p *MateriasProjection) Name() string {
 }
 
 func (p *MateriasProjection) Handle(event db.Event) error {
-	if event.AggregateType != "Materia" {
+	if event.AggregateType != "MateriaDisciplinar" {
 		return nil
 	}
 
@@ -59,7 +59,7 @@ func (p *MateriasProjection) Rebuild() error {
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger
-		WHERE aggregate_type = 'Materia'
+		WHERE aggregate_type = 'MateriaDisciplinar'
 		ORDER BY id ASC
 	`
 
