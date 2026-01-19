@@ -453,29 +453,6 @@ type AcademiaDTO struct {
 	Version                  int       `json:"version"`
 }
 
-// Helpers
-
-func escapeString(s string) string {
-	result := ""
-	for _, char := range s {
-		if char == '\'' {
-			result += "''"
-		} else if char == '\\' {
-			result += "\\\\"
-		} else {
-			result += string(char)
-		}
-	}
-	return result
-}
-
-func formatNullableString(s *string) string {
-	if s == nil {
-		return "NULL"
-	}
-	return fmt.Sprintf("'%s'", escapeString(*s))
-}
-
 func (p *AcademiaProjection) handleAcademiaDadosAtualizados(event db.Event) error {
 	var payload struct {
 		Nome           *string  `json:"Nome"`

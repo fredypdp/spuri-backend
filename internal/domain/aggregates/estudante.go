@@ -14,8 +14,8 @@ type Estudante struct {
 	Nome                       string
 	CodigoEstudante            string
 	SenhaHash                  string
-	Email                      *string  // 🔥 NOVO
-	Telefone                   *string  // 🔥 NOVO
+	Email                      *string
+	Telefone                   *string
 	BilheteIdentidade          *string
 	BilheteIdentidadeResp      *string
 	CodigoAcademia             *string
@@ -28,25 +28,7 @@ type Estudante struct {
 	StatusSuperior             string
 	CreatedAt                  time.Time
 	
-	Notas                      []RegistroNotas
-	Faltas                     []RegistroFaltas
 	Inscricoes                 []Inscricao
-}
-
-type RegistroNotas struct {
-	CodigoAcademia string
-	AnoLectivo     string
-	Periodo        string
-	Materias       []Materia
-	RegisteredAt   time.Time
-}
-
-type RegistroFaltas struct {
-	CodigoAcademia string
-	AnoLectivo     string
-	Periodo        string
-	Materias       []MateriaFaltas
-	RegisteredAt   time.Time
 }
 
 type Inscricao struct {
@@ -60,16 +42,6 @@ type Inscricao struct {
 	CreatedAt      time.Time
 }
 
-type Materia struct {
-	Nome string
-	Nota float64
-}
-
-type MateriaFaltas struct {
-	Nome   string
-	Faltas int
-}
-
 func NewEstudante() *Estudante {
 	return &Estudante{
 		BaseAggregate: BaseAggregate{
@@ -80,8 +52,6 @@ func NewEstudante() *Estudante {
 		Status:         "inativo",
 		StatusEscolar:  "inativo",
 		StatusSuperior: "inativo",
-		Notas:          []RegistroNotas{},
-		Faltas:         []RegistroFaltas{},
 		Inscricoes:     []Inscricao{},
 	}
 }
@@ -125,8 +95,8 @@ func (e *Estudante) Criar(
 	nome string,
 	codigoEstudante string,
 	senhaHash string,
-	email *string,          // 🔥 NOVO
-	telefone *string,       // 🔥 NOVO
+	email *string,
+	telefone *string,
 	bilhete *string,
 	bilheteResp *string,
 	anoEscolar *string,
@@ -180,8 +150,8 @@ func (e *Estudante) Criar(
 		Nome:                  nome,
 		CodigoEstudante:       codigoEstudante,
 		SenhaHash:             senhaHash,
-		Email:                 email,        // 🔥 NOVO
-		Telefone:              telefone,     // 🔥 NOVO
+		Email:                 email,
+		Telefone:              telefone,
 		BilheteIdentidade:     bilhete,
 		BilheteIdentidadeResp: bilheteResp,
 		AnoEscolar:            anoEscolar,
@@ -197,17 +167,36 @@ func (e *Estudante) Criar(
 	return e.Apply(event)
 }
 
-func (e *Estudante) RegistrarNotas(
+// 🔥 NOVO v3.0: Registrar nota individual
+func (e *Estudante) RegistrarNota(
 	codigoAcademia string,
 	anoLectivo string,
 	periodo string,
-	materias []Materia,
+	materiaDisciplinarID uuid.UUID,
+	nota float64,
+	observacao *string,
 ) error {
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
 	}
-	if len(materias) == 0 {
-		return fmt.Errorf("materias não pode estar vazio")
+	
+	periodosValidos := []string{
+		"1_trimestre", "2_trimestre", "3_trimestre",
+		"1_semestre", "2_semestre",
+	}
+	periodoValido := false
+	for _, p := range periodosValidos {
+		if periodo == p {
+			periodoValido = true
+			break
+		}
+	}
+	if !periodoValido {
+		return fmt.Errorf("período inválido: %s", periodo)
+	}
+	
+	if nota < 0 || nota > 20 {
+		return fmt.Errorf("nota deve estar entre 0 e 20")
 	}
 
 	event := &NotasRegistradasEvent{
@@ -215,28 +204,35 @@ func (e *Estudante) RegistrarNotas(
 			EventType:   "NotasRegistradas",
 			AggregateID: e.ID,
 		},
-		CodigoAcademia: codigoAcademia,
-		AnoLectivo:     anoLectivo,
-		Periodo:        periodo,
-		Materias:       materias,
-		RegisteredAt:   time.Now(),
+		CodigoEstudante:      e.CodigoEstudante,
+		CodigoAcademia:       codigoAcademia,
+		AnoLectivo:           anoLectivo,
+		Periodo:              periodo,
+		MateriaDisciplinarID: materiaDisciplinarID,
+		Nota:                 nota,
+		Observacao:           observacao,
+		RegisteredAt:         time.Now(),
 	}
 
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
 
-func (e *Estudante) RegistrarFaltas(
+// 🔥 NOVO v3.0: Registrar falta individual
+func (e *Estudante) RegistrarFalta(
 	codigoAcademia string,
 	anoLectivo string,
-	periodo string,
-	materias []MateriaFaltas,
+	data time.Time,
+	materiaDisciplinarID uuid.UUID,
+	quantidade int,
+	observacao *string,
 ) error {
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
 	}
-	if len(materias) == 0 {
-		return fmt.Errorf("materias não pode estar vazio")
+	
+	if quantidade <= 0 {
+		return fmt.Errorf("quantidade deve ser maior que zero")
 	}
 
 	event := &FaltasRegistradasEvent{
@@ -244,11 +240,14 @@ func (e *Estudante) RegistrarFaltas(
 			EventType:   "FaltasRegistradas",
 			AggregateID: e.ID,
 		},
-		CodigoAcademia: codigoAcademia,
-		AnoLectivo:     anoLectivo,
-		Periodo:        periodo,
-		Materias:       materias,
-		RegisteredAt:   time.Now(),
+		CodigoEstudante:      e.CodigoEstudante,
+		CodigoAcademia:       codigoAcademia,
+		AnoLectivo:           anoLectivo,
+		Data:                 data,
+		MateriaDisciplinarID: materiaDisciplinarID,
+		Quantidade:           quantidade,
+		Observacao:           observacao,
+		RegisteredAt:         time.Now(),
 	}
 
 	e.RaiseEvent(event)
@@ -265,12 +264,10 @@ func (e *Estudante) SolicitarInscricao(
 		return fmt.Errorf("tipo deve ser 'escola' ou 'universidade'")
 	}
 
-	// 🔥 VALIDAÇÃO: Não pode se inscrever se já vinculado
 	if e.CodigoAcademia != nil && *e.CodigoAcademia == codigoAcademia {
 		return fmt.Errorf("você já está matriculado nesta academia")
 	}
 
-	// 🔥 VALIDAÇÃO: Não pode ter inscrição pendente
 	for _, inscricao := range e.Inscricoes {
 		if inscricao.CodigoAcademia == codigoAcademia && inscricao.Status == "espera" {
 			return fmt.Errorf("você já possui uma inscrição pendente nesta academia")
@@ -356,9 +353,7 @@ func (e *Estudante) ReprovarInscricao(
 	return e.Apply(event)
 }
 
-// 🔥 NOVO: Vincular estudante à academia usando inscrição aprovada
 func (e *Estudante) VincularAcademia(inscricaoID uuid.UUID) error {
-	// Buscar inscrição aprovada não usada
 	var inscricao *Inscricao
 	for i := range e.Inscricoes {
 		if e.Inscricoes[i].ID == inscricaoID {
@@ -379,7 +374,6 @@ func (e *Estudante) VincularAcademia(inscricaoID uuid.UUID) error {
 		return fmt.Errorf("esta inscrição já foi utilizada")
 	}
 
-	// 🔥 Estudante torna-se ATIVO ao vincular
 	event := &EstudanteVinculadoEvent{
 		BaseEvent: BaseEvent{
 			EventType:   "EstudanteVinculado",
@@ -394,14 +388,12 @@ func (e *Estudante) VincularAcademia(inscricaoID uuid.UUID) error {
 	return e.Apply(event)
 }
 
-// 🔥 NOVO: Atualizar status escolar
 func (e *Estudante) AtualizarStatusEscolar(novoStatus string) error {
 	validStatus := map[string]bool{"inativo": true, "em_andamento": true, "finalizado": true}
 	if !validStatus[novoStatus] {
 		return fmt.Errorf("status inválido")
 	}
 
-	// 🔥 REGRA: Se mudar escolar para inativo, superior também deve ficar inativo
 	if novoStatus == "inativo" && e.StatusSuperior != "inativo" {
 		return fmt.Errorf("não pode inativar status_escolar enquanto status_superior está ativo")
 	}
@@ -419,14 +411,12 @@ func (e *Estudante) AtualizarStatusEscolar(novoStatus string) error {
 	return e.Apply(event)
 }
 
-// 🔥 NOVO: Atualizar status superior
 func (e *Estudante) AtualizarStatusSuperior(novoStatus string) error {
 	validStatus := map[string]bool{"inativo": true, "em_andamento": true, "finalizado": true}
 	if !validStatus[novoStatus] {
 		return fmt.Errorf("status inválido")
 	}
 
-	// 🔥 REGRA: Superior só pode estar ativo se escolar finalizado
 	if (novoStatus == "em_andamento" || novoStatus == "finalizado") && e.StatusEscolar != "finalizado" {
 		return fmt.Errorf("status_superior só pode ser atualizado se status_escolar for 'finalizado'")
 	}
@@ -438,6 +428,73 @@ func (e *Estudante) AtualizarStatusSuperior(novoStatus string) error {
 		},
 		NovoStatus: novoStatus,
 		UpdatedAt:  time.Now(),
+	}
+
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
+func (e *Estudante) AtualizarDadosPessoais(
+	nome *string,
+	email *string,
+	telefone *string,
+	bilheteIdentidade *string,
+	bilheteIdentidadeResp *string,
+) error {
+	if e.Status != "ativo" && e.Status != "inativo" {
+		return fmt.Errorf("não é possível atualizar dados de estudante finalizado")
+	}
+
+	if nome == nil && email == nil && telefone == nil && bilheteIdentidade == nil && bilheteIdentidadeResp == nil {
+		return fmt.Errorf("nenhum campo para atualizar")
+	}
+
+	if nome != nil && *nome == "" {
+		return fmt.Errorf("nome não pode ser vazio")
+	}
+
+	event := &DadosPessoaisAtualizadosEvent{
+		BaseEvent: BaseEvent{
+			EventType:   "DadosPessoaisAtualizados",
+			AggregateID: e.ID,
+		},
+		Nome:                  nome,
+		Email:                 email,
+		Telefone:              telefone,
+		BilheteIdentidade:     bilheteIdentidade,
+		BilheteIdentidadeResp: bilheteIdentidadeResp,
+		EmailAlterado:         email != nil && (e.Email == nil || *e.Email != *email),
+		UpdatedAt:             time.Now(),
+	}
+
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
+func (e *Estudante) AtualizarDadosAcademicos(
+	anoEscolar *string,
+	anoSuperior *string,
+	cursoMedio *string,
+	cursoSuperior *string,
+) error {
+	if e.Status != "ativo" && e.Status != "inativo" {
+		return fmt.Errorf("não é possível atualizar dados de estudante finalizado")
+	}
+
+	if anoEscolar == nil && anoSuperior == nil && cursoMedio == nil && cursoSuperior == nil {
+		return fmt.Errorf("nenhum campo para atualizar")
+	}
+
+	event := &DadosAcademicosAtualizadosEvent{
+		BaseEvent: BaseEvent{
+			EventType:   "DadosAcademicosAtualizados",
+			AggregateID: e.ID,
+		},
+		AnoEscolar:    anoEscolar,
+		AnoSuperior:   anoSuperior,
+		CursoMedio:    cursoMedio,
+		CursoSuperior: cursoSuperior,
+		UpdatedAt:     time.Now(),
 	}
 
 	e.RaiseEvent(event)
@@ -462,8 +519,8 @@ func (e *Estudante) applyEstudanteCriado(event DomainEvent) error {
 	e.Nome = ev.Nome
 	e.CodigoEstudante = ev.CodigoEstudante
 	e.SenhaHash = ev.SenhaHash
-	e.Email = ev.Email                           // 🔥 NOVO
-	e.Telefone = ev.Telefone                     // 🔥 NOVO
+	e.Email = ev.Email
+	e.Telefone = ev.Telefone
 	e.BilheteIdentidade = ev.BilheteIdentidade
 	e.BilheteIdentidadeResp = ev.BilheteIdentidadeResp
 	e.AnoEscolar = ev.AnoEscolar
@@ -478,49 +535,12 @@ func (e *Estudante) applyEstudanteCriado(event DomainEvent) error {
 	return nil
 }
 
+// 🔥 v3.0: Agregado não mantém histórico individual
 func (e *Estudante) applyNotasRegistradas(event DomainEvent) error {
-	payload := event.GetPayload()
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	var ev NotasRegistradasEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
-	}
-
-	e.Notas = append(e.Notas, RegistroNotas{
-		CodigoAcademia: ev.CodigoAcademia,
-		AnoLectivo:     ev.AnoLectivo,
-		Periodo:        ev.Periodo,
-		Materias:       ev.Materias,
-		RegisteredAt:   ev.RegisteredAt,
-	})
-
 	return nil
 }
 
 func (e *Estudante) applyFaltasRegistradas(event DomainEvent) error {
-	payload := event.GetPayload()
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	var ev FaltasRegistradasEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
-	}
-
-	e.Faltas = append(e.Faltas, RegistroFaltas{
-		CodigoAcademia: ev.CodigoAcademia,
-		AnoLectivo:     ev.AnoLectivo,
-		Periodo:        ev.Periodo,
-		Materias:       ev.Materias,
-		RegisteredAt:   ev.RegisteredAt,
-	})
-
 	return nil
 }
 
@@ -562,7 +582,6 @@ func (e *Estudante) applyInscricaoAprovada(event DomainEvent) error {
 		return err
 	}
 
-	// Atualizar status da inscrição para aprovado (NÃO vincular ainda)
 	for i := range e.Inscricoes {
 		if e.Inscricoes[i].CodigoAcademia == ev.CodigoAcademia && e.Inscricoes[i].Status == "espera" {
 			e.Inscricoes[i].Status = "aprovado"
@@ -595,7 +614,6 @@ func (e *Estudante) applyInscricaoReprovada(event DomainEvent) error {
 	return nil
 }
 
-// 🔥 NOVO
 func (e *Estudante) applyEstudanteVinculado(event DomainEvent) error {
 	payload := event.GetPayload()
 	data, err := json.Marshal(payload)
@@ -608,13 +626,9 @@ func (e *Estudante) applyEstudanteVinculado(event DomainEvent) error {
 		return err
 	}
 
-	// Vincular à academia
 	e.CodigoAcademia = &ev.CodigoAcademia
-	
-	// 🔥 Estudante torna-se ATIVO
 	e.Status = "ativo"
 
-	// Marcar inscrição como usada
 	for i := range e.Inscricoes {
 		if e.Inscricoes[i].ID == ev.InscricaoID {
 			e.Inscricoes[i].StatusUsado = true
@@ -625,7 +639,6 @@ func (e *Estudante) applyEstudanteVinculado(event DomainEvent) error {
 	return nil
 }
 
-// 🔥 NOVO
 func (e *Estudante) applyStatusEscolarAtualizado(event DomainEvent) error {
 	payload := event.GetPayload()
 	data, err := json.Marshal(payload)
@@ -640,7 +653,6 @@ func (e *Estudante) applyStatusEscolarAtualizado(event DomainEvent) error {
 
 	e.StatusEscolar = ev.NovoStatus
 	
-	// 🔥 Se escolar vira inativo, superior também
 	if ev.NovoStatus == "inativo" {
 		e.StatusSuperior = "inativo"
 	}
@@ -648,7 +660,6 @@ func (e *Estudante) applyStatusEscolarAtualizado(event DomainEvent) error {
 	return nil
 }
 
-// 🔥 NOVO
 func (e *Estudante) applyStatusSuperiorAtualizado(event DomainEvent) error {
 	payload := event.GetPayload()
 	data, err := json.Marshal(payload)
@@ -662,6 +673,64 @@ func (e *Estudante) applyStatusSuperiorAtualizado(event DomainEvent) error {
 	}
 
 	e.StatusSuperior = ev.NovoStatus
+	return nil
+}
+
+func (e *Estudante) applyDadosPessoaisAtualizados(event DomainEvent) error {
+	payload := event.GetPayload()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	var ev DadosPessoaisAtualizadosEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+
+	if ev.Nome != nil {
+		e.Nome = *ev.Nome
+	}
+	if ev.Email != nil {
+		e.Email = ev.Email
+	}
+	if ev.Telefone != nil {
+		e.Telefone = ev.Telefone
+	}
+	if ev.BilheteIdentidade != nil {
+		e.BilheteIdentidade = ev.BilheteIdentidade
+	}
+	if ev.BilheteIdentidadeResp != nil {
+		e.BilheteIdentidadeResp = ev.BilheteIdentidadeResp
+	}
+
+	return nil
+}
+
+func (e *Estudante) applyDadosAcademicosAtualizados(event DomainEvent) error {
+	payload := event.GetPayload()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	var ev DadosAcademicosAtualizadosEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+
+	if ev.AnoEscolar != nil {
+		e.AnoEscolar = ev.AnoEscolar
+	}
+	if ev.AnoSuperior != nil {
+		e.AnoSuperior = ev.AnoSuperior
+	}
+	if ev.CursoMedio != nil {
+		e.CursoMedio = ev.CursoMedio
+	}
+	if ev.CursoSuperior != nil {
+		e.CursoSuperior = ev.CursoSuperior
+	}
 
 	return nil
 }
@@ -673,8 +742,8 @@ type EstudanteCriadoEvent struct {
 	Nome                  string
 	CodigoEstudante       string
 	SenhaHash             string
-	Email                 *string  // 🔥 NOVO
-	Telefone              *string  // 🔥 NOVO
+	Email                 *string
+	Telefone              *string
 	BilheteIdentidade     *string
 	BilheteIdentidadeResp *string
 	AnoEscolar            *string
@@ -690,26 +759,34 @@ func (e *EstudanteCriadoEvent) GetPayload() interface{} {
 	return e
 }
 
+// 🔥 NOVO v3.0
 type NotasRegistradasEvent struct {
 	BaseEvent
-	CodigoAcademia string
-	AnoLectivo     string
-	Periodo        string
-	Materias       []Materia
-	RegisteredAt   time.Time
+	CodigoEstudante      string
+	CodigoAcademia       string
+	AnoLectivo           string
+	Periodo              string
+	MateriaDisciplinarID uuid.UUID
+	Nota                 float64
+	Observacao           *string
+	RegisteredAt         time.Time
 }
 
 func (e *NotasRegistradasEvent) GetPayload() interface{} {
 	return e
 }
 
+// 🔥 NOVO v3.0
 type FaltasRegistradasEvent struct {
 	BaseEvent
-	CodigoAcademia string
-	AnoLectivo     string
-	Periodo        string
-	Materias       []MateriaFaltas
-	RegisteredAt   time.Time
+	CodigoEstudante      string
+	CodigoAcademia       string
+	AnoLectivo           string
+	Data                 time.Time
+	MateriaDisciplinarID uuid.UUID
+	Quantidade           int
+	Observacao           *string
+	RegisteredAt         time.Time
 }
 
 func (e *FaltasRegistradasEvent) GetPayload() interface{} {
@@ -753,7 +830,6 @@ func (e *InscricaoReprovadaEvent) GetPayload() interface{} {
 	return e
 }
 
-// 🔥 NOVO
 type EstudanteVinculadoEvent struct {
 	BaseEvent
 	InscricaoID    uuid.UUID
@@ -765,7 +841,6 @@ func (e *EstudanteVinculadoEvent) GetPayload() interface{} {
 	return e
 }
 
-// 🔥 NOVO
 type StatusEscolarAtualizadoEvent struct {
 	BaseEvent
 	NovoStatus string
@@ -776,7 +851,6 @@ func (e *StatusEscolarAtualizadoEvent) GetPayload() interface{} {
 	return e
 }
 
-// 🔥 NOVO
 type StatusSuperiorAtualizadoEvent struct {
 	BaseEvent
 	NovoStatus string
@@ -787,143 +861,6 @@ func (e *StatusSuperiorAtualizadoEvent) GetPayload() interface{} {
 	return e
 }
 
-// AtualizarDadosPessoais atualiza dados pessoais do estudante
-func (e *Estudante) AtualizarDadosPessoais(
-	nome *string,
-	email *string,
-	telefone *string,
-	bilheteIdentidade *string,
-	bilheteIdentidadeResp *string,
-) error {
-	if e.Status != "ativo" && e.Status != "inativo" {
-		return fmt.Errorf("não é possível atualizar dados de estudante finalizado")
-	}
-
-	// Validação: pelo menos um campo deve ser fornecido
-	if nome == nil && email == nil && telefone == nil && bilheteIdentidade == nil && bilheteIdentidadeResp == nil {
-		return fmt.Errorf("nenhum campo para atualizar")
-	}
-
-	// Se está atualizando nome, não pode ser vazio
-	if nome != nil && *nome == "" {
-		return fmt.Errorf("nome não pode ser vazio")
-	}
-
-	event := &DadosPessoaisAtualizadosEvent{
-		BaseEvent: BaseEvent{
-			EventType:   "DadosPessoaisAtualizados",
-			AggregateID: e.ID,
-		},
-		Nome:                  nome,
-		Email:                 email,
-		Telefone:              telefone,
-		BilheteIdentidade:     bilheteIdentidade,
-		BilheteIdentidadeResp: bilheteIdentidadeResp,
-		EmailAlterado:         email != nil && (e.Email == nil || *e.Email != *email),
-		UpdatedAt:             time.Now(),
-	}
-
-	e.RaiseEvent(event)
-	return e.Apply(event)
-}
-
-// AtualizarDadosAcademicos atualiza dados acadêmicos do estudante
-func (e *Estudante) AtualizarDadosAcademicos(
-	anoEscolar *string,
-	anoSuperior *string,
-	cursoMedio *string,
-	cursoSuperior *string,
-) error {
-	if e.Status != "ativo" && e.Status != "inativo" {
-		return fmt.Errorf("não é possível atualizar dados de estudante finalizado")
-	}
-
-	// Validação: pelo menos um campo deve ser fornecido
-	if anoEscolar == nil && anoSuperior == nil && cursoMedio == nil && cursoSuperior == nil {
-		return fmt.Errorf("nenhum campo para atualizar")
-	}
-
-	event := &DadosAcademicosAtualizadosEvent{
-		BaseEvent: BaseEvent{
-			EventType:   "DadosAcademicosAtualizados",
-			AggregateID: e.ID,
-		},
-		AnoEscolar:    anoEscolar,
-		AnoSuperior:   anoSuperior,
-		CursoMedio:    cursoMedio,
-		CursoSuperior: cursoSuperior,
-		UpdatedAt:     time.Now(),
-	}
-
-	e.RaiseEvent(event)
-	return e.Apply(event)
-}
-
-// ============================================================================
-// EVENT HANDLERS
-// ============================================================================
-
-func (e *Estudante) applyDadosPessoaisAtualizados(event DomainEvent) error {
-	payload := event.GetPayload()
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	var ev DadosPessoaisAtualizadosEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
-	}
-
-	// Atualizar apenas os campos fornecidos
-	if ev.Nome != nil {
-		e.Nome = *ev.Nome
-	}
-	if ev.Email != nil {
-		e.Email = ev.Email
-	}
-	if ev.Telefone != nil {
-		e.Telefone = ev.Telefone
-	}
-	if ev.BilheteIdentidade != nil {
-		e.BilheteIdentidade = ev.BilheteIdentidade
-	}
-	if ev.BilheteIdentidadeResp != nil {
-		e.BilheteIdentidadeResp = ev.BilheteIdentidadeResp
-	}
-
-	return nil
-}
-
-func (e *Estudante) applyDadosAcademicosAtualizados(event DomainEvent) error {
-	payload := event.GetPayload()
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	var ev DadosAcademicosAtualizadosEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
-	}
-
-	// Atualizar apenas os campos fornecidos
-	if ev.AnoEscolar != nil {
-		e.AnoEscolar = ev.AnoEscolar
-	}
-	if ev.AnoSuperior != nil {
-		e.AnoSuperior = ev.AnoSuperior
-	}
-	if ev.CursoMedio != nil {
-		e.CursoMedio = ev.CursoMedio
-	}
-	if ev.CursoSuperior != nil {
-		e.CursoSuperior = ev.CursoSuperior
-	}
-
-	return nil
-}
-
 type DadosPessoaisAtualizadosEvent struct {
 	BaseEvent
 	Nome                  *string
@@ -931,7 +868,7 @@ type DadosPessoaisAtualizadosEvent struct {
 	Telefone              *string
 	BilheteIdentidade     *string
 	BilheteIdentidadeResp *string
-	EmailAlterado         bool // Flag para saber se email foi alterado
+	EmailAlterado         bool
 	UpdatedAt             time.Time
 }
 

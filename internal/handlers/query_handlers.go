@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/handlers/query_handlers.go
-// 🔥 CORREÇÃO FINAL: Removido type assertion desnecessário
+// 🔥 CORRIGIDO: Conversão UUID -> Codigo antes de chamar projeções
 // ============================================================================
 
 package handlers
@@ -107,7 +107,7 @@ func ListarInscricoes(c *gin.Context) {
 				LIMIT %d OFFSET %d
 			`, statusFilter, limit, offset)
 
-			log.Printf("📝 [INSCRICOES] Executando query com filtro")
+			log.Printf("🔍 [INSCRICOES] Executando query com filtro")
 			err = client.DB().Select(&inscricoes, query)
 
 			countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM projection_inscricoes WHERE status = '%s'`, statusFilter)
@@ -133,7 +133,7 @@ func ListarInscricoes(c *gin.Context) {
 				LIMIT %d OFFSET %d
 			`, limit, offset)
 
-			log.Printf("📝 [INSCRICOES] Executando query sem filtro")
+			log.Printf("🔍 [INSCRICOES] Executando query sem filtro")
 			err = client.DB().Select(&inscricoes, query)
 
 			countQuery := `SELECT COUNT(*) FROM projection_inscricoes`
@@ -142,8 +142,6 @@ func ListarInscricoes(c *gin.Context) {
 
 	case "academia":
 		log.Printf("🏫 [INSCRICOES] Processando como ACADEMIA")
-
-		// 🔥 CORRIGIDO: userID já é uuid.UUID, não precisa converter
 		log.Printf("🏫 [INSCRICOES] Academia UUID: %s", userID.String())
 
 		if statusFilter != "" {
@@ -198,7 +196,7 @@ func ListarInscricoes(c *gin.Context) {
 				LIMIT %d OFFSET %d
 			`, userID.String(), limit, offset)
 
-			log.Printf("📝 [INSCRICOES] Query: %s", query)
+			log.Printf("🔍 [INSCRICOES] Query: %s", query)
 			err = client.DB().Select(&inscricoes, query)
 
 			if err != nil {
@@ -216,7 +214,6 @@ func ListarInscricoes(c *gin.Context) {
 	case "estudante":
 		log.Printf("👨‍🎓 [INSCRICOES] Processando como ESTUDANTE")
 
-		// 🔥 CORRIGIDO: userID já é uuid.UUID
 		if statusFilter != "" {
 			query := fmt.Sprintf(`
 				SELECT 
@@ -343,7 +340,6 @@ func ListarInscricoesPendentes(c *gin.Context) {
 		err = client.DB().Select(&inscricoes, query)
 
 	case "academia":
-		// 🔥 CORRIGIDO: userID já é uuid.UUID
 		query := fmt.Sprintf(`
 			SELECT 
 				id::text,
@@ -364,7 +360,6 @@ func ListarInscricoesPendentes(c *gin.Context) {
 		err = client.DB().Select(&inscricoes, query)
 
 	case "estudante":
-		// 🔥 CORRIGIDO: userID já é uuid.UUID
 		query := fmt.Sprintf(`
 			SELECT 
 				id::text,
@@ -405,6 +400,7 @@ func ListarInscricoesPendentes(c *gin.Context) {
 }
 
 // GetNotasEstudante busca notas por código
+// 🔥 CORRIGIDO: Buscar codigo_estudante do UUID
 func GetNotasEstudante(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
 
@@ -433,8 +429,9 @@ func GetNotasEstudante(c *gin.Context) {
 		}
 	}
 
+	// 🔥 USAR CÓDIGO ao invés de UUID
 	notasProj := getNotasProjection(c)
-	notas, err := notasProj.GetByEstudante(estudante.ID)
+	notas, err := notasProj.GetByEstudante(codigoEstudante)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar notas"})
 		return
@@ -449,6 +446,7 @@ func GetNotasEstudante(c *gin.Context) {
 }
 
 // GetFaltasEstudante busca faltas por código
+// 🔥 CORRIGIDO: Buscar codigo_estudante do UUID
 func GetFaltasEstudante(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
 
@@ -477,8 +475,9 @@ func GetFaltasEstudante(c *gin.Context) {
 		}
 	}
 
+	// 🔥 USAR CÓDIGO ao invés de UUID
 	faltasProj := getFaltasProjection(c)
-	faltas, err := faltasProj.GetByEstudante(estudante.ID)
+	faltas, err := faltasProj.GetByEstudante(codigoEstudante)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar faltas"})
 		return
@@ -493,6 +492,7 @@ func GetFaltasEstudante(c *gin.Context) {
 }
 
 // GetHistoricoCompleto busca histórico por código
+// 🔥 CORRIGIDO: Usar UUID corretamente
 func GetHistoricoCompleto(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
 
@@ -521,12 +521,14 @@ func GetHistoricoCompleto(c *gin.Context) {
 		}
 	}
 
+	// 🔥 USAR CÓDIGO para notas/faltas
 	notasProj := getNotasProjection(c)
-	notas, _ := notasProj.GetByEstudante(estudante.ID)
+	notas, _ := notasProj.GetByEstudante(codigoEstudante)
 
 	faltasProj := getFaltasProjection(c)
-	faltas, _ := faltasProj.GetByEstudante(estudante.ID)
+	faltas, _ := faltasProj.GetByEstudante(codigoEstudante)
 
+	// Usar UUID para inscrições
 	inscProj := getInscricoesProjection(c)
 	inscricoes, _ := inscProj.GetByEstudante(estudante.ID)
 
@@ -622,6 +624,7 @@ func GetMinhasInscricoes(c *gin.Context) {
 }
 
 // GetMeuHistorico retorna histórico completo do estudante logado
+// 🔥 CORRIGIDO: Buscar código do estudante
 func GetMeuHistorico(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -632,12 +635,14 @@ func GetMeuHistorico(c *gin.Context) {
 		return
 	}
 
+	// 🔥 USAR CÓDIGO para notas/faltas
 	notasProj := getNotasProjection(c)
-	notas, _ := notasProj.GetByEstudante(userID)
+	notas, _ := notasProj.GetByEstudante(estudante.CodigoEstudante)
 
 	faltasProj := getFaltasProjection(c)
-	faltas, _ := faltasProj.GetByEstudante(userID)
+	faltas, _ := faltasProj.GetByEstudante(estudante.CodigoEstudante)
 
+	// Usar UUID para inscrições
 	inscProj := getInscricoesProjection(c)
 	inscricoes, _ := inscProj.GetByEstudante(userID)
 

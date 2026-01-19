@@ -1,6 +1,6 @@
 -- ============================================
 -- SPURI EVENT SOURCING - SCHEMA COMPLETO
--- Versão: 2.5.0 (com Email, Telefone e Tokens)
+-- Versão: 3.0.0 (Nova Estrutura Notas/Faltas)
 -- ============================================
 
 -- ============================================
@@ -138,7 +138,7 @@ CREATE INDEX IF NOT EXISTS idx_snapshots_type ON aggregate_snapshots(aggregate_t
 -- PROJEÇÕES
 -- ============================================
 
--- Projeção: Estudantes (🔥 ATUALIZADO)
+-- Projeção: Estudantes
 CREATE TABLE IF NOT EXISTS projection_estudantes (
     id UUID PRIMARY KEY,
     nome VARCHAR(255) NOT NULL,
@@ -173,7 +173,7 @@ CREATE INDEX IF NOT EXISTS idx_proj_estudante_bilhete ON projection_estudantes(b
 CREATE INDEX IF NOT EXISTS idx_proj_estudante_bilhete_resp ON projection_estudantes(bilhete_identidade_responsavel);
 CREATE INDEX IF NOT EXISTS idx_proj_estudante_status ON projection_estudantes(status);
 
--- Projeção: Academias (🔥 ATUALIZADO)
+-- Projeção: Academias
 CREATE TABLE IF NOT EXISTS projection_academias (
     id UUID PRIMARY KEY,
     type VARCHAR(20) NOT NULL CHECK (type IN ('escola', 'superior')),
@@ -232,68 +232,6 @@ CREATE INDEX IF NOT EXISTS idx_proj_admins_role ON projection_admins(role);
 CREATE INDEX IF NOT EXISTS idx_proj_admins_status ON projection_admins(status);
 CREATE INDEX IF NOT EXISTS idx_proj_admins_created_by ON projection_admins(created_by);
 
--- Projeção: Notas
-CREATE TABLE IF NOT EXISTS projection_notas (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    estudante_id UUID NOT NULL,
-    codigo_academia VARCHAR(50) NOT NULL,
-    ano_lectivo VARCHAR(20) NOT NULL,
-    periodo VARCHAR(50) NOT NULL,
-    materias JSONB NOT NULL,
-    registered_at TIMESTAMP NOT NULL,
-    event_id UUID NOT NULL,
-    version INTEGER NOT NULL,
-    FOREIGN KEY (estudante_id) REFERENCES projection_estudantes(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_proj_notas_estudante ON projection_notas(estudante_id);
-CREATE INDEX IF NOT EXISTS idx_proj_notas_codigo_academia ON projection_notas(codigo_academia);
-CREATE INDEX IF NOT EXISTS idx_proj_notas_ano ON projection_notas(ano_lectivo);
-
--- Projeção: Faltas
-CREATE TABLE IF NOT EXISTS projection_faltas (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    estudante_id UUID NOT NULL,
-    codigo_academia VARCHAR(50) NOT NULL,
-    ano_lectivo VARCHAR(20) NOT NULL,
-    periodo VARCHAR(50) NOT NULL,
-    materias JSONB NOT NULL,
-    registered_at TIMESTAMP NOT NULL,
-    event_id UUID NOT NULL,
-    version INTEGER NOT NULL,
-    FOREIGN KEY (estudante_id) REFERENCES projection_estudantes(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_proj_faltas_estudante ON projection_faltas(estudante_id);
-CREATE INDEX IF NOT EXISTS idx_proj_faltas_codigo_academia ON projection_faltas(codigo_academia);
-CREATE INDEX IF NOT EXISTS idx_proj_faltas_ano ON projection_faltas(ano_lectivo);
-
--- Projeção: Inscrições
-CREATE TABLE IF NOT EXISTS projection_inscricoes (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    estudante_id UUID NOT NULL,
-    codigo_estudante VARCHAR(7),
-    academia_id UUID NOT NULL,
-    codigo_academia VARCHAR(50),
-    tipo VARCHAR(20) NOT NULL CHECK (tipo IN ('escola', 'universidade')),
-    ano_inscricao VARCHAR(50) NOT NULL,
-    curso VARCHAR(255),
-    status VARCHAR(20) NOT NULL CHECK (status IN ('espera', 'aprovado', 'reprovado')),
-    status_usado BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    event_id UUID NOT NULL,
-    version INTEGER NOT NULL,
-    FOREIGN KEY (estudante_id) REFERENCES projection_estudantes(id) ON DELETE CASCADE,
-    FOREIGN KEY (academia_id) REFERENCES projection_academias(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_estudante ON projection_inscricoes(estudante_id);
-CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_academia ON projection_inscricoes(academia_id);
-CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_status ON projection_inscricoes(status);
-CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_codigo_estudante ON projection_inscricoes(codigo_estudante);
-CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_codigo_academia ON projection_inscricoes(codigo_academia);
-
 -- Projeção: Cursos
 CREATE TABLE IF NOT EXISTS projection_cursos (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -349,7 +287,117 @@ CREATE INDEX IF NOT EXISTS idx_materias_type ON projection_materias(type);
 CREATE INDEX IF NOT EXISTS idx_materias_status ON projection_materias(status);
 
 -- ============================================
--- 🔥 TOKENS DE AUTENTICAÇÃO (NOVO)
+-- 🔥 NOVA ESTRUTURA - NOTAS (v3.0)
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS projection_notas (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    
+    -- Identificadores
+    codigo_estudante VARCHAR(7) NOT NULL,
+    codigo_academia VARCHAR(50) NOT NULL,
+    
+    -- Período Acadêmico
+    ano_lectivo VARCHAR(20) NOT NULL,
+    periodo VARCHAR(20) NOT NULL CHECK (periodo IN (
+        '1_trimestre', '2_trimestre', '3_trimestre',
+        '1_semestre', '2_semestre'
+    )),
+    
+    -- Matéria e Nota
+    materia_disciplinar_id UUID NOT NULL,
+    nota DECIMAL(5,2) NOT NULL CHECK (nota >= 0 AND nota <= 20),
+    observacao TEXT,
+    
+    -- Metadados
+    registered_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    event_id UUID NOT NULL,
+    version INTEGER NOT NULL,
+    
+    -- Foreign Keys
+    FOREIGN KEY (materia_disciplinar_id) 
+        REFERENCES projection_materias(id) 
+        ON DELETE CASCADE,
+    
+    -- Constraint: Única nota por estudante/academia/período/matéria
+    UNIQUE(codigo_estudante, codigo_academia, ano_lectivo, periodo, materia_disciplinar_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_notas_estudante ON projection_notas(codigo_estudante);
+CREATE INDEX IF NOT EXISTS idx_notas_academia ON projection_notas(codigo_academia);
+CREATE INDEX IF NOT EXISTS idx_notas_materia ON projection_notas(materia_disciplinar_id);
+CREATE INDEX IF NOT EXISTS idx_notas_periodo ON projection_notas(ano_lectivo, periodo);
+CREATE INDEX IF NOT EXISTS idx_notas_registered ON projection_notas(registered_at DESC);
+
+-- ============================================
+-- 🔥 NOVA ESTRUTURA - FALTAS (v3.0)
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS projection_faltas (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    
+    -- Identificadores
+    codigo_estudante VARCHAR(7) NOT NULL,
+    codigo_academia VARCHAR(50) NOT NULL,
+    
+    -- Período Acadêmico
+    ano_lectivo VARCHAR(20) NOT NULL,
+    data DATE NOT NULL,
+    
+    -- Matéria e Quantidade
+    materia_disciplinar_id UUID NOT NULL,
+    quantidade INTEGER NOT NULL DEFAULT 1 CHECK (quantidade > 0),
+    observacao TEXT,
+    
+    -- Metadados
+    registered_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    event_id UUID NOT NULL,
+    version INTEGER NOT NULL,
+    
+    -- Foreign Keys
+    FOREIGN KEY (materia_disciplinar_id) 
+        REFERENCES projection_materias(id) 
+        ON DELETE CASCADE,
+    
+    -- Constraint: Única falta por estudante/academia/data/matéria
+    UNIQUE(codigo_estudante, codigo_academia, data, materia_disciplinar_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_faltas_estudante ON projection_faltas(codigo_estudante);
+CREATE INDEX IF NOT EXISTS idx_faltas_academia ON projection_faltas(codigo_academia);
+CREATE INDEX IF NOT EXISTS idx_faltas_materia ON projection_faltas(materia_disciplinar_id);
+CREATE INDEX IF NOT EXISTS idx_faltas_data ON projection_faltas(data DESC);
+CREATE INDEX IF NOT EXISTS idx_faltas_ano ON projection_faltas(ano_lectivo);
+CREATE INDEX IF NOT EXISTS idx_faltas_registered ON projection_faltas(registered_at DESC);
+
+-- Projeção: Inscrições
+CREATE TABLE IF NOT EXISTS projection_inscricoes (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    estudante_id UUID NOT NULL,
+    codigo_estudante VARCHAR(7),
+    academia_id UUID NOT NULL,
+    codigo_academia VARCHAR(50),
+    tipo VARCHAR(20) NOT NULL CHECK (tipo IN ('escola', 'universidade')),
+    ano_inscricao VARCHAR(50) NOT NULL,
+    curso VARCHAR(255),
+    status VARCHAR(20) NOT NULL CHECK (status IN ('espera', 'aprovado', 'reprovado')),
+    status_usado BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    event_id UUID NOT NULL,
+    version INTEGER NOT NULL,
+    FOREIGN KEY (estudante_id) REFERENCES projection_estudantes(id) ON DELETE CASCADE,
+    FOREIGN KEY (academia_id) REFERENCES projection_academias(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_estudante ON projection_inscricoes(estudante_id);
+CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_academia ON projection_inscricoes(academia_id);
+CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_status ON projection_inscricoes(status);
+CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_codigo_estudante ON projection_inscricoes(codigo_estudante);
+CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_codigo_academia ON projection_inscricoes(codigo_academia);
+
+-- ============================================
+-- TOKENS DE AUTENTICAÇÃO
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS auth_tokens (
@@ -480,7 +528,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- 🔥 Limpar tokens expirados (NOVO)
+-- Limpar tokens expirados
 CREATE OR REPLACE FUNCTION cleanup_expired_tokens()
 RETURNS void AS $$
 BEGIN
@@ -541,6 +589,58 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- 🔥 Obter média de notas do estudante
+CREATE OR REPLACE FUNCTION get_media_estudante(
+    p_codigo_estudante VARCHAR(7),
+    p_ano_lectivo VARCHAR(20),
+    p_periodo VARCHAR(20) DEFAULT NULL
+) RETURNS DECIMAL(5,2) AS $$
+DECLARE
+    v_media DECIMAL(5,2);
+BEGIN
+    IF p_periodo IS NULL THEN
+        SELECT AVG(nota) INTO v_media
+        FROM projection_notas
+        WHERE codigo_estudante = p_codigo_estudante
+          AND ano_lectivo = p_ano_lectivo;
+    ELSE
+        SELECT AVG(nota) INTO v_media
+        FROM projection_notas
+        WHERE codigo_estudante = p_codigo_estudante
+          AND ano_lectivo = p_ano_lectivo
+          AND periodo = p_periodo;
+    END IF;
+    
+    RETURN COALESCE(v_media, 0);
+END;
+$$ LANGUAGE plpgsql;
+
+-- 🔥 Contar faltas do estudante
+CREATE OR REPLACE FUNCTION get_total_faltas_estudante(
+    p_codigo_estudante VARCHAR(7),
+    p_ano_lectivo VARCHAR(20),
+    p_materia_id UUID DEFAULT NULL
+) RETURNS INTEGER AS $$
+DECLARE
+    v_total INTEGER;
+BEGIN
+    IF p_materia_id IS NULL THEN
+        SELECT COALESCE(SUM(quantidade), 0) INTO v_total
+        FROM projection_faltas
+        WHERE codigo_estudante = p_codigo_estudante
+          AND ano_lectivo = p_ano_lectivo;
+    ELSE
+        SELECT COALESCE(SUM(quantidade), 0) INTO v_total
+        FROM projection_faltas
+        WHERE codigo_estudante = p_codigo_estudante
+          AND ano_lectivo = p_ano_lectivo
+          AND materia_disciplinar_id = p_materia_id;
+    END IF;
+    
+    RETURN v_total;
+END;
+$$ LANGUAGE plpgsql;
+
 -- ============================================
 -- TRIGGERS DE ATUALIZAÇÃO
 -- ============================================
@@ -590,10 +690,64 @@ CREATE TRIGGER trigger_update_materia_timestamp
 CREATE OR REPLACE VIEW v_estudante_completo AS
 SELECT 
     e.*,
-    (SELECT json_agg(n.*) FROM projection_notas n WHERE n.estudante_id = e.id) as notas,
-    (SELECT json_agg(f.*) FROM projection_faltas f WHERE f.estudante_id = e.id) as faltas,
+    (SELECT json_agg(n.*) FROM projection_notas n WHERE n.codigo_estudante = e.codigo_estudante) as notas,
+    (SELECT json_agg(f.*) FROM projection_faltas f WHERE f.codigo_estudante = e.codigo_estudante) as faltas,
     (SELECT json_agg(i.*) FROM projection_inscricoes i WHERE i.estudante_id = e.id) as inscricoes
 FROM projection_estudantes e;
+
+-- 🔥 View: Notas com nome da matéria
+CREATE OR REPLACE VIEW v_notas_completas AS
+SELECT 
+    n.id,
+    n.codigo_estudante,
+    e.nome as estudante_nome,
+    n.codigo_academia,
+    a.nome as academia_nome,
+    n.ano_lectivo,
+    n.periodo,
+    m.nome as materia_nome,
+    m.type as materia_type,
+    n.nota,
+    n.observacao,
+    n.registered_at
+FROM projection_notas n
+LEFT JOIN projection_estudantes e ON n.codigo_estudante = e.codigo_estudante
+LEFT JOIN projection_academias a ON n.codigo_academia = a.codigo_academia
+LEFT JOIN projection_materias m ON n.materia_disciplinar_id = m.id;
+
+-- 🔥 View: Faltas com nome da matéria
+CREATE OR REPLACE VIEW v_faltas_completas AS
+SELECT 
+    f.id,
+    f.codigo_estudante,
+    e.nome as estudante_nome,
+    f.codigo_academia,
+    a.nome as academia_nome,
+    f.ano_lectivo,
+    f.data,
+    m.nome as materia_nome,
+    m.type as materia_type,
+    f.quantidade,
+    f.observacao,
+    f.registered_at
+FROM projection_faltas f
+LEFT JOIN projection_estudantes e ON f.codigo_estudante = e.codigo_estudante
+LEFT JOIN projection_academias a ON f.codigo_academia = a.codigo_academia
+LEFT JOIN projection_materias m ON f.materia_disciplinar_id = m.id;
+
+-- 🔥 View: Resumo de faltas por estudante/matéria
+CREATE OR REPLACE VIEW v_resumo_faltas AS
+SELECT 
+    codigo_estudante,
+    codigo_academia,
+    ano_lectivo,
+    materia_disciplinar_id,
+    SUM(quantidade) as total_faltas,
+    COUNT(*) as total_registros,
+    MIN(data) as primeira_falta,
+    MAX(data) as ultima_falta
+FROM projection_faltas
+GROUP BY codigo_estudante, codigo_academia, ano_lectivo, materia_disciplinar_id;
 
 CREATE OR REPLACE VIEW v_admin_actions_recent AS
 SELECT 
@@ -629,7 +783,7 @@ INSERT INTO spuri_ledger (
     'SchemaCreated',
     1,
     jsonb_build_object(
-        'version', '2.5.0',
+        'version', '3.0.0',
         'name', 'Spuri Event Sourcing',
         'features', json_build_array(
             'event_sourcing',
@@ -642,10 +796,12 @@ INSERT INTO spuri_ledger (
             'cursos_materias',
             'email_verification',
             'password_recovery',
-            'auth_tokens'
+            'auth_tokens',
+            'notas_relacionais',
+            'faltas_com_data'
         )
     ),
-    jsonb_build_object('created_by', 'migration_completa_v2.5'),
+    jsonb_build_object('created_by', 'migration_completa_v3.0'),
     CURRENT_TIMESTAMP
 )
 ON CONFLICT (aggregate_id, event_version) DO NOTHING;
@@ -660,6 +816,8 @@ COMMENT ON TABLE projection_academias IS 'Projeção de leitura para academias';
 COMMENT ON TABLE projection_admins IS 'Projeção de leitura para administradores';
 COMMENT ON TABLE projection_cursos IS 'Projeção de cursos (médio/superior)';
 COMMENT ON TABLE projection_materias IS 'Projeção de matérias/disciplinas';
+COMMENT ON TABLE projection_notas IS 'Notas individuais por matéria - estrutura relacional v3.0';
+COMMENT ON TABLE projection_faltas IS 'Faltas individuais por matéria com data específica v3.0';
 COMMENT ON TABLE auth_tokens IS 'Tokens de verificação de email e recuperação de senha';
 COMMENT ON TABLE admin_action_log IS 'Log de todas as ações administrativas';
 
@@ -681,8 +839,16 @@ COMMENT ON COLUMN projection_cursos.nivel IS 'Array JSON com anos do curso: ["pr
 COMMENT ON COLUMN projection_materias.curso_id IS 'NULL para fundamental, FK para medio/superior';
 COMMENT ON COLUMN projection_materias.nivel IS 'Apenas para fundamental: ["primeiro_fundamental","segundo_fundamental",...]';
 
-COMMENT ON COLUMN projection_notas.codigo_academia IS 'Código da academia que registrou as notas';
-COMMENT ON COLUMN projection_faltas.codigo_academia IS 'Código da academia que registrou as faltas';
+COMMENT ON COLUMN projection_notas.periodo IS 'Período: 1_trimestre, 2_trimestre, 3_trimestre, 1_semestre, 2_semestre';
+COMMENT ON COLUMN projection_notas.nota IS 'Nota de 0 a 20';
+COMMENT ON COLUMN projection_notas.materia_disciplinar_id IS 'FK para projection_materias';
+COMMENT ON COLUMN projection_notas.observacao IS 'Detalhes sobre a nota (texto opcional)';
+
+COMMENT ON COLUMN projection_faltas.data IS 'Data específica da falta';
+COMMENT ON COLUMN projection_faltas.quantidade IS 'Quantidade de faltas (geralmente 1)';
+COMMENT ON COLUMN projection_faltas.materia_disciplinar_id IS 'FK para projection_materias';
+COMMENT ON COLUMN projection_faltas.observacao IS 'Detalhes sobre a falta (texto opcional)';
+
 COMMENT ON COLUMN projection_admins.role IS 'Hierarquia: fpp > adm > gerente';
 COMMENT ON COLUMN projection_inscricoes.status_usado IS 'Se a inscrição aprovada já foi usada para vincular';
 
@@ -694,12 +860,14 @@ COMMENT ON FUNCTION generate_codigo_estudante IS 'Gera código único AAA1234 pa
 COMMENT ON FUNCTION registrar_acao_admin IS 'Registra uma ação administrativa no log';
 COMMENT ON FUNCTION cleanup_expired_tokens IS 'Remove tokens expirados do banco de dados';
 COMMENT ON FUNCTION verify_hash_chain IS 'Verifica integridade da cadeia de hashes de um agregado';
+COMMENT ON FUNCTION get_media_estudante IS 'Calcula média de notas do estudante por período';
+COMMENT ON FUNCTION get_total_faltas_estudante IS 'Soma total de faltas do estudante';
 
 -- ============================================
 -- VERIFICAÇÃO FINAL
 -- ============================================
 
-DO $$
+DO $
 DECLARE
     v_total_eventos BIGINT;
     v_total_checkpoints INT;
@@ -709,17 +877,19 @@ BEGIN
     SELECT COUNT(*) INTO v_total_checkpoints FROM projection_checkpoints;
     SELECT COUNT(*) INTO v_total_admins FROM projection_admins;
     
-    RAISE NOTICE '╔════════════════════════════════════╗';
-    RAISE NOTICE '║ SCHEMA CRIADO COM SUCESSO! v2.5.0  ║';
-    RAISE NOTICE '╚════════════════════════════════════╝';
+    RAISE NOTICE '╔═══════════════════════════════════╗';
+    RAISE NOTICE '║ SCHEMA CRIADO COM SUCESSO! v3.0.0 ║';
+    RAISE NOTICE '╚═══════════════════════════════════╝';
     RAISE NOTICE 'Total de eventos: %', v_total_eventos;
     RAISE NOTICE 'Total de checkpoints: %', v_total_checkpoints;
     RAISE NOTICE 'Total de admins: %', v_total_admins;
-    RAISE NOTICE '🔥 NOVIDADES v2.5.0:';
-    RAISE NOTICE '   ✅ Email e Telefone para estudantes';
-    RAISE NOTICE '   ✅ Verificação de email';
-    RAISE NOTICE '   ✅ Recuperação de senha por email';
-    RAISE NOTICE '   ✅ Sistema de tokens de autenticação';
-    RAISE NOTICE '   ✅ Integração com Google SMTP';
-    RAISE NOTICE '╚════════════════════════════════════╝';
+    RAISE NOTICE '🔥 NOVIDADES v3.0.0:';
+    RAISE NOTICE '   ✅ Estrutura relacional de Notas';
+    RAISE NOTICE '   ✅ Estrutura relacional de Faltas';
+    RAISE NOTICE '   ✅ Relacionamento com Matérias';
+    RAISE NOTICE '   ✅ Data específica para Faltas';
+    RAISE NOTICE '   ✅ Campo observação em Notas/Faltas';
+    RAISE NOTICE '   ✅ Funções de cálculo (média, total)';
+    RAISE NOTICE '   ✅ Views auxiliares completas';
+    RAISE NOTICE '╚═══════════════════════════════════╝';
 END $;

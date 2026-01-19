@@ -1,8 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/projections/faltas_projection.go
-// 🔥 CORRIGIDO: GetLastProcessedEventID usando Query simples
-// ============================================================================
-
 package projections
 
 import (
@@ -36,7 +31,6 @@ func (p *FaltasProjection) Handle(event db.Event) error {
 	if event.EventType != "FaltasRegistradas" {
 		return nil
 	}
-
 	return p.handleFaltasRegistradas(event)
 }
 
@@ -80,7 +74,6 @@ func (p *FaltasProjection) Rebuild() error {
 	return rows.Err()
 }
 
-// 🔥 CORRIGIDO: Usar Query direto sem QueryRowContext
 func (p *FaltasProjection) GetLastProcessedEventID() (int64, error) {
 	query := fmt.Sprintf(`
 		SELECT last_processed_event_id 
@@ -93,20 +86,14 @@ func (p *FaltasProjection) GetLastProcessedEventID() (int64, error) {
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
-	if err != nil {
-		return 0, err
-	}
-
-	return lastID, nil
+	return lastID, err
 }
 
 func (p *FaltasProjection) UpdateCheckpoint(eventID int64) error {
 	query := fmt.Sprintf(`
 		INSERT INTO projection_checkpoints (
-			projection_name, 
-			last_processed_event_id, 
-			last_processed_at,
-			events_processed
+			projection_name, last_processed_event_id,
+			last_processed_at, events_processed
 		) VALUES ('%s', %d, CURRENT_TIMESTAMP, 1)
 		ON CONFLICT (projection_name) 
 		DO UPDATE SET
@@ -126,107 +113,177 @@ func (p *FaltasProjection) clear() error {
 
 func (p *FaltasProjection) handleFaltasRegistradas(event db.Event) error {
 	var payload struct {
-		CodigoAcademia string `json:"CodigoAcademia"`
-		AnoLectivo     string `json:"AnoLectivo"`
-		Periodo        string `json:"Periodo"`
-		Materias       []struct {
-			Nome   string `json:"Nome"`
-			Faltas int    `json:"Faltas"`
-		} `json:"Materias"`
-		RegisteredAt time.Time `json:"RegisteredAt"`
+		CodigoEstudante      string    `json:"CodigoEstudante"`
+		CodigoAcademia       string    `json:"CodigoAcademia"`
+		AnoLectivo           string    `json:"AnoLectivo"`
+		Data                 time.Time `json:"Data"`
+		MateriaDisciplinarID string    `json:"MateriaDisciplinarID"`
+		Quantidade           int       `json:"Quantidade"`
+		Observacao           *string   `json:"Observacao"`
+		RegisteredAt         time.Time `json:"RegisteredAt"`
 	}
 
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	materiasJSON, err := json.Marshal(payload.Materias)
-	if err != nil {
-		return err
+	observacaoStr := "NULL"
+	if payload.Observacao != nil {
+		observacaoStr = fmt.Sprintf("'%s'", escapeStringFalta(*payload.Observacao))
 	}
 
-	query := `
+	query := fmt.Sprintf(`
 		INSERT INTO projection_faltas (
-			estudante_id, codigo_academia, ano_lectivo, periodo,
-			materias, registered_at, event_id, version
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`
-
-	_, err = p.client.DB().Exec(
-		query,
-		event.AggregateID,
+			codigo_estudante, codigo_academia, ano_lectivo, data,
+			materia_disciplinar_id, quantidade, observacao,
+			registered_at, event_id, version
+		) VALUES (
+			'%s', '%s', '%s', '%s',
+			'%s', %d, %s,
+			'%s', '%s', %d
+		)
+		ON CONFLICT (codigo_estudante, codigo_academia, data, materia_disciplinar_id)
+		DO UPDATE SET
+			quantidade = EXCLUDED.quantidade,
+			observacao = EXCLUDED.observacao,
+			registered_at = EXCLUDED.registered_at,
+			event_id = EXCLUDED.event_id,
+			version = EXCLUDED.version
+	`,
+		payload.CodigoEstudante,
 		payload.CodigoAcademia,
 		payload.AnoLectivo,
-		payload.Periodo,
-		materiasJSON,
-		payload.RegisteredAt,
-		event.EventID,
+		payload.Data.Format("2006-01-02"),
+		payload.MateriaDisciplinarID,
+		payload.Quantidade,
+		observacaoStr,
+		payload.RegisteredAt.Format(time.RFC3339),
+		event.EventID.String(),
 		event.EventVersion,
 	)
 
+	_, err := p.client.DB().Exec(query)
 	if err == nil {
-		updateQuery := `
+		updateQuery := fmt.Sprintf(`
 			UPDATE projection_estudantes
-			SET total_faltas = total_faltas + 1
-			WHERE id = $1
-		`
-		p.client.DB().Exec(updateQuery, event.AggregateID)
+			SET total_faltas = (
+				SELECT COALESCE(SUM(quantidade), 0) 
+				FROM projection_faltas 
+				WHERE codigo_estudante = '%s'
+			)
+			WHERE codigo_estudante = '%s'
+		`, payload.CodigoEstudante, payload.CodigoEstudante)
+		p.client.DB().Exec(updateQuery)
 	}
 
 	return err
 }
 
-func (p *FaltasProjection) GetByEstudante(estudanteID uuid.UUID) ([]FaltasDTO, error) {
-	query := `
-		SELECT 
-			id, estudante_id, codigo_academia, ano_lectivo, periodo,
-			materias, registered_at, event_id, version
-		FROM projection_faltas
-		WHERE estudante_id = $1
-		ORDER BY registered_at DESC
-	`
+// Query Methods
 
-	rows, err := p.client.DB().Query(query, estudanteID)
+func (p *FaltasProjection) GetByEstudante(codigoEstudante string) ([]FaltaDTO, error) {
+	query := fmt.Sprintf(`
+		SELECT 
+			f.id, f.codigo_estudante, f.codigo_academia,
+			f.ano_lectivo, f.data, f.materia_disciplinar_id,
+			m.nome as materia_nome, f.quantidade, f.observacao,
+			f.registered_at, f.event_id, f.version
+		FROM projection_faltas f
+		LEFT JOIN projection_materias m ON f.materia_disciplinar_id = m.id
+		WHERE f.codigo_estudante = '%s'
+		ORDER BY f.data DESC
+	`, codigoEstudante)
+
+	rows, err := p.client.DB().Query(query)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var result []FaltasDTO
+	var result []FaltaDTO
 	for rows.Next() {
-		var dto FaltasDTO
-		var materiasJSON []byte
-
+		var dto FaltaDTO
 		err := rows.Scan(
-			&dto.ID, &dto.EstudanteID, &dto.CodigoAcademia,
-			&dto.AnoLectivo, &dto.Periodo, &materiasJSON,
+			&dto.ID, &dto.CodigoEstudante, &dto.CodigoAcademia,
+			&dto.AnoLectivo, &dto.Data, &dto.MateriaDisciplinarID,
+			&dto.MateriaNome, &dto.Quantidade, &dto.Observacao,
 			&dto.RegisteredAt, &dto.EventID, &dto.Version,
 		)
 		if err != nil {
 			return nil, err
 		}
-
-		if err := json.Unmarshal(materiasJSON, &dto.Materias); err != nil {
-			return nil, err
-		}
-
 		result = append(result, dto)
 	}
 
 	return result, rows.Err()
 }
 
-type FaltasDTO struct {
-	ID             uuid.UUID `json:"id"`
-	EstudanteID    uuid.UUID `json:"estudante_id"`
-	CodigoAcademia string    `json:"codigo_academia"`
-	AnoLectivo     string    `json:"ano_lectivo"`
-	Periodo        string    `json:"periodo"`
-	Materias       []struct {
-		Nome   string `json:"nome"`
-		Faltas int    `json:"faltas"`
-	} `json:"materias"`
-	RegisteredAt time.Time `json:"registered_at"`
-	EventID      uuid.UUID `json:"event_id"`
-	Version      int       `json:"version"`
+func (p *FaltasProjection) GetByPeriodo(codigoEstudante, anoLectivo string, dataInicio, dataFim time.Time) ([]FaltaDTO, error) {
+	query := fmt.Sprintf(`
+		SELECT 
+			f.id, f.codigo_estudante, f.codigo_academia,
+			f.ano_lectivo, f.data, f.materia_disciplinar_id,
+			m.nome as materia_nome, f.quantidade, f.observacao,
+			f.registered_at, f.event_id, f.version
+		FROM projection_faltas f
+		LEFT JOIN projection_materias m ON f.materia_disciplinar_id = m.id
+		WHERE f.codigo_estudante = '%s'
+		  AND f.ano_lectivo = '%s'
+		  AND f.data BETWEEN '%s' AND '%s'
+		ORDER BY f.data DESC
+	`, codigoEstudante, anoLectivo, 
+	   dataInicio.Format("2006-01-02"), 
+	   dataFim.Format("2006-01-02"))
+
+	rows, err := p.client.DB().Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []FaltaDTO
+	for rows.Next() {
+		var dto FaltaDTO
+		err := rows.Scan(
+			&dto.ID, &dto.CodigoEstudante, &dto.CodigoAcademia,
+			&dto.AnoLectivo, &dto.Data, &dto.MateriaDisciplinarID,
+			&dto.MateriaNome, &dto.Quantidade, &dto.Observacao,
+			&dto.RegisteredAt, &dto.EventID, &dto.Version,
+		)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, dto)
+	}
+
+	return result, rows.Err()
+}
+
+type FaltaDTO struct {
+	ID                   uuid.UUID `json:"id"`
+	CodigoEstudante      string    `json:"codigo_estudante"`
+	CodigoAcademia       string    `json:"codigo_academia"`
+	AnoLectivo           string    `json:"ano_lectivo"`
+	Data                 time.Time `json:"data"`
+	MateriaDisciplinarID uuid.UUID `json:"materia_disciplinar_id"`
+	MateriaNome          string    `json:"materia_nome"`
+	Quantidade           int       `json:"quantidade"`
+	Observacao           *string   `json:"observacao,omitempty"`
+	RegisteredAt         time.Time `json:"registered_at"`
+	EventID              uuid.UUID `json:"event_id"`
+	Version              int       `json:"version"`
+}
+
+func escapeStringFalta(s string) string {
+	result := ""
+	for _, char := range s {
+		if char == '\'' {
+			result += "''"
+		} else if char == '\\' {
+			result += "\\\\"
+		} else {
+			result += string(char)
+		}
+	}
+	return result
 }
