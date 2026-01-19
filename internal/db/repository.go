@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/db/repository.go
-// 🔥 CORRIGIDO: Todas as queries usando Exec/Query direto sem prepared statements
+// ✅ CORRIGIDO: Prepared statements
 // ============================================================================
 
 package db
@@ -17,14 +17,12 @@ import (
 	"github.com/google/uuid"
 )
 
-// AggregateRepository repositório de agregados usando Event Sourcing
 type AggregateRepository struct {
 	eventStore *EventStore
 	factory    aggregates.AggregateFactory
 	ctx        context.Context
 }
 
-// NewAggregateRepository cria um novo repositório
 func NewAggregateRepository(client *Client) *AggregateRepository {
 	return &AggregateRepository{
 		eventStore: NewEventStore(client),
@@ -33,9 +31,7 @@ func NewAggregateRepository(client *Client) *AggregateRepository {
 	}
 }
 
-// Load carrega um agregado reconstruindo-o a partir dos eventos
 func (r *AggregateRepository) Load(id uuid.UUID, aggregateType string) (aggregates.Aggregate, error) {
-	// 1. Carregar eventos do ledger
 	dbEvents, err := r.eventStore.LoadEventStream(r.ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao carregar eventos: %w", err)
@@ -45,19 +41,16 @@ func (r *AggregateRepository) Load(id uuid.UUID, aggregateType string) (aggregat
 		return nil, fmt.Errorf("agregado não encontrado: %s", id)
 	}
 
-	// 2. Converter eventos do Banco de dados para eventos de domínio
 	domainEvents, err := r.convertToDomainEvents(dbEvents)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao converter eventos: %w", err)
 	}
 
-	// 3. Criar agregado vazio
 	aggregate, err := r.factory.Create(aggregateType)
 	if err != nil {
 		return nil, err
 	}
 
-	// 4. Reconstruir estado aplicando eventos
 	for _, event := range domainEvents {
 		if err := aggregate.Apply(event); err != nil {
 			return nil, fmt.Errorf("erro ao aplicar evento: %w", err)
@@ -67,30 +60,24 @@ func (r *AggregateRepository) Load(id uuid.UUID, aggregateType string) (aggregat
 	return aggregate, nil
 }
 
-// Save salva um agregado persistindo seus eventos não commitados
 func (r *AggregateRepository) Save(aggregate aggregates.Aggregate) error {
 	uncommittedEvents := aggregate.GetUncommittedEvents()
 	if len(uncommittedEvents) == 0 {
-		return nil // Nada para salvar
+		return nil
 	}
 
-	// 🔥 CORRIGIDO: Obter versão atual sem prepared statement
 	currentVersion := 0
-	version, err := r.getAggregateVersionDirect(aggregate.GetID())
+	version, err := r.eventStore.GetAggregateVersion(r.ctx, aggregate.GetID())
 	
-	// Se não houver erro, usar a versão retornada
 	if err == nil {
 		currentVersion = version
 	}
-	// Se o erro for "no rows", currentVersion fica 0 (novo agregado)
-	// Qualquer outro erro é propagado
+	
 	if err != nil && err != sql.ErrNoRows {
 		return fmt.Errorf("erro ao obter versão: %w", err)
 	}
 
-	// Salvar cada evento
 	for i, domainEvent := range uncommittedEvents {
-		// Converter para evento do Banco de dados
 		dbEvent, err := r.dbEvent(
 			domainEvent,
 			aggregate.GetType(),
@@ -100,42 +87,15 @@ func (r *AggregateRepository) Save(aggregate aggregates.Aggregate) error {
 			return fmt.Errorf("erro ao converter evento: %w", err)
 		}
 
-		// Persistir no ledger
 		if err := r.eventStore.Append(r.ctx, dbEvent); err != nil {
 			return fmt.Errorf("erro ao salvar evento: %w", err)
 		}
 	}
 
-	// Limpar eventos não commitados
 	aggregate.ClearUncommittedEvents()
-
 	return nil
 }
 
-// 🔥 NOVO MÉTODO: getAggregateVersionDirect sem prepared statement
-func (r *AggregateRepository) getAggregateVersionDirect(aggregateID uuid.UUID) (int, error) {
-	query := fmt.Sprintf(`
-		SELECT COALESCE(MAX(event_version), 0)
-		FROM spuri_ledger
-		WHERE aggregate_id = '%s'
-	`, aggregateID.String())
-
-	var version int
-	err := r.eventStore.client.db.QueryRow(query).Scan(&version)
-	
-	// Se não houver linhas, retornar 0 (agregado novo)
-	if err == sql.ErrNoRows {
-		return 0, nil
-	}
-	
-	if err != nil {
-		return 0, fmt.Errorf("erro ao obter versão do agregado: %w", err)
-	}
-
-	return version, nil
-}
-
-// Exists verifica se um agregado existe
 func (r *AggregateRepository) Exists(id uuid.UUID) (bool, error) {
 	count, err := r.eventStore.CountEventsByAggregate(r.ctx, id)
 	if err != nil {
@@ -144,13 +104,11 @@ func (r *AggregateRepository) Exists(id uuid.UUID) (bool, error) {
 	return count > 0, nil
 }
 
-// LoadFromVersion carrega agregado a partir de uma versão específica
 func (r *AggregateRepository) LoadFromVersion(
 	id uuid.UUID,
 	aggregateType string,
 	fromVersion int,
 ) (aggregates.Aggregate, error) {
-	// Carregar eventos a partir da versão
 	dbEvents, err := r.eventStore.LoadEventStreamFromVersion(r.ctx, id, fromVersion)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao carregar eventos: %w", err)
@@ -160,7 +118,6 @@ func (r *AggregateRepository) LoadFromVersion(
 		return nil, fmt.Errorf("nenhum evento encontrado")
 	}
 
-	// Converter e reconstruir
 	domainEvents, err := r.convertToDomainEvents(dbEvents)
 	if err != nil {
 		return nil, err
@@ -180,32 +137,26 @@ func (r *AggregateRepository) LoadFromVersion(
 	return aggregate, nil
 }
 
-// GetEventHistory retorna o histórico de eventos de um agregado
 func (r *AggregateRepository) GetEventHistory(id uuid.UUID) ([]Event, error) {
 	return r.eventStore.LoadEventStream(r.ctx, id)
 }
 
-// VerifyIntegrity verifica a integridade do ledger de um agregado
 func (r *AggregateRepository) VerifyIntegrity(id uuid.UUID) (bool, error) {
 	return r.eventStore.VerifyLedgerIntegrity(r.ctx, id)
 }
 
-// dbEvent converte evento de domínio para evento do Banco de dados
 func (r *AggregateRepository) dbEvent(
 	domainEvent aggregates.DomainEvent,
 	aggregateType string,
 	version int,
 ) (*Event, error) {
-	// Obter o payload completo do evento
 	payload := domainEvent.GetPayload()
 	
-	// Serializar payload corretamente
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao serializar payload: %w", err)
 	}
 
-	// Criar metadata vazia por padrão
 	metadata := map[string]interface{}{
 		"timestamp": time.Now().Unix(),
 	}
@@ -223,18 +174,15 @@ func (r *AggregateRepository) dbEvent(
 	}, nil
 }
 
-// convertToDomainEvents converte eventos do Banco de dados para eventos de domínio
 func (r *AggregateRepository) convertToDomainEvents(dbEvents []Event) ([]aggregates.DomainEvent, error) {
 	domainEvents := make([]aggregates.DomainEvent, 0, len(dbEvents))
 
 	for _, ge := range dbEvents {
-		// Deserializar payload
 		var payload map[string]interface{}
 		if err := json.Unmarshal(ge.Payload, &payload); err != nil {
 			return nil, err
 		}
 
-		// Criar evento de domínio base
 		domainEvent := &aggregates.BaseEvent{
 			EventType:   ge.EventType,
 			AggregateID: ge.AggregateID,
@@ -247,53 +195,40 @@ func (r *AggregateRepository) convertToDomainEvents(dbEvents []Event) ([]aggrega
 	return domainEvents, nil
 }
 
-// Snapshot (opcional) - salva snapshot do estado atual
-type Snapshot struct {
-	AggregateID   uuid.UUID       `db:"aggregate_id"`
-	AggregateType string          `db:"aggregate_type"`
-	Version       int             `db:"version"`
-	State         json.RawMessage `db:"state"`
-	CreatedAt     time.Time       `db:"created_at"`
-}
-
-// SaveSnapshot salva um snapshot (otimização para agregados com muitos eventos)
-// 🔥 CORRIGIDO: Usar Exec direto
+// ✅ SaveSnapshot com prepared statement
 func (r *AggregateRepository) SaveSnapshot(aggregate aggregates.Aggregate) error {
-	// Serializar estado
 	stateJSON, err := json.Marshal(aggregate)
 	if err != nil {
 		return err
 	}
 
-	query := fmt.Sprintf(`
+	query := `
 		INSERT INTO aggregate_snapshots (aggregate_id, aggregate_type, version, state)
-		VALUES ('%s', '%s', %d, '%s')
+		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (aggregate_id) 
-		DO UPDATE SET version = %d, state = '%s', created_at = CURRENT_TIMESTAMP
-	`,
-		aggregate.GetID().String(),
+		DO UPDATE SET 
+			version = EXCLUDED.version,
+			state = EXCLUDED.state,
+			created_at = CURRENT_TIMESTAMP`
+
+	_, err = r.eventStore.client.db.ExecContext(r.ctx, query,
+		aggregate.GetID(),
 		aggregate.GetType(),
 		aggregate.GetVersion(),
-		EscapeString(string(stateJSON)),
-		aggregate.GetVersion(),
-		EscapeString(string(stateJSON)),
+		stateJSON,
 	)
-
-	_, err = r.eventStore.client.db.Exec(query)
 	return err
 }
 
-// LoadSnapshot carrega um snapshot
-// 🔥 CORRIGIDO: Usar QueryRow direto
+// ✅ LoadSnapshot com prepared statement
 func (r *AggregateRepository) LoadSnapshot(id uuid.UUID) (*Snapshot, error) {
-	query := fmt.Sprintf(`
+	query := `
 		SELECT aggregate_id, aggregate_type, version, state, created_at
 		FROM aggregate_snapshots
-		WHERE aggregate_id = '%s'
-	`, id.String())
+		WHERE aggregate_id = $1`
 
 	var snapshot Snapshot
-	err := r.eventStore.client.db.QueryRow(query).Scan(
+	err := r.eventStore.client.db.QueryRowContext(r.ctx, query, id).Scan(
 		&snapshot.AggregateID,
 		&snapshot.AggregateType,
 		&snapshot.Version,
@@ -305,4 +240,12 @@ func (r *AggregateRepository) LoadSnapshot(id uuid.UUID) (*Snapshot, error) {
 	}
 
 	return &snapshot, nil
+}
+
+type Snapshot struct {
+	AggregateID   uuid.UUID       `db:"aggregate_id"`
+	AggregateType string          `db:"aggregate_type"`
+	Version       int             `db:"version"`
+	State         json.RawMessage `db:"state"`
+	CreatedAt     time.Time       `db:"created_at"`
 }
