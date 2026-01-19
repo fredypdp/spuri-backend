@@ -1,153 +1,219 @@
 // ============================================================================
-// ARQUIVO: internal/utils/validation.go (NOVO)
-// Validação de anos acadêmicos conforme padrão TypeScript
+// ARQUIVO: internal/utils/validation.go
+// ✅ Validação robusta de inputs
 // ============================================================================
 
 package utils
 
-import "fmt"
+import (
+	"fmt"
+	"html"
+	"regexp"
+	"strings"
+	"unicode/utf8"
+)
 
-// AnoEscolar - Anos válidos para ensino fundamental e médio
-var AnosEscolares = []string{
-	// Fundamental
-	"primeiro_fundamental", "segundo_fundamental", "terceiro_fundamental",
-	"quarto_fundamental", "quinto_fundamental", "sexto_fundamental",
-	"setimo_fundamental", "oitavo_fundamental", "nono_fundamental",
-	// Médio
-	"primeiro_medio", "segundo_medio", "terceiro_medio", "quarto_medio",
-}
+var (
+	emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+	phoneRegex = regexp.MustCompile(`^\+?[0-9]{9,15}$`)
+)
 
-// AnoSuperior - Anos válidos para ensino superior
-var AnosSuperiores = []string{
-	"primeiro_superior", "segundo_superior", "terceiro_superior",
-	"quarto_superior", "quinto_superior",
-}
-
-// AnosFundamental - Apenas anos do fundamental
-var AnosFundamental = []string{
-	"primeiro_fundamental", "segundo_fundamental", "terceiro_fundamental",
-	"quarto_fundamental", "quinto_fundamental", "sexto_fundamental",
-	"setimo_fundamental", "oitavo_fundamental", "nono_fundamental",
-}
-
-// AnosMedio - Apenas anos do médio
-var AnosMedio = []string{
-	"primeiro_medio", "segundo_medio", "terceiro_medio", "quarto_medio",
-}
-
-// ValidateAnoEscolar valida se o ano escolar é válido
-func ValidateAnoEscolar(ano string) error {
-	for _, valid := range AnosEscolares {
-		if ano == valid {
-			return nil
-		}
+// ValidateEmail valida formato de email
+func ValidateEmail(email string) error {
+	email = strings.TrimSpace(email)
+	
+	if email == "" {
+		return fmt.Errorf("email não pode estar vazio")
 	}
-	return fmt.Errorf("ano escolar inválido: %s", ano)
-}
-
-// ValidateAnoSuperior valida se o ano superior é válido
-func ValidateAnoSuperior(ano string) error {
-	for _, valid := range AnosSuperiores {
-		if ano == valid {
-			return nil
-		}
+	
+	if len(email) > 255 {
+		return fmt.Errorf("email muito longo (máximo 255 caracteres)")
 	}
-	return fmt.Errorf("ano superior inválido: %s", ano)
+	
+	if !emailRegex.MatchString(email) {
+		return fmt.Errorf("formato de email inválido")
+	}
+	
+	return nil
 }
 
-// ValidateAnosFundamental valida array de anos fundamentais
-func ValidateAnosFundamental(anos []string) error {
-	for _, ano := range anos {
-		found := false
-		for _, valid := range AnosFundamental {
-			if ano == valid {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("ano fundamental inválido: %s", ano)
-		}
+// ValidatePhone valida formato de telefone
+func ValidatePhone(phone string) error {
+	if phone == "" {
+		return nil // Telefone é opcional
+	}
+	
+	phone = strings.ReplaceAll(phone, " ", "")
+	phone = strings.ReplaceAll(phone, "-", "")
+	
+	if !phoneRegex.MatchString(phone) {
+		return fmt.Errorf("formato de telefone inválido")
+	}
+	
+	return nil
+}
+
+// ValidateString valida string com limites
+func ValidateString(value, fieldName string, minLen, maxLen int, required bool) error {
+	value = strings.TrimSpace(value)
+	
+	if required && value == "" {
+		return fmt.Errorf("%s é obrigatório", fieldName)
+	}
+	
+	length := utf8.RuneCountInString(value)
+	
+	if length < minLen {
+		return fmt.Errorf("%s deve ter no mínimo %d caracteres", fieldName, minLen)
+	}
+	
+	if length > maxLen {
+		return fmt.Errorf("%s deve ter no máximo %d caracteres", fieldName, maxLen)
+	}
+	
+	return nil
+}
+
+// SanitizeHTML remove tags HTML (proteção XSS)
+func SanitizeHTML(value string) string {
+	return html.EscapeString(value)
+}
+
+// ValidateNota valida nota (0-20)
+func ValidateNota(nota float64) error {
+	if nota < 0 || nota > 20 {
+		return fmt.Errorf("nota deve estar entre 0 e 20")
 	}
 	return nil
 }
 
-// ValidateAnosMedio valida array de anos médio
-func ValidateAnosMedio(anos []string) error {
-	for _, ano := range anos {
-		found := false
-		for _, valid := range AnosMedio {
-			if ano == valid {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("ano médio inválido: %s", ano)
-		}
+// ValidateQuantidade valida quantidade positiva
+func ValidateQuantidade(quantidade int, fieldName string) error {
+	if quantidade <= 0 {
+		return fmt.Errorf("%s deve ser maior que zero", fieldName)
 	}
 	return nil
 }
 
-// ValidateAnosSuperiores valida array de anos superior
-func ValidateAnosSuperiores(anos []string) error {
-	for _, ano := range anos {
-		found := false
-		for _, valid := range AnosSuperiores {
-			if ano == valid {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("ano superior inválido: %s", ano)
-		}
+// ValidateSenha valida força da senha
+func ValidateSenha(senha string) error {
+	if len(senha) < 6 {
+		return fmt.Errorf("senha deve ter no mínimo 6 caracteres")
 	}
+	
+	if len(senha) > 128 {
+		return fmt.Errorf("senha muito longa (máximo 128 caracteres)")
+	}
+	
 	return nil
 }
 
-// ValidateNivelCurso valida nível de curso baseado no tipo
-func ValidateNivelCurso(tipo string, nivel []string) error {
-	if len(nivel) == 0 {
-		return fmt.Errorf("nível não pode estar vazio")
+// ValidateBilhete valida bilhete de identidade
+func ValidateBilhete(bilhete string) error {
+	if bilhete == "" {
+		return nil
 	}
-
-	switch tipo {
-	case "medio":
-		return ValidateAnosMedio(nivel)
-	case "superior":
-		return ValidateAnosSuperiores(nivel)
-	default:
-		return fmt.Errorf("tipo de curso inválido: %s", tipo)
-	}
+	
+	return ValidateString(bilhete, "bilhete de identidade", 5, 50, false)
 }
 
-// IsAnoFundamental verifica se é ano fundamental
-func IsAnoFundamental(ano string) bool {
-	for _, valid := range AnosFundamental {
-		if ano == valid {
-			return true
-		}
-	}
-	return false
+// ValidateNome valida nome
+func ValidateNome(nome string) error {
+	return ValidateString(nome, "nome", 2, 255, true)
 }
 
-// IsAnoMedio verifica se é ano médio
-func IsAnoMedio(ano string) bool {
-	for _, valid := range AnosMedio {
-		if ano == valid {
-			return true
-		}
-	}
-	return false
+// ValidateEndereco valida endereço
+func ValidateEndereco(endereco string) error {
+	return ValidateString(endereco, "endereço", 5, 500, true)
 }
 
-// IsAnoSuperior verifica se é ano superior
-func IsAnoSuperior(ano string) bool {
-	for _, valid := range AnosSuperiores {
-		if ano == valid {
-			return true
-		}
+// ValidateObservacao valida observação
+func ValidateObservacao(obs *string) error {
+	if obs == nil || *obs == "" {
+		return nil
 	}
-	return false
+	
+	if utf8.RuneCountInString(*obs) > 1000 {
+		return fmt.Errorf("observação muito longa (máximo 1000 caracteres)")
+	}
+	
+	return nil
+}
+
+// ValidateProvincia valida província
+func ValidateProvincia(provincia string) error {
+	validProvincias := map[string]bool{
+		"BGO": true, "BGU": true, "BIE": true, "CAB": true,
+		"CND": true, "CNO": true, "CUS": true, "CBG": true,
+		"CNN": true, "HUA": true, "HUI": true, "IBG": true,
+		"LUA": true, "LNO": true, "LSU": true, "MAL": true,
+		"MOX": true, "MXL": true, "NAM": true, "UIG": true,
+		"ZAI": true,
+	}
+	
+	if !validProvincias[strings.ToUpper(provincia)] {
+		return fmt.Errorf("província inválida")
+	}
+	
+	return nil
+}
+
+// ValidateURL valida URL
+func ValidateURL(url string) error {
+	if url == "" {
+		return nil
+	}
+	
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		return fmt.Errorf("URL deve começar com http:// ou https://")
+	}
+	
+	if len(url) > 500 {
+		return fmt.Errorf("URL muito longa")
+	}
+	
+	return nil
+}
+
+// ValidatePeriodo valida período acadêmico
+func ValidatePeriodo(periodo string) error {
+	validPeriodos := map[string]bool{
+		"1_trimestre": true,
+		"2_trimestre": true,
+		"3_trimestre": true,
+		"1_semestre":  true,
+		"2_semestre":  true,
+	}
+	
+	if !validPeriodos[periodo] {
+		return fmt.Errorf("período inválido")
+	}
+	
+	return nil
+}
+
+// ValidateRole valida role de admin
+func ValidateRole(role string) error {
+	validRoles := map[string]bool{
+		"fpp":     true,
+		"adm":     true,
+		"gerente": true,
+	}
+	
+	if !validRoles[role] {
+		return fmt.Errorf("role inválido (deve ser: fpp, adm ou gerente)")
+	}
+	
+	return nil
+}
+
+// SanitizeAndValidateString combina sanitização e validação
+func SanitizeAndValidateString(value, fieldName string, minLen, maxLen int, required bool) (string, error) {
+	sanitized := SanitizeHTML(strings.TrimSpace(value))
+	
+	if err := ValidateString(sanitized, fieldName, minLen, maxLen, required); err != nil {
+		return "", err
+	}
+	
+	return sanitized, nil
 }
