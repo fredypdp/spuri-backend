@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log"
 	"spuri/internal/db"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -47,6 +48,10 @@ func (p *AdminProjection) Handle(event db.Event) error {
 		return p.handleAdminDesativado(event)
 	case "AcaoAdminRegistrada":
 		return p.handleAcaoAdminRegistrada(event)
+	case "AdminDadosAtualizados":
+		return p.handleAdminDadosAtualizados(event)
+	case "AdminRoleAtualizado":
+		return p.handleAdminRoleAtualizado(event)
 	default:
 		return nil
 	}
@@ -369,4 +374,63 @@ func escapeStringAdmin(s string) string {
 		}
 	}
 	return result
+}
+
+func (p *AdminProjection) handleAdminDadosAtualizados(event db.Event) error {
+	var payload struct {
+		Nome  *string `json:"Nome"`
+		Email *string `json:"Email"`
+	}
+
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("erro ao parsear payload: %w", err)
+	}
+
+	updates := []string{}
+	if payload.Nome != nil {
+		updates = append(updates, fmt.Sprintf("nome = '%s'", escapeStringAdmin(*payload.Nome)))
+	}
+	if payload.Email != nil {
+		updates = append(updates, fmt.Sprintf("email = '%s'", escapeStringAdmin(*payload.Email)))
+	}
+
+	if len(updates) == 0 {
+		return nil
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE projection_admins
+		SET 
+			%s,
+			version = %d,
+			updated_at = CURRENT_TIMESTAMP,
+			last_event_id = '%s'
+		WHERE id = '%s'
+	`, strings.Join(updates, ", "), event.EventVersion, event.EventID.String(), event.AggregateID.String())
+
+	_, err := p.client.DB().Exec(query)
+	return err
+}
+
+func (p *AdminProjection) handleAdminRoleAtualizado(event db.Event) error {
+	var payload struct {
+		NovoRole string `json:"NovoRole"`
+	}
+
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("erro ao parsear payload: %w", err)
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE projection_admins
+		SET 
+			role = '%s',
+			version = %d,
+			updated_at = CURRENT_TIMESTAMP,
+			last_event_id = '%s'
+		WHERE id = '%s'
+	`, payload.NovoRole, event.EventVersion, event.EventID.String(), event.AggregateID.String())
+
+	_, err := p.client.DB().Exec(query)
+	return err
 }

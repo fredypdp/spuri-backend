@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log"
 	"spuri/internal/db"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -51,6 +52,8 @@ func (p *AcademiaProjection) Handle(event db.Event) error {
 		return p.handleInscricaoAprovada(event)
 	case "InscricaoReprovada":
 		return p.handleInscricaoReprovada(event)
+	case "AcademiaDadosAtualizados":
+		return p.handleAcademiaDadosAtualizados(event)
 	default:
 		return nil
 	}
@@ -471,4 +474,69 @@ func formatNullableString(s *string) string {
 		return "NULL"
 	}
 	return fmt.Sprintf("'%s'", escapeString(*s))
+}
+
+func (p *AcademiaProjection) handleAcademiaDadosAtualizados(event db.Event) error {
+	var payload struct {
+		Nome           *string  `json:"Nome"`
+		Provincia      *string  `json:"Provincia"`
+		Endereco       *string  `json:"Endereco"`
+		NumeroTelefone *string  `json:"NumeroTelefone"`
+		Email          *string  `json:"Email"`
+		Website        *string  `json:"Website"`
+		NivelEscolar   *string  `json:"NivelEscolar"`
+		Cursos         []string `json:"Cursos"`
+		EmailAlterado  bool     `json:"EmailAlterado"`
+	}
+
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("erro ao parsear payload: %w", err)
+	}
+
+	updates := []string{}
+	if payload.Nome != nil {
+		updates = append(updates, fmt.Sprintf("nome = '%s'", escapeString(*payload.Nome)))
+	}
+	if payload.Provincia != nil {
+		updates = append(updates, fmt.Sprintf("provincia = '%s'", *payload.Provincia))
+	}
+	if payload.Endereco != nil {
+		updates = append(updates, fmt.Sprintf("endereco = '%s'", escapeString(*payload.Endereco)))
+	}
+	if payload.NumeroTelefone != nil {
+		updates = append(updates, fmt.Sprintf("numero_telefone = '%s'", *payload.NumeroTelefone))
+	}
+	if payload.Email != nil {
+		updates = append(updates, fmt.Sprintf("email = '%s'", *payload.Email))
+		if payload.EmailAlterado {
+			updates = append(updates, "email_verificado = FALSE")
+		}
+	}
+	if payload.Website != nil {
+		updates = append(updates, fmt.Sprintf("website = '%s'", escapeString(*payload.Website)))
+	}
+	if payload.NivelEscolar != nil {
+		updates = append(updates, fmt.Sprintf("nivel_escolar = '%s'", *payload.NivelEscolar))
+	}
+	if payload.Cursos != nil {
+		cursosJSON, _ := json.Marshal(payload.Cursos)
+		updates = append(updates, fmt.Sprintf("cursos = '%s'", escapeString(string(cursosJSON))))
+	}
+
+	if len(updates) == 0 {
+		return nil
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE projection_academias
+		SET 
+			%s,
+			version = %d,
+			updated_at = CURRENT_TIMESTAMP,
+			last_event_id = '%s'
+		WHERE id = '%s'
+	`, strings.Join(updates, ", "), event.EventVersion, event.EventID.String(), event.AggregateID.String())
+
+	_, err := p.client.DB().Exec(query)
+	return err
 }

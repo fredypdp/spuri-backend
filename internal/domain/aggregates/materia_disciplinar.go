@@ -49,6 +49,8 @@ func (m *MateriaDisciplinar) Apply(event DomainEvent) error {
 		return m.applyMateriaAtivada(event)
 	case "MateriaDesativada":
 		return m.applyMateriaDesativada(event)
+	case "MateriaDadosAtualizados":
+		return m.applyMateriaDadosAtualizados(event)
 	default:
 		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
 	}
@@ -216,5 +218,88 @@ type MateriaDesativadaEvent struct {
 }
 
 func (e *MateriaDesativadaEvent) GetPayload() interface{} {
+	return e
+}
+
+// AtualizarDados atualiza dados da matéria
+func (m *MateriaDisciplinar) AtualizarDados(
+	nome *string,
+	tipo *string,
+) error {
+	if m.Status != "ativo" {
+		return fmt.Errorf("matéria inativa não pode ser atualizada")
+	}
+
+	// Validação: pelo menos um campo deve ser fornecido
+	if nome == nil && tipo == nil {
+		return fmt.Errorf("nenhum campo para atualizar")
+	}
+
+	// Validações específicas
+	if nome != nil && *nome == "" {
+		return fmt.Errorf("nome não pode ser vazio")
+	}
+
+	if tipo != nil {
+		if *tipo != "fundamental" && *tipo != "medio" && *tipo != "superior" {
+			return fmt.Errorf("tipo deve ser 'fundamental', 'medio' ou 'superior'")
+		}
+
+		// Se mudando de fundamental para medio/superior, precisa ter curso_id
+		if m.Type == "fundamental" && (*tipo == "medio" || *tipo == "superior") && m.CursoID == nil {
+			return fmt.Errorf("não é possível mudar para medio/superior sem curso associado")
+		}
+
+		// Se mudando para fundamental, não pode ter curso_id
+		if *tipo == "fundamental" && m.CursoID != nil {
+			return fmt.Errorf("matérias fundamentais não podem ter curso associado")
+		}
+	}
+
+	event := &MateriaDadosAtualizadosEvent{
+		BaseEvent: BaseEvent{
+			EventType:   "MateriaDadosAtualizados",
+			AggregateID: m.ID,
+		},
+		Nome:      nome,
+		Type:      tipo,
+		UpdatedAt: time.Now(),
+	}
+
+	m.RaiseEvent(event)
+	return m.Apply(event)
+}
+
+func (m *MateriaDisciplinar) applyMateriaDadosAtualizados(event DomainEvent) error {
+	payload := event.GetPayload()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	var ev MateriaDadosAtualizadosEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+
+	// Atualizar apenas os campos fornecidos
+	if ev.Nome != nil {
+		m.Nome = *ev.Nome
+	}
+	if ev.Type != nil {
+		m.Type = *ev.Type
+	}
+
+	return nil
+}
+
+type MateriaDadosAtualizadosEvent struct {
+	BaseEvent
+	Nome      *string
+	Type      *string
+	UpdatedAt time.Time
+}
+
+func (e *MateriaDadosAtualizadosEvent) GetPayload() interface{} {
 	return e
 }

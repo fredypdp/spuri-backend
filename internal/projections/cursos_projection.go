@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"spuri/internal/db"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -43,6 +44,8 @@ func (p *CursosProjection) Handle(event db.Event) error {
 		return p.handleCursoAtivado(event)
 	case "CursoDesativado":
 		return p.handleCursoDesativado(event)
+	case "CursoDadosAtualizados":
+		return p.handleCursoDadosAtualizados(event)
 	default:
 		return nil
 	}
@@ -265,4 +268,45 @@ func escapeStringCurso(s string) string {
 		}
 	}
 	return result
+}
+
+func (p *CursosProjection) handleCursoDadosAtualizados(event db.Event) error {
+	var payload struct {
+		Nome  *string  `json:"Nome"`
+		Type  *string  `json:"Type"`
+		Nivel []string `json:"Nivel"`
+	}
+
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return err
+	}
+
+	updates := []string{}
+	if payload.Nome != nil {
+		updates = append(updates, fmt.Sprintf("nome = '%s'", escapeStringCurso(*payload.Nome)))
+	}
+	if payload.Type != nil {
+		updates = append(updates, fmt.Sprintf("type = '%s'", *payload.Type))
+	}
+	if payload.Nivel != nil {
+		nivelJSON, _ := json.Marshal(payload.Nivel)
+		updates = append(updates, fmt.Sprintf("nivel = '%s'", escapeStringCurso(string(nivelJSON))))
+	}
+
+	if len(updates) == 0 {
+		return nil
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE projection_cursos
+		SET 
+			%s,
+			version = %d,
+			updated_at = CURRENT_TIMESTAMP,
+			last_event_id = '%s'
+		WHERE id = '%s'
+	`, strings.Join(updates, ", "), event.EventVersion, event.EventID.String(), event.AggregateID.String())
+
+	_, err := p.client.DB().Exec(query)
+	return err
 }

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
+	"spuri/internal/services"
 	"spuri/internal/utils" // 🔥 NOVO: Import do gerador de código
 	"strings"
 	"time"
@@ -267,9 +268,12 @@ func RegisterAcademia(c *gin.Context) {
 }
 
 // RegisterEstudanteRequest representa uma requisição de registro de estudante
+// Atualizar struct:
 type RegisterEstudanteRequest struct {
 	Senha                 string  `json:"senha" binding:"required"`
 	Nome                  string  `json:"nome" binding:"required"`
+	Email                 *string `json:"email"`              // 🔥 NOVO
+	Telefone              *string `json:"telefone"`           // 🔥 NOVO
 	BilheteIdentidade     *string `json:"bilhete_identidade"`
 	BilheteIdentidadeResp *string `json:"bilhete_identidade_responsavel"`
 	AnoEscolar            *string `json:"ano_escolar"`
@@ -280,7 +284,7 @@ type RegisterEstudanteRequest struct {
 	StatusSuperior        *string `json:"status_superior"`
 }
 
-// 🔥 ATUALIZADO: RegisterEstudante gera codigo_estudante automaticamente
+// Atualizar função RegisterEstudante:
 func RegisterEstudante(c *gin.Context) {
 	var req RegisterEstudanteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -294,7 +298,7 @@ func RegisterEstudante(c *gin.Context) {
 		return
 	}
 
-	// 🔥 GERAR CÓDIGO ÚNICO
+	// Gerar código único
 	client := getDbClient(c)
 	codigoEstudante, err := utils.GenerateUniqueCodigoEstudante(client.DB())
 	if err != nil {
@@ -306,26 +310,24 @@ func RegisterEstudante(c *gin.Context) {
 	log.Printf("🎫 [REGISTER] Código gerado: %s", codigoEstudante)
 
 	// Hash da senha
-	log.Printf("🔐 [REGISTER] Gerando hash da senha do estudante...")
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Senha), bcrypt.DefaultCost)
 	if err != nil {
 		log.Printf("❌ [REGISTER] Erro ao gerar hash: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao processar senha"})
 		return
 	}
-	log.Printf("✅ [REGISTER] Hash gerado: %s", string(hashedPassword[:20])+"...")
 
 	// Criar agregado Estudante
-	log.Printf("🏗️ [REGISTER] Criando agregado Estudante...")
 	repository := getRepository(c)
 	estudante := aggregates.NewEstudante()
 
-	// 🔥 EXECUTAR comando Criar passando codigo_estudante
-	log.Printf("⚡ [REGISTER] Executando comando Criar...")
+	// 🔥 EXECUTAR comando Criar com email e telefone
 	if err := estudante.Criar(
 		req.Nome,
-		codigoEstudante, // 🔥 PASSAR CÓDIGO
+		codigoEstudante,
 		string(hashedPassword),
+		req.Email,              // 🔥 NOVO
+		req.Telefone,           // 🔥 NOVO
 		req.BilheteIdentidade,
 		req.BilheteIdentidadeResp,
 		req.AnoEscolar,
@@ -340,24 +342,35 @@ func RegisterEstudante(c *gin.Context) {
 		return
 	}
 
-	// Salvar eventos (Event Sourcing)
-	log.Printf("💾 [REGISTER] Salvando eventos no Banco de dados...")
+	// Salvar eventos
 	if err := repository.Save(estudante); err != nil {
 		log.Printf("❌ [REGISTER] Erro ao salvar eventos: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("erro ao criar estudante: %v", err)})
 		return
 	}
 
-	log.Printf("✅ [REGISTER] Estudante criado com sucesso! ID: %s, Código: %s", estudante.ID, codigoEstudante)
+	// 🔥 Enviar email de verificação se email fornecido
+	if req.Email != nil && *req.Email != "" {
+		emailSvc := services.NewEmailService(client.DB())
+		if err := emailSvc.SendVerificationEmail(estudante.ID, "estudante", *req.Email, req.Nome); err != nil {
+			log.Printf("⚠️ [REGISTER] Erro ao enviar email de verificação: %v", err)
+			// Não falhar registro por causa do email
+		}
+	}
 
-	// 🔥 RETORNAR codigo_estudante na resposta
-	c.JSON(http.StatusCreated, gin.H{
+	response := gin.H{
 		"message": "estudante criado com sucesso",
 		"data": gin.H{
 			"id":               estudante.ID,
-			"codigo_estudante": codigoEstudante, // 🔥 NOVO
+			"codigo_estudante": codigoEstudante,
 		},
-	})
+	}
+
+	if req.Email != nil && *req.Email != "" {
+		response["email_verificacao"] = "Email de verificação enviado. Verifique sua caixa de entrada."
+	}
+
+	c.JSON(http.StatusCreated, response)
 }
 
 // Helper functions

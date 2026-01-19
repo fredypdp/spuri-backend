@@ -59,6 +59,8 @@ func (a *Academia) Apply(event DomainEvent) error {
 		return a.applyAcademiaDesativada(event)
 	case "CursosAtualizados":
 		return a.applyCursosAtualizados(event)
+	case "AcademiaDadosAtualizados":
+		return a.applyAcademiaDadosAtualizados(event)
 	default:
 		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
 	}
@@ -387,5 +389,131 @@ type CursosAtualizadosEvent struct {
 }
 
 func (e *CursosAtualizadosEvent) GetPayload() interface{} {
+	return e
+}
+
+// AtualizarDados atualiza dados da academia
+func (a *Academia) AtualizarDados(
+	nome *string,
+	provincia *string,
+	endereco *string,
+	numeroTelefone *string,
+	email *string,
+	website *string,
+	nivelEscolar *string,
+	cursos []string,
+) error {
+	if a.Status != "ativo" && a.Status != "inativo" {
+		return fmt.Errorf("academia em estado inválido")
+	}
+
+	// Validação: pelo menos um campo deve ser fornecido
+	if nome == nil && provincia == nil && endereco == nil && numeroTelefone == nil && 
+	   email == nil && website == nil && nivelEscolar == nil && cursos == nil {
+		return fmt.Errorf("nenhum campo para atualizar")
+	}
+
+	// Validações específicas
+	if nome != nil && *nome == "" {
+		return fmt.Errorf("nome não pode ser vazio")
+	}
+
+	if endereco != nil && *endereco == "" {
+		return fmt.Errorf("endereço não pode ser vazio")
+	}
+
+	// Validar nivel_escolar se for escola
+	if nivelEscolar != nil && a.Type == "escola" {
+		validNiveis := map[string]bool{
+			"fundamental": true,
+			"medio":       true,
+			"misto":       true,
+		}
+		if !validNiveis[*nivelEscolar] {
+			return fmt.Errorf("nivel_escolar deve ser 'fundamental', 'medio' ou 'misto'")
+		}
+	}
+
+	event := &AcademiaDadosAtualizadosEvent{
+		BaseEvent: BaseEvent{
+			EventType:   "AcademiaDadosAtualizados",
+			AggregateID: a.ID,
+		},
+		Nome:           nome,
+		Provincia:      provincia,
+		Endereco:       endereco,
+		NumeroTelefone: numeroTelefone,
+		Email:          email,
+		Website:        website,
+		NivelEscolar:   nivelEscolar,
+		Cursos:         cursos,
+		EmailAlterado:  email != nil && (a.Email == nil || *a.Email != *email),
+		UpdatedAt:      time.Now(),
+	}
+
+	a.RaiseEvent(event)
+	return a.Apply(event)
+}
+
+// ============================================================================
+// EVENT HANDLERS
+// ============================================================================
+
+func (a *Academia) applyAcademiaDadosAtualizados(event DomainEvent) error {
+	payload := event.GetPayload()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	var ev AcademiaDadosAtualizadosEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+
+	// Atualizar apenas os campos fornecidos
+	if ev.Nome != nil {
+		a.Nome = *ev.Nome
+	}
+	if ev.Provincia != nil {
+		a.Provincia = *ev.Provincia
+	}
+	if ev.Endereco != nil {
+		a.Endereco = *ev.Endereco
+	}
+	if ev.NumeroTelefone != nil {
+		a.NumeroTelefone = ev.NumeroTelefone
+	}
+	if ev.Email != nil {
+		a.Email = ev.Email
+	}
+	if ev.Website != nil {
+		a.Website = ev.Website
+	}
+	if ev.NivelEscolar != nil {
+		a.NivelEscolar = ev.NivelEscolar
+	}
+	if ev.Cursos != nil {
+		a.Cursos = ev.Cursos
+	}
+
+	return nil
+}
+
+type AcademiaDadosAtualizadosEvent struct {
+	BaseEvent
+	Nome           *string
+	Provincia      *string
+	Endereco       *string
+	NumeroTelefone *string
+	Email          *string
+	Website        *string
+	NivelEscolar   *string
+	Cursos         []string
+	EmailAlterado  bool // Flag para saber se email foi alterado
+	UpdatedAt      time.Time
+}
+
+func (e *AcademiaDadosAtualizadosEvent) GetPayload() interface{} {
 	return e
 }

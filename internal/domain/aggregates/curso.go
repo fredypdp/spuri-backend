@@ -48,6 +48,8 @@ func (c *Curso) Apply(event DomainEvent) error {
 		return c.applyCursoAtivado(event)
 	case "CursoDesativado":
 		return c.applyCursoDesativado(event)
+	case "CursoDadosAtualizados":
+		return c.applyCursoDadosAtualizados(event)
 	default:
 		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
 	}
@@ -195,5 +197,98 @@ type CursoDesativadoEvent struct {
 }
 
 func (e *CursoDesativadoEvent) GetPayload() interface{} {
+	return e
+}
+
+// AtualizarDados atualiza dados do curso
+func (c *Curso) AtualizarDados(
+	nome *string,
+	tipo *string,
+	nivel []string,
+) error {
+	if c.Status != "ativo" {
+		return fmt.Errorf("curso inativo não pode ser atualizado")
+	}
+
+	// Validação: pelo menos um campo deve ser fornecido
+	if nome == nil && tipo == nil && nivel == nil {
+		return fmt.Errorf("nenhum campo para atualizar")
+	}
+
+	// Validações específicas
+	if nome != nil && *nome == "" {
+		return fmt.Errorf("nome não pode ser vazio")
+	}
+
+	if tipo != nil && *tipo != "medio" && *tipo != "superior" {
+		return fmt.Errorf("tipo deve ser 'medio' ou 'superior'")
+	}
+
+	// Se está atualizando tipo ou nivel, validar
+	tipoFinal := c.Type
+	if tipo != nil {
+		tipoFinal = *tipo
+	}
+
+	nivelFinal := c.Nivel
+	if nivel != nil {
+		nivelFinal = nivel
+	}
+
+	// Validar anos acadêmicos
+	if err := utils.ValidateNivelCurso(tipoFinal, nivelFinal); err != nil {
+		return err
+	}
+
+	event := &CursoDadosAtualizadosEvent{
+		BaseEvent: BaseEvent{
+			EventType:   "CursoDadosAtualizados",
+			AggregateID: c.ID,
+		},
+		Nome:      nome,
+		Type:      tipo,
+		Nivel:     nivel,
+		UpdatedAt: time.Now(),
+	}
+
+	c.RaiseEvent(event)
+	return c.Apply(event)
+}
+
+func (c *Curso) applyCursoDadosAtualizados(event DomainEvent) error {
+	payload := event.GetPayload()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	var ev CursoDadosAtualizadosEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+
+	// Atualizar apenas os campos fornecidos
+	if ev.Nome != nil {
+		c.Nome = *ev.Nome
+	}
+	if ev.Type != nil {
+		c.Type = *ev.Type
+	}
+	if ev.Nivel != nil {
+		c.Nivel = ev.Nivel
+	}
+
+	return nil
+}
+
+type CursoDadosAtualizadosEvent struct {
+	BaseEvent
+	Nome      *string
+	Type      *string
+	Nivel     []string
+	UpdatedAt time.Time
+}
+
+func (e *CursoDadosAtualizadosEvent) GetPayload() interface{} {
 	return e
 }

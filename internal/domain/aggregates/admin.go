@@ -57,6 +57,10 @@ func (a *Admin) Apply(event DomainEvent) error {
 		return a.applyAdminDesativado(event)
 	case "AcaoAdminRegistrada":
 		return a.applyAcaoAdminRegistrada(event)
+	case "AdminDadosAtualizados":
+		return a.applyAdminDadosAtualizados(event)
+	case "AdminRoleAtualizado":
+		return a.applyAdminRoleAtualizado(event)
 	default:
 		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
 	}
@@ -280,4 +284,152 @@ func (a *Admin) ValidatePermission(targetRole string) error {
 	}
 
 	return nil
+}
+
+// AtualizarDados atualiza dados do admin
+func (a *Admin) AtualizarDados(
+	nome *string,
+	email *string,
+	updatedBy uuid.UUID,
+) error {
+	if a.Status != "ativo" {
+		return fmt.Errorf("administrador está inativo")
+	}
+
+	// Validação: pelo menos um campo deve ser fornecido
+	if nome == nil && email == nil {
+		return fmt.Errorf("nenhum campo para atualizar")
+	}
+
+	// Validações específicas
+	if nome != nil && *nome == "" {
+		return fmt.Errorf("nome não pode ser vazio")
+	}
+
+	if email != nil && *email == "" {
+		return fmt.Errorf("email não pode ser vazio")
+	}
+
+	event := &AdminDadosAtualizadosEvent{
+		BaseEvent: BaseEvent{
+			EventType:   "AdminDadosAtualizados",
+			AggregateID: a.ID,
+		},
+		Nome:      nome,
+		Email:     email,
+		UpdatedBy: updatedBy,
+		UpdatedAt: time.Now(),
+	}
+
+	a.RaiseEvent(event)
+	return a.Apply(event)
+}
+
+// AtualizarRole atualiza role do admin (APENAS FPP pode fazer isso)
+func (a *Admin) AtualizarRole(novoRole string, updatedBy uuid.UUID, updatedByRole string) error {
+	if a.Status != "ativo" {
+		return fmt.Errorf("administrador está inativo")
+	}
+
+	// APENAS FPP pode alterar roles
+	if updatedByRole != "fpp" {
+		return fmt.Errorf("apenas FPP pode alterar roles")
+	}
+
+	// Validar role
+	validRoles := map[string]bool{
+		"fpp":     true,
+		"adm":     true,
+		"gerente": true,
+	}
+	if !validRoles[novoRole] {
+		return fmt.Errorf("role deve ser 'fpp', 'adm' ou 'gerente'")
+	}
+
+	// Não precisa atualizar se já é o mesmo role
+	if a.Role == novoRole {
+		return fmt.Errorf("admin já possui este role")
+	}
+
+	event := &AdminRoleAtualizadoEvent{
+		BaseEvent: BaseEvent{
+			EventType:   "AdminRoleAtualizado",
+			AggregateID: a.ID,
+		},
+		RoleAnterior: a.Role,
+		NovoRole:     novoRole,
+		UpdatedBy:    updatedBy,
+		UpdatedAt:    time.Now(),
+	}
+
+	a.RaiseEvent(event)
+	return a.Apply(event)
+}
+
+// ============================================================================
+// EVENT HANDLERS
+// ============================================================================
+
+func (a *Admin) applyAdminDadosAtualizados(event DomainEvent) error {
+	payload := event.GetPayload()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	var ev AdminDadosAtualizadosEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+
+	// Atualizar apenas os campos fornecidos
+	if ev.Nome != nil {
+		a.Nome = *ev.Nome
+	}
+	if ev.Email != nil {
+		a.Email = *ev.Email
+	}
+
+	return nil
+}
+
+func (a *Admin) applyAdminRoleAtualizado(event DomainEvent) error {
+	payload := event.GetPayload()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	var ev AdminRoleAtualizadoEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+
+	a.Role = ev.NovoRole
+
+	return nil
+}
+
+type AdminDadosAtualizadosEvent struct {
+	BaseEvent
+	Nome      *string
+	Email     *string
+	UpdatedBy uuid.UUID
+	UpdatedAt time.Time
+}
+
+func (e *AdminDadosAtualizadosEvent) GetPayload() interface{} {
+	return e
+}
+
+type AdminRoleAtualizadoEvent struct {
+	BaseEvent
+	RoleAnterior string
+	NovoRole     string
+	UpdatedBy    uuid.UUID
+	UpdatedAt    time.Time
+}
+
+func (e *AdminRoleAtualizadoEvent) GetPayload() interface{} {
+	return e
 }

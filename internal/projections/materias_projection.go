@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"spuri/internal/db"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -43,6 +44,8 @@ func (p *MateriasProjection) Handle(event db.Event) error {
 		return p.handleMateriaAtivada(event)
 	case "MateriaDesativada":
 		return p.handleMateriaDesativada(event)
+	case "MateriaDadosAtualizados":
+		return p.handleMateriaDadosAtualizados(event)
 	default:
 		return nil
 	}
@@ -298,4 +301,40 @@ func escapeStringMateria(s string) string {
 		}
 	}
 	return result
+}
+
+func (p *MateriasProjection) handleMateriaDadosAtualizados(event db.Event) error {
+	var payload struct {
+		Nome *string `json:"Nome"`
+		Type *string `json:"Type"`
+	}
+
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return err
+	}
+
+	updates := []string{}
+	if payload.Nome != nil {
+		updates = append(updates, fmt.Sprintf("nome = '%s'", escapeStringMateria(*payload.Nome)))
+	}
+	if payload.Type != nil {
+		updates = append(updates, fmt.Sprintf("type = '%s'", *payload.Type))
+	}
+
+	if len(updates) == 0 {
+		return nil
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE projection_materias
+		SET 
+			%s,
+			version = %d,
+			updated_at = CURRENT_TIMESTAMP,
+			last_event_id = '%s'
+		WHERE id = '%s'
+	`, strings.Join(updates, ", "), event.EventVersion, event.EventID.String(), event.AggregateID.String())
+
+	_, err := p.client.DB().Exec(query)
+	return err
 }

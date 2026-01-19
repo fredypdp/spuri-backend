@@ -1,6 +1,6 @@
 -- ============================================
 -- SPURI EVENT SOURCING - SCHEMA COMPLETO
--- Versão: 2.4.0 (com Cursos e Matérias)
+-- Versão: 2.5.0 (com Email, Telefone e Tokens)
 -- ============================================
 
 -- ============================================
@@ -138,12 +138,15 @@ CREATE INDEX IF NOT EXISTS idx_snapshots_type ON aggregate_snapshots(aggregate_t
 -- PROJEÇÕES
 -- ============================================
 
--- Projeção: Estudantes
+-- Projeção: Estudantes (🔥 ATUALIZADO)
 CREATE TABLE IF NOT EXISTS projection_estudantes (
     id UUID PRIMARY KEY,
     nome VARCHAR(255) NOT NULL,
     codigo_estudante VARCHAR(7) UNIQUE,
     senha_hash VARCHAR(255) NOT NULL,
+    email VARCHAR(255),
+    telefone VARCHAR(20),
+    email_verificado BOOLEAN DEFAULT FALSE,
     bilhete_identidade VARCHAR(50),
     bilhete_identidade_responsavel VARCHAR(50),
     codigo_academia VARCHAR(50),
@@ -164,12 +167,13 @@ CREATE TABLE IF NOT EXISTS projection_estudantes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_proj_estudante_codigo ON projection_estudantes(codigo_estudante);
+CREATE INDEX IF NOT EXISTS idx_proj_estudante_email ON projection_estudantes(email);
 CREATE INDEX IF NOT EXISTS idx_proj_estudante_codigo_academia ON projection_estudantes(codigo_academia);
 CREATE INDEX IF NOT EXISTS idx_proj_estudante_bilhete ON projection_estudantes(bilhete_identidade);
 CREATE INDEX IF NOT EXISTS idx_proj_estudante_bilhete_resp ON projection_estudantes(bilhete_identidade_responsavel);
 CREATE INDEX IF NOT EXISTS idx_proj_estudante_status ON projection_estudantes(status);
 
--- Projeção: Academias
+-- Projeção: Academias (🔥 ATUALIZADO)
 CREATE TABLE IF NOT EXISTS projection_academias (
     id UUID PRIMARY KEY,
     type VARCHAR(20) NOT NULL CHECK (type IN ('escola', 'superior')),
@@ -180,6 +184,7 @@ CREATE TABLE IF NOT EXISTS projection_academias (
     endereco TEXT NOT NULL,
     numero_telefone VARCHAR(20),
     email VARCHAR(100),
+    email_verificado BOOLEAN DEFAULT FALSE,
     website VARCHAR(255),
     nivel_escolar VARCHAR(20) CHECK (nivel_escolar IN ('fundamental', 'medio', 'misto')),
     status VARCHAR(20) DEFAULT 'inativo' CHECK (status IN ('ativo', 'inativo')),
@@ -201,6 +206,7 @@ CREATE TABLE IF NOT EXISTS projection_academias (
 
 CREATE INDEX IF NOT EXISTS idx_proj_academia_provincia ON projection_academias(provincia);
 CREATE INDEX IF NOT EXISTS idx_proj_academia_codigo ON projection_academias(codigo_academia);
+CREATE INDEX IF NOT EXISTS idx_proj_academia_email ON projection_academias(email);
 CREATE INDEX IF NOT EXISTS idx_proj_academia_type ON projection_academias(type);
 CREATE INDEX IF NOT EXISTS idx_proj_academia_status ON projection_academias(status);
 CREATE INDEX IF NOT EXISTS idx_proj_academia_nivel ON projection_academias(nivel_escolar);
@@ -288,14 +294,12 @@ CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_status ON projection_inscricoes(s
 CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_codigo_estudante ON projection_inscricoes(codigo_estudante);
 CREATE INDEX IF NOT EXISTS idx_proj_inscricoes_codigo_academia ON projection_inscricoes(codigo_academia);
 
--- ============================================
--- 🔥 PROJEÇÃO: CURSOS
--- ============================================
+-- Projeção: Cursos
 CREATE TABLE IF NOT EXISTS projection_cursos (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     nome VARCHAR(255) NOT NULL,
     type VARCHAR(20) NOT NULL CHECK (type IN ('medio', 'superior')),
-    nivel JSONB NOT NULL, -- Array de anos: ["primeiro_medio", "segundo_medio"]
+    nivel JSONB NOT NULL,
     codigo_academia VARCHAR(50) NOT NULL,
     status VARCHAR(20) DEFAULT 'ativo' CHECK (status IN ('ativo', 'inativo')),
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -312,16 +316,14 @@ CREATE INDEX IF NOT EXISTS idx_cursos_academia ON projection_cursos(codigo_acade
 CREATE INDEX IF NOT EXISTS idx_cursos_type ON projection_cursos(type);
 CREATE INDEX IF NOT EXISTS idx_cursos_status ON projection_cursos(status);
 
--- ============================================
--- 🔥 PROJEÇÃO: MATÉRIAS DISCIPLINARES
--- ============================================
+-- Projeção: Matérias
 CREATE TABLE IF NOT EXISTS projection_materias (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     nome VARCHAR(255) NOT NULL,
     type VARCHAR(20) NOT NULL CHECK (type IN ('fundamental', 'medio', 'superior')),
-    nivel JSONB, -- Array de anos apenas para fundamental
+    nivel JSONB,
     codigo_academia VARCHAR(50) NOT NULL,
-    curso_id UUID, -- NULL para fundamental, obrigatório para medio/superior
+    curso_id UUID,
     status VARCHAR(20) DEFAULT 'ativo' CHECK (status IN ('ativo', 'inativo')),
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -335,7 +337,6 @@ CREATE TABLE IF NOT EXISTS projection_materias (
         REFERENCES projection_cursos(id) 
         ON DELETE CASCADE,
     
-    -- Constraint: fundamental não tem curso_id
     CONSTRAINT check_fundamental_sem_curso CHECK (
         (type = 'fundamental' AND curso_id IS NULL) OR
         (type IN ('medio', 'superior') AND curso_id IS NOT NULL)
@@ -346,6 +347,27 @@ CREATE INDEX IF NOT EXISTS idx_materias_academia ON projection_materias(codigo_a
 CREATE INDEX IF NOT EXISTS idx_materias_curso ON projection_materias(curso_id);
 CREATE INDEX IF NOT EXISTS idx_materias_type ON projection_materias(type);
 CREATE INDEX IF NOT EXISTS idx_materias_status ON projection_materias(status);
+
+-- ============================================
+-- 🔥 TOKENS DE AUTENTICAÇÃO (NOVO)
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS auth_tokens (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL,
+    user_type VARCHAR(20) NOT NULL CHECK (user_type IN ('estudante', 'academia', 'admin')),
+    token VARCHAR(64) UNIQUE NOT NULL,
+    tipo VARCHAR(20) NOT NULL CHECK (tipo IN ('verificacao_email', 'recuperacao_senha')),
+    email VARCHAR(255) NOT NULL,
+    usado BOOLEAN DEFAULT FALSE,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    usado_em TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_tokens_token ON auth_tokens(token);
+CREATE INDEX IF NOT EXISTS idx_tokens_user ON auth_tokens(user_id, user_type);
+CREATE INDEX IF NOT EXISTS idx_tokens_expires ON auth_tokens(expires_at) WHERE NOT usado;
 
 -- ============================================
 -- LOG DE AÇÕES ADMINISTRATIVAS
@@ -455,6 +477,16 @@ BEGIN
     );
     
     RETURN v_log_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 🔥 Limpar tokens expirados (NOVO)
+CREATE OR REPLACE FUNCTION cleanup_expired_tokens()
+RETURNS void AS $$
+BEGIN
+    DELETE FROM auth_tokens 
+    WHERE expires_at < CURRENT_TIMESTAMP 
+    AND NOT usado;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -597,7 +629,7 @@ INSERT INTO spuri_ledger (
     'SchemaCreated',
     1,
     jsonb_build_object(
-        'version', '2.4.0',
+        'version', '2.5.0',
         'name', 'Spuri Event Sourcing',
         'features', json_build_array(
             'event_sourcing',
@@ -607,10 +639,13 @@ INSERT INTO spuri_ledger (
             'admin_system',
             'role_hierarchy',
             'nivel_misto',
-            'cursos_materias'
+            'cursos_materias',
+            'email_verification',
+            'password_recovery',
+            'auth_tokens'
         )
     ),
-    jsonb_build_object('created_by', 'migration_completa_v2.4'),
+    jsonb_build_object('created_by', 'migration_completa_v2.5'),
     CURRENT_TIMESTAMP
 )
 ON CONFLICT (aggregate_id, event_version) DO NOTHING;
@@ -625,14 +660,19 @@ COMMENT ON TABLE projection_academias IS 'Projeção de leitura para academias';
 COMMENT ON TABLE projection_admins IS 'Projeção de leitura para administradores';
 COMMENT ON TABLE projection_cursos IS 'Projeção de cursos (médio/superior)';
 COMMENT ON TABLE projection_materias IS 'Projeção de matérias/disciplinas';
+COMMENT ON TABLE auth_tokens IS 'Tokens de verificação de email e recuperação de senha';
 COMMENT ON TABLE admin_action_log IS 'Log de todas as ações administrativas';
 
 COMMENT ON COLUMN projection_estudantes.codigo_estudante IS 'Código único do estudante (formato: AAA1234)';
+COMMENT ON COLUMN projection_estudantes.email IS 'Email do estudante (opcional)';
+COMMENT ON COLUMN projection_estudantes.telefone IS 'Telefone do estudante (opcional)';
+COMMENT ON COLUMN projection_estudantes.email_verificado IS 'Se o email foi verificado';
 COMMENT ON COLUMN projection_estudantes.codigo_academia IS 'Código da academia à qual o estudante pertence';
 COMMENT ON COLUMN projection_estudantes.status IS 'Status geral: inativo, ativo, finalizado';
 COMMENT ON COLUMN projection_estudantes.status_escolar IS 'Status ensino escolar: inativo, em_andamento, finalizado';
 COMMENT ON COLUMN projection_estudantes.status_superior IS 'Status ensino superior: inativo, em_andamento, finalizado';
 
+COMMENT ON COLUMN projection_academias.email_verificado IS 'Se o email da academia foi verificado';
 COMMENT ON COLUMN projection_academias.nivel_escolar IS 'Nível escolar: fundamental, medio, misto (obrigatório para type=escola)';
 COMMENT ON COLUMN projection_academias.status IS 'Status da academia (ativo/inativo) - academias iniciam inativas';
 COMMENT ON COLUMN projection_academias.cursos IS 'Array JSON com lista de nomes de cursos oferecidos';
@@ -646,8 +686,13 @@ COMMENT ON COLUMN projection_faltas.codigo_academia IS 'Código da academia que 
 COMMENT ON COLUMN projection_admins.role IS 'Hierarquia: fpp > adm > gerente';
 COMMENT ON COLUMN projection_inscricoes.status_usado IS 'Se a inscrição aprovada já foi usada para vincular';
 
+COMMENT ON COLUMN auth_tokens.tipo IS 'Tipo do token: verificacao_email ou recuperacao_senha';
+COMMENT ON COLUMN auth_tokens.usado IS 'Se o token já foi utilizado';
+COMMENT ON COLUMN auth_tokens.expires_at IS 'Data de expiração do token';
+
 COMMENT ON FUNCTION generate_codigo_estudante IS 'Gera código único AAA1234 para estudantes';
 COMMENT ON FUNCTION registrar_acao_admin IS 'Registra uma ação administrativa no log';
+COMMENT ON FUNCTION cleanup_expired_tokens IS 'Remove tokens expirados do banco de dados';
 COMMENT ON FUNCTION verify_hash_chain IS 'Verifica integridade da cadeia de hashes de um agregado';
 
 -- ============================================
@@ -664,16 +709,17 @@ BEGIN
     SELECT COUNT(*) INTO v_total_checkpoints FROM projection_checkpoints;
     SELECT COUNT(*) INTO v_total_admins FROM projection_admins;
     
-    RAISE NOTICE '╔══════════════════════════════════════╗';
-    RAISE NOTICE '║ SCHEMA CRIADO COM SUCESSO! v2.4.0   ║';
-    RAISE NOTICE '╚══════════════════════════════════════╝';
+    RAISE NOTICE '╔════════════════════════════════════╗';
+    RAISE NOTICE '║ SCHEMA CRIADO COM SUCESSO! v2.5.0  ║';
+    RAISE NOTICE '╚════════════════════════════════════╝';
     RAISE NOTICE 'Total de eventos: %', v_total_eventos;
     RAISE NOTICE 'Total de checkpoints: %', v_total_checkpoints;
     RAISE NOTICE 'Total de admins: %', v_total_admins;
-    RAISE NOTICE '🔥 NOVIDADES:';
-    RAISE NOTICE '   - codigo_academia implementado';
-    RAISE NOTICE '   - nivel_escolar: fundamental, medio, misto';
-    RAISE NOTICE '   - status_usado em inscrições';
-    RAISE NOTICE '   - Cursos e Matérias implementados';
-    RAISE NOTICE '╚══════════════════════════════════════╝';
-END $$;
+    RAISE NOTICE '🔥 NOVIDADES v2.5.0:';
+    RAISE NOTICE '   ✅ Email e Telefone para estudantes';
+    RAISE NOTICE '   ✅ Verificação de email';
+    RAISE NOTICE '   ✅ Recuperação de senha por email';
+    RAISE NOTICE '   ✅ Sistema de tokens de autenticação';
+    RAISE NOTICE '   ✅ Integração com Google SMTP';
+    RAISE NOTICE '╚════════════════════════════════════╝';
+END $;

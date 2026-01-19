@@ -14,16 +14,18 @@ type Estudante struct {
 	Nome                       string
 	CodigoEstudante            string
 	SenhaHash                  string
+	Email                      *string  // 🔥 NOVO
+	Telefone                   *string  // 🔥 NOVO
 	BilheteIdentidade          *string
 	BilheteIdentidadeResp      *string
 	CodigoAcademia             *string
-	Status                     string  // inativo, ativo, finalizado
+	Status                     string
 	AnoEscolar                 *string
 	AnoSuperior                *string
 	CursoMedio                 *string
 	CursoSuperior              *string
-	StatusEscolar              string  // inativo, em_andamento, finalizado
-	StatusSuperior             string  // inativo, em_andamento, finalizado
+	StatusEscolar              string
+	StatusSuperior             string
 	CreatedAt                  time.Time
 	
 	Notas                      []RegistroNotas
@@ -108,6 +110,10 @@ func (e *Estudante) Apply(event DomainEvent) error {
 		return e.applyStatusEscolarAtualizado(event)
 	case "StatusSuperiorAtualizado":
 		return e.applyStatusSuperiorAtualizado(event)
+	case "DadosPessoaisAtualizados":
+		return e.applyDadosPessoaisAtualizados(event)
+	case "DadosAcademicosAtualizados":
+		return e.applyDadosAcademicosAtualizados(event)
 	default:
 		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
 	}
@@ -119,6 +125,8 @@ func (e *Estudante) Criar(
 	nome string,
 	codigoEstudante string,
 	senhaHash string,
+	email *string,          // 🔥 NOVO
+	telefone *string,       // 🔥 NOVO
 	bilhete *string,
 	bilheteResp *string,
 	anoEscolar *string,
@@ -132,12 +140,10 @@ func (e *Estudante) Criar(
 		return fmt.Errorf("nome, codigo_estudante e senha são obrigatórios")
 	}
 	
-	// 🔥 VALIDAÇÃO: Pelo menos um bilhete obrigatório
 	if bilhete == nil && bilheteResp == nil {
 		return fmt.Errorf("pelo menos um bilhete de identidade é obrigatório")
 	}
 
-	// 🔥 VALIDAÇÃO: Status escolar/superior
 	statusEsc := "inativo"
 	statusSup := "inativo"
 	
@@ -155,7 +161,6 @@ func (e *Estudante) Criar(
 		statusSup = *statusSuperior
 	}
 	
-	// 🔥 REGRA: Superior só pode estar ativo se escolar finalizado
 	if statusSup == "em_andamento" && statusEsc != "finalizado" {
 		return fmt.Errorf("status_superior só pode ser 'em_andamento' se status_escolar for 'finalizado'")
 	}
@@ -163,7 +168,6 @@ func (e *Estudante) Criar(
 		return fmt.Errorf("status_superior só pode ser 'finalizado' se status_escolar for 'finalizado'")
 	}
 	
-	// 🔥 REGRA: Nunca ambos em andamento
 	if statusEsc == "em_andamento" && statusSup == "em_andamento" {
 		return fmt.Errorf("status_escolar e status_superior não podem estar ambos 'em_andamento'")
 	}
@@ -176,6 +180,8 @@ func (e *Estudante) Criar(
 		Nome:                  nome,
 		CodigoEstudante:       codigoEstudante,
 		SenhaHash:             senhaHash,
+		Email:                 email,        // 🔥 NOVO
+		Telefone:              telefone,     // 🔥 NOVO
 		BilheteIdentidade:     bilhete,
 		BilheteIdentidadeResp: bilheteResp,
 		AnoEscolar:            anoEscolar,
@@ -456,13 +462,15 @@ func (e *Estudante) applyEstudanteCriado(event DomainEvent) error {
 	e.Nome = ev.Nome
 	e.CodigoEstudante = ev.CodigoEstudante
 	e.SenhaHash = ev.SenhaHash
+	e.Email = ev.Email                           // 🔥 NOVO
+	e.Telefone = ev.Telefone                     // 🔥 NOVO
 	e.BilheteIdentidade = ev.BilheteIdentidade
 	e.BilheteIdentidadeResp = ev.BilheteIdentidadeResp
 	e.AnoEscolar = ev.AnoEscolar
 	e.AnoSuperior = ev.AnoSuperior
 	e.CursoMedio = ev.CursoMedio
 	e.CursoSuperior = ev.CursoSuperior
-	e.Status = "inativo" // 🔥 Sempre inativo ao criar
+	e.Status = "inativo"
 	e.StatusEscolar = ev.StatusEscolar
 	e.StatusSuperior = ev.StatusSuperior
 	e.CreatedAt = ev.CreatedAt
@@ -665,6 +673,8 @@ type EstudanteCriadoEvent struct {
 	Nome                  string
 	CodigoEstudante       string
 	SenhaHash             string
+	Email                 *string  // 🔥 NOVO
+	Telefone              *string  // 🔥 NOVO
 	BilheteIdentidade     *string
 	BilheteIdentidadeResp *string
 	AnoEscolar            *string
@@ -774,5 +784,170 @@ type StatusSuperiorAtualizadoEvent struct {
 }
 
 func (e *StatusSuperiorAtualizadoEvent) GetPayload() interface{} {
+	return e
+}
+
+// AtualizarDadosPessoais atualiza dados pessoais do estudante
+func (e *Estudante) AtualizarDadosPessoais(
+	nome *string,
+	email *string,
+	telefone *string,
+	bilheteIdentidade *string,
+	bilheteIdentidadeResp *string,
+) error {
+	if e.Status != "ativo" && e.Status != "inativo" {
+		return fmt.Errorf("não é possível atualizar dados de estudante finalizado")
+	}
+
+	// Validação: pelo menos um campo deve ser fornecido
+	if nome == nil && email == nil && telefone == nil && bilheteIdentidade == nil && bilheteIdentidadeResp == nil {
+		return fmt.Errorf("nenhum campo para atualizar")
+	}
+
+	// Se está atualizando nome, não pode ser vazio
+	if nome != nil && *nome == "" {
+		return fmt.Errorf("nome não pode ser vazio")
+	}
+
+	event := &DadosPessoaisAtualizadosEvent{
+		BaseEvent: BaseEvent{
+			EventType:   "DadosPessoaisAtualizados",
+			AggregateID: e.ID,
+		},
+		Nome:                  nome,
+		Email:                 email,
+		Telefone:              telefone,
+		BilheteIdentidade:     bilheteIdentidade,
+		BilheteIdentidadeResp: bilheteIdentidadeResp,
+		EmailAlterado:         email != nil && (e.Email == nil || *e.Email != *email),
+		UpdatedAt:             time.Now(),
+	}
+
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
+// AtualizarDadosAcademicos atualiza dados acadêmicos do estudante
+func (e *Estudante) AtualizarDadosAcademicos(
+	anoEscolar *string,
+	anoSuperior *string,
+	cursoMedio *string,
+	cursoSuperior *string,
+) error {
+	if e.Status != "ativo" && e.Status != "inativo" {
+		return fmt.Errorf("não é possível atualizar dados de estudante finalizado")
+	}
+
+	// Validação: pelo menos um campo deve ser fornecido
+	if anoEscolar == nil && anoSuperior == nil && cursoMedio == nil && cursoSuperior == nil {
+		return fmt.Errorf("nenhum campo para atualizar")
+	}
+
+	event := &DadosAcademicosAtualizadosEvent{
+		BaseEvent: BaseEvent{
+			EventType:   "DadosAcademicosAtualizados",
+			AggregateID: e.ID,
+		},
+		AnoEscolar:    anoEscolar,
+		AnoSuperior:   anoSuperior,
+		CursoMedio:    cursoMedio,
+		CursoSuperior: cursoSuperior,
+		UpdatedAt:     time.Now(),
+	}
+
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
+// ============================================================================
+// EVENT HANDLERS
+// ============================================================================
+
+func (e *Estudante) applyDadosPessoaisAtualizados(event DomainEvent) error {
+	payload := event.GetPayload()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	var ev DadosPessoaisAtualizadosEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+
+	// Atualizar apenas os campos fornecidos
+	if ev.Nome != nil {
+		e.Nome = *ev.Nome
+	}
+	if ev.Email != nil {
+		e.Email = ev.Email
+	}
+	if ev.Telefone != nil {
+		e.Telefone = ev.Telefone
+	}
+	if ev.BilheteIdentidade != nil {
+		e.BilheteIdentidade = ev.BilheteIdentidade
+	}
+	if ev.BilheteIdentidadeResp != nil {
+		e.BilheteIdentidadeResp = ev.BilheteIdentidadeResp
+	}
+
+	return nil
+}
+
+func (e *Estudante) applyDadosAcademicosAtualizados(event DomainEvent) error {
+	payload := event.GetPayload()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	var ev DadosAcademicosAtualizadosEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+
+	// Atualizar apenas os campos fornecidos
+	if ev.AnoEscolar != nil {
+		e.AnoEscolar = ev.AnoEscolar
+	}
+	if ev.AnoSuperior != nil {
+		e.AnoSuperior = ev.AnoSuperior
+	}
+	if ev.CursoMedio != nil {
+		e.CursoMedio = ev.CursoMedio
+	}
+	if ev.CursoSuperior != nil {
+		e.CursoSuperior = ev.CursoSuperior
+	}
+
+	return nil
+}
+
+type DadosPessoaisAtualizadosEvent struct {
+	BaseEvent
+	Nome                  *string
+	Email                 *string
+	Telefone              *string
+	BilheteIdentidade     *string
+	BilheteIdentidadeResp *string
+	EmailAlterado         bool // Flag para saber se email foi alterado
+	UpdatedAt             time.Time
+}
+
+func (e *DadosPessoaisAtualizadosEvent) GetPayload() interface{} {
+	return e
+}
+
+type DadosAcademicosAtualizadosEvent struct {
+	BaseEvent
+	AnoEscolar    *string
+	AnoSuperior   *string
+	CursoMedio    *string
+	CursoSuperior *string
+	UpdatedAt     time.Time
+}
+
+func (e *DadosAcademicosAtualizadosEvent) GetPayload() interface{} {
 	return e
 }

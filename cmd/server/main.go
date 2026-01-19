@@ -178,6 +178,11 @@ func setupRouter() *gin.Engine {
 	router.POST("/academia/register", handlers.RegisterAcademia)
 	router.POST("/estudante/register", handlers.RegisterEstudante)
 
+	// 🔥 VERIFICAÇÃO DE EMAIL E RECUPERAÇÃO DE SENHA
+	router.GET("/verificar-email/:token", handlers.VerificarEmail)
+	router.POST("/recuperar-senha/solicitar", handlers.SolicitarRecuperacaoSenha)
+	router.POST("/recuperar-senha/:token", handlers.ResetarSenha)
+
 	// ============================================
 	// ROTAS PROTEGIDAS - QUALQUER USUÁRIO LOGADO
 	// ============================================
@@ -185,6 +190,9 @@ func setupRouter() *gin.Engine {
 	protected := router.Group("/")
 	protected.Use(middleware.AuthMiddleware())
 	{
+		// 🔥 ALTERAR SENHA (USUÁRIO LOGADO)
+		protected.PUT("/alterar-senha", handlers.AlterarSenha)
+
 		// Perfil do usuário logado
 		protected.GET("/meu-perfil", handlers.GetMeuPerfil)
 		
@@ -231,6 +239,9 @@ func setupRouter() *gin.Engine {
 		estudante.POST("/inscricao-universidade", handlers.InscricaoUniversidade)
 		estudante.GET("/inscricoes-aprovadas", handlers.ListarInscricoesAprovadas)
 		estudante.POST("/vincular-academia", handlers.VincularAcademia)
+
+		estudante.PUT("/dados-pessoais", handlers.AtualizarDadosPessoaisEstudante)
+		estudante.PUT("/dados-academicos", handlers.AtualizarDadosAcademicosEstudante)
 	}
 
 	// ============================================
@@ -263,6 +274,15 @@ func setupRouter() *gin.Engine {
 		// Gerenciamento de Matérias
 		academia.POST("/materias", handlers.CriarMateria)
 		academia.GET("/materias", handlers.ListarMaterias)
+
+		// 🔥 NOVAS ROTAS DE ATUALIZAÇÃO
+		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
+
+		// Cursos - atualização
+		academia.PUT("/cursos/:id", handlers.AtualizarDadosCurso)
+	
+		// Matérias - atualização
+		academia.PUT("/materias/:id", handlers.AtualizarDadosMateria)
 	}
 
 	// ============================================
@@ -281,6 +301,7 @@ func setupRouter() *gin.Engine {
 		// Consultas específicas admin
 		admin.GET("/consultar-admin/:email", handlers.GetAdminPorEmail)
 		admin.GET("/buscar-usuario", handlers.BuscarUsuario)
+		admin.PUT("/dados/:id", handlers.AtualizarDadosAdmin)
 		
 		// 🔥 ATUALIZADO: Gerenciamento de Academias usando codigo_academia
 		adminGerente := admin.Group("/")
@@ -304,6 +325,7 @@ func setupRouter() *gin.Engine {
 		{
 			adminFPP.PUT("/admin/:id/ativar", handlers.AtivarAdmin)
 			adminFPP.PUT("/admin/:id/desativar", handlers.DesativarAdmin)
+			adminFPP.PUT("/role/:id", handlers.AtualizarRoleAdmin)
 		}
 		
 		// Projeções (qualquer admin)
@@ -319,8 +341,8 @@ func setupRouter() *gin.Engine {
 	// ============================================
 	router.GET("/", func(c *gin.Context) {
 		c.JSON(200, gin.H{
-			"message": "Bem-vindo ao Spuri API v2.4",
-			"version": "2.4.0",
+			"message": "Bem-vindo ao Spuri API v2.6",
+			"version": "2.6.0",
 			"features": []string{
 				"Event Sourcing com NeonDB",
 				"Sistema de Projeções CQRS",
@@ -328,17 +350,29 @@ func setupRouter() *gin.Engine {
 				"Rotas Unificadas de Inscrições",
 				"Controle de Acesso por Tipo de Usuário",
 				"Auditoria Completa via Ledger",
+				"Atualização de Dados de Estudantes, Academias e Admins", // 🔥 NOVO
+				"Atualização de Cursos e Matérias",                        // 🔥 NOVO
 			},
-			"endpoints": gin.H{
-				"inscricoes": gin.H{
-					"admin":     "Retorna TODAS as inscrições",
-					"academia":  "Retorna apenas inscrições da própria academia",
-					"estudante": "Retorna apenas inscrições do próprio estudante",
+			"novidades_v2.6": []string{
+				"✅ Atualização de dados pessoais e acadêmicos de estudantes",
+				"✅ Atualização de dados de academias",
+				"✅ Atualização de dados e roles de admins (FPP)",
+				"✅ Atualização de cursos e matérias",
+				"✅ Email verificado reseta ao alterar email",
+			},
+			"rotas_atualizacao": gin.H{
+				"estudante": []string{
+					"PUT /estudante/dados-pessoais - nome, email, telefone, bilhetes",
+					"PUT /estudante/dados-academicos - anos, cursos",
 				},
-				"inscricoes-pendentes": gin.H{
-					"admin":     "Retorna TODAS as inscrições pendentes",
-					"academia":  "Retorna apenas inscrições pendentes da própria academia",
-					"estudante": "Retorna apenas inscrições pendentes do próprio estudante",
+				"academia": []string{
+					"PUT /academia/dados - nome, provincia, endereco, contatos, nivel, cursos",
+					"PUT /academia/cursos/:id - nome, type, nivel",
+					"PUT /academia/materias/:id - nome, type",
+				},
+				"admin": []string{
+					"PUT /admin/dados/:id - nome, email (qualquer admin)",
+					"PUT /admin/role/:id - atualizar role (APENAS FPP)",
 				},
 			},
 		})
