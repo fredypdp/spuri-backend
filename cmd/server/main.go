@@ -7,45 +7,40 @@ import (
 	"spuri/internal/handlers"
 	"spuri/internal/middleware"
 	"spuri/internal/projections"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
 
 var (
-	dbClient *db.Client
-	repository    *db.AggregateRepository
-	projManager   *projections.Manager
+	dbClient    *db.Client
+	repository  *db.AggregateRepository
+	projManager *projections.Manager
 )
 
 func main() {
-	// Carregar variáveis de ambiente
 	if os.Getenv("ENV") != "production" {
 		if err := godotenv.Load(); err != nil {
 			log.Println("⚠️  Arquivo .env não encontrado")
 		}
 	}
 
-	// Inicializar db
 	if err := initDB(); err != nil {
 		log.Fatalf("❌ Erro ao conectar ao banco de dados: %v", err)
 	}
 	defer dbClient.Close()
 
-	// Inicializar sistema de projeções
 	if err := initProjections(); err != nil {
 		log.Fatalf("❌ Erro ao inicializar projeções: %v", err)
 	}
 
-	// Configurar modo do Gin
 	if os.Getenv("ENV") == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	// Criar router
 	router := setupRouter()
 
-	// Iniciar servidor
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -55,15 +50,13 @@ func main() {
 	log.Printf("📚 Documentação: http://localhost:%s/", port)
 	log.Printf("❤️  Health check: http://localhost:%s/health", port)
 	log.Printf("🌍 Ambiente: %s", os.Getenv("ENV"))
-	log.Printf("🗃️  Banco de dados: Event Sourcing ativado")
-	log.Printf("🔑 Admin FPP: admin@spuri.ao / fpp@2025")
+	log.Printf("🔒 Segurança: Rate Limiting + Input Validation")
 	
 	if err := router.Run("0.0.0.0:" + port); err != nil {
 		log.Fatalf("❌ Erro ao iniciar servidor: %v", err)
 	}
 }
 
-// initDB inicializa conexão com banco de dados
 func initDB() error {
 	config := db.DefaultConfig()
 	
@@ -73,10 +66,8 @@ func initDB() error {
 		return err
 	}
 
-	// Criar repositório de agregados
 	repository = db.NewAggregateRepository(dbClient)
 
-	// Verificar health
 	if err := dbClient.Health(); err != nil {
 		return err
 	}
@@ -85,11 +76,9 @@ func initDB() error {
 	return nil
 }
 
-// initProjections inicializa sistema de projeções
 func initProjections() error {
 	projManager = projections.NewManager(dbClient)
 	
-	// Registrar projeções
 	projManager.RegisterProjection("estudantes", projections.NewEstudanteProjection(dbClient))
 	projManager.RegisterProjection("academias", projections.NewAcademiaProjection(dbClient))
 	projManager.RegisterProjection("admins", projections.NewAdminProjection(dbClient))
@@ -99,49 +88,25 @@ func initProjections() error {
 	projManager.RegisterProjection("cursos", projections.NewCursosProjection(dbClient))
 	projManager.RegisterProjection("materias", projections.NewMateriasProjection(dbClient))
 
-	// Iniciar processamento em background
 	go projManager.StartProcessing()
 
 	log.Println("✅ Sistema de projeções inicializado")
 	return nil
 }
 
-// setupRouter configura todas as rotas
 func setupRouter() *gin.Engine {
 	router := gin.Default()
 
-	// Middleware CORS - Origins Específicos
-	router.Use(func(c *gin.Context) {
-		// Origins permitidos
-		allowedOrigins := []string{
-			"https://spuripainel.vercel.app",
-			"http://localhost:3000",
-		}
-		
-		origin := c.Request.Header.Get("Origin")
-		
-		// Verificar se o origin está permitido
-		for _, allowedOrigin := range allowedOrigins {
-			if origin == allowedOrigin {
-				c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
-				break
-			}
-		}
-		
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Max-Age", "86400") // 24 horas
-		
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
-			return
-		}
-		
-		c.Next()
-	})
+	// ✅ CORS Configurável
+	router.Use(corsMiddleware())
+	
+	// ✅ Rate Limiting Global
+	router.Use(middleware.GlobalRateLimit())
+	
+	// ✅ Request ID
+	router.Use(requestIDMiddleware())
 
-	// Injetar dependências no contexto
+	// Injetar dependências
 	router.Use(func(c *gin.Context) {
 		c.Set("repository", repository)
 		c.Set("projManager", projManager)
@@ -153,165 +118,110 @@ func setupRouter() *gin.Engine {
 	// ROTAS PÚBLICAS
 	// ============================================
 	
-	// Health check
-	router.GET("/health", func(c *gin.Context) {
-		stats := dbClient.Stats()
-		c.JSON(200, gin.H{
-			"status":  "ok",
-			"message": "Spuri Event Sourcing rodando!",
-			"version": "2.4.0",
-			"env":     os.Getenv("ENV"),
-			"db_stats": gin.H{
-				"open_connections": stats.OpenConnections,
-				"in_use": stats.InUse,
-				"idle": stats.Idle,
-			},
-		})
-	})
-
-	// 🔥 BOOTSTRAP: Criar primeiro admin FPP
+	router.GET("/health", handlers.HealthCheck)
 	router.POST("/bootstrap/admin-fpp", handlers.BootstrapAdminFPP)
 
-	// Autenticação pública
-	router.POST("/login", handlers.Login)
-	router.POST("/admin/login", handlers.LoginAdmin)
+	// ✅ Login com Rate Limiting
+	loginGroup := router.Group("/")
+	loginGroup.Use(middleware.LoginRateLimit())
+	{
+		loginGroup.POST("/login", handlers.Login)
+		loginGroup.POST("/admin/login", handlers.LoginAdmin)
+	}
+
 	router.POST("/academia/register", handlers.RegisterAcademia)
 	router.POST("/estudante/register", handlers.RegisterEstudante)
 
-	// 🔥 VERIFICAÇÃO DE EMAIL E RECUPERAÇÃO DE SENHA
-	router.GET("/verificar-email/:token", handlers.VerificarEmail)
-	router.POST("/recuperar-senha/solicitar", handlers.SolicitarRecuperacaoSenha)
-	router.POST("/recuperar-senha/:token", handlers.ResetarSenha)
+	// ✅ Email com Rate Limiting
+	emailGroup := router.Group("/")
+	emailGroup.Use(middleware.EmailRateLimit())
+	{
+		emailGroup.GET("/verificar-email/:token", handlers.VerificarEmail)
+		emailGroup.POST("/recuperar-senha/solicitar", handlers.SolicitarRecuperacaoSenha)
+		emailGroup.POST("/recuperar-senha/:token", handlers.ResetarSenha)
+	}
 
 	// ============================================
-	// ROTAS PROTEGIDAS - QUALQUER USUÁRIO LOGADO
+	// ROTAS PROTEGIDAS
 	// ============================================
 	
 	protected := router.Group("/")
 	protected.Use(middleware.AuthMiddleware())
 	{
-		// 🔥 ALTERAR SENHA (USUÁRIO LOGADO)
 		protected.PUT("/alterar-senha", handlers.AlterarSenha)
-
-		// Perfil do usuário logado
 		protected.GET("/meu-perfil", handlers.GetMeuPerfil)
-		
-		// Lista academias (todos podem ver)
 		protected.GET("/academias", handlers.ListarTodasAcademias)
-		
-		// 🔥 ROTAS UNIFICADAS DE INSCRIÇÕES
-		// Admin: todas | Academia: só suas | Estudante: só suas
 		protected.GET("/inscricoes", handlers.ListarInscricoes)
 		protected.GET("/inscricoes-pendentes", handlers.ListarInscricoesPendentes)
-		
-		// Consultas de notas/faltas/histórico
 		protected.GET("/notas-estudante/:codigo", handlers.GetNotasEstudante)
 		protected.GET("/faltas-estudante/:codigo", handlers.GetFaltasEstudante)
 		protected.GET("/historico-estudante/:codigo", handlers.GetHistoricoCompleto)
-		
-		// Event Sourcing - Auditoria
 		protected.GET("/eventos-estudante/:codigo", handlers.GetEventosEstudante)
 		protected.GET("/verificar-integridade/:codigo", handlers.VerificarIntegridade)
-		
-		// Consultas públicas (academia e admin)
 		protected.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)
 		protected.GET("/consultar-academia/:codigo", handlers.GetAcademiaPorCodigo)
-		
-		// Lista estudantes (academia: seus | admin: todos)
 		protected.GET("/estudantes", handlers.ListarEstudantes)
 	}
 
-	// ============================================
 	// ROTAS DE ESTUDANTES
-	// ============================================
-	
 	estudante := router.Group("/estudante")
 	estudante.Use(middleware.AuthMiddleware())
 	estudante.Use(middleware.RequireEstudante())
 	{
-		// Inscrições
 		estudante.GET("/minhas-inscricoes", handlers.GetMinhasInscricoes)
 		estudante.GET("/meu-historico", handlers.GetMeuHistorico)
 		estudante.PUT("/status-escolar", handlers.AtualizarStatusEscolar)
 		estudante.PUT("/status-superior", handlers.AtualizarStatusSuperior)
-		
 		estudante.POST("/inscricao-escola", handlers.InscricaoEscola)
 		estudante.POST("/inscricao-universidade", handlers.InscricaoUniversidade)
 		estudante.GET("/inscricoes-aprovadas", handlers.ListarInscricoesAprovadas)
 		estudante.POST("/vincular-academia", handlers.VincularAcademia)
-
 		estudante.PUT("/dados-pessoais", handlers.AtualizarDadosPessoaisEstudante)
 		estudante.PUT("/dados-academicos", handlers.AtualizarDadosAcademicosEstudante)
 	}
 
-	// ============================================
 	// ROTAS DE ACADEMIAS
-	// ============================================
-	
 	academia := router.Group("/academia")
 	academia.Use(middleware.AuthMiddleware())
 	academia.Use(middleware.RequireAcademia())
 	academia.Use(middleware.ValidarStatusAcademia())
 	{
-		// Commands (CQRS - Write)
 		academia.POST("/notas-aluno", handlers.RegistrarNotas)
 		academia.POST("/faltas-aluno", handlers.RegistrarFaltas)
-		
-		// Inscrições - Aprovação/Reprovação
 		academia.PUT("/inscricao/:id/aprovar", handlers.AprovarInscricao)
 		academia.PUT("/inscricao/:id/reprovar", handlers.ReprovarInscricao)
-		
-		// Consultas específicas academia
 		academia.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)
 		academia.GET("/consultar-academia/:codigo", handlers.GetAcademiaPorCodigo)
-
-		// Gerenciamento de Cursos
 		academia.POST("/cursos", handlers.CriarCurso)
 		academia.GET("/cursos", handlers.ListarCursos)
 		academia.PUT("/cursos/:id/ativar", handlers.AtivarCurso)
 		academia.PUT("/cursos/:id/desativar", handlers.DesativarCurso)
-		
-		// Gerenciamento de Matérias
 		academia.POST("/materias", handlers.CriarMateria)
 		academia.GET("/materias", handlers.ListarMaterias)
-
-		// 🔥 NOVAS ROTAS DE ATUALIZAÇÃO
 		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
-
-		// Cursos - atualização
 		academia.PUT("/cursos/:id", handlers.AtualizarDadosCurso)
-	
-		// Matérias - atualização
 		academia.PUT("/materias/:id", handlers.AtualizarDadosMateria)
 	}
 
-	// ============================================
 	// ROTAS ADMINISTRATIVAS
-	// ============================================
-	
 	admin := router.Group("/admin")
 	admin.Use(middleware.AuthMiddleware())
 	admin.Use(middleware.RequireAdmin())
 	{
-		// Todos os registros
 		admin.GET("/todos-registros", handlers.ListarTodosRegistros)
 		admin.GET("/registros/estudante/:codigo", handlers.ListarRegistrosPorEstudante)
 		admin.GET("/registros/academia/:codigo", handlers.ListarRegistrosPorAcademia)
-		
-		// Consultas específicas admin
 		admin.GET("/consultar-admin/:email", handlers.GetAdminPorEmail)
 		admin.GET("/buscar-usuario", handlers.BuscarUsuario)
 		admin.PUT("/dados/:id", handlers.AtualizarDadosAdmin)
 		
-		// 🔥 ATUALIZADO: Gerenciamento de Academias usando codigo_academia
 		adminGerente := admin.Group("/")
 		adminGerente.Use(middleware.RequireGerente())
 		{
-			adminGerente.PUT("/academia/:codigo/ativar", handlers.AtivarAcademia)     // 🔥 MUDOU
-			adminGerente.PUT("/academia/:codigo/desativar", handlers.DesativarAcademia) // 🔥 MUDOU
+			adminGerente.PUT("/academia/:codigo/ativar", handlers.AtivarAcademia)
+			adminGerente.PUT("/academia/:codigo/desativar", handlers.DesativarAcademia)
 		}
 		
-		// Gerenciamento de Admins (adm+)
 		adminAdm := admin.Group("/")
 		adminAdm.Use(middleware.RequireAdm())
 		{
@@ -319,7 +229,6 @@ func setupRouter() *gin.Engine {
 			adminAdm.GET("/admins", handlers.ListarTodosAdmins)
 		}
 		
-		// Ações exclusivas FPP
 		adminFPP := admin.Group("/")
 		adminFPP.Use(middleware.RequireFPP())
 		{
@@ -328,7 +237,6 @@ func setupRouter() *gin.Engine {
 			adminFPP.PUT("/role/:id", handlers.AtualizarRoleAdmin)
 		}
 		
-		// Projeções (qualquer admin)
 		admin.POST("/rebuild-projection/:name", handlers.RebuildProjection)
 		admin.GET("/projection-status/:name", handlers.GetProjectionStatus)
 		admin.GET("/projections-status", handlers.GetAllProjectionStatuses)
@@ -336,47 +244,63 @@ func setupRouter() *gin.Engine {
 		admin.GET("/verify-all-integrity", handlers.VerifyAllIntegrity)
 	}
 
-	// ============================================
-	// DOCUMENTAÇÃO
-	// ============================================
-	router.GET("/", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"message": "Bem-vindo ao Spuri API v2.6",
-			"version": "2.6.0",
-			"features": []string{
-				"Event Sourcing com NeonDB",
-				"Sistema de Projeções CQRS",
-				"Autenticação JWT",
-				"Rotas Unificadas de Inscrições",
-				"Controle de Acesso por Tipo de Usuário",
-				"Auditoria Completa via Ledger",
-				"Atualização de Dados de Estudantes, Academias e Admins", // 🔥 NOVO
-				"Atualização de Cursos e Matérias",                        // 🔥 NOVO
-			},
-			"novidades_v2.6": []string{
-				"✅ Atualização de dados pessoais e acadêmicos de estudantes",
-				"✅ Atualização de dados de academias",
-				"✅ Atualização de dados e roles de admins (FPP)",
-				"✅ Atualização de cursos e matérias",
-				"✅ Email verificado reseta ao alterar email",
-			},
-			"rotas_atualizacao": gin.H{
-				"estudante": []string{
-					"PUT /estudante/dados-pessoais - nome, email, telefone, bilhetes",
-					"PUT /estudante/dados-academicos - anos, cursos",
-				},
-				"academia": []string{
-					"PUT /academia/dados - nome, provincia, endereco, contatos, nivel, cursos",
-					"PUT /academia/cursos/:id - nome, type, nivel",
-					"PUT /academia/materias/:id - nome, type",
-				},
-				"admin": []string{
-					"PUT /admin/dados/:id - nome, email (qualquer admin)",
-					"PUT /admin/role/:id - atualizar role (APENAS FPP)",
-				},
-			},
-		})
-	})
+	router.GET("/", handlers.APIDocumentation)
 
 	return router
+}
+
+// ✅ CORS Configurável por Environment Variable
+func corsMiddleware() gin.HandlerFunc {
+	allowedOriginsEnv := os.Getenv("ALLOWED_ORIGINS")
+	var allowedOrigins []string
+	
+	if allowedOriginsEnv != "" {
+		allowedOrigins = strings.Split(allowedOriginsEnv, ",")
+	} else {
+		// Default para desenvolvimento
+		allowedOrigins = []string{
+			"http://localhost:3000",
+			"https://spuripainel.vercel.app",
+		}
+	}
+
+	return func(c *gin.Context) {
+		origin := c.Request.Header.Get("Origin")
+		
+		for _, allowedOrigin := range allowedOrigins {
+			if origin == strings.TrimSpace(allowedOrigin) {
+				c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+				break
+			}
+		}
+		
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
+		
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+		
+		c.Next()
+	}
+}
+
+// ✅ Request ID Middleware
+func requestIDMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		requestID := c.GetHeader("X-Request-ID")
+		if requestID == "" {
+			requestID = generateRequestID()
+		}
+		c.Set("request_id", requestID)
+		c.Writer.Header().Set("X-Request-ID", requestID)
+		c.Next()
+	}
+}
+
+func generateRequestID() string {
+	return "req_" + time.Now().Format("20060102150405")
 }
