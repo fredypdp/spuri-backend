@@ -225,13 +225,36 @@ func RegisterAcademia(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{
+	// 🔒 CORRIGIDO: Tratamento robusto de erro em email
+	response := gin.H{
 		"message": "academia criada com sucesso",
 		"data": gin.H{
 			"id":              academia.ID,
 			"codigo_academia": academia.CodigoAcademia,
 		},
-	})
+	}
+
+	// Tentar enviar email se fornecido
+	if req.Email != nil && *req.Email != "" {
+		client := getDbClient(c)
+		emailSvc := services.NewEmailService(client.DB())
+		
+		if !emailSvc.IsEnabled() {
+			response["aviso_email"] = "Serviço de email desabilitado. Verifique as configurações SMTP."
+			log.Printf("⚠️ [REGISTRO] Email não enviado - serviço desabilitado")
+		} else {
+			err := emailSvc.SendVerificationEmail(academia.ID, "academia", *req.Email, req.Nome)
+			if err != nil {
+				response["aviso_email"] = "Não foi possível enviar email de verificação. Você pode recuperar sua senha posteriormente."
+				log.Printf("⚠️ [REGISTRO] Erro ao enviar email para %s: %v", *req.Email, err)
+			} else {
+				response["email_verificacao"] = "Email de verificação enviado com sucesso"
+				log.Printf("✅ [REGISTRO] Email enviado para %s", *req.Email)
+			}
+		}
+	}
+
+	c.JSON(http.StatusCreated, response)
 }
 
 type RegisterEstudanteRequest struct {
@@ -336,13 +359,7 @@ func RegisterEstudante(c *gin.Context) {
 		return
 	}
 
-	if req.Email != nil && *req.Email != "" {
-		emailSvc := services.NewEmailService(client.DB())
-		if err := emailSvc.SendVerificationEmail(estudante.ID, "estudante", *req.Email, req.Nome); err != nil {
-			log.Printf("⚠️ Erro ao enviar email: %v", err)
-		}
-	}
-
+	// 🔒 CORRIGIDO: Tratamento robusto de erro em email
 	response := gin.H{
 		"message": "estudante criado com sucesso",
 		"data": gin.H{
@@ -351,8 +368,26 @@ func RegisterEstudante(c *gin.Context) {
 		},
 	}
 
+	// Tentar enviar email se fornecido
 	if req.Email != nil && *req.Email != "" {
-		response["email_verificacao"] = "Email de verificação enviado"
+		emailSvc := services.NewEmailService(client.DB())
+		
+		if !emailSvc.IsEnabled() {
+			// Email desabilitado - avisar mas não falhar
+			response["aviso_email"] = "Serviço de email desabilitado. Verifique as configurações SMTP."
+			log.Printf("⚠️ [REGISTRO] Email não enviado - serviço desabilitado")
+		} else {
+			err := emailSvc.SendVerificationEmail(estudante.ID, "estudante", *req.Email, req.Nome)
+			if err != nil {
+				// Erro ao enviar - avisar mas não falhar o registro
+				response["aviso_email"] = "Não foi possível enviar email de verificação. Você pode recuperar sua senha posteriormente."
+				log.Printf("⚠️ [REGISTRO] Erro ao enviar email para %s: %v", *req.Email, err)
+			} else {
+				// Email enviado com sucesso
+				response["email_verificacao"] = "Email de verificação enviado com sucesso"
+				log.Printf("✅ [REGISTRO] Email enviado para %s", *req.Email)
+			}
+		}
 	}
 
 	c.JSON(http.StatusCreated, response)

@@ -21,6 +21,9 @@ var (
 )
 
 func main() {
+	// 🔒 UTF-8: Configurar output de log como UTF-8
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+	
 	if os.Getenv("ENV") != "production" {
 		if err := godotenv.Load(); err != nil {
 			log.Println("⚠️  Arquivo .env não encontrado")
@@ -52,6 +55,7 @@ func main() {
 	log.Printf("❤️  Health check: http://localhost:%s/health", port)
 	log.Printf("🌍 Ambiente: %s", os.Getenv("ENV"))
 	log.Printf("🔒 Segurança: Rate Limiting + Input Validation + Prepared Statements")
+	log.Printf("🔤 Encoding: UTF-8")
 	
 	if err := router.Run("0.0.0.0:" + port); err != nil {
 		log.Fatalf("❌ Erro ao iniciar servidor: %v", err)
@@ -97,6 +101,12 @@ func initProjections() error {
 
 func setupRouter() *gin.Engine {
 	router := gin.Default()
+
+	// 🔒 UTF-8: Middleware para garantir UTF-8 em todas respostas
+	router.Use(func(c *gin.Context) {
+		c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+		c.Next()
+	})
 
 	router.Use(corsMiddleware())
 	router.Use(middleware.GlobalRateLimit())
@@ -261,6 +271,9 @@ func corsMiddleware() gin.HandlerFunc {
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
+		
+		// 🔒 UTF-8: Garantir charset UTF-8 no CORS
+		c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 		
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)

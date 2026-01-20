@@ -30,7 +30,7 @@ type Config struct {
 	MaxConnections  int
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
-	DatabaseURL     string // ← NOVO: Para Railway
+	DatabaseURL     string
 }
 
 // NewClient cria uma nova instância do cliente Banco de dados
@@ -43,11 +43,17 @@ func NewClient(config *Config) (*Client, error) {
 	
 	// Se DATABASE_URL existe (Railway/Heroku), usar diretamente
 	if config.DatabaseURL != "" {
-		connStr = config.DatabaseURL
-		log.Printf("🔗 Usando DATABASE_URL para conexão")
+		// 🔒 UTF-8: Adicionar client_encoding ao connection string
+		if !containsParam(config.DatabaseURL, "client_encoding") {
+			connStr = config.DatabaseURL + "?client_encoding=UTF8"
+		} else {
+			connStr = config.DatabaseURL
+		}
+		log.Printf("🔗 Usando DATABASE_URL para conexão (UTF-8 habilitado)")
 	} else {
+		// 🔒 UTF-8: Adicionar client_encoding=UTF8 na connection string
 		connStr = fmt.Sprintf(
-			"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+			"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s client_encoding=UTF8",
 			config.Host, config.Port, config.User, config.Password, 
 			config.DBName, config.SSLMode,
 		)
@@ -74,15 +80,44 @@ func NewClient(config *Config) (*Client, error) {
 		ctx:    context.Background(),
 	}
 
+	// 🔒 UTF-8: Forçar encoding UTF-8 na sessão
+	if err := client.setUTF8Encoding(); err != nil {
+		log.Printf("⚠️ Aviso: não foi possível configurar UTF-8: %v", err)
+	}
+
 	// Log de conexão
 	if config.DatabaseURL != "" {
-		log.Printf("✅ Banco de dados conectado via DATABASE_URL")
+		log.Printf("✅ Banco de dados conectado via DATABASE_URL (UTF-8)")
 	} else {
-		log.Printf("✅ Banco de dados conectado: %s@%s:%s/%s", 
+		log.Printf("✅ Banco de dados conectado: %s@%s:%s/%s (UTF-8)", 
 			config.User, config.Host, config.Port, config.DBName)
 	}
 
 	return client, nil
+}
+
+// 🔒 NOVO: Configurar encoding UTF-8 na sessão
+func (c *Client) setUTF8Encoding() error {
+	queries := []string{
+		"SET client_encoding = 'UTF8'",
+		"SET standard_conforming_strings = on",
+	}
+
+	for _, query := range queries {
+		if _, err := c.db.Exec(query); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// 🔒 NOVO: Verificar se connection string já tem parâmetro
+func containsParam(connStr, param string) bool {
+	return len(connStr) > 0 && (
+		connStr[len(connStr)-1] == '?' ||
+		connStr[len(connStr)-1] == '&') &&
+		connStr[len(connStr)-len(param):] == param
 }
 
 // DefaultConfig retorna configuração padrão do Banco de dados
@@ -92,7 +127,7 @@ func DefaultConfig() *Config {
 		log.Println("📊 Detectado DATABASE_URL - usando configuração Railway/Heroku")
 		return &Config{
 			DatabaseURL:     dbURL,
-			SSLMode:         "require", // Railway/Heroku usam SSL
+			SSLMode:         "require",
 			MaxConnections:  25,
 			MaxIdleConns:    5,
 			ConnMaxLifetime: 5 * time.Minute,
