@@ -51,11 +51,12 @@ func main() {
 
 	log.Printf("🚀 Spuri Event Sourcing rodando em http://localhost:%s", port)
 	log.Printf("📚 Documentação: http://localhost:%s/", port)
+	log.Printf("📖 Swagger UI: http://localhost:%s/docs", port)
 	log.Printf("❤️  Health check: http://localhost:%s/health", port)
 	log.Printf("📊 Metrics: http://localhost:%s/admin/metrics", port)
 	log.Printf("🌍 Ambiente: %s", os.Getenv("ENV"))
 	log.Printf("🔒 Segurança: Rate Limiting + Input Validation + Prepared Statements")
-	log.Printf("📤 Encoding: UTF-8")
+	log.Printf("🔤 Encoding: UTF-8")
 	
 	if err := router.Run("0.0.0.0:" + port); err != nil {
 		log.Fatalf("❌ Erro ao iniciar servidor: %v", err)
@@ -107,9 +108,7 @@ func setupRouter() *gin.Engine {
 		c.Next()
 	})
 
-	// 📊 Middleware de monitoramento (NOVO)
 	router.Use(middleware.MonitoringMiddleware())
-	
 	router.Use(corsMiddleware())
 	router.Use(middleware.GlobalRateLimit())
 	router.Use(requestIDMiddleware())
@@ -121,7 +120,10 @@ func setupRouter() *gin.Engine {
 		c.Next()
 	})
 
-	// 📊 Endpoints de monitoramento (NOVO)
+	// 📖 Swagger UI
+	router.GET("/docs", handlers.SwaggerUI)
+	router.GET("/api-docs/swagger.yaml", handlers.SwaggerYAML)
+	
 	router.GET("/health", handlers.HealthCheckBasic)
 	router.GET("/health/detailed", middleware.AuthMiddleware(), middleware.RequireAdmin(), handlers.HealthCheckDetailed)
 	
@@ -211,8 +213,6 @@ func setupRouter() *gin.Engine {
 		admin.GET("/consultar-admin/:email", handlers.GetAdminPorEmail)
 		admin.GET("/buscar-usuario", handlers.BuscarUsuario)
 		admin.PUT("/dados/:id", handlers.AtualizarDadosAdmin)
-		
-		// 📊 Endpoints de monitoramento admin (NOVO)
 		admin.GET("/metrics", handlers.GetMetrics)
 		admin.GET("/system-stats", handlers.GetSystemStats)
 		

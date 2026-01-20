@@ -7,9 +7,10 @@ package monitoring
 
 import (
 	"context"
-	"database/sql"
 	"sync"
 	"time"
+
+	"github.com/jmoiron/sqlx"
 )
 
 type HealthStatus string
@@ -36,12 +37,12 @@ type SystemHealth struct {
 }
 
 type HealthChecker struct {
-	db        *sql.DB
+	db        *sqlx.DB
 	startTime time.Time
 	health    *SystemHealth
 }
 
-func NewHealthChecker(db *sql.DB) *HealthChecker {
+func NewHealthChecker(db *sqlx.DB) *HealthChecker {
 	return &HealthChecker{
 		db:        db,
 		startTime: time.Now(),
