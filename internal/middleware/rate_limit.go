@@ -1,7 +1,15 @@
+// ============================================================================
+// ARQUIVO: internal/middleware/rate_limit.go
+// Rate limiting configurável via variáveis de ambiente
+// ============================================================================
+
 package middleware
 
 import (
 	"net/http"
+	"os"
+	"spuri/internal/monitoring"
+	"strconv"
 	"sync"
 	"time"
 
@@ -54,25 +62,47 @@ func (rl *RateLimiter) cleanup() {
 	}
 }
 
+// Configuração dinâmica baseada em ENV
 var (
+	GlobalRateLimiter *RateLimiter
+	LoginRateLimiter  *RateLimiter
+	EmailRateLimiter  *RateLimiter
+)
+
+func init() {
+	// Global Rate Limiter
+	globalLimit := getEnvInt("RATE_LIMIT_GLOBAL", 100)
 	GlobalRateLimiter = NewRateLimiter(
-		rate.Every(time.Minute/100),
-		10,
+		rate.Every(time.Minute/time.Duration(globalLimit)),
+		globalLimit/10,
 		5*time.Minute,
 	)
 
+	// Login Rate Limiter
+	loginLimit := getEnvInt("RATE_LIMIT_LOGIN", 5)
 	LoginRateLimiter = NewRateLimiter(
-		rate.Every(time.Minute/5),
-		2,
+		rate.Every(time.Minute/time.Duration(loginLimit)),
+		loginLimit/2,
 		10*time.Minute,
 	)
 
+	// Email Rate Limiter
+	emailLimit := getEnvInt("RATE_LIMIT_EMAIL", 2)
 	EmailRateLimiter = NewRateLimiter(
-		rate.Every(time.Hour/2),
+		rate.Every(time.Hour/time.Duration(emailLimit)),
 		1,
 		time.Hour,
 	)
-)
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	if val := os.Getenv(key); val != "" {
+		if i, err := strconv.Atoi(val); err == nil {
+			return i
+		}
+	}
+	return defaultValue
+}
 
 func getClientIP(c *gin.Context) string {
 	ip := c.GetHeader("X-Forwarded-For")
@@ -90,8 +120,10 @@ func RateLimitMiddleware(limiter *RateLimiter) gin.HandlerFunc {
 		ip := getClientIP(c)
 		
 		if !limiter.getLimiter(ip).Allow() {
+			monitoring.GetMetrics().RecordRateLimit()
+			
 			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error": "muitas requisições, tente novamente mais tarde",
+				"error":       "muitas requisições, tente novamente mais tarde",
 				"retry_after": "60s",
 			})
 			c.Abort()

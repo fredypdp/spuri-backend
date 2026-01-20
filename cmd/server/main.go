@@ -52,6 +52,7 @@ func main() {
 	log.Printf("🚀 Spuri Event Sourcing rodando em http://localhost:%s", port)
 	log.Printf("📚 Documentação: http://localhost:%s/", port)
 	log.Printf("❤️  Health check: http://localhost:%s/health", port)
+	log.Printf("📊 Metrics: http://localhost:%s/admin/metrics", port)
 	log.Printf("🌍 Ambiente: %s", os.Getenv("ENV"))
 	log.Printf("🔒 Segurança: Rate Limiting + Input Validation + Prepared Statements")
 	log.Printf("📤 Encoding: UTF-8")
@@ -106,6 +107,9 @@ func setupRouter() *gin.Engine {
 		c.Next()
 	})
 
+	// 📊 Middleware de monitoramento (NOVO)
+	router.Use(middleware.MonitoringMiddleware())
+	
 	router.Use(corsMiddleware())
 	router.Use(middleware.GlobalRateLimit())
 	router.Use(requestIDMiddleware())
@@ -117,7 +121,10 @@ func setupRouter() *gin.Engine {
 		c.Next()
 	})
 
-	router.GET("/health", handlers.HealthCheck)
+	// 📊 Endpoints de monitoramento (NOVO)
+	router.GET("/health", handlers.HealthCheckBasic)
+	router.GET("/health/detailed", middleware.AuthMiddleware(), middleware.RequireAdmin(), handlers.HealthCheckDetailed)
+	
 	router.POST("/bootstrap/admin-fpp", handlers.BootstrapAdminFPP)
 
 	loginGroup := router.Group("/")
@@ -205,6 +212,10 @@ func setupRouter() *gin.Engine {
 		admin.GET("/buscar-usuario", handlers.BuscarUsuario)
 		admin.PUT("/dados/:id", handlers.AtualizarDadosAdmin)
 		
+		// 📊 Endpoints de monitoramento admin (NOVO)
+		admin.GET("/metrics", handlers.GetMetrics)
+		admin.GET("/system-stats", handlers.GetSystemStats)
+		
 		adminGerente := admin.Group("/")
 		adminGerente.Use(middleware.RequireGerente())
 		{
@@ -225,6 +236,7 @@ func setupRouter() *gin.Engine {
 			adminFPP.PUT("/admin/:id/ativar", handlers.AtivarAdmin)
 			adminFPP.PUT("/admin/:id/desativar", handlers.DesativarAdmin)
 			adminFPP.PUT("/role/:id", handlers.AtualizarRoleAdmin)
+			adminFPP.POST("/metrics/reset", handlers.ResetMetrics)
 		}
 		
 		admin.POST("/rebuild-projection/:name", handlers.RebuildProjection)
@@ -239,14 +251,12 @@ func setupRouter() *gin.Engine {
 	return router
 }
 
-// corsMiddleware com VALIDAÇÃO STRICT para produção
 func corsMiddleware() gin.HandlerFunc {
 	env := os.Getenv("ENV")
 	allowedOriginsEnv := os.Getenv("ALLOWED_ORIGINS")
 	var allowedOrigins []string
 	
 	if env == "production" {
-		// 🔒 PRODUÇÃO: Apenas origens configuradas explicitamente
 		if allowedOriginsEnv != "" {
 			allowedOrigins = strings.Split(allowedOriginsEnv, ",")
 			for i := range allowedOrigins {
@@ -254,23 +264,20 @@ func corsMiddleware() gin.HandlerFunc {
 			}
 			log.Printf("🔒 CORS PRODUÇÃO: %v", allowedOrigins)
 		} else {
-			// ⚠️ CRÍTICO: Se não configurou, bloqueie TUDO
 			log.Printf("⚠️ ATENÇÃO: ALLOWED_ORIGINS não configurado em PRODUÇÃO!")
 			log.Printf("🚫 CORS BLOQUEADO - Configure ALLOWED_ORIGINS")
-			allowedOrigins = []string{} // Lista vazia = nenhum origin permitido
+			allowedOrigins = []string{}
 		}
 	} else {
-		// 🧪 DESENVOLVIMENTO: Permite localhost + domínios configurados
 		if allowedOriginsEnv != "" {
 			allowedOrigins = strings.Split(allowedOriginsEnv, ",")
 			for i := range allowedOrigins {
 				allowedOrigins[i] = strings.TrimSpace(allowedOrigins[i])
 			}
 		} else {
-			// Padrão para desenvolvimento
 			allowedOrigins = []string{
 				"http://localhost:3000",
-				"http://localhost:5173", // Vite
+				"http://localhost:5173",
 				"http://localhost:8080",
 			}
 		}
@@ -280,7 +287,6 @@ func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
 		
-		// 🔒 VALIDAÇÃO: Verificar se origin está na whitelist
 		originAllowed := false
 		for _, allowedOrigin := range allowedOrigins {
 			if origin == allowedOrigin {
@@ -290,15 +296,12 @@ func corsMiddleware() gin.HandlerFunc {
 			}
 		}
 		
-		// ⚠️ Se origin não está permitido, não adiciona headers CORS
 		if !originAllowed && origin != "" {
 			if env == "production" {
 				log.Printf("🚫 CORS BLOQUEADO: %s (não está na whitelist)", origin)
 			}
-			// Não adiciona NENHUM header CORS para origins não permitidos
 		}
 		
-		// Headers CORS padrão (apenas se origin permitido)
 		if originAllowed {
 			c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
@@ -312,7 +315,7 @@ func corsMiddleware() gin.HandlerFunc {
 			if originAllowed {
 				c.AbortWithStatus(204)
 			} else {
-				c.AbortWithStatus(403) // Forbidden para origins não permitidos
+				c.AbortWithStatus(403)
 			}
 			return
 		}
