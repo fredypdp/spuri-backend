@@ -1,8 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/projections/admin_projection.go
-// 🔥 CORRIGIDO: TODAS as queries de leitura usando formato direto
-// ============================================================================
-
 package projections
 
 import (
@@ -12,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"spuri/internal/db"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -62,17 +56,14 @@ func (p *AdminProjection) Rebuild() error {
 		return err
 	}
 
-	query := `
-		SELECT 
-			id, event_id, aggregate_id, aggregate_type, event_type,
+	rows, err := p.client.DB().Query(`
+		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger
-		WHERE aggregate_type = 'Admin'
+		WHERE aggregate_type = $1
 		ORDER BY id ASC
-	`
-
-	rows, err := p.client.DB().Query(query)
+	`, "Admin")
 	if err != nil {
 		return err
 	}
@@ -98,40 +89,30 @@ func (p *AdminProjection) Rebuild() error {
 }
 
 func (p *AdminProjection) GetLastProcessedEventID() (int64, error) {
-	query := fmt.Sprintf(`
+	var lastID int64
+	err := p.client.DB().QueryRow(`
 		SELECT last_processed_event_id 
 		FROM projection_checkpoints 
-		WHERE projection_name = '%s'
-	`, p.Name())
-
-	var lastID int64
-	err := p.client.DB().QueryRow(query).Scan(&lastID)
+		WHERE projection_name = $1
+	`, p.Name()).Scan(&lastID)
+	
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
-	if err != nil {
-		return 0, err
-	}
-
-	return lastID, nil
+	return lastID, err
 }
 
 func (p *AdminProjection) UpdateCheckpoint(eventID int64) error {
-	query := fmt.Sprintf(`
+	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_checkpoints (
-			projection_name, 
-			last_processed_event_id, 
-			last_processed_at,
-			events_processed
-		) VALUES ('%s', %d, CURRENT_TIMESTAMP, 1)
+			projection_name, last_processed_event_id, last_processed_at, events_processed
+		) VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
 		ON CONFLICT (projection_name) 
 		DO UPDATE SET
-			last_processed_event_id = %d,
+			last_processed_event_id = $2,
 			last_processed_at = CURRENT_TIMESTAMP,
 			events_processed = projection_checkpoints.events_processed + 1
-	`, p.Name(), eventID, eventID)
-
-	_, err := p.client.DB().Exec(query)
+	`, p.Name(), eventID)
 	return err
 }
 
@@ -157,113 +138,112 @@ func (p *AdminProjection) handleAdminCriado(event db.Event) error {
 	}
 
 	log.Printf("📋 [ADMIN] Nome: %s, Email: %s, Role: %s", payload.Nome, payload.Email, payload.Role)
-	log.Printf("🔐 [ADMIN] SenhaHash (primeiros 30): %s...", payload.SenhaHash[:30])
+	log.Printf("🔒 [ADMIN] SenhaHash (primeiros 30): %s...", payload.SenhaHash[:30])
 
-	// 🔥 CORRIGIDO: Query direta
-	createdByStr := "NULL"
-	if payload.CreatedBy != nil {
-		createdByStr = fmt.Sprintf("'%s'", payload.CreatedBy.String())
-	}
-
-	query := fmt.Sprintf(`
+	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_admins (
 			id, nome, email, senha_hash, role, status,
 			created_by, created_at, updated_at, version,
 			total_acoes_realizadas, last_event_id
-		) VALUES (
-			'%s', '%s', '%s', '%s', '%s', 'ativo',
-			%s, '%s', '%s', %d, 0, '%s'
-		)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		ON CONFLICT (id) DO UPDATE SET
-			nome = EXCLUDED.nome,
-			email = EXCLUDED.email,
-			senha_hash = EXCLUDED.senha_hash,
-			role = EXCLUDED.role,
-			updated_at = EXCLUDED.updated_at,
-			version = EXCLUDED.version,
+			nome = EXCLUDED.nome, email = EXCLUDED.email,
+			senha_hash = EXCLUDED.senha_hash, role = EXCLUDED.role,
+			updated_at = EXCLUDED.updated_at, version = EXCLUDED.version,
 			last_event_id = EXCLUDED.last_event_id
-	`,
-		event.AggregateID.String(),
-		escapeStringAdmin(payload.Nome),
-		escapeStringAdmin(payload.Email),
-		payload.SenhaHash, // NÃO escapar hash bcrypt
-		payload.Role,
-		createdByStr,
-		payload.CreatedAt.Format(time.RFC3339),
-		time.Now().Format(time.RFC3339),
-		event.EventVersion,
-		event.EventID.String(),
-	)
+	`, event.AggregateID, payload.Nome, payload.Email, payload.SenhaHash,
+		payload.Role, "ativo", payload.CreatedBy, payload.CreatedAt, time.Now(),
+		event.EventVersion, 0, event.EventID)
 
-	result, err := p.client.DB().Exec(query)
 	if err != nil {
 		log.Printf("❌ [ADMIN] Erro ao salvar: %v", err)
 		return err
 	}
 
-	rows, _ := result.RowsAffected()
-	log.Printf("✅ [ADMIN] Salvo com sucesso! (rows: %d)", rows)
-
+	log.Printf("✅ [ADMIN] Salvo com sucesso!")
 	return nil
 }
 
 func (p *AdminProjection) handleAdminAtivado(event db.Event) error {
-	query := fmt.Sprintf(`
+	_, err := p.client.DB().Exec(`
 		UPDATE projection_admins
-		SET 
-			status = 'ativo',
-			version = %d,
-			updated_at = CURRENT_TIMESTAMP,
-			last_event_id = '%s'
-		WHERE id = '%s'
-	`, event.EventVersion, event.EventID.String(), event.AggregateID.String())
-
-	_, err := p.client.DB().Exec(query)
+		SET status = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
+		WHERE id = $4
+	`, "ativo", event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
 func (p *AdminProjection) handleAdminDesativado(event db.Event) error {
-	query := fmt.Sprintf(`
+	_, err := p.client.DB().Exec(`
 		UPDATE projection_admins
-		SET 
-			status = 'inativo',
-			version = %d,
-			updated_at = CURRENT_TIMESTAMP,
-			last_event_id = '%s'
-		WHERE id = '%s'
-	`, event.EventVersion, event.EventID.String(), event.AggregateID.String())
-
-	_, err := p.client.DB().Exec(query)
+		SET status = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
+		WHERE id = $4
+	`, "inativo", event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
 func (p *AdminProjection) handleAcaoAdminRegistrada(event db.Event) error {
-	query := fmt.Sprintf(`
+	_, err := p.client.DB().Exec(`
 		UPDATE projection_admins
-		SET 
-			total_acoes_realizadas = total_acoes_realizadas + 1,
-			updated_at = CURRENT_TIMESTAMP
-		WHERE id = '%s'
-	`, event.AggregateID.String())
-
-	_, err := p.client.DB().Exec(query)
+		SET total_acoes_realizadas = total_acoes_realizadas + 1, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $1
+	`, event.AggregateID)
 	return err
 }
 
-// Query methods - 🔥 TODAS CORRIGIDAS
+func (p *AdminProjection) handleAdminDadosAtualizados(event db.Event) error {
+	var payload struct {
+		Nome  *string `json:"Nome"`
+		Email *string `json:"Email"`
+	}
+
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("erro ao parsear payload: %w", err)
+	}
+
+	if payload.Nome != nil {
+		_, err := p.client.DB().Exec(`UPDATE projection_admins SET nome = $1 WHERE id = $2`, *payload.Nome, event.AggregateID)
+		if err != nil {
+			return err
+		}
+	}
+	if payload.Email != nil {
+		_, err := p.client.DB().Exec(`UPDATE projection_admins SET email = $1 WHERE id = $2`, *payload.Email, event.AggregateID)
+		if err != nil {
+			return err
+		}
+	}
+
+	_, err := p.client.DB().Exec(`
+		UPDATE projection_admins SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2 WHERE id = $3
+	`, event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
+
+func (p *AdminProjection) handleAdminRoleAtualizado(event db.Event) error {
+	var payload struct {
+		NovoRole string `json:"NovoRole"`
+	}
+
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("erro ao parsear payload: %w", err)
+	}
+
+	_, err := p.client.DB().Exec(`
+		UPDATE projection_admins
+		SET role = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
+		WHERE id = $4
+	`, payload.NovoRole, event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
 
 func (p *AdminProjection) GetByID(id uuid.UUID) (*AdminDTO, error) {
-	query := fmt.Sprintf(`
-		SELECT 
-			id, nome, email, senha_hash, role, status,
-			created_by, created_at, updated_at,
-			total_acoes_realizadas, version
-		FROM projection_admins
-		WHERE id = '%s'
-	`, id.String())
-
 	var dto AdminDTO
-	err := p.client.DB().QueryRow(query).Scan(
+	err := p.client.DB().QueryRow(`
+		SELECT id, nome, email, senha_hash, role, status,
+			created_by, created_at, updated_at, total_acoes_realizadas, version
+		FROM projection_admins WHERE id = $1
+	`, id).Scan(
 		&dto.ID, &dto.Nome, &dto.Email, &dto.SenhaHash,
 		&dto.Role, &dto.Status, &dto.CreatedBy,
 		&dto.CreatedAt, &dto.UpdatedAt,
@@ -275,25 +255,18 @@ func (p *AdminProjection) GetByID(id uuid.UUID) (*AdminDTO, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	return &dto, nil
 }
 
 func (p *AdminProjection) GetByEmail(email string) (*AdminDTO, error) {
 	log.Printf("🔍 [ADMIN PROJECTION] GetByEmail: %s", email)
 
-	// 🔥 CORRIGIDO: Query direta
-	query := fmt.Sprintf(`
-		SELECT 
-			id, nome, email, senha_hash, role, status,
-			created_by, created_at, updated_at,
-			total_acoes_realizadas, version
-		FROM projection_admins
-		WHERE email = '%s'
-	`, email)
-
 	var dto AdminDTO
-	err := p.client.DB().QueryRow(query).Scan(
+	err := p.client.DB().QueryRow(`
+		SELECT id, nome, email, senha_hash, role, status,
+			created_by, created_at, updated_at, total_acoes_realizadas, version
+		FROM projection_admins WHERE email = $1
+	`, email).Scan(
 		&dto.ID, &dto.Nome, &dto.Email, &dto.SenhaHash,
 		&dto.Role, &dto.Status, &dto.CreatedBy,
 		&dto.CreatedAt, &dto.UpdatedAt,
@@ -314,16 +287,11 @@ func (p *AdminProjection) GetByEmail(email string) (*AdminDTO, error) {
 }
 
 func (p *AdminProjection) GetAll() ([]AdminDTO, error) {
-	query := `
-		SELECT 
-			id, nome, email, senha_hash, role, status,
-			created_by, created_at, updated_at,
-			total_acoes_realizadas, version
-		FROM projection_admins
-		ORDER BY created_at DESC
-	`
-
-	rows, err := p.client.DB().Query(query)
+	rows, err := p.client.DB().Query(`
+		SELECT id, nome, email, senha_hash, role, status,
+			created_by, created_at, updated_at, total_acoes_realizadas, version
+		FROM projection_admins ORDER BY created_at DESC
+	`)
 	if err != nil {
 		return nil, err
 	}
@@ -359,78 +327,4 @@ type AdminDTO struct {
 	UpdatedAt            time.Time  `db:"updated_at" json:"updated_at"`
 	TotalAcoesRealizadas int        `db:"total_acoes_realizadas" json:"total_acoes_realizadas"`
 	Version              int        `db:"version" json:"version"`
-}
-
-// Helper
-func escapeStringAdmin(s string) string {
-	result := ""
-	for _, char := range s {
-		if char == '\'' {
-			result += "''"
-		} else if char == '\\' {
-			result += "\\\\"
-		} else {
-			result += string(char)
-		}
-	}
-	return result
-}
-
-func (p *AdminProjection) handleAdminDadosAtualizados(event db.Event) error {
-	var payload struct {
-		Nome  *string `json:"Nome"`
-		Email *string `json:"Email"`
-	}
-
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("erro ao parsear payload: %w", err)
-	}
-
-	updates := []string{}
-	if payload.Nome != nil {
-		updates = append(updates, fmt.Sprintf("nome = '%s'", escapeStringAdmin(*payload.Nome)))
-	}
-	if payload.Email != nil {
-		updates = append(updates, fmt.Sprintf("email = '%s'", escapeStringAdmin(*payload.Email)))
-	}
-
-	if len(updates) == 0 {
-		return nil
-	}
-
-	query := fmt.Sprintf(`
-		UPDATE projection_admins
-		SET 
-			%s,
-			version = %d,
-			updated_at = CURRENT_TIMESTAMP,
-			last_event_id = '%s'
-		WHERE id = '%s'
-	`, strings.Join(updates, ", "), event.EventVersion, event.EventID.String(), event.AggregateID.String())
-
-	_, err := p.client.DB().Exec(query)
-	return err
-}
-
-func (p *AdminProjection) handleAdminRoleAtualizado(event db.Event) error {
-	var payload struct {
-		NovoRole string `json:"NovoRole"`
-	}
-
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("erro ao parsear payload: %w", err)
-	}
-
-	query := fmt.Sprintf(`
-		UPDATE projection_admins
-		SET 
-			role = '%s',
-			version = %d,
-			updated_at = CURRENT_TIMESTAMP,
-			last_event_id = '%s'
-		WHERE id = '%s'
-	`, payload.NovoRole, event.EventVersion, event.EventID.String(), event.AggregateID.String())
-
-	_, err := p.client.DB().Exec(query)
-	return err
 }

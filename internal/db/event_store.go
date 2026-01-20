@@ -1,8 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/db/event_store.go
-// ✅ CORRIGIDO: Prepared statements em todas as queries
-// ============================================================================
-
 package db
 
 import (
@@ -30,15 +25,6 @@ type Event struct {
 	PreviousHash  *string         `json:"previous_hash,omitempty" db:"previous_hash"`
 }
 
-type EventMetadata struct {
-	ActorID       uuid.UUID `json:"actor_id"`
-	ActorType     string    `json:"actor_type"`
-	IP            string    `json:"ip,omitempty"`
-	UserAgent     string    `json:"user_agent,omitempty"`
-	CorrelationID string    `json:"correlation_id,omitempty"`
-	CausationID   string    `json:"causation_id,omitempty"`
-}
-
 type EventStore struct {
 	client *Client
 }
@@ -47,7 +33,6 @@ func NewEventStore(client *Client) *EventStore {
 	return &EventStore{client: client}
 }
 
-// ✅ Append com prepared statement
 func (es *EventStore) Append(ctx context.Context, event *Event) error {
 	query := `
 		INSERT INTO spuri_ledger (
@@ -69,13 +54,12 @@ func (es *EventStore) Append(ctx context.Context, event *Event) error {
 
 	err := row.Scan(&event.ID, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash)
 	if err != nil {
-		return fmt.Errorf("erro ao adicionar evento ao ledger: %w", err)
+		return fmt.Errorf("erro ao adicionar evento: %w", err)
 	}
 
 	return nil
 }
 
-// ✅ LoadEventStream com prepared statement
 func (es *EventStore) LoadEventStream(ctx context.Context, aggregateID uuid.UUID) ([]Event, error) {
 	query := `
 		SELECT 
@@ -89,13 +73,12 @@ func (es *EventStore) LoadEventStream(ctx context.Context, aggregateID uuid.UUID
 	var events []Event
 	err := es.client.db.SelectContext(ctx, &events, query, aggregateID)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao carregar event stream: %w", err)
+		return nil, fmt.Errorf("erro ao carregar events: %w", err)
 	}
 
 	return events, nil
 }
 
-// ✅ LoadEventStreamFromVersion
 func (es *EventStore) LoadEventStreamFromVersion(
 	ctx context.Context, 
 	aggregateID uuid.UUID, 
@@ -113,13 +96,12 @@ func (es *EventStore) LoadEventStreamFromVersion(
 	var events []Event
 	err := es.client.db.SelectContext(ctx, &events, query, aggregateID, fromVersion)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao carregar event stream: %w", err)
+		return nil, fmt.Errorf("erro ao carregar events: %w", err)
 	}
 
 	return events, nil
 }
 
-// ✅ GetEventsByType
 func (es *EventStore) GetEventsByType(
 	ctx context.Context, 
 	eventType string, 
@@ -138,13 +120,12 @@ func (es *EventStore) GetEventsByType(
 	var events []Event
 	err := es.client.db.SelectContext(ctx, &events, query, eventType, limit)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao buscar eventos por tipo: %w", err)
+		return nil, fmt.Errorf("erro ao buscar eventos: %w", err)
 	}
 
 	return events, nil
 }
 
-// ✅ GetAllEvents
 func (es *EventStore) GetAllEvents(
 	ctx context.Context, 
 	offset, limit int,
@@ -161,13 +142,12 @@ func (es *EventStore) GetAllEvents(
 	var events []Event
 	err := es.client.db.SelectContext(ctx, &events, query, limit, offset)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao buscar todos eventos: %w", err)
+		return nil, fmt.Errorf("erro ao buscar eventos: %w", err)
 	}
 
 	return events, nil
 }
 
-// ✅ GetEventByID
 func (es *EventStore) GetEventByID(ctx context.Context, eventID uuid.UUID) (*Event, error) {
 	query := `
 		SELECT 
@@ -186,7 +166,6 @@ func (es *EventStore) GetEventByID(ctx context.Context, eventID uuid.UUID) (*Eve
 	return &event, nil
 }
 
-// ✅ GetAggregateVersion
 func (es *EventStore) GetAggregateVersion(ctx context.Context, aggregateID uuid.UUID) (int, error) {
 	query := `
 		SELECT COALESCE(MAX(event_version), 0)
@@ -201,13 +180,12 @@ func (es *EventStore) GetAggregateVersion(ctx context.Context, aggregateID uuid.
 	}
 	
 	if err != nil {
-		return 0, fmt.Errorf("erro ao obter versão do agregado: %w", err)
+		return 0, fmt.Errorf("erro ao obter versão: %w", err)
 	}
 
 	return version, nil
 }
 
-// ✅ VerifyLedgerIntegrity
 func (es *EventStore) VerifyLedgerIntegrity(ctx context.Context, aggregateID uuid.UUID) (bool, error) {
 	query := `
 		SELECT ledger_hash, previous_hash
@@ -238,7 +216,6 @@ func (es *EventStore) VerifyLedgerIntegrity(ctx context.Context, aggregateID uui
 	return true, nil
 }
 
-// ✅ CountEvents
 func (es *EventStore) CountEvents(ctx context.Context) (int64, error) {
 	query := `SELECT COUNT(*) FROM spuri_ledger`
 	
@@ -251,7 +228,6 @@ func (es *EventStore) CountEvents(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
-// ✅ CountEventsByAggregate
 func (es *EventStore) CountEventsByAggregate(ctx context.Context, aggregateID uuid.UUID) (int64, error) {
 	query := `SELECT COUNT(*) FROM spuri_ledger WHERE aggregate_id = $1`
 	

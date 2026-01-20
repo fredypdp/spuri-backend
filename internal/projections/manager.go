@@ -1,8 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/projections/manager.go
-// 🔥 CORRIGIDO: Todas as queries usando Exec/Query direto sem prepared statements
-// ============================================================================
-
 package projections
 
 import (
@@ -11,19 +6,21 @@ import (
 	"fmt"
 	"log"
 	"spuri/internal/db"
+	"sync"
 	"time"
 )
 
-// Manager gerencia todas as projeções
 type Manager struct {
-	client      *db.Client
-	eventStore  *db.EventStore
-	projections map[string]Projection
-	ctx         context.Context
-	cancel      context.CancelFunc
-
+	client       *db.Client
+	eventStore   *db.EventStore
+	projections  map[string]Projection
+	ctx          context.Context
+	cancel       context.CancelFunc
 	pollInterval time.Duration
 	batchSize    int
+	
+	// 🔒 NOVO: Mutex para evitar race conditions
+	mu           sync.Mutex
 }
 
 func NewManager(client *db.Client) *Manager {
@@ -41,6 +38,9 @@ func NewManager(client *db.Client) *Manager {
 }
 
 func (m *Manager) RegisterProjection(name string, projection Projection) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
 	m.projections[name] = projection
 	log.Printf("📊 Projeção registrada: %s", name)
 }
@@ -68,10 +68,15 @@ func (m *Manager) Stop() {
 	m.cancel()
 }
 
+// 🔒 CORRIGIDO: Processar eventos sequencialmente com mutex
 func (m *Manager) processNewEvents() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
 	for name, projection := range m.projections {
 		if err := m.processProjection(name, projection); err != nil {
 			log.Printf("❌ Erro ao processar projeção %s: %v", name, err)
+			// Continue processando outras projeções mesmo com erro
 			continue
 		}
 	}
@@ -99,6 +104,7 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 			log.Printf("❌ [%s] Erro ao processar evento %d: %v", name, event.ID, err)
 			m.logProjectionError(name, err.Error())
 
+			// Atualizar checkpoint mesmo com erro para não reprocessar
 			if err := projection.UpdateCheckpoint(event.ID); err != nil {
 				log.Printf("❌ [%s] Erro ao atualizar checkpoint: %v", name, err)
 			}
@@ -121,20 +127,17 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 	return nil
 }
 
-// 🔥 CORRIGIDO: Usar Query direto sem prepared statement
 func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
-	query := fmt.Sprintf(`
-		SELECT 
-			id, event_id, aggregate_id, aggregate_type, event_type,
+	rows, err := m.client.DB().Query(`
+		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger
-		WHERE id > %d
+		WHERE id > $1
 		ORDER BY id ASC
-		LIMIT %d
+		LIMIT $2
 	`, fromID, m.batchSize)
-
-	rows, err := m.client.DB().Query(query)
+	
 	if err != nil {
 		return nil, fmt.Errorf("erro na query: %w", err)
 	}
@@ -161,7 +164,11 @@ func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
 	return events, nil
 }
 
+// 🔒 CORRIGIDO: Rebuild com mutex para evitar concorrência
 func (m *Manager) RebuildProjection(name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
 	projection, exists := m.projections[name]
 	if !exists {
 		return fmt.Errorf("projeção não encontrada: %s", name)
@@ -187,10 +194,18 @@ func (m *Manager) RebuildProjection(name string) error {
 }
 
 func (m *Manager) RebuildAllProjections() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
 	log.Println("🔨 Reconstruindo TODAS as projeções...")
 
 	for name := range m.projections {
-		if err := m.RebuildProjection(name); err != nil {
+		// Liberar mutex temporariamente para cada rebuild
+		m.mu.Unlock()
+		err := m.RebuildProjection(name)
+		m.mu.Lock()
+		
+		if err != nil {
 			log.Printf("❌ Erro ao reconstruir %s: %v", name, err)
 			continue
 		}
@@ -200,71 +215,47 @@ func (m *Manager) RebuildAllProjections() error {
 	return nil
 }
 
-// 🔥 CORRIGIDO: Usar Exec direto
 func (m *Manager) markRebuildStart(name string) error {
-	query := fmt.Sprintf(`
+	_, err := m.client.DB().Exec(`
 		UPDATE projection_checkpoints
-		SET 
-			is_rebuilding = TRUE,
-			rebuild_started_at = CURRENT_TIMESTAMP,
-			last_processed_event_id = 0
-		WHERE projection_name = '%s'
-	`, name)
-
-	_, err := m.client.DB().Exec(query)
+		SET is_rebuilding = $1, rebuild_started_at = CURRENT_TIMESTAMP, last_processed_event_id = $2
+		WHERE projection_name = $3
+	`, true, 0, name)
 	return err
 }
 
-// 🔥 CORRIGIDO: Usar Query/Exec direto
 func (m *Manager) markRebuildComplete(name string) error {
-	query := `SELECT COALESCE(MAX(id), 0) FROM spuri_ledger`
-
 	var lastEventID int64
-	err := m.client.DB().QueryRow(query).Scan(&lastEventID)
+	err := m.client.DB().QueryRow(`SELECT COALESCE(MAX(id), 0) FROM spuri_ledger`).Scan(&lastEventID)
 	if err != nil {
 		return err
 	}
 
-	updateQuery := fmt.Sprintf(`
+	_, err = m.client.DB().Exec(`
 		UPDATE projection_checkpoints
-		SET 
-			is_rebuilding = FALSE,
-			rebuild_started_at = NULL,
-			last_processed_event_id = %d,
-			last_processed_at = CURRENT_TIMESTAMP
-		WHERE projection_name = '%s'
-	`, lastEventID, name)
-
-	_, err = m.client.DB().Exec(updateQuery)
+		SET is_rebuilding = $1, rebuild_started_at = $2,
+			last_processed_event_id = $3, last_processed_at = CURRENT_TIMESTAMP
+		WHERE projection_name = $4
+	`, false, nil, lastEventID, name)
 	return err
 }
 
-// 🔥 CORRIGIDO: Usar Exec direto
 func (m *Manager) logProjectionError(name, errorMsg string) {
-	query := fmt.Sprintf(`
+	m.client.DB().Exec(`
 		UPDATE projection_checkpoints
-		SET 
-			error_count = error_count + 1,
-			last_error = '%s',
-			last_error_at = CURRENT_TIMESTAMP
-		WHERE projection_name = '%s'
+		SET error_count = error_count + 1, last_error = $1, last_error_at = CURRENT_TIMESTAMP
+		WHERE projection_name = $2
 	`, errorMsg, name)
-
-	m.client.DB().Exec(query)
 }
 
-// 🔥 CORRIGIDO: Usar QueryRow direto
 func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, error) {
-	query := fmt.Sprintf(`
-		SELECT 
-			projection_name, last_processed_event_id, last_processed_at,
+	row := m.client.DB().QueryRow(`
+		SELECT projection_name, last_processed_event_id, last_processed_at,
 			events_processed, is_rebuilding, rebuild_started_at,
 			error_count, last_error, last_error_at
 		FROM projection_checkpoints
-		WHERE projection_name = '%s'
+		WHERE projection_name = $1
 	`, name)
-
-	row := m.client.DB().QueryRow(query)
 
 	var (
 		projName      string
@@ -300,6 +291,9 @@ func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, erro
 }
 
 func (m *Manager) GetAllProjectionStatuses() ([]map[string]interface{}, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
 	var statuses []map[string]interface{}
 
 	for name := range m.projections {
@@ -315,6 +309,9 @@ func (m *Manager) GetAllProjectionStatuses() ([]map[string]interface{}, error) {
 }
 
 func (m *Manager) GetRegisteredProjections() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
 	names := make([]string, 0, len(m.projections))
 	for name := range m.projections {
 		names = append(names, name)
@@ -323,6 +320,9 @@ func (m *Manager) GetRegisteredProjections() []string {
 }
 
 func (m *Manager) IsProjectionRegistered(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
 	_, exists := m.projections[name]
 	return exists
 }

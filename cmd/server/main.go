@@ -8,6 +8,7 @@ import (
 	"spuri/internal/middleware"
 	"spuri/internal/projections"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -50,7 +51,7 @@ func main() {
 	log.Printf("📚 Documentação: http://localhost:%s/", port)
 	log.Printf("❤️  Health check: http://localhost:%s/health", port)
 	log.Printf("🌍 Ambiente: %s", os.Getenv("ENV"))
-	log.Printf("🔒 Segurança: Rate Limiting + Input Validation")
+	log.Printf("🔒 Segurança: Rate Limiting + Input Validation + Prepared Statements")
 	
 	if err := router.Run("0.0.0.0:" + port); err != nil {
 		log.Fatalf("❌ Erro ao iniciar servidor: %v", err)
@@ -97,16 +98,10 @@ func initProjections() error {
 func setupRouter() *gin.Engine {
 	router := gin.Default()
 
-	// ✅ CORS Configurável
 	router.Use(corsMiddleware())
-	
-	// ✅ Rate Limiting Global
 	router.Use(middleware.GlobalRateLimit())
-	
-	// ✅ Request ID
 	router.Use(requestIDMiddleware())
 
-	// Injetar dependências
 	router.Use(func(c *gin.Context) {
 		c.Set("repository", repository)
 		c.Set("projManager", projManager)
@@ -114,14 +109,9 @@ func setupRouter() *gin.Engine {
 		c.Next()
 	})
 
-	// ============================================
-	// ROTAS PÚBLICAS
-	// ============================================
-	
 	router.GET("/health", handlers.HealthCheck)
 	router.POST("/bootstrap/admin-fpp", handlers.BootstrapAdminFPP)
 
-	// ✅ Login com Rate Limiting
 	loginGroup := router.Group("/")
 	loginGroup.Use(middleware.LoginRateLimit())
 	{
@@ -132,7 +122,6 @@ func setupRouter() *gin.Engine {
 	router.POST("/academia/register", handlers.RegisterAcademia)
 	router.POST("/estudante/register", handlers.RegisterEstudante)
 
-	// ✅ Email com Rate Limiting
 	emailGroup := router.Group("/")
 	emailGroup.Use(middleware.EmailRateLimit())
 	{
@@ -141,10 +130,6 @@ func setupRouter() *gin.Engine {
 		emailGroup.POST("/recuperar-senha/:token", handlers.ResetarSenha)
 	}
 
-	// ============================================
-	// ROTAS PROTEGIDAS
-	// ============================================
-	
 	protected := router.Group("/")
 	protected.Use(middleware.AuthMiddleware())
 	{
@@ -163,7 +148,6 @@ func setupRouter() *gin.Engine {
 		protected.GET("/estudantes", handlers.ListarEstudantes)
 	}
 
-	// ROTAS DE ESTUDANTES
 	estudante := router.Group("/estudante")
 	estudante.Use(middleware.AuthMiddleware())
 	estudante.Use(middleware.RequireEstudante())
@@ -180,7 +164,6 @@ func setupRouter() *gin.Engine {
 		estudante.PUT("/dados-academicos", handlers.AtualizarDadosAcademicosEstudante)
 	}
 
-	// ROTAS DE ACADEMIAS
 	academia := router.Group("/academia")
 	academia.Use(middleware.AuthMiddleware())
 	academia.Use(middleware.RequireAcademia())
@@ -203,7 +186,6 @@ func setupRouter() *gin.Engine {
 		academia.PUT("/materias/:id", handlers.AtualizarDadosMateria)
 	}
 
-	// ROTAS ADMINISTRATIVAS
 	admin := router.Group("/admin")
 	admin.Use(middleware.AuthMiddleware())
 	admin.Use(middleware.RequireAdmin())
@@ -249,15 +231,16 @@ func setupRouter() *gin.Engine {
 	return router
 }
 
-// ✅ CORS Configurável por Environment Variable
 func corsMiddleware() gin.HandlerFunc {
 	allowedOriginsEnv := os.Getenv("ALLOWED_ORIGINS")
 	var allowedOrigins []string
 	
 	if allowedOriginsEnv != "" {
 		allowedOrigins = strings.Split(allowedOriginsEnv, ",")
+		for i := range allowedOrigins {
+			allowedOrigins[i] = strings.TrimSpace(allowedOrigins[i])
+		}
 	} else {
-		// Default para desenvolvimento
 		allowedOrigins = []string{
 			"http://localhost:3000",
 			"https://spuripainel.vercel.app",
@@ -268,7 +251,7 @@ func corsMiddleware() gin.HandlerFunc {
 		origin := c.Request.Header.Get("Origin")
 		
 		for _, allowedOrigin := range allowedOrigins {
-			if origin == strings.TrimSpace(allowedOrigin) {
+			if origin == allowedOrigin {
 				c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
 				break
 			}
@@ -288,19 +271,14 @@ func corsMiddleware() gin.HandlerFunc {
 	}
 }
 
-// ✅ Request ID Middleware
 func requestIDMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestID := c.GetHeader("X-Request-ID")
 		if requestID == "" {
-			requestID = generateRequestID()
+			requestID = time.Now().Format("20060102150405")
 		}
 		c.Set("request_id", requestID)
 		c.Writer.Header().Set("X-Request-ID", requestID)
 		c.Next()
 	}
-}
-
-func generateRequestID() string {
-	return "req_" + time.Now().Format("20060102150405")
 }

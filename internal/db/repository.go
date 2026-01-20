@@ -1,8 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/db/repository.go
-// ✅ CORRIGIDO: Prepared statements
-// ============================================================================
-
 package db
 
 import (
@@ -195,7 +190,6 @@ func (r *AggregateRepository) convertToDomainEvents(dbEvents []Event) ([]aggrega
 	return domainEvents, nil
 }
 
-// ✅ SaveSnapshot com prepared statement
 func (r *AggregateRepository) SaveSnapshot(aggregate aggregates.Aggregate) error {
 	stateJSON, err := json.Marshal(aggregate)
 	if err != nil {
@@ -209,7 +203,7 @@ func (r *AggregateRepository) SaveSnapshot(aggregate aggregates.Aggregate) error
 		DO UPDATE SET 
 			version = EXCLUDED.version,
 			state = EXCLUDED.state,
-			created_at = CURRENT_TIMESTAMP`
+			updated_at = CURRENT_TIMESTAMP`
 
 	_, err = r.eventStore.client.db.ExecContext(r.ctx, query,
 		aggregate.GetID(),
@@ -220,7 +214,6 @@ func (r *AggregateRepository) SaveSnapshot(aggregate aggregates.Aggregate) error
 	return err
 }
 
-// ✅ LoadSnapshot com prepared statement
 func (r *AggregateRepository) LoadSnapshot(id uuid.UUID) (*Snapshot, error) {
 	query := `
 		SELECT aggregate_id, aggregate_type, version, state, created_at
