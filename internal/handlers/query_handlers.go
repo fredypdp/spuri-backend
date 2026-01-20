@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"spuri/internal/middleware"
 	"strconv"
@@ -11,13 +10,12 @@ import (
 	"github.com/google/uuid"
 )
 
-// getPaginationParams extrai e valida parâmetros de paginação
 func getPaginationParams(c *gin.Context) (limit, offset int) {
 	limitStr := c.Query("limit")
 	offsetStr := c.Query("offset")
 	
-	limit = 50 // padrão
-	offset = 0 // padrão
+	limit = 50
+	offset = 0
 	
 	if limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 200 {
@@ -34,25 +32,18 @@ func getPaginationParams(c *gin.Context) (limit, offset int) {
 	return limit, offset
 }
 
-// ListarInscricoes - Rota unificada GET /inscricoes
 func ListarInscricoes(c *gin.Context) {
-	log.Printf("🔵 [INSCRICOES] Iniciando ListarInscricoes")
-
 	userID, exists := middleware.GetUserID(c)
 	if !exists {
-		log.Printf("❌ [INSCRICOES] user_id não encontrado no contexto")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "usuário não autenticado"})
 		return
 	}
 
 	userType, exists := middleware.GetUserType(c)
 	if !exists {
-		log.Printf("❌ [INSCRICOES] user_type não encontrado no contexto")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "tipo de usuário não identificado"})
 		return
 	}
-
-	log.Printf("📋 [INSCRICOES] UserID: %v, UserType: %s", userID, userType)
 
 	limit, offset := getPaginationParams(c)
 	statusFilter := c.Query("status")
@@ -185,11 +176,8 @@ func ListarInscricoes(c *gin.Context) {
 	}
 
 	if err != nil {
-		log.Printf("❌ [INSCRICOES] Erro: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "erro ao buscar inscrições",
-			"details": err.Error(),
-		})
+		// ✅ CORRIGIDO: Log genérico sem dados sensíveis
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 		return
 	}
 
@@ -205,7 +193,6 @@ func ListarInscricoes(c *gin.Context) {
 	})
 }
 
-// ListarInscricoesPendentes - COM PAGINAÇÃO
 func ListarInscricoesPendentes(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)

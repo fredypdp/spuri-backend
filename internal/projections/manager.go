@@ -18,8 +18,6 @@ type Manager struct {
 	cancel       context.CancelFunc
 	pollInterval time.Duration
 	batchSize    int
-	
-	// 🔒 NOVO: Mutex para evitar race conditions
 	mu           sync.Mutex
 }
 
@@ -42,11 +40,11 @@ func (m *Manager) RegisterProjection(name string, projection Projection) {
 	defer m.mu.Unlock()
 	
 	m.projections[name] = projection
-	log.Printf("📊 Projeção registrada: %s", name)
+	log.Printf("Projeção registrada: %s", name)
 }
 
 func (m *Manager) StartProcessing() {
-	log.Println("▶️ Iniciando processamento de projeções...")
+	log.Println("Iniciando processamento de projeções...")
 
 	ticker := time.NewTicker(m.pollInterval)
 	defer ticker.Stop()
@@ -54,11 +52,11 @@ func (m *Manager) StartProcessing() {
 	for {
 		select {
 		case <-m.ctx.Done():
-			log.Println("⏹️ Parando processamento de projeções")
+			log.Println("Parando processamento de projeções")
 			return
 		case <-ticker.C:
 			if err := m.processNewEvents(); err != nil {
-				log.Printf("❌ Erro ao processar eventos: %v", err)
+				log.Printf("Erro ao processar eventos: %v", err)
 			}
 		}
 	}
@@ -68,15 +66,13 @@ func (m *Manager) Stop() {
 	m.cancel()
 }
 
-// 🔒 CORRIGIDO: Processar eventos sequencialmente com mutex
 func (m *Manager) processNewEvents() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	
 	for name, projection := range m.projections {
 		if err := m.processProjection(name, projection); err != nil {
-			log.Printf("❌ Erro ao processar projeção %s: %v", name, err)
-			// Continue processando outras projeções mesmo com erro
+			log.Printf("Erro ao processar projeção %s: %v", name, err)
 			continue
 		}
 	}
@@ -101,18 +97,17 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 	processedCount := 0
 	for _, event := range events {
 		if err := projection.Handle(event); err != nil {
-			log.Printf("❌ [%s] Erro ao processar evento %d: %v", name, event.ID, err)
+			log.Printf("[%s] Erro ao processar evento %d", name, event.ID)
 			m.logProjectionError(name, err.Error())
 
-			// Atualizar checkpoint mesmo com erro para não reprocessar
 			if err := projection.UpdateCheckpoint(event.ID); err != nil {
-				log.Printf("❌ [%s] Erro ao atualizar checkpoint: %v", name, err)
+				log.Printf("[%s] Erro ao atualizar checkpoint: %v", name, err)
 			}
 			continue
 		}
 
 		if err := projection.UpdateCheckpoint(event.ID); err != nil {
-			log.Printf("❌ [%s] Erro ao atualizar checkpoint: %v", name, err)
+			log.Printf("[%s] Erro ao atualizar checkpoint: %v", name, err)
 			return fmt.Errorf("falha crítica ao salvar checkpoint: %w", err)
 		}
 
@@ -120,7 +115,7 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 	}
 
 	if processedCount > 0 {
-		log.Printf("✅ [%s] Processados %d eventos (último: %d)",
+		log.Printf("[%s] Processados %d eventos (último: %d)",
 			name, processedCount, events[len(events)-1].ID)
 	}
 
@@ -164,7 +159,6 @@ func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
 	return events, nil
 }
 
-// 🔒 CORRIGIDO: Rebuild com mutex para evitar concorrência
 func (m *Manager) RebuildProjection(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -174,14 +168,14 @@ func (m *Manager) RebuildProjection(name string) error {
 		return fmt.Errorf("projeção não encontrada: %s", name)
 	}
 
-	log.Printf("🔨 Reconstruindo projeção: %s", name)
+	log.Printf("Reconstruindo projeção: %s", name)
 
 	if err := m.markRebuildStart(name); err != nil {
 		return err
 	}
 
 	if err := projection.Rebuild(); err != nil {
-		log.Printf("❌ Erro ao reconstruir projeção %s: %v", name, err)
+		log.Printf("Erro ao reconstruir projeção %s: %v", name, err)
 		return err
 	}
 
@@ -189,7 +183,7 @@ func (m *Manager) RebuildProjection(name string) error {
 		return err
 	}
 
-	log.Printf("✅ Projeção %s reconstruída com sucesso", name)
+	log.Printf("Projeção %s reconstruída com sucesso", name)
 	return nil
 }
 
@@ -197,21 +191,20 @@ func (m *Manager) RebuildAllProjections() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	
-	log.Println("🔨 Reconstruindo TODAS as projeções...")
+	log.Println("Reconstruindo TODAS as projeções...")
 
 	for name := range m.projections {
-		// Liberar mutex temporariamente para cada rebuild
 		m.mu.Unlock()
 		err := m.RebuildProjection(name)
 		m.mu.Lock()
 		
 		if err != nil {
-			log.Printf("❌ Erro ao reconstruir %s: %v", name, err)
+			log.Printf("Erro ao reconstruir %s: %v", name, err)
 			continue
 		}
 	}
 
-	log.Println("✅ Todas as projeções reconstruídas")
+	log.Println("Todas as projeções reconstruídas")
 	return nil
 }
 

@@ -114,8 +114,8 @@ func (p *InscricoesProjection) clear() error {
 }
 
 func (p *InscricoesProjection) handleEstudanteInscrito(event db.Event) error {
-	log.Printf("📘 [INSCRICAO] Processando EstudanteInscrito - EventID: %s, AggregateID: %s",
-		event.EventID.String(), event.AggregateID.String())
+	// ✅ CORRIGIDO: Log genérico sem dados sensíveis
+	log.Printf("[INSCRICOES_PROJECTION] Processando EstudanteInscrito (event_id: %s)", event.EventID)
 
 	var payload struct {
 		InscricaoID    uuid.UUID `json:"InscricaoID"`
@@ -137,7 +137,8 @@ func (p *InscricoesProjection) handleEstudanteInscrito(event db.Event) error {
 		SELECT codigo_estudante FROM projection_estudantes WHERE id = $1
 	`, estudanteID).Scan(&codigoEstudante)
 	if err != nil {
-		log.Printf("❌ [INSCRICAO] Estudante não encontrado: %s - Erro: %v", estudanteID.String(), err)
+		// ✅ CORRIGIDO: Log genérico sem dados sensíveis
+		log.Printf("[INSCRICOES_PROJECTION] Estudante não encontrado (event_id: %s)", event.EventID)
 		return fmt.Errorf("estudante não encontrado: %w", err)
 	}
 
@@ -146,7 +147,8 @@ func (p *InscricoesProjection) handleEstudanteInscrito(event db.Event) error {
 		SELECT id FROM projection_academias WHERE codigo_academia = $1
 	`, payload.CodigoAcademia).Scan(&academiaID)
 	if err != nil {
-		log.Printf("❌ [INSCRICAO] Academia não encontrada: %s - Erro: %v", payload.CodigoAcademia, err)
+		// ✅ CORRIGIDO: Log genérico sem dados sensíveis
+		log.Printf("[INSCRICOES_PROJECTION] Academia não encontrada (event_id: %s)", event.EventID)
 		return fmt.Errorf("academia não encontrada: %w", err)
 	}
 
@@ -160,14 +162,14 @@ func (p *InscricoesProjection) handleEstudanteInscrito(event db.Event) error {
 		payload.Tipo, payload.AnoInscricao, payload.Curso, payload.CreatedAt, event.EventID, event.EventVersion)
 
 	if err != nil {
-		log.Printf("❌ [INSCRICAO] Erro ao inserir: %v", err)
+		// ✅ CORRIGIDO: Log genérico sem dados sensíveis
+		log.Printf("[INSCRICOES_PROJECTION] Erro ao inserir inscrição (event_id: %s)", event.EventID)
 		return err
 	}
 
 	p.client.DB().Exec(`UPDATE projection_academias SET total_inscricoes_pendentes = total_inscricoes_pendentes + 1 WHERE id = $1`, academiaID)
 	p.client.DB().Exec(`UPDATE projection_estudantes SET total_inscricoes = total_inscricoes + 1 WHERE id = $1`, estudanteID)
 
-	log.Printf("✅ [INSCRICAO] Processamento completo - Inscrição criada com status 'espera'")
 	return nil
 }
 
@@ -238,8 +240,6 @@ func (p *InscricoesProjection) handleInscricaoReprovada(event db.Event) error {
 }
 
 func (p *InscricoesProjection) handleEstudanteVinculado(event db.Event) error {
-	log.Printf("🔗 [INSCRICAO] Marcando inscrição como usada")
-
 	var payload struct {
 		InscricaoID uuid.UUID `json:"InscricaoID"`
 	}
@@ -253,11 +253,11 @@ func (p *InscricoesProjection) handleEstudanteVinculado(event db.Event) error {
 	`, payload.InscricaoID)
 
 	if err != nil {
-		log.Printf("❌ [INSCRICAO] Erro ao marcar como usada: %v", err)
+		// ✅ CORRIGIDO: Log genérico sem dados sensíveis
+		log.Printf("[INSCRICOES_PROJECTION] Erro ao marcar inscrição (event_id: %s)", event.EventID)
 		return err
 	}
 
-	log.Printf("✅ [INSCRICAO] Inscrição marcada como usada!")
 	return nil
 }
 

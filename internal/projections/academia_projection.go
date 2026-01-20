@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"spuri/internal/db"
 	"time"
 
@@ -124,8 +123,6 @@ func (p *AcademiaProjection) clear() error {
 }
 
 func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
-	log.Printf("🔵 [PROJEÇÃO ACADEMIA] Processando AcademiaCriada")
-
 	var payload struct {
 		Type           string    `json:"Type"`
 		Nome           string    `json:"Nome"`

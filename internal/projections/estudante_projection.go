@@ -124,8 +124,6 @@ func (p *EstudanteProjection) clear() error {
 }
 
 func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
-	log.Printf("🔵 [PROJEÇÃO ESTUDANTE] Processando EstudanteCriado")
-
 	var payload struct {
 		Nome                  string    `json:"Nome"`
 		CodigoEstudante       string    `json:"CodigoEstudante"`
@@ -153,9 +151,6 @@ func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 	if payload.CodigoEstudante == "" {
 		return fmt.Errorf("CodigoEstudante vazio no evento")
 	}
-
-	log.Printf("📋 [ESTUDANTE] Nome: %s, Código: %s", payload.Nome, payload.CodigoEstudante)
-	log.Printf("🔒 [ESTUDANTE] SenhaHash (primeiros 30): %s...", payload.SenhaHash[:30])
 
 	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_estudantes (
@@ -187,11 +182,11 @@ func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 		time.Now(), event.EventID)
 
 	if err != nil {
-		log.Printf("❌ [ESTUDANTE] Erro ao salvar: %v", err)
+		// ✅ CORRIGIDO: Log genérico sem dados sensíveis
+		log.Printf("[ESTUDANTE_PROJECTION] Erro ao processar EstudanteCriado (event_id: %s)", event.EventID)
 		return err
 	}
 
-	log.Printf("✅ [PROJEÇÃO ESTUDANTE] Salvo com sucesso!")
 	return nil
 }
 
@@ -206,8 +201,6 @@ func (p *EstudanteProjection) handleInscricaoAprovada(event db.Event) error {
 }
 
 func (p *EstudanteProjection) handleEstudanteVinculado(event db.Event) error {
-	log.Printf("🔗 [VINCULAÇÃO] Processando EstudanteVinculado")
-
 	var payload struct {
 		CodigoAcademia string `json:"CodigoAcademia"`
 	}
@@ -223,13 +216,7 @@ func (p *EstudanteProjection) handleEstudanteVinculado(event db.Event) error {
 		WHERE id = $5
 	`, payload.CodigoAcademia, "ativo", event.EventVersion, event.EventID, event.AggregateID)
 
-	if err != nil {
-		log.Printf("❌ [VINCULAÇÃO] Erro: %v", err)
-		return err
-	}
-
-	log.Printf("✅ [VINCULAÇÃO] Estudante vinculado e ativado!")
-	return nil
+	return err
 }
 
 func (p *EstudanteProjection) handleStatusEscolarAtualizado(event db.Event) error {
@@ -403,8 +390,6 @@ func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
 }
 
 func (p *EstudanteProjection) GetByCodigo(codigo string) (*EstudanteDTO, error) {
-	log.Printf("🔎 [PROJEÇÃO ESTUDANTE] GetByCodigo: %s", codigo)
-
 	var dto EstudanteDTO
 	err := p.client.DB().QueryRow(`
 		SELECT id, nome, codigo_estudante, senha_hash, 
@@ -424,15 +409,12 @@ func (p *EstudanteProjection) GetByCodigo(codigo string) (*EstudanteDTO, error) 
 		&dto.TotalNotas, &dto.TotalFaltas, &dto.TotalInscricoes, &dto.Version,
 	)
 	if err == sql.ErrNoRows {
-		log.Printf("❌ [PROJEÇÃO ESTUDANTE] Não encontrado: %s", codigo)
 		return nil, nil
 	}
 	if err != nil {
-		log.Printf("❌ [PROJEÇÃO ESTUDANTE] Erro: %v", err)
 		return nil, err
 	}
 
-	log.Printf("✅ [PROJEÇÃO ESTUDANTE] Encontrado: %s", dto.Nome)
 	return &dto, nil
 }
 

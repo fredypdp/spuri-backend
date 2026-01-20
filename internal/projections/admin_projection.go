@@ -122,8 +122,6 @@ func (p *AdminProjection) clear() error {
 }
 
 func (p *AdminProjection) handleAdminCriado(event db.Event) error {
-	log.Printf("🔵 [PROJEÇÃO ADMIN] Processando AdminCriado")
-
 	var payload struct {
 		Nome      string     `json:"Nome"`
 		Email     string     `json:"Email"`
@@ -136,9 +134,6 @@ func (p *AdminProjection) handleAdminCriado(event db.Event) error {
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
-
-	log.Printf("📋 [ADMIN] Nome: %s, Email: %s, Role: %s", payload.Nome, payload.Email, payload.Role)
-	log.Printf("🔒 [ADMIN] SenhaHash (primeiros 30): %s...", payload.SenhaHash[:30])
 
 	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_admins (
@@ -156,11 +151,11 @@ func (p *AdminProjection) handleAdminCriado(event db.Event) error {
 		event.EventVersion, 0, event.EventID)
 
 	if err != nil {
-		log.Printf("❌ [ADMIN] Erro ao salvar: %v", err)
+		// ✅ CORRIGIDO: Log genérico sem dados sensíveis
+		log.Printf("[ADMIN_PROJECTION] Erro ao processar AdminCriado (event_id: %s)", event.EventID)
 		return err
 	}
 
-	log.Printf("✅ [ADMIN] Salvo com sucesso!")
 	return nil
 }
 
@@ -259,8 +254,6 @@ func (p *AdminProjection) GetByID(id uuid.UUID) (*AdminDTO, error) {
 }
 
 func (p *AdminProjection) GetByEmail(email string) (*AdminDTO, error) {
-	log.Printf("🔍 [ADMIN PROJECTION] GetByEmail: %s", email)
-
 	var dto AdminDTO
 	err := p.client.DB().QueryRow(`
 		SELECT id, nome, email, senha_hash, role, status,
@@ -274,15 +267,12 @@ func (p *AdminProjection) GetByEmail(email string) (*AdminDTO, error) {
 	)
 
 	if err == sql.ErrNoRows {
-		log.Printf("❌ [ADMIN PROJECTION] Não encontrado: %s", email)
 		return nil, nil
 	}
 	if err != nil {
-		log.Printf("❌ [ADMIN PROJECTION] Erro: %v", err)
 		return nil, err
 	}
 
-	log.Printf("✅ [ADMIN PROJECTION] Encontrado: %s (Hash: %s...)", dto.Nome, dto.SenhaHash[:30])
 	return &dto, nil
 }
 
