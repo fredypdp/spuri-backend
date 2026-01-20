@@ -21,7 +21,6 @@ var (
 )
 
 func main() {
-	// 🔒 UTF-8: Configurar output de log como UTF-8
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	
 	if os.Getenv("ENV") != "production" {
@@ -55,7 +54,7 @@ func main() {
 	log.Printf("❤️  Health check: http://localhost:%s/health", port)
 	log.Printf("🌍 Ambiente: %s", os.Getenv("ENV"))
 	log.Printf("🔒 Segurança: Rate Limiting + Input Validation + Prepared Statements")
-	log.Printf("🔤 Encoding: UTF-8")
+	log.Printf("📤 Encoding: UTF-8")
 	
 	if err := router.Run("0.0.0.0:" + port); err != nil {
 		log.Fatalf("❌ Erro ao iniciar servidor: %v", err)
@@ -102,7 +101,6 @@ func initProjections() error {
 func setupRouter() *gin.Engine {
 	router := gin.Default()
 
-	// 🔒 UTF-8: Middleware para garantir UTF-8 em todas respostas
 	router.Use(func(c *gin.Context) {
 		c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 		c.Next()
@@ -241,42 +239,81 @@ func setupRouter() *gin.Engine {
 	return router
 }
 
+// corsMiddleware com VALIDAÇÃO STRICT para produção
 func corsMiddleware() gin.HandlerFunc {
+	env := os.Getenv("ENV")
 	allowedOriginsEnv := os.Getenv("ALLOWED_ORIGINS")
 	var allowedOrigins []string
 	
-	if allowedOriginsEnv != "" {
-		allowedOrigins = strings.Split(allowedOriginsEnv, ",")
-		for i := range allowedOrigins {
-			allowedOrigins[i] = strings.TrimSpace(allowedOrigins[i])
+	if env == "production" {
+		// 🔒 PRODUÇÃO: Apenas origens configuradas explicitamente
+		if allowedOriginsEnv != "" {
+			allowedOrigins = strings.Split(allowedOriginsEnv, ",")
+			for i := range allowedOrigins {
+				allowedOrigins[i] = strings.TrimSpace(allowedOrigins[i])
+			}
+			log.Printf("🔒 CORS PRODUÇÃO: %v", allowedOrigins)
+		} else {
+			// ⚠️ CRÍTICO: Se não configurou, bloqueie TUDO
+			log.Printf("⚠️ ATENÇÃO: ALLOWED_ORIGINS não configurado em PRODUÇÃO!")
+			log.Printf("🚫 CORS BLOQUEADO - Configure ALLOWED_ORIGINS")
+			allowedOrigins = []string{} // Lista vazia = nenhum origin permitido
 		}
 	} else {
-		allowedOrigins = []string{
-			"http://localhost:3000",
-			"https://spuripainel.vercel.app",
+		// 🧪 DESENVOLVIMENTO: Permite localhost + domínios configurados
+		if allowedOriginsEnv != "" {
+			allowedOrigins = strings.Split(allowedOriginsEnv, ",")
+			for i := range allowedOrigins {
+				allowedOrigins[i] = strings.TrimSpace(allowedOrigins[i])
+			}
+		} else {
+			// Padrão para desenvolvimento
+			allowedOrigins = []string{
+				"http://localhost:3000",
+				"http://localhost:5173", // Vite
+				"http://localhost:8080",
+			}
 		}
+		log.Printf("🧪 CORS DESENVOLVIMENTO: %v", allowedOrigins)
 	}
 
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
 		
+		// 🔒 VALIDAÇÃO: Verificar se origin está na whitelist
+		originAllowed := false
 		for _, allowedOrigin := range allowedOrigins {
 			if origin == allowedOrigin {
+				originAllowed = true
 				c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
 				break
 			}
 		}
 		
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
+		// ⚠️ Se origin não está permitido, não adiciona headers CORS
+		if !originAllowed && origin != "" {
+			if env == "production" {
+				log.Printf("🚫 CORS BLOQUEADO: %s (não está na whitelist)", origin)
+			}
+			// Não adiciona NENHUM header CORS para origins não permitidos
+		}
 		
-		// 🔒 UTF-8: Garantir charset UTF-8 no CORS
+		// Headers CORS padrão (apenas se origin permitido)
+		if originAllowed {
+			c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+			c.Writer.Header().Set("Access-Control-Max-Age", "86400")
+		}
+		
 		c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 		
 		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
+			if originAllowed {
+				c.AbortWithStatus(204)
+			} else {
+				c.AbortWithStatus(403) // Forbidden para origins não permitidos
+			}
 			return
 		}
 		
