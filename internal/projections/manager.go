@@ -159,7 +159,11 @@ func (m *Manager) processEventWithRetry(name string, projection Projection, even
 }
 
 func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
-	rows, err := m.client.DB().Query(`
+	// ✅ FIX: Usar QueryContext com contexto para evitar conflitos de prepared statements
+	ctx, cancel := context.WithTimeout(m.ctx, 5*time.Second)
+	defer cancel()
+	
+	rows, err := m.client.DB().QueryContext(ctx, `
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
