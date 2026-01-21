@@ -11,7 +11,7 @@ import (
 var (
 	emailRegex    = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
 	phoneRegex    = regexp.MustCompile(`^\+?[0-9]{9,15}$`)
-	sqlCharsRegex = regexp.MustCompile(`[';--]`)
+	sqlCharsRegex = regexp.MustCompile(`[';--]`) // ❌ ERRADO
 )
 
 func SafeDeref(s *string) string {

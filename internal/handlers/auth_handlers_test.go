@@ -12,7 +12,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
 
