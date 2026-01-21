@@ -57,7 +57,8 @@ func (p *AcademiaProjection) Rebuild() error {
 		return err
 	}
 
-	rows, err := p.client.DB().Query(`
+	ctx := context.Background()
+	rows, err := p.client.DB().QueryContext(ctx, `
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
@@ -90,8 +91,9 @@ func (p *AcademiaProjection) Rebuild() error {
 }
 
 func (p *AcademiaProjection) GetLastProcessedEventID() (int64, error) {
+	ctx := context.Background()
 	var lastID int64
-	err := p.client.DB().QueryRow(`
+	err := p.client.DB().QueryRowContext(ctx, `
 		SELECT last_processed_event_id 
 		FROM projection_checkpoints 
 		WHERE projection_name = $1
@@ -104,7 +106,8 @@ func (p *AcademiaProjection) GetLastProcessedEventID() (int64, error) {
 }
 
 func (p *AcademiaProjection) UpdateCheckpoint(eventID int64) error {
-	_, err := p.client.DB().Exec(`
+	ctx := context.Background()
+	_, err := p.client.DB().ExecContext(ctx, `
 		INSERT INTO projection_checkpoints (
 			projection_name, last_processed_event_id, last_processed_at, events_processed
 		) VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
@@ -118,7 +121,8 @@ func (p *AcademiaProjection) UpdateCheckpoint(eventID int64) error {
 }
 
 func (p *AcademiaProjection) clear() error {
-	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_academias CASCADE`)
+	ctx := context.Background()
+	_, err := p.client.DB().ExecContext(ctx, `TRUNCATE TABLE projection_academias CASCADE`)
 	return err
 }
 
@@ -151,7 +155,8 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 		return err
 	}
 
-	_, err = p.client.DB().Exec(`
+	ctx := context.Background()
+	_, err = p.client.DB().ExecContext(ctx, `
 		INSERT INTO projection_academias (
 			id, type, nome, codigo_academia, senha_hash, provincia,
 			endereco, numero_telefone, email, website, nivel_escolar,
@@ -174,7 +179,8 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 }
 
 func (p *AcademiaProjection) handleAcademiaAtivada(event db.Event) error {
-	_, err := p.client.DB().Exec(`
+	ctx := context.Background()
+	_, err := p.client.DB().ExecContext(ctx, `
 		UPDATE projection_academias
 		SET status = 'ativo', version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
 		WHERE id = $3
@@ -183,7 +189,8 @@ func (p *AcademiaProjection) handleAcademiaAtivada(event db.Event) error {
 }
 
 func (p *AcademiaProjection) handleAcademiaDesativada(event db.Event) error {
-	_, err := p.client.DB().Exec(`
+	ctx := context.Background()
+	_, err := p.client.DB().ExecContext(ctx, `
 		UPDATE projection_academias
 		SET status = 'inativo', version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
 		WHERE id = $3
@@ -205,7 +212,8 @@ func (p *AcademiaProjection) handleCursosAtualizados(event db.Event) error {
 		return err
 	}
 
-	_, err = p.client.DB().Exec(`
+	ctx := context.Background()
+	_, err = p.client.DB().ExecContext(ctx, `
 		UPDATE projection_academias
 		SET cursos = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
 		WHERE id = $4
@@ -214,7 +222,8 @@ func (p *AcademiaProjection) handleCursosAtualizados(event db.Event) error {
 }
 
 func (p *AcademiaProjection) handleInscricaoAprovada(event db.Event) error {
-	_, err := p.client.DB().Exec(`
+	ctx := context.Background()
+	_, err := p.client.DB().ExecContext(ctx, `
 		UPDATE projection_academias
 		SET total_estudantes = total_estudantes + 1,
 			total_inscricoes_pendentes = GREATEST(total_inscricoes_pendentes - 1, 0),
@@ -225,7 +234,8 @@ func (p *AcademiaProjection) handleInscricaoAprovada(event db.Event) error {
 }
 
 func (p *AcademiaProjection) handleInscricaoReprovada(event db.Event) error {
-	_, err := p.client.DB().Exec(`
+	ctx := context.Background()
+	_, err := p.client.DB().ExecContext(ctx, `
 		UPDATE projection_academias
 		SET total_inscricoes_pendentes = GREATEST(total_inscricoes_pendentes - 1, 0),
 			updated_at = CURRENT_TIMESTAMP
@@ -251,47 +261,50 @@ func (p *AcademiaProjection) handleAcademiaDadosAtualizados(event db.Event) erro
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
+	ctx := context.Background()
+	
 	if payload.Nome != nil {
-		p.client.DB().Exec(`UPDATE projection_academias SET nome = $1 WHERE id = $2`, *payload.Nome, event.AggregateID)
+		p.client.DB().ExecContext(ctx, `UPDATE projection_academias SET nome = $1 WHERE id = $2`, *payload.Nome, event.AggregateID)
 	}
 	if payload.Provincia != nil {
-		p.client.DB().Exec(`UPDATE projection_academias SET provincia = $1 WHERE id = $2`, *payload.Provincia, event.AggregateID)
+		p.client.DB().ExecContext(ctx, `UPDATE projection_academias SET provincia = $1 WHERE id = $2`, *payload.Provincia, event.AggregateID)
 	}
 	if payload.Endereco != nil {
-		p.client.DB().Exec(`UPDATE projection_academias SET endereco = $1 WHERE id = $2`, *payload.Endereco, event.AggregateID)
+		p.client.DB().ExecContext(ctx, `UPDATE projection_academias SET endereco = $1 WHERE id = $2`, *payload.Endereco, event.AggregateID)
 	}
 	if payload.NumeroTelefone != nil {
-		p.client.DB().Exec(`UPDATE projection_academias SET numero_telefone = $1 WHERE id = $2`, *payload.NumeroTelefone, event.AggregateID)
+		p.client.DB().ExecContext(ctx, `UPDATE projection_academias SET numero_telefone = $1 WHERE id = $2`, *payload.NumeroTelefone, event.AggregateID)
 	}
 	if payload.Email != nil {
 		if payload.EmailAlterado {
-			p.client.DB().Exec(`UPDATE projection_academias SET email = $1, email_verificado = FALSE WHERE id = $2`, *payload.Email, event.AggregateID)
+			p.client.DB().ExecContext(ctx, `UPDATE projection_academias SET email = $1, email_verificado = FALSE WHERE id = $2`, *payload.Email, event.AggregateID)
 		} else {
-			p.client.DB().Exec(`UPDATE projection_academias SET email = $1 WHERE id = $2`, *payload.Email, event.AggregateID)
+			p.client.DB().ExecContext(ctx, `UPDATE projection_academias SET email = $1 WHERE id = $2`, *payload.Email, event.AggregateID)
 		}
 	}
 	if payload.Website != nil {
-		p.client.DB().Exec(`UPDATE projection_academias SET website = $1 WHERE id = $2`, *payload.Website, event.AggregateID)
+		p.client.DB().ExecContext(ctx, `UPDATE projection_academias SET website = $1 WHERE id = $2`, *payload.Website, event.AggregateID)
 	}
 	if payload.NivelEscolar != nil {
-		p.client.DB().Exec(`UPDATE projection_academias SET nivel_escolar = $1 WHERE id = $2`, *payload.NivelEscolar, event.AggregateID)
+		p.client.DB().ExecContext(ctx, `UPDATE projection_academias SET nivel_escolar = $1 WHERE id = $2`, *payload.NivelEscolar, event.AggregateID)
 	}
 	if payload.Cursos != nil {
 		cursosJSON, _ := json.Marshal(payload.Cursos)
-		p.client.DB().Exec(`UPDATE projection_academias SET cursos = $1 WHERE id = $2`, cursosJSON, event.AggregateID)
+		p.client.DB().ExecContext(ctx, `UPDATE projection_academias SET cursos = $1 WHERE id = $2`, cursosJSON, event.AggregateID)
 	}
 
-	_, err := p.client.DB().Exec(`
+	_, err := p.client.DB().ExecContext(ctx, `
 		UPDATE projection_academias SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2 WHERE id = $3
 	`, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
 func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
+	ctx := context.Background()
 	var dto AcademiaDTO
 	var cursosJSON []byte
 
-	err := p.client.DB().QueryRow(`
+	err := p.client.DB().QueryRowContext(ctx, `
 		SELECT id, type, nome, codigo_academia, senha_hash, provincia,
 			endereco, numero_telefone, email, website, nivel_escolar,
 			status, cursos, created_at, updated_at,
@@ -318,10 +331,11 @@ func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
 }
 
 func (p *AcademiaProjection) GetByCodigoOrEmail(identifier string) (*AcademiaDTO, error) {
+	ctx := context.Background()
 	var dto AcademiaDTO
 	var cursosJSON []byte
 
-	err := p.client.DB().QueryRow(`
+	err := p.client.DB().QueryRowContext(ctx, `
 		SELECT id, type, nome, codigo_academia, senha_hash, provincia,
 			endereco, numero_telefone, email, website, nivel_escolar,
 			status, cursos, created_at, updated_at,
@@ -350,10 +364,11 @@ func (p *AcademiaProjection) GetByCodigoOrEmail(identifier string) (*AcademiaDTO
 }
 
 func (p *AcademiaProjection) GetByCodigo(codigo string) (*AcademiaDTO, error) {
+	ctx := context.Background()
 	var dto AcademiaDTO
 	var cursosJSON []byte
 
-	err := p.client.DB().QueryRow(`
+	err := p.client.DB().QueryRowContext(ctx, `
 		SELECT id, type, nome, codigo_academia, senha_hash, provincia,
 			endereco, numero_telefone, email, website, nivel_escolar,
 			status, cursos, created_at, updated_at,

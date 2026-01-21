@@ -45,7 +45,8 @@ func (p *CursosProjection) Rebuild() error {
 		return err
 	}
 
-	rows, err := p.client.DB().Query(`
+	ctx := context.Background()
+	rows, err := p.client.DB().QueryContext(ctx, `
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
@@ -72,8 +73,13 @@ func (p *CursosProjection) Rebuild() error {
 }
 
 func (p *CursosProjection) GetLastProcessedEventID() (int64, error) {
+	ctx := context.Background()
 	var lastID int64
-	err := p.client.DB().QueryRow(`SELECT last_processed_event_id FROM projection_checkpoints WHERE projection_name = $1`, p.Name()).Scan(&lastID)
+	err := p.client.DB().QueryRowContext(ctx, `
+		SELECT last_processed_event_id 
+		FROM projection_checkpoints 
+		WHERE projection_name = $1
+	`, p.Name()).Scan(&lastID)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -81,7 +87,8 @@ func (p *CursosProjection) GetLastProcessedEventID() (int64, error) {
 }
 
 func (p *CursosProjection) UpdateCheckpoint(eventID int64) error {
-	_, err := p.client.DB().Exec(`
+	ctx := context.Background()
+	_, err := p.client.DB().ExecContext(ctx, `
 		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
 		VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
 		ON CONFLICT (projection_name) DO UPDATE SET
@@ -92,7 +99,8 @@ func (p *CursosProjection) UpdateCheckpoint(eventID int64) error {
 }
 
 func (p *CursosProjection) clear() error {
-	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_cursos CASCADE`)
+	ctx := context.Background()
+	_, err := p.client.DB().ExecContext(ctx, `TRUNCATE TABLE projection_cursos CASCADE`)
 	return err
 }
 
@@ -111,7 +119,8 @@ func (p *CursosProjection) handleCursoCriado(event db.Event) error {
 
 	nivelJSON, _ := json.Marshal(payload.Nivel)
 
-	_, err := p.client.DB().Exec(`
+	ctx := context.Background()
+	_, err := p.client.DB().ExecContext(ctx, `
 		INSERT INTO projection_cursos (id, nome, type, nivel, codigo_academia, status, created_at, updated_at, version, last_event_id)
 		VALUES ($1, $2, $3, $4, $5, 'ativo', $6, CURRENT_TIMESTAMP, $7, $8)
 	`, event.AggregateID, payload.Nome, payload.Type, nivelJSON, payload.CodigoAcademia,
@@ -120,14 +129,18 @@ func (p *CursosProjection) handleCursoCriado(event db.Event) error {
 }
 
 func (p *CursosProjection) handleCursoAtivado(event db.Event) error {
-	_, err := p.client.DB().Exec(`UPDATE projection_cursos SET status = 'ativo', version = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
-		event.EventVersion, event.AggregateID)
+	ctx := context.Background()
+	_, err := p.client.DB().ExecContext(ctx, `
+		UPDATE projection_cursos SET status = 'ativo', version = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2
+	`, event.EventVersion, event.AggregateID)
 	return err
 }
 
 func (p *CursosProjection) handleCursoDesativado(event db.Event) error {
-	_, err := p.client.DB().Exec(`UPDATE projection_cursos SET status = 'inativo', version = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
-		event.EventVersion, event.AggregateID)
+	ctx := context.Background()
+	_, err := p.client.DB().ExecContext(ctx, `
+		UPDATE projection_cursos SET status = 'inativo', version = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2
+	`, event.EventVersion, event.AggregateID)
 	return err
 }
 
@@ -142,26 +155,30 @@ func (p *CursosProjection) handleCursoDadosAtualizados(event db.Event) error {
 		return err
 	}
 
+	ctx := context.Background()
+	
 	if payload.Nome != nil {
-		p.client.DB().Exec(`UPDATE projection_cursos SET nome = $1 WHERE id = $2`, *payload.Nome, event.AggregateID)
+		p.client.DB().ExecContext(ctx, `UPDATE projection_cursos SET nome = $1 WHERE id = $2`, *payload.Nome, event.AggregateID)
 	}
 	if payload.Type != nil {
-		p.client.DB().Exec(`UPDATE projection_cursos SET type = $1 WHERE id = $2`, *payload.Type, event.AggregateID)
+		p.client.DB().ExecContext(ctx, `UPDATE projection_cursos SET type = $1 WHERE id = $2`, *payload.Type, event.AggregateID)
 	}
 	if payload.Nivel != nil {
 		nivelJSON, _ := json.Marshal(payload.Nivel)
-		p.client.DB().Exec(`UPDATE projection_cursos SET nivel = $1 WHERE id = $2`, nivelJSON, event.AggregateID)
+		p.client.DB().ExecContext(ctx, `UPDATE projection_cursos SET nivel = $1 WHERE id = $2`, nivelJSON, event.AggregateID)
 	}
 
-	_, err := p.client.DB().Exec(`UPDATE projection_cursos SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2 WHERE id = $3`,
-		event.EventVersion, event.EventID, event.AggregateID)
+	_, err := p.client.DB().ExecContext(ctx, `
+		UPDATE projection_cursos SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2 WHERE id = $3
+	`, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
 func (p *CursosProjection) GetByID(id uuid.UUID) (*CursoDTO, error) {
+	ctx := context.Background()
 	var dto CursoDTO
 	var nivelJSON []byte
-	err := p.client.DB().QueryRow(`
+	err := p.client.DB().QueryRowContext(ctx, `
 		SELECT id, nome, type, nivel, codigo_academia, status, created_at, updated_at, version
 		FROM projection_cursos WHERE id = $1
 	`, id).Scan(&dto.ID, &dto.Nome, &dto.Type, &nivelJSON, &dto.CodigoAcademia,
@@ -179,7 +196,8 @@ func (p *CursosProjection) GetByID(id uuid.UUID) (*CursoDTO, error) {
 }
 
 func (p *CursosProjection) GetByAcademia(codigoAcademia string) ([]CursoDTO, error) {
-	rows, err := p.client.DB().Query(`
+	ctx := context.Background()
+	rows, err := p.client.DB().QueryContext(ctx, `
 		SELECT id, nome, type, nivel, codigo_academia, status, created_at, updated_at, version
 		FROM projection_cursos WHERE codigo_academia = $1 ORDER BY created_at DESC
 	`, codigoAcademia)

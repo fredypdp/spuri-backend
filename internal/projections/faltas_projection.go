@@ -34,7 +34,8 @@ func (p *FaltasProjection) Rebuild() error {
 		return err
 	}
 
-	rows, err := p.client.DB().Query(`
+	ctx := context.Background()
+	rows, err := p.client.DB().QueryContext(ctx, `
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
@@ -61,8 +62,13 @@ func (p *FaltasProjection) Rebuild() error {
 }
 
 func (p *FaltasProjection) GetLastProcessedEventID() (int64, error) {
+	ctx := context.Background()
 	var lastID int64
-	err := p.client.DB().QueryRow(`SELECT last_processed_event_id FROM projection_checkpoints WHERE projection_name = $1`, p.Name()).Scan(&lastID)
+	err := p.client.DB().QueryRowContext(ctx, `
+		SELECT last_processed_event_id 
+		FROM projection_checkpoints 
+		WHERE projection_name = $1
+	`, p.Name()).Scan(&lastID)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -70,7 +76,8 @@ func (p *FaltasProjection) GetLastProcessedEventID() (int64, error) {
 }
 
 func (p *FaltasProjection) UpdateCheckpoint(eventID int64) error {
-	_, err := p.client.DB().Exec(`
+	ctx := context.Background()
+	_, err := p.client.DB().ExecContext(ctx, `
 		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
 		VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
 		ON CONFLICT (projection_name) DO UPDATE SET
@@ -81,7 +88,8 @@ func (p *FaltasProjection) UpdateCheckpoint(eventID int64) error {
 }
 
 func (p *FaltasProjection) clear() error {
-	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_faltas CASCADE`)
+	ctx := context.Background()
+	_, err := p.client.DB().ExecContext(ctx, `TRUNCATE TABLE projection_faltas CASCADE`)
 	return err
 }
 
@@ -101,7 +109,8 @@ func (p *FaltasProjection) handleFaltasRegistradas(event db.Event) error {
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	_, err := p.client.DB().Exec(`
+	ctx := context.Background()
+	_, err := p.client.DB().ExecContext(ctx, `
 		INSERT INTO projection_faltas (
 			codigo_estudante, codigo_academia, ano_lectivo, data,
 			materia_disciplinar_id, quantidade, observacao, registered_at, event_id, version
@@ -114,7 +123,7 @@ func (p *FaltasProjection) handleFaltasRegistradas(event db.Event) error {
 		event.EventID, event.EventVersion)
 
 	if err == nil {
-		p.client.DB().Exec(`
+		p.client.DB().ExecContext(ctx, `
 			UPDATE projection_estudantes SET total_faltas = (SELECT COALESCE(SUM(quantidade), 0) FROM projection_faltas WHERE codigo_estudante = $1)
 			WHERE codigo_estudante = $1
 		`, payload.CodigoEstudante)
@@ -123,7 +132,8 @@ func (p *FaltasProjection) handleFaltasRegistradas(event db.Event) error {
 }
 
 func (p *FaltasProjection) GetByEstudante(codigoEstudante string) ([]FaltaDTO, error) {
-	rows, err := p.client.DB().Query(`
+	ctx := context.Background()
+	rows, err := p.client.DB().QueryContext(ctx, `
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.data,
 			f.materia_disciplinar_id, m.nome as materia_nome, f.quantidade, f.observacao,
 			f.registered_at, f.event_id, f.version
@@ -151,7 +161,8 @@ func (p *FaltasProjection) GetByEstudante(codigoEstudante string) ([]FaltaDTO, e
 }
 
 func (p *FaltasProjection) GetByPeriodo(codigoEstudante, anoLectivo string, dataInicio, dataFim time.Time) ([]FaltaDTO, error) {
-	rows, err := p.client.DB().Query(`
+	ctx := context.Background()
+	rows, err := p.client.DB().QueryContext(ctx, `
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.data,
 			f.materia_disciplinar_id, m.nome as materia_nome, f.quantidade, f.observacao,
 			f.registered_at, f.event_id, f.version

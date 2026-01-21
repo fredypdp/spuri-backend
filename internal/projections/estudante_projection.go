@@ -58,7 +58,8 @@ func (p *EstudanteProjection) Rebuild() error {
 		return err
 	}
 
-	rows, err := p.client.DB().Query(`
+	ctx := context.Background()
+	rows, err := p.client.DB().QueryContext(ctx, `
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
@@ -91,8 +92,9 @@ func (p *EstudanteProjection) Rebuild() error {
 }
 
 func (p *EstudanteProjection) GetLastProcessedEventID() (int64, error) {
+	ctx := context.Background()
 	var lastID int64
-	err := p.client.DB().QueryRow(`
+	err := p.client.DB().QueryRowContext(ctx, `
 		SELECT last_processed_event_id 
 		FROM projection_checkpoints 
 		WHERE projection_name = $1
@@ -105,7 +107,8 @@ func (p *EstudanteProjection) GetLastProcessedEventID() (int64, error) {
 }
 
 func (p *EstudanteProjection) UpdateCheckpoint(eventID int64) error {
-	_, err := p.client.DB().Exec(`
+	ctx := context.Background()
+	_, err := p.client.DB().ExecContext(ctx, `
 		INSERT INTO projection_checkpoints (
 			projection_name, last_processed_event_id, last_processed_at, events_processed
 		) VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
@@ -119,7 +122,8 @@ func (p *EstudanteProjection) UpdateCheckpoint(eventID int64) error {
 }
 
 func (p *EstudanteProjection) clear() error {
-	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_estudantes CASCADE`)
+	ctx := context.Background()
+	_, err := p.client.DB().ExecContext(ctx, `TRUNCATE TABLE projection_estudantes CASCADE`)
 	return err
 }
 
@@ -152,7 +156,8 @@ func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 		return fmt.Errorf("CodigoEstudante vazio no evento")
 	}
 
-	_, err := p.client.DB().Exec(`
+	ctx := context.Background()
+	_, err := p.client.DB().ExecContext(ctx, `
 		INSERT INTO projection_estudantes (
 			id, nome, codigo_estudante, senha_hash, 
 			email, telefone, email_verificado,
@@ -182,7 +187,6 @@ func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 		time.Now(), event.EventID)
 
 	if err != nil {
-		// ✅ CORRIGIDO: Log genérico sem dados sensíveis
 		log.Printf("[ESTUDANTE_PROJECTION] Erro ao processar EstudanteCriado (event_id: %s)", event.EventID)
 		return err
 	}
@@ -191,7 +195,8 @@ func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 }
 
 func (p *EstudanteProjection) handleInscricaoAprovada(event db.Event) error {
-	_, err := p.client.DB().Exec(`
+	ctx := context.Background()
+	_, err := p.client.DB().ExecContext(ctx, `
 		UPDATE projection_estudantes
 		SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2,
 			total_inscricoes = total_inscricoes + 1
@@ -209,7 +214,8 @@ func (p *EstudanteProjection) handleEstudanteVinculado(event db.Event) error {
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	_, err := p.client.DB().Exec(`
+	ctx := context.Background()
+	_, err := p.client.DB().ExecContext(ctx, `
 		UPDATE projection_estudantes
 		SET codigo_academia = $1, status = $2, version = $3,
 			updated_at = CURRENT_TIMESTAMP, last_event_id = $4
@@ -228,8 +234,9 @@ func (p *EstudanteProjection) handleStatusEscolarAtualizado(event db.Event) erro
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
+	ctx := context.Background()
 	if payload.NovoStatus == "inativo" {
-		_, err := p.client.DB().Exec(`
+		_, err := p.client.DB().ExecContext(ctx, `
 			UPDATE projection_estudantes
 			SET status_escolar = $1, status_superior = $2, version = $3,
 				updated_at = CURRENT_TIMESTAMP, last_event_id = $4
@@ -238,7 +245,7 @@ func (p *EstudanteProjection) handleStatusEscolarAtualizado(event db.Event) erro
 		return err
 	}
 
-	_, err := p.client.DB().Exec(`
+	_, err := p.client.DB().ExecContext(ctx, `
 		UPDATE projection_estudantes
 		SET status_escolar = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
 		WHERE id = $4
@@ -255,7 +262,8 @@ func (p *EstudanteProjection) handleStatusSuperiorAtualizado(event db.Event) err
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	_, err := p.client.DB().Exec(`
+	ctx := context.Background()
+	_, err := p.client.DB().ExecContext(ctx, `
 		UPDATE projection_estudantes
 		SET status_superior = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
 		WHERE id = $4
@@ -277,45 +285,29 @@ func (p *EstudanteProjection) handleDadosPessoaisAtualizados(event db.Event) err
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
+	ctx := context.Background()
+	
 	if payload.Nome != nil {
-		_, err := p.client.DB().Exec(`UPDATE projection_estudantes SET nome = $1 WHERE id = $2`, *payload.Nome, event.AggregateID)
-		if err != nil {
-			return err
-		}
+		p.client.DB().ExecContext(ctx, `UPDATE projection_estudantes SET nome = $1 WHERE id = $2`, *payload.Nome, event.AggregateID)
 	}
 	if payload.Email != nil {
 		if payload.EmailAlterado {
-			_, err := p.client.DB().Exec(`UPDATE projection_estudantes SET email = $1, email_verificado = $2 WHERE id = $3`, *payload.Email, false, event.AggregateID)
-			if err != nil {
-				return err
-			}
+			p.client.DB().ExecContext(ctx, `UPDATE projection_estudantes SET email = $1, email_verificado = $2 WHERE id = $3`, *payload.Email, false, event.AggregateID)
 		} else {
-			_, err := p.client.DB().Exec(`UPDATE projection_estudantes SET email = $1 WHERE id = $2`, *payload.Email, event.AggregateID)
-			if err != nil {
-				return err
-			}
+			p.client.DB().ExecContext(ctx, `UPDATE projection_estudantes SET email = $1 WHERE id = $2`, *payload.Email, event.AggregateID)
 		}
 	}
 	if payload.Telefone != nil {
-		_, err := p.client.DB().Exec(`UPDATE projection_estudantes SET telefone = $1 WHERE id = $2`, *payload.Telefone, event.AggregateID)
-		if err != nil {
-			return err
-		}
+		p.client.DB().ExecContext(ctx, `UPDATE projection_estudantes SET telefone = $1 WHERE id = $2`, *payload.Telefone, event.AggregateID)
 	}
 	if payload.BilheteIdentidade != nil {
-		_, err := p.client.DB().Exec(`UPDATE projection_estudantes SET bilhete_identidade = $1 WHERE id = $2`, *payload.BilheteIdentidade, event.AggregateID)
-		if err != nil {
-			return err
-		}
+		p.client.DB().ExecContext(ctx, `UPDATE projection_estudantes SET bilhete_identidade = $1 WHERE id = $2`, *payload.BilheteIdentidade, event.AggregateID)
 	}
 	if payload.BilheteIdentidadeResp != nil {
-		_, err := p.client.DB().Exec(`UPDATE projection_estudantes SET bilhete_identidade_responsavel = $1 WHERE id = $2`, *payload.BilheteIdentidadeResp, event.AggregateID)
-		if err != nil {
-			return err
-		}
+		p.client.DB().ExecContext(ctx, `UPDATE projection_estudantes SET bilhete_identidade_responsavel = $1 WHERE id = $2`, *payload.BilheteIdentidadeResp, event.AggregateID)
 	}
 
-	_, err := p.client.DB().Exec(`
+	_, err := p.client.DB().ExecContext(ctx, `
 		UPDATE projection_estudantes SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2 WHERE id = $3
 	`, event.EventVersion, event.EventID, event.AggregateID)
 	return err
@@ -333,40 +325,31 @@ func (p *EstudanteProjection) handleDadosAcademicosAtualizados(event db.Event) e
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
+	ctx := context.Background()
+	
 	if payload.AnoEscolar != nil {
-		_, err := p.client.DB().Exec(`UPDATE projection_estudantes SET ano_escolar = $1 WHERE id = $2`, *payload.AnoEscolar, event.AggregateID)
-		if err != nil {
-			return err
-		}
+		p.client.DB().ExecContext(ctx, `UPDATE projection_estudantes SET ano_escolar = $1 WHERE id = $2`, *payload.AnoEscolar, event.AggregateID)
 	}
 	if payload.AnoSuperior != nil {
-		_, err := p.client.DB().Exec(`UPDATE projection_estudantes SET ano_superior = $1 WHERE id = $2`, *payload.AnoSuperior, event.AggregateID)
-		if err != nil {
-			return err
-		}
+		p.client.DB().ExecContext(ctx, `UPDATE projection_estudantes SET ano_superior = $1 WHERE id = $2`, *payload.AnoSuperior, event.AggregateID)
 	}
 	if payload.CursoMedio != nil {
-		_, err := p.client.DB().Exec(`UPDATE projection_estudantes SET curso_medio = $1 WHERE id = $2`, *payload.CursoMedio, event.AggregateID)
-		if err != nil {
-			return err
-		}
+		p.client.DB().ExecContext(ctx, `UPDATE projection_estudantes SET curso_medio = $1 WHERE id = $2`, *payload.CursoMedio, event.AggregateID)
 	}
 	if payload.CursoSuperior != nil {
-		_, err := p.client.DB().Exec(`UPDATE projection_estudantes SET curso_superior = $1 WHERE id = $2`, *payload.CursoSuperior, event.AggregateID)
-		if err != nil {
-			return err
-		}
+		p.client.DB().ExecContext(ctx, `UPDATE projection_estudantes SET curso_superior = $1 WHERE id = $2`, *payload.CursoSuperior, event.AggregateID)
 	}
 
-	_, err := p.client.DB().Exec(`
+	_, err := p.client.DB().ExecContext(ctx, `
 		UPDATE projection_estudantes SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2 WHERE id = $3
 	`, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
 func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
+	ctx := context.Background()
 	var dto EstudanteDTO
-	err := p.client.DB().QueryRow(`
+	err := p.client.DB().QueryRowContext(ctx, `
 		SELECT id, nome, codigo_estudante, senha_hash, 
 			email, telefone, email_verificado,
 			bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
@@ -390,8 +373,9 @@ func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
 }
 
 func (p *EstudanteProjection) GetByCodigo(codigo string) (*EstudanteDTO, error) {
+	ctx := context.Background()
 	var dto EstudanteDTO
-	err := p.client.DB().QueryRow(`
+	err := p.client.DB().QueryRowContext(ctx, `
 		SELECT id, nome, codigo_estudante, senha_hash, 
 			email, telefone, email_verificado,
 			bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
@@ -419,8 +403,9 @@ func (p *EstudanteProjection) GetByCodigo(codigo string) (*EstudanteDTO, error) 
 }
 
 func (p *EstudanteProjection) GetByBilhete(bilhete string) (*EstudanteDTO, error) {
+	ctx := context.Background()
 	var dto EstudanteDTO
-	err := p.client.DB().QueryRow(`
+	err := p.client.DB().QueryRowContext(ctx, `
 		SELECT id, nome, codigo_estudante, senha_hash, 
 			email, telefone, email_verificado,
 			bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,

@@ -34,7 +34,8 @@ func (p *NotasProjection) Rebuild() error {
 		return err
 	}
 
-	rows, err := p.client.DB().Query(`
+	ctx := context.Background()
+	rows, err := p.client.DB().QueryContext(ctx, `
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
@@ -61,8 +62,13 @@ func (p *NotasProjection) Rebuild() error {
 }
 
 func (p *NotasProjection) GetLastProcessedEventID() (int64, error) {
+	ctx := context.Background()
 	var lastID int64
-	err := p.client.DB().QueryRow(`SELECT last_processed_event_id FROM projection_checkpoints WHERE projection_name = $1`, p.Name()).Scan(&lastID)
+	err := p.client.DB().QueryRowContext(ctx, `
+		SELECT last_processed_event_id 
+		FROM projection_checkpoints 
+		WHERE projection_name = $1
+	`, p.Name()).Scan(&lastID)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -70,7 +76,8 @@ func (p *NotasProjection) GetLastProcessedEventID() (int64, error) {
 }
 
 func (p *NotasProjection) UpdateCheckpoint(eventID int64) error {
-	_, err := p.client.DB().Exec(`
+	ctx := context.Background()
+	_, err := p.client.DB().ExecContext(ctx, `
 		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
 		VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
 		ON CONFLICT (projection_name) DO UPDATE SET
@@ -81,7 +88,8 @@ func (p *NotasProjection) UpdateCheckpoint(eventID int64) error {
 }
 
 func (p *NotasProjection) clear() error {
-	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_notas CASCADE`)
+	ctx := context.Background()
+	_, err := p.client.DB().ExecContext(ctx, `TRUNCATE TABLE projection_notas CASCADE`)
 	return err
 }
 
@@ -101,7 +109,8 @@ func (p *NotasProjection) handleNotasRegistradas(event db.Event) error {
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	_, err := p.client.DB().Exec(`
+	ctx := context.Background()
+	_, err := p.client.DB().ExecContext(ctx, `
 		INSERT INTO projection_notas (
 			codigo_estudante, codigo_academia, ano_lectivo, periodo,
 			materia_disciplinar_id, nota, observacao, registered_at, event_id, version
@@ -114,7 +123,7 @@ func (p *NotasProjection) handleNotasRegistradas(event db.Event) error {
 		event.EventID, event.EventVersion)
 
 	if err == nil {
-		p.client.DB().Exec(`
+		p.client.DB().ExecContext(ctx, `
 			UPDATE projection_estudantes SET total_notas = (SELECT COUNT(*) FROM projection_notas WHERE codigo_estudante = $1)
 			WHERE codigo_estudante = $1
 		`, payload.CodigoEstudante)
@@ -123,7 +132,8 @@ func (p *NotasProjection) handleNotasRegistradas(event db.Event) error {
 }
 
 func (p *NotasProjection) GetByEstudante(codigoEstudante string) ([]NotaDTO, error) {
-	rows, err := p.client.DB().Query(`
+	ctx := context.Background()
+	rows, err := p.client.DB().QueryContext(ctx, `
 		SELECT n.id, n.codigo_estudante, n.codigo_academia, n.ano_lectivo, n.periodo,
 			n.materia_disciplinar_id, m.nome as materia_nome, n.nota, n.observacao,
 			n.registered_at, n.event_id, n.version
@@ -151,7 +161,8 @@ func (p *NotasProjection) GetByEstudante(codigoEstudante string) ([]NotaDTO, err
 }
 
 func (p *NotasProjection) GetByPeriodo(codigoEstudante, anoLectivo, periodo string) ([]NotaDTO, error) {
-	rows, err := p.client.DB().Query(`
+	ctx := context.Background()
+	rows, err := p.client.DB().QueryContext(ctx, `
 		SELECT n.id, n.codigo_estudante, n.codigo_academia, n.ano_lectivo, n.periodo,
 			n.materia_disciplinar_id, m.nome as materia_nome, n.nota, n.observacao,
 			n.registered_at, n.event_id, n.version
