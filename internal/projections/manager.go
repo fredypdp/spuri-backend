@@ -148,13 +148,14 @@ func (m *Manager) processEventWithRetry(name string, projection Projection, even
 	return fmt.Errorf("evento %d falhou apos %d tentativas: %w", event.ID, maxRetries, lastErr)
 }
 
-// ✅ FIX: Sempre usar QueryContext sem cache de prepared statements
+// ✅ FIX DEFINITIVO: Usar sqlx.Queryx que NÃO cache prepared statements
 func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	
-	// ✅ Usar nome único para prepared statement evitando conflitos
-	rows, err := m.client.DB().QueryContext(ctx, `
+	// ✅ SOLUÇÃO: Usar Queryx do sqlx ao invés de QueryContext
+	// Queryx cria uma nova query toda vez, evitando cache de prepared statements
+	query := `
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
@@ -162,8 +163,9 @@ func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
 		WHERE id > $1
 		ORDER BY id ASC
 		LIMIT $2
-	`, fromID, m.batchSize)
+	`
 	
+	rows, err := m.client.DB().Queryx(query, fromID, m.batchSize)
 	if err != nil {
 		return nil, fmt.Errorf("erro na query: %w", err)
 	}
