@@ -25,17 +25,17 @@ func main() {
 	
 	if os.Getenv("ENV") != "production" {
 		if err := godotenv.Load(); err != nil {
-			log.Println("⚠️  Arquivo .env não encontrado")
+			log.Println("[WARN] Arquivo .env nao encontrado")
 		}
 	}
 
 	if err := initDB(); err != nil {
-		log.Fatalf("❌ Erro ao conectar ao banco de dados: %v", err)
+		log.Fatalf("[ERROR] Erro ao conectar ao banco de dados: %v", err)
 	}
 	defer dbClient.Close()
 
 	if err := initProjections(); err != nil {
-		log.Fatalf("❌ Erro ao inicializar projeções: %v", err)
+		log.Fatalf("[ERROR] Erro ao inicializar projecoes: %v", err)
 	}
 
 	if os.Getenv("ENV") == "production" {
@@ -49,17 +49,17 @@ func main() {
 		port = "8080"
 	}
 
-	log.Printf("🚀 Spuri Event Sourcing rodando em http://localhost:%s", port)
-	log.Printf("📚 Documentação: http://localhost:%s/", port)
-	log.Printf("📖 Swagger UI: http://localhost:%s/docs", port)
-	log.Printf("❤️  Health check: http://localhost:%s/health", port)
-	log.Printf("📊 Metrics: http://localhost:%s/admin/metrics", port)
-	log.Printf("🌍 Ambiente: %s", os.Getenv("ENV"))
-	log.Printf("🔒 Segurança: Rate Limiting + Input Validation + Prepared Statements")
-	log.Printf("🔤 Encoding: UTF-8")
+	log.Printf("[INFO] Spuri Event Sourcing rodando em http://localhost:%s", port)
+	log.Printf("[INFO] Documentacao: http://localhost:%s/", port)
+	log.Printf("[INFO] Swagger UI: http://localhost:%s/docs", port)
+	log.Printf("[INFO] Health check: http://localhost:%s/health", port)
+	log.Printf("[INFO] Metrics: http://localhost:%s/admin/metrics", port)
+	log.Printf("[INFO] Ambiente: %s", os.Getenv("ENV"))
+	log.Printf("[INFO] Seguranca: Rate Limiting + Input Validation + Prepared Statements")
+	log.Printf("[INFO] Encoding: UTF-8")
 	
 	if err := router.Run("0.0.0.0:" + port); err != nil {
-		log.Fatalf("❌ Erro ao iniciar servidor: %v", err)
+		log.Fatalf("[ERROR] Erro ao iniciar servidor: %v", err)
 	}
 }
 
@@ -78,7 +78,7 @@ func initDB() error {
 		return err
 	}
 
-	log.Println("✅ Banco de dados inicializado com Event Sourcing")
+	log.Println("[INFO] Banco de dados inicializado com Event Sourcing")
 	return nil
 }
 
@@ -96,7 +96,7 @@ func initProjections() error {
 
 	go projManager.StartProcessing()
 
-	log.Println("✅ Sistema de projeções inicializado")
+	log.Println("[INFO] Sistema de projecoes inicializado")
 	return nil
 }
 
@@ -120,7 +120,6 @@ func setupRouter() *gin.Engine {
 		c.Next()
 	})
 
-	// 📖 Swagger UI
 	router.GET("/docs", handlers.SwaggerUI)
 	router.GET("/api-docs/swagger.yaml", handlers.SwaggerYAML)
 	
@@ -262,10 +261,10 @@ func corsMiddleware() gin.HandlerFunc {
 			for i := range allowedOrigins {
 				allowedOrigins[i] = strings.TrimSpace(allowedOrigins[i])
 			}
-			log.Printf("🔒 CORS PRODUÇÃO: %v", allowedOrigins)
+			log.Printf("[INFO] CORS PRODUCAO: %v", allowedOrigins)
 		} else {
-			log.Printf("⚠️ ATENÇÃO: ALLOWED_ORIGINS não configurado em PRODUÇÃO!")
-			log.Printf("🚫 CORS BLOQUEADO - Configure ALLOWED_ORIGINS")
+			log.Printf("[WARN] ATENCAO: ALLOWED_ORIGINS nao configurado em PRODUCAO")
+			log.Printf("[ERROR] CORS BLOQUEADO - Configure ALLOWED_ORIGINS")
 			allowedOrigins = []string{}
 		}
 	} else {
@@ -281,7 +280,7 @@ func corsMiddleware() gin.HandlerFunc {
 				"http://localhost:8080",
 			}
 		}
-		log.Printf("🧪 CORS DESENVOLVIMENTO: %v", allowedOrigins)
+		log.Printf("[INFO] CORS DESENVOLVIMENTO: %v", allowedOrigins)
 	}
 
 	return func(c *gin.Context) {
@@ -298,7 +297,7 @@ func corsMiddleware() gin.HandlerFunc {
 		
 		if !originAllowed && origin != "" {
 			if env == "production" {
-				log.Printf("🚫 CORS BLOQUEADO: %s (não está na whitelist)", origin)
+				log.Printf("[WARN] CORS BLOQUEADO: %s (nao esta na whitelist)", origin)
 			}
 		}
 		

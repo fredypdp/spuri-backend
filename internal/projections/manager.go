@@ -40,11 +40,11 @@ func (m *Manager) RegisterProjection(name string, projection Projection) {
 	defer m.mu.Unlock()
 	
 	m.projections[name] = projection
-	log.Printf("Projeção registrada: %s", name)
+	log.Printf("[INFO] Projecao registrada: %s", name)
 }
 
 func (m *Manager) StartProcessing() {
-	log.Println("Iniciando processamento de projeções...")
+	log.Println("[INFO] Iniciando processamento de projecoes")
 
 	ticker := time.NewTicker(m.pollInterval)
 	defer ticker.Stop()
@@ -52,11 +52,11 @@ func (m *Manager) StartProcessing() {
 	for {
 		select {
 		case <-m.ctx.Done():
-			log.Println("Parando processamento de projeções")
+			log.Println("[INFO] Parando processamento de projecoes")
 			return
 		case <-ticker.C:
 			if err := m.processNewEvents(); err != nil {
-				log.Printf("Erro ao processar eventos: %v", err)
+				log.Printf("[ERROR] Erro ao processar eventos: %v", err)
 			}
 		}
 	}
@@ -72,13 +72,14 @@ func (m *Manager) processNewEvents() error {
 	
 	for name, projection := range m.projections {
 		if err := m.processProjection(name, projection); err != nil {
-			log.Printf("Erro ao processar projeção %s: %v", name, err)
+			log.Printf("[ERROR] Erro ao processar projecao %s: %v", name, err)
 			continue
 		}
 	}
 	return nil
 }
 
+// ✅ NOVO: Retry com Exponential Backoff
 func (m *Manager) processProjection(name string, projection Projection) error {
 	lastProcessedID, err := projection.GetLastProcessedEventID()
 	if err != nil {
@@ -95,31 +96,66 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 	}
 
 	processedCount := 0
+	
+	// ✅ Processar cada evento com RETRY
 	for _, event := range events {
-		if err := projection.Handle(event); err != nil {
-			log.Printf("[%s] Erro ao processar evento %d", name, event.ID)
+		if err := m.processEventWithRetry(name, projection, event); err != nil {
+			// Evento falhou após todas tentativas - registra e continua
+			log.Printf("[ERROR] Projecao %s: evento %d falhou permanentemente", name, event.ID)
 			m.logProjectionError(name, err.Error())
-
-			if err := projection.UpdateCheckpoint(event.ID); err != nil {
-				log.Printf("[%s] Erro ao atualizar checkpoint: %v", name, err)
-			}
+			
+			// Atualiza checkpoint mesmo com erro (evita travar pipeline)
+			projection.UpdateCheckpoint(event.ID)
 			continue
 		}
-
+		
+		// ✅ Sucesso - atualiza checkpoint
 		if err := projection.UpdateCheckpoint(event.ID); err != nil {
-			log.Printf("[%s] Erro ao atualizar checkpoint: %v", name, err)
-			return fmt.Errorf("falha crítica ao salvar checkpoint: %w", err)
+			log.Printf("[WARN] Erro ao atualizar checkpoint para evento %d: %v", event.ID, err)
 		}
-
 		processedCount++
 	}
 
 	if processedCount > 0 {
-		log.Printf("[%s] Processados %d eventos (último: %d)",
+		log.Printf("[INFO] Projecao %s: processados %d eventos (ultimo: %d)",
 			name, processedCount, events[len(events)-1].ID)
 	}
 
 	return nil
+}
+
+// ✅ NOVO: Processa evento com retry e exponential backoff
+func (m *Manager) processEventWithRetry(name string, projection Projection, event db.Event) error {
+	maxRetries := 3
+	baseDelay := 1 * time.Second
+	
+	var lastErr error
+	
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		err := projection.Handle(event)
+		
+		if err == nil {
+			// ✅ Sucesso!
+			if attempt > 1 {
+				log.Printf("[INFO] Projecao %s: evento %d recuperado na tentativa %d", 
+					name, event.ID, attempt)
+			}
+			return nil
+		}
+		
+		lastErr = err
+		
+		// Se não for última tentativa, espera com backoff exponencial
+		if attempt < maxRetries {
+			delay := time.Duration(attempt*attempt) * baseDelay
+			log.Printf("[WARN] Projecao %s: evento %d falhou (tentativa %d/%d), retry em %v", 
+				name, event.ID, attempt, maxRetries, delay)
+			time.Sleep(delay)
+		}
+	}
+	
+	// ❌ Falhou após todas tentativas
+	return fmt.Errorf("evento %d falhou apos %d tentativas: %w", event.ID, maxRetries, lastErr)
 }
 
 func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
@@ -165,17 +201,17 @@ func (m *Manager) RebuildProjection(name string) error {
 	
 	projection, exists := m.projections[name]
 	if !exists {
-		return fmt.Errorf("projeção não encontrada: %s", name)
+		return fmt.Errorf("projecao nao encontrada: %s", name)
 	}
 
-	log.Printf("Reconstruindo projeção: %s", name)
+	log.Printf("[INFO] Reconstruindo projecao: %s", name)
 
 	if err := m.markRebuildStart(name); err != nil {
 		return err
 	}
 
 	if err := projection.Rebuild(); err != nil {
-		log.Printf("Erro ao reconstruir projeção %s: %v", name, err)
+		log.Printf("[ERROR] Erro ao reconstruir projecao %s: %v", name, err)
 		return err
 	}
 
@@ -183,7 +219,7 @@ func (m *Manager) RebuildProjection(name string) error {
 		return err
 	}
 
-	log.Printf("Projeção %s reconstruída com sucesso", name)
+	log.Printf("[INFO] Projecao %s reconstruida com sucesso", name)
 	return nil
 }
 
@@ -191,7 +227,7 @@ func (m *Manager) RebuildAllProjections() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	
-	log.Println("Reconstruindo TODAS as projeções...")
+	log.Println("[INFO] Reconstruindo TODAS as projecoes")
 
 	for name := range m.projections {
 		m.mu.Unlock()
@@ -199,12 +235,12 @@ func (m *Manager) RebuildAllProjections() error {
 		m.mu.Lock()
 		
 		if err != nil {
-			log.Printf("Erro ao reconstruir %s: %v", name, err)
+			log.Printf("[ERROR] Erro ao reconstruir %s: %v", name, err)
 			continue
 		}
 	}
 
-	log.Println("Todas as projeções reconstruídas")
+	log.Println("[INFO] Todas as projecoes reconstruidas")
 	return nil
 }
 
@@ -292,7 +328,7 @@ func (m *Manager) GetAllProjectionStatuses() ([]map[string]interface{}, error) {
 	for name := range m.projections {
 		status, err := m.GetProjectionStatus(name)
 		if err != nil {
-			log.Printf("Erro ao obter status de %s: %v", name, err)
+			log.Printf("[ERROR] Erro ao obter status de %s: %v", name, err)
 			continue
 		}
 		statuses = append(statuses, status)

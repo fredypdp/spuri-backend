@@ -1,0 +1,823 @@
+openapi: 3.0.3
+info:
+  title: Spuri Event Sourcing API
+  description: |
+    Sistema de Gestão Acadêmica com Event Sourcing e CQRS
+    
+    **Características:**
+    - Event Sourcing completo com PostgreSQL
+    - CQRS com Projeções
+    - Auditoria via Ledger
+    - Rate Limiting
+    - JWT Authentication
+    - Recuperação de Senha
+    
+  version: 3.0.0
+  contact:
+    name: Fundação Pedro Pires
+    email: suporte@spuri.ao
+
+servers:
+  - url: http://localhost:8080
+    description: Desenvolvimento Local
+  - url: https://api.spuri.ao
+    description: Produção
+
+tags:
+  - name: Health
+    description: Health checks e status do sistema
+  - name: Bootstrap
+    description: Setup inicial do sistema
+  - name: Authentication
+    description: Login e autenticação
+  - name: Academia
+    description: Operações de academias (escolas/universidades)
+  - name: Estudante
+    description: Operações de estudantes
+  - name: Inscrições
+    description: Gestão de inscrições
+  - name: Consultas
+    description: Consultas CQRS (read-only)
+  - name: Event Sourcing
+    description: Acesso ao ledger de eventos
+  - name: Admin
+    description: Operações administrativas
+  - name: Perfil
+    description: Perfis e dados de usuários
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        request_id:
+          type: string
+
+    LoginRequest:
+      type: object
+      required:
+        - usuario
+        - senha
+        - type
+      properties:
+        usuario:
+          type: string
+          description: codigo_estudante, codigo_academia ou email (admin)
+        senha:
+          type: string
+        type:
+          type: string
+          enum: [estudante, academia, admin]
+
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        codigo:
+          type: string
+          description: codigo_estudante ou codigo_academia
+        nome:
+          type: string
+        type:
+          type: string
+          enum: [estudante, academia, admin]
+        role:
+          type: string
+          enum: [fpp, adm, gerente]
+          description: Apenas para admin
+
+    RegisterAcademiaRequest:
+      type: object
+      required:
+        - type
+        - senha
+        - nome
+        - provincia
+        - endereco
+      properties:
+        type:
+          type: string
+          enum: [escola, superior]
+        senha:
+          type: string
+        nome:
+          type: string
+        provincia:
+          type: string
+        endereco:
+          type: string
+        numero_telefone:
+          type: string
+        email:
+          type: string
+        website:
+          type: string
+        nivel_escolar:
+          type: string
+          enum: [fundamental, medio, misto]
+          description: Obrigatório para escolas
+        cursos:
+          type: array
+          items:
+            type: string
+
+    RegisterEstudanteRequest:
+      type: object
+      required:
+        - senha
+        - nome
+      properties:
+        senha:
+          type: string
+        nome:
+          type: string
+        email:
+          type: string
+        telefone:
+          type: string
+        bilhete_identidade:
+          type: string
+        bilhete_identidade_responsavel:
+          type: string
+        ano_escolar:
+          type: string
+        ano_superior:
+          type: string
+        curso_medio:
+          type: string
+        curso_superior:
+          type: string
+        status_escolar:
+          type: string
+          enum: [inativo, em_andamento, finalizado]
+        status_superior:
+          type: string
+          enum: [inativo, em_andamento, finalizado]
+
+    Inscricao:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        estudante_id:
+          type: string
+          format: uuid
+        codigo_estudante:
+          type: string
+        academia_id:
+          type: string
+          format: uuid
+        codigo_academia:
+          type: string
+        tipo:
+          type: string
+          enum: [escola, universidade]
+        ano_inscricao:
+          type: string
+        curso:
+          type: string
+        status:
+          type: string
+          enum: [espera, aprovado, reprovado]
+        status_usado:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check básico
+      responses:
+        '200':
+          description: Sistema operacional
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  database:
+                    type: string
+                  service:
+                    type: string
+                  version:
+                    type: string
+
+  /health/detailed:
+    get:
+      tags:
+        - Health
+      summary: Health check detalhado (apenas admin)
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Status detalhado do sistema
+
+  /bootstrap/admin-fpp:
+    post:
+      tags:
+        - Bootstrap
+      summary: Criar primeiro admin FPP
+      description: |
+        IMPORTANTE: Só funciona se NÃO existir nenhum admin no sistema.
+        Após a criação do primeiro admin, use /admin/register para criar outros.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nome:
+                  type: string
+                  default: Admin FPP
+                email:
+                  type: string
+                  default: admin@spuri.ao
+                senha:
+                  type: string
+                  default: fpp@2025
+      responses:
+        '201':
+          description: Admin FPP criado com sucesso
+        '403':
+          description: Sistema já possui administradores
+
+  /login:
+    post:
+      tags:
+        - Authentication
+      summary: Login estudante/academia
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login bem-sucedido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Credenciais inválidas
+
+  /admin/login:
+    post:
+      tags:
+        - Authentication
+      summary: Login administrador
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - senha
+              properties:
+                email:
+                  type: string
+                senha:
+                  type: string
+      responses:
+        '200':
+          description: Login bem-sucedido
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/AuthResponse'
+                  - type: object
+                    properties:
+                      role:
+                        type: string
+                        enum: [fpp, adm, gerente]
+
+  /academia/register:
+    post:
+      tags:
+        - Academia
+      summary: Registrar academia (escola ou universidade)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterAcademiaRequest'
+      responses:
+        '201':
+          description: Academia criada (status inicial = inativo)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      codigo_academia:
+                        type: string
+
+  /estudante/register:
+    post:
+      tags:
+        - Estudante
+      summary: Registrar estudante
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterEstudanteRequest'
+      responses:
+        '201':
+          description: Estudante criado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      codigo_estudante:
+                        type: string
+
+  /inscricoes:
+    get:
+      tags:
+        - Inscrições
+      summary: Listar inscrições (filtrado por tipo de usuário)
+      description: |
+        - Admin: vê todas inscrições
+        - Academia: vê apenas suas inscrições
+        - Estudante: vê apenas suas inscrições
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [espera, aprovado, reprovado]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Lista de inscrições
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  inscricoes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Inscricao'
+                  total:
+                    type: integer
+                  total_geral:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+                  has_next:
+                    type: boolean
+                  user_type:
+                    type: string
+
+  /inscricoes-pendentes:
+    get:
+      tags:
+        - Inscrições
+      summary: Listar inscrições pendentes (status=espera)
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Inscrições pendentes
+
+  /estudante/inscricao-escola:
+    post:
+      tags:
+        - Estudante
+      summary: Solicitar inscrição em escola
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - codigo_academia
+                - ano_escolar_inscricao
+              properties:
+                codigo_academia:
+                  type: string
+                ano_escolar_inscricao:
+                  type: string
+                curso_medio:
+                  type: string
+      responses:
+        '201':
+          description: Inscrição solicitada
+
+  /estudante/inscricoes-aprovadas:
+    get:
+      tags:
+        - Estudante
+      summary: Listar inscrições aprovadas não usadas
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Inscrições aprovadas disponíveis para vincular
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  inscricoes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Inscricao'
+                  total:
+                    type: integer
+                  mensagem:
+                    type: string
+
+  /estudante/vincular-academia:
+    post:
+      tags:
+        - Estudante
+      summary: Vincular-se a academia usando inscrição aprovada
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - inscricao_id
+              properties:
+                inscricao_id:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Vinculado com sucesso
+
+  /academia/inscricao/{id}/aprovar:
+    put:
+      tags:
+        - Academia
+      summary: Aprovar inscrição
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Inscrição aprovada
+
+  /academia/inscricao/{id}/reprovar:
+    put:
+      tags:
+        - Academia
+      summary: Reprovar inscrição
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Inscrição reprovada
+
+  /meu-perfil:
+    get:
+      tags:
+        - Perfil
+      summary: Ver meu perfil (estudante, academia ou admin)
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Dados do perfil do usuário logado
+
+  /consultar-estudante/{codigo}:
+    get:
+      tags:
+        - Consultas
+      summary: Consultar estudante por código (academia ou admin)
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: codigo
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Dados do estudante
+
+  /consultar-academia/{codigo}:
+    get:
+      tags:
+        - Consultas
+      summary: Consultar academia por código (academia ou admin)
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: codigo
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Dados da academia
+
+  /academias:
+    get:
+      tags:
+        - Consultas
+      summary: Listar todas academias
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Lista de academias
+
+  /estudantes:
+    get:
+      tags:
+        - Consultas
+      summary: Listar estudantes
+      description: |
+        - Academia: vê apenas seus estudantes
+        - Admin: vê todos estudantes
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Lista de estudantes
+
+  /admin/register:
+    post:
+      tags:
+        - Admin
+      summary: Criar novo admin (apenas ADM+)
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - nome
+                - email
+                - senha
+                - role
+              properties:
+                nome:
+                  type: string
+                email:
+                  type: string
+                senha:
+                  type: string
+                role:
+                  type: string
+                  enum: [gerente, adm, fpp]
+      responses:
+        '201':
+          description: Admin criado
+
+  /admin/academia/{codigo}/ativar:
+    put:
+      tags:
+        - Admin
+      summary: Ativar academia (GERENTE+)
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: codigo
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Academia ativada
+
+  /admin/academia/{codigo}/desativar:
+    put:
+      tags:
+        - Admin
+      summary: Desativar academia (GERENTE+)
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: codigo
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - motivo
+              properties:
+                motivo:
+                  type: string
+      responses:
+        '200':
+          description: Academia desativada
+
+  /admin/todos-registros:
+    get:
+      tags:
+        - Admin
+      summary: Listar todos registros de notas/faltas
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: tipo
+          in: query
+          schema:
+            type: string
+            enum: [notas, faltas]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Registros de notas e/ou faltas
+
+  /admin/rebuild-projection/{name}:
+    post:
+      tags:
+        - Admin
+      summary: Reconstruir projeção
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [estudantes, academias, admins, notas, faltas, inscricoes, cursos, materias, all]
+      responses:
+        '200':
+          description: Projeção reconstruída
+
+  /admin/projections-status:
+    get:
+      tags:
+        - Admin
+      summary: Status de todas projeções
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Status das projeções
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  projections:
+                    type: array
+                    items:
+                      type: object
+                  total:
+                    type: integer
+
+  /eventos-estudante/{codigo}:
+    get:
+      tags:
+        - Event Sourcing
+      summary: Ver eventos de um estudante (Event Sourcing)
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: codigo
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Histórico completo de eventos
+
+  /verificar-integridade/{codigo}:
+    get:
+      tags:
+        - Event Sourcing
+      summary: Verificar integridade do ledger de um estudante
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: codigo
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Resultado da verificação de integridade
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  codigo_estudante:
+                    type: string
+                  nome:
+                    type: string
+                  integro:
+                    type: boolean
+                  message:
+                    type: string

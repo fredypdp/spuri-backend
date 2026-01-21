@@ -81,8 +81,12 @@ func getOrCreateRequestID(c *gin.Context) string {
 
 func getUserIDFromContext(c *gin.Context) string {
 	if userID, exists := c.Get("user_id"); exists {
-		if id, ok := userID.(uuid.UUID); ok {
-			return id.String()
+		// Aceita tanto string quanto uuid.UUID
+		switch v := userID.(type) {
+		case string:
+			return v
+		case uuid.UUID:
+			return v.String()
 		}
 	}
 	return "anonymous"
@@ -102,7 +106,7 @@ func SafeErrorMessage(err error) string {
 	
 	errorMessages := map[string]string{
 		"no rows":                         "registro não encontrado",
-		"duplicate key":                   "registro já existe",
+		"duplicate key":                   "valor já existe",
 		"foreign key constraint":          "operação inválida",
 		"check constraint":                "dados inválidos",
 		"invalid input syntax":            "formato de dados inválido",

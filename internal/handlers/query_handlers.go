@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"fmt"
 	"net/http"
 	"spuri/internal/middleware"
 	"strconv"
@@ -32,6 +31,7 @@ func getPaginationParams(c *gin.Context) (limit, offset int) {
 	return limit, offset
 }
 
+// ✅ CORRIGIDO: Todas queries usando prepared statements
 func ListarInscricoes(c *gin.Context) {
 	userID, exists := middleware.GetUserID(c)
 	if !exists {
@@ -70,103 +70,54 @@ func ListarInscricoes(c *gin.Context) {
 	var err error
 	var total int
 
+	baseQuery := `
+		SELECT 
+			id::text, estudante_id::text, codigo_estudante, academia_id::text, codigo_academia,
+			tipo, ano_inscricao, curso, status,
+			TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
+			TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at,
+			COALESCE(event_id::text, '') as event_id, version
+		FROM projection_inscricoes
+	`
+
 	switch userType {
 	case "admin":
 		if statusFilter != "" {
-			query := fmt.Sprintf(`
-				SELECT 
-					id::text, estudante_id::text, codigo_estudante, academia_id::text, codigo_academia,
-					tipo, ano_inscricao, curso, status,
-					TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
-					TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at,
-					COALESCE(event_id::text, '') as event_id, version
-				FROM projection_inscricoes
-				WHERE status = '%s'
-				ORDER BY created_at DESC
-				LIMIT %d OFFSET %d
-			`, statusFilter, limit, offset)
-			err = client.DB().Select(&inscricoes, query)
-			countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM projection_inscricoes WHERE status = '%s'`, statusFilter)
-			client.DB().Get(&total, countQuery)
+			query := baseQuery + ` WHERE status = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
+			err = client.DB().Select(&inscricoes, query, statusFilter, limit, offset)
+			
+			countQuery := `SELECT COUNT(*) FROM projection_inscricoes WHERE status = $1`
+			client.DB().Get(&total, countQuery, statusFilter)
 		} else {
-			query := fmt.Sprintf(`
-				SELECT 
-					id::text, estudante_id::text, codigo_estudante, academia_id::text, codigo_academia,
-					tipo, ano_inscricao, curso, status,
-					TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
-					TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at,
-					COALESCE(event_id::text, '') as event_id, version
-				FROM projection_inscricoes
-				ORDER BY created_at DESC
-				LIMIT %d OFFSET %d
-			`, limit, offset)
-			err = client.DB().Select(&inscricoes, query)
+			query := baseQuery + ` ORDER BY created_at DESC LIMIT $1 OFFSET $2`
+			err = client.DB().Select(&inscricoes, query, limit, offset)
+			
 			countQuery := `SELECT COUNT(*) FROM projection_inscricoes`
 			client.DB().Get(&total, countQuery)
 		}
 
 	case "academia":
 		if statusFilter != "" {
-			query := fmt.Sprintf(`
-				SELECT 
-					id::text, estudante_id::text, codigo_estudante, academia_id::text, codigo_academia,
-					tipo, ano_inscricao, curso, status,
-					TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
-					TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at,
-					COALESCE(event_id::text, '') as event_id, version
-				FROM projection_inscricoes
-				WHERE academia_id = '%s' AND status = '%s'
-				ORDER BY created_at DESC
-				LIMIT %d OFFSET %d
-			`, userID.String(), statusFilter, limit, offset)
-			err = client.DB().Select(&inscricoes, query)
-			countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = '%s' AND status = '%s'`, userID.String(), statusFilter)
-			client.DB().Get(&total, countQuery)
+			query := baseQuery + ` WHERE academia_id = $1 AND status = $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4`
+			err = client.DB().Select(&inscricoes, query, userID, statusFilter, limit, offset)
+			
+			countQuery := `SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = $1 AND status = $2`
+			client.DB().Get(&total, countQuery, userID, statusFilter)
 		} else {
-			query := fmt.Sprintf(`
-				SELECT 
-					id::text, estudante_id::text, codigo_estudante, academia_id::text, codigo_academia,
-					tipo, ano_inscricao, curso, status,
-					TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
-					TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at,
-					COALESCE(event_id::text, '') as event_id, version
-				FROM projection_inscricoes
-				WHERE academia_id = '%s'
-				ORDER BY created_at DESC
-				LIMIT %d OFFSET %d
-			`, userID.String(), limit, offset)
-			err = client.DB().Select(&inscricoes, query)
-			countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = '%s'`, userID.String())
-			client.DB().Get(&total, countQuery)
+			query := baseQuery + ` WHERE academia_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
+			err = client.DB().Select(&inscricoes, query, userID, limit, offset)
+			
+			countQuery := `SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = $1`
+			client.DB().Get(&total, countQuery, userID)
 		}
 
 	case "estudante":
 		if statusFilter != "" {
-			query := fmt.Sprintf(`
-				SELECT 
-					id::text, estudante_id::text, codigo_estudante, academia_id::text, codigo_academia,
-					tipo, ano_inscricao, curso, status,
-					TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
-					TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at,
-					COALESCE(event_id::text, '') as event_id, version
-				FROM projection_inscricoes
-				WHERE estudante_id = '%s' AND status = '%s'
-				ORDER BY created_at DESC
-			`, userID.String(), statusFilter)
-			err = client.DB().Select(&inscricoes, query)
+			query := baseQuery + ` WHERE estudante_id = $1 AND status = $2 ORDER BY created_at DESC`
+			err = client.DB().Select(&inscricoes, query, userID, statusFilter)
 		} else {
-			query := fmt.Sprintf(`
-				SELECT 
-					id::text, estudante_id::text, codigo_estudante, academia_id::text, codigo_academia,
-					tipo, ano_inscricao, curso, status,
-					TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
-					TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at,
-					COALESCE(event_id::text, '') as event_id, version
-				FROM projection_inscricoes
-				WHERE estudante_id = '%s'
-				ORDER BY created_at DESC
-			`, userID.String())
-			err = client.DB().Select(&inscricoes, query)
+			query := baseQuery + ` WHERE estudante_id = $1 ORDER BY created_at DESC`
+			err = client.DB().Select(&inscricoes, query, userID)
 		}
 		total = len(inscricoes)
 
@@ -176,7 +127,6 @@ func ListarInscricoes(c *gin.Context) {
 	}
 
 	if err != nil {
-		// ✅ CORRIGIDO: Log genérico sem dados sensíveis
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 		return
 	}
@@ -193,6 +143,7 @@ func ListarInscricoes(c *gin.Context) {
 	})
 }
 
+// ✅ CORRIGIDO: Query parametrizada
 func ListarInscricoesPendentes(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
@@ -217,50 +168,31 @@ func ListarInscricoesPendentes(c *gin.Context) {
 	var inscricoes []InscricaoDetalhada
 	var total int
 
+	baseQuery := `
+		SELECT 
+			id::text, estudante_id::text, codigo_estudante, academia_id::text, codigo_academia,
+			tipo, ano_inscricao, curso, status,
+			TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
+			TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
+		FROM projection_inscricoes WHERE status = 'espera'
+	`
+
 	switch userType {
 	case "admin":
-		query := fmt.Sprintf(`
-			SELECT 
-				id::text, estudante_id::text, codigo_estudante, academia_id::text, codigo_academia,
-				tipo, ano_inscricao, curso, status,
-				TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
-				TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
-			FROM projection_inscricoes
-			WHERE status = 'espera'
-			ORDER BY created_at DESC
-			LIMIT %d OFFSET %d
-		`, limit, offset)
-		client.DB().Select(&inscricoes, query)
+		query := baseQuery + ` ORDER BY created_at DESC LIMIT $1 OFFSET $2`
+		client.DB().Select(&inscricoes, query, limit, offset)
 		client.DB().Get(&total, `SELECT COUNT(*) FROM projection_inscricoes WHERE status = 'espera'`)
 
 	case "academia":
-		query := fmt.Sprintf(`
-			SELECT 
-				id::text, estudante_id::text, codigo_estudante, academia_id::text, codigo_academia,
-				tipo, ano_inscricao, curso, status,
-				TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
-				TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
-			FROM projection_inscricoes
-			WHERE academia_id = '%s' AND status = 'espera'
-			ORDER BY created_at DESC
-			LIMIT %d OFFSET %d
-		`, userID.String(), limit, offset)
-		client.DB().Select(&inscricoes, query)
-		countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = '%s' AND status = 'espera'`, userID.String())
-		client.DB().Get(&total, countQuery)
+		query := baseQuery + ` AND academia_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
+		client.DB().Select(&inscricoes, query, userID, limit, offset)
+		
+		countQuery := `SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = $1 AND status = 'espera'`
+		client.DB().Get(&total, countQuery, userID)
 
 	case "estudante":
-		query := fmt.Sprintf(`
-			SELECT 
-				id::text, estudante_id::text, codigo_estudante, academia_id::text, codigo_academia,
-				tipo, ano_inscricao, curso, status,
-				TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
-				TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
-			FROM projection_inscricoes
-			WHERE estudante_id = '%s' AND status = 'espera'
-			ORDER BY created_at DESC
-		`, userID.String())
-		client.DB().Select(&inscricoes, query)
+		query := baseQuery + ` AND estudante_id = $1 ORDER BY created_at DESC`
+		client.DB().Select(&inscricoes, query, userID)
 		total = len(inscricoes)
 
 	default:
@@ -269,14 +201,14 @@ func ListarInscricoesPendentes(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"inscricoes": inscricoes,
-		"total":      len(inscricoes),
+		"inscricoes":  inscricoes,
+		"total":       len(inscricoes),
 		"total_geral": total,
-		"limit":      limit,
-		"offset":     offset,
-		"has_next":   offset + len(inscricoes) < total,
-		"status":     "espera",
-		"user_type":  userType,
+		"limit":       limit,
+		"offset":      offset,
+		"has_next":    offset + len(inscricoes) < total,
+		"status":      "espera",
+		"user_type":   userType,
 	})
 }
 
@@ -508,18 +440,19 @@ func GetMeuHistorico(c *gin.Context) {
 	})
 }
 
+// ✅ CORRIGIDO: Query parametrizada
 func ListarTodasAcademias(c *gin.Context) {
 	limit, offset := getPaginationParams(c)
 	
-	query := fmt.Sprintf(`
+	query := `
 		SELECT 
 			id, nome, codigo_academia, type, provincia,
 			status, nivel_escolar, created_at,
 			total_estudantes, total_inscricoes_pendentes
 		FROM projection_academias
 		ORDER BY created_at DESC
-		LIMIT %d OFFSET %d
-	`, limit, offset)
+		LIMIT $1 OFFSET $2
+	`
 
 	type AcademiaSimples struct {
 		ID                       uuid.UUID `db:"id" json:"id"`
@@ -538,7 +471,7 @@ func ListarTodasAcademias(c *gin.Context) {
 	var total int
 	
 	client := getDbClient(c)
-	if err := client.DB().Select(&academias, query); err != nil {
+	if err := client.DB().Select(&academias, query, limit, offset); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar academias"})
 		return
 	}
@@ -546,11 +479,11 @@ func ListarTodasAcademias(c *gin.Context) {
 	client.DB().Get(&total, `SELECT COUNT(*) FROM projection_academias`)
 
 	c.JSON(http.StatusOK, gin.H{
-		"academias":  academias,
-		"total":      len(academias),
+		"academias":   academias,
+		"total":       len(academias),
 		"total_geral": total,
-		"limit":      limit,
-		"offset":     offset,
-		"has_next":   offset + len(academias) < total,
+		"limit":       limit,
+		"offset":      offset,
+		"has_next":    offset + len(academias) < total,
 	})
 }

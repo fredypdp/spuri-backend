@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -46,6 +47,7 @@ func TestGenerateToken(t *testing.T) {
 
 	t.Run("tokens should be different", func(t *testing.T) {
 		token1, _ := GenerateToken(userID, "estudante")
+		time.Sleep(2 * time.Second) // Garantir timestamps diferentes
 		token2, _ := GenerateToken(userID, "estudante")
 
 		assert.NotEqual(t, token1, token2)

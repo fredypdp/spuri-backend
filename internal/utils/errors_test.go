@@ -18,6 +18,7 @@ func setupTestContext() (*gin.Context, *httptest.ResponseRecorder) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/test", nil)
 	return c, w
 }
 
@@ -35,7 +36,7 @@ func TestSafeErrorMessage(t *testing.T) {
 		{
 			"duplicate key",
 			errors.New("pq: duplicate key value violates unique constraint"),
-			"registro já existe",
+			"valor já existe",
 		},
 		{
 			"foreign key",
@@ -207,7 +208,7 @@ func TestGetUserIDFromContext(t *testing.T) {
 		
 		userID := getUserIDFromContext(c)
 		
-		assert.Contains(t, userID, "user")
+		assert.Equal(t, "user-123", userID)
 	})
 
 	t.Run("should return anonymous when not present", func(t *testing.T) {

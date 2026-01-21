@@ -11,7 +11,7 @@ import (
 var (
 	emailRegex    = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
 	phoneRegex    = regexp.MustCompile(`^\+?[0-9]{9,15}$`)
-	sqlCharsRegex = regexp.MustCompile(`[';--]`) // ❌ ERRADO
+	sqlCharsRegex = regexp.MustCompile(`[';-]|--`) // ✓ CORRIGIDO
 )
 
 func SafeDeref(s *string) string {
@@ -63,6 +63,10 @@ func ValidateString(value, fieldName string, minLen, maxLen int, required bool) 
 	
 	if required && value == "" {
 		return fmt.Errorf("%s é obrigatório", fieldName)
+	}
+
+	if !required && value == "" {
+		return nil
 	}
 	
 	if value != "" && sqlCharsRegex.MatchString(value) {

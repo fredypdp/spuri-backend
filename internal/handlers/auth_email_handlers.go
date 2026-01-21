@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/handlers/auth_email_handlers.go
-// 🔥 CORRIGIDO: Conversão de tipos UUID
+// 🔥 CORRIGIDO: Conversão de tipos UUID + Erros de compilação
 // ============================================================================
 
 package handlers
@@ -127,27 +127,26 @@ func ResetarSenha(c *gin.Context) {
 
 	client := getDbClient(c)
 
-	// Buscar código/role do usuário
+	// 🔥 CORRIGIDO: Buscar código/role baseado no tipo de usuário
 	var codigo string
 	var table string
-	var columnName string
-	
+	var query string
+
 	switch tokenInfo.UserType {
 	case "estudante":
+		query = `SELECT codigo_estudante FROM projection_estudantes WHERE id = $1`
 		table = "projection_estudantes"
-		columnName = "codigo_estudante"
 	case "academia":
+		query = `SELECT codigo_academia FROM projection_academias WHERE id = $1`
 		table = "projection_academias"
-		columnName = "codigo_academia"
 	case "admin":
+		query = `SELECT role FROM projection_admins WHERE id = $1`
 		table = "projection_admins"
-		columnName = "role"
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "tipo de usuário inválido"})
 		return
 	}
 
-	query := "SELECT " + columnName + " FROM " + table + " WHERE id = $1"
 	err = client.DB().QueryRow(query, tokenInfo.UserID).Scan(&codigo)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
