@@ -150,9 +150,6 @@ func (m *Manager) processEventWithRetry(name string, projection Projection, even
 
 // ✅ FIX DEFINITIVO: Usar sqlx.Queryx que NÃO cache prepared statements
 func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	
 	// ✅ SOLUÇÃO: Usar Queryx do sqlx ao invés de QueryContext
 	// Queryx cria uma nova query toda vez, evitando cache de prepared statements
 	query := `
