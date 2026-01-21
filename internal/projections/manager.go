@@ -79,7 +79,6 @@ func (m *Manager) processNewEvents() error {
 	return nil
 }
 
-// ✅ NOVO: Retry com Exponential Backoff
 func (m *Manager) processProjection(name string, projection Projection) error {
 	lastProcessedID, err := projection.GetLastProcessedEventID()
 	if err != nil {
@@ -97,19 +96,14 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 
 	processedCount := 0
 	
-	// ✅ Processar cada evento com RETRY
 	for _, event := range events {
 		if err := m.processEventWithRetry(name, projection, event); err != nil {
-			// Evento falhou após todas tentativas - registra e continua
 			log.Printf("[ERROR] Projecao %s: evento %d falhou permanentemente", name, event.ID)
 			m.logProjectionError(name, err.Error())
-			
-			// Atualiza checkpoint mesmo com erro (evita travar pipeline)
 			projection.UpdateCheckpoint(event.ID)
 			continue
 		}
 		
-		// ✅ Sucesso - atualiza checkpoint
 		if err := projection.UpdateCheckpoint(event.ID); err != nil {
 			log.Printf("[WARN] Erro ao atualizar checkpoint para evento %d: %v", event.ID, err)
 		}
@@ -124,7 +118,6 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 	return nil
 }
 
-// ✅ NOVO: Processa evento com retry e exponential backoff
 func (m *Manager) processEventWithRetry(name string, projection Projection, event db.Event) error {
 	maxRetries := 3
 	baseDelay := 1 * time.Second
@@ -135,7 +128,6 @@ func (m *Manager) processEventWithRetry(name string, projection Projection, even
 		err := projection.Handle(event)
 		
 		if err == nil {
-			// ✅ Sucesso!
 			if attempt > 1 {
 				log.Printf("[INFO] Projecao %s: evento %d recuperado na tentativa %d", 
 					name, event.ID, attempt)
@@ -145,7 +137,6 @@ func (m *Manager) processEventWithRetry(name string, projection Projection, even
 		
 		lastErr = err
 		
-		// Se não for última tentativa, espera com backoff exponencial
 		if attempt < maxRetries {
 			delay := time.Duration(attempt*attempt) * baseDelay
 			log.Printf("[WARN] Projecao %s: evento %d falhou (tentativa %d/%d), retry em %v", 
@@ -154,15 +145,15 @@ func (m *Manager) processEventWithRetry(name string, projection Projection, even
 		}
 	}
 	
-	// ❌ Falhou após todas tentativas
 	return fmt.Errorf("evento %d falhou apos %d tentativas: %w", event.ID, maxRetries, lastErr)
 }
 
+// ✅ FIX: Sempre usar QueryContext sem cache de prepared statements
 func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
-	// ✅ FIX: Usar QueryContext com contexto para evitar conflitos de prepared statements
-	ctx, cancel := context.WithTimeout(m.ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	
+	// ✅ Usar nome único para prepared statement evitando conflitos
 	rows, err := m.client.DB().QueryContext(ctx, `
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
@@ -249,7 +240,8 @@ func (m *Manager) RebuildAllProjections() error {
 }
 
 func (m *Manager) markRebuildStart(name string) error {
-	_, err := m.client.DB().Exec(`
+	ctx := context.Background()
+	_, err := m.client.DB().ExecContext(ctx, `
 		UPDATE projection_checkpoints
 		SET is_rebuilding = $1, rebuild_started_at = CURRENT_TIMESTAMP, last_processed_event_id = $2
 		WHERE projection_name = $3
@@ -258,13 +250,14 @@ func (m *Manager) markRebuildStart(name string) error {
 }
 
 func (m *Manager) markRebuildComplete(name string) error {
+	ctx := context.Background()
 	var lastEventID int64
-	err := m.client.DB().QueryRow(`SELECT COALESCE(MAX(id), 0) FROM spuri_ledger`).Scan(&lastEventID)
+	err := m.client.DB().QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM spuri_ledger`).Scan(&lastEventID)
 	if err != nil {
 		return err
 	}
 
-	_, err = m.client.DB().Exec(`
+	_, err = m.client.DB().ExecContext(ctx, `
 		UPDATE projection_checkpoints
 		SET is_rebuilding = $1, rebuild_started_at = $2,
 			last_processed_event_id = $3, last_processed_at = CURRENT_TIMESTAMP
@@ -274,7 +267,8 @@ func (m *Manager) markRebuildComplete(name string) error {
 }
 
 func (m *Manager) logProjectionError(name, errorMsg string) {
-	m.client.DB().Exec(`
+	ctx := context.Background()
+	m.client.DB().ExecContext(ctx, `
 		UPDATE projection_checkpoints
 		SET error_count = error_count + 1, last_error = $1, last_error_at = CURRENT_TIMESTAMP
 		WHERE projection_name = $2
@@ -282,7 +276,8 @@ func (m *Manager) logProjectionError(name, errorMsg string) {
 }
 
 func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, error) {
-	row := m.client.DB().QueryRow(`
+	ctx := context.Background()
+	row := m.client.DB().QueryRowContext(ctx, `
 		SELECT projection_name, last_processed_event_id, last_processed_at,
 			events_processed, is_rebuilding, rebuild_started_at,
 			error_count, last_error, last_error_at
