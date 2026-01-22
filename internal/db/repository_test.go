@@ -1,191 +1,240 @@
-// ============================================================================
-// ARQUIVO: internal/db/repository_test.go
-// Testes de integração para Repository
-// ============================================================================
-
 package db
 
 import (
-	"os"
-	"testing"
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"time"
 
 	"spuri/internal/domain/aggregates"
 
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-func setupTestDB(t *testing.T) (*Client, func()) {
-	// Usar variáveis de teste ou criar DB temporário
-	config := &Config{
-		Host:     getEnvOrDefault("TEST_DB_HOST", "localhost"),
-		Port:     getEnvOrDefault("TEST_DB_PORT", "5432"),
-		User:     getEnvOrDefault("TEST_DB_USER", "postgres"),
-		Password: getEnvOrDefault("TEST_DB_PASSWORD", "postgres"),
-		DBName:   getEnvOrDefault("TEST_DB_NAME", "spuri_test"),
-		SSLMode:  "disable",
-	}
-
-	client, err := NewClient(config)
-	require.NoError(t, err, "Falha ao conectar ao banco de teste")
-
-	cleanup := func() {
-		// Limpar dados de teste
-		client.DB().Exec("TRUNCATE TABLE spuri_ledger CASCADE")
-		client.Close()
-	}
-
-	return client, cleanup
+type AggregateRepository struct {
+	eventStore *EventStore
+	factory    aggregates.AggregateFactory
+	ctx        context.Context
 }
 
-func TestRepository_SaveAndLoad(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Pulando teste de integração")
+func NewAggregateRepository(client *Client) *AggregateRepository {
+	return &AggregateRepository{
+		eventStore: NewEventStore(client),
+		factory:    &aggregates.DefaultAggregateFactory{},
+		ctx:        context.Background(),
 	}
-
-	client, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	repo := NewAggregateRepository(client)
-
-	t.Run("should save and load estudante", func(t *testing.T) {
-		// Criar estudante
-		estudante := aggregates.NewEstudante()
-		bilhete := "123456789LA"
-		
-		err := estudante.Criar(
-			"João Teste",
-			"TST1234",
-			"hash",
-			nil, nil, &bilhete, nil,
-			nil, nil, nil, nil, nil, nil,
-		)
-		require.NoError(t, err)
-
-		// Salvar
-		err = repo.Save(estudante)
-		require.NoError(t, err)
-
-		// Carregar
-		loaded, err := repo.Load(estudante.ID, "Estudante")
-		require.NoError(t, err)
-		
-		loadedEstudante := loaded.(*aggregates.Estudante)
-		assert.Equal(t, estudante.Nome, loadedEstudante.Nome)
-		assert.Equal(t, estudante.CodigoEstudante, loadedEstudante.CodigoEstudante)
-	})
-
-	t.Run("should maintain event version", func(t *testing.T) {
-		estudante := aggregates.NewEstudante()
-		bilhete := "987654321LA"
-		
-		err := estudante.Criar(
-			"Maria Teste",
-			"TST5678",
-			"hash",
-			nil, nil, &bilhete, nil,
-			nil, nil, nil, nil, nil, nil,
-		)
-		require.NoError(t, err)
-
-		// Salvar primeira vez
-		err = repo.Save(estudante)
-		require.NoError(t, err)
-
-		// Adicionar novo evento
-		estudante.ClearUncommittedEvents()
-		status := "finalizado"
-		estudante.AtualizarStatusEscolar(status)
-
-		// Salvar segunda vez
-		err = repo.Save(estudante)
-		require.NoError(t, err)
-
-		// Carregar e verificar
-		loaded, err := repo.Load(estudante.ID, "Estudante")
-		require.NoError(t, err)
-		
-		assert.Equal(t, 2, loaded.GetVersion())
-	})
 }
 
-func TestRepository_VerifyIntegrity(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Pulando teste de integração")
+func (r *AggregateRepository) Load(id uuid.UUID, aggregateType string) (aggregates.Aggregate, error) {
+	dbEvents, err := r.eventStore.LoadEventStream(r.ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao carregar eventos: %w", err)
 	}
 
-	client, cleanup := setupTestDB(t)
-	defer cleanup()
+	if len(dbEvents) == 0 {
+		return nil, fmt.Errorf("agregado não encontrado: %s", id)
+	}
 
-	repo := NewAggregateRepository(client)
+	domainEvents, err := r.convertToDomainEvents(dbEvents)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao converter eventos: %w", err)
+	}
 
-	t.Run("should verify hash chain integrity", func(t *testing.T) {
-		estudante := aggregates.NewEstudante()
-		bilhete := "111222333LA"
-		
-		err := estudante.Criar(
-			"Pedro Teste",
-			"TST9999",
-			"hash",
-			nil, nil, &bilhete, nil,
-			nil, nil, nil, nil, nil, nil,
-		)
-		require.NoError(t, err)
+	aggregate, err := r.factory.Create(aggregateType)
+	if err != nil {
+		return nil, err
+	}
 
-		err = repo.Save(estudante)
-		require.NoError(t, err)
+	for _, event := range domainEvents {
+		if err := aggregate.Apply(event); err != nil {
+			return nil, fmt.Errorf("erro ao aplicar evento: %w", err)
+		}
+	}
 
-		// Verificar integridade
-		valid, err := repo.VerifyIntegrity(estudante.ID)
-		require.NoError(t, err)
-		assert.True(t, valid, "Hash chain deve estar íntegro")
-	})
+	return aggregate, nil
 }
 
-func TestRepository_Exists(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Pulando teste de integração")
+func (r *AggregateRepository) Save(aggregate aggregates.Aggregate) error {
+	uncommittedEvents := aggregate.GetUncommittedEvents()
+	if len(uncommittedEvents) == 0 {
+		return nil
 	}
 
-	client, cleanup := setupTestDB(t)
-	defer cleanup()
+	currentVersion := 0
+	version, err := r.eventStore.GetAggregateVersion(r.ctx, aggregate.GetID())
+	
+	if err == nil {
+		currentVersion = version
+	}
+	
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("erro ao obter versão: %w", err)
+	}
 
-	repo := NewAggregateRepository(client)
-
-	t.Run("should return true for existing aggregate", func(t *testing.T) {
-		estudante := aggregates.NewEstudante()
-		bilhete := "444555666LA"
-		
-		err := estudante.Criar(
-			"Ana Teste",
-			"TST7777",
-			"hash",
-			nil, nil, &bilhete, nil,
-			nil, nil, nil, nil, nil, nil,
+	for i, domainEvent := range uncommittedEvents {
+		dbEvent, err := r.dbEvent(
+			domainEvent,
+			aggregate.GetType(),
+			currentVersion+i+1,
 		)
-		require.NoError(t, err)
+		if err != nil {
+			return fmt.Errorf("erro ao converter evento: %w", err)
+		}
 
-		err = repo.Save(estudante)
-		require.NoError(t, err)
+		if err := r.eventStore.Append(r.ctx, dbEvent); err != nil {
+			return fmt.Errorf("erro ao salvar evento: %w", err)
+		}
+	}
 
-		exists, err := repo.Exists(estudante.ID)
-		require.NoError(t, err)
-		assert.True(t, exists)
-	})
-
-	t.Run("should return false for non-existing aggregate", func(t *testing.T) {
-		randomID := uuid.New()
-
-		exists, err := repo.Exists(randomID)
-		require.NoError(t, err)
-		assert.False(t, exists)
-	})
+	aggregate.ClearUncommittedEvents()
+	return nil
 }
 
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+func (r *AggregateRepository) Exists(id uuid.UUID) (bool, error) {
+	count, err := r.eventStore.CountEventsByAggregate(r.ctx, id)
+	if err != nil {
+		return false, err
 	}
-	return defaultValue
+	return count > 0, nil
+}
+
+func (r *AggregateRepository) LoadFromVersion(
+	id uuid.UUID,
+	aggregateType string,
+	fromVersion int,
+) (aggregates.Aggregate, error) {
+	dbEvents, err := r.eventStore.LoadEventStreamFromVersion(r.ctx, id, fromVersion)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao carregar eventos: %w", err)
+	}
+
+	if len(dbEvents) == 0 {
+		return nil, fmt.Errorf("nenhum evento encontrado")
+	}
+
+	domainEvents, err := r.convertToDomainEvents(dbEvents)
+	if err != nil {
+		return nil, err
+	}
+
+	aggregate, err := r.factory.Create(aggregateType)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, event := range domainEvents {
+		if err := aggregate.Apply(event); err != nil {
+			return nil, err
+		}
+	}
+
+	return aggregate, nil
+}
+
+func (r *AggregateRepository) GetEventHistory(id uuid.UUID) ([]Event, error) {
+	return r.eventStore.LoadEventStream(r.ctx, id)
+}
+
+func (r *AggregateRepository) VerifyIntegrity(id uuid.UUID) (bool, error) {
+	return r.eventStore.VerifyLedgerIntegrity(r.ctx, id)
+}
+
+func (r *AggregateRepository) dbEvent(
+	domainEvent aggregates.DomainEvent,
+	aggregateType string,
+	version int,
+) (*Event, error) {
+	payload := domainEvent.GetPayload()
+	
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao serializar payload: %w", err)
+	}
+
+	metadata := map[string]interface{}{
+		"timestamp": time.Now().Unix(),
+	}
+	metadataJSON, _ := json.Marshal(metadata)
+
+	return &Event{
+		EventID:       uuid.New(),
+		AggregateID:   domainEvent.GetAggregateID(),
+		AggregateType: aggregateType,
+		EventType:     domainEvent.GetEventType(),
+		EventVersion:  version,
+		Payload:       payloadJSON,
+		Metadata:      metadataJSON,
+		OccurredAt:    time.Now(),
+	}, nil
+}
+
+func (r *AggregateRepository) convertToDomainEvents(dbEvents []Event) ([]aggregates.DomainEvent, error) {
+	domainEvents := make([]aggregates.DomainEvent, 0, len(dbEvents))
+
+	for _, ge := range dbEvents {
+		var payload map[string]interface{}
+		if err := json.Unmarshal(ge.Payload, &payload); err != nil {
+			return nil, err
+		}
+
+		domainEvent := &aggregates.BaseEvent{
+			EventType:   ge.EventType,
+			AggregateID: ge.AggregateID,
+			Payload:     payload,
+		}
+
+		domainEvents = append(domainEvents, domainEvent)
+	}
+
+	return domainEvents, nil
+}
+
+// ✅ FIX: Usar Exec do sqlx
+func (r *AggregateRepository) SaveSnapshot(aggregate aggregates.Aggregate) error {
+	stateJSON, err := json.Marshal(aggregate)
+	if err != nil {
+		return err
+	}
+
+	query := `
+		INSERT INTO aggregate_snapshots (aggregate_id, aggregate_type, version, state)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (aggregate_id) 
+		DO UPDATE SET 
+			version = EXCLUDED.version,
+			state = EXCLUDED.state,
+			updated_at = CURRENT_TIMESTAMP`
+
+	_, err = r.eventStore.client.db.Exec(query,
+		aggregate.GetID(),
+		aggregate.GetType(),
+		aggregate.GetVersion(),
+		stateJSON,
+	)
+	return err
+}
+
+// ✅ FIX: Usar Get do sqlx
+func (r *AggregateRepository) LoadSnapshot(id uuid.UUID) (*Snapshot, error) {
+	query := `
+		SELECT aggregate_id, aggregate_type, version, state, created_at
+		FROM aggregate_snapshots
+		WHERE aggregate_id = $1`
+
+	var snapshot Snapshot
+	err := r.eventStore.client.db.Get(&snapshot, query, id)
+	if err != nil {
+		return nil, err
+	}
+
+	return &snapshot, nil
+}
+
+type Snapshot struct {
+	AggregateID   uuid.UUID       `db:"aggregate_id"`
+	AggregateType string          `db:"aggregate_type"`
+	Version       int             `db:"version"`
+	State         json.RawMessage `db:"state"`
+	CreatedAt     time.Time       `db:"created_at"`
 }

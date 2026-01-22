@@ -1,10 +1,10 @@
 package projections
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"spuri/internal/db"
 	"time"
 
@@ -13,11 +13,10 @@ import (
 
 type MateriasProjection struct {
 	client *db.Client
-	ctx    context.Context
 }
 
 func NewMateriasProjection(client *db.Client) *MateriasProjection {
-	return &MateriasProjection{client: client, ctx: context.Background()}
+	return &MateriasProjection{client: client}
 }
 
 func (p *MateriasProjection) Name() string { return "materias" }
@@ -45,13 +44,14 @@ func (p *MateriasProjection) Rebuild() error {
 		return err
 	}
 
-	ctx := context.Background()
-	rows, err := p.client.DB().QueryContext(ctx, `
+	query := `
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger WHERE aggregate_type = 'MateriaDisciplinar' ORDER BY id ASC
-	`)
+	`
+	
+	rows, err := p.client.DB().Queryx(query)
 	if err != nil {
 		return err
 	}
@@ -73,13 +73,13 @@ func (p *MateriasProjection) Rebuild() error {
 }
 
 func (p *MateriasProjection) GetLastProcessedEventID() (int64, error) {
-	ctx := context.Background()
 	var lastID int64
-	err := p.client.DB().QueryRowContext(ctx, `
+	query := `
 		SELECT last_processed_event_id 
 		FROM projection_checkpoints 
 		WHERE projection_name = $1
-	`, p.Name()).Scan(&lastID)
+	`
+	err := p.client.DB().Get(&lastID, query, p.Name())
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -87,20 +87,19 @@ func (p *MateriasProjection) GetLastProcessedEventID() (int64, error) {
 }
 
 func (p *MateriasProjection) UpdateCheckpoint(eventID int64) error {
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `
+	query := `
 		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
 		VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
 		ON CONFLICT (projection_name) DO UPDATE SET
 			last_processed_event_id = $2, last_processed_at = CURRENT_TIMESTAMP,
 			events_processed = projection_checkpoints.events_processed + 1
-	`, p.Name(), eventID)
+	`
+	_, err := p.client.DB().Exec(query, p.Name(), eventID)
 	return err
 }
 
 func (p *MateriasProjection) clear() error {
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `TRUNCATE TABLE projection_materias CASCADE`)
+	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_materias CASCADE`)
 	return err
 }
 
@@ -123,28 +122,28 @@ func (p *MateriasProjection) handleMateriaCriada(event db.Event) error {
 		nivelJSON, _ = json.Marshal(payload.Nivel)
 	}
 
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `
+	query := `
 		INSERT INTO projection_materias (id, nome, type, nivel, codigo_academia, curso_id, status, created_at, updated_at, version, last_event_id)
 		VALUES ($1, $2, $3, $4, $5, $6, 'ativo', $7, CURRENT_TIMESTAMP, $8, $9)
-	`, event.AggregateID, payload.Nome, payload.Type, nivelJSON, payload.CodigoAcademia,
+	`
+	_, err := p.client.DB().Exec(query, event.AggregateID, payload.Nome, payload.Type, nivelJSON, payload.CodigoAcademia,
 		payload.CursoID, payload.CreatedAt, event.EventVersion, event.EventID)
 	return err
 }
 
 func (p *MateriasProjection) handleMateriaAtivada(event db.Event) error {
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `
+	query := `
 		UPDATE projection_materias SET status = 'ativo', version = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2
-	`, event.EventVersion, event.AggregateID)
+	`
+	_, err := p.client.DB().Exec(query, event.EventVersion, event.AggregateID)
 	return err
 }
 
 func (p *MateriasProjection) handleMateriaDesativada(event db.Event) error {
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `
+	query := `
 		UPDATE projection_materias SET status = 'inativo', version = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2
-	`, event.EventVersion, event.AggregateID)
+	`
+	_, err := p.client.DB().Exec(query, event.EventVersion, event.AggregateID)
 	return err
 }
 
@@ -158,33 +157,30 @@ func (p *MateriasProjection) handleMateriaDadosAtualizados(event db.Event) error
 		return err
 	}
 
-	ctx := context.Background()
-	
 	if payload.Nome != nil {
-		p.client.DB().ExecContext(ctx, `UPDATE projection_materias SET nome = $1 WHERE id = $2`, *payload.Nome, event.AggregateID)
+		p.client.DB().Exec(`UPDATE projection_materias SET nome = $1 WHERE id = $2`, *payload.Nome, event.AggregateID)
 	}
 	if payload.Type != nil {
-		p.client.DB().ExecContext(ctx, `UPDATE projection_materias SET type = $1 WHERE id = $2`, *payload.Type, event.AggregateID)
+		p.client.DB().Exec(`UPDATE projection_materias SET type = $1 WHERE id = $2`, *payload.Type, event.AggregateID)
 	}
 
-	_, err := p.client.DB().ExecContext(ctx, `
+	_, err := p.client.DB().Exec(`
 		UPDATE projection_materias SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2 WHERE id = $3
 	`, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
 func (p *MateriasProjection) GetByID(id uuid.UUID) (*MateriaDTO, error) {
-	ctx := context.Background()
 	var dto MateriaDTO
 	var nivelJSON []byte
 	var cursoID sql.NullString
 
-	err := p.client.DB().QueryRowContext(ctx, `
+	query := `
 		SELECT id, nome, type, nivel, codigo_academia, curso_id, status, created_at, updated_at, version
 		FROM projection_materias WHERE id = $1
-	`, id).Scan(&dto.ID, &dto.Nome, &dto.Type, &nivelJSON, &dto.CodigoAcademia,
-		&cursoID, &dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version)
-
+	`
+	
+	err := p.client.DB().Get(&dto, query, id)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -192,6 +188,7 @@ func (p *MateriasProjection) GetByID(id uuid.UUID) (*MateriaDTO, error) {
 		return nil, err
 	}
 
+	p.client.DB().Get(&nivelJSON, `SELECT nivel FROM projection_materias WHERE id = $1`, id)
 	if len(nivelJSON) > 0 {
 		json.Unmarshal(nivelJSON, &dto.Nivel)
 	}
@@ -205,11 +202,12 @@ func (p *MateriasProjection) GetByID(id uuid.UUID) (*MateriaDTO, error) {
 }
 
 func (p *MateriasProjection) GetByAcademia(codigoAcademia string) ([]MateriaDTO, error) {
-	ctx := context.Background()
-	rows, err := p.client.DB().QueryContext(ctx, `
+	query := `
 		SELECT id, nome, type, nivel, codigo_academia, curso_id, status, created_at, updated_at, version
 		FROM projection_materias WHERE codigo_academia = $1 ORDER BY created_at DESC
-	`, codigoAcademia)
+	`
+	
+	rows, err := p.client.DB().Queryx(query, codigoAcademia)
 	if err != nil {
 		return nil, err
 	}
@@ -243,14 +241,14 @@ func (p *MateriasProjection) GetByAcademia(codigoAcademia string) ([]MateriaDTO,
 }
 
 type MateriaDTO struct {
-	ID             uuid.UUID  `json:"id"`
-	Nome           string     `json:"nome"`
-	Type           string     `json:"type"`
-	Nivel          []string   `json:"nivel,omitempty"`
-	CodigoAcademia string     `json:"codigo_academia"`
-	CursoID        *uuid.UUID `json:"curso_id,omitempty"`
-	Status         string     `json:"status"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
-	Version        int        `json:"version"`
+	ID             uuid.UUID  `json:"id" db:"id"`
+	Nome           string     `json:"nome" db:"nome"`
+	Type           string     `json:"type" db:"type"`
+	Nivel          []string   `json:"nivel,omitempty" db:"nivel"`
+	CodigoAcademia string     `json:"codigo_academia" db:"codigo_academia"`
+	CursoID        *uuid.UUID `json:"curso_id,omitempty" db:"curso_id"`
+	Status         string     `json:"status" db:"status"`
+	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
+	Version        int        `json:"version" db:"version"`
 }

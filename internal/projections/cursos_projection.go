@@ -1,7 +1,6 @@
 package projections
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -13,11 +12,10 @@ import (
 
 type CursosProjection struct {
 	client *db.Client
-	ctx    context.Context
 }
 
 func NewCursosProjection(client *db.Client) *CursosProjection {
-	return &CursosProjection{client: client, ctx: context.Background()}
+	return &CursosProjection{client: client}
 }
 
 func (p *CursosProjection) Name() string { return "cursos" }
@@ -45,13 +43,14 @@ func (p *CursosProjection) Rebuild() error {
 		return err
 	}
 
-	ctx := context.Background()
-	rows, err := p.client.DB().QueryContext(ctx, `
+	query := `
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger WHERE aggregate_type = 'Curso' ORDER BY id ASC
-	`)
+	`
+	
+	rows, err := p.client.DB().Queryx(query)
 	if err != nil {
 		return err
 	}
@@ -73,13 +72,13 @@ func (p *CursosProjection) Rebuild() error {
 }
 
 func (p *CursosProjection) GetLastProcessedEventID() (int64, error) {
-	ctx := context.Background()
 	var lastID int64
-	err := p.client.DB().QueryRowContext(ctx, `
+	query := `
 		SELECT last_processed_event_id 
 		FROM projection_checkpoints 
 		WHERE projection_name = $1
-	`, p.Name()).Scan(&lastID)
+	`
+	err := p.client.DB().Get(&lastID, query, p.Name())
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -87,20 +86,19 @@ func (p *CursosProjection) GetLastProcessedEventID() (int64, error) {
 }
 
 func (p *CursosProjection) UpdateCheckpoint(eventID int64) error {
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `
+	query := `
 		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
 		VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
 		ON CONFLICT (projection_name) DO UPDATE SET
 			last_processed_event_id = $2, last_processed_at = CURRENT_TIMESTAMP,
 			events_processed = projection_checkpoints.events_processed + 1
-	`, p.Name(), eventID)
+	`
+	_, err := p.client.DB().Exec(query, p.Name(), eventID)
 	return err
 }
 
 func (p *CursosProjection) clear() error {
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `TRUNCATE TABLE projection_cursos CASCADE`)
+	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_cursos CASCADE`)
 	return err
 }
 
@@ -119,28 +117,28 @@ func (p *CursosProjection) handleCursoCriado(event db.Event) error {
 
 	nivelJSON, _ := json.Marshal(payload.Nivel)
 
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `
+	query := `
 		INSERT INTO projection_cursos (id, nome, type, nivel, codigo_academia, status, created_at, updated_at, version, last_event_id)
 		VALUES ($1, $2, $3, $4, $5, 'ativo', $6, CURRENT_TIMESTAMP, $7, $8)
-	`, event.AggregateID, payload.Nome, payload.Type, nivelJSON, payload.CodigoAcademia,
+	`
+	_, err := p.client.DB().Exec(query, event.AggregateID, payload.Nome, payload.Type, nivelJSON, payload.CodigoAcademia,
 		payload.CreatedAt, event.EventVersion, event.EventID)
 	return err
 }
 
 func (p *CursosProjection) handleCursoAtivado(event db.Event) error {
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `
+	query := `
 		UPDATE projection_cursos SET status = 'ativo', version = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2
-	`, event.EventVersion, event.AggregateID)
+	`
+	_, err := p.client.DB().Exec(query, event.EventVersion, event.AggregateID)
 	return err
 }
 
 func (p *CursosProjection) handleCursoDesativado(event db.Event) error {
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `
+	query := `
 		UPDATE projection_cursos SET status = 'inativo', version = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2
-	`, event.EventVersion, event.AggregateID)
+	`
+	_, err := p.client.DB().Exec(query, event.EventVersion, event.AggregateID)
 	return err
 }
 
@@ -155,35 +153,32 @@ func (p *CursosProjection) handleCursoDadosAtualizados(event db.Event) error {
 		return err
 	}
 
-	ctx := context.Background()
-	
 	if payload.Nome != nil {
-		p.client.DB().ExecContext(ctx, `UPDATE projection_cursos SET nome = $1 WHERE id = $2`, *payload.Nome, event.AggregateID)
+		p.client.DB().Exec(`UPDATE projection_cursos SET nome = $1 WHERE id = $2`, *payload.Nome, event.AggregateID)
 	}
 	if payload.Type != nil {
-		p.client.DB().ExecContext(ctx, `UPDATE projection_cursos SET type = $1 WHERE id = $2`, *payload.Type, event.AggregateID)
+		p.client.DB().Exec(`UPDATE projection_cursos SET type = $1 WHERE id = $2`, *payload.Type, event.AggregateID)
 	}
 	if payload.Nivel != nil {
 		nivelJSON, _ := json.Marshal(payload.Nivel)
-		p.client.DB().ExecContext(ctx, `UPDATE projection_cursos SET nivel = $1 WHERE id = $2`, nivelJSON, event.AggregateID)
+		p.client.DB().Exec(`UPDATE projection_cursos SET nivel = $1 WHERE id = $2`, nivelJSON, event.AggregateID)
 	}
 
-	_, err := p.client.DB().ExecContext(ctx, `
+	_, err := p.client.DB().Exec(`
 		UPDATE projection_cursos SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2 WHERE id = $3
 	`, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
 func (p *CursosProjection) GetByID(id uuid.UUID) (*CursoDTO, error) {
-	ctx := context.Background()
 	var dto CursoDTO
 	var nivelJSON []byte
-	err := p.client.DB().QueryRowContext(ctx, `
+	query := `
 		SELECT id, nome, type, nivel, codigo_academia, status, created_at, updated_at, version
 		FROM projection_cursos WHERE id = $1
-	`, id).Scan(&dto.ID, &dto.Nome, &dto.Type, &nivelJSON, &dto.CodigoAcademia,
-		&dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version)
-
+	`
+	
+	err := p.client.DB().Get(&dto, query, id)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -191,16 +186,18 @@ func (p *CursosProjection) GetByID(id uuid.UUID) (*CursoDTO, error) {
 		return nil, err
 	}
 
+	p.client.DB().Get(&nivelJSON, `SELECT nivel FROM projection_cursos WHERE id = $1`, id)
 	json.Unmarshal(nivelJSON, &dto.Nivel)
 	return &dto, nil
 }
 
 func (p *CursosProjection) GetByAcademia(codigoAcademia string) ([]CursoDTO, error) {
-	ctx := context.Background()
-	rows, err := p.client.DB().QueryContext(ctx, `
+	query := `
 		SELECT id, nome, type, nivel, codigo_academia, status, created_at, updated_at, version
 		FROM projection_cursos WHERE codigo_academia = $1 ORDER BY created_at DESC
-	`, codigoAcademia)
+	`
+	
+	rows, err := p.client.DB().Queryx(query, codigoAcademia)
 	if err != nil {
 		return nil, err
 	}
@@ -223,13 +220,13 @@ func (p *CursosProjection) GetByAcademia(codigoAcademia string) ([]CursoDTO, err
 }
 
 type CursoDTO struct {
-	ID             uuid.UUID `json:"id"`
-	Nome           string    `json:"nome"`
-	Type           string    `json:"type"`
-	Nivel          []string  `json:"nivel"`
-	CodigoAcademia string    `json:"codigo_academia"`
-	Status         string    `json:"status"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-	Version        int       `json:"version"`
+	ID             uuid.UUID `json:"id" db:"id"`
+	Nome           string    `json:"nome" db:"nome"`
+	Type           string    `json:"type" db:"type"`
+	Nivel          []string  `json:"nivel" db:"nivel"`
+	CodigoAcademia string    `json:"codigo_academia" db:"codigo_academia"`
+	Status         string    `json:"status" db:"status"`
+	CreatedAt      time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at" db:"updated_at"`
+	Version        int       `json:"version" db:"version"`
 }

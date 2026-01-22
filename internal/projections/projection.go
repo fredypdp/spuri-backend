@@ -2,6 +2,7 @@ package projections
 
 import (
 	"context"
+	"database/sql"
 	"spuri/internal/db"
 )
 
@@ -27,29 +28,31 @@ func NewBaseProjection(client *db.Client) *BaseProjection {
 	}
 }
 
-// GetLastProcessedEventID implementação padrão usando QueryRowContext
+// ✅ FIX: Usar Get do sqlx (NÃO cacheia prepared statements)
 func (bp *BaseProjection) GetLastProcessedEventIDByName(name string) (int64, error) {
-	ctx := context.Background()
 	var lastID int64
 	
-	err := bp.client.DB().QueryRowContext(ctx, `
+	query := `
 		SELECT last_processed_event_id 
 		FROM projection_checkpoints 
 		WHERE projection_name = $1
-	`, name).Scan(&lastID)
+	`
 	
-	if err != nil {
-		// sql.ErrNoRows retorna 0
+	err := bp.client.DB().Get(&lastID, query, name)
+	
+	if err == sql.ErrNoRows {
 		return 0, nil
 	}
+	if err != nil {
+		return 0, nil
+	}
+	
 	return lastID, nil
 }
 
-// UpdateCheckpoint implementação padrão usando ExecContext
+// ✅ FIX: Usar Exec do sqlx (NÃO cacheia prepared statements)
 func (bp *BaseProjection) UpdateCheckpointByName(name string, eventID int64) error {
-	ctx := context.Background()
-	
-	_, err := bp.client.DB().ExecContext(ctx, `
+	query := `
 		INSERT INTO projection_checkpoints (
 			projection_name, last_processed_event_id, last_processed_at, events_processed
 		) VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
@@ -58,7 +61,9 @@ func (bp *BaseProjection) UpdateCheckpointByName(name string, eventID int64) err
 			last_processed_event_id = $2,
 			last_processed_at = CURRENT_TIMESTAMP,
 			events_processed = projection_checkpoints.events_processed + 1
-	`, name, eventID)
+	`
+	
+	_, err := bp.client.DB().Exec(query, name, eventID)
 	
 	return err
 }

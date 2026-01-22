@@ -1,7 +1,6 @@
 package projections
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -14,14 +13,10 @@ import (
 
 type InscricoesProjection struct {
 	client *db.Client
-	ctx    context.Context
 }
 
 func NewInscricoesProjection(client *db.Client) *InscricoesProjection {
-	return &InscricoesProjection{
-		client: client,
-		ctx:    context.Background(),
-	}
+	return &InscricoesProjection{client: client}
 }
 
 func (p *InscricoesProjection) Name() string {
@@ -48,15 +43,16 @@ func (p *InscricoesProjection) Rebuild() error {
 		return err
 	}
 
-	ctx := context.Background()
-	rows, err := p.client.DB().QueryContext(ctx, `
+	query := `
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger
 		WHERE event_type IN ('EstudanteInscrito', 'InscricaoAprovada', 'InscricaoReprovada', 'EstudanteVinculado')
 		ORDER BY id ASC
-	`)
+	`
+	
+	rows, err := p.client.DB().Queryx(query)
 	if err != nil {
 		return err
 	}
@@ -82,13 +78,14 @@ func (p *InscricoesProjection) Rebuild() error {
 }
 
 func (p *InscricoesProjection) GetLastProcessedEventID() (int64, error) {
-	ctx := context.Background()
 	var lastID int64
-	err := p.client.DB().QueryRowContext(ctx, `
+	query := `
 		SELECT last_processed_event_id 
 		FROM projection_checkpoints 
 		WHERE projection_name = $1
-	`, p.Name()).Scan(&lastID)
+	`
+	
+	err := p.client.DB().Get(&lastID, query, p.Name())
 	
 	if err == sql.ErrNoRows {
 		return 0, nil
@@ -97,8 +94,7 @@ func (p *InscricoesProjection) GetLastProcessedEventID() (int64, error) {
 }
 
 func (p *InscricoesProjection) UpdateCheckpoint(eventID int64) error {
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `
+	query := `
 		INSERT INTO projection_checkpoints (
 			projection_name, last_processed_event_id, last_processed_at, events_processed
 		) VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
@@ -107,13 +103,13 @@ func (p *InscricoesProjection) UpdateCheckpoint(eventID int64) error {
 			last_processed_event_id = $2,
 			last_processed_at = CURRENT_TIMESTAMP,
 			events_processed = projection_checkpoints.events_processed + 1
-	`, p.Name(), eventID)
+	`
+	_, err := p.client.DB().Exec(query, p.Name(), eventID)
 	return err
 }
 
 func (p *InscricoesProjection) clear() error {
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `TRUNCATE TABLE projection_inscricoes CASCADE`)
+	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_inscricoes CASCADE`)
 	return err
 }
 
@@ -135,32 +131,36 @@ func (p *InscricoesProjection) handleEstudanteInscrito(event db.Event) error {
 
 	estudanteID := event.AggregateID
 
-	ctx := context.Background()
 	var codigoEstudante string
-	err := p.client.DB().QueryRowContext(ctx, `
+	err := p.client.DB().Get(&codigoEstudante, `
 		SELECT codigo_estudante FROM projection_estudantes WHERE id = $1
-	`, estudanteID).Scan(&codigoEstudante)
+	`, estudanteID)
+	
 	if err != nil {
 		log.Printf("[INSCRICOES_PROJECTION] Estudante não encontrado (event_id: %s)", event.EventID)
 		return fmt.Errorf("estudante não encontrado: %w", err)
 	}
 
 	var academiaID uuid.UUID
-	err = p.client.DB().QueryRowContext(ctx, `
+	err = p.client.DB().Get(&academiaID, `
 		SELECT id FROM projection_academias WHERE codigo_academia = $1
-	`, payload.CodigoAcademia).Scan(&academiaID)
+	`, payload.CodigoAcademia)
+	
 	if err != nil {
 		log.Printf("[INSCRICOES_PROJECTION] Academia não encontrada (event_id: %s)", event.EventID)
 		return fmt.Errorf("academia não encontrada: %w", err)
 	}
 
-	_, err = p.client.DB().ExecContext(ctx, `
+	query := `
 		INSERT INTO projection_inscricoes (
 			id, estudante_id, codigo_estudante, academia_id, codigo_academia,
 			tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, 
 			event_id, version
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'espera', FALSE, $9, CURRENT_TIMESTAMP, $10, $11)
-	`, payload.InscricaoID, estudanteID, codigoEstudante, academiaID, payload.CodigoAcademia,
+	`
+	
+	_, err = p.client.DB().Exec(query,
+		payload.InscricaoID, estudanteID, codigoEstudante, academiaID, payload.CodigoAcademia,
 		payload.Tipo, payload.AnoInscricao, payload.Curso, payload.CreatedAt, event.EventID, event.EventVersion)
 
 	if err != nil {
@@ -168,8 +168,8 @@ func (p *InscricoesProjection) handleEstudanteInscrito(event db.Event) error {
 		return err
 	}
 
-	p.client.DB().ExecContext(ctx, `UPDATE projection_academias SET total_inscricoes_pendentes = total_inscricoes_pendentes + 1 WHERE id = $1`, academiaID)
-	p.client.DB().ExecContext(ctx, `UPDATE projection_estudantes SET total_inscricoes = total_inscricoes + 1 WHERE id = $1`, estudanteID)
+	p.client.DB().Exec(`UPDATE projection_academias SET total_inscricoes_pendentes = total_inscricoes_pendentes + 1 WHERE id = $1`, academiaID)
+	p.client.DB().Exec(`UPDATE projection_estudantes SET total_inscricoes = total_inscricoes + 1 WHERE id = $1`, estudanteID)
 
 	return nil
 }
@@ -191,20 +191,21 @@ func (p *InscricoesProjection) handleInscricaoAprovada(event db.Event) error {
 		estudanteID = event.AggregateID
 	}
 
-	ctx := context.Background()
 	var academiaID uuid.UUID
-	err := p.client.DB().QueryRowContext(ctx, `SELECT id FROM projection_academias WHERE codigo_academia = $1`, payload.CodigoAcademia).Scan(&academiaID)
+	err := p.client.DB().Get(&academiaID, `SELECT id FROM projection_academias WHERE codigo_academia = $1`, payload.CodigoAcademia)
 	if err != nil {
 		return nil
 	}
 
 	var inscricaoID uuid.UUID
-	err = p.client.DB().QueryRowContext(ctx, `
+	query := `
 		UPDATE projection_inscricoes
 		SET status = 'aprovado', updated_at = CURRENT_TIMESTAMP
 		WHERE estudante_id = $1 AND academia_id = $2 AND status = 'espera' AND tipo = $3
 		RETURNING id
-	`, estudanteID, academiaID, payload.Tipo).Scan(&inscricaoID)
+	`
+	
+	err = p.client.DB().Get(&inscricaoID, query, estudanteID, academiaID, payload.Tipo)
 
 	return nil
 }
@@ -224,20 +225,21 @@ func (p *InscricoesProjection) handleInscricaoReprovada(event db.Event) error {
 		return fmt.Errorf("EstudanteID ausente no payload")
 	}
 
-	ctx := context.Background()
 	var academiaID uuid.UUID
-	err := p.client.DB().QueryRowContext(ctx, `SELECT id FROM projection_academias WHERE codigo_academia = $1`, payload.CodigoAcademia).Scan(&academiaID)
+	err := p.client.DB().Get(&academiaID, `SELECT id FROM projection_academias WHERE codigo_academia = $1`, payload.CodigoAcademia)
 	if err != nil {
 		return nil
 	}
 
 	var inscricaoID uuid.UUID
-	err = p.client.DB().QueryRowContext(ctx, `
+	query := `
 		UPDATE projection_inscricoes
 		SET status = 'reprovado', updated_at = CURRENT_TIMESTAMP
 		WHERE estudante_id = $1 AND academia_id = $2 AND status = 'espera'
 		RETURNING id
-	`, estudanteID, academiaID).Scan(&inscricaoID)
+	`
+	
+	err = p.client.DB().Get(&inscricaoID, query, estudanteID, academiaID)
 
 	return nil
 }
@@ -251,10 +253,11 @@ func (p *InscricoesProjection) handleEstudanteVinculado(event db.Event) error {
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `
+	query := `
 		UPDATE projection_inscricoes SET status_usado = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = $1
-	`, payload.InscricaoID)
+	`
+	
+	_, err := p.client.DB().Exec(query, payload.InscricaoID)
 
 	if err != nil {
 		log.Printf("[INSCRICOES_PROJECTION] Erro ao marcar inscrição (event_id: %s)", event.EventID)
@@ -265,81 +268,49 @@ func (p *InscricoesProjection) handleEstudanteVinculado(event db.Event) error {
 }
 
 func (p *InscricoesProjection) GetByEstudante(estudanteID uuid.UUID) ([]InscricaoDTO, error) {
-	ctx := context.Background()
-	rows, err := p.client.DB().QueryContext(ctx, `
+	var result []InscricaoDTO
+	query := `
 		SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
 			tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, 
 			event_id, version
 		FROM projection_inscricoes WHERE estudante_id = $1 ORDER BY created_at DESC
-	`, estudanteID)
+	`
+	
+	err := p.client.DB().Select(&result, query, estudanteID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	var result []InscricaoDTO
-	for rows.Next() {
-		var dto InscricaoDTO
-		err := rows.Scan(
-			&dto.ID, &dto.EstudanteID, &dto.CodigoEstudante,
-			&dto.AcademiaID, &dto.CodigoAcademia, &dto.Tipo,
-			&dto.AnoInscricao, &dto.Curso, &dto.Status, &dto.StatusUsado,
-			&dto.CreatedAt, &dto.UpdatedAt, &dto.EventID, &dto.Version,
-		)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, dto)
-	}
-
-	return result, rows.Err()
+	return result, nil
 }
 
 func (p *InscricoesProjection) GetByAcademia(academiaID uuid.UUID, status string) ([]InscricaoDTO, error) {
-	ctx := context.Background()
-	rows, err := p.client.DB().QueryContext(ctx, `
+	var result []InscricaoDTO
+	query := `
 		SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
 			tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, 
 			event_id, version
 		FROM projection_inscricoes WHERE academia_id = $1 AND status = $2 ORDER BY created_at DESC
-	`, academiaID, status)
+	`
+	
+	err := p.client.DB().Select(&result, query, academiaID, status)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	var result []InscricaoDTO
-	for rows.Next() {
-		var dto InscricaoDTO
-		err := rows.Scan(
-			&dto.ID, &dto.EstudanteID, &dto.CodigoEstudante,
-			&dto.AcademiaID, &dto.CodigoAcademia, &dto.Tipo,
-			&dto.AnoInscricao, &dto.Curso, &dto.Status, &dto.StatusUsado,
-			&dto.CreatedAt, &dto.UpdatedAt, &dto.EventID, &dto.Version,
-		)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, dto)
-	}
-
-	return result, rows.Err()
+	return result, nil
 }
 
 func (p *InscricoesProjection) GetByID(id uuid.UUID) (*InscricaoDTO, error) {
-	ctx := context.Background()
 	var dto InscricaoDTO
-	err := p.client.DB().QueryRowContext(ctx, `
+	query := `
 		SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
 			tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, 
 			event_id, version
 		FROM projection_inscricoes WHERE id = $1
-	`, id).Scan(
-		&dto.ID, &dto.EstudanteID, &dto.CodigoEstudante,
-		&dto.AcademiaID, &dto.CodigoAcademia, &dto.Tipo,
-		&dto.AnoInscricao, &dto.Curso, &dto.Status, &dto.StatusUsado,
-		&dto.CreatedAt, &dto.UpdatedAt, &dto.EventID, &dto.Version,
-	)
+	`
+	
+	err := p.client.DB().Get(&dto, query, id)
 	if err != nil {
 		return nil, err
 	}

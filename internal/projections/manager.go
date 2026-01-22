@@ -2,7 +2,6 @@ package projections
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log"
 	"spuri/internal/db"
@@ -148,10 +147,8 @@ func (m *Manager) processEventWithRetry(name string, projection Projection, even
 	return fmt.Errorf("evento %d falhou apos %d tentativas: %w", event.ID, maxRetries, lastErr)
 }
 
-// ✅ FIX DEFINITIVO: Usar sqlx.Queryx que NÃO cache prepared statements
+// ✅ FIX: Usar Queryx do sqlx (NÃO cacheia prepared statements)
 func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
-	// ✅ SOLUÇÃO: Usar Queryx do sqlx ao invés de QueryContext
-	// Queryx cria uma nova query toda vez, evitando cache de prepared statements
 	query := `
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
@@ -238,82 +235,83 @@ func (m *Manager) RebuildAllProjections() error {
 	return nil
 }
 
+// ✅ FIX: Usar Get do sqlx
 func (m *Manager) markRebuildStart(name string) error {
-	ctx := context.Background()
-	_, err := m.client.DB().ExecContext(ctx, `
+	query := `
 		UPDATE projection_checkpoints
 		SET is_rebuilding = $1, rebuild_started_at = CURRENT_TIMESTAMP, last_processed_event_id = $2
 		WHERE projection_name = $3
-	`, true, 0, name)
+	`
+	_, err := m.client.DB().Exec(query, true, 0, name)
 	return err
 }
 
+// ✅ FIX: Usar Get + Exec do sqlx
 func (m *Manager) markRebuildComplete(name string) error {
-	ctx := context.Background()
 	var lastEventID int64
-	err := m.client.DB().QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM spuri_ledger`).Scan(&lastEventID)
+	err := m.client.DB().Get(&lastEventID, `SELECT COALESCE(MAX(id), 0) FROM spuri_ledger`)
 	if err != nil {
 		return err
 	}
 
-	_, err = m.client.DB().ExecContext(ctx, `
+	query := `
 		UPDATE projection_checkpoints
 		SET is_rebuilding = $1, rebuild_started_at = $2,
 			last_processed_event_id = $3, last_processed_at = CURRENT_TIMESTAMP
 		WHERE projection_name = $4
-	`, false, nil, lastEventID, name)
+	`
+	_, err = m.client.DB().Exec(query, false, nil, lastEventID, name)
 	return err
 }
 
+// ✅ FIX: Usar Exec do sqlx
 func (m *Manager) logProjectionError(name, errorMsg string) {
-	ctx := context.Background()
-	m.client.DB().ExecContext(ctx, `
+	query := `
 		UPDATE projection_checkpoints
 		SET error_count = error_count + 1, last_error = $1, last_error_at = CURRENT_TIMESTAMP
 		WHERE projection_name = $2
-	`, errorMsg, name)
+	`
+	m.client.DB().Exec(query, errorMsg, name)
 }
 
+// ✅ FIX: Usar Get do sqlx
 func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, error) {
-	ctx := context.Background()
-	row := m.client.DB().QueryRowContext(ctx, `
+	type checkpoint struct {
+		ProjectionName      string       `db:"projection_name"`
+		LastProcessedID     int64        `db:"last_processed_event_id"`
+		LastProcessedAt     time.Time    `db:"last_processed_at"`
+		EventsProcessed     int64        `db:"events_processed"`
+		IsRebuilding        bool         `db:"is_rebuilding"`
+		RebuildStartedAt    *time.Time   `db:"rebuild_started_at"`
+		ErrorCount          int          `db:"error_count"`
+		LastError           *string      `db:"last_error"`
+		LastErrorAt         *time.Time   `db:"last_error_at"`
+	}
+
+	var cp checkpoint
+	query := `
 		SELECT projection_name, last_processed_event_id, last_processed_at,
 			events_processed, is_rebuilding, rebuild_started_at,
 			error_count, last_error, last_error_at
 		FROM projection_checkpoints
 		WHERE projection_name = $1
-	`, name)
-
-	var (
-		projName      string
-		lastEventID   int64
-		lastProcessed time.Time
-		eventsProc    int64
-		rebuilding    bool
-		rebuildStart  sql.NullTime
-		errCount      int
-		lastErr       sql.NullString
-		lastErrAt     sql.NullTime
-	)
-
-	err := row.Scan(
-		&projName, &lastEventID, &lastProcessed, &eventsProc,
-		&rebuilding, &rebuildStart, &errCount, &lastErr, &lastErrAt,
-	)
+	`
+	
+	err := m.client.DB().Get(&cp, query, name)
 	if err != nil {
 		return nil, err
 	}
 
 	return map[string]interface{}{
-		"name":                 projName,
-		"last_processed_event": lastEventID,
-		"last_processed_at":    lastProcessed,
-		"events_processed":     eventsProc,
-		"is_rebuilding":        rebuilding,
-		"rebuild_started_at":   rebuildStart,
-		"error_count":          errCount,
-		"last_error":           lastErr,
-		"last_error_at":        lastErrAt,
+		"name":                 cp.ProjectionName,
+		"last_processed_event": cp.LastProcessedID,
+		"last_processed_at":    cp.LastProcessedAt,
+		"events_processed":     cp.EventsProcessed,
+		"is_rebuilding":        cp.IsRebuilding,
+		"rebuild_started_at":   cp.RebuildStartedAt,
+		"error_count":          cp.ErrorCount,
+		"last_error":           cp.LastError,
+		"last_error_at":        cp.LastErrorAt,
 	}, nil
 }
 

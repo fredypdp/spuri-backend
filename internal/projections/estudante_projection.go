@@ -1,7 +1,6 @@
 package projections
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -14,14 +13,10 @@ import (
 
 type EstudanteProjection struct {
 	client *db.Client
-	ctx    context.Context
 }
 
 func NewEstudanteProjection(client *db.Client) *EstudanteProjection {
-	return &EstudanteProjection{
-		client: client,
-		ctx:    context.Background(),
-	}
+	return &EstudanteProjection{client: client}
 }
 
 func (p *EstudanteProjection) Name() string {
@@ -58,15 +53,16 @@ func (p *EstudanteProjection) Rebuild() error {
 		return err
 	}
 
-	ctx := context.Background()
-	rows, err := p.client.DB().QueryContext(ctx, `
+	query := `
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger
 		WHERE aggregate_type = $1
 		ORDER BY id ASC
-	`, "Estudante")
+	`
+	
+	rows, err := p.client.DB().Queryx(query, "Estudante")
 	if err != nil {
 		return err
 	}
@@ -92,13 +88,14 @@ func (p *EstudanteProjection) Rebuild() error {
 }
 
 func (p *EstudanteProjection) GetLastProcessedEventID() (int64, error) {
-	ctx := context.Background()
 	var lastID int64
-	err := p.client.DB().QueryRowContext(ctx, `
+	query := `
 		SELECT last_processed_event_id 
 		FROM projection_checkpoints 
 		WHERE projection_name = $1
-	`, p.Name()).Scan(&lastID)
+	`
+	
+	err := p.client.DB().Get(&lastID, query, p.Name())
 	
 	if err == sql.ErrNoRows {
 		return 0, nil
@@ -107,8 +104,7 @@ func (p *EstudanteProjection) GetLastProcessedEventID() (int64, error) {
 }
 
 func (p *EstudanteProjection) UpdateCheckpoint(eventID int64) error {
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `
+	query := `
 		INSERT INTO projection_checkpoints (
 			projection_name, last_processed_event_id, last_processed_at, events_processed
 		) VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
@@ -117,13 +113,13 @@ func (p *EstudanteProjection) UpdateCheckpoint(eventID int64) error {
 			last_processed_event_id = $2,
 			last_processed_at = CURRENT_TIMESTAMP,
 			events_processed = projection_checkpoints.events_processed + 1
-	`, p.Name(), eventID)
+	`
+	_, err := p.client.DB().Exec(query, p.Name(), eventID)
 	return err
 }
 
 func (p *EstudanteProjection) clear() error {
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `TRUNCATE TABLE projection_estudantes CASCADE`)
+	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_estudantes CASCADE`)
 	return err
 }
 
@@ -156,8 +152,7 @@ func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 		return fmt.Errorf("CodigoEstudante vazio no evento")
 	}
 
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `
+	query := `
 		INSERT INTO projection_estudantes (
 			id, nome, codigo_estudante, senha_hash, 
 			email, telefone, email_verificado,
@@ -180,7 +175,10 @@ func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 			ano_superior = EXCLUDED.ano_superior, curso_medio = EXCLUDED.curso_medio,
 			curso_superior = EXCLUDED.curso_superior, version = EXCLUDED.version,
 			updated_at = EXCLUDED.updated_at, last_event_id = EXCLUDED.last_event_id
-	`, event.AggregateID, payload.Nome, payload.CodigoEstudante, payload.SenhaHash,
+	`
+	
+	_, err := p.client.DB().Exec(query, 
+		event.AggregateID, payload.Nome, payload.CodigoEstudante, payload.SenhaHash,
 		payload.Email, payload.Telefone, false, payload.BilheteIdentidade, payload.BilheteIdentidadeResp, nil,
 		"inativo", payload.StatusEscolar, payload.StatusSuperior, payload.AnoEscolar, payload.AnoSuperior,
 		payload.CursoMedio, payload.CursoSuperior, event.EventVersion, payload.CreatedAt,
@@ -195,13 +193,13 @@ func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 }
 
 func (p *EstudanteProjection) handleInscricaoAprovada(event db.Event) error {
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `
+	query := `
 		UPDATE projection_estudantes
 		SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2,
 			total_inscricoes = total_inscricoes + 1
 		WHERE id = $3
-	`, event.EventVersion, event.EventID, event.AggregateID)
+	`
+	_, err := p.client.DB().Exec(query, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
@@ -214,13 +212,13 @@ func (p *EstudanteProjection) handleEstudanteVinculado(event db.Event) error {
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `
+	query := `
 		UPDATE projection_estudantes
 		SET codigo_academia = $1, status = $2, version = $3,
 			updated_at = CURRENT_TIMESTAMP, last_event_id = $4
 		WHERE id = $5
-	`, payload.CodigoAcademia, "ativo", event.EventVersion, event.EventID, event.AggregateID)
+	`
+	_, err := p.client.DB().Exec(query, payload.CodigoAcademia, "ativo", event.EventVersion, event.EventID, event.AggregateID)
 
 	return err
 }
@@ -234,22 +232,23 @@ func (p *EstudanteProjection) handleStatusEscolarAtualizado(event db.Event) erro
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	ctx := context.Background()
 	if payload.NovoStatus == "inativo" {
-		_, err := p.client.DB().ExecContext(ctx, `
+		query := `
 			UPDATE projection_estudantes
 			SET status_escolar = $1, status_superior = $2, version = $3,
 				updated_at = CURRENT_TIMESTAMP, last_event_id = $4
 			WHERE id = $5
-		`, payload.NovoStatus, "inativo", event.EventVersion, event.EventID, event.AggregateID)
+		`
+		_, err := p.client.DB().Exec(query, payload.NovoStatus, "inativo", event.EventVersion, event.EventID, event.AggregateID)
 		return err
 	}
 
-	_, err := p.client.DB().ExecContext(ctx, `
+	query := `
 		UPDATE projection_estudantes
 		SET status_escolar = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
 		WHERE id = $4
-	`, payload.NovoStatus, event.EventVersion, event.EventID, event.AggregateID)
+	`
+	_, err := p.client.DB().Exec(query, payload.NovoStatus, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
@@ -262,12 +261,12 @@ func (p *EstudanteProjection) handleStatusSuperiorAtualizado(event db.Event) err
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `
+	query := `
 		UPDATE projection_estudantes
 		SET status_superior = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
 		WHERE id = $4
-	`, payload.NovoStatus, event.EventVersion, event.EventID, event.AggregateID)
+	`
+	_, err := p.client.DB().Exec(query, payload.NovoStatus, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
@@ -285,29 +284,27 @@ func (p *EstudanteProjection) handleDadosPessoaisAtualizados(event db.Event) err
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	ctx := context.Background()
-	
 	if payload.Nome != nil {
-		p.client.DB().ExecContext(ctx, `UPDATE projection_estudantes SET nome = $1 WHERE id = $2`, *payload.Nome, event.AggregateID)
+		p.client.DB().Exec(`UPDATE projection_estudantes SET nome = $1 WHERE id = $2`, *payload.Nome, event.AggregateID)
 	}
 	if payload.Email != nil {
 		if payload.EmailAlterado {
-			p.client.DB().ExecContext(ctx, `UPDATE projection_estudantes SET email = $1, email_verificado = $2 WHERE id = $3`, *payload.Email, false, event.AggregateID)
+			p.client.DB().Exec(`UPDATE projection_estudantes SET email = $1, email_verificado = $2 WHERE id = $3`, *payload.Email, false, event.AggregateID)
 		} else {
-			p.client.DB().ExecContext(ctx, `UPDATE projection_estudantes SET email = $1 WHERE id = $2`, *payload.Email, event.AggregateID)
+			p.client.DB().Exec(`UPDATE projection_estudantes SET email = $1 WHERE id = $2`, *payload.Email, event.AggregateID)
 		}
 	}
 	if payload.Telefone != nil {
-		p.client.DB().ExecContext(ctx, `UPDATE projection_estudantes SET telefone = $1 WHERE id = $2`, *payload.Telefone, event.AggregateID)
+		p.client.DB().Exec(`UPDATE projection_estudantes SET telefone = $1 WHERE id = $2`, *payload.Telefone, event.AggregateID)
 	}
 	if payload.BilheteIdentidade != nil {
-		p.client.DB().ExecContext(ctx, `UPDATE projection_estudantes SET bilhete_identidade = $1 WHERE id = $2`, *payload.BilheteIdentidade, event.AggregateID)
+		p.client.DB().Exec(`UPDATE projection_estudantes SET bilhete_identidade = $1 WHERE id = $2`, *payload.BilheteIdentidade, event.AggregateID)
 	}
 	if payload.BilheteIdentidadeResp != nil {
-		p.client.DB().ExecContext(ctx, `UPDATE projection_estudantes SET bilhete_identidade_responsavel = $1 WHERE id = $2`, *payload.BilheteIdentidadeResp, event.AggregateID)
+		p.client.DB().Exec(`UPDATE projection_estudantes SET bilhete_identidade_responsavel = $1 WHERE id = $2`, *payload.BilheteIdentidadeResp, event.AggregateID)
 	}
 
-	_, err := p.client.DB().ExecContext(ctx, `
+	_, err := p.client.DB().Exec(`
 		UPDATE projection_estudantes SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2 WHERE id = $3
 	`, event.EventVersion, event.EventID, event.AggregateID)
 	return err
@@ -325,31 +322,28 @@ func (p *EstudanteProjection) handleDadosAcademicosAtualizados(event db.Event) e
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	ctx := context.Background()
-	
 	if payload.AnoEscolar != nil {
-		p.client.DB().ExecContext(ctx, `UPDATE projection_estudantes SET ano_escolar = $1 WHERE id = $2`, *payload.AnoEscolar, event.AggregateID)
+		p.client.DB().Exec(`UPDATE projection_estudantes SET ano_escolar = $1 WHERE id = $2`, *payload.AnoEscolar, event.AggregateID)
 	}
 	if payload.AnoSuperior != nil {
-		p.client.DB().ExecContext(ctx, `UPDATE projection_estudantes SET ano_superior = $1 WHERE id = $2`, *payload.AnoSuperior, event.AggregateID)
+		p.client.DB().Exec(`UPDATE projection_estudantes SET ano_superior = $1 WHERE id = $2`, *payload.AnoSuperior, event.AggregateID)
 	}
 	if payload.CursoMedio != nil {
-		p.client.DB().ExecContext(ctx, `UPDATE projection_estudantes SET curso_medio = $1 WHERE id = $2`, *payload.CursoMedio, event.AggregateID)
+		p.client.DB().Exec(`UPDATE projection_estudantes SET curso_medio = $1 WHERE id = $2`, *payload.CursoMedio, event.AggregateID)
 	}
 	if payload.CursoSuperior != nil {
-		p.client.DB().ExecContext(ctx, `UPDATE projection_estudantes SET curso_superior = $1 WHERE id = $2`, *payload.CursoSuperior, event.AggregateID)
+		p.client.DB().Exec(`UPDATE projection_estudantes SET curso_superior = $1 WHERE id = $2`, *payload.CursoSuperior, event.AggregateID)
 	}
 
-	_, err := p.client.DB().ExecContext(ctx, `
+	_, err := p.client.DB().Exec(`
 		UPDATE projection_estudantes SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2 WHERE id = $3
 	`, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
 func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
-	ctx := context.Background()
 	var dto EstudanteDTO
-	err := p.client.DB().QueryRowContext(ctx, `
+	query := `
 		SELECT id, nome, codigo_estudante, senha_hash, 
 			email, telefone, email_verificado,
 			bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
@@ -357,15 +351,9 @@ func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
 			ano_escolar, ano_superior, curso_medio, curso_superior,
 			created_at, updated_at, total_notas, total_faltas, total_inscricoes, version
 		FROM projection_estudantes WHERE id = $1
-	`, id).Scan(
-		&dto.ID, &dto.Nome, &dto.CodigoEstudante, &dto.SenhaHash,
-		&dto.Email, &dto.Telefone, &dto.EmailVerificado,
-		&dto.BilheteIdentidade, &dto.BilheteIdentidadeResp, &dto.CodigoAcademia,
-		&dto.Status, &dto.StatusEscolar, &dto.StatusSuperior,
-		&dto.AnoEscolar, &dto.AnoSuperior, &dto.CursoMedio, &dto.CursoSuperior,
-		&dto.CreatedAt, &dto.UpdatedAt,
-		&dto.TotalNotas, &dto.TotalFaltas, &dto.TotalInscricoes, &dto.Version,
-	)
+	`
+	
+	err := p.client.DB().Get(&dto, query, id)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -373,9 +361,8 @@ func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
 }
 
 func (p *EstudanteProjection) GetByCodigo(codigo string) (*EstudanteDTO, error) {
-	ctx := context.Background()
 	var dto EstudanteDTO
-	err := p.client.DB().QueryRowContext(ctx, `
+	query := `
 		SELECT id, nome, codigo_estudante, senha_hash, 
 			email, telefone, email_verificado,
 			bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
@@ -383,15 +370,9 @@ func (p *EstudanteProjection) GetByCodigo(codigo string) (*EstudanteDTO, error) 
 			ano_escolar, ano_superior, curso_medio, curso_superior,
 			created_at, updated_at, total_notas, total_faltas, total_inscricoes, version
 		FROM projection_estudantes WHERE codigo_estudante = $1
-	`, codigo).Scan(
-		&dto.ID, &dto.Nome, &dto.CodigoEstudante, &dto.SenhaHash,
-		&dto.Email, &dto.Telefone, &dto.EmailVerificado,
-		&dto.BilheteIdentidade, &dto.BilheteIdentidadeResp, &dto.CodigoAcademia,
-		&dto.Status, &dto.StatusEscolar, &dto.StatusSuperior,
-		&dto.AnoEscolar, &dto.AnoSuperior, &dto.CursoMedio, &dto.CursoSuperior,
-		&dto.CreatedAt, &dto.UpdatedAt,
-		&dto.TotalNotas, &dto.TotalFaltas, &dto.TotalInscricoes, &dto.Version,
-	)
+	`
+	
+	err := p.client.DB().Get(&dto, query, codigo)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -403,9 +384,8 @@ func (p *EstudanteProjection) GetByCodigo(codigo string) (*EstudanteDTO, error) 
 }
 
 func (p *EstudanteProjection) GetByBilhete(bilhete string) (*EstudanteDTO, error) {
-	ctx := context.Background()
 	var dto EstudanteDTO
-	err := p.client.DB().QueryRowContext(ctx, `
+	query := `
 		SELECT id, nome, codigo_estudante, senha_hash, 
 			email, telefone, email_verificado,
 			bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
@@ -415,15 +395,9 @@ func (p *EstudanteProjection) GetByBilhete(bilhete string) (*EstudanteDTO, error
 		FROM projection_estudantes
 		WHERE bilhete_identidade = $1 OR bilhete_identidade_responsavel = $1
 		LIMIT 1
-	`, bilhete).Scan(
-		&dto.ID, &dto.Nome, &dto.CodigoEstudante, &dto.SenhaHash,
-		&dto.Email, &dto.Telefone, &dto.EmailVerificado,
-		&dto.BilheteIdentidade, &dto.BilheteIdentidadeResp, &dto.CodigoAcademia,
-		&dto.Status, &dto.StatusEscolar, &dto.StatusSuperior,
-		&dto.AnoEscolar, &dto.AnoSuperior, &dto.CursoMedio, &dto.CursoSuperior,
-		&dto.CreatedAt, &dto.UpdatedAt,
-		&dto.TotalNotas, &dto.TotalFaltas, &dto.TotalInscricoes, &dto.Version,
-	)
+	`
+	
+	err := p.client.DB().Get(&dto, query, bilhete)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

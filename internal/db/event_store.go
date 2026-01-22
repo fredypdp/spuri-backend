@@ -33,6 +33,7 @@ func NewEventStore(client *Client) *EventStore {
 	return &EventStore{client: client}
 }
 
+// ⚠️ NÃO PODE MUDAR - Precisa de QueryRowContext para row.Scan
 func (es *EventStore) Append(ctx context.Context, event *Event) error {
 	query := `
 		INSERT INTO spuri_ledger (
@@ -60,6 +61,7 @@ func (es *EventStore) Append(ctx context.Context, event *Event) error {
 	return nil
 }
 
+// ✅ FIX: Usar Select do sqlx
 func (es *EventStore) LoadEventStream(ctx context.Context, aggregateID uuid.UUID) ([]Event, error) {
 	query := `
 		SELECT 
@@ -71,7 +73,7 @@ func (es *EventStore) LoadEventStream(ctx context.Context, aggregateID uuid.UUID
 		ORDER BY event_version ASC, recorded_at ASC`
 
 	var events []Event
-	err := es.client.db.SelectContext(ctx, &events, query, aggregateID)
+	err := es.client.db.Select(&events, query, aggregateID)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao carregar events: %w", err)
 	}
@@ -79,6 +81,7 @@ func (es *EventStore) LoadEventStream(ctx context.Context, aggregateID uuid.UUID
 	return events, nil
 }
 
+// ✅ FIX: Usar Select do sqlx
 func (es *EventStore) LoadEventStreamFromVersion(
 	ctx context.Context, 
 	aggregateID uuid.UUID, 
@@ -94,7 +97,7 @@ func (es *EventStore) LoadEventStreamFromVersion(
 		ORDER BY event_version ASC, recorded_at ASC`
 
 	var events []Event
-	err := es.client.db.SelectContext(ctx, &events, query, aggregateID, fromVersion)
+	err := es.client.db.Select(&events, query, aggregateID, fromVersion)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao carregar events: %w", err)
 	}
@@ -102,6 +105,7 @@ func (es *EventStore) LoadEventStreamFromVersion(
 	return events, nil
 }
 
+// ✅ FIX: Usar Select do sqlx
 func (es *EventStore) GetEventsByType(
 	ctx context.Context, 
 	eventType string, 
@@ -118,7 +122,7 @@ func (es *EventStore) GetEventsByType(
 		LIMIT $2`
 
 	var events []Event
-	err := es.client.db.SelectContext(ctx, &events, query, eventType, limit)
+	err := es.client.db.Select(&events, query, eventType, limit)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar eventos: %w", err)
 	}
@@ -126,6 +130,7 @@ func (es *EventStore) GetEventsByType(
 	return events, nil
 }
 
+// ✅ FIX: Usar Select do sqlx
 func (es *EventStore) GetAllEvents(
 	ctx context.Context, 
 	offset, limit int,
@@ -140,7 +145,7 @@ func (es *EventStore) GetAllEvents(
 		LIMIT $1 OFFSET $2`
 
 	var events []Event
-	err := es.client.db.SelectContext(ctx, &events, query, limit, offset)
+	err := es.client.db.Select(&events, query, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar eventos: %w", err)
 	}
@@ -148,6 +153,7 @@ func (es *EventStore) GetAllEvents(
 	return events, nil
 }
 
+// ✅ FIX: Usar Get do sqlx
 func (es *EventStore) GetEventByID(ctx context.Context, eventID uuid.UUID) (*Event, error) {
 	query := `
 		SELECT 
@@ -158,7 +164,7 @@ func (es *EventStore) GetEventByID(ctx context.Context, eventID uuid.UUID) (*Eve
 		WHERE event_id = $1`
 
 	var event Event
-	err := es.client.db.GetContext(ctx, &event, query, eventID)
+	err := es.client.db.Get(&event, query, eventID)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar evento: %w", err)
 	}
@@ -166,6 +172,7 @@ func (es *EventStore) GetEventByID(ctx context.Context, eventID uuid.UUID) (*Eve
 	return &event, nil
 }
 
+// ✅ FIX: Usar Get do sqlx
 func (es *EventStore) GetAggregateVersion(ctx context.Context, aggregateID uuid.UUID) (int, error) {
 	query := `
 		SELECT COALESCE(MAX(event_version), 0)
@@ -173,7 +180,7 @@ func (es *EventStore) GetAggregateVersion(ctx context.Context, aggregateID uuid.
 		WHERE aggregate_id = $1`
 
 	var version int
-	err := es.client.db.QueryRowContext(ctx, query, aggregateID).Scan(&version)
+	err := es.client.db.Get(&version, query, aggregateID)
 	
 	if err == sql.ErrNoRows {
 		return 0, nil
@@ -186,6 +193,7 @@ func (es *EventStore) GetAggregateVersion(ctx context.Context, aggregateID uuid.
 	return version, nil
 }
 
+// ✅ FIX: Usar Select do sqlx
 func (es *EventStore) VerifyLedgerIntegrity(ctx context.Context, aggregateID uuid.UUID) (bool, error) {
 	query := `
 		SELECT ledger_hash, previous_hash
@@ -199,7 +207,7 @@ func (es *EventStore) VerifyLedgerIntegrity(ctx context.Context, aggregateID uui
 	}
 
 	var hashes []hashPair
-	err := es.client.db.SelectContext(ctx, &hashes, query, aggregateID)
+	err := es.client.db.Select(&hashes, query, aggregateID)
 	if err != nil {
 		return false, fmt.Errorf("erro ao verificar integridade: %w", err)
 	}
@@ -216,11 +224,12 @@ func (es *EventStore) VerifyLedgerIntegrity(ctx context.Context, aggregateID uui
 	return true, nil
 }
 
+// ✅ FIX: Usar Get do sqlx
 func (es *EventStore) CountEvents(ctx context.Context) (int64, error) {
 	query := `SELECT COUNT(*) FROM spuri_ledger`
 	
 	var count int64
-	err := es.client.db.QueryRowContext(ctx, query).Scan(&count)
+	err := es.client.db.Get(&count, query)
 	if err != nil {
 		return 0, fmt.Errorf("erro ao contar eventos: %w", err)
 	}
@@ -228,11 +237,12 @@ func (es *EventStore) CountEvents(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
+// ✅ FIX: Usar Get do sqlx
 func (es *EventStore) CountEventsByAggregate(ctx context.Context, aggregateID uuid.UUID) (int64, error) {
 	query := `SELECT COUNT(*) FROM spuri_ledger WHERE aggregate_id = $1`
 	
 	var count int64
-	err := es.client.db.QueryRowContext(ctx, query, aggregateID).Scan(&count)
+	err := es.client.db.Get(&count, query, aggregateID)
 	if err != nil {
 		return 0, fmt.Errorf("erro ao contar eventos: %w", err)
 	}

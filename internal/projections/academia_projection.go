@@ -57,15 +57,17 @@ func (p *AcademiaProjection) Rebuild() error {
 		return err
 	}
 
-	ctx := context.Background()
-	rows, err := p.client.DB().QueryContext(ctx, `
+	// ✅ FIX: Usar Queryx ao invés de QueryContext
+	query := `
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger
 		WHERE aggregate_type = 'Academia'
 		ORDER BY id ASC
-	`)
+	`
+	
+	rows, err := p.client.DB().Queryx(query)
 	if err != nil {
 		return err
 	}
@@ -90,14 +92,16 @@ func (p *AcademiaProjection) Rebuild() error {
 	return rows.Err()
 }
 
+// ✅ FIX: Usar Get ao invés de QueryRowContext
 func (p *AcademiaProjection) GetLastProcessedEventID() (int64, error) {
-	ctx := context.Background()
 	var lastID int64
-	err := p.client.DB().QueryRowContext(ctx, `
+	query := `
 		SELECT last_processed_event_id 
 		FROM projection_checkpoints 
 		WHERE projection_name = $1
-	`, p.Name()).Scan(&lastID)
+	`
+	
+	err := p.client.DB().Get(&lastID, query, p.Name())
 	
 	if err == sql.ErrNoRows {
 		return 0, nil
@@ -105,9 +109,9 @@ func (p *AcademiaProjection) GetLastProcessedEventID() (int64, error) {
 	return lastID, err
 }
 
+// ✅ FIX: Usar Exec ao invés de ExecContext
 func (p *AcademiaProjection) UpdateCheckpoint(eventID int64) error {
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `
+	query := `
 		INSERT INTO projection_checkpoints (
 			projection_name, last_processed_event_id, last_processed_at, events_processed
 		) VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
@@ -116,13 +120,15 @@ func (p *AcademiaProjection) UpdateCheckpoint(eventID int64) error {
 			last_processed_event_id = $2,
 			last_processed_at = CURRENT_TIMESTAMP,
 			events_processed = projection_checkpoints.events_processed + 1
-	`, p.Name(), eventID)
+	`
+	
+	_, err := p.client.DB().Exec(query, p.Name(), eventID)
 	return err
 }
 
+// ✅ FIX: Usar Exec ao invés de ExecContext
 func (p *AcademiaProjection) clear() error {
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `TRUNCATE TABLE projection_academias CASCADE`)
+	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_academias CASCADE`)
 	return err
 }
 
@@ -155,8 +161,8 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 		return err
 	}
 
-	ctx := context.Background()
-	_, err = p.client.DB().ExecContext(ctx, `
+	// ✅ FIX: Usar Exec ao invés de ExecContext (sem ctx)
+	query := `
 		INSERT INTO projection_academias (
 			id, type, nome, codigo_academia, senha_hash, provincia,
 			endereco, numero_telefone, email, website, nivel_escolar,
@@ -170,7 +176,10 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 			website = EXCLUDED.website, nivel_escolar = EXCLUDED.nivel_escolar,
 			cursos = EXCLUDED.cursos, version = EXCLUDED.version,
 			updated_at = EXCLUDED.updated_at, last_event_id = EXCLUDED.last_event_id
-	`, event.AggregateID, payload.Type, payload.Nome, payload.CodigoAcademia,
+	`
+	
+	_, err = p.client.DB().Exec(query, 
+		event.AggregateID, payload.Type, payload.Nome, payload.CodigoAcademia,
 		payload.SenhaHash, payload.Provincia, payload.Endereco, payload.NumeroTelefone,
 		payload.Email, payload.Website, payload.NivelEscolar, cursosJSON,
 		event.EventVersion, payload.CreatedAt, time.Now(), event.EventID)
@@ -178,23 +187,25 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 	return err
 }
 
+// ✅ FIX: Usar Exec ao invés de ExecContext
 func (p *AcademiaProjection) handleAcademiaAtivada(event db.Event) error {
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `
+	query := `
 		UPDATE projection_academias
 		SET status = 'ativo', version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
 		WHERE id = $3
-	`, event.EventVersion, event.EventID, event.AggregateID)
+	`
+	_, err := p.client.DB().Exec(query, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
+// ✅ FIX: Usar Exec ao invés de ExecContext
 func (p *AcademiaProjection) handleAcademiaDesativada(event db.Event) error {
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `
+	query := `
 		UPDATE projection_academias
 		SET status = 'inativo', version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
 		WHERE id = $3
-	`, event.EventVersion, event.EventID, event.AggregateID)
+	`
+	_, err := p.client.DB().Exec(query, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
@@ -212,35 +223,38 @@ func (p *AcademiaProjection) handleCursosAtualizados(event db.Event) error {
 		return err
 	}
 
-	ctx := context.Background()
-	_, err = p.client.DB().ExecContext(ctx, `
+	// ✅ FIX: Usar Exec
+	query := `
 		UPDATE projection_academias
 		SET cursos = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
 		WHERE id = $4
-	`, cursosJSON, event.EventVersion, event.EventID, event.AggregateID)
+	`
+	_, err = p.client.DB().Exec(query, cursosJSON, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
+// ✅ FIX: Usar Exec
 func (p *AcademiaProjection) handleInscricaoAprovada(event db.Event) error {
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `
+	query := `
 		UPDATE projection_academias
 		SET total_estudantes = total_estudantes + 1,
 			total_inscricoes_pendentes = GREATEST(total_inscricoes_pendentes - 1, 0),
 			updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1
-	`, event.AggregateID)
+	`
+	_, err := p.client.DB().Exec(query, event.AggregateID)
 	return err
 }
 
+// ✅ FIX: Usar Exec
 func (p *AcademiaProjection) handleInscricaoReprovada(event db.Event) error {
-	ctx := context.Background()
-	_, err := p.client.DB().ExecContext(ctx, `
+	query := `
 		UPDATE projection_academias
 		SET total_inscricoes_pendentes = GREATEST(total_inscricoes_pendentes - 1, 0),
 			updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1
-	`, event.AggregateID)
+	`
+	_, err := p.client.DB().Exec(query, event.AggregateID)
 	return err
 }
 
@@ -261,64 +275,57 @@ func (p *AcademiaProjection) handleAcademiaDadosAtualizados(event db.Event) erro
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	ctx := context.Background()
-	
+	// ✅ FIX: Usar Exec em todas as atualizações
 	if payload.Nome != nil {
-		p.client.DB().ExecContext(ctx, `UPDATE projection_academias SET nome = $1 WHERE id = $2`, *payload.Nome, event.AggregateID)
+		p.client.DB().Exec(`UPDATE projection_academias SET nome = $1 WHERE id = $2`, *payload.Nome, event.AggregateID)
 	}
 	if payload.Provincia != nil {
-		p.client.DB().ExecContext(ctx, `UPDATE projection_academias SET provincia = $1 WHERE id = $2`, *payload.Provincia, event.AggregateID)
+		p.client.DB().Exec(`UPDATE projection_academias SET provincia = $1 WHERE id = $2`, *payload.Provincia, event.AggregateID)
 	}
 	if payload.Endereco != nil {
-		p.client.DB().ExecContext(ctx, `UPDATE projection_academias SET endereco = $1 WHERE id = $2`, *payload.Endereco, event.AggregateID)
+		p.client.DB().Exec(`UPDATE projection_academias SET endereco = $1 WHERE id = $2`, *payload.Endereco, event.AggregateID)
 	}
 	if payload.NumeroTelefone != nil {
-		p.client.DB().ExecContext(ctx, `UPDATE projection_academias SET numero_telefone = $1 WHERE id = $2`, *payload.NumeroTelefone, event.AggregateID)
+		p.client.DB().Exec(`UPDATE projection_academias SET numero_telefone = $1 WHERE id = $2`, *payload.NumeroTelefone, event.AggregateID)
 	}
 	if payload.Email != nil {
 		if payload.EmailAlterado {
-			p.client.DB().ExecContext(ctx, `UPDATE projection_academias SET email = $1, email_verificado = FALSE WHERE id = $2`, *payload.Email, event.AggregateID)
+			p.client.DB().Exec(`UPDATE projection_academias SET email = $1, email_verificado = FALSE WHERE id = $2`, *payload.Email, event.AggregateID)
 		} else {
-			p.client.DB().ExecContext(ctx, `UPDATE projection_academias SET email = $1 WHERE id = $2`, *payload.Email, event.AggregateID)
+			p.client.DB().Exec(`UPDATE projection_academias SET email = $1 WHERE id = $2`, *payload.Email, event.AggregateID)
 		}
 	}
 	if payload.Website != nil {
-		p.client.DB().ExecContext(ctx, `UPDATE projection_academias SET website = $1 WHERE id = $2`, *payload.Website, event.AggregateID)
+		p.client.DB().Exec(`UPDATE projection_academias SET website = $1 WHERE id = $2`, *payload.Website, event.AggregateID)
 	}
 	if payload.NivelEscolar != nil {
-		p.client.DB().ExecContext(ctx, `UPDATE projection_academias SET nivel_escolar = $1 WHERE id = $2`, *payload.NivelEscolar, event.AggregateID)
+		p.client.DB().Exec(`UPDATE projection_academias SET nivel_escolar = $1 WHERE id = $2`, *payload.NivelEscolar, event.AggregateID)
 	}
 	if payload.Cursos != nil {
 		cursosJSON, _ := json.Marshal(payload.Cursos)
-		p.client.DB().ExecContext(ctx, `UPDATE projection_academias SET cursos = $1 WHERE id = $2`, cursosJSON, event.AggregateID)
+		p.client.DB().Exec(`UPDATE projection_academias SET cursos = $1 WHERE id = $2`, cursosJSON, event.AggregateID)
 	}
 
-	_, err := p.client.DB().ExecContext(ctx, `
+	_, err := p.client.DB().Exec(`
 		UPDATE projection_academias SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2 WHERE id = $3
 	`, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
+// ✅ FIX: Usar Get ao invés de QueryRowContext
 func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
-	ctx := context.Background()
 	var dto AcademiaDTO
 	var cursosJSON []byte
 
-	err := p.client.DB().QueryRowContext(ctx, `
+	query := `
 		SELECT id, type, nome, codigo_academia, senha_hash, provincia,
 			endereco, numero_telefone, email, website, nivel_escolar,
 			status, cursos, created_at, updated_at,
 			total_estudantes, total_inscricoes_pendentes, version
 		FROM projection_academias WHERE id = $1
-	`, id).Scan(
-		&dto.ID, &dto.Type, &dto.Nome, &dto.CodigoAcademia,
-		&dto.SenhaHash, &dto.Provincia, &dto.Endereco,
-		&dto.NumeroTelefone, &dto.Email, &dto.Website,
-		&dto.NivelEscolar, &dto.Status, &cursosJSON,
-		&dto.CreatedAt, &dto.UpdatedAt,
-		&dto.TotalEstudantes, &dto.TotalInscricoesPendentes, &dto.Version,
-	)
-
+	`
+	
+	err := p.client.DB().Get(&dto, query, id)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -326,16 +333,19 @@ func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
 		return nil, err
 	}
 
+	// Precisamos fazer um scan separado para cursosJSON
+	p.client.DB().Get(&cursosJSON, `SELECT cursos FROM projection_academias WHERE id = $1`, id)
 	json.Unmarshal(cursosJSON, &dto.Cursos)
+	
 	return &dto, nil
 }
 
+// ✅ FIX: Usar Get
 func (p *AcademiaProjection) GetByCodigoOrEmail(identifier string) (*AcademiaDTO, error) {
-	ctx := context.Background()
 	var dto AcademiaDTO
 	var cursosJSON []byte
 
-	err := p.client.DB().QueryRowContext(ctx, `
+	query := `
 		SELECT id, type, nome, codigo_academia, senha_hash, provincia,
 			endereco, numero_telefone, email, website, nivel_escolar,
 			status, cursos, created_at, updated_at,
@@ -343,15 +353,9 @@ func (p *AcademiaProjection) GetByCodigoOrEmail(identifier string) (*AcademiaDTO
 		FROM projection_academias
 		WHERE codigo_academia = $1 OR email = $1
 		LIMIT 1
-	`, identifier).Scan(
-		&dto.ID, &dto.Type, &dto.Nome, &dto.CodigoAcademia,
-		&dto.SenhaHash, &dto.Provincia, &dto.Endereco,
-		&dto.NumeroTelefone, &dto.Email, &dto.Website,
-		&dto.NivelEscolar, &dto.Status, &cursosJSON,
-		&dto.CreatedAt, &dto.UpdatedAt,
-		&dto.TotalEstudantes, &dto.TotalInscricoesPendentes, &dto.Version,
-	)
-
+	`
+	
+	err := p.client.DB().Get(&dto, query, identifier)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -359,30 +363,26 @@ func (p *AcademiaProjection) GetByCodigoOrEmail(identifier string) (*AcademiaDTO
 		return nil, err
 	}
 
+	p.client.DB().Get(&cursosJSON, `SELECT cursos FROM projection_academias WHERE id = $1`, dto.ID)
 	json.Unmarshal(cursosJSON, &dto.Cursos)
+
 	return &dto, nil
 }
 
+// ✅ FIX: Usar Get
 func (p *AcademiaProjection) GetByCodigo(codigo string) (*AcademiaDTO, error) {
-	ctx := context.Background()
 	var dto AcademiaDTO
 	var cursosJSON []byte
 
-	err := p.client.DB().QueryRowContext(ctx, `
+	query := `
 		SELECT id, type, nome, codigo_academia, senha_hash, provincia,
 			endereco, numero_telefone, email, website, nivel_escolar,
 			status, cursos, created_at, updated_at,
 			total_estudantes, total_inscricoes_pendentes, version
 		FROM projection_academias WHERE codigo_academia = $1
-	`, codigo).Scan(
-		&dto.ID, &dto.Type, &dto.Nome, &dto.CodigoAcademia,
-		&dto.SenhaHash, &dto.Provincia, &dto.Endereco,
-		&dto.NumeroTelefone, &dto.Email, &dto.Website,
-		&dto.NivelEscolar, &dto.Status, &cursosJSON,
-		&dto.CreatedAt, &dto.UpdatedAt,
-		&dto.TotalEstudantes, &dto.TotalInscricoesPendentes, &dto.Version,
-	)
-
+	`
+	
+	err := p.client.DB().Get(&dto, query, codigo)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -390,27 +390,29 @@ func (p *AcademiaProjection) GetByCodigo(codigo string) (*AcademiaDTO, error) {
 		return nil, err
 	}
 
+	p.client.DB().Get(&cursosJSON, `SELECT cursos FROM projection_academias WHERE id = $1`, dto.ID)
 	json.Unmarshal(cursosJSON, &dto.Cursos)
+
 	return &dto, nil
 }
 
 type AcademiaDTO struct {
-	ID                       uuid.UUID `json:"id"`
-	Type                     string    `json:"type"`
-	Nome                     string    `json:"nome"`
-	CodigoAcademia           string    `json:"codigo_academia"`
-	SenhaHash                string    `json:"-"`
-	Provincia                string    `json:"provincia"`
-	Endereco                 string    `json:"endereco"`
-	NumeroTelefone           *string   `json:"numero_telefone,omitempty"`
-	Email                    *string   `json:"email,omitempty"`
-	Website                  *string   `json:"website,omitempty"`
-	NivelEscolar             *string   `json:"nivel_escolar,omitempty"`
-	Status                   string    `json:"status"`
-	Cursos                   []string  `json:"cursos"`
-	CreatedAt                time.Time `json:"created_at"`
-	UpdatedAt                time.Time `json:"updated_at"`
-	TotalEstudantes          int       `json:"total_estudantes"`
-	TotalInscricoesPendentes int       `json:"total_inscricoes_pendentes"`
-	Version                  int       `json:"version"`
+	ID                       uuid.UUID `json:"id" db:"id"`
+	Type                     string    `json:"type" db:"type"`
+	Nome                     string    `json:"nome" db:"nome"`
+	CodigoAcademia           string    `json:"codigo_academia" db:"codigo_academia"`
+	SenhaHash                string    `json:"-" db:"senha_hash"`
+	Provincia                string    `json:"provincia" db:"provincia"`
+	Endereco                 string    `json:"endereco" db:"endereco"`
+	NumeroTelefone           *string   `json:"numero_telefone,omitempty" db:"numero_telefone"`
+	Email                    *string   `json:"email,omitempty" db:"email"`
+	Website                  *string   `json:"website,omitempty" db:"website"`
+	NivelEscolar             *string   `json:"nivel_escolar,omitempty" db:"nivel_escolar"`
+	Status                   string    `json:"status" db:"status"`
+	Cursos                   []string  `json:"cursos" db:"cursos"`
+	CreatedAt                time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt                time.Time `json:"updated_at" db:"updated_at"`
+	TotalEstudantes          int       `json:"total_estudantes" db:"total_estudantes"`
+	TotalInscricoesPendentes int       `json:"total_inscricoes_pendentes" db:"total_inscricoes_pendentes"`
+	Version                  int       `json:"version" db:"version"`
 }
