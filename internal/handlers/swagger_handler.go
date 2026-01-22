@@ -1,17 +1,12 @@
-// ============================================================================
-// ARQUIVO: internal/handlers/swagger_handler.go
-// Handler para servir documentação Swagger
-// ============================================================================
-
 package handlers
 
 import (
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 )
 
-// SwaggerUI serve a interface Swagger
 func SwaggerUI(c *gin.Context) {
 	html := `
 <!DOCTYPE html>
@@ -56,7 +51,18 @@ func SwaggerUI(c *gin.Context) {
 	c.String(http.StatusOK, html)
 }
 
-// SwaggerYAML serve o arquivo YAML
 func SwaggerYAML(c *gin.Context) {
+	// Verifica se arquivo existe
+	if _, err := os.Stat("./docs/swagger.yaml"); os.IsNotExist(err) {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "swagger.yaml não encontrado",
+			"path":  "./docs/swagger.yaml",
+		})
+		return
+	}
+
+	// Define Content-Type correto para YAML
+	c.Header("Content-Type", "application/x-yaml; charset=utf-8")
+	c.Header("Access-Control-Allow-Origin", "*")
 	c.File("./docs/swagger.yaml")
 }
