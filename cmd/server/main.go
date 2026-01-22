@@ -50,15 +50,6 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-
-	log.Printf("[INFO] Spuri Event Sourcing rodando em http://localhost:%s", port)
-	log.Printf("[INFO] Documentação: http://localhost:%s/", port)
-	log.Printf("[INFO] Swagger UI: http://localhost:%s/docs", port)
-	log.Printf("[INFO] Health check: http://localhost:%s/health", port)
-	log.Printf("[INFO] Metrics: http://localhost:%s/admin/metrics", port)
-	log.Printf("[INFO] Ambiente: %s", os.Getenv("ENV"))
-	log.Printf("[INFO] Segurança: Rate Limiting + Input Validation + Prepared Statements")
-	log.Printf("[INFO] Encoding: UTF-8")
 	
 	if err := router.Run("0.0.0.0:" + port); err != nil {
 		log.Fatalf("[ERROR] Erro ao iniciar servidor: %v", err)
@@ -127,13 +118,7 @@ func setupRouter() *gin.Engine {
 		c.Next()
 	})
 
-	router.GET("/docs", handlers.SwaggerUI)
-	router.GET("/api-docs/swagger.yaml", func(c *gin.Context) {
-		c.Header("Content-Type", "application/x-yaml; charset=utf-8")
-		c.Header("Access-Control-Allow-Origin", "*")
-		c.File("docs/swagger.yaml")  // Sem ./ no início
-	})
-	
+	router.GET("/docs", handlers.GetOpenAPISpec)	
 	router.GET("/health", handlers.HealthCheckBasic)
 	router.GET("/health/detailed", middleware.AuthMiddleware(), middleware.RequireAdmin(), handlers.HealthCheckDetailed)
 	
