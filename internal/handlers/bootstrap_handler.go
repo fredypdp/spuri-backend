@@ -67,8 +67,8 @@ func BootstrapAdminFPP(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		// Usar valores padrão se não for fornecido
 		req.Nome = "Admin FPP"
-		req.Email = "admin@spuri.ao"
-		req.Senha = "fpp@2025"
+		req.Email = "fredrodrigues795@gmail.com"
+		req.Senha = "gloriasaobrasil"
 		
 		log.Println("ℹ️  [BOOTSTRAP] Usando valores padrão")
 	}
