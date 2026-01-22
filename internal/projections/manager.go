@@ -148,27 +148,47 @@ func (m *Manager) processEventWithRetry(name string, projection Projection, even
 	return fmt.Errorf("evento %d falhou apos %d tentativas: %w", event.ID, maxRetries, lastErr)
 }
 
-// ✅ OK: Já usa Select do sqlx
+// ✅ SAFE: Não usa prepared statements
 func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
-	query := `
+	// Validar fromID (não pode ser negativo)
+	if fromID < 0 {
+		fromID = 0
+	}
+
+	// Validar batchSize
+	batchSize := db.ValidateLimit(m.batchSize)
+
+	query := fmt.Sprintf(`
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger
-		WHERE id > $1
+		WHERE id > %d
 		ORDER BY id ASC
-		LIMIT $2
-	`
-	
-	var events []db.Event
-	
-	// ✅ USAR Select que NÃO usa prepared statements
-	err := m.client.DB().Select(&events, query, fromID, m.batchSize)
+		LIMIT %d
+	`, fromID, batchSize)
+
+	rows, err := m.client.DB().Queryx(query)
 	if err != nil {
 		return nil, fmt.Errorf("erro na query: %w", err)
 	}
+	defer rows.Close()
 
-	return events, nil
+	var events []db.Event
+	for rows.Next() {
+		var event db.Event
+		err := rows.Scan(
+			&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
+			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
+			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao scan: %w", err)
+		}
+		events = append(events, event)
+	}
+
+	return events, rows.Err()
 }
 
 func (m *Manager) RebuildProjection(name string) error {
@@ -220,57 +240,67 @@ func (m *Manager) RebuildAllProjections() error {
 	return nil
 }
 
-// ✅ CORRIGIDO: Usar Exec sem Context
+// ✅ SAFE: String escapada
 func (m *Manager) markRebuildStart(name string) error {
-	query := `
+	safeName := db.SafeString(name)
+	
+	query := fmt.Sprintf(`
 		UPDATE projection_checkpoints
-		SET is_rebuilding = $1, rebuild_started_at = CURRENT_TIMESTAMP, last_processed_event_id = $2
-		WHERE projection_name = $3
-	`
-	_, err := m.client.DB().Exec(query, true, 0, name)
+		SET is_rebuilding = true, rebuild_started_at = CURRENT_TIMESTAMP, last_processed_event_id = 0
+		WHERE projection_name = '%s'
+	`, safeName)
+	
+	_, err := m.client.DB().Exec(query)
 	return err
 }
 
-// ✅ CORRIGIDO: Usar Get + Exec
+// ✅ SAFE: String escapada
 func (m *Manager) markRebuildComplete(name string) error {
 	var lastEventID int64
 	
-	// ✅ USAR Get ao invés de QueryRowContext
-	err := m.client.DB().Get(&lastEventID, `SELECT COALESCE(MAX(id), 0) FROM spuri_ledger`)
+	err := m.client.DB().QueryRow(`SELECT COALESCE(MAX(id), 0) FROM spuri_ledger`).Scan(&lastEventID)
 	if err != nil {
 		return err
 	}
 
-	query := `
+	safeName := db.SafeString(name)
+
+	query := fmt.Sprintf(`
 		UPDATE projection_checkpoints
-		SET is_rebuilding = $1, rebuild_started_at = $2,
-			last_processed_event_id = $3, last_processed_at = CURRENT_TIMESTAMP
-		WHERE projection_name = $4
-	`
+		SET is_rebuilding = false, rebuild_started_at = NULL,
+			last_processed_event_id = %d, last_processed_at = CURRENT_TIMESTAMP
+		WHERE projection_name = '%s'
+	`, lastEventID, safeName)
 	
-	_, err = m.client.DB().Exec(query, false, nil, lastEventID, name)
+	_, err = m.client.DB().Exec(query)
 	return err
 }
 
-// ✅ CORRIGIDO: Usar Exec sem Context
+// ✅ SAFE: String escapada
 func (m *Manager) logProjectionError(name, errorMsg string) {
-	query := `
+	safeName := db.SafeString(name)
+	safeMsg := db.SafeString(errorMsg)
+	
+	query := fmt.Sprintf(`
 		UPDATE projection_checkpoints
-		SET error_count = error_count + 1, last_error = $1, last_error_at = CURRENT_TIMESTAMP
-		WHERE projection_name = $2
-	`
-	m.client.DB().Exec(query, errorMsg, name)
+		SET error_count = error_count + 1, last_error = '%s', last_error_at = CURRENT_TIMESTAMP
+		WHERE projection_name = '%s'
+	`, safeMsg, safeName)
+	
+	m.client.DB().Exec(query)
 }
 
-// ✅ CORRIGIDO: Usar Get ao invés de QueryRowContext
+// ✅ SAFE: String escapada
 func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, error) {
-	query := `
+	safeName := db.SafeString(name)
+	
+	query := fmt.Sprintf(`
 		SELECT projection_name, last_processed_event_id, last_processed_at,
 			events_processed, is_rebuilding, rebuild_started_at,
 			error_count, last_error, last_error_at
 		FROM projection_checkpoints
-		WHERE projection_name = $1
-	`
+		WHERE projection_name = '%s'
+	`, safeName)
 
 	var (
 		projName      string
@@ -284,28 +314,10 @@ func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, erro
 		lastErrAt     sql.NullTime
 	)
 
-	// ✅ USAR Get
-	err := m.client.DB().Get(&struct {
-		ProjectionName       string         `db:"projection_name"`
-		LastProcessedEventID int64          `db:"last_processed_event_id"`
-		LastProcessedAt      time.Time      `db:"last_processed_at"`
-		EventsProcessed      int64          `db:"events_processed"`
-		IsRebuilding         bool           `db:"is_rebuilding"`
-		RebuildStartedAt     sql.NullTime   `db:"rebuild_started_at"`
-		ErrorCount           int            `db:"error_count"`
-		LastError            sql.NullString `db:"last_error"`
-		LastErrorAt          sql.NullTime   `db:"last_error_at"`
-	}{
-		ProjectionName:       projName,
-		LastProcessedEventID: lastEventID,
-		LastProcessedAt:      lastProcessed,
-		EventsProcessed:      eventsProc,
-		IsRebuilding:         rebuilding,
-		RebuildStartedAt:     rebuildStart,
-		ErrorCount:           errCount,
-		LastError:            lastErr,
-		LastErrorAt:          lastErrAt,
-	}, query, name)
+	err := m.client.DB().QueryRow(query).Scan(
+		&projName, &lastEventID, &lastProcessed, &eventsProc,
+		&rebuilding, &rebuildStart, &errCount, &lastErr, &lastErrAt,
+	)
 
 	if err != nil {
 		return nil, err

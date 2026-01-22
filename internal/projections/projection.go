@@ -3,10 +3,10 @@ package projections
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"spuri/internal/db"
 )
 
-// Projection interface para todas as projeções
 type Projection interface {
 	Name() string
 	Handle(event db.Event) error
@@ -15,7 +15,6 @@ type Projection interface {
 	UpdateCheckpoint(eventID int64) error
 }
 
-// BaseProjection fornece métodos comuns para todas projeções
 type BaseProjection struct {
 	client *db.Client
 	ctx    context.Context
@@ -28,17 +27,18 @@ func NewBaseProjection(client *db.Client) *BaseProjection {
 	}
 }
 
-// ✅ FIX: Usar Get do sqlx (NÃO cacheia prepared statements)
+// ✅ SAFE: String validada
 func (bp *BaseProjection) GetLastProcessedEventIDByName(name string) (int64, error) {
-	var lastID int64
+	safeName := db.SafeString(name)
 	
-	query := `
+	query := fmt.Sprintf(`
 		SELECT last_processed_event_id 
 		FROM projection_checkpoints 
-		WHERE projection_name = $1
-	`
+		WHERE projection_name = '%s'
+	`, safeName)
 	
-	err := bp.client.DB().Get(&lastID, query, name)
+	var lastID int64
+	err := bp.client.DB().QueryRow(query).Scan(&lastID)
 	
 	if err == sql.ErrNoRows {
 		return 0, nil
@@ -50,20 +50,26 @@ func (bp *BaseProjection) GetLastProcessedEventIDByName(name string) (int64, err
 	return lastID, nil
 }
 
-// ✅ FIX: Usar Exec do sqlx (NÃO cacheia prepared statements)
+// ✅ SAFE: String validada + int validado
 func (bp *BaseProjection) UpdateCheckpointByName(name string, eventID int64) error {
-	query := `
+	safeName := db.SafeString(name)
+	
+	if eventID < 0 {
+		eventID = 0
+	}
+	
+	query := fmt.Sprintf(`
 		INSERT INTO projection_checkpoints (
 			projection_name, last_processed_event_id, last_processed_at, events_processed
-		) VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
+		) VALUES ('%s', %d, CURRENT_TIMESTAMP, 1)
 		ON CONFLICT (projection_name) 
 		DO UPDATE SET
-			last_processed_event_id = $2,
+			last_processed_event_id = %d,
 			last_processed_at = CURRENT_TIMESTAMP,
 			events_processed = projection_checkpoints.events_processed + 1
-	`
+	`, safeName, eventID, eventID)
 	
-	_, err := bp.client.DB().Exec(query, name, eventID)
+	_, err := bp.client.DB().Exec(query)
 	
 	return err
 }

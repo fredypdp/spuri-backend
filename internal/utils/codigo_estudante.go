@@ -22,23 +22,29 @@ func GenerateCodigoEstudante() string {
 	return fmt.Sprintf("%c%c%c%04d", letra1, letra2, letra3, numero)
 }
 
-// ✅ SOLUÇÃO: Usar Get do sqlx (NÃO cacheia prepared statements)
+// ✅ SAFE: String validada e escapada
 func GenerateUniqueCodigoEstudante(db *sqlx.DB) (string, error) {
 	maxAttempts := 100
 	
 	for i := 0; i < maxAttempts; i++ {
 		codigo := GenerateCodigoEstudante()
 		
-		var exists bool
-		query := `
+		// Validar formato antes de usar
+		if !ValidateCodigoEstudante(codigo) {
+			continue
+		}
+		
+		// Escapar string - apenas caracteres seguros (letras + números)
+		// Não precisa de escape adicional pois só contém A-Z e 0-9
+		query := fmt.Sprintf(`
 			SELECT EXISTS(
 				SELECT 1 FROM projection_estudantes 
-				WHERE codigo_estudante = $1
+				WHERE codigo_estudante = '%s'
 			)
-		`
+		`, codigo)
 		
-		// ✅ USAR Get DO SQLX (não QueryRow do database/sql)
-		err := db.Get(&exists, query, codigo)
+		var exists bool
+		err := db.QueryRow(query).Scan(&exists)
 		
 		if err != nil {
 			return "", fmt.Errorf("erro ao verificar código: %w", err)
@@ -57,6 +63,7 @@ func ValidateCodigoEstudante(codigo string) bool {
 		return false
 	}
 	
+	// Primeiros 3 caracteres devem ser letras maiúsculas
 	for i := 0; i < 3; i++ {
 		c := codigo[i]
 		if c < 'A' || c > 'Z' {
@@ -64,6 +71,7 @@ func ValidateCodigoEstudante(codigo string) bool {
 		}
 	}
 	
+	// Últimos 4 caracteres devem ser números
 	for i := 3; i < 7; i++ {
 		c := codigo[i]
 		if c < '0' || c > '9' {

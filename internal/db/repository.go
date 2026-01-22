@@ -190,42 +190,64 @@ func (r *AggregateRepository) convertToDomainEvents(dbEvents []Event) ([]aggrega
 	return domainEvents, nil
 }
 
+// ✅ SAFE: UUID validado
 func (r *AggregateRepository) SaveSnapshot(aggregate aggregates.Aggregate) error {
 	stateJSON, err := json.Marshal(aggregate)
 	if err != nil {
 		return err
 	}
 
-	query := `
+	aggID := aggregate.GetID()
+	if aggID == uuid.Nil {
+		return fmt.Errorf("UUID inválido")
+	}
+
+	aggType := aggregate.GetType()
+	if err := ValidateAggregateType(aggType); err != nil {
+		return err
+	}
+
+	version := aggregate.GetVersion()
+	if version < 0 {
+		version = 0
+	}
+
+	safeType := SafeString(aggType)
+	safeState := SafeString(string(stateJSON))
+
+	query := fmt.Sprintf(`
 		INSERT INTO aggregate_snapshots (aggregate_id, aggregate_type, version, state)
-		VALUES ($1, $2, $3, $4)
+		VALUES ('%s', '%s', %d, '%s')
 		ON CONFLICT (aggregate_id) 
 		DO UPDATE SET 
 			version = EXCLUDED.version,
 			state = EXCLUDED.state,
-			updated_at = CURRENT_TIMESTAMP`
+			updated_at = CURRENT_TIMESTAMP`, aggID, safeType, version, safeState)
 
-	// ✅ USAR Exec (não ExecContext direto)
-	_, err = r.eventStore.client.DB().Exec(query,
-		aggregate.GetID(),
-		aggregate.GetType(),
-		aggregate.GetVersion(),
-		stateJSON,
-	)
+	_, err = r.eventStore.client.DB().Exec(query)
 	return err
 }
 
-// ✅ CORRIGIDO: Usar Get do sqlx
+// ✅ SAFE: UUID validado
 func (r *AggregateRepository) LoadSnapshot(id uuid.UUID) (*Snapshot, error) {
-	query := `
+	if id == uuid.Nil {
+		return nil, fmt.Errorf("UUID inválido")
+	}
+
+	query := fmt.Sprintf(`
 		SELECT aggregate_id, aggregate_type, version, state, created_at
 		FROM aggregate_snapshots
-		WHERE aggregate_id = $1`
+		WHERE aggregate_id = '%s'`, id)
 
 	var snapshot Snapshot
 	
-	// ✅ USAR Get (não QueryRowContext)
-	err := r.eventStore.client.DB().Get(&snapshot, query, id)
+	err := r.eventStore.client.DB().QueryRowx(query).Scan(
+		&snapshot.AggregateID,
+		&snapshot.AggregateType,
+		&snapshot.Version,
+		&snapshot.State,
+		&snapshot.CreatedAt,
+	)
 	
 	if err == sql.ErrNoRows {
 		return nil, nil
