@@ -22,14 +22,14 @@ func GenerateCodigoEstudante() string {
 	return fmt.Sprintf("%c%c%c%04d", letra1, letra2, letra3, numero)
 }
 
-// ✅ CORRIGIDO: Usando prepared statement
+// ✅ SOLUÇÃO: Usar Get do sqlx (NÃO cacheia prepared statements)
 func GenerateUniqueCodigoEstudante(db *sqlx.DB) (string, error) {
 	maxAttempts := 100
 	
 	for i := 0; i < maxAttempts; i++ {
 		codigo := GenerateCodigoEstudante()
 		
-		// ✅ SEGURO: Query parametrizada
+		var exists bool
 		query := `
 			SELECT EXISTS(
 				SELECT 1 FROM projection_estudantes 
@@ -37,8 +37,8 @@ func GenerateUniqueCodigoEstudante(db *sqlx.DB) (string, error) {
 			)
 		`
 		
-		var exists bool
-		err := db.QueryRow(query, codigo).Scan(&exists)
+		// ✅ USAR Get DO SQLX (não QueryRow do database/sql)
+		err := db.Get(&exists, query, codigo)
 		
 		if err != nil {
 			return "", fmt.Errorf("erro ao verificar código: %w", err)

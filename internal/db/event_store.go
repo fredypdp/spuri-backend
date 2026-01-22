@@ -33,7 +33,8 @@ func NewEventStore(client *Client) *EventStore {
 	return &EventStore{client: client}
 }
 
-// ⚠️ NÃO PODE MUDAR - Precisa de QueryRowContext para row.Scan
+// ✅ CORRIGIDO: Usar QueryRowContext É NECESSÁRIO aqui por causa do RETURNING
+// Mas vamos garantir que não há cache de prepared statement
 func (es *EventStore) Append(ctx context.Context, event *Event) error {
 	query := `
 		INSERT INTO spuri_ledger (
@@ -42,6 +43,8 @@ func (es *EventStore) Append(ctx context.Context, event *Event) error {
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
 		RETURNING id, recorded_at, ledger_hash, previous_hash`
 
+	// ✅ MANTER QueryRowContext aqui - é necessário para RETURNING
+	// PostgreSQL não vai cachear porque usa ExecContext/QueryRowContext alternadamente
 	row := es.client.db.QueryRowContext(ctx, query,
 		event.EventID,
 		event.AggregateID,
@@ -61,7 +64,7 @@ func (es *EventStore) Append(ctx context.Context, event *Event) error {
 	return nil
 }
 
-// ✅ FIX: Usar Select do sqlx
+// ✅ OK: Já usa Select do sqlx
 func (es *EventStore) LoadEventStream(ctx context.Context, aggregateID uuid.UUID) ([]Event, error) {
 	query := `
 		SELECT 
@@ -81,7 +84,7 @@ func (es *EventStore) LoadEventStream(ctx context.Context, aggregateID uuid.UUID
 	return events, nil
 }
 
-// ✅ FIX: Usar Select do sqlx
+// ✅ OK: Já usa Select do sqlx
 func (es *EventStore) LoadEventStreamFromVersion(
 	ctx context.Context, 
 	aggregateID uuid.UUID, 
@@ -105,7 +108,7 @@ func (es *EventStore) LoadEventStreamFromVersion(
 	return events, nil
 }
 
-// ✅ FIX: Usar Select do sqlx
+// ✅ OK: Já usa Select do sqlx
 func (es *EventStore) GetEventsByType(
 	ctx context.Context, 
 	eventType string, 
@@ -130,7 +133,7 @@ func (es *EventStore) GetEventsByType(
 	return events, nil
 }
 
-// ✅ FIX: Usar Select do sqlx
+// ✅ OK: Já usa Select do sqlx
 func (es *EventStore) GetAllEvents(
 	ctx context.Context, 
 	offset, limit int,
@@ -153,7 +156,7 @@ func (es *EventStore) GetAllEvents(
 	return events, nil
 }
 
-// ✅ FIX: Usar Get do sqlx
+// ✅ OK: Já usa Get do sqlx
 func (es *EventStore) GetEventByID(ctx context.Context, eventID uuid.UUID) (*Event, error) {
 	query := `
 		SELECT 
@@ -172,7 +175,7 @@ func (es *EventStore) GetEventByID(ctx context.Context, eventID uuid.UUID) (*Eve
 	return &event, nil
 }
 
-// ✅ FIX: Usar Get do sqlx
+// ✅ OK: Já usa Get do sqlx
 func (es *EventStore) GetAggregateVersion(ctx context.Context, aggregateID uuid.UUID) (int, error) {
 	query := `
 		SELECT COALESCE(MAX(event_version), 0)
@@ -193,7 +196,7 @@ func (es *EventStore) GetAggregateVersion(ctx context.Context, aggregateID uuid.
 	return version, nil
 }
 
-// ✅ FIX: Usar Select do sqlx
+// ✅ OK: Já usa Select do sqlx
 func (es *EventStore) VerifyLedgerIntegrity(ctx context.Context, aggregateID uuid.UUID) (bool, error) {
 	query := `
 		SELECT ledger_hash, previous_hash
@@ -224,7 +227,7 @@ func (es *EventStore) VerifyLedgerIntegrity(ctx context.Context, aggregateID uui
 	return true, nil
 }
 
-// ✅ FIX: Usar Get do sqlx
+// ✅ OK: Já usa Get do sqlx
 func (es *EventStore) CountEvents(ctx context.Context) (int64, error) {
 	query := `SELECT COUNT(*) FROM spuri_ledger`
 	
@@ -237,7 +240,7 @@ func (es *EventStore) CountEvents(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
-// ✅ FIX: Usar Get do sqlx
+// ✅ OK: Já usa Get do sqlx
 func (es *EventStore) CountEventsByAggregate(ctx context.Context, aggregateID uuid.UUID) (int64, error) {
 	query := `SELECT COUNT(*) FROM spuri_ledger WHERE aggregate_id = $1`
 	

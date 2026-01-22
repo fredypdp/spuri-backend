@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/services/email_service.go
-// 🔒 CORRIGIDO: Removidos logs sensíveis
+// 🔒 CORRIGIDO: Prepared statements + logs sensíveis
 // ============================================================================
 
 package services
@@ -40,7 +40,6 @@ func NewEmailService(db *sqlx.DB) *EmailService {
 	if !enabled {
 		log.Println("[EMAIL] Serviço DESABILITADO - variáveis SMTP não configuradas")
 	} else {
-		// ✅ CORRIGIDO: Log genérico sem credenciais
 		log.Println("[EMAIL] Serviço HABILITADO")
 	}
 
@@ -90,6 +89,7 @@ func (s *EmailService) SaveToken(userID uuid.UUID, userType, tipo, email string,
 	return token, nil
 }
 
+// ✅ CORRIGIDO: Usar Get ao invés de QueryRow
 func (s *EmailService) VerifyToken(token, tipo string) (*TokenInfo, error) {
 	query := `
 		SELECT user_id, user_type, email, usado, expires_at
@@ -98,9 +98,9 @@ func (s *EmailService) VerifyToken(token, tipo string) (*TokenInfo, error) {
 	`
 
 	var info TokenInfo
-	err := s.db.QueryRow(query, token, tipo).Scan(
-		&info.UserID, &info.UserType, &info.Email, &info.Usado, &info.ExpiresAt,
-	)
+	
+	// ✅ USAR Get
+	err := s.db.Get(&info, query, token, tipo)
 	if err != nil {
 		return nil, fmt.Errorf("token inválido ou expirado")
 	}
@@ -146,19 +146,16 @@ func (s *EmailService) SendEmail(to, subject, body string) error {
 	
 	err := smtp.SendMail(addr, auth, s.fromEmail, []string{to}, []byte(msg))
 	if err != nil {
-		// ✅ CORRIGIDO: Log genérico sem email do destinatário
 		log.Printf("[EMAIL] Falha ao enviar email")
 		return fmt.Errorf("falha ao enviar email: %w", err)
 	}
 
-	// ✅ CORRIGIDO: Log genérico sem email do destinatário
 	log.Printf("[EMAIL] Email enviado com sucesso")
 	return nil
 }
 
 func (s *EmailService) SendVerificationEmail(userID uuid.UUID, userType, email, nome string) error {
 	if !s.enabled {
-		// ✅ CORRIGIDO: Log genérico
 		log.Println("[EMAIL] Serviço desabilitado - pulando verificação")
 		return fmt.Errorf("serviço de email desabilitado")
 	}
@@ -204,7 +201,6 @@ func (s *EmailService) SendVerificationEmail(userID uuid.UUID, userType, email, 
 
 func (s *EmailService) SendPasswordResetEmail(userID uuid.UUID, userType, email, nome string) error {
 	if !s.enabled {
-		// ✅ CORRIGIDO: Log genérico
 		log.Println("[EMAIL] Serviço desabilitado - pulando recuperação")
 		return fmt.Errorf("serviço de email desabilitado")
 	}
@@ -275,9 +271,9 @@ func getEnvOrDefault(key, defaultValue string) string {
 }
 
 type TokenInfo struct {
-	UserID    uuid.UUID
-	UserType  string
-	Email     string
-	Usado     bool
-	ExpiresAt time.Time
+	UserID    uuid.UUID `db:"user_id"`
+	UserType  string    `db:"user_type"`
+	Email     string    `db:"email"`
+	Usado     bool      `db:"usado"`
+	ExpiresAt time.Time `db:"expires_at"`
 }

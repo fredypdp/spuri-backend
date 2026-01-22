@@ -148,7 +148,7 @@ func (m *Manager) processEventWithRetry(name string, projection Projection, even
 	return fmt.Errorf("evento %d falhou apos %d tentativas: %w", event.ID, maxRetries, lastErr)
 }
 
-// ✅ SOLUÇÃO DEFINITIVA: Usar Select do sqlx
+// ✅ OK: Já usa Select do sqlx
 func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
 	query := `
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
@@ -220,51 +220,57 @@ func (m *Manager) RebuildAllProjections() error {
 	return nil
 }
 
+// ✅ CORRIGIDO: Usar Exec sem Context
 func (m *Manager) markRebuildStart(name string) error {
-	ctx := context.Background()
-	_, err := m.client.DB().ExecContext(ctx, `
+	query := `
 		UPDATE projection_checkpoints
 		SET is_rebuilding = $1, rebuild_started_at = CURRENT_TIMESTAMP, last_processed_event_id = $2
 		WHERE projection_name = $3
-	`, true, 0, name)
+	`
+	_, err := m.client.DB().Exec(query, true, 0, name)
 	return err
 }
 
+// ✅ CORRIGIDO: Usar Get + Exec
 func (m *Manager) markRebuildComplete(name string) error {
-	ctx := context.Background()
 	var lastEventID int64
-	err := m.client.DB().QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM spuri_ledger`).Scan(&lastEventID)
+	
+	// ✅ USAR Get ao invés de QueryRowContext
+	err := m.client.DB().Get(&lastEventID, `SELECT COALESCE(MAX(id), 0) FROM spuri_ledger`)
 	if err != nil {
 		return err
 	}
 
-	_, err = m.client.DB().ExecContext(ctx, `
+	query := `
 		UPDATE projection_checkpoints
 		SET is_rebuilding = $1, rebuild_started_at = $2,
 			last_processed_event_id = $3, last_processed_at = CURRENT_TIMESTAMP
 		WHERE projection_name = $4
-	`, false, nil, lastEventID, name)
+	`
+	
+	_, err = m.client.DB().Exec(query, false, nil, lastEventID, name)
 	return err
 }
 
+// ✅ CORRIGIDO: Usar Exec sem Context
 func (m *Manager) logProjectionError(name, errorMsg string) {
-	ctx := context.Background()
-	m.client.DB().ExecContext(ctx, `
+	query := `
 		UPDATE projection_checkpoints
 		SET error_count = error_count + 1, last_error = $1, last_error_at = CURRENT_TIMESTAMP
 		WHERE projection_name = $2
-	`, errorMsg, name)
+	`
+	m.client.DB().Exec(query, errorMsg, name)
 }
 
+// ✅ CORRIGIDO: Usar Get ao invés de QueryRowContext
 func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, error) {
-	ctx := context.Background()
-	row := m.client.DB().QueryRowContext(ctx, `
+	query := `
 		SELECT projection_name, last_processed_event_id, last_processed_at,
 			events_processed, is_rebuilding, rebuild_started_at,
 			error_count, last_error, last_error_at
 		FROM projection_checkpoints
 		WHERE projection_name = $1
-	`, name)
+	`
 
 	var (
 		projName      string
@@ -278,10 +284,29 @@ func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, erro
 		lastErrAt     sql.NullTime
 	)
 
-	err := row.Scan(
-		&projName, &lastEventID, &lastProcessed, &eventsProc,
-		&rebuilding, &rebuildStart, &errCount, &lastErr, &lastErrAt,
-	)
+	// ✅ USAR Get
+	err := m.client.DB().Get(&struct {
+		ProjectionName       string         `db:"projection_name"`
+		LastProcessedEventID int64          `db:"last_processed_event_id"`
+		LastProcessedAt      time.Time      `db:"last_processed_at"`
+		EventsProcessed      int64          `db:"events_processed"`
+		IsRebuilding         bool           `db:"is_rebuilding"`
+		RebuildStartedAt     sql.NullTime   `db:"rebuild_started_at"`
+		ErrorCount           int            `db:"error_count"`
+		LastError            sql.NullString `db:"last_error"`
+		LastErrorAt          sql.NullTime   `db:"last_error_at"`
+	}{
+		ProjectionName:       projName,
+		LastProcessedEventID: lastEventID,
+		LastProcessedAt:      lastProcessed,
+		EventsProcessed:      eventsProc,
+		IsRebuilding:         rebuilding,
+		RebuildStartedAt:     rebuildStart,
+		ErrorCount:           errCount,
+		LastError:            lastErr,
+		LastErrorAt:          lastErrAt,
+	}, query, name)
+
 	if err != nil {
 		return nil, err
 	}

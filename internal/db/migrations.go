@@ -36,6 +36,7 @@ func (c *Client) RunMigrations() error {
 	return nil
 }
 
+// ✅ CORRIGIDO: Usar Get do sqlx
 func (c *Client) tableExists(tableName string) (bool, error) {
 	query := `
 		SELECT COUNT(*) 
@@ -44,9 +45,10 @@ func (c *Client) tableExists(tableName string) (bool, error) {
 		AND table_name = $1`
 
 	var count int
-	err := c.db.QueryRow(query, tableName).Scan(&count)
+	
+	// ✅ USAR Get (não QueryRow)
+	err := c.db.Get(&count, query, tableName)
 
-	// 🛡️ No rows = tabela não existe (comum em DBs recém-criados)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
@@ -59,7 +61,7 @@ func (c *Client) tableExists(tableName string) (bool, error) {
 }
 
 func (c *Client) runMigrationFile(filename string) error {
-	log.Printf("📝 Aplicando: %s", filename)
+	log.Printf("📄 Aplicando: %s", filename)
 
 	// Ler arquivo
 	content, err := os.ReadFile(filename)
@@ -78,15 +80,16 @@ func (c *Client) runMigrationFile(filename string) error {
 	return nil
 }
 
+// ✅ CORRIGIDO: Usar Get do sqlx em todas as queries
 func (c *Client) logStats() {
 	ctx := context.Background()
 
 	var eventCount, estudanteCount, academiaCount int64
 
-	// QueryRow + Scan para evitar "no rows" error
-	c.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM spuri_ledger").Scan(&eventCount)
-	c.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM projection_estudantes").Scan(&estudanteCount)
-	c.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM projection_academias").Scan(&academiaCount)
+	// ✅ USAR Get (não QueryRowContext)
+	c.db.GetContext(ctx, &eventCount, "SELECT COUNT(*) FROM spuri_ledger")
+	c.db.GetContext(ctx, &estudanteCount, "SELECT COUNT(*) FROM projection_estudantes")
+	c.db.GetContext(ctx, &academiaCount, "SELECT COUNT(*) FROM projection_academias")
 
 	log.Println("\n📊 Estatísticas do Banco:")
 	log.Printf("   Eventos no ledger: %d", eventCount)

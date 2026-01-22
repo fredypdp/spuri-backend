@@ -205,7 +205,8 @@ func (r *AggregateRepository) SaveSnapshot(aggregate aggregates.Aggregate) error
 			state = EXCLUDED.state,
 			updated_at = CURRENT_TIMESTAMP`
 
-	_, err = r.eventStore.client.db.ExecContext(r.ctx, query,
+	// ✅ USAR Exec (não ExecContext direto)
+	_, err = r.eventStore.client.DB().Exec(query,
 		aggregate.GetID(),
 		aggregate.GetType(),
 		aggregate.GetVersion(),
@@ -214,6 +215,7 @@ func (r *AggregateRepository) SaveSnapshot(aggregate aggregates.Aggregate) error
 	return err
 }
 
+// ✅ CORRIGIDO: Usar Get do sqlx
 func (r *AggregateRepository) LoadSnapshot(id uuid.UUID) (*Snapshot, error) {
 	query := `
 		SELECT aggregate_id, aggregate_type, version, state, created_at
@@ -221,13 +223,14 @@ func (r *AggregateRepository) LoadSnapshot(id uuid.UUID) (*Snapshot, error) {
 		WHERE aggregate_id = $1`
 
 	var snapshot Snapshot
-	err := r.eventStore.client.db.QueryRowContext(r.ctx, query, id).Scan(
-		&snapshot.AggregateID,
-		&snapshot.AggregateType,
-		&snapshot.Version,
-		&snapshot.State,
-		&snapshot.CreatedAt,
-	)
+	
+	// ✅ USAR Get (não QueryRowContext)
+	err := r.eventStore.client.DB().Get(&snapshot, query, id)
+	
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	
 	if err != nil {
 		return nil, err
 	}

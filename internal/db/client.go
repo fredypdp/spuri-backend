@@ -43,17 +43,17 @@ func NewClient(config *Config) (*Client, error) {
 	
 	// Se DATABASE_URL existe (Railway/Heroku), usar diretamente
 	if config.DatabaseURL != "" {
-		// 🔒 UTF-8: Adicionar client_encoding ao connection string
+		// ✅ ADICIONAR prefer_simple_protocol=true para desabilitar prepared statements
 		if !containsParam(config.DatabaseURL, "client_encoding") {
-			connStr = config.DatabaseURL + "?client_encoding=UTF8"
+			connStr = config.DatabaseURL + "?client_encoding=UTF8&prefer_simple_protocol=true"
 		} else {
-			connStr = config.DatabaseURL
+			connStr = config.DatabaseURL + "&prefer_simple_protocol=true"
 		}
-		log.Printf("🔗 Usando DATABASE_URL para conexão (UTF-8 habilitado)")
+		log.Printf("🔗 Usando DATABASE_URL para conexão (UTF-8, sem prepared statements)")
 	} else {
-		// 🔒 UTF-8: Adicionar client_encoding=UTF8 na connection string
+		// ✅ ADICIONAR prefer_simple_protocol=true
 		connStr = fmt.Sprintf(
-			"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s client_encoding=UTF8",
+			"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s client_encoding=UTF8 prefer_simple_protocol=true",
 			config.Host, config.Port, config.User, config.Password, 
 			config.DBName, config.SSLMode,
 		)
@@ -87,9 +87,9 @@ func NewClient(config *Config) (*Client, error) {
 
 	// Log de conexão
 	if config.DatabaseURL != "" {
-		log.Printf("✅ Banco de dados conectado via DATABASE_URL (UTF-8)")
+		log.Printf("✅ Banco de dados conectado via DATABASE_URL (UTF-8, sem prepared statements)")
 	} else {
-		log.Printf("✅ Banco de dados conectado: %s@%s:%s/%s (UTF-8)", 
+		log.Printf("✅ Banco de dados conectado: %s@%s:%s/%s (UTF-8, sem prepared statements)", 
 			config.User, config.Host, config.Port, config.DBName)
 	}
 

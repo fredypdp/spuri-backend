@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/handlers/auth_email_handlers.go
-// 🔥 CORRIGIDO: Conversão de tipos UUID + Erros de compilação
+// 🔥 CORRIGIDO: Conversão de tipos UUID + Prepared Statements
 // ============================================================================
 
 package handlers
@@ -90,11 +90,23 @@ func SolicitarRecuperacaoSenha(c *gin.Context) {
 		return
 	}
 
-	err := client.DB().QueryRow(query, req.Identificador).Scan(&userID, &email, &nome)
+	// ✅ USAR Get ao invés de QueryRow
+	type result struct {
+		ID    uuid.UUID `db:"id"`
+		Email string    `db:"email"`
+		Nome  string    `db:"nome"`
+	}
+	
+	var res result
+	err := client.DB().Get(&res, query, req.Identificador)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
 		return
 	}
+	
+	userID = res.ID
+	email = res.Email
+	nome = res.Nome
 
 	if email == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "usuário não possui email cadastrado"})
@@ -147,7 +159,8 @@ func ResetarSenha(c *gin.Context) {
 		return
 	}
 
-	err = client.DB().QueryRow(query, tokenInfo.UserID).Scan(&codigo)
+	// ✅ USAR Get ao invés de QueryRow
+	err = client.DB().Get(&codigo, query, tokenInfo.UserID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
 		return
@@ -216,7 +229,9 @@ func AlterarSenha(c *gin.Context) {
 	// Verificar senha atual
 	var senhaHash string
 	query := "SELECT senha_hash FROM " + table + " WHERE id = $1"
-	err := client.DB().QueryRow(query, userID).Scan(&senhaHash)
+	
+	// ✅ USAR Get ao invés de QueryRow
+	err := client.DB().Get(&senhaHash, query, userID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
 		return
