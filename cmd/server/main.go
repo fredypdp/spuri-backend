@@ -25,17 +25,18 @@ func main() {
 	
 	if os.Getenv("ENV") != "production" {
 		if err := godotenv.Load(); err != nil {
-			log.Println("[WARN] Arquivo .env nao encontrado")
+			log.Println("[WARN] Arquivo .env não encontrado")
 		}
 	}
 
+	// 🔥 CONECTAR AO BANCO + RODAR MIGRATIONS AUTOMATICAMENTE
 	if err := initDB(); err != nil {
 		log.Fatalf("[ERROR] Erro ao conectar ao banco de dados: %v", err)
 	}
 	defer dbClient.Close()
 
 	if err := initProjections(); err != nil {
-		log.Fatalf("[ERROR] Erro ao inicializar projecoes: %v", err)
+		log.Fatalf("[ERROR] Erro ao inicializar projeções: %v", err)
 	}
 
 	if os.Getenv("ENV") == "production" {
@@ -50,12 +51,12 @@ func main() {
 	}
 
 	log.Printf("[INFO] Spuri Event Sourcing rodando em http://localhost:%s", port)
-	log.Printf("[INFO] Documentacao: http://localhost:%s/", port)
+	log.Printf("[INFO] Documentação: http://localhost:%s/", port)
 	log.Printf("[INFO] Swagger UI: http://localhost:%s/docs", port)
 	log.Printf("[INFO] Health check: http://localhost:%s/health", port)
 	log.Printf("[INFO] Metrics: http://localhost:%s/admin/metrics", port)
 	log.Printf("[INFO] Ambiente: %s", os.Getenv("ENV"))
-	log.Printf("[INFO] Seguranca: Rate Limiting + Input Validation + Prepared Statements")
+	log.Printf("[INFO] Segurança: Rate Limiting + Input Validation + Prepared Statements")
 	log.Printf("[INFO] Encoding: UTF-8")
 	
 	if err := router.Run("0.0.0.0:" + port); err != nil {
@@ -78,6 +79,11 @@ func initDB() error {
 		return err
 	}
 
+	// 🔥 RODAR MIGRATIONS AUTOMATICAMENTE
+	if err := dbClient.RunMigrations(); err != nil {
+		return fmt.Errorf("erro ao rodar migrations: %w", err)
+	}
+
 	log.Println("[INFO] Banco de dados inicializado com Event Sourcing")
 	return nil
 }
@@ -96,7 +102,7 @@ func initProjections() error {
 
 	go projManager.StartProcessing()
 
-	log.Println("[INFO] Sistema de projecoes inicializado")
+	log.Println("[INFO] Sistema de projeções inicializado")
 	return nil
 }
 
@@ -263,7 +269,7 @@ func corsMiddleware() gin.HandlerFunc {
 			}
 			log.Printf("[INFO] CORS PRODUCAO: %v", allowedOrigins)
 		} else {
-			log.Printf("[WARN] ATENCAO: ALLOWED_ORIGINS nao configurado em PRODUCAO")
+			log.Printf("[WARN] ATENCAO: ALLOWED_ORIGINS não configurado em PRODUCAO")
 			log.Printf("[ERROR] CORS BLOQUEADO - Configure ALLOWED_ORIGINS")
 			allowedOrigins = []string{}
 		}
@@ -297,7 +303,7 @@ func corsMiddleware() gin.HandlerFunc {
 		
 		if !originAllowed && origin != "" {
 			if env == "production" {
-				log.Printf("[WARN] CORS BLOQUEADO: %s (nao esta na whitelist)", origin)
+				log.Printf("[WARN] CORS BLOQUEADO: %s (não está na whitelist)", origin)
 			}
 		}
 		
