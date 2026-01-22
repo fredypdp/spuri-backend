@@ -1,15 +1,26 @@
 package handlers
 
 import (
+	"io/ioutil"
 	"log"
 	"net/http"
-	"os"
 	"path/filepath"
 
 	"github.com/gin-gonic/gin"
 )
 
 func SwaggerUI(c *gin.Context) {
+	// Ler o arquivo swagger.yaml
+	swaggerPath := "docs/swagger.yaml"
+	absPath, _ := filepath.Abs(swaggerPath)
+	
+	yamlContent, err := ioutil.ReadFile(absPath)
+	if err != nil {
+		log.Printf("[ERROR] Não conseguiu ler swagger.yaml: %v", err)
+		c.String(http.StatusInternalServerError, "Erro ao carregar documentação")
+		return
+	}
+
 	html := `
 <!DOCTYPE html>
 <html lang="pt">
@@ -19,10 +30,7 @@ func SwaggerUI(c *gin.Context) {
     <title>Spuri API - Documentação</title>
     <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.10.5/swagger-ui.min.css">
     <style>
-        body {
-            margin: 0;
-            padding: 0;
-        }
+        body { margin: 0; padding: 0; }
     </style>
 </head>
 <body>
@@ -31,8 +39,9 @@ func SwaggerUI(c *gin.Context) {
     <script src="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.10.5/swagger-ui-standalone-preset.min.js"></script>
     <script>
         window.onload = function() {
+            const spec = ` + "`" + string(yamlContent) + "`" + `;
             SwaggerUIBundle({
-                url: '/api-docs/swagger.yaml',
+                spec: jsyaml.load(spec),
                 dom_id: '#swagger-ui',
                 deepLinking: true,
                 presets: [
@@ -46,6 +55,7 @@ func SwaggerUI(c *gin.Context) {
             });
         };
     </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
 </body>
 </html>
 `
@@ -54,49 +64,10 @@ func SwaggerUI(c *gin.Context) {
 }
 
 func SwaggerYAML(c *gin.Context) {
-	// Tenta múltiplos caminhos possíveis
-	possiblePaths := []string{
-		"./docs/swagger.yaml",
-		"docs/swagger.yaml",
-		"../docs/swagger.yaml",
-	}
-
-	// Se existir SWAGGER_PATH, usar primeiro
-	if customPath := os.Getenv("SWAGGER_PATH"); customPath != "" {
-		possiblePaths = append([]string{customPath}, possiblePaths...)
-	}
-
-	var swaggerPath string
-	var found bool
-
-	for _, path := range possiblePaths {
-		absPath, err := filepath.Abs(path)
-		if err != nil {
-			continue
-		}
-
-		if _, err := os.Stat(absPath); err == nil {
-			swaggerPath = absPath
-			found = true
-			log.Printf("[INFO] Swagger YAML encontrado em: %s", absPath)
-			break
-		}
-	}
-
-	if !found {
-		// Log de debug para troubleshooting
-		wd, _ := os.Getwd()
-		log.Printf("[ERROR] swagger.yaml não encontrado. Working directory: %s", wd)
-		
-		c.JSON(http.StatusNotFound, gin.H{
-			"error":             "swagger.yaml não encontrado",
-			"working_directory": wd,
-			"paths_tried":       possiblePaths,
-		})
-		return
-	}
-
+	swaggerPath := "docs/swagger.yaml"
+	absPath, _ := filepath.Abs(swaggerPath)
+	
 	c.Header("Content-Type", "application/x-yaml; charset=utf-8")
 	c.Header("Access-Control-Allow-Origin", "*")
-	c.File(swaggerPath)
+	c.File(absPath)
 }
