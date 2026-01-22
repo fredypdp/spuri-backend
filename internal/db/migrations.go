@@ -43,7 +43,8 @@ func (c *Client) tableExists(tableName string) (bool, error) {
 		AND table_name = $1`
 
 	var count int
-	err := c.db.Get(&count, query, tableName)
+	// QueryRow + Scan não retorna erro quando count = 0
+	err := c.db.QueryRow(query, tableName).Scan(&count)
 	if err != nil {
 		return false, err
 	}
@@ -76,9 +77,10 @@ func (c *Client) logStats() {
 
 	var eventCount, estudanteCount, academiaCount int64
 
-	c.db.GetContext(ctx, &eventCount, "SELECT COUNT(*) FROM spuri_ledger")
-	c.db.GetContext(ctx, &estudanteCount, "SELECT COUNT(*) FROM projection_estudantes")
-	c.db.GetContext(ctx, &academiaCount, "SELECT COUNT(*) FROM projection_academias")
+	// QueryRow + Scan para evitar "no rows" error
+	c.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM spuri_ledger").Scan(&eventCount)
+	c.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM projection_estudantes").Scan(&estudanteCount)
+	c.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM projection_academias").Scan(&academiaCount)
 
 	log.Println("\n📊 Estatísticas do Banco:")
 	log.Printf("   Eventos no ledger: %d", eventCount)
