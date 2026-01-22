@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"github.com/gin-gonic/gin"
 )
@@ -52,17 +54,49 @@ func SwaggerUI(c *gin.Context) {
 }
 
 func SwaggerYAML(c *gin.Context) {
-	// Verifica se arquivo existe
-	if _, err := os.Stat("./docs/swagger.yaml"); os.IsNotExist(err) {
+	// Tenta múltiplos caminhos possíveis
+	possiblePaths := []string{
+		"./docs/swagger.yaml",
+		"docs/swagger.yaml",
+		"../docs/swagger.yaml",
+	}
+
+	// Se existir SWAGGER_PATH, usar primeiro
+	if customPath := os.Getenv("SWAGGER_PATH"); customPath != "" {
+		possiblePaths = append([]string{customPath}, possiblePaths...)
+	}
+
+	var swaggerPath string
+	var found bool
+
+	for _, path := range possiblePaths {
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			continue
+		}
+
+		if _, err := os.Stat(absPath); err == nil {
+			swaggerPath = absPath
+			found = true
+			log.Printf("[INFO] Swagger YAML encontrado em: %s", absPath)
+			break
+		}
+	}
+
+	if !found {
+		// Log de debug para troubleshooting
+		wd, _ := os.Getwd()
+		log.Printf("[ERROR] swagger.yaml não encontrado. Working directory: %s", wd)
+		
 		c.JSON(http.StatusNotFound, gin.H{
-			"error": "swagger.yaml não encontrado",
-			"path":  "./docs/swagger.yaml",
+			"error":             "swagger.yaml não encontrado",
+			"working_directory": wd,
+			"paths_tried":       possiblePaths,
 		})
 		return
 	}
 
-	// Define Content-Type correto para YAML
 	c.Header("Content-Type", "application/x-yaml; charset=utf-8")
 	c.Header("Access-Control-Allow-Origin", "*")
-	c.File("./docs/swagger.yaml")
+	c.File(swaggerPath)
 }

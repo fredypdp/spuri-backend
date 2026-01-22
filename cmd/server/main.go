@@ -128,7 +128,11 @@ func setupRouter() *gin.Engine {
 	})
 
 	router.GET("/docs", handlers.SwaggerUI)
-	router.GET("/api-docs/swagger.yaml", handlers.SwaggerYAML)
+	router.GET("/api-docs/swagger.yaml", func(c *gin.Context) {
+		c.Header("Content-Type", "application/x-yaml; charset=utf-8")
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.File("docs/swagger.yaml")  // Sem ./ no início
+	})
 	
 	router.GET("/health", handlers.HealthCheckBasic)
 	router.GET("/health/detailed", middleware.AuthMiddleware(), middleware.RequireAdmin(), handlers.HealthCheckDetailed)
