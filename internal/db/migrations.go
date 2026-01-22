@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"os"
@@ -43,8 +44,13 @@ func (c *Client) tableExists(tableName string) (bool, error) {
 		AND table_name = $1`
 
 	var count int
-	// QueryRow + Scan não retorna erro quando count = 0
 	err := c.db.QueryRow(query, tableName).Scan(&count)
+
+	// 🛡️ No rows = tabela não existe (comum em DBs recém-criados)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+
 	if err != nil {
 		return false, err
 	}
