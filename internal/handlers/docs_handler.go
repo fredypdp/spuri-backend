@@ -74,7 +74,7 @@ func GetOpenAPISpec(c *gin.Context) {
 		},
 		"servers": []map[string]string{
 			{"url": "http://localhost:8080", "description": "Desenvolvimento"},
-			{"url": "https://api.spuri.ao", "description": "Produção"},
+			{"url": "https://spuri-backend.onrender.com", "description": "Produção"},
 		},
 		"tags": []map[string]interface{}{
 			{"name": "Health", "description": "Saúde e status do sistema"},
