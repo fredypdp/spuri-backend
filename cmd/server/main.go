@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"fmt"
 	"spuri/internal/db"
 	"spuri/internal/handlers"
 	"spuri/internal/middleware"
