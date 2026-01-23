@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"net"
 	"net/smtp"
 	"os"
 	"time"
@@ -165,10 +166,111 @@ func (s *EmailService) SendEmail(to, subject, body string) error {
 func (s *EmailService) sendMailTLS(addr, to, msg string) error {
 	auth := smtp.PlainAuth("", s.smtpUser, s.smtpPass, s.smtpHost)
 	
-	err := smtp.SendMail(addr, auth, s.fromEmail, []string{to}, []byte(msg))
+	// Criar client SMTP manualmente com timeout
+	conn, err := tls.Dial("tcp", addr, &tls.Config{
+		InsecureSkipVerify: false,
+		ServerName:         s.smtpHost,
+	})
 	if err != nil {
-		log.Printf("[EMAIL] ERRO STARTTLS: %v", err)
-		return fmt.Errorf("falha ao enviar email (STARTTLS): %w", err)
+		// Fallback: tentar conexão não-TLS primeiro
+		log.Printf("[EMAIL] TLS direto falhou, tentando STARTTLS...")
+		return s.sendMailSTARTTLS(addr, to, msg, auth)
+	}
+	defer conn.Close()
+
+	client, err := smtp.NewClient(conn, s.smtpHost)
+	if err != nil {
+		log.Printf("[EMAIL] ERRO ao criar client: %v", err)
+		return fmt.Errorf("falha ao criar cliente SMTP: %w", err)
+	}
+	defer client.Quit()
+
+	if err = client.Auth(auth); err != nil {
+		log.Printf("[EMAIL] ERRO Autenticação: %v", err)
+		return fmt.Errorf("falha na autenticação: %w", err)
+	}
+
+	if err = client.Mail(s.fromEmail); err != nil {
+		return fmt.Errorf("falha ao definir remetente: %w", err)
+	}
+
+	if err = client.Rcpt(to); err != nil {
+		return fmt.Errorf("falha ao definir destinatário: %w", err)
+	}
+
+	w, err := client.Data()
+	if err != nil {
+		return fmt.Errorf("falha ao abrir data writer: %w", err)
+	}
+
+	_, err = w.Write([]byte(msg))
+	if err != nil {
+		return fmt.Errorf("falha ao escrever mensagem: %w", err)
+	}
+
+	err = w.Close()
+	if err != nil {
+		return fmt.Errorf("falha ao fechar data writer: %w", err)
+	}
+
+	log.Printf("[EMAIL] ✓ Email enviado com sucesso via TLS")
+	return nil
+}
+
+func (s *EmailService) sendMailSTARTTLS(addr, to, msg string, auth smtp.Auth) error {
+	// Conectar sem TLS primeiro
+	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
+	if err != nil {
+		log.Printf("[EMAIL] ERRO ao conectar: %v", err)
+		return fmt.Errorf("falha ao conectar: %w", err)
+	}
+	defer conn.Close()
+
+	client, err := smtp.NewClient(conn, s.smtpHost)
+	if err != nil {
+		log.Printf("[EMAIL] ERRO ao criar client: %v", err)
+		return fmt.Errorf("falha ao criar cliente SMTP: %w", err)
+	}
+	defer client.Quit()
+
+	// Verificar se suporta STARTTLS
+	if ok, _ := client.Extension("STARTTLS"); ok {
+		config := &tls.Config{
+			ServerName:         s.smtpHost,
+			InsecureSkipVerify: false,
+		}
+		if err = client.StartTLS(config); err != nil {
+			log.Printf("[EMAIL] ERRO STARTTLS: %v", err)
+			return fmt.Errorf("falha ao iniciar TLS: %w", err)
+		}
+	}
+
+	if err = client.Auth(auth); err != nil {
+		log.Printf("[EMAIL] ERRO Autenticação: %v", err)
+		return fmt.Errorf("falha na autenticação: %w", err)
+	}
+
+	if err = client.Mail(s.fromEmail); err != nil {
+		return fmt.Errorf("falha ao definir remetente: %w", err)
+	}
+
+	if err = client.Rcpt(to); err != nil {
+		return fmt.Errorf("falha ao definir destinatário: %w", err)
+	}
+
+	w, err := client.Data()
+	if err != nil {
+		return fmt.Errorf("falha ao abrir data writer: %w", err)
+	}
+
+	_, err = w.Write([]byte(msg))
+	if err != nil {
+		return fmt.Errorf("falha ao escrever mensagem: %w", err)
+	}
+
+	err = w.Close()
+	if err != nil {
+		return fmt.Errorf("falha ao fechar data writer: %w", err)
 	}
 
 	log.Printf("[EMAIL] ✓ Email enviado com sucesso via STARTTLS")
@@ -183,7 +285,12 @@ func (s *EmailService) sendMailSSL(addr, to, msg string) error {
 		ServerName:         s.smtpHost,
 	}
 
-	conn, err := tls.Dial("tcp", addr, tlsConfig)
+	// Timeout de 15 segundos
+	dialer := &net.Dialer{
+		Timeout: 15 * time.Second,
+	}
+
+	conn, err := tls.DialWithDialer(dialer, "tcp", addr, tlsConfig)
 	if err != nil {
 		log.Printf("[EMAIL] ERRO SSL Dial: %v", err)
 		return fmt.Errorf("falha ao conectar SSL: %w", err)
