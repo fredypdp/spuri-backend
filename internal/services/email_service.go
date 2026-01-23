@@ -85,7 +85,6 @@ func (s *EmailService) SaveToken(userID uuid.UUID, userType, tipo, email string,
 	return token, nil
 }
 
-// ✅ CORRIGIDO: QueryRow().Scan() ao invés de Get()
 func (s *EmailService) VerifyToken(token, tipo string) (*TokenInfo, error) {
 	query := `
 		SELECT user_id, user_type, email, usado, expires_at
@@ -136,6 +135,10 @@ func (s *EmailService) SendEmail(to, subject, body string) error {
 		return fmt.Errorf("destinatário vazio")
 	}
 
+	// ✅ LOG DETALHADO PARA DEBUG
+	log.Printf("[EMAIL] Iniciando envio - Host: %s:%s, From: %s, To: %s", 
+		s.smtpHost, s.smtpPort, s.fromEmail, to)
+
 	auth := smtp.PlainAuth("", s.smtpUser, s.smtpPass, s.smtpHost)
 
 	msg := fmt.Sprintf("From: %s <%s>\r\n"+
@@ -150,11 +153,12 @@ func (s *EmailService) SendEmail(to, subject, body string) error {
 	
 	err := smtp.SendMail(addr, auth, s.fromEmail, []string{to}, []byte(msg))
 	if err != nil {
-		log.Printf("[EMAIL] Falha ao enviar email")
+		// ✅ LOG COM ERRO COMPLETO
+		log.Printf("[EMAIL] ERRO AO ENVIAR: %v", err)
 		return fmt.Errorf("falha ao enviar email: %w", err)
 	}
 
-	log.Printf("[EMAIL] Email enviado com sucesso")
+	log.Printf("[EMAIL] Email enviado com sucesso para %s", to)
 	return nil
 }
 
@@ -170,6 +174,7 @@ func (s *EmailService) SendVerificationEmail(userID uuid.UUID, userType, email, 
 
 	token, err := s.SaveToken(userID, userType, "verificacao_email", email, 24*time.Hour)
 	if err != nil {
+		log.Printf("[EMAIL] Erro ao salvar token: %v", err)
 		return fmt.Errorf("erro ao gerar token de verificação: %w", err)
 	}
 
