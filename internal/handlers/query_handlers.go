@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"log"
 	"net/http"
 	"spuri/internal/middleware"
 	"strconv"
@@ -36,12 +37,14 @@ func getPaginationParams(c *gin.Context) (limit, offset int) {
 func ListarInscricoes(c *gin.Context) {
 	userID, exists := middleware.GetUserID(c)
 	if !exists {
+		log.Println("[ListarInscricoes] Usuário não autenticado")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "usuário não autenticado"})
 		return
 	}
 
 	userType, exists := middleware.GetUserType(c)
 	if !exists {
+		log.Println("[ListarInscricoes] Tipo de usuário não identificado")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "tipo de usuário não identificado"})
 		return
 	}
@@ -49,6 +52,9 @@ func ListarInscricoes(c *gin.Context) {
 	limit, offset := getPaginationParams(c)
 	statusFilter := c.Query("status")
 	client := getDbClient(c)
+	
+	log.Printf("[ListarInscricoes] userID=%s, userType=%s, limit=%d, offset=%d, status=%s", 
+		userID, userType, limit, offset, statusFilter)
 
 	type InscricaoDetalhada struct {
 		ID              uuid.UUID  `json:"id"`
@@ -85,16 +91,20 @@ func ListarInscricoes(c *gin.Context) {
 	case "admin":
 		if statusFilter != "" {
 			query := baseQuery + ` WHERE status = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
+			log.Printf("[ListarInscricoes] Query ADMIN com filtro: %s", query)
 			rows, err = client.DB().Query(query, statusFilter, limit, offset)
 			if err != nil {
+				log.Printf("[ListarInscricoes] Erro na query admin: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 				return
 			}
 			client.DB().QueryRow(`SELECT COUNT(*) FROM projection_inscricoes WHERE status = $1`, statusFilter).Scan(&total)
 		} else {
 			query := baseQuery + ` ORDER BY created_at DESC LIMIT $1 OFFSET $2`
+			log.Printf("[ListarInscricoes] Query ADMIN sem filtro: %s", query)
 			rows, err = client.DB().Query(query, limit, offset)
 			if err != nil {
+				log.Printf("[ListarInscricoes] Erro na query admin: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 				return
 			}
@@ -104,16 +114,20 @@ func ListarInscricoes(c *gin.Context) {
 	case "academia":
 		if statusFilter != "" {
 			query := baseQuery + ` WHERE academia_id = $1 AND status = $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4`
+			log.Printf("[ListarInscricoes] Query ACADEMIA com filtro: %s", query)
 			rows, err = client.DB().Query(query, userID, statusFilter, limit, offset)
 			if err != nil {
+				log.Printf("[ListarInscricoes] Erro na query academia: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 				return
 			}
 			client.DB().QueryRow(`SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = $1 AND status = $2`, userID, statusFilter).Scan(&total)
 		} else {
 			query := baseQuery + ` WHERE academia_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
+			log.Printf("[ListarInscricoes] Query ACADEMIA sem filtro: %s", query)
 			rows, err = client.DB().Query(query, userID, limit, offset)
 			if err != nil {
+				log.Printf("[ListarInscricoes] Erro na query academia: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 				return
 			}
@@ -123,17 +137,21 @@ func ListarInscricoes(c *gin.Context) {
 	case "estudante":
 		if statusFilter != "" {
 			query := baseQuery + ` WHERE estudante_id = $1 AND status = $2 ORDER BY created_at DESC`
+			log.Printf("[ListarInscricoes] Query ESTUDANTE com filtro: %s", query)
 			rows, err = client.DB().Query(query, userID, statusFilter)
 		} else {
 			query := baseQuery + ` WHERE estudante_id = $1 ORDER BY created_at DESC`
+			log.Printf("[ListarInscricoes] Query ESTUDANTE sem filtro: %s", query)
 			rows, err = client.DB().Query(query, userID)
 		}
 		if err != nil {
+			log.Printf("[ListarInscricoes] Erro na query estudante: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 			return
 		}
 
 	default:
+		log.Printf("[ListarInscricoes] Tipo de usuário inválido: %s", userType)
 		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
 		return
 	}
@@ -146,6 +164,7 @@ func ListarInscricoes(c *gin.Context) {
 			&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &insc.Curso, &insc.Status,
 			&insc.CreatedAt, &insc.UpdatedAt, &insc.EventID, &insc.Version)
 		if err != nil {
+			log.Printf("[ListarInscricoes] Erro ao fazer scan: %v", err)
 			continue
 		}
 		inscricoes = append(inscricoes, insc)
@@ -154,6 +173,8 @@ func ListarInscricoes(c *gin.Context) {
 	if userType == "estudante" {
 		total = len(inscricoes)
 	}
+
+	log.Printf("[ListarInscricoes] Retornando %d inscrições (total_geral=%d)", len(inscricoes), total)
 
 	c.JSON(http.StatusOK, gin.H{
 		"inscricoes":    inscricoes,
@@ -173,6 +194,9 @@ func ListarInscricoesPendentes(c *gin.Context) {
 
 	limit, offset := getPaginationParams(c)
 	client := getDbClient(c)
+	
+	log.Printf("[ListarInscricoesPendentes] userID=%s, userType=%s, limit=%d, offset=%d", 
+		userID, userType, limit, offset)
 
 	type InscricaoDetalhada struct {
 		ID              uuid.UUID `json:"id"`
@@ -205,8 +229,10 @@ func ListarInscricoesPendentes(c *gin.Context) {
 	switch userType {
 	case "admin":
 		query := baseQuery + ` ORDER BY created_at DESC LIMIT $1 OFFSET $2`
+		log.Printf("[ListarInscricoesPendentes] Query ADMIN: %s", query)
 		rows, err = client.DB().Query(query, limit, offset)
 		if err != nil {
+			log.Printf("[ListarInscricoesPendentes] Erro na query admin: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 			return
 		}
@@ -214,8 +240,10 @@ func ListarInscricoesPendentes(c *gin.Context) {
 
 	case "academia":
 		query := baseQuery + ` AND academia_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
+		log.Printf("[ListarInscricoesPendentes] Query ACADEMIA: %s", query)
 		rows, err = client.DB().Query(query, userID, limit, offset)
 		if err != nil {
+			log.Printf("[ListarInscricoesPendentes] Erro na query academia: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 			return
 		}
@@ -223,13 +251,16 @@ func ListarInscricoesPendentes(c *gin.Context) {
 
 	case "estudante":
 		query := baseQuery + ` AND estudante_id = $1 ORDER BY created_at DESC`
+		log.Printf("[ListarInscricoesPendentes] Query ESTUDANTE: %s", query)
 		rows, err = client.DB().Query(query, userID)
 		if err != nil {
+			log.Printf("[ListarInscricoesPendentes] Erro na query estudante: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 			return
 		}
 
 	default:
+		log.Printf("[ListarInscricoesPendentes] Tipo de usuário inválido: %s", userType)
 		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
 		return
 	}
@@ -242,6 +273,7 @@ func ListarInscricoesPendentes(c *gin.Context) {
 			&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &insc.Curso, &insc.Status,
 			&insc.CreatedAt, &insc.UpdatedAt)
 		if err != nil {
+			log.Printf("[ListarInscricoesPendentes] Erro ao fazer scan: %v", err)
 			continue
 		}
 		inscricoes = append(inscricoes, insc)
@@ -250,6 +282,8 @@ func ListarInscricoesPendentes(c *gin.Context) {
 	if userType == "estudante" {
 		total = len(inscricoes)
 	}
+
+	log.Printf("[ListarInscricoesPendentes] Retornando %d inscrições pendentes (total_geral=%d)", len(inscricoes), total)
 
 	c.JSON(http.StatusOK, gin.H{
 		"inscricoes":  inscricoes,
