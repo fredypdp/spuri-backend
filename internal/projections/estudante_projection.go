@@ -590,3 +590,38 @@ type EstudanteDTO struct {
 	TotalInscricoes       int       `db:"total_inscricoes" json:"total_inscricoes"`
 	Version               int       `db:"version" json:"version"`
 }
+
+func (p *EstudanteProjection) GetByBilheteIdentidadePrincipal(bilhete string) (*EstudanteDTO, error) {
+	safeBilhete := db.SafeString(bilhete)
+
+	query := fmt.Sprintf(`
+		SELECT id, nome, codigo_estudante, senha_hash, 
+			email, telefone, email_verificado,
+			bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
+			status, status_escolar, status_superior,
+			ano_escolar, ano_superior, curso_medio, curso_superior,
+			created_at, updated_at, total_notas, total_faltas, total_inscricoes, version
+		FROM projection_estudantes
+		WHERE bilhete_identidade = '%s'
+		LIMIT 1
+	`, safeBilhete)
+
+	var dto EstudanteDTO
+	err := p.client.DB().QueryRow(query).Scan(
+		&dto.ID, &dto.Nome, &dto.CodigoEstudante, &dto.SenhaHash,
+		&dto.Email, &dto.Telefone, &dto.EmailVerificado,
+		&dto.BilheteIdentidade, &dto.BilheteIdentidadeResp, &dto.CodigoAcademia,
+		&dto.Status, &dto.StatusEscolar, &dto.StatusSuperior,
+		&dto.AnoEscolar, &dto.AnoSuperior, &dto.CursoMedio, &dto.CursoSuperior,
+		&dto.CreatedAt, &dto.UpdatedAt, &dto.TotalNotas, &dto.TotalFaltas,
+		&dto.TotalInscricoes, &dto.Version,
+	)
+	
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &dto, nil
+}

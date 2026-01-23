@@ -5,13 +5,14 @@ import (
 	"html"
 	"regexp"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
 var (
 	emailRegex    = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
 	phoneRegex    = regexp.MustCompile(`^\+?[0-9]{9,15}$`)
-	sqlCharsRegex = regexp.MustCompile(`[';-]|--`) // ✓ CORRIGIDO
+	sqlCharsRegex = regexp.MustCompile(`[';-]|--`)
 )
 
 func SafeDeref(s *string) string {
@@ -124,7 +125,31 @@ func ValidateBilhete(bilhete string) error {
 		return nil
 	}
 	
-	return ValidateString(bilhete, "bilhete de identidade", 5, 50, false)
+	bilhete = strings.TrimSpace(bilhete)
+	
+	// Conta números e letras
+	numDigits := 0
+	numLetters := 0
+	
+	for _, char := range bilhete {
+		if unicode.IsDigit(char) {
+			numDigits++
+		} else if unicode.IsLetter(char) {
+			numLetters++
+		}
+	}
+	
+	// Deve ter exatamente 12 números e 2 letras
+	if numDigits != 12 || numLetters != 2 {
+		return fmt.Errorf("bilhete de identidade deve conter exatamente 12 números e 2 letras")
+	}
+	
+	// Verifica comprimento total (deve ser 14 caracteres)
+	if len(bilhete) != 14 {
+		return fmt.Errorf("bilhete de identidade deve ter 14 caracteres")
+	}
+	
+	return nil
 }
 
 func ValidateNome(nome string) error {

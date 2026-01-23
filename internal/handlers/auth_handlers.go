@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
-	"spuri/internal/services"
 	"spuri/internal/utils"
 	"strings"
 	"time"
@@ -51,7 +50,6 @@ func Login(c *gin.Context) {
 	if req.Type == "academia" {
 		academia, err := academiaProj.GetByCodigoOrEmail(req.Usuario)
 		if err != nil {
-			// ✅ CORRIGIDO: Log genérico
 			log.Printf("[AUTH] Erro ao buscar academia")
 			utils.RespondWithInternalError(c, err)
 			return
@@ -68,7 +66,6 @@ func Login(c *gin.Context) {
 	} else {
 		estudante, err := estudanteProj.GetByCodigo(req.Usuario)
 		if err != nil {
-			// ✅ CORRIGIDO: Log genérico
 			log.Printf("[AUTH] Erro ao buscar estudante")
 			utils.RespondWithInternalError(c, err)
 			return
@@ -226,35 +223,13 @@ func RegisterAcademia(c *gin.Context) {
 		return
 	}
 
-	response := gin.H{
+	c.JSON(http.StatusCreated, gin.H{
 		"message": "academia criada com sucesso",
 		"data": gin.H{
 			"id":              academia.ID,
 			"codigo_academia": academia.CodigoAcademia,
 		},
-	}
-
-	if req.Email != nil && *req.Email != "" {
-		client := getDbClient(c)
-		emailSvc := services.NewEmailService(client.DB())
-		
-		if !emailSvc.IsEnabled() {
-			response["aviso_email"] = "Serviço de email desabilitado. Verifique as configurações SMTP."
-			// ✅ CORRIGIDO: Log genérico
-			log.Printf("[EMAIL] Serviço desabilitado - email não enviado")
-		} else {
-			err := emailSvc.SendVerificationEmail(academia.ID, "academia", *req.Email, req.Nome)
-			if err != nil {
-				response["aviso_email"] = "Não foi possível enviar email de verificação. Você pode recuperar sua senha posteriormente."
-				// ✅ CORRIGIDO: Log genérico
-				log.Printf("[EMAIL] Falha ao enviar verificação")
-			} else {
-				response["email_verificacao"] = "Email de verificação enviado com sucesso"
-			}
-		}
-	}
-
-	c.JSON(http.StatusCreated, response)
+	})
 }
 
 type RegisterEstudanteRequest struct {
@@ -318,6 +293,21 @@ func RegisterEstudante(c *gin.Context) {
 		return
 	}
 
+	// Verificar se o bilhete_identidade já existe (apenas o principal, não o do responsável)
+	if req.BilheteIdentidade != nil && *req.BilheteIdentidade != "" {
+		estudanteProj := getEstudanteProjection(c)
+		existente, err := estudanteProj.GetByBilheteIdentidadePrincipal(*req.BilheteIdentidade)
+		if err != nil {
+			log.Printf("[AUTH] Erro ao verificar bilhete existente")
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		if existente != nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("bilhete de identidade já cadastrado"))
+			return
+		}
+	}
+
 	client := getDbClient(c)
 	codigoEstudante, err := utils.GenerateUniqueCodigoEstudante(client.DB())
 	if err != nil {
@@ -358,34 +348,13 @@ func RegisterEstudante(c *gin.Context) {
 		return
 	}
 
-	response := gin.H{
+	c.JSON(http.StatusCreated, gin.H{
 		"message": "estudante criado com sucesso",
 		"data": gin.H{
 			"id":               estudante.ID,
 			"codigo_estudante": codigoEstudante,
 		},
-	}
-
-	if req.Email != nil && *req.Email != "" {
-		emailSvc := services.NewEmailService(client.DB())
-		
-		if !emailSvc.IsEnabled() {
-			response["aviso_email"] = "Serviço de email desabilitado. Verifique as configurações SMTP."
-			// ✅ CORRIGIDO: Log genérico
-			log.Printf("[EMAIL] Serviço desabilitado - email não enviado")
-		} else {
-			err := emailSvc.SendVerificationEmail(estudante.ID, "estudante", *req.Email, req.Nome)
-			if err != nil {
-				response["aviso_email"] = "Não foi possível enviar email de verificação. Você pode recuperar sua senha posteriormente."
-				// ✅ CORRIGIDO: Log genérico
-				log.Printf("[EMAIL] Falha ao enviar verificação")
-			} else {
-				response["email_verificacao"] = "Email de verificação enviado com sucesso"
-			}
-		}
-	}
-
-	c.JSON(http.StatusCreated, response)
+	})
 }
 
 func validarProvincia(provincia string) (string, error) {
