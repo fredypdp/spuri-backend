@@ -581,25 +581,8 @@ func GetMeuHistorico(c *gin.Context) {
 
 // ListarTodasAcademias lista todas academias (acesso para todos usuários logados)
 func ListarTodasAcademias(c *gin.Context) {
-	_, _ = middleware.GetUserID(c)
-	userType, _ := middleware.GetUserType(c)
-
-	type AcademiaSimples struct {
-		ID                       uuid.UUID      `json:"id"`
-		Nome                     string         `json:"nome"`
-		CodigoAcademia           string         `json:"codigo_academia"`
-		Type                     string         `json:"type"`
-		Provincia                string         `json:"provincia"`
-		Status                   string         `json:"status"`
-		NivelEscolar             sql.NullString `json:"nivel_escolar"`
-		CreatedAt                string         `json:"created_at"`
-		TotalEstudantes          int            `json:"total_estudantes"`
-		TotalInscricoesPendentes int            `json:"total_inscricoes_pendentes"`
-	}
-
-	var academias []AcademiaSimples
-	client := getDbClient(c)
-
+	limit, offset := getPaginationParams(c)
+	
 	query := `
 		SELECT 
 			id, nome, codigo_academia, type, provincia,
@@ -607,9 +590,27 @@ func ListarTodasAcademias(c *gin.Context) {
 			total_estudantes, total_inscricoes_pendentes
 		FROM projection_academias
 		ORDER BY created_at DESC
+		LIMIT $1 OFFSET $2
 	`
 
-	rows, err := client.DB().Query(query)
+	type AcademiaSimples struct {
+		ID                       uuid.UUID `db:"id" json:"id"`
+		Nome                     string    `db:"nome" json:"nome"`
+		CodigoAcademia           string    `db:"codigo_academia" json:"codigo_academia"`
+		Type                     string    `db:"type" json:"type"`
+		Provincia                string    `db:"provincia" json:"provincia"`
+		Status                   string    `db:"status" json:"status"`
+		NivelEscolar             *string   `db:"nivel_escolar" json:"nivel_escolar"`
+		CreatedAt                string    `db:"created_at" json:"created_at"`
+		TotalEstudantes          int       `db:"total_estudantes" json:"total_estudantes"`
+		TotalInscricoesPendentes int       `db:"total_inscricoes_pendentes" json:"total_inscricoes_pendentes"`
+	}
+
+	var academias []AcademiaSimples
+	var total int
+	
+	client := getDbClient(c)
+	rows, err := client.DB().Query(query, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar academias"})
 		return
@@ -618,20 +619,22 @@ func ListarTodasAcademias(c *gin.Context) {
 
 	for rows.Next() {
 		var aca AcademiaSimples
-		err := rows.Scan(
-			&aca.ID, &aca.Nome, &aca.CodigoAcademia, &aca.Type, &aca.Provincia,
-			&aca.Status, &aca.NivelEscolar, &aca.CreatedAt,
-			&aca.TotalEstudantes, &aca.TotalInscricoesPendentes,
-		)
+		err := rows.Scan(&aca.ID, &aca.Nome, &aca.CodigoAcademia, &aca.Type, &aca.Provincia,
+			&aca.Status, &aca.NivelEscolar, &aca.CreatedAt, &aca.TotalEstudantes, &aca.TotalInscricoesPendentes)
 		if err != nil {
 			continue
 		}
 		academias = append(academias, aca)
 	}
+	
+	client.DB().QueryRow(`SELECT COUNT(*) FROM projection_academias`).Scan(&total)
 
 	c.JSON(http.StatusOK, gin.H{
-		"academias":    academias,
-		"total":        len(academias),
-		"tipo_usuario": userType,
+		"academias":   academias,
+		"total":       len(academias),
+		"total_geral": total,
+		"limit":       limit,
+		"offset":      offset,
+		"has_next":    offset + len(academias) < total,
 	})
 }
