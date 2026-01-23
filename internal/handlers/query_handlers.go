@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"spuri/internal/middleware"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -50,19 +51,19 @@ func ListarInscricoes(c *gin.Context) {
 	client := getDbClient(c)
 
 	type InscricaoDetalhada struct {
-		ID              string  `json:"id"`
-		EstudanteID     string  `json:"estudante_id"`
-		CodigoEstudante string  `json:"codigo_estudante"`
-		AcademiaID      string  `json:"academia_id"`
-		CodigoAcademia  string  `json:"codigo_academia"`
-		Tipo            string  `json:"tipo"`
-		AnoInscricao    string  `json:"ano_inscricao"`
-		Curso           *string `json:"curso,omitempty"`
-		Status          string  `json:"status"`
-		CreatedAt       string  `json:"created_at"`
-		UpdatedAt       string  `json:"updated_at"`
-		EventID         *string `json:"event_id,omitempty"`
-		Version         *int    `json:"version,omitempty"`
+		ID              uuid.UUID  `json:"id"`
+		EstudanteID     uuid.UUID  `json:"estudante_id"`
+		CodigoEstudante string     `json:"codigo_estudante"`
+		AcademiaID      uuid.UUID  `json:"academia_id"`
+		CodigoAcademia  string     `json:"codigo_academia"`
+		Tipo            string     `json:"tipo"`
+		AnoInscricao    string     `json:"ano_inscricao"`
+		Curso           *string    `json:"curso,omitempty"`
+		Status          string     `json:"status"`
+		CreatedAt       time.Time  `json:"created_at"`
+		UpdatedAt       time.Time  `json:"updated_at"`
+		EventID         *uuid.UUID `json:"event_id,omitempty"`
+		Version         *int       `json:"version,omitempty"`
 	}
 
 	var inscricoes []InscricaoDetalhada
@@ -70,10 +71,10 @@ func ListarInscricoes(c *gin.Context) {
 
 	baseQuery := `
 		SELECT 
-			id::text, estudante_id::text, codigo_estudante, academia_id::text, codigo_academia,
+			id, estudante_id, codigo_estudante, academia_id, codigo_academia,
 			tipo, ano_inscricao, curso, status,
 			created_at, updated_at,
-			event_id::text, version
+			event_id, version
 		FROM projection_inscricoes
 	`
 
@@ -174,17 +175,17 @@ func ListarInscricoesPendentes(c *gin.Context) {
 	client := getDbClient(c)
 
 	type InscricaoDetalhada struct {
-		ID              string  `json:"id"`
-		EstudanteID     string  `json:"estudante_id"`
-		CodigoEstudante string  `json:"codigo_estudante"`
-		AcademiaID      string  `json:"academia_id"`
-		CodigoAcademia  string  `json:"codigo_academia"`
-		Tipo            string  `json:"tipo"`
-		AnoInscricao    string  `json:"ano_inscricao"`
-		Curso           *string `json:"curso,omitempty"`
-		Status          string  `json:"status"`
-		CreatedAt       string  `json:"created_at"`
-		UpdatedAt       string  `json:"updated_at"`
+		ID              uuid.UUID `json:"id"`
+		EstudanteID     uuid.UUID `json:"estudante_id"`
+		CodigoEstudante string    `json:"codigo_estudante"`
+		AcademiaID      uuid.UUID `json:"academia_id"`
+		CodigoAcademia  string    `json:"codigo_academia"`
+		Tipo            string    `json:"tipo"`
+		AnoInscricao    string    `json:"ano_inscricao"`
+		Curso           *string   `json:"curso,omitempty"`
+		Status          string    `json:"status"`
+		CreatedAt       time.Time `json:"created_at"`
+		UpdatedAt       time.Time `json:"updated_at"`
 	}
 
 	var inscricoes []InscricaoDetalhada
@@ -192,7 +193,7 @@ func ListarInscricoesPendentes(c *gin.Context) {
 
 	baseQuery := `
 		SELECT 
-			id::text, estudante_id::text, codigo_estudante, academia_id::text, codigo_academia,
+			id, estudante_id, codigo_estudante, academia_id, codigo_academia,
 			tipo, ano_inscricao, curso, status,
 			created_at, updated_at
 		FROM projection_inscricoes WHERE status = 'espera'
