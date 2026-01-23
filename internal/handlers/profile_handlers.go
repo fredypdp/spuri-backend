@@ -225,7 +225,7 @@ func GetEstudantePorCodigo(c *gin.Context) {
 	})
 }
 
-// ✅ CORRIGIDO: QueryRow().Scan() manual
+// GetAcademiaPorCodigo busca dados de academia por código
 func GetAcademiaPorCodigo(c *gin.Context) {
 	userType, _ := middleware.GetUserType(c)
 
@@ -253,9 +253,9 @@ func GetAcademiaPorCodigo(c *gin.Context) {
 		client := getDbClient(c)
 
 		var stats struct {
-			TotalInscricoesTotal   int `db:"total_inscricoes"`
-			TotalNotasRegistradas  int `db:"total_notas"`
-			TotalFaltasRegistradas int `db:"total_faltas"`
+			TotalInscricoesTotal   int
+			TotalNotasRegistradas  int
+			TotalFaltasRegistradas int
 		}
 
 		query := `
@@ -324,133 +324,6 @@ func GetAdminPorEmail(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"admin": gin.H{
-			"id":                     admin.ID,
-			"nome":                   admin.Nome,
-			"email":                  admin.Email,
-			"role":                   admin.Role,
-			"status":                 admin.Status,
-			"created_by":             admin.CreatedBy,
-			"created_at":             admin.CreatedAt,
-			"total_acoes_realizadas": admin.TotalAcoesRealizadas,
-		},
-	})
-}
-
-// BuscarUsuario busca qualquer tipo de usuário (estudante, academia ou admin)
-// Endpoint unificado apenas para admin
-func BuscarUsuario(c *gin.Context) {
-	tipo := c.Query("tipo")        // "estudante", "academia", "admin"
-	identificador := c.Query("id") // código ou email
-
-	if tipo == "" || identificador == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "parâmetros 'tipo' e 'id' são obrigatórios",
-			"exemplo": "/admin/buscar-usuario?tipo=estudante&id=KAF7392",
-		})
-		return
-	}
-
-	switch tipo {
-	case "estudante":
-		buscarEstudanteAdmin(c, identificador)
-	case "academia":
-		buscarAcademiaAdmin(c, identificador)
-	case "admin":
-		buscarAdminPorEmail(c, identificador)
-	default:
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":         "tipo inválido",
-			"tipos_validos": []string{"estudante", "academia", "admin"},
-		})
-	}
-}
-
-func buscarEstudanteAdmin(c *gin.Context, codigo string) {
-	estudanteProj := getEstudanteProjection(c)
-	estudante, err := estudanteProj.GetByCodigo(codigo)
-	if err != nil || estudante == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
-		return
-	}
-
-	// Buscar info academia
-	var academiaInfo *gin.H
-	if estudante.CodigoAcademia != nil {
-		academiaProj := getAcademiaProjection(c)
-		academia, _ := academiaProj.GetByCodigo(*estudante.CodigoAcademia)
-		if academia != nil {
-			academiaInfo = &gin.H{
-				"codigo": academia.CodigoAcademia,
-				"nome":   academia.Nome,
-				"tipo":   academia.Type,
-			}
-		}
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"tipo": "estudante",
-		"dados": gin.H{
-			"id":                 estudante.ID,
-			"nome":               estudante.Nome,
-			"codigo_estudante":   estudante.CodigoEstudante,
-			"bilhete_identidade": estudante.BilheteIdentidade,
-			"codigo_academia":    estudante.CodigoAcademia,
-			"academia_info":      academiaInfo,
-			"ano_escolar":        estudante.AnoEscolar,
-			"ano_superior":       estudante.AnoSuperior,
-			"curso_medio":        estudante.CursoMedio,
-			"curso_superior":     estudante.CursoSuperior,
-			"status_escolar":     estudante.StatusEscolar,
-			"status_superior":    estudante.StatusSuperior,
-			"created_at":         estudante.CreatedAt,
-			"total_notas":        estudante.TotalNotas,
-			"total_faltas":       estudante.TotalFaltas,
-			"total_inscricoes":   estudante.TotalInscricoes,
-		},
-	})
-}
-
-func buscarAcademiaAdmin(c *gin.Context, codigo string) {
-	academiaProj := getAcademiaProjection(c)
-	academia, err := academiaProj.GetByCodigo(codigo)
-	if err != nil || academia == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"tipo": "academia",
-		"dados": gin.H{
-			"id":                         academia.ID,
-			"type":                       academia.Type,
-			"nome":                       academia.Nome,
-			"codigo_academia":            academia.CodigoAcademia,
-			"provincia":                  academia.Provincia,
-			"endereco":                   academia.Endereco,
-			"numero_telefone":            academia.NumeroTelefone,
-			"email":                      academia.Email,
-			"website":                    academia.Website,
-			"nivel_escolar":              academia.NivelEscolar,
-			"status":                     academia.Status,
-			"cursos":                     academia.Cursos,
-			"created_at":                 academia.CreatedAt,
-			"total_estudantes":           academia.TotalEstudantes,
-			"total_inscricoes_pendentes": academia.TotalInscricoesPendentes,
-		},
-	})
-}
-
-func buscarAdminPorEmail(c *gin.Context, email string) {
-	adminProj := getAdminProjection(c)
-	admin, err := adminProj.GetByEmail(email)
-	if err != nil || admin == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "administrador não encontrado"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"tipo": "admin",
-		"dados": gin.H{
 			"id":                     admin.ID,
 			"nome":                   admin.Nome,
 			"email":                  admin.Email,
