@@ -50,24 +50,24 @@ func ListarInscricoes(c *gin.Context) {
 
 	client := getDbClient(c)
 
+	// ✅ CORRIGIDO: Usar ponteiros em vez de sql.NullString
 	type InscricaoDetalhada struct {
-		ID              string         `db:"id" json:"id"`
-		EstudanteID     string         `db:"estudante_id" json:"estudante_id"`
-		CodigoEstudante string         `db:"codigo_estudante" json:"codigo_estudante"`
-		AcademiaID      string         `db:"academia_id" json:"academia_id"`
-		CodigoAcademia  string         `db:"codigo_academia" json:"codigo_academia"`
-		Tipo            string         `db:"tipo" json:"tipo"`
-		AnoInscricao    string         `db:"ano_inscricao" json:"ano_inscricao"`
-		Curso           sql.NullString `db:"curso" json:"curso,omitempty"`
-		Status          string         `db:"status" json:"status"`
-		CreatedAt       string         `db:"created_at" json:"created_at"`
-		UpdatedAt       string         `db:"updated_at" json:"updated_at"`
-		EventID         sql.NullString `db:"event_id" json:"event_id,omitempty"`
-		Version         sql.NullInt32  `db:"version" json:"version,omitempty"`
+		ID              string  `json:"id"`
+		EstudanteID     string  `json:"estudante_id"`
+		CodigoEstudante string  `json:"codigo_estudante"`
+		AcademiaID      string  `json:"academia_id"`
+		CodigoAcademia  string  `json:"codigo_academia"`
+		Tipo            string  `json:"tipo"`
+		AnoInscricao    string  `json:"ano_inscricao"`
+		Curso           *string `json:"curso,omitempty"`
+		Status          string  `json:"status"`
+		CreatedAt       string  `json:"created_at"`
+		UpdatedAt       string  `json:"updated_at"`
+		EventID         *string `json:"event_id,omitempty"`
+		Version         *int    `json:"version,omitempty"`
 	}
 
 	var inscricoes []InscricaoDetalhada
-	var err error
 	var total int
 
 	baseQuery := `
@@ -76,151 +76,86 @@ func ListarInscricoes(c *gin.Context) {
 			tipo, ano_inscricao, curso, status,
 			TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
 			TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at,
-			COALESCE(event_id::text, '') as event_id, version
+			event_id::text, version
 		FROM projection_inscricoes
 	`
+
+	var rows *sql.Rows
+	var err error
 
 	switch userType {
 	case "admin":
 		if statusFilter != "" {
 			query := baseQuery + ` WHERE status = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
-			rows, err := client.DB().Query(query, statusFilter, limit, offset)
+			rows, err = client.DB().Query(query, statusFilter, limit, offset)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 				return
 			}
-			defer rows.Close()
-
-			for rows.Next() {
-				var insc InscricaoDetalhada
-				err := rows.Scan(&insc.ID, &insc.EstudanteID, &insc.CodigoEstudante, &insc.AcademiaID,
-					&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &insc.Curso, &insc.Status,
-					&insc.CreatedAt, &insc.UpdatedAt, &insc.EventID, &insc.Version)
-				if err != nil {
-					continue
-				}
-				inscricoes = append(inscricoes, insc)
-			}
-			
 			client.DB().QueryRow(`SELECT COUNT(*) FROM projection_inscricoes WHERE status = $1`, statusFilter).Scan(&total)
 		} else {
 			query := baseQuery + ` ORDER BY created_at DESC LIMIT $1 OFFSET $2`
-			rows, err := client.DB().Query(query, limit, offset)
+			rows, err = client.DB().Query(query, limit, offset)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 				return
 			}
-			defer rows.Close()
-
-			for rows.Next() {
-				var insc InscricaoDetalhada
-				err := rows.Scan(&insc.ID, &insc.EstudanteID, &insc.CodigoEstudante, &insc.AcademiaID,
-					&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &insc.Curso, &insc.Status,
-					&insc.CreatedAt, &insc.UpdatedAt, &insc.EventID, &insc.Version)
-				if err != nil {
-					continue
-				}
-				inscricoes = append(inscricoes, insc)
-			}
-			
 			client.DB().QueryRow(`SELECT COUNT(*) FROM projection_inscricoes`).Scan(&total)
 		}
 
 	case "academia":
 		if statusFilter != "" {
 			query := baseQuery + ` WHERE academia_id = $1 AND status = $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4`
-			rows, err := client.DB().Query(query, userID, statusFilter, limit, offset)
+			rows, err = client.DB().Query(query, userID, statusFilter, limit, offset)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 				return
 			}
-			defer rows.Close()
-
-			for rows.Next() {
-				var insc InscricaoDetalhada
-				err := rows.Scan(&insc.ID, &insc.EstudanteID, &insc.CodigoEstudante, &insc.AcademiaID,
-					&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &insc.Curso, &insc.Status,
-					&insc.CreatedAt, &insc.UpdatedAt, &insc.EventID, &insc.Version)
-				if err != nil {
-					continue
-				}
-				inscricoes = append(inscricoes, insc)
-			}
-			
 			client.DB().QueryRow(`SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = $1 AND status = $2`, userID, statusFilter).Scan(&total)
 		} else {
 			query := baseQuery + ` WHERE academia_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
-			rows, err := client.DB().Query(query, userID, limit, offset)
+			rows, err = client.DB().Query(query, userID, limit, offset)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 				return
 			}
-			defer rows.Close()
-
-			for rows.Next() {
-				var insc InscricaoDetalhada
-				err := rows.Scan(&insc.ID, &insc.EstudanteID, &insc.CodigoEstudante, &insc.AcademiaID,
-					&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &insc.Curso, &insc.Status,
-					&insc.CreatedAt, &insc.UpdatedAt, &insc.EventID, &insc.Version)
-				if err != nil {
-					continue
-				}
-				inscricoes = append(inscricoes, insc)
-			}
-			
 			client.DB().QueryRow(`SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = $1`, userID).Scan(&total)
 		}
 
 	case "estudante":
 		if statusFilter != "" {
 			query := baseQuery + ` WHERE estudante_id = $1 AND status = $2 ORDER BY created_at DESC`
-			rows, err := client.DB().Query(query, userID, statusFilter)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
-				return
-			}
-			defer rows.Close()
-
-			for rows.Next() {
-				var insc InscricaoDetalhada
-				err := rows.Scan(&insc.ID, &insc.EstudanteID, &insc.CodigoEstudante, &insc.AcademiaID,
-					&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &insc.Curso, &insc.Status,
-					&insc.CreatedAt, &insc.UpdatedAt, &insc.EventID, &insc.Version)
-				if err != nil {
-					continue
-				}
-				inscricoes = append(inscricoes, insc)
-			}
+			rows, err = client.DB().Query(query, userID, statusFilter)
 		} else {
 			query := baseQuery + ` WHERE estudante_id = $1 ORDER BY created_at DESC`
-			rows, err := client.DB().Query(query, userID)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
-				return
-			}
-			defer rows.Close()
-
-			for rows.Next() {
-				var insc InscricaoDetalhada
-				err := rows.Scan(&insc.ID, &insc.EstudanteID, &insc.CodigoEstudante, &insc.AcademiaID,
-					&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &insc.Curso, &insc.Status,
-					&insc.CreatedAt, &insc.UpdatedAt, &insc.EventID, &insc.Version)
-				if err != nil {
-					continue
-				}
-				inscricoes = append(inscricoes, insc)
-			}
+			rows, err = client.DB().Query(query, userID)
 		}
-		total = len(inscricoes)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
+			return
+		}
+		total = 0 // Será contado ao iterar
 
 	default:
 		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
 		return
 	}
 
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
-		return
+	defer rows.Close()
+
+	for rows.Next() {
+		var insc InscricaoDetalhada
+		err := rows.Scan(&insc.ID, &insc.EstudanteID, &insc.CodigoEstudante, &insc.AcademiaID,
+			&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &insc.Curso, &insc.Status,
+			&insc.CreatedAt, &insc.UpdatedAt, &insc.EventID, &insc.Version)
+		if err != nil {
+			continue
+		}
+		inscricoes = append(inscricoes, insc)
+	}
+
+	if userType == "estudante" {
+		total = len(inscricoes)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -242,18 +177,19 @@ func ListarInscricoesPendentes(c *gin.Context) {
 	limit, offset := getPaginationParams(c)
 	client := getDbClient(c)
 
+	// ✅ CORRIGIDO: Usar ponteiros
 	type InscricaoDetalhada struct {
-		ID              string         `db:"id" json:"id"`
-		EstudanteID     string         `db:"estudante_id" json:"estudante_id"`
-		CodigoEstudante string         `db:"codigo_estudante" json:"codigo_estudante"`
-		AcademiaID      string         `db:"academia_id" json:"academia_id"`
-		CodigoAcademia  string         `db:"codigo_academia" json:"codigo_academia"`
-		Tipo            string         `db:"tipo" json:"tipo"`
-		AnoInscricao    string         `db:"ano_inscricao" json:"ano_inscricao"`
-		Curso           sql.NullString `db:"curso" json:"curso,omitempty"`
-		Status          string         `db:"status" json:"status"`
-		CreatedAt       string         `db:"created_at" json:"created_at"`
-		UpdatedAt       string         `db:"updated_at" json:"updated_at"`
+		ID              string  `json:"id"`
+		EstudanteID     string  `json:"estudante_id"`
+		CodigoEstudante string  `json:"codigo_estudante"`
+		AcademiaID      string  `json:"academia_id"`
+		CodigoAcademia  string  `json:"codigo_academia"`
+		Tipo            string  `json:"tipo"`
+		AnoInscricao    string  `json:"ano_inscricao"`
+		Curso           *string `json:"curso,omitempty"`
+		Status          string  `json:"status"`
+		CreatedAt       string  `json:"created_at"`
+		UpdatedAt       string  `json:"updated_at"`
 	}
 
 	var inscricoes []InscricaoDetalhada
@@ -268,75 +204,57 @@ func ListarInscricoesPendentes(c *gin.Context) {
 		FROM projection_inscricoes WHERE status = 'espera'
 	`
 
+	var rows *sql.Rows
+	var err error
+
 	switch userType {
 	case "admin":
 		query := baseQuery + ` ORDER BY created_at DESC LIMIT $1 OFFSET $2`
-		rows, err := client.DB().Query(query, limit, offset)
+		rows, err = client.DB().Query(query, limit, offset)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 			return
 		}
-		defer rows.Close()
-
-		for rows.Next() {
-			var insc InscricaoDetalhada
-			err := rows.Scan(&insc.ID, &insc.EstudanteID, &insc.CodigoEstudante, &insc.AcademiaID,
-				&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &insc.Curso, &insc.Status,
-				&insc.CreatedAt, &insc.UpdatedAt)
-			if err != nil {
-				continue
-			}
-			inscricoes = append(inscricoes, insc)
-		}
-		
 		client.DB().QueryRow(`SELECT COUNT(*) FROM projection_inscricoes WHERE status = 'espera'`).Scan(&total)
 
 	case "academia":
 		query := baseQuery + ` AND academia_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
-		rows, err := client.DB().Query(query, userID, limit, offset)
+		rows, err = client.DB().Query(query, userID, limit, offset)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 			return
 		}
-		defer rows.Close()
-
-		for rows.Next() {
-			var insc InscricaoDetalhada
-			err := rows.Scan(&insc.ID, &insc.EstudanteID, &insc.CodigoEstudante, &insc.AcademiaID,
-				&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &insc.Curso, &insc.Status,
-				&insc.CreatedAt, &insc.UpdatedAt)
-			if err != nil {
-				continue
-			}
-			inscricoes = append(inscricoes, insc)
-		}
-		
 		client.DB().QueryRow(`SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = $1 AND status = 'espera'`, userID).Scan(&total)
 
 	case "estudante":
 		query := baseQuery + ` AND estudante_id = $1 ORDER BY created_at DESC`
-		rows, err := client.DB().Query(query, userID)
+		rows, err = client.DB().Query(query, userID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 			return
 		}
-		defer rows.Close()
-
-		for rows.Next() {
-			var insc InscricaoDetalhada
-			err := rows.Scan(&insc.ID, &insc.EstudanteID, &insc.CodigoEstudante, &insc.AcademiaID,
-				&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &insc.Curso, &insc.Status,
-				&insc.CreatedAt, &insc.UpdatedAt)
-			if err != nil {
-				continue
-			}
-			inscricoes = append(inscricoes, insc)
-		}
-		total = len(inscricoes)
+		total = 0 // Será contado ao iterar
 
 	default:
 		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
 		return
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+		var insc InscricaoDetalhada
+		err := rows.Scan(&insc.ID, &insc.EstudanteID, &insc.CodigoEstudante, &insc.AcademiaID,
+			&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &insc.Curso, &insc.Status,
+			&insc.CreatedAt, &insc.UpdatedAt)
+		if err != nil {
+			continue
+		}
+		inscricoes = append(inscricoes, insc)
+	}
+
+	if userType == "estudante" {
+		total = len(inscricoes)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
