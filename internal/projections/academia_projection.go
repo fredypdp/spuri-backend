@@ -52,12 +52,12 @@ func (p *AcademiaProjection) Handle(event db.Event) error {
 	}
 }
 
+// ✅ CORRIGIDO
 func (p *AcademiaProjection) Rebuild() error {
 	if err := p.clear(); err != nil {
 		return err
 	}
 
-	// ✅ FIX: Usar Queryx ao invés de QueryContext
 	query := `
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
@@ -67,7 +67,7 @@ func (p *AcademiaProjection) Rebuild() error {
 		ORDER BY id ASC
 	`
 	
-	rows, err := p.client.DB().Queryx(query)
+	rows, err := p.client.DB().Query(query)
 	if err != nil {
 		return err
 	}
@@ -92,7 +92,6 @@ func (p *AcademiaProjection) Rebuild() error {
 	return rows.Err()
 }
 
-// ✅ FIX: Usar Get ao invés de QueryRowContext
 func (p *AcademiaProjection) GetLastProcessedEventID() (int64, error) {
 	var lastID int64
 	query := `
@@ -101,7 +100,7 @@ func (p *AcademiaProjection) GetLastProcessedEventID() (int64, error) {
 		WHERE projection_name = $1
 	`
 	
-	err := p.client.DB().Get(&lastID, query, p.Name())
+	err := p.client.DB().QueryRow(query, p.Name()).Scan(&lastID)
 	
 	if err == sql.ErrNoRows {
 		return 0, nil
@@ -109,7 +108,6 @@ func (p *AcademiaProjection) GetLastProcessedEventID() (int64, error) {
 	return lastID, err
 }
 
-// ✅ FIX: Usar Exec ao invés de ExecContext
 func (p *AcademiaProjection) UpdateCheckpoint(eventID int64) error {
 	query := `
 		INSERT INTO projection_checkpoints (
@@ -126,7 +124,6 @@ func (p *AcademiaProjection) UpdateCheckpoint(eventID int64) error {
 	return err
 }
 
-// ✅ FIX: Usar Exec ao invés de ExecContext
 func (p *AcademiaProjection) clear() error {
 	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_academias CASCADE`)
 	return err
@@ -161,7 +158,6 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 		return err
 	}
 
-	// ✅ FIX: Usar Exec ao invés de ExecContext (sem ctx)
 	query := `
 		INSERT INTO projection_academias (
 			id, type, nome, codigo_academia, senha_hash, provincia,
@@ -187,7 +183,6 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 	return err
 }
 
-// ✅ FIX: Usar Exec ao invés de ExecContext
 func (p *AcademiaProjection) handleAcademiaAtivada(event db.Event) error {
 	query := `
 		UPDATE projection_academias
@@ -198,7 +193,6 @@ func (p *AcademiaProjection) handleAcademiaAtivada(event db.Event) error {
 	return err
 }
 
-// ✅ FIX: Usar Exec ao invés de ExecContext
 func (p *AcademiaProjection) handleAcademiaDesativada(event db.Event) error {
 	query := `
 		UPDATE projection_academias
@@ -223,7 +217,6 @@ func (p *AcademiaProjection) handleCursosAtualizados(event db.Event) error {
 		return err
 	}
 
-	// ✅ FIX: Usar Exec
 	query := `
 		UPDATE projection_academias
 		SET cursos = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
@@ -233,7 +226,6 @@ func (p *AcademiaProjection) handleCursosAtualizados(event db.Event) error {
 	return err
 }
 
-// ✅ FIX: Usar Exec
 func (p *AcademiaProjection) handleInscricaoAprovada(event db.Event) error {
 	query := `
 		UPDATE projection_academias
@@ -246,7 +238,6 @@ func (p *AcademiaProjection) handleInscricaoAprovada(event db.Event) error {
 	return err
 }
 
-// ✅ FIX: Usar Exec
 func (p *AcademiaProjection) handleInscricaoReprovada(event db.Event) error {
 	query := `
 		UPDATE projection_academias
@@ -275,7 +266,6 @@ func (p *AcademiaProjection) handleAcademiaDadosAtualizados(event db.Event) erro
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	// ✅ FIX: Usar Exec em todas as atualizações
 	if payload.Nome != nil {
 		p.client.DB().Exec(`UPDATE projection_academias SET nome = $1 WHERE id = $2`, *payload.Nome, event.AggregateID)
 	}
@@ -312,7 +302,7 @@ func (p *AcademiaProjection) handleAcademiaDadosAtualizados(event db.Event) erro
 	return err
 }
 
-// ✅ FIX: Usar Get ao invés de QueryRowContext
+// ✅ CORRIGIDO
 func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
 	var dto AcademiaDTO
 	var cursosJSON []byte
@@ -325,7 +315,13 @@ func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
 		FROM projection_academias WHERE id = $1
 	`
 	
-	err := p.client.DB().Get(&dto, query, id)
+	err := p.client.DB().QueryRow(query, id).Scan(
+		&dto.ID, &dto.Type, &dto.Nome, &dto.CodigoAcademia, &dto.SenhaHash, &dto.Provincia,
+		&dto.Endereco, &dto.NumeroTelefone, &dto.Email, &dto.Website, &dto.NivelEscolar,
+		&dto.Status, &cursosJSON, &dto.CreatedAt, &dto.UpdatedAt,
+		&dto.TotalEstudantes, &dto.TotalInscricoesPendentes, &dto.Version,
+	)
+	
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -333,14 +329,12 @@ func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
 		return nil, err
 	}
 
-	// Precisamos fazer um scan separado para cursosJSON
-	p.client.DB().Get(&cursosJSON, `SELECT cursos FROM projection_academias WHERE id = $1`, id)
 	json.Unmarshal(cursosJSON, &dto.Cursos)
 	
 	return &dto, nil
 }
 
-// ✅ FIX: Usar Get
+// ✅ CORRIGIDO
 func (p *AcademiaProjection) GetByCodigoOrEmail(identifier string) (*AcademiaDTO, error) {
 	var dto AcademiaDTO
 	var cursosJSON []byte
@@ -355,7 +349,13 @@ func (p *AcademiaProjection) GetByCodigoOrEmail(identifier string) (*AcademiaDTO
 		LIMIT 1
 	`
 	
-	err := p.client.DB().Get(&dto, query, identifier)
+	err := p.client.DB().QueryRow(query, identifier).Scan(
+		&dto.ID, &dto.Type, &dto.Nome, &dto.CodigoAcademia, &dto.SenhaHash, &dto.Provincia,
+		&dto.Endereco, &dto.NumeroTelefone, &dto.Email, &dto.Website, &dto.NivelEscolar,
+		&dto.Status, &cursosJSON, &dto.CreatedAt, &dto.UpdatedAt,
+		&dto.TotalEstudantes, &dto.TotalInscricoesPendentes, &dto.Version,
+	)
+	
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -363,13 +363,12 @@ func (p *AcademiaProjection) GetByCodigoOrEmail(identifier string) (*AcademiaDTO
 		return nil, err
 	}
 
-	p.client.DB().Get(&cursosJSON, `SELECT cursos FROM projection_academias WHERE id = $1`, dto.ID)
 	json.Unmarshal(cursosJSON, &dto.Cursos)
 
 	return &dto, nil
 }
 
-// ✅ FIX: Usar Get
+// ✅ CORRIGIDO
 func (p *AcademiaProjection) GetByCodigo(codigo string) (*AcademiaDTO, error) {
 	var dto AcademiaDTO
 	var cursosJSON []byte
@@ -382,7 +381,13 @@ func (p *AcademiaProjection) GetByCodigo(codigo string) (*AcademiaDTO, error) {
 		FROM projection_academias WHERE codigo_academia = $1
 	`
 	
-	err := p.client.DB().Get(&dto, query, codigo)
+	err := p.client.DB().QueryRow(query, codigo).Scan(
+		&dto.ID, &dto.Type, &dto.Nome, &dto.CodigoAcademia, &dto.SenhaHash, &dto.Provincia,
+		&dto.Endereco, &dto.NumeroTelefone, &dto.Email, &dto.Website, &dto.NivelEscolar,
+		&dto.Status, &cursosJSON, &dto.CreatedAt, &dto.UpdatedAt,
+		&dto.TotalEstudantes, &dto.TotalInscricoesPendentes, &dto.Version,
+	)
+	
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -390,7 +395,6 @@ func (p *AcademiaProjection) GetByCodigo(codigo string) (*AcademiaDTO, error) {
 		return nil, err
 	}
 
-	p.client.DB().Get(&cursosJSON, `SELECT cursos FROM projection_academias WHERE id = $1`, dto.ID)
 	json.Unmarshal(cursosJSON, &dto.Cursos)
 
 	return &dto, nil

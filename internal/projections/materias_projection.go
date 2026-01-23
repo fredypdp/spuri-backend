@@ -50,7 +50,7 @@ func (mp *MateriasProjection) Rebuild() error {
 		FROM spuri_ledger WHERE aggregate_type = 'MateriaDisciplinar' ORDER BY id ASC
 	`
 	
-	rows, err := mp.client.DB().Queryx(query)
+	rows, err := mp.client.DB().Query(query)
 	if err != nil {
 		return err
 	}
@@ -228,7 +228,7 @@ func (mp *MateriasProjection) GetByID(id uuid.UUID) (*MateriaDTO, error) {
 	var nivelJSON sql.NullString
 	var cursoID sql.NullString
 
-	err := mp.client.DB().QueryRowx(query).Scan(
+	err := mp.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.Nome, &dto.Type, &nivelJSON, &dto.CodigoAcademia, 
 		&cursoID, &dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version)
 	
@@ -259,7 +259,7 @@ func (mp *MateriasProjection) GetByAcademia(codigoAcademia string) ([]MateriaDTO
 		FROM projection_materias WHERE codigo_academia = '%s' ORDER BY created_at DESC
 	`, safeCodigo)
 	
-	rows, err := mp.client.DB().Queryx(query)
+	rows, err := mp.client.DB().Query(query)
 	if err != nil {
 		return nil, err
 	}

@@ -49,11 +49,13 @@ func NewClient(config *Config) (*Client, error) {
 		)
 	}
 
-	// ✅ CORRIGIDO: Adicionar operador :=
-	db, err := sqlx.Connect("postgres", connStr)
+	// ✅ CORRIGIDO: Usar sql.Open + sqlx.NewDb para evitar prepared statements automáticos
+	sqlDB, err := sql.Open("postgres", connStr)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao conectar ao BD: %w", err)
+		return nil, fmt.Errorf("erro ao abrir BD: %w", err)
 	}
+
+	db := sqlx.NewDb(sqlDB, "postgres")
 
 	db.SetMaxOpenConns(config.MaxConnections)
 	db.SetMaxIdleConns(config.MaxIdleConns)

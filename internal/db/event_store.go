@@ -61,9 +61,8 @@ func (es *EventStore) Append(ctx context.Context, event *Event) error {
 	return nil
 }
 
-// ✅ SAFE: UUID validado
+// ✅ CORRIGIDO: Usar Query() padrão ao invés de Queryx()
 func (es *EventStore) LoadEventStream(ctx context.Context, aggregateID uuid.UUID) ([]Event, error) {
-	// Validar UUID
 	if aggregateID == uuid.Nil {
 		return nil, fmt.Errorf("UUID inválido")
 	}
@@ -77,7 +76,7 @@ func (es *EventStore) LoadEventStream(ctx context.Context, aggregateID uuid.UUID
 		WHERE aggregate_id = '%s'
 		ORDER BY event_version ASC, recorded_at ASC`, aggregateID)
 
-	rows, err := es.client.db.Queryx(query)
+	rows, err := es.client.db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao carregar events: %w", err)
 	}
@@ -100,7 +99,7 @@ func (es *EventStore) LoadEventStream(ctx context.Context, aggregateID uuid.UUID
 	return events, rows.Err()
 }
 
-// ✅ SAFE: UUID e int validados
+// ✅ CORRIGIDO: Usar Query() padrão
 func (es *EventStore) LoadEventStreamFromVersion(
 	ctx context.Context, 
 	aggregateID uuid.UUID, 
@@ -123,7 +122,7 @@ func (es *EventStore) LoadEventStreamFromVersion(
 		WHERE aggregate_id = '%s' AND event_version >= %d
 		ORDER BY event_version ASC, recorded_at ASC`, aggregateID, fromVersion)
 
-	rows, err := es.client.db.Queryx(query)
+	rows, err := es.client.db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao carregar events: %w", err)
 	}
@@ -146,19 +145,17 @@ func (es *EventStore) LoadEventStreamFromVersion(
 	return events, rows.Err()
 }
 
-// ✅ SAFE: String validada + int validado
+// ✅ CORRIGIDO: Usar Query() padrão
 func (es *EventStore) GetEventsByType(
 	ctx context.Context, 
 	eventType string, 
 	limit int,
 ) ([]Event, error) {
-	// Validar eventType
 	if err := ValidateEventType(eventType); err != nil {
 		return nil, err
 	}
 
 	limit = ValidateLimit(limit)
-
 	safeType := SafeString(eventType)
 
 	query := fmt.Sprintf(`
@@ -171,7 +168,7 @@ func (es *EventStore) GetEventsByType(
 		ORDER BY recorded_at DESC
 		LIMIT %d`, safeType, limit)
 
-	rows, err := es.client.db.Queryx(query)
+	rows, err := es.client.db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar eventos: %w", err)
 	}
@@ -194,7 +191,7 @@ func (es *EventStore) GetEventsByType(
 	return events, rows.Err()
 }
 
-// ✅ SAFE: Ints validados
+// ✅ CORRIGIDO: Usar Query() padrão
 func (es *EventStore) GetAllEvents(
 	ctx context.Context, 
 	offset, limit int,
@@ -211,7 +208,7 @@ func (es *EventStore) GetAllEvents(
 		ORDER BY recorded_at DESC
 		LIMIT %d OFFSET %d`, limit, offset)
 
-	rows, err := es.client.db.Queryx(query)
+	rows, err := es.client.db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar eventos: %w", err)
 	}
@@ -234,7 +231,7 @@ func (es *EventStore) GetAllEvents(
 	return events, rows.Err()
 }
 
-// ✅ SAFE: UUID validado
+// ✅ CORRIGIDO: Usar QueryRow() padrão
 func (es *EventStore) GetEventByID(ctx context.Context, eventID uuid.UUID) (*Event, error) {
 	if eventID == uuid.Nil {
 		return nil, fmt.Errorf("UUID inválido")
@@ -249,7 +246,7 @@ func (es *EventStore) GetEventByID(ctx context.Context, eventID uuid.UUID) (*Eve
 		WHERE event_id = '%s'`, eventID)
 
 	var event Event
-	err := es.client.db.QueryRowx(query).Scan(
+	err := es.client.db.QueryRow(query).Scan(
 		&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
 		&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
 		&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash,
@@ -262,7 +259,6 @@ func (es *EventStore) GetEventByID(ctx context.Context, eventID uuid.UUID) (*Eve
 	return &event, nil
 }
 
-// ✅ SAFE: UUID validado
 func (es *EventStore) GetAggregateVersion(ctx context.Context, aggregateID uuid.UUID) (int, error) {
 	if aggregateID == uuid.Nil {
 		return 0, fmt.Errorf("UUID inválido")
@@ -287,7 +283,7 @@ func (es *EventStore) GetAggregateVersion(ctx context.Context, aggregateID uuid.
 	return version, nil
 }
 
-// ✅ SAFE: UUID validado
+// ✅ CORRIGIDO: Usar Query() padrão
 func (es *EventStore) VerifyLedgerIntegrity(ctx context.Context, aggregateID uuid.UUID) (bool, error) {
 	if aggregateID == uuid.Nil {
 		return false, fmt.Errorf("UUID inválido")
@@ -300,11 +296,11 @@ func (es *EventStore) VerifyLedgerIntegrity(ctx context.Context, aggregateID uui
 		ORDER BY event_version ASC`, aggregateID)
 
 	type hashPair struct {
-		LedgerHash   string  `db:"ledger_hash"`
-		PreviousHash *string `db:"previous_hash"`
+		LedgerHash   string
+		PreviousHash *string
 	}
 
-	rows, err := es.client.db.Queryx(query)
+	rows, err := es.client.db.Query(query)
 	if err != nil {
 		return false, fmt.Errorf("erro ao verificar integridade: %w", err)
 	}
@@ -332,7 +328,6 @@ func (es *EventStore) VerifyLedgerIntegrity(ctx context.Context, aggregateID uui
 	return true, nil
 }
 
-// ✅ SAFE: Sem parâmetros
 func (es *EventStore) CountEvents(ctx context.Context) (int64, error) {
 	query := `SELECT COUNT(*) FROM spuri_ledger`
 	
@@ -345,7 +340,6 @@ func (es *EventStore) CountEvents(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
-// ✅ SAFE: UUID validado
 func (es *EventStore) CountEventsByAggregate(ctx context.Context, aggregateID uuid.UUID) (int64, error) {
 	if aggregateID == uuid.Nil {
 		return 0, fmt.Errorf("UUID inválido")

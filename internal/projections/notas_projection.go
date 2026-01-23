@@ -39,7 +39,7 @@ func (p *NotasProjection) Rebuild() error {
 		FROM spuri_ledger WHERE event_type = 'NotasRegistradas' ORDER BY id ASC
 	`
 	
-	rows, err := p.client.DB().Queryx(query)
+	rows, err := p.client.DB().Query(query)
 	if err != nil {
 		return err
 	}
@@ -114,7 +114,6 @@ func (p *NotasProjection) handleNotasRegistradas(event db.Event) error {
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	// Escapar strings
 	safeCodEst := db.SafeString(payload.CodigoEstudante)
 	safeCodAcad := db.SafeString(payload.CodigoAcademia)
 	safeAnoLec := db.SafeString(payload.AnoLectivo)
@@ -164,7 +163,7 @@ func (p *NotasProjection) GetByEstudante(codigoEstudante string) ([]NotaDTO, err
 		WHERE n.codigo_estudante = '%s' ORDER BY n.registered_at DESC
 	`, safeCodigo)
 	
-	rows, err := p.client.DB().Queryx(query)
+	rows, err := p.client.DB().Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +198,7 @@ func (p *NotasProjection) GetByPeriodo(codigoEstudante, anoLectivo, periodo stri
 		ORDER BY m.nome
 	`, safeCodEst, safeAnoLec, safePeriodo)
 	
-	rows, err := p.client.DB().Queryx(query)
+	rows, err := p.client.DB().Query(query)
 	if err != nil {
 		return nil, err
 	}

@@ -39,7 +39,7 @@ func (p *FaltasProjection) Rebuild() error {
 		FROM spuri_ledger WHERE event_type = 'FaltasRegistradas' ORDER BY id ASC
 	`
 	
-	rows, err := p.client.DB().Queryx(query)
+	rows, err := p.client.DB().Query(query)
 	if err != nil {
 		return err
 	}
@@ -157,7 +157,7 @@ func (p *FaltasProjection) GetByEstudante(codigoEstudante string) ([]FaltaDTO, e
 		WHERE f.codigo_estudante = '%s' ORDER BY f.data DESC
 	`, safeCodigo)
 	
-	rows, err := p.client.DB().Queryx(query)
+	rows, err := p.client.DB().Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +192,7 @@ func (p *FaltasProjection) GetByPeriodo(codigoEstudante, anoLectivo string, data
 		ORDER BY f.data DESC
 	`, safeCodEst, safeAnoLec, dataInicio.Format(time.RFC3339), dataFim.Format(time.RFC3339))
 	
-	rows, err := p.client.DB().Queryx(query)
+	rows, err := p.client.DB().Query(query)
 	if err != nil {
 		return nil, err
 	}

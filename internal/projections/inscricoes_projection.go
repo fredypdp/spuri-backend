@@ -48,7 +48,7 @@ func (ip *InscricoesProjection) Rebuild() error {
 		ORDER BY id ASC
 	`
 	
-	rows, err := ip.client.DB().Queryx(query)
+	rows, err := ip.client.DB().Query(query)
 	if err != nil {
 		return err
 	}
@@ -121,7 +121,6 @@ func (ip *InscricoesProjection) handleEstudanteInscrito(event db.Event) error {
 		return fmt.Errorf("UUID estudante inválido")
 	}
 
-	// Buscar codigo_estudante
 	queryCodigo := fmt.Sprintf(`SELECT codigo_estudante FROM projection_estudantes WHERE id = '%s'`, estudanteID)
 	var codigoEstudante string
 	err := ip.client.DB().QueryRow(queryCodigo).Scan(&codigoEstudante)
@@ -129,7 +128,6 @@ func (ip *InscricoesProjection) handleEstudanteInscrito(event db.Event) error {
 		return fmt.Errorf("estudante não encontrado: %w", err)
 	}
 
-	// Buscar academia_id
 	safeCodAcad := db.SafeString(payload.CodigoAcademia)
 	queryAcad := fmt.Sprintf(`SELECT id FROM projection_academias WHERE codigo_academia = '%s'`, safeCodAcad)
 	var academiaID uuid.UUID
@@ -163,7 +161,6 @@ func (ip *InscricoesProjection) handleEstudanteInscrito(event db.Event) error {
 		return err
 	}
 
-	// Atualizar contadores
 	updateAcad := fmt.Sprintf(`UPDATE projection_academias SET total_inscricoes_pendentes = total_inscricoes_pendentes + 1 WHERE id = '%s'`, academiaID)
 	ip.client.DB().Exec(updateAcad)
 	
@@ -193,14 +190,13 @@ func (ip *InscricoesProjection) handleInscricaoAprovada(event db.Event) error {
 		return fmt.Errorf("UUID estudante inválido")
 	}
 
-	// Buscar academia_id
 	safeCodAcad := db.SafeString(payload.CodigoAcademia)
 	queryAcad := fmt.Sprintf(`SELECT id FROM projection_academias WHERE codigo_academia = '%s'`, safeCodAcad)
 	
 	var academiaID uuid.UUID
 	err := ip.client.DB().QueryRow(queryAcad).Scan(&academiaID)
 	if err != nil {
-		return nil // Academia não encontrada - não é erro crítico
+		return nil
 	}
 
 	safeTipo := db.SafeString(payload.Tipo)
@@ -230,7 +226,6 @@ func (ip *InscricoesProjection) handleInscricaoReprovada(event db.Event) error {
 		return fmt.Errorf("UUID estudante inválido")
 	}
 
-	// Buscar academia_id
 	safeCodAcad := db.SafeString(payload.CodigoAcademia)
 	queryAcad := fmt.Sprintf(`SELECT id FROM projection_academias WHERE codigo_academia = '%s'`, safeCodAcad)
 	
@@ -284,7 +279,7 @@ func (ip *InscricoesProjection) GetByEstudante(estudanteID uuid.UUID) ([]Inscric
 		FROM projection_inscricoes WHERE estudante_id = '%s' ORDER BY created_at DESC
 	`, estudanteID)
 
-	rows, err := ip.client.DB().Queryx(query)
+	rows, err := ip.client.DB().Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +288,9 @@ func (ip *InscricoesProjection) GetByEstudante(estudanteID uuid.UUID) ([]Inscric
 	var result []InscricaoDTO
 	for rows.Next() {
 		var dto InscricaoDTO
-		err := rows.StructScan(&dto)
+		err := rows.Scan(&dto.ID, &dto.EstudanteID, &dto.CodigoEstudante, &dto.AcademiaID,
+			&dto.CodigoAcademia, &dto.Tipo, &dto.AnoInscricao, &dto.Curso, &dto.Status,
+			&dto.StatusUsado, &dto.CreatedAt, &dto.UpdatedAt, &dto.EventID, &dto.Version)
 		if err != nil {
 			return nil, err
 		}
@@ -316,7 +313,7 @@ func (ip *InscricoesProjection) GetByAcademia(academiaID uuid.UUID, status strin
 		FROM projection_inscricoes WHERE academia_id = '%s' AND status = '%s' ORDER BY created_at DESC
 	`, academiaID, safeStatus)
 
-	rows, err := ip.client.DB().Queryx(query)
+	rows, err := ip.client.DB().Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -325,7 +322,9 @@ func (ip *InscricoesProjection) GetByAcademia(academiaID uuid.UUID, status strin
 	var result []InscricaoDTO
 	for rows.Next() {
 		var dto InscricaoDTO
-		err := rows.StructScan(&dto)
+		err := rows.Scan(&dto.ID, &dto.EstudanteID, &dto.CodigoEstudante, &dto.AcademiaID,
+			&dto.CodigoAcademia, &dto.Tipo, &dto.AnoInscricao, &dto.Curso, &dto.Status,
+			&dto.StatusUsado, &dto.CreatedAt, &dto.UpdatedAt, &dto.EventID, &dto.Version)
 		if err != nil {
 			return nil, err
 		}
@@ -347,7 +346,11 @@ func (ip *InscricoesProjection) GetByID(id uuid.UUID) (*InscricaoDTO, error) {
 	`, id)
 
 	var dto InscricaoDTO
-	err := ip.client.DB().QueryRowx(query).StructScan(&dto)
+	err := ip.client.DB().QueryRow(query).Scan(
+		&dto.ID, &dto.EstudanteID, &dto.CodigoEstudante, &dto.AcademiaID,
+		&dto.CodigoAcademia, &dto.Tipo, &dto.AnoInscricao, &dto.Curso, &dto.Status,
+		&dto.StatusUsado, &dto.CreatedAt, &dto.UpdatedAt, &dto.EventID, &dto.Version,
+	)
 	if err != nil {
 		return nil, err
 	}

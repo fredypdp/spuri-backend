@@ -148,14 +148,12 @@ func (m *Manager) processEventWithRetry(name string, projection Projection, even
 	return fmt.Errorf("evento %d falhou apos %d tentativas: %w", event.ID, maxRetries, lastErr)
 }
 
-// ✅ SAFE: Não usa prepared statements
+// ✅ CORRIGIDO: Usar Query() padrão ao invés de Queryx()
 func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
-	// Validar fromID (não pode ser negativo)
 	if fromID < 0 {
 		fromID = 0
 	}
 
-	// Validar batchSize
 	batchSize := db.ValidateLimit(m.batchSize)
 
 	query := fmt.Sprintf(`
@@ -168,7 +166,7 @@ func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
 		LIMIT %d
 	`, fromID, batchSize)
 
-	rows, err := m.client.DB().Queryx(query)
+	rows, err := m.client.DB().Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("erro na query: %w", err)
 	}
@@ -240,7 +238,6 @@ func (m *Manager) RebuildAllProjections() error {
 	return nil
 }
 
-// ✅ SAFE: String escapada
 func (m *Manager) markRebuildStart(name string) error {
 	safeName := db.SafeString(name)
 	
@@ -254,7 +251,6 @@ func (m *Manager) markRebuildStart(name string) error {
 	return err
 }
 
-// ✅ SAFE: String escapada
 func (m *Manager) markRebuildComplete(name string) error {
 	var lastEventID int64
 	
@@ -276,7 +272,6 @@ func (m *Manager) markRebuildComplete(name string) error {
 	return err
 }
 
-// ✅ SAFE: String escapada
 func (m *Manager) logProjectionError(name, errorMsg string) {
 	safeName := db.SafeString(name)
 	safeMsg := db.SafeString(errorMsg)
@@ -290,7 +285,6 @@ func (m *Manager) logProjectionError(name, errorMsg string) {
 	m.client.DB().Exec(query)
 }
 
-// ✅ SAFE: String escapada
 func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, error) {
 	safeName := db.SafeString(name)
 	

@@ -50,7 +50,7 @@ func (p *CursosProjection) Rebuild() error {
 		FROM spuri_ledger WHERE aggregate_type = 'Curso' ORDER BY id ASC
 	`
 	
-	rows, err := p.client.DB().Queryx(query)
+	rows, err := p.client.DB().Query(query)
 	if err != nil {
 		return err
 	}
@@ -220,7 +220,7 @@ func (p *CursosProjection) GetByID(id uuid.UUID) (*CursoDTO, error) {
 	
 	var dto CursoDTO
 	var nivelJSON string
-	err := p.client.DB().QueryRowx(query).Scan(
+	err := p.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.Nome, &dto.Type, &nivelJSON, &dto.CodigoAcademia,
 		&dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version)
 	
@@ -243,7 +243,7 @@ func (p *CursosProjection) GetByAcademia(codigoAcademia string) ([]CursoDTO, err
 		FROM projection_cursos WHERE codigo_academia = '%s' ORDER BY created_at DESC
 	`, safeCodigo)
 	
-	rows, err := p.client.DB().Queryx(query)
+	rows, err := p.client.DB().Query(query)
 	if err != nil {
 		return nil, err
 	}

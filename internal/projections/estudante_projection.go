@@ -48,6 +48,7 @@ func (p *EstudanteProjection) Handle(event db.Event) error {
 	}
 }
 
+// ✅ CORRIGIDO
 func (p *EstudanteProjection) Rebuild() error {
 	if err := p.clear(); err != nil {
 		return err
@@ -62,7 +63,7 @@ func (p *EstudanteProjection) Rebuild() error {
 		ORDER BY id ASC
 	`
 	
-	rows, err := p.client.DB().Queryx(query)
+	rows, err := p.client.DB().Query(query)
 	if err != nil {
 		return err
 	}
@@ -155,20 +156,17 @@ func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 		return fmt.Errorf("dados obrigatórios vazios no evento")
 	}
 
-	// Validar UUID
 	aggID := event.AggregateID
 	if aggID == uuid.Nil {
 		return fmt.Errorf("UUID inválido")
 	}
 
-	// Escapar strings
 	safeNome := db.SafeString(payload.Nome)
 	safeCodigo := db.SafeString(payload.CodigoEstudante)
 	safeHash := db.SafeString(payload.SenhaHash)
 	safeStatusEsc := db.SafeString(payload.StatusEscolar)
 	safeStatusSup := db.SafeString(payload.StatusSuperior)
 
-	// Email
 	var emailStr string
 	if payload.Email != nil {
 		emailStr = fmt.Sprintf("'%s'", db.SafeString(*payload.Email))
@@ -176,7 +174,6 @@ func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 		emailStr = "NULL"
 	}
 
-	// Telefone
 	var telefoneStr string
 	if payload.Telefone != nil {
 		telefoneStr = fmt.Sprintf("'%s'", db.SafeString(*payload.Telefone))
@@ -184,7 +181,6 @@ func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 		telefoneStr = "NULL"
 	}
 
-	// Bilhetes
 	var bilheteStr, bilheteRespStr string
 	if payload.BilheteIdentidade != nil {
 		bilheteStr = fmt.Sprintf("'%s'", db.SafeString(*payload.BilheteIdentidade))
@@ -197,7 +193,6 @@ func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 		bilheteRespStr = "NULL"
 	}
 
-	// Anos e Cursos
 	var anoEscStr, anoSupStr, cursoMedStr, cursoSupStr string
 	if payload.AnoEscolar != nil {
 		anoEscStr = fmt.Sprintf("'%s'", db.SafeString(*payload.AnoEscolar))
@@ -473,6 +468,7 @@ func (p *EstudanteProjection) handleDadosAcademicosAtualizados(event db.Event) e
 	return err
 }
 
+// ✅ CORRIGIDO
 func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
 	if id == uuid.Nil {
 		return nil, fmt.Errorf("UUID inválido")
@@ -489,13 +485,23 @@ func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
 	`, id)
 
 	var dto EstudanteDTO
-	err := p.client.DB().QueryRowx(query).StructScan(&dto)
+	err := p.client.DB().QueryRow(query).Scan(
+		&dto.ID, &dto.Nome, &dto.CodigoEstudante, &dto.SenhaHash,
+		&dto.Email, &dto.Telefone, &dto.EmailVerificado,
+		&dto.BilheteIdentidade, &dto.BilheteIdentidadeResp, &dto.CodigoAcademia,
+		&dto.Status, &dto.StatusEscolar, &dto.StatusSuperior,
+		&dto.AnoEscolar, &dto.AnoSuperior, &dto.CursoMedio, &dto.CursoSuperior,
+		&dto.CreatedAt, &dto.UpdatedAt, &dto.TotalNotas, &dto.TotalFaltas,
+		&dto.TotalInscricoes, &dto.Version,
+	)
+	
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	return &dto, err
 }
 
+// ✅ CORRIGIDO
 func (p *EstudanteProjection) GetByCodigo(codigo string) (*EstudanteDTO, error) {
 	safeCodigo := db.SafeString(codigo)
 
@@ -510,13 +516,23 @@ func (p *EstudanteProjection) GetByCodigo(codigo string) (*EstudanteDTO, error) 
 	`, safeCodigo)
 
 	var dto EstudanteDTO
-	err := p.client.DB().QueryRowx(query).StructScan(&dto)
+	err := p.client.DB().QueryRow(query).Scan(
+		&dto.ID, &dto.Nome, &dto.CodigoEstudante, &dto.SenhaHash,
+		&dto.Email, &dto.Telefone, &dto.EmailVerificado,
+		&dto.BilheteIdentidade, &dto.BilheteIdentidadeResp, &dto.CodigoAcademia,
+		&dto.Status, &dto.StatusEscolar, &dto.StatusSuperior,
+		&dto.AnoEscolar, &dto.AnoSuperior, &dto.CursoMedio, &dto.CursoSuperior,
+		&dto.CreatedAt, &dto.UpdatedAt, &dto.TotalNotas, &dto.TotalFaltas,
+		&dto.TotalInscricoes, &dto.Version,
+	)
+	
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	return &dto, err
 }
 
+// ✅ CORRIGIDO
 func (p *EstudanteProjection) GetByBilhete(bilhete string) (*EstudanteDTO, error) {
 	safeBilhete := db.SafeString(bilhete)
 
@@ -533,7 +549,16 @@ func (p *EstudanteProjection) GetByBilhete(bilhete string) (*EstudanteDTO, error
 	`, safeBilhete, safeBilhete)
 
 	var dto EstudanteDTO
-	err := p.client.DB().QueryRowx(query).StructScan(&dto)
+	err := p.client.DB().QueryRow(query).Scan(
+		&dto.ID, &dto.Nome, &dto.CodigoEstudante, &dto.SenhaHash,
+		&dto.Email, &dto.Telefone, &dto.EmailVerificado,
+		&dto.BilheteIdentidade, &dto.BilheteIdentidadeResp, &dto.CodigoAcademia,
+		&dto.Status, &dto.StatusEscolar, &dto.StatusSuperior,
+		&dto.AnoEscolar, &dto.AnoSuperior, &dto.CursoMedio, &dto.CursoSuperior,
+		&dto.CreatedAt, &dto.UpdatedAt, &dto.TotalNotas, &dto.TotalFaltas,
+		&dto.TotalInscricoes, &dto.Version,
+	)
+	
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

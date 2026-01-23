@@ -60,7 +60,7 @@ func (p *AdminProjection) Rebuild() error {
 		ORDER BY id ASC
 	`
 	
-	rows, err := p.client.DB().Queryx(query)
+	rows, err := p.client.DB().Query(query)
 	if err != nil {
 		return err
 	}
@@ -85,7 +85,6 @@ func (p *AdminProjection) Rebuild() error {
 	return rows.Err()
 }
 
-// ✅ SAFE: String validada
 func (p *AdminProjection) GetLastProcessedEventID() (int64, error) {
 	safeName := db.SafeString(p.Name())
 	
@@ -104,7 +103,6 @@ func (p *AdminProjection) GetLastProcessedEventID() (int64, error) {
 	return lastID, err
 }
 
-// ✅ SAFE: String validada + int validado
 func (p *AdminProjection) UpdateCheckpoint(eventID int64) error {
 	safeName := db.SafeString(p.Name())
 	
@@ -146,7 +144,6 @@ func (p *AdminProjection) handleAdminCriado(event db.Event) error {
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	// Validar UUIDs
 	aggID := event.AggregateID
 	if aggID == uuid.Nil {
 		return fmt.Errorf("UUID inválido")
@@ -154,7 +151,6 @@ func (p *AdminProjection) handleAdminCriado(event db.Event) error {
 
 	eventIDStr := event.EventID.String()
 	
-	// Escapar strings
 	safeNome := db.SafeString(payload.Nome)
 	safeEmail := db.SafeString(payload.Email)
 	safeHash := db.SafeString(payload.SenhaHash)
@@ -191,7 +187,6 @@ func (p *AdminProjection) handleAdminCriado(event db.Event) error {
 	return nil
 }
 
-// Continua nos próximos handlers...
 func (p *AdminProjection) handleAdminAtivado(event db.Event) error {
 	aggID := event.AggregateID
 	if aggID == uuid.Nil {
@@ -239,23 +234,6 @@ func (p *AdminProjection) handleAcaoAdminRegistrada(event db.Event) error {
 	_, err := p.client.DB().Exec(query)
 	return err
 }
-
-// Continua na parte 2...
-type AdminDTO struct {
-	ID                   uuid.UUID  `db:"id" json:"id"`
-	Nome                 string     `db:"nome" json:"nome"`
-	Email                string     `db:"email" json:"email"`
-	SenhaHash            string     `db:"senha_hash" json:"-"`
-	Role                 string     `db:"role" json:"role"`
-	Status               string     `db:"status" json:"status"`
-	CreatedBy            *uuid.UUID `db:"created_by" json:"created_by,omitempty"`
-	CreatedAt            time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt            time.Time  `db:"updated_at" json:"updated_at"`
-	TotalAcoesRealizadas int        `db:"total_acoes_realizadas" json:"total_acoes_realizadas"`
-	Version              int        `db:"version" json:"version"`
-}
-
-// Continuação do admin_projection.go
 
 func (p *AdminProjection) handleAdminDadosAtualizados(event db.Event) error {
 	var payload struct {
@@ -322,7 +300,6 @@ func (p *AdminProjection) handleAdminRoleAtualizado(event db.Event) error {
 	return err
 }
 
-// ✅ SAFE: UUID validado
 func (p *AdminProjection) GetByID(id uuid.UUID) (*AdminDTO, error) {
 	if id == uuid.Nil {
 		return nil, fmt.Errorf("UUID inválido")
@@ -335,7 +312,7 @@ func (p *AdminProjection) GetByID(id uuid.UUID) (*AdminDTO, error) {
 	`, id)
 	
 	var dto AdminDTO
-	err := p.client.DB().QueryRowx(query).Scan(
+	err := p.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.Nome, &dto.Email, &dto.SenhaHash, &dto.Role, &dto.Status,
 		&dto.CreatedBy, &dto.CreatedAt, &dto.UpdatedAt, &dto.TotalAcoesRealizadas, &dto.Version,
 	)
@@ -349,7 +326,6 @@ func (p *AdminProjection) GetByID(id uuid.UUID) (*AdminDTO, error) {
 	return &dto, nil
 }
 
-// ✅ SAFE: String escapada
 func (p *AdminProjection) GetByEmail(email string) (*AdminDTO, error) {
 	safeEmail := db.SafeString(email)
 	
@@ -360,7 +336,7 @@ func (p *AdminProjection) GetByEmail(email string) (*AdminDTO, error) {
 	`, safeEmail)
 	
 	var dto AdminDTO
-	err := p.client.DB().QueryRowx(query).Scan(
+	err := p.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.Nome, &dto.Email, &dto.SenhaHash, &dto.Role, &dto.Status,
 		&dto.CreatedBy, &dto.CreatedAt, &dto.UpdatedAt, &dto.TotalAcoesRealizadas, &dto.Version,
 	)
@@ -375,7 +351,6 @@ func (p *AdminProjection) GetByEmail(email string) (*AdminDTO, error) {
 	return &dto, nil
 }
 
-// ✅ SAFE: Sem parâmetros
 func (p *AdminProjection) GetAll() ([]AdminDTO, error) {
 	query := `
 		SELECT id, nome, email, senha_hash, role, status,
@@ -383,7 +358,7 @@ func (p *AdminProjection) GetAll() ([]AdminDTO, error) {
 		FROM projection_admins ORDER BY created_at DESC
 	`
 	
-	rows, err := p.client.DB().Queryx(query)
+	rows, err := p.client.DB().Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -403,4 +378,18 @@ func (p *AdminProjection) GetAll() ([]AdminDTO, error) {
 	}
 
 	return dtos, rows.Err()
+}
+
+type AdminDTO struct {
+	ID                   uuid.UUID  `db:"id" json:"id"`
+	Nome                 string     `db:"nome" json:"nome"`
+	Email                string     `db:"email" json:"email"`
+	SenhaHash            string     `db:"senha_hash" json:"-"`
+	Role                 string     `db:"role" json:"role"`
+	Status               string     `db:"status" json:"status"`
+	CreatedBy            *uuid.UUID `db:"created_by" json:"created_by,omitempty"`
+	CreatedAt            time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt            time.Time  `db:"updated_at" json:"updated_at"`
+	TotalAcoesRealizadas int        `db:"total_acoes_realizadas" json:"total_acoes_realizadas"`
+	Version              int        `db:"version" json:"version"`
 }
