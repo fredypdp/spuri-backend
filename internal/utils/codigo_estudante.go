@@ -22,7 +22,7 @@ func GenerateCodigoEstudante() string {
 	return fmt.Sprintf("%c%c%c%04d", letra1, letra2, letra3, numero)
 }
 
-// ✅ SAFE: String validada e escapada
+// ✅ CORRIGIDO: Usar QueryRow com placeholders ao invés de string interpolation
 func GenerateUniqueCodigoEstudante(db *sqlx.DB) (string, error) {
 	maxAttempts := 100
 	
@@ -34,17 +34,16 @@ func GenerateUniqueCodigoEstudante(db *sqlx.DB) (string, error) {
 			continue
 		}
 		
-		// Escapar string - apenas caracteres seguros (letras + números)
-		// Não precisa de escape adicional pois só contém A-Z e 0-9
-		query := fmt.Sprintf(`
+		// ✅ CORRIGIDO: Usar placeholder $1 ao invés de interpolação
+		query := `
 			SELECT EXISTS(
 				SELECT 1 FROM projection_estudantes 
-				WHERE codigo_estudante = '%s'
+				WHERE codigo_estudante = $1
 			)
-		`, codigo)
+		`
 		
 		var exists bool
-		err := db.QueryRow(query).Scan(&exists)
+		err := db.QueryRow(query, codigo).Scan(&exists)
 		
 		if err != nil {
 			return "", fmt.Errorf("erro ao verificar código: %w", err)
