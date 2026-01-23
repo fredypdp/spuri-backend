@@ -47,10 +47,8 @@ func ListarInscricoes(c *gin.Context) {
 
 	limit, offset := getPaginationParams(c)
 	statusFilter := c.Query("status")
-
 	client := getDbClient(c)
 
-	// ✅ CORRIGIDO: Usar ponteiros em vez de sql.NullString
 	type InscricaoDetalhada struct {
 		ID              string  `json:"id"`
 		EstudanteID     string  `json:"estudante_id"`
@@ -74,8 +72,7 @@ func ListarInscricoes(c *gin.Context) {
 		SELECT 
 			id::text, estudante_id::text, codigo_estudante, academia_id::text, codigo_academia,
 			tipo, ano_inscricao, curso, status,
-			TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
-			TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at,
+			created_at, updated_at,
 			event_id::text, version
 		FROM projection_inscricoes
 	`
@@ -134,7 +131,6 @@ func ListarInscricoes(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 			return
 		}
-		total = 0 // Será contado ao iterar
 
 	default:
 		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
@@ -164,7 +160,7 @@ func ListarInscricoes(c *gin.Context) {
 		"total_geral":   total,
 		"limit":         limit,
 		"offset":        offset,
-		"has_next":      offset + len(inscricoes) < total,
+		"has_next":      offset+len(inscricoes) < total,
 		"status_filter": statusFilter,
 		"user_type":     userType,
 	})
@@ -173,11 +169,10 @@ func ListarInscricoes(c *gin.Context) {
 func ListarInscricoesPendentes(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
-	
+
 	limit, offset := getPaginationParams(c)
 	client := getDbClient(c)
 
-	// ✅ CORRIGIDO: Usar ponteiros
 	type InscricaoDetalhada struct {
 		ID              string  `json:"id"`
 		EstudanteID     string  `json:"estudante_id"`
@@ -199,8 +194,7 @@ func ListarInscricoesPendentes(c *gin.Context) {
 		SELECT 
 			id::text, estudante_id::text, codigo_estudante, academia_id::text, codigo_academia,
 			tipo, ano_inscricao, curso, status,
-			TO_CHAR(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_at,
-			TO_CHAR(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
+			created_at, updated_at
 		FROM projection_inscricoes WHERE status = 'espera'
 	`
 
@@ -233,7 +227,6 @@ func ListarInscricoesPendentes(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 			return
 		}
-		total = 0 // Será contado ao iterar
 
 	default:
 		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
@@ -263,7 +256,7 @@ func ListarInscricoesPendentes(c *gin.Context) {
 		"total_geral": total,
 		"limit":       limit,
 		"offset":      offset,
-		"has_next":    offset + len(inscricoes) < total,
+		"has_next":    offset+len(inscricoes) < total,
 		"status":      "espera",
 		"user_type":   userType,
 	})
