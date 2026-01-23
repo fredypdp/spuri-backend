@@ -22,28 +22,26 @@ func GenerateCodigoEstudante() string {
 	return fmt.Sprintf("%c%c%c%04d", letra1, letra2, letra3, numero)
 }
 
-// ✅ CORRIGIDO: Usar QueryRow com placeholders ao invés de string interpolation
 func GenerateUniqueCodigoEstudante(db *sqlx.DB) (string, error) {
 	maxAttempts := 100
 	
 	for i := 0; i < maxAttempts; i++ {
 		codigo := GenerateCodigoEstudante()
 		
-		// Validar formato antes de usar
 		if !ValidateCodigoEstudante(codigo) {
 			continue
 		}
 		
-		// ✅ CORRIGIDO: Usar placeholder $1 ao invés de interpolação
-		query := `
+		// ✅ SEM PREPARED STATEMENT - usar interpolação direta
+		query := fmt.Sprintf(`
 			SELECT EXISTS(
 				SELECT 1 FROM projection_estudantes 
-				WHERE codigo_estudante = $1
+				WHERE codigo_estudante = '%s'
 			)
-		`
+		`, codigo)
 		
 		var exists bool
-		err := db.QueryRow(query, codigo).Scan(&exists)
+		err := db.QueryRow(query).Scan(&exists)
 		
 		if err != nil {
 			return "", fmt.Errorf("erro ao verificar código: %w", err)
@@ -62,7 +60,6 @@ func ValidateCodigoEstudante(codigo string) bool {
 		return false
 	}
 	
-	// Primeiros 3 caracteres devem ser letras maiúsculas
 	for i := 0; i < 3; i++ {
 		c := codigo[i]
 		if c < 'A' || c > 'Z' {
@@ -70,7 +67,6 @@ func ValidateCodigoEstudante(codigo string) bool {
 		}
 	}
 	
-	// Últimos 4 caracteres devem ser números
 	for i := 3; i < 7; i++ {
 		c := codigo[i]
 		if c < '0' || c > '9' {
