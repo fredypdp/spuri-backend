@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"net/http"
 	"spuri/internal/middleware"
@@ -74,80 +75,71 @@ func ListarInscricoes(c *gin.Context) {
 
 	var inscricoes []InscricaoDetalhada
 	var total int
-
-	baseQuery := `
-		SELECT 
-			id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-			tipo, ano_inscricao, curso, status,
-			created_at, updated_at,
-			event_id, version
-		FROM projection_inscricoes
-	`
-
-	var rows *sql.Rows
-	var err error
+	var query string
+	var countQuery string
 
 	switch userType {
 	case "admin":
 		if statusFilter != "" {
-			query := baseQuery + ` WHERE status = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
-			log.Printf("[ListarInscricoes] Query ADMIN com filtro: %s", query)
-			rows, err = client.DB().Query(query, statusFilter, limit, offset)
-			if err != nil {
-				log.Printf("[ListarInscricoes] Erro na query admin: %v", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
-				return
-			}
-			client.DB().QueryRow(`SELECT COUNT(*) FROM projection_inscricoes WHERE status = $1`, statusFilter).Scan(&total)
+			safeStatus := db.SafeString(statusFilter)
+			query = fmt.Sprintf(`
+				SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
+					tipo, ano_inscricao, curso, status, created_at, updated_at, event_id, version
+				FROM projection_inscricoes
+				WHERE status = '%s'
+				ORDER BY created_at DESC LIMIT %d OFFSET %d
+			`, safeStatus, limit, offset)
+			countQuery = fmt.Sprintf(`SELECT COUNT(*) FROM projection_inscricoes WHERE status = '%s'`, safeStatus)
 		} else {
-			query := baseQuery + ` ORDER BY created_at DESC LIMIT $1 OFFSET $2`
-			log.Printf("[ListarInscricoes] Query ADMIN sem filtro: %s", query)
-			rows, err = client.DB().Query(query, limit, offset)
-			if err != nil {
-				log.Printf("[ListarInscricoes] Erro na query admin: %v", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
-				return
-			}
-			client.DB().QueryRow(`SELECT COUNT(*) FROM projection_inscricoes`).Scan(&total)
+			query = fmt.Sprintf(`
+				SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
+					tipo, ano_inscricao, curso, status, created_at, updated_at, event_id, version
+				FROM projection_inscricoes
+				ORDER BY created_at DESC LIMIT %d OFFSET %d
+			`, limit, offset)
+			countQuery = `SELECT COUNT(*) FROM projection_inscricoes`
 		}
 
 	case "academia":
 		if statusFilter != "" {
-			query := baseQuery + ` WHERE academia_id = $1 AND status = $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4`
-			log.Printf("[ListarInscricoes] Query ACADEMIA com filtro: %s", query)
-			rows, err = client.DB().Query(query, userID, statusFilter, limit, offset)
-			if err != nil {
-				log.Printf("[ListarInscricoes] Erro na query academia: %v", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
-				return
-			}
-			client.DB().QueryRow(`SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = $1 AND status = $2`, userID, statusFilter).Scan(&total)
+			safeStatus := db.SafeString(statusFilter)
+			query = fmt.Sprintf(`
+				SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
+					tipo, ano_inscricao, curso, status, created_at, updated_at, event_id, version
+				FROM projection_inscricoes
+				WHERE academia_id = '%s' AND status = '%s'
+				ORDER BY created_at DESC LIMIT %d OFFSET %d
+			`, userID, safeStatus, limit, offset)
+			countQuery = fmt.Sprintf(`SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = '%s' AND status = '%s'`, userID, safeStatus)
 		} else {
-			query := baseQuery + ` WHERE academia_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
-			log.Printf("[ListarInscricoes] Query ACADEMIA sem filtro: %s", query)
-			rows, err = client.DB().Query(query, userID, limit, offset)
-			if err != nil {
-				log.Printf("[ListarInscricoes] Erro na query academia: %v", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
-				return
-			}
-			client.DB().QueryRow(`SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = $1`, userID).Scan(&total)
+			query = fmt.Sprintf(`
+				SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
+					tipo, ano_inscricao, curso, status, created_at, updated_at, event_id, version
+				FROM projection_inscricoes
+				WHERE academia_id = '%s'
+				ORDER BY created_at DESC LIMIT %d OFFSET %d
+			`, userID, limit, offset)
+			countQuery = fmt.Sprintf(`SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = '%s'`, userID)
 		}
 
 	case "estudante":
 		if statusFilter != "" {
-			query := baseQuery + ` WHERE estudante_id = $1 AND status = $2 ORDER BY created_at DESC`
-			log.Printf("[ListarInscricoes] Query ESTUDANTE com filtro: %s", query)
-			rows, err = client.DB().Query(query, userID, statusFilter)
+			safeStatus := db.SafeString(statusFilter)
+			query = fmt.Sprintf(`
+				SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
+					tipo, ano_inscricao, curso, status, created_at, updated_at, event_id, version
+				FROM projection_inscricoes
+				WHERE estudante_id = '%s' AND status = '%s'
+				ORDER BY created_at DESC
+			`, userID, safeStatus)
 		} else {
-			query := baseQuery + ` WHERE estudante_id = $1 ORDER BY created_at DESC`
-			log.Printf("[ListarInscricoes] Query ESTUDANTE sem filtro: %s", query)
-			rows, err = client.DB().Query(query, userID)
-		}
-		if err != nil {
-			log.Printf("[ListarInscricoes] Erro na query estudante: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
-			return
+			query = fmt.Sprintf(`
+				SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
+					tipo, ano_inscricao, curso, status, created_at, updated_at, event_id, version
+				FROM projection_inscricoes
+				WHERE estudante_id = '%s'
+				ORDER BY created_at DESC
+			`, userID)
 		}
 
 	default:
@@ -156,6 +148,14 @@ func ListarInscricoes(c *gin.Context) {
 		return
 	}
 
+	log.Printf("[ListarInscricoes] Query: %s", query)
+
+	rows, err := client.DB().Query(query)
+	if err != nil {
+		log.Printf("[ListarInscricoes] Erro na query: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
+		return
+	}
 	defer rows.Close()
 
 	for rows.Next() {
@@ -172,6 +172,8 @@ func ListarInscricoes(c *gin.Context) {
 
 	if userType == "estudante" {
 		total = len(inscricoes)
+	} else {
+		client.DB().QueryRow(countQuery).Scan(&total)
 	}
 
 	log.Printf("[ListarInscricoes] Retornando %d inscrições (total_geral=%d)", len(inscricoes), total)
@@ -214,50 +216,38 @@ func ListarInscricoesPendentes(c *gin.Context) {
 
 	var inscricoes []InscricaoDetalhada
 	var total int
-
-	baseQuery := `
-		SELECT 
-			id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-			tipo, ano_inscricao, curso, status,
-			created_at, updated_at
-		FROM projection_inscricoes WHERE status = 'espera'
-	`
-
-	var rows *sql.Rows
-	var err error
+	var query string
+	var countQuery string
 
 	switch userType {
 	case "admin":
-		query := baseQuery + ` ORDER BY created_at DESC LIMIT $1 OFFSET $2`
-		log.Printf("[ListarInscricoesPendentes] Query ADMIN: %s", query)
-		rows, err = client.DB().Query(query, limit, offset)
-		if err != nil {
-			log.Printf("[ListarInscricoesPendentes] Erro na query admin: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
-			return
-		}
-		client.DB().QueryRow(`SELECT COUNT(*) FROM projection_inscricoes WHERE status = 'espera'`).Scan(&total)
+		query = fmt.Sprintf(`
+			SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
+				tipo, ano_inscricao, curso, status, created_at, updated_at
+			FROM projection_inscricoes
+			WHERE status = 'espera'
+			ORDER BY created_at DESC LIMIT %d OFFSET %d
+		`, limit, offset)
+		countQuery = `SELECT COUNT(*) FROM projection_inscricoes WHERE status = 'espera'`
 
 	case "academia":
-		query := baseQuery + ` AND academia_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
-		log.Printf("[ListarInscricoesPendentes] Query ACADEMIA: %s", query)
-		rows, err = client.DB().Query(query, userID, limit, offset)
-		if err != nil {
-			log.Printf("[ListarInscricoesPendentes] Erro na query academia: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
-			return
-		}
-		client.DB().QueryRow(`SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = $1 AND status = 'espera'`, userID).Scan(&total)
+		query = fmt.Sprintf(`
+			SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
+				tipo, ano_inscricao, curso, status, created_at, updated_at
+			FROM projection_inscricoes
+			WHERE status = 'espera' AND academia_id = '%s'
+			ORDER BY created_at DESC LIMIT %d OFFSET %d
+		`, userID, limit, offset)
+		countQuery = fmt.Sprintf(`SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = '%s' AND status = 'espera'`, userID)
 
 	case "estudante":
-		query := baseQuery + ` AND estudante_id = $1 ORDER BY created_at DESC`
-		log.Printf("[ListarInscricoesPendentes] Query ESTUDANTE: %s", query)
-		rows, err = client.DB().Query(query, userID)
-		if err != nil {
-			log.Printf("[ListarInscricoesPendentes] Erro na query estudante: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
-			return
-		}
+		query = fmt.Sprintf(`
+			SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
+				tipo, ano_inscricao, curso, status, created_at, updated_at
+			FROM projection_inscricoes
+			WHERE status = 'espera' AND estudante_id = '%s'
+			ORDER BY created_at DESC
+		`, userID)
 
 	default:
 		log.Printf("[ListarInscricoesPendentes] Tipo de usuário inválido: %s", userType)
@@ -265,6 +255,14 @@ func ListarInscricoesPendentes(c *gin.Context) {
 		return
 	}
 
+	log.Printf("[ListarInscricoesPendentes] Query: %s", query)
+
+	rows, err := client.DB().Query(query)
+	if err != nil {
+		log.Printf("[ListarInscricoesPendentes] Erro na query: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
+		return
+	}
 	defer rows.Close()
 
 	for rows.Next() {
@@ -281,6 +279,8 @@ func ListarInscricoesPendentes(c *gin.Context) {
 
 	if userType == "estudante" {
 		total = len(inscricoes)
+	} else {
+		client.DB().QueryRow(countQuery).Scan(&total)
 	}
 
 	log.Printf("[ListarInscricoesPendentes] Retornando %d inscrições pendentes (total_geral=%d)", len(inscricoes), total)
