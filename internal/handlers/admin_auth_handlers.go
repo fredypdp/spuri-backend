@@ -196,8 +196,6 @@ func ListarEstudantes(c *gin.Context) {
 	client := getDbClient(c)
 
 	if userType == "academia" {
-		// 🔥 ACADEMIA: Buscar apenas estudantes da própria academia
-		// Primeiro, buscar o código da academia logada
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, err := academiaProj.GetByID(userID)
 		if err != nil || academiaDTO == nil {
@@ -215,9 +213,26 @@ func ListarEstudantes(c *gin.Context) {
 			ORDER BY created_at DESC
 		`
 
-		if err := client.DB().Select(&estudantes, query, academiaDTO.CodigoAcademia); err != nil {
+		// ✅ USAR Query() + loop manual
+		rows, err := client.DB().Query(query, academiaDTO.CodigoAcademia)
+		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar estudantes"})
 			return
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var est EstudanteSimples
+			err := rows.Scan(
+				&est.ID, &est.Nome, &est.CodigoEstudante, &est.BilheteID, &est.AnoSuperior,
+				&est.CodigoAcademia, &est.AnoEscolar, &est.StatusEscolar, &est.StatusSuperior,
+				&est.CreatedAt, &est.TotalNotas, &est.TotalFaltas, &est.TotalInscricoes,
+			)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao processar dados"})
+				return
+			}
+			estudantes = append(estudantes, est)
 		}
 
 		c.JSON(http.StatusOK, gin.H{
@@ -229,7 +244,6 @@ func ListarEstudantes(c *gin.Context) {
 		})
 
 	} else if userType == "admin" {
-		// 🔥 ADMIN: Buscar TODOS os estudantes
 		query := `
 			SELECT 
 				id, nome, codigo_estudante, bilhete_identidade,
@@ -239,9 +253,26 @@ func ListarEstudantes(c *gin.Context) {
 			ORDER BY created_at DESC
 		`
 
-		if err := client.DB().Select(&estudantes, query); err != nil {
+		// ✅ USAR Query() + loop manual
+		rows, err := client.DB().Query(query)
+		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar estudantes"})
 			return
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var est EstudanteSimples
+			err := rows.Scan(
+				&est.ID, &est.Nome, &est.CodigoEstudante, &est.BilheteID,
+				&est.CodigoAcademia, &est.AnoEscolar, &est.StatusEscolar,
+				&est.CreatedAt, &est.TotalNotas, &est.TotalFaltas, &est.TotalInscricoes,
+			)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao processar dados"})
+				return
+			}
+			estudantes = append(estudantes, est)
 		}
 
 		c.JSON(http.StatusOK, gin.H{

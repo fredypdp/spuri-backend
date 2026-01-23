@@ -1,8 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/handlers/admin_registros_handlers.go (NOVO)
-// Handler para listar todos os registros (notas e faltas) - Admin
-// ============================================================================
-
 package handlers
 
 import (
@@ -16,7 +11,6 @@ import (
 func ListarTodosRegistros(c *gin.Context) {
 	client := getDbClient(c)
 
-	// Parâmetros de paginação
 	limit := 100
 	offset := 0
 
@@ -27,10 +21,7 @@ func ListarTodosRegistros(c *gin.Context) {
 		_, _ = fmt.Sscanf(offsetParam, "%d", &offset)
 	}
 
-	// Filtro opcional por tipo
-	tipoFiltro := c.Query("tipo") // "notas", "faltas", ou vazio para ambos
-
-	// Estrutura de resposta
+	tipoFiltro := c.Query("tipo")
 	response := gin.H{}
 
 	// ========================================
@@ -73,8 +64,8 @@ func ListarTodosRegistros(c *gin.Context) {
 			Version         int         `db:"version" json:"version"`
 		}
 
-		var notas []NotaCompleta
-		err := client.DB().Select(&notas, queryNotas, limit, offset)
+		// ✅ CORRIGIDO: Query() + loop ao invés de Select()
+		rows, err := client.DB().Query(queryNotas, limit, offset)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "erro ao buscar notas",
@@ -82,11 +73,26 @@ func ListarTodosRegistros(c *gin.Context) {
 			})
 			return
 		}
+		defer rows.Close()
+
+		var notas []NotaCompleta
+		for rows.Next() {
+			var nota NotaCompleta
+			err := rows.Scan(
+				&nota.ID, &nota.EstudanteID, &nota.CodigoEstudante, &nota.EstudanteNome,
+				&nota.CodigoAcademia, &nota.AcademiaNome, &nota.AnoLectivo, &nota.Periodo,
+				&nota.Materias, &nota.RegisteredAt, &nota.EventID, &nota.Version,
+			)
+			if err != nil {
+				continue
+			}
+			notas = append(notas, nota)
+		}
 
 		// Contar total de notas
 		var totalNotas int
 		countQueryNotas := `SELECT COUNT(*) FROM projection_notas`
-		client.DB().Get(&totalNotas, countQueryNotas)
+		client.DB().QueryRow(countQueryNotas).Scan(&totalNotas)
 
 		response["notas"] = notas
 		response["total_notas"] = len(notas)
@@ -133,8 +139,8 @@ func ListarTodosRegistros(c *gin.Context) {
 			Version         int         `db:"version" json:"version"`
 		}
 
-		var faltas []FaltaCompleta
-		err := client.DB().Select(&faltas, queryFaltas, limit, offset)
+		// ✅ CORRIGIDO: Query() + loop ao invés de Select()
+		rows, err := client.DB().Query(queryFaltas, limit, offset)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "erro ao buscar faltas",
@@ -142,11 +148,26 @@ func ListarTodosRegistros(c *gin.Context) {
 			})
 			return
 		}
+		defer rows.Close()
+
+		var faltas []FaltaCompleta
+		for rows.Next() {
+			var falta FaltaCompleta
+			err := rows.Scan(
+				&falta.ID, &falta.EstudanteID, &falta.CodigoEstudante, &falta.EstudanteNome,
+				&falta.CodigoAcademia, &falta.AcademiaNome, &falta.AnoLectivo, &falta.Periodo,
+				&falta.Materias, &falta.RegisteredAt, &falta.EventID, &falta.Version,
+			)
+			if err != nil {
+				continue
+			}
+			faltas = append(faltas, falta)
+		}
 
 		// Contar total de faltas
 		var totalFaltas int
 		countQueryFaltas := `SELECT COUNT(*) FROM projection_faltas`
-		client.DB().Get(&totalFaltas, countQueryFaltas)
+		client.DB().QueryRow(countQueryFaltas).Scan(&totalFaltas)
 
 		response["faltas"] = faltas
 		response["total_faltas"] = len(faltas)
@@ -170,7 +191,14 @@ func ListarTodosRegistros(c *gin.Context) {
 			(SELECT COUNT(*) FROM projection_notas) as total_notas,
 			(SELECT COUNT(*) FROM projection_faltas) as total_faltas
 	`
-	client.DB().Get(&stats, queryStats)
+	
+	// ✅ CORRIGIDO: QueryRow().Scan() ao invés de Get()
+	client.DB().QueryRow(queryStats).Scan(
+		&stats.TotalEstudantes,
+		&stats.TotalAcademias,
+		&stats.TotalNotas,
+		&stats.TotalFaltas,
+	)
 
 	response["estatisticas"] = stats
 	response["limit"] = limit
@@ -185,7 +213,6 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
 	client := getDbClient(c)
 
-	// Buscar estudante
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
@@ -219,8 +246,26 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 		RegisteredAt   string      `db:"registered_at" json:"registered_at"`
 	}
 
+	// ✅ CORRIGIDO: Query() + loop
+	rowsNotas, err := client.DB().Query(queryNotas, estudante.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar notas"})
+		return
+	}
+	defer rowsNotas.Close()
+
 	var notas []NotaSimples
-	client.DB().Select(&notas, queryNotas, estudante.ID)
+	for rowsNotas.Next() {
+		var nota NotaSimples
+		err := rowsNotas.Scan(
+			&nota.ID, &nota.CodigoAcademia, &nota.AcademiaNome,
+			&nota.AnoLectivo, &nota.Periodo, &nota.Materias, &nota.RegisteredAt,
+		)
+		if err != nil {
+			continue
+		}
+		notas = append(notas, nota)
+	}
 
 	// Buscar todas as faltas
 	queryFaltas := `
@@ -248,8 +293,26 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 		RegisteredAt   string      `db:"registered_at" json:"registered_at"`
 	}
 
+	// ✅ CORRIGIDO: Query() + loop
+	rowsFaltas, err := client.DB().Query(queryFaltas, estudante.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar faltas"})
+		return
+	}
+	defer rowsFaltas.Close()
+
 	var faltas []FaltaSimples
-	client.DB().Select(&faltas, queryFaltas, estudante.ID)
+	for rowsFaltas.Next() {
+		var falta FaltaSimples
+		err := rowsFaltas.Scan(
+			&falta.ID, &falta.CodigoAcademia, &falta.AcademiaNome,
+			&falta.AnoLectivo, &falta.Periodo, &falta.Materias, &falta.RegisteredAt,
+		)
+		if err != nil {
+			continue
+		}
+		faltas = append(faltas, falta)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"estudante": gin.H{
@@ -269,7 +332,6 @@ func ListarRegistrosPorAcademia(c *gin.Context) {
 	codigoAcademia := c.Param("codigo")
 	client := getDbClient(c)
 
-	// Buscar academia
 	academiaProj := getAcademiaProjection(c)
 	academia, err := academiaProj.GetByCodigo(codigoAcademia)
 	if err != nil || academia == nil {
@@ -305,8 +367,26 @@ func ListarRegistrosPorAcademia(c *gin.Context) {
 		RegisteredAt    string      `db:"registered_at" json:"registered_at"`
 	}
 
+	// ✅ CORRIGIDO: Query() + loop
+	rowsNotas, err := client.DB().Query(queryNotas, codigoAcademia)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar notas"})
+		return
+	}
+	defer rowsNotas.Close()
+
 	var notas []NotaPorAcademia
-	client.DB().Select(&notas, queryNotas, codigoAcademia)
+	for rowsNotas.Next() {
+		var nota NotaPorAcademia
+		err := rowsNotas.Scan(
+			&nota.ID, &nota.EstudanteID, &nota.CodigoEstudante, &nota.EstudanteNome,
+			&nota.AnoLectivo, &nota.Periodo, &nota.Materias, &nota.RegisteredAt,
+		)
+		if err != nil {
+			continue
+		}
+		notas = append(notas, nota)
+	}
 
 	// Buscar todas as faltas desta academia
 	queryFaltas := `
@@ -336,8 +416,26 @@ func ListarRegistrosPorAcademia(c *gin.Context) {
 		RegisteredAt    string      `db:"registered_at" json:"registered_at"`
 	}
 
+	// ✅ CORRIGIDO: Query() + loop
+	rowsFaltas, err := client.DB().Query(queryFaltas, codigoAcademia)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar faltas"})
+		return
+	}
+	defer rowsFaltas.Close()
+
 	var faltas []FaltaPorAcademia
-	client.DB().Select(&faltas, queryFaltas, codigoAcademia)
+	for rowsFaltas.Next() {
+		var falta FaltaPorAcademia
+		err := rowsFaltas.Scan(
+			&falta.ID, &falta.EstudanteID, &falta.CodigoEstudante, &falta.EstudanteNome,
+			&falta.AnoLectivo, &falta.Periodo, &falta.Materias, &falta.RegisteredAt,
+		)
+		if err != nil {
+			continue
+		}
+		faltas = append(faltas, falta)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"academia": gin.H{

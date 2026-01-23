@@ -57,8 +57,7 @@ func VincularAcademia(c *gin.Context) {
 	})
 }
 
-// ListarInscricoesAprovadas lista inscrições aprovadas não usadas do estudante
-// GET /estudante/inscricoes-aprovadas
+// ✅ CORRIGIDO: Query() + loop manual
 func ListarInscricoesAprovadas(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -87,10 +86,23 @@ func ListarInscricoesAprovadas(c *gin.Context) {
 		CreatedAt       string    `db:"created_at" json:"created_at"`
 	}
 
-	var inscricoes []InscricaoAprovada
-	if err := client.DB().Select(&inscricoes, query, userID); err != nil {
+	rows, err := client.DB().Query(query, userID)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 		return
+	}
+	defer rows.Close()
+
+	var inscricoes []InscricaoAprovada
+	for rows.Next() {
+		var insc InscricaoAprovada
+		err := rows.Scan(&insc.ID, &insc.EstudanteID, &insc.CodigoEstudante, &insc.AcademiaID,
+			&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &insc.Curso, &insc.Status,
+			&insc.StatusUsado, &insc.CreatedAt)
+		if err != nil {
+			continue
+		}
+		inscricoes = append(inscricoes, insc)
 	}
 
 	c.JSON(http.StatusOK, gin.H{

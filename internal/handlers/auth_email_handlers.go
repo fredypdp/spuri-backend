@@ -1,8 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/handlers/auth_email_handlers.go
-// 🔥 CORRIGIDO: Conversão de tipos UUID + Prepared Statements
-// ============================================================================
-
 package handlers
 
 import (
@@ -71,7 +66,6 @@ func SolicitarRecuperacaoSenha(c *gin.Context) {
 	client := getDbClient(c)
 	emailSvc := getEmailService(c)
 
-	// 🔥 CORRIGIDO: Usar uuid.UUID em vez de string
 	var userID uuid.UUID
 	var email, nome string
 	var query string
@@ -90,15 +84,15 @@ func SolicitarRecuperacaoSenha(c *gin.Context) {
 		return
 	}
 
-	// ✅ USAR Get ao invés de QueryRow
+	// ✅ CORRIGIDO: QueryRow().Scan() ao invés de Get()
 	type result struct {
-		ID    uuid.UUID `db:"id"`
-		Email string    `db:"email"`
-		Nome  string    `db:"nome"`
+		ID    uuid.UUID
+		Email string
+		Nome  string
 	}
 	
 	var res result
-	err := client.DB().Get(&res, query, req.Identificador)
+	err := client.DB().QueryRow(query, req.Identificador).Scan(&res.ID, &res.Email, &res.Nome)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
 		return
@@ -113,7 +107,7 @@ func SolicitarRecuperacaoSenha(c *gin.Context) {
 		return
 	}
 
-	// Enviar email - agora userID é uuid.UUID ✅
+	// Enviar email
 	if err := emailSvc.SendPasswordResetEmail(userID, req.Tipo, email, nome); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao enviar email"})
 		return
@@ -139,7 +133,6 @@ func ResetarSenha(c *gin.Context) {
 
 	client := getDbClient(c)
 
-	// 🔥 CORRIGIDO: Buscar código/role baseado no tipo de usuário
 	var codigo string
 	var table string
 	var query string
@@ -159,8 +152,8 @@ func ResetarSenha(c *gin.Context) {
 		return
 	}
 
-	// ✅ USAR Get ao invés de QueryRow
-	err = client.DB().Get(&codigo, query, tokenInfo.UserID)
+	// ✅ CORRIGIDO: QueryRow().Scan() ao invés de Get()
+	err = client.DB().QueryRow(query, tokenInfo.UserID).Scan(&codigo)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
 		return
@@ -230,8 +223,8 @@ func AlterarSenha(c *gin.Context) {
 	var senhaHash string
 	query := "SELECT senha_hash FROM " + table + " WHERE id = $1"
 	
-	// ✅ USAR Get ao invés de QueryRow
-	err := client.DB().Get(&senhaHash, query, userID)
+	// ✅ CORRIGIDO: QueryRow().Scan() ao invés de Get()
+	err := client.DB().QueryRow(query, userID).Scan(&senhaHash)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
 		return
@@ -268,7 +261,6 @@ func maskEmail(email string) string {
 		return "***@***"
 	}
 	
-	// Encontrar posição do @
 	atIndex := -1
 	for i, char := range email {
 		if char == '@' {
@@ -281,7 +273,6 @@ func maskEmail(email string) string {
 		return "***@***"
 	}
 	
-	// Mostrar primeiro e último char antes do @
 	if atIndex <= 2 {
 		return "***@" + email[atIndex+1:]
 	}

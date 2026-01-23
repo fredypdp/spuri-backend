@@ -27,6 +27,7 @@ func (p *FaltasProjection) Handle(event db.Event) error {
 	return p.handleFaltasRegistradas(event)
 }
 
+// ✅ CORRIGIDO: Query() + loop manual
 func (p *FaltasProjection) Rebuild() error {
 	if err := p.clear(); err != nil {
 		return err
@@ -61,11 +62,14 @@ func (p *FaltasProjection) Rebuild() error {
 }
 
 func (p *FaltasProjection) GetLastProcessedEventID() (int64, error) {
-	safeName := db.SafeString(p.Name())
-	query := fmt.Sprintf(`SELECT last_processed_event_id FROM projection_checkpoints WHERE projection_name = '%s'`, safeName)
+	query := `
+		SELECT last_processed_event_id 
+		FROM projection_checkpoints 
+		WHERE projection_name = $1
+	`
 	
 	var lastID int64
-	err := p.client.DB().QueryRow(query).Scan(&lastID)
+	err := p.client.DB().QueryRow(query, p.Name()).Scan(&lastID)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -73,18 +77,15 @@ func (p *FaltasProjection) GetLastProcessedEventID() (int64, error) {
 }
 
 func (p *FaltasProjection) UpdateCheckpoint(eventID int64) error {
-	safeName := db.SafeString(p.Name())
-	eventID = int64(db.ValidateOffset(int(eventID)))
-	
-	query := fmt.Sprintf(`
+	query := `
 		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
-		VALUES ('%s', %d, CURRENT_TIMESTAMP, 1)
+		VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
 		ON CONFLICT (projection_name) DO UPDATE SET
-			last_processed_event_id = %d, last_processed_at = CURRENT_TIMESTAMP,
+			last_processed_event_id = $2, last_processed_at = CURRENT_TIMESTAMP,
 			events_processed = projection_checkpoints.events_processed + 1
-	`, safeName, eventID, eventID)
+	`
 	
-	_, err := p.client.DB().Exec(query)
+	_, err := p.client.DB().Exec(query, p.Name(), eventID)
 	return err
 }
 
@@ -109,55 +110,43 @@ func (p *FaltasProjection) handleFaltasRegistradas(event db.Event) error {
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	safeCodEst := db.SafeString(payload.CodigoEstudante)
-	safeCodAcad := db.SafeString(payload.CodigoAcademia)
-	safeAnoLec := db.SafeString(payload.AnoLectivo)
-	safeMateriaID := db.SafeString(payload.MateriaDisciplinarID)
-
-	var obsStr string
-	if payload.Observacao != nil {
-		obsStr = fmt.Sprintf("'%s'", db.SafeString(*payload.Observacao))
-	} else {
-		obsStr = "NULL"
-	}
-
-	query := fmt.Sprintf(`
+	query := `
 		INSERT INTO projection_faltas (
 			codigo_estudante, codigo_academia, ano_lectivo, data,
 			materia_disciplinar_id, quantidade, observacao, registered_at, event_id, version
-		) VALUES ('%s', '%s', '%s', '%s', '%s', %d, %s, '%s', '%s', %d)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (codigo_estudante, codigo_academia, data, materia_disciplinar_id)
 		DO UPDATE SET quantidade = EXCLUDED.quantidade, observacao = EXCLUDED.observacao,
 			registered_at = EXCLUDED.registered_at, event_id = EXCLUDED.event_id, version = EXCLUDED.version
-	`, safeCodEst, safeCodAcad, safeAnoLec, payload.Data.Format(time.RFC3339),
-		safeMateriaID, payload.Quantidade, obsStr, 
-		payload.RegisteredAt.Format(time.RFC3339), event.EventID, event.EventVersion)
+	`
 
-	_, err := p.client.DB().Exec(query)
+	_, err := p.client.DB().Exec(query,
+		payload.CodigoEstudante, payload.CodigoAcademia, payload.AnoLectivo, payload.Data,
+		payload.MateriaDisciplinarID, payload.Quantidade, payload.Observacao, 
+		payload.RegisteredAt, event.EventID, event.EventVersion)
 
 	if err == nil {
-		updateQuery := fmt.Sprintf(`
-			UPDATE projection_estudantes SET total_faltas = (SELECT COALESCE(SUM(quantidade), 0) FROM projection_faltas WHERE codigo_estudante = '%s')
-			WHERE codigo_estudante = '%s'
-		`, safeCodEst, safeCodEst)
-		p.client.DB().Exec(updateQuery)
+		updateQuery := `
+			UPDATE projection_estudantes SET total_faltas = (SELECT COALESCE(SUM(quantidade), 0) FROM projection_faltas WHERE codigo_estudante = $1)
+			WHERE codigo_estudante = $1
+		`
+		p.client.DB().Exec(updateQuery, payload.CodigoEstudante)
 	}
 	return err
 }
 
+// ✅ CORRIGIDO: Query() + loop manual
 func (p *FaltasProjection) GetByEstudante(codigoEstudante string) ([]FaltaDTO, error) {
-	safeCodigo := db.SafeString(codigoEstudante)
-
-	query := fmt.Sprintf(`
+	query := `
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.data,
 			f.materia_disciplinar_id, m.nome as materia_nome, f.quantidade, f.observacao,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON f.materia_disciplinar_id::uuid = m.id
-		WHERE f.codigo_estudante = '%s' ORDER BY f.data DESC
-	`, safeCodigo)
+		WHERE f.codigo_estudante = $1 ORDER BY f.data DESC
+	`
 	
-	rows, err := p.client.DB().Query(query)
+	rows, err := p.client.DB().Query(query, codigoEstudante)
 	if err != nil {
 		return nil, err
 	}
@@ -170,29 +159,27 @@ func (p *FaltasProjection) GetByEstudante(codigoEstudante string) ([]FaltaDTO, e
 			&dto.Data, &dto.MateriaDisciplinarID, &dto.MateriaNome, &dto.Quantidade,
 			&dto.Observacao, &dto.RegisteredAt, &dto.EventID, &dto.Version)
 		if err != nil {
-			return nil, err
+			continue
 		}
 		result = append(result, dto)
 	}
 	return result, rows.Err()
 }
 
+// ✅ CORRIGIDO: Query() + loop manual
 func (p *FaltasProjection) GetByPeriodo(codigoEstudante, anoLectivo string, dataInicio, dataFim time.Time) ([]FaltaDTO, error) {
-	safeCodEst := db.SafeString(codigoEstudante)
-	safeAnoLec := db.SafeString(anoLectivo)
-
-	query := fmt.Sprintf(`
+	query := `
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.data,
 			f.materia_disciplinar_id, m.nome as materia_nome, f.quantidade, f.observacao,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON f.materia_disciplinar_id::uuid = m.id
-		WHERE f.codigo_estudante = '%s' AND f.ano_lectivo = '%s' 
-			AND f.data BETWEEN '%s' AND '%s'
+		WHERE f.codigo_estudante = $1 AND f.ano_lectivo = $2 
+			AND f.data BETWEEN $3 AND $4
 		ORDER BY f.data DESC
-	`, safeCodEst, safeAnoLec, dataInicio.Format(time.RFC3339), dataFim.Format(time.RFC3339))
+	`
 	
-	rows, err := p.client.DB().Query(query)
+	rows, err := p.client.DB().Query(query, codigoEstudante, anoLectivo, dataInicio, dataFim)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +192,7 @@ func (p *FaltasProjection) GetByPeriodo(codigoEstudante, anoLectivo string, data
 			&dto.Data, &dto.MateriaDisciplinarID, &dto.MateriaNome, &dto.Quantidade,
 			&dto.Observacao, &dto.RegisteredAt, &dto.EventID, &dto.Version)
 		if err != nil {
-			return nil, err
+			continue
 		}
 		result = append(result, dto)
 	}

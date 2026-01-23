@@ -5,7 +5,7 @@ import (
 	"spuri/internal/projections"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid" // ← ADICIONAR ESTE IMPORT
+	"github.com/google/uuid"
 )
 
 // RebuildProjection reconstrói uma projeção específica
@@ -123,7 +123,15 @@ func GetLedgerStats(c *gin.Context) {
 	`
 
 	var stats LedgerStats
-	if err := client.DB().Get(&stats, query); err != nil {
+	// ✅ CORRIGIDO: QueryRow().Scan() ao invés de Get()
+	err := client.DB().QueryRow(query).Scan(
+		&stats.TotalEvents,
+		&stats.TotalAggregates,
+		&stats.OldestEvent,
+		&stats.NewestEvent,
+		&stats.AvgEventsPerAgg,
+	)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "erro ao buscar estatísticas",
 		})
@@ -143,8 +151,22 @@ func GetLedgerStats(c *gin.Context) {
 		ORDER BY count DESC
 	`
 
+	// ✅ CORRIGIDO: Query() + loop ao invés de Select()
+	rows, err := client.DB().Query(queryTypes)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar tipos"})
+		return
+	}
+	defer rows.Close()
+
 	var eventTypes []EventTypeCount
-	client.DB().Select(&eventTypes, queryTypes)
+	for rows.Next() {
+		var et EventTypeCount
+		if err := rows.Scan(&et.EventType, &et.Count); err != nil {
+			continue
+		}
+		eventTypes = append(eventTypes, et)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"ledger": stats,
@@ -169,12 +191,23 @@ func VerifyAllIntegrity(c *gin.Context) {
 		Type string `db:"aggregate_type"`
 	}
 
-	var aggregates []Aggregate
-	if err := client.DB().Select(&aggregates, query); err != nil {
+	// ✅ CORRIGIDO: Query() + loop ao invés de Select()
+	rows, err := client.DB().Query(query)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "erro ao buscar agregados",
 		})
 		return
+	}
+	defer rows.Close()
+
+	var aggregates []Aggregate
+	for rows.Next() {
+		var agg Aggregate
+		if err := rows.Scan(&agg.ID, &agg.Type); err != nil {
+			continue
+		}
+		aggregates = append(aggregates, agg)
 	}
 
 	// Verificar integridade de cada um
@@ -185,7 +218,7 @@ func VerifyAllIntegrity(c *gin.Context) {
 
 	for _, agg := range aggregates {
 		// Converter string para UUID
-		id, err := uuid.Parse(agg.ID) // ← AGORA uuid.Parse está disponível
+		id, err := uuid.Parse(agg.ID)
 		if err != nil {
 			continue
 		}

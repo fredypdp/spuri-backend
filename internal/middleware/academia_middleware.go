@@ -43,7 +43,7 @@ func ValidarStatusAcademia() gin.HandlerFunc {
 		client := clientRaw.(*db.Client)
 
 		var status string
-		err := client.DB().Get(&status, query, userID)
+		err := client.DB().QueryRow(query, userID).Scan(&status)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": "erro ao verificar status da academia",

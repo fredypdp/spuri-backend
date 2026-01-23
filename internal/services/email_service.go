@@ -1,12 +1,8 @@
-// ============================================================================
-// ARQUIVO: internal/services/email_service.go
-// 🔒 CORRIGIDO: Prepared statements + logs sensíveis
-// ============================================================================
-
 package services
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"log"
@@ -89,7 +85,7 @@ func (s *EmailService) SaveToken(userID uuid.UUID, userType, tipo, email string,
 	return token, nil
 }
 
-// ✅ CORRIGIDO: Usar Get ao invés de QueryRow
+// ✅ CORRIGIDO: QueryRow().Scan() ao invés de Get()
 func (s *EmailService) VerifyToken(token, tipo string) (*TokenInfo, error) {
 	query := `
 		SELECT user_id, user_type, email, usado, expires_at
@@ -99,10 +95,18 @@ func (s *EmailService) VerifyToken(token, tipo string) (*TokenInfo, error) {
 
 	var info TokenInfo
 	
-	// ✅ USAR Get
-	err := s.db.Get(&info, query, token, tipo)
+	err := s.db.QueryRow(query, token, tipo).Scan(
+		&info.UserID,
+		&info.UserType,
+		&info.Email,
+		&info.Usado,
+		&info.ExpiresAt,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("token inválido ou expirado")
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("token inválido ou expirado")
+		}
+		return nil, fmt.Errorf("erro ao verificar token: %w", err)
 	}
 
 	if info.Usado {

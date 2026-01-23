@@ -12,7 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// HealthCheck endpoint básico (público)
+// HealthCheckBasic endpoint básico (público)
 func HealthCheckBasic(c *gin.Context) {
 	client := getDbClient(c)
 	
@@ -59,11 +59,10 @@ func GetMetrics(c *gin.Context) {
 	})
 }
 
-// GetSystemStats retorna estatísticas gerais (apenas admin)
+// ✅ CORRIGIDO: QueryRow().Scan() manual
 func GetSystemStats(c *gin.Context) {
 	client := getDbClient(c)
 	
-	// Estatísticas do banco
 	type DBStats struct {
 		TotalEvents      int64 `db:"total_events"`
 		TotalAggregates  int64 `db:"total_aggregates"`
@@ -88,26 +87,58 @@ func GetSystemStats(c *gin.Context) {
 			(SELECT COUNT(*) FROM projection_inscricoes) as total_inscricoes
 	`
 	
-	if err := client.DB().Get(&stats, query); err != nil {
+	err := client.DB().QueryRow(query).Scan(
+		&stats.TotalEvents,
+		&stats.TotalAggregates,
+		&stats.TotalEstudantes,
+		&stats.TotalAcademias,
+		&stats.TotalAdmins,
+		&stats.TotalNotas,
+		&stats.TotalFaltas,
+		&stats.TotalInscricoes,
+	)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "erro ao buscar estatísticas",
 		})
 		return
 	}
 	
-	// Estatísticas de projeções
-	projManager := getProjectionManager(c)
-	projections, _ := projManager.GetAllProjectionStatuses()
-	
-	// Métricas de performance
-	metrics := monitoring.GetMetrics()
-	metricsSnapshot := metrics.GetSnapshot()
+	// Estatísticas por tipo de evento
+	type EventTypeCount struct {
+		EventType string `db:"event_type"`
+		Count     int64  `db:"count"`
+	}
+
+	queryTypes := `
+		SELECT event_type, COUNT(*) as count
+		FROM spuri_ledger
+		GROUP BY event_type
+		ORDER BY count DESC
+	`
+
+	rows, err := client.DB().Query(queryTypes)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "erro ao buscar tipos de eventos",
+		})
+		return
+	}
+	defer rows.Close()
+
+	var eventTypes []EventTypeCount
+	for rows.Next() {
+		var et EventTypeCount
+		if err := rows.Scan(&et.EventType, &et.Count); err != nil {
+			continue
+		}
+		eventTypes = append(eventTypes, et)
+	}
 	
 	c.JSON(http.StatusOK, gin.H{
 		"database":    stats,
-		"projections": projections,
-		"performance": metricsSnapshot,
-		"connection_pool": client.Stats(),
+		"event_types": eventTypes,
+		"db_stats":    client.Stats(),
 	})
 }
 

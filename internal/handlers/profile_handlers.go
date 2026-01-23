@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/handlers/profile_handlers.go
-// NOVO: Handlers para consulta de dados de perfil e usuários
+// Handlers para consulta de dados de perfil e usuários
 // ============================================================================
 
 package handlers
@@ -225,8 +225,7 @@ func GetEstudantePorCodigo(c *gin.Context) {
 	})
 }
 
-// GetAcademiaPorCodigo busca dados de academia por código
-// Permitido para: Academia (qualquer) e Admin
+// ✅ CORRIGIDO: QueryRow().Scan() manual
 func GetAcademiaPorCodigo(c *gin.Context) {
 	userType, _ := middleware.GetUserType(c)
 
@@ -266,7 +265,12 @@ func GetAcademiaPorCodigo(c *gin.Context) {
 				(SELECT COUNT(*) FROM projection_faltas WHERE codigo_academia = $1) as total_faltas
 		`
 
-		if err := client.DB().Get(&stats, query, codigoAcademia); err == nil {
+		err := client.DB().QueryRow(query, codigoAcademia).Scan(
+			&stats.TotalInscricoesTotal,
+			&stats.TotalNotasRegistradas,
+			&stats.TotalFaltasRegistradas,
+		)
+		if err == nil {
 			estatisticas = &gin.H{
 				"total_inscricoes_historico": stats.TotalInscricoesTotal,
 				"total_notas_registradas":    stats.TotalNotasRegistradas,

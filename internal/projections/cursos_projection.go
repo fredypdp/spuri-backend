@@ -38,6 +38,7 @@ func (p *CursosProjection) Handle(event db.Event) error {
 	return nil
 }
 
+// ✅ CORRIGIDO: Query() + loop manual
 func (p *CursosProjection) Rebuild() error {
 	if err := p.clear(); err != nil {
 		return err
@@ -72,11 +73,14 @@ func (p *CursosProjection) Rebuild() error {
 }
 
 func (p *CursosProjection) GetLastProcessedEventID() (int64, error) {
-	safeName := db.SafeString(p.Name())
-	query := fmt.Sprintf(`SELECT last_processed_event_id FROM projection_checkpoints WHERE projection_name = '%s'`, safeName)
+	query := `
+		SELECT last_processed_event_id 
+		FROM projection_checkpoints 
+		WHERE projection_name = $1
+	`
 	
 	var lastID int64
-	err := p.client.DB().QueryRow(query).Scan(&lastID)
+	err := p.client.DB().QueryRow(query, p.Name()).Scan(&lastID)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -84,18 +88,15 @@ func (p *CursosProjection) GetLastProcessedEventID() (int64, error) {
 }
 
 func (p *CursosProjection) UpdateCheckpoint(eventID int64) error {
-	safeName := db.SafeString(p.Name())
-	eventID = int64(db.ValidateOffset(int(eventID)))
-	
-	query := fmt.Sprintf(`
+	query := `
 		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
-		VALUES ('%s', %d, CURRENT_TIMESTAMP, 1)
+		VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
 		ON CONFLICT (projection_name) DO UPDATE SET
-			last_processed_event_id = %d, last_processed_at = CURRENT_TIMESTAMP,
+			last_processed_event_id = $2, last_processed_at = CURRENT_TIMESTAMP,
 			events_processed = projection_checkpoints.events_processed + 1
-	`, safeName, eventID, eventID)
+	`
 	
-	_, err := p.client.DB().Exec(query)
+	_, err := p.client.DB().Exec(query, p.Name(), eventID)
 	return err
 }
 
@@ -117,53 +118,34 @@ func (p *CursosProjection) handleCursoCriado(event db.Event) error {
 		return err
 	}
 
-	aggID := event.AggregateID
-	if aggID == uuid.Nil {
-		return fmt.Errorf("UUID inválido")
-	}
-
-	safeNome := db.SafeString(payload.Nome)
-	safeType := db.SafeString(payload.Type)
-	safeCodAcad := db.SafeString(payload.CodigoAcademia)
-
 	nivelJSON, _ := json.Marshal(payload.Nivel)
-	safeNivelJSON := db.SafeString(string(nivelJSON))
 
-	query := fmt.Sprintf(`
+	query := `
 		INSERT INTO projection_cursos (id, nome, type, nivel, codigo_academia, status, created_at, updated_at, version, last_event_id)
-		VALUES ('%s', '%s', '%s', '%s', '%s', 'ativo', '%s', CURRENT_TIMESTAMP, %d, '%s')
-	`, aggID, safeNome, safeType, safeNivelJSON, safeCodAcad, 
-		payload.CreatedAt.Format(time.RFC3339), event.EventVersion, event.EventID)
+		VALUES ($1, $2, $3, $4, $5, 'ativo', $6, CURRENT_TIMESTAMP, $7, $8)
+	`
 
-	_, err := p.client.DB().Exec(query)
+	_, err := p.client.DB().Exec(query, 
+		event.AggregateID, payload.Nome, payload.Type, nivelJSON, payload.CodigoAcademia, 
+		payload.CreatedAt, event.EventVersion, event.EventID)
 	return err
 }
 
 func (p *CursosProjection) handleCursoAtivado(event db.Event) error {
-	aggID := event.AggregateID
-	if aggID == uuid.Nil {
-		return fmt.Errorf("UUID inválido")
-	}
-
-	query := fmt.Sprintf(`
-		UPDATE projection_cursos SET status = 'ativo', version = %d, updated_at = CURRENT_TIMESTAMP WHERE id = '%s'
-	`, event.EventVersion, aggID)
+	query := `
+		UPDATE projection_cursos SET status = 'ativo', version = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2
+	`
 	
-	_, err := p.client.DB().Exec(query)
+	_, err := p.client.DB().Exec(query, event.EventVersion, event.AggregateID)
 	return err
 }
 
 func (p *CursosProjection) handleCursoDesativado(event db.Event) error {
-	aggID := event.AggregateID
-	if aggID == uuid.Nil {
-		return fmt.Errorf("UUID inválido")
-	}
-
-	query := fmt.Sprintf(`
-		UPDATE projection_cursos SET status = 'inativo', version = %d, updated_at = CURRENT_TIMESTAMP WHERE id = '%s'
-	`, event.EventVersion, aggID)
+	query := `
+		UPDATE projection_cursos SET status = 'inativo', version = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2
+	`
 	
-	_, err := p.client.DB().Exec(query)
+	_, err := p.client.DB().Exec(query, event.EventVersion, event.AggregateID)
 	return err
 }
 
@@ -178,49 +160,35 @@ func (p *CursosProjection) handleCursoDadosAtualizados(event db.Event) error {
 		return err
 	}
 
-	aggID := event.AggregateID
-	if aggID == uuid.Nil {
-		return fmt.Errorf("UUID inválido")
-	}
-
 	if payload.Nome != nil {
-		safeNome := db.SafeString(*payload.Nome)
-		query := fmt.Sprintf(`UPDATE projection_cursos SET nome = '%s' WHERE id = '%s'`, safeNome, aggID)
-		p.client.DB().Exec(query)
+		p.client.DB().Exec(`UPDATE projection_cursos SET nome = $1 WHERE id = $2`, *payload.Nome, event.AggregateID)
 	}
 	if payload.Type != nil {
-		safeType := db.SafeString(*payload.Type)
-		query := fmt.Sprintf(`UPDATE projection_cursos SET type = '%s' WHERE id = '%s'`, safeType, aggID)
-		p.client.DB().Exec(query)
+		p.client.DB().Exec(`UPDATE projection_cursos SET type = $1 WHERE id = $2`, *payload.Type, event.AggregateID)
 	}
 	if payload.Nivel != nil {
 		nivelJSON, _ := json.Marshal(payload.Nivel)
-		safeNivel := db.SafeString(string(nivelJSON))
-		query := fmt.Sprintf(`UPDATE projection_cursos SET nivel = '%s' WHERE id = '%s'`, safeNivel, aggID)
-		p.client.DB().Exec(query)
+		p.client.DB().Exec(`UPDATE projection_cursos SET nivel = $1 WHERE id = $2`, nivelJSON, event.AggregateID)
 	}
 
-	updateQuery := fmt.Sprintf(`
-		UPDATE projection_cursos SET version = %d, updated_at = CURRENT_TIMESTAMP, last_event_id = '%s' WHERE id = '%s'
-	`, event.EventVersion, event.EventID, aggID)
+	updateQuery := `
+		UPDATE projection_cursos SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2 WHERE id = $3
+	`
 	
-	_, err := p.client.DB().Exec(updateQuery)
+	_, err := p.client.DB().Exec(updateQuery, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
+// ✅ CORRIGIDO: QueryRow().Scan() manual
 func (p *CursosProjection) GetByID(id uuid.UUID) (*CursoDTO, error) {
-	if id == uuid.Nil {
-		return nil, fmt.Errorf("UUID inválido")
-	}
-
-	query := fmt.Sprintf(`
+	query := `
 		SELECT id, nome, type, nivel, codigo_academia, status, created_at, updated_at, version
-		FROM projection_cursos WHERE id = '%s'
-	`, id)
+		FROM projection_cursos WHERE id = $1
+	`
 	
 	var dto CursoDTO
-	var nivelJSON string
-	err := p.client.DB().QueryRow(query).Scan(
+	var nivelJSON []byte
+	err := p.client.DB().QueryRow(query, id).Scan(
 		&dto.ID, &dto.Nome, &dto.Type, &nivelJSON, &dto.CodigoAcademia,
 		&dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version)
 	
@@ -231,19 +199,18 @@ func (p *CursosProjection) GetByID(id uuid.UUID) (*CursoDTO, error) {
 		return nil, err
 	}
 
-	json.Unmarshal([]byte(nivelJSON), &dto.Nivel)
+	json.Unmarshal(nivelJSON, &dto.Nivel)
 	return &dto, nil
 }
 
+// ✅ CORRIGIDO: Query() + loop manual
 func (p *CursosProjection) GetByAcademia(codigoAcademia string) ([]CursoDTO, error) {
-	safeCodigo := db.SafeString(codigoAcademia)
-
-	query := fmt.Sprintf(`
+	query := `
 		SELECT id, nome, type, nivel, codigo_academia, status, created_at, updated_at, version
-		FROM projection_cursos WHERE codigo_academia = '%s' ORDER BY created_at DESC
-	`, safeCodigo)
+		FROM projection_cursos WHERE codigo_academia = $1 ORDER BY created_at DESC
+	`
 	
-	rows, err := p.client.DB().Query(query)
+	rows, err := p.client.DB().Query(query, codigoAcademia)
 	if err != nil {
 		return nil, err
 	}
@@ -252,13 +219,13 @@ func (p *CursosProjection) GetByAcademia(codigoAcademia string) ([]CursoDTO, err
 	var cursos []CursoDTO
 	for rows.Next() {
 		var dto CursoDTO
-		var nivelJSON string
+		var nivelJSON []byte
 		err := rows.Scan(&dto.ID, &dto.Nome, &dto.Type, &nivelJSON, &dto.CodigoAcademia,
 			&dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version)
 		if err != nil {
-			return nil, err
+			continue
 		}
-		json.Unmarshal([]byte(nivelJSON), &dto.Nivel)
+		json.Unmarshal(nivelJSON, &dto.Nivel)
 		cursos = append(cursos, dto)
 	}
 

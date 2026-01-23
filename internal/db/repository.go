@@ -190,7 +190,7 @@ func (r *AggregateRepository) convertToDomainEvents(dbEvents []Event) ([]aggrega
 	return domainEvents, nil
 }
 
-// ✅ SAFE: UUID validado
+// ✅ CORRIGIDO: Usar QueryRow().Scan() ao invés de QueryRowx()
 func (r *AggregateRepository) SaveSnapshot(aggregate aggregates.Aggregate) error {
 	stateJSON, err := json.Marshal(aggregate)
 	if err != nil {
@@ -228,7 +228,7 @@ func (r *AggregateRepository) SaveSnapshot(aggregate aggregates.Aggregate) error
 	return err
 }
 
-// ✅ SAFE: UUID validado
+// ✅ CORRIGIDO: Usar QueryRow().Scan() manualmente
 func (r *AggregateRepository) LoadSnapshot(id uuid.UUID) (*Snapshot, error) {
 	if id == uuid.Nil {
 		return nil, fmt.Errorf("UUID inválido")
@@ -241,7 +241,7 @@ func (r *AggregateRepository) LoadSnapshot(id uuid.UUID) (*Snapshot, error) {
 
 	var snapshot Snapshot
 	
-	err := r.eventStore.client.DB().QueryRowx(query).Scan(
+	err := r.eventStore.client.DB().QueryRow(query).Scan(
 		&snapshot.AggregateID,
 		&snapshot.AggregateType,
 		&snapshot.Version,

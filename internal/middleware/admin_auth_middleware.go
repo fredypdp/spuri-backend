@@ -62,7 +62,7 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 			WHERE id = $1
 		`
 
-		err := client.DB().Get(&info, query, userID)
+		err := client.DB().QueryRow(query, userID).Scan(&info.Role, &info.Status)
 		if err != nil {
 			c.JSON(http.StatusForbidden, gin.H{
 				"error": "administrador não encontrado",
