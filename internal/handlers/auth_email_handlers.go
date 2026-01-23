@@ -1,7 +1,13 @@
+// ============================================================================
+// auth_email_handlers.go - SEM PREPARED STATEMENTS
+// ============================================================================
+
 package handlers
 
 import (
+	"fmt"
 	"net/http"
+	"spuri/internal/db"
 	"spuri/internal/services"
 
 	"github.com/gin-gonic/gin"
@@ -10,7 +16,6 @@ import (
 )
 
 // VerificarEmail verifica email usando token
-// GET /verificar-email/:token
 func VerificarEmail(c *gin.Context) {
 	token := c.Param("token")
 	
@@ -21,9 +26,6 @@ func VerificarEmail(c *gin.Context) {
 		return
 	}
 
-	// Atualizar email_verificado
-	client := getDbClient(c)
-	
 	var table string
 	switch tokenInfo.UserType {
 	case "estudante":
@@ -37,8 +39,10 @@ func VerificarEmail(c *gin.Context) {
 		return
 	}
 
-	query := "UPDATE " + table + " SET email_verificado = TRUE WHERE id = $1"
-	_, err = client.DB().Exec(query, tokenInfo.UserID)
+	// ✅ SEM PREPARED STATEMENT
+	client := getDbClient(c)
+	query := fmt.Sprintf("UPDATE %s SET email_verificado = TRUE WHERE id = '%s'", table, tokenInfo.UserID)
+	_, err = client.DB().Exec(query)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao verificar email"})
 		return
@@ -51,11 +55,10 @@ func VerificarEmail(c *gin.Context) {
 }
 
 // SolicitarRecuperacaoSenha envia email de recuperação
-// POST /recuperar-senha/solicitar
 func SolicitarRecuperacaoSenha(c *gin.Context) {
 	var req struct {
-		Identificador string `json:"identificador" binding:"required"` // email, codigo
-		Tipo          string `json:"tipo" binding:"required"`          // estudante, academia, admin
+		Identificador string `json:"identificador" binding:"required"`
+		Tipo          string `json:"tipo" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -70,44 +73,37 @@ func SolicitarRecuperacaoSenha(c *gin.Context) {
 	var email, nome string
 	var query string
 
+	safeId := db.SafeString(req.Identificador)
+
 	switch req.Tipo {
 	case "estudante":
-		query = `SELECT id, email, nome FROM projection_estudantes 
-		         WHERE codigo_estudante = $1 OR email = $1`
+		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_estudantes 
+		         WHERE codigo_estudante = '%s' OR email = '%s'`, safeId, safeId)
 	case "academia":
-		query = `SELECT id, email, nome FROM projection_academias 
-		         WHERE codigo_academia = $1 OR email = $1`
+		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_academias 
+		         WHERE codigo_academia = '%s' OR email = '%s'`, safeId, safeId)
 	case "admin":
-		query = `SELECT id, email, nome FROM projection_admins WHERE email = $1`
+		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_admins WHERE email = '%s'`, safeId)
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "tipo inválido"})
 		return
 	}
 
-	// ✅ CORRIGIDO: QueryRow().Scan() ao invés de Get()
-	type result struct {
-		ID    uuid.UUID
-		Email string
-		Nome  string
-	}
-	
-	var res result
-	err := client.DB().QueryRow(query, req.Identificador).Scan(&res.ID, &res.Email, &res.Nome)
+	// ✅ SEM PREPARED STATEMENT
+	var idStr string
+	err := client.DB().QueryRow(query).Scan(&idStr, &email, &nome)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
 		return
 	}
 	
-	userID = res.ID
-	email = res.Email
-	nome = res.Nome
+	userID, _ = uuid.Parse(idStr)
 
 	if email == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "usuário não possui email cadastrado"})
 		return
 	}
 
-	// Enviar email
 	if err := emailSvc.SendPasswordResetEmail(userID, req.Tipo, email, nome); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao enviar email"})
 		return
@@ -120,7 +116,6 @@ func SolicitarRecuperacaoSenha(c *gin.Context) {
 }
 
 // ResetarSenha redefine senha usando token
-// POST /recuperar-senha/:token
 func ResetarSenha(c *gin.Context) {
 	token := c.Param("token")
 
@@ -139,27 +134,26 @@ func ResetarSenha(c *gin.Context) {
 
 	switch tokenInfo.UserType {
 	case "estudante":
-		query = `SELECT codigo_estudante FROM projection_estudantes WHERE id = $1`
+		query = fmt.Sprintf(`SELECT codigo_estudante FROM projection_estudantes WHERE id = '%s'`, tokenInfo.UserID)
 		table = "projection_estudantes"
 	case "academia":
-		query = `SELECT codigo_academia FROM projection_academias WHERE id = $1`
+		query = fmt.Sprintf(`SELECT codigo_academia FROM projection_academias WHERE id = '%s'`, tokenInfo.UserID)
 		table = "projection_academias"
 	case "admin":
-		query = `SELECT role FROM projection_admins WHERE id = $1`
+		query = fmt.Sprintf(`SELECT role FROM projection_admins WHERE id = '%s'`, tokenInfo.UserID)
 		table = "projection_admins"
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "tipo de usuário inválido"})
 		return
 	}
 
-	// ✅ CORRIGIDO: QueryRow().Scan() ao invés de Get()
-	err = client.DB().QueryRow(query, tokenInfo.UserID).Scan(&codigo)
+	// ✅ SEM PREPARED STATEMENT
+	err = client.DB().QueryRow(query).Scan(&codigo)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
 		return
 	}
 
-	// Gerar senha padrão
 	defaultPassword := services.GetDefaultPassword(tokenInfo.UserType, codigo)
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(defaultPassword), bcrypt.DefaultCost)
 	if err != nil {
@@ -167,9 +161,10 @@ func ResetarSenha(c *gin.Context) {
 		return
 	}
 
-	// Atualizar senha
-	updateQuery := "UPDATE " + table + " SET senha_hash = $1 WHERE id = $2"
-	_, err = client.DB().Exec(updateQuery, string(hashedPassword), tokenInfo.UserID)
+	// ✅ SEM PREPARED STATEMENT
+	safeHash := db.SafeString(string(hashedPassword))
+	updateQuery := fmt.Sprintf("UPDATE %s SET senha_hash = '%s' WHERE id = '%s'", table, safeHash, tokenInfo.UserID)
+	_, err = client.DB().Exec(updateQuery)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao resetar senha"})
 		return
@@ -184,7 +179,6 @@ func ResetarSenha(c *gin.Context) {
 }
 
 // AlterarSenha altera senha do usuário logado
-// PUT /alterar-senha
 func AlterarSenha(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userType, _ := c.Get("user_type")
@@ -219,12 +213,10 @@ func AlterarSenha(c *gin.Context) {
 		return
 	}
 
-	// Verificar senha atual
+	// ✅ SEM PREPARED STATEMENT - Verificar senha atual
+	query := fmt.Sprintf("SELECT senha_hash FROM %s WHERE id = '%s'", table, userID)
 	var senhaHash string
-	query := "SELECT senha_hash FROM " + table + " WHERE id = $1"
-	
-	// ✅ CORRIGIDO: QueryRow().Scan() ao invés de Get()
-	err := client.DB().QueryRow(query, userID).Scan(&senhaHash)
+	err := client.DB().QueryRow(query).Scan(&senhaHash)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
 		return
@@ -235,16 +227,16 @@ func AlterarSenha(c *gin.Context) {
 		return
 	}
 
-	// Hash nova senha
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NovaSenha), bcrypt.DefaultCost)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao processar senha"})
 		return
 	}
 
-	// Atualizar
-	updateQuery := "UPDATE " + table + " SET senha_hash = $1 WHERE id = $2"
-	_, err = client.DB().Exec(updateQuery, string(hashedPassword), userID)
+	// ✅ SEM PREPARED STATEMENT - Atualizar
+	safeHash := db.SafeString(string(hashedPassword))
+	updateQuery := fmt.Sprintf("UPDATE %s SET senha_hash = '%s' WHERE id = '%s'", table, safeHash, userID)
+	_, err = client.DB().Exec(updateQuery)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao alterar senha"})
 		return
@@ -255,7 +247,6 @@ func AlterarSenha(c *gin.Context) {
 	})
 }
 
-// Helper: mascara email
 func maskEmail(email string) string {
 	if len(email) < 5 {
 		return "***@***"
@@ -281,7 +272,6 @@ func maskEmail(email string) string {
 	return masked
 }
 
-// Helper: obtém serviço de email
 func getEmailService(c *gin.Context) *services.EmailService {
 	client := getDbClient(c)
 	return services.NewEmailService(client.DB())

@@ -52,7 +52,6 @@ func (p *AcademiaProjection) Handle(event db.Event) error {
 	}
 }
 
-// ✅ CORRIGIDO
 func (p *AcademiaProjection) Rebuild() error {
 	if err := p.clear(); err != nil {
 		return err
@@ -93,14 +92,16 @@ func (p *AcademiaProjection) Rebuild() error {
 }
 
 func (p *AcademiaProjection) GetLastProcessedEventID() (int64, error) {
-	var lastID int64
-	query := `
+	safeName := db.SafeString(p.Name())
+	
+	query := fmt.Sprintf(`
 		SELECT last_processed_event_id 
 		FROM projection_checkpoints 
-		WHERE projection_name = $1
-	`
+		WHERE projection_name = '%s'
+	`, safeName)
 	
-	err := p.client.DB().QueryRow(query, p.Name()).Scan(&lastID)
+	var lastID int64
+	err := p.client.DB().QueryRow(query).Scan(&lastID)
 	
 	if err == sql.ErrNoRows {
 		return 0, nil
@@ -109,18 +110,21 @@ func (p *AcademiaProjection) GetLastProcessedEventID() (int64, error) {
 }
 
 func (p *AcademiaProjection) UpdateCheckpoint(eventID int64) error {
-	query := `
+	safeName := db.SafeString(p.Name())
+	eventID = int64(db.ValidateOffset(int(eventID)))
+	
+	query := fmt.Sprintf(`
 		INSERT INTO projection_checkpoints (
 			projection_name, last_processed_event_id, last_processed_at, events_processed
-		) VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
+		) VALUES ('%s', %d, CURRENT_TIMESTAMP, 1)
 		ON CONFLICT (projection_name) 
 		DO UPDATE SET
-			last_processed_event_id = $2,
+			last_processed_event_id = %d,
 			last_processed_at = CURRENT_TIMESTAMP,
 			events_processed = projection_checkpoints.events_processed + 1
-	`
+	`, safeName, eventID, eventID)
 	
-	_, err := p.client.DB().Exec(query, p.Name(), eventID)
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
@@ -158,12 +162,47 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 		return err
 	}
 
-	query := `
+	aggID := event.AggregateID
+	if aggID == uuid.Nil {
+		return fmt.Errorf("UUID inválido")
+	}
+
+	safeType := db.SafeString(payload.Type)
+	safeNome := db.SafeString(payload.Nome)
+	safeCodigo := db.SafeString(payload.CodigoAcademia)
+	safeHash := db.SafeString(payload.SenhaHash)
+	safeProv := db.SafeString(payload.Provincia)
+	safeEnd := db.SafeString(payload.Endereco)
+	safeCursos := db.SafeString(string(cursosJSON))
+
+	var telStr, emailStr, webStr, nivelStr string
+	if payload.NumeroTelefone != nil {
+		telStr = fmt.Sprintf("'%s'", db.SafeString(*payload.NumeroTelefone))
+	} else {
+		telStr = "NULL"
+	}
+	if payload.Email != nil {
+		emailStr = fmt.Sprintf("'%s'", db.SafeString(*payload.Email))
+	} else {
+		emailStr = "NULL"
+	}
+	if payload.Website != nil {
+		webStr = fmt.Sprintf("'%s'", db.SafeString(*payload.Website))
+	} else {
+		webStr = "NULL"
+	}
+	if payload.NivelEscolar != nil {
+		nivelStr = fmt.Sprintf("'%s'", db.SafeString(*payload.NivelEscolar))
+	} else {
+		nivelStr = "NULL"
+	}
+
+	query := fmt.Sprintf(`
 		INSERT INTO projection_academias (
 			id, type, nome, codigo_academia, senha_hash, provincia,
 			endereco, numero_telefone, email, website, nivel_escolar,
 			status, cursos, version, created_at, updated_at, last_event_id
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'inativo', $12, $13, $14, $15, $16)
+		) VALUES ('%s', '%s', '%s', '%s', '%s', '%s', '%s', %s, %s, %s, %s, 'inativo', '%s', %d, '%s', CURRENT_TIMESTAMP, '%s')
 		ON CONFLICT (id) DO UPDATE SET
 			type = EXCLUDED.type, nome = EXCLUDED.nome,
 			codigo_academia = EXCLUDED.codigo_academia, senha_hash = EXCLUDED.senha_hash,
@@ -172,34 +211,43 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 			website = EXCLUDED.website, nivel_escolar = EXCLUDED.nivel_escolar,
 			cursos = EXCLUDED.cursos, version = EXCLUDED.version,
 			updated_at = EXCLUDED.updated_at, last_event_id = EXCLUDED.last_event_id
-	`
+	`, aggID, safeType, safeNome, safeCodigo, safeHash, safeProv, safeEnd,
+		telStr, emailStr, webStr, nivelStr, safeCursos,
+		event.EventVersion, payload.CreatedAt.Format(time.RFC3339), event.EventID)
 	
-	_, err = p.client.DB().Exec(query, 
-		event.AggregateID, payload.Type, payload.Nome, payload.CodigoAcademia,
-		payload.SenhaHash, payload.Provincia, payload.Endereco, payload.NumeroTelefone,
-		payload.Email, payload.Website, payload.NivelEscolar, cursosJSON,
-		event.EventVersion, payload.CreatedAt, time.Now(), event.EventID)
-
+	_, err = p.client.DB().Exec(query)
 	return err
 }
 
 func (p *AcademiaProjection) handleAcademiaAtivada(event db.Event) error {
-	query := `
+	aggID := event.AggregateID
+	if aggID == uuid.Nil {
+		return fmt.Errorf("UUID inválido")
+	}
+
+	query := fmt.Sprintf(`
 		UPDATE projection_academias
-		SET status = 'ativo', version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
-		WHERE id = $3
-	`
-	_, err := p.client.DB().Exec(query, event.EventVersion, event.EventID, event.AggregateID)
+		SET status = 'ativo', version = %d, updated_at = CURRENT_TIMESTAMP, last_event_id = '%s'
+		WHERE id = '%s'
+	`, event.EventVersion, event.EventID, aggID)
+	
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
 func (p *AcademiaProjection) handleAcademiaDesativada(event db.Event) error {
-	query := `
+	aggID := event.AggregateID
+	if aggID == uuid.Nil {
+		return fmt.Errorf("UUID inválido")
+	}
+
+	query := fmt.Sprintf(`
 		UPDATE projection_academias
-		SET status = 'inativo', version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
-		WHERE id = $3
-	`
-	_, err := p.client.DB().Exec(query, event.EventVersion, event.EventID, event.AggregateID)
+		SET status = 'inativo', version = %d, updated_at = CURRENT_TIMESTAMP, last_event_id = '%s'
+		WHERE id = '%s'
+	`, event.EventVersion, event.EventID, aggID)
+	
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
@@ -217,35 +265,55 @@ func (p *AcademiaProjection) handleCursosAtualizados(event db.Event) error {
 		return err
 	}
 
-	query := `
+	aggID := event.AggregateID
+	if aggID == uuid.Nil {
+		return fmt.Errorf("UUID inválido")
+	}
+
+	safeCursos := db.SafeString(string(cursosJSON))
+
+	query := fmt.Sprintf(`
 		UPDATE projection_academias
-		SET cursos = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
-		WHERE id = $4
-	`
-	_, err = p.client.DB().Exec(query, cursosJSON, event.EventVersion, event.EventID, event.AggregateID)
+		SET cursos = '%s', version = %d, updated_at = CURRENT_TIMESTAMP, last_event_id = '%s'
+		WHERE id = '%s'
+	`, safeCursos, event.EventVersion, event.EventID, aggID)
+	
+	_, err = p.client.DB().Exec(query)
 	return err
 }
 
 func (p *AcademiaProjection) handleInscricaoAprovada(event db.Event) error {
-	query := `
+	aggID := event.AggregateID
+	if aggID == uuid.Nil {
+		return fmt.Errorf("UUID inválido")
+	}
+
+	query := fmt.Sprintf(`
 		UPDATE projection_academias
 		SET total_estudantes = total_estudantes + 1,
 			total_inscricoes_pendentes = GREATEST(total_inscricoes_pendentes - 1, 0),
 			updated_at = CURRENT_TIMESTAMP
-		WHERE id = $1
-	`
-	_, err := p.client.DB().Exec(query, event.AggregateID)
+		WHERE id = '%s'
+	`, aggID)
+	
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
 func (p *AcademiaProjection) handleInscricaoReprovada(event db.Event) error {
-	query := `
+	aggID := event.AggregateID
+	if aggID == uuid.Nil {
+		return fmt.Errorf("UUID inválido")
+	}
+
+	query := fmt.Sprintf(`
 		UPDATE projection_academias
 		SET total_inscricoes_pendentes = GREATEST(total_inscricoes_pendentes - 1, 0),
 			updated_at = CURRENT_TIMESTAMP
-		WHERE id = $1
-	`
-	_, err := p.client.DB().Exec(query, event.AggregateID)
+		WHERE id = '%s'
+	`, aggID)
+	
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
@@ -266,56 +334,73 @@ func (p *AcademiaProjection) handleAcademiaDadosAtualizados(event db.Event) erro
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
+	aggID := event.AggregateID
+	if aggID == uuid.Nil {
+		return fmt.Errorf("UUID inválido")
+	}
+
 	if payload.Nome != nil {
-		p.client.DB().Exec(`UPDATE projection_academias SET nome = $1 WHERE id = $2`, *payload.Nome, event.AggregateID)
+		safe := db.SafeString(*payload.Nome)
+		p.client.DB().Exec(fmt.Sprintf(`UPDATE projection_academias SET nome = '%s' WHERE id = '%s'`, safe, aggID))
 	}
 	if payload.Provincia != nil {
-		p.client.DB().Exec(`UPDATE projection_academias SET provincia = $1 WHERE id = $2`, *payload.Provincia, event.AggregateID)
+		safe := db.SafeString(*payload.Provincia)
+		p.client.DB().Exec(fmt.Sprintf(`UPDATE projection_academias SET provincia = '%s' WHERE id = '%s'`, safe, aggID))
 	}
 	if payload.Endereco != nil {
-		p.client.DB().Exec(`UPDATE projection_academias SET endereco = $1 WHERE id = $2`, *payload.Endereco, event.AggregateID)
+		safe := db.SafeString(*payload.Endereco)
+		p.client.DB().Exec(fmt.Sprintf(`UPDATE projection_academias SET endereco = '%s' WHERE id = '%s'`, safe, aggID))
 	}
 	if payload.NumeroTelefone != nil {
-		p.client.DB().Exec(`UPDATE projection_academias SET numero_telefone = $1 WHERE id = $2`, *payload.NumeroTelefone, event.AggregateID)
+		safe := db.SafeString(*payload.NumeroTelefone)
+		p.client.DB().Exec(fmt.Sprintf(`UPDATE projection_academias SET numero_telefone = '%s' WHERE id = '%s'`, safe, aggID))
 	}
 	if payload.Email != nil {
+		safe := db.SafeString(*payload.Email)
 		if payload.EmailAlterado {
-			p.client.DB().Exec(`UPDATE projection_academias SET email = $1, email_verificado = FALSE WHERE id = $2`, *payload.Email, event.AggregateID)
+			p.client.DB().Exec(fmt.Sprintf(`UPDATE projection_academias SET email = '%s', email_verificado = FALSE WHERE id = '%s'`, safe, aggID))
 		} else {
-			p.client.DB().Exec(`UPDATE projection_academias SET email = $1 WHERE id = $2`, *payload.Email, event.AggregateID)
+			p.client.DB().Exec(fmt.Sprintf(`UPDATE projection_academias SET email = '%s' WHERE id = '%s'`, safe, aggID))
 		}
 	}
 	if payload.Website != nil {
-		p.client.DB().Exec(`UPDATE projection_academias SET website = $1 WHERE id = $2`, *payload.Website, event.AggregateID)
+		safe := db.SafeString(*payload.Website)
+		p.client.DB().Exec(fmt.Sprintf(`UPDATE projection_academias SET website = '%s' WHERE id = '%s'`, safe, aggID))
 	}
 	if payload.NivelEscolar != nil {
-		p.client.DB().Exec(`UPDATE projection_academias SET nivel_escolar = $1 WHERE id = $2`, *payload.NivelEscolar, event.AggregateID)
+		safe := db.SafeString(*payload.NivelEscolar)
+		p.client.DB().Exec(fmt.Sprintf(`UPDATE projection_academias SET nivel_escolar = '%s' WHERE id = '%s'`, safe, aggID))
 	}
 	if payload.Cursos != nil {
 		cursosJSON, _ := json.Marshal(payload.Cursos)
-		p.client.DB().Exec(`UPDATE projection_academias SET cursos = $1 WHERE id = $2`, cursosJSON, event.AggregateID)
+		safe := db.SafeString(string(cursosJSON))
+		p.client.DB().Exec(fmt.Sprintf(`UPDATE projection_academias SET cursos = '%s' WHERE id = '%s'`, safe, aggID))
 	}
 
-	_, err := p.client.DB().Exec(`
-		UPDATE projection_academias SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2 WHERE id = $3
-	`, event.EventVersion, event.EventID, event.AggregateID)
+	query := fmt.Sprintf(`
+		UPDATE projection_academias SET version = %d, updated_at = CURRENT_TIMESTAMP, last_event_id = '%s' WHERE id = '%s'
+	`, event.EventVersion, event.EventID, aggID)
+	
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
-// ✅ CORRIGIDO
 func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
-	var dto AcademiaDTO
-	var cursosJSON []byte
+	if id == uuid.Nil {
+		return nil, fmt.Errorf("UUID inválido")
+	}
 
-	query := `
+	query := fmt.Sprintf(`
 		SELECT id, type, nome, codigo_academia, senha_hash, provincia,
 			endereco, numero_telefone, email, website, nivel_escolar,
 			status, cursos, created_at, updated_at,
 			total_estudantes, total_inscricoes_pendentes, version
-		FROM projection_academias WHERE id = $1
-	`
+		FROM projection_academias WHERE id = '%s'`, id)
 	
-	err := p.client.DB().QueryRow(query, id).Scan(
+	var dto AcademiaDTO
+	var cursosJSON []byte
+
+	err := p.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.Type, &dto.Nome, &dto.CodigoAcademia, &dto.SenhaHash, &dto.Provincia,
 		&dto.Endereco, &dto.NumeroTelefone, &dto.Email, &dto.Website, &dto.NivelEscolar,
 		&dto.Status, &cursosJSON, &dto.CreatedAt, &dto.UpdatedAt,
@@ -334,22 +419,22 @@ func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
 	return &dto, nil
 }
 
-// ✅ CORRIGIDO
 func (p *AcademiaProjection) GetByCodigoOrEmail(identifier string) (*AcademiaDTO, error) {
-	var dto AcademiaDTO
-	var cursosJSON []byte
+	safeId := db.SafeString(identifier)
 
-	query := `
+	query := fmt.Sprintf(`
 		SELECT id, type, nome, codigo_academia, senha_hash, provincia,
 			endereco, numero_telefone, email, website, nivel_escolar,
 			status, cursos, created_at, updated_at,
 			total_estudantes, total_inscricoes_pendentes, version
 		FROM projection_academias
-		WHERE codigo_academia = $1 OR email = $1
-		LIMIT 1
-	`
+		WHERE codigo_academia = '%s' OR email = '%s'
+		LIMIT 1`, safeId, safeId)
 	
-	err := p.client.DB().QueryRow(query, identifier).Scan(
+	var dto AcademiaDTO
+	var cursosJSON []byte
+	
+	err := p.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.Type, &dto.Nome, &dto.CodigoAcademia, &dto.SenhaHash, &dto.Provincia,
 		&dto.Endereco, &dto.NumeroTelefone, &dto.Email, &dto.Website, &dto.NivelEscolar,
 		&dto.Status, &cursosJSON, &dto.CreatedAt, &dto.UpdatedAt,
@@ -368,20 +453,20 @@ func (p *AcademiaProjection) GetByCodigoOrEmail(identifier string) (*AcademiaDTO
 	return &dto, nil
 }
 
-// ✅ CORRIGIDO
 func (p *AcademiaProjection) GetByCodigo(codigo string) (*AcademiaDTO, error) {
-	var dto AcademiaDTO
-	var cursosJSON []byte
+	safeCodigo := db.SafeString(codigo)
 
-	query := `
+	query := fmt.Sprintf(`
 		SELECT id, type, nome, codigo_academia, senha_hash, provincia,
 			endereco, numero_telefone, email, website, nivel_escolar,
 			status, cursos, created_at, updated_at,
 			total_estudantes, total_inscricoes_pendentes, version
-		FROM projection_academias WHERE codigo_academia = $1
-	`
+		FROM projection_academias WHERE codigo_academia = '%s'`, safeCodigo)
 	
-	err := p.client.DB().QueryRow(query, codigo).Scan(
+	var dto AcademiaDTO
+	var cursosJSON []byte
+	
+	err := p.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.Type, &dto.Nome, &dto.CodigoAcademia, &dto.SenhaHash, &dto.Provincia,
 		&dto.Endereco, &dto.NumeroTelefone, &dto.Email, &dto.Website, &dto.NivelEscolar,
 		&dto.Status, &cursosJSON, &dto.CreatedAt, &dto.UpdatedAt,

@@ -34,7 +34,6 @@ func (ip *InscricoesProjection) Handle(event db.Event) error {
 	return nil
 }
 
-// ✅ CORRIGIDO: Query() + loop manual
 func (ip *InscricoesProjection) Rebuild() error {
 	if err := ip.clear(); err != nil {
 		return err
@@ -71,14 +70,16 @@ func (ip *InscricoesProjection) Rebuild() error {
 }
 
 func (ip *InscricoesProjection) GetLastProcessedEventID() (int64, error) {
-	query := `
+	safeName := db.SafeString(ip.Name())
+	
+	query := fmt.Sprintf(`
 		SELECT last_processed_event_id 
 		FROM projection_checkpoints 
-		WHERE projection_name = $1
-	`
+		WHERE projection_name = '%s'
+	`, safeName)
 	
 	var lastID int64
-	err := ip.client.DB().QueryRow(query, ip.Name()).Scan(&lastID)
+	err := ip.client.DB().QueryRow(query).Scan(&lastID)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -86,15 +87,18 @@ func (ip *InscricoesProjection) GetLastProcessedEventID() (int64, error) {
 }
 
 func (ip *InscricoesProjection) UpdateCheckpoint(eventID int64) error {
-	query := `
-		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
-		VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
-		ON CONFLICT (projection_name) DO UPDATE SET
-			last_processed_event_id = $2, last_processed_at = CURRENT_TIMESTAMP,
-			events_processed = projection_checkpoints.events_processed + 1
-	`
+	safeName := db.SafeString(ip.Name())
+	eventID = int64(db.ValidateOffset(int(eventID)))
 	
-	_, err := ip.client.DB().Exec(query, ip.Name(), eventID)
+	query := fmt.Sprintf(`
+		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
+		VALUES ('%s', %d, CURRENT_TIMESTAMP, 1)
+		ON CONFLICT (projection_name) DO UPDATE SET
+			last_processed_event_id = %d, last_processed_at = CURRENT_TIMESTAMP,
+			events_processed = projection_checkpoints.events_processed + 1
+	`, safeName, eventID, eventID)
+	
+	_, err := ip.client.DB().Exec(query)
 	return err
 }
 
@@ -120,38 +124,52 @@ func (ip *InscricoesProjection) handleEstudanteInscrito(event db.Event) error {
 	estudanteID := event.AggregateID
 
 	// Buscar código do estudante
+	queryEst := fmt.Sprintf(`SELECT codigo_estudante FROM projection_estudantes WHERE id = '%s'`, estudanteID)
 	var codigoEstudante string
-	err := ip.client.DB().QueryRow(`SELECT codigo_estudante FROM projection_estudantes WHERE id = $1`, estudanteID).Scan(&codigoEstudante)
+	err := ip.client.DB().QueryRow(queryEst).Scan(&codigoEstudante)
 	if err != nil {
 		return fmt.Errorf("estudante não encontrado: %w", err)
 	}
 
 	// Buscar ID da academia
+	safeCodigoAcad := db.SafeString(payload.CodigoAcademia)
+	queryAcad := fmt.Sprintf(`SELECT id FROM projection_academias WHERE codigo_academia = '%s'`, safeCodigoAcad)
 	var academiaID uuid.UUID
-	err = ip.client.DB().QueryRow(`SELECT id FROM projection_academias WHERE codigo_academia = $1`, payload.CodigoAcademia).Scan(&academiaID)
+	err = ip.client.DB().QueryRow(queryAcad).Scan(&academiaID)
 	if err != nil {
 		return fmt.Errorf("academia não encontrada: %w", err)
 	}
 
-	query := `
+	safeTipo := db.SafeString(payload.Tipo)
+	safeAno := db.SafeString(payload.AnoInscricao)
+	safeCodEst := db.SafeString(codigoEstudante)
+	safeCodAcad := db.SafeString(payload.CodigoAcademia)
+	
+	var cursoStr string
+	if payload.Curso != nil {
+		cursoStr = fmt.Sprintf("'%s'", db.SafeString(*payload.Curso))
+	} else {
+		cursoStr = "NULL"
+	}
+
+	query := fmt.Sprintf(`
 		INSERT INTO projection_inscricoes (
 			id, estudante_id, codigo_estudante, academia_id, codigo_academia,
 			tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, 
 			event_id, version
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'espera', FALSE, $9, CURRENT_TIMESTAMP, $10, $11)
-	`
-
-	_, err = ip.client.DB().Exec(query, 
-		payload.InscricaoID, estudanteID, codigoEstudante, academiaID, payload.CodigoAcademia,
-		payload.Tipo, payload.AnoInscricao, payload.Curso, payload.CreatedAt, 
+		) VALUES ('%s', '%s', '%s', '%s', '%s', '%s', '%s', %s, 'espera', FALSE, '%s', CURRENT_TIMESTAMP, '%s', %d)`,
+		payload.InscricaoID, estudanteID, safeCodEst, academiaID, safeCodAcad,
+		safeTipo, safeAno, cursoStr, payload.CreatedAt.Format(time.RFC3339), 
 		event.EventID, event.EventVersion)
 
+	_, err = ip.client.DB().Exec(query)
 	if err != nil {
 		return err
 	}
 
-	ip.client.DB().Exec(`UPDATE projection_academias SET total_inscricoes_pendentes = total_inscricoes_pendentes + 1 WHERE id = $1`, academiaID)
-	ip.client.DB().Exec(`UPDATE projection_estudantes SET total_inscricoes = total_inscricoes + 1 WHERE id = $1`, estudanteID)
+	// Atualizar totais
+	ip.client.DB().Exec(fmt.Sprintf(`UPDATE projection_academias SET total_inscricoes_pendentes = total_inscricoes_pendentes + 1 WHERE id = '%s'`, academiaID))
+	ip.client.DB().Exec(fmt.Sprintf(`UPDATE projection_estudantes SET total_inscricoes = total_inscricoes + 1 WHERE id = '%s'`, estudanteID))
 
 	return nil
 }
@@ -173,19 +191,22 @@ func (ip *InscricoesProjection) handleInscricaoAprovada(event db.Event) error {
 		estudanteID = event.AggregateID
 	}
 
+	safeCodAcad := db.SafeString(payload.CodigoAcademia)
+	queryAcad := fmt.Sprintf(`SELECT id FROM projection_academias WHERE codigo_academia = '%s'`, safeCodAcad)
 	var academiaID uuid.UUID
-	err := ip.client.DB().QueryRow(`SELECT id FROM projection_academias WHERE codigo_academia = $1`, payload.CodigoAcademia).Scan(&academiaID)
+	err := ip.client.DB().QueryRow(queryAcad).Scan(&academiaID)
 	if err != nil {
 		return nil
 	}
 
-	query := `
+	safeTipo := db.SafeString(payload.Tipo)
+	query := fmt.Sprintf(`
 		UPDATE projection_inscricoes
 		SET status = 'aprovado', updated_at = CURRENT_TIMESTAMP
-		WHERE estudante_id = $1 AND academia_id = $2 AND status = 'espera' AND tipo = $3
-	`
+		WHERE estudante_id = '%s' AND academia_id = '%s' AND status = 'espera' AND tipo = '%s'`,
+		estudanteID, academiaID, safeTipo)
 
-	ip.client.DB().Exec(query, estudanteID, academiaID, payload.Tipo)
+	ip.client.DB().Exec(query)
 	return nil
 }
 
@@ -199,19 +220,21 @@ func (ip *InscricoesProjection) handleInscricaoReprovada(event db.Event) error {
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
+	safeCodAcad := db.SafeString(payload.CodigoAcademia)
+	queryAcad := fmt.Sprintf(`SELECT id FROM projection_academias WHERE codigo_academia = '%s'`, safeCodAcad)
 	var academiaID uuid.UUID
-	err := ip.client.DB().QueryRow(`SELECT id FROM projection_academias WHERE codigo_academia = $1`, payload.CodigoAcademia).Scan(&academiaID)
+	err := ip.client.DB().QueryRow(queryAcad).Scan(&academiaID)
 	if err != nil {
 		return nil
 	}
 
-	query := `
+	query := fmt.Sprintf(`
 		UPDATE projection_inscricoes
 		SET status = 'reprovado', updated_at = CURRENT_TIMESTAMP
-		WHERE estudante_id = $1 AND academia_id = $2 AND status = 'espera'
-	`
+		WHERE estudante_id = '%s' AND academia_id = '%s' AND status = 'espera'`,
+		payload.EstudanteID, academiaID)
 
-	ip.client.DB().Exec(query, payload.EstudanteID, academiaID)
+	ip.client.DB().Exec(query)
 	return nil
 }
 
@@ -224,25 +247,27 @@ func (ip *InscricoesProjection) handleEstudanteVinculado(event db.Event) error {
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	query := `
+	query := fmt.Sprintf(`
 		UPDATE projection_inscricoes SET status_usado = TRUE, updated_at = CURRENT_TIMESTAMP 
-		WHERE id = $1
-	`
+		WHERE id = '%s'`, payload.InscricaoID)
 
-	_, err := ip.client.DB().Exec(query, payload.InscricaoID)
+	_, err := ip.client.DB().Exec(query)
 	return err
 }
 
-// ✅ CORRIGIDO: Query() + loop manual
 func (ip *InscricoesProjection) GetByEstudante(estudanteID uuid.UUID) ([]InscricaoDTO, error) {
-	query := `
+	if estudanteID == uuid.Nil {
+		return nil, fmt.Errorf("UUID inválido")
+	}
+
+	query := fmt.Sprintf(`
 		SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
 			tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, 
 			event_id, version
-		FROM projection_inscricoes WHERE estudante_id = $1 ORDER BY created_at DESC
-	`
+		FROM projection_inscricoes WHERE estudante_id = '%s' ORDER BY created_at DESC
+	`, estudanteID)
 
-	rows, err := ip.client.DB().Query(query, estudanteID)
+	rows, err := ip.client.DB().Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -262,16 +287,21 @@ func (ip *InscricoesProjection) GetByEstudante(estudanteID uuid.UUID) ([]Inscric
 	return result, rows.Err()
 }
 
-// ✅ CORRIGIDO: Query() + loop manual
 func (ip *InscricoesProjection) GetByAcademia(academiaID uuid.UUID, status string) ([]InscricaoDTO, error) {
-	query := `
+	if academiaID == uuid.Nil {
+		return nil, fmt.Errorf("UUID inválido")
+	}
+
+	safeStatus := db.SafeString(status)
+
+	query := fmt.Sprintf(`
 		SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
 			tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, 
 			event_id, version
-		FROM projection_inscricoes WHERE academia_id = $1 AND status = $2 ORDER BY created_at DESC
-	`
+		FROM projection_inscricoes WHERE academia_id = '%s' AND status = '%s' ORDER BY created_at DESC
+	`, academiaID, safeStatus)
 
-	rows, err := ip.client.DB().Query(query, academiaID, status)
+	rows, err := ip.client.DB().Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -291,17 +321,19 @@ func (ip *InscricoesProjection) GetByAcademia(academiaID uuid.UUID, status strin
 	return result, rows.Err()
 }
 
-// ✅ CORRIGIDO: QueryRow().Scan() manual
 func (ip *InscricoesProjection) GetByID(id uuid.UUID) (*InscricaoDTO, error) {
-	query := `
+	if id == uuid.Nil {
+		return nil, fmt.Errorf("UUID inválido")
+	}
+
+	query := fmt.Sprintf(`
 		SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
 			tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, 
 			event_id, version
-		FROM projection_inscricoes WHERE id = $1
-	`
+		FROM projection_inscricoes WHERE id = '%s'`, id)
 
 	var dto InscricaoDTO
-	err := ip.client.DB().QueryRow(query, id).Scan(
+	err := ip.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.EstudanteID, &dto.CodigoEstudante, &dto.AcademiaID,
 		&dto.CodigoAcademia, &dto.Tipo, &dto.AnoInscricao, &dto.Curso, &dto.Status,
 		&dto.StatusUsado, &dto.CreatedAt, &dto.UpdatedAt, &dto.EventID, &dto.Version,

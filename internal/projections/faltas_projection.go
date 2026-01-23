@@ -27,7 +27,6 @@ func (p *FaltasProjection) Handle(event db.Event) error {
 	return p.handleFaltasRegistradas(event)
 }
 
-// ✅ CORRIGIDO: Query() + loop manual
 func (p *FaltasProjection) Rebuild() error {
 	if err := p.clear(); err != nil {
 		return err
@@ -62,14 +61,16 @@ func (p *FaltasProjection) Rebuild() error {
 }
 
 func (p *FaltasProjection) GetLastProcessedEventID() (int64, error) {
-	query := `
+	safeName := db.SafeString(p.Name())
+	
+	query := fmt.Sprintf(`
 		SELECT last_processed_event_id 
 		FROM projection_checkpoints 
-		WHERE projection_name = $1
-	`
+		WHERE projection_name = '%s'
+	`, safeName)
 	
 	var lastID int64
-	err := p.client.DB().QueryRow(query, p.Name()).Scan(&lastID)
+	err := p.client.DB().QueryRow(query).Scan(&lastID)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -77,15 +78,18 @@ func (p *FaltasProjection) GetLastProcessedEventID() (int64, error) {
 }
 
 func (p *FaltasProjection) UpdateCheckpoint(eventID int64) error {
-	query := `
-		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
-		VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
-		ON CONFLICT (projection_name) DO UPDATE SET
-			last_processed_event_id = $2, last_processed_at = CURRENT_TIMESTAMP,
-			events_processed = projection_checkpoints.events_processed + 1
-	`
+	safeName := db.SafeString(p.Name())
+	eventID = int64(db.ValidateOffset(int(eventID)))
 	
-	_, err := p.client.DB().Exec(query, p.Name(), eventID)
+	query := fmt.Sprintf(`
+		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
+		VALUES ('%s', %d, CURRENT_TIMESTAMP, 1)
+		ON CONFLICT (projection_name) DO UPDATE SET
+			last_processed_event_id = %d, last_processed_at = CURRENT_TIMESTAMP,
+			events_processed = projection_checkpoints.events_processed + 1
+	`, safeName, eventID, eventID)
+	
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
@@ -110,43 +114,55 @@ func (p *FaltasProjection) handleFaltasRegistradas(event db.Event) error {
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	query := `
+	safeCodEst := db.SafeString(payload.CodigoEstudante)
+	safeCodAcad := db.SafeString(payload.CodigoAcademia)
+	safeAno := db.SafeString(payload.AnoLectivo)
+	safeMatID := db.SafeString(payload.MateriaDisciplinarID)
+
+	var obsStr string
+	if payload.Observacao != nil {
+		obsStr = fmt.Sprintf("'%s'", db.SafeString(*payload.Observacao))
+	} else {
+		obsStr = "NULL"
+	}
+
+	query := fmt.Sprintf(`
 		INSERT INTO projection_faltas (
 			codigo_estudante, codigo_academia, ano_lectivo, data,
 			materia_disciplinar_id, quantidade, observacao, registered_at, event_id, version
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		) VALUES ('%s', '%s', '%s', '%s', '%s', %d, %s, '%s', '%s', %d)
 		ON CONFLICT (codigo_estudante, codigo_academia, data, materia_disciplinar_id)
 		DO UPDATE SET quantidade = EXCLUDED.quantidade, observacao = EXCLUDED.observacao,
 			registered_at = EXCLUDED.registered_at, event_id = EXCLUDED.event_id, version = EXCLUDED.version
-	`
+	`, safeCodEst, safeCodAcad, safeAno, payload.Data.Format(time.RFC3339),
+		safeMatID, payload.Quantidade, obsStr,
+		payload.RegisteredAt.Format(time.RFC3339), event.EventID, event.EventVersion)
 
-	_, err := p.client.DB().Exec(query,
-		payload.CodigoEstudante, payload.CodigoAcademia, payload.AnoLectivo, payload.Data,
-		payload.MateriaDisciplinarID, payload.Quantidade, payload.Observacao, 
-		payload.RegisteredAt, event.EventID, event.EventVersion)
+	_, err := p.client.DB().Exec(query)
 
 	if err == nil {
-		updateQuery := `
-			UPDATE projection_estudantes SET total_faltas = (SELECT COALESCE(SUM(quantidade), 0) FROM projection_faltas WHERE codigo_estudante = $1)
-			WHERE codigo_estudante = $1
-		`
-		p.client.DB().Exec(updateQuery, payload.CodigoEstudante)
+		updateQuery := fmt.Sprintf(`
+			UPDATE projection_estudantes SET total_faltas = (SELECT COALESCE(SUM(quantidade), 0) FROM projection_faltas WHERE codigo_estudante = '%s')
+			WHERE codigo_estudante = '%s'
+		`, safeCodEst, safeCodEst)
+		p.client.DB().Exec(updateQuery)
 	}
 	return err
 }
 
-// ✅ CORRIGIDO: Query() + loop manual
 func (p *FaltasProjection) GetByEstudante(codigoEstudante string) ([]FaltaDTO, error) {
-	query := `
+	safeCodigo := db.SafeString(codigoEstudante)
+
+	query := fmt.Sprintf(`
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.data,
 			f.materia_disciplinar_id, m.nome as materia_nome, f.quantidade, f.observacao,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON f.materia_disciplinar_id::uuid = m.id
-		WHERE f.codigo_estudante = $1 ORDER BY f.data DESC
-	`
+		WHERE f.codigo_estudante = '%s' ORDER BY f.data DESC
+	`, safeCodigo)
 	
-	rows, err := p.client.DB().Query(query, codigoEstudante)
+	rows, err := p.client.DB().Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -166,20 +182,22 @@ func (p *FaltasProjection) GetByEstudante(codigoEstudante string) ([]FaltaDTO, e
 	return result, rows.Err()
 }
 
-// ✅ CORRIGIDO: Query() + loop manual
 func (p *FaltasProjection) GetByPeriodo(codigoEstudante, anoLectivo string, dataInicio, dataFim time.Time) ([]FaltaDTO, error) {
-	query := `
+	safeCodigo := db.SafeString(codigoEstudante)
+	safeAno := db.SafeString(anoLectivo)
+
+	query := fmt.Sprintf(`
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.data,
 			f.materia_disciplinar_id, m.nome as materia_nome, f.quantidade, f.observacao,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON f.materia_disciplinar_id::uuid = m.id
-		WHERE f.codigo_estudante = $1 AND f.ano_lectivo = $2 
-			AND f.data BETWEEN $3 AND $4
+		WHERE f.codigo_estudante = '%s' AND f.ano_lectivo = '%s' 
+			AND f.data BETWEEN '%s' AND '%s'
 		ORDER BY f.data DESC
-	`
+	`, safeCodigo, safeAno, dataInicio.Format(time.RFC3339), dataFim.Format(time.RFC3339))
 	
-	rows, err := p.client.DB().Query(query, codigoEstudante, anoLectivo, dataInicio, dataFim)
+	rows, err := p.client.DB().Query(query)
 	if err != nil {
 		return nil, err
 	}

@@ -46,7 +46,6 @@ func (p *AdminProjection) Handle(event db.Event) error {
 	}
 }
 
-// ✅ CORRIGIDO: Query() + loop manual
 func (p *AdminProjection) Rebuild() error {
 	if err := p.clear(); err != nil {
 		return err
@@ -87,14 +86,16 @@ func (p *AdminProjection) Rebuild() error {
 }
 
 func (p *AdminProjection) GetLastProcessedEventID() (int64, error) {
-	query := `
+	safeName := db.SafeString(p.Name())
+	
+	query := fmt.Sprintf(`
 		SELECT last_processed_event_id 
 		FROM projection_checkpoints 
-		WHERE projection_name = $1
-	`
+		WHERE projection_name = '%s'
+	`, safeName)
 	
 	var lastID int64
-	err := p.client.DB().QueryRow(query, p.Name()).Scan(&lastID)
+	err := p.client.DB().QueryRow(query).Scan(&lastID)
 	
 	if err == sql.ErrNoRows {
 		return 0, nil
@@ -103,18 +104,21 @@ func (p *AdminProjection) GetLastProcessedEventID() (int64, error) {
 }
 
 func (p *AdminProjection) UpdateCheckpoint(eventID int64) error {
-	query := `
+	safeName := db.SafeString(p.Name())
+	eventID = int64(db.ValidateOffset(int(eventID)))
+	
+	query := fmt.Sprintf(`
 		INSERT INTO projection_checkpoints (
 			projection_name, last_processed_event_id, last_processed_at, events_processed
-		) VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
+		) VALUES ('%s', %d, CURRENT_TIMESTAMP, 1)
 		ON CONFLICT (projection_name) 
 		DO UPDATE SET
-			last_processed_event_id = $2,
+			last_processed_event_id = %d,
 			last_processed_at = CURRENT_TIMESTAMP,
 			events_processed = projection_checkpoints.events_processed + 1
-	`
+	`, safeName, eventID, eventID)
 	
-	_, err := p.client.DB().Exec(query, p.Name(), eventID)
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
@@ -137,24 +141,38 @@ func (p *AdminProjection) handleAdminCriado(event db.Event) error {
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	query := `
+	aggID := event.AggregateID
+	if aggID == uuid.Nil {
+		return fmt.Errorf("UUID inválido")
+	}
+
+	safeNome := db.SafeString(payload.Nome)
+	safeEmail := db.SafeString(payload.Email)
+	safeHash := db.SafeString(payload.SenhaHash)
+	safeRole := db.SafeString(payload.Role)
+
+	var createdByStr string
+	if payload.CreatedBy != nil {
+		createdByStr = fmt.Sprintf("'%s'", *payload.CreatedBy)
+	} else {
+		createdByStr = "NULL"
+	}
+
+	query := fmt.Sprintf(`
 		INSERT INTO projection_admins (
 			id, nome, email, senha_hash, role, status,
 			created_by, created_at, updated_at, version,
 			total_acoes_realizadas, last_event_id
-		) VALUES ($1, $2, $3, $4, $5, 'ativo', $6, $7, CURRENT_TIMESTAMP, $8, 0, $9)
+		) VALUES ('%s', '%s', '%s', '%s', '%s', 'ativo', %s, '%s', CURRENT_TIMESTAMP, %d, 0, '%s')
 		ON CONFLICT (id) DO UPDATE SET
 			nome = EXCLUDED.nome, email = EXCLUDED.email,
 			senha_hash = EXCLUDED.senha_hash, role = EXCLUDED.role,
 			updated_at = EXCLUDED.updated_at, version = EXCLUDED.version,
 			last_event_id = EXCLUDED.last_event_id
-	`
+	`, aggID, safeNome, safeEmail, safeHash, safeRole, createdByStr,
+		payload.CreatedAt.Format(time.RFC3339), event.EventVersion, event.EventID)
 
-	_, err := p.client.DB().Exec(query, 
-		event.AggregateID, payload.Nome, payload.Email, payload.SenhaHash, 
-		payload.Role, payload.CreatedBy, payload.CreatedAt, 
-		event.EventVersion, event.EventID)
-
+	_, err := p.client.DB().Exec(query)
 	if err != nil {
 		log.Printf("[ADMIN_PROJECTION] Erro ao processar AdminCriado (event_id: %s)", event.EventID)
 		return err
@@ -164,35 +182,50 @@ func (p *AdminProjection) handleAdminCriado(event db.Event) error {
 }
 
 func (p *AdminProjection) handleAdminAtivado(event db.Event) error {
-	query := `
+	aggID := event.AggregateID
+	if aggID == uuid.Nil {
+		return fmt.Errorf("UUID inválido")
+	}
+
+	query := fmt.Sprintf(`
 		UPDATE projection_admins
-		SET status = 'ativo', version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
-		WHERE id = $3
-	`
+		SET status = 'ativo', version = %d, updated_at = CURRENT_TIMESTAMP, last_event_id = '%s'
+		WHERE id = '%s'
+	`, event.EventVersion, event.EventID, aggID)
 	
-	_, err := p.client.DB().Exec(query, event.EventVersion, event.EventID, event.AggregateID)
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
 func (p *AdminProjection) handleAdminDesativado(event db.Event) error {
-	query := `
+	aggID := event.AggregateID
+	if aggID == uuid.Nil {
+		return fmt.Errorf("UUID inválido")
+	}
+
+	query := fmt.Sprintf(`
 		UPDATE projection_admins
-		SET status = 'inativo', version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
-		WHERE id = $3
-	`
+		SET status = 'inativo', version = %d, updated_at = CURRENT_TIMESTAMP, last_event_id = '%s'
+		WHERE id = '%s'
+	`, event.EventVersion, event.EventID, aggID)
 	
-	_, err := p.client.DB().Exec(query, event.EventVersion, event.EventID, event.AggregateID)
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
 func (p *AdminProjection) handleAcaoAdminRegistrada(event db.Event) error {
-	query := `
+	aggID := event.AggregateID
+	if aggID == uuid.Nil {
+		return fmt.Errorf("UUID inválido")
+	}
+
+	query := fmt.Sprintf(`
 		UPDATE projection_admins
 		SET total_acoes_realizadas = total_acoes_realizadas + 1, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $1
-	`
+		WHERE id = '%s'
+	`, aggID)
 	
-	_, err := p.client.DB().Exec(query, event.AggregateID)
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
@@ -206,21 +239,26 @@ func (p *AdminProjection) handleAdminDadosAtualizados(event db.Event) error {
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
+	aggID := event.AggregateID
+	if aggID == uuid.Nil {
+		return fmt.Errorf("UUID inválido")
+	}
+
 	if payload.Nome != nil {
-		query := `UPDATE projection_admins SET nome = $1 WHERE id = $2`
-		p.client.DB().Exec(query, *payload.Nome, event.AggregateID)
+		safe := db.SafeString(*payload.Nome)
+		p.client.DB().Exec(fmt.Sprintf(`UPDATE projection_admins SET nome = '%s' WHERE id = '%s'`, safe, aggID))
 	}
 	
 	if payload.Email != nil {
-		query := `UPDATE projection_admins SET email = $1 WHERE id = $2`
-		p.client.DB().Exec(query, *payload.Email, event.AggregateID)
+		safe := db.SafeString(*payload.Email)
+		p.client.DB().Exec(fmt.Sprintf(`UPDATE projection_admins SET email = '%s' WHERE id = '%s'`, safe, aggID))
 	}
 
-	query := `
-		UPDATE projection_admins SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2 WHERE id = $3
-	`
+	query := fmt.Sprintf(`
+		UPDATE projection_admins SET version = %d, updated_at = CURRENT_TIMESTAMP, last_event_id = '%s' WHERE id = '%s'
+	`, event.EventVersion, event.EventID, aggID)
 	
-	_, err := p.client.DB().Exec(query, event.EventVersion, event.EventID, event.AggregateID)
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
@@ -233,28 +271,39 @@ func (p *AdminProjection) handleAdminRoleAtualizado(event db.Event) error {
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
-	query := `
+	aggID := event.AggregateID
+	if aggID == uuid.Nil {
+		return fmt.Errorf("UUID inválido")
+	}
+
+	safeRole := db.SafeString(payload.NovoRole)
+
+	query := fmt.Sprintf(`
 		UPDATE projection_admins
-		SET role = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
-		WHERE id = $4
-	`
+		SET role = '%s', version = %d, updated_at = CURRENT_TIMESTAMP, last_event_id = '%s'
+		WHERE id = '%s'
+	`, safeRole, event.EventVersion, event.EventID, aggID)
 	
-	_, err := p.client.DB().Exec(query, payload.NovoRole, event.EventVersion, event.EventID, event.AggregateID)
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
-// ✅ CORRIGIDO: QueryRow().Scan() manual
 func (p *AdminProjection) GetByID(id uuid.UUID) (*AdminDTO, error) {
-	query := `
+	if id == uuid.Nil {
+		return nil, fmt.Errorf("UUID inválido")
+	}
+
+	query := fmt.Sprintf(`
 		SELECT id, nome, email, senha_hash, role, status,
 			created_by, created_at, updated_at, total_acoes_realizadas, version
-		FROM projection_admins WHERE id = $1
-	`
+		FROM projection_admins WHERE id = '%s'`, id)
 	
 	var dto AdminDTO
-	err := p.client.DB().QueryRow(query, id).Scan(
+	var createdBy sql.NullString
+	
+	err := p.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.Nome, &dto.Email, &dto.SenhaHash, &dto.Role, &dto.Status,
-		&dto.CreatedBy, &dto.CreatedAt, &dto.UpdatedAt, &dto.TotalAcoesRealizadas, &dto.Version,
+		&createdBy, &dto.CreatedAt, &dto.UpdatedAt, &dto.TotalAcoesRealizadas, &dto.Version,
 	)
 	
 	if err == sql.ErrNoRows {
@@ -263,21 +312,29 @@ func (p *AdminProjection) GetByID(id uuid.UUID) (*AdminDTO, error) {
 	if err != nil {
 		return nil, err
 	}
+	
+	if createdBy.Valid {
+		uid, _ := uuid.Parse(createdBy.String)
+		dto.CreatedBy = &uid
+	}
+	
 	return &dto, nil
 }
 
-// ✅ CORRIGIDO: QueryRow().Scan() manual
 func (p *AdminProjection) GetByEmail(email string) (*AdminDTO, error) {
-	query := `
+	safeEmail := db.SafeString(email)
+
+	query := fmt.Sprintf(`
 		SELECT id, nome, email, senha_hash, role, status,
 			created_by, created_at, updated_at, total_acoes_realizadas, version
-		FROM projection_admins WHERE email = $1
-	`
+		FROM projection_admins WHERE email = '%s'`, safeEmail)
 	
 	var dto AdminDTO
-	err := p.client.DB().QueryRow(query, email).Scan(
+	var createdBy sql.NullString
+	
+	err := p.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.Nome, &dto.Email, &dto.SenhaHash, &dto.Role, &dto.Status,
-		&dto.CreatedBy, &dto.CreatedAt, &dto.UpdatedAt, &dto.TotalAcoesRealizadas, &dto.Version,
+		&createdBy, &dto.CreatedAt, &dto.UpdatedAt, &dto.TotalAcoesRealizadas, &dto.Version,
 	)
 
 	if err == sql.ErrNoRows {
@@ -286,11 +343,15 @@ func (p *AdminProjection) GetByEmail(email string) (*AdminDTO, error) {
 	if err != nil {
 		return nil, err
 	}
+	
+	if createdBy.Valid {
+		uid, _ := uuid.Parse(createdBy.String)
+		dto.CreatedBy = &uid
+	}
 
 	return &dto, nil
 }
 
-// ✅ CORRIGIDO: Query() + loop manual
 func (p *AdminProjection) GetAll() ([]AdminDTO, error) {
 	query := `
 		SELECT id, nome, email, senha_hash, role, status,
@@ -307,12 +368,17 @@ func (p *AdminProjection) GetAll() ([]AdminDTO, error) {
 	var dtos []AdminDTO
 	for rows.Next() {
 		var dto AdminDTO
+		var createdBy sql.NullString
 		err := rows.Scan(
 			&dto.ID, &dto.Nome, &dto.Email, &dto.SenhaHash, &dto.Role, &dto.Status,
-			&dto.CreatedBy, &dto.CreatedAt, &dto.UpdatedAt, &dto.TotalAcoesRealizadas, &dto.Version,
+			&createdBy, &dto.CreatedAt, &dto.UpdatedAt, &dto.TotalAcoesRealizadas, &dto.Version,
 		)
 		if err != nil {
 			continue
+		}
+		if createdBy.Valid {
+			uid, _ := uuid.Parse(createdBy.String)
+			dto.CreatedBy = &uid
 		}
 		dtos = append(dtos, dto)
 	}

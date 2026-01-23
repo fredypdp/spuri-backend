@@ -33,50 +33,63 @@ func NewEventStore(client *Client) *EventStore {
 	return &EventStore{client: client}
 }
 
-// ✅ SAFE: Mantém QueryRowContext pois usa RETURNING (necessário)
+// ✅ CORRIGIDO: Usar query direta sem placeholders
 func (es *EventStore) Append(ctx context.Context, event *Event) error {
-	query := `
+	if event.AggregateID == uuid.Nil {
+		return fmt.Errorf("UUID inválido")
+	}
+	
+	if err := ValidateAggregateType(event.AggregateType); err != nil {
+		return err
+	}
+	
+	if err := ValidateEventType(event.EventType); err != nil {
+		return err
+	}
+
+	safePayload := SafeString(string(event.Payload))
+	safeMetadata := SafeString(string(event.Metadata))
+	
+	query := fmt.Sprintf(`
 		INSERT INTO spuri_ledger (
 			event_id, aggregate_id, aggregate_type, event_type, 
 			event_version, payload, metadata, occurred_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
-		RETURNING id, recorded_at, ledger_hash, previous_hash`
+		) VALUES ('%s', '%s', '%s', '%s', %d, '%s', '%s', '%s') 
+		RETURNING id, recorded_at, ledger_hash, previous_hash`,
+		event.EventID, event.AggregateID, event.AggregateType, event.EventType,
+		event.EventVersion, safePayload, safeMetadata, event.OccurredAt.Format(time.RFC3339))
 
-	row := es.client.db.QueryRowContext(ctx, query,
-		event.EventID,
-		event.AggregateID,
-		event.AggregateType,
-		event.EventType,
-		event.EventVersion,
-		event.Payload,
-		event.Metadata,
-		event.OccurredAt,
-	)
+	row := es.client.db.QueryRow(query)
 
-	err := row.Scan(&event.ID, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash)
+	var prevHash sql.NullString
+	err := row.Scan(&event.ID, &event.RecordedAt, &event.LedgerHash, &prevHash)
 	if err != nil {
 		return fmt.Errorf("erro ao adicionar evento: %w", err)
+	}
+	
+	if prevHash.Valid {
+		event.PreviousHash = &prevHash.String
 	}
 
 	return nil
 }
 
-// ✅ CORRIGIDO: Usar Query() padrão ao invés de Queryx()
+// ✅ CORRIGIDO: Query direta
 func (es *EventStore) LoadEventStream(ctx context.Context, aggregateID uuid.UUID) ([]Event, error) {
 	if aggregateID == uuid.Nil {
 		return nil, fmt.Errorf("UUID inválido")
 	}
 
-	query := `
+	query := fmt.Sprintf(`
 		SELECT 
 			id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger
-		WHERE aggregate_id = $1
-		ORDER BY event_version ASC, recorded_at ASC`
+		WHERE aggregate_id = '%s'
+		ORDER BY event_version ASC, recorded_at ASC`, aggregateID)
 
-	rows, err := es.client.db.Query(query, aggregateID)
+	rows, err := es.client.db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao carregar events: %w", err)
 	}
@@ -85,13 +98,17 @@ func (es *EventStore) LoadEventStream(ctx context.Context, aggregateID uuid.UUID
 	var events []Event
 	for rows.Next() {
 		var event Event
+		var prevHash sql.NullString
 		err := rows.Scan(
 			&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
 			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
-			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash,
+			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &prevHash,
 		)
 		if err != nil {
 			return nil, err
+		}
+		if prevHash.Valid {
+			event.PreviousHash = &prevHash.String
 		}
 		events = append(events, event)
 	}
@@ -99,7 +116,7 @@ func (es *EventStore) LoadEventStream(ctx context.Context, aggregateID uuid.UUID
 	return events, rows.Err()
 }
 
-// ✅ CORRIGIDO: Usar Query() padrão
+// ✅ CORRIGIDO: Query direta
 func (es *EventStore) LoadEventStreamFromVersion(
 	ctx context.Context, 
 	aggregateID uuid.UUID, 
@@ -113,16 +130,16 @@ func (es *EventStore) LoadEventStreamFromVersion(
 		fromVersion = 0
 	}
 
-	query := `
+	query := fmt.Sprintf(`
 		SELECT 
 			id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger
-		WHERE aggregate_id = $1 AND event_version >= $2
-		ORDER BY event_version ASC, recorded_at ASC`
+		WHERE aggregate_id = '%s' AND event_version >= %d
+		ORDER BY event_version ASC, recorded_at ASC`, aggregateID, fromVersion)
 
-	rows, err := es.client.db.Query(query, aggregateID, fromVersion)
+	rows, err := es.client.db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao carregar events: %w", err)
 	}
@@ -131,13 +148,17 @@ func (es *EventStore) LoadEventStreamFromVersion(
 	var events []Event
 	for rows.Next() {
 		var event Event
+		var prevHash sql.NullString
 		err := rows.Scan(
 			&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
 			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
-			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash,
+			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &prevHash,
 		)
 		if err != nil {
 			return nil, err
+		}
+		if prevHash.Valid {
+			event.PreviousHash = &prevHash.String
 		}
 		events = append(events, event)
 	}
@@ -145,7 +166,7 @@ func (es *EventStore) LoadEventStreamFromVersion(
 	return events, rows.Err()
 }
 
-// ✅ CORRIGIDO: Usar Query() padrão
+// ✅ CORRIGIDO: Query direta
 func (es *EventStore) GetEventsByType(
 	ctx context.Context, 
 	eventType string, 
@@ -156,18 +177,19 @@ func (es *EventStore) GetEventsByType(
 	}
 
 	limit = ValidateLimit(limit)
+	safeType := SafeString(eventType)
 
-	query := `
+	query := fmt.Sprintf(`
 		SELECT 
 			id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger
-		WHERE event_type = $1
+		WHERE event_type = '%s'
 		ORDER BY recorded_at DESC
-		LIMIT $2`
+		LIMIT %d`, safeType, limit)
 
-	rows, err := es.client.db.Query(query, eventType, limit)
+	rows, err := es.client.db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar eventos: %w", err)
 	}
@@ -176,13 +198,17 @@ func (es *EventStore) GetEventsByType(
 	var events []Event
 	for rows.Next() {
 		var event Event
+		var prevHash sql.NullString
 		err := rows.Scan(
 			&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
 			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
-			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash,
+			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &prevHash,
 		)
 		if err != nil {
 			return nil, err
+		}
+		if prevHash.Valid {
+			event.PreviousHash = &prevHash.String
 		}
 		events = append(events, event)
 	}
@@ -190,7 +216,7 @@ func (es *EventStore) GetEventsByType(
 	return events, rows.Err()
 }
 
-// ✅ CORRIGIDO: Usar Query() padrão
+// ✅ CORRIGIDO: Query direta
 func (es *EventStore) GetAllEvents(
 	ctx context.Context, 
 	offset, limit int,
@@ -198,16 +224,16 @@ func (es *EventStore) GetAllEvents(
 	offset = ValidateOffset(offset)
 	limit = ValidateLimit(limit)
 
-	query := `
+	query := fmt.Sprintf(`
 		SELECT 
 			id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger
 		ORDER BY recorded_at DESC
-		LIMIT $1 OFFSET $2`
+		LIMIT %d OFFSET %d`, limit, offset)
 
-	rows, err := es.client.db.Query(query, limit, offset)
+	rows, err := es.client.db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar eventos: %w", err)
 	}
@@ -216,13 +242,17 @@ func (es *EventStore) GetAllEvents(
 	var events []Event
 	for rows.Next() {
 		var event Event
+		var prevHash sql.NullString
 		err := rows.Scan(
 			&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
 			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
-			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash,
+			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &prevHash,
 		)
 		if err != nil {
 			return nil, err
+		}
+		if prevHash.Valid {
+			event.PreviousHash = &prevHash.String
 		}
 		events = append(events, event)
 	}
@@ -230,47 +260,52 @@ func (es *EventStore) GetAllEvents(
 	return events, rows.Err()
 }
 
-// ✅ CORRIGIDO: Usar QueryRow() padrão
+// ✅ CORRIGIDO: Query direta
 func (es *EventStore) GetEventByID(ctx context.Context, eventID uuid.UUID) (*Event, error) {
 	if eventID == uuid.Nil {
 		return nil, fmt.Errorf("UUID inválido")
 	}
 
-	query := `
+	query := fmt.Sprintf(`
 		SELECT 
 			id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger
-		WHERE event_id = $1`
+		WHERE event_id = '%s'`, eventID)
 
 	var event Event
-	err := es.client.db.QueryRow(query, eventID).Scan(
+	var prevHash sql.NullString
+	err := es.client.db.QueryRow(query).Scan(
 		&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
 		&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
-		&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash,
+		&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &prevHash,
 	)
 	
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar evento: %w", err)
 	}
+	
+	if prevHash.Valid {
+		event.PreviousHash = &prevHash.String
+	}
 
 	return &event, nil
 }
 
-// ✅ CORRIGIDO: Usar QueryRow com placeholder
+// ✅ CORRIGIDO: Query direta
 func (es *EventStore) GetAggregateVersion(ctx context.Context, aggregateID uuid.UUID) (int, error) {
 	if aggregateID == uuid.Nil {
 		return 0, fmt.Errorf("UUID inválido")
 	}
 
-	query := `
+	query := fmt.Sprintf(`
 		SELECT COALESCE(MAX(event_version), 0)
 		FROM spuri_ledger
-		WHERE aggregate_id = $1`
+		WHERE aggregate_id = '%s'`, aggregateID)
 
 	var version int
-	err := es.client.db.QueryRow(query, aggregateID).Scan(&version)
+	err := es.client.db.QueryRow(query).Scan(&version)
 	
 	if err == sql.ErrNoRows {
 		return 0, nil
@@ -283,24 +318,24 @@ func (es *EventStore) GetAggregateVersion(ctx context.Context, aggregateID uuid.
 	return version, nil
 }
 
-// ✅ CORRIGIDO: Usar Query() padrão
+// ✅ CORRIGIDO: Query direta
 func (es *EventStore) VerifyLedgerIntegrity(ctx context.Context, aggregateID uuid.UUID) (bool, error) {
 	if aggregateID == uuid.Nil {
 		return false, fmt.Errorf("UUID inválido")
 	}
 
-	query := `
+	query := fmt.Sprintf(`
 		SELECT ledger_hash, previous_hash
 		FROM spuri_ledger
-		WHERE aggregate_id = $1
-		ORDER BY event_version ASC`
+		WHERE aggregate_id = '%s'
+		ORDER BY event_version ASC`, aggregateID)
 
 	type hashPair struct {
 		LedgerHash   string
-		PreviousHash *string
+		PreviousHash sql.NullString
 	}
 
-	rows, err := es.client.db.Query(query, aggregateID)
+	rows, err := es.client.db.Query(query)
 	if err != nil {
 		return false, fmt.Errorf("erro ao verificar integridade: %w", err)
 	}
@@ -317,10 +352,10 @@ func (es *EventStore) VerifyLedgerIntegrity(ctx context.Context, aggregateID uui
 	}
 
 	for i := 1; i < len(hashes); i++ {
-		if hashes[i].PreviousHash == nil {
+		if !hashes[i].PreviousHash.Valid {
 			return false, fmt.Errorf("hash anterior ausente no evento %d", i)
 		}
-		if *hashes[i].PreviousHash != hashes[i-1].LedgerHash {
+		if hashes[i].PreviousHash.String != hashes[i-1].LedgerHash {
 			return false, fmt.Errorf("cadeia de hashes quebrada no evento %d", i)
 		}
 	}
@@ -340,16 +375,16 @@ func (es *EventStore) CountEvents(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
-// ✅ CORRIGIDO: Usar QueryRow com placeholder ao invés de fmt.Sprintf
+// ✅ CORRIGIDO: Query direta
 func (es *EventStore) CountEventsByAggregate(ctx context.Context, aggregateID uuid.UUID) (int64, error) {
 	if aggregateID == uuid.Nil {
 		return 0, fmt.Errorf("UUID inválido")
 	}
 
-	query := `SELECT COUNT(*) FROM spuri_ledger WHERE aggregate_id = $1`
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM spuri_ledger WHERE aggregate_id = '%s'`, aggregateID)
 	
 	var count int64
-	err := es.client.db.QueryRow(query, aggregateID).Scan(&count)
+	err := es.client.db.QueryRow(query).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("erro ao contar eventos: %w", err)
 	}

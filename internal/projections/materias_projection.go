@@ -38,7 +38,6 @@ func (mp *MateriasProjection) Handle(event db.Event) error {
 	return nil
 }
 
-// ✅ CORRIGIDO: Query() + loop manual
 func (mp *MateriasProjection) Rebuild() error {
 	if err := mp.clear(); err != nil {
 		return err
@@ -73,14 +72,16 @@ func (mp *MateriasProjection) Rebuild() error {
 }
 
 func (mp *MateriasProjection) GetLastProcessedEventID() (int64, error) {
-	query := `
+	safeName := db.SafeString(mp.Name())
+	
+	query := fmt.Sprintf(`
 		SELECT last_processed_event_id 
 		FROM projection_checkpoints 
-		WHERE projection_name = $1
-	`
+		WHERE projection_name = '%s'
+	`, safeName)
 	
 	var lastID int64
-	err := mp.client.DB().QueryRow(query, mp.Name()).Scan(&lastID)
+	err := mp.client.DB().QueryRow(query).Scan(&lastID)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -88,15 +89,18 @@ func (mp *MateriasProjection) GetLastProcessedEventID() (int64, error) {
 }
 
 func (mp *MateriasProjection) UpdateCheckpoint(eventID int64) error {
-	query := `
-		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
-		VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
-		ON CONFLICT (projection_name) DO UPDATE SET
-			last_processed_event_id = $2, last_processed_at = CURRENT_TIMESTAMP,
-			events_processed = projection_checkpoints.events_processed + 1
-	`
+	safeName := db.SafeString(mp.Name())
+	eventID = int64(db.ValidateOffset(int(eventID)))
 	
-	_, err := mp.client.DB().Exec(query, mp.Name(), eventID)
+	query := fmt.Sprintf(`
+		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
+		VALUES ('%s', %d, CURRENT_TIMESTAMP, 1)
+		ON CONFLICT (projection_name) DO UPDATE SET
+			last_processed_event_id = %d, last_processed_at = CURRENT_TIMESTAMP,
+			events_processed = projection_checkpoints.events_processed + 1
+	`, safeName, eventID, eventID)
+	
+	_, err := mp.client.DB().Exec(query)
 	return err
 }
 
@@ -119,37 +123,64 @@ func (mp *MateriasProjection) handleMateriaCriada(event db.Event) error {
 		return err
 	}
 
-	var nivelJSON []byte
-	if len(payload.Nivel) > 0 {
-		nivelJSON, _ = json.Marshal(payload.Nivel)
+	aggID := event.AggregateID
+	if aggID == uuid.Nil {
+		return fmt.Errorf("UUID inválido")
 	}
 
-	query := `
-		INSERT INTO projection_materias (id, nome, type, nivel, codigo_academia, curso_id, status, created_at, updated_at, version, last_event_id)
-		VALUES ($1, $2, $3, $4, $5, $6, 'ativo', $7, CURRENT_TIMESTAMP, $8, $9)
-	`
+	safeNome := db.SafeString(payload.Nome)
+	safeType := db.SafeString(payload.Type)
+	safeCodigo := db.SafeString(payload.CodigoAcademia)
 
-	_, err := mp.client.DB().Exec(query,
-		event.AggregateID, payload.Nome, payload.Type, nivelJSON, payload.CodigoAcademia, payload.CursoID,
-		payload.CreatedAt, event.EventVersion, event.EventID)
+	var nivelStr, cursoStr string
+	if len(payload.Nivel) > 0 {
+		nivelJSON, _ := json.Marshal(payload.Nivel)
+		nivelStr = fmt.Sprintf("'%s'", db.SafeString(string(nivelJSON)))
+	} else {
+		nivelStr = "NULL"
+	}
+
+	if payload.CursoID != nil {
+		cursoStr = fmt.Sprintf("'%s'", *payload.CursoID)
+	} else {
+		cursoStr = "NULL"
+	}
+
+	query := fmt.Sprintf(`
+		INSERT INTO projection_materias (id, nome, type, nivel, codigo_academia, curso_id, status, created_at, updated_at, version, last_event_id)
+		VALUES ('%s', '%s', '%s', %s, '%s', %s, 'ativo', '%s', CURRENT_TIMESTAMP, %d, '%s')
+	`, aggID, safeNome, safeType, nivelStr, safeCodigo, cursoStr,
+		payload.CreatedAt.Format(time.RFC3339), event.EventVersion, event.EventID)
+
+	_, err := mp.client.DB().Exec(query)
 	return err
 }
 
 func (mp *MateriasProjection) handleMateriaAtivada(event db.Event) error {
-	query := `
-		UPDATE projection_materias SET status = 'ativo', version = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2
-	`
+	aggID := event.AggregateID
+	if aggID == uuid.Nil {
+		return fmt.Errorf("UUID inválido")
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE projection_materias SET status = 'ativo', version = %d, updated_at = CURRENT_TIMESTAMP WHERE id = '%s'
+	`, event.EventVersion, aggID)
 	
-	_, err := mp.client.DB().Exec(query, event.EventVersion, event.AggregateID)
+	_, err := mp.client.DB().Exec(query)
 	return err
 }
 
 func (mp *MateriasProjection) handleMateriaDesativada(event db.Event) error {
-	query := `
-		UPDATE projection_materias SET status = 'inativo', version = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2
-	`
+	aggID := event.AggregateID
+	if aggID == uuid.Nil {
+		return fmt.Errorf("UUID inválido")
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE projection_materias SET status = 'inativo', version = %d, updated_at = CURRENT_TIMESTAMP WHERE id = '%s'
+	`, event.EventVersion, aggID)
 	
-	_, err := mp.client.DB().Exec(query, event.EventVersion, event.AggregateID)
+	_, err := mp.client.DB().Exec(query)
 	return err
 }
 
@@ -163,33 +194,43 @@ func (mp *MateriasProjection) handleMateriaDadosAtualizados(event db.Event) erro
 		return err
 	}
 
-	if payload.Nome != nil {
-		mp.client.DB().Exec(`UPDATE projection_materias SET nome = $1 WHERE id = $2`, *payload.Nome, event.AggregateID)
-	}
-	if payload.Type != nil {
-		mp.client.DB().Exec(`UPDATE projection_materias SET type = $1 WHERE id = $2`, *payload.Type, event.AggregateID)
+	aggID := event.AggregateID
+	if aggID == uuid.Nil {
+		return fmt.Errorf("UUID inválido")
 	}
 
-	updateQuery := `
-		UPDATE projection_materias SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2 WHERE id = $3
-	`
+	if payload.Nome != nil {
+		safe := db.SafeString(*payload.Nome)
+		mp.client.DB().Exec(fmt.Sprintf(`UPDATE projection_materias SET nome = '%s' WHERE id = '%s'`, safe, aggID))
+	}
+	if payload.Type != nil {
+		safe := db.SafeString(*payload.Type)
+		mp.client.DB().Exec(fmt.Sprintf(`UPDATE projection_materias SET type = '%s' WHERE id = '%s'`, safe, aggID))
+	}
+
+	updateQuery := fmt.Sprintf(`
+		UPDATE projection_materias SET version = %d, updated_at = CURRENT_TIMESTAMP, last_event_id = '%s' WHERE id = '%s'
+	`, event.EventVersion, event.EventID, aggID)
 	
-	_, err := mp.client.DB().Exec(updateQuery, event.EventVersion, event.EventID, event.AggregateID)
+	_, err := mp.client.DB().Exec(updateQuery)
 	return err
 }
 
-// ✅ CORRIGIDO: QueryRow().Scan() manual
 func (mp *MateriasProjection) GetByID(id uuid.UUID) (*MateriaDTO, error) {
-	query := `
+	if id == uuid.Nil {
+		return nil, fmt.Errorf("UUID inválido")
+	}
+
+	query := fmt.Sprintf(`
 		SELECT id, nome, type, nivel, codigo_academia, curso_id, status, created_at, updated_at, version
-		FROM projection_materias WHERE id = $1
-	`
+		FROM projection_materias WHERE id = '%s'
+	`, id)
 	
 	var dto MateriaDTO
 	var nivelJSON sql.NullString
 	var cursoID sql.NullString
 
-	err := mp.client.DB().QueryRow(query, id).Scan(
+	err := mp.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.Nome, &dto.Type, &nivelJSON, &dto.CodigoAcademia, 
 		&cursoID, &dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version)
 	
@@ -212,14 +253,15 @@ func (mp *MateriasProjection) GetByID(id uuid.UUID) (*MateriaDTO, error) {
 	return &dto, nil
 }
 
-// ✅ CORRIGIDO: Query() + loop manual
 func (mp *MateriasProjection) GetByAcademia(codigoAcademia string) ([]MateriaDTO, error) {
-	query := `
+	safeCodigo := db.SafeString(codigoAcademia)
+
+	query := fmt.Sprintf(`
 		SELECT id, nome, type, nivel, codigo_academia, curso_id, status, created_at, updated_at, version
-		FROM projection_materias WHERE codigo_academia = $1 ORDER BY created_at DESC
-	`
+		FROM projection_materias WHERE codigo_academia = '%s' ORDER BY created_at DESC
+	`, safeCodigo)
 	
-	rows, err := mp.client.DB().Query(query, codigoAcademia)
+	rows, err := mp.client.DB().Query(query)
 	if err != nil {
 		return nil, err
 	}
