@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
 	"time"
