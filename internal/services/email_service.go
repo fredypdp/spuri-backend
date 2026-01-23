@@ -72,12 +72,13 @@ func (s *EmailService) SaveToken(userID uuid.UUID, userType, tipo, email string,
 
 	expiresAt := time.Now().Add(expiresIn)
 
-	query := `
+	// ✅ SEM PREPARED STATEMENT - interpolação direta
+	query := fmt.Sprintf(`
 		INSERT INTO auth_tokens (user_id, user_type, token, tipo, email, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`
+		VALUES ('%s', '%s', '%s', '%s', '%s', '%s')
+	`, userID.String(), userType, token, tipo, email, expiresAt.Format("2006-01-02 15:04:05"))
 
-	_, err = s.db.Exec(query, userID, userType, token, tipo, email, expiresAt)
+	_, err = s.db.Exec(query)
 	if err != nil {
 		return "", fmt.Errorf("erro ao salvar token: %w", err)
 	}
@@ -86,15 +87,16 @@ func (s *EmailService) SaveToken(userID uuid.UUID, userType, tipo, email string,
 }
 
 func (s *EmailService) VerifyToken(token, tipo string) (*TokenInfo, error) {
-	query := `
+	// ✅ SEM PREPARED STATEMENT - interpolação direta
+	query := fmt.Sprintf(`
 		SELECT user_id, user_type, email, usado, expires_at
 		FROM auth_tokens
-		WHERE token = $1 AND tipo = $2
-	`
+		WHERE token = '%s' AND tipo = '%s'
+	`, token, tipo)
 
 	var info TokenInfo
 	
-	err := s.db.QueryRow(query, token, tipo).Scan(
+	err := s.db.QueryRow(query).Scan(
 		&info.UserID,
 		&info.UserType,
 		&info.Email,
@@ -116,12 +118,13 @@ func (s *EmailService) VerifyToken(token, tipo string) (*TokenInfo, error) {
 		return nil, fmt.Errorf("token expirado")
 	}
 
-	updateQuery := `
+	// ✅ SEM PREPARED STATEMENT
+	updateQuery := fmt.Sprintf(`
 		UPDATE auth_tokens 
 		SET usado = TRUE, usado_em = CURRENT_TIMESTAMP 
-		WHERE token = $1
-	`
-	s.db.Exec(updateQuery, token)
+		WHERE token = '%s'
+	`, token)
+	s.db.Exec(updateQuery)
 
 	return &info, nil
 }
