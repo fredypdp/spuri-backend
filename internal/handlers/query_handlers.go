@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"net/http"
 	"spuri/internal/middleware"
 	"strconv"
@@ -31,7 +32,6 @@ func getPaginationParams(c *gin.Context) (limit, offset int) {
 	return limit, offset
 }
 
-// ✅ CORRIGIDO: Query() + loop manual para todas as queries
 func ListarInscricoes(c *gin.Context) {
 	userID, exists := middleware.GetUserID(c)
 	if !exists {
@@ -51,19 +51,19 @@ func ListarInscricoes(c *gin.Context) {
 	client := getDbClient(c)
 
 	type InscricaoDetalhada struct {
-		ID              string  `db:"id" json:"id"`
-		EstudanteID     string  `db:"estudante_id" json:"estudante_id"`
-		CodigoEstudante string  `db:"codigo_estudante" json:"codigo_estudante"`
-		AcademiaID      string  `db:"academia_id" json:"academia_id"`
-		CodigoAcademia  string  `db:"codigo_academia" json:"codigo_academia"`
-		Tipo            string  `db:"tipo" json:"tipo"`
-		AnoInscricao    string  `db:"ano_inscricao" json:"ano_inscricao"`
-		Curso           *string `db:"curso" json:"curso,omitempty"`
-		Status          string  `db:"status" json:"status"`
-		CreatedAt       string  `db:"created_at" json:"created_at"`
-		UpdatedAt       string  `db:"updated_at" json:"updated_at"`
-		EventID         *string `db:"event_id" json:"event_id,omitempty"`
-		Version         *int    `db:"version" json:"version,omitempty"`
+		ID              string         `db:"id" json:"id"`
+		EstudanteID     string         `db:"estudante_id" json:"estudante_id"`
+		CodigoEstudante string         `db:"codigo_estudante" json:"codigo_estudante"`
+		AcademiaID      string         `db:"academia_id" json:"academia_id"`
+		CodigoAcademia  string         `db:"codigo_academia" json:"codigo_academia"`
+		Tipo            string         `db:"tipo" json:"tipo"`
+		AnoInscricao    string         `db:"ano_inscricao" json:"ano_inscricao"`
+		Curso           sql.NullString `db:"curso" json:"curso,omitempty"`
+		Status          string         `db:"status" json:"status"`
+		CreatedAt       string         `db:"created_at" json:"created_at"`
+		UpdatedAt       string         `db:"updated_at" json:"updated_at"`
+		EventID         sql.NullString `db:"event_id" json:"event_id,omitempty"`
+		Version         sql.NullInt32  `db:"version" json:"version,omitempty"`
 	}
 
 	var inscricoes []InscricaoDetalhada
@@ -235,7 +235,6 @@ func ListarInscricoes(c *gin.Context) {
 	})
 }
 
-// ✅ CORRIGIDO: Query() + loop manual
 func ListarInscricoesPendentes(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
@@ -244,17 +243,17 @@ func ListarInscricoesPendentes(c *gin.Context) {
 	client := getDbClient(c)
 
 	type InscricaoDetalhada struct {
-		ID              string  `db:"id" json:"id"`
-		EstudanteID     string  `db:"estudante_id" json:"estudante_id"`
-		CodigoEstudante string  `db:"codigo_estudante" json:"codigo_estudante"`
-		AcademiaID      string  `db:"academia_id" json:"academia_id"`
-		CodigoAcademia  string  `db:"codigo_academia" json:"codigo_academia"`
-		Tipo            string  `db:"tipo" json:"tipo"`
-		AnoInscricao    string  `db:"ano_inscricao" json:"ano_inscricao"`
-		Curso           *string `db:"curso" json:"curso,omitempty"`
-		Status          string  `db:"status" json:"status"`
-		CreatedAt       string  `db:"created_at" json:"created_at"`
-		UpdatedAt       string  `db:"updated_at" json:"updated_at"`
+		ID              string         `db:"id" json:"id"`
+		EstudanteID     string         `db:"estudante_id" json:"estudante_id"`
+		CodigoEstudante string         `db:"codigo_estudante" json:"codigo_estudante"`
+		AcademiaID      string         `db:"academia_id" json:"academia_id"`
+		CodigoAcademia  string         `db:"codigo_academia" json:"codigo_academia"`
+		Tipo            string         `db:"tipo" json:"tipo"`
+		AnoInscricao    string         `db:"ano_inscricao" json:"ano_inscricao"`
+		Curso           sql.NullString `db:"curso" json:"curso,omitempty"`
+		Status          string         `db:"status" json:"status"`
+		CreatedAt       string         `db:"created_at" json:"created_at"`
+		UpdatedAt       string         `db:"updated_at" json:"updated_at"`
 	}
 
 	var inscricoes []InscricaoDetalhada
@@ -580,7 +579,7 @@ func GetMeuHistorico(c *gin.Context) {
 	})
 }
 
-// ✅ CORRIGIDO: Query() + loop manual
+// ✅ CORRIGIDO: Usar sql.NullString para nivel_escolar
 func ListarTodasAcademias(c *gin.Context) {
 	limit, offset := getPaginationParams(c)
 	
@@ -595,16 +594,16 @@ func ListarTodasAcademias(c *gin.Context) {
 	`
 
 	type AcademiaSimples struct {
-		ID                       uuid.UUID `db:"id" json:"id"`
-		Nome                     string    `db:"nome" json:"nome"`
-		CodigoAcademia           string    `db:"codigo_academia" json:"codigo_academia"`
-		Type                     string    `db:"type" json:"type"`
-		Provincia                string    `db:"provincia" json:"provincia"`
-		Status                   string    `db:"status" json:"status"`
-		NivelEscolar             *string   `db:"nivel_escolar" json:"nivel_escolar"`
-		CreatedAt                string    `db:"created_at" json:"created_at"`
-		TotalEstudantes          int       `db:"total_estudantes" json:"total_estudantes"`
-		TotalInscricoesPendentes int       `db:"total_inscricoes_pendentes" json:"total_inscricoes_pendentes"`
+		ID                       uuid.UUID      `db:"id" json:"id"`
+		Nome                     string         `db:"nome" json:"nome"`
+		CodigoAcademia           string         `db:"codigo_academia" json:"codigo_academia"`
+		Type                     string         `db:"type" json:"type"`
+		Provincia                string         `db:"provincia" json:"provincia"`
+		Status                   string         `db:"status" json:"status"`
+		NivelEscolar             sql.NullString `db:"nivel_escolar" json:"nivel_escolar"`
+		CreatedAt                string         `db:"created_at" json:"created_at"`
+		TotalEstudantes          int            `db:"total_estudantes" json:"total_estudantes"`
+		TotalInscricoesPendentes int            `db:"total_inscricoes_pendentes" json:"total_inscricoes_pendentes"`
 	}
 
 	var academias []AcademiaSimples
