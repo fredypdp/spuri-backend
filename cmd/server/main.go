@@ -30,7 +30,6 @@ func main() {
 		}
 	}
 
-	// 🔥 CONECTAR AO BANCO + RODAR MIGRATIONS AUTOMATICAMENTE
 	if err := initDB(); err != nil {
 		log.Fatalf("[ERROR] Erro ao conectar ao banco de dados: %v", err)
 	}
@@ -71,7 +70,6 @@ func initDB() error {
 		return err
 	}
 
-	// 🔥 RODAR MIGRATIONS AUTOMATICAMENTE
 	if err := dbClient.RunMigrations(); err != nil {
 		return fmt.Errorf("erro ao rodar migrations: %w", err)
 	}
@@ -138,7 +136,8 @@ func setupRouter() *gin.Engine {
 	emailGroup := router.Group("/")
 	emailGroup.Use(middleware.EmailRateLimit())
 	{
-		emailGroup.GET("/verificar-email/:token", handlers.VerificarEmail)
+		emailGroup.POST("/verificar-email/:token", handlers.VerificarEmail)
+		emailGroup.POST("/verificar-email/solicitar", handlers.SolicitarVerificacaoEmail)
 		emailGroup.POST("/recuperar-senha/solicitar", handlers.SolicitarRecuperacaoSenha)
 		emailGroup.POST("/recuperar-senha/:token", handlers.ResetarSenha)
 	}

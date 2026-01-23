@@ -1,5 +1,5 @@
 // ============================================================================
-// auth_email_handlers.go - SEM PREPARED STATEMENTS
+// auth_email_handlers.go - Handlers de verificação e recuperação
 // ============================================================================
 
 package handlers
@@ -15,7 +15,67 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// VerificarEmail verifica email usando token
+// SolicitarVerificacaoEmail envia email de verificação
+func SolicitarVerificacaoEmail(c *gin.Context) {
+	var req struct {
+		Identificador string `json:"identificador" binding:"required"`
+		Tipo          string `json:"tipo" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		return
+	}
+
+	client := getDbClient(c)
+	emailSvc := getEmailService(c)
+
+	var userID uuid.UUID
+	var email, nome string
+	var query string
+
+	safeId := db.SafeString(req.Identificador)
+
+	switch req.Tipo {
+	case "estudante":
+		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_estudantes 
+		         WHERE codigo_estudante = '%s' OR email = '%s'`, safeId, safeId)
+	case "academia":
+		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_academias 
+		         WHERE codigo_academia = '%s' OR email = '%s'`, safeId, safeId)
+	case "admin":
+		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_admins WHERE email = '%s'`, safeId)
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "tipo inválido"})
+		return
+	}
+
+	var idStr string
+	err := client.DB().QueryRow(query).Scan(&idStr, &email, &nome)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
+		return
+	}
+	
+	userID, _ = uuid.Parse(idStr)
+
+	if email == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "usuário não possui email cadastrado"})
+		return
+	}
+
+	if err := emailSvc.SendVerificationEmail(userID, req.Tipo, email, nome); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao enviar email"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Email de verificação enviado! Verifique sua caixa de entrada.",
+		"email":   maskEmail(email),
+	})
+}
+
+// VerificarEmail verifica email usando token (POST)
 func VerificarEmail(c *gin.Context) {
 	token := c.Param("token")
 	
@@ -39,7 +99,6 @@ func VerificarEmail(c *gin.Context) {
 		return
 	}
 
-	// ✅ SEM PREPARED STATEMENT
 	client := getDbClient(c)
 	query := fmt.Sprintf("UPDATE %s SET email_verificado = TRUE WHERE id = '%s'", table, tokenInfo.UserID)
 	_, err = client.DB().Exec(query)
@@ -89,7 +148,6 @@ func SolicitarRecuperacaoSenha(c *gin.Context) {
 		return
 	}
 
-	// ✅ SEM PREPARED STATEMENT
 	var idStr string
 	err := client.DB().QueryRow(query).Scan(&idStr, &email, &nome)
 	if err != nil {
@@ -115,7 +173,7 @@ func SolicitarRecuperacaoSenha(c *gin.Context) {
 	})
 }
 
-// ResetarSenha redefine senha usando token
+// ResetarSenha redefine senha usando token (POST)
 func ResetarSenha(c *gin.Context) {
 	token := c.Param("token")
 
@@ -147,7 +205,6 @@ func ResetarSenha(c *gin.Context) {
 		return
 	}
 
-	// ✅ SEM PREPARED STATEMENT
 	err = client.DB().QueryRow(query).Scan(&codigo)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
@@ -161,7 +218,6 @@ func ResetarSenha(c *gin.Context) {
 		return
 	}
 
-	// ✅ SEM PREPARED STATEMENT
 	safeHash := db.SafeString(string(hashedPassword))
 	updateQuery := fmt.Sprintf("UPDATE %s SET senha_hash = '%s' WHERE id = '%s'", table, safeHash, tokenInfo.UserID)
 	_, err = client.DB().Exec(updateQuery)
@@ -213,7 +269,6 @@ func AlterarSenha(c *gin.Context) {
 		return
 	}
 
-	// ✅ SEM PREPARED STATEMENT - Verificar senha atual
 	query := fmt.Sprintf("SELECT senha_hash FROM %s WHERE id = '%s'", table, userID)
 	var senhaHash string
 	err := client.DB().QueryRow(query).Scan(&senhaHash)
@@ -233,7 +288,6 @@ func AlterarSenha(c *gin.Context) {
 		return
 	}
 
-	// ✅ SEM PREPARED STATEMENT - Atualizar
 	safeHash := db.SafeString(string(hashedPassword))
 	updateQuery := fmt.Sprintf("UPDATE %s SET senha_hash = '%s' WHERE id = '%s'", table, safeHash, userID)
 	_, err = client.DB().Exec(updateQuery)

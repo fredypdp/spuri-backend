@@ -24,6 +24,7 @@ type EmailService struct {
 	fromEmail  string
 	fromName   string
 	baseURL    string
+	frontendURL string
 	enabled    bool
 	useSSL     bool
 }
@@ -44,16 +45,17 @@ func NewEmailService(db *sqlx.DB) *EmailService {
 	}
 
 	return &EmailService{
-		db:        db,
-		smtpHost:  smtpHost,
-		smtpPort:  smtpPort,
-		smtpUser:  smtpUser,
-		smtpPass:  smtpPass,
-		fromEmail: getEnvOrDefault("FROM_EMAIL", smtpUser),
-		fromName:  getEnvOrDefault("FROM_NAME", "Spuri"),
-		baseURL:   getEnvOrDefault("BASE_URL", "http://localhost:8080"),
-		enabled:   enabled,
-		useSSL:    useSSL,
+		db:          db,
+		smtpHost:    smtpHost,
+		smtpPort:    smtpPort,
+		smtpUser:    smtpUser,
+		smtpPass:    smtpPass,
+		fromEmail:   getEnvOrDefault("FROM_EMAIL", smtpUser),
+		fromName:    getEnvOrDefault("FROM_NAME", "Spuri"),
+		baseURL:     getEnvOrDefault("BASE_URL", "http://localhost:8080"),
+		frontendURL: getEnvOrDefault("FRONTEND_URL", "http://localhost:3000"),
+		enabled:     enabled,
+		useSSL:      useSSL,
 	}
 }
 
@@ -154,10 +156,8 @@ func (s *EmailService) SendEmail(to, subject, body string) error {
 	addr := fmt.Sprintf("%s:%s", s.smtpHost, s.smtpPort)
 
 	if s.useSSL {
-		// Porta 465 - SSL direto
 		return s.sendMailSSL(addr, to, msg)
 	} else {
-		// Porta 587 - STARTTLS
 		return s.sendMailTLS(addr, to, msg)
 	}
 }
@@ -245,7 +245,7 @@ func (s *EmailService) SendVerificationEmail(userID uuid.UUID, userType, email, 
 		return fmt.Errorf("erro ao gerar token: %w", err)
 	}
 
-	verifyURL := fmt.Sprintf("%s/verificar-email/%s", s.baseURL, token)
+	verifyURL := fmt.Sprintf("%s/verificar-email/%s", s.frontendURL, token)
 
 	subject := "Verifique seu email - Spuri"
 	body := fmt.Sprintf(`
@@ -290,7 +290,7 @@ func (s *EmailService) SendPasswordResetEmail(userID uuid.UUID, userType, email,
 		return fmt.Errorf("erro ao gerar token: %w", err)
 	}
 
-	resetURL := fmt.Sprintf("%s/recuperar-senha/%s", s.baseURL, token)
+	resetURL := fmt.Sprintf("%s/recuperar-senha/%s", s.frontendURL, token)
 
 	subject := "Recuperação de Senha - Spuri"
 	body := fmt.Sprintf(`

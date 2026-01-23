@@ -33,19 +33,18 @@
 │   │   │   └── materia_disciplinar_test.go
 │   │   └── models.go
 │   ├── handlers
-│   │   ├── admin_auth_handlers.go
 │   │   ├── admin_handlers.go
 │   │   ├── admin_management_handlers.go
 │   │   ├── admin_registros_handlers.go
 │   │   ├── auth_email_handlers.go
 │   │   ├── auth_handlers.go
-│   │   ├── auth_handlers_test.go
 │   │   ├── bootstrap_handler.go
 │   │   ├── command_handlers.go
 │   │   ├── cursos_handlers.go
 │   │   ├── docs_handler.go
 │   │   ├── health_and_docs_handlers.go
 │   │   ├── helpers.go
+│   │   ├── missing_handlers.go
 │   │   ├── monitoring_handlers.go
 │   │   ├── profile_handlers.go
 │   │   ├── query_handlers.go
