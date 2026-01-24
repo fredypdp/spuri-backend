@@ -524,53 +524,6 @@ func DesativarAcademia(c *gin.Context) {
 	})
 }
 
-// verificarPermissaoAdmin verifica se o admin tem a permissão necessária
-func verificarPermissaoAdmin(c *gin.Context, minRole string) error {
-	userID, _ := middleware.GetUserID(c)
-
-	log.Printf("🔍 [verificarPermissaoAdmin] UserID: %s, MinRole: %s", userID, minRole)
-
-	adminProj := getAdminProjection(c)
-	admin, err := adminProj.GetByID(userID)
-	if err != nil {
-		log.Printf("❌ [verificarPermissaoAdmin] Erro ao buscar admin: %v", err)
-		return fmt.Errorf("administrador não encontrado")
-	}
-	if admin == nil {
-		log.Printf("❌ [verificarPermissaoAdmin] Admin não encontrado para ID: %s", userID)
-		return fmt.Errorf("administrador não encontrado")
-	}
-
-	log.Printf("✅ [verificarPermissaoAdmin] Admin encontrado - Nome: %s, Role: %s, Status: %s", 
-		admin.Nome, admin.Role, admin.Status)
-
-	if admin.Status != "ativo" {
-		log.Printf("❌ [verificarPermissaoAdmin] Admin está inativo")
-		return fmt.Errorf("administrador está inativo")
-	}
-
-	// Hierarquia
-	hierarchy := map[string]int{
-		"fpp":     3,
-		"adm":     2,
-		"gerente": 1,
-	}
-
-	currentLevel := hierarchy[admin.Role]
-	requiredLevel := hierarchy[minRole]
-
-	log.Printf("🔍 [verificarPermissaoAdmin] Hierarquia - Current: %d (%s), Required: %d (%s)", 
-		currentLevel, admin.Role, requiredLevel, minRole)
-
-	if currentLevel < requiredLevel {
-		log.Printf("❌ [verificarPermissaoAdmin] Permissão insuficiente")
-		return fmt.Errorf("permissão negada: requer role '%s' ou superior", minRole)
-	}
-
-	log.Printf("✅ [verificarPermissaoAdmin] Permissão OK")
-	return nil
-}
-
 // ============================================================================
 // OPERAÇÕES ADMINISTRATIVAS - PROJEÇÕES E SISTEMA
 // ============================================================================
@@ -829,13 +782,24 @@ func getAdminProjection(c *gin.Context) *projections.AdminProjection {
 func verificarPermissaoAdmin(c *gin.Context, minRole string) error {
 	userID, _ := middleware.GetUserID(c)
 
+	log.Printf("🔍 [verificarPermissaoAdmin] UserID: %s, MinRole: %s", userID, minRole)
+
 	adminProj := getAdminProjection(c)
 	admin, err := adminProj.GetByID(userID)
-	if err != nil || admin == nil {
+	if err != nil {
+		log.Printf("❌ [verificarPermissaoAdmin] Erro ao buscar admin: %v", err)
+		return fmt.Errorf("administrador não encontrado")
+	}
+	if admin == nil {
+		log.Printf("❌ [verificarPermissaoAdmin] Admin não encontrado para ID: %s", userID)
 		return fmt.Errorf("administrador não encontrado")
 	}
 
+	log.Printf("✅ [verificarPermissaoAdmin] Admin encontrado - Nome: %s, Role: %s, Status: %s", 
+		admin.Nome, admin.Role, admin.Status)
+
 	if admin.Status != "ativo" {
+		log.Printf("❌ [verificarPermissaoAdmin] Admin está inativo")
 		return fmt.Errorf("administrador está inativo")
 	}
 
@@ -846,10 +810,18 @@ func verificarPermissaoAdmin(c *gin.Context, minRole string) error {
 		"gerente": 1,
 	}
 
-	if hierarchy[admin.Role] < hierarchy[minRole] {
+	currentLevel := hierarchy[admin.Role]
+	requiredLevel := hierarchy[minRole]
+
+	log.Printf("🔍 [verificarPermissaoAdmin] Hierarquia - Current: %d (%s), Required: %d (%s)", 
+		currentLevel, admin.Role, requiredLevel, minRole)
+
+	if currentLevel < requiredLevel {
+		log.Printf("❌ [verificarPermissaoAdmin] Permissão insuficiente")
 		return fmt.Errorf("permissão negada: requer role '%s' ou superior", minRole)
 	}
 
+	log.Printf("✅ [verificarPermissaoAdmin] Permissão OK")
 	return nil
 }
 
