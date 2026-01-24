@@ -73,33 +73,45 @@ func GenerateToken() (string, error) {
 }
 
 func (s *EmailService) SaveToken(userID uuid.UUID, userType, tipo, email string, expiresIn time.Duration) (string, error) {
+	log.Printf("[EMAIL][DEBUG] SaveToken - UserID: %s, Type: %s, Tipo: %s, Email: %s", userID, userType, tipo, email)
+	
 	token, err := GenerateToken()
 	if err != nil {
+		log.Printf("[EMAIL][DEBUG] Erro ao gerar token: %v", err)
 		return "", fmt.Errorf("erro ao gerar token: %w", err)
 	}
 
 	expiresAt := time.Now().Add(expiresIn)
+	log.Printf("[EMAIL][DEBUG] Token gerado, expira em: %s", expiresAt.Format("2006-01-02 15:04:05"))
 
 	query := fmt.Sprintf(`
 		INSERT INTO auth_tokens (user_id, user_type, token, tipo, email, expires_at)
 		VALUES ('%s', '%s', '%s', '%s', '%s', '%s')
 	`, userID.String(), userType, token, tipo, email, expiresAt.Format("2006-01-02 15:04:05"))
 
+	log.Printf("[EMAIL][DEBUG] Executando query: %s", query)
+	
 	_, err = s.db.Exec(query)
 	if err != nil {
+		log.Printf("[EMAIL][DEBUG] Erro ao executar query: %v", err)
 		return "", fmt.Errorf("erro ao salvar token: %w", err)
 	}
 
+	log.Printf("[EMAIL][DEBUG] Token salvo com sucesso")
 	return token, nil
 }
 
 func (s *EmailService) VerifyToken(token, tipo string) (*TokenInfo, error) {
+	log.Printf("[EMAIL][DEBUG] VerifyToken - Token: %s, Tipo: %s", token, tipo)
+	
 	query := fmt.Sprintf(`
 		SELECT user_id, user_type, email, usado, expires_at
 		FROM auth_tokens
 		WHERE token = '%s' AND tipo = '%s'
 	`, token, tipo)
 
+	log.Printf("[EMAIL][DEBUG] Executando query: %s", query)
+	
 	var info TokenInfo
 	
 	err := s.db.QueryRow(query).Scan(
@@ -111,16 +123,23 @@ func (s *EmailService) VerifyToken(token, tipo string) (*TokenInfo, error) {
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
+			log.Printf("[EMAIL][DEBUG] Token não encontrado")
 			return nil, fmt.Errorf("token inválido ou expirado")
 		}
+		log.Printf("[EMAIL][DEBUG] Erro ao verificar token: %v", err)
 		return nil, fmt.Errorf("erro ao verificar token: %w", err)
 	}
 
+	log.Printf("[EMAIL][DEBUG] Token encontrado - UserID: %s, Usado: %v, Expira: %s", 
+		info.UserID, info.Usado, info.ExpiresAt.Format("2006-01-02 15:04:05"))
+
 	if info.Usado {
+		log.Printf("[EMAIL][DEBUG] Token já foi usado")
 		return nil, fmt.Errorf("token já foi usado")
 	}
 
 	if time.Now().After(info.ExpiresAt) {
+		log.Printf("[EMAIL][DEBUG] Token expirado")
 		return nil, fmt.Errorf("token expirado")
 	}
 
@@ -129,21 +148,28 @@ func (s *EmailService) VerifyToken(token, tipo string) (*TokenInfo, error) {
 		SET usado = TRUE, usado_em = CURRENT_TIMESTAMP 
 		WHERE token = '%s'
 	`, token)
+	
+	log.Printf("[EMAIL][DEBUG] Marcando token como usado: %s", updateQuery)
 	s.db.Exec(updateQuery)
 
+	log.Printf("[EMAIL][DEBUG] Token verificado e marcado como usado com sucesso")
 	return &info, nil
 }
 
 func (s *EmailService) SendEmail(to, subject, body string) error {
+	log.Printf("[EMAIL][DEBUG] SendEmail iniciado - Para: %s, Assunto: %s", to, subject)
+	
 	if !s.enabled {
+		log.Printf("[EMAIL][DEBUG] Serviço desabilitado, abortando")
 		return fmt.Errorf("serviço de email desabilitado")
 	}
 
 	if to == "" {
+		log.Printf("[EMAIL][DEBUG] Destinatário vazio, abortando")
 		return fmt.Errorf("destinatário vazio")
 	}
 
-	log.Printf("[EMAIL] Tentando enviar para %s via %s:%s (SSL: %v)", 
+	log.Printf("[EMAIL][DEBUG] Tentando enviar para %s via %s:%s (SSL: %v)", 
 		to, s.smtpHost, s.smtpPort, s.useSSL)
 
 	msg := fmt.Sprintf("From: %s <%s>\r\n"+
@@ -154,122 +180,94 @@ func (s *EmailService) SendEmail(to, subject, body string) error {
 		"\r\n"+
 		"%s", s.fromName, s.fromEmail, to, subject, body)
 
+	log.Printf("[EMAIL][DEBUG] Mensagem formatada (%d bytes)", len(msg))
+
 	addr := fmt.Sprintf("%s:%s", s.smtpHost, s.smtpPort)
 
 	if s.useSSL {
+		log.Printf("[EMAIL][DEBUG] Usando método SSL (porta 465)")
 		return s.sendMailSSL(addr, to, msg)
-	} else {
-		return s.sendMailTLS(addr, to, msg)
 	}
-}
-
-func (s *EmailService) sendMailTLS(addr, to, msg string) error {
-	auth := smtp.PlainAuth("", s.smtpUser, s.smtpPass, s.smtpHost)
 	
-	// Criar client SMTP manualmente com timeout
-	conn, err := tls.Dial("tcp", addr, &tls.Config{
-		InsecureSkipVerify: false,
-		ServerName:         s.smtpHost,
-	})
-	if err != nil {
-		// Fallback: tentar conexão não-TLS primeiro
-		log.Printf("[EMAIL] TLS direto falhou, tentando STARTTLS...")
-		return s.sendMailSTARTTLS(addr, to, msg, auth)
-	}
-	defer conn.Close()
-
-	client, err := smtp.NewClient(conn, s.smtpHost)
-	if err != nil {
-		log.Printf("[EMAIL] ERRO ao criar client: %v", err)
-		return fmt.Errorf("falha ao criar cliente SMTP: %w", err)
-	}
-	defer client.Quit()
-
-	if err = client.Auth(auth); err != nil {
-		log.Printf("[EMAIL] ERRO Autenticação: %v", err)
-		return fmt.Errorf("falha na autenticação: %w", err)
-	}
-
-	if err = client.Mail(s.fromEmail); err != nil {
-		return fmt.Errorf("falha ao definir remetente: %w", err)
-	}
-
-	if err = client.Rcpt(to); err != nil {
-		return fmt.Errorf("falha ao definir destinatário: %w", err)
-	}
-
-	w, err := client.Data()
-	if err != nil {
-		return fmt.Errorf("falha ao abrir data writer: %w", err)
-	}
-
-	_, err = w.Write([]byte(msg))
-	if err != nil {
-		return fmt.Errorf("falha ao escrever mensagem: %w", err)
-	}
-
-	err = w.Close()
-	if err != nil {
-		return fmt.Errorf("falha ao fechar data writer: %w", err)
-	}
-
-	log.Printf("[EMAIL] ✓ Email enviado com sucesso via TLS")
-	return nil
+	log.Printf("[EMAIL][DEBUG] Usando método STARTTLS (porta 587)")
+	return s.sendMailSTARTTLS(addr, to, msg)
 }
 
-func (s *EmailService) sendMailSTARTTLS(addr, to, msg string, auth smtp.Auth) error {
-	// Conectar sem TLS primeiro
-	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
+func (s *EmailService) sendMailSTARTTLS(addr, to, msg string) error {
+	log.Printf("[EMAIL][DEBUG] sendMailSTARTTLS iniciado - Addr: %s", addr)
+	
+	auth := smtp.PlainAuth("", s.smtpUser, s.smtpPass, s.smtpHost)
+	log.Printf("[EMAIL][DEBUG] Auth criado para user: %s", s.smtpUser)
+	
+	log.Printf("[EMAIL][DEBUG] Tentando conectar TCP com timeout de 15s...")
+	conn, err := net.DialTimeout("tcp", addr, 15*time.Second)
 	if err != nil {
-		log.Printf("[EMAIL] ERRO ao conectar: %v", err)
+		log.Printf("[EMAIL][DEBUG] ERRO ao conectar TCP: %v", err)
 		return fmt.Errorf("falha ao conectar: %w", err)
 	}
 	defer conn.Close()
+	log.Printf("[EMAIL][DEBUG] Conexão TCP estabelecida")
 
+	log.Printf("[EMAIL][DEBUG] Criando cliente SMTP...")
 	client, err := smtp.NewClient(conn, s.smtpHost)
 	if err != nil {
-		log.Printf("[EMAIL] ERRO ao criar client: %v", err)
+		log.Printf("[EMAIL][DEBUG] ERRO ao criar client SMTP: %v", err)
 		return fmt.Errorf("falha ao criar cliente SMTP: %w", err)
 	}
 	defer client.Quit()
+	log.Printf("[EMAIL][DEBUG] Cliente SMTP criado")
 
-	// Verificar se suporta STARTTLS
+	// Tentar STARTTLS se disponível
 	if ok, _ := client.Extension("STARTTLS"); ok {
+		log.Printf("[EMAIL][DEBUG] STARTTLS disponível, iniciando...")
 		config := &tls.Config{
 			ServerName:         s.smtpHost,
 			InsecureSkipVerify: false,
 		}
 		if err = client.StartTLS(config); err != nil {
-			log.Printf("[EMAIL] ERRO STARTTLS: %v", err)
+			log.Printf("[EMAIL][DEBUG] ERRO ao iniciar STARTTLS: %v", err)
 			return fmt.Errorf("falha ao iniciar TLS: %w", err)
 		}
+		log.Printf("[EMAIL][DEBUG] STARTTLS iniciado com sucesso")
+	} else {
+		log.Printf("[EMAIL][DEBUG] STARTTLS não disponível, continuando sem TLS")
 	}
 
+	log.Printf("[EMAIL][DEBUG] Tentando autenticação...")
 	if err = client.Auth(auth); err != nil {
-		log.Printf("[EMAIL] ERRO Autenticação: %v", err)
+		log.Printf("[EMAIL][DEBUG] ERRO na autenticação: %v", err)
 		return fmt.Errorf("falha na autenticação: %w", err)
 	}
+	log.Printf("[EMAIL][DEBUG] Autenticação bem-sucedida")
 
+	log.Printf("[EMAIL][DEBUG] Definindo remetente: %s", s.fromEmail)
 	if err = client.Mail(s.fromEmail); err != nil {
+		log.Printf("[EMAIL][DEBUG] ERRO ao definir remetente: %v", err)
 		return fmt.Errorf("falha ao definir remetente: %w", err)
 	}
 
+	log.Printf("[EMAIL][DEBUG] Definindo destinatário: %s", to)
 	if err = client.Rcpt(to); err != nil {
+		log.Printf("[EMAIL][DEBUG] ERRO ao definir destinatário: %v", err)
 		return fmt.Errorf("falha ao definir destinatário: %w", err)
 	}
 
+	log.Printf("[EMAIL][DEBUG] Abrindo data writer...")
 	w, err := client.Data()
 	if err != nil {
+		log.Printf("[EMAIL][DEBUG] ERRO ao abrir data writer: %v", err)
 		return fmt.Errorf("falha ao abrir data writer: %w", err)
 	}
 
-	_, err = w.Write([]byte(msg))
-	if err != nil {
+	log.Printf("[EMAIL][DEBUG] Escrevendo mensagem...")
+	if _, err = w.Write([]byte(msg)); err != nil {
+		log.Printf("[EMAIL][DEBUG] ERRO ao escrever mensagem: %v", err)
 		return fmt.Errorf("falha ao escrever mensagem: %w", err)
 	}
 
-	err = w.Close()
-	if err != nil {
+	log.Printf("[EMAIL][DEBUG] Fechando data writer...")
+	if err = w.Close(); err != nil {
+		log.Printf("[EMAIL][DEBUG] ERRO ao fechar data writer: %v", err)
 		return fmt.Errorf("falha ao fechar data writer: %w", err)
 	}
 
@@ -278,57 +276,74 @@ func (s *EmailService) sendMailSTARTTLS(addr, to, msg string, auth smtp.Auth) er
 }
 
 func (s *EmailService) sendMailSSL(addr, to, msg string) error {
+	log.Printf("[EMAIL][DEBUG] sendMailSSL iniciado - Addr: %s", addr)
+	
 	auth := smtp.PlainAuth("", s.smtpUser, s.smtpPass, s.smtpHost)
+	log.Printf("[EMAIL][DEBUG] Auth criado para user: %s", s.smtpUser)
 
 	tlsConfig := &tls.Config{
-		InsecureSkipVerify: false,
 		ServerName:         s.smtpHost,
+		InsecureSkipVerify: false,
 	}
+	log.Printf("[EMAIL][DEBUG] TLS Config criado para servidor: %s", s.smtpHost)
 
-	// Timeout de 15 segundos
 	dialer := &net.Dialer{
 		Timeout: 15 * time.Second,
 	}
 
+	log.Printf("[EMAIL][DEBUG] Tentando conexão TLS/SSL com timeout de 15s...")
 	conn, err := tls.DialWithDialer(dialer, "tcp", addr, tlsConfig)
 	if err != nil {
-		log.Printf("[EMAIL] ERRO SSL Dial: %v", err)
+		log.Printf("[EMAIL][DEBUG] ERRO na conexão SSL: %v", err)
 		return fmt.Errorf("falha ao conectar SSL: %w", err)
 	}
 	defer conn.Close()
+	log.Printf("[EMAIL][DEBUG] Conexão SSL estabelecida")
 
+	log.Printf("[EMAIL][DEBUG] Criando cliente SMTP sobre SSL...")
 	client, err := smtp.NewClient(conn, s.smtpHost)
 	if err != nil {
-		log.Printf("[EMAIL] ERRO SSL Client: %v", err)
+		log.Printf("[EMAIL][DEBUG] ERRO ao criar client SSL: %v", err)
 		return fmt.Errorf("falha ao criar cliente SMTP: %w", err)
 	}
 	defer client.Quit()
+	log.Printf("[EMAIL][DEBUG] Cliente SMTP SSL criado")
 
+	log.Printf("[EMAIL][DEBUG] Tentando autenticação...")
 	if err = client.Auth(auth); err != nil {
-		log.Printf("[EMAIL] ERRO Autenticação: %v", err)
+		log.Printf("[EMAIL][DEBUG] ERRO na autenticação: %v", err)
 		return fmt.Errorf("falha na autenticação: %w", err)
 	}
+	log.Printf("[EMAIL][DEBUG] Autenticação bem-sucedida")
 
+	log.Printf("[EMAIL][DEBUG] Definindo remetente: %s", s.fromEmail)
 	if err = client.Mail(s.fromEmail); err != nil {
+		log.Printf("[EMAIL][DEBUG] ERRO ao definir remetente: %v", err)
 		return fmt.Errorf("falha ao definir remetente: %w", err)
 	}
 
+	log.Printf("[EMAIL][DEBUG] Definindo destinatário: %s", to)
 	if err = client.Rcpt(to); err != nil {
+		log.Printf("[EMAIL][DEBUG] ERRO ao definir destinatário: %v", err)
 		return fmt.Errorf("falha ao definir destinatário: %w", err)
 	}
 
+	log.Printf("[EMAIL][DEBUG] Abrindo data writer...")
 	w, err := client.Data()
 	if err != nil {
+		log.Printf("[EMAIL][DEBUG] ERRO ao abrir data writer: %v", err)
 		return fmt.Errorf("falha ao abrir data writer: %w", err)
 	}
 
-	_, err = w.Write([]byte(msg))
-	if err != nil {
+	log.Printf("[EMAIL][DEBUG] Escrevendo mensagem...")
+	if _, err = w.Write([]byte(msg)); err != nil {
+		log.Printf("[EMAIL][DEBUG] ERRO ao escrever mensagem: %v", err)
 		return fmt.Errorf("falha ao escrever mensagem: %w", err)
 	}
 
-	err = w.Close()
-	if err != nil {
+	log.Printf("[EMAIL][DEBUG] Fechando data writer...")
+	if err = w.Close(); err != nil {
+		log.Printf("[EMAIL][DEBUG] ERRO ao fechar data writer: %v", err)
 		return fmt.Errorf("falha ao fechar data writer: %w", err)
 	}
 
@@ -337,22 +352,28 @@ func (s *EmailService) sendMailSSL(addr, to, msg string) error {
 }
 
 func (s *EmailService) SendVerificationEmail(userID uuid.UUID, userType, email, nome string) error {
+	log.Printf("[EMAIL][DEBUG] SendVerificationEmail - UserID: %s, Type: %s, Email: %s, Nome: %s", 
+		userID, userType, email, nome)
+	
 	if !s.enabled {
-		log.Println("[EMAIL] Serviço desabilitado - pulando verificação")
+		log.Println("[EMAIL][DEBUG] Serviço desabilitado - pulando verificação")
 		return fmt.Errorf("serviço de email desabilitado")
 	}
 
 	if email == "" {
+		log.Printf("[EMAIL][DEBUG] Email vazio, abortando")
 		return fmt.Errorf("email vazio")
 	}
 
+	log.Printf("[EMAIL][DEBUG] Gerando token de verificação...")
 	token, err := s.SaveToken(userID, userType, "verificacao_email", email, 24*time.Hour)
 	if err != nil {
-		log.Printf("[EMAIL] Erro ao salvar token: %v", err)
+		log.Printf("[EMAIL][DEBUG] Erro ao salvar token: %v", err)
 		return fmt.Errorf("erro ao gerar token: %w", err)
 	}
 
 	verifyURL := fmt.Sprintf("%s/verificar-email/%s", s.frontendURL, token)
+	log.Printf("[EMAIL][DEBUG] URL de verificação: %s", verifyURL)
 
 	subject := "Verifique seu email - Spuri"
 	body := fmt.Sprintf(`
@@ -379,25 +400,33 @@ func (s *EmailService) SendVerificationEmail(userID uuid.UUID, userType, email, 
 </html>
 	`, nome, verifyURL, verifyURL, verifyURL)
 
+	log.Printf("[EMAIL][DEBUG] Chamando SendEmail para verificação...")
 	return s.SendEmail(email, subject, body)
 }
 
 func (s *EmailService) SendPasswordResetEmail(userID uuid.UUID, userType, email, nome string) error {
+	log.Printf("[EMAIL][DEBUG] SendPasswordResetEmail - UserID: %s, Type: %s, Email: %s, Nome: %s", 
+		userID, userType, email, nome)
+	
 	if !s.enabled {
-		log.Println("[EMAIL] Serviço desabilitado - pulando recuperação")
+		log.Println("[EMAIL][DEBUG] Serviço desabilitado - pulando recuperação")
 		return fmt.Errorf("serviço de email desabilitado")
 	}
 
 	if email == "" {
+		log.Printf("[EMAIL][DEBUG] Email vazio, abortando")
 		return fmt.Errorf("email vazio")
 	}
 
+	log.Printf("[EMAIL][DEBUG] Gerando token de recuperação...")
 	token, err := s.SaveToken(userID, userType, "recuperacao_senha", email, 1*time.Hour)
 	if err != nil {
+		log.Printf("[EMAIL][DEBUG] Erro ao gerar token: %v", err)
 		return fmt.Errorf("erro ao gerar token: %w", err)
 	}
 
 	resetURL := fmt.Sprintf("%s/recuperar-senha/%s", s.frontendURL, token)
+	log.Printf("[EMAIL][DEBUG] URL de recuperação: %s", resetURL)
 
 	subject := "Recuperação de Senha - Spuri"
 	body := fmt.Sprintf(`
@@ -425,6 +454,7 @@ func (s *EmailService) SendPasswordResetEmail(userID uuid.UUID, userType, email,
 </html>
 	`, nome, resetURL, resetURL, resetURL)
 
+	log.Printf("[EMAIL][DEBUG] Chamando SendEmail para recuperação...")
 	return s.SendEmail(email, subject, body)
 }
 
