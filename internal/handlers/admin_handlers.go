@@ -205,6 +205,8 @@ func ListarEstudantes(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 
+	log.Printf("📋 [ListarEstudantes] Início - UserID: %s, UserType: %s", userID, userType)
+
 	type EstudanteSimples struct {
 		ID              uuid.UUID `json:"id"`
 		Nome            string    `json:"nome"`
@@ -225,12 +227,23 @@ func ListarEstudantes(c *gin.Context) {
 	client := getDbClient(c)
 
 	if userType == "academia" {
+		log.Printf("🏫 [ListarEstudantes] Fluxo ACADEMIA iniciado")
+		
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, err := academiaProj.GetByID(userID)
-		if err != nil || academiaDTO == nil {
+		if err != nil {
+			log.Printf("❌ [ListarEstudantes] Erro ao buscar academia: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar dados da academia"})
 			return
 		}
+		if academiaDTO == nil {
+			log.Printf("❌ [ListarEstudantes] Academia não encontrada para ID: %s", userID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar dados da academia"})
+			return
+		}
+
+		log.Printf("✅ [ListarEstudantes] Academia encontrada - Código: %s, Nome: %s", 
+			academiaDTO.CodigoAcademia, academiaDTO.Nome)
 
 		query := `
 			SELECT 
@@ -242,13 +255,17 @@ func ListarEstudantes(c *gin.Context) {
 			ORDER BY created_at DESC
 		`
 
+		log.Printf("🔍 [ListarEstudantes] Executando query com codigo_academia: %s", academiaDTO.CodigoAcademia)
+
 		rows, err := client.DB().Query(query, academiaDTO.CodigoAcademia)
 		if err != nil {
+			log.Printf("❌ [ListarEstudantes] Erro na query: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar estudantes"})
 			return
 		}
 		defer rows.Close()
 
+		count := 0
 		for rows.Next() {
 			var est EstudanteSimples
 			err := rows.Scan(
@@ -257,10 +274,18 @@ func ListarEstudantes(c *gin.Context) {
 				&est.CreatedAt, &est.TotalNotas, &est.TotalFaltas, &est.TotalInscricoes,
 			)
 			if err != nil {
+				log.Printf("⚠️ [ListarEstudantes] Erro ao fazer scan da linha %d: %v", count, err)
 				continue
 			}
+			count++
 			estudantes = append(estudantes, est)
 		}
+
+		if err := rows.Err(); err != nil {
+			log.Printf("❌ [ListarEstudantes] Erro ao iterar rows: %v", err)
+		}
+
+		log.Printf("✅ [ListarEstudantes] Academia - %d estudantes encontrados", count)
 
 		c.JSON(http.StatusOK, gin.H{
 			"estudantes":      estudantes,
@@ -271,6 +296,8 @@ func ListarEstudantes(c *gin.Context) {
 		})
 
 	} else if userType == "admin" {
+		log.Printf("👤 [ListarEstudantes] Fluxo ADMIN iniciado")
+		
 		query := `
 			SELECT 
 				id, nome, codigo_estudante, bilhete_identidade,
@@ -280,13 +307,17 @@ func ListarEstudantes(c *gin.Context) {
 			ORDER BY created_at DESC
 		`
 
+		log.Printf("🔍 [ListarEstudantes] Executando query admin (sem filtro)")
+
 		rows, err := client.DB().Query(query)
 		if err != nil {
+			log.Printf("❌ [ListarEstudantes] Erro na query admin: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar estudantes"})
 			return
 		}
 		defer rows.Close()
 
+		count := 0
 		for rows.Next() {
 			var est EstudanteSimples
 			err := rows.Scan(
@@ -295,10 +326,18 @@ func ListarEstudantes(c *gin.Context) {
 				&est.CreatedAt, &est.TotalNotas, &est.TotalFaltas, &est.TotalInscricoes,
 			)
 			if err != nil {
+				log.Printf("⚠️ [ListarEstudantes] Erro ao fazer scan da linha %d: %v", count, err)
 				continue
 			}
+			count++
 			estudantes = append(estudantes, est)
 		}
+
+		if err := rows.Err(); err != nil {
+			log.Printf("❌ [ListarEstudantes] Erro ao iterar rows: %v", err)
+		}
+
+		log.Printf("✅ [ListarEstudantes] Admin - %d estudantes encontrados", count)
 
 		c.JSON(http.StatusOK, gin.H{
 			"estudantes":   estudantes,
@@ -307,6 +346,7 @@ func ListarEstudantes(c *gin.Context) {
 		})
 
 	} else {
+		log.Printf("⛔ [ListarEstudantes] Tipo de usuário inválido: %s", userType)
 		c.JSON(http.StatusForbidden, gin.H{
 			"error": "acesso negado: apenas academias e administradores",
 		})
