@@ -11,6 +11,7 @@ import (
 	"spuri/internal/db"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 func RequireAdmin() gin.HandlerFunc {
@@ -70,10 +71,21 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 		}
 
 		var info AdminInfo
-		query := `SELECT role, status FROM projection_admins WHERE id = $1`
+		
+		// Converter UUID para string
+		uid, ok := userID.(uuid.UUID)
+		if !ok {
+			log.Printf("❌ [RequireAdminRole] UserID não é UUID válido")
+			c.JSON(http.StatusForbidden, gin.H{"error": "administrador não encontrado"})
+			c.Abort()
+			return
+		}
+		
+		safeUserID := db.SafeString(uid.String())
+		query := fmt.Sprintf(`SELECT role, status FROM projection_admins WHERE id = '%s'`, safeUserID)
 
 		log.Printf("🔍 [RequireAdminRole] Buscando admin na projeção...")
-		err := client.DB().QueryRow(query, userID).Scan(&info.Role, &info.Status)
+		err := client.DB().QueryRow(query).Scan(&info.Role, &info.Status)
 		if err != nil {
 			log.Printf("❌ [RequireAdminRole] Erro ao buscar admin: %v", err)
 			c.JSON(http.StatusForbidden, gin.H{"error": "administrador não encontrado"})
