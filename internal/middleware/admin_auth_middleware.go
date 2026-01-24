@@ -43,7 +43,7 @@ func RequireAdmin() gin.HandlerFunc {
 
 func RequireAdminRole(minRole string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		log.Printf("🔑 [RequireAdminRole] Verificando role mínima: %s", minRole)
+		log.Printf("🔐 [RequireAdminRole] Verificando role mínima: %s - Path: %s", minRole, c.Request.URL.Path)
 		
 		userID, exists := c.Get("user_id")
 		if !exists {
@@ -55,7 +55,6 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 
 		log.Printf("🔍 [RequireAdminRole] UserID: %v", userID)
 
-		// Buscar role do admin na projeção
 		clientRaw, exists := c.Get("dbClient")
 		if !exists {
 			log.Printf("❌ [RequireAdminRole] dbClient não encontrado no contexto")
@@ -66,14 +65,6 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 
 		client := clientRaw.(*db.Client)
 
-		type AdminInfo struct {
-			Role   string `db:"role"`
-			Status string `db:"status"`
-		}
-
-		var info AdminInfo
-		
-		// Converter UUID para string
 		uid, ok := userID.(uuid.UUID)
 		if !ok {
 			log.Printf("❌ [RequireAdminRole] UserID não é UUID válido")
@@ -85,8 +76,10 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 		safeUserID := db.SafeString(uid.String())
 		query := fmt.Sprintf(`SELECT role, status FROM projection_admins WHERE id = '%s'`, safeUserID)
 
-		log.Printf("🔍 [RequireAdminRole] Buscando admin na projeção...")
-		err := client.DB().QueryRow(query).Scan(&info.Role, &info.Status)
+		log.Printf("📝 [RequireAdminRole] Query: %s", query)
+
+		var role, status string
+		err := client.DB().QueryRow(query).Scan(&role, &status)
 		if err != nil {
 			log.Printf("❌ [RequireAdminRole] Erro ao buscar admin: %v", err)
 			c.JSON(http.StatusForbidden, gin.H{"error": "administrador não encontrado"})
@@ -94,9 +87,9 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 			return
 		}
 
-		log.Printf("✅ [RequireAdminRole] Admin encontrado - Role: %s, Status: %s", info.Role, info.Status)
+		log.Printf("✅ [RequireAdminRole] Admin encontrado - Role: %s, Status: %s", role, status)
 
-		if info.Status != "ativo" {
+		if status != "ativo" {
 			log.Printf("❌ [RequireAdminRole] Admin inativo")
 			c.JSON(http.StatusForbidden, gin.H{"error": "administrador inativo"})
 			c.Abort()
@@ -109,24 +102,24 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 			"gerente": 1,
 		}
 
-		currentLevel := hierarchy[info.Role]
+		currentLevel := hierarchy[role]
 		requiredLevel := hierarchy[minRole]
 
 		log.Printf("🔍 [RequireAdminRole] Hierarquia - Current: %d (%s), Required: %d (%s)", 
-			currentLevel, info.Role, requiredLevel, minRole)
+			currentLevel, role, requiredLevel, minRole)
 
 		if currentLevel < requiredLevel {
 			log.Printf("❌ [RequireAdminRole] Permissão insuficiente")
 			c.JSON(http.StatusForbidden, gin.H{
 				"error":         "permissão negada",
 				"required_role": minRole,
-				"your_role":     info.Role,
+				"your_role":     role,
 			})
 			c.Abort()
 			return
 		}
 
-		c.Set("admin_role", info.Role)
+		c.Set("admin_role", role)
 		log.Printf("✅ [RequireAdminRole] Permissão OK")
 		c.Next()
 	}
