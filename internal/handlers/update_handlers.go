@@ -6,7 +6,6 @@
 package handlers
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"spuri/internal/domain/aggregates"
