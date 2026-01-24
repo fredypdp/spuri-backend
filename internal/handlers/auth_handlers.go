@@ -29,13 +29,19 @@ type LoginResponse struct {
 }
 
 func Login(c *gin.Context) {
+	log.Printf("[DEBUG] Login: Início")
+	
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("[ERROR] Login: Erro no bind JSON: %v", err)
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
+	log.Printf("[DEBUG] Login: Usuário: %s, Tipo: %s", req.Usuario, req.Type)
+
 	if req.Type != "estudante" && req.Type != "academia" {
+		log.Printf("[ERROR] Login: Tipo inválido: %s", req.Type)
 		utils.RespondWithValidationError(c, fmt.Errorf("tipo deve ser 'estudante' ou 'academia'"))
 		return
 	}
@@ -48,45 +54,61 @@ func Login(c *gin.Context) {
 	var senhaHash string
 
 	if req.Type == "academia" {
+		log.Printf("[DEBUG] Login: Buscando academia")
+		
 		academia, err := academiaProj.GetByCodigoOrEmail(req.Usuario)
 		if err != nil {
-			log.Printf("[AUTH] Erro ao buscar academia")
+			log.Printf("[ERROR] Login: Erro ao buscar academia: %v", err)
 			utils.RespondWithInternalError(c, err)
 			return
 		}
 		if academia == nil {
+			log.Printf("[ERROR] Login: Academia não encontrada")
 			utils.RespondWithUnauthorizedError(c)
 			return
 		}
+
+		log.Printf("[DEBUG] Login: Academia encontrada - ID: %s, Nome: %s", academia.ID, academia.Nome)
 
 		userID = academia.ID
 		userName = academia.Nome
 		senhaHash = academia.SenhaHash
 
 	} else {
+		log.Printf("[DEBUG] Login: Buscando estudante")
+		
 		estudante, err := estudanteProj.GetByCodigo(req.Usuario)
 		if err != nil {
-			log.Printf("[AUTH] Erro ao buscar estudante")
+			log.Printf("[ERROR] Login: Erro ao buscar estudante: %v", err)
 			utils.RespondWithInternalError(c, err)
 			return
 		}
 		if estudante == nil {
+			log.Printf("[ERROR] Login: Estudante não encontrado")
 			utils.RespondWithUnauthorizedError(c)
 			return
 		}
+
+		log.Printf("[DEBUG] Login: Estudante encontrado - ID: %s, Nome: %s", estudante.ID, estudante.Nome)
 
 		userID = estudante.ID
 		userName = estudante.Nome
 		senhaHash = estudante.SenhaHash
 	}
 
+	log.Printf("[DEBUG] Login: Verificando senha")
+
 	if err := bcrypt.CompareHashAndPassword([]byte(senhaHash), []byte(req.Senha)); err != nil {
+		log.Printf("[ERROR] Login: Senha incorreta")
 		utils.RespondWithUnauthorizedError(c)
 		return
 	}
 
+	log.Printf("[DEBUG] Login: Gerando token")
+
 	token, err := middleware.GenerateToken(userID, req.Type)
 	if err != nil {
+		log.Printf("[ERROR] Login: Erro ao gerar token: %v", err)
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -103,6 +125,8 @@ func Login(c *gin.Context) {
 			codigo = estudanteDTO.CodigoEstudante
 		}
 	}
+
+	log.Printf("[DEBUG] Login: Sucesso - UserID: %s, Nome: %s", userID, userName)
 
 	c.JSON(http.StatusOK, gin.H{
 		"token":  token,
@@ -126,29 +150,38 @@ type RegisterAcademiaRequest struct {
 }
 
 func RegisterAcademia(c *gin.Context) {
+	log.Printf("[DEBUG] RegisterAcademia: Início")
+	
 	var req RegisterAcademiaRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("[ERROR] RegisterAcademia: Erro no bind JSON: %v", err)
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
+	log.Printf("[DEBUG] RegisterAcademia: Nome: %s, Tipo: %s, Província: %s", req.Nome, req.Type, req.Provincia)
+
 	if err := utils.ValidateNome(req.Nome); err != nil {
+		log.Printf("[ERROR] RegisterAcademia: Nome inválido: %v", err)
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if err := utils.ValidateSenha(req.Senha); err != nil {
+		log.Printf("[ERROR] RegisterAcademia: Senha inválida: %v", err)
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if err := utils.ValidateEndereco(req.Endereco); err != nil {
+		log.Printf("[ERROR] RegisterAcademia: Endereço inválido: %v", err)
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if req.Email != nil {
 		if err := utils.ValidateEmail(*req.Email); err != nil {
+			log.Printf("[ERROR] RegisterAcademia: Email inválido: %v", err)
 			utils.RespondWithValidationError(c, err)
 			return
 		}
@@ -156,18 +189,21 @@ func RegisterAcademia(c *gin.Context) {
 
 	if req.Website != nil {
 		if err := utils.ValidateURL(*req.Website); err != nil {
+			log.Printf("[ERROR] RegisterAcademia: Website inválido: %v", err)
 			utils.RespondWithValidationError(c, err)
 			return
 		}
 	}
 
 	if req.Type != "escola" && req.Type != "superior" {
+		log.Printf("[ERROR] RegisterAcademia: Tipo inválido: %s", req.Type)
 		utils.RespondWithValidationError(c, fmt.Errorf("type deve ser 'escola' ou 'superior'"))
 		return
 	}
 
 	if req.Type == "escola" {
 		if req.NivelEscolar == nil {
+			log.Printf("[ERROR] RegisterAcademia: Nível escolar obrigatório para escolas")
 			utils.RespondWithValidationError(c, fmt.Errorf("nivel_escolar é obrigatório para escolas"))
 			return
 		}
@@ -179,24 +215,34 @@ func RegisterAcademia(c *gin.Context) {
 		}
 		
 		if !validNiveis[*req.NivelEscolar] {
+			log.Printf("[ERROR] RegisterAcademia: Nível escolar inválido: %s", *req.NivelEscolar)
 			utils.RespondWithValidationError(c, fmt.Errorf("nivel_escolar deve ser 'fundamental', 'medio' ou 'misto'"))
 			return
 		}
 	}
 
+	log.Printf("[DEBUG] RegisterAcademia: Validando província")
+
 	codigoProvincia, err := validarProvincia(req.Provincia)
 	if err != nil {
+		log.Printf("[ERROR] RegisterAcademia: Província inválida: %v", err)
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
+	log.Printf("[DEBUG] RegisterAcademia: Código província: %s", codigoProvincia)
+
 	codigo := generateCodigoAcademia(codigoProvincia)
+	log.Printf("[DEBUG] RegisterAcademia: Código gerado: %s", codigo)
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Senha), bcrypt.DefaultCost)
 	if err != nil {
+		log.Printf("[ERROR] RegisterAcademia: Erro ao gerar hash: %v", err)
 		utils.RespondWithInternalError(c, err)
 		return
 	}
+
+	log.Printf("[DEBUG] RegisterAcademia: Criando agregado")
 
 	repository := getRepository(c)
 	academia := aggregates.NewAcademia()
@@ -214,14 +260,20 @@ func RegisterAcademia(c *gin.Context) {
 		req.NivelEscolar,
 		req.Cursos,
 	); err != nil {
+		log.Printf("[ERROR] RegisterAcademia: Erro ao criar agregado: %v", err)
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
+	log.Printf("[DEBUG] RegisterAcademia: Salvando eventos")
+
 	if err := repository.Save(academia); err != nil {
+		log.Printf("[ERROR] RegisterAcademia: Erro ao salvar: %v", err)
 		utils.RespondWithInternalError(c, err)
 		return
 	}
+
+	log.Printf("[DEBUG] RegisterAcademia: Sucesso - ID: %s, Código: %s", academia.ID, academia.CodigoAcademia)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "academia criada com sucesso",
@@ -248,24 +300,32 @@ type RegisterEstudanteRequest struct {
 }
 
 func RegisterEstudante(c *gin.Context) {
+	log.Printf("[DEBUG] RegisterEstudante: Início")
+	
 	var req RegisterEstudanteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("[ERROR] RegisterEstudante: Erro no bind JSON: %v", err)
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
+	log.Printf("[DEBUG] RegisterEstudante: Nome: %s", req.Nome)
+
 	if err := utils.ValidateNome(req.Nome); err != nil {
+		log.Printf("[ERROR] RegisterEstudante: Nome inválido: %v", err)
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if err := utils.ValidateSenha(req.Senha); err != nil {
+		log.Printf("[ERROR] RegisterEstudante: Senha inválida: %v", err)
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if req.Email != nil {
 		if err := utils.ValidateEmail(*req.Email); err != nil {
+			log.Printf("[ERROR] RegisterEstudante: Email inválido: %v", err)
 			utils.RespondWithValidationError(c, err)
 			return
 		}
@@ -273,53 +333,68 @@ func RegisterEstudante(c *gin.Context) {
 
 	if req.Telefone != nil {
 		if err := utils.ValidatePhone(*req.Telefone); err != nil {
+			log.Printf("[ERROR] RegisterEstudante: Telefone inválido: %v", err)
 			utils.RespondWithValidationError(c, err)
 			return
 		}
 	}
 
 	if err := utils.ValidateBilhete(utils.SafeDeref(req.BilheteIdentidade)); err != nil {
+		log.Printf("[ERROR] RegisterEstudante: Bilhete principal inválido: %v", err)
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if err := utils.ValidateBilhete(utils.SafeDeref(req.BilheteIdentidadeResp)); err != nil {
+		log.Printf("[ERROR] RegisterEstudante: Bilhete responsável inválido: %v", err)
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if req.BilheteIdentidade == nil && req.BilheteIdentidadeResp == nil {
+		log.Printf("[ERROR] RegisterEstudante: Nenhum bilhete fornecido")
 		utils.RespondWithValidationError(c, fmt.Errorf("pelo menos um bilhete de identidade é obrigatório"))
 		return
 	}
 
-	// Verificar se o bilhete_identidade já existe (apenas o principal, não o do responsável)
+	// Verificar se o bilhete_identidade já existe
 	if req.BilheteIdentidade != nil && *req.BilheteIdentidade != "" {
+		log.Printf("[DEBUG] RegisterEstudante: Verificando bilhete existente: %s", *req.BilheteIdentidade)
+		
 		estudanteProj := getEstudanteProjection(c)
 		existente, err := estudanteProj.GetByBilheteIdentidadePrincipal(*req.BilheteIdentidade)
 		if err != nil {
-			log.Printf("[AUTH] Erro ao verificar bilhete existente")
+			log.Printf("[ERROR] RegisterEstudante: Erro ao verificar bilhete: %v", err)
 			utils.RespondWithInternalError(c, err)
 			return
 		}
 		if existente != nil {
+			log.Printf("[ERROR] RegisterEstudante: Bilhete já cadastrado")
 			utils.RespondWithValidationError(c, fmt.Errorf("bilhete de identidade já cadastrado"))
 			return
 		}
 	}
 
+	log.Printf("[DEBUG] RegisterEstudante: Gerando código único")
+
 	client := getDbClient(c)
 	codigoEstudante, err := utils.GenerateUniqueCodigoEstudante(client.DB())
 	if err != nil {
+		log.Printf("[ERROR] RegisterEstudante: Erro ao gerar código: %v", err)
 		utils.RespondWithInternalError(c, err)
 		return
 	}
 
+	log.Printf("[DEBUG] RegisterEstudante: Código gerado: %s", codigoEstudante)
+
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Senha), bcrypt.DefaultCost)
 	if err != nil {
+		log.Printf("[ERROR] RegisterEstudante: Erro ao gerar hash: %v", err)
 		utils.RespondWithInternalError(c, err)
 		return
 	}
+
+	log.Printf("[DEBUG] RegisterEstudante: Criando agregado")
 
 	repository := getRepository(c)
 	estudante := aggregates.NewEstudante()
@@ -339,14 +414,20 @@ func RegisterEstudante(c *gin.Context) {
 		req.StatusEscolar,
 		req.StatusSuperior,
 	); err != nil {
+		log.Printf("[ERROR] RegisterEstudante: Erro ao criar agregado: %v", err)
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
+	log.Printf("[DEBUG] RegisterEstudante: Salvando eventos")
+
 	if err := repository.Save(estudante); err != nil {
+		log.Printf("[ERROR] RegisterEstudante: Erro ao salvar: %v", err)
 		utils.RespondWithInternalError(c, err)
 		return
 	}
+
+	log.Printf("[DEBUG] RegisterEstudante: Sucesso - ID: %s, Código: %s", estudante.ID, codigoEstudante)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "estudante criado com sucesso",

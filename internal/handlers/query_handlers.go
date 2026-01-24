@@ -32,20 +32,21 @@ func getPaginationParams(c *gin.Context) (limit, offset int) {
 		}
 	}
 	
+	log.Printf("🔍 [PAGINATION-DEBUG] Limit: %d, Offset: %d", limit, offset)
 	return limit, offset
 }
 
 func ListarInscricoes(c *gin.Context) {
 	userID, exists := middleware.GetUserID(c)
 	if !exists {
-		log.Println("[ListarInscricoes] Usuário não autenticado")
+		log.Println("❌ [LISTAR-INSCRICOES-DEBUG] Usuário não autenticado")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "usuário não autenticado"})
 		return
 	}
 
 	userType, exists := middleware.GetUserType(c)
 	if !exists {
-		log.Println("[ListarInscricoes] Tipo de usuário não identificado")
+		log.Println("❌ [LISTAR-INSCRICOES-DEBUG] Tipo de usuário não identificado")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "tipo de usuário não identificado"})
 		return
 	}
@@ -54,8 +55,8 @@ func ListarInscricoes(c *gin.Context) {
 	statusFilter := c.Query("status")
 	client := getDbClient(c)
 	
-	log.Printf("[ListarInscricoes] userID=%s, userType=%s, limit=%d, offset=%d, status=%s", 
-		userID, userType, limit, offset, statusFilter)
+	log.Printf("📋 [LISTAR-INSCRICOES] Iniciando listagem - UserID: %s, Type: %s, Status: %s", 
+		userID, userType, statusFilter)
 
 	type InscricaoDetalhada struct {
 		ID              uuid.UUID  `json:"id"`
@@ -80,6 +81,7 @@ func ListarInscricoes(c *gin.Context) {
 
 	switch userType {
 	case "admin":
+		log.Printf("🔍 [LISTAR-INSCRICOES-DEBUG] Modo ADMIN - listando todas inscrições")
 		if statusFilter != "" {
 			safeStatus := db.SafeString(statusFilter)
 			query = fmt.Sprintf(`
@@ -101,6 +103,7 @@ func ListarInscricoes(c *gin.Context) {
 		}
 
 	case "academia":
+		log.Printf("🔍 [LISTAR-INSCRICOES-DEBUG] Modo ACADEMIA - filtrando por academia_id: %s", userID)
 		if statusFilter != "" {
 			safeStatus := db.SafeString(statusFilter)
 			query = fmt.Sprintf(`
@@ -123,6 +126,7 @@ func ListarInscricoes(c *gin.Context) {
 		}
 
 	case "estudante":
+		log.Printf("🔍 [LISTAR-INSCRICOES-DEBUG] Modo ESTUDANTE - filtrando por estudante_id: %s", userID)
 		if statusFilter != "" {
 			safeStatus := db.SafeString(statusFilter)
 			query = fmt.Sprintf(`
@@ -143,16 +147,16 @@ func ListarInscricoes(c *gin.Context) {
 		}
 
 	default:
-		log.Printf("[ListarInscricoes] Tipo de usuário inválido: %s", userType)
+		log.Printf("❌ [LISTAR-INSCRICOES-DEBUG] Tipo de usuário inválido: %s", userType)
 		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
 		return
 	}
 
-	log.Printf("[ListarInscricoes] Query: %s", query)
+	log.Printf("🔍 [LISTAR-INSCRICOES-DEBUG] Query: %s", query)
 
 	rows, err := client.DB().Query(query)
 	if err != nil {
-		log.Printf("[ListarInscricoes] Erro na query: %v", err)
+		log.Printf("❌ [LISTAR-INSCRICOES-DEBUG] Erro na query: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 		return
 	}
@@ -164,7 +168,7 @@ func ListarInscricoes(c *gin.Context) {
 			&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &insc.Curso, &insc.Status,
 			&insc.CreatedAt, &insc.UpdatedAt, &insc.EventID, &insc.Version)
 		if err != nil {
-			log.Printf("[ListarInscricoes] Erro ao fazer scan: %v", err)
+			log.Printf("⚠️ [LISTAR-INSCRICOES-DEBUG] Erro ao fazer scan: %v", err)
 			continue
 		}
 		inscricoes = append(inscricoes, insc)
@@ -176,7 +180,7 @@ func ListarInscricoes(c *gin.Context) {
 		client.DB().QueryRow(countQuery).Scan(&total)
 	}
 
-	log.Printf("[ListarInscricoes] Retornando %d inscrições (total_geral=%d)", len(inscricoes), total)
+	log.Printf("✅ [LISTAR-INSCRICOES] Retornando %d inscrições (total_geral=%d)", len(inscricoes), total)
 
 	c.JSON(http.StatusOK, gin.H{
 		"inscricoes":    inscricoes,
@@ -197,8 +201,7 @@ func ListarInscricoesPendentes(c *gin.Context) {
 	limit, offset := getPaginationParams(c)
 	client := getDbClient(c)
 	
-	log.Printf("[ListarInscricoesPendentes] userID=%s, userType=%s, limit=%d, offset=%d", 
-		userID, userType, limit, offset)
+	log.Printf("⏳ [LISTAR-INSCRICOES-PENDENTES] Iniciando - UserID: %s, Type: %s", userID, userType)
 
 	type InscricaoDetalhada struct {
 		ID              uuid.UUID `json:"id"`
@@ -221,6 +224,7 @@ func ListarInscricoesPendentes(c *gin.Context) {
 
 	switch userType {
 	case "admin":
+		log.Printf("🔍 [LISTAR-INSCRICOES-PENDENTES-DEBUG] Modo ADMIN")
 		query = fmt.Sprintf(`
 			SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
 				tipo, ano_inscricao, curso, status, created_at, updated_at
@@ -231,6 +235,7 @@ func ListarInscricoesPendentes(c *gin.Context) {
 		countQuery = `SELECT COUNT(*) FROM projection_inscricoes WHERE status = 'espera'`
 
 	case "academia":
+		log.Printf("🔍 [LISTAR-INSCRICOES-PENDENTES-DEBUG] Modo ACADEMIA - ID: %s", userID)
 		query = fmt.Sprintf(`
 			SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
 				tipo, ano_inscricao, curso, status, created_at, updated_at
@@ -241,6 +246,7 @@ func ListarInscricoesPendentes(c *gin.Context) {
 		countQuery = fmt.Sprintf(`SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = '%s' AND status = 'espera'`, userID)
 
 	case "estudante":
+		log.Printf("🔍 [LISTAR-INSCRICOES-PENDENTES-DEBUG] Modo ESTUDANTE - ID: %s", userID)
 		query = fmt.Sprintf(`
 			SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
 				tipo, ano_inscricao, curso, status, created_at, updated_at
@@ -250,16 +256,16 @@ func ListarInscricoesPendentes(c *gin.Context) {
 		`, userID)
 
 	default:
-		log.Printf("[ListarInscricoesPendentes] Tipo de usuário inválido: %s", userType)
+		log.Printf("❌ [LISTAR-INSCRICOES-PENDENTES-DEBUG] Tipo inválido: %s", userType)
 		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
 		return
 	}
 
-	log.Printf("[ListarInscricoesPendentes] Query: %s", query)
+	log.Printf("🔍 [LISTAR-INSCRICOES-PENDENTES-DEBUG] Query: %s", query)
 
 	rows, err := client.DB().Query(query)
 	if err != nil {
-		log.Printf("[ListarInscricoesPendentes] Erro na query: %v", err)
+		log.Printf("❌ [LISTAR-INSCRICOES-PENDENTES-DEBUG] Erro na query: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 		return
 	}
@@ -271,7 +277,7 @@ func ListarInscricoesPendentes(c *gin.Context) {
 			&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &insc.Curso, &insc.Status,
 			&insc.CreatedAt, &insc.UpdatedAt)
 		if err != nil {
-			log.Printf("[ListarInscricoesPendentes] Erro ao fazer scan: %v", err)
+			log.Printf("⚠️ [LISTAR-INSCRICOES-PENDENTES-DEBUG] Erro ao fazer scan: %v", err)
 			continue
 		}
 		inscricoes = append(inscricoes, insc)
@@ -283,7 +289,7 @@ func ListarInscricoesPendentes(c *gin.Context) {
 		client.DB().QueryRow(countQuery).Scan(&total)
 	}
 
-	log.Printf("[ListarInscricoesPendentes] Retornando %d inscrições pendentes (total_geral=%d)", len(inscricoes), total)
+	log.Printf("✅ [LISTAR-INSCRICOES-PENDENTES] Retornando %d pendentes (total=%d)", len(inscricoes), total)
 
 	c.JSON(http.StatusOK, gin.H{
 		"inscricoes":  inscricoes,
@@ -299,17 +305,25 @@ func ListarInscricoesPendentes(c *gin.Context) {
 
 func GetNotasEstudante(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
+	log.Printf("📝 [GET-NOTAS-ESTUDANTE] Buscando notas - Código: %s", codigoEstudante)
+
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
+		log.Printf("❌ [GET-NOTAS-ESTUDANTE-DEBUG] Estudante não encontrado: %v", err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
 		return
 	}
 
+	log.Printf("✅ [GET-NOTAS-ESTUDANTE-DEBUG] Estudante encontrado: %s", estudante.Nome)
+
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 
+	log.Printf("🔍 [GET-NOTAS-ESTUDANTE-DEBUG] Verificando permissões - Type: %s, UserID: %s", userType, userID)
+
 	if userType == "estudante" && userID != estudante.ID {
+		log.Printf("❌ [GET-NOTAS-ESTUDANTE-DEBUG] Acesso negado - estudante tentando ver notas de outro")
 		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
 		return
 	}
@@ -318,17 +332,23 @@ func GetNotasEstudante(c *gin.Context) {
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, _ := academiaProj.GetByID(userID)
 		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
+			log.Printf("❌ [GET-NOTAS-ESTUDANTE-DEBUG] Estudante não pertence à academia")
 			c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
 			return
 		}
+		log.Printf("✅ [GET-NOTAS-ESTUDANTE-DEBUG] Academia verificada: %s", academiaDTO.Nome)
 	}
 
 	notasProj := getNotasProjection(c)
+	log.Printf("🔍 [GET-NOTAS-ESTUDANTE-DEBUG] Buscando notas do estudante...")
 	notas, err := notasProj.GetByEstudante(codigoEstudante)
 	if err != nil {
+		log.Printf("❌ [GET-NOTAS-ESTUDANTE-DEBUG] Erro ao buscar notas: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar notas"})
 		return
 	}
+
+	log.Printf("✅ [GET-NOTAS-ESTUDANTE] Retornando %d notas", len(notas))
 
 	c.JSON(http.StatusOK, gin.H{
 		"codigo_estudante": codigoEstudante,
@@ -340,17 +360,25 @@ func GetNotasEstudante(c *gin.Context) {
 
 func GetFaltasEstudante(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
+	log.Printf("📅 [GET-FALTAS-ESTUDANTE] Buscando faltas - Código: %s", codigoEstudante)
+
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
+		log.Printf("❌ [GET-FALTAS-ESTUDANTE-DEBUG] Estudante não encontrado: %v", err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
 		return
 	}
 
+	log.Printf("✅ [GET-FALTAS-ESTUDANTE-DEBUG] Estudante encontrado: %s", estudante.Nome)
+
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 
+	log.Printf("🔍 [GET-FALTAS-ESTUDANTE-DEBUG] Verificando permissões - Type: %s", userType)
+
 	if userType == "estudante" && userID != estudante.ID {
+		log.Printf("❌ [GET-FALTAS-ESTUDANTE-DEBUG] Acesso negado")
 		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
 		return
 	}
@@ -359,17 +387,23 @@ func GetFaltasEstudante(c *gin.Context) {
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, _ := academiaProj.GetByID(userID)
 		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
+			log.Printf("❌ [GET-FALTAS-ESTUDANTE-DEBUG] Estudante não pertence à academia")
 			c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
 			return
 		}
+		log.Printf("✅ [GET-FALTAS-ESTUDANTE-DEBUG] Academia verificada: %s", academiaDTO.Nome)
 	}
 
 	faltasProj := getFaltasProjection(c)
+	log.Printf("🔍 [GET-FALTAS-ESTUDANTE-DEBUG] Buscando faltas...")
 	faltas, err := faltasProj.GetByEstudante(codigoEstudante)
 	if err != nil {
+		log.Printf("❌ [GET-FALTAS-ESTUDANTE-DEBUG] Erro ao buscar faltas: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar faltas"})
 		return
 	}
+
+	log.Printf("✅ [GET-FALTAS-ESTUDANTE] Retornando %d registros de faltas", len(faltas))
 
 	c.JSON(http.StatusOK, gin.H{
 		"codigo_estudante": codigoEstudante,
@@ -381,17 +415,25 @@ func GetFaltasEstudante(c *gin.Context) {
 
 func GetHistoricoCompleto(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
+	log.Printf("📚 [GET-HISTORICO-COMPLETO] Buscando histórico completo - Código: %s", codigoEstudante)
+
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
+		log.Printf("❌ [GET-HISTORICO-COMPLETO-DEBUG] Estudante não encontrado: %v", err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
 		return
 	}
 
+	log.Printf("✅ [GET-HISTORICO-COMPLETO-DEBUG] Estudante encontrado: %s", estudante.Nome)
+
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 
+	log.Printf("🔍 [GET-HISTORICO-COMPLETO-DEBUG] Verificando permissões - Type: %s", userType)
+
 	if userType == "estudante" && userID != estudante.ID {
+		log.Printf("❌ [GET-HISTORICO-COMPLETO-DEBUG] Acesso negado")
 		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
 		return
 	}
@@ -400,19 +442,28 @@ func GetHistoricoCompleto(c *gin.Context) {
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, _ := academiaProj.GetByID(userID)
 		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
+			log.Printf("❌ [GET-HISTORICO-COMPLETO-DEBUG] Estudante não pertence à academia")
 			c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
 			return
 		}
 	}
 
+	log.Printf("🔍 [GET-HISTORICO-COMPLETO-DEBUG] Buscando notas...")
 	notasProj := getNotasProjection(c)
 	notas, _ := notasProj.GetByEstudante(codigoEstudante)
+	log.Printf("✅ [GET-HISTORICO-COMPLETO-DEBUG] Notas: %d", len(notas))
 
+	log.Printf("🔍 [GET-HISTORICO-COMPLETO-DEBUG] Buscando faltas...")
 	faltasProj := getFaltasProjection(c)
 	faltas, _ := faltasProj.GetByEstudante(codigoEstudante)
+	log.Printf("✅ [GET-HISTORICO-COMPLETO-DEBUG] Faltas: %d", len(faltas))
 
+	log.Printf("🔍 [GET-HISTORICO-COMPLETO-DEBUG] Buscando inscrições...")
 	inscProj := getInscricoesProjection(c)
 	inscricoes, _ := inscProj.GetByEstudante(estudante.ID)
+	log.Printf("✅ [GET-HISTORICO-COMPLETO-DEBUG] Inscrições: %d", len(inscricoes))
+
+	log.Printf("✅ [GET-HISTORICO-COMPLETO] Histórico completo retornado")
 
 	c.JSON(http.StatusOK, gin.H{
 		"estudante":  estudante,
@@ -424,27 +475,37 @@ func GetHistoricoCompleto(c *gin.Context) {
 
 func GetEventosEstudante(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
+	log.Printf("📜 [GET-EVENTOS-ESTUDANTE] Buscando eventos - Código: %s", codigoEstudante)
+
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
+		log.Printf("❌ [GET-EVENTOS-ESTUDANTE-DEBUG] Estudante não encontrado: %v", err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
 		return
 	}
+
+	log.Printf("✅ [GET-EVENTOS-ESTUDANTE-DEBUG] Estudante encontrado: %s (ID: %s)", estudante.Nome, estudante.ID)
 
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 
 	if userType == "estudante" && userID != estudante.ID {
+		log.Printf("❌ [GET-EVENTOS-ESTUDANTE-DEBUG] Acesso negado")
 		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
 		return
 	}
 
 	repository := getRepository(c)
+	log.Printf("🔍 [GET-EVENTOS-ESTUDANTE-DEBUG] Buscando histórico de eventos no ledger...")
 	eventos, err := repository.GetEventHistory(estudante.ID)
 	if err != nil {
+		log.Printf("❌ [GET-EVENTOS-ESTUDANTE-DEBUG] Erro ao buscar eventos: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar eventos"})
 		return
 	}
+
+	log.Printf("✅ [GET-EVENTOS-ESTUDANTE] Retornando %d eventos", len(eventos))
 
 	c.JSON(http.StatusOK, gin.H{
 		"codigo_estudante": codigoEstudante,
@@ -457,18 +518,31 @@ func GetEventosEstudante(c *gin.Context) {
 
 func VerificarIntegridade(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
+	log.Printf("🔐 [VERIFICAR-INTEGRIDADE] Verificando integridade - Código: %s", codigoEstudante)
+
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
+		log.Printf("❌ [VERIFICAR-INTEGRIDADE-DEBUG] Estudante não encontrado: %v", err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
 		return
 	}
 
+	log.Printf("✅ [VERIFICAR-INTEGRIDADE-DEBUG] Estudante encontrado: %s (ID: %s)", estudante.Nome, estudante.ID)
+
 	repository := getRepository(c)
+	log.Printf("🔍 [VERIFICAR-INTEGRIDADE-DEBUG] Verificando cadeia de hashes...")
 	isValid, err := repository.VerifyIntegrity(estudante.ID)
 	if err != nil {
+		log.Printf("❌ [VERIFICAR-INTEGRIDADE-DEBUG] Erro ao verificar integridade: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao verificar integridade"})
 		return
+	}
+
+	if isValid {
+		log.Printf("✅ [VERIFICAR-INTEGRIDADE] Cadeia íntegra!")
+	} else {
+		log.Printf("🚨 [VERIFICAR-INTEGRIDADE] ATENÇÃO: Cadeia comprometida!")
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -486,12 +560,17 @@ func VerificarIntegridade(c *gin.Context) {
 
 func GetMinhasInscricoes(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
+	log.Printf("📋 [GET-MINHAS-INSCRICOES] Buscando inscrições do usuário: %s", userID)
+
 	inscProj := getInscricoesProjection(c)
 	inscricoes, err := inscProj.GetByEstudante(userID)
 	if err != nil {
+		log.Printf("❌ [GET-MINHAS-INSCRICOES-DEBUG] Erro ao buscar inscrições: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 		return
 	}
+
+	log.Printf("✅ [GET-MINHAS-INSCRICOES] Retornando %d inscrições", len(inscricoes))
 
 	c.JSON(http.StatusOK, gin.H{
 		"inscricoes": inscricoes,
@@ -501,21 +580,35 @@ func GetMinhasInscricoes(c *gin.Context) {
 
 func GetMeuHistorico(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
+	log.Printf("📚 [GET-MEU-HISTORICO] Buscando histórico do usuário: %s", userID)
+
 	estudanteProj := getEstudanteProjection(c)
+	log.Printf("🔍 [GET-MEU-HISTORICO-DEBUG] Buscando dados do estudante...")
 	estudante, err := estudanteProj.GetByID(userID)
 	if err != nil {
+		log.Printf("❌ [GET-MEU-HISTORICO-DEBUG] Erro ao buscar estudante: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar dados"})
 		return
 	}
 
+	log.Printf("✅ [GET-MEU-HISTORICO-DEBUG] Estudante: %s", estudante.Nome)
+
+	log.Printf("🔍 [GET-MEU-HISTORICO-DEBUG] Buscando notas...")
 	notasProj := getNotasProjection(c)
 	notas, _ := notasProj.GetByEstudante(estudante.CodigoEstudante)
+	log.Printf("✅ [GET-MEU-HISTORICO-DEBUG] Notas: %d", len(notas))
 
+	log.Printf("🔍 [GET-MEU-HISTORICO-DEBUG] Buscando faltas...")
 	faltasProj := getFaltasProjection(c)
 	faltas, _ := faltasProj.GetByEstudante(estudante.CodigoEstudante)
+	log.Printf("✅ [GET-MEU-HISTORICO-DEBUG] Faltas: %d", len(faltas))
 
+	log.Printf("🔍 [GET-MEU-HISTORICO-DEBUG] Buscando inscrições...")
 	inscProj := getInscricoesProjection(c)
 	inscricoes, _ := inscProj.GetByEstudante(userID)
+	log.Printf("✅ [GET-MEU-HISTORICO-DEBUG] Inscrições: %d", len(inscricoes))
+
+	log.Printf("✅ [GET-MEU-HISTORICO] Histórico completo retornado")
 
 	c.JSON(http.StatusOK, gin.H{
 		"estudante":  estudante,
@@ -529,6 +622,8 @@ func GetMeuHistorico(c *gin.Context) {
 func ListarTodasAcademias(c *gin.Context) {
 	_, _ = middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
+
+	log.Printf("🏫 [LISTAR-TODAS-ACADEMIAS] Listando academias - Tipo usuário: %s", userType)
 
 	type AcademiaSimples struct {
 		ID                       uuid.UUID `json:"id"`
@@ -555,8 +650,10 @@ func ListarTodasAcademias(c *gin.Context) {
 		ORDER BY created_at DESC
 	`
 
+	log.Printf("🔍 [LISTAR-TODAS-ACADEMIAS-DEBUG] Executando query...")
 	rows, err := client.DB().Query(query)
 	if err != nil {
+		log.Printf("❌ [LISTAR-TODAS-ACADEMIAS-DEBUG] Erro na query: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar academias"})
 		return
 	}
@@ -570,10 +667,13 @@ func ListarTodasAcademias(c *gin.Context) {
 			&aca.TotalEstudantes, &aca.TotalInscricoesPendentes,
 		)
 		if err != nil {
+			log.Printf("⚠️ [LISTAR-TODAS-ACADEMIAS-DEBUG] Erro ao fazer scan: %v", err)
 			continue
 		}
 		academias = append(academias, aca)
 	}
+
+	log.Printf("✅ [LISTAR-TODAS-ACADEMIAS] Retornando %d academias", len(academias))
 
 	c.JSON(http.StatusOK, gin.H{
 		"academias":    academias,

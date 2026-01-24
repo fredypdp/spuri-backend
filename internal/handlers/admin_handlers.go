@@ -1,6 +1,6 @@
 // ============================================================================
 // ARQUIVO: internal/handlers/admin_handlers.go
-// DESCRIÇÃO: Handlers unificados para operações administrativas
+// DESCRIÇÃO: Handlers unificados para operações administrativas + logs debug
 // ============================================================================
 
 package handlers
@@ -25,42 +25,57 @@ import (
 
 // LoginAdmin autentica um administrador
 func LoginAdmin(c *gin.Context) {
+	log.Printf("[DEBUG] LoginAdmin: Início")
+	
 	var req struct {
 		Email string `json:"email" binding:"required"`
 		Senha string `json:"senha" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("[ERROR] LoginAdmin: Erro no bind JSON: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
 		return
 	}
+
+	log.Printf("[DEBUG] LoginAdmin: Tentativa de login para email: %s", req.Email)
 
 	// Buscar admin
 	adminProj := getAdminProjection(c)
 	admin, err := adminProj.GetByEmail(req.Email)
 	if err != nil || admin == nil {
+		log.Printf("[ERROR] LoginAdmin: Admin não encontrado ou erro: %v", err)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "credenciais inválidas"})
 		return
 	}
 
+	log.Printf("[DEBUG] LoginAdmin: Admin encontrado - ID: %s, Nome: %s, Status: %s", admin.ID, admin.Nome, admin.Status)
+
 	// Verificar status
 	if admin.Status != "ativo" {
+		log.Printf("[ERROR] LoginAdmin: Admin inativo")
 		c.JSON(http.StatusForbidden, gin.H{"error": "administrador inativo"})
 		return
 	}
 
 	// Verificar senha
 	if err := bcrypt.CompareHashAndPassword([]byte(admin.SenhaHash), []byte(req.Senha)); err != nil {
+		log.Printf("[ERROR] LoginAdmin: Senha incorreta")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "credenciais inválidas"})
 		return
 	}
 
+	log.Printf("[DEBUG] LoginAdmin: Senha verificada com sucesso")
+
 	// Gerar token
 	token, err := middleware.GenerateToken(admin.ID, "admin")
 	if err != nil {
+		log.Printf("[ERROR] LoginAdmin: Erro ao gerar token: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao gerar token"})
 		return
 	}
+
+	log.Printf("[DEBUG] LoginAdmin: Token gerado com sucesso para %s", admin.Nome)
 
 	c.JSON(http.StatusOK, gin.H{
 		"token": token,
@@ -73,6 +88,7 @@ func LoginAdmin(c *gin.Context) {
 // RegisterAdmin cria um novo administrador
 func RegisterAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
+	log.Printf("[DEBUG] RegisterAdmin: Início - UserID criador: %s", userID)
 
 	var req struct {
 		Nome  string `json:"nome" binding:"required"`
@@ -82,12 +98,16 @@ func RegisterAdmin(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("[ERROR] RegisterAdmin: Erro no bind JSON: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
 		return
 	}
 
+	log.Printf("[DEBUG] RegisterAdmin: Criando admin - Nome: %s, Email: %s, Role: %s", req.Nome, req.Email, req.Role)
+
 	// Validar role
 	if req.Role != "fpp" && req.Role != "adm" && req.Role != "gerente" {
+		log.Printf("[ERROR] RegisterAdmin: Role inválido: %s", req.Role)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "role deve ser 'fpp', 'adm' ou 'gerente'"})
 		return
 	}
@@ -96,27 +116,35 @@ func RegisterAdmin(c *gin.Context) {
 	adminProj := getAdminProjection(c)
 	creatorAdmin, err := adminProj.GetByID(userID)
 	if err != nil || creatorAdmin == nil {
+		log.Printf("[ERROR] RegisterAdmin: Admin criador não encontrado: %v", err)
 		c.JSON(http.StatusForbidden, gin.H{"error": "administrador não encontrado"})
 		return
 	}
+
+	log.Printf("[DEBUG] RegisterAdmin: Admin criador encontrado - Nome: %s, Role: %s", creatorAdmin.Nome, creatorAdmin.Role)
 
 	// Verificar permissão hierárquica
 	repository := getRepository(c)
 	creatorAgg, err := repository.Load(userID, "Admin")
 	if err != nil {
+		log.Printf("[ERROR] RegisterAdmin: Erro ao carregar agregado do criador: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao carregar administrador"})
 		return
 	}
 
 	creator := creatorAgg.(*aggregates.Admin)
 	if err := creator.ValidatePermission(req.Role); err != nil {
+		log.Printf("[ERROR] RegisterAdmin: Permissão negada: %v", err)
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
 	}
 
+	log.Printf("[DEBUG] RegisterAdmin: Permissão validada")
+
 	// Verificar se email já existe
 	existing, _ := adminProj.GetByEmail(req.Email)
 	if existing != nil {
+		log.Printf("[ERROR] RegisterAdmin: Email já existe: %s", req.Email)
 		c.JSON(http.StatusConflict, gin.H{"error": "email já cadastrado"})
 		return
 	}
@@ -124,9 +152,12 @@ func RegisterAdmin(c *gin.Context) {
 	// Hash da senha
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Senha), bcrypt.DefaultCost)
 	if err != nil {
+		log.Printf("[ERROR] RegisterAdmin: Erro ao fazer hash da senha: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao processar senha"})
 		return
 	}
+
+	log.Printf("[DEBUG] RegisterAdmin: Hash de senha gerado")
 
 	// Criar agregado Admin
 	newAdmin := aggregates.NewAdmin()
@@ -137,15 +168,21 @@ func RegisterAdmin(c *gin.Context) {
 		req.Role,
 		&userID,
 	); err != nil {
+		log.Printf("[ERROR] RegisterAdmin: Erro ao criar agregado: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
+	log.Printf("[DEBUG] RegisterAdmin: Agregado criado - ID: %s", newAdmin.ID)
+
 	// Salvar eventos
 	if err := repository.Save(newAdmin); err != nil {
+		log.Printf("[ERROR] RegisterAdmin: Erro ao salvar eventos: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao criar administrador"})
 		return
 	}
+
+	log.Printf("[DEBUG] RegisterAdmin: Eventos salvos com sucesso")
 
 	// Registrar ação
 	creator.RegistrarAcao("admin_criado", map[string]interface{}{
@@ -154,6 +191,8 @@ func RegisterAdmin(c *gin.Context) {
 		"email":         req.Email,
 	})
 	repository.Save(creator)
+
+	log.Printf("[DEBUG] RegisterAdmin: Ação registrada no criador")
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "administrador criado com sucesso",
@@ -169,7 +208,10 @@ func RegisterAdmin(c *gin.Context) {
 // ConsultarAdmin busca um admin por email
 func ConsultarAdmin(c *gin.Context) {
 	email := c.Param("email")
+	log.Printf("[DEBUG] ConsultarAdmin: Buscando admin por email: %s", email)
+	
 	if email == "" {
+		log.Printf("[ERROR] ConsultarAdmin: Email não fornecido")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "email não fornecido"})
 		return
 	}
@@ -177,14 +219,18 @@ func ConsultarAdmin(c *gin.Context) {
 	adminProj := getAdminProjection(c)
 	admin, err := adminProj.GetByEmail(email)
 	if err != nil {
+		log.Printf("[ERROR] ConsultarAdmin: Erro ao buscar admin: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar admin"})
 		return
 	}
 
 	if admin == nil {
+		log.Printf("[ERROR] ConsultarAdmin: Admin não encontrado")
 		c.JSON(http.StatusNotFound, gin.H{"error": "admin não encontrado"})
 		return
 	}
+
+	log.Printf("[DEBUG] ConsultarAdmin: Admin encontrado - ID: %s, Nome: %s", admin.ID, admin.Nome)
 
 	c.JSON(http.StatusOK, gin.H{
 		"id":         admin.ID,
@@ -205,7 +251,7 @@ func ListarEstudantes(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 
-	log.Printf("📋 [ListarEstudantes] Início - UserID: %s, UserType: %s", userID, userType)
+	log.Printf("[DEBUG] ListarEstudantes: Início - UserID: %s, UserType: %s", userID, userType)
 
 	type EstudanteSimples struct {
 		ID              uuid.UUID `json:"id"`
@@ -227,22 +273,22 @@ func ListarEstudantes(c *gin.Context) {
 	client := getDbClient(c)
 
 	if userType == "academia" {
-		log.Printf("🏫 [ListarEstudantes] Fluxo ACADEMIA iniciado")
+		log.Printf("[DEBUG] ListarEstudantes: Fluxo ACADEMIA")
 		
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, err := academiaProj.GetByID(userID)
 		if err != nil {
-			log.Printf("❌ [ListarEstudantes] Erro ao buscar academia: %v", err)
+			log.Printf("[ERROR] ListarEstudantes: Erro ao buscar academia: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar dados da academia"})
 			return
 		}
 		if academiaDTO == nil {
-			log.Printf("❌ [ListarEstudantes] Academia não encontrada para ID: %s", userID)
+			log.Printf("[ERROR] ListarEstudantes: Academia não encontrada - ID: %s", userID)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar dados da academia"})
 			return
 		}
 
-		log.Printf("✅ [ListarEstudantes] Academia encontrada - Código: %s, Nome: %s", 
+		log.Printf("[DEBUG] ListarEstudantes: Academia encontrada - Código: %s, Nome: %s", 
 			academiaDTO.CodigoAcademia, academiaDTO.Nome)
 
 		safeCodigoAcademia := db.SafeString(academiaDTO.CodigoAcademia)
@@ -256,11 +302,11 @@ func ListarEstudantes(c *gin.Context) {
 			ORDER BY created_at DESC
 		`, safeCodigoAcademia)
 
-		log.Printf("🔍 [ListarEstudantes] Executando query com codigo_academia: %s", academiaDTO.CodigoAcademia)
+		log.Printf("[DEBUG] ListarEstudantes: Executando query academia")
 
 		rows, err := client.DB().Query(query)
 		if err != nil {
-			log.Printf("❌ [ListarEstudantes] Erro na query: %v", err)
+			log.Printf("[ERROR] ListarEstudantes: Erro na query: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar estudantes"})
 			return
 		}
@@ -275,7 +321,7 @@ func ListarEstudantes(c *gin.Context) {
 				&est.CreatedAt, &est.TotalNotas, &est.TotalFaltas, &est.TotalInscricoes,
 			)
 			if err != nil {
-				log.Printf("⚠️ [ListarEstudantes] Erro ao fazer scan da linha %d: %v", count, err)
+				log.Printf("[ERROR] ListarEstudantes: Erro ao fazer scan: %v", err)
 				continue
 			}
 			count++
@@ -283,10 +329,10 @@ func ListarEstudantes(c *gin.Context) {
 		}
 
 		if err := rows.Err(); err != nil {
-			log.Printf("❌ [ListarEstudantes] Erro ao iterar rows: %v", err)
+			log.Printf("[ERROR] ListarEstudantes: Erro ao iterar rows: %v", err)
 		}
 
-		log.Printf("✅ [ListarEstudantes] Academia - %d estudantes encontrados", count)
+		log.Printf("[DEBUG] ListarEstudantes: %d estudantes encontrados para academia", count)
 
 		c.JSON(http.StatusOK, gin.H{
 			"estudantes":      estudantes,
@@ -297,7 +343,7 @@ func ListarEstudantes(c *gin.Context) {
 		})
 
 	} else if userType == "admin" {
-		log.Printf("👤 [ListarEstudantes] Fluxo ADMIN iniciado")
+		log.Printf("[DEBUG] ListarEstudantes: Fluxo ADMIN")
 		
 		query := `
 			SELECT 
@@ -308,11 +354,11 @@ func ListarEstudantes(c *gin.Context) {
 			ORDER BY created_at DESC
 		`
 
-		log.Printf("🔍 [ListarEstudantes] Executando query admin (sem filtro)")
+		log.Printf("[DEBUG] ListarEstudantes: Executando query admin")
 
 		rows, err := client.DB().Query(query)
 		if err != nil {
-			log.Printf("❌ [ListarEstudantes] Erro na query admin: %v", err)
+			log.Printf("[ERROR] ListarEstudantes: Erro na query admin: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar estudantes"})
 			return
 		}
@@ -327,7 +373,7 @@ func ListarEstudantes(c *gin.Context) {
 				&est.CreatedAt, &est.TotalNotas, &est.TotalFaltas, &est.TotalInscricoes,
 			)
 			if err != nil {
-				log.Printf("⚠️ [ListarEstudantes] Erro ao fazer scan da linha %d: %v", count, err)
+				log.Printf("[ERROR] ListarEstudantes: Erro ao fazer scan: %v", err)
 				continue
 			}
 			count++
@@ -335,10 +381,10 @@ func ListarEstudantes(c *gin.Context) {
 		}
 
 		if err := rows.Err(); err != nil {
-			log.Printf("❌ [ListarEstudantes] Erro ao iterar rows: %v", err)
+			log.Printf("[ERROR] ListarEstudantes: Erro ao iterar rows: %v", err)
 		}
 
-		log.Printf("✅ [ListarEstudantes] Admin - %d estudantes encontrados", count)
+		log.Printf("[DEBUG] ListarEstudantes: %d estudantes encontrados para admin", count)
 
 		c.JSON(http.StatusOK, gin.H{
 			"estudantes":   estudantes,
@@ -347,7 +393,7 @@ func ListarEstudantes(c *gin.Context) {
 		})
 
 	} else {
-		log.Printf("⛔ [ListarEstudantes] Tipo de usuário inválido: %s", userType)
+		log.Printf("[ERROR] ListarEstudantes: Tipo de usuário inválido: %s", userType)
 		c.JSON(http.StatusForbidden, gin.H{
 			"error": "acesso negado: apenas academias e administradores",
 		})
@@ -363,71 +409,70 @@ func AtivarAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	codigoAcademia := c.Param("codigo")
 
-	log.Printf("🔵 [AtivarAcademia] INÍCIO - UserID: %s, CodigoAcademia: %s", userID, codigoAcademia)
+	log.Printf("[DEBUG] AtivarAcademia: Início - UserID: %s, Código: %s", userID, codigoAcademia)
 
 	// Verificar permissão do admin
-	log.Printf("🔍 [AtivarAcademia] Verificando permissão de gerente...")
 	if err := verificarPermissaoAdmin(c, "gerente"); err != nil {
-		log.Printf("❌ [AtivarAcademia] Permissão negada: %v", err)
+		log.Printf("[ERROR] AtivarAcademia: Permissão negada: %v", err)
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
 	}
-	log.Printf("✅ [AtivarAcademia] Permissão verificada com sucesso")
+
+	log.Printf("[DEBUG] AtivarAcademia: Permissão verificada")
 
 	// Buscar academia pelo código
-	log.Printf("🔍 [AtivarAcademia] Buscando academia por código: %s", codigoAcademia)
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByCodigo(codigoAcademia)
 	if err != nil {
-		log.Printf("❌ [AtivarAcademia] Erro ao buscar academia: %v", err)
+		log.Printf("[ERROR] AtivarAcademia: Erro ao buscar academia: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar academia"})
 		return
 	}
 	if academiaDTO == nil {
-		log.Printf("❌ [AtivarAcademia] Academia não encontrada: %s", codigoAcademia)
+		log.Printf("[ERROR] AtivarAcademia: Academia não encontrada: %s", codigoAcademia)
 		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
 		return
 	}
-	log.Printf("✅ [AtivarAcademia] Academia encontrada - ID: %s, Nome: %s, Status: %s", 
+	
+	log.Printf("[DEBUG] AtivarAcademia: Academia encontrada - ID: %s, Nome: %s, Status: %s", 
 		academiaDTO.ID, academiaDTO.Nome, academiaDTO.Status)
 
 	// Carregar agregado
-	log.Printf("🔍 [AtivarAcademia] Carregando agregado da academia...")
 	repository := getRepository(c)
 	academiaAgg, err := repository.Load(academiaDTO.ID, "Academia")
 	if err != nil {
-		log.Printf("❌ [AtivarAcademia] Erro ao carregar agregado: %v", err)
+		log.Printf("[ERROR] AtivarAcademia: Erro ao carregar agregado: %v", err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
 		return
 	}
-	log.Printf("✅ [AtivarAcademia] Agregado carregado com sucesso")
+
+	log.Printf("[DEBUG] AtivarAcademia: Agregado carregado")
 
 	academia := academiaAgg.(*aggregates.Academia)
-	log.Printf("🔄 [AtivarAcademia] Executando comando Ativar()...")
 	if err := academia.Ativar(); err != nil {
-		log.Printf("❌ [AtivarAcademia] Erro ao ativar academia: %v", err)
+		log.Printf("[ERROR] AtivarAcademia: Erro ao ativar: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	log.Printf("✅ [AtivarAcademia] Comando Ativar() executado com sucesso")
 
-	log.Printf("💾 [AtivarAcademia] Salvando eventos...")
+	log.Printf("[DEBUG] AtivarAcademia: Comando Ativar executado")
+
 	if err := repository.Save(academia); err != nil {
-		log.Printf("❌ [AtivarAcademia] Erro ao salvar eventos: %v", err)
+		log.Printf("[ERROR] AtivarAcademia: Erro ao salvar: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao ativar academia"})
 		return
 	}
-	log.Printf("✅ [AtivarAcademia] Eventos salvos com sucesso")
+
+	log.Printf("[DEBUG] AtivarAcademia: Eventos salvos")
 
 	// Registrar ação do admin
-	log.Printf("📝 [AtivarAcademia] Registrando ação do admin...")
 	registrarAcaoAdmin(c, userID, "academia_ativada", map[string]interface{}{
 		"codigo_academia": codigoAcademia,
 		"academia_id":     academiaDTO.ID.String(),
 	})
-	log.Printf("✅ [AtivarAcademia] Ação registrada com sucesso")
 
-	log.Printf("🎉 [AtivarAcademia] SUCESSO - Academia %s ativada", codigoAcademia)
+	log.Printf("[DEBUG] AtivarAcademia: Sucesso - Academia %s ativada", codigoAcademia)
+
 	c.JSON(http.StatusOK, gin.H{
 		"message":         "academia ativada com sucesso",
 		"codigo_academia": academia.CodigoAcademia,
@@ -440,82 +485,82 @@ func DesativarAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	codigoAcademia := c.Param("codigo")
 
-	log.Printf("🔵 [DesativarAcademia] INÍCIO - UserID: %s, CodigoAcademia: %s", userID, codigoAcademia)
+	log.Printf("[DEBUG] DesativarAcademia: Início - UserID: %s, Código: %s", userID, codigoAcademia)
 
 	var req struct {
 		Motivo string `json:"motivo" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Printf("❌ [DesativarAcademia] Erro ao fazer bind do JSON: %v", err)
+		log.Printf("[ERROR] DesativarAcademia: Erro no bind JSON: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "motivo é obrigatório"})
 		return
 	}
-	log.Printf("📋 [DesativarAcademia] Motivo: %s", req.Motivo)
+	
+	log.Printf("[DEBUG] DesativarAcademia: Motivo: %s", req.Motivo)
 
 	// Verificar permissão
-	log.Printf("🔍 [DesativarAcademia] Verificando permissão de gerente...")
 	if err := verificarPermissaoAdmin(c, "gerente"); err != nil {
-		log.Printf("❌ [DesativarAcademia] Permissão negada: %v", err)
+		log.Printf("[ERROR] DesativarAcademia: Permissão negada: %v", err)
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
 	}
-	log.Printf("✅ [DesativarAcademia] Permissão verificada com sucesso")
+
+	log.Printf("[DEBUG] DesativarAcademia: Permissão verificada")
 
 	// Buscar academia pelo código
-	log.Printf("🔍 [DesativarAcademia] Buscando academia por código: %s", codigoAcademia)
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByCodigo(codigoAcademia)
 	if err != nil {
-		log.Printf("❌ [DesativarAcademia] Erro ao buscar academia: %v", err)
+		log.Printf("[ERROR] DesativarAcademia: Erro ao buscar academia: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar academia"})
 		return
 	}
 	if academiaDTO == nil {
-		log.Printf("❌ [DesativarAcademia] Academia não encontrada: %s", codigoAcademia)
+		log.Printf("[ERROR] DesativarAcademia: Academia não encontrada: %s", codigoAcademia)
 		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
 		return
 	}
-	log.Printf("✅ [DesativarAcademia] Academia encontrada - ID: %s, Nome: %s, Status: %s", 
+	
+	log.Printf("[DEBUG] DesativarAcademia: Academia encontrada - ID: %s, Nome: %s, Status: %s", 
 		academiaDTO.ID, academiaDTO.Nome, academiaDTO.Status)
 
 	// Carregar agregado
-	log.Printf("🔍 [DesativarAcademia] Carregando agregado da academia...")
 	repository := getRepository(c)
 	academiaAgg, err := repository.Load(academiaDTO.ID, "Academia")
 	if err != nil {
-		log.Printf("❌ [DesativarAcademia] Erro ao carregar agregado: %v", err)
+		log.Printf("[ERROR] DesativarAcademia: Erro ao carregar agregado: %v", err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
 		return
 	}
-	log.Printf("✅ [DesativarAcademia] Agregado carregado com sucesso")
+
+	log.Printf("[DEBUG] DesativarAcademia: Agregado carregado")
 
 	academia := academiaAgg.(*aggregates.Academia)
-	log.Printf("🔄 [DesativarAcademia] Executando comando Desativar()...")
 	if err := academia.Desativar(req.Motivo); err != nil {
-		log.Printf("❌ [DesativarAcademia] Erro ao desativar academia: %v", err)
+		log.Printf("[ERROR] DesativarAcademia: Erro ao desativar: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	log.Printf("✅ [DesativarAcademia] Comando Desativar() executado com sucesso")
 
-	log.Printf("💾 [DesativarAcademia] Salvando eventos...")
+	log.Printf("[DEBUG] DesativarAcademia: Comando Desativar executado")
+
 	if err := repository.Save(academia); err != nil {
-		log.Printf("❌ [DesativarAcademia] Erro ao salvar eventos: %v", err)
+		log.Printf("[ERROR] DesativarAcademia: Erro ao salvar: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao desativar academia"})
 		return
 	}
-	log.Printf("✅ [DesativarAcademia] Eventos salvos com sucesso")
+
+	log.Printf("[DEBUG] DesativarAcademia: Eventos salvos")
 
 	// Registrar ação
-	log.Printf("📝 [DesativarAcademia] Registrando ação do admin...")
 	registrarAcaoAdmin(c, userID, "academia_desativada", map[string]interface{}{
 		"codigo_academia": codigoAcademia,
 		"academia_id":     academiaDTO.ID.String(),
 		"motivo":          req.Motivo,
 	})
-	log.Printf("✅ [DesativarAcademia] Ação registrada com sucesso")
 
-	log.Printf("🎉 [DesativarAcademia] SUCESSO - Academia %s desativada", codigoAcademia)
+	log.Printf("[DEBUG] DesativarAcademia: Sucesso - Academia %s desativada", codigoAcademia)
+
 	c.JSON(http.StatusOK, gin.H{
 		"message":         "academia desativada com sucesso",
 		"codigo_academia": academia.CodigoAcademia,
@@ -531,25 +576,33 @@ func DesativarAcademia(c *gin.Context) {
 // RebuildProjection reconstrói uma projeção específica
 func RebuildProjection(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
+	log.Printf("[DEBUG] RebuildProjection: UserID: %s", userID)
 	
 	// Verificar se é admin e buscar role
 	adminProj := getAdminProjection(c)
 	admin, err := adminProj.GetByID(userID)
 	if err != nil || admin == nil {
+		log.Printf("[ERROR] RebuildProjection: Admin não encontrado")
 		c.JSON(http.StatusForbidden, gin.H{"error": "apenas administradores"})
 		return
 	}
 
+	log.Printf("[DEBUG] RebuildProjection: Admin encontrado - Role: %s", admin.Role)
+
 	if admin.Role != "fpp" && admin.Role != "adm" {
+		log.Printf("[ERROR] RebuildProjection: Permissão insuficiente - Role: %s", admin.Role)
 		c.JSON(http.StatusForbidden, gin.H{"error": "apenas FPP ou ADM podem reconstruir projeções"})
 		return
 	}
 
 	projectionName := c.Param("name")
 	if projectionName == "" {
+		log.Printf("[ERROR] RebuildProjection: Nome não fornecido")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "nome da projeção não fornecido"})
 		return
 	}
+
+	log.Printf("[DEBUG] RebuildProjection: Reconstruindo projeção: %s", projectionName)
 
 	client := getDbClient(c)
 	manager := projections.NewManager(client)
@@ -566,19 +619,22 @@ func RebuildProjection(c *gin.Context) {
 
 	var err2 error
 	if projectionName == "all" {
+		log.Printf("[DEBUG] RebuildProjection: Reconstruindo TODAS as projeções")
 		err2 = manager.RebuildAllProjections()
 	} else {
 		err2 = manager.RebuildProjection(projectionName)
 	}
 
 	if err2 != nil {
-		log.Printf("❌ Erro ao reconstruir projeção %s: %v", projectionName, err2)
+		log.Printf("[ERROR] RebuildProjection: Erro ao reconstruir %s: %v", projectionName, err2)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "erro ao reconstruir projeção",
 			"details": err2.Error(),
 		})
 		return
 	}
+
+	log.Printf("[DEBUG] RebuildProjection: Sucesso - %s reconstruída", projectionName)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "projeção reconstruída com sucesso",
@@ -589,7 +645,10 @@ func RebuildProjection(c *gin.Context) {
 // GetProjectionStatus retorna o status de uma projeção
 func GetProjectionStatus(c *gin.Context) {
 	projectionName := c.Param("name")
+	log.Printf("[DEBUG] GetProjectionStatus: Projeção: %s", projectionName)
+	
 	if projectionName == "" {
+		log.Printf("[ERROR] GetProjectionStatus: Nome não fornecido")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "nome da projeção não fornecido"})
 		return
 	}
@@ -615,12 +674,14 @@ func GetProjectionStatus(c *gin.Context) {
 	case "materias":
 		proj = projections.NewMateriasProjection(client)
 	default:
+		log.Printf("[ERROR] GetProjectionStatus: Projeção não encontrada: %s", projectionName)
 		c.JSON(http.StatusNotFound, gin.H{"error": "projeção não encontrada"})
 		return
 	}
 
 	lastEventID, err := proj.GetLastProcessedEventID()
 	if err != nil {
+		log.Printf("[ERROR] GetProjectionStatus: Erro ao obter lastEventID: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao obter status"})
 		return
 	}
@@ -635,6 +696,8 @@ func GetProjectionStatus(c *gin.Context) {
 	var lastProcessedAt *string
 	var eventsProcessed int
 	err = client.DB().QueryRow(query).Scan(&lastProcessedAt, &eventsProcessed)
+
+	log.Printf("[DEBUG] GetProjectionStatus: LastEventID: %d, EventsProcessed: %d", lastEventID, eventsProcessed)
 
 	status := gin.H{
 		"projection_name":        projectionName,
@@ -651,6 +714,8 @@ func GetProjectionStatus(c *gin.Context) {
 
 // GetAllProjectionsStatus retorna o status de todas as projeções
 func GetAllProjectionsStatus(c *gin.Context) {
+	log.Printf("[DEBUG] GetAllProjectionsStatus: Início")
+	
 	client := getDbClient(c)
 
 	query := `
@@ -661,12 +726,14 @@ func GetAllProjectionsStatus(c *gin.Context) {
 
 	rows, err := client.DB().Query(query)
 	if err != nil {
+		log.Printf("[ERROR] GetAllProjectionsStatus: Erro na query: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar status"})
 		return
 	}
 	defer rows.Close()
 
 	var statuses []gin.H
+	count := 0
 	for rows.Next() {
 		var name string
 		var lastEventID int64
@@ -674,6 +741,7 @@ func GetAllProjectionsStatus(c *gin.Context) {
 		var eventsProcessed int
 
 		if err := rows.Scan(&name, &lastEventID, &lastProcessedAt, &eventsProcessed); err != nil {
+			log.Printf("[ERROR] GetAllProjectionsStatus: Erro ao fazer scan: %v", err)
 			continue
 		}
 
@@ -683,7 +751,10 @@ func GetAllProjectionsStatus(c *gin.Context) {
 			"last_processed_at":    lastProcessedAt,
 			"events_processed":     eventsProcessed,
 		})
+		count++
 	}
+
+	log.Printf("[DEBUG] GetAllProjectionsStatus: %d projeções encontradas", count)
 
 	c.JSON(http.StatusOK, gin.H{
 		"projections": statuses,
@@ -693,6 +764,8 @@ func GetAllProjectionsStatus(c *gin.Context) {
 
 // GetLedgerStats retorna estatísticas do ledger
 func GetLedgerStats(c *gin.Context) {
+	log.Printf("[DEBUG] GetLedgerStats: Início")
+	
 	client := getDbClient(c)
 
 	var totalEvents int64
@@ -700,12 +773,15 @@ func GetLedgerStats(c *gin.Context) {
 
 	query1 := `SELECT COUNT(*) FROM spuri_ledger`
 	client.DB().QueryRow(query1).Scan(&totalEvents)
+	log.Printf("[DEBUG] GetLedgerStats: Total de eventos: %d", totalEvents)
 
 	query2 := `SELECT occurred_at FROM spuri_ledger ORDER BY id ASC LIMIT 1`
 	client.DB().QueryRow(query2).Scan(&firstEvent)
+	log.Printf("[DEBUG] GetLedgerStats: Primeiro evento: %s", firstEvent)
 
 	query3 := `SELECT occurred_at FROM spuri_ledger ORDER BY id DESC LIMIT 1`
 	client.DB().QueryRow(query3).Scan(&lastEvent)
+	log.Printf("[DEBUG] GetLedgerStats: Último evento: %s", lastEvent)
 
 	aggregateQuery := `
 		SELECT aggregate_type, COUNT(*) as count 
@@ -725,6 +801,8 @@ func GetLedgerStats(c *gin.Context) {
 		}
 	}
 
+	log.Printf("[DEBUG] GetLedgerStats: Estatísticas por agregado: %v", aggregateStats)
+
 	c.JSON(http.StatusOK, gin.H{
 		"total_events":        totalEvents,
 		"first_event_at":      firstEvent,
@@ -735,6 +813,8 @@ func GetLedgerStats(c *gin.Context) {
 
 // VerifyAllIntegrity verifica a integridade do ledger
 func VerifyAllIntegrity(c *gin.Context) {
+	log.Printf("[DEBUG] VerifyAllIntegrity: Início")
+	
 	client := getDbClient(c)
 
 	query := `
@@ -748,11 +828,15 @@ func VerifyAllIntegrity(c *gin.Context) {
 	var total, withHash, withPrevious int64
 	err := client.DB().QueryRow(query).Scan(&total, &withHash, &withPrevious)
 	if err != nil {
+		log.Printf("[ERROR] VerifyAllIntegrity: Erro na query: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao verificar integridade"})
 		return
 	}
 
 	integro := (total == withHash) && (total-1 == withPrevious)
+
+	log.Printf("[DEBUG] VerifyAllIntegrity: Total: %d, WithHash: %d, WithPrevious: %d, Integro: %v", 
+		total, withHash, withPrevious, integro)
 
 	c.JSON(http.StatusOK, gin.H{
 		"integro":              integro,
@@ -782,24 +866,24 @@ func getAdminProjection(c *gin.Context) *projections.AdminProjection {
 func verificarPermissaoAdmin(c *gin.Context, minRole string) error {
 	userID, _ := middleware.GetUserID(c)
 
-	log.Printf("🔍 [verificarPermissaoAdmin] UserID: %s, MinRole: %s", userID, minRole)
+	log.Printf("[DEBUG] verificarPermissaoAdmin: UserID: %s, MinRole: %s", userID, minRole)
 
 	adminProj := getAdminProjection(c)
 	admin, err := adminProj.GetByID(userID)
 	if err != nil {
-		log.Printf("❌ [verificarPermissaoAdmin] Erro ao buscar admin: %v", err)
+		log.Printf("[ERROR] verificarPermissaoAdmin: Erro ao buscar admin: %v", err)
 		return fmt.Errorf("administrador não encontrado")
 	}
 	if admin == nil {
-		log.Printf("❌ [verificarPermissaoAdmin] Admin não encontrado para ID: %s", userID)
+		log.Printf("[ERROR] verificarPermissaoAdmin: Admin não encontrado")
 		return fmt.Errorf("administrador não encontrado")
 	}
 
-	log.Printf("✅ [verificarPermissaoAdmin] Admin encontrado - Nome: %s, Role: %s, Status: %s", 
+	log.Printf("[DEBUG] verificarPermissaoAdmin: Admin encontrado - Nome: %s, Role: %s, Status: %s", 
 		admin.Nome, admin.Role, admin.Status)
 
 	if admin.Status != "ativo" {
-		log.Printf("❌ [verificarPermissaoAdmin] Admin está inativo")
+		log.Printf("[ERROR] verificarPermissaoAdmin: Admin está inativo")
 		return fmt.Errorf("administrador está inativo")
 	}
 
@@ -813,29 +897,37 @@ func verificarPermissaoAdmin(c *gin.Context, minRole string) error {
 	currentLevel := hierarchy[admin.Role]
 	requiredLevel := hierarchy[minRole]
 
-	log.Printf("🔍 [verificarPermissaoAdmin] Hierarquia - Current: %d (%s), Required: %d (%s)", 
+	log.Printf("[DEBUG] verificarPermissaoAdmin: Hierarquia - Current: %d (%s), Required: %d (%s)", 
 		currentLevel, admin.Role, requiredLevel, minRole)
 
 	if currentLevel < requiredLevel {
-		log.Printf("❌ [verificarPermissaoAdmin] Permissão insuficiente")
+		log.Printf("[ERROR] verificarPermissaoAdmin: Permissão insuficiente")
 		return fmt.Errorf("permissão negada: requer role '%s' ou superior", minRole)
 	}
 
-	log.Printf("✅ [verificarPermissaoAdmin] Permissão OK")
+	log.Printf("[DEBUG] verificarPermissaoAdmin: Permissão OK")
 	return nil
 }
 
 // registrarAcaoAdmin registra uma ação administrativa
 func registrarAcaoAdmin(c *gin.Context, adminID uuid.UUID, acao string, detalhes map[string]interface{}) {
+	log.Printf("[DEBUG] registrarAcaoAdmin: AdminID: %s, Ação: %s", adminID, acao)
+	
 	repository := getRepository(c)
 
 	adminAgg, err := repository.Load(adminID, "Admin")
 	if err != nil {
-		log.Printf("Erro ao carregar admin para registrar ação: %v", err)
+		log.Printf("[ERROR] registrarAcaoAdmin: Erro ao carregar admin: %v", err)
 		return
 	}
 
 	admin := adminAgg.(*aggregates.Admin)
 	admin.RegistrarAcao(acao, detalhes)
-	repository.Save(admin)
+	
+	if err := repository.Save(admin); err != nil {
+		log.Printf("[ERROR] registrarAcaoAdmin: Erro ao salvar ação: %v", err)
+		return
+	}
+	
+	log.Printf("[DEBUG] registrarAcaoAdmin: Ação registrada com sucesso")
 }

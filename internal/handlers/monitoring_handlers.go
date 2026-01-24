@@ -6,6 +6,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"spuri/internal/monitoring"
 
@@ -14,15 +15,23 @@ import (
 
 // HealthCheckBasic endpoint básico (público)
 func HealthCheckBasic(c *gin.Context) {
+	log.Printf("💊 [HEALTH-CHECK-BASIC] Verificando saúde básica do sistema")
+	
 	client := getDbClient(c)
 	
 	status := "ok"
 	dbStatus := "ok"
 	
+	log.Printf("🔍 [HEALTH-CHECK-BASIC-DEBUG] Verificando conexão com database...")
 	if err := client.Health(); err != nil {
+		log.Printf("❌ [HEALTH-CHECK-BASIC-DEBUG] Database com problemas: %v", err)
 		status = "degraded"
 		dbStatus = "error"
+	} else {
+		log.Printf("✅ [HEALTH-CHECK-BASIC-DEBUG] Database OK")
 	}
+	
+	log.Printf("✅ [HEALTH-CHECK-BASIC] Status: %s, Database: %s", status, dbStatus)
 	
 	c.JSON(http.StatusOK, gin.H{
 		"status":   status,
@@ -34,16 +43,26 @@ func HealthCheckBasic(c *gin.Context) {
 
 // HealthCheckDetailed endpoint detalhado (apenas admin)
 func HealthCheckDetailed(c *gin.Context) {
+	log.Printf("💊 [HEALTH-CHECK-DETAILED] Iniciando verificação detalhada")
+	
 	client := getDbClient(c)
 	checker := monitoring.NewHealthChecker(client.DB())
 	
+	log.Printf("🔍 [HEALTH-CHECK-DETAILED-DEBUG] Executando checagem completa...")
 	health := checker.CheckAll()
+	
+	log.Printf("📊 [HEALTH-CHECK-DETAILED-DEBUG] Status: %s", health.Status)
+	log.Printf("📊 [HEALTH-CHECK-DETAILED-DEBUG] Components: %v", health.Components)
 	
 	statusCode := http.StatusOK
 	if health.Status == monitoring.StatusUnhealthy {
+		log.Printf("❌ [HEALTH-CHECK-DETAILED] Sistema UNHEALTHY")
 		statusCode = http.StatusServiceUnavailable
 	} else if health.Status == monitoring.StatusDegraded {
+		log.Printf("⚠️ [HEALTH-CHECK-DETAILED] Sistema DEGRADED")
 		statusCode = http.StatusOK // Ainda funcional
+	} else {
+		log.Printf("✅ [HEALTH-CHECK-DETAILED] Sistema HEALTHY")
 	}
 	
 	c.JSON(statusCode, health)
@@ -51,16 +70,23 @@ func HealthCheckDetailed(c *gin.Context) {
 
 // GetMetrics retorna métricas do sistema (apenas admin)
 func GetMetrics(c *gin.Context) {
+	log.Printf("📊 [GET-METRICS] Coletando métricas do sistema")
+	
 	metrics := monitoring.GetMetrics()
 	snapshot := metrics.GetSnapshot()
+	
+	log.Printf("✅ [GET-METRICS-DEBUG] Snapshot coletado - Commands: %d, Events: %d, Errors: %d",
+		snapshot["commands_total"], snapshot["events_total"], snapshot["errors_total"])
 	
 	c.JSON(http.StatusOK, gin.H{
 		"metrics": snapshot,
 	})
 }
 
-// ✅ CORRIGIDO: QueryRow().Scan() manual
+// GetSystemStats retorna estatísticas do sistema
 func GetSystemStats(c *gin.Context) {
+	log.Printf("📊 [SYSTEM-STATS] Coletando estatísticas do sistema")
+	
 	client := getDbClient(c)
 	
 	type DBStats struct {
@@ -87,6 +113,7 @@ func GetSystemStats(c *gin.Context) {
 			(SELECT COUNT(*) FROM projection_inscricoes) as total_inscricoes
 	`
 	
+	log.Printf("🔍 [SYSTEM-STATS-DEBUG] Executando query de estatísticas gerais...")
 	err := client.DB().QueryRow(query).Scan(
 		&stats.TotalEvents,
 		&stats.TotalAggregates,
@@ -98,11 +125,15 @@ func GetSystemStats(c *gin.Context) {
 		&stats.TotalInscricoes,
 	)
 	if err != nil {
+		log.Printf("❌ [SYSTEM-STATS-DEBUG] Erro ao buscar estatísticas: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "erro ao buscar estatísticas",
 		})
 		return
 	}
+	
+	log.Printf("✅ [SYSTEM-STATS-DEBUG] Estatísticas gerais coletadas - Events: %d, Aggregates: %d",
+		stats.TotalEvents, stats.TotalAggregates)
 	
 	// Estatísticas por tipo de evento
 	type EventTypeCount struct {
@@ -117,8 +148,10 @@ func GetSystemStats(c *gin.Context) {
 		ORDER BY count DESC
 	`
 
+	log.Printf("🔍 [SYSTEM-STATS-DEBUG] Executando query de tipos de eventos...")
 	rows, err := client.DB().Query(queryTypes)
 	if err != nil {
+		log.Printf("❌ [SYSTEM-STATS-DEBUG] Erro ao buscar tipos de eventos: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "erro ao buscar tipos de eventos",
 		})
@@ -130,22 +163,35 @@ func GetSystemStats(c *gin.Context) {
 	for rows.Next() {
 		var et EventTypeCount
 		if err := rows.Scan(&et.EventType, &et.Count); err != nil {
+			log.Printf("⚠️ [SYSTEM-STATS-DEBUG] Erro ao ler tipo de evento: %v", err)
 			continue
 		}
 		eventTypes = append(eventTypes, et)
 	}
 	
+	log.Printf("✅ [SYSTEM-STATS-DEBUG] Tipos de eventos coletados - Total tipos: %d", len(eventTypes))
+	
+	dbStats := client.Stats()
+	log.Printf("📊 [SYSTEM-STATS-DEBUG] DB Pool Stats - OpenConns: %d, InUse: %d, Idle: %d",
+		dbStats.OpenConnections, dbStats.InUse, dbStats.Idle)
+	
+	log.Printf("✅ [SYSTEM-STATS] Estatísticas completas coletadas")
+	
 	c.JSON(http.StatusOK, gin.H{
 		"database":    stats,
 		"event_types": eventTypes,
-		"db_stats":    client.Stats(),
+		"db_stats":    dbStats,
 	})
 }
 
 // ResetMetrics reseta métricas (apenas admin FPP)
 func ResetMetrics(c *gin.Context) {
+	log.Printf("🔄 [RESET-METRICS] Resetando métricas do sistema")
+	
 	metrics := monitoring.GetMetrics()
 	metrics.Reset()
+	
+	log.Printf("✅ [RESET-METRICS] Métricas resetadas com sucesso")
 	
 	c.JSON(http.StatusOK, gin.H{
 		"message": "métricas resetadas com sucesso",
