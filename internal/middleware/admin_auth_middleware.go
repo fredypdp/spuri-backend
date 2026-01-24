@@ -6,44 +6,58 @@
 package middleware
 
 import (
+	"log"
 	"net/http"
 	"spuri/internal/db"
+
 	"github.com/gin-gonic/gin"
 )
 
-// RequireAdmin verifica se o usuário é um admin (qualquer role)
 func RequireAdmin() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		log.Printf("👤 [RequireAdmin] Verificando se é admin - Path: %s", c.Request.URL.Path)
+		
 		userType, exists := c.Get("user_type")
-		if !exists || userType != "admin" {
-			c.JSON(http.StatusForbidden, gin.H{
-				"error": "acesso negado: apenas administradores",
-			})
+		if !exists {
+			log.Printf("❌ [RequireAdmin] user_type não existe no contexto")
+			c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas administradores"})
 			c.Abort()
 			return
 		}
+		
+		log.Printf("🔍 [RequireAdmin] UserType encontrado: %v", userType)
+		
+		if userType != "admin" {
+			log.Printf("❌ [RequireAdmin] UserType incorreto: %v (esperado: admin)", userType)
+			c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas administradores"})
+			c.Abort()
+			return
+		}
+		
+		log.Printf("✅ [RequireAdmin] OK - É admin")
 		c.Next()
 	}
 }
 
-// RequireAdminRole verifica se o admin tem a role mínima necessária
 func RequireAdminRole(minRole string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		log.Printf("🔑 [RequireAdminRole] Verificando role mínima: %s", minRole)
+		
 		userID, exists := c.Get("user_id")
 		if !exists {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": "não autenticado",
-			})
+			log.Printf("❌ [RequireAdminRole] user_id não encontrado")
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "não autenticado"})
 			c.Abort()
 			return
 		}
 
+		log.Printf("🔍 [RequireAdminRole] UserID: %v", userID)
+
 		// Buscar role do admin na projeção
 		clientRaw, exists := c.Get("dbClient")
 		if !exists {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "erro ao verificar permissões",
-			})
+			log.Printf("❌ [RequireAdminRole] dbClient não encontrado no contexto")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao verificar permissões"})
 			c.Abort()
 			return
 		}
@@ -56,31 +70,26 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 		}
 
 		var info AdminInfo
-		query := `
-			SELECT role, status 
-			FROM projection_admins 
-			WHERE id = $1
-		`
+		query := `SELECT role, status FROM projection_admins WHERE id = $1`
 
+		log.Printf("🔍 [RequireAdminRole] Buscando admin na projeção...")
 		err := client.DB().QueryRow(query, userID).Scan(&info.Role, &info.Status)
 		if err != nil {
-			c.JSON(http.StatusForbidden, gin.H{
-				"error": "administrador não encontrado",
-			})
+			log.Printf("❌ [RequireAdminRole] Erro ao buscar admin: %v", err)
+			c.JSON(http.StatusForbidden, gin.H{"error": "administrador não encontrado"})
 			c.Abort()
 			return
 		}
 
-		// Verificar se está ativo
+		log.Printf("✅ [RequireAdminRole] Admin encontrado - Role: %s, Status: %s", info.Role, info.Status)
+
 		if info.Status != "ativo" {
-			c.JSON(http.StatusForbidden, gin.H{
-				"error": "administrador inativo",
-			})
+			log.Printf("❌ [RequireAdminRole] Admin inativo")
+			c.JSON(http.StatusForbidden, gin.H{"error": "administrador inativo"})
 			c.Abort()
 			return
 		}
 
-		// Hierarquia de roles
 		hierarchy := map[string]int{
 			"fpp":     3,
 			"adm":     2,
@@ -90,33 +99,34 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 		currentLevel := hierarchy[info.Role]
 		requiredLevel := hierarchy[minRole]
 
+		log.Printf("🔍 [RequireAdminRole] Hierarquia - Current: %d (%s), Required: %d (%s)", 
+			currentLevel, info.Role, requiredLevel, minRole)
+
 		if currentLevel < requiredLevel {
+			log.Printf("❌ [RequireAdminRole] Permissão insuficiente")
 			c.JSON(http.StatusForbidden, gin.H{
-				"error":        "permissão negada",
+				"error":         "permissão negada",
 				"required_role": minRole,
-				"your_role":    info.Role,
+				"your_role":     info.Role,
 			})
 			c.Abort()
 			return
 		}
 
-		// Adicionar role ao contexto
 		c.Set("admin_role", info.Role)
+		log.Printf("✅ [RequireAdminRole] Permissão OK")
 		c.Next()
 	}
 }
 
-// RequireGerente - apenas gerente ou superior
 func RequireGerente() gin.HandlerFunc {
 	return RequireAdminRole("gerente")
 }
 
-// RequireAdm - apenas adm ou superior (fpp)
 func RequireAdm() gin.HandlerFunc {
 	return RequireAdminRole("adm")
 }
 
-// RequireFPP - apenas fpp
 func RequireFPP() gin.HandlerFunc {
 	return RequireAdminRole("fpp")
 }

@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -11,10 +12,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// Claims representa as claims do JWT
 type Claims struct {
 	UserID   uuid.UUID `json:"user_id"`
-	UserType string    `json:"user_type"` // "estudante" ou "academia"
+	UserType string    `json:"user_type"`
 	jwt.RegisteredClaims
 }
 
@@ -28,7 +28,6 @@ func init() {
 	jwtSecret = []byte(secret)
 }
 
-// GenerateToken gera um token JWT
 func GenerateToken(userID uuid.UUID, userType string) (string, error) {
 	expiryHours := 24
 	if hours := os.Getenv("JWT_EXPIRY_HOURS"); hours != "" {
@@ -48,71 +47,94 @@ func GenerateToken(userID uuid.UUID, userType string) (string, error) {
 	return token.SignedString(jwtSecret)
 }
 
-// AuthMiddleware verifica o token JWT
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		log.Printf("🔐 [AuthMiddleware] Verificando autenticação - Path: %s", c.Request.URL.Path)
+		
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
+			log.Printf("❌ [AuthMiddleware] Token não fornecido")
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "token não fornecido"})
 			c.Abort()
 			return
 		}
 
-		// Remover "Bearer " do início
 		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 		if tokenString == authHeader {
+			log.Printf("❌ [AuthMiddleware] Formato de token inválido")
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "formato de token inválido"})
 			c.Abort()
 			return
 		}
 
-		// Parse e validar o token
 		claims := &Claims{}
 		token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 			return jwtSecret, nil
 		})
 
 		if err != nil || !token.Valid {
+			log.Printf("❌ [AuthMiddleware] Token inválido ou expirado: %v", err)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "token inválido ou expirado"})
 			c.Abort()
 			return
 		}
 
-		// Adicionar claims ao contexto
 		c.Set("user_id", claims.UserID)
 		c.Set("user_type", claims.UserType)
-
+		
+		log.Printf("✅ [AuthMiddleware] Autenticado - UserID: %s, UserType: %s", claims.UserID, claims.UserType)
 		c.Next()
 	}
 }
 
-// RequireAcademia verifica se o usuário é uma academia
 func RequireAcademia() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		log.Printf("🏫 [RequireAcademia] Verificando tipo de usuário")
+		
 		userType, exists := c.Get("user_type")
-		if !exists || userType != "academia" {
+		if !exists {
+			log.Printf("❌ [RequireAcademia] user_type não encontrado no contexto")
 			c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas academias"})
 			c.Abort()
 			return
 		}
+		
+		if userType != "academia" {
+			log.Printf("❌ [RequireAcademia] Tipo incorreto: %v (esperado: academia)", userType)
+			c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas academias"})
+			c.Abort()
+			return
+		}
+		
+		log.Printf("✅ [RequireAcademia] OK")
 		c.Next()
 	}
 }
 
-// RequireEstudante verifica se o usuário é um estudante
 func RequireEstudante() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		log.Printf("🎓 [RequireEstudante] Verificando tipo de usuário")
+		
 		userType, exists := c.Get("user_type")
-		if !exists || userType != "estudante" {
+		if !exists {
+			log.Printf("❌ [RequireEstudante] user_type não encontrado no contexto")
 			c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas estudantes"})
 			c.Abort()
 			return
 		}
+		
+		if userType != "estudante" {
+			log.Printf("❌ [RequireEstudante] Tipo incorreto: %v (esperado: estudante)", userType)
+			c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas estudantes"})
+			c.Abort()
+			return
+		}
+		
+		log.Printf("✅ [RequireEstudante] OK")
 		c.Next()
 	}
 }
 
-// GetUserID obtém o ID do usuário do contexto
 func GetUserID(c *gin.Context) (uuid.UUID, bool) {
 	userID, exists := c.Get("user_id")
 	if !exists {
@@ -123,7 +145,6 @@ func GetUserID(c *gin.Context) (uuid.UUID, bool) {
 	return id, ok
 }
 
-// GetUserType obtém o tipo do usuário do contexto
 func GetUserType(c *gin.Context) (string, bool) {
 	userType, exists := c.Get("user_type")
 	if !exists {
