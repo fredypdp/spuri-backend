@@ -363,45 +363,71 @@ func AtivarAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	codigoAcademia := c.Param("codigo")
 
+	log.Printf("🔵 [AtivarAcademia] INÍCIO - UserID: %s, CodigoAcademia: %s", userID, codigoAcademia)
+
 	// Verificar permissão do admin
+	log.Printf("🔍 [AtivarAcademia] Verificando permissão de gerente...")
 	if err := verificarPermissaoAdmin(c, "gerente"); err != nil {
+		log.Printf("❌ [AtivarAcademia] Permissão negada: %v", err)
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
 	}
+	log.Printf("✅ [AtivarAcademia] Permissão verificada com sucesso")
 
 	// Buscar academia pelo código
+	log.Printf("🔍 [AtivarAcademia] Buscando academia por código: %s", codigoAcademia)
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByCodigo(codigoAcademia)
-	if err != nil || academiaDTO == nil {
+	if err != nil {
+		log.Printf("❌ [AtivarAcademia] Erro ao buscar academia: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar academia"})
+		return
+	}
+	if academiaDTO == nil {
+		log.Printf("❌ [AtivarAcademia] Academia não encontrada: %s", codigoAcademia)
 		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
 		return
 	}
+	log.Printf("✅ [AtivarAcademia] Academia encontrada - ID: %s, Nome: %s, Status: %s", 
+		academiaDTO.ID, academiaDTO.Nome, academiaDTO.Status)
 
 	// Carregar agregado
+	log.Printf("🔍 [AtivarAcademia] Carregando agregado da academia...")
 	repository := getRepository(c)
 	academiaAgg, err := repository.Load(academiaDTO.ID, "Academia")
 	if err != nil {
+		log.Printf("❌ [AtivarAcademia] Erro ao carregar agregado: %v", err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
 		return
 	}
+	log.Printf("✅ [AtivarAcademia] Agregado carregado com sucesso")
 
 	academia := academiaAgg.(*aggregates.Academia)
+	log.Printf("🔄 [AtivarAcademia] Executando comando Ativar()...")
 	if err := academia.Ativar(); err != nil {
+		log.Printf("❌ [AtivarAcademia] Erro ao ativar academia: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	log.Printf("✅ [AtivarAcademia] Comando Ativar() executado com sucesso")
 
+	log.Printf("💾 [AtivarAcademia] Salvando eventos...")
 	if err := repository.Save(academia); err != nil {
+		log.Printf("❌ [AtivarAcademia] Erro ao salvar eventos: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao ativar academia"})
 		return
 	}
+	log.Printf("✅ [AtivarAcademia] Eventos salvos com sucesso")
 
 	// Registrar ação do admin
+	log.Printf("📝 [AtivarAcademia] Registrando ação do admin...")
 	registrarAcaoAdmin(c, userID, "academia_ativada", map[string]interface{}{
 		"codigo_academia": codigoAcademia,
 		"academia_id":     academiaDTO.ID.String(),
 	})
+	log.Printf("✅ [AtivarAcademia] Ação registrada com sucesso")
 
+	log.Printf("🎉 [AtivarAcademia] SUCESSO - Academia %s ativada", codigoAcademia)
 	c.JSON(http.StatusOK, gin.H{
 		"message":         "academia ativada com sucesso",
 		"codigo_academia": academia.CodigoAcademia,
@@ -414,60 +440,135 @@ func DesativarAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	codigoAcademia := c.Param("codigo")
 
+	log.Printf("🔵 [DesativarAcademia] INÍCIO - UserID: %s, CodigoAcademia: %s", userID, codigoAcademia)
+
 	var req struct {
 		Motivo string `json:"motivo" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("❌ [DesativarAcademia] Erro ao fazer bind do JSON: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "motivo é obrigatório"})
 		return
 	}
+	log.Printf("📋 [DesativarAcademia] Motivo: %s", req.Motivo)
 
 	// Verificar permissão
+	log.Printf("🔍 [DesativarAcademia] Verificando permissão de gerente...")
 	if err := verificarPermissaoAdmin(c, "gerente"); err != nil {
+		log.Printf("❌ [DesativarAcademia] Permissão negada: %v", err)
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
 	}
+	log.Printf("✅ [DesativarAcademia] Permissão verificada com sucesso")
 
 	// Buscar academia pelo código
+	log.Printf("🔍 [DesativarAcademia] Buscando academia por código: %s", codigoAcademia)
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByCodigo(codigoAcademia)
-	if err != nil || academiaDTO == nil {
+	if err != nil {
+		log.Printf("❌ [DesativarAcademia] Erro ao buscar academia: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar academia"})
+		return
+	}
+	if academiaDTO == nil {
+		log.Printf("❌ [DesativarAcademia] Academia não encontrada: %s", codigoAcademia)
 		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
 		return
 	}
+	log.Printf("✅ [DesativarAcademia] Academia encontrada - ID: %s, Nome: %s, Status: %s", 
+		academiaDTO.ID, academiaDTO.Nome, academiaDTO.Status)
 
 	// Carregar agregado
+	log.Printf("🔍 [DesativarAcademia] Carregando agregado da academia...")
 	repository := getRepository(c)
 	academiaAgg, err := repository.Load(academiaDTO.ID, "Academia")
 	if err != nil {
+		log.Printf("❌ [DesativarAcademia] Erro ao carregar agregado: %v", err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
 		return
 	}
+	log.Printf("✅ [DesativarAcademia] Agregado carregado com sucesso")
 
 	academia := academiaAgg.(*aggregates.Academia)
+	log.Printf("🔄 [DesativarAcademia] Executando comando Desativar()...")
 	if err := academia.Desativar(req.Motivo); err != nil {
+		log.Printf("❌ [DesativarAcademia] Erro ao desativar academia: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	log.Printf("✅ [DesativarAcademia] Comando Desativar() executado com sucesso")
 
+	log.Printf("💾 [DesativarAcademia] Salvando eventos...")
 	if err := repository.Save(academia); err != nil {
+		log.Printf("❌ [DesativarAcademia] Erro ao salvar eventos: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao desativar academia"})
 		return
 	}
+	log.Printf("✅ [DesativarAcademia] Eventos salvos com sucesso")
 
 	// Registrar ação
+	log.Printf("📝 [DesativarAcademia] Registrando ação do admin...")
 	registrarAcaoAdmin(c, userID, "academia_desativada", map[string]interface{}{
 		"codigo_academia": codigoAcademia,
 		"academia_id":     academiaDTO.ID.String(),
 		"motivo":          req.Motivo,
 	})
+	log.Printf("✅ [DesativarAcademia] Ação registrada com sucesso")
 
+	log.Printf("🎉 [DesativarAcademia] SUCESSO - Academia %s desativada", codigoAcademia)
 	c.JSON(http.StatusOK, gin.H{
 		"message":         "academia desativada com sucesso",
 		"codigo_academia": academia.CodigoAcademia,
 		"nome":            academia.Nome,
 		"motivo":          req.Motivo,
 	})
+}
+
+// verificarPermissaoAdmin verifica se o admin tem a permissão necessária
+func verificarPermissaoAdmin(c *gin.Context, minRole string) error {
+	userID, _ := middleware.GetUserID(c)
+
+	log.Printf("🔍 [verificarPermissaoAdmin] UserID: %s, MinRole: %s", userID, minRole)
+
+	adminProj := getAdminProjection(c)
+	admin, err := adminProj.GetByID(userID)
+	if err != nil {
+		log.Printf("❌ [verificarPermissaoAdmin] Erro ao buscar admin: %v", err)
+		return fmt.Errorf("administrador não encontrado")
+	}
+	if admin == nil {
+		log.Printf("❌ [verificarPermissaoAdmin] Admin não encontrado para ID: %s", userID)
+		return fmt.Errorf("administrador não encontrado")
+	}
+
+	log.Printf("✅ [verificarPermissaoAdmin] Admin encontrado - Nome: %s, Role: %s, Status: %s", 
+		admin.Nome, admin.Role, admin.Status)
+
+	if admin.Status != "ativo" {
+		log.Printf("❌ [verificarPermissaoAdmin] Admin está inativo")
+		return fmt.Errorf("administrador está inativo")
+	}
+
+	// Hierarquia
+	hierarchy := map[string]int{
+		"fpp":     3,
+		"adm":     2,
+		"gerente": 1,
+	}
+
+	currentLevel := hierarchy[admin.Role]
+	requiredLevel := hierarchy[minRole]
+
+	log.Printf("🔍 [verificarPermissaoAdmin] Hierarquia - Current: %d (%s), Required: %d (%s)", 
+		currentLevel, admin.Role, requiredLevel, minRole)
+
+	if currentLevel < requiredLevel {
+		log.Printf("❌ [verificarPermissaoAdmin] Permissão insuficiente")
+		return fmt.Errorf("permissão negada: requer role '%s' ou superior", minRole)
+	}
+
+	log.Printf("✅ [verificarPermissaoAdmin] Permissão OK")
+	return nil
 }
 
 // ============================================================================
