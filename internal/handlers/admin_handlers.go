@@ -245,19 +245,20 @@ func ListarEstudantes(c *gin.Context) {
 		log.Printf("✅ [ListarEstudantes] Academia encontrada - Código: %s, Nome: %s", 
 			academiaDTO.CodigoAcademia, academiaDTO.Nome)
 
-		query := `
+		safeCodigoAcademia := db.SafeString(academiaDTO.CodigoAcademia)
+		query := fmt.Sprintf(`
 			SELECT 
 				id, nome, codigo_estudante, bilhete_identidade, ano_superior,
 				codigo_academia, ano_escolar, status_escolar, status_superior,
 				created_at, total_notas, total_faltas, total_inscricoes
 			FROM projection_estudantes
-			WHERE codigo_academia = $1
+			WHERE codigo_academia = '%s'
 			ORDER BY created_at DESC
-		`
+		`, safeCodigoAcademia)
 
 		log.Printf("🔍 [ListarEstudantes] Executando query com codigo_academia: %s", academiaDTO.CodigoAcademia)
 
-		rows, err := client.DB().Query(query, academiaDTO.CodigoAcademia)
+		rows, err := client.DB().Query(query)
 		if err != nil {
 			log.Printf("❌ [ListarEstudantes] Erro na query: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar estudantes"})
