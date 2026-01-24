@@ -3,6 +3,7 @@ package aggregates
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,13 +31,14 @@ type Academia struct {
 }
 
 func NewAcademia() *Academia {
+	log.Printf("[ACADEMIA_AGGREGATE] Criando nova instância de Academia")
 	return &Academia{
 		BaseAggregate: BaseAggregate{
 			ID:                uuid.New(),
 			Version:           0,
 			UncommittedEvents: []DomainEvent{},
 		},
-		Status: "inativo", // ✅ SEMPRE inicia inativa - precisa aprovação admin
+		Status: "inativo",
 		Cursos: []string{},
 	}
 }
@@ -46,6 +48,9 @@ func (a *Academia) GetType() string {
 }
 
 func (a *Academia) Apply(event DomainEvent) error {
+	log.Printf("[ACADEMIA_AGGREGATE] Aplicando evento: type=%s, aggregate_id=%s", 
+		event.GetEventType(), event.GetAggregateID())
+	
 	switch event.GetEventType() {
 	case "AcademiaCriada":
 		return a.applyAcademiaCriada(event)
@@ -62,6 +67,7 @@ func (a *Academia) Apply(event DomainEvent) error {
 	case "AcademiaDadosAtualizados":
 		return a.applyAcademiaDadosAtualizados(event)
 	default:
+		log.Printf("[ACADEMIA_AGGREGATE] Tipo de evento desconhecido: %s", event.GetEventType())
 		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
 	}
 }
@@ -79,20 +85,25 @@ func (a *Academia) Criar(
 	nivelEscolar *string,
 	cursos []string,
 ) error {
-	// Validações básicas
+	log.Printf("[ACADEMIA_AGGREGATE] Executando comando Criar: nome=%s, codigo=%s, tipo=%s", 
+		nome, codigoAcademia, tipo)
+	
 	if tipo != "escola" && tipo != "superior" {
+		log.Printf("[ACADEMIA_AGGREGATE] Tipo inválido: %s", tipo)
 		return fmt.Errorf("tipo deve ser 'escola' ou 'superior'")
 	}
 	if nome == "" {
+		log.Printf("[ACADEMIA_AGGREGATE] Nome obrigatório não fornecido")
 		return fmt.Errorf("nome é obrigatório")
 	}
 	if codigoAcademia == "" {
+		log.Printf("[ACADEMIA_AGGREGATE] Código obrigatório não fornecido")
 		return fmt.Errorf("código é obrigatório")
 	}
 	
-	// Validar nivel_escolar para escolas
 	if tipo == "escola" {
 		if nivelEscolar == nil {
+			log.Printf("[ACADEMIA_AGGREGATE] Nível escolar obrigatório para escolas")
 			return fmt.Errorf("nivel_escolar é obrigatório para escolas")
 		}
 		
@@ -103,6 +114,7 @@ func (a *Academia) Criar(
 		}
 		
 		if !validNiveis[*nivelEscolar] {
+			log.Printf("[ACADEMIA_AGGREGATE] Nível escolar inválido: %s", *nivelEscolar)
 			return fmt.Errorf("nivel_escolar deve ser 'fundamental', 'medio' ou 'misto'")
 		}
 	}
@@ -126,6 +138,7 @@ func (a *Academia) Criar(
 		CreatedAt:      time.Now(),
 	}
 
+	log.Printf("[ACADEMIA_AGGREGATE] Evento AcademiaCriada gerado para academia: %s", a.ID)
 	a.RaiseEvent(event)
 	return a.Apply(event)
 }
@@ -137,7 +150,11 @@ func (a *Academia) AprovarInscricao(
 	anoInscricao string,
 	curso *string,
 ) error {
+	log.Printf("[ACADEMIA_AGGREGATE] Executando comando AprovarInscricao: estudante=%s, inscricao=%s", 
+		estudanteID, inscricaoID)
+	
 	if a.Status != "ativo" {
+		log.Printf("[ACADEMIA_AGGREGATE] Academia inativa, não pode aprovar inscrições: status=%s", a.Status)
 		return fmt.Errorf("academia está inativa - não pode aprovar inscrições")
 	}
 
@@ -155,6 +172,7 @@ func (a *Academia) AprovarInscricao(
 		ApprovedAt:   time.Now(),
 	}
 
+	log.Printf("[ACADEMIA_AGGREGATE] Evento InscricaoAprovada gerado")
 	a.RaiseEvent(event)
 	return a.Apply(event)
 }
@@ -164,7 +182,11 @@ func (a *Academia) ReprovarInscricao(
 	inscricaoID uuid.UUID,
 	motivo string,
 ) error {
+	log.Printf("[ACADEMIA_AGGREGATE] Executando comando ReprovarInscricao: estudante=%s, inscricao=%s, motivo=%s", 
+		estudanteID, inscricaoID, motivo)
+	
 	if a.Status != "ativo" {
+		log.Printf("[ACADEMIA_AGGREGATE] Academia inativa, não pode reprovar inscrições: status=%s", a.Status)
 		return fmt.Errorf("academia está inativa - não pode reprovar inscrições")
 	}
 
@@ -180,12 +202,16 @@ func (a *Academia) ReprovarInscricao(
 		RejectedAt:  time.Now(),
 	}
 
+	log.Printf("[ACADEMIA_AGGREGATE] Evento InscricaoReprovada gerado")
 	a.RaiseEvent(event)
 	return a.Apply(event)
 }
 
 func (a *Academia) Ativar() error {
+	log.Printf("[ACADEMIA_AGGREGATE] Executando comando Ativar: id=%s, status_atual=%s", a.ID, a.Status)
+	
 	if a.Status == "ativo" {
+		log.Printf("[ACADEMIA_AGGREGATE] Academia já está ativa")
 		return fmt.Errorf("academia já está ativa")
 	}
 
@@ -197,12 +223,16 @@ func (a *Academia) Ativar() error {
 		ActivatedAt: time.Now(),
 	}
 
+	log.Printf("[ACADEMIA_AGGREGATE] Evento AcademiaAtivada gerado")
 	a.RaiseEvent(event)
 	return a.Apply(event)
 }
 
 func (a *Academia) Desativar(motivo string) error {
+	log.Printf("[ACADEMIA_AGGREGATE] Executando comando Desativar: id=%s, motivo=%s", a.ID, motivo)
+	
 	if a.Status == "inativo" {
+		log.Printf("[ACADEMIA_AGGREGATE] Academia já está inativa")
 		return fmt.Errorf("academia já está inativa")
 	}
 
@@ -215,12 +245,16 @@ func (a *Academia) Desativar(motivo string) error {
 		DeactivatedAt: time.Now(),
 	}
 
+	log.Printf("[ACADEMIA_AGGREGATE] Evento AcademiaDesativada gerado")
 	a.RaiseEvent(event)
 	return a.Apply(event)
 }
 
 func (a *Academia) AtualizarCursos(cursos []string) error {
+	log.Printf("[ACADEMIA_AGGREGATE] Executando comando AtualizarCursos: id=%s, cursos=%v", a.ID, cursos)
+	
 	if a.Status != "ativo" {
+		log.Printf("[ACADEMIA_AGGREGATE] Academia inativa")
 		return fmt.Errorf("academia está inativa")
 	}
 
@@ -233,6 +267,74 @@ func (a *Academia) AtualizarCursos(cursos []string) error {
 		UpdatedAt:  time.Now(),
 	}
 
+	log.Printf("[ACADEMIA_AGGREGATE] Evento CursosAtualizados gerado")
+	a.RaiseEvent(event)
+	return a.Apply(event)
+}
+
+func (a *Academia) AtualizarDados(
+	nome *string,
+	provincia *string,
+	endereco *string,
+	numeroTelefone *string,
+	email *string,
+	website *string,
+	nivelEscolar *string,
+	cursos []string,
+) error {
+	log.Printf("[ACADEMIA_AGGREGATE] Executando comando AtualizarDados: id=%s", a.ID)
+	
+	if a.Status != "ativo" && a.Status != "inativo" {
+		log.Printf("[ACADEMIA_AGGREGATE] Academia em estado inválido: %s", a.Status)
+		return fmt.Errorf("academia em estado inválido")
+	}
+
+	if nome == nil && provincia == nil && endereco == nil && numeroTelefone == nil && 
+	   email == nil && website == nil && nivelEscolar == nil && cursos == nil {
+		log.Printf("[ACADEMIA_AGGREGATE] Nenhum campo fornecido para atualização")
+		return fmt.Errorf("nenhum campo para atualizar")
+	}
+
+	if nome != nil && *nome == "" {
+		log.Printf("[ACADEMIA_AGGREGATE] Nome vazio fornecido")
+		return fmt.Errorf("nome não pode ser vazio")
+	}
+
+	if endereco != nil && *endereco == "" {
+		log.Printf("[ACADEMIA_AGGREGATE] Endereço vazio fornecido")
+		return fmt.Errorf("endereço não pode ser vazio")
+	}
+
+	if nivelEscolar != nil && a.Type == "escola" {
+		validNiveis := map[string]bool{
+			"fundamental": true,
+			"medio":       true,
+			"misto":       true,
+		}
+		if !validNiveis[*nivelEscolar] {
+			log.Printf("[ACADEMIA_AGGREGATE] Nível escolar inválido: %s", *nivelEscolar)
+			return fmt.Errorf("nivel_escolar deve ser 'fundamental', 'medio' ou 'misto'")
+		}
+	}
+
+	event := &AcademiaDadosAtualizadosEvent{
+		BaseEvent: BaseEvent{
+			EventType:   "AcademiaDadosAtualizados",
+			AggregateID: a.ID,
+		},
+		Nome:           nome,
+		Provincia:      provincia,
+		Endereco:       endereco,
+		NumeroTelefone: numeroTelefone,
+		Email:          email,
+		Website:        website,
+		NivelEscolar:   nivelEscolar,
+		Cursos:         cursos,
+		EmailAlterado:  email != nil && (a.Email == nil || *a.Email != *email),
+		UpdatedAt:      time.Now(),
+	}
+
+	log.Printf("[ACADEMIA_AGGREGATE] Evento AcademiaDadosAtualizados gerado")
 	a.RaiseEvent(event)
 	return a.Apply(event)
 }
@@ -240,14 +342,18 @@ func (a *Academia) AtualizarCursos(cursos []string) error {
 // Event Handlers
 
 func (a *Academia) applyAcademiaCriada(event DomainEvent) error {
+	log.Printf("[ACADEMIA_AGGREGATE] Aplicando AcademiaCriada")
+	
 	payload := event.GetPayload()
 	data, err := json.Marshal(payload)
 	if err != nil {
+		log.Printf("[ACADEMIA_AGGREGATE] Erro ao serializar payload: %v", err)
 		return err
 	}
 
 	var ev AcademiaCriadaEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
+		log.Printf("[ACADEMIA_AGGREGATE] Erro ao deserializar evento: %v", err)
 		return err
 	}
 
@@ -263,53 +369,120 @@ func (a *Academia) applyAcademiaCriada(event DomainEvent) error {
 	a.Website = ev.Website
 	a.NivelEscolar = ev.NivelEscolar
 	a.Cursos = ev.Cursos
-	a.Status = "inativo" // ✅ SEMPRE inativa ao criar - aguarda aprovação
+	a.Status = "inativo"
 	a.CreatedAt = ev.CreatedAt
 
+	log.Printf("[ACADEMIA_AGGREGATE] Estado atualizado: nome=%s, codigo=%s, status=%s", 
+		a.Nome, a.CodigoAcademia, a.Status)
 	return nil
 }
 
 func (a *Academia) applyInscricaoAprovada(event DomainEvent) error {
-	// NÃO incrementa total_estudantes aqui
-	// Só quando estudante VINCULAR (usar a inscrição)
+	log.Printf("[ACADEMIA_AGGREGATE] Aplicando InscricaoAprovada")
+	
 	a.TotalInscricoesPendentes--
 	if a.TotalInscricoesPendentes < 0 {
 		a.TotalInscricoesPendentes = 0
 	}
+	
+	log.Printf("[ACADEMIA_AGGREGATE] Total inscrições pendentes: %d", a.TotalInscricoesPendentes)
 	return nil
 }
 
 func (a *Academia) applyInscricaoReprovada(event DomainEvent) error {
+	log.Printf("[ACADEMIA_AGGREGATE] Aplicando InscricaoReprovada")
+	
 	a.TotalInscricoesPendentes--
 	if a.TotalInscricoesPendentes < 0 {
 		a.TotalInscricoesPendentes = 0
 	}
+	
+	log.Printf("[ACADEMIA_AGGREGATE] Total inscrições pendentes: %d", a.TotalInscricoesPendentes)
 	return nil
 }
 
 func (a *Academia) applyAcademiaAtivada(event DomainEvent) error {
+	log.Printf("[ACADEMIA_AGGREGATE] Aplicando AcademiaAtivada")
 	a.Status = "ativo"
+	log.Printf("[ACADEMIA_AGGREGATE] Status atualizado: %s", a.Status)
 	return nil
 }
 
 func (a *Academia) applyAcademiaDesativada(event DomainEvent) error {
+	log.Printf("[ACADEMIA_AGGREGATE] Aplicando AcademiaDesativada")
 	a.Status = "inativo"
+	log.Printf("[ACADEMIA_AGGREGATE] Status atualizado: %s", a.Status)
 	return nil
 }
 
 func (a *Academia) applyCursosAtualizados(event DomainEvent) error {
+	log.Printf("[ACADEMIA_AGGREGATE] Aplicando CursosAtualizados")
+	
 	payload := event.GetPayload()
 	data, err := json.Marshal(payload)
 	if err != nil {
+		log.Printf("[ACADEMIA_AGGREGATE] Erro ao serializar payload: %v", err)
 		return err
 	}
 
 	var ev CursosAtualizadosEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
+		log.Printf("[ACADEMIA_AGGREGATE] Erro ao deserializar evento: %v", err)
 		return err
 	}
 
 	a.Cursos = ev.NovoCursos
+	log.Printf("[ACADEMIA_AGGREGATE] Cursos atualizados: %v", a.Cursos)
+	return nil
+}
+
+func (a *Academia) applyAcademiaDadosAtualizados(event DomainEvent) error {
+	log.Printf("[ACADEMIA_AGGREGATE] Aplicando AcademiaDadosAtualizados")
+	
+	payload := event.GetPayload()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("[ACADEMIA_AGGREGATE] Erro ao serializar payload: %v", err)
+		return err
+	}
+
+	var ev AcademiaDadosAtualizadosEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		log.Printf("[ACADEMIA_AGGREGATE] Erro ao deserializar evento: %v", err)
+		return err
+	}
+
+	if ev.Nome != nil {
+		a.Nome = *ev.Nome
+		log.Printf("[ACADEMIA_AGGREGATE] Nome atualizado: %s", a.Nome)
+	}
+	if ev.Provincia != nil {
+		a.Provincia = *ev.Provincia
+		log.Printf("[ACADEMIA_AGGREGATE] Província atualizada: %s", a.Provincia)
+	}
+	if ev.Endereco != nil {
+		a.Endereco = *ev.Endereco
+		log.Printf("[ACADEMIA_AGGREGATE] Endereço atualizado: %s", a.Endereco)
+	}
+	if ev.NumeroTelefone != nil {
+		a.NumeroTelefone = ev.NumeroTelefone
+	}
+	if ev.Email != nil {
+		a.Email = ev.Email
+		log.Printf("[ACADEMIA_AGGREGATE] Email atualizado")
+	}
+	if ev.Website != nil {
+		a.Website = ev.Website
+	}
+	if ev.NivelEscolar != nil {
+		a.NivelEscolar = ev.NivelEscolar
+		log.Printf("[ACADEMIA_AGGREGATE] Nível escolar atualizado")
+	}
+	if ev.Cursos != nil {
+		a.Cursos = ev.Cursos
+		log.Printf("[ACADEMIA_AGGREGATE] Cursos atualizados: %v", a.Cursos)
+	}
+
 	return nil
 }
 
@@ -392,114 +565,6 @@ func (e *CursosAtualizadosEvent) GetPayload() interface{} {
 	return e
 }
 
-// AtualizarDados atualiza dados da academia
-func (a *Academia) AtualizarDados(
-	nome *string,
-	provincia *string,
-	endereco *string,
-	numeroTelefone *string,
-	email *string,
-	website *string,
-	nivelEscolar *string,
-	cursos []string,
-) error {
-	if a.Status != "ativo" && a.Status != "inativo" {
-		return fmt.Errorf("academia em estado inválido")
-	}
-
-	// Validação: pelo menos um campo deve ser fornecido
-	if nome == nil && provincia == nil && endereco == nil && numeroTelefone == nil && 
-	   email == nil && website == nil && nivelEscolar == nil && cursos == nil {
-		return fmt.Errorf("nenhum campo para atualizar")
-	}
-
-	// Validações específicas
-	if nome != nil && *nome == "" {
-		return fmt.Errorf("nome não pode ser vazio")
-	}
-
-	if endereco != nil && *endereco == "" {
-		return fmt.Errorf("endereço não pode ser vazio")
-	}
-
-	// Validar nivel_escolar se for escola
-	if nivelEscolar != nil && a.Type == "escola" {
-		validNiveis := map[string]bool{
-			"fundamental": true,
-			"medio":       true,
-			"misto":       true,
-		}
-		if !validNiveis[*nivelEscolar] {
-			return fmt.Errorf("nivel_escolar deve ser 'fundamental', 'medio' ou 'misto'")
-		}
-	}
-
-	event := &AcademiaDadosAtualizadosEvent{
-		BaseEvent: BaseEvent{
-			EventType:   "AcademiaDadosAtualizados",
-			AggregateID: a.ID,
-		},
-		Nome:           nome,
-		Provincia:      provincia,
-		Endereco:       endereco,
-		NumeroTelefone: numeroTelefone,
-		Email:          email,
-		Website:        website,
-		NivelEscolar:   nivelEscolar,
-		Cursos:         cursos,
-		EmailAlterado:  email != nil && (a.Email == nil || *a.Email != *email),
-		UpdatedAt:      time.Now(),
-	}
-
-	a.RaiseEvent(event)
-	return a.Apply(event)
-}
-
-// ============================================================================
-// EVENT HANDLERS
-// ============================================================================
-
-func (a *Academia) applyAcademiaDadosAtualizados(event DomainEvent) error {
-	payload := event.GetPayload()
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	var ev AcademiaDadosAtualizadosEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
-	}
-
-	// Atualizar apenas os campos fornecidos
-	if ev.Nome != nil {
-		a.Nome = *ev.Nome
-	}
-	if ev.Provincia != nil {
-		a.Provincia = *ev.Provincia
-	}
-	if ev.Endereco != nil {
-		a.Endereco = *ev.Endereco
-	}
-	if ev.NumeroTelefone != nil {
-		a.NumeroTelefone = ev.NumeroTelefone
-	}
-	if ev.Email != nil {
-		a.Email = ev.Email
-	}
-	if ev.Website != nil {
-		a.Website = ev.Website
-	}
-	if ev.NivelEscolar != nil {
-		a.NivelEscolar = ev.NivelEscolar
-	}
-	if ev.Cursos != nil {
-		a.Cursos = ev.Cursos
-	}
-
-	return nil
-}
-
 type AcademiaDadosAtualizadosEvent struct {
 	BaseEvent
 	Nome           *string
@@ -510,7 +575,7 @@ type AcademiaDadosAtualizadosEvent struct {
 	Website        *string
 	NivelEscolar   *string
 	Cursos         []string
-	EmailAlterado  bool // Flag para saber se email foi alterado
+	EmailAlterado  bool
 	UpdatedAt      time.Time
 }
 

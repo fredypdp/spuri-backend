@@ -3,6 +3,7 @@ package aggregates
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -43,6 +44,7 @@ type Inscricao struct {
 }
 
 func NewEstudante() *Estudante {
+	log.Printf("[DEBUG] Criando novo agregado Estudante")
 	return &Estudante{
 		BaseAggregate: BaseAggregate{
 			ID:                uuid.New(),
@@ -61,6 +63,8 @@ func (e *Estudante) GetType() string {
 }
 
 func (e *Estudante) Apply(event DomainEvent) error {
+	log.Printf("[DEBUG] Aplicando evento %s ao Estudante %s", event.GetEventType(), e.ID)
+	
 	switch event.GetEventType() {
 	case "EstudanteCriado":
 		return e.applyEstudanteCriado(event)
@@ -85,6 +89,7 @@ func (e *Estudante) Apply(event DomainEvent) error {
 	case "DadosAcademicosAtualizados":
 		return e.applyDadosAcademicosAtualizados(event)
 	default:
+		log.Printf("[ERROR] Tipo de evento desconhecido: %s", event.GetEventType())
 		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
 	}
 }
@@ -106,11 +111,15 @@ func (e *Estudante) Criar(
 	statusEscolar *string,
 	statusSuperior *string,
 ) error {
+	log.Printf("[DEBUG] Criando estudante: nome=%s, codigo=%s", nome, codigoEstudante)
+	
 	if nome == "" || codigoEstudante == "" || senhaHash == "" {
+		log.Printf("[ERROR] Campos obrigatórios faltando")
 		return fmt.Errorf("nome, codigo_estudante e senha são obrigatórios")
 	}
 	
 	if bilhete == nil && bilheteResp == nil {
+		log.Printf("[ERROR] Nenhum bilhete de identidade fornecido")
 		return fmt.Errorf("pelo menos um bilhete de identidade é obrigatório")
 	}
 
@@ -119,6 +128,7 @@ func (e *Estudante) Criar(
 	
 	if statusEscolar != nil {
 		if *statusEscolar != "inativo" && *statusEscolar != "em_andamento" && *statusEscolar != "finalizado" {
+			log.Printf("[ERROR] Status escolar inválido: %s", *statusEscolar)
 			return fmt.Errorf("status_escolar inválido")
 		}
 		statusEsc = *statusEscolar
@@ -126,19 +136,23 @@ func (e *Estudante) Criar(
 	
 	if statusSuperior != nil {
 		if *statusSuperior != "inativo" && *statusSuperior != "em_andamento" && *statusSuperior != "finalizado" {
+			log.Printf("[ERROR] Status superior inválido: %s", *statusSuperior)
 			return fmt.Errorf("status_superior inválido")
 		}
 		statusSup = *statusSuperior
 	}
 	
 	if statusSup == "em_andamento" && statusEsc != "finalizado" {
+		log.Printf("[ERROR] Status superior em_andamento sem status escolar finalizado")
 		return fmt.Errorf("status_superior só pode ser 'em_andamento' se status_escolar for 'finalizado'")
 	}
 	if statusSup == "finalizado" && statusEsc != "finalizado" {
+		log.Printf("[ERROR] Status superior finalizado sem status escolar finalizado")
 		return fmt.Errorf("status_superior só pode ser 'finalizado' se status_escolar for 'finalizado'")
 	}
 	
 	if statusEsc == "em_andamento" && statusSup == "em_andamento" {
+		log.Printf("[ERROR] Ambos status em_andamento simultaneamente")
 		return fmt.Errorf("status_escolar e status_superior não podem estar ambos 'em_andamento'")
 	}
 
@@ -163,11 +177,11 @@ func (e *Estudante) Criar(
 		CreatedAt:             time.Now(),
 	}
 
+	log.Printf("[DEBUG] Evento EstudanteCriado criado para estudante %s", e.ID)
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
 
-// 🔥 NOVO v3.0: Registrar nota individual
 func (e *Estudante) RegistrarNota(
 	codigoAcademia string,
 	anoLectivo string,
@@ -176,7 +190,11 @@ func (e *Estudante) RegistrarNota(
 	nota float64,
 	observacao *string,
 ) error {
+	log.Printf("[DEBUG] Registrando nota: estudante=%s, materia=%s, nota=%.2f", 
+		e.CodigoEstudante, materiaDisciplinarID, nota)
+	
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
+		log.Printf("[ERROR] Estudante não pertence a esta academia")
 		return fmt.Errorf("estudante não pertence a esta academia")
 	}
 	
@@ -192,10 +210,12 @@ func (e *Estudante) RegistrarNota(
 		}
 	}
 	if !periodoValido {
+		log.Printf("[ERROR] Período inválido: %s", periodo)
 		return fmt.Errorf("período inválido: %s", periodo)
 	}
 	
 	if nota < 0 || nota > 20 {
+		log.Printf("[ERROR] Nota fora do intervalo válido: %.2f", nota)
 		return fmt.Errorf("nota deve estar entre 0 e 20")
 	}
 
@@ -214,11 +234,11 @@ func (e *Estudante) RegistrarNota(
 		RegisteredAt:         time.Now(),
 	}
 
+	log.Printf("[DEBUG] Evento NotasRegistradas criado")
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
 
-// 🔥 NOVO v3.0: Registrar falta individual
 func (e *Estudante) RegistrarFalta(
 	codigoAcademia string,
 	anoLectivo string,
@@ -227,11 +247,16 @@ func (e *Estudante) RegistrarFalta(
 	quantidade int,
 	observacao *string,
 ) error {
+	log.Printf("[DEBUG] Registrando falta: estudante=%s, materia=%s, quantidade=%d", 
+		e.CodigoEstudante, materiaDisciplinarID, quantidade)
+	
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
+		log.Printf("[ERROR] Estudante não pertence a esta academia")
 		return fmt.Errorf("estudante não pertence a esta academia")
 	}
 	
 	if quantidade <= 0 {
+		log.Printf("[ERROR] Quantidade inválida: %d", quantidade)
 		return fmt.Errorf("quantidade deve ser maior que zero")
 	}
 
@@ -250,6 +275,7 @@ func (e *Estudante) RegistrarFalta(
 		RegisteredAt:         time.Now(),
 	}
 
+	log.Printf("[DEBUG] Evento FaltasRegistradas criado")
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
@@ -260,16 +286,21 @@ func (e *Estudante) SolicitarInscricao(
 	anoInscricao string,
 	curso *string,
 ) error {
+	log.Printf("[DEBUG] Solicitando inscrição: academia=%s, tipo=%s", codigoAcademia, tipo)
+	
 	if tipo != "escola" && tipo != "universidade" {
+		log.Printf("[ERROR] Tipo de inscrição inválido: %s", tipo)
 		return fmt.Errorf("tipo deve ser 'escola' ou 'universidade'")
 	}
 
 	if e.CodigoAcademia != nil && *e.CodigoAcademia == codigoAcademia {
+		log.Printf("[ERROR] Estudante já matriculado nesta academia")
 		return fmt.Errorf("você já está matriculado nesta academia")
 	}
 
 	for _, inscricao := range e.Inscricoes {
 		if inscricao.CodigoAcademia == codigoAcademia && inscricao.Status == "espera" {
+			log.Printf("[ERROR] Já existe inscrição pendente para esta academia")
 			return fmt.Errorf("você já possui uma inscrição pendente nesta academia")
 		}
 	}
@@ -288,6 +319,7 @@ func (e *Estudante) SolicitarInscricao(
 		CreatedAt:      time.Now(),
 	}
 
+	log.Printf("[DEBUG] Evento EstudanteInscrito criado: inscricaoID=%s", inscricaoID)
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
@@ -296,6 +328,8 @@ func (e *Estudante) AprovarInscricao(
 	codigoAcademia string,
 	inscricaoID uuid.UUID,
 ) error {
+	log.Printf("[DEBUG] Aprovando inscrição: academia=%s, inscricaoID=%s", codigoAcademia, inscricaoID)
+	
 	var inscricaoPendente *Inscricao
 	for i := range e.Inscricoes {
 		if e.Inscricoes[i].CodigoAcademia == codigoAcademia && e.Inscricoes[i].Status == "espera" {
@@ -305,6 +339,7 @@ func (e *Estudante) AprovarInscricao(
 	}
 
 	if inscricaoPendente == nil {
+		log.Printf("[ERROR] Nenhuma inscrição pendente encontrada")
 		return fmt.Errorf("nenhuma inscrição pendente encontrada")
 	}
 
@@ -320,6 +355,7 @@ func (e *Estudante) AprovarInscricao(
 		Curso:          inscricaoPendente.Curso,
 	}
 
+	log.Printf("[DEBUG] Evento InscricaoAprovada criado")
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
@@ -328,6 +364,8 @@ func (e *Estudante) ReprovarInscricao(
 	codigoAcademia string,
 	inscricaoID uuid.UUID,
 ) error {
+	log.Printf("[DEBUG] Reprovando inscrição: academia=%s, inscricaoID=%s", codigoAcademia, inscricaoID)
+	
 	var inscricaoPendente *Inscricao
 	for i := range e.Inscricoes {
 		if e.Inscricoes[i].CodigoAcademia == codigoAcademia && e.Inscricoes[i].Status == "espera" {
@@ -337,6 +375,7 @@ func (e *Estudante) ReprovarInscricao(
 	}
 
 	if inscricaoPendente == nil {
+		log.Printf("[ERROR] Nenhuma inscrição pendente encontrada")
 		return fmt.Errorf("nenhuma inscrição pendente encontrada")
 	}
 
@@ -349,11 +388,14 @@ func (e *Estudante) ReprovarInscricao(
 		CodigoAcademia: codigoAcademia,
 	}
 
+	log.Printf("[DEBUG] Evento InscricaoReprovada criado")
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
 
 func (e *Estudante) VincularAcademia(inscricaoID uuid.UUID) error {
+	log.Printf("[DEBUG] Vinculando estudante a academia via inscricaoID=%s", inscricaoID)
+	
 	var inscricao *Inscricao
 	for i := range e.Inscricoes {
 		if e.Inscricoes[i].ID == inscricaoID {
@@ -363,14 +405,17 @@ func (e *Estudante) VincularAcademia(inscricaoID uuid.UUID) error {
 	}
 
 	if inscricao == nil {
+		log.Printf("[ERROR] Inscrição não encontrada")
 		return fmt.Errorf("inscrição não encontrada")
 	}
 
 	if inscricao.Status != "aprovado" {
+		log.Printf("[ERROR] Inscrição não foi aprovada: status=%s", inscricao.Status)
 		return fmt.Errorf("inscrição não foi aprovada")
 	}
 
 	if inscricao.StatusUsado {
+		log.Printf("[ERROR] Inscrição já foi utilizada")
 		return fmt.Errorf("esta inscrição já foi utilizada")
 	}
 
@@ -384,17 +429,22 @@ func (e *Estudante) VincularAcademia(inscricaoID uuid.UUID) error {
 		VinculadoAt:    time.Now(),
 	}
 
+	log.Printf("[DEBUG] Evento EstudanteVinculado criado: academia=%s", inscricao.CodigoAcademia)
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
 
 func (e *Estudante) AtualizarStatusEscolar(novoStatus string) error {
+	log.Printf("[DEBUG] Atualizando status escolar: %s -> %s", e.StatusEscolar, novoStatus)
+	
 	validStatus := map[string]bool{"inativo": true, "em_andamento": true, "finalizado": true}
 	if !validStatus[novoStatus] {
+		log.Printf("[ERROR] Status inválido: %s", novoStatus)
 		return fmt.Errorf("status inválido")
 	}
 
 	if novoStatus == "inativo" && e.StatusSuperior != "inativo" {
+		log.Printf("[ERROR] Não pode inativar status escolar com status superior ativo")
 		return fmt.Errorf("não pode inativar status_escolar enquanto status_superior está ativo")
 	}
 
@@ -412,12 +462,16 @@ func (e *Estudante) AtualizarStatusEscolar(novoStatus string) error {
 }
 
 func (e *Estudante) AtualizarStatusSuperior(novoStatus string) error {
+	log.Printf("[DEBUG] Atualizando status superior: %s -> %s", e.StatusSuperior, novoStatus)
+	
 	validStatus := map[string]bool{"inativo": true, "em_andamento": true, "finalizado": true}
 	if !validStatus[novoStatus] {
+		log.Printf("[ERROR] Status inválido: %s", novoStatus)
 		return fmt.Errorf("status inválido")
 	}
 
 	if (novoStatus == "em_andamento" || novoStatus == "finalizado") && e.StatusEscolar != "finalizado" {
+		log.Printf("[ERROR] Status superior requer status escolar finalizado")
 		return fmt.Errorf("status_superior só pode ser atualizado se status_escolar for 'finalizado'")
 	}
 
@@ -441,15 +495,20 @@ func (e *Estudante) AtualizarDadosPessoais(
 	bilheteIdentidade *string,
 	bilheteIdentidadeResp *string,
 ) error {
+	log.Printf("[DEBUG] Atualizando dados pessoais do estudante %s", e.ID)
+	
 	if e.Status != "ativo" && e.Status != "inativo" {
+		log.Printf("[ERROR] Estudante com status inválido para atualização: %s", e.Status)
 		return fmt.Errorf("não é possível atualizar dados de estudante finalizado")
 	}
 
 	if nome == nil && email == nil && telefone == nil && bilheteIdentidade == nil && bilheteIdentidadeResp == nil {
+		log.Printf("[ERROR] Nenhum campo para atualizar")
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
 
 	if nome != nil && *nome == "" {
+		log.Printf("[ERROR] Nome não pode ser vazio")
 		return fmt.Errorf("nome não pode ser vazio")
 	}
 
@@ -467,6 +526,7 @@ func (e *Estudante) AtualizarDadosPessoais(
 		UpdatedAt:             time.Now(),
 	}
 
+	log.Printf("[DEBUG] Evento DadosPessoaisAtualizados criado")
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
@@ -477,11 +537,15 @@ func (e *Estudante) AtualizarDadosAcademicos(
 	cursoMedio *string,
 	cursoSuperior *string,
 ) error {
+	log.Printf("[DEBUG] Atualizando dados acadêmicos do estudante %s", e.ID)
+	
 	if e.Status != "ativo" && e.Status != "inativo" {
+		log.Printf("[ERROR] Estudante com status inválido para atualização: %s", e.Status)
 		return fmt.Errorf("não é possível atualizar dados de estudante finalizado")
 	}
 
 	if anoEscolar == nil && anoSuperior == nil && cursoMedio == nil && cursoSuperior == nil {
+		log.Printf("[ERROR] Nenhum campo para atualizar")
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
 
@@ -497,6 +561,7 @@ func (e *Estudante) AtualizarDadosAcademicos(
 		UpdatedAt:     time.Now(),
 	}
 
+	log.Printf("[DEBUG] Evento DadosAcademicosAtualizados criado")
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
@@ -504,14 +569,18 @@ func (e *Estudante) AtualizarDadosAcademicos(
 // Event Handlers
 
 func (e *Estudante) applyEstudanteCriado(event DomainEvent) error {
+	log.Printf("[DEBUG] Aplicando EstudanteCriado ao agregado %s", event.GetAggregateID())
+	
 	payload := event.GetPayload()
 	data, err := json.Marshal(payload)
 	if err != nil {
+		log.Printf("[ERROR] Erro ao serializar payload: %v", err)
 		return err
 	}
 
 	var ev EstudanteCriadoEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
+		log.Printf("[ERROR] Erro ao deserializar evento: %v", err)
 		return err
 	}
 
@@ -532,27 +601,33 @@ func (e *Estudante) applyEstudanteCriado(event DomainEvent) error {
 	e.StatusSuperior = ev.StatusSuperior
 	e.CreatedAt = ev.CreatedAt
 
+	log.Printf("[DEBUG] Estudante criado: %s (%s)", e.Nome, e.CodigoEstudante)
 	return nil
 }
 
-// 🔥 v3.0: Agregado não mantém histórico individual
 func (e *Estudante) applyNotasRegistradas(event DomainEvent) error {
+	log.Printf("[DEBUG] Aplicando NotasRegistradas (sem estado) ao agregado %s", event.GetAggregateID())
 	return nil
 }
 
 func (e *Estudante) applyFaltasRegistradas(event DomainEvent) error {
+	log.Printf("[DEBUG] Aplicando FaltasRegistradas (sem estado) ao agregado %s", event.GetAggregateID())
 	return nil
 }
 
 func (e *Estudante) applyEstudanteInscrito(event DomainEvent) error {
+	log.Printf("[DEBUG] Aplicando EstudanteInscrito ao agregado %s", event.GetAggregateID())
+	
 	payload := event.GetPayload()
 	data, err := json.Marshal(payload)
 	if err != nil {
+		log.Printf("[ERROR] Erro ao serializar payload: %v", err)
 		return err
 	}
 
 	var ev EstudanteInscritoEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
+		log.Printf("[ERROR] Erro ao deserializar evento: %v", err)
 		return err
 	}
 
@@ -567,24 +642,30 @@ func (e *Estudante) applyEstudanteInscrito(event DomainEvent) error {
 		CreatedAt:      ev.CreatedAt,
 	})
 
+	log.Printf("[DEBUG] Inscrição adicionada: %s (academia: %s)", ev.InscricaoID, ev.CodigoAcademia)
 	return nil
 }
 
 func (e *Estudante) applyInscricaoAprovada(event DomainEvent) error {
+	log.Printf("[DEBUG] Aplicando InscricaoAprovada ao agregado %s", event.GetAggregateID())
+	
 	payload := event.GetPayload()
 	data, err := json.Marshal(payload)
 	if err != nil {
+		log.Printf("[ERROR] Erro ao serializar payload: %v", err)
 		return err
 	}
 
 	var ev InscricaoAprovadaEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
+		log.Printf("[ERROR] Erro ao deserializar evento: %v", err)
 		return err
 	}
 
 	for i := range e.Inscricoes {
 		if e.Inscricoes[i].CodigoAcademia == ev.CodigoAcademia && e.Inscricoes[i].Status == "espera" {
 			e.Inscricoes[i].Status = "aprovado"
+			log.Printf("[DEBUG] Inscrição aprovada: academia=%s", ev.CodigoAcademia)
 			break
 		}
 	}
@@ -593,20 +674,25 @@ func (e *Estudante) applyInscricaoAprovada(event DomainEvent) error {
 }
 
 func (e *Estudante) applyInscricaoReprovada(event DomainEvent) error {
+	log.Printf("[DEBUG] Aplicando InscricaoReprovada ao agregado %s", event.GetAggregateID())
+	
 	payload := event.GetPayload()
 	data, err := json.Marshal(payload)
 	if err != nil {
+		log.Printf("[ERROR] Erro ao serializar payload: %v", err)
 		return err
 	}
 
 	var ev InscricaoReprovadaEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
+		log.Printf("[ERROR] Erro ao deserializar evento: %v", err)
 		return err
 	}
 
 	for i := range e.Inscricoes {
 		if e.Inscricoes[i].CodigoAcademia == ev.CodigoAcademia && e.Inscricoes[i].Status == "espera" {
 			e.Inscricoes[i].Status = "reprovado"
+			log.Printf("[DEBUG] Inscrição reprovada: academia=%s", ev.CodigoAcademia)
 			break
 		}
 	}
@@ -615,14 +701,18 @@ func (e *Estudante) applyInscricaoReprovada(event DomainEvent) error {
 }
 
 func (e *Estudante) applyEstudanteVinculado(event DomainEvent) error {
+	log.Printf("[DEBUG] Aplicando EstudanteVinculado ao agregado %s", event.GetAggregateID())
+	
 	payload := event.GetPayload()
 	data, err := json.Marshal(payload)
 	if err != nil {
+		log.Printf("[ERROR] Erro ao serializar payload: %v", err)
 		return err
 	}
 
 	var ev EstudanteVinculadoEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
+		log.Printf("[ERROR] Erro ao deserializar evento: %v", err)
 		return err
 	}
 
@@ -632,6 +722,7 @@ func (e *Estudante) applyEstudanteVinculado(event DomainEvent) error {
 	for i := range e.Inscricoes {
 		if e.Inscricoes[i].ID == ev.InscricaoID {
 			e.Inscricoes[i].StatusUsado = true
+			log.Printf("[DEBUG] Estudante vinculado à academia: %s", ev.CodigoAcademia)
 			break
 		}
 	}
@@ -640,14 +731,18 @@ func (e *Estudante) applyEstudanteVinculado(event DomainEvent) error {
 }
 
 func (e *Estudante) applyStatusEscolarAtualizado(event DomainEvent) error {
+	log.Printf("[DEBUG] Aplicando StatusEscolarAtualizado ao agregado %s", event.GetAggregateID())
+	
 	payload := event.GetPayload()
 	data, err := json.Marshal(payload)
 	if err != nil {
+		log.Printf("[ERROR] Erro ao serializar payload: %v", err)
 		return err
 	}
 
 	var ev StatusEscolarAtualizadoEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
+		log.Printf("[ERROR] Erro ao deserializar evento: %v", err)
 		return err
 	}
 
@@ -655,83 +750,109 @@ func (e *Estudante) applyStatusEscolarAtualizado(event DomainEvent) error {
 	
 	if ev.NovoStatus == "inativo" {
 		e.StatusSuperior = "inativo"
+		log.Printf("[DEBUG] Status superior também definido como inativo")
 	}
 
+	log.Printf("[DEBUG] Status escolar atualizado: %s", ev.NovoStatus)
 	return nil
 }
 
 func (e *Estudante) applyStatusSuperiorAtualizado(event DomainEvent) error {
+	log.Printf("[DEBUG] Aplicando StatusSuperiorAtualizado ao agregado %s", event.GetAggregateID())
+	
 	payload := event.GetPayload()
 	data, err := json.Marshal(payload)
 	if err != nil {
+		log.Printf("[ERROR] Erro ao serializar payload: %v", err)
 		return err
 	}
 
 	var ev StatusSuperiorAtualizadoEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
+		log.Printf("[ERROR] Erro ao deserializar evento: %v", err)
 		return err
 	}
 
 	e.StatusSuperior = ev.NovoStatus
+	log.Printf("[DEBUG] Status superior atualizado: %s", ev.NovoStatus)
 	return nil
 }
 
 func (e *Estudante) applyDadosPessoaisAtualizados(event DomainEvent) error {
+	log.Printf("[DEBUG] Aplicando DadosPessoaisAtualizados ao agregado %s", event.GetAggregateID())
+	
 	payload := event.GetPayload()
 	data, err := json.Marshal(payload)
 	if err != nil {
+		log.Printf("[ERROR] Erro ao serializar payload: %v", err)
 		return err
 	}
 
 	var ev DadosPessoaisAtualizadosEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
+		log.Printf("[ERROR] Erro ao deserializar evento: %v", err)
 		return err
 	}
 
 	if ev.Nome != nil {
+		log.Printf("[DEBUG] Atualizando nome: %s -> %s", e.Nome, *ev.Nome)
 		e.Nome = *ev.Nome
 	}
 	if ev.Email != nil {
+		log.Printf("[DEBUG] Atualizando email")
 		e.Email = ev.Email
 	}
 	if ev.Telefone != nil {
+		log.Printf("[DEBUG] Atualizando telefone")
 		e.Telefone = ev.Telefone
 	}
 	if ev.BilheteIdentidade != nil {
+		log.Printf("[DEBUG] Atualizando bilhete de identidade")
 		e.BilheteIdentidade = ev.BilheteIdentidade
 	}
 	if ev.BilheteIdentidadeResp != nil {
+		log.Printf("[DEBUG] Atualizando bilhete do responsável")
 		e.BilheteIdentidadeResp = ev.BilheteIdentidadeResp
 	}
 
+	log.Printf("[DEBUG] Dados pessoais atualizados com sucesso")
 	return nil
 }
 
 func (e *Estudante) applyDadosAcademicosAtualizados(event DomainEvent) error {
+	log.Printf("[DEBUG] Aplicando DadosAcademicosAtualizados ao agregado %s", event.GetAggregateID())
+	
 	payload := event.GetPayload()
 	data, err := json.Marshal(payload)
 	if err != nil {
+		log.Printf("[ERROR] Erro ao serializar payload: %v", err)
 		return err
 	}
 
 	var ev DadosAcademicosAtualizadosEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
+		log.Printf("[ERROR] Erro ao deserializar evento: %v", err)
 		return err
 	}
 
 	if ev.AnoEscolar != nil {
+		log.Printf("[DEBUG] Atualizando ano escolar")
 		e.AnoEscolar = ev.AnoEscolar
 	}
 	if ev.AnoSuperior != nil {
+		log.Printf("[DEBUG] Atualizando ano superior")
 		e.AnoSuperior = ev.AnoSuperior
 	}
 	if ev.CursoMedio != nil {
+		log.Printf("[DEBUG] Atualizando curso médio")
 		e.CursoMedio = ev.CursoMedio
 	}
 	if ev.CursoSuperior != nil {
+		log.Printf("[DEBUG] Atualizando curso superior")
 		e.CursoSuperior = ev.CursoSuperior
 	}
 
+	log.Printf("[DEBUG] Dados acadêmicos atualizados com sucesso")
 	return nil
 }
 
@@ -759,7 +880,6 @@ func (e *EstudanteCriadoEvent) GetPayload() interface{} {
 	return e
 }
 
-// 🔥 NOVO v3.0
 type NotasRegistradasEvent struct {
 	BaseEvent
 	CodigoEstudante      string
@@ -776,7 +896,6 @@ func (e *NotasRegistradasEvent) GetPayload() interface{} {
 	return e
 }
 
-// 🔥 NOVO v3.0
 type FaltasRegistradasEvent struct {
 	BaseEvent
 	CodigoEstudante      string

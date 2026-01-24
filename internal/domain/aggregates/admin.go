@@ -1,37 +1,30 @@
-// ============================================================================
-// ARQUIVO: internal/domain/aggregates/admin.go
-// Agregado Admin com hierarquia de permissões (fpp > adm > gerente)
-// ============================================================================
-
 package aggregates
 
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-// Admin agregado raiz para administradores
 type Admin struct {
 	BaseAggregate
 	
-	// Estado
 	Nome      string
 	Email     string
 	SenhaHash string
-	Status    string // "ativo" ou "inativo"
-	Role      string // "fpp", "adm", "gerente"
+	Status    string
+	Role      string
 	CreatedAt time.Time
-	CreatedBy *uuid.UUID // ID do admin que criou (se aplicável)
+	CreatedBy *uuid.UUID
 	
-	// Estatísticas
 	TotalAcoesRealizadas int
 }
 
-// NewAdmin cria um novo agregado Admin
 func NewAdmin() *Admin {
+	log.Printf("[ADMIN_AGGREGATE] Criando nova instância de Admin")
 	return &Admin{
 		BaseAggregate: BaseAggregate{
 			ID:                uuid.New(),
@@ -41,13 +34,14 @@ func NewAdmin() *Admin {
 	}
 }
 
-// GetType implementa Aggregate
 func (a *Admin) GetType() string {
 	return "Admin"
 }
 
-// Apply aplica eventos ao agregado
 func (a *Admin) Apply(event DomainEvent) error {
+	log.Printf("[ADMIN_AGGREGATE] Aplicando evento: type=%s, aggregate_id=%s", 
+		event.GetEventType(), event.GetAggregateID())
+	
 	switch event.GetEventType() {
 	case "AdminCriado":
 		return a.applyAdminCriado(event)
@@ -62,13 +56,11 @@ func (a *Admin) Apply(event DomainEvent) error {
 	case "AdminRoleAtualizado":
 		return a.applyAdminRoleAtualizado(event)
 	default:
+		log.Printf("[ADMIN_AGGREGATE] Tipo de evento desconhecido: %s", event.GetEventType())
 		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
 	}
 }
 
-// Comandos - geram eventos
-
-// Criar cria um novo administrador
 func (a *Admin) Criar(
 	nome string,
 	email string,
@@ -76,28 +68,32 @@ func (a *Admin) Criar(
 	role string,
 	createdBy *uuid.UUID,
 ) error {
-	// Validações
+	log.Printf("[ADMIN_AGGREGATE] Executando comando Criar: nome=%s, email=%s, role=%s", 
+		nome, email, role)
+	
 	if nome == "" {
+		log.Printf("[ADMIN_AGGREGATE] Nome obrigatório não fornecido")
 		return fmt.Errorf("nome é obrigatório")
 	}
 	if email == "" {
+		log.Printf("[ADMIN_AGGREGATE] Email obrigatório não fornecido")
 		return fmt.Errorf("email é obrigatório")
 	}
 	if senhaHash == "" {
+		log.Printf("[ADMIN_AGGREGATE] Senha obrigatória não fornecida")
 		return fmt.Errorf("senha é obrigatória")
 	}
 	
-	// Validar role
 	validRoles := map[string]bool{
 		"fpp":     true,
 		"adm":     true,
 		"gerente": true,
 	}
 	if !validRoles[role] {
+		log.Printf("[ADMIN_AGGREGATE] Role inválido: %s", role)
 		return fmt.Errorf("role deve ser 'fpp', 'adm' ou 'gerente'")
 	}
 
-	// Criar evento
 	event := &AdminCriadoEvent{
 		BaseEvent: BaseEvent{
 			EventType:   "AdminCriado",
@@ -111,13 +107,17 @@ func (a *Admin) Criar(
 		CreatedAt: time.Now(),
 	}
 
+	log.Printf("[ADMIN_AGGREGATE] Evento AdminCriado gerado para admin: %s", a.ID)
 	a.RaiseEvent(event)
 	return a.Apply(event)
 }
 
-// Ativar ativa o administrador
 func (a *Admin) Ativar(adminID uuid.UUID) error {
+	log.Printf("[ADMIN_AGGREGATE] Executando comando Ativar: id=%s, status_atual=%s, ativado_por=%s", 
+		a.ID, a.Status, adminID)
+	
 	if a.Status == "ativo" {
+		log.Printf("[ADMIN_AGGREGATE] Admin já está ativo")
 		return fmt.Errorf("administrador já está ativo")
 	}
 
@@ -130,13 +130,17 @@ func (a *Admin) Ativar(adminID uuid.UUID) error {
 		ActivatedAt: time.Now(),
 	}
 
+	log.Printf("[ADMIN_AGGREGATE] Evento AdminAtivado gerado")
 	a.RaiseEvent(event)
 	return a.Apply(event)
 }
 
-// Desativar desativa o administrador
 func (a *Admin) Desativar(adminID uuid.UUID, motivo string) error {
+	log.Printf("[ADMIN_AGGREGATE] Executando comando Desativar: id=%s, motivo=%s, desativado_por=%s", 
+		a.ID, motivo, adminID)
+	
 	if a.Status == "inativo" {
+		log.Printf("[ADMIN_AGGREGATE] Admin já está inativo")
 		return fmt.Errorf("administrador já está inativo")
 	}
 
@@ -150,13 +154,16 @@ func (a *Admin) Desativar(adminID uuid.UUID, motivo string) error {
 		DeactivatedAt: time.Now(),
 	}
 
+	log.Printf("[ADMIN_AGGREGATE] Evento AdminDesativado gerado")
 	a.RaiseEvent(event)
 	return a.Apply(event)
 }
 
-// RegistrarAcao registra uma ação administrativa
 func (a *Admin) RegistrarAcao(acao string, detalhes map[string]interface{}) error {
+	log.Printf("[ADMIN_AGGREGATE] Executando comando RegistrarAcao: id=%s, acao=%s", a.ID, acao)
+	
 	if a.Status != "ativo" {
+		log.Printf("[ADMIN_AGGREGATE] Admin inativo, não pode registrar ações: status=%s", a.Status)
 		return fmt.Errorf("administrador está inativo")
 	}
 
@@ -170,21 +177,142 @@ func (a *Admin) RegistrarAcao(acao string, detalhes map[string]interface{}) erro
 		PerformedAt: time.Now(),
 	}
 
+	log.Printf("[ADMIN_AGGREGATE] Evento AcaoAdminRegistrada gerado")
 	a.RaiseEvent(event)
 	return a.Apply(event)
 }
 
-// Event Handlers - aplicam eventos ao estado
+func (a *Admin) AtualizarDados(
+	nome *string,
+	email *string,
+	updatedBy uuid.UUID,
+) error {
+	log.Printf("[ADMIN_AGGREGATE] Executando comando AtualizarDados: id=%s, updated_by=%s", 
+		a.ID, updatedBy)
+	
+	if a.Status != "ativo" {
+		log.Printf("[ADMIN_AGGREGATE] Admin inativo: status=%s", a.Status)
+		return fmt.Errorf("administrador está inativo")
+	}
+
+	if nome == nil && email == nil {
+		log.Printf("[ADMIN_AGGREGATE] Nenhum campo fornecido para atualização")
+		return fmt.Errorf("nenhum campo para atualizar")
+	}
+
+	if nome != nil && *nome == "" {
+		log.Printf("[ADMIN_AGGREGATE] Nome vazio fornecido")
+		return fmt.Errorf("nome não pode ser vazio")
+	}
+
+	if email != nil && *email == "" {
+		log.Printf("[ADMIN_AGGREGATE] Email vazio fornecido")
+		return fmt.Errorf("email não pode ser vazio")
+	}
+
+	event := &AdminDadosAtualizadosEvent{
+		BaseEvent: BaseEvent{
+			EventType:   "AdminDadosAtualizados",
+			AggregateID: a.ID,
+		},
+		Nome:      nome,
+		Email:     email,
+		UpdatedBy: updatedBy,
+		UpdatedAt: time.Now(),
+	}
+
+	log.Printf("[ADMIN_AGGREGATE] Evento AdminDadosAtualizados gerado")
+	a.RaiseEvent(event)
+	return a.Apply(event)
+}
+
+func (a *Admin) AtualizarRole(novoRole string, updatedBy uuid.UUID, updatedByRole string) error {
+	log.Printf("[ADMIN_AGGREGATE] Executando comando AtualizarRole: id=%s, role_atual=%s, novo_role=%s, updated_by_role=%s", 
+		a.ID, a.Role, novoRole, updatedByRole)
+	
+	if a.Status != "ativo" {
+		log.Printf("[ADMIN_AGGREGATE] Admin inativo: status=%s", a.Status)
+		return fmt.Errorf("administrador está inativo")
+	}
+
+	if updatedByRole != "fpp" {
+		log.Printf("[ADMIN_AGGREGATE] Apenas FPP pode alterar roles. Role atual: %s", updatedByRole)
+		return fmt.Errorf("apenas FPP pode alterar roles")
+	}
+
+	validRoles := map[string]bool{
+		"fpp":     true,
+		"adm":     true,
+		"gerente": true,
+	}
+	if !validRoles[novoRole] {
+		log.Printf("[ADMIN_AGGREGATE] Role inválido: %s", novoRole)
+		return fmt.Errorf("role deve ser 'fpp', 'adm' ou 'gerente'")
+	}
+
+	if a.Role == novoRole {
+		log.Printf("[ADMIN_AGGREGATE] Admin já possui este role: %s", novoRole)
+		return fmt.Errorf("admin já possui este role")
+	}
+
+	event := &AdminRoleAtualizadoEvent{
+		BaseEvent: BaseEvent{
+			EventType:   "AdminRoleAtualizado",
+			AggregateID: a.ID,
+		},
+		RoleAnterior: a.Role,
+		NovoRole:     novoRole,
+		UpdatedBy:    updatedBy,
+		UpdatedAt:    time.Now(),
+	}
+
+	log.Printf("[ADMIN_AGGREGATE] Evento AdminRoleAtualizado gerado: %s -> %s", a.Role, novoRole)
+	a.RaiseEvent(event)
+	return a.Apply(event)
+}
+
+func (a *Admin) ValidatePermission(targetRole string) error {
+	log.Printf("[ADMIN_AGGREGATE] Validando permissão: admin_role=%s, target_role=%s", a.Role, targetRole)
+	
+	if a.Status != "ativo" {
+		log.Printf("[ADMIN_AGGREGATE] Admin inativo")
+		return fmt.Errorf("administrador está inativo")
+	}
+
+	hierarchy := map[string]int{
+		"fpp":     3,
+		"adm":     2,
+		"gerente": 1,
+	}
+
+	currentLevel := hierarchy[a.Role]
+	targetLevel := hierarchy[targetRole]
+
+	if currentLevel <= targetLevel {
+		log.Printf("[ADMIN_AGGREGATE] Permissão negada: level_atual=%d, level_target=%d", 
+			currentLevel, targetLevel)
+		return fmt.Errorf("permissão negada: role '%s' não pode gerenciar '%s'", a.Role, targetRole)
+	}
+
+	log.Printf("[ADMIN_AGGREGATE] Permissão concedida")
+	return nil
+}
+
+// Event Handlers
 
 func (a *Admin) applyAdminCriado(event DomainEvent) error {
+	log.Printf("[ADMIN_AGGREGATE] Aplicando AdminCriado")
+	
 	payload := event.GetPayload()
 	data, err := json.Marshal(payload)
 	if err != nil {
+		log.Printf("[ADMIN_AGGREGATE] Erro ao serializar payload: %v", err)
 		return err
 	}
 
 	var ev AdminCriadoEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
+		log.Printf("[ADMIN_AGGREGATE] Erro ao deserializar evento: %v", err)
 		return err
 	}
 
@@ -197,25 +325,83 @@ func (a *Admin) applyAdminCriado(event DomainEvent) error {
 	a.CreatedBy = ev.CreatedBy
 	a.CreatedAt = ev.CreatedAt
 
+	log.Printf("[ADMIN_AGGREGATE] Estado atualizado: nome=%s, email=%s, role=%s, status=%s", 
+		a.Nome, a.Email, a.Role, a.Status)
 	return nil
 }
 
 func (a *Admin) applyAdminAtivado(event DomainEvent) error {
+	log.Printf("[ADMIN_AGGREGATE] Aplicando AdminAtivado")
 	a.Status = "ativo"
+	log.Printf("[ADMIN_AGGREGATE] Status atualizado: %s", a.Status)
 	return nil
 }
 
 func (a *Admin) applyAdminDesativado(event DomainEvent) error {
+	log.Printf("[ADMIN_AGGREGATE] Aplicando AdminDesativado")
 	a.Status = "inativo"
+	log.Printf("[ADMIN_AGGREGATE] Status atualizado: %s", a.Status)
 	return nil
 }
 
 func (a *Admin) applyAcaoAdminRegistrada(event DomainEvent) error {
+	log.Printf("[ADMIN_AGGREGATE] Aplicando AcaoAdminRegistrada")
 	a.TotalAcoesRealizadas++
+	log.Printf("[ADMIN_AGGREGATE] Total ações realizadas: %d", a.TotalAcoesRealizadas)
 	return nil
 }
 
-// Eventos do Admin
+func (a *Admin) applyAdminDadosAtualizados(event DomainEvent) error {
+	log.Printf("[ADMIN_AGGREGATE] Aplicando AdminDadosAtualizados")
+	
+	payload := event.GetPayload()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("[ADMIN_AGGREGATE] Erro ao serializar payload: %v", err)
+		return err
+	}
+
+	var ev AdminDadosAtualizadosEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		log.Printf("[ADMIN_AGGREGATE] Erro ao deserializar evento: %v", err)
+		return err
+	}
+
+	if ev.Nome != nil {
+		a.Nome = *ev.Nome
+		log.Printf("[ADMIN_AGGREGATE] Nome atualizado: %s", a.Nome)
+	}
+	if ev.Email != nil {
+		a.Email = *ev.Email
+		log.Printf("[ADMIN_AGGREGATE] Email atualizado: %s", a.Email)
+	}
+
+	return nil
+}
+
+func (a *Admin) applyAdminRoleAtualizado(event DomainEvent) error {
+	log.Printf("[ADMIN_AGGREGATE] Aplicando AdminRoleAtualizado")
+	
+	payload := event.GetPayload()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("[ADMIN_AGGREGATE] Erro ao serializar payload: %v", err)
+		return err
+	}
+
+	var ev AdminRoleAtualizadoEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		log.Printf("[ADMIN_AGGREGATE] Erro ao deserializar evento: %v", err)
+		return err
+	}
+
+	log.Printf("[ADMIN_AGGREGATE] Role atualizado: %s -> %s", ev.RoleAnterior, ev.NovoRole)
+	a.Role = ev.NovoRole
+
+	return nil
+}
+
+// Eventos
 
 type AdminCriadoEvent struct {
 	BaseEvent
@@ -261,153 +447,6 @@ type AcaoAdminRegistradaEvent struct {
 
 func (e *AcaoAdminRegistradaEvent) GetPayload() interface{} {
 	return e
-}
-
-// ValidatePermission verifica se o admin tem permissão para uma ação
-func (a *Admin) ValidatePermission(targetRole string) error {
-	if a.Status != "ativo" {
-		return fmt.Errorf("administrador está inativo")
-	}
-
-	// Hierarquia: fpp > adm > gerente
-	hierarchy := map[string]int{
-		"fpp":     3,
-		"adm":     2,
-		"gerente": 1,
-	}
-
-	currentLevel := hierarchy[a.Role]
-	targetLevel := hierarchy[targetRole]
-
-	if currentLevel <= targetLevel {
-		return fmt.Errorf("permissão negada: role '%s' não pode gerenciar '%s'", a.Role, targetRole)
-	}
-
-	return nil
-}
-
-// AtualizarDados atualiza dados do admin
-func (a *Admin) AtualizarDados(
-	nome *string,
-	email *string,
-	updatedBy uuid.UUID,
-) error {
-	if a.Status != "ativo" {
-		return fmt.Errorf("administrador está inativo")
-	}
-
-	// Validação: pelo menos um campo deve ser fornecido
-	if nome == nil && email == nil {
-		return fmt.Errorf("nenhum campo para atualizar")
-	}
-
-	// Validações específicas
-	if nome != nil && *nome == "" {
-		return fmt.Errorf("nome não pode ser vazio")
-	}
-
-	if email != nil && *email == "" {
-		return fmt.Errorf("email não pode ser vazio")
-	}
-
-	event := &AdminDadosAtualizadosEvent{
-		BaseEvent: BaseEvent{
-			EventType:   "AdminDadosAtualizados",
-			AggregateID: a.ID,
-		},
-		Nome:      nome,
-		Email:     email,
-		UpdatedBy: updatedBy,
-		UpdatedAt: time.Now(),
-	}
-
-	a.RaiseEvent(event)
-	return a.Apply(event)
-}
-
-// AtualizarRole atualiza role do admin (APENAS FPP pode fazer isso)
-func (a *Admin) AtualizarRole(novoRole string, updatedBy uuid.UUID, updatedByRole string) error {
-	if a.Status != "ativo" {
-		return fmt.Errorf("administrador está inativo")
-	}
-
-	// APENAS FPP pode alterar roles
-	if updatedByRole != "fpp" {
-		return fmt.Errorf("apenas FPP pode alterar roles")
-	}
-
-	// Validar role
-	validRoles := map[string]bool{
-		"fpp":     true,
-		"adm":     true,
-		"gerente": true,
-	}
-	if !validRoles[novoRole] {
-		return fmt.Errorf("role deve ser 'fpp', 'adm' ou 'gerente'")
-	}
-
-	// Não precisa atualizar se já é o mesmo role
-	if a.Role == novoRole {
-		return fmt.Errorf("admin já possui este role")
-	}
-
-	event := &AdminRoleAtualizadoEvent{
-		BaseEvent: BaseEvent{
-			EventType:   "AdminRoleAtualizado",
-			AggregateID: a.ID,
-		},
-		RoleAnterior: a.Role,
-		NovoRole:     novoRole,
-		UpdatedBy:    updatedBy,
-		UpdatedAt:    time.Now(),
-	}
-
-	a.RaiseEvent(event)
-	return a.Apply(event)
-}
-
-// ============================================================================
-// EVENT HANDLERS
-// ============================================================================
-
-func (a *Admin) applyAdminDadosAtualizados(event DomainEvent) error {
-	payload := event.GetPayload()
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	var ev AdminDadosAtualizadosEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
-	}
-
-	// Atualizar apenas os campos fornecidos
-	if ev.Nome != nil {
-		a.Nome = *ev.Nome
-	}
-	if ev.Email != nil {
-		a.Email = *ev.Email
-	}
-
-	return nil
-}
-
-func (a *Admin) applyAdminRoleAtualizado(event DomainEvent) error {
-	payload := event.GetPayload()
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	var ev AdminRoleAtualizadoEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
-	}
-
-	a.Role = ev.NovoRole
-
-	return nil
 }
 
 type AdminDadosAtualizadosEvent struct {
