@@ -6,6 +6,7 @@
 package middleware
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"spuri/internal/db"
