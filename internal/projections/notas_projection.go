@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"spuri/internal/db"
 	"time"
 
@@ -21,14 +22,20 @@ func NewNotasProjection(client *db.Client) *NotasProjection {
 func (p *NotasProjection) Name() string { return "notas" }
 
 func (p *NotasProjection) Handle(event db.Event) error {
+	log.Printf("[DEBUG] NotasProjection.Handle - EventType: %s, EventID: %s", event.EventType, event.EventID)
+	
 	if event.EventType != "NotasRegistradas" {
+		log.Printf("[DEBUG] NotasProjection.Handle - Evento ignorado, tipo: %s", event.EventType)
 		return nil
 	}
 	return p.handleNotasRegistradas(event)
 }
 
 func (p *NotasProjection) Rebuild() error {
+	log.Printf("[DEBUG] NotasProjection.Rebuild - Iniciando rebuild")
+	
 	if err := p.clear(); err != nil {
+		log.Printf("[ERROR] NotasProjection.Rebuild - Erro ao limpar tabela: %v", err)
 		return err
 	}
 
@@ -39,24 +46,33 @@ func (p *NotasProjection) Rebuild() error {
 		FROM spuri_ledger WHERE event_type = 'NotasRegistradas' ORDER BY id ASC
 	`
 	
+	log.Printf("[DEBUG] NotasProjection.Rebuild - Query: %s", query)
+	
 	rows, err := p.client.DB().Query(query)
 	if err != nil {
+		log.Printf("[ERROR] NotasProjection.Rebuild - Erro ao buscar eventos: %v", err)
 		return err
 	}
 	defer rows.Close()
 
+	count := 0
 	for rows.Next() {
 		var event db.Event
 		err := rows.Scan(&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
 			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
 			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash)
 		if err != nil {
+			log.Printf("[ERROR] NotasProjection.Rebuild - Erro ao fazer scan do evento: %v", err)
 			return err
 		}
 		if err := p.Handle(event); err != nil {
+			log.Printf("[ERROR] NotasProjection.Rebuild - Erro ao processar evento %d: %v", event.ID, err)
 			return fmt.Errorf("erro ao processar evento %d: %w", event.ID, err)
 		}
+		count++
 	}
+	
+	log.Printf("[DEBUG] NotasProjection.Rebuild - Rebuild concluído, %d eventos processados", count)
 	return rows.Err()
 }
 
@@ -69,11 +85,21 @@ func (p *NotasProjection) GetLastProcessedEventID() (int64, error) {
 		WHERE projection_name = '%s'
 	`, safeName)
 	
+	log.Printf("[DEBUG] NotasProjection.GetLastProcessedEventID - Query: %s", query)
+	
 	var lastID int64
 	err := p.client.DB().QueryRow(query).Scan(&lastID)
 	if err == sql.ErrNoRows {
+		log.Printf("[DEBUG] NotasProjection.GetLastProcessedEventID - Nenhum checkpoint encontrado")
 		return 0, nil
 	}
+	
+	if err != nil {
+		log.Printf("[ERROR] NotasProjection.GetLastProcessedEventID - Erro: %v", err)
+	} else {
+		log.Printf("[DEBUG] NotasProjection.GetLastProcessedEventID - LastID: %d", lastID)
+	}
+	
 	return lastID, err
 }
 
@@ -89,16 +115,31 @@ func (p *NotasProjection) UpdateCheckpoint(eventID int64) error {
 			events_processed = projection_checkpoints.events_processed + 1
 	`, safeName, eventID, eventID)
 	
+	log.Printf("[DEBUG] NotasProjection.UpdateCheckpoint - Query: %s", query)
+	
 	_, err := p.client.DB().Exec(query)
+	
+	if err != nil {
+		log.Printf("[ERROR] NotasProjection.UpdateCheckpoint - Erro: %v", err)
+	} else {
+		log.Printf("[DEBUG] NotasProjection.UpdateCheckpoint - Checkpoint atualizado para eventID: %d", eventID)
+	}
+	
 	return err
 }
 
 func (p *NotasProjection) clear() error {
+	log.Printf("[DEBUG] NotasProjection.clear - Limpando tabela projection_notas")
 	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_notas CASCADE`)
+	if err != nil {
+		log.Printf("[ERROR] NotasProjection.clear - Erro: %v", err)
+	}
 	return err
 }
 
 func (p *NotasProjection) handleNotasRegistradas(event db.Event) error {
+	log.Printf("[DEBUG] NotasProjection.handleNotasRegistradas - EventID: %s", event.EventID)
+	
 	var payload struct {
 		CodigoEstudante      string    `json:"CodigoEstudante"`
 		CodigoAcademia       string    `json:"CodigoAcademia"`
@@ -111,8 +152,12 @@ func (p *NotasProjection) handleNotasRegistradas(event db.Event) error {
 	}
 
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		log.Printf("[ERROR] NotasProjection.handleNotasRegistradas - Erro ao parsear payload: %v", err)
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
+
+	log.Printf("[DEBUG] NotasProjection.handleNotasRegistradas - Payload: CodigoEstudante=%s, Nota=%.2f", 
+		payload.CodigoEstudante, payload.Nota)
 
 	safeCodEst := db.SafeString(payload.CodigoEstudante)
 	safeCodAcad := db.SafeString(payload.CodigoAcademia)
@@ -138,15 +183,24 @@ func (p *NotasProjection) handleNotasRegistradas(event db.Event) error {
 	`, safeCodEst, safeCodAcad, safeAno, safePer, safeMatID, payload.Nota, obsStr,
 		payload.RegisteredAt.Format(time.RFC3339), event.EventID, event.EventVersion)
 
+	log.Printf("[DEBUG] NotasProjection.handleNotasRegistradas - Insert query: %s", query)
+
 	_, err := p.client.DB().Exec(query)
 
-	if err == nil {
+	if err != nil {
+		log.Printf("[ERROR] NotasProjection.handleNotasRegistradas - Erro ao inserir nota: %v", err)
+	} else {
+		log.Printf("[DEBUG] NotasProjection.handleNotasRegistradas - Nota inserida com sucesso")
+		
 		updateQuery := fmt.Sprintf(`
 			UPDATE projection_estudantes SET total_notas = (SELECT COUNT(*) FROM projection_notas WHERE codigo_estudante = '%s')
 			WHERE codigo_estudante = '%s'
 		`, safeCodEst, safeCodEst)
+		
+		log.Printf("[DEBUG] NotasProjection.handleNotasRegistradas - Update estudante query: %s", updateQuery)
 		p.client.DB().Exec(updateQuery)
 	}
+	
 	return err
 }
 
@@ -162,8 +216,11 @@ func (p *NotasProjection) GetByEstudante(codigoEstudante string) ([]NotaDTO, err
 		WHERE n.codigo_estudante = '%s' ORDER BY n.registered_at DESC
 	`, safeCodigo)
 	
+	log.Printf("[DEBUG] NotasProjection.GetByEstudante - Query: %s", query)
+	
 	rows, err := p.client.DB().Query(query)
 	if err != nil {
+		log.Printf("[ERROR] NotasProjection.GetByEstudante - Erro: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -175,10 +232,13 @@ func (p *NotasProjection) GetByEstudante(codigoEstudante string) ([]NotaDTO, err
 			&dto.Periodo, &dto.MateriaDisciplinarID, &dto.MateriaNome, &dto.Nota,
 			&dto.Observacao, &dto.RegisteredAt, &dto.EventID, &dto.Version)
 		if err != nil {
+			log.Printf("[ERROR] NotasProjection.GetByEstudante - Erro ao fazer scan: %v", err)
 			continue
 		}
 		result = append(result, dto)
 	}
+	
+	log.Printf("[DEBUG] NotasProjection.GetByEstudante - %d notas encontradas", len(result))
 	return result, rows.Err()
 }
 
@@ -197,8 +257,11 @@ func (p *NotasProjection) GetByPeriodo(codigoEstudante, anoLectivo, periodo stri
 		ORDER BY m.nome
 	`, safeCodigo, safeAno, safePer)
 	
+	log.Printf("[DEBUG] NotasProjection.GetByPeriodo - Query: %s", query)
+	
 	rows, err := p.client.DB().Query(query)
 	if err != nil {
+		log.Printf("[ERROR] NotasProjection.GetByPeriodo - Erro: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -210,10 +273,13 @@ func (p *NotasProjection) GetByPeriodo(codigoEstudante, anoLectivo, periodo stri
 			&dto.Periodo, &dto.MateriaDisciplinarID, &dto.MateriaNome, &dto.Nota,
 			&dto.Observacao, &dto.RegisteredAt, &dto.EventID, &dto.Version)
 		if err != nil {
+			log.Printf("[ERROR] NotasProjection.GetByPeriodo - Erro ao fazer scan: %v", err)
 			continue
 		}
 		result = append(result, dto)
 	}
+	
+	log.Printf("[DEBUG] NotasProjection.GetByPeriodo - %d notas encontradas", len(result))
 	return result, rows.Err()
 }
 

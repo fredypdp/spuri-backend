@@ -63,6 +63,7 @@ func (m *Manager) StartProcessing() {
 }
 
 func (m *Manager) Stop() {
+	log.Println("[INFO] Manager.Stop - Parando manager")
 	m.cancel()
 }
 
@@ -70,9 +71,11 @@ func (m *Manager) processNewEvents() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	
+	log.Printf("[DEBUG] Manager.processNewEvents - Processando %d projecoes", len(m.projections))
+	
 	for name, projection := range m.projections {
 		if err := m.processProjection(name, projection); err != nil {
-			log.Printf("[ERROR] Erro ao processar projecao %s: %v", name, err)
+			log.Printf("[ERROR] Manager.processNewEvents - Erro ao processar projecao %s: %v", name, err)
 			continue
 		}
 	}
@@ -82,36 +85,43 @@ func (m *Manager) processNewEvents() error {
 func (m *Manager) processProjection(name string, projection Projection) error {
 	lastProcessedID, err := projection.GetLastProcessedEventID()
 	if err != nil {
+		log.Printf("[ERROR] Manager.processProjection - Erro ao obter checkpoint para %s: %v", name, err)
 		return fmt.Errorf("erro ao obter checkpoint: %w", err)
 	}
 
+	log.Printf("[DEBUG] Manager.processProjection - %s: lastProcessedID=%d", name, lastProcessedID)
+
 	events, err := m.getNewEvents(lastProcessedID)
 	if err != nil {
+		log.Printf("[ERROR] Manager.processProjection - Erro ao buscar eventos para %s: %v", name, err)
 		return fmt.Errorf("erro ao buscar eventos: %w", err)
 	}
 
 	if len(events) == 0 {
+		log.Printf("[DEBUG] Manager.processProjection - %s: nenhum evento novo", name)
 		return nil
 	}
+
+	log.Printf("[DEBUG] Manager.processProjection - %s: %d eventos encontrados", name, len(events))
 
 	processedCount := 0
 	
 	for _, event := range events {
 		if err := m.processEventWithRetry(name, projection, event); err != nil {
-			log.Printf("[ERROR] Projecao %s: evento %d falhou permanentemente", name, event.ID)
+			log.Printf("[ERROR] Manager.processProjection - %s: evento %d falhou permanentemente", name, event.ID)
 			m.logProjectionError(name, err.Error())
 			projection.UpdateCheckpoint(event.ID)
 			continue
 		}
 		
 		if err := projection.UpdateCheckpoint(event.ID); err != nil {
-			log.Printf("[WARN] Erro ao atualizar checkpoint para evento %d: %v", event.ID, err)
+			log.Printf("[WARN] Manager.processProjection - Erro ao atualizar checkpoint para evento %d: %v", event.ID, err)
 		}
 		processedCount++
 	}
 
 	if processedCount > 0 {
-		log.Printf("[INFO] Projecao %s: processados %d eventos (ultimo: %d)",
+		log.Printf("[INFO] Manager.processProjection - %s: processados %d eventos (ultimo: %d)",
 			name, processedCount, events[len(events)-1].ID)
 	}
 
@@ -122,6 +132,8 @@ func (m *Manager) processEventWithRetry(name string, projection Projection, even
 	maxRetries := 3
 	baseDelay := 1 * time.Second
 	
+	log.Printf("[DEBUG] Manager.processEventWithRetry - %s: processando evento %d", name, event.ID)
+	
 	var lastErr error
 	
 	for attempt := 1; attempt <= maxRetries; attempt++ {
@@ -129,7 +141,7 @@ func (m *Manager) processEventWithRetry(name string, projection Projection, even
 		
 		if err == nil {
 			if attempt > 1 {
-				log.Printf("[INFO] Projecao %s: evento %d recuperado na tentativa %d", 
+				log.Printf("[INFO] Manager.processEventWithRetry - %s: evento %d recuperado na tentativa %d", 
 					name, event.ID, attempt)
 			}
 			return nil
@@ -139,16 +151,17 @@ func (m *Manager) processEventWithRetry(name string, projection Projection, even
 		
 		if attempt < maxRetries {
 			delay := time.Duration(attempt*attempt) * baseDelay
-			log.Printf("[WARN] Projecao %s: evento %d falhou (tentativa %d/%d), retry em %v", 
+			log.Printf("[WARN] Manager.processEventWithRetry - %s: evento %d falhou (tentativa %d/%d), retry em %v", 
 				name, event.ID, attempt, maxRetries, delay)
 			time.Sleep(delay)
 		}
 	}
 	
+	log.Printf("[ERROR] Manager.processEventWithRetry - %s: evento %d falhou apos %d tentativas: %v", 
+		name, event.ID, maxRetries, lastErr)
 	return fmt.Errorf("evento %d falhou apos %d tentativas: %w", event.ID, maxRetries, lastErr)
 }
 
-// ✅ CORRIGIDO: Usar Query() padrão ao invés de Queryx()
 func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
 	if fromID < 0 {
 		fromID = 0
@@ -166,8 +179,11 @@ func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
 		LIMIT %d
 	`, fromID, batchSize)
 
+	log.Printf("[DEBUG] Manager.getNewEvents - Query: %s", query)
+
 	rows, err := m.client.DB().Query(query)
 	if err != nil {
+		log.Printf("[ERROR] Manager.getNewEvents - Erro na query: %v", err)
 		return nil, fmt.Errorf("erro na query: %w", err)
 	}
 	defer rows.Close()
@@ -181,11 +197,13 @@ func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
 			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash,
 		)
 		if err != nil {
+			log.Printf("[ERROR] Manager.getNewEvents - Erro ao scan: %v", err)
 			return nil, fmt.Errorf("erro ao scan: %w", err)
 		}
 		events = append(events, event)
 	}
 
+	log.Printf("[DEBUG] Manager.getNewEvents - %d eventos recuperados", len(events))
 	return events, rows.Err()
 }
 
@@ -193,27 +211,30 @@ func (m *Manager) RebuildProjection(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	
+	log.Printf("[INFO] Manager.RebuildProjection - Iniciando rebuild de: %s", name)
+	
 	projection, exists := m.projections[name]
 	if !exists {
+		log.Printf("[ERROR] Manager.RebuildProjection - Projecao nao encontrada: %s", name)
 		return fmt.Errorf("projecao nao encontrada: %s", name)
 	}
 
-	log.Printf("[INFO] Reconstruindo projecao: %s", name)
-
 	if err := m.markRebuildStart(name); err != nil {
+		log.Printf("[ERROR] Manager.RebuildProjection - Erro ao marcar inicio: %v", err)
 		return err
 	}
 
 	if err := projection.Rebuild(); err != nil {
-		log.Printf("[ERROR] Erro ao reconstruir projecao %s: %v", name, err)
+		log.Printf("[ERROR] Manager.RebuildProjection - Erro ao reconstruir projecao %s: %v", name, err)
 		return err
 	}
 
 	if err := m.markRebuildComplete(name); err != nil {
+		log.Printf("[ERROR] Manager.RebuildProjection - Erro ao marcar conclusao: %v", err)
 		return err
 	}
 
-	log.Printf("[INFO] Projecao %s reconstruida com sucesso", name)
+	log.Printf("[INFO] Manager.RebuildProjection - Projecao %s reconstruida com sucesso", name)
 	return nil
 }
 
@@ -221,7 +242,7 @@ func (m *Manager) RebuildAllProjections() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	
-	log.Println("[INFO] Reconstruindo TODAS as projecoes")
+	log.Println("[INFO] Manager.RebuildAllProjections - Reconstruindo TODAS as projecoes")
 
 	for name := range m.projections {
 		m.mu.Unlock()
@@ -229,12 +250,12 @@ func (m *Manager) RebuildAllProjections() error {
 		m.mu.Lock()
 		
 		if err != nil {
-			log.Printf("[ERROR] Erro ao reconstruir %s: %v", name, err)
+			log.Printf("[ERROR] Manager.RebuildAllProjections - Erro ao reconstruir %s: %v", name, err)
 			continue
 		}
 	}
 
-	log.Println("[INFO] Todas as projecoes reconstruidas")
+	log.Println("[INFO] Manager.RebuildAllProjections - Todas as projecoes reconstruidas")
 	return nil
 }
 
@@ -247,28 +268,44 @@ func (m *Manager) markRebuildStart(name string) error {
 		WHERE projection_name = '%s'
 	`, safeName)
 	
+	log.Printf("[DEBUG] Manager.markRebuildStart - Query: %s", query)
+	
 	_, err := m.client.DB().Exec(query)
+	if err != nil {
+		log.Printf("[ERROR] Manager.markRebuildStart - Erro: %v", err)
+	}
 	return err
 }
 
 func (m *Manager) markRebuildComplete(name string) error {
 	var lastEventID int64
 	
-	err := m.client.DB().QueryRow(`SELECT COALESCE(MAX(id), 0) FROM spuri_ledger`).Scan(&lastEventID)
+	query := `SELECT COALESCE(MAX(id), 0) FROM spuri_ledger`
+	log.Printf("[DEBUG] Manager.markRebuildComplete - Query para max ID: %s", query)
+	
+	err := m.client.DB().QueryRow(query).Scan(&lastEventID)
 	if err != nil {
+		log.Printf("[ERROR] Manager.markRebuildComplete - Erro ao buscar max ID: %v", err)
 		return err
 	}
 
+	log.Printf("[DEBUG] Manager.markRebuildComplete - LastEventID: %d", lastEventID)
+
 	safeName := db.SafeString(name)
 
-	query := fmt.Sprintf(`
+	updateQuery := fmt.Sprintf(`
 		UPDATE projection_checkpoints
 		SET is_rebuilding = false, rebuild_started_at = NULL,
 			last_processed_event_id = %d, last_processed_at = CURRENT_TIMESTAMP
 		WHERE projection_name = '%s'
 	`, lastEventID, safeName)
 	
-	_, err = m.client.DB().Exec(query)
+	log.Printf("[DEBUG] Manager.markRebuildComplete - Update query: %s", updateQuery)
+	
+	_, err = m.client.DB().Exec(updateQuery)
+	if err != nil {
+		log.Printf("[ERROR] Manager.markRebuildComplete - Erro ao atualizar: %v", err)
+	}
 	return err
 }
 
@@ -281,6 +318,8 @@ func (m *Manager) logProjectionError(name, errorMsg string) {
 		SET error_count = error_count + 1, last_error = '%s', last_error_at = CURRENT_TIMESTAMP
 		WHERE projection_name = '%s'
 	`, safeMsg, safeName)
+	
+	log.Printf("[DEBUG] Manager.logProjectionError - Query: %s", query)
 	
 	m.client.DB().Exec(query)
 }
@@ -295,6 +334,8 @@ func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, erro
 		FROM projection_checkpoints
 		WHERE projection_name = '%s'
 	`, safeName)
+
+	log.Printf("[DEBUG] Manager.GetProjectionStatus - Query: %s", query)
 
 	var (
 		projName      string
@@ -314,10 +355,11 @@ func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, erro
 	)
 
 	if err != nil {
+		log.Printf("[ERROR] Manager.GetProjectionStatus - Erro: %v", err)
 		return nil, err
 	}
 
-	return map[string]interface{}{
+	status := map[string]interface{}{
 		"name":                 projName,
 		"last_processed_event": lastEventID,
 		"last_processed_at":    lastProcessed,
@@ -327,24 +369,30 @@ func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, erro
 		"error_count":          errCount,
 		"last_error":           lastErr,
 		"last_error_at":        lastErrAt,
-	}, nil
+	}
+
+	log.Printf("[DEBUG] Manager.GetProjectionStatus - Status: %+v", status)
+	return status, nil
 }
 
 func (m *Manager) GetAllProjectionStatuses() ([]map[string]interface{}, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	
+	log.Printf("[DEBUG] Manager.GetAllProjectionStatuses - Buscando status de %d projecoes", len(m.projections))
+	
 	var statuses []map[string]interface{}
 
 	for name := range m.projections {
 		status, err := m.GetProjectionStatus(name)
 		if err != nil {
-			log.Printf("[ERROR] Erro ao obter status de %s: %v", name, err)
+			log.Printf("[ERROR] Manager.GetAllProjectionStatuses - Erro ao obter status de %s: %v", name, err)
 			continue
 		}
 		statuses = append(statuses, status)
 	}
 
+	log.Printf("[DEBUG] Manager.GetAllProjectionStatuses - %d status retornados", len(statuses))
 	return statuses, nil
 }
 
@@ -356,6 +404,8 @@ func (m *Manager) GetRegisteredProjections() []string {
 	for name := range m.projections {
 		names = append(names, name)
 	}
+	
+	log.Printf("[DEBUG] Manager.GetRegisteredProjections - %d projecoes registradas: %v", len(names), names)
 	return names
 }
 
@@ -364,5 +414,6 @@ func (m *Manager) IsProjectionRegistered(name string) bool {
 	defer m.mu.Unlock()
 	
 	_, exists := m.projections[name]
+	log.Printf("[DEBUG] Manager.IsProjectionRegistered - %s: %v", name, exists)
 	return exists
 }

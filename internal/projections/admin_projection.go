@@ -24,7 +24,11 @@ func (p *AdminProjection) Name() string {
 }
 
 func (p *AdminProjection) Handle(event db.Event) error {
+	log.Printf("[ADMIN_PROJECTION] Recebendo evento: type=%s, aggregate_id=%s, event_id=%s", 
+		event.EventType, event.AggregateID, event.EventID)
+	
 	if event.AggregateType != "Admin" {
+		log.Printf("[ADMIN_PROJECTION] Ignorando evento de tipo %s", event.AggregateType)
 		return nil
 	}
 
@@ -42,12 +46,16 @@ func (p *AdminProjection) Handle(event db.Event) error {
 	case "AdminRoleAtualizado":
 		return p.handleAdminRoleAtualizado(event)
 	default:
+		log.Printf("[ADMIN_PROJECTION] Tipo de evento desconhecido: %s", event.EventType)
 		return nil
 	}
 }
 
 func (p *AdminProjection) Rebuild() error {
+	log.Printf("[ADMIN_PROJECTION] Iniciando rebuild da projeção")
+	
 	if err := p.clear(); err != nil {
+		log.Printf("[ADMIN_PROJECTION] Erro ao limpar projeção: %v", err)
 		return err
 	}
 
@@ -60,12 +68,15 @@ func (p *AdminProjection) Rebuild() error {
 		ORDER BY id ASC
 	`
 	
+	log.Printf("[ADMIN_PROJECTION] Executando query de rebuild")
 	rows, err := p.client.DB().Query(query)
 	if err != nil {
+		log.Printf("[ADMIN_PROJECTION] Erro ao executar query de rebuild: %v", err)
 		return err
 	}
 	defer rows.Close()
 
+	eventCount := 0
 	for rows.Next() {
 		var event db.Event
 		err := rows.Scan(
@@ -74,14 +85,18 @@ func (p *AdminProjection) Rebuild() error {
 			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash,
 		)
 		if err != nil {
+			log.Printf("[ADMIN_PROJECTION] Erro ao fazer scan do evento: %v", err)
 			return err
 		}
 
 		if err := p.Handle(event); err != nil {
+			log.Printf("[ADMIN_PROJECTION] Erro ao processar evento %d: %v", event.ID, err)
 			return fmt.Errorf("erro ao processar evento %d: %w", event.ID, err)
 		}
+		eventCount++
 	}
 
+	log.Printf("[ADMIN_PROJECTION] Rebuild concluído. %d eventos processados", eventCount)
 	return rows.Err()
 }
 
@@ -94,12 +109,22 @@ func (p *AdminProjection) GetLastProcessedEventID() (int64, error) {
 		WHERE projection_name = '%s'
 	`, safeName)
 	
+	log.Printf("[ADMIN_PROJECTION] Buscando último evento processado: %s", query)
+	
 	var lastID int64
 	err := p.client.DB().QueryRow(query).Scan(&lastID)
 	
 	if err == sql.ErrNoRows {
+		log.Printf("[ADMIN_PROJECTION] Nenhum checkpoint encontrado, retornando 0")
 		return 0, nil
 	}
+	
+	if err != nil {
+		log.Printf("[ADMIN_PROJECTION] Erro ao buscar checkpoint: %v", err)
+	} else {
+		log.Printf("[ADMIN_PROJECTION] Último evento processado: %d", lastID)
+	}
+	
 	return lastID, err
 }
 
@@ -118,16 +143,27 @@ func (p *AdminProjection) UpdateCheckpoint(eventID int64) error {
 			events_processed = projection_checkpoints.events_processed + 1
 	`, safeName, eventID, eventID)
 	
+	log.Printf("[ADMIN_PROJECTION] Atualizando checkpoint para event_id=%d", eventID)
+	
 	_, err := p.client.DB().Exec(query)
+	if err != nil {
+		log.Printf("[ADMIN_PROJECTION] Erro ao atualizar checkpoint: %v", err)
+	}
 	return err
 }
 
 func (p *AdminProjection) clear() error {
+	log.Printf("[ADMIN_PROJECTION] Limpando tabela projection_admins")
 	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_admins CASCADE`)
+	if err != nil {
+		log.Printf("[ADMIN_PROJECTION] Erro ao limpar tabela: %v", err)
+	}
 	return err
 }
 
 func (p *AdminProjection) handleAdminCriado(event db.Event) error {
+	log.Printf("[ADMIN_PROJECTION] Processando AdminCriado: event_id=%s", event.EventID)
+	
 	var payload struct {
 		Nome      string     `json:"Nome"`
 		Email     string     `json:"Email"`
@@ -138,11 +174,16 @@ func (p *AdminProjection) handleAdminCriado(event db.Event) error {
 	}
 
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		log.Printf("[ADMIN_PROJECTION] Erro ao parsear payload: %v", err)
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
+	log.Printf("[ADMIN_PROJECTION] Dados do admin: nome=%s, email=%s, role=%s", 
+		payload.Nome, payload.Email, payload.Role)
+
 	aggID := event.AggregateID
 	if aggID == uuid.Nil {
+		log.Printf("[ADMIN_PROJECTION] UUID inválido")
 		return fmt.Errorf("UUID inválido")
 	}
 
@@ -154,8 +195,10 @@ func (p *AdminProjection) handleAdminCriado(event db.Event) error {
 	var createdByStr string
 	if payload.CreatedBy != nil {
 		createdByStr = fmt.Sprintf("'%s'", *payload.CreatedBy)
+		log.Printf("[ADMIN_PROJECTION] Admin criado por: %s", *payload.CreatedBy)
 	} else {
 		createdByStr = "NULL"
+		log.Printf("[ADMIN_PROJECTION] Admin criado sem referência de criador")
 	}
 
 	query := fmt.Sprintf(`
@@ -172,18 +215,24 @@ func (p *AdminProjection) handleAdminCriado(event db.Event) error {
 	`, aggID, safeNome, safeEmail, safeHash, safeRole, createdByStr,
 		payload.CreatedAt.Format(time.RFC3339), event.EventVersion, event.EventID)
 
+	log.Printf("[ADMIN_PROJECTION] Executando insert/update: %s", query)
+
 	_, err := p.client.DB().Exec(query)
 	if err != nil {
-		log.Printf("[ADMIN_PROJECTION] Erro ao processar AdminCriado (event_id: %s)", event.EventID)
+		log.Printf("[ADMIN_PROJECTION] Erro ao processar AdminCriado (event_id: %s): %v", event.EventID, err)
 		return err
 	}
 
+	log.Printf("[ADMIN_PROJECTION] AdminCriado processado com sucesso: id=%s", aggID)
 	return nil
 }
 
 func (p *AdminProjection) handleAdminAtivado(event db.Event) error {
+	log.Printf("[ADMIN_PROJECTION] Processando AdminAtivado: event_id=%s", event.EventID)
+	
 	aggID := event.AggregateID
 	if aggID == uuid.Nil {
+		log.Printf("[ADMIN_PROJECTION] UUID inválido")
 		return fmt.Errorf("UUID inválido")
 	}
 
@@ -193,13 +242,23 @@ func (p *AdminProjection) handleAdminAtivado(event db.Event) error {
 		WHERE id = '%s'
 	`, event.EventVersion, event.EventID, aggID)
 	
+	log.Printf("[ADMIN_PROJECTION] Executando update: %s", query)
+	
 	_, err := p.client.DB().Exec(query)
+	if err != nil {
+		log.Printf("[ADMIN_PROJECTION] Erro ao ativar admin %s: %v", aggID, err)
+	} else {
+		log.Printf("[ADMIN_PROJECTION] Admin %s ativado com sucesso", aggID)
+	}
 	return err
 }
 
 func (p *AdminProjection) handleAdminDesativado(event db.Event) error {
+	log.Printf("[ADMIN_PROJECTION] Processando AdminDesativado: event_id=%s", event.EventID)
+	
 	aggID := event.AggregateID
 	if aggID == uuid.Nil {
+		log.Printf("[ADMIN_PROJECTION] UUID inválido")
 		return fmt.Errorf("UUID inválido")
 	}
 
@@ -209,13 +268,23 @@ func (p *AdminProjection) handleAdminDesativado(event db.Event) error {
 		WHERE id = '%s'
 	`, event.EventVersion, event.EventID, aggID)
 	
+	log.Printf("[ADMIN_PROJECTION] Executando update: %s", query)
+	
 	_, err := p.client.DB().Exec(query)
+	if err != nil {
+		log.Printf("[ADMIN_PROJECTION] Erro ao desativar admin %s: %v", aggID, err)
+	} else {
+		log.Printf("[ADMIN_PROJECTION] Admin %s desativado com sucesso", aggID)
+	}
 	return err
 }
 
 func (p *AdminProjection) handleAcaoAdminRegistrada(event db.Event) error {
+	log.Printf("[ADMIN_PROJECTION] Processando AcaoAdminRegistrada: event_id=%s", event.EventID)
+	
 	aggID := event.AggregateID
 	if aggID == uuid.Nil {
+		log.Printf("[ADMIN_PROJECTION] UUID inválido")
 		return fmt.Errorf("UUID inválido")
 	}
 
@@ -225,54 +294,80 @@ func (p *AdminProjection) handleAcaoAdminRegistrada(event db.Event) error {
 		WHERE id = '%s'
 	`, aggID)
 	
+	log.Printf("[ADMIN_PROJECTION] Incrementando contador de ações para admin %s", aggID)
+	
 	_, err := p.client.DB().Exec(query)
+	if err != nil {
+		log.Printf("[ADMIN_PROJECTION] Erro ao registrar ação: %v", err)
+	}
 	return err
 }
 
 func (p *AdminProjection) handleAdminDadosAtualizados(event db.Event) error {
+	log.Printf("[ADMIN_PROJECTION] Processando AdminDadosAtualizados: event_id=%s", event.EventID)
+	
 	var payload struct {
 		Nome  *string `json:"Nome"`
 		Email *string `json:"Email"`
 	}
 
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		log.Printf("[ADMIN_PROJECTION] Erro ao parsear payload: %v", err)
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
 	aggID := event.AggregateID
 	if aggID == uuid.Nil {
+		log.Printf("[ADMIN_PROJECTION] UUID inválido")
 		return fmt.Errorf("UUID inválido")
 	}
 
 	if payload.Nome != nil {
 		safe := db.SafeString(*payload.Nome)
-		p.client.DB().Exec(fmt.Sprintf(`UPDATE projection_admins SET nome = '%s' WHERE id = '%s'`, safe, aggID))
+		query := fmt.Sprintf(`UPDATE projection_admins SET nome = '%s' WHERE id = '%s'`, safe, aggID)
+		log.Printf("[ADMIN_PROJECTION] Atualizando nome: %s", query)
+		p.client.DB().Exec(query)
 	}
 	
 	if payload.Email != nil {
 		safe := db.SafeString(*payload.Email)
-		p.client.DB().Exec(fmt.Sprintf(`UPDATE projection_admins SET email = '%s' WHERE id = '%s'`, safe, aggID))
+		query := fmt.Sprintf(`UPDATE projection_admins SET email = '%s' WHERE id = '%s'`, safe, aggID)
+		log.Printf("[ADMIN_PROJECTION] Atualizando email: %s", query)
+		p.client.DB().Exec(query)
 	}
 
 	query := fmt.Sprintf(`
 		UPDATE projection_admins SET version = %d, updated_at = CURRENT_TIMESTAMP, last_event_id = '%s' WHERE id = '%s'
 	`, event.EventVersion, event.EventID, aggID)
 	
+	log.Printf("[ADMIN_PROJECTION] Atualizando version e timestamp: %s", query)
+	
 	_, err := p.client.DB().Exec(query)
+	if err != nil {
+		log.Printf("[ADMIN_PROJECTION] Erro ao atualizar dados: %v", err)
+	} else {
+		log.Printf("[ADMIN_PROJECTION] Dados do admin %s atualizados com sucesso", aggID)
+	}
 	return err
 }
 
 func (p *AdminProjection) handleAdminRoleAtualizado(event db.Event) error {
+	log.Printf("[ADMIN_PROJECTION] Processando AdminRoleAtualizado: event_id=%s", event.EventID)
+	
 	var payload struct {
 		NovoRole string `json:"NovoRole"`
 	}
 
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		log.Printf("[ADMIN_PROJECTION] Erro ao parsear payload: %v", err)
 		return fmt.Errorf("erro ao parsear payload: %w", err)
 	}
 
+	log.Printf("[ADMIN_PROJECTION] Novo role: %s", payload.NovoRole)
+
 	aggID := event.AggregateID
 	if aggID == uuid.Nil {
+		log.Printf("[ADMIN_PROJECTION] UUID inválido")
 		return fmt.Errorf("UUID inválido")
 	}
 
@@ -284,12 +379,22 @@ func (p *AdminProjection) handleAdminRoleAtualizado(event db.Event) error {
 		WHERE id = '%s'
 	`, safeRole, event.EventVersion, event.EventID, aggID)
 	
+	log.Printf("[ADMIN_PROJECTION] Executando update: %s", query)
+	
 	_, err := p.client.DB().Exec(query)
+	if err != nil {
+		log.Printf("[ADMIN_PROJECTION] Erro ao atualizar role: %v", err)
+	} else {
+		log.Printf("[ADMIN_PROJECTION] Role atualizado com sucesso para admin %s", aggID)
+	}
 	return err
 }
 
 func (p *AdminProjection) GetByID(id uuid.UUID) (*AdminDTO, error) {
+	log.Printf("[ADMIN_PROJECTION] Buscando admin por ID: %s", id)
+	
 	if id == uuid.Nil {
+		log.Printf("[ADMIN_PROJECTION] UUID inválido fornecido")
 		return nil, fmt.Errorf("UUID inválido")
 	}
 
@@ -298,6 +403,8 @@ func (p *AdminProjection) GetByID(id uuid.UUID) (*AdminDTO, error) {
 			created_by, created_at, updated_at, total_acoes_realizadas, version
 		FROM projection_admins WHERE id = '%s'`, id)
 	
+	log.Printf("[ADMIN_PROJECTION] Executando query: %s", query)
+	
 	var dto AdminDTO
 	var createdBy sql.NullString
 	
@@ -307,9 +414,11 @@ func (p *AdminProjection) GetByID(id uuid.UUID) (*AdminDTO, error) {
 	)
 	
 	if err == sql.ErrNoRows {
+		log.Printf("[ADMIN_PROJECTION] Admin não encontrado: %s", id)
 		return nil, nil
 	}
 	if err != nil {
+		log.Printf("[ADMIN_PROJECTION] Erro ao buscar admin: %v", err)
 		return nil, err
 	}
 	
@@ -318,10 +427,13 @@ func (p *AdminProjection) GetByID(id uuid.UUID) (*AdminDTO, error) {
 		dto.CreatedBy = &uid
 	}
 	
+	log.Printf("[ADMIN_PROJECTION] Admin encontrado: %s (%s)", dto.Nome, dto.Email)
 	return &dto, nil
 }
 
 func (p *AdminProjection) GetByEmail(email string) (*AdminDTO, error) {
+	log.Printf("[ADMIN_PROJECTION] Buscando admin por email: %s", email)
+	
 	safeEmail := db.SafeString(email)
 
 	query := fmt.Sprintf(`
@@ -329,6 +441,8 @@ func (p *AdminProjection) GetByEmail(email string) (*AdminDTO, error) {
 			created_by, created_at, updated_at, total_acoes_realizadas, version
 		FROM projection_admins WHERE email = '%s'`, safeEmail)
 	
+	log.Printf("[ADMIN_PROJECTION] Executando query: %s", query)
+	
 	var dto AdminDTO
 	var createdBy sql.NullString
 	
@@ -338,9 +452,11 @@ func (p *AdminProjection) GetByEmail(email string) (*AdminDTO, error) {
 	)
 
 	if err == sql.ErrNoRows {
+		log.Printf("[ADMIN_PROJECTION] Admin não encontrado com email: %s", email)
 		return nil, nil
 	}
 	if err != nil {
+		log.Printf("[ADMIN_PROJECTION] Erro ao buscar admin por email: %v", err)
 		return nil, err
 	}
 	
@@ -349,10 +465,13 @@ func (p *AdminProjection) GetByEmail(email string) (*AdminDTO, error) {
 		dto.CreatedBy = &uid
 	}
 
+	log.Printf("[ADMIN_PROJECTION] Admin encontrado: %s (%s)", dto.Nome, dto.ID)
 	return &dto, nil
 }
 
 func (p *AdminProjection) GetAll() ([]AdminDTO, error) {
+	log.Printf("[ADMIN_PROJECTION] Buscando todos os admins")
+	
 	query := `
 		SELECT id, nome, email, senha_hash, role, status,
 			created_by, created_at, updated_at, total_acoes_realizadas, version
@@ -361,11 +480,13 @@ func (p *AdminProjection) GetAll() ([]AdminDTO, error) {
 	
 	rows, err := p.client.DB().Query(query)
 	if err != nil {
+		log.Printf("[ADMIN_PROJECTION] Erro ao buscar admins: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
 
 	var dtos []AdminDTO
+	count := 0
 	for rows.Next() {
 		var dto AdminDTO
 		var createdBy sql.NullString
@@ -374,6 +495,7 @@ func (p *AdminProjection) GetAll() ([]AdminDTO, error) {
 			&createdBy, &dto.CreatedAt, &dto.UpdatedAt, &dto.TotalAcoesRealizadas, &dto.Version,
 		)
 		if err != nil {
+			log.Printf("[ADMIN_PROJECTION] Erro ao fazer scan do admin: %v", err)
 			continue
 		}
 		if createdBy.Valid {
@@ -381,8 +503,10 @@ func (p *AdminProjection) GetAll() ([]AdminDTO, error) {
 			dto.CreatedBy = &uid
 		}
 		dtos = append(dtos, dto)
+		count++
 	}
 
+	log.Printf("[ADMIN_PROJECTION] %d admins encontrados", count)
 	return dtos, rows.Err()
 }
 

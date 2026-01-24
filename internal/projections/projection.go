@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"spuri/internal/db"
 )
 
@@ -27,7 +28,6 @@ func NewBaseProjection(client *db.Client) *BaseProjection {
 	}
 }
 
-// ✅ SAFE: String validada
 func (bp *BaseProjection) GetLastProcessedEventIDByName(name string) (int64, error) {
 	safeName := db.SafeString(name)
 	
@@ -37,20 +37,24 @@ func (bp *BaseProjection) GetLastProcessedEventIDByName(name string) (int64, err
 		WHERE projection_name = '%s'
 	`, safeName)
 	
+	log.Printf("[DEBUG] GetLastProcessedEventIDByName - Query: %s", query)
+	
 	var lastID int64
 	err := bp.client.DB().QueryRow(query).Scan(&lastID)
 	
 	if err == sql.ErrNoRows {
+		log.Printf("[DEBUG] GetLastProcessedEventIDByName - Nenhum checkpoint encontrado para: %s", name)
 		return 0, nil
 	}
 	if err != nil {
+		log.Printf("[ERROR] GetLastProcessedEventIDByName - Erro ao buscar checkpoint: %v", err)
 		return 0, nil
 	}
 	
+	log.Printf("[DEBUG] GetLastProcessedEventIDByName - LastID encontrado: %d para projection: %s", lastID, name)
 	return lastID, nil
 }
 
-// ✅ SAFE: String validada + int validado
 func (bp *BaseProjection) UpdateCheckpointByName(name string, eventID int64) error {
 	safeName := db.SafeString(name)
 	
@@ -69,7 +73,15 @@ func (bp *BaseProjection) UpdateCheckpointByName(name string, eventID int64) err
 			events_processed = projection_checkpoints.events_processed + 1
 	`, safeName, eventID, eventID)
 	
+	log.Printf("[DEBUG] UpdateCheckpointByName - Query: %s", query)
+	
 	_, err := bp.client.DB().Exec(query)
+	
+	if err != nil {
+		log.Printf("[ERROR] UpdateCheckpointByName - Erro ao atualizar checkpoint: %v", err)
+	} else {
+		log.Printf("[DEBUG] UpdateCheckpointByName - Checkpoint atualizado com sucesso para: %s, eventID: %d", name, eventID)
+	}
 	
 	return err
 }
