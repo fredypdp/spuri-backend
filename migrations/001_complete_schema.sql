@@ -219,6 +219,7 @@ CREATE TABLE IF NOT EXISTS projection_admins (
     senha_hash VARCHAR(255) NOT NULL,
     role VARCHAR(20) NOT NULL CHECK (role IN ('fpp', 'adm', 'gerente')),
     status VARCHAR(20) DEFAULT 'ativo' CHECK (status IN ('ativo', 'inativo')),
+    email_verificado BOOLEAN DEFAULT FALSE,
     created_by UUID REFERENCES projection_admins(id) ON DELETE SET NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -824,7 +825,7 @@ COMMENT ON TABLE admin_action_log IS 'Log de todas as ações administrativas';
 COMMENT ON COLUMN projection_estudantes.codigo_estudante IS 'Código único do estudante (formato: AAA1234)';
 COMMENT ON COLUMN projection_estudantes.email IS 'Email do estudante (opcional)';
 COMMENT ON COLUMN projection_estudantes.telefone IS 'Telefone do estudante (opcional)';
-COMMENT ON COLUMN projection_estudantes.email_verificado IS 'Se o email foi verificado';
+COMMENT ON COLUMN projection_estudantes.email_verificado IS 'Se o email do estudante foi verificado';
 COMMENT ON COLUMN projection_estudantes.codigo_academia IS 'Código da academia à qual o estudante pertence';
 COMMENT ON COLUMN projection_estudantes.status IS 'Status geral: inativo, ativo, finalizado';
 COMMENT ON COLUMN projection_estudantes.status_escolar IS 'Status ensino escolar: inativo, em_andamento, finalizado';
@@ -850,6 +851,7 @@ COMMENT ON COLUMN projection_faltas.materia_disciplinar_id IS 'FK para projectio
 COMMENT ON COLUMN projection_faltas.observacao IS 'Detalhes sobre a falta (texto opcional)';
 
 COMMENT ON COLUMN projection_admins.role IS 'Hierarquia: fpp > adm > gerente';
+COMMENT ON COLUMN projection_admins.email_verificado IS 'Se o email do admin foi verificado';
 COMMENT ON COLUMN projection_inscricoes.status_usado IS 'Se a inscrição aprovada já foi usada para vincular';
 
 COMMENT ON COLUMN auth_tokens.tipo IS 'Tipo do token: verificacao_email ou recuperacao_senha';
