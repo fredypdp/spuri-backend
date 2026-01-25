@@ -347,23 +347,23 @@ func (s *EmailService) sendMailSSL(addr, to, msg string) error {
 }
 
 func (s *EmailService) SendVerificationEmail(userID uuid.UUID, userType, email, nome string) error {
-	log.Printf("[EMAIL][DEBUG] SendVerificationEmail - UserID: %s, Type: %s, Email: %s, Nome: %s", 
+	log.Printf("[EMAIL][INICIO] SendVerificationEmail - UserID: %s, Type: %s, Email: %s, Nome: %s", 
 		userID, userType, email, nome)
 	
 	if !s.enabled {
-		log.Println("[EMAIL][DEBUG] Serviço desabilitado - pulando verificação")
+		log.Println("[EMAIL][ERRO] Serviço desabilitado - pulando verificação")
 		return fmt.Errorf("serviço de email desabilitado")
 	}
 
 	if email == "" {
-		log.Printf("[EMAIL][DEBUG] Email vazio, abortando")
+		log.Printf("[EMAIL][ERRO] Email vazio, abortando")
 		return fmt.Errorf("email vazio")
 	}
 
 	log.Printf("[EMAIL][DEBUG] Gerando token de verificação...")
 	token, err := s.SaveToken(userID, userType, "verificacao_email", email, 24*time.Hour)
 	if err != nil {
-		log.Printf("[EMAIL][DEBUG] Erro ao salvar token: %v", err)
+		log.Printf("[EMAIL][ERRO] Erro ao salvar token: %v", err)
 		return fmt.Errorf("erro ao gerar token: %w", err)
 	}
 
@@ -396,7 +396,14 @@ func (s *EmailService) SendVerificationEmail(userID uuid.UUID, userType, email, 
 	`, nome, verifyURL, verifyURL, verifyURL)
 
 	log.Printf("[EMAIL][DEBUG] Chamando SendEmail para verificação...")
-	return s.SendEmail(email, subject, body)
+	err = s.SendEmail(email, subject, body)
+	if err != nil {
+		log.Printf("[EMAIL][ERRO] SendEmail FALHOU: %v", err)
+		return err
+	}
+	
+	log.Printf("[EMAIL][SUCESSO] Email de verificação enviado!")
+	return nil
 }
 
 func (s *EmailService) SendPasswordResetEmail(userID uuid.UUID, userType, email, nome string) error {

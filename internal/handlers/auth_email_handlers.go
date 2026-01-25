@@ -18,7 +18,7 @@ import (
 
 // SolicitarVerificacaoEmail envia email de verificação
 func SolicitarVerificacaoEmail(c *gin.Context) {
-	log.Printf("[DEBUG] SolicitarVerificacaoEmail: Início")
+	log.Printf("[HANDLER][INICIO] SolicitarVerificacaoEmail")
 	
 	var req struct {
 		Identificador string `json:"identificador" binding:"required"`
@@ -26,15 +26,26 @@ func SolicitarVerificacaoEmail(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Printf("[ERROR] SolicitarVerificacaoEmail: Erro no bind JSON: %v", err)
+		log.Printf("[HANDLER][ERRO] Bind JSON: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
 		return
 	}
 
-	log.Printf("[DEBUG] SolicitarVerificacaoEmail: Identificador: %s, Tipo: %s", req.Identificador, req.Tipo)
+	log.Printf("[HANDLER] Identificador: %s, Tipo: %s", req.Identificador, req.Tipo)
 
 	client := getDbClient(c)
+	log.Printf("[HANDLER] DbClient obtido: %v", client != nil)
+	
 	emailSvc := getEmailService(c)
+	log.Printf("[HANDLER] EmailService obtido: %v", emailSvc != nil)
+	
+	if emailSvc == nil {
+		log.Printf("[HANDLER][ERRO CRÍTICO] EmailService é NIL!")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "serviço de email não disponível"})
+		return
+	}
+	
+	log.Printf("[HANDLER] EmailService.IsEnabled(): %v", emailSvc.IsEnabled())
 
 	var userID uuid.UUID
 	var email, nome string
@@ -52,39 +63,42 @@ func SolicitarVerificacaoEmail(c *gin.Context) {
 	case "admin":
 		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_admins WHERE email = '%s'`, safeId)
 	default:
-		log.Printf("[ERROR] SolicitarVerificacaoEmail: Tipo inválido: %s", req.Tipo)
+		log.Printf("[HANDLER][ERRO] Tipo inválido: %s", req.Tipo)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "tipo inválido"})
 		return
 	}
 
-	log.Printf("[DEBUG] SolicitarVerificacaoEmail: Executando query")
+	log.Printf("[HANDLER] Executando query: %s", query)
 
 	var idStr string
 	err := client.DB().QueryRow(query).Scan(&idStr, &email, &nome)
 	if err != nil {
-		log.Printf("[ERROR] SolicitarVerificacaoEmail: Usuário não encontrado: %v", err)
+		log.Printf("[HANDLER][ERRO] Usuário não encontrado: %v", err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
 		return
 	}
 	
 	userID, _ = uuid.Parse(idStr)
-	log.Printf("[DEBUG] SolicitarVerificacaoEmail: Usuário encontrado - ID: %s, Nome: %s", userID, nome)
+	log.Printf("[HANDLER] Usuário encontrado - ID: %s, Nome: %s, Email: %s", userID, nome, email)
 
 	if email == "" {
-		log.Printf("[ERROR] SolicitarVerificacaoEmail: Email não cadastrado")
+		log.Printf("[HANDLER][ERRO] Email não cadastrado")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "usuário não possui email cadastrado"})
 		return
 	}
 
-	log.Printf("[DEBUG] SolicitarVerificacaoEmail: Enviando email para: %s", email)
-
+	log.Printf("[HANDLER] CHAMANDO SendVerificationEmail...")
+	
 	if err := emailSvc.SendVerificationEmail(userID, req.Tipo, email, nome); err != nil {
-		log.Printf("[ERROR] SolicitarVerificacaoEmail: Erro ao enviar email: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao enviar email"})
+		log.Printf("[HANDLER][ERRO CRÍTICO] SendVerificationEmail FALHOU: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "erro ao enviar email",
+			"details": err.Error(), // TEMPORÁRIO para debug
+		})
 		return
 	}
 
-	log.Printf("[DEBUG] SolicitarVerificacaoEmail: Email enviado com sucesso")
+	log.Printf("[HANDLER][SUCESSO] Email enviado com sucesso")
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Email de verificação enviado! Verifique sua caixa de entrada.",
