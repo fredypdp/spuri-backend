@@ -172,13 +172,14 @@ func (s *EmailService) SendEmail(to, subject, body string) error {
 	log.Printf("[EMAIL][DEBUG] Tentando enviar para %s via %s:%s (SSL: %v)", 
 		to, s.smtpHost, s.smtpPort, s.useSSL)
 
-	msg := fmt.Sprintf("From: %s <%s>\r\n"+
+	// Formato idêntico ao test_smtp.go que funcionou
+	msg := fmt.Sprintf("From: %s\r\n"+
 		"To: %s\r\n"+
 		"Subject: %s\r\n"+
 		"MIME-Version: 1.0\r\n"+
 		"Content-Type: text/html; charset=UTF-8\r\n"+
 		"\r\n"+
-		"%s", s.fromName, s.fromEmail, to, subject, body)
+		"%s", s.fromEmail, to, subject, body)
 
 	log.Printf("[EMAIL][DEBUG] Mensagem formatada (%d bytes)", len(msg))
 
@@ -217,12 +218,11 @@ func (s *EmailService) sendMailSTARTTLS(addr, to, msg string) error {
 	defer client.Quit()
 	log.Printf("[EMAIL][DEBUG] Cliente SMTP criado")
 
-	// Tentar STARTTLS se disponível
+	// STARTTLS (igual ao test_smtp.go)
 	if ok, _ := client.Extension("STARTTLS"); ok {
 		log.Printf("[EMAIL][DEBUG] STARTTLS disponível, iniciando...")
 		config := &tls.Config{
-			ServerName:         s.smtpHost,
-			InsecureSkipVerify: false,
+			ServerName: s.smtpHost,
 		}
 		if err = client.StartTLS(config); err != nil {
 			log.Printf("[EMAIL][DEBUG] ERRO ao iniciar STARTTLS: %v", err)
@@ -282,17 +282,12 @@ func (s *EmailService) sendMailSSL(addr, to, msg string) error {
 	log.Printf("[EMAIL][DEBUG] Auth criado para user: %s", s.smtpUser)
 
 	tlsConfig := &tls.Config{
-		ServerName:         s.smtpHost,
-		InsecureSkipVerify: false,
+		ServerName: s.smtpHost,
 	}
 	log.Printf("[EMAIL][DEBUG] TLS Config criado para servidor: %s", s.smtpHost)
 
-	dialer := &net.Dialer{
-		Timeout: 15 * time.Second,
-	}
-
 	log.Printf("[EMAIL][DEBUG] Tentando conexão TLS/SSL com timeout de 15s...")
-	conn, err := tls.DialWithDialer(dialer, "tcp", addr, tlsConfig)
+	conn, err := tls.Dial("tcp", addr, tlsConfig)
 	if err != nil {
 		log.Printf("[EMAIL][DEBUG] ERRO na conexão SSL: %v", err)
 		return fmt.Errorf("falha ao conectar SSL: %w", err)
