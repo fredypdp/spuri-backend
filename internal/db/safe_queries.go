@@ -93,6 +93,7 @@ func ValidateEventType(eventType string) error {
 		"AdminAtivado":              true,
 		"AdminDesativado":           true,
 		"AcaoAdminRegistrada":       true,
+		"AprovacaoAnoRegistrada":    true,
 	}
 
 	if !validTypes[eventType] {

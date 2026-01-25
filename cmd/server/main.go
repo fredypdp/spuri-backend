@@ -89,6 +89,7 @@ func initProjections() error {
 	projManager.RegisterProjection("inscricoes", projections.NewInscricoesProjection(dbClient))
 	projManager.RegisterProjection("cursos", projections.NewCursosProjection(dbClient))
 	projManager.RegisterProjection("materias", projections.NewMateriasProjection(dbClient))
+	projManager.RegisterProjection("aprovacao_ano", projections.NewAprovacaoAnoProjection(dbClient))
 
 	go projManager.StartProcessing()
 
@@ -158,6 +159,7 @@ func setupRouter() *gin.Engine {
 		protected.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)
 		protected.GET("/consultar-academia/:codigo", handlers.GetAcademiaPorCodigo)
 		protected.GET("/estudantes", handlers.ListarEstudantes)
+		protected.GET("/aprovacoes-estudante/:codigo", handlers.GetAprovacoesEstudante)
 	}
 
 	estudante := router.Group("/estudante")
@@ -174,6 +176,7 @@ func setupRouter() *gin.Engine {
 		estudante.POST("/vincular-academia", handlers.VincularAcademia)
 		estudante.PUT("/dados-pessoais", handlers.AtualizarDadosPessoaisEstudante)
 		estudante.PUT("/dados-academicos", handlers.AtualizarDadosAcademicosEstudante)
+		estudante.GET("/minhas-aprovacoes", handlers.GetMinhasAprovacoes)
 	}
 
 	academia := router.Group("/academia")
@@ -196,6 +199,7 @@ func setupRouter() *gin.Engine {
 		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
 		academia.PUT("/cursos/:id", handlers.AtualizarDadosCurso)
 		academia.PUT("/materias/:id", handlers.AtualizarDadosMateria)
+		academia.POST("/aprovacao-ano", handlers.RegistrarAprovacaoAno)
 	}
 
 	admin := router.Group("/admin")

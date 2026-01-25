@@ -3,6 +3,7 @@ package aggregates
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -88,6 +89,8 @@ func (e *Estudante) Apply(event DomainEvent) error {
 		return e.applyDadosAcademicosAtualizados(event)
 	case "EmailVerificado":
 		return e.applyEmailVerificado(event)
+	case "AprovacaoAnoRegistrada":
+		return e.applyAprovacaoAnoRegistrada(event)
 	default:
 		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
 	}
@@ -211,6 +214,48 @@ func (e *Estudante) RegistrarFalta(codigoAcademia string, anoLectivo string, dat
 		Quantidade:           quantidade,
 		Observacao:           observacao,
 		RegisteredAt:         time.Now(),
+	}
+
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
+func (e *Estudante) RegistrarAprovacaoAno(
+	codigoAcademia string,
+	anoLectivo string,
+	nivelAtual string,
+	avancarAno bool,
+	observacao *string,
+) error {
+	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
+		return fmt.Errorf("estudante não pertence a esta academia")
+	}
+
+	// Determinar tipo (escolar ou superior)
+	tipo := "escolar"
+	if strings.Contains(nivelAtual, "_ano") {
+		tipo = "superior"
+	}
+
+	// Calcular próximo nível
+	var nivelSeguinte *string
+	if avancarAno {
+		proximo := getProximoNivel(nivelAtual, tipo)
+		if proximo != "" {
+			nivelSeguinte = &proximo
+		}
+	}
+
+	event := &AprovacaoAnoRegistradaEvent{
+		BaseEvent:       BaseEvent{EventType: "AprovacaoAnoRegistrada", AggregateID: e.ID},
+		CodigoEstudante: e.CodigoEstudante,
+		CodigoAcademia:  codigoAcademia,
+		AnoLectivo:      anoLectivo,
+		NivelAtual:      nivelAtual,
+		NivelSeguinte:   nivelSeguinte,
+		AvancarAno:      avancarAno,
+		Observacao:      observacao,
+		RegisteredAt:    time.Now(),
 	}
 
 	e.RaiseEvent(event)
@@ -450,6 +495,36 @@ func (e *Estudante) applyFaltasRegistradas(event DomainEvent) error {
 	return nil
 }
 
+func (e *Estudante) applyAprovacaoAnoRegistrada(event DomainEvent) error {
+	payload := event.GetPayload()
+	data, _ := json.Marshal(payload)
+	var ev AprovacaoAnoRegistradaEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+
+	if ev.AvancarAno && ev.NivelSeguinte != nil {
+		// Atualizar ano atual do estudante
+		if strings.Contains(ev.NivelAtual, "medio") || strings.Contains(ev.NivelAtual, "fundamental") {
+			e.AnoEscolar = ev.NivelSeguinte
+			
+			// Se finalizou médio
+			if ev.NivelAtual == "terceiro_medio" {
+				e.StatusEscolar = "finalizado"
+			}
+		} else {
+			e.AnoSuperior = ev.NivelSeguinte
+			
+			// Se finalizou superior
+			if ev.NivelAtual == "sexto_ano" {
+				e.StatusSuperior = "finalizado"
+			}
+		}
+	}
+
+	return nil
+}
+
 func (e *Estudante) applyEstudanteInscrito(event DomainEvent) error {
 	payload := event.GetPayload()
 	data, _ := json.Marshal(payload)
@@ -604,6 +679,36 @@ func (e *Estudante) applyDadosAcademicosAtualizados(event DomainEvent) error {
 	return nil
 }
 
+// Helper function
+func getProximoNivel(nivelAtual, tipo string) string {
+	niveisEscolar := []string{
+		"primeiro_fundamental", "segundo_fundamental", "terceiro_fundamental",
+		"quarto_fundamental", "quinto_fundamental", "sexto_fundamental",
+		"setimo_fundamental", "oitavo_fundamental", "nono_fundamental",
+		"primeiro_medio", "segundo_medio", "terceiro_medio",
+	}
+	
+	niveisSuperior := []string{
+		"primeiro_ano", "segundo_ano", "terceiro_ano",
+		"quarto_ano", "quinto_ano", "sexto_ano",
+	}
+
+	var niveis []string
+	if tipo == "escolar" {
+		niveis = niveisEscolar
+	} else {
+		niveis = niveisSuperior
+	}
+
+	for i, n := range niveis {
+		if n == nivelAtual && i < len(niveis)-1 {
+			return niveis[i+1]
+		}
+	}
+
+	return "" // Último ano
+}
+
 // Eventos
 type EstudanteCriadoEvent struct {
 	BaseEvent
@@ -652,6 +757,20 @@ type FaltasRegistradasEvent struct {
 }
 
 func (e *FaltasRegistradasEvent) GetPayload() interface{} { return e }
+
+type AprovacaoAnoRegistradaEvent struct {
+	BaseEvent
+	CodigoEstudante string
+	CodigoAcademia  string
+	AnoLectivo      string
+	NivelAtual      string
+	NivelSeguinte   *string
+	AvancarAno      bool
+	Observacao      *string
+	RegisteredAt    time.Time
+}
+
+func (e *AprovacaoAnoRegistradaEvent) GetPayload() interface{} { return e }
 
 type EstudanteInscritoEvent struct {
 	BaseEvent
