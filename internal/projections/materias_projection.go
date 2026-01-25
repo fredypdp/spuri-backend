@@ -19,52 +19,41 @@ func NewMateriasProjection(client *db.Client) *MateriasProjection {
 	return &MateriasProjection{client: client}
 }
 
-func (mp *MateriasProjection) Name() string { return "materias" }
+func (p *MateriasProjection) Name() string { return "materias" }
 
-func (mp *MateriasProjection) Handle(event db.Event) error {
-	log.Printf("[DEBUG] MateriasProjection.Handle - AggregateType: %s, EventType: %s", 
-		event.AggregateType, event.EventType)
-	
+func (p *MateriasProjection) Handle(event db.Event) error {
 	if event.AggregateType != "MateriaDisciplinar" {
-		log.Printf("[DEBUG] MateriasProjection.Handle - Evento ignorado, tipo: %s", event.AggregateType)
 		return nil
 	}
 
-	switch event.EventType {
-	case "MateriaCriada":
-		return mp.handleMateriaCriada(event)
-	case "MateriaAtivada":
-		return mp.handleMateriaAtivada(event)
-	case "MateriaDesativada":
-		return mp.handleMateriaDesativada(event)
-	case "MateriaDadosAtualizados":
-		return mp.handleMateriaDadosAtualizados(event)
+	handlers := map[string]func(db.Event) error{
+		"MateriaCriada":           p.handleMateriaCriada,
+		"MateriaAtivada":          p.handleStatusChange("ativo"),
+		"MateriaDesativada":       p.handleStatusChange("inativo"),
+		"MateriaDadosAtualizados": p.handleMateriaDadosAtualizados,
 	}
-	
-	log.Printf("[DEBUG] MateriasProjection.Handle - EventType não tratado: %s", event.EventType)
+
+	if handler, ok := handlers[event.EventType]; ok {
+		log.Printf("[DEBUG] Processando %s para matéria %s", event.EventType, event.AggregateID)
+		return handler(event)
+	}
 	return nil
 }
 
-func (mp *MateriasProjection) Rebuild() error {
-	log.Printf("[DEBUG] MateriasProjection.Rebuild - Iniciando rebuild")
+func (p *MateriasProjection) Rebuild() error {
+	log.Printf("[DEBUG] Rebuild iniciado")
 	
-	if err := mp.clear(); err != nil {
-		log.Printf("[ERROR] MateriasProjection.Rebuild - Erro ao limpar tabela: %v", err)
-		return err
+	if err := p.clear(); err != nil {
+		return fmt.Errorf("falha ao limpar: %w", err)
 	}
 
-	query := `
+	rows, err := p.client.DB().Query(`
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger WHERE aggregate_type = 'MateriaDisciplinar' ORDER BY id ASC
-	`
-	
-	log.Printf("[DEBUG] MateriasProjection.Rebuild - Query: %s", query)
-	
-	rows, err := mp.client.DB().Query(query)
+	`)
 	if err != nil {
-		log.Printf("[ERROR] MateriasProjection.Rebuild - Erro ao buscar eventos: %v", err)
 		return err
 	}
 	defer rows.Close()
@@ -72,253 +61,134 @@ func (mp *MateriasProjection) Rebuild() error {
 	count := 0
 	for rows.Next() {
 		var event db.Event
-		err := rows.Scan(&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
+		if err := rows.Scan(&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
 			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
-			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash)
-		if err != nil {
-			log.Printf("[ERROR] MateriasProjection.Rebuild - Erro ao fazer scan do evento: %v", err)
+			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash); err != nil {
 			return err
 		}
-		if err := mp.Handle(event); err != nil {
-			log.Printf("[ERROR] MateriasProjection.Rebuild - Erro ao processar evento %d: %v", event.ID, err)
-			return fmt.Errorf("erro ao processar evento %d: %w", event.ID, err)
+
+		if err := p.Handle(event); err != nil {
+			return fmt.Errorf("erro no evento %d: %w", event.ID, err)
 		}
 		count++
 	}
-	
-	log.Printf("[DEBUG] MateriasProjection.Rebuild - Rebuild concluído, %d eventos processados", count)
+
+	log.Printf("[DEBUG] Rebuild concluído: %d eventos processados", count)
 	return rows.Err()
 }
 
-func (mp *MateriasProjection) GetLastProcessedEventID() (int64, error) {
-	safeName := db.SafeString(mp.Name())
-	
-	query := fmt.Sprintf(`
-		SELECT last_processed_event_id 
-		FROM projection_checkpoints 
-		WHERE projection_name = '%s'
-	`, safeName)
-	
-	log.Printf("[DEBUG] MateriasProjection.GetLastProcessedEventID - Query: %s", query)
-	
+func (p *MateriasProjection) GetLastProcessedEventID() (int64, error) {
 	var lastID int64
-	err := mp.client.DB().QueryRow(query).Scan(&lastID)
+	query := fmt.Sprintf(`SELECT last_processed_event_id FROM projection_checkpoints WHERE projection_name = '%s'`,
+		db.SafeString(p.Name()))
+	
+	err := p.client.DB().QueryRow(query).Scan(&lastID)
 	if err == sql.ErrNoRows {
-		log.Printf("[DEBUG] MateriasProjection.GetLastProcessedEventID - Nenhum checkpoint encontrado")
 		return 0, nil
 	}
-	
-	if err != nil {
-		log.Printf("[ERROR] MateriasProjection.GetLastProcessedEventID - Erro: %v", err)
-	} else {
-		log.Printf("[DEBUG] MateriasProjection.GetLastProcessedEventID - LastID: %d", lastID)
-	}
-	
 	return lastID, err
 }
 
-func (mp *MateriasProjection) UpdateCheckpoint(eventID int64) error {
-	safeName := db.SafeString(mp.Name())
+func (p *MateriasProjection) UpdateCheckpoint(eventID int64) error {
 	eventID = int64(db.ValidateOffset(int(eventID)))
-	
 	query := fmt.Sprintf(`
 		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
 		VALUES ('%s', %d, CURRENT_TIMESTAMP, 1)
 		ON CONFLICT (projection_name) DO UPDATE SET
 			last_processed_event_id = %d, last_processed_at = CURRENT_TIMESTAMP,
 			events_processed = projection_checkpoints.events_processed + 1
-	`, safeName, eventID, eventID)
+	`, db.SafeString(p.Name()), eventID, eventID)
 	
-	log.Printf("[DEBUG] MateriasProjection.UpdateCheckpoint - Query: %s", query)
-	
-	_, err := mp.client.DB().Exec(query)
-	
-	if err != nil {
-		log.Printf("[ERROR] MateriasProjection.UpdateCheckpoint - Erro: %v", err)
-	} else {
-		log.Printf("[DEBUG] MateriasProjection.UpdateCheckpoint - Checkpoint atualizado para eventID: %d", eventID)
-	}
-	
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
-func (mp *MateriasProjection) clear() error {
-	log.Printf("[DEBUG] MateriasProjection.clear - Limpando tabela projection_materias")
-	_, err := mp.client.DB().Exec(`TRUNCATE TABLE projection_materias CASCADE`)
-	if err != nil {
-		log.Printf("[ERROR] MateriasProjection.clear - Erro: %v", err)
-	}
+func (p *MateriasProjection) clear() error {
+	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_materias CASCADE`)
 	return err
 }
 
-func (mp *MateriasProjection) handleMateriaCriada(event db.Event) error {
-	log.Printf("[DEBUG] MateriasProjection.handleMateriaCriada - EventID: %s", event.EventID)
-	
+func (p *MateriasProjection) handleMateriaCriada(event db.Event) error {
 	var payload struct {
-		Nome           string     `json:"Nome"`
-		Type           string     `json:"Type"`
-		Nivel          []string   `json:"Nivel"`
-		CodigoAcademia string     `json:"CodigoAcademia"`
-		CursoID        *uuid.UUID `json:"CursoID"`
-		CreatedAt      time.Time  `json:"CreatedAt"`
+		Nome, Type, CodigoAcademia string
+		Nivel                       []string
+		CursoID                     *uuid.UUID
+		CreatedAt                   time.Time
 	}
 
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		log.Printf("[ERROR] MateriasProjection.handleMateriaCriada - Erro ao parsear payload: %v", err)
 		return err
 	}
 
-	log.Printf("[DEBUG] MateriasProjection.handleMateriaCriada - Payload: Nome=%s, Type=%s", 
-		payload.Nome, payload.Type)
-
-	aggID := event.AggregateID
-	if aggID == uuid.Nil {
-		log.Printf("[ERROR] MateriasProjection.handleMateriaCriada - UUID inválido")
+	if event.AggregateID == uuid.Nil {
 		return fmt.Errorf("UUID inválido")
 	}
 
-	safeNome := db.SafeString(payload.Nome)
-	safeType := db.SafeString(payload.Type)
-	safeCodigo := db.SafeString(payload.CodigoAcademia)
-
-	var nivelStr, cursoStr string
-	if len(payload.Nivel) > 0 {
-		nivelJSON, _ := json.Marshal(payload.Nivel)
-		nivelStr = fmt.Sprintf("'%s'", db.SafeString(string(nivelJSON)))
-	} else {
-		nivelStr = "NULL"
-	}
-
-	if payload.CursoID != nil {
-		cursoStr = fmt.Sprintf("'%s'", *payload.CursoID)
-	} else {
-		cursoStr = "NULL"
-	}
+	nivelJSON, _ := json.Marshal(payload.Nivel)
 
 	query := fmt.Sprintf(`
 		INSERT INTO projection_materias (id, nome, type, nivel, codigo_academia, curso_id, status, created_at, updated_at, version, last_event_id)
 		VALUES ('%s', '%s', '%s', %s, '%s', %s, 'ativo', '%s', CURRENT_TIMESTAMP, %d, '%s')
-	`, aggID, safeNome, safeType, nivelStr, safeCodigo, cursoStr,
-		payload.CreatedAt.Format(time.RFC3339), event.EventVersion, event.EventID)
+	`, event.AggregateID, db.SafeString(payload.Nome), db.SafeString(payload.Type),
+		nullOrString2(nivelJSON), db.SafeString(payload.CodigoAcademia),
+		nullOrUUID(payload.CursoID), payload.CreatedAt.Format(time.RFC3339),
+		event.EventVersion, event.EventID)
 
-	log.Printf("[DEBUG] MateriasProjection.handleMateriaCriada - Insert query: %s", query)
-
-	_, err := mp.client.DB().Exec(query)
-	
-	if err != nil {
-		log.Printf("[ERROR] MateriasProjection.handleMateriaCriada - Erro ao inserir: %v", err)
-	} else {
-		log.Printf("[DEBUG] MateriasProjection.handleMateriaCriada - Matéria criada com sucesso")
-	}
-	
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
-func (mp *MateriasProjection) handleMateriaAtivada(event db.Event) error {
-	log.Printf("[DEBUG] MateriasProjection.handleMateriaAtivada - EventID: %s", event.EventID)
-	
-	aggID := event.AggregateID
-	if aggID == uuid.Nil {
-		log.Printf("[ERROR] MateriasProjection.handleMateriaAtivada - UUID inválido")
-		return fmt.Errorf("UUID inválido")
-	}
+func (p *MateriasProjection) handleStatusChange(status string) func(db.Event) error {
+	return func(event db.Event) error {
+		if event.AggregateID == uuid.Nil {
+			return fmt.Errorf("UUID inválido")
+		}
 
-	query := fmt.Sprintf(`
-		UPDATE projection_materias SET status = 'ativo', version = %d, updated_at = CURRENT_TIMESTAMP WHERE id = '%s'
-	`, event.EventVersion, aggID)
-	
-	log.Printf("[DEBUG] MateriasProjection.handleMateriaAtivada - Query: %s", query)
-	
-	_, err := mp.client.DB().Exec(query)
-	
-	if err != nil {
-		log.Printf("[ERROR] MateriasProjection.handleMateriaAtivada - Erro: %v", err)
-	} else {
-		log.Printf("[DEBUG] MateriasProjection.handleMateriaAtivada - Matéria ativada com sucesso")
+		query := fmt.Sprintf(`
+			UPDATE projection_materias
+			SET status = '%s', version = %d, updated_at = CURRENT_TIMESTAMP
+			WHERE id = '%s'
+		`, status, event.EventVersion, event.AggregateID)
+		
+		_, err := p.client.DB().Exec(query)
+		return err
 	}
-	
-	return err
 }
 
-func (mp *MateriasProjection) handleMateriaDesativada(event db.Event) error {
-	log.Printf("[DEBUG] MateriasProjection.handleMateriaDesativada - EventID: %s", event.EventID)
-	
-	aggID := event.AggregateID
-	if aggID == uuid.Nil {
-		log.Printf("[ERROR] MateriasProjection.handleMateriaDesativada - UUID inválido")
-		return fmt.Errorf("UUID inválido")
-	}
-
-	query := fmt.Sprintf(`
-		UPDATE projection_materias SET status = 'inativo', version = %d, updated_at = CURRENT_TIMESTAMP WHERE id = '%s'
-	`, event.EventVersion, aggID)
-	
-	log.Printf("[DEBUG] MateriasProjection.handleMateriaDesativada - Query: %s", query)
-	
-	_, err := mp.client.DB().Exec(query)
-	
-	if err != nil {
-		log.Printf("[ERROR] MateriasProjection.handleMateriaDesativada - Erro: %v", err)
-	} else {
-		log.Printf("[DEBUG] MateriasProjection.handleMateriaDesativada - Matéria desativada com sucesso")
-	}
-	
-	return err
-}
-
-func (mp *MateriasProjection) handleMateriaDadosAtualizados(event db.Event) error {
-	log.Printf("[DEBUG] MateriasProjection.handleMateriaDadosAtualizados - EventID: %s", event.EventID)
-	
+func (p *MateriasProjection) handleMateriaDadosAtualizados(event db.Event) error {
 	var payload struct {
-		Nome *string `json:"Nome"`
-		Type *string `json:"Type"`
+		Nome, Type *string
 	}
 
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		log.Printf("[ERROR] MateriasProjection.handleMateriaDadosAtualizados - Erro ao parsear payload: %v", err)
 		return err
 	}
 
-	aggID := event.AggregateID
-	if aggID == uuid.Nil {
-		log.Printf("[ERROR] MateriasProjection.handleMateriaDadosAtualizados - UUID inválido")
-		return fmt.Errorf("UUID inválido")
+	updates := map[string]*string{
+		"nome": payload.Nome,
+		"type": payload.Type,
 	}
 
-	if payload.Nome != nil {
-		safe := db.SafeString(*payload.Nome)
-		query := fmt.Sprintf(`UPDATE projection_materias SET nome = '%s' WHERE id = '%s'`, safe, aggID)
-		log.Printf("[DEBUG] MateriasProjection.handleMateriaDadosAtualizados - Update nome: %s", query)
-		mp.client.DB().Exec(query)
-	}
-	
-	if payload.Type != nil {
-		safe := db.SafeString(*payload.Type)
-		query := fmt.Sprintf(`UPDATE projection_materias SET type = '%s' WHERE id = '%s'`, safe, aggID)
-		log.Printf("[DEBUG] MateriasProjection.handleMateriaDadosAtualizados - Update type: %s", query)
-		mp.client.DB().Exec(query)
+	for field, value := range updates {
+		if value != nil {
+			query := fmt.Sprintf(`UPDATE projection_materias SET %s = '%s' WHERE id = '%s'`,
+				field, db.SafeString(*value), event.AggregateID)
+			p.client.DB().Exec(query)
+		}
 	}
 
-	updateQuery := fmt.Sprintf(`
-		UPDATE projection_materias SET version = %d, updated_at = CURRENT_TIMESTAMP, last_event_id = '%s' WHERE id = '%s'
-	`, event.EventVersion, event.EventID, aggID)
+	query := fmt.Sprintf(`
+		UPDATE projection_materias
+		SET version = %d, updated_at = CURRENT_TIMESTAMP, last_event_id = '%s'
+		WHERE id = '%s'
+	`, event.EventVersion, event.EventID, event.AggregateID)
 	
-	log.Printf("[DEBUG] MateriasProjection.handleMateriaDadosAtualizados - Final update: %s", updateQuery)
-	
-	_, err := mp.client.DB().Exec(updateQuery)
-	
-	if err != nil {
-		log.Printf("[ERROR] MateriasProjection.handleMateriaDadosAtualizados - Erro: %v", err)
-	} else {
-		log.Printf("[DEBUG] MateriasProjection.handleMateriaDadosAtualizados - Dados atualizados com sucesso")
-	}
-	
+	_, err := p.client.DB().Exec(query)
 	return err
 }
 
-func (mp *MateriasProjection) GetByID(id uuid.UUID) (*MateriaDTO, error) {
+func (p *MateriasProjection) GetByID(id uuid.UUID) (*MateriaDTO, error) {
 	if id == uuid.Nil {
-		log.Printf("[ERROR] MateriasProjection.GetByID - UUID inválido")
 		return nil, fmt.Errorf("UUID inválido")
 	}
 
@@ -327,22 +197,18 @@ func (mp *MateriasProjection) GetByID(id uuid.UUID) (*MateriaDTO, error) {
 		FROM projection_materias WHERE id = '%s'
 	`, id)
 	
-	log.Printf("[DEBUG] MateriasProjection.GetByID - Query: %s", query)
-	
 	var dto MateriaDTO
 	var nivelJSON sql.NullString
 	var cursoID sql.NullString
 
-	err := mp.client.DB().QueryRow(query).Scan(
+	err := p.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.Nome, &dto.Type, &nivelJSON, &dto.CodigoAcademia, 
 		&cursoID, &dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version)
 	
 	if err == sql.ErrNoRows {
-		log.Printf("[DEBUG] MateriasProjection.GetByID - Matéria não encontrada")
 		return nil, nil
 	}
 	if err != nil {
-		log.Printf("[ERROR] MateriasProjection.GetByID - Erro: %v", err)
 		return nil, err
 	}
 
@@ -355,23 +221,17 @@ func (mp *MateriasProjection) GetByID(id uuid.UUID) (*MateriaDTO, error) {
 		dto.CursoID = &cid
 	}
 
-	log.Printf("[DEBUG] MateriasProjection.GetByID - Matéria encontrada: %s", dto.Nome)
 	return &dto, nil
 }
 
-func (mp *MateriasProjection) GetByAcademia(codigoAcademia string) ([]MateriaDTO, error) {
-	safeCodigo := db.SafeString(codigoAcademia)
-
+func (p *MateriasProjection) GetByAcademia(codigoAcademia string) ([]MateriaDTO, error) {
 	query := fmt.Sprintf(`
 		SELECT id, nome, type, nivel, codigo_academia, curso_id, status, created_at, updated_at, version
 		FROM projection_materias WHERE codigo_academia = '%s' ORDER BY created_at DESC
-	`, safeCodigo)
+	`, db.SafeString(codigoAcademia))
 	
-	log.Printf("[DEBUG] MateriasProjection.GetByAcademia - Query: %s", query)
-	
-	rows, err := mp.client.DB().Query(query)
+	rows, err := p.client.DB().Query(query)
 	if err != nil {
-		log.Printf("[ERROR] MateriasProjection.GetByAcademia - Erro: %v", err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -382,10 +242,8 @@ func (mp *MateriasProjection) GetByAcademia(codigoAcademia string) ([]MateriaDTO
 		var nivelJSON sql.NullString
 		var cursoID sql.NullString
 
-		err := rows.Scan(&dto.ID, &dto.Nome, &dto.Type, &nivelJSON, &dto.CodigoAcademia,
-			&cursoID, &dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version)
-		if err != nil {
-			log.Printf("[ERROR] MateriasProjection.GetByAcademia - Erro ao fazer scan: %v", err)
+		if err := rows.Scan(&dto.ID, &dto.Nome, &dto.Type, &nivelJSON, &dto.CodigoAcademia,
+			&cursoID, &dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version); err != nil {
 			continue
 		}
 
@@ -401,19 +259,26 @@ func (mp *MateriasProjection) GetByAcademia(codigoAcademia string) ([]MateriaDTO
 		materias = append(materias, dto)
 	}
 
-	log.Printf("[DEBUG] MateriasProjection.GetByAcademia - %d matérias encontradas", len(materias))
+	log.Printf("[DEBUG] %d matérias encontradas", len(materias))
 	return materias, rows.Err()
 }
 
+func nullOrString2(data []byte) string {
+	if len(data) == 0 || string(data) == "null" {
+		return "NULL"
+	}
+	return fmt.Sprintf("'%s'", db.SafeString(string(data)))
+}
+
 type MateriaDTO struct {
-	ID             uuid.UUID  `json:"id" db:"id"`
-	Nome           string     `json:"nome" db:"nome"`
-	Type           string     `json:"type" db:"type"`
-	Nivel          []string   `json:"nivel,omitempty" db:"nivel"`
-	CodigoAcademia string     `json:"codigo_academia" db:"codigo_academia"`
-	CursoID        *uuid.UUID `json:"curso_id,omitempty" db:"curso_id"`
-	Status         string     `json:"status" db:"status"`
-	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at" db:"updated_at"`
-	Version        int        `json:"version" db:"version"`
+	ID             uuid.UUID  `json:"id"`
+	Nome           string     `json:"nome"`
+	Type           string     `json:"type"`
+	Nivel          []string   `json:"nivel,omitempty"`
+	CodigoAcademia string     `json:"codigo_academia"`
+	CursoID        *uuid.UUID `json:"curso_id,omitempty"`
+	Status         string     `json:"status"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	Version        int        `json:"version"`
 }

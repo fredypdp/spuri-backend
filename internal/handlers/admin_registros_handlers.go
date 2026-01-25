@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -10,45 +9,28 @@ import (
 
 // ListarTodosRegistros lista TODOS os registros de notas e faltas (apenas admin)
 func ListarTodosRegistros(c *gin.Context) {
-	log.Printf("[DEBUG] ListarTodosRegistros: Início")
-	
 	client := getDbClient(c)
 
 	limit := 100
 	offset := 0
 
 	if limitParam := c.Query("limit"); limitParam != "" {
-		_, _ = fmt.Sscanf(limitParam, "%d", &limit)
+		fmt.Sscanf(limitParam, "%d", &limit)
 	}
 	if offsetParam := c.Query("offset"); offsetParam != "" {
-		_, _ = fmt.Sscanf(offsetParam, "%d", &offset)
+		fmt.Sscanf(offsetParam, "%d", &offset)
 	}
 
 	tipoFiltro := c.Query("tipo")
-	log.Printf("[DEBUG] ListarTodosRegistros: Limit: %d, Offset: %d, Tipo: %s", limit, offset, tipoFiltro)
-	
 	response := gin.H{}
 
-	// ========================================
 	// BUSCAR NOTAS
-	// ========================================
 	if tipoFiltro == "" || tipoFiltro == "notas" {
-		log.Printf("[DEBUG] ListarTodosRegistros: Buscando notas")
-		
 		queryNotas := fmt.Sprintf(`
 			SELECT 
-				n.id,
-				n.estudante_id,
-				e.codigo_estudante,
-				e.nome as estudante_nome,
-				n.codigo_academia,
-				a.nome as academia_nome,
-				n.ano_lectivo,
-				n.periodo,
-				n.materias,
-				n.registered_at,
-				n.event_id,
-				n.version
+				n.id, n.estudante_id, e.codigo_estudante, e.nome as estudante_nome,
+				n.codigo_academia, a.nome as academia_nome, n.ano_lectivo, n.periodo,
+				n.materias, n.registered_at, n.event_id, n.version
 			FROM projection_notas n
 			LEFT JOIN projection_estudantes e ON n.estudante_id = e.id
 			LEFT JOIN projection_academias a ON n.codigo_academia = a.codigo_academia
@@ -73,66 +55,36 @@ func ListarTodosRegistros(c *gin.Context) {
 
 		rows, err := client.DB().Query(queryNotas)
 		if err != nil {
-			log.Printf("[ERROR] ListarTodosRegistros: Erro ao buscar notas: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "erro ao buscar notas",
-				"details": err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar notas"})
 			return
 		}
 		defer rows.Close()
 
 		var notas []NotaCompleta
-		count := 0
 		for rows.Next() {
 			var nota NotaCompleta
-			err := rows.Scan(
-				&nota.ID, &nota.EstudanteID, &nota.CodigoEstudante, &nota.EstudanteNome,
+			if err := rows.Scan(&nota.ID, &nota.EstudanteID, &nota.CodigoEstudante, &nota.EstudanteNome,
 				&nota.CodigoAcademia, &nota.AcademiaNome, &nota.AnoLectivo, &nota.Periodo,
-				&nota.Materias, &nota.RegisteredAt, &nota.EventID, &nota.Version,
-			)
-			if err != nil {
-				log.Printf("[ERROR] ListarTodosRegistros: Erro ao fazer scan de nota: %v", err)
-				continue
+				&nota.Materias, &nota.RegisteredAt, &nota.EventID, &nota.Version); err == nil {
+				notas = append(notas, nota)
 			}
-			notas = append(notas, nota)
-			count++
 		}
 
-		log.Printf("[DEBUG] ListarTodosRegistros: %d notas encontradas", count)
-
-		// Contar total de notas
 		var totalNotas int
-		countQueryNotas := `SELECT COUNT(*) FROM projection_notas`
-		client.DB().QueryRow(countQueryNotas).Scan(&totalNotas)
-
-		log.Printf("[DEBUG] ListarTodosRegistros: Total geral de notas: %d", totalNotas)
+		client.DB().QueryRow(`SELECT COUNT(*) FROM projection_notas`).Scan(&totalNotas)
 
 		response["notas"] = notas
 		response["total_notas"] = len(notas)
 		response["total_notas_geral"] = totalNotas
 	}
 
-	// ========================================
 	// BUSCAR FALTAS
-	// ========================================
 	if tipoFiltro == "" || tipoFiltro == "faltas" {
-		log.Printf("[DEBUG] ListarTodosRegistros: Buscando faltas")
-		
 		queryFaltas := fmt.Sprintf(`
 			SELECT 
-				f.id,
-				f.estudante_id,
-				e.codigo_estudante,
-				e.nome as estudante_nome,
-				f.codigo_academia,
-				a.nome as academia_nome,
-				f.ano_lectivo,
-				f.periodo,
-				f.materias,
-				f.registered_at,
-				f.event_id,
-				f.version
+				f.id, f.estudante_id, e.codigo_estudante, e.nome as estudante_nome,
+				f.codigo_academia, a.nome as academia_nome, f.ano_lectivo, f.periodo,
+				f.materias, f.registered_at, f.event_id, f.version
 			FROM projection_faltas f
 			LEFT JOIN projection_estudantes e ON f.estudante_id = e.id
 			LEFT JOIN projection_academias a ON f.codigo_academia = a.codigo_academia
@@ -157,51 +109,30 @@ func ListarTodosRegistros(c *gin.Context) {
 
 		rows, err := client.DB().Query(queryFaltas)
 		if err != nil {
-			log.Printf("[ERROR] ListarTodosRegistros: Erro ao buscar faltas: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "erro ao buscar faltas",
-				"details": err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar faltas"})
 			return
 		}
 		defer rows.Close()
 
 		var faltas []FaltaCompleta
-		count := 0
 		for rows.Next() {
 			var falta FaltaCompleta
-			err := rows.Scan(
-				&falta.ID, &falta.EstudanteID, &falta.CodigoEstudante, &falta.EstudanteNome,
+			if err := rows.Scan(&falta.ID, &falta.EstudanteID, &falta.CodigoEstudante, &falta.EstudanteNome,
 				&falta.CodigoAcademia, &falta.AcademiaNome, &falta.AnoLectivo, &falta.Periodo,
-				&falta.Materias, &falta.RegisteredAt, &falta.EventID, &falta.Version,
-			)
-			if err != nil {
-				log.Printf("[ERROR] ListarTodosRegistros: Erro ao fazer scan de falta: %v", err)
-				continue
+				&falta.Materias, &falta.RegisteredAt, &falta.EventID, &falta.Version); err == nil {
+				faltas = append(faltas, falta)
 			}
-			faltas = append(faltas, falta)
-			count++
 		}
 
-		log.Printf("[DEBUG] ListarTodosRegistros: %d faltas encontradas", count)
-
-		// Contar total de faltas
 		var totalFaltas int
-		countQueryFaltas := `SELECT COUNT(*) FROM projection_faltas`
-		client.DB().QueryRow(countQueryFaltas).Scan(&totalFaltas)
-
-		log.Printf("[DEBUG] ListarTodosRegistros: Total geral de faltas: %d", totalFaltas)
+		client.DB().QueryRow(`SELECT COUNT(*) FROM projection_faltas`).Scan(&totalFaltas)
 
 		response["faltas"] = faltas
 		response["total_faltas"] = len(faltas)
 		response["total_faltas_geral"] = totalFaltas
 	}
 
-	// ========================================
 	// ESTATÍSTICAS GERAIS
-	// ========================================
-	log.Printf("[DEBUG] ListarTodosRegistros: Buscando estatísticas gerais")
-	
 	var stats struct {
 		TotalEstudantes int
 		TotalAcademias  int
@@ -224,9 +155,6 @@ func ListarTodosRegistros(c *gin.Context) {
 		&stats.TotalFaltas,
 	)
 
-	log.Printf("[DEBUG] ListarTodosRegistros: Estatísticas - Estudantes: %d, Academias: %d, Notas: %d, Faltas: %d",
-		stats.TotalEstudantes, stats.TotalAcademias, stats.TotalNotas, stats.TotalFaltas)
-
 	response["estatisticas"] = stats
 	response["limit"] = limit
 	response["offset"] = offset
@@ -238,30 +166,20 @@ func ListarTodosRegistros(c *gin.Context) {
 // ListarRegistrosPorEstudante lista todos os registros de um estudante específico (admin)
 func ListarRegistrosPorEstudante(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
-	log.Printf("[DEBUG] ListarRegistrosPorEstudante: Código: %s", codigoEstudante)
-	
 	client := getDbClient(c)
 
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
-		log.Printf("[ERROR] ListarRegistrosPorEstudante: Estudante não encontrado: %v", err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
 		return
 	}
 
-	log.Printf("[DEBUG] ListarRegistrosPorEstudante: Estudante encontrado - ID: %s, Nome: %s", estudante.ID, estudante.Nome)
-
-	// Buscar todas as notas
+	// Buscar notas
 	queryNotas := fmt.Sprintf(`
 		SELECT 
-			n.id,
-			n.codigo_academia,
-			a.nome as academia_nome,
-			n.ano_lectivo,
-			n.periodo,
-			n.materias,
-			n.registered_at
+			n.id, n.codigo_academia, a.nome as academia_nome,
+			n.ano_lectivo, n.periodo, n.materias, n.registered_at
 		FROM projection_notas n
 		LEFT JOIN projection_academias a ON n.codigo_academia = a.codigo_academia
 		WHERE n.estudante_id = '%s'
@@ -280,40 +198,25 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 
 	rowsNotas, err := client.DB().Query(queryNotas)
 	if err != nil {
-		log.Printf("[ERROR] ListarRegistrosPorEstudante: Erro ao buscar notas: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar notas"})
 		return
 	}
 	defer rowsNotas.Close()
 
 	var notas []NotaSimples
-	countNotas := 0
 	for rowsNotas.Next() {
 		var nota NotaSimples
-		err := rowsNotas.Scan(
-			&nota.ID, &nota.CodigoAcademia, &nota.AcademiaNome,
-			&nota.AnoLectivo, &nota.Periodo, &nota.Materias, &nota.RegisteredAt,
-		)
-		if err != nil {
-			log.Printf("[ERROR] ListarRegistrosPorEstudante: Erro ao fazer scan de nota: %v", err)
-			continue
+		if err := rowsNotas.Scan(&nota.ID, &nota.CodigoAcademia, &nota.AcademiaNome,
+			&nota.AnoLectivo, &nota.Periodo, &nota.Materias, &nota.RegisteredAt); err == nil {
+			notas = append(notas, nota)
 		}
-		notas = append(notas, nota)
-		countNotas++
 	}
 
-	log.Printf("[DEBUG] ListarRegistrosPorEstudante: %d notas encontradas", countNotas)
-
-	// Buscar todas as faltas
+	// Buscar faltas
 	queryFaltas := fmt.Sprintf(`
 		SELECT 
-			f.id,
-			f.codigo_academia,
-			a.nome as academia_nome,
-			f.ano_lectivo,
-			f.periodo,
-			f.materias,
-			f.registered_at
+			f.id, f.codigo_academia, a.nome as academia_nome,
+			f.ano_lectivo, f.periodo, f.materias, f.registered_at
 		FROM projection_faltas f
 		LEFT JOIN projection_academias a ON f.codigo_academia = a.codigo_academia
 		WHERE f.estudante_id = '%s'
@@ -332,29 +235,19 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 
 	rowsFaltas, err := client.DB().Query(queryFaltas)
 	if err != nil {
-		log.Printf("[ERROR] ListarRegistrosPorEstudante: Erro ao buscar faltas: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar faltas"})
 		return
 	}
 	defer rowsFaltas.Close()
 
 	var faltas []FaltaSimples
-	countFaltas := 0
 	for rowsFaltas.Next() {
 		var falta FaltaSimples
-		err := rowsFaltas.Scan(
-			&falta.ID, &falta.CodigoAcademia, &falta.AcademiaNome,
-			&falta.AnoLectivo, &falta.Periodo, &falta.Materias, &falta.RegisteredAt,
-		)
-		if err != nil {
-			log.Printf("[ERROR] ListarRegistrosPorEstudante: Erro ao fazer scan de falta: %v", err)
-			continue
+		if err := rowsFaltas.Scan(&falta.ID, &falta.CodigoAcademia, &falta.AcademiaNome,
+			&falta.AnoLectivo, &falta.Periodo, &falta.Materias, &falta.RegisteredAt); err == nil {
+			faltas = append(faltas, falta)
 		}
-		faltas = append(faltas, falta)
-		countFaltas++
 	}
-
-	log.Printf("[DEBUG] ListarRegistrosPorEstudante: %d faltas encontradas", countFaltas)
 
 	c.JSON(http.StatusOK, gin.H{
 		"estudante": gin.H{
@@ -372,31 +265,20 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 // ListarRegistrosPorAcademia lista todos os registros de uma academia (admin)
 func ListarRegistrosPorAcademia(c *gin.Context) {
 	codigoAcademia := c.Param("codigo")
-	log.Printf("[DEBUG] ListarRegistrosPorAcademia: Código: %s", codigoAcademia)
-	
 	client := getDbClient(c)
 
 	academiaProj := getAcademiaProjection(c)
 	academia, err := academiaProj.GetByCodigo(codigoAcademia)
 	if err != nil || academia == nil {
-		log.Printf("[ERROR] ListarRegistrosPorAcademia: Academia não encontrada: %v", err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
 		return
 	}
 
-	log.Printf("[DEBUG] ListarRegistrosPorAcademia: Academia encontrada - ID: %s, Nome: %s", academia.ID, academia.Nome)
-
-	// Buscar todas as notas desta academia
+	// Buscar notas
 	queryNotas := fmt.Sprintf(`
 		SELECT 
-			n.id,
-			n.estudante_id,
-			e.codigo_estudante,
-			e.nome as estudante_nome,
-			n.ano_lectivo,
-			n.periodo,
-			n.materias,
-			n.registered_at
+			n.id, n.estudante_id, e.codigo_estudante, e.nome as estudante_nome,
+			n.ano_lectivo, n.periodo, n.materias, n.registered_at
 		FROM projection_notas n
 		LEFT JOIN projection_estudantes e ON n.estudante_id = e.id
 		WHERE n.codigo_academia = '%s'
@@ -416,41 +298,25 @@ func ListarRegistrosPorAcademia(c *gin.Context) {
 
 	rowsNotas, err := client.DB().Query(queryNotas)
 	if err != nil {
-		log.Printf("[ERROR] ListarRegistrosPorAcademia: Erro ao buscar notas: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar notas"})
 		return
 	}
 	defer rowsNotas.Close()
 
 	var notas []NotaPorAcademia
-	countNotas := 0
 	for rowsNotas.Next() {
 		var nota NotaPorAcademia
-		err := rowsNotas.Scan(
-			&nota.ID, &nota.EstudanteID, &nota.CodigoEstudante, &nota.EstudanteNome,
-			&nota.AnoLectivo, &nota.Periodo, &nota.Materias, &nota.RegisteredAt,
-		)
-		if err != nil {
-			log.Printf("[ERROR] ListarRegistrosPorAcademia: Erro ao fazer scan de nota: %v", err)
-			continue
+		if err := rowsNotas.Scan(&nota.ID, &nota.EstudanteID, &nota.CodigoEstudante, &nota.EstudanteNome,
+			&nota.AnoLectivo, &nota.Periodo, &nota.Materias, &nota.RegisteredAt); err == nil {
+			notas = append(notas, nota)
 		}
-		notas = append(notas, nota)
-		countNotas++
 	}
 
-	log.Printf("[DEBUG] ListarRegistrosPorAcademia: %d notas encontradas", countNotas)
-
-	// Buscar todas as faltas desta academia
+	// Buscar faltas
 	queryFaltas := fmt.Sprintf(`
 		SELECT 
-			f.id,
-			f.estudante_id,
-			e.codigo_estudante,
-			e.nome as estudante_nome,
-			f.ano_lectivo,
-			f.periodo,
-			f.materias,
-			f.registered_at
+			f.id, f.estudante_id, e.codigo_estudante, e.nome as estudante_nome,
+			f.ano_lectivo, f.periodo, f.materias, f.registered_at
 		FROM projection_faltas f
 		LEFT JOIN projection_estudantes e ON f.estudante_id = e.id
 		WHERE f.codigo_academia = '%s'
@@ -470,29 +336,19 @@ func ListarRegistrosPorAcademia(c *gin.Context) {
 
 	rowsFaltas, err := client.DB().Query(queryFaltas)
 	if err != nil {
-		log.Printf("[ERROR] ListarRegistrosPorAcademia: Erro ao buscar faltas: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar faltas"})
 		return
 	}
 	defer rowsFaltas.Close()
 
 	var faltas []FaltaPorAcademia
-	countFaltas := 0
 	for rowsFaltas.Next() {
 		var falta FaltaPorAcademia
-		err := rowsFaltas.Scan(
-			&falta.ID, &falta.EstudanteID, &falta.CodigoEstudante, &falta.EstudanteNome,
-			&falta.AnoLectivo, &falta.Periodo, &falta.Materias, &falta.RegisteredAt,
-		)
-		if err != nil {
-			log.Printf("[ERROR] ListarRegistrosPorAcademia: Erro ao fazer scan de falta: %v", err)
-			continue
+		if err := rowsFaltas.Scan(&falta.ID, &falta.EstudanteID, &falta.CodigoEstudante, &falta.EstudanteNome,
+			&falta.AnoLectivo, &falta.Periodo, &falta.Materias, &falta.RegisteredAt); err == nil {
+			faltas = append(faltas, falta)
 		}
-		faltas = append(faltas, falta)
-		countFaltas++
 	}
-
-	log.Printf("[DEBUG] ListarRegistrosPorAcademia: %d faltas encontradas", countFaltas)
 
 	c.JSON(http.StatusOK, gin.H{
 		"academia": gin.H{
