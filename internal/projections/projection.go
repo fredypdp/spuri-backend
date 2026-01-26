@@ -76,3 +76,10 @@ func nullOrUUID(u *uuid.UUID) string {
 	}
 	return fmt.Sprintf("'%s'", *u)
 }
+
+func nullOrString(s *string) string {
+	if s == nil {
+		return "NULL"
+	}
+	return fmt.Sprintf("'%s'", db.SafeString(*s))
+}

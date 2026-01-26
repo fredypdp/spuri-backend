@@ -174,13 +174,6 @@ func (p *AprovacaoAnoProjection) queryAprovacoes(whereClause string) ([]Aprovaca
 	return result, rows.Err()
 }
 
-func nullOrString(s *string) string {
-	if s == nil {
-		return "NULL"
-	}
-	return fmt.Sprintf("'%s'", db.SafeString(*s))
-}
-
 type AprovacaoDTO struct {
 	ID              uuid.UUID `json:"id"`
 	CodigoEstudante string    `json:"codigo_estudante"`
