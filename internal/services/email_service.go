@@ -46,16 +46,12 @@ func NewEmailService(db *sqlx.DB) *EmailService {
 	// Configurações SSL/TLS otimizadas
 	d.SSL = smtpPort == 465
 	
-	// Testar conexão na inicialização
-	s := gomail.NewDialer(smtpHost, smtpPort, smtpUser, smtpPass)
-	s.SSL = d.SSL
-	
-	testConn, closeFunc, err := s.Dial()
+	// Testar conexão na inicialização - CORRIGIDO
+	testConn, err := d.Dial()
 	if err != nil {
 		log.Printf("[EMAIL] ❌ Erro ao conectar SMTP: %v", err)
 		enabled = false
 	} else {
-		closeFunc()
 		testConn.Close()
 		log.Printf("[EMAIL] ✅ Conectado: %s:%d (SSL: %v)", smtpHost, smtpPort, d.SSL)
 	}
@@ -308,7 +304,7 @@ func (s *EmailService) buildVerificationEmailHTML(nome, verifyURL string) string
 		</div>
 		
 		<div style="text-align: center; margin-top: 20px; color: #9ca3af; font-size: 12px;">
-			<p>© 2026 Spuri - Sistema de Gestão Acadêmica</p>
+			<p>© 2026 Spuri - Sistema de Gestão Académica</p>
 		</div>
 	</div>
 </body>
@@ -372,7 +368,7 @@ func (s *EmailService) buildPasswordResetEmailHTML(nome, resetURL string) string
 		</div>
 		
 		<div style="text-align: center; margin-top: 20px; color: #9ca3af; font-size: 12px;">
-			<p>© 2026 Spuri - Sistema de Gestão Acadêmica</p>
+			<p>© 2026 Spuri - Sistema de Gestão Académica</p>
 		</div>
 	</div>
 </body>
