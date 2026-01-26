@@ -2,61 +2,71 @@ package services
 
 import (
 	"crypto/rand"
-	"crypto/tls"
 	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"log"
-	"net"
-	"net/smtp"
 	"os"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"gopkg.in/gomail.v2"
 )
 
 type EmailService struct {
-	db         *sqlx.DB
-	smtpHost   string
-	smtpPort   string
-	smtpUser   string
-	smtpPass   string
-	fromEmail  string
-	fromName   string
-	baseURL    string
+	db          *sqlx.DB
+	dialer      *gomail.Dialer
+	fromEmail   string
+	fromName    string
 	frontendURL string
-	enabled    bool
-	useSSL     bool
+	enabled     bool
 }
 
 func NewEmailService(db *sqlx.DB) *EmailService {
 	smtpHost := os.Getenv("SMTP_HOST")
+	smtpPort := getEnvInt("SMTP_PORT", 587)
 	smtpUser := os.Getenv("SMTP_USER")
 	smtpPass := os.Getenv("SMTP_PASSWORD")
-	smtpPort := getEnvOrDefault("SMTP_PORT", "587")
-	useSSL := smtpPort == "465"
-	
+
 	enabled := smtpHost != "" && smtpUser != "" && smtpPass != ""
-	
+
 	if !enabled {
-		log.Println("[EMAIL] Serviço DESABILITADO - variáveis SMTP não configuradas")
+		log.Println("[EMAIL] ⚠️  Serviço DESABILITADO - configure SMTP_HOST, SMTP_USER, SMTP_PASSWORD")
+		return &EmailService{
+			db:          db,
+			enabled:     false,
+			frontendURL: getEnvOrDefault("FRONTEND_URL", "http://localhost:3000"),
+		}
+	}
+
+	// Criar dialer com configurações otimizadas para Gmail
+	d := gomail.NewDialer(smtpHost, smtpPort, smtpUser, smtpPass)
+	
+	// Configurações SSL/TLS otimizadas
+	d.SSL = smtpPort == 465
+	
+	// Testar conexão na inicialização
+	s := gomail.NewDialer(smtpHost, smtpPort, smtpUser, smtpPass)
+	s.SSL = d.SSL
+	
+	testConn, closeFunc, err := s.Dial()
+	if err != nil {
+		log.Printf("[EMAIL] ❌ Erro ao conectar SMTP: %v", err)
+		enabled = false
 	} else {
-		log.Printf("[EMAIL] Serviço HABILITADO (Host: %s:%s, SSL: %v)", smtpHost, smtpPort, useSSL)
+		closeFunc()
+		testConn.Close()
+		log.Printf("[EMAIL] ✅ Conectado: %s:%d (SSL: %v)", smtpHost, smtpPort, d.SSL)
 	}
 
 	return &EmailService{
 		db:          db,
-		smtpHost:    smtpHost,
-		smtpPort:    smtpPort,
-		smtpUser:    smtpUser,
-		smtpPass:    smtpPass,
+		dialer:      d,
 		fromEmail:   getEnvOrDefault("FROM_EMAIL", smtpUser),
 		fromName:    getEnvOrDefault("FROM_NAME", "Spuri"),
-		baseURL:     getEnvOrDefault("BASE_URL", "http://localhost:8080"),
 		frontendURL: getEnvOrDefault("FRONTEND_URL", "http://localhost:3000"),
 		enabled:     enabled,
-		useSSL:      useSSL,
 	}
 }
 
@@ -73,47 +83,39 @@ func GenerateToken() (string, error) {
 }
 
 func (s *EmailService) SaveToken(userID uuid.UUID, userType, tipo, email string, expiresIn time.Duration) (string, error) {
-	log.Printf("[EMAIL][DEBUG] SaveToken - UserID: %s, Type: %s, Tipo: %s, Email: %s", userID, userType, tipo, email)
-	
+	log.Printf("[EMAIL] Gerando token - UserID: %s, Type: %s, Tipo: %s", userID, userType, tipo)
+
 	token, err := GenerateToken()
 	if err != nil {
-		log.Printf("[EMAIL][DEBUG] Erro ao gerar token: %v", err)
 		return "", fmt.Errorf("erro ao gerar token: %w", err)
 	}
 
 	expiresAt := time.Now().Add(expiresIn)
-	log.Printf("[EMAIL][DEBUG] Token gerado, expira em: %s", expiresAt.Format("2006-01-02 15:04:05"))
 
 	query := fmt.Sprintf(`
 		INSERT INTO auth_tokens (user_id, user_type, token, tipo, email, expires_at)
 		VALUES ('%s', '%s', '%s', '%s', '%s', '%s')
 	`, userID.String(), userType, token, tipo, email, expiresAt.Format("2006-01-02 15:04:05"))
 
-	log.Printf("[EMAIL][DEBUG] Executando query: %s", query)
-	
 	_, err = s.db.Exec(query)
 	if err != nil {
-		log.Printf("[EMAIL][DEBUG] Erro ao executar query: %v", err)
 		return "", fmt.Errorf("erro ao salvar token: %w", err)
 	}
 
-	log.Printf("[EMAIL][DEBUG] Token salvo com sucesso")
+	log.Printf("[EMAIL] ✅ Token salvo - Expira: %s", expiresAt.Format("2006-01-02 15:04:05"))
 	return token, nil
 }
 
 func (s *EmailService) VerifyToken(token, tipo string) (*TokenInfo, error) {
-	log.Printf("[EMAIL][DEBUG] VerifyToken - Token: %s, Tipo: %s", token, tipo)
-	
+	log.Printf("[EMAIL] Verificando token - Tipo: %s", tipo)
+
 	query := fmt.Sprintf(`
 		SELECT user_id, user_type, email, usado, expires_at
 		FROM auth_tokens
 		WHERE token = '%s' AND tipo = '%s'
 	`, token, tipo)
 
-	log.Printf("[EMAIL][DEBUG] Executando query: %s", query)
-	
 	var info TokenInfo
-	
 	err := s.db.QueryRow(query).Scan(
 		&info.UserID,
 		&info.UserType,
@@ -121,345 +123,264 @@ func (s *EmailService) VerifyToken(token, tipo string) (*TokenInfo, error) {
 		&info.Usado,
 		&info.ExpiresAt,
 	)
+
 	if err != nil {
 		if err == sql.ErrNoRows {
-			log.Printf("[EMAIL][DEBUG] Token não encontrado")
 			return nil, fmt.Errorf("token inválido ou expirado")
 		}
-		log.Printf("[EMAIL][DEBUG] Erro ao verificar token: %v", err)
 		return nil, fmt.Errorf("erro ao verificar token: %w", err)
 	}
 
-	log.Printf("[EMAIL][DEBUG] Token encontrado - UserID: %s, Usado: %v, Expira: %s", 
-		info.UserID, info.Usado, info.ExpiresAt.Format("2006-01-02 15:04:05"))
-
 	if info.Usado {
-		log.Printf("[EMAIL][DEBUG] Token já foi usado")
 		return nil, fmt.Errorf("token já foi usado")
 	}
 
 	if time.Now().After(info.ExpiresAt) {
-		log.Printf("[EMAIL][DEBUG] Token expirado")
 		return nil, fmt.Errorf("token expirado")
 	}
 
+	// Marcar como usado
 	updateQuery := fmt.Sprintf(`
 		UPDATE auth_tokens 
 		SET usado = TRUE, usado_em = CURRENT_TIMESTAMP 
 		WHERE token = '%s'
 	`, token)
-	
-	log.Printf("[EMAIL][DEBUG] Marcando token como usado: %s", updateQuery)
 	s.db.Exec(updateQuery)
 
-	log.Printf("[EMAIL][DEBUG] Token verificado e marcado como usado com sucesso")
+	log.Printf("[EMAIL] ✅ Token válido e marcado como usado")
 	return &info, nil
 }
 
-func (s *EmailService) SendEmail(to, subject, body string) error {
-	log.Printf("[EMAIL][DEBUG] SendEmail iniciado - Para: %s, Assunto: %s", to, subject)
-	
+// SendEmail - Método principal para enviar emails
+func (s *EmailService) SendEmail(to, subject, htmlBody string) error {
 	if !s.enabled {
-		log.Printf("[EMAIL][DEBUG] Serviço desabilitado, abortando")
+		log.Printf("[EMAIL] ⚠️  Serviço desabilitado - email não enviado")
 		return fmt.Errorf("serviço de email desabilitado")
 	}
 
 	if to == "" {
-		log.Printf("[EMAIL][DEBUG] Destinatário vazio, abortando")
 		return fmt.Errorf("destinatário vazio")
 	}
 
-	log.Printf("[EMAIL][DEBUG] Tentando enviar para %s via %s:%s (SSL: %v)", 
-		to, s.smtpHost, s.smtpPort, s.useSSL)
+	log.Printf("[EMAIL] 📧 Preparando envio para: %s", to)
+	log.Printf("[EMAIL] 📋 Assunto: %s", subject)
 
-	// Formato idêntico ao test_smtp.go que funcionou
-	msg := fmt.Sprintf("From: %s\r\n"+
-		"To: %s\r\n"+
-		"Subject: %s\r\n"+
-		"MIME-Version: 1.0\r\n"+
-		"Content-Type: text/html; charset=UTF-8\r\n"+
-		"\r\n"+
-		"%s", s.fromEmail, to, subject, body)
+	// Criar mensagem
+	m := gomail.NewMessage()
+	m.SetHeader("From", m.FormatAddress(s.fromEmail, s.fromName))
+	m.SetHeader("To", to)
+	m.SetHeader("Subject", subject)
+	m.SetBody("text/html", htmlBody)
 
-	log.Printf("[EMAIL][DEBUG] Mensagem formatada (%d bytes)", len(msg))
+	// Enviar com retry automático
+	maxRetries := 3
+	var lastErr error
 
-	addr := fmt.Sprintf("%s:%s", s.smtpHost, s.smtpPort)
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		log.Printf("[EMAIL] 🔄 Tentativa %d/%d...", attempt, maxRetries)
 
-	if s.useSSL {
-		log.Printf("[EMAIL][DEBUG] Usando método SSL (porta 465)")
-		return s.sendMailSSL(addr, to, msg)
-	}
-	
-	log.Printf("[EMAIL][DEBUG] Usando método STARTTLS (porta 587)")
-	return s.sendMailSTARTTLS(addr, to, msg)
-}
+		// Criar nova conexão para cada tentativa
+		d := gomail.NewDialer(s.dialer.Host, s.dialer.Port, s.dialer.Username, s.dialer.Password)
+		d.SSL = s.dialer.SSL
 
-func (s *EmailService) sendMailSTARTTLS(addr, to, msg string) error {
-	log.Printf("[EMAIL][DEBUG] sendMailSTARTTLS iniciado - Addr: %s", addr)
-	
-	auth := smtp.PlainAuth("", s.smtpUser, s.smtpPass, s.smtpHost)
-	log.Printf("[EMAIL][DEBUG] Auth criado para user: %s", s.smtpUser)
-	
-	log.Printf("[EMAIL][DEBUG] Tentando conectar TCP com timeout de 15s...")
-	conn, err := net.DialTimeout("tcp", addr, 15*time.Second)
-	if err != nil {
-		log.Printf("[EMAIL][DEBUG] ERRO ao conectar TCP: %v", err)
-		return fmt.Errorf("falha ao conectar: %w", err)
-	}
-	defer conn.Close()
-	log.Printf("[EMAIL][DEBUG] Conexão TCP estabelecida")
-
-	log.Printf("[EMAIL][DEBUG] Criando cliente SMTP...")
-	client, err := smtp.NewClient(conn, s.smtpHost)
-	if err != nil {
-		log.Printf("[EMAIL][DEBUG] ERRO ao criar client SMTP: %v", err)
-		return fmt.Errorf("falha ao criar cliente SMTP: %w", err)
-	}
-	defer client.Quit()
-	log.Printf("[EMAIL][DEBUG] Cliente SMTP criado")
-
-	// STARTTLS (igual ao test_smtp.go)
-	if ok, _ := client.Extension("STARTTLS"); ok {
-		log.Printf("[EMAIL][DEBUG] STARTTLS disponível, iniciando...")
-		config := &tls.Config{
-			ServerName: s.smtpHost,
+		err := d.DialAndSend(m)
+		if err == nil {
+			log.Printf("[EMAIL] ✅ Email enviado com sucesso para: %s", to)
+			return nil
 		}
-		if err = client.StartTLS(config); err != nil {
-			log.Printf("[EMAIL][DEBUG] ERRO ao iniciar STARTTLS: %v", err)
-			return fmt.Errorf("falha ao iniciar TLS: %w", err)
+
+		lastErr = err
+		log.Printf("[EMAIL] ❌ Tentativa %d falhou: %v", attempt, err)
+
+		if attempt < maxRetries {
+			waitTime := time.Duration(attempt*2) * time.Second
+			log.Printf("[EMAIL] ⏳ Aguardando %v antes de retentar...", waitTime)
+			time.Sleep(waitTime)
 		}
-		log.Printf("[EMAIL][DEBUG] STARTTLS iniciado com sucesso")
-	} else {
-		log.Printf("[EMAIL][DEBUG] STARTTLS não disponível, continuando sem TLS")
 	}
 
-	log.Printf("[EMAIL][DEBUG] Tentando autenticação...")
-	if err = client.Auth(auth); err != nil {
-		log.Printf("[EMAIL][DEBUG] ERRO na autenticação: %v", err)
-		return fmt.Errorf("falha na autenticação: %w", err)
-	}
-	log.Printf("[EMAIL][DEBUG] Autenticação bem-sucedida")
-
-	log.Printf("[EMAIL][DEBUG] Definindo remetente: %s", s.fromEmail)
-	if err = client.Mail(s.fromEmail); err != nil {
-		log.Printf("[EMAIL][DEBUG] ERRO ao definir remetente: %v", err)
-		return fmt.Errorf("falha ao definir remetente: %w", err)
-	}
-
-	log.Printf("[EMAIL][DEBUG] Definindo destinatário: %s", to)
-	if err = client.Rcpt(to); err != nil {
-		log.Printf("[EMAIL][DEBUG] ERRO ao definir destinatário: %v", err)
-		return fmt.Errorf("falha ao definir destinatário: %w", err)
-	}
-
-	log.Printf("[EMAIL][DEBUG] Abrindo data writer...")
-	w, err := client.Data()
-	if err != nil {
-		log.Printf("[EMAIL][DEBUG] ERRO ao abrir data writer: %v", err)
-		return fmt.Errorf("falha ao abrir data writer: %w", err)
-	}
-
-	log.Printf("[EMAIL][DEBUG] Escrevendo mensagem...")
-	if _, err = w.Write([]byte(msg)); err != nil {
-		log.Printf("[EMAIL][DEBUG] ERRO ao escrever mensagem: %v", err)
-		return fmt.Errorf("falha ao escrever mensagem: %w", err)
-	}
-
-	log.Printf("[EMAIL][DEBUG] Fechando data writer...")
-	if err = w.Close(); err != nil {
-		log.Printf("[EMAIL][DEBUG] ERRO ao fechar data writer: %v", err)
-		return fmt.Errorf("falha ao fechar data writer: %w", err)
-	}
-
-	log.Printf("[EMAIL] ✓ Email enviado com sucesso via STARTTLS")
-	return nil
-}
-
-func (s *EmailService) sendMailSSL(addr, to, msg string) error {
-	log.Printf("[EMAIL][DEBUG] sendMailSSL iniciado - Addr: %s", addr)
-	
-	auth := smtp.PlainAuth("", s.smtpUser, s.smtpPass, s.smtpHost)
-	log.Printf("[EMAIL][DEBUG] Auth criado para user: %s", s.smtpUser)
-
-	tlsConfig := &tls.Config{
-		ServerName: s.smtpHost,
-	}
-	log.Printf("[EMAIL][DEBUG] TLS Config criado para servidor: %s", s.smtpHost)
-
-	log.Printf("[EMAIL][DEBUG] Tentando conexão TLS/SSL com timeout de 15s...")
-	conn, err := tls.Dial("tcp", addr, tlsConfig)
-	if err != nil {
-		log.Printf("[EMAIL][DEBUG] ERRO na conexão SSL: %v", err)
-		return fmt.Errorf("falha ao conectar SSL: %w", err)
-	}
-	defer conn.Close()
-	log.Printf("[EMAIL][DEBUG] Conexão SSL estabelecida")
-
-	log.Printf("[EMAIL][DEBUG] Criando cliente SMTP sobre SSL...")
-	client, err := smtp.NewClient(conn, s.smtpHost)
-	if err != nil {
-		log.Printf("[EMAIL][DEBUG] ERRO ao criar client SSL: %v", err)
-		return fmt.Errorf("falha ao criar cliente SMTP: %w", err)
-	}
-	defer client.Quit()
-	log.Printf("[EMAIL][DEBUG] Cliente SMTP SSL criado")
-
-	log.Printf("[EMAIL][DEBUG] Tentando autenticação...")
-	if err = client.Auth(auth); err != nil {
-		log.Printf("[EMAIL][DEBUG] ERRO na autenticação: %v", err)
-		return fmt.Errorf("falha na autenticação: %w", err)
-	}
-	log.Printf("[EMAIL][DEBUG] Autenticação bem-sucedida")
-
-	log.Printf("[EMAIL][DEBUG] Definindo remetente: %s", s.fromEmail)
-	if err = client.Mail(s.fromEmail); err != nil {
-		log.Printf("[EMAIL][DEBUG] ERRO ao definir remetente: %v", err)
-		return fmt.Errorf("falha ao definir remetente: %w", err)
-	}
-
-	log.Printf("[EMAIL][DEBUG] Definindo destinatário: %s", to)
-	if err = client.Rcpt(to); err != nil {
-		log.Printf("[EMAIL][DEBUG] ERRO ao definir destinatário: %v", err)
-		return fmt.Errorf("falha ao definir destinatário: %w", err)
-	}
-
-	log.Printf("[EMAIL][DEBUG] Abrindo data writer...")
-	w, err := client.Data()
-	if err != nil {
-		log.Printf("[EMAIL][DEBUG] ERRO ao abrir data writer: %v", err)
-		return fmt.Errorf("falha ao abrir data writer: %w", err)
-	}
-
-	log.Printf("[EMAIL][DEBUG] Escrevendo mensagem...")
-	if _, err = w.Write([]byte(msg)); err != nil {
-		log.Printf("[EMAIL][DEBUG] ERRO ao escrever mensagem: %v", err)
-		return fmt.Errorf("falha ao escrever mensagem: %w", err)
-	}
-
-	log.Printf("[EMAIL][DEBUG] Fechando data writer...")
-	if err = w.Close(); err != nil {
-		log.Printf("[EMAIL][DEBUG] ERRO ao fechar data writer: %v", err)
-		return fmt.Errorf("falha ao fechar data writer: %w", err)
-	}
-
-	log.Printf("[EMAIL] ✓ Email enviado com sucesso via SSL")
-	return nil
+	log.Printf("[EMAIL] ❌ Falha após %d tentativas: %v", maxRetries, lastErr)
+	return fmt.Errorf("falha ao enviar email após %d tentativas: %w", maxRetries, lastErr)
 }
 
 func (s *EmailService) SendVerificationEmail(userID uuid.UUID, userType, email, nome string) error {
-	log.Printf("[EMAIL][INICIO] SendVerificationEmail - UserID: %s, Type: %s, Email: %s, Nome: %s", 
-		userID, userType, email, nome)
-	
+	log.Printf("[EMAIL] 📨 Iniciando envio de verificação - Email: %s, Nome: %s", email, nome)
+
 	if !s.enabled {
-		log.Println("[EMAIL][ERRO] Serviço desabilitado - pulando verificação")
+		log.Println("[EMAIL] ⚠️  Serviço desabilitado")
 		return fmt.Errorf("serviço de email desabilitado")
 	}
 
 	if email == "" {
-		log.Printf("[EMAIL][ERRO] Email vazio, abortando")
 		return fmt.Errorf("email vazio")
 	}
 
-	log.Printf("[EMAIL][DEBUG] Gerando token de verificação...")
 	token, err := s.SaveToken(userID, userType, "verificacao_email", email, 24*time.Hour)
 	if err != nil {
-		log.Printf("[EMAIL][ERRO] Erro ao salvar token: %v", err)
 		return fmt.Errorf("erro ao gerar token: %w", err)
 	}
 
 	verifyURL := fmt.Sprintf("%s/verificar-email/%s", s.frontendURL, token)
-	log.Printf("[EMAIL][DEBUG] URL de verificação: %s", verifyURL)
+	log.Printf("[EMAIL] 🔗 URL de verificação: %s", verifyURL)
 
 	subject := "Verifique seu email - Spuri"
-	body := fmt.Sprintf(`
-<!DOCTYPE html>
-<html>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-	<div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-		<h2 style="color: #2563eb;">Bem-vindo ao Spuri, %s!</h2>
-		<p>Para completar seu cadastro, verifique seu email clicando no botão abaixo:</p>
-		<div style="text-align: center; margin: 30px 0;">
-			<a href="%s" style="background-color: #2563eb; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">
-				Verificar Email
-			</a>
-		</div>
-		<p style="color: #666; font-size: 14px;">
-			Este link expira em 24 horas.<br>
-			Se você não criou esta conta, ignore este email.
-		</p>
-		<p style="color: #666; font-size: 12px; margin-top: 30px; border-top: 1px solid #eee; padding-top: 20px;">
-			Link alternativo: <a href="%s">%s</a>
-		</p>
-	</div>
-</body>
-</html>
-	`, nome, verifyURL, verifyURL, verifyURL)
+	body := s.buildVerificationEmailHTML(nome, verifyURL)
 
-	log.Printf("[EMAIL][DEBUG] Chamando SendEmail para verificação...")
-	err = s.SendEmail(email, subject, body)
-	if err != nil {
-		log.Printf("[EMAIL][ERRO] SendEmail FALHOU: %v", err)
-		return err
-	}
-	
-	log.Printf("[EMAIL][SUCESSO] Email de verificação enviado!")
-	return nil
+	return s.SendEmail(email, subject, body)
 }
 
 func (s *EmailService) SendPasswordResetEmail(userID uuid.UUID, userType, email, nome string) error {
-	log.Printf("[EMAIL][DEBUG] SendPasswordResetEmail - UserID: %s, Type: %s, Email: %s, Nome: %s", 
-		userID, userType, email, nome)
-	
+	log.Printf("[EMAIL] 📨 Iniciando recuperação de senha - Email: %s, Nome: %s", email, nome)
+
 	if !s.enabled {
-		log.Println("[EMAIL][DEBUG] Serviço desabilitado - pulando recuperação")
+		log.Println("[EMAIL] ⚠️  Serviço desabilitado")
 		return fmt.Errorf("serviço de email desabilitado")
 	}
 
 	if email == "" {
-		log.Printf("[EMAIL][DEBUG] Email vazio, abortando")
 		return fmt.Errorf("email vazio")
 	}
 
-	log.Printf("[EMAIL][DEBUG] Gerando token de recuperação...")
 	token, err := s.SaveToken(userID, userType, "recuperacao_senha", email, 1*time.Hour)
 	if err != nil {
-		log.Printf("[EMAIL][DEBUG] Erro ao gerar token: %v", err)
 		return fmt.Errorf("erro ao gerar token: %w", err)
 	}
 
 	resetURL := fmt.Sprintf("%s/recuperar-senha/%s", s.frontendURL, token)
-	log.Printf("[EMAIL][DEBUG] URL de recuperação: %s", resetURL)
+	log.Printf("[EMAIL] 🔗 URL de recuperação: %s", resetURL)
 
 	subject := "Recuperação de Senha - Spuri"
-	body := fmt.Sprintf(`
+	body := s.buildPasswordResetEmailHTML(nome, resetURL)
+
+	return s.SendEmail(email, subject, body)
+}
+
+// Templates HTML
+func (s *EmailService) buildVerificationEmailHTML(nome, verifyURL string) string {
+	return fmt.Sprintf(`
 <!DOCTYPE html>
 <html>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0;">
 	<div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-		<h2 style="color: #dc2626;">Recuperação de Senha</h2>
-		<p>Olá %s,</p>
-		<p>Recebemos uma solicitação para redefinir sua senha. Clique no botão abaixo para criar uma nova senha:</p>
-		<div style="text-align: center; margin: 30px 0;">
-			<a href="%s" style="background-color: #dc2626; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">
-				Redefinir Senha
-			</a>
+		<div style="background: linear-gradient(135deg, #2563eb 0%%, #1e40af 100%%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+			<h1 style="color: white; margin: 0; font-size: 28px;">Bem-vindo ao Spuri!</h1>
 		</div>
-		<p style="color: #666; font-size: 14px;">
-			Este link expira em 1 hora.<br>
-			Se você não solicitou esta redefinição, ignore este email - sua senha permanecerá a mesma.
-		</p>
-		<p style="color: #666; font-size: 12px; margin-top: 30px; border-top: 1px solid #eee; padding-top: 20px;">
-			Link alternativo: <a href="%s">%s</a>
-		</p>
+		
+		<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 10px 10px;">
+			<p style="font-size: 18px; margin-bottom: 20px;">Olá <strong>%s</strong>,</p>
+			
+			<p style="margin-bottom: 20px;">
+				Para completar seu cadastro e começar a usar o Spuri, 
+				precisamos verificar seu endereço de email.
+			</p>
+			
+			<div style="text-align: center; margin: 30px 0;">
+				<a href="%s" 
+				   style="background-color: #2563eb; 
+				          color: white; 
+				          padding: 14px 40px; 
+				          text-decoration: none; 
+				          border-radius: 8px; 
+				          display: inline-block;
+				          font-weight: bold;
+				          font-size: 16px;">
+					Verificar Email
+				</a>
+			</div>
+			
+			<div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin-top: 25px;">
+				<p style="margin: 0; font-size: 14px; color: #6b7280;">
+					<strong>⏰ Este link expira em 24 horas.</strong><br>
+					Se você não criou esta conta, pode ignorar este email com segurança.
+				</p>
+			</div>
+			
+			<div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+				<p style="font-size: 12px; color: #9ca3af; margin: 0;">
+					Se o botão não funcionar, copie e cole este link no seu navegador:<br>
+					<a href="%s" style="color: #2563eb; word-break: break-all;">%s</a>
+				</p>
+			</div>
+		</div>
+		
+		<div style="text-align: center; margin-top: 20px; color: #9ca3af; font-size: 12px;">
+			<p>© 2026 Spuri - Sistema de Gestão Acadêmica</p>
+		</div>
+	</div>
+</body>
+</html>
+	`, nome, verifyURL, verifyURL, verifyURL)
+}
+
+func (s *EmailService) buildPasswordResetEmailHTML(nome, resetURL string) string {
+	return fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0;">
+	<div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+		<div style="background: linear-gradient(135deg, #dc2626 0%%, #991b1b 100%%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+			<h1 style="color: white; margin: 0; font-size: 28px;">Recuperação de Senha</h1>
+		</div>
+		
+		<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 10px 10px;">
+			<p style="font-size: 18px; margin-bottom: 20px;">Olá <strong>%s</strong>,</p>
+			
+			<p style="margin-bottom: 20px;">
+				Recebemos uma solicitação para redefinir a senha da sua conta Spuri.
+			</p>
+			
+			<p style="margin-bottom: 20px;">
+				Se você não fez esta solicitação, pode ignorar este email com segurança. 
+				Sua senha atual permanecerá inalterada.
+			</p>
+			
+			<div style="text-align: center; margin: 30px 0;">
+				<a href="%s" 
+				   style="background-color: #dc2626; 
+				          color: white; 
+				          padding: 14px 40px; 
+				          text-decoration: none; 
+				          border-radius: 8px; 
+				          display: inline-block;
+				          font-weight: bold;
+				          font-size: 16px;">
+					Redefinir Senha
+				</a>
+			</div>
+			
+			<div style="background-color: #fef2f2; padding: 15px; border-radius: 8px; margin-top: 25px; border-left: 4px solid #dc2626;">
+				<p style="margin: 0; font-size: 14px; color: #991b1b;">
+					<strong>⏰ Este link expira em 1 hora.</strong><br>
+					Por segurança, você precisará solicitar um novo link após este período.
+				</p>
+			</div>
+			
+			<div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+				<p style="font-size: 12px; color: #9ca3af; margin: 0;">
+					Se o botão não funcionar, copie e cole este link no seu navegador:<br>
+					<a href="%s" style="color: #dc2626; word-break: break-all;">%s</a>
+				</p>
+			</div>
+		</div>
+		
+		<div style="text-align: center; margin-top: 20px; color: #9ca3af; font-size: 12px;">
+			<p>© 2026 Spuri - Sistema de Gestão Acadêmica</p>
+		</div>
 	</div>
 </body>
 </html>
 	`, nome, resetURL, resetURL, resetURL)
-
-	log.Printf("[EMAIL][DEBUG] Chamando SendEmail para recuperação...")
-	return s.SendEmail(email, subject, body)
 }
 
+// Funções auxiliares
 func GetDefaultPassword(userType, codigo string) string {
 	switch userType {
 	case "estudante":
@@ -483,6 +404,19 @@ func getEnvOrDefault(key, defaultValue string) string {
 		return defaultValue
 	}
 	return value
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+	var result int
+	fmt.Sscanf(value, "%d", &result)
+	if result == 0 {
+		return defaultValue
+	}
+	return result
 }
 
 type TokenInfo struct {
