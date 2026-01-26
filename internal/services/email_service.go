@@ -1,3 +1,4 @@
+// internal/services/email_service.go
 package services
 
 import (
@@ -18,33 +19,42 @@ import (
 
 type EmailService struct {
 	db             *sqlx.DB
-	serviceURL     string
-	fromName       string
+	serviceID      string
+	templateVerify string
+	templateReset  string
+	publicKey      string
+	privateKey     string
 	frontendURL    string
 	enabled        bool
 	httpClient     *http.Client
 }
 
-type EmailRequest struct {
-	To       string `json:"to"`
-	Subject  string `json:"subject"`
-	HTML     string `json:"html"`
-	FromName string `json:"from_name"`
+// EmailJS API Request
+type EmailJSRequest struct {
+	ServiceID  string                 `json:"service_id"`
+	TemplateID string                 `json:"template_id"`
+	UserID     string                 `json:"user_id"`
+	AccessToken string                `json:"accessToken"`
+	TemplateParams map[string]string `json:"template_params"`
 }
 
-type EmailResponse struct {
-	Success   bool   `json:"success"`
-	MessageID string `json:"messageId,omitempty"`
-	Error     string `json:"error,omitempty"`
+type EmailJSResponse struct {
+	Status  int    `json:"status"`
+	Text    string `json:"text"`
+	Message string `json:"message,omitempty"`
 }
 
 func NewEmailService(db *sqlx.DB) *EmailService {
-	serviceURL := os.Getenv("EMAIL_SERVICE_URL")
+	serviceID := os.Getenv("EMAILJS_SERVICE_ID")
+	templateVerify := os.Getenv("EMAILJS_TEMPLATE_VERIFICATION")
+	templateReset := os.Getenv("EMAILJS_TEMPLATE_RESET")
+	publicKey := os.Getenv("EMAILJS_PUBLIC_KEY")
+	privateKey := os.Getenv("EMAILJS_PRIVATE_KEY")
 	
-	enabled := serviceURL != ""
+	enabled := serviceID != "" && templateVerify != "" && templateReset != "" && publicKey != ""
 
 	if !enabled {
-		log.Println("[EMAIL] ⚠️  DESABILITADO - configure EMAIL_SERVICE_URL")
+		log.Println("[EMAIL] ⚠️  DESABILITADO - configure EMAILJS_* vars")
 		return &EmailService{
 			db:          db,
 			enabled:     false,
@@ -52,29 +62,18 @@ func NewEmailService(db *sqlx.DB) *EmailService {
 		}
 	}
 
-	// Testar serviço
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(serviceURL + "/health")
-	if err != nil {
-		log.Printf("[EMAIL] ❌ Serviço indisponível: %v", err)
-		enabled = false
-	} else {
-		resp.Body.Close()
-		if resp.StatusCode == 200 {
-			log.Printf("[EMAIL] ✅ Serviço conectado: %s", serviceURL)
-		} else {
-			log.Printf("[EMAIL] ⚠️  Serviço retornou status %d", resp.StatusCode)
-			enabled = false
-		}
-	}
+	log.Printf("[EMAIL] ✅ EmailJS configurado - ServiceID: %s", serviceID)
 
 	return &EmailService{
-		db:          db,
-		serviceURL:  serviceURL,
-		fromName:    getEnvOrDefault("FROM_NAME", "Spuri"),
-		frontendURL: getEnvOrDefault("FRONTEND_URL", "http://localhost:3000"),
-		enabled:     enabled,
-		httpClient:  &http.Client{Timeout: 30 * time.Second},
+		db:             db,
+		serviceID:      serviceID,
+		templateVerify: templateVerify,
+		templateReset:  templateReset,
+		publicKey:      publicKey,
+		privateKey:     privateKey,
+		frontendURL:    getEnvOrDefault("FRONTEND_URL", "http://localhost:3000"),
+		enabled:        enabled,
+		httpClient:     &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -153,7 +152,7 @@ func (s *EmailService) VerifyToken(token, tipo string) (*TokenInfo, error) {
 	return &info, nil
 }
 
-func (s *EmailService) SendEmail(to, subject, htmlBody string) error {
+func (s *EmailService) sendEmailViaEmailJS(to, nome, templateID string, params map[string]string) error {
 	if !s.enabled {
 		log.Printf("[EMAIL] ⚠️  Serviço desabilitado")
 		return fmt.Errorf("serviço de email desabilitado")
@@ -163,13 +162,19 @@ func (s *EmailService) SendEmail(to, subject, htmlBody string) error {
 		return fmt.Errorf("destinatário vazio")
 	}
 
-	log.Printf("[EMAIL] 📧 Enviando para: %s - Assunto: %s", to, subject)
+	// Adicionar parâmetros padrão
+	params["to_email"] = to
+	params["to_name"] = nome
+	params["from_name"] = "Spuri Sistema Acadêmico"
 
-	emailReq := EmailRequest{
-		To:       to,
-		Subject:  subject,
-		HTML:     htmlBody,
-		FromName: s.fromName,
+	log.Printf("[EMAIL] 📧 Enviando para: %s via EmailJS", to)
+
+	emailReq := EmailJSRequest{
+		ServiceID:  s.serviceID,
+		TemplateID: templateID,
+		UserID:     s.publicKey,
+		AccessToken: s.privateKey,
+		TemplateParams: params,
 	}
 
 	jsonData, err := json.Marshal(emailReq)
@@ -182,7 +187,7 @@ func (s *EmailService) SendEmail(to, subject, htmlBody string) error {
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		resp, err := s.httpClient.Post(
-			s.serviceURL+"/send",
+			"https://api.emailjs.com/api/v1.0/email/send",
 			"application/json",
 			bytes.NewBuffer(jsonData),
 		)
@@ -199,23 +204,18 @@ func (s *EmailService) SendEmail(to, subject, htmlBody string) error {
 
 		defer resp.Body.Close()
 
-		var emailResp EmailResponse
-		if err := json.NewDecoder(resp.Body).Decode(&emailResp); err != nil {
-			lastErr = fmt.Errorf("erro ao decodificar resposta: %w", err)
-			log.Printf("[EMAIL] ❌ Tentativa %d falhou: %v", attempt, lastErr)
-			
-			if attempt < maxRetries {
-				time.Sleep(time.Duration(attempt*2) * time.Second)
-			}
-			continue
-		}
-
-		if resp.StatusCode == 200 && emailResp.Success {
-			log.Printf("[EMAIL] ✅ Enviado (%d/%d) - ID: %s", attempt, maxRetries, emailResp.MessageID)
+		if resp.StatusCode == 200 {
+			log.Printf("[EMAIL] ✅ Enviado (%d/%d)", attempt, maxRetries)
 			return nil
 		}
 
-		lastErr = fmt.Errorf("serviço retornou erro: %s", emailResp.Error)
+		var emailResp EmailJSResponse
+		if err := json.NewDecoder(resp.Body).Decode(&emailResp); err != nil {
+			lastErr = fmt.Errorf("erro ao decodificar resposta: %w", err)
+		} else {
+			lastErr = fmt.Errorf("EmailJS erro [%d]: %s", emailResp.Status, emailResp.Text)
+		}
+
 		log.Printf("[EMAIL] ❌ Tentativa %d falhou: %v", attempt, lastErr)
 
 		if attempt < maxRetries {
@@ -241,10 +241,14 @@ func (s *EmailService) SendVerificationEmail(userID uuid.UUID, userType, email, 
 	}
 
 	verifyURL := fmt.Sprintf("%s/verificar-email/%s", s.frontendURL, token)
-	subject := "Verifique seu email - Spuri"
-	body := s.buildVerificationEmailHTML(nome, verifyURL)
 
-	return s.SendEmail(email, subject, body)
+	params := map[string]string{
+		"user_name":  nome,
+		"verify_url": verifyURL,
+		"expiry":     "24 horas",
+	}
+
+	return s.sendEmailViaEmailJS(email, nome, s.templateVerify, params)
 }
 
 func (s *EmailService) SendPasswordResetEmail(userID uuid.UUID, userType, email, nome string) error {
@@ -262,128 +266,14 @@ func (s *EmailService) SendPasswordResetEmail(userID uuid.UUID, userType, email,
 	}
 
 	resetURL := fmt.Sprintf("%s/recuperar-senha/%s", s.frontendURL, token)
-	subject := "Recuperação de Senha - Spuri"
-	body := s.buildPasswordResetEmailHTML(nome, resetURL)
 
-	return s.SendEmail(email, subject, body)
-}
+	params := map[string]string{
+		"user_name": nome,
+		"reset_url": resetURL,
+		"expiry":    "1 hora",
+	}
 
-func (s *EmailService) buildVerificationEmailHTML(nome, verifyURL string) string {
-	return fmt.Sprintf(`
-<!DOCTYPE html>
-<html>
-<head>
-	<meta charset="UTF-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0;">
-	<div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-		<div style="background: linear-gradient(135deg, #2563eb 0%%, #1e40af 100%%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
-			<h1 style="color: white; margin: 0; font-size: 28px;">Bem-vindo ao Spuri!</h1>
-		</div>
-		
-		<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 10px 10px;">
-			<p style="font-size: 18px; margin-bottom: 20px;">Olá <strong>%s</strong>,</p>
-			
-			<p style="margin-bottom: 20px;">
-				Para completar seu cadastro e começar a usar o Spuri, 
-				precisamos verificar seu endereço de email.
-			</p>
-			
-			<div style="text-align: center; margin: 30px 0;">
-				<a href="%s" 
-				   style="background-color: #2563eb; 
-				          color: white; 
-				          padding: 14px 40px; 
-				          text-decoration: none; 
-				          border-radius: 8px; 
-				          display: inline-block;
-				          font-weight: bold;
-				          font-size: 16px;">
-					Verificar Email
-				</a>
-			</div>
-			
-			<div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin-top: 25px;">
-				<p style="margin: 0; font-size: 14px; color: #6b7280;">
-					<strong>⏰ Este link expira em 24 horas.</strong><br>
-					Se você não criou esta conta, ignore este email.
-				</p>
-			</div>
-			
-			<div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb;">
-				<p style="font-size: 12px; color: #9ca3af; margin: 0;">
-					Se o botão não funcionar, copie e cole este link:<br>
-					<a href="%s" style="color: #2563eb; word-break: break-all;">%s</a>
-				</p>
-			</div>
-		</div>
-		
-		<div style="text-align: center; margin-top: 20px; color: #9ca3af; font-size: 12px;">
-			<p>© 2026 Spuri</p>
-		</div>
-	</div>
-</body>
-</html>
-	`, nome, verifyURL, verifyURL, verifyURL)
-}
-
-func (s *EmailService) buildPasswordResetEmailHTML(nome, resetURL string) string {
-	return fmt.Sprintf(`
-<!DOCTYPE html>
-<html>
-<head>
-	<meta charset="UTF-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0;">
-	<div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-		<div style="background: linear-gradient(135deg, #dc2626 0%%, #991b1b 100%%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
-			<h1 style="color: white; margin: 0; font-size: 28px;">Recuperação de Senha</h1>
-		</div>
-		
-		<div style="background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 10px 10px;">
-			<p style="font-size: 18px; margin-bottom: 20px;">Olá <strong>%s</strong>,</p>
-			
-			<p style="margin-bottom: 20px;">
-				Recebemos uma solicitação para redefinir sua senha.
-			</p>
-			
-			<div style="text-align: center; margin: 30px 0;">
-				<a href="%s" 
-				   style="background-color: #dc2626; 
-				          color: white; 
-				          padding: 14px 40px; 
-				          text-decoration: none; 
-				          border-radius: 8px; 
-				          display: inline-block;
-				          font-weight: bold;
-				          font-size: 16px;">
-					Redefinir Senha
-				</a>
-			</div>
-			
-			<div style="background-color: #fef2f2; padding: 15px; border-radius: 8px; margin-top: 25px; border-left: 4px solid #dc2626;">
-				<p style="margin: 0; font-size: 14px; color: #991b1b;">
-					<strong>⏰ Expira em 1 hora.</strong>
-				</p>
-			</div>
-			
-			<div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb;">
-				<p style="font-size: 12px; color: #9ca3af; margin: 0;">
-					Se o botão não funcionar:<br>
-					<a href="%s" style="color: #dc2626; word-break: break-all;">%s</a>
-				</p>
-			</div>
-		</div>
-		
-		<div style="text-align: center; margin-top: 20px; color: #9ca3af; font-size: 12px;">
-			<p>© 2026 Spuri</p>
-		</div>
-	</div>
-</body>
-</html>
-	`, nome, resetURL, resetURL, resetURL)
+	return s.sendEmailViaEmailJS(email, nome, s.templateReset, params)
 }
 
 func GetDefaultPassword(userType, codigo string) string {
