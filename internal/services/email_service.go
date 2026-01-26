@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -31,17 +32,11 @@ type EmailService struct {
 
 // EmailJS API Request
 type EmailJSRequest struct {
-	ServiceID  string                 `json:"service_id"`
-	TemplateID string                 `json:"template_id"`
-	UserID     string                 `json:"user_id"`
-	AccessToken string                `json:"accessToken"`
+	ServiceID      string            `json:"service_id"`
+	TemplateID     string            `json:"template_id"`
+	UserID         string            `json:"user_id"`
+	AccessToken    string            `json:"accessToken,omitempty"`
 	TemplateParams map[string]string `json:"template_params"`
-}
-
-type EmailJSResponse struct {
-	Status  int    `json:"status"`
-	Text    string `json:"text"`
-	Message string `json:"message,omitempty"`
 }
 
 func NewEmailService(db *sqlx.DB) *EmailService {
@@ -170,17 +165,23 @@ func (s *EmailService) sendEmailViaEmailJS(to, nome, templateID string, params m
 	log.Printf("[EMAIL] 📧 Enviando para: %s via EmailJS", to)
 
 	emailReq := EmailJSRequest{
-		ServiceID:  s.serviceID,
-		TemplateID: templateID,
-		UserID:     s.publicKey,
-		AccessToken: s.privateKey,
+		ServiceID:      s.serviceID,
+		TemplateID:     templateID,
+		UserID:         s.publicKey,
 		TemplateParams: params,
+	}
+
+	// Adicionar private key se disponível
+	if s.privateKey != "" {
+		emailReq.AccessToken = s.privateKey
 	}
 
 	jsonData, err := json.Marshal(emailReq)
 	if err != nil {
 		return fmt.Errorf("erro ao serializar email: %w", err)
 	}
+
+	log.Printf("[EMAIL] 🔍 Request: %s", string(jsonData))
 
 	maxRetries := 2
 	var lastErr error
@@ -204,18 +205,45 @@ func (s *EmailService) sendEmailViaEmailJS(to, nome, templateID string, params m
 
 		defer resp.Body.Close()
 
+		// Ler o corpo da resposta
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			lastErr = fmt.Errorf("erro ao ler resposta: %w", err)
+			log.Printf("[EMAIL] ❌ Tentativa %d falhou: %v", attempt, lastErr)
+			
+			if attempt < maxRetries {
+				time.Sleep(time.Duration(attempt*2) * time.Second)
+			}
+			continue
+		}
+
+		bodyStr := string(bodyBytes)
+		log.Printf("[EMAIL] 📥 Response [%d]: %s", resp.StatusCode, bodyStr)
+
+		// EmailJS retorna "OK" em texto quando sucesso (status 200)
 		if resp.StatusCode == 200 {
-			log.Printf("[EMAIL] ✅ Enviado (%d/%d)", attempt, maxRetries)
-			return nil
+			if bodyStr == "OK" || bodyStr == "\"OK\"" {
+				log.Printf("[EMAIL] ✅ Enviado com sucesso (%d/%d)", attempt, maxRetries)
+				return nil
+			}
 		}
 
-		var emailResp EmailJSResponse
-		if err := json.NewDecoder(resp.Body).Decode(&emailResp); err != nil {
-			lastErr = fmt.Errorf("erro ao decodificar resposta: %w", err)
+		// Se não for 200 ou não for "OK", tentar parsear como JSON de erro
+		var errorMsg string
+		var jsonError map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &jsonError); err == nil {
+			if msg, ok := jsonError["message"].(string); ok {
+				errorMsg = msg
+			} else if text, ok := jsonError["text"].(string); ok {
+				errorMsg = text
+			} else {
+				errorMsg = bodyStr
+			}
 		} else {
-			lastErr = fmt.Errorf("EmailJS erro [%d]: %s", emailResp.Status, emailResp.Text)
+			errorMsg = bodyStr
 		}
 
+		lastErr = fmt.Errorf("EmailJS erro [%d]: %s", resp.StatusCode, errorMsg)
 		log.Printf("[EMAIL] ❌ Tentativa %d falhou: %v", attempt, lastErr)
 
 		if attempt < maxRetries {
