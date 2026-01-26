@@ -157,9 +157,3 @@ func GetMinhasAprovacoes(c *gin.Context) {
 		"total":      len(aprovacoes),
 	})
 }
-
-// Helper
-func getAprovacaoAnoProjection(c *gin.Context) *projections.AprovacaoAnoProjection {
-	client := getDbClient(c)
-	return projections.NewAprovacaoAnoProjection(client)
-}
