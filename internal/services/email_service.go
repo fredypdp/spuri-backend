@@ -2,10 +2,12 @@ package services
 
 import (
 	"crypto/rand"
+	"crypto/tls"
 	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"time"
 
@@ -32,7 +34,7 @@ func NewEmailService(db *sqlx.DB) *EmailService {
 	enabled := smtpHost != "" && smtpUser != "" && smtpPass != ""
 
 	if !enabled {
-		log.Println("[EMAIL] ⚠️  Serviço DESABILITADO - configure SMTP_HOST, SMTP_USER, SMTP_PASSWORD")
+		log.Println("[EMAIL] ⚠️  DESABILITADO - configure SMTP_HOST, SMTP_USER, SMTP_PASSWORD")
 		return &EmailService{
 			db:          db,
 			enabled:     false,
@@ -40,16 +42,34 @@ func NewEmailService(db *sqlx.DB) *EmailService {
 		}
 	}
 
-	// Criar dialer com configurações otimizadas para Gmail
+	log.Printf("[EMAIL] 🔧 Configurando - Host: %s, Port: %d", smtpHost, smtpPort)
+
+	// Tentar detectar melhor porta
+	detectedPort := detectBestPort(smtpHost, smtpPort)
+	if detectedPort != smtpPort {
+		log.Printf("[EMAIL] 🔄 Porta %d bloqueada, usando %d", smtpPort, detectedPort)
+		smtpPort = detectedPort
+	}
+
+	// Criar dialer
 	d := gomail.NewDialer(smtpHost, smtpPort, smtpUser, smtpPass)
-	
-	// Configurações SSL/TLS otimizadas
 	d.SSL = smtpPort == 465
-	
-	// Testar conexão na inicialização - CORRIGIDO
+	d.TLSConfig = &tls.Config{
+		InsecureSkipVerify: false,
+		ServerName:         smtpHost,
+	}
+	d.Timeout = time.Duration(getEnvInt("SMTP_TIMEOUT", 15)) * time.Second
+
+	// Teste de conectividade
+	log.Printf("[EMAIL] 🔐 Testando autenticação (timeout: %v)...", d.Timeout)
 	testConn, err := d.Dial()
 	if err != nil {
-		log.Printf("[EMAIL] ❌ Erro ao conectar SMTP: %v", err)
+		log.Printf("[EMAIL] ❌ Falha: %v", err)
+		log.Printf("[EMAIL] 💡 Sugestões:")
+		log.Printf("   1. Porta %d bloqueada? Tente SMTP_PORT=465", smtpPort)
+		log.Printf("   2. Firewall bloqueando SMTP? Configure regras de saída")
+		log.Printf("   3. Gmail: use 'Senha de App' (não a senha normal)")
+		log.Printf("   4. Considere usar relay SMTP (SendGrid, Mailgun, etc)")
 		enabled = false
 	} else {
 		testConn.Close()
@@ -66,6 +86,26 @@ func NewEmailService(db *sqlx.DB) *EmailService {
 	}
 }
 
+// detectBestPort tenta detectar qual porta está disponível
+func detectBestPort(host string, preferredPort int) int {
+	ports := []int{preferredPort, 465, 587, 2525}
+	timeout := 3 * time.Second
+
+	for _, port := range ports {
+		address := fmt.Sprintf("%s:%d", host, port)
+		conn, err := net.DialTimeout("tcp", address, timeout)
+		if err == nil {
+			conn.Close()
+			log.Printf("[EMAIL] ✅ Porta %d acessível", port)
+			return port
+		}
+		log.Printf("[EMAIL] ⏭️  Porta %d bloqueada/timeout", port)
+	}
+
+	log.Printf("[EMAIL] ⚠️  Nenhuma porta SMTP acessível, usando %d (vai falhar)", preferredPort)
+	return preferredPort
+}
+
 func (s *EmailService) IsEnabled() bool {
 	return s.enabled
 }
@@ -79,8 +119,6 @@ func GenerateToken() (string, error) {
 }
 
 func (s *EmailService) SaveToken(userID uuid.UUID, userType, tipo, email string, expiresIn time.Duration) (string, error) {
-	log.Printf("[EMAIL] Gerando token - UserID: %s, Type: %s, Tipo: %s", userID, userType, tipo)
-
 	token, err := GenerateToken()
 	if err != nil {
 		return "", fmt.Errorf("erro ao gerar token: %w", err)
@@ -103,8 +141,6 @@ func (s *EmailService) SaveToken(userID uuid.UUID, userType, tipo, email string,
 }
 
 func (s *EmailService) VerifyToken(token, tipo string) (*TokenInfo, error) {
-	log.Printf("[EMAIL] Verificando token - Tipo: %s", tipo)
-
 	query := fmt.Sprintf(`
 		SELECT user_id, user_type, email, usado, expires_at
 		FROM auth_tokens
@@ -135,7 +171,6 @@ func (s *EmailService) VerifyToken(token, tipo string) (*TokenInfo, error) {
 		return nil, fmt.Errorf("token expirado")
 	}
 
-	// Marcar como usado
 	updateQuery := fmt.Sprintf(`
 		UPDATE auth_tokens 
 		SET usado = TRUE, usado_em = CURRENT_TIMESTAMP 
@@ -143,14 +178,12 @@ func (s *EmailService) VerifyToken(token, tipo string) (*TokenInfo, error) {
 	`, token)
 	s.db.Exec(updateQuery)
 
-	log.Printf("[EMAIL] ✅ Token válido e marcado como usado")
 	return &info, nil
 }
 
-// SendEmail - Método principal para enviar emails
 func (s *EmailService) SendEmail(to, subject, htmlBody string) error {
 	if !s.enabled {
-		log.Printf("[EMAIL] ⚠️  Serviço desabilitado - email não enviado")
+		log.Printf("[EMAIL] ⚠️  Serviço desabilitado")
 		return fmt.Errorf("serviço de email desabilitado")
 	}
 
@@ -158,30 +191,21 @@ func (s *EmailService) SendEmail(to, subject, htmlBody string) error {
 		return fmt.Errorf("destinatário vazio")
 	}
 
-	log.Printf("[EMAIL] 📧 Preparando envio para: %s", to)
-	log.Printf("[EMAIL] 📋 Assunto: %s", subject)
+	log.Printf("[EMAIL] 📧 Enviando para: %s - Assunto: %s", to, subject)
 
-	// Criar mensagem
 	m := gomail.NewMessage()
 	m.SetHeader("From", m.FormatAddress(s.fromEmail, s.fromName))
 	m.SetHeader("To", to)
 	m.SetHeader("Subject", subject)
 	m.SetBody("text/html", htmlBody)
 
-	// Enviar com retry automático
-	maxRetries := 3
+	maxRetries := 2
 	var lastErr error
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		log.Printf("[EMAIL] 🔄 Tentativa %d/%d...", attempt, maxRetries)
-
-		// Criar nova conexão para cada tentativa
-		d := gomail.NewDialer(s.dialer.Host, s.dialer.Port, s.dialer.Username, s.dialer.Password)
-		d.SSL = s.dialer.SSL
-
-		err := d.DialAndSend(m)
+		err := s.dialer.DialAndSend(m)
 		if err == nil {
-			log.Printf("[EMAIL] ✅ Email enviado com sucesso para: %s", to)
+			log.Printf("[EMAIL] ✅ Enviado (%d/%d)", attempt, maxRetries)
 			return nil
 		}
 
@@ -189,21 +213,15 @@ func (s *EmailService) SendEmail(to, subject, htmlBody string) error {
 		log.Printf("[EMAIL] ❌ Tentativa %d falhou: %v", attempt, err)
 
 		if attempt < maxRetries {
-			waitTime := time.Duration(attempt*2) * time.Second
-			log.Printf("[EMAIL] ⏳ Aguardando %v antes de retentar...", waitTime)
-			time.Sleep(waitTime)
+			time.Sleep(time.Duration(attempt*2) * time.Second)
 		}
 	}
 
-	log.Printf("[EMAIL] ❌ Falha após %d tentativas: %v", maxRetries, lastErr)
-	return fmt.Errorf("falha ao enviar email após %d tentativas: %w", maxRetries, lastErr)
+	return fmt.Errorf("falha após %d tentativas: %w", maxRetries, lastErr)
 }
 
 func (s *EmailService) SendVerificationEmail(userID uuid.UUID, userType, email, nome string) error {
-	log.Printf("[EMAIL] 📨 Iniciando envio de verificação - Email: %s, Nome: %s", email, nome)
-
 	if !s.enabled {
-		log.Println("[EMAIL] ⚠️  Serviço desabilitado")
 		return fmt.Errorf("serviço de email desabilitado")
 	}
 
@@ -217,8 +235,6 @@ func (s *EmailService) SendVerificationEmail(userID uuid.UUID, userType, email, 
 	}
 
 	verifyURL := fmt.Sprintf("%s/verificar-email/%s", s.frontendURL, token)
-	log.Printf("[EMAIL] 🔗 URL de verificação: %s", verifyURL)
-
 	subject := "Verifique seu email - Spuri"
 	body := s.buildVerificationEmailHTML(nome, verifyURL)
 
@@ -226,10 +242,7 @@ func (s *EmailService) SendVerificationEmail(userID uuid.UUID, userType, email, 
 }
 
 func (s *EmailService) SendPasswordResetEmail(userID uuid.UUID, userType, email, nome string) error {
-	log.Printf("[EMAIL] 📨 Iniciando recuperação de senha - Email: %s, Nome: %s", email, nome)
-
 	if !s.enabled {
-		log.Println("[EMAIL] ⚠️  Serviço desabilitado")
 		return fmt.Errorf("serviço de email desabilitado")
 	}
 
@@ -243,15 +256,12 @@ func (s *EmailService) SendPasswordResetEmail(userID uuid.UUID, userType, email,
 	}
 
 	resetURL := fmt.Sprintf("%s/recuperar-senha/%s", s.frontendURL, token)
-	log.Printf("[EMAIL] 🔗 URL de recuperação: %s", resetURL)
-
 	subject := "Recuperação de Senha - Spuri"
 	body := s.buildPasswordResetEmailHTML(nome, resetURL)
 
 	return s.SendEmail(email, subject, body)
 }
 
-// Templates HTML
 func (s *EmailService) buildVerificationEmailHTML(nome, verifyURL string) string {
 	return fmt.Sprintf(`
 <!DOCTYPE html>
@@ -291,20 +301,20 @@ func (s *EmailService) buildVerificationEmailHTML(nome, verifyURL string) string
 			<div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin-top: 25px;">
 				<p style="margin: 0; font-size: 14px; color: #6b7280;">
 					<strong>⏰ Este link expira em 24 horas.</strong><br>
-					Se você não criou esta conta, pode ignorar este email com segurança.
+					Se você não criou esta conta, ignore este email.
 				</p>
 			</div>
 			
 			<div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb;">
 				<p style="font-size: 12px; color: #9ca3af; margin: 0;">
-					Se o botão não funcionar, copie e cole este link no seu navegador:<br>
+					Se o botão não funcionar, copie e cole este link:<br>
 					<a href="%s" style="color: #2563eb; word-break: break-all;">%s</a>
 				</p>
 			</div>
 		</div>
 		
 		<div style="text-align: center; margin-top: 20px; color: #9ca3af; font-size: 12px;">
-			<p>© 2026 Spuri - Sistema de Gestão Académica</p>
+			<p>© 2026 Spuri</p>
 		</div>
 	</div>
 </body>
@@ -330,12 +340,7 @@ func (s *EmailService) buildPasswordResetEmailHTML(nome, resetURL string) string
 			<p style="font-size: 18px; margin-bottom: 20px;">Olá <strong>%s</strong>,</p>
 			
 			<p style="margin-bottom: 20px;">
-				Recebemos uma solicitação para redefinir a senha da sua conta Spuri.
-			</p>
-			
-			<p style="margin-bottom: 20px;">
-				Se você não fez esta solicitação, pode ignorar este email com segurança. 
-				Sua senha atual permanecerá inalterada.
+				Recebemos uma solicitação para redefinir sua senha.
 			</p>
 			
 			<div style="text-align: center; margin: 30px 0;">
@@ -354,21 +359,20 @@ func (s *EmailService) buildPasswordResetEmailHTML(nome, resetURL string) string
 			
 			<div style="background-color: #fef2f2; padding: 15px; border-radius: 8px; margin-top: 25px; border-left: 4px solid #dc2626;">
 				<p style="margin: 0; font-size: 14px; color: #991b1b;">
-					<strong>⏰ Este link expira em 1 hora.</strong><br>
-					Por segurança, você precisará solicitar um novo link após este período.
+					<strong>⏰ Expira em 1 hora.</strong>
 				</p>
 			</div>
 			
 			<div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb;">
 				<p style="font-size: 12px; color: #9ca3af; margin: 0;">
-					Se o botão não funcionar, copie e cole este link no seu navegador:<br>
+					Se o botão não funcionar:<br>
 					<a href="%s" style="color: #dc2626; word-break: break-all;">%s</a>
 				</p>
 			</div>
 		</div>
 		
 		<div style="text-align: center; margin-top: 20px; color: #9ca3af; font-size: 12px;">
-			<p>© 2026 Spuri - Sistema de Gestão Académica</p>
+			<p>© 2026 Spuri</p>
 		</div>
 	</div>
 </body>
@@ -376,7 +380,6 @@ func (s *EmailService) buildPasswordResetEmailHTML(nome, resetURL string) string
 	`, nome, resetURL, resetURL, resetURL)
 }
 
-// Funções auxiliares
 func GetDefaultPassword(userType, codigo string) string {
 	switch userType {
 	case "estudante":

@@ -135,7 +135,7 @@ func setupRouter() *gin.Engine {
 	router.POST("/estudante/register", handlers.RegisterEstudante)
 
 	emailGroup := router.Group("/")
-	emailGroup.Use(middleware.EmailRateLimit())
+	// emailGroup.Use(middleware.EmailRateLimit())
 	{
 		emailGroup.POST("/verificar-email/:token", handlers.VerificarEmail)
 		emailGroup.POST("/verificar-email/solicitar", handlers.SolicitarVerificacaoEmail)
