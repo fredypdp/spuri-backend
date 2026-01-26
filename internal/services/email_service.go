@@ -1,40 +1,50 @@
 package services
 
 import (
+	"bytes"
 	"crypto/rand"
-	"crypto/tls"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
-	"net"
+	"net/http"
 	"os"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
-	"gopkg.in/gomail.v2"
 )
 
 type EmailService struct {
-	db          *sqlx.DB
-	dialer      *gomail.Dialer
-	fromEmail   string
-	fromName    string
-	frontendURL string
-	enabled     bool
+	db             *sqlx.DB
+	serviceURL     string
+	fromName       string
+	frontendURL    string
+	enabled        bool
+	httpClient     *http.Client
+}
+
+type EmailRequest struct {
+	To       string `json:"to"`
+	Subject  string `json:"subject"`
+	HTML     string `json:"html"`
+	FromName string `json:"from_name"`
+}
+
+type EmailResponse struct {
+	Success   bool   `json:"success"`
+	MessageID string `json:"messageId,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 func NewEmailService(db *sqlx.DB) *EmailService {
-	smtpHost := os.Getenv("SMTP_HOST")
-	smtpPort := getEnvInt("SMTP_PORT", 587)
-	smtpUser := os.Getenv("SMTP_USER")
-	smtpPass := os.Getenv("SMTP_PASSWORD")
-
-	enabled := smtpHost != "" && smtpUser != "" && smtpPass != ""
+	serviceURL := os.Getenv("EMAIL_SERVICE_URL")
+	
+	enabled := serviceURL != ""
 
 	if !enabled {
-		log.Println("[EMAIL] ⚠️  DESABILITADO - configure SMTP_HOST, SMTP_USER, SMTP_PASSWORD")
+		log.Println("[EMAIL] ⚠️  DESABILITADO - configure EMAIL_SERVICE_URL")
 		return &EmailService{
 			db:          db,
 			enabled:     false,
@@ -42,67 +52,30 @@ func NewEmailService(db *sqlx.DB) *EmailService {
 		}
 	}
 
-	log.Printf("[EMAIL] 📧 Configurando - Host: %s, Port: %d", smtpHost, smtpPort)
-
-	// Tentar detectar melhor porta
-	detectedPort := detectBestPort(smtpHost, smtpPort)
-	if detectedPort != smtpPort {
-		log.Printf("[EMAIL] 🔄 Porta %d bloqueada, usando %d", smtpPort, detectedPort)
-		smtpPort = detectedPort
-	}
-
-	// Criar dialer
-	d := gomail.NewDialer(smtpHost, smtpPort, smtpUser, smtpPass)
-	d.SSL = smtpPort == 465
-	d.TLSConfig = &tls.Config{
-		InsecureSkipVerify: false,
-		ServerName:         smtpHost,
-	}
-
-	// Teste de conectividade
-	log.Printf("[EMAIL] 🔍 Testando autenticação...")
-	testConn, err := d.Dial()
+	// Testar serviço
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(serviceURL + "/health")
 	if err != nil {
-		log.Printf("[EMAIL] ❌ Falha: %v", err)
-		log.Printf("[EMAIL] 💡 Sugestões:")
-		log.Printf("   1. Porta %d bloqueada? Tente SMTP_PORT=465", smtpPort)
-		log.Printf("   2. Firewall bloqueando SMTP? Configure regras de saída")
-		log.Printf("   3. Gmail: use 'Senha de App' (não a senha normal)")
-		log.Printf("   4. Considere usar relay SMTP (SendGrid, Mailgun, etc)")
+		log.Printf("[EMAIL] ❌ Serviço indisponível: %v", err)
 		enabled = false
 	} else {
-		testConn.Close()
-		log.Printf("[EMAIL] ✅ Conectado: %s:%d (SSL: %v)", smtpHost, smtpPort, d.SSL)
+		resp.Body.Close()
+		if resp.StatusCode == 200 {
+			log.Printf("[EMAIL] ✅ Serviço conectado: %s", serviceURL)
+		} else {
+			log.Printf("[EMAIL] ⚠️  Serviço retornou status %d", resp.StatusCode)
+			enabled = false
+		}
 	}
 
 	return &EmailService{
 		db:          db,
-		dialer:      d,
-		fromEmail:   getEnvOrDefault("FROM_EMAIL", smtpUser),
+		serviceURL:  serviceURL,
 		fromName:    getEnvOrDefault("FROM_NAME", "Spuri"),
 		frontendURL: getEnvOrDefault("FRONTEND_URL", "http://localhost:3000"),
 		enabled:     enabled,
+		httpClient:  &http.Client{Timeout: 30 * time.Second},
 	}
-}
-
-// detectBestPort tenta detectar qual porta está disponível
-func detectBestPort(host string, preferredPort int) int {
-	ports := []int{preferredPort, 465, 587, 2525}
-	timeout := 3 * time.Second
-
-	for _, port := range ports {
-		address := fmt.Sprintf("%s:%d", host, port)
-		conn, err := net.DialTimeout("tcp", address, timeout)
-		if err == nil {
-			conn.Close()
-			log.Printf("[EMAIL] ✅ Porta %d acessível", port)
-			return port
-		}
-		log.Printf("[EMAIL] ⭕️ Porta %d bloqueada/timeout", port)
-	}
-
-	log.Printf("[EMAIL] ⚠️  Nenhuma porta SMTP acessível, usando %d (vai falhar)", preferredPort)
-	return preferredPort
 }
 
 func (s *EmailService) IsEnabled() bool {
@@ -192,24 +165,58 @@ func (s *EmailService) SendEmail(to, subject, htmlBody string) error {
 
 	log.Printf("[EMAIL] 📧 Enviando para: %s - Assunto: %s", to, subject)
 
-	m := gomail.NewMessage()
-	m.SetHeader("From", m.FormatAddress(s.fromEmail, s.fromName))
-	m.SetHeader("To", to)
-	m.SetHeader("Subject", subject)
-	m.SetBody("text/html", htmlBody)
+	emailReq := EmailRequest{
+		To:       to,
+		Subject:  subject,
+		HTML:     htmlBody,
+		FromName: s.fromName,
+	}
+
+	jsonData, err := json.Marshal(emailReq)
+	if err != nil {
+		return fmt.Errorf("erro ao serializar email: %w", err)
+	}
 
 	maxRetries := 2
 	var lastErr error
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		err := s.dialer.DialAndSend(m)
-		if err == nil {
-			log.Printf("[EMAIL] ✅ Enviado (%d/%d)", attempt, maxRetries)
+		resp, err := s.httpClient.Post(
+			s.serviceURL+"/send",
+			"application/json",
+			bytes.NewBuffer(jsonData),
+		)
+
+		if err != nil {
+			lastErr = fmt.Errorf("erro na requisição: %w", err)
+			log.Printf("[EMAIL] ❌ Tentativa %d falhou: %v", attempt, lastErr)
+			
+			if attempt < maxRetries {
+				time.Sleep(time.Duration(attempt*2) * time.Second)
+			}
+			continue
+		}
+
+		defer resp.Body.Close()
+
+		var emailResp EmailResponse
+		if err := json.NewDecoder(resp.Body).Decode(&emailResp); err != nil {
+			lastErr = fmt.Errorf("erro ao decodificar resposta: %w", err)
+			log.Printf("[EMAIL] ❌ Tentativa %d falhou: %v", attempt, lastErr)
+			
+			if attempt < maxRetries {
+				time.Sleep(time.Duration(attempt*2) * time.Second)
+			}
+			continue
+		}
+
+		if resp.StatusCode == 200 && emailResp.Success {
+			log.Printf("[EMAIL] ✅ Enviado (%d/%d) - ID: %s", attempt, maxRetries, emailResp.MessageID)
 			return nil
 		}
 
-		lastErr = err
-		log.Printf("[EMAIL] ❌ Tentativa %d falhou: %v", attempt, err)
+		lastErr = fmt.Errorf("serviço retornou erro: %s", emailResp.Error)
+		log.Printf("[EMAIL] ❌ Tentativa %d falhou: %v", attempt, lastErr)
 
 		if attempt < maxRetries {
 			time.Sleep(time.Duration(attempt*2) * time.Second)
@@ -402,19 +409,6 @@ func getEnvOrDefault(key, defaultValue string) string {
 		return defaultValue
 	}
 	return value
-}
-
-func getEnvInt(key string, defaultValue int) int {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue
-	}
-	var result int
-	fmt.Sscanf(value, "%d", &result)
-	if result == 0 {
-		return defaultValue
-	}
-	return result
 }
 
 type TokenInfo struct {
