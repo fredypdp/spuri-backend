@@ -42,7 +42,7 @@ func NewEmailService(db *sqlx.DB) *EmailService {
 		}
 	}
 
-	log.Printf("[EMAIL] 🔧 Configurando - Host: %s, Port: %d", smtpHost, smtpPort)
+	log.Printf("[EMAIL] 📧 Configurando - Host: %s, Port: %d", smtpHost, smtpPort)
 
 	// Tentar detectar melhor porta
 	detectedPort := detectBestPort(smtpHost, smtpPort)
@@ -58,10 +58,9 @@ func NewEmailService(db *sqlx.DB) *EmailService {
 		InsecureSkipVerify: false,
 		ServerName:         smtpHost,
 	}
-	d.Timeout = time.Duration(getEnvInt("SMTP_TIMEOUT", 15)) * time.Second
 
 	// Teste de conectividade
-	log.Printf("[EMAIL] 🔐 Testando autenticação (timeout: %v)...", d.Timeout)
+	log.Printf("[EMAIL] 🔍 Testando autenticação...")
 	testConn, err := d.Dial()
 	if err != nil {
 		log.Printf("[EMAIL] ❌ Falha: %v", err)
@@ -99,7 +98,7 @@ func detectBestPort(host string, preferredPort int) int {
 			log.Printf("[EMAIL] ✅ Porta %d acessível", port)
 			return port
 		}
-		log.Printf("[EMAIL] ⏭️  Porta %d bloqueada/timeout", port)
+		log.Printf("[EMAIL] ⭕️ Porta %d bloqueada/timeout", port)
 	}
 
 	log.Printf("[EMAIL] ⚠️  Nenhuma porta SMTP acessível, usando %d (vai falhar)", preferredPort)
