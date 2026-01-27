@@ -137,10 +137,15 @@ func setupRouter() *gin.Engine {
 	emailGroup := router.Group("/")
 	// emailGroup.Use(middleware.EmailRateLimit())
 	{
+		// Rotas originais (enviam email via backend)
 		emailGroup.POST("/verificar-email/:token", handlers.VerificarEmail)
 		emailGroup.POST("/verificar-email/solicitar", handlers.SolicitarVerificacaoEmail)
 		emailGroup.POST("/recuperar-senha/solicitar", handlers.SolicitarRecuperacaoSenha)
 		emailGroup.POST("/recuperar-senha/:token", handlers.ResetarSenha)
+		
+		// Novas rotas (retornam token para frontend enviar email)
+		emailGroup.POST("/gerar-token/verificacao", handlers.GerarTokenVerificacao)
+		emailGroup.POST("/gerar-token/recuperacao", handlers.GerarTokenRecuperacao)
 	}
 
 	protected := router.Group("/")

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"spuri/internal/db"
 	"spuri/internal/services"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -347,4 +348,142 @@ func maskEmail(email string) string {
 func getEmailService(c *gin.Context) *services.EmailService {
 	client := getDbClient(c)
 	return services.NewEmailService(client.DB())
+}
+
+// GerarTokenVerificacao gera token de verificação sem enviar email
+func GerarTokenVerificacao(c *gin.Context) {
+	var req struct {
+		Identificador string `json:"identificador" binding:"required"`
+		Tipo          string `json:"tipo" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		return
+	}
+
+	client := getDbClient(c)
+	emailSvc := getEmailService(c)
+
+	var userID uuid.UUID
+	var email, nome string
+	var query string
+
+	safeId := db.SafeString(req.Identificador)
+
+	switch req.Tipo {
+	case "estudante":
+		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_estudantes 
+		         WHERE codigo_estudante = '%s' OR email = '%s'`, safeId, safeId)
+	case "academia":
+		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_academias 
+		         WHERE codigo_academia = '%s' OR email = '%s'`, safeId, safeId)
+	case "admin":
+		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_admins WHERE email = '%s'`, safeId)
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "tipo inválido"})
+		return
+	}
+
+	var idStr string
+	err := client.DB().QueryRow(query).Scan(&idStr, &email, &nome)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
+		return
+	}
+
+	userID, _ = uuid.Parse(idStr)
+
+	if email == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "usuário não possui email cadastrado"})
+		return
+	}
+
+	// Gerar token sem enviar email
+	token, err := emailSvc.SaveToken(userID, req.Tipo, "verificacao_email", email, 24*time.Hour)
+	if err != nil {
+		log.Printf("Erro ao gerar token de verificação: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao gerar token"})
+		return
+	}
+
+	log.Printf("Token de verificação gerado para: %s", email)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"token":   token,
+		"email":   email,
+		"nome":    nome,
+		"tipo":    req.Tipo,
+		"expira_em": "24 horas",
+	})
+}
+
+// GerarTokenRecuperacao gera token de recuperação sem enviar email
+func GerarTokenRecuperacao(c *gin.Context) {
+	var req struct {
+		Identificador string `json:"identificador" binding:"required"`
+		Tipo          string `json:"tipo" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		return
+	}
+
+	client := getDbClient(c)
+	emailSvc := getEmailService(c)
+
+	var userID uuid.UUID
+	var email, nome string
+	var query string
+
+	safeId := db.SafeString(req.Identificador)
+
+	switch req.Tipo {
+	case "estudante":
+		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_estudantes 
+		         WHERE codigo_estudante = '%s' OR email = '%s'`, safeId, safeId)
+	case "academia":
+		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_academias 
+		         WHERE codigo_academia = '%s' OR email = '%s'`, safeId, safeId)
+	case "admin":
+		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_admins WHERE email = '%s'`, safeId)
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "tipo inválido"})
+		return
+	}
+
+	var idStr string
+	err := client.DB().QueryRow(query).Scan(&idStr, &email, &nome)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
+		return
+	}
+
+	userID, _ = uuid.Parse(idStr)
+
+	if email == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "usuário não possui email cadastrado"})
+		return
+	}
+
+	// Gerar token sem enviar email
+	token, err := emailSvc.SaveToken(userID, req.Tipo, "recuperacao_senha", email, 1*time.Hour)
+	if err != nil {
+		log.Printf("Erro ao gerar token de recuperação: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao gerar token"})
+		return
+	}
+
+	log.Printf("Token de recuperação gerado para: %s", email)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"token":   token,
+		"email":   email,
+		"nome":    nome,
+		"tipo":    req.Tipo,
+		"expira_em": "1 hora",
+	})
 }
