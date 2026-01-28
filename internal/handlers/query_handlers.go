@@ -37,13 +37,13 @@ func getPaginationParams(c *gin.Context) (limit, offset int) {
 func ListarInscricoes(c *gin.Context) {
 	userID, exists := middleware.GetUserID(c)
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "usuário não autenticado"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "usuÃ¡rio nÃ£o autenticado"})
 		return
 	}
 
 	userType, exists := middleware.GetUserType(c)
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "tipo de usuário não identificado"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "tipo de usuÃ¡rio nÃ£o identificado"})
 		return
 	}
 
@@ -143,7 +143,7 @@ func ListarInscricoes(c *gin.Context) {
 
 	rows, err := client.DB().Query(query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscriÃ§Ãµes"})
 		return
 	}
 	defer rows.Close()
@@ -238,7 +238,7 @@ func ListarInscricoesPendentes(c *gin.Context) {
 
 	rows, err := client.DB().Query(query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscriÃ§Ãµes"})
 		return
 	}
 	defer rows.Close()
@@ -276,7 +276,7 @@ func GetNotasEstudante(c *gin.Context) {
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "estudante nÃ£o encontrado"})
 		return
 	}
 
@@ -292,7 +292,7 @@ func GetNotasEstudante(c *gin.Context) {
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, _ := academiaProj.GetByID(userID)
 		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
-			c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "estudante nÃ£o pertence a esta academia"})
 			return
 		}
 	}
@@ -318,7 +318,7 @@ func GetFaltasEstudante(c *gin.Context) {
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "estudante nÃ£o encontrado"})
 		return
 	}
 
@@ -334,7 +334,7 @@ func GetFaltasEstudante(c *gin.Context) {
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, _ := academiaProj.GetByID(userID)
 		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
-			c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "estudante nÃ£o pertence a esta academia"})
 			return
 		}
 	}
@@ -360,7 +360,7 @@ func GetHistoricoCompleto(c *gin.Context) {
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "estudante nÃ£o encontrado"})
 		return
 	}
 
@@ -376,7 +376,7 @@ func GetHistoricoCompleto(c *gin.Context) {
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, _ := academiaProj.GetByID(userID)
 		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
-			c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "estudante nÃ£o pertence a esta academia"})
 			return
 		}
 	}
@@ -404,7 +404,7 @@ func GetEventosEstudante(c *gin.Context) {
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "estudante nÃ£o encontrado"})
 		return
 	}
 
@@ -428,7 +428,7 @@ func GetEventosEstudante(c *gin.Context) {
 		"nome":             estudante.Nome,
 		"eventos":          eventos,
 		"total":            len(eventos),
-		"message":          "Histórico completo de eventos (Event Sourcing)",
+		"message":          "HistÃ³rico completo de eventos (Event Sourcing)",
 	})
 }
 
@@ -438,7 +438,7 @@ func VerificarIntegridade(c *gin.Context) {
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "estudante nÃ£o encontrado"})
 		return
 	}
 
@@ -455,9 +455,9 @@ func VerificarIntegridade(c *gin.Context) {
 		"integro":          isValid,
 		"message": func() string {
 			if isValid {
-				return "Cadeia de hashes íntegra. Eventos não foram alterados."
+				return "Cadeia de hashes Ã­ntegra. Eventos nÃ£o foram alterados."
 			}
-			return "ATENÇÃO: Cadeia de hashes comprometida!"
+			return "ATENÃ‡ÃƒO: Cadeia de hashes comprometida!"
 		}(),
 	})
 }
@@ -468,7 +468,7 @@ func GetMinhasInscricoes(c *gin.Context) {
 	inscProj := getInscricoesProjection(c)
 	inscricoes, err := inscProj.GetByEstudante(userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscriÃ§Ãµes"})
 		return
 	}
 

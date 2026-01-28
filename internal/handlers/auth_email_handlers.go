@@ -139,26 +139,27 @@ func SolicitarRecuperacaoSenha(c *gin.Context) {
 
 	var userID uuid.UUID
 	var email, nome string
+	var emailVerificado bool
 	var query string
 
 	safeId := db.SafeString(req.Identificador)
 
 	switch req.Tipo {
 	case "estudante":
-		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_estudantes 
+		query = fmt.Sprintf(`SELECT id, email, nome, COALESCE(email_verificado, FALSE) FROM projection_estudantes 
 		         WHERE codigo_estudante = '%s' OR email = '%s'`, safeId, safeId)
 	case "academia":
-		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_academias 
+		query = fmt.Sprintf(`SELECT id, email, nome, COALESCE(email_verificado, FALSE) FROM projection_academias 
 		         WHERE codigo_academia = '%s' OR email = '%s'`, safeId, safeId)
 	case "admin":
-		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_admins WHERE email = '%s'`, safeId)
+		query = fmt.Sprintf(`SELECT id, email, nome, COALESCE(email_verificado, FALSE) FROM projection_admins WHERE email = '%s'`, safeId)
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "tipo inválido"})
 		return
 	}
 
 	var idStr string
-	err := client.DB().QueryRow(query).Scan(&idStr, &email, &nome)
+	err := client.DB().QueryRow(query).Scan(&idStr, &email, &nome, &emailVerificado)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
 		return
@@ -168,6 +169,16 @@ func SolicitarRecuperacaoSenha(c *gin.Context) {
 
 	if email == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "usuário não possui email cadastrado"})
+		return
+	}
+
+	// ✅ VALIDAÇÃO: Email deve estar verificado
+	if !emailVerificado {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "email não verificado",
+			"message": "Por favor, verifique seu email antes de solicitar recuperação de senha",
+			"email_verificado": false,
+		})
 		return
 	}
 
@@ -199,27 +210,38 @@ func ResetarSenha(c *gin.Context) {
 	client := getDbClient(c)
 
 	var codigo string
+	var emailVerificado bool
 	var table string
 	var query string
 
 	switch tokenInfo.UserType {
 	case "estudante":
-		query = fmt.Sprintf(`SELECT codigo_estudante FROM projection_estudantes WHERE id = '%s'`, tokenInfo.UserID)
+		query = fmt.Sprintf(`SELECT codigo_estudante, COALESCE(email_verificado, FALSE) FROM projection_estudantes WHERE id = '%s'`, tokenInfo.UserID)
 		table = "projection_estudantes"
 	case "academia":
-		query = fmt.Sprintf(`SELECT codigo_academia FROM projection_academias WHERE id = '%s'`, tokenInfo.UserID)
+		query = fmt.Sprintf(`SELECT codigo_academia, COALESCE(email_verificado, FALSE) FROM projection_academias WHERE id = '%s'`, tokenInfo.UserID)
 		table = "projection_academias"
 	case "admin":
-		query = fmt.Sprintf(`SELECT role FROM projection_admins WHERE id = '%s'`, tokenInfo.UserID)
+		query = fmt.Sprintf(`SELECT role, COALESCE(email_verificado, FALSE) FROM projection_admins WHERE id = '%s'`, tokenInfo.UserID)
 		table = "projection_admins"
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "tipo de usuário inválido"})
 		return
 	}
 
-	err = client.DB().QueryRow(query).Scan(&codigo)
+	err = client.DB().QueryRow(query).Scan(&codigo, &emailVerificado)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
+		return
+	}
+
+	// ✅ VALIDAÇÃO: Email deve estar verificado
+	if !emailVerificado {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "email não verificado",
+			"message": "Por favor, verifique seu email antes de resetar a senha",
+			"email_verificado": false,
+		})
 		return
 	}
 
@@ -436,26 +458,27 @@ func GerarTokenRecuperacao(c *gin.Context) {
 
 	var userID uuid.UUID
 	var email, nome string
+	var emailVerificado bool
 	var query string
 
 	safeId := db.SafeString(req.Identificador)
 
 	switch req.Tipo {
 	case "estudante":
-		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_estudantes 
+		query = fmt.Sprintf(`SELECT id, email, nome, COALESCE(email_verificado, FALSE) FROM projection_estudantes 
 		         WHERE codigo_estudante = '%s' OR email = '%s'`, safeId, safeId)
 	case "academia":
-		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_academias 
+		query = fmt.Sprintf(`SELECT id, email, nome, COALESCE(email_verificado, FALSE) FROM projection_academias 
 		         WHERE codigo_academia = '%s' OR email = '%s'`, safeId, safeId)
 	case "admin":
-		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_admins WHERE email = '%s'`, safeId)
+		query = fmt.Sprintf(`SELECT id, email, nome, COALESCE(email_verificado, FALSE) FROM projection_admins WHERE email = '%s'`, safeId)
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "tipo inválido"})
 		return
 	}
 
 	var idStr string
-	err := client.DB().QueryRow(query).Scan(&idStr, &email, &nome)
+	err := client.DB().QueryRow(query).Scan(&idStr, &email, &nome, &emailVerificado)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
 		return
@@ -465,6 +488,16 @@ func GerarTokenRecuperacao(c *gin.Context) {
 
 	if email == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "usuário não possui email cadastrado"})
+		return
+	}
+
+	// ✅ VALIDAÇÃO: Email deve estar verificado
+	if !emailVerificado {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "email não verificado",
+			"message": "Por favor, verifique seu email antes de solicitar recuperação de senha",
+			"email_verificado": false,
+		})
 		return
 	}
 
