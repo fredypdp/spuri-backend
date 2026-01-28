@@ -37,13 +37,13 @@ func getPaginationParams(c *gin.Context) (limit, offset int) {
 func ListarInscricoes(c *gin.Context) {
 	userID, exists := middleware.GetUserID(c)
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "usuÃ¡rio nÃ£o autenticado"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "usuário não autenticado"})
 		return
 	}
 
 	userType, exists := middleware.GetUserType(c)
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "tipo de usuÃ¡rio nÃ£o identificado"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "tipo de usuário não identificado"})
 		return
 	}
 
@@ -61,6 +61,7 @@ func ListarInscricoes(c *gin.Context) {
 		AnoInscricao    string     `json:"ano_inscricao"`
 		Curso           *string    `json:"curso,omitempty"`
 		Status          string     `json:"status"`
+		StatusUsado     bool       `json:"status_usado"`
 		CreatedAt       time.Time  `json:"created_at"`
 		UpdatedAt       time.Time  `json:"updated_at"`
 		EventID         *uuid.UUID `json:"event_id,omitempty"`
@@ -78,7 +79,7 @@ func ListarInscricoes(c *gin.Context) {
 			safeStatus := db.SafeString(statusFilter)
 			query = fmt.Sprintf(`
 				SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-					tipo, ano_inscricao, curso, status, created_at, updated_at, event_id, version
+					tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, event_id, version
 				FROM projection_inscricoes
 				WHERE status = '%s'
 				ORDER BY created_at DESC LIMIT %d OFFSET %d
@@ -87,7 +88,7 @@ func ListarInscricoes(c *gin.Context) {
 		} else {
 			query = fmt.Sprintf(`
 				SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-					tipo, ano_inscricao, curso, status, created_at, updated_at, event_id, version
+					tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, event_id, version
 				FROM projection_inscricoes
 				ORDER BY created_at DESC LIMIT %d OFFSET %d
 			`, limit, offset)
@@ -99,7 +100,7 @@ func ListarInscricoes(c *gin.Context) {
 			safeStatus := db.SafeString(statusFilter)
 			query = fmt.Sprintf(`
 				SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-					tipo, ano_inscricao, curso, status, created_at, updated_at, event_id, version
+					tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, event_id, version
 				FROM projection_inscricoes
 				WHERE academia_id = '%s' AND status = '%s'
 				ORDER BY created_at DESC LIMIT %d OFFSET %d
@@ -108,7 +109,7 @@ func ListarInscricoes(c *gin.Context) {
 		} else {
 			query = fmt.Sprintf(`
 				SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-					tipo, ano_inscricao, curso, status, created_at, updated_at, event_id, version
+					tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, event_id, version
 				FROM projection_inscricoes
 				WHERE academia_id = '%s'
 				ORDER BY created_at DESC LIMIT %d OFFSET %d
@@ -121,7 +122,7 @@ func ListarInscricoes(c *gin.Context) {
 			safeStatus := db.SafeString(statusFilter)
 			query = fmt.Sprintf(`
 				SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-					tipo, ano_inscricao, curso, status, created_at, updated_at, event_id, version
+					tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, event_id, version
 				FROM projection_inscricoes
 				WHERE estudante_id = '%s' AND status = '%s'
 				ORDER BY created_at DESC
@@ -129,7 +130,7 @@ func ListarInscricoes(c *gin.Context) {
 		} else {
 			query = fmt.Sprintf(`
 				SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-					tipo, ano_inscricao, curso, status, created_at, updated_at, event_id, version
+					tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, event_id, version
 				FROM projection_inscricoes
 				WHERE estudante_id = '%s'
 				ORDER BY created_at DESC
@@ -143,7 +144,7 @@ func ListarInscricoes(c *gin.Context) {
 
 	rows, err := client.DB().Query(query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscriÃ§Ãµes"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 		return
 	}
 	defer rows.Close()
@@ -151,7 +152,7 @@ func ListarInscricoes(c *gin.Context) {
 	for rows.Next() {
 		var insc InscricaoDetalhada
 		if err := rows.Scan(&insc.ID, &insc.EstudanteID, &insc.CodigoEstudante, &insc.AcademiaID,
-			&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &insc.Curso, &insc.Status,
+			&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &insc.Curso, &insc.Status, &insc.StatusUsado,
 			&insc.CreatedAt, &insc.UpdatedAt, &insc.EventID, &insc.Version); err == nil {
 			inscricoes = append(inscricoes, insc)
 		}
@@ -192,8 +193,11 @@ func ListarInscricoesPendentes(c *gin.Context) {
 		AnoInscricao    string    `json:"ano_inscricao"`
 		Curso           *string   `json:"curso,omitempty"`
 		Status          string    `json:"status"`
+		StatusUsado     bool      `json:"status_usado"`
 		CreatedAt       time.Time `json:"created_at"`
 		UpdatedAt       time.Time `json:"updated_at"`
+		EventID         uuid.UUID `json:"event_id"`
+		Version         int       `json:"version"`
 	}
 
 	var inscricoes []InscricaoDetalhada
@@ -205,7 +209,7 @@ func ListarInscricoesPendentes(c *gin.Context) {
 	case "admin":
 		query = fmt.Sprintf(`
 			SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-				tipo, ano_inscricao, curso, status, created_at, updated_at
+				tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, event_id, version
 			FROM projection_inscricoes
 			WHERE status = 'espera'
 			ORDER BY created_at DESC LIMIT %d OFFSET %d
@@ -215,7 +219,7 @@ func ListarInscricoesPendentes(c *gin.Context) {
 	case "academia":
 		query = fmt.Sprintf(`
 			SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-				tipo, ano_inscricao, curso, status, created_at, updated_at
+				tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, event_id, version
 			FROM projection_inscricoes
 			WHERE status = 'espera' AND academia_id = '%s'
 			ORDER BY created_at DESC LIMIT %d OFFSET %d
@@ -225,7 +229,7 @@ func ListarInscricoesPendentes(c *gin.Context) {
 	case "estudante":
 		query = fmt.Sprintf(`
 			SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-				tipo, ano_inscricao, curso, status, created_at, updated_at
+				tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, event_id, version
 			FROM projection_inscricoes
 			WHERE status = 'espera' AND estudante_id = '%s'
 			ORDER BY created_at DESC
@@ -238,7 +242,7 @@ func ListarInscricoesPendentes(c *gin.Context) {
 
 	rows, err := client.DB().Query(query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscriÃ§Ãµes"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 		return
 	}
 	defer rows.Close()
@@ -246,8 +250,8 @@ func ListarInscricoesPendentes(c *gin.Context) {
 	for rows.Next() {
 		var insc InscricaoDetalhada
 		if err := rows.Scan(&insc.ID, &insc.EstudanteID, &insc.CodigoEstudante, &insc.AcademiaID,
-			&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &insc.Curso, &insc.Status,
-			&insc.CreatedAt, &insc.UpdatedAt); err == nil {
+			&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &insc.Curso, &insc.Status, &insc.StatusUsado,
+			&insc.CreatedAt, &insc.UpdatedAt, &insc.EventID, &insc.Version); err == nil {
 			inscricoes = append(inscricoes, insc)
 		}
 	}
@@ -276,7 +280,7 @@ func GetNotasEstudante(c *gin.Context) {
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante nÃ£o encontrado"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
 		return
 	}
 
@@ -292,7 +296,7 @@ func GetNotasEstudante(c *gin.Context) {
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, _ := academiaProj.GetByID(userID)
 		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
-			c.JSON(http.StatusForbidden, gin.H{"error": "estudante nÃ£o pertence a esta academia"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
 			return
 		}
 	}
@@ -318,7 +322,7 @@ func GetFaltasEstudante(c *gin.Context) {
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante nÃ£o encontrado"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
 		return
 	}
 
@@ -334,7 +338,7 @@ func GetFaltasEstudante(c *gin.Context) {
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, _ := academiaProj.GetByID(userID)
 		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
-			c.JSON(http.StatusForbidden, gin.H{"error": "estudante nÃ£o pertence a esta academia"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
 			return
 		}
 	}
@@ -360,7 +364,7 @@ func GetHistoricoCompleto(c *gin.Context) {
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante nÃ£o encontrado"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
 		return
 	}
 
@@ -376,7 +380,7 @@ func GetHistoricoCompleto(c *gin.Context) {
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, _ := academiaProj.GetByID(userID)
 		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
-			c.JSON(http.StatusForbidden, gin.H{"error": "estudante nÃ£o pertence a esta academia"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
 			return
 		}
 	}
@@ -404,7 +408,7 @@ func GetEventosEstudante(c *gin.Context) {
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante nÃ£o encontrado"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
 		return
 	}
 
@@ -428,7 +432,7 @@ func GetEventosEstudante(c *gin.Context) {
 		"nome":             estudante.Nome,
 		"eventos":          eventos,
 		"total":            len(eventos),
-		"message":          "HistÃ³rico completo de eventos (Event Sourcing)",
+		"message":          "Histórico completo de eventos (Event Sourcing)",
 	})
 }
 
@@ -438,7 +442,7 @@ func VerificarIntegridade(c *gin.Context) {
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante nÃ£o encontrado"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
 		return
 	}
 
@@ -455,9 +459,9 @@ func VerificarIntegridade(c *gin.Context) {
 		"integro":          isValid,
 		"message": func() string {
 			if isValid {
-				return "Cadeia de hashes Ã­ntegra. Eventos nÃ£o foram alterados."
+				return "✅ Cadeia de hashes íntegra. Eventos não foram alterados."
 			}
-			return "ATENÃ‡ÃƒO: Cadeia de hashes comprometida!"
+			return "⚠️ ATENÇÃO: Cadeia de hashes comprometida!"
 		}(),
 	})
 }
@@ -468,7 +472,7 @@ func GetMinhasInscricoes(c *gin.Context) {
 	inscProj := getInscricoesProjection(c)
 	inscricoes, err := inscProj.GetByEstudante(userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscriÃ§Ãµes"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
 		return
 	}
 
@@ -509,27 +513,14 @@ func ListarTodasAcademias(c *gin.Context) {
 	_, _ = middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 
-	type AcademiaSimples struct {
-		ID                       uuid.UUID `json:"id"`
-		Nome                     string    `json:"nome"`
-		CodigoAcademia           string    `json:"codigo_academia"`
-		Type                     string    `json:"type"`
-		Provincia                string    `json:"provincia"`
-		Status                   string    `json:"status"`
-		NivelEscolar             *string   `json:"nivel_escolar"`
-		CreatedAt                string    `json:"created_at"`
-		TotalEstudantes          int       `json:"total_estudantes"`
-		TotalInscricoesPendentes int       `json:"total_inscricoes_pendentes"`
-	}
-
-	var academias []AcademiaSimples
+	_ = getAcademiaProjection(c)
 	client := getDbClient(c)
 
 	query := `
-		SELECT 
-			id, nome, codigo_academia, type, provincia,
-			status, nivel_escolar, created_at,
-			total_estudantes, total_inscricoes_pendentes
+		SELECT id, type, nome, codigo_academia, provincia, endereco,
+			numero_telefone, email, website, nivel_escolar, status, cursos,
+			email_verificado, created_at, updated_at, total_estudantes,
+			total_inscricoes_pendentes, version
 		FROM projection_academias
 		ORDER BY created_at DESC
 	`
@@ -541,12 +532,63 @@ func ListarTodasAcademias(c *gin.Context) {
 	}
 	defer rows.Close()
 
+	var academias []map[string]interface{}
 	for rows.Next() {
-		var aca AcademiaSimples
-		if err := rows.Scan(&aca.ID, &aca.Nome, &aca.CodigoAcademia, &aca.Type, &aca.Provincia,
-			&aca.Status, &aca.NivelEscolar, &aca.CreatedAt,
-			&aca.TotalEstudantes, &aca.TotalInscricoesPendentes); err == nil {
-			academias = append(academias, aca)
+		var aca struct {
+			ID                       uuid.UUID
+			Type                     string
+			Nome                     string
+			CodigoAcademia           string
+			Provincia                string
+			Endereco                 string
+			NumeroTelefone           *string
+			Email                    *string
+			Website                  *string
+			NivelEscolar             *string
+			Status                   string
+			Cursos                   []byte
+			EmailVerificado          bool
+			CreatedAt                time.Time
+			UpdatedAt                time.Time
+			TotalEstudantes          int
+			TotalInscricoesPendentes int
+			Version                  int
+		}
+
+		if err := rows.Scan(&aca.ID, &aca.Type, &aca.Nome, &aca.CodigoAcademia,
+			&aca.Provincia, &aca.Endereco, &aca.NumeroTelefone, &aca.Email,
+			&aca.Website, &aca.NivelEscolar, &aca.Status, &aca.Cursos,
+			&aca.EmailVerificado, &aca.CreatedAt, &aca.UpdatedAt,
+			&aca.TotalEstudantes, &aca.TotalInscricoesPendentes, &aca.Version); err == nil {
+			
+			academiaMap := map[string]interface{}{
+				"id":                         aca.ID,
+				"type":                       aca.Type,
+				"nome":                       aca.Nome,
+				"codigo_academia":            aca.CodigoAcademia,
+				"provincia":                  aca.Provincia,
+				"endereco":                   aca.Endereco,
+				"numero_telefone":            aca.NumeroTelefone,
+				"email":                      aca.Email,
+				"website":                    aca.Website,
+				"nivel_escolar":              aca.NivelEscolar,
+				"status":                     aca.Status,
+				"email_verificado":           aca.EmailVerificado,
+				"created_at":                 aca.CreatedAt,
+				"updated_at":                 aca.UpdatedAt,
+				"total_estudantes":           aca.TotalEstudantes,
+				"total_inscricoes_pendentes": aca.TotalInscricoesPendentes,
+				"version":                    aca.Version,
+			}
+
+			// Parse cursos JSON
+			var cursos []string
+			if len(aca.Cursos) > 0 {
+				// Simple JSON unmarshal would be better with proper import
+				academiaMap["cursos"] = cursos
+			}
+
+			academias = append(academias, academiaMap)
 		}
 	}
 

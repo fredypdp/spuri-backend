@@ -163,14 +163,7 @@ func ConsultarAdmin(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"id":         admin.ID,
-		"nome":       admin.Nome,
-		"email":      admin.Email,
-		"role":       admin.Role,
-		"status":     admin.Status,
-		"created_at": admin.CreatedAt,
-	})
+	c.JSON(http.StatusOK, admin)
 }
 
 // ListarEstudantes lista estudantes baseado no tipo de usuário
@@ -178,24 +171,8 @@ func ListarEstudantes(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 
-	type EstudanteSimples struct {
-		ID              uuid.UUID `json:"id"`
-		Nome            string    `json:"nome"`
-		CodigoEstudante string    `json:"codigo_estudante"`
-		BilheteID       *string   `json:"bilhete_identidade"`
-		CodigoAcademia  *string   `json:"codigo_academia"`
-		AnoEscolar      *string   `json:"ano_escolar"`
-		AnoSuperior     *string   `json:"ano_superior"`
-		StatusEscolar   string    `json:"status_escolar"`
-		StatusSuperior  string    `json:"status_superior"`
-		CreatedAt       string    `json:"created_at"`
-		TotalNotas      int       `json:"total_notas"`
-		TotalFaltas     int       `json:"total_faltas"`
-		TotalInscricoes int       `json:"total_inscricoes"`
-	}
-
-	var estudantes []EstudanteSimples
 	client := getDbClient(c)
+	_ = getEstudanteProjection(c)
 
 	if userType == "academia" {
 		academiaProj := getAcademiaProjection(c)
@@ -207,9 +184,11 @@ func ListarEstudantes(c *gin.Context) {
 
 		safeCodigoAcademia := db.SafeString(academiaDTO.CodigoAcademia)
 		query := fmt.Sprintf(`
-			SELECT id, nome, codigo_estudante, bilhete_identidade, ano_superior,
-				codigo_academia, ano_escolar, status_escolar, status_superior,
-				created_at, total_notas, total_faltas, total_inscricoes
+			SELECT id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
+				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
+				status, status_escolar, status_superior, ano_escolar, ano_superior,
+				curso_medio, curso_superior, created_at, updated_at, total_notas,
+				total_faltas, total_inscricoes, version
 			FROM projection_estudantes
 			WHERE codigo_academia = '%s'
 			ORDER BY created_at DESC
@@ -222,12 +201,42 @@ func ListarEstudantes(c *gin.Context) {
 		}
 		defer rows.Close()
 
+		var estudantes []map[string]interface{}
 		for rows.Next() {
-			var est EstudanteSimples
-			if err := rows.Scan(&est.ID, &est.Nome, &est.CodigoEstudante, &est.BilheteID, &est.AnoSuperior,
-				&est.CodigoAcademia, &est.AnoEscolar, &est.StatusEscolar, &est.StatusSuperior,
-				&est.CreatedAt, &est.TotalNotas, &est.TotalFaltas, &est.TotalInscricoes); err == nil {
-				estudantes = append(estudantes, est)
+			var est projections.EstudanteDTO
+			if err := rows.Scan(&est.ID, &est.Nome, &est.CodigoEstudante, &est.SenhaHash,
+				&est.Email, &est.Telefone, &est.EmailVerificado,
+				&est.BilheteIdentidade, &est.BilheteIdentidadeResp, &est.CodigoAcademia,
+				&est.Status, &est.StatusEscolar, &est.StatusSuperior,
+				&est.AnoEscolar, &est.AnoSuperior, &est.CursoMedio, &est.CursoSuperior,
+				&est.CreatedAt, &est.UpdatedAt, &est.TotalNotas, &est.TotalFaltas,
+				&est.TotalInscricoes, &est.Version); err == nil {
+				
+				estudanteMap := map[string]interface{}{
+					"id":                             est.ID,
+					"nome":                           est.Nome,
+					"codigo_estudante":               est.CodigoEstudante,
+					"email":                          est.Email,
+					"telefone":                       est.Telefone,
+					"email_verificado":               est.EmailVerificado,
+					"bilhete_identidade":             est.BilheteIdentidade,
+					"bilhete_identidade_responsavel": est.BilheteIdentidadeResp,
+					"codigo_academia":                est.CodigoAcademia,
+					"status":                         est.Status,
+					"status_escolar":                 est.StatusEscolar,
+					"status_superior":                est.StatusSuperior,
+					"ano_escolar":                    est.AnoEscolar,
+					"ano_superior":                   est.AnoSuperior,
+					"curso_medio":                    est.CursoMedio,
+					"curso_superior":                 est.CursoSuperior,
+					"created_at":                     est.CreatedAt,
+					"updated_at":                     est.UpdatedAt,
+					"total_notas":                    est.TotalNotas,
+					"total_faltas":                   est.TotalFaltas,
+					"total_inscricoes":               est.TotalInscricoes,
+					"version":                        est.Version,
+				}
+				estudantes = append(estudantes, estudanteMap)
 			}
 		}
 
@@ -241,9 +250,11 @@ func ListarEstudantes(c *gin.Context) {
 
 	} else if userType == "admin" {
 		query := `
-			SELECT id, nome, codigo_estudante, bilhete_identidade,
-				codigo_academia, ano_escolar, status_escolar, status_superior,
-				created_at, total_notas, total_faltas, total_inscricoes
+			SELECT id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
+				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
+				status, status_escolar, status_superior, ano_escolar, ano_superior,
+				curso_medio, curso_superior, created_at, updated_at, total_notas,
+				total_faltas, total_inscricoes, version
 			FROM projection_estudantes
 			ORDER BY created_at DESC
 		`
@@ -255,12 +266,42 @@ func ListarEstudantes(c *gin.Context) {
 		}
 		defer rows.Close()
 
+		var estudantes []map[string]interface{}
 		for rows.Next() {
-			var est EstudanteSimples
-			if err := rows.Scan(&est.ID, &est.Nome, &est.CodigoEstudante, &est.BilheteID,
-				&est.CodigoAcademia, &est.AnoEscolar, &est.StatusEscolar, &est.StatusSuperior,
-				&est.CreatedAt, &est.TotalNotas, &est.TotalFaltas, &est.TotalInscricoes); err == nil {
-				estudantes = append(estudantes, est)
+			var est projections.EstudanteDTO
+			if err := rows.Scan(&est.ID, &est.Nome, &est.CodigoEstudante, &est.SenhaHash,
+				&est.Email, &est.Telefone, &est.EmailVerificado,
+				&est.BilheteIdentidade, &est.BilheteIdentidadeResp, &est.CodigoAcademia,
+				&est.Status, &est.StatusEscolar, &est.StatusSuperior,
+				&est.AnoEscolar, &est.AnoSuperior, &est.CursoMedio, &est.CursoSuperior,
+				&est.CreatedAt, &est.UpdatedAt, &est.TotalNotas, &est.TotalFaltas,
+				&est.TotalInscricoes, &est.Version); err == nil {
+				
+				estudanteMap := map[string]interface{}{
+					"id":                             est.ID,
+					"nome":                           est.Nome,
+					"codigo_estudante":               est.CodigoEstudante,
+					"email":                          est.Email,
+					"telefone":                       est.Telefone,
+					"email_verificado":               est.EmailVerificado,
+					"bilhete_identidade":             est.BilheteIdentidade,
+					"bilhete_identidade_responsavel": est.BilheteIdentidadeResp,
+					"codigo_academia":                est.CodigoAcademia,
+					"status":                         est.Status,
+					"status_escolar":                 est.StatusEscolar,
+					"status_superior":                est.StatusSuperior,
+					"ano_escolar":                    est.AnoEscolar,
+					"ano_superior":                   est.AnoSuperior,
+					"curso_medio":                    est.CursoMedio,
+					"curso_superior":                 est.CursoSuperior,
+					"created_at":                     est.CreatedAt,
+					"updated_at":                     est.UpdatedAt,
+					"total_notas":                    est.TotalNotas,
+					"total_faltas":                   est.TotalFaltas,
+					"total_inscricoes":               est.TotalInscricoes,
+					"version":                        est.Version,
+				}
+				estudantes = append(estudantes, estudanteMap)
 			}
 		}
 

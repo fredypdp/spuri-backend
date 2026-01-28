@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 	"spuri/internal/domain/aggregates"
@@ -9,19 +10,28 @@ import (
 	"github.com/google/uuid"
 )
 
-// ListarTodosAdmins lista todos os administradores (apenas ADM+)
+// ListarTodosAdmins retorna lista completa de admins
 func ListarTodosAdmins(c *gin.Context) {
 	adminProj := getAdminProjection(c)
-	
 	admins, err := adminProj.GetAll()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar administradores"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar admins"})
 		return
 	}
 
+	// Remove senha de todos
+	var adminsResponse []map[string]interface{}
+	for _, admin := range admins {
+		adminBytes, _ := json.Marshal(admin)
+		var adminMap map[string]interface{}
+		json.Unmarshal(adminBytes, &adminMap)
+		delete(adminMap, "senha_hash")
+		adminsResponse = append(adminsResponse, adminMap)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"admins": admins,
-		"total":  len(admins),
+		"admins": adminsResponse,
+		"total":  len(adminsResponse),
 	})
 }
 
