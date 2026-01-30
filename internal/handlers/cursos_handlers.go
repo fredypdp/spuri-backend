@@ -299,3 +299,109 @@ func ListarMaterias(c *gin.Context) {
 		"total":    len(materias),
 	})
 }
+
+// AtivarMateria ativa uma matéria (academia)
+func AtivarMateria(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+
+	materiaID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
+		return
+	}
+
+	// Verificar propriedade
+	materiasProj := getMateriasProjection(c)
+	materiaDTO, err := materiasProj.GetByID(materiaID)
+	if err != nil || materiaDTO == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "matéria não encontrada"})
+		return
+	}
+
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, _ := academiaProj.GetByID(userID)
+	if academiaDTO == nil || academiaDTO.CodigoAcademia != materiaDTO.CodigoAcademia {
+		c.JSON(http.StatusForbidden, gin.H{"error": "matéria não pertence a esta academia"})
+		return
+	}
+
+	// Carregar e ativar
+	repository := getRepository(c)
+	materiaAgg, err := repository.Load(materiaID, "MateriaDisciplinar")
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "matéria não encontrada"})
+		return
+	}
+
+	materia := materiaAgg.(*aggregates.MateriaDisciplinar)
+
+	if err := materia.Ativar(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := repository.Save(materia); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao ativar matéria"})
+		return
+	}
+
+	log.Printf("Matéria ativada: %s", materia.Nome)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "matéria ativada com sucesso",
+		"nome":    materia.Nome,
+	})
+}
+
+// DesativarMateria desativa uma matéria (academia)
+func DesativarMateria(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+
+	materiaID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
+		return
+	}
+
+	// Verificar propriedade
+	materiasProj := getMateriasProjection(c)
+	materiaDTO, err := materiasProj.GetByID(materiaID)
+	if err != nil || materiaDTO == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "matéria não encontrada"})
+		return
+	}
+
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, _ := academiaProj.GetByID(userID)
+	if academiaDTO == nil || academiaDTO.CodigoAcademia != materiaDTO.CodigoAcademia {
+		c.JSON(http.StatusForbidden, gin.H{"error": "matéria não pertence a esta academia"})
+		return
+	}
+
+	// Carregar e desativar
+	repository := getRepository(c)
+	materiaAgg, err := repository.Load(materiaID, "MateriaDisciplinar")
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "matéria não encontrada"})
+		return
+	}
+
+	materia := materiaAgg.(*aggregates.MateriaDisciplinar)
+
+	if err := materia.Desativar(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := repository.Save(materia); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao desativar matéria"})
+		return
+	}
+
+	log.Printf("Matéria desativada: %s", materia.Nome)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "matéria desativada com sucesso",
+		"nome":    materia.Nome,
+	})
+}
