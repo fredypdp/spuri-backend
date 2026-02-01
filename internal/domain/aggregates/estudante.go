@@ -508,8 +508,8 @@ func (e *Estudante) applyAprovacaoAnoRegistrada(event DomainEvent) error {
 		if strings.Contains(ev.NivelAtual, "medio") || strings.Contains(ev.NivelAtual, "fundamental") {
 			e.AnoEscolar = ev.NivelSeguinte
 			
-			// Se finalizou médio
-			if ev.NivelAtual == "terceiro_medio" {
+			// Se finalizou médio (CORRIGIDO)
+			if ev.NivelAtual == "quarto_medio" {
 				e.StatusEscolar = "finalizado"
 			}
 		} else {
@@ -685,7 +685,7 @@ func getProximoNivel(nivelAtual, tipo string) string {
 		"primeiro_fundamental", "segundo_fundamental", "terceiro_fundamental",
 		"quarto_fundamental", "quinto_fundamental", "sexto_fundamental",
 		"setimo_fundamental", "oitavo_fundamental", "nono_fundamental",
-		"primeiro_medio", "segundo_medio", "terceiro_medio",
+		"primeiro_medio", "segundo_medio", "terceiro_medio", "quarto_medio",
 	}
 	
 	niveisSuperior := []string{

@@ -367,6 +367,7 @@ func ValidateNivelCurso(tipo string, nivel []string) error {
 			"primeiro_medio": true,
 			"segundo_medio":  true,
 			"terceiro_medio": true,
+			"quarto_medio":   true,
 		}
 		
 		for i, n := range nivel {
