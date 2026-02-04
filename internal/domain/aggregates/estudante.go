@@ -177,14 +177,17 @@ func (e *Estudante) CriarComVinculo(
 	telefone *string,
 	bilhete *string,
 	bilheteResp *string,
-	anoEscolar *string,
-	anoSuperior *string,
+	anoEscolar *string,      // ✅ RECEBENDO
+	anoSuperior *string,     // ✅ RECEBENDO
 	cursoMedioID *uuid.UUID,
 	cursoSuperiorID *uuid.UUID,
 	statusEscolar *string,
 	statusSuperior *string,
-	codigoAcademia string, // 🔥 DIFERENÇA: já recebe o código da academia
+	codigoAcademia string,
 ) error {
+	// ✅ LOG DOS VALORES RECEBIDOS
+	log.Printf("[DEBUG] CriarComVinculo chamado - AnoEscolar: %v, AnoSuperior: %v", anoEscolar, anoSuperior)
+	
 	if nome == "" || codigoEstudante == "" || senhaHash == "" {
 		return fmt.Errorf("campos obrigatórios vazios")
 	}
@@ -214,6 +217,7 @@ func (e *Estudante) CriarComVinculo(
 		statusSup = *statusSuperior
 	}
 
+	// ✅ CRIAR O EVENTO COM OS VALORES RECEBIDOS
 	event := &EstudanteCriadoComVinculoEvent{
 		BaseEvent:             BaseEvent{EventType: "EstudanteCriadoComVinculo", AggregateID: e.ID},
 		Nome:                  nome,
@@ -223,15 +227,19 @@ func (e *Estudante) CriarComVinculo(
 		Telefone:              telefone,
 		BilheteIdentidade:     bilhete,
 		BilheteIdentidadeResp: bilheteResp,
-		AnoEscolar:            anoEscolar,
-		AnoSuperior:           anoSuperior,
+		AnoEscolar:            anoEscolar,      // ✅ PASSAR AQUI
+		AnoSuperior:           anoSuperior,     // ✅ PASSAR AQUI
 		CursoMedioID:          cursoMedioID,
 		CursoSuperiorID:       cursoSuperiorID,
 		StatusEscolar:         statusEsc,
 		StatusSuperior:        statusSup,
-		CodigoAcademia:        codigoAcademia, // 🔥 JÁ VINCULADO
+		CodigoAcademia:        codigoAcademia,
 		CreatedAt:             time.Now(),
 	}
+
+	// ✅ LOG DO EVENTO ANTES DE LEVANTAR
+	log.Printf("[DEBUG] Evento criado - AnoEscolar no evento: %v, AnoSuperior no evento: %v", 
+		event.AnoEscolar, event.AnoSuperior)
 
 	e.RaiseEvent(event)
 	return e.Apply(event)

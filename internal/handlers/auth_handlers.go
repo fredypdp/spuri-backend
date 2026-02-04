@@ -398,6 +398,10 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		return
 	}
 
+	// ✅ LOG DO PAYLOAD RECEBIDO
+	log.Printf("[DEBUG] Payload recebido - AnoEscolar: %v, AnoSuperior: %v, CursoMedioID: %v", 
+		req.AnoEscolar, req.AnoSuperior, req.CursoMedioID)
+
 	// Validações básicas
 	if err := utils.ValidateNome(req.Nome); err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -479,7 +483,7 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		}
 	}
 
-	// 🔥 OBTER ACADEMIA LOGADA
+	// Obter academia logada
 	academiaID, ok := middleware.GetUserID(c)
 	if !ok {
 		utils.RespondWithUnauthorizedError(c)
@@ -511,10 +515,15 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		return
 	}
 
-	// 🔥 CRIAR ESTUDANTE JÁ VINCULADO
+	// ✅ LOG ANTES DE CRIAR
+	log.Printf("[DEBUG] Chamando CriarComVinculo - AnoEscolar: %v, AnoSuperior: %v", 
+		req.AnoEscolar, req.AnoSuperior)
+
+	// Criar estudante já vinculado
 	repository := getRepository(c)
 	estudante := aggregates.NewEstudante()
 
+	// ✅ GARANTIR QUE OS VALORES ESTÃO SENDO PASSADOS
 	if err := estudante.CriarComVinculo(
 		req.Nome,
 		codigoEstudante,
@@ -523,13 +532,13 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		req.Telefone,
 		req.BilheteIdentidade,
 		req.BilheteIdentidadeResp,
-		req.AnoEscolar,
-		req.AnoSuperior,
+		req.AnoEscolar,          // ✅ PASSAR O VALOR DO REQUEST
+		req.AnoSuperior,         // ✅ PASSAR O VALOR DO REQUEST
 		req.CursoMedioID,
 		req.CursoSuperiorID,
 		req.StatusEscolar,
 		req.StatusSuperior,
-		academia.CodigoAcademia, // 🔥 JÁ VINCULADO
+		academia.CodigoAcademia,
 	); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -550,6 +559,8 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 			"codigo_estudante": codigoEstudante,
 			"codigo_academia":  academia.CodigoAcademia,
 			"status":           "ativo",
+			"ano_escolar":      req.AnoEscolar,    // ✅ RETORNAR TAMBÉM
+			"ano_superior":     req.AnoSuperior,   // ✅ RETORNAR TAMBÉM
 		},
 	})
 }

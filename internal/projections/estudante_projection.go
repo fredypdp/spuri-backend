@@ -189,8 +189,11 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 	}
 
 	// ✅ DEBUG: Verificar se ano_escolar está vindo no payload
-	log.Printf("[DEBUG] EstudanteCriadoComVinculo - AnoEscolar: %v, AnoSuperior: %v", payload.AnoEscolar, payload.AnoSuperior)
-	log.Printf("[DEBUG] Criando estudante já vinculado: %s -> academia: %s", payload.CodigoEstudante, payload.CodigoAcademia)
+	log.Printf("[DEBUG] EstudanteCriadoComVinculo - AnoEscolar: %v, AnoSuperior: %v", 
+		payload.AnoEscolar, payload.AnoSuperior)
+
+	log.Printf("[DEBUG] Criando estudante já vinculado: %s -> academia: %s", 
+		payload.CodigoEstudante, payload.CodigoAcademia)
 
 	// 🔥 IMPORTANTE: Garantir que NULL seja passado corretamente se os valores forem nil
 	anoEscolarStr := "NULL"
