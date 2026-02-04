@@ -32,14 +32,15 @@ func (p *EstudanteProjection) Handle(event db.Event) error {
 	}
 
 	handlers := map[string]func(db.Event) error{
-		"EstudanteCriado":            p.handleEstudanteCriado,
-		"InscricaoAprovada":          p.handleInscricaoAprovada,
-		"EstudanteVinculado":         p.handleEstudanteVinculado,
-		"StatusEscolarAtualizado":    p.handleStatusEscolarAtualizado,
-		"StatusSuperiorAtualizado":   p.handleStatusSuperiorAtualizado,
-		"DadosPessoaisAtualizados":   p.handleDadosPessoaisAtualizados,
+		"EstudanteCriado": p.handleEstudanteCriado,
+		"InscricaoAprovada": p.handleInscricaoAprovada,
+		"EstudanteVinculado": p.handleEstudanteVinculado,
+		"StatusEscolarAtualizado": p.handleStatusEscolarAtualizado,
+		"StatusSuperiorAtualizado": p.handleStatusSuperiorAtualizado,
+		"DadosPessoaisAtualizados": p.handleDadosPessoaisAtualizados,
 		"DadosAcademicosAtualizados": p.handleDadosAcademicosAtualizados,
-		"EmailVerificado":            p.handleEmailVerificado,
+		"EmailVerificado": p.handleEmailVerificado,
+		"CursoAlterado": p.handleCursoAlterado,
 	}
 
 	if handler, ok := handlers[event.EventType]; ok {
@@ -284,7 +285,6 @@ func (p *EstudanteProjection) handleDadosPessoaisAtualizados(event db.Event) err
 	return err
 }
 
-// 🔥 ATUALIZADO
 func (p *EstudanteProjection) handleDadosAcademicosAtualizados(event db.Event) error {
 	var payload struct {
 		AnoEscolar, AnoSuperior       *string
@@ -325,6 +325,35 @@ func (p *EstudanteProjection) handleDadosAcademicosAtualizados(event db.Event) e
 		SET version = %d, updated_at = CURRENT_TIMESTAMP, last_event_id = '%s'
 		WHERE id = '%s'
 	`, event.EventVersion, event.EventID, event.AggregateID)
+	
+	_, err := p.client.DB().Exec(query)
+	return err
+}
+
+func (p *EstudanteProjection) handleCursoAlterado(event db.Event) error {
+	var payload struct {
+		TipoEnsino string
+		CursoID    uuid.UUID
+	}
+
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return err
+	}
+
+	var query string
+	if payload.TipoEnsino == "medio" {
+		query = fmt.Sprintf(`
+			UPDATE projection_estudantes 
+			SET curso_medio_id = '%s', version = %d, updated_at = CURRENT_TIMESTAMP, last_event_id = '%s'
+			WHERE id = '%s'
+		`, payload.CursoID, event.EventVersion, event.EventID, event.AggregateID)
+	} else {
+		query = fmt.Sprintf(`
+			UPDATE projection_estudantes 
+			SET curso_superior_id = '%s', version = %d, updated_at = CURRENT_TIMESTAMP, last_event_id = '%s'
+			WHERE id = '%s'
+		`, payload.CursoID, event.EventVersion, event.EventID, event.AggregateID)
+	}
 	
 	_, err := p.client.DB().Exec(query)
 	return err

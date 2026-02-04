@@ -96,6 +96,8 @@ func (e *Estudante) Apply(event DomainEvent) error {
 		return e.applyEmailVerificado(event)
 	case "AprovacaoAnoRegistrada":
 		return e.applyAprovacaoAnoRegistrada(event)
+	case "CursoAlterado":
+		return e.applyCursoAlterado(event)
 	default:
 		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
 	}
@@ -474,6 +476,41 @@ func (e *Estudante) AtualizarDadosAcademicos(anoEscolar *string, anoSuperior *st
 	return e.Apply(event)
 }
 
+func (e *Estudante) AlterarCurso(tipoEnsino string, cursoID uuid.UUID) error {
+	if e.CodigoAcademia == nil {
+		return fmt.Errorf("estudante não está vinculado a nenhuma academia")
+	}
+
+	if tipoEnsino != "medio" && tipoEnsino != "superior" {
+		return fmt.Errorf("tipo de ensino deve ser 'medio' ou 'superior'")
+	}
+
+	if cursoID == uuid.Nil {
+		return fmt.Errorf("curso_id inválido")
+	}
+
+	// Validar se pode alterar curso baseado no status
+	if tipoEnsino == "medio" {
+		if e.StatusEscolar != "em_andamento" {
+			return fmt.Errorf("só pode alterar curso médio se status_escolar for 'em_andamento'")
+		}
+	} else {
+		if e.StatusSuperior != "em_andamento" {
+			return fmt.Errorf("só pode alterar curso superior se status_superior for 'em_andamento'")
+		}
+	}
+
+	event := &CursoAlteradoEvent{
+		BaseEvent:   BaseEvent{EventType: "CursoAlterado", AggregateID: e.ID},
+		TipoEnsino:  tipoEnsino,
+		CursoID:     cursoID,
+		AlteredAt:   time.Now(),
+	}
+
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
 // Event Handlers
 func (e *Estudante) applyEstudanteCriado(event DomainEvent) error {
 	payload := event.GetPayload()
@@ -697,6 +734,23 @@ func (e *Estudante) applyDadosAcademicosAtualizados(event DomainEvent) error {
 	return nil
 }
 
+func (e *Estudante) applyCursoAlterado(event DomainEvent) error {
+	payload := event.GetPayload()
+	data, _ := json.Marshal(payload)
+	var ev CursoAlteradoEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+
+	if ev.TipoEnsino == "medio" {
+		e.CursoMedioID = &ev.CursoID
+	} else {
+		e.CursoSuperiorID = &ev.CursoID
+	}
+	
+	return nil
+}
+
 func getProximoNivel(nivelAtual, tipo string) string {
 	niveisEscolar := []string{
 		"primeiro_fundamental", "segundo_fundamental", "terceiro_fundamental",
@@ -866,6 +920,13 @@ type DadosAcademicosAtualizadosEvent struct {
 	CursoMedioID    *uuid.UUID // 🔥 MUDOU
 	CursoSuperiorID *uuid.UUID // 🔥 MUDOU
 	UpdatedAt       time.Time
+}
+
+type CursoAlteradoEvent struct {
+	BaseEvent
+	TipoEnsino string
+	CursoID    uuid.UUID
+	AlteredAt  time.Time
 }
 
 func (e *DadosAcademicosAtualizadosEvent) GetPayload() interface{} { return e }

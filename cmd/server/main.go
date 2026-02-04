@@ -163,6 +163,7 @@ func setupRouter() *gin.Engine {
 		protected.GET("/verificar-integridade/:codigo", handlers.VerificarIntegridade)
 		protected.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)
 		protected.GET("/consultar-academia/:codigo", handlers.GetAcademiaPorCodigo)
+		protected.GET("/inscricoes/estudante/:codigo", handlers.GetInscricoesPorCodigoEstudante)
 		protected.GET("/estudantes", handlers.ListarEstudantes)
 		protected.GET("/aprovacoes-estudante/:codigo", handlers.GetAprovacoesEstudante)
 	}
@@ -182,6 +183,7 @@ func setupRouter() *gin.Engine {
 		estudante.PUT("/dados-pessoais", handlers.AtualizarDadosPessoaisEstudante)
 		estudante.PUT("/dados-academicos", handlers.AtualizarDadosAcademicosEstudante)
 		estudante.GET("/minhas-aprovacoes", handlers.GetMinhasAprovacoes)
+		estudante.GET("/inscricoes/:codigo", handlers.GetInscricoesPorCodigoEstudante)
 	}
 
 	academia := router.Group("/academia")
@@ -207,6 +209,8 @@ func setupRouter() *gin.Engine {
 		academia.POST("/aprovacao-ano", handlers.RegistrarAprovacaoAno)
 		academia.PUT("/materias/:id/ativar", handlers.AtivarMateria)
 		academia.PUT("/materias/:id/desativar", handlers.DesativarMateria)
+		academia.GET("/inscricoes/estudante/:codigo", handlers.GetInscricoesPorCodigoEstudante)
+		academia.PUT("/estudante/:codigo/curso", handlers.AlterarCursoEstudante)
 	}
 
 	admin := router.Group("/admin")
