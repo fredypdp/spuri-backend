@@ -188,8 +188,20 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 		return fmt.Errorf("dados obrigatórios inválidos")
 	}
 
-	log.Printf("[DEBUG] Criando estudante já vinculado: %s -> academia: %s", 
-		payload.CodigoEstudante, payload.CodigoAcademia)
+	// ✅ DEBUG: Verificar se ano_escolar está vindo no payload
+	log.Printf("[DEBUG] EstudanteCriadoComVinculo - AnoEscolar: %v, AnoSuperior: %v", payload.AnoEscolar, payload.AnoSuperior)
+	log.Printf("[DEBUG] Criando estudante já vinculado: %s -> academia: %s", payload.CodigoEstudante, payload.CodigoAcademia)
+
+	// 🔥 IMPORTANTE: Garantir que NULL seja passado corretamente se os valores forem nil
+	anoEscolarStr := "NULL"
+	if payload.AnoEscolar != nil && *payload.AnoEscolar != "" {
+		anoEscolarStr = fmt.Sprintf("'%s'", db.SafeString(*payload.AnoEscolar))
+	}
+
+	anoSuperiorStr := "NULL"
+	if payload.AnoSuperior != nil && *payload.AnoSuperior != "" {
+		anoSuperiorStr = fmt.Sprintf("'%s'", db.SafeString(*payload.AnoSuperior))
+	}
 
 	// 🔥 JÁ INSERE COM codigo_academia E status='ativo'
 	query := fmt.Sprintf(`
@@ -217,11 +229,14 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 		nullOrString(payload.BilheteIdentidade), nullOrString(payload.BilheteIdentidadeResp),
 		db.SafeString(payload.CodigoAcademia), // 🔥 JÁ VINCULADO
 		db.SafeString(payload.StatusEscolar), db.SafeString(payload.StatusSuperior),
-		nullOrString(payload.AnoEscolar), nullOrString(payload.AnoSuperior),
+		anoEscolarStr, anoSuperiorStr, // ✅ USANDO STRINGS FORMATADAS CORRETAMENTE
 		nullOrUUID(payload.CursoMedioID), nullOrUUID(payload.CursoSuperiorID),
 		event.EventVersion, payload.CreatedAt.Format(time.RFC3339), event.EventID)
 
+	log.Printf("[DEBUG] Query: %s", query) // ✅ LOG DA QUERY PARA DEBUG
+
 	if _, err := p.client.DB().Exec(query); err != nil {
+		log.Printf("[ERROR] Falha ao inserir estudante: %v", err)
 		return err
 	}
 
