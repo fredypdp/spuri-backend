@@ -8,6 +8,7 @@ package aggregates
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
