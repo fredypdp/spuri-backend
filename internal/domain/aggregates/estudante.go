@@ -98,6 +98,8 @@ func (e *Estudante) Apply(event DomainEvent) error {
 		return e.applyAprovacaoAnoRegistrada(event)
 	case "CursoAlterado":
 		return e.applyCursoAlterado(event)
+	case "EstudanteCriadoComVinculo":
+		return e.applyEstudanteCriadoComVinculo(event)
 	default:
 		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
 	}
@@ -159,6 +161,75 @@ func (e *Estudante) Criar(
 		CursoSuperiorID:       cursoSuperiorID,   // 🔥 MUDOU
 		StatusEscolar:         statusEsc,
 		StatusSuperior:        statusSup,
+		CreatedAt:             time.Now(),
+	}
+
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
+// CriarComVinculo cria estudante já vinculado a uma academia (usado por academias)
+func (e *Estudante) CriarComVinculo(
+	nome string,
+	codigoEstudante string,
+	senhaHash string,
+	email *string,
+	telefone *string,
+	bilhete *string,
+	bilheteResp *string,
+	anoEscolar *string,
+	anoSuperior *string,
+	cursoMedioID *uuid.UUID,
+	cursoSuperiorID *uuid.UUID,
+	statusEscolar *string,
+	statusSuperior *string,
+	codigoAcademia string, // 🔥 DIFERENÇA: já recebe o código da academia
+) error {
+	if nome == "" || codigoEstudante == "" || senhaHash == "" {
+		return fmt.Errorf("campos obrigatórios vazios")
+	}
+	
+	if bilhete == nil && bilheteResp == nil {
+		return fmt.Errorf("pelo menos um bilhete de identidade é obrigatório")
+	}
+
+	if codigoAcademia == "" {
+		return fmt.Errorf("código da academia é obrigatório")
+	}
+
+	statusEsc := "inativo"
+	statusSup := "inativo"
+	
+	if statusEscolar != nil {
+		if *statusEscolar != "inativo" && *statusEscolar != "em_andamento" && *statusEscolar != "finalizado" {
+			return fmt.Errorf("status_escolar inválido")
+		}
+		statusEsc = *statusEscolar
+	}
+	
+	if statusSuperior != nil {
+		if *statusSuperior != "inativo" && *statusSuperior != "em_andamento" && *statusSuperior != "finalizado" {
+			return fmt.Errorf("status_superior inválido")
+		}
+		statusSup = *statusSuperior
+	}
+
+	event := &EstudanteCriadoComVinculoEvent{
+		BaseEvent:             BaseEvent{EventType: "EstudanteCriadoComVinculo", AggregateID: e.ID},
+		Nome:                  nome,
+		CodigoEstudante:       codigoEstudante,
+		SenhaHash:             senhaHash,
+		Email:                 email,
+		Telefone:              telefone,
+		BilheteIdentidade:     bilhete,
+		BilheteIdentidadeResp: bilheteResp,
+		AnoEscolar:            anoEscolar,
+		AnoSuperior:           anoSuperior,
+		CursoMedioID:          cursoMedioID,
+		CursoSuperiorID:       cursoSuperiorID,
+		StatusEscolar:         statusEsc,
+		StatusSuperior:        statusSup,
+		CodigoAcademia:        codigoAcademia, // 🔥 JÁ VINCULADO
 		CreatedAt:             time.Now(),
 	}
 
@@ -540,6 +611,35 @@ func (e *Estudante) applyEstudanteCriado(event DomainEvent) error {
 	return nil
 }
 
+func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
+	payload := event.GetPayload()
+	data, _ := json.Marshal(payload)
+	var ev EstudanteCriadoComVinculoEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+
+	e.ID = event.GetAggregateID()
+	e.Nome = ev.Nome
+	e.CodigoEstudante = ev.CodigoEstudante
+	e.SenhaHash = ev.SenhaHash
+	e.Email = ev.Email
+	e.Telefone = ev.Telefone
+	e.EmailVerificado = false
+	e.BilheteIdentidade = ev.BilheteIdentidade
+	e.BilheteIdentidadeResp = ev.BilheteIdentidadeResp
+	e.AnoEscolar = ev.AnoEscolar
+	e.AnoSuperior = ev.AnoSuperior
+	e.CursoMedioID = ev.CursoMedioID
+	e.CursoSuperiorID = ev.CursoSuperiorID
+	e.CodigoAcademia = &ev.CodigoAcademia // 🔥 JÁ VINCULADO
+	e.Status = "ativo"                     // 🔥 JÁ ATIVO
+	e.StatusEscolar = ev.StatusEscolar
+	e.StatusSuperior = ev.StatusSuperior
+	e.CreatedAt = ev.CreatedAt
+	return nil
+}
+
 func (e *Estudante) applyEmailVerificado(event DomainEvent) error {
 	e.EmailVerificado = true
 	return nil
@@ -801,6 +901,27 @@ type EstudanteCriadoEvent struct {
 }
 
 func (e *EstudanteCriadoEvent) GetPayload() interface{} { return e }
+
+type EstudanteCriadoComVinculoEvent struct {
+	BaseEvent
+	Nome                  string
+	CodigoEstudante       string
+	SenhaHash             string
+	Email                 *string
+	Telefone              *string
+	BilheteIdentidade     *string
+	BilheteIdentidadeResp *string
+	AnoEscolar            *string
+	AnoSuperior           *string
+	CursoMedioID          *uuid.UUID
+	CursoSuperiorID       *uuid.UUID
+	StatusEscolar         string
+	StatusSuperior        string
+	CodigoAcademia        string // 🔥 DIFERENÇA
+	CreatedAt             time.Time
+}
+
+func (e *EstudanteCriadoComVinculoEvent) GetPayload() interface{} { return e }
 
 type NotasRegistradasEvent struct {
 	BaseEvent

@@ -211,6 +211,7 @@ func setupRouter() *gin.Engine {
 		academia.PUT("/materias/:id/desativar", handlers.DesativarMateria)
 		academia.GET("/inscricoes/estudante/:codigo", handlers.GetInscricoesPorCodigoEstudante)
 		academia.PUT("/estudante/:codigo/curso", handlers.AlterarCursoEstudante)
+		academia.POST("/estudante/register", handlers.RegisterEstudantePorAcademia)
 	}
 
 	admin := router.Group("/admin")

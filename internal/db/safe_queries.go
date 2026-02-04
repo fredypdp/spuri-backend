@@ -95,6 +95,7 @@ func ValidateEventType(eventType string) error {
 		"AcaoAdminRegistrada": true,
 		"AprovacaoAnoRegistrada": true,
 		"CursoAlterado": true,
+		"EstudanteCriadoComVinculo": true,
 	}
 
 	if !validTypes[eventType] {

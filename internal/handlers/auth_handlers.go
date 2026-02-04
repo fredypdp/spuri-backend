@@ -390,6 +390,170 @@ func RegisterEstudante(c *gin.Context) {
 	})
 }
 
+// RegisterEstudantePorAcademia - Academia cadastra estudante já vinculado
+func RegisterEstudantePorAcademia(c *gin.Context) {
+	var req RegisterEstudanteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	// Validações básicas
+	if err := utils.ValidateNome(req.Nome); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if err := utils.ValidateSenha(req.Senha); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if req.Email != nil {
+		if err := utils.ValidateEmail(*req.Email); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+	}
+
+	if req.Telefone != nil {
+		if err := utils.ValidatePhone(*req.Telefone); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+	}
+
+	if err := utils.ValidateBilhete(utils.SafeDeref(req.BilheteIdentidade)); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if err := utils.ValidateBilhete(utils.SafeDeref(req.BilheteIdentidadeResp)); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if req.BilheteIdentidade == nil && req.BilheteIdentidadeResp == nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("pelo menos um bilhete de identidade é obrigatório"))
+		return
+	}
+
+	// Verificar bilhete existente
+	if req.BilheteIdentidade != nil && *req.BilheteIdentidade != "" {
+		estudanteProj := getEstudanteProjection(c)
+		existente, err := estudanteProj.GetByBilheteIdentidadePrincipal(*req.BilheteIdentidade)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		if existente != nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("bilhete de identidade já cadastrado"))
+			return
+		}
+	}
+
+	// Validar cursos se fornecidos
+	if req.CursoMedioID != nil && *req.CursoMedioID != uuid.Nil {
+		cursosProj := getCursosProjection(c)
+		curso, _ := cursosProj.GetByID(*req.CursoMedioID)
+		if curso == nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("curso_medio_id não encontrado"))
+			return
+		}
+		if curso.Type != "medio" {
+			utils.RespondWithValidationError(c, fmt.Errorf("curso_medio_id deve ser do tipo 'medio'"))
+			return
+		}
+	}
+
+	if req.CursoSuperiorID != nil && *req.CursoSuperiorID != uuid.Nil {
+		cursosProj := getCursosProjection(c)
+		curso, _ := cursosProj.GetByID(*req.CursoSuperiorID)
+		if curso == nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("curso_superior_id não encontrado"))
+			return
+		}
+		if curso.Type != "superior" {
+			utils.RespondWithValidationError(c, fmt.Errorf("curso_superior_id deve ser do tipo 'superior'"))
+			return
+		}
+	}
+
+	// 🔥 OBTER ACADEMIA LOGADA
+	academiaID, ok := middleware.GetUserID(c)
+	if !ok {
+		utils.RespondWithUnauthorizedError(c)
+		return
+	}
+
+	academiaProj := getAcademiaProjection(c)
+	academia, err := academiaProj.GetByID(academiaID)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if academia == nil {
+		utils.RespondWithError(c, http.StatusNotFound, "academia não encontrada", nil)
+		return
+	}
+
+	// Gerar código único
+	client := getDbClient(c)
+	codigoEstudante, err := utils.GenerateUniqueCodigoEstudante(client.DB())
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Senha), bcrypt.DefaultCost)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	// 🔥 CRIAR ESTUDANTE JÁ VINCULADO
+	repository := getRepository(c)
+	estudante := aggregates.NewEstudante()
+
+	if err := estudante.CriarComVinculo(
+		req.Nome,
+		codigoEstudante,
+		string(hashedPassword),
+		req.Email,
+		req.Telefone,
+		req.BilheteIdentidade,
+		req.BilheteIdentidadeResp,
+		req.AnoEscolar,
+		req.AnoSuperior,
+		req.CursoMedioID,
+		req.CursoSuperiorID,
+		req.StatusEscolar,
+		req.StatusSuperior,
+		academia.CodigoAcademia, // 🔥 JÁ VINCULADO
+	); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if err := repository.Save(estudante); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	log.Printf("Estudante criado e vinculado pela academia %s: %s - %s", 
+		academia.CodigoAcademia, codigoEstudante, req.Nome)
+
+	c.JSON(http.StatusCreated, gin.H{
+		"message": "estudante cadastrado e vinculado com sucesso",
+		"data": gin.H{
+			"id":               estudante.ID,
+			"codigo_estudante": codigoEstudante,
+			"codigo_academia":  academia.CodigoAcademia,
+			"status":           "ativo",
+		},
+	})
+}
+
 func validarProvincia(provincia string) (string, error) {
 	provinciaInput := strings.ToUpper(strings.TrimSpace(provincia))
 

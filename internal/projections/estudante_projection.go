@@ -41,6 +41,7 @@ func (p *EstudanteProjection) Handle(event db.Event) error {
 		"DadosAcademicosAtualizados": p.handleDadosAcademicosAtualizados,
 		"EmailVerificado": p.handleEmailVerificado,
 		"CursoAlterado": p.handleCursoAlterado,
+		"EstudanteCriadoComVinculo": p.handleEstudanteCriadoComVinculo,
 	}
 
 	if handler, ok := handlers[event.EventType]; ok {
@@ -168,6 +169,72 @@ func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 
 	_, err := p.client.DB().Exec(query)
 	return err
+}
+
+func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) error {
+	var payload struct {
+		Nome, CodigoEstudante, SenhaHash, StatusEscolar, StatusSuperior, CodigoAcademia string
+		Email, Telefone, BilheteIdentidade, BilheteIdentidadeResp                       *string
+		AnoEscolar, AnoSuperior                                                         *string
+		CursoMedioID, CursoSuperiorID                                                   *uuid.UUID
+		CreatedAt                                                                        time.Time
+	}
+
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("parse error: %w", err)
+	}
+
+	if event.AggregateID == uuid.Nil || payload.SenhaHash == "" || payload.CodigoEstudante == "" {
+		return fmt.Errorf("dados obrigatórios inválidos")
+	}
+
+	log.Printf("[DEBUG] Criando estudante já vinculado: %s -> academia: %s", 
+		payload.CodigoEstudante, payload.CodigoAcademia)
+
+	// 🔥 JÁ INSERE COM codigo_academia E status='ativo'
+	query := fmt.Sprintf(`
+		INSERT INTO projection_estudantes (
+			id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
+			bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
+			status, status_escolar, status_superior, ano_escolar, ano_superior,
+			curso_medio_id, curso_superior_id, version, created_at, updated_at, last_event_id
+		) VALUES (
+			'%s', '%s', '%s', '%s', %s, %s, FALSE, %s, %s, '%s',
+			'ativo', '%s', '%s', %s, %s, %s, %s, %d, '%s', CURRENT_TIMESTAMP, '%s'
+		)
+		ON CONFLICT (id) DO UPDATE SET
+			nome = EXCLUDED.nome, codigo_estudante = EXCLUDED.codigo_estudante,
+			senha_hash = EXCLUDED.senha_hash, email = EXCLUDED.email, telefone = EXCLUDED.telefone,
+			bilhete_identidade = EXCLUDED.bilhete_identidade,
+			bilhete_identidade_responsavel = EXCLUDED.bilhete_identidade_responsavel,
+			codigo_academia = EXCLUDED.codigo_academia, status = EXCLUDED.status,
+			status_escolar = EXCLUDED.status_escolar, status_superior = EXCLUDED.status_superior,
+			ano_escolar = EXCLUDED.ano_escolar, ano_superior = EXCLUDED.ano_superior,
+			curso_medio_id = EXCLUDED.curso_medio_id, curso_superior_id = EXCLUDED.curso_superior_id,
+			version = EXCLUDED.version, updated_at = EXCLUDED.updated_at, last_event_id = EXCLUDED.last_event_id
+	`, event.AggregateID, db.SafeString(payload.Nome), db.SafeString(payload.CodigoEstudante),
+		db.SafeString(payload.SenhaHash), nullOrString(payload.Email), nullOrString(payload.Telefone),
+		nullOrString(payload.BilheteIdentidade), nullOrString(payload.BilheteIdentidadeResp),
+		db.SafeString(payload.CodigoAcademia), // 🔥 JÁ VINCULADO
+		db.SafeString(payload.StatusEscolar), db.SafeString(payload.StatusSuperior),
+		nullOrString(payload.AnoEscolar), nullOrString(payload.AnoSuperior),
+		nullOrUUID(payload.CursoMedioID), nullOrUUID(payload.CursoSuperiorID),
+		event.EventVersion, payload.CreatedAt.Format(time.RFC3339), event.EventID)
+
+	if _, err := p.client.DB().Exec(query); err != nil {
+		return err
+	}
+
+	// Atualizar total_estudantes na academia
+	updateAcademiaQuery := fmt.Sprintf(`
+		UPDATE projection_academias
+		SET total_estudantes = total_estudantes + 1, updated_at = CURRENT_TIMESTAMP
+		WHERE codigo_academia = '%s'
+	`, db.SafeString(payload.CodigoAcademia))
+	
+	p.client.DB().Exec(updateAcademiaQuery)
+
+	return nil
 }
 
 func (p *EstudanteProjection) handleInscricaoAprovada(event db.Event) error {
