@@ -62,20 +62,48 @@ func AtualizarDadosPessoaisEstudante(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+// 🔥 ATUALIZADO
 func AtualizarDadosAcademicosEstudante(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	log.Printf("[DEBUG] AtualizarDadosAcademicosEstudante - userID: %s", userID)
 
 	var req struct {
-		AnoEscolar    *string `json:"ano_escolar"`
-		AnoSuperior   *string `json:"ano_superior"`
-		CursoMedio    *string `json:"curso_medio"`
-		CursoSuperior *string `json:"curso_superior"`
+		AnoEscolar      *string    `json:"ano_escolar"`
+		AnoSuperior     *string    `json:"ano_superior"`
+		CursoMedioID    *uuid.UUID `json:"curso_medio_id"`    // 🔥 MUDOU
+		CursoSuperiorID *uuid.UUID `json:"curso_superior_id"` // 🔥 MUDOU
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
 		return
+	}
+
+	// 🔥 VALIDAR CURSOS SE FORNECIDOS
+	if req.CursoMedioID != nil && *req.CursoMedioID != uuid.Nil {
+		cursosProj := getCursosProjection(c)
+		curso, _ := cursosProj.GetByID(*req.CursoMedioID)
+		if curso == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "curso_medio_id não encontrado"})
+			return
+		}
+		if curso.Type != "medio" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "curso_medio_id deve ser do tipo 'medio'"})
+			return
+		}
+	}
+
+	if req.CursoSuperiorID != nil && *req.CursoSuperiorID != uuid.Nil {
+		cursosProj := getCursosProjection(c)
+		curso, _ := cursosProj.GetByID(*req.CursoSuperiorID)
+		if curso == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "curso_superior_id não encontrado"})
+			return
+		}
+		if curso.Type != "superior" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "curso_superior_id deve ser do tipo 'superior'"})
+			return
+		}
 	}
 
 	repository := getRepository(c)
@@ -87,7 +115,9 @@ func AtualizarDadosAcademicosEstudante(c *gin.Context) {
 	}
 
 	estudante := estudanteAgg.(*aggregates.Estudante)
-	if err := estudante.AtualizarDadosAcademicos(req.AnoEscolar, req.AnoSuperior, req.CursoMedio, req.CursoSuperior); err != nil {
+	
+	// 🔥 MUDOU - passar UUIDs
+	if err := estudante.AtualizarDadosAcademicos(req.AnoEscolar, req.AnoSuperior, req.CursoMedioID, req.CursoSuperiorID); err != nil {
 		log.Printf("[DEBUG] Erro: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

@@ -1,3 +1,8 @@
+// ============================================================================
+// ARQUIVO: internal/domain/aggregates/estudante.go
+// ATUALIZADO: curso_medio_id e curso_superior_id agora são UUID
+// ============================================================================
+
 package aggregates
 
 import (
@@ -24,8 +29,8 @@ type Estudante struct {
 	Status                string
 	AnoEscolar            *string
 	AnoSuperior           *string
-	CursoMedio            *string
-	CursoSuperior         *string
+	CursoMedioID          *uuid.UUID // 🔥 MUDOU: agora é UUID
+	CursoSuperiorID       *uuid.UUID // 🔥 MUDOU: agora é UUID
 	StatusEscolar         string
 	StatusSuperior        string
 	CreatedAt             time.Time
@@ -38,7 +43,7 @@ type Inscricao struct {
 	CodigoAcademia string
 	Tipo           string
 	AnoInscricao   string
-	Curso          *string
+	CursoID        *uuid.UUID // 🔥 MUDOU: agora é UUID
 	Status         string
 	StatusUsado    bool
 	CreatedAt      time.Time
@@ -96,7 +101,22 @@ func (e *Estudante) Apply(event DomainEvent) error {
 	}
 }
 
-func (e *Estudante) Criar(nome string, codigoEstudante string, senhaHash string, email *string, telefone *string, bilhete *string, bilheteResp *string, anoEscolar *string, anoSuperior *string, cursoMedio *string, cursoSuperior *string, statusEscolar *string, statusSuperior *string) error {
+// 🔥 ATUALIZADO
+func (e *Estudante) Criar(
+	nome string,
+	codigoEstudante string,
+	senhaHash string,
+	email *string,
+	telefone *string,
+	bilhete *string,
+	bilheteResp *string,
+	anoEscolar *string,
+	anoSuperior *string,
+	cursoMedioID *uuid.UUID,      // 🔥 MUDOU
+	cursoSuperiorID *uuid.UUID,   // 🔥 MUDOU
+	statusEscolar *string,
+	statusSuperior *string,
+) error {
 	if nome == "" || codigoEstudante == "" || senhaHash == "" {
 		return fmt.Errorf("campos obrigatórios vazios")
 	}
@@ -133,8 +153,8 @@ func (e *Estudante) Criar(nome string, codigoEstudante string, senhaHash string,
 		BilheteIdentidadeResp: bilheteResp,
 		AnoEscolar:            anoEscolar,
 		AnoSuperior:           anoSuperior,
-		CursoMedio:            cursoMedio,
-		CursoSuperior:         cursoSuperior,
+		CursoMedioID:          cursoMedioID,      // 🔥 MUDOU
+		CursoSuperiorID:       cursoSuperiorID,   // 🔥 MUDOU
 		StatusEscolar:         statusEsc,
 		StatusSuperior:        statusSup,
 		CreatedAt:             time.Now(),
@@ -231,13 +251,11 @@ func (e *Estudante) RegistrarAprovacaoAno(
 		return fmt.Errorf("estudante não pertence a esta academia")
 	}
 
-	// Determinar tipo (escolar ou superior)
 	tipo := "escolar"
 	if strings.Contains(nivelAtual, "_ano") {
 		tipo = "superior"
 	}
 
-	// Calcular próximo nível
 	var nivelSeguinte *string
 	if avancarAno {
 		proximo := getProximoNivel(nivelAtual, tipo)
@@ -262,7 +280,8 @@ func (e *Estudante) RegistrarAprovacaoAno(
 	return e.Apply(event)
 }
 
-func (e *Estudante) SolicitarInscricao(codigoAcademia string, tipo string, anoInscricao string, curso *string) error {
+// 🔥 ATUALIZADO
+func (e *Estudante) SolicitarInscricao(codigoAcademia string, tipo string, anoInscricao string, cursoID *uuid.UUID) error {
 	if tipo != "escola" && tipo != "universidade" {
 		return fmt.Errorf("tipo deve ser 'escola' ou 'universidade'")
 	}
@@ -284,7 +303,7 @@ func (e *Estudante) SolicitarInscricao(codigoAcademia string, tipo string, anoIn
 		CodigoAcademia: codigoAcademia,
 		Tipo:           tipo,
 		AnoInscricao:   anoInscricao,
-		Curso:          curso,
+		CursoID:        cursoID, // 🔥 MUDOU
 		CreatedAt:      time.Now(),
 	}
 
@@ -292,6 +311,7 @@ func (e *Estudante) SolicitarInscricao(codigoAcademia string, tipo string, anoIn
 	return e.Apply(event)
 }
 
+// 🔥 ATUALIZADO
 func (e *Estudante) AprovarInscricao(codigoAcademia string, inscricaoID uuid.UUID) error {
 	var inscricaoPendente *Inscricao
 	for i := range e.Inscricoes {
@@ -311,7 +331,7 @@ func (e *Estudante) AprovarInscricao(codigoAcademia string, inscricaoID uuid.UUI
 		CodigoAcademia: codigoAcademia,
 		Tipo:           inscricaoPendente.Tipo,
 		AnoInscricao:   inscricaoPendente.AnoInscricao,
-		Curso:          inscricaoPendente.Curso,
+		CursoID:        inscricaoPendente.CursoID, // 🔥 MUDOU
 	}
 
 	e.RaiseEvent(event)
@@ -435,18 +455,19 @@ func (e *Estudante) AtualizarDadosPessoais(nome *string, email *string, telefone
 	return e.Apply(event)
 }
 
-func (e *Estudante) AtualizarDadosAcademicos(anoEscolar *string, anoSuperior *string, cursoMedio *string, cursoSuperior *string) error {
-	if anoEscolar == nil && anoSuperior == nil && cursoMedio == nil && cursoSuperior == nil {
+// 🔥 ATUALIZADO
+func (e *Estudante) AtualizarDadosAcademicos(anoEscolar *string, anoSuperior *string, cursoMedioID *uuid.UUID, cursoSuperiorID *uuid.UUID) error {
+	if anoEscolar == nil && anoSuperior == nil && cursoMedioID == nil && cursoSuperiorID == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
 
 	event := &DadosAcademicosAtualizadosEvent{
-		BaseEvent:     BaseEvent{EventType: "DadosAcademicosAtualizados", AggregateID: e.ID},
-		AnoEscolar:    anoEscolar,
-		AnoSuperior:   anoSuperior,
-		CursoMedio:    cursoMedio,
-		CursoSuperior: cursoSuperior,
-		UpdatedAt:     time.Now(),
+		BaseEvent:       BaseEvent{EventType: "DadosAcademicosAtualizados", AggregateID: e.ID},
+		AnoEscolar:      anoEscolar,
+		AnoSuperior:     anoSuperior,
+		CursoMedioID:    cursoMedioID,    // 🔥 MUDOU
+		CursoSuperiorID: cursoSuperiorID, // 🔥 MUDOU
+		UpdatedAt:       time.Now(),
 	}
 
 	e.RaiseEvent(event)
@@ -473,8 +494,8 @@ func (e *Estudante) applyEstudanteCriado(event DomainEvent) error {
 	e.BilheteIdentidadeResp = ev.BilheteIdentidadeResp
 	e.AnoEscolar = ev.AnoEscolar
 	e.AnoSuperior = ev.AnoSuperior
-	e.CursoMedio = ev.CursoMedio
-	e.CursoSuperior = ev.CursoSuperior
+	e.CursoMedioID = ev.CursoMedioID       // 🔥 MUDOU
+	e.CursoSuperiorID = ev.CursoSuperiorID // 🔥 MUDOU
 	e.Status = "inativo"
 	e.StatusEscolar = ev.StatusEscolar
 	e.StatusSuperior = ev.StatusSuperior
@@ -504,18 +525,15 @@ func (e *Estudante) applyAprovacaoAnoRegistrada(event DomainEvent) error {
 	}
 
 	if ev.AvancarAno && ev.NivelSeguinte != nil {
-		// Atualizar ano atual do estudante
 		if strings.Contains(ev.NivelAtual, "medio") || strings.Contains(ev.NivelAtual, "fundamental") {
 			e.AnoEscolar = ev.NivelSeguinte
 			
-			// Se finalizou médio (CORRIGIDO)
 			if ev.NivelAtual == "quarto_medio" {
 				e.StatusEscolar = "finalizado"
 			}
 		} else {
 			e.AnoSuperior = ev.NivelSeguinte
 			
-			// Se finalizou superior
 			if ev.NivelAtual == "sexto_ano" {
 				e.StatusSuperior = "finalizado"
 			}
@@ -538,7 +556,7 @@ func (e *Estudante) applyEstudanteInscrito(event DomainEvent) error {
 		CodigoAcademia: ev.CodigoAcademia,
 		Tipo:           ev.Tipo,
 		AnoInscricao:   ev.AnoInscricao,
-		Curso:          ev.Curso,
+		CursoID:        ev.CursoID, // 🔥 MUDOU
 		Status:         "espera",
 		StatusUsado:    false,
 		CreatedAt:      ev.CreatedAt,
@@ -670,16 +688,15 @@ func (e *Estudante) applyDadosAcademicosAtualizados(event DomainEvent) error {
 	if ev.AnoSuperior != nil {
 		e.AnoSuperior = ev.AnoSuperior
 	}
-	if ev.CursoMedio != nil {
-		e.CursoMedio = ev.CursoMedio
+	if ev.CursoMedioID != nil {    // 🔥 MUDOU
+		e.CursoMedioID = ev.CursoMedioID
 	}
-	if ev.CursoSuperior != nil {
-		e.CursoSuperior = ev.CursoSuperior
+	if ev.CursoSuperiorID != nil { // 🔥 MUDOU
+		e.CursoSuperiorID = ev.CursoSuperiorID
 	}
 	return nil
 }
 
-// Helper function
 func getProximoNivel(nivelAtual, tipo string) string {
 	niveisEscolar := []string{
 		"primeiro_fundamental", "segundo_fundamental", "terceiro_fundamental",
@@ -706,10 +723,11 @@ func getProximoNivel(nivelAtual, tipo string) string {
 		}
 	}
 
-	return "" // Último ano
+	return ""
 }
 
-// Eventos
+// 🔥 EVENTOS ATUALIZADOS
+
 type EstudanteCriadoEvent struct {
 	BaseEvent
 	Nome                  string
@@ -721,8 +739,8 @@ type EstudanteCriadoEvent struct {
 	BilheteIdentidadeResp *string
 	AnoEscolar            *string
 	AnoSuperior           *string
-	CursoMedio            *string
-	CursoSuperior         *string
+	CursoMedioID          *uuid.UUID // 🔥 MUDOU
+	CursoSuperiorID       *uuid.UUID // 🔥 MUDOU
 	StatusEscolar         string
 	StatusSuperior        string
 	CreatedAt             time.Time
@@ -778,7 +796,7 @@ type EstudanteInscritoEvent struct {
 	CodigoAcademia string
 	Tipo           string
 	AnoInscricao   string
-	Curso          *string
+	CursoID        *uuid.UUID // 🔥 MUDOU
 	CreatedAt      time.Time
 }
 
@@ -790,7 +808,7 @@ type InscricaoAprovadaEvent struct {
 	CodigoAcademia string
 	Tipo           string
 	AnoInscricao   string
-	Curso          *string
+	CursoID        *uuid.UUID // 🔥 MUDOU
 }
 
 func (e *InscricaoAprovadaEvent) GetPayload() interface{} { return e }
@@ -843,11 +861,11 @@ func (e *DadosPessoaisAtualizadosEvent) GetPayload() interface{} { return e }
 
 type DadosAcademicosAtualizadosEvent struct {
 	BaseEvent
-	AnoEscolar    *string
-	AnoSuperior   *string
-	CursoMedio    *string
-	CursoSuperior *string
-	UpdatedAt     time.Time
+	AnoEscolar      *string
+	AnoSuperior     *string
+	CursoMedioID    *uuid.UUID // 🔥 MUDOU
+	CursoSuperiorID *uuid.UUID // 🔥 MUDOU
+	UpdatedAt       time.Time
 }
 
 func (e *DadosAcademicosAtualizadosEvent) GetPayload() interface{} { return e }

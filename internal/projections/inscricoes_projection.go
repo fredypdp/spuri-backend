@@ -1,3 +1,8 @@
+// ============================================================================
+// ARQUIVO: internal/projections/inscricoes_projection.go
+// ATUALIZADO: curso_id agora é UUID
+// ============================================================================
+
 package projections
 
 import (
@@ -106,10 +111,11 @@ func (p *InscricoesProjection) clear() error {
 	return err
 }
 
+// 🔥 ATUALIZADO
 func (p *InscricoesProjection) handleEstudanteInscrito(event db.Event) error {
 	var payload struct {
 		InscricaoID, CodigoAcademia, Tipo, AnoInscricao string
-		Curso                                            *string
+		CursoID                                          *uuid.UUID // 🔥 MUDOU
 		CreatedAt                                        time.Time
 	}
 
@@ -130,12 +136,13 @@ func (p *InscricoesProjection) handleEstudanteInscrito(event db.Event) error {
 	query := fmt.Sprintf(`
 		INSERT INTO projection_inscricoes (
 			id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-			tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, event_id, version
+			tipo, ano_inscricao, curso_id, status, status_usado, created_at, updated_at, event_id, version
 		) VALUES ('%s', '%s', '%s', '%s', '%s', '%s', '%s', %s, 'espera', FALSE, '%s', CURRENT_TIMESTAMP, '%s', %d)`,
 		payload.InscricaoID, event.AggregateID, db.SafeString(codigoEstudante),
 		academiaID, db.SafeString(payload.CodigoAcademia),
 		db.SafeString(payload.Tipo), db.SafeString(payload.AnoInscricao),
-		nullOrString(payload.Curso), payload.CreatedAt.Format(time.RFC3339),
+		nullOrUUID(payload.CursoID), // 🔥 MUDOU
+		payload.CreatedAt.Format(time.RFC3339),
 		event.EventID, event.EventVersion)
 
 	if _, err := p.client.DB().Exec(query); err != nil {
@@ -261,13 +268,15 @@ func (p *InscricoesProjection) GetByID(id uuid.UUID) (*InscricaoDTO, error) {
 
 	query := fmt.Sprintf(`
 		SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-			tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, event_id, version
+			tipo, ano_inscricao, curso_id, status, status_usado, created_at, updated_at, event_id, version
 		FROM projection_inscricoes WHERE id = '%s'`, id)
 
 	var dto InscricaoDTO
+	var cursoID sql.NullString
+	
 	err := p.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.EstudanteID, &dto.CodigoEstudante, &dto.AcademiaID,
-		&dto.CodigoAcademia, &dto.Tipo, &dto.AnoInscricao, &dto.Curso, &dto.Status,
+		&dto.CodigoAcademia, &dto.Tipo, &dto.AnoInscricao, &cursoID, &dto.Status,
 		&dto.StatusUsado, &dto.CreatedAt, &dto.UpdatedAt, &dto.EventID, &dto.Version,
 	)
 	
@@ -278,13 +287,19 @@ func (p *InscricoesProjection) GetByID(id uuid.UUID) (*InscricaoDTO, error) {
 		return nil, err
 	}
 	
+	// 🔥 MUDOU
+	if cursoID.Valid {
+		cid, _ := uuid.Parse(cursoID.String)
+		dto.CursoID = &cid
+	}
+	
 	return &dto, nil
 }
 
 func (p *InscricoesProjection) queryInscricoes(whereClause string) ([]InscricaoDTO, error) {
 	query := fmt.Sprintf(`
 		SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-			tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, event_id, version
+			tipo, ano_inscricao, curso_id, status, status_usado, created_at, updated_at, event_id, version
 		FROM projection_inscricoes WHERE %s
 	`, whereClause)
 
@@ -297,11 +312,20 @@ func (p *InscricoesProjection) queryInscricoes(whereClause string) ([]InscricaoD
 	var result []InscricaoDTO
 	for rows.Next() {
 		var dto InscricaoDTO
+		var cursoID sql.NullString
+		
 		if err := rows.Scan(&dto.ID, &dto.EstudanteID, &dto.CodigoEstudante, &dto.AcademiaID,
-			&dto.CodigoAcademia, &dto.Tipo, &dto.AnoInscricao, &dto.Curso, &dto.Status,
+			&dto.CodigoAcademia, &dto.Tipo, &dto.AnoInscricao, &cursoID, &dto.Status,
 			&dto.StatusUsado, &dto.CreatedAt, &dto.UpdatedAt, &dto.EventID, &dto.Version); err != nil {
 			continue
 		}
+		
+		// 🔥 MUDOU
+		if cursoID.Valid {
+			cid, _ := uuid.Parse(cursoID.String)
+			dto.CursoID = &cid
+		}
+		
 		result = append(result, dto)
 	}
 	
@@ -309,19 +333,20 @@ func (p *InscricoesProjection) queryInscricoes(whereClause string) ([]InscricaoD
 	return result, rows.Err()
 }
 
+// 🔥 ATUALIZADO
 type InscricaoDTO struct {
-	ID              uuid.UUID `json:"id"`
-	EstudanteID     uuid.UUID `json:"estudante_id"`
-	CodigoEstudante string    `json:"codigo_estudante"`
-	AcademiaID      uuid.UUID `json:"academia_id"`
-	CodigoAcademia  string    `json:"codigo_academia"`
-	Tipo            string    `json:"tipo"`
-	AnoInscricao    string    `json:"ano_inscricao"`
-	Curso           *string   `json:"curso,omitempty"`
-	Status          string    `json:"status"`
-	StatusUsado     bool      `json:"status_usado"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
-	EventID         uuid.UUID `json:"event_id"`
-	Version         int       `json:"version"`
+	ID              uuid.UUID  `json:"id"`
+	EstudanteID     uuid.UUID  `json:"estudante_id"`
+	CodigoEstudante string     `json:"codigo_estudante"`
+	AcademiaID      uuid.UUID  `json:"academia_id"`
+	CodigoAcademia  string     `json:"codigo_academia"`
+	Tipo            string     `json:"tipo"`
+	AnoInscricao    string     `json:"ano_inscricao"`
+	CursoID         *uuid.UUID `json:"curso_id,omitempty"` // 🔥 MUDOU
+	Status          string     `json:"status"`
+	StatusUsado     bool       `json:"status_usado"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	EventID         uuid.UUID  `json:"event_id"`
+	Version         int        `json:"version"`
 }

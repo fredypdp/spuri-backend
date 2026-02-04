@@ -10,14 +10,14 @@ import (
 	"github.com/google/uuid"
 )
 
-// InscricaoEscola - estudante solicita inscrição em escola
+// 🔥 ATUALIZADO
 func InscricaoEscola(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
 	var req struct {
-		CodigoAcademia      string  `json:"codigo_academia" binding:"required"`
-		AnoEscolarInscricao string  `json:"ano_escolar_inscricao" binding:"required"`
-		CursoMedio          *string `json:"curso_medio"`
+		CodigoAcademia      string     `json:"codigo_academia" binding:"required"`
+		AnoEscolarInscricao string     `json:"ano_escolar_inscricao" binding:"required"`
+		CursoMedioID        *uuid.UUID `json:"curso_medio_id"` // 🔥 MUDOU
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -38,6 +38,28 @@ func InscricaoEscola(c *gin.Context) {
 		return
 	}
 
+	// 🔥 VALIDAR CURSO SE FORNECIDO
+	if req.CursoMedioID != nil && *req.CursoMedioID != uuid.Nil {
+		cursosProj := getCursosProjection(c)
+		curso, _ := cursosProj.GetByID(*req.CursoMedioID)
+		if curso == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "curso_medio_id não encontrado"})
+			return
+		}
+		if curso.Type != "medio" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "curso deve ser do tipo 'medio'"})
+			return
+		}
+		if curso.CodigoAcademia != academiaDTO.CodigoAcademia {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "curso não pertence a esta academia"})
+			return
+		}
+		if curso.Status != "ativo" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "curso está inativo"})
+			return
+		}
+	}
+
 	// Carregar e inscrever
 	repository := getRepository(c)
 	estudanteAgg, err := repository.Load(userID, "Estudante")
@@ -48,7 +70,8 @@ func InscricaoEscola(c *gin.Context) {
 
 	estudante := estudanteAgg.(*aggregates.Estudante)
 
-	err = estudante.SolicitarInscricao(req.CodigoAcademia, "escola", req.AnoEscolarInscricao, req.CursoMedio)
+	// 🔥 MUDOU - passar UUID em vez de string
+	err = estudante.SolicitarInscricao(req.CodigoAcademia, "escola", req.AnoEscolarInscricao, req.CursoMedioID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -68,14 +91,14 @@ func InscricaoEscola(c *gin.Context) {
 	})
 }
 
-// InscricaoUniversidade - estudante solicita inscrição em universidade
+// 🔥 ATUALIZADO
 func InscricaoUniversidade(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
 	var req struct {
-		CodigoAcademia string  `json:"codigo_academia" binding:"required"`
-		AnoInscricao   string  `json:"ano_inscricao" binding:"required"`
-		Curso          *string `json:"curso" binding:"required"`
+		CodigoAcademia  string    `json:"codigo_academia" binding:"required"`
+		AnoInscricao    string    `json:"ano_inscricao" binding:"required"`
+		CursoSuperiorID uuid.UUID `json:"curso_superior_id" binding:"required"` // 🔥 MUDOU
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -95,6 +118,26 @@ func InscricaoUniversidade(c *gin.Context) {
 		return
 	}
 
+	// 🔥 VALIDAR CURSO OBRIGATÓRIO
+	cursosProj := getCursosProjection(c)
+	curso, _ := cursosProj.GetByID(req.CursoSuperiorID)
+	if curso == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "curso_superior_id não encontrado"})
+		return
+	}
+	if curso.Type != "superior" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "curso deve ser do tipo 'superior'"})
+		return
+	}
+	if curso.CodigoAcademia != academiaDTO.CodigoAcademia {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "curso não pertence a esta academia"})
+		return
+	}
+	if curso.Status != "ativo" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "curso está inativo"})
+		return
+	}
+
 	repository := getRepository(c)
 	estudanteAgg, err := repository.Load(userID, "Estudante")
 	if err != nil {
@@ -104,7 +147,8 @@ func InscricaoUniversidade(c *gin.Context) {
 
 	estudante := estudanteAgg.(*aggregates.Estudante)
 
-	err = estudante.SolicitarInscricao(req.CodigoAcademia, "superior", req.AnoInscricao, req.Curso)
+	// 🔥 MUDOU - passar UUID
+	err = estudante.SolicitarInscricao(req.CodigoAcademia, "universidade", req.AnoInscricao, &req.CursoSuperiorID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -115,12 +159,13 @@ func InscricaoUniversidade(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Inscrição universidade criada: %s em %s", estudante.CodigoEstudante, academiaDTO.Nome)
+	log.Printf("Inscrição universidade criada: %s em %s - Curso: %s", estudante.CodigoEstudante, academiaDTO.Nome, curso.Nome)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message":  "inscrição criada com sucesso",
 		"status":   "espera",
 		"academia": academiaDTO.Nome,
+		"curso":    curso.Nome,
 	})
 }
 

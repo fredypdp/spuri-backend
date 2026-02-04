@@ -1,3 +1,8 @@
+// ============================================================================
+// ARQUIVO: internal/projections/estudante_projection.go
+// ATUALIZADO: curso_medio_id e curso_superior_id agora são UUID
+// ============================================================================
+
 package projections
 
 import (
@@ -114,11 +119,13 @@ func (p *EstudanteProjection) clear() error {
 	return err
 }
 
+// 🔥 ATUALIZADO
 func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 	var payload struct {
 		Nome, CodigoEstudante, SenhaHash, StatusEscolar, StatusSuperior string
 		Email, Telefone, BilheteIdentidade, BilheteIdentidadeResp       *string
-		AnoEscolar, AnoSuperior, CursoMedio, CursoSuperior              *string
+		AnoEscolar, AnoSuperior                                         *string
+		CursoMedioID, CursoSuperiorID                                   *uuid.UUID // 🔥 MUDOU
 		CreatedAt                                                        time.Time
 	}
 
@@ -135,7 +142,7 @@ func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 			id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
 			bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
 			status, status_escolar, status_superior, ano_escolar, ano_superior,
-			curso_medio, curso_superior, version, created_at, updated_at, last_event_id
+			curso_medio_id, curso_superior_id, version, created_at, updated_at, last_event_id
 		) VALUES (
 			'%s', '%s', '%s', '%s', %s, %s, FALSE, %s, %s, NULL,
 			'inativo', '%s', '%s', %s, %s, %s, %s, %d, '%s', CURRENT_TIMESTAMP, '%s'
@@ -147,15 +154,15 @@ func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 			bilhete_identidade_responsavel = EXCLUDED.bilhete_identidade_responsavel,
 			status = EXCLUDED.status, status_escolar = EXCLUDED.status_escolar,
 			status_superior = EXCLUDED.status_superior, ano_escolar = EXCLUDED.ano_escolar,
-			ano_superior = EXCLUDED.ano_superior, curso_medio = EXCLUDED.curso_medio,
-			curso_superior = EXCLUDED.curso_superior, version = EXCLUDED.version,
+			ano_superior = EXCLUDED.ano_superior, curso_medio_id = EXCLUDED.curso_medio_id,
+			curso_superior_id = EXCLUDED.curso_superior_id, version = EXCLUDED.version,
 			updated_at = EXCLUDED.updated_at, last_event_id = EXCLUDED.last_event_id
 	`, event.AggregateID, db.SafeString(payload.Nome), db.SafeString(payload.CodigoEstudante),
 		db.SafeString(payload.SenhaHash), nullOrString(payload.Email), nullOrString(payload.Telefone),
 		nullOrString(payload.BilheteIdentidade), nullOrString(payload.BilheteIdentidadeResp),
 		db.SafeString(payload.StatusEscolar), db.SafeString(payload.StatusSuperior),
 		nullOrString(payload.AnoEscolar), nullOrString(payload.AnoSuperior),
-		nullOrString(payload.CursoMedio), nullOrString(payload.CursoSuperior),
+		nullOrUUID(payload.CursoMedioID), nullOrUUID(payload.CursoSuperiorID), // 🔥 MUDOU
 		event.EventVersion, payload.CreatedAt.Format(time.RFC3339), event.EventID)
 
 	_, err := p.client.DB().Exec(query)
@@ -277,28 +284,40 @@ func (p *EstudanteProjection) handleDadosPessoaisAtualizados(event db.Event) err
 	return err
 }
 
+// 🔥 ATUALIZADO
 func (p *EstudanteProjection) handleDadosAcademicosAtualizados(event db.Event) error {
 	var payload struct {
-		AnoEscolar, AnoSuperior, CursoMedio, CursoSuperior *string
+		AnoEscolar, AnoSuperior       *string
+		CursoMedioID, CursoSuperiorID *uuid.UUID // 🔥 MUDOU
 	}
 
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return err
 	}
 
-	updates := map[string]*string{
-		"ano_escolar":    payload.AnoEscolar,
-		"ano_superior":   payload.AnoSuperior,
-		"curso_medio":    payload.CursoMedio,
-		"curso_superior": payload.CursoSuperior,
+	if payload.AnoEscolar != nil {
+		query := fmt.Sprintf(`UPDATE projection_estudantes SET ano_escolar = '%s' WHERE id = '%s'`,
+			db.SafeString(*payload.AnoEscolar), event.AggregateID)
+		p.client.DB().Exec(query)
 	}
-
-	for field, value := range updates {
-		if value != nil {
-			query := fmt.Sprintf(`UPDATE projection_estudantes SET %s = '%s' WHERE id = '%s'`,
-				field, db.SafeString(*value), event.AggregateID)
-			p.client.DB().Exec(query)
-		}
+	
+	if payload.AnoSuperior != nil {
+		query := fmt.Sprintf(`UPDATE projection_estudantes SET ano_superior = '%s' WHERE id = '%s'`,
+			db.SafeString(*payload.AnoSuperior), event.AggregateID)
+		p.client.DB().Exec(query)
+	}
+	
+	// 🔥 MUDOU
+	if payload.CursoMedioID != nil {
+		query := fmt.Sprintf(`UPDATE projection_estudantes SET curso_medio_id = '%s' WHERE id = '%s'`,
+			*payload.CursoMedioID, event.AggregateID)
+		p.client.DB().Exec(query)
+	}
+	
+	if payload.CursoSuperiorID != nil {
+		query := fmt.Sprintf(`UPDATE projection_estudantes SET curso_superior_id = '%s' WHERE id = '%s'`,
+			*payload.CursoSuperiorID, event.AggregateID)
+		p.client.DB().Exec(query)
 	}
 
 	query := fmt.Sprintf(`
@@ -342,23 +361,26 @@ func (p *EstudanteProjection) GetByBilheteIdentidadePrincipal(bilhete string) (*
 	return p.queryEstudante(fmt.Sprintf("bilhete_identidade = '%s'", db.SafeString(bilhete)))
 }
 
+// 🔥 ATUALIZADO
 func (p *EstudanteProjection) queryEstudante(whereClause string) (*EstudanteDTO, error) {
 	query := fmt.Sprintf(`
 		SELECT id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
 			bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
 			status, status_escolar, status_superior, ano_escolar, ano_superior,
-			curso_medio, curso_superior, created_at, updated_at, total_notas,
+			curso_medio_id, curso_superior_id, created_at, updated_at, total_notas,
 			total_faltas, total_inscricoes, version
 		FROM projection_estudantes WHERE %s LIMIT 1
 	`, whereClause)
 
 	var dto EstudanteDTO
+	var cursoMedioID, cursoSuperiorID sql.NullString
+	
 	err := p.client.DB().QueryRow(query).Scan(
 		&dto.ID, &dto.Nome, &dto.CodigoEstudante, &dto.SenhaHash,
 		&dto.Email, &dto.Telefone, &dto.EmailVerificado,
 		&dto.BilheteIdentidade, &dto.BilheteIdentidadeResp, &dto.CodigoAcademia,
 		&dto.Status, &dto.StatusEscolar, &dto.StatusSuperior,
-		&dto.AnoEscolar, &dto.AnoSuperior, &dto.CursoMedio, &dto.CursoSuperior,
+		&dto.AnoEscolar, &dto.AnoSuperior, &cursoMedioID, &cursoSuperiorID,
 		&dto.CreatedAt, &dto.UpdatedAt, &dto.TotalNotas, &dto.TotalFaltas,
 		&dto.TotalInscricoes, &dto.Version,
 	)
@@ -370,31 +392,42 @@ func (p *EstudanteProjection) queryEstudante(whereClause string) (*EstudanteDTO,
 		return nil, err
 	}
 	
+	// 🔥 MUDOU
+	if cursoMedioID.Valid {
+		cid, _ := uuid.Parse(cursoMedioID.String)
+		dto.CursoMedioID = &cid
+	}
+	if cursoSuperiorID.Valid {
+		cid, _ := uuid.Parse(cursoSuperiorID.String)
+		dto.CursoSuperiorID = &cid
+	}
+	
 	return &dto, nil
 }
 
+// 🔥 ATUALIZADO
 type EstudanteDTO struct {
-	ID                    uuid.UUID `json:"id"`
-	Nome                  string    `json:"nome"`
-	CodigoEstudante       string    `json:"codigo_estudante"`
-	SenhaHash             string    `json:"-"`
-	Email                 *string   `json:"email,omitempty"`
-	Telefone              *string   `json:"telefone,omitempty"`
-	EmailVerificado       bool      `json:"email_verificado"`
-	BilheteIdentidade     *string   `json:"bilhete_identidade,omitempty"`
-	BilheteIdentidadeResp *string   `json:"bilhete_identidade_responsavel,omitempty"`
-	CodigoAcademia        *string   `json:"codigo_academia,omitempty"`
-	Status                string    `json:"status"`
-	StatusEscolar         string    `json:"status_escolar"`
-	StatusSuperior        string    `json:"status_superior"`
-	AnoEscolar            *string   `json:"ano_escolar,omitempty"`
-	AnoSuperior           *string   `json:"ano_superior,omitempty"`
-	CursoMedio            *string   `json:"curso_medio,omitempty"`
-	CursoSuperior         *string   `json:"curso_superior,omitempty"`
-	CreatedAt             time.Time `json:"created_at"`
-	UpdatedAt             time.Time `json:"updated_at"`
-	TotalNotas            int       `json:"total_notas"`
-	TotalFaltas           int       `json:"total_faltas"`
-	TotalInscricoes       int       `json:"total_inscricoes"`
-	Version               int       `json:"version"`
+	ID                    uuid.UUID  `json:"id"`
+	Nome                  string     `json:"nome"`
+	CodigoEstudante       string     `json:"codigo_estudante"`
+	SenhaHash             string     `json:"-"`
+	Email                 *string    `json:"email,omitempty"`
+	Telefone              *string    `json:"telefone,omitempty"`
+	EmailVerificado       bool       `json:"email_verificado"`
+	BilheteIdentidade     *string    `json:"bilhete_identidade,omitempty"`
+	BilheteIdentidadeResp *string    `json:"bilhete_identidade_responsavel,omitempty"`
+	CodigoAcademia        *string    `json:"codigo_academia,omitempty"`
+	Status                string     `json:"status"`
+	StatusEscolar         string     `json:"status_escolar"`
+	StatusSuperior        string     `json:"status_superior"`
+	AnoEscolar            *string    `json:"ano_escolar,omitempty"`
+	AnoSuperior           *string    `json:"ano_superior,omitempty"`
+	CursoMedioID          *uuid.UUID `json:"curso_medio_id,omitempty"`    // 🔥 MUDOU
+	CursoSuperiorID       *uuid.UUID `json:"curso_superior_id,omitempty"` // 🔥 MUDOU
+	CreatedAt             time.Time  `json:"created_at"`
+	UpdatedAt             time.Time  `json:"updated_at"`
+	TotalNotas            int        `json:"total_notas"`
+	TotalFaltas           int        `json:"total_faltas"`
+	TotalInscricoes       int        `json:"total_inscricoes"`
+	Version               int        `json:"version"`
 }

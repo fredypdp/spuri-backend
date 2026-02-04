@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
@@ -166,13 +167,12 @@ func ConsultarAdmin(c *gin.Context) {
 	c.JSON(http.StatusOK, admin)
 }
 
-// ListarEstudantes lista estudantes baseado no tipo de usuário
+// 🔥 ATUALIZADO - ListarEstudantes lista estudantes baseado no tipo de usuário
 func ListarEstudantes(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 
 	client := getDbClient(c)
-	_ = getEstudanteProjection(c)
 
 	if userType == "academia" {
 		academiaProj := getAcademiaProjection(c)
@@ -183,11 +183,12 @@ func ListarEstudantes(c *gin.Context) {
 		}
 
 		safeCodigoAcademia := db.SafeString(academiaDTO.CodigoAcademia)
+		// 🔥 MUDOU - curso_medio_id e curso_superior_id
 		query := fmt.Sprintf(`
 			SELECT id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
 				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
 				status, status_escolar, status_superior, ano_escolar, ano_superior,
-				curso_medio, curso_superior, created_at, updated_at, total_notas,
+				curso_medio_id, curso_superior_id, created_at, updated_at, total_notas,
 				total_faltas, total_inscricoes, version
 			FROM projection_estudantes
 			WHERE codigo_academia = '%s'
@@ -203,38 +204,42 @@ func ListarEstudantes(c *gin.Context) {
 
 		var estudantes []map[string]interface{}
 		for rows.Next() {
-			var est projections.EstudanteDTO
-			if err := rows.Scan(&est.ID, &est.Nome, &est.CodigoEstudante, &est.SenhaHash,
-				&est.Email, &est.Telefone, &est.EmailVerificado,
-				&est.BilheteIdentidade, &est.BilheteIdentidadeResp, &est.CodigoAcademia,
-				&est.Status, &est.StatusEscolar, &est.StatusSuperior,
-				&est.AnoEscolar, &est.AnoSuperior, &est.CursoMedio, &est.CursoSuperior,
-				&est.CreatedAt, &est.UpdatedAt, &est.TotalNotas, &est.TotalFaltas,
-				&est.TotalInscricoes, &est.Version); err == nil {
-				
+			var id, cursoMedioID, cursoSuperiorID sql.NullString
+			var nome, codigoEstudante, senhaHash, status, statusEscolar, statusSuperior string
+			var email, telefone, bilhete, bilheteResp, codigoAcad, anoEscolar, anoSuperior sql.NullString
+			var emailVerif bool
+			var createdAt, updatedAt string
+			var totalNotas, totalFaltas, totalInsc, version int
+
+			if err := rows.Scan(&id, &nome, &codigoEstudante, &senhaHash,
+				&email, &telefone, &emailVerif, &bilhete, &bilheteResp, &codigoAcad,
+				&status, &statusEscolar, &statusSuperior, &anoEscolar, &anoSuperior,
+				&cursoMedioID, &cursoSuperiorID, // 🔥 MUDOU
+				&createdAt, &updatedAt, &totalNotas, &totalFaltas, &totalInsc, &version); err == nil {
+
 				estudanteMap := map[string]interface{}{
-					"id":                             est.ID,
-					"nome":                           est.Nome,
-					"codigo_estudante":               est.CodigoEstudante,
-					"email":                          est.Email,
-					"telefone":                       est.Telefone,
-					"email_verificado":               est.EmailVerificado,
-					"bilhete_identidade":             est.BilheteIdentidade,
-					"bilhete_identidade_responsavel": est.BilheteIdentidadeResp,
-					"codigo_academia":                est.CodigoAcademia,
-					"status":                         est.Status,
-					"status_escolar":                 est.StatusEscolar,
-					"status_superior":                est.StatusSuperior,
-					"ano_escolar":                    est.AnoEscolar,
-					"ano_superior":                   est.AnoSuperior,
-					"curso_medio":                    est.CursoMedio,
-					"curso_superior":                 est.CursoSuperior,
-					"created_at":                     est.CreatedAt,
-					"updated_at":                     est.UpdatedAt,
-					"total_notas":                    est.TotalNotas,
-					"total_faltas":                   est.TotalFaltas,
-					"total_inscricoes":               est.TotalInscricoes,
-					"version":                        est.Version,
+					"id":                             id.String,
+					"nome":                           nome,
+					"codigo_estudante":               codigoEstudante,
+					"email":                          getNullString(email),
+					"telefone":                       getNullString(telefone),
+					"email_verificado":               emailVerif,
+					"bilhete_identidade":             getNullString(bilhete),
+					"bilhete_identidade_responsavel": getNullString(bilheteResp),
+					"codigo_academia":                getNullString(codigoAcad),
+					"status":                         status,
+					"status_escolar":                 statusEscolar,
+					"status_superior":                statusSuperior,
+					"ano_escolar":                    getNullString(anoEscolar),
+					"ano_superior":                   getNullString(anoSuperior),
+					"curso_medio_id":                 getNullString(cursoMedioID),    // 🔥 MUDOU
+					"curso_superior_id":              getNullString(cursoSuperiorID), // 🔥 MUDOU
+					"created_at":                     createdAt,
+					"updated_at":                     updatedAt,
+					"total_notas":                    totalNotas,
+					"total_faltas":                   totalFaltas,
+					"total_inscricoes":               totalInsc,
+					"version":                        version,
 				}
 				estudantes = append(estudantes, estudanteMap)
 			}
@@ -249,11 +254,12 @@ func ListarEstudantes(c *gin.Context) {
 		})
 
 	} else if userType == "admin" {
+		// 🔥 MUDOU - curso_medio_id e curso_superior_id
 		query := `
 			SELECT id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
 				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
 				status, status_escolar, status_superior, ano_escolar, ano_superior,
-				curso_medio, curso_superior, created_at, updated_at, total_notas,
+				curso_medio_id, curso_superior_id, created_at, updated_at, total_notas,
 				total_faltas, total_inscricoes, version
 			FROM projection_estudantes
 			ORDER BY created_at DESC
@@ -268,38 +274,42 @@ func ListarEstudantes(c *gin.Context) {
 
 		var estudantes []map[string]interface{}
 		for rows.Next() {
-			var est projections.EstudanteDTO
-			if err := rows.Scan(&est.ID, &est.Nome, &est.CodigoEstudante, &est.SenhaHash,
-				&est.Email, &est.Telefone, &est.EmailVerificado,
-				&est.BilheteIdentidade, &est.BilheteIdentidadeResp, &est.CodigoAcademia,
-				&est.Status, &est.StatusEscolar, &est.StatusSuperior,
-				&est.AnoEscolar, &est.AnoSuperior, &est.CursoMedio, &est.CursoSuperior,
-				&est.CreatedAt, &est.UpdatedAt, &est.TotalNotas, &est.TotalFaltas,
-				&est.TotalInscricoes, &est.Version); err == nil {
-				
+			var id, cursoMedioID, cursoSuperiorID sql.NullString
+			var nome, codigoEstudante, senhaHash, status, statusEscolar, statusSuperior string
+			var email, telefone, bilhete, bilheteResp, codigoAcad, anoEscolar, anoSuperior sql.NullString
+			var emailVerif bool
+			var createdAt, updatedAt string
+			var totalNotas, totalFaltas, totalInsc, version int
+
+			if err := rows.Scan(&id, &nome, &codigoEstudante, &senhaHash,
+				&email, &telefone, &emailVerif, &bilhete, &bilheteResp, &codigoAcad,
+				&status, &statusEscolar, &statusSuperior, &anoEscolar, &anoSuperior,
+				&cursoMedioID, &cursoSuperiorID, // 🔥 MUDOU
+				&createdAt, &updatedAt, &totalNotas, &totalFaltas, &totalInsc, &version); err == nil {
+
 				estudanteMap := map[string]interface{}{
-					"id":                             est.ID,
-					"nome":                           est.Nome,
-					"codigo_estudante":               est.CodigoEstudante,
-					"email":                          est.Email,
-					"telefone":                       est.Telefone,
-					"email_verificado":               est.EmailVerificado,
-					"bilhete_identidade":             est.BilheteIdentidade,
-					"bilhete_identidade_responsavel": est.BilheteIdentidadeResp,
-					"codigo_academia":                est.CodigoAcademia,
-					"status":                         est.Status,
-					"status_escolar":                 est.StatusEscolar,
-					"status_superior":                est.StatusSuperior,
-					"ano_escolar":                    est.AnoEscolar,
-					"ano_superior":                   est.AnoSuperior,
-					"curso_medio":                    est.CursoMedio,
-					"curso_superior":                 est.CursoSuperior,
-					"created_at":                     est.CreatedAt,
-					"updated_at":                     est.UpdatedAt,
-					"total_notas":                    est.TotalNotas,
-					"total_faltas":                   est.TotalFaltas,
-					"total_inscricoes":               est.TotalInscricoes,
-					"version":                        est.Version,
+					"id":                             id.String,
+					"nome":                           nome,
+					"codigo_estudante":               codigoEstudante,
+					"email":                          getNullString(email),
+					"telefone":                       getNullString(telefone),
+					"email_verificado":               emailVerif,
+					"bilhete_identidade":             getNullString(bilhete),
+					"bilhete_identidade_responsavel": getNullString(bilheteResp),
+					"codigo_academia":                getNullString(codigoAcad),
+					"status":                         status,
+					"status_escolar":                 statusEscolar,
+					"status_superior":                statusSuperior,
+					"ano_escolar":                    getNullString(anoEscolar),
+					"ano_superior":                   getNullString(anoSuperior),
+					"curso_medio_id":                 getNullString(cursoMedioID),    // 🔥 MUDOU
+					"curso_superior_id":              getNullString(cursoSuperiorID), // 🔥 MUDOU
+					"created_at":                     createdAt,
+					"updated_at":                     updatedAt,
+					"total_notas":                    totalNotas,
+					"total_faltas":                   totalFaltas,
+					"total_inscricoes":               totalInsc,
+					"version":                        version,
 				}
 				estudantes = append(estudantes, estudanteMap)
 			}
@@ -314,6 +324,14 @@ func ListarEstudantes(c *gin.Context) {
 	} else {
 		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas academias e administradores"})
 	}
+}
+
+// Helper function
+func getNullString(ns sql.NullString) interface{} {
+	if ns.Valid {
+		return ns.String
+	}
+	return nil
 }
 
 // AtivarAcademia ativa academia (gerente, adm ou fpp)
@@ -427,7 +445,7 @@ func DesativarAcademia(c *gin.Context) {
 // RebuildProjection reconstrói projeção específica
 func RebuildProjection(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
-	
+
 	adminProj := getAdminProjection(c)
 	admin, err := adminProj.GetByID(userID)
 	if err != nil || admin == nil {
@@ -490,7 +508,7 @@ func GetProjectionStatus(c *gin.Context) {
 	}
 
 	client := getDbClient(c)
-	
+
 	var proj projections.Projection
 	switch projectionName {
 	case "estudantes":

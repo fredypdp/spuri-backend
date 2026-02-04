@@ -116,7 +116,8 @@ func (a *Academia) VerificarEmail() error {
 	return a.Apply(event)
 }
 
-func (a *Academia) AprovarInscricao(estudanteID uuid.UUID, inscricaoID uuid.UUID, tipo string, anoInscricao string, curso *string) error {
+// 🔥 ATUALIZADO - cursoID agora é UUID
+func (a *Academia) AprovarInscricao(estudanteID uuid.UUID, inscricaoID uuid.UUID, tipo string, anoInscricao string, cursoID *uuid.UUID) error {
 	if a.Status != "ativo" {
 		return fmt.Errorf("academia está inativa")
 	}
@@ -128,7 +129,7 @@ func (a *Academia) AprovarInscricao(estudanteID uuid.UUID, inscricaoID uuid.UUID
 		AcademiaID:   a.ID,
 		Tipo:         tipo,
 		AnoInscricao: anoInscricao,
-		Curso:        curso,
+		CursoID:      cursoID, // 🔥 MUDOU
 		ApprovedAt:   time.Now(),
 	}
 
@@ -351,6 +352,7 @@ type AcademiaCriadaEvent struct {
 
 func (e *AcademiaCriadaEvent) GetPayload() interface{} { return e }
 
+// 🔥 ATUALIZADO - CursoID agora é UUID
 type InscricaoAprovadaPorAcademiaEvent struct {
 	BaseEvent
 	EstudanteID  uuid.UUID
@@ -358,7 +360,7 @@ type InscricaoAprovadaPorAcademiaEvent struct {
 	AcademiaID   uuid.UUID
 	Tipo         string
 	AnoInscricao string
-	Curso        *string
+	CursoID      *uuid.UUID // 🔥 MUDOU
 	ApprovedAt   time.Time
 }
 

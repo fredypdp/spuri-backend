@@ -27,6 +27,7 @@ func GetMeuPerfil(c *gin.Context) {
 	}
 }
 
+// 🔥 ATUALIZADO
 func getPerfilEstudante(c *gin.Context, userID interface{}) {
 	estudanteProj := getEstudanteProjection(c)
 
@@ -55,6 +56,36 @@ func getPerfilEstudante(c *gin.Context, userID interface{}) {
 		}
 	}
 
+	// 🔥 BUSCAR INFORMAÇÕES DOS CURSOS
+	var cursoMedioInfo *gin.H
+	var cursoSuperiorInfo *gin.H
+	
+	cursosProj := getCursosProjection(c)
+	
+	if estudante.CursoMedioID != nil {
+		cursoMedio, _ := cursosProj.GetByID(*estudante.CursoMedioID)
+		if cursoMedio != nil {
+			cursoMedioInfo = &gin.H{
+				"id":     cursoMedio.ID,
+				"nome":   cursoMedio.Nome,
+				"type":   cursoMedio.Type,
+				"status": cursoMedio.Status,
+			}
+		}
+	}
+	
+	if estudante.CursoSuperiorID != nil {
+		cursoSuperior, _ := cursosProj.GetByID(*estudante.CursoSuperiorID)
+		if cursoSuperior != nil {
+			cursoSuperiorInfo = &gin.H{
+				"id":     cursoSuperior.ID,
+				"nome":   cursoSuperior.Nome,
+				"type":   cursoSuperior.Type,
+				"status": cursoSuperior.Status,
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"tipo": "estudante",
 		"estudante": gin.H{
@@ -73,8 +104,10 @@ func getPerfilEstudante(c *gin.Context, userID interface{}) {
 			"status_superior":                estudante.StatusSuperior,
 			"ano_escolar":                    estudante.AnoEscolar,
 			"ano_superior":                   estudante.AnoSuperior,
-			"curso_medio":                    estudante.CursoMedio,
-			"curso_superior":                 estudante.CursoSuperior,
+			"curso_medio_id":                 estudante.CursoMedioID,    // 🔥 MUDOU
+			"curso_medio_info":               cursoMedioInfo,            // 🔥 NOVO
+			"curso_superior_id":              estudante.CursoSuperiorID, // 🔥 MUDOU
+			"curso_superior_info":            cursoSuperiorInfo,         // 🔥 NOVO
 			"created_at":                     estudante.CreatedAt,
 			"updated_at":                     estudante.UpdatedAt,
 			"total_notas":                    estudante.TotalNotas,
@@ -158,7 +191,7 @@ func getPerfilAdmin(c *gin.Context, userID interface{}) {
 	})
 }
 
-// GetEstudantePorCodigo busca dados de estudante por código
+// 🔥 ATUALIZADO
 func GetEstudantePorCodigo(c *gin.Context) {
 	userType, _ := middleware.GetUserType(c)
 	codigoEstudante := c.Param("codigo")
@@ -192,6 +225,36 @@ func GetEstudantePorCodigo(c *gin.Context) {
 		}
 	}
 
+	// 🔥 BUSCAR INFORMAÇÕES DOS CURSOS
+	var cursoMedioInfo *gin.H
+	var cursoSuperiorInfo *gin.H
+	
+	cursosProj := getCursosProjection(c)
+	
+	if estudante.CursoMedioID != nil {
+		cursoMedio, _ := cursosProj.GetByID(*estudante.CursoMedioID)
+		if cursoMedio != nil {
+			cursoMedioInfo = &gin.H{
+				"id":     cursoMedio.ID,
+				"nome":   cursoMedio.Nome,
+				"type":   cursoMedio.Type,
+				"status": cursoMedio.Status,
+			}
+		}
+	}
+	
+	if estudante.CursoSuperiorID != nil {
+		cursoSuperior, _ := cursosProj.GetByID(*estudante.CursoSuperiorID)
+		if cursoSuperior != nil {
+			cursoSuperiorInfo = &gin.H{
+				"id":     cursoSuperior.ID,
+				"nome":   cursoSuperior.Nome,
+				"type":   cursoSuperior.Type,
+				"status": cursoSuperior.Status,
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"estudante": gin.H{
 			"id":                             estudante.ID,
@@ -209,8 +272,10 @@ func GetEstudantePorCodigo(c *gin.Context) {
 			"status_superior":                estudante.StatusSuperior,
 			"ano_escolar":                    estudante.AnoEscolar,
 			"ano_superior":                   estudante.AnoSuperior,
-			"curso_medio":                    estudante.CursoMedio,
-			"curso_superior":                 estudante.CursoSuperior,
+			"curso_medio_id":                 estudante.CursoMedioID,    // 🔥 MUDOU
+			"curso_medio_info":               cursoMedioInfo,            // 🔥 NOVO
+			"curso_superior_id":              estudante.CursoSuperiorID, // 🔥 MUDOU
+			"curso_superior_info":            cursoSuperiorInfo,         // 🔥 NOVO
 			"created_at":                     estudante.CreatedAt,
 			"updated_at":                     estudante.UpdatedAt,
 			"total_notas":                    estudante.TotalNotas,
