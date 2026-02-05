@@ -234,7 +234,6 @@ func RegisterAcademia(c *gin.Context) {
 	})
 }
 
-// 🔥 ATUALIZADO
 type RegisterEstudanteRequest struct {
 	Senha                 string     `json:"senha" binding:"required"`
 	Nome                  string     `json:"nome" binding:"required"`
@@ -244,13 +243,12 @@ type RegisterEstudanteRequest struct {
 	BilheteIdentidadeResp *string    `json:"bilhete_identidade_responsavel"`
 	AnoEscolar            *string    `json:"ano_escolar"`
 	AnoSuperior           *string    `json:"ano_superior"`
-	CursoMedioID          *uuid.UUID `json:"curso_medio_id"`    // 🔥 MUDOU
-	CursoSuperiorID       *uuid.UUID `json:"curso_superior_id"` // 🔥 MUDOU
+	CursoMedioID          *uuid.UUID `json:"curso_medio_id"`
+	CursoSuperiorID       *uuid.UUID `json:"curso_superior_id"`
 	StatusEscolar         *string    `json:"status_escolar"`
 	StatusSuperior        *string    `json:"status_superior"`
 }
 
-// 🔥 ATUALIZADO
 func RegisterEstudante(c *gin.Context) {
 	var req RegisterEstudanteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -297,7 +295,6 @@ func RegisterEstudante(c *gin.Context) {
 		return
 	}
 
-	// Verificar bilhete existente
 	if req.BilheteIdentidade != nil && *req.BilheteIdentidade != "" {
 		estudanteProj := getEstudanteProjection(c)
 		existente, err := estudanteProj.GetByBilheteIdentidadePrincipal(*req.BilheteIdentidade)
@@ -311,7 +308,6 @@ func RegisterEstudante(c *gin.Context) {
 		}
 	}
 
-	// 🔥 VALIDAR CURSOS SE FORNECIDOS
 	if req.CursoMedioID != nil && *req.CursoMedioID != uuid.Nil {
 		cursosProj := getCursosProjection(c)
 		curso, _ := cursosProj.GetByID(*req.CursoMedioID)
@@ -354,7 +350,6 @@ func RegisterEstudante(c *gin.Context) {
 	repository := getRepository(c)
 	estudante := aggregates.NewEstudante()
 
-	// 🔥 MUDOU - passar UUIDs em vez de strings
 	if err := estudante.Criar(
 		req.Nome,
 		codigoEstudante,
@@ -365,8 +360,8 @@ func RegisterEstudante(c *gin.Context) {
 		req.BilheteIdentidadeResp,
 		req.AnoEscolar,
 		req.AnoSuperior,
-		req.CursoMedioID,    // 🔥 MUDOU
-		req.CursoSuperiorID, // 🔥 MUDOU
+		req.CursoMedioID,
+		req.CursoSuperiorID,
 		req.StatusEscolar,
 		req.StatusSuperior,
 	); err != nil {
@@ -390,22 +385,22 @@ func RegisterEstudante(c *gin.Context) {
 	})
 }
 
-// CadastroEstudanteAcademiaRequest - payload específico para cadastro por academia
+// 🔥 CORRIGIDO - Garantir que campos sejam propagados
 type CadastroEstudanteAcademiaRequest struct {
 	Nome                  string `json:"nome" binding:"required"`
 	Email                 string `json:"email"`
 	Telefone              string `json:"telefone"`
 	BilheteIdentidade     string `json:"bilhete_identidade"`
 	BilheteResponsavel    string `json:"bilhete_identidade_responsavel"`
-	AnoEscolar            string `json:"ano_escolar"`           // 🔥 String direto
-	AnoSuperior           string `json:"ano_superior"`          // 🔥 String direto
-	CursoMedioID          string `json:"curso_medio_id"`        // 🔥 UUID como string
-	CursoSuperiorID       string `json:"curso_superior_id"`     // 🔥 UUID como string
+	AnoEscolar            string `json:"ano_escolar"`
+	AnoSuperior           string `json:"ano_superior"`
+	CursoMedioID          string `json:"curso_medio_id"`
+	CursoSuperiorID       string `json:"curso_superior_id"`
 	StatusEscolar         string `json:"status_escolar"`
 	StatusSuperior        string `json:"status_superior"`
 }
 
-// RegisterEstudantePorAcademia - Academia cadastra estudante já vinculado
+// 🔥 CORRIGIDO - Converter corretamente strings vazias
 func RegisterEstudantePorAcademia(c *gin.Context) {
 	var req CadastroEstudanteAcademiaRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -413,16 +408,14 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		return
 	}
 
-	log.Printf("📥 Payload recebido - Nome: %s, AnoEscolar: %s, CursoMedioID: %s", 
+	log.Printf("📥 [RegisterEstudantePorAcademia] Payload recebido - Nome: %s, AnoEscolar: '%s', CursoMedioID: '%s'", 
 		req.Nome, req.AnoEscolar, req.CursoMedioID)
 
-	// Validações básicas
 	if err := utils.ValidateNome(req.Nome); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
-	// 🔥 Validar email apenas se fornecido
 	if req.Email != "" {
 		if err := utils.ValidateEmail(req.Email); err != nil {
 			utils.RespondWithValidationError(c, err)
@@ -430,7 +423,6 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		}
 	}
 
-	// 🔥 Validar telefone apenas se fornecido
 	if req.Telefone != "" {
 		if err := utils.ValidatePhone(req.Telefone); err != nil {
 			utils.RespondWithValidationError(c, err)
@@ -438,7 +430,6 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		}
 	}
 
-	// 🔥 Validar bilhetes
 	if req.BilheteIdentidade != "" {
 		if err := utils.ValidateBilhete(req.BilheteIdentidade); err != nil {
 			utils.RespondWithValidationError(c, err)
@@ -458,7 +449,6 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		return
 	}
 
-	// Verificar bilhete existente
 	if req.BilheteIdentidade != "" {
 		estudanteProj := getEstudanteProjection(c)
 		existente, err := estudanteProj.GetByBilheteIdentidadePrincipal(req.BilheteIdentidade)
@@ -472,10 +462,27 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		}
 	}
 
-	// 🔥 Converter e validar UUID do curso se fornecido
+	// 🔥 CORRIGIDO - Converter strings para ponteiros APENAS se não estiverem vazias
+	var anoEscolarPtr *string
+	var anoSuperiorPtr *string
 	var cursoMedioUUID *uuid.UUID
 	var cursoSuperiorUUID *uuid.UUID
 
+	// AnoEscolar - só converte se não for string vazia
+	if req.AnoEscolar != "" {
+		anoEscolarPtr = &req.AnoEscolar
+		log.Printf("✅ [RegisterEstudantePorAcademia] AnoEscolar definido: %s", req.AnoEscolar)
+	} else {
+		log.Printf("⚠️ [RegisterEstudantePorAcademia] AnoEscolar vazio, será nil")
+	}
+
+	// AnoSuperior
+	if req.AnoSuperior != "" {
+		anoSuperiorPtr = &req.AnoSuperior
+		log.Printf("✅ [RegisterEstudantePorAcademia] AnoSuperior definido: %s", req.AnoSuperior)
+	}
+
+	// CursoMedioID - só converte se não for string vazia
 	if req.CursoMedioID != "" {
 		parsed, err := uuid.Parse(req.CursoMedioID)
 		if err != nil {
@@ -483,6 +490,7 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 			return
 		}
 		cursoMedioUUID = &parsed
+		log.Printf("✅ [RegisterEstudantePorAcademia] CursoMedioID definido: %s", parsed)
 
 		cursosProj := getCursosProjection(c)
 		curso, _ := cursosProj.GetByID(parsed)
@@ -494,8 +502,11 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 			utils.RespondWithValidationError(c, fmt.Errorf("curso_medio_id deve ser do tipo 'medio'"))
 			return
 		}
+	} else {
+		log.Printf("⚠️ [RegisterEstudantePorAcademia] CursoMedioID vazio, será nil")
 	}
 
+	// CursoSuperiorID
 	if req.CursoSuperiorID != "" {
 		parsed, err := uuid.Parse(req.CursoSuperiorID)
 		if err != nil {
@@ -503,6 +514,7 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 			return
 		}
 		cursoSuperiorUUID = &parsed
+		log.Printf("✅ [RegisterEstudantePorAcademia] CursoSuperiorID definido: %s", parsed)
 
 		cursosProj := getCursosProjection(c)
 		curso, _ := cursosProj.GetByID(parsed)
@@ -516,7 +528,6 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		}
 	}
 
-	// 🔥 OBTER ACADEMIA LOGADA
 	academiaID, ok := middleware.GetUserID(c)
 	if !ok {
 		utils.RespondWithUnauthorizedError(c)
@@ -534,7 +545,6 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		return
 	}
 
-	// Gerar código único
 	client := getDbClient(c)
 	codigoEstudante, err := utils.GenerateUniqueCodigoEstudante(client.DB())
 	if err != nil {
@@ -542,16 +552,14 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		return
 	}
 
-	// 🔥 Senha padrão fixa
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte("spuri123"), bcrypt.DefaultCost)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	// 🔥 Converter campos opcionais para ponteiros
+	// 🔥 CORRIGIDO - Converter campos opcionais
 	var emailPtr, telefonePtr, bilhetePtr, bilheteRespPtr *string
-	var anoEscolarPtr, anoSuperiorPtr *string
 	var statusEscolarPtr, statusSuperiorPtr *string
 
 	if req.Email != "" {
@@ -566,12 +574,6 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 	if req.BilheteResponsavel != "" {
 		bilheteRespPtr = &req.BilheteResponsavel
 	}
-	if req.AnoEscolar != "" {
-		anoEscolarPtr = &req.AnoEscolar
-	}
-	if req.AnoSuperior != "" {
-		anoSuperiorPtr = &req.AnoSuperior
-	}
 	if req.StatusEscolar != "" {
 		statusEscolarPtr = &req.StatusEscolar
 	} else {
@@ -582,9 +584,11 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		statusSuperiorPtr = &req.StatusSuperior
 	}
 
-	// 🔥 CRIAR ESTUDANTE JÁ VINCULADO
 	repository := getRepository(c)
 	estudante := aggregates.NewEstudante()
+
+	log.Printf("🔧 [RegisterEstudantePorAcademia] Criando estudante com: AnoEscolar=%v, CursoMedioID=%v", 
+		anoEscolarPtr, cursoMedioUUID)
 
 	if err := estudante.CriarComVinculo(
 		req.Nome,
@@ -594,13 +598,13 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		telefonePtr,
 		bilhetePtr,
 		bilheteRespPtr,
-		anoEscolarPtr,          // 🔥 Agora está definido
+		anoEscolarPtr,        // 🔥 Agora está corretamente definido
 		anoSuperiorPtr,
-		cursoMedioUUID,         // 🔥 Agora está definido
+		cursoMedioUUID,       // 🔥 Agora está corretamente definido
 		cursoSuperiorUUID,
 		statusEscolarPtr,
 		statusSuperiorPtr,
-		academia.CodigoAcademia, // 🔥 JÁ VINCULADO
+		academia.CodigoAcademia,
 	); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -611,6 +615,9 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		return
 	}
 
+	log.Printf("✅ [RegisterEstudantePorAcademia] Estudante criado: %s - AnoEscolar: %v, CursoMedioID: %v", 
+		codigoEstudante, anoEscolarPtr, cursoMedioUUID)
+
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "estudante cadastrado e vinculado com sucesso",
 		"data": gin.H{
@@ -618,8 +625,8 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 			"codigo_estudante": codigoEstudante,
 			"codigo_academia":  academia.CodigoAcademia,
 			"status":           "ativo",
-			"ano_escolar":      req.AnoEscolar,
-			"curso_medio_id":   req.CursoMedioID,
+			"ano_escolar":      anoEscolarPtr,
+			"curso_medio_id":   cursoMedioUUID,
 		},
 	})
 }
