@@ -178,17 +178,14 @@ func (e *Estudante) CriarComVinculo(
 	telefone *string,
 	bilhete *string,
 	bilheteResp *string,
-	anoEscolar *string,      // ✅ RECEBENDO
-	anoSuperior *string,     // ✅ RECEBENDO
+	anoEscolar *string,
+	anoSuperior *string,
 	cursoMedioID *uuid.UUID,
 	cursoSuperiorID *uuid.UUID,
 	statusEscolar *string,
 	statusSuperior *string,
-	codigoAcademia string,
+	codigoAcademia string, // 🔥 DIFERENÇA: já recebe o código da academia
 ) error {
-	// ✅ LOG DOS VALORES RECEBIDOS
-	log.Printf("[DEBUG] CriarComVinculo chamado - AnoEscolar: %v, AnoSuperior: %v", anoEscolar, anoSuperior)
-	
 	if nome == "" || codigoEstudante == "" || senhaHash == "" {
 		return fmt.Errorf("campos obrigatórios vazios")
 	}
@@ -218,7 +215,9 @@ func (e *Estudante) CriarComVinculo(
 		statusSup = *statusSuperior
 	}
 
-	// ✅ CRIAR O EVENTO COM OS VALORES RECEBIDOS
+	// 🔥 LOG PARA DEBUG
+	log.Printf("[DEBUG] CriarComVinculo - Recebido: AnoEscolar=%v, CursoMedioID=%v", anoEscolar, cursoMedioID)
+
 	event := &EstudanteCriadoComVinculoEvent{
 		BaseEvent:             BaseEvent{EventType: "EstudanteCriadoComVinculo", AggregateID: e.ID},
 		Nome:                  nome,
@@ -228,19 +227,18 @@ func (e *Estudante) CriarComVinculo(
 		Telefone:              telefone,
 		BilheteIdentidade:     bilhete,
 		BilheteIdentidadeResp: bilheteResp,
-		AnoEscolar:            anoEscolar,      // ✅ PASSAR AQUI
-		AnoSuperior:           anoSuperior,     // ✅ PASSAR AQUI
-		CursoMedioID:          cursoMedioID,
-		CursoSuperiorID:       cursoSuperiorID,
+		AnoEscolar:            anoEscolar,            // 🔥 Deve propagar
+		AnoSuperior:           anoSuperior,          // 🔥 Deve propagar
+		CursoMedioID:          cursoMedioID,         // 🔥 Deve propagar
+		CursoSuperiorID:       cursoSuperiorID,      // 🔥 Deve propagar
 		StatusEscolar:         statusEsc,
 		StatusSuperior:        statusSup,
-		CodigoAcademia:        codigoAcademia,
+		CodigoAcademia:        codigoAcademia, // 🔥 JÁ VINCULADO
 		CreatedAt:             time.Now(),
 	}
 
-	// ✅ LOG DO EVENTO ANTES DE LEVANTAR
-	log.Printf("[DEBUG] Evento criado - AnoEscolar no evento: %v, AnoSuperior no evento: %v", 
-		event.AnoEscolar, event.AnoSuperior)
+	// 🔥 LOG DO EVENTO CRIADO
+	log.Printf("[DEBUG] Evento criado - AnoEscolar=%v, CursoMedioID=%v", event.AnoEscolar, event.CursoMedioID)
 
 	e.RaiseEvent(event)
 	return e.Apply(event)
@@ -920,10 +918,10 @@ type EstudanteCriadoComVinculoEvent struct {
 	Telefone              *string
 	BilheteIdentidade     *string
 	BilheteIdentidadeResp *string
-	AnoEscolar            *string
-	AnoSuperior           *string
-	CursoMedioID          *uuid.UUID
-	CursoSuperiorID       *uuid.UUID
+	AnoEscolar            *string    // 🔥 IMPORTANTE: ponteiro
+	AnoSuperior           *string    // 🔥 IMPORTANTE: ponteiro
+	CursoMedioID          *uuid.UUID // 🔥 IMPORTANTE: ponteiro
+	CursoSuperiorID       *uuid.UUID // 🔥 IMPORTANTE: ponteiro
 	StatusEscolar         string
 	StatusSuperior        string
 	CodigoAcademia        string // 🔥 DIFERENÇA
