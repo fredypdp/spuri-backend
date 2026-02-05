@@ -390,6 +390,21 @@ func RegisterEstudante(c *gin.Context) {
 	})
 }
 
+// CadastroEstudanteAcademiaRequest - payload específico para cadastro por academia
+type CadastroEstudanteAcademiaRequest struct {
+	Nome                  string `json:"nome" binding:"required"`
+	Email                 string `json:"email"`
+	Telefone              string `json:"telefone"`
+	BilheteIdentidade     string `json:"bilhete_identidade"`
+	BilheteResponsavel    string `json:"bilhete_identidade_responsavel"`
+	AnoEscolar            string `json:"ano_escolar"`           // 🔥 String direto
+	AnoSuperior           string `json:"ano_superior"`          // 🔥 String direto
+	CursoMedioID          string `json:"curso_medio_id"`        // 🔥 UUID como string
+	CursoSuperiorID       string `json:"curso_superior_id"`     // 🔥 UUID como string
+	StatusEscolar         string `json:"status_escolar"`
+	StatusSuperior        string `json:"status_superior"`
+}
+
 // RegisterEstudantePorAcademia - Academia cadastra estudante já vinculado
 func RegisterEstudantePorAcademia(c *gin.Context) {
 	var req CadastroEstudanteAcademiaRequest
