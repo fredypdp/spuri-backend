@@ -392,15 +392,14 @@ func RegisterEstudante(c *gin.Context) {
 
 // RegisterEstudantePorAcademia - Academia cadastra estudante já vinculado
 func RegisterEstudantePorAcademia(c *gin.Context) {
-	var req RegisterEstudanteRequest
+	var req CadastroEstudanteAcademiaRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
-	// ✅ LOG DO PAYLOAD RECEBIDO
-	log.Printf("[DEBUG] Payload recebido - AnoEscolar: %v, AnoSuperior: %v, CursoMedioID: %v", 
-		req.AnoEscolar, req.AnoSuperior, req.CursoMedioID)
+	log.Printf("📥 Payload recebido - Nome: %s, AnoEscolar: %s, CursoMedioID: %s", 
+		req.Nome, req.AnoEscolar, req.CursoMedioID)
 
 	// Validações básicas
 	if err := utils.ValidateNome(req.Nome); err != nil {
@@ -408,44 +407,46 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		return
 	}
 
-	if err := utils.ValidateSenha(req.Senha); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-
-	if req.Email != nil {
-		if err := utils.ValidateEmail(*req.Email); err != nil {
+	// 🔥 Validar email apenas se fornecido
+	if req.Email != "" {
+		if err := utils.ValidateEmail(req.Email); err != nil {
 			utils.RespondWithValidationError(c, err)
 			return
 		}
 	}
 
-	if req.Telefone != nil {
-		if err := utils.ValidatePhone(*req.Telefone); err != nil {
+	// 🔥 Validar telefone apenas se fornecido
+	if req.Telefone != "" {
+		if err := utils.ValidatePhone(req.Telefone); err != nil {
 			utils.RespondWithValidationError(c, err)
 			return
 		}
 	}
 
-	if err := utils.ValidateBilhete(utils.SafeDeref(req.BilheteIdentidade)); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
+	// 🔥 Validar bilhetes
+	if req.BilheteIdentidade != "" {
+		if err := utils.ValidateBilhete(req.BilheteIdentidade); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
 	}
 
-	if err := utils.ValidateBilhete(utils.SafeDeref(req.BilheteIdentidadeResp)); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
+	if req.BilheteResponsavel != "" {
+		if err := utils.ValidateBilhete(req.BilheteResponsavel); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
 	}
 
-	if req.BilheteIdentidade == nil && req.BilheteIdentidadeResp == nil {
+	if req.BilheteIdentidade == "" && req.BilheteResponsavel == "" {
 		utils.RespondWithValidationError(c, fmt.Errorf("pelo menos um bilhete de identidade é obrigatório"))
 		return
 	}
 
 	// Verificar bilhete existente
-	if req.BilheteIdentidade != nil && *req.BilheteIdentidade != "" {
+	if req.BilheteIdentidade != "" {
 		estudanteProj := getEstudanteProjection(c)
-		existente, err := estudanteProj.GetByBilheteIdentidadePrincipal(*req.BilheteIdentidade)
+		existente, err := estudanteProj.GetByBilheteIdentidadePrincipal(req.BilheteIdentidade)
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
@@ -456,10 +457,20 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		}
 	}
 
-	// Validar cursos se fornecidos
-	if req.CursoMedioID != nil && *req.CursoMedioID != uuid.Nil {
+	// 🔥 Converter e validar UUID do curso se fornecido
+	var cursoMedioUUID *uuid.UUID
+	var cursoSuperiorUUID *uuid.UUID
+
+	if req.CursoMedioID != "" {
+		parsed, err := uuid.Parse(req.CursoMedioID)
+		if err != nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("curso_medio_id inválido"))
+			return
+		}
+		cursoMedioUUID = &parsed
+
 		cursosProj := getCursosProjection(c)
-		curso, _ := cursosProj.GetByID(*req.CursoMedioID)
+		curso, _ := cursosProj.GetByID(parsed)
 		if curso == nil {
 			utils.RespondWithValidationError(c, fmt.Errorf("curso_medio_id não encontrado"))
 			return
@@ -470,9 +481,16 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		}
 	}
 
-	if req.CursoSuperiorID != nil && *req.CursoSuperiorID != uuid.Nil {
+	if req.CursoSuperiorID != "" {
+		parsed, err := uuid.Parse(req.CursoSuperiorID)
+		if err != nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("curso_superior_id inválido"))
+			return
+		}
+		cursoSuperiorUUID = &parsed
+
 		cursosProj := getCursosProjection(c)
-		curso, _ := cursosProj.GetByID(*req.CursoSuperiorID)
+		curso, _ := cursosProj.GetByID(parsed)
 		if curso == nil {
 			utils.RespondWithValidationError(c, fmt.Errorf("curso_superior_id não encontrado"))
 			return
@@ -483,7 +501,7 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		}
 	}
 
-	// Obter academia logada
+	// 🔥 OBTER ACADEMIA LOGADA
 	academiaID, ok := middleware.GetUserID(c)
 	if !ok {
 		utils.RespondWithUnauthorizedError(c)
@@ -509,36 +527,65 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		return
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Senha), bcrypt.DefaultCost)
+	// 🔥 Senha padrão fixa
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte("spuri123"), bcrypt.DefaultCost)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	// ✅ LOG ANTES DE CRIAR
-	log.Printf("[DEBUG] Chamando CriarComVinculo - AnoEscolar: %v, AnoSuperior: %v", 
-		req.AnoEscolar, req.AnoSuperior)
+	// 🔥 Converter campos opcionais para ponteiros
+	var emailPtr, telefonePtr, bilhetePtr, bilheteRespPtr *string
+	var anoEscolarPtr, anoSuperiorPtr *string
+	var statusEscolarPtr, statusSuperiorPtr *string
 
-	// Criar estudante já vinculado
+	if req.Email != "" {
+		emailPtr = &req.Email
+	}
+	if req.Telefone != "" {
+		telefonePtr = &req.Telefone
+	}
+	if req.BilheteIdentidade != "" {
+		bilhetePtr = &req.BilheteIdentidade
+	}
+	if req.BilheteResponsavel != "" {
+		bilheteRespPtr = &req.BilheteResponsavel
+	}
+	if req.AnoEscolar != "" {
+		anoEscolarPtr = &req.AnoEscolar
+	}
+	if req.AnoSuperior != "" {
+		anoSuperiorPtr = &req.AnoSuperior
+	}
+	if req.StatusEscolar != "" {
+		statusEscolarPtr = &req.StatusEscolar
+	} else {
+		defaultStatus := "em_andamento"
+		statusEscolarPtr = &defaultStatus
+	}
+	if req.StatusSuperior != "" {
+		statusSuperiorPtr = &req.StatusSuperior
+	}
+
+	// 🔥 CRIAR ESTUDANTE JÁ VINCULADO
 	repository := getRepository(c)
 	estudante := aggregates.NewEstudante()
 
-	// ✅ GARANTIR QUE OS VALORES ESTÃO SENDO PASSADOS
 	if err := estudante.CriarComVinculo(
 		req.Nome,
 		codigoEstudante,
 		string(hashedPassword),
-		req.Email,
-		req.Telefone,
-		req.BilheteIdentidade,
-		req.BilheteIdentidadeResp,
-		req.AnoEscolar,          // ✅ PASSAR O VALOR DO REQUEST
-		req.AnoSuperior,         // ✅ PASSAR O VALOR DO REQUEST
-		req.CursoMedioID,
-		req.CursoSuperiorID,
-		req.StatusEscolar,
-		req.StatusSuperior,
-		academia.CodigoAcademia,
+		emailPtr,
+		telefonePtr,
+		bilhetePtr,
+		bilheteRespPtr,
+		anoEscolarPtr,          // 🔥 Agora está definido
+		anoSuperiorPtr,
+		cursoMedioUUID,         // 🔥 Agora está definido
+		cursoSuperiorUUID,
+		statusEscolarPtr,
+		statusSuperiorPtr,
+		academia.CodigoAcademia, // 🔥 JÁ VINCULADO
 	); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -549,9 +596,6 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Estudante criado e vinculado pela academia %s: %s - %s", 
-		academia.CodigoAcademia, codigoEstudante, req.Nome)
-
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "estudante cadastrado e vinculado com sucesso",
 		"data": gin.H{
@@ -559,8 +603,8 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 			"codigo_estudante": codigoEstudante,
 			"codigo_academia":  academia.CodigoAcademia,
 			"status":           "ativo",
-			"ano_escolar":      req.AnoEscolar,    // ✅ RETORNAR TAMBÉM
-			"ano_superior":     req.AnoSuperior,   // ✅ RETORNAR TAMBÉM
+			"ano_escolar":      req.AnoEscolar,
+			"curso_medio_id":   req.CursoMedioID,
 		},
 	})
 }
