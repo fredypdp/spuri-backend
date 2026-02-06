@@ -5,12 +5,12 @@ import (
 	"net/http"
 	"spuri/internal/db"
 	"spuri/internal/middleware"
+	"spuri/internal/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
-// GetMeuPerfil retorna dados do usuário logado
 func GetMeuPerfil(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
@@ -23,23 +23,22 @@ func GetMeuPerfil(c *gin.Context) {
 	case "admin":
 		getPerfilAdmin(c, userID)
 	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "tipo de usuário inválido"})
+		utils.RespondWithValidationError(c, fmt.Errorf("tipo de usuário inválido"))
 	}
 }
 
-// 🔥 ATUALIZADO
 func getPerfilEstudante(c *gin.Context, userID interface{}) {
 	estudanteProj := getEstudanteProjection(c)
 
 	id, ok := userID.(uuid.UUID)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao processar ID"})
+		utils.RespondWithInternalError(c, fmt.Errorf("erro ao processar ID do usuário"))
 		return
 	}
 
 	estudante, err := estudanteProj.GetByID(id)
 	if err != nil || estudante == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
+		utils.RespondWithNotFoundError(c, "estudante")
 		return
 	}
 
@@ -56,7 +55,6 @@ func getPerfilEstudante(c *gin.Context, userID interface{}) {
 		}
 	}
 
-	// 🔥 BUSCAR INFORMAÇÕES DOS CURSOS
 	var cursoMedioInfo *gin.H
 	var cursoSuperiorInfo *gin.H
 	
@@ -104,10 +102,10 @@ func getPerfilEstudante(c *gin.Context, userID interface{}) {
 			"status_superior":                estudante.StatusSuperior,
 			"ano_escolar":                    estudante.AnoEscolar,
 			"ano_superior":                   estudante.AnoSuperior,
-			"curso_medio_id":                 estudante.CursoMedioID,    // 🔥 MUDOU
-			"curso_medio_info":               cursoMedioInfo,            // 🔥 NOVO
-			"curso_superior_id":              estudante.CursoSuperiorID, // 🔥 MUDOU
-			"curso_superior_info":            cursoSuperiorInfo,         // 🔥 NOVO
+			"curso_medio_id":                 estudante.CursoMedioID,
+			"curso_medio_info":               cursoMedioInfo,
+			"curso_superior_id":              estudante.CursoSuperiorID,
+			"curso_superior_info":            cursoSuperiorInfo,
 			"created_at":                     estudante.CreatedAt,
 			"updated_at":                     estudante.UpdatedAt,
 			"total_notas":                    estudante.TotalNotas,
@@ -123,13 +121,13 @@ func getPerfilAcademia(c *gin.Context, userID interface{}) {
 
 	id, ok := userID.(uuid.UUID)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao processar ID"})
+		utils.RespondWithInternalError(c, fmt.Errorf("erro ao processar ID do usuário"))
 		return
 	}
 
 	academia, err := academiaProj.GetByID(id)
 	if err != nil || academia == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
+		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
 
@@ -163,13 +161,13 @@ func getPerfilAdmin(c *gin.Context, userID interface{}) {
 
 	id, ok := userID.(uuid.UUID)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao processar ID"})
+		utils.RespondWithInternalError(c, fmt.Errorf("erro ao processar ID do usuário"))
 		return
 	}
 
 	admin, err := adminProj.GetByID(id)
 	if err != nil || admin == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "administrador não encontrado"})
+		utils.RespondWithNotFoundError(c, "administrador")
 		return
 	}
 
@@ -191,22 +189,19 @@ func getPerfilAdmin(c *gin.Context, userID interface{}) {
 	})
 }
 
-// 🔥 ATUALIZADO
 func GetEstudantePorCodigo(c *gin.Context) {
 	userType, _ := middleware.GetUserType(c)
 	codigoEstudante := c.Param("codigo")
 
 	if userType != "academia" && userType != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": "acesso negado: apenas academias e administradores",
-		})
+		utils.RespondWithForbiddenError(c, "Acesso negado. Apenas academias e administradores podem consultar estudantes.")
 		return
 	}
 
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
+		utils.RespondWithNotFoundError(c, "estudante")
 		return
 	}
 
@@ -225,7 +220,6 @@ func GetEstudantePorCodigo(c *gin.Context) {
 		}
 	}
 
-	// 🔥 BUSCAR INFORMAÇÕES DOS CURSOS
 	var cursoMedioInfo *gin.H
 	var cursoSuperiorInfo *gin.H
 	
@@ -272,10 +266,10 @@ func GetEstudantePorCodigo(c *gin.Context) {
 			"status_superior":                estudante.StatusSuperior,
 			"ano_escolar":                    estudante.AnoEscolar,
 			"ano_superior":                   estudante.AnoSuperior,
-			"curso_medio_id":                 estudante.CursoMedioID,    // 🔥 MUDOU
-			"curso_medio_info":               cursoMedioInfo,            // 🔥 NOVO
-			"curso_superior_id":              estudante.CursoSuperiorID, // 🔥 MUDOU
-			"curso_superior_info":            cursoSuperiorInfo,         // 🔥 NOVO
+			"curso_medio_id":                 estudante.CursoMedioID,
+			"curso_medio_info":               cursoMedioInfo,
+			"curso_superior_id":              estudante.CursoSuperiorID,
+			"curso_superior_info":            cursoSuperiorInfo,
 			"created_at":                     estudante.CreatedAt,
 			"updated_at":                     estudante.UpdatedAt,
 			"total_notas":                    estudante.TotalNotas,
@@ -287,22 +281,19 @@ func GetEstudantePorCodigo(c *gin.Context) {
 	})
 }
 
-// GetAcademiaPorCodigo busca dados de academia por código
 func GetAcademiaPorCodigo(c *gin.Context) {
 	userType, _ := middleware.GetUserType(c)
 	codigoAcademia := c.Param("codigo")
 
 	if userType != "academia" && userType != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": "acesso negado: apenas academias e administradores",
-		})
+		utils.RespondWithForbiddenError(c, "Acesso negado. Apenas academias e administradores podem consultar academias.")
 		return
 	}
 
 	academiaProj := getAcademiaProjection(c)
 	academia, err := academiaProj.GetByCodigo(codigoAcademia)
 	if err != nil || academia == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
+		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
 
@@ -369,14 +360,13 @@ func GetAcademiaPorCodigo(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// GetAdminPorEmail busca dados de admin por email
 func GetAdminPorEmail(c *gin.Context) {
 	email := c.Param("email")
 
 	adminProj := getAdminProjection(c)
 	admin, err := adminProj.GetByEmail(email)
 	if err != nil || admin == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "administrador não encontrado"})
+		utils.RespondWithNotFoundError(c, "administrador")
 		return
 	}
 

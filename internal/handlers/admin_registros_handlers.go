@@ -3,11 +3,11 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"spuri/internal/utils"
 
 	"github.com/gin-gonic/gin"
 )
 
-// ListarTodosRegistros lista TODOS os registros de notas e faltas (apenas admin)
 func ListarTodosRegistros(c *gin.Context) {
 	client := getDbClient(c)
 
@@ -24,7 +24,6 @@ func ListarTodosRegistros(c *gin.Context) {
 	tipoFiltro := c.Query("tipo")
 	response := gin.H{}
 
-	// BUSCAR NOTAS
 	if tipoFiltro == "" || tipoFiltro == "notas" {
 		queryNotas := fmt.Sprintf(`
 			SELECT 
@@ -55,7 +54,7 @@ func ListarTodosRegistros(c *gin.Context) {
 
 		rows, err := client.DB().Query(queryNotas)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar notas"})
+			utils.RespondWithInternalError(c, err)
 			return
 		}
 		defer rows.Close()
@@ -78,7 +77,6 @@ func ListarTodosRegistros(c *gin.Context) {
 		response["total_notas_geral"] = totalNotas
 	}
 
-	// BUSCAR FALTAS
 	if tipoFiltro == "" || tipoFiltro == "faltas" {
 		queryFaltas := fmt.Sprintf(`
 			SELECT 
@@ -109,7 +107,7 @@ func ListarTodosRegistros(c *gin.Context) {
 
 		rows, err := client.DB().Query(queryFaltas)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar faltas"})
+			utils.RespondWithInternalError(c, err)
 			return
 		}
 		defer rows.Close()
@@ -132,7 +130,6 @@ func ListarTodosRegistros(c *gin.Context) {
 		response["total_faltas_geral"] = totalFaltas
 	}
 
-	// ESTATÍSTICAS GERAIS
 	var stats struct {
 		TotalEstudantes int
 		TotalAcademias  int
@@ -163,7 +160,6 @@ func ListarTodosRegistros(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// ListarRegistrosPorEstudante lista todos os registros de um estudante específico (admin)
 func ListarRegistrosPorEstudante(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
 	client := getDbClient(c)
@@ -171,11 +167,10 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
+		utils.RespondWithNotFoundError(c, "estudante")
 		return
 	}
 
-	// Buscar notas
 	queryNotas := fmt.Sprintf(`
 		SELECT 
 			n.id, n.codigo_academia, a.nome as academia_nome,
@@ -198,7 +193,7 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 
 	rowsNotas, err := client.DB().Query(queryNotas)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar notas"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 	defer rowsNotas.Close()
@@ -212,7 +207,6 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 		}
 	}
 
-	// Buscar faltas
 	queryFaltas := fmt.Sprintf(`
 		SELECT 
 			f.id, f.codigo_academia, a.nome as academia_nome,
@@ -235,7 +229,7 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 
 	rowsFaltas, err := client.DB().Query(queryFaltas)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar faltas"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 	defer rowsFaltas.Close()
@@ -262,7 +256,6 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 	})
 }
 
-// ListarRegistrosPorAcademia lista todos os registros de uma academia (admin)
 func ListarRegistrosPorAcademia(c *gin.Context) {
 	codigoAcademia := c.Param("codigo")
 	client := getDbClient(c)
@@ -270,11 +263,10 @@ func ListarRegistrosPorAcademia(c *gin.Context) {
 	academiaProj := getAcademiaProjection(c)
 	academia, err := academiaProj.GetByCodigo(codigoAcademia)
 	if err != nil || academia == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
+		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
 
-	// Buscar notas
 	queryNotas := fmt.Sprintf(`
 		SELECT 
 			n.id, n.estudante_id, e.codigo_estudante, e.nome as estudante_nome,
@@ -298,7 +290,7 @@ func ListarRegistrosPorAcademia(c *gin.Context) {
 
 	rowsNotas, err := client.DB().Query(queryNotas)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar notas"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 	defer rowsNotas.Close()
@@ -312,7 +304,6 @@ func ListarRegistrosPorAcademia(c *gin.Context) {
 		}
 	}
 
-	// Buscar faltas
 	queryFaltas := fmt.Sprintf(`
 		SELECT 
 			f.id, f.estudante_id, e.codigo_estudante, e.nome as estudante_nome,
@@ -336,7 +327,7 @@ func ListarRegistrosPorAcademia(c *gin.Context) {
 
 	rowsFaltas, err := client.DB().Query(queryFaltas)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar faltas"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 	defer rowsFaltas.Close()

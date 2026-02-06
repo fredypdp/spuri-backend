@@ -2,24 +2,24 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"spuri/internal/domain/aggregates"
+	"spuri/internal/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
-// ListarTodosAdmins retorna lista completa de admins
 func ListarTodosAdmins(c *gin.Context) {
 	adminProj := getAdminProjection(c)
 	admins, err := adminProj.GetAll()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar admins"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	// Remove senha de todos
 	var adminsResponse []map[string]interface{}
 	for _, admin := range admins {
 		adminBytes, _ := json.Marshal(admin)
@@ -35,35 +35,34 @@ func ListarTodosAdmins(c *gin.Context) {
 	})
 }
 
-// AtivarAdmin ativa um administrador (apenas FPP)
 func AtivarAdmin(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	targetID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
+		utils.RespondWithValidationError(c, fmt.Errorf("ID de administrador inválido"))
 		return
 	}
 
 	if err := verificarPermissaoAdmin(c, "fpp"); err != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		utils.RespondWithForbiddenError(c, err.Error())
 		return
 	}
 
 	repository := getRepository(c)
 	targetAdminAgg, err := repository.Load(targetID, "Admin")
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "administrador não encontrado"})
+		utils.RespondWithNotFoundError(c, "administrador")
 		return
 	}
 
 	targetAdmin := targetAdminAgg.(*aggregates.Admin)
 	if err := targetAdmin.Ativar(userID.(uuid.UUID)); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if err := repository.Save(targetAdmin); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao ativar administrador"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -79,12 +78,11 @@ func AtivarAdmin(c *gin.Context) {
 	})
 }
 
-// DesativarAdmin desativa um administrador (apenas FPP)
 func DesativarAdmin(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	targetID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
+		utils.RespondWithValidationError(c, fmt.Errorf("ID de administrador inválido"))
 		return
 	}
 
@@ -92,35 +90,35 @@ func DesativarAdmin(c *gin.Context) {
 		Motivo string `json:"motivo" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "motivo é obrigatório"})
+		utils.RespondWithValidationError(c, fmt.Errorf("motivo é obrigatório"))
 		return
 	}
 
 	if err := verificarPermissaoAdmin(c, "fpp"); err != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		utils.RespondWithForbiddenError(c, err.Error())
 		return
 	}
 
 	if targetID == userID.(uuid.UUID) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "você não pode desativar sua própria conta"})
+		utils.RespondWithValidationError(c, fmt.Errorf("você não pode desativar sua própria conta"))
 		return
 	}
 
 	repository := getRepository(c)
 	targetAdminAgg, err := repository.Load(targetID, "Admin")
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "administrador não encontrado"})
+		utils.RespondWithNotFoundError(c, "administrador")
 		return
 	}
 
 	targetAdmin := targetAdminAgg.(*aggregates.Admin)
 	if err := targetAdmin.Desativar(userID.(uuid.UUID), req.Motivo); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if err := repository.Save(targetAdmin); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao desativar administrador"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 

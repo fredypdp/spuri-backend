@@ -3,11 +3,12 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"spuri/internal/db"
 	"spuri/internal/middleware"
+	"spuri/internal/utils"
 	"strconv"
 	"time"
 
-	"spuri/internal/db"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -37,13 +38,13 @@ func getPaginationParams(c *gin.Context) (limit, offset int) {
 func ListarInscricoes(c *gin.Context) {
 	userID, exists := middleware.GetUserID(c)
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "usuário não autenticado"})
+		utils.RespondWithUnauthorizedError(c)
 		return
 	}
 
 	userType, exists := middleware.GetUserType(c)
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "tipo de usuário não identificado"})
+		utils.RespondWithUnauthorizedError(c)
 		return
 	}
 
@@ -138,13 +139,13 @@ func ListarInscricoes(c *gin.Context) {
 		}
 
 	default:
-		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
+		utils.RespondWithForbiddenError(c, "Acesso negado")
 		return
 	}
 
 	rows, err := client.DB().Query(query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -236,13 +237,13 @@ func ListarInscricoesPendentes(c *gin.Context) {
 		`, userID)
 
 	default:
-		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
+		utils.RespondWithForbiddenError(c, "Acesso negado")
 		return
 	}
 
 	rows, err := client.DB().Query(query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -280,7 +281,7 @@ func GetNotasEstudante(c *gin.Context) {
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
+		utils.RespondWithNotFoundError(c, "estudante")
 		return
 	}
 
@@ -288,7 +289,7 @@ func GetNotasEstudante(c *gin.Context) {
 	userType, _ := middleware.GetUserType(c)
 
 	if userType == "estudante" && userID != estudante.ID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
+		utils.RespondWithForbiddenError(c, "Você só pode visualizar suas próprias notas")
 		return
 	}
 
@@ -296,7 +297,7 @@ func GetNotasEstudante(c *gin.Context) {
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, _ := academiaProj.GetByID(userID)
 		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
-			c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
+			utils.RespondWithForbiddenError(c, "Estudante não pertence a esta academia")
 			return
 		}
 	}
@@ -304,7 +305,7 @@ func GetNotasEstudante(c *gin.Context) {
 	notasProj := getNotasProjection(c)
 	notas, err := notasProj.GetByEstudante(codigoEstudante)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar notas"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -322,7 +323,7 @@ func GetFaltasEstudante(c *gin.Context) {
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
+		utils.RespondWithNotFoundError(c, "estudante")
 		return
 	}
 
@@ -330,7 +331,7 @@ func GetFaltasEstudante(c *gin.Context) {
 	userType, _ := middleware.GetUserType(c)
 
 	if userType == "estudante" && userID != estudante.ID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
+		utils.RespondWithForbiddenError(c, "Você só pode visualizar suas próprias faltas")
 		return
 	}
 
@@ -338,7 +339,7 @@ func GetFaltasEstudante(c *gin.Context) {
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, _ := academiaProj.GetByID(userID)
 		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
-			c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
+			utils.RespondWithForbiddenError(c, "Estudante não pertence a esta academia")
 			return
 		}
 	}
@@ -346,7 +347,7 @@ func GetFaltasEstudante(c *gin.Context) {
 	faltasProj := getFaltasProjection(c)
 	faltas, err := faltasProj.GetByEstudante(codigoEstudante)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar faltas"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -364,7 +365,7 @@ func GetHistoricoCompleto(c *gin.Context) {
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
+		utils.RespondWithNotFoundError(c, "estudante")
 		return
 	}
 
@@ -372,7 +373,7 @@ func GetHistoricoCompleto(c *gin.Context) {
 	userType, _ := middleware.GetUserType(c)
 
 	if userType == "estudante" && userID != estudante.ID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
+		utils.RespondWithForbiddenError(c, "Você só pode visualizar seu próprio histórico")
 		return
 	}
 
@@ -380,7 +381,7 @@ func GetHistoricoCompleto(c *gin.Context) {
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, _ := academiaProj.GetByID(userID)
 		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
-			c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
+			utils.RespondWithForbiddenError(c, "Estudante não pertence a esta academia")
 			return
 		}
 	}
@@ -408,7 +409,7 @@ func GetEventosEstudante(c *gin.Context) {
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
+		utils.RespondWithNotFoundError(c, "estudante")
 		return
 	}
 
@@ -416,14 +417,14 @@ func GetEventosEstudante(c *gin.Context) {
 	userType, _ := middleware.GetUserType(c)
 
 	if userType == "estudante" && userID != estudante.ID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
+		utils.RespondWithForbiddenError(c, "Você só pode visualizar seus próprios eventos")
 		return
 	}
 
 	repository := getRepository(c)
 	eventos, err := repository.GetEventHistory(estudante.ID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar eventos"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -442,14 +443,14 @@ func VerificarIntegridade(c *gin.Context) {
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
+		utils.RespondWithNotFoundError(c, "estudante")
 		return
 	}
 
 	repository := getRepository(c)
 	isValid, err := repository.VerifyIntegrity(estudante.ID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao verificar integridade"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -472,7 +473,7 @@ func GetMinhasInscricoes(c *gin.Context) {
 	inscProj := getInscricoesProjection(c)
 	inscricoes, err := inscProj.GetByEstudante(userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -488,7 +489,7 @@ func GetMeuHistorico(c *gin.Context) {
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByID(userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar dados"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -527,7 +528,7 @@ func ListarTodasAcademias(c *gin.Context) {
 
 	rows, err := client.DB().Query(query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar academias"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -581,10 +582,8 @@ func ListarTodasAcademias(c *gin.Context) {
 				"version":                    aca.Version,
 			}
 
-			// Parse cursos JSON
 			var cursos []string
 			if len(aca.Cursos) > 0 {
-				// Simple JSON unmarshal would be better with proper import
 				academiaMap["cursos"] = cursos
 			}
 

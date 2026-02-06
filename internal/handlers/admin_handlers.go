@@ -9,13 +9,13 @@ import (
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
 	"spuri/internal/projections"
+	"spuri/internal/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// LoginAdmin autentica administrador
 func LoginAdmin(c *gin.Context) {
 	var req struct {
 		Email string `json:"email" binding:"required"`
@@ -23,30 +23,30 @@ func LoginAdmin(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		utils.RespondWithValidationError(c, fmt.Errorf("email e senha são obrigatórios"))
 		return
 	}
 
 	adminProj := getAdminProjection(c)
 	admin, err := adminProj.GetByEmail(req.Email)
 	if err != nil || admin == nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "credenciais inválidas"})
+		utils.RespondWithUnauthorizedError(c)
 		return
 	}
 
 	if admin.Status != "ativo" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "administrador inativo"})
+		utils.RespondWithForbiddenError(c, "Administrador inativo. Entre em contato com o suporte.")
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(admin.SenhaHash), []byte(req.Senha)); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "credenciais inválidas"})
+		utils.RespondWithUnauthorizedError(c)
 		return
 	}
 
 	token, err := middleware.GenerateToken(admin.ID, "admin")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao gerar token"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -60,7 +60,6 @@ func LoginAdmin(c *gin.Context) {
 	})
 }
 
-// RegisterAdmin cria novo administrador
 func RegisterAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -72,55 +71,55 @@ func RegisterAdmin(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: nome, email, senha e role"))
 		return
 	}
 
 	if req.Role != "fpp" && req.Role != "adm" && req.Role != "gerente" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "role deve ser 'fpp', 'adm' ou 'gerente'"})
+		utils.RespondWithValidationError(c, fmt.Errorf("role deve ser 'fpp', 'adm' ou 'gerente'"))
 		return
 	}
 
 	adminProj := getAdminProjection(c)
 	creatorAdmin, err := adminProj.GetByID(userID)
 	if err != nil || creatorAdmin == nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": "administrador não encontrado"})
+		utils.RespondWithForbiddenError(c, "Administrador não encontrado")
 		return
 	}
 
 	repository := getRepository(c)
 	creatorAgg, err := repository.Load(userID, "Admin")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao carregar administrador"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
 	creator := creatorAgg.(*aggregates.Admin)
 	if err := creator.ValidatePermission(req.Role); err != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		utils.RespondWithForbiddenError(c, err.Error())
 		return
 	}
 
 	existing, _ := adminProj.GetByEmail(req.Email)
 	if existing != nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "email já cadastrado"})
+		utils.RespondWithConflictError(c, "Email já cadastrado no sistema")
 		return
 	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Senha), bcrypt.DefaultCost)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao processar senha"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
 	newAdmin := aggregates.NewAdmin()
 	if err := newAdmin.Criar(req.Nome, req.Email, string(hashedPassword), req.Role, &userID); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if err := repository.Save(newAdmin); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao criar administrador"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -144,30 +143,28 @@ func RegisterAdmin(c *gin.Context) {
 	})
 }
 
-// ConsultarAdmin busca admin por email
 func ConsultarAdmin(c *gin.Context) {
 	email := c.Param("email")
 	if email == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "email não fornecido"})
+		utils.RespondWithValidationError(c, fmt.Errorf("email não fornecido"))
 		return
 	}
 
 	adminProj := getAdminProjection(c)
 	admin, err := adminProj.GetByEmail(email)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar admin"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
 	if admin == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "admin não encontrado"})
+		utils.RespondWithNotFoundError(c, "administrador")
 		return
 	}
 
 	c.JSON(http.StatusOK, admin)
 }
 
-// 🔥 ATUALIZADO - ListarEstudantes lista estudantes baseado no tipo de usuário
 func ListarEstudantes(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
@@ -178,12 +175,11 @@ func ListarEstudantes(c *gin.Context) {
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, err := academiaProj.GetByID(userID)
 		if err != nil || academiaDTO == nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar dados da academia"})
+			utils.RespondWithInternalError(c, err)
 			return
 		}
 
 		safeCodigoAcademia := db.SafeString(academiaDTO.CodigoAcademia)
-		// 🔥 MUDOU - curso_medio_id e curso_superior_id
 		query := fmt.Sprintf(`
 			SELECT id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
 				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
@@ -197,7 +193,7 @@ func ListarEstudantes(c *gin.Context) {
 
 		rows, err := client.DB().Query(query)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar estudantes"})
+			utils.RespondWithInternalError(c, err)
 			return
 		}
 		defer rows.Close()
@@ -214,7 +210,7 @@ func ListarEstudantes(c *gin.Context) {
 			if err := rows.Scan(&id, &nome, &codigoEstudante, &senhaHash,
 				&email, &telefone, &emailVerif, &bilhete, &bilheteResp, &codigoAcad,
 				&status, &statusEscolar, &statusSuperior, &anoEscolar, &anoSuperior,
-				&cursoMedioID, &cursoSuperiorID, // 🔥 MUDOU
+				&cursoMedioID, &cursoSuperiorID,
 				&createdAt, &updatedAt, &totalNotas, &totalFaltas, &totalInsc, &version); err == nil {
 
 				estudanteMap := map[string]interface{}{
@@ -232,8 +228,8 @@ func ListarEstudantes(c *gin.Context) {
 					"status_superior":                statusSuperior,
 					"ano_escolar":                    getNullString(anoEscolar),
 					"ano_superior":                   getNullString(anoSuperior),
-					"curso_medio_id":                 getNullString(cursoMedioID),    // 🔥 MUDOU
-					"curso_superior_id":              getNullString(cursoSuperiorID), // 🔥 MUDOU
+					"curso_medio_id":                 getNullString(cursoMedioID),
+					"curso_superior_id":              getNullString(cursoSuperiorID),
 					"created_at":                     createdAt,
 					"updated_at":                     updatedAt,
 					"total_notas":                    totalNotas,
@@ -254,7 +250,6 @@ func ListarEstudantes(c *gin.Context) {
 		})
 
 	} else if userType == "admin" {
-		// 🔥 MUDOU - curso_medio_id e curso_superior_id
 		query := `
 			SELECT id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
 				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
@@ -267,7 +262,7 @@ func ListarEstudantes(c *gin.Context) {
 
 		rows, err := client.DB().Query(query)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar estudantes"})
+			utils.RespondWithInternalError(c, err)
 			return
 		}
 		defer rows.Close()
@@ -284,7 +279,7 @@ func ListarEstudantes(c *gin.Context) {
 			if err := rows.Scan(&id, &nome, &codigoEstudante, &senhaHash,
 				&email, &telefone, &emailVerif, &bilhete, &bilheteResp, &codigoAcad,
 				&status, &statusEscolar, &statusSuperior, &anoEscolar, &anoSuperior,
-				&cursoMedioID, &cursoSuperiorID, // 🔥 MUDOU
+				&cursoMedioID, &cursoSuperiorID,
 				&createdAt, &updatedAt, &totalNotas, &totalFaltas, &totalInsc, &version); err == nil {
 
 				estudanteMap := map[string]interface{}{
@@ -302,8 +297,8 @@ func ListarEstudantes(c *gin.Context) {
 					"status_superior":                statusSuperior,
 					"ano_escolar":                    getNullString(anoEscolar),
 					"ano_superior":                   getNullString(anoSuperior),
-					"curso_medio_id":                 getNullString(cursoMedioID),    // 🔥 MUDOU
-					"curso_superior_id":              getNullString(cursoSuperiorID), // 🔥 MUDOU
+					"curso_medio_id":                 getNullString(cursoMedioID),
+					"curso_superior_id":              getNullString(cursoSuperiorID),
 					"created_at":                     createdAt,
 					"updated_at":                     updatedAt,
 					"total_notas":                    totalNotas,
@@ -322,11 +317,10 @@ func ListarEstudantes(c *gin.Context) {
 		})
 
 	} else {
-		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas academias e administradores"})
+		utils.RespondWithForbiddenError(c, "Acesso negado. Apenas academias e administradores podem listar estudantes.")
 	}
 }
 
-// Helper function
 func getNullString(ns sql.NullString) interface{} {
 	if ns.Valid {
 		return ns.String
@@ -334,38 +328,37 @@ func getNullString(ns sql.NullString) interface{} {
 	return nil
 }
 
-// AtivarAcademia ativa academia (gerente, adm ou fpp)
 func AtivarAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	codigoAcademia := c.Param("codigo")
 
 	if err := verificarPermissaoAdmin(c, "gerente"); err != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		utils.RespondWithForbiddenError(c, err.Error())
 		return
 	}
 
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByCodigo(codigoAcademia)
 	if err != nil || academiaDTO == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
+		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
 
 	repository := getRepository(c)
 	academiaAgg, err := repository.Load(academiaDTO.ID, "Academia")
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
+		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
 
 	academia := academiaAgg.(*aggregates.Academia)
 	if err := academia.Ativar(); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if err := repository.Save(academia); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao ativar academia"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -383,7 +376,6 @@ func AtivarAcademia(c *gin.Context) {
 	})
 }
 
-// DesativarAcademia desativa academia (gerente, adm ou fpp)
 func DesativarAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	codigoAcademia := c.Param("codigo")
@@ -392,37 +384,37 @@ func DesativarAcademia(c *gin.Context) {
 		Motivo string `json:"motivo" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "motivo é obrigatório"})
+		utils.RespondWithValidationError(c, fmt.Errorf("motivo é obrigatório"))
 		return
 	}
 
 	if err := verificarPermissaoAdmin(c, "gerente"); err != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		utils.RespondWithForbiddenError(c, err.Error())
 		return
 	}
 
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByCodigo(codigoAcademia)
 	if err != nil || academiaDTO == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
+		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
 
 	repository := getRepository(c)
 	academiaAgg, err := repository.Load(academiaDTO.ID, "Academia")
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
+		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
 
 	academia := academiaAgg.(*aggregates.Academia)
 	if err := academia.Desativar(req.Motivo); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if err := repository.Save(academia); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao desativar academia"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -442,25 +434,24 @@ func DesativarAcademia(c *gin.Context) {
 	})
 }
 
-// RebuildProjection reconstrói projeção específica
 func RebuildProjection(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
 	adminProj := getAdminProjection(c)
 	admin, err := adminProj.GetByID(userID)
 	if err != nil || admin == nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": "apenas administradores"})
+		utils.RespondWithForbiddenError(c, "Apenas administradores podem reconstruir projeções")
 		return
 	}
 
 	if admin.Role != "fpp" && admin.Role != "adm" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "apenas FPP ou ADM podem reconstruir projeções"})
+		utils.RespondWithForbiddenError(c, "Apenas FPP ou ADM podem reconstruir projeções")
 		return
 	}
 
 	projectionName := c.Param("name")
 	if projectionName == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "nome da projeção não fornecido"})
+		utils.RespondWithValidationError(c, fmt.Errorf("nome da projeção não fornecido"))
 		return
 	}
 
@@ -484,10 +475,7 @@ func RebuildProjection(c *gin.Context) {
 	}
 
 	if err2 != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "erro ao reconstruir projeção",
-			"details": err2.Error(),
-		})
+		utils.RespondWithInternalError(c, err2)
 		return
 	}
 
@@ -499,11 +487,10 @@ func RebuildProjection(c *gin.Context) {
 	})
 }
 
-// GetProjectionStatus retorna status de projeção
 func GetProjectionStatus(c *gin.Context) {
 	projectionName := c.Param("name")
 	if projectionName == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "nome da projeção não fornecido"})
+		utils.RespondWithValidationError(c, fmt.Errorf("nome da projeção não fornecido"))
 		return
 	}
 
@@ -528,13 +515,13 @@ func GetProjectionStatus(c *gin.Context) {
 	case "materias":
 		proj = projections.NewMateriasProjection(client)
 	default:
-		c.JSON(http.StatusNotFound, gin.H{"error": "projeção não encontrada"})
+		utils.RespondWithNotFoundError(c, "projeção")
 		return
 	}
 
 	lastEventID, err := proj.GetLastProcessedEventID()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao obter status"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -562,7 +549,6 @@ func GetProjectionStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, status)
 }
 
-// GetAllProjectionStatuses retorna status de todas projeções
 func GetAllProjectionsStatus(c *gin.Context) {
 	client := getDbClient(c)
 
@@ -574,7 +560,7 @@ func GetAllProjectionsStatus(c *gin.Context) {
 
 	rows, err := client.DB().Query(query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar status"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -602,7 +588,6 @@ func GetAllProjectionsStatus(c *gin.Context) {
 	})
 }
 
-// GetLedgerStats retorna estatísticas do ledger
 func GetLedgerStats(c *gin.Context) {
 	client := getDbClient(c)
 
@@ -639,7 +624,6 @@ func GetLedgerStats(c *gin.Context) {
 	})
 }
 
-// VerifyAllIntegrity verifica integridade do ledger
 func VerifyAllIntegrity(c *gin.Context) {
 	client := getDbClient(c)
 
@@ -654,7 +638,7 @@ func VerifyAllIntegrity(c *gin.Context) {
 	var total, withHash, withPrevious int64
 	err := client.DB().QueryRow(query).Scan(&total, &withHash, &withPrevious)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao verificar integridade"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -673,8 +657,6 @@ func VerifyAllIntegrity(c *gin.Context) {
 		}(),
 	})
 }
-
-// HELPERS
 
 func getAdminProjection(c *gin.Context) *projections.AdminProjection {
 	return projections.NewAdminProjection(getDbClient(c))

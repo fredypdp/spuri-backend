@@ -11,6 +11,7 @@ import (
 
 type ErrorResponse struct {
 	Error     string `json:"error"`
+	Message   string `json:"message"`
 	RequestID string `json:"request_id,omitempty"`
 }
 
@@ -39,69 +40,91 @@ func RespondWithError(c *gin.Context, statusCode int, userMessage string, err er
 	})
 	
 	c.JSON(statusCode, ErrorResponse{
-		Error:     userMessage,
+		Error:     getErrorType(statusCode),
+		Message:   userMessage,
 		RequestID: requestID,
 	})
 }
 
 func RespondWithValidationError(c *gin.Context, err error) {
-	log.Printf("📋 [RespondWithValidationError] Erro de validação: %v", err)
-	RespondWithError(c, http.StatusBadRequest, SafeErrorMessage(err), err)
+	message := SafeErrorMessage(err)
+	log.Printf("📋 [RespondWithValidationError] %s", message)
+	RespondWithError(c, http.StatusBadRequest, message, err)
 }
 
 func RespondWithInternalError(c *gin.Context, err error) {
 	log.Printf("💥 [RespondWithInternalError] Erro interno: %v", err)
 	RespondWithError(c, http.StatusInternalServerError, 
-		"erro interno do servidor", err)
+		"Erro interno do servidor. Tente novamente mais tarde.", err)
 }
 
 func RespondWithNotFoundError(c *gin.Context, resource string) {
-	log.Printf("🔍 [RespondWithNotFoundError] Recurso não encontrado: %s", resource)
-	RespondWithError(c, http.StatusNotFound,
-		resource+" não encontrado", nil)
+	message := resource + " não encontrado"
+	log.Printf("🔍 [RespondWithNotFoundError] %s", message)
+	RespondWithError(c, http.StatusNotFound, message, nil)
 }
 
 func RespondWithUnauthorizedError(c *gin.Context) {
-	log.Printf("🔒 [RespondWithUnauthorizedError] Credenciais inválidas - IP: %s", c.ClientIP())
+	log.Printf("🔒 [RespondWithUnauthorizedError] IP: %s", c.ClientIP())
 	RespondWithError(c, http.StatusUnauthorized,
-		"credenciais inválidas", nil)
+		"Credenciais inválidas. Verifique usuário e senha.", nil)
 }
 
 func RespondWithForbiddenError(c *gin.Context, message string) {
 	if message == "" {
-		message = "acesso negado"
+		message = "Acesso negado. Você não tem permissão para esta ação."
 	}
 	log.Printf("⛔ [RespondWithForbiddenError] %s - IP: %s", message, c.ClientIP())
 	RespondWithError(c, http.StatusForbidden, message, nil)
 }
 
+func RespondWithConflictError(c *gin.Context, message string) {
+	log.Printf("⚠️ [RespondWithConflictError] %s", message)
+	RespondWithError(c, http.StatusConflict, message, nil)
+}
+
+func getErrorType(statusCode int) string {
+	switch statusCode {
+	case http.StatusBadRequest:
+		return "VALIDATION_ERROR"
+	case http.StatusUnauthorized:
+		return "UNAUTHORIZED"
+	case http.StatusForbidden:
+		return "FORBIDDEN"
+	case http.StatusNotFound:
+		return "NOT_FOUND"
+	case http.StatusConflict:
+		return "CONFLICT"
+	case http.StatusTooManyRequests:
+		return "RATE_LIMIT"
+	case http.StatusInternalServerError:
+		return "INTERNAL_ERROR"
+	default:
+		return "ERROR"
+	}
+}
+
 func getOrCreateRequestID(c *gin.Context) string {
 	if reqID, exists := c.Get("request_id"); exists {
 		if id, ok := reqID.(string); ok {
-			log.Printf("🔖 [getOrCreateRequestID] RequestID existente: %s", id)
 			return id
 		}
 	}
 	
 	reqID := uuid.New().String()
 	c.Set("request_id", reqID)
-	log.Printf("🆕 [getOrCreateRequestID] Novo RequestID criado: %s", reqID)
 	return reqID
 }
 
 func getUserIDFromContext(c *gin.Context) string {
 	if userID, exists := c.Get("user_id"); exists {
-		// Aceita tanto string quanto uuid.UUID
 		switch v := userID.(type) {
 		case string:
-			log.Printf("👤 [getUserIDFromContext] UserID (string): %s", v)
 			return v
 		case uuid.UUID:
-			log.Printf("👤 [getUserIDFromContext] UserID (UUID): %s", v.String())
 			return v.String()
 		}
 	}
-	log.Printf("👻 [getUserIDFromContext] UserID não encontrado - retornando 'anonymous'")
 	return "anonymous"
 }
 
@@ -110,42 +133,46 @@ func logError(le LoggedError) {
 		log.Printf(`❌ [ERROR] RequestID=%s Method=%s Path=%s IP=%s User=%s Error=%v`,
 			le.RequestID, le.Method, le.Path, le.IP, le.UserID, le.Error)
 	} else {
-		log.Printf(`⚠️ [WARNING] RequestID=%s Method=%s Path=%s IP=%s User=%s (no error object)`,
+		log.Printf(`⚠️ [WARNING] RequestID=%s Method=%s Path=%s IP=%s User=%s`,
 			le.RequestID, le.Method, le.Path, le.IP, le.UserID)
 	}
 }
 
 func SafeErrorMessage(err error) string {
 	if err == nil {
-		log.Printf("🤷 [SafeErrorMessage] Erro nil recebido")
 		return ""
 	}
 	
 	errStr := strings.ToLower(err.Error())
-	log.Printf("🔍 [SafeErrorMessage] Processando erro: %s", errStr)
 	
 	errorMessages := map[string]string{
-		"no rows":                         "registro não encontrado",
-		"duplicate key":                   "valor já existe",
-		"foreign key constraint":          "operação inválida",
-		"check constraint":                "dados inválidos",
-		"invalid input syntax":            "formato de dados inválido",
-		"not null":                        "campo obrigatório não preenchido",
-		"unique constraint":               "valor já existe",
-		"value too long":                  "valor excede tamanho máximo",
-		"permission denied":               "acesso negado",
-		"invalid uuid":                    "identificador inválido",
-		"connection refused":              "serviço temporariamente indisponível",
-		"timeout":                         "operação demorou muito tempo",
+		"no rows":                         "Registro não encontrado no sistema",
+		"duplicate key":                   "Este registro já existe",
+		"foreign key constraint":          "Operação inválida: referência inexistente",
+		"check constraint":                "Dados fornecidos são inválidos",
+		"invalid input syntax":            "Formato de dados inválido",
+		"not null":                        "Campo obrigatório não foi preenchido",
+		"unique constraint":               "Este valor já está cadastrado",
+		"value too long":                  "Valor excede tamanho máximo permitido",
+		"permission denied":               "Acesso negado",
+		"invalid uuid":                    "Identificador inválido",
+		"connection refused":              "Serviço temporariamente indisponível",
+		"timeout":                         "Operação demorou muito tempo",
+		"bilhete":                         "Bilhete de identidade inválido (deve conter 12 números e 2 letras)",
+		"email":                           "Formato de email inválido",
+		"senha":                           "Senha deve ter no mínimo 6 caracteres",
+		"provincia":                       "Província inválida",
+		"periodo":                         "Período inválido",
+		"role":                            "Perfil de acesso inválido",
+		"type":                            "Tipo inválido",
+		"status":                          "Status inválido",
 	}
 	
 	for key, msg := range errorMessages {
 		if strings.Contains(errStr, key) {
-			log.Printf("✅ [SafeErrorMessage] Mensagem mapeada: '%s' -> '%s'", key, msg)
 			return msg
 		}
 	}
 	
-	log.Printf("⚠️ [SafeErrorMessage] Mensagem não mapeada, retornando original")
 	return err.Error()
 }

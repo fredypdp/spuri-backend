@@ -1,84 +1,81 @@
 package handlers
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
+	"spuri/internal/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
-// 🔥 ATUALIZADO
 func InscricaoEscola(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
 	var req struct {
 		CodigoAcademia      string     `json:"codigo_academia" binding:"required"`
 		AnoEscolarInscricao string     `json:"ano_escolar_inscricao" binding:"required"`
-		CursoMedioID        *uuid.UUID `json:"curso_medio_id"` // 🔥 MUDOU
+		CursoMedioID        *uuid.UUID `json:"curso_medio_id"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		utils.RespondWithValidationError(c, fmt.Errorf("codigo_academia e ano_escolar_inscricao são obrigatórios"))
 		return
 	}
 
-	// Buscar academia
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByCodigo(req.CodigoAcademia)
 	if err != nil || academiaDTO == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
+		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
 
 	if academiaDTO.Status != "ativo" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "academia não está ativa"})
+		utils.RespondWithValidationError(c, fmt.Errorf("academia não está ativa"))
 		return
 	}
 
-	// 🔥 VALIDAR CURSO SE FORNECIDO
 	if req.CursoMedioID != nil && *req.CursoMedioID != uuid.Nil {
 		cursosProj := getCursosProjection(c)
 		curso, _ := cursosProj.GetByID(*req.CursoMedioID)
 		if curso == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "curso_medio_id não encontrado"})
+			utils.RespondWithNotFoundError(c, "curso")
 			return
 		}
 		if curso.Type != "medio" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "curso deve ser do tipo 'medio'"})
+			utils.RespondWithValidationError(c, fmt.Errorf("curso deve ser do tipo 'medio'"))
 			return
 		}
 		if curso.CodigoAcademia != academiaDTO.CodigoAcademia {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "curso não pertence a esta academia"})
+			utils.RespondWithForbiddenError(c, "Curso não pertence a esta academia")
 			return
 		}
 		if curso.Status != "ativo" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "curso está inativo"})
+			utils.RespondWithValidationError(c, fmt.Errorf("curso está inativo"))
 			return
 		}
 	}
 
-	// Carregar e inscrever
 	repository := getRepository(c)
 	estudanteAgg, err := repository.Load(userID, "Estudante")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao carregar estudante"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
 	estudante := estudanteAgg.(*aggregates.Estudante)
 
-	// 🔥 MUDOU - passar UUID em vez de string
 	err = estudante.SolicitarInscricao(req.CodigoAcademia, "escola", req.AnoEscolarInscricao, req.CursoMedioID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if err := repository.Save(estudante); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao salvar inscrição"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -91,71 +88,68 @@ func InscricaoEscola(c *gin.Context) {
 	})
 }
 
-// 🔥 ATUALIZADO
 func InscricaoUniversidade(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
 	var req struct {
 		CodigoAcademia  string    `json:"codigo_academia" binding:"required"`
 		AnoInscricao    string    `json:"ano_inscricao" binding:"required"`
-		CursoSuperiorID uuid.UUID `json:"curso_superior_id" binding:"required"` // 🔥 MUDOU
+		CursoSuperiorID uuid.UUID `json:"curso_superior_id" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		utils.RespondWithValidationError(c, fmt.Errorf("codigo_academia, ano_inscricao e curso_superior_id são obrigatórios"))
 		return
 	}
 
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByCodigo(req.CodigoAcademia)
 	if err != nil || academiaDTO == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
+		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
 
 	if academiaDTO.Status != "ativo" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "academia não está ativa"})
+		utils.RespondWithValidationError(c, fmt.Errorf("academia não está ativa"))
 		return
 	}
 
-	// 🔥 VALIDAR CURSO OBRIGATÓRIO
 	cursosProj := getCursosProjection(c)
 	curso, _ := cursosProj.GetByID(req.CursoSuperiorID)
 	if curso == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "curso_superior_id não encontrado"})
+		utils.RespondWithNotFoundError(c, "curso")
 		return
 	}
 	if curso.Type != "superior" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "curso deve ser do tipo 'superior'"})
+		utils.RespondWithValidationError(c, fmt.Errorf("curso deve ser do tipo 'superior'"))
 		return
 	}
 	if curso.CodigoAcademia != academiaDTO.CodigoAcademia {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "curso não pertence a esta academia"})
+		utils.RespondWithForbiddenError(c, "Curso não pertence a esta academia")
 		return
 	}
 	if curso.Status != "ativo" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "curso está inativo"})
+		utils.RespondWithValidationError(c, fmt.Errorf("curso está inativo"))
 		return
 	}
 
 	repository := getRepository(c)
 	estudanteAgg, err := repository.Load(userID, "Estudante")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao carregar estudante"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
 	estudante := estudanteAgg.(*aggregates.Estudante)
 
-	// 🔥 MUDOU - passar UUID
 	err = estudante.SolicitarInscricao(req.CodigoAcademia, "universidade", req.AnoInscricao, &req.CursoSuperiorID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if err := repository.Save(estudante); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao salvar inscrição"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -169,19 +163,18 @@ func InscricaoUniversidade(c *gin.Context) {
 	})
 }
 
-// BuscarUsuario - admin busca usuário por tipo e ID
 func BuscarUsuario(c *gin.Context) {
 	tipo := c.Query("tipo")
 	id := c.Query("id")
 
 	if tipo == "" || id == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "tipo e id são obrigatórios"})
+		utils.RespondWithValidationError(c, fmt.Errorf("parâmetros 'tipo' e 'id' são obrigatórios"))
 		return
 	}
 
 	userID, err := uuid.Parse(id)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
+		utils.RespondWithValidationError(c, fmt.Errorf("ID inválido"))
 		return
 	}
 
@@ -190,7 +183,7 @@ func BuscarUsuario(c *gin.Context) {
 		estudanteProj := getEstudanteProjection(c)
 		estudante, err := estudanteProj.GetByID(userID)
 		if err != nil || estudante == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
+			utils.RespondWithNotFoundError(c, "estudante")
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"tipo": "estudante", "dados": estudante})
@@ -199,7 +192,7 @@ func BuscarUsuario(c *gin.Context) {
 		academiaProj := getAcademiaProjection(c)
 		academia, err := academiaProj.GetByID(userID)
 		if err != nil || academia == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
+			utils.RespondWithNotFoundError(c, "academia")
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"tipo": "academia", "dados": academia})
@@ -208,17 +201,16 @@ func BuscarUsuario(c *gin.Context) {
 		adminProj := getAdminProjection(c)
 		admin, err := adminProj.GetByID(userID)
 		if err != nil || admin == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "admin não encontrado"})
+			utils.RespondWithNotFoundError(c, "administrador")
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"tipo": "admin", "dados": admin})
 
 	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "tipo inválido (estudante, academia, admin)"})
+		utils.RespondWithValidationError(c, fmt.Errorf("tipo inválido. Use: estudante, academia ou admin"))
 	}
 }
 
-// GetAllProjectionStatuses - alias para GetAllProjectionsStatus
 func GetAllProjectionStatuses(c *gin.Context) {
 	GetAllProjectionsStatus(c)
 }

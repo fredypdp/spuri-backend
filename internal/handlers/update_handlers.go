@@ -18,7 +18,6 @@ import (
 
 func AtualizarDadosPessoaisEstudante(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
-	log.Printf("[DEBUG] AtualizarDadosPessoaisEstudante - userID: %s", userID)
 
 	var req struct {
 		Nome                  *string `json:"nome"`
@@ -29,68 +28,62 @@ func AtualizarDadosPessoaisEstudante(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		utils.RespondWithValidationError(c, fmt.Errorf("dados inválidos"))
 		return
 	}
 
 	repository := getRepository(c)
 	estudanteAgg, err := repository.Load(userID, "Estudante")
 	if err != nil {
-		log.Printf("[DEBUG] Erro ao carregar: %v", err)
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
+		utils.RespondWithNotFoundError(c, "estudante")
 		return
 	}
 
 	estudante := estudanteAgg.(*aggregates.Estudante)
 	if err := estudante.AtualizarDadosPessoais(req.Nome, req.Email, req.Telefone, req.BilheteIdentidade, req.BilheteIdentidadeResp); err != nil {
-		log.Printf("[DEBUG] Erro: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if err := repository.Save(estudante); err != nil {
-		log.Printf("[DEBUG] Erro ao salvar: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao atualizar"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	response := gin.H{"message": "dados atualizados"}
+	response := gin.H{"message": "dados pessoais atualizados com sucesso"}
 	if req.Email != nil {
-		response["aviso"] = "email alterado - verificação necessária"
+		response["aviso"] = "Email alterado. Verificação necessária."
 		response["email_verificado"] = false
 	}
 
-	log.Printf("[DEBUG] Sucesso")
+	log.Printf("Dados pessoais atualizados: %s", estudante.CodigoEstudante)
 	c.JSON(http.StatusOK, response)
 }
 
-// 🔥 ATUALIZADO
 func AtualizarDadosAcademicosEstudante(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
-	log.Printf("[DEBUG] AtualizarDadosAcademicosEstudante - userID: %s", userID)
 
 	var req struct {
 		AnoEscolar      *string    `json:"ano_escolar"`
 		AnoSuperior     *string    `json:"ano_superior"`
-		CursoMedioID    *uuid.UUID `json:"curso_medio_id"`    // 🔥 MUDOU
-		CursoSuperiorID *uuid.UUID `json:"curso_superior_id"` // 🔥 MUDOU
+		CursoMedioID    *uuid.UUID `json:"curso_medio_id"`
+		CursoSuperiorID *uuid.UUID `json:"curso_superior_id"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		utils.RespondWithValidationError(c, fmt.Errorf("dados inválidos"))
 		return
 	}
 
-	// 🔥 VALIDAR CURSOS SE FORNECIDOS
 	if req.CursoMedioID != nil && *req.CursoMedioID != uuid.Nil {
 		cursosProj := getCursosProjection(c)
 		curso, _ := cursosProj.GetByID(*req.CursoMedioID)
 		if curso == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "curso_medio_id não encontrado"})
+			utils.RespondWithNotFoundError(c, "curso médio")
 			return
 		}
 		if curso.Type != "medio" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "curso_medio_id deve ser do tipo 'medio'"})
+			utils.RespondWithValidationError(c, fmt.Errorf("curso_medio_id deve ser do tipo 'medio'"))
 			return
 		}
 	}
@@ -99,16 +92,15 @@ func AtualizarDadosAcademicosEstudante(c *gin.Context) {
 		cursosProj := getCursosProjection(c)
 		curso, _ := cursosProj.GetByID(*req.CursoSuperiorID)
 		if curso == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "curso_superior_id não encontrado"})
+			utils.RespondWithNotFoundError(c, "curso superior")
 			return
 		}
 		if curso.Type != "superior" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "curso_superior_id deve ser do tipo 'superior'"})
+			utils.RespondWithValidationError(c, fmt.Errorf("curso_superior_id deve ser do tipo 'superior'"))
 			return
 		}
 	}
 
-	// Validar curso médio compatível com ano escolar
 	if req.CursoMedioID != nil && req.AnoEscolar != nil {
 		cursosProj := getCursosProjection(c)
 		curso, _ := cursosProj.GetByID(*req.CursoMedioID)
@@ -121,13 +113,12 @@ func AtualizarDadosAcademicosEstudante(c *gin.Context) {
 				}
 			}
 			if !anoValido {
-				utils.RespondWithValidationError(c, fmt.Errorf("ano_escolar '%s' não existe no curso selecionado", *req.AnoEscolar))
+				utils.RespondWithValidationError(c, fmt.Errorf("ano escolar '%s' não existe no curso selecionado", *req.AnoEscolar))
 				return
 			}
 		}
 	}
 
-	// Validar curso superior compatível com ano superior
 	if req.CursoSuperiorID != nil && req.AnoSuperior != nil {
 		cursosProj := getCursosProjection(c)
 		curso, _ := cursosProj.GetByID(*req.CursoSuperiorID)
@@ -140,7 +131,7 @@ func AtualizarDadosAcademicosEstudante(c *gin.Context) {
 				}
 			}
 			if !anoValido {
-				utils.RespondWithValidationError(c, fmt.Errorf("ano_superior '%s' não existe no curso selecionado", *req.AnoSuperior))
+				utils.RespondWithValidationError(c, fmt.Errorf("ano superior '%s' não existe no curso selecionado", *req.AnoSuperior))
 				return
 			}
 		}
@@ -149,28 +140,24 @@ func AtualizarDadosAcademicosEstudante(c *gin.Context) {
 	repository := getRepository(c)
 	estudanteAgg, err := repository.Load(userID, "Estudante")
 	if err != nil {
-		log.Printf("[DEBUG] Erro: %v", err)
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
+		utils.RespondWithNotFoundError(c, "estudante")
 		return
 	}
 
 	estudante := estudanteAgg.(*aggregates.Estudante)
 	
-	// 🔥 MUDOU - passar UUIDs
 	if err := estudante.AtualizarDadosAcademicos(req.AnoEscolar, req.AnoSuperior, req.CursoMedioID, req.CursoSuperiorID); err != nil {
-		log.Printf("[DEBUG] Erro: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if err := repository.Save(estudante); err != nil {
-		log.Printf("[DEBUG] Erro ao salvar: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao atualizar"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	log.Printf("[DEBUG] Sucesso")
-	c.JSON(http.StatusOK, gin.H{"message": "dados acadêmicos atualizados"})
+	log.Printf("Dados acadêmicos atualizados: %s", estudante.CodigoEstudante)
+	c.JSON(http.StatusOK, gin.H{"message": "dados acadêmicos atualizados com sucesso"})
 }
 
 // ============================================================================
@@ -179,7 +166,6 @@ func AtualizarDadosAcademicosEstudante(c *gin.Context) {
 
 func AtualizarDadosAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
-	log.Printf("[DEBUG] AtualizarDadosAcademia - userID: %s", userID)
 
 	var req struct {
 		Nome           *string  `json:"nome"`
@@ -193,38 +179,35 @@ func AtualizarDadosAcademia(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		utils.RespondWithValidationError(c, fmt.Errorf("dados inválidos"))
 		return
 	}
 
 	repository := getRepository(c)
 	academiaAgg, err := repository.Load(userID, "Academia")
 	if err != nil {
-		log.Printf("[DEBUG] Erro: %v", err)
-		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
+		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
 
 	academia := academiaAgg.(*aggregates.Academia)
 	if err := academia.AtualizarDados(req.Nome, req.Provincia, req.Endereco, req.NumeroTelefone, req.Email, req.Website, req.NivelEscolar, req.Cursos); err != nil {
-		log.Printf("[DEBUG] Erro: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if err := repository.Save(academia); err != nil {
-		log.Printf("[DEBUG] Erro ao salvar: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao atualizar"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	response := gin.H{"message": "dados atualizados"}
+	response := gin.H{"message": "dados da academia atualizados com sucesso"}
 	if req.Email != nil {
-		response["aviso"] = "email alterado - verificação necessária"
+		response["aviso"] = "Email alterado. Verificação necessária."
 		response["email_verificado"] = false
 	}
 
-	log.Printf("[DEBUG] Sucesso")
+	log.Printf("Dados da academia atualizados: %s", academia.CodigoAcademia)
 	c.JSON(http.StatusOK, response)
 }
 
@@ -234,11 +217,10 @@ func AtualizarDadosAcademia(c *gin.Context) {
 
 func AtualizarDadosAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
-	log.Printf("[DEBUG] AtualizarDadosAdmin - userID: %s", userID)
 
 	targetID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
+		utils.RespondWithValidationError(c, fmt.Errorf("ID de administrador inválido"))
 		return
 	}
 
@@ -248,42 +230,38 @@ func AtualizarDadosAdmin(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		utils.RespondWithValidationError(c, fmt.Errorf("dados inválidos"))
 		return
 	}
 
 	repository := getRepository(c)
 	adminAgg, err := repository.Load(targetID, "Admin")
 	if err != nil {
-		log.Printf("[DEBUG] Erro: %v", err)
-		c.JSON(http.StatusNotFound, gin.H{"error": "administrador não encontrado"})
+		utils.RespondWithNotFoundError(c, "administrador")
 		return
 	}
 
 	admin := adminAgg.(*aggregates.Admin)
 	if err := admin.AtualizarDados(req.Nome, req.Email, userID); err != nil {
-		log.Printf("[DEBUG] Erro: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if err := repository.Save(admin); err != nil {
-		log.Printf("[DEBUG] Erro ao salvar: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao atualizar"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	log.Printf("[DEBUG] Sucesso")
-	c.JSON(http.StatusOK, gin.H{"message": "dados atualizados"})
+	log.Printf("Dados do admin atualizados: %s", admin.Email)
+	c.JSON(http.StatusOK, gin.H{"message": "dados do administrador atualizados com sucesso"})
 }
 
 func AtualizarRoleAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
-	log.Printf("[DEBUG] AtualizarRoleAdmin - userID: %s", userID)
 
 	targetID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
+		utils.RespondWithValidationError(c, fmt.Errorf("ID de administrador inválido"))
 		return
 	}
 
@@ -292,23 +270,21 @@ func AtualizarRoleAdmin(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "novo_role é obrigatório"})
+		utils.RespondWithValidationError(c, fmt.Errorf("novo_role é obrigatório"))
 		return
 	}
 
 	adminProj := getAdminProjection(c)
 	currentAdmin, err := adminProj.GetByID(userID)
 	if err != nil || currentAdmin == nil || currentAdmin.Role != "fpp" {
-		log.Printf("[DEBUG] Não autorizado")
-		c.JSON(http.StatusForbidden, gin.H{"error": "apenas FPP pode alterar roles"})
+		utils.RespondWithForbiddenError(c, "Apenas FPP pode alterar roles de administradores")
 		return
 	}
 
 	repository := getRepository(c)
 	adminAgg, err := repository.Load(targetID, "Admin")
 	if err != nil {
-		log.Printf("[DEBUG] Erro: %v", err)
-		c.JSON(http.StatusNotFound, gin.H{"error": "administrador não encontrado"})
+		utils.RespondWithNotFoundError(c, "administrador")
 		return
 	}
 
@@ -316,19 +292,21 @@ func AtualizarRoleAdmin(c *gin.Context) {
 	roleAnterior := admin.Role
 
 	if err := admin.AtualizarRole(req.NovoRole, userID, currentAdmin.Role); err != nil {
-		log.Printf("[DEBUG] Erro: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if err := repository.Save(admin); err != nil {
-		log.Printf("[DEBUG] Erro ao salvar: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao atualizar"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	log.Printf("[DEBUG] Sucesso - %s -> %s", roleAnterior, req.NovoRole)
-	c.JSON(http.StatusOK, gin.H{"message": "role atualizado", "role_anterior": roleAnterior, "novo_role": req.NovoRole})
+	log.Printf("Role atualizado: %s -> %s (Admin: %s)", roleAnterior, req.NovoRole, admin.Email)
+	c.JSON(http.StatusOK, gin.H{
+		"message":       "role atualizado com sucesso",
+		"role_anterior": roleAnterior,
+		"novo_role":     req.NovoRole,
+	})
 }
 
 // ============================================================================
@@ -337,11 +315,10 @@ func AtualizarRoleAdmin(c *gin.Context) {
 
 func AtualizarDadosCurso(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
-	log.Printf("[DEBUG] AtualizarDadosCurso - userID: %s", userID)
 
 	cursoID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
+		utils.RespondWithValidationError(c, fmt.Errorf("ID de curso inválido"))
 		return
 	}
 
@@ -352,49 +329,47 @@ func AtualizarDadosCurso(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		utils.RespondWithValidationError(c, fmt.Errorf("dados inválidos"))
 		return
 	}
 
 	cursosProj := getCursosProjection(c)
 	cursoDTO, err := cursosProj.GetByID(cursoID)
 	if err != nil || cursoDTO == nil {
-		log.Printf("[DEBUG] Curso não encontrado")
-		c.JSON(http.StatusNotFound, gin.H{"error": "curso não encontrado"})
+		utils.RespondWithNotFoundError(c, "curso")
 		return
 	}
 
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, _ := academiaProj.GetByID(userID)
 	if academiaDTO == nil || academiaDTO.CodigoAcademia != cursoDTO.CodigoAcademia {
-		log.Printf("[DEBUG] Curso não pertence à academia")
-		c.JSON(http.StatusForbidden, gin.H{"error": "curso não pertence a esta academia"})
+		utils.RespondWithForbiddenError(c, "Curso não pertence a esta academia")
 		return
 	}
 
 	repository := getRepository(c)
 	cursoAgg, err := repository.Load(cursoID, "Curso")
 	if err != nil {
-		log.Printf("[DEBUG] Erro: %v", err)
-		c.JSON(http.StatusNotFound, gin.H{"error": "curso não encontrado"})
+		utils.RespondWithNotFoundError(c, "curso")
 		return
 	}
 
 	curso := cursoAgg.(*aggregates.Curso)
 	if err := curso.AtualizarDados(req.Nome, req.Type, req.Nivel); err != nil {
-		log.Printf("[DEBUG] Erro: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if err := repository.Save(curso); err != nil {
-		log.Printf("[DEBUG] Erro ao salvar: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao atualizar"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	log.Printf("[DEBUG] Sucesso: %s", curso.Nome)
-	c.JSON(http.StatusOK, gin.H{"message": "curso atualizado", "nome": curso.Nome})
+	log.Printf("Curso atualizado: %s", curso.Nome)
+	c.JSON(http.StatusOK, gin.H{
+		"message": "curso atualizado com sucesso",
+		"nome":    curso.Nome,
+	})
 }
 
 // ============================================================================
@@ -403,11 +378,10 @@ func AtualizarDadosCurso(c *gin.Context) {
 
 func AtualizarDadosMateria(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
-	log.Printf("[DEBUG] AtualizarDadosMateria - userID: %s", userID)
 
 	materiaID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID inválido"})
+		utils.RespondWithValidationError(c, fmt.Errorf("ID de matéria inválido"))
 		return
 	}
 
@@ -417,47 +391,45 @@ func AtualizarDadosMateria(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		utils.RespondWithValidationError(c, fmt.Errorf("dados inválidos"))
 		return
 	}
 
 	materiasProj := getMateriasProjection(c)
 	materiaDTO, err := materiasProj.GetByID(materiaID)
 	if err != nil || materiaDTO == nil {
-		log.Printf("[DEBUG] Matéria não encontrada")
-		c.JSON(http.StatusNotFound, gin.H{"error": "matéria não encontrada"})
+		utils.RespondWithNotFoundError(c, "matéria")
 		return
 	}
 
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, _ := academiaProj.GetByID(userID)
 	if academiaDTO == nil || academiaDTO.CodigoAcademia != materiaDTO.CodigoAcademia {
-		log.Printf("[DEBUG] Matéria não pertence à academia")
-		c.JSON(http.StatusForbidden, gin.H{"error": "matéria não pertence a esta academia"})
+		utils.RespondWithForbiddenError(c, "Matéria não pertence a esta academia")
 		return
 	}
 
 	repository := getRepository(c)
 	materiaAgg, err := repository.Load(materiaID, "MateriaDisciplinar")
 	if err != nil {
-		log.Printf("[DEBUG] Erro: %v", err)
-		c.JSON(http.StatusNotFound, gin.H{"error": "matéria não encontrada"})
+		utils.RespondWithNotFoundError(c, "matéria")
 		return
 	}
 
 	materia := materiaAgg.(*aggregates.MateriaDisciplinar)
 	if err := materia.AtualizarDados(req.Nome, req.Type); err != nil {
-		log.Printf("[DEBUG] Erro: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if err := repository.Save(materia); err != nil {
-		log.Printf("[DEBUG] Erro ao salvar: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao atualizar"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	log.Printf("[DEBUG] Sucesso: %s", materia.Nome)
-	c.JSON(http.StatusOK, gin.H{"message": "matéria atualizada", "nome": materia.Nome})
+	log.Printf("Matéria atualizada: %s", materia.Nome)
+	c.JSON(http.StatusOK, gin.H{
+		"message": "matéria atualizada com sucesso",
+		"nome":    materia.Nome,
+	})
 }

@@ -11,16 +11,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// ============================================
-// GET /inscricoes/estudante/:codigo
-// Buscar todas as inscrições de um estudante pelo código
-// Acesso: estudante (próprio), academia, admin
-// ============================================
-
 func GetInscricoesPorCodigoEstudante(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
 
-	// Buscar estudante
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
@@ -28,27 +21,23 @@ func GetInscricoesPorCodigoEstudante(c *gin.Context) {
 		return
 	}
 
-	// Verificar permissões
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 
-	// Estudante só pode ver suas próprias inscrições
 	if userType == "estudante" && userID != estudante.ID {
-		utils.RespondWithForbiddenError(c, "acesso negado")
+		utils.RespondWithForbiddenError(c, "Você só pode visualizar suas próprias inscrições")
 		return
 	}
 
-	// Academia só pode ver inscrições de estudantes da sua academia
 	if userType == "academia" {
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, _ := academiaProj.GetByID(userID)
 		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
-			utils.RespondWithForbiddenError(c, "estudante não pertence a esta academia")
+			utils.RespondWithForbiddenError(c, "Estudante não pertence a esta academia")
 			return
 		}
 	}
 
-	// Buscar todas as inscrições do estudante
 	inscProj := getInscricoesProjection(c)
 	inscricoes, err := inscProj.GetByEstudante(estudante.ID)
 	if err != nil {
@@ -64,33 +53,24 @@ func GetInscricoesPorCodigoEstudante(c *gin.Context) {
 	})
 }
 
-// ============================================
-// PUT /academia/estudante/:codigo/curso
-// Academia altera o curso do estudante
-// Acesso: academia
-// ============================================
-
-type AlterarCursoRequest struct {
-	TipoEnsino string    `json:"tipo_ensino" binding:"required"` // "medio" ou "superior"
-	CursoID    uuid.UUID `json:"curso_id" binding:"required"`
-}
-
 func AlterarCursoEstudante(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
 
-	var req AlterarCursoRequest
+	var req struct {
+		TipoEnsino string    `json:"tipo_ensino" binding:"required"`
+		CursoID    uuid.UUID `json:"curso_id" binding:"required"`
+	}
+
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, err)
+		utils.RespondWithValidationError(c, fmt.Errorf("tipo_ensino e curso_id são obrigatórios"))
 		return
 	}
 
-	// Validar tipo de ensino
 	if req.TipoEnsino != "medio" && req.TipoEnsino != "superior" {
 		utils.RespondWithValidationError(c, fmt.Errorf("tipo_ensino deve ser 'medio' ou 'superior'"))
 		return
 	}
 
-	// Buscar estudante
 	estudanteProj := getEstudanteProjection(c)
 	estudanteDTO, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudanteDTO == nil {
@@ -98,7 +78,6 @@ func AlterarCursoEstudante(c *gin.Context) {
 		return
 	}
 
-	// Verificar se estudante pertence à academia
 	userID, _ := middleware.GetUserID(c)
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByID(userID)
@@ -108,11 +87,10 @@ func AlterarCursoEstudante(c *gin.Context) {
 	}
 
 	if estudanteDTO.CodigoAcademia == nil || *estudanteDTO.CodigoAcademia != academiaDTO.CodigoAcademia {
-		utils.RespondWithForbiddenError(c, "estudante não pertence a esta academia")
+		utils.RespondWithForbiddenError(c, "Estudante não pertence a esta academia")
 		return
 	}
 
-	// Verificar se curso existe e pertence à academia
 	cursosProj := getCursosProjection(c)
 	cursoDTO, err := cursosProj.GetByID(req.CursoID)
 	if err != nil || cursoDTO == nil {
@@ -121,11 +99,10 @@ func AlterarCursoEstudante(c *gin.Context) {
 	}
 
 	if cursoDTO.CodigoAcademia != academiaDTO.CodigoAcademia {
-		utils.RespondWithForbiddenError(c, "curso não pertence a esta academia")
+		utils.RespondWithForbiddenError(c, "Curso não pertence a esta academia")
 		return
 	}
 
-	// Validar tipo de curso
 	if req.TipoEnsino == "medio" && cursoDTO.Type != "medio" {
 		utils.RespondWithValidationError(c, fmt.Errorf("curso não é do tipo médio"))
 		return
@@ -135,7 +112,6 @@ func AlterarCursoEstudante(c *gin.Context) {
 		return
 	}
 
-	// Carregar agregado
 	repository := getRepository(c)
 	aggregate, err := repository.Load(estudanteDTO.ID, "Estudante")
 	if err != nil {
@@ -149,13 +125,11 @@ func AlterarCursoEstudante(c *gin.Context) {
 		return
 	}
 
-	// Executar comando
 	if err := estudante.AlterarCurso(req.TipoEnsino, req.CursoID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
-	// Salvar
 	if err := repository.Save(estudante); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return

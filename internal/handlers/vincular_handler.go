@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
+	"spuri/internal/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -13,51 +14,49 @@ import (
 
 func VincularAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
-	log.Printf("[DEBUG] VincularAcademia - userID: %s", userID)
 
 	var req struct {
 		InscricaoID string `json:"inscricao_id" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "inscricao_id é obrigatório"})
+		utils.RespondWithValidationError(c, fmt.Errorf("inscricao_id é obrigatório"))
 		return
 	}
 
 	inscricaoID, err := uuid.Parse(req.InscricaoID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "inscricao_id inválido"})
+		utils.RespondWithValidationError(c, fmt.Errorf("inscricao_id inválido"))
 		return
 	}
 
 	repository := getRepository(c)
 	estudanteAgg, err := repository.Load(userID, "Estudante")
 	if err != nil {
-		log.Printf("[DEBUG] Erro: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao carregar estudante"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
 	estudante := estudanteAgg.(*aggregates.Estudante)
 	if err := estudante.VincularAcademia(inscricaoID); err != nil {
-		log.Printf("[DEBUG] Erro: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if err := repository.Save(estudante); err != nil {
-		log.Printf("[DEBUG] Erro ao salvar: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao vincular"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	log.Printf("[DEBUG] Sucesso")
-	c.JSON(http.StatusOK, gin.H{"message": "vinculado à academia", "status": "ativo"})
+	log.Printf("Estudante vinculado à academia: %s", estudante.CodigoEstudante)
+	c.JSON(http.StatusOK, gin.H{
+		"message": "vinculado à academia com sucesso",
+		"status":  "ativo",
+	})
 }
 
 func ListarInscricoesAprovadas(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
-	log.Printf("[DEBUG] ListarInscricoesAprovadas - userID: %s", userID)
 
 	client := getDbClient(c)
 	query := fmt.Sprintf(`
@@ -84,8 +83,7 @@ func ListarInscricoesAprovadas(c *gin.Context) {
 
 	rows, err := client.DB().Query(query)
 	if err != nil {
-		log.Printf("[DEBUG] Erro: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar inscrições"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 	defer rows.Close()
@@ -96,92 +94,88 @@ func ListarInscricoesAprovadas(c *gin.Context) {
 		if err := rows.Scan(&insc.ID, &insc.EstudanteID, &insc.CodigoEstudante, &insc.AcademiaID,
 			&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &insc.Curso, &insc.Status,
 			&insc.StatusUsado, &insc.CreatedAt); err != nil {
-			log.Printf("[DEBUG] Erro scan: %v", err)
 			continue
 		}
 		inscricoes = append(inscricoes, insc)
 	}
 
-	log.Printf("[DEBUG] Total: %d", len(inscricoes))
 	c.JSON(http.StatusOK, gin.H{
 		"inscricoes": inscricoes,
 		"total":      len(inscricoes),
-		"mensagem":   "Use POST /estudante/vincular-academia com inscricao_id",
+		"mensagem":   "Use POST /estudante/vincular-academia com inscricao_id para se vincular",
 	})
 }
 
 func AtualizarStatusEscolar(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
-	log.Printf("[DEBUG] AtualizarStatusEscolar - userID: %s", userID)
 
 	var req struct {
 		NovoStatus string `json:"novo_status" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "novo_status é obrigatório"})
+		utils.RespondWithValidationError(c, fmt.Errorf("novo_status é obrigatório"))
 		return
 	}
 
 	repository := getRepository(c)
 	estudanteAgg, err := repository.Load(userID, "Estudante")
 	if err != nil {
-		log.Printf("[DEBUG] Erro: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao carregar estudante"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
 	estudante := estudanteAgg.(*aggregates.Estudante)
 	if err := estudante.AtualizarStatusEscolar(req.NovoStatus); err != nil {
-		log.Printf("[DEBUG] Erro: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if err := repository.Save(estudante); err != nil {
-		log.Printf("[DEBUG] Erro ao salvar: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao atualizar"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	log.Printf("[DEBUG] Sucesso: %s", req.NovoStatus)
-	c.JSON(http.StatusOK, gin.H{"message": "status escolar atualizado", "novo_status": req.NovoStatus})
+	log.Printf("Status escolar atualizado: %s - %s", estudante.CodigoEstudante, req.NovoStatus)
+	c.JSON(http.StatusOK, gin.H{
+		"message":     "status escolar atualizado com sucesso",
+		"novo_status": req.NovoStatus,
+	})
 }
 
 func AtualizarStatusSuperior(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
-	log.Printf("[DEBUG] AtualizarStatusSuperior - userID: %s", userID)
 
 	var req struct {
 		NovoStatus string `json:"novo_status" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "novo_status é obrigatório"})
+		utils.RespondWithValidationError(c, fmt.Errorf("novo_status é obrigatório"))
 		return
 	}
 
 	repository := getRepository(c)
 	estudanteAgg, err := repository.Load(userID, "Estudante")
 	if err != nil {
-		log.Printf("[DEBUG] Erro: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao carregar estudante"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
 	estudante := estudanteAgg.(*aggregates.Estudante)
 	if err := estudante.AtualizarStatusSuperior(req.NovoStatus); err != nil {
-		log.Printf("[DEBUG] Erro: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if err := repository.Save(estudante); err != nil {
-		log.Printf("[DEBUG] Erro ao salvar: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao atualizar"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	log.Printf("[DEBUG] Sucesso: %s", req.NovoStatus)
-	c.JSON(http.StatusOK, gin.H{"message": "status superior atualizado", "novo_status": req.NovoStatus})
+	log.Printf("Status superior atualizado: %s - %s", estudante.CodigoEstudante, req.NovoStatus)
+	c.JSON(http.StatusOK, gin.H{
+		"message":     "status superior atualizado com sucesso",
+		"novo_status": req.NovoStatus,
+	})
 }

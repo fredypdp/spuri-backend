@@ -1,15 +1,16 @@
 package handlers
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
+	"spuri/internal/utils"
 
 	"github.com/gin-gonic/gin"
 )
 
-// RegistrarAprovacaoAno - Academia registra aprovação/reprovação
 func RegistrarAprovacaoAno(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -22,37 +23,33 @@ func RegistrarAprovacaoAno(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: codigo_estudante, ano_lectivo e nivel_atual"))
 		return
 	}
 
-	// Buscar academia
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByID(userID)
 	if err != nil || academiaDTO == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "academia não encontrada"})
+		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
 
-	// Buscar estudante
 	estudanteProj := getEstudanteProjection(c)
 	estudanteDTO, err := estudanteProj.GetByCodigo(req.CodigoEstudante)
 	if err != nil || estudanteDTO == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
+		utils.RespondWithNotFoundError(c, "estudante")
 		return
 	}
 
-	// Verificar vínculo
 	if estudanteDTO.CodigoAcademia == nil || *estudanteDTO.CodigoAcademia != academiaDTO.CodigoAcademia {
-		c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
+		utils.RespondWithForbiddenError(c, "Estudante não pertence a esta academia")
 		return
 	}
 
-	// Carregar e registrar
 	repository := getRepository(c)
 	estudanteAgg, err := repository.Load(estudanteDTO.ID, "Estudante")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao carregar estudante"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -67,12 +64,12 @@ func RegistrarAprovacaoAno(c *gin.Context) {
 	)
 
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	if err := repository.Save(estudante); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao salvar aprovação"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -90,23 +87,21 @@ func RegistrarAprovacaoAno(c *gin.Context) {
 	})
 }
 
-// GetAprovacoesEstudante - Listar aprovações de um estudante
 func GetAprovacoesEstudante(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
 
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
+		utils.RespondWithNotFoundError(c, "estudante")
 		return
 	}
 
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 
-	// Verificar permissão
 	if userType == "estudante" && userID != estudante.ID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
+		utils.RespondWithForbiddenError(c, "Você só pode visualizar suas próprias aprovações")
 		return
 	}
 
@@ -114,7 +109,7 @@ func GetAprovacoesEstudante(c *gin.Context) {
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, _ := academiaProj.GetByID(userID)
 		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
-			c.JSON(http.StatusForbidden, gin.H{"error": "estudante não pertence a esta academia"})
+			utils.RespondWithForbiddenError(c, "Estudante não pertence a esta academia")
 			return
 		}
 	}
@@ -122,7 +117,7 @@ func GetAprovacoesEstudante(c *gin.Context) {
 	aprovacaoProj := getAprovacaoAnoProjection(c)
 	aprovacoes, err := aprovacaoProj.GetByEstudante(codigoEstudante)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar aprovações"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -134,21 +129,20 @@ func GetAprovacoesEstudante(c *gin.Context) {
 	})
 }
 
-// GetMinhasAprovacoes - Estudante consulta suas próprias aprovações
 func GetMinhasAprovacoes(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByID(userID)
 	if err != nil || estudante == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "estudante não encontrado"})
+		utils.RespondWithNotFoundError(c, "estudante")
 		return
 	}
 
 	aprovacaoProj := getAprovacaoAnoProjection(c)
 	aprovacoes, err := aprovacaoProj.GetByEstudante(estudante.CodigoEstudante)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao buscar aprovações"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
