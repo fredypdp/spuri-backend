@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
+	"spuri/internal/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -103,6 +105,44 @@ func AtualizarDadosAcademicosEstudante(c *gin.Context) {
 		if curso.Type != "superior" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "curso_superior_id deve ser do tipo 'superior'"})
 			return
+		}
+	}
+
+	// Validar curso médio compatível com ano escolar
+	if req.CursoMedioID != nil && req.AnoEscolar != nil {
+		cursosProj := getCursosProjection(c)
+		curso, _ := cursosProj.GetByID(*req.CursoMedioID)
+		if curso != nil {
+			anoValido := false
+			for _, nivelCurso := range curso.Nivel {
+				if nivelCurso == *req.AnoEscolar {
+					anoValido = true
+					break
+				}
+			}
+			if !anoValido {
+				utils.RespondWithValidationError(c, fmt.Errorf("ano_escolar '%s' não existe no curso selecionado", *req.AnoEscolar))
+				return
+			}
+		}
+	}
+
+	// Validar curso superior compatível com ano superior
+	if req.CursoSuperiorID != nil && req.AnoSuperior != nil {
+		cursosProj := getCursosProjection(c)
+		curso, _ := cursosProj.GetByID(*req.CursoSuperiorID)
+		if curso != nil {
+			anoValido := false
+			for _, nivelCurso := range curso.Nivel {
+				if nivelCurso == *req.AnoSuperior {
+					anoValido = true
+					break
+				}
+			}
+			if !anoValido {
+				utils.RespondWithValidationError(c, fmt.Errorf("ano_superior '%s' não existe no curso selecionado", *req.AnoSuperior))
+				return
+			}
 		}
 	}
 

@@ -284,6 +284,13 @@ func RegisterEstudante(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
+	
+	if req.BilheteIdentidade != nil && req.BilheteIdentidadeResp != nil {
+		if *req.BilheteIdentidade == *req.BilheteIdentidadeResp {
+			utils.RespondWithValidationError(c, fmt.Errorf("bilhete de identidade do estudante e bilhete do responsável não podem ser iguais"))
+			return
+		}
+	}
 
 	if err := utils.ValidateBilhete(utils.SafeDeref(req.BilheteIdentidadeResp)); err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -331,6 +338,44 @@ func RegisterEstudante(c *gin.Context) {
 		if curso.Type != "superior" {
 			utils.RespondWithValidationError(c, fmt.Errorf("curso_superior_id deve ser do tipo 'superior'"))
 			return
+		}
+	}
+
+	if req.CursoMedioID != nil && *req.CursoMedioID != uuid.Nil && req.AnoEscolar != nil {
+		cursosProj := getCursosProjection(c)
+		curso, _ := cursosProj.GetByID(*req.CursoMedioID)
+		if curso != nil {
+			// Verificar se o ano está no curso
+			anoValido := false
+			for _, nivelCurso := range curso.Nivel {
+				if nivelCurso == *req.AnoEscolar {
+					anoValido = true
+					break
+				}
+			}
+			if !anoValido {
+				utils.RespondWithValidationError(c, fmt.Errorf("ano_escolar '%s' não existe no curso selecionado", *req.AnoEscolar))
+				return
+			}
+		}
+	}
+
+	if req.CursoSuperiorID != nil && *req.CursoSuperiorID != uuid.Nil && req.AnoSuperior != nil {
+		cursosProj := getCursosProjection(c)
+		curso, _ := cursosProj.GetByID(*req.CursoSuperiorID)
+		if curso != nil {
+			// Verificar se o ano está no curso
+			anoValido := false
+			for _, nivelCurso := range curso.Nivel {
+				if nivelCurso == *req.AnoSuperior {
+					anoValido = true
+					break
+				}
+			}
+			if !anoValido {
+				utils.RespondWithValidationError(c, fmt.Errorf("ano_superior '%s' não existe no curso selecionado", *req.AnoSuperior))
+				return
+			}
 		}
 	}
 
@@ -434,6 +479,13 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		}
 	}
 
+	if req.BilheteIdentidade != "" && req.BilheteResponsavel != "" {
+		if req.BilheteIdentidade == req.BilheteResponsavel {
+			utils.RespondWithValidationError(c, fmt.Errorf("bilhete de identidade do estudante e bilhete do responsável não podem ser iguais"))
+			return
+		}
+	}
+
 	if req.BilheteResponsavel != "" {
 		if err := utils.ValidateBilhete(req.BilheteResponsavel); err != nil {
 			utils.RespondWithValidationError(c, err)
@@ -531,6 +583,44 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		if curso.Type != "superior" {
 			utils.RespondWithValidationError(c, fmt.Errorf("curso_superior_id deve ser do tipo 'superior'"))
 			return
+		}
+	}
+
+	if req.CursoMedioID != "" && req.AnoEscolar != "" {
+		parsed, _ := uuid.Parse(req.CursoMedioID)
+		cursosProj := getCursosProjection(c)
+		curso, _ := cursosProj.GetByID(parsed)
+		if curso != nil {
+			anoValido := false
+			for _, nivelCurso := range curso.Nivel {
+				if nivelCurso == req.AnoEscolar {
+					anoValido = true
+					break
+				}
+			}
+			if !anoValido {
+				utils.RespondWithValidationError(c, fmt.Errorf("ano_escolar '%s' não existe no curso selecionado", req.AnoEscolar))
+				return
+			}
+		}
+	}
+
+	if req.CursoSuperiorID != "" && req.AnoSuperior != "" {
+		parsed, _ := uuid.Parse(req.CursoSuperiorID)
+		cursosProj := getCursosProjection(c)
+		curso, _ := cursosProj.GetByID(parsed)
+		if curso != nil {
+			anoValido := false
+			for _, nivelCurso := range curso.Nivel {
+				if nivelCurso == req.AnoSuperior {
+					anoValido = true
+					break
+				}
+			}
+			if !anoValido {
+				utils.RespondWithValidationError(c, fmt.Errorf("ano_superior '%s' não existe no curso selecionado", req.AnoSuperior))
+				return
+			}
 		}
 	}
 

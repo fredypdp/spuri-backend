@@ -117,8 +117,8 @@ func (e *Estudante) Criar(
 	bilheteResp *string,
 	anoEscolar *string,
 	anoSuperior *string,
-	cursoMedioID *uuid.UUID,      // 🔥 MUDOU
-	cursoSuperiorID *uuid.UUID,   // 🔥 MUDOU
+	cursoMedioID *uuid.UUID,
+	cursoSuperiorID *uuid.UUID,
 	statusEscolar *string,
 	statusSuperior *string,
 ) error {
@@ -127,7 +127,12 @@ func (e *Estudante) Criar(
 	}
 	
 	if bilhete == nil && bilheteResp == nil {
-		return fmt.Errorf("pelo menos um bilhete de identidade é obrigatório")
+		return fmt.Errorf("pelo menos um bilhete de identidade do estudante é obrigatório")
+	}
+
+	// Validar bilhetes diferentes
+	if bilhete != nil && bilheteResp != nil && *bilhete == *bilheteResp {
+		return fmt.Errorf("bilhete de identidade do estudante e bilhete do responsável não podem ser iguais")
 	}
 
 	statusEsc := "inativo"
@@ -191,7 +196,11 @@ func (e *Estudante) CriarComVinculo(
 	}
 	
 	if bilhete == nil && bilheteResp == nil {
-		return fmt.Errorf("pelo menos um bilhete de identidade é obrigatório")
+		return fmt.Errorf("pelo menos um bilhete de identidade do estudante  é obrigatório")
+	}
+
+	if bilhete != nil && bilheteResp != nil && *bilhete == *bilheteResp {
+		return fmt.Errorf("bilhete de identidade  do estudante e bilhete do responsável não podem ser iguais")
 	}
 
 	if codigoAcademia == "" {
@@ -855,6 +864,12 @@ func (e *Estudante) applyCursoAlterado(event DomainEvent) error {
 		e.CursoSuperiorID = &ev.CursoID
 	}
 	
+	return nil
+}
+
+func (e *Estudante) validarCursoComAno(cursoID uuid.UUID, ano string, tipo string, cursosProj interface{}) error {
+	// Esta validação deve ser feita no handler, pois precisa acessar a projeção de cursos
+	// Ver correção em auth_handlers.go
 	return nil
 }
 
