@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"spuri/internal/db"
 	"spuri/internal/services"
+	"spuri/internal/utils"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -21,7 +22,7 @@ func SolicitarVerificacaoEmail(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		utils.RespondWithValidationError(c, fmt.Errorf("identificador e tipo são obrigatórios"))
 		return
 	}
 
@@ -29,7 +30,7 @@ func SolicitarVerificacaoEmail(c *gin.Context) {
 	emailSvc := getEmailService(c)
 	
 	if emailSvc == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "serviço de email não disponível"})
+		utils.RespondWithInternalError(c, fmt.Errorf("serviço de email não disponível"))
 		return
 	}
 
@@ -49,27 +50,27 @@ func SolicitarVerificacaoEmail(c *gin.Context) {
 	case "admin":
 		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_admins WHERE email = '%s'`, safeId)
 	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "tipo inválido"})
+		utils.RespondWithValidationError(c, fmt.Errorf("tipo deve ser 'estudante', 'academia' ou 'admin'"))
 		return
 	}
 
 	var idStr string
 	err := client.DB().QueryRow(query).Scan(&idStr, &email, &nome)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
+		utils.RespondWithNotFoundError(c, "usuário")
 		return
 	}
 	
 	userID, _ = uuid.Parse(idStr)
 
 	if email == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "usuário não possui email cadastrado"})
+		utils.RespondWithValidationError(c, fmt.Errorf("usuário não possui email cadastrado"))
 		return
 	}
 
 	if err := emailSvc.SendVerificationEmail(userID, req.Tipo, email, nome); err != nil {
 		log.Printf("Erro ao enviar email de verificação: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao enviar email"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -88,7 +89,7 @@ func VerificarEmail(c *gin.Context) {
 	emailSvc := getEmailService(c)
 	tokenInfo, err := emailSvc.VerifyToken(token, "verificacao_email")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
@@ -101,7 +102,7 @@ func VerificarEmail(c *gin.Context) {
 	case "admin":
 		table = "projection_admins"
 	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "tipo de usuário inválido"})
+		utils.RespondWithValidationError(c, fmt.Errorf("tipo de usuário inválido"))
 		return
 	}
 
@@ -110,7 +111,7 @@ func VerificarEmail(c *gin.Context) {
 	
 	_, err = client.DB().Exec(query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao verificar email"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -130,7 +131,7 @@ func SolicitarRecuperacaoSenha(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		utils.RespondWithValidationError(c, fmt.Errorf("identificador e tipo são obrigatórios"))
 		return
 	}
 
@@ -154,37 +155,32 @@ func SolicitarRecuperacaoSenha(c *gin.Context) {
 	case "admin":
 		query = fmt.Sprintf(`SELECT id, email, nome, COALESCE(email_verificado, FALSE) FROM projection_admins WHERE email = '%s'`, safeId)
 	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "tipo inválido"})
+		utils.RespondWithValidationError(c, fmt.Errorf("tipo deve ser 'estudante', 'academia' ou 'admin'"))
 		return
 	}
 
 	var idStr string
 	err := client.DB().QueryRow(query).Scan(&idStr, &email, &nome, &emailVerificado)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
+		utils.RespondWithNotFoundError(c, "usuário")
 		return
 	}
 	
 	userID, _ = uuid.Parse(idStr)
 
 	if email == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "usuário não possui email cadastrado"})
+		utils.RespondWithValidationError(c, fmt.Errorf("usuário não possui email cadastrado"))
 		return
 	}
 
-	// ✅ VALIDAÇÃO: Email deve estar verificado
 	if !emailVerificado {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": "email não verificado",
-			"message": "Por favor, verifique seu email antes de solicitar recuperação de senha",
-			"email_verificado": false,
-		})
+		utils.RespondWithForbiddenError(c, "Por favor, verifique seu email antes de solicitar recuperação de senha")
 		return
 	}
 
 	if err := emailSvc.SendPasswordResetEmail(userID, req.Tipo, email, nome); err != nil {
 		log.Printf("Erro ao enviar email de recuperação: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao enviar email"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -203,7 +199,7 @@ func ResetarSenha(c *gin.Context) {
 	emailSvc := getEmailService(c)
 	tokenInfo, err := emailSvc.VerifyToken(token, "recuperacao_senha")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
@@ -225,23 +221,18 @@ func ResetarSenha(c *gin.Context) {
 		query = fmt.Sprintf(`SELECT role, COALESCE(email_verificado, FALSE) FROM projection_admins WHERE id = '%s'`, tokenInfo.UserID)
 		table = "projection_admins"
 	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "tipo de usuário inválido"})
+		utils.RespondWithValidationError(c, fmt.Errorf("tipo de usuário inválido"))
 		return
 	}
 
 	err = client.DB().QueryRow(query).Scan(&codigo, &emailVerificado)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
+		utils.RespondWithNotFoundError(c, "usuário")
 		return
 	}
 
-	// ✅ VALIDAÇÃO: Email deve estar verificado
 	if !emailVerificado {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": "email não verificado",
-			"message": "Por favor, verifique seu email antes de resetar a senha",
-			"email_verificado": false,
-		})
+		utils.RespondWithForbiddenError(c, "Por favor, verifique seu email antes de resetar a senha")
 		return
 	}
 
@@ -249,7 +240,7 @@ func ResetarSenha(c *gin.Context) {
 	
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(defaultPassword), bcrypt.DefaultCost)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao processar senha"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -258,7 +249,7 @@ func ResetarSenha(c *gin.Context) {
 	
 	_, err = client.DB().Exec(updateQuery)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao resetar senha"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -283,12 +274,12 @@ func AlterarSenha(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		utils.RespondWithValidationError(c, fmt.Errorf("senha_atual e nova_senha são obrigatórios"))
 		return
 	}
 
-	if len(req.NovaSenha) < 6 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "nova senha deve ter no mínimo 6 caracteres"})
+	if err := utils.ValidateSenha(req.NovaSenha); err != nil {
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
@@ -303,7 +294,7 @@ func AlterarSenha(c *gin.Context) {
 	case "admin":
 		table = "projection_admins"
 	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "tipo de usuário inválido"})
+		utils.RespondWithValidationError(c, fmt.Errorf("tipo de usuário inválido"))
 		return
 	}
 
@@ -312,18 +303,18 @@ func AlterarSenha(c *gin.Context) {
 	var senhaHash string
 	err := client.DB().QueryRow(query).Scan(&senhaHash)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
+		utils.RespondWithNotFoundError(c, "usuário")
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(senhaHash), []byte(req.SenhaAtual)); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "senha atual incorreta"})
+		utils.RespondWithUnauthorizedError(c)
 		return
 	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NovaSenha), bcrypt.DefaultCost)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao processar senha"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -332,7 +323,7 @@ func AlterarSenha(c *gin.Context) {
 	
 	_, err = client.DB().Exec(updateQuery)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao alterar senha"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -380,7 +371,7 @@ func GerarTokenVerificacao(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		utils.RespondWithValidationError(c, fmt.Errorf("identificador e tipo são obrigatórios"))
 		return
 	}
 
@@ -403,41 +394,40 @@ func GerarTokenVerificacao(c *gin.Context) {
 	case "admin":
 		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_admins WHERE email = '%s'`, safeId)
 	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "tipo inválido"})
+		utils.RespondWithValidationError(c, fmt.Errorf("tipo deve ser 'estudante', 'academia' ou 'admin'"))
 		return
 	}
 
 	var idStr string
 	err := client.DB().QueryRow(query).Scan(&idStr, &email, &nome)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
+		utils.RespondWithNotFoundError(c, "usuário")
 		return
 	}
 
 	userID, _ = uuid.Parse(idStr)
 
 	if email == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "usuário não possui email cadastrado"})
+		utils.RespondWithValidationError(c, fmt.Errorf("usuário não possui email cadastrado"))
 		return
 	}
 
-	// Gerar token sem enviar email
 	token, err := emailSvc.SaveToken(userID, req.Tipo, "verificacao_email", email, 24*time.Hour)
 	if err != nil {
 		log.Printf("Erro ao gerar token de verificação: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao gerar token"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
 	log.Printf("Token de verificação gerado para: %s", email)
 
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"token":   token,
-		"email":   email,
-		"nome":    nome,
-		"tipo":    req.Tipo,
-		"expira_em": "24 horas",
+		"success":    true,
+		"token":      token,
+		"email":      email,
+		"nome":       nome,
+		"tipo":       req.Tipo,
+		"expira_em":  "24 horas",
 	})
 }
 
@@ -449,7 +439,7 @@ func GerarTokenRecuperacao(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "dados inválidos"})
+		utils.RespondWithValidationError(c, fmt.Errorf("identificador e tipo são obrigatórios"))
 		return
 	}
 
@@ -473,50 +463,44 @@ func GerarTokenRecuperacao(c *gin.Context) {
 	case "admin":
 		query = fmt.Sprintf(`SELECT id, email, nome, COALESCE(email_verificado, FALSE) FROM projection_admins WHERE email = '%s'`, safeId)
 	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "tipo inválido"})
+		utils.RespondWithValidationError(c, fmt.Errorf("tipo deve ser 'estudante', 'academia' ou 'admin'"))
 		return
 	}
 
 	var idStr string
 	err := client.DB().QueryRow(query).Scan(&idStr, &email, &nome, &emailVerificado)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "usuário não encontrado"})
+		utils.RespondWithNotFoundError(c, "usuário")
 		return
 	}
 
 	userID, _ = uuid.Parse(idStr)
 
 	if email == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "usuário não possui email cadastrado"})
+		utils.RespondWithValidationError(c, fmt.Errorf("usuário não possui email cadastrado"))
 		return
 	}
 
-	// ✅ VALIDAÇÃO: Email deve estar verificado
 	if !emailVerificado {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": "email não verificado",
-			"message": "Por favor, verifique seu email antes de solicitar recuperação de senha",
-			"email_verificado": false,
-		})
+		utils.RespondWithForbiddenError(c, "Por favor, verifique seu email antes de solicitar recuperação de senha")
 		return
 	}
 
-	// Gerar token sem enviar email
 	token, err := emailSvc.SaveToken(userID, req.Tipo, "recuperacao_senha", email, 1*time.Hour)
 	if err != nil {
 		log.Printf("Erro ao gerar token de recuperação: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao gerar token"})
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
 	log.Printf("Token de recuperação gerado para: %s", email)
 
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"token":   token,
-		"email":   email,
-		"nome":    nome,
-		"tipo":    req.Tipo,
-		"expira_em": "1 hora",
+		"success":    true,
+		"token":      token,
+		"email":      email,
+		"nome":       nome,
+		"tipo":       req.Tipo,
+		"expira_em":  "1 hora",
 	})
 }
