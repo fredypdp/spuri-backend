@@ -70,7 +70,6 @@ func ValidateStatus(status string) error {
 	return nil
 }
 
-// ValidateEventType valida tipo de evento (whitelist)
 func ValidateEventType(eventType string) error {
 	validTypes := map[string]bool{
 		"EstudanteCriado": true,
@@ -82,8 +81,6 @@ func ValidateEventType(eventType string) error {
 		"InscricaoAprovada": true,
 		"InscricaoReprovada": true,
 		"EstudanteVinculado": true,
-		"CursoCriado": true,
-		"MateriaCriada": true,
 		"StatusEscolarAtualizado": true,
 		"StatusSuperiorAtualizado": true,
 		"DadosPessoaisAtualizados": true,
@@ -96,6 +93,19 @@ func ValidateEventType(eventType string) error {
 		"AprovacaoAnoRegistrada": true,
 		"CursoAlterado": true,
 		"EstudanteCriadoComVinculo": true,
+		"CursoCriado": true,
+		"CursoAtivado": true,
+		"CursoDesativado": true,
+		"CursoDadosAtualizados": true,
+		"MateriaCriada": true,
+		"MateriaAtivada": true,
+		"MateriaDesativada": true,
+		"MateriaDadosAtualizados": true,
+		"EmailVerificado": true,
+		"AdminDadosAtualizados": true,
+		"AdminRoleAtualizado": true,
+		"AcademiaDadosAtualizados": true,
+		"CursosAtualizados": true,
 	}
 
 	if !validTypes[eventType] {
