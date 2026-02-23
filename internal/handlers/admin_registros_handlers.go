@@ -27,29 +27,33 @@ func ListarTodosRegistros(c *gin.Context) {
 	if tipoFiltro == "" || tipoFiltro == "notas" {
 		queryNotas := fmt.Sprintf(`
 			SELECT 
-				n.id, n.estudante_id, e.codigo_estudante, e.nome as estudante_nome,
+				n.id, n.codigo_estudante, e.nome as estudante_nome,
 				n.codigo_academia, a.nome as academia_nome, n.ano_lectivo, n.periodo,
-				n.materias, n.registered_at, n.event_id, n.version
+				n.materia_disciplinar_id, COALESCE(m.nome, '') as materia_nome,
+				n.nota, n.observacao, n.registered_at, n.event_id, n.version
 			FROM projection_notas n
-			LEFT JOIN projection_estudantes e ON n.estudante_id = e.id
+			LEFT JOIN projection_estudantes e ON n.codigo_estudante = e.codigo_estudante
 			LEFT JOIN projection_academias a ON n.codigo_academia = a.codigo_academia
+			LEFT JOIN projection_materias m ON n.materia_disciplinar_id = m.id
 			ORDER BY n.registered_at DESC
 			LIMIT %d OFFSET %d
 		`, limit, offset)
 
 		type NotaCompleta struct {
-			ID              string      `json:"id"`
-			EstudanteID     string      `json:"estudante_id"`
-			CodigoEstudante string      `json:"codigo_estudante"`
-			EstudanteNome   string      `json:"estudante_nome"`
-			CodigoAcademia  string      `json:"codigo_academia"`
-			AcademiaNome    string      `json:"academia_nome"`
-			AnoLectivo      string      `json:"ano_lectivo"`
-			Periodo         string      `json:"periodo"`
-			Materias        interface{} `json:"materias"`
-			RegisteredAt    string      `json:"registered_at"`
-			EventID         string      `json:"event_id"`
-			Version         int         `json:"version"`
+			ID                   string   `json:"id"`
+			CodigoEstudante      string   `json:"codigo_estudante"`
+			EstudanteNome        string   `json:"estudante_nome"`
+			CodigoAcademia       string   `json:"codigo_academia"`
+			AcademiaNome         string   `json:"academia_nome"`
+			AnoLectivo           string   `json:"ano_lectivo"`
+			Periodo              string   `json:"periodo"`
+			MateriaDisciplinarID string   `json:"materia_disciplinar_id"`
+			MateriaNome          string   `json:"materia_nome"`
+			Nota                 float64  `json:"nota"`
+			Observacao           *string  `json:"observacao,omitempty"`
+			RegisteredAt         string   `json:"registered_at"`
+			EventID              string   `json:"event_id"`
+			Version              int      `json:"version"`
 		}
 
 		rows, err := client.DB().Query(queryNotas)
@@ -62,9 +66,12 @@ func ListarTodosRegistros(c *gin.Context) {
 		var notas []NotaCompleta
 		for rows.Next() {
 			var nota NotaCompleta
-			if err := rows.Scan(&nota.ID, &nota.EstudanteID, &nota.CodigoEstudante, &nota.EstudanteNome,
+			if err := rows.Scan(
+				&nota.ID, &nota.CodigoEstudante, &nota.EstudanteNome,
 				&nota.CodigoAcademia, &nota.AcademiaNome, &nota.AnoLectivo, &nota.Periodo,
-				&nota.Materias, &nota.RegisteredAt, &nota.EventID, &nota.Version); err == nil {
+				&nota.MateriaDisciplinarID, &nota.MateriaNome,
+				&nota.Nota, &nota.Observacao, &nota.RegisteredAt, &nota.EventID, &nota.Version,
+			); err == nil {
 				notas = append(notas, nota)
 			}
 		}
@@ -80,29 +87,33 @@ func ListarTodosRegistros(c *gin.Context) {
 	if tipoFiltro == "" || tipoFiltro == "faltas" {
 		queryFaltas := fmt.Sprintf(`
 			SELECT 
-				f.id, f.estudante_id, e.codigo_estudante, e.nome as estudante_nome,
-				f.codigo_academia, a.nome as academia_nome, f.ano_lectivo, f.periodo,
-				f.materias, f.registered_at, f.event_id, f.version
+				f.id, f.codigo_estudante, e.nome as estudante_nome,
+				f.codigo_academia, a.nome as academia_nome, f.ano_lectivo,
+				f.data, f.materia_disciplinar_id, COALESCE(m.nome, '') as materia_nome,
+				f.quantidade, f.observacao, f.registered_at, f.event_id, f.version
 			FROM projection_faltas f
-			LEFT JOIN projection_estudantes e ON f.estudante_id = e.id
+			LEFT JOIN projection_estudantes e ON f.codigo_estudante = e.codigo_estudante
 			LEFT JOIN projection_academias a ON f.codigo_academia = a.codigo_academia
+			LEFT JOIN projection_materias m ON f.materia_disciplinar_id = m.id
 			ORDER BY f.registered_at DESC
 			LIMIT %d OFFSET %d
 		`, limit, offset)
 
 		type FaltaCompleta struct {
-			ID              string      `json:"id"`
-			EstudanteID     string      `json:"estudante_id"`
-			CodigoEstudante string      `json:"codigo_estudante"`
-			EstudanteNome   string      `json:"estudante_nome"`
-			CodigoAcademia  string      `json:"codigo_academia"`
-			AcademiaNome    string      `json:"academia_nome"`
-			AnoLectivo      string      `json:"ano_lectivo"`
-			Periodo         string      `json:"periodo"`
-			Materias        interface{} `json:"materias"`
-			RegisteredAt    string      `json:"registered_at"`
-			EventID         string      `json:"event_id"`
-			Version         int         `json:"version"`
+			ID                   string   `json:"id"`
+			CodigoEstudante      string   `json:"codigo_estudante"`
+			EstudanteNome        string   `json:"estudante_nome"`
+			CodigoAcademia       string   `json:"codigo_academia"`
+			AcademiaNome         string   `json:"academia_nome"`
+			AnoLectivo           string   `json:"ano_lectivo"`
+			Data                 string   `json:"data"`
+			MateriaDisciplinarID string   `json:"materia_disciplinar_id"`
+			MateriaNome          string   `json:"materia_nome"`
+			Quantidade           int      `json:"quantidade"`
+			Observacao           *string  `json:"observacao,omitempty"`
+			RegisteredAt         string   `json:"registered_at"`
+			EventID              string   `json:"event_id"`
+			Version              int      `json:"version"`
 		}
 
 		rows, err := client.DB().Query(queryFaltas)
@@ -115,9 +126,12 @@ func ListarTodosRegistros(c *gin.Context) {
 		var faltas []FaltaCompleta
 		for rows.Next() {
 			var falta FaltaCompleta
-			if err := rows.Scan(&falta.ID, &falta.EstudanteID, &falta.CodigoEstudante, &falta.EstudanteNome,
-				&falta.CodigoAcademia, &falta.AcademiaNome, &falta.AnoLectivo, &falta.Periodo,
-				&falta.Materias, &falta.RegisteredAt, &falta.EventID, &falta.Version); err == nil {
+			if err := rows.Scan(
+				&falta.ID, &falta.CodigoEstudante, &falta.EstudanteNome,
+				&falta.CodigoAcademia, &falta.AcademiaNome, &falta.AnoLectivo,
+				&falta.Data, &falta.MateriaDisciplinarID, &falta.MateriaNome,
+				&falta.Quantidade, &falta.Observacao, &falta.RegisteredAt, &falta.EventID, &falta.Version,
+			); err == nil {
 				faltas = append(faltas, falta)
 			}
 		}
@@ -144,7 +158,7 @@ func ListarTodosRegistros(c *gin.Context) {
 			(SELECT COUNT(*) FROM projection_notas) as total_notas,
 			(SELECT COUNT(*) FROM projection_faltas) as total_faltas
 	`
-	
+
 	client.DB().QueryRow(queryStats).Scan(
 		&stats.TotalEstudantes,
 		&stats.TotalAcademias,
@@ -174,21 +188,27 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 	queryNotas := fmt.Sprintf(`
 		SELECT 
 			n.id, n.codigo_academia, a.nome as academia_nome,
-			n.ano_lectivo, n.periodo, n.materias, n.registered_at
+			n.ano_lectivo, n.periodo,
+			n.materia_disciplinar_id, COALESCE(m.nome, '') as materia_nome,
+			n.nota, n.observacao, n.registered_at
 		FROM projection_notas n
 		LEFT JOIN projection_academias a ON n.codigo_academia = a.codigo_academia
-		WHERE n.estudante_id = '%s'
+		LEFT JOIN projection_materias m ON n.materia_disciplinar_id = m.id
+		WHERE n.codigo_estudante = '%s'
 		ORDER BY n.registered_at DESC
-	`, estudante.ID)
+	`, estudante.CodigoEstudante)
 
 	type NotaSimples struct {
-		ID             string      `json:"id"`
-		CodigoAcademia string      `json:"codigo_academia"`
-		AcademiaNome   string      `json:"academia_nome"`
-		AnoLectivo     string      `json:"ano_lectivo"`
-		Periodo        string      `json:"periodo"`
-		Materias       interface{} `json:"materias"`
-		RegisteredAt   string      `json:"registered_at"`
+		ID                   string   `json:"id"`
+		CodigoAcademia       string   `json:"codigo_academia"`
+		AcademiaNome         string   `json:"academia_nome"`
+		AnoLectivo           string   `json:"ano_lectivo"`
+		Periodo              string   `json:"periodo"`
+		MateriaDisciplinarID string   `json:"materia_disciplinar_id"`
+		MateriaNome          string   `json:"materia_nome"`
+		Nota                 float64  `json:"nota"`
+		Observacao           *string  `json:"observacao,omitempty"`
+		RegisteredAt         string   `json:"registered_at"`
 	}
 
 	rowsNotas, err := client.DB().Query(queryNotas)
@@ -201,8 +221,12 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 	var notas []NotaSimples
 	for rowsNotas.Next() {
 		var nota NotaSimples
-		if err := rowsNotas.Scan(&nota.ID, &nota.CodigoAcademia, &nota.AcademiaNome,
-			&nota.AnoLectivo, &nota.Periodo, &nota.Materias, &nota.RegisteredAt); err == nil {
+		if err := rowsNotas.Scan(
+			&nota.ID, &nota.CodigoAcademia, &nota.AcademiaNome,
+			&nota.AnoLectivo, &nota.Periodo,
+			&nota.MateriaDisciplinarID, &nota.MateriaNome,
+			&nota.Nota, &nota.Observacao, &nota.RegisteredAt,
+		); err == nil {
 			notas = append(notas, nota)
 		}
 	}
@@ -210,21 +234,27 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 	queryFaltas := fmt.Sprintf(`
 		SELECT 
 			f.id, f.codigo_academia, a.nome as academia_nome,
-			f.ano_lectivo, f.periodo, f.materias, f.registered_at
+			f.ano_lectivo, f.data,
+			f.materia_disciplinar_id, COALESCE(m.nome, '') as materia_nome,
+			f.quantidade, f.observacao, f.registered_at
 		FROM projection_faltas f
 		LEFT JOIN projection_academias a ON f.codigo_academia = a.codigo_academia
-		WHERE f.estudante_id = '%s'
+		LEFT JOIN projection_materias m ON f.materia_disciplinar_id = m.id
+		WHERE f.codigo_estudante = '%s'
 		ORDER BY f.registered_at DESC
-	`, estudante.ID)
+	`, estudante.CodigoEstudante)
 
 	type FaltaSimples struct {
-		ID             string      `json:"id"`
-		CodigoAcademia string      `json:"codigo_academia"`
-		AcademiaNome   string      `json:"academia_nome"`
-		AnoLectivo     string      `json:"ano_lectivo"`
-		Periodo        string      `json:"periodo"`
-		Materias       interface{} `json:"materias"`
-		RegisteredAt   string      `json:"registered_at"`
+		ID                   string   `json:"id"`
+		CodigoAcademia       string   `json:"codigo_academia"`
+		AcademiaNome         string   `json:"academia_nome"`
+		AnoLectivo           string   `json:"ano_lectivo"`
+		Data                 string   `json:"data"`
+		MateriaDisciplinarID string   `json:"materia_disciplinar_id"`
+		MateriaNome          string   `json:"materia_nome"`
+		Quantidade           int      `json:"quantidade"`
+		Observacao           *string  `json:"observacao,omitempty"`
+		RegisteredAt         string   `json:"registered_at"`
 	}
 
 	rowsFaltas, err := client.DB().Query(queryFaltas)
@@ -237,8 +267,12 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 	var faltas []FaltaSimples
 	for rowsFaltas.Next() {
 		var falta FaltaSimples
-		if err := rowsFaltas.Scan(&falta.ID, &falta.CodigoAcademia, &falta.AcademiaNome,
-			&falta.AnoLectivo, &falta.Periodo, &falta.Materias, &falta.RegisteredAt); err == nil {
+		if err := rowsFaltas.Scan(
+			&falta.ID, &falta.CodigoAcademia, &falta.AcademiaNome,
+			&falta.AnoLectivo, &falta.Data,
+			&falta.MateriaDisciplinarID, &falta.MateriaNome,
+			&falta.Quantidade, &falta.Observacao, &falta.RegisteredAt,
+		); err == nil {
 			faltas = append(faltas, falta)
 		}
 	}
@@ -269,23 +303,28 @@ func ListarRegistrosPorAcademia(c *gin.Context) {
 
 	queryNotas := fmt.Sprintf(`
 		SELECT 
-			n.id, n.estudante_id, e.codigo_estudante, e.nome as estudante_nome,
-			n.ano_lectivo, n.periodo, n.materias, n.registered_at
+			n.id, n.codigo_estudante, e.nome as estudante_nome,
+			n.ano_lectivo, n.periodo,
+			n.materia_disciplinar_id, COALESCE(m.nome, '') as materia_nome,
+			n.nota, n.observacao, n.registered_at
 		FROM projection_notas n
-		LEFT JOIN projection_estudantes e ON n.estudante_id = e.id
+		LEFT JOIN projection_estudantes e ON n.codigo_estudante = e.codigo_estudante
+		LEFT JOIN projection_materias m ON n.materia_disciplinar_id = m.id
 		WHERE n.codigo_academia = '%s'
 		ORDER BY n.registered_at DESC
 	`, codigoAcademia)
 
 	type NotaPorAcademia struct {
-		ID              string      `json:"id"`
-		EstudanteID     string      `json:"estudante_id"`
-		CodigoEstudante string      `json:"codigo_estudante"`
-		EstudanteNome   string      `json:"estudante_nome"`
-		AnoLectivo      string      `json:"ano_lectivo"`
-		Periodo         string      `json:"periodo"`
-		Materias        interface{} `json:"materias"`
-		RegisteredAt    string      `json:"registered_at"`
+		ID                   string   `json:"id"`
+		CodigoEstudante      string   `json:"codigo_estudante"`
+		EstudanteNome        string   `json:"estudante_nome"`
+		AnoLectivo           string   `json:"ano_lectivo"`
+		Periodo              string   `json:"periodo"`
+		MateriaDisciplinarID string   `json:"materia_disciplinar_id"`
+		MateriaNome          string   `json:"materia_nome"`
+		Nota                 float64  `json:"nota"`
+		Observacao           *string  `json:"observacao,omitempty"`
+		RegisteredAt         string   `json:"registered_at"`
 	}
 
 	rowsNotas, err := client.DB().Query(queryNotas)
@@ -298,31 +337,40 @@ func ListarRegistrosPorAcademia(c *gin.Context) {
 	var notas []NotaPorAcademia
 	for rowsNotas.Next() {
 		var nota NotaPorAcademia
-		if err := rowsNotas.Scan(&nota.ID, &nota.EstudanteID, &nota.CodigoEstudante, &nota.EstudanteNome,
-			&nota.AnoLectivo, &nota.Periodo, &nota.Materias, &nota.RegisteredAt); err == nil {
+		if err := rowsNotas.Scan(
+			&nota.ID, &nota.CodigoEstudante, &nota.EstudanteNome,
+			&nota.AnoLectivo, &nota.Periodo,
+			&nota.MateriaDisciplinarID, &nota.MateriaNome,
+			&nota.Nota, &nota.Observacao, &nota.RegisteredAt,
+		); err == nil {
 			notas = append(notas, nota)
 		}
 	}
 
 	queryFaltas := fmt.Sprintf(`
 		SELECT 
-			f.id, f.estudante_id, e.codigo_estudante, e.nome as estudante_nome,
-			f.ano_lectivo, f.periodo, f.materias, f.registered_at
+			f.id, f.codigo_estudante, e.nome as estudante_nome,
+			f.ano_lectivo, f.data,
+			f.materia_disciplinar_id, COALESCE(m.nome, '') as materia_nome,
+			f.quantidade, f.observacao, f.registered_at
 		FROM projection_faltas f
-		LEFT JOIN projection_estudantes e ON f.estudante_id = e.id
+		LEFT JOIN projection_estudantes e ON f.codigo_estudante = e.codigo_estudante
+		LEFT JOIN projection_materias m ON f.materia_disciplinar_id = m.id
 		WHERE f.codigo_academia = '%s'
 		ORDER BY f.registered_at DESC
 	`, codigoAcademia)
 
 	type FaltaPorAcademia struct {
-		ID              string      `json:"id"`
-		EstudanteID     string      `json:"estudante_id"`
-		CodigoEstudante string      `json:"codigo_estudante"`
-		EstudanteNome   string      `json:"estudante_nome"`
-		AnoLectivo      string      `json:"ano_lectivo"`
-		Periodo         string      `json:"periodo"`
-		Materias        interface{} `json:"materias"`
-		RegisteredAt    string      `json:"registered_at"`
+		ID                   string   `json:"id"`
+		CodigoEstudante      string   `json:"codigo_estudante"`
+		EstudanteNome        string   `json:"estudante_nome"`
+		AnoLectivo           string   `json:"ano_lectivo"`
+		Data                 string   `json:"data"`
+		MateriaDisciplinarID string   `json:"materia_disciplinar_id"`
+		MateriaNome          string   `json:"materia_nome"`
+		Quantidade           int      `json:"quantidade"`
+		Observacao           *string  `json:"observacao,omitempty"`
+		RegisteredAt         string   `json:"registered_at"`
 	}
 
 	rowsFaltas, err := client.DB().Query(queryFaltas)
@@ -335,8 +383,12 @@ func ListarRegistrosPorAcademia(c *gin.Context) {
 	var faltas []FaltaPorAcademia
 	for rowsFaltas.Next() {
 		var falta FaltaPorAcademia
-		if err := rowsFaltas.Scan(&falta.ID, &falta.EstudanteID, &falta.CodigoEstudante, &falta.EstudanteNome,
-			&falta.AnoLectivo, &falta.Periodo, &falta.Materias, &falta.RegisteredAt); err == nil {
+		if err := rowsFaltas.Scan(
+			&falta.ID, &falta.CodigoEstudante, &falta.EstudanteNome,
+			&falta.AnoLectivo, &falta.Data,
+			&falta.MateriaDisciplinarID, &falta.MateriaNome,
+			&falta.Quantidade, &falta.Observacao, &falta.RegisteredAt,
+		); err == nil {
 			faltas = append(faltas, falta)
 		}
 	}
