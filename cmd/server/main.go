@@ -131,9 +131,6 @@ func setupRouter() *gin.Engine {
 		loginGroup.POST("/admin/login", handlers.LoginAdmin)
 	}
 
-	router.POST("/academia/register", handlers.RegisterAcademia)
-	router.POST("/estudante/register", handlers.RegisterEstudante)
-
 	emailGroup := router.Group("/")
 	// emailGroup.Use(middleware.EmailRateLimit())
 	{
@@ -239,6 +236,7 @@ func setupRouter() *gin.Engine {
 		{
 			adminAdm.POST("/register", handlers.RegisterAdmin)
 			adminAdm.GET("/admins", handlers.ListarTodosAdmins)
+			adminAdm.POST("/academia/register", handlers.RegisterAcademia)
 		}
 		
 		adminFPP := admin.Group("/")

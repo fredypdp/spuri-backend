@@ -307,15 +307,19 @@ func (s *EmailService) SendPasswordResetEmail(userID uuid.UUID, userType, email,
 func GetDefaultPassword(userType, codigo string) string {
 	switch userType {
 	case "estudante":
-		return codigo
+		return codigo // código do próprio estudante
 	case "academia":
-		return codigo
+		return codigo // código da própria academia
 	case "admin":
-		return "spuriadm"
-	case "gerente":
-		return "spurigerente"
-	case "fpp":
-		return "spurifpp"
+		// codigo contém o role quando chamado de ResetarSenha ou RegisterAdmin
+		switch codigo {
+		case "fpp":
+			return "spurifpp"
+		case "gerente":
+			return "spurigerente"
+		default: // "adm" e qualquer outro
+			return "spuriadm"
+		}
 	default:
 		return "spuri123"
 	}

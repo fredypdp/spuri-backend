@@ -9,6 +9,7 @@ import (
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
 	"spuri/internal/projections"
+	"spuri/internal/services"
 	"spuri/internal/utils"
 
 	"github.com/gin-gonic/gin"
@@ -66,12 +67,11 @@ func RegisterAdmin(c *gin.Context) {
 	var req struct {
 		Nome  string `json:"nome" binding:"required"`
 		Email string `json:"email" binding:"required"`
-		Senha string `json:"senha" binding:"required"`
 		Role  string `json:"role" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: nome, email, senha e role"))
+		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: nome, email e role"))
 		return
 	}
 
@@ -106,7 +106,8 @@ func RegisterAdmin(c *gin.Context) {
 		return
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Senha), bcrypt.DefaultCost)
+	defaultPassword := services.GetDefaultPassword("admin", req.Role)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(defaultPassword), bcrypt.DefaultCost)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -139,6 +140,7 @@ func RegisterAdmin(c *gin.Context) {
 			"nome":  newAdmin.Nome,
 			"email": req.Email,
 			"role":  newAdmin.Role,
+			"senha_padrao": defaultPassword,
 		},
 	})
 }

@@ -115,7 +115,6 @@ func Login(c *gin.Context) {
 
 type RegisterAcademiaRequest struct {
 	Type           string   `json:"type" binding:"required"`
-	Senha          string   `json:"senha" binding:"required"`
 	Nome           string   `json:"nome" binding:"required"`
 	Provincia      string   `json:"provincia" binding:"required"`
 	Endereco       string   `json:"endereco" binding:"required"`
@@ -134,11 +133,6 @@ func RegisterAcademia(c *gin.Context) {
 	}
 
 	if err := utils.ValidateNome(req.Nome); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-
-	if err := utils.ValidateSenha(req.Senha); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -192,13 +186,13 @@ func RegisterAcademia(c *gin.Context) {
 	}
 
 	dbClient := getDbClient(c)
-	codigo, err := generateCodigoAcademia(codigoProvincia, dbClient.DB())
+	codigoAcademia, err := generateCodigoAcademia(codigoProvincia, dbClient.DB())
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Senha), bcrypt.DefaultCost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(codigoAcademia), bcrypt.DefaultCost)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -210,7 +204,7 @@ func RegisterAcademia(c *gin.Context) {
 	if err := academia.Criar(
 		req.Type,
 		req.Nome,
-		codigo,
+		codigoAcademia,
 		string(hashedPassword),
 		codigoProvincia,
 		req.Endereco,
@@ -229,7 +223,7 @@ func RegisterAcademia(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Academia criada: %s - %s", codigo, req.Nome)
+	log.Printf("Academia criada: %s - %s", codigoAcademia, req.Nome)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "academia criada com sucesso",
@@ -253,185 +247,6 @@ type RegisterEstudanteRequest struct {
 	CursoSuperiorID       *uuid.UUID `json:"curso_superior_id"`
 	StatusEscolar         *string    `json:"status_escolar"`
 	StatusSuperior        *string    `json:"status_superior"`
-}
-
-func RegisterEstudante(c *gin.Context) {
-	var req RegisterEstudanteRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("nome e senha são obrigatórios"))
-		return
-	}
-
-	if err := utils.ValidateNome(req.Nome); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-
-	if err := utils.ValidateSenha(req.Senha); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-
-	if req.Email != nil {
-		if err := utils.ValidateEmail(*req.Email); err != nil {
-			utils.RespondWithValidationError(c, err)
-			return
-		}
-	}
-
-	if req.Telefone != nil {
-		if err := utils.ValidatePhone(*req.Telefone); err != nil {
-			utils.RespondWithValidationError(c, err)
-			return
-		}
-	}
-
-	if err := utils.ValidateBilhete(utils.SafeDeref(req.BilheteIdentidade)); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-	
-	if req.BilheteIdentidade != nil && req.BilheteIdentidadeResp != nil {
-		if *req.BilheteIdentidade == *req.BilheteIdentidadeResp {
-			utils.RespondWithValidationError(c, fmt.Errorf("bilhete do estudante e do responsável não podem ser iguais"))
-			return
-		}
-	}
-
-	if err := utils.ValidateBilhete(utils.SafeDeref(req.BilheteIdentidadeResp)); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-
-	if req.BilheteIdentidade == nil && req.BilheteIdentidadeResp == nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("pelo menos um bilhete de identidade é obrigatório"))
-		return
-	}
-
-	if req.BilheteIdentidade != nil && *req.BilheteIdentidade != "" {
-		estudanteProj := getEstudanteProjection(c)
-		existente, err := estudanteProj.GetByBilheteIdentidadePrincipal(*req.BilheteIdentidade)
-		if err != nil {
-			utils.RespondWithInternalError(c, err)
-			return
-		}
-		if existente != nil {
-			utils.RespondWithConflictError(c, "Bilhete de identidade já cadastrado no sistema")
-			return
-		}
-	}
-
-	if req.CursoMedioID != nil && *req.CursoMedioID != uuid.Nil {
-		cursosProj := getCursosProjection(c)
-		curso, _ := cursosProj.GetByID(*req.CursoMedioID)
-		if curso == nil {
-			utils.RespondWithNotFoundError(c, "curso médio")
-			return
-		}
-		if curso.Type != "medio" {
-			utils.RespondWithValidationError(c, fmt.Errorf("curso_medio_id deve ser do tipo 'medio'"))
-			return
-		}
-	}
-
-	if req.CursoSuperiorID != nil && *req.CursoSuperiorID != uuid.Nil {
-		cursosProj := getCursosProjection(c)
-		curso, _ := cursosProj.GetByID(*req.CursoSuperiorID)
-		if curso == nil {
-			utils.RespondWithNotFoundError(c, "curso superior")
-			return
-		}
-		if curso.Type != "superior" {
-			utils.RespondWithValidationError(c, fmt.Errorf("curso_superior_id deve ser do tipo 'superior'"))
-			return
-		}
-	}
-
-	if req.CursoMedioID != nil && *req.CursoMedioID != uuid.Nil && req.AnoEscolar != nil {
-		cursosProj := getCursosProjection(c)
-		curso, _ := cursosProj.GetByID(*req.CursoMedioID)
-		if curso != nil {
-			anoValido := false
-			for _, nivelCurso := range curso.Nivel {
-				if nivelCurso == *req.AnoEscolar {
-					anoValido = true
-					break
-				}
-			}
-			if !anoValido {
-				utils.RespondWithValidationError(c, fmt.Errorf("ano escolar '%s' não existe no curso selecionado", *req.AnoEscolar))
-				return
-			}
-		}
-	}
-
-	if req.CursoSuperiorID != nil && *req.CursoSuperiorID != uuid.Nil && req.AnoSuperior != nil {
-		cursosProj := getCursosProjection(c)
-		curso, _ := cursosProj.GetByID(*req.CursoSuperiorID)
-		if curso != nil {
-			anoValido := false
-			for _, nivelCurso := range curso.Nivel {
-				if nivelCurso == *req.AnoSuperior {
-					anoValido = true
-					break
-				}
-			}
-			if !anoValido {
-				utils.RespondWithValidationError(c, fmt.Errorf("ano superior '%s' não existe no curso selecionado", *req.AnoSuperior))
-				return
-			}
-		}
-	}
-
-	client := getDbClient(c)
-	codigoEstudante, err := utils.GenerateUniqueCodigoEstudante(client.DB())
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Senha), bcrypt.DefaultCost)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	repository := getRepository(c)
-	estudante := aggregates.NewEstudante()
-
-	if err := estudante.Criar(
-		req.Nome,
-		codigoEstudante,
-		string(hashedPassword),
-		req.Email,
-		req.Telefone,
-		req.BilheteIdentidade,
-		req.BilheteIdentidadeResp,
-		req.AnoEscolar,
-		req.AnoSuperior,
-		req.CursoMedioID,
-		req.CursoSuperiorID,
-		req.StatusEscolar,
-		req.StatusSuperior,
-	); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-
-	if err := repository.Save(estudante); err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	log.Printf("Estudante criado: %s - %s", codigoEstudante, req.Nome)
-
-	c.JSON(http.StatusCreated, gin.H{
-		"message": "estudante criado com sucesso",
-		"data": gin.H{
-			"id":               estudante.ID,
-			"codigo_estudante": codigoEstudante,
-		},
-	})
 }
 
 type CadastroEstudanteAcademiaRequest struct {
@@ -650,7 +465,7 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		return
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte("spuri123"), bcrypt.DefaultCost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(codigoEstudante), bcrypt.DefaultCost)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
