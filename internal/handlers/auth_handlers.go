@@ -190,7 +190,12 @@ func RegisterAcademia(c *gin.Context) {
 		return
 	}
 
-	codigo := generateCodigoAcademia(codigoProvincia)
+	dbClient := getDbClient(c)
+	codigo, err := generateCodigoAcademia(codigoProvincia, dbClient.DB())
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Senha), bcrypt.DefaultCost)
 	if err != nil {
@@ -725,8 +730,20 @@ func validarProvincia(provincia string) (string, error) {
 	return "", fmt.Errorf("província inválida: '%s'", provincia)
 }
 
-func generateCodigoAcademia(codigoProvincia string) string {
+func generateCodigoAcademia(codigoProvincia string, db *sqlx.DB) (string, error) {
 	ano := time.Now().Year()
-	numero := time.Now().UnixNano() % 10000
-	return fmt.Sprintf("%s%d%d", codigoProvincia, ano, numero)
+
+	// Conta todas as academias criadas no ano corrente (qualquer província)
+	var count int
+	query := fmt.Sprintf(
+		`SELECT COUNT(*) FROM projection_academias WHERE codigo_academia ~ '^[A-Z]{3}%d[0-9]+$'`,
+		ano,
+	)
+	if err := db.QueryRow(query).Scan(&count); err != nil {
+		return "", fmt.Errorf("erro ao gerar sequencial do código: %w", err)
+	}
+
+	codigo := fmt.Sprintf("%s%d%d", codigoProvincia, ano, count+1)
+	log.Printf("🎲 [generateCodigoAcademia] Código gerado: %s (seq=%d)", codigo, count+1)
+	return codigo, nil
 }
