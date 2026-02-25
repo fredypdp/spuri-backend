@@ -67,3 +67,8 @@ func getAprovacaoAnoProjection(c *gin.Context) *projections.AprovacaoAnoProjecti
 	client := getDbClient(c)
 	return projections.NewAprovacaoAnoProjection(client)
 }
+
+func getProjManager(c *gin.Context) *projections.Manager {
+    raw, _ := c.Get("projManager")
+    return raw.(*projections.Manager)
+}

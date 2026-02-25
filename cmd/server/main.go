@@ -90,6 +90,8 @@ func initProjections() error {
 	projManager.RegisterProjection("cursos", projections.NewCursosProjection(dbClient))
 	projManager.RegisterProjection("materias", projections.NewMateriasProjection(dbClient))
 	projManager.RegisterProjection("aprovacao_ano", projections.NewAprovacaoAnoProjection(dbClient))
+	projManager.RegisterProjection("sistema_config", projections.NewSistemaConfigProjection(dbClient))
+
 
 	go projManager.StartProcessing()
 
@@ -163,6 +165,7 @@ func setupRouter() *gin.Engine {
 		protected.GET("/inscricoes/estudante/:codigo", handlers.GetInscricoesPorCodigoEstudante)
 		protected.GET("/estudantes", handlers.ListarEstudantes)
 		protected.GET("/aprovacoes-estudante/:codigo", handlers.GetAprovacoesEstudante)
+		protected.GET("/ano-letivo-atual", handlers.GetAnoLetivoAtual)
 	}
 
 	estudante := router.Group("/estudante")
@@ -246,6 +249,7 @@ func setupRouter() *gin.Engine {
 			adminFPP.PUT("/admin/:id/desativar", handlers.DesativarAdmin)
 			adminFPP.PUT("/role/:id", handlers.AtualizarRoleAdmin)
 			adminFPP.POST("/metrics/reset", handlers.ResetMetrics)
+			adminFPP.POST("/definir-ano-letivo", handlers.DefinirAnoLetivo)
 		}
 		
 		admin.POST("/rebuild-projection/:name", handlers.RebuildProjection)

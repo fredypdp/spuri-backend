@@ -337,3 +337,13 @@ func (m *Manager) IsProjectionRegistered(name string) bool {
 	_, exists := m.projections[name]
 	return exists
 }
+
+func (m *Manager) GetProjection(name string) (Projection, error) {
+    m.mu.Lock()
+    defer m.mu.Unlock()
+    p, ok := m.projections[name]
+    if !ok {
+        return nil, fmt.Errorf("projeção '%s' não registrada", name)
+    }
+    return p, nil
+}

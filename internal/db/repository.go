@@ -5,9 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"time"
-
 	"spuri/internal/domain/aggregates"
+	"time"
 
 	"github.com/google/uuid"
 )
