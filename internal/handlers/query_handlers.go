@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
 	"spuri/internal/db"
@@ -16,22 +17,22 @@ import (
 func getPaginationParams(c *gin.Context) (limit, offset int) {
 	limitStr := c.Query("limit")
 	offsetStr := c.Query("offset")
-	
+
 	limit = 50
 	offset = 0
-	
+
 	if limitStr != "" {
 		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 200 {
 			limit = l
 		}
 	}
-	
+
 	if offsetStr != "" {
 		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
 			offset = o
 		}
 	}
-	
+
 	return limit, offset
 }
 
@@ -52,6 +53,7 @@ func ListarInscricoes(c *gin.Context) {
 	statusFilter := c.Query("status")
 	client := getDbClient(c)
 
+	// ✅ curso → curso_id (migration 004)
 	type InscricaoDetalhada struct {
 		ID              uuid.UUID  `json:"id"`
 		EstudanteID     uuid.UUID  `json:"estudante_id"`
@@ -60,7 +62,7 @@ func ListarInscricoes(c *gin.Context) {
 		CodigoAcademia  string     `json:"codigo_academia"`
 		Tipo            string     `json:"tipo"`
 		AnoInscricao    string     `json:"ano_inscricao"`
-		Curso           *string    `json:"curso,omitempty"`
+		CursoID         *uuid.UUID `json:"curso_id,omitempty"` // ✅ era: Curso *string
 		Status          string     `json:"status"`
 		StatusUsado     bool       `json:"status_usado"`
 		CreatedAt       time.Time  `json:"created_at"`
@@ -74,25 +76,25 @@ func ListarInscricoes(c *gin.Context) {
 	var query string
 	var countQuery string
 
+	// ✅ Todas as queries trocam `curso` por `curso_id`
+	const selectCols = `id, estudante_id, codigo_estudante, academia_id, codigo_academia,
+		tipo, ano_inscricao, curso_id, status, status_usado, created_at, updated_at, event_id, version`
+
 	switch userType {
 	case "admin":
 		if statusFilter != "" {
 			safeStatus := db.SafeString(statusFilter)
 			query = fmt.Sprintf(`
-				SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-					tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, event_id, version
-				FROM projection_inscricoes
+				SELECT %s FROM projection_inscricoes
 				WHERE status = '%s'
 				ORDER BY created_at DESC LIMIT %d OFFSET %d
-			`, safeStatus, limit, offset)
+			`, selectCols, safeStatus, limit, offset)
 			countQuery = fmt.Sprintf(`SELECT COUNT(*) FROM projection_inscricoes WHERE status = '%s'`, safeStatus)
 		} else {
 			query = fmt.Sprintf(`
-				SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-					tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, event_id, version
-				FROM projection_inscricoes
+				SELECT %s FROM projection_inscricoes
 				ORDER BY created_at DESC LIMIT %d OFFSET %d
-			`, limit, offset)
+			`, selectCols, limit, offset)
 			countQuery = `SELECT COUNT(*) FROM projection_inscricoes`
 		}
 
@@ -100,21 +102,17 @@ func ListarInscricoes(c *gin.Context) {
 		if statusFilter != "" {
 			safeStatus := db.SafeString(statusFilter)
 			query = fmt.Sprintf(`
-				SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-					tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, event_id, version
-				FROM projection_inscricoes
+				SELECT %s FROM projection_inscricoes
 				WHERE academia_id = '%s' AND status = '%s'
 				ORDER BY created_at DESC LIMIT %d OFFSET %d
-			`, userID, safeStatus, limit, offset)
+			`, selectCols, userID, safeStatus, limit, offset)
 			countQuery = fmt.Sprintf(`SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = '%s' AND status = '%s'`, userID, safeStatus)
 		} else {
 			query = fmt.Sprintf(`
-				SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-					tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, event_id, version
-				FROM projection_inscricoes
+				SELECT %s FROM projection_inscricoes
 				WHERE academia_id = '%s'
 				ORDER BY created_at DESC LIMIT %d OFFSET %d
-			`, userID, limit, offset)
+			`, selectCols, userID, limit, offset)
 			countQuery = fmt.Sprintf(`SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = '%s'`, userID)
 		}
 
@@ -122,20 +120,16 @@ func ListarInscricoes(c *gin.Context) {
 		if statusFilter != "" {
 			safeStatus := db.SafeString(statusFilter)
 			query = fmt.Sprintf(`
-				SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-					tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, event_id, version
-				FROM projection_inscricoes
+				SELECT %s FROM projection_inscricoes
 				WHERE estudante_id = '%s' AND status = '%s'
 				ORDER BY created_at DESC
-			`, userID, safeStatus)
+			`, selectCols, userID, safeStatus)
 		} else {
 			query = fmt.Sprintf(`
-				SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-					tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, event_id, version
-				FROM projection_inscricoes
+				SELECT %s FROM projection_inscricoes
 				WHERE estudante_id = '%s'
 				ORDER BY created_at DESC
-			`, userID)
+			`, selectCols, userID)
 		}
 
 	default:
@@ -152,9 +146,17 @@ func ListarInscricoes(c *gin.Context) {
 
 	for rows.Next() {
 		var insc InscricaoDetalhada
-		if err := rows.Scan(&insc.ID, &insc.EstudanteID, &insc.CodigoEstudante, &insc.AcademiaID,
-			&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &insc.Curso, &insc.Status, &insc.StatusUsado,
-			&insc.CreatedAt, &insc.UpdatedAt, &insc.EventID, &insc.Version); err == nil {
+		var cursoID sql.NullString
+		if err := rows.Scan(
+			&insc.ID, &insc.EstudanteID, &insc.CodigoEstudante, &insc.AcademiaID,
+			&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &cursoID,
+			&insc.Status, &insc.StatusUsado,
+			&insc.CreatedAt, &insc.UpdatedAt, &insc.EventID, &insc.Version,
+		); err == nil {
+			if cursoID.Valid {
+				cid, _ := uuid.Parse(cursoID.String)
+				insc.CursoID = &cid
+			}
 			inscricoes = append(inscricoes, insc)
 		}
 	}
@@ -184,21 +186,22 @@ func ListarInscricoesPendentes(c *gin.Context) {
 	limit, offset := getPaginationParams(c)
 	client := getDbClient(c)
 
+	// ✅ curso → curso_id (migration 004)
 	type InscricaoDetalhada struct {
-		ID              uuid.UUID `json:"id"`
-		EstudanteID     uuid.UUID `json:"estudante_id"`
-		CodigoEstudante string    `json:"codigo_estudante"`
-		AcademiaID      uuid.UUID `json:"academia_id"`
-		CodigoAcademia  string    `json:"codigo_academia"`
-		Tipo            string    `json:"tipo"`
-		AnoInscricao    string    `json:"ano_inscricao"`
-		Curso           *string   `json:"curso,omitempty"`
-		Status          string    `json:"status"`
-		StatusUsado     bool      `json:"status_usado"`
-		CreatedAt       time.Time `json:"created_at"`
-		UpdatedAt       time.Time `json:"updated_at"`
-		EventID         uuid.UUID `json:"event_id"`
-		Version         int       `json:"version"`
+		ID              uuid.UUID  `json:"id"`
+		EstudanteID     uuid.UUID  `json:"estudante_id"`
+		CodigoEstudante string     `json:"codigo_estudante"`
+		AcademiaID      uuid.UUID  `json:"academia_id"`
+		CodigoAcademia  string     `json:"codigo_academia"`
+		Tipo            string     `json:"tipo"`
+		AnoInscricao    string     `json:"ano_inscricao"`
+		CursoID         *uuid.UUID `json:"curso_id,omitempty"` // ✅ era: Curso *string
+		Status          string     `json:"status"`
+		StatusUsado     bool       `json:"status_usado"`
+		CreatedAt       time.Time  `json:"created_at"`
+		UpdatedAt       time.Time  `json:"updated_at"`
+		EventID         uuid.UUID  `json:"event_id"`
+		Version         int        `json:"version"`
 	}
 
 	var inscricoes []InscricaoDetalhada
@@ -206,35 +209,32 @@ func ListarInscricoesPendentes(c *gin.Context) {
 	var query string
 	var countQuery string
 
+	const selectCols = `id, estudante_id, codigo_estudante, academia_id, codigo_academia,
+		tipo, ano_inscricao, curso_id, status, status_usado, created_at, updated_at, event_id, version`
+
 	switch userType {
 	case "admin":
 		query = fmt.Sprintf(`
-			SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-				tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, event_id, version
-			FROM projection_inscricoes
+			SELECT %s FROM projection_inscricoes
 			WHERE status = 'espera'
 			ORDER BY created_at DESC LIMIT %d OFFSET %d
-		`, limit, offset)
+		`, selectCols, limit, offset)
 		countQuery = `SELECT COUNT(*) FROM projection_inscricoes WHERE status = 'espera'`
 
 	case "academia":
 		query = fmt.Sprintf(`
-			SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-				tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, event_id, version
-			FROM projection_inscricoes
+			SELECT %s FROM projection_inscricoes
 			WHERE status = 'espera' AND academia_id = '%s'
 			ORDER BY created_at DESC LIMIT %d OFFSET %d
-		`, userID, limit, offset)
+		`, selectCols, userID, limit, offset)
 		countQuery = fmt.Sprintf(`SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = '%s' AND status = 'espera'`, userID)
 
 	case "estudante":
 		query = fmt.Sprintf(`
-			SELECT id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-				tipo, ano_inscricao, curso, status, status_usado, created_at, updated_at, event_id, version
-			FROM projection_inscricoes
+			SELECT %s FROM projection_inscricoes
 			WHERE status = 'espera' AND estudante_id = '%s'
 			ORDER BY created_at DESC
-		`, userID)
+		`, selectCols, userID)
 
 	default:
 		utils.RespondWithForbiddenError(c, "Acesso negado")
@@ -250,9 +250,17 @@ func ListarInscricoesPendentes(c *gin.Context) {
 
 	for rows.Next() {
 		var insc InscricaoDetalhada
-		if err := rows.Scan(&insc.ID, &insc.EstudanteID, &insc.CodigoEstudante, &insc.AcademiaID,
-			&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &insc.Curso, &insc.Status, &insc.StatusUsado,
-			&insc.CreatedAt, &insc.UpdatedAt, &insc.EventID, &insc.Version); err == nil {
+		var cursoID sql.NullString
+		if err := rows.Scan(
+			&insc.ID, &insc.EstudanteID, &insc.CodigoEstudante, &insc.AcademiaID,
+			&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &cursoID,
+			&insc.Status, &insc.StatusUsado,
+			&insc.CreatedAt, &insc.UpdatedAt, &insc.EventID, &insc.Version,
+		); err == nil {
+			if cursoID.Valid {
+				cid, _ := uuid.Parse(cursoID.String)
+				insc.CursoID = &cid
+			}
 			inscricoes = append(inscricoes, insc)
 		}
 	}
