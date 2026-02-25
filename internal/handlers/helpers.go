@@ -72,3 +72,8 @@ func getProjManager(c *gin.Context) *projections.Manager {
     raw, _ := c.Get("projManager")
     return raw.(*projections.Manager)
 }
+
+func getCategoriasNotaProjection(c *gin.Context) *projections.CategoriasNotaProjection {
+	client := getDbClient(c)
+	return projections.NewCategoriasNotaProjection(client)
+}

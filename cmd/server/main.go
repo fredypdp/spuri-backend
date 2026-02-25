@@ -191,7 +191,6 @@ func setupRouter() *gin.Engine {
 	academia.Use(middleware.RequireAcademia())
 	academia.Use(middleware.ValidarStatusAcademia())
 	{
-		academia.POST("/notas-aluno", handlers.RegistrarNotas)
 		academia.POST("/faltas-aluno", handlers.RegistrarFaltas)
 		academia.PUT("/inscricao/:id/aprovar", handlers.AprovarInscricao)
 		academia.PUT("/inscricao/:id/reprovar", handlers.ReprovarInscricao)
@@ -212,6 +211,10 @@ func setupRouter() *gin.Engine {
 		academia.GET("/inscricoes/estudante/:codigo", handlers.GetInscricoesPorCodigoEstudante)
 		academia.PUT("/estudante/:codigo/curso", handlers.AlterarCursoEstudante)
 		academia.POST("/estudante/register", handlers.RegisterEstudantePorAcademia)
+		academia.POST("/registrar-nota", handlers.RegistrarNota)
+		academia.PUT("/atualizar-nota", handlers.AtualizarNota)
+		academia.POST("/categorias-nota", handlers.CriarCategoriaNotaSuperior)
+		academia.GET("/categorias-nota", handlers.ListarCategoriasNota)
 	}
 
 	admin := router.Group("/admin")

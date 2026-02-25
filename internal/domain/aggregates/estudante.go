@@ -75,6 +75,8 @@ func (e *Estudante) Apply(event DomainEvent) error {
 		return e.applyEstudanteCriado(event)
 	case "NotasRegistradas":
 		return e.applyNotasRegistradas(event)
+	case "NotaAtualizada":
+		return e.applyNotaAtualizada(event)
 	case "FaltasRegistradas":
 		return e.applyFaltasRegistradas(event)
 	case "EstudanteInscrito":
@@ -261,43 +263,6 @@ func (e *Estudante) VerificarEmail() error {
 	event := &EmailVerificadoEvent{
 		BaseEvent:  BaseEvent{EventType: "EmailVerificado", AggregateID: e.ID},
 		VerifiedAt: time.Now(),
-	}
-
-	e.RaiseEvent(event)
-	return e.Apply(event)
-}
-
-func (e *Estudante) RegistrarNota(codigoAcademia string, anoLectivo string, periodo string, materiaDisciplinarID uuid.UUID, nota float64, observacao *string) error {
-	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
-		return fmt.Errorf("estudante não pertence a esta academia")
-	}
-	
-	periodosValidos := []string{"1_trimestre", "2_trimestre", "3_trimestre", "1_semestre", "2_semestre"}
-	periodoValido := false
-	for _, p := range periodosValidos {
-		if periodo == p {
-			periodoValido = true
-			break
-		}
-	}
-	if !periodoValido {
-		return fmt.Errorf("período inválido: %s", periodo)
-	}
-	
-	if nota < 0 || nota > 20 {
-		return fmt.Errorf("nota deve estar entre 0 e 20")
-	}
-
-	event := &NotasRegistradasEvent{
-		BaseEvent:            BaseEvent{EventType: "NotasRegistradas", AggregateID: e.ID},
-		CodigoEstudante:      e.CodigoEstudante,
-		CodigoAcademia:       codigoAcademia,
-		AnoLectivo:           anoLectivo,
-		Periodo:              periodo,
-		MateriaDisciplinarID: materiaDisciplinarID,
-		Nota:                 nota,
-		Observacao:           observacao,
-		RegisteredAt:         time.Now(),
 	}
 
 	e.RaiseEvent(event)
@@ -661,10 +626,6 @@ func (e *Estudante) applyEmailVerificado(event DomainEvent) error {
 	return nil
 }
 
-func (e *Estudante) applyNotasRegistradas(event DomainEvent) error {
-	return nil
-}
-
 func (e *Estudante) applyFaltasRegistradas(event DomainEvent) error {
 	return nil
 }
@@ -944,20 +905,6 @@ type EstudanteCriadoComVinculoEvent struct {
 }
 
 func (e *EstudanteCriadoComVinculoEvent) GetPayload() interface{} { return e }
-
-type NotasRegistradasEvent struct {
-	BaseEvent
-	CodigoEstudante      string
-	CodigoAcademia       string
-	AnoLectivo           string
-	Periodo              string
-	MateriaDisciplinarID uuid.UUID
-	Nota                 float64
-	Observacao           *string
-	RegisteredAt         time.Time
-}
-
-func (e *NotasRegistradasEvent) GetPayload() interface{} { return e }
 
 type FaltasRegistradasEvent struct {
 	BaseEvent

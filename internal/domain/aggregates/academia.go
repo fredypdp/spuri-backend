@@ -65,6 +65,8 @@ func (a *Academia) Apply(event DomainEvent) error {
 		return a.applyAcademiaDadosAtualizados(event)
 	case "EmailVerificado":
 		return a.applyEmailVerificado(event)
+	case "CategoriaNotaAdicionada":
+		return a.applyCategoriaNotaAdicionada(event)
 	default:
 		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
 	}
