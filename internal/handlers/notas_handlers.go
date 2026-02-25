@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"log"
+	"strings"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
