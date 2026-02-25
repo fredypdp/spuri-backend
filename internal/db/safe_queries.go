@@ -106,6 +106,7 @@ func ValidateEventType(eventType string) error {
 		"AdminRoleAtualizado": true,
 		"AcademiaDadosAtualizados": true,
 		"CursosAtualizados": true,
+		"AnoLetivoDefinido": true,
 	}
 
 	if !validTypes[eventType] {
@@ -122,6 +123,7 @@ func ValidateAggregateType(aggType string) error {
 		"Admin":              true,
 		"Curso":              true,
 		"MateriaDisciplinar": true,
+		"SistemaConfig": true,
 	}
 
 	if !validTypes[aggType] {
