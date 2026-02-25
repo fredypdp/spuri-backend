@@ -265,6 +265,12 @@ func CriarCategoriaNotaSuperior(c *gin.Context) {
 		return
 	}
 
+	nome := strings.ToLower(strings.TrimSpace(req.Nome))
+	if !strings.HasPrefix(nome, "nota_") {
+		nome = "nota_" + nome
+	}
+	req.Nome = nome   // domínio receberá o nome já formatado
+
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByID(userID)
 	if err != nil || academiaDTO == nil {

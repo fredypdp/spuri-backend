@@ -45,14 +45,12 @@ func (a *Academia) AdicionarCategoriaNotaSuperior(
 		return fmt.Errorf("academia está inativa")
 	}
 
-	nome = strings.ToLower(strings.TrimSpace(nome))
-
 	if !regexCategoria.MatchString(nome) {
 		return fmt.Errorf(
-			"nome de categoria inválido: deve seguir o formato nota_[nome] (apenas letras minúsculas, números e underscore)",
+			"nome de categoria inválido: use apenas letras minúsculas, números e underscore após 'nota_' (ex: nota_trabalho)",
 		)
 	}
-
+	
 	// Categorias fixas não podem ser sobrescritas
 	fixas := map[string]bool{
 		"nota_pp1": true, "nota_pp2": true, "nota_exame": true,
