@@ -334,67 +334,55 @@ func SanitizeAndValidateString(value, fieldName string, minLen, maxLen int, requ
 	return sanitized, nil
 }
 
+// ValidateAnosFundamental garante que cada ano pertence ao conjunto 1º-9º fundamental.
+// A academia pode definir um subconjunto (e.g., só 1º ao 5º).
 func ValidateAnosFundamental(anos []string) error {
-	log.Printf("🎓 [ValidateAnosFundamental] Validando %d anos fundamentais", len(anos))
-	
+	if len(anos) == 0 {
+		return fmt.Errorf("lista de anos fundamentais não pode ser vazia")
+	}
+
 	validAnos := map[string]bool{
 		"primeiro_fundamental": true, "segundo_fundamental": true,
 		"terceiro_fundamental": true, "quarto_fundamental": true,
-		"quinto_fundamental": true, "sexto_fundamental": true,
-		"setimo_fundamental": true, "oitavo_fundamental": true,
-		"nono_fundamental": true,
+		"quinto_fundamental":   true, "sexto_fundamental":  true,
+		"setimo_fundamental":   true, "oitavo_fundamental": true,
+		"nono_fundamental":     true,
 	}
-	
-	for i, ano := range anos {
-		log.Printf("🔍 [ValidateAnosFundamental] Validando ano [%d]: %s", i, ano)
+
+	for _, ano := range anos {
 		if !validAnos[ano] {
-			log.Printf("❌ [ValidateAnosFundamental] Ano inválido: %s", ano)
-			return fmt.Errorf("ano fundamental inválido: %s", ano)
+			return fmt.Errorf("ano fundamental inválido: '%s'. Valores aceitos: primeiro_fundamental até nono_fundamental", ano)
 		}
 	}
-	
-	log.Printf("✅ [ValidateAnosFundamental] Todos os %d anos são válidos", len(anos))
+
 	return nil
 }
 
+// ValidateNivelCurso valida os anos de um curso de médio ou superior.
+//
+// Fundamental NÃO deve ser passado aqui — use ValidateAnosFundamental.
+// Para médio e superior, os anos são livres (definidos pela academia);
+// apenas garantimos que a lista não está vazia e que nenhum item é string vazia.
 func ValidateNivelCurso(tipo string, nivel []string) error {
-	log.Printf("🎯 [ValidateNivelCurso] Tipo: %s, Níveis: %d", tipo, len(nivel))
-	
-	if tipo == "medio" {
-		log.Printf("🏫 [ValidateNivelCurso] Validando ensino médio")
-		
-		validNiveis := map[string]bool{
-			"primeiro_medio": true,
-			"segundo_medio":  true,
-			"terceiro_medio": true,
-			"quarto_medio":   true,
-		}
-		
-		for i, n := range nivel {
-			log.Printf("🔍 [ValidateNivelCurso] Validando nível médio [%d]: %s", i, n)
-			if !validNiveis[n] {
-				log.Printf("❌ [ValidateNivelCurso] Nível de ensino médio inválido: %s", n)
-				return fmt.Errorf("nível de ensino médio inválido: %s", n)
-			}
-		}
-	} else if tipo == "superior" {
-		log.Printf("🎓 [ValidateNivelCurso] Validando ensino superior")
-		
-		validNiveis := map[string]bool{
-			"primeiro_ano": true, "segundo_ano": true,
-			"terceiro_ano": true, "quarto_ano": true,
-			"quinto_ano": true, "sexto_ano": true,
-		}
-		
-		for i, n := range nivel {
-			log.Printf("🔍 [ValidateNivelCurso] Validando nível superior [%d]: %s", i, n)
-			if !validNiveis[n] {
-				log.Printf("❌ [ValidateNivelCurso] Nível de ensino superior inválido: %s", n)
-				return fmt.Errorf("nível de ensino superior inválido: %s", n)
-			}
-		}
+	if tipo != "medio" && tipo != "superior" {
+		return fmt.Errorf("tipo deve ser 'medio' ou 'superior'; para fundamental use ValidateAnosFundamental")
 	}
-	
-	log.Printf("✅ [ValidateNivelCurso] Todos os níveis são válidos para tipo: %s", tipo)
+
+	if len(nivel) == 0 {
+		return fmt.Errorf("o curso deve ter pelo menos um ano definido")
+	}
+
+	seen := make(map[string]bool, len(nivel))
+	for i, n := range nivel {
+		trimmed := strings.TrimSpace(n)
+		if trimmed == "" {
+			return fmt.Errorf("ano na posição %d não pode ser vazio", i)
+		}
+		if seen[trimmed] {
+			return fmt.Errorf("ano duplicado na lista: '%s'", trimmed)
+		}
+		seen[trimmed] = true
+	}
+
 	return nil
 }

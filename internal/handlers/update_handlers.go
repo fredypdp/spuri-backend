@@ -65,6 +65,7 @@ func AtualizarDadosAcademicosEstudante(c *gin.Context) {
 
 	var req struct {
 		AnoEscolar      *string    `json:"ano_escolar"`
+		AnoEscolarMedio *string    `json:"ano_escolar_medio"`
 		AnoSuperior     *string    `json:"ano_superior"`
 		CursoMedioID    *uuid.UUID `json:"curso_medio_id"`
 		CursoSuperiorID *uuid.UUID `json:"curso_superior_id"`
@@ -146,7 +147,7 @@ func AtualizarDadosAcademicosEstudante(c *gin.Context) {
 
 	estudante := estudanteAgg.(*aggregates.Estudante)
 	
-	if err := estudante.AtualizarDadosAcademicos(req.AnoEscolar, req.AnoSuperior, req.CursoMedioID, req.CursoSuperiorID); err != nil {
+	if err := estudante.AtualizarDadosAcademicos(req.AnoEscolar, req.AnoEscolarMedio, req.AnoSuperior, req.CursoMedioID, req.CursoSuperiorID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}

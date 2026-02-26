@@ -126,7 +126,7 @@ func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 		StatusSuperior                   string
 		Genero                           string
 		Email, Telefone, BilheteIdentidade, BilheteIdentidadeResp *string
-		AnoEscolar, AnoSuperior                                   *string
+		AnoEscolar, AnoEscolarMedio, AnoSuperior                  *string
 		CursoMedioID, CursoSuperiorID                             *uuid.UUID
 		CreatedAt                                                 time.Time
 	}
@@ -173,7 +173,7 @@ func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 		db.SafeString(payload.StatusEscolarFundamental),
 		db.SafeString(payload.StatusEscolarMedio),
 		db.SafeString(payload.StatusSuperior),
-		nullOrString(payload.AnoEscolar), nullOrString(payload.AnoSuperior),
+		nullOrString(payload.AnoEscolar), nullOrString(payload.AnoEscolarMedio), nullOrString(payload.AnoSuperior),
 		nullOrUUID(payload.CursoMedioID), nullOrUUID(payload.CursoSuperiorID),
 		event.EventVersion, payload.CreatedAt.Format(time.RFC3339), event.EventID)
 
@@ -190,7 +190,7 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 		CodigoAcademia                   string
 		Genero                           string
 		Email, Telefone, BilheteIdentidade, BilheteIdentidadeResp *string
-		AnoEscolar, AnoSuperior                                   *string
+		AnoEscolar, AnoEscolarMedio, AnoSuperior                  *string
 		CursoMedioID, CursoSuperiorID                             *uuid.UUID
 		CreatedAt                                                 time.Time
 	}
@@ -240,7 +240,7 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 		db.SafeString(payload.StatusEscolarFundamental),
 		db.SafeString(payload.StatusEscolarMedio),
 		db.SafeString(payload.StatusSuperior),
-		nullOrString(payload.AnoEscolar), nullOrString(payload.AnoSuperior),
+		nullOrString(payload.AnoEscolar), nullOrString(payload.AnoEscolarMedio), nullOrString(payload.AnoSuperior),
 		nullOrUUID(payload.CursoMedioID), nullOrUUID(payload.CursoSuperiorID),
 		event.EventVersion, payload.CreatedAt.Format(time.RFC3339), event.EventID)
 
@@ -310,38 +310,6 @@ func (p *EstudanteProjection) handleStatusSuperiorAtualizado(event db.Event) err
 	return err
 }
 
-func (p *EstudanteProjection) handleStatusEscolarFundamentalAtualizado(event db.Event) error {
-	var payload struct{ NovoStatus string }
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("parse error: %w", err)
-	}
-
-	query := fmt.Sprintf(`
-		UPDATE projection_estudantes
-		SET status_escolar_fundamental = '%s', version = %d,
-			updated_at = CURRENT_TIMESTAMP, last_event_id = '%s'
-		WHERE id = '%s'
-	`, db.SafeString(payload.NovoStatus), event.EventVersion, event.EventID, event.AggregateID)
-	_, err := p.client.DB().Exec(query)
-	return err
-}
-
-func (p *EstudanteProjection) handleStatusEscolarMedioAtualizado(event db.Event) error {
-	var payload struct{ NovoStatus string }
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("parse error: %w", err)
-	}
-
-	query := fmt.Sprintf(`
-		UPDATE projection_estudantes
-		SET status_escolar_medio = '%s', version = %d,
-			updated_at = CURRENT_TIMESTAMP, last_event_id = '%s'
-		WHERE id = '%s'
-	`, db.SafeString(payload.NovoStatus), event.EventVersion, event.EventID, event.AggregateID)
-	_, err := p.client.DB().Exec(query)
-	return err
-}
-
 func (p *EstudanteProjection) handleDadosPessoaisAtualizados(event db.Event) error {
 	var payload struct {
 		Nome, Email, Telefone, BilheteIdentidade, BilheteIdentidadeResp *string
@@ -380,9 +348,9 @@ func (p *EstudanteProjection) handleDadosPessoaisAtualizados(event db.Event) err
 
 func (p *EstudanteProjection) handleDadosAcademicosAtualizados(event db.Event) error {
 	var payload struct {
-		AnoEscolar, AnoSuperior *string
-		CursoMedioID            *uuid.UUID
-		CursoSuperiorID         *uuid.UUID
+		AnoEscolar, AnoEscolarMedio, AnoSuperior *string
+		CursoMedioID                             *uuid.UUID
+		CursoSuperiorID                          *uuid.UUID
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("parse error: %w", err)
@@ -393,6 +361,9 @@ func (p *EstudanteProjection) handleDadosAcademicosAtualizados(event db.Event) e
 
 	if payload.AnoEscolar != nil {
 		setClauses += fmt.Sprintf(", ano_escolar = '%s'", db.SafeString(*payload.AnoEscolar))
+	}
+	if payload.AnoEscolarMedio != nil {
+		setClauses += fmt.Sprintf(", ano_escolar_medio = '%s'", db.SafeString(*payload.AnoEscolarMedio))
 	}
 	if payload.AnoSuperior != nil {
 		setClauses += fmt.Sprintf(", ano_superior = '%s'", db.SafeString(*payload.AnoSuperior))
@@ -444,33 +415,34 @@ func (p *EstudanteProjection) handleCursoAlterado(event db.Event) error {
 	return err
 }
 
-// handleAprovacaoAnoRegistrada atualiza ano_escolar/ano_superior e os status
+
 func (p *EstudanteProjection) handleAprovacaoAnoRegistrada(event db.Event) error {
 	var payload struct {
-		TipoEnsino   string
-		ProximoNivel *string
-		Aprovado     bool
+		TipoEnsino   string  `json:"TipoEnsino"`
+		ProximoNivel *string `json:"ProximoNivel"`
+		Aprovado     bool    `json:"Aprovado"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("parse error: %w", err)
 	}
 
+	// Reprovação: projeção de reprovações cuida disto; nada a fazer aqui
 	if !payload.Aprovado {
 		return nil
 	}
 
 	var setClauses string
-
 	if payload.ProximoNivel != nil {
-		// Avança para o próximo nível
 		switch payload.TipoEnsino {
-		case "fundamental", "medio":
+		case "fundamental":
 			setClauses = fmt.Sprintf("ano_escolar = '%s'", db.SafeString(*payload.ProximoNivel))
+		case "medio":
+			setClauses = fmt.Sprintf("ano_escolar_medio = '%s'", db.SafeString(*payload.ProximoNivel))
 		case "superior":
 			setClauses = fmt.Sprintf("ano_superior = '%s'", db.SafeString(*payload.ProximoNivel))
 		}
 	} else {
-		// Último ano do ciclo — finaliza
+		// Último ano — finaliza status do ciclo
 		switch payload.TipoEnsino {
 		case "fundamental":
 			setClauses = "status_escolar_fundamental = 'finalizado'"
@@ -490,6 +462,40 @@ func (p *EstudanteProjection) handleAprovacaoAnoRegistrada(event db.Event) error
 		SET %s, version = %d, updated_at = CURRENT_TIMESTAMP, last_event_id = '%s'
 		WHERE id = '%s'
 	`, setClauses, event.EventVersion, event.EventID, event.AggregateID)
+	_, err := p.client.DB().Exec(query)
+	return err
+}
+
+func (p *EstudanteProjection) handleStatusEscolarFundamentalAtualizado(event db.Event) error {
+	var payload struct {
+		NovoStatus string `json:"NovoStatus"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("parse error: %w", err)
+	}
+	query := fmt.Sprintf(`
+		UPDATE projection_estudantes
+		SET status_escolar_fundamental = '%s', version = %d,
+			updated_at = CURRENT_TIMESTAMP, last_event_id = '%s'
+		WHERE id = '%s'
+	`, db.SafeString(payload.NovoStatus), event.EventVersion, event.EventID, event.AggregateID)
+	_, err := p.client.DB().Exec(query)
+	return err
+}
+
+func (p *EstudanteProjection) handleStatusEscolarMedioAtualizado(event db.Event) error {
+	var payload struct {
+		NovoStatus string `json:"NovoStatus"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("parse error: %w", err)
+	}
+	query := fmt.Sprintf(`
+		UPDATE projection_estudantes
+		SET status_escolar_medio = '%s', version = %d,
+			updated_at = CURRENT_TIMESTAMP, last_event_id = '%s'
+		WHERE id = '%s'
+	`, db.SafeString(payload.NovoStatus), event.EventVersion, event.EventID, event.AggregateID)
 	_, err := p.client.DB().Exec(query)
 	return err
 }
@@ -520,7 +526,7 @@ func (p *EstudanteProjection) queryEstudante(whereClause string) (*EstudanteDTO,
 		SELECT id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
 			bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
 			status, status_escolar_fundamental, status_escolar_medio, status_superior,
-			ano_escolar, ano_superior, curso_medio_id, curso_superior_id,
+			ano_escolar, ano_escolar_medio, ano_superior, curso_medio_id, curso_superior_id,
 			created_at, updated_at, total_notas, total_faltas, total_inscricoes, version
 		FROM projection_estudantes WHERE %s LIMIT 1
 	`, whereClause)
@@ -533,7 +539,7 @@ func (p *EstudanteProjection) queryEstudante(whereClause string) (*EstudanteDTO,
 		&dto.Email, &dto.Telefone, &dto.EmailVerificado,
 		&dto.BilheteIdentidade, &dto.BilheteIdentidadeResp, &dto.CodigoAcademia,
 		&dto.Status, &dto.StatusEscolarFundamental, &dto.StatusEscolarMedio, &dto.StatusSuperior,
-		&dto.AnoEscolar, &dto.AnoSuperior, &cursoMedioID, &cursoSuperiorID,
+		&dto.AnoEscolar, &dto.AnoEscolarMedio, &dto.AnoSuperior, &cursoMedioID, &cursoSuperiorID,
 		&dto.CreatedAt, &dto.UpdatedAt, &dto.TotalNotas, &dto.TotalFaltas,
 		&dto.TotalInscricoes, &dto.Version,
 	)
@@ -577,6 +583,7 @@ type EstudanteDTO struct {
 	StatusEscolarMedio       string     `json:"status_escolar_medio"`
 	StatusSuperior           string     `json:"status_superior"`
 	AnoEscolar               *string    `json:"ano_escolar,omitempty"`
+	AnoEscolarMedio *string `json:"ano_escolar_medio,omitempty"`
 	AnoSuperior              *string    `json:"ano_superior,omitempty"`
 	CursoMedioID             *uuid.UUID `json:"curso_medio_id,omitempty"`
 	CursoSuperiorID          *uuid.UUID `json:"curso_superior_id,omitempty"`

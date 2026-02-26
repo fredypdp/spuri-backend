@@ -1,8 +1,23 @@
 // ============================================================================
-// Lógica de aprovação/reprovação de ano letivo.
-// Anos são dinâmicos e definidos por cada academia/curso.
-// A academia é responsável por validar e informar o proximo_nivel correto —
-// o domínio apenas garante a consistência do aggregate.
+// CORREÇÃO: internal/domain/aggregates/estudante_aprovacao.go
+//
+// PROBLEMA 1: applyAprovacaoAnoRegistrada usava e.AnoEscolar para AMBOS
+//   fundamental e médio — avançar no médio sobrescrevia o campo do fundamental.
+//
+// SOLUÇÃO: O aggregate Estudante precisa de um campo separado para o ano do
+//   médio. Adicionamos AnoEscolarMedio *string ao struct Estudante.
+//   - fundamental → e.AnoEscolar      (mantém nome existente, semântica = ano atual no fundamental)
+//   - medio       → e.AnoEscolarMedio (novo campo)
+//   - superior    → e.AnoSuperior     (sem alteração)
+//
+// PROBLEMA 2: Ao reprovar, o estado do aggregate não é alterado — correto.
+//   Mas é preciso garantir que o evento registrado na projeção capture
+//   adequadamente a reprovação (aprovado=false + sem proximo_nivel).
+//   O evento já tem esses campos; a projeção cuida do registro.
+//
+// IMPACTO NAS MIGRATIONS: A migration 008 usa `ano_escolar` na projeção para
+//   ambos os ciclos. Uma migration adicional (009) deve adicionar a coluna
+//   `ano_escolar_medio` na projection_estudantes (ver migration_009.sql).
 // ============================================================================
 
 package aggregates
@@ -13,20 +28,13 @@ import (
 	"time"
 )
 
-// ============================================================================
-// Comandos do Aggregate
-// ============================================================================
-
-// RegistrarAprovacaoAno registra a decisão da academia sobre o ano letivo do estudante.
+// RegistrarAprovacaoAno registra a decisão da academia sobre o ano letivo.
 //
-// Regras:
-//   - Se aprovado e proximoNivel != nil → estudante avança para o próximo nível.
-//   - Se aprovado e proximoNivel == nil → estudante está no último ano do ciclo;
-//     o status correspondente (fundamental/medio/superior) é marcado como "finalizado".
-//   - Se reprovado → apenas registra o evento; nenhum estado é alterado.
-//
-// O handler (camada de aplicação) é responsável por validar que nivelAtual e
-// proximoNivel são anos válidos para o curso do estudante antes de chamar aqui.
+// Regras de negócio:
+//   - aprovado=true  + proximoNivel!=nil  → avança para o próximo nível
+//   - aprovado=true  + proximoNivel==nil  → último ano do ciclo; status=finalizado
+//   - aprovado=false + proximoNivel==nil  → reprovado; nenhum estado alterado;
+//     evento registrado como log auditável
 func (e *Estudante) RegistrarAprovacaoAno(
 	codigoAcademia string,
 	anoLectivo string,
@@ -70,8 +78,7 @@ func (e *Estudante) RegistrarAprovacaoAno(
 	return e.Apply(event)
 }
 
-// AtualizarStatusEscolarFundamental permite atualizar manualmente o status
-// do ciclo fundamental (usado por academia/admin fora do fluxo de aprovação).
+// AtualizarStatusEscolarFundamental permite atualização manual do status do ciclo fundamental.
 func (e *Estudante) AtualizarStatusEscolarFundamental(novoStatus string) error {
 	validos := map[string]bool{"inativo": true, "em_andamento": true, "finalizado": true}
 	if !validos[novoStatus] {
@@ -88,8 +95,7 @@ func (e *Estudante) AtualizarStatusEscolarFundamental(novoStatus string) error {
 	return e.Apply(event)
 }
 
-// AtualizarStatusEscolarMedio permite atualizar manualmente o status
-// do ciclo médio (usado por academia/admin fora do fluxo de aprovação).
+// AtualizarStatusEscolarMedio permite atualização manual do status do ciclo médio.
 // Requer que status_escolar_fundamental seja "finalizado" para ativar/finalizar médio.
 func (e *Estudante) AtualizarStatusEscolarMedio(novoStatus string) error {
 	validos := map[string]bool{"inativo": true, "em_andamento": true, "finalizado": true}
@@ -114,9 +120,15 @@ func (e *Estudante) AtualizarStatusEscolarMedio(novoStatus string) error {
 
 // ============================================================================
 // Apply Handlers
-// (registrar no switch Apply() de estudante.go — ver guia de alterações)
 // ============================================================================
 
+// applyAprovacaoAnoRegistrada — CORRIGIDO.
+//
+// Antes: usava e.AnoEscolar para "fundamental" e "medio" (campo único compartilhado).
+// Agora: usa campos segregados:
+//   - fundamental → e.AnoEscolar
+//   - medio       → e.AnoEscolarMedio  ← NOVO CAMPO no struct Estudante
+//   - superior    → e.AnoSuperior
 func (e *Estudante) applyAprovacaoAnoRegistrada(event DomainEvent) error {
 	data, err := json.Marshal(event.GetPayload())
 	if err != nil {
@@ -128,23 +140,25 @@ func (e *Estudante) applyAprovacaoAnoRegistrada(event DomainEvent) error {
 		return err
 	}
 
+	// Reprovado: nenhum estado é alterado — evento serve apenas como log
 	if !ev.Aprovado {
-		// Reprovado: nenhum estado do aggregate é alterado
 		return nil
 	}
 
 	if ev.ProximoNivel != nil {
-		// Aprovado com próximo nível: avança o ano do estudante
+		// Aprovado com próximo nível: avança o ano no campo correto
 		switch ev.TipoEnsino {
-		case "fundamental", "medio":
+		case "fundamental":
 			e.AnoEscolar = ev.ProximoNivel
+		case "medio":
+			e.AnoEscolarMedio = ev.ProximoNivel // ← CORRIGIDO (era e.AnoEscolar)
 		case "superior":
 			e.AnoSuperior = ev.ProximoNivel
 		}
 		return nil
 	}
 
-	// Aprovado sem próximo nível: último ano do ciclo → finaliza
+	// Aprovado sem próximo nível: último ano do ciclo → finaliza status
 	switch ev.TipoEnsino {
 	case "fundamental":
 		e.StatusEscolarFundamental = "finalizado"
@@ -192,8 +206,7 @@ func (e *Estudante) applyStatusEscolarMedioAtualizado(event DomainEvent) error {
 // ============================================================================
 
 // AprovacaoAnoRegistradaEvent representa a decisão da academia sobre um ano letivo.
-// Este evento é imutável e constitui o registro histórico completo —
-// tanto aprovações quanto reprovações geram este evento.
+// Imutável — tanto aprovações quanto reprovações geram este evento.
 type AprovacaoAnoRegistradaEvent struct {
 	BaseEvent
 	CodigoEstudante string
@@ -209,8 +222,7 @@ type AprovacaoAnoRegistradaEvent struct {
 
 func (e *AprovacaoAnoRegistradaEvent) GetPayload() interface{} { return e }
 
-// StatusEscolarFundamentalAtualizadoEvent representa atualização manual
-// do status do ciclo fundamental (fora do fluxo de aprovação de ano).
+// StatusEscolarFundamentalAtualizadoEvent — atualização manual do ciclo fundamental.
 type StatusEscolarFundamentalAtualizadoEvent struct {
 	BaseEvent
 	NovoStatus string
@@ -219,8 +231,7 @@ type StatusEscolarFundamentalAtualizadoEvent struct {
 
 func (e *StatusEscolarFundamentalAtualizadoEvent) GetPayload() interface{} { return e }
 
-// StatusEscolarMedioAtualizadoEvent representa atualização manual
-// do status do ciclo médio (fora do fluxo de aprovação de ano).
+// StatusEscolarMedioAtualizadoEvent — atualização manual do ciclo médio.
 type StatusEscolarMedioAtualizadoEvent struct {
 	BaseEvent
 	NovoStatus string

@@ -22,8 +22,9 @@ type Estudante struct {
 	BilheteIdentidadeResp *string
 	CodigoAcademia        *string
 	Status                string
-	AnoEscolar            *string
-	AnoSuperior           *string
+	AnoEscolar            *string // ano atual no ciclo fundamental
+	AnoEscolarMedio       *string // ano atual no ciclo médio
+	AnoSuperior           *string // ano atual no ciclo superior
 	CursoMedioID          *uuid.UUID
 	CursoSuperiorID       *uuid.UUID
 	StatusEscolarFundamental string
@@ -116,6 +117,7 @@ func (e *Estudante) Criar(
 	bilhete *string,
 	bilheteResp *string,
 	anoEscolar *string,
+	anoEscolarMedio *string,
 	anoSuperior *string,
 	cursoMedioID *uuid.UUID,
 	cursoSuperiorID *uuid.UUID,
@@ -175,6 +177,7 @@ func (e *Estudante) Criar(
 		BilheteIdentidade:        bilhete,
 		BilheteIdentidadeResp:    bilheteResp,
 		AnoEscolar:               anoEscolar,
+		AnoEscolarMedio:          anoEscolarMedio,
 		AnoSuperior:              anoSuperior,
 		CursoMedioID:             cursoMedioID,
 		CursoSuperiorID:          cursoSuperiorID,
@@ -198,6 +201,7 @@ func (e *Estudante) CriarComVinculo(
 	bilhete *string,
 	bilheteResp *string,
 	anoEscolar *string,
+	anoEscolarMedio *string,
 	anoSuperior *string,
 	cursoMedioID *uuid.UUID,
 	cursoSuperiorID *uuid.UUID,
@@ -252,7 +256,7 @@ func (e *Estudante) CriarComVinculo(
 		statusSup = *statusSuperior
 	}
 
-	log.Printf("[DEBUG] CriarComVinculo - AnoEscolar=%v, CursoMedioID=%v", anoEscolar, cursoMedioID)
+	log.Printf("[DEBUG] CriarComVinculo - AnoEscolar=%v, AnoEscolarMedio=%v, CursoMedioID=%v", anoEscolar, anoEscolarMedio, cursoMedioID)
 
 	event := &EstudanteCriadoComVinculoEvent{
 		BaseEvent:                BaseEvent{EventType: "EstudanteCriadoComVinculo", AggregateID: e.ID},
@@ -264,6 +268,7 @@ func (e *Estudante) CriarComVinculo(
 		BilheteIdentidade:        bilhete,
 		BilheteIdentidadeResp:    bilheteResp,
 		AnoEscolar:               anoEscolar,
+		AnoEscolarMedio:          anoEscolarMedio,
 		AnoSuperior:              anoSuperior,
 		CursoMedioID:             cursoMedioID,
 		CursoSuperiorID:          cursoSuperiorID,
@@ -322,14 +327,15 @@ func (e *Estudante) AtualizarDadosPessoais(nome *string, email *string, telefone
 	return e.Apply(event)
 }
 
-func (e *Estudante) AtualizarDadosAcademicos(anoEscolar *string, anoSuperior *string, cursoMedioID *uuid.UUID, cursoSuperiorID *uuid.UUID) error {
-	if anoEscolar == nil && anoSuperior == nil && cursoMedioID == nil && cursoSuperiorID == nil {
+func (e *Estudante) AtualizarDadosAcademicos(anoEscolar *string, anoEscolarMedio *string, anoSuperior *string, cursoMedioID *uuid.UUID, cursoSuperiorID *uuid.UUID) error {
+	if anoEscolar == nil && anoEscolarMedio == nil && anoSuperior == nil && cursoMedioID == nil && cursoSuperiorID == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
 
 	event := &DadosAcademicosAtualizadosEvent{
 		BaseEvent:       BaseEvent{EventType: "DadosAcademicosAtualizados", AggregateID: e.ID},
 		AnoEscolar:      anoEscolar,
+		AnoEscolarMedio: anoEscolarMedio,
 		AnoSuperior:     anoSuperior,
 		CursoMedioID:    cursoMedioID,
 		CursoSuperiorID: cursoSuperiorID,
@@ -416,7 +422,10 @@ func (e *Estudante) AlterarCurso(cursoID uuid.UUID, tipoEnsino string) error {
 // ============================================================================
 
 func (e *Estudante) applyEstudanteCriado(event DomainEvent) error {
-	data, _ := json.Marshal(event.GetPayload())
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return err
+	}
 	var ev EstudanteCriadoEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return err
@@ -430,6 +439,7 @@ func (e *Estudante) applyEstudanteCriado(event DomainEvent) error {
 	e.BilheteIdentidade = ev.BilheteIdentidade
 	e.BilheteIdentidadeResp = ev.BilheteIdentidadeResp
 	e.AnoEscolar = ev.AnoEscolar
+	e.AnoEscolarMedio = ev.AnoEscolarMedio
 	e.AnoSuperior = ev.AnoSuperior
 	e.CursoMedioID = ev.CursoMedioID
 	e.CursoSuperiorID = ev.CursoSuperiorID
@@ -443,7 +453,10 @@ func (e *Estudante) applyEstudanteCriado(event DomainEvent) error {
 }
 
 func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
-	data, _ := json.Marshal(event.GetPayload())
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return err
+	}
 	var ev EstudanteCriadoComVinculoEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return err
@@ -457,6 +470,7 @@ func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
 	e.BilheteIdentidade = ev.BilheteIdentidade
 	e.BilheteIdentidadeResp = ev.BilheteIdentidadeResp
 	e.AnoEscolar = ev.AnoEscolar
+	e.AnoEscolarMedio = ev.AnoEscolarMedio
 	e.AnoSuperior = ev.AnoSuperior
 	e.CursoMedioID = ev.CursoMedioID
 	e.CursoSuperiorID = ev.CursoSuperiorID
@@ -467,78 +481,45 @@ func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
 	e.Status = "ativo"
 	e.CreatedAt = ev.CreatedAt
 	e.Genero = ev.Genero
-
-	log.Printf("[DEBUG] applyEstudanteCriadoComVinculo - AnoEscolar=%v, CursoMedioID=%v", e.AnoEscolar, e.CursoMedioID)
-	return nil
-}
-
-func (e *Estudante) applyFaltasRegistradas(event DomainEvent) error { return nil }
-
-func (e *Estudante) applyEstudanteInscrito(event DomainEvent) error {
-	data, _ := json.Marshal(event.GetPayload())
-	var ev EstudanteInscritoEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
-	}
-
-	inscricao := Inscricao{
-		ID:             ev.InscricaoID,
-		CodigoAcademia: ev.CodigoAcademia,
-		Tipo:           ev.Tipo,
-		AnoInscricao:   ev.AnoInscricao,
-		CursoID:        ev.CursoID,
-		Status:         "pendente",
-		StatusUsado:    false,
-		CreatedAt:      ev.CreatedAt,
-	}
-	e.Inscricoes = append(e.Inscricoes, inscricao)
 	return nil
 }
 
 func (e *Estudante) applyInscricaoAprovada(event DomainEvent) error {
-	data, _ := json.Marshal(event.GetPayload())
-	var ev InscricaoAprovadaEvent
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return err
+	}
+	var ev InscricaoAprovadaPorAcademiaEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return err
 	}
 
-	for i, insc := range e.Inscricoes {
-		if insc.ID == ev.InscricaoID {
+	for i, inscricao := range e.Inscricoes {
+		if inscricao.ID == ev.InscricaoID {
 			e.Inscricoes[i].Status = "aprovado"
+			e.Inscricoes[i].StatusUsado = true
 			break
 		}
-	}
-	return nil
-}
-
-func (e *Estudante) applyInscricaoReprovada(event DomainEvent) error {
-	data, _ := json.Marshal(event.GetPayload())
-	var ev InscricaoReprovadaEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
-	}
-
-	for i, insc := range e.Inscricoes {
-		if insc.ID == ev.InscricaoID {
-			e.Inscricoes[i].Status = "reprovado"
-			break
-		}
-	}
-	return nil
-}
-
-func (e *Estudante) applyEstudanteVinculado(event DomainEvent) error {
-	data, _ := json.Marshal(event.GetPayload())
-	var ev EstudanteVinculadoEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
 	}
 
 	e.CodigoAcademia = &ev.CodigoAcademia
 	e.Status = "ativo"
+	return nil
+}
 
-	for i, insc := range e.Inscricoes {
-		if insc.ID == ev.InscricaoID {
+func (e *Estudante) applyInscricaoReprovada(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return err
+	}
+	var ev InscricaoReprovadaPorAcademiaEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+
+	for i, inscricao := range e.Inscricoes {
+		if inscricao.ID == ev.InscricaoID {
+			e.Inscricoes[i].Status = "reprovado"
 			e.Inscricoes[i].StatusUsado = true
 			break
 		}
@@ -546,18 +527,46 @@ func (e *Estudante) applyEstudanteVinculado(event DomainEvent) error {
 	return nil
 }
 
+func (e *Estudante) applyEstudanteVinculado(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return err
+	}
+	var ev EstudanteVinculadoEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+
+	for i := range e.Inscricoes {
+		if e.Inscricoes[i].ID == ev.InscricaoID {
+			e.Inscricoes[i].StatusUsado = true
+			break
+		}
+	}
+	e.CodigoAcademia = &ev.CodigoAcademia
+	e.Status = "ativo"
+	return nil
+}
+
 func (e *Estudante) applyStatusSuperiorAtualizado(event DomainEvent) error {
-	data, _ := json.Marshal(event.GetPayload())
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return err
+	}
 	var ev StatusSuperiorAtualizadoEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return err
 	}
+
 	e.StatusSuperior = ev.NovoStatus
 	return nil
 }
 
 func (e *Estudante) applyDadosPessoaisAtualizados(event DomainEvent) error {
-	data, _ := json.Marshal(event.GetPayload())
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return err
+	}
 	var ev DadosPessoaisAtualizadosEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return err
@@ -585,7 +594,10 @@ func (e *Estudante) applyDadosPessoaisAtualizados(event DomainEvent) error {
 }
 
 func (e *Estudante) applyDadosAcademicosAtualizados(event DomainEvent) error {
-	data, _ := json.Marshal(event.GetPayload())
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return err
+	}
 	var ev DadosAcademicosAtualizadosEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return err
@@ -593,6 +605,9 @@ func (e *Estudante) applyDadosAcademicosAtualizados(event DomainEvent) error {
 
 	if ev.AnoEscolar != nil {
 		e.AnoEscolar = ev.AnoEscolar
+	}
+	if ev.AnoEscolarMedio != nil {
+		e.AnoEscolarMedio = ev.AnoEscolarMedio
 	}
 	if ev.AnoSuperior != nil {
 		e.AnoSuperior = ev.AnoSuperior
@@ -626,6 +641,190 @@ func (e *Estudante) applyCursoAlterado(event DomainEvent) error {
 	return nil
 }
 
+func (e *Estudante) applyEstudanteInscrito(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return err
+	}
+	var ev EstudanteInscritoEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+
+	e.Inscricoes = append(e.Inscricoes, Inscricao{
+		ID:             ev.InscricaoID,
+		CodigoAcademia: ev.CodigoAcademia,
+		Tipo:           ev.Tipo,
+		AnoInscricao:   ev.AnoInscricao,
+		CursoID:        ev.CursoID,
+		Status:         "espera",
+		StatusUsado:    false,
+		CreatedAt:      ev.CreatedAt,
+	})
+	return nil
+}
+
+
+// VincularAcademia — estudante usa inscrição aprovada para se vincular.
+func (e *Estudante) VincularAcademia(inscricaoID uuid.UUID) error {
+	var alvo *Inscricao
+	for i := range e.Inscricoes {
+		if e.Inscricoes[i].ID == inscricaoID {
+			alvo = &e.Inscricoes[i]
+			break
+		}
+	}
+	if alvo == nil {
+		return fmt.Errorf("inscrição não encontrada")
+	}
+	if alvo.Status != "aprovado" {
+		return fmt.Errorf("inscrição não está aprovada")
+	}
+	if alvo.StatusUsado {
+		return fmt.Errorf("inscrição já foi utilizada")
+	}
+
+	event := &EstudanteVinculadoEvent{
+		BaseEvent:      BaseEvent{EventType: "EstudanteVinculado", AggregateID: e.ID},
+		InscricaoID:    inscricaoID,
+		CodigoAcademia: alvo.CodigoAcademia,
+		VinculadoAt:    time.Now(),
+	}
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
+// AtualizarStatusEscolarFundamental — atualiza status_escolar_fundamental.
+func (e *Estudante) AtualizarStatusEscolarFundamental(novoStatus string) error {
+	validStatus := map[string]bool{"inativo": true, "em_andamento": true, "finalizado": true}
+	if !validStatus[novoStatus] {
+		return fmt.Errorf("status inválido: %s", novoStatus)
+	}
+	event := &StatusEscolarFundamentalAtualizadoEvent{
+		BaseEvent:  BaseEvent{EventType: "StatusEscolarFundamentalAtualizado", AggregateID: e.ID},
+		NovoStatus: novoStatus,
+		UpdatedAt:  time.Now(),
+	}
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
+// AtualizarStatusEscolarMedio — atualiza status_escolar_medio.
+func (e *Estudante) AtualizarStatusEscolarMedio(novoStatus string) error {
+	validStatus := map[string]bool{"inativo": true, "em_andamento": true, "finalizado": true}
+	if !validStatus[novoStatus] {
+		return fmt.Errorf("status inválido: %s", novoStatus)
+	}
+	event := &StatusEscolarMedioAtualizadoEvent{
+		BaseEvent:  BaseEvent{EventType: "StatusEscolarMedioAtualizado", AggregateID: e.ID},
+		NovoStatus: novoStatus,
+		UpdatedAt:  time.Now(),
+	}
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
+// RegistrarAprovacaoAno — academia registra aprovação ou reprovação de ano escolar.
+// Aprovado=true: avança para ProximoNivel (ou finaliza se último ano).
+// Aprovado=false: apenas registra reprovação, nenhum estado é alterado.
+func (e *Estudante) RegistrarAprovacaoAno(
+	codigoAcademia string,
+	anoLectivo string,
+	tipoEnsino string,
+	nivelAtual string,
+	proximoNivel *string,
+	aprovado bool,
+	observacao *string,
+) error {
+	if tipoEnsino != "fundamental" && tipoEnsino != "medio" && tipoEnsino != "superior" {
+		return fmt.Errorf("tipo_ensino deve ser 'fundamental', 'medio' ou 'superior'")
+	}
+	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
+		return fmt.Errorf("estudante não pertence a esta academia")
+	}
+
+	event := &AprovacaoAnoRegistradaEvent{
+		BaseEvent:    BaseEvent{EventType: "AprovacaoAnoRegistrada", AggregateID: e.ID},
+		CodigoEstudante: e.CodigoEstudante,
+		CodigoAcademia:  codigoAcademia,
+		AnoLectivo:      anoLectivo,
+		TipoEnsino:      tipoEnsino,
+		NivelAtual:      nivelAtual,
+		ProximoNivel:    proximoNivel,
+		Aprovado:        aprovado,
+		Observacao:      observacao,
+		RegisteredAt:    time.Now(),
+	}
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
+// ─── apply handlers ausentes ──────────────────────────────────────────────────
+
+// applyFaltasRegistradas — faltas não alteram estado do aggregate.
+func (e *Estudante) applyFaltasRegistradas(event DomainEvent) error {
+	return nil
+}
+
+func (e *Estudante) applyAprovacaoAnoRegistrada(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return err
+	}
+	var ev AprovacaoAnoRegistradaEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+
+	// Reprovação: não altera estado
+	if !ev.Aprovado {
+		return nil
+	}
+
+	// Aprovação: avança para próximo nível ou finaliza
+	if ev.ProximoNivel != nil {
+		switch ev.TipoEnsino {
+		case "fundamental":
+			e.AnoEscolar = ev.ProximoNivel
+		case "medio":
+			e.AnoEscolarMedio = ev.ProximoNivel
+		case "superior":
+			e.AnoSuperior = ev.ProximoNivel
+		}
+	} else {
+		// Último ano — finaliza o status do ciclo
+		switch ev.TipoEnsino {
+		case "fundamental":
+			e.StatusEscolarFundamental = "finalizado"
+		case "medio":
+			e.StatusEscolarMedio = "finalizado"
+		case "superior":
+			e.StatusSuperior = "finalizado"
+		}
+	}
+	return nil
+}
+
+func (e *Estudante) applyStatusEscolarFundamentalAtualizado(event DomainEvent) error {
+	data, _ := json.Marshal(event.GetPayload())
+	var ev StatusEscolarFundamentalAtualizadoEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+	e.StatusEscolarFundamental = ev.NovoStatus
+	return nil
+}
+
+func (e *Estudante) applyStatusEscolarMedioAtualizado(event DomainEvent) error {
+	data, _ := json.Marshal(event.GetPayload())
+	var ev StatusEscolarMedioAtualizadoEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+	e.StatusEscolarMedio = ev.NovoStatus
+	return nil
+}
+
 // ============================================================================
 // Eventos
 // ============================================================================
@@ -640,6 +839,7 @@ type EstudanteCriadoEvent struct {
 	BilheteIdentidade        *string
 	BilheteIdentidadeResp    *string
 	AnoEscolar               *string
+	AnoEscolarMedio          *string // novo
 	AnoSuperior              *string
 	CursoMedioID             *uuid.UUID
 	CursoSuperiorID          *uuid.UUID
@@ -662,6 +862,7 @@ type EstudanteCriadoComVinculoEvent struct {
 	BilheteIdentidade        *string
 	BilheteIdentidadeResp    *string
 	AnoEscolar               *string
+	AnoEscolarMedio          *string // novo
 	AnoSuperior              *string
 	CursoMedioID             *uuid.UUID
 	CursoSuperiorID          *uuid.UUID
@@ -701,23 +902,6 @@ type EstudanteInscritoEvent struct {
 
 func (e *EstudanteInscritoEvent) GetPayload() interface{} { return e }
 
-type InscricaoAprovadaEvent struct {
-	BaseEvent
-	InscricaoID uuid.UUID
-	AprovadoAt  time.Time
-}
-
-func (e *InscricaoAprovadaEvent) GetPayload() interface{} { return e }
-
-type InscricaoReprovadaEvent struct {
-	BaseEvent
-	InscricaoID  uuid.UUID
-	Observacao   *string
-	ReprovadoAt  time.Time
-}
-
-func (e *InscricaoReprovadaEvent) GetPayload() interface{} { return e }
-
 type EstudanteVinculadoEvent struct {
 	BaseEvent
 	InscricaoID    uuid.UUID
@@ -751,6 +935,7 @@ func (e *DadosPessoaisAtualizadosEvent) GetPayload() interface{} { return e }
 type DadosAcademicosAtualizadosEvent struct {
 	BaseEvent
 	AnoEscolar      *string
+	AnoEscolarMedio *string // novo
 	AnoSuperior     *string
 	CursoMedioID    *uuid.UUID
 	CursoSuperiorID *uuid.UUID
@@ -767,36 +952,3 @@ type CursoAlteradoEvent struct {
 }
 
 func (e *CursoAlteradoEvent) GetPayload() interface{} { return e }
-
-// VincularAcademia vincula o estudante a uma academia via inscrição aprovada
-func (e *Estudante) VincularAcademia(inscricaoID uuid.UUID) error {
-	var inscricao *Inscricao
-	for i := range e.Inscricoes {
-		if e.Inscricoes[i].ID == inscricaoID {
-			inscricao = &e.Inscricoes[i]
-			break
-		}
-	}
-
-	if inscricao == nil {
-		return fmt.Errorf("inscrição não encontrada")
-	}
-
-	if inscricao.Status != "aprovado" {
-		return fmt.Errorf("inscrição não foi aprovada")
-	}
-
-	if inscricao.StatusUsado {
-		return fmt.Errorf("esta inscrição já foi utilizada")
-	}
-
-	event := &EstudanteVinculadoEvent{
-		BaseEvent:      BaseEvent{EventType: "EstudanteVinculado", AggregateID: e.ID},
-		InscricaoID:    inscricaoID,
-		CodigoAcademia: inscricao.CodigoAcademia,
-		VinculadoAt:    time.Now(),
-	}
-
-	e.RaiseEvent(event)
-	return e.Apply(event)
-}

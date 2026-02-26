@@ -185,7 +185,8 @@ func ListarEstudantes(c *gin.Context) {
 		query := fmt.Sprintf(`
 			SELECT id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
 				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
-				status, status_escolar, status_superior, ano_escolar, ano_superior,
+				status, status_escolar_fundamental, status_escolar_medio, status_superior,
+				ano_escolar, ano_escolar_medio, ano_superior,
 				curso_medio_id, curso_superior_id, created_at, updated_at, total_notas,
 				total_faltas, total_inscricoes, version
 			FROM projection_estudantes
@@ -203,44 +204,52 @@ func ListarEstudantes(c *gin.Context) {
 		var estudantes []map[string]interface{}
 		for rows.Next() {
 			var id, cursoMedioID, cursoSuperiorID sql.NullString
-			var nome, codigoEstudante, senhaHash, status, statusEscolar, statusSuperior string
-			var email, telefone, bilhete, bilheteResp, codigoAcad, anoEscolar, anoSuperior sql.NullString
+			var nome, codigoEstudante, senhaHash, status string
+			var statusEscolarFundamental, statusEscolarMedio, statusSuperior string
+			var email, telefone, bilhete, bilheteResp, codigoAcad sql.NullString
+			var anoEscolar, anoEscolarMedio, anoSuperior sql.NullString
 			var emailVerif bool
 			var createdAt, updatedAt string
 			var totalNotas, totalFaltas, totalInsc, version int
 
-			if err := rows.Scan(&id, &nome, &codigoEstudante, &senhaHash,
+			if err := rows.Scan(
+				&id, &nome, &codigoEstudante, &senhaHash,
 				&email, &telefone, &emailVerif, &bilhete, &bilheteResp, &codigoAcad,
-				&status, &statusEscolar, &statusSuperior, &anoEscolar, &anoSuperior,
+				&status, &statusEscolarFundamental, &statusEscolarMedio, &statusSuperior,
+				&anoEscolar, &anoEscolarMedio, &anoSuperior,
 				&cursoMedioID, &cursoSuperiorID,
-				&createdAt, &updatedAt, &totalNotas, &totalFaltas, &totalInsc, &version); err == nil {
-
-				estudanteMap := map[string]interface{}{
-					"id":                             id.String,
-					"nome":                           nome,
-					"codigo_estudante":               codigoEstudante,
-					"email":                          getNullString(email),
-					"telefone":                       getNullString(telefone),
-					"email_verificado":               emailVerif,
-					"bilhete_identidade":             getNullString(bilhete),
-					"bilhete_identidade_responsavel": getNullString(bilheteResp),
-					"codigo_academia":                getNullString(codigoAcad),
-					"status":                         status,
-					"status_escolar":                 statusEscolar,
-					"status_superior":                statusSuperior,
-					"ano_escolar":                    getNullString(anoEscolar),
-					"ano_superior":                   getNullString(anoSuperior),
-					"curso_medio_id":                 getNullString(cursoMedioID),
-					"curso_superior_id":              getNullString(cursoSuperiorID),
-					"created_at":                     createdAt,
-					"updated_at":                     updatedAt,
-					"total_notas":                    totalNotas,
-					"total_faltas":                   totalFaltas,
-					"total_inscricoes":               totalInsc,
-					"version":                        version,
-				}
-				estudantes = append(estudantes, estudanteMap)
+				&createdAt, &updatedAt, &totalNotas, &totalFaltas, &totalInsc, &version,
+			); err != nil {
+				log.Printf("[ERROR] ListarEstudantes (academia) scan: %v", err)
+				continue
 			}
+
+			estudantes = append(estudantes, map[string]interface{}{
+				"id":                             id.String,
+				"nome":                           nome,
+				"codigo_estudante":               codigoEstudante,
+				"email":                          getNullString(email),
+				"telefone":                       getNullString(telefone),
+				"email_verificado":               emailVerif,
+				"bilhete_identidade":             getNullString(bilhete),
+				"bilhete_identidade_responsavel": getNullString(bilheteResp),
+				"codigo_academia":                getNullString(codigoAcad),
+				"status":                         status,
+				"status_escolar_fundamental":     statusEscolarFundamental,
+				"status_escolar_medio":           statusEscolarMedio,
+				"status_superior":                statusSuperior,
+				"ano_escolar":                    getNullString(anoEscolar),
+				"ano_escolar_medio":              getNullString(anoEscolarMedio),
+				"ano_superior":                   getNullString(anoSuperior),
+				"curso_medio_id":                 getNullString(cursoMedioID),
+				"curso_superior_id":              getNullString(cursoSuperiorID),
+				"created_at":                     createdAt,
+				"updated_at":                     updatedAt,
+				"total_notas":                    totalNotas,
+				"total_faltas":                   totalFaltas,
+				"total_inscricoes":               totalInsc,
+				"version":                        version,
+			})
 		}
 
 		c.JSON(http.StatusOK, gin.H{
@@ -255,7 +264,8 @@ func ListarEstudantes(c *gin.Context) {
 		query := `
 			SELECT id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
 				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
-				status, status_escolar, status_superior, ano_escolar, ano_superior,
+				status, status_escolar_fundamental, status_escolar_medio, status_superior,
+				ano_escolar, ano_escolar_medio, ano_superior,
 				curso_medio_id, curso_superior_id, created_at, updated_at, total_notas,
 				total_faltas, total_inscricoes, version
 			FROM projection_estudantes
@@ -272,44 +282,52 @@ func ListarEstudantes(c *gin.Context) {
 		var estudantes []map[string]interface{}
 		for rows.Next() {
 			var id, cursoMedioID, cursoSuperiorID sql.NullString
-			var nome, codigoEstudante, senhaHash, status, statusEscolar, statusSuperior string
-			var email, telefone, bilhete, bilheteResp, codigoAcad, anoEscolar, anoSuperior sql.NullString
+			var nome, codigoEstudante, senhaHash, status string
+			var statusEscolarFundamental, statusEscolarMedio, statusSuperior string
+			var email, telefone, bilhete, bilheteResp, codigoAcad sql.NullString
+			var anoEscolar, anoEscolarMedio, anoSuperior sql.NullString
 			var emailVerif bool
 			var createdAt, updatedAt string
 			var totalNotas, totalFaltas, totalInsc, version int
 
-			if err := rows.Scan(&id, &nome, &codigoEstudante, &senhaHash,
+			if err := rows.Scan(
+				&id, &nome, &codigoEstudante, &senhaHash,
 				&email, &telefone, &emailVerif, &bilhete, &bilheteResp, &codigoAcad,
-				&status, &statusEscolar, &statusSuperior, &anoEscolar, &anoSuperior,
+				&status, &statusEscolarFundamental, &statusEscolarMedio, &statusSuperior,
+				&anoEscolar, &anoEscolarMedio, &anoSuperior,
 				&cursoMedioID, &cursoSuperiorID,
-				&createdAt, &updatedAt, &totalNotas, &totalFaltas, &totalInsc, &version); err == nil {
-
-				estudanteMap := map[string]interface{}{
-					"id":                             id.String,
-					"nome":                           nome,
-					"codigo_estudante":               codigoEstudante,
-					"email":                          getNullString(email),
-					"telefone":                       getNullString(telefone),
-					"email_verificado":               emailVerif,
-					"bilhete_identidade":             getNullString(bilhete),
-					"bilhete_identidade_responsavel": getNullString(bilheteResp),
-					"codigo_academia":                getNullString(codigoAcad),
-					"status":                         status,
-					"status_escolar":                 statusEscolar,
-					"status_superior":                statusSuperior,
-					"ano_escolar":                    getNullString(anoEscolar),
-					"ano_superior":                   getNullString(anoSuperior),
-					"curso_medio_id":                 getNullString(cursoMedioID),
-					"curso_superior_id":              getNullString(cursoSuperiorID),
-					"created_at":                     createdAt,
-					"updated_at":                     updatedAt,
-					"total_notas":                    totalNotas,
-					"total_faltas":                   totalFaltas,
-					"total_inscricoes":               totalInsc,
-					"version":                        version,
-				}
-				estudantes = append(estudantes, estudanteMap)
+				&createdAt, &updatedAt, &totalNotas, &totalFaltas, &totalInsc, &version,
+			); err != nil {
+				log.Printf("[ERROR] ListarEstudantes (admin) scan: %v", err)
+				continue
 			}
+
+			estudantes = append(estudantes, map[string]interface{}{
+				"id":                             id.String,
+				"nome":                           nome,
+				"codigo_estudante":               codigoEstudante,
+				"email":                          getNullString(email),
+				"telefone":                       getNullString(telefone),
+				"email_verificado":               emailVerif,
+				"bilhete_identidade":             getNullString(bilhete),
+				"bilhete_identidade_responsavel": getNullString(bilheteResp),
+				"codigo_academia":                getNullString(codigoAcad),
+				"status":                         status,
+				"status_escolar_fundamental":     statusEscolarFundamental,
+				"status_escolar_medio":           statusEscolarMedio,
+				"status_superior":                statusSuperior,
+				"ano_escolar":                    getNullString(anoEscolar),
+				"ano_escolar_medio":              getNullString(anoEscolarMedio),
+				"ano_superior":                   getNullString(anoSuperior),
+				"curso_medio_id":                 getNullString(cursoMedioID),
+				"curso_superior_id":              getNullString(cursoSuperiorID),
+				"created_at":                     createdAt,
+				"updated_at":                     updatedAt,
+				"total_notas":                    totalNotas,
+				"total_faltas":                   totalFaltas,
+				"total_inscricoes":               totalInsc,
+				"version":                        version,
+			})
 		}
 
 		c.JSON(http.StatusOK, gin.H{

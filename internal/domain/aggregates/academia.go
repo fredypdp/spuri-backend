@@ -362,7 +362,7 @@ type InscricaoAprovadaPorAcademiaEvent struct {
 	AcademiaID   uuid.UUID
 	Tipo         string
 	AnoInscricao string
-	CursoID      *uuid.UUID // 🔥 MUDOU
+	CursoID      *uuid.UUID
 	ApprovedAt   time.Time
 }
 

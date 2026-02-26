@@ -390,6 +390,7 @@ type CadastroEstudanteAcademiaRequest struct {
 	BilheteIdentidade        string `json:"bilhete_identidade"`
 	BilheteResponsavel       string `json:"bilhete_identidade_responsavel"`
 	AnoEscolar               string `json:"ano_escolar"`
+	AnoEscolarMedio          string `json:"ano_escolar_medio"`
 	AnoSuperior              string `json:"ano_superior"`
 	CursoMedioID             string `json:"curso_medio_id"`
 	CursoSuperiorID          string `json:"curso_superior_id"`
@@ -471,6 +472,10 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 
 	if req.AnoEscolar != "" {
 		anoEscolarPtr = &req.AnoEscolar
+	}
+	var anoEscolarMedioPtr *string
+	if req.AnoEscolarMedio != "" {
+		anoEscolarMedioPtr = &req.AnoEscolarMedio
 	}
 	if req.AnoSuperior != "" {
 		anoSuperiorPtr = &req.AnoSuperior
@@ -592,6 +597,7 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		bilhetePtr,
 		bilheteRespPtr,
 		anoEscolarPtr,
+		anoEscolarMedioPtr,
 		anoSuperiorPtr,
 		cursoMedioUUID,
 		cursoSuperiorUUID,
