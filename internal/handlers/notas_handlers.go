@@ -48,11 +48,16 @@ func RegistrarNota(c *gin.Context) {
 		return
 	}
 
-	// Verificar coerência entre tipo da nota e tipo da academia
-	if req.Tipo != academiaDTO.Type {
+	// Inferir o tipo de nota esperado com base no tipo da academia
+	tipoEsperado := map[string]string{
+		"escola":   "escolar",
+		"superior": "superior",
+	}[academiaDTO.Type]
+
+	if req.Tipo != tipoEsperado {
 		utils.RespondWithValidationError(c, fmt.Errorf(
-			"tipo de nota '%s' não corresponde ao tipo da academia '%s'",
-			req.Tipo, academiaDTO.Type,
+			"academia do tipo '%s' só pode registrar notas do tipo '%s'",
+			academiaDTO.Type, tipoEsperado,
 		))
 		return
 	}
