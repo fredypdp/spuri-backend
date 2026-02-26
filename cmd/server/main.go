@@ -91,7 +91,7 @@ func initProjections() error {
 	projManager.RegisterProjection("materias", projections.NewMateriasProjection(dbClient))
 	projManager.RegisterProjection("aprovacao_ano", projections.NewAprovacaoAnoProjection(dbClient))
 	projManager.RegisterProjection("sistema_config", projections.NewSistemaConfigProjection(dbClient))
-
+	projManager.Register(projections.NewTurmasProjection(dbClient))
 
 	go projManager.StartProcessing()
 
@@ -215,6 +215,12 @@ func setupRouter() *gin.Engine {
 		academia.PUT("/atualizar-nota", handlers.AtualizarNota)
 		academia.POST("/categorias-nota", handlers.CriarCategoriaNotaSuperior)
 		academia.GET("/categorias-nota", handlers.ListarCategoriasNota)
+		academia.POST("/turmas", handlers.CriarTurma)
+		academia.GET("/turmas", handlers.ListarTurmasAcademia)
+		academia.GET("/turmas/:codigo", handlers.GetTurma)
+		academia.PUT("/turmas/:codigo", handlers.AtualizarTurma)
+		academia.POST("/turmas/:codigo/estudantes", handlers.AdicionarEstudanteATurma)
+		academia.DELETE("/turmas/:codigo/estudantes/:codigoEstudante", handlers.RemoverEstudanteDaTurma)
 	}
 
 	admin := router.Group("/admin")

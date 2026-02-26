@@ -110,7 +110,9 @@ func (f *DefaultAggregateFactory) Create(aggregateType string) (Aggregate, error
 	case "MateriaDisciplinar":
 		return NewMateriaDisciplinar(), nil
 	case "SistemaConfig":
-		return NewSistemaConfigComID(uuid.Nil), nil  // ID será sobrescrito pelo Load
+		return NewSistemaConfigComID(uuid.Nil), nil
+	case "Turma":
+		return NewTurma(), nil
 	default:
 		log.Printf("[ERROR] Tipo de agregado desconhecido: %s", aggregateType)
 		return nil, fmt.Errorf("tipo de agregado desconhecido: %s", aggregateType)

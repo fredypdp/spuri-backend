@@ -20,17 +20,18 @@ func ValidateUUID(id string) (uuid.UUID, error) {
 // ValidateTableName valida nome de tabela (whitelist)
 func ValidateTableName(table string) error {
 	validTables := map[string]bool{
-		"projection_estudantes":  true,
-		"projection_academias":   true,
-		"projection_admins":      true,
-		"projection_notas":       true,
-		"projection_faltas":      true,
-		"projection_inscricoes":  true,
-		"projection_cursos":      true,
-		"projection_materias":    true,
-		"spuri_ledger":           true,
-		"auth_tokens":            true,
+		"projection_estudantes": true,
+		"projection_academias": true,
+		"projection_admins": true,
+		"projection_notas": true,
+		"projection_faltas": true,
+		"projection_inscricoes": true,
+		"projection_cursos": true,
+		"projection_materias": true,
+		"spuri_ledger": true,
+		"auth_tokens": true,
 		"projection_checkpoints": true,
+		"projection_turmas": true,
 	}
 
 	if !validTables[table] {

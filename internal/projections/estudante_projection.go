@@ -125,10 +125,11 @@ func (p *EstudanteProjection) clear() error {
 func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 	var payload struct {
 		Nome, CodigoEstudante, SenhaHash, StatusEscolar, StatusSuperior string
-		Email, Telefone, BilheteIdentidade, BilheteIdentidadeResp       *string
-		AnoEscolar, AnoSuperior                                         *string
-		CursoMedioID, CursoSuperiorID                                   *uuid.UUID // 🔥 MUDOU
-		CreatedAt                                                        time.Time
+		Email, Telefone, BilheteIdentidade, BilheteIdentidadeResp *string
+		AnoEscolar, AnoSuperior *string
+		CursoMedioID, CursoSuperiorID *uuid.UUID
+		CreatedAt time.Time
+		Genero string
 	}
 
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
@@ -141,12 +142,12 @@ func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 
 	query := fmt.Sprintf(`
 		INSERT INTO projection_estudantes (
-			id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
+			id, nome, genero, codigo_estudante, senha_hash, email, telefone, email_verificado,
 			bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
 			status, status_escolar, status_superior, ano_escolar, ano_superior,
 			curso_medio_id, curso_superior_id, version, created_at, updated_at, last_event_id
 		) VALUES (
-			'%s', '%s', '%s', '%s', %s, %s, FALSE, %s, %s, NULL,
+			'%s', '%s', 'masculino', '%s', '%s', %s, %s, FALSE, %s, %s, NULL,
 			'inativo', '%s', '%s', %s, %s, %s, %s, %d, '%s', CURRENT_TIMESTAMP, '%s'
 		)
 		ON CONFLICT (id) DO UPDATE SET
@@ -174,10 +175,11 @@ func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) error {
 	var payload struct {
 		Nome, CodigoEstudante, SenhaHash, StatusEscolar, StatusSuperior, CodigoAcademia string
-		Email, Telefone, BilheteIdentidade, BilheteIdentidadeResp                       *string
-		AnoEscolar, AnoSuperior                                                         *string
-		CursoMedioID, CursoSuperiorID                                                   *uuid.UUID
-		CreatedAt                                                                        time.Time
+		Email, Telefone, BilheteIdentidade, BilheteIdentidadeResp *string
+		AnoEscolar, AnoSuperior *string
+		CursoMedioID, CursoSuperiorID *uuid.UUID
+		CreatedAt time.Time
+		Genero string
 	}
 
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
@@ -197,12 +199,12 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 	// 🔥 JÁ INSERE COM codigo_academia E status='ativo'
 	query := fmt.Sprintf(`
 		INSERT INTO projection_estudantes (
-			id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
+			id, nome, genero, codigo_estudante, senha_hash, email, telefone, email_verificado,
 			bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
 			status, status_escolar, status_superior, ano_escolar, ano_superior,
 			curso_medio_id, curso_superior_id, version, created_at, updated_at, last_event_id
 		) VALUES (
-			'%s', '%s', '%s', '%s', %s, %s, FALSE, %s, %s, '%s',
+			'%s', '%s', 'masculino', '%s', '%s', %s, %s, FALSE, %s, %s, '%s',
 			'ativo', '%s', '%s', %s, %s, %s, %s, %d, '%s', CURRENT_TIMESTAMP, '%s'
 		)
 		ON CONFLICT (id) DO UPDATE SET

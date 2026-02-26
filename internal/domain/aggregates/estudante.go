@@ -17,7 +17,6 @@ import (
 
 type Estudante struct {
 	BaseAggregate
-	
 	Nome                  string
 	CodigoEstudante       string
 	SenhaHash             string
@@ -35,8 +34,8 @@ type Estudante struct {
 	StatusEscolar         string
 	StatusSuperior        string
 	CreatedAt             time.Time
-	
 	Inscricoes []Inscricao
+	Genero string // "masculino" ou "feminino"
 }
 
 type Inscricao struct {
@@ -108,7 +107,6 @@ func (e *Estudante) Apply(event DomainEvent) error {
 	}
 }
 
-// 🔥 ATUALIZADO
 func (e *Estudante) Criar(
 	nome string,
 	codigoEstudante string,
@@ -123,10 +121,15 @@ func (e *Estudante) Criar(
 	cursoSuperiorID *uuid.UUID,
 	statusEscolar *string,
 	statusSuperior *string,
+	genero string,
 ) error {
 	if nome == "" || codigoEstudante == "" || senhaHash == "" {
 		return fmt.Errorf("campos obrigatórios vazios")
 	}
+
+	if genero != "masculino" && genero != "feminino" {
+        return fmt.Errorf("genero deve ser 'masculino' ou 'feminino'")
+    }
 	
 	if bilhete == nil && bilheteResp == nil {
 		return fmt.Errorf("pelo menos um bilhete de identidade do estudante é obrigatório")
@@ -165,11 +168,12 @@ func (e *Estudante) Criar(
 		BilheteIdentidadeResp: bilheteResp,
 		AnoEscolar:            anoEscolar,
 		AnoSuperior:           anoSuperior,
-		CursoMedioID:          cursoMedioID,      // 🔥 MUDOU
-		CursoSuperiorID:       cursoSuperiorID,   // 🔥 MUDOU
+		CursoMedioID:          cursoMedioID,
+		CursoSuperiorID:       cursoSuperiorID,
 		StatusEscolar:         statusEsc,
 		StatusSuperior:        statusSup,
 		CreatedAt:             time.Now(),
+		Genero: genero,
 	}
 
 	e.RaiseEvent(event)
@@ -191,11 +195,16 @@ func (e *Estudante) CriarComVinculo(
 	cursoSuperiorID *uuid.UUID,
 	statusEscolar *string,
 	statusSuperior *string,
-	codigoAcademia string, // 🔥 DIFERENÇA: já recebe o código da academia
+	codigoAcademia string,
+	genero string,
 ) error {
 	if nome == "" || codigoEstudante == "" || senhaHash == "" {
 		return fmt.Errorf("campos obrigatórios vazios")
 	}
+
+	if genero != "masculino" && genero != "feminino" {
+        return fmt.Errorf("genero deve ser 'masculino' ou 'feminino'")
+    }
 	
 	if bilhete == nil && bilheteResp == nil {
 		return fmt.Errorf("pelo menos um bilhete de identidade do estudante  é obrigatório")
@@ -230,22 +239,23 @@ func (e *Estudante) CriarComVinculo(
 	log.Printf("[DEBUG] CriarComVinculo - Recebido: AnoEscolar=%v, CursoMedioID=%v", anoEscolar, cursoMedioID)
 
 	event := &EstudanteCriadoComVinculoEvent{
-		BaseEvent:             BaseEvent{EventType: "EstudanteCriadoComVinculo", AggregateID: e.ID},
-		Nome:                  nome,
-		CodigoEstudante:       codigoEstudante,
-		SenhaHash:             senhaHash,
-		Email:                 email,
-		Telefone:              telefone,
-		BilheteIdentidade:     bilhete,
+		BaseEvent: BaseEvent{EventType: "EstudanteCriadoComVinculo", AggregateID: e.ID},
+		Nome: nome,
+		CodigoEstudante: codigoEstudante,
+		SenhaHash: senhaHash,
+		Email: email,
+		Telefone: telefone,
+		BilheteIdentidade: bilhete,
 		BilheteIdentidadeResp: bilheteResp,
-		AnoEscolar:            anoEscolar,            // 🔥 Deve propagar
-		AnoSuperior:           anoSuperior,          // 🔥 Deve propagar
-		CursoMedioID:          cursoMedioID,         // 🔥 Deve propagar
-		CursoSuperiorID:       cursoSuperiorID,      // 🔥 Deve propagar
-		StatusEscolar:         statusEsc,
-		StatusSuperior:        statusSup,
-		CodigoAcademia:        codigoAcademia, // 🔥 JÁ VINCULADO
-		CreatedAt:             time.Now(),
+		AnoEscolar: anoEscolar,            // 🔥 Deve propagar
+		AnoSuperior: anoSuperior,          // 🔥 Deve propagar
+		CursoMedioID: cursoMedioID,         // 🔥 Deve propagar
+		CursoSuperiorID: cursoSuperiorID,      // 🔥 Deve propagar
+		StatusEscolar: statusEsc,
+		StatusSuperior: statusSup,
+		CodigoAcademia: codigoAcademia, // 🔥 JÁ VINCULADO
+		CreatedAt: time.Now(),
+		Genero: genero,
 	}
 
 	// 🔥 LOG DO EVENTO CRIADO
@@ -589,6 +599,7 @@ func (e *Estudante) applyEstudanteCriado(event DomainEvent) error {
 	e.StatusEscolar = ev.StatusEscolar
 	e.StatusSuperior = ev.StatusSuperior
 	e.CreatedAt = ev.CreatedAt
+	e.Genero = payload.Genero
 	return nil
 }
 
@@ -618,6 +629,7 @@ func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
 	e.StatusEscolar = ev.StatusEscolar
 	e.StatusSuperior = ev.StatusSuperior
 	e.CreatedAt = ev.CreatedAt
+	e.Genero = payload.Genero
 	return nil
 }
 
@@ -881,6 +893,7 @@ type EstudanteCriadoEvent struct {
 	StatusEscolar         string
 	StatusSuperior        string
 	CreatedAt             time.Time
+	Genero string
 }
 
 func (e *EstudanteCriadoEvent) GetPayload() interface{} { return e }
@@ -902,6 +915,7 @@ type EstudanteCriadoComVinculoEvent struct {
 	StatusSuperior        string
 	CodigoAcademia        string // 🔥 DIFERENÇA
 	CreatedAt             time.Time
+	Genero string
 }
 
 func (e *EstudanteCriadoComVinculoEvent) GetPayload() interface{} { return e }
