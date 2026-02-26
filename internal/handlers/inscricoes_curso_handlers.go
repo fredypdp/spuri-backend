@@ -125,7 +125,7 @@ func AlterarCursoEstudante(c *gin.Context) {
 		return
 	}
 
-	if err := estudante.AlterarCurso(req.TipoEnsino, req.CursoID); err != nil {
+	if err := estudante.AlterarCurso(req.CursoID, req.TipoEnsino); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}

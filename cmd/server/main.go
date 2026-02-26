@@ -174,7 +174,8 @@ func setupRouter() *gin.Engine {
 	{
 		estudante.GET("/minhas-inscricoes", handlers.GetMinhasInscricoes)
 		estudante.GET("/meu-historico", handlers.GetMeuHistorico)
-		estudante.PUT("/status-escolar", handlers.AtualizarStatusEscolar)
+		estudante.PUT("/status-escolar-fundamental", handlers.AtualizarStatusEscolarFundamentalHandler)
+		estudante.PUT("/status-escolar-medio", handlers.AtualizarStatusEscolarMedioHandler)
 		estudante.PUT("/status-superior", handlers.AtualizarStatusSuperior)
 		estudante.POST("/inscricao-escola", handlers.InscricaoEscola)
 		estudante.POST("/inscricao-universidade", handlers.InscricaoUniversidade)
