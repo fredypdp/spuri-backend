@@ -296,6 +296,28 @@ func (p *NotasProjection) clear() error {
 	return err
 }
 
+func (p *NotasProjection) GetNotaByID(id string) (*NotaDTO, error) {
+    query := fmt.Sprintf(`
+        SELECT id, codigo_estudante, codigo_academia, ano_lectivo, periodo,
+            materia_disciplinar_id, tipo, categoria, nota, observacao,
+            registered_at, event_id, version
+        FROM projection_notas
+        WHERE id = '%s'
+        LIMIT 1
+    `, db.SafeString(id))
+
+    var n NotaDTO
+    err := p.client.DB().QueryRow(query).Scan(
+        &n.ID, &n.CodigoEstudante, &n.CodigoAcademia, &n.AnoLectivo, &n.Periodo,
+        &n.MateriaDisciplinarID, &n.Tipo, &n.Categoria, &n.Nota, &n.Observacao,
+        &n.RegisteredAt, &n.EventID, &n.Version,
+    )
+    if err == sql.ErrNoRows {
+        return nil, nil
+    }
+    return &n, err
+}
+
 // ============================================================================
 // Helper
 // ============================================================================

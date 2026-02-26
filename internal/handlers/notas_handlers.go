@@ -141,118 +141,90 @@ func RegistrarNota(c *gin.Context) {
 // ============================================================================
 
 func AtualizarNota(c *gin.Context) {
-	userID, _ := middleware.GetUserID(c)
+    userID, _ := middleware.GetUserID(c)
 
-	var req struct {
-		CodigoEstudante      string  `json:"codigo_estudante"       binding:"required"`
-		AnoLectivo           string  `json:"ano_lectivo"            binding:"required"`
-		Periodo              string  `json:"periodo"                binding:"required"`
-		MateriaDisciplinarID string  `json:"materia_disciplinar_id" binding:"required"`
-		Tipo                 string  `json:"tipo"                   binding:"required"`
-		Categoria            string  `json:"categoria"              binding:"required"`
-		NotaNova             float64 `json:"nota_nova"              binding:"required"`
-		Observacao           string  `json:"observacao"             binding:"required"` // obrigatória
-	}
+    var req struct {
+        ID        string  `json:"id"        binding:"required"`
+        NotaNova  float64 `json:"nota_nova"  binding:"required"`
+        Observacao string `json:"observacao" binding:"required"`
+    }
+    if err := c.ShouldBindJSON(&req); err != nil {
+        utils.RespondWithValidationError(c, fmt.Errorf(
+            "campos obrigatórios: id, nota_nova, observacao",
+        ))
+        return
+    }
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf(
-			"campos obrigatórios: codigo_estudante, ano_lectivo, periodo, "+
-				"materia_disciplinar_id, tipo, categoria, nota_nova, observacao",
-		))
-		return
-	}
+    academiaProj := getAcademiaProjection(c)
+    academiaDTO, err := academiaProj.GetByID(userID)
+    if err != nil || academiaDTO == nil {
+        utils.RespondWithNotFoundError(c, "academia")
+        return
+    }
 
-	academiaProj := getAcademiaProjection(c)
-	academiaDTO, err := academiaProj.GetByID(userID)
-	if err != nil || academiaDTO == nil {
-		utils.RespondWithNotFoundError(c, "academia")
-		return
-	}
+    // Buscar a nota pelo ID para obter todos os campos identificadores
+    notasProj := getNotasProjection(c)
+    notaAtual, err := notasProj.GetNotaByID(req.ID)
+    if err != nil || notaAtual == nil {
+        utils.RespondWithNotFoundError(c, "nota")
+        return
+    }
 
-	estudanteProj := getEstudanteProjection(c)
-	estudanteDTO, err := estudanteProj.GetByCodigo(req.CodigoEstudante)
-	if err != nil || estudanteDTO == nil {
-		utils.RespondWithNotFoundError(c, "estudante")
-		return
-	}
-	if estudanteDTO.CodigoAcademia == nil || *estudanteDTO.CodigoAcademia != academiaDTO.CodigoAcademia {
-		utils.RespondWithForbiddenError(c, "estudante não pertence a esta academia")
-		return
-	}
+    // Garantir que a nota pertence a esta academia
+    if notaAtual.CodigoAcademia != academiaDTO.CodigoAcademia {
+        utils.RespondWithForbiddenError(c, "nota não pertence a esta academia")
+        return
+    }
 
-	materiaID, err := uuid.Parse(req.MateriaDisciplinarID)
-	if err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("materia_disciplinar_id inválido"))
-		return
-	}
-	materiasProj := getMateriasProjection(c)
-	materiaDTO, _ := materiasProj.GetByID(materiaID)
-	if materiaDTO == nil || materiaDTO.CodigoAcademia != academiaDTO.CodigoAcademia {
-		utils.RespondWithForbiddenError(c, "matéria não pertence a esta academia")
-		return
-	}
+    materiaID, _ := uuid.Parse(notaAtual.MateriaDisciplinarID)
 
-	// Buscar nota atual na projeção (para registrar nota anterior no evento)
-	notasProj := getNotasProjection(c)
-	notaAtual, err := notasProj.GetNota(
-		req.CodigoEstudante,
-		req.AnoLectivo,
-		req.Periodo,
-		materiaID,
-		req.Tipo,
-		req.Categoria,
-	)
-	if err != nil || notaAtual == nil {
-		utils.RespondWithNotFoundError(c, "nota a atualizar")
-		return
-	}
+    var categoriasAdicionais []string
+    if notaAtual.Tipo == "superior" {
+        categoriasAdicionais = carregarCategoriasAdicionais(c, academiaDTO.CodigoAcademia)
+    }
 
-	var categoriasAdicionais []string
-	if req.Tipo == "superior" {
-		categoriasAdicionais = carregarCategoriasAdicionais(c, academiaDTO.CodigoAcademia)
-	}
+    estudanteProj := getEstudanteProjection(c)
+    estudanteDTO, err := estudanteProj.GetByCodigo(notaAtual.CodigoEstudante)
+    if err != nil || estudanteDTO == nil {
+        utils.RespondWithNotFoundError(c, "estudante")
+        return
+    }
 
-	repository := getRepository(c)
-	estudanteAgg, err := repository.Load(estudanteDTO.ID, "Estudante")
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-	estudante := estudanteAgg.(*aggregates.Estudante)
+    repository := getRepository(c)
+    estudanteAgg, err := repository.Load(estudanteDTO.ID, "Estudante")
+    if err != nil {
+        utils.RespondWithInternalError(c, err)
+        return
+    }
+    estudante := estudanteAgg.(*aggregates.Estudante)
 
-	err = estudante.AtualizarNota(
-		academiaDTO.CodigoAcademia,
-		req.AnoLectivo,
-		req.Periodo,
-		materiaID,
-		req.Tipo,
-		req.Categoria,
-		notaAtual.Nota,
-		req.NotaNova,
-		req.Observacao,
-		categoriasAdicionais,
-	)
-	if err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
+    err = estudante.AtualizarNota(
+        academiaDTO.CodigoAcademia,
+        notaAtual.AnoLectivo,
+        notaAtual.Periodo,
+        materiaID,
+        notaAtual.Tipo,
+        notaAtual.Categoria,
+        notaAtual.Nota,
+        req.NotaNova,
+        req.Observacao,
+        categoriasAdicionais,
+    )
+    if err != nil {
+        utils.RespondWithValidationError(c, err)
+        return
+    }
 
-	if err := repository.Save(estudante); err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
+    if err := repository.Save(estudante); err != nil {
+        utils.RespondWithInternalError(c, err)
+        return
+    }
 
-	log.Printf("Nota atualizada: %s — %.2f→%.2f [%s/%s]",
-		req.CodigoEstudante, notaAtual.Nota, req.NotaNova, req.Tipo, req.Categoria)
-
-	c.JSON(http.StatusOK, gin.H{
-		"message":       "nota atualizada com sucesso",
-		"estudante":     req.CodigoEstudante,
-		"tipo":          req.Tipo,
-		"categoria":     req.Categoria,
-		"nota_anterior": notaAtual.Nota,
-		"nota_nova":     req.NotaNova,
-	})
+    c.JSON(http.StatusOK, gin.H{
+        "message":       "nota atualizada com sucesso",
+        "nota_anterior": notaAtual.Nota,
+        "nota_nova":     req.NotaNova,
+    })
 }
 
 // ============================================================================
