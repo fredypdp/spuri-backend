@@ -232,6 +232,7 @@ type RegisterEstudanteRequest struct {
 	BilheteIdentidade        *string    `json:"bilhete_identidade"`
 	BilheteIdentidadeResp    *string    `json:"bilhete_identidade_responsavel"`
 	AnoEscolar               *string    `json:"ano_escolar"`
+	AnoEscolarMedio          *string    `json:"ano_escolar_medio"`
 	AnoSuperior              *string    `json:"ano_superior"`
 	CursoMedioID             *uuid.UUID `json:"curso_medio_id"`
 	CursoSuperiorID          *uuid.UUID `json:"curso_superior_id"`
@@ -351,6 +352,7 @@ func RegisterEstudante(c *gin.Context) {
 		req.BilheteIdentidade,
 		req.BilheteIdentidadeResp,
 		req.AnoEscolar,
+		req.AnoEscolarMedio,
 		req.AnoSuperior,
 		req.CursoMedioID,
 		req.CursoSuperiorID,

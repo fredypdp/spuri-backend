@@ -118,7 +118,6 @@ func (a *Academia) VerificarEmail() error {
 	return a.Apply(event)
 }
 
-// 🔥 ATUALIZADO - cursoID agora é UUID
 func (a *Academia) AprovarInscricao(estudanteID uuid.UUID, inscricaoID uuid.UUID, tipo string, anoInscricao string, cursoID *uuid.UUID) error {
 	if a.Status != "ativo" {
 		return fmt.Errorf("academia está inativa")
@@ -129,6 +128,7 @@ func (a *Academia) AprovarInscricao(estudanteID uuid.UUID, inscricaoID uuid.UUID
 		EstudanteID:  estudanteID,
 		InscricaoID:  inscricaoID,
 		AcademiaID:   a.ID,
+		CodigoAcademia: a.CodigoAcademia,
 		Tipo:         tipo,
 		AnoInscricao: anoInscricao,
 		CursoID:      cursoID, // 🔥 MUDOU
@@ -360,6 +360,7 @@ type InscricaoAprovadaPorAcademiaEvent struct {
 	EstudanteID  uuid.UUID
 	InscricaoID  uuid.UUID
 	AcademiaID   uuid.UUID
+	CodigoAcademia string
 	Tipo         string
 	AnoInscricao string
 	CursoID      *uuid.UUID
