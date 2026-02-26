@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"spuri/internal/utils"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,10 +15,10 @@ type Turma struct {
 	CodigoTurma    string
 	CodigoAcademia string
 	Nivel          string
-	CursoID        *uuid.UUID // NULL para fundamental
-	Turno          string     // "manha", "tarde", "noite"
-	Estudantes     []string   // lista de codigo_estudante
-	Status         string     // "ativo" ou "inativo"
+	CursoID        *uuid.UUID
+	Turno          string   // "manha", "tarde", "noite"
+	Estudantes     []string // lista de codigo_estudante
+	Status         string   // "ativo" ou "inativo"
 	CreatedAt      time.Time
 }
 
@@ -85,7 +84,7 @@ func (t *Turma) Criar(
 		CriadoPor:      criadoPor,
 		CreatedAt:      time.Now(),
 	}
-	t.AddEvent(event)
+	t.RaiseEvent(event)
 	return t.Apply(event)
 }
 
@@ -97,7 +96,7 @@ func (t *Turma) Ativar(ativadoPor uuid.UUID) error {
 		BaseEvent:   BaseEvent{EventType: "TurmaAtivada", AggregateID: t.ID},
 		AlteradoPor: ativadoPor,
 	}
-	t.AddEvent(event)
+	t.RaiseEvent(event)
 	return t.Apply(event)
 }
 
@@ -109,7 +108,7 @@ func (t *Turma) Desativar(desativadoPor uuid.UUID) error {
 		BaseEvent:   BaseEvent{EventType: "TurmaDesativada", AggregateID: t.ID},
 		AlteradoPor: desativadoPor,
 	}
-	t.AddEvent(event)
+	t.RaiseEvent(event)
 	return t.Apply(event)
 }
 
@@ -127,7 +126,7 @@ func (t *Turma) AdicionarEstudante(codigoEstudante string, adicionadoPor uuid.UU
 		CodigoEstudante: codigoEstudante,
 		AlteradoPor:     adicionadoPor,
 	}
-	t.AddEvent(event)
+	t.RaiseEvent(event)
 	return t.Apply(event)
 }
 
@@ -147,7 +146,7 @@ func (t *Turma) RemoverEstudante(codigoEstudante string, removidoPor uuid.UUID) 
 		CodigoEstudante: codigoEstudante,
 		AlteradoPor:     removidoPor,
 	}
-	t.AddEvent(event)
+	t.RaiseEvent(event)
 	return t.Apply(event)
 }
 
@@ -162,24 +161,29 @@ func (t *Turma) AtualizarDados(nivel *string, cursoID *uuid.UUID, turno *string,
 		Turno:         turno,
 		AtualizadoPor: atualizadoPor,
 	}
-	t.AddEvent(event)
+	t.RaiseEvent(event)
 	return t.Apply(event)
 }
 
 // ── Aplicadores ───────────────────────────────────────────────────────────────
 
 func (t *Turma) applyTurmaCriada(event DomainEvent) error {
-	payload, err := utils.UnmarshalPayload[TurmaCriadaEvent](event)
+	payload := event.GetPayload()
+	data, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	t.CodigoTurma    = payload.CodigoTurma
-	t.CodigoAcademia = payload.CodigoAcademia
-	t.Nivel          = payload.Nivel
-	t.CursoID        = payload.CursoID
-	t.Turno          = payload.Turno
+	var ev TurmaCriadaEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+	t.CodigoTurma    = ev.CodigoTurma
+	t.CodigoAcademia = ev.CodigoAcademia
+	t.Nivel          = ev.Nivel
+	t.CursoID        = ev.CursoID
+	t.Turno          = ev.Turno
 	t.Status         = "ativo"
-	t.CreatedAt      = payload.CreatedAt
+	t.CreatedAt      = ev.CreatedAt
 	return nil
 }
 
@@ -189,22 +193,32 @@ func (t *Turma) applyStatusChange(status string) error {
 }
 
 func (t *Turma) applyEstudanteAdicionado(event DomainEvent) error {
-	payload, err := utils.UnmarshalPayload[EstudanteTurmaEvent](event)
+	payload := event.GetPayload()
+	data, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	t.Estudantes = append(t.Estudantes, payload.CodigoEstudante)
+	var ev EstudanteTurmaEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+	t.Estudantes = append(t.Estudantes, ev.CodigoEstudante)
 	return nil
 }
 
 func (t *Turma) applyEstudanteRemovido(event DomainEvent) error {
-	payload, err := utils.UnmarshalPayload[EstudanteTurmaEvent](event)
+	payload := event.GetPayload()
+	data, err := json.Marshal(payload)
 	if err != nil {
+		return err
+	}
+	var ev EstudanteTurmaEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
 		return err
 	}
 	updated := []string{}
 	for _, e := range t.Estudantes {
-		if e != payload.CodigoEstudante {
+		if e != ev.CodigoEstudante {
 			updated = append(updated, e)
 		}
 	}
@@ -213,18 +227,23 @@ func (t *Turma) applyEstudanteRemovido(event DomainEvent) error {
 }
 
 func (t *Turma) applyTurmaDadosAtualizados(event DomainEvent) error {
-	payload, err := utils.UnmarshalPayload[TurmaDadosAtualizadosEvent](event)
+	payload := event.GetPayload()
+	data, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	if payload.Nivel != nil {
-		t.Nivel = *payload.Nivel
+	var ev TurmaDadosAtualizadosEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
 	}
-	if payload.CursoID != nil {
-		t.CursoID = payload.CursoID
+	if ev.Nivel != nil {
+		t.Nivel = *ev.Nivel
 	}
-	if payload.Turno != nil {
-		t.Turno = *payload.Turno
+	if ev.CursoID != nil {
+		t.CursoID = ev.CursoID
+	}
+	if ev.Turno != nil {
+		t.Turno = *ev.Turno
 	}
 	return nil
 }

@@ -91,7 +91,7 @@ func initProjections() error {
 	projManager.RegisterProjection("materias", projections.NewMateriasProjection(dbClient))
 	projManager.RegisterProjection("aprovacao_ano", projections.NewAprovacaoAnoProjection(dbClient))
 	projManager.RegisterProjection("sistema_config", projections.NewSistemaConfigProjection(dbClient))
-	projManager.Register(projections.NewTurmasProjection(dbClient))
+	projManager.RegisterProjection("turmas", projections.NewTurmasProjection(dbClient))
 
 	go projManager.StartProcessing()
 

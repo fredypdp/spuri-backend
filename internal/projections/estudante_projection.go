@@ -147,7 +147,7 @@ func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 			status, status_escolar, status_superior, ano_escolar, ano_superior,
 			curso_medio_id, curso_superior_id, version, created_at, updated_at, last_event_id
 		) VALUES (
-			'%s', '%s', 'masculino', '%s', '%s', %s, %s, FALSE, %s, %s, NULL,
+			'%s', '%s', '%s', '%s', '%s', %s, %s, FALSE, %s, %s, NULL,
 			'inativo', '%s', '%s', %s, %s, %s, %s, %d, '%s', CURRENT_TIMESTAMP, '%s'
 		)
 		ON CONFLICT (id) DO UPDATE SET
@@ -160,7 +160,7 @@ func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
 			ano_superior = EXCLUDED.ano_superior, curso_medio_id = EXCLUDED.curso_medio_id,
 			curso_superior_id = EXCLUDED.curso_superior_id, version = EXCLUDED.version,
 			updated_at = EXCLUDED.updated_at, last_event_id = EXCLUDED.last_event_id
-	`, event.AggregateID, db.SafeString(payload.Nome), db.SafeString(payload.CodigoEstudante),
+	`, event.AggregateID, db.SafeString(payload.Nome), db.SafeString(payload.Genero), db.SafeString(payload.CodigoEstudante),
 		db.SafeString(payload.SenhaHash), nullOrString(payload.Email), nullOrString(payload.Telefone),
 		nullOrString(payload.BilheteIdentidade), nullOrString(payload.BilheteIdentidadeResp),
 		db.SafeString(payload.StatusEscolar), db.SafeString(payload.StatusSuperior),
@@ -204,7 +204,7 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 			status, status_escolar, status_superior, ano_escolar, ano_superior,
 			curso_medio_id, curso_superior_id, version, created_at, updated_at, last_event_id
 		) VALUES (
-			'%s', '%s', 'masculino', '%s', '%s', %s, %s, FALSE, %s, %s, '%s',
+			'%s', '%s', '%s', '%s', '%s', %s, %s, FALSE, %s, %s, '%s',
 			'ativo', '%s', '%s', %s, %s, %s, %s, %d, '%s', CURRENT_TIMESTAMP, '%s'
 		)
 		ON CONFLICT (id) DO UPDATE SET
@@ -217,7 +217,7 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 			ano_escolar = EXCLUDED.ano_escolar, ano_superior = EXCLUDED.ano_superior,
 			curso_medio_id = EXCLUDED.curso_medio_id, curso_superior_id = EXCLUDED.curso_superior_id,
 			version = EXCLUDED.version, updated_at = EXCLUDED.updated_at, last_event_id = EXCLUDED.last_event_id
-	`, event.AggregateID, db.SafeString(payload.Nome), db.SafeString(payload.CodigoEstudante),
+	`, event.AggregateID, db.SafeString(payload.Nome), db.SafeString(payload.Genero), db.SafeString(payload.CodigoEstudante),
 		db.SafeString(payload.SenhaHash), nullOrString(payload.Email), nullOrString(payload.Telefone),
 		nullOrString(payload.BilheteIdentidade), nullOrString(payload.BilheteIdentidadeResp),
 		db.SafeString(payload.CodigoAcademia), // 🔥 JÁ VINCULADO

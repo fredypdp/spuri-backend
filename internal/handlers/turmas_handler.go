@@ -29,7 +29,6 @@ func CriarTurma(c *gin.Context) {
 		return
 	}
 
-	// Resolve código da academia a partir do ID do usuário logado
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByID(academiaID)
 	if err != nil || academiaDTO == nil {
@@ -37,7 +36,6 @@ func CriarTurma(c *gin.Context) {
 		return
 	}
 
-	// Verifica se já existe uma turma com o mesmo código nesta academia
 	turmasProj := getTurmasProjection(c)
 	existing, _ := turmasProj.GetByCodigoTurma(req.CodigoTurma, academiaDTO.CodigoAcademia)
 	if existing != nil {
@@ -141,8 +139,8 @@ func AdicionarEstudanteATurma(c *gin.Context) {
 	}
 
 	// Verifica se o estudante pertence à academia
-	estudantesProj := getEstudantesProjection(c)
-	estudanteDTO, err := estudantesProj.GetByCodigo(req.CodigoEstudante)
+	estudanteProj := getEstudanteProjection(c) // singular — função existente em helpers.go
+	estudanteDTO, err := estudanteProj.GetByCodigo(req.CodigoEstudante)
 	if err != nil || estudanteDTO == nil {
 		utils.RespondWithNotFoundError(c, "estudante")
 		return
@@ -296,9 +294,7 @@ func AtualizarTurma(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "turma atualizada com sucesso"})
 }
 
-// ── Helper: injeção da projeção de turmas ─────────────────────────────────────
-
+// getTurmasProjection instancia a projeção directamente (mesmo padrão dos outros helpers).
 func getTurmasProjection(c *gin.Context) *projections.TurmasProjection {
-	proj, _ := getProjManager(c).GetProjection("turmas")
-	return proj.(*projections.TurmasProjection)
+	return projections.NewTurmasProjection(getDbClient(c))
 }

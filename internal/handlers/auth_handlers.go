@@ -235,32 +235,33 @@ func RegisterAcademia(c *gin.Context) {
 }
 
 type RegisterEstudanteRequest struct {
-	Senha                 string     `json:"senha" binding:"required"`
-	Nome                  string     `json:"nome" binding:"required"`
-	Email                 *string    `json:"email"`
-	Telefone              *string    `json:"telefone"`
-	BilheteIdentidade     *string    `json:"bilhete_identidade"`
-	BilheteIdentidadeResp *string    `json:"bilhete_identidade_responsavel"`
-	AnoEscolar            *string    `json:"ano_escolar"`
-	AnoSuperior           *string    `json:"ano_superior"`
-	CursoMedioID          *uuid.UUID `json:"curso_medio_id"`
-	CursoSuperiorID       *uuid.UUID `json:"curso_superior_id"`
-	StatusEscolar         *string    `json:"status_escolar"`
-	StatusSuperior        *string    `json:"status_superior"`
+	Senha string `json:"senha" binding:"required"`
+	Nome string `json:"nome" binding:"required"`
+	Email *string `json:"email"`
+	Telefone *string `json:"telefone"`
+	BilheteIdentidade *string `json:"bilhete_identidade"`
+	BilheteIdentidadeResp *string `json:"bilhete_identidade_responsavel"`
+	AnoEscolar *string `json:"ano_escolar"`
+	AnoSuperior *string `json:"ano_superior"`
+	CursoMedioID *uuid.UUID `json:"curso_medio_id"`
+	CursoSuperiorID *uuid.UUID `json:"curso_superior_id"`
+	StatusEscolar *string `json:"status_escolar"`
+	StatusSuperior *string `json:"status_superior"`
 }
 
 type CadastroEstudanteAcademiaRequest struct {
-	Nome                  string `json:"nome" binding:"required"`
-	Email                 string `json:"email"`
-	Telefone              string `json:"telefone"`
-	BilheteIdentidade     string `json:"bilhete_identidade"`
-	BilheteResponsavel    string `json:"bilhete_identidade_responsavel"`
-	AnoEscolar            string `json:"ano_escolar"`
-	AnoSuperior           string `json:"ano_superior"`
-	CursoMedioID          string `json:"curso_medio_id"`
-	CursoSuperiorID       string `json:"curso_superior_id"`
-	StatusEscolar         string `json:"status_escolar"`
-	StatusSuperior        string `json:"status_superior"`
+	Nome string `json:"nome" binding:"required"`
+	Email string `json:"email"`
+	Telefone string `json:"telefone"`
+	BilheteIdentidade string `json:"bilhete_identidade"`
+	BilheteResponsavel string `json:"bilhete_identidade_responsavel"`
+	AnoEscolar string `json:"ano_escolar"`
+	AnoSuperior string `json:"ano_superior"`
+	CursoMedioID string `json:"curso_medio_id"`
+	CursoSuperiorID string `json:"curso_superior_id"`
+	StatusEscolar string `json:"status_escolar"`
+	StatusSuperior string `json:"status_superior"`
+	Genero string `json:"genero"  binding:"required"`
 }
 
 func RegisterEstudantePorAcademia(c *gin.Context) {
@@ -489,6 +490,7 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		statusEscolarPtr,
 		statusSuperiorPtr,
 		academia.CodigoAcademia,
+		req.Genero,
 	); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return

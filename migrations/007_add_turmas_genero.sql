@@ -1,5 +1,5 @@
 -- ============================================
--- MIGRATION 006 - Turmas + Gênero do Estudante
+-- MIGRATION 007 - Turmas + Gênero do Estudante
 -- ============================================
 
 -- 1. Adicionar campo genero em projection_estudantes
