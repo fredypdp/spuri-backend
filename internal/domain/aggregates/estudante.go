@@ -12,25 +12,26 @@ import (
 
 type Estudante struct {
 	BaseAggregate
-	Nome                  string
-	CodigoEstudante       string
-	SenhaHash             string
-	Email                 *string
-	Telefone              *string
-	EmailVerificado       bool
-	BilheteIdentidade     *string
+	Nome string
+	CodigoEstudante string
+	SenhaHash string
+	Email *string
+	Telefone *string
+	EmailVerificado bool
+	BilheteIdentidade *string
 	BilheteIdentidadeResp *string
-	CodigoAcademia        *string
-	Status                string
-	AnoEscolar            *string
-	AnoSuperior           *string
-	CursoMedioID          *uuid.UUID // 🔥 MUDOU: agora é UUID
-	CursoSuperiorID       *uuid.UUID // 🔥 MUDOU: agora é UUID
-	StatusEscolar         string
-	StatusSuperior        string
-	CreatedAt             time.Time
-	Inscricoes            []Inscricao
-	Genero                string // "masculino" ou "feminino"
+	CodigoAcademia *string
+	Status string
+	AnoEscolar *string
+	AnoSuperior *string
+	CursoMedioID *uuid.UUID
+	CursoSuperiorID *uuid.UUID
+	StatusEscolarFundamental string
+	StatusEscolarMedio string
+	StatusSuperior string
+	CreatedAt time.Time
+	Inscricoes []Inscricao
+	Genero string // "masculino" ou "feminino"
 }
 
 
@@ -39,7 +40,7 @@ type Inscricao struct {
 	CodigoAcademia string
 	Tipo           string
 	AnoInscricao   string
-	CursoID        *uuid.UUID // 🔥 MUDOU: agora é UUID
+	CursoID        *uuid.UUID
 	Status         string
 	StatusUsado    bool
 	CreatedAt      time.Time
@@ -53,8 +54,8 @@ func NewEstudante() *Estudante {
 			UncommittedEvents: []DomainEvent{},
 		},
 		Status:          "inativo",
-		StatusEscolar:   "inativo",
-		StatusSuperior:  "inativo",
+		StatusEscolarFundamental: "inativo",
+		StatusEscolarMedio: "inativo",
 		EmailVerificado: false,
 		Inscricoes:      []Inscricao{},
 	}
@@ -82,8 +83,6 @@ func (e *Estudante) Apply(event DomainEvent) error {
 		return e.applyInscricaoReprovada(event)
 	case "EstudanteVinculado":
 		return e.applyEstudanteVinculado(event)
-	case "StatusEscolarAtualizado":
-		return e.applyStatusEscolarAtualizado(event)
 	case "StatusSuperiorAtualizado":
 		return e.applyStatusSuperiorAtualizado(event)
 	case "DadosPessoaisAtualizados":
@@ -92,12 +91,16 @@ func (e *Estudante) Apply(event DomainEvent) error {
 		return e.applyDadosAcademicosAtualizados(event)
 	case "EmailVerificado":
 		return e.applyEmailVerificado(event)
-	case "AprovacaoAnoRegistrada":
-		return e.applyAprovacaoAnoRegistrada(event)
 	case "CursoAlterado":
 		return e.applyCursoAlterado(event)
 	case "EstudanteCriadoComVinculo":
 		return e.applyEstudanteCriadoComVinculo(event)
+	case "AprovacaoAnoRegistrada":
+    return e.applyAprovacaoAnoRegistrada(event)
+	case "StatusEscolarFundamentalAtualizado":
+		return e.applyStatusEscolarFundamentalAtualizado(event)
+	case "StatusEscolarMedioAtualizado":
+		return e.applyStatusEscolarMedioAtualizado(event)
 	default:
 		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
 	}
@@ -166,10 +169,11 @@ func (e *Estudante) Criar(
 		AnoSuperior:           anoSuperior,
 		CursoMedioID:          cursoMedioID,
 		CursoSuperiorID:       cursoSuperiorID,
-		StatusEscolar:         statusEsc,
 		StatusSuperior:        statusSup,
 		CreatedAt:             time.Now(),
 		Genero:                genero,
+		StatusEscolarFundamental: string,
+		StatusEscolarMedio: string,
 	}
 
 	e.RaiseEvent(event)
@@ -235,23 +239,24 @@ func (e *Estudante) CriarComVinculo(
 	log.Printf("[DEBUG] CriarComVinculo - Recebido: AnoEscolar=%v, CursoMedioID=%v", anoEscolar, cursoMedioID)
 
 	event := &EstudanteCriadoComVinculoEvent{
-		BaseEvent:             BaseEvent{EventType: "EstudanteCriadoComVinculo", AggregateID: e.ID},
-		Nome:                  nome,
-		CodigoEstudante:       codigoEstudante,
-		SenhaHash:             senhaHash,
-		Email:                 email,
-		Telefone:              telefone,
-		BilheteIdentidade:     bilhete,
+		BaseEvent: BaseEvent{EventType: "EstudanteCriadoComVinculo", AggregateID: e.ID},
+		Nome: nome,
+		CodigoEstudante: codigoEstudante,
+		SenhaHash: senhaHash,
+		Email: email,
+		Telefone: telefone,
+		BilheteIdentidade: bilhete,
 		BilheteIdentidadeResp: bilheteResp,
-		AnoEscolar:            anoEscolar,      // 🔥 Deve propagar
-		AnoSuperior:           anoSuperior,     // 🔥 Deve propagar
-		CursoMedioID:          cursoMedioID,    // 🔥 Deve propagar
-		CursoSuperiorID:       cursoSuperiorID, // 🔥 Deve propagar
-		StatusEscolar:         statusEsc,
-		StatusSuperior:        statusSup,
-		CodigoAcademia:        codigoAcademia, // 🔥 JÁ VINCULADO
-		CreatedAt:             time.Now(),
-		Genero:                genero,
+		AnoEscolar: anoEscolar,
+		AnoSuperior: anoSuperior,
+		CursoMedioID: cursoMedioID,
+		CursoSuperiorID: cursoSuperiorID,
+		StatusSuperior: statusSup,
+		CodigoAcademia: codigoAcademia,
+		CreatedAt: time.Now(),
+		Genero: genero,
+		StatusEscolarFundamental: string,
+		StatusEscolarMedio: string,
 	}
 
 	// 🔥 LOG DO EVENTO CRIADO
@@ -453,34 +458,14 @@ func (e *Estudante) VincularAcademia(inscricaoID uuid.UUID) error {
 	return e.Apply(event)
 }
 
-func (e *Estudante) AtualizarStatusEscolar(novoStatus string) error {
-	validStatus := map[string]bool{"inativo": true, "em_andamento": true, "finalizado": true}
-	if !validStatus[novoStatus] {
-		return fmt.Errorf("status inválido")
-	}
-
-	if novoStatus == "inativo" && e.StatusSuperior != "inativo" {
-		return fmt.Errorf("não pode inativar status_escolar enquanto status_superior está ativo")
-	}
-
-	event := &StatusEscolarAtualizadoEvent{
-		BaseEvent:  BaseEvent{EventType: "StatusEscolarAtualizado", AggregateID: e.ID},
-		NovoStatus: novoStatus,
-		UpdatedAt:  time.Now(),
-	}
-
-	e.RaiseEvent(event)
-	return e.Apply(event)
-}
-
 func (e *Estudante) AtualizarStatusSuperior(novoStatus string) error {
 	validStatus := map[string]bool{"inativo": true, "em_andamento": true, "finalizado": true}
 	if !validStatus[novoStatus] {
 		return fmt.Errorf("status inválido")
 	}
 
-	if (novoStatus == "em_andamento" || novoStatus == "finalizado") && e.StatusEscolar != "finalizado" {
-		return fmt.Errorf("status_superior só pode ser atualizado se status_escolar for 'finalizado'")
+	if (novoStatus == "em_andamento" || novoStatus == "finalizado") && e.StatusEscolarFundamental != "finalizado" && e.StatusEscolarMedio != "finalizado" {
+		return fmt.Errorf("status_superior só pode ser atualizado se status_escolar_fundamental e status_escolar_medio estiverem definidos como 'finalizado'")
 	}
 
 	event := &StatusSuperiorAtualizadoEvent{
@@ -549,7 +534,7 @@ func (e *Estudante) AlterarCurso(tipoEnsino string, cursoID uuid.UUID) error {
 
 	// Validar se pode alterar curso baseado no status
 	if tipoEnsino == "medio" {
-		if e.StatusEscolar != "em_andamento" {
+		if e.StatusEscolarMedio != "em_andamento" {
 			return fmt.Errorf("só pode alterar curso médio se status_escolar for 'em_andamento'")
 		}
 	} else {
@@ -592,7 +577,8 @@ func (e *Estudante) applyEstudanteCriado(event DomainEvent) error {
 	e.CursoMedioID = ev.CursoMedioID       // 🔥 MUDOU
 	e.CursoSuperiorID = ev.CursoSuperiorID // 🔥 MUDOU
 	e.Status = "inativo"
-	e.StatusEscolar = ev.StatusEscolar
+	e.StatusEscolarFundamental = ev.StatusEscolarFundamental
+	e.StatusEscolarMedio = ev.StatusEscolarMedio
 	e.StatusSuperior = ev.StatusSuperior
 	e.CreatedAt = ev.CreatedAt
 	e.Genero = ev.Genero
@@ -620,9 +606,10 @@ func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
 	e.AnoSuperior = ev.AnoSuperior
 	e.CursoMedioID = ev.CursoMedioID
 	e.CursoSuperiorID = ev.CursoSuperiorID
-	e.CodigoAcademia = &ev.CodigoAcademia // 🔥 JÁ VINCULADO
-	e.Status = "ativo"                    // 🔥 JÁ ATIVO
-	e.StatusEscolar = ev.StatusEscolar
+	e.CodigoAcademia = &ev.CodigoAcademia
+	e.Status = "ativo"
+	e.StatusEscolarFundamental = ev.StatusEscolarFundamental
+	e.StatusEscolarMedio = ev.StatusEscolarMedio
 	e.StatusSuperior = ev.StatusSuperior
 	e.CreatedAt = ev.CreatedAt
 	e.Genero = ev.Genero
@@ -842,76 +829,49 @@ func (e *Estudante) validarCursoComAno(cursoID uuid.UUID, ano string, tipo strin
 	return nil
 }
 
-func getProximoNivel(nivelAtual, tipo string) string {
-	niveisEscolar := []string{
-		"primeiro_fundamental", "segundo_fundamental", "terceiro_fundamental",
-		"quarto_fundamental", "quinto_fundamental", "sexto_fundamental",
-		"setimo_fundamental", "oitavo_fundamental", "nono_fundamental",
-		"primeiro_medio", "segundo_medio", "terceiro_medio", "quarto_medio",
-	}
-
-	niveisSuperior := []string{
-		"primeiro_ano", "segundo_ano", "terceiro_ano",
-		"quarto_ano", "quinto_ano", "sexto_ano",
-	}
-
-	var niveis []string
-	if tipo == "escolar" {
-		niveis = niveisEscolar
-	} else {
-		niveis = niveisSuperior
-	}
-
-	for i, n := range niveis {
-		if n == nivelAtual && i < len(niveis)-1 {
-			return niveis[i+1]
-		}
-	}
-
-	return ""
-}
-
 // 🔥 EVENTOS ATUALIZADOS
 
 type EstudanteCriadoEvent struct {
 	BaseEvent
-	Nome                  string
-	CodigoEstudante       string
-	SenhaHash             string
-	Email                 *string
-	Telefone              *string
-	BilheteIdentidade     *string
+	Nome string
+	CodigoEstudante string
+	SenhaHash string
+	Email *string
+	Telefone *string
+	BilheteIdentidade *string
 	BilheteIdentidadeResp *string
-	AnoEscolar            *string
-	AnoSuperior           *string
-	CursoMedioID          *uuid.UUID // 🔥 MUDOU
-	CursoSuperiorID       *uuid.UUID // 🔥 MUDOU
-	StatusEscolar         string
-	StatusSuperior        string
-	CreatedAt             time.Time
-	Genero                string
+	AnoEscolar *string
+	AnoSuperior *string
+	CursoMedioID *uuid.UUID
+	CursoSuperiorID *uuid.UUID
+	StatusEscolarFundamental string
+	StatusEscolarMedio string
+	StatusSuperior string
+	CreatedAt time.Time
+	Genero string
 }
 
 func (e *EstudanteCriadoEvent) GetPayload() interface{} { return e }
 
 type EstudanteCriadoComVinculoEvent struct {
 	BaseEvent
-	Nome                  string
-	CodigoEstudante       string
-	SenhaHash             string
-	Email                 *string
-	Telefone              *string
-	BilheteIdentidade     *string
+	Nome string
+	CodigoEstudante string
+	SenhaHash string
+	Email *string
+	Telefone *string
+	BilheteIdentidade *string
 	BilheteIdentidadeResp *string
-	AnoEscolar            *string    // 🔥 IMPORTANTE: ponteiro
-	AnoSuperior           *string    // 🔥 IMPORTANTE: ponteiro
-	CursoMedioID          *uuid.UUID // 🔥 IMPORTANTE: ponteiro
-	CursoSuperiorID       *uuid.UUID // 🔥 IMPORTANTE: ponteiro
-	StatusEscolar         string
-	StatusSuperior        string
-	CodigoAcademia        string // 🔥 DIFERENÇA
-	CreatedAt             time.Time
-	Genero                string
+	AnoEscolar *string
+	AnoSuperior *string
+	CursoMedioID *uuid.UUID
+	CursoSuperiorID *uuid.UUID
+	StatusEscolarFundamental string
+	StatusEscolarMedio string
+	StatusSuperior string
+	CodigoAcademia string
+	CreatedAt time.Time
+	Genero string
 }
 
 func (e *EstudanteCriadoComVinculoEvent) GetPayload() interface{} { return e }
@@ -983,12 +943,6 @@ type EstudanteVinculadoEvent struct {
 }
 
 func (e *EstudanteVinculadoEvent) GetPayload() interface{} { return e }
-
-type StatusEscolarAtualizadoEvent struct {
-	BaseEvent
-	NovoStatus string
-	UpdatedAt  time.Time
-}
 
 func (e *StatusEscolarAtualizadoEvent) GetPayload() interface{} { return e }
 

@@ -245,7 +245,8 @@ type RegisterEstudanteRequest struct {
 	AnoSuperior *string `json:"ano_superior"`
 	CursoMedioID *uuid.UUID `json:"curso_medio_id"`
 	CursoSuperiorID *uuid.UUID `json:"curso_superior_id"`
-	StatusEscolar *string `json:"status_escolar"`
+	StatusEscolarFundamental *string `json:"status_escolar_fundamental"`
+	StatusEscolarMedio *string `json:"status_escolar_medio"`
 	StatusSuperior *string `json:"status_superior"`
 }
 
@@ -259,7 +260,8 @@ type CadastroEstudanteAcademiaRequest struct {
 	AnoSuperior string `json:"ano_superior"`
 	CursoMedioID string `json:"curso_medio_id"`
 	CursoSuperiorID string `json:"curso_superior_id"`
-	StatusEscolar string `json:"status_escolar"`
+	StatusEscolarFundamental *string `json:"status_escolar_fundamental"`
+	StatusEscolarMedio *string `json:"status_escolar_medio"`
 	StatusSuperior string `json:"status_superior"`
 	Genero string `json:"genero"  binding:"required"`
 }
@@ -331,7 +333,7 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 
 	var emailPtr, telefonePtr, bilhetePtr, bilheteRespPtr *string
 	var anoEscolarPtr, anoSuperiorPtr *string
-	var statusEscolarPtr, statusSuperiorPtr *string
+	var statusEscolarFundamentalPtr, statusEscolarMedioPtr, statusSuperiorPtr *string
 
 	if req.Email != "" {
 		emailPtr = &req.Email
@@ -351,11 +353,17 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 	if req.AnoSuperior != "" {
 		anoSuperiorPtr = &req.AnoSuperior
 	}
-	if req.StatusEscolar != "" {
-		statusEscolarPtr = &req.StatusEscolar
+	if *req.StatusEscolarFundamental != "" {
+		statusEscolarFundamentalPtr = &req.StatusEscolarFundamental
 	} else {
 		defaultStatus := "em_andamento"
-		statusEscolarPtr = &defaultStatus
+		statusEscolarFundamentalPtr = &defaultStatus
+	}
+	if *req.StatusEscolarMedio != "" {
+		statusEscolarMedioPtr = &req.StatusEscolarMedio
+	} else {
+		defaultStatus := "em_andamento"
+		statusEscolarMedioPtr = &defaultStatus
 	}
 	if req.StatusSuperior != "" {
 		statusSuperiorPtr = &req.StatusSuperior
