@@ -340,6 +340,61 @@ func (e *Estudante) AtualizarDadosAcademicos(anoEscolar *string, anoSuperior *st
 	return e.Apply(event)
 }
 
+func (e *Estudante) RegistrarFalta(codigoAcademia string, anoLectivo string, data time.Time, materiaDisciplinarID uuid.UUID, quantidade int, observacao *string) error {
+	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
+		return fmt.Errorf("estudante não pertence a esta academia")
+	}
+
+	if quantidade <= 0 {
+		return fmt.Errorf("quantidade deve ser maior que zero")
+	}
+
+	event := &FaltasRegistradasEvent{
+		BaseEvent:            BaseEvent{EventType: "FaltasRegistradas", AggregateID: e.ID},
+		CodigoEstudante:      e.CodigoEstudante,
+		CodigoAcademia:       codigoAcademia,
+		AnoLectivo:           anoLectivo,
+		Data:                 data,
+		MateriaDisciplinarID: materiaDisciplinarID,
+		Quantidade:           quantidade,
+		Observacao:           observacao,
+		RegisteredAt:         time.Now(),
+	}
+
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
+func (e *Estudante) SolicitarInscricao(codigoAcademia string, tipo string, anoInscricao string, cursoID *uuid.UUID) error {
+	if tipo != "escola" && tipo != "universidade" {
+		return fmt.Errorf("tipo deve ser 'escola' ou 'universidade'")
+	}
+
+	if e.CodigoAcademia != nil && *e.CodigoAcademia == codigoAcademia {
+		return fmt.Errorf("você já está matriculado nesta academia")
+	}
+
+	for _, inscricao := range e.Inscricoes {
+		if inscricao.CodigoAcademia == codigoAcademia && inscricao.Status == "espera" {
+			return fmt.Errorf("você já possui uma inscrição pendente nesta academia")
+		}
+	}
+
+	inscricaoID := uuid.New()
+	event := &EstudanteInscritoEvent{
+		BaseEvent:      BaseEvent{EventType: "EstudanteInscrito", AggregateID: e.ID},
+		InscricaoID:    inscricaoID,
+		CodigoAcademia: codigoAcademia,
+		Tipo:           tipo,
+		AnoInscricao:   anoInscricao,
+		CursoID:        cursoID,
+		CreatedAt:      time.Now(),
+	}
+
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
 func (e *Estudante) AlterarCurso(cursoID uuid.UUID, tipoEnsino string) error {
 	if tipoEnsino != "medio" && tipoEnsino != "superior" {
 		return fmt.Errorf("tipo_ensino deve ser 'medio' ou 'superior'")
