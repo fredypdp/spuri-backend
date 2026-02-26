@@ -1,3 +1,7 @@
+// ============================================================================
+// ARQUIVO: internal/handlers/auth_handlers.go
+// ============================================================================
+
 package handlers
 
 import (
@@ -16,23 +20,20 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// ============================================================================
+// Login
+// ============================================================================
+
 type LoginRequest struct {
 	Usuario string `json:"usuario" binding:"required"`
 	Senha   string `json:"senha" binding:"required"`
 	Type    string `json:"type" binding:"required"`
 }
 
-type LoginResponse struct {
-	Token  string    `json:"token"`
-	ID     uuid.UUID `json:"id"`
-	Nome   string    `json:"nome"`
-	Type   string    `json:"type"`
-}
-
 func Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("usuário, senha e tipo são obrigatórios"))
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
@@ -47,6 +48,7 @@ func Login(c *gin.Context) {
 	var userID uuid.UUID
 	var userName string
 	var senhaHash string
+	var codigo string
 
 	if req.Type == "academia" {
 		academia, err := academiaProj.GetByCodigoOrEmail(req.Usuario)
@@ -58,11 +60,10 @@ func Login(c *gin.Context) {
 			utils.RespondWithUnauthorizedError(c)
 			return
 		}
-
 		userID = academia.ID
 		userName = academia.Nome
 		senhaHash = academia.SenhaHash
-
+		codigo = academia.CodigoAcademia
 	} else {
 		estudante, err := estudanteProj.GetByCodigo(req.Usuario)
 		if err != nil {
@@ -73,10 +74,10 @@ func Login(c *gin.Context) {
 			utils.RespondWithUnauthorizedError(c)
 			return
 		}
-
 		userID = estudante.ID
 		userName = estudante.Nome
 		senhaHash = estudante.SenhaHash
+		codigo = estudante.CodigoEstudante
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(senhaHash), []byte(req.Senha)); err != nil {
@@ -90,19 +91,6 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	var codigo string
-	if req.Type == "academia" {
-		academiaDTO, _ := academiaProj.GetByCodigoOrEmail(req.Usuario)
-		if academiaDTO != nil {
-			codigo = academiaDTO.CodigoAcademia
-		}
-	} else {
-		estudanteDTO, _ := estudanteProj.GetByCodigo(req.Usuario)
-		if estudanteDTO != nil {
-			codigo = estudanteDTO.CodigoEstudante
-		}
-	}
-
 	log.Printf("Login bem-sucedido: %s (%s)", userName, req.Type)
 
 	c.JSON(http.StatusOK, gin.H{
@@ -112,6 +100,10 @@ func Login(c *gin.Context) {
 		"type":   req.Type,
 	})
 }
+
+// ============================================================================
+// RegisterAcademia
+// ============================================================================
 
 type RegisterAcademiaRequest struct {
 	Type           string   `json:"type" binding:"required"`
@@ -128,7 +120,7 @@ type RegisterAcademiaRequest struct {
 func RegisterAcademia(c *gin.Context) {
 	var req RegisterAcademiaRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: type, nome, senha, província e endereço"))
+		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: type, nome, provincia e endereco"))
 		return
 	}
 
@@ -163,18 +155,12 @@ func RegisterAcademia(c *gin.Context) {
 
 	if req.Type == "escola" {
 		if req.NivelEscolar == nil {
-			utils.RespondWithValidationError(c, fmt.Errorf("nível escolar é obrigatório para escolas"))
+			utils.RespondWithValidationError(c, fmt.Errorf("nivel_escolar é obrigatório para escolas"))
 			return
 		}
-		
-		validNiveis := map[string]bool{
-			"fundamental": true,
-			"medio":       true,
-			"misto":       true,
-		}
-		
+		validNiveis := map[string]bool{"fundamental": true, "medio": true, "misto": true}
 		if !validNiveis[*req.NivelEscolar] {
-			utils.RespondWithValidationError(c, fmt.Errorf("nível escolar deve ser 'fundamental', 'medio' ou 'misto'"))
+			utils.RespondWithValidationError(c, fmt.Errorf("nivel_escolar deve ser 'fundamental', 'medio' ou 'misto'"))
 			return
 		}
 	}
@@ -234,36 +220,183 @@ func RegisterAcademia(c *gin.Context) {
 	})
 }
 
+// ============================================================================
+// RegisterEstudante (auto-cadastro pelo próprio estudante)
+// ============================================================================
+
 type RegisterEstudanteRequest struct {
-	Senha string `json:"senha" binding:"required"`
-	Nome string `json:"nome" binding:"required"`
-	Email *string `json:"email"`
-	Telefone *string `json:"telefone"`
-	BilheteIdentidade *string `json:"bilhete_identidade"`
-	BilheteIdentidadeResp *string `json:"bilhete_identidade_responsavel"`
-	AnoEscolar *string `json:"ano_escolar"`
-	AnoSuperior *string `json:"ano_superior"`
-	CursoMedioID *uuid.UUID `json:"curso_medio_id"`
-	CursoSuperiorID *uuid.UUID `json:"curso_superior_id"`
-	StatusEscolarFundamental *string `json:"status_escolar_fundamental"`
-	StatusEscolarMedio *string `json:"status_escolar_medio"`
-	StatusSuperior *string `json:"status_superior"`
+	Senha                    string     `json:"senha" binding:"required"`
+	Nome                     string     `json:"nome" binding:"required"`
+	Email                    *string    `json:"email"`
+	Telefone                 *string    `json:"telefone"`
+	BilheteIdentidade        *string    `json:"bilhete_identidade"`
+	BilheteIdentidadeResp    *string    `json:"bilhete_identidade_responsavel"`
+	AnoEscolar               *string    `json:"ano_escolar"`
+	AnoSuperior              *string    `json:"ano_superior"`
+	CursoMedioID             *uuid.UUID `json:"curso_medio_id"`
+	CursoSuperiorID          *uuid.UUID `json:"curso_superior_id"`
+	StatusEscolarFundamental *string    `json:"status_escolar_fundamental"`
+	StatusEscolarMedio       *string    `json:"status_escolar_medio"`
+	StatusSuperior           *string    `json:"status_superior"`
+	Genero                   string     `json:"genero" binding:"required"`
 }
 
+func RegisterEstudante(c *gin.Context) {
+	var req RegisterEstudanteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if err := utils.ValidateNome(req.Nome); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if err := utils.ValidateSenha(req.Senha); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if req.Email != nil {
+		if err := utils.ValidateEmail(*req.Email); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+	}
+
+	if req.Telefone != nil {
+		if err := utils.ValidatePhone(*req.Telefone); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+	}
+
+	if err := utils.ValidateBilhete(utils.SafeDeref(req.BilheteIdentidade)); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if err := utils.ValidateBilhete(utils.SafeDeref(req.BilheteIdentidadeResp)); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if req.BilheteIdentidade == nil && req.BilheteIdentidadeResp == nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("pelo menos um bilhete de identidade é obrigatório"))
+		return
+	}
+
+	if req.BilheteIdentidade != nil && *req.BilheteIdentidade != "" {
+		estudanteProj := getEstudanteProjection(c)
+		existente, err := estudanteProj.GetByBilheteIdentidadePrincipal(*req.BilheteIdentidade)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		if existente != nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("bilhete de identidade já cadastrado"))
+			return
+		}
+	}
+
+	if req.CursoMedioID != nil && *req.CursoMedioID != uuid.Nil {
+		cursosProj := getCursosProjection(c)
+		curso, _ := cursosProj.GetByID(*req.CursoMedioID)
+		if curso == nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("curso_medio_id não encontrado"))
+			return
+		}
+		if curso.Type != "medio" {
+			utils.RespondWithValidationError(c, fmt.Errorf("curso_medio_id deve ser do tipo 'medio'"))
+			return
+		}
+	}
+
+	if req.CursoSuperiorID != nil && *req.CursoSuperiorID != uuid.Nil {
+		cursosProj := getCursosProjection(c)
+		curso, _ := cursosProj.GetByID(*req.CursoSuperiorID)
+		if curso == nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("curso_superior_id não encontrado"))
+			return
+		}
+		if curso.Type != "superior" {
+			utils.RespondWithValidationError(c, fmt.Errorf("curso_superior_id deve ser do tipo 'superior'"))
+			return
+		}
+	}
+
+	client := getDbClient(c)
+	codigoEstudante, err := utils.GenerateUniqueCodigoEstudante(client.DB())
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Senha), bcrypt.DefaultCost)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	repository := getRepository(c)
+	estudante := aggregates.NewEstudante()
+
+	if err := estudante.Criar(
+		req.Nome,
+		codigoEstudante,
+		string(hashedPassword),
+		req.Email,
+		req.Telefone,
+		req.BilheteIdentidade,
+		req.BilheteIdentidadeResp,
+		req.AnoEscolar,
+		req.AnoSuperior,
+		req.CursoMedioID,
+		req.CursoSuperiorID,
+		req.StatusEscolarFundamental,
+		req.StatusEscolarMedio,
+		req.StatusSuperior,
+		req.Genero,
+	); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if err := repository.Save(estudante); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	log.Printf("Estudante criado: %s - %s", codigoEstudante, req.Nome)
+
+	c.JSON(http.StatusCreated, gin.H{
+		"message": "estudante criado com sucesso",
+		"data": gin.H{
+			"id":               estudante.ID,
+			"codigo_estudante": codigoEstudante,
+		},
+	})
+}
+
+// ============================================================================
+// RegisterEstudantePorAcademia (cadastro pela academia)
+// ============================================================================
+
 type CadastroEstudanteAcademiaRequest struct {
-	Nome string `json:"nome" binding:"required"`
-	Email string `json:"email"`
-	Telefone string `json:"telefone"`
-	BilheteIdentidade string `json:"bilhete_identidade"`
-	BilheteResponsavel string `json:"bilhete_identidade_responsavel"`
-	AnoEscolar string `json:"ano_escolar"`
-	AnoSuperior string `json:"ano_superior"`
-	CursoMedioID string `json:"curso_medio_id"`
-	CursoSuperiorID string `json:"curso_superior_id"`
-	StatusEscolarFundamental *string `json:"status_escolar_fundamental"`
-	StatusEscolarMedio *string `json:"status_escolar_medio"`
-	StatusSuperior string `json:"status_superior"`
-	Genero string `json:"genero"  binding:"required"`
+	Nome                     string `json:"nome" binding:"required"`
+	Email                    string `json:"email"`
+	Telefone                 string `json:"telefone"`
+	BilheteIdentidade        string `json:"bilhete_identidade"`
+	BilheteResponsavel       string `json:"bilhete_identidade_responsavel"`
+	AnoEscolar               string `json:"ano_escolar"`
+	AnoSuperior              string `json:"ano_superior"`
+	CursoMedioID             string `json:"curso_medio_id"`
+	CursoSuperiorID          string `json:"curso_superior_id"`
+	StatusEscolarFundamental string `json:"status_escolar_fundamental"`
+	StatusEscolarMedio       string `json:"status_escolar_medio"`
+	StatusSuperior           string `json:"status_superior"`
+	Genero                   string `json:"genero" binding:"required"`
 }
 
 func RegisterEstudantePorAcademia(c *gin.Context) {
@@ -272,6 +405,9 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("nome é obrigatório"))
 		return
 	}
+
+	log.Printf("📥 [RegisterEstudantePorAcademia] Nome: %s, AnoEscolar: '%s', CursoMedioID: '%s'",
+		req.Nome, req.AnoEscolar, req.CursoMedioID)
 
 	if err := utils.ValidateNome(req.Nome); err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -299,18 +435,16 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		}
 	}
 
-	if req.BilheteIdentidade != "" && req.BilheteResponsavel != "" {
-		if req.BilheteIdentidade == req.BilheteResponsavel {
-			utils.RespondWithValidationError(c, fmt.Errorf("bilhete do estudante e do responsável não podem ser iguais"))
-			return
-		}
-	}
-
 	if req.BilheteResponsavel != "" {
 		if err := utils.ValidateBilhete(req.BilheteResponsavel); err != nil {
 			utils.RespondWithValidationError(c, err)
 			return
 		}
+	}
+
+	if req.BilheteIdentidade != "" && req.BilheteResponsavel != "" && req.BilheteIdentidade == req.BilheteResponsavel {
+		utils.RespondWithValidationError(c, fmt.Errorf("bilhete do estudante e do responsável não podem ser iguais"))
+		return
 	}
 
 	if req.BilheteIdentidade == "" && req.BilheteResponsavel == "" {
@@ -326,51 +460,21 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 			return
 		}
 		if existente != nil {
-			utils.RespondWithConflictError(c, "Bilhete de identidade já cadastrado no sistema")
+			utils.RespondWithValidationError(c, fmt.Errorf("bilhete de identidade já cadastrado no sistema"))
 			return
 		}
 	}
 
-	var emailPtr, telefonePtr, bilhetePtr, bilheteRespPtr *string
+	// Converter strings para ponteiros
 	var anoEscolarPtr, anoSuperiorPtr *string
-	var statusEscolarFundamentalPtr, statusEscolarMedioPtr, statusSuperiorPtr *string
+	var cursoMedioUUID, cursoSuperiorUUID *uuid.UUID
 
-	if req.Email != "" {
-		emailPtr = &req.Email
-	}
-	if req.Telefone != "" {
-		telefonePtr = &req.Telefone
-	}
-	if req.BilheteIdentidade != "" {
-		bilhetePtr = &req.BilheteIdentidade
-	}
-	if req.BilheteResponsavel != "" {
-		bilheteRespPtr = &req.BilheteResponsavel
-	}
 	if req.AnoEscolar != "" {
 		anoEscolarPtr = &req.AnoEscolar
 	}
 	if req.AnoSuperior != "" {
 		anoSuperiorPtr = &req.AnoSuperior
 	}
-	if *req.StatusEscolarFundamental != "" {
-		statusEscolarFundamentalPtr = &req.StatusEscolarFundamental
-	} else {
-		defaultStatus := "em_andamento"
-		statusEscolarFundamentalPtr = &defaultStatus
-	}
-	if *req.StatusEscolarMedio != "" {
-		statusEscolarMedioPtr = &req.StatusEscolarMedio
-	} else {
-		defaultStatus := "em_andamento"
-		statusEscolarMedioPtr = &defaultStatus
-	}
-	if req.StatusSuperior != "" {
-		statusSuperiorPtr = &req.StatusSuperior
-	}
-
-	var cursoMedioUUID *uuid.UUID
-	var cursoSuperiorUUID *uuid.UUID
 
 	if req.CursoMedioID != "" {
 		parsed, err := uuid.Parse(req.CursoMedioID)
@@ -383,7 +487,7 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		cursosProj := getCursosProjection(c)
 		curso, _ := cursosProj.GetByID(parsed)
 		if curso == nil {
-			utils.RespondWithNotFoundError(c, "curso médio")
+			utils.RespondWithValidationError(c, fmt.Errorf("curso_medio_id não encontrado"))
 			return
 		}
 		if curso.Type != "medio" {
@@ -403,50 +507,12 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		cursosProj := getCursosProjection(c)
 		curso, _ := cursosProj.GetByID(parsed)
 		if curso == nil {
-			utils.RespondWithNotFoundError(c, "curso superior")
+			utils.RespondWithValidationError(c, fmt.Errorf("curso_superior_id não encontrado"))
 			return
 		}
 		if curso.Type != "superior" {
 			utils.RespondWithValidationError(c, fmt.Errorf("curso_superior_id deve ser do tipo 'superior'"))
 			return
-		}
-	}
-
-	if req.CursoMedioID != "" && req.AnoEscolar != "" {
-		parsed, _ := uuid.Parse(req.CursoMedioID)
-		cursosProj := getCursosProjection(c)
-		curso, _ := cursosProj.GetByID(parsed)
-		if curso != nil {
-			anoValido := false
-			for _, nivelCurso := range curso.Nivel {
-				if nivelCurso == req.AnoEscolar {
-					anoValido = true
-					break
-				}
-			}
-			if !anoValido {
-				utils.RespondWithValidationError(c, fmt.Errorf("ano escolar '%s' não existe no curso selecionado", req.AnoEscolar))
-				return
-			}
-		}
-	}
-
-	if req.CursoSuperiorID != "" && req.AnoSuperior != "" {
-		parsed, _ := uuid.Parse(req.CursoSuperiorID)
-		cursosProj := getCursosProjection(c)
-		curso, _ := cursosProj.GetByID(parsed)
-		if curso != nil {
-			anoValido := false
-			for _, nivelCurso := range curso.Nivel {
-				if nivelCurso == req.AnoSuperior {
-					anoValido = true
-					break
-				}
-			}
-			if !anoValido {
-				utils.RespondWithValidationError(c, fmt.Errorf("ano superior '%s' não existe no curso selecionado", req.AnoSuperior))
-				return
-			}
 		}
 	}
 
@@ -463,7 +529,7 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		return
 	}
 	if academia == nil {
-		utils.RespondWithNotFoundError(c, "academia")
+		utils.RespondWithError(c, http.StatusNotFound, "academia não encontrada", nil)
 		return
 	}
 
@@ -474,14 +540,48 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		return
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(codigoEstudante), bcrypt.DefaultCost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte("spuri123"), bcrypt.DefaultCost)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
 
+	// Converter campos opcionais de string para *string
+	var emailPtr, telefonePtr, bilhetePtr, bilheteRespPtr *string
+
+	if req.Email != "" {
+		emailPtr = &req.Email
+	}
+	if req.Telefone != "" {
+		telefonePtr = &req.Telefone
+	}
+	if req.BilheteIdentidade != "" {
+		bilhetePtr = &req.BilheteIdentidade
+	}
+	if req.BilheteResponsavel != "" {
+		bilheteRespPtr = &req.BilheteResponsavel
+	}
+
+	// Status escolar fundamental — default "em_andamento" se academia não especificar
+	var statusFundamentalPtr, statusMedioPtr, statusSuperiorPtr *string
+
+	if req.StatusEscolarFundamental != "" {
+		statusFundamentalPtr = &req.StatusEscolarFundamental
+	} else {
+		defaultStatus := "em_andamento"
+		statusFundamentalPtr = &defaultStatus
+	}
+	if req.StatusEscolarMedio != "" {
+		statusMedioPtr = &req.StatusEscolarMedio
+	}
+	if req.StatusSuperior != "" {
+		statusSuperiorPtr = &req.StatusSuperior
+	}
+
 	repository := getRepository(c)
 	estudante := aggregates.NewEstudante()
+
+	log.Printf("🔧 [RegisterEstudantePorAcademia] AnoEscolar=%v, CursoMedioID=%v", anoEscolarPtr, cursoMedioUUID)
 
 	if err := estudante.CriarComVinculo(
 		req.Nome,
@@ -495,7 +595,8 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		anoSuperiorPtr,
 		cursoMedioUUID,
 		cursoSuperiorUUID,
-		statusEscolarPtr,
+		statusFundamentalPtr,
+		statusMedioPtr,
 		statusSuperiorPtr,
 		academia.CodigoAcademia,
 		req.Genero,
@@ -509,7 +610,8 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Estudante cadastrado: %s (academia: %s)", codigoEstudante, academia.CodigoAcademia)
+	log.Printf("✅ [RegisterEstudantePorAcademia] Estudante criado: %s - AnoEscolar: %v, CursoMedioID: %v",
+		codigoEstudante, anoEscolarPtr, cursoMedioUUID)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "estudante cadastrado e vinculado com sucesso",
@@ -518,9 +620,15 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 			"codigo_estudante": codigoEstudante,
 			"codigo_academia":  academia.CodigoAcademia,
 			"status":           "ativo",
+			"ano_escolar":      anoEscolarPtr,
+			"curso_medio_id":   cursoMedioUUID,
 		},
 	})
 }
+
+// ============================================================================
+// Helpers
+// ============================================================================
 
 func validarProvincia(provincia string) (string, error) {
 	provinciaInput := strings.ToUpper(strings.TrimSpace(provincia))
@@ -552,14 +660,12 @@ func validarProvincia(provincia string) (string, error) {
 	if code, ok := provinciaMap[provinciaInput]; ok {
 		return code, nil
 	}
-
 	return "", fmt.Errorf("província inválida: '%s'", provincia)
 }
 
 func generateCodigoAcademia(codigoProvincia string, db *sqlx.DB) (string, error) {
 	ano := time.Now().Year()
 
-	// Conta todas as academias criadas no ano corrente (qualquer província)
 	var count int
 	query := fmt.Sprintf(
 		`SELECT COUNT(*) FROM projection_academias WHERE codigo_academia ~ '^[A-Z]{3}%d[0-9]+$'`,

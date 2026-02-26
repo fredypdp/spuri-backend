@@ -297,13 +297,6 @@ type AdminCriadoEvent struct {
 
 func (e *AdminCriadoEvent) GetPayload() interface{} { return e }
 
-type EmailVerificadoEvent struct {
-	BaseEvent
-	VerifiedAt time.Time
-}
-
-func (e *EmailVerificadoEvent) GetPayload() interface{} { return e }
-
 type AdminAtivadoEvent struct {
 	BaseEvent
 	ActivatedBy uuid.UUID
