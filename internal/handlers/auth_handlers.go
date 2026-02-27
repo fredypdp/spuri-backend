@@ -6,6 +6,7 @@ package handlers
 
 import (
 	"fmt"
+	"hash/fnv"
 	"log"
 	"net/http"
 	"spuri/internal/domain/aggregates"
