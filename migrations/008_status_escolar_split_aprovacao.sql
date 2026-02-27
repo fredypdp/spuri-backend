@@ -1,6 +1,7 @@
 -- ============================================
 -- MIGRATION 008 - Split status_escolar + Aprovação revisada
 -- Anos dinâmicos por curso, aprovação manual pela academia
+-- CORRIGIDA: dropa views dependentes antes de dropar status_escolar
 -- ============================================
 
 BEGIN;
@@ -18,9 +19,12 @@ ALTER TABLE projection_estudantes
         CHECK (status_escolar_medio IN ('inativo', 'em_andamento', 'finalizado'));
 
 -- Migrar dados existentes: status_escolar atual vai para fundamental
--- (comportamento conservador; admin pode ajustar depois)
 UPDATE projection_estudantes
 SET status_escolar_fundamental = status_escolar;
+
+-- Dropar views dependentes ANTES de remover a coluna
+DROP VIEW IF EXISTS v_estudante_completo CASCADE;
+DROP VIEW IF EXISTS v_estudantes_com_cursos CASCADE;
 
 -- Remover coluna antiga
 ALTER TABLE projection_estudantes
@@ -38,18 +42,15 @@ CREATE INDEX IF NOT EXISTS idx_estudante_status_medio ON projection_estudantes(s
 -- 2. Reestruturar projection_aprovacao_ano
 -- ============================================
 
--- Remover constraint única: aprovação agora é log auditável (N registros por ano)
 ALTER TABLE projection_aprovacao_ano
     DROP CONSTRAINT IF EXISTS projection_aprovacao_ano_codigo_estudante_codigo_academia_ano_key;
 
--- Renomear colunas para refletir nova semântica
 ALTER TABLE projection_aprovacao_ano
-    RENAME COLUMN avancar_ano   TO aprovado;
+    RENAME COLUMN avancar_ano TO aprovado;
 
 ALTER TABLE projection_aprovacao_ano
     RENAME COLUMN nivel_seguinte TO proximo_nivel;
 
--- Adicionar tipo_ensino
 ALTER TABLE projection_aprovacao_ano
     ADD COLUMN IF NOT EXISTS tipo_ensino VARCHAR(20)
         NOT NULL DEFAULT 'fundamental'
@@ -69,13 +70,13 @@ CREATE INDEX IF NOT EXISTS idx_aprovacao_tipo_ensino ON projection_aprovacao_ano
 CREATE INDEX IF NOT EXISTS idx_aprovacao_aprovado     ON projection_aprovacao_ano(aprovado);
 
 -- ============================================
--- 3. Remover função de próximo nível (anos agora são dinâmicos por curso)
+-- 3. Remover função de próximo nível
 -- ============================================
 
 DROP FUNCTION IF EXISTS get_proximo_nivel(VARCHAR, VARCHAR);
 
 -- ============================================
--- 4. Atualizar views
+-- 4. Recriar views
 -- ============================================
 
 DROP VIEW IF EXISTS v_aprovacoes_completas;
@@ -98,8 +99,6 @@ FROM projection_aprovacao_ano a
 LEFT JOIN projection_estudantes e  ON a.codigo_estudante = e.codigo_estudante
 LEFT JOIN projection_academias  ac ON a.codigo_academia  = ac.codigo_academia;
 
--- Atualizar view de estudantes para novos status
-DROP VIEW IF EXISTS v_estudantes_com_cursos;
 CREATE OR REPLACE VIEW v_estudantes_com_cursos AS
 SELECT
     e.id,
@@ -123,6 +122,14 @@ SELECT
 FROM projection_estudantes e
 LEFT JOIN projection_cursos cm ON e.curso_medio_id   = cm.id
 LEFT JOIN projection_cursos cs ON e.curso_superior_id = cs.id;
+
+CREATE OR REPLACE VIEW v_estudante_completo AS
+SELECT
+    e.*,
+    (SELECT json_agg(n.*) FROM projection_notas n WHERE n.codigo_estudante = e.codigo_estudante) AS notas,
+    (SELECT json_agg(f.*) FROM projection_faltas f WHERE f.codigo_estudante = e.codigo_estudante) AS faltas,
+    (SELECT json_agg(i.*) FROM projection_inscricoes i WHERE i.estudante_id = e.id) AS inscricoes
+FROM projection_estudantes e;
 
 COMMIT;
 

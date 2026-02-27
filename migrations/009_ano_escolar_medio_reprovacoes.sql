@@ -6,11 +6,6 @@ BEGIN;
 
 -- ============================================================================
 -- 1. Adicionar ano_escolar_medio à projeção de estudantes
---
--- MOTIVO: O campo ano_escolar era (incorretamente) usado para fundamental E
---   médio ao mesmo tempo. Agora são campos distintos:
---     ano_escolar       → ano atual no ciclo fundamental
---     ano_escolar_medio → ano atual no ciclo médio
 -- ============================================================================
 
 ALTER TABLE projection_estudantes
@@ -23,50 +18,30 @@ COMMENT ON COLUMN projection_estudantes.ano_escolar_medio IS
 
 -- ============================================================================
 -- 2. Criar tabela dedicada de reprovações (log explícito)
---
--- MOTIVO: O requisito pede registro explícito de reprovações.
---   projection_aprovacao_ano já armazena reprovações (aprovado=false),
---   mas uma tabela dedicada facilita queries, auditorias e relatórios
---   sem depender de filtro na tabela unificada.
---
---   IMPORTANTE: Não remove projection_aprovacao_ano — ambas coexistem.
---   A projeção de aprovação continua sendo o log completo (aprovados + reprovados).
---   projection_reprovacoes é uma view materializada explícita das reprovações.
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS projection_reprovacoes (
-    id               UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
-
-    -- Referência ao evento de origem (rastreabilidade event sourcing)
-    event_id         UUID         NOT NULL,
-
-    -- Identificadores
-    codigo_estudante VARCHAR(7)   NOT NULL,
-    codigo_academia  VARCHAR(50)  NOT NULL,
-
-    -- Dados do ano reprovado
-    ano_lectivo      VARCHAR(20)  NOT NULL,
-    tipo_ensino      VARCHAR(20)  NOT NULL
+    id               UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    codigo_estudante VARCHAR(7)  NOT NULL,
+    codigo_academia  VARCHAR(50) NOT NULL,
+    ano_lectivo      VARCHAR(20) NOT NULL,
+    tipo_ensino      VARCHAR(20) NOT NULL
         CHECK (tipo_ensino IN ('fundamental', 'medio', 'superior')),
-    nivel_reprovado  VARCHAR(100) NOT NULL,
-
-    -- Justificativa (opcional, preenchida pela academia)
+    nivel_reprovado  VARCHAR(50) NOT NULL,
     observacao       TEXT,
-
-    -- Metadados
-    registered_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    version          INTEGER      NOT NULL DEFAULT 0
+    registered_at    TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    event_id         UUID        NOT NULL,
+    version          INTEGER     NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_reprovacoes_estudante   ON projection_reprovacoes(codigo_estudante);
-CREATE INDEX IF NOT EXISTS idx_reprovacoes_academia    ON projection_reprovacoes(codigo_academia);
-CREATE INDEX IF NOT EXISTS idx_reprovacoes_tipo_ensino ON projection_reprovacoes(tipo_ensino);
-CREATE INDEX IF NOT EXISTS idx_reprovacoes_ano         ON projection_reprovacoes(ano_lectivo);
+CREATE INDEX IF NOT EXISTS idx_reprov_estudante ON projection_reprovacoes(codigo_estudante);
+CREATE INDEX IF NOT EXISTS idx_reprov_academia  ON projection_reprovacoes(codigo_academia);
+CREATE INDEX IF NOT EXISTS idx_reprov_ano       ON projection_reprovacoes(ano_lectivo);
+CREATE INDEX IF NOT EXISTS idx_reprov_tipo      ON projection_reprovacoes(tipo_ensino);
 
 COMMENT ON TABLE projection_reprovacoes IS
-    'Log explícito de reprovações. Complementa projection_aprovacao_ano (aprovado=false).';
+    'Log de reprovações por ano letivo. Complementa projection_aprovacao_ano (aprovado=false).';
 
--- Checkpoint para a nova projeção
 INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at)
 VALUES ('reprovacoes', 0, CURRENT_TIMESTAMP)
 ON CONFLICT (projection_name) DO NOTHING;
@@ -102,7 +77,20 @@ LEFT JOIN projection_cursos cm ON e.curso_medio_id   = cm.id
 LEFT JOIN projection_cursos cs ON e.curso_superior_id = cs.id;
 
 -- ============================================================================
--- 4. View de reprovações completas
+-- 4. Recriar v_estudante_completo (depende de v_estudantes_com_cursos)
+-- ============================================================================
+
+DROP VIEW IF EXISTS v_estudante_completo;
+CREATE OR REPLACE VIEW v_estudante_completo AS
+SELECT
+    e.*,
+    (SELECT json_agg(n.*) FROM projection_notas n WHERE n.codigo_estudante = e.codigo_estudante) AS notas,
+    (SELECT json_agg(f.*) FROM projection_faltas f WHERE f.codigo_estudante = e.codigo_estudante) AS faltas,
+    (SELECT json_agg(i.*) FROM projection_inscricoes i WHERE i.estudante_id = e.id) AS inscricoes
+FROM projection_estudantes e;
+
+-- ============================================================================
+-- 5. View de reprovações completas
 -- ============================================================================
 
 CREATE OR REPLACE VIEW v_reprovacoes_completas AS
@@ -122,11 +110,9 @@ LEFT JOIN projection_estudantes e  ON r.codigo_estudante = e.codigo_estudante
 LEFT JOIN projection_academias  ac ON r.codigo_academia  = ac.codigo_academia;
 
 -- ============================================================================
--- 5. Adicionar projection_reprovacoes à whitelist de ValidateTableName
---    (ajustar em internal/db/safe_queries.go)
--- ============================================================================
 -- INSTRUÇÃO: Em internal/db/safe_queries.go, adicionar à validTables:
 --   "projection_reprovacoes": true,
+-- ============================================================================
 
 COMMIT;
 

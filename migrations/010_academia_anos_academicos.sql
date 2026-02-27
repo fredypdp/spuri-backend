@@ -1,9 +1,6 @@
 -- ============================================================================
 -- MIGRATION 010 - AnosAcademicos na Academia
---
--- MOTIVO: Escolas do tipo fundamental/misto precisam declarar quais anos do
--- fundamental oferecem (subconjunto de 1º–9º). Esse campo é obrigatório para
--- nivel_escolar IN ('fundamental', 'misto') e proibido para 'medio' e 'superior'.
+-- CORRIGIDA: preenche anos_academicos nas academias existentes antes da constraint
 -- ============================================================================
 
 BEGIN;
@@ -16,10 +13,24 @@ COMMENT ON COLUMN projection_academias.anos_academicos IS
     'Obrigatório para nivel_escolar IN (''fundamental'', ''misto''). '
     'Exemplo: ["primeiro_fundamental","segundo_fundamental","terceiro_fundamental"]';
 
--- Constraint: anos_academicos obrigatório para fundamental/misto, NULL para o resto
+-- Preencher academias fundamental/misto existentes com array vazio
+-- para não violar a constraint NOT NULL que será adicionada abaixo.
+-- O admin deve atualizar os valores corretos depois.
+UPDATE projection_academias
+SET anos_academicos = '[]'::jsonb
+WHERE nivel_escolar IN ('fundamental', 'misto')
+  AND anos_academicos IS NULL;
+
+-- Constraint: anos_academicos obrigatório (NOT NULL) para fundamental/misto
+-- Versão permissiva: aceita array vazio para não bloquear dados existentes.
+-- Se quiser obrigar array não-vazio, troque para:
+--   AND jsonb_array_length(anos_academicos) > 0
+ALTER TABLE projection_academias
+    DROP CONSTRAINT IF EXISTS check_anos_academicos_nivel;
+
 ALTER TABLE projection_academias
     ADD CONSTRAINT check_anos_academicos_nivel CHECK (
-        (nivel_escolar IN ('fundamental', 'misto') AND anos_academicos IS NOT NULL AND jsonb_array_length(anos_academicos) > 0)
+        (nivel_escolar IN ('fundamental', 'misto') AND anos_academicos IS NOT NULL)
         OR
         (nivel_escolar NOT IN ('fundamental', 'misto') OR nivel_escolar IS NULL)
     );
