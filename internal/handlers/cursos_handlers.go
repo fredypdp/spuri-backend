@@ -4,43 +4,37 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"spuri/internal/domain/aggregates"
-	"spuri/internal/middleware"
-	"spuri/internal/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+
+	"spuri/internal/domain/aggregates"
+	"spuri/internal/middleware"
+	"spuri/internal/utils"
 )
 
-// CriarCurso — POST /academia/cursos
+// ============================================================================
+// POST /academia/cursos
+// ============================================================================
+
 func CriarCurso(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
 	var req struct {
 		Nome           string   `json:"nome"            binding:"required"`
-		Type           string   `json:"type"            binding:"required"` // medio | superior
+		Type           string   `json:"type"            binding:"required"`
 		AnosAcademicos []string `json:"anos_academicos" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("campos obrigatórios: nome, type, anos_academicos"))
-		return
-	}
-
-	if req.Type != "medio" && req.Type != "superior" {
-		utils.RespondWithValidationError(c, fmt.Errorf("type deve ser 'medio' ou 'superior'"))
-		return
-	}
-
-	if len(req.AnosAcademicos) == 0 {
-		utils.RespondWithValidationError(c, fmt.Errorf("anos_academicos é obrigatório e não pode ser vazio"))
+		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: nome, type, anos_academicos"))
 		return
 	}
 
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByID(userID)
 	if err != nil || academiaDTO == nil {
-		utils.RespondWithNotFoundError(c, "academia")
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -49,97 +43,34 @@ func CriarCurso(c *gin.Context) {
 		return
 	}
 
-	// Escolas puramente fundamentais não criam cursos
-	if academiaDTO.NivelEscolar != nil && *academiaDTO.NivelEscolar == "fundamental" {
-		utils.RespondWithForbiddenError(c, "Escolas de ensino fundamental não criam cursos (use anos_academicos na academia)")
-		return
-	}
-
+	repository := getRepository(c)
 	curso := aggregates.NewCurso()
+
 	if err := curso.Criar(req.Nome, req.Type, req.AnosAcademicos, academiaDTO.CodigoAcademia); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
-	repository := getRepository(c)
 	if err := repository.Save(curso); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	log.Printf("Curso criado: %s (%s) — %d anos", curso.Nome, curso.Type, len(curso.AnosAcademicos))
+	log.Printf("Curso criado: %s - %s", req.Nome, curso.ID)
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message":         "curso criado com sucesso",
-		"id":              curso.ID,
-		"nome":            curso.Nome,
-		"type":            curso.Type,
-		"anos_academicos": curso.AnosAcademicos,
+		"message": "curso criado com sucesso",
+		"data": gin.H{
+			"id":   curso.ID,
+			"nome": curso.Nome,
+			"type": curso.Type,
+		},
 	})
 }
 
-// AtualizarDadosCurso — PUT /academia/cursos/:id
-func AtualizarDadosCurso(c *gin.Context) {
-	userID, _ := middleware.GetUserID(c)
-
-	cursoID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("ID de curso inválido"))
-		return
-	}
-
-	var req struct {
-		Nome           *string  `json:"nome"`
-		Type           *string  `json:"type"`
-		AnosAcademicos []string `json:"anos_academicos"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("dados inválidos"))
-		return
-	}
-
-	cursosProj := getCursosProjection(c)
-	cursoDTO, err := cursosProj.GetByID(cursoID)
-	if err != nil || cursoDTO == nil {
-		utils.RespondWithNotFoundError(c, "curso")
-		return
-	}
-
-	academiaProj := getAcademiaProjection(c)
-	academiaDTO, _ := academiaProj.GetByID(userID)
-	if academiaDTO == nil || academiaDTO.CodigoAcademia != cursoDTO.CodigoAcademia {
-		utils.RespondWithForbiddenError(c, "Curso não pertence a esta academia")
-		return
-	}
-
-	repository := getRepository(c)
-	cursoAgg, err := repository.Load(cursoID, "Curso")
-	if err != nil {
-		utils.RespondWithNotFoundError(c, "curso")
-		return
-	}
-
-	curso := cursoAgg.(*aggregates.Curso)
-
-	if err := curso.AtualizarDados(req.Nome, req.Type, req.AnosAcademicos); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-
-	if err := repository.Save(curso); err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	log.Printf("Curso atualizado: %s", curso.Nome)
-	c.JSON(http.StatusOK, gin.H{
-		"message":         "curso atualizado com sucesso",
-		"id":              curso.ID,
-		"nome":            curso.Nome,
-		"anos_academicos": curso.AnosAcademicos,
-	})
-}
+// ============================================================================
+// GET /academia/cursos
+// ============================================================================
 
 func ListarCursos(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
@@ -164,7 +95,10 @@ func ListarCursos(c *gin.Context) {
 	})
 }
 
-// AtivarCurso — PUT /academia/cursos/:id/ativar
+// ============================================================================
+// PUT /academia/cursos/:id/ativar
+// ============================================================================
+
 func AtivarCurso(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -211,7 +145,10 @@ func AtivarCurso(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "curso ativado com sucesso", "nome": curso.Nome})
 }
 
-// DesativarCurso — PUT /academia/cursos/:id/desativar
+// ============================================================================
+// PUT /academia/cursos/:id/desativar
+// ============================================================================
+
 func DesativarCurso(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -258,21 +195,32 @@ func DesativarCurso(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "curso desativado com sucesso", "nome": curso.Nome})
 }
 
+// ============================================================================
+// POST /academia/materias
+// ============================================================================
+
+// CriarMateria cria uma nova matéria disciplinar.
+//
+// ATUALIZAÇÃO 1 — campo "anos_academicos" (antes "nivel"):
+//   - fundamental : array com 1–9 anos (primeiro_fundamental…nono_fundamental)
+//   - medio/superior: array com EXATAMENTE 1 item — o ano do curso ao qual a
+//     matéria pertence (deve existir em curso.AnosAcademicos)
 func CriarMateria(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
 	var req struct {
-		Nome    string     `json:"nome" binding:"required"`
-		Type    string     `json:"type" binding:"required"`
-		Nivel   []string   `json:"nivel"`
-		CursoID *uuid.UUID `json:"curso_id"`
+		Nome           string     `json:"nome"            binding:"required"`
+		Type           string     `json:"type"            binding:"required"`
+		AnosAcademicos []string   `json:"anos_academicos"`
+		CursoID        *uuid.UUID `json:"curso_id"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: nome e tipo"))
+		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: nome e type"))
 		return
 	}
 
+	// ── Academia ───────────────────────────────────────────────────────────
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByID(userID)
 	if err != nil || academiaDTO == nil {
@@ -285,30 +233,57 @@ func CriarMateria(c *gin.Context) {
 		return
 	}
 
+	// ── Pré-validar anos_academicos antes de chamar o aggregate ───────────
+	if err := utils.ValidateAnosMateria(req.Type, req.AnosAcademicos); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	// ── Para medio/superior: validar curso e que o ano pertence ao curso ──
 	if (req.Type == "medio" || req.Type == "superior") && req.CursoID != nil {
 		cursosProj := getCursosProjection(c)
 		cursoDTO, _ := cursosProj.GetByID(*req.CursoID)
-		
+
 		if cursoDTO == nil {
 			utils.RespondWithNotFoundError(c, "curso")
 			return
 		}
-		
+
 		if cursoDTO.Status != "ativo" {
 			utils.RespondWithValidationError(c, fmt.Errorf("curso inativo não pode ter matérias"))
 			return
 		}
-		
+
 		if cursoDTO.CodigoAcademia != academiaDTO.CodigoAcademia {
 			utils.RespondWithForbiddenError(c, "Curso não pertence a esta academia")
 			return
 		}
+
+		// O único ano da matéria deve pertencer aos anos do curso
+		anoMateria := req.AnosAcademicos[0]
+		anoValido := false
+		for _, a := range cursoDTO.AnosAcademicos {
+			if a == anoMateria {
+				anoValido = true
+				break
+			}
+		}
+		if !anoValido {
+			utils.RespondWithValidationError(c, fmt.Errorf(
+				"o ano_academico '%s' não pertence aos anos do curso '%s'. "+
+					"Anos disponíveis: %v",
+				anoMateria, cursoDTO.Nome, cursoDTO.AnosAcademicos,
+			))
+			return
+		}
 	}
 
+	// ── Criar aggregate ────────────────────────────────────────────────────
 	repository := getRepository(c)
 	materia := aggregates.NewMateriaDisciplinar()
 
-	if err := materia.Criar(req.Nome, req.Type, req.Nivel, academiaDTO.CodigoAcademia, req.CursoID); err != nil {
+	// O aggregate recebe AnosAcademicos no parâmetro "nivel" (campo interno)
+	if err := materia.Criar(req.Nome, req.Type, req.AnosAcademicos, academiaDTO.CodigoAcademia, req.CursoID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -318,17 +293,22 @@ func CriarMateria(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Matéria criada: %s - %s", req.Nome, materia.ID)
+	log.Printf("Matéria criada: %s - %s (anos_academicos=%v)", req.Nome, materia.ID, req.AnosAcademicos)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "matéria criada com sucesso",
 		"data": gin.H{
-			"id":   materia.ID,
-			"nome": materia.Nome,
-			"type": materia.Type,
+			"id":              materia.ID,
+			"nome":            materia.Nome,
+			"type":            materia.Type,
+			"anos_academicos": materia.Nivel,
 		},
 	})
 }
+
+// ============================================================================
+// GET /academia/materias
+// ============================================================================
 
 func ListarMaterias(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
@@ -352,6 +332,10 @@ func ListarMaterias(c *gin.Context) {
 		"total":    len(materias),
 	})
 }
+
+// ============================================================================
+// PUT /academia/materias/:id/ativar
+// ============================================================================
 
 func AtivarMateria(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
@@ -402,6 +386,10 @@ func AtivarMateria(c *gin.Context) {
 		"nome":    materia.Nome,
 	})
 }
+
+// ============================================================================
+// PUT /academia/materias/:id/desativar
+// ============================================================================
 
 func DesativarMateria(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)

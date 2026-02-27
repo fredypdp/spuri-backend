@@ -1,12 +1,8 @@
-// ============================================================================
-// ARQUIVO: internal/handlers/docs_handler.go
-// Handler para documentação OpenAPI com Swagger UI
-// ============================================================================
-
 package handlers
 
 import (
 	"net/http"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -54,7 +50,7 @@ func GetSwaggerUI(c *gin.Context) {
     </script>
 </body>
 </html>`
-	
+
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.String(http.StatusOK, html)
 }
@@ -65,301 +61,30 @@ func GetOpenAPISpec(c *gin.Context) {
 		"openapi": "3.0.0",
 		"info": map[string]interface{}{
 			"title":       "Spuri Event Sourcing API",
-			"version":     "3.0.0",
-			"description": "Sistema de gestão acadêmica com Event Sourcing, CQRS e auditoria completa via Ledger imutável",
+			"version":     "3.1.0",
+			"description": "Sistema de gestão académica com Event Sourcing, CQRS e auditoria completa via Ledger imutável.\n\n**v3.1 – Atualização de matérias e registro de notas/faltas:**\n- `anos_academicos` em matérias disciplinares: fundamental (1–9 anos), médio/superior (exatamente 1 ano).\n- `ano_academico` nos registros de nota e falta é inferido automaticamente pelo back end.",
 			"contact": map[string]string{
 				"name": "Fundação Pedro Pires",
-				"url":  "https://fpp.ao",
 			},
 		},
-		"servers": []map[string]string{
-			{"url": "http://localhost:8080", "description": "Desenvolvimento"},
-			{"url": "https://spuri-backend-production.up.railway.app", "description": "Produção (Railway)"},
-			{"url": "https://spuri-backend.onrender.com", "description": "Produção (Render)"},
-		},
-		"tags": []map[string]interface{}{
-			{"name": "Health", "description": "Saúde e status do sistema"},
-			{"name": "Auth", "description": "Autenticação e registro"},
-			{"name": "Email", "description": "Verificação de email e recuperação de senha"},
-			{"name": "Estudante", "description": "Operações de estudantes"},
-			{"name": "Academia", "description": "Operações de academias"},
-			{"name": "Admin", "description": "Operações administrativas"},
-			{"name": "Consultas", "description": "Consultas públicas e protegidas"},
-			{"name": "Event Sourcing", "description": "Verificação de integridade e eventos"},
+		"components": map[string]interface{}{
+			"securitySchemes": map[string]interface{}{
+				"BearerAuth": map[string]interface{}{
+					"type":         "http",
+					"scheme":       "bearer",
+					"bearerFormat": "JWT",
+				},
+			},
 		},
 		"paths": map[string]interface{}{
-			"/health": map[string]interface{}{
-				"get": map[string]interface{}{
-					"tags":        []string{"Health"},
-					"summary":     "Health check básico",
-					"description": "Verifica saúde da aplicação (público)",
-					"responses": map[string]interface{}{
-						"200": map[string]interface{}{
-							"description": "Sistema operacional",
-							"content": map[string]interface{}{
-								"application/json": map[string]interface{}{
-									"schema": map[string]interface{}{
-										"type": "object",
-										"properties": map[string]interface{}{
-											"status":   map[string]string{"type": "string", "example": "ok"},
-											"database": map[string]string{"type": "string", "example": "ok"},
-											"service":  map[string]string{"type": "string", "example": "Spuri Event Sourcing API"},
-											"version":  map[string]string{"type": "string", "example": "3.0.0"},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			"/login": map[string]interface{}{
-				"post": map[string]interface{}{
-					"tags":        []string{"Auth"},
-					"summary":     "Login estudante/academia",
-					"description": "Autentica estudante ou academia e retorna JWT",
-					"requestBody": map[string]interface{}{
-						"required": true,
-						"content": map[string]interface{}{
-							"application/json": map[string]interface{}{
-								"schema": map[string]interface{}{
-									"type": "object",
-									"required": []string{"usuario", "senha", "type"},
-									"properties": map[string]interface{}{
-										"usuario": map[string]interface{}{
-											"type":        "string",
-											"description": "codigo_estudante (AAA1234) ou codigo_academia",
-											"example":     "ABC1234",
-										},
-										"senha": map[string]interface{}{
-											"type":    "string",
-											"example": "ABC1234",
-										},
-										"type": map[string]interface{}{
-											"type": "string",
-											"enum": []string{"estudante", "academia"},
-											"example": "estudante",
-										},
-									},
-								},
-							},
-						},
-					},
-					"responses": map[string]interface{}{
-						"200": map[string]interface{}{
-							"description": "Login bem-sucedido",
-							"content": map[string]interface{}{
-								"application/json": map[string]interface{}{
-									"schema": map[string]interface{}{
-										"$ref": "#/components/schemas/LoginResponse",
-									},
-								},
-							},
-						},
-						"401": map[string]interface{}{"description": "Credenciais inválidas"},
-						"429": map[string]interface{}{"description": "Muitas tentativas (rate limit)"},
-					},
-				},
-			},
-			"/admin/login": map[string]interface{}{
-				"post": map[string]interface{}{
-					"tags":    []string{"Auth"},
-					"summary": "Login administrador",
-					"requestBody": map[string]interface{}{
-						"required": true,
-						"content": map[string]interface{}{
-							"application/json": map[string]interface{}{
-								"schema": map[string]interface{}{
-									"type":     "object",
-									"required": []string{"email", "senha"},
-									"properties": map[string]interface{}{
-										"email": map[string]interface{}{
-											"type":    "string",
-											"example": "admin@spuri.ao",
-										},
-										"senha": map[string]interface{}{
-											"type":    "string",
-											"example": "senha123",
-										},
-									},
-								},
-							},
-						},
-					},
-					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Login bem-sucedido"},
-						"401": map[string]interface{}{"description": "Credenciais inválidas"},
-						"403": map[string]interface{}{"description": "Administrador inativo"},
-					},
-				},
-			},
-			"/estudante/register": map[string]interface{}{
-				"post": map[string]interface{}{
-					"tags":    []string{"Auth"},
-					"summary": "Registrar estudante",
-					"requestBody": map[string]interface{}{
-						"required": true,
-						"content": map[string]interface{}{
-							"application/json": map[string]interface{}{
-								"schema": map[string]interface{}{
-									"$ref": "#/components/schemas/RegisterEstudanteRequest",
-								},
-							},
-						},
-					},
-					"responses": map[string]interface{}{
-						"201": map[string]interface{}{"description": "Estudante criado com sucesso"},
-						"400": map[string]interface{}{"description": "Dados inválidos"},
-					},
-				},
-			},
-			"/academia/register": map[string]interface{}{
-				"post": map[string]interface{}{
-					"tags":    []string{"Auth"},
-					"summary": "Registrar academia",
-					"description": "Academia inicia inativa - precisa aprovação de admin GERENTE+",
-					"requestBody": map[string]interface{}{
-						"required": true,
-						"content": map[string]interface{}{
-							"application/json": map[string]interface{}{
-								"schema": map[string]interface{}{
-									"$ref": "#/components/schemas/RegisterAcademiaRequest",
-								},
-							},
-						},
-					},
-					"responses": map[string]interface{}{
-						"201": map[string]interface{}{"description": "Academia criada (status: inativa)"},
-						"400": map[string]interface{}{"description": "Dados inválidos"},
-					},
-				},
-			},
-			"/bootstrap/admin-fpp": map[string]interface{}{
-				"post": map[string]interface{}{
-					"tags":    []string{"Auth"},
-					"summary": "Criar primeiro admin FPP",
-					"description": "IMPORTANTE: Só funciona se não existir nenhum admin no sistema",
-					"requestBody": map[string]interface{}{
-						"content": map[string]interface{}{
-							"application/json": map[string]interface{}{
-								"schema": map[string]interface{}{
-									"type": "object",
-									"properties": map[string]interface{}{
-										"nome":  map[string]interface{}{"type": "string", "example": "Admin FPP"},
-										"email": map[string]interface{}{"type": "string", "example": "admin@spuri.ao"},
-										"senha": map[string]interface{}{"type": "string", "example": "fpp@2025"},
-									},
-								},
-							},
-						},
-					},
-					"responses": map[string]interface{}{
-						"201": map[string]interface{}{"description": "Admin FPP criado"},
-						"403": map[string]interface{}{"description": "Sistema já possui administradores"},
-					},
-				},
-			},
-			"/meu-perfil": map[string]interface{}{
-				"get": map[string]interface{}{
-					"tags":     []string{"Consultas"},
-					"summary":  "Ver perfil do usuário logado",
-					"security": []map[string][]string{{"BearerAuth": {}}},
-					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Dados do perfil (estudante/academia/admin)"},
-						"401": map[string]interface{}{"description": "Não autenticado"},
-					},
-				},
-			},
-			"/academias": map[string]interface{}{
-				"get": map[string]interface{}{
-					"tags":        []string{"Consultas"},
-					"summary":     "Listar todas academias",
-					"description": "Lista academias (pública)",
-					"parameters": []map[string]interface{}{
-						{
-							"name":        "limit",
-							"in":          "query",
-							"schema":      map[string]interface{}{"type": "integer", "default": 50},
-							"description": "Limite de resultados",
-						},
-						{
-							"name":        "offset",
-							"in":          "query",
-							"schema":      map[string]interface{}{"type": "integer", "default": 0},
-							"description": "Offset para paginação",
-						},
-					},
-					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Lista de academias"},
-					},
-				},
-			},
-			"/estudante/inscricao-escola": map[string]interface{}{
-				"post": map[string]interface{}{
-					"tags":     []string{"Estudante"},
-					"summary":  "Solicitar inscrição em escola",
-					"security": []map[string][]string{{"BearerAuth": {}}},
-					"requestBody": map[string]interface{}{
-						"required": true,
-						"content": map[string]interface{}{
-							"application/json": map[string]interface{}{
-								"schema": map[string]interface{}{
-									"type":     "object",
-									"required": []string{"codigo_academia", "ano_escolar_inscricao"},
-									"properties": map[string]interface{}{
-										"codigo_academia": map[string]interface{}{
-											"type":    "string",
-											"example": "LUA20241234",
-										},
-										"ano_escolar_inscricao": map[string]interface{}{
-											"type":    "string",
-											"example": "7ano",
-										},
-										"curso_medio": map[string]interface{}{
-											"type":    "string",
-											"example": "Ciências",
-										},
-									},
-								},
-							},
-						},
-					},
-					"responses": map[string]interface{}{
-						"201": map[string]interface{}{"description": "Inscrição criada"},
-						"400": map[string]interface{}{"description": "Dados inválidos"},
-					},
-				},
-			},
-			"/estudante/vincular-academia": map[string]interface{}{
-				"post": map[string]interface{}{
-					"tags":     []string{"Estudante"},
-					"summary":  "Vincular-se a academia (usar inscrição aprovada)",
-					"security": []map[string][]string{{"BearerAuth": {}}},
-					"requestBody": map[string]interface{}{
-						"required": true,
-						"content": map[string]interface{}{
-							"application/json": map[string]interface{}{
-								"schema": map[string]interface{}{
-									"type":     "object",
-									"required": []string{"inscricao_id"},
-									"properties": map[string]interface{}{
-										"inscricao_id": map[string]string{"type": "string"},
-									},
-								},
-							},
-						},
-					},
-					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Vinculado com sucesso"},
-						"400": map[string]interface{}{"description": "Inscrição não aprovada ou já usada"},
-					},
-				},
-			},
+			// ================================================================
+			// NOTAS — ano_academico REMOVIDO do request (inferido pelo back end)
+			// ================================================================
 			"/academia/notas-aluno": map[string]interface{}{
 				"post": map[string]interface{}{
 					"tags":     []string{"Academia"},
 					"summary":  "Registrar nota individual",
-					"description": "Nova estrutura v3.0 - nota por matéria",
+					"description": "Registra a nota de um estudante em uma matéria.\n\n**ano_academico é inferido automaticamente:**\n- Estudante no fundamental → usa o ano atual do estudante (`ano_escolar`)\n- Estudante no médio/superior → usa o único `anos_academicos[0]` da matéria",
 					"security": []map[string][]string{{"BearerAuth": {}}},
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -372,6 +97,8 @@ func GetOpenAPISpec(c *gin.Context) {
 										"ano_lectivo",
 										"periodo",
 										"materia_disciplinar_id",
+										"tipo",
+										"categoria",
 										"nota",
 									},
 									"properties": map[string]interface{}{
@@ -395,8 +122,19 @@ func GetOpenAPISpec(c *gin.Context) {
 											"example": "1_trimestre",
 										},
 										"materia_disciplinar_id": map[string]interface{}{
+											"type":        "string",
+											"format":      "uuid",
+											"example":     "uuid-da-materia",
+										},
+										"tipo": map[string]interface{}{
 											"type":    "string",
-											"example": "uuid-da-materia",
+											"enum":    []string{"escolar", "superior"},
+											"example": "escolar",
+										},
+										"categoria": map[string]interface{}{
+											"type":    "string",
+											"example": "nota_escola",
+											"description": "escolar: nota_escola | nota_professor. superior: nota_pp1 | nota_pp2 | nota_exame | categorias adicionais",
 										},
 										"nota": map[string]interface{}{
 											"type":    "number",
@@ -405,8 +143,9 @@ func GetOpenAPISpec(c *gin.Context) {
 											"example": 15.5,
 										},
 										"observacao": map[string]interface{}{
-											"type":    "string",
-											"example": "Boa participação",
+											"type":        "string",
+											"example":     "Boa participação",
+											"description": "Opcional",
 										},
 									},
 								},
@@ -414,17 +153,37 @@ func GetOpenAPISpec(c *gin.Context) {
 						},
 					},
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Nota registrada"},
+						"201": map[string]interface{}{
+							"description": "Nota registrada",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"message":       map[string]string{"type": "string"},
+											"ano_academico": map[string]interface{}{
+												"type":        "string",
+												"description": "Ano académico inferido pelo back end",
+											},
+										},
+									},
+								},
+							},
+						},
 						"400": map[string]interface{}{"description": "Dados inválidos"},
-						"403": map[string]interface{}{"description": "Academia inativa"},
+						"403": map[string]interface{}{"description": "Academia inativa ou estudante de outra academia"},
 					},
 				},
 			},
+
+			// ================================================================
+			// FALTAS — ano_academico REMOVIDO do request (inferido pelo back end)
+			// ================================================================
 			"/academia/faltas-aluno": map[string]interface{}{
 				"post": map[string]interface{}{
 					"tags":     []string{"Academia"},
 					"summary":  "Registrar falta individual",
-					"description": "Nova estrutura v3.0 - falta por data/matéria",
+					"description": "Registra falta de um estudante em uma matéria.\n\n**ano_academico é inferido automaticamente** (mesma regra das notas).",
 					"security": []map[string][]string{{"BearerAuth": {}}},
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -454,7 +213,8 @@ func GetOpenAPISpec(c *gin.Context) {
 											"example": "2025-01-22",
 										},
 										"materia_disciplinar_id": map[string]interface{}{
-											"type":    "string",
+											"type":   "string",
+											"format": "uuid",
 											"example": "uuid-da-materia",
 										},
 										"quantidade": map[string]interface{}{
@@ -472,11 +232,15 @@ func GetOpenAPISpec(c *gin.Context) {
 						},
 					},
 					"responses": map[string]interface{}{
-						"200": map[string]interface{}{"description": "Falta registrada"},
+						"201": map[string]interface{}{"description": "Falta registrada"},
 						"400": map[string]interface{}{"description": "Dados inválidos"},
 					},
 				},
 			},
+
+			// ================================================================
+			// CURSOS
+			// ================================================================
 			"/academia/cursos": map[string]interface{}{
 				"post": map[string]interface{}{
 					"tags":     []string{"Academia"},
@@ -488,7 +252,7 @@ func GetOpenAPISpec(c *gin.Context) {
 							"application/json": map[string]interface{}{
 								"schema": map[string]interface{}{
 									"type":     "object",
-									"required": []string{"nome", "type", "nivel"},
+									"required": []string{"nome", "type", "anos_academicos"},
 									"properties": map[string]interface{}{
 										"nome": map[string]interface{}{"type": "string", "example": "Ciências Exatas"},
 										"type": map[string]interface{}{
@@ -496,10 +260,11 @@ func GetOpenAPISpec(c *gin.Context) {
 											"enum":    []string{"medio", "superior"},
 											"example": "medio",
 										},
-										"nivel": map[string]interface{}{
-											"type":  "array",
-											"items": map[string]string{"type": "string"},
-											"example": []string{"primeiro_medio", "segundo_medio", "terceiro_medio"},
+										"anos_academicos": map[string]interface{}{
+											"type":        "array",
+											"items":       map[string]string{"type": "string"},
+											"example":     []string{"primeiro_ano", "segundo_ano", "terceiro_ano"},
+											"description": "Anos do curso (livres, definidos pela academia)",
 										},
 									},
 								},
@@ -519,10 +284,15 @@ func GetOpenAPISpec(c *gin.Context) {
 					},
 				},
 			},
+
+			// ================================================================
+			// MATÉRIAS — ATUALIZAÇÃO 1: campo "anos_academicos", regras por tipo
+			// ================================================================
 			"/academia/materias": map[string]interface{}{
 				"post": map[string]interface{}{
 					"tags":     []string{"Academia"},
-					"summary":  "Criar matéria",
+					"summary":  "Criar matéria disciplinar",
+					"description": "Cria uma matéria disciplinar.\n\n**Regras para `anos_academicos` (Atualização 1):**\n- `fundamental`: array com **1 a 9** anos (`primeiro_fundamental`…`nono_fundamental`). A matéria pode ser lecionada em múltiplos anos.\n- `medio` ou `superior`: array com **exatamente 1** item — o ano do curso ao qual a matéria pertence. O valor deve existir em `curso.anos_academicos`.",
 					"security": []map[string][]string{{"BearerAuth": {}}},
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -530,22 +300,27 @@ func GetOpenAPISpec(c *gin.Context) {
 							"application/json": map[string]interface{}{
 								"schema": map[string]interface{}{
 									"type":     "object",
-									"required": []string{"nome", "type"},
+									"required": []string{"nome", "type", "anos_academicos"},
 									"properties": map[string]interface{}{
-										"nome": map[string]interface{}{"type": "string", "example": "Matemática"},
+										"nome": map[string]interface{}{
+											"type":    "string",
+											"example": "Matemática",
+										},
 										"type": map[string]interface{}{
 											"type":    "string",
 											"enum":    []string{"fundamental", "medio", "superior"},
 											"example": "medio",
 										},
-										"nivel": map[string]interface{}{
+										"anos_academicos": map[string]interface{}{
 											"type":  "array",
 											"items": map[string]string{"type": "string"},
-											"description": "Apenas para fundamental",
+											"description": "Fundamental: 1–9 anos (primeiro_fundamental…nono_fundamental). Médio/Superior: exatamente 1 item (ano do curso).",
+											"example": []string{"primeiro_medio"},
 										},
 										"curso_id": map[string]interface{}{
-											"type": "string",
-											"description": "Obrigatório para medio/superior",
+											"type":        "string",
+											"format":      "uuid",
+											"description": "Obrigatório para medio/superior. O ano em anos_academicos deve pertencer ao curso.",
 										},
 									},
 								},
@@ -554,9 +329,53 @@ func GetOpenAPISpec(c *gin.Context) {
 					},
 					"responses": map[string]interface{}{
 						"201": map[string]interface{}{"description": "Matéria criada"},
+						"400": map[string]interface{}{"description": "Dados inválidos (ex.: mais de 1 ano para médio/superior)"},
+					},
+				},
+				"get": map[string]interface{}{
+					"tags":     []string{"Academia"},
+					"summary":  "Listar matérias da academia",
+					"security": []map[string][]string{{"BearerAuth": {}}},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Lista de matérias"},
 					},
 				},
 			},
+
+			// ================================================================
+			// ATUALIZAR NOTA
+			// ================================================================
+			"/academia/atualizar-nota": map[string]interface{}{
+				"put": map[string]interface{}{
+					"tags":     []string{"Academia"},
+					"summary":  "Corrigir nota existente",
+					"security": []map[string][]string{{"BearerAuth": {}}},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []string{"id", "nota_nova", "observacao"},
+									"properties": map[string]interface{}{
+										"id":         map[string]interface{}{"type": "string", "format": "uuid"},
+										"nota_nova":  map[string]interface{}{"type": "number", "minimum": 0, "maximum": 20},
+										"observacao": map[string]interface{}{"type": "string", "description": "Justificativa obrigatória"},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Nota atualizada"},
+						"400": map[string]interface{}{"description": "Dados inválidos"},
+					},
+				},
+			},
+
+			// ================================================================
+			// ADMIN
+			// ================================================================
 			"/admin/todos-registros": map[string]interface{}{
 				"get": map[string]interface{}{
 					"tags":     []string{"Admin"},
@@ -618,17 +437,21 @@ func GetOpenAPISpec(c *gin.Context) {
 					},
 				},
 			},
+
+			// ================================================================
+			// EVENT SOURCING
+			// ================================================================
 			"/verificar-integridade/{codigo}": map[string]interface{}{
 				"get": map[string]interface{}{
-					"tags":     []string{"Event Sourcing"},
-					"summary":  "Verificar integridade do ledger",
-					"security": []map[string][]string{{"BearerAuth": {}}},
+					"tags":        []string{"Event Sourcing"},
+					"summary":     "Verificar integridade do ledger",
+					"security":    []map[string][]string{{"BearerAuth": {}}},
 					"parameters": []map[string]interface{}{
 						{
-							"name":     "codigo",
-							"in":       "path",
-							"required": true,
-							"schema":   map[string]string{"type": "string"},
+							"name":        "codigo",
+							"in":          "path",
+							"required":    true,
+							"schema":      map[string]string{"type": "string"},
 							"description": "codigo_estudante",
 						},
 					},
@@ -646,61 +469,6 @@ func GetOpenAPISpec(c *gin.Context) {
 									},
 								},
 							},
-						},
-					},
-				},
-			},
-		},
-		"components": map[string]interface{}{
-			"securitySchemes": map[string]interface{}{
-				"BearerAuth": map[string]interface{}{
-					"type":   "http",
-					"scheme": "bearer",
-					"bearerFormat": "JWT",
-					"description": "JWT obtido via /login ou /admin/login",
-				},
-			},
-			"schemas": map[string]interface{}{
-				"LoginResponse": map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"token":  map[string]string{"type": "string"},
-						"codigo": map[string]string{"type": "string"},
-						"nome":   map[string]string{"type": "string"},
-						"type":   map[string]string{"type": "string"},
-					},
-				},
-				"RegisterEstudanteRequest": map[string]interface{}{
-					"type":     "object",
-					"required": []string{"nome", "senha"},
-					"properties": map[string]interface{}{
-						"nome":  map[string]interface{}{"type": "string", "example": "João Silva"},
-						"senha": map[string]interface{}{"type": "string", "example": "senha123"},
-						"email": map[string]interface{}{"type": "string", "example": "joao@email.com"},
-						"telefone": map[string]interface{}{"type": "string", "example": "+244923456789"},
-						"bilhete_identidade": map[string]interface{}{"type": "string", "example": "123456789LA"},
-						"bilhete_identidade_responsavel": map[string]string{"type": "string"},
-					},
-				},
-				"RegisterAcademiaRequest": map[string]interface{}{
-					"type": "object",
-					"required": []string{"type", "nome", "senha", "provincia", "endereco"},
-					"properties": map[string]interface{}{
-						"type": map[string]interface{}{
-							"type":    "string",
-							"enum":    []string{"escola", "superior"},
-							"example": "escola",
-						},
-						"nome":      map[string]interface{}{"type": "string", "example": "Escola Primária ABC"},
-						"senha":     map[string]interface{}{"type": "string", "example": "senha123"},
-						"provincia": map[string]interface{}{"type": "string", "example": "LUA"},
-						"endereco":  map[string]interface{}{"type": "string", "example": "Rua Principal, 123"},
-						"email":     map[string]interface{}{"type": "string", "example": "escola@email.com"},
-						"nivel_escolar": map[string]interface{}{
-							"type":    "string",
-							"enum":    []string{"fundamental", "medio", "misto"},
-							"example": "medio",
-							"description": "Obrigatório para type=escola",
 						},
 					},
 				},

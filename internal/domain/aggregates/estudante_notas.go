@@ -17,7 +17,6 @@ const (
 	TipoSuperior = "superior"
 )
 
-// Categorias fixas por tipo
 var categoriasEscolar = map[string]bool{
 	"nota_escola":    true,
 	"nota_professor": true,
@@ -33,26 +32,27 @@ var categoriasSuperiorFixas = map[string]bool{
 // Eventos
 // ============================================================================
 
-// NotasRegistradasEvent — emitido ao registrar uma nota pela primeira vez
+// NotasRegistradasEvent — emitido ao registrar uma nota pela primeira vez.
+// AnoAcademico é sempre preenchido pelo back end (ver regras acima).
 type NotasRegistradasEvent struct {
 	BaseEvent
 	CodigoEstudante      string
 	CodigoAcademia       string
 	AnoLectivo           string
-	AnoAcademico         string
+	AnoAcademico         string    // inferido pelo back end
 	Periodo              string
 	MateriaDisciplinarID uuid.UUID
-	Tipo                 string  // "escolar" | "superior"
-	Categoria            string  // ver constantes acima
+	Tipo                 string    // "escolar" | "superior"
+	Categoria            string
 	Nota                 float64
-	Observacao           *string // opcional no registro
+	Observacao           *string
 	RegisteredAt         time.Time
 }
 
 func (e *NotasRegistradasEvent) GetPayload() interface{} { return e }
 
-// NotaAtualizadaEvent — emitido ao corrigir uma nota existente
-// Observacao é OBRIGATÓRIA neste evento (justificativa da correção)
+// NotaAtualizadaEvent — emitido ao corrigir uma nota existente.
+// Observacao é OBRIGATÓRIA neste evento (justificativa da correção).
 type NotaAtualizadaEvent struct {
 	BaseEvent
 	CodigoEstudante      string
@@ -71,7 +71,7 @@ type NotaAtualizadaEvent struct {
 func (e *NotaAtualizadaEvent) GetPayload() interface{} { return e }
 
 // ============================================================================
-// Validações internas (reutilizadas nos dois comandos)
+// Validações internas
 // ============================================================================
 
 func validarPeriodo(periodo string) error {
@@ -85,8 +85,6 @@ func validarPeriodo(periodo string) error {
 	return nil
 }
 
-// validarCategoria verifica se a categoria é válida para o tipo dado.
-// categoriasAdicionais são as criadas pela academia (apenas para superior).
 func validarCategoria(tipo, categoria string, categoriasAdicionais []string) error {
 	switch tipo {
 	case TipoEscolar:
@@ -99,13 +97,11 @@ func validarCategoria(tipo, categoria string, categoriasAdicionais []string) err
 		if categoriasSuperiorFixas[categoria] {
 			return nil
 		}
-		// Verificar se é uma categoria adicional cadastrada
 		for _, ca := range categoriasAdicionais {
 			if ca == categoria {
 				return nil
 			}
 		}
-		// Verificar formato mínimo
 		if !strings.HasPrefix(categoria, "nota_") {
 			return fmt.Errorf(
 				"categorias adicionais devem seguir o formato nota_[nome]",
@@ -126,21 +122,31 @@ func validarCategoria(tipo, categoria string, categoriasAdicionais []string) err
 // ============================================================================
 
 // RegistrarNota registra uma nota pela primeira vez.
-// categoriasAdicionais: lista de categorias extras cadastradas pela academia (pode ser nil).
+//
+// anoAcademico é inferido pelo handler (não vem do request):
+//   - estudante no fundamental → estudante.AnoEscolar
+//   - estudante no médio       → materia.Nivel[0]
+//   - estudante no superior    → materia.Nivel[0]
+//
+// categoriasAdicionais: lista de categorias extras cadastradas pela academia
+// (somente relevante para tipo "superior", pode ser nil caso contrário).
 func (e *Estudante) RegistrarNota(
-    codigoAcademia string,
-    anoLectivo string,
-    anoAcademico string,
-    periodo string,
-    materiaDisciplinarID uuid.UUID,
-    tipo string,
-    categoria string,
-    nota float64,
-    observacao *string,
-    categoriasAdicionais []string,
+	codigoAcademia string,
+	anoLectivo string,
+	anoAcademico string,
+	periodo string,
+	materiaDisciplinarID uuid.UUID,
+	tipo string,
+	categoria string,
+	nota float64,
+	observacao *string,
+	categoriasAdicionais []string,
 ) error {
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
+	}
+	if strings.TrimSpace(anoAcademico) == "" {
+		return fmt.Errorf("ano_academico não pode ser vazio")
 	}
 	if err := validarPeriodo(periodo); err != nil {
 		return err
@@ -221,12 +227,12 @@ func (e *Estudante) AtualizarNota(
 }
 
 // ============================================================================
-// Apply handlers (adicionar no switch do Apply() do Estudante)
+// Apply handlers
 // ============================================================================
 
 func (e *Estudante) applyNotasRegistradas(event DomainEvent) error {
-	// O aggregate Estudante não mantém estado de notas em memória —
-	// elas são gerenciadas pela projeção. Apenas incrementa versão.
+	// O agregado Estudante não mantém estado de notas em memória —
+	// elas são gerenciadas pela projeção. Apenas deixa a versão incrementar.
 	return nil
 }
 

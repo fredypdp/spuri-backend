@@ -346,40 +346,6 @@ func (e *Estudante) AtualizarDadosAcademicos(anoEscolar *string, anoEscolarMedio
 	return e.Apply(event)
 }
 
-func (e *Estudante) RegistrarFalta(
-    codigoAcademia string,
-    anoLectivo string,
-    anoAcademico string,
-    data time.Time,
-    materiaDisciplinarID uuid.UUID,
-    quantidade int,
-    observacao *string,
-) error {
-	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
-		return fmt.Errorf("estudante não pertence a esta academia")
-	}
-
-	if quantidade <= 0 {
-		return fmt.Errorf("quantidade deve ser maior que zero")
-	}
-
-	event := &FaltasRegistradasEvent{
-		BaseEvent:            BaseEvent{EventType: "FaltasRegistradas", AggregateID: e.ID},
-		CodigoEstudante:      e.CodigoEstudante,
-		CodigoAcademia:       codigoAcademia,
-		AnoLectivo:           anoLectivo,
-		AnoAcademico:         anoAcademico,
-		Data:                 data,
-		MateriaDisciplinarID: materiaDisciplinarID,
-		Quantidade:           quantidade,
-		Observacao:           observacao,
-		RegisteredAt:         time.Now(),
-	}
-
-	e.RaiseEvent(event)
-	return e.Apply(event)
-}
-
 func (e *Estudante) SolicitarInscricao(codigoAcademia string, tipo string, anoInscricao string, cursoID *uuid.UUID) error {
 	if tipo != "escola" && tipo != "universidade" {
 		return fmt.Errorf("tipo deve ser 'escola' ou 'universidade'")

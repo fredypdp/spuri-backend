@@ -4,16 +4,17 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"spuri/internal/domain/aggregates"
-	"spuri/internal/middleware"
-	"spuri/internal/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+
+	"spuri/internal/domain/aggregates"
+	"spuri/internal/middleware"
+	"spuri/internal/utils"
 )
 
 // ============================================================================
-// ESTUDANTE
+// PUT /estudante/dados-pessoais
 // ============================================================================
 
 func AtualizarDadosPessoaisEstudante(c *gin.Context) {
@@ -32,15 +33,31 @@ func AtualizarDadosPessoaisEstudante(c *gin.Context) {
 		return
 	}
 
-	repository := getRepository(c)
-	estudanteAgg, err := repository.Load(userID, "Estudante")
-	if err != nil {
-		utils.RespondWithNotFoundError(c, "estudante")
+	if req.Nome == nil && req.Email == nil && req.Telefone == nil &&
+		req.BilheteIdentidade == nil && req.BilheteIdentidadeResp == nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("nenhum campo para atualizar"))
 		return
 	}
 
+	if req.Email != nil {
+		if err := utils.ValidateEmail(*req.Email); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+	}
+
+	repository := getRepository(c)
+	estudanteAgg, err := repository.Load(userID, "Estudante")
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
 	estudante := estudanteAgg.(*aggregates.Estudante)
-	if err := estudante.AtualizarDadosPessoais(req.Nome, req.Email, req.Telefone, req.BilheteIdentidade, req.BilheteIdentidadeResp); err != nil {
+
+	if err := estudante.AtualizarDadosPessoais(
+		req.Nome, req.Email, req.Telefone,
+		req.BilheteIdentidade, req.BilheteIdentidadeResp,
+	); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -50,15 +67,13 @@ func AtualizarDadosPessoaisEstudante(c *gin.Context) {
 		return
 	}
 
-	response := gin.H{"message": "dados pessoais atualizados com sucesso"}
-	if req.Email != nil {
-		response["aviso"] = "Email alterado. Verificação necessária."
-		response["email_verificado"] = false
-	}
-
 	log.Printf("Dados pessoais atualizados: %s", estudante.CodigoEstudante)
-	c.JSON(http.StatusOK, response)
+	c.JSON(http.StatusOK, gin.H{"message": "dados pessoais atualizados com sucesso"})
 }
+
+// ============================================================================
+// PUT /estudante/dados-academicos
+// ============================================================================
 
 func AtualizarDadosAcademicosEstudante(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
@@ -76,72 +91,18 @@ func AtualizarDadosAcademicosEstudante(c *gin.Context) {
 		return
 	}
 
-	cursosProj := getCursosProjection(c)
-
-	if req.CursoMedioID != nil && *req.CursoMedioID != uuid.Nil {
-		curso, _ := cursosProj.GetByID(*req.CursoMedioID)
-		if curso == nil {
-			utils.RespondWithNotFoundError(c, "curso médio")
-			return
-		}
-		if curso.Type != "medio" {
-			utils.RespondWithValidationError(c, fmt.Errorf("curso_medio_id deve ser do tipo 'medio'"))
-			return
-		}
-
-		// Validar ano_escolar_medio contra anos_academicos do curso
-		if req.AnoEscolarMedio != nil {
-			anoValido := false
-			for _, a := range curso.AnosAcademicos {
-				if a == *req.AnoEscolarMedio {
-					anoValido = true
-					break
-				}
-			}
-			if !anoValido {
-				utils.RespondWithValidationError(c, fmt.Errorf("ano_escolar_medio '%s' não existe no curso selecionado", *req.AnoEscolarMedio))
-				return
-			}
-		}
-	}
-
-	if req.CursoSuperiorID != nil && *req.CursoSuperiorID != uuid.Nil {
-		curso, _ := cursosProj.GetByID(*req.CursoSuperiorID)
-		if curso == nil {
-			utils.RespondWithNotFoundError(c, "curso superior")
-			return
-		}
-		if curso.Type != "superior" {
-			utils.RespondWithValidationError(c, fmt.Errorf("curso_superior_id deve ser do tipo 'superior'"))
-			return
-		}
-
-		// Validar ano_superior contra anos_academicos do curso
-		if req.AnoSuperior != nil {
-			anoValido := false
-			for _, a := range curso.AnosAcademicos {
-				if a == *req.AnoSuperior {
-					anoValido = true
-					break
-				}
-			}
-			if !anoValido {
-				utils.RespondWithValidationError(c, fmt.Errorf("ano_superior '%s' não existe no curso selecionado", *req.AnoSuperior))
-				return
-			}
-		}
-	}
-
 	repository := getRepository(c)
 	estudanteAgg, err := repository.Load(userID, "Estudante")
 	if err != nil {
-		utils.RespondWithNotFoundError(c, "estudante")
+		utils.RespondWithInternalError(c, err)
 		return
 	}
-
 	estudante := estudanteAgg.(*aggregates.Estudante)
 
-	if err := estudante.AtualizarDadosAcademicos(req.AnoEscolar, req.AnoEscolarMedio, req.AnoSuperior, req.CursoMedioID, req.CursoSuperiorID); err != nil {
+	if err := estudante.AtualizarDadosAcademicos(
+		req.AnoEscolar, req.AnoEscolarMedio, req.AnoSuperior,
+		req.CursoMedioID, req.CursoSuperiorID,
+	); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -151,12 +112,12 @@ func AtualizarDadosAcademicosEstudante(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Dados acadêmicos atualizados: %s", estudante.CodigoEstudante)
-	c.JSON(http.StatusOK, gin.H{"message": "dados acadêmicos atualizados com sucesso"})
+	log.Printf("Dados académicos atualizados: %s", estudante.CodigoEstudante)
+	c.JSON(http.StatusOK, gin.H{"message": "dados académicos atualizados com sucesso"})
 }
 
 // ============================================================================
-// ACADEMIA
+// PUT /academia/dados
 // ============================================================================
 
 func AtualizarDadosAcademia(c *gin.Context) {
@@ -170,8 +131,8 @@ func AtualizarDadosAcademia(c *gin.Context) {
 		Email          *string  `json:"email"`
 		Website        *string  `json:"website"`
 		NivelEscolar   *string  `json:"nivel_escolar"`
-		Cursos         []string `json:"cursos"`
 		AnosAcademicos []string `json:"anos_academicos"`
+		Cursos         []string `json:"cursos"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -179,38 +140,32 @@ func AtualizarDadosAcademia(c *gin.Context) {
 		return
 	}
 
+	if req.Email != nil {
+		if err := utils.ValidateEmail(*req.Email); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+	}
+
+	if req.Website != nil {
+		if err := utils.ValidateURL(*req.Website); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+	}
+
 	repository := getRepository(c)
 	academiaAgg, err := repository.Load(userID, "Academia")
 	if err != nil {
-		utils.RespondWithNotFoundError(c, "academia")
+		utils.RespondWithInternalError(c, err)
 		return
 	}
-
 	academia := academiaAgg.(*aggregates.Academia)
 
-	if req.AnosAcademicos != nil {
-		nivelEfetivo := academia.NivelEscolar
-		if req.NivelEscolar != nil {
-			nivelEfetivo = req.NivelEscolar
-		}
-		if nivelEfetivo != nil && (*nivelEfetivo == "fundamental" || *nivelEfetivo == "misto") {
-			if err := utils.ValidateAnosFundamental(req.AnosAcademicos); err != nil {
-				utils.RespondWithValidationError(c, err)
-				return
-			}
-		}
-	}
-
 	if err := academia.AtualizarDados(
-		req.Nome,
-		req.Provincia,
-		req.Endereco,
-		req.NumeroTelefone,
-		req.Email,
-		req.Website,
-		req.NivelEscolar,
-		req.Cursos,
-		req.AnosAcademicos,
+		req.Nome, req.Provincia, req.Endereco,
+		req.NumeroTelefone, req.Email, req.Website,
+		req.NivelEscolar, req.AnosAcademicos, req.Cursos,
 	); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -221,64 +176,20 @@ func AtualizarDadosAcademia(c *gin.Context) {
 		return
 	}
 
-	response := gin.H{"message": "dados da academia atualizados com sucesso"}
-	if req.Email != nil {
-		response["aviso"] = "Email alterado. Verificação necessária."
-	}
-	c.JSON(http.StatusOK, response)
+	log.Printf("Dados da academia atualizados: %s", academia.CodigoAcademia)
+	c.JSON(http.StatusOK, gin.H{"message": "dados da academia atualizados com sucesso"})
 }
 
 // ============================================================================
-// ADMIN
+// PUT /admin/role/:id
 // ============================================================================
-
-func AtualizarDadosAdmin(c *gin.Context) {
-	userID, _ := middleware.GetUserID(c)
-
-	targetID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("ID de administrador inválido"))
-		return
-	}
-
-	var req struct {
-		Nome  *string `json:"nome"`
-		Email *string `json:"email"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("dados inválidos"))
-		return
-	}
-
-	repository := getRepository(c)
-	adminAgg, err := repository.Load(targetID, "Admin")
-	if err != nil {
-		utils.RespondWithNotFoundError(c, "administrador")
-		return
-	}
-
-	admin := adminAgg.(*aggregates.Admin)
-	if err := admin.AtualizarDados(req.Nome, req.Email, userID); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-
-	if err := repository.Save(admin); err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	log.Printf("Dados do admin atualizados: %s", admin.Email)
-	c.JSON(http.StatusOK, gin.H{"message": "dados do administrador atualizados com sucesso"})
-}
 
 func AtualizarRoleAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
-	targetID, err := uuid.Parse(c.Param("id"))
+	adminID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("ID de administrador inválido"))
+		utils.RespondWithValidationError(c, fmt.Errorf("ID de admin inválido"))
 		return
 	}
 
@@ -287,24 +198,29 @@ func AtualizarRoleAdmin(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("novo_role é obrigatório"))
+		utils.RespondWithValidationError(c, fmt.Errorf("campo obrigatório: novo_role"))
 		return
 	}
 
+	if err := utils.ValidateRole(req.NovoRole); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	// Carregar o admin que está fazendo a operação para verificar permissão
 	adminProj := getAdminProjection(c)
 	currentAdmin, err := adminProj.GetByID(userID)
-	if err != nil || currentAdmin == nil || currentAdmin.Role != "fpp" {
-		utils.RespondWithForbiddenError(c, "Apenas FPP pode alterar roles de administradores")
+	if err != nil || currentAdmin == nil {
+		utils.RespondWithNotFoundError(c, "admin")
 		return
 	}
 
 	repository := getRepository(c)
-	adminAgg, err := repository.Load(targetID, "Admin")
+	adminAgg, err := repository.Load(adminID, "Admin")
 	if err != nil {
-		utils.RespondWithNotFoundError(c, "administrador")
+		utils.RespondWithNotFoundError(c, "admin")
 		return
 	}
-
 	admin := adminAgg.(*aggregates.Admin)
 	roleAnterior := admin.Role
 
@@ -327,9 +243,15 @@ func AtualizarRoleAdmin(c *gin.Context) {
 }
 
 // ============================================================================
-// MATÉRIA
+// PUT /academia/materias/:id
 // ============================================================================
 
+// AtualizarDadosMateria atualiza nome e/ou tipo de uma matéria.
+//
+// Nota: a atualização de anos_academicos não é suportada por este comando —
+// alterar os anos implicaria em revalidar todas as notas associadas, o que
+// exige uma operação de maior impacto. Para mudar os anos, desative a matéria
+// e crie uma nova com os anos corretos.
 func AtualizarDadosMateria(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 

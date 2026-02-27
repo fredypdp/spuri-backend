@@ -23,6 +23,7 @@ var allMigrations = []string{
 	"migrations/010_academia_anos_academicos.sql",
 	"migrations/011_cursos_nivel_to_anos_academicos.sql",
 	"migrations/012_ano_academico.sql",
+	"migrations/013_anos_academicos_materia.sql",
 }
 
 func (c *Client) RunMigrations() error {
