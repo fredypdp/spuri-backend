@@ -128,15 +128,16 @@ func validarCategoria(tipo, categoria string, categoriasAdicionais []string) err
 // RegistrarNota registra uma nota pela primeira vez.
 // categoriasAdicionais: lista de categorias extras cadastradas pela academia (pode ser nil).
 func (e *Estudante) RegistrarNota(
-	codigoAcademia string,
-	anoLectivo string,
-	periodo string,
-	materiaDisciplinarID uuid.UUID,
-	tipo string,
-	categoria string,
-	nota float64,
-	observacao *string,
-	categoriasAdicionais []string,
+    codigoAcademia string,
+    anoLectivo string,
+    anoAcademico string,
+    periodo string,
+    materiaDisciplinarID uuid.UUID,
+    tipo string,
+    categoria string,
+    nota float64,
+    observacao *string,
+    categoriasAdicionais []string,
 ) error {
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
@@ -156,6 +157,7 @@ func (e *Estudante) RegistrarNota(
 		CodigoEstudante:      e.CodigoEstudante,
 		CodigoAcademia:       codigoAcademia,
 		AnoLectivo:           anoLectivo,
+		AnoAcademico:         anoAcademico,
 		Periodo:              periodo,
 		MateriaDisciplinarID: materiaDisciplinarID,
 		Tipo:                 tipo,

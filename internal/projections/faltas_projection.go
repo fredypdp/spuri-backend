@@ -156,7 +156,7 @@ func (p *FaltasProjection) GetByPeriodo(codigoEstudante, anoLectivo string, data
 
 func (p *FaltasProjection) queryFaltas(whereClause string) ([]FaltaDTO, error) {
 	query := fmt.Sprintf(`
-		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.data,
+		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico, f.data,
 			f.materia_disciplinar_id, COALESCE(m.nome, '') as materia_nome, f.quantidade,
 			f.observacao, f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
@@ -173,7 +173,7 @@ func (p *FaltasProjection) queryFaltas(whereClause string) ([]FaltaDTO, error) {
 	var result []FaltaDTO
 	for rows.Next() {
 		var dto FaltaDTO
-		if err := rows.Scan(&dto.ID, &dto.CodigoEstudante, &dto.CodigoAcademia, &dto.AnoLectivo,
+		if err := rows.Scan(&dto.ID, &dto.CodigoEstudante, &dto.CodigoAcademia, &dto.AnoLectivo, &dto.AnoAcademico,
 			&dto.Data, &dto.MateriaDisciplinarID, &dto.MateriaNome, &dto.Quantidade,
 			&dto.Observacao, &dto.RegisteredAt, &dto.EventID, &dto.Version); err != nil {
 			continue
@@ -190,6 +190,7 @@ type FaltaDTO struct {
 	CodigoEstudante      string    `json:"codigo_estudante"`
 	CodigoAcademia       string    `json:"codigo_academia"`
 	AnoLectivo           string    `json:"ano_lectivo"`
+	AnoAcademico string `json:"ano_academico"`
 	Data                 time.Time `json:"data"`
 	MateriaDisciplinarID uuid.UUID `json:"materia_disciplinar_id"`
 	MateriaNome          string    `json:"materia_nome"`

@@ -177,7 +177,7 @@ func (p *NotasProjection) handleNotaAtualizada(event db.Event) error {
 // GetByEstudante retorna todas as notas de um estudante, ordenadas por período
 func (p *NotasProjection) GetByEstudante(codigoEstudante string) ([]NotaDTO, error) {
 	query := fmt.Sprintf(`
-		SELECT id, codigo_estudante, codigo_academia, ano_lectivo, periodo,
+		SELECT id, codigo_estudante, codigo_academia, ano_lectivo, ano_academico, periodo,
 			materia_disciplinar_id, tipo, categoria, nota, observacao,
 			registered_at, event_id, version
 		FROM projection_notas
@@ -195,7 +195,7 @@ func (p *NotasProjection) GetByEstudante(codigoEstudante string) ([]NotaDTO, err
 	for rows.Next() {
 		var n NotaDTO
 		if err := rows.Scan(
-			&n.ID, &n.CodigoEstudante, &n.CodigoAcademia, &n.AnoLectivo, &n.Periodo,
+			&n.ID, &n.CodigoEstudante, &n.CodigoAcademia, &n.AnoLectivo, &n.AnoAcademico, &n.Periodo,
 			&n.MateriaDisciplinarID, &n.Tipo, &n.Categoria, &n.Nota, &n.Observacao,
 			&n.RegisteredAt, &n.EventID, &n.Version,
 		); err != nil {
@@ -215,6 +215,7 @@ type NotaDTO struct {
 	CodigoEstudante      string   `json:"codigo_estudante"`
 	CodigoAcademia       string   `json:"codigo_academia"`
 	AnoLectivo           string   `json:"ano_lectivo"`
+	AnoAcademico string `json:"ano_academico"`
 	Periodo              string   `json:"periodo"`
 	MateriaDisciplinarID string   `json:"materia_disciplinar_id"`
 	Tipo                 string   `json:"tipo"`
@@ -233,7 +234,7 @@ func (p *NotasProjection) GetNota(
 	tipo, categoria string,
 ) (*NotaDTO, error) {
 	query := fmt.Sprintf(`
-		SELECT id, codigo_estudante, codigo_academia, ano_lectivo, periodo,
+		SELECT id, codigo_estudante, codigo_academia, ano_lectivo, ano_academico, periodo,
 			materia_disciplinar_id, tipo, categoria, nota, observacao,
 			registered_at, event_id, version
 		FROM projection_notas
@@ -255,7 +256,7 @@ func (p *NotasProjection) GetNota(
 
 	var n NotaDTO
 	err := p.client.DB().QueryRow(query).Scan(
-		&n.ID, &n.CodigoEstudante, &n.CodigoAcademia, &n.AnoLectivo, &n.Periodo,
+		&n.ID, &n.CodigoEstudante, &n.CodigoAcademia, &n.AnoLectivo, &n.AnoAcademico, &n.Periodo,
 		&n.MateriaDisciplinarID, &n.Tipo, &n.Categoria, &n.Nota, &n.Observacao,
 		&n.RegisteredAt, &n.EventID, &n.Version,
 	)
@@ -300,17 +301,17 @@ func (p *NotasProjection) clear() error {
 
 func (p *NotasProjection) GetNotaByID(id string) (*NotaDTO, error) {
     query := fmt.Sprintf(`
-        SELECT id, codigo_estudante, codigo_academia, ano_lectivo, periodo,
-            materia_disciplinar_id, tipo, categoria, nota, observacao,
-            registered_at, event_id, version
-        FROM projection_notas
-        WHERE id = '%s'
+        SELECT id, codigo_estudante, codigo_academia, ano_lectivo, ano_academico, periodo,
+			materia_disciplinar_id, tipo, categoria, nota, observacao,
+			registered_at, event_id, version
+		FROM projection_notas
+		WHERE id = '%s'
         LIMIT 1
     `, db.SafeString(id))
 
     var n NotaDTO
     err := p.client.DB().QueryRow(query).Scan(
-        &n.ID, &n.CodigoEstudante, &n.CodigoAcademia, &n.AnoLectivo, &n.Periodo,
+        &n.ID, &n.CodigoEstudante, &n.CodigoAcademia, &n.AnoLectivo, &n.AnoAcademico, &n.Periodo,
         &n.MateriaDisciplinarID, &n.Tipo, &n.Categoria, &n.Nota, &n.Observacao,
         &n.RegisteredAt, &n.EventID, &n.Version,
     )

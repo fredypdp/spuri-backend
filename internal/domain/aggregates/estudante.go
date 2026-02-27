@@ -346,7 +346,15 @@ func (e *Estudante) AtualizarDadosAcademicos(anoEscolar *string, anoEscolarMedio
 	return e.Apply(event)
 }
 
-func (e *Estudante) RegistrarFalta(codigoAcademia string, anoLectivo string, data time.Time, materiaDisciplinarID uuid.UUID, quantidade int, observacao *string) error {
+func (e *Estudante) RegistrarFalta(
+    codigoAcademia string,
+    anoLectivo string,
+    anoAcademico string,
+    data time.Time,
+    materiaDisciplinarID uuid.UUID,
+    quantidade int,
+    observacao *string,
+) error {
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
 	}
@@ -360,6 +368,7 @@ func (e *Estudante) RegistrarFalta(codigoAcademia string, anoLectivo string, dat
 		CodigoEstudante:      e.CodigoEstudante,
 		CodigoAcademia:       codigoAcademia,
 		AnoLectivo:           anoLectivo,
+		AnoAcademico:         anoAcademico,
 		Data:                 data,
 		MateriaDisciplinarID: materiaDisciplinarID,
 		Quantidade:           quantidade,
