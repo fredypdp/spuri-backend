@@ -76,8 +76,9 @@ func AtualizarDadosAcademicosEstudante(c *gin.Context) {
 		return
 	}
 
+	cursosProj := getCursosProjection(c)
+
 	if req.CursoMedioID != nil && *req.CursoMedioID != uuid.Nil {
-		cursosProj := getCursosProjection(c)
 		curso, _ := cursosProj.GetByID(*req.CursoMedioID)
 		if curso == nil {
 			utils.RespondWithNotFoundError(c, "curso médio")
@@ -87,10 +88,24 @@ func AtualizarDadosAcademicosEstudante(c *gin.Context) {
 			utils.RespondWithValidationError(c, fmt.Errorf("curso_medio_id deve ser do tipo 'medio'"))
 			return
 		}
+
+		// Validar ano_escolar_medio contra anos_academicos do curso
+		if req.AnoEscolarMedio != nil {
+			anoValido := false
+			for _, a := range curso.AnosAcademicos {
+				if a == *req.AnoEscolarMedio {
+					anoValido = true
+					break
+				}
+			}
+			if !anoValido {
+				utils.RespondWithValidationError(c, fmt.Errorf("ano_escolar_medio '%s' não existe no curso selecionado", *req.AnoEscolarMedio))
+				return
+			}
+		}
 	}
 
 	if req.CursoSuperiorID != nil && *req.CursoSuperiorID != uuid.Nil {
-		cursosProj := getCursosProjection(c)
 		curso, _ := cursosProj.GetByID(*req.CursoSuperiorID)
 		if curso == nil {
 			utils.RespondWithNotFoundError(c, "curso superior")
@@ -100,39 +115,18 @@ func AtualizarDadosAcademicosEstudante(c *gin.Context) {
 			utils.RespondWithValidationError(c, fmt.Errorf("curso_superior_id deve ser do tipo 'superior'"))
 			return
 		}
-	}
 
-	if req.CursoMedioID != nil && req.AnoEscolar != nil {
-		cursosProj := getCursosProjection(c)
-		curso, _ := cursosProj.GetByID(*req.CursoMedioID)
-		if curso != nil {
+		// Validar ano_superior contra anos_academicos do curso
+		if req.AnoSuperior != nil {
 			anoValido := false
-			for _, nivelCurso := range curso.Nivel {
-				if nivelCurso == *req.AnoEscolar {
+			for _, a := range curso.AnosAcademicos {
+				if a == *req.AnoSuperior {
 					anoValido = true
 					break
 				}
 			}
 			if !anoValido {
-				utils.RespondWithValidationError(c, fmt.Errorf("ano escolar '%s' não existe no curso selecionado", *req.AnoEscolar))
-				return
-			}
-		}
-	}
-
-	if req.CursoSuperiorID != nil && req.AnoSuperior != nil {
-		cursosProj := getCursosProjection(c)
-		curso, _ := cursosProj.GetByID(*req.CursoSuperiorID)
-		if curso != nil {
-			anoValido := false
-			for _, nivelCurso := range curso.Nivel {
-				if nivelCurso == *req.AnoSuperior {
-					anoValido = true
-					break
-				}
-			}
-			if !anoValido {
-				utils.RespondWithValidationError(c, fmt.Errorf("ano superior '%s' não existe no curso selecionado", *req.AnoSuperior))
+				utils.RespondWithValidationError(c, fmt.Errorf("ano_superior '%s' não existe no curso selecionado", *req.AnoSuperior))
 				return
 			}
 		}
@@ -146,7 +140,7 @@ func AtualizarDadosAcademicosEstudante(c *gin.Context) {
 	}
 
 	estudante := estudanteAgg.(*aggregates.Estudante)
-	
+
 	if err := estudante.AtualizarDadosAcademicos(req.AnoEscolar, req.AnoEscolarMedio, req.AnoSuperior, req.CursoMedioID, req.CursoSuperiorID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -177,9 +171,6 @@ func AtualizarDadosAcademia(c *gin.Context) {
 		Website        *string  `json:"website"`
 		NivelEscolar   *string  `json:"nivel_escolar"`
 		Cursos         []string `json:"cursos"`
-		// AnosAcademicos — enviar apenas quando quiser alterar.
-		// Para escolas fundamental/misto: obrigatório se nivelEscolar também for alterado para esses valores.
-		// Omitir o campo (nil) para não alterar os anos cadastrados.
 		AnosAcademicos []string `json:"anos_academicos"`
 	}
 
@@ -197,11 +188,7 @@ func AtualizarDadosAcademia(c *gin.Context) {
 
 	academia := academiaAgg.(*aggregates.Academia)
 
-	// Validação cruzada: se anos_academicos veio no body, verificar consistência.
-	// O próprio aggregate faz a validação completa; aqui só garantimos que o body
-	// seja semanticamente coerente antes de chamar o domínio.
 	if req.AnosAcademicos != nil {
-		// Determinar nivel_escolar efetivo (novo ou atual)
 		nivelEfetivo := academia.NivelEscolar
 		if req.NivelEscolar != nil {
 			nivelEfetivo = req.NivelEscolar
@@ -223,7 +210,7 @@ func AtualizarDadosAcademia(c *gin.Context) {
 		req.Website,
 		req.NivelEscolar,
 		req.Cursos,
-		req.AnosAcademicos, // <<< NOVO — nil = não alterar
+		req.AnosAcademicos,
 	); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -336,69 +323,6 @@ func AtualizarRoleAdmin(c *gin.Context) {
 		"message":       "role atualizado com sucesso",
 		"role_anterior": roleAnterior,
 		"novo_role":     req.NovoRole,
-	})
-}
-
-// ============================================================================
-// CURSO
-// ============================================================================
-
-func AtualizarDadosCurso(c *gin.Context) {
-	userID, _ := middleware.GetUserID(c)
-
-	cursoID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("ID de curso inválido"))
-		return
-	}
-
-	var req struct {
-		Nome  *string  `json:"nome"`
-		Type  *string  `json:"type"`
-		Nivel []string `json:"nivel"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("dados inválidos"))
-		return
-	}
-
-	cursosProj := getCursosProjection(c)
-	cursoDTO, err := cursosProj.GetByID(cursoID)
-	if err != nil || cursoDTO == nil {
-		utils.RespondWithNotFoundError(c, "curso")
-		return
-	}
-
-	academiaProj := getAcademiaProjection(c)
-	academiaDTO, _ := academiaProj.GetByID(userID)
-	if academiaDTO == nil || academiaDTO.CodigoAcademia != cursoDTO.CodigoAcademia {
-		utils.RespondWithForbiddenError(c, "Curso não pertence a esta academia")
-		return
-	}
-
-	repository := getRepository(c)
-	cursoAgg, err := repository.Load(cursoID, "Curso")
-	if err != nil {
-		utils.RespondWithNotFoundError(c, "curso")
-		return
-	}
-
-	curso := cursoAgg.(*aggregates.Curso)
-	if err := curso.AtualizarDados(req.Nome, req.Type, req.Nivel); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-
-	if err := repository.Save(curso); err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	log.Printf("Curso atualizado: %s", curso.Nome)
-	c.JSON(http.StatusOK, gin.H{
-		"message": "curso atualizado com sucesso",
-		"nome":    curso.Nome,
 	})
 }
 

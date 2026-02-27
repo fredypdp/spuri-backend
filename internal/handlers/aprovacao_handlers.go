@@ -16,8 +16,8 @@ import (
 //
 // A academia define explicitamente nivel_atual e, se aprovado, proximo_nivel.
 // Regras:
-//   - fundamental: validado contra AnosAcademicos da academia (dinâmico)
-//   - medio/superior: validado contra Nivel[] do curso vinculado ao estudante
+//   - fundamental: validado contra AnosAcademicos da academia (dinâmico, primeiro–nono)
+//   - medio/superior: validado contra AnosAcademicos[] do curso vinculado ao estudante
 //   - Reprovado + proximo_nivel ≠ nil → erro
 //   - Aprovado + proximo_nivel == nil → último ano → status do ciclo = "finalizado"
 //   - Reprovação gera evento no ledger (auditável) sem alterar estado do estudante
@@ -29,7 +29,7 @@ func RegistrarAprovacaoAno(c *gin.Context) {
 		AnoLectivo      string  `json:"ano_lectivo"      binding:"required"`
 		TipoEnsino      string  `json:"tipo_ensino"      binding:"required"` // fundamental | medio | superior
 		NivelAtual      string  `json:"nivel_atual"      binding:"required"`
-		ProximoNivel    *string `json:"proximo_nivel"`                       // nil = último ano OU reprovado
+		ProximoNivel    *string `json:"proximo_nivel"`  // nil = último ano OU reprovado
 		Aprovado        bool    `json:"aprovado"`
 		Observacao      *string `json:"observacao"`
 	}
@@ -246,7 +246,6 @@ func validarNiveisFundamental(
 		return fmt.Errorf("academia não possui anos_academicos configurados para o ensino fundamental")
 	}
 
-	// Indexar posição de cada ano (ordem importa)
 	posicao := make(map[string]int, len(anosAcademia))
 	for i, a := range anosAcademia {
 		posicao[a] = i
@@ -265,7 +264,6 @@ func validarNiveisFundamental(
 	ultimoIdx := len(anosAcademia) - 1
 
 	if proximoNivel == nil {
-		// Aprovação no último ano
 		if posAtual != ultimoIdx {
 			return fmt.Errorf(
 				"proximo_nivel é obrigatório: '%s' não é o último ano do ciclo fundamental nesta academia",
@@ -275,7 +273,6 @@ func validarNiveisFundamental(
 		return nil
 	}
 
-	// Aprovação com avanço para proximo_nivel
 	posProximo, ok := posicao[*proximoNivel]
 	if !ok {
 		return fmt.Errorf("proximo_nivel '%s' não pertence aos anos configurados nesta academia", *proximoNivel)
@@ -289,9 +286,8 @@ func validarNiveisFundamental(
 	return nil
 }
 
-// validarNiveisCurso valida nivel_atual e proximo_nivel contra o array Nivel[]
+// validarNiveisCurso valida nivel_atual e proximo_nivel contra AnosAcademicos[]
 // do curso vinculado ao estudante (médio ou superior).
-// Os anos são definidos pela academia ao criar o curso — validação é posicional.
 func validarNiveisCurso(
 	c *gin.Context,
 	cursoID *uuid.UUID,
@@ -313,13 +309,12 @@ func validarNiveisCurso(
 		return fmt.Errorf("curso do estudante está inativo")
 	}
 
-	if len(curso.Nivel) == 0 {
-		return fmt.Errorf("curso '%s' não possui anos definidos", curso.Nome)
+	if len(curso.AnosAcademicos) == 0 {
+		return fmt.Errorf("curso '%s' não possui anos_academicos definidos", curso.Nome)
 	}
 
-	// Indexar posição de cada ano
-	posicao := make(map[string]int, len(curso.Nivel))
-	for i, n := range curso.Nivel {
+	posicao := make(map[string]int, len(curso.AnosAcademicos))
+	for i, n := range curso.AnosAcademicos {
 		posicao[n] = i
 	}
 
@@ -332,7 +327,7 @@ func validarNiveisCurso(
 		return nil
 	}
 
-	ultimoIdx := len(curso.Nivel) - 1
+	ultimoIdx := len(curso.AnosAcademicos) - 1
 
 	if proximoNivel == nil {
 		if posAtual != ultimoIdx {
