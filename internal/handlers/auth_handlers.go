@@ -685,19 +685,69 @@ func validarProvincia(provincia string) (string, error) {
 	return "", fmt.Errorf("província inválida: '%s'", provincia)
 }
 
+// generateCodigoAcademia gera um código único no formato {SIGLA}{ANO}{SEQ}.
+//
+// Exemplo: BGU20261, BGU20262, BGU20263 ...
+//
+// Estratégia de concorrência:
+//   - pg_advisory_xact_lock serializa gerações com o mesmo prefix (sigla+ano).
+//   - A transação segura o lock até o commit, evitando dois processos lerem
+//     o mesmo MAX e gerarem o mesmo sequencial.
+//   - O UNIQUE constraint em codigo_academia é a última linha de defesa.
 func generateCodigoAcademia(codigoProvincia string, db *sqlx.DB) (string, error) {
 	ano := time.Now().Year()
+	prefix := fmt.Sprintf("%s%d", codigoProvincia, ano) // ex: "BGU2026"
 
-	var count int
-	query := fmt.Sprintf(
-		`SELECT COUNT(*) FROM projection_academias WHERE codigo_academia ~ '^[A-Z]{3}%d[0-9]+$'`,
-		ano,
-	)
-	if err := db.QueryRow(query).Scan(&count); err != nil {
-		return "", fmt.Errorf("erro ao gerar sequencial do código: %w", err)
+	// Chave determinística para o advisory lock (int64 via FNV hash do prefix)
+	lockKey := prefixLockKey(prefix)
+
+	log.Printf("🔒 [generateCodigoAcademia] Adquirindo lock para prefix=%s (lockKey=%d)", prefix, lockKey)
+
+	tx, err := db.Begin()
+	if err != nil {
+		return "", fmt.Errorf("erro ao iniciar transação: %w", err)
+	}
+	defer tx.Rollback() // no-op após Commit
+
+	// Serializa todas as gerações com o mesmo prefix dentro desta instância e
+	// em quaisquer outras instâncias conectadas ao mesmo PostgreSQL.
+	if _, err := tx.Exec(`SELECT pg_advisory_xact_lock($1)`, lockKey); err != nil {
+		return "", fmt.Errorf("erro ao adquirir advisory lock: %w", err)
 	}
 
-	codigo := fmt.Sprintf("%s%d%d", codigoProvincia, ano, count+1)
-	log.Printf("🎲 [generateCodigoAcademia] Código gerado: %s (seq=%d)", codigo, count+1)
+	// Busca o maior sequencial já existente para este prefix.
+	// SUBSTRING(codigo_academia, pos) extrai tudo após o prefix e converte para INT.
+	query := fmt.Sprintf(`
+		SELECT COALESCE(
+			MAX(CAST(SUBSTRING(codigo_academia, %d) AS INTEGER)),
+			0
+		)
+		FROM projection_academias
+		WHERE codigo_academia ~ '^%s[0-9]+$'
+	`, len(prefix)+1, prefix)
+
+	var maxSeq int
+	if err := tx.QueryRow(query).Scan(&maxSeq); err != nil {
+		return "", fmt.Errorf("erro ao buscar sequencial: %w", err)
+	}
+
+	nextSeq := maxSeq + 1
+	codigo := fmt.Sprintf("%s%d", prefix, nextSeq)
+
+	log.Printf("✅ [generateCodigoAcademia] Código gerado: %s (maxSeq=%d → next=%d)", codigo, maxSeq, nextSeq)
+
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("erro ao confirmar transação: %w", err)
+	}
+
 	return codigo, nil
+}
+
+// prefixLockKey converte uma string (ex: "BGU2026") em um int64 estável
+// para uso como chave no pg_advisory_xact_lock.
+func prefixLockKey(prefix string) int64 {
+	h := fnv.New64a()
+	h.Write([]byte(prefix))
+	// Converte uint64 → int64 (PostgreSQL aceita int8)
+	return int64(h.Sum64())
 }
