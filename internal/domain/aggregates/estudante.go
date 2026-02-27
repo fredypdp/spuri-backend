@@ -881,6 +881,7 @@ type FaltasRegistradasEvent struct {
 	CodigoEstudante      string
 	CodigoAcademia       string
 	AnoLectivo           string
+	AnoAcademico         string
 	Data                 time.Time
 	MateriaDisciplinarID uuid.UUID
 	Quantidade           int

@@ -99,45 +99,46 @@ func (p *FaltasProjection) clear() error {
 
 func (p *FaltasProjection) handleFaltasRegistradas(event db.Event) error {
 	var payload struct {
-		CodigoEstudante, CodigoAcademia, AnoLectivo, MateriaDisciplinarID string
-		Data, RegisteredAt                                                time.Time
-		Quantidade                                                        int
-		Observacao                                                        *string
+		CodigoEstudante      string    `json:"CodigoEstudante"`
+		CodigoAcademia       string    `json:"CodigoAcademia"`
+		AnoLectivo           string    `json:"AnoLectivo"`
+		AnoAcademico         string    `json:"AnoAcademico"`
+		Data                 time.Time `json:"Data"`
+		MateriaDisciplinarID string    `json:"MateriaDisciplinarID"`
+		Quantidade           int       `json:"Quantidade"`
+		Observacao           *string   `json:"Observacao"`
+		RegisteredAt         time.Time `json:"RegisteredAt"`
 	}
-
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("parse error: %w", err)
+		return fmt.Errorf("parse error FaltasRegistradas: %w", err)
 	}
-
-	log.Printf("[DEBUG] Registrando %d faltas para estudante %s", 
-		payload.Quantidade, payload.CodigoEstudante)
 
 	query := fmt.Sprintf(`
 		INSERT INTO projection_faltas (
-			codigo_estudante, codigo_academia, ano_lectivo, data,
-			materia_disciplinar_id, quantidade, observacao, registered_at, event_id, version
-		) VALUES ('%s', '%s', '%s', '%s', '%s', %d, %s, '%s', '%s', %d)
-		ON CONFLICT (codigo_estudante, codigo_academia, data, materia_disciplinar_id)
-		DO UPDATE SET quantidade = EXCLUDED.quantidade, observacao = EXCLUDED.observacao,
-			registered_at = EXCLUDED.registered_at, event_id = EXCLUDED.event_id, version = EXCLUDED.version
-	`, db.SafeString(payload.CodigoEstudante), db.SafeString(payload.CodigoAcademia),
-		db.SafeString(payload.AnoLectivo), payload.Data.Format(time.RFC3339),
-		db.SafeString(payload.MateriaDisciplinarID), payload.Quantidade,
-		nullOrString(payload.Observacao), payload.RegisteredAt.Format(time.RFC3339),
-		event.EventID, event.EventVersion)
+			codigo_estudante, codigo_academia, ano_lectivo, ano_academico,
+			data, materia_disciplinar_id, quantidade, observacao,
+			registered_at, event_id, version
+		) VALUES (
+			'%s', '%s', '%s', '%s',
+			'%s', '%s', %d, %s,
+			'%s', '%s', %d
+		)
+	`,
+		db.SafeString(payload.CodigoEstudante),
+		db.SafeString(payload.CodigoAcademia),
+		db.SafeString(payload.AnoLectivo),
+		db.SafeString(payload.AnoAcademico),
+		payload.Data.Format("2006-01-02"),
+		db.SafeString(payload.MateriaDisciplinarID),
+		payload.Quantidade,
+		nullOrText(payload.Observacao),
+		payload.RegisteredAt.Format("2006-01-02 15:04:05"),
+		event.EventID,
+		event.EventVersion,
+	)
 
-	if _, err := p.client.DB().Exec(query); err != nil {
-		return err
-	}
-
-	updateQuery := fmt.Sprintf(`
-		UPDATE projection_estudantes
-		SET total_faltas = (SELECT COALESCE(SUM(quantidade), 0) FROM projection_faltas WHERE codigo_estudante = '%s')
-		WHERE codigo_estudante = '%s'
-	`, db.SafeString(payload.CodigoEstudante), db.SafeString(payload.CodigoEstudante))
-	
-	p.client.DB().Exec(updateQuery)
-	return nil
+	_, err := p.client.DB().Exec(query)
+	return err
 }
 
 func (p *FaltasProjection) GetByEstudante(codigoEstudante string) ([]FaltaDTO, error) {

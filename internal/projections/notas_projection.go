@@ -82,6 +82,7 @@ func (p *NotasProjection) handleNotasRegistradas(event db.Event) error {
 		CodigoEstudante      string    `json:"CodigoEstudante"`
 		CodigoAcademia       string    `json:"CodigoAcademia"`
 		AnoLectivo           string    `json:"AnoLectivo"`
+		AnoAcademico         string    `json:"AnoAcademico"`
 		Periodo              string    `json:"Periodo"`
 		MateriaDisciplinarID string    `json:"MateriaDisciplinarID"`
 		Tipo                 string    `json:"Tipo"`
@@ -96,11 +97,11 @@ func (p *NotasProjection) handleNotasRegistradas(event db.Event) error {
 
 	query := fmt.Sprintf(`
 		INSERT INTO projection_notas (
-			codigo_estudante, codigo_academia, ano_lectivo, periodo,
+			codigo_estudante, codigo_academia, ano_lectivo, ano_academico, periodo,
 			materia_disciplinar_id, tipo, categoria, nota, observacao,
 			registered_at, event_id, version
 		) VALUES (
-			'%s', '%s', '%s', '%s',
+			'%s', '%s', '%s', '%s', '%s',
 			'%s', '%s', '%s', %f, %s,
 			'%s', '%s', %d
 		)
@@ -110,6 +111,7 @@ func (p *NotasProjection) handleNotasRegistradas(event db.Event) error {
 		db.SafeString(payload.CodigoEstudante),
 		db.SafeString(payload.CodigoAcademia),
 		db.SafeString(payload.AnoLectivo),
+		db.SafeString(payload.AnoAcademico),
 		db.SafeString(payload.Periodo),
 		db.SafeString(payload.MateriaDisciplinarID),
 		db.SafeString(payload.Tipo),

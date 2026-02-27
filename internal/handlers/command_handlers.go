@@ -20,6 +20,7 @@ func RegistrarFaltas(c *gin.Context) {
 	var req struct {
 		CodigoEstudante      string  `json:"codigo_estudante" binding:"required"`
 		AnoLectivo           string  `json:"ano_lectivo" binding:"required"`
+		AnoAcademico         string  `json:"ano_academico" binding:"required"`
 		Data                 string  `json:"data" binding:"required"`
 		MateriaDisciplinarID string  `json:"materia_disciplinar_id" binding:"required"`
 		Quantidade           int     `json:"quantidade" binding:"required,min=1"`
@@ -81,6 +82,7 @@ func RegistrarFaltas(c *gin.Context) {
 	err = estudante.RegistrarFalta(
 		academiaDTO.CodigoAcademia,
 		req.AnoLectivo,
+		req.AnoAcademico,
 		data,
 		materiaID,
 		req.Quantidade,

@@ -24,6 +24,7 @@ func RegistrarNota(c *gin.Context) {
 	var req struct {
 		CodigoEstudante      string  `json:"codigo_estudante"       binding:"required"`
 		AnoLectivo           string  `json:"ano_lectivo"            binding:"required"`
+		AnoAcademico         string  `json:"ano_academico" binding:"required"`
 		Periodo              string  `json:"periodo"                binding:"required"`
 		MateriaDisciplinarID string  `json:"materia_disciplinar_id" binding:"required"`
 		Tipo                 string  `json:"tipo"                   binding:"required"` // escolar | superior
@@ -105,6 +106,7 @@ func RegistrarNota(c *gin.Context) {
 	err = estudante.RegistrarNota(
 		academiaDTO.CodigoAcademia,
 		req.AnoLectivo,
+		req.AnoAcademico,
 		req.Periodo,
 		materiaID,
 		req.Tipo,

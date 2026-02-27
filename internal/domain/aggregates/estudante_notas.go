@@ -39,6 +39,7 @@ type NotasRegistradasEvent struct {
 	CodigoEstudante      string
 	CodigoAcademia       string
 	AnoLectivo           string
+	AnoAcademico         string
 	Periodo              string
 	MateriaDisciplinarID uuid.UUID
 	Tipo                 string  // "escolar" | "superior"
