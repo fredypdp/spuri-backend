@@ -106,15 +106,18 @@ func Login(c *gin.Context) {
 // ============================================================================
 
 type RegisterAcademiaRequest struct {
-	Type           string   `json:"type" binding:"required"`
-	Nome           string   `json:"nome" binding:"required"`
-	Provincia      string   `json:"provincia" binding:"required"`
-	Endereco       string   `json:"endereco" binding:"required"`
+	Type           string   `json:"type"            binding:"required"`
+	Nome           string   `json:"nome"            binding:"required"`
+	Provincia      string   `json:"provincia"       binding:"required"`
+	Endereco       string   `json:"endereco"        binding:"required"`
 	NumeroTelefone *string  `json:"numero_telefone"`
 	Email          *string  `json:"email"`
 	Website        *string  `json:"website"`
 	NivelEscolar   *string  `json:"nivel_escolar"`
 	Cursos         []string `json:"cursos"`
+	// AnosAcademicos — obrigatório para tipo="escola" com nivel_escolar "fundamental" ou "misto".
+	// Subconjunto de: primeiro_fundamental … nono_fundamental.
+	AnosAcademicos []string `json:"anos_academicos"`
 }
 
 func RegisterAcademia(c *gin.Context) {
@@ -153,14 +156,24 @@ func RegisterAcademia(c *gin.Context) {
 		return
 	}
 
-	if req.Type == "escola" {
-		if req.NivelEscolar == nil {
-			utils.RespondWithValidationError(c, fmt.Errorf("nivel_escolar é obrigatório para escolas"))
-			return
-		}
-		validNiveis := map[string]bool{"fundamental": true, "medio": true, "misto": true}
-		if !validNiveis[*req.NivelEscolar] {
-			utils.RespondWithValidationError(c, fmt.Errorf("nivel_escolar deve ser 'fundamental', 'medio' ou 'misto'"))
+	// Validar anos_academicos conforme nivel_escolar
+	if req.Type == "escola" && req.NivelEscolar != nil {
+		nivel := *req.NivelEscolar
+		if nivel == "fundamental" || nivel == "misto" {
+			if len(req.AnosAcademicos) == 0 {
+				utils.RespondWithValidationError(c, fmt.Errorf(
+					"anos_academicos é obrigatório para escolas de nivel_escolar '%s'", nivel,
+				))
+				return
+			}
+			if err := utils.ValidateAnosFundamental(req.AnosAcademicos); err != nil {
+				utils.RespondWithValidationError(c, err)
+				return
+			}
+		} else if nivel == "medio" && len(req.AnosAcademicos) > 0 {
+			utils.RespondWithValidationError(c, fmt.Errorf(
+				"escolas de nivel_escolar 'medio' não devem definir anos_academicos",
+			))
 			return
 		}
 	}
@@ -199,6 +212,7 @@ func RegisterAcademia(c *gin.Context) {
 		req.Website,
 		req.NivelEscolar,
 		req.Cursos,
+		req.AnosAcademicos,
 	); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return

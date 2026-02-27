@@ -177,6 +177,10 @@ func AtualizarDadosAcademia(c *gin.Context) {
 		Website        *string  `json:"website"`
 		NivelEscolar   *string  `json:"nivel_escolar"`
 		Cursos         []string `json:"cursos"`
+		// AnosAcademicos — enviar apenas quando quiser alterar.
+		// Para escolas fundamental/misto: obrigatório se nivelEscolar também for alterado para esses valores.
+		// Omitir o campo (nil) para não alterar os anos cadastrados.
+		AnosAcademicos []string `json:"anos_academicos"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -192,7 +196,35 @@ func AtualizarDadosAcademia(c *gin.Context) {
 	}
 
 	academia := academiaAgg.(*aggregates.Academia)
-	if err := academia.AtualizarDados(req.Nome, req.Provincia, req.Endereco, req.NumeroTelefone, req.Email, req.Website, req.NivelEscolar, req.Cursos); err != nil {
+
+	// Validação cruzada: se anos_academicos veio no body, verificar consistência.
+	// O próprio aggregate faz a validação completa; aqui só garantimos que o body
+	// seja semanticamente coerente antes de chamar o domínio.
+	if req.AnosAcademicos != nil {
+		// Determinar nivel_escolar efetivo (novo ou atual)
+		nivelEfetivo := academia.NivelEscolar
+		if req.NivelEscolar != nil {
+			nivelEfetivo = req.NivelEscolar
+		}
+		if nivelEfetivo != nil && (*nivelEfetivo == "fundamental" || *nivelEfetivo == "misto") {
+			if err := utils.ValidateAnosFundamental(req.AnosAcademicos); err != nil {
+				utils.RespondWithValidationError(c, err)
+				return
+			}
+		}
+	}
+
+	if err := academia.AtualizarDados(
+		req.Nome,
+		req.Provincia,
+		req.Endereco,
+		req.NumeroTelefone,
+		req.Email,
+		req.Website,
+		req.NivelEscolar,
+		req.Cursos,
+		req.AnosAcademicos, // <<< NOVO — nil = não alterar
+	); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -205,10 +237,7 @@ func AtualizarDadosAcademia(c *gin.Context) {
 	response := gin.H{"message": "dados da academia atualizados com sucesso"}
 	if req.Email != nil {
 		response["aviso"] = "Email alterado. Verificação necessária."
-		response["email_verificado"] = false
 	}
-
-	log.Printf("Dados da academia atualizados: %s", academia.CodigoAcademia)
 	c.JSON(http.StatusOK, response)
 }
 
