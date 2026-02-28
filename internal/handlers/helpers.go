@@ -77,3 +77,9 @@ func getCategoriasNotaProjection(c *gin.Context) *projections.CategoriasNotaProj
 	client := getDbClient(c)
 	return projections.NewCategoriasNotaProjection(client)
 }
+
+// getAvaliacaoFinalProjection retorna a projection de avaliação final.
+func getAvaliacaoFinalProjection(c *gin.Context) *projections.AvaliacaoFinalProjection {
+	client := getDbClient(c)
+	return projections.NewAvaliacaoFinalProjection(client)
+}

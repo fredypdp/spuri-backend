@@ -103,6 +103,8 @@ func (e *Estudante) Apply(event DomainEvent) error {
 		return e.applyStatusEscolarFundamentalAtualizado(event)
 	case "StatusEscolarMedioAtualizado":
 		return e.applyStatusEscolarMedioAtualizado(event)
+	case "AvaliacaoFinalAnoAcademico":
+		return e.applyAvaliacaoFinalAnoAcademico(event)
 	default:
 		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
 	}
