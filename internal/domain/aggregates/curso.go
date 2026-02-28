@@ -10,14 +10,27 @@ import (
 	"github.com/google/uuid"
 )
 
+// periodosValidos é o conjunto global de períodos aceitos pelo sistema.
+var periodosValidos = map[string]bool{
+	"1_trimestre": true,
+	"2_trimestre": true,
+	"3_trimestre": true,
+	"1_semestre":  true,
+	"2_semestre":  true,
+}
+
 type Curso struct {
 	BaseAggregate
 
 	Nome           string
 	Type           string   // "medio" ou "superior"
-	AnosAcademicos []string // Anos do curso definidos pela academia: ex. ["1ano","2ano","3ano"]
+	AnosAcademicos []string // Anos do curso definidos pela academia
+	// Periodos define os períodos letivos do curso.
+	// Obrigatório para type="superior"; NULL/vazio para "medio".
+	// Deve ser subconjunto de: 1_trimestre, 2_trimestre, 3_trimestre, 1_semestre, 2_semestre.
+	Periodos       []string
 	CodigoAcademia string
-	Status         string // "ativo" ou "inativo"
+	Status         string
 	CreatedAt      time.Time
 }
 
@@ -31,6 +44,7 @@ func NewCurso() *Curso {
 		},
 		Status:         "ativo",
 		AnosAcademicos: []string{},
+		Periodos:       []string{},
 	}
 }
 
@@ -57,17 +71,67 @@ func (c *Curso) Apply(event DomainEvent) error {
 }
 
 // ============================================================================
+// Eventos
+// ============================================================================
+
+type CursoCriadoEvent struct {
+	BaseEvent
+	Nome           string
+	Type           string
+	AnosAcademicos []string
+	// Periodos: obrigatório para superior, vazio para medio.
+	Periodos       []string
+	CodigoAcademia string
+	CreatedAt      time.Time
+}
+
+func (e *CursoCriadoEvent) GetPayload() interface{} { return e }
+
+type CursoAtivadoEvent struct {
+	BaseEvent
+	ActivatedAt time.Time
+}
+
+func (e *CursoAtivadoEvent) GetPayload() interface{} { return e }
+
+type CursoDesativadoEvent struct {
+	BaseEvent
+	DeactivatedAt time.Time
+}
+
+func (e *CursoDesativadoEvent) GetPayload() interface{} { return e }
+
+type CursoDadosAtualizadosEvent struct {
+	BaseEvent
+	Nome           *string
+	Type           *string
+	AnosAcademicos []string
+	// Periodos: nil = não alterar; []string{} = limpar (apenas para medio);
+	// lista não vazia = atualizar periodos.
+	Periodos  *[]string
+	UpdatedAt time.Time
+}
+
+func (e *CursoDadosAtualizadosEvent) GetPayload() interface{} { return e }
+
+// ============================================================================
 // Commands
 // ============================================================================
 
+// Criar registra o evento de criação do curso.
+//
+// Para type="superior": periodos é OBRIGATÓRIO e deve ser um subconjunto
+// não vazio de {1_trimestre, 2_trimestre, 3_trimestre, 1_semestre, 2_semestre}.
+// Para type="medio": periodos deve ser nil ou vazio.
 func (c *Curso) Criar(
 	nome string,
 	tipo string,
 	anosAcademicos []string,
+	periodos []string,
 	codigoAcademia string,
 ) error {
-	log.Printf("[DEBUG] Criando curso: nome=%s, tipo=%s, anosAcademicos=%v, academia=%s",
-		nome, tipo, anosAcademicos, codigoAcademia)
+	log.Printf("[DEBUG] Criando curso: nome=%s, tipo=%s, anosAcademicos=%v, periodos=%v, academia=%s",
+		nome, tipo, anosAcademicos, periodos, codigoAcademia)
 
 	if nome == "" {
 		return fmt.Errorf("nome é obrigatório")
@@ -86,6 +150,11 @@ func (c *Curso) Criar(
 		return err
 	}
 
+	// Validar periodos conforme tipo
+	if err := validarPeriodosCurso(tipo, periodos); err != nil {
+		return err
+	}
+
 	event := &CursoCriadoEvent{
 		BaseEvent: BaseEvent{
 			EventType:   "CursoCriado",
@@ -94,6 +163,7 @@ func (c *Curso) Criar(
 		Nome:           nome,
 		Type:           tipo,
 		AnosAcademicos: anosAcademicos,
+		Periodos:       normalizarPeriodos(tipo, periodos),
 		CodigoAcademia: codigoAcademia,
 		CreatedAt:      time.Now(),
 	}
@@ -141,22 +211,32 @@ func (c *Curso) Desativar() error {
 	return c.Apply(event)
 }
 
-// AtualizarDados atualiza nome, tipo e/ou anos_academicos do curso.
-// Passe nil/nil/nil para não alterar os respectivos campos.
-func (c *Curso) AtualizarDados(nome *string, tipo *string, anosAcademicos []string) error {
-	if nome == nil && tipo == nil && anosAcademicos == nil {
+// AtualizarDados atualiza nome, tipo, anos_academicos e/ou periodos do curso.
+// Passe nil para não alterar os respectivos campos.
+// periodos=nil → não altera; periodos=&[]string{...} → atualiza.
+func (c *Curso) AtualizarDados(nome *string, tipo *string, anosAcademicos []string, periodos *[]string) error {
+	if nome == nil && tipo == nil && anosAcademicos == nil && periodos == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
 
-	// Validar anosAcademicos se enviados
+	tipoEfetivo := c.Type
+	if tipo != nil {
+		tipoEfetivo = *tipo
+	}
+
 	if anosAcademicos != nil {
-		tipoEfetivo := c.Type
-		if tipo != nil {
-			tipoEfetivo = *tipo
-		}
 		if err := utils.ValidateAnosCurso(tipoEfetivo, anosAcademicos); err != nil {
 			return err
 		}
+	}
+
+	if periodos != nil {
+		if err := validarPeriodosCurso(tipoEfetivo, *periodos); err != nil {
+			return err
+		}
+		// Normalizar
+		normalized := normalizarPeriodos(tipoEfetivo, *periodos)
+		periodos = &normalized
 	}
 
 	event := &CursoDadosAtualizadosEvent{
@@ -167,6 +247,7 @@ func (c *Curso) AtualizarDados(nome *string, tipo *string, anosAcademicos []stri
 		Nome:           nome,
 		Type:           tipo,
 		AnosAcademicos: anosAcademicos,
+		Periodos:       periodos,
 		UpdatedAt:      time.Now(),
 	}
 
@@ -180,96 +261,109 @@ func (c *Curso) AtualizarDados(nome *string, tipo *string, anosAcademicos []stri
 
 func (c *Curso) applyCursoCriado(event DomainEvent) error {
 	payload := event.GetPayload()
+
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		return fmt.Errorf("erro ao serializar evento CursoCriado: %w", err)
 	}
 
-	var ev CursoCriadoEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
+	var p CursoCriadoEvent
+	if err := json.Unmarshal(data, &p); err != nil {
+		return fmt.Errorf("erro ao desserializar evento CursoCriado: %w", err)
 	}
 
-	c.ID = ev.AggregateID
-	c.Nome = ev.Nome
-	c.Type = ev.Type
-	c.AnosAcademicos = ev.AnosAcademicos
-	c.CodigoAcademia = ev.CodigoAcademia
+	c.Nome = p.Nome
+	c.Type = p.Type
+	c.AnosAcademicos = p.AnosAcademicos
+	c.Periodos = p.Periodos
+	c.CodigoAcademia = p.CodigoAcademia
 	c.Status = "ativo"
-	c.CreatedAt = ev.CreatedAt
+	c.CreatedAt = p.CreatedAt
 
-	log.Printf("[DEBUG] CursoCriado aplicado: %s (%s) — %d anos", c.Nome, c.Type, len(c.AnosAcademicos))
+	log.Printf("[DEBUG] applyCursoCriado: curso=%s tipo=%s periodos=%v", c.Nome, c.Type, c.Periodos)
 	return nil
 }
 
 func (c *Curso) applyCursoAtivado(event DomainEvent) error {
 	c.Status = "ativo"
+	log.Printf("[DEBUG] applyCursoAtivado: curso=%s", c.Nome)
 	return nil
 }
 
 func (c *Curso) applyCursoDesativado(event DomainEvent) error {
 	c.Status = "inativo"
+	log.Printf("[DEBUG] applyCursoDesativado: curso=%s", c.Nome)
 	return nil
 }
 
 func (c *Curso) applyCursoDadosAtualizados(event DomainEvent) error {
-	data, err := json.Marshal(event.GetPayload())
+	payload := event.GetPayload()
+
+	data, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		return fmt.Errorf("erro ao serializar evento CursoDadosAtualizados: %w", err)
 	}
 
-	var ev CursoDadosAtualizadosEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
+	var p CursoDadosAtualizadosEvent
+	if err := json.Unmarshal(data, &p); err != nil {
+		return fmt.Errorf("erro ao desserializar evento CursoDadosAtualizados: %w", err)
 	}
 
-	if ev.Nome != nil {
-		c.Nome = *ev.Nome
+	if p.Nome != nil {
+		c.Nome = *p.Nome
 	}
-	if ev.Type != nil {
-		c.Type = *ev.Type
+	if p.Type != nil {
+		c.Type = *p.Type
 	}
-	if ev.AnosAcademicos != nil {
-		c.AnosAcademicos = ev.AnosAcademicos
+	if p.AnosAcademicos != nil {
+		c.AnosAcademicos = p.AnosAcademicos
 	}
+	if p.Periodos != nil {
+		c.Periodos = *p.Periodos
+	}
+
+	log.Printf("[DEBUG] applyCursoDadosAtualizados: curso=%s periodos=%v", c.Nome, c.Periodos)
 	return nil
 }
 
 // ============================================================================
-// Eventos
+// Helpers internos
 // ============================================================================
 
-type CursoCriadoEvent struct {
-	BaseEvent
-	Nome           string
-	Type           string
-	AnosAcademicos []string
-	CodigoAcademia string
-	CreatedAt      time.Time
+// validarPeriodosCurso valida os periodos conforme o tipo do curso:
+//   - superior → obrigatório, ≥1 item, todos do enum global
+//   - medio    → deve ser nil ou vazio
+func validarPeriodosCurso(tipo string, periodos []string) error {
+	switch tipo {
+	case "superior":
+		if len(periodos) == 0 {
+			return fmt.Errorf("periodos é obrigatório para cursos do tipo 'superior'")
+		}
+		seen := make(map[string]bool, len(periodos))
+		for _, p := range periodos {
+			if !periodosValidos[p] {
+				return fmt.Errorf(
+					"período '%s' inválido. Aceitos: 1_trimestre, 2_trimestre, 3_trimestre, 1_semestre, 2_semestre",
+					p,
+				)
+			}
+			if seen[p] {
+				return fmt.Errorf("período duplicado: '%s'", p)
+			}
+			seen[p] = true
+		}
+	case "medio":
+		if len(periodos) > 0 {
+			return fmt.Errorf("cursos do tipo 'medio' não devem ter periodos definidos (são fixos no sistema: 1_trimestre, 2_trimestre, 3_trimestre)")
+		}
+	}
+	return nil
 }
 
-func (e *CursoCriadoEvent) GetPayload() interface{} { return e }
-
-type CursoAtivadoEvent struct {
-	BaseEvent
-	ActivatedAt time.Time
+// normalizarPeriodos retorna nil para medio (sem periodos) e a lista para superior.
+func normalizarPeriodos(tipo string, periodos []string) []string {
+	if tipo == "medio" {
+		return []string{}
+	}
+	return periodos
 }
-
-func (e *CursoAtivadoEvent) GetPayload() interface{} { return e }
-
-type CursoDesativadoEvent struct {
-	BaseEvent
-	DeactivatedAt time.Time
-}
-
-func (e *CursoDesativadoEvent) GetPayload() interface{} { return e }
-
-type CursoDadosAtualizadosEvent struct {
-	BaseEvent
-	Nome           *string
-	Type           *string
-	AnosAcademicos []string
-	UpdatedAt      time.Time
-}
-
-func (e *CursoDadosAtualizadosEvent) GetPayload() interface{} { return e }

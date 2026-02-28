@@ -11,12 +11,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// CursoDTO — projeção lida do banco
+// CursoDTO — projeção lida do banco.
 type CursoDTO struct {
 	ID             uuid.UUID `json:"id"`
 	Nome           string    `json:"nome"`
 	Type           string    `json:"type"`
 	AnosAcademicos []string  `json:"anos_academicos"`
+	// Periodos: preenchido apenas para type="superior".
+	// Para type="medio" retorna array vazio.
+	Periodos       []string  `json:"periodos"`
 	CodigoAcademia string    `json:"codigo_academia"`
 	Status         string    `json:"status"`
 	CreatedAt      time.Time `json:"created_at"`
@@ -77,6 +80,7 @@ func (p *CursosProjection) handleCursoCriado(event db.Event) error {
 		Nome           string    `json:"Nome"`
 		Type           string    `json:"Type"`
 		AnosAcademicos []string  `json:"AnosAcademicos"`
+		Periodos       []string  `json:"Periodos"`
 		CodigoAcademia string    `json:"CodigoAcademia"`
 		CreatedAt      time.Time `json:"CreatedAt"`
 	}
@@ -90,17 +94,28 @@ func (p *CursosProjection) handleCursoCriado(event db.Event) error {
 		return fmt.Errorf("handleCursoCriado: marshal anos_academicos falhou: %w", err)
 	}
 
+	// Periodos: NULL para medio, JSON array para superior
+	periodosExpr := "NULL"
+	if payload.Type == "superior" && len(payload.Periodos) > 0 {
+		periodosJSON, err := json.Marshal(payload.Periodos)
+		if err != nil {
+			return fmt.Errorf("handleCursoCriado: marshal periodos falhou: %w", err)
+		}
+		periodosExpr = fmt.Sprintf("'%s'", db.SafeString(string(periodosJSON)))
+	}
+
 	query := fmt.Sprintf(`
 		INSERT INTO projection_cursos
-			(id, nome, type, anos_academicos, codigo_academia, status, created_at, updated_at, version, last_event_id)
+			(id, nome, type, anos_academicos, periodos, codigo_academia, status, created_at, updated_at, version, last_event_id)
 		VALUES
-			('%s', '%s', '%s', '%s', '%s', 'ativo', '%s', CURRENT_TIMESTAMP, %d, '%s')
+			('%s', '%s', '%s', '%s', %s, '%s', 'ativo', '%s', CURRENT_TIMESTAMP, %d, '%s')
 		ON CONFLICT (id) DO NOTHING
 	`,
 		event.AggregateID,
 		db.SafeString(payload.Nome),
 		db.SafeString(payload.Type),
 		db.SafeString(string(anosJSON)),
+		periodosExpr,
 		db.SafeString(payload.CodigoAcademia),
 		payload.CreatedAt.Format(time.RFC3339),
 		event.EventVersion,
@@ -130,9 +145,11 @@ func (p *CursosProjection) handleStatusChange(status string) func(db.Event) erro
 
 func (p *CursosProjection) handleCursoDadosAtualizados(event db.Event) error {
 	var payload struct {
-		Nome           *string  `json:"Nome"`
-		Type           *string  `json:"Type"`
-		AnosAcademicos []string `json:"AnosAcademicos"`
+		Nome           *string   `json:"Nome"`
+		Type           *string   `json:"Type"`
+		AnosAcademicos []string  `json:"AnosAcademicos"`
+		// Periodos: nil = não alterar; ponteiro para slice = atualizar
+		Periodos       *[]string `json:"Periodos"`
 	}
 
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
@@ -161,6 +178,20 @@ func (p *CursosProjection) handleCursoDadosAtualizados(event db.Event) error {
 			return err
 		}
 	}
+	if payload.Periodos != nil {
+		var periodosExpr string
+		if len(*payload.Periodos) == 0 {
+			periodosExpr = "NULL"
+		} else {
+			periodosJSON, _ := json.Marshal(*payload.Periodos)
+			periodosExpr = fmt.Sprintf("'%s'", db.SafeString(string(periodosJSON)))
+		}
+		query := fmt.Sprintf(`UPDATE projection_cursos SET periodos = %s WHERE id = '%s'`,
+			periodosExpr, event.AggregateID)
+		if _, err := p.client.DB().Exec(query); err != nil {
+			return err
+		}
+	}
 
 	query := fmt.Sprintf(`
 		UPDATE projection_cursos
@@ -182,14 +213,15 @@ func (p *CursosProjection) GetByID(id uuid.UUID) (*CursoDTO, error) {
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, nome, type, anos_academicos, codigo_academia, status, created_at, updated_at, version
+		SELECT id, nome, type, anos_academicos, periodos, codigo_academia, status, created_at, updated_at, version
 		FROM projection_cursos WHERE id = '%s'
 	`, id)
 
 	var dto CursoDTO
 	var anosJSON []byte
+	var periodosJSON []byte
 	err := p.client.DB().QueryRow(query).Scan(
-		&dto.ID, &dto.Nome, &dto.Type, &anosJSON,
+		&dto.ID, &dto.Nome, &dto.Type, &anosJSON, &periodosJSON,
 		&dto.CodigoAcademia, &dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version,
 	)
 
@@ -201,12 +233,18 @@ func (p *CursosProjection) GetByID(id uuid.UUID) (*CursoDTO, error) {
 	}
 
 	json.Unmarshal(anosJSON, &dto.AnosAcademicos)
+	if periodosJSON != nil {
+		json.Unmarshal(periodosJSON, &dto.Periodos)
+	}
+	if dto.Periodos == nil {
+		dto.Periodos = []string{}
+	}
 	return &dto, nil
 }
 
 func (p *CursosProjection) GetByAcademia(codigoAcademia string) ([]CursoDTO, error) {
 	query := fmt.Sprintf(`
-		SELECT id, nome, type, anos_academicos, codigo_academia, status, created_at, updated_at, version
+		SELECT id, nome, type, anos_academicos, periodos, codigo_academia, status, created_at, updated_at, version
 		FROM projection_cursos
 		WHERE codigo_academia = '%s'
 		ORDER BY created_at DESC
@@ -222,13 +260,20 @@ func (p *CursosProjection) GetByAcademia(codigoAcademia string) ([]CursoDTO, err
 	for rows.Next() {
 		var dto CursoDTO
 		var anosJSON []byte
+		var periodosJSON []byte
 		if err := rows.Scan(
-			&dto.ID, &dto.Nome, &dto.Type, &anosJSON,
+			&dto.ID, &dto.Nome, &dto.Type, &anosJSON, &periodosJSON,
 			&dto.CodigoAcademia, &dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version,
 		); err != nil {
 			continue
 		}
 		json.Unmarshal(anosJSON, &dto.AnosAcademicos)
+		if periodosJSON != nil {
+			json.Unmarshal(periodosJSON, &dto.Periodos)
+		}
+		if dto.Periodos == nil {
+			dto.Periodos = []string{}
+		}
 		cursos = append(cursos, dto)
 	}
 

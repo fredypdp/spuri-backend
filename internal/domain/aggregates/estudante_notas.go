@@ -17,6 +17,9 @@ const (
 	TipoSuperior = "superior"
 )
 
+// PeriodosEscolar são os períodos fixos para notas do tipo escolar.
+var PeriodosEscolar = []string{"1_trimestre", "2_trimestre", "3_trimestre"}
+
 var categoriasEscolar = map[string]bool{
 	"nota_escola":    true,
 	"nota_professor": true,
@@ -33,16 +36,16 @@ var categoriasSuperiorFixas = map[string]bool{
 // ============================================================================
 
 // NotasRegistradasEvent — emitido ao registrar uma nota pela primeira vez.
-// AnoAcademico é sempre preenchido pelo back end (ver regras acima).
+// AnoAcademico é sempre preenchido pelo back end.
 type NotasRegistradasEvent struct {
 	BaseEvent
 	CodigoEstudante      string
 	CodigoAcademia       string
 	AnoLectivo           string
-	AnoAcademico         string    // inferido pelo back end
+	AnoAcademico         string // inferido pelo back end
 	Periodo              string
 	MateriaDisciplinarID uuid.UUID
-	Tipo                 string    // "escolar" | "superior"
+	Tipo                 string // "escolar" | "superior"
 	Categoria            string
 	Nota                 float64
 	Observacao           *string
@@ -74,15 +77,21 @@ func (e *NotaAtualizadaEvent) GetPayload() interface{} { return e }
 // Validações internas
 // ============================================================================
 
-func validarPeriodo(periodo string) error {
-	validos := map[string]bool{
-		"1_trimestre": true, "2_trimestre": true, "3_trimestre": true,
-		"1_semestre": true, "2_semestre": true,
+// validarPeriodoComLista valida se o período informado pertence à lista de
+// períodos válidos para o contexto (escolar=3 trimestres fixos; superior=
+// períodos do curso).
+// periodosValidos nunca deve ser vazio — o handler é responsável por preenchê-lo.
+func validarPeriodoComLista(periodo string, periodosValidos []string) error {
+	if len(periodosValidos) == 0 {
+		return fmt.Errorf("lista de períodos válidos não foi fornecida")
 	}
-	if !validos[periodo] {
-		return fmt.Errorf("período inválido: %s", periodo)
+	for _, p := range periodosValidos {
+		if p == periodo {
+			return nil
+		}
 	}
-	return nil
+	return fmt.Errorf("período '%s' inválido. Períodos aceitos para este contexto: %s",
+		periodo, strings.Join(periodosValidos, ", "))
 }
 
 func validarCategoria(tipo, categoria string, categoriasAdicionais []string) error {
@@ -123,10 +132,13 @@ func validarCategoria(tipo, categoria string, categoriasAdicionais []string) err
 
 // RegistrarNota registra uma nota pela primeira vez.
 //
+// periodosValidos: lista de períodos aceitos para este tipo de nota.
+//   - tipo="escolar"  → sempre PeriodosEscolar (handler preenche)
+//   - tipo="superior" → curso.Periodos da matéria (handler preenche)
+//
 // anoAcademico é inferido pelo handler (não vem do request):
 //   - estudante no fundamental → estudante.AnoEscolar
-//   - estudante no médio       → materia.Nivel[0]
-//   - estudante no superior    → materia.Nivel[0]
+//   - estudante no médio/superior → materia.AnosAcademicos[0]
 //
 // categoriasAdicionais: lista de categorias extras cadastradas pela academia
 // (somente relevante para tipo "superior", pode ser nil caso contrário).
@@ -141,6 +153,7 @@ func (e *Estudante) RegistrarNota(
 	nota float64,
 	observacao *string,
 	categoriasAdicionais []string,
+	periodosValidos []string,
 ) error {
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
@@ -148,7 +161,7 @@ func (e *Estudante) RegistrarNota(
 	if strings.TrimSpace(anoAcademico) == "" {
 		return fmt.Errorf("ano_academico não pode ser vazio")
 	}
-	if err := validarPeriodo(periodo); err != nil {
+	if err := validarPeriodoComLista(periodo, periodosValidos); err != nil {
 		return err
 	}
 	if err := validarCategoria(tipo, categoria, categoriasAdicionais); err != nil {
@@ -179,6 +192,7 @@ func (e *Estudante) RegistrarNota(
 
 // AtualizarNota corrige uma nota já registrada.
 // observacao é OBRIGATÓRIA — deve justificar a correção.
+// periodosValidos: mesmo critério que RegistrarNota.
 func (e *Estudante) AtualizarNota(
 	codigoAcademia string,
 	anoLectivo string,
@@ -190,6 +204,7 @@ func (e *Estudante) AtualizarNota(
 	notaNova float64,
 	observacao string,
 	categoriasAdicionais []string,
+	periodosValidos []string,
 ) error {
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
@@ -197,7 +212,7 @@ func (e *Estudante) AtualizarNota(
 	if strings.TrimSpace(observacao) == "" {
 		return fmt.Errorf("observacao é obrigatória ao atualizar uma nota")
 	}
-	if err := validarPeriodo(periodo); err != nil {
+	if err := validarPeriodoComLista(periodo, periodosValidos); err != nil {
 		return err
 	}
 	if err := validarCategoria(tipo, categoria, categoriasAdicionais); err != nil {

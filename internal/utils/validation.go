@@ -241,6 +241,8 @@ func ValidateURL(rawURL string) error {
 	return nil
 }
 
+// ValidatePeriodo valida se o período pertence ao conjunto global de períodos
+// aceitos pelo sistema (usado em contextos genéricos / admin).
 func ValidatePeriodo(periodo string) error {
 	log.Printf("📅 [ValidatePeriodo] Validando período: %s", periodo)
 
@@ -254,7 +256,10 @@ func ValidatePeriodo(periodo string) error {
 
 	if !validPeriodos[periodo] {
 		log.Printf("❌ [ValidatePeriodo] Período inválido: %s", periodo)
-		return fmt.Errorf("período inválido")
+		return fmt.Errorf(
+			"período '%s' inválido. Aceitos: 1_trimestre, 2_trimestre, 3_trimestre, 1_semestre, 2_semestre",
+			periodo,
+		)
 	}
 
 	log.Printf("✅ [ValidatePeriodo] Período válido: %s", periodo)
