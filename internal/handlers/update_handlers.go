@@ -1,3 +1,8 @@
+// ============================================================================
+// ARQUIVO: internal/handlers/update_handlers.go
+// Handlers de atualização de dados de entidades.
+// ============================================================================
+
 package handlers
 
 import (
@@ -308,4 +313,49 @@ func AtualizarDadosMateria(c *gin.Context) {
 		"message": "matéria atualizada com sucesso",
 		"nome":    materia.Nome,
 	})
+}
+
+// ============================================================================
+// ADMIN
+// ============================================================================
+
+func AtualizarDadosAdmin(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+
+	targetID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("ID de administrador inválido"))
+		return
+	}
+
+	var req struct {
+		Nome  *string `json:"nome"`
+		Email *string `json:"email"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("dados inválidos"))
+		return
+	}
+
+	repository := getRepository(c)
+	adminAgg, err := repository.Load(targetID, "Admin")
+	if err != nil {
+		utils.RespondWithNotFoundError(c, "administrador")
+		return
+	}
+
+	admin := adminAgg.(*aggregates.Admin)
+	if err := admin.AtualizarDados(req.Nome, req.Email, userID); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if err := repository.Save(admin); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	log.Printf("Dados do admin atualizados: %s", admin.Email)
+	c.JSON(http.StatusOK, gin.H{"message": "dados do administrador atualizados com sucesso"})
 }

@@ -1,3 +1,15 @@
+// ============================================================================
+// ARQUIVO: internal/handlers/cursos_handlers.go
+//
+// ATUALIZAÇÃO 1:
+//   - CriarMateria: campo de request renomeado de "nivel" para "anos_academicos"
+//     para refletir a semântica correta.
+//   - Validação via utils.ValidateAnosMateria (em vez de só ValidateAnosFundamental):
+//       • fundamental → 1–9 itens, todos primeiro_fundamental…nono_fundamental
+//       • medio/superior → exatamente 1 item (livre, deve ser ano do curso)
+//   - Para medio/superior, valida que anos_academicos[0] pertence ao curso vinculado.
+// ============================================================================
+
 package handlers
 
 import (
@@ -438,5 +450,70 @@ func DesativarMateria(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "matéria desativada com sucesso",
 		"nome":    materia.Nome,
+	})
+}
+
+// ============================================================================
+// PUT /academia/cursos/:id
+// ============================================================================
+
+func AtualizarDadosCurso(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+
+	cursoID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("ID de curso inválido"))
+		return
+	}
+
+	var req struct {
+		Nome           *string  `json:"nome"`
+		Type           *string  `json:"type"`
+		AnosAcademicos []string `json:"anos_academicos"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("dados inválidos"))
+		return
+	}
+
+	cursosProj := getCursosProjection(c)
+	cursoDTO, err := cursosProj.GetByID(cursoID)
+	if err != nil || cursoDTO == nil {
+		utils.RespondWithNotFoundError(c, "curso")
+		return
+	}
+
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, _ := academiaProj.GetByID(userID)
+	if academiaDTO == nil || academiaDTO.CodigoAcademia != cursoDTO.CodigoAcademia {
+		utils.RespondWithForbiddenError(c, "curso não pertence a esta academia")
+		return
+	}
+
+	repository := getRepository(c)
+	cursoAgg, err := repository.Load(cursoID, "Curso")
+	if err != nil {
+		utils.RespondWithNotFoundError(c, "curso")
+		return
+	}
+
+	curso := cursoAgg.(*aggregates.Curso)
+	if err := curso.AtualizarDados(req.Nome, req.Type, req.AnosAcademicos); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if err := repository.Save(curso); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	log.Printf("Curso atualizado: %s", curso.Nome)
+	c.JSON(http.StatusOK, gin.H{
+		"message":         "curso atualizado com sucesso",
+		"nome":            curso.Nome,
+		"type":            curso.Type,
+		"anos_academicos": curso.AnosAcademicos,
 	})
 }
