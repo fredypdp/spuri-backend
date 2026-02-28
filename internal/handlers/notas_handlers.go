@@ -92,7 +92,7 @@ func RegistrarNota(c *gin.Context) {
 	// Regra:
 	//   • estudante.AnoEscolar != nil → estudante está no fundamental → usa AnoEscolar
 	//   • caso contrário              → médio/superior → usa materia.Nivel[0]
-	anoAcademico, err := inferirAnoAcademicoParaNota(estudanteDTO.AnoEscolar, materiaDTO.Nivel, materiaDTO.Nome)
+	anoAcademico, err := inferirAnoAcademicoParaNota(estudanteDTO.AnoEscolar, materiaDTO.AnosAcademicos, materiaDTO.Nome)
 	if err != nil {
 		utils.RespondWithValidationError(c, err)
 		return

@@ -211,28 +211,21 @@ func DesativarCurso(c *gin.Context) {
 // POST /academia/materias
 // ============================================================================
 
-// CriarMateria cria uma nova matéria disciplinar.
-//
-// ATUALIZAÇÃO 1 — campo "anos_academicos" (antes "nivel"):
-//   - fundamental : array com 1–9 anos (primeiro_fundamental…nono_fundamental)
-//   - medio/superior: array com EXATAMENTE 1 item — o ano do curso ao qual a
-//     matéria pertence (deve existir em curso.AnosAcademicos)
 func CriarMateria(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
 	var req struct {
-		Nome           string     `json:"nome"            binding:"required"`
-		Type           string     `json:"type"            binding:"required"`
+		Nome           string     `json:"nome" binding:"required"`
+		Type           string     `json:"type" binding:"required"`
 		AnosAcademicos []string   `json:"anos_academicos"`
 		CursoID        *uuid.UUID `json:"curso_id"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: nome e type"))
+		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: nome e tipo"))
 		return
 	}
 
-	// ── Academia ───────────────────────────────────────────────────────────
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByID(userID)
 	if err != nil || academiaDTO == nil {
@@ -245,13 +238,6 @@ func CriarMateria(c *gin.Context) {
 		return
 	}
 
-	// ── Pré-validar anos_academicos antes de chamar o aggregate ───────────
-	if err := utils.ValidateAnosMateria(req.Type, req.AnosAcademicos); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-
-	// ── Para medio/superior: validar curso e que o ano pertence ao curso ──
 	if (req.Type == "medio" || req.Type == "superior") && req.CursoID != nil {
 		cursosProj := getCursosProjection(c)
 		cursoDTO, _ := cursosProj.GetByID(*req.CursoID)
@@ -270,31 +256,11 @@ func CriarMateria(c *gin.Context) {
 			utils.RespondWithForbiddenError(c, "Curso não pertence a esta academia")
 			return
 		}
-
-		// O único ano da matéria deve pertencer aos anos do curso
-		anoMateria := req.AnosAcademicos[0]
-		anoValido := false
-		for _, a := range cursoDTO.AnosAcademicos {
-			if a == anoMateria {
-				anoValido = true
-				break
-			}
-		}
-		if !anoValido {
-			utils.RespondWithValidationError(c, fmt.Errorf(
-				"o ano_academico '%s' não pertence aos anos do curso '%s'. "+
-					"Anos disponíveis: %v",
-				anoMateria, cursoDTO.Nome, cursoDTO.AnosAcademicos,
-			))
-			return
-		}
 	}
 
-	// ── Criar aggregate ────────────────────────────────────────────────────
 	repository := getRepository(c)
 	materia := aggregates.NewMateriaDisciplinar()
 
-	// O aggregate recebe AnosAcademicos no parâmetro "nivel" (campo interno)
 	if err := materia.Criar(req.Nome, req.Type, req.AnosAcademicos, academiaDTO.CodigoAcademia, req.CursoID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -305,15 +271,14 @@ func CriarMateria(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Matéria criada: %s - %s (anos_academicos=%v)", req.Nome, materia.ID, req.AnosAcademicos)
+	log.Printf("Matéria criada: %s - %s", req.Nome, materia.ID)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "matéria criada com sucesso",
 		"data": gin.H{
-			"id":              materia.ID,
-			"nome":            materia.Nome,
-			"type":            materia.Type,
-			"anos_academicos": materia.Nivel,
+			"id":   materia.ID,
+			"nome": materia.Nome,
+			"type": materia.Type,
 		},
 	})
 }

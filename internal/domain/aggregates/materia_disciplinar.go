@@ -1,3 +1,8 @@
+// ============================================================================
+// ARQUIVO: internal/domain/aggregates/materia_disciplinar.go
+// Agregado MatériaDisciplinar (Event Sourcing) + logs de debug
+// ============================================================================
+
 package aggregates
 
 import (
@@ -10,20 +15,16 @@ import (
 	"github.com/google/uuid"
 )
 
-// MateriaDisciplinar representa uma disciplina de uma academia.
-// O campo Nivel armazena os AnosAcademicos:
-//   - fundamental → []string com 1–9 anos fundamentais válidos
-//   - medio/superior → []string com exatamente 1 ano (ano do curso)
 type MateriaDisciplinar struct {
 	BaseAggregate
 
-	Nome           string
-	Type           string     // "fundamental", "medio", "superior"
-	Nivel          []string   // AnosAcademicos — ver regras acima
-	CodigoAcademia string
-	CursoID        *uuid.UUID // NULL para fundamental, obrigatório para medio/superior
-	Status         string     // "ativo" ou "inativo"
-	CreatedAt      time.Time
+	Nome            string
+	Type            string     // "fundamental", "medio", "superior"
+	AnosAcademicos  []string   // Apenas para fundamental: ["1ano", "2ano"]
+	CodigoAcademia  string
+	CursoID         *uuid.UUID // NULL para fundamental
+	Status          string     // "ativo" ou "inativo"
+	CreatedAt       time.Time
 }
 
 func NewMateriaDisciplinar() *MateriaDisciplinar {
@@ -60,27 +61,19 @@ func (m *MateriaDisciplinar) Apply(event DomainEvent) error {
 	}
 }
 
-// ============================================================================
-// Comandos
-// ============================================================================
+// ── Comandos ──────────────────────────────────────────────────────────────────
 
-// Criar registra o evento de criação da matéria.
-//
-// anos_academicos (parametro nivel):
-//   - fundamental: 1–9 itens, todos em primeiro_fundamental…nono_fundamental.
-//   - medio/superior: exatamente 1 item livre (deve coincidir com um dos
-//     anos_academicos do curso vinculado — validação de negócio no handler).
 func (m *MateriaDisciplinar) Criar(
 	nome string,
 	tipo string,
-	nivel []string,
+	anosAcademicos []string,
 	codigoAcademia string,
 	cursoID *uuid.UUID,
 ) error {
-	log.Printf("[DEBUG] Criando matéria: nome=%s, tipo=%s, nivel=%v, academia=%s, cursoID=%v",
-		nome, tipo, nivel, codigoAcademia, cursoID)
+	log.Printf("[DEBUG] Criando matéria: nome=%s, tipo=%s, anosAcademicos=%v, academia=%s, cursoID=%v",
+		nome, tipo, anosAcademicos, codigoAcademia, cursoID)
 
-	// ── Validações básicas ────────────────────────────────────────────────
+	// Validações
 	if nome == "" {
 		log.Printf("[ERROR] Nome é obrigatório")
 		return fmt.Errorf("nome é obrigatório")
@@ -96,23 +89,30 @@ func (m *MateriaDisciplinar) Criar(
 		return fmt.Errorf("código da academia é obrigatório")
 	}
 
-	// ── Regras de curso_id ────────────────────────────────────────────────
+	// Fundamental não pode ter curso_id
 	if tipo == "fundamental" && cursoID != nil {
 		log.Printf("[ERROR] Matéria fundamental não pode ter curso associado")
 		return fmt.Errorf("matérias fundamentais não podem ter curso associado")
 	}
 
+	// Medio/Superior deve ter curso_id
 	if (tipo == "medio" || tipo == "superior") && cursoID == nil {
 		log.Printf("[ERROR] Matéria medio/superior sem curso associado")
 		return fmt.Errorf("matérias de médio/superior devem ter curso associado")
 	}
 
-	// ── Validar anos_academicos via ValidateAnosMateria ───────────────────
-	// Fundamental: 1–9 anos fundamentais válidos.
-	// Medio/Superior: exatamente 1 ano (livre).
-	if err := utils.ValidateAnosMateria(tipo, nivel); err != nil {
-		log.Printf("[ERROR] Validação de anos_academicos falhou: %v", err)
-		return err
+	// Fundamental deve ter anos_academicos
+	if tipo == "fundamental" && len(anosAcademicos) == 0 {
+		log.Printf("[ERROR] Matéria fundamental sem anos_academicos definidos")
+		return fmt.Errorf("matérias fundamentais devem ter anos_academicos definidos")
+	}
+
+	// Validar anos fundamentais
+	if tipo == "fundamental" {
+		if err := utils.ValidateAnosFundamental(anosAcademicos); err != nil {
+			log.Printf("[ERROR] Validação de anos_academicos fundamental falhou: %v", err)
+			return err
+		}
 	}
 
 	event := &MateriaCriadaEvent{
@@ -120,12 +120,12 @@ func (m *MateriaDisciplinar) Criar(
 			EventType:   "MateriaCriada",
 			AggregateID: m.ID,
 		},
-		Nome:           nome,
-		Type:           tipo,
-		Nivel:          nivel,
-		CodigoAcademia: codigoAcademia,
-		CursoID:        cursoID,
-		CreatedAt:      time.Now(),
+		Nome:            nome,
+		Type:            tipo,
+		AnosAcademicos:  anosAcademicos,
+		CodigoAcademia:  codigoAcademia,
+		CursoID:         cursoID,
+		CreatedAt:       time.Now(),
 	}
 
 	log.Printf("[DEBUG] Evento MateriaCriada criado para matéria %s", m.ID)
@@ -133,7 +133,6 @@ func (m *MateriaDisciplinar) Criar(
 	return m.Apply(event)
 }
 
-// Ativar reativa uma matéria desativada.
 func (m *MateriaDisciplinar) Ativar() error {
 	log.Printf("[DEBUG] Ativando matéria %s (status atual: %s)", m.ID, m.Status)
 
@@ -154,7 +153,6 @@ func (m *MateriaDisciplinar) Ativar() error {
 	return m.Apply(event)
 }
 
-// Desativar desativa uma matéria ativa.
 func (m *MateriaDisciplinar) Desativar() error {
 	log.Printf("[DEBUG] Desativando matéria %s (status atual: %s)", m.ID, m.Status)
 
@@ -175,11 +173,7 @@ func (m *MateriaDisciplinar) Desativar() error {
 	return m.Apply(event)
 }
 
-// AtualizarDados atualiza nome e/ou tipo da matéria.
-//
-// Nota: atualização de anos_academicos (Nivel) não é suportada por este
-// comando por questão de consistência — a matéria deve ser recriada caso
-// os anos precisem mudar.
+// AtualizarDados atualiza dados da matéria
 func (m *MateriaDisciplinar) AtualizarDados(
 	nome *string,
 	tipo *string,
@@ -207,26 +201,16 @@ func (m *MateriaDisciplinar) AtualizarDados(
 			return fmt.Errorf("tipo deve ser 'fundamental', 'medio' ou 'superior'")
 		}
 
-		// Não permite alterar tipo se isso quebrar a regra de curso_id
+		// Se mudando de fundamental para medio/superior, precisa ter curso_id
 		if m.Type == "fundamental" && (*tipo == "medio" || *tipo == "superior") && m.CursoID == nil {
 			log.Printf("[ERROR] Não é possível mudar para medio/superior sem curso associado")
 			return fmt.Errorf("não é possível mudar para medio/superior sem curso associado")
 		}
 
+		// Se mudando para fundamental, não pode ter curso_id
 		if *tipo == "fundamental" && m.CursoID != nil {
 			log.Printf("[ERROR] Matéria fundamental não pode ter curso associado")
 			return fmt.Errorf("matérias fundamentais não podem ter curso associado")
-		}
-
-		// Validar que os anos atuais são compatíveis com o novo tipo
-		// (evita que uma matéria de fundamental com múltiplos anos vire medio/superior)
-		if *tipo == "medio" || *tipo == "superior" {
-			if err := utils.ValidateAnosMateria(*tipo, m.Nivel); err != nil {
-				return fmt.Errorf(
-					"os anos_academicos atuais (%v) são incompatíveis com o tipo '%s': %w",
-					m.Nivel, *tipo, err,
-				)
-			}
 		}
 	}
 
@@ -245,9 +229,7 @@ func (m *MateriaDisciplinar) AtualizarDados(
 	return m.Apply(event)
 }
 
-// ============================================================================
-// Apply handlers (event sourcing)
-// ============================================================================
+// ── Event Handlers ────────────────────────────────────────────────────────────
 
 func (m *MateriaDisciplinar) applyMateriaCriada(event DomainEvent) error {
 	log.Printf("[DEBUG] Aplicando MateriaCriada ao agregado %s", event.GetAggregateID())
@@ -265,14 +247,14 @@ func (m *MateriaDisciplinar) applyMateriaCriada(event DomainEvent) error {
 		return err
 	}
 
-	m.ID = event.GetAggregateID()
-	m.Nome = ev.Nome
-	m.Type = ev.Type
-	m.Nivel = ev.Nivel
-	m.CodigoAcademia = ev.CodigoAcademia
-	m.CursoID = ev.CursoID
-	m.Status = "ativo"
-	m.CreatedAt = ev.CreatedAt
+	m.ID              = event.GetAggregateID()
+	m.Nome            = ev.Nome
+	m.Type            = ev.Type
+	m.AnosAcademicos  = ev.AnosAcademicos
+	m.CodigoAcademia  = ev.CodigoAcademia
+	m.CursoID         = ev.CursoID
+	m.Status          = "ativo"
+	m.CreatedAt       = ev.CreatedAt
 
 	log.Printf("[DEBUG] Matéria criada: %s (%s)", m.Nome, m.ID)
 	return nil
@@ -319,18 +301,16 @@ func (m *MateriaDisciplinar) applyMateriaDadosAtualizados(event DomainEvent) err
 	return nil
 }
 
-// ============================================================================
-// Eventos
-// ============================================================================
+// ── Eventos ───────────────────────────────────────────────────────────────────
 
 type MateriaCriadaEvent struct {
 	BaseEvent
-	Nome           string
-	Type           string
-	Nivel          []string   // AnosAcademicos
-	CodigoAcademia string
-	CursoID        *uuid.UUID
-	CreatedAt      time.Time
+	Nome            string
+	Type            string
+	AnosAcademicos  []string
+	CodigoAcademia  string
+	CursoID         *uuid.UUID
+	CreatedAt       time.Time
 }
 
 func (e *MateriaCriadaEvent) GetPayload() interface{} { return e }

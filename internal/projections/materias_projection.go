@@ -1,3 +1,7 @@
+// ============================================================================
+// ARQUIVO: internal/projections/materias_projection.go
+// ============================================================================
+
 package projections
 
 import (
@@ -42,7 +46,7 @@ func (p *MateriasProjection) Handle(event db.Event) error {
 
 func (p *MateriasProjection) Rebuild() error {
 	log.Printf("[DEBUG] Rebuild iniciado")
-	
+
 	if err := p.clear(); err != nil {
 		return fmt.Errorf("falha ao limpar: %w", err)
 	}
@@ -81,7 +85,7 @@ func (p *MateriasProjection) GetLastProcessedEventID() (int64, error) {
 	var lastID int64
 	query := fmt.Sprintf(`SELECT last_processed_event_id FROM projection_checkpoints WHERE projection_name = '%s'`,
 		db.SafeString(p.Name()))
-	
+
 	err := p.client.DB().QueryRow(query).Scan(&lastID)
 	if err == sql.ErrNoRows {
 		return 0, nil
@@ -98,7 +102,7 @@ func (p *MateriasProjection) UpdateCheckpoint(eventID int64) error {
 			last_processed_event_id = %d, last_processed_at = CURRENT_TIMESTAMP,
 			events_processed = projection_checkpoints.events_processed + 1
 	`, db.SafeString(p.Name()), eventID, eventID)
-	
+
 	_, err := p.client.DB().Exec(query)
 	return err
 }
@@ -108,10 +112,12 @@ func (p *MateriasProjection) clear() error {
 	return err
 }
 
+// ── Handlers de evento ────────────────────────────────────────────────────────
+
 func (p *MateriasProjection) handleMateriaCriada(event db.Event) error {
 	var payload struct {
 		Nome, Type, CodigoAcademia string
-		Nivel                       []string
+		AnosAcademicos              []string
 		CursoID                     *uuid.UUID
 		CreatedAt                   time.Time
 	}
@@ -124,15 +130,23 @@ func (p *MateriasProjection) handleMateriaCriada(event db.Event) error {
 		return fmt.Errorf("UUID inválido")
 	}
 
-	nivelJSON, _ := json.Marshal(payload.Nivel)
+	anosJSON, _ := json.Marshal(payload.AnosAcademicos)
 
 	query := fmt.Sprintf(`
-		INSERT INTO projection_materias (id, nome, type, nivel, codigo_academia, curso_id, status, created_at, updated_at, version, last_event_id)
+		INSERT INTO projection_materias
+			(id, nome, type, anos_academicos, codigo_academia, curso_id, status, created_at, updated_at, version, last_event_id)
 		VALUES ('%s', '%s', '%s', %s, '%s', %s, 'ativo', '%s', CURRENT_TIMESTAMP, %d, '%s')
-	`, event.AggregateID, db.SafeString(payload.Nome), db.SafeString(payload.Type),
-		nullOrString2(nivelJSON), db.SafeString(payload.CodigoAcademia),
-		nullOrUUID(payload.CursoID), payload.CreatedAt.Format(time.RFC3339),
-		event.EventVersion, event.EventID)
+	`,
+		event.AggregateID,
+		db.SafeString(payload.Nome),
+		db.SafeString(payload.Type),
+		nullOrString2(anosJSON),
+		db.SafeString(payload.CodigoAcademia),
+		nullOrUUID(payload.CursoID),
+		payload.CreatedAt.Format(time.RFC3339),
+		event.EventVersion,
+		event.EventID,
+	)
 
 	_, err := p.client.DB().Exec(query)
 	return err
@@ -149,7 +163,7 @@ func (p *MateriasProjection) handleStatusChange(status string) func(db.Event) er
 			SET status = '%s', version = %d, updated_at = CURRENT_TIMESTAMP
 			WHERE id = '%s'
 		`, status, event.EventVersion, event.AggregateID)
-		
+
 		_, err := p.client.DB().Exec(query)
 		return err
 	}
@@ -182,10 +196,12 @@ func (p *MateriasProjection) handleMateriaDadosAtualizados(event db.Event) error
 		SET version = %d, updated_at = CURRENT_TIMESTAMP, last_event_id = '%s'
 		WHERE id = '%s'
 	`, event.EventVersion, event.EventID, event.AggregateID)
-	
+
 	_, err := p.client.DB().Exec(query)
 	return err
 }
+
+// ── Queries de leitura ────────────────────────────────────────────────────────
 
 func (p *MateriasProjection) GetByID(id uuid.UUID) (*MateriaDTO, error) {
 	if id == uuid.Nil {
@@ -193,18 +209,18 @@ func (p *MateriasProjection) GetByID(id uuid.UUID) (*MateriaDTO, error) {
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, nome, type, nivel, codigo_academia, curso_id, status, created_at, updated_at, version
+		SELECT id, nome, type, anos_academicos, codigo_academia, curso_id, status, created_at, updated_at, version
 		FROM projection_materias WHERE id = '%s'
 	`, id)
-	
+
 	var dto MateriaDTO
-	var nivelJSON sql.NullString
+	var anosJSON sql.NullString
 	var cursoID sql.NullString
 
 	err := p.client.DB().QueryRow(query).Scan(
-		&dto.ID, &dto.Nome, &dto.Type, &nivelJSON, &dto.CodigoAcademia, 
+		&dto.ID, &dto.Nome, &dto.Type, &anosJSON, &dto.CodigoAcademia,
 		&cursoID, &dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version)
-	
+
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -212,8 +228,8 @@ func (p *MateriasProjection) GetByID(id uuid.UUID) (*MateriaDTO, error) {
 		return nil, err
 	}
 
-	if nivelJSON.Valid && nivelJSON.String != "" {
-		json.Unmarshal([]byte(nivelJSON.String), &dto.Nivel)
+	if anosJSON.Valid && anosJSON.String != "" {
+		json.Unmarshal([]byte(anosJSON.String), &dto.AnosAcademicos)
 	}
 
 	if cursoID.Valid {
@@ -226,10 +242,10 @@ func (p *MateriasProjection) GetByID(id uuid.UUID) (*MateriaDTO, error) {
 
 func (p *MateriasProjection) GetByAcademia(codigoAcademia string) ([]MateriaDTO, error) {
 	query := fmt.Sprintf(`
-		SELECT id, nome, type, nivel, codigo_academia, curso_id, status, created_at, updated_at, version
+		SELECT id, nome, type, anos_academicos, codigo_academia, curso_id, status, created_at, updated_at, version
 		FROM projection_materias WHERE codigo_academia = '%s' ORDER BY created_at DESC
 	`, db.SafeString(codigoAcademia))
-	
+
 	rows, err := p.client.DB().Query(query)
 	if err != nil {
 		return nil, err
@@ -239,16 +255,16 @@ func (p *MateriasProjection) GetByAcademia(codigoAcademia string) ([]MateriaDTO,
 	var materias []MateriaDTO
 	for rows.Next() {
 		var dto MateriaDTO
-		var nivelJSON sql.NullString
+		var anosJSON sql.NullString
 		var cursoID sql.NullString
 
-		if err := rows.Scan(&dto.ID, &dto.Nome, &dto.Type, &nivelJSON, &dto.CodigoAcademia,
+		if err := rows.Scan(&dto.ID, &dto.Nome, &dto.Type, &anosJSON, &dto.CodigoAcademia,
 			&cursoID, &dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version); err != nil {
 			continue
 		}
 
-		if nivelJSON.Valid && nivelJSON.String != "" {
-			json.Unmarshal([]byte(nivelJSON.String), &dto.Nivel)
+		if anosJSON.Valid && anosJSON.String != "" {
+			json.Unmarshal([]byte(anosJSON.String), &dto.AnosAcademicos)
 		}
 
 		if cursoID.Valid {
@@ -263,6 +279,8 @@ func (p *MateriasProjection) GetByAcademia(codigoAcademia string) ([]MateriaDTO,
 	return materias, rows.Err()
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 func nullOrString2(data []byte) string {
 	if len(data) == 0 || string(data) == "null" {
 		return "NULL"
@@ -270,15 +288,17 @@ func nullOrString2(data []byte) string {
 	return fmt.Sprintf("'%s'", db.SafeString(string(data)))
 }
 
+// ── DTO ───────────────────────────────────────────────────────────────────────
+
 type MateriaDTO struct {
-	ID             uuid.UUID  `json:"id"`
-	Nome           string     `json:"nome"`
-	Type           string     `json:"type"`
-	Nivel          []string   `json:"nivel,omitempty"`
-	CodigoAcademia string     `json:"codigo_academia"`
-	CursoID        *uuid.UUID `json:"curso_id,omitempty"`
-	Status         string     `json:"status"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
-	Version        int        `json:"version"`
+	ID              uuid.UUID  `json:"id"`
+	Nome            string     `json:"nome"`
+	Type            string     `json:"type"`
+	AnosAcademicos  []string   `json:"anos_academicos,omitempty"`
+	CodigoAcademia  string     `json:"codigo_academia"`
+	CursoID         *uuid.UUID `json:"curso_id,omitempty"`
+	Status          string     `json:"status"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	Version         int        `json:"version"`
 }

@@ -119,8 +119,6 @@ func setupRouter() *gin.Engine {
 		c.Next()
 	})
 
-	router.GET("/docs", handlers.GetSwaggerUI)
-	router.GET("/docs/openapi.json", handlers.GetOpenAPISpec)	
 	router.GET("/health", handlers.HealthCheckBasic)
 	router.GET("/health/detailed", middleware.AuthMiddleware(), middleware.RequireAdmin(), handlers.HealthCheckDetailed)
 	

@@ -81,7 +81,7 @@ func RegistrarFaltas(c *gin.Context) {
 	}
 
 	// ── Inferir AnoAcademico (mesma regra das notas — Atualização 2) ──────
-	anoAcademico, err := inferirAnoAcademicoParaNota(estudanteDTO.AnoEscolar, materiaDTO.Nivel, materiaDTO.Nome)
+	anoAcademico, err := inferirAnoAcademicoParaNota(estudanteDTO.AnoEscolar, materiaDTO.AnosAcademicos, materiaDTO.Nome)
 	if err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
