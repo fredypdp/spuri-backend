@@ -250,7 +250,6 @@ func AtualizarDadosMateria(c *gin.Context) {
 
 	var req struct {
 		Nome *string `json:"nome"`
-		Type *string `json:"type"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -280,7 +279,7 @@ func AtualizarDadosMateria(c *gin.Context) {
 	}
 
 	materia := materiaAgg.(*aggregates.MateriaDisciplinar)
-	if err := materia.AtualizarDados(req.Nome, req.Type); err != nil {
+	if err := materia.AtualizarDados(req.Nome); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}

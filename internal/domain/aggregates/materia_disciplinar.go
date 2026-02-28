@@ -176,7 +176,6 @@ func (m *MateriaDisciplinar) Desativar() error {
 // AtualizarDados atualiza dados da matéria
 func (m *MateriaDisciplinar) AtualizarDados(
 	nome *string,
-	tipo *string,
 ) error {
 	log.Printf("[DEBUG] Atualizando dados da matéria %s", m.ID)
 
@@ -185,7 +184,7 @@ func (m *MateriaDisciplinar) AtualizarDados(
 		return fmt.Errorf("matéria inativa não pode ser atualizada")
 	}
 
-	if nome == nil && tipo == nil {
+	if nome == nil {
 		log.Printf("[ERROR] Nenhum campo para atualizar")
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
@@ -195,32 +194,12 @@ func (m *MateriaDisciplinar) AtualizarDados(
 		return fmt.Errorf("nome não pode ser vazio")
 	}
 
-	if tipo != nil {
-		if *tipo != "fundamental" && *tipo != "medio" && *tipo != "superior" {
-			log.Printf("[ERROR] Tipo inválido: %s", *tipo)
-			return fmt.Errorf("tipo deve ser 'fundamental', 'medio' ou 'superior'")
-		}
-
-		// Se mudando de fundamental para medio/superior, precisa ter curso_id
-		if m.Type == "fundamental" && (*tipo == "medio" || *tipo == "superior") && m.CursoID == nil {
-			log.Printf("[ERROR] Não é possível mudar para medio/superior sem curso associado")
-			return fmt.Errorf("não é possível mudar para medio/superior sem curso associado")
-		}
-
-		// Se mudando para fundamental, não pode ter curso_id
-		if *tipo == "fundamental" && m.CursoID != nil {
-			log.Printf("[ERROR] Matéria fundamental não pode ter curso associado")
-			return fmt.Errorf("matérias fundamentais não podem ter curso associado")
-		}
-	}
-
 	event := &MateriaDadosAtualizadosEvent{
 		BaseEvent: BaseEvent{
 			EventType:   "MateriaDadosAtualizados",
 			AggregateID: m.ID,
 		},
 		Nome:      nome,
-		Type:      tipo,
 		UpdatedAt: time.Now(),
 	}
 
