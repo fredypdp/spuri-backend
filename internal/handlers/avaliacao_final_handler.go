@@ -19,7 +19,7 @@ import (
 //
 // Substitui RegistrarAprovacaoAno. Além de registrar o evento no aggregate:
 //   - Aprovado: avança o ano (ou finaliza o ciclo).
-//   - Aprovado ou Reprovado: remove o estudante da turma atual da academia.
+//   - Aprovado ou Reprovado: remove o estudante de TODAS as turmas da academia.
 //
 // Validação de notas (apenas ao aprovar sem observacao preenchida):
 //   - fundamental: nota_escola nos 3 trimestres de cada matéria do ano atual.
@@ -93,7 +93,7 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		}
 	}
 
-	// ── Validação de níveis (reutiliza funções do aprovacao_handlers.go) ──────
+	// ── Validação de níveis ───────────────────────────────────────────────────
 	switch req.TipoEnsino {
 	case "fundamental":
 		if err := validarNiveisFundamental(req.AnoAcademicoAtual, req.ProximoAnoAcademico, req.Aprovado, academiaDTO.AnosAcademicos); err != nil {
@@ -143,8 +143,8 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		return
 	}
 
-	// ── Remove estudante da turma atual (independente de aprovação) ───────────
-	turmaRemovidaDe := removerEstudanteDeTurmaAtual(c, req.CodigoEstudante, academiaDTO.CodigoAcademia, userID)
+	// ── Remove estudante de TODAS as turmas da academia ───────────────────────
+	turmasRemovidas := removerEstudanteDeTurmasAtual(c, req.CodigoEstudante, academiaDTO.CodigoAcademia, userID)
 
 	resultado := "reprovado"
 	if req.Aprovado {
@@ -155,19 +155,18 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		}
 	}
 
-	log.Printf("[avaliacao-final] estudante=%s resultado=%s turma_removida=%s",
-		req.CodigoEstudante, resultado, turmaRemovidaDe)
+	log.Printf("[avaliacao-final] estudante=%s resultado=%s turmas_removidas=%v",
+		req.CodigoEstudante, resultado, turmasRemovidas)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":          "avaliação final registrada com sucesso",
 		"codigo_estudante": req.CodigoEstudante,
 		"resultado":        resultado,
-		"turma_removida":   turmaRemovidaDe,
+		"turmas_removidas": turmasRemovidas,
 	})
 }
 
 // GetAvaliacoesFinaisEstudante — GET /avaliacoes-estudante/:codigo
-// Substitui o handler antigo, agora usa a projection avaliacao_final.
 func GetAvaliacoesFinaisEstudante(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
 
@@ -239,49 +238,60 @@ func GetMinhasAvaliacoes(c *gin.Context) {
 // Helpers internos
 // ============================================================================
 
-// removerEstudanteDeTurmaAtual percorre todas as turmas da academia e remove o
-// estudante da primeira em que for encontrado. Retorna o codigo_turma ou "".
-func removerEstudanteDeTurmaAtual(
+// removerEstudanteDeTurmasAtual percorre TODAS as turmas da academia e remove o
+// estudante de cada uma em que for encontrado (independente de aprovação/reprovação).
+// Retorna slice com os codigos_turma dos quais foi removido (pode ser vazia).
+func removerEstudanteDeTurmasAtual(
 	c *gin.Context,
 	codigoEstudante string,
 	codigoAcademia string,
 	removidoPorID uuid.UUID,
-) string {
+) []string {
 	turmasProj := getTurmasProjection(c)
 	turmas, err := turmasProj.ListByAcademia(codigoAcademia)
 	if err != nil {
 		log.Printf("[avaliacao-final] erro ao listar turmas: %v", err)
-		return ""
+		return nil
 	}
 
 	repository := getRepository(c)
+	var removidas []string
 
 	for _, turmaDTO := range turmas {
+		// Verificar se o estudante está nesta turma
+		encontrado := false
 		for _, cod := range turmaDTO.Estudantes {
-			if cod != codigoEstudante {
-				continue
+			if cod == codigoEstudante {
+				encontrado = true
+				break
 			}
-			agg, err := repository.Load(turmaDTO.ID, "Turma")
-			if err != nil {
-				log.Printf("[avaliacao-final] erro ao carregar turma %s: %v", turmaDTO.CodigoTurma, err)
-				return ""
-			}
-			turmaAgg, ok := agg.(*aggregates.Turma)
-			if !ok {
-				return ""
-			}
-			if err := turmaAgg.RemoverEstudante(codigoEstudante, removidoPorID); err != nil {
-				log.Printf("[avaliacao-final] erro ao remover estudante da turma: %v", err)
-				return ""
-			}
-			if err := repository.Save(turmaAgg); err != nil {
-				log.Printf("[avaliacao-final] erro ao salvar turma: %v", err)
-				return ""
-			}
-			return turmaDTO.CodigoTurma
 		}
+		if !encontrado {
+			continue
+		}
+
+		agg, err := repository.Load(turmaDTO.ID, "Turma")
+		if err != nil {
+			log.Printf("[avaliacao-final] erro ao carregar turma %s: %v", turmaDTO.CodigoTurma, err)
+			continue // tenta as demais turmas
+		}
+		turmaAgg, ok := agg.(*aggregates.Turma)
+		if !ok {
+			log.Printf("[avaliacao-final] erro ao converter aggregate da turma %s", turmaDTO.CodigoTurma)
+			continue
+		}
+		if err := turmaAgg.RemoverEstudante(codigoEstudante, removidoPorID); err != nil {
+			log.Printf("[avaliacao-final] erro ao remover estudante da turma %s: %v", turmaDTO.CodigoTurma, err)
+			continue
+		}
+		if err := repository.Save(turmaAgg); err != nil {
+			log.Printf("[avaliacao-final] erro ao salvar turma %s: %v", turmaDTO.CodigoTurma, err)
+			continue
+		}
+		removidas = append(removidas, turmaDTO.CodigoTurma)
 	}
-	return ""
+
+	return removidas
 }
 
 // validarNotasParaAprovacao verifica se todas as notas obrigatórias estão
@@ -419,7 +429,6 @@ func validarNotasParaAprovacao(
 
 // ============================================================================
 // Helpers de validação de níveis
-// Reutilizados por avaliacao_final_handler.go
 // ============================================================================
 
 // validarNiveisFundamental valida nivel_atual (e proximo_nivel) contra a lista

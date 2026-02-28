@@ -125,6 +125,13 @@ func (p *AvaliacaoFinalProjection) handleAvaliacaoFinal(event db.Event) error {
 		return fmt.Errorf("parse error AvaliacaoFinalAnoAcademico: %w", err)
 	}
 
+	// Usar o ID do payload (imutável entre rebuilds) como PK.
+	// Fallback para uuid.New() caso o campo venha vazio (eventos muito antigos).
+	rowID := payload.ID
+	if rowID == "" {
+		rowID = uuid.New().String()
+	}
+
 	proximoSQL := "NULL"
 	if payload.ProximoAnoAcademico != nil {
 		proximoSQL = fmt.Sprintf("'%s'", db.SafeString(*payload.ProximoAnoAcademico))
@@ -146,13 +153,15 @@ func (p *AvaliacaoFinalProjection) handleAvaliacaoFinal(event db.Event) error {
 		)
 		ON CONFLICT (codigo_estudante, codigo_academia, ano_lectivo, tipo_ensino)
 		DO UPDATE SET
+			id                    = EXCLUDED.id,
+			event_id              = EXCLUDED.event_id,
 			proximo_ano_academico = EXCLUDED.proximo_ano_academico,
 			aprovado              = EXCLUDED.aprovado,
 			observacao            = EXCLUDED.observacao,
 			registered_at         = EXCLUDED.registered_at,
 			version               = EXCLUDED.version
 	`,
-		uuid.New(),
+		db.SafeString(rowID),
 		event.EventID,
 		db.SafeString(payload.CodigoEstudante),
 		db.SafeString(payload.CodigoAcademia),

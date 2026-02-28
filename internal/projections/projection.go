@@ -70,6 +70,10 @@ func (bp *BaseProjection) UpdateCheckpointByName(name string, eventID int64) err
 	return err
 }
 
+// ============================================================================
+// Helpers internos (compartilhados com outras projections no package)
+// ============================================================================
+
 func nullOrUUID(u *uuid.UUID) string {
 	if u == nil {
 		return "NULL"
