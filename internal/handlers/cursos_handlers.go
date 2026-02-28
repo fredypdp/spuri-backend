@@ -115,9 +115,9 @@ func AtualizarDadosCurso(c *gin.Context) {
 		return
 	}
 
+	// Type não é aceito: o tipo do curso é imutável após a criação.
 	var req struct {
 		Nome           *string   `json:"nome"`
-		Type           *string   `json:"type"`
 		AnosAcademicos []string  `json:"anos_academicos"`
 		Periodos       *[]string `json:"periodos"`
 	}
@@ -149,7 +149,8 @@ func AtualizarDadosCurso(c *gin.Context) {
 	}
 
 	curso := cursoAgg.(*aggregates.Curso)
-	if err := curso.AtualizarDados(req.Nome, req.Type, req.AnosAcademicos, req.Periodos); err != nil {
+
+	if err := curso.AtualizarDados(req.Nome, req.AnosAcademicos, req.Periodos); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}

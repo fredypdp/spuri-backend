@@ -10,8 +10,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// periodosValidos é o conjunto global de períodos aceitos pelo sistema.
-var periodosValidos = map[string]bool{
+// periodosAceitos é o conjunto global de períodos aceitos pelo sistema.
+// Renomeado de periodosValidos para evitar shadowing com parâmetros de função
+// no mesmo pacote.
+var periodosAceitos = map[string]bool{
 	"1_trimestre": true,
 	"2_trimestre": true,
 	"3_trimestre": true,
@@ -23,7 +25,7 @@ type Curso struct {
 	BaseAggregate
 
 	Nome           string
-	Type           string   // "medio" ou "superior"
+	Type           string   // "medio" ou "superior" — imutável após criação
 	AnosAcademicos []string // Anos do curso definidos pela academia
 	// Periodos define os períodos letivos do curso.
 	// Obrigatório para type="superior"; NULL/vazio para "medio".
@@ -101,15 +103,14 @@ type CursoDesativadoEvent struct {
 
 func (e *CursoDesativadoEvent) GetPayload() interface{} { return e }
 
+// CursoDadosAtualizadosEvent — Type foi removido: o tipo do curso é imutável após criação.
+// Periodos: nil = não alterar; lista não vazia = atualizar periodos.
 type CursoDadosAtualizadosEvent struct {
 	BaseEvent
 	Nome           *string
-	Type           *string
 	AnosAcademicos []string
-	// Periodos: nil = não alterar; []string{} = limpar (apenas para medio);
-	// lista não vazia = atualizar periodos.
-	Periodos  *[]string
-	UpdatedAt time.Time
+	Periodos       *[]string
+	UpdatedAt      time.Time
 }
 
 func (e *CursoDadosAtualizadosEvent) GetPayload() interface{} { return e }
@@ -150,7 +151,6 @@ func (c *Curso) Criar(
 		return err
 	}
 
-	// Validar periodos conforme tipo
 	if err := validarPeriodosCurso(tipo, periodos); err != nil {
 		return err
 	}
@@ -211,31 +211,26 @@ func (c *Curso) Desativar() error {
 	return c.Apply(event)
 }
 
-// AtualizarDados atualiza nome, tipo, anos_academicos e/ou periodos do curso.
+// AtualizarDados atualiza nome, anos_academicos e/ou periodos do curso.
+// O tipo do curso é IMUTÁVEL após a criação.
 // Passe nil para não alterar os respectivos campos.
 // periodos=nil → não altera; periodos=&[]string{...} → atualiza.
-func (c *Curso) AtualizarDados(nome *string, tipo *string, anosAcademicos []string, periodos *[]string) error {
-	if nome == nil && tipo == nil && anosAcademicos == nil && periodos == nil {
+func (c *Curso) AtualizarDados(nome *string, anosAcademicos []string, periodos *[]string) error {
+	if nome == nil && anosAcademicos == nil && periodos == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
 
-	tipoEfetivo := c.Type
-	if tipo != nil {
-		tipoEfetivo = *tipo
-	}
-
 	if anosAcademicos != nil {
-		if err := utils.ValidateAnosCurso(tipoEfetivo, anosAcademicos); err != nil {
+		if err := utils.ValidateAnosCurso(c.Type, anosAcademicos); err != nil {
 			return err
 		}
 	}
 
 	if periodos != nil {
-		if err := validarPeriodosCurso(tipoEfetivo, *periodos); err != nil {
+		if err := validarPeriodosCurso(c.Type, *periodos); err != nil {
 			return err
 		}
-		// Normalizar
-		normalized := normalizarPeriodos(tipoEfetivo, *periodos)
+		normalized := normalizarPeriodos(c.Type, *periodos)
 		periodos = &normalized
 	}
 
@@ -245,7 +240,6 @@ func (c *Curso) AtualizarDados(nome *string, tipo *string, anosAcademicos []stri
 			AggregateID: c.ID,
 		},
 		Nome:           nome,
-		Type:           tipo,
 		AnosAcademicos: anosAcademicos,
 		Periodos:       periodos,
 		UpdatedAt:      time.Now(),
@@ -312,9 +306,6 @@ func (c *Curso) applyCursoDadosAtualizados(event DomainEvent) error {
 	if p.Nome != nil {
 		c.Nome = *p.Nome
 	}
-	if p.Type != nil {
-		c.Type = *p.Type
-	}
 	if p.AnosAcademicos != nil {
 		c.AnosAcademicos = p.AnosAcademicos
 	}
@@ -341,7 +332,7 @@ func validarPeriodosCurso(tipo string, periodos []string) error {
 		}
 		seen := make(map[string]bool, len(periodos))
 		for _, p := range periodos {
-			if !periodosValidos[p] {
+			if !periodosAceitos[p] {
 				return fmt.Errorf(
 					"período '%s' inválido. Aceitos: 1_trimestre, 2_trimestre, 3_trimestre, 1_semestre, 2_semestre",
 					p,
@@ -360,7 +351,7 @@ func validarPeriodosCurso(tipo string, periodos []string) error {
 	return nil
 }
 
-// normalizarPeriodos retorna nil para medio (sem periodos) e a lista para superior.
+// normalizarPeriodos retorna slice vazio para medio e a lista para superior.
 func normalizarPeriodos(tipo string, periodos []string) []string {
 	if tipo == "medio" {
 		return []string{}
