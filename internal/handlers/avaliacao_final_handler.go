@@ -15,16 +15,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// RegistrarAvaliacaoFinal — POST /academia/avaliacao-final
-//
-// Substitui RegistrarAprovacaoAno. Além de registrar o evento no aggregate:
-//   - Aprovado: avança o ano (ou finaliza o ciclo).
-//   - Aprovado ou Reprovado: remove o estudante de TODAS as turmas da academia.
-//
-// Validação de notas (apenas ao aprovar sem observacao preenchida):
-//   - fundamental: nota_escola nos 3 trimestres de cada matéria do ano atual.
-//   - medio:       nota_escola em cada período do curso para cada matéria do ano atual.
-//   - superior:    nota_exame em cada período do curso para cada matéria do ano atual.
+// ============================================================================
+// POST /academia/avaliacao-final
+// ============================================================================
+
 func RegistrarAvaliacaoFinal(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -125,12 +119,16 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		return
 	}
 
+	// Captura a turma atual ANTES de remover o estudante
+	turmaAtual := buscarTurmaAtual(c, req.CodigoEstudante, academiaDTO.CodigoAcademia)
+
 	if err := estudante.RegistrarAvaliacaoFinal(
 		academiaDTO.CodigoAcademia,
 		req.AnoLectivo,
 		req.TipoEnsino,
 		req.AnoAcademicoAtual,
 		req.ProximoAnoAcademico,
+		turmaAtual,
 		req.Aprovado,
 		req.Observacao,
 	); err != nil {
@@ -143,7 +141,7 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		return
 	}
 
-	// ── Remove estudante de TODAS as turmas da academia ───────────────────────
+	// Remove estudante de TODAS as turmas da academia
 	turmasRemovidas := removerEstudanteDeTurmasAtual(c, req.CodigoEstudante, academiaDTO.CodigoAcademia, userID)
 
 	resultado := "reprovado"
@@ -155,18 +153,85 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		}
 	}
 
-	log.Printf("[avaliacao-final] estudante=%s resultado=%s turmas_removidas=%v",
-		req.CodigoEstudante, resultado, turmasRemovidas)
+	log.Printf("[avaliacao-final] estudante=%s resultado=%s turma=%v turmas_removidas=%v",
+		req.CodigoEstudante, resultado, turmaAtual, turmasRemovidas)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":          "avaliação final registrada com sucesso",
 		"codigo_estudante": req.CodigoEstudante,
 		"resultado":        resultado,
+		"codigo_turma":     turmaAtual,
 		"turmas_removidas": turmasRemovidas,
 	})
 }
 
-// GetAvaliacoesFinaisEstudante — GET /avaliacoes-estudante/:codigo
+// ============================================================================
+// GET /avaliacoes
+// Estudante → suas avaliações
+// Academia  → todas da academia (?tipo_ensino=fundamental|medio|superior)
+// Admin     → todas do sistema  (?tipo_ensino=...)
+// ============================================================================
+
+func ListarAvaliacoes(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
+	tipoEnsino := c.Query("tipo_ensino")
+	avaliacaoProj := getAvaliacaoFinalProjection(c)
+
+	switch userType {
+	case "estudante":
+		estudanteProj := getEstudanteProjection(c)
+		estudante, err := estudanteProj.GetByID(userID)
+		if err != nil || estudante == nil {
+			utils.RespondWithNotFoundError(c, "estudante")
+			return
+		}
+		avaliacoes, err := avaliacaoProj.GetByEstudante(estudante.CodigoEstudante)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"avaliacoes": avaliacoes, "total": len(avaliacoes)})
+
+	case "academia":
+		academiaProj := getAcademiaProjection(c)
+		academiaDTO, err := academiaProj.GetByID(userID)
+		if err != nil || academiaDTO == nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		var tp *string
+		if tipoEnsino != "" {
+			tp = &tipoEnsino
+		}
+		avaliacoes, err := avaliacaoProj.GetByAcademia(academiaDTO.CodigoAcademia, tp, nil)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"avaliacoes": avaliacoes, "total": len(avaliacoes)})
+
+	default: // admin
+		var tp *string
+		if tipoEnsino != "" {
+			tp = &tipoEnsino
+		}
+		avaliacoes, err := avaliacaoProj.GetAll(tp, nil)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"avaliacoes": avaliacoes, "total": len(avaliacoes)})
+	}
+}
+
+// ============================================================================
+// GET /avaliacoes-estudante/:codigo
+// Academia → verifica se o estudante pertence à academia
+// Admin    → acesso irrestrito
+// Estudante → só as próprias
+// ============================================================================
+
 func GetAvaliacoesFinaisEstudante(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
 
@@ -210,7 +275,82 @@ func GetAvaliacoesFinaisEstudante(c *gin.Context) {
 	})
 }
 
-// GetMinhasAvaliacoes — GET /estudante/minhas-avaliacoes
+// ============================================================================
+// GET /avaliacoes/aprovacoes
+// Academia → aprovações da própria academia
+// Admin    → todas as aprovações do sistema
+// ============================================================================
+
+func ListarAprovacoes(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
+	avaliacaoProj := getAvaliacaoFinalProjection(c)
+
+	switch userType {
+	case "academia":
+		academiaProj := getAcademiaProjection(c)
+		academiaDTO, err := academiaProj.GetByID(userID)
+		if err != nil || academiaDTO == nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		aprovacoes, err := avaliacaoProj.GetAprovacoes(academiaDTO.CodigoAcademia)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"aprovacoes": aprovacoes, "total": len(aprovacoes)})
+
+	default: // admin
+		aprovacoes, err := avaliacaoProj.GetAprovacoes("")
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"aprovacoes": aprovacoes, "total": len(aprovacoes)})
+	}
+}
+
+// ============================================================================
+// GET /avaliacoes/reprovacoes
+// Academia → reprovações da própria academia
+// Admin    → todas as reprovações do sistema
+// ============================================================================
+
+func ListarReprovacoes(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
+	avaliacaoProj := getAvaliacaoFinalProjection(c)
+
+	switch userType {
+	case "academia":
+		academiaProj := getAcademiaProjection(c)
+		academiaDTO, err := academiaProj.GetByID(userID)
+		if err != nil || academiaDTO == nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		reprovacoes, err := avaliacaoProj.GetReprovacoes(academiaDTO.CodigoAcademia)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"reprovacoes": reprovacoes, "total": len(reprovacoes)})
+
+	default: // admin
+		reprovacoes, err := avaliacaoProj.GetReprovacoes("")
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"reprovacoes": reprovacoes, "total": len(reprovacoes)})
+	}
+}
+
+// ============================================================================
+// GET /estudante/minhas-avaliacoes
+// ============================================================================
+
 func GetMinhasAvaliacoes(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -238,9 +378,26 @@ func GetMinhasAvaliacoes(c *gin.Context) {
 // Helpers internos
 // ============================================================================
 
+// buscarTurmaAtual encontra a turma atual do estudante antes de removê-lo.
+func buscarTurmaAtual(c *gin.Context, codigoEstudante, codigoAcademia string) *string {
+	turmasProj := getTurmasProjection(c)
+	turmas, err := turmasProj.ListByAcademia(codigoAcademia)
+	if err != nil {
+		log.Printf("[avaliacao-final] erro ao buscar turma atual do estudante %s: %v", codigoEstudante, err)
+		return nil
+	}
+	for _, turma := range turmas {
+		for _, cod := range turma.Estudantes {
+			if cod == codigoEstudante {
+				return &turma.CodigoTurma
+			}
+		}
+	}
+	return nil
+}
+
 // removerEstudanteDeTurmasAtual percorre TODAS as turmas da academia e remove o
-// estudante de cada uma em que for encontrado (independente de aprovação/reprovação).
-// Retorna slice com os codigos_turma dos quais foi removido (pode ser vazia).
+// estudante de cada uma em que for encontrado.
 func removerEstudanteDeTurmasAtual(
 	c *gin.Context,
 	codigoEstudante string,
@@ -258,7 +415,6 @@ func removerEstudanteDeTurmasAtual(
 	var removidas []string
 
 	for _, turmaDTO := range turmas {
-		// Verificar se o estudante está nesta turma
 		encontrado := false
 		for _, cod := range turmaDTO.Estudantes {
 			if cod == codigoEstudante {
@@ -273,7 +429,7 @@ func removerEstudanteDeTurmasAtual(
 		agg, err := repository.Load(turmaDTO.ID, "Turma")
 		if err != nil {
 			log.Printf("[avaliacao-final] erro ao carregar turma %s: %v", turmaDTO.CodigoTurma, err)
-			continue // tenta as demais turmas
+			continue
 		}
 		turmaAgg, ok := agg.(*aggregates.Turma)
 		if !ok {
@@ -294,8 +450,7 @@ func removerEstudanteDeTurmasAtual(
 	return removidas
 }
 
-// validarNotasParaAprovacao verifica se todas as notas obrigatórias estão
-// presentes para o ano letivo e tipo de ensino indicados.
+// validarNotasParaAprovacao verifica se todas as notas obrigatórias estão presentes.
 func validarNotasParaAprovacao(
 	c *gin.Context,
 	codigoEstudante string,
@@ -388,7 +543,6 @@ func validarNotasParaAprovacao(
 		categoriaEsperada = "nota_exame"
 	}
 
-	// Sem matérias cadastradas — não bloqueia
 	if len(materiasFiltradas) == 0 {
 		return nil
 	}
@@ -427,12 +581,7 @@ func validarNotasParaAprovacao(
 	return nil
 }
 
-// ============================================================================
-// Helpers de validação de níveis
-// ============================================================================
-
-// validarNiveisFundamental valida nivel_atual (e proximo_nivel) contra a lista
-// dinâmica de anos que a academia declarou em AnosAcademicos.
+// validarNiveisFundamental valida nivel_atual e proximo_nivel contra os anos configurados na academia.
 func validarNiveisFundamental(
 	nivelAtual string,
 	proximoNivel *string,
@@ -482,8 +631,7 @@ func validarNiveisFundamental(
 	return nil
 }
 
-// validarNiveisCurso valida nivel_atual e proximo_nivel contra AnosAcademicos[]
-// do curso vinculado ao estudante (médio ou superior).
+// validarNiveisCurso valida nivel_atual e proximo_nivel contra os AnosAcademicos do curso (médio ou superior).
 func validarNiveisCurso(
 	c *gin.Context,
 	cursoID *uuid.UUID,

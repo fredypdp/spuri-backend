@@ -121,7 +121,6 @@ func setupRouter() *gin.Engine {
 
 	router.GET("/health", handlers.HealthCheckBasic)
 	router.GET("/health/detailed", middleware.AuthMiddleware(), middleware.RequireAdmin(), handlers.HealthCheckDetailed)
-
 	router.POST("/bootstrap/admin-fpp", handlers.BootstrapAdminFPP)
 
 	loginGroup := router.Group("/")
@@ -262,6 +261,16 @@ func setupRouter() *gin.Engine {
 		admin.GET("/projections-status", handlers.GetAllProjectionStatuses)
 		admin.GET("/ledger-stats", handlers.GetLedgerStats)
 		admin.GET("/verify-all-integrity", handlers.VerifyAllIntegrity)
+	}
+
+	router.GET("/avaliacoes", middleware.AuthMiddleware(), handlers.ListarAvaliacoes)
+	router.GET("/avaliacoes-estudante/:codigo", middleware.AuthMiddleware(), handlers.GetAvaliacoesFinaisEstudante)
+
+	academiaOuAdmin := router.Group("/avaliacoes")
+	academiaOuAdmin.Use(middleware.AuthMiddleware())
+	{
+		academiaOuAdmin.GET("/aprovacoes", handlers.ListarAprovacoes)
+		academiaOuAdmin.GET("/reprovacoes", handlers.ListarReprovacoes)
 	}
 
 	router.GET("/", handlers.APIDocumentation)

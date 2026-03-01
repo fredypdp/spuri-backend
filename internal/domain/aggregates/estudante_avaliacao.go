@@ -17,6 +17,7 @@ type AvaliacaoFinalAnoAcademicoEvent struct {
 	TipoEnsino          string    `json:"tipo_ensino"`
 	AnoAcademicoAtual   string    `json:"nivel_ano_academico_atual"`
 	ProximoAnoAcademico *string   `json:"proximo_ano_academico,omitempty"`
+	CodigoTurma         *string   `json:"codigo_turma,omitempty"`
 	Aprovado            bool      `json:"aprovado"`
 	Observacao          *string   `json:"observacao,omitempty"`
 	Tipo                string    `json:"tipo"`
@@ -31,6 +32,7 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 	tipoEnsino string,
 	anoAcademicoAtual string,
 	proximoAnoAcademico *string,
+	codigoTurma *string,
 	aprovado bool,
 	observacao *string,
 ) error {
@@ -47,6 +49,7 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 		TipoEnsino:          tipoEnsino,
 		AnoAcademicoAtual:   anoAcademicoAtual,
 		ProximoAnoAcademico: proximoAnoAcademico,
+		CodigoTurma:         codigoTurma,
 		Aprovado:            aprovado,
 		Observacao:          observacao,
 		Tipo:                "avaliacao_final",
