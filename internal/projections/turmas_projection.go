@@ -296,6 +296,7 @@ func (p *TurmasProjection) GetByCodigoTurma(codigoTurma, codigoAcademia string) 
 		       estudantes, status, created_at, updated_at, version
 		FROM projection_turmas
 		WHERE codigo_turma = $1 AND codigo_academia = $2
+		  AND deleted_at IS NULL
 	`, codigoTurma, codigoAcademia)
 	return scanTurmaRow(row)
 }

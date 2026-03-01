@@ -1,5 +1,5 @@
 -- ============================================================
--- MIGRATION 009 — Suporte a deleção auditável (soft delete)
+-- MIGRATION 019 — Suporte a deleção auditável (soft delete)
 -- Afeta: projection_turmas, projection_cursos
 -- (projection_materias já tem suporte via DELETE físico;
 --  alterar para soft delete se quiser auditabilidade igual)
@@ -69,4 +69,4 @@ COMMENT ON COLUMN projection_materias.deleted_at IS
 -- Os checkpoints de turmas/cursos/materias já existem;
 -- nenhuma entrada nova necessária.
 
-RAISE NOTICE '✅ MIGRATION 009 CONCLUÍDA — soft delete auditável para turmas, cursos e matérias';
+RAISE NOTICE '✅ MIGRATION 019 CONCLUÍDA — soft delete auditável para turmas, cursos e matérias';

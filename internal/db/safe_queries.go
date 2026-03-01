@@ -60,6 +60,7 @@ func ValidateStatus(status string) error {
 	validStatuses := map[string]bool{
 		"ativo":     true,
 		"inativo":   true,
+		"deletado":  true,
 		"espera":    true,
 		"aprovado":  true,
 		"reprovado": true,

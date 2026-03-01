@@ -59,7 +59,6 @@ func (p *CursosProjection) UpdateCheckpoint(eventID int64) error {
 	return err
 }
 
-// Handle processa eventos do ledger e atualiza projection_cursos.
 func (p *CursosProjection) Handle(event db.Event) error {
 	switch event.EventType {
 	case "CursoCriado":
@@ -70,6 +69,8 @@ func (p *CursosProjection) Handle(event db.Event) error {
 		return p.handleStatusChange("inativo")(event)
 	case "CursoDadosAtualizados":
 		return p.handleCursoDadosAtualizados(event)
+	case "CursoDeletado":
+		return p.handleCursoDeletado(event)
 	default:
 		return nil
 	}
