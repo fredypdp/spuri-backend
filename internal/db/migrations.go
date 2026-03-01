@@ -31,6 +31,7 @@ var allMigrations = []string{
 	"migrations/018_materia_periodo.sql",
 	"migrations/019_soft_delete_auditavel.sql",
 	"migrations/020_fix_verify_hash_chain.sql",
+	"migrations/021_fix_projection_notas.sql",
 }
 
 func (c *Client) RunMigrations() error {

@@ -29,7 +29,7 @@ func RegistrarNota(c *gin.Context) {
 		MateriaDisciplinarID string  `json:"materia_disciplinar_id" binding:"required"`
 		Tipo                 string  `json:"tipo"                   binding:"required"`
 		Categoria            string  `json:"categoria"              binding:"required"`
-		Nota                 float64 `json:"nota"                   binding:"required"`
+		Nota                 float64 `json:"nota"`
 		Observacao           *string `json:"observacao"`
 	}
 
@@ -194,13 +194,18 @@ func AtualizarNota(c *gin.Context) {
 
 	var req struct {
 		ID         string  `json:"id"         binding:"required"`
-		NotaNova   float64 `json:"nota_nova"  binding:"required"`
+		NotaNova   float64 `json:"nota_nova"`
 		Observacao string  `json:"observacao" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf(
 			"campos obrigatorios: id, nota_nova, observacao",
 		))
+		return
+	}
+
+	if req.NotaNova < 0 || req.NotaNova > 20 {
+		utils.RespondWithValidationError(c, fmt.Errorf("nota_nova deve estar entre 0 e 20"))
 		return
 	}
 
@@ -304,6 +309,9 @@ func AtualizarNota(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
+
+	log.Printf("Nota atualizada: %s [%s/%s] %.2f -> %.2f",
+		notaAtual.CodigoEstudante, notaAtual.Tipo, notaAtual.Categoria, notaAtual.Nota, req.NotaNova)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":       "nota atualizada com sucesso",
@@ -488,3 +496,33 @@ func carregarCategoriasAdicionais(c *gin.Context, codigoAcademia string) []strin
 	}
 	return nomes
 }
+
+// inferirAnoAcademicoFaltas é idêntico a inferirAnoAcademicoParaNota —
+// reutilizado no handler de faltas para manter a mesma lógica.
+func inferirAnoAcademicoFaltas(
+	anoEscolarEstudante *string,
+	nivelMateria []string,
+	nomeMateria string,
+) (string, error) {
+	return inferirAnoAcademicoParaNota(anoEscolarEstudante, nivelMateria, nomeMateria)
+}
+
+// validarNota verifica se a nota está no intervalo 0–20.
+// Usado tanto em RegistrarNota quanto como pré-validação no handler.
+func validarNota(nota float64) error {
+	if nota < 0 || nota > 20 {
+		return fmt.Errorf("nota deve estar entre 0 e 20, recebido: %.2f", nota)
+	}
+	return nil
+}
+
+// ============================================================================
+// Utilitário: GetNotasEstudante (alias do handler de query)
+// ============================================================================
+
+// getNotasProjection é um helper local que obtém a NotasProjection do contexto.
+// Definido em query_handlers.go; declarado aqui apenas para documentação.
+// (Não redeclarar — já existe em outro arquivo do pacote handlers)
+
+// NOTE: utils é importado via utils "spuri/internal/utils"
+var _ = utils.RespondWithValidationError

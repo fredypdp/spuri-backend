@@ -36,7 +36,9 @@ var categoriasSuperiorFixas = map[string]bool{
 // ============================================================================
 
 // NotasRegistradasEvent — emitido ao registrar uma nota pela primeira vez.
-// AnoAcademico é sempre preenchido pelo back end.
+// EventType: "NotasRegistradas" (este é o nome canônico — a projeção deve
+// escutar exatamente este string).
+// AnoAcademico é sempre preenchido pelo back end (nunca pelo cliente).
 type NotasRegistradasEvent struct {
 	BaseEvent
 	CodigoEstudante      string
@@ -55,7 +57,11 @@ type NotasRegistradasEvent struct {
 func (e *NotasRegistradasEvent) GetPayload() interface{} { return e }
 
 // NotaAtualizadaEvent — emitido ao corrigir uma nota existente.
+// EventType: "NotaAtualizada" (este é o nome canônico — a projeção deve
+// escutar exatamente este string).
 // Observacao é OBRIGATÓRIA neste evento (justificativa da correção).
+// A identificação da nota na projeção é feita pela chave natural composta:
+// (CodigoEstudante, AnoLectivo, Periodo, MateriaDisciplinarID, Tipo, Categoria).
 type NotaAtualizadaEvent struct {
 	BaseEvent
 	CodigoEstudante      string
@@ -67,7 +73,7 @@ type NotaAtualizadaEvent struct {
 	Categoria            string
 	NotaAnterior         float64
 	NotaNova             float64
-	Observacao           string // obrigatória
+	Observacao           string // obrigatória — justificativa da correção
 	UpdatedAt            time.Time
 }
 
@@ -90,47 +96,55 @@ func validarPeriodoComLista(periodo string, periodosValidos []string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("período '%s' inválido. Períodos aceitos para este contexto: %s",
-		periodo, strings.Join(periodosValidos, ", "))
+	return fmt.Errorf(
+		"período '%s' inválido. Aceitos: %s",
+		periodo, strings.Join(periodosValidos, ", "),
+	)
 }
 
+// validarCategoria valida se a categoria pertence ao conjunto permitido
+// para o tipo de nota.
+//   - tipo="escolar"  → categoriasEscolar (fixas)
+//   - tipo="superior" → categoriasSuperiorFixas ∪ categoriasAdicionais
 func validarCategoria(tipo, categoria string, categoriasAdicionais []string) error {
 	switch tipo {
 	case TipoEscolar:
 		if !categoriasEscolar[categoria] {
+			validas := make([]string, 0, len(categoriasEscolar))
+			for k := range categoriasEscolar {
+				validas = append(validas, k)
+			}
 			return fmt.Errorf(
-				"categoria inválida para tipo escolar. Use: nota_escola, nota_professor",
+				"categoria '%s' inválida para notas escolares. Aceitas: %s",
+				categoria, strings.Join(validas, ", "),
 			)
 		}
 	case TipoSuperior:
 		if categoriasSuperiorFixas[categoria] {
 			return nil
 		}
-		for _, ca := range categoriasAdicionais {
-			if ca == categoria {
+		for _, extra := range categoriasAdicionais {
+			if extra == categoria {
 				return nil
 			}
 		}
-		if !strings.HasPrefix(categoria, "nota_") {
-			return fmt.Errorf(
-				"categorias adicionais devem seguir o formato nota_[nome]",
-			)
-		}
 		return fmt.Errorf(
-			"categoria '%s' não reconhecida. Registre-a como categoria adicional antes de usá-la",
-			categoria,
+			"categoria '%s' inválida para notas superiores. "+
+				"Categorias fixas: nota_pp1, nota_pp2, nota_exame. "+
+				"Categorias adicionais cadastradas: %s",
+			categoria, strings.Join(categoriasAdicionais, ", "),
 		)
 	default:
-		return fmt.Errorf("tipo inválido: use 'escolar' ou 'superior'")
+		return fmt.Errorf("tipo de nota desconhecido: '%s'", tipo)
 	}
 	return nil
 }
 
 // ============================================================================
-// Comandos
+// Método de comando: RegistrarNota
 // ============================================================================
 
-// RegistrarNota registra uma nota pela primeira vez.
+// RegistrarNota registra uma nota do estudante em uma matéria.
 //
 // periodosValidos: lista de períodos aceitos para este tipo de nota.
 //   - tipo="escolar"  → sempre PeriodosEscolar (handler preenche)
@@ -171,6 +185,8 @@ func (e *Estudante) RegistrarNota(
 		return fmt.Errorf("nota deve estar entre 0 e 20")
 	}
 
+	// EventType = "NotasRegistradas"
+	// A projeção NotasProjection.Handle() escuta este exato string.
 	event := &NotasRegistradasEvent{
 		BaseEvent:            BaseEvent{EventType: "NotasRegistradas", AggregateID: e.ID},
 		CodigoEstudante:      e.CodigoEstudante,
@@ -189,6 +205,10 @@ func (e *Estudante) RegistrarNota(
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
+
+// ============================================================================
+// Método de comando: AtualizarNota
+// ============================================================================
 
 // AtualizarNota corrige uma nota já registrada.
 // observacao é OBRIGATÓRIA — deve justificar a correção.
@@ -222,6 +242,8 @@ func (e *Estudante) AtualizarNota(
 		return fmt.Errorf("nota deve estar entre 0 e 20")
 	}
 
+	// EventType = "NotaAtualizada"
+	// A projeção NotasProjection.Handle() escuta este exato string.
 	event := &NotaAtualizadaEvent{
 		BaseEvent:            BaseEvent{EventType: "NotaAtualizada", AggregateID: e.ID},
 		CodigoEstudante:      e.CodigoEstudante,
@@ -245,12 +267,17 @@ func (e *Estudante) AtualizarNota(
 // Apply handlers
 // ============================================================================
 
+// applyNotasRegistradas — o aggregate Estudante não mantém estado de notas
+// em memória. As notas vivem exclusivamente na NotasProjection.
+// Este handler existe apenas para que o Apply() não retorne erro desconhecido.
 func (e *Estudante) applyNotasRegistradas(event DomainEvent) error {
-	// O agregado Estudante não mantém estado de notas em memória —
-	// elas são gerenciadas pela projeção. Apenas deixa a versão incrementar.
+	// Intencional: nenhum estado do aggregate é alterado.
+	// A NotasProjection é a única responsável por persistir notas.
 	return nil
 }
 
+// applyNotaAtualizada — idem: nenhum estado do aggregate é alterado.
 func (e *Estudante) applyNotaAtualizada(event DomainEvent) error {
+	// Intencional: nenhum estado do aggregate é alterado.
 	return nil
 }
