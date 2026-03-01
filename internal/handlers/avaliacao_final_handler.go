@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
 	"spuri/internal/projections"
@@ -136,7 +137,12 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(estudante); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(estudante, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -464,7 +470,12 @@ func removerEstudanteDeTurmasAtual(
 			log.Printf("[avaliacao-final] erro ao remover estudante da turma %s: %v", turmaDTO.CodigoTurma, err)
 			continue
 		}
-		if err := repository.Save(turmaAgg); err != nil {
+		auditTurma := db.AuditContext{
+			UserID:   removidoPorID.String(),
+			UserType: "academia",
+			IP:       "",
+		}
+		if err := repository.SaveWithAudit(turmaAgg, auditTurma); err != nil {
 			log.Printf("[avaliacao-final] erro ao salvar turma %s: %v", turmaDTO.CodigoTurma, err)
 			continue
 		}

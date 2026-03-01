@@ -9,6 +9,7 @@ package handlers
 import (
 	"log"
 	"net/http"
+	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"time"
 
@@ -20,12 +21,12 @@ import (
 // 🔒 SEGURANÇA: Só funciona se não existir NENHUM admin no sistema
 func BootstrapAdminFPP(c *gin.Context) {
 	log.Println("🔵 [BOOTSTRAP] Iniciando criação de Admin FPP...")
-	
+
 	// Verificar se já existe algum admin
 	adminProj := getAdminProjection(c)
 	log.Println("🔍 [BOOTSTRAP-DEBUG] Buscando admins existentes...")
 	admins, err := adminProj.GetAll()
-	
+
 	if err != nil {
 		log.Printf("❌ [BOOTSTRAP-DEBUG] Erro ao verificar admins: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -72,7 +73,7 @@ func BootstrapAdminFPP(c *gin.Context) {
 		req.Nome = "Admin FPP"
 		req.Email = "fredrodrigues795@gmail.com"
 		req.Senha = "gloriasaobrasil"
-		
+
 		log.Println("ℹ️ [BOOTSTRAP-DEBUG] Usando valores padrão")
 	}
 
@@ -98,10 +99,10 @@ func BootstrapAdminFPP(c *gin.Context) {
 		return
 	}
 
-	// Hash da senha - MESMO PADRÃO DE RegisterAdmin
+	// Hash da senha
 	log.Println("🔐 [BOOTSTRAP] Gerando hash bcrypt...")
 	hashedPassword, err := bcrypt.GenerateFromPassword(
-		[]byte(req.Senha), 
+		[]byte(req.Senha),
 		bcrypt.DefaultCost,
 	)
 	if err != nil {
@@ -111,16 +112,16 @@ func BootstrapAdminFPP(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	log.Printf("✅ [BOOTSTRAP-DEBUG] Hash gerado com sucesso (primeiros 30 chars): %s...", string(hashedPassword[:30]))
 
-	// Criar agregado Admin - MESMO PADRÃO DE RegisterAdmin
+	// Criar agregado Admin
 	repository := getRepository(c)
 	newAdmin := aggregates.NewAdmin()
 
 	log.Println("🗂️ [BOOTSTRAP] Criando agregado Admin...")
 	log.Printf("🔍 [BOOTSTRAP-DEBUG] Parâmetros agregado - Nome: %s, Email: %s, Role: fpp", req.Nome, req.Email)
-	
+
 	if err := newAdmin.Criar(
 		req.Nome,
 		req.Email,
@@ -137,11 +138,16 @@ func BootstrapAdminFPP(c *gin.Context) {
 
 	log.Printf("✅ [BOOTSTRAP-DEBUG] Agregado criado - ID: %s", newAdmin.ID)
 
-	// Salvar eventos - MESMO PADRÃO DE RegisterAdmin
+	// Salvar eventos — bootstrap público, sem JWT
 	log.Println("💾 [BOOTSTRAP] Salvando eventos no Banco de dados...")
 	log.Printf("🔍 [BOOTSTRAP-DEBUG] Total de eventos não confirmados: %d", len(newAdmin.UncommittedEvents))
-	
-	if err := repository.Save(newAdmin); err != nil {
+
+	audit := db.AuditContext{
+		UserID:   "bootstrap",
+		UserType: "sistema",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(newAdmin, audit); err != nil {
 		log.Printf("❌ [BOOTSTRAP-DEBUG] Erro ao salvar eventos: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "erro ao criar admin FPP",
@@ -159,7 +165,7 @@ func BootstrapAdminFPP(c *gin.Context) {
 		log.Println("⚠️ [BOOTSTRAP-DEBUG] Aviso: Hash pode não validar corretamente")
 	}
 
-	// Aguardar um pouco para garantir processamento da projeção
+	// Aguardar processamento da projeção
 	log.Println("⏳ [BOOTSTRAP] Aguardando processamento da projeção...")
 	time.Sleep(2 * time.Second)
 

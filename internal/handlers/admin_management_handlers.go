@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/utils"
 
@@ -61,7 +62,12 @@ func AtivarAdmin(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(targetAdmin); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.(uuid.UUID).String(),
+		UserType: "admin",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(targetAdmin, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -117,7 +123,12 @@ func DesativarAdmin(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(targetAdmin); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.(uuid.UUID).String(),
+		UserType: "admin",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(targetAdmin, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}

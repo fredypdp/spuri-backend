@@ -17,6 +17,14 @@ type AggregateRepository struct {
 	ctx        context.Context
 }
 
+// AuditContext carrega informações do usuário que está realizando a operação.
+// Passado via SaveWithAudit para enriquecer o metadata de cada evento.
+type AuditContext struct {
+	UserID   string // UUID do usuário (estudante, academia ou admin)
+	UserType string // "estudante" | "academia" | "admin"
+	IP       string // IP da requisição (opcional)
+}
+
 func NewAggregateRepository(client *Client) *AggregateRepository {
 	return &AggregateRepository{
 		eventStore: NewEventStore(client),
@@ -60,14 +68,18 @@ func (r *AggregateRepository) Save(aggregate aggregates.Aggregate) error {
 		return nil
 	}
 
+	// Iniciar transação — todos os eventos gravados atomicamente ou nenhum
+	tx, err := r.eventStore.client.BeginTx(r.ctx)
+	if err != nil {
+		return fmt.Errorf("erro ao iniciar transação: %w", err)
+	}
+	defer tx.Rollback() // no-op se Commit já foi chamado
+
 	currentVersion := 0
 	version, err := r.eventStore.GetAggregateVersion(r.ctx, aggregate.GetID())
-	
 	if err == nil {
 		currentVersion = version
-	}
-	
-	if err != nil && err != sql.ErrNoRows {
+	} else if err != sql.ErrNoRows {
 		return fmt.Errorf("erro ao obter versão: %w", err)
 	}
 
@@ -81,9 +93,54 @@ func (r *AggregateRepository) Save(aggregate aggregates.Aggregate) error {
 			return fmt.Errorf("erro ao converter evento: %w", err)
 		}
 
-		if err := r.eventStore.Append(r.ctx, dbEvent); err != nil {
+		if err := r.eventStore.AppendTx(r.ctx, tx, dbEvent); err != nil {
 			return fmt.Errorf("erro ao salvar evento: %w", err)
 		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("erro ao confirmar transação: %w", err)
+	}
+
+	aggregate.ClearUncommittedEvents()
+	return nil
+}
+
+// SaveWithAudit salva os eventos do aggregate com metadata de auditoria completo.
+// Usar este método em handlers onde o contexto do usuário está disponível.
+func (r *AggregateRepository) SaveWithAudit(aggregate aggregates.Aggregate, audit AuditContext) error {
+	uncommittedEvents := aggregate.GetUncommittedEvents()
+	if len(uncommittedEvents) == 0 {
+		return nil
+	}
+
+	tx, err := r.eventStore.client.BeginTx(r.ctx)
+	if err != nil {
+		return fmt.Errorf("erro ao iniciar transação: %w", err)
+	}
+	defer tx.Rollback()
+
+	currentVersion := 0
+	version, err := r.eventStore.GetAggregateVersion(r.ctx, aggregate.GetID())
+	if err == nil {
+		currentVersion = version
+	} else if err != sql.ErrNoRows {
+		return fmt.Errorf("erro ao obter versão: %w", err)
+	}
+
+	for i, domainEvent := range uncommittedEvents {
+		dbEvent, err := r.dbEventWithAudit(domainEvent, aggregate.GetType(), currentVersion+i+1, audit)
+		if err != nil {
+			return fmt.Errorf("erro ao converter evento: %w", err)
+		}
+
+		if err := r.eventStore.AppendTx(r.ctx, tx, dbEvent); err != nil {
+			return fmt.Errorf("erro ao salvar evento: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("erro ao confirmar transação: %w", err)
 	}
 
 	aggregate.ClearUncommittedEvents()
@@ -153,6 +210,40 @@ func (r *AggregateRepository) dbEvent(
 
 	metadata := map[string]interface{}{
 		"timestamp": time.Now().Unix(),
+	}
+	metadataJSON, _ := json.Marshal(metadata)
+
+	return &Event{
+		EventID:       uuid.New(),
+		AggregateID:   domainEvent.GetAggregateID(),
+		AggregateType: aggregateType,
+		EventType:     domainEvent.GetEventType(),
+		EventVersion:  version,
+		Payload:       payloadJSON,
+		Metadata:      metadataJSON,
+		OccurredAt:    time.Now(),
+	}, nil
+}
+
+// dbEventWithAudit cria um db.Event com metadata de auditoria enriquecido.
+func (r *AggregateRepository) dbEventWithAudit(
+	domainEvent aggregates.DomainEvent,
+	aggregateType string,
+	version int,
+	audit AuditContext,
+) (*Event, error) {
+	payload := domainEvent.GetPayload()
+
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao serializar payload: %w", err)
+	}
+
+	metadata := map[string]interface{}{
+		"timestamp":  time.Now().Unix(),
+		"user_id":    audit.UserID,
+		"user_type":  audit.UserType,
+		"ip":         audit.IP,
 	}
 	metadataJSON, _ := json.Marshal(metadata)
 

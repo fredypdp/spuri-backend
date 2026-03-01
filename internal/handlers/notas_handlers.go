@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
 	"spuri/internal/utils"
@@ -158,7 +159,12 @@ func RegistrarNota(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(estudante); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(estudante, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -289,7 +295,12 @@ func AtualizarNota(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(estudante); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(estudante, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}

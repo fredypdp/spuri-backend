@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
 	"spuri/internal/utils"
@@ -358,6 +359,12 @@ func DeletarCurso(c *gin.Context) {
 
 	repository := getRepository(c)
 
+	audit := db.AuditContext{
+		UserID:   academiaID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+
 	// ── 5. Deletar matérias inativas em cascata (cada uma emite evento) ───
 	// Apenas cursos superiores tendem a ter matérias; médio normalmente não.
 	var materiasDeletedNomes []string
@@ -375,7 +382,7 @@ func DeletarCurso(c *gin.Context) {
 			log.Printf("⚠️  [DeletarCurso] Erro ao deletar matéria %s: %v", m.Nome, err)
 			continue
 		}
-		if err := repository.Save(materia); err != nil {
+		if err := repository.SaveWithAudit(materia, audit); err != nil {
 			utils.RespondWithInternalError(c, fmt.Errorf("erro ao deletar matéria %s: %w", m.Nome, err))
 			return
 		}
@@ -418,7 +425,7 @@ func DeletarCurso(c *gin.Context) {
 			log.Printf("⚠️  [DeletarCurso] Erro ao deletar turma %s: %v", t.CodigoTurma, err)
 			continue
 		}
-		if err := repository.Save(turma); err != nil {
+		if err := repository.SaveWithAudit(turma, audit); err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
@@ -438,7 +445,7 @@ func DeletarCurso(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(curso); err != nil {
+	if err := repository.SaveWithAudit(curso, audit); err != nil {
 		log.Printf("❌ [DeletarCurso] Erro ao salvar: %v", err)
 		utils.RespondWithInternalError(c, err)
 		return

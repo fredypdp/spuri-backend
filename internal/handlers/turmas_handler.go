@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
 	"spuri/internal/projections"
@@ -57,7 +58,12 @@ func CriarTurma(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	if err := repository.Save(turma); err != nil {
+	audit := db.AuditContext{
+		UserID:   academiaID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(turma, audit); err != nil {
 		log.Printf("❌ [CriarTurma] Erro ao salvar: %v", err)
 		utils.RespondWithInternalError(c, err)
 		return
@@ -175,7 +181,12 @@ func AdicionarEstudanteATurma(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(turma); err != nil {
+	audit := db.AuditContext{
+		UserID:   academiaID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(turma, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -226,7 +237,12 @@ func RemoverEstudanteDaTurma(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(turma); err != nil {
+	audit := db.AuditContext{
+		UserID:   academiaID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(turma, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -286,7 +302,12 @@ func AtualizarTurma(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(turma); err != nil {
+	audit := db.AuditContext{
+		UserID:   academiaID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(turma, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -347,7 +368,12 @@ func DeletarTurma(c *gin.Context) {
 	}
 
 	// ── Persistir (grava no ledger + atualiza projeção via manager) ───────
-	if err := repository.Save(turma); err != nil {
+	audit := db.AuditContext{
+		UserID:   academiaID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(turma, audit); err != nil {
 		log.Printf("❌ [DeletarTurma] Erro ao salvar: %v", err)
 		utils.RespondWithInternalError(c, err)
 		return

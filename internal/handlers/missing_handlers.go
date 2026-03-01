@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
 	"spuri/internal/utils"
@@ -74,7 +75,12 @@ func InscricaoEscola(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(estudante); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "estudante",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(estudante, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -148,7 +154,12 @@ func InscricaoUniversidade(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(estudante); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "estudante",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(estudante, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}

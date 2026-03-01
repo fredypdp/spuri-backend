@@ -9,6 +9,7 @@ import (
 	"hash/fnv"
 	"log"
 	"net/http"
+	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
 	"spuri/internal/utils"
@@ -219,7 +220,13 @@ func RegisterAcademia(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(academia); err != nil {
+	// Rota pública — sem JWT, usar contexto de sistema
+	audit := db.AuditContext{
+		UserID:   "anonimo",
+		UserType: "sistema",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(academia, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -380,7 +387,13 @@ func RegisterEstudante(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(estudante); err != nil {
+	// Rota pública — sem JWT, usar contexto de sistema
+	audit := db.AuditContext{
+		UserID:   "anonimo",
+		UserType: "sistema",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(estudante, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -628,7 +641,13 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(estudante); err != nil {
+	// Rota autenticada — academia cadastrando estudante
+	audit := db.AuditContext{
+		UserID:   academiaID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(estudante, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -717,7 +736,6 @@ func generateCodigoAcademia(codigoProvincia string, db *sqlx.DB) (string, error)
 	}
 
 	// Busca o maior sequencial já existente para este prefix.
-	// SUBSTRING(codigo_academia, pos) extrai tudo após o prefix e converte para INT.
 	query := fmt.Sprintf(`
 		SELECT COALESCE(
 			MAX(CAST(SUBSTRING(codigo_academia, %d) AS INTEGER)),
@@ -749,6 +767,5 @@ func generateCodigoAcademia(codigoProvincia string, db *sqlx.DB) (string, error)
 func prefixLockKey(prefix string) int64 {
 	h := fnv.New64a()
 	h.Write([]byte(prefix))
-	// Converte uint64 → int64 (PostgreSQL aceita int8)
 	return int64(h.Sum64())
 }

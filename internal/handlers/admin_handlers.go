@@ -119,7 +119,12 @@ func RegisterAdmin(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(newAdmin); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "admin",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(newAdmin, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -129,7 +134,7 @@ func RegisterAdmin(c *gin.Context) {
 		"role":          req.Role,
 		"email":         req.Email,
 	})
-	repository.Save(creator)
+	repository.SaveWithAudit(creator, audit)
 
 	log.Printf("Admin criado: %s (%s) por %s", req.Email, req.Role, creatorAdmin.Nome)
 
@@ -377,7 +382,12 @@ func AtivarAcademia(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(academia); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "admin",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(academia, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -433,7 +443,12 @@ func DesativarAcademia(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(academia); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "admin",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(academia, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}

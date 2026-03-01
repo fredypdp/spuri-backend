@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 )
 
 type Event struct {
@@ -33,7 +34,6 @@ func NewEventStore(client *Client) *EventStore {
 	return &EventStore{client: client}
 }
 
-// ✅ CORRIGIDO: Usar query direta sem placeholders
 func (es *EventStore) Append(ctx context.Context, event *Event) error {
 	if event.AggregateID == uuid.Nil {
 		return fmt.Errorf("UUID inválido")
@@ -74,7 +74,49 @@ func (es *EventStore) Append(ctx context.Context, event *Event) error {
 	return nil
 }
 
-// ✅ CORRIGIDO: Query direta
+// AppendTx insere um evento dentro de uma transação já iniciada.
+// Usado por AggregateRepository.Save para garantir atomicidade
+// quando um aggregate emite múltiplos eventos em uma única operação.
+func (es *EventStore) AppendTx(ctx context.Context, tx *sqlx.Tx, event *Event) error {
+	if event.AggregateID == uuid.Nil {
+		return fmt.Errorf("UUID inválido")
+	}
+
+	if err := ValidateAggregateType(event.AggregateType); err != nil {
+		return err
+	}
+
+	if err := ValidateEventType(event.EventType); err != nil {
+		return err
+	}
+
+	safePayload := SafeString(string(event.Payload))
+	safeMetadata := SafeString(string(event.Metadata))
+
+	query := fmt.Sprintf(`
+		INSERT INTO spuri_ledger (
+			event_id, aggregate_id, aggregate_type, event_type,
+			event_version, payload, metadata, occurred_at
+		) VALUES ('%s', '%s', '%s', '%s', %d, '%s', '%s', '%s')
+		RETURNING id, recorded_at, ledger_hash, previous_hash`,
+		event.EventID, event.AggregateID, event.AggregateType, event.EventType,
+		event.EventVersion, safePayload, safeMetadata, event.OccurredAt.Format(time.RFC3339))
+
+	row := tx.QueryRowContext(ctx, query)
+
+	var prevHash sql.NullString
+	err := row.Scan(&event.ID, &event.RecordedAt, &event.LedgerHash, &prevHash)
+	if err != nil {
+		return fmt.Errorf("erro ao adicionar evento na transação: %w", err)
+	}
+
+	if prevHash.Valid {
+		event.PreviousHash = &prevHash.String
+	}
+
+	return nil
+}
+
 func (es *EventStore) LoadEventStream(ctx context.Context, aggregateID uuid.UUID) ([]Event, error) {
 	if aggregateID == uuid.Nil {
 		return nil, fmt.Errorf("UUID inválido")

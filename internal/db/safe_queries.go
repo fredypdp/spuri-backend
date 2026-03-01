@@ -32,6 +32,7 @@ func ValidateTableName(table string) error {
 		"auth_tokens": true,
 		"projection_checkpoints": true,
 		"projection_turmas": true,
+		"projection_reprovacoes": true,
 	}
 
 	if !validTables[table] {
@@ -119,6 +120,10 @@ func ValidateEventType(eventType string) error {
 		"EstudanteRemovidoDaTurma":    true,
 		"TurmaDeletada":               true,
 		"CursoDeletado":               true,
+		"StatusEscolarFundamentalAtualizado": true,
+		"StatusEscolarMedioAtualizado":       true,
+		"AvaliacaoFinalAnoAcademico":         true,
+		"NotaAtualizada":                     true,
 	}
 
 	if !validTypes[eventType] {

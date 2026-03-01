@@ -111,7 +111,12 @@ func RegistrarFaltas(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(estudante); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(estudante, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -212,7 +217,12 @@ func AprovarInscricao(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(academia); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(academia, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -291,7 +301,12 @@ func ReprovarInscricao(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(academia); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(academia, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}

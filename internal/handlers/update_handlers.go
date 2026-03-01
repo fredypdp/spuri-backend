@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
 	"spuri/internal/utils"
@@ -67,7 +68,12 @@ func AtualizarDadosPessoaisEstudante(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(estudante); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "estudante",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(estudante, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -112,7 +118,12 @@ func AtualizarDadosAcademicosEstudante(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(estudante); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "estudante",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(estudante, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -176,7 +187,12 @@ func AtualizarDadosAcademia(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(academia); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(academia, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -234,7 +250,12 @@ func AtualizarRoleAdmin(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(admin); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "admin",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(admin, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -283,7 +304,12 @@ func AtualizarDadosAdmin(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(admin); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "admin",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(admin, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
