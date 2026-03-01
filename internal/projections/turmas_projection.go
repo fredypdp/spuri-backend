@@ -33,6 +33,7 @@ func (p *TurmasProjection) Handle(event db.Event) error {
 		"EstudanteAdicionadoATurma": p.handleEstudanteAdicionado,
 		"EstudanteRemovidoDaTurma":  p.handleEstudanteRemovido,
 		"TurmaDadosAtualizados":     p.handleTurmaDadosAtualizados,
+		"TurmaDeletada": p.handleTurmaDeletada,
 	}
 
 	if handler, ok := handlers[event.EventType]; ok {

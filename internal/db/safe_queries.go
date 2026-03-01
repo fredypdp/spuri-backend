@@ -110,6 +110,14 @@ func ValidateEventType(eventType string) error {
 		"AcademiaDadosAtualizados":    true,
 		"CursosAtualizados":           true,
 		"AnoLetivoDefinido":           true,
+		"TurmaCriada":                 true,
+		"TurmaAtivada":                true,
+		"TurmaDesativada":             true,
+		"TurmaDadosAtualizados":       true,
+		"EstudanteAdicionadoATurma":   true,
+		"EstudanteRemovidoDaTurma":    true,
+		"TurmaDeletada":               true,
+		"CursoDeletado":               true,
 	}
 
 	if !validTypes[eventType] {
@@ -127,6 +135,7 @@ func ValidateAggregateType(aggType string) error {
 		"Curso":              true,
 		"MateriaDisciplinar": true,
 		"SistemaConfig": true,
+		"Turma": true,
 	}
 
 	if !validTypes[aggType] {
