@@ -20,19 +20,21 @@ func ValidateUUID(id string) (uuid.UUID, error) {
 // ValidateTableName valida nome de tabela (whitelist)
 func ValidateTableName(table string) error {
 	validTables := map[string]bool{
-		"projection_estudantes":  true,
-		"projection_academias":   true,
-		"projection_admins":      true,
-		"projection_notas":       true,
-		"projection_faltas":      true,
-		"projection_inscricoes":  true,
-		"projection_cursos":      true,
-		"projection_materias":    true,
-		"spuri_ledger":           true,
-		"auth_tokens":            true,
-		"projection_checkpoints": true,
-		"projection_turmas":      true,
-		"projection_reprovacoes": true,
+		"projection_estudantes":        true,
+		"projection_academias":         true,
+		"projection_admins":            true,
+		"projection_notas":             true,
+		"projection_faltas":            true,
+		"projection_inscricoes":        true,
+		"projection_cursos":            true,
+		"projection_materias":          true,
+		"spuri_ledger":                 true,
+		"auth_tokens":                  true,
+		"projection_checkpoints":       true,
+		"projection_turmas":            true,
+		"projection_reprovacoes":       true,
+		"projection_aprovacao_ano":     true,
+		"projection_categorias_nota":   true,
 	}
 
 	if !validTables[table] {
@@ -50,7 +52,7 @@ func ValidateColumnName(column string) error {
 	return nil
 }
 
-// SafeString escapa string para SQL (último recurso)
+// SafeString escapa string para SQL (último recurso — queries com $1,$2 são preferíveis)
 func SafeString(s string) string {
 	return strings.ReplaceAll(s, "'", "''")
 }
@@ -64,8 +66,8 @@ func ValidateStatus(status string) error {
 		"espera":       true,
 		"aprovado":     true,
 		"reprovado":    true,
-		"em_andamento": true, // FIX: usado em status_escolar_fundamental, status_escolar_medio, status_superior
-		"finalizado":   true, // FIX: usado em status_escolar_fundamental, status_escolar_medio, status_superior
+		"em_andamento": true,
+		"finalizado":   true,
 	}
 
 	if !validStatuses[status] {
@@ -76,56 +78,67 @@ func ValidateStatus(status string) error {
 
 func ValidateEventType(eventType string) error {
 	validTypes := map[string]bool{
+		// Estudante
 		"EstudanteCriado":                    true,
-		"AcademiaCriada":                     true,
-		"AdminCriado":                        true,
+		"EstudanteCriadoComVinculo":          true,
 		"NotasRegistradas":                   true,
+		"NotaAtualizada":                     true,
 		"FaltasRegistradas":                  true,
 		"EstudanteInscrito":                  true,
 		"InscricaoAprovada":                  true,
 		"InscricaoReprovada":                 true,
 		"EstudanteVinculado":                 true,
-		"StatusEscolarAtualizado":            true,
+		// REMOVIDO: "StatusEscolarAtualizado" — substituído pelos dois abaixo na migration 008
+		"StatusEscolarFundamentalAtualizado": true,
+		"StatusEscolarMedioAtualizado":       true,
 		"StatusSuperiorAtualizado":           true,
 		"DadosPessoaisAtualizados":           true,
 		"DadosAcademicosAtualizados":         true,
-		"AcademiaAtivada":                    true,
-		"AcademiaDesativada":                 true,
-		"AdminAtivado":                       true,
-		"AdminDesativado":                    true,
-		"AcaoAdminRegistrada":                true,
 		"AprovacaoAnoRegistrada":             true,
-		"CursoAlterado":                      true,
-		"EstudanteCriadoComVinculo":          true,
-		"CursoCriado":                        true,
-		"CursoAtivado":                       true,
-		"CursoDesativado":                    true,
-		"CursoDadosAtualizados":              true,
-		"MateriaCriada":                      true,
-		"MateriaAtivada":                     true,
-		"MateriaDesativada":                  true,
-		"MateriaDadosAtualizados":            true,
-		"MateriaPeriodoDefinido":             true,
-		"MateriaDeletada":                    true,
-		"EmailVerificado":                    true,
-		"AdminDadosAtualizados":              true,
-		"AdminRoleAtualizado":                true,
-		"AcademiaDadosAtualizados":           true,
-		"CursosAtualizados":                  true,
-		"AnoLetivoDefinido":                  true,
-		"TurmaCriada":                        true,
-		"TurmaAtivada":                       true,
-		"TurmaDesativada":                    true,
-		"TurmaDadosAtualizados":              true,
-		"EstudanteAdicionadoATurma":          true,
-		"EstudanteRemovidoDaTurma":           true,
-		"TurmaDeletada":                      true,
-		"CursoDeletado":                      true,
-		"StatusEscolarFundamentalAtualizado": true,
-		"StatusEscolarMedioAtualizado":       true,
 		"AvaliacaoFinalAnoAcademico":         true,
-		"NotaAtualizada":                     true,
-		"CategoriaNotaAdicionada":            true,
+		"CursoAlterado":                      true,
+		"EmailVerificado":                    true,
+
+		// Academia
+		"AcademiaCriada":           true,
+		"AcademiaAtivada":          true,
+		"AcademiaDesativada":       true,
+		"AcademiaDadosAtualizados": true,
+		"CursosAtualizados":        true,
+		"AnoLetivoDefinido":        true,
+		"CategoriaNotaAdicionada":  true,
+
+		// Admin
+		"AdminCriado":          true,
+		"AdminAtivado":         true,
+		"AdminDesativado":      true,
+		"AcaoAdminRegistrada":  true,
+		"AdminDadosAtualizados": true,
+		"AdminRoleAtualizado":  true,
+
+		// Curso
+		"CursoCriado":          true,
+		"CursoAtivado":         true,
+		"CursoDesativado":      true,
+		"CursoDadosAtualizados": true,
+		"CursoDeletado":        true,
+
+		// MateriaDisciplinar
+		"MateriaCriada":           true,
+		"MateriaAtivada":          true,
+		"MateriaDesativada":       true,
+		"MateriaDadosAtualizados": true,
+		"MateriaPeriodoDefinido":  true,
+		"MateriaDeletada":         true,
+
+		// Turma
+		"TurmaCriada":               true,
+		"TurmaAtivada":              true,
+		"TurmaDesativada":           true,
+		"TurmaDadosAtualizados":     true,
+		"EstudanteAdicionadoATurma": true,
+		"EstudanteRemovidoDaTurma":  true,
+		"TurmaDeletada":             true,
 	}
 
 	if !validTypes[eventType] {

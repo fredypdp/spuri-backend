@@ -30,6 +30,7 @@ var allMigrations = []string{
 	"migrations/017_avaliacao_turma.sql",
 	"migrations/018_materia_periodo.sql",
 	"migrations/019_soft_delete_auditavel.sql",
+	"migrations/020_fix_verify_hash_chain.sql",
 }
 
 func (c *Client) RunMigrations() error {

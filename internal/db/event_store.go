@@ -360,46 +360,32 @@ func (es *EventStore) GetAggregateVersion(ctx context.Context, aggregateID uuid.
 	return version, nil
 }
 
-// ✅ CORRIGIDO: Query direta
 func (es *EventStore) VerifyLedgerIntegrity(ctx context.Context, aggregateID uuid.UUID) (bool, error) {
 	if aggregateID == uuid.Nil {
 		return false, fmt.Errorf("UUID inválido")
 	}
 
-	query := fmt.Sprintf(`
-		SELECT ledger_hash, previous_hash
-		FROM spuri_ledger
-		WHERE aggregate_id = '%s'
-		ORDER BY event_version ASC`, aggregateID)
+	query := fmt.Sprintf(
+		`SELECT is_valid, broken_at_version, message FROM verify_hash_chain('%s')`,
+		aggregateID,
+	)
 
-	type hashPair struct {
-		LedgerHash   string
-		PreviousHash sql.NullString
-	}
+	var (
+		isValid    bool
+		brokenAt   *int
+		message    string
+	)
 
-	rows, err := es.client.db.Query(query)
+	err := es.client.db.QueryRowContext(ctx, query).Scan(&isValid, &brokenAt, &message)
 	if err != nil {
-		return false, fmt.Errorf("erro ao verificar integridade: %w", err)
-	}
-	defer rows.Close()
-
-	var hashes []hashPair
-	for rows.Next() {
-		var hp hashPair
-		err := rows.Scan(&hp.LedgerHash, &hp.PreviousHash)
-		if err != nil {
-			return false, err
-		}
-		hashes = append(hashes, hp)
+		return false, fmt.Errorf("erro ao verificar integridade via SQL: %w", err)
 	}
 
-	for i := 1; i < len(hashes); i++ {
-		if !hashes[i].PreviousHash.Valid {
-			return false, fmt.Errorf("hash anterior ausente no evento %d", i)
+	if !isValid {
+		if brokenAt != nil {
+			return false, fmt.Errorf("integridade comprometida na versão %d: %s", *brokenAt, message)
 		}
-		if hashes[i].PreviousHash.String != hashes[i-1].LedgerHash {
-			return false, fmt.Errorf("cadeia de hashes quebrada no evento %d", i)
-		}
+		return false, fmt.Errorf("integridade comprometida: %s", message)
 	}
 
 	return true, nil
