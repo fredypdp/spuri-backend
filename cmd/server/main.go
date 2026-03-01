@@ -131,7 +131,6 @@ func setupRouter() *gin.Engine {
 	}
 
 	emailGroup := router.Group("/")
-	// emailGroup.Use(middleware.EmailRateLimit())
 	{
 		emailGroup.POST("/verificar-email/:token", handlers.VerificarEmail)
 		emailGroup.POST("/verificar-email/solicitar", handlers.SolicitarVerificacaoEmail)
@@ -141,6 +140,10 @@ func setupRouter() *gin.Engine {
 		emailGroup.POST("/gerar-token/recuperacao", handlers.GerarTokenRecuperacao)
 	}
 
+	// -----------------------------------------------------------------------
+	// Rotas protegidas — qualquer usuário autenticado (estudante, academia, admin)
+	// O handler é responsável por filtrar os dados conforme o tipo de usuário.
+	// -----------------------------------------------------------------------
 	protected := router.Group("/")
 	protected.Use(middleware.AuthMiddleware())
 	{
@@ -158,10 +161,31 @@ func setupRouter() *gin.Engine {
 		protected.GET("/consultar-academia/:codigo", handlers.GetAcademiaPorCodigo)
 		protected.GET("/inscricoes/estudante/:codigo", handlers.GetInscricoesPorCodigoEstudante)
 		protected.GET("/estudantes", handlers.ListarEstudantes)
-		protected.GET("/avaliacoes-estudante/:codigo", handlers.GetAvaliacoesFinaisEstudante)
 		protected.GET("/ano-letivo-atual", handlers.GetAnoLetivoAtual)
+
+		// Avaliações — handler resolve os dados conforme o tipo de usuário:
+		//   estudante → suas avaliações
+		//   academia  → avaliações dos estudantes da academia
+		//   admin     → todas as avaliações do sistema
+		protected.GET("/avaliacoes", handlers.ListarAvaliacoes)
+
+		// Aprovações e reprovações — handler resolve conforme o tipo de usuário:
+		//   estudante → suas aprovações/reprovações
+		//   academia  → aprovações/reprovações dos estudantes da academia
+		//   admin     → todas do sistema
+		protected.GET("/aprovacoes", handlers.ListarAprovacoes)
+		protected.GET("/reprovacoes", handlers.ListarReprovacoes)
+
+		// Avaliações por estudante — apenas academias e admins
+		protected.GET("/avaliacoes-estudante/:codigo",
+			middleware.RequireAcademiaOuAdmin(),
+			handlers.GetAvaliacoesFinaisEstudante,
+		)
 	}
 
+	// -----------------------------------------------------------------------
+	// Rotas exclusivas para estudantes
+	// -----------------------------------------------------------------------
 	estudante := router.Group("/estudante")
 	estudante.Use(middleware.AuthMiddleware())
 	estudante.Use(middleware.RequireEstudante())
@@ -181,6 +205,9 @@ func setupRouter() *gin.Engine {
 		estudante.GET("/inscricoes/:codigo", handlers.GetInscricoesPorCodigoEstudante)
 	}
 
+	// -----------------------------------------------------------------------
+	// Rotas exclusivas para academias
+	// -----------------------------------------------------------------------
 	academia := router.Group("/academia")
 	academia.Use(middleware.AuthMiddleware())
 	academia.Use(middleware.RequireAcademia())
@@ -218,6 +245,9 @@ func setupRouter() *gin.Engine {
 		academia.POST("/avaliacao-final", handlers.RegistrarAvaliacaoFinal)
 	}
 
+	// -----------------------------------------------------------------------
+	// Rotas exclusivas para administradores
+	// -----------------------------------------------------------------------
 	admin := router.Group("/admin")
 	admin.Use(middleware.AuthMiddleware())
 	admin.Use(middleware.RequireAdmin())
@@ -261,16 +291,6 @@ func setupRouter() *gin.Engine {
 		admin.GET("/projections-status", handlers.GetAllProjectionStatuses)
 		admin.GET("/ledger-stats", handlers.GetLedgerStats)
 		admin.GET("/verify-all-integrity", handlers.VerifyAllIntegrity)
-	}
-
-	router.GET("/avaliacoes", middleware.AuthMiddleware(), handlers.ListarAvaliacoes)
-	router.GET("/avaliacoes-estudante/:codigo", middleware.AuthMiddleware(), handlers.GetAvaliacoesFinaisEstudante)
-
-	academiaOuAdmin := router.Group("/avaliacoes")
-	academiaOuAdmin.Use(middleware.AuthMiddleware())
-	{
-		academiaOuAdmin.GET("/aprovacoes", handlers.ListarAprovacoes)
-		academiaOuAdmin.GET("/reprovacoes", handlers.ListarReprovacoes)
 	}
 
 	router.GET("/", handlers.APIDocumentation)

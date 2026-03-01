@@ -227,26 +227,20 @@ func ListarAvaliacoes(c *gin.Context) {
 
 // ============================================================================
 // GET /avaliacoes-estudante/:codigo
-// Academia → verifica se o estudante pertence à academia
-// Admin    → acesso irrestrito
-// Estudante → só as próprias
+// Apenas academia e admin (middleware.RequireAcademiaOuAdmin aplicado na rota).
+// Academia → verifica se o estudante pertence à academia antes de retornar.
+// Admin    → acesso irrestrito.
 // ============================================================================
 
 func GetAvaliacoesFinaisEstudante(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
+	userID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
 
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
 		utils.RespondWithNotFoundError(c, "estudante")
-		return
-	}
-
-	userID, _ := middleware.GetUserID(c)
-	userType, _ := middleware.GetUserType(c)
-
-	if userType == "estudante" && userID != estudante.ID {
-		utils.RespondWithForbiddenError(c, "Você só pode visualizar suas próprias avaliações")
 		return
 	}
 
@@ -276,9 +270,10 @@ func GetAvaliacoesFinaisEstudante(c *gin.Context) {
 }
 
 // ============================================================================
-// GET /avaliacoes/aprovacoes
-// Academia → aprovações da própria academia
-// Admin    → todas as aprovações do sistema
+// GET /aprovacoes
+// Estudante → suas próprias aprovações
+// Academia  → aprovações dos estudantes da academia
+// Admin     → todas as aprovações do sistema
 // ============================================================================
 
 func ListarAprovacoes(c *gin.Context) {
@@ -287,6 +282,20 @@ func ListarAprovacoes(c *gin.Context) {
 	avaliacaoProj := getAvaliacaoFinalProjection(c)
 
 	switch userType {
+	case "estudante":
+		estudanteProj := getEstudanteProjection(c)
+		estudante, err := estudanteProj.GetByID(userID)
+		if err != nil || estudante == nil {
+			utils.RespondWithNotFoundError(c, "estudante")
+			return
+		}
+		aprovacoes, err := avaliacaoProj.GetAprovacoesByEstudante(estudante.CodigoEstudante)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"aprovacoes": aprovacoes, "total": len(aprovacoes)})
+
 	case "academia":
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, err := academiaProj.GetByID(userID)
@@ -312,9 +321,10 @@ func ListarAprovacoes(c *gin.Context) {
 }
 
 // ============================================================================
-// GET /avaliacoes/reprovacoes
-// Academia → reprovações da própria academia
-// Admin    → todas as reprovações do sistema
+// GET /reprovacoes
+// Estudante → suas próprias reprovações
+// Academia  → reprovações dos estudantes da academia
+// Admin     → todas as reprovações do sistema
 // ============================================================================
 
 func ListarReprovacoes(c *gin.Context) {
@@ -323,6 +333,20 @@ func ListarReprovacoes(c *gin.Context) {
 	avaliacaoProj := getAvaliacaoFinalProjection(c)
 
 	switch userType {
+	case "estudante":
+		estudanteProj := getEstudanteProjection(c)
+		estudante, err := estudanteProj.GetByID(userID)
+		if err != nil || estudante == nil {
+			utils.RespondWithNotFoundError(c, "estudante")
+			return
+		}
+		reprovacoes, err := avaliacaoProj.GetReprovacoesByEstudante(estudante.CodigoEstudante)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"reprovacoes": reprovacoes, "total": len(reprovacoes)})
+
 	case "academia":
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, err := academiaProj.GetByID(userID)

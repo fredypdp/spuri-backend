@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// AvaliacaoFinalProjection substitui AprovacaoAnoProjection e ReprovacoesProjection.
 type AvaliacaoFinalProjection struct {
 	client *db.Client
 }
@@ -241,7 +240,7 @@ func (p *AvaliacaoFinalProjection) scanAvaliacoes(query string) ([]AvaliacaoFina
 	return result, rows.Err()
 }
 
-// GetByEstudante retorna todas as avaliações de um estudante.
+// GetByEstudante retorna todas as avaliações de um estudante (aprovadas e reprovadas).
 func (p *AvaliacaoFinalProjection) GetByEstudante(codigoEstudante string) ([]AvaliacaoFinalDTO, error) {
 	query := fmt.Sprintf(`%s WHERE codigo_estudante = '%s' ORDER BY registered_at DESC`,
 		avaliacaoFinalCols, db.SafeString(codigoEstudante))
@@ -299,4 +298,18 @@ func (p *AvaliacaoFinalProjection) GetReprovacoes(codigoAcademia string) ([]Aval
 		return p.GetAll(nil, &f)
 	}
 	return p.GetByAcademia(codigoAcademia, nil, &f)
+}
+
+// GetAprovacoesByEstudante retorna apenas aprovações (aprovado=TRUE) de um estudante específico.
+func (p *AvaliacaoFinalProjection) GetAprovacoesByEstudante(codigoEstudante string) ([]AvaliacaoFinalDTO, error) {
+	query := fmt.Sprintf(`%s WHERE codigo_estudante = '%s' AND aprovado = TRUE ORDER BY registered_at DESC`,
+		avaliacaoFinalCols, db.SafeString(codigoEstudante))
+	return p.scanAvaliacoes(query)
+}
+
+// GetReprovacoesByEstudante retorna apenas reprovações (aprovado=FALSE) de um estudante específico.
+func (p *AvaliacaoFinalProjection) GetReprovacoesByEstudante(codigoEstudante string) ([]AvaliacaoFinalDTO, error) {
+	query := fmt.Sprintf(`%s WHERE codigo_estudante = '%s' AND aprovado = FALSE ORDER BY registered_at DESC`,
+		avaliacaoFinalCols, db.SafeString(codigoEstudante))
+	return p.scanAvaliacoes(query)
 }
