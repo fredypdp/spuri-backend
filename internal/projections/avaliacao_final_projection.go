@@ -1,6 +1,7 @@
 package projections
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -26,11 +27,10 @@ func (p *AvaliacaoFinalProjection) Name() string { return "avaliacao_final" }
 
 func (p *AvaliacaoFinalProjection) GetLastProcessedEventID() (int64, error) {
 	var lastID int64
-	query := fmt.Sprintf(
-		`SELECT last_processed_event_id FROM projection_checkpoints WHERE projection_name = '%s'`,
-		db.SafeString(p.Name()),
-	)
-	err := p.client.DB().QueryRow(query).Scan(&lastID)
+	err := p.client.DB().QueryRow(
+		`SELECT last_processed_event_id FROM projection_checkpoints WHERE projection_name = $1`,
+		p.Name(),
+	).Scan(&lastID)
 	if err != nil {
 		return 0, nil
 	}
@@ -39,16 +39,15 @@ func (p *AvaliacaoFinalProjection) GetLastProcessedEventID() (int64, error) {
 
 func (p *AvaliacaoFinalProjection) UpdateCheckpoint(eventID int64) error {
 	eventID = int64(db.ValidateOffset(int(eventID)))
-	query := fmt.Sprintf(`
+	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_checkpoints
 			(projection_name, last_processed_event_id, last_processed_at, events_processed)
-		VALUES ('%s', %d, CURRENT_TIMESTAMP, 1)
+		VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
 		ON CONFLICT (projection_name) DO UPDATE SET
-			last_processed_event_id = %d,
+			last_processed_event_id = $2,
 			last_processed_at       = CURRENT_TIMESTAMP,
 			events_processed        = projection_checkpoints.events_processed + 1
-	`, db.SafeString(p.Name()), eventID, eventID)
-	_, err := p.client.DB().Exec(query)
+	`, p.Name(), eventID)
 	return err
 }
 
@@ -64,224 +63,196 @@ func (p *AvaliacaoFinalProjection) Handle(event db.Event) error {
 
 func (p *AvaliacaoFinalProjection) Rebuild() error {
 	log.Printf("[avaliacao_final] Rebuild iniciado")
-
 	if _, err := p.client.DB().Exec(`DELETE FROM projection_avaliacao_final`); err != nil {
 		return fmt.Errorf("falha ao limpar projection_avaliacao_final: %w", err)
 	}
-
 	rows, err := p.client.DB().Query(`
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
-		       event_version, payload, metadata, occurred_at, recorded_at,
-		       ledger_hash, previous_hash
+			event_version, payload, metadata, occurred_at, recorded_at,
+			ledger_hash, previous_hash
 		FROM spuri_ledger
-		WHERE aggregate_type = 'Estudante'
-		  AND event_type      = 'AvaliacaoFinalAnoAcademico'
+		WHERE aggregate_type = 'Estudante' AND event_type = 'AvaliacaoFinalAnoAcademico'
 		ORDER BY id ASC
 	`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
-
 	count := 0
 	for rows.Next() {
 		var event db.Event
+		var prevHash sql.NullString
 		if err := rows.Scan(
 			&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
 			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
-			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash,
+			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &prevHash,
 		); err != nil {
 			return err
 		}
+		if prevHash.Valid {
+			event.PreviousHash = &prevHash.String
+		}
 		if err := p.Handle(event); err != nil {
-			log.Printf("[avaliacao_final] rebuild error evento %d: %v", event.ID, err)
+			return fmt.Errorf("erro no evento %d: %w", event.ID, err)
 		}
 		count++
 	}
-
-	log.Printf("[avaliacao_final] Rebuild concluído — %d eventos processados", count)
+	log.Printf("[avaliacao_final] Rebuild concluído: %d eventos", count)
 	return rows.Err()
 }
 
 // ============================================================================
-// Handle interno
+// Handler de evento
 // ============================================================================
 
 func (p *AvaliacaoFinalProjection) handleAvaliacaoFinal(event db.Event) error {
 	var payload struct {
-		ID                  string    `json:"id"`
-		CodigoEstudante     string    `json:"codigo_estudante"`
-		CodigoAcademia      string    `json:"codigo_academia"`
-		AnoLectivo          string    `json:"ano_lectivo"`
-		TipoEnsino          string    `json:"tipo_ensino"`
-		AnoAcademicoAtual   string    `json:"nivel_ano_academico_atual"`
-		ProximoAnoAcademico *string   `json:"proximo_ano_academico"`
-		CodigoTurma         *string   `json:"codigo_turma"`
-		Aprovado            bool      `json:"aprovado"`
-		Observacao          *string   `json:"observacao"`
-		RegisteredAt        time.Time `json:"registered_at"`
+		CodigoEstudante      string    `json:"CodigoEstudante"`
+		CodigoAcademia       string    `json:"CodigoAcademia"`
+		AnoLectivo           string    `json:"AnoLectivo"`
+		TipoEnsino           string    `json:"TipoEnsino"`
+		AnoAcademicoAtual    string    `json:"AnoAcademicoAtual"`
+		ProximoAnoAcademico  *string   `json:"ProximoAnoAcademico"`
+		Aprovado             bool      `json:"Aprovado"`
+		Observacao           *string   `json:"Observacao"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("parse error AvaliacaoFinalAnoAcademico: %w", err)
 	}
 
-	rowID := payload.ID
-	if rowID == "" {
-		rowID = uuid.New().String()
-	}
-
-	proximoSQL := "NULL"
-	if payload.ProximoAnoAcademico != nil {
-		proximoSQL = fmt.Sprintf("'%s'", db.SafeString(*payload.ProximoAnoAcademico))
-	}
-	observacaoSQL := "NULL"
-	if payload.Observacao != nil {
-		observacaoSQL = fmt.Sprintf("'%s'", db.SafeString(*payload.Observacao))
-	}
-	codigoTurmaSQL := "NULL"
-	if payload.CodigoTurma != nil {
-		codigoTurmaSQL = fmt.Sprintf("'%s'", db.SafeString(*payload.CodigoTurma))
-	}
-
-	query := fmt.Sprintf(`
+	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_avaliacao_final (
-			id, event_id, codigo_estudante, codigo_academia,
-			ano_lectivo, tipo_ensino, ano_academico_atual, proximo_ano_academico,
-			codigo_turma, aprovado, observacao, registered_at, version
+			id, event_id,
+			codigo_estudante, codigo_academia,
+			ano_lectivo, tipo_ensino,
+			ano_academico_atual, proximo_ano_academico,
+			aprovado, observacao,
+			registered_at, version
 		) VALUES (
-			'%s', '%s', '%s', '%s',
-			'%s', '%s', '%s', %s,
-			%s, %t, %s, '%s', %d
+			uuid_generate_v4(), $1,
+			$2, $3,
+			$4, $5,
+			$6, $7,
+			$8, $9,
+			CURRENT_TIMESTAMP, $10
 		)
 		ON CONFLICT (codigo_estudante, codigo_academia, ano_lectivo, tipo_ensino)
 		DO UPDATE SET
-			id                    = EXCLUDED.id,
-			event_id              = EXCLUDED.event_id,
+			ano_academico_atual   = EXCLUDED.ano_academico_atual,
 			proximo_ano_academico = EXCLUDED.proximo_ano_academico,
-			codigo_turma          = EXCLUDED.codigo_turma,
 			aprovado              = EXCLUDED.aprovado,
 			observacao            = EXCLUDED.observacao,
-			registered_at         = EXCLUDED.registered_at,
-			version               = EXCLUDED.version
+			event_id              = EXCLUDED.event_id,
+			version               = EXCLUDED.version,
+			registered_at         = EXCLUDED.registered_at
 	`,
-		db.SafeString(rowID),
 		event.EventID,
-		db.SafeString(payload.CodigoEstudante),
-		db.SafeString(payload.CodigoAcademia),
-		db.SafeString(payload.AnoLectivo),
-		db.SafeString(payload.TipoEnsino),
-		db.SafeString(payload.AnoAcademicoAtual),
-		proximoSQL,
-		codigoTurmaSQL,
-		payload.Aprovado,
-		observacaoSQL,
-		payload.RegisteredAt.Format(time.RFC3339),
+		payload.CodigoEstudante, payload.CodigoAcademia,
+		payload.AnoLectivo, payload.TipoEnsino,
+		payload.AnoAcademicoAtual, payload.ProximoAnoAcademico,
+		payload.Aprovado, payload.Observacao,
 		event.EventVersion,
 	)
-
-	if _, err := p.client.DB().Exec(query); err != nil {
-		return fmt.Errorf("erro ao inserir avaliação final: %w", err)
+	if err != nil {
+		return fmt.Errorf("upsert avaliacao_final: %w", err)
 	}
-
-	log.Printf("[avaliacao_final] registrada — estudante=%s tipo=%s aprovado=%v turma=%v",
-		payload.CodigoEstudante, payload.TipoEnsino, payload.Aprovado, payload.CodigoTurma)
-
+	log.Printf("[avaliacao_final] Avaliação registrada — estudante=%s tipo=%s aprovado=%v",
+		payload.CodigoEstudante, payload.TipoEnsino, payload.Aprovado)
 	return nil
-}
-
-// ============================================================================
-// DTO
-// ============================================================================
-
-type AvaliacaoFinalDTO struct {
-	ID                  string    `json:"id"`
-	CodigoEstudante     string    `json:"codigo_estudante"`
-	CodigoAcademia      string    `json:"codigo_academia"`
-	AnoLectivo          string    `json:"ano_lectivo"`
-	TipoEnsino          string    `json:"tipo_ensino"`
-	AnoAcademicoAtual   string    `json:"ano_academico_atual"`
-	ProximoAnoAcademico *string   `json:"proximo_ano_academico,omitempty"`
-	CodigoTurma         *string   `json:"codigo_turma,omitempty"`
-	Aprovado            bool      `json:"aprovado"`
-	Observacao          *string   `json:"observacao,omitempty"`
-	RegisteredAt        time.Time `json:"registered_at"`
-	Version             int       `json:"version"`
 }
 
 // ============================================================================
 // Queries de leitura
 // ============================================================================
 
-const avaliacaoFinalCols = `
-	SELECT id, codigo_estudante, codigo_academia, ano_lectivo, tipo_ensino,
-	       ano_academico_atual, proximo_ano_academico, codigo_turma,
-	       aprovado, observacao, registered_at, version
-	FROM projection_avaliacao_final`
+type AvaliacaoFinalDTO struct {
+	ID                   uuid.UUID `json:"id"`
+	EventID              uuid.UUID `json:"event_id"`
+	CodigoEstudante      string    `json:"codigo_estudante"`
+	CodigoAcademia       string    `json:"codigo_academia"`
+	AnoLectivo           string    `json:"ano_lectivo"`
+	TipoEnsino           string    `json:"tipo_ensino"`
+	AnoAcademicoAtual    string    `json:"ano_academico_atual"`
+	ProximoAnoAcademico  *string   `json:"proximo_ano_academico,omitempty"`
+	Aprovado             bool      `json:"aprovado"`
+	Observacao           *string   `json:"observacao,omitempty"`
+	RegisteredAt         time.Time `json:"registered_at"`
+	Version              int       `json:"version"`
+}
 
-func (p *AvaliacaoFinalProjection) scanAvaliacoes(query string) ([]AvaliacaoFinalDTO, error) {
-	rows, err := p.client.DB().Query(query)
+const avaliacaoFinalCols = `
+	id, event_id, codigo_estudante, codigo_academia,
+	ano_lectivo, tipo_ensino, ano_academico_atual, proximo_ano_academico,
+	aprovado, observacao, registered_at, version
+`
+
+func (p *AvaliacaoFinalProjection) GetByEstudante(codigoEstudante string) ([]AvaliacaoFinalDTO, error) {
+	rows, err := p.client.DB().Query(
+		`SELECT `+avaliacaoFinalCols+` FROM projection_avaliacao_final
+		WHERE codigo_estudante = $1 ORDER BY registered_at DESC`,
+		codigoEstudante,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
-	var result []AvaliacaoFinalDTO
-	for rows.Next() {
-		var d AvaliacaoFinalDTO
-		if err := rows.Scan(
-			&d.ID, &d.CodigoEstudante, &d.CodigoAcademia, &d.AnoLectivo, &d.TipoEnsino,
-			&d.AnoAcademicoAtual, &d.ProximoAnoAcademico, &d.CodigoTurma,
-			&d.Aprovado, &d.Observacao, &d.RegisteredAt, &d.Version,
-		); err != nil {
-			return nil, err
-		}
-		result = append(result, d)
-	}
-	return result, rows.Err()
+	return scanAvaliacoes(rows)
 }
 
-// GetByEstudante retorna todas as avaliações de um estudante (aprovadas e reprovadas).
-func (p *AvaliacaoFinalProjection) GetByEstudante(codigoEstudante string) ([]AvaliacaoFinalDTO, error) {
-	query := fmt.Sprintf(`%s WHERE codigo_estudante = '%s' ORDER BY registered_at DESC`,
-		avaliacaoFinalCols, db.SafeString(codigoEstudante))
-	return p.scanAvaliacoes(query)
-}
-
-// GetByAcademia retorna avaliações de uma academia com filtros opcionais.
+// GetByAcademia retorna avaliações de uma academia.
 // tipoEnsino e aprovado são opcionais (nil = sem filtro).
 func (p *AvaliacaoFinalProjection) GetByAcademia(codigoAcademia string, tipoEnsino *string, aprovado *bool) ([]AvaliacaoFinalDTO, error) {
-	where := fmt.Sprintf("codigo_academia = '%s'", db.SafeString(codigoAcademia))
+	query := `SELECT ` + avaliacaoFinalCols + ` FROM projection_avaliacao_final WHERE codigo_academia = $1`
+	args := []interface{}{codigoAcademia}
+	idx := 2
 	if tipoEnsino != nil && *tipoEnsino != "" {
-		where += fmt.Sprintf(" AND tipo_ensino = '%s'", db.SafeString(*tipoEnsino))
+		query += fmt.Sprintf(" AND tipo_ensino = $%d", idx)
+		args = append(args, *tipoEnsino)
+		idx++
 	}
 	if aprovado != nil {
 		if *aprovado {
-			where += " AND aprovado = TRUE"
+			query += " AND aprovado = TRUE"
 		} else {
-			where += " AND aprovado = FALSE"
+			query += " AND aprovado = FALSE"
 		}
 	}
-	return p.scanAvaliacoes(fmt.Sprintf("%s WHERE %s ORDER BY registered_at DESC", avaliacaoFinalCols, where))
+	query += " ORDER BY registered_at DESC"
+	rows, err := p.client.DB().Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAvaliacoes(rows)
 }
 
 // GetAll retorna todas as avaliações do sistema (uso admin) com filtros opcionais.
 func (p *AvaliacaoFinalProjection) GetAll(tipoEnsino *string, aprovado *bool) ([]AvaliacaoFinalDTO, error) {
-	where := "1=1"
+	query := `SELECT ` + avaliacaoFinalCols + ` FROM projection_avaliacao_final WHERE 1=1`
+	var args []interface{}
+	idx := 1
 	if tipoEnsino != nil && *tipoEnsino != "" {
-		where += fmt.Sprintf(" AND tipo_ensino = '%s'", db.SafeString(*tipoEnsino))
+		query += fmt.Sprintf(" AND tipo_ensino = $%d", idx)
+		args = append(args, *tipoEnsino)
+		idx++
 	}
 	if aprovado != nil {
 		if *aprovado {
-			where += " AND aprovado = TRUE"
+			query += " AND aprovado = TRUE"
 		} else {
-			where += " AND aprovado = FALSE"
+			query += " AND aprovado = FALSE"
 		}
 	}
-	return p.scanAvaliacoes(fmt.Sprintf("%s WHERE %s ORDER BY registered_at DESC", avaliacaoFinalCols, where))
+	query += " ORDER BY registered_at DESC"
+	rows, err := p.client.DB().Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAvaliacoes(rows)
 }
 
-// GetAprovacoes retorna apenas registros aprovado=TRUE.
-// codigoAcademia vazio = todas (admin).
+// GetAprovacoes retorna apenas aprovado=TRUE. codigoAcademia vazio = todas (admin).
 func (p *AvaliacaoFinalProjection) GetAprovacoes(codigoAcademia string) ([]AvaliacaoFinalDTO, error) {
 	t := true
 	if codigoAcademia == "" {
@@ -290,8 +261,7 @@ func (p *AvaliacaoFinalProjection) GetAprovacoes(codigoAcademia string) ([]Avali
 	return p.GetByAcademia(codigoAcademia, nil, &t)
 }
 
-// GetReprovacoes retorna apenas registros aprovado=FALSE.
-// codigoAcademia vazio = todas (admin).
+// GetReprovacoes retorna apenas aprovado=FALSE. codigoAcademia vazio = todas (admin).
 func (p *AvaliacaoFinalProjection) GetReprovacoes(codigoAcademia string) ([]AvaliacaoFinalDTO, error) {
 	f := false
 	if codigoAcademia == "" {
@@ -300,16 +270,60 @@ func (p *AvaliacaoFinalProjection) GetReprovacoes(codigoAcademia string) ([]Aval
 	return p.GetByAcademia(codigoAcademia, nil, &f)
 }
 
-// GetAprovacoesByEstudante retorna apenas aprovações (aprovado=TRUE) de um estudante específico.
+// GetAprovacoesByEstudante retorna aprovações (aprovado=TRUE) de um estudante.
 func (p *AvaliacaoFinalProjection) GetAprovacoesByEstudante(codigoEstudante string) ([]AvaliacaoFinalDTO, error) {
-	query := fmt.Sprintf(`%s WHERE codigo_estudante = '%s' AND aprovado = TRUE ORDER BY registered_at DESC`,
-		avaliacaoFinalCols, db.SafeString(codigoEstudante))
-	return p.scanAvaliacoes(query)
+	rows, err := p.client.DB().Query(
+		`SELECT `+avaliacaoFinalCols+` FROM projection_avaliacao_final
+		WHERE codigo_estudante = $1 AND aprovado = TRUE ORDER BY registered_at DESC`,
+		codigoEstudante,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAvaliacoes(rows)
 }
 
-// GetReprovacoesByEstudante retorna apenas reprovações (aprovado=FALSE) de um estudante específico.
+// GetReprovacoesByEstudante retorna reprovações (aprovado=FALSE) de um estudante.
 func (p *AvaliacaoFinalProjection) GetReprovacoesByEstudante(codigoEstudante string) ([]AvaliacaoFinalDTO, error) {
-	query := fmt.Sprintf(`%s WHERE codigo_estudante = '%s' AND aprovado = FALSE ORDER BY registered_at DESC`,
-		avaliacaoFinalCols, db.SafeString(codigoEstudante))
-	return p.scanAvaliacoes(query)
+	rows, err := p.client.DB().Query(
+		`SELECT `+avaliacaoFinalCols+` FROM projection_avaliacao_final
+		WHERE codigo_estudante = $1 AND aprovado = FALSE ORDER BY registered_at DESC`,
+		codigoEstudante,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAvaliacoes(rows)
+}
+
+func (p *AvaliacaoFinalProjection) GetByEstudanteETipo(codigoEstudante, tipoEnsino string) ([]AvaliacaoFinalDTO, error) {
+	rows, err := p.client.DB().Query(
+		`SELECT `+avaliacaoFinalCols+` FROM projection_avaliacao_final
+		WHERE codigo_estudante = $1 AND tipo_ensino = $2
+		ORDER BY registered_at DESC`,
+		codigoEstudante, tipoEnsino,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAvaliacoes(rows)
+}
+
+func scanAvaliacoes(rows *sql.Rows) ([]AvaliacaoFinalDTO, error) {
+	var result []AvaliacaoFinalDTO
+	for rows.Next() {
+		var dto AvaliacaoFinalDTO
+		if err := rows.Scan(
+			&dto.ID, &dto.EventID, &dto.CodigoEstudante, &dto.CodigoAcademia,
+			&dto.AnoLectivo, &dto.TipoEnsino, &dto.AnoAcademicoAtual, &dto.ProximoAnoAcademico,
+			&dto.Aprovado, &dto.Observacao, &dto.RegisteredAt, &dto.Version,
+		); err != nil {
+			continue
+		}
+		result = append(result, dto)
+	}
+	return result, rows.Err()
 }

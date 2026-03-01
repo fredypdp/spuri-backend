@@ -3,7 +3,6 @@ package projections
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"log"
 	"spuri/internal/db"
 
@@ -32,10 +31,10 @@ func NewBaseProjection(client *db.Client) *BaseProjection {
 
 func (bp *BaseProjection) GetLastProcessedEventIDByName(name string) (int64, error) {
 	var lastID int64
-	query := fmt.Sprintf(`SELECT last_processed_event_id FROM projection_checkpoints WHERE projection_name = '%s'`,
-		db.SafeString(name))
-	
-	err := bp.client.DB().QueryRow(query).Scan(&lastID)
+	err := bp.client.DB().QueryRow(
+		`SELECT last_processed_event_id FROM projection_checkpoints WHERE projection_name = $1`,
+		name,
+	).Scan(&lastID)
 	if err == sql.ErrNoRows {
 		log.Printf("[DEBUG] Nenhum checkpoint encontrado para: %s", name)
 		return 0, nil
@@ -43,7 +42,6 @@ func (bp *BaseProjection) GetLastProcessedEventIDByName(name string) (int64, err
 	if err != nil {
 		return 0, err
 	}
-	
 	log.Printf("[DEBUG] LastID: %d para projection: %s", lastID, name)
 	return lastID, nil
 }
@@ -52,38 +50,34 @@ func (bp *BaseProjection) UpdateCheckpointByName(name string, eventID int64) err
 	if eventID < 0 {
 		eventID = 0
 	}
-	
-	query := fmt.Sprintf(`
+	_, err := bp.client.DB().Exec(`
 		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
-		VALUES ('%s', %d, CURRENT_TIMESTAMP, 1)
+		VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
 		ON CONFLICT (projection_name) DO UPDATE SET
-			last_processed_event_id = %d,
+			last_processed_event_id = $2,
 			last_processed_at = CURRENT_TIMESTAMP,
 			events_processed = projection_checkpoints.events_processed + 1
-	`, db.SafeString(name), eventID, eventID)
-	
-	_, err := bp.client.DB().Exec(query)
+	`, name, eventID)
 	if err != nil {
 		log.Printf("[ERROR] Erro ao atualizar checkpoint para %s: %v", name, err)
 	}
-	
 	return err
 }
 
 // ============================================================================
-// Helpers internos (compartilhados com outras projections no package)
+// Helpers internos
 // ============================================================================
 
-func nullOrUUID(u *uuid.UUID) string {
+func nullOrUUID(u *uuid.UUID) interface{} {
 	if u == nil {
-		return "NULL"
+		return nil
 	}
-	return fmt.Sprintf("'%s'", *u)
+	return u.String()
 }
 
-func nullOrString(s *string) string {
+func nullOrString(s *string) interface{} {
 	if s == nil {
-		return "NULL"
+		return nil
 	}
-	return fmt.Sprintf("'%s'", db.SafeString(*s))
+	return *s
 }

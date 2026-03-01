@@ -1,8 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/projections/sistema_config_projection.go
-// Projeção de leitura para configurações do sistema
-// ============================================================================
-
 package projections
 
 import (
@@ -28,15 +23,42 @@ func NewSistemaConfigProjection(client *db.Client) *SistemaConfigProjection {
 
 func (p *SistemaConfigProjection) Name() string { return "sistema_config" }
 
+// ============================================================================
+// Interface Projection
+// ============================================================================
+
+func (p *SistemaConfigProjection) GetLastProcessedEventID() (int64, error) {
+	var lastID int64
+	err := p.client.DB().QueryRow(
+		`SELECT last_processed_event_id FROM projection_checkpoints WHERE projection_name = $1`,
+		p.Name(),
+	).Scan(&lastID)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return lastID, err
+}
+
+func (p *SistemaConfigProjection) UpdateCheckpoint(eventID int64) error {
+	eventID = int64(db.ValidateOffset(int(eventID)))
+	_, err := p.client.DB().Exec(`
+		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
+		VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
+		ON CONFLICT (projection_name) DO UPDATE SET
+			last_processed_event_id = $2,
+			last_processed_at = CURRENT_TIMESTAMP,
+			events_processed = projection_checkpoints.events_processed + 1
+	`, p.Name(), eventID)
+	return err
+}
+
 func (p *SistemaConfigProjection) Handle(event db.Event) error {
 	if event.AggregateType != "SistemaConfig" {
 		return nil
 	}
-
 	handlers := map[string]func(db.Event) error{
 		"AnoLetivoDefinido": p.handleAnoLetivoDefinido,
 	}
-
 	if handler, ok := handlers[event.EventType]; ok {
 		log.Printf("[DEBUG] [sistema_config] Processando %s", event.EventType)
 		return handler(event)
@@ -46,11 +68,9 @@ func (p *SistemaConfigProjection) Handle(event db.Event) error {
 
 func (p *SistemaConfigProjection) Rebuild() error {
 	log.Printf("[DEBUG] [sistema_config] Rebuild iniciado")
-
 	if err := p.clear(); err != nil {
 		return fmt.Errorf("falha ao limpar: %w", err)
 	}
-
 	rows, err := p.client.DB().Query(`
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
@@ -63,7 +83,6 @@ func (p *SistemaConfigProjection) Rebuild() error {
 		return err
 	}
 	defer rows.Close()
-
 	count := 0
 	for rows.Next() {
 		var event db.Event
@@ -83,91 +102,120 @@ func (p *SistemaConfigProjection) Rebuild() error {
 		}
 		count++
 	}
-
 	log.Printf("[DEBUG] [sistema_config] Rebuild concluído: %d eventos", count)
 	return rows.Err()
 }
 
-func (p *SistemaConfigProjection) GetLastProcessedEventID() (int64, error) {
-	var lastID int64
-	query := fmt.Sprintf(
-		`SELECT last_processed_event_id FROM projection_checkpoints WHERE projection_name = '%s'`,
-		db.SafeString(p.Name()),
-	)
-	err := p.client.DB().QueryRow(query).Scan(&lastID)
-	if err == sql.ErrNoRows {
-		return 0, nil
-	}
-	return lastID, err
-}
-
-func (p *SistemaConfigProjection) UpdateCheckpoint(eventID int64) error {
-	eventID = int64(db.ValidateOffset(int(eventID)))
-	query := fmt.Sprintf(`
-		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
-		VALUES ('%s', %d, CURRENT_TIMESTAMP, 1)
-		ON CONFLICT (projection_name) DO UPDATE SET
-			last_processed_event_id = %d,
-			last_processed_at = CURRENT_TIMESTAMP,
-			events_processed = projection_checkpoints.events_processed + 1
-	`, db.SafeString(p.Name()), eventID, eventID)
-	_, err := p.client.DB().Exec(query)
-	return err
-}
-
 func (p *SistemaConfigProjection) clear() error {
-	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_sistema_config`)
+	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_sistema_config CASCADE`)
 	return err
 }
 
-// --- Handlers de eventos ---
+// ============================================================================
+// Handler de evento
+// ============================================================================
 
 func (p *SistemaConfigProjection) handleAnoLetivoDefinido(event db.Event) error {
 	var payload struct {
-		Chave       string    `json:"Chave"`
-		Valor       string    `json:"Valor"`
-		DefinidoPor uuid.UUID `json:"DefinidoPor"`
-		DefinidoEm  time.Time `json:"DefinidoEm"`
+		AnoLetivo     string    `json:"AnoLetivo"`
+		DataInicio    time.Time `json:"DataInicio"`
+		DataFim       time.Time `json:"DataFim"`
+		DefinidoPor   uuid.UUID `json:"DefinidoPor"`
+		Observacao    *string   `json:"Observacao"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("parse error: %w", err)
+		return fmt.Errorf("parse error AnoLetivoDefinido: %w", err)
 	}
 
-	query := fmt.Sprintf(`
-		INSERT INTO projection_sistema_config (chave, valor, updated_by, updated_at, version, last_event_id)
-		VALUES ('%s', '%s', '%s', '%s', %d, '%s')
+	_, err := p.client.DB().Exec(`
+		INSERT INTO projection_sistema_config (
+			chave, valor, ano_letivo_atual, data_inicio, data_fim,
+			definido_por, observacao, updated_at, event_id, version
+		) VALUES (
+			'ano_letivo_atual', $1, $1, $2, $3,
+			$4, $5, CURRENT_TIMESTAMP, $6, $7
+		)
 		ON CONFLICT (chave) DO UPDATE SET
-			valor         = EXCLUDED.valor,
-			updated_by    = EXCLUDED.updated_by,
-			updated_at    = EXCLUDED.updated_at,
-			version       = projection_sistema_config.version + 1,
-			last_event_id = EXCLUDED.last_event_id
+			valor           = EXCLUDED.valor,
+			ano_letivo_atual = EXCLUDED.ano_letivo_atual,
+			data_inicio     = EXCLUDED.data_inicio,
+			data_fim        = EXCLUDED.data_fim,
+			definido_por    = EXCLUDED.definido_por,
+			observacao      = EXCLUDED.observacao,
+			updated_at      = CURRENT_TIMESTAMP,
+			event_id        = EXCLUDED.event_id,
+			version         = EXCLUDED.version
 	`,
-		db.SafeString(payload.Chave),
-		db.SafeString(payload.Valor),
-		payload.DefinidoPor,
-		payload.DefinidoEm.Format("2006-01-02 15:04:05"),
-		event.EventVersion,
-		event.EventID,
+		payload.AnoLetivo, payload.DataInicio, payload.DataFim,
+		payload.DefinidoPor, payload.Observacao,
+		event.EventID, event.EventVersion,
 	)
-
-	_, err := p.client.DB().Exec(query)
-	if err != nil {
-		return fmt.Errorf("erro ao upsert config: %w", err)
-	}
-
-	log.Printf("✅ [sistema_config] %s = %s (por %s)", payload.Chave, payload.Valor, payload.DefinidoPor)
-	return nil
+	return err
 }
 
-// GetValor retorna o valor de uma chave da projeção.
+// ============================================================================
+// Queries de leitura
+// ============================================================================
+
+type SistemaConfigDTO struct {
+	Chave          string    `json:"chave"`
+	Valor          string    `json:"valor"`
+	AnoLetivoAtual string    `json:"ano_letivo_atual"`
+	DataInicio     time.Time `json:"data_inicio"`
+	DataFim        time.Time `json:"data_fim"`
+	DefinidoPor    uuid.UUID `json:"definido_por"`
+	Observacao     *string   `json:"observacao,omitempty"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	Version        int       `json:"version"`
+}
+
+func (p *SistemaConfigProjection) GetAnoLetivoAtual() (*SistemaConfigDTO, error) {
+	var dto SistemaConfigDTO
+	err := p.client.DB().QueryRow(`
+		SELECT chave, valor, ano_letivo_atual, data_inicio, data_fim,
+			definido_por, observacao, updated_at, version
+		FROM projection_sistema_config
+		WHERE chave = 'ano_letivo_atual'
+		LIMIT 1
+	`).Scan(
+		&dto.Chave, &dto.Valor, &dto.AnoLetivoAtual,
+		&dto.DataInicio, &dto.DataFim,
+		&dto.DefinidoPor, &dto.Observacao,
+		&dto.UpdatedAt, &dto.Version,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return &dto, err
+}
+
+func (p *SistemaConfigProjection) GetByChave(chave string) (*SistemaConfigDTO, error) {
+	var dto SistemaConfigDTO
+	err := p.client.DB().QueryRow(`
+		SELECT chave, valor, ano_letivo_atual, data_inicio, data_fim,
+			definido_por, observacao, updated_at, version
+		FROM projection_sistema_config
+		WHERE chave = $1
+		LIMIT 1
+	`, chave).Scan(
+		&dto.Chave, &dto.Valor, &dto.AnoLetivoAtual,
+		&dto.DataInicio, &dto.DataFim,
+		&dto.DefinidoPor, &dto.Observacao,
+		&dto.UpdatedAt, &dto.Version,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return &dto, err
+}
+
+// GetValor retorna apenas o valor string de uma chave — atalho conveniente para handlers.
+// Retorna erro se a chave não existir.
 func (p *SistemaConfigProjection) GetValor(chave string) (string, error) {
 	var valor string
-	err := p.client.DB().QueryRow(
-		`SELECT valor FROM projection_sistema_config WHERE chave = $1`,
-		chave,
-	).Scan(&valor)
-
+	err := p.client.DB().QueryRow(`
+		SELECT valor FROM projection_sistema_config WHERE chave = $1 LIMIT 1
+	`, chave).Scan(&valor)
 	if err == sql.ErrNoRows {
 		return "", fmt.Errorf("configuração '%s' não definida", chave)
 	}

@@ -21,69 +21,16 @@ func NewTurmasProjection(client *db.Client) *TurmasProjection {
 
 func (p *TurmasProjection) Name() string { return "turmas" }
 
-func (p *TurmasProjection) Handle(event db.Event) error {
-	if event.AggregateType != "Turma" {
-		return nil
-	}
-
-	handlers := map[string]func(db.Event) error{
-		"TurmaCriada":               p.handleTurmaCriada,
-		"TurmaAtivada":              p.handleStatusChange("ativo"),
-		"TurmaDesativada":           p.handleStatusChange("inativo"),
-		"EstudanteAdicionadoATurma": p.handleEstudanteAdicionado,
-		"EstudanteRemovidoDaTurma":  p.handleEstudanteRemovido,
-		"TurmaDadosAtualizados":     p.handleTurmaDadosAtualizados,
-		"TurmaDeletada": p.handleTurmaDeletada,
-	}
-
-	if handler, ok := handlers[event.EventType]; ok {
-		log.Printf("[DEBUG] Processando %s para turma %s", event.EventType, event.AggregateID)
-		return handler(event)
-	}
-	return nil
-}
-
-func (p *TurmasProjection) Rebuild() error {
-	log.Printf("[DEBUG] [turmas] Rebuild iniciado")
-
-	if err := p.clear(); err != nil {
-		return fmt.Errorf("falha ao limpar: %w", err)
-	}
-
-	rows, err := p.client.DB().Query(`
-		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
-			event_version, payload, metadata, occurred_at, recorded_at,
-			ledger_hash, previous_hash
-		FROM spuri_ledger WHERE aggregate_type = 'Turma' ORDER BY id ASC
-	`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	count := 0
-	for rows.Next() {
-		var event db.Event
-		if err := rows.Scan(&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
-			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
-			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash); err != nil {
-			return err
-		}
-		if err := p.Handle(event); err != nil {
-			return fmt.Errorf("erro no evento %d: %w", event.ID, err)
-		}
-		count++
-	}
-
-	log.Printf("[DEBUG] [turmas] Rebuild concluído: %d eventos processados", count)
-	return rows.Err()
-}
+// ============================================================================
+// Interface Projection
+// ============================================================================
 
 func (p *TurmasProjection) GetLastProcessedEventID() (int64, error) {
 	var lastID int64
-	query := fmt.Sprintf(`SELECT last_processed_event_id FROM projection_checkpoints WHERE projection_name = '%s'`,
-		db.SafeString(p.Name()))
-	err := p.client.DB().QueryRow(query).Scan(&lastID)
+	err := p.client.DB().QueryRow(
+		`SELECT last_processed_event_id FROM projection_checkpoints WHERE projection_name = $1`,
+		p.Name(),
+	).Scan(&lastID)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -92,180 +39,201 @@ func (p *TurmasProjection) GetLastProcessedEventID() (int64, error) {
 
 func (p *TurmasProjection) UpdateCheckpoint(eventID int64) error {
 	eventID = int64(db.ValidateOffset(int(eventID)))
-	query := fmt.Sprintf(`
+	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
-		VALUES ('%s', %d, CURRENT_TIMESTAMP, 1)
+		VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
 		ON CONFLICT (projection_name) DO UPDATE SET
-			last_processed_event_id = %d,
+			last_processed_event_id = $2,
 			last_processed_at = CURRENT_TIMESTAMP,
 			events_processed = projection_checkpoints.events_processed + 1
-	`, db.SafeString(p.Name()), eventID, eventID)
-	_, err := p.client.DB().Exec(query)
+	`, p.Name(), eventID)
 	return err
 }
 
-// ── Handlers de evento ────────────────────────────────────────────────────────
+func (p *TurmasProjection) Handle(event db.Event) error {
+	handlers := map[string]func(db.Event) error{
+		"TurmaCriada":              p.handleTurmaCriada,
+		"EstudanteAdicionadoTurma": p.handleEstudanteAdicionado,
+		"EstudanteRemovidoTurma":   p.handleEstudanteRemovido,
+		"TurmaAtualizada":          p.handleTurmaAtualizada,
+		"TurmaDeletada":            p.handleTurmaDeletada,
+	}
+	if handler, ok := handlers[event.EventType]; ok {
+		log.Printf("[DEBUG] [turmas] Processando %s: %s", event.EventType, event.EventID)
+		return handler(event)
+	}
+	return nil
+}
+
+func (p *TurmasProjection) Rebuild() error {
+	log.Printf("[DEBUG] [turmas] Rebuild iniciado")
+	if _, err := p.client.DB().Exec(`TRUNCATE TABLE projection_turmas CASCADE`); err != nil {
+		return fmt.Errorf("falha ao limpar: %w", err)
+	}
+	rows, err := p.client.DB().Query(`
+		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
+			event_version, payload, metadata, occurred_at, recorded_at,
+			ledger_hash, previous_hash
+		FROM spuri_ledger
+		WHERE aggregate_type = 'Turma'
+		ORDER BY id ASC
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		var event db.Event
+		var prevHash sql.NullString
+		if err := rows.Scan(
+			&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
+			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
+			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &prevHash,
+		); err != nil {
+			return err
+		}
+		if prevHash.Valid {
+			event.PreviousHash = &prevHash.String
+		}
+		if err := p.Handle(event); err != nil {
+			return fmt.Errorf("erro no evento %d: %w", event.ID, err)
+		}
+		count++
+	}
+	log.Printf("[DEBUG] [turmas] Rebuild concluído: %d eventos", count)
+	return rows.Err()
+}
+
+// ============================================================================
+// Handlers de evento
+// ============================================================================
 
 func (p *TurmasProjection) handleTurmaCriada(event db.Event) error {
 	var payload struct {
-		CodigoTurma    string
-		CodigoAcademia string
-		Nivel          string
-		CursoID        *uuid.UUID
-		Turno          string
-		CreatedAt      time.Time
+		CodigoTurma    string     `json:"CodigoTurma"`
+		CodigoAcademia string     `json:"CodigoAcademia"`
+		Nivel          string     `json:"Nivel"`
+		CursoID        *uuid.UUID `json:"CursoID"`
+		Turno          string     `json:"Turno"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return err
+		return fmt.Errorf("parse error TurmaCriada: %w", err)
 	}
 
 	estudantesJSON, _ := json.Marshal([]string{})
+	var cursoID interface{}
+	if payload.CursoID != nil {
+		cursoID = payload.CursoID.String()
+	}
 
-	query := fmt.Sprintf(`
-		INSERT INTO projection_turmas
-			(id, codigo_turma, codigo_academia, nivel, curso_id, turno,
-			 estudantes, status, created_at, updated_at, version, last_event_id)
-		VALUES ('%s','%s','%s','%s',%s,'%s','%s','ativo','%s',CURRENT_TIMESTAMP,%d,'%s')
+	_, err := p.client.DB().Exec(`
+		INSERT INTO projection_turmas (
+			id, codigo_turma, codigo_academia, nivel, curso_id, turno,
+			estudantes, status, created_at, updated_at, version, last_event_id
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, 'ativo', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $8, $9)
 		ON CONFLICT (id) DO NOTHING
 	`,
-		event.AggregateID,
-		db.SafeString(payload.CodigoTurma),
-		db.SafeString(payload.CodigoAcademia),
-		db.SafeString(payload.Nivel),
-		nullOrUUID(payload.CursoID),
-		db.SafeString(payload.Turno),
-		string(estudantesJSON),
-		payload.CreatedAt.Format(time.RFC3339),
-		event.EventVersion,
-		event.EventID,
+		event.AggregateID, payload.CodigoTurma, payload.CodigoAcademia, payload.Nivel,
+		cursoID, payload.Turno, string(estudantesJSON), event.EventVersion, event.EventID,
 	)
-
-	_, err := p.client.DB().Exec(query)
 	return err
 }
 
-func (p *TurmasProjection) handleStatusChange(status string) func(db.Event) error {
-	return func(event db.Event) error {
-		query := fmt.Sprintf(`
-			UPDATE projection_turmas
-			SET status = '%s', version = %d, updated_at = CURRENT_TIMESTAMP, last_event_id = '%s'
-			WHERE id = '%s'
-		`, status, event.EventVersion, event.EventID, event.AggregateID)
-		_, err := p.client.DB().Exec(query)
-		return err
-	}
-}
-
 func (p *TurmasProjection) handleEstudanteAdicionado(event db.Event) error {
-	var payload struct{ CodigoEstudante string }
+	var payload struct {
+		CodigoEstudante string `json:"CodigoEstudante"`
+	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return err
+		return fmt.Errorf("parse error EstudanteAdicionadoTurma: %w", err)
 	}
 
-	query := fmt.Sprintf(`
+	_, err := p.client.DB().Exec(`
 		UPDATE projection_turmas
-		SET estudantes    = estudantes || '"%s"'::jsonb,
-		    version       = %d,
-		    updated_at    = CURRENT_TIMESTAMP,
-		    last_event_id = '%s'
-		WHERE id = '%s'
-	`, db.SafeString(payload.CodigoEstudante), event.EventVersion, event.EventID, event.AggregateID)
-
-	_, err := p.client.DB().Exec(query)
+		SET estudantes = (
+			SELECT jsonb_agg(DISTINCT val)
+			FROM (
+				SELECT jsonb_array_elements_text(estudantes::jsonb) AS val
+				UNION ALL SELECT $1::text
+			) sub
+		)::json,
+		version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
+		WHERE id = $4
+	`, payload.CodigoEstudante, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
 func (p *TurmasProjection) handleEstudanteRemovido(event db.Event) error {
-	var payload struct{ CodigoEstudante string }
+	var payload struct {
+		CodigoEstudante string `json:"CodigoEstudante"`
+	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return err
+		return fmt.Errorf("parse error EstudanteRemovidoTurma: %w", err)
 	}
 
-	query := fmt.Sprintf(`
+	_, err := p.client.DB().Exec(`
 		UPDATE projection_turmas
 		SET estudantes = (
-		        SELECT COALESCE(jsonb_agg(e), '[]'::jsonb)
-		        FROM jsonb_array_elements_text(estudantes) e
-		        WHERE e <> '%s'
-		    ),
-		    version       = %d,
-		    updated_at    = CURRENT_TIMESTAMP,
-		    last_event_id = '%s'
-		WHERE id = '%s'
-	`, db.SafeString(payload.CodigoEstudante), event.EventVersion, event.EventID, event.AggregateID)
-
-	_, err := p.client.DB().Exec(query)
+			SELECT COALESCE(json_agg(val), '[]'::json)
+			FROM (
+				SELECT jsonb_array_elements_text(estudantes::jsonb) AS val
+			) sub
+			WHERE val != $1
+		),
+		version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
+		WHERE id = $4
+	`, payload.CodigoEstudante, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
-func (p *TurmasProjection) handleTurmaDadosAtualizados(event db.Event) error {
+func (p *TurmasProjection) handleTurmaAtualizada(event db.Event) error {
 	var payload struct {
-		Nivel   *string
-		CursoID *uuid.UUID
-		Turno   *string
+		Nivel   *string    `json:"Nivel"`
+		CursoID *uuid.UUID `json:"CursoID"`
+		Turno   *string    `json:"Turno"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return err
+		return fmt.Errorf("parse error TurmaAtualizada: %w", err)
 	}
 
 	if payload.Nivel != nil {
-		q := fmt.Sprintf(`UPDATE projection_turmas SET nivel = '%s' WHERE id = '%s'`,
-			db.SafeString(*payload.Nivel), event.AggregateID)
-		p.client.DB().Exec(q)
-	}
-	if payload.Turno != nil {
-		q := fmt.Sprintf(`UPDATE projection_turmas SET turno = '%s' WHERE id = '%s'`,
-			db.SafeString(*payload.Turno), event.AggregateID)
-		p.client.DB().Exec(q)
+		p.client.DB().Exec(`UPDATE projection_turmas SET nivel = $1 WHERE id = $2`, *payload.Nivel, event.AggregateID)
 	}
 	if payload.CursoID != nil {
-		q := fmt.Sprintf(`UPDATE projection_turmas SET curso_id = '%s' WHERE id = '%s'`,
-			*payload.CursoID, event.AggregateID)
-		p.client.DB().Exec(q)
+		p.client.DB().Exec(`UPDATE projection_turmas SET curso_id = $1 WHERE id = $2`, payload.CursoID.String(), event.AggregateID)
+	}
+	if payload.Turno != nil {
+		p.client.DB().Exec(`UPDATE projection_turmas SET turno = $1 WHERE id = $2`, *payload.Turno, event.AggregateID)
 	}
 
-	q := fmt.Sprintf(`
+	_, err := p.client.DB().Exec(`
 		UPDATE projection_turmas
-		SET version = %d, updated_at = CURRENT_TIMESTAMP, last_event_id = '%s'
-		WHERE id = '%s'
+		SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
+		WHERE id = $3
 	`, event.EventVersion, event.EventID, event.AggregateID)
-	_, err := p.client.DB().Exec(q)
 	return err
 }
 
 func (p *TurmasProjection) handleTurmaDeletada(event db.Event) error {
 	var payload struct {
-		DeletadoPor string    `json:"DeletadoPor"`
-		Motivo      string    `json:"Motivo"`
-		DeletedAt   time.Time `json:"DeletedAt"`
+		DeletedAt time.Time `json:"DeletedAt"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return err
+		return fmt.Errorf("parse error TurmaDeletada: %w", err)
 	}
 
-	// Mantém o registro na projeção com status=deletado e deleted_at preenchido.
-	// Isso garante auditabilidade via READ; filtre WHERE deleted_at IS NULL em queries normais.
-	query := fmt.Sprintf(`
+	_, err := p.client.DB().Exec(`
 		UPDATE projection_turmas
-		SET
-			status     = 'deletado',
-			deleted_at = '%s',
-			updated_at = CURRENT_TIMESTAMP,
-			version    = %d,
-			last_event_id = '%s'
-		WHERE id = '%s'
-	`,
-		payload.DeletedAt.UTC().Format("2006-01-02T15:04:05Z"),
-		event.EventVersion,
-		event.EventID,
-		event.AggregateID,
-	)
-
-	_, err := p.client.DB().Exec(query)
+		SET status = 'deletado', deleted_at = $1,
+			updated_at = CURRENT_TIMESTAMP, version = $2, last_event_id = $3
+		WHERE id = $4
+	`, payload.DeletedAt.UTC(), event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
-// ── Queries de leitura ────────────────────────────────────────────────────────
+// ============================================================================
+// Queries de leitura
+// ============================================================================
 
 type TurmaDTO struct {
 	ID             uuid.UUID  `json:"id"`
@@ -296,111 +264,92 @@ func (p *TurmasProjection) GetByCodigoTurma(codigoTurma, codigoAcademia string) 
 		       estudantes, status, created_at, updated_at, version
 		FROM projection_turmas
 		WHERE codigo_turma = $1 AND codigo_academia = $2
-		  AND deleted_at IS NULL
+			AND deleted_at IS NULL
+		LIMIT 1
 	`, codigoTurma, codigoAcademia)
 	return scanTurmaRow(row)
 }
 
-func (p *TurmasProjection) ListByAcademia(codigoAcademia string) ([]*TurmaDTO, error) {
+func (p *TurmasProjection) GetByAcademia(codigoAcademia string) ([]TurmaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT id, codigo_turma, codigo_academia, nivel, curso_id, turno,
 		       estudantes, status, created_at, updated_at, version
 		FROM projection_turmas
-		WHERE codigo_academia = $1
-			AND deleted_at IS NULL
-		ORDER BY nivel, turno
+		WHERE codigo_academia = $1 AND deleted_at IS NULL
+		ORDER BY created_at DESC
 	`, codigoAcademia)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
-	var turmas []*TurmaDTO
-	for rows.Next() {
-		var t TurmaDTO
-		var cursoID sql.NullString
-		var estudantesJSON []byte
-		if err := rows.Scan(&t.ID, &t.CodigoTurma, &t.CodigoAcademia, &t.Nivel,
-			&cursoID, &t.Turno, &estudantesJSON, &t.Status, &t.CreatedAt, &t.UpdatedAt, &t.Version); err != nil {
-			return nil, err
-		}
-		if cursoID.Valid {
-			id, _ := uuid.Parse(cursoID.String)
-			t.CursoID = &id
-		}
-		json.Unmarshal(estudantesJSON, &t.Estudantes)
-		if t.Estudantes == nil {
-			t.Estudantes = []string{}
-		}
-		turmas = append(turmas, &t)
-	}
-	return turmas, rows.Err()
+	return scanTurmas(rows)
 }
 
+// ListByAcademia é um alias de GetByAcademia — retorna ponteiros para compatibilidade com handlers.
+func (p *TurmasProjection) ListByAcademia(codigoAcademia string) ([]*TurmaDTO, error) {
+	turmas, err := p.GetByAcademia(codigoAcademia)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*TurmaDTO, len(turmas))
+	for i := range turmas {
+		result[i] = &turmas[i]
+	}
+	return result, nil
+}
+
+// ListByCurso retorna turmas vinculadas a um curso específico.
 func (p *TurmasProjection) ListByCurso(cursoID uuid.UUID) ([]TurmaDTO, error) {
-	query := fmt.Sprintf(`
+	rows, err := p.client.DB().Query(`
 		SELECT id, codigo_turma, codigo_academia, nivel, curso_id, turno,
 		       estudantes, status, created_at, updated_at, version
 		FROM projection_turmas
-		WHERE curso_id = '%s'
-		  AND (deleted_at IS NULL OR status != 'deletado')
+		WHERE curso_id = $1 AND deleted_at IS NULL
+		ORDER BY created_at DESC
 	`, cursoID)
-
-	rows, err := p.client.DB().Query(query)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+	return scanTurmas(rows)
+}
 
+func scanTurmaRow(row *sql.Row) (*TurmaDTO, error) {
+	var dto TurmaDTO
+	var estudantesJSON []byte
+	err := row.Scan(
+		&dto.ID, &dto.CodigoTurma, &dto.CodigoAcademia, &dto.Nivel, &dto.CursoID, &dto.Turno,
+		&estudantesJSON, &dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	json.Unmarshal(estudantesJSON, &dto.Estudantes)
+	if dto.Estudantes == nil {
+		dto.Estudantes = []string{}
+	}
+	return &dto, nil
+}
+
+func scanTurmas(rows *sql.Rows) ([]TurmaDTO, error) {
 	var turmas []TurmaDTO
 	for rows.Next() {
 		var dto TurmaDTO
-		var estudantesJSON sql.NullString
-		var cursoIDStr sql.NullString
-		err := rows.Scan(
-			&dto.ID, &dto.CodigoTurma, &dto.CodigoAcademia, &dto.Nivel,
-			&cursoIDStr, &dto.Turno, &estudantesJSON,
-			&dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version,
-		)
-		if err != nil {
-			return nil, err
+		var estudantesJSON []byte
+		if err := rows.Scan(
+			&dto.ID, &dto.CodigoTurma, &dto.CodigoAcademia, &dto.Nivel, &dto.CursoID, &dto.Turno,
+			&estudantesJSON, &dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version,
+		); err != nil {
+			continue
 		}
-		if estudantesJSON.Valid && estudantesJSON.String != "" {
-			json.Unmarshal([]byte(estudantesJSON.String), &dto.Estudantes)
-		}
-		if cursoIDStr.Valid {
-			cid, _ := uuid.Parse(cursoIDStr.String)
-			dto.CursoID = &cid
+		json.Unmarshal(estudantesJSON, &dto.Estudantes)
+		if dto.Estudantes == nil {
+			dto.Estudantes = []string{}
 		}
 		turmas = append(turmas, dto)
 	}
 	return turmas, rows.Err()
-}
-
-// ── Helpers internos ──────────────────────────────────────────────────────────
-
-func scanTurmaRow(row *sql.Row) (*TurmaDTO, error) {
-	var t TurmaDTO
-	var cursoID sql.NullString
-	var estudantesJSON []byte
-
-	err := row.Scan(&t.ID, &t.CodigoTurma, &t.CodigoAcademia, &t.Nivel,
-		&cursoID, &t.Turno, &estudantesJSON, &t.Status, &t.CreatedAt, &t.UpdatedAt, &t.Version)
-	if err != nil {
-		return nil, err
-	}
-	if cursoID.Valid {
-		id, _ := uuid.Parse(cursoID.String)
-		t.CursoID = &id
-	}
-	json.Unmarshal(estudantesJSON, &t.Estudantes)
-	if t.Estudantes == nil {
-		t.Estudantes = []string{}
-	}
-	return &t, nil
-}
-
-func (p *TurmasProjection) clear() error {
-	_, err := p.client.DB().Exec(`DELETE FROM projection_turmas`)
-	return err
 }

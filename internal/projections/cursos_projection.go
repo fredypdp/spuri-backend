@@ -11,22 +11,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// CursoDTO — projeção lida do banco.
-type CursoDTO struct {
-	ID             uuid.UUID `json:"id"`
-	Nome           string    `json:"nome"`
-	Type           string    `json:"type"`
-	AnosAcademicos []string  `json:"anos_academicos"`
-	// Periodos: preenchido apenas para type="superior".
-	// Para type="medio" retorna array vazio.
-	Periodos       []string  `json:"periodos"`
-	CodigoAcademia string    `json:"codigo_academia"`
-	Status         string    `json:"status"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-	Version        int       `json:"version"`
-}
-
 type CursosProjection struct {
 	client *db.Client
 }
@@ -37,13 +21,16 @@ func NewCursosProjection(client *db.Client) *CursosProjection {
 
 func (p *CursosProjection) Name() string { return "cursos" }
 
+// ============================================================================
+// Interface Projection
+// ============================================================================
+
 func (p *CursosProjection) GetLastProcessedEventID() (int64, error) {
 	var lastID int64
-	err := p.client.DB().QueryRow(`
-		SELECT last_processed_event_id
-		FROM projection_checkpoints
-		WHERE projection_name = 'cursos'
-	`).Scan(&lastID)
+	err := p.client.DB().QueryRow(
+		`SELECT last_processed_event_id FROM projection_checkpoints WHERE projection_name = $1`,
+		p.Name(),
+	).Scan(&lastID)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -51,218 +38,224 @@ func (p *CursosProjection) GetLastProcessedEventID() (int64, error) {
 }
 
 func (p *CursosProjection) UpdateCheckpoint(eventID int64) error {
+	eventID = int64(db.ValidateOffset(int(eventID)))
 	_, err := p.client.DB().Exec(`
-		UPDATE projection_checkpoints
-		SET last_processed_event_id = $1, last_processed_at = CURRENT_TIMESTAMP
-		WHERE projection_name = 'cursos'
-	`, eventID)
+		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
+		VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
+		ON CONFLICT (projection_name) DO UPDATE SET
+			last_processed_event_id = $2,
+			last_processed_at = CURRENT_TIMESTAMP,
+			events_processed = projection_checkpoints.events_processed + 1
+	`, p.Name(), eventID)
 	return err
 }
 
 func (p *CursosProjection) Handle(event db.Event) error {
+	if event.AggregateType != "Curso" {
+		return nil
+	}
 	switch event.EventType {
 	case "CursoCriado":
 		return p.handleCursoCriado(event)
-	case "CursoAtivado":
-		return p.handleStatusChange("ativo")(event)
-	case "CursoDesativado":
-		return p.handleStatusChange("inativo")(event)
-	case "CursoDadosAtualizados":
-		return p.handleCursoDadosAtualizados(event)
+	case "CursoAtualizado":
+		return p.handleCursoAtualizado(event)
 	case "CursoDeletado":
 		return p.handleCursoDeletado(event)
-	default:
-		return nil
 	}
+	return nil
 }
+
+func (p *CursosProjection) Rebuild() error {
+	log.Printf("[DEBUG] [cursos] Rebuild iniciado")
+	if _, err := p.client.DB().Exec(`TRUNCATE TABLE projection_cursos CASCADE`); err != nil {
+		return fmt.Errorf("falha ao limpar: %w", err)
+	}
+	rows, err := p.client.DB().Query(`
+		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
+			event_version, payload, metadata, occurred_at, recorded_at,
+			ledger_hash, previous_hash
+		FROM spuri_ledger
+		WHERE aggregate_type = 'Curso'
+		ORDER BY id ASC
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		var event db.Event
+		var prevHash sql.NullString
+		if err := rows.Scan(
+			&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
+			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
+			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &prevHash,
+		); err != nil {
+			return err
+		}
+		if prevHash.Valid {
+			event.PreviousHash = &prevHash.String
+		}
+		if err := p.Handle(event); err != nil {
+			return fmt.Errorf("erro no evento %d: %w", event.ID, err)
+		}
+		count++
+	}
+	log.Printf("[DEBUG] [cursos] Rebuild concluído: %d eventos", count)
+	return rows.Err()
+}
+
+// ============================================================================
+// Handlers de evento
+// ============================================================================
 
 func (p *CursosProjection) handleCursoCriado(event db.Event) error {
 	var payload struct {
-		Nome           string    `json:"Nome"`
-		Type           string    `json:"Type"`
-		AnosAcademicos []string  `json:"AnosAcademicos"`
-		Periodos       []string  `json:"Periodos"`
-		CodigoAcademia string    `json:"CodigoAcademia"`
-		CreatedAt      time.Time `json:"CreatedAt"`
+		Nome           string   `json:"Nome"`
+		Type           string   `json:"Type"`
+		AnosAcademicos []string `json:"AnosAcademicos"`
+		Periodos       []string `json:"Periodos"`
+		CodigoAcademia string   `json:"CodigoAcademia"`
 	}
-
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("handleCursoCriado: unmarshal falhou: %w", err)
+		return fmt.Errorf("parse error CursoCriado: %w", err)
 	}
 
-	anosJSON, err := json.Marshal(payload.AnosAcademicos)
-	if err != nil {
-		return fmt.Errorf("handleCursoCriado: marshal anos_academicos falhou: %w", err)
+	anosJSON, _ := json.Marshal(payload.AnosAcademicos)
+	var periodosJSON interface{}
+	if len(payload.Periodos) > 0 {
+		b, _ := json.Marshal(payload.Periodos)
+		periodosJSON = string(b)
 	}
 
-	// Periodos: NULL para medio, JSON array para superior
-	periodosExpr := "NULL"
-	if payload.Type == "superior" && len(payload.Periodos) > 0 {
-		periodosJSON, err := json.Marshal(payload.Periodos)
-		if err != nil {
-			return fmt.Errorf("handleCursoCriado: marshal periodos falhou: %w", err)
-		}
-		periodosExpr = fmt.Sprintf("'%s'", db.SafeString(string(periodosJSON)))
-	}
-
-	query := fmt.Sprintf(`
-		INSERT INTO projection_cursos
-			(id, nome, type, anos_academicos, periodos, codigo_academia, status, created_at, updated_at, version, last_event_id)
-		VALUES
-			('%s', '%s', '%s', '%s', %s, '%s', 'ativo', '%s', CURRENT_TIMESTAMP, %d, '%s')
+	_, err := p.client.DB().Exec(`
+		INSERT INTO projection_cursos (id, nome, type, anos_academicos, periodos, codigo_academia, status, created_at, updated_at, version, last_event_id)
+		VALUES ($1, $2, $3, $4, $5, $6, 'ativo', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $7, $8)
 		ON CONFLICT (id) DO NOTHING
 	`,
-		event.AggregateID,
-		db.SafeString(payload.Nome),
-		db.SafeString(payload.Type),
-		db.SafeString(string(anosJSON)),
-		periodosExpr,
-		db.SafeString(payload.CodigoAcademia),
-		payload.CreatedAt.Format(time.RFC3339),
-		event.EventVersion,
-		event.EventID,
+		event.AggregateID, payload.Nome, payload.Type, string(anosJSON), periodosJSON,
+		payload.CodigoAcademia, event.EventVersion, event.EventID,
 	)
-
-	_, err = p.client.DB().Exec(query)
 	return err
 }
 
-func (p *CursosProjection) handleStatusChange(status string) func(db.Event) error {
-	return func(event db.Event) error {
-		if event.AggregateID == uuid.Nil {
-			return fmt.Errorf("UUID inválido")
-		}
-
-		query := fmt.Sprintf(`
-			UPDATE projection_cursos
-			SET status = '%s', version = %d, updated_at = CURRENT_TIMESTAMP
-			WHERE id = '%s'
-		`, status, event.EventVersion, event.AggregateID)
-
-		_, err := p.client.DB().Exec(query)
-		return err
-	}
-}
-
-func (p *CursosProjection) handleCursoDadosAtualizados(event db.Event) error {
+func (p *CursosProjection) handleCursoAtualizado(event db.Event) error {
 	var payload struct {
 		Nome           *string   `json:"Nome"`
 		Type           *string   `json:"Type"`
 		AnosAcademicos []string  `json:"AnosAcademicos"`
-		// Periodos: nil = não alterar; ponteiro para slice = atualizar
 		Periodos       *[]string `json:"Periodos"`
 	}
-
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("handleCursoDadosAtualizados: unmarshal falhou: %w", err)
+		return fmt.Errorf("parse error CursoAtualizado: %w", err)
 	}
 
 	if payload.Nome != nil {
-		query := fmt.Sprintf(`UPDATE projection_cursos SET nome = '%s' WHERE id = '%s'`,
-			db.SafeString(*payload.Nome), event.AggregateID)
-		if _, err := p.client.DB().Exec(query); err != nil {
+		if _, err := p.client.DB().Exec(
+			`UPDATE projection_cursos SET nome = $1 WHERE id = $2`,
+			*payload.Nome, event.AggregateID,
+		); err != nil {
 			return err
 		}
 	}
 	if payload.Type != nil {
-		query := fmt.Sprintf(`UPDATE projection_cursos SET type = '%s' WHERE id = '%s'`,
-			db.SafeString(*payload.Type), event.AggregateID)
-		if _, err := p.client.DB().Exec(query); err != nil {
+		if _, err := p.client.DB().Exec(
+			`UPDATE projection_cursos SET type = $1 WHERE id = $2`,
+			*payload.Type, event.AggregateID,
+		); err != nil {
 			return err
 		}
 	}
 	if payload.AnosAcademicos != nil {
 		anosJSON, _ := json.Marshal(payload.AnosAcademicos)
-		query := fmt.Sprintf(`UPDATE projection_cursos SET anos_academicos = '%s' WHERE id = '%s'`,
-			db.SafeString(string(anosJSON)), event.AggregateID)
-		if _, err := p.client.DB().Exec(query); err != nil {
+		if _, err := p.client.DB().Exec(
+			`UPDATE projection_cursos SET anos_academicos = $1 WHERE id = $2`,
+			string(anosJSON), event.AggregateID,
+		); err != nil {
 			return err
 		}
 	}
 	if payload.Periodos != nil {
-		var periodosExpr string
 		if len(*payload.Periodos) == 0 {
-			periodosExpr = "NULL"
+			if _, err := p.client.DB().Exec(
+				`UPDATE projection_cursos SET periodos = NULL WHERE id = $1`,
+				event.AggregateID,
+			); err != nil {
+				return err
+			}
 		} else {
 			periodosJSON, _ := json.Marshal(*payload.Periodos)
-			periodosExpr = fmt.Sprintf("'%s'", db.SafeString(string(periodosJSON)))
-		}
-		query := fmt.Sprintf(`UPDATE projection_cursos SET periodos = %s WHERE id = '%s'`,
-			periodosExpr, event.AggregateID)
-		if _, err := p.client.DB().Exec(query); err != nil {
-			return err
+			if _, err := p.client.DB().Exec(
+				`UPDATE projection_cursos SET periodos = $1 WHERE id = $2`,
+				string(periodosJSON), event.AggregateID,
+			); err != nil {
+				return err
+			}
 		}
 	}
 
-	query := fmt.Sprintf(`
+	_, err := p.client.DB().Exec(`
 		UPDATE projection_cursos
-		SET version = %d, updated_at = CURRENT_TIMESTAMP, last_event_id = '%s'
-		WHERE id = '%s'
+		SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
+		WHERE id = $3
 	`, event.EventVersion, event.EventID, event.AggregateID)
-
-	_, err := p.client.DB().Exec(query)
 	return err
 }
 
 func (p *CursosProjection) handleCursoDeletado(event db.Event) error {
 	var payload struct {
-		DeletadoPor string    `json:"DeletadoPor"`
-		Motivo      string    `json:"Motivo"`
-		DeletedAt   time.Time `json:"DeletedAt"`
+		DeletedAt time.Time `json:"DeletedAt"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return err
+		return fmt.Errorf("parse error CursoDeletado: %w", err)
 	}
 
-	query := fmt.Sprintf(`
+	_, err := p.client.DB().Exec(`
 		UPDATE projection_cursos
-		SET
-			status    = 'deletado',
-			deleted_at = '%s',
-			updated_at = CURRENT_TIMESTAMP,
-			version   = %d,
-			last_event_id = '%s'
-		WHERE id = '%s'
-	`,
-		payload.DeletedAt.UTC().Format("2006-01-02T15:04:05Z"),
-		event.EventVersion,
-		event.EventID,
-		event.AggregateID,
-	)
-
-	_, err := p.client.DB().Exec(query)
+		SET status = 'deletado', deleted_at = $1,
+			updated_at = CURRENT_TIMESTAMP, version = $2, last_event_id = $3
+		WHERE id = $4
+	`, payload.DeletedAt.UTC(), event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
 // ============================================================================
-// Queries
+// Queries de leitura
 // ============================================================================
+
+type CursoDTO struct {
+	ID             uuid.UUID `json:"id"`
+	Nome           string    `json:"nome"`
+	Type           string    `json:"type"`
+	AnosAcademicos []string  `json:"anos_academicos"`
+	Periodos       []string  `json:"periodos"`
+	CodigoAcademia string    `json:"codigo_academia"`
+	Status         string    `json:"status"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	Version        int       `json:"version"`
+}
 
 func (p *CursosProjection) GetByID(id uuid.UUID) (*CursoDTO, error) {
 	if id == uuid.Nil {
 		return nil, fmt.Errorf("UUID inválido")
 	}
-
-	query := fmt.Sprintf(`
-		SELECT id, nome, type, anos_academicos, periodos, codigo_academia, status, created_at, updated_at, version
-		FROM projection_cursos WHERE id = '%s'
-	`, id)
-
 	var dto CursoDTO
 	var anosJSON []byte
 	var periodosJSON []byte
-	err := p.client.DB().QueryRow(query).Scan(
+	err := p.client.DB().QueryRow(`
+		SELECT id, nome, type, anos_academicos, periodos, codigo_academia, status, created_at, updated_at, version
+		FROM projection_cursos WHERE id = $1
+	`, id).Scan(
 		&dto.ID, &dto.Nome, &dto.Type, &anosJSON, &periodosJSON,
 		&dto.CodigoAcademia, &dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version,
 	)
-
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-
 	json.Unmarshal(anosJSON, &dto.AnosAcademicos)
 	if periodosJSON != nil {
 		json.Unmarshal(periodosJSON, &dto.Periodos)
@@ -274,15 +267,13 @@ func (p *CursosProjection) GetByID(id uuid.UUID) (*CursoDTO, error) {
 }
 
 func (p *CursosProjection) GetByAcademia(codigoAcademia string) ([]CursoDTO, error) {
-	query := fmt.Sprintf(`
+	rows, err := p.client.DB().Query(`
 		SELECT id, nome, type, anos_academicos, periodos, codigo_academia, status, created_at, updated_at, version
 		FROM projection_cursos
-		WHERE codigo_academia = '%s'
+		WHERE codigo_academia = $1
 			AND deleted_at IS NULL
 		ORDER BY created_at DESC
-	`, db.SafeString(codigoAcademia))
-
-	rows, err := p.client.DB().Query(query)
+	`, codigoAcademia)
 	if err != nil {
 		return nil, err
 	}
@@ -308,49 +299,40 @@ func (p *CursosProjection) GetByAcademia(codigoAcademia string) ([]CursoDTO, err
 		}
 		cursos = append(cursos, dto)
 	}
-
 	log.Printf("[DEBUG] %d cursos encontrados para academia %s", len(cursos), codigoAcademia)
 	return cursos, rows.Err()
 }
 
-// Rebuild reconstrói a projeção a partir do ledger.
-func (p *CursosProjection) Rebuild() error {
-	log.Printf("[cursos] Rebuild iniciado")
-
-	if _, err := p.client.DB().Exec(`DELETE FROM projection_cursos`); err != nil {
-		return fmt.Errorf("falha ao limpar projection_cursos: %w", err)
-	}
-
+func (p *CursosProjection) ListByCurso(cursoID uuid.UUID) ([]CursoDTO, error) {
 	rows, err := p.client.DB().Query(`
-		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
-		       event_version, payload, metadata, occurred_at, recorded_at,
-		       ledger_hash, previous_hash
-		FROM spuri_ledger
-		WHERE aggregate_type = 'Curso'
-		ORDER BY id ASC
-	`)
+		SELECT id, nome, type, anos_academicos, periodos, codigo_academia, status, created_at, updated_at, version
+		FROM projection_cursos
+		WHERE id = $1
+			AND (deleted_at IS NULL OR status != 'deletado')
+		ORDER BY created_at DESC
+	`, cursoID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer rows.Close()
-
-	count := 0
+	var cursos []CursoDTO
 	for rows.Next() {
-		var event db.Event
+		var dto CursoDTO
+		var anosJSON, periodosJSON []byte
 		if err := rows.Scan(
-			&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
-			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
-			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash,
+			&dto.ID, &dto.Nome, &dto.Type, &anosJSON, &periodosJSON,
+			&dto.CodigoAcademia, &dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version,
 		); err != nil {
-			return err
+			continue
 		}
-
-		if err := p.Handle(event); err != nil {
-			log.Printf("[WARN] cursos rebuild: evento %d falhou: %v", event.ID, err)
+		json.Unmarshal(anosJSON, &dto.AnosAcademicos)
+		if periodosJSON != nil {
+			json.Unmarshal(periodosJSON, &dto.Periodos)
 		}
-		count++
+		if dto.Periodos == nil {
+			dto.Periodos = []string{}
+		}
+		cursos = append(cursos, dto)
 	}
-
-	log.Printf("[cursos] Rebuild concluído — %d eventos processados", count)
-	return rows.Err()
+	return cursos, rows.Err()
 }

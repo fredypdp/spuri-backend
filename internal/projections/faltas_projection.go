@@ -7,8 +7,6 @@ import (
 	"log"
 	"spuri/internal/db"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 type FaltasProjection struct {
@@ -21,57 +19,16 @@ func NewFaltasProjection(client *db.Client) *FaltasProjection {
 
 func (p *FaltasProjection) Name() string { return "faltas" }
 
-func (p *FaltasProjection) Handle(event db.Event) error {
-	if event.EventType != "FaltasRegistradas" {
-		return nil
-	}
-	log.Printf("[DEBUG] Processando FaltasRegistradas: %s", event.EventID)
-	return p.handleFaltasRegistradas(event)
-}
-
-func (p *FaltasProjection) Rebuild() error {
-	log.Printf("[DEBUG] Rebuild iniciado")
-	
-	if err := p.clear(); err != nil {
-		return fmt.Errorf("falha ao limpar: %w", err)
-	}
-
-	rows, err := p.client.DB().Query(`
-		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
-			event_version, payload, metadata, occurred_at, recorded_at,
-			ledger_hash, previous_hash
-		FROM spuri_ledger WHERE event_type = 'FaltasRegistradas' ORDER BY id ASC
-	`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	count := 0
-	for rows.Next() {
-		var event db.Event
-		if err := rows.Scan(&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
-			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
-			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash); err != nil {
-			return err
-		}
-
-		if err := p.Handle(event); err != nil {
-			return fmt.Errorf("erro no evento %d: %w", event.ID, err)
-		}
-		count++
-	}
-
-	log.Printf("[DEBUG] Rebuild concluído: %d eventos processados", count)
-	return rows.Err()
-}
+// ============================================================================
+// Interface Projection
+// ============================================================================
 
 func (p *FaltasProjection) GetLastProcessedEventID() (int64, error) {
 	var lastID int64
-	query := fmt.Sprintf(`SELECT last_processed_event_id FROM projection_checkpoints WHERE projection_name = '%s'`,
-		db.SafeString(p.Name()))
-	
-	err := p.client.DB().QueryRow(query).Scan(&lastID)
+	err := p.client.DB().QueryRow(
+		`SELECT last_processed_event_id FROM projection_checkpoints WHERE projection_name = $1`,
+		p.Name(),
+	).Scan(&lastID)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -80,22 +37,76 @@ func (p *FaltasProjection) GetLastProcessedEventID() (int64, error) {
 
 func (p *FaltasProjection) UpdateCheckpoint(eventID int64) error {
 	eventID = int64(db.ValidateOffset(int(eventID)))
-	query := fmt.Sprintf(`
+	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
-		VALUES ('%s', %d, CURRENT_TIMESTAMP, 1)
+		VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
 		ON CONFLICT (projection_name) DO UPDATE SET
-			last_processed_event_id = %d, last_processed_at = CURRENT_TIMESTAMP,
+			last_processed_event_id = $2,
+			last_processed_at = CURRENT_TIMESTAMP,
 			events_processed = projection_checkpoints.events_processed + 1
-	`, db.SafeString(p.Name()), eventID, eventID)
-	
-	_, err := p.client.DB().Exec(query)
+	`, p.Name(), eventID)
 	return err
+}
+
+func (p *FaltasProjection) Handle(event db.Event) error {
+	handlers := map[string]func(db.Event) error{
+		"FaltasRegistradas": p.handleFaltasRegistradas,
+	}
+	if handler, ok := handlers[event.EventType]; ok {
+		log.Printf("[DEBUG] [faltas] Processando %s: %s", event.EventType, event.EventID)
+		return handler(event)
+	}
+	return nil
+}
+
+func (p *FaltasProjection) Rebuild() error {
+	log.Printf("[DEBUG] [faltas] Rebuild iniciado")
+	if err := p.clear(); err != nil {
+		return fmt.Errorf("falha ao limpar: %w", err)
+	}
+	rows, err := p.client.DB().Query(`
+		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
+			event_version, payload, metadata, occurred_at, recorded_at,
+			ledger_hash, previous_hash
+		FROM spuri_ledger
+		WHERE event_type IN ('FaltasRegistradas')
+		ORDER BY id ASC
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		var event db.Event
+		var prevHash sql.NullString
+		if err := rows.Scan(
+			&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
+			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
+			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &prevHash,
+		); err != nil {
+			return err
+		}
+		if prevHash.Valid {
+			event.PreviousHash = &prevHash.String
+		}
+		if err := p.Handle(event); err != nil {
+			return fmt.Errorf("erro no evento %d: %w", event.ID, err)
+		}
+		count++
+	}
+	log.Printf("[DEBUG] [faltas] Rebuild concluído: %d eventos", count)
+	return rows.Err()
 }
 
 func (p *FaltasProjection) clear() error {
 	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_faltas CASCADE`)
 	return err
 }
+
+// ============================================================================
+// Handler de evento
+// ============================================================================
 
 func (p *FaltasProjection) handleFaltasRegistradas(event db.Event) error {
 	var payload struct {
@@ -113,90 +124,121 @@ func (p *FaltasProjection) handleFaltasRegistradas(event db.Event) error {
 		return fmt.Errorf("parse error FaltasRegistradas: %w", err)
 	}
 
-	query := fmt.Sprintf(`
+	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_faltas (
 			codigo_estudante, codigo_academia, ano_lectivo, ano_academico,
 			data, materia_disciplinar_id, quantidade, observacao,
 			registered_at, event_id, version
-		) VALUES (
-			'%s', '%s', '%s', '%s',
-			'%s', '%s', %d, %s,
-			'%s', '%s', %d
-		)
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 	`,
-		db.SafeString(payload.CodigoEstudante),
-		db.SafeString(payload.CodigoAcademia),
-		db.SafeString(payload.AnoLectivo),
-		db.SafeString(payload.AnoAcademico),
-		payload.Data.Format("2006-01-02"),
-		db.SafeString(payload.MateriaDisciplinarID),
-		payload.Quantidade,
-		nullOrText(payload.Observacao),
-		payload.RegisteredAt.Format("2006-01-02 15:04:05"),
-		event.EventID,
-		event.EventVersion,
+		payload.CodigoEstudante, payload.CodigoAcademia, payload.AnoLectivo, payload.AnoAcademico,
+		payload.Data.Format("2006-01-02"), payload.MateriaDisciplinarID, payload.Quantidade, payload.Observacao,
+		payload.RegisteredAt, event.EventID, event.EventVersion,
 	)
-
-	_, err := p.client.DB().Exec(query)
 	return err
 }
 
+// ============================================================================
+// Queries de leitura
+// ============================================================================
+
+type FaltaDTO struct {
+	ID                   string  `json:"id"`
+	CodigoEstudante      string  `json:"codigo_estudante"`
+	CodigoAcademia       string  `json:"codigo_academia"`
+	AnoLectivo           string  `json:"ano_lectivo"`
+	AnoAcademico         string  `json:"ano_academico"`
+	Data                 string  `json:"data"`
+	MateriaDisciplinarID string  `json:"materia_disciplinar_id"`
+	MateriaNome          *string `json:"materia_nome,omitempty"`
+	Quantidade           int     `json:"quantidade"`
+	Observacao           *string `json:"observacao,omitempty"`
+	RegisteredAt         string  `json:"registered_at"`
+	EventID              string  `json:"event_id"`
+	Version              int     `json:"version"`
+}
+
 func (p *FaltasProjection) GetByEstudante(codigoEstudante string) ([]FaltaDTO, error) {
-	return p.queryFaltas(fmt.Sprintf(
-		`f.codigo_estudante = '%s' ORDER BY f.data DESC`,
-		db.SafeString(codigoEstudante)))
-}
-
-func (p *FaltasProjection) GetByPeriodo(codigoEstudante, anoLectivo string, dataInicio, dataFim time.Time) ([]FaltaDTO, error) {
-	return p.queryFaltas(fmt.Sprintf(
-		`f.codigo_estudante = '%s' AND f.ano_lectivo = '%s' AND f.data BETWEEN '%s' AND '%s' ORDER BY f.data DESC`,
-		db.SafeString(codigoEstudante), db.SafeString(anoLectivo),
-		dataInicio.Format(time.RFC3339), dataFim.Format(time.RFC3339)))
-}
-
-func (p *FaltasProjection) queryFaltas(whereClause string) ([]FaltaDTO, error) {
-	query := fmt.Sprintf(`
-		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico, f.data,
-			f.materia_disciplinar_id, COALESCE(m.nome, '') as materia_nome, f.quantidade,
-			f.observacao, f.registered_at, f.event_id, f.version
+	rows, err := p.client.DB().Query(`
+		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
+			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao,
+			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
-		LEFT JOIN projection_materias m ON f.materia_disciplinar_id::uuid = m.id
-		WHERE %s
-	`, whereClause)
-	
-	rows, err := p.client.DB().Query(query)
+		LEFT JOIN projection_materias m ON m.id::text = f.materia_disciplinar_id
+		WHERE f.codigo_estudante = $1
+		ORDER BY f.data DESC
+	`, codigoEstudante)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
-	var result []FaltaDTO
-	for rows.Next() {
-		var dto FaltaDTO
-		if err := rows.Scan(&dto.ID, &dto.CodigoEstudante, &dto.CodigoAcademia, &dto.AnoLectivo, &dto.AnoAcademico,
-			&dto.Data, &dto.MateriaDisciplinarID, &dto.MateriaNome, &dto.Quantidade,
-			&dto.Observacao, &dto.RegisteredAt, &dto.EventID, &dto.Version); err != nil {
-			continue
-		}
-		result = append(result, dto)
-	}
-
-	log.Printf("[DEBUG] %d faltas encontradas", len(result))
-	return result, rows.Err()
+	return scanFaltas(rows)
 }
 
-type FaltaDTO struct {
-	ID                   uuid.UUID `json:"id"`
-	CodigoEstudante      string    `json:"codigo_estudante"`
-	CodigoAcademia       string    `json:"codigo_academia"`
-	AnoLectivo           string    `json:"ano_lectivo"`
-	AnoAcademico string `json:"ano_academico"`
-	Data                 time.Time `json:"data"`
-	MateriaDisciplinarID uuid.UUID `json:"materia_disciplinar_id"`
-	MateriaNome          string    `json:"materia_nome"`
-	Quantidade           int       `json:"quantidade"`
-	Observacao           *string   `json:"observacao,omitempty"`
-	RegisteredAt         time.Time `json:"registered_at"`
-	EventID              uuid.UUID `json:"event_id"`
-	Version              int       `json:"version"`
+func (p *FaltasProjection) GetByAcademia(codigoAcademia string) ([]FaltaDTO, error) {
+	rows, err := p.client.DB().Query(`
+		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
+			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao,
+			f.registered_at, f.event_id, f.version
+		FROM projection_faltas f
+		LEFT JOIN projection_materias m ON m.id::text = f.materia_disciplinar_id
+		WHERE f.codigo_academia = $1
+		ORDER BY f.data DESC
+	`, codigoAcademia)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanFaltas(rows)
+}
+
+func (p *FaltasProjection) GetByPeriodo(codigoEstudante, anoLectivo string, dataInicio, dataFim time.Time) ([]FaltaDTO, error) {
+	rows, err := p.client.DB().Query(`
+		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
+			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao,
+			f.registered_at, f.event_id, f.version
+		FROM projection_faltas f
+		LEFT JOIN projection_materias m ON m.id::text = f.materia_disciplinar_id
+		WHERE f.codigo_estudante = $1
+			AND f.ano_lectivo = $2
+			AND f.data BETWEEN $3 AND $4
+		ORDER BY f.data DESC
+	`, codigoEstudante, anoLectivo, dataInicio.Format(time.RFC3339), dataFim.Format(time.RFC3339))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanFaltas(rows)
+}
+
+func (p *FaltasProjection) GetAll() ([]FaltaDTO, error) {
+	rows, err := p.client.DB().Query(`
+		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
+			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao,
+			f.registered_at, f.event_id, f.version
+		FROM projection_faltas f
+		LEFT JOIN projection_materias m ON m.id::text = f.materia_disciplinar_id
+		ORDER BY f.data DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanFaltas(rows)
+}
+
+func scanFaltas(rows *sql.Rows) ([]FaltaDTO, error) {
+	var faltas []FaltaDTO
+	for rows.Next() {
+		var f FaltaDTO
+		if err := rows.Scan(
+			&f.ID, &f.CodigoEstudante, &f.CodigoAcademia, &f.AnoLectivo, &f.AnoAcademico,
+			&f.Data, &f.MateriaDisciplinarID, &f.MateriaNome, &f.Quantidade, &f.Observacao,
+			&f.RegisteredAt, &f.EventID, &f.Version,
+		); err != nil {
+			continue
+		}
+		faltas = append(faltas, f)
+	}
+	return faltas, rows.Err()
 }

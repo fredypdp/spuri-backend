@@ -19,6 +19,35 @@ func NewCategoriasNotaProjection(client *db.Client) *CategoriasNotaProjection {
 
 func (p *CategoriasNotaProjection) Name() string { return "categorias_nota" }
 
+// ============================================================================
+// Interface Projection
+// ============================================================================
+
+func (p *CategoriasNotaProjection) GetLastProcessedEventID() (int64, error) {
+	var lastID int64
+	err := p.client.DB().QueryRow(
+		`SELECT last_processed_event_id FROM projection_checkpoints WHERE projection_name = $1`,
+		p.Name(),
+	).Scan(&lastID)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return lastID, err
+}
+
+func (p *CategoriasNotaProjection) UpdateCheckpoint(eventID int64) error {
+	eventID = int64(db.ValidateOffset(int(eventID)))
+	_, err := p.client.DB().Exec(`
+		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
+		VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
+		ON CONFLICT (projection_name) DO UPDATE SET
+			last_processed_event_id = $2,
+			last_processed_at = CURRENT_TIMESTAMP,
+			events_processed = projection_checkpoints.events_processed + 1
+	`, p.Name(), eventID)
+	return err
+}
+
 func (p *CategoriasNotaProjection) Handle(event db.Event) error {
 	if event.EventType != "CategoriaNotaAdicionada" {
 		return nil
@@ -51,12 +80,16 @@ func (p *CategoriasNotaProjection) Rebuild() error {
 	count := 0
 	for rows.Next() {
 		var event db.Event
+		var prevHash sql.NullString
 		if err := rows.Scan(
 			&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
 			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
-			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash,
+			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &prevHash,
 		); err != nil {
 			return err
+		}
+		if prevHash.Valid {
+			event.PreviousHash = &prevHash.String
 		}
 		if err := p.Handle(event); err != nil {
 			return fmt.Errorf("erro no evento %d: %w", event.ID, err)
@@ -66,6 +99,11 @@ func (p *CategoriasNotaProjection) Rebuild() error {
 
 	log.Printf("[categorias_nota] Rebuild concluído: %d eventos", count)
 	return rows.Err()
+}
+
+func (p *CategoriasNotaProjection) clear() error {
+	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_categorias_nota CASCADE`)
+	return err
 }
 
 // ============================================================================
@@ -83,27 +121,15 @@ func (p *CategoriasNotaProjection) handleCategoriaAdicionada(event db.Event) err
 		return fmt.Errorf("parse error CategoriaNotaAdicionada: %w", err)
 	}
 
-	descricaoSQL := "NULL"
-	if payload.Descricao != nil {
-		descricaoSQL = fmt.Sprintf("'%s'", db.SafeString(*payload.Descricao))
-	}
-
-	query := fmt.Sprintf(`
+	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_categorias_nota
 			(codigo_academia, nome, descricao, status, created_at, event_id, version)
-		VALUES
-			('%s', '%s', %s, 'ativo', '%s', '%s', %d)
+		VALUES ($1, $2, $3, 'ativo', $4, $5, $6)
 		ON CONFLICT (codigo_academia, nome) DO NOTHING
 	`,
-		db.SafeString(payload.CodigoAcademia),
-		db.SafeString(payload.Nome),
-		descricaoSQL,
-		payload.CreatedAt.Format("2006-01-02 15:04:05"),
-		event.EventID,
-		event.EventVersion,
+		payload.CodigoAcademia, payload.Nome, payload.Descricao,
+		payload.CreatedAt, event.EventID, event.EventVersion,
 	)
-
-	_, err := p.client.DB().Exec(query)
 	return err
 }
 
@@ -120,16 +146,13 @@ type CategoriaNotaDTO struct {
 	CreatedAt      string  `json:"created_at"`
 }
 
-// ListarPorAcademia retorna todas as categorias adicionais de uma academia
 func (p *CategoriasNotaProjection) ListarPorAcademia(codigoAcademia string) ([]CategoriaNotaDTO, error) {
-	query := fmt.Sprintf(`
+	rows, err := p.client.DB().Query(`
 		SELECT id, codigo_academia, nome, descricao, status, created_at
 		FROM projection_categorias_nota
-		WHERE codigo_academia = '%s' AND status = 'ativo'
+		WHERE codigo_academia = $1 AND status = 'ativo'
 		ORDER BY created_at ASC
-	`, db.SafeString(codigoAcademia))
-
-	rows, err := p.client.DB().Query(query)
+	`, codigoAcademia)
 	if err != nil {
 		return nil, err
 	}
@@ -146,50 +169,11 @@ func (p *CategoriasNotaProjection) ListarPorAcademia(codigoAcademia string) ([]C
 	return categorias, rows.Err()
 }
 
-// ExisteCategoria verifica se uma categoria já existe para a academia
 func (p *CategoriasNotaProjection) ExisteCategoria(codigoAcademia, nome string) (bool, error) {
 	var count int
-	query := fmt.Sprintf(`
+	err := p.client.DB().QueryRow(`
 		SELECT COUNT(*) FROM projection_categorias_nota
-		WHERE codigo_academia = '%s' AND nome = '%s'
-	`, db.SafeString(codigoAcademia), db.SafeString(nome))
-
-	err := p.client.DB().QueryRow(query).Scan(&count)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
+		WHERE codigo_academia = $1 AND nome = $2 AND status = 'ativo'
+	`, codigoAcademia, nome).Scan(&count)
 	return count > 0, err
-}
-
-// ============================================================================
-// Checkpoint
-// ============================================================================
-
-func (p *CategoriasNotaProjection) GetLastProcessedEventID() (int64, error) {
-	var lastID int64
-	query := fmt.Sprintf(`SELECT last_processed_event_id FROM projection_checkpoints WHERE projection_name = '%s'`,
-		db.SafeString(p.Name()))
-	err := p.client.DB().QueryRow(query).Scan(&lastID)
-	if err == sql.ErrNoRows {
-		return 0, nil
-	}
-	return lastID, err
-}
-
-func (p *CategoriasNotaProjection) UpdateCheckpoint(eventID int64) error {
-	eventID = int64(db.ValidateOffset(int(eventID)))
-	query := fmt.Sprintf(`
-		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
-		VALUES ('%s', %d, CURRENT_TIMESTAMP, 1)
-		ON CONFLICT (projection_name) DO UPDATE SET
-			last_processed_event_id = %d, last_processed_at = CURRENT_TIMESTAMP,
-			events_processed = projection_checkpoints.events_processed + 1
-	`, db.SafeString(p.Name()), eventID, eventID)
-	_, err := p.client.DB().Exec(query)
-	return err
-}
-
-func (p *CategoriasNotaProjection) clear() error {
-	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_categorias_nota CASCADE`)
-	return err
 }
