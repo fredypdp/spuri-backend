@@ -3,7 +3,6 @@ package handlers
 import (
 	"fmt"
 	"net/http"
-	"spuri/internal/db"
 	"spuri/internal/middleware"
 	"spuri/internal/utils"
 
@@ -57,9 +56,9 @@ func getPerfilEstudante(c *gin.Context, userID interface{}) {
 
 	var cursoMedioInfo *gin.H
 	var cursoSuperiorInfo *gin.H
-	
+
 	cursosProj := getCursosProjection(c)
-	
+
 	if estudante.CursoMedioID != nil {
 		cursoMedio, _ := cursosProj.GetByID(*estudante.CursoMedioID)
 		if cursoMedio != nil {
@@ -71,7 +70,7 @@ func getPerfilEstudante(c *gin.Context, userID interface{}) {
 			}
 		}
 	}
-	
+
 	if estudante.CursoSuperiorID != nil {
 		cursoSuperior, _ := cursosProj.GetByID(*estudante.CursoSuperiorID)
 		if cursoSuperior != nil {
@@ -87,32 +86,32 @@ func getPerfilEstudante(c *gin.Context, userID interface{}) {
 	c.JSON(http.StatusOK, gin.H{
 		"tipo": "estudante",
 		"estudante": gin.H{
-			"id": estudante.ID,
-			"nome": estudante.Nome,
-			"codigo_estudante": estudante.CodigoEstudante,
-			"email": estudante.Email,
-			"telefone": estudante.Telefone,
-			"email_verificado": estudante.EmailVerificado,
-			"bilhete_identidade": estudante.BilheteIdentidade,
+			"id":                             estudante.ID,
+			"nome":                           estudante.Nome,
+			"codigo_estudante":               estudante.CodigoEstudante,
+			"email":                          estudante.Email,
+			"telefone":                       estudante.Telefone,
+			"email_verificado":               estudante.EmailVerificado,
+			"bilhete_identidade":             estudante.BilheteIdentidade,
 			"bilhete_identidade_responsavel": estudante.BilheteIdentidadeResp,
-			"codigo_academia": estudante.CodigoAcademia,
-			"academia_info": academiaInfo,
-			"status": estudante.Status,
-			"status_escolar_fundamental": estudante.StatusEscolarFundamental,
-			"status_escolar_medio": estudante.StatusEscolarMedio,
-			"status_superior": estudante.StatusSuperior,
-			"ano_escolar": estudante.AnoEscolar,
-			"ano_superior": estudante.AnoSuperior,
-			"curso_medio_id": estudante.CursoMedioID,
-			"curso_medio_info": cursoMedioInfo,
-			"curso_superior_id": estudante.CursoSuperiorID,
-			"curso_superior_info": cursoSuperiorInfo,
-			"created_at": estudante.CreatedAt,
-			"updated_at": estudante.UpdatedAt,
-			"total_notas": estudante.TotalNotas,
-			"total_faltas": estudante.TotalFaltas,
-			"total_inscricoes": estudante.TotalInscricoes,
-			"version": estudante.Version,
+			"codigo_academia":                estudante.CodigoAcademia,
+			"academia_info":                  academiaInfo,
+			"status":                         estudante.Status,
+			"status_escolar_fundamental":     estudante.StatusEscolarFundamental,
+			"status_escolar_medio":           estudante.StatusEscolarMedio,
+			"status_superior":                estudante.StatusSuperior,
+			"ano_escolar":                    estudante.AnoEscolar,
+			"ano_superior":                   estudante.AnoSuperior,
+			"curso_medio_id":                 estudante.CursoMedioID,
+			"curso_medio_info":               cursoMedioInfo,
+			"curso_superior_id":              estudante.CursoSuperiorID,
+			"curso_superior_info":            cursoSuperiorInfo,
+			"created_at":                     estudante.CreatedAt,
+			"updated_at":                     estudante.UpdatedAt,
+			"total_notas":                    estudante.TotalNotas,
+			"total_faltas":                   estudante.TotalFaltas,
+			"total_inscricoes":               estudante.TotalInscricoes,
+			"version":                        estudante.Version,
 		},
 	})
 }
@@ -223,9 +222,9 @@ func GetEstudantePorCodigo(c *gin.Context) {
 
 	var cursoMedioInfo *gin.H
 	var cursoSuperiorInfo *gin.H
-	
+
 	cursosProj := getCursosProjection(c)
-	
+
 	if estudante.CursoMedioID != nil {
 		cursoMedio, _ := cursosProj.GetByID(*estudante.CursoMedioID)
 		if cursoMedio != nil {
@@ -237,7 +236,7 @@ func GetEstudantePorCodigo(c *gin.Context) {
 			}
 		}
 	}
-	
+
 	if estudante.CursoSuperiorID != nil {
 		cursoSuperior, _ := cursosProj.GetByID(*estudante.CursoSuperiorID)
 		if cursoSuperior != nil {
@@ -252,32 +251,32 @@ func GetEstudantePorCodigo(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"estudante": gin.H{
-			"id": estudante.ID,
-			"nome": estudante.Nome,
-			"codigo_estudante": estudante.CodigoEstudante,
-			"email": estudante.Email,
-			"telefone": estudante.Telefone,
-			"email_verificado": estudante.EmailVerificado,
-			"bilhete_identidade": estudante.BilheteIdentidade,
+			"id":                             estudante.ID,
+			"nome":                           estudante.Nome,
+			"codigo_estudante":               estudante.CodigoEstudante,
+			"email":                          estudante.Email,
+			"telefone":                       estudante.Telefone,
+			"email_verificado":               estudante.EmailVerificado,
+			"bilhete_identidade":             estudante.BilheteIdentidade,
 			"bilhete_identidade_responsavel": estudante.BilheteIdentidadeResp,
-			"codigo_academia": estudante.CodigoAcademia,
-			"academia_info": academiaInfo,
-			"status": estudante.Status,
-			"status_escolar_fundamental": estudante.StatusEscolarFundamental,
-			"status_escolar_medio": estudante.StatusEscolarMedio,
-			"status_superior": estudante.StatusSuperior,
-			"ano_escolar": estudante.AnoEscolar,
-			"ano_superior": estudante.AnoSuperior,
-			"curso_medio_id": estudante.CursoMedioID,
-			"curso_medio_info": cursoMedioInfo,
-			"curso_superior_id": estudante.CursoSuperiorID,
-			"curso_superior_info": cursoSuperiorInfo,
-			"created_at": estudante.CreatedAt,
-			"updated_at": estudante.UpdatedAt,
-			"total_notas": estudante.TotalNotas,
-			"total_faltas": estudante.TotalFaltas,
-			"total_inscricoes": estudante.TotalInscricoes,
-			"version": estudante.Version,
+			"codigo_academia":                estudante.CodigoAcademia,
+			"academia_info":                  academiaInfo,
+			"status":                         estudante.Status,
+			"status_escolar_fundamental":     estudante.StatusEscolarFundamental,
+			"status_escolar_medio":           estudante.StatusEscolarMedio,
+			"status_superior":                estudante.StatusSuperior,
+			"ano_escolar":                    estudante.AnoEscolar,
+			"ano_superior":                   estudante.AnoSuperior,
+			"curso_medio_id":                 estudante.CursoMedioID,
+			"curso_medio_info":               cursoMedioInfo,
+			"curso_superior_id":              estudante.CursoSuperiorID,
+			"curso_superior_info":            cursoSuperiorInfo,
+			"created_at":                     estudante.CreatedAt,
+			"updated_at":                     estudante.UpdatedAt,
+			"total_notas":                    estudante.TotalNotas,
+			"total_faltas":                   estudante.TotalFaltas,
+			"total_inscricoes":               estudante.TotalInscricoes,
+			"version":                        estudante.Version,
 		},
 		"consultado_por": userType,
 	})
@@ -309,15 +308,13 @@ func GetAcademiaPorCodigo(c *gin.Context) {
 			TotalFaltasRegistradas int
 		}
 
-		safeCodAcad := db.SafeString(codigoAcademia)
-		query := fmt.Sprintf(`
-			SELECT 
-				(SELECT COUNT(*) FROM projection_inscricoes WHERE codigo_academia = '%s') as total_inscricoes,
-				(SELECT COUNT(*) FROM projection_notas WHERE codigo_academia = '%s') as total_notas,
-				(SELECT COUNT(*) FROM projection_faltas WHERE codigo_academia = '%s') as total_faltas
-		`, safeCodAcad, safeCodAcad, safeCodAcad)
-
-		err := client.DB().QueryRow(query).Scan(
+		// ✅ Prepared statement — codigoAcademia é parâmetro $1 (não interpolado)
+		err := client.DB().QueryRow(`
+			SELECT
+				(SELECT COUNT(*) FROM projection_inscricoes WHERE codigo_academia = $1) as total_inscricoes,
+				(SELECT COUNT(*) FROM projection_notas WHERE codigo_academia = $1) as total_notas,
+				(SELECT COUNT(*) FROM projection_faltas WHERE codigo_academia = $1) as total_faltas
+		`, codigoAcademia).Scan(
 			&stats.TotalInscricoesTotal,
 			&stats.TotalNotasRegistradas,
 			&stats.TotalFaltasRegistradas,

@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
-	"spuri/internal/db"
 	"spuri/internal/middleware"
 	"spuri/internal/utils"
 	"strconv"
@@ -73,8 +72,10 @@ func ListarInscricoes(c *gin.Context) {
 
 	var inscricoes []InscricaoDetalhada
 	var total int
-	var query string
+	var rows *sql.Rows
+	var err error
 	var countQuery string
+	var countArgs []interface{}
 
 	// ✅ Todas as queries trocam `curso` por `curso_id`
 	const selectCols = `id, estudante_id, codigo_estudante, academia_id, codigo_academia,
@@ -82,54 +83,68 @@ func ListarInscricoes(c *gin.Context) {
 
 	switch userType {
 	case "admin":
+		// ✅ Prepared statement — status é parâmetro $1; limit/offset são ints validados
 		if statusFilter != "" {
-			safeStatus := db.SafeString(statusFilter)
-			query = fmt.Sprintf(`
-				SELECT %s FROM projection_inscricoes
-				WHERE status = '%s'
-				ORDER BY created_at DESC LIMIT %d OFFSET %d
-			`, selectCols, safeStatus, limit, offset)
-			countQuery = fmt.Sprintf(`SELECT COUNT(*) FROM projection_inscricoes WHERE status = '%s'`, safeStatus)
+			rows, err = client.DB().Query(
+				fmt.Sprintf(`SELECT %s FROM projection_inscricoes
+					WHERE status = $1
+					ORDER BY created_at DESC LIMIT %d OFFSET %d`,
+					selectCols, limit, offset),
+				statusFilter,
+			)
+			countQuery = `SELECT COUNT(*) FROM projection_inscricoes WHERE status = $1`
+			countArgs = []interface{}{statusFilter}
 		} else {
-			query = fmt.Sprintf(`
-				SELECT %s FROM projection_inscricoes
-				ORDER BY created_at DESC LIMIT %d OFFSET %d
-			`, selectCols, limit, offset)
+			rows, err = client.DB().Query(
+				fmt.Sprintf(`SELECT %s FROM projection_inscricoes
+					ORDER BY created_at DESC LIMIT %d OFFSET %d`,
+					selectCols, limit, offset),
+			)
 			countQuery = `SELECT COUNT(*) FROM projection_inscricoes`
 		}
 
 	case "academia":
+		// ✅ Prepared statement — userID (UUID) e status são parâmetros
 		if statusFilter != "" {
-			safeStatus := db.SafeString(statusFilter)
-			query = fmt.Sprintf(`
-				SELECT %s FROM projection_inscricoes
-				WHERE academia_id = '%s' AND status = '%s'
-				ORDER BY created_at DESC LIMIT %d OFFSET %d
-			`, selectCols, userID, safeStatus, limit, offset)
-			countQuery = fmt.Sprintf(`SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = '%s' AND status = '%s'`, userID, safeStatus)
+			rows, err = client.DB().Query(
+				fmt.Sprintf(`SELECT %s FROM projection_inscricoes
+					WHERE academia_id = $1 AND status = $2
+					ORDER BY created_at DESC LIMIT %d OFFSET %d`,
+					selectCols, limit, offset),
+				userID, statusFilter,
+			)
+			countQuery = `SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = $1 AND status = $2`
+			countArgs = []interface{}{userID, statusFilter}
 		} else {
-			query = fmt.Sprintf(`
-				SELECT %s FROM projection_inscricoes
-				WHERE academia_id = '%s'
-				ORDER BY created_at DESC LIMIT %d OFFSET %d
-			`, selectCols, userID, limit, offset)
-			countQuery = fmt.Sprintf(`SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = '%s'`, userID)
+			rows, err = client.DB().Query(
+				fmt.Sprintf(`SELECT %s FROM projection_inscricoes
+					WHERE academia_id = $1
+					ORDER BY created_at DESC LIMIT %d OFFSET %d`,
+					selectCols, limit, offset),
+				userID,
+			)
+			countQuery = `SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = $1`
+			countArgs = []interface{}{userID}
 		}
 
 	case "estudante":
+		// ✅ Prepared statement — userID (UUID) e status são parâmetros
 		if statusFilter != "" {
-			safeStatus := db.SafeString(statusFilter)
-			query = fmt.Sprintf(`
-				SELECT %s FROM projection_inscricoes
-				WHERE estudante_id = '%s' AND status = '%s'
-				ORDER BY created_at DESC
-			`, selectCols, userID, safeStatus)
+			rows, err = client.DB().Query(
+				fmt.Sprintf(`SELECT %s FROM projection_inscricoes
+					WHERE estudante_id = $1 AND status = $2
+					ORDER BY created_at DESC`,
+					selectCols),
+				userID, statusFilter,
+			)
 		} else {
-			query = fmt.Sprintf(`
-				SELECT %s FROM projection_inscricoes
-				WHERE estudante_id = '%s'
-				ORDER BY created_at DESC
-			`, selectCols, userID)
+			rows, err = client.DB().Query(
+				fmt.Sprintf(`SELECT %s FROM projection_inscricoes
+					WHERE estudante_id = $1
+					ORDER BY created_at DESC`,
+					selectCols),
+				userID,
+			)
 		}
 
 	default:
@@ -137,7 +152,6 @@ func ListarInscricoes(c *gin.Context) {
 		return
 	}
 
-	rows, err := client.DB().Query(query)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -163,8 +177,8 @@ func ListarInscricoes(c *gin.Context) {
 
 	if userType == "estudante" {
 		total = len(inscricoes)
-	} else {
-		client.DB().QueryRow(countQuery).Scan(&total)
+	} else if countQuery != "" {
+		client.DB().QueryRow(countQuery, countArgs...).Scan(&total)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -206,42 +220,52 @@ func ListarInscricoesPendentes(c *gin.Context) {
 
 	var inscricoes []InscricaoDetalhada
 	var total int
-	var query string
+	var rows *sql.Rows
+	var err error
 	var countQuery string
+	var countArgs []interface{}
 
 	const selectCols = `id, estudante_id, codigo_estudante, academia_id, codigo_academia,
 		tipo, ano_inscricao, curso_id, status, status_usado, created_at, updated_at, event_id, version`
 
 	switch userType {
 	case "admin":
-		query = fmt.Sprintf(`
-			SELECT %s FROM projection_inscricoes
-			WHERE status = 'espera'
-			ORDER BY created_at DESC LIMIT %d OFFSET %d
-		`, selectCols, limit, offset)
+		// Sem parâmetros externos — 'espera' é valor fixo hardcoded
+		rows, err = client.DB().Query(
+			fmt.Sprintf(`SELECT %s FROM projection_inscricoes
+				WHERE status = 'espera'
+				ORDER BY created_at DESC LIMIT %d OFFSET %d`,
+				selectCols, limit, offset),
+		)
 		countQuery = `SELECT COUNT(*) FROM projection_inscricoes WHERE status = 'espera'`
 
 	case "academia":
-		query = fmt.Sprintf(`
-			SELECT %s FROM projection_inscricoes
-			WHERE status = 'espera' AND academia_id = '%s'
-			ORDER BY created_at DESC LIMIT %d OFFSET %d
-		`, selectCols, userID, limit, offset)
-		countQuery = fmt.Sprintf(`SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = '%s' AND status = 'espera'`, userID)
+		// ✅ Prepared statement — userID é parâmetro $1
+		rows, err = client.DB().Query(
+			fmt.Sprintf(`SELECT %s FROM projection_inscricoes
+				WHERE status = 'espera' AND academia_id = $1
+				ORDER BY created_at DESC LIMIT %d OFFSET %d`,
+				selectCols, limit, offset),
+			userID,
+		)
+		countQuery = `SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = $1 AND status = 'espera'`
+		countArgs = []interface{}{userID}
 
 	case "estudante":
-		query = fmt.Sprintf(`
-			SELECT %s FROM projection_inscricoes
-			WHERE status = 'espera' AND estudante_id = '%s'
-			ORDER BY created_at DESC
-		`, selectCols, userID)
+		// ✅ Prepared statement — userID é parâmetro $1
+		rows, err = client.DB().Query(
+			fmt.Sprintf(`SELECT %s FROM projection_inscricoes
+				WHERE status = 'espera' AND estudante_id = $1
+				ORDER BY created_at DESC`,
+				selectCols),
+			userID,
+		)
 
 	default:
 		utils.RespondWithForbiddenError(c, "Acesso negado")
 		return
 	}
 
-	rows, err := client.DB().Query(query)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -267,8 +291,8 @@ func ListarInscricoesPendentes(c *gin.Context) {
 
 	if userType == "estudante" {
 		total = len(inscricoes)
-	} else {
-		client.DB().QueryRow(countQuery).Scan(&total)
+	} else if countQuery != "" {
+		client.DB().QueryRow(countQuery, countArgs...).Scan(&total)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -525,6 +549,7 @@ func ListarTodasAcademias(c *gin.Context) {
 	_ = getAcademiaProjection(c)
 	client := getDbClient(c)
 
+	// Sem parâmetros externos — query estática
 	query := `
 		SELECT id, type, nome, codigo_academia, provincia, endereco,
 			numero_telefone, email, website, nivel_escolar, status, cursos,
@@ -569,7 +594,7 @@ func ListarTodasAcademias(c *gin.Context) {
 			&aca.Website, &aca.NivelEscolar, &aca.Status, &aca.Cursos,
 			&aca.EmailVerificado, &aca.CreatedAt, &aca.UpdatedAt,
 			&aca.TotalEstudantes, &aca.TotalInscricoesPendentes, &aca.Version); err == nil {
-			
+
 			academiaMap := map[string]interface{}{
 				"id":                         aca.ID,
 				"type":                       aca.Type,

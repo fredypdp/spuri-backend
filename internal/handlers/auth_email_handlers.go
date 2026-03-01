@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"spuri/internal/db"
 	"spuri/internal/services"
 	"spuri/internal/utils"
 	"time"
@@ -28,7 +27,7 @@ func SolicitarVerificacaoEmail(c *gin.Context) {
 
 	client := getDbClient(c)
 	emailSvc := getEmailService(c)
-	
+
 	if emailSvc == nil {
 		utils.RespondWithInternalError(c, fmt.Errorf("serviço de email não disponível"))
 		return
@@ -36,31 +35,38 @@ func SolicitarVerificacaoEmail(c *gin.Context) {
 
 	var userID uuid.UUID
 	var email, nome string
-	var query string
+	var idStr string
+	var err error
 
-	safeId := db.SafeString(req.Identificador)
-
+	// ✅ Prepared statements por tipo de usuário
 	switch req.Tipo {
 	case "estudante":
-		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_estudantes 
-		         WHERE codigo_estudante = '%s' OR email = '%s'`, safeId, safeId)
+		err = client.DB().QueryRow(
+			`SELECT id, email, nome FROM projection_estudantes
+			 WHERE codigo_estudante = $1 OR email = $1`,
+			req.Identificador,
+		).Scan(&idStr, &email, &nome)
 	case "academia":
-		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_academias 
-		         WHERE codigo_academia = '%s' OR email = '%s'`, safeId, safeId)
+		err = client.DB().QueryRow(
+			`SELECT id, email, nome FROM projection_academias
+			 WHERE codigo_academia = $1 OR email = $1`,
+			req.Identificador,
+		).Scan(&idStr, &email, &nome)
 	case "admin":
-		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_admins WHERE email = '%s'`, safeId)
+		err = client.DB().QueryRow(
+			`SELECT id, email, nome FROM projection_admins WHERE email = $1`,
+			req.Identificador,
+		).Scan(&idStr, &email, &nome)
 	default:
 		utils.RespondWithValidationError(c, fmt.Errorf("tipo deve ser 'estudante', 'academia' ou 'admin'"))
 		return
 	}
 
-	var idStr string
-	err := client.DB().QueryRow(query).Scan(&idStr, &email, &nome)
 	if err != nil {
 		utils.RespondWithNotFoundError(c, "usuário")
 		return
 	}
-	
+
 	userID, _ = uuid.Parse(idStr)
 
 	if email == "" {
@@ -82,48 +88,7 @@ func SolicitarVerificacaoEmail(c *gin.Context) {
 	})
 }
 
-// VerificarEmail verifica email usando token
-func VerificarEmail(c *gin.Context) {
-	token := c.Param("token")
-	
-	emailSvc := getEmailService(c)
-	tokenInfo, err := emailSvc.VerifyToken(token, "verificacao_email")
-	if err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-
-	var table string
-	switch tokenInfo.UserType {
-	case "estudante":
-		table = "projection_estudantes"
-	case "academia":
-		table = "projection_academias"
-	case "admin":
-		table = "projection_admins"
-	default:
-		utils.RespondWithValidationError(c, fmt.Errorf("tipo de usuário inválido"))
-		return
-	}
-
-	client := getDbClient(c)
-	query := fmt.Sprintf("UPDATE %s SET email_verificado = TRUE WHERE id = '%s'", table, tokenInfo.UserID)
-	
-	_, err = client.DB().Exec(query)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	log.Printf("Email verificado: %s", tokenInfo.Email)
-
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Email verificado com sucesso!",
-		"email":   tokenInfo.Email,
-	})
-}
-
-// SolicitarRecuperacaoSenha envia email de recuperação
+// SolicitarRecuperacaoSenha envia email de recuperação de senha
 func SolicitarRecuperacaoSenha(c *gin.Context) {
 	var req struct {
 		Identificador string `json:"identificador" binding:"required"`
@@ -138,34 +103,49 @@ func SolicitarRecuperacaoSenha(c *gin.Context) {
 	client := getDbClient(c)
 	emailSvc := getEmailService(c)
 
+	if emailSvc == nil {
+		utils.RespondWithInternalError(c, fmt.Errorf("serviço de email não disponível"))
+		return
+	}
+
 	var userID uuid.UUID
 	var email, nome string
 	var emailVerificado bool
-	var query string
+	var idStr string
+	var err error
 
-	safeId := db.SafeString(req.Identificador)
-
+	// ✅ Prepared statements por tipo de usuário
 	switch req.Tipo {
 	case "estudante":
-		query = fmt.Sprintf(`SELECT id, email, nome, COALESCE(email_verificado, FALSE) FROM projection_estudantes 
-		         WHERE codigo_estudante = '%s' OR email = '%s'`, safeId, safeId)
+		err = client.DB().QueryRow(
+			`SELECT id, email, nome, COALESCE(email_verificado, FALSE)
+			 FROM projection_estudantes
+			 WHERE codigo_estudante = $1 OR email = $1`,
+			req.Identificador,
+		).Scan(&idStr, &email, &nome, &emailVerificado)
 	case "academia":
-		query = fmt.Sprintf(`SELECT id, email, nome, COALESCE(email_verificado, FALSE) FROM projection_academias 
-		         WHERE codigo_academia = '%s' OR email = '%s'`, safeId, safeId)
+		err = client.DB().QueryRow(
+			`SELECT id, email, nome, COALESCE(email_verificado, FALSE)
+			 FROM projection_academias
+			 WHERE codigo_academia = $1 OR email = $1`,
+			req.Identificador,
+		).Scan(&idStr, &email, &nome, &emailVerificado)
 	case "admin":
-		query = fmt.Sprintf(`SELECT id, email, nome, COALESCE(email_verificado, FALSE) FROM projection_admins WHERE email = '%s'`, safeId)
+		err = client.DB().QueryRow(
+			`SELECT id, email, nome, COALESCE(email_verificado, FALSE)
+			 FROM projection_admins WHERE email = $1`,
+			req.Identificador,
+		).Scan(&idStr, &email, &nome, &emailVerificado)
 	default:
 		utils.RespondWithValidationError(c, fmt.Errorf("tipo deve ser 'estudante', 'academia' ou 'admin'"))
 		return
 	}
 
-	var idStr string
-	err := client.DB().QueryRow(query).Scan(&idStr, &email, &nome, &emailVerificado)
 	if err != nil {
 		utils.RespondWithNotFoundError(c, "usuário")
 		return
 	}
-	
+
 	userID, _ = uuid.Parse(idStr)
 
 	if email == "" {
@@ -192,6 +172,50 @@ func SolicitarRecuperacaoSenha(c *gin.Context) {
 	})
 }
 
+// VerificarEmail verifica email usando token
+func VerificarEmail(c *gin.Context) {
+	token := c.Param("token")
+
+	emailSvc := getEmailService(c)
+	tokenInfo, err := emailSvc.VerifyToken(token, "verificacao_email")
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	var table string
+	switch tokenInfo.UserType {
+	case "estudante":
+		table = "projection_estudantes"
+	case "academia":
+		table = "projection_academias"
+	case "admin":
+		table = "projection_admins"
+	default:
+		utils.RespondWithValidationError(c, fmt.Errorf("tipo de usuário inválido"))
+		return
+	}
+
+	client := getDbClient(c)
+
+	// ✅ Prepared statement — nome da tabela é controlado internamente (switch seguro)
+	_, err = client.DB().Exec(
+		fmt.Sprintf("UPDATE %s SET email_verificado = TRUE WHERE id = $1", table),
+		tokenInfo.UserID,
+	)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	log.Printf("Email verificado: %s", tokenInfo.Email)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Email verificado com sucesso!",
+		"email":   tokenInfo.Email,
+	})
+}
+
 // ResetarSenha redefine senha usando token
 func ResetarSenha(c *gin.Context) {
 	token := c.Param("token")
@@ -208,24 +232,35 @@ func ResetarSenha(c *gin.Context) {
 	var codigo string
 	var emailVerificado bool
 	var table string
-	var query string
 
+	// ✅ Prepared statements — tabela controlada por switch (sem interpolação de input)
 	switch tokenInfo.UserType {
 	case "estudante":
-		query = fmt.Sprintf(`SELECT codigo_estudante, COALESCE(email_verificado, FALSE) FROM projection_estudantes WHERE id = '%s'`, tokenInfo.UserID)
 		table = "projection_estudantes"
+		err = client.DB().QueryRow(
+			`SELECT codigo_estudante, COALESCE(email_verificado, FALSE)
+			 FROM projection_estudantes WHERE id = $1`,
+			tokenInfo.UserID,
+		).Scan(&codigo, &emailVerificado)
 	case "academia":
-		query = fmt.Sprintf(`SELECT codigo_academia, COALESCE(email_verificado, FALSE) FROM projection_academias WHERE id = '%s'`, tokenInfo.UserID)
 		table = "projection_academias"
+		err = client.DB().QueryRow(
+			`SELECT codigo_academia, COALESCE(email_verificado, FALSE)
+			 FROM projection_academias WHERE id = $1`,
+			tokenInfo.UserID,
+		).Scan(&codigo, &emailVerificado)
 	case "admin":
-		query = fmt.Sprintf(`SELECT role, COALESCE(email_verificado, FALSE) FROM projection_admins WHERE id = '%s'`, tokenInfo.UserID)
 		table = "projection_admins"
+		err = client.DB().QueryRow(
+			`SELECT role, COALESCE(email_verificado, FALSE)
+			 FROM projection_admins WHERE id = $1`,
+			tokenInfo.UserID,
+		).Scan(&codigo, &emailVerificado)
 	default:
 		utils.RespondWithValidationError(c, fmt.Errorf("tipo de usuário inválido"))
 		return
 	}
 
-	err = client.DB().QueryRow(query).Scan(&codigo, &emailVerificado)
 	if err != nil {
 		utils.RespondWithNotFoundError(c, "usuário")
 		return
@@ -237,17 +272,19 @@ func ResetarSenha(c *gin.Context) {
 	}
 
 	defaultPassword := services.GetDefaultPassword(tokenInfo.UserType, codigo)
-	
+
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(defaultPassword), bcrypt.DefaultCost)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	safeHash := db.SafeString(string(hashedPassword))
-	updateQuery := fmt.Sprintf("UPDATE %s SET senha_hash = '%s' WHERE id = '%s'", table, safeHash, tokenInfo.UserID)
-	
-	_, err = client.DB().Exec(updateQuery)
+	// ✅ Prepared statement — tabela controlada por switch (sem interpolação de input)
+	_, err = client.DB().Exec(
+		fmt.Sprintf("UPDATE %s SET senha_hash = $1 WHERE id = $2", table),
+		string(hashedPassword),
+		tokenInfo.UserID,
+	)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -298,10 +335,12 @@ func AlterarSenha(c *gin.Context) {
 		return
 	}
 
-	query := fmt.Sprintf("SELECT senha_hash FROM %s WHERE id = '%s'", table, userID)
-	
+	// ✅ Prepared statement — tabela controlada por switch (sem interpolação de input)
 	var senhaHash string
-	err := client.DB().QueryRow(query).Scan(&senhaHash)
+	err := client.DB().QueryRow(
+		fmt.Sprintf("SELECT senha_hash FROM %s WHERE id = $1", table),
+		userID,
+	).Scan(&senhaHash)
 	if err != nil {
 		utils.RespondWithNotFoundError(c, "usuário")
 		return
@@ -318,10 +357,12 @@ func AlterarSenha(c *gin.Context) {
 		return
 	}
 
-	safeHash := db.SafeString(string(hashedPassword))
-	updateQuery := fmt.Sprintf("UPDATE %s SET senha_hash = '%s' WHERE id = '%s'", table, safeHash, userID)
-	
-	_, err = client.DB().Exec(updateQuery)
+	// ✅ Prepared statement — hash é parâmetro, não interpolado
+	_, err = client.DB().Exec(
+		fmt.Sprintf("UPDATE %s SET senha_hash = $1 WHERE id = $2", table),
+		string(hashedPassword),
+		userID,
+	)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -338,7 +379,7 @@ func maskEmail(email string) string {
 	if len(email) < 5 {
 		return "***@***"
 	}
-	
+
 	atIndex := -1
 	for i, char := range email {
 		if char == '@' {
@@ -346,15 +387,15 @@ func maskEmail(email string) string {
 			break
 		}
 	}
-	
+
 	if atIndex == -1 {
 		return "***@***"
 	}
-	
+
 	if atIndex <= 2 {
 		return "***@" + email[atIndex+1:]
 	}
-	
+
 	return string(email[0]) + "***" + string(email[atIndex-1]) + email[atIndex:]
 }
 
@@ -380,26 +421,33 @@ func GerarTokenVerificacao(c *gin.Context) {
 
 	var userID uuid.UUID
 	var email, nome string
-	var query string
+	var idStr string
+	var err error
 
-	safeId := db.SafeString(req.Identificador)
-
+	// ✅ Prepared statements por tipo de usuário
 	switch req.Tipo {
 	case "estudante":
-		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_estudantes 
-		         WHERE codigo_estudante = '%s' OR email = '%s'`, safeId, safeId)
+		err = client.DB().QueryRow(
+			`SELECT id, email, nome FROM projection_estudantes
+			 WHERE codigo_estudante = $1 OR email = $1`,
+			req.Identificador,
+		).Scan(&idStr, &email, &nome)
 	case "academia":
-		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_academias 
-		         WHERE codigo_academia = '%s' OR email = '%s'`, safeId, safeId)
+		err = client.DB().QueryRow(
+			`SELECT id, email, nome FROM projection_academias
+			 WHERE codigo_academia = $1 OR email = $1`,
+			req.Identificador,
+		).Scan(&idStr, &email, &nome)
 	case "admin":
-		query = fmt.Sprintf(`SELECT id, email, nome FROM projection_admins WHERE email = '%s'`, safeId)
+		err = client.DB().QueryRow(
+			`SELECT id, email, nome FROM projection_admins WHERE email = $1`,
+			req.Identificador,
+		).Scan(&idStr, &email, &nome)
 	default:
 		utils.RespondWithValidationError(c, fmt.Errorf("tipo deve ser 'estudante', 'academia' ou 'admin'"))
 		return
 	}
 
-	var idStr string
-	err := client.DB().QueryRow(query).Scan(&idStr, &email, &nome)
 	if err != nil {
 		utils.RespondWithNotFoundError(c, "usuário")
 		return
@@ -422,12 +470,12 @@ func GerarTokenVerificacao(c *gin.Context) {
 	log.Printf("Token de verificação gerado para: %s", email)
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":    true,
-		"token":      token,
-		"email":      email,
-		"nome":       nome,
-		"tipo":       req.Tipo,
-		"expira_em":  "24 horas",
+		"success":   true,
+		"token":     token,
+		"email":     email,
+		"nome":      nome,
+		"tipo":      req.Tipo,
+		"expira_em": "24 horas",
 	})
 }
 
@@ -449,26 +497,36 @@ func GerarTokenRecuperacao(c *gin.Context) {
 	var userID uuid.UUID
 	var email, nome string
 	var emailVerificado bool
-	var query string
+	var idStr string
+	var err error
 
-	safeId := db.SafeString(req.Identificador)
-
+	// ✅ Prepared statements por tipo de usuário
 	switch req.Tipo {
 	case "estudante":
-		query = fmt.Sprintf(`SELECT id, email, nome, COALESCE(email_verificado, FALSE) FROM projection_estudantes 
-		         WHERE codigo_estudante = '%s' OR email = '%s'`, safeId, safeId)
+		err = client.DB().QueryRow(
+			`SELECT id, email, nome, COALESCE(email_verificado, FALSE)
+			 FROM projection_estudantes
+			 WHERE codigo_estudante = $1 OR email = $1`,
+			req.Identificador,
+		).Scan(&idStr, &email, &nome, &emailVerificado)
 	case "academia":
-		query = fmt.Sprintf(`SELECT id, email, nome, COALESCE(email_verificado, FALSE) FROM projection_academias 
-		         WHERE codigo_academia = '%s' OR email = '%s'`, safeId, safeId)
+		err = client.DB().QueryRow(
+			`SELECT id, email, nome, COALESCE(email_verificado, FALSE)
+			 FROM projection_academias
+			 WHERE codigo_academia = $1 OR email = $1`,
+			req.Identificador,
+		).Scan(&idStr, &email, &nome, &emailVerificado)
 	case "admin":
-		query = fmt.Sprintf(`SELECT id, email, nome, COALESCE(email_verificado, FALSE) FROM projection_admins WHERE email = '%s'`, safeId)
+		err = client.DB().QueryRow(
+			`SELECT id, email, nome, COALESCE(email_verificado, FALSE)
+			 FROM projection_admins WHERE email = $1`,
+			req.Identificador,
+		).Scan(&idStr, &email, &nome, &emailVerificado)
 	default:
 		utils.RespondWithValidationError(c, fmt.Errorf("tipo deve ser 'estudante', 'academia' ou 'admin'"))
 		return
 	}
 
-	var idStr string
-	err := client.DB().QueryRow(query).Scan(&idStr, &email, &nome, &emailVerificado)
 	if err != nil {
 		utils.RespondWithNotFoundError(c, "usuário")
 		return
@@ -496,11 +554,11 @@ func GerarTokenRecuperacao(c *gin.Context) {
 	log.Printf("Token de recuperação gerado para: %s", email)
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":    true,
-		"token":      token,
-		"email":      email,
-		"nome":       nome,
-		"tipo":       req.Tipo,
-		"expira_em":  "1 hora",
+		"success":   true,
+		"token":     token,
+		"email":     email,
+		"nome":      nome,
+		"tipo":      req.Tipo,
+		"expira_em": "1 hora",
 	})
 }

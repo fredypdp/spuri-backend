@@ -143,10 +143,10 @@ func RegisterAdmin(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "administrador criado com sucesso",
 		"data": gin.H{
-			"id":    newAdmin.ID,
-			"nome":  newAdmin.Nome,
-			"email": req.Email,
-			"role":  newAdmin.Role,
+			"id":           newAdmin.ID,
+			"nome":         newAdmin.Nome,
+			"email":        req.Email,
+			"role":         newAdmin.Role,
 			"senha_padrao": defaultPassword,
 		},
 	})
@@ -188,8 +188,8 @@ func ListarEstudantes(c *gin.Context) {
 			return
 		}
 
-		safeCodigoAcademia := db.SafeString(academiaDTO.CodigoAcademia)
-		query := fmt.Sprintf(`
+		// ✅ Prepared statement — codigoAcademia é parâmetro $1 (não interpolado)
+		rows, err := client.DB().Query(`
 			SELECT id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
 				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
 				status, status_escolar_fundamental, status_escolar_medio, status_superior,
@@ -197,11 +197,9 @@ func ListarEstudantes(c *gin.Context) {
 				curso_medio_id, curso_superior_id, created_at, updated_at, total_notas,
 				total_faltas, total_inscricoes, version
 			FROM projection_estudantes
-			WHERE codigo_academia = '%s'
+			WHERE codigo_academia = $1
 			ORDER BY created_at DESC
-		`, safeCodigoAcademia)
-
-		rows, err := client.DB().Query(query)
+		`, academiaDTO.CodigoAcademia)
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
@@ -268,6 +266,7 @@ func ListarEstudantes(c *gin.Context) {
 		})
 
 	} else if userType == "admin" {
+		// Query sem parâmetros externos — sem alteração necessária
 		query := `
 			SELECT id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
 				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
@@ -580,16 +579,15 @@ func GetProjectionStatus(c *gin.Context) {
 		return
 	}
 
-	safeName := db.SafeString(projectionName)
-	query := fmt.Sprintf(`
-		SELECT last_processed_at, events_processed 
-		FROM projection_checkpoints 
-		WHERE projection_name = '%s'
-	`, safeName)
-
+	// ✅ Prepared statement — projectionName é parâmetro $1 (não interpolado)
 	var lastProcessedAt *string
 	var eventsProcessed int
-	client.DB().QueryRow(query).Scan(&lastProcessedAt, &eventsProcessed)
+	client.DB().QueryRow(
+		`SELECT last_processed_at, events_processed
+		 FROM projection_checkpoints
+		 WHERE projection_name = $1`,
+		projectionName,
+	).Scan(&lastProcessedAt, &eventsProcessed)
 
 	status := gin.H{
 		"projection_name":        projectionName,
@@ -654,9 +652,9 @@ func GetLedgerStats(c *gin.Context) {
 	client.DB().QueryRow(`SELECT occurred_at FROM spuri_ledger ORDER BY id DESC LIMIT 1`).Scan(&lastEvent)
 
 	aggregateQuery := `
-		SELECT aggregate_type, COUNT(*) as count 
-		FROM spuri_ledger 
-		GROUP BY aggregate_type 
+		SELECT aggregate_type, COUNT(*) as count
+		FROM spuri_ledger
+		GROUP BY aggregate_type
 		ORDER BY count DESC
 	`
 	rows, _ := client.DB().Query(aggregateQuery)
@@ -683,7 +681,7 @@ func VerifyAllIntegrity(c *gin.Context) {
 	client := getDbClient(c)
 
 	query := `
-		SELECT 
+		SELECT
 			COUNT(*) as total,
 			COUNT(*) FILTER (WHERE ledger_hash IS NOT NULL) as with_hash,
 			COUNT(*) FILTER (WHERE previous_hash IS NOT NULL) as with_previous
