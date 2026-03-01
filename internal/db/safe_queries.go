@@ -124,6 +124,7 @@ func ValidateEventType(eventType string) error {
 		"StatusEscolarMedioAtualizado":       true,
 		"AvaliacaoFinalAnoAcademico":         true,
 		"NotaAtualizada":                     true,
+		"CategoriaNotaAdicionada": true,
 	}
 
 	if !validTypes[eventType] {
