@@ -87,6 +87,30 @@ func RegistrarNota(c *gin.Context) {
 		return
 	}
 
+	if req.Tipo == aggregates.TipoSuperior {
+		if materiaDTO.Status != "ativo" {
+			utils.RespondWithValidationError(c, fmt.Errorf(
+				"materia '%s' esta inativa. Ative-a antes de registrar notas",
+				materiaDTO.Nome,
+			))
+			return
+		}
+		if materiaDTO.Periodo == nil || *materiaDTO.Periodo == "" {
+			utils.RespondWithValidationError(c, fmt.Errorf(
+				"materia '%s' nao possui periodo definido",
+				materiaDTO.Nome,
+			))
+			return
+		}
+		if req.Periodo != *materiaDTO.Periodo {
+			utils.RespondWithValidationError(c, fmt.Errorf(
+				"periodo '%s' invalido para a materia '%s'. Periodo definido: '%s'",
+				req.Periodo, materiaDTO.Nome, *materiaDTO.Periodo,
+			))
+			return
+		}
+	}
+
 	// Resolver periodos validos para este contexto
 	periodosValidos, err := resolverPeriodosValidos(c, req.Tipo, materiaDTO.CursoID)
 	if err != nil {
@@ -198,6 +222,23 @@ func AtualizarNota(c *gin.Context) {
 	// Resolver periodos validos com base na materia da nota
 	materiasProj := getMateriasProjection(c)
 	materiaDTO, _ := materiasProj.GetByID(materiaID)
+
+	if notaAtual.Tipo == aggregates.TipoSuperior && materiaDTO != nil {
+		if materiaDTO.Periodo == nil || *materiaDTO.Periodo == "" {
+			utils.RespondWithValidationError(c, fmt.Errorf(
+				"materia '%s' nao possui periodo definido",
+				materiaDTO.Nome,
+			))
+			return
+		}
+		if notaAtual.Periodo != *materiaDTO.Periodo {
+			utils.RespondWithValidationError(c, fmt.Errorf(
+				"periodo da nota ('%s') nao corresponde ao periodo da materia ('%s')",
+				notaAtual.Periodo, *materiaDTO.Periodo,
+			))
+			return
+		}
+	}
 
 	var cursoIDPtr *uuid.UUID
 	if materiaDTO != nil && materiaDTO.CursoID != nil {

@@ -494,7 +494,7 @@ func validarNotasParaAprovacao(
 	}
 
 	var materiasFiltradas []projections.MateriaDTO
-	var periodosEsperados []string
+	var periodosEsperados []string // usado apenas para fundamental e medio
 	var categoriaEsperada string
 
 	switch tipoEnsino {
@@ -552,9 +552,15 @@ func validarNotasParaAprovacao(
 		if len(cursoDTO.Periodos) == 0 {
 			return fmt.Errorf("curso superior não possui períodos configurados")
 		}
-		periodosEsperados = cursoDTO.Periodos
+
+		// Filtrar matérias do ano académico atual que tenham periodo definido
 		for _, m := range todasMaterias {
 			if m.Type != "superior" || m.CursoID == nil || *m.CursoID != *cursoSuperiorID {
+				continue
+			}
+			// Matéria sem período definido: não pode ter nota — pular silenciosamente
+			if m.Periodo == nil || *m.Periodo == "" {
+				log.Printf("[avaliacao-final] matéria '%s' sem periodo definido — ignorada na validação", m.Nome)
 				continue
 			}
 			for _, a := range m.AnosAcademicos {
@@ -585,11 +591,23 @@ func validarNotasParaAprovacao(
 	}
 
 	var faltando []string
-	for _, materia := range materiasFiltradas {
-		for _, periodo := range periodosEsperados {
+	if tipoEnsino == "superior" {
+		// Matéria superior tem período único fixo — usa materia.Periodo
+		for _, materia := range materiasFiltradas {
+			periodo := *materia.Periodo
 			key := notaKey{materia.ID.String(), periodo, categoriaEsperada}
 			if !notasExistentes[key] {
 				faltando = append(faltando, fmt.Sprintf("matéria '%s' — %s", materia.Nome, periodo))
+			}
+		}
+	} else {
+		// Fundamental e médio: valida todos os períodos esperados por matéria
+		for _, materia := range materiasFiltradas {
+			for _, periodo := range periodosEsperados {
+				key := notaKey{materia.ID.String(), periodo, categoriaEsperada}
+				if !notasExistentes[key] {
+					faltando = append(faltando, fmt.Sprintf("matéria '%s' — %s", materia.Nome, periodo))
+				}
 			}
 		}
 	}

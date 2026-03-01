@@ -28,6 +28,7 @@ var allMigrations = []string{
 	"migrations/015_add_periodos_to_cursos.sql",
 	"migrations/016_avaliacao_final.sql",
 	"migrations/017_avaliacao_turma.sql",
+	"migrations/018_materia_periodo.sql",
 }
 
 func (c *Client) RunMigrations() error {

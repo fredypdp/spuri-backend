@@ -88,13 +88,21 @@ func CriarMateria(c *gin.Context) {
 	}
 
 	log.Printf("Materia criada: %s - %s", req.Nome, materia.ID)
-
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "materia criada com sucesso",
 		"data": gin.H{
-			"id":   materia.ID,
-			"nome": materia.Nome,
-			"type": materia.Type,
+			"id":      materia.ID,
+			"nome":    materia.Nome,
+			"type":    materia.Type,
+			"status":  materia.Status,
+			// Informa ao caller o próximo passo necessário para matérias superiores
+			"proximo_passo": func() *string {
+				if materia.Type == "superior" {
+					s := "defina o periodo via PUT /academia/materias/" + materia.ID.String() + "/periodo antes de ativar"
+					return &s
+				}
+				return nil
+			}(),
 		},
 	})
 }
@@ -292,6 +300,150 @@ func AtualizarDadosMateria(c *gin.Context) {
 	log.Printf("Matéria atualizada: %s", materia.Nome)
 	c.JSON(http.StatusOK, gin.H{
 		"message": "matéria atualizada com sucesso",
+		"nome":    materia.Nome,
+	})
+}
+
+// ============================================================================
+// PUT /academia/materias/:id/periodo
+// ============================================================================
+
+// DefinirPeriodoMateria define o período de uma matéria do tipo 'superior'.
+// Após definir o período, a matéria pode ser ativada.
+func DefinirPeriodoMateria(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+
+	materiaID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("ID de materia invalido"))
+		return
+	}
+
+	var req struct {
+		Periodo string `json:"periodo" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("campo obrigatorio: periodo"))
+		return
+	}
+
+	// Verificar propriedade
+	materiasProj := getMateriasProjection(c)
+	materiaDTO, err := materiasProj.GetByID(materiaID)
+	if err != nil || materiaDTO == nil {
+		utils.RespondWithNotFoundError(c, "materia")
+		return
+	}
+
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, _ := academiaProj.GetByID(userID)
+	if academiaDTO == nil || academiaDTO.CodigoAcademia != materiaDTO.CodigoAcademia {
+		utils.RespondWithForbiddenError(c, "Materia nao pertence a esta academia")
+		return
+	}
+
+	// Validar que o período pertence ao curso vinculado
+	if materiaDTO.CursoID != nil {
+		cursosProj := getCursosProjection(c)
+		cursoDTO, err := cursosProj.GetByID(*materiaDTO.CursoID)
+		if err == nil && cursoDTO != nil && len(cursoDTO.Periodos) > 0 {
+			periodoValido := false
+			for _, p := range cursoDTO.Periodos {
+				if p == req.Periodo {
+					periodoValido = true
+					break
+				}
+			}
+			if !periodoValido {
+				utils.RespondWithValidationError(c, fmt.Errorf(
+					"periodo '%s' nao pertence ao curso '%s'. Periodos disponiveis: %v",
+					req.Periodo, cursoDTO.Nome, cursoDTO.Periodos,
+				))
+				return
+			}
+		}
+	}
+
+	repository := getRepository(c)
+	materiaAgg, err := repository.Load(materiaID, "MateriaDisciplinar")
+	if err != nil {
+		utils.RespondWithNotFoundError(c, "materia")
+		return
+	}
+
+	materia := materiaAgg.(*aggregates.MateriaDisciplinar)
+
+	if err := materia.DefinirPeriodo(req.Periodo); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if err := repository.Save(materia); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	log.Printf("Periodo definido: %s → %s", materia.Nome, materia.Periodo)
+	c.JSON(http.StatusOK, gin.H{
+		"message": "periodo definido com sucesso",
+		"nome":    materia.Nome,
+		"periodo": materia.Periodo,
+	})
+}
+
+// ============================================================================
+// DELETE /academia/materias/:id
+// ============================================================================
+
+// DeletarMateria remove a matéria da projeção via evento MateriaDeletada.
+// A matéria deve estar inativa antes de ser deletada.
+// O histórico permanece intacto no ledger (event sourcing).
+func DeletarMateria(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+
+	materiaID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("ID de materia invalido"))
+		return
+	}
+
+	// Verificar propriedade
+	materiasProj := getMateriasProjection(c)
+	materiaDTO, err := materiasProj.GetByID(materiaID)
+	if err != nil || materiaDTO == nil {
+		utils.RespondWithNotFoundError(c, "materia")
+		return
+	}
+
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, _ := academiaProj.GetByID(userID)
+	if academiaDTO == nil || academiaDTO.CodigoAcademia != materiaDTO.CodigoAcademia {
+		utils.RespondWithForbiddenError(c, "Materia nao pertence a esta academia")
+		return
+	}
+
+	repository := getRepository(c)
+	materiaAgg, err := repository.Load(materiaID, "MateriaDisciplinar")
+	if err != nil {
+		utils.RespondWithNotFoundError(c, "materia")
+		return
+	}
+
+	materia := materiaAgg.(*aggregates.MateriaDisciplinar)
+
+	if err := materia.Deletar(); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if err := repository.Save(materia); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	log.Printf("Materia deletada: %s (%s)", materia.Nome, materia.ID)
+	c.JSON(http.StatusOK, gin.H{
+		"message": "materia deletada com sucesso",
 		"nome":    materia.Nome,
 	})
 }

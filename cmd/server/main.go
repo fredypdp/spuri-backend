@@ -227,6 +227,8 @@ func setupRouter() *gin.Engine {
 		academia.PUT("/materias/:id", handlers.AtualizarDadosMateria)
 		academia.PUT("/materias/:id/ativar", handlers.AtivarMateria)
 		academia.PUT("/materias/:id/desativar", handlers.DesativarMateria)
+		academia.PUT("/materias/:id/periodo", handlers.DefinirPeriodoMateria)
+		academia.DELETE("/materias/:id", handlers.DeletarMateria)
 		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
 		academia.PUT("/cursos/:id", handlers.AtualizarDadosCurso)
 		academia.GET("/inscricoes/estudante/:codigo", handlers.GetInscricoesPorCodigoEstudante)
