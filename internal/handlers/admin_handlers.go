@@ -29,7 +29,9 @@ func LoginAdmin(c *gin.Context) {
 	}
 
 	adminProj := getAdminProjection(c)
-	admin, err := adminProj.GetByEmail(req.Email)
+
+	// ✅ Prepared statement — proteção contra SQL injection no login
+	admin, err := adminProj.GetByEmailForLogin(req.Email)
 	if err != nil || admin == nil {
 		utils.RespondWithUnauthorizedError(c)
 		return

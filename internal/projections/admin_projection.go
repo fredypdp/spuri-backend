@@ -250,6 +250,39 @@ func (p *AdminProjection) GetByEmail(email string) (*AdminDTO, error) {
 	return p.queryAdmin(fmt.Sprintf("email = '%s'", db.SafeString(email)))
 }
 
+// GetByEmailForLogin usa prepared statement — mais seguro para autenticação
+func (p *AdminProjection) GetByEmailForLogin(email string) (*AdminDTO, error) {
+	query := `
+		SELECT id, nome, email, senha_hash, role, status, email_verificado,
+			created_by, created_at, updated_at, total_acoes_realizadas, version
+		FROM projection_admins
+		WHERE email = $1
+		LIMIT 1`
+
+	var dto AdminDTO
+	var createdBy sql.NullString
+
+	err := p.client.DB().QueryRow(query, email).Scan(
+		&dto.ID, &dto.Nome, &dto.Email, &dto.SenhaHash, &dto.Role, &dto.Status,
+		&dto.EmailVerificado, &createdBy, &dto.CreatedAt, &dto.UpdatedAt,
+		&dto.TotalAcoesRealizadas, &dto.Version,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("erro ao buscar admin por email: %w", err)
+	}
+
+	if createdBy.Valid {
+		uid, _ := uuid.Parse(createdBy.String)
+		dto.CreatedBy = &uid
+	}
+
+	return &dto, nil
+}
+
 func (p *AdminProjection) queryAdmin(whereClause string) (*AdminDTO, error) {
 	query := fmt.Sprintf(`
 		SELECT id, nome, email, senha_hash, role, status, email_verificado,
