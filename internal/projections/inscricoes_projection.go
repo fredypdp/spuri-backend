@@ -151,6 +151,12 @@ func (p *InscricoesProjection) handleEstudanteInscrito(event db.Event) error {
 	return err
 }
 
+// handleInscricaoAprovada processa o evento "InscricaoAprovada" emitido pelo
+// aggregate Academia quando uma inscrição pendente é aceita.
+//
+// CORREÇÃO: o status correto é 'aprovado' (sem o 'a' feminino).
+// O schema da tabela tem CHECK (status IN ('espera', 'aprovado', 'reprovado')).
+// O valor anterior 'aprovada' violava a constraint e causava erro silencioso.
 func (p *InscricoesProjection) handleInscricaoAprovada(event db.Event) error {
 	var payload struct {
 		InscricaoID uuid.UUID `json:"InscricaoID"`
@@ -161,12 +167,21 @@ func (p *InscricoesProjection) handleInscricaoAprovada(event db.Event) error {
 
 	_, err := p.client.DB().Exec(`
 		UPDATE projection_inscricoes
-		SET status = 'aprovada', updated_at = CURRENT_TIMESTAMP, event_id = $1, version = $2
+		SET status = 'aprovado',
+			updated_at = CURRENT_TIMESTAMP,
+			event_id = $1,
+			version = $2
 		WHERE id = $3
 	`, event.EventID, event.EventVersion, payload.InscricaoID)
 	return err
 }
 
+// handleInscricaoReprovada processa o evento "InscricaoReprovada" emitido pelo
+// aggregate Academia quando uma inscrição pendente é rejeitada.
+//
+// CORREÇÃO: o status correto é 'reprovado' (sem o 'a' feminino).
+// O schema da tabela tem CHECK (status IN ('espera', 'aprovado', 'reprovado')).
+// O valor anterior 'reprovada' violava a constraint e causava erro silencioso.
 func (p *InscricoesProjection) handleInscricaoReprovada(event db.Event) error {
 	var payload struct {
 		InscricaoID uuid.UUID `json:"InscricaoID"`
@@ -177,12 +192,23 @@ func (p *InscricoesProjection) handleInscricaoReprovada(event db.Event) error {
 
 	_, err := p.client.DB().Exec(`
 		UPDATE projection_inscricoes
-		SET status = 'reprovada', updated_at = CURRENT_TIMESTAMP, event_id = $1, version = $2
+		SET status = 'reprovado',
+			updated_at = CURRENT_TIMESTAMP,
+			event_id = $1,
+			version = $2
 		WHERE id = $3
 	`, event.EventID, event.EventVersion, payload.InscricaoID)
 	return err
 }
 
+// handleEstudanteVinculado processa o evento "EstudanteVinculado" emitido pelo
+// aggregate Estudante quando ele usa uma inscrição aprovada para se vincular
+// efetivamente à academia.
+//
+// CORREÇÃO: o valor 'vinculado' não existe na CHECK constraint da tabela.
+// A constraint aceita apenas ('espera', 'aprovado', 'reprovado').
+// O comportamento correto é manter status = 'aprovado' e setar status_usado = TRUE,
+// indicando que a inscrição já foi consumida pelo vínculo.
 func (p *InscricoesProjection) handleEstudanteVinculado(event db.Event) error {
 	var payload struct {
 		InscricaoID uuid.UUID `json:"InscricaoID"`
@@ -193,8 +219,10 @@ func (p *InscricoesProjection) handleEstudanteVinculado(event db.Event) error {
 
 	_, err := p.client.DB().Exec(`
 		UPDATE projection_inscricoes
-		SET status = 'vinculado', status_usado = TRUE,
-			updated_at = CURRENT_TIMESTAMP, event_id = $1, version = $2
+		SET status_usado = TRUE,
+			updated_at = CURRENT_TIMESTAMP,
+			event_id = $1,
+			version = $2
 		WHERE id = $3
 	`, event.EventID, event.EventVersion, payload.InscricaoID)
 	return err

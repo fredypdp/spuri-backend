@@ -134,9 +134,14 @@ func RegistrarFaltas(c *gin.Context) {
 }
 
 // ============================================================================
-// POST /academia/aprovar-inscricao
+// PUT /academia/inscricao/:id/aprovar
 // ============================================================================
 
+// AprovarInscricao aprova uma inscrição pendente de um estudante.
+//
+// CORREÇÃO: a busca da inscrição pendente agora usa prepared statement ($1, $2, $3)
+// em vez de fmt.Sprintf com SafeString. Isso elimina o risco de SQL injection
+// e alinha com o padrão do restante do projeto.
 func AprovarInscricao(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -184,21 +189,17 @@ func AprovarInscricao(c *gin.Context) {
 	}
 
 	client := getDbClient(c)
-	safeCodEst := db.SafeString(req.CodigoEstudante)
-	safeCodAcad := db.SafeString(academiaDTO.CodigoAcademia)
-	safeTipo := db.SafeString(req.Tipo)
 
-	queryInsc := fmt.Sprintf(`
-		SELECT id FROM projection_inscricoes
-		WHERE codigo_estudante = '%s'
-		AND codigo_academia = '%s'
-		AND tipo = '%s'
-		AND status = 'espera'
-		LIMIT 1
-	`, safeCodEst, safeCodAcad, safeTipo)
-
+	// ✅ Prepared statement — $1, $2, $3 em vez de fmt.Sprintf + SafeString
 	var inscricaoID uuid.UUID
-	err = client.DB().QueryRow(queryInsc).Scan(&inscricaoID)
+	err = client.DB().QueryRow(`
+		SELECT id FROM projection_inscricoes
+		WHERE codigo_estudante = $1
+		  AND codigo_academia = $2
+		  AND tipo = $3
+		  AND status = 'espera'
+		LIMIT 1
+	`, req.CodigoEstudante, academiaDTO.CodigoAcademia, req.Tipo).Scan(&inscricaoID)
 	if err != nil {
 		utils.RespondWithNotFoundError(c, "inscrição pendente")
 		return
@@ -236,9 +237,14 @@ func AprovarInscricao(c *gin.Context) {
 }
 
 // ============================================================================
-// POST /academia/reprovar-inscricao
+// PUT /academia/inscricao/:id/reprovar
 // ============================================================================
 
+// ReprovarInscricao reprova uma inscrição pendente de um estudante.
+//
+// CORREÇÃO: a busca da inscrição pendente agora usa prepared statement ($1, $2, $3)
+// em vez de fmt.Sprintf com SafeString. Isso elimina o risco de SQL injection
+// e alinha com o padrão do restante do projeto.
 func ReprovarInscricao(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -268,21 +274,17 @@ func ReprovarInscricao(c *gin.Context) {
 	}
 
 	client := getDbClient(c)
-	safeCodEst := db.SafeString(req.CodigoEstudante)
-	safeCodAcad := db.SafeString(academiaDTO.CodigoAcademia)
-	safeTipo := db.SafeString(req.Tipo)
 
-	queryInsc := fmt.Sprintf(`
-		SELECT id FROM projection_inscricoes
-		WHERE codigo_estudante = '%s'
-		AND codigo_academia = '%s'
-		AND tipo = '%s'
-		AND status = 'espera'
-		LIMIT 1
-	`, safeCodEst, safeCodAcad, safeTipo)
-
+	// ✅ Prepared statement — $1, $2, $3 em vez de fmt.Sprintf + SafeString
 	var inscricaoID uuid.UUID
-	err = client.DB().QueryRow(queryInsc).Scan(&inscricaoID)
+	err = client.DB().QueryRow(`
+		SELECT id FROM projection_inscricoes
+		WHERE codigo_estudante = $1
+		  AND codigo_academia = $2
+		  AND tipo = $3
+		  AND status = 'espera'
+		LIMIT 1
+	`, req.CodigoEstudante, academiaDTO.CodigoAcademia, req.Tipo).Scan(&inscricaoID)
 	if err != nil {
 		utils.RespondWithNotFoundError(c, "inscrição pendente")
 		return
