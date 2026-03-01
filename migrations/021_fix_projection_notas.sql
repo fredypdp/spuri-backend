@@ -1,5 +1,5 @@
 -- ============================================================================
--- MIGRATION 020 — Alinhamento da projection_notas com o padrão do sistema
+-- MIGRATION 021 — Alinhamento da projection_notas com o padrão do sistema
 --
 -- PROBLEMA CORRIGIDO:
 --   A NotasProjection estava escutando eventos inexistentes ("NotaRegistrada",
@@ -75,5 +75,5 @@ ON CONFLICT (projection_name) DO NOTHING;
 COMMIT;
 
 DO $$ BEGIN
-    RAISE NOTICE '✅ MIGRATION 020 — projection_notas alinhada. Execute rebuild da projeção notas.';
+    RAISE NOTICE '✅ MIGRATION 021 — projection_notas alinhada. Execute rebuild da projeção notas.';
 END $$;
