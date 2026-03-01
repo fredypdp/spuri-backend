@@ -69,4 +69,6 @@ COMMENT ON COLUMN projection_materias.deleted_at IS
 -- Os checkpoints de turmas/cursos/materias já existem;
 -- nenhuma entrada nova necessária.
 
-RAISE NOTICE '✅ MIGRATION 019 CONCLUÍDA — soft delete auditável para turmas, cursos e matérias';
+DO $$ BEGIN
+    RAISE NOTICE '✅ MIGRATION 019 CONCLUÍDA — soft delete auditável para turmas, cursos e matérias';
+END $$;
