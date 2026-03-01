@@ -383,6 +383,27 @@ func (e *Estudante) AlterarCurso(cursoID uuid.UUID, tipoEnsino string) error {
 		return fmt.Errorf("tipo_ensino deve ser 'medio' ou 'superior'")
 	}
 
+	if cursoID == uuid.Nil {
+		return fmt.Errorf("curso_id inválido")
+	}
+
+	if e.CodigoAcademia == nil {
+		return fmt.Errorf("estudante não está vinculado a nenhuma academia")
+	}
+
+	// FIX: era e.StatusEscolar (campo removido na migration 008).
+	// Após split status_escolar → status_escolar_fundamental + status_escolar_medio,
+	// o campo correto para validar alteração de curso médio é StatusEscolarMedio.
+	if tipoEnsino == "medio" {
+		if e.StatusEscolarMedio != "em_andamento" {
+			return fmt.Errorf("só pode alterar curso médio se status_escolar_medio for 'em_andamento'")
+		}
+	} else {
+		if e.StatusSuperior != "em_andamento" {
+			return fmt.Errorf("só pode alterar curso superior se status_superior for 'em_andamento'")
+		}
+	}
+
 	event := &CursoAlteradoEvent{
 		BaseEvent:  BaseEvent{EventType: "CursoAlterado", AggregateID: e.ID},
 		CursoID:    cursoID,

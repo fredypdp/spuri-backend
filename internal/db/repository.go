@@ -68,12 +68,11 @@ func (r *AggregateRepository) Save(aggregate aggregates.Aggregate) error {
 		return nil
 	}
 
-	// Iniciar transação — todos os eventos gravados atomicamente ou nenhum
 	tx, err := r.eventStore.client.BeginTx(r.ctx)
 	if err != nil {
 		return fmt.Errorf("erro ao iniciar transação: %w", err)
 	}
-	defer tx.Rollback() // no-op se Commit já foi chamado
+	defer tx.Rollback()
 
 	currentVersion := 0
 	version, err := r.eventStore.GetAggregateVersion(r.ctx, aggregate.GetID())
@@ -202,7 +201,7 @@ func (r *AggregateRepository) dbEvent(
 	version int,
 ) (*Event, error) {
 	payload := domainEvent.GetPayload()
-	
+
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao serializar payload: %w", err)
@@ -225,7 +224,6 @@ func (r *AggregateRepository) dbEvent(
 	}, nil
 }
 
-// dbEventWithAudit cria um db.Event com metadata de auditoria enriquecido.
 func (r *AggregateRepository) dbEventWithAudit(
 	domainEvent aggregates.DomainEvent,
 	aggregateType string,
@@ -240,10 +238,10 @@ func (r *AggregateRepository) dbEventWithAudit(
 	}
 
 	metadata := map[string]interface{}{
-		"timestamp":  time.Now().Unix(),
-		"user_id":    audit.UserID,
-		"user_type":  audit.UserType,
-		"ip":         audit.IP,
+		"timestamp": time.Now().Unix(),
+		"user_id":   audit.UserID,
+		"user_type": audit.UserType,
+		"ip":        audit.IP,
 	}
 	metadataJSON, _ := json.Marshal(metadata)
 
@@ -259,19 +257,47 @@ func (r *AggregateRepository) dbEventWithAudit(
 	}, nil
 }
 
+// convertToDomainEvents converte eventos do banco para DomainEvents.
+//
+// FIX (double-serialization de UUIDs):
+// A versão anterior fazia:
+//
+//	json.Unmarshal(ge.Payload, &map[string]interface{}) → BaseEvent{Payload: map}
+//
+// Nos applyXxx handlers, o padrão é:
+//
+//	data, _ := json.Marshal(event.GetPayload())  // marshal do map
+//	json.Unmarshal(data, &StructConcreta{})      // unmarshal para struct
+//
+// O problema: uuid.UUID é salvo no banco como string "xxxxxxxx-xxxx-...".
+// Ao fazer Unmarshal para map[string]interface{}, o UUID vira string Go.
+// Ao re-serializar o map para JSON, a string vai como "CursoMedioID":"uuid-string".
+// Mas a StructConcreta espera uuid.UUID com json tag `json:"CursoMedioID"` —
+// e uuid.UUID implementa UnmarshalJSON para string, então funcionaria...
+// exceto quando o campo é *uuid.UUID: o map guarda string, não *uuid.UUID,
+// então o marshal do map produz {"CursoMedioID":"uuid-str"} em vez de um
+// objeto UUID, e o Unmarshal para *uuid.UUID falha silenciosamente (nil).
+//
+// FIX: passar ge.Payload (json.RawMessage) diretamente como Payload do BaseEvent.
+// Nos applyXxx handlers: json.Marshal(json.RawMessage) == os bytes originais,
+// intactos. O Unmarshal final lê exatamente o que foi gravado no banco.
+// Zero intermediários, zero perda de tipo.
 func (r *AggregateRepository) convertToDomainEvents(dbEvents []Event) ([]aggregates.DomainEvent, error) {
 	domainEvents := make([]aggregates.DomainEvent, 0, len(dbEvents))
 
 	for _, ge := range dbEvents {
-		var payload map[string]interface{}
-		if err := json.Unmarshal(ge.Payload, &payload); err != nil {
-			return nil, err
+		// Validar JSON antes de propagar
+		if !json.Valid(ge.Payload) {
+			return nil, fmt.Errorf("payload inválido para evento %s (ledger id=%d)", ge.EventType, ge.ID)
 		}
 
 		domainEvent := &aggregates.BaseEvent{
 			EventType:   ge.EventType,
 			AggregateID: ge.AggregateID,
-			Payload:     payload,
+			// FIX: json.RawMessage passado direto — sem deserializar para map intermediário.
+			// Os applyXxx handlers fazem json.Marshal(GetPayload()) que com RawMessage
+			// retorna os bytes originais inalterados, preservando UUIDs, ponteiros e timestamps.
+			Payload: ge.Payload,
 		}
 
 		domainEvents = append(domainEvents, domainEvent)
@@ -308,13 +334,12 @@ func (r *AggregateRepository) SaveSnapshot(aggregate aggregates.Aggregate) error
 	query := fmt.Sprintf(`
 		INSERT INTO aggregate_snapshots (aggregate_id, aggregate_type, version, state)
 		VALUES ('%s', '%s', %d, '%s')
-		ON CONFLICT (aggregate_id) 
-		DO UPDATE SET 
+		ON CONFLICT (aggregate_id)
+		DO UPDATE SET
 			version = EXCLUDED.version,
 			state = EXCLUDED.state,
 			updated_at = CURRENT_TIMESTAMP`, aggID, safeType, version, safeState)
 
-	// ✅ USAR RETRY
 	_, err = r.eventStore.client.ExecWithRetry(query)
 	return err
 }
@@ -331,8 +356,7 @@ func (r *AggregateRepository) LoadSnapshot(id uuid.UUID) (*Snapshot, error) {
 		WHERE aggregate_id = '%s'`, id)
 
 	var snapshot Snapshot
-	
-	// ✅ USAR RETRY
+
 	err := r.eventStore.client.QueryRowWithRetry(query).Scan(
 		&snapshot.AggregateID,
 		&snapshot.AggregateType,
@@ -340,11 +364,10 @@ func (r *AggregateRepository) LoadSnapshot(id uuid.UUID) (*Snapshot, error) {
 		&snapshot.State,
 		&snapshot.CreatedAt,
 	)
-	
+
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
-	
 	if err != nil {
 		return nil, err
 	}
