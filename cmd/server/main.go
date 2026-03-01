@@ -93,7 +93,8 @@ func initProjections() error {
 	projManager.RegisterProjection("turmas", projections.NewTurmasProjection(dbClient))
 	projManager.RegisterProjection("avaliacao_final", projections.NewAvaliacaoFinalProjection(dbClient))
 	projManager.RegisterProjection("categorias_nota", projections.NewCategoriasNotaProjection(dbClient))
-
+	projManager.RegisterProjection("aprovacao_ano", projections.NewAprovacaoAnoProjection(dbClient))
+	projManager.RegisterProjection("reprovacoes", projections.NewReprovacoesProjection(dbClient))
 
 	go projManager.StartProcessing()
 

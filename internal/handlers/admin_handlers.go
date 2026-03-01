@@ -501,6 +501,12 @@ func RebuildProjection(c *gin.Context) {
 	manager.RegisterProjection("inscricoes", projections.NewInscricoesProjection(client))
 	manager.RegisterProjection("cursos", projections.NewCursosProjection(client))
 	manager.RegisterProjection("materias", projections.NewMateriasProjection(client))
+	manager.RegisterProjection("sistema_config", projections.NewSistemaConfigProjection(client))
+	manager.RegisterProjection("turmas", projections.NewTurmasProjection(client))
+	manager.RegisterProjection("avaliacao_final", projections.NewAvaliacaoFinalProjection(client))
+	manager.RegisterProjection("categorias_nota", projections.NewCategoriasNotaProjection(client))
+	manager.RegisterProjection("aprovacao_ano", projections.NewAprovacaoAnoProjection(client))
+	manager.RegisterProjection("reprovacoes", projections.NewReprovacoesProjection(client))
 
 	var err2 error
 	if projectionName == "all" {
@@ -549,6 +555,18 @@ func GetProjectionStatus(c *gin.Context) {
 		proj = projections.NewCursosProjection(client)
 	case "materias":
 		proj = projections.NewMateriasProjection(client)
+	case "sistema_config":
+		proj = projections.NewSistemaConfigProjection(client)
+	case "turmas":
+		proj = projections.NewTurmasProjection(client)
+	case "avaliacao_final":
+		proj = projections.NewAvaliacaoFinalProjection(client)
+	case "categorias_nota":
+		proj = projections.NewCategoriasNotaProjection(client)
+	case "aprovacao_ano":
+		proj = projections.NewAprovacaoAnoProjection(client)
+	case "reprovacoes":
+		proj = projections.NewReprovacoesProjection(client)
 	default:
 		utils.RespondWithNotFoundError(c, "projeção")
 		return

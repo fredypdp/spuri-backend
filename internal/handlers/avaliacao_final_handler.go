@@ -148,7 +148,8 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 	}
 
 	// Remove estudante de TODAS as turmas da academia
-	turmasRemovidas := removerEstudanteDeTurmasAtual(c, req.CodigoEstudante, academiaDTO.CodigoAcademia, userID)
+	turmasRemovidas, errosTurmas := removerEstudanteDeTurmasAtual(c, req.CodigoEstudante, academiaDTO.CodigoAcademia, userID)
+
 
 	resultado := "reprovado"
 	if req.Aprovado {
@@ -159,16 +160,16 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		}
 	}
 
-	log.Printf("[avaliacao-final] estudante=%s resultado=%s turma=%v turmas_removidas=%v",
-		req.CodigoEstudante, resultado, turmaAtual, turmasRemovidas)
-
-	c.JSON(http.StatusOK, gin.H{
+	response := gin.H{
 		"message":          "avaliação final registrada com sucesso",
-		"codigo_estudante": req.CodigoEstudante,
 		"resultado":        resultado,
-		"codigo_turma":     turmaAtual,
 		"turmas_removidas": turmasRemovidas,
-	})
+	}
+	if len(errosTurmas) > 0 {
+		response["avisos_turmas"] = errosTurmas
+		log.Printf("[avaliacao-final] avaliação salva mas com erros em turmas: %v", errosTurmas)
+	}
+	c.JSON(http.StatusCreated, response)
 }
 
 // ============================================================================
@@ -433,16 +434,15 @@ func removerEstudanteDeTurmasAtual(
 	codigoEstudante string,
 	codigoAcademia string,
 	removidoPorID uuid.UUID,
-) []string {
+) (removidas []string, erros []string) {
 	turmasProj := getTurmasProjection(c)
 	turmas, err := turmasProj.ListByAcademia(codigoAcademia)
 	if err != nil {
 		log.Printf("[avaliacao-final] erro ao listar turmas: %v", err)
-		return nil
+		return nil, []string{"erro ao listar turmas: " + err.Error()}
 	}
 
 	repository := getRepository(c)
-	var removidas []string
 
 	for _, turmaDTO := range turmas {
 		encontrado := false
@@ -458,16 +458,22 @@ func removerEstudanteDeTurmasAtual(
 
 		agg, err := repository.Load(turmaDTO.ID, "Turma")
 		if err != nil {
-			log.Printf("[avaliacao-final] erro ao carregar turma %s: %v", turmaDTO.CodigoTurma, err)
+			msg := fmt.Sprintf("erro ao carregar turma %s: %v", turmaDTO.CodigoTurma, err)
+			log.Printf("[avaliacao-final] %s", msg)
+			erros = append(erros, msg)
 			continue
 		}
 		turmaAgg, ok := agg.(*aggregates.Turma)
 		if !ok {
-			log.Printf("[avaliacao-final] erro ao converter aggregate da turma %s", turmaDTO.CodigoTurma)
+			msg := fmt.Sprintf("erro ao converter aggregate da turma %s", turmaDTO.CodigoTurma)
+			log.Printf("[avaliacao-final] %s", msg)
+			erros = append(erros, msg)
 			continue
 		}
 		if err := turmaAgg.RemoverEstudante(codigoEstudante, removidoPorID); err != nil {
-			log.Printf("[avaliacao-final] erro ao remover estudante da turma %s: %v", turmaDTO.CodigoTurma, err)
+			msg := fmt.Sprintf("erro ao remover estudante da turma %s: %v", turmaDTO.CodigoTurma, err)
+			log.Printf("[avaliacao-final] %s", msg)
+			erros = append(erros, msg)
 			continue
 		}
 		auditTurma := db.AuditContext{
@@ -476,13 +482,17 @@ func removerEstudanteDeTurmasAtual(
 			IP:       "",
 		}
 		if err := repository.SaveWithAudit(turmaAgg, auditTurma); err != nil {
-			log.Printf("[avaliacao-final] erro ao salvar turma %s: %v", turmaDTO.CodigoTurma, err)
+			// ⚠️ Crítico: aggregate foi mutado mas evento não foi gravado.
+			// Logar com severidade alta para investigação manual.
+			msg := fmt.Sprintf("FALHA CRÍTICA ao salvar remoção da turma %s: %v", turmaDTO.CodigoTurma, err)
+			log.Printf("[avaliacao-final] [ERRO CRÍTICO] %s", msg)
+			erros = append(erros, msg)
 			continue
 		}
 		removidas = append(removidas, turmaDTO.CodigoTurma)
 	}
 
-	return removidas
+	return removidas, erros
 }
 
 // validarNotasParaAprovacao verifica se todas as notas obrigatórias estão presentes.
