@@ -203,6 +203,36 @@ func (p *CursosProjection) handleCursoDadosAtualizados(event db.Event) error {
 	return err
 }
 
+func (p *CursosProjection) handleCursoDeletado(event db.Event) error {
+	var payload struct {
+		DeletadoPor string    `json:"DeletadoPor"`
+		Motivo      string    `json:"Motivo"`
+		DeletedAt   time.Time `json:"DeletedAt"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return err
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE projection_cursos
+		SET
+			status    = 'deletado',
+			deleted_at = '%s',
+			updated_at = CURRENT_TIMESTAMP,
+			version   = %d,
+			last_event_id = '%s'
+		WHERE id = '%s'
+	`,
+		payload.DeletedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		event.EventVersion,
+		event.EventID,
+		event.AggregateID,
+	)
+
+	_, err := p.client.DB().Exec(query)
+	return err
+}
+
 // ============================================================================
 // Queries
 // ============================================================================
@@ -247,6 +277,7 @@ func (p *CursosProjection) GetByAcademia(codigoAcademia string) ([]CursoDTO, err
 		SELECT id, nome, type, anos_academicos, periodos, codigo_academia, status, created_at, updated_at, version
 		FROM projection_cursos
 		WHERE codigo_academia = '%s'
+			AND deleted_at IS NULL
 		ORDER BY created_at DESC
 	`, db.SafeString(codigoAcademia))
 

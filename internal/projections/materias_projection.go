@@ -160,8 +160,31 @@ func (p *MateriasProjection) handleMateriaPeriodoDefinido(event db.Event) error 
 }
 
 func (p *MateriasProjection) handleMateriaDeletada(event db.Event) error {
-	// Remove da projeção (o histórico permanece no ledger)
-	query := fmt.Sprintf(`DELETE FROM projection_materias WHERE id = '%s'`, event.AggregateID)
+	var payload struct {
+		DeletedAt time.Time `json:"DeletedAt"`
+	}
+	// Payload pode estar vazio em eventos antigos; usar hora do evento como fallback.
+	_ = json.Unmarshal(event.Payload, &payload)
+	if payload.DeletedAt.IsZero() {
+		payload.DeletedAt = event.OccurredAt
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE projection_materias
+		SET
+			status     = 'deletado',
+			deleted_at = '%s',
+			updated_at = CURRENT_TIMESTAMP,
+			version    = %d,
+			last_event_id = '%s'
+		WHERE id = '%s'
+	`,
+		payload.DeletedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		event.EventVersion,
+		event.EventID,
+		event.AggregateID,
+	)
+
 	_, err := p.client.DB().Exec(query)
 	return err
 }
@@ -253,6 +276,46 @@ func (p *MateriasProjection) GetByAcademia(codigoAcademia string) ([]MateriaDTO,
 	}
 
 	log.Printf("[DEBUG] %d matérias encontradas para academia %s", len(materias), codigoAcademia)
+	return materias, rows.Err()
+}
+
+func (p *MateriasProjection) GetByCurso(cursoID uuid.UUID) ([]MateriaDTO, error) {
+	query := fmt.Sprintf(`
+		SELECT id, nome, type, anos_academicos, periodo, codigo_academia, curso_id, status, created_at, updated_at, version
+		FROM projection_materias
+		WHERE curso_id = '%s'
+	`, cursoID)
+
+	rows, err := p.client.DB().Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var materias []MateriaDTO
+	for rows.Next() {
+		var dto MateriaDTO
+		var anosJSON, cursoIDStr, periodo sql.NullString
+		err := rows.Scan(
+			&dto.ID, &dto.Nome, &dto.Type, &anosJSON, &periodo,
+			&dto.CodigoAcademia, &cursoIDStr, &dto.Status,
+			&dto.CreatedAt, &dto.UpdatedAt, &dto.Version,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if anosJSON.Valid {
+			json.Unmarshal([]byte(anosJSON.String), &dto.AnosAcademicos)
+		}
+		if cursoIDStr.Valid {
+			cid, _ := uuid.Parse(cursoIDStr.String)
+			dto.CursoID = &cid
+		}
+		if periodo.Valid && periodo.String != "" {
+			dto.Periodo = &periodo.String
+		}
+		materias = append(materias, dto)
+	}
 	return materias, rows.Err()
 }
 

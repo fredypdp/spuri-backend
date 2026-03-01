@@ -622,6 +622,20 @@ func (p *EstudanteProjection) queryEstudante(whereClause string) (*EstudanteDTO,
 	return &dto, nil
 }
 
+// CountByCurso retorna o número de estudantes com curso_medio_id
+// ou curso_superior_id igual ao cursoID informado.
+// Usado para bloquear deleção de cursos com matrículas ativas.
+func (p *EstudanteProjection) CountByCurso(cursoID uuid.UUID) (int, error) {
+	var count int
+	query := fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM projection_estudantes
+		WHERE (curso_medio_id = '%s' OR curso_superior_id = '%s')
+	`, cursoID, cursoID)
+	err := p.client.DB().QueryRow(query).Scan(&count)
+	return count, err
+}
+
 // ============================================================================
 // DTO
 // ============================================================================

@@ -232,6 +232,38 @@ func (p *TurmasProjection) handleTurmaDadosAtualizados(event db.Event) error {
 	return err
 }
 
+func (p *TurmasProjection) handleTurmaDeletada(event db.Event) error {
+	var payload struct {
+		DeletadoPor string    `json:"DeletadoPor"`
+		Motivo      string    `json:"Motivo"`
+		DeletedAt   time.Time `json:"DeletedAt"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return err
+	}
+
+	// Mantém o registro na projeção com status=deletado e deleted_at preenchido.
+	// Isso garante auditabilidade via READ; filtre WHERE deleted_at IS NULL em queries normais.
+	query := fmt.Sprintf(`
+		UPDATE projection_turmas
+		SET
+			status     = 'deletado',
+			deleted_at = '%s',
+			updated_at = CURRENT_TIMESTAMP,
+			version    = %d,
+			last_event_id = '%s'
+		WHERE id = '%s'
+	`,
+		payload.DeletedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		event.EventVersion,
+		event.EventID,
+		event.AggregateID,
+	)
+
+	_, err := p.client.DB().Exec(query)
+	return err
+}
+
 // ── Queries de leitura ────────────────────────────────────────────────────────
 
 type TurmaDTO struct {
@@ -273,6 +305,7 @@ func (p *TurmasProjection) ListByAcademia(codigoAcademia string) ([]*TurmaDTO, e
 		       estudantes, status, created_at, updated_at, version
 		FROM projection_turmas
 		WHERE codigo_academia = $1
+			AND deleted_at IS NULL
 		ORDER BY nivel, turno
 	`, codigoAcademia)
 	if err != nil {
@@ -298,6 +331,46 @@ func (p *TurmasProjection) ListByAcademia(codigoAcademia string) ([]*TurmaDTO, e
 			t.Estudantes = []string{}
 		}
 		turmas = append(turmas, &t)
+	}
+	return turmas, rows.Err()
+}
+
+func (p *TurmasProjection) ListByCurso(cursoID uuid.UUID) ([]TurmaDTO, error) {
+	query := fmt.Sprintf(`
+		SELECT id, codigo_turma, codigo_academia, nivel, curso_id, turno,
+		       estudantes, status, created_at, updated_at, version
+		FROM projection_turmas
+		WHERE curso_id = '%s'
+		  AND (deleted_at IS NULL OR status != 'deletado')
+	`, cursoID)
+
+	rows, err := p.client.DB().Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var turmas []TurmaDTO
+	for rows.Next() {
+		var dto TurmaDTO
+		var estudantesJSON sql.NullString
+		var cursoIDStr sql.NullString
+		err := rows.Scan(
+			&dto.ID, &dto.CodigoTurma, &dto.CodigoAcademia, &dto.Nivel,
+			&cursoIDStr, &dto.Turno, &estudantesJSON,
+			&dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if estudantesJSON.Valid && estudantesJSON.String != "" {
+			json.Unmarshal([]byte(estudantesJSON.String), &dto.Estudantes)
+		}
+		if cursoIDStr.Valid {
+			cid, _ := uuid.Parse(cursoIDStr.String)
+			dto.CursoID = &cid
+		}
+		turmas = append(turmas, dto)
 	}
 	return turmas, rows.Err()
 }

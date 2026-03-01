@@ -34,6 +34,7 @@ type Curso struct {
 	CodigoAcademia string
 	Status         string
 	CreatedAt      time.Time
+	DeletedAt *time.Time
 }
 
 func NewCurso() *Curso {
@@ -66,6 +67,8 @@ func (c *Curso) Apply(event DomainEvent) error {
 		return c.applyCursoDesativado(event)
 	case "CursoDadosAtualizados":
 		return c.applyCursoDadosAtualizados(event)
+	case "CursoDeletado":
+		return c.applyCursoDeletado(event)
 	default:
 		log.Printf("[ERROR] Tipo de evento desconhecido: %s", event.GetEventType())
 		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
@@ -114,6 +117,15 @@ type CursoDadosAtualizadosEvent struct {
 }
 
 func (e *CursoDadosAtualizadosEvent) GetPayload() interface{} { return e }
+
+type CursoDeletadoEvent struct {
+	BaseEvent
+	DeletadoPor uuid.UUID
+	Motivo      string
+	DeletedAt   time.Time
+}
+
+func (e *CursoDeletadoEvent) GetPayload() interface{} { return e }
 
 // ============================================================================
 // Commands
@@ -249,6 +261,28 @@ func (c *Curso) AtualizarDados(nome *string, anosAcademicos []string, periodos *
 	return c.Apply(event)
 }
 
+// Deletar emite CursoDeletado.
+// A validação de dependências (estudantes matriculados, matérias ativas)
+// é feita no handler ANTES de chamar este método.
+// Pré-condição aqui: curso deve estar inativo.
+func (c *Curso) Deletar(deletadoPor uuid.UUID, motivo string) error {
+	if c.Status == "deletado" {
+		return fmt.Errorf("curso já está deletado")
+	}
+	if c.Status == "ativo" {
+		return fmt.Errorf("desative o curso antes de deletá-lo")
+	}
+
+	event := &CursoDeletadoEvent{
+		BaseEvent:   BaseEvent{EventType: "CursoDeletado", AggregateID: c.ID},
+		DeletadoPor: deletadoPor,
+		Motivo:      motivo,
+		DeletedAt:   time.Now(),
+	}
+	c.RaiseEvent(event)
+	return c.Apply(event)
+}
+
 // ============================================================================
 // Apply handlers
 // ============================================================================
@@ -314,6 +348,20 @@ func (c *Curso) applyCursoDadosAtualizados(event DomainEvent) error {
 	}
 
 	log.Printf("[DEBUG] applyCursoDadosAtualizados: curso=%s periodos=%v", c.Nome, c.Periodos)
+	return nil
+}
+
+func (c *Curso) applyCursoDeletado(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return err
+	}
+	var ev CursoDeletadoEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+	c.Status    = "deletado"
+	c.DeletedAt = &ev.DeletedAt
 	return nil
 }
 

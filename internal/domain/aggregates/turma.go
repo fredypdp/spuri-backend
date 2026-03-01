@@ -20,6 +20,7 @@ type Turma struct {
 	Estudantes     []string // lista de codigo_estudante
 	Status         string   // "ativo" ou "inativo"
 	CreatedAt      time.Time
+	DeletedAt *time.Time
 }
 
 func NewTurma() *Turma {
@@ -52,6 +53,8 @@ func (t *Turma) Apply(event DomainEvent) error {
 		return t.applyEstudanteRemovido(event)
 	case "TurmaDadosAtualizados":
 		return t.applyTurmaDadosAtualizados(event)
+	case "TurmaDeletada":
+		return t.applyTurmaDeletada(event)
 	default:
 		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
 	}
@@ -165,6 +168,31 @@ func (t *Turma) AtualizarDados(nivel *string, cursoID *uuid.UUID, turno *string,
 	return t.Apply(event)
 }
 
+// Deletar emite TurmaDeletada.
+// Pré-condições:
+//   - turma deve estar inativa
+//   - turma não pode ter estudantes
+func (t *Turma) Deletar(deletadoPor uuid.UUID, motivo string) error {
+	if t.Status == "deletado" {
+		return fmt.Errorf("turma já está deletada")
+	}
+	if t.Status == "ativo" {
+		return fmt.Errorf("desative a turma antes de deletá-la")
+	}
+	if len(t.Estudantes) > 0 {
+		return fmt.Errorf("remova todos os estudantes antes de deletar a turma (%d restantes)", len(t.Estudantes))
+	}
+
+	event := &TurmaDeletadaEvent{
+		BaseEvent:   BaseEvent{EventType: "TurmaDeletada", AggregateID: t.ID},
+		DeletadoPor: deletadoPor,
+		Motivo:      motivo,
+		DeletedAt:   time.Now(),
+	}
+	t.RaiseEvent(event)
+	return t.Apply(event)
+}
+
 // ── Aplicadores ───────────────────────────────────────────────────────────────
 
 func (t *Turma) applyTurmaCriada(event DomainEvent) error {
@@ -248,6 +276,20 @@ func (t *Turma) applyTurmaDadosAtualizados(event DomainEvent) error {
 	return nil
 }
 
+func (t *Turma) applyTurmaDeletada(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return err
+	}
+	var ev TurmaDeletadaEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+	t.Status    = "deletado"
+	t.DeletedAt = &ev.DeletedAt
+	return nil
+}
+
 // ── Eventos ───────────────────────────────────────────────────────────────────
 
 type TurmaCriadaEvent struct {
@@ -291,3 +333,12 @@ type TurmaDadosAtualizadosEvent struct {
 
 func (e *TurmaDadosAtualizadosEvent) GetPayload() interface{} { return e }
 func (e *TurmaDadosAtualizadosEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+type TurmaDeletadaEvent struct {
+	BaseEvent
+	DeletadoPor uuid.UUID
+	Motivo      string
+	DeletedAt   time.Time
+}
+
+func (e *TurmaDeletadaEvent) GetPayload() interface{} { return e }

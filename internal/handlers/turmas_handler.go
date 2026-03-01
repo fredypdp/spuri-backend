@@ -294,6 +294,74 @@ func AtualizarTurma(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "turma atualizada com sucesso"})
 }
 
+// DeletarTurma remove logicamente uma turma da academia.
+//
+// Regras:
+//   - Turma deve estar inativa (desative antes)
+//   - Turma não pode ter estudantes vinculados
+//   - Apenas a academia dona pode deletar
+//   - Evento TurmaDeletada gravado no ledger (auditável)
+func DeletarTurma(c *gin.Context) {
+	academiaID, _ := middleware.GetUserID(c)
+	codigoTurma   := c.Param("codigo")
+
+	var req struct {
+		Motivo string `json:"motivo"` // opcional, mas recomendado para auditoria
+	}
+	// Não é obrigatório — ignorar erro de bind
+	_ = c.ShouldBindJSON(&req)
+
+	// ── Verificar propriedade ─────────────────────────────────────────────
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByID(academiaID)
+	if err != nil || academiaDTO == nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	turmasProj := getTurmasProjection(c)
+	turmaDTO, err := turmasProj.GetByCodigoTurma(codigoTurma, academiaDTO.CodigoAcademia)
+	if err != nil || turmaDTO == nil {
+		utils.RespondWithNotFoundError(c, "turma")
+		return
+	}
+
+	// ── Carregar aggregate ────────────────────────────────────────────────
+	repository := getRepository(c)
+	agg, err := repository.Load(turmaDTO.ID, "Turma")
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	turma, ok := agg.(*aggregates.Turma)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("erro ao converter agregado"))
+		return
+	}
+
+	// ── Executar comando (validações de negócio ficam no aggregate) ───────
+	if err := turma.Deletar(academiaID, req.Motivo); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	// ── Persistir (grava no ledger + atualiza projeção via manager) ───────
+	if err := repository.Save(turma); err != nil {
+		log.Printf("❌ [DeletarTurma] Erro ao salvar: %v", err)
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	log.Printf("✅ [DeletarTurma] %s deletada pela academia %s", codigoTurma, academiaDTO.CodigoAcademia)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":      "turma deletada com sucesso",
+		"codigo_turma": codigoTurma,
+		"auditavel":    true,
+	})
+}
+
 // getTurmasProjection instancia a projeção directamente (mesmo padrão dos outros helpers).
 func getTurmasProjection(c *gin.Context) *projections.TurmasProjection {
 	return projections.NewTurmasProjection(getDbClient(c))
