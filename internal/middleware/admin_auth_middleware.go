@@ -9,39 +9,37 @@ import (
 	"github.com/google/uuid"
 )
 
+// RequireAdmin verifica que o usuário autenticado é um admin com qualquer role válido
+// (gerente, adm ou fpp) e que está ativo.
+//
+// CORRIGIDO P11: antes, este middleware verificava apenas user_type == "admin",
+// sem consultar o banco para checar role e status. Isso significava que um token
+// de admin inativo ainda passava por rotas protegidas apenas por RequireAdmin.
+// Agora: delega para RequireAdminRole("gerente"), que consulta projection_admins
+// e verifica status == "ativo" E role >= gerente.
 func RequireAdmin() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		log.Printf("👤 [RequireAdmin] Verificando se é admin - Path: %s", c.Request.URL.Path)
+		log.Printf("👤 [RequireAdmin] Verificando admin — Path: %s", c.Request.URL.Path)
 
+		// Verificação rápida de tipo antes de bater no banco.
 		userType, exists := c.Get("user_type")
-		if !exists {
-			log.Printf("❌ [RequireAdmin] user_type não existe no contexto")
+		if !exists || userType != "admin" {
+			log.Printf("❌ [RequireAdmin] user_type ausente ou incorreto: %v", userType)
 			c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas administradores"})
 			c.Abort()
 			return
 		}
 
-		log.Printf("🔍 [RequireAdmin] UserType encontrado: %v", userType)
-
-		if userType != "admin" {
-			log.Printf("❌ [RequireAdmin] UserType incorreto: %v (esperado: admin)", userType)
-			c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas administradores"})
-			c.Abort()
-			return
-		}
-
-		log.Printf("✅ [RequireAdmin] OK - É admin")
-		c.Next()
+		// Delega para RequireAdminRole que valida role e status no banco.
+		RequireAdminRole("gerente")(c)
 	}
 }
 
-// RequireAdminRole verifica que o admin autenticado possui ao menos o role mínimo exigido.
-// CORRIGIDO: query usa prepared statement ($1) em vez de fmt.Sprintf com SafeString,
-// garantindo consistência com o padrão do restante do código e eliminando
-// qualquer risco de SQL injection mesmo que a sanitização do UUID mude no futuro.
+// RequireAdminRole verifica que o admin autenticado possui ao menos o role mínimo exigido
+// e que está ativo. Consulta projection_admins com prepared statement.
 func RequireAdminRole(minRole string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		log.Printf("🔐 [RequireAdminRole] Verificando role mínima: %s - Path: %s", minRole, c.Request.URL.Path)
+		log.Printf("🔐 [RequireAdminRole] Role mínima: %s — Path: %s", minRole, c.Request.URL.Path)
 
 		userID, exists := c.Get("user_id")
 		if !exists {
@@ -50,8 +48,6 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-
-		log.Printf("🔍 [RequireAdminRole] UserID: %v", userID)
 
 		clientRaw, exists := c.Get("dbClient")
 		if !exists {
@@ -71,7 +67,7 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 			return
 		}
 
-		// CORRIGIDO: prepared statement com $1 — sem interpolação de string.
+		// Prepared statement — sem interpolação de string.
 		var role, status string
 		err := client.DB().QueryRow(
 			`SELECT role, status FROM projection_admins WHERE id = $1`,
@@ -84,7 +80,7 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 			return
 		}
 
-		log.Printf("✅ [RequireAdminRole] Admin encontrado - Role: %s, Status: %s", role, status)
+		log.Printf("✅ [RequireAdminRole] Admin encontrado — Role: %s, Status: %s", role, status)
 
 		if status != "ativo" {
 			log.Printf("❌ [RequireAdminRole] Admin inativo")
@@ -102,7 +98,7 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 		currentLevel := hierarchy[role]
 		requiredLevel := hierarchy[minRole]
 
-		log.Printf("🔍 [RequireAdminRole] Hierarquia - Current: %d (%s), Required: %d (%s)",
+		log.Printf("🔍 [RequireAdminRole] Hierarquia — current: %d (%s), required: %d (%s)",
 			currentLevel, role, requiredLevel, minRole)
 
 		if currentLevel < requiredLevel {

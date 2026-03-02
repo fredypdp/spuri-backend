@@ -3,10 +3,14 @@ package aggregates
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+// emailRegex valida formato básico de email.
+var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
 
 type Admin struct {
 	BaseAggregate
@@ -54,7 +58,6 @@ func (a *Admin) Apply(event DomainEvent) error {
 		return a.applyAdminRoleAtualizado(event)
 	case "EmailVerificado":
 		return a.applyEmailVerificado(event)
-	// CORRIGIDO #2: novo evento de troca de senha via event sourcing
 	case "AdminSenhaAlterada":
 		return a.applyAdminSenhaAlterada(event)
 	default:
@@ -69,6 +72,11 @@ func (a *Admin) Apply(event DomainEvent) error {
 func (a *Admin) Criar(nome string, email string, senhaHash string, role string, createdBy *uuid.UUID) error {
 	if nome == "" || email == "" || senhaHash == "" {
 		return fmt.Errorf("campos obrigatórios vazios")
+	}
+
+	// CORRIGIDO P4: validação de formato de email também na criação.
+	if !emailRegex.MatchString(email) {
+		return fmt.Errorf("formato de email inválido")
 	}
 
 	validRoles := map[string]bool{"fpp": true, "adm": true, "gerente": true}
@@ -160,6 +168,11 @@ func (a *Admin) AtualizarDados(nome *string, email *string, updatedBy uuid.UUID)
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
 
+	// CORRIGIDO P4: validar formato de email quando fornecido.
+	if email != nil && !emailRegex.MatchString(*email) {
+		return fmt.Errorf("formato de email inválido")
+	}
+
 	emailAlterado := email != nil && a.Email != *email
 
 	event := &AdminDadosAtualizadosEvent{
@@ -175,6 +188,10 @@ func (a *Admin) AtualizarDados(nome *string, email *string, updatedBy uuid.UUID)
 	return a.Apply(event)
 }
 
+// AtualizarRole altera o role do admin.
+// REGRA DE NEGÓCIO DELIBERADA: Um FPP pode promover qualquer admin para qualquer role,
+// incluindo FPP. Isso é intencional — FPP representa a Fundação e tem controle total.
+// Ver ADMIN_REGRAS_DE_NEGOCIO.md §5 para contexto.
 func (a *Admin) AtualizarRole(novoRole string, updatedBy uuid.UUID, updatedByRole string) error {
 	if a.Status != "ativo" {
 		return fmt.Errorf("administrador está inativo")
@@ -206,8 +223,7 @@ func (a *Admin) AtualizarRole(novoRole string, updatedBy uuid.UUID, updatedByRol
 }
 
 // AlterarSenha registra a troca de senha como evento no ledger.
-// CORRIGIDO #2: em vez de UPDATE direto na projeção, emite AdminSenhaAlterada
-// para que a mudança seja rastreável e o rebuild restaure a senha correta.
+// Garante rastreabilidade e que o rebuild restaure a senha correta.
 func (a *Admin) AlterarSenha(novaSenhaHash string, changedBy uuid.UUID, motivo string) error {
 	if a.Status != "ativo" {
 		return fmt.Errorf("administrador está inativo")
@@ -218,19 +234,21 @@ func (a *Admin) AlterarSenha(novaSenhaHash string, changedBy uuid.UUID, motivo s
 	}
 
 	event := &AdminSenhaAlteradaEvent{
-		BaseEvent:    BaseEvent{EventType: "AdminSenhaAlterada", AggregateID: a.ID},
+		BaseEvent:     BaseEvent{EventType: "AdminSenhaAlterada", AggregateID: a.ID},
 		NovaSenhaHash: novaSenhaHash,
-		ChangedBy:    changedBy,
-		Motivo:       motivo,
-		ChangedAt:    time.Now(),
+		ChangedBy:     changedBy,
+		Motivo:        motivo,
+		ChangedAt:     time.Now(),
 	}
 
 	a.RaiseEvent(event)
 	return a.Apply(event)
 }
 
-// ValidatePermission verifica que este admin tem role superior ao targetRole.
+// ValidatePermission verifica que este admin tem role ESTRITAMENTE superior ao targetRole.
 // Usado para garantir que um admin só pode gerenciar admins de nível inferior.
+// NOTA: FPP gerenciando outro FPP é tratado nas rotas de ativar/desativar diretamente
+// (apenas RequireFPP no middleware, sem ValidatePermission adicional — decisão deliberada).
 func (a *Admin) ValidatePermission(targetRole string) error {
 	if a.Status != "ativo" {
 		return fmt.Errorf("administrador está inativo")
@@ -248,12 +266,17 @@ func (a *Admin) ValidatePermission(targetRole string) error {
 // Apply handlers (estado do aggregate)
 // ============================================================================
 
+// CORRIGIDO P8: json.Marshal agora tem erro checado em todos os applyXxx handlers.
+
 func (a *Admin) applyAdminCriado(event DomainEvent) error {
 	payload := event.GetPayload()
-	data, _ := json.Marshal(payload)
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("applyAdminCriado: erro ao serializar payload: %w", err)
+	}
 	var ev AdminCriadoEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
+		return fmt.Errorf("applyAdminCriado: erro ao deserializar evento: %w", err)
 	}
 
 	a.ID = event.GetAggregateID()
@@ -290,10 +313,13 @@ func (a *Admin) applyAcaoAdminRegistrada(event DomainEvent) error {
 
 func (a *Admin) applyAdminDadosAtualizados(event DomainEvent) error {
 	payload := event.GetPayload()
-	data, _ := json.Marshal(payload)
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("applyAdminDadosAtualizados: erro ao serializar payload: %w", err)
+	}
 	var ev AdminDadosAtualizadosEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
+		return fmt.Errorf("applyAdminDadosAtualizados: erro ao deserializar evento: %w", err)
 	}
 
 	if ev.Nome != nil {
@@ -310,24 +336,28 @@ func (a *Admin) applyAdminDadosAtualizados(event DomainEvent) error {
 
 func (a *Admin) applyAdminRoleAtualizado(event DomainEvent) error {
 	payload := event.GetPayload()
-	data, _ := json.Marshal(payload)
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("applyAdminRoleAtualizado: erro ao serializar payload: %w", err)
+	}
 	var ev AdminRoleAtualizadoEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
+		return fmt.Errorf("applyAdminRoleAtualizado: erro ao deserializar evento: %w", err)
 	}
 
 	a.Role = ev.NovoRole
 	return nil
 }
 
-// applyAdminSenhaAlterada atualiza a senha no estado do aggregate.
-// CORRIGIDO #2: agora a senha é rastreada no event sourcing.
 func (a *Admin) applyAdminSenhaAlterada(event DomainEvent) error {
 	payload := event.GetPayload()
-	data, _ := json.Marshal(payload)
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("applyAdminSenhaAlterada: erro ao serializar payload: %w", err)
+	}
 	var ev AdminSenhaAlteradaEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
+		return fmt.Errorf("applyAdminSenhaAlterada: erro ao deserializar evento: %w", err)
 	}
 
 	a.SenhaHash = ev.NovaSenhaHash
@@ -397,8 +427,9 @@ type AdminRoleAtualizadoEvent struct {
 
 func (e *AdminRoleAtualizadoEvent) GetPayload() interface{} { return e }
 
-// AdminSenhaAlteradaEvent — CORRIGIDO #2: novo evento para troca de senha via event sourcing.
+// AdminSenhaAlteradaEvent — evento de troca de senha via event sourcing.
 // Garante que: (a) toda troca fica no ledger imutável; (b) rebuild restaura a senha correta.
+// ChangedBy = uuid.Nil indica operação do sistema (reset automático, bootstrap).
 type AdminSenhaAlteradaEvent struct {
 	BaseEvent
 	NovaSenhaHash string

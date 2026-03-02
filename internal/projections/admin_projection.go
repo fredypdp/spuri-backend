@@ -55,15 +55,14 @@ func (p *AdminProjection) Handle(event db.Event) error {
 		return nil
 	}
 	handlers := map[string]func(db.Event) error{
-		"AdminCriado":           p.handleAdminCriado,
-		"AdminAtivado":          p.handleStatusChange("ativo"),
-		"AdminDesativado":       p.handleStatusChange("inativo"),
-		"AcaoAdminRegistrada":   p.handleAcaoAdminRegistrada,
+		"AdminCriado":          p.handleAdminCriado,
+		"AdminAtivado":         p.handleStatusChange("ativo"),
+		"AdminDesativado":      p.handleStatusChange("inativo"),
+		"AcaoAdminRegistrada":  p.handleAcaoAdminRegistrada,
 		"AdminDadosAtualizados": p.handleAdminDadosAtualizados,
-		"AdminRoleAtualizado":   p.handleAdminRoleAtualizado,
-		"EmailVerificado":       p.handleEmailVerificado,
-		// CORRIGIDO #2: novo handler para troca de senha via event sourcing
-		"AdminSenhaAlterada": p.handleAdminSenhaAlterada,
+		"AdminRoleAtualizado":  p.handleAdminRoleAtualizado,
+		"EmailVerificado":      p.handleEmailVerificado,
+		"AdminSenhaAlterada":   p.handleAdminSenhaAlterada,
 	}
 	if handler, ok := handlers[event.EventType]; ok {
 		return handler(event)
@@ -158,18 +157,22 @@ func (p *AdminProjection) handleStatusChange(status string) func(db.Event) error
 	}
 }
 
+// handleAcaoAdminRegistrada — CORRIGIDO P9: agora atualiza version e last_event_id
+// além de total_acoes_realizadas, mantendo consistência com os demais handlers.
 func (p *AdminProjection) handleAcaoAdminRegistrada(event db.Event) error {
 	_, err := p.client.DB().Exec(`
 		UPDATE projection_admins
-		SET total_acoes_realizadas = total_acoes_realizadas + 1, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $1
-	`, event.AggregateID)
+		SET total_acoes_realizadas = total_acoes_realizadas + 1,
+		    version                = $1,
+		    last_event_id          = $2,
+		    updated_at             = CURRENT_TIMESTAMP
+		WHERE id = $3
+	`, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
-// handleAdminDadosAtualizados — CORRIGIDO: usa transação explícita para garantir
-// atomicidade dos múltiplos UPDATEs. Sem transação, falha parcial deixaria
-// projeção em estado inconsistente (ex: email atualizado mas email_verificado não).
+// handleAdminDadosAtualizados usa transação explícita para garantir atomicidade.
+// Sem transação, falha parcial deixaria a projeção inconsistente.
 func (p *AdminProjection) handleAdminDadosAtualizados(event db.Event) error {
 	var payload struct {
 		Nome          *string
@@ -245,8 +248,8 @@ func (p *AdminProjection) handleEmailVerificado(event db.Event) error {
 	return err
 }
 
-// handleAdminSenhaAlterada — CORRIGIDO #2: aplica a nova senha_hash na projeção
-// a partir do evento do ledger. Garante que rebuild restaura a senha correta.
+// handleAdminSenhaAlterada aplica a nova senha_hash na projeção a partir do evento do ledger.
+// Garante que rebuild restaura a senha correta.
 func (p *AdminProjection) handleAdminSenhaAlterada(event db.Event) error {
 	var payload struct {
 		NovaSenhaHash string
