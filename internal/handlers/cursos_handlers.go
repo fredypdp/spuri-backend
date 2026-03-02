@@ -274,10 +274,10 @@ func DesativarCurso(c *gin.Context) {
 // DeletarCurso remove logicamente um curso da academia.
 //
 // Regras de negócio (checadas ANTES de delegar ao aggregate):
-//   1. Curso deve pertencer à academia autenticada
-//   2. Curso deve estar inativo
-//   3. Não pode haver estudantes matriculados neste curso
-//   4. Não pode haver matérias ativas vinculadas ao curso
+//  1. Curso deve pertencer à academia autenticada
+//  2. Curso deve estar inativo
+//  3. Não pode haver estudantes matriculados neste curso
+//  4. Não pode haver matérias ativas vinculadas ao curso
 //
 // Para cursos superiores, matérias inativas vinculadas são deletadas
 // em cascata (cada uma emite seu próprio MateriaDeletada no ledger).
@@ -370,20 +370,27 @@ func DeletarCurso(c *gin.Context) {
 	var materiasDeletedNomes []string
 	for _, m := range materiasDoCurso {
 		if m.Status == "deletado" {
-			continue // já deletada anteriormente
+			continue // já deletada anteriormente — skip seguro
 		}
+
 		materiaAgg, err := repository.Load(m.ID, "MateriaDisciplinar")
 		if err != nil {
-			log.Printf("⚠️  [DeletarCurso] Erro ao carregar matéria %s: %v", m.ID, err)
-			continue
+			// FIX BUG #3: era `log + continue` — agora retorna erro ao cliente.
+			// O continue permitia que o curso fosse deletado com matérias ainda
+			// "vivas" no ledger, gerando estado parcialmente inconsistente.
+			utils.RespondWithInternalError(c, fmt.Errorf("erro ao carregar matéria '%s': %w", m.Nome, err))
+			return
 		}
+
 		materia := materiaAgg.(*aggregates.MateriaDisciplinar)
 		if err := materia.Deletar(); err != nil {
-			log.Printf("⚠️  [DeletarCurso] Erro ao deletar matéria %s: %v", m.Nome, err)
-			continue
+			// FIX BUG #3: era `log + continue` — agora retorna erro ao cliente.
+			utils.RespondWithInternalError(c, fmt.Errorf("erro ao deletar matéria '%s': %w", m.Nome, err))
+			return
 		}
+
 		if err := repository.SaveWithAudit(materia, audit); err != nil {
-			utils.RespondWithInternalError(c, fmt.Errorf("erro ao deletar matéria %s: %w", m.Nome, err))
+			utils.RespondWithInternalError(c, fmt.Errorf("erro ao salvar deleção da matéria '%s': %w", m.Nome, err))
 			return
 		}
 		materiasDeletedNomes = append(materiasDeletedNomes, m.Nome)
@@ -400,7 +407,7 @@ func DeletarCurso(c *gin.Context) {
 	var turmasDeletedCodigos []string
 	for _, t := range turmasDoCurso {
 		if t.Status == "deletado" {
-			continue
+			continue // já deletada — skip seguro
 		}
 		if t.Status == "ativo" {
 			utils.RespondWithValidationError(c, fmt.Errorf(
@@ -422,8 +429,9 @@ func DeletarCurso(c *gin.Context) {
 		}
 		turma := turmaAgg.(*aggregates.Turma)
 		if err := turma.Deletar(academiaID, fmt.Sprintf("cascata: curso %s deletado", cursoDTO.Nome)); err != nil {
-			log.Printf("⚠️  [DeletarCurso] Erro ao deletar turma %s: %v", t.CodigoTurma, err)
-			continue
+			// FIX BUG #3: era `log + continue` — agora retorna erro ao cliente.
+			utils.RespondWithInternalError(c, fmt.Errorf("erro ao deletar turma '%s': %w", t.CodigoTurma, err))
+			return
 		}
 		if err := repository.SaveWithAudit(turma, audit); err != nil {
 			utils.RespondWithInternalError(c, err)
@@ -456,12 +464,12 @@ func DeletarCurso(c *gin.Context) {
 	)
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":           "curso deletado com sucesso",
-		"curso_id":          cursoID,
-		"nome":              cursoDTO.Nome,
+		"message":            "curso deletado com sucesso",
+		"curso_id":           cursoID,
+		"nome":               cursoDTO.Nome,
 		"materias_deletadas": materiasDeletedNomes,
-		"turmas_deletadas":  turmasDeletedCodigos,
-		"auditavel":         true,
+		"turmas_deletadas":   turmasDeletedCodigos,
+		"auditavel":          true,
 	})
 }
 
