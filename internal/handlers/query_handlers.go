@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"spuri/internal/middleware"
@@ -549,13 +550,15 @@ func ListarTodasAcademias(c *gin.Context) {
 	_ = getAcademiaProjection(c)
 	client := getDbClient(c)
 
-	// Sem parâmetros externos — query estática
+	// BUG #5 FIX: adicionado WHERE deleted_at IS NULL.
+	// Retorna academias ativas e inativas; exclui apenas deletadas logicamente.
 	query := `
 		SELECT id, type, nome, codigo_academia, provincia, endereco,
 			numero_telefone, email, website, nivel_escolar, status, cursos,
 			email_verificado, created_at, updated_at, total_estudantes,
 			total_inscricoes_pendentes, version
 		FROM projection_academias
+		WHERE deleted_at IS NULL
 		ORDER BY created_at DESC
 	`
 
@@ -593,40 +596,55 @@ func ListarTodasAcademias(c *gin.Context) {
 			&aca.Provincia, &aca.Endereco, &aca.NumeroTelefone, &aca.Email,
 			&aca.Website, &aca.NivelEscolar, &aca.Status, &aca.Cursos,
 			&aca.EmailVerificado, &aca.CreatedAt, &aca.UpdatedAt,
-			&aca.TotalEstudantes, &aca.TotalInscricoesPendentes, &aca.Version); err == nil {
-
-			academiaMap := map[string]interface{}{
-				"id":                         aca.ID,
-				"type":                       aca.Type,
-				"nome":                       aca.Nome,
-				"codigo_academia":            aca.CodigoAcademia,
-				"provincia":                  aca.Provincia,
-				"endereco":                   aca.Endereco,
-				"numero_telefone":            aca.NumeroTelefone,
-				"email":                      aca.Email,
-				"website":                    aca.Website,
-				"nivel_escolar":              aca.NivelEscolar,
-				"status":                     aca.Status,
-				"email_verificado":           aca.EmailVerificado,
-				"created_at":                 aca.CreatedAt,
-				"updated_at":                 aca.UpdatedAt,
-				"total_estudantes":           aca.TotalEstudantes,
-				"total_inscricoes_pendentes": aca.TotalInscricoesPendentes,
-				"version":                    aca.Version,
-			}
-
-			var cursos []string
-			if len(aca.Cursos) > 0 {
-				academiaMap["cursos"] = cursos
-			}
-
-			academias = append(academias, academiaMap)
+			&aca.TotalEstudantes, &aca.TotalInscricoesPendentes, &aca.Version,
+		); err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
 		}
+
+		var cursos []string
+		if len(aca.Cursos) > 0 {
+			_ = json.Unmarshal(aca.Cursos, &cursos)
+		}
+		if cursos == nil {
+			cursos = []string{}
+		}
+
+		acadMap := map[string]interface{}{
+			"id":                         aca.ID,
+			"type":                       aca.Type,
+			"nome":                       aca.Nome,
+			"codigo_academia":            aca.CodigoAcademia,
+			"provincia":                  aca.Provincia,
+			"endereco":                   aca.Endereco,
+			"numero_telefone":            aca.NumeroTelefone,
+			"email":                      aca.Email,
+			"website":                    aca.Website,
+			"nivel_escolar":              aca.NivelEscolar,
+			"status":                     aca.Status,
+			"cursos":                     cursos,
+			"email_verificado":           aca.EmailVerificado,
+			"created_at":                 aca.CreatedAt,
+			"updated_at":                 aca.UpdatedAt,
+			"total_estudantes":           aca.TotalEstudantes,
+			"total_inscricoes_pendentes": aca.TotalInscricoesPendentes,
+			"version":                    aca.Version,
+		}
+
+		// Ocultar email de não-admins
+		if userType != "admin" {
+			delete(acadMap, "email")
+		}
+
+		academias = append(academias, acadMap)
+	}
+
+	if academias == nil {
+		academias = []map[string]interface{}{}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"academias":    academias,
-		"total":        len(academias),
-		"tipo_usuario": userType,
+		"academias": academias,
+		"total":     len(academias),
 	})
 }

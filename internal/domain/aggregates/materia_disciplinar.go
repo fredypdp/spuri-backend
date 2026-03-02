@@ -113,6 +113,10 @@ type MateriaDeletadaEvent struct {
 func (e *MateriaDeletadaEvent) GetPayload() interface{} { return e }
 
 // ── Apply handlers ────────────────────────────────────────────────────────────
+//
+// REGRA: apply handlers NÃO devem chamar m.Version++.
+// O incremento é feito exclusivamente por BaseAggregate.RaiseEvent().
+// Isso é consistente com todos os outros aggregates do sistema (Turma, Academia, Curso...).
 
 func (m *MateriaDisciplinar) applyMateriaCriada(event DomainEvent) error {
 	log.Printf("[DEBUG] Aplicando MateriaCriada ao agregado %s", event.GetAggregateID())
@@ -142,7 +146,7 @@ func (m *MateriaDisciplinar) applyMateriaCriada(event DomainEvent) error {
 		m.Status = "ativo"
 	}
 
-	m.Version++
+	// BUG #4 FIX: m.Version++ REMOVIDO — RaiseEvent já incrementa.
 	log.Printf("[DEBUG] Matéria criada: %s (%s) status=%s", m.Nome, m.ID, m.Status)
 	return nil
 }
@@ -150,14 +154,14 @@ func (m *MateriaDisciplinar) applyMateriaCriada(event DomainEvent) error {
 func (m *MateriaDisciplinar) applyMateriaAtivada(event DomainEvent) error {
 	log.Printf("[DEBUG] Aplicando MateriaAtivada ao agregado %s", event.GetAggregateID())
 	m.Status = "ativo"
-	m.Version++
+	// BUG #4 FIX: m.Version++ REMOVIDO — RaiseEvent já incrementa.
 	return nil
 }
 
 func (m *MateriaDisciplinar) applyMateriaDesativada(event DomainEvent) error {
 	log.Printf("[DEBUG] Aplicando MateriaDesativada ao agregado %s", event.GetAggregateID())
 	m.Status = "inativo"
-	m.Version++
+	// BUG #4 FIX: m.Version++ REMOVIDO — RaiseEvent já incrementa.
 	return nil
 }
 
@@ -175,7 +179,7 @@ func (m *MateriaDisciplinar) applyMateriaDadosAtualizados(event DomainEvent) err
 	if ev.Nome != nil {
 		m.Nome = *ev.Nome
 	}
-	m.Version++
+	// BUG #4 FIX: m.Version++ REMOVIDO — RaiseEvent já incrementa.
 	return nil
 }
 
@@ -191,14 +195,14 @@ func (m *MateriaDisciplinar) applyMateriaPeriodoDefinido(event DomainEvent) erro
 		return err
 	}
 	m.Periodo = ev.Periodo
-	m.Version++
+	// BUG #4 FIX: m.Version++ REMOVIDO — RaiseEvent já incrementa.
 	return nil
 }
 
 func (m *MateriaDisciplinar) applyMateriaDeletada(event DomainEvent) error {
 	log.Printf("[DEBUG] Aplicando MateriaDeletada ao agregado %s", event.GetAggregateID())
 	m.Status = "deletado"
-	m.Version++
+	// BUG #4 FIX: m.Version++ REMOVIDO — RaiseEvent já incrementa.
 	return nil
 }
 
@@ -370,13 +374,4 @@ func (m *MateriaDisciplinar) Deletar() error {
 
 	m.RaiseEvent(event)
 	return m.Apply(event)
-}
-
-// ── Tipos auxiliares necessários (sem alteração de assinatura) ────────────────
-
-// Necessário apenas para compilar este arquivo isolado — já declarados no arquivo principal.
-type _unusedImports struct {
-	_ uuid.UUID
-	_ time.Time
-	_ fmt.Stringer
 }

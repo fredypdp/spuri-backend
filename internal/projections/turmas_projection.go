@@ -50,13 +50,29 @@ func (p *TurmasProjection) UpdateCheckpoint(eventID int64) error {
 	return err
 }
 
+// Handle processa eventos do ledger e atualiza a projection_turmas.
+//
+// CORREÇÃO BUG #1: Os 3 nomes abaixo estavam errados e nunca faziam match
+// com os eventos reais emitidos pelo aggregate Turma:
+//   - "EstudanteAdicionadoTurma"  → corrigido para "EstudanteAdicionadoATurma"
+//   - "EstudanteRemovidoTurma"    → corrigido para "EstudanteRemovidoDaTurma"
+//   - "TurmaAtualizada"           → corrigido para "TurmaDadosAtualizados"
+//
+// CORREÇÃO BUG #2: "TurmaAtivada" e "TurmaDesativada" estavam completamente
+// ausentes do map — adicionados com seus respectivos handlers.
 func (p *TurmasProjection) Handle(event db.Event) error {
 	handlers := map[string]func(db.Event) error{
-		"TurmaCriada":              p.handleTurmaCriada,
-		"EstudanteAdicionadoTurma": p.handleEstudanteAdicionado,
-		"EstudanteRemovidoTurma":   p.handleEstudanteRemovido,
-		"TurmaAtualizada":          p.handleTurmaAtualizada,
-		"TurmaDeletada":            p.handleTurmaDeletada,
+		"TurmaCriada":               p.handleTurmaCriada,
+		// BUG #2 FIX — eram ausentes:
+		"TurmaAtivada":              p.handleTurmaAtivada,
+		"TurmaDesativada":           p.handleTurmaDesativada,
+		// BUG #1 FIX — eram "EstudanteAdicionadoTurma":
+		"EstudanteAdicionadoATurma": p.handleEstudanteAdicionado,
+		// BUG #1 FIX — era "EstudanteRemovidoTurma":
+		"EstudanteRemovidoDaTurma":  p.handleEstudanteRemovido,
+		// BUG #1 FIX — era "TurmaAtualizada":
+		"TurmaDadosAtualizados":     p.handleTurmaAtualizada,
+		"TurmaDeletada":             p.handleTurmaDeletada,
 	}
 	if handler, ok := handlers[event.EventType]; ok {
 		log.Printf("[DEBUG] [turmas] Processando %s: %s", event.EventType, event.EventID)
@@ -140,12 +156,39 @@ func (p *TurmasProjection) handleTurmaCriada(event db.Event) error {
 	return err
 }
 
+// handleTurmaAtivada — NOVO (BUG #2 FIX).
+// Atualiza status para 'ativo' quando o aggregate emite TurmaAtivada.
+func (p *TurmasProjection) handleTurmaAtivada(event db.Event) error {
+	_, err := p.client.DB().Exec(`
+		UPDATE projection_turmas
+		SET status = 'ativo',
+			version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
+		WHERE id = $3
+	`, event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
+
+// handleTurmaDesativada — NOVO (BUG #2 FIX).
+// Atualiza status para 'inativo' quando o aggregate emite TurmaDesativada.
+func (p *TurmasProjection) handleTurmaDesativada(event db.Event) error {
+	_, err := p.client.DB().Exec(`
+		UPDATE projection_turmas
+		SET status = 'inativo',
+			version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
+		WHERE id = $3
+	`, event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
+
+// handleEstudanteAdicionado — BUG #1 FIX: nome do event type era "EstudanteAdicionadoTurma".
+// O aggregate emite "EstudanteAdicionadoATurma" — sem o match correto, o array
+// de estudantes da projection_turmas nunca era atualizado.
 func (p *TurmasProjection) handleEstudanteAdicionado(event db.Event) error {
 	var payload struct {
 		CodigoEstudante string `json:"CodigoEstudante"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("parse error EstudanteAdicionadoTurma: %w", err)
+		return fmt.Errorf("parse error EstudanteAdicionadoATurma: %w", err)
 	}
 
 	_, err := p.client.DB().Exec(`
@@ -163,12 +206,15 @@ func (p *TurmasProjection) handleEstudanteAdicionado(event db.Event) error {
 	return err
 }
 
+// handleEstudanteRemovido — BUG #1 FIX: nome do event type era "EstudanteRemovidoTurma".
+// O aggregate emite "EstudanteRemovidoDaTurma" — sem o match correto, estudantes
+// removidos continuavam aparecendo no array da projeção.
 func (p *TurmasProjection) handleEstudanteRemovido(event db.Event) error {
 	var payload struct {
 		CodigoEstudante string `json:"CodigoEstudante"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("parse error EstudanteRemovidoTurma: %w", err)
+		return fmt.Errorf("parse error EstudanteRemovidoDaTurma: %w", err)
 	}
 
 	_, err := p.client.DB().Exec(`
@@ -186,6 +232,9 @@ func (p *TurmasProjection) handleEstudanteRemovido(event db.Event) error {
 	return err
 }
 
+// handleTurmaAtualizada — BUG #1 FIX: nome do event type era "TurmaAtualizada".
+// O aggregate emite "TurmaDadosAtualizados" — sem o match correto, atualizações
+// de nível, turno e curso_id nunca eram refletidas na projeção.
 func (p *TurmasProjection) handleTurmaAtualizada(event db.Event) error {
 	var payload struct {
 		Nivel   *string    `json:"Nivel"`
@@ -193,17 +242,32 @@ func (p *TurmasProjection) handleTurmaAtualizada(event db.Event) error {
 		Turno   *string    `json:"Turno"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("parse error TurmaAtualizada: %w", err)
+		return fmt.Errorf("parse error TurmaDadosAtualizados: %w", err)
 	}
 
 	if payload.Nivel != nil {
-		p.client.DB().Exec(`UPDATE projection_turmas SET nivel = $1 WHERE id = $2`, *payload.Nivel, event.AggregateID)
+		if _, err := p.client.DB().Exec(
+			`UPDATE projection_turmas SET nivel = $1 WHERE id = $2`,
+			*payload.Nivel, event.AggregateID,
+		); err != nil {
+			return fmt.Errorf("erro ao atualizar nivel: %w", err)
+		}
 	}
 	if payload.CursoID != nil {
-		p.client.DB().Exec(`UPDATE projection_turmas SET curso_id = $1 WHERE id = $2`, payload.CursoID.String(), event.AggregateID)
+		if _, err := p.client.DB().Exec(
+			`UPDATE projection_turmas SET curso_id = $1 WHERE id = $2`,
+			payload.CursoID.String(), event.AggregateID,
+		); err != nil {
+			return fmt.Errorf("erro ao atualizar curso_id: %w", err)
+		}
 	}
 	if payload.Turno != nil {
-		p.client.DB().Exec(`UPDATE projection_turmas SET turno = $1 WHERE id = $2`, *payload.Turno, event.AggregateID)
+		if _, err := p.client.DB().Exec(
+			`UPDATE projection_turmas SET turno = $1 WHERE id = $2`,
+			*payload.Turno, event.AggregateID,
+		); err != nil {
+			return fmt.Errorf("erro ao atualizar turno: %w", err)
+		}
 	}
 
 	_, err := p.client.DB().Exec(`
@@ -299,6 +363,8 @@ func (p *TurmasProjection) ListByAcademia(codigoAcademia string) ([]*TurmaDTO, e
 }
 
 // ListByCurso retorna turmas vinculadas a um curso específico.
+// Inclui turmas com deleted_at preenchido para permitir verificação de status
+// durante operações de cascata (ex: DeletarCurso verifica t.Status antes de deletar).
 func (p *TurmasProjection) ListByCurso(cursoID uuid.UUID) ([]TurmaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT id, codigo_turma, codigo_academia, nivel, curso_id, turno,
@@ -327,13 +393,18 @@ func scanTurmaRow(row *sql.Row) (*TurmaDTO, error) {
 	if err != nil {
 		return nil, err
 	}
-	json.Unmarshal(estudantesJSON, &dto.Estudantes)
+	if err := json.Unmarshal(estudantesJSON, &dto.Estudantes); err != nil {
+		dto.Estudantes = []string{}
+	}
 	if dto.Estudantes == nil {
 		dto.Estudantes = []string{}
 	}
 	return &dto, nil
 }
 
+// scanTurmas — BUG #6 FIX: anteriormente usava `continue` em caso de erro de Scan,
+// ignorando silenciosamente linhas corrompidas. Agora retorna o erro explicitamente,
+// consistente com o padrão do restante do sistema.
 func scanTurmas(rows *sql.Rows) ([]TurmaDTO, error) {
 	var turmas []TurmaDTO
 	for rows.Next() {
@@ -343,9 +414,11 @@ func scanTurmas(rows *sql.Rows) ([]TurmaDTO, error) {
 			&dto.ID, &dto.CodigoTurma, &dto.CodigoAcademia, &dto.Nivel, &dto.CursoID, &dto.Turno,
 			&estudantesJSON, &dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version,
 		); err != nil {
-			continue
+			return nil, fmt.Errorf("erro ao escanear turma: %w", err)
 		}
-		json.Unmarshal(estudantesJSON, &dto.Estudantes)
+		if err := json.Unmarshal(estudantesJSON, &dto.Estudantes); err != nil {
+			dto.Estudantes = []string{}
+		}
 		if dto.Estudantes == nil {
 			dto.Estudantes = []string{}
 		}

@@ -123,6 +123,134 @@ func GetTurma(c *gin.Context) {
 	c.JSON(http.StatusOK, turma)
 }
 
+// AtivarTurma ativa uma turma inativa da academia.
+// Rota: PUT /academia/turmas/:codigo/ativar
+//
+// NOVO (BUG #3 FIX): handler estava ausente — rota não existia em main.go.
+// O aggregate Turma.Ativar() já estava implementado; faltava apenas este handler
+// e o registro da rota.
+func AtivarTurma(c *gin.Context) {
+	academiaID, _ := middleware.GetUserID(c)
+	codigoTurma := c.Param("codigo")
+
+	// ── Verificar propriedade ──────────────────────────────────────────────
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByID(academiaID)
+	if err != nil || academiaDTO == nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	turmasProj := getTurmasProjection(c)
+	turmaDTO, err := turmasProj.GetByCodigoTurma(codigoTurma, academiaDTO.CodigoAcademia)
+	if err != nil || turmaDTO == nil {
+		utils.RespondWithNotFoundError(c, "turma")
+		return
+	}
+
+	// ── Carregar aggregate e executar comando ─────────────────────────────
+	repository := getRepository(c)
+	agg, err := repository.Load(turmaDTO.ID, "Turma")
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	turma, ok := agg.(*aggregates.Turma)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("erro ao converter agregado"))
+		return
+	}
+
+	if err := turma.Ativar(academiaID); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	// ── Persistir ─────────────────────────────────────────────────────────
+	audit := db.AuditContext{
+		UserID:   academiaID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(turma, audit); err != nil {
+		log.Printf("❌ [AtivarTurma] Erro ao salvar: %v", err)
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	log.Printf("✅ [AtivarTurma] %s ativada pela academia %s", codigoTurma, academiaDTO.CodigoAcademia)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":      "turma ativada com sucesso",
+		"codigo_turma": codigoTurma,
+	})
+}
+
+// DesativarTurma desativa uma turma ativa da academia.
+// Rota: PUT /academia/turmas/:codigo/desativar
+//
+// NOVO (BUG #3 FIX): handler estava ausente — rota não existia em main.go.
+// O aggregate Turma.Desativar() já estava implementado; faltava apenas este handler
+// e o registro da rota. Desativar é pré-requisito para DeletarTurma.
+func DesativarTurma(c *gin.Context) {
+	academiaID, _ := middleware.GetUserID(c)
+	codigoTurma := c.Param("codigo")
+
+	// ── Verificar propriedade ──────────────────────────────────────────────
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByID(academiaID)
+	if err != nil || academiaDTO == nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	turmasProj := getTurmasProjection(c)
+	turmaDTO, err := turmasProj.GetByCodigoTurma(codigoTurma, academiaDTO.CodigoAcademia)
+	if err != nil || turmaDTO == nil {
+		utils.RespondWithNotFoundError(c, "turma")
+		return
+	}
+
+	// ── Carregar aggregate e executar comando ─────────────────────────────
+	repository := getRepository(c)
+	agg, err := repository.Load(turmaDTO.ID, "Turma")
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	turma, ok := agg.(*aggregates.Turma)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("erro ao converter agregado"))
+		return
+	}
+
+	if err := turma.Desativar(academiaID); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	// ── Persistir ─────────────────────────────────────────────────────────
+	audit := db.AuditContext{
+		UserID:   academiaID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(turma, audit); err != nil {
+		log.Printf("❌ [DesativarTurma] Erro ao salvar: %v", err)
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	log.Printf("✅ [DesativarTurma] %s desativada pela academia %s", codigoTurma, academiaDTO.CodigoAcademia)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":      "turma desativada com sucesso",
+		"codigo_turma": codigoTurma,
+	})
+}
+
 // AdicionarEstudanteATurma adiciona um estudante à turma.
 // Rota: POST /academia/turmas/:codigo/estudantes
 func AdicionarEstudanteATurma(c *gin.Context) {
@@ -145,7 +273,7 @@ func AdicionarEstudanteATurma(c *gin.Context) {
 	}
 
 	// Verifica se o estudante pertence à academia
-	estudanteProj := getEstudanteProjection(c) // singular — função existente em helpers.go
+	estudanteProj := getEstudanteProjection(c)
 	estudanteDTO, err := estudanteProj.GetByCodigo(req.CodigoEstudante)
 	if err != nil || estudanteDTO == nil {
 		utils.RespondWithNotFoundError(c, "estudante")
@@ -318,16 +446,18 @@ func AtualizarTurma(c *gin.Context) {
 // DeletarTurma remove logicamente uma turma da academia.
 //
 // Regras:
-//   - Turma deve estar inativa (desative antes)
+//   - Turma deve estar inativa (use PUT /turmas/:codigo/desativar antes)
 //   - Turma não pode ter estudantes vinculados
 //   - Apenas a academia dona pode deletar
 //   - Evento TurmaDeletada gravado no ledger (auditável)
+//
+// Rota: DELETE /academia/turmas/:codigo
 func DeletarTurma(c *gin.Context) {
 	academiaID, _ := middleware.GetUserID(c)
 	codigoTurma   := c.Param("codigo")
 
 	var req struct {
-		Motivo string `json:"motivo"` // opcional, mas recomendado para auditoria
+		Motivo string `json:"motivo"` // opcional, recomendado para auditoria
 	}
 	// Não é obrigatório — ignorar erro de bind
 	_ = c.ShouldBindJSON(&req)
