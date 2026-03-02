@@ -57,8 +57,14 @@ func (p *CursosProjection) Handle(event db.Event) error {
 	switch event.EventType {
 	case "CursoCriado":
 		return p.handleCursoCriado(event)
-	case "CursoAtualizado":
-		return p.handleCursoAtualizado(event)
+	// BUG #B FIX — era "CursoAtualizado" (nome errado):
+	case "CursoDadosAtualizados":
+		return p.handleCursoDadosAtualizados(event)
+	// BUG #B FIX — estavam completamente ausentes:
+	case "CursoAtivado":
+		return p.handleCursoAtivado(event)
+	case "CursoDesativado":
+		return p.handleCursoDesativado(event)
 	case "CursoDeletado":
 		return p.handleCursoDeletado(event)
 	}
@@ -139,7 +145,7 @@ func (p *CursosProjection) handleCursoCriado(event db.Event) error {
 	return err
 }
 
-func (p *CursosProjection) handleCursoAtualizado(event db.Event) error {
+func (p *CursosProjection) handleCursoDadosAtualizados(event db.Event) error {
 	var payload struct {
 		Nome           *string   `json:"Nome"`
 		Type           *string   `json:"Type"`
@@ -147,7 +153,7 @@ func (p *CursosProjection) handleCursoAtualizado(event db.Event) error {
 		Periodos       *[]string `json:"Periodos"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("parse error CursoAtualizado: %w", err)
+		return fmt.Errorf("parse error CursoDadosAtualizados: %w", err)
 	}
 
 	if payload.Nome != nil {
@@ -216,6 +222,28 @@ func (p *CursosProjection) handleCursoDeletado(event db.Event) error {
 			updated_at = CURRENT_TIMESTAMP, version = $2, last_event_id = $3
 		WHERE id = $4
 	`, payload.DeletedAt.UTC(), event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
+
+// Atualiza status para 'ativo' quando Curso.Ativar() é executado.
+func (p *CursosProjection) handleCursoAtivado(event db.Event) error {
+	_, err := p.client.DB().Exec(`
+		UPDATE projection_cursos
+		SET status = 'ativo',
+			version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
+		WHERE id = $3
+	`, event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
+
+// Atualiza status para 'inativo' quando Curso.Desativar() é executado.
+func (p *CursosProjection) handleCursoDesativado(event db.Event) error {
+	_, err := p.client.DB().Exec(`
+		UPDATE projection_cursos
+		SET status = 'inativo',
+			version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
+		WHERE id = $3
+	`, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 

@@ -254,6 +254,7 @@ func (p *MateriasProjection) GetByAcademia(codigoAcademia string) ([]MateriaDTO,
 		SELECT id, nome, type, anos_academicos, periodo, codigo_academia, curso_id, status, created_at, updated_at, version
 		FROM projection_materias
 		WHERE codigo_academia = $1
+			AND deleted_at IS NULL
 		ORDER BY created_at DESC
 	`, codigoAcademia)
 	if err != nil {
@@ -270,6 +271,7 @@ func (p *MateriasProjection) GetByCurso(cursoID uuid.UUID) ([]MateriaDTO, error)
 		SELECT id, nome, type, anos_academicos, periodo, codigo_academia, curso_id, status, created_at, updated_at, version
 		FROM projection_materias
 		WHERE curso_id = $1
+			AND deleted_at IS NULL
 		ORDER BY created_at DESC
 	`, cursoID)
 	if err != nil {

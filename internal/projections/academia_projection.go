@@ -56,11 +56,17 @@ func (p *AcademiaProjection) Handle(event db.Event) error {
 		return nil
 	}
 	handlers := map[string]func(db.Event) error{
-		"AcademiaCriada":    p.handleAcademiaCriada,
-		"AcademiaAtualizada": p.handleAcademiaAtualizada,
-		"EmailVerificado":   p.handleEmailVerificado,
-		"ContadorEstudantesAtualizado": p.handleContadorEstudantes,
-		"ContadorInscricoesPendentesAtualizado": p.handleContadorInscricoes,
+		"AcademiaCriada": p.handleAcademiaCriada,
+		// BUG #A FIX — era "AcademiaAtualizada" (nome errado):
+		"AcademiaDadosAtualizados": p.handleAcademiaDadosAtualizados,
+		// BUG #A FIX — estavam completamente ausentes:
+		"AcademiaAtivada":    p.handleAcademiaAtivada,
+		"AcademiaDesativada": p.handleAcademiaDesativada,
+		"CursosAtualizados":  p.handleCursosAtualizados,
+		// Mantidos da versão anterior:
+		"EmailVerificado":                         p.handleEmailVerificado,
+		"ContadorEstudantesAtualizado":            p.handleContadorEstudantes,
+		"ContadorInscricoesPendentesAtualizado":   p.handleContadorInscricoes,
 	}
 	if handler, ok := handlers[event.EventType]; ok {
 		return handler(event)
@@ -152,7 +158,7 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 	return err
 }
 
-func (p *AcademiaProjection) handleAcademiaAtualizada(event db.Event) error {
+func (p *AcademiaProjection) handleAcademiaDadosAtualizados(event db.Event) error {
 	var payload struct {
 		Nome           *string
 		Provincia      *string
@@ -169,7 +175,6 @@ func (p *AcademiaProjection) handleAcademiaAtualizada(event db.Event) error {
 		return err
 	}
 
-	// Build individual updates with prepared statements
 	type fieldUpdate struct {
 		col string
 		val interface{}
@@ -263,6 +268,47 @@ func (p *AcademiaProjection) handleContadorInscricoes(event db.Event) error {
 	return err
 }
 
+// handleAcademiaAtivada — BUG #A FIX (NOVO).
+// Atualiza status para 'ativo' quando admin executa Ativar().
+func (p *AcademiaProjection) handleAcademiaAtivada(event db.Event) error {
+	_, err := p.client.DB().Exec(`
+		UPDATE projection_academias
+		SET status = 'ativo',
+			version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
+		WHERE id = $3
+	`, event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
+
+// Atualiza status para 'inativo' quando admin executa Desativar().
+func (p *AcademiaProjection) handleAcademiaDesativada(event db.Event) error {
+	_, err := p.client.DB().Exec(`
+		UPDATE projection_academias
+		SET status = 'inativo',
+			version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
+		WHERE id = $3
+	`, event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
+
+// Atualiza o campo cursos[] da academia quando AtualizarCursos() é executado.
+func (p *AcademiaProjection) handleCursosAtualizados(event db.Event) error {
+	var payload struct {
+		NovoCursos []string `json:"NovoCursos"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("parse error CursosAtualizados: %w", err)
+	}
+	cursosJSON, _ := json.Marshal(payload.NovoCursos)
+	_, err := p.client.DB().Exec(`
+		UPDATE projection_academias
+		SET cursos = $1,
+			version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
+		WHERE id = $4
+	`, string(cursosJSON), event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
+
 // ============================================================================
 // Query / DTO
 // ============================================================================
@@ -325,6 +371,7 @@ func (p *AcademiaProjection) GetAll() ([]AcademiaDTO, error) {
 			status, cursos, email_verificado, created_at, updated_at,
 			total_estudantes, total_inscricoes_pendentes, version
 		FROM projection_academias
+		WHERE deleted_at IS NULL
 		ORDER BY nome ASC
 	`)
 	if err != nil {
@@ -343,7 +390,7 @@ func (p *AcademiaProjection) GetAll() ([]AcademiaDTO, error) {
 			&dto.EmailVerificado, &dto.CreatedAt, &dto.UpdatedAt,
 			&dto.TotalEstudantes, &dto.TotalInscricoesPendentes, &dto.Version,
 		); err != nil {
-			continue
+			return nil, fmt.Errorf("erro ao escanear academia: %w", err)
 		}
 		json.Unmarshal(cursosJSON, &dto.Cursos)
 		if len(anosJSON) > 0 {

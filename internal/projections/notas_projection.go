@@ -349,7 +349,7 @@ func scanNotas(rows *sql.Rows) ([]NotaDTO, error) {
 			&n.MateriaDisciplinarID, &n.Tipo, &n.Categoria, &n.Nota, &n.Observacao,
 			&n.RegisteredAt, &n.EventID, &n.Version,
 		); err != nil {
-			continue
+			return nil, fmt.Errorf("erro ao escanear nota: %w", err)
 		}
 		notas = append(notas, n)
 	}
