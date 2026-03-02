@@ -55,13 +55,15 @@ func (p *AdminProjection) Handle(event db.Event) error {
 		return nil
 	}
 	handlers := map[string]func(db.Event) error{
-		"AdminCriado":            p.handleAdminCriado,
-		"AdminAtivado":           p.handleStatusChange("ativo"),
-		"AdminDesativado":        p.handleStatusChange("inativo"),
-		"AcaoAdminRegistrada":    p.handleAcaoAdminRegistrada,
-		"AdminDadosAtualizados":  p.handleAdminDadosAtualizados,
-		"AdminRoleAtualizado":    p.handleAdminRoleAtualizado,
-		"EmailVerificado":        p.handleEmailVerificado,
+		"AdminCriado":           p.handleAdminCriado,
+		"AdminAtivado":          p.handleStatusChange("ativo"),
+		"AdminDesativado":       p.handleStatusChange("inativo"),
+		"AcaoAdminRegistrada":   p.handleAcaoAdminRegistrada,
+		"AdminDadosAtualizados": p.handleAdminDadosAtualizados,
+		"AdminRoleAtualizado":   p.handleAdminRoleAtualizado,
+		"EmailVerificado":       p.handleEmailVerificado,
+		// CORRIGIDO #2: novo handler para troca de senha via event sourcing
+		"AdminSenhaAlterada": p.handleAdminSenhaAlterada,
 	}
 	if handler, ok := handlers[event.EventType]; ok {
 		return handler(event)
@@ -165,40 +167,60 @@ func (p *AdminProjection) handleAcaoAdminRegistrada(event db.Event) error {
 	return err
 }
 
+// handleAdminDadosAtualizados — CORRIGIDO: usa transação explícita para garantir
+// atomicidade dos múltiplos UPDATEs. Sem transação, falha parcial deixaria
+// projeção em estado inconsistente (ex: email atualizado mas email_verificado não).
 func (p *AdminProjection) handleAdminDadosAtualizados(event db.Event) error {
 	var payload struct {
-		Nome, Email   *string
+		Nome          *string
+		Email         *string
 		EmailAlterado bool
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return err
 	}
 
+	tx, err := p.client.DB().Begin()
+	if err != nil {
+		return fmt.Errorf("erro ao iniciar transação: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
 	if payload.Nome != nil {
-		p.client.DB().Exec(
+		if _, err := tx.Exec(
 			`UPDATE projection_admins SET nome = $1 WHERE id = $2`,
 			*payload.Nome, event.AggregateID,
-		)
-	}
-	if payload.Email != nil {
-		p.client.DB().Exec(
-			`UPDATE projection_admins SET email = $1 WHERE id = $2`,
-			*payload.Email, event.AggregateID,
-		)
-		if payload.EmailAlterado {
-			p.client.DB().Exec(
-				`UPDATE projection_admins SET email_verificado = FALSE WHERE id = $1`,
-				event.AggregateID,
-			)
+		); err != nil {
+			return fmt.Errorf("erro ao atualizar nome: %w", err)
 		}
 	}
 
-	_, err := p.client.DB().Exec(`
+	if payload.Email != nil {
+		if _, err := tx.Exec(
+			`UPDATE projection_admins SET email = $1 WHERE id = $2`,
+			*payload.Email, event.AggregateID,
+		); err != nil {
+			return fmt.Errorf("erro ao atualizar email: %w", err)
+		}
+		if payload.EmailAlterado {
+			if _, err := tx.Exec(
+				`UPDATE projection_admins SET email_verificado = FALSE WHERE id = $1`,
+				event.AggregateID,
+			); err != nil {
+				return fmt.Errorf("erro ao resetar email_verificado: %w", err)
+			}
+		}
+	}
+
+	if _, err := tx.Exec(`
 		UPDATE projection_admins
 		SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
 		WHERE id = $3
-	`, event.EventVersion, event.EventID, event.AggregateID)
-	return err
+	`, event.EventVersion, event.EventID, event.AggregateID); err != nil {
+		return fmt.Errorf("erro ao atualizar version: %w", err)
+	}
+
+	return tx.Commit()
 }
 
 func (p *AdminProjection) handleAdminRoleAtualizado(event db.Event) error {
@@ -220,6 +242,28 @@ func (p *AdminProjection) handleEmailVerificado(event db.Event) error {
 		SET email_verificado = TRUE, version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
 		WHERE id = $3
 	`, event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
+
+// handleAdminSenhaAlterada — CORRIGIDO #2: aplica a nova senha_hash na projeção
+// a partir do evento do ledger. Garante que rebuild restaura a senha correta.
+func (p *AdminProjection) handleAdminSenhaAlterada(event db.Event) error {
+	var payload struct {
+		NovaSenhaHash string
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return err
+	}
+
+	if payload.NovaSenhaHash == "" {
+		return fmt.Errorf("AdminSenhaAlterada: NovaSenhaHash vazio no payload")
+	}
+
+	_, err := p.client.DB().Exec(`
+		UPDATE projection_admins
+		SET senha_hash = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
+		WHERE id = $4
+	`, payload.NovaSenhaHash, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 

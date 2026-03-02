@@ -33,6 +33,7 @@ var allMigrations = []string{
 	"migrations/020_fix_verify_hash_chain.sql",
 	"migrations/021_fix_projection_notas.sql",
 	"migrations/022_reforcar_anos_academicos_constraint.sql",
+	"migrations/023_admin_senha_alterada.sql",
 }
 
 func (c *Client) RunMigrations() error {

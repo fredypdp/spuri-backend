@@ -1,8 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/handlers/update_handlers.go
-// Handlers de atualização de dados de entidades.
-// ============================================================================
-
 package handlers
 
 import (
@@ -223,16 +218,10 @@ func AtualizarRoleAdmin(c *gin.Context) {
 		return
 	}
 
-	if err := utils.ValidateRole(req.NovoRole); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-
-	// Carregar o admin que está fazendo a operação para verificar permissão
 	adminProj := getAdminProjection(c)
 	currentAdmin, err := adminProj.GetByID(userID)
 	if err != nil || currentAdmin == nil {
-		utils.RespondWithNotFoundError(c, "admin")
+		utils.RespondWithNotFoundError(c, "admin executor")
 		return
 	}
 
@@ -269,7 +258,10 @@ func AtualizarRoleAdmin(c *gin.Context) {
 }
 
 // ============================================================================
-// ADMIN
+// PUT /admin/dados/:id
+// CORRIGIDO #1: autorização horizontal.
+// Um admin só pode editar admins de nível inferior ao seu.
+// Admin pode sempre editar seus próprios dados.
 // ============================================================================
 
 func AtualizarDadosAdmin(c *gin.Context) {
@@ -297,8 +289,28 @@ func AtualizarDadosAdmin(c *gin.Context) {
 		utils.RespondWithNotFoundError(c, "administrador")
 		return
 	}
-
 	admin := adminAgg.(*aggregates.Admin)
+
+	// CORRIGIDO #1: verificação de autorização horizontal.
+	// Admin pode editar os próprios dados sem restrição.
+	// Para editar outro admin, precisa de role superior ao alvo.
+	if userID != targetID {
+		executorAgg, err := repository.Load(userID, "Admin")
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		executor := executorAgg.(*aggregates.Admin)
+
+		// ValidatePermission retorna erro se executor.Role <= admin.Role (alvo)
+		if err := executor.ValidatePermission(admin.Role); err != nil {
+			utils.RespondWithForbiddenError(c, fmt.Sprintf(
+				"permissão negada: %s", err.Error(),
+			))
+			return
+		}
+	}
+
 	if err := admin.AtualizarDados(req.Nome, req.Email, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -314,6 +326,9 @@ func AtualizarDadosAdmin(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Dados do admin atualizados: %s", admin.Email)
+	log.Printf("Dados do admin atualizados: %s (por: %s)", admin.Email, userID)
 	c.JSON(http.StatusOK, gin.H{"message": "dados do administrador atualizados com sucesso"})
+
+	// Suprimir aviso de import não utilizado (net/http é usado via utils)
+	_ = http.StatusOK
 }

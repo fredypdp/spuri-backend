@@ -1,9 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/handlers/bootstrap_handler.go
-// Endpoint especial para criar o primeiro admin FPP
-// IMPORTANTE: SÓ funciona se não existir nenhum admin no sistema
-// ============================================================================
-
 package handlers
 
 import (
@@ -17,25 +11,26 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// BootstrapAdminFPP cria o primeiro admin FPP
-// 🔒 SEGURANÇA: Só funciona se não existir NENHUM admin no sistema
+// BootstrapAdminFPP cria o primeiro admin FPP.
+// 🔒 SEGURANÇA: Só funciona se não existir NENHUM admin no sistema.
+// CORRIGIDO: sem fallback de credenciais hardcoded — retorna HTTP 400 se body inválido.
 func BootstrapAdminFPP(c *gin.Context) {
 	log.Println("🔵 [BOOTSTRAP] Iniciando criação de Admin FPP...")
 
 	// Verificar se já existe algum admin
 	adminProj := getAdminProjection(c)
-	log.Println("🔍 [BOOTSTRAP-DEBUG] Buscando admins existentes...")
+	log.Println("🔍 [BOOTSTRAP] Buscando admins existentes...")
 	admins, err := adminProj.GetAll()
 
 	if err != nil {
-		log.Printf("❌ [BOOTSTRAP-DEBUG] Erro ao verificar admins: %v", err)
+		log.Printf("❌ [BOOTSTRAP] Erro ao verificar admins: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "erro ao verificar admins existentes",
 		})
 		return
 	}
 
-	log.Printf("📊 [BOOTSTRAP-DEBUG] Total de admins encontrados: %d", len(admins))
+	log.Printf("📊 [BOOTSTRAP] Total de admins encontrados: %d", len(admins))
 
 	// 🔒 BLOQUEIO: Se já existe admin, abortar
 	if len(admins) > 0 {
@@ -44,57 +39,33 @@ func BootstrapAdminFPP(c *gin.Context) {
 			"error":        "sistema já possui administradores",
 			"message":      "use o endpoint /admin/register para criar novos admins",
 			"total_admins": len(admins),
-			"admins_existentes": func() []gin.H {
-				lista := []gin.H{}
-				for _, adm := range admins {
-					lista = append(lista, gin.H{
-						"nome":   adm.Nome,
-						"email":  adm.Email,
-						"role":   adm.Role,
-						"status": adm.Status,
-					})
-				}
-				return lista
-			}(),
 		})
 		return
 	}
 
-	// Dados do admin
+	// Dados do admin — CORRIGIDO: sem fallback hardcoded.
+	// Body é obrigatório. Se inválido, retorna 400.
 	var req struct {
-		Nome  string `json:"nome"`
-		Email string `json:"email"`
-		Senha string `json:"senha"`
+		Nome  string `json:"nome"  binding:"required"`
+		Email string `json:"email" binding:"required"`
+		Senha string `json:"senha" binding:"required"`
 	}
 
-	// Permitir personalização ou usar valores padrão
 	if err := c.ShouldBindJSON(&req); err != nil {
-		// Usar valores padrão se não for fornecido
-		req.Nome = "Admin FPP"
-		req.Email = "fredrodrigues795@gmail.com"
-		req.Senha = "gloriasaobrasil"
-
-		log.Println("ℹ️ [BOOTSTRAP-DEBUG] Usando valores padrão")
-	}
-
-	log.Printf("📋 [BOOTSTRAP-DEBUG] Dados recebidos - Nome: %s, Email: %s", req.Nome, req.Email)
-
-	// Validações
-	if req.Nome == "" || req.Email == "" || req.Senha == "" {
-		log.Println("❌ [BOOTSTRAP-DEBUG] Validação falhou: campos obrigatórios vazios")
+		log.Printf("❌ [BOOTSTRAP] Body inválido: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "nome, email e senha são obrigatórios",
+			"error":   "nome, email e senha são obrigatórios",
+			"example": gin.H{"nome": "Admin FPP", "email": "admin@dominio.com", "senha": "SenhaForte@123"},
 		})
 		return
 	}
 
-	log.Printf("📋 [BOOTSTRAP] Criando admin: %s (%s)", req.Nome, req.Email)
+	log.Printf("📋 [BOOTSTRAP] Criando admin FPP: %s (%s)", req.Nome, req.Email)
 
 	// Verificar se email já existe
-	log.Printf("🔍 [BOOTSTRAP-DEBUG] Verificando se email %s já existe...", req.Email)
 	existing, _ := adminProj.GetByEmail(req.Email)
 	if existing != nil {
-		log.Printf("❌ [BOOTSTRAP-DEBUG] Email %s já cadastrado", req.Email)
+		log.Printf("❌ [BOOTSTRAP] Email %s já cadastrado", req.Email)
 		c.JSON(http.StatusConflict, gin.H{"error": "email já cadastrado"})
 		return
 	}
@@ -113,34 +84,30 @@ func BootstrapAdminFPP(c *gin.Context) {
 		return
 	}
 
-	log.Printf("✅ [BOOTSTRAP-DEBUG] Hash gerado com sucesso (primeiros 30 chars): %s...", string(hashedPassword[:30]))
-
 	// Criar agregado Admin
 	repository := getRepository(c)
 	newAdmin := aggregates.NewAdmin()
 
 	log.Println("🗂️ [BOOTSTRAP] Criando agregado Admin...")
-	log.Printf("🔍 [BOOTSTRAP-DEBUG] Parâmetros agregado - Nome: %s, Email: %s, Role: fpp", req.Nome, req.Email)
 
 	if err := newAdmin.Criar(
 		req.Nome,
 		req.Email,
 		string(hashedPassword),
 		"fpp", // Role FPP (máxima permissão)
-		nil,   // Criado por ninguém (bootstrap)
+		nil,   // Criado pelo sistema (bootstrap)
 	); err != nil {
-		log.Printf("❌ [BOOTSTRAP-DEBUG] Erro ao criar agregado: %v", err)
+		log.Printf("❌ [BOOTSTRAP] Erro ao criar agregado: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": err.Error(),
 		})
 		return
 	}
 
-	log.Printf("✅ [BOOTSTRAP-DEBUG] Agregado criado - ID: %s", newAdmin.ID)
+	log.Printf("✅ [BOOTSTRAP] Agregado criado - ID: %s", newAdmin.ID)
 
 	// Salvar eventos — bootstrap público, sem JWT
-	log.Println("💾 [BOOTSTRAP] Salvando eventos no Banco de dados...")
-	log.Printf("🔍 [BOOTSTRAP-DEBUG] Total de eventos não confirmados: %d", len(newAdmin.UncommittedEvents))
+	log.Println("💾 [BOOTSTRAP] Salvando eventos no banco de dados...")
 
 	audit := db.AuditContext{
 		UserID:   "bootstrap",
@@ -148,7 +115,7 @@ func BootstrapAdminFPP(c *gin.Context) {
 		IP:       c.ClientIP(),
 	}
 	if err := repository.SaveWithAudit(newAdmin, audit); err != nil {
-		log.Printf("❌ [BOOTSTRAP-DEBUG] Erro ao salvar eventos: %v", err)
+		log.Printf("❌ [BOOTSTRAP] Erro ao salvar eventos: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "erro ao criar admin FPP",
 		})
@@ -157,19 +124,11 @@ func BootstrapAdminFPP(c *gin.Context) {
 
 	log.Println("✅ [BOOTSTRAP] Admin FPP criado com sucesso!")
 
-	// Verificar hash imediatamente
-	log.Println("🔐 [BOOTSTRAP-DEBUG] Validando hash gerado...")
-	if bcrypt.CompareHashAndPassword(hashedPassword, []byte(req.Senha)) == nil {
-		log.Println("✅ [BOOTSTRAP-DEBUG] Hash validado: Login funcionará!")
-	} else {
-		log.Println("⚠️ [BOOTSTRAP-DEBUG] Aviso: Hash pode não validar corretamente")
-	}
-
 	// Aguardar processamento da projeção
 	log.Println("⏳ [BOOTSTRAP] Aguardando processamento da projeção...")
 	time.Sleep(2 * time.Second)
 
-	log.Printf("🎉 [BOOTSTRAP-DEBUG] Processo completo! Admin ID: %s, Email: %s", newAdmin.ID, req.Email)
+	log.Printf("🎉 [BOOTSTRAP] Processo completo! Admin ID: %s, Email: %s", newAdmin.ID, req.Email)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
@@ -179,10 +138,6 @@ func BootstrapAdminFPP(c *gin.Context) {
 			"nome":  newAdmin.Nome,
 			"email": req.Email,
 			"role":  "fpp",
-		},
-		"credentials": gin.H{
-			"email": req.Email,
-			"senha": req.Senha,
 		},
 		"next_steps": []string{
 			"1. Projeção processada - pode fazer login agora",

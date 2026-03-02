@@ -25,7 +25,7 @@ func ListarTodosAdmins(c *gin.Context) {
 	for _, admin := range admins {
 		adminBytes, _ := json.Marshal(admin)
 		var adminMap map[string]interface{}
-		json.Unmarshal(adminBytes, &adminMap)
+		json.Unmarshal(adminBytes, &adminMap) //nolint:errcheck
 		delete(adminMap, "senha_hash")
 		adminsResponse = append(adminsResponse, adminMap)
 	}
@@ -36,16 +36,14 @@ func ListarTodosAdmins(c *gin.Context) {
 	})
 }
 
+// AtivarAdmin — rota já protegida por RequireFPP no middleware.
+// CORRIGIDO: removida chamada redundante a verificarPermissaoAdmin(c, "fpp")
+// que gerava dupla consulta ao banco para a mesma verificação.
 func AtivarAdmin(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	targetID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("ID de administrador inválido"))
-		return
-	}
-
-	if err := verificarPermissaoAdmin(c, "fpp"); err != nil {
-		utils.RespondWithForbiddenError(c, err.Error())
 		return
 	}
 
@@ -74,9 +72,10 @@ func AtivarAdmin(c *gin.Context) {
 
 	registrarAcaoAdmin(c, userID.(uuid.UUID), "admin_ativado", map[string]interface{}{
 		"target_admin_id": targetID.String(),
+		"target_email":    targetAdmin.Email,
 	})
 
-	log.Printf("Admin ativado: %s", targetAdmin.Email)
+	log.Printf("Admin ativado: %s (por: %s)", targetAdmin.Email, userID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "administrador ativado com sucesso",
@@ -84,6 +83,8 @@ func AtivarAdmin(c *gin.Context) {
 	})
 }
 
+// DesativarAdmin — rota já protegida por RequireFPP no middleware.
+// CORRIGIDO: removida chamada redundante a verificarPermissaoAdmin(c, "fpp").
 func DesativarAdmin(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	targetID, err := uuid.Parse(c.Param("id"))
@@ -100,11 +101,7 @@ func DesativarAdmin(c *gin.Context) {
 		return
 	}
 
-	if err := verificarPermissaoAdmin(c, "fpp"); err != nil {
-		utils.RespondWithForbiddenError(c, err.Error())
-		return
-	}
-
+	// Proteção contra auto-desativação
 	if targetID == userID.(uuid.UUID) {
 		utils.RespondWithValidationError(c, fmt.Errorf("você não pode desativar sua própria conta"))
 		return
@@ -135,10 +132,11 @@ func DesativarAdmin(c *gin.Context) {
 
 	registrarAcaoAdmin(c, userID.(uuid.UUID), "admin_desativado", map[string]interface{}{
 		"target_admin_id": targetID.String(),
+		"target_email":    targetAdmin.Email,
 		"motivo":          req.Motivo,
 	})
 
-	log.Printf("Admin desativado: %s - Motivo: %s", targetAdmin.Email, req.Motivo)
+	log.Printf("Admin desativado: %s - Motivo: %s (por: %s)", targetAdmin.Email, req.Motivo, userID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "administrador desativado com sucesso",

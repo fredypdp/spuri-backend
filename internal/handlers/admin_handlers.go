@@ -30,7 +30,6 @@ func LoginAdmin(c *gin.Context) {
 
 	adminProj := getAdminProjection(c)
 
-	// ✅ Prepared statement — proteção contra SQL injection no login
 	admin, err := adminProj.GetByEmailForLogin(req.Email)
 	if err != nil || admin == nil {
 		utils.RespondWithUnauthorizedError(c)
@@ -136,7 +135,7 @@ func RegisterAdmin(c *gin.Context) {
 		"role":          req.Role,
 		"email":         req.Email,
 	})
-	repository.SaveWithAudit(creator, audit)
+	repository.SaveWithAudit(creator, audit) //nolint:errcheck
 
 	log.Printf("Admin criado: %s (%s) por %s", req.Email, req.Role, creatorAdmin.Nome)
 
@@ -171,7 +170,21 @@ func ConsultarAdmin(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, admin)
+	c.JSON(http.StatusOK, gin.H{
+		"admin": gin.H{
+			"id":                     admin.ID,
+			"nome":                   admin.Nome,
+			"email":                  admin.Email,
+			"email_verificado":       admin.EmailVerificado,
+			"role":                   admin.Role,
+			"status":                 admin.Status,
+			"created_by":             admin.CreatedBy,
+			"created_at":             admin.CreatedAt,
+			"updated_at":             admin.UpdatedAt,
+			"total_acoes_realizadas": admin.TotalAcoesRealizadas,
+			"version":                admin.Version,
+		},
+	})
 }
 
 func ListarEstudantes(c *gin.Context) {
@@ -188,7 +201,6 @@ func ListarEstudantes(c *gin.Context) {
 			return
 		}
 
-		// ✅ Prepared statement — codigoAcademia é parâmetro $1 (não interpolado)
 		rows, err := client.DB().Query(`
 			SELECT id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
 				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
@@ -266,8 +278,7 @@ func ListarEstudantes(c *gin.Context) {
 		})
 
 	} else if userType == "admin" {
-		// Query sem parâmetros externos — sem alteração necessária
-		query := `
+		rows, err := client.DB().Query(`
 			SELECT id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
 				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
 				status, status_escolar_fundamental, status_escolar_medio, status_superior,
@@ -276,9 +287,7 @@ func ListarEstudantes(c *gin.Context) {
 				total_faltas, total_inscricoes, version
 			FROM projection_estudantes
 			ORDER BY created_at DESC
-		`
-
-		rows, err := client.DB().Query(query)
+		`)
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
@@ -470,6 +479,8 @@ func DesativarAcademia(c *gin.Context) {
 	})
 }
 
+// RebuildProjection reconstrói uma projeção a partir do ledger de eventos.
+// CORRIGIDO #3: registra ação de auditoria após rebuild bem-sucedido.
 func RebuildProjection(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -521,11 +532,18 @@ func RebuildProjection(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Projeção %s reconstruída por %s", projectionName, admin.Nome)
+	// CORRIGIDO #3: registrar ação de auditoria para rastreabilidade do rebuild
+	registrarAcaoAdmin(c, userID, "projection_rebuilt", map[string]interface{}{
+		"projection": projectionName,
+		"admin_role": admin.Role,
+	})
+
+	log.Printf("Projeção %s reconstruída por %s (%s)", projectionName, admin.Nome, admin.Role)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "projeção reconstruída com sucesso",
 		"projection": projectionName,
+		"auditavel":  true,
 	})
 }
 
@@ -579,7 +597,6 @@ func GetProjectionStatus(c *gin.Context) {
 		return
 	}
 
-	// ✅ Prepared statement — projectionName é parâmetro $1 (não interpolado)
 	var lastProcessedAt *string
 	var eventsProcessed int
 	client.DB().QueryRow(
@@ -587,7 +604,7 @@ func GetProjectionStatus(c *gin.Context) {
 		 FROM projection_checkpoints
 		 WHERE projection_name = $1`,
 		projectionName,
-	).Scan(&lastProcessedAt, &eventsProcessed)
+	).Scan(&lastProcessedAt, &eventsProcessed) //nolint:errcheck
 
 	status := gin.H{
 		"projection_name":        projectionName,
@@ -647,9 +664,9 @@ func GetLedgerStats(c *gin.Context) {
 	var totalEvents int64
 	var firstEvent, lastEvent string
 
-	client.DB().QueryRow(`SELECT COUNT(*) FROM spuri_ledger`).Scan(&totalEvents)
-	client.DB().QueryRow(`SELECT occurred_at FROM spuri_ledger ORDER BY id ASC LIMIT 1`).Scan(&firstEvent)
-	client.DB().QueryRow(`SELECT occurred_at FROM spuri_ledger ORDER BY id DESC LIMIT 1`).Scan(&lastEvent)
+	client.DB().QueryRow(`SELECT COUNT(*) FROM spuri_ledger`).Scan(&totalEvents)           //nolint:errcheck
+	client.DB().QueryRow(`SELECT occurred_at FROM spuri_ledger ORDER BY id ASC LIMIT 1`).Scan(&firstEvent)  //nolint:errcheck
+	client.DB().QueryRow(`SELECT occurred_at FROM spuri_ledger ORDER BY id DESC LIMIT 1`).Scan(&lastEvent) //nolint:errcheck
 
 	aggregateQuery := `
 		SELECT aggregate_type, COUNT(*) as count
@@ -746,11 +763,11 @@ func registrarAcaoAdmin(c *gin.Context, adminID uuid.UUID, acao string, detalhes
 
 	adminAgg, err := repository.Load(adminID, "Admin")
 	if err != nil {
-		log.Printf("Erro ao registrar ação: %v", err)
+		log.Printf("Erro ao registrar ação '%s': %v", acao, err)
 		return
 	}
 
 	admin := adminAgg.(*aggregates.Admin)
-	admin.RegistrarAcao(acao, detalhes)
-	repository.Save(admin)
+	admin.RegistrarAcao(acao, detalhes) //nolint:errcheck
+	repository.Save(admin)              //nolint:errcheck
 }

@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,13 +31,27 @@ func init() {
 	log.Printf("✅ [JWT] Secret configurado")
 }
 
+// getJWTExpiryHours retorna o número de horas de validade do token.
+// CORRIGIDO: JWT_EXPIRY_HOURS era lido mas ignorado — agora é efetivamente usado.
+// Padrão: 24h se não configurado ou valor inválido.
+func getJWTExpiryHours() int {
+	const defaultHours = 24
+	hoursStr := os.Getenv("JWT_EXPIRY_HOURS")
+	if hoursStr == "" {
+		return defaultHours
+	}
+	hours, err := strconv.Atoi(hoursStr)
+	if err != nil || hours <= 0 {
+		log.Printf("⚠️ [JWT] JWT_EXPIRY_HOURS inválido ('%s'), usando padrão %dh", hoursStr, defaultHours)
+		return defaultHours
+	}
+	return hours
+}
+
 func GenerateToken(userID uuid.UUID, userType string) (string, error) {
 	log.Printf("🔑 [GenerateToken] Gerando token - UserID: %s, UserType: %s", userID, userType)
 
-	expiryHours := 24
-	if hours := os.Getenv("JWT_EXPIRY_HOURS"); hours != "" {
-		log.Printf("📝 [GenerateToken] JWT_EXPIRY_HOURS configurado: %s (ignorado, usando padrão)", hours)
-	}
+	expiryHours := getJWTExpiryHours()
 
 	claims := Claims{
 		UserID:   userID,
@@ -49,7 +64,6 @@ func GenerateToken(userID uuid.UUID, userType string) (string, error) {
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString(jwtSecret)
-
 	if err != nil {
 		log.Printf("❌ [GenerateToken] Erro ao assinar token: %v", err)
 		return "", err
@@ -71,8 +85,6 @@ func AuthMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-
-		log.Printf("📝 [AuthMiddleware] Header Authorization encontrado")
 
 		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 		if tokenString == authHeader {
@@ -105,7 +117,6 @@ func AuthMiddleware() gin.HandlerFunc {
 	}
 }
 
-// RequireAcademia bloqueia qualquer tipo que não seja "academia".
 func RequireAcademia() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log.Printf("🏫 [RequireAcademia] Verificando tipo de usuário - Path: %s", c.Request.URL.Path)
@@ -132,7 +143,6 @@ func RequireAcademia() gin.HandlerFunc {
 	}
 }
 
-// RequireEstudante bloqueia qualquer tipo que não seja "estudante".
 func RequireEstudante() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log.Printf("🎓 [RequireEstudante] Verificando tipo de usuário - Path: %s", c.Request.URL.Path)

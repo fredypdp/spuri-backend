@@ -1,12 +1,6 @@
-// ============================================================================
-// ARQUIVO: internal/middleware/admin_auth_middleware.go
-// Middleware de autenticação e autorização para administradores
-// ============================================================================
-
 package middleware
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"spuri/internal/db"
@@ -18,7 +12,7 @@ import (
 func RequireAdmin() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log.Printf("👤 [RequireAdmin] Verificando se é admin - Path: %s", c.Request.URL.Path)
-		
+
 		userType, exists := c.Get("user_type")
 		if !exists {
 			log.Printf("❌ [RequireAdmin] user_type não existe no contexto")
@@ -26,25 +20,29 @@ func RequireAdmin() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		
+
 		log.Printf("🔍 [RequireAdmin] UserType encontrado: %v", userType)
-		
+
 		if userType != "admin" {
 			log.Printf("❌ [RequireAdmin] UserType incorreto: %v (esperado: admin)", userType)
 			c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas administradores"})
 			c.Abort()
 			return
 		}
-		
+
 		log.Printf("✅ [RequireAdmin] OK - É admin")
 		c.Next()
 	}
 }
 
+// RequireAdminRole verifica que o admin autenticado possui ao menos o role mínimo exigido.
+// CORRIGIDO: query usa prepared statement ($1) em vez de fmt.Sprintf com SafeString,
+// garantindo consistência com o padrão do restante do código e eliminando
+// qualquer risco de SQL injection mesmo que a sanitização do UUID mude no futuro.
 func RequireAdminRole(minRole string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log.Printf("🔐 [RequireAdminRole] Verificando role mínima: %s - Path: %s", minRole, c.Request.URL.Path)
-		
+
 		userID, exists := c.Get("user_id")
 		if !exists {
 			log.Printf("❌ [RequireAdminRole] user_id não encontrado")
@@ -72,14 +70,13 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		
-		safeUserID := db.SafeString(uid.String())
-		query := fmt.Sprintf(`SELECT role, status FROM projection_admins WHERE id = '%s'`, safeUserID)
 
-		log.Printf("📝 [RequireAdminRole] Query: %s", query)
-
+		// CORRIGIDO: prepared statement com $1 — sem interpolação de string.
 		var role, status string
-		err := client.DB().QueryRow(query).Scan(&role, &status)
+		err := client.DB().QueryRow(
+			`SELECT role, status FROM projection_admins WHERE id = $1`,
+			uid,
+		).Scan(&role, &status)
 		if err != nil {
 			log.Printf("❌ [RequireAdminRole] Erro ao buscar admin: %v", err)
 			c.JSON(http.StatusForbidden, gin.H{"error": "administrador não encontrado"})
@@ -105,7 +102,7 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 		currentLevel := hierarchy[role]
 		requiredLevel := hierarchy[minRole]
 
-		log.Printf("🔍 [RequireAdminRole] Hierarquia - Current: %d (%s), Required: %d (%s)", 
+		log.Printf("🔍 [RequireAdminRole] Hierarquia - Current: %d (%s), Required: %d (%s)",
 			currentLevel, role, requiredLevel, minRole)
 
 		if currentLevel < requiredLevel {
