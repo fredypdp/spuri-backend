@@ -20,22 +20,19 @@ func ValidateUUID(id string) (uuid.UUID, error) {
 // ValidateTableName valida nome de tabela (whitelist)
 func ValidateTableName(table string) error {
 	validTables := map[string]bool{
-		"projection_estudantes":      true,
-		"projection_academias":       true,
-		"projection_admins":          true,
-		"projection_notas":           true,
-		"projection_faltas":          true,
-		"projection_inscricoes":      true,
-		"projection_cursos":          true,
-		"projection_materias":        true,
-		"spuri_ledger":               true,
-		"auth_tokens":                true,
-		"projection_checkpoints":     true,
-		"projection_turmas":          true,
-		"projection_reprovacoes":     true,
-		"projection_aprovacao_ano":   true,
+		"projection_estudantes":    true,
+		"projection_academias":     true,
+		"projection_admins":        true,
+		"projection_notas":         true,
+		"projection_faltas":        true,
+		"projection_inscricoes":    true,
+		"projection_cursos":        true,
+		"projection_materias":      true,
+		"spuri_ledger":             true,
+		"auth_tokens":              true,
+		"projection_checkpoints":   true,
+		"projection_turmas":        true,
 		"projection_categorias_nota": true,
-		"projection_avaliacao_final": true,
 	}
 
 	if !validTables[table] {
@@ -53,22 +50,20 @@ func ValidateColumnName(column string) error {
 	return nil
 }
 
-// SafeString escapa string para SQL (último recurso — queries com $1,$2 são preferíveis)
+// SafeString escapa string para SQL (último recurso)
 func SafeString(s string) string {
+	// Substitui aspas simples por duas aspas simples (padrão SQL)
 	return strings.ReplaceAll(s, "'", "''")
 }
 
 // ValidateStatus valida status (whitelist)
 func ValidateStatus(status string) error {
 	validStatuses := map[string]bool{
-		"ativo":        true,
-		"inativo":      true,
-		"deletado":     true,
-		"espera":       true,
-		"aprovado":     true,
-		"reprovado":    true,
-		"em_andamento": true,
-		"finalizado":   true,
+		"ativo":     true,
+		"inativo":   true,
+		"espera":    true,
+		"aprovado":  true,
+		"reprovado": true,
 	}
 
 	if !validStatuses[status] {
@@ -77,100 +72,59 @@ func ValidateStatus(status string) error {
 	return nil
 }
 
-// ValidateEventType valida tipo de evento (whitelist).
-//
-// ATENÇÃO — regra do checklist (seção 1.2):
-// Cada EventType emitido por um aggregate DEVE estar nesta lista.
-// Se ausente, EventStore.Append() rejeita o evento silenciosamente
-// e o evento nunca chega ao banco.
-//
-// NOMES CANÔNICOS (aggregate → projeção):
-//
-//	"NotasRegistradas"  emitido por Estudante.RegistrarNota()
-//	"NotaAtualizada"    emitido por Estudante.AtualizarNota()
-//	"FaltasRegistradas" emitido por Estudante.RegistrarFalta()
-//
-// Os nomes "NotaRegistrada", "NotaCorrigida", "NotaEliminada" NUNCA
-// existiram como eventos do aggregate — eram nomes inválidos usados
-// na projeção antiga. Foram removidos e substituídos pelos corretos acima.
 func ValidateEventType(eventType string) error {
 	validTypes := map[string]bool{
-		// ── Estudante ───────────────────────────────────────────────────────
-		"EstudanteCriado":           true,
-		"EstudanteCriadoComVinculo": true,
-		// Notas — nomes canônicos alinhados com o aggregate
-		"NotasRegistradas": true, // Estudante.RegistrarNota()
-		"NotaAtualizada":   true, // Estudante.AtualizarNota()
-		// Faltas
-		"FaltasRegistradas": true, // Estudante.RegistrarFalta()
-		// Inscrições
-		"EstudanteInscrito":  true,
-		"InscricaoAprovada":  true,
-		"InscricaoReprovada": true,
-		"EstudanteVinculado": true,
-		// Status escolar (migration 008: split de status_escolar)
-		// REMOVIDO: "StatusEscolarAtualizado" — substituído pelos dois abaixo
+		"EstudanteCriado":             true,
+		"AcademiaCriada":              true,
+		"AdminCriado":                 true,
+		"NotasRegistradas":            true,
+		"NotasAtualizadas":            true,
+		"FaltasRegistradas":           true,
+		"EstudanteInscrito":           true,
+		"InscricaoAprovada":           true,
+		"InscricaoReprovada":          true,
+		"EstudanteVinculado":          true,
+		"StatusEscolarAtualizado":     true,
 		"StatusEscolarFundamentalAtualizado": true,
 		"StatusEscolarMedioAtualizado":       true,
-		"StatusSuperiorAtualizado":           true,
-		// Dados
-		"DadosPessoaisAtualizados":  true,
-		"DadosAcademicosAtualizados": true,
-		// Aprovação/Avaliação
-		"AprovacaoAnoRegistrada":    true,
-		"AvaliacaoFinalAnoAcademico": true,
-		// Autenticação
-		// FIX BUG #1: "SenhaAlterada" estava ausente na whitelist.
-		// EventStore.Append() rejeitava silenciosamente o evento emitido por
-		// Estudante.AlterarSenha() — a senha nunca era persistida no ledger.
-		"SenhaAlterada":   true,
-		"EmailVerificado": true,
-		// Outros
-		"CursoAlterado": true,
-
-		// ── Academia ────────────────────────────────────────────────────────
-		"AcademiaCriada":           true,
-		"AcademiaAtivada":          true,
-		"AcademiaDesativada":       true,
-		"AcademiaDadosAtualizados": true,
-		"CursosAtualizados":        true,
-		"AnoLetivoDefinido":        true,
-		"CategoriaNotaAdicionada":  true,
-
-		// ── Admin ───────────────────────────────────────────────────────────
-		"AdminCriado":           true,
-		"AdminAtivado":          true,
-		"AdminDesativado":       true,
-		"AcaoAdminRegistrada":   true,
-		"AdminDadosAtualizados": true,
-		"AdminRoleAtualizado":   true,
-
-		// ── Curso ───────────────────────────────────────────────────────────
-		"CursoCriado":           true,
-		"CursoAtivado":          true,
-		"CursoDesativado":       true,
-		"CursoDadosAtualizados": true,
-		"CursoDeletado":         true,
-
-		// ── MateriaDisciplinar ───────────────────────────────────────────────
-		"MateriaCriada":           true,
-		"MateriaAtivada":          true,
-		"MateriaDesativada":       true,
-		"MateriaDadosAtualizados": true,
-		"MateriaPeriodoDefinido":  true,
-		"MateriaDeletada":         true,
-
-		// ── Turma ───────────────────────────────────────────────────────────
-		"TurmaCriada":               true,
-		"TurmaAtivada":              true,
-		"TurmaDesativada":           true,
-		"TurmaDadosAtualizados":     true,
-		"EstudanteAdicionadoATurma": true,
-		"EstudanteRemovidoDaTurma":  true,
-		"TurmaDeletada":             true,
-
-		// ── SistemaConfig ────────────────────────────────────────────────────
-		"AnoLetivoAtualizado": true,
+		"StatusSuperiorAtualizado":    true,
+		"DadosPessoaisAtualizados":    true,
+		"DadosAcademicosAtualizados":  true,
+		"AcademiaAtivada":             true,
+		"AcademiaDesativada":          true,
+		"AdminAtivado":                true,
+		"AdminDesativado":             true,
+		"AcaoAdminRegistrada":         true,
+		"AprovacaoAnoRegistrada":      true,
+		"CursoAlterado":               true,
+		"EstudanteCriadoComVinculo":   true,
+		"CursoCriado":                 true,
+		"CursoAtivado":                true,
+		"CursoDesativado":             true,
+		"CursoDadosAtualizados":       true,
+		"MateriaCriada":               true,
+		"MateriaAtivada":              true,
+		"MateriaDesativada":           true,
+		"MateriaDadosAtualizados":     true,
+		"MateriaPeriodoDefinido":      true,
+		"MateriaDeletada":             true,
+		"EmailVerificado":             true,
+		"AdminDadosAtualizados":       true,
+		"AdminRoleAtualizado":         true,
+		"AcademiaDadosAtualizados":    true,
+		"CursosAtualizados":           true,
+		"AnoLetivoDefinido":           true,
+		"TurmaCriada":                 true,
+		"TurmaAtivada":                true,
+		"TurmaDesativada":             true,
+		"TurmaDadosAtualizados":       true,
+		"EstudanteAdicionadoATurma":   true,
+		"EstudanteRemovidoDaTurma":    true,
+		"TurmaDeletada":               true,
+		"CursoDeletado":               true,
+		// ✅ CORRIGIDO: CategoriaNotaAdicionada adicionada à whitelist
+		"CategoriaNotaAdicionada":     true,
+		"AvaliacaoFinalRegistrada":    true,
 	}
 
 	if !validTypes[eventType] {

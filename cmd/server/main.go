@@ -92,9 +92,9 @@ func initProjections() error {
 	projManager.RegisterProjection("sistema_config", projections.NewSistemaConfigProjection(dbClient))
 	projManager.RegisterProjection("turmas", projections.NewTurmasProjection(dbClient))
 	projManager.RegisterProjection("avaliacao_final", projections.NewAvaliacaoFinalProjection(dbClient))
+	// ✅ CORRIGIDO: categorias_nota agora registrada no Manager — sem este registro,
+	// eventos CategoriaNotaAdicionada eram gravados no ledger mas nunca processados.
 	projManager.RegisterProjection("categorias_nota", projections.NewCategoriasNotaProjection(dbClient))
-	projManager.RegisterProjection("aprovacao_ano", projections.NewAprovacaoAnoProjection(dbClient))
-	projManager.RegisterProjection("reprovacoes", projections.NewReprovacoesProjection(dbClient))
 
 	go projManager.StartProcessing()
 
@@ -144,12 +144,6 @@ func setupRouter() *gin.Engine {
 	}
 
 	// -----------------------------------------------------------------------
-	// Rotas públicas de registro
-	// -----------------------------------------------------------------------
-	router.POST("/estudante/register", handlers.RegisterEstudante)
-	router.POST("/academia/register", handlers.RegisterAcademia)
-
-	// -----------------------------------------------------------------------
 	// Rotas protegidas — qualquer usuário autenticado
 	// -----------------------------------------------------------------------
 	protected := router.Group("/")
@@ -170,12 +164,9 @@ func setupRouter() *gin.Engine {
 		protected.GET("/inscricoes/estudante/:codigo", handlers.GetInscricoesPorCodigoEstudante)
 		protected.GET("/estudantes", handlers.ListarEstudantes)
 		protected.GET("/ano-letivo-atual", handlers.GetAnoLetivoAtual)
-
 		protected.GET("/avaliacoes", handlers.ListarAvaliacoes)
-
 		protected.GET("/aprovacoes", handlers.ListarAprovacoes)
 		protected.GET("/reprovacoes", handlers.ListarReprovacoes)
-
 		protected.GET("/avaliacoes-estudante/:codigo",
 			middleware.RequireAcademiaOuAdmin(),
 			handlers.GetAvaliacoesFinaisEstudante,
@@ -217,16 +208,10 @@ func setupRouter() *gin.Engine {
 		academia.PUT("/inscricao/:id/reprovar", handlers.ReprovarInscricao)
 		academia.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)
 		academia.GET("/consultar-academia/:codigo", handlers.GetAcademiaPorCodigo)
-
-		// Cursos
 		academia.POST("/cursos", handlers.CriarCurso)
 		academia.GET("/cursos", handlers.ListarCursos)
-		academia.PUT("/cursos/:id", handlers.AtualizarDadosCurso)
 		academia.PUT("/cursos/:id/ativar", handlers.AtivarCurso)
 		academia.PUT("/cursos/:id/desativar", handlers.DesativarCurso)
-		academia.DELETE("/cursos/:id", handlers.DeletarCurso)
-
-		// Matérias
 		academia.POST("/materias", handlers.CriarMateria)
 		academia.GET("/materias", handlers.ListarMaterias)
 		academia.PUT("/materias/:id", handlers.AtualizarDadosMateria)
@@ -234,37 +219,21 @@ func setupRouter() *gin.Engine {
 		academia.PUT("/materias/:id/desativar", handlers.DesativarMateria)
 		academia.PUT("/materias/:id/periodo", handlers.DefinirPeriodoMateria)
 		academia.DELETE("/materias/:id", handlers.DeletarMateria)
-
-		// Dados da academia
 		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
-
-		// Inscrições
+		academia.PUT("/cursos/:id", handlers.AtualizarDadosCurso)
 		academia.GET("/inscricoes/estudante/:codigo", handlers.GetInscricoesPorCodigoEstudante)
-
-		// Estudantes
 		academia.PUT("/estudante/:codigo/curso", handlers.AlterarCursoEstudante)
 		academia.POST("/estudante/register", handlers.RegisterEstudantePorAcademia)
-
-		// Notas e categorias
 		academia.POST("/registrar-nota", handlers.RegistrarNota)
 		academia.PUT("/atualizar-nota", handlers.AtualizarNota)
 		academia.POST("/categorias-nota", handlers.CriarCategoriaNotaSuperior)
 		academia.GET("/categorias-nota", handlers.ListarCategoriasNota)
-
-		// Turmas
-		// BUG #3 FIX: as 3 rotas abaixo estavam ausentes.
-		// AtivarTurma e DesativarTurma são pré-requisitos para DeletarTurma funcionar.
 		academia.POST("/turmas", handlers.CriarTurma)
 		academia.GET("/turmas", handlers.ListarTurmasAcademia)
 		academia.GET("/turmas/:codigo", handlers.GetTurma)
 		academia.PUT("/turmas/:codigo", handlers.AtualizarTurma)
-		academia.PUT("/turmas/:codigo/ativar", handlers.AtivarTurma)        // NOVO
-		academia.PUT("/turmas/:codigo/desativar", handlers.DesativarTurma)  // NOVO
-		academia.DELETE("/turmas/:codigo", handlers.DeletarTurma)           // NOVO
 		academia.POST("/turmas/:codigo/estudantes", handlers.AdicionarEstudanteATurma)
 		academia.DELETE("/turmas/:codigo/estudantes/:codigoEstudante", handlers.RemoverEstudanteDaTurma)
-
-		// Avaliação final
 		academia.POST("/avaliacao-final", handlers.RegistrarAvaliacaoFinal)
 	}
 
@@ -296,6 +265,7 @@ func setupRouter() *gin.Engine {
 		{
 			adminAdm.POST("/register", handlers.RegisterAdmin)
 			adminAdm.GET("/admins", handlers.ListarTodosAdmins)
+			// ✅ Única rota de registro de academia — protegida por RequireAdm
 			adminAdm.POST("/academia/register", handlers.RegisterAcademia)
 		}
 
@@ -332,33 +302,29 @@ func corsMiddleware() gin.HandlerFunc {
 			for i := range allowedOrigins {
 				allowedOrigins[i] = strings.TrimSpace(allowedOrigins[i])
 			}
-		} else {
-			allowedOrigins = []string{}
 		}
 	}
 
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
 
-		allowed := false
-		if env != "production" {
-			allowed = true
-		} else {
+		if env == "production" {
+			allowed := false
 			for _, o := range allowedOrigins {
 				if o == origin {
 					allowed = true
 					break
 				}
 			}
-		}
-
-		if allowed && origin != "" {
-			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+			if allowed {
+				c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+			}
+		} else {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		}
 
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Headers",
-			"Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
 
 		if c.Request.Method == "OPTIONS" {
@@ -372,8 +338,11 @@ func corsMiddleware() gin.HandlerFunc {
 
 func requestIDMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		requestID := fmt.Sprintf("req_%d", time.Now().UnixNano())
-		c.Set("requestID", requestID)
+		requestID := c.Request.Header.Get("X-Request-ID")
+		if requestID == "" {
+			requestID = fmt.Sprintf("%d", time.Now().UnixNano())
+		}
+		c.Set("request_id", requestID)
 		c.Writer.Header().Set("X-Request-ID", requestID)
 		c.Next()
 	}

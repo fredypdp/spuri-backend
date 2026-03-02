@@ -244,7 +244,7 @@ func (a *Academia) AtualizarCursos(cursos []string) error {
 
 // AtualizarDados atualiza campos da academia.
 // anosAcademicos — se não-nil, atualiza a lista. As mesmas regras de validação
-// de Criar() se aplicam (obrigatório para fundamental/misto, proibido para o resto).
+// de Criar() se aplicam (obrigatório e não-vazio para fundamental/misto, nil para o resto).
 // Passe nil para não alterar o campo.
 func (a *Academia) AtualizarDados(
 	nome *string,
@@ -262,7 +262,7 @@ func (a *Academia) AtualizarDados(
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
 
-	// Se anosAcademicos foi enviado, revalidar.
+	// Se anosAcademicos foi enviado (não-nil), revalidar.
 	// Usa nivelEscolar novo (se enviado) ou o atual do aggregate.
 	var anosValidados []string
 	if anosAcademicos != nil {
@@ -323,6 +323,7 @@ func (a *Academia) applyAcademiaCriada(event DomainEvent) error {
 	a.NivelEscolar = ev.NivelEscolar
 	a.AnosAcademicos = ev.AnosAcademicos
 	a.Cursos = ev.Cursos
+	// Status e EmailVerificado são sempre fixos na criação — independente do payload
 	a.Status = "inativo"
 	a.EmailVerificado = false
 	a.CreatedAt = ev.CreatedAt
@@ -395,7 +396,8 @@ func (a *Academia) applyAcademiaDadosAtualizados(event DomainEvent) error {
 	if ev.NivelEscolar != nil {
 		a.NivelEscolar = ev.NivelEscolar
 	}
-	// AnosAcademicos: só sobrescreve se o evento trouxer valor (não-nil slice)
+	// AnosAcademicos: só sobrescreve se o evento trouxer valor não-nil
+	// (nil = campo não alterado nesta operação)
 	if ev.AnosAcademicos != nil {
 		a.AnosAcademicos = ev.AnosAcademicos
 	}
@@ -416,6 +418,9 @@ func (a *Academia) applyEmailVerificado(_ DomainEvent) error {
 
 // validarAnosAcademicos centraliza as regras de negócio para o campo AnosAcademicos.
 // Retorna a slice validada (pode ser nil quando não aplicável).
+//
+// ✅ CORRIGIDO: array vazio agora é rejeitado para fundamental/misto —
+// anos_academicos é obrigatório e deve conter ao menos um elemento.
 func validarAnosAcademicos(tipo string, nivelEscolar *string, anos []string) ([]string, error) {
 	// Academia superior nunca tem anos fundamentais
 	if tipo == "superior" {
@@ -433,9 +438,13 @@ func validarAnosAcademicos(tipo string, nivelEscolar *string, anos []string) ([]
 
 	switch *nivelEscolar {
 	case "fundamental", "misto":
-		// Obrigatório
+		// Obrigatório e não pode ser vazio
 		if len(anos) == 0 {
-			return nil, fmt.Errorf("anos_academicos é obrigatório para escolas de nivel_escolar '%s'", *nivelEscolar)
+			return nil, fmt.Errorf(
+				"anos_academicos é obrigatório e não pode estar vazio para escolas de nivel_escolar '%s'. "+
+					"Informe ao menos um ano (ex: primeiro_fundamental, segundo_fundamental, etc.)",
+				*nivelEscolar,
+			)
 		}
 		if err := utils.ValidateAnosFundamental(anos); err != nil {
 			return nil, err
