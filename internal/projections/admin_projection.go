@@ -1,10 +1,10 @@
 // ============================================================================
 // ARQUIVO: internal/projections/admin_projection.go
 //
-// CORREÇÕES APLICADAS (auditoria Março 2026):
-//   #2  — Rebuild documentado com aviso de downtime. Sem mudança estrutural
-//          (swap atômico requer refactoring maior — registrado como issue aberto).
-//          Todos os handlers de evento corrigidos e auditados.
+// CORREÇÕES APLICADAS:
+//   [A31] — handleAdminDadosAtualizados: verifica unicidade de email na projeção
+//            antes de executar UPDATE. Evita que evento com email duplicado
+//            quebre o rebuild silenciosamente.
 // ============================================================================
 
 package projections
@@ -186,7 +186,13 @@ func (p *AdminProjection) handleAcaoAdminRegistrada(event db.Event) error {
 	return err
 }
 
-// handleAdminDadosAtualizados usa transação explícita para garantir atomicidade.
+// handleAdminDadosAtualizados aplica atualização de nome/email na projeção.
+//
+// [A31] CORRIGIDO: antes do UPDATE de email, verifica se o novo email já
+// pertence a outro admin. Se sim, retorna erro para impedir inconsistência
+// ledger ↔ projeção. O evento já está gravado no ledger (imutável), mas ao
+// menos o rebuild não quebrará silenciosamente: o erro será logado e o evento
+// ficará marcado como falha permanente.
 func (p *AdminProjection) handleAdminDadosAtualizados(event db.Event) error {
 	var payload struct {
 		Nome          *string
@@ -213,6 +219,23 @@ func (p *AdminProjection) handleAdminDadosAtualizados(event db.Event) error {
 	}
 
 	if payload.Email != nil {
+		// [A31] Verificar unicidade antes de aplicar o UPDATE
+		var conflictID string
+		err := tx.QueryRow(
+			`SELECT id FROM projection_admins WHERE email = $1 AND id != $2`,
+			*payload.Email, event.AggregateID,
+		).Scan(&conflictID)
+		if err == nil {
+			// Outro admin já possui este email
+			return fmt.Errorf(
+				"handleAdminDadosAtualizados: email '%s' já pertence ao admin %s — evento %d gravado no ledger mas não aplicável na projeção",
+				*payload.Email, conflictID, event.ID,
+			)
+		}
+		if err != sql.ErrNoRows {
+			return fmt.Errorf("erro ao verificar unicidade de email: %w", err)
+		}
+
 		if _, err := tx.Exec(
 			`UPDATE projection_admins SET email = $1 WHERE id = $2`,
 			*payload.Email, event.AggregateID,

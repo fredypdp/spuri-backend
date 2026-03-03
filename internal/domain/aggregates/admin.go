@@ -1,9 +1,11 @@
 // ============================================================================
 // ARQUIVO: internal/domain/aggregates/admin.go
 //
-// CORREÇÕES APLICADAS (auditoria Março 2026):
-//   #1  — Criar() agora valida que senhaHash tem comprimento mínimo de bcrypt (60 chars)
-//   #7  — Handlers de Apply corrigidos para retornar erro em vez de panic
+// CORREÇÕES APLICADAS:
+//   #1  — Criar() valida hash bcrypt mínimo (60 chars)
+//   #7  — Apply handlers retornam erro em vez de panic
+//   [A05] — ValidatePermission: protegido contra role desconhecido (zero-value
+//            no map retornava 0, permitindo operação com role inválido)
 // ============================================================================
 
 package aggregates
@@ -19,6 +21,10 @@ import (
 
 // emailRegex valida formato básico de email.
 var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+
+// adminHierarchy é a hierarquia canônica de roles.
+// Centralizada aqui para evitar divergência com middleware e handlers.
+var adminHierarchy = map[string]int{"fpp": 3, "adm": 2, "gerente": 1}
 
 // ============================================================================
 // Struct
@@ -84,13 +90,12 @@ func (a *Admin) Apply(event DomainEvent) error {
 // ============================================================================
 
 // Criar cria um novo administrador.
-// FIX #1: senhaHash deve ter pelo menos 60 caracteres (comprimento mínimo de bcrypt).
+// senhaHash deve ter pelo menos 60 caracteres (comprimento mínimo de bcrypt).
 func (a *Admin) Criar(nome, email, senhaHash, role string, createdBy *uuid.UUID) error {
 	if nome == "" || email == "" || senhaHash == "" {
 		return fmt.Errorf("campos obrigatórios vazios")
 	}
 
-	// FIX #1 — valida que é um hash bcrypt válido (bcrypt gera hashes de 60 chars)
 	if len(senhaHash) < 60 {
 		return fmt.Errorf("senhaHash inválido: esperado hash bcrypt (mínimo 60 caracteres)")
 	}
@@ -262,13 +267,27 @@ func (a *Admin) AlterarSenha(novaSenhaHash string, changedBy uuid.UUID, motivo s
 }
 
 // ValidatePermission verifica que este admin tem role ESTRITAMENTE superior ao targetRole.
+//
+// [A05] CORRIGIDO: antes, um targetRole desconhecido retornava 0 do map,
+// e a condição `hierarchy[a.Role] <= 0` era false para qualquer role válido,
+// permitindo a operação. Agora valida explicitamente ambos os roles.
 func (a *Admin) ValidatePermission(targetRole string) error {
 	if a.Status != "ativo" {
 		return fmt.Errorf("administrador está inativo")
 	}
 
-	hierarchy := map[string]int{"fpp": 3, "adm": 2, "gerente": 1}
-	if hierarchy[a.Role] <= hierarchy[targetRole] {
+	myLevel, myOk := adminHierarchy[a.Role]
+	targetLevel, targetOk := adminHierarchy[targetRole]
+
+	// Rejeita roles desconhecidos em qualquer dos lados
+	if !myOk {
+		return fmt.Errorf("role do executor '%s' é inválido", a.Role)
+	}
+	if !targetOk {
+		return fmt.Errorf("role alvo '%s' é inválido", targetRole)
+	}
+
+	if myLevel <= targetLevel {
 		return fmt.Errorf("permissão negada: role '%s' não pode gerenciar '%s'", a.Role, targetRole)
 	}
 

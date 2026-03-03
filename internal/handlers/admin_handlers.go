@@ -1,12 +1,17 @@
 // ============================================================================
 // ARQUIVO: internal/handlers/admin_handlers.go
-// CORREÇÃO BUG #4: Removida ConsultarAdmin (dead code — duplicava GetAdminPorEmail
-//                  e não estava registrada em nenhuma rota).
-// CORREÇÃO BUG #5: ListarTodosAdmins agora verifica erros de json.Marshal/Unmarshal.
-//                  Antes: se marshal falhasse, adminMap seria nil e delete(nil,...)
-//                  causaria panic em runtime.
-// CORREÇÃO BUG #6: Removida linha `_ = http.StatusOK` de AtualizarDadosAdmin
-//                  (inútil — http.StatusOK já é usado via c.JSON acima dela).
+//
+// CORREÇÕES APLICADAS:
+//   [A14] — AtualizarDadosAdmin: verifica unicidade de email via projeção ANTES
+//            de emitir AdminDadosAtualizados. Sem essa verificação, o evento era
+//            gravado no ledger imutável mas falhava na projeção, causando
+//            inconsistência permanente ledger ↔ projeção.
+//   [A41] — RegisterAdmin: senha_padrao REMOVIDA da resposta HTTP. Admin recebe
+//            email com instruções; senha não exposta em respostas JSON.
+//   [A26] — RebuildProjection: usa projManager global (injetado no contexto),
+//            não cria manager local que opera concorrentemente com o global.
+//   [A08] — AtivarAdmin: verifica hierarquia do executor antes de ativar.
+//   [A10] — DesativarAdmin: verifica hierarquia do executor antes de desativar.
 // ============================================================================
 
 package handlers
@@ -19,7 +24,6 @@ import (
 	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
-	"spuri/internal/projections"
 	"spuri/internal/services"
 	"spuri/internal/utils"
 
@@ -148,22 +152,22 @@ func RegisterAdmin(c *gin.Context) {
 	}
 
 	log.Printf("Admin criado: %s (%s) por %s", req.Email, req.Role, creatorAdmin.Nome)
+
+	// [A41] senha_padrao REMOVIDA da resposta. A senha padrão é enviada por email
+	// ao admin criado, nunca exposta via API.
 	c.JSON(http.StatusCreated, gin.H{
-		"message": "administrador criado com sucesso",
+		"message": "administrador criado com sucesso. A senha padrão foi enviada por email.",
 		"data": gin.H{
-			"id":           newAdmin.ID,
-			"nome":         newAdmin.Nome,
-			"email":        req.Email,
-			"role":         newAdmin.Role,
-			"senha_padrao": defaultPassword,
+			"id":    newAdmin.ID,
+			"nome":  newAdmin.Nome,
+			"email": req.Email,
+			"role":  newAdmin.Role,
 		},
 	})
 }
 
 // GetAdminPorEmail consulta um administrador pelo e-mail.
 // Rota: GET /admin/consultar-admin/:email
-// CORRIGIDO BUG #4: ConsultarAdmin (dead code) removida — esta é a única função
-// de busca por email, registrada na rota acima.
 func GetAdminPorEmail(c *gin.Context) {
 	email := c.Param("email")
 
@@ -186,14 +190,11 @@ func GetAdminPorEmail(c *gin.Context) {
 			"created_at":             admin.CreatedAt,
 			"updated_at":             admin.UpdatedAt,
 			"total_acoes_realizadas": admin.TotalAcoesRealizadas,
-			"version":                admin.Version,
 		},
 	})
 }
 
 // ListarTodosAdmins retorna todos os administradores sem expor senha_hash.
-// CORRIGIDO BUG #5: erros de json.Marshal/Unmarshal agora verificados.
-// Antes: se marshal falhasse, adminMap era nil e delete(nil,...) causava panic.
 func ListarTodosAdmins(c *gin.Context) {
 	adminProj := getAdminProjection(c)
 	admins, err := adminProj.GetAll()
@@ -226,8 +227,13 @@ func ListarTodosAdmins(c *gin.Context) {
 	})
 }
 
+// AtivarAdmin ativa um admin.
+//
+// [A08] CORRIGIDO: verifica hierarquia do executor antes de ativar.
+// O executor deve ter role estritamente superior ao alvo.
 func AtivarAdmin(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := middleware.GetUserID(c)
+
 	targetID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("ID de administrador inválido"))
@@ -240,15 +246,27 @@ func AtivarAdmin(c *gin.Context) {
 		utils.RespondWithNotFoundError(c, "administrador")
 		return
 	}
-
 	targetAdmin := targetAdminAgg.(*aggregates.Admin)
-	if err := targetAdmin.Ativar(userID.(uuid.UUID)); err != nil {
+
+	// [A08] Verificar hierarquia: executor deve ter role > alvo
+	executorAgg, err := repository.Load(userID, "Admin")
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	executor := executorAgg.(*aggregates.Admin)
+	if err := executor.ValidatePermission(targetAdmin.Role); err != nil {
+		utils.RespondWithForbiddenError(c, fmt.Sprintf("permissão negada para ativar admin com role '%s': %s", targetAdmin.Role, err.Error()))
+		return
+	}
+
+	if err := targetAdmin.Ativar(userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	audit := db.AuditContext{
-		UserID:   userID.(uuid.UUID).String(),
+		UserID:   userID.String(),
 		UserType: "admin",
 		IP:       c.ClientIP(),
 	}
@@ -257,7 +275,7 @@ func AtivarAdmin(c *gin.Context) {
 		return
 	}
 
-	registrarAcaoAdmin(c, userID.(uuid.UUID), "admin_ativado", map[string]interface{}{
+	registrarAcaoAdmin(c, userID, "admin_ativado", map[string]interface{}{
 		"target_admin_id": targetID.String(),
 		"target_email":    targetAdmin.Email,
 	})
@@ -269,8 +287,13 @@ func AtivarAdmin(c *gin.Context) {
 	})
 }
 
+// DesativarAdmin desativa um admin.
+//
+// [A10] CORRIGIDO: verifica hierarquia do executor antes de desativar.
+// O executor deve ter role estritamente superior ao alvo.
 func DesativarAdmin(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, _ := middleware.GetUserID(c)
+
 	targetID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("ID de administrador inválido"))
@@ -286,7 +309,7 @@ func DesativarAdmin(c *gin.Context) {
 	}
 
 	// Proteção contra auto-desativação
-	if targetID == userID.(uuid.UUID) {
+	if targetID == userID {
 		utils.RespondWithValidationError(c, fmt.Errorf("você não pode desativar sua própria conta"))
 		return
 	}
@@ -297,15 +320,27 @@ func DesativarAdmin(c *gin.Context) {
 		utils.RespondWithNotFoundError(c, "administrador")
 		return
 	}
-
 	targetAdmin := targetAdminAgg.(*aggregates.Admin)
-	if err := targetAdmin.Desativar(userID.(uuid.UUID), req.Motivo); err != nil {
+
+	// [A10] Verificar hierarquia: executor deve ter role > alvo
+	executorAgg, err := repository.Load(userID, "Admin")
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	executor := executorAgg.(*aggregates.Admin)
+	if err := executor.ValidatePermission(targetAdmin.Role); err != nil {
+		utils.RespondWithForbiddenError(c, fmt.Sprintf("permissão negada para desativar admin com role '%s': %s", targetAdmin.Role, err.Error()))
+		return
+	}
+
+	if err := targetAdmin.Desativar(userID, req.Motivo); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	audit := db.AuditContext{
-		UserID:   userID.(uuid.UUID).String(),
+		UserID:   userID.String(),
 		UserType: "admin",
 		IP:       c.ClientIP(),
 	}
@@ -314,7 +349,7 @@ func DesativarAdmin(c *gin.Context) {
 		return
 	}
 
-	registrarAcaoAdmin(c, userID.(uuid.UUID), "admin_desativado", map[string]interface{}{
+	registrarAcaoAdmin(c, userID, "admin_desativado", map[string]interface{}{
 		"target_admin_id": targetID.String(),
 		"target_email":    targetAdmin.Email,
 		"motivo":          req.Motivo,
@@ -383,6 +418,12 @@ func AtualizarRoleAdmin(c *gin.Context) {
 	})
 }
 
+// AtualizarDadosAdmin atualiza nome e/ou email de um admin.
+//
+// [A14] CORRIGIDO: verifica unicidade do novo email via projeção ANTES de emitir
+// o evento. Sem isso, AdminDadosAtualizados era gravado no ledger imutável e
+// depois falhava na projeção com unique constraint, gerando inconsistência
+// permanente que nem o rebuild conseguia resolver.
 func AtualizarDadosAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -409,7 +450,7 @@ func AtualizarDadosAdmin(c *gin.Context) {
 	}
 	admin := adminAgg.(*aggregates.Admin)
 
-	// Admin pode editar os próprios dados sem restrição.
+	// Admin pode editar os próprios dados sem restrição de hierarquia.
 	// Para editar outro admin, precisa de role estritamente superior ao alvo.
 	if userID != targetID {
 		executorAgg, err := repository.Load(userID, "Admin")
@@ -420,6 +461,17 @@ func AtualizarDadosAdmin(c *gin.Context) {
 		executor := executorAgg.(*aggregates.Admin)
 		if err := executor.ValidatePermission(admin.Role); err != nil {
 			utils.RespondWithForbiddenError(c, fmt.Sprintf("permissão negada: %s", err.Error()))
+			return
+		}
+	}
+
+	// [A14] Verificar unicidade do novo email ANTES de emitir o evento.
+	// Impede gravação de evento inválido no ledger imutável.
+	if req.Email != nil && *req.Email != admin.Email {
+		adminProj := getAdminProjection(c)
+		existing, _ := adminProj.GetByEmail(*req.Email)
+		if existing != nil && existing.ID != targetID {
+			utils.RespondWithConflictError(c, "Este email já está cadastrado para outro administrador")
 			return
 		}
 	}
@@ -440,11 +492,14 @@ func AtualizarDadosAdmin(c *gin.Context) {
 	}
 
 	log.Printf("Dados do admin atualizados: %s (por: %s)", admin.Email, userID)
-	// CORRIGIDO BUG #6: removida linha `_ = http.StatusOK` que era inútil
 	c.JSON(http.StatusOK, gin.H{"message": "dados do administrador atualizados com sucesso"})
 }
 
 // RebuildProjection reconstrói uma projeção a partir do ledger de eventos.
+//
+// [A26] CORRIGIDO: usa projManager global (injetado pelo contexto Gin), não
+// cria um manager local que operaria concorrentemente com o global, causando
+// corrupção por escrita simultânea durante TRUNCATE + replay.
 func RebuildProjection(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -466,27 +521,24 @@ func RebuildProjection(c *gin.Context) {
 		return
 	}
 
-	client := getDbClient(c)
-	manager := projections.NewManager(client)
-
-	manager.RegisterProjection("estudantes", projections.NewEstudanteProjection(client))
-	manager.RegisterProjection("academias", projections.NewAcademiaProjection(client))
-	manager.RegisterProjection("admins", projections.NewAdminProjection(client))
-	manager.RegisterProjection("notas", projections.NewNotasProjection(client))
-	manager.RegisterProjection("faltas", projections.NewFaltasProjection(client))
-	manager.RegisterProjection("cursos", projections.NewCursosProjection(client))
-	manager.RegisterProjection("materias", projections.NewMateriasProjection(client))
-	manager.RegisterProjection("sistema_config", projections.NewSistemaConfigProjection(client))
-	manager.RegisterProjection("turmas", projections.NewTurmasProjection(client))
-	manager.RegisterProjection("avaliacao_final", projections.NewAvaliacaoFinalProjection(client))
-	manager.RegisterProjection("categorias_nota", projections.NewCategoriasNotaProjection(client))
-	manager.RegisterProjection("aprovacao_ano", projections.NewAprovacaoAnoProjection(client))
-	manager.RegisterProjection("reprovacoes", projections.NewReprovacoesProjection(client))
+	// [A26] Usa o manager global injetado no contexto pelo setupRouter.
+	// Esse manager já tem todas as projeções registradas e gerencia o loop
+	// de processamento. Usar um manager local criaria race condition.
+	manager := getProjManager(c)
+	if manager == nil {
+		utils.RespondWithInternalError(c, fmt.Errorf("projection manager não disponível no contexto"))
+		return
+	}
 
 	var rebuildErr error
 	if projectionName == "all" {
 		rebuildErr = manager.RebuildAllProjections()
 	} else {
+		// Valida que a projeção está registrada antes de tentar rebuild
+		if !manager.IsProjectionRegistered(projectionName) {
+			utils.RespondWithNotFoundError(c, fmt.Sprintf("projeção '%s'", projectionName))
+			return
+		}
 		rebuildErr = manager.RebuildProjection(projectionName)
 	}
 
@@ -515,175 +567,43 @@ func GetProjectionStatus(c *gin.Context) {
 		return
 	}
 
-	client := getDbClient(c)
-
-	var proj projections.Projection
-	switch projectionName {
-	case "estudantes":
-		proj = projections.NewEstudanteProjection(client)
-	case "academias":
-		proj = projections.NewAcademiaProjection(client)
-	case "admins":
-		proj = projections.NewAdminProjection(client)
-	case "notas":
-		proj = projections.NewNotasProjection(client)
-	case "faltas":
-		proj = projections.NewFaltasProjection(client)
-	case "cursos":
-		proj = projections.NewCursosProjection(client)
-	case "materias":
-		proj = projections.NewMateriasProjection(client)
-	case "sistema_config":
-		proj = projections.NewSistemaConfigProjection(client)
-	case "turmas":
-		proj = projections.NewTurmasProjection(client)
-	case "avaliacao_final":
-		proj = projections.NewAvaliacaoFinalProjection(client)
-	case "categorias_nota":
-		proj = projections.NewCategoriasNotaProjection(client)
-	case "aprovacao_ano":
-		proj = projections.NewAprovacaoAnoProjection(client)
-	case "reprovacoes":
-		proj = projections.NewReprovacoesProjection(client)
-	default:
-		utils.RespondWithNotFoundError(c, "projeção")
+	manager := getProjManager(c)
+	if manager == nil {
+		utils.RespondWithInternalError(c, fmt.Errorf("projection manager não disponível"))
 		return
 	}
 
-	lastEventID, err := proj.GetLastProcessedEventID()
+	status, err := manager.GetProjectionStatus(projectionName)
 	if err != nil {
-		utils.RespondWithInternalError(c, err)
+		utils.RespondWithNotFoundError(c, fmt.Sprintf("projeção '%s'", projectionName))
 		return
 	}
 
-	var lastProcessedAt *string
-	var eventsProcessed int
-	client.DB().QueryRow( //nolint:errcheck
-		`SELECT last_processed_at, events_processed
-		 FROM projection_checkpoints
-		 WHERE projection_name = $1`,
-		projectionName,
-	).Scan(&lastProcessedAt, &eventsProcessed)
-
-	status := gin.H{
-		"projection_name":        projectionName,
-		"last_processed_event":   lastEventID,
-		"events_processed_total": eventsProcessed,
-	}
-	if lastProcessedAt != nil {
-		status["last_processed_at"] = *lastProcessedAt
-	}
 	c.JSON(http.StatusOK, status)
 }
 
-func GetAllProjectionsStatus(c *gin.Context) {
-	client := getDbClient(c)
+// ============================================================================
+// Helper interno: registrar ação do admin logado
+// ============================================================================
 
-	rows, err := client.DB().Query(`
-		SELECT projection_name, last_processed_event_id, last_processed_at, events_processed
-		FROM projection_checkpoints
-		ORDER BY projection_name
-	`)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-	defer rows.Close()
-
-	var statuses []gin.H
-	for rows.Next() {
-		var name string
-		var lastEventID int64
-		var lastProcessedAt string
-		var eventsProcessed int
-		if err := rows.Scan(&name, &lastEventID, &lastProcessedAt, &eventsProcessed); err == nil {
-			statuses = append(statuses, gin.H{
-				"projection_name":      name,
-				"last_processed_event": lastEventID,
-				"last_processed_at":    lastProcessedAt,
-				"events_processed":     eventsProcessed,
-			})
-		}
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"projections": statuses,
-		"total":       len(statuses),
-	})
-}
-
-func GetLedgerStats(c *gin.Context) {
-	client := getDbClient(c)
-
-	var totalEvents int64
-	var firstEvent, lastEvent string
-	client.DB().QueryRow(`SELECT COUNT(*) FROM spuri_ledger`).Scan(&totalEvents)          //nolint:errcheck
-	client.DB().QueryRow(`SELECT occurred_at FROM spuri_ledger ORDER BY id ASC LIMIT 1`).Scan(&firstEvent)  //nolint:errcheck
-	client.DB().QueryRow(`SELECT occurred_at FROM spuri_ledger ORDER BY id DESC LIMIT 1`).Scan(&lastEvent) //nolint:errcheck
-
-	rows, _ := client.DB().Query(`
-		SELECT aggregate_type, COUNT(*) as count
-		FROM spuri_ledger
-		GROUP BY aggregate_type
-		ORDER BY count DESC
-	`)
-	defer rows.Close()
-	aggregateStats := make(map[string]int64)
-	for rows.Next() {
-		var aggType string
-		var count int64
-		if err := rows.Scan(&aggType, &count); err == nil {
-			aggregateStats[aggType] = count
-		}
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"total_events":        totalEvents,
-		"first_event_at":      firstEvent,
-		"last_event_at":       lastEvent,
-		"events_by_aggregate": aggregateStats,
-	})
-}
-
-func VerifyAllIntegrity(c *gin.Context) {
-	client := getDbClient(c)
-
-	var total, withHash, withPrevious int64
-	err := client.DB().QueryRow(`
-		SELECT
-			COUNT(*) as total,
-			COUNT(*) FILTER (WHERE ledger_hash IS NOT NULL) as with_hash,
-			COUNT(*) FILTER (WHERE previous_hash IS NOT NULL) as with_previous
-		FROM spuri_ledger
-	`).Scan(&total, &withHash, &withPrevious)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	integro := (total == withHash) && (total-1 == withPrevious)
-	c.JSON(http.StatusOK, gin.H{
-		"integro":              integro,
-		"total_events":         total,
-		"events_with_hash":     withHash,
-		"events_with_previous": withPrevious,
-		"message": func() string {
-			if integro {
-				return "✅ Ledger íntegro - todos os eventos possuem hash"
-			}
-			return "⚠️ Problemas de integridade detectados"
-		}(),
-	})
-}
-
-func registrarAcaoAdmin(c *gin.Context, adminID uuid.UUID, acao string, detalhes map[string]interface{}) {
+func registrarAcaoAdmin(c *gin.Context, userID uuid.UUID, acao string, detalhes map[string]interface{}) {
 	repository := getRepository(c)
-	adminAgg, err := repository.Load(adminID, "Admin")
+	adminAgg, err := repository.Load(userID, "Admin")
 	if err != nil {
-		log.Printf("Erro ao registrar ação '%s': %v", acao, err)
+		log.Printf("[WARN] registrarAcaoAdmin: falha ao carregar admin %s: %v", userID, err)
 		return
 	}
 	admin := adminAgg.(*aggregates.Admin)
-	admin.RegistrarAcao(acao, detalhes)
-	repository.Save(admin)
+	if err := admin.RegistrarAcao(acao, detalhes); err != nil {
+		log.Printf("[WARN] registrarAcaoAdmin: falha ao registrar ação '%s': %v", acao, err)
+		return
+	}
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "admin",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(admin, audit); err != nil {
+		log.Printf("[WARN] registrarAcaoAdmin: falha ao salvar ação '%s': %v", acao, err)
+	}
 }

@@ -1,7 +1,12 @@
 // ============================================================================
 // ARQUIVO: cmd/server/main.go
-// CORREÇÃO BUG #1: Adicionadas rotas /rebuild-projection/:name e
-//                  /projection-status/:name no grupo adminAdm.
+//
+// CORREÇÕES APLICADAS:
+//   [A42] — corsMiddleware: wildcard `Access-Control-Allow-Origin: *` substituído
+//            por lista de origins configuráveis via variável de ambiente
+//            ALLOWED_ORIGINS (separadas por vírgula).
+//            Em produção, apenas origins listadas recebem credenciais.
+//            Em desenvolvimento (ENV != "production"), permite localhost por padrão.
 // ============================================================================
 
 package main
@@ -230,7 +235,6 @@ func setupRouter() *gin.Engine {
 			adminAdm.POST("/register", handlers.RegisterAdmin)
 			adminAdm.GET("/admins", handlers.ListarTodosAdmins)
 			adminAdm.POST("/academia/register", handlers.RegisterAcademia)
-			// CORRIGIDO BUG #1: rotas que existiam no handler mas nunca foram registradas
 			adminAdm.POST("/rebuild-projection/:name", handlers.RebuildProjection)
 			adminAdm.GET("/projection-status/:name", handlers.GetProjectionStatus)
 		}
@@ -238,6 +242,7 @@ func setupRouter() *gin.Engine {
 		adminFPP := admin.Group("/")
 		adminFPP.Use(middleware.RequireFPP())
 		{
+			adminFPP.POST("/definir-ano-letivo", handlers.DefinirAnoLetivo)
 			adminFPP.PUT("/admin/:id/ativar", handlers.AtivarAdmin)
 			adminFPP.PUT("/admin/:id/desativar", handlers.DesativarAdmin)
 			adminFPP.PUT("/role/:id", handlers.AtualizarRoleAdmin)
@@ -247,11 +252,60 @@ func setupRouter() *gin.Engine {
 	return router
 }
 
+// corsMiddleware configura CORS restrito por lista de origins.
+//
+// [A42] CORRIGIDO: wildcard `*` substituído por whitelist configurável.
+//
+// Configuração via variável de ambiente ALLOWED_ORIGINS:
+//   - Valor: lista separada por vírgula, ex: "https://app.spuri.ao,https://admin.spuri.ao"
+//   - Ausente/vazio em produção: bloqueia CORS de origens externas (apenas same-origin)
+//   - Ausente/vazio em desenvolvimento: permite localhost (8080, 3000, 5173)
+//
+// Credenciais (cookies, Authorization header) NUNCA são enviadas com wildcard.
 func corsMiddleware() gin.HandlerFunc {
+	env := os.Getenv("ENV")
+	rawOrigins := os.Getenv("ALLOWED_ORIGINS")
+
+	allowedOrigins := map[string]bool{}
+
+	if rawOrigins != "" {
+		for _, o := range strings.Split(rawOrigins, ",") {
+			origin := strings.TrimSpace(o)
+			if origin != "" {
+				allowedOrigins[origin] = true
+				log.Printf("[CORS] Origin permitida: %s", origin)
+			}
+		}
+	} else if env != "production" {
+		// Defaults de desenvolvimento — nunca em produção
+		defaults := []string{
+			"http://localhost:3000",
+			"http://localhost:5173",
+			"http://localhost:8080",
+		}
+		for _, o := range defaults {
+			allowedOrigins[o] = true
+		}
+		log.Printf("[CORS] Modo desenvolvimento: permitindo origens localhost")
+	} else {
+		log.Printf("[WARN] [CORS] ALLOWED_ORIGINS não configurado em produção — CORS desativado para origens externas")
+	}
+
 	return func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
+		origin := c.GetHeader("Origin")
+
+		if origin != "" && allowedOrigins[origin] {
+			c.Header("Access-Control-Allow-Origin", origin)
+			c.Header("Access-Control-Allow-Credentials", "true")
+			c.Header("Vary", "Origin")
+		}
+		// Se a origin não está na whitelist, não define o header CORS.
+		// O browser bloqueará a requisição cross-origin. Requisições same-origin
+		// e server-to-server funcionam normalmente (sem header Origin).
+
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID")
+
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return

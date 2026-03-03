@@ -1,10 +1,12 @@
 // ============================================================================
 // ARQUIVO: internal/handlers/auth_email_handlers.go
 //
-// CORREÇÕES APLICADAS (auditoria Março 2026):
-//   #9  — VerificarEmail: retorna mensagem diferenciada quando já verificado
-//   #10 — GerarTokenRecuperacao: corrigido nome da coluna para `email`
-//          (era `e_mail` — typo que causava "usuário não encontrado" para admins)
+// CORREÇÕES APLICADAS:
+//   [A24] — ResetarSenha: senha_padrao REMOVIDA da resposta HTTP. Retornar a
+//            senha padrão em texto claro na resposta compromete a conta imediatamente.
+//            O usuário recebe orientação para fazer login e trocar a senha.
+//   #9   — VerificarEmail: resposta diferenciada quando email já verificado.
+//   #10  — GerarTokenRecuperacao: corrigido nome da coluna para `email`.
 // ============================================================================
 
 package handlers
@@ -30,7 +32,6 @@ import (
 // ============================================================================
 
 // VerificarEmail verifica email usando token.
-// FIX #9: resposta diferenciada quando o email já estava verificado.
 func VerificarEmail(c *gin.Context) {
 	token := c.Param("token")
 
@@ -54,7 +55,6 @@ func VerificarEmail(c *gin.Context) {
 		alreadyVerified := false
 		if err := admin.VerificarEmail(); err != nil {
 			if err.Error() == "email já verificado" {
-				// FIX #9: idempotente — não retorna erro, mas responde com msg distinta
 				alreadyVerified = true
 				log.Printf("[INFO] Email já estava verificado para admin: %s", tokenInfo.Email)
 			} else {
@@ -101,7 +101,6 @@ func VerificarEmail(c *gin.Context) {
 	}
 
 	client := getDbClient(c)
-	// Tabela controlada por switch interno — sem interpolação de input externo
 	if _, err = client.DB().Exec(
 		fmt.Sprintf("UPDATE %s SET email_verificado = TRUE WHERE id = $1", table),
 		tokenInfo.UserID,
@@ -122,6 +121,11 @@ func VerificarEmail(c *gin.Context) {
 // ============================================================================
 
 // ResetarSenha redefine senha usando token de recuperação.
+//
+// [A24] CORRIGIDO: senha_padrao REMOVIDA da resposta HTTP.
+// Retornar a senha em texto claro na resposta expõe a conta de imediato
+// (logs de proxy, histórico de rede, ferramentas de debug).
+// O usuário recebe apenas orientação para fazer login e trocar a senha.
 func ResetarSenha(c *gin.Context) {
 	token := c.Param("token")
 
@@ -183,11 +187,12 @@ func ResetarSenha(c *gin.Context) {
 		}
 
 		log.Printf("Senha resetada (event sourcing) para admin: %s", tokenInfo.Email)
+
+		// [A24] Sem senha_padrao na resposta.
 		c.JSON(http.StatusOK, gin.H{
 			"message":         "Senha resetada com sucesso!",
-			"senha_padrao":    defaultPassword,
 			"email":           tokenInfo.Email,
-			"proximos_passos": "Faça login com a senha padrão e altere para uma senha segura.",
+			"proximos_passos": "Faça login com a senha padrão enviada por email e altere para uma senha segura.",
 		})
 		return
 	}
@@ -211,7 +216,6 @@ func ResetarSenha(c *gin.Context) {
 		return
 	}
 
-	// Tabela controlada por switch interno — sem interpolação de input externo
 	if _, err = client.DB().Exec(
 		fmt.Sprintf("UPDATE %s SET senha_hash = $1 WHERE id = $2", table),
 		string(hashedPassword), tokenInfo.UserID,
@@ -221,10 +225,11 @@ func ResetarSenha(c *gin.Context) {
 	}
 
 	log.Printf("Senha resetada para %s: %s", tokenInfo.UserType, tokenInfo.Email)
+
+	// [A24] Sem senha_padrao na resposta.
 	c.JSON(http.StatusOK, gin.H{
 		"message":         "Senha resetada com sucesso!",
-		"senha_padrao":    defaultPassword,
-		"proximos_passos": "Faça login com a senha padrão e altere para uma senha segura.",
+		"proximos_passos": "Faça login com sua senha padrão e altere para uma senha segura.",
 	})
 }
 
@@ -328,7 +333,6 @@ func SolicitarRecuperacaoSenha(c *gin.Context) {
 			req.Identificador,
 		).Scan(&idStr, &email, &nome, &emailVerificado)
 	case "admin":
-		// FIX #10: coluna correta é `email` (não `e_mail`)
 		err = client.DB().QueryRow(
 			`SELECT id, email, nome, COALESCE(email_verificado, FALSE)
 			 FROM projection_admins WHERE email = $1`,
@@ -446,7 +450,6 @@ func GerarTokenVerificacao(c *gin.Context) {
 }
 
 // GerarTokenRecuperacao gera token de recuperação sem enviar email.
-// FIX #10: corrigido nome da coluna para `email` (era `e_mail`).
 func GerarTokenRecuperacao(c *gin.Context) {
 	var req struct {
 		Identificador string `json:"identificador" binding:"required"`
@@ -482,7 +485,6 @@ func GerarTokenRecuperacao(c *gin.Context) {
 			req.Identificador,
 		).Scan(&idStr, &email, &nome, &emailVerificado)
 	case "admin":
-		// FIX #10: coluna correta é `email` (não `e_mail`)
 		err = client.DB().QueryRow(
 			`SELECT id, email, nome, COALESCE(email_verificado, FALSE)
 			 FROM projection_admins WHERE email = $1`,
