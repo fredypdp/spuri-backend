@@ -1,3 +1,14 @@
+// ============================================================================
+// ARQUIVO: internal/handlers/admin_handlers.go
+// CORREÇÃO BUG #4: Removida ConsultarAdmin (dead code — duplicava GetAdminPorEmail
+//                  e não estava registrada em nenhuma rota).
+// CORREÇÃO BUG #5: ListarTodosAdmins agora verifica erros de json.Marshal/Unmarshal.
+//                  Antes: se marshal falhasse, adminMap seria nil e delete(nil,...)
+//                  causaria panic em runtime.
+// CORREÇÃO BUG #6: Removida linha `_ = http.StatusOK` de AtualizarDadosAdmin
+//                  (inútil — http.StatusOK já é usado via c.JSON acima dela).
+// ============================================================================
+
 package handlers
 
 import (
@@ -23,14 +34,12 @@ func LoginAdmin(c *gin.Context) {
 		Email string `json:"email" binding:"required"`
 		Senha string `json:"senha" binding:"required"`
 	}
-
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("email e senha são obrigatórios"))
 		return
 	}
 
 	adminProj := getAdminProjection(c)
-
 	admin, err := adminProj.GetByEmailForLogin(req.Email)
 	if err != nil || admin == nil {
 		utils.RespondWithUnauthorizedError(c)
@@ -54,7 +63,6 @@ func LoginAdmin(c *gin.Context) {
 	}
 
 	log.Printf("Login admin bem-sucedido: %s (%s)", admin.Nome, admin.Role)
-
 	c.JSON(http.StatusOK, gin.H{
 		"token": token,
 		"nome":  admin.Nome,
@@ -71,7 +79,6 @@ func RegisterAdmin(c *gin.Context) {
 		Email string `json:"email" binding:"required"`
 		Role  string `json:"role" binding:"required"`
 	}
-
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: nome, email e role"))
 		return
@@ -95,8 +102,8 @@ func RegisterAdmin(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-
 	creator := creatorAgg.(*aggregates.Admin)
+
 	if err := creator.ValidatePermission(req.Role); err != nil {
 		utils.RespondWithForbiddenError(c, err.Error())
 		return
@@ -142,7 +149,6 @@ func RegisterAdmin(c *gin.Context) {
 	}
 
 	log.Printf("Admin criado: %s (%s) por %s", req.Email, req.Role, creatorAdmin.Nome)
-
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "administrador criado com sucesso",
 		"data": gin.H{
@@ -155,21 +161,16 @@ func RegisterAdmin(c *gin.Context) {
 	})
 }
 
-func ConsultarAdmin(c *gin.Context) {
+// GetAdminPorEmail consulta um administrador pelo e-mail.
+// Rota: GET /admin/consultar-admin/:email
+// CORRIGIDO BUG #4: ConsultarAdmin (dead code) removida — esta é a única função
+// de busca por email, registrada na rota acima.
+func GetAdminPorEmail(c *gin.Context) {
 	email := c.Param("email")
-	if email == "" {
-		utils.RespondWithValidationError(c, fmt.Errorf("email não fornecido"))
-		return
-	}
 
 	adminProj := getAdminProjection(c)
 	admin, err := adminProj.GetByEmail(email)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	if admin == nil {
+	if err != nil || admin == nil {
 		utils.RespondWithNotFoundError(c, "administrador")
 		return
 	}
@@ -191,6 +192,9 @@ func ConsultarAdmin(c *gin.Context) {
 	})
 }
 
+// ListarTodosAdmins retorna todos os administradores sem expor senha_hash.
+// CORRIGIDO BUG #5: erros de json.Marshal/Unmarshal agora verificados.
+// Antes: se marshal falhasse, adminMap era nil e delete(nil,...) causava panic.
 func ListarTodosAdmins(c *gin.Context) {
 	adminProj := getAdminProjection(c)
 	admins, err := adminProj.GetAll()
@@ -201,9 +205,18 @@ func ListarTodosAdmins(c *gin.Context) {
 
 	var adminsResponse []map[string]interface{}
 	for _, admin := range admins {
-		adminBytes, _ := json.Marshal(admin)
+		adminBytes, err := json.Marshal(admin)
+		if err != nil {
+			log.Printf("[WARN] ListarTodosAdmins: falha ao serializar admin %s: %v", admin.ID, err)
+			continue
+		}
 		var adminMap map[string]interface{}
-		json.Unmarshal(adminBytes, &adminMap) //nolint:errcheck
+		if err := json.Unmarshal(adminBytes, &adminMap); err != nil {
+			log.Printf("[WARN] ListarTodosAdmins: falha ao desserializar admin %s: %v", admin.ID, err)
+			continue
+		}
+		// SenhaHash tem tag json:"-" então já não aparece no marshal,
+		// mas o delete é mantido como proteção defensiva explícita.
 		delete(adminMap, "senha_hash")
 		adminsResponse = append(adminsResponse, adminMap)
 	}
@@ -251,7 +264,6 @@ func AtivarAdmin(c *gin.Context) {
 	})
 
 	log.Printf("Admin ativado: %s (por: %s)", targetAdmin.Email, userID)
-
 	c.JSON(http.StatusOK, gin.H{
 		"message": "administrador ativado com sucesso",
 		"email":   targetAdmin.Email,
@@ -310,7 +322,6 @@ func DesativarAdmin(c *gin.Context) {
 	})
 
 	log.Printf("Admin desativado: %s - Motivo: %s (por: %s)", targetAdmin.Email, req.Motivo, userID)
-
 	c.JSON(http.StatusOK, gin.H{
 		"message": "administrador desativado com sucesso",
 		"email":   targetAdmin.Email,
@@ -329,7 +340,6 @@ func AtualizarRoleAdmin(c *gin.Context) {
 	var req struct {
 		NovoRole string `json:"novo_role" binding:"required"`
 	}
-
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("campo obrigatório: novo_role"))
 		return
@@ -374,42 +384,6 @@ func AtualizarRoleAdmin(c *gin.Context) {
 	})
 }
 
-func getNullString(ns sql.NullString) interface{} {
-	if ns.Valid {
-		return ns.String
-	}
-	return nil
-}
-
-// GetAdminPorEmail consulta um administrador pelo e-mail.
-// Rota: GET /admin/consultar-admin/:email
-func GetAdminPorEmail(c *gin.Context) {
-	email := c.Param("email")
-
-	adminProj := getAdminProjection(c)
-	admin, err := adminProj.GetByEmail(email)
-	if err != nil || admin == nil {
-		utils.RespondWithNotFoundError(c, "administrador")
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"admin": gin.H{
-			"id":                     admin.ID,
-			"nome":                   admin.Nome,
-			"email":                  admin.Email,
-			"email_verificado":       admin.EmailVerificado,
-			"role":                   admin.Role,
-			"status":                 admin.Status,
-			"created_by":             admin.CreatedBy,
-			"created_at":             admin.CreatedAt,
-			"updated_at":             admin.UpdatedAt,
-			"total_acoes_realizadas": admin.TotalAcoesRealizadas,
-			"version":                admin.Version,
-		},
-	})
-}
-
 func AtualizarDadosAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -423,7 +397,6 @@ func AtualizarDadosAdmin(c *gin.Context) {
 		Nome  *string `json:"nome"`
 		Email *string `json:"email"`
 	}
-
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("dados inválidos"))
 		return
@@ -437,9 +410,8 @@ func AtualizarDadosAdmin(c *gin.Context) {
 	}
 	admin := adminAgg.(*aggregates.Admin)
 
-	// CORRIGIDO #1: verificação de autorização horizontal.
 	// Admin pode editar os próprios dados sem restrição.
-	// Para editar outro admin, precisa de role superior ao alvo.
+	// Para editar outro admin, precisa de role estritamente superior ao alvo.
 	if userID != targetID {
 		executorAgg, err := repository.Load(userID, "Admin")
 		if err != nil {
@@ -447,12 +419,8 @@ func AtualizarDadosAdmin(c *gin.Context) {
 			return
 		}
 		executor := executorAgg.(*aggregates.Admin)
-
-		// ValidatePermission retorna erro se executor.Role <= admin.Role (alvo)
 		if err := executor.ValidatePermission(admin.Role); err != nil {
-			utils.RespondWithForbiddenError(c, fmt.Sprintf(
-				"permissão negada: %s", err.Error(),
-			))
+			utils.RespondWithForbiddenError(c, fmt.Sprintf("permissão negada: %s", err.Error()))
 			return
 		}
 	}
@@ -473,14 +441,11 @@ func AtualizarDadosAdmin(c *gin.Context) {
 	}
 
 	log.Printf("Dados do admin atualizados: %s (por: %s)", admin.Email, userID)
+	// CORRIGIDO BUG #6: removida linha `_ = http.StatusOK` que era inútil
 	c.JSON(http.StatusOK, gin.H{"message": "dados do administrador atualizados com sucesso"})
-
-	// Suprimir aviso de import não utilizado (net/http é usado via utils)
-	_ = http.StatusOK
 }
 
 // RebuildProjection reconstrói uma projeção a partir do ledger de eventos.
-// CORRIGIDO #3: registra ação de auditoria após rebuild bem-sucedido.
 func RebuildProjection(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -519,26 +484,24 @@ func RebuildProjection(c *gin.Context) {
 	manager.RegisterProjection("aprovacao_ano", projections.NewAprovacaoAnoProjection(client))
 	manager.RegisterProjection("reprovacoes", projections.NewReprovacoesProjection(client))
 
-	var err2 error
+	var rebuildErr error
 	if projectionName == "all" {
-		err2 = manager.RebuildAllProjections()
+		rebuildErr = manager.RebuildAllProjections()
 	} else {
-		err2 = manager.RebuildProjection(projectionName)
+		rebuildErr = manager.RebuildProjection(projectionName)
 	}
 
-	if err2 != nil {
-		utils.RespondWithInternalError(c, err2)
+	if rebuildErr != nil {
+		utils.RespondWithInternalError(c, rebuildErr)
 		return
 	}
 
-	// CORRIGIDO #3: registrar ação de auditoria para rastreabilidade do rebuild
 	registrarAcaoAdmin(c, userID, "projection_rebuilt", map[string]interface{}{
 		"projection": projectionName,
 		"admin_role": admin.Role,
 	})
 
 	log.Printf("Projeção %s reconstruída por %s (%s)", projectionName, admin.Nome, admin.Role)
-
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "projeção reconstruída com sucesso",
 		"projection": projectionName,
@@ -596,36 +559,32 @@ func GetProjectionStatus(c *gin.Context) {
 
 	var lastProcessedAt *string
 	var eventsProcessed int
-	client.DB().QueryRow(
+	client.DB().QueryRow( //nolint:errcheck
 		`SELECT last_processed_at, events_processed
 		 FROM projection_checkpoints
 		 WHERE projection_name = $1`,
 		projectionName,
-	).Scan(&lastProcessedAt, &eventsProcessed) //nolint:errcheck
+	).Scan(&lastProcessedAt, &eventsProcessed)
 
 	status := gin.H{
 		"projection_name":        projectionName,
 		"last_processed_event":   lastEventID,
 		"events_processed_total": eventsProcessed,
 	}
-
 	if lastProcessedAt != nil {
 		status["last_processed_at"] = *lastProcessedAt
 	}
-
 	c.JSON(http.StatusOK, status)
 }
 
 func GetAllProjectionsStatus(c *gin.Context) {
 	client := getDbClient(c)
 
-	query := `
+	rows, err := client.DB().Query(`
 		SELECT projection_name, last_processed_event_id, last_processed_at, events_processed
 		FROM projection_checkpoints
 		ORDER BY projection_name
-	`
-
-	rows, err := client.DB().Query(query)
+	`)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -638,7 +597,6 @@ func GetAllProjectionsStatus(c *gin.Context) {
 		var lastEventID int64
 		var lastProcessedAt string
 		var eventsProcessed int
-
 		if err := rows.Scan(&name, &lastEventID, &lastProcessedAt, &eventsProcessed); err == nil {
 			statuses = append(statuses, gin.H{
 				"projection_name":      name,
@@ -660,20 +618,17 @@ func GetLedgerStats(c *gin.Context) {
 
 	var totalEvents int64
 	var firstEvent, lastEvent string
-
-	client.DB().QueryRow(`SELECT COUNT(*) FROM spuri_ledger`).Scan(&totalEvents)           //nolint:errcheck
+	client.DB().QueryRow(`SELECT COUNT(*) FROM spuri_ledger`).Scan(&totalEvents)          //nolint:errcheck
 	client.DB().QueryRow(`SELECT occurred_at FROM spuri_ledger ORDER BY id ASC LIMIT 1`).Scan(&firstEvent)  //nolint:errcheck
 	client.DB().QueryRow(`SELECT occurred_at FROM spuri_ledger ORDER BY id DESC LIMIT 1`).Scan(&lastEvent) //nolint:errcheck
 
-	aggregateQuery := `
+	rows, _ := client.DB().Query(`
 		SELECT aggregate_type, COUNT(*) as count
 		FROM spuri_ledger
 		GROUP BY aggregate_type
 		ORDER BY count DESC
-	`
-	rows, _ := client.DB().Query(aggregateQuery)
+	`)
 	defer rows.Close()
-
 	aggregateStats := make(map[string]int64)
 	for rows.Next() {
 		var aggType string
@@ -694,23 +649,20 @@ func GetLedgerStats(c *gin.Context) {
 func VerifyAllIntegrity(c *gin.Context) {
 	client := getDbClient(c)
 
-	query := `
+	var total, withHash, withPrevious int64
+	err := client.DB().QueryRow(`
 		SELECT
 			COUNT(*) as total,
 			COUNT(*) FILTER (WHERE ledger_hash IS NOT NULL) as with_hash,
 			COUNT(*) FILTER (WHERE previous_hash IS NOT NULL) as with_previous
 		FROM spuri_ledger
-	`
-
-	var total, withHash, withPrevious int64
-	err := client.DB().QueryRow(query).Scan(&total, &withHash, &withPrevious)
+	`).Scan(&total, &withHash, &withPrevious)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
 
 	integro := (total == withHash) && (total-1 == withPrevious)
-
 	c.JSON(http.StatusOK, gin.H{
 		"integro":              integro,
 		"total_events":         total,
@@ -725,46 +677,42 @@ func VerifyAllIntegrity(c *gin.Context) {
 	})
 }
 
+func getNullString(ns sql.NullString) interface{} {
+	if ns.Valid {
+		return ns.String
+	}
+	return nil
+}
+
 func getAdminProjection(c *gin.Context) *projections.AdminProjection {
 	return projections.NewAdminProjection(getDbClient(c))
 }
 
 func verificarPermissaoAdmin(c *gin.Context, minRole string) error {
 	userID, _ := middleware.GetUserID(c)
-
 	adminProj := getAdminProjection(c)
 	admin, err := adminProj.GetByID(userID)
 	if err != nil || admin == nil {
 		return fmt.Errorf("administrador não encontrado")
 	}
-
 	if admin.Status != "ativo" {
 		return fmt.Errorf("administrador está inativo")
 	}
-
-	hierarchy := map[string]int{
-		"fpp":     3,
-		"adm":     2,
-		"gerente": 1,
-	}
-
+	hierarchy := map[string]int{"fpp": 3, "adm": 2, "gerente": 1}
 	if hierarchy[admin.Role] < hierarchy[minRole] {
 		return fmt.Errorf("permissão negada: requer role '%s' ou superior", minRole)
 	}
-
 	return nil
 }
 
 func registrarAcaoAdmin(c *gin.Context, adminID uuid.UUID, acao string, detalhes map[string]interface{}) {
 	repository := getRepository(c)
-
 	adminAgg, err := repository.Load(adminID, "Admin")
 	if err != nil {
 		log.Printf("Erro ao registrar ação '%s': %v", acao, err)
 		return
 	}
-
 	admin := adminAgg.(*aggregates.Admin)
-	admin.RegistrarAcao(acao, detalhes) //nolint:errcheck
-	repository.Save(admin)              //nolint:errcheck
+	admin.RegistrarAcao(acao, detalhes)
+	repository.Save(admin)
 }

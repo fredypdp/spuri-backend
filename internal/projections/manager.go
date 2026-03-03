@@ -1,3 +1,14 @@
+// ============================================================================
+// ARQUIVO: internal/projections/manager.go
+// CORREÇÃO BUG #2: getNewEvents usa sql.NullString para previous_hash.
+//   Antes: scan direto para *string causava erro quando campo era NULL no banco
+//   (primeiro evento de todo aggregate não tem previous_hash). O lote inteiro
+//   de eventos era abandonado silenciosamente.
+// CORREÇÃO BUG #3: RebuildAllProjections refatorado com rebuildProjectionInternal.
+//   Antes: Lock→Unlock→RebuildProjection(Lock interno)→Lock causava race condition
+//   com a goroutine StartProcessing durante o intervalo sem lock.
+// ============================================================================
+
 package projections
 
 import (
@@ -37,7 +48,6 @@ func NewManager(client *db.Client) *Manager {
 func (m *Manager) RegisterProjection(name string, projection Projection) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	m.projections[name] = projection
 	log.Printf("[DEBUG] Projeção registrada: %s", name)
 }
@@ -46,7 +56,6 @@ func (m *Manager) StartProcessing() {
 	log.Println("[DEBUG] Iniciando processamento de projeções")
 	ticker := time.NewTicker(m.pollInterval)
 	defer ticker.Stop()
-
 	for {
 		select {
 		case <-m.ctx.Done():
@@ -68,7 +77,6 @@ func (m *Manager) Stop() {
 func (m *Manager) processNewEvents() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	for name, projection := range m.projections {
 		if err := m.processProjection(name, projection); err != nil {
 			log.Printf("[ERROR] Erro ao processar projeção %s: %v", name, err)
@@ -82,36 +90,29 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 	if err != nil {
 		return fmt.Errorf("erro ao obter checkpoint: %w", err)
 	}
-
 	events, err := m.getNewEvents(lastProcessedID)
 	if err != nil {
 		return fmt.Errorf("erro ao buscar eventos: %w", err)
 	}
-
 	if len(events) == 0 {
 		return nil
 	}
-
 	log.Printf("[DEBUG] %s: processando %d eventos", name, len(events))
-
 	processedCount := 0
 	for _, event := range events {
 		if err := m.processEventWithRetry(name, projection, event); err != nil {
 			log.Printf("[ERROR] %s: evento %d falhou permanentemente", name, event.ID)
 			m.logProjectionError(name, err.Error())
 		}
-
 		if err := projection.UpdateCheckpoint(event.ID); err != nil {
 			log.Printf("[WARN] Erro ao atualizar checkpoint para evento %d: %v", event.ID, err)
 		}
 		processedCount++
 	}
-
 	if processedCount > 0 {
 		log.Printf("[DEBUG] %s: processados %d eventos (último: %d)",
 			name, processedCount, events[len(events)-1].ID)
 	}
-
 	return nil
 }
 
@@ -119,7 +120,6 @@ func (m *Manager) processEventWithRetry(name string, projection Projection, even
 	maxRetries := 3
 	baseDelay := 1 * time.Second
 	var lastErr error
-
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		if err := projection.Handle(event); err == nil {
 			if attempt > 1 {
@@ -129,7 +129,6 @@ func (m *Manager) processEventWithRetry(name string, projection Projection, even
 		} else {
 			lastErr = err
 		}
-
 		if attempt < maxRetries {
 			delay := time.Duration(attempt*attempt) * baseDelay
 			log.Printf("[WARN] %s: evento %d falhou (tentativa %d/%d), retry em %v",
@@ -137,19 +136,18 @@ func (m *Manager) processEventWithRetry(name string, projection Projection, even
 			time.Sleep(delay)
 		}
 	}
-
 	return fmt.Errorf("evento %d falhou após %d tentativas: %w", event.ID, maxRetries, lastErr)
 }
 
 // getNewEvents busca eventos do ledger com id > fromID.
-// Usa prepared statement com $1 e $2 — sem interpolação de string.
+// CORRIGIDO BUG #2: previous_hash lido como sql.NullString para suportar NULL.
+// O primeiro evento de cada aggregate não tem previous_hash (é NULL no banco).
+// Antes, o scan direto para *string falhava com erro e abandonava o lote inteiro.
 func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
 	if fromID < 0 {
 		fromID = 0
 	}
-
 	limit := db.ValidateLimit(m.batchSize)
-
 	rows, err := m.client.DB().Query(`
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
@@ -164,72 +162,80 @@ func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
 		return nil, fmt.Errorf("erro na query: %w", err)
 	}
 	defer rows.Close()
-
 	var events []db.Event
 	for rows.Next() {
 		var event db.Event
+		// CORRIGIDO: sql.NullString para previous_hash (pode ser NULL no banco)
+		var prevHash sql.NullString
 		if err := rows.Scan(
 			&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
 			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
-			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &event.PreviousHash,
+			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &prevHash,
 		); err != nil {
 			return nil, fmt.Errorf("erro ao scan: %w", err)
 		}
+		if prevHash.Valid {
+			event.PreviousHash = &prevHash.String
+		}
 		events = append(events, event)
 	}
-
 	return events, rows.Err()
 }
 
+// RebuildProjection reconstrói uma projeção específica.
+// Adquire lock e delega para rebuildProjectionInternal.
 func (m *Manager) RebuildProjection(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.rebuildProjectionInternal(name)
+}
 
+// rebuildProjectionInternal executa o rebuild sem adquirir o lock.
+// DEVE ser chamado somente quando o lock já foi adquirido pelo chamador.
+// Separado de RebuildProjection para que RebuildAllProjections possa
+// reutilizá-lo sem risco de deadlock.
+func (m *Manager) rebuildProjectionInternal(name string) error {
 	log.Printf("[DEBUG] Iniciando rebuild de: %s", name)
-
 	projection, exists := m.projections[name]
 	if !exists {
 		return fmt.Errorf("projeção não encontrada: %s", name)
 	}
-
 	if err := m.markRebuildStart(name); err != nil {
 		return err
 	}
-
 	if err := projection.Rebuild(); err != nil {
 		return err
 	}
-
 	if err := m.markRebuildComplete(name); err != nil {
 		return err
 	}
-
 	log.Printf("[DEBUG] Projeção %s reconstruída com sucesso", name)
 	return nil
 }
 
+// RebuildAllProjections reconstrói todas as projeções registradas.
+// CORRIGIDO BUG #3: adquire o lock uma única vez e chama rebuildProjectionInternal
+// (sem lock interno) para cada projeção.
+// O padrão anterior Lock→Unlock→RebuildProjection(Lock)→Lock era frágil:
+// a goroutine StartProcessing podia adquirir o lock no intervalo sem lock,
+// causando race condition entre rebuild e processamento normal de eventos.
 func (m *Manager) RebuildAllProjections() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	log.Println("[DEBUG] Reconstruindo TODAS as projeções")
-
+	var firstErr error
 	for name := range m.projections {
-		m.mu.Unlock()
-		err := m.RebuildProjection(name)
-		m.mu.Lock()
-
-		if err != nil {
+		if err := m.rebuildProjectionInternal(name); err != nil {
 			log.Printf("[ERROR] Erro ao reconstruir %s: %v", name, err)
+			if firstErr == nil {
+				firstErr = err
+			}
 		}
 	}
-
 	log.Println("[DEBUG] Todas as projeções reconstruídas")
-	return nil
+	return firstErr
 }
 
-// markRebuildStart marca o início do rebuild de uma projeção no checkpoint.
-// Usa prepared statement com $1 — sem interpolação de string.
 func (m *Manager) markRebuildStart(name string) error {
 	_, err := m.client.DB().Exec(`
 		UPDATE projection_checkpoints
@@ -242,9 +248,6 @@ func (m *Manager) markRebuildStart(name string) error {
 	return err
 }
 
-// markRebuildComplete marca a conclusão do rebuild e atualiza o checkpoint
-// com o ID do último evento do ledger.
-// Usa prepared statements com $1 e $2 — sem interpolação de string.
 func (m *Manager) markRebuildComplete(name string) error {
 	var lastEventID int64
 	if err := m.client.DB().QueryRow(
@@ -252,7 +255,6 @@ func (m *Manager) markRebuildComplete(name string) error {
 	).Scan(&lastEventID); err != nil {
 		return err
 	}
-
 	_, err := m.client.DB().Exec(`
 		UPDATE projection_checkpoints
 		SET is_rebuilding             = false,
@@ -265,8 +267,6 @@ func (m *Manager) markRebuildComplete(name string) error {
 	return err
 }
 
-// logProjectionError registra o erro de processamento no checkpoint da projeção.
-// Usa prepared statements com $1 e $2 — sem interpolação de string.
 func (m *Manager) logProjectionError(name, errorMsg string) {
 	_, err := m.client.DB().Exec(`
 		UPDATE projection_checkpoints
@@ -281,8 +281,6 @@ func (m *Manager) logProjectionError(name, errorMsg string) {
 	}
 }
 
-// GetProjectionStatus retorna o status atual de uma projeção pelo nome.
-// Usa prepared statement com $1 — sem interpolação de string.
 func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, error) {
 	var (
 		projName      string
@@ -295,7 +293,6 @@ func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, erro
 		lastErr       sql.NullString
 		lastErrAt     sql.NullTime
 	)
-
 	err := m.client.DB().QueryRow(`
 		SELECT projection_name, last_processed_event_id, last_processed_at,
 			events_processed, is_rebuilding, rebuild_started_at,
@@ -310,7 +307,6 @@ func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, erro
 	if err != nil {
 		return nil, err
 	}
-
 	return map[string]interface{}{
 		"name":                 projName,
 		"last_processed_event": lastEventID,
@@ -327,33 +323,28 @@ func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, erro
 func (m *Manager) GetAllProjectionStatuses() ([]map[string]interface{}, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	var statuses []map[string]interface{}
 	for name := range m.projections {
 		if status, err := m.GetProjectionStatus(name); err == nil {
 			statuses = append(statuses, status)
 		}
 	}
-
 	return statuses, nil
 }
 
 func (m *Manager) GetRegisteredProjections() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	names := make([]string, 0, len(m.projections))
 	for name := range m.projections {
 		names = append(names, name)
 	}
-
 	return names
 }
 
 func (m *Manager) IsProjectionRegistered(name string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	_, exists := m.projections[name]
 	return exists
 }
@@ -361,7 +352,6 @@ func (m *Manager) IsProjectionRegistered(name string) bool {
 func (m *Manager) GetProjection(name string) (Projection, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	p, ok := m.projections[name]
 	if !ok {
 		return nil, fmt.Errorf("projeção '%s' não registrada", name)

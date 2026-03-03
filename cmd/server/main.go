@@ -1,5 +1,7 @@
 // ============================================================================
 // ARQUIVO: cmd/server/main.go
+// CORREÇÃO BUG #1: Adicionadas rotas /rebuild-projection/:name e
+//                  /projection-status/:name no grupo adminAdm.
 // ============================================================================
 
 package main
@@ -62,30 +64,24 @@ func main() {
 
 func initDB() error {
 	config := db.DefaultConfig()
-
 	var err error
 	dbClient, err = db.NewClient(config)
 	if err != nil {
 		return err
 	}
-
 	repository = db.NewAggregateRepository(dbClient)
-
 	if err := dbClient.Health(); err != nil {
 		return err
 	}
-
 	if err := dbClient.RunMigrations(); err != nil {
 		return fmt.Errorf("erro ao rodar migrations: %w", err)
 	}
-
 	log.Println("[INFO] Banco de dados inicializado com Event Sourcing")
 	return nil
 }
 
 func initProjections() error {
 	projManager = projections.NewManager(dbClient)
-
 	projManager.RegisterProjection("estudantes", projections.NewEstudanteProjection(dbClient))
 	projManager.RegisterProjection("academias", projections.NewAcademiaProjection(dbClient))
 	projManager.RegisterProjection("admins", projections.NewAdminProjection(dbClient))
@@ -99,9 +95,7 @@ func initProjections() error {
 	projManager.RegisterProjection("categorias_nota", projections.NewCategoriasNotaProjection(dbClient))
 	projManager.RegisterProjection("aprovacao_ano", projections.NewAprovacaoAnoProjection(dbClient))
 	projManager.RegisterProjection("reprovacoes", projections.NewReprovacoesProjection(dbClient))
-
 	go projManager.StartProcessing()
-
 	log.Println("[INFO] Sistema de projeções inicializado")
 	return nil
 }
@@ -113,12 +107,10 @@ func setupRouter() *gin.Engine {
 		c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 		c.Next()
 	})
-
 	router.Use(middleware.MonitoringMiddleware())
 	router.Use(corsMiddleware())
 	router.Use(middleware.GlobalRateLimit())
 	router.Use(requestIDMiddleware())
-
 	router.Use(func(c *gin.Context) {
 		c.Set("repository", repository)
 		c.Set("projManager", projManager)
@@ -144,7 +136,7 @@ func setupRouter() *gin.Engine {
 		emailGroup.POST("/gerar-token/verificacao", handlers.GerarTokenVerificacao)
 		emailGroup.POST("/gerar-token/recuperacao", handlers.GerarTokenRecuperacao)
 	}
-	
+
 	protected := router.Group("/")
 	protected.Use(middleware.AuthMiddleware())
 	{
@@ -164,7 +156,7 @@ func setupRouter() *gin.Engine {
 		protected.GET("/reprovacoes", handlers.ListarReprovacoes)
 		protected.GET("/avaliacoes-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetAvaliacoesFinaisEstudante)
 	}
-	
+
 	estudante := router.Group("/estudante")
 	estudante.Use(middleware.AuthMiddleware())
 	estudante.Use(middleware.RequireEstudante())
@@ -176,7 +168,7 @@ func setupRouter() *gin.Engine {
 		estudante.PUT("/dados-academicos", handlers.AtualizarDadosAcademicosEstudante)
 		estudante.GET("/minhas-avaliacoes", handlers.GetMinhasAvaliacoes)
 	}
-	
+
 	academia := router.Group("/academia")
 	academia.Use(middleware.AuthMiddleware())
 	academia.Use(middleware.RequireAcademia())
@@ -214,9 +206,6 @@ func setupRouter() *gin.Engine {
 		academia.POST("/avaliacao-final", handlers.RegistrarAvaliacaoFinal)
 	}
 
-	// -----------------------------------------------------------------------
-	// Rotas exclusivas para administradores
-	// -----------------------------------------------------------------------
 	admin := router.Group("/admin")
 	admin.Use(middleware.AuthMiddleware())
 	admin.Use(middleware.RequireAdmin())
@@ -241,6 +230,9 @@ func setupRouter() *gin.Engine {
 			adminAdm.POST("/register", handlers.RegisterAdmin)
 			adminAdm.GET("/admins", handlers.ListarTodosAdmins)
 			adminAdm.POST("/academia/register", handlers.RegisterAcademia)
+			// CORRIGIDO BUG #1: rotas que existiam no handler mas nunca foram registradas
+			adminAdm.POST("/rebuild-projection/:name", handlers.RebuildProjection)
+			adminAdm.GET("/projection-status/:name", handlers.GetProjectionStatus)
 		}
 
 		adminFPP := admin.Group("/")
@@ -255,21 +247,15 @@ func setupRouter() *gin.Engine {
 	return router
 }
 
-// ============================================================================
-// Middlewares auxiliares do servidor
-// ============================================================================
-
 func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID")
-
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return
 		}
-
 		c.Next()
 	}
 }
