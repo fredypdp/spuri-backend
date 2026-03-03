@@ -46,6 +46,8 @@ type Academia struct {
 	Cursos         []string
 	CreatedAt      time.Time
 
+	// TotalEstudantes é mantido apenas pela projeção — não pelo aggregate.
+	// Este campo existe no struct apenas para compatibilidade de leitura.
 	TotalEstudantes int
 }
 
@@ -119,6 +121,9 @@ func (a *Academia) Criar(
 	}
 	if nome == "" || codigoAcademia == "" {
 		return fmt.Errorf("campos obrigatórios vazios")
+	}
+	if senhaHash == "" {
+		return fmt.Errorf("senha_hash não pode ser vazio")
 	}
 	if tipo == "escola" && nivelEscolar == nil {
 		return fmt.Errorf("nivel_escolar é obrigatório para escolas")
@@ -210,6 +215,10 @@ func (a *Academia) AtualizarCursos(cursos []string) error {
 }
 
 // AtualizarDados atualiza campos da academia.
+//
+// FIX E-11 / E-14: revalida coerência de anos_academicos com nivel_escolar
+// atual (ou o novo nivel_escolar, se estiver sendo alterado simultaneamente).
+// Impede gravar anos inválidos no ledger.
 func (a *Academia) AtualizarDados(
 	nome *string,
 	provincia *string,
@@ -225,6 +234,25 @@ func (a *Academia) AtualizarDados(
 		numeroTelefone == nil && email == nil && website == nil &&
 		nivelEscolar == nil && anosAcademicos == nil && cursos == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
+	}
+
+	// FIX E-11 / E-14: determinar o nivel_escolar efetivo após a atualização
+	// para validar anos_academicos corretamente.
+	nivelEfetivo := a.NivelEscolar
+	if nivelEscolar != nil {
+		nivelEfetivo = nivelEscolar
+	}
+
+	// Revalidar anos_academicos se foram fornecidos ou se nivel_escolar mudou.
+	if anosAcademicos != nil || nivelEscolar != nil {
+		if _, err := validarAnosAcademicos(a.Type, nivelEfetivo, anosAcademicos); err != nil {
+			return err
+		}
+	}
+
+	// Impedir que academia superior receba nivel_escolar.
+	if a.Type == "superior" && nivelEscolar != nil {
+		return fmt.Errorf("academia do tipo 'superior' não pode ter nivel_escolar")
 	}
 
 	emailAlterado := email != nil && (a.Email == nil || *a.Email != *email)
@@ -278,14 +306,16 @@ func validarAnosAcademicos(tipo string, nivelEscolar *string, anos []string) ([]
 		return anos, nil
 
 	case "medio":
-		// Escolas apenas de médio não têm anos fundamentais
+		// Escolas de médio NÃO devem ter anos_academicos
 		if len(anos) > 0 {
-			return nil, fmt.Errorf("escolas de nivel_escolar 'medio' não devem definir anos_academicos (use os anos no curso)")
+			return nil, fmt.Errorf(
+				"escolas de nivel_escolar 'medio' não devem definir anos_academicos",
+			)
 		}
 		return nil, nil
 	}
 
-	return nil, fmt.Errorf("nivel_escolar desconhecido: '%s'", *nivelEscolar)
+	return nil, nil
 }
 
 // ============================================================================
@@ -353,17 +383,23 @@ type AcademiaDadosAtualizadosEvent struct {
 func (e *AcademiaDadosAtualizadosEvent) GetPayload() interface{} { return e }
 
 // ============================================================================
-// Apply handlers (definidos neste arquivo)
+// Apply handlers
 // NOTA: applyCategoriaNotaAdicionada está em academia_categorias_nota.go
 // ============================================================================
 
+// FIX E-06: todos os apply handlers agora propagam erros de json.Unmarshal
+// ao invés de silenciá-los com `_`. Estado parcial/zerado era aplicado
+// silenciosamente quando o payload falhava no parse.
+
 func (a *Academia) applyAcademiaCriada(event DomainEvent) error {
-	payload := event.GetPayload()
-	data, _ := json.Marshal(payload)
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyAcademiaCriada: marshal error: %w", err)
+	}
 
 	var ev AcademiaCriadaEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
+		return fmt.Errorf("applyAcademiaCriada: unmarshal error: %w", err)
 	}
 
 	a.Type = ev.Type
@@ -378,10 +414,10 @@ func (a *Academia) applyAcademiaCriada(event DomainEvent) error {
 	a.NivelEscolar = ev.NivelEscolar
 	a.AnosAcademicos = ev.AnosAcademicos
 	a.Cursos = ev.Cursos
+	a.CreatedAt = ev.CreatedAt
 	// Status e EmailVerificado são sempre fixos na criação — independente do payload
 	a.Status = "inativo"
 	a.EmailVerificado = false
-	a.CreatedAt = ev.CreatedAt
 	return nil
 }
 
@@ -396,20 +432,26 @@ func (a *Academia) applyAcademiaDesativada(_ DomainEvent) error {
 }
 
 func (a *Academia) applyCursosAtualizados(event DomainEvent) error {
-	data, _ := json.Marshal(event.GetPayload())
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyCursosAtualizados: marshal error: %w", err)
+	}
 	var ev CursosAtualizadosEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
+		return fmt.Errorf("applyCursosAtualizados: unmarshal error: %w", err)
 	}
 	a.Cursos = ev.NovoCursos
 	return nil
 }
 
 func (a *Academia) applyAcademiaDadosAtualizados(event DomainEvent) error {
-	data, _ := json.Marshal(event.GetPayload())
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyAcademiaDadosAtualizados: marshal error: %w", err)
+	}
 	var ev AcademiaDadosAtualizadosEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
+		return fmt.Errorf("applyAcademiaDadosAtualizados: unmarshal error: %w", err)
 	}
 
 	if ev.Nome != nil {

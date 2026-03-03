@@ -1,3 +1,7 @@
+// ============================================================================
+// ARQUIVO: internal/handlers/academia_handlers.go
+// ============================================================================
+
 package handlers
 
 import (
@@ -20,6 +24,10 @@ import (
 	"spuri/internal/utils"
 )
 
+// ============================================================================
+// POST /admin/academia/register
+// ============================================================================
+
 type RegisterAcademiaRequest struct {
 	Type           string   `json:"type"            binding:"required"`
 	Nome           string   `json:"nome"            binding:"required"`
@@ -35,7 +43,15 @@ type RegisterAcademiaRequest struct {
 	AnosAcademicos []string `json:"anos_academicos"`
 }
 
+// RegisterAcademia cria uma nova academia.
+// Rota protegida por AuthMiddleware + RequireAdmin + RequireAdm.
+//
+// FIX E-01: audit agora usa o userID do admin autenticado, não "anonimo".
+// FIX E-12: ValidateNome, ValidateEndereco e validação de província já aplicados.
 func RegisterAcademia(c *gin.Context) {
+	// FIX E-01: extrair userID do admin antes de qualquer saída antecipada
+	adminUserID, hasAdminID := middleware.GetUserID(c)
+
 	var req RegisterAcademiaRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: type, nome, provincia e endereco"))
@@ -133,10 +149,16 @@ func RegisterAcademia(c *gin.Context) {
 		return
 	}
 
-	// Rota pública — sem JWT, usar contexto de sistema
+	// FIX E-01: usar userID do admin autenticado para auditoria correta.
+	// A rota está protegida por RequireAdm — sempre há um admin autenticado.
+	auditUserID := "sistema"
+	if hasAdminID {
+		auditUserID = adminUserID.String()
+	}
+
 	audit := db.AuditContext{
-		UserID:   "anonimo",
-		UserType: "sistema",
+		UserID:   auditUserID,
+		UserType: "admin",
 		IP:       c.ClientIP(),
 	}
 	if err := repository.SaveWithAudit(academia, audit); err != nil {
@@ -144,7 +166,7 @@ func RegisterAcademia(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Academia criada: %s - %s", codigoAcademia, req.Nome)
+	log.Printf("Academia criada: %s - %s (por admin: %s)", codigoAcademia, req.Nome, auditUserID)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "academia criada com sucesso",
@@ -155,6 +177,14 @@ func RegisterAcademia(c *gin.Context) {
 	})
 }
 
+// ============================================================================
+// PUT /academia/dados
+// ============================================================================
+
+// AtualizarDadosAcademia atualiza dados da academia autenticada.
+//
+// FIX E-11: revalida coerência de anos_academicos com nivel_escolar no handler.
+// FIX E-12: ValidateNome, ValidateEndereco e ValidateURL chamados quando presentes.
 func AtualizarDadosAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -175,6 +205,21 @@ func AtualizarDadosAcademia(c *gin.Context) {
 		return
 	}
 
+	// FIX E-12: validações de campos quando presentes
+	if req.Nome != nil {
+		if err := utils.ValidateNome(*req.Nome); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+	}
+
+	if req.Endereco != nil {
+		if err := utils.ValidateEndereco(*req.Endereco); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+	}
+
 	if req.Email != nil {
 		if err := utils.ValidateEmail(*req.Email); err != nil {
 			utils.RespondWithValidationError(c, err)
@@ -185,6 +230,24 @@ func AtualizarDadosAcademia(c *gin.Context) {
 	if req.Website != nil {
 		if err := utils.ValidateURL(*req.Website); err != nil {
 			utils.RespondWithValidationError(c, err)
+			return
+		}
+	}
+
+	// FIX E-11: revalidar anos_academicos com nivel_escolar efetivo
+	// A validação completa também acontece no aggregate, mas validar no handler
+	// antes de carregar o aggregate reduz carga desnecessária.
+	if req.NivelEscolar != nil && len(req.AnosAcademicos) > 0 {
+		nivel := *req.NivelEscolar
+		if nivel == "fundamental" || nivel == "misto" {
+			if err := utils.ValidateAnosFundamental(req.AnosAcademicos); err != nil {
+				utils.RespondWithValidationError(c, err)
+				return
+			}
+		} else if nivel == "medio" && len(req.AnosAcademicos) > 0 {
+			utils.RespondWithValidationError(c, fmt.Errorf(
+				"escolas de nivel_escolar 'medio' não devem definir anos_academicos",
+			))
 			return
 		}
 	}
@@ -219,6 +282,10 @@ func AtualizarDadosAcademia(c *gin.Context) {
 	log.Printf("Dados da academia atualizados: %s", academia.CodigoAcademia)
 	c.JSON(http.StatusOK, gin.H{"message": "dados da academia atualizados com sucesso"})
 }
+
+// ============================================================================
+// GET /academia/consultar-academia/:codigo  e  GET /consultar-academia/:codigo
+// ============================================================================
 
 func GetAcademiaPorCodigo(c *gin.Context) {
 	userType, _ := middleware.GetUserType(c)
@@ -263,24 +330,25 @@ func GetAcademiaPorCodigo(c *gin.Context) {
 
 	response := gin.H{
 		"academia": gin.H{
-			"id":               academia.ID,
-			"type":             academia.Type,
-			"nome":             academia.Nome,
-			"codigo_academia":  academia.CodigoAcademia,
-			"email":            academia.Email,
-			"email_verificado": academia.EmailVerificado,
-			"provincia":        academia.Provincia,
-			"endereco":         academia.Endereco,
-			"numero_telefone":  academia.NumeroTelefone,
-			"website":          academia.Website,
-			"nivel_escolar":    academia.NivelEscolar,
-			"anos_academicos":  academia.AnosAcademicos,
-			"status":           academia.Status,
-			"cursos":           academia.Cursos,
-			"created_at":       academia.CreatedAt,
-			"updated_at":       academia.UpdatedAt,
-			"total_estudantes": academia.TotalEstudantes,
-			"version":          academia.Version,
+			"id":                  academia.ID,
+			"type":                academia.Type,
+			"nome":                academia.Nome,
+			"codigo_academia":     academia.CodigoAcademia,
+			"email":               academia.Email,
+			"email_verificado":    academia.EmailVerificado,
+			"provincia":           academia.Provincia,
+			"endereco":            academia.Endereco,
+			"numero_telefone":     academia.NumeroTelefone,
+			"website":             academia.Website,
+			"nivel_escolar":       academia.NivelEscolar,
+			"anos_academicos":     academia.AnosAcademicos,
+			"status":              academia.Status,
+			"motivo_desativacao":  academia.MotivoDesativacao,
+			"cursos":              academia.Cursos,
+			"created_at":          academia.CreatedAt,
+			"updated_at":          academia.UpdatedAt,
+			"total_estudantes":    academia.TotalEstudantes,
+			"version":             academia.Version,
 		},
 	}
 
@@ -291,19 +359,23 @@ func GetAcademiaPorCodigo(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+// ============================================================================
+// GET /academias
+// ============================================================================
+
 func ListarTodasAcademias(c *gin.Context) {
 	_, _ = middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 
-	_ = getAcademiaProjection(c)
 	client := getDbClient(c)
 
+	// FIX E-07: removido `WHERE deleted_at IS NULL` — coluna não existe no schema.
+	// Academias são controladas por status (ativo/inativo), não por soft-delete.
 	query := `
 		SELECT id, type, nome, codigo_academia, provincia, endereco,
 			numero_telefone, email, website, nivel_escolar, status, cursos,
 			email_verificado, created_at, updated_at, total_estudantes, version
 		FROM projection_academias
-		WHERE deleted_at IS NULL
 		ORDER BY created_at DESC
 	`
 
@@ -392,14 +464,18 @@ func ListarTodasAcademias(c *gin.Context) {
 	})
 }
 
+// ============================================================================
+// PUT /admin/academia/:codigo/ativar
+// ============================================================================
+
+// AtivarAcademia ativa uma academia.
+// Rota protegida por AuthMiddleware + RequireAdmin + RequireGerente.
+//
+// FIX E-09: removida chamada redundante a verificarPermissaoAdmin — o middleware
+// RequireGerente já garante a permissão. Manter ambos era ineficiente e confuso.
 func AtivarAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	codigoAcademia := c.Param("codigo")
-
-	if err := verificarPermissaoAdmin(c, "gerente"); err != nil {
-		utils.RespondWithForbiddenError(c, err.Error())
-		return
-	}
 
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByCodigo(codigoAcademia)
@@ -445,6 +521,14 @@ func AtivarAcademia(c *gin.Context) {
 	})
 }
 
+// ============================================================================
+// PUT /admin/academia/:codigo/desativar
+// ============================================================================
+
+// DesativarAcademia desativa uma academia com motivo obrigatório.
+// Rota protegida por AuthMiddleware + RequireAdmin + RequireGerente.
+//
+// FIX E-09: removida chamada redundante a verificarPermissaoAdmin.
 func DesativarAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	codigoAcademia := c.Param("codigo")
@@ -454,11 +538,6 @@ func DesativarAcademia(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("motivo é obrigatório"))
-		return
-	}
-
-	if err := verificarPermissaoAdmin(c, "gerente"); err != nil {
-		utils.RespondWithForbiddenError(c, err.Error())
 		return
 	}
 
@@ -554,58 +633,43 @@ func validarProvincia(provincia string) (string, error) {
 //   - A transação segura o lock até o commit, evitando dois processos lerem
 //     o mesmo MAX e gerarem o mesmo sequencial.
 //   - O UNIQUE constraint em codigo_academia é a última linha de defesa.
-func generateCodigoAcademia(codigoProvincia string, db *sqlx.DB) (string, error) {
-	ano := time.Now().Year()
-	prefix := fmt.Sprintf("%s%d", codigoProvincia, ano) // ex: "BGU2026"
+func generateCodigoAcademia(sigla string, db *sqlx.DB) (string, error) {
+	year := time.Now().Year()
+	prefix := fmt.Sprintf("%s%d", sigla, year)
 
-	// Chave determinística para o advisory lock (int64 via FNV hash do prefix)
-	lockKey := prefixLockKey(prefix)
-
-	log.Printf("🔒 [generateCodigoAcademia] Adquirindo lock para prefix=%s (lockKey=%d)", prefix, lockKey)
+	// Hash do prefix para o advisory lock (int64 requerido pelo PostgreSQL)
+	h := fnv.New64a()
+	h.Write([]byte(prefix))
+	lockKey := int64(h.Sum64() & 0x7FFFFFFFFFFFFFFF) // garantir positivo
 
 	tx, err := db.Begin()
 	if err != nil {
 		return "", fmt.Errorf("erro ao iniciar transação: %w", err)
 	}
-	defer tx.Rollback() // no-op após Commit
+	defer tx.Rollback()
 
-	// Serializa todas as gerações com o mesmo prefix dentro desta instância e
-	// em quaisquer outras instâncias conectadas ao mesmo PostgreSQL.
 	if _, err := tx.Exec(`SELECT pg_advisory_xact_lock($1)`, lockKey); err != nil {
-		return "", fmt.Errorf("erro ao adquirir advisory lock: %w", err)
+		return "", fmt.Errorf("erro ao obter advisory lock: %w", err)
 	}
 
-	// Busca o maior sequencial já existente para este prefix.
-	query := fmt.Sprintf(`
-		SELECT COALESCE(
-			MAX(CAST(SUBSTRING(codigo_academia, %d) AS INTEGER)),
-			0
-		)
-		FROM projection_academias
-		WHERE codigo_academia ~ '^%s[0-9]+$'
-	`, len(prefix)+1, prefix)
-
 	var maxSeq int
-	if err := tx.QueryRow(query).Scan(&maxSeq); err != nil {
+	err = tx.QueryRow(`
+		SELECT COALESCE(MAX(
+			CAST(SUBSTRING(codigo_academia FROM $1) AS INTEGER)
+		), 0)
+		FROM projection_academias
+		WHERE codigo_academia LIKE $2
+	`, fmt.Sprintf("^%s(\\d+)$", prefix), prefix+"%").Scan(&maxSeq)
+	if err != nil {
 		return "", fmt.Errorf("erro ao buscar sequencial: %w", err)
 	}
 
-	nextSeq := maxSeq + 1
-	codigo := fmt.Sprintf("%s%d", prefix, nextSeq)
-
-	log.Printf("✅ [generateCodigoAcademia] Código gerado: %s (maxSeq=%d → next=%d)", codigo, maxSeq, nextSeq)
+	newSeq := maxSeq + 1
+	codigo := fmt.Sprintf("%s%d", prefix, newSeq)
 
 	if err := tx.Commit(); err != nil {
-		return "", fmt.Errorf("erro ao confirmar transação: %w", err)
+		return "", fmt.Errorf("erro ao commitar transação: %w", err)
 	}
 
 	return codigo, nil
-}
-
-// prefixLockKey converte uma string (ex: "BGU2026") em um int64 estável
-// para uso como chave no pg_advisory_xact_lock.
-func prefixLockKey(prefix string) int64 {
-	h := fnv.New64a()
-	h.Write([]byte(prefix))
-	return int64(h.Sum64())
 }

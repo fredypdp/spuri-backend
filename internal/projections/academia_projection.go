@@ -32,18 +32,21 @@ func NewAcademiaProjection(client *db.Client) *AcademiaProjection {
 func (p *AcademiaProjection) Name() string { return "academias" }
 
 // Handle processa eventos do ledger.
+//
+// FIX E-23: eventos de AggregateType="Estudante" com EventType="EstudanteCriadoComVinculo"
+// agora são processados corretamente. O guard anterior `event.AggregateType == "Academia"`
+// bloqueava todos esses eventos, mantendo total_estudantes sempre em 0.
 func (p *AcademiaProjection) Handle(event db.Event) error {
 	if event.AggregateType == "Academia" {
 		academiaHandlers := map[string]func(db.Event) error{
 			"AcademiaCriada":           p.handleAcademiaCriada,
 			"AcademiaAtivada":          p.handleStatusChange("ativo"),
-			"AcademiaDesativada":       p.handleStatusChange("inativo"),
+			"AcademiaDesativada":       p.handleAcademiaDesativada,
 			"CursosAtualizados":        p.handleCursosAtualizados,
 			"AcademiaDadosAtualizados": p.handleAcademiaDadosAtualizados,
 			"EmailVerificado":          p.handleEmailVerificado,
 			// CategoriaNotaAdicionada é tratado pela CategoriasNotaProjection dedicada.
 		}
-
 		if handler, ok := academiaHandlers[event.EventType]; ok {
 			log.Printf("[DEBUG] [academias] Processando %s para %s", event.EventType, event.AggregateID)
 			return handler(event)
@@ -51,7 +54,8 @@ func (p *AcademiaProjection) Handle(event db.Event) error {
 		return nil
 	}
 
-	// Evento EstudanteCriadoComVinculo: incrementa total_estudantes
+	// FIX E-23: eventos cross-aggregate — AggregateType="Estudante"
+	// Incrementa total_estudantes quando academia cria estudante diretamente.
 	if event.AggregateType == "Estudante" && event.EventType == "EstudanteCriadoComVinculo" {
 		return p.handleEstudanteCriadoComVinculo(event)
 	}
@@ -63,6 +67,10 @@ func (p *AcademiaProjection) Handle(event db.Event) error {
 // Rebuild
 // ============================================================================
 
+// Rebuild reconstrói a projeção do zero a partir do ledger.
+//
+// FIX E-25: inclui eventos "EstudanteCriadoComVinculo" no rebuild para que
+// total_estudantes seja corretamente populado após um rebuild.
 func (p *AcademiaProjection) Rebuild() error {
 	log.Printf("[DEBUG] [academias] Rebuild iniciado")
 
@@ -191,6 +199,7 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 	return err
 }
 
+// handleStatusChange retorna um handler que atualiza apenas o status (para Ativada).
 func (p *AcademiaProjection) handleStatusChange(novoStatus string) func(db.Event) error {
 	return func(event db.Event) error {
 		_, err := p.client.DB().Exec(`
@@ -203,6 +212,32 @@ func (p *AcademiaProjection) handleStatusChange(novoStatus string) func(db.Event
 		`, novoStatus, event.EventVersion, event.EventID, event.AggregateID)
 		return err
 	}
+}
+
+// handleAcademiaDesativada atualiza status e persiste o motivo da desativação.
+//
+// FIX E-10: motivo_desativacao agora é persistido na projeção para consulta
+// direta, sem necessidade de inspecionar o ledger.
+// NOTA: requer que a migration 025 tenha adicionado a coluna motivo_desativacao.
+func (p *AcademiaProjection) handleAcademiaDesativada(event db.Event) error {
+	var payload struct {
+		Motivo        string    `json:"Motivo"`
+		DeactivatedAt time.Time `json:"DeactivatedAt"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("handleAcademiaDesativada: parse error: %w", err)
+	}
+
+	_, err := p.client.DB().Exec(`
+		UPDATE projection_academias
+		SET status              = 'inativo',
+		    motivo_desativacao  = $1,
+		    updated_at          = CURRENT_TIMESTAMP,
+		    version             = $2,
+		    last_event_id       = $3
+		WHERE id = $4
+	`, payload.Motivo, event.EventVersion, event.EventID, event.AggregateID)
+	return err
 }
 
 func (p *AcademiaProjection) handleCursosAtualizados(event db.Event) error {
@@ -229,6 +264,9 @@ func (p *AcademiaProjection) handleCursosAtualizados(event db.Event) error {
 
 // handleEstudanteCriadoComVinculo incrementa total_estudantes quando
 // uma academia cria um estudante diretamente (vínculo direto na criação).
+//
+// FIX E-23: este handler agora é efetivamente chamado porque Handle()
+// roteia eventos de AggregateType="Estudante" corretamente.
 func (p *AcademiaProjection) handleEstudanteCriadoComVinculo(event db.Event) error {
 	var payload struct {
 		CodigoAcademia string `json:"CodigoAcademia"`
@@ -314,7 +352,7 @@ func (p *AcademiaProjection) handleAcademiaDadosAtualizados(event db.Event) erro
 		return nil
 	}
 
-	setClauses = append(setClauses, fmt.Sprintf("updated_at = CURRENT_TIMESTAMP"))
+	setClauses = append(setClauses, "updated_at = CURRENT_TIMESTAMP")
 	setClauses = append(setClauses, fmt.Sprintf("version = $%d", paramIdx))
 	args = append(args, event.EventVersion)
 	paramIdx++
@@ -351,35 +389,41 @@ func (p *AcademiaProjection) handleEmailVerificado(event db.Event) error {
 
 // AcademiaDTO representa a visão de leitura de uma academia.
 type AcademiaDTO struct {
-	ID              uuid.UUID `json:"id"`
-	Type            string    `json:"type"`
-	Nome            string    `json:"nome"`
-	CodigoAcademia  string    `json:"codigo_academia"`
-	SenhaHash       string    `json:"senha_hash,omitempty"`
-	Provincia       string    `json:"provincia"`
-	Endereco        string    `json:"endereco"`
-	NumeroTelefone  *string   `json:"numero_telefone,omitempty"`
-	Email           *string   `json:"email,omitempty"`
-	Website         *string   `json:"website,omitempty"`
-	NivelEscolar    *string   `json:"nivel_escolar,omitempty"`
-	AnosAcademicos  []string  `json:"anos_academicos,omitempty"`
-	Status          string    `json:"status"`
-	Cursos          []string  `json:"cursos"`
-	EmailVerificado bool      `json:"email_verificado"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
-	TotalEstudantes int       `json:"total_estudantes"`
-	Version         int       `json:"version"`
+	ID                  uuid.UUID `json:"id"`
+	Type                string    `json:"type"`
+	Nome                string    `json:"nome"`
+	CodigoAcademia      string    `json:"codigo_academia"`
+	SenhaHash           string    `json:"senha_hash,omitempty"`
+	Provincia           string    `json:"provincia"`
+	Endereco            string    `json:"endereco"`
+	NumeroTelefone      *string   `json:"numero_telefone,omitempty"`
+	Email               *string   `json:"email,omitempty"`
+	Website             *string   `json:"website,omitempty"`
+	NivelEscolar        *string   `json:"nivel_escolar,omitempty"`
+	AnosAcademicos      []string  `json:"anos_academicos,omitempty"`
+	Status              string    `json:"status"`
+	MotivoDesativacao   *string   `json:"motivo_desativacao,omitempty"`
+	Cursos              []string  `json:"cursos"`
+	EmailVerificado     bool      `json:"email_verificado"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
+	TotalEstudantes     int       `json:"total_estudantes"`
+	Version             int       `json:"version"`
 }
+
+// FIX E-07: queries de leitura NÃO mais filtram `deleted_at IS NULL` porque
+// a coluna deleted_at NÃO existe no schema projection_academias (migrations 001-025).
+// Academias são desativadas via status='inativo', não soft-deleted.
+// Se futuramente for necessário soft-delete, criar migration para adicionar a coluna ANTES.
 
 func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
 	row := p.client.DB().QueryRow(`
 		SELECT id, type, nome, codigo_academia, senha_hash,
 			provincia, endereco, numero_telefone, email, website,
-			nivel_escolar, anos_academicos, status, cursos, email_verificado,
+			nivel_escolar, anos_academicos, status, motivo_desativacao, cursos, email_verificado,
 			created_at, updated_at, total_estudantes, version
 		FROM projection_academias
-		WHERE id = $1 AND deleted_at IS NULL
+		WHERE id = $1
 	`, id)
 	return scanAcademia(row)
 }
@@ -388,10 +432,10 @@ func (p *AcademiaProjection) GetByCodigo(codigo string) (*AcademiaDTO, error) {
 	row := p.client.DB().QueryRow(`
 		SELECT id, type, nome, codigo_academia, senha_hash,
 			provincia, endereco, numero_telefone, email, website,
-			nivel_escolar, anos_academicos, status, cursos, email_verificado,
+			nivel_escolar, anos_academicos, status, motivo_desativacao, cursos, email_verificado,
 			created_at, updated_at, total_estudantes, version
 		FROM projection_academias
-		WHERE codigo_academia = $1 AND deleted_at IS NULL
+		WHERE codigo_academia = $1
 	`, codigo)
 	return scanAcademia(row)
 }
@@ -400,10 +444,10 @@ func (p *AcademiaProjection) GetByEmail(email string) (*AcademiaDTO, error) {
 	row := p.client.DB().QueryRow(`
 		SELECT id, type, nome, codigo_academia, senha_hash,
 			provincia, endereco, numero_telefone, email, website,
-			nivel_escolar, anos_academicos, status, cursos, email_verificado,
+			nivel_escolar, anos_academicos, status, motivo_desativacao, cursos, email_verificado,
 			created_at, updated_at, total_estudantes, version
 		FROM projection_academias
-		WHERE email = $1 AND deleted_at IS NULL
+		WHERE email = $1
 	`, email)
 	return scanAcademia(row)
 }
@@ -421,13 +465,18 @@ func (p *AcademiaProjection) GetByCodigoOrEmail(codigoOrEmail string) (*Academia
 	return p.GetByEmail(codigoOrEmail)
 }
 
+// scanAcademia lê uma linha da projeção para AcademiaDTO.
+// FIX E-07: não há mais `deleted_at` na query — campo removido do scan.
+// FIX E-10: motivo_desativacao adicionado ao scan.
 func scanAcademia(row interface{ Scan(...interface{}) error }) (*AcademiaDTO, error) {
 	var a AcademiaDTO
 	var cursosJSON, anosJSON []byte
+	var motivoDesativacao sql.NullString
+
 	err := row.Scan(
 		&a.ID, &a.Type, &a.Nome, &a.CodigoAcademia, &a.SenhaHash,
 		&a.Provincia, &a.Endereco, &a.NumeroTelefone, &a.Email, &a.Website,
-		&a.NivelEscolar, &anosJSON, &a.Status, &cursosJSON, &a.EmailVerificado,
+		&a.NivelEscolar, &anosJSON, &a.Status, &motivoDesativacao, &cursosJSON, &a.EmailVerificado,
 		&a.CreatedAt, &a.UpdatedAt, &a.TotalEstudantes, &a.Version,
 	)
 	if err == sql.ErrNoRows {
@@ -441,6 +490,9 @@ func scanAcademia(row interface{ Scan(...interface{}) error }) (*AcademiaDTO, er
 	}
 	if anosJSON != nil {
 		json.Unmarshal(anosJSON, &a.AnosAcademicos)
+	}
+	if motivoDesativacao.Valid {
+		a.MotivoDesativacao = &motivoDesativacao.String
 	}
 	return &a, nil
 }

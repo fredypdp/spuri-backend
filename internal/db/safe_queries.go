@@ -55,6 +55,7 @@ func SafeString(s string) string {
 }
 
 // ValidateStatus valida status (whitelist)
+// FIX E-27: adicionado "deletado" para suportar soft-delete em turmas, cursos e matérias.
 func ValidateStatus(status string) error {
 	validStatuses := map[string]bool{
 		"ativo":     true,
@@ -62,6 +63,7 @@ func ValidateStatus(status string) error {
 		"espera":    true,
 		"aprovado":  true,
 		"reprovado": true,
+		"deletado":  true, // FIX E-27: necessário para soft-delete via event sourcing
 	}
 
 	if !validStatuses[status] {
@@ -71,6 +73,8 @@ func ValidateStatus(status string) error {
 }
 
 // ValidateEventType valida tipo de evento (whitelist).
+// ATENÇÃO: qualquer novo EventType emitido por um aggregate DEVE ser adicionado aqui.
+// Se ausente, EventStore.Append() rejeita o evento — nada chega ao ledger.
 func ValidateEventType(eventType string) error {
 	validTypes := map[string]bool{
 		// Estudante
@@ -102,8 +106,12 @@ func ValidateEventType(eventType string) error {
 		"EmailVerificado":       true,
 		"AdminSenhaAlterada":    true,
 		// Notas e Faltas
-		"NotasRegistradas":  true,
-		"NotasAtualizadas":  true,
+		"NotasRegistradas": true,
+		"NotasAtualizadas": true,
+		// FIX E-26: "NotaAtualizada" (singular) é o evento real emitido pelo aggregate Estudante.
+		// "NotasAtualizadas" (plural) era o nome incorreto na whitelist — ambos mantidos
+		// para compatibilidade com eventos históricos no ledger.
+		"NotaAtualizada":  true,
 		"FaltasRegistradas": true,
 		// Cursos
 		"CursoCriado":           true,
@@ -127,9 +135,9 @@ func ValidateEventType(eventType string) error {
 		"EstudanteRemovidoDaTurma":  true,
 		"TurmaDeletada":             true,
 		// Avaliação e Categorias
-		"AvaliacaoFinalRegistrada":  true,
+		"AvaliacaoFinalRegistrada":   true,
 		"AvaliacaoFinalAnoAcademico": true,
-		"CategoriaNotaAdicionada":   true,
+		"CategoriaNotaAdicionada":    true,
 	}
 
 	if !validTypes[eventType] {
