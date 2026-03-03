@@ -3,55 +3,14 @@ package handlers
 import (
 	"fmt"
 	"net/http"
-	"spuri/internal/domain/aggregates"
-	"spuri/internal/middleware"
-	"spuri/internal/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+
+	"spuri/internal/domain/aggregates"
+	"spuri/internal/middleware"
+	"spuri/internal/utils"
 )
-
-func GetInscricoesPorCodigoEstudante(c *gin.Context) {
-	codigoEstudante := c.Param("codigo")
-
-	estudanteProj := getEstudanteProjection(c)
-	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
-	if err != nil || estudante == nil {
-		utils.RespondWithNotFoundError(c, "estudante")
-		return
-	}
-
-	userID, _ := middleware.GetUserID(c)
-	userType, _ := middleware.GetUserType(c)
-
-	if userType == "estudante" && userID != estudante.ID {
-		utils.RespondWithForbiddenError(c, "Você só pode visualizar suas próprias inscrições")
-		return
-	}
-
-	if userType == "academia" {
-		academiaProj := getAcademiaProjection(c)
-		academiaDTO, _ := academiaProj.GetByID(userID)
-		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
-			utils.RespondWithForbiddenError(c, "Estudante não pertence a esta academia")
-			return
-		}
-	}
-
-	inscProj := getInscricoesProjection(c)
-	inscricoes, err := inscProj.GetByEstudante(estudante.ID)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"codigo_estudante": codigoEstudante,
-		"nome":             estudante.Nome,
-		"inscricoes":       inscricoes,
-		"total":            len(inscricoes),
-	})
-}
 
 func AlterarCursoEstudante(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")

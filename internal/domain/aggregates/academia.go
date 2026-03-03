@@ -36,8 +36,7 @@ type Academia struct {
 	Cursos         []string
 	CreatedAt      time.Time
 
-	TotalEstudantes          int
-	TotalInscricoesPendentes int
+	TotalEstudantes int
 }
 
 func NewAcademia() *Academia {
@@ -64,10 +63,6 @@ func (a *Academia) Apply(event DomainEvent) error {
 	switch event.GetEventType() {
 	case "AcademiaCriada":
 		return a.applyAcademiaCriada(event)
-	case "InscricaoAprovada":
-		return a.applyInscricaoAprovada(event)
-	case "InscricaoReprovada":
-		return a.applyInscricaoReprovada(event)
 	case "AcademiaAtivada":
 		return a.applyAcademiaAtivada(event)
 	case "AcademiaDesativada":
@@ -153,45 +148,6 @@ func (a *Academia) VerificarEmail() error {
 	event := &EmailVerificadoEvent{
 		BaseEvent:  BaseEvent{EventType: "EmailVerificado", AggregateID: a.ID},
 		VerifiedAt: time.Now(),
-	}
-
-	a.RaiseEvent(event)
-	return a.Apply(event)
-}
-
-func (a *Academia) AprovarInscricao(estudanteID uuid.UUID, inscricaoID uuid.UUID, tipo string, anoInscricao string, cursoID *uuid.UUID) error {
-	if a.Status != "ativo" {
-		return fmt.Errorf("academia está inativa")
-	}
-
-	event := &InscricaoAprovadaPorAcademiaEvent{
-		BaseEvent:      BaseEvent{EventType: "InscricaoAprovada", AggregateID: a.ID},
-		EstudanteID:    estudanteID,
-		InscricaoID:    inscricaoID,
-		AcademiaID:     a.ID,
-		CodigoAcademia: a.CodigoAcademia,
-		Tipo:           tipo,
-		AnoInscricao:   anoInscricao,
-		CursoID:        cursoID,
-		ApprovedAt:     time.Now(),
-	}
-
-	a.RaiseEvent(event)
-	return a.Apply(event)
-}
-
-func (a *Academia) ReprovarInscricao(estudanteID uuid.UUID, inscricaoID uuid.UUID, motivo string) error {
-	if a.Status != "ativo" {
-		return fmt.Errorf("academia está inativa")
-	}
-
-	event := &InscricaoReprovadaPorAcademiaEvent{
-		BaseEvent:   BaseEvent{EventType: "InscricaoReprovada", AggregateID: a.ID},
-		EstudanteID: estudanteID,
-		InscricaoID: inscricaoID,
-		AcademiaID:  a.ID,
-		Motivo:      motivo,
-		RejectedAt:  time.Now(),
 	}
 
 	a.RaiseEvent(event)
@@ -330,21 +286,6 @@ func (a *Academia) applyAcademiaCriada(event DomainEvent) error {
 	return nil
 }
 
-func (a *Academia) applyInscricaoAprovada(_ DomainEvent) error {
-	a.TotalEstudantes++
-	if a.TotalInscricoesPendentes > 0 {
-		a.TotalInscricoesPendentes--
-	}
-	return nil
-}
-
-func (a *Academia) applyInscricaoReprovada(_ DomainEvent) error {
-	if a.TotalInscricoesPendentes > 0 {
-		a.TotalInscricoesPendentes--
-	}
-	return nil
-}
-
 func (a *Academia) applyAcademiaAtivada(_ DomainEvent) error {
 	a.Status = "ativo"
 	return nil
@@ -396,8 +337,6 @@ func (a *Academia) applyAcademiaDadosAtualizados(event DomainEvent) error {
 	if ev.NivelEscolar != nil {
 		a.NivelEscolar = ev.NivelEscolar
 	}
-	// AnosAcademicos: só sobrescreve se o evento trouxer valor não-nil
-	// (nil = campo não alterado nesta operação)
 	if ev.AnosAcademicos != nil {
 		a.AnosAcademicos = ev.AnosAcademicos
 	}
@@ -412,27 +351,22 @@ func (a *Academia) applyEmailVerificado(_ DomainEvent) error {
 	return nil
 }
 
+func (a *Academia) applyCategoriaNotaAdicionada(_ DomainEvent) error {
+	// Não altera estado do aggregate Academia — apenas registra o evento.
+	return nil
+}
+
 // ============================================================================
-// Helper interno de validação
+// Validação interna
 // ============================================================================
 
-// validarAnosAcademicos centraliza as regras de negócio para o campo AnosAcademicos.
-// Retorna a slice validada (pode ser nil quando não aplicável).
-//
-// ✅ CORRIGIDO: array vazio agora é rejeitado para fundamental/misto —
-// anos_academicos é obrigatório e deve conter ao menos um elemento.
 func validarAnosAcademicos(tipo string, nivelEscolar *string, anos []string) ([]string, error) {
-	// Academia superior nunca tem anos fundamentais
+	// Universidades nunca têm anos fundamentais
 	if tipo == "superior" {
-		if len(anos) > 0 {
-			return nil, fmt.Errorf("academias do tipo 'superior' não devem definir anos_academicos")
-		}
 		return nil, nil
 	}
 
-	// Escola tipo "escola"
 	if nivelEscolar == nil {
-		// Sem nivel_escolar não conseguimos validar — o Criar() já teria barrado antes.
 		return nil, nil
 	}
 
@@ -484,31 +418,6 @@ type AcademiaCriadaEvent struct {
 }
 
 func (e *AcademiaCriadaEvent) GetPayload() interface{} { return e }
-
-type InscricaoAprovadaPorAcademiaEvent struct {
-	BaseEvent
-	EstudanteID    uuid.UUID
-	InscricaoID    uuid.UUID
-	AcademiaID     uuid.UUID
-	CodigoAcademia string
-	Tipo           string
-	AnoInscricao   string
-	CursoID        *uuid.UUID
-	ApprovedAt     time.Time
-}
-
-func (e *InscricaoAprovadaPorAcademiaEvent) GetPayload() interface{} { return e }
-
-type InscricaoReprovadaPorAcademiaEvent struct {
-	BaseEvent
-	EstudanteID uuid.UUID
-	InscricaoID uuid.UUID
-	AcademiaID  uuid.UUID
-	Motivo      string
-	RejectedAt  time.Time
-}
-
-func (e *InscricaoReprovadaPorAcademiaEvent) GetPayload() interface{} { return e }
 
 type AcademiaAtivadaEvent struct {
 	BaseEvent

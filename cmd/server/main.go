@@ -4,15 +4,16 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"spuri/internal/db"
-	"spuri/internal/handlers"
-	"spuri/internal/middleware"
-	"spuri/internal/projections"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+
+	"spuri/internal/db"
+	"spuri/internal/handlers"
+	"spuri/internal/middleware"
+	"spuri/internal/projections"
 )
 
 var (
@@ -86,15 +87,14 @@ func initProjections() error {
 	projManager.RegisterProjection("admins", projections.NewAdminProjection(dbClient))
 	projManager.RegisterProjection("notas", projections.NewNotasProjection(dbClient))
 	projManager.RegisterProjection("faltas", projections.NewFaltasProjection(dbClient))
-	projManager.RegisterProjection("inscricoes", projections.NewInscricoesProjection(dbClient))
 	projManager.RegisterProjection("cursos", projections.NewCursosProjection(dbClient))
 	projManager.RegisterProjection("materias", projections.NewMateriasProjection(dbClient))
 	projManager.RegisterProjection("sistema_config", projections.NewSistemaConfigProjection(dbClient))
 	projManager.RegisterProjection("turmas", projections.NewTurmasProjection(dbClient))
 	projManager.RegisterProjection("avaliacao_final", projections.NewAvaliacaoFinalProjection(dbClient))
-	// ✅ CORRIGIDO: categorias_nota agora registrada no Manager — sem este registro,
-	// eventos CategoriaNotaAdicionada eram gravados no ledger mas nunca processados.
 	projManager.RegisterProjection("categorias_nota", projections.NewCategoriasNotaProjection(dbClient))
+	projManager.RegisterProjection("aprovacao_ano", projections.NewAprovacaoAnoProjection(dbClient))
+	projManager.RegisterProjection("reprovacoes", projections.NewReprovacoesProjection(dbClient))
 
 	go projManager.StartProcessing()
 
@@ -152,8 +152,6 @@ func setupRouter() *gin.Engine {
 		protected.PUT("/alterar-senha", handlers.AlterarSenha)
 		protected.GET("/meu-perfil", handlers.GetMeuPerfil)
 		protected.GET("/academias", handlers.ListarTodasAcademias)
-		protected.GET("/inscricoes", handlers.ListarInscricoes)
-		protected.GET("/inscricoes-pendentes", handlers.ListarInscricoesPendentes)
 		protected.GET("/notas-estudante/:codigo", handlers.GetNotasEstudante)
 		protected.GET("/faltas-estudante/:codigo", handlers.GetFaltasEstudante)
 		protected.GET("/historico-estudante/:codigo", handlers.GetHistoricoCompleto)
@@ -161,7 +159,6 @@ func setupRouter() *gin.Engine {
 		protected.GET("/verificar-integridade/:codigo", handlers.VerificarIntegridade)
 		protected.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)
 		protected.GET("/consultar-academia/:codigo", handlers.GetAcademiaPorCodigo)
-		protected.GET("/inscricoes/estudante/:codigo", handlers.GetInscricoesPorCodigoEstudante)
 		protected.GET("/estudantes", handlers.ListarEstudantes)
 		protected.GET("/ano-letivo-atual", handlers.GetAnoLetivoAtual)
 		protected.GET("/avaliacoes", handlers.ListarAvaliacoes)
@@ -180,19 +177,13 @@ func setupRouter() *gin.Engine {
 	estudante.Use(middleware.AuthMiddleware())
 	estudante.Use(middleware.RequireEstudante())
 	{
-		estudante.GET("/minhas-inscricoes", handlers.GetMinhasInscricoes)
 		estudante.GET("/meu-historico", handlers.GetMeuHistorico)
 		estudante.PUT("/status-escolar-fundamental", handlers.AtualizarStatusEscolarFundamentalHandler)
 		estudante.PUT("/status-escolar-medio", handlers.AtualizarStatusEscolarMedioHandler)
 		estudante.PUT("/status-superior", handlers.AtualizarStatusSuperior)
-		estudante.POST("/inscricao-escola", handlers.InscricaoEscola)
-		estudante.POST("/inscricao-universidade", handlers.InscricaoUniversidade)
-		estudante.GET("/inscricoes-aprovadas", handlers.ListarInscricoesAprovadas)
-		estudante.POST("/vincular-academia", handlers.VincularAcademia)
 		estudante.PUT("/dados-pessoais", handlers.AtualizarDadosPessoaisEstudante)
 		estudante.PUT("/dados-academicos", handlers.AtualizarDadosAcademicosEstudante)
 		estudante.GET("/minhas-avaliacoes", handlers.GetMinhasAvaliacoes)
-		estudante.GET("/inscricoes/:codigo", handlers.GetInscricoesPorCodigoEstudante)
 	}
 
 	// -----------------------------------------------------------------------
@@ -204,8 +195,6 @@ func setupRouter() *gin.Engine {
 	academia.Use(middleware.ValidarStatusAcademia())
 	{
 		academia.POST("/faltas-aluno", handlers.RegistrarFaltas)
-		academia.PUT("/inscricao/:id/aprovar", handlers.AprovarInscricao)
-		academia.PUT("/inscricao/:id/reprovar", handlers.ReprovarInscricao)
 		academia.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)
 		academia.GET("/consultar-academia/:codigo", handlers.GetAcademiaPorCodigo)
 		academia.POST("/cursos", handlers.CriarCurso)
@@ -221,11 +210,11 @@ func setupRouter() *gin.Engine {
 		academia.DELETE("/materias/:id", handlers.DeletarMateria)
 		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
 		academia.PUT("/cursos/:id", handlers.AtualizarDadosCurso)
-		academia.GET("/inscricoes/estudante/:codigo", handlers.GetInscricoesPorCodigoEstudante)
 		academia.PUT("/estudante/:codigo/curso", handlers.AlterarCursoEstudante)
 		academia.POST("/estudante/register", handlers.RegisterEstudantePorAcademia)
 		academia.POST("/registrar-nota", handlers.RegistrarNota)
 		academia.PUT("/atualizar-nota", handlers.AtualizarNota)
+		academia.POST("/aprovacao-ano", handlers.RegistrarAprovacaoAno)
 		academia.POST("/categorias-nota", handlers.CriarCategoriaNotaSuperior)
 		academia.GET("/categorias-nota", handlers.ListarCategoriasNota)
 		academia.POST("/turmas", handlers.CriarTurma)
@@ -265,7 +254,6 @@ func setupRouter() *gin.Engine {
 		{
 			adminAdm.POST("/register", handlers.RegisterAdmin)
 			adminAdm.GET("/admins", handlers.ListarTodosAdmins)
-			// ✅ Única rota de registro de academia — protegida por RequireAdm
 			adminAdm.POST("/academia/register", handlers.RegisterAcademia)
 		}
 

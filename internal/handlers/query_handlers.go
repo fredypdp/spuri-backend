@@ -1,17 +1,16 @@
 package handlers
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"spuri/internal/middleware"
-	"spuri/internal/utils"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+
+	"spuri/internal/middleware"
+	"spuri/internal/utils"
 )
 
 func getPaginationParams(c *gin.Context) (limit, offset int) {
@@ -36,275 +35,127 @@ func getPaginationParams(c *gin.Context) (limit, offset int) {
 	return limit, offset
 }
 
-func ListarInscricoes(c *gin.Context) {
-	userID, exists := middleware.GetUserID(c)
-	if !exists {
-		utils.RespondWithUnauthorizedError(c)
-		return
-	}
+func GetMeuHistorico(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
 
-	userType, exists := middleware.GetUserType(c)
-	if !exists {
-		utils.RespondWithUnauthorizedError(c)
-		return
-	}
-
-	limit, offset := getPaginationParams(c)
-	statusFilter := c.Query("status")
-	client := getDbClient(c)
-
-	// ✅ curso → curso_id (migration 004)
-	type InscricaoDetalhada struct {
-		ID              uuid.UUID  `json:"id"`
-		EstudanteID     uuid.UUID  `json:"estudante_id"`
-		CodigoEstudante string     `json:"codigo_estudante"`
-		AcademiaID      uuid.UUID  `json:"academia_id"`
-		CodigoAcademia  string     `json:"codigo_academia"`
-		Tipo            string     `json:"tipo"`
-		AnoInscricao    string     `json:"ano_inscricao"`
-		CursoID         *uuid.UUID `json:"curso_id,omitempty"` // ✅ era: Curso *string
-		Status          string     `json:"status"`
-		StatusUsado     bool       `json:"status_usado"`
-		CreatedAt       time.Time  `json:"created_at"`
-		UpdatedAt       time.Time  `json:"updated_at"`
-		EventID         *uuid.UUID `json:"event_id,omitempty"`
-		Version         *int       `json:"version,omitempty"`
-	}
-
-	var inscricoes []InscricaoDetalhada
-	var total int
-	var rows *sql.Rows
-	var err error
-	var countQuery string
-	var countArgs []interface{}
-
-	// ✅ Todas as queries trocam `curso` por `curso_id`
-	const selectCols = `id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-		tipo, ano_inscricao, curso_id, status, status_usado, created_at, updated_at, event_id, version`
-
-	switch userType {
-	case "admin":
-		// ✅ Prepared statement — status é parâmetro $1; limit/offset são ints validados
-		if statusFilter != "" {
-			rows, err = client.DB().Query(
-				fmt.Sprintf(`SELECT %s FROM projection_inscricoes
-					WHERE status = $1
-					ORDER BY created_at DESC LIMIT %d OFFSET %d`,
-					selectCols, limit, offset),
-				statusFilter,
-			)
-			countQuery = `SELECT COUNT(*) FROM projection_inscricoes WHERE status = $1`
-			countArgs = []interface{}{statusFilter}
-		} else {
-			rows, err = client.DB().Query(
-				fmt.Sprintf(`SELECT %s FROM projection_inscricoes
-					ORDER BY created_at DESC LIMIT %d OFFSET %d`,
-					selectCols, limit, offset),
-			)
-			countQuery = `SELECT COUNT(*) FROM projection_inscricoes`
-		}
-
-	case "academia":
-		// ✅ Prepared statement — userID (UUID) e status são parâmetros
-		if statusFilter != "" {
-			rows, err = client.DB().Query(
-				fmt.Sprintf(`SELECT %s FROM projection_inscricoes
-					WHERE academia_id = $1 AND status = $2
-					ORDER BY created_at DESC LIMIT %d OFFSET %d`,
-					selectCols, limit, offset),
-				userID, statusFilter,
-			)
-			countQuery = `SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = $1 AND status = $2`
-			countArgs = []interface{}{userID, statusFilter}
-		} else {
-			rows, err = client.DB().Query(
-				fmt.Sprintf(`SELECT %s FROM projection_inscricoes
-					WHERE academia_id = $1
-					ORDER BY created_at DESC LIMIT %d OFFSET %d`,
-					selectCols, limit, offset),
-				userID,
-			)
-			countQuery = `SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = $1`
-			countArgs = []interface{}{userID}
-		}
-
-	case "estudante":
-		// ✅ Prepared statement — userID (UUID) e status são parâmetros
-		if statusFilter != "" {
-			rows, err = client.DB().Query(
-				fmt.Sprintf(`SELECT %s FROM projection_inscricoes
-					WHERE estudante_id = $1 AND status = $2
-					ORDER BY created_at DESC`,
-					selectCols),
-				userID, statusFilter,
-			)
-		} else {
-			rows, err = client.DB().Query(
-				fmt.Sprintf(`SELECT %s FROM projection_inscricoes
-					WHERE estudante_id = $1
-					ORDER BY created_at DESC`,
-					selectCols),
-				userID,
-			)
-		}
-
-	default:
-		utils.RespondWithForbiddenError(c, "Acesso negado")
-		return
-	}
-
+	estudanteProj := getEstudanteProjection(c)
+	estudante, err := estudanteProj.GetByID(userID)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	defer rows.Close()
 
-	for rows.Next() {
-		var insc InscricaoDetalhada
-		var cursoID sql.NullString
-		if err := rows.Scan(
-			&insc.ID, &insc.EstudanteID, &insc.CodigoEstudante, &insc.AcademiaID,
-			&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &cursoID,
-			&insc.Status, &insc.StatusUsado,
-			&insc.CreatedAt, &insc.UpdatedAt, &insc.EventID, &insc.Version,
-		); err == nil {
-			if cursoID.Valid {
-				cid, _ := uuid.Parse(cursoID.String)
-				insc.CursoID = &cid
-			}
-			inscricoes = append(inscricoes, insc)
-		}
-	}
+	notasProj := getNotasProjection(c)
+	notas, _ := notasProj.GetByEstudante(estudante.CodigoEstudante)
 
-	if userType == "estudante" {
-		total = len(inscricoes)
-	} else if countQuery != "" {
-		client.DB().QueryRow(countQuery, countArgs...).Scan(&total)
-	}
+	faltasProj := getFaltasProjection(c)
+	faltas, _ := faltasProj.GetByEstudante(estudante.CodigoEstudante)
 
 	c.JSON(http.StatusOK, gin.H{
-		"inscricoes":    inscricoes,
-		"total":         len(inscricoes),
-		"total_geral":   total,
-		"limit":         limit,
-		"offset":        offset,
-		"has_next":      offset+len(inscricoes) < total,
-		"status_filter": statusFilter,
-		"user_type":     userType,
+		"estudante": estudante,
+		"notas":     notas,
+		"faltas":    faltas,
 	})
 }
 
-func ListarInscricoesPendentes(c *gin.Context) {
-	userID, _ := middleware.GetUserID(c)
+func ListarTodasAcademias(c *gin.Context) {
+	_, _ = middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 
-	limit, offset := getPaginationParams(c)
+	_ = getAcademiaProjection(c)
 	client := getDbClient(c)
 
-	// ✅ curso → curso_id (migration 004)
-	type InscricaoDetalhada struct {
-		ID              uuid.UUID  `json:"id"`
-		EstudanteID     uuid.UUID  `json:"estudante_id"`
-		CodigoEstudante string     `json:"codigo_estudante"`
-		AcademiaID      uuid.UUID  `json:"academia_id"`
-		CodigoAcademia  string     `json:"codigo_academia"`
-		Tipo            string     `json:"tipo"`
-		AnoInscricao    string     `json:"ano_inscricao"`
-		CursoID         *uuid.UUID `json:"curso_id,omitempty"` // ✅ era: Curso *string
-		Status          string     `json:"status"`
-		StatusUsado     bool       `json:"status_usado"`
-		CreatedAt       time.Time  `json:"created_at"`
-		UpdatedAt       time.Time  `json:"updated_at"`
-		EventID         uuid.UUID  `json:"event_id"`
-		Version         int        `json:"version"`
-	}
+	query := `
+		SELECT id, type, nome, codigo_academia, provincia, endereco,
+			numero_telefone, email, website, nivel_escolar, status, cursos,
+			email_verificado, created_at, updated_at, total_estudantes, version
+		FROM projection_academias
+		WHERE deleted_at IS NULL
+		ORDER BY created_at DESC
+	`
 
-	var inscricoes []InscricaoDetalhada
-	var total int
-	var rows *sql.Rows
-	var err error
-	var countQuery string
-	var countArgs []interface{}
-
-	const selectCols = `id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-		tipo, ano_inscricao, curso_id, status, status_usado, created_at, updated_at, event_id, version`
-
-	switch userType {
-	case "admin":
-		// Sem parâmetros externos — 'espera' é valor fixo hardcoded
-		rows, err = client.DB().Query(
-			fmt.Sprintf(`SELECT %s FROM projection_inscricoes
-				WHERE status = 'espera'
-				ORDER BY created_at DESC LIMIT %d OFFSET %d`,
-				selectCols, limit, offset),
-		)
-		countQuery = `SELECT COUNT(*) FROM projection_inscricoes WHERE status = 'espera'`
-
-	case "academia":
-		// ✅ Prepared statement — userID é parâmetro $1
-		rows, err = client.DB().Query(
-			fmt.Sprintf(`SELECT %s FROM projection_inscricoes
-				WHERE status = 'espera' AND academia_id = $1
-				ORDER BY created_at DESC LIMIT %d OFFSET %d`,
-				selectCols, limit, offset),
-			userID,
-		)
-		countQuery = `SELECT COUNT(*) FROM projection_inscricoes WHERE academia_id = $1 AND status = 'espera'`
-		countArgs = []interface{}{userID}
-
-	case "estudante":
-		// ✅ Prepared statement — userID é parâmetro $1
-		rows, err = client.DB().Query(
-			fmt.Sprintf(`SELECT %s FROM projection_inscricoes
-				WHERE status = 'espera' AND estudante_id = $1
-				ORDER BY created_at DESC`,
-				selectCols),
-			userID,
-		)
-
-	default:
-		utils.RespondWithForbiddenError(c, "Acesso negado")
-		return
-	}
-
+	rows, err := client.DB().Query(query)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
 	defer rows.Close()
 
+	var academias []map[string]interface{}
 	for rows.Next() {
-		var insc InscricaoDetalhada
-		var cursoID sql.NullString
-		if err := rows.Scan(
-			&insc.ID, &insc.EstudanteID, &insc.CodigoEstudante, &insc.AcademiaID,
-			&insc.CodigoAcademia, &insc.Tipo, &insc.AnoInscricao, &cursoID,
-			&insc.Status, &insc.StatusUsado,
-			&insc.CreatedAt, &insc.UpdatedAt, &insc.EventID, &insc.Version,
-		); err == nil {
-			if cursoID.Valid {
-				cid, _ := uuid.Parse(cursoID.String)
-				insc.CursoID = &cid
-			}
-			inscricoes = append(inscricoes, insc)
+		var aca struct {
+			ID              uuid.UUID
+			Type            string
+			Nome            string
+			CodigoAcademia  string
+			Provincia       string
+			Endereco        string
+			NumeroTelefone  *string
+			Email           *string
+			Website         *string
+			NivelEscolar    *string
+			Status          string
+			Cursos          []byte
+			EmailVerificado bool
+			CreatedAt       interface{}
+			UpdatedAt       interface{}
+			TotalEstudantes int
+			Version         int
 		}
+
+		if err := rows.Scan(&aca.ID, &aca.Type, &aca.Nome, &aca.CodigoAcademia,
+			&aca.Provincia, &aca.Endereco, &aca.NumeroTelefone, &aca.Email,
+			&aca.Website, &aca.NivelEscolar, &aca.Status, &aca.Cursos,
+			&aca.EmailVerificado, &aca.CreatedAt, &aca.UpdatedAt,
+			&aca.TotalEstudantes, &aca.Version,
+		); err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+
+		var cursos []string
+		if len(aca.Cursos) > 0 {
+			_ = json.Unmarshal(aca.Cursos, &cursos)
+		}
+		if cursos == nil {
+			cursos = []string{}
+		}
+
+		acadMap := map[string]interface{}{
+			"id":               aca.ID,
+			"type":             aca.Type,
+			"nome":             aca.Nome,
+			"codigo_academia":  aca.CodigoAcademia,
+			"provincia":        aca.Provincia,
+			"endereco":         aca.Endereco,
+			"numero_telefone":  aca.NumeroTelefone,
+			"email":            aca.Email,
+			"website":          aca.Website,
+			"nivel_escolar":    aca.NivelEscolar,
+			"status":           aca.Status,
+			"cursos":           cursos,
+			"email_verificado": aca.EmailVerificado,
+			"created_at":       aca.CreatedAt,
+			"updated_at":       aca.UpdatedAt,
+			"total_estudantes": aca.TotalEstudantes,
+			"version":          aca.Version,
+		}
+
+		// Ocultar email de não-admins
+		if userType != "admin" {
+			delete(acadMap, "email")
+		}
+
+		academias = append(academias, acadMap)
 	}
 
-	if userType == "estudante" {
-		total = len(inscricoes)
-	} else if countQuery != "" {
-		client.DB().QueryRow(countQuery, countArgs...).Scan(&total)
+	if academias == nil {
+		academias = []map[string]interface{}{}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"inscricoes":  inscricoes,
-		"total":       len(inscricoes),
-		"total_geral": total,
-		"limit":       limit,
-		"offset":      offset,
-		"has_next":    offset+len(inscricoes) < total,
-		"status":      "espera",
-		"user_type":   userType,
+		"academias": academias,
+		"total":     len(academias),
 	})
 }
 
@@ -425,14 +276,10 @@ func GetHistoricoCompleto(c *gin.Context) {
 	faltasProj := getFaltasProjection(c)
 	faltas, _ := faltasProj.GetByEstudante(codigoEstudante)
 
-	inscProj := getInscricoesProjection(c)
-	inscricoes, _ := inscProj.GetByEstudante(estudante.ID)
-
 	c.JSON(http.StatusOK, gin.H{
-		"estudante":  estudante,
-		"notas":      notas,
-		"faltas":     faltas,
-		"inscricoes": inscricoes,
+		"estudante": estudante,
+		"notas":     notas,
+		"faltas":    faltas,
 	})
 }
 
@@ -500,151 +347,49 @@ func VerificarIntegridade(c *gin.Context) {
 	})
 }
 
-func GetMinhasInscricoes(c *gin.Context) {
-	userID, _ := middleware.GetUserID(c)
-
-	inscProj := getInscricoesProjection(c)
-	inscricoes, err := inscProj.GetByEstudante(userID)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"inscricoes": inscricoes,
-		"total":      len(inscricoes),
-	})
+func GetEstudantePorCodigoQuery(c *gin.Context) {
+	// alias para compatibilidade — chama GetEstudantePorCodigo de profile_handlers
+	GetEstudantePorCodigo(c)
 }
 
-func GetMeuHistorico(c *gin.Context) {
-	userID, _ := middleware.GetUserID(c)
-
-	estudanteProj := getEstudanteProjection(c)
-	estudante, err := estudanteProj.GetByID(userID)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	notasProj := getNotasProjection(c)
-	notas, _ := notasProj.GetByEstudante(estudante.CodigoEstudante)
-
-	faltasProj := getFaltasProjection(c)
-	faltas, _ := faltasProj.GetByEstudante(estudante.CodigoEstudante)
-
-	inscProj := getInscricoesProjection(c)
-	inscricoes, _ := inscProj.GetByEstudante(userID)
-
-	c.JSON(http.StatusOK, gin.H{
-		"estudante":  estudante,
-		"notas":      notas,
-		"faltas":     faltas,
-		"inscricoes": inscricoes,
-	})
+// ListarEstudantes — delegado para admin_handlers
+func ListarEstudantesQuery(c *gin.Context) {
+	ListarEstudantes(c)
 }
 
-func ListarTodasAcademias(c *gin.Context) {
-	_, _ = middleware.GetUserID(c)
+// getPaginationParamsWithDefaults é alias público para outros handlers
+func getPaginationParamsWithDefaults(c *gin.Context, defaultLimit int) (limit, offset int) {
+	limit, offset = getPaginationParams(c)
+	if limit == 50 && defaultLimit > 0 {
+		limit = defaultLimit
+	}
+	return
+}
+
+// RespondForbiddenIfNotOwner verifica se o userID autenticado corresponde ao estudante.
+// Retorna true se o acesso foi bloqueado (handler deve retornar).
+func respondForbiddenIfNotOwner(c *gin.Context, estudanteID uuid.UUID, msg string) bool {
+	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
-
-	_ = getAcademiaProjection(c)
-	client := getDbClient(c)
-
-	// BUG #5 FIX: adicionado WHERE deleted_at IS NULL.
-	// Retorna academias ativas e inativas; exclui apenas deletadas logicamente.
-	query := `
-		SELECT id, type, nome, codigo_academia, provincia, endereco,
-			numero_telefone, email, website, nivel_escolar, status, cursos,
-			email_verificado, created_at, updated_at, total_estudantes,
-			total_inscricoes_pendentes, version
-		FROM projection_academias
-		WHERE deleted_at IS NULL
-		ORDER BY created_at DESC
-	`
-
-	rows, err := client.DB().Query(query)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
+	if userType == "estudante" && userID != estudanteID {
+		utils.RespondWithForbiddenError(c, msg)
+		return true
 	}
-	defer rows.Close()
-
-	var academias []map[string]interface{}
-	for rows.Next() {
-		var aca struct {
-			ID                       uuid.UUID
-			Type                     string
-			Nome                     string
-			CodigoAcademia           string
-			Provincia                string
-			Endereco                 string
-			NumeroTelefone           *string
-			Email                    *string
-			Website                  *string
-			NivelEscolar             *string
-			Status                   string
-			Cursos                   []byte
-			EmailVerificado          bool
-			CreatedAt                time.Time
-			UpdatedAt                time.Time
-			TotalEstudantes          int
-			TotalInscricoesPendentes int
-			Version                  int
-		}
-
-		if err := rows.Scan(&aca.ID, &aca.Type, &aca.Nome, &aca.CodigoAcademia,
-			&aca.Provincia, &aca.Endereco, &aca.NumeroTelefone, &aca.Email,
-			&aca.Website, &aca.NivelEscolar, &aca.Status, &aca.Cursos,
-			&aca.EmailVerificado, &aca.CreatedAt, &aca.UpdatedAt,
-			&aca.TotalEstudantes, &aca.TotalInscricoesPendentes, &aca.Version,
-		); err != nil {
-			utils.RespondWithInternalError(c, err)
-			return
-		}
-
-		var cursos []string
-		if len(aca.Cursos) > 0 {
-			_ = json.Unmarshal(aca.Cursos, &cursos)
-		}
-		if cursos == nil {
-			cursos = []string{}
-		}
-
-		acadMap := map[string]interface{}{
-			"id":                         aca.ID,
-			"type":                       aca.Type,
-			"nome":                       aca.Nome,
-			"codigo_academia":            aca.CodigoAcademia,
-			"provincia":                  aca.Provincia,
-			"endereco":                   aca.Endereco,
-			"numero_telefone":            aca.NumeroTelefone,
-			"email":                      aca.Email,
-			"website":                    aca.Website,
-			"nivel_escolar":              aca.NivelEscolar,
-			"status":                     aca.Status,
-			"cursos":                     cursos,
-			"email_verificado":           aca.EmailVerificado,
-			"created_at":                 aca.CreatedAt,
-			"updated_at":                 aca.UpdatedAt,
-			"total_estudantes":           aca.TotalEstudantes,
-			"total_inscricoes_pendentes": aca.TotalInscricoesPendentes,
-			"version":                    aca.Version,
-		}
-
-		// Ocultar email de não-admins
-		if userType != "admin" {
-			delete(acadMap, "email")
-		}
-
-		academias = append(academias, acadMap)
-	}
-
-	if academias == nil {
-		academias = []map[string]interface{}{}
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"academias": academias,
-		"total":     len(academias),
-	})
+	return false
 }
+
+// fmtOptional retorna o valor ou nil se vazio — helper para respostas JSON.
+func fmtOptional(s *string) interface{} {
+	if s == nil {
+		return nil
+	}
+	return *s
+}
+
+// fmtRequiredStr converte string para interface{} para uso em maps.
+func fmtRequiredStr(s string) interface{} {
+	return s
+}
+
+// suppress unused import warning
+var _ = fmt.Sprintf
