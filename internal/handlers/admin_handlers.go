@@ -131,12 +131,15 @@ func RegisterAdmin(c *gin.Context) {
 		return
 	}
 
-	creator.RegistrarAcao("admin_criado", map[string]interface{}{
+	if err := creator.RegistrarAcao("admin_criado", map[string]interface{}{
 		"novo_admin_id": newAdmin.ID.String(),
 		"role":          req.Role,
 		"email":         req.Email,
-	})
-	repository.SaveWithAudit(creator, audit) //nolint:errcheck
+	}); err != nil {
+		log.Printf("[WARN] Falha ao preparar ação do criador: %v", err)
+	} else if err := repository.SaveWithAudit(creator, audit); err != nil {
+		log.Printf("[WARN] Falha ao registrar ação do criador (admin_criado): %v", err)
+	}
 
 	log.Printf("Admin criado: %s (%s) por %s", req.Email, req.Role, creatorAdmin.Nome)
 
@@ -507,7 +510,6 @@ func RebuildProjection(c *gin.Context) {
 	manager.RegisterProjection("admins", projections.NewAdminProjection(client))
 	manager.RegisterProjection("notas", projections.NewNotasProjection(client))
 	manager.RegisterProjection("faltas", projections.NewFaltasProjection(client))
-	manager.RegisterProjection("inscricoes", projections.NewInscricoesProjection(client))
 	manager.RegisterProjection("cursos", projections.NewCursosProjection(client))
 	manager.RegisterProjection("materias", projections.NewMateriasProjection(client))
 	manager.RegisterProjection("sistema_config", projections.NewSistemaConfigProjection(client))
@@ -565,8 +567,6 @@ func GetProjectionStatus(c *gin.Context) {
 		proj = projections.NewNotasProjection(client)
 	case "faltas":
 		proj = projections.NewFaltasProjection(client)
-	case "inscricoes":
-		proj = projections.NewInscricoesProjection(client)
 	case "cursos":
 		proj = projections.NewCursosProjection(client)
 	case "materias":

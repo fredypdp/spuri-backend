@@ -370,33 +370,66 @@ func VerificarEmail(c *gin.Context) {
 		return
 	}
 
+	// ── Admin: event sourcing ──────────────────────────────────────────────
+	if tokenInfo.UserType == "admin" {
+		repository := getRepository(c)
+		adminAgg, err := repository.Load(tokenInfo.UserID, "Admin")
+		if err != nil {
+			utils.RespondWithNotFoundError(c, "administrador")
+			return
+		}
+		admin := adminAgg.(*aggregates.Admin)
+
+		if err := admin.VerificarEmail(); err != nil {
+			// "email já verificado" é idempotente — não retorna erro ao cliente
+			if err.Error() != "email já verificado" {
+				utils.RespondWithInternalError(c, err)
+				return
+			}
+			log.Printf("[INFO] Email já estava verificado para admin: %s", tokenInfo.Email)
+		}
+
+		audit := db.AuditContext{
+			UserID:   tokenInfo.UserID.String(),
+			UserType: "admin",
+			IP:       c.ClientIP(),
+		}
+		if err := repository.SaveWithAudit(admin, audit); err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+
+		log.Printf("Email verificado (event sourcing) para admin: %s", tokenInfo.Email)
+		c.JSON(http.StatusOK, gin.H{
+			"message": "Email verificado com sucesso!",
+			"email":   tokenInfo.Email,
+		})
+		return
+	}
+
+	// ── Estudante e Academia: UPDATE direto na projeção ────────────────────
 	var table string
 	switch tokenInfo.UserType {
 	case "estudante":
 		table = "projection_estudantes"
 	case "academia":
 		table = "projection_academias"
-	case "admin":
-		table = "projection_admins"
 	default:
 		utils.RespondWithValidationError(c, fmt.Errorf("tipo de usuário inválido"))
 		return
 	}
 
 	client := getDbClient(c)
-
-	// ✅ Tabela controlada por switch interno (sem interpolação de input externo)
-	_, err = client.DB().Exec(
+	// ✅ Tabela controlada por switch interno — sem interpolação de input externo
+	if _, err = client.DB().Exec(
 		fmt.Sprintf("UPDATE %s SET email_verificado = TRUE WHERE id = $1", table),
 		tokenInfo.UserID,
-	)
-	if err != nil {
+	); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
 
 	log.Printf("Email verificado: %s", tokenInfo.Email)
-
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Email verificado com sucesso!",
 		"email":   tokenInfo.Email,
