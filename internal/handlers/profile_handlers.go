@@ -289,7 +289,6 @@ func getPerfilEstudante(c *gin.Context, userID interface{}) {
 			"updated_at":                     estudante.UpdatedAt,
 			"total_notas":                    estudante.TotalNotas,
 			"total_faltas":                   estudante.TotalFaltas,
-			"total_inscricoes":               estudante.TotalInscricoes,
 			"version":                        estudante.Version,
 		},
 	})

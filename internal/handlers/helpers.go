@@ -2,11 +2,6 @@
 // ARQUIVO: internal/handlers/helpers.go
 //
 // Funções auxiliares compartilhadas por todos os handlers do pacote.
-// ADICIONADO (auditoria Março 2026):
-//   - getAdminProjection   → usado por admin_handlers, profile_handlers,
-//                            academia_handlers e outros
-//   - verificarPermissaoAdmin → usado por academia_handlers e outros
-//   - getNullString         → usado por estudante_handlers, academia_handlers
 // ============================================================================
 
 package handlers
@@ -76,10 +71,6 @@ func getNotasProjection(c *gin.Context) *projections.NotasProjection {
 
 func getFaltasProjection(c *gin.Context) *projections.FaltasProjection {
 	return projections.NewFaltasProjection(getDbClient(c))
-}
-
-func getInscricoesProjection(c *gin.Context) *projections.InscricoesProjection {
-	return projections.NewInscricoesProjection(getDbClient(c))
 }
 
 func getCursosProjection(c *gin.Context) *projections.CursosProjection {

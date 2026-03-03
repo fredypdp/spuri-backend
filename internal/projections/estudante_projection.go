@@ -502,7 +502,7 @@ const estudanteSelectCols = `
 	bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
 	status, status_escolar_fundamental, status_escolar_medio, status_superior,
 	ano_escolar, ano_escolar_medio, ano_superior, curso_medio_id, curso_superior_id,
-	created_at, updated_at, total_notas, total_faltas, total_inscricoes, version
+	created_at, updated_at, total_notas, total_faltas, version
 `
 
 func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
@@ -568,7 +568,7 @@ func scanEstudante(row *sql.Row) (*EstudanteDTO, error) {
 		&dto.Status, &dto.StatusEscolarFundamental, &dto.StatusEscolarMedio, &dto.StatusSuperior,
 		&dto.AnoEscolar, &dto.AnoEscolarMedio, &dto.AnoSuperior, &cursoMedioID, &cursoSuperiorID,
 		&dto.CreatedAt, &dto.UpdatedAt, &dto.TotalNotas, &dto.TotalFaltas,
-		&dto.TotalInscricoes, &dto.Version,
+		&dto.Version,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -615,6 +615,5 @@ type EstudanteDTO struct {
 	UpdatedAt                time.Time  `json:"updated_at"`
 	TotalNotas               int        `json:"total_notas"`
 	TotalFaltas              int        `json:"total_faltas"`
-	TotalInscricoes          int        `json:"total_inscricoes"`
 	Version                  int        `json:"version"`
 }

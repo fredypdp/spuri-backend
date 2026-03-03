@@ -807,7 +807,6 @@ func GetEstudantePorCodigo(c *gin.Context) {
 			"updated_at":                     estudante.UpdatedAt,
 			"total_notas":                    estudante.TotalNotas,
 			"total_faltas":                   estudante.TotalFaltas,
-			"total_inscricoes":               estudante.TotalInscricoes,
 			"version":                        estudante.Version,
 		},
 		"consultado_por": userType,
@@ -835,7 +834,7 @@ func ListarEstudantes(c *gin.Context) {
 				status, status_escolar_fundamental, status_escolar_medio, status_superior,
 				ano_escolar, ano_escolar_medio, ano_superior,
 				curso_medio_id, curso_superior_id, created_at, updated_at, total_notas,
-				total_faltas, total_inscricoes, version
+				total_faltas, version
 			FROM projection_estudantes
 			WHERE codigo_academia = $1
 			ORDER BY created_at DESC
@@ -855,7 +854,7 @@ func ListarEstudantes(c *gin.Context) {
 			var anoEscolar, anoEscolarMedio, anoSuperior sql.NullString
 			var emailVerif bool
 			var createdAt, updatedAt string
-			var totalNotas, totalFaltas, totalInsc, version int
+			var totalNotas, totalFaltas, version int
 
 			if err := rows.Scan(
 				&id, &nome, &codigoEstudante, &senhaHash,
@@ -863,7 +862,7 @@ func ListarEstudantes(c *gin.Context) {
 				&status, &statusEscolarFundamental, &statusEscolarMedio, &statusSuperior,
 				&anoEscolar, &anoEscolarMedio, &anoSuperior,
 				&cursoMedioID, &cursoSuperiorID,
-				&createdAt, &updatedAt, &totalNotas, &totalFaltas, &totalInsc, &version,
+				&createdAt, &updatedAt, &totalNotas, &totalFaltas, &version,
 			); err != nil {
 				log.Printf("[ERROR] ListarEstudantes (academia) scan: %v", err)
 				continue
@@ -892,7 +891,6 @@ func ListarEstudantes(c *gin.Context) {
 				"updated_at":                     updatedAt,
 				"total_notas":                    totalNotas,
 				"total_faltas":                   totalFaltas,
-				"total_inscricoes":               totalInsc,
 				"version":                        version,
 			})
 		}
@@ -912,7 +910,7 @@ func ListarEstudantes(c *gin.Context) {
 				status, status_escolar_fundamental, status_escolar_medio, status_superior,
 				ano_escolar, ano_escolar_medio, ano_superior,
 				curso_medio_id, curso_superior_id, created_at, updated_at, total_notas,
-				total_faltas, total_inscricoes, version
+				total_faltas, version
 			FROM projection_estudantes
 			ORDER BY created_at DESC
 		`)
@@ -931,7 +929,7 @@ func ListarEstudantes(c *gin.Context) {
 			var anoEscolar, anoEscolarMedio, anoSuperior sql.NullString
 			var emailVerif bool
 			var createdAt, updatedAt string
-			var totalNotas, totalFaltas, totalInsc, version int
+			var totalNotas, totalFaltas, version int
 
 			if err := rows.Scan(
 				&id, &nome, &codigoEstudante, &senhaHash,
@@ -939,7 +937,7 @@ func ListarEstudantes(c *gin.Context) {
 				&status, &statusEscolarFundamental, &statusEscolarMedio, &statusSuperior,
 				&anoEscolar, &anoEscolarMedio, &anoSuperior,
 				&cursoMedioID, &cursoSuperiorID,
-				&createdAt, &updatedAt, &totalNotas, &totalFaltas, &totalInsc, &version,
+				&createdAt, &updatedAt, &totalNotas, &totalFaltas, &version,
 			); err != nil {
 				log.Printf("[ERROR] ListarEstudantes (admin) scan: %v", err)
 				continue
@@ -968,7 +966,6 @@ func ListarEstudantes(c *gin.Context) {
 				"updated_at":                     updatedAt,
 				"total_notas":                    totalNotas,
 				"total_faltas":                   totalFaltas,
-				"total_inscricoes":               totalInsc,
 				"version":                        version,
 			})
 		}

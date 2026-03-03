@@ -1,6 +1,5 @@
 // ============================================================================
 // ARQUIVO: internal/domain/models.go
-// ATUALIZADO: Usar curso_id (UUID) em vez de strings
 // ============================================================================
 
 package domain
@@ -28,23 +27,23 @@ type Academia struct {
 	CreatedAt      time.Time `json:"created_at" db:"created_at"`
 }
 
-// 🔥 ATUALIZADO
 type Estudante struct {
-	ID uuid.UUID `json:"id" db:"id"`
-	Nome string `json:"nome" db:"nome"`
-	CodigoEstudante string `json:"codigo_estudante" db:"codigo_estudante"`
-	SenhaHash string `json:"-" db:"senha_hash"`
-	BilheteIdentidade *string `json:"bilhete_identidade,omitempty" db:"bilhete_identidade"`
-	BilheteIdentidadeResp *string `json:"bilhete_identidade_responsavel,omitempty" db:"bilhete_identidade_responsavel"`
-	CodigoAcademia *string `json:"codigo_academia,omitempty" db:"codigo_academia"`
-	AnoEscolar *string `json:"ano_escolar,omitempty" db:"ano_escolar"`
-	AnoSuperior *string `json:"ano_superior,omitempty" db:"ano_superior"`
-	CursoMedioID *uuid.UUID `json:"curso_medio_id,omitempty" db:"curso_medio_id"`
-	CursoSuperiorID *uuid.UUID `json:"curso_superior_id,omitempty" db:"curso_superior_id"`
+	ID                    uuid.UUID  `json:"id" db:"id"`
+	Nome                  string     `json:"nome" db:"nome"`
+	CodigoEstudante       string     `json:"codigo_estudante" db:"codigo_estudante"`
+	SenhaHash             string     `json:"-" db:"senha_hash"`
+	BilheteIdentidade     *string    `json:"bilhete_identidade,omitempty" db:"bilhete_identidade"`
+	BilheteIdentidadeResp *string    `json:"bilhete_identidade_responsavel,omitempty" db:"bilhete_identidade_responsavel"`
+	CodigoAcademia        *string    `json:"codigo_academia,omitempty" db:"codigo_academia"`
+	AnoEscolar            *string    `json:"ano_escolar,omitempty" db:"ano_escolar"`
+	AnoEscolarMedio       *string    `json:"ano_escolar_medio,omitempty" db:"ano_escolar_medio"`
+	AnoSuperior           *string    `json:"ano_superior,omitempty" db:"ano_superior"`
+	CursoMedioID          *uuid.UUID `json:"curso_medio_id,omitempty" db:"curso_medio_id"`
+	CursoSuperiorID       *uuid.UUID `json:"curso_superior_id,omitempty" db:"curso_superior_id"`
 	StatusEscolarFundamental *string `json:"status_escolar_fundamental,omitempty" db:"status_escolar_fundamental"`
-	StatusEscolarMedio *string `json:"status_escolar_medio,omitempty" db:"status_escolar_medio"`
-	StatusSuperior        *string `json:"status_superior,omitempty" db:"status_superior"`
-	CreatedAt             time.Time `json:"created_at" db:"created_at"`
+	StatusEscolarMedio    *string    `json:"status_escolar_medio,omitempty" db:"status_escolar_medio"`
+	StatusSuperior        *string    `json:"status_superior,omitempty" db:"status_superior"`
+	CreatedAt             time.Time  `json:"created_at" db:"created_at"`
 }
 
 type Curso struct {
@@ -52,19 +51,6 @@ type Curso struct {
 	Nome      string    `json:"nome" db:"nome"`
 	Type      string    `json:"type" db:"type"`
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
-}
-
-// 🔥 ATUALIZADO
-type Inscricao struct {
-	ID             uuid.UUID  `json:"id" db:"id"`
-	CodigoEstudante string    `json:"codigo_estudante" db:"codigo_estudante"`
-	CodigoAcademia  string    `json:"codigo_academia" db:"codigo_academia"`
-	Tipo            string    `json:"tipo" db:"tipo"`
-	AnoInscricao    string    `json:"ano_inscricao" db:"ano_inscricao"`
-	CursoID         *uuid.UUID `json:"curso_id,omitempty" db:"curso_id"` // 🔥 MUDOU
-	Status          string    `json:"status" db:"status"`
-	CreatedAt       time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at" db:"updated_at"`
 }
 
 type RegistroNotas struct {
@@ -125,33 +111,19 @@ type RegisterAcademiaRequest struct {
 	Cursos         []string `json:"cursos"`
 }
 
-// 🔥 ATUALIZADO
 type RegisterEstudanteRequest struct {
-	Senha string `json:"senha" binding:"required"`
-	Nome string `json:"nome" binding:"required"`
-	BilheteIdentidade *string `json:"bilhete_identidade"`
-	BilheteIdentidadeResp *string `json:"bilhete_identidade_responsavel"`
-	AnoEscolar *string `json:"ano_escolar"`
-	AnoSuperior *string `json:"ano_superior"`
-	CursoMedioID *uuid.UUID `json:"curso_medio_id"`
-	CursoSuperiorID *uuid.UUID `json:"curso_superior_id"`
-	StatusEscolarFundamental *string `json:"status_escolar_fundamental,omitempty" db:"status_escolar_fundamental"`
-	StatusEscolarMedio *string `json:"status_escolar_medio,omitempty" db:"status_escolar_medio"`
-	StatusSuperior *string `json:"status_superior"`
-}
-
-// 🔥 ATUALIZADO
-type InscricaoEscolaRequest struct {
-	CodigoAcademia       string     `json:"codigo_academia" binding:"required"`
-	AnoEscolarInscricao  string     `json:"ano_escolar_inscricao" binding:"required"`
-	CursoMedioID         *uuid.UUID `json:"curso_medio_id"` // 🔥 MUDOU
-}
-
-// 🔥 ATUALIZADO
-type InscricaoUniversidadeRequest struct {
-	CodigoAcademia        string    `json:"codigo_academia" binding:"required"`
-	AnoSuperiorInscricao  string    `json:"ano_superior_inscricao" binding:"required"`
-	CursoSuperiorID       uuid.UUID `json:"curso_superior_id" binding:"required"` // 🔥 MUDOU
+	Senha                    string     `json:"senha" binding:"required"`
+	Nome                     string     `json:"nome" binding:"required"`
+	BilheteIdentidade        *string    `json:"bilhete_identidade"`
+	BilheteIdentidadeResp    *string    `json:"bilhete_identidade_responsavel"`
+	AnoEscolar               *string    `json:"ano_escolar"`
+	AnoEscolarMedio          *string    `json:"ano_escolar_medio"`
+	AnoSuperior              *string    `json:"ano_superior"`
+	CursoMedioID             *uuid.UUID `json:"curso_medio_id"`
+	CursoSuperiorID          *uuid.UUID `json:"curso_superior_id"`
+	StatusEscolarFundamental *string    `json:"status_escolar_fundamental"`
+	StatusEscolarMedio       *string    `json:"status_escolar_medio"`
+	StatusSuperior           *string    `json:"status_superior"`
 }
 
 type RegistrarNotasRequest struct {
