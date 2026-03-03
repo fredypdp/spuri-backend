@@ -379,33 +379,6 @@ func ListarReprovacoes(c *gin.Context) {
 }
 
 // ============================================================================
-// GET /estudante/minhas-avaliacoes
-// ============================================================================
-
-func GetMinhasAvaliacoes(c *gin.Context) {
-	userID, _ := middleware.GetUserID(c)
-
-	estudanteProj := getEstudanteProjection(c)
-	estudante, err := estudanteProj.GetByID(userID)
-	if err != nil || estudante == nil {
-		utils.RespondWithNotFoundError(c, "estudante")
-		return
-	}
-
-	avaliacaoProj := getAvaliacaoFinalProjection(c)
-	avaliacoes, err := avaliacaoProj.GetByEstudante(estudante.CodigoEstudante)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"avaliacoes": avaliacoes,
-		"total":      len(avaliacoes),
-	})
-}
-
-// ============================================================================
 // Helpers internos
 // ============================================================================
 

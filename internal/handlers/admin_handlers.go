@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -187,238 +188,80 @@ func ConsultarAdmin(c *gin.Context) {
 	})
 }
 
-func ListarEstudantes(c *gin.Context) {
-	userID, _ := middleware.GetUserID(c)
-	userType, _ := middleware.GetUserType(c)
-
-	client := getDbClient(c)
-
-	if userType == "academia" {
-		academiaProj := getAcademiaProjection(c)
-		academiaDTO, err := academiaProj.GetByID(userID)
-		if err != nil || academiaDTO == nil {
-			utils.RespondWithInternalError(c, err)
-			return
-		}
-
-		rows, err := client.DB().Query(`
-			SELECT id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
-				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
-				status, status_escolar_fundamental, status_escolar_medio, status_superior,
-				ano_escolar, ano_escolar_medio, ano_superior,
-				curso_medio_id, curso_superior_id, created_at, updated_at, total_notas,
-				total_faltas, total_inscricoes, version
-			FROM projection_estudantes
-			WHERE codigo_academia = $1
-			ORDER BY created_at DESC
-		`, academiaDTO.CodigoAcademia)
-		if err != nil {
-			utils.RespondWithInternalError(c, err)
-			return
-		}
-		defer rows.Close()
-
-		var estudantes []map[string]interface{}
-		for rows.Next() {
-			var id, cursoMedioID, cursoSuperiorID sql.NullString
-			var nome, codigoEstudante, senhaHash, status string
-			var statusEscolarFundamental, statusEscolarMedio, statusSuperior string
-			var email, telefone, bilhete, bilheteResp, codigoAcad sql.NullString
-			var anoEscolar, anoEscolarMedio, anoSuperior sql.NullString
-			var emailVerif bool
-			var createdAt, updatedAt string
-			var totalNotas, totalFaltas, totalInsc, version int
-
-			if err := rows.Scan(
-				&id, &nome, &codigoEstudante, &senhaHash,
-				&email, &telefone, &emailVerif, &bilhete, &bilheteResp, &codigoAcad,
-				&status, &statusEscolarFundamental, &statusEscolarMedio, &statusSuperior,
-				&anoEscolar, &anoEscolarMedio, &anoSuperior,
-				&cursoMedioID, &cursoSuperiorID,
-				&createdAt, &updatedAt, &totalNotas, &totalFaltas, &totalInsc, &version,
-			); err != nil {
-				log.Printf("[ERROR] ListarEstudantes (academia) scan: %v", err)
-				continue
-			}
-
-			estudantes = append(estudantes, map[string]interface{}{
-				"id":                             id.String,
-				"nome":                           nome,
-				"codigo_estudante":               codigoEstudante,
-				"email":                          getNullString(email),
-				"telefone":                       getNullString(telefone),
-				"email_verificado":               emailVerif,
-				"bilhete_identidade":             getNullString(bilhete),
-				"bilhete_identidade_responsavel": getNullString(bilheteResp),
-				"codigo_academia":                getNullString(codigoAcad),
-				"status":                         status,
-				"status_escolar_fundamental":     statusEscolarFundamental,
-				"status_escolar_medio":           statusEscolarMedio,
-				"status_superior":                statusSuperior,
-				"ano_escolar":                    getNullString(anoEscolar),
-				"ano_escolar_medio":              getNullString(anoEscolarMedio),
-				"ano_superior":                   getNullString(anoSuperior),
-				"curso_medio_id":                 getNullString(cursoMedioID),
-				"curso_superior_id":              getNullString(cursoSuperiorID),
-				"created_at":                     createdAt,
-				"updated_at":                     updatedAt,
-				"total_notas":                    totalNotas,
-				"total_faltas":                   totalFaltas,
-				"total_inscricoes":               totalInsc,
-				"version":                        version,
-			})
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"estudantes":      estudantes,
-			"total":           len(estudantes),
-			"tipo_usuario":    "academia",
-			"codigo_academia": academiaDTO.CodigoAcademia,
-			"nome_academia":   academiaDTO.Nome,
-		})
-
-	} else if userType == "admin" {
-		rows, err := client.DB().Query(`
-			SELECT id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
-				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
-				status, status_escolar_fundamental, status_escolar_medio, status_superior,
-				ano_escolar, ano_escolar_medio, ano_superior,
-				curso_medio_id, curso_superior_id, created_at, updated_at, total_notas,
-				total_faltas, total_inscricoes, version
-			FROM projection_estudantes
-			ORDER BY created_at DESC
-		`)
-		if err != nil {
-			utils.RespondWithInternalError(c, err)
-			return
-		}
-		defer rows.Close()
-
-		var estudantes []map[string]interface{}
-		for rows.Next() {
-			var id, cursoMedioID, cursoSuperiorID sql.NullString
-			var nome, codigoEstudante, senhaHash, status string
-			var statusEscolarFundamental, statusEscolarMedio, statusSuperior string
-			var email, telefone, bilhete, bilheteResp, codigoAcad sql.NullString
-			var anoEscolar, anoEscolarMedio, anoSuperior sql.NullString
-			var emailVerif bool
-			var createdAt, updatedAt string
-			var totalNotas, totalFaltas, totalInsc, version int
-
-			if err := rows.Scan(
-				&id, &nome, &codigoEstudante, &senhaHash,
-				&email, &telefone, &emailVerif, &bilhete, &bilheteResp, &codigoAcad,
-				&status, &statusEscolarFundamental, &statusEscolarMedio, &statusSuperior,
-				&anoEscolar, &anoEscolarMedio, &anoSuperior,
-				&cursoMedioID, &cursoSuperiorID,
-				&createdAt, &updatedAt, &totalNotas, &totalFaltas, &totalInsc, &version,
-			); err != nil {
-				log.Printf("[ERROR] ListarEstudantes (admin) scan: %v", err)
-				continue
-			}
-
-			estudantes = append(estudantes, map[string]interface{}{
-				"id":                             id.String,
-				"nome":                           nome,
-				"codigo_estudante":               codigoEstudante,
-				"email":                          getNullString(email),
-				"telefone":                       getNullString(telefone),
-				"email_verificado":               emailVerif,
-				"bilhete_identidade":             getNullString(bilhete),
-				"bilhete_identidade_responsavel": getNullString(bilheteResp),
-				"codigo_academia":                getNullString(codigoAcad),
-				"status":                         status,
-				"status_escolar_fundamental":     statusEscolarFundamental,
-				"status_escolar_medio":           statusEscolarMedio,
-				"status_superior":                statusSuperior,
-				"ano_escolar":                    getNullString(anoEscolar),
-				"ano_escolar_medio":              getNullString(anoEscolarMedio),
-				"ano_superior":                   getNullString(anoSuperior),
-				"curso_medio_id":                 getNullString(cursoMedioID),
-				"curso_superior_id":              getNullString(cursoSuperiorID),
-				"created_at":                     createdAt,
-				"updated_at":                     updatedAt,
-				"total_notas":                    totalNotas,
-				"total_faltas":                   totalFaltas,
-				"total_inscricoes":               totalInsc,
-				"version":                        version,
-			})
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"estudantes":   estudantes,
-			"total":        len(estudantes),
-			"tipo_usuario": "admin",
-		})
-
-	} else {
-		utils.RespondWithForbiddenError(c, "Acesso negado. Apenas academias e administradores podem listar estudantes.")
-	}
-}
-
-func getNullString(ns sql.NullString) interface{} {
-	if ns.Valid {
-		return ns.String
-	}
-	return nil
-}
-
-func AtivarAcademia(c *gin.Context) {
-	userID, _ := middleware.GetUserID(c)
-	codigoAcademia := c.Param("codigo")
-
-	if err := verificarPermissaoAdmin(c, "gerente"); err != nil {
-		utils.RespondWithForbiddenError(c, err.Error())
+func ListarTodosAdmins(c *gin.Context) {
+	adminProj := getAdminProjection(c)
+	admins, err := adminProj.GetAll()
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	academiaProj := getAcademiaProjection(c)
-	academiaDTO, err := academiaProj.GetByCodigo(codigoAcademia)
-	if err != nil || academiaDTO == nil {
-		utils.RespondWithNotFoundError(c, "academia")
+	var adminsResponse []map[string]interface{}
+	for _, admin := range admins {
+		adminBytes, _ := json.Marshal(admin)
+		var adminMap map[string]interface{}
+		json.Unmarshal(adminBytes, &adminMap) //nolint:errcheck
+		delete(adminMap, "senha_hash")
+		adminsResponse = append(adminsResponse, adminMap)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"admins": adminsResponse,
+		"total":  len(adminsResponse),
+	})
+}
+
+func AtivarAdmin(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	targetID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("ID de administrador inválido"))
 		return
 	}
 
 	repository := getRepository(c)
-	academiaAgg, err := repository.Load(academiaDTO.ID, "Academia")
+	targetAdminAgg, err := repository.Load(targetID, "Admin")
 	if err != nil {
-		utils.RespondWithNotFoundError(c, "academia")
+		utils.RespondWithNotFoundError(c, "administrador")
 		return
 	}
 
-	academia := academiaAgg.(*aggregates.Academia)
-	if err := academia.Ativar(); err != nil {
+	targetAdmin := targetAdminAgg.(*aggregates.Admin)
+	if err := targetAdmin.Ativar(userID.(uuid.UUID)); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	audit := db.AuditContext{
-		UserID:   userID.String(),
+		UserID:   userID.(uuid.UUID).String(),
 		UserType: "admin",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(academia, audit); err != nil {
+	if err := repository.SaveWithAudit(targetAdmin, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	registrarAcaoAdmin(c, userID, "academia_ativada", map[string]interface{}{
-		"codigo_academia": codigoAcademia,
-		"academia_id":     academiaDTO.ID.String(),
+	registrarAcaoAdmin(c, userID.(uuid.UUID), "admin_ativado", map[string]interface{}{
+		"target_admin_id": targetID.String(),
+		"target_email":    targetAdmin.Email,
 	})
 
-	log.Printf("Academia ativada: %s", codigoAcademia)
+	log.Printf("Admin ativado: %s (por: %s)", targetAdmin.Email, userID)
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":         "academia ativada com sucesso",
-		"codigo_academia": academia.CodigoAcademia,
-		"nome":            academia.Nome,
+		"message": "administrador ativado com sucesso",
+		"email":   targetAdmin.Email,
 	})
 }
 
-func DesativarAcademia(c *gin.Context) {
-	userID, _ := middleware.GetUserID(c)
-	codigoAcademia := c.Param("codigo")
+func DesativarAdmin(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	targetID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("ID de administrador inválido"))
+		return
+	}
 
 	var req struct {
 		Motivo string `json:"motivo" binding:"required"`
@@ -428,27 +271,84 @@ func DesativarAcademia(c *gin.Context) {
 		return
 	}
 
-	if err := verificarPermissaoAdmin(c, "gerente"); err != nil {
-		utils.RespondWithForbiddenError(c, err.Error())
-		return
-	}
-
-	academiaProj := getAcademiaProjection(c)
-	academiaDTO, err := academiaProj.GetByCodigo(codigoAcademia)
-	if err != nil || academiaDTO == nil {
-		utils.RespondWithNotFoundError(c, "academia")
+	// Proteção contra auto-desativação
+	if targetID == userID.(uuid.UUID) {
+		utils.RespondWithValidationError(c, fmt.Errorf("você não pode desativar sua própria conta"))
 		return
 	}
 
 	repository := getRepository(c)
-	academiaAgg, err := repository.Load(academiaDTO.ID, "Academia")
+	targetAdminAgg, err := repository.Load(targetID, "Admin")
 	if err != nil {
-		utils.RespondWithNotFoundError(c, "academia")
+		utils.RespondWithNotFoundError(c, "administrador")
 		return
 	}
 
-	academia := academiaAgg.(*aggregates.Academia)
-	if err := academia.Desativar(req.Motivo); err != nil {
+	targetAdmin := targetAdminAgg.(*aggregates.Admin)
+	if err := targetAdmin.Desativar(userID.(uuid.UUID), req.Motivo); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	audit := db.AuditContext{
+		UserID:   userID.(uuid.UUID).String(),
+		UserType: "admin",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(targetAdmin, audit); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	registrarAcaoAdmin(c, userID.(uuid.UUID), "admin_desativado", map[string]interface{}{
+		"target_admin_id": targetID.String(),
+		"target_email":    targetAdmin.Email,
+		"motivo":          req.Motivo,
+	})
+
+	log.Printf("Admin desativado: %s - Motivo: %s (por: %s)", targetAdmin.Email, req.Motivo, userID)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "administrador desativado com sucesso",
+		"email":   targetAdmin.Email,
+	})
+}
+
+func AtualizarRoleAdmin(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+
+	adminID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("ID de admin inválido"))
+		return
+	}
+
+	var req struct {
+		NovoRole string `json:"novo_role" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("campo obrigatório: novo_role"))
+		return
+	}
+
+	adminProj := getAdminProjection(c)
+	currentAdmin, err := adminProj.GetByID(userID)
+	if err != nil || currentAdmin == nil {
+		utils.RespondWithNotFoundError(c, "admin executor")
+		return
+	}
+
+	repository := getRepository(c)
+	adminAgg, err := repository.Load(adminID, "Admin")
+	if err != nil {
+		utils.RespondWithNotFoundError(c, "admin")
+		return
+	}
+	admin := adminAgg.(*aggregates.Admin)
+	roleAnterior := admin.Role
+
+	if err := admin.AtualizarRole(req.NovoRole, userID, currentAdmin.Role); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -458,25 +358,122 @@ func DesativarAcademia(c *gin.Context) {
 		UserType: "admin",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(academia, audit); err != nil {
+	if err := repository.SaveWithAudit(admin, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	registrarAcaoAdmin(c, userID, "academia_desativada", map[string]interface{}{
-		"codigo_academia": codigoAcademia,
-		"academia_id":     academiaDTO.ID.String(),
-		"motivo":          req.Motivo,
+	log.Printf("Role atualizado: %s -> %s (Admin: %s)", roleAnterior, req.NovoRole, admin.Email)
+	c.JSON(http.StatusOK, gin.H{
+		"message":       "role atualizado com sucesso",
+		"role_anterior": roleAnterior,
+		"novo_role":     req.NovoRole,
 	})
+}
 
-	log.Printf("Academia desativada: %s - Motivo: %s", codigoAcademia, req.Motivo)
+func getNullString(ns sql.NullString) interface{} {
+	if ns.Valid {
+		return ns.String
+	}
+	return nil
+}
+
+// GetAdminPorEmail consulta um administrador pelo e-mail.
+// Rota: GET /admin/consultar-admin/:email
+func GetAdminPorEmail(c *gin.Context) {
+	email := c.Param("email")
+
+	adminProj := getAdminProjection(c)
+	admin, err := adminProj.GetByEmail(email)
+	if err != nil || admin == nil {
+		utils.RespondWithNotFoundError(c, "administrador")
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":         "academia desativada com sucesso",
-		"codigo_academia": academia.CodigoAcademia,
-		"nome":            academia.Nome,
-		"motivo":          req.Motivo,
+		"admin": gin.H{
+			"id":                     admin.ID,
+			"nome":                   admin.Nome,
+			"email":                  admin.Email,
+			"email_verificado":       admin.EmailVerificado,
+			"role":                   admin.Role,
+			"status":                 admin.Status,
+			"created_by":             admin.CreatedBy,
+			"created_at":             admin.CreatedAt,
+			"updated_at":             admin.UpdatedAt,
+			"total_acoes_realizadas": admin.TotalAcoesRealizadas,
+			"version":                admin.Version,
+		},
 	})
+}
+
+func AtualizarDadosAdmin(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+
+	targetID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("ID de administrador inválido"))
+		return
+	}
+
+	var req struct {
+		Nome  *string `json:"nome"`
+		Email *string `json:"email"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("dados inválidos"))
+		return
+	}
+
+	repository := getRepository(c)
+	adminAgg, err := repository.Load(targetID, "Admin")
+	if err != nil {
+		utils.RespondWithNotFoundError(c, "administrador")
+		return
+	}
+	admin := adminAgg.(*aggregates.Admin)
+
+	// CORRIGIDO #1: verificação de autorização horizontal.
+	// Admin pode editar os próprios dados sem restrição.
+	// Para editar outro admin, precisa de role superior ao alvo.
+	if userID != targetID {
+		executorAgg, err := repository.Load(userID, "Admin")
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		executor := executorAgg.(*aggregates.Admin)
+
+		// ValidatePermission retorna erro se executor.Role <= admin.Role (alvo)
+		if err := executor.ValidatePermission(admin.Role); err != nil {
+			utils.RespondWithForbiddenError(c, fmt.Sprintf(
+				"permissão negada: %s", err.Error(),
+			))
+			return
+		}
+	}
+
+	if err := admin.AtualizarDados(req.Nome, req.Email, userID); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "admin",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(admin, audit); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	log.Printf("Dados do admin atualizados: %s (por: %s)", admin.Email, userID)
+	c.JSON(http.StatusOK, gin.H{"message": "dados do administrador atualizados com sucesso"})
+
+	// Suprimir aviso de import não utilizado (net/http é usado via utils)
+	_ = http.StatusOK
 }
 
 // RebuildProjection reconstrói uma projeção a partir do ledger de eventos.

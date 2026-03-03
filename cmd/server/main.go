@@ -146,10 +146,7 @@ func setupRouter() *gin.Engine {
 		emailGroup.POST("/gerar-token/verificacao", handlers.GerarTokenVerificacao)
 		emailGroup.POST("/gerar-token/recuperacao", handlers.GerarTokenRecuperacao)
 	}
-
-	// -----------------------------------------------------------------------
-	// Rotas protegidas — qualquer usuário autenticado
-	// -----------------------------------------------------------------------
+	
 	protected := router.Group("/")
 	protected.Use(middleware.AuthMiddleware())
 	{
@@ -168,21 +165,9 @@ func setupRouter() *gin.Engine {
 		protected.GET("/avaliacoes", handlers.ListarAvaliacoes)
 		protected.GET("/aprovacoes", handlers.ListarAprovacoes)
 		protected.GET("/reprovacoes", handlers.ListarReprovacoes)
-		protected.GET("/avaliacoes-estudante/:codigo",
-			middleware.RequireAcademiaOuAdmin(),
-			handlers.GetAvaliacoesFinaisEstudante,
-		)
+		protected.GET("/avaliacoes-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetAvaliacoesFinaisEstudante)
 	}
-
-	// -----------------------------------------------------------------------
-	// Rotas exclusivas para estudantes
-	// REMOVIDAS (inscrição removida do sistema — estudante já nasce vinculado):
-	//   POST /estudante/inscricao-escola
-	//   POST /estudante/inscricao-universidade
-	//   POST /estudante/vincular-academia
-	//   GET  /estudante/inscricoes-aprovadas
-	//   GET  /estudante/minhas-inscricoes
-	// -----------------------------------------------------------------------
+	
 	estudante := router.Group("/estudante")
 	estudante.Use(middleware.AuthMiddleware())
 	estudante.Use(middleware.RequireEstudante())
@@ -195,13 +180,7 @@ func setupRouter() *gin.Engine {
 		estudante.PUT("/dados-academicos", handlers.AtualizarDadosAcademicosEstudante)
 		estudante.GET("/minhas-avaliacoes", handlers.GetMinhasAvaliacoes)
 	}
-
-	// -----------------------------------------------------------------------
-	// Rotas exclusivas para academias
-	// REMOVIDAS (inscrição removida do sistema):
-	//   PUT /academia/inscricao/:id/aprovar
-	//   PUT /academia/inscricao/:id/reprovar
-	// -----------------------------------------------------------------------
+	
 	academia := router.Group("/academia")
 	academia.Use(middleware.AuthMiddleware())
 	academia.Use(middleware.RequireAcademia())

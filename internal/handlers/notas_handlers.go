@@ -414,6 +414,48 @@ func ListarCategoriasNota(c *gin.Context) {
 	})
 }
 
+func GetNotasEstudante(c *gin.Context) {
+	codigoEstudante := c.Param("codigo")
+
+	estudanteProj := getEstudanteProjection(c)
+	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
+	if err != nil || estudante == nil {
+		utils.RespondWithNotFoundError(c, "estudante")
+		return
+	}
+
+	userID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
+
+	if userType == "estudante" && userID != estudante.ID {
+		utils.RespondWithForbiddenError(c, "Você só pode visualizar suas próprias notas")
+		return
+	}
+
+	if userType == "academia" {
+		academiaProj := getAcademiaProjection(c)
+		academiaDTO, _ := academiaProj.GetByID(userID)
+		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
+			utils.RespondWithForbiddenError(c, "Estudante não pertence a esta academia")
+			return
+		}
+	}
+
+	notasProj := getNotasProjection(c)
+	notas, err := notasProj.GetByEstudante(codigoEstudante)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"codigo_estudante": codigoEstudante,
+		"nome":             estudante.Nome,
+		"notas":            notas,
+		"total":            len(notas),
+	})
+}
+
 // ============================================================================
 // Helpers internos
 // ============================================================================
