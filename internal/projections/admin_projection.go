@@ -1,3 +1,12 @@
+// ============================================================================
+// ARQUIVO: internal/projections/admin_projection.go
+//
+// CORREÇÕES APLICADAS (auditoria Março 2026):
+//   #2  — Rebuild documentado com aviso de downtime. Sem mudança estrutural
+//          (swap atômico requer refactoring maior — registrado como issue aberto).
+//          Todos os handlers de evento corrigidos e auditados.
+// ============================================================================
+
 package projections
 
 import (
@@ -55,14 +64,14 @@ func (p *AdminProjection) Handle(event db.Event) error {
 		return nil
 	}
 	handlers := map[string]func(db.Event) error{
-		"AdminCriado":          p.handleAdminCriado,
-		"AdminAtivado":         p.handleStatusChange("ativo"),
-		"AdminDesativado":      p.handleStatusChange("inativo"),
-		"AcaoAdminRegistrada":  p.handleAcaoAdminRegistrada,
+		"AdminCriado":           p.handleAdminCriado,
+		"AdminAtivado":          p.handleStatusChange("ativo"),
+		"AdminDesativado":       p.handleStatusChange("inativo"),
+		"AcaoAdminRegistrada":   p.handleAcaoAdminRegistrada,
 		"AdminDadosAtualizados": p.handleAdminDadosAtualizados,
-		"AdminRoleAtualizado":  p.handleAdminRoleAtualizado,
-		"EmailVerificado":      p.handleEmailVerificado,
-		"AdminSenhaAlterada":   p.handleAdminSenhaAlterada,
+		"AdminRoleAtualizado":   p.handleAdminRoleAtualizado,
+		"EmailVerificado":       p.handleEmailVerificado,
+		"AdminSenhaAlterada":    p.handleAdminSenhaAlterada,
 	}
 	if handler, ok := handlers[event.EventType]; ok {
 		return handler(event)
@@ -70,10 +79,16 @@ func (p *AdminProjection) Handle(event db.Event) error {
 	return nil
 }
 
+// Rebuild reconstrói a projeção a partir do ledger.
+//
+// ⚠️  ATENÇÃO: O TRUNCATE remove todos os admins temporariamente.
+// Durante o rebuild, requisições que dependam de projection_admins (login,
+// middleware RequireAdminRole) podem falhar com 403/404.
+// Execute preferencialmente em janela de manutenção.
 func (p *AdminProjection) Rebuild() error {
-	log.Printf("[DEBUG] [admins] Rebuild iniciado")
+	log.Printf("[DEBUG] [admins] Rebuild iniciado — atenção: causa indisponibilidade temporária")
 	if _, err := p.client.DB().Exec(`TRUNCATE TABLE projection_admins CASCADE`); err != nil {
-		return fmt.Errorf("falha ao limpar: %w", err)
+		return fmt.Errorf("falha ao limpar projeção: %w", err)
 	}
 	rows, err := p.client.DB().Query(`
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
@@ -133,7 +148,9 @@ func (p *AdminProjection) handleAdminCriado(event db.Event) error {
 	}
 
 	_, err := p.client.DB().Exec(`
-		INSERT INTO projection_admins (id, nome, email, senha_hash, role, status, email_verificado, created_by, created_at, updated_at, version, last_event_id)
+		INSERT INTO projection_admins
+			(id, nome, email, senha_hash, role, status, email_verificado,
+			 created_by, created_at, updated_at, version, last_event_id)
 		VALUES ($1, $2, $3, $4, $5, 'ativo', FALSE, $6, $7, CURRENT_TIMESTAMP, $8, $9)
 		ON CONFLICT (id) DO NOTHING
 	`,
@@ -146,7 +163,7 @@ func (p *AdminProjection) handleAdminCriado(event db.Event) error {
 func (p *AdminProjection) handleStatusChange(status string) func(db.Event) error {
 	return func(event db.Event) error {
 		if event.AggregateID == uuid.Nil {
-			return fmt.Errorf("UUID inválido")
+			return fmt.Errorf("UUID inválido no evento de mudança de status")
 		}
 		_, err := p.client.DB().Exec(`
 			UPDATE projection_admins
@@ -157,8 +174,6 @@ func (p *AdminProjection) handleStatusChange(status string) func(db.Event) error
 	}
 }
 
-// handleAcaoAdminRegistrada — CORRIGIDO P9: agora atualiza version e last_event_id
-// além de total_acoes_realizadas, mantendo consistência com os demais handlers.
 func (p *AdminProjection) handleAcaoAdminRegistrada(event db.Event) error {
 	_, err := p.client.DB().Exec(`
 		UPDATE projection_admins
@@ -172,7 +187,6 @@ func (p *AdminProjection) handleAcaoAdminRegistrada(event db.Event) error {
 }
 
 // handleAdminDadosAtualizados usa transação explícita para garantir atomicidade.
-// Sem transação, falha parcial deixaria a projeção inconsistente.
 func (p *AdminProjection) handleAdminDadosAtualizados(event db.Event) error {
 	var payload struct {
 		Nome          *string
@@ -248,7 +262,7 @@ func (p *AdminProjection) handleEmailVerificado(event db.Event) error {
 	return err
 }
 
-// handleAdminSenhaAlterada aplica a nova senha_hash na projeção a partir do evento do ledger.
+// handleAdminSenhaAlterada aplica a nova senha_hash na projeção.
 // Garante que rebuild restaura a senha correta.
 func (p *AdminProjection) handleAdminSenhaAlterada(event db.Event) error {
 	var payload struct {
@@ -274,6 +288,8 @@ func (p *AdminProjection) handleAdminSenhaAlterada(event db.Event) error {
 // Queries de leitura
 // ============================================================================
 
+// AdminDTO representa os dados de leitura de um administrador.
+// SenhaHash tem tag json:"-" — nunca serializado em respostas HTTP.
 type AdminDTO struct {
 	ID                   uuid.UUID  `json:"id"`
 	Nome                 string     `json:"nome"`

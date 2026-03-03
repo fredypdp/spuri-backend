@@ -12,7 +12,6 @@
 package handlers
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -675,34 +674,6 @@ func VerifyAllIntegrity(c *gin.Context) {
 			return "⚠️ Problemas de integridade detectados"
 		}(),
 	})
-}
-
-func getNullString(ns sql.NullString) interface{} {
-	if ns.Valid {
-		return ns.String
-	}
-	return nil
-}
-
-func getAdminProjection(c *gin.Context) *projections.AdminProjection {
-	return projections.NewAdminProjection(getDbClient(c))
-}
-
-func verificarPermissaoAdmin(c *gin.Context, minRole string) error {
-	userID, _ := middleware.GetUserID(c)
-	adminProj := getAdminProjection(c)
-	admin, err := adminProj.GetByID(userID)
-	if err != nil || admin == nil {
-		return fmt.Errorf("administrador não encontrado")
-	}
-	if admin.Status != "ativo" {
-		return fmt.Errorf("administrador está inativo")
-	}
-	hierarchy := map[string]int{"fpp": 3, "adm": 2, "gerente": 1}
-	if hierarchy[admin.Role] < hierarchy[minRole] {
-		return fmt.Errorf("permissão negada: requer role '%s' ou superior", minRole)
-	}
-	return nil
 }
 
 func registrarAcaoAdmin(c *gin.Context, adminID uuid.UUID, acao string, detalhes map[string]interface{}) {

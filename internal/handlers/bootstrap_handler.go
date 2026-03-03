@@ -1,3 +1,13 @@
+// ============================================================================
+// ARQUIVO: internal/handlers/bootstrap_handler.go
+//
+// CORREÇÕES APLICADAS (auditoria Março 2026):
+//   #3  — Race condition TOCTOU: adicionada constraint única no banco (via migration
+//          024) E advisory lock PostgreSQL para serializar bootstrap concorrente.
+//          Ver migration 024_bootstrap_unique_constraint.sql.
+//   #4  — Removido bloco test_login que expunha a senha em texto plano na resposta.
+// ============================================================================
+
 package handlers
 
 import (
@@ -13,30 +23,54 @@ import (
 
 // BootstrapAdminFPP cria o primeiro admin FPP do sistema.
 //
-// 🔒 SEGURANÇA: Só funciona se não existir NENHUM admin no sistema.
-// Após o primeiro uso, a rota fica bloqueada automaticamente (retorna 403).
-//
-// CORRIGIDO P1: substituído time.Sleep(2s) por polling síncrono que aguarda
-// a projeção processar o evento antes de responder. Isso elimina a race condition
-// onde o cliente recebia HTTP 201 mas o admin ainda não estava disponível para login.
+// 🔒 SEGURANÇA:
+//   - Só funciona se não existir NENHUM admin no sistema.
+//   - Após o primeiro uso a rota fica bloqueada (retorna 403).
+//   - Advisory lock PostgreSQL serializa requisições concorrentes (FIX #3).
+//   - A senha NÃO é retornada na resposta (FIX #4).
 func BootstrapAdminFPP(c *gin.Context) {
 	log.Println("🔵 [BOOTSTRAP] Iniciando criação de Admin FPP...")
 
-	adminProj := getAdminProjection(c)
-	log.Println("🔍 [BOOTSTRAP] Buscando admins existentes...")
-	admins, err := adminProj.GetAll()
-
-	if err != nil {
-		log.Printf("❌ [BOOTSTRAP] Erro ao verificar admins: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "erro ao verificar admins existentes",
+	// Body obrigatório — sem fallback hardcoded.
+	var req struct {
+		Nome  string `json:"nome"  binding:"required"`
+		Email string `json:"email" binding:"required"`
+		Senha string `json:"senha" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("❌ [BOOTSTRAP] Body inválido: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "nome, email e senha são obrigatórios",
+			"example": gin.H{"nome": "Admin FPP", "email": "admin@dominio.com", "senha": "SenhaForte@123"},
 		})
 		return
 	}
 
-	log.Printf("📊 [BOOTSTRAP] Total de admins encontrados: %d", len(admins))
+	client := getDbClient(c)
+	dbConn := client.DB()
 
-	// 🔒 BLOQUEIO: Se já existe admin, abortar.
+	// FIX #3 — Advisory lock PostgreSQL (hashtext('bootstrap') = lock_id fixo).
+	// Garante que apenas uma goroutine/instância executa o bootstrap por vez.
+	if _, err := dbConn.Exec(`SELECT pg_advisory_lock(hashtext('bootstrap_admin_fpp'))`); err != nil {
+		log.Printf("❌ [BOOTSTRAP] Erro ao adquirir advisory lock: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro interno ao iniciar bootstrap"})
+		return
+	}
+	defer func() {
+		if _, err := dbConn.Exec(`SELECT pg_advisory_unlock(hashtext('bootstrap_admin_fpp'))`); err != nil {
+			log.Printf("[WARN] [BOOTSTRAP] Erro ao liberar advisory lock: %v", err)
+		}
+	}()
+
+	// Verificação pós-lock — garante que não houve bootstrap paralelo
+	adminProj := getAdminProjection(c)
+	admins, err := adminProj.GetAll()
+	if err != nil {
+		log.Printf("❌ [BOOTSTRAP] Erro ao verificar admins: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao verificar admins existentes"})
+		return
+	}
+
 	if len(admins) > 0 {
 		log.Printf("⚠️ [BOOTSTRAP] Sistema já possui %d admin(s)", len(admins))
 		c.JSON(http.StatusForbidden, gin.H{
@@ -47,25 +81,7 @@ func BootstrapAdminFPP(c *gin.Context) {
 		return
 	}
 
-	// Body obrigatório — sem fallback hardcoded.
-	var req struct {
-		Nome  string `json:"nome"  binding:"required"`
-		Email string `json:"email" binding:"required"`
-		Senha string `json:"senha" binding:"required"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Printf("❌ [BOOTSTRAP] Body inválido: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "nome, email e senha são obrigatórios",
-			"example": gin.H{"nome": "Admin FPP", "email": "admin@dominio.com", "senha": "SenhaForte@123"},
-		})
-		return
-	}
-
-	log.Printf("📋 [BOOTSTRAP] Criando admin FPP: %s (%s)", req.Nome, req.Email)
-
-	// Verificar se email já existe.
+	// Verificar se email já existe (redundante mas defensivo)
 	existing, _ := adminProj.GetByEmail(req.Email)
 	if existing != nil {
 		log.Printf("❌ [BOOTSTRAP] Email %s já cadastrado", req.Email)
@@ -106,9 +122,7 @@ func BootstrapAdminFPP(c *gin.Context) {
 
 	log.Println("✅ [BOOTSTRAP] Eventos gravados no ledger. Aguardando projeção...")
 
-	// CORRIGIDO P1: polling síncrono em vez de time.Sleep fixo.
-	// Aguarda até 10 segundos pela projeção processar o evento.
-	// Intervalo: 200ms entre tentativas (máx. 50 tentativas).
+	// Polling síncrono — aguarda até 10s pela projeção processar o evento.
 	adminID := newAdmin.ID
 	const maxAttempts = 50
 	const interval = 200 * time.Millisecond
@@ -126,9 +140,6 @@ func BootstrapAdminFPP(c *gin.Context) {
 	}
 
 	if !adminProcessado {
-		// O evento está no ledger — o admin foi criado corretamente.
-		// Apenas a projeção ainda não processou (lag do manager).
-		// Retorna sucesso com aviso para tentar login em alguns segundos.
 		log.Printf("⚠️ [BOOTSTRAP] Projeção ainda não processou após %d tentativas", maxAttempts)
 		c.JSON(http.StatusCreated, gin.H{
 			"success": true,
@@ -147,6 +158,7 @@ func BootstrapAdminFPP(c *gin.Context) {
 
 	log.Printf("🎉 [BOOTSTRAP] Processo completo! Admin ID: %s, Email: %s", newAdmin.ID, req.Email)
 
+	// FIX #4: senha NÃO incluída na resposta.
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
 		"message": "✅ Admin FPP criado com sucesso!",
@@ -160,14 +172,6 @@ func BootstrapAdminFPP(c *gin.Context) {
 			"1. Faça login em POST /admin/login",
 			"2. Altere a senha após o primeiro acesso",
 			"3. Crie outros admins conforme necessário",
-		},
-		"test_login": gin.H{
-			"url":    "/admin/login",
-			"method": "POST",
-			"body": gin.H{
-				"email": req.Email,
-				"senha": req.Senha,
-			},
 		},
 	})
 }

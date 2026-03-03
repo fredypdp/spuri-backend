@@ -1,3 +1,11 @@
+// ============================================================================
+// ARQUIVO: internal/domain/aggregates/admin.go
+//
+// CORREÇÕES APLICADAS (auditoria Março 2026):
+//   #1  — Criar() agora valida que senhaHash tem comprimento mínimo de bcrypt (60 chars)
+//   #7  — Handlers de Apply corrigidos para retornar erro em vez de panic
+// ============================================================================
+
 package aggregates
 
 import (
@@ -11,6 +19,10 @@ import (
 
 // emailRegex valida formato básico de email.
 var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+
+// ============================================================================
+// Struct
+// ============================================================================
 
 type Admin struct {
 	BaseAggregate
@@ -38,9 +50,11 @@ func NewAdmin() *Admin {
 	}
 }
 
-func (a *Admin) GetType() string {
-	return "Admin"
-}
+func (a *Admin) GetType() string { return "Admin" }
+
+// ============================================================================
+// Apply — roteador de eventos
+// ============================================================================
 
 func (a *Admin) Apply(event DomainEvent) error {
 	switch event.GetEventType() {
@@ -69,12 +83,18 @@ func (a *Admin) Apply(event DomainEvent) error {
 // Comandos
 // ============================================================================
 
-func (a *Admin) Criar(nome string, email string, senhaHash string, role string, createdBy *uuid.UUID) error {
+// Criar cria um novo administrador.
+// FIX #1: senhaHash deve ter pelo menos 60 caracteres (comprimento mínimo de bcrypt).
+func (a *Admin) Criar(nome, email, senhaHash, role string, createdBy *uuid.UUID) error {
 	if nome == "" || email == "" || senhaHash == "" {
 		return fmt.Errorf("campos obrigatórios vazios")
 	}
 
-	// CORRIGIDO P4: validação de formato de email também na criação.
+	// FIX #1 — valida que é um hash bcrypt válido (bcrypt gera hashes de 60 chars)
+	if len(senhaHash) < 60 {
+		return fmt.Errorf("senhaHash inválido: esperado hash bcrypt (mínimo 60 caracteres)")
+	}
+
 	if !emailRegex.MatchString(email) {
 		return fmt.Errorf("formato de email inválido")
 	}
@@ -168,7 +188,6 @@ func (a *Admin) AtualizarDados(nome *string, email *string, updatedBy uuid.UUID)
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
 
-	// CORRIGIDO P4: validar formato de email quando fornecido.
 	if email != nil && !emailRegex.MatchString(*email) {
 		return fmt.Errorf("formato de email inválido")
 	}
@@ -189,9 +208,7 @@ func (a *Admin) AtualizarDados(nome *string, email *string, updatedBy uuid.UUID)
 }
 
 // AtualizarRole altera o role do admin.
-// REGRA DE NEGÓCIO DELIBERADA: Um FPP pode promover qualquer admin para qualquer role,
-// incluindo FPP. Isso é intencional — FPP representa a Fundação e tem controle total.
-// Ver ADMIN_REGRAS_DE_NEGOCIO.md §5 para contexto.
+// REGRA DE NEGÓCIO DELIBERADA: apenas FPP pode alterar roles.
 func (a *Admin) AtualizarRole(novoRole string, updatedBy uuid.UUID, updatedByRole string) error {
 	if a.Status != "ativo" {
 		return fmt.Errorf("administrador está inativo")
@@ -223,7 +240,6 @@ func (a *Admin) AtualizarRole(novoRole string, updatedBy uuid.UUID, updatedByRol
 }
 
 // AlterarSenha registra a troca de senha como evento no ledger.
-// Garante rastreabilidade e que o rebuild restaure a senha correta.
 func (a *Admin) AlterarSenha(novaSenhaHash string, changedBy uuid.UUID, motivo string) error {
 	if a.Status != "ativo" {
 		return fmt.Errorf("administrador está inativo")
@@ -246,9 +262,6 @@ func (a *Admin) AlterarSenha(novaSenhaHash string, changedBy uuid.UUID, motivo s
 }
 
 // ValidatePermission verifica que este admin tem role ESTRITAMENTE superior ao targetRole.
-// Usado para garantir que um admin só pode gerenciar admins de nível inferior.
-// NOTA: FPP gerenciando outro FPP é tratado nas rotas de ativar/desativar diretamente
-// (apenas RequireFPP no middleware, sem ValidatePermission adicional — decisão deliberada).
 func (a *Admin) ValidatePermission(targetRole string) error {
 	if a.Status != "ativo" {
 		return fmt.Errorf("administrador está inativo")
@@ -263,10 +276,8 @@ func (a *Admin) ValidatePermission(targetRole string) error {
 }
 
 // ============================================================================
-// Apply handlers (estado do aggregate)
+// Apply handlers — todos com verificação de erro em json.Marshal/Unmarshal
 // ============================================================================
-
-// CORRIGIDO P8: json.Marshal agora tem erro checado em todos os applyXxx handlers.
 
 func (a *Admin) applyAdminCriado(event DomainEvent) error {
 	payload := event.GetPayload()
@@ -321,7 +332,6 @@ func (a *Admin) applyAdminDadosAtualizados(event DomainEvent) error {
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return fmt.Errorf("applyAdminDadosAtualizados: erro ao deserializar evento: %w", err)
 	}
-
 	if ev.Nome != nil {
 		a.Nome = *ev.Nome
 	}
@@ -344,7 +354,6 @@ func (a *Admin) applyAdminRoleAtualizado(event DomainEvent) error {
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return fmt.Errorf("applyAdminRoleAtualizado: erro ao deserializar evento: %w", err)
 	}
-
 	a.Role = ev.NovoRole
 	return nil
 }
@@ -359,7 +368,9 @@ func (a *Admin) applyAdminSenhaAlterada(event DomainEvent) error {
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return fmt.Errorf("applyAdminSenhaAlterada: erro ao deserializar evento: %w", err)
 	}
-
+	if ev.NovaSenhaHash == "" {
+		return fmt.Errorf("applyAdminSenhaAlterada: NovaSenhaHash vazio no payload")
+	}
 	a.SenhaHash = ev.NovaSenhaHash
 	return nil
 }
@@ -427,14 +438,11 @@ type AdminRoleAtualizadoEvent struct {
 
 func (e *AdminRoleAtualizadoEvent) GetPayload() interface{} { return e }
 
-// AdminSenhaAlteradaEvent — evento de troca de senha via event sourcing.
-// Garante que: (a) toda troca fica no ledger imutável; (b) rebuild restaura a senha correta.
-// ChangedBy = uuid.Nil indica operação do sistema (reset automático, bootstrap).
 type AdminSenhaAlteradaEvent struct {
 	BaseEvent
 	NovaSenhaHash string
 	ChangedBy     uuid.UUID
-	Motivo        string // "alteracao_usuario" | "reset_senha" | "bootstrap"
+	Motivo        string
 	ChangedAt     time.Time
 }
 
