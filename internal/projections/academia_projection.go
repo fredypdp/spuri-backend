@@ -1,3 +1,7 @@
+// ============================================================================
+// ARQUIVO: internal/projections/academia_projection.go
+// ============================================================================
+
 package projections
 
 import (
@@ -345,6 +349,7 @@ func (p *AcademiaProjection) handleEmailVerificado(event db.Event) error {
 // Queries de leitura
 // ============================================================================
 
+// AcademiaDTO representa a visão de leitura de uma academia.
 type AcademiaDTO struct {
 	ID              uuid.UUID `json:"id"`
 	Type            string    `json:"type"`
@@ -357,6 +362,7 @@ type AcademiaDTO struct {
 	Email           *string   `json:"email,omitempty"`
 	Website         *string   `json:"website,omitempty"`
 	NivelEscolar    *string   `json:"nivel_escolar,omitempty"`
+	AnosAcademicos  []string  `json:"anos_academicos,omitempty"`
 	Status          string    `json:"status"`
 	Cursos          []string  `json:"cursos"`
 	EmailVerificado bool      `json:"email_verificado"`
@@ -370,7 +376,7 @@ func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
 	row := p.client.DB().QueryRow(`
 		SELECT id, type, nome, codigo_academia, senha_hash,
 			provincia, endereco, numero_telefone, email, website,
-			nivel_escolar, status, cursos, email_verificado,
+			nivel_escolar, anos_academicos, status, cursos, email_verificado,
 			created_at, updated_at, total_estudantes, version
 		FROM projection_academias
 		WHERE id = $1 AND deleted_at IS NULL
@@ -382,7 +388,7 @@ func (p *AcademiaProjection) GetByCodigo(codigo string) (*AcademiaDTO, error) {
 	row := p.client.DB().QueryRow(`
 		SELECT id, type, nome, codigo_academia, senha_hash,
 			provincia, endereco, numero_telefone, email, website,
-			nivel_escolar, status, cursos, email_verificado,
+			nivel_escolar, anos_academicos, status, cursos, email_verificado,
 			created_at, updated_at, total_estudantes, version
 		FROM projection_academias
 		WHERE codigo_academia = $1 AND deleted_at IS NULL
@@ -394,7 +400,7 @@ func (p *AcademiaProjection) GetByEmail(email string) (*AcademiaDTO, error) {
 	row := p.client.DB().QueryRow(`
 		SELECT id, type, nome, codigo_academia, senha_hash,
 			provincia, endereco, numero_telefone, email, website,
-			nivel_escolar, status, cursos, email_verificado,
+			nivel_escolar, anos_academicos, status, cursos, email_verificado,
 			created_at, updated_at, total_estudantes, version
 		FROM projection_academias
 		WHERE email = $1 AND deleted_at IS NULL
@@ -402,13 +408,26 @@ func (p *AcademiaProjection) GetByEmail(email string) (*AcademiaDTO, error) {
 	return scanAcademia(row)
 }
 
+// GetByCodigoOrEmail tenta encontrar a academia por código primeiro,
+// depois por email — usado no login onde o usuário pode informar qualquer um.
+func (p *AcademiaProjection) GetByCodigoOrEmail(codigoOrEmail string) (*AcademiaDTO, error) {
+	academia, err := p.GetByCodigo(codigoOrEmail)
+	if err != nil {
+		return nil, err
+	}
+	if academia != nil {
+		return academia, nil
+	}
+	return p.GetByEmail(codigoOrEmail)
+}
+
 func scanAcademia(row interface{ Scan(...interface{}) error }) (*AcademiaDTO, error) {
 	var a AcademiaDTO
-	var cursosJSON []byte
+	var cursosJSON, anosJSON []byte
 	err := row.Scan(
 		&a.ID, &a.Type, &a.Nome, &a.CodigoAcademia, &a.SenhaHash,
 		&a.Provincia, &a.Endereco, &a.NumeroTelefone, &a.Email, &a.Website,
-		&a.NivelEscolar, &a.Status, &cursosJSON, &a.EmailVerificado,
+		&a.NivelEscolar, &anosJSON, &a.Status, &cursosJSON, &a.EmailVerificado,
 		&a.CreatedAt, &a.UpdatedAt, &a.TotalEstudantes, &a.Version,
 	)
 	if err == sql.ErrNoRows {
@@ -419,6 +438,9 @@ func scanAcademia(row interface{ Scan(...interface{}) error }) (*AcademiaDTO, er
 	}
 	if cursosJSON != nil {
 		json.Unmarshal(cursosJSON, &a.Cursos)
+	}
+	if anosJSON != nil {
+		json.Unmarshal(anosJSON, &a.AnosAcademicos)
 	}
 	return &a, nil
 }

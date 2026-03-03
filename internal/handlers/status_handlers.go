@@ -1,3 +1,12 @@
+// ============================================================================
+// ARQUIVO: internal/handlers/status_handlers.go
+// ============================================================================
+// Handlers para atualização de status escolar do estudante.
+// ATENÇÃO: Estes handlers NÃO devem ser redeclarados em nenhum outro arquivo.
+//          O arquivo vincular_handler.go foi REMOVIDO — estes handlers estavam
+//          duplicados lá e causavam erro de compilação.
+// ============================================================================
+
 package handlers
 
 import (
@@ -5,11 +14,11 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
-
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
 	"spuri/internal/utils"
+
+	"github.com/gin-gonic/gin"
 )
 
 // AtualizarStatusEscolarFundamentalHandler — PUT /estudante/status-escolar-fundamental
@@ -42,7 +51,7 @@ func AtualizarStatusEscolarFundamentalHandler(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Status escolar fundamental atualizado: %s - %s", estudante.CodigoEstudante, req.NovoStatus)
+	log.Printf("✅ Status escolar fundamental atualizado: %s → %s", estudante.CodigoEstudante, req.NovoStatus)
 	c.JSON(http.StatusOK, gin.H{
 		"message":     "status_escolar_fundamental atualizado com sucesso",
 		"novo_status": req.NovoStatus,
@@ -79,7 +88,7 @@ func AtualizarStatusEscolarMedioHandler(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Status escolar médio atualizado: %s - %s", estudante.CodigoEstudante, req.NovoStatus)
+	log.Printf("✅ Status escolar médio atualizado: %s → %s", estudante.CodigoEstudante, req.NovoStatus)
 	c.JSON(http.StatusOK, gin.H{
 		"message":     "status_escolar_medio atualizado com sucesso",
 		"novo_status": req.NovoStatus,
@@ -116,7 +125,7 @@ func AtualizarStatusSuperior(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Status superior atualizado: %s - %s", estudante.CodigoEstudante, req.NovoStatus)
+	log.Printf("✅ Status superior atualizado: %s → %s", estudante.CodigoEstudante, req.NovoStatus)
 	c.JSON(http.StatusOK, gin.H{
 		"message":     "status superior atualizado com sucesso",
 		"novo_status": req.NovoStatus,

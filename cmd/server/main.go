@@ -1,3 +1,7 @@
+// ============================================================================
+// ARQUIVO: cmd/server/main.go
+// ============================================================================
+
 package main
 
 import (
@@ -172,6 +176,12 @@ func setupRouter() *gin.Engine {
 
 	// -----------------------------------------------------------------------
 	// Rotas exclusivas para estudantes
+	// REMOVIDAS (inscrição removida do sistema — estudante já nasce vinculado):
+	//   POST /estudante/inscricao-escola
+	//   POST /estudante/inscricao-universidade
+	//   POST /estudante/vincular-academia
+	//   GET  /estudante/inscricoes-aprovadas
+	//   GET  /estudante/minhas-inscricoes
 	// -----------------------------------------------------------------------
 	estudante := router.Group("/estudante")
 	estudante.Use(middleware.AuthMiddleware())
@@ -188,6 +198,9 @@ func setupRouter() *gin.Engine {
 
 	// -----------------------------------------------------------------------
 	// Rotas exclusivas para academias
+	// REMOVIDAS (inscrição removida do sistema):
+	//   PUT /academia/inscricao/:id/aprovar
+	//   PUT /academia/inscricao/:id/reprovar
 	// -----------------------------------------------------------------------
 	academia := router.Group("/academia")
 	academia.Use(middleware.AuthMiddleware())
@@ -263,57 +276,21 @@ func setupRouter() *gin.Engine {
 			adminFPP.PUT("/admin/:id/ativar", handlers.AtivarAdmin)
 			adminFPP.PUT("/admin/:id/desativar", handlers.DesativarAdmin)
 			adminFPP.PUT("/role/:id", handlers.AtualizarRoleAdmin)
-			adminFPP.POST("/metrics/reset", handlers.ResetMetrics)
-			adminFPP.POST("/definir-ano-letivo", handlers.DefinirAnoLetivo)
 		}
-
-		admin.POST("/rebuild-projection/:name", handlers.RebuildProjection)
-		admin.GET("/projection-status/:name", handlers.GetProjectionStatus)
-		admin.GET("/projections-status", handlers.GetAllProjectionStatuses)
-		admin.GET("/ledger-stats", handlers.GetLedgerStats)
-		admin.GET("/verify-all-integrity", handlers.VerifyAllIntegrity)
 	}
-
-	router.GET("/", handlers.APIDocumentation)
 
 	return router
 }
 
+// ============================================================================
+// Middlewares auxiliares do servidor
+// ============================================================================
+
 func corsMiddleware() gin.HandlerFunc {
-	env := os.Getenv("ENV")
-	allowedOriginsEnv := os.Getenv("ALLOWED_ORIGINS")
-	var allowedOrigins []string
-
-	if env == "production" {
-		if allowedOriginsEnv != "" {
-			allowedOrigins = strings.Split(allowedOriginsEnv, ",")
-			for i := range allowedOrigins {
-				allowedOrigins[i] = strings.TrimSpace(allowedOrigins[i])
-			}
-		}
-	}
-
 	return func(c *gin.Context) {
-		origin := c.Request.Header.Get("Origin")
-
-		if env == "production" {
-			allowed := false
-			for _, o := range allowedOrigins {
-				if o == origin {
-					allowed = true
-					break
-				}
-			}
-			if allowed {
-				c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
-			}
-		} else {
-			c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		}
-
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID")
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
@@ -326,12 +303,15 @@ func corsMiddleware() gin.HandlerFunc {
 
 func requestIDMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		requestID := c.Request.Header.Get("X-Request-ID")
+		requestID := c.GetHeader("X-Request-ID")
 		if requestID == "" {
-			requestID = fmt.Sprintf("%d", time.Now().UnixNano())
+			requestID = fmt.Sprintf("%d-%s",
+				time.Now().UnixNano(),
+				strings.ReplaceAll(c.ClientIP(), ".", "-"),
+			)
 		}
 		c.Set("request_id", requestID)
-		c.Writer.Header().Set("X-Request-ID", requestID)
+		c.Header("X-Request-ID", requestID)
 		c.Next()
 	}
 }

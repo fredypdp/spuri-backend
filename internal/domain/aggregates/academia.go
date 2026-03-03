@@ -1,3 +1,13 @@
+// ============================================================================
+// ARQUIVO: internal/domain/aggregates/academia.go
+// ============================================================================
+// REGRA DE ORGANIZAÇÃO:
+//   academia.go                  → struct, Apply, comandos core, eventos base
+//   academia_categorias_nota.go  → AdicionarCategoriaNotaSuperior,
+//                                  CategoriaNotaAdicionadaEvent,
+//                                  applyCategoriaNotaAdicionada
+// ============================================================================
+
 package aggregates
 
 import (
@@ -74,6 +84,7 @@ func (a *Academia) Apply(event DomainEvent) error {
 	case "EmailVerificado":
 		return a.applyEmailVerificado(event)
 	case "CategoriaNotaAdicionada":
+		// applyCategoriaNotaAdicionada definido em academia_categorias_nota.go
 		return a.applyCategoriaNotaAdicionada(event)
 	default:
 		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
@@ -199,9 +210,6 @@ func (a *Academia) AtualizarCursos(cursos []string) error {
 }
 
 // AtualizarDados atualiza campos da academia.
-// anosAcademicos — se não-nil, atualiza a lista. As mesmas regras de validação
-// de Criar() se aplicam (obrigatório e não-vazio para fundamental/misto, nil para o resto).
-// Passe nil para não alterar o campo.
 func (a *Academia) AtualizarDados(
 	nome *string,
 	provincia *string,
@@ -210,27 +218,13 @@ func (a *Academia) AtualizarDados(
 	email *string,
 	website *string,
 	nivelEscolar *string,
-	cursos []string,
 	anosAcademicos []string,
+	cursos []string,
 ) error {
-	if nome == nil && provincia == nil && endereco == nil && numeroTelefone == nil &&
-		email == nil && website == nil && nivelEscolar == nil && cursos == nil && anosAcademicos == nil {
+	if nome == nil && provincia == nil && endereco == nil &&
+		numeroTelefone == nil && email == nil && website == nil &&
+		nivelEscolar == nil && anosAcademicos == nil && cursos == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
-	}
-
-	// Se anosAcademicos foi enviado (não-nil), revalidar.
-	// Usa nivelEscolar novo (se enviado) ou o atual do aggregate.
-	var anosValidados []string
-	if anosAcademicos != nil {
-		nivelEfetivo := a.NivelEscolar
-		if nivelEscolar != nil {
-			nivelEfetivo = nivelEscolar
-		}
-		var err error
-		anosValidados, err = validarAnosAcademicos(a.Type, nivelEfetivo, anosAcademicos)
-		if err != nil {
-			return err
-		}
 	}
 
 	emailAlterado := email != nil && (a.Email == nil || *a.Email != *email)
@@ -244,7 +238,7 @@ func (a *Academia) AtualizarDados(
 		Email:          email,
 		Website:        website,
 		NivelEscolar:   nivelEscolar,
-		AnosAcademicos: anosValidados, // nil quando não alterado
+		AnosAcademicos: anosAcademicos,
 		Cursos:         cursos,
 		EmailAlterado:  emailAlterado,
 		UpdatedAt:      time.Now(),
@@ -252,108 +246,6 @@ func (a *Academia) AtualizarDados(
 
 	a.RaiseEvent(event)
 	return a.Apply(event)
-}
-
-// ============================================================================
-// Apply handlers (event sourcing — reconstroem estado do aggregate)
-// ============================================================================
-
-func (a *Academia) applyAcademiaCriada(event DomainEvent) error {
-	payload := event.GetPayload()
-	data, _ := json.Marshal(payload)
-
-	var ev AcademiaCriadaEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
-	}
-
-	a.Type = ev.Type
-	a.Nome = ev.Nome
-	a.CodigoAcademia = ev.CodigoAcademia
-	a.SenhaHash = ev.SenhaHash
-	a.Provincia = ev.Provincia
-	a.Endereco = ev.Endereco
-	a.NumeroTelefone = ev.NumeroTelefone
-	a.Email = ev.Email
-	a.Website = ev.Website
-	a.NivelEscolar = ev.NivelEscolar
-	a.AnosAcademicos = ev.AnosAcademicos
-	a.Cursos = ev.Cursos
-	// Status e EmailVerificado são sempre fixos na criação — independente do payload
-	a.Status = "inativo"
-	a.EmailVerificado = false
-	a.CreatedAt = ev.CreatedAt
-	return nil
-}
-
-func (a *Academia) applyAcademiaAtivada(_ DomainEvent) error {
-	a.Status = "ativo"
-	return nil
-}
-
-func (a *Academia) applyAcademiaDesativada(_ DomainEvent) error {
-	a.Status = "inativo"
-	return nil
-}
-
-func (a *Academia) applyCursosAtualizados(event DomainEvent) error {
-	data, _ := json.Marshal(event.GetPayload())
-	var ev CursosAtualizadosEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
-	}
-	a.Cursos = ev.NovoCursos
-	return nil
-}
-
-func (a *Academia) applyAcademiaDadosAtualizados(event DomainEvent) error {
-	data, _ := json.Marshal(event.GetPayload())
-	var ev AcademiaDadosAtualizadosEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
-	}
-
-	if ev.Nome != nil {
-		a.Nome = *ev.Nome
-	}
-	if ev.Provincia != nil {
-		a.Provincia = *ev.Provincia
-	}
-	if ev.Endereco != nil {
-		a.Endereco = *ev.Endereco
-	}
-	if ev.NumeroTelefone != nil {
-		a.NumeroTelefone = ev.NumeroTelefone
-	}
-	if ev.Email != nil {
-		a.Email = ev.Email
-		if ev.EmailAlterado {
-			a.EmailVerificado = false
-		}
-	}
-	if ev.Website != nil {
-		a.Website = ev.Website
-	}
-	if ev.NivelEscolar != nil {
-		a.NivelEscolar = ev.NivelEscolar
-	}
-	if ev.AnosAcademicos != nil {
-		a.AnosAcademicos = ev.AnosAcademicos
-	}
-	if ev.Cursos != nil {
-		a.Cursos = ev.Cursos
-	}
-	return nil
-}
-
-func (a *Academia) applyEmailVerificado(_ DomainEvent) error {
-	a.EmailVerificado = true
-	return nil
-}
-
-func (a *Academia) applyCategoriaNotaAdicionada(_ DomainEvent) error {
-	// Não altera estado do aggregate Academia — apenas registra o evento.
-	return nil
 }
 
 // ============================================================================
@@ -459,3 +351,101 @@ type AcademiaDadosAtualizadosEvent struct {
 }
 
 func (e *AcademiaDadosAtualizadosEvent) GetPayload() interface{} { return e }
+
+// ============================================================================
+// Apply handlers (definidos neste arquivo)
+// NOTA: applyCategoriaNotaAdicionada está em academia_categorias_nota.go
+// ============================================================================
+
+func (a *Academia) applyAcademiaCriada(event DomainEvent) error {
+	payload := event.GetPayload()
+	data, _ := json.Marshal(payload)
+
+	var ev AcademiaCriadaEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+
+	a.Type = ev.Type
+	a.Nome = ev.Nome
+	a.CodigoAcademia = ev.CodigoAcademia
+	a.SenhaHash = ev.SenhaHash
+	a.Provincia = ev.Provincia
+	a.Endereco = ev.Endereco
+	a.NumeroTelefone = ev.NumeroTelefone
+	a.Email = ev.Email
+	a.Website = ev.Website
+	a.NivelEscolar = ev.NivelEscolar
+	a.AnosAcademicos = ev.AnosAcademicos
+	a.Cursos = ev.Cursos
+	// Status e EmailVerificado são sempre fixos na criação — independente do payload
+	a.Status = "inativo"
+	a.EmailVerificado = false
+	a.CreatedAt = ev.CreatedAt
+	return nil
+}
+
+func (a *Academia) applyAcademiaAtivada(_ DomainEvent) error {
+	a.Status = "ativo"
+	return nil
+}
+
+func (a *Academia) applyAcademiaDesativada(_ DomainEvent) error {
+	a.Status = "inativo"
+	return nil
+}
+
+func (a *Academia) applyCursosAtualizados(event DomainEvent) error {
+	data, _ := json.Marshal(event.GetPayload())
+	var ev CursosAtualizadosEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+	a.Cursos = ev.NovoCursos
+	return nil
+}
+
+func (a *Academia) applyAcademiaDadosAtualizados(event DomainEvent) error {
+	data, _ := json.Marshal(event.GetPayload())
+	var ev AcademiaDadosAtualizadosEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+
+	if ev.Nome != nil {
+		a.Nome = *ev.Nome
+	}
+	if ev.Provincia != nil {
+		a.Provincia = *ev.Provincia
+	}
+	if ev.Endereco != nil {
+		a.Endereco = *ev.Endereco
+	}
+	if ev.NumeroTelefone != nil {
+		a.NumeroTelefone = ev.NumeroTelefone
+	}
+	if ev.Email != nil {
+		a.Email = ev.Email
+		if ev.EmailAlterado {
+			a.EmailVerificado = false
+		}
+	}
+	if ev.Website != nil {
+		a.Website = ev.Website
+	}
+	if ev.NivelEscolar != nil {
+		a.NivelEscolar = ev.NivelEscolar
+	}
+	if ev.AnosAcademicos != nil {
+		a.AnosAcademicos = ev.AnosAcademicos
+	}
+	if ev.Cursos != nil {
+		a.Cursos = ev.Cursos
+	}
+	return nil
+}
+
+func (a *Academia) applyEmailVerificado(_ DomainEvent) error {
+	a.EmailVerificado = true
+	return nil
+}
