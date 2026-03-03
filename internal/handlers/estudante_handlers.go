@@ -547,29 +547,6 @@ func AtualizarDadosPessoaisEstudante(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "dados pessoais atualizados com sucesso"})
 }
 
-func GetMeuHistorico(c *gin.Context) {
-	userID, _ := middleware.GetUserID(c)
-
-	estudanteProj := getEstudanteProjection(c)
-	estudante, err := estudanteProj.GetByID(userID)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	notasProj := getNotasProjection(c)
-	notas, _ := notasProj.GetByEstudante(estudante.CodigoEstudante)
-
-	faltasProj := getFaltasProjection(c)
-	faltas, _ := faltasProj.GetByEstudante(estudante.CodigoEstudante)
-
-	c.JSON(http.StatusOK, gin.H{
-		"estudante": estudante,
-		"notas":     notas,
-		"faltas":    faltas,
-	})
-}
-
 // ============================================================================
 // GET /estudante/minhas-avaliacoes
 // ============================================================================
@@ -705,46 +682,6 @@ func AtualizarStatusSuperior(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message":     "status superior atualizado com sucesso",
 		"novo_status": req.NovoStatus,
-	})
-}
-
-func GetHistoricoCompleto(c *gin.Context) {
-	codigoEstudante := c.Param("codigo")
-
-	estudanteProj := getEstudanteProjection(c)
-	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
-	if err != nil || estudante == nil {
-		utils.RespondWithNotFoundError(c, "estudante")
-		return
-	}
-
-	userID, _ := middleware.GetUserID(c)
-	userType, _ := middleware.GetUserType(c)
-
-	if userType == "estudante" && userID != estudante.ID {
-		utils.RespondWithForbiddenError(c, "Você só pode visualizar seu próprio histórico")
-		return
-	}
-
-	if userType == "academia" {
-		academiaProj := getAcademiaProjection(c)
-		academiaDTO, _ := academiaProj.GetByID(userID)
-		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
-			utils.RespondWithForbiddenError(c, "Estudante não pertence a esta academia")
-			return
-		}
-	}
-
-	notasProj := getNotasProjection(c)
-	notas, _ := notasProj.GetByEstudante(codigoEstudante)
-
-	faltasProj := getFaltasProjection(c)
-	faltas, _ := faltasProj.GetByEstudante(codigoEstudante)
-
-	c.JSON(http.StatusOK, gin.H{
-		"estudante": estudante,
-		"notas":     notas,
-		"faltas":    faltas,
 	})
 }
 

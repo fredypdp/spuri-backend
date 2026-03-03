@@ -1,11 +1,3 @@
-# =============================================================================
-# Dockerfile - Spuri Event Sourcing
-# Otimizado para Railway/Render - SEM init_db.sh
-# =============================================================================
-
-# =============================================================================
-# Build Stage
-# =============================================================================
 FROM golang:1.24-alpine AS builder
 
 RUN apk add --no-cache git ca-certificates
@@ -49,9 +41,6 @@ COPY --from=builder --chown=spuri:spuri /app/migrations ./migrations
 USER spuri
 
 EXPOSE 8080
-
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT:-8080}/health || exit 1
 
 # 🔥 INICIAR DIRETAMENTE - Migrations rodadas pelo Go
 CMD ["./spuri"]

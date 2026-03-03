@@ -126,8 +126,6 @@ func setupRouter() *gin.Engine {
 		c.Next()
 	})
 
-	router.GET("/health", handlers.HealthCheckBasic)
-	router.GET("/health/detailed", middleware.AuthMiddleware(), middleware.RequireAdmin(), handlers.HealthCheckDetailed)
 	router.POST("/bootstrap/admin-fpp", handlers.BootstrapAdminFPP)
 
 	loginGroup := router.Group("/")
@@ -155,7 +153,6 @@ func setupRouter() *gin.Engine {
 		protected.GET("/academias", handlers.ListarTodasAcademias)
 		protected.GET("/notas-estudante/:codigo", handlers.GetNotasEstudante)
 		protected.GET("/faltas-estudante/:codigo", handlers.GetFaltasEstudante)
-		protected.GET("/historico-estudante/:codigo", handlers.GetHistoricoCompleto)
 		protected.GET("/eventos-estudante/:codigo", handlers.GetEventosEstudante)
 		protected.GET("/verificar-integridade/:codigo", handlers.VerificarIntegridade)
 		protected.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)
@@ -172,7 +169,6 @@ func setupRouter() *gin.Engine {
 	estudante.Use(middleware.AuthMiddleware())
 	estudante.Use(middleware.RequireEstudante())
 	{
-		estudante.GET("/meu-historico", handlers.GetMeuHistorico)
 		estudante.PUT("/status-escolar-fundamental", handlers.AtualizarStatusEscolarFundamentalHandler)
 		estudante.PUT("/status-escolar-medio", handlers.AtualizarStatusEscolarMedioHandler)
 		estudante.PUT("/status-superior", handlers.AtualizarStatusSuperior)
@@ -231,8 +227,6 @@ func setupRouter() *gin.Engine {
 		admin.GET("/consultar-admin/:email", handlers.GetAdminPorEmail)
 		admin.GET("/buscar-usuario", handlers.BuscarUsuario)
 		admin.PUT("/dados/:id", handlers.AtualizarDadosAdmin)
-		admin.GET("/metrics", handlers.GetMetrics)
-		admin.GET("/system-stats", handlers.GetSystemStats)
 
 		adminGerente := admin.Group("/")
 		adminGerente.Use(middleware.RequireGerente())
