@@ -4,8 +4,10 @@
 // CORREÇÕES APLICADAS:
 //   #1  — Criar() valida hash bcrypt mínimo (60 chars)
 //   #7  — Apply handlers retornam erro em vez de panic
-//   [A05] — ValidatePermission: protegido contra role desconhecido (zero-value
-//            no map retornava 0, permitindo operação com role inválido)
+//   [A05] — ValidatePermission: protegido contra role desconhecido
+//   Etapa1-ToJSON — ToJSON() adicionado a TODOS os eventos concretos.
+//            Antes, os eventos herdavam BaseEvent.ToJSON() que serializava
+//            apenas e.Payload (nil nos concretos = "null" gravado no ledger).
 // ============================================================================
 
 package aggregates
@@ -279,7 +281,6 @@ func (a *Admin) ValidatePermission(targetRole string) error {
 	myLevel, myOk := adminHierarchy[a.Role]
 	targetLevel, targetOk := adminHierarchy[targetRole]
 
-	// Rejeita roles desconhecidos em qualquer dos lados
 	if !myOk {
 		return fmt.Errorf("role do executor '%s' é inválido", a.Role)
 	}
@@ -299,8 +300,7 @@ func (a *Admin) ValidatePermission(targetRole string) error {
 // ============================================================================
 
 func (a *Admin) applyAdminCriado(event DomainEvent) error {
-	payload := event.GetPayload()
-	data, err := json.Marshal(payload)
+	data, err := json.Marshal(event.GetPayload())
 	if err != nil {
 		return fmt.Errorf("applyAdminCriado: erro ao serializar payload: %w", err)
 	}
@@ -321,29 +321,28 @@ func (a *Admin) applyAdminCriado(event DomainEvent) error {
 	return nil
 }
 
-func (a *Admin) applyEmailVerificado(event DomainEvent) error {
+func (a *Admin) applyEmailVerificado(_ DomainEvent) error {
 	a.EmailVerificado = true
 	return nil
 }
 
-func (a *Admin) applyAdminAtivado(event DomainEvent) error {
+func (a *Admin) applyAdminAtivado(_ DomainEvent) error {
 	a.Status = "ativo"
 	return nil
 }
 
-func (a *Admin) applyAdminDesativado(event DomainEvent) error {
+func (a *Admin) applyAdminDesativado(_ DomainEvent) error {
 	a.Status = "inativo"
 	return nil
 }
 
-func (a *Admin) applyAcaoAdminRegistrada(event DomainEvent) error {
+func (a *Admin) applyAcaoAdminRegistrada(_ DomainEvent) error {
 	a.TotalAcoesRealizadas++
 	return nil
 }
 
 func (a *Admin) applyAdminDadosAtualizados(event DomainEvent) error {
-	payload := event.GetPayload()
-	data, err := json.Marshal(payload)
+	data, err := json.Marshal(event.GetPayload())
 	if err != nil {
 		return fmt.Errorf("applyAdminDadosAtualizados: erro ao serializar payload: %w", err)
 	}
@@ -364,8 +363,7 @@ func (a *Admin) applyAdminDadosAtualizados(event DomainEvent) error {
 }
 
 func (a *Admin) applyAdminRoleAtualizado(event DomainEvent) error {
-	payload := event.GetPayload()
-	data, err := json.Marshal(payload)
+	data, err := json.Marshal(event.GetPayload())
 	if err != nil {
 		return fmt.Errorf("applyAdminRoleAtualizado: erro ao serializar payload: %w", err)
 	}
@@ -378,8 +376,7 @@ func (a *Admin) applyAdminRoleAtualizado(event DomainEvent) error {
 }
 
 func (a *Admin) applyAdminSenhaAlterada(event DomainEvent) error {
-	payload := event.GetPayload()
-	data, err := json.Marshal(payload)
+	data, err := json.Marshal(event.GetPayload())
 	if err != nil {
 		return fmt.Errorf("applyAdminSenhaAlterada: erro ao serializar payload: %w", err)
 	}
@@ -409,6 +406,7 @@ type AdminCriadoEvent struct {
 }
 
 func (e *AdminCriadoEvent) GetPayload() interface{} { return e }
+func (e *AdminCriadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 type AdminAtivadoEvent struct {
 	BaseEvent
@@ -417,6 +415,7 @@ type AdminAtivadoEvent struct {
 }
 
 func (e *AdminAtivadoEvent) GetPayload() interface{} { return e }
+func (e *AdminAtivadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 type AdminDesativadoEvent struct {
 	BaseEvent
@@ -426,6 +425,7 @@ type AdminDesativadoEvent struct {
 }
 
 func (e *AdminDesativadoEvent) GetPayload() interface{} { return e }
+func (e *AdminDesativadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 type AcaoAdminRegistradaEvent struct {
 	BaseEvent
@@ -435,6 +435,7 @@ type AcaoAdminRegistradaEvent struct {
 }
 
 func (e *AcaoAdminRegistradaEvent) GetPayload() interface{} { return e }
+func (e *AcaoAdminRegistradaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 type AdminDadosAtualizadosEvent struct {
 	BaseEvent
@@ -446,6 +447,7 @@ type AdminDadosAtualizadosEvent struct {
 }
 
 func (e *AdminDadosAtualizadosEvent) GetPayload() interface{} { return e }
+func (e *AdminDadosAtualizadosEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 type AdminRoleAtualizadoEvent struct {
 	BaseEvent
@@ -456,6 +458,7 @@ type AdminRoleAtualizadoEvent struct {
 }
 
 func (e *AdminRoleAtualizadoEvent) GetPayload() interface{} { return e }
+func (e *AdminRoleAtualizadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 type AdminSenhaAlteradaEvent struct {
 	BaseEvent
@@ -466,3 +469,4 @@ type AdminSenhaAlteradaEvent struct {
 }
 
 func (e *AdminSenhaAlteradaEvent) GetPayload() interface{} { return e }
+func (e *AdminSenhaAlteradaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }

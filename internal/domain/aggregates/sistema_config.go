@@ -1,6 +1,26 @@
 // ============================================================================
 // ARQUIVO: internal/domain/aggregates/sistema_config.go
-// Agregado de configuração global do sistema (singleton por chave)
+//
+// CORREÇÕES APLICADAS (Etapa 1):
+//   #8  — applyAnoLetivoDefinido: data, _ = json.Marshal(payload) substituído
+//         por data, err = json.Marshal(payload) com retorno do erro.
+//   #9  — AnoLetivoDefinidoEvent agora inclui DataInicio, DataFim e Observacao.
+//         A projeção sistema_config_projection esperava estes campos mas o evento
+//         não os continha, resultando em zeros gravados. Campos adicionados como
+//         ponteiros (nil-safe) para compatibilidade com eventos já gravados.
+//         DefinirAnoLetivoCompleto() expõe o comando completo com as novas datas.
+//         DefinirAnoLetivo() mantém assinatura original (retrocompatível).
+//   Etapa1-ToJSON — ToJSON() adicionado a AnoLetivoDefinidoEvent e
+//         EmailVerificadoEvent. Antes herdavam BaseEvent.ToJSON() que
+//         serializava e.Payload=nil = "null" gravado no ledger.
+//
+// NOTAS PARA ETAPA 4:
+//   O handler que chama DefinirAnoLetivo deve ser atualizado para chamar
+//   DefinirAnoLetivoCompleto e passar dataInicio, dataFim e observacao.
+//
+// NOTAS PARA ETAPA 3:
+//   sistema_config_projection deve ler o campo Valor (não AnoLetivo) para
+//   obter o ano letivo, e DataInicio/DataFim para as datas.
 // ============================================================================
 
 package aggregates
@@ -14,10 +34,13 @@ import (
 	"github.com/google/uuid"
 )
 
+// reAnoLetivo valida o formato YYYY_YYYY (ex: 2025_2026)
 var reAnoLetivo = regexp.MustCompile(`^\d{4}_\d{4}$`)
 
-// SistemaConfig representa uma configuração global do sistema.
-// Usa um UUID determinístico derivado da chave para ser um singleton por chave.
+// ============================================================================
+// Aggregate
+// ============================================================================
+
 type SistemaConfig struct {
 	BaseAggregate
 
@@ -27,17 +50,6 @@ type SistemaConfig struct {
 	UpdatedAt time.Time
 }
 
-func NewSistemaConfig() *SistemaConfig {
-	return &SistemaConfig{
-		BaseAggregate: BaseAggregate{
-			ID:                uuid.New(),
-			Version:           0,
-			UncommittedEvents: []DomainEvent{},
-		},
-	}
-}
-
-// NewSistemaConfigComID cria o agregado com ID fixo (usado pelo handler para carregar/criar).
 func NewSistemaConfigComID(id uuid.UUID) *SistemaConfig {
 	return &SistemaConfig{
 		BaseAggregate: BaseAggregate{
@@ -59,8 +71,35 @@ func (s *SistemaConfig) Apply(event DomainEvent) error {
 	}
 }
 
-// DefinirAnoLetivo valida e gera o evento AnoLetivoDefinido.
+// ============================================================================
+// Comandos
+// ============================================================================
+
+// DefinirAnoLetivo é retrocompatível: cria o evento sem datas e observação.
+// Para incluir datas, use DefinirAnoLetivoCompleto.
 func (s *SistemaConfig) DefinirAnoLetivo(valor string, adminID uuid.UUID) error {
+	return s.definirAnoLetivoInterno(valor, adminID, nil, nil, nil)
+}
+
+// DefinirAnoLetivoCompleto cria um evento AnoLetivoDefinido com datas e observação.
+// Etapa 4 deve migrar os handlers para usar este método.
+func (s *SistemaConfig) DefinirAnoLetivoCompleto(
+	valor string,
+	adminID uuid.UUID,
+	dataInicio *time.Time,
+	dataFim *time.Time,
+	observacao *string,
+) error {
+	return s.definirAnoLetivoInterno(valor, adminID, dataInicio, dataFim, observacao)
+}
+
+func (s *SistemaConfig) definirAnoLetivoInterno(
+	valor string,
+	adminID uuid.UUID,
+	dataInicio *time.Time,
+	dataFim *time.Time,
+	observacao *string,
+) error {
 	if !reAnoLetivo.MatchString(valor) {
 		return fmt.Errorf("formato inválido: use YYYY_YYYY (ex: 2025_2026)")
 	}
@@ -76,6 +115,9 @@ func (s *SistemaConfig) DefinirAnoLetivo(valor string, adminID uuid.UUID) error 
 		BaseEvent:   BaseEvent{EventType: "AnoLetivoDefinido", AggregateID: s.ID},
 		Chave:       "ano_letivo_atual",
 		Valor:       valor,
+		DataInicio:  dataInicio,
+		DataFim:     dataFim,
+		Observacao:  observacao,
 		DefinidoPor: adminID,
 		DefinidoEm:  time.Now(),
 	}
@@ -84,15 +126,21 @@ func (s *SistemaConfig) DefinirAnoLetivo(valor string, adminID uuid.UUID) error 
 	return s.Apply(event)
 }
 
-// --- Event Handlers ---
+// ============================================================================
+// Apply handlers
+// ============================================================================
 
+// applyAnoLetivoDefinido — FIX #8: propaga erro de json.Marshal.
 func (s *SistemaConfig) applyAnoLetivoDefinido(event DomainEvent) error {
 	payload := event.GetPayload()
-	data, _ := json.Marshal(payload)
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("applyAnoLetivoDefinido: marshal error: %w", err)
+	}
 
 	var ev AnoLetivoDefinidoEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
+		return fmt.Errorf("applyAnoLetivoDefinido: unmarshal error: %w", err)
 	}
 
 	s.ID = event.GetAggregateID()
@@ -103,21 +151,34 @@ func (s *SistemaConfig) applyAnoLetivoDefinido(event DomainEvent) error {
 	return nil
 }
 
-// --- Eventos ---
+// ============================================================================
+// Eventos
+// ============================================================================
 
+// AnoLetivoDefinidoEvent — FIX #9: campos DataInicio, DataFim e Observacao
+// adicionados como ponteiros (nil-safe para eventos já gravados sem estes campos).
+// O campo Valor contém a string do ano letivo (ex: "2025_2026").
+// DataInicio e DataFim contêm as datas de início e fim do ano letivo quando fornecidas.
 type AnoLetivoDefinidoEvent struct {
 	BaseEvent
 	Chave       string
-	Valor       string
+	Valor       string     // ex: "2025_2026"
+	DataInicio  *time.Time // nil quando não informado (eventos legacy)
+	DataFim     *time.Time // nil quando não informado (eventos legacy)
+	Observacao  *string    // nil quando não informado
 	DefinidoPor uuid.UUID
 	DefinidoEm  time.Time
 }
 
 func (e *AnoLetivoDefinidoEvent) GetPayload() interface{} { return e }
+func (e *AnoLetivoDefinidoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
+// EmailVerificadoEvent é compartilhado entre Admin e Academia.
+// Definido aqui por ser o primeiro aggregate que o utiliza na hierarquia.
 type EmailVerificadoEvent struct {
 	BaseEvent
 	VerifiedAt time.Time
 }
 
 func (e *EmailVerificadoEvent) GetPayload() interface{} { return e }
+func (e *EmailVerificadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }

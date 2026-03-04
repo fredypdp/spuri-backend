@@ -1,6 +1,15 @@
 // ============================================================================
 // ARQUIVO: internal/domain/aggregates/aggregate.go
-// ATUALIZADO: Adicionar suporte para Admin no factory + logs de debug
+//
+// CORREÇÕES APLICADAS (Etapa 1):
+//   #1/#2 — BaseEvent.ToJSON() agora retorna json.Marshal(e) em vez de
+//            json.Marshal(e.Payload).
+//            Razão: quando o repository reconstrói um BaseEvent do banco
+//            (Payload = json.RawMessage) e ToJSON() é chamado, o resultado
+//            anterior omitia EventType e AggregateID, tornando o payload
+//            incompleto caso o evento fosse re-gravado (reprocessamento/migração).
+//            Com a correção, BaseEvent serializa todos os seus campos, ficando
+//            consistente com o padrão de todos os eventos concretos.
 // ============================================================================
 
 package aggregates
@@ -33,9 +42,9 @@ type DomainEvent interface {
 
 // BaseAggregate estrutura base para agregados
 type BaseAggregate struct {
-	ID                 uuid.UUID
-	Version            int
-	UncommittedEvents  []DomainEvent
+	ID                uuid.UUID
+	Version           int
+	UncommittedEvents []DomainEvent
 }
 
 func (a *BaseAggregate) GetID() uuid.UUID {
@@ -62,7 +71,17 @@ func (a *BaseAggregate) RaiseEvent(event DomainEvent) {
 	log.Printf("[DEBUG] Versão do agregado incrementada para: %d", a.Version)
 }
 
-// BaseEvent estrutura base para eventos
+// BaseEvent estrutura base para eventos.
+//
+// Eventos concretos DEVEM sobrescrever GetPayload() e ToJSON() para
+// incluir seus campos específicos na serialização.
+//
+// GetPayload() base retorna e.Payload (campo interno), usado quando o
+// evento foi reconstruído do banco com payload já serializado.
+//
+// ToJSON() base retorna json.Marshal(e) — inclui EventType, AggregateID e
+// Payload. Garante que nenhum path que chame ToJSON() em um BaseEvent
+// reconstruído do banco produza um payload incompleto.
 type BaseEvent struct {
 	EventType   string
 	AggregateID uuid.UUID
@@ -77,13 +96,18 @@ func (e *BaseEvent) GetAggregateID() uuid.UUID {
 	return e.AggregateID
 }
 
+// GetPayload retorna o campo Payload interno (json.RawMessage quando
+// reconstruído do banco, ou nil para eventos concretos que sobrescrevem este método).
 func (e *BaseEvent) GetPayload() interface{} {
 	return e.Payload
 }
 
+// ToJSON — FIX #1/#2: serializa o struct BaseEvent completo (EventType +
+// AggregateID + Payload), não apenas e.Payload.
+// Eventos concretos sobrescrevem este método com json.Marshal(e) no tipo concreto.
 func (e *BaseEvent) ToJSON() ([]byte, error) {
-	log.Printf("[DEBUG] Convertendo evento %s para JSON", e.EventType)
-	return json.Marshal(e.Payload)
+	log.Printf("[DEBUG] Convertendo evento %s para JSON (BaseEvent.ToJSON)", e.EventType)
+	return json.Marshal(e)
 }
 
 // AggregateFactory cria agregados a partir de eventos
@@ -97,7 +121,7 @@ type DefaultAggregateFactory struct{}
 // Create cria um agregado baseado no tipo
 func (f *DefaultAggregateFactory) Create(aggregateType string) (Aggregate, error) {
 	log.Printf("[DEBUG] Criando agregado do tipo: %s", aggregateType)
-	
+
 	switch aggregateType {
 	case "Estudante":
 		return NewEstudante(), nil
@@ -145,7 +169,7 @@ func (ea *EventApplier) BuildFromEvents(
 	events []DomainEvent,
 ) (Aggregate, error) {
 	log.Printf("[DEBUG] Reconstruindo agregado %s a partir de %d eventos", aggregateType, len(events))
-	
+
 	if len(events) == 0 {
 		log.Printf("[ERROR] Nenhum evento fornecido para reconstruir agregado")
 		return nil, fmt.Errorf("nenhum evento fornecido")
@@ -161,7 +185,7 @@ func (ea *EventApplier) BuildFromEvents(
 		log.Printf("[DEBUG] Aplicando evento %d/%d: %s", i+1, len(events), event.GetEventType())
 		if err := aggregate.Apply(event); err != nil {
 			log.Printf("[ERROR] Erro ao aplicar evento %s: %v", event.GetEventType(), err)
-			return nil, fmt.Errorf("erro ao aplicar evento %s: %w", 
+			return nil, fmt.Errorf("erro ao aplicar evento %s: %w",
 				event.GetEventType(), err)
 		}
 	}

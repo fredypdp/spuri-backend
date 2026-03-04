@@ -1,6 +1,17 @@
+// ============================================================================
+// ARQUIVO: internal/domain/aggregates/estudante_notas.go
+//
+// CORREÇÕES APLICADAS (Etapa 1):
+//   Etapa1-ToJSON — ToJSON() adicionado a NotasRegistradasEvent e
+//         NotaAtualizadaEvent. Antes herdavam BaseEvent.ToJSON() que
+//         serializava e.Payload=nil = "null" gravado no ledger.
+//         Rebuild de notas seria impossível.
+// ============================================================================
+
 package aggregates
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -55,6 +66,7 @@ type NotasRegistradasEvent struct {
 }
 
 func (e *NotasRegistradasEvent) GetPayload() interface{} { return e }
+func (e *NotasRegistradasEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 // NotaAtualizadaEvent — emitido ao corrigir uma nota existente.
 // EventType: "NotaAtualizada" (este é o nome canônico — a projeção deve
@@ -78,14 +90,14 @@ type NotaAtualizadaEvent struct {
 }
 
 func (e *NotaAtualizadaEvent) GetPayload() interface{} { return e }
+func (e *NotaAtualizadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 // ============================================================================
 // Validações internas
 // ============================================================================
 
 // validarPeriodoComLista valida se o período informado pertence à lista de
-// períodos válidos para o contexto (escolar=3 trimestres fixos; superior=
-// períodos do curso).
+// períodos válidos para o contexto.
 // periodosValidos nunca deve ser vazio — o handler é responsável por preenchê-lo.
 func validarPeriodoComLista(periodo string, periodosValidos []string) error {
 	if len(periodosValidos) == 0 {
@@ -104,8 +116,6 @@ func validarPeriodoComLista(periodo string, periodosValidos []string) error {
 
 // validarCategoria valida se a categoria pertence ao conjunto permitido
 // para o tipo de nota.
-//   - tipo="escolar"  → categoriasEscolar (fixas)
-//   - tipo="superior" → categoriasSuperiorFixas ∪ categoriasAdicionais
 func validarCategoria(tipo, categoria string, categoriasAdicionais []string) error {
 	switch tipo {
 	case TipoEscolar:
@@ -185,8 +195,6 @@ func (e *Estudante) RegistrarNota(
 		return fmt.Errorf("nota deve estar entre 0 e 20")
 	}
 
-	// EventType = "NotasRegistradas"
-	// A projeção NotasProjection.Handle() escuta este exato string.
 	event := &NotasRegistradasEvent{
 		BaseEvent:            BaseEvent{EventType: "NotasRegistradas", AggregateID: e.ID},
 		CodigoEstudante:      e.CodigoEstudante,
@@ -221,29 +229,23 @@ func (e *Estudante) AtualizarNota(
 	tipo string,
 	categoria string,
 	notaAnterior float64,
-	notaNova float64,
+	novaNota float64,
 	observacao string,
-	categoriasAdicionais []string,
 	periodosValidos []string,
 ) error {
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
 	}
 	if strings.TrimSpace(observacao) == "" {
-		return fmt.Errorf("observacao é obrigatória ao atualizar uma nota")
+		return fmt.Errorf("observacao é obrigatória para correção de nota")
 	}
 	if err := validarPeriodoComLista(periodo, periodosValidos); err != nil {
 		return err
 	}
-	if err := validarCategoria(tipo, categoria, categoriasAdicionais); err != nil {
-		return err
-	}
-	if notaNova < 0 || notaNova > 20 {
+	if novaNota < 0 || novaNota > 20 {
 		return fmt.Errorf("nota deve estar entre 0 e 20")
 	}
 
-	// EventType = "NotaAtualizada"
-	// A projeção NotasProjection.Handle() escuta este exato string.
 	event := &NotaAtualizadaEvent{
 		BaseEvent:            BaseEvent{EventType: "NotaAtualizada", AggregateID: e.ID},
 		CodigoEstudante:      e.CodigoEstudante,
@@ -254,7 +256,7 @@ func (e *Estudante) AtualizarNota(
 		Tipo:                 tipo,
 		Categoria:            categoria,
 		NotaAnterior:         notaAnterior,
-		NotaNova:             notaNova,
+		NotaNova:             novaNota,
 		Observacao:           observacao,
 		UpdatedAt:            time.Now(),
 	}
@@ -267,17 +269,12 @@ func (e *Estudante) AtualizarNota(
 // Apply handlers
 // ============================================================================
 
-// applyNotasRegistradas — o aggregate Estudante não mantém estado de notas
-// em memória. As notas vivem exclusivamente na NotasProjection.
-// Este handler existe apenas para que o Apply() não retorne erro desconhecido.
-func (e *Estudante) applyNotasRegistradas(event DomainEvent) error {
-	// Intencional: nenhum estado do aggregate é alterado.
-	// A NotasProjection é a única responsável por persistir notas.
+func (e *Estudante) applyNotasRegistradas(_ DomainEvent) error {
+	// O aggregate Estudante não mantém notas em estado — gerenciado pela projeção.
 	return nil
 }
 
-// applyNotaAtualizada — idem: nenhum estado do aggregate é alterado.
-func (e *Estudante) applyNotaAtualizada(event DomainEvent) error {
-	// Intencional: nenhum estado do aggregate é alterado.
+func (e *Estudante) applyNotaAtualizada(_ DomainEvent) error {
+	// O aggregate Estudante não mantém notas em estado — gerenciado pela projeção.
 	return nil
 }

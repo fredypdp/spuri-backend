@@ -1,3 +1,12 @@
+// ============================================================================
+// ARQUIVO: internal/domain/aggregates/estudante_avaliacao.go
+//
+// CORREÇÕES APLICADAS (Etapa 1):
+//   Etapa1-ToJSON — ToJSON() adicionado a AvaliacaoFinalAnoAcademicoEvent.
+//         Antes herdava BaseEvent.ToJSON() que serializava e.Payload=nil
+//         = "null" gravado no ledger. Rebuild impossível.
+// ============================================================================
+
 package aggregates
 
 import (
@@ -25,6 +34,7 @@ type AvaliacaoFinalAnoAcademicoEvent struct {
 }
 
 func (e *AvaliacaoFinalAnoAcademicoEvent) GetPayload() interface{} { return e }
+func (e *AvaliacaoFinalAnoAcademicoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 func (e *Estudante) RegistrarAvaliacaoFinal(
 	codigoAcademia string,
@@ -63,11 +73,11 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 func (e *Estudante) applyAvaliacaoFinalAnoAcademico(event DomainEvent) error {
 	data, err := json.Marshal(event.GetPayload())
 	if err != nil {
-		return err
+		return fmt.Errorf("applyAvaliacaoFinalAnoAcademico: marshal error: %w", err)
 	}
 	var ev AvaliacaoFinalAnoAcademicoEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
+		return fmt.Errorf("applyAvaliacaoFinalAnoAcademico: unmarshal error: %w", err)
 	}
 
 	if !ev.Aprovado {
