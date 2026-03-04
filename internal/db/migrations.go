@@ -48,10 +48,11 @@ var allMigrations = []string{
 	"migrations/025_admin_email_unique_index.sql",
 	"migrations/026_academia_motivo_desativacao.sql",
 	"migrations/027_academia_senha_alterada.sql",
-	// Etapa 2 — novas migrations:
 	"migrations/028_fix_estudante_email_verificado.sql",
 	"migrations/029_fix_ledger_truncate_protection.sql",
 	"migrations/030_fix_view_estudantes_com_cursos.sql",
+	"migrations/031_fix_sistema_config_colunas.sql",
+	"migrations/032_add_adicionado_por_categoria_nota.sql",
 }
 
 func (c *Client) RunMigrations() error {

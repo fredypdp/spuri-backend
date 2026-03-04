@@ -1,3 +1,17 @@
+// ============================================================================
+// ARQUIVO: internal/projections/sistema_config_projection.go
+//
+// CORREÇÕES APLICADAS (Etapa 3):
+//   P3-11 — handleAnoLetivoDefinido: DataInicio e DataFim deserializados como
+//            *time.Time (ponteiros) em vez de time.Time (valor). Eventos legados
+//            sem esses campos resultavam em time.Time{} (0001-01-01) no banco.
+//            Agora são tratados como NULL quando ausentes.
+//   P3-12 — As colunas ano_letivo_atual, data_inicio, data_fim, definido_por,
+//            observacao, event_id não existem na migration 005 original.
+//            A migration 031 adiciona essas colunas. Este arquivo assume que
+//            a migration 031 foi aplicada.
+// ============================================================================
+
 package projections
 
 import (
@@ -52,6 +66,10 @@ func (p *SistemaConfigProjection) UpdateCheckpoint(eventID int64) error {
 	return err
 }
 
+// ============================================================================
+// Handle
+// ============================================================================
+
 func (p *SistemaConfigProjection) Handle(event db.Event) error {
 	if event.AggregateType != "SistemaConfig" {
 		return nil
@@ -65,6 +83,10 @@ func (p *SistemaConfigProjection) Handle(event db.Event) error {
 	}
 	return nil
 }
+
+// ============================================================================
+// Rebuild
+// ============================================================================
 
 func (p *SistemaConfigProjection) Rebuild() error {
 	log.Printf("[DEBUG] [sistema_config] Rebuild iniciado")
@@ -115,16 +137,31 @@ func (p *SistemaConfigProjection) clear() error {
 // Handler de evento
 // ============================================================================
 
+// handleAnoLetivoDefinido — P3-11: DataInicio e DataFim são *time.Time (ponteiros).
+// Eventos legados sem esses campos no JSON terão nil → NULL no banco, em vez
+// de time.Time{} (0001-01-01 00:00:00) que corromperia os dados de leitura.
+// DefinidoPor também é ponteiro para suportar eventos legados sem o campo.
 func (p *SistemaConfigProjection) handleAnoLetivoDefinido(event db.Event) error {
 	var payload struct {
-		AnoLetivo     string    `json:"AnoLetivo"`
-		DataInicio    time.Time `json:"DataInicio"`
-		DataFim       time.Time `json:"DataFim"`
-		DefinidoPor   uuid.UUID `json:"DefinidoPor"`
-		Observacao    *string   `json:"Observacao"`
+		// O campo no aggregate é Valor; AnoLetivo é alias para compatibilidade.
+		Valor      string     `json:"Valor"`
+		AnoLetivo  string     `json:"AnoLetivo"`   // alias legado
+		DataInicio *time.Time `json:"DataInicio"`  // P3-11: ponteiro nil-safe
+		DataFim    *time.Time `json:"DataFim"`     // P3-11: ponteiro nil-safe
+		DefinidoPor *uuid.UUID `json:"DefinidoPor"` // ponteiro nil-safe
+		Observacao *string    `json:"Observacao"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("parse error AnoLetivoDefinido: %w", err)
+		return fmt.Errorf("handleAnoLetivoDefinido: parse error: %w", err)
+	}
+
+	// Resolve o valor efetivo do ano letivo (Valor tem precedência sobre AnoLetivo legado).
+	anoLetivo := payload.Valor
+	if anoLetivo == "" {
+		anoLetivo = payload.AnoLetivo
+	}
+	if anoLetivo == "" {
+		return fmt.Errorf("handleAnoLetivoDefinido: campo Valor/AnoLetivo ausente no payload")
 	}
 
 	_, err := p.client.DB().Exec(`
@@ -136,21 +173,24 @@ func (p *SistemaConfigProjection) handleAnoLetivoDefinido(event db.Event) error 
 			$4, $5, CURRENT_TIMESTAMP, $6, $7
 		)
 		ON CONFLICT (chave) DO UPDATE SET
-			valor           = EXCLUDED.valor,
+			valor            = EXCLUDED.valor,
 			ano_letivo_atual = EXCLUDED.ano_letivo_atual,
-			data_inicio     = EXCLUDED.data_inicio,
-			data_fim        = EXCLUDED.data_fim,
-			definido_por    = EXCLUDED.definido_por,
-			observacao      = EXCLUDED.observacao,
-			updated_at      = CURRENT_TIMESTAMP,
-			event_id        = EXCLUDED.event_id,
-			version         = EXCLUDED.version
+			data_inicio      = EXCLUDED.data_inicio,
+			data_fim         = EXCLUDED.data_fim,
+			definido_por     = EXCLUDED.definido_por,
+			observacao       = EXCLUDED.observacao,
+			updated_at       = CURRENT_TIMESTAMP,
+			event_id         = EXCLUDED.event_id,
+			version          = EXCLUDED.version
 	`,
-		payload.AnoLetivo, payload.DataInicio, payload.DataFim,
+		anoLetivo, payload.DataInicio, payload.DataFim,
 		payload.DefinidoPor, payload.Observacao,
 		event.EventID, event.EventVersion,
 	)
-	return err
+	if err != nil {
+		return fmt.Errorf("handleAnoLetivoDefinido: exec error: %w", err)
+	}
+	return nil
 }
 
 // ============================================================================
@@ -158,15 +198,15 @@ func (p *SistemaConfigProjection) handleAnoLetivoDefinido(event db.Event) error 
 // ============================================================================
 
 type SistemaConfigDTO struct {
-	Chave          string    `json:"chave"`
-	Valor          string    `json:"valor"`
-	AnoLetivoAtual string    `json:"ano_letivo_atual"`
-	DataInicio     time.Time `json:"data_inicio"`
-	DataFim        time.Time `json:"data_fim"`
-	DefinidoPor    uuid.UUID `json:"definido_por"`
-	Observacao     *string   `json:"observacao,omitempty"`
-	UpdatedAt      time.Time `json:"updated_at"`
-	Version        int       `json:"version"`
+	Chave          string     `json:"chave"`
+	Valor          string     `json:"valor"`
+	AnoLetivoAtual string     `json:"ano_letivo_atual"`
+	DataInicio     *time.Time `json:"data_inicio,omitempty"`
+	DataFim        *time.Time `json:"data_fim,omitempty"`
+	DefinidoPor    *uuid.UUID `json:"definido_por,omitempty"`
+	Observacao     *string    `json:"observacao,omitempty"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	Version        int        `json:"version"`
 }
 
 func (p *SistemaConfigProjection) GetAnoLetivoAtual() (*SistemaConfigDTO, error) {
@@ -209,8 +249,7 @@ func (p *SistemaConfigProjection) GetByChave(chave string) (*SistemaConfigDTO, e
 	return &dto, err
 }
 
-// GetValor retorna apenas o valor string de uma chave — atalho conveniente para handlers.
-// Retorna erro se a chave não existir.
+// GetValor retorna apenas o valor string de uma chave.
 func (p *SistemaConfigProjection) GetValor(chave string) (string, error) {
 	var valor string
 	err := p.client.DB().QueryRow(`

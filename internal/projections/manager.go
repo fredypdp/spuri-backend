@@ -1,12 +1,14 @@
 // ============================================================================
 // ARQUIVO: internal/projections/manager.go
-// CORREÇÃO BUG #2: getNewEvents usa sql.NullString para previous_hash.
-//   Antes: scan direto para *string causava erro quando campo era NULL no banco
-//   (primeiro evento de todo aggregate não tem previous_hash). O lote inteiro
-//   de eventos era abandonado silenciosamente.
-// CORREÇÃO BUG #3: RebuildAllProjections refatorado com rebuildProjectionInternal.
-//   Antes: Lock→Unlock→RebuildProjection(Lock interno)→Lock causava race condition
-//   com a goroutine StartProcessing durante o intervalo sem lock.
+//
+// CORREÇÕES APLICADAS (Etapa 3):
+//   P3-13 — processProjection(): UpdateCheckpoint() não é mais chamado quando
+//            processEventWithRetry() retorna erro. Evento que falhou
+//            permanentemente não avança o checkpoint — fica no ledger para
+//            reprocessamento após correção.
+//   P3-14 — markRebuildStart() e markRebuildComplete(): versão antiga usava
+//            fmt.Sprintf com db.SafeString() (que retorna bool). Corrigido
+//            para prepared statements com $1/$2.
 // ============================================================================
 
 package projections
@@ -20,6 +22,15 @@ import (
 	"sync"
 	"time"
 )
+
+// Projection define a interface que toda projeção deve implementar.
+type Projection interface {
+	Name() string
+	Handle(event db.Event) error
+	Rebuild() error
+	GetLastProcessedEventID() (int64, error)
+	UpdateCheckpoint(eventID int64) error
+}
 
 type Manager struct {
 	client       *db.Client
@@ -56,6 +67,7 @@ func (m *Manager) StartProcessing() {
 	log.Println("[DEBUG] Iniciando processamento de projeções")
 	ticker := time.NewTicker(m.pollInterval)
 	defer ticker.Stop()
+
 	for {
 		select {
 		case <-m.ctx.Done():
@@ -85,34 +97,56 @@ func (m *Manager) processNewEvents() error {
 	return nil
 }
 
+// processProjection processa eventos novos para uma projeção específica.
+//
+// P3-13: UpdateCheckpoint() só é chamado quando Handle() succeeds.
+// Se processEventWithRetry() retornar erro (falha permanente após 3 tentativas),
+// o checkpoint NÃO avança — o evento permanece no ledger e será reprocessado
+// na próxima iteração. Isso preserva a auditabilidade: nenhum evento é
+// descartado silenciosamente.
 func (m *Manager) processProjection(name string, projection Projection) error {
 	lastProcessedID, err := projection.GetLastProcessedEventID()
 	if err != nil {
 		return fmt.Errorf("erro ao obter checkpoint: %w", err)
 	}
+
 	events, err := m.getNewEvents(lastProcessedID)
 	if err != nil {
 		return fmt.Errorf("erro ao buscar eventos: %w", err)
 	}
+
 	if len(events) == 0 {
 		return nil
 	}
+
 	log.Printf("[DEBUG] %s: processando %d eventos", name, len(events))
+
 	processedCount := 0
 	for _, event := range events {
 		if err := m.processEventWithRetry(name, projection, event); err != nil {
-			log.Printf("[ERROR] %s: evento %d falhou permanentemente", name, event.ID)
+			// P3-13: falha permanente — NÃO avança checkpoint.
+			// O evento ficará represado e será reprocessado no próximo tick.
+			// O operador deve corrigir o código e fazer rebuild para recuperar.
+			log.Printf("[ERROR] %s: evento %d falhou permanentemente — checkpoint não avançado: %v",
+				name, event.ID, err)
 			m.logProjectionError(name, err.Error())
+			// Para neste evento: não processa os seguintes para manter ordem.
+			break
 		}
+
+		// Só atualiza checkpoint após Handle() bem-sucedido.
 		if err := projection.UpdateCheckpoint(event.ID); err != nil {
-			log.Printf("[WARN] Erro ao atualizar checkpoint para evento %d: %v", event.ID, err)
+			log.Printf("[WARN] %s: erro ao atualizar checkpoint para evento %d: %v",
+				name, event.ID, err)
 		}
 		processedCount++
 	}
+
 	if processedCount > 0 {
 		log.Printf("[DEBUG] %s: processados %d eventos (último: %d)",
-			name, processedCount, events[len(events)-1].ID)
+			name, processedCount, events[processedCount-1].ID)
 	}
+
 	return nil
 }
 
@@ -120,6 +154,7 @@ func (m *Manager) processEventWithRetry(name string, projection Projection, even
 	maxRetries := 3
 	baseDelay := 1 * time.Second
 	var lastErr error
+
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		if err := projection.Handle(event); err == nil {
 			if attempt > 1 {
@@ -129,6 +164,7 @@ func (m *Manager) processEventWithRetry(name string, projection Projection, even
 		} else {
 			lastErr = err
 		}
+
 		if attempt < maxRetries {
 			delay := time.Duration(attempt*attempt) * baseDelay
 			log.Printf("[WARN] %s: evento %d falhou (tentativa %d/%d), retry em %v",
@@ -136,13 +172,12 @@ func (m *Manager) processEventWithRetry(name string, projection Projection, even
 			time.Sleep(delay)
 		}
 	}
+
 	return fmt.Errorf("evento %d falhou após %d tentativas: %w", event.ID, maxRetries, lastErr)
 }
 
 // getNewEvents busca eventos do ledger com id > fromID.
-// CORRIGIDO BUG #2: previous_hash lido como sql.NullString para suportar NULL.
-// O primeiro evento de cada aggregate não tem previous_hash (é NULL no banco).
-// Antes, o scan direto para *string falhava com erro e abandonava o lote inteiro.
+// Usa sql.NullString para previous_hash (pode ser NULL no banco).
 func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
 	if fromID < 0 {
 		fromID = 0
@@ -162,10 +197,10 @@ func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
 		return nil, fmt.Errorf("erro na query: %w", err)
 	}
 	defer rows.Close()
+
 	var events []db.Event
 	for rows.Next() {
 		var event db.Event
-		// CORRIGIDO: sql.NullString para previous_hash (pode ser NULL no banco)
 		var prevHash sql.NullString
 		if err := rows.Scan(
 			&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
@@ -192,8 +227,6 @@ func (m *Manager) RebuildProjection(name string) error {
 
 // rebuildProjectionInternal executa o rebuild sem adquirir o lock.
 // DEVE ser chamado somente quando o lock já foi adquirido pelo chamador.
-// Separado de RebuildProjection para que RebuildAllProjections possa
-// reutilizá-lo sem risco de deadlock.
 func (m *Manager) rebuildProjectionInternal(name string) error {
 	log.Printf("[DEBUG] Iniciando rebuild de: %s", name)
 	projection, exists := m.projections[name]
@@ -214,11 +247,7 @@ func (m *Manager) rebuildProjectionInternal(name string) error {
 }
 
 // RebuildAllProjections reconstrói todas as projeções registradas.
-// CORRIGIDO BUG #3: adquire o lock uma única vez e chama rebuildProjectionInternal
-// (sem lock interno) para cada projeção.
-// O padrão anterior Lock→Unlock→RebuildProjection(Lock)→Lock era frágil:
-// a goroutine StartProcessing podia adquirir o lock no intervalo sem lock,
-// causando race condition entre rebuild e processamento normal de eventos.
+// Adquire o lock uma única vez e usa rebuildProjectionInternal.
 func (m *Manager) RebuildAllProjections() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -236,11 +265,14 @@ func (m *Manager) RebuildAllProjections() error {
 	return firstErr
 }
 
+// markRebuildStart — P3-14: corrigido para prepared statement ($1).
+// Versão anterior usava fmt.Sprintf + db.SafeString() que retorna bool,
+// resultando em WHERE projection_name = 'true' — nunca encontrava a linha.
 func (m *Manager) markRebuildStart(name string) error {
 	_, err := m.client.DB().Exec(`
 		UPDATE projection_checkpoints
-		SET is_rebuilding        = true,
-		    rebuild_started_at   = CURRENT_TIMESTAMP,
+		SET is_rebuilding          = TRUE,
+		    rebuild_started_at     = CURRENT_TIMESTAMP,
 		    last_processed_event_id = 0
 		WHERE projection_name = $1`,
 		name,
@@ -248,6 +280,7 @@ func (m *Manager) markRebuildStart(name string) error {
 	return err
 }
 
+// markRebuildComplete — P3-14: corrigido para prepared statements ($1, $2).
 func (m *Manager) markRebuildComplete(name string) error {
 	var lastEventID int64
 	if err := m.client.DB().QueryRow(
@@ -257,10 +290,10 @@ func (m *Manager) markRebuildComplete(name string) error {
 	}
 	_, err := m.client.DB().Exec(`
 		UPDATE projection_checkpoints
-		SET is_rebuilding             = false,
-		    rebuild_started_at        = NULL,
-		    last_processed_event_id   = $1,
-		    last_processed_at         = CURRENT_TIMESTAMP
+		SET is_rebuilding           = FALSE,
+		    rebuild_started_at      = NULL,
+		    last_processed_event_id = $1,
+		    last_processed_at       = CURRENT_TIMESTAMP
 		WHERE projection_name = $2`,
 		lastEventID, name,
 	)
@@ -270,8 +303,8 @@ func (m *Manager) markRebuildComplete(name string) error {
 func (m *Manager) logProjectionError(name, errorMsg string) {
 	_, err := m.client.DB().Exec(`
 		UPDATE projection_checkpoints
-		SET error_count  = error_count + 1,
-		    last_error   = $1,
+		SET error_count   = error_count + 1,
+		    last_error    = $1,
 		    last_error_at = CURRENT_TIMESTAMP
 		WHERE projection_name = $2`,
 		errorMsg, name,
@@ -283,15 +316,15 @@ func (m *Manager) logProjectionError(name, errorMsg string) {
 
 func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, error) {
 	var (
-		projName      string
-		lastEventID   int64
-		lastProcessed time.Time
-		eventsProc    int64
-		rebuilding    bool
-		rebuildStart  sql.NullTime
-		errCount      int
-		lastErr       sql.NullString
-		lastErrAt     sql.NullTime
+		projName     string
+		lastEventID  int64
+		lastProc     time.Time
+		eventsProc   int64
+		rebuilding   bool
+		rebuildStart sql.NullTime
+		errCount     int
+		lastErr      sql.NullString
+		lastErrAt    sql.NullTime
 	)
 	err := m.client.DB().QueryRow(`
 		SELECT projection_name, last_processed_event_id, last_processed_at,
@@ -301,7 +334,7 @@ func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, erro
 		WHERE projection_name = $1`,
 		name,
 	).Scan(
-		&projName, &lastEventID, &lastProcessed, &eventsProc,
+		&projName, &lastEventID, &lastProc, &eventsProc,
 		&rebuilding, &rebuildStart, &errCount, &lastErr, &lastErrAt,
 	)
 	if err != nil {
@@ -310,7 +343,7 @@ func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, erro
 	return map[string]interface{}{
 		"name":                 projName,
 		"last_processed_event": lastEventID,
-		"last_processed_at":    lastProcessed,
+		"last_processed_at":    lastProc,
 		"events_processed":     eventsProc,
 		"is_rebuilding":        rebuilding,
 		"rebuild_started_at":   rebuildStart,

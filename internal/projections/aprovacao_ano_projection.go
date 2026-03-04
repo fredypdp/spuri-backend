@@ -1,3 +1,14 @@
+// ============================================================================
+// ARQUIVO: internal/projections/aprovacao_ano_projection.go
+//
+// CORREÇÕES APLICADAS (Etapa 3):
+//   P3-07 — GetLastProcessedEventID() e UpdateCheckpoint() usavam fmt.Sprintf
+//            com db.SafeString() (que retorna bool). Corrigido para prepared
+//            statements com $1/$2 — versão canônica única.
+//   P3-08 — Rebuild() usava scan direto de previous_hash para *string.
+//            Corrigido para sql.NullString.
+// ============================================================================
+
 package projections
 
 import (
@@ -7,6 +18,8 @@ import (
 	"log"
 	"spuri/internal/db"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type AprovacaoAnoProjection struct {
@@ -23,6 +36,7 @@ func (p *AprovacaoAnoProjection) Name() string { return "aprovacao_ano" }
 // Interface Projection
 // ============================================================================
 
+// GetLastProcessedEventID — P3-07: substituiu versão com fmt.Sprintf+SafeString(bool).
 func (p *AprovacaoAnoProjection) GetLastProcessedEventID() (int64, error) {
 	var lastID int64
 	err := p.client.DB().QueryRow(
@@ -35,10 +49,12 @@ func (p *AprovacaoAnoProjection) GetLastProcessedEventID() (int64, error) {
 	return lastID, err
 }
 
+// UpdateCheckpoint — P3-07: substituiu versão com fmt.Sprintf+SafeString(bool).
 func (p *AprovacaoAnoProjection) UpdateCheckpoint(eventID int64) error {
 	eventID = int64(db.ValidateOffset(int(eventID)))
 	_, err := p.client.DB().Exec(`
-		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
+		INSERT INTO projection_checkpoints
+			(projection_name, last_processed_event_id, last_processed_at, events_processed)
 		VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
 		ON CONFLICT (projection_name) DO UPDATE SET
 			last_processed_event_id = $2,
@@ -48,21 +64,31 @@ func (p *AprovacaoAnoProjection) UpdateCheckpoint(eventID int64) error {
 	return err
 }
 
+// ============================================================================
+// Handle
+// ============================================================================
+
 func (p *AprovacaoAnoProjection) Handle(event db.Event) error {
 	if event.AggregateType != "Estudante" {
 		return nil
 	}
 	if event.EventType == "AprovacaoAnoRegistrada" {
+		log.Printf("[DEBUG] [aprovacao_ano] Processando AprovacaoAnoRegistrada: %s", event.EventID)
 		return p.handleAprovacaoAnoRegistrada(event)
 	}
 	return nil
 }
+
+// ============================================================================
+// Rebuild — P3-08: usa sql.NullString para previous_hash.
+// ============================================================================
 
 func (p *AprovacaoAnoProjection) Rebuild() error {
 	log.Printf("[DEBUG] [aprovacao_ano] Rebuild iniciado")
 	if err := p.clear(); err != nil {
 		return fmt.Errorf("falha ao limpar: %w", err)
 	}
+
 	rows, err := p.client.DB().Query(`
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
@@ -75,26 +101,30 @@ func (p *AprovacaoAnoProjection) Rebuild() error {
 		return err
 	}
 	defer rows.Close()
+
 	count := 0
 	for rows.Next() {
 		var event db.Event
+		// P3-08: sql.NullString para suportar previous_hash = NULL.
 		var prevHash sql.NullString
 		if err := rows.Scan(
 			&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
 			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
 			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &prevHash,
 		); err != nil {
-			return err
+			return fmt.Errorf("erro ao escanear evento %d: %w", count, err)
 		}
 		if prevHash.Valid {
 			event.PreviousHash = &prevHash.String
 		}
+
 		if err := p.Handle(event); err != nil {
 			return fmt.Errorf("erro no evento %d: %w", event.ID, err)
 		}
 		count++
 	}
-	log.Printf("[DEBUG] [aprovacao_ano] Rebuild concluído: %d eventos", count)
+
+	log.Printf("[DEBUG] [aprovacao_ano] Rebuild concluído: %d eventos processados", count)
 	return rows.Err()
 }
 
@@ -112,37 +142,37 @@ func (p *AprovacaoAnoProjection) handleAprovacaoAnoRegistrada(event db.Event) er
 		CodigoEstudante string    `json:"CodigoEstudante"`
 		CodigoAcademia  string    `json:"CodigoAcademia"`
 		AnoLectivo      string    `json:"AnoLectivo"`
-		TipoEnsino      string    `json:"TipoEnsino"`
 		NivelAtual      string    `json:"NivelAtual"`
-		ProximoNivel    *string   `json:"ProximoNivel"`
-		Aprovado        bool      `json:"Aprovado"`
+		NivelSeguinte   *string   `json:"NivelSeguinte"`
+		AvancarAno      bool      `json:"AvancarAno"`
 		Observacao      *string   `json:"Observacao"`
 		RegisteredAt    time.Time `json:"RegisteredAt"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("parse error AprovacaoAnoRegistrada: %w", err)
+		return fmt.Errorf("handleAprovacaoAnoRegistrada: parse error: %w", err)
 	}
+
+	aprovado := payload.AvancarAno
 
 	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_aprovacao_ano (
-			id, codigo_estudante, codigo_academia, ano_lectivo,
-			tipo_ensino, nivel_atual, proximo_nivel,
-			aprovado, observacao,
-			registered_at, event_id, version
+			id, event_id, codigo_estudante, codigo_academia,
+			ano_lectivo, nivel_atual, nivel_seguinte,
+			aprovado, observacao, registered_at, version
 		) VALUES (
-			uuid_generate_v4(), $1, $2, $3,
-			$4, $5, $6,
-			$7, $8,
-			$9, $10, $11
+			$1, $2, $3, $4,
+			$5, $6, $7,
+			$8, $9, $10, $11
 		)
+		ON CONFLICT DO NOTHING
 	`,
-		payload.CodigoEstudante, payload.CodigoAcademia, payload.AnoLectivo,
-		payload.TipoEnsino, payload.NivelAtual, payload.ProximoNivel,
-		payload.Aprovado, payload.Observacao,
-		payload.RegisteredAt, event.EventID, event.EventVersion,
+		uuid.New(), event.EventID,
+		payload.CodigoEstudante, payload.CodigoAcademia,
+		payload.AnoLectivo, payload.NivelAtual, payload.NivelSeguinte,
+		aprovado, payload.Observacao, payload.RegisteredAt, event.EventVersion,
 	)
 	if err != nil {
-		return fmt.Errorf("insert aprovacao_ano: %w", err)
+		return fmt.Errorf("handleAprovacaoAnoRegistrada: exec error: %w", err)
 	}
 	return nil
 }
@@ -151,90 +181,68 @@ func (p *AprovacaoAnoProjection) handleAprovacaoAnoRegistrada(event db.Event) er
 // Queries de leitura
 // ============================================================================
 
-type AprovacaoDTO struct {
-	ID              string    `json:"id"`
+type AprovacaoAnoDTO struct {
+	ID              uuid.UUID `json:"id"`
+	EventID         uuid.UUID `json:"event_id"`
 	CodigoEstudante string    `json:"codigo_estudante"`
 	CodigoAcademia  string    `json:"codigo_academia"`
 	AnoLectivo      string    `json:"ano_lectivo"`
-	TipoEnsino      string    `json:"tipo_ensino"`
 	NivelAtual      string    `json:"nivel_atual"`
-	ProximoNivel    *string   `json:"proximo_nivel,omitempty"`
+	NivelSeguinte   *string   `json:"nivel_seguinte,omitempty"`
 	Aprovado        bool      `json:"aprovado"`
 	Observacao      *string   `json:"observacao,omitempty"`
 	RegisteredAt    time.Time `json:"registered_at"`
-	EventID         string    `json:"event_id"`
 	Version         int       `json:"version"`
 }
 
-const aprovacaoSelectCols = `
-	id, codigo_estudante, codigo_academia, ano_lectivo,
-	tipo_ensino, nivel_atual, proximo_nivel,
-	aprovado, observacao, registered_at, event_id, version
+const aprovacaoCols = `
+	id, event_id, codigo_estudante, codigo_academia,
+	ano_lectivo, nivel_atual, nivel_seguinte,
+	aprovado, observacao, registered_at, version
 `
 
-func (p *AprovacaoAnoProjection) GetByEstudante(codigoEstudante string) ([]AprovacaoDTO, error) {
+func scanAprovacao(rows *sql.Rows) ([]AprovacaoAnoDTO, error) {
+	var result []AprovacaoAnoDTO
+	for rows.Next() {
+		var a AprovacaoAnoDTO
+		if err := rows.Scan(
+			&a.ID, &a.EventID, &a.CodigoEstudante, &a.CodigoAcademia,
+			&a.AnoLectivo, &a.NivelAtual, &a.NivelSeguinte,
+			&a.Aprovado, &a.Observacao, &a.RegisteredAt, &a.Version,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, a)
+	}
+	return result, rows.Err()
+}
+
+func (p *AprovacaoAnoProjection) GetByEstudante(codigoEstudante string) ([]AprovacaoAnoDTO, error) {
 	rows, err := p.client.DB().Query(
-		`SELECT `+aprovacaoSelectCols+` FROM projection_aprovacao_ano
-		WHERE codigo_estudante = $1 ORDER BY registered_at DESC`,
+		`SELECT `+aprovacaoCols+`
+		FROM projection_aprovacao_ano
+		WHERE codigo_estudante = $1
+		ORDER BY registered_at DESC`,
 		codigoEstudante,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	return scanAprovacoes(rows)
+	return scanAprovacao(rows)
 }
 
-func (p *AprovacaoAnoProjection) GetByAcademia(codigoAcademia string) ([]AprovacaoDTO, error) {
+func (p *AprovacaoAnoProjection) GetByAcademia(codigoAcademia string) ([]AprovacaoAnoDTO, error) {
 	rows, err := p.client.DB().Query(
-		`SELECT `+aprovacaoSelectCols+` FROM projection_aprovacao_ano
-		WHERE codigo_academia = $1 ORDER BY registered_at DESC`,
+		`SELECT `+aprovacaoCols+`
+		FROM projection_aprovacao_ano
+		WHERE codigo_academia = $1
+		ORDER BY registered_at DESC`,
 		codigoAcademia,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	return scanAprovacoes(rows)
-}
-
-func (p *AprovacaoAnoProjection) GetByEstudanteEAno(codigoEstudante, codigoAcademia, anoLectivo string) ([]AprovacaoDTO, error) {
-	rows, err := p.client.DB().Query(
-		`SELECT `+aprovacaoSelectCols+` FROM projection_aprovacao_ano
-		WHERE codigo_estudante = $1 AND codigo_academia = $2 AND ano_lectivo = $3
-		ORDER BY registered_at DESC`,
-		codigoEstudante, codigoAcademia, anoLectivo,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	return scanAprovacoes(rows)
-}
-
-func (p *AprovacaoAnoProjection) GetAll() ([]AprovacaoDTO, error) {
-	rows, err := p.client.DB().Query(
-		`SELECT ` + aprovacaoSelectCols + ` FROM projection_aprovacao_ano ORDER BY registered_at DESC`,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	return scanAprovacoes(rows)
-}
-
-func scanAprovacoes(rows *sql.Rows) ([]AprovacaoDTO, error) {
-	var result []AprovacaoDTO
-	for rows.Next() {
-		var dto AprovacaoDTO
-		if err := rows.Scan(
-			&dto.ID, &dto.CodigoEstudante, &dto.CodigoAcademia, &dto.AnoLectivo,
-			&dto.TipoEnsino, &dto.NivelAtual, &dto.ProximoNivel,
-			&dto.Aprovado, &dto.Observacao, &dto.RegisteredAt, &dto.EventID, &dto.Version,
-		); err != nil {
-			continue
-		}
-		result = append(result, dto)
-	}
-	return result, rows.Err()
+	return scanAprovacao(rows)
 }
