@@ -9,14 +9,6 @@ import (
 	"github.com/google/uuid"
 )
 
-type Projection interface {
-	Name() string
-	Handle(event db.Event) error
-	Rebuild() error
-	GetLastProcessedEventID() (int64, error)
-	UpdateCheckpoint(eventID int64) error
-}
-
 type BaseProjection struct {
 	client *db.Client
 	ctx    context.Context
