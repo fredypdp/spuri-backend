@@ -1,5 +1,12 @@
 // ============================================================================
 // ARQUIVO: internal/handlers/auth_handlers.go
+//
+// CORREÇÕES APLICADAS:
+//   FIX-C4  — Login: estudante com status != "ativo" agora recebe 401.
+//              Antes: apenas academia tinha verificação de status.
+//              Agora: ambos são verificados antes de emitir o JWT.
+//   FIX-E16 — Timing attack: bcrypt executado mesmo quando usuário não existe.
+//   FIX-E17 — Academia inativa bloqueada antes de emitir token.
 // ============================================================================
 
 package handlers
@@ -24,16 +31,15 @@ type LoginRequest struct {
 
 // Login autentica estudante ou academia.
 //
-// FIX E-16 (timing attack): quando o usuário não existe, executamos bcrypt
+// FIX-E16 (timing attack): quando o usuário não existe, executamos bcrypt
 // com um hash dummy para que o tempo de resposta seja idêntico ao caso em que
-// o usuário existe mas a senha está errada. Sem isso, um atacante conseguia
-// distinguir "usuário inexistente" de "senha errada" pelo tempo de resposta,
-// permitindo enumerar usuários válidos.
+// o usuário existe mas a senha está errada.
 //
-// FIX E-17: academia inativa recebe 401 antes de emitir o JWT, mesmo que a
-// senha esteja correta. O middleware ValidarStatusAcademia protege rotas após
-// o login, mas emitir um token para academia inativa é desnecessário e cria
-// uma janela de risco para rotas sem esse middleware.
+// FIX-E17: academia inativa recebe 401 antes de emitir o JWT.
+//
+// FIX-C4: estudante com status != "ativo" agora recebe 401.
+// Estudantes auto-cadastrados nascem com status "inativo" e não podem fazer
+// login até serem ativados. Estudantes criados por academia já nascem "ativo".
 func Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -51,7 +57,6 @@ func Login(c *gin.Context) {
 
 	// Hash dummy para timing-safe: mesmo custo que um hash real.
 	// Usado quando usuário não existe para evitar timing attack.
-	// O valor "$2a$10$..." é um hash bcrypt válido que nunca vai coincidir.
 	const dummyHash = "$2a$10$dummyhashvaluethatdoesnotmatch000000000000000000000000000"
 
 	var userID uuid.UUID
@@ -91,8 +96,7 @@ func Login(c *gin.Context) {
 		}
 	}
 
-	// FIX E-16: sempre executar bcrypt para equalizar o tempo de resposta,
-	// independente de o usuário existir ou não.
+	// FIX-E16: sempre executar bcrypt para equalizar o tempo de resposta.
 	hashToCompare := senhaHash
 	if !userFound {
 		hashToCompare = dummyHash
@@ -100,18 +104,27 @@ func Login(c *gin.Context) {
 
 	bcryptErr := bcrypt.CompareHashAndPassword([]byte(hashToCompare), []byte(req.Senha))
 
-	// Só após o bcrypt verificamos se o usuário foi encontrado.
 	if !userFound || bcryptErr != nil {
 		utils.RespondWithUnauthorizedError(c)
 		return
 	}
 
-	// FIX E-17: verificar status da academia ANTES de emitir o JWT.
-	// Academia inativa não deve receber token, mesmo com senha correta.
+	// FIX-E17: academia inativa bloqueada antes de emitir token.
 	if req.Type == "academia" && userStatus != "ativo" {
 		log.Printf("[INFO] Login bloqueado: academia inativa - %s", codigo)
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error": "academia inativa. Entre em contato com o administrador.",
+		})
+		return
+	}
+
+	// FIX-C4: estudante inativo bloqueado antes de emitir token.
+	// Estudantes auto-cadastrados têm status "inativo" por padrão.
+	// Apenas estudantes criados por academia (CriarComVinculo) nascem "ativo".
+	if req.Type == "estudante" && userStatus != "ativo" {
+		log.Printf("[INFO] Login bloqueado: estudante inativo - %s", codigo)
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "conta inativa. Entre em contato com sua academia.",
 		})
 		return
 	}

@@ -1,3 +1,12 @@
+// ============================================================================
+// ARQUIVO: internal/middleware/auth.go
+//
+// CORREÇÕES APLICADAS:
+//   FIX-A1 — JWT_SECRET: servidor falha fatalmente em produção se não configurado.
+//             Antes: apenas logava aviso e continuava com secret público.
+//             Agora: em ENV=production, ausência de JWT_SECRET causa log.Fatalf.
+// ============================================================================
+
 package middleware
 
 import (
@@ -23,17 +32,23 @@ var jwtSecret []byte
 
 func init() {
 	secret := os.Getenv("JWT_SECRET")
+	env := os.Getenv("ENV")
+
 	if secret == "" {
+		if env == "production" {
+			// FIX-A1: em produção, JWT_SECRET ausente é erro fatal.
+			// Sem isso, o servidor sobe com secret público conhecido por qualquer
+			// pessoa que leia o código — comprometendo TODOS os tokens.
+			log.Fatalf("[FATAL] JWT_SECRET não configurado em produção. Configure a variável de ambiente JWT_SECRET.")
+		}
 		secret = "seu_segredo_muito_secreto_aqui_mude_em_producao"
-		log.Printf("⚠️ [JWT] Usando secret padrão - configure JWT_SECRET em produção!")
+		log.Printf("⚠️  [JWT] Usando secret padrão — NÃO USE EM PRODUÇÃO. Configure JWT_SECRET.")
 	}
 	jwtSecret = []byte(secret)
-	log.Printf("✅ [JWT] Secret configurado")
+	log.Printf("✅ [JWT] Secret configurado (%d bytes)", len(jwtSecret))
 }
 
 // getJWTExpiryHours retorna o número de horas de validade do token.
-// CORRIGIDO: JWT_EXPIRY_HOURS era lido mas ignorado — agora é efetivamente usado.
-// Padrão: 24h se não configurado ou valor inválido.
 func getJWTExpiryHours() int {
 	const defaultHours = 24
 	hoursStr := os.Getenv("JWT_EXPIRY_HOURS")
@@ -42,15 +57,13 @@ func getJWTExpiryHours() int {
 	}
 	hours, err := strconv.Atoi(hoursStr)
 	if err != nil || hours <= 0 {
-		log.Printf("⚠️ [JWT] JWT_EXPIRY_HOURS inválido ('%s'), usando padrão %dh", hoursStr, defaultHours)
+		log.Printf("⚠️  [JWT] JWT_EXPIRY_HOURS inválido ('%s'), usando padrão %dh", hoursStr, defaultHours)
 		return defaultHours
 	}
 	return hours
 }
 
 func GenerateToken(userID uuid.UUID, userType string) (string, error) {
-	log.Printf("🔑 [GenerateToken] Gerando token - UserID: %s, UserType: %s", userID, userType)
-
 	expiryHours := getJWTExpiryHours()
 
 	claims := Claims{
@@ -69,16 +82,14 @@ func GenerateToken(userID uuid.UUID, userType string) (string, error) {
 		return "", err
 	}
 
-	log.Printf("✅ [GenerateToken] Token gerado com sucesso - Expira em %dh", expiryHours)
+	log.Printf("✅ [GenerateToken] Token gerado - UserID: %s, Type: %s, Expiry: %dh", userID, userType, expiryHours)
 	return tokenString, nil
 }
 
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		log.Printf("🔍 [AuthMiddleware] Verificando autenticação - Path: %s, Method: %s",
-			c.Request.URL.Path, c.Request.Method)
-
 		authHeader := c.GetHeader("Authorization")
+
 		if authHeader == "" {
 			log.Printf("❌ [AuthMiddleware] Token não fornecido - IP: %s", c.ClientIP())
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "token não fornecido"})
@@ -93,8 +104,6 @@ func AuthMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-
-		log.Printf("🔓 [AuthMiddleware] Validando token...")
 
 		claims := &Claims{}
 		token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
@@ -111,88 +120,65 @@ func AuthMiddleware() gin.HandlerFunc {
 		c.Set("user_id", claims.UserID)
 		c.Set("user_type", claims.UserType)
 
-		log.Printf("✅ [AuthMiddleware] Autenticado - UserID: %s, UserType: %s, IP: %s",
-			claims.UserID, claims.UserType, c.ClientIP())
+		log.Printf("✅ [AuthMiddleware] Autenticado - UserID: %s, UserType: %s", claims.UserID, claims.UserType)
 		c.Next()
 	}
 }
 
 func RequireAcademia() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		log.Printf("🏫 [RequireAcademia] Verificando tipo de usuário - Path: %s", c.Request.URL.Path)
-
 		userType, exists := c.Get("user_type")
-		if !exists {
-			log.Printf("❌ [RequireAcademia] user_type não encontrado no contexto")
+		if !exists || userType != "academia" {
+			log.Printf("❌ [RequireAcademia] Acesso negado - UserType: %v", userType)
 			c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas academias"})
 			c.Abort()
 			return
 		}
-
-		log.Printf("🔍 [RequireAcademia] UserType: %v", userType)
-
-		if userType != "academia" {
-			log.Printf("❌ [RequireAcademia] Tipo incorreto: %v (esperado: academia)", userType)
-			c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas academias"})
-			c.Abort()
-			return
-		}
-
-		log.Printf("✅ [RequireAcademia] OK")
 		c.Next()
 	}
 }
 
 func RequireEstudante() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		log.Printf("🎓 [RequireEstudante] Verificando tipo de usuário - Path: %s", c.Request.URL.Path)
-
 		userType, exists := c.Get("user_type")
-		if !exists {
-			log.Printf("❌ [RequireEstudante] user_type não encontrado no contexto")
+		if !exists || userType != "estudante" {
+			log.Printf("❌ [RequireEstudante] Acesso negado - UserType: %v", userType)
 			c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas estudantes"})
 			c.Abort()
 			return
 		}
+		c.Next()
+	}
+}
 
-		log.Printf("🔍 [RequireEstudante] UserType: %v", userType)
-
-		if userType != "estudante" {
-			log.Printf("❌ [RequireEstudante] Tipo incorreto: %v (esperado: estudante)", userType)
-			c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas estudantes"})
+func RequireAdmin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userType, exists := c.Get("user_type")
+		if !exists || userType != "admin" {
+			log.Printf("❌ [RequireAdmin] Acesso negado - UserType: %v", userType)
+			c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas administradores"})
 			c.Abort()
 			return
 		}
-
-		log.Printf("✅ [RequireEstudante] OK")
 		c.Next()
 	}
 }
 
 // RequireAcademiaOuAdmin bloqueia estudantes — apenas academias e admins passam.
-// Usado em rotas que não fazem sentido para estudantes, como /avaliacoes-estudante/:codigo.
 func RequireAcademiaOuAdmin() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		log.Printf("🔐 [RequireAcademiaOuAdmin] Verificando tipo de usuário - Path: %s", c.Request.URL.Path)
-
 		userType, exists := c.Get("user_type")
 		if !exists {
-			log.Printf("❌ [RequireAcademiaOuAdmin] user_type não encontrado no contexto")
 			c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
 			c.Abort()
 			return
 		}
-
-		log.Printf("🔍 [RequireAcademiaOuAdmin] UserType: %v", userType)
-
-		if userType != "academia" && userType != "admin" {
-			log.Printf("❌ [RequireAcademiaOuAdmin] Tipo não autorizado: %v", userType)
+		ut, _ := userType.(string)
+		if ut != "academia" && ut != "admin" {
 			c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas academias e administradores"})
 			c.Abort()
 			return
 		}
-
-		log.Printf("✅ [RequireAcademiaOuAdmin] OK")
 		c.Next()
 	}
 }
@@ -201,32 +187,18 @@ func RequireAcademiaOuAdmin() gin.HandlerFunc {
 func GetUserID(c *gin.Context) (uuid.UUID, bool) {
 	userID, exists := c.Get("user_id")
 	if !exists {
-		log.Printf("⚠️ [GetUserID] user_id não encontrado no contexto")
 		return uuid.Nil, false
 	}
-
-	id, ok := userID.(uuid.UUID)
-	if !ok {
-		log.Printf("❌ [GetUserID] user_id não é UUID válido: %v", userID)
-		return uuid.Nil, false
-	}
-
-	return id, ok
+	uid, ok := userID.(uuid.UUID)
+	return uid, ok
 }
 
 // GetUserType extrai o tipo do usuário autenticado do contexto Gin.
 func GetUserType(c *gin.Context) (string, bool) {
 	userType, exists := c.Get("user_type")
 	if !exists {
-		log.Printf("⚠️ [GetUserType] user_type não encontrado no contexto")
 		return "", false
 	}
-
-	t, ok := userType.(string)
-	if !ok {
-		log.Printf("❌ [GetUserType] user_type não é string válida: %v", userType)
-		return "", false
-	}
-
-	return t, ok
+	ut, ok := userType.(string)
+	return ut, ok
 }

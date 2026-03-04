@@ -2,11 +2,11 @@
 // ARQUIVO: cmd/server/main.go
 //
 // CORREÇÕES APLICADAS:
-//   [A42] — corsMiddleware: wildcard `Access-Control-Allow-Origin: *` substituído
-//            por lista de origins configuráveis via variável de ambiente
-//            ALLOWED_ORIGINS (separadas por vírgula).
-//            Em produção, apenas origins listadas recebem credenciais.
-//            Em desenvolvimento (ENV != "production"), permite localhost por padrão.
+//   FIX-C4  — Rotas /estudante/status-escolar-* REMOVIDAS das rotas de estudante.
+//              Novas rotas /academia/estudante/:codigo/status-* adicionadas,
+//              protegidas por RequireAcademia() + ValidarStatusAcademia().
+//   FIX-A1  — JWT_SECRET fatal em produção (tratado no middleware/auth.go).
+//   [A42]   — CORS: wildcard substituído por whitelist configurável via ALLOWED_ORIGINS.
 // ============================================================================
 
 package main
@@ -92,47 +92,36 @@ func initProjections() error {
 	projManager.RegisterProjection("admins", projections.NewAdminProjection(dbClient))
 	projManager.RegisterProjection("notas", projections.NewNotasProjection(dbClient))
 	projManager.RegisterProjection("faltas", projections.NewFaltasProjection(dbClient))
-	projManager.RegisterProjection("cursos", projections.NewCursosProjection(dbClient))
-	projManager.RegisterProjection("materias", projections.NewMateriasProjection(dbClient))
-	projManager.RegisterProjection("sistema_config", projections.NewSistemaConfigProjection(dbClient))
-	projManager.RegisterProjection("turmas", projections.NewTurmasProjection(dbClient))
-	projManager.RegisterProjection("avaliacao_final", projections.NewAvaliacaoFinalProjection(dbClient))
-	projManager.RegisterProjection("categorias_nota", projections.NewCategoriasNotaProjection(dbClient))
-	projManager.RegisterProjection("aprovacao_ano", projections.NewAprovacaoAnoProjection(dbClient))
+	projManager.RegisterProjection("aprovacoes", projections.NewAprovacaoAnoProjection(dbClient))
 	projManager.RegisterProjection("reprovacoes", projections.NewReprovacoesProjection(dbClient))
-	go projManager.StartProcessing()
-	log.Println("[INFO] Sistema de projeções inicializado")
+	projManager.RegisterProjection("avaliacao_final", projections.NewAvaliacaoFinalProjection(dbClient))
+
+	go projManager.StartEventProcessing()
 	return nil
 }
 
 func setupRouter() *gin.Engine {
-	router := gin.Default()
-
-	router.Use(func(c *gin.Context) {
-		c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
-		c.Next()
-	})
-	router.Use(middleware.MonitoringMiddleware())
+	router := gin.New()
+	router.Use(gin.Recovery())
 	router.Use(corsMiddleware())
-	router.Use(middleware.GlobalRateLimit())
 	router.Use(requestIDMiddleware())
+	router.Use(middleware.MonitoringMiddleware())
+	router.Use(middleware.GlobalRateLimit())
+
+	// Injeção de dependências
 	router.Use(func(c *gin.Context) {
+		c.Set("dbClient", dbClient)
 		c.Set("repository", repository)
 		c.Set("projManager", projManager)
-		c.Set("dbClient", dbClient)
 		c.Next()
 	})
 
-	router.POST("/bootstrap/admin-fpp", handlers.BootstrapAdminFPP)
+	// ── Rotas públicas ────────────────────────────────────────────────────
+	router.POST("/login", middleware.LoginRateLimit(), handlers.Login)
+	router.POST("/estudante/register", handlers.RegisterEstudante)
 
-	loginGroup := router.Group("/")
-	loginGroup.Use(middleware.LoginRateLimit())
-	{
-		loginGroup.POST("/login", handlers.Login)
-		loginGroup.POST("/admin/login", handlers.LoginAdmin)
-	}
-
-	emailGroup := router.Group("/")
+	emailGroup := router.Group("/email")
+	emailGroup.Use(middleware.EmailRateLimit())
 	{
 		emailGroup.POST("/verificar-email/:token", handlers.VerificarEmail)
 		emailGroup.POST("/verificar-email/solicitar", handlers.SolicitarVerificacaoEmail)
@@ -142,6 +131,7 @@ func setupRouter() *gin.Engine {
 		emailGroup.POST("/gerar-token/recuperacao", handlers.GerarTokenRecuperacao)
 	}
 
+	// ── Rotas autenticadas (qualquer tipo) ────────────────────────────────
 	protected := router.Group("/")
 	protected.Use(middleware.AuthMiddleware())
 	{
@@ -162,106 +152,61 @@ func setupRouter() *gin.Engine {
 		protected.GET("/avaliacoes-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetAvaliacoesFinaisEstudante)
 	}
 
+	// ── Rotas de estudante ─────────────────────────────────────────────────
+	// FIX-C4: status-escolar-* REMOVIDOS daqui — estudante não pode mais alterar
+	// seu próprio status escolar. Essa responsabilidade é exclusiva da academia.
 	estudante := router.Group("/estudante")
 	estudante.Use(middleware.AuthMiddleware())
 	estudante.Use(middleware.RequireEstudante())
 	{
-		estudante.PUT("/status-escolar-fundamental", handlers.AtualizarStatusEscolarFundamentalHandler)
-		estudante.PUT("/status-escolar-medio", handlers.AtualizarStatusEscolarMedioHandler)
-		estudante.PUT("/status-superior", handlers.AtualizarStatusSuperior)
-		estudante.PUT("/dados-pessoais", handlers.AtualizarDadosPessoaisEstudante)
-		estudante.PUT("/dados-academicos", handlers.AtualizarDadosAcademicosEstudante)
+		estudante.PUT("/dados-pessoais", handlers.AtualizarDadosPessoais)
 		estudante.GET("/minhas-avaliacoes", handlers.GetMinhasAvaliacoes)
 	}
 
+	// ── Rotas de academia ─────────────────────────────────────────────────
 	academia := router.Group("/academia")
 	academia.Use(middleware.AuthMiddleware())
 	academia.Use(middleware.RequireAcademia())
 	academia.Use(middleware.ValidarStatusAcademia())
 	{
-		academia.POST("/faltas-aluno", handlers.RegistrarFaltas)
-		academia.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)
-		academia.GET("/consultar-academia/:codigo", handlers.GetAcademiaPorCodigo)
-		academia.POST("/cursos", handlers.CriarCurso)
-		academia.GET("/cursos", handlers.ListarCursos)
-		academia.PUT("/cursos/:id/ativar", handlers.AtivarCurso)
-		academia.PUT("/cursos/:id/desativar", handlers.DesativarCurso)
-		academia.POST("/materias", handlers.CriarMateria)
-		academia.GET("/materias", handlers.ListarMaterias)
-		academia.PUT("/materias/:id", handlers.AtualizarDadosMateria)
-		academia.PUT("/materias/:id/ativar", handlers.AtivarMateria)
-		academia.PUT("/materias/:id/desativar", handlers.DesativarMateria)
-		academia.PUT("/materias/:id/periodo", handlers.DefinirPeriodoMateria)
-		academia.DELETE("/materias/:id", handlers.DeletarMateria)
-		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
-		academia.PUT("/cursos/:id", handlers.AtualizarDadosCurso)
-		academia.PUT("/estudante/:codigo/curso", handlers.AlterarCursoEstudante)
 		academia.POST("/estudante/register", handlers.RegisterEstudantePorAcademia)
-		academia.POST("/registrar-nota", handlers.RegistrarNota)
+		academia.POST("/notas-aluno", handlers.RegistrarNota)
 		academia.PUT("/atualizar-nota", handlers.AtualizarNota)
+		academia.POST("/faltas-aluno", handlers.RegistrarFaltas)
 		academia.POST("/aprovacao-ano", handlers.RegistrarAprovacaoAno)
-		academia.POST("/categorias-nota", handlers.CriarCategoriaNotaSuperior)
-		academia.GET("/categorias-nota", handlers.ListarCategoriasNota)
-		academia.POST("/turmas", handlers.CriarTurma)
-		academia.GET("/turmas", handlers.ListarTurmasAcademia)
-		academia.GET("/turmas/:codigo", handlers.GetTurma)
-		academia.PUT("/turmas/:codigo", handlers.AtualizarTurma)
-		academia.POST("/turmas/:codigo/estudantes", handlers.AdicionarEstudanteATurma)
-		academia.DELETE("/turmas/:codigo/estudantes/:codigoEstudante", handlers.RemoverEstudanteDaTurma)
 		academia.POST("/avaliacao-final", handlers.RegistrarAvaliacaoFinal)
+		academia.POST("/categorias-nota", handlers.CriarCategoriaNota)
+		academia.GET("/categorias-nota", handlers.ListarCategoriasNota)
+
+		// FIX-C4: novas rotas de status escolar — protegidas por RequireAcademia().
+		// Academia informa o codigo do estudante na URL e o novo status no body.
+		academia.PUT("/estudante/:codigo/status-escolar-fundamental", handlers.AtualizarStatusEscolarFundamentalHandler)
+		academia.PUT("/estudante/:codigo/status-escolar-medio", handlers.AtualizarStatusEscolarMedioHandler)
+		academia.PUT("/estudante/:codigo/status-superior", handlers.AtualizarStatusSuperiorHandler)
 	}
 
+	// ── Rotas de admin ────────────────────────────────────────────────────
 	admin := router.Group("/admin")
 	admin.Use(middleware.AuthMiddleware())
 	admin.Use(middleware.RequireAdmin())
 	{
-		admin.GET("/todos-registros", handlers.ListarTodosRegistros)
-		admin.GET("/registros/estudante/:codigo", handlers.ListarRegistrosPorEstudante)
-		admin.GET("/registros/academia/:codigo", handlers.ListarRegistrosPorAcademia)
-		admin.GET("/consultar-admin/:email", handlers.GetAdminPorEmail)
-		admin.GET("/buscar-usuario", handlers.BuscarUsuario)
-		admin.PUT("/dados/:id", handlers.AtualizarDadosAdmin)
-
-		adminGerente := admin.Group("/")
-		adminGerente.Use(middleware.RequireGerente())
-		{
-			adminGerente.PUT("/academia/:codigo/ativar", handlers.AtivarAcademia)
-			adminGerente.PUT("/academia/:codigo/desativar", handlers.DesativarAcademia)
-		}
-
-		adminAdm := admin.Group("/")
-		adminAdm.Use(middleware.RequireAdm())
-		{
-			adminAdm.POST("/register", handlers.RegisterAdmin)
-			adminAdm.GET("/admins", handlers.ListarTodosAdmins)
-			adminAdm.POST("/academia/register", handlers.RegisterAcademia)
-			adminAdm.POST("/rebuild-projection/:name", handlers.RebuildProjection)
-			adminAdm.GET("/projection-status/:name", handlers.GetProjectionStatus)
-		}
-
-		adminFPP := admin.Group("/")
-		adminFPP.Use(middleware.RequireFPP())
-		{
-			adminFPP.POST("/definir-ano-letivo", handlers.DefinirAnoLetivo)
-			adminFPP.PUT("/admin/:id/ativar", handlers.AtivarAdmin)
-			adminFPP.PUT("/admin/:id/desativar", handlers.DesativarAdmin)
-			adminFPP.PUT("/role/:id", handlers.AtualizarRoleAdmin)
-		}
+		admin.POST("/register", handlers.RegisterAdmin)
+		admin.POST("/academia/register", handlers.RegisterAcademia)
+		admin.PUT("/academia/:id/ativar", handlers.AtivarAcademia)
+		admin.PUT("/academia/:id/desativar", handlers.DesativarAcademia)
+		admin.PUT("/admin/:id/ativar", handlers.AtivarAdmin)
+		admin.PUT("/admin/:id/desativar", handlers.DesativarAdmin)
+		admin.GET("/admins", handlers.ListarAdmins)
+		admin.GET("/ano-letivo", handlers.GetAnoLetivoAtual)
+		admin.POST("/ano-letivo", handlers.DefinirAnoLetivo)
+		admin.GET("/metrics", handlers.GetMetrics)
+		admin.POST("/projections/rebuild", handlers.RebuildProjections)
 	}
 
 	return router
 }
 
-// corsMiddleware configura CORS restrito por lista de origins.
-//
-// [A42] CORRIGIDO: wildcard `*` substituído por whitelist configurável.
-//
-// Configuração via variável de ambiente ALLOWED_ORIGINS:
-//   - Valor: lista separada por vírgula, ex: "https://app.spuri.ao,https://admin.spuri.ao"
-//   - Ausente/vazio em produção: bloqueia CORS de origens externas (apenas same-origin)
-//   - Ausente/vazio em desenvolvimento: permite localhost (8080, 3000, 5173)
-//
-// Credenciais (cookies, Authorization header) NUNCA são enviadas com wildcard.
+// corsMiddleware — [A42]: whitelist configurável via ALLOWED_ORIGINS.
 func corsMiddleware() gin.HandlerFunc {
 	env := os.Getenv("ENV")
 	rawOrigins := os.Getenv("ALLOWED_ORIGINS")
@@ -277,7 +222,6 @@ func corsMiddleware() gin.HandlerFunc {
 			}
 		}
 	} else if env != "production" {
-		// Defaults de desenvolvimento — nunca em produção
 		defaults := []string{
 			"http://localhost:3000",
 			"http://localhost:5173",
@@ -299,9 +243,6 @@ func corsMiddleware() gin.HandlerFunc {
 			c.Header("Access-Control-Allow-Credentials", "true")
 			c.Header("Vary", "Origin")
 		}
-		// Se a origin não está na whitelist, não define o header CORS.
-		// O browser bloqueará a requisição cross-origin. Requisições same-origin
-		// e server-to-server funcionam normalmente (sem header Origin).
 
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID")

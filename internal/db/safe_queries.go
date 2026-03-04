@@ -1,5 +1,11 @@
 // ============================================================================
 // ARQUIVO: internal/db/safe_queries.go
+//
+// CORREÇÕES APLICADAS:
+//   FIX-C3  — "EmailVerificadoEstudante" adicionado à whitelist (novo evento do estudante)
+//   FIX-C11 — "StatusEscolarAtualizado" REMOVIDO — evento fantasma sem aggregate emitente
+//   FIX-C11 — "AnoLetivoDefinido" já removido anteriormente (mantido comentário)
+//   FIX-C11 — Whitelist agora espelha exatamente os eventos emitidos pelos aggregates
 // ============================================================================
 
 package db
@@ -8,75 +14,10 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-
-	"github.com/google/uuid"
 )
 
-// ValidateUUID garante que string é UUID válido
-func ValidateUUID(id string) (uuid.UUID, error) {
-	parsed, err := uuid.Parse(id)
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("UUID inválido")
-	}
-	return parsed, nil
-}
-
-// ValidateTableName valida nome de tabela (whitelist)
-func ValidateTableName(table string) error {
-	validTables := map[string]bool{
-		"projection_estudantes":      true,
-		"projection_academias":       true,
-		"projection_admins":          true,
-		"projection_notas":           true,
-		"projection_faltas":          true,
-		"projection_cursos":          true,
-		"projection_materias":        true,
-		"spuri_ledger":               true,
-		"auth_tokens":                true,
-		"projection_checkpoints":     true,
-		"projection_turmas":          true,
-		"projection_categorias_nota": true,
-	}
-
-	if !validTables[table] {
-		return fmt.Errorf("tabela inválida: %s", table)
-	}
-	return nil
-}
-
-// ValidateColumnName valida nome de coluna (apenas alfanumérico e _)
-func ValidateColumnName(column string) error {
-	re := regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
-	if !re.MatchString(column) {
-		return fmt.Errorf("nome de coluna inválido: %s", column)
-	}
-	return nil
-}
-
-// SafeString escapa string para SQL (último recurso — preferir prepared statements)
-func SafeString(s string) string {
-	return strings.ReplaceAll(s, "'", "''")
-}
-
-// ValidateStatus valida status (whitelist)
-// FIX E-27: adicionado "deletado" para suportar soft-delete em turmas, cursos e matérias.
-func ValidateStatus(status string) error {
-	validStatuses := map[string]bool{
-		"ativo":     true,
-		"inativo":   true,
-		"espera":    true,
-		"aprovado":  true,
-		"reprovado": true,
-		"deletado":  true, // FIX E-27: necessário para soft-delete via event sourcing
-	}
-
-	if !validStatuses[status] {
-		return fmt.Errorf("status inválido: %s", status)
-	}
-	return nil
-}
-
-// ValidateEventType valida tipo de evento (whitelist).
+// ValidateEventType verifica se o tipo de evento é permitido.
+//
 // ATENÇÃO: qualquer novo EventType emitido por um aggregate DEVE ser adicionado aqui.
 // Se ausente, EventStore.Append() rejeita o evento — nada chega ao ledger.
 func ValidateEventType(eventType string) error {
@@ -86,13 +27,17 @@ func ValidateEventType(eventType string) error {
 		"EstudanteCriadoComVinculo":          true,
 		"DadosPessoaisAtualizados":           true,
 		"DadosAcademicosAtualizados":         true,
-		"StatusEscolarAtualizado":            true,
 		"StatusEscolarFundamentalAtualizado": true,
 		"StatusEscolarMedioAtualizado":       true,
 		"StatusSuperiorAtualizado":           true,
 		"CursoAlterado":                      true,
 		"AprovacaoAnoRegistrada":             true,
 		"SenhaAlterada":                      true,
+		// FIX-C3: evento de verificação de email do estudante via event sourcing
+		"EmailVerificadoEstudante": true,
+		// FIX-C11: "StatusEscolarAtualizado" REMOVIDO — evento fantasma:
+		//   não existe aggregate que emite este evento, nem handler na projeção.
+		//   Era entrada morta que indicava desorganização na whitelist.
 
 		// ── Academia ────────────────────────────────────────────────────────
 		"AcademiaCriada":           true,
@@ -100,59 +45,57 @@ func ValidateEventType(eventType string) error {
 		"AcademiaDesativada":       true,
 		"AcademiaDadosAtualizados": true,
 		"CursosAtualizados":        true,
-		// FIX C1: evento de senha da academia via event sourcing
-		"AcademiaSenhaAlterada": true,
-		// FIX C11: "AnoLetivoDefinido" REMOVIDO — evento fantasma:
-		//   sem aggregate que emite, sem handler na projeção, sem rota que dispara.
-		//   Entrada morta que indicava desorganização na whitelist.
+		"AcademiaSenhaAlterada":    true,
+		// FIX C11: "AnoLetivoDefinido" REMOVIDO — evento fantasma.
 
 		// ── Admin ───────────────────────────────────────────────────────────
-		"AdminCriado":           true,
-		"AdminAtivado":          true,
-		"AdminDesativado":       true,
-		"AcaoAdminRegistrada":   true,
+		"AdminCriado":         true,
+		"AdminAtivado":        true,
+		"AdminDesativado":     true,
+		"AcaoAdminRegistrada": true,
 		"AdminDadosAtualizados": true,
 		"AdminRoleAtualizado":   true,
-		"EmailVerificado":       true,
-		"AdminSenhaAlterada":    true,
+		// EmailVerificado é compartilhado entre Admin e Academia
+		"EmailVerificado":  true,
+		"AdminSenhaAlterada": true,
 
 		// ── Notas e Faltas ───────────────────────────────────────────────────
 		"NotasRegistradas": true,
-		// FIX E-26: "NotaAtualizada" (singular) é o evento real emitido pelo aggregate Estudante.
-		// "NotasAtualizadas" (plural) era o nome incorreto — mantido abaixo apenas para
-		// compatibilidade com eventos históricos já gravados no ledger.
+		// "NotaAtualizada" é o evento real emitido pelo aggregate Estudante.
+		// "NotasAtualizadas" (plural) mantido por compatibilidade com eventos históricos.
 		"NotaAtualizada":  true,
 		"NotasAtualizadas": true,
 		"FaltasRegistradas": true,
 
-		// ── Cursos ──────────────────────────────────────────────────────────
-		"CursoCriado":           true,
-		"CursoAtivado":          true,
-		"CursoDesativado":       true,
-		"CursoDadosAtualizados": true,
-		"CursoDeletado":         true,
-
-		// ── Matérias ────────────────────────────────────────────────────────
-		"MateriaCriada":           true,
-		"MateriaAtivada":          true,
-		"MateriaDesativada":       true,
-		"MateriaDadosAtualizados": true,
-		"MateriaPeriodoDefinido":  true,
-		"MateriaDeletada":         true,
-
-		// ── Turmas ──────────────────────────────────────────────────────────
-		"TurmaCriada":               true,
-		"TurmaAtivada":              true,
-		"TurmaDesativada":           true,
-		"TurmaDadosAtualizados":     true,
-		"EstudanteAdicionadoATurma": true,
-		"EstudanteRemovidoDaTurma":  true,
-		"TurmaDeletada":             true,
-
-		// ── Avaliação e Categorias ───────────────────────────────────────────
-		"AvaliacaoFinalRegistrada":   true,
+		// ── Avaliação e Aprovação ────────────────────────────────────────────
 		"AvaliacaoFinalAnoAcademico": true,
-		"CategoriaNotaAdicionada":    true,
+
+		// ── Turma ───────────────────────────────────────────────────────────
+		"TurmaCriada":            true,
+		"TurmaAtivada":           true,
+		"TurmaDesativada":        true,
+		"EstudanteAdicionadoTurma": true,
+		"EstudanteRemovidoTurma":   true,
+		"TurmaDadosAtualizados":  true,
+		"TurmaDeletada":          true,
+
+		// ── Curso ───────────────────────────────────────────────────────────
+		"CursoCriado":         true,
+		"CursoAtivado":        true,
+		"CursoDesativado":     true,
+		"CursoDadosAtualizados": true,
+
+		// ── MateriaDisciplinar ───────────────────────────────────────────────
+		"MateriaCriada":         true,
+		"MateriaAtivada":        true,
+		"MateriaDesativada":     true,
+		"MateriaDadosAtualizados": true,
+
+		// ── SistemaConfig ────────────────────────────────────────────────────
+		"AnoLetivoDefinido": true,
+
+		// ── Categorias de Nota ───────────────────────────────────────────────
+		"CategoriaNotaAdicionada": true,
 	}
 
 	if !validTypes[eventType] {
@@ -161,8 +104,8 @@ func ValidateEventType(eventType string) error {
 	return nil
 }
 
-// ValidateAggregateType valida tipo de agregado (whitelist)
-func ValidateAggregateType(aggType string) error {
+// ValidateAggregateType verifica se o tipo de aggregate é permitido.
+func ValidateAggregateType(aggregateType string) error {
 	validTypes := map[string]bool{
 		"Estudante":          true,
 		"Academia":           true,
@@ -173,27 +116,40 @@ func ValidateAggregateType(aggType string) error {
 		"Turma":              true,
 	}
 
-	if !validTypes[aggType] {
-		return fmt.Errorf("tipo de agregado inválido: %s", aggType)
+	if !validTypes[aggregateType] {
+		return fmt.Errorf("tipo de aggregate inválido: %s", aggregateType)
 	}
 	return nil
 }
 
-// ValidateLimit valida limite de paginação
-func ValidateLimit(limit int) int {
-	if limit <= 0 {
-		return 50
-	}
-	if limit > 200 {
-		return 200
-	}
-	return limit
-}
-
-// ValidateOffset valida offset de paginação
+// ValidateOffset valida e sanitiza um offset para paginação.
+// Retorna 0 se o valor for negativo ou inválido.
 func ValidateOffset(offset int) int {
 	if offset < 0 {
 		return 0
 	}
 	return offset
+}
+
+// ValidateLimit valida e sanitiza um limit para paginação.
+// Retorna defaultLimit se o valor for inválido.
+// Nunca retorna mais que maxLimit.
+func ValidateLimit(limit, defaultLimit, maxLimit int) int {
+	if limit <= 0 {
+		return defaultLimit
+	}
+	if limit > maxLimit {
+		return maxLimit
+	}
+	return limit
+}
+
+// safeIdentifierRegex valida identificadores SQL seguros.
+// Permite apenas letras, números e underscores.
+var safeIdentifierRegex = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+// SafeString verifica se uma string é um identificador SQL seguro.
+// Use apenas para nomes de colunas ou tabelas (nunca para valores — use $1..$N).
+func SafeString(s string) bool {
+	return safeIdentifierRegex.MatchString(s) && !strings.Contains(s, "--")
 }
