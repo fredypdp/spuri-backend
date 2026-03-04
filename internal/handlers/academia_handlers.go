@@ -343,7 +343,9 @@ func AtivarAcademia(c *gin.Context) {
 		return
 	}
 
-	registrarAcaoAdmin(c, "ativar_academia", fmt.Sprintf("academia %s ativada", codigo))
+	registrarAcaoAdmin(c, adminUserID, "ativar_academia", map[string]interface{}{
+		"codigo_academia": codigo,
+	})
 
 	c.JSON(http.StatusOK, gin.H{"message": "academia ativada com sucesso"})
 }
@@ -401,7 +403,10 @@ func DesativarAcademia(c *gin.Context) {
 		return
 	}
 
-	registrarAcaoAdmin(c, "desativar_academia", fmt.Sprintf("academia %s desativada: %s", codigo, req.Motivo))
+	registrarAcaoAdmin(c, adminUserID, "desativar_academia", map[string]interface{}{
+		"codigo_academia": codigo,
+		"motivo":          req.Motivo,
+	})
 
 	c.JSON(http.StatusOK, gin.H{"message": "academia desativada com sucesso"})
 }
