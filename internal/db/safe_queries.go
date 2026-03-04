@@ -1,3 +1,7 @@
+// ============================================================================
+// ARQUIVO: internal/db/safe_queries.go
+// ============================================================================
+
 package db
 
 import (
@@ -77,7 +81,7 @@ func ValidateStatus(status string) error {
 // Se ausente, EventStore.Append() rejeita o evento — nada chega ao ledger.
 func ValidateEventType(eventType string) error {
 	validTypes := map[string]bool{
-		// Estudante
+		// ── Estudante ───────────────────────────────────────────────────────
 		"EstudanteCriado":                    true,
 		"EstudanteCriadoComVinculo":          true,
 		"DadosPessoaisAtualizados":           true,
@@ -89,14 +93,20 @@ func ValidateEventType(eventType string) error {
 		"CursoAlterado":                      true,
 		"AprovacaoAnoRegistrada":             true,
 		"SenhaAlterada":                      true,
-		// Academia
+
+		// ── Academia ────────────────────────────────────────────────────────
 		"AcademiaCriada":           true,
 		"AcademiaAtivada":          true,
 		"AcademiaDesativada":       true,
 		"AcademiaDadosAtualizados": true,
 		"CursosAtualizados":        true,
-		"AnoLetivoDefinido":        true,
-		// Admin
+		// FIX C1: evento de senha da academia via event sourcing
+		"AcademiaSenhaAlterada": true,
+		// FIX C11: "AnoLetivoDefinido" REMOVIDO — evento fantasma:
+		//   sem aggregate que emite, sem handler na projeção, sem rota que dispara.
+		//   Entrada morta que indicava desorganização na whitelist.
+
+		// ── Admin ───────────────────────────────────────────────────────────
 		"AdminCriado":           true,
 		"AdminAtivado":          true,
 		"AdminDesativado":       true,
@@ -105,28 +115,32 @@ func ValidateEventType(eventType string) error {
 		"AdminRoleAtualizado":   true,
 		"EmailVerificado":       true,
 		"AdminSenhaAlterada":    true,
-		// Notas e Faltas
+
+		// ── Notas e Faltas ───────────────────────────────────────────────────
 		"NotasRegistradas": true,
-		"NotasAtualizadas": true,
 		// FIX E-26: "NotaAtualizada" (singular) é o evento real emitido pelo aggregate Estudante.
-		// "NotasAtualizadas" (plural) era o nome incorreto na whitelist — ambos mantidos
-		// para compatibilidade com eventos históricos no ledger.
+		// "NotasAtualizadas" (plural) era o nome incorreto — mantido abaixo apenas para
+		// compatibilidade com eventos históricos já gravados no ledger.
 		"NotaAtualizada":  true,
+		"NotasAtualizadas": true,
 		"FaltasRegistradas": true,
-		// Cursos
+
+		// ── Cursos ──────────────────────────────────────────────────────────
 		"CursoCriado":           true,
 		"CursoAtivado":          true,
 		"CursoDesativado":       true,
 		"CursoDadosAtualizados": true,
 		"CursoDeletado":         true,
-		// Matérias
+
+		// ── Matérias ────────────────────────────────────────────────────────
 		"MateriaCriada":           true,
 		"MateriaAtivada":          true,
 		"MateriaDesativada":       true,
 		"MateriaDadosAtualizados": true,
 		"MateriaPeriodoDefinido":  true,
 		"MateriaDeletada":         true,
-		// Turmas
+
+		// ── Turmas ──────────────────────────────────────────────────────────
 		"TurmaCriada":               true,
 		"TurmaAtivada":              true,
 		"TurmaDesativada":           true,
@@ -134,7 +148,8 @@ func ValidateEventType(eventType string) error {
 		"EstudanteAdicionadoATurma": true,
 		"EstudanteRemovidoDaTurma":  true,
 		"TurmaDeletada":             true,
-		// Avaliação e Categorias
+
+		// ── Avaliação e Categorias ───────────────────────────────────────────
 		"AvaliacaoFinalRegistrada":   true,
 		"AvaliacaoFinalAnoAcademico": true,
 		"CategoriaNotaAdicionada":    true,

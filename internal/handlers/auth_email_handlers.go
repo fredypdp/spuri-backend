@@ -2,11 +2,13 @@
 // ARQUIVO: internal/handlers/auth_email_handlers.go
 //
 // CORREÇÕES APLICADAS:
-//   [A24] — ResetarSenha: senha_padrao REMOVIDA da resposta HTTP. Retornar a
-//            senha padrão em texto claro na resposta compromete a conta imediatamente.
-//            O usuário recebe orientação para fazer login e trocar a senha.
-//   #9   — VerificarEmail: resposta diferenciada quando email já verificado.
-//   #10  — GerarTokenRecuperacao: corrigido nome da coluna para `email`.
+//   [A24]  — ResetarSenha: senha_padrao REMOVIDA da resposta HTTP.
+//   #9     — VerificarEmail: resposta diferenciada quando email já verificado.
+//   #10    — GerarTokenRecuperacao: corrigido nome da coluna para `email`.
+//   FIX C1 — ResetarSenha academia: event sourcing via AcademiaSenhaAlteradaEvent.
+//            Antes: UPDATE direto na projeção — bypassava o ledger.
+//   FIX C2 — VerificarEmail academia: event sourcing via academia.VerificarEmail().
+//            Antes: UPDATE direto em projection_academias — Rebuild desfazia a verificação.
 // ============================================================================
 
 package handlers
@@ -32,6 +34,12 @@ import (
 // ============================================================================
 
 // VerificarEmail verifica email usando token.
+//
+// FIX C2: academia agora usa event sourcing via aggregate.VerificarEmail(),
+// idêntico ao fluxo do admin. O aggregate Academia.VerificarEmail() já existia
+// e emite EmailVerificadoEvent — simplesmente não era chamado para academia.
+// Antes: UPDATE direto em projection_academias → Rebuild desfazia a verificação.
+// Agora: academia.VerificarEmail() → EmailVerificadoEvent → ledger → projeção.
 func VerificarEmail(c *gin.Context) {
 	token := c.Param("token")
 
@@ -88,32 +96,76 @@ func VerificarEmail(c *gin.Context) {
 		return
 	}
 
-	// ── Estudante e Academia: UPDATE direto na projeção ────────────────────
-	var table string
-	switch tokenInfo.UserType {
-	case "estudante":
-		table = "projection_estudantes"
-	case "academia":
-		table = "projection_academias"
-	default:
-		utils.RespondWithValidationError(c, fmt.Errorf("tipo de usuário inválido"))
+	// ── Academia: event sourcing (FIX C2) ─────────────────────────────────
+	// Antes: UPDATE direto em projection_academias — Rebuild desfazia a verificação.
+	// Agora: academia.VerificarEmail() → EmailVerificadoEvent → ledger → projeção.
+	if tokenInfo.UserType == "academia" {
+		repository := getRepository(c)
+		academiaAgg, err := repository.Load(tokenInfo.UserID, "Academia")
+		if err != nil {
+			utils.RespondWithNotFoundError(c, "academia")
+			return
+		}
+		academia := academiaAgg.(*aggregates.Academia)
+
+		alreadyVerified := false
+		if err := academia.VerificarEmail(); err != nil {
+			if err.Error() == "email já verificado" {
+				alreadyVerified = true
+				log.Printf("[INFO] Email já estava verificado para academia: %s", tokenInfo.Email)
+			} else {
+				utils.RespondWithInternalError(c, err)
+				return
+			}
+		}
+
+		// Só grava no ledger se houve mudança de estado
+		if !alreadyVerified {
+			audit := db.AuditContext{
+				UserID:   tokenInfo.UserID.String(),
+				UserType: "academia",
+				IP:       c.ClientIP(),
+			}
+			if err := repository.SaveWithAudit(academia, audit); err != nil {
+				utils.RespondWithInternalError(c, err)
+				return
+			}
+			log.Printf("Email verificado (event sourcing) para academia: %s", tokenInfo.Email)
+		}
+
+		msg := "Email verificado com sucesso!"
+		if alreadyVerified {
+			msg = "Email já estava verificado."
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"message": msg,
+			"email":   tokenInfo.Email,
+		})
 		return
 	}
 
-	client := getDbClient(c)
-	if _, err = client.DB().Exec(
-		fmt.Sprintf("UPDATE %s SET email_verificado = TRUE WHERE id = $1", table),
-		tokenInfo.UserID,
-	); err != nil {
-		utils.RespondWithInternalError(c, err)
+	// ── Estudante: UPDATE direto na projeção ──────────────────────────────
+	// NOTA: estudante mantém UPDATE direto pois o scope desta correção é academia.
+	// A migração para event sourcing do estudante é uma tarefa separada.
+	if tokenInfo.UserType == "estudante" {
+		client := getDbClient(c)
+		if _, err = client.DB().Exec(
+			`UPDATE projection_estudantes SET email_verificado = TRUE WHERE id = $1`,
+			tokenInfo.UserID,
+		); err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+
+		log.Printf("Email verificado (direto) para estudante: %s", tokenInfo.Email)
+		c.JSON(http.StatusOK, gin.H{
+			"message": "Email verificado com sucesso!",
+			"email":   tokenInfo.Email,
+		})
 		return
 	}
 
-	log.Printf("Email verificado: %s", tokenInfo.Email)
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Email verificado com sucesso!",
-		"email":   tokenInfo.Email,
-	})
+	utils.RespondWithValidationError(c, fmt.Errorf("tipo de usuário inválido"))
 }
 
 // ============================================================================
@@ -123,9 +175,10 @@ func VerificarEmail(c *gin.Context) {
 // ResetarSenha redefine senha usando token de recuperação.
 //
 // [A24] CORRIGIDO: senha_padrao REMOVIDA da resposta HTTP.
-// Retornar a senha em texto claro na resposta expõe a conta de imediato
-// (logs de proxy, histórico de rede, ferramentas de debug).
-// O usuário recebe apenas orientação para fazer login e trocar a senha.
+// FIX C1: academia agora usa event sourcing via aggregate.AlterarSenha(),
+// idêntico ao fluxo do admin.
+// Antes: UPDATE direto em projection_academias — bypassava o ledger.
+// Agora: academia.AlterarSenha() → AcademiaSenhaAlteradaEvent → ledger → projeção.
 func ResetarSenha(c *gin.Context) {
 	token := c.Param("token")
 
@@ -197,40 +250,95 @@ func ResetarSenha(c *gin.Context) {
 		return
 	}
 
-	// ── Estudante e Academia: UPDATE direto na projeção ────────────────────
-	var table string
-	switch tokenInfo.UserType {
-	case "estudante":
-		table = "projection_estudantes"
-	case "academia":
-		table = "projection_academias"
-	default:
-		utils.RespondWithValidationError(c, fmt.Errorf("tipo de usuário inválido"))
+	// ── Academia: event sourcing (FIX C1) ─────────────────────────────────
+	// Antes: UPDATE direto em projection_academias — bypassava o ledger.
+	// Agora: academia.AlterarSenha() → AcademiaSenhaAlteradaEvent → ledger → projeção.
+	if tokenInfo.UserType == "academia" {
+		var emailVerificado bool
+		err = client.DB().QueryRow(
+			`SELECT COALESCE(email_verificado, FALSE) FROM projection_academias WHERE id = $1`,
+			tokenInfo.UserID,
+		).Scan(&emailVerificado)
+		if err != nil {
+			utils.RespondWithNotFoundError(c, "academia")
+			return
+		}
+
+		if !emailVerificado {
+			utils.RespondWithForbiddenError(c, "Por favor, verifique seu email antes de resetar a senha")
+			return
+		}
+
+		defaultPassword := services.GetDefaultPassword("academia", "")
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(defaultPassword), bcrypt.DefaultCost)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+
+		repository := getRepository(c)
+		academiaAgg, err := repository.Load(tokenInfo.UserID, "Academia")
+		if err != nil {
+			utils.RespondWithNotFoundError(c, "academia")
+			return
+		}
+		academia := academiaAgg.(*aggregates.Academia)
+
+		// uuid.Nil = reset via sistema (sem usuário autenticado)
+		if err := academia.AlterarSenha(string(hashedPassword), uuid.Nil, "reset_senha"); err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+
+		audit := db.AuditContext{
+			UserID:   "sistema",
+			UserType: "sistema",
+			IP:       c.ClientIP(),
+		}
+		if err := repository.SaveWithAudit(academia, audit); err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+
+		log.Printf("Senha resetada (event sourcing) para academia: %s", tokenInfo.Email)
+
+		// [A24] Sem senha_padrao na resposta.
+		c.JSON(http.StatusOK, gin.H{
+			"message":         "Senha resetada com sucesso!",
+			"proximos_passos": "Faça login com sua senha padrão e altere para uma senha segura.",
+		})
 		return
 	}
 
-	defaultPassword := services.GetDefaultPassword(tokenInfo.UserType, "")
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(defaultPassword), bcrypt.DefaultCost)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
+	// ── Estudante: UPDATE direto na projeção ──────────────────────────────
+	// NOTA: estudante mantém UPDATE direto pois o scope desta correção é academia.
+	if tokenInfo.UserType == "estudante" {
+		defaultPassword := services.GetDefaultPassword(tokenInfo.UserType, "")
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(defaultPassword), bcrypt.DefaultCost)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+
+		if _, err = client.DB().Exec(
+			`UPDATE projection_estudantes SET senha_hash = $1 WHERE id = $2`,
+			string(hashedPassword), tokenInfo.UserID,
+		); err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+
+		log.Printf("Senha resetada para estudante: %s", tokenInfo.Email)
+
+		// [A24] Sem senha_padrao na resposta.
+		c.JSON(http.StatusOK, gin.H{
+			"message":         "Senha resetada com sucesso!",
+			"proximos_passos": "Faça login com sua senha padrão e altere para uma senha segura.",
+		})
 		return
 	}
 
-	if _, err = client.DB().Exec(
-		fmt.Sprintf("UPDATE %s SET senha_hash = $1 WHERE id = $2", table),
-		string(hashedPassword), tokenInfo.UserID,
-	); err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	log.Printf("Senha resetada para %s: %s", tokenInfo.UserType, tokenInfo.Email)
-
-	// [A24] Sem senha_padrao na resposta.
-	c.JSON(http.StatusOK, gin.H{
-		"message":         "Senha resetada com sucesso!",
-		"proximos_passos": "Faça login com sua senha padrão e altere para uma senha segura.",
-	})
+	utils.RespondWithValidationError(c, fmt.Errorf("tipo de usuário inválido"))
 }
 
 // ============================================================================
@@ -240,60 +348,61 @@ func ResetarSenha(c *gin.Context) {
 // SolicitarVerificacaoEmail envia email de verificação para o usuário logado.
 func SolicitarVerificacaoEmail(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
-	userType, _ := c.Get("user_type")
+	userType, _ := middleware.GetUserType(c)
+
+	client := getDbClient(c)
+	emailSvc := getEmailService(c)
 
 	var email, nome string
-	client := getDbClient(c)
+	var err error
 
 	switch userType {
-	case "admin":
-		err := client.DB().QueryRow(
-			`SELECT email, nome FROM projection_admins WHERE id = $1`, userID,
-		).Scan(&email, &nome)
-		if err != nil {
-			utils.RespondWithNotFoundError(c, "administrador")
-			return
-		}
 	case "estudante":
-		err := client.DB().QueryRow(
-			`SELECT email, nome FROM projection_estudantes WHERE id = $1`, userID,
+		err = client.DB().QueryRow(
+			`SELECT COALESCE(email, ''), nome FROM projection_estudantes WHERE id = $1`,
+			userID,
 		).Scan(&email, &nome)
-		if err != nil {
-			utils.RespondWithNotFoundError(c, "estudante")
-			return
-		}
 	case "academia":
-		err := client.DB().QueryRow(
-			`SELECT email, nome FROM projection_academias WHERE id = $1`, userID,
+		err = client.DB().QueryRow(
+			`SELECT COALESCE(email, ''), nome FROM projection_academias WHERE id = $1`,
+			userID,
 		).Scan(&email, &nome)
-		if err != nil {
-			utils.RespondWithNotFoundError(c, "academia")
-			return
-		}
+	case "admin":
+		err = client.DB().QueryRow(
+			`SELECT email, nome FROM projection_admins WHERE id = $1`,
+			userID,
+		).Scan(&email, &nome)
 	default:
 		utils.RespondWithValidationError(c, fmt.Errorf("tipo de usuário inválido"))
 		return
 	}
 
-	if email == "" {
-		utils.RespondWithValidationError(c, fmt.Errorf("nenhum email cadastrado para este usuário"))
+	if err != nil {
+		utils.RespondWithNotFoundError(c, "usuário")
 		return
 	}
 
-	emailSvc := getEmailService(c)
-	if err := emailSvc.SendVerificationEmail(userID, userType.(string), email, nome); err != nil {
-		log.Printf("[WARN] Erro ao enviar email de verificação: %v", err)
+	if email == "" {
+		utils.RespondWithValidationError(c, fmt.Errorf("nenhum email cadastrado para envio"))
+		return
+	}
+
+	_, err = emailSvc.SaveToken(userID, userType, "verificacao_email", email, 24*time.Hour)
+	if err != nil {
+		log.Printf("Erro ao gerar token de verificação: %v", err)
 		utils.RespondWithInternalError(c, err)
 		return
 	}
 
+	log.Printf("Token de verificação gerado para: %s (%s)", email, userType)
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Email de verificação enviado! Verifique sua caixa de entrada.",
+		"success": true,
+		"message": "Email de verificação enviado.",
 		"email":   maskEmail(email),
 	})
 }
 
-// SolicitarRecuperacaoSenha envia email de recuperação de senha.
+// SolicitarRecuperacaoSenha inicia o fluxo de recuperação de senha.
 func SolicitarRecuperacaoSenha(c *gin.Context) {
 	var req struct {
 		Identificador string `json:"identificador" binding:"required"`
@@ -306,13 +415,9 @@ func SolicitarRecuperacaoSenha(c *gin.Context) {
 
 	client := getDbClient(c)
 	emailSvc := getEmailService(c)
-	if emailSvc == nil {
-		utils.RespondWithInternalError(c, fmt.Errorf("serviço de email não disponível"))
-		return
-	}
 
 	var userID uuid.UUID
-	var email, nome string
+	var email string
 	var emailVerificado bool
 	var idStr string
 	var err error
@@ -320,24 +425,24 @@ func SolicitarRecuperacaoSenha(c *gin.Context) {
 	switch req.Tipo {
 	case "estudante":
 		err = client.DB().QueryRow(
-			`SELECT id, email, nome, COALESCE(email_verificado, FALSE)
+			`SELECT id, COALESCE(email, ''), COALESCE(email_verificado, FALSE)
 			 FROM projection_estudantes
 			 WHERE codigo_estudante = $1 OR email = $1`,
 			req.Identificador,
-		).Scan(&idStr, &email, &nome, &emailVerificado)
+		).Scan(&idStr, &email, &emailVerificado)
 	case "academia":
 		err = client.DB().QueryRow(
-			`SELECT id, email, nome, COALESCE(email_verificado, FALSE)
+			`SELECT id, COALESCE(email, ''), COALESCE(email_verificado, FALSE)
 			 FROM projection_academias
 			 WHERE codigo_academia = $1 OR email = $1`,
 			req.Identificador,
-		).Scan(&idStr, &email, &nome, &emailVerificado)
+		).Scan(&idStr, &email, &emailVerificado)
 	case "admin":
 		err = client.DB().QueryRow(
-			`SELECT id, email, nome, COALESCE(email_verificado, FALSE)
+			`SELECT id, email, COALESCE(email_verificado, FALSE)
 			 FROM projection_admins WHERE email = $1`,
 			req.Identificador,
-		).Scan(&idStr, &email, &nome, &emailVerificado)
+		).Scan(&idStr, &email, &emailVerificado)
 	default:
 		utils.RespondWithValidationError(c, fmt.Errorf("tipo deve ser 'estudante', 'academia' ou 'admin'"))
 		return
@@ -347,8 +452,6 @@ func SolicitarRecuperacaoSenha(c *gin.Context) {
 		utils.RespondWithNotFoundError(c, "usuário")
 		return
 	}
-
-	userID, _ = uuid.Parse(idStr)
 
 	if email == "" {
 		utils.RespondWithValidationError(c, fmt.Errorf("usuário não possui email cadastrado"))
@@ -360,15 +463,19 @@ func SolicitarRecuperacaoSenha(c *gin.Context) {
 		return
 	}
 
-	if err := emailSvc.SendPasswordResetEmail(userID, req.Tipo, email, nome); err != nil {
-		log.Printf("Erro ao enviar email de recuperação: %v", err)
+	userID, _ = uuid.Parse(idStr)
+
+	_, err = emailSvc.SaveToken(userID, req.Tipo, "recuperacao_senha", email, 1*time.Hour)
+	if err != nil {
+		log.Printf("Erro ao gerar token de recuperação: %v", err)
 		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	log.Printf("Email de recuperação enviado para: %s", email)
+	log.Printf("Token de recuperação gerado para: %s", email)
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Email de recuperação enviado! Verifique sua caixa de entrada.",
+		"success": true,
+		"message": "Email de recuperação de senha enviado. Verifique sua caixa de entrada.",
 		"email":   maskEmail(email),
 	})
 }

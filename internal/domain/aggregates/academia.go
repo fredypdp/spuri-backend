@@ -85,6 +85,9 @@ func (a *Academia) Apply(event DomainEvent) error {
 		return a.applyAcademiaDadosAtualizados(event)
 	case "EmailVerificado":
 		return a.applyEmailVerificado(event)
+	case "AcademiaSenhaAlterada":
+		// FIX C1: evento de senha passa pelo ledger
+		return a.applyAcademiaSenhaAlterada(event)
 	case "CategoriaNotaAdicionada":
 		// applyCategoriaNotaAdicionada definido em academia_categorias_nota.go
 		return a.applyCategoriaNotaAdicionada(event)
@@ -102,6 +105,8 @@ func (a *Academia) Apply(event DomainEvent) error {
 // anosAcademicos — obrigatório quando tipo="escola" E nivel_escolar IN
 // ("fundamental","misto"). Deve ser subconjunto de primeiro…nono_fundamental.
 // Para tipo="superior" ou nivel_escolar="medio" deve ser nil/vazio.
+//
+// FIX C12: CriadoPor adicionado ao evento para rastreabilidade forense completa.
 func (a *Academia) Criar(
 	tipo string,
 	nome string,
@@ -115,6 +120,7 @@ func (a *Academia) Criar(
 	nivelEscolar *string,
 	cursos []string,
 	anosAcademicos []string,
+	criadoPor *uuid.UUID,
 ) error {
 	if tipo != "escola" && tipo != "superior" {
 		return fmt.Errorf("tipo deve ser 'escola' ou 'superior'")
@@ -149,7 +155,9 @@ func (a *Academia) Criar(
 		NivelEscolar:   nivelEscolar,
 		AnosAcademicos: anosValidados,
 		Cursos:         cursos,
-		CreatedAt:      time.Now(),
+		// FIX C12: UUID do admin que criou a academia — rastreabilidade forense
+		CriadoPor: criadoPor,
+		CreatedAt: time.Now(),
 	}
 
 	a.RaiseEvent(event)
@@ -184,7 +192,10 @@ func (a *Academia) Ativar() error {
 	return a.Apply(event)
 }
 
-func (a *Academia) Desativar(motivo string) error {
+// Desativar registra o evento de desativação.
+//
+// FIX C9: DesativadoPor adicionado ao payload do evento para auditoria forense.
+func (a *Academia) Desativar(motivo string, desativadoPor uuid.UUID) error {
 	if a.Status == "inativo" {
 		return fmt.Errorf("academia já está inativa")
 	}
@@ -192,6 +203,8 @@ func (a *Academia) Desativar(motivo string) error {
 	event := &AcademiaDesativadaEvent{
 		BaseEvent:     BaseEvent{EventType: "AcademiaDesativada", AggregateID: a.ID},
 		Motivo:        motivo,
+		// FIX C9: quem desativou está no payload — não apenas nos metadados
+		DesativadoPor: desativadoPor,
 		DeactivatedAt: time.Now(),
 	}
 
@@ -216,6 +229,11 @@ func (a *Academia) AtualizarCursos(cursos []string) error {
 
 // AtualizarDados atualiza campos da academia.
 //
+// FIX C5/C10: verificação de status adicionada ao aggregate como defesa em
+// profundidade. O middleware ValidarStatusAcademia protege a rota, mas o aggregate
+// agora também rejeita a operação se a academia estiver inativa — princípio de
+// defesa em profundidade.
+//
 // FIX E-11 / E-14: revalida coerência de anos_academicos com nivel_escolar
 // atual (ou o novo nivel_escolar, se estiver sendo alterado simultaneamente).
 // Impede gravar anos inválidos no ledger.
@@ -230,6 +248,11 @@ func (a *Academia) AtualizarDados(
 	anosAcademicos []string,
 	cursos []string,
 ) error {
+	// FIX C5/C10: defesa em profundidade — aggregate verifica status
+	if a.Status != "ativo" {
+		return fmt.Errorf("academia está inativa — não é possível atualizar dados")
+	}
+
 	if nome == nil && provincia == nil && endereco == nil &&
 		numeroTelefone == nil && email == nil && website == nil &&
 		nivelEscolar == nil && anosAcademicos == nil && cursos == nil {
@@ -270,6 +293,29 @@ func (a *Academia) AtualizarDados(
 		Cursos:         cursos,
 		EmailAlterado:  emailAlterado,
 		UpdatedAt:      time.Now(),
+	}
+
+	a.RaiseEvent(event)
+	return a.Apply(event)
+}
+
+// AlterarSenha registra a troca de senha como evento no ledger.
+//
+// FIX C1: antes, a senha era alterada via UPDATE direto na projeção,
+// bypassando o event sourcing. Agora emite AcademiaSenhaAlteradaEvent,
+// garantindo: (1) rastreabilidade completa no ledger, (2) rebuild restaura
+// a senha correta, (3) consistência com o padrão do Admin.
+func (a *Academia) AlterarSenha(novaSenhaHash string, changedBy uuid.UUID, motivo string) error {
+	if novaSenhaHash == "" {
+		return fmt.Errorf("hash da nova senha não pode ser vazio")
+	}
+
+	event := &AcademiaSenhaAlteradaEvent{
+		BaseEvent:     BaseEvent{EventType: "AcademiaSenhaAlterada", AggregateID: a.ID},
+		NovaSenhaHash: novaSenhaHash,
+		ChangedBy:     changedBy,
+		Motivo:        motivo,
+		ChangedAt:     time.Now(),
 	}
 
 	a.RaiseEvent(event)
@@ -322,6 +368,7 @@ func validarAnosAcademicos(tipo string, nivelEscolar *string, anos []string) ([]
 // Eventos
 // ============================================================================
 
+// AcademiaCriadaEvent — FIX C12: CriadoPor adicionado para rastreabilidade.
 type AcademiaCriadaEvent struct {
 	BaseEvent
 	Type           string
@@ -336,7 +383,10 @@ type AcademiaCriadaEvent struct {
 	NivelEscolar   *string
 	AnosAcademicos []string
 	Cursos         []string
-	CreatedAt      time.Time
+	// FIX C12: UUID do admin que criou a academia — para auditoria forense.
+	// Nil se criado por processo interno sem usuário identificado.
+	CriadoPor *uuid.UUID
+	CreatedAt time.Time
 }
 
 func (e *AcademiaCriadaEvent) GetPayload() interface{} { return e }
@@ -348,9 +398,13 @@ type AcademiaAtivadaEvent struct {
 
 func (e *AcademiaAtivadaEvent) GetPayload() interface{} { return e }
 
+// AcademiaDesativadaEvent — FIX C9: DesativadoPor adicionado para auditoria forense.
 type AcademiaDesativadaEvent struct {
 	BaseEvent
-	Motivo        string
+	Motivo string
+	// FIX C9: UUID do admin responsável pela desativação — no payload do evento,
+	// não apenas nos metadados do ledger. Permite auditoria forense sem metadata.
+	DesativadoPor uuid.UUID
 	DeactivatedAt time.Time
 }
 
@@ -381,6 +435,25 @@ type AcademiaDadosAtualizadosEvent struct {
 }
 
 func (e *AcademiaDadosAtualizadosEvent) GetPayload() interface{} { return e }
+
+// AcademiaSenhaAlteradaEvent — FIX C1: evento de senha via event sourcing.
+// Antes a senha era alterada via UPDATE direto, bypassando o ledger.
+// Agora toda alteração de senha gera este evento, garantindo:
+//   - Auditoria completa no ledger
+//   - Rebuild restaura a senha correta
+//   - Consistência com AdminSenhaAlteradaEvent
+type AcademiaSenhaAlteradaEvent struct {
+	BaseEvent
+	NovaSenhaHash string
+	// ChangedBy: UUID do usuário que realizou a troca
+	// — pode ser a própria academia (auto-alteração) ou uuid.Nil para reset via sistema
+	ChangedBy uuid.UUID
+	// Motivo: "alteracao_usuario" | "reset_senha"
+	Motivo    string
+	ChangedAt time.Time
+}
+
+func (e *AcademiaSenhaAlteradaEvent) GetPayload() interface{} { return e }
 
 // ============================================================================
 // Apply handlers
@@ -489,5 +562,21 @@ func (a *Academia) applyAcademiaDadosAtualizados(event DomainEvent) error {
 
 func (a *Academia) applyEmailVerificado(_ DomainEvent) error {
 	a.EmailVerificado = true
+	return nil
+}
+
+// applyAcademiaSenhaAlterada aplica a nova senha_hash ao estado do aggregate.
+//
+// FIX C1: implementação do apply handler para o novo evento de senha.
+func (a *Academia) applyAcademiaSenhaAlterada(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyAcademiaSenhaAlterada: marshal error: %w", err)
+	}
+	var ev AcademiaSenhaAlteradaEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyAcademiaSenhaAlterada: unmarshal error: %w", err)
+	}
+	a.SenhaHash = ev.NovaSenhaHash
 	return nil
 }

@@ -36,6 +36,8 @@ func (p *AcademiaProjection) Name() string { return "academias" }
 // FIX E-23: eventos de AggregateType="Estudante" com EventType="EstudanteCriadoComVinculo"
 // agora são processados corretamente. O guard anterior `event.AggregateType == "Academia"`
 // bloqueava todos esses eventos, mantendo total_estudantes sempre em 0.
+//
+// FIX C1: AcademiaSenhaAlterada adicionado ao map de handlers.
 func (p *AcademiaProjection) Handle(event db.Event) error {
 	if event.AggregateType == "Academia" {
 		academiaHandlers := map[string]func(db.Event) error{
@@ -45,6 +47,8 @@ func (p *AcademiaProjection) Handle(event db.Event) error {
 			"CursosAtualizados":        p.handleCursosAtualizados,
 			"AcademiaDadosAtualizados": p.handleAcademiaDadosAtualizados,
 			"EmailVerificado":          p.handleEmailVerificado,
+			// FIX C1: handler para novo evento de senha da academia
+			"AcademiaSenhaAlterada": p.handleAcademiaSenhaAlterada,
 			// CategoriaNotaAdicionada é tratado pela CategoriasNotaProjection dedicada.
 		}
 		if handler, ok := academiaHandlers[event.EventType]; ok {
@@ -71,6 +75,9 @@ func (p *AcademiaProjection) Handle(event db.Event) error {
 //
 // FIX E-25: inclui eventos "EstudanteCriadoComVinculo" no rebuild para que
 // total_estudantes seja corretamente populado após um rebuild.
+//
+// FIX C1: AcademiaSenhaAlterada é processado via Handle() — o rebuild automaticamente
+// inclui este evento porque filtra aggregate_type = 'Academia'.
 func (p *AcademiaProjection) Rebuild() error {
 	log.Printf("[DEBUG] [academias] Rebuild iniciado")
 
@@ -214,14 +221,16 @@ func (p *AcademiaProjection) handleStatusChange(novoStatus string) func(db.Event
 	}
 }
 
-// handleAcademiaDesativada atualiza status e persiste o motivo da desativação.
+// handleAcademiaDesativada atualiza status, motivo e DesativadoPor.
 //
 // FIX E-10: motivo_desativacao agora é persistido na projeção para consulta
 // direta, sem necessidade de inspecionar o ledger.
-// NOTA: requer que a migration 025 tenha adicionado a coluna motivo_desativacao.
+// FIX C9: DesativadoPor agora é lido do payload e persistido.
 func (p *AcademiaProjection) handleAcademiaDesativada(event db.Event) error {
 	var payload struct {
 		Motivo        string    `json:"Motivo"`
+		// FIX C9: DesativadoPor vem do payload do evento (não só dos metadados)
+		DesativadoPor string    `json:"DesativadoPor"`
 		DeactivatedAt time.Time `json:"DeactivatedAt"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
@@ -288,6 +297,10 @@ func (p *AcademiaProjection) handleEstudanteCriadoComVinculo(event db.Event) err
 }
 
 // handleAcademiaDadosAtualizados atualiza campos opcionais da academia.
+//
+// FIX C6 (parcial): os nomes de campo da query são todos hardcoded no código,
+// não vêm do request. A query dinâmica é mantida para compatibilidade, mas
+// os nomes de campo são constantes — o risco de injection é mitigado.
 func (p *AcademiaProjection) handleAcademiaDadosAtualizados(event db.Event) error {
 	var payload struct {
 		Nome           *string  `json:"Nome"`
@@ -383,32 +396,60 @@ func (p *AcademiaProjection) handleEmailVerificado(event db.Event) error {
 	return err
 }
 
+// handleAcademiaSenhaAlterada aplica a nova senha_hash na projeção.
+//
+// FIX C1: antes da correção, a senha era alterada via UPDATE direto na projeção,
+// bypassando o ledger. Agora este handler garante que o evento AcademiaSenhaAlterada
+// seja processado e a projeção atualizada de forma consistente com o event sourcing.
+// Rebuild agora restaura a senha correta.
+func (p *AcademiaProjection) handleAcademiaSenhaAlterada(event db.Event) error {
+	var payload struct {
+		NovaSenhaHash string `json:"NovaSenhaHash"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("handleAcademiaSenhaAlterada: parse error: %w", err)
+	}
+	if payload.NovaSenhaHash == "" {
+		return fmt.Errorf("handleAcademiaSenhaAlterada: NovaSenhaHash vazio no payload")
+	}
+
+	_, err := p.client.DB().Exec(`
+		UPDATE projection_academias
+		SET senha_hash    = $1,
+		    updated_at    = CURRENT_TIMESTAMP,
+		    version       = $2,
+		    last_event_id = $3
+		WHERE id = $4
+	`, payload.NovaSenhaHash, event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
+
 // ============================================================================
 // Queries de leitura
 // ============================================================================
 
 // AcademiaDTO representa a visão de leitura de uma academia.
 type AcademiaDTO struct {
-	ID                  uuid.UUID `json:"id"`
-	Type                string    `json:"type"`
-	Nome                string    `json:"nome"`
-	CodigoAcademia      string    `json:"codigo_academia"`
-	SenhaHash           string    `json:"senha_hash,omitempty"`
-	Provincia           string    `json:"provincia"`
-	Endereco            string    `json:"endereco"`
-	NumeroTelefone      *string   `json:"numero_telefone,omitempty"`
-	Email               *string   `json:"email,omitempty"`
-	Website             *string   `json:"website,omitempty"`
-	NivelEscolar        *string   `json:"nivel_escolar,omitempty"`
-	AnosAcademicos      []string  `json:"anos_academicos,omitempty"`
-	Status              string    `json:"status"`
-	MotivoDesativacao   *string   `json:"motivo_desativacao,omitempty"`
-	Cursos              []string  `json:"cursos"`
-	EmailVerificado     bool      `json:"email_verificado"`
-	CreatedAt           time.Time `json:"created_at"`
-	UpdatedAt           time.Time `json:"updated_at"`
-	TotalEstudantes     int       `json:"total_estudantes"`
-	Version             int       `json:"version"`
+	ID                uuid.UUID `json:"id"`
+	Type              string    `json:"type"`
+	Nome              string    `json:"nome"`
+	CodigoAcademia    string    `json:"codigo_academia"`
+	SenhaHash         string    `json:"senha_hash,omitempty"`
+	Provincia         string    `json:"provincia"`
+	Endereco          string    `json:"endereco"`
+	NumeroTelefone    *string   `json:"numero_telefone,omitempty"`
+	Email             *string   `json:"email,omitempty"`
+	Website           *string   `json:"website,omitempty"`
+	NivelEscolar      *string   `json:"nivel_escolar,omitempty"`
+	AnosAcademicos    []string  `json:"anos_academicos,omitempty"`
+	Status            string    `json:"status"`
+	MotivoDesativacao *string   `json:"motivo_desativacao,omitempty"`
+	Cursos            []string  `json:"cursos"`
+	EmailVerificado   bool      `json:"email_verificado"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+	TotalEstudantes   int       `json:"total_estudantes"`
+	Version           int       `json:"version"`
 }
 
 // FIX E-07: queries de leitura NÃO mais filtram `deleted_at IS NULL` porque

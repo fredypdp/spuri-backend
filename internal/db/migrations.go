@@ -37,6 +37,7 @@ var allMigrations = []string{
 	"migrations/024_remove_inscricoes_sistema.sql",
 	"migrations/025_admin_email_unique_index.sql",
 	"migrations/026_academia_motivo_desativacao.sql",
+	"migrations/027_academia_senha_alterada.sql",
 }
 
 func (c *Client) RunMigrations() error {
