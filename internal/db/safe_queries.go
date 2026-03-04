@@ -4,14 +4,25 @@
 // Funções de validação e sanitização para queries SQL.
 // TODAS as queries dinâmicas devem usar estas funções.
 //
-// CORREÇÕES APLICADAS:
-//   FIX-ERR1 — ValidateLimit volta a receber 1 argumento (estava quebrando
-//               callers em event_store.go, manager.go). Defaults embutidos:
-//               defaultLimit=50, maxLimit=1000.
-//   FIX-ERR2 — ValidateTableName adicionada (era usada em migrations.go
-//               mas não estava definida aqui, causando undefined error).
-//   FIX-WL1  — EmailVerificadoEstudante adicionado à whitelist de eventos.
-//   FIX-WL2  — StatusEscolarAtualizado REMOVIDO da whitelist (evento fantasma).
+// CORREÇÕES APLICADAS (Etapa 1 — pré-existentes):
+//   FIX-ERR1 — ValidateLimit volta a receber 1 argumento.
+//   FIX-ERR2 — ValidateTableName adicionada.
+//   FIX-WL1  — EmailVerificadoEstudante adicionado.
+//   FIX-WL2  — StatusEscolarAtualizado REMOVIDO (evento fantasma).
+//
+// CORREÇÕES APLICADAS (Etapa 2 — auditoria-etapa2-db.md):
+//   FIX-WL-01 — "AdminAcaoRegistrada" corrigido para "AcaoAdminRegistrada"
+//               (nome emitido pelo aggregate Admin).
+//   FIX-WL-02 — "AdminRoleAtualizado" adicionado (estava ausente).
+//   FIX-WL-03 — "NotasAtualizadas" (fantasma) removido; "NotasRegistradas"
+//               adicionado (nome real emitido pelo aggregate Estudante).
+//   FIX-WL-04 — "MateriaPeriodoDefinido" adicionado (estava ausente).
+//   FIX-WL-05 — "MateriaDeletada" adicionado (estava ausente).
+//   FIX-WL-06 — "CursoDeletado" adicionado (estava ausente).
+//   FIX-WL-07 — "EstudanteAdicionadoTurma" corrigido para
+//               "EstudanteAdicionadoATurma" (nome emitido pelo aggregate Turma).
+//   FIX-WL-08 — "EstudanteRemovidoTurma" corrigido para
+//               "EstudanteRemovidoDaTurma" (nome emitido pelo aggregate Turma).
 // ============================================================================
 
 package db
@@ -23,24 +34,27 @@ import (
 )
 
 // ValidateEventType verifica se o tipo de evento é permitido.
+// TODOS os eventos emitidos pelos aggregates devem estar listados aqui.
+// Um evento ausente é silenciosamente rejeitado por EventStore.AppendTx(),
+// fazendo com que o Save retorne erro e o evento nunca chegue ao ledger.
 func ValidateEventType(eventType string) error {
 	validTypes := map[string]bool{
 		// ── Estudante ────────────────────────────────────────────────────────
-		"EstudanteCriado":            true,
-		"EstudanteCriadoComVinculo":  true,
-		"DadosPessoaisAtualizados":   true,
+		"EstudanteCriado":           true,
+		"EstudanteCriadoComVinculo": true,
+		"DadosPessoaisAtualizados":  true,
 		"DadosAcademicosAtualizados": true,
-		"SenhaAlterada":              true,
-		"CursoAlterado":              true,
+		"SenhaAlterada":             true,
+		"CursoAlterado":             true,
 
-		// ── Status Escolar ────────────────────────────────────────────────────
-		// "StatusEscolarAtualizado" REMOVIDO — evento fantasma (FIX-WL2).
+		// ── Status Escolar ───────────────────────────────────────────────────
+		// "StatusEscolarAtualizado" REMOVIDO — evento fantasma (FIX-WL2 Etapa 1).
 		"StatusEscolarFundamentalAtualizado": true,
 		"StatusEscolarMedioAtualizado":       true,
 		"StatusSuperiorAtualizado":           true,
 
-		// ── Email Estudante ───────────────────────────────────────────────────
-		// FIX-WL1: nome distinto para não colidir com "EmailVerificado" de Admin/Academia.
+		// ── Email Estudante ──────────────────────────────────────────────────
+		// Nome distinto de "EmailVerificado" (Admin/Academia) para evitar ambiguidade.
 		"EmailVerificadoEstudante": true,
 
 		// ── Academia ─────────────────────────────────────────────────────────
@@ -52,43 +66,55 @@ func ValidateEventType(eventType string) error {
 		"EmailVerificado":          true,
 		"AcademiaSenhaAlterada":    true,
 
-		// ── Admin ─────────────────────────────────────────────────────────────
+		// ── Admin ────────────────────────────────────────────────────────────
 		"AdminCriado":           true,
 		"AdminAtivado":          true,
 		"AdminDesativado":       true,
 		"AdminDadosAtualizados": true,
 		"AdminSenhaAlterada":    true,
-		"AdminAcaoRegistrada":   true,
+		// FIX-WL-01: era "AdminAcaoRegistrada" — nome correto é "AcaoAdminRegistrada"
+		"AcaoAdminRegistrada": true,
+		// FIX-WL-02: ausente — aggregate Admin emite "AdminRoleAtualizado"
+		"AdminRoleAtualizado": true,
 
 		// ── Aprovação e Avaliação ─────────────────────────────────────────────
 		"AprovacaoAnoRegistrada":     true,
 		"AvaliacaoFinalAnoAcademico": true,
 
 		// ── Notas e Faltas ────────────────────────────────────────────────────
-		"NotaAtualizada":    true,
-		"NotasAtualizadas":  true,
+		"NotaAtualizada": true,
+		// FIX-WL-03: "NotasAtualizadas" era fantasma — nome correto é "NotasRegistradas"
+		"NotasRegistradas":  true,
 		"FaltasRegistradas": true,
 
 		// ── Turma ─────────────────────────────────────────────────────────────
-		"TurmaCriada":              true,
-		"TurmaAtivada":             true,
-		"TurmaDesativada":          true,
-		"EstudanteAdicionadoTurma": true,
-		"EstudanteRemovidoTurma":   true,
-		"TurmaDadosAtualizados":    true,
-		"TurmaDeletada":            true,
+		"TurmaCriada":      true,
+		"TurmaAtivada":     true,
+		"TurmaDesativada":  true,
+		"TurmaDadosAtualizados": true,
+		"TurmaDeletada":    true,
+		// FIX-WL-07: era "EstudanteAdicionadoTurma" — nome correto emitido pelo aggregate
+		"EstudanteAdicionadoATurma": true,
+		// FIX-WL-08: era "EstudanteRemovidoTurma" — nome correto emitido pelo aggregate
+		"EstudanteRemovidoDaTurma": true,
 
 		// ── Curso ─────────────────────────────────────────────────────────────
 		"CursoCriado":           true,
 		"CursoAtivado":          true,
 		"CursoDesativado":       true,
 		"CursoDadosAtualizados": true,
+		// FIX-WL-06: ausente — aggregate Curso emite "CursoDeletado"
+		"CursoDeletado": true,
 
 		// ── MateriaDisciplinar ────────────────────────────────────────────────
 		"MateriaCriada":           true,
 		"MateriaAtivada":          true,
 		"MateriaDesativada":       true,
 		"MateriaDadosAtualizados": true,
+		// FIX-WL-04: ausente — aggregate MateriaDisciplinar emite "MateriaPeriodoDefinido"
+		"MateriaPeriodoDefinido": true,
+		// FIX-WL-05: ausente — aggregate MateriaDisciplinar emite "MateriaDeletada"
+		"MateriaDeletada": true,
 
 		// ── SistemaConfig ─────────────────────────────────────────────────────
 		"AnoLetivoDefinido": true,
@@ -155,7 +181,7 @@ func SafeString(s string) bool {
 }
 
 // ValidateTableName verifica se um nome de tabela é seguro para uso em queries dinâmicas.
-// FIX-ERR2: era usada em migrations.go mas não estava definida, causando "undefined: ValidateTableName".
+// FIX-ERR2: era usada em migrations.go mas não estava definida.
 func ValidateTableName(name string) error {
 	if name == "" {
 		return fmt.Errorf("nome de tabela não pode ser vazio")

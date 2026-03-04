@@ -1,11 +1,23 @@
 -- ============================================================
 -- MIGRATION 019 — Suporte a deleção auditável (soft delete)
--- Afeta: projection_turmas, projection_cursos
--- (projection_materias já tem suporte via DELETE físico;
---  alterar para soft delete se quiser auditabilidade igual)
+-- Afeta: projection_turmas, projection_cursos, projection_materias
+-- ============================================================
+--
+-- CONTEXTO:
+--   Deleção física (DELETE FROM) é incompatível com event sourcing imutável:
+--   o ledger guarda eventos para sempre, então a projeção deve refletir
+--   o soft delete via campo deleted_at, mantendo o registro para rebuild.
+--
+-- O QUE ESTA MIGRATION FAZ:
+--   1. projection_turmas  — adiciona deleted_at, atualiza CHECK de status
+--      para incluir 'deletado', cria índice parcial.
+--   2. projection_cursos  — idem.
+--   3. projection_materias — idem. (Anteriormente usava DELETE físico;
+--      esta migration converte para soft delete para garantir consistência
+--      de rebuild via evento MateriaDeletada.)
 -- ============================================================
 
--- ── projection_turmas ──────────────────────────────────────
+-- ── projection_turmas ──────────────────────────────────────────────────────
 
 ALTER TABLE projection_turmas
     ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;
@@ -26,7 +38,7 @@ CREATE INDEX IF NOT EXISTS idx_turmas_not_deleted
 COMMENT ON COLUMN projection_turmas.deleted_at IS
     'Preenchido via evento TurmaDeletada — registro mantido para auditoria';
 
--- ── projection_cursos ──────────────────────────────────────
+-- ── projection_cursos ──────────────────────────────────────────────────────
 
 ALTER TABLE projection_cursos
     ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;
@@ -45,8 +57,14 @@ CREATE INDEX IF NOT EXISTS idx_cursos_not_deleted
 COMMENT ON COLUMN projection_cursos.deleted_at IS
     'Preenchido via evento CursoDeletado — registro mantido para auditoria';
 
--- ── projection_materias: converter de DELETE físico para soft delete ───────
--- (opcional mas recomendado para consistência com os demais)
+-- ── projection_materias — convertida de DELETE físico para soft delete ─────
+--
+-- NOTA (ERRO-MIG-03 FIX): O comentário original desta migration dizia
+-- "projection_materias já tem suporte via DELETE físico" e tratava a
+-- conversão para soft delete como opcional. Isso era contraditório pois
+-- o corpo da migration adiciona deleted_at e atualiza o CHECK de status.
+-- Soft delete em projection_materias é OBRIGATÓRIO para que o evento
+-- MateriaDeletada possa ser reprocessado corretamente em um rebuild.
 
 ALTER TABLE projection_materias
     ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP DEFAULT NULL;
@@ -65,9 +83,7 @@ CREATE INDEX IF NOT EXISTS idx_materias_not_deleted
 COMMENT ON COLUMN projection_materias.deleted_at IS
     'Preenchido via evento MateriaDeletada — registro mantido para auditoria';
 
--- ── Novos checkpoints (se ainda não existirem) ─────────────
--- Os checkpoints de turmas/cursos/materias já existem;
--- nenhuma entrada nova necessária.
+-- ── Checkpoints existentes não precisam de nova entrada ────────────────────
 
 DO $$ BEGIN
     RAISE NOTICE '✅ MIGRATION 019 CONCLUÍDA — soft delete auditável para turmas, cursos e matérias';

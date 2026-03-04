@@ -1,3 +1,13 @@
+// ============================================================================
+// ARQUIVO: internal/db/migrations.go
+//
+// ALTERAÇÕES (Etapa 2):
+//   — Adicionadas migrations 028, 029 e 030 ao array allMigrations.
+//     028: FIX-C3 email_verificado estudante via event sourcing (pré-existente no FS).
+//     029: Proteção de spuri_ledger contra TRUNCATE (ERRO-MIG-04).
+//     030: Recriação da view v_estudantes_com_cursos (ERRO-MIG-01).
+// ============================================================================
+
 package db
 
 import (
@@ -9,7 +19,7 @@ import (
 )
 
 // allMigrations define a ordem exata de execução.
-// Todas são idempotentes (IF NOT EXISTS / IF EXISTS).
+// Todas são idempotentes (IF NOT EXISTS / IF EXISTS / OR REPLACE).
 var allMigrations = []string{
 	"migrations/001_complete_schema.sql",
 	"migrations/002_add_email_verificado_safe.sql",
@@ -38,6 +48,10 @@ var allMigrations = []string{
 	"migrations/025_admin_email_unique_index.sql",
 	"migrations/026_academia_motivo_desativacao.sql",
 	"migrations/027_academia_senha_alterada.sql",
+	// Etapa 2 — novas migrations:
+	"migrations/028_fix_estudante_email_verificado.sql",
+	"migrations/029_fix_ledger_truncate_protection.sql",
+	"migrations/030_fix_view_estudantes_com_cursos.sql",
 }
 
 func (c *Client) RunMigrations() error {

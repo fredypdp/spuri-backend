@@ -1,3 +1,24 @@
+// ============================================================================
+// ARQUIVO: internal/db/repository.go
+//
+// CORREÇÕES APLICADAS (Etapa 2 — auditoria-etapa2-db.md):
+//   FIX-REPO-01 — metadataJSON, _ := json.Marshal(metadata) silenciava erro
+//                 de serialização em dbEvent() e dbEventWithAudit().
+//                 Agora o erro é propagado ao chamador, evitando que eventos
+//                 sejam gravados no ledger sem metadata de auditoria.
+//   FIX-REPO-02 — Load() e LoadFromVersion() não validavam que os eventos
+//                 retornados pelo ledger pertencem ao aggregateType solicitado.
+//                 Adicionada verificação de consistência no primeiro evento,
+//                 prevenindo reconstituição silenciosa com tipo errado.
+//
+// NOTA ARQUITETURAL (REPO-03):
+//   Save() e SaveWithAudit() gravam no ledger em uma transação, mas a
+//   atualização da projeção ocorre após o Commit(), via Manager assíncrono,
+//   em transação separada. Esta é uma limitação conhecida do padrão adotado:
+//   há uma janela de inconsistência entre ledger e projeção após falha do
+//   Manager. O rebuild é o mecanismo de recuperação previsto.
+// ============================================================================
+
 package db
 
 import (
@@ -36,6 +57,10 @@ func NewAggregateRepository(client *Client) *AggregateRepository {
 	}
 }
 
+// Load reconstrói um aggregate a partir dos eventos do ledger.
+//
+// FIX-REPO-02: valida que todos os eventos retornados pertencem ao
+// aggregateType solicitado, prevenindo reconstituição com tipo errado.
 func (r *AggregateRepository) Load(id uuid.UUID, aggregateType string) (aggregates.Aggregate, error) {
 	dbEvents, err := r.eventStore.LoadEventStream(r.ctx, id)
 	if err != nil {
@@ -44,6 +69,17 @@ func (r *AggregateRepository) Load(id uuid.UUID, aggregateType string) (aggregat
 
 	if len(dbEvents) == 0 {
 		return nil, fmt.Errorf("agregado não encontrado: %s", id)
+	}
+
+	// FIX-REPO-02: verificar consistência de aggregate_type no ledger.
+	// Protege contra chamadas incorretas (ex: UUID de Curso com aggregateType="Turma").
+	for _, ge := range dbEvents {
+		if ge.AggregateType != aggregateType {
+			return nil, fmt.Errorf(
+				"inconsistência de tipo no ledger: evento %q (id=%d) pertence ao aggregate %q, esperado %q — verifique o UUID utilizado",
+				ge.EventType, ge.ID, ge.AggregateType, aggregateType,
+			)
+		}
 	}
 
 	domainEvents, err := r.convertToDomainEvents(dbEvents)
@@ -153,6 +189,9 @@ func (r *AggregateRepository) Exists(id uuid.UUID) (bool, error) {
 	return count > 0, nil
 }
 
+// LoadFromVersion reconstrói um aggregate a partir de uma versão específica.
+//
+// FIX-REPO-02: valida consistência de aggregate_type, igual ao Load().
 func (r *AggregateRepository) LoadFromVersion(
 	id uuid.UUID,
 	aggregateType string,
@@ -165,6 +204,16 @@ func (r *AggregateRepository) LoadFromVersion(
 
 	if len(dbEvents) == 0 {
 		return nil, fmt.Errorf("nenhum evento encontrado")
+	}
+
+	// FIX-REPO-02: verificar consistência de aggregate_type.
+	for _, ge := range dbEvents {
+		if ge.AggregateType != aggregateType {
+			return nil, fmt.Errorf(
+				"inconsistência de tipo no ledger: evento %q (id=%d) pertence ao aggregate %q, esperado %q",
+				ge.EventType, ge.ID, ge.AggregateType, aggregateType,
+			)
+		}
 	}
 
 	domainEvents, err := r.convertToDomainEvents(dbEvents)
@@ -273,6 +322,11 @@ type Snapshot struct {
 // Helpers internos
 // ============================================================================
 
+// dbEvent converte um DomainEvent para o formato de banco sem contexto de auditoria.
+//
+// FIX-REPO-01: metadataJSON, _ = json.Marshal(...) silenciava falhas de
+// serialização. Agora o erro é propagado — o Save retorna erro em vez de
+// gravar um evento sem metadata.
 func (r *AggregateRepository) dbEvent(
 	domainEvent aggregates.DomainEvent,
 	aggregateType string,
@@ -282,13 +336,17 @@ func (r *AggregateRepository) dbEvent(
 
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao serializar payload: %w", err)
+		return nil, fmt.Errorf("erro ao serializar payload do evento %s: %w", domainEvent.GetEventType(), err)
 	}
 
 	metadata := map[string]interface{}{
 		"timestamp": time.Now().Unix(),
 	}
-	metadataJSON, _ := json.Marshal(metadata)
+	// FIX-REPO-01: erro propagado ao invés de silenciado com _.
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao serializar metadata do evento %s: %w", domainEvent.GetEventType(), err)
+	}
 
 	return &Event{
 		EventID:       uuid.New(),
@@ -302,6 +360,11 @@ func (r *AggregateRepository) dbEvent(
 	}, nil
 }
 
+// dbEventWithAudit converte um DomainEvent com contexto de auditoria completo.
+//
+// FIX-REPO-01: metadataJSON, _ = json.Marshal(...) silenciava falhas de
+// serialização. Crítico nesta função pois o metadata é o único lugar onde
+// user_id, user_type e IP são persistidos.
 func (r *AggregateRepository) dbEventWithAudit(
 	domainEvent aggregates.DomainEvent,
 	aggregateType string,
@@ -312,7 +375,7 @@ func (r *AggregateRepository) dbEventWithAudit(
 
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao serializar payload: %w", err)
+		return nil, fmt.Errorf("erro ao serializar payload do evento %s: %w", domainEvent.GetEventType(), err)
 	}
 
 	metadata := map[string]interface{}{
@@ -321,7 +384,12 @@ func (r *AggregateRepository) dbEventWithAudit(
 		"user_type": audit.UserType,
 		"ip":        audit.IP,
 	}
-	metadataJSON, _ := json.Marshal(metadata)
+	// FIX-REPO-01: erro propagado. Sem metadata de auditoria o Save deve falhar,
+	// não gravar um evento sem rastreabilidade de quem/quando/de onde.
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao serializar metadata de auditoria do evento %s: %w", domainEvent.GetEventType(), err)
+	}
 
 	return &Event{
 		EventID:       uuid.New(),

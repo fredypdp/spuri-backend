@@ -59,6 +59,7 @@ END $$;
 
 COMMIT;
 
+-- ERRO-MIG-05 FIX: número corrigido de 012 para 013.
 DO $$ BEGIN
-    RAISE NOTICE '✅ MIGRATION 012 — semântica de anos_academicos em projection_materias aplicada.';
+    RAISE NOTICE '✅ MIGRATION 013 — semântica de anos_academicos em projection_materias aplicada.';
 END $$;
