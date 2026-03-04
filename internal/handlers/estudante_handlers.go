@@ -602,8 +602,9 @@ func ListarEstudantes(c *gin.Context) {
 			SELECT id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
 				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
 				status, status_escolar_fundamental, status_escolar_medio, status_superior,
-				ano_escolar, ano_escolar_medio, ano_superior,
-				curso_medio_id, curso_superior_id, created_at, updated_at,
+				ano_escolar, ano_escolar_meio, ano_superior,
+				curso_medio_id, curso_superior_id,
+				COALESCE(genero, ''), created_at, updated_at,
 				COALESCE(total_notas, 0), COALESCE(total_faltas, 0), version
 			FROM projection_estudantes
 			WHERE codigo_academia = $1
@@ -630,7 +631,8 @@ func ListarEstudantes(c *gin.Context) {
 				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
 				status, status_escolar_fundamental, status_escolar_medio, status_superior,
 				ano_escolar, ano_escolar_medio, ano_superior,
-				curso_medio_id, curso_superior_id, created_at, updated_at,
+				curso_medio_id, curso_superior_id,
+				COALESCE(genero, ''), created_at, updated_at,
 				COALESCE(total_notas, 0), COALESCE(total_faltas, 0), version
 			FROM projection_estudantes
 			ORDER BY created_at DESC
@@ -662,6 +664,7 @@ func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
 		var email, telefone, bilhete, bilheteResp, codigoAcad sql.NullString
 		var anoEscolar, anoEscolarMedio, anoSuperior sql.NullString
 		var emailVerif bool
+		var genero string
 		var createdAt, updatedAt string
 		var totalNotas, totalFaltas, version int
 
@@ -671,7 +674,7 @@ func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
 			&status, &statusFund, &statusMedio, &statusSuperior,
 			&anoEscolar, &anoEscolarMedio, &anoSuperior,
 			&cursoMedioID, &cursoSuperiorID,
-			&createdAt, &updatedAt, &totalNotas, &totalFaltas, &version,
+			&genero, &createdAt, &updatedAt, &totalNotas, &totalFaltas, &version,
 		); err != nil {
 			log.Printf("[ERROR] ListarEstudantes scan: %v", err)
 			continue
@@ -695,6 +698,7 @@ func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
 			"ano_superior":                   getNullString(anoSuperior),
 			"curso_medio_id":                 getNullString(cursoMedioID),
 			"curso_superior_id":              getNullString(cursoSuperiorID),
+			"genero":                         genero,
 			"created_at":                     createdAt,
 			"updated_at":                     updatedAt,
 			"total_notas":                    totalNotas,
@@ -705,49 +709,11 @@ func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
 	return estudantes
 }
 
-func getNullString(ns sql.NullString) interface{} {
-	if ns.Valid {
-		return ns.String
-	}
-	return nil
-}
-
-// ============================================================================
-// GET /verificar-integridade/:codigo
-// ============================================================================
-
-func VerificarIntegridade(c *gin.Context) {
-	codigoEstudante := c.Param("codigo")
-
-	estudanteProj := getEstudanteProjection(c)
-	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
-	if err != nil || estudante == nil {
-		utils.RespondWithNotFoundError(c, "estudante")
-		return
-	}
-
-	repository := getRepository(c)
-	valid, err := repository.VerifyIntegrity(estudante.ID)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"codigo_estudante": codigoEstudante,
-		"integro":          valid,
-		"message": func() string {
-			if valid {
-				return "Ledger íntegro — cadeia de hashes válida"
-			}
-			return "ALERTA: ledger corrompido — cadeia de hashes inválida"
-		}(),
-	})
-}
-
 // ============================================================================
 // GET /eventos-estudante/:codigo
 // ============================================================================
+// NOTA: getNullString está em helpers.go (pacote compartilhado).
+// NOTA: VerificarIntegridade está em query_handlers.go.
 
 func GetEventosEstudante(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")

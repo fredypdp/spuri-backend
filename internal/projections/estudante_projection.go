@@ -591,6 +591,7 @@ type EstudanteDTO struct {
 	AnoSuperior              *string    `db:"ano_superior"`
 	CursoMedioID             *uuid.UUID `db:"curso_medio_id"`
 	CursoSuperiorID          *uuid.UUID `db:"curso_superior_id"`
+	Genero                   string     `db:"genero"`
 	CreatedAt                time.Time  `db:"created_at"`
 	UpdatedAt                time.Time  `db:"updated_at"`
 	TotalNotas               int        `db:"total_notas"`
@@ -606,7 +607,7 @@ func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
 			status, status_escolar_fundamental, status_escolar_medio, status_superior,
 			ano_escolar, ano_escolar_medio, ano_superior,
 			curso_medio_id, curso_superior_id,
-			created_at, updated_at,
+			COALESCE(genero, ''), created_at, updated_at,
 			COALESCE(total_notas, 0), COALESCE(total_faltas, 0), version
 		FROM projection_estudantes WHERE id = $1
 	`, id)
@@ -621,7 +622,7 @@ func (p *EstudanteProjection) GetByCodigo(codigo string) (*EstudanteDTO, error) 
 			status, status_escolar_fundamental, status_escolar_medio, status_superior,
 			ano_escolar, ano_escolar_medio, ano_superior,
 			curso_medio_id, curso_superior_id,
-			created_at, updated_at,
+			COALESCE(genero, ''), created_at, updated_at,
 			COALESCE(total_notas, 0), COALESCE(total_faltas, 0), version
 		FROM projection_estudantes WHERE codigo_estudante = $1
 	`, codigo)
@@ -636,7 +637,7 @@ func (p *EstudanteProjection) GetByBilheteIdentidadePrincipal(bilhete string) (*
 			status, status_escolar_fundamental, status_escolar_medio, status_superior,
 			ano_escolar, ano_escolar_medio, ano_superior,
 			curso_medio_id, curso_superior_id,
-			created_at, updated_at,
+			COALESCE(genero, ''), created_at, updated_at,
 			COALESCE(total_notas, 0), COALESCE(total_faltas, 0), version
 		FROM projection_estudantes WHERE bilhete_identidade = $1
 	`, bilhete)
@@ -654,7 +655,7 @@ func scanEstudante(row *sql.Row) (*EstudanteDTO, error) {
 		&dto.Status, &dto.StatusEscolarFundamental, &dto.StatusEscolarMedio, &dto.StatusSuperior,
 		&dto.AnoEscolar, &dto.AnoEscolarMedio, &dto.AnoSuperior,
 		&cursoMedioID, &cursoSuperiorID,
-		&dto.CreatedAt, &dto.UpdatedAt,
+		&dto.Genero, &dto.CreatedAt, &dto.UpdatedAt,
 		&dto.TotalNotas, &dto.TotalFaltas, &dto.Version,
 	)
 	if err == sql.ErrNoRows {
@@ -676,4 +677,22 @@ func scanEstudante(row *sql.Row) (*EstudanteDTO, error) {
 	}
 
 	return &dto, nil
+}
+
+// CountByCurso retorna o número de estudantes matriculados em um curso específico.
+// Um estudante é considerado matriculado se curso_medio_id ou curso_superior_id
+// corresponde ao cursoID e o estudante está ativo.
+// Usado por DeletarCurso para bloquear a deleção quando há estudantes matriculados.
+func (p *EstudanteProjection) CountByCurso(cursoID uuid.UUID) (int, error) {
+	var count int
+	err := p.client.DB().QueryRow(`
+		SELECT COUNT(*)
+		FROM projection_estudantes
+		WHERE (curso_medio_id = $1 OR curso_superior_id = $1)
+		  AND status = 'ativo'
+	`, cursoID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("erro ao contar estudantes do curso: %w", err)
+	}
+	return count, nil
 }

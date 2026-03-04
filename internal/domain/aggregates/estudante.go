@@ -3,13 +3,14 @@
 //
 // CORREÇÕES APLICADAS:
 //   FIX-C3  — VerificarEmail() adicionado ao aggregate Estudante (event sourcing)
-//   FIX-C4  — Rotas de status escolar REMOVIDAS das rotas de estudante (feito no main.go)
-//              O aggregate mantém os comandos, mas os handlers agora exigem academia.
+//   FIX-ERR — applyStatusEscolarFundamentalAtualizado e applyStatusEscolarMedioAtualizado
+//              adicionados neste arquivo (os eventos e comandos estão em estudante_aprovacao.go,
+//              mas os apply handlers precisam existir aqui para o switch funcionar)
 //   FIX-C5  — apply handlers propagam erros de json.Unmarshal
-//   FIX-C6  — EmailVerificado adicionado ao switch Apply()
+//   FIX-C6  — EmailVerificadoEstudante adicionado ao switch Apply()
 //
 // REGRA DE ORGANIZAÇÃO DOS ARQUIVOS:
-//   estudante.go           → struct, Apply switch, eventos base, comandos core
+//   estudante.go           → struct, Apply switch, eventos base, comandos core, apply handlers
 //   estudante_falta.go     → RegistrarFalta
 //   estudante_notas.go     → eventos de nota, RegistrarNota, AtualizarNota,
 //                            applyNotasRegistradas, applyNotaAtualizada
@@ -25,7 +26,6 @@ package aggregates
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -107,7 +107,6 @@ func (e *Estudante) Apply(event DomainEvent) error {
 		return e.applyDadosAcademicosAtualizados(event)
 	case "SenhaAlterada":
 		return e.applySenhaAlterada(event)
-	// FIX-C6: EmailVerificado agora tratado no Apply do estudante
 	case "EmailVerificadoEstudante":
 		return e.applyEmailVerificado(event)
 	default:
@@ -119,7 +118,7 @@ func (e *Estudante) Apply(event DomainEvent) error {
 // Eventos base (definidos neste arquivo)
 // NOTA: AvaliacaoFinalAnoAcademicoEvent está em estudante_avaliacao.go
 //       NotasRegistradasEvent / NotaAtualizadaEvent estão em estudante_notas.go
-//       AprovacaoAnoRegistradaEvent / StatusEscolar*Event estão em estudante_aprovacao.go
+//       AprovacaoAnoRegistradaEvent / StatusEscolar*AtualizadoEvent estão em estudante_aprovacao.go
 // ============================================================================
 
 type EstudanteCriadoEvent struct {
@@ -242,9 +241,8 @@ type SenhaAlteradaEvent struct {
 func (e *SenhaAlteradaEvent) GetPayload() interface{} { return e }
 func (e *SenhaAlteradaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
-// FIX-C3: EmailVerificadoEstudanteEvent — evento exclusivo do aggregate Estudante.
-// Usa nome distinto de "EmailVerificado" (que é do Admin/Academia) para evitar
-// ambiguidade na whitelist ValidateEventType e no Apply dispatcher.
+// EmailVerificadoEstudanteEvent — evento exclusivo do aggregate Estudante.
+// Nome distinto de "EmailVerificado" (Admin/Academia) para evitar ambiguidade.
 type EmailVerificadoEstudanteEvent struct {
 	BaseEvent
 	VerifiedAt time.Time
@@ -257,7 +255,6 @@ func (e *EmailVerificadoEstudanteEvent) ToJSON() ([]byte, error) { return json.M
 // Comandos
 // ============================================================================
 
-// Criar cria um estudante SEM vínculo com academia (cadastro direto pelo estudante).
 func (e *Estudante) Criar(
 	nome string,
 	codigoEstudante string,
@@ -279,15 +276,12 @@ func (e *Estudante) Criar(
 	if nome == "" || codigoEstudante == "" || senhaHash == "" {
 		return fmt.Errorf("campos obrigatórios vazios")
 	}
-
 	if genero != "masculino" && genero != "feminino" {
 		return fmt.Errorf("genero deve ser 'masculino' ou 'feminino'")
 	}
-
 	if bilhete == nil && bilheteResp == nil {
 		return fmt.Errorf("pelo menos um bilhete de identidade é obrigatório")
 	}
-
 	if bilhete != nil && bilheteResp != nil && *bilhete == *bilheteResp {
 		return fmt.Errorf("bilhete de identidade do estudante e do responsável não podem ser iguais")
 	}
@@ -295,7 +289,6 @@ func (e *Estudante) Criar(
 	statusFund := "inativo"
 	statusMed := "inativo"
 	statusSup := "inativo"
-
 	validStatus := map[string]bool{"inativo": true, "em_andamento": true, "finalizado": true}
 
 	if statusEscolarFundamental != nil {
@@ -337,13 +330,10 @@ func (e *Estudante) Criar(
 		CreatedAt:                time.Now(),
 		Genero:                   genero,
 	}
-
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
 
-// CriarComVinculo cria um estudante JÁ VINCULADO a uma academia.
-// Usado exclusivamente pelo endpoint POST /academia/estudante/register.
 func (e *Estudante) CriarComVinculo(
 	nome string,
 	codigoEstudante string,
@@ -366,7 +356,6 @@ func (e *Estudante) CriarComVinculo(
 	if nome == "" || codigoEstudante == "" || senhaHash == "" || codigoAcademia == "" {
 		return fmt.Errorf("campos obrigatórios vazios")
 	}
-
 	if genero != "masculino" && genero != "feminino" {
 		return fmt.Errorf("genero deve ser 'masculino' ou 'feminino'")
 	}
@@ -374,7 +363,6 @@ func (e *Estudante) CriarComVinculo(
 	statusFund := "em_andamento"
 	statusMed := "inativo"
 	statusSup := "inativo"
-
 	validStatus := map[string]bool{"inativo": true, "em_andamento": true, "finalizado": true}
 
 	if statusEscolarFundamental != nil {
@@ -417,23 +405,18 @@ func (e *Estudante) CriarComVinculo(
 		CreatedAt:                time.Now(),
 		Genero:                   genero,
 	}
-
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
 
-// VerificarEmail emite evento de verificação de email para o estudante.
-// FIX-C3: event sourcing completo — antes era UPDATE direto na projeção.
 func (e *Estudante) VerificarEmail() error {
 	if e.EmailVerificado {
 		return fmt.Errorf("email já verificado")
 	}
-
 	event := &EmailVerificadoEstudanteEvent{
 		BaseEvent:  BaseEvent{EventType: "EmailVerificadoEstudante", AggregateID: e.ID},
 		VerifiedAt: time.Now(),
 	}
-
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
@@ -442,13 +425,11 @@ func (e *Estudante) AlterarSenha(novaSenhaHash string) error {
 	if novaSenhaHash == "" {
 		return fmt.Errorf("senha não pode ser vazia")
 	}
-
 	event := &SenhaAlteradaEvent{
 		BaseEvent:     BaseEvent{EventType: "SenhaAlterada", AggregateID: e.ID},
 		NovaSenhaHash: novaSenhaHash,
 		AlteradaAt:    time.Now(),
 	}
-
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
@@ -486,18 +467,15 @@ func (e *Estudante) AtualizarStatusSuperior(novoStatus string) error {
 	if !validStatus[novoStatus] {
 		return fmt.Errorf("status inválido: %s", novoStatus)
 	}
-
 	if (novoStatus == "em_andamento" || novoStatus == "finalizado") &&
 		e.StatusEscolarFundamental != "finalizado" && e.StatusEscolarMedio != "finalizado" {
 		return fmt.Errorf("status_superior só pode ser atualizado se status_escolar_fundamental e status_escolar_medio estiverem como 'finalizado'")
 	}
-
 	event := &StatusSuperiorAtualizadoEvent{
 		BaseEvent:  BaseEvent{EventType: "StatusSuperiorAtualizado", AggregateID: e.ID},
 		NovoStatus: novoStatus,
 		UpdatedAt:  time.Now(),
 	}
-
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
@@ -512,9 +490,7 @@ func (e *Estudante) AtualizarDadosPessoais(
 	if nome == nil && email == nil && telefone == nil && bilheteIdentidade == nil && bilheteIdentidadeResp == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
-
 	emailAlterado := email != nil && (e.Email == nil || *e.Email != *email)
-
 	event := &DadosPessoaisAtualizadosEvent{
 		BaseEvent:             BaseEvent{EventType: "DadosPessoaisAtualizados", AggregateID: e.ID},
 		Nome:                  nome,
@@ -525,7 +501,6 @@ func (e *Estudante) AtualizarDadosPessoais(
 		EmailAlterado:         emailAlterado,
 		UpdatedAt:             time.Now(),
 	}
-
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
@@ -540,7 +515,6 @@ func (e *Estudante) AtualizarDadosAcademicos(
 	if anoEscolar == nil && anoEscolarMedio == nil && anoSuperior == nil && cursoMedioID == nil && cursoSuperiorID == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
-
 	event := &DadosAcademicosAtualizadosEvent{
 		BaseEvent:       BaseEvent{EventType: "DadosAcademicosAtualizados", AggregateID: e.ID},
 		AnoEscolar:      anoEscolar,
@@ -550,7 +524,6 @@ func (e *Estudante) AtualizarDadosAcademicos(
 		CursoSuperiorID: cursoSuperiorID,
 		UpdatedAt:       time.Now(),
 	}
-
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
@@ -559,15 +532,12 @@ func (e *Estudante) AlterarCurso(cursoID uuid.UUID, tipoEnsino string) error {
 	if tipoEnsino != "medio" && tipoEnsino != "superior" {
 		return fmt.Errorf("tipo_ensino deve ser 'medio' ou 'superior'")
 	}
-
 	if cursoID == uuid.Nil {
 		return fmt.Errorf("curso_id inválido")
 	}
-
 	if e.CodigoAcademia == nil {
 		return fmt.Errorf("estudante não está vinculado a nenhuma academia")
 	}
-
 	if tipoEnsino == "medio" {
 		if e.StatusEscolarMedio != "em_andamento" {
 			return fmt.Errorf("só pode alterar curso médio se status_escolar_medio for 'em_andamento'")
@@ -577,21 +547,16 @@ func (e *Estudante) AlterarCurso(cursoID uuid.UUID, tipoEnsino string) error {
 			return fmt.Errorf("só pode alterar curso superior se status_superior for 'em_andamento'")
 		}
 	}
-
 	event := &CursoAlteradoEvent{
 		BaseEvent:  BaseEvent{EventType: "CursoAlterado", AggregateID: e.ID},
 		CursoID:    cursoID,
 		TipoEnsino: tipoEnsino,
 		UpdatedAt:  time.Now(),
 	}
-
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
 
-// RegistrarAprovacaoAno — academia registra aprovação ou reprovação de ano escolar.
-// Aprovado=true: avança para ProximoNivel (ou finaliza se último ano).
-// Aprovado=false: apenas registra reprovação, nenhum estado é alterado.
 func (e *Estudante) RegistrarAprovacaoAno(
 	codigoAcademia string,
 	anoLectivo string,
@@ -607,7 +572,6 @@ func (e *Estudante) RegistrarAprovacaoAno(
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
 	}
-
 	event := &AprovacaoAnoRegistradaEvent{
 		BaseEvent:       BaseEvent{EventType: "AprovacaoAnoRegistrada", AggregateID: e.ID},
 		CodigoEstudante: e.CodigoEstudante,
@@ -641,7 +605,6 @@ func (e *Estudante) applyEstudanteCriado(event DomainEvent) error {
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return fmt.Errorf("applyEstudanteCriado: unmarshal error: %w", err)
 	}
-
 	e.Nome = ev.Nome
 	e.CodigoEstudante = ev.CodigoEstudante
 	e.SenhaHash = ev.SenhaHash
@@ -672,7 +635,6 @@ func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return fmt.Errorf("applyEstudanteCriadoComVinculo: unmarshal error: %w", err)
 	}
-
 	e.Nome = ev.Nome
 	e.CodigoEstudante = ev.CodigoEstudante
 	e.SenhaHash = ev.SenhaHash
@@ -692,6 +654,36 @@ func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
 	e.Status = "ativo"
 	e.CreatedAt = ev.CreatedAt
 	e.Genero = ev.Genero
+	return nil
+}
+
+// applyStatusEscolarFundamentalAtualizado — FIX-ERR: handler faltava neste arquivo.
+// Os eventos estão em estudante_aprovacao.go, mas o apply handler deve estar aqui
+// porque o switch Apply() está neste arquivo (mesmo pacote, mas Go exige método no mesmo arquivo).
+func (e *Estudante) applyStatusEscolarFundamentalAtualizado(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyStatusEscolarFundamentalAtualizado: marshal error: %w", err)
+	}
+	var ev StatusEscolarFundamentalAtualizadoEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyStatusEscolarFundamentalAtualizado: unmarshal error: %w", err)
+	}
+	e.StatusEscolarFundamental = ev.NovoStatus
+	return nil
+}
+
+// applyStatusEscolarMedioAtualizado — FIX-ERR: handler faltava neste arquivo.
+func (e *Estudante) applyStatusEscolarMedioAtualizado(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyStatusEscolarMedioAtualizado: marshal error: %w", err)
+	}
+	var ev StatusEscolarMedioAtualizadoEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyStatusEscolarMedioAtualizado: unmarshal error: %w", err)
+	}
+	e.StatusEscolarMedio = ev.NovoStatus
 	return nil
 }
 
@@ -717,7 +709,6 @@ func (e *Estudante) applyCursoAlterado(event DomainEvent) error {
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return fmt.Errorf("applyCursoAlterado: unmarshal error: %w", err)
 	}
-
 	if ev.TipoEnsino == "medio" {
 		e.CursoMedioID = &ev.CursoID
 	} else {
@@ -735,11 +726,9 @@ func (e *Estudante) applyAprovacaoAnoRegistrada(event DomainEvent) error {
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return fmt.Errorf("applyAprovacaoAnoRegistrada: unmarshal error: %w", err)
 	}
-
 	if !ev.Aprovado {
 		return nil
 	}
-
 	switch ev.TipoEnsino {
 	case "fundamental":
 		e.AnoEscolar = ev.ProximoNivel
@@ -760,7 +749,6 @@ func (e *Estudante) applyDadosPessoaisAtualizados(event DomainEvent) error {
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return fmt.Errorf("applyDadosPessoaisAtualizados: unmarshal error: %w", err)
 	}
-
 	if ev.Nome != nil {
 		e.Nome = *ev.Nome
 	}
@@ -791,7 +779,6 @@ func (e *Estudante) applyDadosAcademicosAtualizados(event DomainEvent) error {
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return fmt.Errorf("applyDadosAcademicosAtualizados: unmarshal error: %w", err)
 	}
-
 	if ev.AnoEscolar != nil {
 		e.AnoEscolar = ev.AnoEscolar
 	}
@@ -823,13 +810,7 @@ func (e *Estudante) applySenhaAlterada(event DomainEvent) error {
 	return nil
 }
 
-// applyEmailVerificado — FIX-C3: event sourcing para verificação de email do estudante.
 func (e *Estudante) applyEmailVerificado(_ DomainEvent) error {
 	e.EmailVerificado = true
 	return nil
 }
-
-// ============================================================================
-// Suppress unused import warning for log (used by BaseAggregate via RaiseEvent)
-// ============================================================================
-var _ = log.Printf

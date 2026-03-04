@@ -1,11 +1,17 @@
 // ============================================================================
 // ARQUIVO: internal/db/safe_queries.go
 //
+// Funções de validação e sanitização para queries SQL.
+// TODAS as queries dinâmicas devem usar estas funções.
+//
 // CORREÇÕES APLICADAS:
-//   FIX-C3  — "EmailVerificadoEstudante" adicionado à whitelist (novo evento do estudante)
-//   FIX-C11 — "StatusEscolarAtualizado" REMOVIDO — evento fantasma sem aggregate emitente
-//   FIX-C11 — "AnoLetivoDefinido" já removido anteriormente (mantido comentário)
-//   FIX-C11 — Whitelist agora espelha exatamente os eventos emitidos pelos aggregates
+//   FIX-ERR1 — ValidateLimit volta a receber 1 argumento (estava quebrando
+//               callers em event_store.go, manager.go). Defaults embutidos:
+//               defaultLimit=50, maxLimit=1000.
+//   FIX-ERR2 — ValidateTableName adicionada (era usada em migrations.go
+//               mas não estava definida aqui, causando undefined error).
+//   FIX-WL1  — EmailVerificadoEstudante adicionado à whitelist de eventos.
+//   FIX-WL2  — StatusEscolarAtualizado REMOVIDO da whitelist (evento fantasma).
 // ============================================================================
 
 package db
@@ -17,84 +23,77 @@ import (
 )
 
 // ValidateEventType verifica se o tipo de evento é permitido.
-//
-// ATENÇÃO: qualquer novo EventType emitido por um aggregate DEVE ser adicionado aqui.
-// Se ausente, EventStore.Append() rejeita o evento — nada chega ao ledger.
 func ValidateEventType(eventType string) error {
 	validTypes := map[string]bool{
-		// ── Estudante ───────────────────────────────────────────────────────
-		"EstudanteCriado":                    true,
-		"EstudanteCriadoComVinculo":          true,
-		"DadosPessoaisAtualizados":           true,
-		"DadosAcademicosAtualizados":         true,
+		// ── Estudante ────────────────────────────────────────────────────────
+		"EstudanteCriado":            true,
+		"EstudanteCriadoComVinculo":  true,
+		"DadosPessoaisAtualizados":   true,
+		"DadosAcademicosAtualizados": true,
+		"SenhaAlterada":              true,
+		"CursoAlterado":              true,
+
+		// ── Status Escolar ────────────────────────────────────────────────────
+		// "StatusEscolarAtualizado" REMOVIDO — evento fantasma (FIX-WL2).
 		"StatusEscolarFundamentalAtualizado": true,
 		"StatusEscolarMedioAtualizado":       true,
 		"StatusSuperiorAtualizado":           true,
-		"CursoAlterado":                      true,
-		"AprovacaoAnoRegistrada":             true,
-		"SenhaAlterada":                      true,
-		// FIX-C3: evento de verificação de email do estudante via event sourcing
-		"EmailVerificadoEstudante": true,
-		// FIX-C11: "StatusEscolarAtualizado" REMOVIDO — evento fantasma:
-		//   não existe aggregate que emite este evento, nem handler na projeção.
-		//   Era entrada morta que indicava desorganização na whitelist.
 
-		// ── Academia ────────────────────────────────────────────────────────
+		// ── Email Estudante ───────────────────────────────────────────────────
+		// FIX-WL1: nome distinto para não colidir com "EmailVerificado" de Admin/Academia.
+		"EmailVerificadoEstudante": true,
+
+		// ── Academia ─────────────────────────────────────────────────────────
 		"AcademiaCriada":           true,
 		"AcademiaAtivada":          true,
 		"AcademiaDesativada":       true,
 		"AcademiaDadosAtualizados": true,
 		"CursosAtualizados":        true,
+		"EmailVerificado":          true,
 		"AcademiaSenhaAlterada":    true,
-		// FIX C11: "AnoLetivoDefinido" REMOVIDO — evento fantasma.
 
-		// ── Admin ───────────────────────────────────────────────────────────
-		"AdminCriado":         true,
-		"AdminAtivado":        true,
-		"AdminDesativado":     true,
-		"AcaoAdminRegistrada": true,
+		// ── Admin ─────────────────────────────────────────────────────────────
+		"AdminCriado":           true,
+		"AdminAtivado":          true,
+		"AdminDesativado":       true,
 		"AdminDadosAtualizados": true,
-		"AdminRoleAtualizado":   true,
-		// EmailVerificado é compartilhado entre Admin e Academia
-		"EmailVerificado":  true,
-		"AdminSenhaAlterada": true,
+		"AdminSenhaAlterada":    true,
+		"AdminAcaoRegistrada":   true,
 
-		// ── Notas e Faltas ───────────────────────────────────────────────────
-		"NotasRegistradas": true,
-		// "NotaAtualizada" é o evento real emitido pelo aggregate Estudante.
-		// "NotasAtualizadas" (plural) mantido por compatibilidade com eventos históricos.
-		"NotaAtualizada":  true,
-		"NotasAtualizadas": true,
-		"FaltasRegistradas": true,
-
-		// ── Avaliação e Aprovação ────────────────────────────────────────────
+		// ── Aprovação e Avaliação ─────────────────────────────────────────────
+		"AprovacaoAnoRegistrada":     true,
 		"AvaliacaoFinalAnoAcademico": true,
 
-		// ── Turma ───────────────────────────────────────────────────────────
-		"TurmaCriada":            true,
-		"TurmaAtivada":           true,
-		"TurmaDesativada":        true,
+		// ── Notas e Faltas ────────────────────────────────────────────────────
+		"NotaAtualizada":    true,
+		"NotasAtualizadas":  true,
+		"FaltasRegistradas": true,
+
+		// ── Turma ─────────────────────────────────────────────────────────────
+		"TurmaCriada":              true,
+		"TurmaAtivada":             true,
+		"TurmaDesativada":          true,
 		"EstudanteAdicionadoTurma": true,
 		"EstudanteRemovidoTurma":   true,
-		"TurmaDadosAtualizados":  true,
-		"TurmaDeletada":          true,
+		"TurmaDadosAtualizados":    true,
+		"TurmaDeletada":            true,
 
-		// ── Curso ───────────────────────────────────────────────────────────
-		"CursoCriado":         true,
-		"CursoAtivado":        true,
-		"CursoDesativado":     true,
+		// ── Curso ─────────────────────────────────────────────────────────────
+		"CursoCriado":           true,
+		"CursoAtivado":          true,
+		"CursoDesativado":       true,
 		"CursoDadosAtualizados": true,
 
-		// ── MateriaDisciplinar ───────────────────────────────────────────────
-		"MateriaCriada":         true,
-		"MateriaAtivada":        true,
-		"MateriaDesativada":     true,
+		// ── MateriaDisciplinar ────────────────────────────────────────────────
+		"MateriaCriada":           true,
+		"MateriaAtivada":          true,
+		"MateriaDesativada":       true,
 		"MateriaDadosAtualizados": true,
 
-		// ── SistemaConfig ────────────────────────────────────────────────────
+		// ── SistemaConfig ─────────────────────────────────────────────────────
 		"AnoLetivoDefinido": true,
 
-		// ── Categorias de Nota ───────────────────────────────────────────────
+		// ── Categorias de Nota ────────────────────────────────────────────────
 		"CategoriaNotaAdicionada": true,
 	}
 
@@ -132,9 +131,11 @@ func ValidateOffset(offset int) int {
 }
 
 // ValidateLimit valida e sanitiza um limit para paginação.
-// Retorna defaultLimit se o valor for inválido.
-// Nunca retorna mais que maxLimit.
-func ValidateLimit(limit, defaultLimit, maxLimit int) int {
+// FIX-ERR1: 1 argumento — compatível com event_store.go, manager.go e qualquer outro caller.
+// Default = 50; máximo = 1000.
+func ValidateLimit(limit int) int {
+	const defaultLimit = 50
+	const maxLimit = 1000
 	if limit <= 0 {
 		return defaultLimit
 	}
@@ -145,11 +146,22 @@ func ValidateLimit(limit, defaultLimit, maxLimit int) int {
 }
 
 // safeIdentifierRegex valida identificadores SQL seguros.
-// Permite apenas letras, números e underscores.
 var safeIdentifierRegex = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 // SafeString verifica se uma string é um identificador SQL seguro.
-// Use apenas para nomes de colunas ou tabelas (nunca para valores — use $1..$N).
+// Use APENAS para nomes de tabelas/colunas — nunca para valores (use $1..$N).
 func SafeString(s string) bool {
 	return safeIdentifierRegex.MatchString(s) && !strings.Contains(s, "--")
+}
+
+// ValidateTableName verifica se um nome de tabela é seguro para uso em queries dinâmicas.
+// FIX-ERR2: era usada em migrations.go mas não estava definida, causando "undefined: ValidateTableName".
+func ValidateTableName(name string) error {
+	if name == "" {
+		return fmt.Errorf("nome de tabela não pode ser vazio")
+	}
+	if !safeIdentifierRegex.MatchString(name) {
+		return fmt.Errorf("nome de tabela inválido: %q (use apenas letras, números e underscores)", name)
+	}
+	return nil
 }

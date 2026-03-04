@@ -151,18 +151,8 @@ func RequireEstudante() gin.HandlerFunc {
 	}
 }
 
-func RequireAdmin() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		userType, exists := c.Get("user_type")
-		if !exists || userType != "admin" {
-			log.Printf("❌ [RequireAdmin] Acesso negado - UserType: %v", userType)
-			c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas administradores"})
-			c.Abort()
-			return
-		}
-		c.Next()
-	}
-}
+// RequireAdmin está definido em admin_auth_middleware.go.
+// Mantido aqui apenas como referência — não redeclarar.
 
 // RequireAcademiaOuAdmin bloqueia estudantes — apenas academias e admins passam.
 func RequireAcademiaOuAdmin() gin.HandlerFunc {

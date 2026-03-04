@@ -96,7 +96,7 @@ func initProjections() error {
 	projManager.RegisterProjection("reprovacoes", projections.NewReprovacoesProjection(dbClient))
 	projManager.RegisterProjection("avaliacao_final", projections.NewAvaliacaoFinalProjection(dbClient))
 
-	go projManager.StartEventProcessing()
+	go projManager.StartProcessing()
 	return nil
 }
 
@@ -175,7 +175,7 @@ func setupRouter() *gin.Engine {
 		academia.POST("/faltas-aluno", handlers.RegistrarFaltas)
 		academia.POST("/aprovacao-ano", handlers.RegistrarAprovacaoAno)
 		academia.POST("/avaliacao-final", handlers.RegistrarAvaliacaoFinal)
-		academia.POST("/categorias-nota", handlers.CriarCategoriaNota)
+		academia.POST("/categorias-nota", handlers.CriarCategoriaNotaSuperior)
 		academia.GET("/categorias-nota", handlers.ListarCategoriasNota)
 
 		// FIX-C4: novas rotas de status escolar — protegidas por RequireAcademia().
@@ -196,11 +196,11 @@ func setupRouter() *gin.Engine {
 		admin.PUT("/academia/:id/desativar", handlers.DesativarAcademia)
 		admin.PUT("/admin/:id/ativar", handlers.AtivarAdmin)
 		admin.PUT("/admin/:id/desativar", handlers.DesativarAdmin)
-		admin.GET("/admins", handlers.ListarAdmins)
+		admin.GET("/admins", handlers.ListarTodosAdmins)
 		admin.GET("/ano-letivo", handlers.GetAnoLetivoAtual)
 		admin.POST("/ano-letivo", handlers.DefinirAnoLetivo)
-		admin.GET("/metrics", handlers.GetMetrics)
-		admin.POST("/projections/rebuild", handlers.RebuildProjections)
+		admin.GET("/metrics", handlers.GetSystemMetrics)
+		admin.POST("/projections/rebuild/:name", handlers.RebuildProjection)
 	}
 
 	return router
