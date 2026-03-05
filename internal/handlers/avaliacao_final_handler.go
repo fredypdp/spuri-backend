@@ -147,9 +147,23 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		return
 	}
 
-	// Remove estudante de TODAS as turmas da academia
+	// ── Remoção de turmas ─────────────────────────────────────────────────────
+	//
+	// FIX H4-10: LIMITAÇÃO ARQUITETURAL CONHECIDA (não atômico por design).
+	//
+	// O evento AvaliacaoFinalAnoAcademico já foi persistido no ledger acima.
+	// As remoções de turma abaixo são operações separadas no ledger (múltiplos
+	// SaveWithAudit), cada uma emitindo um evento EstudanteRemovidoDaTurma.
+	//
+	// Em caso de falha parcial (ex: servidor reinicia após salvar a avaliação
+	// mas antes de completar as remoções), o estudante terá avaliação registrada
+	// mas poderá permanecer em alguma turma. Essa inconsistência é detectável
+	// via rebuild da projeção e corrigi-la é responsabilidade do operador.
+	//
+	// Esta limitação é inerente ao padrão Event Sourcing adotado: não existe
+	// transação distribuída entre múltiplos aggregates. O rebuild é o mecanismo
+	// de recuperação previsto na arquitetura do sistema.
 	turmasRemovidas, errosTurmas := removerEstudanteDeTurmasAtual(c, req.CodigoEstudante, academiaDTO.CodigoAcademia, userID)
-
 
 	resultado := "reprovado"
 	if req.Aprovado {
@@ -329,9 +343,6 @@ func ListarAprovacoes(c *gin.Context) {
 
 // ============================================================================
 // GET /reprovacoes
-// Estudante → suas próprias reprovações
-// Academia  → reprovações dos estudantes da academia
-// Admin     → todas as reprovações do sistema
 // ============================================================================
 
 func ListarReprovacoes(c *gin.Context) {
@@ -402,6 +413,10 @@ func buscarTurmaAtual(c *gin.Context, codigoEstudante, codigoAcademia string) *s
 
 // removerEstudanteDeTurmasAtual percorre TODAS as turmas da academia e remove o
 // estudante de cada uma em que for encontrado.
+//
+// FIX H4-11: recebe *gin.Context para extrair o IP real do cliente via c.ClientIP().
+// Antes, o AuditContext era preenchido com IP: "" — eventos EstudanteRemovidoDaTurma
+// gerados durante avaliação final não tinham IP nos metadados de auditoria.
 func removerEstudanteDeTurmasAtual(
 	c *gin.Context,
 	codigoEstudante string,
@@ -416,6 +431,10 @@ func removerEstudanteDeTurmasAtual(
 	}
 
 	repository := getRepository(c)
+
+	// FIX H4-11: IP extraído do contexto Gin uma única vez e reutilizado em
+	// todos os AuditContext das remoções. Antes era IP: "" em todos os eventos.
+	clientIP := c.ClientIP()
 
 	for _, turmaDTO := range turmas {
 		encontrado := false
@@ -449,10 +468,12 @@ func removerEstudanteDeTurmasAtual(
 			erros = append(erros, msg)
 			continue
 		}
+
+		// FIX H4-11: IP: clientIP em vez de IP: ""
 		auditTurma := db.AuditContext{
 			UserID:   removidoPorID.String(),
 			UserType: "academia",
-			IP:       "",
+			IP:       clientIP,
 		}
 		if err := repository.SaveWithAudit(turmaAgg, auditTurma); err != nil {
 			// ⚠️ Crítico: aggregate foi mutado mas evento não foi gravado.
@@ -488,7 +509,7 @@ func validarNotasParaAprovacao(
 	}
 
 	var materiasFiltradas []projections.MateriaDTO
-	var periodosEsperados []string // usado apenas para fundamental e medio
+	var periodosEsperados []string
 	var categoriaEsperada string
 
 	switch tipoEnsino {
@@ -546,13 +567,10 @@ func validarNotasParaAprovacao(
 		if len(cursoDTO.Periodos) == 0 {
 			return fmt.Errorf("curso superior não possui períodos configurados")
 		}
-
-		// Filtrar matérias do ano académico atual que tenham periodo definido
 		for _, m := range todasMaterias {
 			if m.Type != "superior" || m.CursoID == nil || *m.CursoID != *cursoSuperiorID {
 				continue
 			}
-			// Matéria sem período definido: não pode ter nota — pular silenciosamente
 			if m.Periodo == nil || *m.Periodo == "" {
 				log.Printf("[avaliacao-final] matéria '%s' sem periodo definido — ignorada na validação", m.Nome)
 				continue
@@ -586,7 +604,6 @@ func validarNotasParaAprovacao(
 
 	var faltando []string
 	if tipoEnsino == "superior" {
-		// Matéria superior tem período único fixo — usa materia.Periodo
 		for _, materia := range materiasFiltradas {
 			periodo := *materia.Periodo
 			key := notaKey{materia.ID.String(), periodo, categoriaEsperada}
@@ -595,7 +612,6 @@ func validarNotasParaAprovacao(
 			}
 		}
 	} else {
-		// Fundamental e médio: valida todos os períodos esperados por matéria
 		for _, materia := range materiasFiltradas {
 			for _, periodo := range periodosEsperados {
 				key := notaKey{materia.ID.String(), periodo, categoriaEsperada}

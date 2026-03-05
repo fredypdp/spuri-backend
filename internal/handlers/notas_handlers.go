@@ -189,13 +189,20 @@ func RegistrarNota(c *gin.Context) {
 // PUT /academia/atualizar-nota
 // ============================================================================
 
+// FIX H4-19: NotaNova é *float64 (ponteiro) para distinguir entre:
+//   - campo omitido no JSON → nil → erro de validação explícito
+//   - nota intencionalmente zero → 0.0 → aceito normalmente
+//
+// Antes: NotaNova float64 — o zero-value de Go (0.0) era indistinguível
+// de um campo omitido. Um cliente que esquecia nota_nova recebia a nota
+// atualizada para 0 silenciosamente sem erro.
 func AtualizarNota(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
 	var req struct {
-		ID         string  `json:"id"         binding:"required"`
-		NotaNova   float64 `json:"nota_nova"`
-		Observacao string  `json:"observacao" binding:"required"`
+		ID         string   `json:"id"         binding:"required"`
+		NotaNova   *float64 `json:"nota_nova"` // FIX H4-19: ponteiro — nil se omitido
+		Observacao string   `json:"observacao" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf(
@@ -204,7 +211,16 @@ func AtualizarNota(c *gin.Context) {
 		return
 	}
 
-	if req.NotaNova < 0 || req.NotaNova > 20 {
+	// FIX H4-19: rejeita explicitamente se nota_nova foi omitida do JSON.
+	// Com float64, omitir o campo resultava em 0.0 sem erro — comportamento silencioso indesejado.
+	if req.NotaNova == nil {
+		utils.RespondWithValidationError(c, fmt.Errorf(
+			"nota_nova e obrigatorio. Para registrar zero, envie: \"nota_nova\": 0",
+		))
+		return
+	}
+
+	if *req.NotaNova < 0 || *req.NotaNova > 20 {
 		utils.RespondWithValidationError(c, fmt.Errorf("nota_nova deve estar entre 0 e 20"))
 		return
 	}
@@ -282,7 +298,7 @@ func AtualizarNota(c *gin.Context) {
 	}
 	estudante := estudanteAgg.(*aggregates.Estudante)
 
-	err = estudante.AtualizarNota(
+	if err := estudante.AtualizarNota(
 		academiaDTO.CodigoAcademia,
 		notaAtual.AnoLectivo,
 		notaAtual.Periodo,
@@ -290,11 +306,10 @@ func AtualizarNota(c *gin.Context) {
 		notaAtual.Tipo,
 		notaAtual.Categoria,
 		notaAtual.Nota,
-		req.NotaNova,
+		*req.NotaNova, // desreferência segura — nil já rejeitado acima
 		req.Observacao,
 		periodosValidos,
-	)
-	if err != nil {
+	); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -309,13 +324,61 @@ func AtualizarNota(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Nota atualizada: %s [%s/%s] %.2f -> %.2f",
-		notaAtual.CodigoEstudante, notaAtual.Tipo, notaAtual.Categoria, notaAtual.Nota, req.NotaNova)
+	log.Printf("Nota atualizada: estudante=%s nota_id=%s %.2f→%.2f [%s/%s]",
+		notaAtual.CodigoEstudante, req.ID, notaAtual.Nota, *req.NotaNova,
+		notaAtual.Tipo, notaAtual.Categoria)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":       "nota atualizada com sucesso",
 		"nota_anterior": notaAtual.Nota,
-		"nota_nova":     req.NotaNova,
+		"nota_nova":     *req.NotaNova,
+		"observacao":    req.Observacao,
+	})
+}
+
+// ============================================================================
+// GET /notas-estudante/:codigo
+// ============================================================================
+
+func GetNotasEstudante(c *gin.Context) {
+	codigoEstudante := c.Param("codigo")
+
+	estudanteProj := getEstudanteProjection(c)
+	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
+	if err != nil || estudante == nil {
+		utils.RespondWithNotFoundError(c, "estudante")
+		return
+	}
+
+	userID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
+
+	if userType == "estudante" && userID != estudante.ID {
+		utils.RespondWithForbiddenError(c, "Você só pode visualizar suas próprias notas")
+		return
+	}
+
+	if userType == "academia" {
+		academiaProj := getAcademiaProjection(c)
+		academiaDTO, _ := academiaProj.GetByID(userID)
+		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
+			utils.RespondWithForbiddenError(c, "Estudante não pertence a esta academia")
+			return
+		}
+	}
+
+	notasProj := getNotasProjection(c)
+	notas, err := notasProj.GetByEstudante(codigoEstudante)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"codigo_estudante": codigoEstudante,
+		"nome":             estudante.Nome,
+		"notas":            notas,
+		"total":            len(notas),
 	})
 }
 
@@ -331,15 +394,9 @@ func CriarCategoriaNotaSuperior(c *gin.Context) {
 		Descricao *string `json:"descricao"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("campo obrigatorio: nome"))
+		utils.RespondWithValidationError(c, fmt.Errorf("nome é obrigatorio"))
 		return
 	}
-
-	nome := strings.ToLower(strings.TrimSpace(req.Nome))
-	if !strings.HasPrefix(nome, "nota_") {
-		nome = "nota_" + nome
-	}
-	req.Nome = nome
 
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByID(userID)
@@ -353,15 +410,16 @@ func CriarCategoriaNotaSuperior(c *gin.Context) {
 		return
 	}
 
-	categoriasExistentes := carregarCategoriasAdicionais(c, academiaDTO.CodigoAcademia)
+	categoriasProj := getCategoriasNotaProjection(c)
+	categoriasExistentes, _ := categoriasProj.ListarPorAcademia(academiaDTO.CodigoAcademia)
 
 	repository := getRepository(c)
-	academiaAgg, err := repository.Load(academiaDTO.ID, "Academia")
+	agg, err := repository.Load(userID, "Academia")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	academia := academiaAgg.(*aggregates.Academia)
+	academia := agg.(*aggregates.Academia)
 
 	if err := academia.AdicionarCategoriaNotaSuperior(req.Nome, req.Descricao, userID, categoriasExistentes); err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -410,48 +468,6 @@ func ListarCategoriasNota(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"categorias": categorias,
 		"total":      len(categorias),
-	})
-}
-
-func GetNotasEstudante(c *gin.Context) {
-	codigoEstudante := c.Param("codigo")
-
-	estudanteProj := getEstudanteProjection(c)
-	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
-	if err != nil || estudante == nil {
-		utils.RespondWithNotFoundError(c, "estudante")
-		return
-	}
-
-	userID, _ := middleware.GetUserID(c)
-	userType, _ := middleware.GetUserType(c)
-
-	if userType == "estudante" && userID != estudante.ID {
-		utils.RespondWithForbiddenError(c, "Você só pode visualizar suas próprias notas")
-		return
-	}
-
-	if userType == "academia" {
-		academiaProj := getAcademiaProjection(c)
-		academiaDTO, _ := academiaProj.GetByID(userID)
-		if estudante.CodigoAcademia == nil || academiaDTO == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
-			utils.RespondWithForbiddenError(c, "Estudante não pertence a esta academia")
-			return
-		}
-	}
-
-	notasProj := getNotasProjection(c)
-	notas, err := notasProj.GetByEstudante(codigoEstudante)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"codigo_estudante": codigoEstudante,
-		"nome":             estudante.Nome,
-		"notas":            notas,
-		"total":            len(notas),
 	})
 }
 
