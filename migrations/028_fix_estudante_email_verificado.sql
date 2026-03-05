@@ -66,7 +66,7 @@ BEGIN
     SELECT COUNT(*) INTO v_total FROM projection_estudantes;
     SELECT COUNT(*) INTO v_verificados FROM projection_estudantes WHERE email_verificado = TRUE;
     RAISE NOTICE '══════════════════════════════════════════════════';
-    RAISE NOTICE '✅ MIGRATION 010 CONCLUÍDA';
+    RAISE NOTICE '✅ MIGRATION 028 CONCLUÍDA';
     RAISE NOTICE '══════════════════════════════════════════════════';
     RAISE NOTICE 'Total estudantes: %', v_total;
     RAISE NOTICE 'Emails verificados: %', v_verificados;

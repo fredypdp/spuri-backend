@@ -1,5 +1,5 @@
 -- ============================================================================
--- MIGRATION 024 — Constraint única para Bootstrap FPP
+-- MIGRATION 025 — Constraint única para Bootstrap FPP
 --
 -- PROBLEMA CORRIGIDO (Issue #3 — auditoria Março 2026):
 --   Race condition TOCTOU no BootstrapAdminFPP: duas requisições simultâneas
@@ -31,11 +31,11 @@ COMMENT ON INDEX idx_bootstrap_fpp_unique IS
 
 -- Checkpoint da migration
 INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
-VALUES ('migration_024', 0, CURRENT_TIMESTAMP, 0)
+VALUES ('migration_025', 0, CURRENT_TIMESTAMP, 0)
 ON CONFLICT (projection_name) DO NOTHING;
 
 COMMIT;
 
 DO $$ BEGIN
-    RAISE NOTICE '✅ MIGRATION 024 — Constraint bootstrap FPP aplicada com sucesso.';
+    RAISE NOTICE '✅ MIGRATION 025 — Constraint bootstrap FPP aplicada com sucesso.';
 END $$;

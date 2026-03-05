@@ -1,5 +1,6 @@
 -- ============================================================================
 -- MIGRATION 013 — Atualização semântica de anos_academicos em projection_materias
+-- ============================================================================
 --
 -- ATUALIZAÇÃO 1:
 --   O campo "nivel" (JSONB) em projection_materias passa a armazenar
@@ -11,8 +12,8 @@
 --   Nenhuma alteração estrutural é necessária no banco — a coluna "nivel" JSONB
 --   já comporta os dados corretamente. Esta migration apenas:
 --     1. Atualiza o COMMENT da coluna para refletir as novas regras.
---     2. Adiciona uma CHECK CONSTRAINT para garantir a cardinalidade em
---        novas inserções via SQL direto (a validação principal é feita no Go).
+--     2. Verifica inconsistências nos dados existentes antes que a migration 014
+--        renomeie a coluna de nivel → anos_academicos.
 --
 -- ATENÇÃO: Execute com cuidado em produção se houver matérias de medio/superior
 --   com mais de 1 item em nivel — corrija os dados antes de aplicar o CHECK.
@@ -28,7 +29,7 @@ COMMENT ON COLUMN projection_materias.nivel IS
     'Armazenado como JSONB array de strings.';
 
 -- 2. Verificar se existem matérias de medio/superior com nivel com mais de 1 item
---    (caso existam, este SELECT retorna linhas — CORRIJA antes de aplicar o CHECK)
+--    (caso existam, CORRIJA antes de aplicar o CHECK abaixo)
 DO $$
 DECLARE
     v_count INTEGER;
@@ -59,7 +60,6 @@ END $$;
 
 COMMIT;
 
--- ERRO-MIG-05 FIX: número corrigido de 012 para 013.
 DO $$ BEGIN
     RAISE NOTICE '✅ MIGRATION 013 — semântica de anos_academicos em projection_materias aplicada.';
 END $$;

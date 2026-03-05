@@ -33,4 +33,4 @@ CREATE INDEX IF NOT EXISTS idx_materias_anos_academicos
 
 COMMIT;
 
-DO $$ BEGIN RAISE NOTICE '✅ MIGRATION 012 - nivel → anos_academicos em projection_materias'; END $$;
+DO $$ BEGIN RAISE NOTICE '✅ MIGRATION 014 - nivel → anos_academicos em projection_materias'; END $$;

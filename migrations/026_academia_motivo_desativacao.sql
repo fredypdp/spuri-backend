@@ -1,5 +1,5 @@
 -- ============================================================================
--- MIGRATION 025: Adicionar motivo_desativacao em projection_academias
+-- MIGRATION 026: Adicionar motivo_desativacao em projection_academias
 -- ============================================================================
 -- CONTEXTO (FIX E-10):
 --   O evento AcademiaDesativada contém o campo Motivo, mas a projeção não
@@ -17,7 +17,7 @@ ALTER TABLE projection_academias
 
 COMMENT ON COLUMN projection_academias.motivo_desativacao IS
     'Motivo fornecido pelo admin ao desativar a academia. '
-    'NULL quando ativa. Populado pelo evento AcademiaDesativada (migration 025).';
+    'NULL quando ativa. Populado pelo evento AcademiaDesativada (migration 026).';
 
 -- Índice opcional para auditoria de desativações
 CREATE INDEX IF NOT EXISTS idx_academia_motivo_desativacao
@@ -32,7 +32,7 @@ ON CONFLICT (projection_name) DO NOTHING;
 COMMIT;
 
 DO $$ BEGIN
-    RAISE NOTICE '✅ MIGRATION 025 - motivo_desativacao adicionado a projection_academias';
+    RAISE NOTICE '✅ MIGRATION 026 - motivo_desativacao adicionado a projection_academias';
     RAISE NOTICE '   Ação necessária: executar rebuild da projeção academias para repopular o campo';
     RAISE NOTICE '   POST /admin/rebuild-projection/academias';
 END $$;
