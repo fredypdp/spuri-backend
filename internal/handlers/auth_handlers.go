@@ -12,6 +12,10 @@
 //              A versão corrigida está em estudante_handlers.go (FIX-S1/S2).
 //   H4-04   — Consequência direta de H4-03: evento de criação por academia agora
 //              contém AuditContext correto (academia ID + IP).
+//   FIX-COMPILE-01 — Login estudante agora usa GetAuthByCodigo (retorna
+//              EstudanteAuthDTO com Hash) em vez de GetByCodigo (retorna
+//              EstudanteDTO sem SenhaHash). Princípio: EstudanteDTO nunca
+//              expõe senha_hash — existe EstudanteAuthDTO para esse fim.
 // ============================================================================
 
 package handlers
@@ -45,6 +49,9 @@ type LoginRequest struct {
 // FIX-C4: estudante com status != "ativo" agora recebe 401.
 // Estudantes auto-cadastrados nascem com status "inativo" e não podem fazer
 // login até serem ativados. Estudantes criados por academia já nascem "ativo".
+//
+// FIX-COMPILE-01: estudante login usa GetAuthByCodigo (EstudanteAuthDTO.Hash)
+// em vez de GetByCodigo (EstudanteDTO sem SenhaHash).
 func Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -86,17 +93,19 @@ func Login(c *gin.Context) {
 			userFound = true
 		}
 	} else {
-		estudante, err := estudanteProj.GetByCodigo(req.Usuario)
+		// FIX-COMPILE-01: usar GetAuthByCodigo que retorna EstudanteAuthDTO com Hash.
+		// GetByCodigo retorna EstudanteDTO que não expõe SenhaHash (fix H4-05).
+		estudanteAuth, err := estudanteProj.GetAuthByCodigo(req.Usuario)
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-		if estudante != nil {
-			userID = estudante.ID
-			userName = estudante.Nome
-			senhaHash = estudante.SenhaHash
-			codigo = estudante.CodigoEstudante
-			userStatus = estudante.Status
+		if estudanteAuth != nil {
+			userID = estudanteAuth.ID
+			userName = estudanteAuth.Nome
+			senhaHash = estudanteAuth.Hash
+			codigo = estudanteAuth.Codigo
+			userStatus = estudanteAuth.Status
 			userFound = true
 		}
 	}

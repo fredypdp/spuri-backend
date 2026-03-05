@@ -71,6 +71,21 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		return
 	}
 
+	// FIX-COMPILE-02: EstudanteDTO armazena CursoMedioID e CursoSuperiorID como
+	// *string (banco persiste UUID como texto). Converter para *uuid.UUID para
+	// passar para validarNotasParaAprovacao e validarNiveisCurso.
+	var cursoMedioUUID, cursoSuperiorUUID *uuid.UUID
+	if estudanteDTO.CursoMedioID != nil {
+		if parsed, err := uuid.Parse(*estudanteDTO.CursoMedioID); err == nil {
+			cursoMedioUUID = &parsed
+		}
+	}
+	if estudanteDTO.CursoSuperiorID != nil {
+		if parsed, err := uuid.Parse(*estudanteDTO.CursoSuperiorID); err == nil {
+			cursoSuperiorUUID = &parsed
+		}
+	}
+
 	// ── Validação de notas (bloqueia aprovação sem observação de override) ────
 	if req.Aprovado && (req.Observacao == nil || strings.TrimSpace(*req.Observacao) == "") {
 		if errNota := validarNotasParaAprovacao(
@@ -80,8 +95,8 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 			req.TipoEnsino,
 			req.AnoAcademicoAtual,
 			academiaDTO.CodigoAcademia,
-			estudanteDTO.CursoMedioID,
-			estudanteDTO.CursoSuperiorID,
+			cursoMedioUUID,
+			cursoSuperiorUUID,
 		); errNota != nil {
 			utils.RespondWithValidationError(c, errNota)
 			return
@@ -96,12 +111,12 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 			return
 		}
 	case "medio":
-		if err := validarNiveisCurso(c, estudanteDTO.CursoMedioID, req.AnoAcademicoAtual, req.ProximoAnoAcademico, req.Aprovado); err != nil {
+		if err := validarNiveisCurso(c, cursoMedioUUID, req.AnoAcademicoAtual, req.ProximoAnoAcademico, req.Aprovado); err != nil {
 			utils.RespondWithValidationError(c, err)
 			return
 		}
 	case "superior":
-		if err := validarNiveisCurso(c, estudanteDTO.CursoSuperiorID, req.AnoAcademicoAtual, req.ProximoAnoAcademico, req.Aprovado); err != nil {
+		if err := validarNiveisCurso(c, cursoSuperiorUUID, req.AnoAcademicoAtual, req.ProximoAnoAcademico, req.Aprovado); err != nil {
 			utils.RespondWithValidationError(c, err)
 			return
 		}

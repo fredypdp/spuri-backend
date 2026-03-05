@@ -939,3 +939,82 @@ func (p *EstudanteProjection) GetByAcademia(codigoAcademia string) ([]EstudanteD
 	}
 	return estudantes, rows.Err()
 }
+
+// ----------------------------------------------------------------------------
+// EstudanteAuthDTO — DTO exclusivo para autenticação
+//
+// Nunca serializado em respostas HTTP.
+// Existe para fornecer o hash ao fluxo de login e troca de senha,
+// sem expor senha_hash no EstudanteDTO geral (fix H4-05).
+// ----------------------------------------------------------------------------
+
+type EstudanteAuthDTO struct {
+	ID     uuid.UUID `json:"-"`
+	Nome   string    `json:"-"`
+	Codigo string    `json:"-"`
+	Status string    `json:"-"`
+	Hash   string    `json:"-"`
+}
+
+// GetAuthByCodigo busca dados de autenticação pelo código do estudante.
+// Usado exclusivamente no fluxo de login (auth_handlers.go).
+func (p *EstudanteProjection) GetAuthByCodigo(codigo string) (*EstudanteAuthDTO, error) {
+	var e EstudanteAuthDTO
+	err := p.client.DB().QueryRow(
+		`SELECT id, nome, codigo_estudante, status, senha_hash
+		 FROM projection_estudantes
+		 WHERE codigo_estudante = $1`,
+		codigo,
+	).Scan(&e.ID, &e.Nome, &e.Codigo, &e.Status, &e.Hash)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+// GetAuthByID busca dados de autenticação pelo UUID do estudante.
+// Usado exclusivamente no fluxo de troca de senha (profile_handlers.go).
+func (p *EstudanteProjection) GetAuthByID(id uuid.UUID) (*EstudanteAuthDTO, error) {
+	var e EstudanteAuthDTO
+	err := p.client.DB().QueryRow(
+		`SELECT id, nome, codigo_estudante, status, senha_hash
+		 FROM projection_estudantes
+		 WHERE id = $1`,
+		id,
+	).Scan(&e.ID, &e.Nome, &e.Codigo, &e.Status, &e.Hash)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+// GetByBilheteIdentidadePrincipal busca um estudante pelo bilhete_identidade.
+// Usado para verificar unicidade no cadastro e atualização de dados pessoais.
+func (p *EstudanteProjection) GetByBilheteIdentidadePrincipal(bilhete string) (*EstudanteDTO, error) {
+	return scanEstudante(p.client.DB().QueryRow(
+		`SELECT `+estudanteCols+` FROM projection_estudantes
+		 WHERE bilhete_identidade = $1
+		 LIMIT 1`,
+		bilhete,
+	))
+}
+
+// CountByCurso retorna o número de estudantes ativos vinculados a um curso.
+// Usado por DeletarCurso para impedir deleção de curso em uso.
+func (p *EstudanteProjection) CountByCurso(cursoID uuid.UUID) (int, error) {
+	var count int
+	err := p.client.DB().QueryRow(
+		`SELECT COUNT(*)
+		 FROM projection_estudantes
+		 WHERE (curso_medio_id = $1 OR curso_superior_id = $1)
+		   AND status = 'ativo'`,
+		cursoID.String(),
+	).Scan(&count)
+	return count, err
+}

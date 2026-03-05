@@ -234,3 +234,9 @@ func (p *CategoriasNotaProjection) GetNomesByAcademia(codigoAcademia string) ([]
 	}
 	return nomes, rows.Err()
 }
+
+// ListarPorAcademia é um alias de GetByAcademia.
+// Mantido para compatibilidade com notas_handlers.go.
+func (p *CategoriasNotaProjection) ListarPorAcademia(codigoAcademia string) ([]CategoriaNotaDTO, error) {
+	return p.GetByAcademia(codigoAcademia)
+}

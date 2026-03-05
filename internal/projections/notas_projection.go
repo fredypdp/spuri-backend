@@ -318,3 +318,29 @@ func scanNotas(rows *sql.Rows) ([]NotaDTO, error) {
 	}
 	return notas, rows.Err()
 }
+
+// GetNotaByID busca uma nota específica pelo UUID.
+// Retorna nil sem erro quando a nota não existe ou foi soft-deleted.
+// Usado por AtualizarNota para verificar ownership antes de aceitar correção.
+func (p *NotasProjection) GetNotaByID(id uuid.UUID) (*NotaDTO, error) {
+	rows, err := p.client.DB().Query(`
+		SELECT n.id, n.codigo_estudante, n.codigo_academia, n.ano_lectivo, n.ano_academico,
+			n.periodo, n.materia_disciplinar_id, m.nome,
+			n.tipo, n.categoria, n.nota, n.observacao,
+			n.registered_at, n.event_id, n.version
+		FROM projection_notas n
+		LEFT JOIN projection_materias m ON m.id = n.materia_disciplinar_id::uuid
+		WHERE n.id = $1
+		  AND n.deleted_at IS NULL
+	`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	notas, err := scanNotas(rows)
+	if err != nil || len(notas) == 0 {
+		return nil, err
+	}
+	return &notas[0], nil
+}

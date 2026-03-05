@@ -156,8 +156,10 @@ func AlterarSenha(c *gin.Context) {
 		uid := userID.(uuid.UUID)
 
 		estudanteProj := getEstudanteProjection(c)
-		estudanteDTO, err := estudanteProj.GetByID(uid)
-		if err != nil || estudanteDTO == nil {
+		// FIX-COMPILE-01: GetAuthByID retorna EstudanteAuthDTO com Hash.
+		// GetByID retorna EstudanteDTO que não expõe SenhaHash (fix H4-05).
+		estudanteAuth, err := estudanteProj.GetAuthByID(uid)
+		if err != nil || estudanteAuth == nil {
 			utils.RespondWithNotFoundError(c, "estudante")
 			return
 		}
@@ -165,12 +167,12 @@ func AlterarSenha(c *gin.Context) {
 		// H4-18: estudante inativo não pode alterar senha mesmo com token JWT válido.
 		// O AuthMiddleware não verifica status após emitir o token — esta é a barreira
 		// no nível do handler para operações de escrita sensíveis.
-		if estudanteDTO.Status != "ativo" {
+		if estudanteAuth.Status != "ativo" {
 			utils.RespondWithForbiddenError(c, "conta inativa. Não é possível alterar a senha.")
 			return
 		}
 
-		if err := bcrypt.CompareHashAndPassword([]byte(estudanteDTO.SenhaHash), []byte(req.SenhaAtual)); err != nil {
+		if err := bcrypt.CompareHashAndPassword([]byte(estudanteAuth.Hash), []byte(req.SenhaAtual)); err != nil {
 			utils.RespondWithUnauthorizedError(c)
 			return
 		}
