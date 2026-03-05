@@ -232,8 +232,14 @@ func AtualizarNota(c *gin.Context) {
 		return
 	}
 
+	notaID, err := uuid.Parse(req.ID)
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("id de nota invalido"))
+		return
+	}
+
 	notasProj := getNotasProjection(c)
-	notaAtual, err := notasProj.GetNotaByID(req.ID)
+	notaAtual, err := notasProj.GetNotaByID(notaID)
 	if err != nil || notaAtual == nil {
 		utils.RespondWithNotFoundError(c, "nota")
 		return
@@ -278,12 +284,8 @@ func AtualizarNota(c *gin.Context) {
 		return
 	}
 
-	var categoriasAdicionais []string
-	if notaAtual.Tipo == aggregates.TipoSuperior {
-		categoriasAdicionais = carregarCategoriasAdicionais(c, academiaDTO.CodigoAcademia)
-	}
-
 	estudanteProj := getEstudanteProjection(c)
+
 	estudanteDTO, err := estudanteProj.GetByCodigo(notaAtual.CodigoEstudante)
 	if err != nil || estudanteDTO == nil {
 		utils.RespondWithNotFoundError(c, "estudante")
@@ -411,7 +413,7 @@ func CriarCategoriaNotaSuperior(c *gin.Context) {
 	}
 
 	categoriasProj := getCategoriasNotaProjection(c)
-	categoriasExistentes, _ := categoriasProj.ListarPorAcademia(academiaDTO.CodigoAcademia)
+	categoriasExistentes, _ := categoriasProj.GetNomesByAcademia(academiaDTO.CodigoAcademia)
 
 	repository := getRepository(c)
 	agg, err := repository.Load(userID, "Academia")
