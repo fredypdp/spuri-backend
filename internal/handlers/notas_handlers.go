@@ -292,7 +292,6 @@ func AtualizarNota(c *gin.Context) {
 		notaAtual.Nota,
 		req.NotaNova,
 		req.Observacao,
-		categoriasAdicionais,
 		periodosValidos,
 	)
 	if err != nil {
@@ -364,7 +363,7 @@ func CriarCategoriaNotaSuperior(c *gin.Context) {
 	}
 	academia := academiaAgg.(*aggregates.Academia)
 
-	if err := academia.AdicionarCategoriaNotaSuperior(req.Nome, req.Descricao, categoriasExistentes); err != nil {
+	if err := academia.AdicionarCategoriaNotaSuperior(req.Nome, req.Descricao, userID, categoriasExistentes); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}

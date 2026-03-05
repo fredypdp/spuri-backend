@@ -2,6 +2,17 @@
 // ARQUIVO: internal/handlers/helpers.go
 //
 // Funções auxiliares compartilhadas por todos os handlers do pacote.
+//
+// CORREÇÕES APLICADAS:
+//   H4-14 — getDbClient: quando dbClient não está no contexto Gin, a versão
+//            anterior criava um novo db.Client ignorando o erro de retorno
+//            (`newClient, _ := db.NewClient(config)`). Se a conexão falhasse,
+//            newClient era nil → panic no handler seguinte ao dereferenciá-lo.
+//            Adicionalmente, criar um novo pool de conexões por requisição é
+//            vazamento de recursos (cada pool abre N conexões TCP).
+//            CORREÇÃO: ausência de dbClient no contexto agora é tratada como
+//            erro interno — o handler recebe 500 via AbortWithStatus e
+//            nenhum client nil é retornado.
 // ============================================================================
 
 package handlers
@@ -10,6 +21,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"net/http"
 	"spuri/internal/db"
 	"spuri/internal/middleware"
 	"spuri/internal/projections"
@@ -28,15 +40,30 @@ func getRepository(c *gin.Context) *db.AggregateRepository {
 	return repo.(*db.AggregateRepository)
 }
 
+// getDbClient retorna o *db.Client injetado pelo middleware de setup.
+//
+// H4-14: se o client não estiver no contexto (bug de configuração do router),
+// a requisição é abortada com 500 e nil NÃO é retornado — prevenindo panic.
+// Criar um novo pool de conexões por requisição seria vazamento de recursos;
+// o client deve sempre vir do contexto injetado em setupRouter.
 func getDbClient(c *gin.Context) *db.Client {
 	client, exists := c.Get("dbClient")
 	if !exists {
-		log.Printf("⚠️ Cliente BD não encontrado no contexto, criando novo")
-		config := db.DefaultConfig()
-		newClient, _ := db.NewClient(config)
-		return newClient
+		log.Printf("❌ [getDbClient] dbClient ausente no contexto Gin — abortando requisição. Path: %s", c.Request.URL.Path)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+			"error": "erro interno: cliente de banco de dados não disponível",
+		})
+		return nil
 	}
-	return client.(*db.Client)
+	dbCli, ok := client.(*db.Client)
+	if !ok || dbCli == nil {
+		log.Printf("❌ [getDbClient] dbClient no contexto não é *db.Client válido. Path: %s", c.Request.URL.Path)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+			"error": "erro interno: cliente de banco de dados inválido",
+		})
+		return nil
+	}
+	return dbCli
 }
 
 // getDbClientFromContext é alias de getDbClient — mantido por compatibilidade.

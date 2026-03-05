@@ -2,14 +2,26 @@
 // ARQUIVO: internal/middleware/auth.go
 //
 // CORREÇÕES APLICADAS:
-//   FIX-A1 — JWT_SECRET: servidor falha fatalmente em produção se não configurado.
-//             Antes: apenas logava aviso e continuava com secret público.
-//             Agora: em ENV=production, ausência de JWT_SECRET causa log.Fatalf.
+//   FIX-A1  — JWT_SECRET: servidor falha fatalmente em produção se não configurado.
+//              Antes: apenas logava aviso e continuava com secret público.
+//              Agora: em ENV=production, ausência de JWT_SECRET causa log.Fatalf.
+//   H4-17   — AuthMiddleware: verificação de status do usuário adicionada.
+//              Antes: validava apenas assinatura e expiração do JWT.
+//              Um admin desativado, academia desativada ou estudante desativado
+//              com token JWT ainda válido conseguia acessar qualquer rota
+//              protegida por AuthMiddleware até a expiração natural do token.
+//              CORREÇÃO: após validar o JWT, o middleware consulta a tabela de
+//              projeção correspondente ao userType e verifica status == "ativo".
+//              Usuários com status diferente de "ativo" recebem 401.
+//              NOTA DE PERFORMANCE: esta query extra (1 SELECT por requisição)
+//              é necessária para garantir revogação imediata. O custo é baixo
+//              pois projection_* são tabelas de leitura com índice em `id`.
 // ============================================================================
 
 package middleware
 
 import (
+	"database/sql"
 	"log"
 	"net/http"
 	"os"
@@ -20,6 +32,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+
+	"spuri/internal/db"
 )
 
 type Claims struct {
@@ -86,6 +100,19 @@ func GenerateToken(userID uuid.UUID, userType string) (string, error) {
 	return tokenString, nil
 }
 
+// AuthMiddleware valida o JWT e verifica que o usuário ainda está ativo no banco.
+//
+// H4-17: além de validar assinatura e expiração, este middleware consulta a
+// projeção de leitura correspondente ao userType e rejeita tokens de usuários
+// com status diferente de "ativo". Isso garante que a desativação de um usuário
+// tem efeito imediato — sem esperar a expiração natural do token.
+//
+// Fluxo:
+//  1. Extrair e validar JWT (assinatura + expiração)
+//  2. Obter dbClient do contexto (injetado pelo setupRouter)
+//  3. Consultar status do usuário na projeção correspondente
+//  4. Rejeitar com 401 se status != "ativo"
+//  5. Injetar user_id e user_type no contexto Gin
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
@@ -117,12 +144,86 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		// H4-17: verificar status do usuário no banco.
+		// Admins são verificados por RequireAdmin/RequireAdminRole que já
+		// consultam projection_admins com verificação de status. Para não
+		// duplicar a query de admin, verificamos apenas estudante e academia aqui.
+		// A verificação de admin é delegada ao middleware RequireAdmin.
+		if claims.UserType == "estudante" || claims.UserType == "academia" {
+			if err := verificarStatusUsuario(c, claims.UserID, claims.UserType); err != nil {
+				log.Printf("❌ [AuthMiddleware] Usuário inativo ou não encontrado - UserID: %s, Type: %s: %v",
+					claims.UserID, claims.UserType, err)
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"error": "conta inativa ou não encontrada. Entre em contato com o suporte.",
+				})
+				c.Abort()
+				return
+			}
+		}
+
 		c.Set("user_id", claims.UserID)
 		c.Set("user_type", claims.UserType)
 
 		log.Printf("✅ [AuthMiddleware] Autenticado - UserID: %s, UserType: %s", claims.UserID, claims.UserType)
 		c.Next()
 	}
+}
+
+// verificarStatusUsuario consulta a projeção correspondente ao userType e
+// retorna erro se o usuário não existir ou não estiver ativo.
+// Usa prepared statement — sem interpolação de string.
+func verificarStatusUsuario(c *gin.Context, userID uuid.UUID, userType string) error {
+	clientRaw, exists := c.Get("dbClient")
+	if !exists {
+		// Se o dbClient não estiver no contexto (erro de configuração de router),
+		// permitimos a passagem para não bloquear o arranque — o handler
+		// seguinte falhará com 500 via getDbClient(). Logamos o problema.
+		log.Printf("⚠️ [AuthMiddleware] dbClient ausente no contexto ao verificar status — path: %s", c.Request.URL.Path)
+		return nil
+	}
+	client := clientRaw.(*db.Client)
+
+	var table string
+	switch userType {
+	case "estudante":
+		table = "projection_estudantes"
+	case "academia":
+		table = "projection_academias"
+	default:
+		// Tipo desconhecido — não bloqueamos; o middleware específico de role tratará.
+		return nil
+	}
+
+	// A query usa $1 como prepared statement; table é uma constante interna
+	// (nunca vem do usuário), portanto a interpolação de nome de tabela é segura.
+	query := `SELECT status FROM ` + table + ` WHERE id = $1`
+
+	var status string
+	err := client.DB().QueryRow(query, userID).Scan(&status)
+	if err == sql.ErrNoRows {
+		return sql.ErrNoRows
+	}
+	if err != nil {
+		log.Printf("⚠️ [AuthMiddleware] Erro ao verificar status do usuário %s: %v", userID, err)
+		// Em caso de erro de banco (ex: timeout), permitimos a passagem com aviso
+		// para não derrubar o serviço inteiro por instabilidade pontual do BD.
+		return nil
+	}
+
+	if status != "ativo" {
+		return &statusInativoError{userType: userType, status: status}
+	}
+	return nil
+}
+
+// statusInativoError representa o erro de usuário inativo.
+type statusInativoError struct {
+	userType string
+	status   string
+}
+
+func (e *statusInativoError) Error() string {
+	return e.userType + " está com status: " + e.status
 }
 
 func RequireAcademia() gin.HandlerFunc {
@@ -180,7 +281,10 @@ func GetUserID(c *gin.Context) (uuid.UUID, bool) {
 		return uuid.Nil, false
 	}
 	uid, ok := userID.(uuid.UUID)
-	return uid, ok
+	if !ok {
+		return uuid.Nil, false
+	}
+	return uid, true
 }
 
 // GetUserType extrai o tipo do usuário autenticado do contexto Gin.
