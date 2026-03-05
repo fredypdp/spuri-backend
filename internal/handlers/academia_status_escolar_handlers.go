@@ -1,25 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/handlers/academia_status_escolar_handlers.go
-//
-// NOVO ARQUIVO — Criado como correção FIX-C4.
-//
-// Contexto:
-//   Antes, os handlers AtualizarStatusEscolar*Handler estavam em
-//   estudante_handlers.go protegidos apenas por RequireEstudante().
-//   Isso permitia que qualquer estudante alterasse seu próprio status escolar
-//   sem validação da academia — violação grave de integridade de dados.
-//
-// Correção:
-//   Os handlers agora estão neste arquivo e são protegidos por RequireAcademia()
-//   no router. A academia informa o codigo_estudante no body e o handler valida
-//   que o estudante pertence à academia antes de alterar o status.
-//
-// Rotas (definidas em cmd/server/main.go):
-//   PUT /academia/estudante/:codigo/status-escolar-fundamental
-//   PUT /academia/estudante/:codigo/status-escolar-medio
-//   PUT /academia/estudante/:codigo/status-superior
-// ============================================================================
-
 package handlers
 
 import (

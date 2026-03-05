@@ -1,16 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/handlers/aprovacao_ano_handler.go
-// ============================================================================
-// Handler para registro de aprovação/reprovação de ano escolar.
-// Rota: POST /academia/aprovacao-ano
-//
-// DIFERENÇA em relação a /avaliacao-final:
-//   - /aprovacao-ano → usa estudante.RegistrarAprovacaoAno() + AprovacaoAnoRegistradaEvent
-//     Fluxo simples: academia informa diretamente se aprovado/reprovado e o próximo nível.
-//   - /avaliacao-final → usa estudante.RegistrarAvaliacaoFinal() + AvaliacaoFinalAnoAcademicoEvent
-//     Fluxo complexo: valida notas, gerencia turmas, usa avaliacao_final_projection.
-// ============================================================================
-
 package handlers
 
 import (

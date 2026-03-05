@@ -1,19 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/domain/aggregates/academia_categorias_nota.go
-//
-// CORREÇÕES APLICADAS (Etapa 1):
-//   #19 — CategoriaNotaAdicionadaEvent agora inclui AdicionadoPor uuid.UUID
-//         para rastreabilidade forense completa (quem adicionou a categoria).
-//         Sem este campo, era impossível determinar o responsável sem depender
-//         dos metadados do ledger.
-//   Etapa1-ToJSON — ToJSON() implementado no evento (antes herdava
-//         BaseEvent.ToJSON() que serializava e.Payload=nil = "null" no ledger).
-//
-// NOTA PARA ETAPA 4:
-//   O handler que chama AdicionarCategoriaNotaSuperior deve passar o UUID do
-//   admin autenticado como parâmetro adicionadoPor.
-// ============================================================================
-
 package aggregates
 
 import (

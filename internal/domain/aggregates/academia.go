@@ -1,21 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/domain/aggregates/academia.go
-//
-// CORREÇÕES APLICADAS (Etapa 1):
-//   Etapa1-ToJSON — ToJSON() adicionado a TODOS os eventos concretos definidos
-//            aqui. Antes herdavam BaseEvent.ToJSON() que serializava apenas
-//            e.Payload (nil nos concretos = "null" gravado no ledger).
-//   Etapa1-EmailVerificadoEvent — ToJSON() adicionado (evento compartilhado
-//            entre Admin e Academia; definido em sistema_config.go —
-//            a correção está naquele arquivo).
-//
-// REGRA DE ORGANIZAÇÃO:
-//   academia.go                  → struct, Apply, comandos core, eventos base
-//   academia_categorias_nota.go  → AdicionarCategoriaNotaSuperior,
-//                                  CategoriaNotaAdicionadaEvent,
-//                                  applyCategoriaNotaAdicionada
-// ============================================================================
-
 package aggregates
 
 import (

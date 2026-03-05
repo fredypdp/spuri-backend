@@ -1,15 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/projections/categorias_nota_projection.go
-//
-// CORREÇÕES APLICADAS (Etapa 3):
-//   P3-09 — handleCategoriaAdicionada: payload agora lê AdicionadoPor (uuid.UUID)
-//            e o persiste em projection_categorias_nota.adicionado_por.
-//            A coluna adicionado_por é adicionada pela migration 031.
-//   P3-10 — Rebuild() não resetava checkpoint explicitamente; o manager cuida
-//            disso via markRebuildStart(). Rebuild() direto é seguro porque
-//            o TRUNCATE + reprocessamento são suficientes; documentado.
-// ============================================================================
-
 package projections
 
 import (

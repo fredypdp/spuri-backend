@@ -1,13 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/db/migrations.go
-//
-// ALTERAÇÕES (Etapa 2):
-//   — Adicionadas migrations 028, 029 e 030 ao array allMigrations.
-//     028: FIX-C3 email_verificado estudante via event sourcing (pré-existente no FS).
-//     029: Proteção de spuri_ledger contra TRUNCATE (ERRO-MIG-04).
-//     030: Recriação da view v_estudantes_com_cursos (ERRO-MIG-01).
-// ============================================================================
-
 package db
 
 import (

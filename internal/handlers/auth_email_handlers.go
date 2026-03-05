@@ -1,19 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/handlers/auth_email_handlers.go
-//
-// CORREÇÕES APLICADAS:
-//   [A24]  — ResetarSenha: senha_padrao REMOVIDA da resposta HTTP.
-//   #9     — VerificarEmail: resposta diferenciada quando email já verificado.
-//   #10    — GerarTokenRecuperacao: corrigido nome da coluna para `email`.
-//   FIX-C1 — ResetarSenha academia: event sourcing via AcademiaSenhaAlteradaEvent.
-//   FIX-C2 — VerificarEmail academia: event sourcing via academia.VerificarEmail().
-//   FIX-C3 — VerificarEmail estudante: event sourcing via estudante.VerificarEmail()
-//             (EmailVerificadoEstudanteEvent). Antes: UPDATE direto na projeção
-//             que era desfeito no rebuild.
-//   FIX-C3b— ResetarSenha estudante: agora exige email_verificado=TRUE antes de
-//             resetar (consistência com Admin e Academia).
-// ============================================================================
-
 package handlers
 
 import (

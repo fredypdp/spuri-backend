@@ -1,26 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/domain/aggregates/estudante.go
-//
-// CORREÇÕES APLICADAS:
-//   FIX-C3  — VerificarEmail() adicionado ao aggregate Estudante (event sourcing)
-//   FIX-ERR — applyStatusEscolarFundamentalAtualizado e applyStatusEscolarMedioAtualizado
-//              adicionados neste arquivo (os eventos e comandos estão em estudante_aprovacao.go,
-//              mas os apply handlers precisam existir aqui para o switch funcionar)
-//   FIX-C5  — apply handlers propagam erros de json.Unmarshal
-//   FIX-C6  — EmailVerificadoEstudante adicionado ao switch Apply()
-//
-// REGRA DE ORGANIZAÇÃO DOS ARQUIVOS:
-//   estudante.go           → struct, Apply switch, eventos base, comandos core, apply handlers
-//   estudante_falta.go     → RegistrarFalta
-//   estudante_notas.go     → eventos de nota, RegistrarNota, AtualizarNota,
-//                            applyNotasRegistradas, applyNotaAtualizada
-//   estudante_avaliacao.go → AvaliacaoFinalAnoAcademicoEvent, RegistrarAvaliacaoFinal,
-//                            applyAvaliacaoFinalAnoAcademico
-//   estudante_aprovacao.go → AprovacaoAnoRegistradaEvent,
-//                            StatusEscolarFundamentalAtualizadoEvent,
-//                            StatusEscolarMedioAtualizadoEvent
-// ============================================================================
-
 package aggregates
 
 import (

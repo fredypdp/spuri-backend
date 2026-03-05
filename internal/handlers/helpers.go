@@ -1,20 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/handlers/helpers.go
-//
-// Funções auxiliares compartilhadas por todos os handlers do pacote.
-//
-// CORREÇÕES APLICADAS:
-//   H4-14 — getDbClient: quando dbClient não está no contexto Gin, a versão
-//            anterior criava um novo db.Client ignorando o erro de retorno
-//            (`newClient, _ := db.NewClient(config)`). Se a conexão falhasse,
-//            newClient era nil → panic no handler seguinte ao dereferenciá-lo.
-//            Adicionalmente, criar um novo pool de conexões por requisição é
-//            vazamento de recursos (cada pool abre N conexões TCP).
-//            CORREÇÃO: ausência de dbClient no contexto agora é tratada como
-//            erro interno — o handler recebe 500 via AbortWithStatus e
-//            nenhum client nil é retornado.
-// ============================================================================
-
 package handlers
 
 import (

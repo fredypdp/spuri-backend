@@ -1,17 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/projections/notas_projection.go
-//
-// CORREÇÕES APLICADAS (Etapa 3):
-//   P3-18 — handleNotasRegistradas: substituído "ON CONFLICT DO NOTHING" por
-//            UPSERT real (ON CONFLICT DO UPDATE). Conflito de unicidade
-//            (idempotência em replay) agora atualiza os campos da nota em vez
-//            de descartar silenciosamente. Log de warn adicionado.
-//   P3-07 — GetLastProcessedEventID() e UpdateCheckpoint(): versão antiga usava
-//            fmt.Sprintf + db.SafeString() (retorna bool). Corrigido para
-//            prepared statements com $1/$2.
-//   Rebuild(): scan direto de previous_hash → sql.NullString.
-// ============================================================================
-
 package projections
 
 import (

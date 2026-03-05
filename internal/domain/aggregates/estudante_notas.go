@@ -1,13 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/domain/aggregates/estudante_notas.go
-//
-// CORREÇÕES APLICADAS (Etapa 1):
-//   Etapa1-ToJSON — ToJSON() adicionado a NotasRegistradasEvent e
-//         NotaAtualizadaEvent. Antes herdavam BaseEvent.ToJSON() que
-//         serializava e.Payload=nil = "null" gravado no ledger.
-//         Rebuild de notas seria impossível.
-// ============================================================================
-
 package aggregates
 
 import (

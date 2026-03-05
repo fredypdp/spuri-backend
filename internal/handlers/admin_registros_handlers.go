@@ -1,18 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/handlers/admin_registros_handlers.go
-//
-// CORREÇÕES APLICADAS:
-//   H4-16 — ListarTodosRegistros, ListarRegistrosPorEstudante e
-//            ListarRegistrosPorAcademia não verificavam userType nem role do
-//            usuário autenticado no início dos handlers. Se as rotas fossem
-//            registradas sem middleware de role adequado, qualquer usuário
-//            autenticado (inclusive estudante) poderia acessar todos os
-//            registros de notas e faltas do sistema.
-//            CORREÇÃO: verificação explícita de userType == "admin" adicionada
-//            ao início de cada handler como defesa em profundidade.
-//   H4-15 — (Parte 4D, não nesta parte) limit=0 sem validação de mínimo.
-// ============================================================================
-
 package handlers
 
 import (

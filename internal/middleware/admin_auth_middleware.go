@@ -9,14 +9,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// RequireAdmin verifica que o usuário autenticado é um admin com qualquer role válido
-// (gerente, adm ou fpp) e que está ativo.
-//
-// CORRIGIDO P11: antes, este middleware verificava apenas user_type == "admin",
-// sem consultar o banco para checar role e status. Isso significava que um token
-// de admin inativo ainda passava por rotas protegidas apenas por RequireAdmin.
-// Agora: delega para RequireAdminRole("gerente"), que consulta projection_admins
-// e verifica status == "ativo" E role >= gerente.
 func RequireAdmin() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log.Printf("👤 [RequireAdmin] Verificando admin — Path: %s", c.Request.URL.Path)

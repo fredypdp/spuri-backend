@@ -1,21 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/handlers/query_handlers.go
-//
-// CORREÇÕES APLICADAS:
-//   H4-08 — VerificarIntegridade: rota no grupo `protected` sem nenhuma
-//            verificação de ownership. Qualquer usuário autenticado podia
-//            verificar a integridade do ledger de qualquer estudante e obter
-//            nome + codigo_estudante, permitindo enumeração.
-//   H4-22 — VerificarIntegridade: uma academia autenticada podia verificar
-//            integridade de estudantes de outras academias.
-//
-// Correção aplicada:
-//   - estudante: só pode verificar a si mesmo (userID == estudante.ID)
-//   - academia: só pode verificar estudantes que pertencem a ela
-//     (estudante.CodigoAcademia == academia.CodigoAcademia)
-//   - admin: acesso irrestrito (role mínimo "gerente" via RequireAdmin)
-// ============================================================================
-
 package handlers
 
 import (

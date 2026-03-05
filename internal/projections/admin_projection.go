@@ -1,12 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/projections/admin_projection.go
-//
-// CORREÇÕES APLICADAS:
-//   [A31] — handleAdminDadosAtualizados: verifica unicidade de email na projeção
-//            antes de executar UPDATE. Evita que evento com email duplicado
-//            quebre o rebuild silenciosamente.
-// ============================================================================
-
 package projections
 
 import (

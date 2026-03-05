@@ -1,8 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/handlers/ano_letivo_handler.go
-// Endpoints para gestão do ano letivo — segue padrão Event Sourcing do projeto
-// ============================================================================
-
 package handlers
 
 import (

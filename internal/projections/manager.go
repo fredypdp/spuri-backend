@@ -1,16 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/projections/manager.go
-//
-// CORREÇÕES APLICADAS (Etapa 3):
-//   P3-13 — processProjection(): UpdateCheckpoint() não é mais chamado quando
-//            processEventWithRetry() retorna erro. Evento que falhou
-//            permanentemente não avança o checkpoint — fica no ledger para
-//            reprocessamento após correção.
-//   P3-14 — markRebuildStart() e markRebuildComplete(): versão antiga usava
-//            fmt.Sprintf com db.SafeString() (que retorna bool). Corrigido
-//            para prepared statements com $1/$2.
-// ============================================================================
-
 package projections
 
 import (

@@ -1,24 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/db/repository.go
-//
-// CORREÇÕES APLICADAS (Etapa 2 — auditoria-etapa2-db.md):
-//   FIX-REPO-01 — metadataJSON, _ := json.Marshal(metadata) silenciava erro
-//                 de serialização em dbEvent() e dbEventWithAudit().
-//                 Agora o erro é propagado ao chamador, evitando que eventos
-//                 sejam gravados no ledger sem metadata de auditoria.
-//   FIX-REPO-02 — Load() e LoadFromVersion() não validavam que os eventos
-//                 retornados pelo ledger pertencem ao aggregateType solicitado.
-//                 Adicionada verificação de consistência no primeiro evento,
-//                 prevenindo reconstituição silenciosa com tipo errado.
-//
-// NOTA ARQUITETURAL (REPO-03):
-//   Save() e SaveWithAudit() gravam no ledger em uma transação, mas a
-//   atualização da projeção ocorre após o Commit(), via Manager assíncrono,
-//   em transação separada. Esta é uma limitação conhecida do padrão adotado:
-//   há uma janela de inconsistência entre ledger e projeção após falha do
-//   Manager. O rebuild é o mecanismo de recuperação previsto.
-// ============================================================================
-
 package db
 
 import (

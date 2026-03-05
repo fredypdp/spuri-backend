@@ -1,8 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/middleware/monitoring.go
-// Middleware para coleta de métricas
-// ============================================================================
-
 package middleware
 
 import (

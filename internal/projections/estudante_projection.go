@@ -1,28 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/projections/estudante_projection.go
-//
-// CORREÇÕES APLICADAS (Etapa 3):
-//   P3-01/02 — Handle() consolidado em switch canônico cobrindo TODOS os eventos
-//              emitidos pelo aggregate Estudante:
-//              EstudanteCriado, EstudanteCriadoComVinculo, EstudanteInscrito,
-//              InscricaoAprovada, InscricaoReprovada, EstudanteVinculado,
-//              StatusEscolarFundamentalAtualizado, StatusEscolarMedioAtualizado,
-//              StatusEscolarAtualizado, StatusSuperiorAtualizado,
-//              DadosPessoaisAtualizados, DadosAcademicosAtualizados,
-//              EmailVerificadoEstudante, CursoAlterado, AprovacaoAnoRegistrada,
-//              SenhaAlterada, AvaliacaoFinalAnoAcademico,
-//              NotasRegistradas, FaltasRegistradas.
-//   P3-03 — Rebuild() reprocessa eventos do ledger (não era só DELETE + reset).
-//   P3-04 — Rebuild() usa sql.NullString para previous_hash.
-//   P3-05 — handleCursoAlterado: adicionado default com erro explícito.
-//   P3-06 — handleAprovacaoAnoRegistrada: padrão já tem default; mantido.
-//   P3-21 — Nota sobre atomicidade: UpdateCheckpoint é responsabilidade do Manager.
-//   P3-23 — EstudanteInscrito e InscricaoReprovada agora têm handlers.
-//
-// Versão anterior tinha dois arquivos conflitantes; este arquivo é a versão
-// canônica e única para estudante_projection.go.
-// ============================================================================
-
 package projections
 
 import (

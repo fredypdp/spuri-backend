@@ -1,8 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/monitoring/metrics.go
-// Sistema de métricas e estatísticas
-// ============================================================================
-
 package monitoring
 
 import (

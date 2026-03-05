@@ -1,25 +1,3 @@
-// ============================================================================
-// ARQUIVO: cmd/server/main.go
-//
-// CORREÇÕES APLICADAS:
-//   FIX-C4  — Rotas /estudante/status-escolar-* REMOVIDAS das rotas de estudante.
-//              Novas rotas /academia/estudante/:codigo/status-* adicionadas,
-//              protegidas por RequireAcademia() + ValidarStatusAcademia().
-//   FIX-A1  — JWT_SECRET fatal em produção (tratado no middleware/auth.go).
-//   [A42]   — CORS: wildcard substituído por whitelist configurável via ALLOWED_ORIGINS.
-//   H4-06   — /notas-estudante/:codigo e /faltas-estudante/:codigo movidos do
-//              grupo `protected` (qualquer userType) para um sub-grupo que exige
-//              RequireAcademiaOuAdmin(). Os próprios estudantes acessam suas notas
-//              e faltas via /estudante/minhas-notas e /estudante/minhas-faltas
-//              (novas rotas no grupo estudante).
-//              Isso alinha o controle de acesso dessas rotas com
-//              /avaliacoes-estudante/:codigo, que já usava RequireAcademiaOuAdmin.
-//   H4-13   — PUT /admin/academia/:id/ativar e /desativar agora exigem role
-//              mínimo "adm" via RequireAdm() inline na rota, em vez do role
-//              "gerente" herdado do grupo admin. Alinhado com AtivarAdmin/
-//              DesativarAdmin que verificam hierarquia via ValidatePermission.
-// ============================================================================
-
 package main
 
 import (

@@ -1,26 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/handlers/estudante_query_handlers.go
-//
-// NOVO ARQUIVO — criado como correção H4-06.
-//
-// Contexto:
-//   Antes, estudantes acessavam suas próprias notas e faltas via:
-//     GET /notas-estudante/:codigo
-//     GET /faltas-estudante/:codigo
-//   Essas rotas estavam no grupo `protected` (qualquer userType), e os
-//   handlers verificavam ownership internamente.
-//
-//   Com a correção H4-06, as rotas /notas-estudante e /faltas-estudante
-//   foram movidas para RequireAcademiaOuAdmin() — estudantes não chegam mais
-//   por esse caminho. Para preservar o acesso do estudante aos seus próprios
-//   dados, foram criadas novas rotas no grupo /estudante:
-//     GET /estudante/minhas-notas
-//     GET /estudante/minhas-faltas
-//
-//   Essas rotas usam o userID do JWT diretamente — sem parâmetro de código
-//   na URL, eliminando a possibilidade de enumeração por estudante.
-// ============================================================================
-
 package handlers
 
 import (

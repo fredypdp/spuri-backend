@@ -1,23 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/middleware/auth.go
-//
-// CORREÇÕES APLICADAS:
-//   FIX-A1  — JWT_SECRET: servidor falha fatalmente em produção se não configurado.
-//              Antes: apenas logava aviso e continuava com secret público.
-//              Agora: em ENV=production, ausência de JWT_SECRET causa log.Fatalf.
-//   H4-17   — AuthMiddleware: verificação de status do usuário adicionada.
-//              Antes: validava apenas assinatura e expiração do JWT.
-//              Um admin desativado, academia desativada ou estudante desativado
-//              com token JWT ainda válido conseguia acessar qualquer rota
-//              protegida por AuthMiddleware até a expiração natural do token.
-//              CORREÇÃO: após validar o JWT, o middleware consulta a tabela de
-//              projeção correspondente ao userType e verifica status == "ativo".
-//              Usuários com status diferente de "ativo" recebem 401.
-//              NOTA DE PERFORMANCE: esta query extra (1 SELECT por requisição)
-//              é necessária para garantir revogação imediata. O custo é baixo
-//              pois projection_* são tabelas de leitura com índice em `id`.
-// ============================================================================
-
 package middleware
 
 import (
@@ -50,9 +30,6 @@ func init() {
 
 	if secret == "" {
 		if env == "production" {
-			// FIX-A1: em produção, JWT_SECRET ausente é erro fatal.
-			// Sem isso, o servidor sobe com secret público conhecido por qualquer
-			// pessoa que leia o código — comprometendo TODOS os tokens.
 			log.Fatalf("[FATAL] JWT_SECRET não configurado em produção. Configure a variável de ambiente JWT_SECRET.")
 		}
 		secret = "seu_segredo_muito_secreto_aqui_mude_em_producao"

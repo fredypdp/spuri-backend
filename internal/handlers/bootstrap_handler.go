@@ -1,13 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/handlers/bootstrap_handler.go
-//
-// CORREÇÕES APLICADAS (auditoria Março 2026):
-//   #3  — Race condition TOCTOU: adicionada constraint única no banco (via migration
-//          024) E advisory lock PostgreSQL para serializar bootstrap concorrente.
-//          Ver migration 024_bootstrap_unique_constraint.sql.
-//   #4  — Removido bloco test_login que expunha a senha em texto plano na resposta.
-// ============================================================================
-
 package handlers
 
 import (

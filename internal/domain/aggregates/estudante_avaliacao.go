@@ -1,12 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/domain/aggregates/estudante_avaliacao.go
-//
-// CORREÇÕES APLICADAS (Etapa 1):
-//   Etapa1-ToJSON — ToJSON() adicionado a AvaliacaoFinalAnoAcademicoEvent.
-//         Antes herdava BaseEvent.ToJSON() que serializava e.Payload=nil
-//         = "null" gravado no ledger. Rebuild impossível.
-// ============================================================================
-
 package aggregates
 
 import (

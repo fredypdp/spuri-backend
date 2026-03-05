@@ -1,13 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/domain/aggregates/estudante_aprovacao.go
-//
-// CORREÇÕES APLICADAS (Etapa 1):
-//   Etapa1-ToJSON — ToJSON() adicionado a todos os eventos concretos.
-//         Antes herdavam BaseEvent.ToJSON() que serializava e.Payload=nil
-//         = "null" gravado no ledger. Rebuild seria impossível pois o
-//         unmarshal de "null" retorna struct zerado.
-// ============================================================================
-
 package aggregates
 
 import (

@@ -1,16 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/middleware/rate_limit.go
-//
-// CORREÇÕES APLICADAS:
-//   FIX-RL1 — cleanup(): antes apagava TODOS os limiters a cada TTL tick,
-//              incluindo IPs com tentativas recentes (ex: brute force ativo era
-//              resetado a cada 10min para todos simultaneamente).
-//              Agora: cada entry tem timestamp de último acesso, e o cleanup
-//              remove apenas entries inativos por mais de TTL.
-//   FIX-RL2 — getLimiter(): atualiza lastSeen a cada acesso para evitar remoção
-//              prematura de IPs ativos.
-// ============================================================================
-
 package middleware
 
 import (

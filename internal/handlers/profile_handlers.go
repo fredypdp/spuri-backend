@@ -1,16 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/handlers/profile_handlers.go
-//
-// CORREÇÕES APLICADAS:
-//   FIX-C1  — AlterarSenha: academia agora usa event sourcing via aggregate,
-//              idêntico ao admin. Antes: UPDATE direto em projection_academias —
-//              bypassava o ledger.
-//   H4-18   — AlterarSenha: estudante inativo bloqueado antes de processar.
-//              Um estudante com token JWT válido mas status != "ativo" não pode
-//              alterar senha. O bloqueio de login verifica status, mas a alteração
-//              de senha não verificava — gap corrigido aqui.
-// ============================================================================
-
 package handlers
 
 import (

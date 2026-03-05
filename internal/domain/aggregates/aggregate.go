@@ -1,17 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/domain/aggregates/aggregate.go
-//
-// CORREÇÕES APLICADAS (Etapa 1):
-//   #1/#2 — BaseEvent.ToJSON() agora retorna json.Marshal(e) em vez de
-//            json.Marshal(e.Payload).
-//            Razão: quando o repository reconstrói um BaseEvent do banco
-//            (Payload = json.RawMessage) e ToJSON() é chamado, o resultado
-//            anterior omitia EventType e AggregateID, tornando o payload
-//            incompleto caso o evento fosse re-gravado (reprocessamento/migração).
-//            Com a correção, BaseEvent serializa todos os seus campos, ficando
-//            consistente com o padrão de todos os eventos concretos.
-// ============================================================================
-
 package aggregates
 
 import (

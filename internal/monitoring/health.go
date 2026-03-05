@@ -1,8 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/monitoring/health.go
-// Sistema de monitoramento de saúde da aplicação
-// ============================================================================
-
 package monitoring
 
 import (

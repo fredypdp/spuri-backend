@@ -1,11 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/handlers/metrics_handler.go
-//
-// Handler para o endpoint de métricas do sistema.
-// FIX-ERR: main.go referenciava handlers.GetMetrics que não existia.
-// Criado GetSystemMetrics que delega para monitoring.GetMetrics().GetSnapshot().
-// ============================================================================
-
 package handlers
 
 import (

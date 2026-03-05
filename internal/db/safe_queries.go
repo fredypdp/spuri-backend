@@ -1,30 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/db/safe_queries.go
-//
-// Funções de validação e sanitização para queries SQL.
-// TODAS as queries dinâmicas devem usar estas funções.
-//
-// CORREÇÕES APLICADAS (Etapa 1 — pré-existentes):
-//   FIX-ERR1 — ValidateLimit volta a receber 1 argumento.
-//   FIX-ERR2 — ValidateTableName adicionada.
-//   FIX-WL1  — EmailVerificadoEstudante adicionado.
-//   FIX-WL2  — StatusEscolarAtualizado REMOVIDO (evento fantasma).
-//
-// CORREÇÕES APLICADAS (Etapa 2 — auditoria-etapa2-db.md):
-//   FIX-WL-01 — "AdminAcaoRegistrada" corrigido para "AcaoAdminRegistrada"
-//               (nome emitido pelo aggregate Admin).
-//   FIX-WL-02 — "AdminRoleAtualizado" adicionado (estava ausente).
-//   FIX-WL-03 — "NotasAtualizadas" (fantasma) removido; "NotasRegistradas"
-//               adicionado (nome real emitido pelo aggregate Estudante).
-//   FIX-WL-04 — "MateriaPeriodoDefinido" adicionado (estava ausente).
-//   FIX-WL-05 — "MateriaDeletada" adicionado (estava ausente).
-//   FIX-WL-06 — "CursoDeletado" adicionado (estava ausente).
-//   FIX-WL-07 — "EstudanteAdicionadoTurma" corrigido para
-//               "EstudanteAdicionadoATurma" (nome emitido pelo aggregate Turma).
-//   FIX-WL-08 — "EstudanteRemovidoTurma" corrigido para
-//               "EstudanteRemovidoDaTurma" (nome emitido pelo aggregate Turma).
-// ============================================================================
-
 package db
 
 import (

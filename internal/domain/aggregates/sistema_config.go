@@ -1,28 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/domain/aggregates/sistema_config.go
-//
-// CORREÇÕES APLICADAS (Etapa 1):
-//   #8  — applyAnoLetivoDefinido: data, _ = json.Marshal(payload) substituído
-//         por data, err = json.Marshal(payload) com retorno do erro.
-//   #9  — AnoLetivoDefinidoEvent agora inclui DataInicio, DataFim e Observacao.
-//         A projeção sistema_config_projection esperava estes campos mas o evento
-//         não os continha, resultando em zeros gravados. Campos adicionados como
-//         ponteiros (nil-safe) para compatibilidade com eventos já gravados.
-//         DefinirAnoLetivoCompleto() expõe o comando completo com as novas datas.
-//         DefinirAnoLetivo() mantém assinatura original (retrocompatível).
-//   Etapa1-ToJSON — ToJSON() adicionado a AnoLetivoDefinidoEvent e
-//         EmailVerificadoEvent. Antes herdavam BaseEvent.ToJSON() que
-//         serializava e.Payload=nil = "null" gravado no ledger.
-//
-// NOTAS PARA ETAPA 4:
-//   O handler que chama DefinirAnoLetivo deve ser atualizado para chamar
-//   DefinirAnoLetivoCompleto e passar dataInicio, dataFim e observacao.
-//
-// NOTAS PARA ETAPA 3:
-//   sistema_config_projection deve ler o campo Valor (não AnoLetivo) para
-//   obter o ano letivo, e DataInicio/DataFim para as datas.
-// ============================================================================
-
 package aggregates
 
 import (

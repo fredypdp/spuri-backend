@@ -1,17 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/projections/sistema_config_projection.go
-//
-// CORREÇÕES APLICADAS (Etapa 3):
-//   P3-11 — handleAnoLetivoDefinido: DataInicio e DataFim deserializados como
-//            *time.Time (ponteiros) em vez de time.Time (valor). Eventos legados
-//            sem esses campos resultavam em time.Time{} (0001-01-01) no banco.
-//            Agora são tratados como NULL quando ausentes.
-//   P3-12 — As colunas ano_letivo_atual, data_inicio, data_fim, definido_por,
-//            observacao, event_id não existem na migration 005 original.
-//            A migration 031 adiciona essas colunas. Este arquivo assume que
-//            a migration 031 foi aplicada.
-// ============================================================================
-
 package projections
 
 import (

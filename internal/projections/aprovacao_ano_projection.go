@@ -1,14 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/projections/aprovacao_ano_projection.go
-//
-// CORREÇÕES APLICADAS (Etapa 3):
-//   P3-07 — GetLastProcessedEventID() e UpdateCheckpoint() usavam fmt.Sprintf
-//            com db.SafeString() (que retorna bool). Corrigido para prepared
-//            statements com $1/$2 — versão canônica única.
-//   P3-08 — Rebuild() usava scan direto de previous_hash para *string.
-//            Corrigido para sql.NullString.
-// ============================================================================
-
 package projections
 
 import (

@@ -1,19 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/handlers/admin_handlers.go
-//
-// CORREÇÕES APLICADAS:
-//   [A14] — AtualizarDadosAdmin: verifica unicidade de email via projeção ANTES
-//            de emitir AdminDadosAtualizados. Sem essa verificação, o evento era
-//            gravado no ledger imutável mas falhava na projeção, causando
-//            inconsistência permanente ledger ↔ projeção.
-//   [A41] — RegisterAdmin: senha_padrao REMOVIDA da resposta HTTP. Admin recebe
-//            email com instruções; senha não exposta em respostas JSON.
-//   [A26] — RebuildProjection: usa projManager global (injetado no contexto),
-//            não cria manager local que opera concorrentemente com o global.
-//   [A08] — AtivarAdmin: verifica hierarquia do executor antes de ativar.
-//   [A10] — DesativarAdmin: verifica hierarquia do executor antes de desativar.
-// ============================================================================
-
 package handlers
 
 import (

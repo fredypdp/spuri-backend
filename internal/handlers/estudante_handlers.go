@@ -1,22 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/handlers/estudante_handlers.go
-//
-// CORREÇÕES APLICADAS:
-//   FIX-C4  — AtualizarStatusEscolar*Handler REMOVIDOS deste arquivo.
-//              Esses handlers agora estão em academia_status_escolar_handlers.go
-//              e exigem RequireAcademia(). Estudante não pode mais alterar próprio
-//              status escolar — é responsabilidade exclusiva da academia.
-//   FIX-S1  — Senha padrão de estudante criado por academia = código do estudante
-//              (via services.GetDefaultPassword). Antes era "spuri123" hardcoded.
-//   FIX-S2  — Audit context adicionado no RegisterEstudantePorAcademia.
-//   H4-02   — RegisterEstudante: verificação de unicidade de email antes de salvar.
-//              Sem isso, múltiplos estudantes podiam ter o mesmo email, causando
-//              colisão em recuperação de senha e verificação de email.
-//   H4-05   — ListarEstudantes / scanEstudantesRows: senha_hash removida do SELECT.
-//              O hash bcrypt não precisa ser trafegado do banco para a aplicação
-//              em listagens — violação de mínimo privilégio.
-// ============================================================================
-
 package handlers
 
 import (

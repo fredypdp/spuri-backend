@@ -1,15 +1,3 @@
-// ============================================================================
-// ARQUIVO: internal/domain/aggregates/admin.go
-//
-// CORREÇÕES APLICADAS:
-//   #1  — Criar() valida hash bcrypt mínimo (60 chars)
-//   #7  — Apply handlers retornam erro em vez de panic
-//   [A05] — ValidatePermission: protegido contra role desconhecido
-//   Etapa1-ToJSON — ToJSON() adicionado a TODOS os eventos concretos.
-//            Antes, os eventos herdavam BaseEvent.ToJSON() que serializava
-//            apenas e.Payload (nil nos concretos = "null" gravado no ledger).
-// ============================================================================
-
 package aggregates
 
 import (
