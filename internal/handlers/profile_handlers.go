@@ -1,5 +1,14 @@
 // ============================================================================
 // ARQUIVO: internal/handlers/profile_handlers.go
+//
+// CORREÇÕES APLICADAS:
+//   FIX-C1  — AlterarSenha: academia agora usa event sourcing via aggregate,
+//              idêntico ao admin. Antes: UPDATE direto em projection_academias —
+//              bypassava o ledger.
+//   H4-18   — AlterarSenha: estudante inativo bloqueado antes de processar.
+//              Um estudante com token JWT válido mas status != "ativo" não pode
+//              alterar senha. O bloqueio de login verifica status, mas a alteração
+//              de senha não verificava — gap corrigido aqui.
 // ============================================================================
 
 package handlers
@@ -20,13 +29,9 @@ import (
 
 // AlterarSenha permite que o usuário autenticado altere sua própria senha.
 //
-// FIX C1: academia agora usa event sourcing via aggregate, idêntico ao admin.
-// Antes: UPDATE direto em projection_academias — bypassava o ledger.
-// Agora: academia.AlterarSenha() → AcademiaSenhaAlteradaEvent → ledger → projeção.
-// Consequências da correção:
-//   - Rebuild restaura a senha correta (não volta à senha original)
-//   - Trilha de auditoria completa no ledger
-//   - Consistência com AdminSenhaAlterada
+// FIX-C1: academia agora usa event sourcing via aggregate, idêntico ao admin.
+// H4-18:  estudante inativo bloqueado — token válido não é suficiente para
+//         alterar senha se o estudante estiver com status != "ativo".
 func AlterarSenha(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userType, _ := c.Get("user_type")
@@ -96,9 +101,7 @@ func AlterarSenha(c *gin.Context) {
 		return
 	}
 
-	// ── Academia: event sourcing (FIX C1) ─────────────────────────────────
-	// Antes: UPDATE direto na projeção — bypassava o ledger.
-	// Agora: academia.AlterarSenha() → AcademiaSenhaAlteradaEvent → ledger → projeção.
+	// ── Academia: event sourcing (FIX-C1) ─────────────────────────────────
 	if userType == "academia" {
 		uid := userID.(uuid.UUID)
 
@@ -128,7 +131,6 @@ func AlterarSenha(c *gin.Context) {
 		}
 		academia := academiaAgg.(*aggregates.Academia)
 
-		// Passa o UUID da própria academia como changedBy — é ela quem está alterando
 		if err := academia.AlterarSenha(string(hashedPassword), uid, "alteracao_usuario"); err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
@@ -157,6 +159,14 @@ func AlterarSenha(c *gin.Context) {
 		estudanteDTO, err := estudanteProj.GetByID(uid)
 		if err != nil || estudanteDTO == nil {
 			utils.RespondWithNotFoundError(c, "estudante")
+			return
+		}
+
+		// H4-18: estudante inativo não pode alterar senha mesmo com token JWT válido.
+		// O AuthMiddleware não verifica status após emitir o token — esta é a barreira
+		// no nível do handler para operações de escrita sensíveis.
+		if estudanteDTO.Status != "ativo" {
+			utils.RespondWithForbiddenError(c, "conta inativa. Não é possível alterar a senha.")
 			return
 		}
 
@@ -256,25 +266,31 @@ func getPerfilEstudante(c *gin.Context, userID interface{}) {
 	cursosProj := getCursosProjection(c)
 
 	if estudante.CursoMedioID != nil {
-		cursoMedio, _ := cursosProj.GetByID(*estudante.CursoMedioID)
-		if cursoMedio != nil {
-			cursoMedioInfo = &gin.H{
-				"id":     cursoMedio.ID,
-				"nome":   cursoMedio.Nome,
-				"type":   cursoMedio.Type,
-				"status": cursoMedio.Status,
+		cursoMedioUUID, err := uuid.Parse(*estudante.CursoMedioID)
+		if err == nil {
+			cursoMedio, _ := cursosProj.GetByID(cursoMedioUUID)
+			if cursoMedio != nil {
+				cursoMedioInfo = &gin.H{
+					"id":     cursoMedio.ID,
+					"nome":   cursoMedio.Nome,
+					"type":   cursoMedio.Type,
+					"status": cursoMedio.Status,
+				}
 			}
 		}
 	}
 
 	if estudante.CursoSuperiorID != nil {
-		cursoSuperior, _ := cursosProj.GetByID(*estudante.CursoSuperiorID)
-		if cursoSuperior != nil {
-			cursoSuperiorInfo = &gin.H{
-				"id":     cursoSuperior.ID,
-				"nome":   cursoSuperior.Nome,
-				"type":   cursoSuperior.Type,
-				"status": cursoSuperior.Status,
+		cursoSuperiorUUID, err := uuid.Parse(*estudante.CursoSuperiorID)
+		if err == nil {
+			cursoSuperior, _ := cursosProj.GetByID(cursoSuperiorUUID)
+			if cursoSuperior != nil {
+				cursoSuperiorInfo = &gin.H{
+					"id":     cursoSuperior.ID,
+					"nome":   cursoSuperior.Nome,
+					"type":   cursoSuperior.Type,
+					"status": cursoSuperior.Status,
+				}
 			}
 		}
 	}

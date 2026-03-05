@@ -3,12 +3,18 @@
 //
 // CORREÇÕES APLICADAS:
 //   FIX-C4  — AtualizarStatusEscolar*Handler REMOVIDOS deste arquivo.
-//              Esses handlers agora estão em academia_handlers.go e exigem
-//              RequireAcademia(). Estudante não pode mais alterar próprio status
-//              escolar — é responsabilidade exclusiva da academia.
+//              Esses handlers agora estão em academia_status_escolar_handlers.go
+//              e exigem RequireAcademia(). Estudante não pode mais alterar próprio
+//              status escolar — é responsabilidade exclusiva da academia.
 //   FIX-S1  — Senha padrão de estudante criado por academia = código do estudante
 //              (via services.GetDefaultPassword). Antes era "spuri123" hardcoded.
 //   FIX-S2  — Audit context adicionado no RegisterEstudantePorAcademia.
+//   H4-02   — RegisterEstudante: verificação de unicidade de email antes de salvar.
+//              Sem isso, múltiplos estudantes podiam ter o mesmo email, causando
+//              colisão em recuperação de senha e verificação de email.
+//   H4-05   — ListarEstudantes / scanEstudantesRows: senha_hash removida do SELECT.
+//              O hash bcrypt não precisa ser trafegado do banco para a aplicação
+//              em listagens — violação de mínimo privilégio.
 // ============================================================================
 
 package handlers
@@ -63,9 +69,22 @@ func RegisterEstudante(c *gin.Context) {
 		return
 	}
 
+	// H4-02: validar formato E unicidade do email antes de qualquer operação no ledger.
+	// Sem essa verificação, múltiplos estudantes podiam compartilhar o mesmo email,
+	// causando colisões em recuperação de senha e verificação de email.
 	if req.Email != nil {
 		if err := utils.ValidateEmail(*req.Email); err != nil {
 			utils.RespondWithValidationError(c, err)
+			return
+		}
+		estudanteProjEmail := getEstudanteProjection(c)
+		existenteEmail, err := estudanteProjEmail.GetByEmail(*req.Email)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		if existenteEmail != nil {
+			utils.RespondWithConflictError(c, "email já cadastrado no sistema")
 			return
 		}
 	}
@@ -388,6 +407,177 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 }
 
 // ============================================================================
+// GET /estudantes
+// ============================================================================
+
+func ListarEstudantes(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
+
+	client := getDbClient(c)
+
+	if userType == "academia" {
+		academiaProj := getAcademiaProjection(c)
+		academiaDTO, err := academiaProj.GetByID(userID)
+		if err != nil || academiaDTO == nil {
+			utils.RespondWithForbiddenError(c, "academia não encontrada")
+			return
+		}
+
+		// H4-05: senha_hash removida do SELECT — hash bcrypt não deve ser trafegado
+		// desnecessariamente em listagens (visível em logs de query e APM).
+		rows, err := client.DB().Query(`
+			SELECT id, nome, codigo_estudante, email, telefone, email_verificado,
+				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
+				status, status_escolar_fundamental, status_escolar_medio, status_superior,
+				ano_escolar, ano_escolar_medio, ano_superior,
+				curso_medio_id, curso_superior_id,
+				COALESCE(genero, ''), created_at, updated_at,
+				COALESCE(total_notas, 0), COALESCE(total_faltas, 0), version
+			FROM projection_estudantes
+			WHERE codigo_academia = $1
+			ORDER BY created_at DESC
+		`, academiaDTO.CodigoAcademia)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		defer rows.Close()
+
+		estudantes := scanEstudantesRows(rows)
+		c.JSON(http.StatusOK, gin.H{
+			"estudantes":      estudantes,
+			"total":           len(estudantes),
+			"tipo_usuario":    "academia",
+			"codigo_academia": academiaDTO.CodigoAcademia,
+			"nome_academia":   academiaDTO.Nome,
+		})
+
+	} else if userType == "admin" {
+		// H4-05: senha_hash removida do SELECT.
+		rows, err := client.DB().Query(`
+			SELECT id, nome, codigo_estudante, email, telefone, email_verificado,
+				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
+				status, status_escolar_fundamental, status_escolar_medio, status_superior,
+				ano_escolar, ano_escolar_medio, ano_superior,
+				curso_medio_id, curso_superior_id,
+				COALESCE(genero, ''), created_at, updated_at,
+				COALESCE(total_notas, 0), COALESCE(total_faltas, 0), version
+			FROM projection_estudantes
+			ORDER BY created_at DESC
+		`)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		defer rows.Close()
+
+		estudantes := scanEstudantesRows(rows)
+		c.JSON(http.StatusOK, gin.H{
+			"estudantes":   estudantes,
+			"total":        len(estudantes),
+			"tipo_usuario": "admin",
+		})
+
+	} else {
+		utils.RespondWithForbiddenError(c, "Acesso negado. Apenas academias e administradores podem listar estudantes.")
+	}
+}
+
+// scanEstudantesRows faz scan das linhas retornadas por ListarEstudantes.
+// H4-05: variável senhaHash e sua posição no Scan foram removidas —
+// a coluna senha_hash não está mais no SELECT, portanto não há scan correspondente.
+func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
+	var estudantes []map[string]interface{}
+	for rows.Next() {
+		var id, cursoMedioID, cursoSuperiorID sql.NullString
+		var nome, codigoEstudante, status string
+		var statusFund, statusMedio, statusSuperior string
+		var email, telefone, bilhete, bilheteResp, codigoAcad sql.NullString
+		var anoEscolar, anoEscolarMedio, anoSuperior sql.NullString
+		var emailVerif bool
+		var genero string
+		var createdAt, updatedAt string
+		var totalNotas, totalFaltas, version int
+
+		if err := rows.Scan(
+			&id, &nome, &codigoEstudante,
+			&email, &telefone, &emailVerif, &bilhete, &bilheteResp, &codigoAcad,
+			&status, &statusFund, &statusMedio, &statusSuperior,
+			&anoEscolar, &anoEscolarMedio, &anoSuperior,
+			&cursoMedioID, &cursoSuperiorID,
+			&genero, &createdAt, &updatedAt, &totalNotas, &totalFaltas, &version,
+		); err != nil {
+			log.Printf("[ERROR] ListarEstudantes scan: %v", err)
+			continue
+		}
+
+		estudantes = append(estudantes, map[string]interface{}{
+			"nome":                           nome,
+			"codigo_estudante":               codigoEstudante,
+			"email":                          getNullString(email),
+			"telefone":                       getNullString(telefone),
+			"email_verificado":               emailVerif,
+			"bilhete_identidade":             getNullString(bilhete),
+			"bilhete_identidade_responsavel": getNullString(bilheteResp),
+			"codigo_academia":                getNullString(codigoAcad),
+			"status":                         status,
+			"status_escolar_fundamental":     statusFund,
+			"status_escolar_medio":           statusMedio,
+			"status_superior":                statusSuperior,
+			"ano_escolar":                    getNullString(anoEscolar),
+			"ano_escolar_medio":              getNullString(anoEscolarMedio),
+			"ano_superior":                   getNullString(anoSuperior),
+			"curso_medio_id":                 getNullString(cursoMedioID),
+			"curso_superior_id":              getNullString(cursoSuperiorID),
+			"genero":                         genero,
+			"created_at":                     createdAt,
+			"updated_at":                     updatedAt,
+			"total_notas":                    totalNotas,
+			"total_faltas":                   totalFaltas,
+			"version":                        version,
+		})
+	}
+	return estudantes
+}
+
+// ============================================================================
+// GET /eventos-estudante/:codigo
+// ============================================================================
+// NOTA: getNullString está em helpers.go (pacote compartilhado).
+// NOTA: VerificarIntegridade está em query_handlers.go.
+
+func GetEventosEstudante(c *gin.Context) {
+	codigoEstudante := c.Param("codigo")
+
+	userType, _ := middleware.GetUserType(c)
+	if userType != "admin" {
+		utils.RespondWithForbiddenError(c, "Apenas administradores podem consultar eventos.")
+		return
+	}
+
+	estudanteProj := getEstudanteProjection(c)
+	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
+	if err != nil || estudante == nil {
+		utils.RespondWithNotFoundError(c, "estudante")
+		return
+	}
+
+	repository := getRepository(c)
+	eventos, err := repository.GetEventHistory(estudante.ID)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"codigo_estudante": codigoEstudante,
+		"eventos":          eventos,
+		"total":            len(eventos),
+	})
+}
+
+// ============================================================================
 // PUT /estudante/dados-pessoais
 // ============================================================================
 
@@ -513,14 +703,12 @@ func GetEstudantePorCodigo(c *gin.Context) {
 	var academiaInfo *gin.H
 	if estudante.CodigoAcademia != nil {
 		academiaProj := getAcademiaProjection(c)
-		acad, _ := academiaProj.GetByCodigo(*estudante.CodigoAcademia)
-		if acad != nil {
+		academia, _ := academiaProj.GetByCodigo(*estudante.CodigoAcademia)
+		if academia != nil {
 			academiaInfo = &gin.H{
-				"codigo":        acad.CodigoAcademia,
-				"nome":          acad.Nome,
-				"tipo":          acad.Type,
-				"provincia":     acad.Provincia,
-				"nivel_escolar": acad.NivelEscolar,
+				"codigo": academia.CodigoAcademia,
+				"nome":   academia.Nome,
+				"tipo":   academia.Type,
 			}
 		}
 	}
@@ -529,31 +717,38 @@ func GetEstudantePorCodigo(c *gin.Context) {
 	cursosProj := getCursosProjection(c)
 
 	if estudante.CursoMedioID != nil {
-		curso, _ := cursosProj.GetByID(*estudante.CursoMedioID)
-		if curso != nil {
-			cursoMedioInfo = &gin.H{
-				"id":     curso.ID,
-				"nome":   curso.Nome,
-				"type":   curso.Type,
-				"status": curso.Status,
+		cursoMedioUUID, err := uuid.Parse(*estudante.CursoMedioID)
+		if err == nil {
+			cursoMedio, _ := cursosProj.GetByID(cursoMedioUUID)
+			if cursoMedio != nil {
+				cursoMedioInfo = &gin.H{
+					"id":     cursoMedio.ID,
+					"nome":   cursoMedio.Nome,
+					"type":   cursoMedio.Type,
+					"status": cursoMedio.Status,
+				}
 			}
 		}
 	}
 
 	if estudante.CursoSuperiorID != nil {
-		curso, _ := cursosProj.GetByID(*estudante.CursoSuperiorID)
-		if curso != nil {
-			cursoSuperiorInfo = &gin.H{
-				"id":     curso.ID,
-				"nome":   curso.Nome,
-				"type":   curso.Type,
-				"status": curso.Status,
+		cursoSuperiorUUID, err := uuid.Parse(*estudante.CursoSuperiorID)
+		if err == nil {
+			cursoSuperior, _ := cursosProj.GetByID(cursoSuperiorUUID)
+			if cursoSuperior != nil {
+				cursoSuperiorInfo = &gin.H{
+					"id":     cursoSuperior.ID,
+					"nome":   cursoSuperior.Nome,
+					"type":   cursoSuperior.Type,
+					"status": cursoSuperior.Status,
+				}
 			}
 		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"estudante": gin.H{
+			"id":                             estudante.ID,
 			"nome":                           estudante.Nome,
 			"codigo_estudante":               estudante.CodigoEstudante,
 			"email":                          estudante.Email,
@@ -562,6 +757,7 @@ func GetEstudantePorCodigo(c *gin.Context) {
 			"bilhete_identidade":             estudante.BilheteIdentidade,
 			"bilhete_identidade_responsavel": estudante.BilheteIdentidadeResp,
 			"codigo_academia":                estudante.CodigoAcademia,
+			"academia":                       academiaInfo,
 			"status":                         estudante.Status,
 			"status_escolar_fundamental":     estudante.StatusEscolarFundamental,
 			"status_escolar_medio":           estudante.StatusEscolarMedio,
@@ -570,177 +766,11 @@ func GetEstudantePorCodigo(c *gin.Context) {
 			"ano_escolar_medio":              estudante.AnoEscolarMedio,
 			"ano_superior":                   estudante.AnoSuperior,
 			"genero":                         estudante.Genero,
-			"academia":                       academiaInfo,
 			"curso_medio":                    cursoMedioInfo,
 			"curso_superior":                 cursoSuperiorInfo,
 			"created_at":                     estudante.CreatedAt,
 			"updated_at":                     estudante.UpdatedAt,
 			"version":                        estudante.Version,
 		},
-	})
-}
-
-// ============================================================================
-// GET /estudantes
-// ============================================================================
-
-func ListarEstudantes(c *gin.Context) {
-	userID, _ := middleware.GetUserID(c)
-	userType, _ := middleware.GetUserType(c)
-
-	client := getDbClient(c)
-
-	if userType == "academia" {
-		academiaProj := getAcademiaProjection(c)
-		academiaDTO, err := academiaProj.GetByID(userID)
-		if err != nil || academiaDTO == nil {
-			utils.RespondWithForbiddenError(c, "academia não encontrada")
-			return
-		}
-
-		rows, err := client.DB().Query(`
-			SELECT id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
-				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
-				status, status_escolar_fundamental, status_escolar_medio, status_superior,
-				ano_escolar, ano_escolar_meio, ano_superior,
-				curso_medio_id, curso_superior_id,
-				COALESCE(genero, ''), created_at, updated_at,
-				COALESCE(total_notas, 0), COALESCE(total_faltas, 0), version
-			FROM projection_estudantes
-			WHERE codigo_academia = $1
-			ORDER BY created_at DESC
-		`, academiaDTO.CodigoAcademia)
-		if err != nil {
-			utils.RespondWithInternalError(c, err)
-			return
-		}
-		defer rows.Close()
-
-		estudantes := scanEstudantesRows(rows)
-		c.JSON(http.StatusOK, gin.H{
-			"estudantes":      estudantes,
-			"total":           len(estudantes),
-			"tipo_usuario":    "academia",
-			"codigo_academia": academiaDTO.CodigoAcademia,
-			"nome_academia":   academiaDTO.Nome,
-		})
-
-	} else if userType == "admin" {
-		rows, err := client.DB().Query(`
-			SELECT id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
-				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
-				status, status_escolar_fundamental, status_escolar_medio, status_superior,
-				ano_escolar, ano_escolar_medio, ano_superior,
-				curso_medio_id, curso_superior_id,
-				COALESCE(genero, ''), created_at, updated_at,
-				COALESCE(total_notas, 0), COALESCE(total_faltas, 0), version
-			FROM projection_estudantes
-			ORDER BY created_at DESC
-		`)
-		if err != nil {
-			utils.RespondWithInternalError(c, err)
-			return
-		}
-		defer rows.Close()
-
-		estudantes := scanEstudantesRows(rows)
-		c.JSON(http.StatusOK, gin.H{
-			"estudantes":   estudantes,
-			"total":        len(estudantes),
-			"tipo_usuario": "admin",
-		})
-
-	} else {
-		utils.RespondWithForbiddenError(c, "Acesso negado. Apenas academias e administradores podem listar estudantes.")
-	}
-}
-
-func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
-	var estudantes []map[string]interface{}
-	for rows.Next() {
-		var id, cursoMedioID, cursoSuperiorID sql.NullString
-		var nome, codigoEstudante, senhaHash, status string
-		var statusFund, statusMedio, statusSuperior string
-		var email, telefone, bilhete, bilheteResp, codigoAcad sql.NullString
-		var anoEscolar, anoEscolarMedio, anoSuperior sql.NullString
-		var emailVerif bool
-		var genero string
-		var createdAt, updatedAt string
-		var totalNotas, totalFaltas, version int
-
-		if err := rows.Scan(
-			&id, &nome, &codigoEstudante, &senhaHash,
-			&email, &telefone, &emailVerif, &bilhete, &bilheteResp, &codigoAcad,
-			&status, &statusFund, &statusMedio, &statusSuperior,
-			&anoEscolar, &anoEscolarMedio, &anoSuperior,
-			&cursoMedioID, &cursoSuperiorID,
-			&genero, &createdAt, &updatedAt, &totalNotas, &totalFaltas, &version,
-		); err != nil {
-			log.Printf("[ERROR] ListarEstudantes scan: %v", err)
-			continue
-		}
-
-		estudantes = append(estudantes, map[string]interface{}{
-			"nome":                           nome,
-			"codigo_estudante":               codigoEstudante,
-			"email":                          getNullString(email),
-			"telefone":                       getNullString(telefone),
-			"email_verificado":               emailVerif,
-			"bilhete_identidade":             getNullString(bilhete),
-			"bilhete_identidade_responsavel": getNullString(bilheteResp),
-			"codigo_academia":                getNullString(codigoAcad),
-			"status":                         status,
-			"status_escolar_fundamental":     statusFund,
-			"status_escolar_medio":           statusMedio,
-			"status_superior":                statusSuperior,
-			"ano_escolar":                    getNullString(anoEscolar),
-			"ano_escolar_medio":              getNullString(anoEscolarMedio),
-			"ano_superior":                   getNullString(anoSuperior),
-			"curso_medio_id":                 getNullString(cursoMedioID),
-			"curso_superior_id":              getNullString(cursoSuperiorID),
-			"genero":                         genero,
-			"created_at":                     createdAt,
-			"updated_at":                     updatedAt,
-			"total_notas":                    totalNotas,
-			"total_faltas":                   totalFaltas,
-			"version":                        version,
-		})
-	}
-	return estudantes
-}
-
-// ============================================================================
-// GET /eventos-estudante/:codigo
-// ============================================================================
-// NOTA: getNullString está em helpers.go (pacote compartilhado).
-// NOTA: VerificarIntegridade está em query_handlers.go.
-
-func GetEventosEstudante(c *gin.Context) {
-	codigoEstudante := c.Param("codigo")
-
-	userType, _ := middleware.GetUserType(c)
-	if userType != "admin" {
-		utils.RespondWithForbiddenError(c, "Apenas administradores podem consultar eventos.")
-		return
-	}
-
-	estudanteProj := getEstudanteProjection(c)
-	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
-	if err != nil || estudante == nil {
-		utils.RespondWithNotFoundError(c, "estudante")
-		return
-	}
-
-	repository := getRepository(c)
-	eventos, err := repository.GetEventHistory(estudante.ID)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"codigo_estudante": codigoEstudante,
-		"eventos":          eventos,
-		"total":            len(eventos),
 	})
 }

@@ -7,6 +7,11 @@
 //              Agora: ambos são verificados antes de emitir o JWT.
 //   FIX-E16 — Timing attack: bcrypt executado mesmo quando usuário não existe.
 //   FIX-E17 — Academia inativa bloqueada antes de emitir token.
+//   H4-03   — RegisterEstudantePorAcademia REMOVIDA deste arquivo.
+//              A versão legada com senha "spuri123" hardcoded não existe mais.
+//              A versão corrigida está em estudante_handlers.go (FIX-S1/S2).
+//   H4-04   — Consequência direta de H4-03: evento de criação por academia agora
+//              contém AuditContext correto (academia ID + IP).
 // ============================================================================
 
 package handlers
