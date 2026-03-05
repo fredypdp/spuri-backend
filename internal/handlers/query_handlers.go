@@ -1,3 +1,21 @@
+// ============================================================================
+// ARQUIVO: internal/handlers/query_handlers.go
+//
+// CORREÇÕES APLICADAS:
+//   H4-08 — VerificarIntegridade: rota no grupo `protected` sem nenhuma
+//            verificação de ownership. Qualquer usuário autenticado podia
+//            verificar a integridade do ledger de qualquer estudante e obter
+//            nome + codigo_estudante, permitindo enumeração.
+//   H4-22 — VerificarIntegridade: uma academia autenticada podia verificar
+//            integridade de estudantes de outras academias.
+//
+// Correção aplicada:
+//   - estudante: só pode verificar a si mesmo (userID == estudante.ID)
+//   - academia: só pode verificar estudantes que pertencem a ela
+//     (estudante.CodigoAcademia == academia.CodigoAcademia)
+//   - admin: acesso irrestrito (role mínimo "gerente" via RequireAdmin)
+// ============================================================================
+
 package handlers
 
 import (
@@ -34,6 +52,12 @@ func getPaginationParams(c *gin.Context) (limit, offset int) {
 	return limit, offset
 }
 
+// VerificarIntegridade verifica a cadeia de hashes do ledger de um estudante.
+//
+// H4-08 / H4-22: adicionada verificação de ownership por tipo de usuário:
+//   - estudante: apenas o próprio estudante pode verificar sua integridade
+//   - academia:  apenas a academia à qual o estudante pertence
+//   - admin:     acesso irrestrito (qualquer role de admin)
 func VerificarIntegridade(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
 
@@ -41,6 +65,41 @@ func VerificarIntegridade(c *gin.Context) {
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
 		utils.RespondWithNotFoundError(c, "estudante")
+		return
+	}
+
+	userID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
+
+	switch userType {
+	case "estudante":
+		// Estudante só pode verificar sua própria integridade.
+		if userID != estudante.ID {
+			utils.RespondWithForbiddenError(c, "Você só pode verificar sua própria integridade")
+			return
+		}
+
+	case "academia":
+		// Academia só pode verificar estudantes que pertencem a ela.
+		// H4-22: sem essa verificação, academia podia confirmar existência
+		// e obter nome de estudantes de outras academias.
+		academiaProj := getAcademiaProjection(c)
+		academiaDTO, err := academiaProj.GetByID(userID)
+		if err != nil || academiaDTO == nil {
+			utils.RespondWithNotFoundError(c, "academia")
+			return
+		}
+		if estudante.CodigoAcademia == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
+			utils.RespondWithForbiddenError(c, "Estudante não pertence a esta academia")
+			return
+		}
+
+	case "admin":
+		// Admin tem acesso irrestrito — qualquer role de admin é aceito.
+		// A autenticação do admin é garantida pelo JWT (user_type="admin").
+
+	default:
+		utils.RespondWithForbiddenError(c, "Tipo de usuário não autorizado")
 		return
 	}
 

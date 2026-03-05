@@ -7,6 +7,17 @@
 //              protegidas por RequireAcademia() + ValidarStatusAcademia().
 //   FIX-A1  — JWT_SECRET fatal em produção (tratado no middleware/auth.go).
 //   [A42]   — CORS: wildcard substituído por whitelist configurável via ALLOWED_ORIGINS.
+//   H4-06   — /notas-estudante/:codigo e /faltas-estudante/:codigo movidos do
+//              grupo `protected` (qualquer userType) para um sub-grupo que exige
+//              RequireAcademiaOuAdmin(). Os próprios estudantes acessam suas notas
+//              e faltas via /estudante/minhas-notas e /estudante/minhas-faltas
+//              (novas rotas no grupo estudante).
+//              Isso alinha o controle de acesso dessas rotas com
+//              /avaliacoes-estudante/:codigo, que já usava RequireAcademiaOuAdmin.
+//   H4-13   — PUT /admin/academia/:id/ativar e /desativar agora exigem role
+//              mínimo "adm" via RequireAdm() inline na rota, em vez do role
+//              "gerente" herdado do grupo admin. Alinhado com AtivarAdmin/
+//              DesativarAdmin que verificam hierarquia via ValidatePermission.
 // ============================================================================
 
 package main
@@ -138,8 +149,6 @@ func setupRouter() *gin.Engine {
 		protected.PUT("/alterar-senha", handlers.AlterarSenha)
 		protected.GET("/meu-perfil", handlers.GetMeuPerfil)
 		protected.GET("/academias", handlers.ListarTodasAcademias)
-		protected.GET("/notas-estudante/:codigo", handlers.GetNotasEstudante)
-		protected.GET("/faltas-estudante/:codigo", handlers.GetFaltasEstudante)
 		protected.GET("/eventos-estudante/:codigo", handlers.GetEventosEstudante)
 		protected.GET("/verificar-integridade/:codigo", handlers.VerificarIntegridade)
 		protected.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)
@@ -149,18 +158,31 @@ func setupRouter() *gin.Engine {
 		protected.GET("/avaliacoes", handlers.ListarAvaliacoes)
 		protected.GET("/aprovacoes", handlers.ListarAprovacoes)
 		protected.GET("/reprovacoes", handlers.ListarReprovacoes)
+
+		// H4-06: rotas de dados educacionais restritas a academia ou admin.
+		// Os próprios estudantes acessam suas notas/faltas via grupo /estudante.
+		protected.GET("/notas-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetNotasEstudante)
+		protected.GET("/faltas-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetFaltasEstudante)
 		protected.GET("/avaliacoes-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetAvaliacoesFinaisEstudante)
 	}
 
 	// ── Rotas de estudante ─────────────────────────────────────────────────
 	// FIX-C4: status-escolar-* REMOVIDOS daqui — estudante não pode mais alterar
 	// seu próprio status escolar. Essa responsabilidade é exclusiva da academia.
+	//
+	// H4-06: novas rotas /estudante/minhas-notas e /estudante/minhas-faltas
+	// permitem que o estudante acesse apenas seus próprios dados educacionais,
+	// sem expor o /:codigo que permitia consultar qualquer estudante.
 	estudante := router.Group("/estudante")
 	estudante.Use(middleware.AuthMiddleware())
 	estudante.Use(middleware.RequireEstudante())
 	{
 		estudante.PUT("/dados-pessoais", handlers.AtualizarDadosPessoais)
 		estudante.GET("/minhas-avaliacoes", handlers.GetMinhasAvaliacoes)
+		// H4-06: rotas de leitura exclusivas do estudante autenticado.
+		// O handler usa o userID do JWT — sem parâmetro de código na URL.
+		estudante.GET("/minhas-notas", handlers.GetMinhasNotas)
+		estudante.GET("/minhas-faltas", handlers.GetMinhasFaltas)
 	}
 
 	// ── Rotas de academia ─────────────────────────────────────────────────
@@ -192,8 +214,14 @@ func setupRouter() *gin.Engine {
 	{
 		admin.POST("/register", handlers.RegisterAdmin)
 		admin.POST("/academia/register", handlers.RegisterAcademia)
-		admin.PUT("/academia/:id/ativar", handlers.AtivarAcademia)
-		admin.PUT("/academia/:id/desativar", handlers.DesativarAcademia)
+
+		// H4-13: ativar/desativar academia exige role mínimo "adm".
+		// Consistente com AtivarAdmin/DesativarAdmin que verificam hierarquia
+		// via ValidatePermission — operações sobre academias têm impacto sistêmico
+		// significativo e não devem estar acessíveis ao role "gerente".
+		admin.PUT("/academia/:id/ativar", middleware.RequireAdm(), handlers.AtivarAcademia)
+		admin.PUT("/academia/:id/desativar", middleware.RequireAdm(), handlers.DesativarAcademia)
+
 		admin.PUT("/admin/:id/ativar", handlers.AtivarAdmin)
 		admin.PUT("/admin/:id/desativar", handlers.DesativarAdmin)
 		admin.GET("/admins", handlers.ListarTodosAdmins)
@@ -261,8 +289,7 @@ func requestIDMiddleware() gin.HandlerFunc {
 		if requestID == "" {
 			requestID = fmt.Sprintf("%d-%s",
 				time.Now().UnixNano(),
-				strings.ReplaceAll(c.ClientIP(), ".", "-"),
-			)
+				strings.ReplaceAll(c.ClientIP(), ".", "-"))
 		}
 		c.Set("request_id", requestID)
 		c.Header("X-Request-ID", requestID)
