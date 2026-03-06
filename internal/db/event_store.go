@@ -34,24 +34,27 @@ func NewEventStore(client *Client) *EventStore {
 	return &EventStore{client: client}
 }
 
-// appendInternal é o helper compartilhado que realiza o INSERT no ledger.
-// Centraliza a lógica comum entre Append e AppendTx.
-func appendInternal(
-	ctx context.Context,
-	queryRow func(query string, args ...interface{}) *sql.Row,
-	event *Event,
-) error {
+// appendDirect insere um evento no ledger imutável fora de uma transação.
+// Método interno (unexported) — uso externo ao pacote db deve passar por
+// AggregateRepository.Save / SaveWithAudit que usam AppendTx com tx Serializable.
+//
+// FIX DB-07: renomeado de Append (público) para appendDirect (interno) para
+// evitar que código externo ao pacote grave eventos diretamente no ledger
+// contornando a serialização de versão do repositório.
+func (es *EventStore) appendDirect(ctx context.Context, event *Event) error {
 	if event.AggregateID == uuid.Nil {
 		return fmt.Errorf("UUID inválido")
 	}
+
 	if err := ValidateAggregateType(event.AggregateType); err != nil {
 		return err
 	}
+
 	if err := ValidateEventType(event.EventType); err != nil {
 		return err
 	}
 
-	row := queryRow(`
+	row := es.client.db.QueryRowContext(ctx, `
 		INSERT INTO spuri_ledger (
 			event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at
@@ -62,24 +65,16 @@ func appendInternal(
 	)
 
 	var prevHash sql.NullString
-	if err := row.Scan(&event.ID, &event.RecordedAt, &event.LedgerHash, &prevHash); err != nil {
+	err := row.Scan(&event.ID, &event.RecordedAt, &event.LedgerHash, &prevHash)
+	if err != nil {
 		return fmt.Errorf("erro ao adicionar evento: %w", err)
 	}
+
 	if prevHash.Valid {
 		event.PreviousHash = &prevHash.String
 	}
-	return nil
-}
 
-// append insere um evento no ledger fora de transação.
-// DB-07 FIX: método renomeado para minúsculo (privado) para impedir que código
-// externo ao pacote db contorne a serialização de versão do AggregateRepository.
-// Todo código externo deve usar AggregateRepository.Save / SaveWithAudit.
-// Mantido para uso interno (ex: testes de integração no pacote db).
-func (es *EventStore) append(ctx context.Context, event *Event) error {
-	return appendInternal(ctx, func(query string, args ...interface{}) *sql.Row {
-		return es.client.db.QueryRowContext(ctx, query, args...)
-	}, event)
+	return nil
 }
 
 // AppendTx insere um evento dentro de uma transação já iniciada.
@@ -89,9 +84,11 @@ func (es *EventStore) AppendTx(ctx context.Context, tx *sqlx.Tx, event *Event) e
 	if event.AggregateID == uuid.Nil {
 		return fmt.Errorf("UUID inválido")
 	}
+
 	if err := ValidateAggregateType(event.AggregateType); err != nil {
 		return err
 	}
+
 	if err := ValidateEventType(event.EventType); err != nil {
 		return err
 	}
@@ -111,9 +108,11 @@ func (es *EventStore) AppendTx(ctx context.Context, tx *sqlx.Tx, event *Event) e
 	if err != nil {
 		return fmt.Errorf("erro ao adicionar evento na transação: %w", err)
 	}
+
 	if prevHash.Valid {
 		event.PreviousHash = &prevHash.String
 	}
+
 	return nil
 }
 
@@ -129,7 +128,7 @@ func (es *EventStore) LoadEventStream(ctx context.Context, aggregateID uuid.UUID
 			ledger_hash, previous_hash
 		FROM spuri_ledger
 		WHERE aggregate_id = $1
-		ORDER BY event_version ASC, id ASC`,
+		ORDER BY event_version ASC, recorded_at ASC`,
 		aggregateID,
 	)
 	if err != nil {
@@ -148,6 +147,7 @@ func (es *EventStore) LoadEventStreamFromVersion(
 	if aggregateID == uuid.Nil {
 		return nil, fmt.Errorf("UUID inválido")
 	}
+
 	if fromVersion < 0 {
 		fromVersion = 0
 	}
@@ -159,7 +159,7 @@ func (es *EventStore) LoadEventStreamFromVersion(
 			ledger_hash, previous_hash
 		FROM spuri_ledger
 		WHERE aggregate_id = $1 AND event_version >= $2
-		ORDER BY event_version ASC, id ASC`,
+		ORDER BY event_version ASC, recorded_at ASC`,
 		aggregateID, fromVersion,
 	)
 	if err != nil {
@@ -170,10 +170,11 @@ func (es *EventStore) LoadEventStreamFromVersion(
 	return scanEvents(rows)
 }
 
-// GetEventsByType retorna eventos filtrados por tipo, ordenados do mais recente ao mais antigo.
+// GetEventsByType retorna eventos de um tipo específico ordenados de forma determinística.
 //
-// DB-05 FIX: ORDER BY agora usa (recorded_at DESC, id DESC) como segundo critério de
-// desempate, tornando a ordem determinística para eventos com mesmo timestamp.
+// FIX DB-05: adicionado id DESC como critério de desempate para eventos com
+// o mesmo recorded_at (inseridos na mesma transação). Garante ordem estável
+// e reprodutível entre execuções.
 func (es *EventStore) GetEventsByType(
 	ctx context.Context,
 	eventType string,
@@ -204,10 +205,11 @@ func (es *EventStore) GetEventsByType(
 	return scanEvents(rows)
 }
 
-// GetAllEvents retorna todos os eventos do ledger paginados, do mais recente ao mais antigo.
+// GetAllEvents retorna todos os eventos do ledger ordenados de forma determinística.
 //
-// DB-06 FIX: ORDER BY agora usa (recorded_at DESC, id DESC) como segundo critério de
-// desempate, tornando a listagem determinística para eventos com mesmo timestamp.
+// FIX DB-06: adicionado id DESC como critério de desempate para eventos com
+// o mesmo recorded_at. Garante ordem estável e reprodutível entre execuções,
+// crítico para auditoria forense.
 func (es *EventStore) GetAllEvents(
 	ctx context.Context,
 	offset, limit int,
@@ -256,16 +258,14 @@ func (es *EventStore) GetEventByID(ctx context.Context, eventID uuid.UUID) (*Eve
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar evento: %w", err)
 	}
+
 	if prevHash.Valid {
 		event.PreviousHash = &prevHash.String
 	}
+
 	return &event, nil
 }
 
-// GetAggregateVersion retorna a versão máxima de um aggregate no ledger.
-// Usa SELECT COALESCE(MAX(...), 0) que nunca retorna sql.ErrNoRows.
-// Nota: esta função existe para uso diagnóstico. O Save/SaveWithAudit leem
-// a versão DENTRO da transação com FOR UPDATE (ver repository.go).
 func (es *EventStore) GetAggregateVersion(ctx context.Context, aggregateID uuid.UUID) (int, error) {
 	if aggregateID == uuid.Nil {
 		return 0, fmt.Errorf("UUID inválido")
@@ -278,9 +278,14 @@ func (es *EventStore) GetAggregateVersion(ctx context.Context, aggregateID uuid.
 		WHERE aggregate_id = $1`,
 		aggregateID,
 	).Scan(&version)
+
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
 	if err != nil {
 		return 0, fmt.Errorf("erro ao obter versão: %w", err)
 	}
+
 	return version, nil
 }
 
@@ -289,6 +294,8 @@ func (es *EventStore) VerifyLedgerIntegrity(ctx context.Context, aggregateID uui
 		return false, fmt.Errorf("UUID inválido")
 	}
 
+	// verify_hash_chain é uma função SQL definida no banco — recebe UUID como argumento.
+	// Usamos $1 como placeholder para o UUID, evitando interpolação de string.
 	var (
 		isValid  bool
 		brokenAt *int
@@ -319,6 +326,7 @@ func (es *EventStore) CountEvents(ctx context.Context) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("erro ao contar eventos: %w", err)
 	}
+
 	return count, nil
 }
 
@@ -335,10 +343,11 @@ func (es *EventStore) CountEventsByAggregate(ctx context.Context, aggregateID uu
 	if err != nil {
 		return 0, fmt.Errorf("erro ao contar eventos: %w", err)
 	}
+
 	return count, nil
 }
 
-// scanEvents percorre *sql.Rows e escaneia cada linha para Event.
+// scanEvents é um helper que percorre *sql.Rows e escaneia cada linha para Event.
 func scanEvents(rows *sql.Rows) ([]Event, error) {
 	var events []Event
 	for rows.Next() {
@@ -357,5 +366,6 @@ func scanEvents(rows *sql.Rows) ([]Event, error) {
 		}
 		events = append(events, event)
 	}
+
 	return events, rows.Err()
 }

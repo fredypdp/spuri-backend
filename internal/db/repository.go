@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 
 	"spuri/internal/domain/aggregates"
 )
@@ -15,6 +16,7 @@ import (
 type AggregateRepository struct {
 	eventStore *EventStore
 	factory    aggregates.AggregateFactory
+	ctx        context.Context
 }
 
 // AuditContext carrega informações do usuário que está realizando a operação.
@@ -25,24 +27,45 @@ type AuditContext struct {
 	IP       string // IP da requisição (opcional)
 }
 
-// NewAggregateRepository cria um repositório com a factory padrão.
-//
-// DB-04 FIX: ctx foi removido do struct. Cada operação recebe agora o contexto
-// da chamada (vindo do handler HTTP), permitindo timeout e cancelamento por
-// requisição. context.Background() não é mais atribuído no construtor.
+// NewAggregateRepository cria um repositório com context.Background() por padrão.
+// Para operações em handlers HTTP, use r.WithContext(c.Request.Context()) para
+// propagar o deadline e cancelamento da requisição — evita que queries bloqueiem
+// indefinidamente se o banco travar ou o cliente desconectar.
 func NewAggregateRepository(client *Client) *AggregateRepository {
 	return &AggregateRepository{
 		eventStore: NewEventStore(client),
 		factory:    &aggregates.DefaultAggregateFactory{},
+		ctx:        context.Background(),
+	}
+}
+
+// WithContext retorna uma shallow-copy do repositório usando o context fornecido.
+// A instância original não é modificada — seguro compartilhá-la entre requests.
+//
+// FIX DB-04: context.Background() fixo no construtor ignora o deadline do handler
+// HTTP. Queries de Load (aggregates com muitos eventos) ficam sem timeout e podem
+// bloquear indefinidamente se o banco travar.
+//
+// Uso recomendado nos handlers:
+//
+//	repo := getRepository(c).WithContext(c.Request.Context())
+//	agg, err := repo.Load(id, "Estudante")
+func (r *AggregateRepository) WithContext(ctx context.Context) *AggregateRepository {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return &AggregateRepository{
+		eventStore: r.eventStore,
+		factory:    r.factory,
+		ctx:        ctx,
 	}
 }
 
 // Load reconstrói um aggregate a partir dos eventos do ledger.
 //
-// DB-04 FIX: recebe ctx da chamada (handler HTTP) em vez de usar context.Background() fixo.
-// DB-02/DB-03 FIX (via Save): GetAggregateVersion movido para dentro da transação (ver Save).
-func (r *AggregateRepository) Load(ctx context.Context, id uuid.UUID, aggregateType string) (aggregates.Aggregate, error) {
-	dbEvents, err := r.eventStore.LoadEventStream(ctx, id)
+// FIX-REPO-02: valida consistência de aggregate_type em todos os eventos.
+func (r *AggregateRepository) Load(id uuid.UUID, aggregateType string) (aggregates.Aggregate, error) {
+	dbEvents, err := r.eventStore.LoadEventStream(r.ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao carregar eventos: %w", err)
 	}
@@ -51,7 +74,6 @@ func (r *AggregateRepository) Load(ctx context.Context, id uuid.UUID, aggregateT
 		return nil, fmt.Errorf("agregado não encontrado: %s", id)
 	}
 
-	// Verifica consistência de aggregate_type no ledger.
 	for _, ge := range dbEvents {
 		if ge.AggregateType != aggregateType {
 			return nil, fmt.Errorf(
@@ -80,47 +102,28 @@ func (r *AggregateRepository) Load(ctx context.Context, id uuid.UUID, aggregateT
 	return aggregate, nil
 }
 
-// Save persiste os eventos não-commitados de um aggregate no ledger.
+// Save persiste os eventos uncommitted do aggregate no ledger.
 //
-// DB-02 FIX: GetAggregateVersion é chamado DENTRO da transação com FOR UPDATE,
-// eliminando a race condition entre a leitura da versão e o INSERT.
-// O banco retorna erro de constraint UNIQUE(aggregate_id, event_version) se
-// duas transações concorrentes tentarem gravar a mesma versão — o erro é
-// propagado claramente ao caller para retry ou rejeição.
-//
-// DB-03 FIX: GetAggregateVersion usa SELECT COALESCE(MAX, 0) que nunca
-// retorna sql.ErrNoRows. O tratamento correto é: qualquer erro != nil
-// deve ser retornado imediatamente. O branch "else if" que silenciava
-// erros reais foi removido.
-//
-// DB-04 FIX: recebe ctx da chamada.
-func (r *AggregateRepository) Save(ctx context.Context, aggregate aggregates.Aggregate) error {
+// FIX DB-02: GetAggregateVersion executado DENTRO da transação Serializable
+// (via getAggregateVersionTx), eliminando a race condition entre leitura de
+// versão e INSERT.
+// FIX DB-03: branch "else if err != sql.ErrNoRows" removido — era dead code
+// pois COALESCE(MAX(...), 0) nunca retorna sql.ErrNoRows.
+func (r *AggregateRepository) Save(aggregate aggregates.Aggregate) error {
 	uncommittedEvents := aggregate.GetUncommittedEvents()
 	if len(uncommittedEvents) == 0 {
 		return nil
 	}
 
-	tx, err := r.eventStore.client.BeginTx(ctx)
+	tx, err := r.eventStore.client.BeginTx(r.ctx)
 	if err != nil {
 		return fmt.Errorf("erro ao iniciar transação: %w", err)
 	}
 	defer tx.Rollback()
 
-	// DB-02 FIX: leitura da versão DENTRO da transação com lock de linha.
-	// SELECT ... FOR UPDATE garante que nenhuma outra transação insira eventos
-	// para o mesmo aggregate_id entre esta leitura e o INSERT abaixo.
-	var currentVersion int
-	err = tx.QueryRowContext(ctx, `
-		SELECT COALESCE(MAX(event_version), 0)
-		FROM spuri_ledger
-		WHERE aggregate_id = $1
-		FOR UPDATE`,
-		aggregate.GetID(),
-	).Scan(&currentVersion)
-	// DB-03 FIX: COALESCE nunca retorna ErrNoRows. Qualquer erro aqui é real
-	// (timeout, conexão morta, etc.) e deve ser propagado.
+	currentVersion, err := r.getAggregateVersionTx(r.ctx, tx, aggregate.GetID())
 	if err != nil {
-		return fmt.Errorf("erro ao obter versão do aggregate: %w", err)
+		return fmt.Errorf("erro ao obter versão: %w", err)
 	}
 
 	for i, domainEvent := range uncommittedEvents {
@@ -129,7 +132,7 @@ func (r *AggregateRepository) Save(ctx context.Context, aggregate aggregates.Agg
 			return fmt.Errorf("erro ao converter evento: %w", err)
 		}
 
-		if err := r.eventStore.AppendTx(ctx, tx, dbEvent); err != nil {
+		if err := r.eventStore.AppendTx(r.ctx, tx, dbEvent); err != nil {
 			return fmt.Errorf("erro ao salvar evento: %w", err)
 		}
 	}
@@ -143,34 +146,24 @@ func (r *AggregateRepository) Save(ctx context.Context, aggregate aggregates.Agg
 }
 
 // SaveWithAudit salva os eventos do aggregate com metadata de auditoria completo.
-// Usar este método em handlers onde o contexto do usuário está disponível.
 //
-// DB-02 FIX: GetAggregateVersion dentro da transação com FOR UPDATE.
-// DB-03 FIX: erro propagado corretamente.
-// DB-04 FIX: recebe ctx da chamada.
-func (r *AggregateRepository) SaveWithAudit(ctx context.Context, aggregate aggregates.Aggregate, audit AuditContext) error {
+// FIX DB-02: versão lida dentro da tx Serializable via getAggregateVersionTx.
+// FIX DB-03: branch ErrNoRows (dead code) removido.
+func (r *AggregateRepository) SaveWithAudit(aggregate aggregates.Aggregate, audit AuditContext) error {
 	uncommittedEvents := aggregate.GetUncommittedEvents()
 	if len(uncommittedEvents) == 0 {
 		return nil
 	}
 
-	tx, err := r.eventStore.client.BeginTx(ctx)
+	tx, err := r.eventStore.client.BeginTx(r.ctx)
 	if err != nil {
 		return fmt.Errorf("erro ao iniciar transação: %w", err)
 	}
 	defer tx.Rollback()
 
-	// DB-02 FIX: versão lida dentro da transação com lock.
-	var currentVersion int
-	err = tx.QueryRowContext(ctx, `
-		SELECT COALESCE(MAX(event_version), 0)
-		FROM spuri_ledger
-		WHERE aggregate_id = $1
-		FOR UPDATE`,
-		aggregate.GetID(),
-	).Scan(&currentVersion)
+	currentVersion, err := r.getAggregateVersionTx(r.ctx, tx, aggregate.GetID())
 	if err != nil {
-		return fmt.Errorf("erro ao obter versão do aggregate: %w", err)
+		return fmt.Errorf("erro ao obter versão: %w", err)
 	}
 
 	for i, domainEvent := range uncommittedEvents {
@@ -179,7 +172,7 @@ func (r *AggregateRepository) SaveWithAudit(ctx context.Context, aggregate aggre
 			return fmt.Errorf("erro ao converter evento: %w", err)
 		}
 
-		if err := r.eventStore.AppendTx(ctx, tx, dbEvent); err != nil {
+		if err := r.eventStore.AppendTx(r.ctx, tx, dbEvent); err != nil {
 			return fmt.Errorf("erro ao salvar evento: %w", err)
 		}
 	}
@@ -192,10 +185,33 @@ func (r *AggregateRepository) SaveWithAudit(ctx context.Context, aggregate aggre
 	return nil
 }
 
-// Exists verifica se um aggregate com o ID fornecido existe no ledger.
-// DB-04 FIX: recebe ctx da chamada.
-func (r *AggregateRepository) Exists(ctx context.Context, id uuid.UUID) (bool, error) {
-	count, err := r.eventStore.CountEventsByAggregate(ctx, id)
+// getAggregateVersionTx retorna a versão máxima do aggregate dentro de uma
+// transação em curso. Qualquer erro (timeout, conexão perdida) é propagado —
+// não há branch ErrNoRows pois COALESCE nunca retorna zero rows.
+func (r *AggregateRepository) getAggregateVersionTx(
+	ctx context.Context,
+	tx *sqlx.Tx,
+	aggregateID uuid.UUID,
+) (int, error) {
+	if aggregateID == uuid.Nil {
+		return 0, fmt.Errorf("UUID inválido")
+	}
+
+	var version int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COALESCE(MAX(event_version), 0)
+		FROM spuri_ledger
+		WHERE aggregate_id = $1`,
+		aggregateID,
+	).Scan(&version); err != nil {
+		return 0, fmt.Errorf("erro ao obter versão na transação: %w", err)
+	}
+
+	return version, nil
+}
+
+func (r *AggregateRepository) Exists(id uuid.UUID) (bool, error) {
+	count, err := r.eventStore.CountEventsByAggregate(r.ctx, id)
 	if err != nil {
 		return false, err
 	}
@@ -203,14 +219,12 @@ func (r *AggregateRepository) Exists(ctx context.Context, id uuid.UUID) (bool, e
 }
 
 // LoadFromVersion reconstrói um aggregate a partir de uma versão específica.
-// DB-04 FIX: recebe ctx da chamada.
 func (r *AggregateRepository) LoadFromVersion(
-	ctx context.Context,
 	id uuid.UUID,
 	aggregateType string,
 	fromVersion int,
 ) (aggregates.Aggregate, error) {
-	dbEvents, err := r.eventStore.LoadEventStreamFromVersion(ctx, id, fromVersion)
+	dbEvents, err := r.eventStore.LoadEventStreamFromVersion(r.ctx, id, fromVersion)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao carregar eventos: %w", err)
 	}
@@ -247,21 +261,16 @@ func (r *AggregateRepository) LoadFromVersion(
 	return aggregate, nil
 }
 
-// GetEventHistory retorna o histórico de eventos de um aggregate.
-// DB-04 FIX: recebe ctx da chamada.
-func (r *AggregateRepository) GetEventHistory(ctx context.Context, id uuid.UUID) ([]Event, error) {
-	return r.eventStore.LoadEventStream(ctx, id)
+func (r *AggregateRepository) GetEventHistory(id uuid.UUID) ([]Event, error) {
+	return r.eventStore.LoadEventStream(r.ctx, id)
 }
 
-// VerifyIntegrity verifica a integridade da hash chain de um aggregate.
-// DB-04 FIX: recebe ctx da chamada.
-func (r *AggregateRepository) VerifyIntegrity(ctx context.Context, id uuid.UUID) (bool, error) {
-	return r.eventStore.VerifyLedgerIntegrity(ctx, id)
+func (r *AggregateRepository) VerifyIntegrity(id uuid.UUID) (bool, error) {
+	return r.eventStore.VerifyLedgerIntegrity(r.ctx, id)
 }
 
 // SaveSnapshot persiste o estado atual do aggregate como snapshot.
-// DB-04 FIX: recebe ctx da chamada.
-func (r *AggregateRepository) SaveSnapshot(ctx context.Context, aggregate aggregates.Aggregate) error {
+func (r *AggregateRepository) SaveSnapshot(aggregate aggregates.Aggregate) error {
 	stateJSON, err := json.Marshal(aggregate)
 	if err != nil {
 		return err
@@ -282,7 +291,7 @@ func (r *AggregateRepository) SaveSnapshot(ctx context.Context, aggregate aggreg
 		version = 0
 	}
 
-	_, err = r.eventStore.client.db.ExecContext(ctx, `
+	_, err = r.eventStore.client.db.ExecContext(r.ctx, `
 		INSERT INTO aggregate_snapshots (aggregate_id, aggregate_type, version, state)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (aggregate_id)
@@ -296,14 +305,13 @@ func (r *AggregateRepository) SaveSnapshot(ctx context.Context, aggregate aggreg
 }
 
 // LoadSnapshot carrega o snapshot mais recente de um aggregate.
-// DB-04 FIX: recebe ctx da chamada.
-func (r *AggregateRepository) LoadSnapshot(ctx context.Context, id uuid.UUID) (*Snapshot, error) {
+func (r *AggregateRepository) LoadSnapshot(id uuid.UUID) (*Snapshot, error) {
 	if id == uuid.Nil {
 		return nil, fmt.Errorf("UUID inválido")
 	}
 
 	var snapshot Snapshot
-	err := r.eventStore.client.db.QueryRowContext(ctx, `
+	err := r.eventStore.client.db.QueryRowContext(r.ctx, `
 		SELECT aggregate_id, aggregate_type, version, state, created_at
 		FROM aggregate_snapshots
 		WHERE aggregate_id = $1`,
@@ -326,7 +334,7 @@ func (r *AggregateRepository) LoadSnapshot(ctx context.Context, id uuid.UUID) (*
 	return &snapshot, nil
 }
 
-// Snapshot representa um estado salvo de um aggregate.
+// Snapshot representa o estado persistido de um aggregate.
 type Snapshot struct {
 	AggregateID   uuid.UUID       `db:"aggregate_id"`
 	AggregateType string          `db:"aggregate_type"`
@@ -344,17 +352,14 @@ func (r *AggregateRepository) dbEvent(
 	aggregateType string,
 	version int,
 ) (*Event, error) {
-	payload := domainEvent.GetPayload()
-
-	payloadJSON, err := json.Marshal(payload)
+	payloadJSON, err := json.Marshal(domainEvent.GetPayload())
 	if err != nil {
 		return nil, fmt.Errorf("erro ao serializar payload do evento %s: %w", domainEvent.GetEventType(), err)
 	}
 
-	metadata := map[string]interface{}{
+	metadataJSON, err := json.Marshal(map[string]interface{}{
 		"timestamp": time.Now().Unix(),
-	}
-	metadataJSON, err := json.Marshal(metadata)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("erro ao serializar metadata do evento %s: %w", domainEvent.GetEventType(), err)
 	}
@@ -377,20 +382,17 @@ func (r *AggregateRepository) dbEventWithAudit(
 	version int,
 	audit AuditContext,
 ) (*Event, error) {
-	payload := domainEvent.GetPayload()
-
-	payloadJSON, err := json.Marshal(payload)
+	payloadJSON, err := json.Marshal(domainEvent.GetPayload())
 	if err != nil {
 		return nil, fmt.Errorf("erro ao serializar payload do evento %s: %w", domainEvent.GetEventType(), err)
 	}
 
-	metadata := map[string]interface{}{
+	metadataJSON, err := json.Marshal(map[string]interface{}{
 		"timestamp": time.Now().Unix(),
 		"user_id":   audit.UserID,
 		"user_type": audit.UserType,
 		"ip":        audit.IP,
-	}
-	metadataJSON, err := json.Marshal(metadata)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("erro ao serializar metadata de auditoria do evento %s: %w", domainEvent.GetEventType(), err)
 	}
@@ -407,25 +409,19 @@ func (r *AggregateRepository) dbEventWithAudit(
 	}, nil
 }
 
-// convertToDomainEvents converte eventos do banco para DomainEvents.
-// Passa ge.Payload (json.RawMessage) diretamente como Payload do BaseEvent,
-// sem deserializar para map[string]interface{} intermediário.
+// convertToDomainEvents converte eventos do banco para DomainEvents sem
+// double-serialization — Payload (json.RawMessage) é passado diretamente
+// como interface{} no BaseEvent. Os apply handlers de cada aggregate
+// fazem json.Marshal+Unmarshal do Payload para o tipo concreto esperado.
 func (r *AggregateRepository) convertToDomainEvents(dbEvents []Event) ([]aggregates.DomainEvent, error) {
 	domainEvents := make([]aggregates.DomainEvent, 0, len(dbEvents))
-
 	for _, ge := range dbEvents {
-		if !json.Valid(ge.Payload) {
-			return nil, fmt.Errorf("payload inválido para evento %s (ledger id=%d)", ge.EventType, ge.ID)
-		}
-
-		domainEvent := &aggregates.BaseEvent{
+		event := &aggregates.BaseEvent{
 			EventType:   ge.EventType,
 			AggregateID: ge.AggregateID,
-			Payload:     ge.Payload,
+			Payload:     ge.Payload, // json.RawMessage — preserva exatamente o que foi gravado
 		}
-
-		domainEvents = append(domainEvents, domainEvent)
+		domainEvents = append(domainEvents, event)
 	}
-
 	return domainEvents, nil
 }

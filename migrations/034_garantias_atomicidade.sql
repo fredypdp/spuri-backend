@@ -1,87 +1,132 @@
 -- ============================================================================
--- MIGRATION 034 — Garantias de atomicidade retroativas
+-- MIGRATION 034 — FIX DB-13: Garantir NOT NULL em tipo_ensino
+-- ============================================================================
 --
--- DB-12 FIX (auditoria-etapa2-db.md):
---   A migration 001_complete_schema.sql não estava envolvida em BEGIN/COMMIT.
---   Esta migration não pode reescrever a 001 retroativamente (ela já foi
---   aplicada em produção), mas garante que o estado do banco está íntegro
---   verificando os objetos essenciais criados pela 001.
---   Futuros ambientes devem aplicar a 001 em uma conexão com autocommit=off
---   ou dentro de um script de inicialização transacional.
+-- CONTEXTO (DB-13 da auditoria-etapa2-db.md):
+--   A migration 008 executou:
+--     ALTER TABLE projection_aprovacao_ano
+--       ADD COLUMN tipo_ensino VARCHAR(20) NOT NULL DEFAULT 'fundamental' ...
+--     ALTER TABLE projection_aprovacao_ano
+--       ALTER COLUMN tipo_ensino DROP DEFAULT;
 --
--- DB-15 FIX (auditoria-etapa2-db.md):
---   A migration 024_remove_inscricoes_sistema.sql não estava envolvida em
---   BEGIN/COMMIT. Os DROP INDEX e o INSERT INTO projection_checkpoints eram
---   statements independentes. Esta migration garante que os checkpoints
---   esperados pela 024 existem, tornando o estado consistente mesmo que
---   a 024 tenha falhado parcialmente no INSERT.
+--   O DROP DEFAULT não remove o NOT NULL. Porém, em ambientes onde a coluna
+--   foi criada com execução parcial (sem BEGIN/COMMIT na migration 006/008),
+--   a coluna pode ter ficado nullable sem default.
+--
+--   Além disso, projection_reprovacoes (criada na migration 009) define
+--   tipo_ensino como NOT NULL CHECK (...) mas sem DEFAULT — seguro pois
+--   toda inserção deve fornecer o valor explicitamente.
+--
+-- O QUE ESTA MIGRATION FAZ:
+--   1. Garante NOT NULL em projection_aprovacao_ano.tipo_ensino.
+--   2. Garante NOT NULL em projection_reprovacoes.tipo_ensino.
+--   3. Garante NOT NULL em projection_avaliacao_final.tipo_ensino.
+--   4. Preenche NULLs existentes com 'fundamental' antes de impor NOT NULL
+--      (defesa contra execução parcial de migrations anteriores).
+--   5. Garante que os CHECKs de domínio estão presentes em todas as tabelas.
+--
+-- Idempotente: usa DO $$ BEGIN...END $$ com IF EXISTS/verificações condicionais.
 -- ============================================================================
 
 BEGIN;
 
 -- ============================================================================
--- DB-12: Verificar integridade dos objetos essenciais da migration 001
+-- 1. projection_aprovacao_ano.tipo_ensino
 -- ============================================================================
 
-DO $$
-BEGIN
-    -- Verificar tabela principal do ledger
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.tables
-        WHERE table_name = 'spuri_ledger'
-    ) THEN
-        RAISE EXCEPTION
-            '❌ spuri_ledger não existe — migration 001 pode ter falhado parcialmente. '
-            'Execute manualmente: psql -f migrations/001_complete_schema.sql';
-    END IF;
+-- Preencher NULLs antes de impor NOT NULL
+UPDATE projection_aprovacao_ano
+SET tipo_ensino = 'fundamental'
+WHERE tipo_ensino IS NULL;
 
-    -- Verificar função de hash chain (recriada na migration 020 com assinatura correta)
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_proc p
-        JOIN pg_namespace n ON p.pronamespace = n.oid
-        WHERE n.nspname = 'public' AND p.proname = 'verify_hash_chain'
-    ) THEN
-        RAISE EXCEPTION
-            '❌ verify_hash_chain não existe — migration 020 pode não ter sido aplicada. '
-            'Execute manualmente: psql -f migrations/020_fix_verify_hash_chain.sql';
-    END IF;
+-- Garantir NOT NULL
+ALTER TABLE projection_aprovacao_ano
+    ALTER COLUMN tipo_ensino SET NOT NULL;
 
-    -- Verificar trigger de hash automático
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_trigger
-        WHERE tgname = 'trigger_generate_ledger_hash'
-    ) THEN
-        RAISE EXCEPTION
-            '❌ trigger_generate_ledger_hash não existe — migration 001 está incompleta.';
-    END IF;
+-- Garantir CHECK de domínio (idempotente via DROP IF EXISTS + ADD)
+ALTER TABLE projection_aprovacao_ano
+    DROP CONSTRAINT IF EXISTS check_aprovacao_tipo_ensino;
 
-    RAISE NOTICE '✅ Objetos essenciais da migration 001 verificados com sucesso.';
-END $$;
+ALTER TABLE projection_aprovacao_ano
+    ADD CONSTRAINT check_aprovacao_tipo_ensino
+        CHECK (tipo_ensino IN ('fundamental', 'medio', 'superior'));
+
+COMMENT ON COLUMN projection_aprovacao_ano.tipo_ensino IS
+    'Ciclo de ensino da aprovação: fundamental | medio | superior. NOT NULL garantido pela migration 034.';
 
 -- ============================================================================
--- DB-15: Garantir checkpoints da migration 024 (idempotente)
+-- 2. projection_reprovacoes.tipo_ensino
 -- ============================================================================
 
-INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
-VALUES
-    ('aprovacao_ano', 0, CURRENT_TIMESTAMP, 0),
-    ('reprovacoes',   0, CURRENT_TIMESTAMP, 0)
-ON CONFLICT (projection_name) DO NOTHING;
+-- Preencher NULLs antes de impor NOT NULL (defesa contra execução parcial)
+UPDATE projection_reprovacoes
+SET tipo_ensino = 'fundamental'
+WHERE tipo_ensino IS NULL;
 
--- Garantir também sistema_config e avaliacao_final (podem ter sido perdidos
--- se migrations 031 e 016 falharam parcialmente)
-INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
-VALUES
-    ('sistema_config',   0, CURRENT_TIMESTAMP, 0),
-    ('avaliacao_final',  0, CURRENT_TIMESTAMP, 0),
-    ('categorias_nota',  0, CURRENT_TIMESTAMP, 0),
-    ('turmas',           0, CURRENT_TIMESTAMP, 0)
-ON CONFLICT (projection_name) DO NOTHING;
+-- Garantir NOT NULL
+ALTER TABLE projection_reprovacoes
+    ALTER COLUMN tipo_ensino SET NOT NULL;
+
+-- Garantir CHECK de domínio
+ALTER TABLE projection_reprovacoes
+    DROP CONSTRAINT IF EXISTS check_reprov_tipo_ensino;
+
+ALTER TABLE projection_reprovacoes
+    ADD CONSTRAINT check_reprov_tipo_ensino
+        CHECK (tipo_ensino IN ('fundamental', 'medio', 'superior'));
+
+COMMENT ON COLUMN projection_reprovacoes.tipo_ensino IS
+    'Ciclo de ensino da reprovação: fundamental | medio | superior. NOT NULL garantido pela migration 034.';
+
+-- ============================================================================
+-- 3. projection_avaliacao_final.tipo_ensino
+-- ============================================================================
+
+-- Preencher NULLs antes de impor NOT NULL
+UPDATE projection_avaliacao_final
+SET tipo_ensino = 'fundamental'
+WHERE tipo_ensino IS NULL;
+
+-- Garantir NOT NULL
+ALTER TABLE projection_avaliacao_final
+    ALTER COLUMN tipo_ensino SET NOT NULL;
+
+-- Garantir CHECK de domínio
+ALTER TABLE projection_avaliacao_final
+    DROP CONSTRAINT IF EXISTS check_avf_tipo_ensino;
+
+ALTER TABLE projection_avaliacao_final
+    ADD CONSTRAINT check_avf_tipo_ensino
+        CHECK (tipo_ensino IN ('fundamental', 'medio', 'superior'));
+
+COMMENT ON COLUMN projection_avaliacao_final.tipo_ensino IS
+    'Ciclo de ensino da avaliação: fundamental | medio | superior. NOT NULL garantido pela migration 034.';
 
 COMMIT;
 
-DO $$ BEGIN
-    RAISE NOTICE '✅ MIGRATION 034 — verificações de integridade e checkpoints garantidos.';
-    RAISE NOTICE '   DB-12: objetos da migration 001 verificados.';
-    RAISE NOTICE '   DB-15: checkpoints aprovacao_ano, reprovacoes e demais garantidos.';
+-- ============================================================================
+-- Verificação
+-- ============================================================================
+
+DO $$
+DECLARE
+    v_aprovacao_nulls  INTEGER;
+    v_reprovacoes_nulls INTEGER;
+    v_avaliacao_nulls  INTEGER;
+BEGIN
+    SELECT COUNT(*) INTO v_aprovacao_nulls
+    FROM projection_aprovacao_ano WHERE tipo_ensino IS NULL;
+
+    SELECT COUNT(*) INTO v_reprovacoes_nulls
+    FROM projection_reprovacoes WHERE tipo_ensino IS NULL;
+
+    SELECT COUNT(*) INTO v_avaliacao_nulls
+    FROM projection_avaliacao_final WHERE tipo_ensino IS NULL;
+
+    IF v_aprovacao_nulls > 0 OR v_reprovacoes_nulls > 0 OR v_avaliacao_nulls > 0 THEN
+        RAISE WARNING '⚠️  tipo_ensino ainda tem NULLs após migration 034: aprovacao=%, reprovacoes=%, avaliacao=%',
+            v_aprovacao_nulls, v_reprovacoes_nulls, v_avaliacao_nulls;
+    ELSE
+        RAISE NOTICE '✅ MIGRATION 034 — tipo_ensino NOT NULL verificado em todas as tabelas (0 NULLs)';
+    END IF;
 END $$;

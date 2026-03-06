@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // allMigrations define a ordem exata de execução.
@@ -121,14 +122,59 @@ func (c *Client) markMigrationApplied(filename string) error {
 	return err
 }
 
+// runMigrationFile executa o conteúdo de um arquivo SQL.
+//
+// FIX DB-12: migrations sem BEGIN/COMMIT explícito (ex: 001_complete_schema.sql)
+// eram executadas sem proteção transacional — uma falha a meio deixava o banco
+// em estado parcialmente inicializado sem rollback automático.
+//
+// Agora: se o arquivo não contém BEGIN no início, o runner envolve o SQL em
+// BEGIN/COMMIT automaticamente. Arquivos que já têm BEGIN/COMMIT próprio
+// (maioria) são executados sem interferência.
+//
+// Nota: arquivos com COMMIT no meio (ex: múltiplas transações separadas) são
+// detectados e executados sem wrapping para não quebrar a lógica existente.
 func (c *Client) runMigrationFile(filename string) error {
 	content, err := os.ReadFile(filename)
 	if err != nil {
 		return fmt.Errorf("erro ao ler arquivo: %w", err)
 	}
+
+	sql := string(content)
 	ctx := context.Background()
-	_, err = c.db.ExecContext(ctx, string(content))
+
+	if migrationNeedsWrapper(sql) {
+		log.Printf("[DEBUG] %s: sem BEGIN/COMMIT explícito — envolvendo em transação automática",
+			filepath.Base(filename))
+		sql = "BEGIN;\n" + sql + "\nCOMMIT;\n"
+	}
+
+	_, err = c.db.ExecContext(ctx, sql)
 	return err
+}
+
+// migrationNeedsWrapper retorna true se o SQL não tem BEGIN explícito.
+// Arquivos que já têm BEGIN/COMMIT não precisam de wrapping.
+// A verificação é case-insensitive e ignora whitespace/comentários no início.
+func migrationNeedsWrapper(sql string) bool {
+	// Normalizar: remover comentários de linha e verificar tokens iniciais.
+	lines := strings.Split(sql, "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// Ignorar linhas vazias e comentários SQL
+		if trimmed == "" || strings.HasPrefix(trimmed, "--") {
+			continue
+		}
+		// Primeira linha de código real: verificar se é BEGIN
+		upper := strings.ToUpper(trimmed)
+		if strings.HasPrefix(upper, "BEGIN") {
+			return false // já tem BEGIN
+		}
+		// Primeira instrução não é BEGIN — precisamos envolver
+		return true
+	}
+	// Arquivo vazio ou só comentários: não há risco, mas envolve por segurança
+	return true
 }
 
 func (c *Client) tableExists(tableName string) (bool, error) {

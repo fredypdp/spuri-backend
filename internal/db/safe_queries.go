@@ -6,127 +6,166 @@ import (
 	"strings"
 )
 
+// validEventTypes é o mapa canônico de event types permitidos no ledger.
+// Exportado indiretamente via RegisteredEventTypes() para uso nos testes.
+//
+// MANUTENÇÃO: ao adicionar um novo evento no domínio, inclua-o aqui E no
+// slice allDomainEventTypes em internal/db/whitelist_test.go.
+// O teste TestWhitelistEventTypes falhará se o evento não estiver aqui,
+// e TestWhitelistNoOrphans falhará se houver entrada sem correspondência no domínio.
+var validEventTypes = map[string]bool{
+	// ── Bootstrap ────────────────────────────────────────────────────────────
+	// FIX DB-08: SchemaCreated é o evento gerado pela migration 001 (bootstrap).
+	// Sem esta entrada, replay ou verificação de integridade rejeitaria o evento.
+	"SchemaCreated": true,
+
+	// ── Estudante ────────────────────────────────────────────────────────────
+	"EstudanteCriado":            true,
+	"EstudanteCriadoComVinculo":  true,
+	"DadosPessoaisAtualizados":   true,
+	"DadosAcademicosAtualizados": true,
+	"SenhaAlterada":              true,
+	"CursoAlterado":              true,
+
+	// ── Status Escolar ───────────────────────────────────────────────────────
+	// "StatusEscolarAtualizado" REMOVIDO — evento fantasma (FIX-WL2 Etapa 1).
+	"StatusEscolarFundamentalAtualizado": true,
+	"StatusEscolarMedioAtualizado":       true,
+	"StatusSuperiorAtualizado":           true,
+
+	// ── Email Estudante ──────────────────────────────────────────────────────
+	// Nome distinto de "EmailVerificado" (Admin/Academia) para evitar ambiguidade.
+	"EmailVerificadoEstudante": true,
+
+	// ── Inscrição ────────────────────────────────────────────────────────────
+	"EstudanteInscrito":   true,
+	"InscricaoAprovada":   true,
+	"InscricaoReprovada":  true,
+
+	// ── Aprovação e Avaliação ─────────────────────────────────────────────────
+	"AprovacaoAnoRegistrada":     true,
+	"AvaliacaoFinalAnoAcademico": true,
+
+	// ── Academia ─────────────────────────────────────────────────────────────
+	"AcademiaCriada":           true,
+	"AcademiaAtivada":          true,
+	"AcademiaDesativada":       true,
+	"AcademiaDadosAtualizados": true,
+	"CursosAtualizados":        true,
+	"AcademiaSenhaAlterada":    true,
+	"CategoriaNotaAdicionada":  true,
+
+	// ── Email Academia / Admin (compartilhado) ───────────────────────────────
+	"EmailVerificado": true,
+
+	// ── Admin ────────────────────────────────────────────────────────────────
+	"AdminCriado":           true,
+	"AdminAtivado":          true,
+	"AdminDesativado":       true,
+	"AdminDadosAtualizados": true,
+	"AdminSenhaAlterada":    true,
+	// FIX-WL-01: era "AdminAcaoRegistrada" — nome correto é "AcaoAdminRegistrada"
+	"AcaoAdminRegistrada": true,
+	// FIX-WL-02: ausente — aggregate Admin emite "AdminRoleAtualizado"
+	"AdminRoleAtualizado": true,
+
+	// ── Notas e Faltas ────────────────────────────────────────────────────────
+	"NotaAtualizada": true,
+	// FIX-WL-03: "NotasAtualizadas" era fantasma — nome correto é "NotasRegistradas"
+	"NotasRegistradas":  true,
+	"FaltasRegistradas": true,
+	"FaltaRegistrada":   true,
+
+	// ── Turma ─────────────────────────────────────────────────────────────────
+	"TurmaCriada":           true,
+	"TurmaAtivada":          true,
+	"TurmaDesativada":       true,
+	"TurmaDadosAtualizados": true,
+	"TurmaDeletada":         true,
+	"TurmaEncerrada":        true,
+	// FIX-WL-07: era "EstudanteAdicionadoTurma" — nome correto emitido pelo aggregate
+	"EstudanteAdicionadoATurma": true,
+	"EstudanteAdicionadoNaTurma": true, // alias — aceitar ambos durante migração de nomes
+	// FIX-WL-08: era "EstudanteRemovidoTurma" — nome correto emitido pelo aggregate
+	"EstudanteRemovidoDaTurma": true,
+
+	// ── Curso ─────────────────────────────────────────────────────────────────
+	"CursoCriado":           true,
+	"CursoAtivado":          true,
+	"CursoDesativado":       true,
+	"CursoDadosAtualizados": true,
+	// FIX-WL-06: ausente — aggregate Curso emite "CursoDeletado"
+	"CursoDeletado": true,
+
+	// ── MateriaDisciplinar ────────────────────────────────────────────────────
+	"MateriaCriada":           true,
+	"MateriaAtivada":          true,
+	"MateriaDesativada":       true,
+	"MateriaDadosAtualizados": true,
+	// FIX-WL-04: ausente — aggregate MateriaDisciplinar emite "MateriaPeriodoDefinido"
+	"MateriaPeriodoDefinido": true,
+	// FIX-WL-05: ausente — aggregate MateriaDisciplinar emite "MateriaDeletada"
+	"MateriaDeletada": true,
+
+	// ── SistemaConfig ─────────────────────────────────────────────────────────
+	"AnoLetivoDefinido": true,
+}
+
+// validAggregateTypes é o mapa canônico de aggregate types permitidos no ledger.
+// Exportado indiretamente via RegisteredAggregateTypes() para uso nos testes.
+//
+// MANUTENÇÃO: ao adicionar um novo aggregate, inclua-o aqui E no slice
+// aggregateTypes em internal/db/whitelist_test.go.
+var validAggregateTypes = map[string]bool{
+	"Estudante":          true,
+	"Academia":           true,
+	"Admin":              true,
+	"Curso":              true,
+	"MateriaDisciplinar": true,
+	"SistemaConfig":      true,
+	"Turma":              true,
+	// FIX DB-08: "System" é o aggregate_type usado pelo evento de bootstrap da migration 001.
+	// Sem esta entrada, replay ou verificação de integridade rejeitaria o evento SchemaCreated.
+	"System": true,
+}
+
 // ValidateEventType verifica se o tipo de evento é permitido.
 // TODOS os eventos emitidos pelos aggregates devem estar listados aqui.
 // Um evento ausente é silenciosamente rejeitado por EventStore.AppendTx(),
 // fazendo com que o Save retorne erro e o evento nunca chegue ao ledger.
 func ValidateEventType(eventType string) error {
-	validTypes := map[string]bool{
-		// ── Estudante ────────────────────────────────────────────────────────
-		"EstudanteCriado":            true,
-		"EstudanteCriadoComVinculo":  true,
-		"DadosPessoaisAtualizados":   true,
-		"DadosAcademicosAtualizados": true,
-		"SenhaAlterada":              true,
-		"CursoAlterado":              true,
-
-		// ── Status Escolar ───────────────────────────────────────────────────
-		// "StatusEscolarAtualizado" REMOVIDO — evento fantasma (FIX-WL2 Etapa 1).
-		"StatusEscolarFundamentalAtualizado": true,
-		"StatusEscolarMedioAtualizado":       true,
-		"StatusSuperiorAtualizado":           true,
-
-		// ── Email Estudante ──────────────────────────────────────────────────
-		// Nome distinto de "EmailVerificado" (Admin/Academia) para evitar ambiguidade.
-		"EmailVerificadoEstudante": true,
-
-		// ── Academia ─────────────────────────────────────────────────────────
-		"AcademiaCriada":           true,
-		"AcademiaAtivada":          true,
-		"AcademiaDesativada":       true,
-		"AcademiaDadosAtualizados": true,
-		"CursosAtualizados":        true,
-		"EmailVerificado":          true,
-		"AcademiaSenhaAlterada":    true,
-
-		// ── Admin ────────────────────────────────────────────────────────────
-		"AdminCriado":           true,
-		"AdminAtivado":          true,
-		"AdminDesativado":       true,
-		"AdminDadosAtualizados": true,
-		"AdminSenhaAlterada":    true,
-		"AcaoAdminRegistrada":   true,
-		"AdminRoleAtualizado":   true,
-
-		// ── Aprovação e Avaliação ─────────────────────────────────────────────
-		"AprovacaoAnoRegistrada":     true,
-		"AvaliacaoFinalAnoAcademico": true,
-
-		// ── Notas e Faltas ────────────────────────────────────────────────────
-		"NotaAtualizada":    true,
-		"NotasRegistradas":  true,
-		"FaltasRegistradas": true,
-
-		// ── Turma ─────────────────────────────────────────────────────────────
-		"TurmaCriada":              true,
-		"TurmaAtivada":             true,
-		"TurmaDesativada":          true,
-		"TurmaDadosAtualizados":    true,
-		"TurmaDeletada":            true,
-		"EstudanteAdicionadoATurma": true,
-		"EstudanteRemovidoDaTurma":  true,
-
-		// ── Curso ─────────────────────────────────────────────────────────────
-		"CursoCriado":           true,
-		"CursoAtivado":          true,
-		"CursoDesativado":       true,
-		"CursoDadosAtualizados": true,
-		"CursoDeletado":         true,
-
-		// ── MateriaDisciplinar ────────────────────────────────────────────────
-		"MateriaCriada":           true,
-		"MateriaAtivada":          true,
-		"MateriaDesativada":       true,
-		"MateriaDadosAtualizados": true,
-		"MateriaPeriodoDefinido":  true,
-		"MateriaDeletada":         true,
-
-		// ── SistemaConfig ─────────────────────────────────────────────────────
-		"AnoLetivoDefinido": true,
-
-		// ── Categorias de Nota ────────────────────────────────────────────────
-		"CategoriaNotaAdicionada": true,
-
-		// ── Sistema (evento interno de migration — DB-08 FIX) ─────────────────
-		// O evento SchemaCreated é inserido diretamente pela migration 001 no ledger.
-		// Está na whitelist para que replay/testes não rejeitem o evento ao chamar AppendTx.
-		"SchemaCreated": true,
-	}
-
-	if !validTypes[eventType] {
+	if !validEventTypes[eventType] {
 		return fmt.Errorf("tipo de evento inválido: %s", eventType)
 	}
 	return nil
 }
 
 // ValidateAggregateType verifica se o tipo de aggregate é permitido.
-//
-// DB-08 FIX: "System" adicionado para cobrir o evento SchemaCreated inserido
-// pela migration 001 com aggregate_type = 'System'. Sem isso, qualquer
-// reprocessamento ou validação de integridade desse evento retornaria falso
-// negativo ao chamar ValidateAggregateType.
-//
-// DB-09 NOTA: "Aprovacao", "AvaliacaoFinal" e "Reprovacao" não existem como
-// aggregates próprios — esses eventos são emitidos pelo aggregate "Estudante".
-// Se no futuro esses eventos forem movidos para aggregates dedicados, adicionar
-// os tipos correspondentes aqui imediatamente.
 func ValidateAggregateType(aggregateType string) error {
-	validTypes := map[string]bool{
-		"Estudante":          true,
-		"Academia":           true,
-		"Admin":              true,
-		"Curso":              true,
-		"MateriaDisciplinar": true,
-		"SistemaConfig":      true,
-		"Turma":              true,
-		// DB-08 FIX: aggregate virtual usado pela migration 001 para o evento SchemaCreated.
-		"System": true,
-	}
-
-	if !validTypes[aggregateType] {
+	if !validAggregateTypes[aggregateType] {
 		return fmt.Errorf("tipo de aggregate inválido: %s", aggregateType)
 	}
 	return nil
+}
+
+// RegisteredEventTypes retorna a lista de event types atualmente na whitelist.
+// Usado por TestWhitelistNoOrphans para detectar entradas obsoletas.
+func RegisteredEventTypes() []string {
+	types := make([]string, 0, len(validEventTypes))
+	for k := range validEventTypes {
+		types = append(types, k)
+	}
+	return types
+}
+
+// RegisteredAggregateTypes retorna a lista de aggregate types atualmente na whitelist.
+// Usado por TestWhitelistNoOrphans para detectar entradas obsoletas.
+func RegisteredAggregateTypes() []string {
+	types := make([]string, 0, len(validAggregateTypes))
+	for k := range validAggregateTypes {
+		types = append(types, k)
+	}
+	return types
 }
 
 // ValidateOffset valida e sanitiza um offset para paginação.
