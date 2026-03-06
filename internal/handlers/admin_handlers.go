@@ -102,6 +102,11 @@ func RegisterAdmin(c *gin.Context) {
 		return
 	}
 
+	// FIX E4-AA-04 (consumidor): GetDefaultPassword agora lê de env vars,
+	// portanto a senha temporária não é mais um segredo público no código-fonte.
+	// FIX E4-AA-03: o admin recém-criado receberá um link de redefinição de
+	// senha por email (SendAdminWelcomeEmail abaixo). A senha temporária
+	// gerada aqui é apenas o hash inicial — ela nunca trafega pela API.
 	defaultPassword := services.GetDefaultPassword("admin", req.Role)
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(defaultPassword), bcrypt.DefaultCost)
 	if err != nil {
@@ -137,10 +142,31 @@ func RegisterAdmin(c *gin.Context) {
 
 	log.Printf("Admin criado: %s (%s) por %s", req.Email, req.Role, creatorAdmin.Nome)
 
-	// [A41] senha_padrao REMOVIDA da resposta. A senha padrão é enviada por email
-	// ao admin criado, nunca exposta via API.
+	// FIX E4-AA-03: enviar link de redefinição de senha por email.
+	// O admin define sua própria senha no primeiro acesso via link — a senha
+	// temporária nunca é exposta na resposta HTTP nem nos logs de aplicação.
+	// Se o serviço de email estiver desabilitado, logamos aviso mas não
+	// falhamos a criação (o operador pode acionar reset manual via endpoint).
+	emailSvc := getEmailService(c)
+	if emailErr := emailSvc.SendAdminWelcomeEmail(newAdmin.ID, req.Email, req.Nome); emailErr != nil {
+		log.Printf("[WARN] RegisterAdmin: falha ao enviar email de boas-vindas para %s: %v — "+
+			"admin criado com sucesso, mas o novo admin precisará de reset manual de senha.", req.Email, emailErr)
+		c.JSON(http.StatusCreated, gin.H{
+			"message": "administrador criado com sucesso. " +
+				"Não foi possível enviar o email de boas-vindas — utilize o endpoint de reset de senha para o novo admin.",
+			"data": gin.H{
+				"id":    newAdmin.ID,
+				"nome":  newAdmin.Nome,
+				"email": req.Email,
+				"role":  newAdmin.Role,
+			},
+			"aviso_email": "falha no envio do email de boas-vindas",
+		})
+		return
+	}
+
 	c.JSON(http.StatusCreated, gin.H{
-		"message": "administrador criado com sucesso. A senha padrão foi enviada por email.",
+		"message": "administrador criado com sucesso. Um link para definir a senha foi enviado por email.",
 		"data": gin.H{
 			"id":    newAdmin.ID,
 			"nome":  newAdmin.Nome,
@@ -152,6 +178,15 @@ func RegisterAdmin(c *gin.Context) {
 
 // GetAdminPorEmail consulta um administrador pelo e-mail.
 // Rota: GET /admin/consultar-admin/:email
+//
+// FIX E4-ED-02: campos sensíveis (role, status, created_by, total_acoes_realizadas,
+// timestamps internos) são restritos ao role executor. Admin gerente vê apenas
+// nome, email e email_verificado — sem dados que permitam mapear a hierarquia
+// completa de admins ou dirigir ataques a contas de roles superiores.
+//
+// Regras de visibilidade:
+//   - fpp/adm: visão completa
+//   - gerente:  nome + email + email_verificado + status (suficiente para suporte operacional)
 func GetAdminPorEmail(c *gin.Context) {
 	email := c.Param("email")
 
@@ -162,6 +197,26 @@ func GetAdminPorEmail(c *gin.Context) {
 		return
 	}
 
+	// Determinar o role do executor a partir do contexto (injetado pelo RequireAdmin).
+	executorRole, _ := c.Get("admin_role")
+	executorRoleStr, _ := executorRole.(string)
+
+	// Gerente recebe apenas campos não-sensíveis — sem role, created_by,
+	// total_acoes_realizadas nem timestamps internos.
+	if executorRoleStr == "gerente" {
+		c.JSON(http.StatusOK, gin.H{
+			"admin": gin.H{
+				"id":               admin.ID,
+				"nome":             admin.Nome,
+				"email":            admin.Email,
+				"email_verificado": admin.EmailVerificado,
+				"status":           admin.Status,
+			},
+		})
+		return
+	}
+
+	// fpp e adm: visão completa (sem senha_hash — nunca exposta).
 	c.JSON(http.StatusOK, gin.H{
 		"admin": gin.H{
 			"id":                     admin.ID,

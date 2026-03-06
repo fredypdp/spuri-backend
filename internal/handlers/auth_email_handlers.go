@@ -172,6 +172,13 @@ func VerificarEmail(c *gin.Context) {
 // [A24] CORRIGIDO: senha_padrao REMOVIDA da resposta HTTP.
 // FIX-C1: academia usa event sourcing via aggregate.AlterarSenha().
 // FIX-C3b: estudante agora exige email_verificado=TRUE E usa event sourcing.
+//
+// FIX E4-LN-01: admin agora define a NOVA SENHA fornecida no body da requisição
+// em vez de redefinir para a senha padrão hardcoded do código-fonte.
+// Antes: GetDefaultPassword("admin", role) → senha conhecida publicamente.
+// Agora: campo "nova_senha" obrigatório no body → admin define sua própria senha.
+// Para estudantes e academias o comportamento permanece inalterado (senha padrão
+// é o código do estudante/academia, não um segredo público).
 func ResetarSenha(c *gin.Context) {
 	token := c.Param("token")
 
@@ -184,26 +191,45 @@ func ResetarSenha(c *gin.Context) {
 
 	client := getDbClient(c)
 
-	// ── Admin: event sourcing ──────────────────────────────────────────────
+	// ── Admin: event sourcing com nova senha do body ────────────────────────
+	//
+	// FIX E4-LN-01: o admin fornece a nova senha diretamente neste endpoint.
+	// Elimina a dependência de GetDefaultPassword para o fluxo de reset, que
+	// era um segredo público (hardcoded ou de env var conhecida pelo operador).
+	//
+	// Design: o link de recuperação enviado por email é a prova de posse do
+	// endereço. O campo nova_senha é lido aqui, no momento em que o link é
+	// consumido — não há estado intermediário com senha fraca.
 	if tokenInfo.UserType == "admin" {
-		var role string
+		// Lemos o body neste ponto — o token já foi validado e marcado como usado.
+		var req struct {
+			NovaSenha string `json:"nova_senha" binding:"required"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("campo obrigatório: nova_senha"))
+			return
+		}
+
+		if err := utils.ValidateSenha(req.NovaSenha); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+
 		var emailVerificado bool
-		err = client.DB().QueryRow(
-			`SELECT role, COALESCE(email_verificado, FALSE) FROM projection_admins WHERE id = $1`,
+		if err := client.DB().QueryRow(
+			`SELECT COALESCE(email_verificado, FALSE) FROM projection_admins WHERE id = $1`,
 			tokenInfo.UserID,
-		).Scan(&role, &emailVerificado)
-		if err != nil {
+		).Scan(&emailVerificado); err != nil {
 			utils.RespondWithNotFoundError(c, "administrador")
 			return
 		}
 
 		if !emailVerificado {
-			utils.RespondWithForbiddenError(c, "Por favor, verifique seu email antes de resetar a senha")
+			utils.RespondWithForbiddenError(c, "Por favor, verifique seu email antes de redefinir a senha")
 			return
 		}
 
-		defaultPassword := services.GetDefaultPassword("admin", role)
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(defaultPassword), bcrypt.DefaultCost)
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NovaSenha), bcrypt.DefaultCost)
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
@@ -232,11 +258,10 @@ func ResetarSenha(c *gin.Context) {
 			return
 		}
 
-		log.Printf("Senha resetada (event sourcing) para admin: %s", tokenInfo.Email)
+		log.Printf("Senha redefinida (nova senha do usuário) para admin: %s", tokenInfo.Email)
 		c.JSON(http.StatusOK, gin.H{
-			"message":         "Senha resetada com sucesso!",
-			"email":           tokenInfo.Email,
-			"proximos_passos": "Faça login com a senha padrão e altere para uma senha segura.",
+			"message": "Senha redefinida com sucesso! Você já pode fazer login.",
+			"email":   tokenInfo.Email,
 		})
 		return
 	}
@@ -525,9 +550,7 @@ func GerarTokenRecuperacao(c *gin.Context) {
 }
 
 // ============================================================================
-// Rota interna de geração de tokens (SaveToken direto, sem envio de email)
-// Usada por fluxos que precisam do token sem disparar email — ex: testes ou
-// fluxo de registro onde o email é enviado pelo próprio handler de registro.
+// Helpers internos reutilizáveis
 // ============================================================================
 
 // gerarEEnviarTokenVerificacao é um helper interno reutilizável.

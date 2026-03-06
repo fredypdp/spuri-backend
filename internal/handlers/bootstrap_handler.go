@@ -16,8 +16,18 @@ import (
 // 🔒 SEGURANÇA:
 //   - Só funciona se não existir NENHUM admin no sistema.
 //   - Após o primeiro uso a rota fica bloqueada (retorna 403).
-//   - Advisory lock PostgreSQL serializa requisições concorrentes (FIX #3).
-//   - A senha NÃO é retornada na resposta (FIX #4).
+//   - Advisory lock PostgreSQL serializa requisições concorrentes.
+//   - A senha NÃO é retornada na resposta.
+//
+// FIX E4-LN-02: o advisory lock era mantido retido DURANTE o polling síncrono
+// (até 10 segundos), o que bloqueava concorrentes e mantinha uma conexão de
+// banco ocupada enquanto a goroutine HTTP ficava suspensa.
+//
+// Correção: o advisory lock é adquirido, a verificação + gravação de eventos
+// é feita com o lock ativo, e então o lock é LIBERADO imediatamente após o
+// SaveWithAudit — antes de qualquer polling. O polling ocorre já sem o lock,
+// tornando o período de espera pela projeção um problema puramente de
+// responsividade da resposta HTTP, sem impacto em outras requisições.
 func BootstrapAdminFPP(c *gin.Context) {
 	log.Println("🔵 [BOOTSTRAP] Iniciando criação de Admin FPP...")
 
@@ -39,18 +49,30 @@ func BootstrapAdminFPP(c *gin.Context) {
 	client := getDbClient(c)
 	dbConn := client.DB()
 
-	// FIX #3 — Advisory lock PostgreSQL (hashtext('bootstrap') = lock_id fixo).
+	// ── FASE 1: Adquirir advisory lock e executar operações críticas ───────
+	//
+	// FIX E4-LN-02: o lock protege APENAS a fase de verificação + escrita no
+	// ledger. O polling não está mais dentro da região crítica.
 	// Garante que apenas uma goroutine/instância executa o bootstrap por vez.
 	if _, err := dbConn.Exec(`SELECT pg_advisory_lock(hashtext('bootstrap_admin_fpp'))`); err != nil {
 		log.Printf("❌ [BOOTSTRAP] Erro ao adquirir advisory lock: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro interno ao iniciar bootstrap"})
 		return
 	}
-	defer func() {
-		if _, err := dbConn.Exec(`SELECT pg_advisory_unlock(hashtext('bootstrap_admin_fpp'))`); err != nil {
-			log.Printf("[WARN] [BOOTSTRAP] Erro ao liberar advisory lock: %v", err)
+
+	// FIX E4-LN-02: liberação do lock ocorre logo após SaveWithAudit,
+	// não ao final da função. O defer abaixo é safety-net para casos de
+	// retorno antecipado por erro antes da liberação explícita.
+	lockReleased := false
+	releaseAdvisoryLock := func() {
+		if !lockReleased {
+			lockReleased = true
+			if _, err := dbConn.Exec(`SELECT pg_advisory_unlock(hashtext('bootstrap_admin_fpp'))`); err != nil {
+				log.Printf("[WARN] [BOOTSTRAP] Erro ao liberar advisory lock: %v", err)
+			}
 		}
-	}()
+	}
+	defer releaseAdvisoryLock()
 
 	// Verificação pós-lock — garante que não houve bootstrap paralelo
 	adminProj := getAdminProjection(c)
@@ -110,9 +132,20 @@ func BootstrapAdminFPP(c *gin.Context) {
 		return
 	}
 
-	log.Println("✅ [BOOTSTRAP] Eventos gravados no ledger. Aguardando projeção...")
+	// ── FASE 2: Liberar o lock ANTES do polling ────────────────────────────
+	//
+	// FIX E4-LN-02: libera o advisory lock imediatamente após a escrita no
+	// ledger. A partir daqui não há mais região crítica — outras requisições
+	// (que receberão 403 porque já existe admin) podem avançar sem esperar
+	// pelos até 10s do polling abaixo.
+	releaseAdvisoryLock()
 
-	// Polling síncrono — aguarda até 10s pela projeção processar o evento.
+	// ── FASE 3: Polling fora do lock ───────────────────────────────────────
+	//
+	// Aguarda até 10s pela projeção processar o evento.
+	// O lock já foi liberado — apenas a goroutine HTTP está suspensa aqui.
+	log.Println("✅ [BOOTSTRAP] Eventos gravados no ledger. Aguardando projeção (lock já liberado)...")
+
 	adminID := newAdmin.ID
 	const maxAttempts = 50
 	const interval = 200 * time.Millisecond
@@ -148,7 +181,7 @@ func BootstrapAdminFPP(c *gin.Context) {
 
 	log.Printf("🎉 [BOOTSTRAP] Processo completo! Admin ID: %s, Email: %s", newAdmin.ID, req.Email)
 
-	// FIX #4: senha NÃO incluída na resposta.
+	// A senha NÃO é incluída na resposta.
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
 		"message": "✅ Admin FPP criado com sucesso!",

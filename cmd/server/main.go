@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -74,6 +75,11 @@ func initDB() error {
 	return nil
 }
 
+// initProjections registra todas as projeções no Manager.
+//
+// FIX E4-CI-01: turmas, categorias_nota, cursos e sistema_config estavam
+// ausentes — eventos desses aggregates nunca eram processados pelo Manager,
+// deixando as projeções perpetuamente desatualizadas após o startup.
 func initProjections() error {
 	projManager = projections.NewManager(dbClient)
 	projManager.RegisterProjection("estudantes", projections.NewEstudanteProjection(dbClient))
@@ -84,6 +90,12 @@ func initProjections() error {
 	projManager.RegisterProjection("aprovacoes", projections.NewAprovacaoAnoProjection(dbClient))
 	projManager.RegisterProjection("reprovacoes", projections.NewReprovacoesProjection(dbClient))
 	projManager.RegisterProjection("avaliacao_final", projections.NewAvaliacaoFinalProjection(dbClient))
+
+	// FIX E4-CI-01: projeções ausentes — adicionadas agora.
+	projManager.RegisterProjection("turmas", projections.NewTurmasProjection(dbClient))
+	projManager.RegisterProjection("categorias_nota", projections.NewCategoriasNotaProjection(dbClient))
+	projManager.RegisterProjection("cursos", projections.NewCursosProjection(dbClient))
+	projManager.RegisterProjection("sistema_config", projections.NewSistemaConfigProjection(dbClient))
 
 	go projManager.StartProcessing()
 	return nil
@@ -105,9 +117,14 @@ func setupRouter() *gin.Engine {
 		c.Next()
 	})
 
-	// ── Rotas públicas ────────────────────────────────────────────────────
+	// ── Rotas públicas ────────────────────────────────────────────────────────
 	router.POST("/login", middleware.LoginRateLimit(), handlers.Login)
 	router.POST("/estudante/register", handlers.RegisterEstudante)
+
+	// FIX E4-CI-02: rota /bootstrap estava ausente — nunca registrada,
+	// impossibilitando a criação do primeiro admin FPP.
+	// Sem autenticação: a verificação de "sistema já possui admins" é interna.
+	router.POST("/bootstrap", handlers.BootstrapAdminFPP)
 
 	emailGroup := router.Group("/email")
 	emailGroup.Use(middleware.EmailRateLimit())
@@ -120,13 +137,12 @@ func setupRouter() *gin.Engine {
 		emailGroup.POST("/gerar-token/recuperacao", handlers.GerarTokenRecuperacao)
 	}
 
-	// ── Rotas autenticadas (qualquer tipo) ────────────────────────────────
+	// ── Rotas autenticadas (qualquer tipo) ─────────────────────────────────────
 	protected := router.Group("/")
 	protected.Use(middleware.AuthMiddleware())
 	{
 		protected.PUT("/alterar-senha", handlers.AlterarSenha)
 		protected.GET("/meu-perfil", handlers.GetMeuPerfil)
-		protected.GET("/academias", handlers.ListarTodasAcademias)
 		protected.GET("/eventos-estudante/:codigo", handlers.GetEventosEstudante)
 		protected.GET("/verificar-integridade/:codigo", handlers.VerificarIntegridade)
 		protected.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)
@@ -144,13 +160,12 @@ func setupRouter() *gin.Engine {
 		protected.GET("/avaliacoes-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetAvaliacoesFinaisEstudante)
 	}
 
-	// ── Rotas de estudante ─────────────────────────────────────────────────
-	// FIX-C4: status-escolar-* REMOVIDOS daqui — estudante não pode mais alterar
-	// seu próprio status escolar. Essa responsabilidade é exclusiva da academia.
-	//
-	// H4-06: novas rotas /estudante/minhas-notas e /estudante/minhas-faltas
-	// permitem que o estudante acesse apenas seus próprios dados educacionais,
-	// sem expor o /:codigo que permitia consultar qualquer estudante.
+	// FIX E4-ED-03: /academias REMOVIDA do grupo protected (todos os usuários
+	// autenticados, incluindo estudantes). Estudantes não têm necessidade legítima
+	// de listar todas as academias com seus dados — movida para grupo admin-only.
+	// Antes: qualquer estudante autenticado podia enumerar todas as academias.
+
+	// ── Rotas de estudante ─────────────────────────────────────────────────────
 	estudante := router.Group("/estudante")
 	estudante.Use(middleware.AuthMiddleware())
 	estudante.Use(middleware.RequireEstudante())
@@ -163,7 +178,7 @@ func setupRouter() *gin.Engine {
 		estudante.GET("/minhas-faltas", handlers.GetMinhasFaltas)
 	}
 
-	// ── Rotas de academia ─────────────────────────────────────────────────
+	// ── Rotas de academia ──────────────────────────────────────────────────────
 	academia := router.Group("/academia")
 	academia.Use(middleware.AuthMiddleware())
 	academia.Use(middleware.RequireAcademia())
@@ -185,7 +200,7 @@ func setupRouter() *gin.Engine {
 		academia.PUT("/estudante/:codigo/status-superior", handlers.AtualizarStatusSuperiorHandler)
 	}
 
-	// ── Rotas de admin ────────────────────────────────────────────────────
+	// ── Rotas de admin ─────────────────────────────────────────────────────────
 	admin := router.Group("/admin")
 	admin.Use(middleware.AuthMiddleware())
 	admin.Use(middleware.RequireAdmin())
@@ -193,20 +208,32 @@ func setupRouter() *gin.Engine {
 		admin.POST("/register", handlers.RegisterAdmin)
 		admin.POST("/academia/register", handlers.RegisterAcademia)
 
+		// FIX E4-ED-03: /academias movida para cá — apenas admins podem listar.
+		// Antes estava no grupo protected (qualquer usuário autenticado).
+		admin.GET("/academias", handlers.ListarTodasAcademias)
+
 		// H4-13: ativar/desativar academia exige role mínimo "adm".
 		// Consistente com AtivarAdmin/DesativarAdmin que verificam hierarquia
 		// via ValidatePermission — operações sobre academias têm impacto sistêmico
 		// significativo e não devem estar acessíveis ao role "gerente".
-		admin.PUT("/academia/:id/ativar", middleware.RequireAdm(), handlers.AtivarAcademia)
-		admin.PUT("/academia/:id/desativar", middleware.RequireAdm(), handlers.DesativarAcademia)
+		//
+		// FIX E4-AA-01: parâmetro corrigido de :id para :codigo.
+		// AtivarAcademia e DesativarAcademia leem c.Param("codigo") —
+		// a rota usava :id, fazendo c.Param("codigo") retornar string vazia,
+		// resultando em "academia não encontrada" em todas as chamadas.
+		admin.PUT("/academia/:codigo/ativar", middleware.RequireAdm(), handlers.AtivarAcademia)
+		admin.PUT("/academia/:codigo/desativar", middleware.RequireAdm(), handlers.DesativarAcademia)
 
 		admin.PUT("/admin/:id/ativar", handlers.AtivarAdmin)
 		admin.PUT("/admin/:id/desativar", handlers.DesativarAdmin)
 		admin.GET("/admins", handlers.ListarTodosAdmins)
+		admin.GET("/admin/:email", handlers.GetAdminPorEmail)
 		admin.GET("/ano-letivo", handlers.GetAnoLetivoAtual)
 		admin.POST("/ano-letivo", handlers.DefinirAnoLetivo)
 		admin.GET("/metrics", handlers.GetSystemMetrics)
 		admin.POST("/projections/rebuild/:name", handlers.RebuildProjection)
+		admin.GET("/registros", handlers.ListarTodosRegistros)
+		admin.GET("/registros/estudante/:codigo", handlers.ListarRegistrosPorEstudante)
 	}
 
 	return router
@@ -261,14 +288,54 @@ func corsMiddleware() gin.HandlerFunc {
 	}
 }
 
+// requestIDMiddleware propaga ou gera um X-Request-ID para rastreabilidade.
+//
+// FIX E4-ED-01: X-Request-ID fornecido pelo cliente é sanitizado antes de
+// ser armazenado no contexto e refletido na resposta. Sem sanitização, um
+// cliente poderia injetar caracteres de controle ou strings longas nos logs,
+// facilitando log injection e header injection.
+//
+// Sanitização aplicada:
+//   - Truncado a 128 caracteres (IDs legítimos como UUID têm 36 chars)
+//   - Caracteres de controle (< 0x20) removidos
+//   - Somente caracteres ASCII imprimíveis e espaços são mantidos
 func requestIDMiddleware() gin.HandlerFunc {
+	const maxRequestIDLen = 128
+
 	return func(c *gin.Context) {
 		requestID := c.GetHeader("X-Request-ID")
+
 		if requestID == "" {
+			// Gerar ID interno: timestamp_nano + IP normalizado
 			requestID = fmt.Sprintf("%d-%s",
 				time.Now().UnixNano(),
 				strings.ReplaceAll(c.ClientIP(), ".", "-"))
+		} else {
+			// FIX E4-ED-01: sanitizar ID fornecido pelo cliente.
+			// 1. Truncar a maxRequestIDLen para evitar log flooding
+			runes := []rune(requestID)
+			if len(runes) > maxRequestIDLen {
+				runes = runes[:maxRequestIDLen]
+			}
+
+			// 2. Remover caracteres de controle (prevenção de log injection)
+			var sanitized strings.Builder
+			for _, r := range runes {
+				// Aceitar apenas caracteres ASCII imprimíveis (0x20–0x7E)
+				if r >= 0x20 && r <= 0x7E && !unicode.IsControl(r) {
+					sanitized.WriteRune(r)
+				}
+			}
+			requestID = sanitized.String()
+
+			// 3. Se após sanitização ficar vazio, gerar ID interno
+			if requestID == "" {
+				requestID = fmt.Sprintf("%d-%s",
+					time.Now().UnixNano(),
+					strings.ReplaceAll(c.ClientIP(), ".", "-"))
+			}
 		}
+
 		c.Set("request_id", requestID)
 		c.Header("X-Request-ID", requestID)
 		c.Next()

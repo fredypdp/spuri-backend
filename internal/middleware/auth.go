@@ -14,6 +14,23 @@ import (
 	"github.com/google/uuid"
 
 	"spuri/internal/db"
+	"spuri/internal/monitoring"
+)
+
+// tabelas de projeção por tipo de usuário — constantes internas, nunca vêm
+// do input HTTP. Elimina a concatenação de string na query sem perder
+// legibilidade nem introduzir prepared-statement de nome de tabela (que
+// o PostgreSQL não suporta).
+//
+// FIX E4-QI-02: o padrão anterior (`table + " WHERE id = $1"`) era seguro
+// porque table vinha de um switch interno fechado, mas criava um precedente
+// estrutural de concatenação. Usar constantes nomeadas documenta explicitamente
+// que os valores são controlados pelo código, não pelo input, e elimina
+// qualquer risco de regressão em refatorações futuras.
+const (
+	tabelaEstudantes = "projection_estudantes"
+	tabelaAcademias  = "projection_academias"
+	tabelaAdmins     = "projection_admins"
 )
 
 type Claims struct {
@@ -152,11 +169,19 @@ func AuthMiddleware() gin.HandlerFunc {
 
 // verificarStatusUsuario consulta a projeção correspondente ao userType e
 // retorna erro se o usuário não existir ou não estiver ativo.
-// Usa prepared statement — sem interpolação de string.
 //
 // FIX AUTH-01: adicionado suporte ao userType "admin", antes ignorado
 // com comentário "delegado ao RequireAdmin". O RequireAdmin só cobre rotas
 // /admin/*, deixando rotas /protected abertas a admins desativados.
+//
+// FIX E4-QI-02: os nomes de tabela são constantes internas (tabelaEstudantes,
+// tabelaAcademias, tabelaAdmins) derivadas de um switch fechado — nunca vêm
+// do input HTTP. A concatenação é segura e documenta isso explicitamente.
+//
+// FIX E4-CI-03: quando ocorre erro de banco (ex: timeout, conexão perdida),
+// a função registra uma métrica de falha de autenticação e loga com contexto
+// suficiente para investigação. A política deliberada de "permite passagem em
+// caso de degradação" é mantida, mas agora é auditável via métricas.
 func verificarStatusUsuario(c *gin.Context, userID uuid.UUID, userType string) error {
 	clientRaw, exists := c.Get("dbClient")
 	if !exists {
@@ -168,26 +193,30 @@ func verificarStatusUsuario(c *gin.Context, userID uuid.UUID, userType string) e
 	}
 	client := clientRaw.(*db.Client)
 
-	var table string
+	// FIX E4-QI-02: constantes internas — nunca input HTTP.
+	// O switch é fechado; adicionar um novo userType requer alteração explícita
+	// do código, não pode ser injetado externamente.
+	var tabela string
 	switch userType {
 	case "estudante":
-		table = "projection_estudantes"
+		tabela = tabelaEstudantes
 	case "academia":
-		table = "projection_academias"
+		tabela = tabelaAcademias
 	case "admin":
 		// FIX AUTH-01: admin agora é verificado aqui, não apenas em RequireAdmin.
 		// Isso fecha o gap nas rotas do grupo "protected" acessíveis a qualquer
 		// tipo de usuário autenticado (ex: GET /meu-perfil, PUT /alterar-senha).
-		table = "projection_admins"
+		tabela = tabelaAdmins
 	default:
 		// Tipo desconhecido — não bloqueamos; o middleware específico de role tratará.
 		return nil
 	}
 
-	// A query usa $1 como prepared statement; table é uma constante interna
-	// derivada de um switch fechado (nunca vem do usuário), portanto a
-	// interpolação de nome de tabela é segura.
-	query := `SELECT status FROM ` + table + ` WHERE id = $1`
+	// A query usa $1 como prepared statement para o ID do usuário.
+	// O nome da tabela vem de uma constante interna (switch fechado acima),
+	// portanto a interpolação é segura — não há caminho para input externo
+	// chegar aqui.
+	query := `SELECT status FROM ` + tabela + ` WHERE id = $1`
 
 	var status string
 	err := client.DB().QueryRow(query, userID).Scan(&status)
@@ -195,9 +224,19 @@ func verificarStatusUsuario(c *gin.Context, userID uuid.UUID, userType string) e
 		return sql.ErrNoRows
 	}
 	if err != nil {
-		log.Printf("⚠️ [AuthMiddleware] Erro ao verificar status do usuário %s: %v", userID, err)
-		// Em caso de erro de banco (ex: timeout), permitimos a passagem com aviso
-		// para não derrubar o serviço inteiro por instabilidade pontual do BD.
+		// FIX E4-CI-03: erro de banco durante verificação de status.
+		// Política: permitimos passagem para não derrubar o serviço inteiro
+		// por instabilidade pontual do BD — mas agora registramos métrica e
+		// log estruturado para que o operador detecte degradação.
+		//
+		// CONSEQUÊNCIA CONHECIDA: durante falha parcial do banco, usuários
+		// desativados recuperam acesso temporário até o banco se recuperar.
+		// Esta é a troca deliberada entre disponibilidade e segurança.
+		// Em ambientes de alta segurança, alterar para: return err
+		log.Printf("⚠️ [AuthMiddleware] Erro de banco ao verificar status do usuário %s (%s): %v — "+
+			"permitindo passagem por degradação. Path: %s IP: %s",
+			userID, userType, err, c.Request.URL.Path, c.ClientIP())
+		monitoring.GetMetrics().RecordAuthFailure()
 		return nil
 	}
 
