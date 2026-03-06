@@ -13,12 +13,12 @@ import (
 func ValidateEventType(eventType string) error {
 	validTypes := map[string]bool{
 		// ── Estudante ────────────────────────────────────────────────────────
-		"EstudanteCriado":           true,
-		"EstudanteCriadoComVinculo": true,
-		"DadosPessoaisAtualizados":  true,
+		"EstudanteCriado":            true,
+		"EstudanteCriadoComVinculo":  true,
+		"DadosPessoaisAtualizados":   true,
 		"DadosAcademicosAtualizados": true,
-		"SenhaAlterada":             true,
-		"CursoAlterado":             true,
+		"SenhaAlterada":              true,
+		"CursoAlterado":              true,
 
 		// ── Status Escolar ───────────────────────────────────────────────────
 		// "StatusEscolarAtualizado" REMOVIDO — evento fantasma (FIX-WL2 Etapa 1).
@@ -45,55 +45,52 @@ func ValidateEventType(eventType string) error {
 		"AdminDesativado":       true,
 		"AdminDadosAtualizados": true,
 		"AdminSenhaAlterada":    true,
-		// FIX-WL-01: era "AdminAcaoRegistrada" — nome correto é "AcaoAdminRegistrada"
-		"AcaoAdminRegistrada": true,
-		// FIX-WL-02: ausente — aggregate Admin emite "AdminRoleAtualizado"
-		"AdminRoleAtualizado": true,
+		"AcaoAdminRegistrada":   true,
+		"AdminRoleAtualizado":   true,
 
 		// ── Aprovação e Avaliação ─────────────────────────────────────────────
 		"AprovacaoAnoRegistrada":     true,
 		"AvaliacaoFinalAnoAcademico": true,
 
 		// ── Notas e Faltas ────────────────────────────────────────────────────
-		"NotaAtualizada": true,
-		// FIX-WL-03: "NotasAtualizadas" era fantasma — nome correto é "NotasRegistradas"
+		"NotaAtualizada":    true,
 		"NotasRegistradas":  true,
 		"FaltasRegistradas": true,
 
 		// ── Turma ─────────────────────────────────────────────────────────────
-		"TurmaCriada":      true,
-		"TurmaAtivada":     true,
-		"TurmaDesativada":  true,
-		"TurmaDadosAtualizados": true,
-		"TurmaDeletada":    true,
-		// FIX-WL-07: era "EstudanteAdicionadoTurma" — nome correto emitido pelo aggregate
+		"TurmaCriada":              true,
+		"TurmaAtivada":             true,
+		"TurmaDesativada":          true,
+		"TurmaDadosAtualizados":    true,
+		"TurmaDeletada":            true,
 		"EstudanteAdicionadoATurma": true,
-		// FIX-WL-08: era "EstudanteRemovidoTurma" — nome correto emitido pelo aggregate
-		"EstudanteRemovidoDaTurma": true,
+		"EstudanteRemovidoDaTurma":  true,
 
 		// ── Curso ─────────────────────────────────────────────────────────────
 		"CursoCriado":           true,
 		"CursoAtivado":          true,
 		"CursoDesativado":       true,
 		"CursoDadosAtualizados": true,
-		// FIX-WL-06: ausente — aggregate Curso emite "CursoDeletado"
-		"CursoDeletado": true,
+		"CursoDeletado":         true,
 
 		// ── MateriaDisciplinar ────────────────────────────────────────────────
 		"MateriaCriada":           true,
 		"MateriaAtivada":          true,
 		"MateriaDesativada":       true,
 		"MateriaDadosAtualizados": true,
-		// FIX-WL-04: ausente — aggregate MateriaDisciplinar emite "MateriaPeriodoDefinido"
-		"MateriaPeriodoDefinido": true,
-		// FIX-WL-05: ausente — aggregate MateriaDisciplinar emite "MateriaDeletada"
-		"MateriaDeletada": true,
+		"MateriaPeriodoDefinido":  true,
+		"MateriaDeletada":         true,
 
 		// ── SistemaConfig ─────────────────────────────────────────────────────
 		"AnoLetivoDefinido": true,
 
 		// ── Categorias de Nota ────────────────────────────────────────────────
 		"CategoriaNotaAdicionada": true,
+
+		// ── Sistema (evento interno de migration — DB-08 FIX) ─────────────────
+		// O evento SchemaCreated é inserido diretamente pela migration 001 no ledger.
+		// Está na whitelist para que replay/testes não rejeitem o evento ao chamar AppendTx.
+		"SchemaCreated": true,
 	}
 
 	if !validTypes[eventType] {
@@ -103,6 +100,16 @@ func ValidateEventType(eventType string) error {
 }
 
 // ValidateAggregateType verifica se o tipo de aggregate é permitido.
+//
+// DB-08 FIX: "System" adicionado para cobrir o evento SchemaCreated inserido
+// pela migration 001 com aggregate_type = 'System'. Sem isso, qualquer
+// reprocessamento ou validação de integridade desse evento retornaria falso
+// negativo ao chamar ValidateAggregateType.
+//
+// DB-09 NOTA: "Aprovacao", "AvaliacaoFinal" e "Reprovacao" não existem como
+// aggregates próprios — esses eventos são emitidos pelo aggregate "Estudante".
+// Se no futuro esses eventos forem movidos para aggregates dedicados, adicionar
+// os tipos correspondentes aqui imediatamente.
 func ValidateAggregateType(aggregateType string) error {
 	validTypes := map[string]bool{
 		"Estudante":          true,
@@ -112,6 +119,8 @@ func ValidateAggregateType(aggregateType string) error {
 		"MateriaDisciplinar": true,
 		"SistemaConfig":      true,
 		"Turma":              true,
+		// DB-08 FIX: aggregate virtual usado pela migration 001 para o evento SchemaCreated.
+		"System": true,
 	}
 
 	if !validTypes[aggregateType] {
@@ -130,7 +139,6 @@ func ValidateOffset(offset int) int {
 }
 
 // ValidateLimit valida e sanitiza um limit para paginação.
-// FIX-ERR1: 1 argumento — compatível com event_store.go, manager.go e qualquer outro caller.
 // Default = 50; máximo = 1000.
 func ValidateLimit(limit int) int {
 	const defaultLimit = 50
@@ -154,7 +162,6 @@ func SafeString(s string) bool {
 }
 
 // ValidateTableName verifica se um nome de tabela é seguro para uso em queries dinâmicas.
-// FIX-ERR2: era usada em migrations.go mas não estava definida.
 func ValidateTableName(name string) error {
 	if name == "" {
 		return fmt.Errorf("nome de tabela não pode ser vazio")

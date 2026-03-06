@@ -84,7 +84,7 @@ func RegisterAdmin(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	creatorAgg, err := repository.Load(userID, "Admin")
+	creatorAgg, err := repository.Load(c.Request.Context(), userID, "Admin")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -120,7 +120,7 @@ func RegisterAdmin(c *gin.Context) {
 		UserType: "admin",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(newAdmin, audit); err != nil {
+	if err := repository.SaveWithAudit(c.Request.Context(), newAdmin, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -131,7 +131,7 @@ func RegisterAdmin(c *gin.Context) {
 		"email":         req.Email,
 	}); err != nil {
 		log.Printf("[WARN] Falha ao preparar ação do criador: %v", err)
-	} else if err := repository.SaveWithAudit(creator, audit); err != nil {
+	} else if err := repository.SaveWithAudit(c.Request.Context(), creator, audit); err != nil {
 		log.Printf("[WARN] Falha ao registrar ação do criador (admin_criado): %v", err)
 	}
 
@@ -225,7 +225,7 @@ func AtivarAdmin(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	targetAdminAgg, err := repository.Load(targetID, "Admin")
+	targetAdminAgg, err := repository.Load(c.Request.Context(), targetID, "Admin")
 	if err != nil {
 		utils.RespondWithNotFoundError(c, "administrador")
 		return
@@ -233,7 +233,7 @@ func AtivarAdmin(c *gin.Context) {
 	targetAdmin := targetAdminAgg.(*aggregates.Admin)
 
 	// [A08] Verificar hierarquia: executor deve ter role > alvo
-	executorAgg, err := repository.Load(userID, "Admin")
+	executorAgg, err := repository.Load(c.Request.Context(), userID, "Admin")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -254,7 +254,7 @@ func AtivarAdmin(c *gin.Context) {
 		UserType: "admin",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(targetAdmin, audit); err != nil {
+	if err := repository.SaveWithAudit(c.Request.Context(), targetAdmin, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -299,7 +299,7 @@ func DesativarAdmin(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	targetAdminAgg, err := repository.Load(targetID, "Admin")
+	targetAdminAgg, err := repository.Load(c.Request.Context(), targetID, "Admin")
 	if err != nil {
 		utils.RespondWithNotFoundError(c, "administrador")
 		return
@@ -307,7 +307,7 @@ func DesativarAdmin(c *gin.Context) {
 	targetAdmin := targetAdminAgg.(*aggregates.Admin)
 
 	// [A10] Verificar hierarquia: executor deve ter role > alvo
-	executorAgg, err := repository.Load(userID, "Admin")
+	executorAgg, err := repository.Load(c.Request.Context(), userID, "Admin")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -328,7 +328,7 @@ func DesativarAdmin(c *gin.Context) {
 		UserType: "admin",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(targetAdmin, audit); err != nil {
+	if err := repository.SaveWithAudit(c.Request.Context(), targetAdmin, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -371,7 +371,7 @@ func AtualizarRoleAdmin(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	adminAgg, err := repository.Load(adminID, "Admin")
+	adminAgg, err := repository.Load(c.Request.Context(), adminID, "Admin")
 	if err != nil {
 		utils.RespondWithNotFoundError(c, "admin")
 		return
@@ -389,7 +389,7 @@ func AtualizarRoleAdmin(c *gin.Context) {
 		UserType: "admin",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(admin, audit); err != nil {
+	if err := repository.SaveWithAudit(c.Request.Context(), admin, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -427,7 +427,7 @@ func AtualizarDadosAdmin(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	adminAgg, err := repository.Load(targetID, "Admin")
+	adminAgg, err := repository.Load(c.Request.Context(), targetID, "Admin")
 	if err != nil {
 		utils.RespondWithNotFoundError(c, "administrador")
 		return
@@ -437,7 +437,7 @@ func AtualizarDadosAdmin(c *gin.Context) {
 	// Admin pode editar os próprios dados sem restrição de hierarquia.
 	// Para editar outro admin, precisa de role estritamente superior ao alvo.
 	if userID != targetID {
-		executorAgg, err := repository.Load(userID, "Admin")
+		executorAgg, err := repository.Load(c.Request.Context(), userID, "Admin")
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
@@ -470,7 +470,7 @@ func AtualizarDadosAdmin(c *gin.Context) {
 		UserType: "admin",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(admin, audit); err != nil {
+	if err := repository.SaveWithAudit(c.Request.Context(), admin, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -572,7 +572,7 @@ func GetProjectionStatus(c *gin.Context) {
 
 func registrarAcaoAdmin(c *gin.Context, userID uuid.UUID, acao string, detalhes map[string]interface{}) {
 	repository := getRepository(c)
-	adminAgg, err := repository.Load(userID, "Admin")
+	adminAgg, err := repository.Load(c.Request.Context(), userID, "Admin")
 	if err != nil {
 		log.Printf("[WARN] registrarAcaoAdmin: falha ao carregar admin %s: %v", userID, err)
 		return
@@ -587,7 +587,7 @@ func registrarAcaoAdmin(c *gin.Context, userID uuid.UUID, acao string, detalhes 
 		UserType: "admin",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(admin, audit); err != nil {
+	if err := repository.SaveWithAudit(c.Request.Context(), admin, audit); err != nil {
 		log.Printf("[WARN] registrarAcaoAdmin: falha ao salvar ação '%s': %v", acao, err)
 	}
 }

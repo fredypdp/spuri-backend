@@ -32,7 +32,7 @@ func DefinirAnoLetivo(c *gin.Context) {
 
 	// Tenta carregar o agregado existente; se não existe, cria novo com ID fixo.
 	var config *aggregates.SistemaConfig
-	agg, err := repository.Load(sistemaConfigID, "SistemaConfig")
+	agg, err := repository.Load(c.Request.Context(), sistemaConfigID, "SistemaConfig")
 	if err != nil {
 		// Primeira definição
 		config = aggregates.NewSistemaConfigComID(sistemaConfigID)
@@ -45,7 +45,7 @@ func DefinirAnoLetivo(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(config); err != nil {
+	if err := repository.Save(c.Request.Context(), config); err != nil {
 		log.Printf("❌ [DefinirAnoLetivo] Erro ao salvar: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao definir ano letivo"})
 		return

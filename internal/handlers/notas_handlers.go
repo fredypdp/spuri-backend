@@ -134,7 +134,7 @@ func RegistrarNota(c *gin.Context) {
 
 	// Aggregate e comando
 	repository := getRepository(c)
-	estudanteAgg, err := repository.Load(estudanteDTO.ID, "Estudante")
+	estudanteAgg, err := repository.Load(c.Request.Context(), estudanteDTO.ID, "Estudante")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -164,7 +164,7 @@ func RegistrarNota(c *gin.Context) {
 		UserType: "academia",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(estudante, audit); err != nil {
+	if err := repository.SaveWithAudit(c.Request.Context(), estudante, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -293,7 +293,7 @@ func AtualizarNota(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	estudanteAgg, err := repository.Load(estudanteDTO.ID, "Estudante")
+	estudanteAgg, err := repository.Load(c.Request.Context(), estudanteDTO.ID, "Estudante")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -321,7 +321,7 @@ func AtualizarNota(c *gin.Context) {
 		UserType: "academia",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(estudante, audit); err != nil {
+	if err := repository.SaveWithAudit(c.Request.Context(), estudante, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -416,7 +416,7 @@ func CriarCategoriaNotaSuperior(c *gin.Context) {
 	categoriasExistentes, _ := categoriasProj.GetNomesByAcademia(academiaDTO.CodigoAcademia)
 
 	repository := getRepository(c)
-	agg, err := repository.Load(userID, "Academia")
+	agg, err := repository.Load(c.Request.Context(), userID, "Academia")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -428,7 +428,7 @@ func CriarCategoriaNotaSuperior(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(academia); err != nil {
+	if err := repository.Save(c.Request.Context(), academia); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}

@@ -43,6 +43,8 @@ var allMigrations = []string{
 	"migrations/030_fix_view_estudantes_com_cursos.sql",
 	"migrations/031_fix_sistema_config_colunas.sql",
 	"migrations/032_add_adicionado_por_categoria_nota.sql",
+	"migrations/033_remove_curso_legado_varchar.sql",
+	"migrations/034_garantias_atomicidade.sql",
 }
 
 func (c *Client) RunMigrations() error {

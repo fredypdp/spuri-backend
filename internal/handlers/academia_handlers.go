@@ -165,7 +165,7 @@ func RegisterAcademia(c *gin.Context) {
 		UserType: "admin",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(academia, audit); err != nil {
+	if err := repository.SaveWithAudit(c.Request.Context(), academia, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -259,7 +259,7 @@ func AtualizarDadosAcademia(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	agg, err := repository.Load(userID, "Academia")
+	agg, err := repository.Load(c.Request.Context(), userID, "Academia")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -287,7 +287,7 @@ func AtualizarDadosAcademia(c *gin.Context) {
 		UserType: "academia",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(academia, audit); err != nil {
+	if err := repository.SaveWithAudit(c.Request.Context(), academia, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -315,7 +315,7 @@ func AtivarAcademia(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	agg, err := repository.Load(academiaDTO.ID, "Academia")
+	agg, err := repository.Load(c.Request.Context(), academiaDTO.ID, "Academia")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -334,7 +334,7 @@ func AtivarAcademia(c *gin.Context) {
 		UserType: "admin",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(academia, audit); err != nil {
+	if err := repository.SaveWithAudit(c.Request.Context(), academia, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -374,7 +374,7 @@ func DesativarAcademia(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	agg, err := repository.Load(academiaDTO.ID, "Academia")
+	agg, err := repository.Load(c.Request.Context(), academiaDTO.ID, "Academia")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -394,7 +394,7 @@ func DesativarAcademia(c *gin.Context) {
 		UserType: "admin",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(academia, audit); err != nil {
+	if err := repository.SaveWithAudit(c.Request.Context(), academia, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}

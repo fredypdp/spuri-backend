@@ -124,7 +124,7 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 
 	// ── Aggregate ─────────────────────────────────────────────────────────────
 	repository := getRepository(c)
-	estudanteAgg, err := repository.Load(estudanteDTO.ID, "Estudante")
+	estudanteAgg, err := repository.Load(c.Request.Context(), estudanteDTO.ID, "Estudante")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -157,7 +157,7 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		UserType: "academia",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(estudante, audit); err != nil {
+	if err := repository.SaveWithAudit(c.Request.Context(), estudante, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -463,7 +463,7 @@ func removerEstudanteDeTurmasAtual(
 			continue
 		}
 
-		agg, err := repository.Load(turmaDTO.ID, "Turma")
+		agg, err := repository.Load(c.Request.Context(), turmaDTO.ID, "Turma")
 		if err != nil {
 			msg := fmt.Sprintf("erro ao carregar turma %s: %v", turmaDTO.CodigoTurma, err)
 			log.Printf("[avaliacao-final] %s", msg)
@@ -490,7 +490,7 @@ func removerEstudanteDeTurmasAtual(
 			UserType: "academia",
 			IP:       clientIP,
 		}
-		if err := repository.SaveWithAudit(turmaAgg, auditTurma); err != nil {
+		if err := repository.SaveWithAudit(c.Request.Context(), turmaAgg, auditTurma); err != nil {
 			// ⚠️ Crítico: aggregate foi mutado mas evento não foi gravado.
 			// Logar com severidade alta para investigação manual.
 			msg := fmt.Sprintf("FALHA CRÍTICA ao salvar remoção da turma %s: %v", turmaDTO.CodigoTurma, err)

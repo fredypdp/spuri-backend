@@ -19,6 +19,34 @@ type Projection interface {
 	UpdateCheckpoint(eventID int64) error
 }
 
+// rebuildOrder define a ordem determinística para RebuildAllProjections.
+//
+// DB-18 FIX: Go itera maps em ordem aleatória. Projeções com dependência de FK
+// (ex: projection_notas requer projection_estudantes) falhavam de forma não
+// reprodutível. Esta slice define a ordem correta: entidades base primeiro,
+// entidades derivadas depois.
+var rebuildOrder = []string{
+	// Entidades base (sem FK para outras projeções)
+	"academias",
+	"admins",
+	"cursos",
+	"materias",
+	"sistema_config",
+	// Estudantes depende de cursos (FK curso_medio_id, curso_superior_id)
+	"estudantes",
+	// Turmas depende de estudantes e cursos
+	"turmas",
+	// Entidades derivadas de estudantes
+	"notas",
+	"faltas",
+	"aprovacao_ano",
+	"reprovacoes",
+	"avaliacao_final",
+	"categorias_nota",
+	// Inscricoes é depreciado mas mantido
+	"inscricoes",
+}
+
 type Manager struct {
 	client       *db.Client
 	eventStore   *db.EventStore
@@ -86,11 +114,13 @@ func (m *Manager) processNewEvents() error {
 
 // processProjection processa eventos novos para uma projeção específica.
 //
-// P3-13: UpdateCheckpoint() só é chamado quando Handle() succeeds.
-// Se processEventWithRetry() retornar erro (falha permanente após 3 tentativas),
-// o checkpoint NÃO avança — o evento permanece no ledger e será reprocessado
-// na próxima iteração. Isso preserva a auditabilidade: nenhum evento é
-// descartado silenciosamente.
+// DB-16 FIX: Handle() e UpdateCheckpoint() continuam em operações separadas,
+// porém UpdateCheckpoint() só é chamado APÓS Handle() retornar nil.
+// Se o processo morrer entre os dois, o evento é reprocessado na próxima
+// execução — as projeções devem ser idempotentes para operações de insert
+// (ON CONFLICT DO UPDATE). Para operações não-idempotentes (ex: contadores),
+// o rebuild é o mecanismo de recuperação.
+// O log de erro permanente alerta o operador sem descartar o evento.
 func (m *Manager) processProjection(name string, projection Projection) error {
 	lastProcessedID, err := projection.GetLastProcessedEventID()
 	if err != nil {
@@ -111,7 +141,7 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 	processedCount := 0
 	for _, event := range events {
 		if err := m.processEventWithRetry(name, projection, event); err != nil {
-			// P3-13: falha permanente — NÃO avança checkpoint.
+			// Falha permanente — NÃO avança checkpoint.
 			// O evento ficará represado e será reprocessado no próximo tick.
 			// O operador deve corrigir o código e fazer rebuild para recuperar.
 			log.Printf("[ERROR] %s: evento %d falhou permanentemente — checkpoint não avançado: %v",
@@ -164,7 +194,13 @@ func (m *Manager) processEventWithRetry(name string, projection Projection, even
 }
 
 // getNewEvents busca eventos do ledger com id > fromID.
-// Usa sql.NullString para previous_hash (pode ser NULL no banco).
+//
+// DB-17 NOTA: usa ORDER BY id ASC (BIGSERIAL). Para eventos de um único
+// aggregate, id reflete a ordem de inserção. Para eventos de aggregates
+// distintos em transações concorrentes, pode haver desvio de causalidade
+// cross-aggregate. Projeções que dependem de causalidade cross-aggregate
+// devem ser resilientes (ex: usar ON CONFLICT para reprocessamento idempotente)
+// ou usar o mecanismo de rebuild para garantir ordem correta em caso de falha.
 func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
 	if fromID < 0 {
 		fromID = 0
@@ -204,8 +240,7 @@ func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
 	return events, rows.Err()
 }
 
-// RebuildProjection reconstrói uma projeção específica.
-// Adquire lock e delega para rebuildProjectionInternal.
+// RebuildProjection reconstrói uma projeção específica pelo nome.
 func (m *Manager) RebuildProjection(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -233,14 +268,59 @@ func (m *Manager) rebuildProjectionInternal(name string) error {
 	return nil
 }
 
-// RebuildAllProjections reconstrói todas as projeções registradas.
-// Adquire o lock uma única vez e usa rebuildProjectionInternal.
+// RebuildAllProjections reconstrói todas as projeções em ordem determinística.
+//
+// DB-18 FIX: em vez de iterar sobre o map (ordem aleatória no Go), itera
+// sobre rebuildOrder que define a sequência correta: entidades base primeiro,
+// entidades com FK depois. Projeções registradas que não constam em
+// rebuildOrder são processadas por último, em ordem estável (por nome).
 func (m *Manager) RebuildAllProjections() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	log.Println("[DEBUG] Reconstruindo TODAS as projeções")
-	var firstErr error
+	log.Println("[DEBUG] Reconstruindo TODAS as projeções (ordem determinística)")
+
+	// Conjuntos de nomes já processados e registrados
+	registered := make(map[string]bool, len(m.projections))
 	for name := range m.projections {
+		registered[name] = true
+	}
+
+	processed := make(map[string]bool, len(m.projections))
+	var firstErr error
+
+	// 1. Processar na ordem definida por rebuildOrder
+	for _, name := range rebuildOrder {
+		if !registered[name] {
+			// Projeção não registrada neste manager — pular sem erro.
+			continue
+		}
+		if err := m.rebuildProjectionInternal(name); err != nil {
+			log.Printf("[ERROR] Erro ao reconstruir %s: %v", name, err)
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+		processed[name] = true
+	}
+
+	// 2. Processar qualquer projeção registrada não coberta por rebuildOrder,
+	//    em ordem alfabética para ser determinístico.
+	extras := make([]string, 0)
+	for name := range m.projections {
+		if !processed[name] {
+			extras = append(extras, name)
+		}
+	}
+	// Ordena extras alfabeticamente
+	for i := 0; i < len(extras)-1; i++ {
+		for j := i + 1; j < len(extras); j++ {
+			if extras[i] > extras[j] {
+				extras[i], extras[j] = extras[j], extras[i]
+			}
+		}
+	}
+	for _, name := range extras {
+		log.Printf("[WARN] Projeção %q não está em rebuildOrder — reconstruindo por último", name)
 		if err := m.rebuildProjectionInternal(name); err != nil {
 			log.Printf("[ERROR] Erro ao reconstruir %s: %v", name, err)
 			if firstErr == nil {
@@ -248,18 +328,17 @@ func (m *Manager) RebuildAllProjections() error {
 			}
 		}
 	}
+
 	log.Println("[DEBUG] Todas as projeções reconstruídas")
 	return firstErr
 }
 
-// markRebuildStart — P3-14: corrigido para prepared statement ($1).
-// Versão anterior usava fmt.Sprintf + db.SafeString() que retorna bool,
-// resultando em WHERE projection_name = 'true' — nunca encontrava a linha.
+// markRebuildStart zera o checkpoint e marca is_rebuilding = TRUE.
 func (m *Manager) markRebuildStart(name string) error {
 	_, err := m.client.DB().Exec(`
 		UPDATE projection_checkpoints
-		SET is_rebuilding          = TRUE,
-		    rebuild_started_at     = CURRENT_TIMESTAMP,
+		SET is_rebuilding           = TRUE,
+		    rebuild_started_at      = CURRENT_TIMESTAMP,
 		    last_processed_event_id = 0
 		WHERE projection_name = $1`,
 		name,
@@ -267,40 +346,53 @@ func (m *Manager) markRebuildStart(name string) error {
 	return err
 }
 
-// markRebuildComplete — P3-14: corrigido para prepared statements ($1, $2).
+// markRebuildComplete avança o checkpoint para o MAX(id) do ledger e desmarca is_rebuilding.
 func (m *Manager) markRebuildComplete(name string) error {
-	var lastEventID int64
-	if err := m.client.DB().QueryRow(
-		`SELECT COALESCE(MAX(id), 0) FROM spuri_ledger`,
-	).Scan(&lastEventID); err != nil {
-		return err
+	var maxID int64
+	err := m.client.DB().QueryRow(`SELECT COALESCE(MAX(id), 0) FROM spuri_ledger`).Scan(&maxID)
+	if err != nil {
+		return fmt.Errorf("erro ao obter max id do ledger: %w", err)
 	}
-	_, err := m.client.DB().Exec(`
+
+	_, err = m.client.DB().Exec(`
 		UPDATE projection_checkpoints
 		SET is_rebuilding           = FALSE,
-		    rebuild_started_at      = NULL,
 		    last_processed_event_id = $1,
 		    last_processed_at       = CURRENT_TIMESTAMP
 		WHERE projection_name = $2`,
-		lastEventID, name,
+		maxID, name,
 	)
 	return err
 }
 
-func (m *Manager) logProjectionError(name, errorMsg string) {
+// logProjectionError registra o erro no checkpoint da projeção para diagnóstico.
+func (m *Manager) logProjectionError(name string, errMsg string) {
 	_, err := m.client.DB().Exec(`
 		UPDATE projection_checkpoints
-		SET error_count   = error_count + 1,
-		    last_error    = $1,
-		    last_error_at = CURRENT_TIMESTAMP
+		SET error_count    = COALESCE(error_count, 0) + 1,
+		    last_error     = $1,
+		    last_error_at  = CURRENT_TIMESTAMP
 		WHERE projection_name = $2`,
-		errorMsg, name,
+		errMsg, name,
 	)
 	if err != nil {
-		log.Printf("[WARN] logProjectionError: falha ao registrar erro para %s: %v", name, err)
+		log.Printf("[WARN] Não foi possível registrar erro da projeção %s: %v", name, err)
 	}
 }
 
+// ============================================================================
+// Métodos de consulta — usados pelos handlers HTTP de administração
+// ============================================================================
+
+// IsProjectionRegistered retorna true se a projeção com o nome dado está registrada.
+func (m *Manager) IsProjectionRegistered(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, exists := m.projections[name]
+	return exists
+}
+
+// GetProjectionStatus retorna o status de uma projeção lendo projection_checkpoints.
 func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, error) {
 	var (
 		projName     string
@@ -325,33 +417,42 @@ func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, erro
 		&rebuilding, &rebuildStart, &errCount, &lastErr, &lastErrAt,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("projeção '%s' não encontrada nos checkpoints: %w", name, err)
 	}
 	return map[string]interface{}{
-		"name":                 projName,
-		"last_processed_event": lastEventID,
-		"last_processed_at":    lastProc,
-		"events_processed":     eventsProc,
-		"is_rebuilding":        rebuilding,
-		"rebuild_started_at":   rebuildStart,
-		"error_count":          errCount,
-		"last_error":           lastErr,
-		"last_error_at":        lastErrAt,
+		"name":                   projName,
+		"last_processed_event":   lastEventID,
+		"last_processed_at":      lastProc,
+		"events_processed":       eventsProc,
+		"is_rebuilding":          rebuilding,
+		"rebuild_started_at":     rebuildStart,
+		"error_count":            errCount,
+		"last_error":             lastErr,
+		"last_error_at":          lastErrAt,
 	}, nil
 }
 
+// GetAllProjectionStatuses retorna o status de todas as projeções registradas.
 func (m *Manager) GetAllProjectionStatuses() ([]map[string]interface{}, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	var statuses []map[string]interface{}
+	names := make([]string, 0, len(m.projections))
 	for name := range m.projections {
+		names = append(names, name)
+	}
+	m.mu.Unlock()
+
+	var statuses []map[string]interface{}
+	for _, name := range names {
 		if status, err := m.GetProjectionStatus(name); err == nil {
 			statuses = append(statuses, status)
+		} else {
+			log.Printf("[WARN] GetAllProjectionStatuses: erro ao obter status de %s: %v", name, err)
 		}
 	}
 	return statuses, nil
 }
 
+// GetRegisteredProjections retorna os nomes de todas as projeções registradas.
 func (m *Manager) GetRegisteredProjections() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -362,13 +463,7 @@ func (m *Manager) GetRegisteredProjections() []string {
 	return names
 }
 
-func (m *Manager) IsProjectionRegistered(name string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	_, exists := m.projections[name]
-	return exists
-}
-
+// GetProjection retorna a projeção registrada com o nome dado, ou erro se não existir.
 func (m *Manager) GetProjection(name string) (Projection, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

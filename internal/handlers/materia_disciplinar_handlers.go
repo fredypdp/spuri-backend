@@ -82,7 +82,7 @@ func CriarMateria(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(materia); err != nil {
+	if err := repository.Save(c.Request.Context(), materia); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -161,7 +161,7 @@ func AtivarMateria(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	materiaAgg, err := repository.Load(materiaID, "MateriaDisciplinar")
+	materiaAgg, err := repository.Load(c.Request.Context(), materiaID, "MateriaDisciplinar")
 	if err != nil {
 		utils.RespondWithNotFoundError(c, "materia")
 		return
@@ -173,7 +173,7 @@ func AtivarMateria(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(materia); err != nil {
+	if err := repository.Save(c.Request.Context(), materia); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -210,7 +210,7 @@ func DesativarMateria(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	materiaAgg, err := repository.Load(materiaID, "MateriaDisciplinar")
+	materiaAgg, err := repository.Load(c.Request.Context(), materiaID, "MateriaDisciplinar")
 	if err != nil {
 		utils.RespondWithNotFoundError(c, "materia")
 		return
@@ -223,7 +223,7 @@ func DesativarMateria(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(materia); err != nil {
+	if err := repository.Save(c.Request.Context(), materia); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -277,7 +277,7 @@ func AtualizarDadosMateria(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	materiaAgg, err := repository.Load(materiaID, "MateriaDisciplinar")
+	materiaAgg, err := repository.Load(c.Request.Context(), materiaID, "MateriaDisciplinar")
 	if err != nil {
 		utils.RespondWithNotFoundError(c, "matéria")
 		return
@@ -291,7 +291,7 @@ func AtualizarDadosMateria(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(materia); err != nil {
+	if err := repository.Save(c.Request.Context(), materia); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -363,7 +363,7 @@ func DefinirPeriodoMateria(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	materiaAgg, err := repository.Load(materiaID, "MateriaDisciplinar")
+	materiaAgg, err := repository.Load(c.Request.Context(), materiaID, "MateriaDisciplinar")
 	if err != nil {
 		utils.RespondWithNotFoundError(c, "materia")
 		return
@@ -376,7 +376,7 @@ func DefinirPeriodoMateria(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(materia); err != nil {
+	if err := repository.Save(c.Request.Context(), materia); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -420,7 +420,7 @@ func DeletarMateria(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	materiaAgg, err := repository.Load(materiaID, "MateriaDisciplinar")
+	materiaAgg, err := repository.Load(c.Request.Context(), materiaID, "MateriaDisciplinar")
 	if err != nil {
 		utils.RespondWithNotFoundError(c, "materia")
 		return
@@ -434,7 +434,7 @@ func DeletarMateria(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(materia); err != nil {
+	if err := repository.Save(c.Request.Context(), materia); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}

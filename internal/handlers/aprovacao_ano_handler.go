@@ -71,7 +71,7 @@ func RegistrarAprovacaoAno(c *gin.Context) {
 
 	// ── Carregar aggregate e executar comando ─────────────────────────────────
 	repository := getRepository(c)
-	estudanteAgg, err := repository.Load(estudanteDTO.ID, "Estudante")
+	estudanteAgg, err := repository.Load(c.Request.Context(), estudanteDTO.ID, "Estudante")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -98,7 +98,7 @@ func RegistrarAprovacaoAno(c *gin.Context) {
 		UserType: "academia",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(estudante, audit); err != nil {
+	if err := repository.SaveWithAudit(c.Request.Context(), estudante, audit); err != nil {
 		log.Printf("❌ [RegistrarAprovacaoAno] Erro ao salvar: %v", err)
 		utils.RespondWithInternalError(c, err)
 		return

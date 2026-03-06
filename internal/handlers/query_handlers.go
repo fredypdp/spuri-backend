@@ -86,7 +86,7 @@ func VerificarIntegridade(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	isValid, err := repository.VerifyIntegrity(estudante.ID)
+	isValid, err := repository.VerifyIntegrity(c.Request.Context(), estudante.ID)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
