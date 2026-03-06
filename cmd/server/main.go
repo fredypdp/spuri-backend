@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -22,6 +22,10 @@ var (
 	repository  *db.AggregateRepository
 	projManager *projections.Manager
 )
+
+// requestIDPattern define os caracteres permitidos num X-Request-ID externo.
+// Apenas alfanuméricos e hífen — sem newlines, null bytes ou caracteres de controlo.
+var requestIDPattern = regexp.MustCompile(`^[a-zA-Z0-9\-]{1,64}$`)
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
@@ -75,27 +79,42 @@ func initDB() error {
 	return nil
 }
 
-// initProjections registra todas as projeções no Manager.
+// initProjections registra todas as projeções no Manager e inicia o processamento.
 //
-// FIX E4-CI-01: turmas, categorias_nota, cursos e sistema_config estavam
-// ausentes — eventos desses aggregates nunca eram processados pelo Manager,
-// deixando as projeções perpetuamente desatualizadas após o startup.
+// FIX E4-CI-01: as projeções turmas, cursos, categorias_nota e sistema_config
+// estavam ausentes do registro. Sem isso, eventos emitidos pelos aggregates
+// Turma, Curso, SistemaConfig e CategoriaNotaSuperior nunca eram processados
+// pelo loop do Manager em produção — os dados de leitura ficavam desatualizados
+// em relação ao ledger e o rebuild automático não cobria essas entidades.
+//
+// Ordem respeita dependências de FK (cursos antes de turmas; Tier 1 → Tier 2):
+//   Tier 1 — sem dependências: admins, academias, cursos, materias, sistema_config, categorias_nota
+//   Tier 2 — dependem de academias/cursos: estudantes, turmas
+//   Tier 3+ — dependem de estudantes/materias: notas, faltas, aprovacoes, etc.
 func initProjections() error {
 	projManager = projections.NewManager(dbClient)
-	projManager.RegisterProjection("estudantes", projections.NewEstudanteProjection(dbClient))
-	projManager.RegisterProjection("academias", projections.NewAcademiaProjection(dbClient))
+
+	// ── Tier 1 — sem dependências externas ───────────────────────────────
 	projManager.RegisterProjection("admins", projections.NewAdminProjection(dbClient))
+	projManager.RegisterProjection("academias", projections.NewAcademiaProjection(dbClient))
+	projManager.RegisterProjection("cursos", projections.NewCursosProjection(dbClient))
+	projManager.RegisterProjection("materias", projections.NewMateriasProjection(dbClient))
+	projManager.RegisterProjection("sistema_config", projections.NewSistemaConfigProjection(dbClient))
+	projManager.RegisterProjection("categorias_nota", projections.NewCategoriasNotaProjection(dbClient))
+
+	// ── Tier 2 — dependem de academias/cursos ────────────────────────────
+	projManager.RegisterProjection("estudantes", projections.NewEstudanteProjection(dbClient))
+	projManager.RegisterProjection("turmas", projections.NewTurmasProjection(dbClient))
+
+	// ── Tier 3 — dependem de estudantes e materias ───────────────────────
 	projManager.RegisterProjection("notas", projections.NewNotasProjection(dbClient))
 	projManager.RegisterProjection("faltas", projections.NewFaltasProjection(dbClient))
+
+	// ── Tier 4 — dependem de estudantes e aprovações ─────────────────────
 	projManager.RegisterProjection("aprovacoes", projections.NewAprovacaoAnoProjection(dbClient))
 	projManager.RegisterProjection("reprovacoes", projections.NewReprovacoesProjection(dbClient))
 	projManager.RegisterProjection("avaliacao_final", projections.NewAvaliacaoFinalProjection(dbClient))
-
-	// FIX E4-CI-01: projeções ausentes — adicionadas agora.
-	projManager.RegisterProjection("turmas", projections.NewTurmasProjection(dbClient))
-	projManager.RegisterProjection("categorias_nota", projections.NewCategoriasNotaProjection(dbClient))
-	projManager.RegisterProjection("cursos", projections.NewCursosProjection(dbClient))
-	projManager.RegisterProjection("sistema_config", projections.NewSistemaConfigProjection(dbClient))
+	projManager.RegisterProjection("inscricoes", projections.NewInscricoesProjection(dbClient))
 
 	go projManager.StartProcessing()
 	return nil
@@ -117,15 +136,18 @@ func setupRouter() *gin.Engine {
 		c.Next()
 	})
 
-	// ── Rotas públicas ────────────────────────────────────────────────────────
+	// ── Rotas públicas ────────────────────────────────────────────────────
 	router.POST("/login", middleware.LoginRateLimit(), handlers.Login)
 	router.POST("/estudante/register", handlers.RegisterEstudante)
 
-	// FIX E4-CI-02: rota /bootstrap estava ausente — nunca registrada,
-	// impossibilitando a criação do primeiro admin FPP.
-	// Sem autenticação: a verificação de "sistema já possui admins" é interna.
+	// FIX E4-CI-02: rota /bootstrap estava implementada no handler mas nunca
+	// registada no router — POST /bootstrap era inacessível em produção.
+	// O handler já protege contra uso após o primeiro admin ter sido criado
+	// (retorna 403) e contra race conditions via advisory lock PostgreSQL.
+	// Rate limit global (1 req/s) é suficiente; a proteção real está no handler.
 	router.POST("/bootstrap", handlers.BootstrapAdminFPP)
 
+	// ── Rotas de email (públicas com rate limit próprio) ──────────────────
 	emailGroup := router.Group("/email")
 	emailGroup.Use(middleware.EmailRateLimit())
 	{
@@ -137,12 +159,13 @@ func setupRouter() *gin.Engine {
 		emailGroup.POST("/gerar-token/recuperacao", handlers.GerarTokenRecuperacao)
 	}
 
-	// ── Rotas autenticadas (qualquer tipo) ─────────────────────────────────────
+	// ── Rotas autenticadas (qualquer tipo) ────────────────────────────────
 	protected := router.Group("/")
 	protected.Use(middleware.AuthMiddleware())
 	{
 		protected.PUT("/alterar-senha", handlers.AlterarSenha)
 		protected.GET("/meu-perfil", handlers.GetMeuPerfil)
+		protected.GET("/academias", handlers.ListarTodasAcademias)
 		protected.GET("/eventos-estudante/:codigo", handlers.GetEventosEstudante)
 		protected.GET("/verificar-integridade/:codigo", handlers.VerificarIntegridade)
 		protected.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)
@@ -160,12 +183,13 @@ func setupRouter() *gin.Engine {
 		protected.GET("/avaliacoes-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetAvaliacoesFinaisEstudante)
 	}
 
-	// FIX E4-ED-03: /academias REMOVIDA do grupo protected (todos os usuários
-	// autenticados, incluindo estudantes). Estudantes não têm necessidade legítima
-	// de listar todas as academias com seus dados — movida para grupo admin-only.
-	// Antes: qualquer estudante autenticado podia enumerar todas as academias.
-
-	// ── Rotas de estudante ─────────────────────────────────────────────────────
+	// ── Rotas de estudante ─────────────────────────────────────────────────
+	// FIX-C4: status-escolar-* REMOVIDOS daqui — estudante não pode mais alterar
+	// seu próprio status escolar. Essa responsabilidade é exclusiva da academia.
+	//
+	// H4-06: novas rotas /estudante/minhas-notas e /estudante/minhas-faltas
+	// permitem que o estudante acesse apenas seus próprios dados educacionais,
+	// sem expor o /:codigo que permitia consultar qualquer estudante.
 	estudante := router.Group("/estudante")
 	estudante.Use(middleware.AuthMiddleware())
 	estudante.Use(middleware.RequireEstudante())
@@ -178,7 +202,7 @@ func setupRouter() *gin.Engine {
 		estudante.GET("/minhas-faltas", handlers.GetMinhasFaltas)
 	}
 
-	// ── Rotas de academia ──────────────────────────────────────────────────────
+	// ── Rotas de academia ─────────────────────────────────────────────────
 	academia := router.Group("/academia")
 	academia.Use(middleware.AuthMiddleware())
 	academia.Use(middleware.RequireAcademia())
@@ -198,9 +222,42 @@ func setupRouter() *gin.Engine {
 		academia.PUT("/estudante/:codigo/status-escolar-fundamental", handlers.AtualizarStatusEscolarFundamentalHandler)
 		academia.PUT("/estudante/:codigo/status-escolar-medio", handlers.AtualizarStatusEscolarMedioHandler)
 		academia.PUT("/estudante/:codigo/status-superior", handlers.AtualizarStatusSuperiorHandler)
+
+		// ── Turmas ────────────────────────────────────────────────────────
+		academia.POST("/turmas", handlers.CriarTurma)
+		academia.GET("/turmas", handlers.ListarTurmasAcademia)
+		academia.GET("/turmas/:codigo", handlers.GetTurma)
+		academia.PUT("/turmas/:codigo/ativar", handlers.AtivarTurma)
+		academia.PUT("/turmas/:codigo/desativar", handlers.DesativarTurma)
+		academia.PUT("/turmas/:codigo/dados", handlers.AtualizarDadosTurma)
+		academia.DELETE("/turmas/:codigo", handlers.DeletarTurma)
+		academia.POST("/turmas/:codigo/estudantes", handlers.AdicionarEstudanteATurma)
+		academia.DELETE("/turmas/:codigo/estudantes/:codigo_estudante", handlers.RemoverEstudanteDaTurma)
+
+		// ── Cursos ────────────────────────────────────────────────────────
+		academia.POST("/cursos", handlers.CriarCurso)
+		academia.GET("/cursos", handlers.ListarCursos)
+		academia.GET("/cursos/:id", handlers.GetCurso)
+		academia.PUT("/cursos/:id/ativar", handlers.AtivarCurso)
+		academia.PUT("/cursos/:id/desativar", handlers.DesativarCurso)
+		academia.PUT("/cursos/:id/dados", handlers.AtualizarDadosCurso)
+		academia.DELETE("/cursos/:id", handlers.DeletarCurso)
+
+		// ── Matérias ──────────────────────────────────────────────────────
+		academia.POST("/materias", handlers.CriarMateria)
+		academia.GET("/materias", handlers.ListarMaterias)
+		academia.GET("/materias/:id", handlers.GetMateria)
+		academia.PUT("/materias/:id/ativar", handlers.AtivarMateria)
+		academia.PUT("/materias/:id/desativar", handlers.DesativarMateria)
+		academia.PUT("/materias/:id/periodo", handlers.DefinirPeriodoMateria)
+		academia.PUT("/materias/:id/dados", handlers.AtualizarDadosMateria)
+		academia.DELETE("/materias/:id", handlers.DeletarMateria)
+
+		// ── Atualização geral ─────────────────────────────────────────────
+		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
 	}
 
-	// ── Rotas de admin ─────────────────────────────────────────────────────────
+	// ── Rotas de admin ────────────────────────────────────────────────────
 	admin := router.Group("/admin")
 	admin.Use(middleware.AuthMiddleware())
 	admin.Use(middleware.RequireAdmin())
@@ -208,38 +265,41 @@ func setupRouter() *gin.Engine {
 		admin.POST("/register", handlers.RegisterAdmin)
 		admin.POST("/academia/register", handlers.RegisterAcademia)
 
-		// FIX E4-ED-03: /academias movida para cá — apenas admins podem listar.
-		// Antes estava no grupo protected (qualquer usuário autenticado).
-		admin.GET("/academias", handlers.ListarTodasAcademias)
-
 		// H4-13: ativar/desativar academia exige role mínimo "adm".
 		// Consistente com AtivarAdmin/DesativarAdmin que verificam hierarquia
 		// via ValidatePermission — operações sobre academias têm impacto sistêmico
 		// significativo e não devem estar acessíveis ao role "gerente".
-		//
-		// FIX E4-AA-01: parâmetro corrigido de :id para :codigo.
-		// AtivarAcademia e DesativarAcademia leem c.Param("codigo") —
-		// a rota usava :id, fazendo c.Param("codigo") retornar string vazia,
-		// resultando em "academia não encontrada" em todas as chamadas.
-		admin.PUT("/academia/:codigo/ativar", middleware.RequireAdm(), handlers.AtivarAcademia)
-		admin.PUT("/academia/:codigo/desativar", middleware.RequireAdm(), handlers.DesativarAcademia)
+		admin.PUT("/academia/:id/ativar", middleware.RequireAdm(), handlers.AtivarAcademia)
+		admin.PUT("/academia/:id/desativar", middleware.RequireAdm(), handlers.DesativarAcademia)
 
 		admin.PUT("/admin/:id/ativar", handlers.AtivarAdmin)
 		admin.PUT("/admin/:id/desativar", handlers.DesativarAdmin)
 		admin.GET("/admins", handlers.ListarTodosAdmins)
-		admin.GET("/admin/:email", handlers.GetAdminPorEmail)
 		admin.GET("/ano-letivo", handlers.GetAnoLetivoAtual)
 		admin.POST("/ano-letivo", handlers.DefinirAnoLetivo)
 		admin.GET("/metrics", handlers.GetSystemMetrics)
 		admin.POST("/projections/rebuild/:name", handlers.RebuildProjection)
+
+		// FIX E4-ED-02: /consultar-admin restrito a adm+ (verificado no handler).
+		admin.GET("/consultar-admin/:email", handlers.GetAdminPorEmail)
+
+		// Rotas de registros/relatórios
 		admin.GET("/registros", handlers.ListarTodosRegistros)
-		admin.GET("/registros/estudante/:codigo", handlers.ListarRegistrosPorEstudante)
+		admin.GET("/registros/:codigo", handlers.ListarRegistrosPorEstudante)
+
+		// Rotas de gestão de admin
+		admin.PUT("/admin/:id/role", handlers.AtualizarRoleAdmin)
+		admin.PUT("/admin/:id/dados", handlers.AtualizarDadosAdmin)
 	}
+
+	// ── Rotas de health / docs ─────────────────────────────────────────────
+	router.GET("/health", handlers.HealthCheck)
+	router.GET("/docs", handlers.GetDocs)
 
 	return router
 }
 
-// corsMiddleware — [A42]: whitelist configurável via ALLOWED_ORIGINS.
+// corsMiddleware — whitelist configurável via ALLOWED_ORIGINS.
 func corsMiddleware() gin.HandlerFunc {
 	env := os.Getenv("ENV")
 	rawOrigins := os.Getenv("ALLOWED_ORIGINS")
@@ -288,52 +348,39 @@ func corsMiddleware() gin.HandlerFunc {
 	}
 }
 
-// requestIDMiddleware propaga ou gera um X-Request-ID para rastreabilidade.
+// requestIDMiddleware injeta um request ID rastreável em cada requisição.
 //
-// FIX E4-ED-01: X-Request-ID fornecido pelo cliente é sanitizado antes de
-// ser armazenado no contexto e refletido na resposta. Sem sanitização, um
-// cliente poderia injetar caracteres de controle ou strings longas nos logs,
-// facilitando log injection e header injection.
+// FIX E4-ED-01: o header X-Request-ID era aceite sem qualquer validação,
+// permitindo log injection via caracteres de controlo (newlines, null bytes)
+// e poluição de SIEM/APM com eventos falsos injectados pelo atacante.
 //
-// Sanitização aplicada:
-//   - Truncado a 128 caracteres (IDs legítimos como UUID têm 36 chars)
-//   - Caracteres de controle (< 0x20) removidos
-//   - Somente caracteres ASCII imprimíveis e espaços são mantidos
+// Mitigação:
+//   - X-Request-ID externo é validado: máximo 64 caracteres, apenas [a-zA-Z0-9-].
+//   - Qualquer header que não cumpra o padrão é descartado silenciosamente;
+//     um UUID novo é gerado em seu lugar.
+//   - Quando nenhum header é fornecido, o ID é gerado internamente
+//     (timestamp nanosegundos + IP com pontos substituídos por hífen).
+//   - O valor gravado nos logs e retornado ao cliente é sempre o valor
+//     validado/gerado — nunca o input bruto do cliente.
 func requestIDMiddleware() gin.HandlerFunc {
-	const maxRequestIDLen = 128
-
 	return func(c *gin.Context) {
 		requestID := c.GetHeader("X-Request-ID")
 
+		if requestID != "" {
+			// FIX E4-ED-01: validar antes de usar — rejeitar se contiver
+			// caracteres fora da whitelist ou exceder 64 caracteres.
+			if !requestIDPattern.MatchString(requestID) {
+				log.Printf("[WARN] [requestID] X-Request-ID inválido descartado (len=%d) — IP: %s",
+					len(requestID), c.ClientIP())
+				requestID = ""
+			}
+		}
+
 		if requestID == "" {
-			// Gerar ID interno: timestamp_nano + IP normalizado
+			// Gerar ID interno: não usa entrada do cliente — sem risco de injection.
 			requestID = fmt.Sprintf("%d-%s",
 				time.Now().UnixNano(),
 				strings.ReplaceAll(c.ClientIP(), ".", "-"))
-		} else {
-			// FIX E4-ED-01: sanitizar ID fornecido pelo cliente.
-			// 1. Truncar a maxRequestIDLen para evitar log flooding
-			runes := []rune(requestID)
-			if len(runes) > maxRequestIDLen {
-				runes = runes[:maxRequestIDLen]
-			}
-
-			// 2. Remover caracteres de controle (prevenção de log injection)
-			var sanitized strings.Builder
-			for _, r := range runes {
-				// Aceitar apenas caracteres ASCII imprimíveis (0x20–0x7E)
-				if r >= 0x20 && r <= 0x7E && !unicode.IsControl(r) {
-					sanitized.WriteRune(r)
-				}
-			}
-			requestID = sanitized.String()
-
-			// 3. Se após sanitização ficar vazio, gerar ID interno
-			if requestID == "" {
-				requestID = fmt.Sprintf("%d-%s",
-					time.Now().UnixNano(),
-					strings.ReplaceAll(c.ClientIP(), ".", "-"))
-			}
 		}
 
 		c.Set("request_id", requestID)

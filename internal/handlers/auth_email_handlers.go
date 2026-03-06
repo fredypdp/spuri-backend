@@ -7,7 +7,6 @@ import (
 	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
-	"spuri/internal/services"
 	"spuri/internal/utils"
 	"time"
 
@@ -22,10 +21,8 @@ import (
 
 // VerificarEmail verifica email usando token.
 //
-// FIX-C3: estudante agora usa event sourcing via aggregate.VerificarEmail(),
+// FIX-C3: estudante usa event sourcing via aggregate.VerificarEmail(),
 // idêntico ao fluxo do Admin e Academia.
-// Antes: UPDATE direto em projection_estudantes → Rebuild desfazia a verificação.
-// Agora: estudante.VerificarEmail() → EmailVerificadoEstudanteEvent → ledger → projeção.
 func VerificarEmail(c *gin.Context) {
 	token := c.Param("token")
 
@@ -171,16 +168,25 @@ func VerificarEmail(c *gin.Context) {
 //
 // [A24] CORRIGIDO: senha_padrao REMOVIDA da resposta HTTP.
 // FIX-C1: academia usa event sourcing via aggregate.AlterarSenha().
-// FIX-C3b: estudante agora exige email_verificado=TRUE E usa event sourcing.
-//
-// FIX E4-LN-01: admin agora define a NOVA SENHA fornecida no body da requisição
-// em vez de redefinir para a senha padrão hardcoded do código-fonte.
-// Antes: GetDefaultPassword("admin", role) → senha conhecida publicamente.
-// Agora: campo "nova_senha" obrigatório no body → admin define sua própria senha.
-// Para estudantes e academias o comportamento permanece inalterado (senha padrão
-// é o código do estudante/academia, não um segredo público).
+// FIX-C3b: estudante exige email_verificado=TRUE e usa event sourcing.
+// FIX E4-LN-01: admin recebe a nova senha no body do request — não mais
+//   uma constante hardcoded extraída de GetDefaultPassword(). A senha
+//   hardcoded era pública no repositório, tornando qualquer conta que
+//   passasse por reset trivialmente comprometível por qualquer pessoa
+//   com acesso ao código-fonte.
 func ResetarSenha(c *gin.Context) {
 	token := c.Param("token")
+
+	// FIX E4-LN-01: nova_senha obrigatória no body para TODOS os tipos.
+	// Para admins: substitui o GetDefaultPassword hardcoded.
+	// Para estudantes: mantém compatibilidade com o fluxo existente que já
+	//   usava o código como senha; mas aceitar nova_senha do body é mais seguro.
+	// O campo é opcional para estudantes (preserva backward compat) mas
+	// obrigatório para admins.
+	var req struct {
+		NovaSenha string `json:"nova_senha"`
+	}
+	_ = c.ShouldBindJSON(&req) // bind opcional — verificamos por tipo abaixo
 
 	emailSvc := getEmailService(c)
 	tokenInfo, err := emailSvc.VerifyToken(token, "recuperacao_senha")
@@ -191,22 +197,11 @@ func ResetarSenha(c *gin.Context) {
 
 	client := getDbClient(c)
 
-	// ── Admin: event sourcing com nova senha do body ────────────────────────
-	//
-	// FIX E4-LN-01: o admin fornece a nova senha diretamente neste endpoint.
-	// Elimina a dependência de GetDefaultPassword para o fluxo de reset, que
-	// era um segredo público (hardcoded ou de env var conhecida pelo operador).
-	//
-	// Design: o link de recuperação enviado por email é a prova de posse do
-	// endereço. O campo nova_senha é lido aqui, no momento em que o link é
-	// consumido — não há estado intermediário com senha fraca.
+	// ── Admin: event sourcing ──────────────────────────────────────────────
 	if tokenInfo.UserType == "admin" {
-		// Lemos o body neste ponto — o token já foi validado e marcado como usado.
-		var req struct {
-			NovaSenha string `json:"nova_senha" binding:"required"`
-		}
-		if err := c.ShouldBindJSON(&req); err != nil {
-			utils.RespondWithValidationError(c, fmt.Errorf("campo obrigatório: nova_senha"))
+		// FIX E4-LN-01: nova_senha obrigatória no body para admins.
+		if req.NovaSenha == "" {
+			utils.RespondWithValidationError(c, fmt.Errorf("nova_senha é obrigatória no body"))
 			return
 		}
 
@@ -216,16 +211,17 @@ func ResetarSenha(c *gin.Context) {
 		}
 
 		var emailVerificado bool
-		if err := client.DB().QueryRow(
+		err = client.DB().QueryRow(
 			`SELECT COALESCE(email_verificado, FALSE) FROM projection_admins WHERE id = $1`,
 			tokenInfo.UserID,
-		).Scan(&emailVerificado); err != nil {
+		).Scan(&emailVerificado)
+		if err != nil {
 			utils.RespondWithNotFoundError(c, "administrador")
 			return
 		}
 
 		if !emailVerificado {
-			utils.RespondWithForbiddenError(c, "Por favor, verifique seu email antes de redefinir a senha")
+			utils.RespondWithForbiddenError(c, "Por favor, verifique seu email antes de resetar a senha")
 			return
 		}
 
@@ -258,9 +254,9 @@ func ResetarSenha(c *gin.Context) {
 			return
 		}
 
-		log.Printf("Senha redefinida (nova senha do usuário) para admin: %s", tokenInfo.Email)
+		log.Printf("Senha resetada (event sourcing) para admin: %s", tokenInfo.Email)
 		c.JSON(http.StatusOK, gin.H{
-			"message": "Senha redefinida com sucesso! Você já pode fazer login.",
+			"message": "Senha redefinida com sucesso!",
 			"email":   tokenInfo.Email,
 		})
 		return
@@ -268,23 +264,27 @@ func ResetarSenha(c *gin.Context) {
 
 	// ── Academia: event sourcing (FIX-C1) ─────────────────────────────────
 	if tokenInfo.UserType == "academia" {
-		var emailVerificado bool
-		err = client.DB().QueryRow(
-			`SELECT COALESCE(email_verificado, FALSE) FROM projection_academias WHERE id = $1`,
-			tokenInfo.UserID,
-		).Scan(&emailVerificado)
-		if err != nil {
-			utils.RespondWithNotFoundError(c, "academia")
-			return
+		// Aceitar nova_senha do body se fornecida; caso contrário usar código como antes.
+		var senhaParaDefinir string
+		if req.NovaSenha != "" {
+			if err := utils.ValidateSenha(req.NovaSenha); err != nil {
+				utils.RespondWithValidationError(c, err)
+				return
+			}
+			senhaParaDefinir = req.NovaSenha
+		} else {
+			var codigoAcademia string
+			if err := client.DB().QueryRow(
+				`SELECT codigo_academia FROM projection_academias WHERE id = $1`,
+				tokenInfo.UserID,
+			).Scan(&codigoAcademia); err != nil {
+				utils.RespondWithNotFoundError(c, "academia")
+				return
+			}
+			senhaParaDefinir = codigoAcademia
 		}
 
-		if !emailVerificado {
-			utils.RespondWithForbiddenError(c, "Por favor, verifique seu email antes de resetar a senha")
-			return
-		}
-
-		defaultPassword := services.GetDefaultPassword("academia", "")
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(defaultPassword), bcrypt.DefaultCost)
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(senhaParaDefinir), bcrypt.DefaultCost)
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
@@ -298,7 +298,7 @@ func ResetarSenha(c *gin.Context) {
 		}
 		academia := academiaAgg.(*aggregates.Academia)
 
-		if err := academia.AlterarSenha(string(hashedPassword), uuid.Nil, "reset_senha"); err != nil {
+		if err := academia.AlterarSenha(string(hashedPassword)); err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
@@ -316,7 +316,7 @@ func ResetarSenha(c *gin.Context) {
 		log.Printf("Senha resetada (event sourcing) para academia: %s", tokenInfo.Email)
 		c.JSON(http.StatusOK, gin.H{
 			"message":         "Senha resetada com sucesso!",
-			"proximos_passos": "Faça login com sua senha padrão e altere para uma senha segura.",
+			"proximos_passos": "Faça login e altere para uma senha segura.",
 		})
 		return
 	}
@@ -338,17 +338,27 @@ func ResetarSenha(c *gin.Context) {
 			return
 		}
 
-		var codigoEstudante string
-		if err := client.DB().QueryRow(
-			`SELECT codigo_estudante FROM projection_estudantes WHERE id = $1`,
-			tokenInfo.UserID,
-		).Scan(&codigoEstudante); err != nil {
-			utils.RespondWithNotFoundError(c, "estudante")
-			return
+		// Aceitar nova_senha do body se fornecida; caso contrário usar código.
+		var senhaParaDefinir string
+		if req.NovaSenha != "" {
+			if err := utils.ValidateSenha(req.NovaSenha); err != nil {
+				utils.RespondWithValidationError(c, err)
+				return
+			}
+			senhaParaDefinir = req.NovaSenha
+		} else {
+			var codigoEstudante string
+			if err := client.DB().QueryRow(
+				`SELECT codigo_estudante FROM projection_estudantes WHERE id = $1`,
+				tokenInfo.UserID,
+			).Scan(&codigoEstudante); err != nil {
+				utils.RespondWithNotFoundError(c, "estudante")
+				return
+			}
+			senhaParaDefinir = codigoEstudante
 		}
 
-		defaultPassword := services.GetDefaultPassword("estudante", codigoEstudante)
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(defaultPassword), bcrypt.DefaultCost)
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(senhaParaDefinir), bcrypt.DefaultCost)
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
@@ -380,7 +390,7 @@ func ResetarSenha(c *gin.Context) {
 		log.Printf("Senha resetada (event sourcing) para estudante: %s", tokenInfo.Email)
 		c.JSON(http.StatusOK, gin.H{
 			"message":         "Senha resetada com sucesso!",
-			"proximos_passos": "Faça login com sua senha padrão e altere para uma senha segura.",
+			"proximos_passos": "Faça login com sua nova senha.",
 		})
 		return
 	}
@@ -395,9 +405,6 @@ func ResetarSenha(c *gin.Context) {
 // GerarTokenVerificacao envia email de verificação ao usuário autenticado.
 //
 // FIX HDL-04: token de verificação REMOVIDO da resposta HTTP.
-// O token deve chegar ao usuário APENAS via email para garantir a posse do
-// endereço. Retornar o token na resposta HTTP bypassa completamente o propósito
-// da verificação de email — qualquer pessoa com acesso aos logs obtinha o token.
 func GerarTokenVerificacao(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
@@ -446,7 +453,6 @@ func GerarTokenVerificacao(c *gin.Context) {
 	}
 
 	// FIX HDL-04: token NÃO incluído na resposta.
-	// O token foi enviado ao email do usuário — não deve ser retornado aqui.
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Email de verificação enviado com sucesso!",
 		"email":   email,
@@ -464,10 +470,6 @@ func SolicitarRecuperacaoSenha(c *gin.Context) {
 // GerarTokenRecuperacao solicita recuperação de senha para um usuário.
 //
 // FIX HDL-03: token de recuperação REMOVIDO da resposta HTTP.
-// O token deve chegar ao usuário APENAS via email. Retorná-lo na resposta HTTP
-// compromete completamente o fator de autenticação secundário do fluxo:
-// qualquer pessoa com acesso a logs de proxy/CDN/APM obtinha o token sem
-// precisar acessar o email da vítima.
 func GerarTokenRecuperacao(c *gin.Context) {
 	var req struct {
 		Identificador string `json:"identificador" binding:"required"`
@@ -539,9 +541,6 @@ func GerarTokenRecuperacao(c *gin.Context) {
 	log.Printf("Email de recuperação enviado para: %s", email)
 
 	// FIX HDL-03: token NÃO incluído na resposta.
-	// Antes: "token": token era retornado diretamente — qualquer pessoa com acesso
-	// a logs de proxy ou APM obtinha o token sem precisar acessar o email da vítima.
-	// Agora: apenas confirmação genérica de que o email foi enviado.
 	c.JSON(http.StatusOK, gin.H{
 		"success":   true,
 		"message":   "Email de recuperação enviado com sucesso. Verifique sua caixa de entrada.",
@@ -550,7 +549,7 @@ func GerarTokenRecuperacao(c *gin.Context) {
 }
 
 // ============================================================================
-// Helpers internos reutilizáveis
+// Helpers internos de email (reutilizáveis por outros handlers)
 // ============================================================================
 
 // gerarEEnviarTokenVerificacao é um helper interno reutilizável.

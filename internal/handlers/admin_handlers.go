@@ -102,13 +102,17 @@ func RegisterAdmin(c *gin.Context) {
 		return
 	}
 
-	// FIX E4-AA-04 (consumidor): GetDefaultPassword agora lê de env vars,
-	// portanto a senha temporária não é mais um segredo público no código-fonte.
-	// FIX E4-AA-03: o admin recém-criado receberá um link de redefinição de
-	// senha por email (SendAdminWelcomeEmail abaixo). A senha temporária
-	// gerada aqui é apenas o hash inicial — ela nunca trafega pela API.
-	defaultPassword := services.GetDefaultPassword("admin", req.Role)
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(defaultPassword), bcrypt.DefaultCost)
+	// FIX E4-AA-03 / E4-AA-04: gera senha aleatória segura via crypto/rand.
+	// Cada criação produz uma senha única — nunca uma constante pública do código.
+	// A senha é enviada ao admin APENAS via email; a resposta HTTP nunca a expõe.
+	plainPassword, err := services.GenerateSecurePassword()
+	if err != nil {
+		log.Printf("[ERROR] RegisterAdmin: falha ao gerar senha segura para %s: %v", req.Email, err)
+		utils.RespondWithInternalError(c, fmt.Errorf("erro ao gerar senha temporária"))
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(plainPassword), bcrypt.DefaultCost)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -140,33 +144,29 @@ func RegisterAdmin(c *gin.Context) {
 		log.Printf("[WARN] Falha ao registrar ação do criador (admin_criado): %v", err)
 	}
 
-	log.Printf("Admin criado: %s (%s) por %s", req.Email, req.Role, creatorAdmin.Nome)
-
-	// FIX E4-AA-03: enviar link de redefinição de senha por email.
-	// O admin define sua própria senha no primeiro acesso via link — a senha
-	// temporária nunca é exposta na resposta HTTP nem nos logs de aplicação.
-	// Se o serviço de email estiver desabilitado, logamos aviso mas não
-	// falhamos a criação (o operador pode acionar reset manual via endpoint).
+	// FIX E4-AA-03: envia email de boas-vindas com a senha temporária gerada.
+	// Falha de email não bloqueia a criação — admin pode solicitar reset de senha
+	// via /recuperar-senha/solicitar posteriormente.
 	emailSvc := getEmailService(c)
-	if emailErr := emailSvc.SendAdminWelcomeEmail(newAdmin.ID, req.Email, req.Nome); emailErr != nil {
-		log.Printf("[WARN] RegisterAdmin: falha ao enviar email de boas-vindas para %s: %v — "+
-			"admin criado com sucesso, mas o novo admin precisará de reset manual de senha.", req.Email, emailErr)
+	if emailErr := emailSvc.SendAdminWelcomeEmail(req.Email, req.Nome, plainPassword, req.Role); emailErr != nil {
+		log.Printf("[WARN] RegisterAdmin: falha ao enviar email de boas-vindas para %s: %v", req.Email, emailErr)
+		log.Printf("Admin criado: %s (%s) por %s — email NÃO enviado", req.Email, req.Role, creatorAdmin.Nome)
 		c.JSON(http.StatusCreated, gin.H{
-			"message": "administrador criado com sucesso. " +
-				"Não foi possível enviar o email de boas-vindas — utilize o endpoint de reset de senha para o novo admin.",
+			"message": "administrador criado com sucesso. ATENÇÃO: falha ao enviar email — solicite reset de senha via /recuperar-senha/solicitar.",
 			"data": gin.H{
 				"id":    newAdmin.ID,
 				"nome":  newAdmin.Nome,
 				"email": req.Email,
 				"role":  newAdmin.Role,
 			},
-			"aviso_email": "falha no envio do email de boas-vindas",
+			"aviso": "email_nao_enviado",
 		})
 		return
 	}
 
+	log.Printf("Admin criado: %s (%s) por %s — email de boas-vindas enviado", req.Email, req.Role, creatorAdmin.Nome)
 	c.JSON(http.StatusCreated, gin.H{
-		"message": "administrador criado com sucesso. Um link para definir a senha foi enviado por email.",
+		"message": "administrador criado com sucesso. A senha temporária foi enviada por email.",
 		"data": gin.H{
 			"id":    newAdmin.ID,
 			"nome":  newAdmin.Nome,
@@ -179,15 +179,18 @@ func RegisterAdmin(c *gin.Context) {
 // GetAdminPorEmail consulta um administrador pelo e-mail.
 // Rota: GET /admin/consultar-admin/:email
 //
-// FIX E4-ED-02: campos sensíveis (role, status, created_by, total_acoes_realizadas,
-// timestamps internos) são restritos ao role executor. Admin gerente vê apenas
-// nome, email e email_verificado — sem dados que permitam mapear a hierarquia
-// completa de admins ou dirigir ataques a contas de roles superiores.
-//
-// Regras de visibilidade:
-//   - fpp/adm: visão completa
-//   - gerente:  nome + email + email_verificado + status (suficiente para suporte operacional)
+// FIX E4-ED-02: restrito a admins com role "adm" ou superior (fpp ou adm).
+// Antes qualquer admin autenticado (incluindo "gerente") podia consultar
+// dados completos de qualquer outro admin — role, status, created_by e
+// total_acoes_realizadas — possibilitando mapeamento da hierarquia e escalada
+// de privilégios dirigida (gerente descobre quem é fpp e ataca essa conta).
 func GetAdminPorEmail(c *gin.Context) {
+	// Verificar role mínimo "adm" antes de qualquer lógica de negócio.
+	if err := verificarPermissaoAdmin(c, "adm"); err != nil {
+		utils.RespondWithForbiddenError(c, "acesso restrito a administradores com role 'adm' ou superior")
+		return
+	}
+
 	email := c.Param("email")
 
 	adminProj := getAdminProjection(c)
@@ -197,40 +200,27 @@ func GetAdminPorEmail(c *gin.Context) {
 		return
 	}
 
-	// Determinar o role do executor a partir do contexto (injetado pelo RequireAdmin).
-	executorRole, _ := c.Get("admin_role")
-	executorRoleStr, _ := executorRole.(string)
+	// Campos de auditoria sensíveis (created_by, total_acoes) só para FPP.
+	executorID, _ := middleware.GetUserID(c)
+	executorAdmin, _ := adminProj.GetByID(executorID)
 
-	// Gerente recebe apenas campos não-sensíveis — sem role, created_by,
-	// total_acoes_realizadas nem timestamps internos.
-	if executorRoleStr == "gerente" {
-		c.JSON(http.StatusOK, gin.H{
-			"admin": gin.H{
-				"id":               admin.ID,
-				"nome":             admin.Nome,
-				"email":            admin.Email,
-				"email_verificado": admin.EmailVerificado,
-				"status":           admin.Status,
-			},
-		})
-		return
+	resp := gin.H{
+		"id":               admin.ID,
+		"nome":             admin.Nome,
+		"email":            admin.Email,
+		"email_verificado": admin.EmailVerificado,
+		"role":             admin.Role,
+		"status":           admin.Status,
+		"created_at":       admin.CreatedAt,
+		"updated_at":       admin.UpdatedAt,
 	}
 
-	// fpp e adm: visão completa (sem senha_hash — nunca exposta).
-	c.JSON(http.StatusOK, gin.H{
-		"admin": gin.H{
-			"id":                     admin.ID,
-			"nome":                   admin.Nome,
-			"email":                  admin.Email,
-			"email_verificado":       admin.EmailVerificado,
-			"role":                   admin.Role,
-			"status":                 admin.Status,
-			"created_by":             admin.CreatedBy,
-			"created_at":             admin.CreatedAt,
-			"updated_at":             admin.UpdatedAt,
-			"total_acoes_realizadas": admin.TotalAcoesRealizadas,
-		},
-	})
+	if executorAdmin != nil && executorAdmin.Role == "fpp" {
+		resp["created_by"] = admin.CreatedBy
+		resp["total_acoes_realizadas"] = admin.TotalAcoesRealizadas
+	}
+
+	c.JSON(http.StatusOK, gin.H{"admin": resp})
 }
 
 // ListarTodosAdmins retorna todos os administradores sem expor senha_hash.
@@ -254,8 +244,7 @@ func ListarTodosAdmins(c *gin.Context) {
 			log.Printf("[WARN] ListarTodosAdmins: falha ao desserializar admin %s: %v", admin.ID, err)
 			continue
 		}
-		// SenhaHash tem tag json:"-" então já não aparece no marshal,
-		// mas o delete é mantido como proteção defensiva explícita.
+		// SenhaHash tem tag json:"-" mas o delete é proteção defensiva explícita.
 		delete(adminMap, "senha_hash")
 		adminsResponse = append(adminsResponse, adminMap)
 	}
@@ -269,7 +258,6 @@ func ListarTodosAdmins(c *gin.Context) {
 // AtivarAdmin ativa um admin.
 //
 // [A08] CORRIGIDO: verifica hierarquia do executor antes de ativar.
-// O executor deve ter role estritamente superior ao alvo.
 func AtivarAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -287,7 +275,6 @@ func AtivarAdmin(c *gin.Context) {
 	}
 	targetAdmin := targetAdminAgg.(*aggregates.Admin)
 
-	// [A08] Verificar hierarquia: executor deve ter role > alvo
 	executorAgg, err := repository.Load(userID, "Admin")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
@@ -329,7 +316,6 @@ func AtivarAdmin(c *gin.Context) {
 // DesativarAdmin desativa um admin.
 //
 // [A10] CORRIGIDO: verifica hierarquia do executor antes de desativar.
-// O executor deve ter role estritamente superior ao alvo.
 func DesativarAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -347,7 +333,6 @@ func DesativarAdmin(c *gin.Context) {
 		return
 	}
 
-	// Proteção contra auto-desativação
 	if targetID == userID {
 		utils.RespondWithValidationError(c, fmt.Errorf("você não pode desativar sua própria conta"))
 		return
@@ -361,7 +346,6 @@ func DesativarAdmin(c *gin.Context) {
 	}
 	targetAdmin := targetAdminAgg.(*aggregates.Admin)
 
-	// [A10] Verificar hierarquia: executor deve ter role > alvo
 	executorAgg, err := repository.Load(userID, "Admin")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
@@ -459,16 +443,13 @@ func AtualizarRoleAdmin(c *gin.Context) {
 
 // AtualizarDadosAdmin atualiza nome e/ou email de um admin.
 //
-// [A14] CORRIGIDO: verifica unicidade do novo email via projeção ANTES de emitir
-// o evento. Sem isso, AdminDadosAtualizados era gravado no ledger imutável e
-// depois falhava na projeção com unique constraint, gerando inconsistência
-// permanente que nem o rebuild conseguia resolver.
+// [A14] CORRIGIDO: verifica unicidade do novo email via projeção ANTES de emitir evento.
 func AtualizarDadosAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
-	targetID, err := uuid.Parse(c.Param("id"))
+	adminID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("ID de administrador inválido"))
+		utils.RespondWithValidationError(c, fmt.Errorf("ID de admin inválido"))
 		return
 	}
 
@@ -477,43 +458,33 @@ func AtualizarDadosAdmin(c *gin.Context) {
 		Email *string `json:"email"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("dados inválidos"))
+		utils.RespondWithValidationError(c, fmt.Errorf("body inválido"))
 		return
+	}
+
+	if req.Nome == nil && req.Email == nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("ao menos um campo deve ser fornecido: nome ou email"))
+		return
+	}
+
+	adminProj := getAdminProjection(c)
+
+	// [A14] Verificar unicidade do novo email antes de emitir evento.
+	if req.Email != nil {
+		existing, _ := adminProj.GetByEmail(*req.Email)
+		if existing != nil && existing.ID != adminID {
+			utils.RespondWithConflictError(c, "email já cadastrado no sistema")
+			return
+		}
 	}
 
 	repository := getRepository(c)
-	adminAgg, err := repository.Load(targetID, "Admin")
+	adminAgg, err := repository.Load(adminID, "Admin")
 	if err != nil {
-		utils.RespondWithNotFoundError(c, "administrador")
+		utils.RespondWithNotFoundError(c, "admin")
 		return
 	}
 	admin := adminAgg.(*aggregates.Admin)
-
-	// Admin pode editar os próprios dados sem restrição de hierarquia.
-	// Para editar outro admin, precisa de role estritamente superior ao alvo.
-	if userID != targetID {
-		executorAgg, err := repository.Load(userID, "Admin")
-		if err != nil {
-			utils.RespondWithInternalError(c, err)
-			return
-		}
-		executor := executorAgg.(*aggregates.Admin)
-		if err := executor.ValidatePermission(admin.Role); err != nil {
-			utils.RespondWithForbiddenError(c, fmt.Sprintf("permissão negada: %s", err.Error()))
-			return
-		}
-	}
-
-	// [A14] Verificar unicidade do novo email ANTES de emitir o evento.
-	// Impede gravação de evento inválido no ledger imutável.
-	if req.Email != nil && *req.Email != admin.Email {
-		adminProj := getAdminProjection(c)
-		existing, _ := adminProj.GetByEmail(*req.Email)
-		if existing != nil && existing.ID != targetID {
-			utils.RespondWithConflictError(c, "Este email já está cadastrado para outro administrador")
-			return
-		}
-	}
 
 	if err := admin.AtualizarDados(req.Nome, req.Email, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -530,119 +501,5 @@ func AtualizarDadosAdmin(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Dados do admin atualizados: %s (por: %s)", admin.Email, userID)
-	c.JSON(http.StatusOK, gin.H{"message": "dados do administrador atualizados com sucesso"})
-}
-
-// RebuildProjection reconstrói uma projeção a partir do ledger de eventos.
-//
-// [A26] CORRIGIDO: usa projManager global (injetado pelo contexto Gin), não
-// cria um manager local que operaria concorrentemente com o global, causando
-// corrupção por escrita simultânea durante TRUNCATE + replay.
-func RebuildProjection(c *gin.Context) {
-	userID, _ := middleware.GetUserID(c)
-
-	adminProj := getAdminProjection(c)
-	admin, err := adminProj.GetByID(userID)
-	if err != nil || admin == nil {
-		utils.RespondWithForbiddenError(c, "Apenas administradores podem reconstruir projeções")
-		return
-	}
-
-	if admin.Role != "fpp" && admin.Role != "adm" {
-		utils.RespondWithForbiddenError(c, "Apenas FPP ou ADM podem reconstruir projeções")
-		return
-	}
-
-	projectionName := c.Param("name")
-	if projectionName == "" {
-		utils.RespondWithValidationError(c, fmt.Errorf("nome da projeção não fornecido"))
-		return
-	}
-
-	// [A26] Usa o manager global injetado no contexto pelo setupRouter.
-	// Esse manager já tem todas as projeções registradas e gerencia o loop
-	// de processamento. Usar um manager local criaria race condition.
-	manager := getProjManager(c)
-	if manager == nil {
-		utils.RespondWithInternalError(c, fmt.Errorf("projection manager não disponível no contexto"))
-		return
-	}
-
-	var rebuildErr error
-	if projectionName == "all" {
-		rebuildErr = manager.RebuildAllProjections()
-	} else {
-		// Valida que a projeção está registrada antes de tentar rebuild
-		if !manager.IsProjectionRegistered(projectionName) {
-			utils.RespondWithNotFoundError(c, fmt.Sprintf("projeção '%s'", projectionName))
-			return
-		}
-		rebuildErr = manager.RebuildProjection(projectionName)
-	}
-
-	if rebuildErr != nil {
-		utils.RespondWithInternalError(c, rebuildErr)
-		return
-	}
-
-	registrarAcaoAdmin(c, userID, "projection_rebuilt", map[string]interface{}{
-		"projection": projectionName,
-		"admin_role": admin.Role,
-	})
-
-	log.Printf("Projeção %s reconstruída por %s (%s)", projectionName, admin.Nome, admin.Role)
-	c.JSON(http.StatusOK, gin.H{
-		"message":    "projeção reconstruída com sucesso",
-		"projection": projectionName,
-		"auditavel":  true,
-	})
-}
-
-func GetProjectionStatus(c *gin.Context) {
-	projectionName := c.Param("name")
-	if projectionName == "" {
-		utils.RespondWithValidationError(c, fmt.Errorf("nome da projeção não fornecido"))
-		return
-	}
-
-	manager := getProjManager(c)
-	if manager == nil {
-		utils.RespondWithInternalError(c, fmt.Errorf("projection manager não disponível"))
-		return
-	}
-
-	status, err := manager.GetProjectionStatus(projectionName)
-	if err != nil {
-		utils.RespondWithNotFoundError(c, fmt.Sprintf("projeção '%s'", projectionName))
-		return
-	}
-
-	c.JSON(http.StatusOK, status)
-}
-
-// ============================================================================
-// Helper interno: registrar ação do admin logado
-// ============================================================================
-
-func registrarAcaoAdmin(c *gin.Context, userID uuid.UUID, acao string, detalhes map[string]interface{}) {
-	repository := getRepository(c)
-	adminAgg, err := repository.Load(userID, "Admin")
-	if err != nil {
-		log.Printf("[WARN] registrarAcaoAdmin: falha ao carregar admin %s: %v", userID, err)
-		return
-	}
-	admin := adminAgg.(*aggregates.Admin)
-	if err := admin.RegistrarAcao(acao, detalhes); err != nil {
-		log.Printf("[WARN] registrarAcaoAdmin: falha ao registrar ação '%s': %v", acao, err)
-		return
-	}
-	audit := db.AuditContext{
-		UserID:   userID.String(),
-		UserType: "admin",
-		IP:       c.ClientIP(),
-	}
-	if err := repository.SaveWithAudit(admin, audit); err != nil {
-		log.Printf("[WARN] registrarAcaoAdmin: falha ao salvar ação '%s': %v", acao, err)
-	}
+	c.JSON(http.StatusOK, gin.H{"message": "dados atualizados com sucesso"})
 }

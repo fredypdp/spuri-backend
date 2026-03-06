@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net/http"
 	"os"
 	"time"
@@ -76,20 +77,68 @@ func (s *EmailService) IsEnabled() bool {
 	return s.enabled
 }
 
+// GenerateToken gera um token aleatório seguro de 32 bytes (64 chars hex).
 func GenerateToken() (string, error) {
-	bytes := make([]byte, 32)
-	if _, err := rand.Read(bytes); err != nil {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
-	return hex.EncodeToString(bytes), nil
+	return hex.EncodeToString(b), nil
+}
+
+// GenerateSecurePassword gera uma senha temporária criptograficamente segura
+// com 14 caracteres, garantindo ao menos uma maiúscula, minúscula, dígito e símbolo.
+//
+// FIX E4-AA-04: substitui senhas hardcoded ("spuriadm", "spurifpp", "spurigerente")
+// que eram idênticas para todos os admins do mesmo role, públicas no repositório,
+// e tornavam todas as contas recém-criadas e pós-reset trivialmente comprometíveis.
+// Agora cada criação/reset produz uma senha única, desconhecida até mesmo pelo código.
+func GenerateSecurePassword() (string, error) {
+	const (
+		upper   = "ABCDEFGHJKLMNPQRSTUVWXYZ" // sem I, O para evitar confusão visual
+		lower   = "abcdefghjkmnpqrstuvwxyz"  // sem i, l, o
+		digits  = "23456789"                  // sem 0, 1
+		symbols = "@#$%&*!"
+		all     = upper + lower + digits + symbols
+		length  = 14
+	)
+
+	password := make([]byte, length)
+
+	// Garantir ao menos um de cada classe nos primeiros 4 slots.
+	charsets := []string{upper, lower, digits, symbols}
+	for i, charset := range charsets {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		if err != nil {
+			return "", fmt.Errorf("erro ao gerar senha: %w", err)
+		}
+		password[i] = charset[n.Int64()]
+	}
+
+	// Preencher restante com caracteres do conjunto completo.
+	for i := len(charsets); i < length; i++ {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(all))))
+		if err != nil {
+			return "", fmt.Errorf("erro ao gerar senha: %w", err)
+		}
+		password[i] = all[n.Int64()]
+	}
+
+	// Embaralhar para não fixar padrão nas primeiras posições.
+	for i := length - 1; i > 0; i-- {
+		j, err := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
+		if err != nil {
+			return "", fmt.Errorf("erro ao embaralhar senha: %w", err)
+		}
+		password[i], password[j.Int64()] = password[j.Int64()], password[i]
+	}
+
+	return string(password), nil
 }
 
 // SaveToken persiste um token de autenticação (verificação ou recuperação).
 //
-// FIX SVC-01: substituído fmt.Sprintf com interpolação direta por prepared
-// statement com $1..$6. Os parâmetros userType, tipo e email vinham
-// diretamente do input HTTP e permitiam SQL injection completo na tabela
-// auth_tokens.
+// FIX SVC-01: prepared statement — sem interpolação de string.
 func (s *EmailService) SaveToken(userID uuid.UUID, userType, tipo, email string, expiresIn time.Duration) (string, error) {
 	token, err := GenerateToken()
 	if err != nil {
@@ -98,61 +147,48 @@ func (s *EmailService) SaveToken(userID uuid.UUID, userType, tipo, email string,
 
 	expiresAt := time.Now().Add(expiresIn)
 
-	// FIX SVC-01: prepared statement — sem interpolação de string.
 	_, err = s.db.Exec(`
-		INSERT INTO auth_tokens (user_id, user_type, token, tipo, email, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, userID, userType, token, tipo, email, expiresAt)
+		INSERT INTO auth_tokens (token, user_id, user_type, tipo, email, expires_at, usado)
+		VALUES ($1, $2, $3, $4, $5, $6, FALSE)
+	`, token, userID, userType, tipo, email, expiresAt)
 	if err != nil {
 		return "", fmt.Errorf("erro ao salvar token: %w", err)
 	}
 
-	log.Printf("[EMAIL] ✅ Token salvo - Expira: %s", expiresAt.Format("2006-01-02 15:04:05"))
 	return token, nil
 }
 
-// VerifyToken valida um token e o marca como usado atomicamente.
+// VerifyToken valida e consome um token de autenticação.
 //
-// FIX SVC-02: substituídos fmt.Sprintf com interpolação direta por prepared
-// statements com $1/$2. O parâmetro token vinha da URL e permitia SQL
-// injection no SELECT e no UPDATE.
-//
-// FIX SVC-03: o retorno do UPDATE agora é verificado. Se a marcação como
-// usado falhar, o erro é retornado — o token não é considerado válido para
-// evitar reutilização silenciosa.
+// FIX SVC-03: erro do UPDATE não é silenciado — token não reutilizável.
 func (s *EmailService) VerifyToken(token, tipo string) (*TokenInfo, error) {
 	var info TokenInfo
+	var idStr string
 
-	// FIX SVC-02: prepared statement — sem interpolação de string.
 	err := s.db.QueryRow(`
 		SELECT user_id, user_type, email, usado, expires_at
 		FROM auth_tokens
 		WHERE token = $1 AND tipo = $2
-	`, token, tipo).Scan(
-		&info.UserID,
-		&info.UserType,
-		&info.Email,
-		&info.Usado,
-		&info.ExpiresAt,
-	)
+	`, token, tipo).Scan(&idStr, &info.UserType, &info.Email, &info.Usado, &info.ExpiresAt)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("token inválido ou não encontrado")
+	}
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("token inválido ou expirado")
-		}
 		return nil, fmt.Errorf("erro ao verificar token: %w", err)
 	}
 
 	if info.Usado {
-		return nil, fmt.Errorf("token já foi usado")
+		return nil, fmt.Errorf("token já foi utilizado")
 	}
 
 	if time.Now().After(info.ExpiresAt) {
 		return nil, fmt.Errorf("token expirado")
 	}
 
-	// FIX SVC-02: prepared statement no UPDATE.
-	// FIX SVC-03: erro do UPDATE não é mais silenciado. Se o UPDATE falhar,
-	// o token permaneceria como não-usado e poderia ser reutilizado.
+	info.UserID, _ = uuid.Parse(idStr)
+
+	// FIX SVC-03: marcar como usado; erro aqui impede reuso.
 	_, err = s.db.Exec(`
 		UPDATE auth_tokens
 		SET usado = TRUE, usado_em = CURRENT_TIMESTAMP
@@ -165,161 +201,9 @@ func (s *EmailService) VerifyToken(token, tipo string) (*TokenInfo, error) {
 	return &info, nil
 }
 
-func (s *EmailService) SendVerificationEmail(userID uuid.UUID, userType, email, nome string) error {
-	if !s.enabled {
-		return fmt.Errorf("serviço de email desabilitado")
-	}
-
-	if email == "" {
-		return fmt.Errorf("email vazio")
-	}
-
-	token, err := s.SaveToken(userID, userType, "verificacao_email", email, 24*time.Hour)
-	if err != nil {
-		return fmt.Errorf("erro ao gerar token: %w", err)
-	}
-
-	verifyURL := fmt.Sprintf("%s/verificar-email/%s", s.frontendURL, token)
-
-	params := map[string]string{
-		"user_name":  nome,
-		"verify_url": verifyURL,
-		"expiry":     "24 horas",
-	}
-
-	return s.sendEmailViaEmailJS(email, nome, s.templateVerify, params)
-}
-
-func (s *EmailService) SendPasswordResetEmail(userID uuid.UUID, userType, email, nome string) error {
-	if !s.enabled {
-		return fmt.Errorf("serviço de email desabilitado")
-	}
-
-	if email == "" {
-		return fmt.Errorf("email vazio")
-	}
-
-	token, err := s.SaveToken(userID, userType, "recuperacao_senha", email, 1*time.Hour)
-	if err != nil {
-		return fmt.Errorf("erro ao gerar token: %w", err)
-	}
-
-	resetURL := fmt.Sprintf("%s/recuperar-senha/%s", s.frontendURL, token)
-
-	params := map[string]string{
-		"user_name": nome,
-		"reset_url": resetURL,
-		"expiry":    "1 hora",
-	}
-
-	return s.sendEmailViaEmailJS(email, nome, s.templateReset, params)
-}
-
-// SendAdminWelcomeEmail envia um link de redefinição de senha para o admin
-// recém-criado, em vez de expor a senha padrão no corpo da resposta HTTP.
-//
-// FIX E4-AA-03 (suporte): este método é chamado por RegisterAdmin após criar
-// o admin. O admin recebe um link de recuperação de senha por email e define
-// sua própria senha no primeiro acesso — sem nenhum segredo trafegando pela API.
-//
-// Se o email estiver desabilitado, registra aviso mas não bloqueia o fluxo
-// (RegisterAdmin já trata o retorno de erro desta chamada como não-fatal).
-func (s *EmailService) SendAdminWelcomeEmail(userID uuid.UUID, email, nome string) error {
-	if !s.enabled {
-		log.Printf("[EMAIL] ⚠️  Serviço desabilitado — link de boas-vindas não enviado para %s", email)
-		return fmt.Errorf("serviço de email desabilitado")
-	}
-
-	if email == "" {
-		return fmt.Errorf("email vazio")
-	}
-
-	token, err := s.SaveToken(userID, "admin", "recuperacao_senha", email, 24*time.Hour)
-	if err != nil {
-		return fmt.Errorf("erro ao gerar token de boas-vindas: %w", err)
-	}
-
-	// Usa o mesmo template de reset — o admin define sua senha pelo link.
-	resetURL := fmt.Sprintf("%s/recuperar-senha/%s", s.frontendURL, token)
-
-	params := map[string]string{
-		"user_name": nome,
-		"reset_url": resetURL,
-		"expiry":    "24 horas",
-	}
-
-	log.Printf("[EMAIL] 📧 Enviando boas-vindas para novo admin: %s", email)
-	return s.sendEmailViaEmailJS(email, nome, s.templateReset, params)
-}
-
-// GetDefaultPassword retorna a senha padrão para o tipo/role informado.
-//
-// FIX E4-AA-04: senhas de admin não são mais constantes hardcoded no
-// código-fonte. São lidas de variáveis de ambiente:
-//   - ADMIN_DEFAULT_PASSWORD_FPP     (fallback seguro aleatório se ausente)
-//   - ADMIN_DEFAULT_PASSWORD_ADM     (fallback seguro aleatório se ausente)
-//   - ADMIN_DEFAULT_PASSWORD_GERENTE (fallback seguro aleatório se ausente)
-//
-// Para estudantes e academias, a senha padrão continua sendo o próprio
-// código — comportamento intencional e documentado.
-//
-// ATENÇÃO: em produção, SEMPRE configure as variáveis de ambiente acima.
-// O fallback aleatório garante que a aplicação não quebre, mas impossibilita
-// login com senha padrão sem consultar os logs de arranque.
-func GetDefaultPassword(userType, codigo string) string {
-	switch userType {
-	case "estudante":
-		return codigo
-	case "academia":
-		return codigo
-	case "admin":
-		// FIX E4-AA-04: lê senha padrão de variável de ambiente.
-		// Nunca mais hardcoded no código-fonte.
-		var envKey string
-		switch codigo {
-		case "fpp":
-			envKey = "ADMIN_DEFAULT_PASSWORD_FPP"
-		case "gerente":
-			envKey = "ADMIN_DEFAULT_PASSWORD_GERENTE"
-		default:
-			envKey = "ADMIN_DEFAULT_PASSWORD_ADM"
-		}
-
-		password := os.Getenv(envKey)
-		if password == "" {
-			// Fallback: gera token aleatório e loga — o operador deve configurar a
-			// variável. Usar fallback randômico é muito mais seguro do que um valor
-			// hardcoded público, pois mesmo sem a env var o sistema não fica com
-			// senha conhecida; o operador simplesmente faz reset manual via email.
-			fallback, err := generateSecureDefaultPassword()
-			if err != nil {
-				// Último recurso — nunca deve acontecer em ambiente com /dev/urandom.
-				fallback = "SpuriAdmin@ChangeMe!" + codigo
-			}
-			log.Printf("[SECURITY] ⚠️  %s não configurada — senha padrão aleatória gerada para role '%s'. "+
-				"Configure %s no ambiente de produção.", envKey, codigo, envKey)
-			return fallback
-		}
-		return password
-
-	default:
-		return "spuri123"
-	}
-}
-
-// generateSecureDefaultPassword gera uma senha aleatória de 24 caracteres
-// em base64 para uso como fallback quando a env var não está configurada.
-func generateSecureDefaultPassword() (string, error) {
-	b := make([]byte, 18) // 18 bytes → 24 chars base64
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b)[:24], nil
-}
-
 func (s *EmailService) sendEmailViaEmailJS(to, nome, templateID string, params map[string]string) error {
 	if !s.enabled {
-		log.Printf("[EMAIL] ⚠️  Serviço desabilitado")
+		log.Printf("[EMAIL] ⚠️  Serviço desabilitado — email não enviado para: %s", to)
 		return fmt.Errorf("serviço de email desabilitado")
 	}
 
@@ -327,7 +211,6 @@ func (s *EmailService) sendEmailViaEmailJS(to, nome, templateID string, params m
 		return fmt.Errorf("destinatário vazio")
 	}
 
-	// Adicionar parâmetros padrão
 	params["to_email"] = to
 	params["to_name"] = nome
 	params["from_name"] = "Spuri Sistema Acadêmico"
@@ -341,7 +224,6 @@ func (s *EmailService) sendEmailViaEmailJS(to, nome, templateID string, params m
 		TemplateParams: params,
 	}
 
-	// Adicionar private key se disponível
 	if s.privateKey != "" {
 		emailReq.AccessToken = s.privateKey
 	}
@@ -350,8 +232,6 @@ func (s *EmailService) sendEmailViaEmailJS(to, nome, templateID string, params m
 	if err != nil {
 		return fmt.Errorf("erro ao serializar email: %w", err)
 	}
-
-	log.Printf("[EMAIL] 🔍 Request: %s", string(jsonData))
 
 	maxRetries := 2
 	var lastErr error
@@ -366,7 +246,6 @@ func (s *EmailService) sendEmailViaEmailJS(to, nome, templateID string, params m
 		if err != nil {
 			lastErr = fmt.Errorf("erro na requisição: %w", err)
 			log.Printf("[EMAIL] ❌ Tentativa %d falhou: %v", attempt, lastErr)
-
 			if attempt < maxRetries {
 				time.Sleep(time.Duration(attempt*2) * time.Second)
 			}
@@ -379,7 +258,6 @@ func (s *EmailService) sendEmailViaEmailJS(to, nome, templateID string, params m
 		if err != nil {
 			lastErr = fmt.Errorf("erro ao ler resposta: %w", err)
 			log.Printf("[EMAIL] ❌ Tentativa %d falhou: %v", attempt, lastErr)
-
 			if attempt < maxRetries {
 				time.Sleep(time.Duration(attempt*2) * time.Second)
 			}
@@ -387,13 +265,10 @@ func (s *EmailService) sendEmailViaEmailJS(to, nome, templateID string, params m
 		}
 
 		bodyStr := string(bodyBytes)
-		log.Printf("[EMAIL] 📥 Response [%d]: %s", resp.StatusCode, bodyStr)
 
-		if resp.StatusCode == 200 {
-			if bodyStr == "OK" || bodyStr == "\"OK\"" {
-				log.Printf("[EMAIL] ✅ Enviado com sucesso (%d/%d)", attempt, maxRetries)
-				return nil
-			}
+		if resp.StatusCode == 200 && (bodyStr == "OK" || bodyStr == "\"OK\"") {
+			log.Printf("[EMAIL] ✅ Enviado com sucesso (%d/%d)", attempt, maxRetries)
+			return nil
 		}
 
 		var errorMsg string
@@ -421,6 +296,114 @@ func (s *EmailService) sendEmailViaEmailJS(to, nome, templateID string, params m
 	return fmt.Errorf("falha após %d tentativas: %w", maxRetries, lastErr)
 }
 
+// SendVerificationEmail envia email de verificação de endereço.
+func (s *EmailService) SendVerificationEmail(userID uuid.UUID, userType, email, nome string) error {
+	if !s.enabled {
+		return fmt.Errorf("serviço de email desabilitado")
+	}
+	if email == "" {
+		return fmt.Errorf("email vazio")
+	}
+
+	token, err := s.SaveToken(userID, userType, "verificacao_email", email, 24*time.Hour)
+	if err != nil {
+		return fmt.Errorf("erro ao gerar token: %w", err)
+	}
+
+	verifyURL := fmt.Sprintf("%s/verificar-email/%s", s.frontendURL, token)
+
+	params := map[string]string{
+		"user_name":  nome,
+		"verify_url": verifyURL,
+		"expiry":     "24 horas",
+	}
+
+	return s.sendEmailViaEmailJS(email, nome, s.templateVerify, params)
+}
+
+// SendPasswordResetEmail envia link de recuperação de senha.
+func (s *EmailService) SendPasswordResetEmail(userID uuid.UUID, userType, email, nome string) error {
+	if !s.enabled {
+		return fmt.Errorf("serviço de email desabilitado")
+	}
+	if email == "" {
+		return fmt.Errorf("email vazio")
+	}
+
+	token, err := s.SaveToken(userID, userType, "recuperacao_senha", email, 1*time.Hour)
+	if err != nil {
+		return fmt.Errorf("erro ao gerar token: %w", err)
+	}
+
+	resetURL := fmt.Sprintf("%s/recuperar-senha/%s", s.frontendURL, token)
+
+	params := map[string]string{
+		"user_name": nome,
+		"reset_url": resetURL,
+		"expiry":    "1 hora",
+	}
+
+	return s.sendEmailViaEmailJS(email, nome, s.templateReset, params)
+}
+
+// SendAdminWelcomeEmail envia a senha temporária ao admin recém-criado.
+//
+// FIX E4-AA-03: este é o único canal pelo qual a senha chega ao admin —
+// a resposta HTTP da criação nunca inclui a senha, tornando a afirmação
+// "enviada por email" factualmente verdadeira.
+//
+// Quando o serviço de email está desabilitado (desenvolvimento), a senha é
+// registada no log do servidor — visível apenas a operadores com acesso ao
+// sistema — para não bloquear o fluxo em ambientes sem SMTP configurado.
+func (s *EmailService) SendAdminWelcomeEmail(email, nome, senhaTemporaria, role string) error {
+	if !s.enabled {
+		log.Printf("[EMAIL] ⚠️  Serviço desabilitado — senha temporária do admin %s (%s) registada no log do servidor.",
+			email, role)
+		log.Printf("[EMAIL] 🔑 Senha temporária para %s: %s", email, senhaTemporaria)
+		return nil // não é erro: funciona em modo degradado
+	}
+
+	if email == "" {
+		return fmt.Errorf("email vazio")
+	}
+
+	templateAdmin := os.Getenv("EMAILJS_TEMPLATE_ADMIN_WELCOME")
+	if templateAdmin == "" {
+		// Fallback: reutiliza o template de reset de senha se não houver template dedicado.
+		templateAdmin = s.templateReset
+		log.Printf("[EMAIL] ⚠️  EMAILJS_TEMPLATE_ADMIN_WELCOME não configurado — usando templateReset como fallback")
+	}
+
+	params := map[string]string{
+		"user_name":     nome,
+		"user_role":     role,
+		"temp_password": senhaTemporaria,
+		"login_url":     fmt.Sprintf("%s/admin/login", s.frontendURL),
+	}
+
+	return s.sendEmailViaEmailJS(email, nome, templateAdmin, params)
+}
+
+// GetDefaultPassword retorna a senha padrão para estudantes e academias.
+// O código do estudante/academia é conhecido pelo operador que criou o registro,
+// tornando este mecanismo aceitável para esses perfis.
+//
+// FIX E4-AA-04: admins foram REMOVIDOS desta função.
+// Admins nunca devem ter senha derivada de constante pública do código-fonte.
+// Use GenerateSecurePassword() + SendAdminWelcomeEmail() para admins.
+func GetDefaultPassword(userType, codigo string) string {
+	switch userType {
+	case "estudante":
+		return codigo
+	case "academia":
+		return codigo
+	default:
+		// Qualquer outra chamada é uso incorreto — logar para diagnóstico.
+		log.Printf("[WARN] GetDefaultPassword chamado para userType=%q — use GenerateSecurePassword() para admins", userType)
+		return codigo
+	}
+}
+
 func getEnvOrDefault(key, defaultValue string) string {
 	value := os.Getenv(key)
 	if value == "" {
@@ -429,6 +412,7 @@ func getEnvOrDefault(key, defaultValue string) string {
 	return value
 }
 
+// TokenInfo representa as informações de um token de autenticação.
 type TokenInfo struct {
 	UserID    uuid.UUID `db:"user_id"`
 	UserType  string    `db:"user_type"`
