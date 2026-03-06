@@ -7,7 +7,6 @@ import (
 	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
-	"spuri/internal/projections"
 	"spuri/internal/utils"
 
 	"github.com/gin-gonic/gin"
@@ -518,7 +517,7 @@ func DeletarTurma(c *gin.Context) {
 	})
 }
 
-// getTurmasProjection instancia a projeção directamente (mesmo padrão dos outros helpers).
-func getTurmasProjection(c *gin.Context) *projections.TurmasProjection {
-	return projections.NewTurmasProjection(getDbClient(c))
+// AtualizarDadosTurma é alias de AtualizarTurma — mantém compatibilidade com main.go.
+func AtualizarDadosTurma(c *gin.Context) {
+	AtualizarTurma(c)
 }

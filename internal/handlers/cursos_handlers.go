@@ -584,3 +584,35 @@ func validarTipoCursoVsAcademia(tipoCurso, tipoAcademia string) error {
 	}
 	return nil
 }
+
+// ============================================================================
+// GET /academia/cursos/:id
+// ============================================================================
+
+// GetCurso retorna um curso pelo ID.
+// Protegido por RequireAcademia — academia só pode ver seus próprios cursos.
+func GetCurso(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+
+	cursoID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("ID de curso inválido"))
+		return
+	}
+
+	cursosProj := getCursosProjection(c)
+	cursoDTO, err := cursosProj.GetByID(cursoID)
+	if err != nil || cursoDTO == nil {
+		utils.RespondWithNotFoundError(c, "curso")
+		return
+	}
+
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, _ := academiaProj.GetByID(userID)
+	if academiaDTO == nil || academiaDTO.CodigoAcademia != cursoDTO.CodigoAcademia {
+		utils.RespondWithForbiddenError(c, "curso não pertence a esta academia")
+		return
+	}
+
+	c.JSON(http.StatusOK, cursoDTO)
+}

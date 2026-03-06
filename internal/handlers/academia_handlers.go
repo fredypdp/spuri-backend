@@ -12,7 +12,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
-	"golang.org/x/crypto/bcrypt"
 
 	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
@@ -98,13 +97,6 @@ func RegisterAcademia(c *gin.Context) {
 		return
 	}
 
-	// Senha padrão = código da academia (operador que registou conhece o código).
-	senhaHash, err := bcrypt.GenerateFromPassword([]byte(codigoAcademia), bcrypt.DefaultCost)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
 	academia := aggregates.NewAcademia()
 	if err := academia.Criar(
 		req.Type,
@@ -112,15 +104,14 @@ func RegisterAcademia(c *gin.Context) {
 		codigoProvincia,
 		req.Provincia,
 		req.Endereco,
+		codigoAcademia,
 		req.NumeroTelefone,
 		req.Email,
 		req.Website,
 		req.NivelEscolar,
 		req.AnosAcademicos,
 		req.Cursos,
-		codigoAcademia,
-		string(senhaHash),
-		userID,
+		&userID,
 	); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return

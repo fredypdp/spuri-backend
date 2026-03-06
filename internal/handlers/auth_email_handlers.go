@@ -298,7 +298,7 @@ func ResetarSenha(c *gin.Context) {
 		}
 		academia := academiaAgg.(*aggregates.Academia)
 
-		if err := academia.AlterarSenha(string(hashedPassword)); err != nil {
+		if err := academia.AlterarSenha(string(hashedPassword), uuid.Nil, "reset_senha"); err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}

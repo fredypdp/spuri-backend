@@ -2,16 +2,19 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
-	"spuri/internal/db"
-	"spuri/internal/middleware"
-	"spuri/internal/projections"
-	"spuri/internal/services"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+
+	"spuri/internal/db"
+	"spuri/internal/domain/aggregates"
+	"spuri/internal/middleware"
+	"spuri/internal/projections"
+	"spuri/internal/services"
 )
 
 // ============================================================================
@@ -60,27 +63,23 @@ func getProjManager(c *gin.Context) *projections.Manager {
 }
 
 // ============================================================================
-// Projeções
+// Helpers de projeção
+//
+// Cada função instancia a projeção directamente via New...Projection(dbClient).
+// O Manager não expõe GetProjection — as projeções não são recuperadas pelo
+// Manager nos handlers; apenas RegisterProjection e StartProcessing são usados.
 // ============================================================================
 
 func getAdminProjection(c *gin.Context) *projections.AdminProjection {
 	return projections.NewAdminProjection(getDbClient(c))
 }
 
-func getEstudanteProjection(c *gin.Context) *projections.EstudanteProjection {
-	return projections.NewEstudanteProjection(getDbClient(c))
-}
-
 func getAcademiaProjection(c *gin.Context) *projections.AcademiaProjection {
 	return projections.NewAcademiaProjection(getDbClient(c))
 }
 
-func getNotasProjection(c *gin.Context) *projections.NotasProjection {
-	return projections.NewNotasProjection(getDbClient(c))
-}
-
-func getFaltasProjection(c *gin.Context) *projections.FaltasProjection {
-	return projections.NewFaltasProjection(getDbClient(c))
+func getEstudanteProjection(c *gin.Context) *projections.EstudanteProjection {
+	return projections.NewEstudanteProjection(getDbClient(c))
 }
 
 func getCursosProjection(c *gin.Context) *projections.CursosProjection {
@@ -91,24 +90,27 @@ func getMateriasProjection(c *gin.Context) *projections.MateriasProjection {
 	return projections.NewMateriasProjection(getDbClient(c))
 }
 
-func getAprovacaoAnoProjection(c *gin.Context) *projections.AprovacaoAnoProjection {
-	return projections.NewAprovacaoAnoProjection(getDbClient(c))
+func getNotasProjection(c *gin.Context) *projections.NotasProjection {
+	return projections.NewNotasProjection(getDbClient(c))
 }
 
-func getCategoriasNotaProjection(c *gin.Context) *projections.CategoriasNotaProjection {
-	return projections.NewCategoriasNotaProjection(getDbClient(c))
+func getFaltasProjection(c *gin.Context) *projections.FaltasProjection {
+	return projections.NewFaltasProjection(getDbClient(c))
 }
 
 func getAvaliacaoFinalProjection(c *gin.Context) *projections.AvaliacaoFinalProjection {
 	return projections.NewAvaliacaoFinalProjection(getDbClient(c))
 }
 
-// ============================================================================
-// Serviço de email
-// ============================================================================
+func getTurmasProjection(c *gin.Context) *projections.TurmasProjection {
+	return projections.NewTurmasProjection(getDbClient(c))
+}
+
+func getCategoriasNotaProjection(c *gin.Context) *projections.CategoriasNotaProjection {
+	return projections.NewCategoriasNotaProjection(getDbClient(c))
+}
 
 func getEmailService(c *gin.Context) *services.EmailService {
-	// O EmailService é criado on-demand a partir do dbClient — não vive no contexto Gin.
 	return services.NewEmailService(getDbClient(c).DB())
 }
 
@@ -139,6 +141,42 @@ func verificarPermissaoAdmin(c *gin.Context, minRole string) error {
 }
 
 // ============================================================================
+// Helper de auditoria de ações admin
+// ============================================================================
+
+// registrarAcaoAdmin persiste uma ação administrativa no aggregate Admin
+// via event sourcing. Falhas são apenas logadas — não abortam o handler
+// principal, pois a operação primária já foi concluída com sucesso.
+//
+// Assinatura compatível com os handlers que chamam:
+//
+//	registrarAcaoAdmin(c, adminUserID, "acao", map[string]interface{}{...})
+func registrarAcaoAdmin(c *gin.Context, adminID uuid.UUID, acao string, detalhes map[string]interface{}) {
+	repository := getRepository(c)
+
+	agg, err := repository.Load(adminID, "Admin")
+	if err != nil {
+		log.Printf("[WARN] registrarAcaoAdmin: falha ao carregar admin %s: %v", adminID, err)
+		return
+	}
+	admin := agg.(*aggregates.Admin)
+
+	if err := admin.RegistrarAcao(acao, detalhes); err != nil {
+		log.Printf("[WARN] registrarAcaoAdmin: falha ao registar ação '%s' para admin %s: %v", acao, adminID, err)
+		return
+	}
+
+	audit := db.AuditContext{
+		UserID:   adminID.String(),
+		UserType: "admin",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(admin, audit); err != nil {
+		log.Printf("[WARN] registrarAcaoAdmin: falha ao persistir ação '%s' para admin %s: %v", acao, adminID, err)
+	}
+}
+
+// ============================================================================
 // Helpers de SQL
 // ============================================================================
 
@@ -159,6 +197,17 @@ func getNullUUID(ns sql.NullString) interface{} {
 		}
 	}
 	return nil
+}
+
+// jsonToMap faz unmarshal de uma coluna JSON nullable para map.
+// Retorna nil se o valor for NULL ou vazio — sem panic.
+func jsonToMap(raw *string) map[string]interface{} {
+	if raw == nil || *raw == "" {
+		return nil
+	}
+	var m map[string]interface{}
+	_ = json.Unmarshal([]byte(*raw), &m)
+	return m
 }
 
 // ============================================================================

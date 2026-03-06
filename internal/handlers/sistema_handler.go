@@ -7,6 +7,7 @@ import (
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
 	"spuri/internal/projections"
+	"spuri/internal/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -71,4 +72,117 @@ func GetAnoLetivoAtual(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"ano_letivo": valor})
+}
+
+// ============================================================================
+// POST /admin/projections/rebuild/:name
+// ============================================================================
+
+// RebuildProjection força o rebuild de uma projeção específica pelo nome.
+// Requer role admin. Útil para recovery após falha de processamento.
+func RebuildProjection(c *gin.Context) {
+	name := c.Param("name")
+	if name == "" {
+		utils.RespondWithValidationError(c, fmt.Errorf("nome da projeção é obrigatório"))
+		return
+	}
+
+	// Cada projeção tem o seu próprio Rebuild() — instanciar pelo nome.
+	type rebuilder interface {
+		Rebuild() error
+	}
+
+	dbClient := getDbClient(c)
+	if dbClient == nil {
+		return // getDbClient já abortou com 500
+	}
+
+	var proj rebuilder
+	switch name {
+	case "admins":
+		proj = projections.NewAdminProjection(dbClient)
+	case "academias":
+		proj = projections.NewAcademiaProjection(dbClient)
+	case "estudantes":
+		proj = projections.NewEstudanteProjection(dbClient)
+	case "cursos":
+		proj = projections.NewCursosProjection(dbClient)
+	case "materias":
+		proj = projections.NewMateriasProjection(dbClient)
+	case "notas":
+		proj = projections.NewNotasProjection(dbClient)
+	case "faltas":
+		proj = projections.NewFaltasProjection(dbClient)
+	case "turmas":
+		proj = projections.NewTurmasProjection(dbClient)
+	case "avaliacao_final":
+		proj = projections.NewAvaliacaoFinalProjection(dbClient)
+	case "aprovacoes":
+		proj = projections.NewAprovacaoAnoProjection(dbClient)
+	case "reprovacoes":
+		proj = projections.NewReprovacoesProjection(dbClient)
+	case "categorias_nota":
+		proj = projections.NewCategoriasNotaProjection(dbClient)
+	case "sistema_config":
+		proj = projections.NewSistemaConfigProjection(dbClient)
+	default:
+		utils.RespondWithValidationError(c, fmt.Errorf("projeção '%s' desconhecida", name))
+		return
+	}
+
+	if err := proj.Rebuild(); err != nil {
+		log.Printf("❌ [RebuildProjection] Falha ao reconstruir '%s': %v", name, err)
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	log.Printf("✅ [RebuildProjection] Projeção '%s' reconstruída com sucesso", name)
+	c.JSON(http.StatusOK, gin.H{
+		"message":    "projeção reconstruída com sucesso",
+		"projection": name,
+	})
+}
+
+// ============================================================================
+// GET /health
+// ============================================================================
+
+// HealthCheck retorna o estado de saúde da aplicação.
+// Rota pública — sem autenticação.
+func HealthCheck(c *gin.Context) {
+	dbClient := getDbClient(c)
+	if dbClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"status": "unhealthy",
+			"error":  "database unavailable",
+		})
+		return
+	}
+
+	if err := dbClient.Health(); err != nil {
+		log.Printf("[WARN] [HealthCheck] DB health check falhou: %v", err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"status": "unhealthy",
+			"error":  "database check failed",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": "healthy",
+	})
+}
+
+// ============================================================================
+// GET /docs
+// ============================================================================
+
+// GetDocs retorna informação básica sobre a API.
+// Rota pública — sem autenticação.
+func GetDocs(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"api":     "Spuri Backend API",
+		"version": "1.0.0",
+		"docs":    "Consulte a documentação interna para detalhes dos endpoints.",
+	})
 }

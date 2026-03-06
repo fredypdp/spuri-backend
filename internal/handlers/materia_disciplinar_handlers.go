@@ -445,3 +445,35 @@ func DeletarMateria(c *gin.Context) {
 		"nome":    materia.Nome,
 	})
 }
+
+// ============================================================================
+// GET /academia/materias/:id
+// ============================================================================
+
+// GetMateria retorna uma matéria pelo ID.
+// Protegido por RequireAcademia — academia só pode ver suas próprias matérias.
+func GetMateria(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+
+	materiaID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("ID de matéria inválido"))
+		return
+	}
+
+	materiasProj := getMateriasProjection(c)
+	materiaDTO, err := materiasProj.GetByID(materiaID)
+	if err != nil || materiaDTO == nil {
+		utils.RespondWithNotFoundError(c, "matéria")
+		return
+	}
+
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, _ := academiaProj.GetByID(userID)
+	if academiaDTO == nil || academiaDTO.CodigoAcademia != materiaDTO.CodigoAcademia {
+		utils.RespondWithForbiddenError(c, "matéria não pertence a esta academia")
+		return
+	}
+
+	c.JSON(http.StatusOK, materiaDTO)
+}
