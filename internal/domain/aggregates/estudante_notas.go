@@ -37,33 +37,38 @@ var categoriasSuperiorFixas = map[string]bool{
 // ============================================================================
 
 // NotasRegistradasEvent — emitido ao registrar uma nota pela primeira vez.
-// EventType: "NotasRegistradas" (este é o nome canônico — a projeção deve
-// escutar exatamente este string).
+// EventType: "NotasRegistradas" (canônico — a projeção escuta exatamente este string).
 // AnoAcademico é sempre preenchido pelo back end (nunca pelo cliente).
+//
+// FIX E-06: campo RegistradoPor adicionado para auditoria self-contained.
+// Etapa 4 deve preencher este campo no handler de registro de notas.
 type NotasRegistradasEvent struct {
 	BaseEvent
 	CodigoEstudante      string
 	CodigoAcademia       string
 	AnoLectivo           string
-	AnoAcademico         string // inferido pelo back end
+	AnoAcademico         string    // inferido pelo back end
 	Periodo              string
 	MateriaDisciplinarID uuid.UUID
-	Tipo                 string // "escolar" | "superior"
+	Tipo                 string    // "escolar" | "superior"
 	Categoria            string
 	Nota                 float64
 	Observacao           *string
 	RegisteredAt         time.Time
+	// FIX E-06: UUID do usuário que registrou a nota. uuid.Nil = legado/não preenchido.
+	// Etapa 4 deve passar este campo via RegistrarNota.
+	RegistradoPor uuid.UUID
 }
 
 func (e *NotasRegistradasEvent) GetPayload() interface{} { return e }
 func (e *NotasRegistradasEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 // NotaAtualizadaEvent — emitido ao corrigir uma nota existente.
-// EventType: "NotaAtualizada" (este é o nome canônico — a projeção deve
-// escutar exatamente este string).
+// EventType: "NotaAtualizada" (canônico).
 // Observacao é OBRIGATÓRIA neste evento (justificativa da correção).
-// A identificação da nota na projeção é feita pela chave natural composta:
-// (CodigoEstudante, AnoLectivo, Periodo, MateriaDisciplinarID, Tipo, Categoria).
+//
+// FIX E-07: campo AtualizadoPor adicionado para auditoria self-contained.
+// Etapa 4 deve preencher este campo no handler de correção de notas.
 type NotaAtualizadaEvent struct {
 	BaseEvent
 	CodigoEstudante      string
@@ -75,8 +80,11 @@ type NotaAtualizadaEvent struct {
 	Categoria            string
 	NotaAnterior         float64
 	NotaNova             float64
-	Observacao           string // obrigatória — justificativa da correção
+	Observacao           string    // obrigatória — justificativa da correção
 	UpdatedAt            time.Time
+	// FIX E-07: UUID do usuário que corrigiu a nota. uuid.Nil = legado/não preenchido.
+	// Etapa 4 deve passar este campo via AtualizarNota.
+	AtualizadoPor uuid.UUID
 }
 
 func (e *NotaAtualizadaEvent) GetPayload() interface{} { return e }
@@ -86,56 +94,39 @@ func (e *NotaAtualizadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) 
 // Validações internas
 // ============================================================================
 
-// validarPeriodoComLista valida se o período informado pertence à lista de
-// períodos válidos para o contexto.
-// periodosValidos nunca deve ser vazio — o handler é responsável por preenchê-lo.
 func validarPeriodoComLista(periodo string, periodosValidos []string) error {
-	if len(periodosValidos) == 0 {
-		return fmt.Errorf("lista de períodos válidos não foi fornecida")
+	if periodo == "" {
+		return fmt.Errorf("periodo não pode ser vazio")
 	}
 	for _, p := range periodosValidos {
 		if p == periodo {
 			return nil
 		}
 	}
-	return fmt.Errorf(
-		"período '%s' inválido. Aceitos: %s",
-		periodo, strings.Join(periodosValidos, ", "),
-	)
+	return fmt.Errorf("periodo '%s' inválido para este contexto. Aceitos: %v", periodo, periodosValidos)
 }
 
-// validarCategoria valida se a categoria pertence ao conjunto permitido
-// para o tipo de nota.
-func validarCategoria(tipo, categoria string, categoriasAdicionais []string) error {
+func validarCategoria(tipo string, categoria string, categoriasAdicionais []string) error {
+	if categoria == "" {
+		return fmt.Errorf("categoria não pode ser vazia")
+	}
 	switch tipo {
 	case TipoEscolar:
 		if !categoriasEscolar[categoria] {
-			validas := make([]string, 0, len(categoriasEscolar))
-			for k := range categoriasEscolar {
-				validas = append(validas, k)
-			}
-			return fmt.Errorf(
-				"categoria '%s' inválida para notas escolares. Aceitas: %s",
-				categoria, strings.Join(validas, ", "),
-			)
+			return fmt.Errorf("categoria '%s' inválida para tipo 'escolar'. Aceitas: nota_escola, nota_professor", categoria)
 		}
 	case TipoSuperior:
 		if categoriasSuperiorFixas[categoria] {
 			return nil
 		}
-		for _, extra := range categoriasAdicionais {
-			if extra == categoria {
+		for _, c := range categoriasAdicionais {
+			if c == categoria {
 				return nil
 			}
 		}
-		return fmt.Errorf(
-			"categoria '%s' inválida para notas superiores. "+
-				"Categorias fixas: nota_pp1, nota_pp2, nota_exame. "+
-				"Categorias adicionais cadastradas: %s",
-			categoria, strings.Join(categoriasAdicionais, ", "),
-		)
+		return fmt.Errorf("categoria '%s' não reconhecida para tipo 'superior'", categoria)
 	default:
-		return fmt.Errorf("tipo de nota desconhecido: '%s'", tipo)
+		return fmt.Errorf("tipo '%s' inválido. Use 'escolar' ou 'superior'", tipo)
 	}
 	return nil
 }
@@ -144,7 +135,7 @@ func validarCategoria(tipo, categoria string, categoriasAdicionais []string) err
 // Método de comando: RegistrarNota
 // ============================================================================
 
-// RegistrarNota registra uma nota do estudante em uma matéria.
+// RegistrarNota registra uma nota pela primeira vez.
 //
 // periodosValidos: lista de períodos aceitos para este tipo de nota.
 //   - tipo="escolar"  → sempre PeriodosEscolar (handler preenche)
@@ -198,6 +189,7 @@ func (e *Estudante) RegistrarNota(
 		Nota:                 nota,
 		Observacao:           observacao,
 		RegisteredAt:         time.Now(),
+		RegistradoPor:        uuid.Nil, // Etapa 4 deve preencher
 	}
 
 	e.RaiseEvent(event)
@@ -249,6 +241,7 @@ func (e *Estudante) AtualizarNota(
 		NotaNova:             novaNota,
 		Observacao:           observacao,
 		UpdatedAt:            time.Now(),
+		AtualizadoPor:        uuid.Nil, // Etapa 4 deve preencher
 	}
 
 	e.RaiseEvent(event)

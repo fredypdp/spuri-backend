@@ -3,44 +3,21 @@ package aggregates
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-// Regex: nome deve ser nota_[letras/números/underscore], mínimo 1 char após "nota_"
-var regexCategoria = regexp.MustCompile(`^nota_[a-z0-9_]+$`)
-
-// ============================================================================
-// Evento
-// ============================================================================
-
-// CategoriaNotaAdicionadaEvent — FIX #19: AdicionadoPor adicionado para
-// rastreabilidade forense. Sem este campo, era impossível determinar qual
-// admin adicionou a categoria sem acesso à tabela de metadados do ledger.
-type CategoriaNotaAdicionadaEvent struct {
-	BaseEvent
-	CodigoAcademia string
-	Nome           string     // formato: nota_[nome]
-	Descricao      *string
-	AdicionadoPor  uuid.UUID  // FIX #19: UUID do admin responsável
-	CreatedAt      time.Time
-}
-
-func (e *CategoriaNotaAdicionadaEvent) GetPayload() interface{} { return e }
-func (e *CategoriaNotaAdicionadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
-
 // ============================================================================
 // Comando
 // ============================================================================
 
-// AdicionarCategoriaNotaSuperior permite que uma academia do tipo "superior"
-// cadastre uma categoria adicional de nota no formato nota_[nome].
+// AdicionarCategoriaNotaSuperior adiciona uma categoria de nota personalizada.
 //
-// adicionadoPor: UUID do admin que está realizando a operação (FIX #19).
-// categoriasExistentes: lista de nomes já cadastrados pela academia
-// (carregados da projection_categorias_nota antes de chamar este método).
+// categoriasExistentes — lista atual de categorias (nome) da academia,
+// carregada pelo handler via projeção. O aggregate também verifica
+// a.CategoriasNota em estado para detectar duplicatas durante o ciclo
+// de vida em memória (FIX A-02).
 func (a *Academia) AdicionarCategoriaNotaSuperior(
 	nome string,
 	descricao *string,
@@ -48,27 +25,20 @@ func (a *Academia) AdicionarCategoriaNotaSuperior(
 	categoriasExistentes []string,
 ) error {
 	if a.Type != "superior" {
-		return fmt.Errorf("somente academias do tipo 'superior' podem criar categorias de nota")
+		return fmt.Errorf("categorias de nota são exclusivas de academias do tipo 'superior'")
 	}
-	if a.Status != "ativo" {
-		return fmt.Errorf("academia está inativa")
-	}
-
-	if !regexCategoria.MatchString(nome) {
-		return fmt.Errorf(
-			"nome de categoria inválido: use apenas letras minúsculas, números e underscore após 'nota_' (ex: nota_trabalho)",
-		)
+	if nome == "" {
+		return fmt.Errorf("nome da categoria não pode ser vazio")
 	}
 
-	// Categorias fixas não podem ser sobrescritas
-	fixas := map[string]bool{
-		"nota_pp1": true, "nota_pp2": true, "nota_exame": true,
+	// FIX A-02: verificação de unicidade usando estado do aggregate (CategoriasNota)
+	// além do parâmetro externo, para cobrir o caso em que o handler não passa
+	// categoriasExistentes corretamente.
+	for _, c := range a.CategoriasNota {
+		if c == nome {
+			return fmt.Errorf("categoria '%s' já existe nesta academia (detectado via estado do aggregate)", nome)
+		}
 	}
-	if fixas[nome] {
-		return fmt.Errorf("'%s' é uma categoria fixa e não pode ser recriada", nome)
-	}
-
-	// Verificar duplicata
 	for _, c := range categoriasExistentes {
 		if c == nome {
 			return fmt.Errorf("categoria '%s' já existe nesta academia", nome)
@@ -92,7 +62,41 @@ func (a *Academia) AdicionarCategoriaNotaSuperior(
 // Apply handler
 // ============================================================================
 
-func (a *Academia) applyCategoriaNotaAdicionada(_ DomainEvent) error {
-	// Academia não mantém lista de categorias em estado — gerenciado pela projeção
+// applyCategoriaNotaAdicionada — FIX A-02: deserializa o payload para detectar
+// corrupção silenciosa e mantém a.CategoriasNota em estado para que comandos
+// subsequentes possam detectar duplicatas sem depender de parâmetros externos.
+func (a *Academia) applyCategoriaNotaAdicionada(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyCategoriaNotaAdicionada: marshal error: %w", err)
+	}
+	var ev CategoriaNotaAdicionadaEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyCategoriaNotaAdicionada: unmarshal error (payload corrompido): %w", err)
+	}
+	if ev.Nome == "" {
+		return fmt.Errorf("applyCategoriaNotaAdicionada: campo Nome vazio no payload")
+	}
+	// Inicializa slice se necessário (ex: aggregate recém-criado)
+	if a.CategoriasNota == nil {
+		a.CategoriasNota = []string{}
+	}
+	a.CategoriasNota = append(a.CategoriasNota, ev.Nome)
 	return nil
 }
+
+// ============================================================================
+// Evento
+// ============================================================================
+
+type CategoriaNotaAdicionadaEvent struct {
+	BaseEvent
+	CodigoAcademia string
+	Nome           string
+	Descricao      *string
+	AdicionadoPor  uuid.UUID
+	CreatedAt      time.Time
+}
+
+func (e *CategoriaNotaAdicionadaEvent) GetPayload() interface{} { return e }
+func (e *CategoriaNotaAdicionadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }

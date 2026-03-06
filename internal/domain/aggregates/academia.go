@@ -28,16 +28,22 @@ type Academia struct {
 	Website         *string
 	NivelEscolar    *string
 	// AnosAcademicos define os anos do ensino fundamental que esta academia oferece.
-	// Obrigatório para tipo="escola" com nivel_escolar em ["fundamental","misto"].
-	// Deve ser um subconjunto de primeiro_fundamental…nono_fundamental.
-	// NULL/vazio para academias do tipo "superior" ou escolas apenas de médio.
 	AnosAcademicos []string
 	Status         string
 	Cursos         []string
 	CreatedAt      time.Time
 
+	// CategoriasNota mantém as categorias de nota cadastradas pela academia.
+	// FIX A-02: campo adicionado para que o aggregate possa detectar duplicatas.
+	CategoriasNota []string
+
+	// FIX A-01/A-03: campos de auditoria de ativação/desativação.
+	AtivadoPor    uuid.UUID
+	AtivadoEm     time.Time
+	DesativadoPor uuid.UUID
+	DesativadoEm  time.Time
+
 	// TotalEstudantes é mantido apenas pela projeção — não pelo aggregate.
-	// Este campo existe no struct apenas para compatibilidade de leitura.
 	TotalEstudantes int
 }
 
@@ -51,6 +57,7 @@ func NewAcademia() *Academia {
 		Status:          "inativo",
 		AnosAcademicos:  []string{},
 		Cursos:          []string{},
+		CategoriasNota:  []string{},
 		EmailVerificado: false,
 	}
 }
@@ -165,13 +172,24 @@ func (a *Academia) VerificarEmail() error {
 	return a.Apply(event)
 }
 
+// Ativar registra a ativação sem autor explícito (legado — mantido para
+// retrocompatibilidade com handlers existentes).
+// Use AtivarComAutor quando o ID do executor estiver disponível.
 func (a *Academia) Ativar() error {
+	return a.AtivarComAutor(uuid.Nil)
+}
+
+// AtivarComAutor — FIX A-03: registra a ativação com o UUID de quem ativou.
+// Etapa 4 deve migrar os handlers de academia para chamar este método
+// em vez de Ativar().
+func (a *Academia) AtivarComAutor(ativadoPor uuid.UUID) error {
 	if a.Status == "ativo" {
 		return fmt.Errorf("academia já está ativa")
 	}
 
 	event := &AcademiaAtivadaEvent{
 		BaseEvent:   BaseEvent{EventType: "AcademiaAtivada", AggregateID: a.ID},
+		AtivadoPor:  ativadoPor,
 		ActivatedAt: time.Now(),
 	}
 
@@ -296,16 +314,43 @@ func (a *Academia) applyAcademiaCriada(event DomainEvent) error {
 	a.CreatedAt = ev.CreatedAt
 	a.Status = "inativo"
 	a.EmailVerificado = false
+	if a.CategoriasNota == nil {
+		a.CategoriasNota = []string{}
+	}
 	return nil
 }
 
-func (a *Academia) applyAcademiaAtivada(_ DomainEvent) error {
+// applyAcademiaAtivada — FIX A-01/A-03: deserializa o payload para atualizar
+// AtivadoPor e AtivadoEm no estado do aggregate.
+func (a *Academia) applyAcademiaAtivada(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyAcademiaAtivada: marshal error: %w", err)
+	}
+	var ev AcademiaAtivadaEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyAcademiaAtivada: unmarshal error: %w", err)
+	}
 	a.Status = "ativo"
+	a.AtivadoPor = ev.AtivadoPor
+	a.AtivadoEm = ev.ActivatedAt
 	return nil
 }
 
-func (a *Academia) applyAcademiaDesativada(_ DomainEvent) error {
+// applyAcademiaDesativada — FIX A-01: deserializa o payload para atualizar
+// DesativadoPor e DesativadoEm no estado do aggregate.
+func (a *Academia) applyAcademiaDesativada(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyAcademiaDesativada: marshal error: %w", err)
+	}
+	var ev AcademiaDesativadaEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyAcademiaDesativada: unmarshal error: %w", err)
+	}
 	a.Status = "inativo"
+	a.DesativadoPor = ev.DesativadoPor
+	a.DesativadoEm = ev.DeactivatedAt
 	return nil
 }
 
@@ -451,8 +496,11 @@ type AcademiaCriadaEvent struct {
 func (e *AcademiaCriadaEvent) GetPayload() interface{} { return e }
 func (e *AcademiaCriadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
+// AcademiaAtivadaEvent — FIX A-03: AtivadoPor adicionado para paridade com
+// AcademiaDesativadaEvent (que já tinha DesativadoPor via FIX C9).
 type AcademiaAtivadaEvent struct {
 	BaseEvent
+	AtivadoPor  uuid.UUID
 	ActivatedAt time.Time
 }
 

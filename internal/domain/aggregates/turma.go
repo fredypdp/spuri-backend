@@ -18,9 +18,13 @@ type Turma struct {
 	CursoID        *uuid.UUID
 	Turno          string   // "manha", "tarde", "noite"
 	Estudantes     []string // lista de codigo_estudante
-	Status         string   // "ativo" ou "inativo"
+	Status         string   // "ativo", "inativo", "deletado"
 	CreatedAt      time.Time
-	DeletedAt *time.Time
+	DeletedAt      *time.Time
+
+	// FIX T-01: campos de auditoria de ativação/desativação.
+	StatusAlteradoPor uuid.UUID
+	StatusAlteradoEm  time.Time
 }
 
 func NewTurma() *Turma {
@@ -44,9 +48,9 @@ func (t *Turma) Apply(event DomainEvent) error {
 	case "TurmaCriada":
 		return t.applyTurmaCriada(event)
 	case "TurmaAtivada":
-		return t.applyStatusChange("ativo")
+		return t.applyTurmaStatusChange("ativo", event)
 	case "TurmaDesativada":
-		return t.applyStatusChange("inativo")
+		return t.applyTurmaStatusChange("inativo", event)
 	case "EstudanteAdicionadoATurma":
 		return t.applyEstudanteAdicionado(event)
 	case "EstudanteRemovidoDaTurma":
@@ -169,9 +173,12 @@ func (t *Turma) AtualizarDados(nivel *string, cursoID *uuid.UUID, turno *string,
 }
 
 // Deletar emite TurmaDeletada.
-// Pré-condições:
+// Pré-condições (verificadas pelo aggregate):
 //   - turma deve estar inativa
-//   - turma não pode ter estudantes
+//   - turma não pode ter estudantes ativos
+//
+// NOTA T-02: a validação de processos ativos (avaliações em andamento, etc.)
+// é responsabilidade do handler (requer acesso à projeção).
 func (t *Turma) Deletar(deletadoPor uuid.UUID, motivo string) error {
 	if t.Status == "deletado" {
 		return fmt.Errorf("turma já está deletada")
@@ -196,53 +203,64 @@ func (t *Turma) Deletar(deletadoPor uuid.UUID, motivo string) error {
 // ── Aplicadores ───────────────────────────────────────────────────────────────
 
 func (t *Turma) applyTurmaCriada(event DomainEvent) error {
-	payload := event.GetPayload()
-	data, err := json.Marshal(payload)
+	data, err := json.Marshal(event.GetPayload())
 	if err != nil {
-		return err
+		return fmt.Errorf("applyTurmaCriada: marshal error: %w", err)
 	}
 	var ev TurmaCriadaEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
+		return fmt.Errorf("applyTurmaCriada: unmarshal error: %w", err)
 	}
-	t.CodigoTurma    = ev.CodigoTurma
+	t.CodigoTurma = ev.CodigoTurma
 	t.CodigoAcademia = ev.CodigoAcademia
-	t.Nivel          = ev.Nivel
-	t.CursoID        = ev.CursoID
-	t.Turno          = ev.Turno
-	t.Status         = "ativo"
-	t.CreatedAt      = ev.CreatedAt
+	t.Nivel = ev.Nivel
+	t.CursoID = ev.CursoID
+	t.Turno = ev.Turno
+	t.Status = "ativo"
+	t.CreatedAt = ev.CreatedAt
 	return nil
 }
 
-func (t *Turma) applyStatusChange(status string) error {
-	t.Status = status
+// applyTurmaStatusChange — FIX T-01: deserializa o payload TurmaStatusEvent
+// para salvar AlteradoPor no estado do aggregate.
+// A versão anterior (applyStatusChange) ignorava o payload completamente,
+// descartando a informação de quem realizou a ativação/desativação.
+func (t *Turma) applyTurmaStatusChange(novoStatus string, event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyTurmaStatusChange: marshal error: %w", err)
+	}
+	var ev TurmaStatusEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyTurmaStatusChange: unmarshal error: %w", err)
+	}
+	t.Status = novoStatus
+	t.StatusAlteradoPor = ev.AlteradoPor
+	t.StatusAlteradoEm = time.Now()
 	return nil
 }
 
 func (t *Turma) applyEstudanteAdicionado(event DomainEvent) error {
-	payload := event.GetPayload()
-	data, err := json.Marshal(payload)
+	data, err := json.Marshal(event.GetPayload())
 	if err != nil {
-		return err
+		return fmt.Errorf("applyEstudanteAdicionado: marshal error: %w", err)
 	}
 	var ev EstudanteTurmaEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
+		return fmt.Errorf("applyEstudanteAdicionado: unmarshal error: %w", err)
 	}
 	t.Estudantes = append(t.Estudantes, ev.CodigoEstudante)
 	return nil
 }
 
 func (t *Turma) applyEstudanteRemovido(event DomainEvent) error {
-	payload := event.GetPayload()
-	data, err := json.Marshal(payload)
+	data, err := json.Marshal(event.GetPayload())
 	if err != nil {
-		return err
+		return fmt.Errorf("applyEstudanteRemovido: marshal error: %w", err)
 	}
 	var ev EstudanteTurmaEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
+		return fmt.Errorf("applyEstudanteRemovido: unmarshal error: %w", err)
 	}
 	updated := []string{}
 	for _, e := range t.Estudantes {
@@ -255,14 +273,13 @@ func (t *Turma) applyEstudanteRemovido(event DomainEvent) error {
 }
 
 func (t *Turma) applyTurmaDadosAtualizados(event DomainEvent) error {
-	payload := event.GetPayload()
-	data, err := json.Marshal(payload)
+	data, err := json.Marshal(event.GetPayload())
 	if err != nil {
-		return err
+		return fmt.Errorf("applyTurmaDadosAtualizados: marshal error: %w", err)
 	}
 	var ev TurmaDadosAtualizadosEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
+		return fmt.Errorf("applyTurmaDadosAtualizados: unmarshal error: %w", err)
 	}
 	if ev.Nivel != nil {
 		t.Nivel = *ev.Nivel
@@ -279,13 +296,13 @@ func (t *Turma) applyTurmaDadosAtualizados(event DomainEvent) error {
 func (t *Turma) applyTurmaDeletada(event DomainEvent) error {
 	data, err := json.Marshal(event.GetPayload())
 	if err != nil {
-		return err
+		return fmt.Errorf("applyTurmaDeletada: marshal error: %w", err)
 	}
 	var ev TurmaDeletadaEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
+		return fmt.Errorf("applyTurmaDeletada: unmarshal error: %w", err)
 	}
-	t.Status    = "deletado"
+	t.Status = "deletado"
 	t.DeletedAt = &ev.DeletedAt
 	return nil
 }
@@ -342,3 +359,4 @@ type TurmaDeletadaEvent struct {
 }
 
 func (e *TurmaDeletadaEvent) GetPayload() interface{} { return e }
+func (e *TurmaDeletadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }

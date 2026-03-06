@@ -9,15 +9,16 @@ import (
 	"github.com/google/uuid"
 )
 
-// emailRegex valida formato básico de email.
 var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
 
-// adminHierarchy é a hierarquia canônica de roles.
-// Centralizada aqui para evitar divergência com middleware e handlers.
-var adminHierarchy = map[string]int{"fpp": 3, "adm": 2, "gerente": 1}
+var adminHierarchy = map[string]int{
+	"fpp":     3,
+	"adm":     2,
+	"gerente": 1,
+}
 
 // ============================================================================
-// Struct
+// Aggregate
 // ============================================================================
 
 type Admin struct {
@@ -26,11 +27,18 @@ type Admin struct {
 	Nome            string
 	Email           string
 	SenhaHash       string
-	Status          string
 	Role            string
+	Status          string
 	EmailVerificado bool
-	CreatedAt       time.Time
 	CreatedBy       *uuid.UUID
+	CreatedAt       time.Time
+
+	// FIX AD-02: campos de auditoria de ativação/desativação adicionados ao
+	// estado do aggregate para rastreabilidade no ciclo de vida em memória.
+	ActivatedAt   time.Time
+	ActivatedBy   uuid.UUID
+	DeactivatedAt time.Time
+	DeactivatedBy uuid.UUID
 
 	TotalAcoesRealizadas int
 }
@@ -42,20 +50,21 @@ func NewAdmin() *Admin {
 			Version:           0,
 			UncommittedEvents: []DomainEvent{},
 		},
-		EmailVerificado: false,
 	}
 }
 
 func (a *Admin) GetType() string { return "Admin" }
 
 // ============================================================================
-// Apply — roteador de eventos
+// Apply dispatcher
 // ============================================================================
 
 func (a *Admin) Apply(event DomainEvent) error {
 	switch event.GetEventType() {
 	case "AdminCriado":
 		return a.applyAdminCriado(event)
+	case "EmailVerificado":
+		return a.applyEmailVerificado(event)
 	case "AdminAtivado":
 		return a.applyAdminAtivado(event)
 	case "AdminDesativado":
@@ -66,8 +75,6 @@ func (a *Admin) Apply(event DomainEvent) error {
 		return a.applyAdminDadosAtualizados(event)
 	case "AdminRoleAtualizado":
 		return a.applyAdminRoleAtualizado(event)
-	case "EmailVerificado":
-		return a.applyEmailVerificado(event)
 	case "AdminSenhaAlterada":
 		return a.applyAdminSenhaAlterada(event)
 	default:
@@ -79,7 +86,7 @@ func (a *Admin) Apply(event DomainEvent) error {
 // Comandos
 // ============================================================================
 
-// Criar cria um novo administrador.
+// Criar registra o evento de criação do admin.
 // senhaHash deve ter pelo menos 60 caracteres (comprimento mínimo de bcrypt).
 func (a *Admin) Criar(nome, email, senhaHash, role string, createdBy *uuid.UUID) error {
 	if nome == "" || email == "" || senhaHash == "" {
@@ -257,10 +264,6 @@ func (a *Admin) AlterarSenha(novaSenhaHash string, changedBy uuid.UUID, motivo s
 }
 
 // ValidatePermission verifica que este admin tem role ESTRITAMENTE superior ao targetRole.
-//
-// [A05] CORRIGIDO: antes, um targetRole desconhecido retornava 0 do map,
-// e a condição `hierarchy[a.Role] <= 0` era false para qualquer role válido,
-// permitindo a operação. Agora valida explicitamente ambos os roles.
 func (a *Admin) ValidatePermission(targetRole string) error {
 	if a.Status != "ativo" {
 		return fmt.Errorf("administrador está inativo")
@@ -284,7 +287,7 @@ func (a *Admin) ValidatePermission(targetRole string) error {
 }
 
 // ============================================================================
-// Apply handlers — todos com verificação de erro em json.Marshal/Unmarshal
+// Apply handlers
 // ============================================================================
 
 func (a *Admin) applyAdminCriado(event DomainEvent) error {
@@ -314,17 +317,52 @@ func (a *Admin) applyEmailVerificado(_ DomainEvent) error {
 	return nil
 }
 
-func (a *Admin) applyAdminAtivado(_ DomainEvent) error {
+// applyAdminAtivado — FIX AD-02: deserializa o payload para atualizar os
+// campos de auditoria (ActivatedBy, ActivatedAt) no estado do aggregate.
+func (a *Admin) applyAdminAtivado(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyAdminAtivado: marshal error: %w", err)
+	}
+	var ev AdminAtivadoEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyAdminAtivado: unmarshal error: %w", err)
+	}
 	a.Status = "ativo"
+	a.ActivatedBy = ev.ActivatedBy
+	a.ActivatedAt = ev.ActivatedAt
 	return nil
 }
 
-func (a *Admin) applyAdminDesativado(_ DomainEvent) error {
+// applyAdminDesativado — FIX AD-02: deserializa o payload para atualizar os
+// campos de auditoria (DeactivatedBy, DeactivatedAt) no estado do aggregate.
+func (a *Admin) applyAdminDesativado(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyAdminDesativado: marshal error: %w", err)
+	}
+	var ev AdminDesativadoEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyAdminDesativado: unmarshal error: %w", err)
+	}
 	a.Status = "inativo"
+	a.DeactivatedBy = ev.DeactivatedBy
+	a.DeactivatedAt = ev.DeactivatedAt
 	return nil
 }
 
-func (a *Admin) applyAcaoAdminRegistrada(_ DomainEvent) error {
+// applyAcaoAdminRegistrada — FIX AD-01: deserializa o payload para detectar
+// corrupção silenciosa de Detalhes (map[string]interface{}).
+// O aggregate apenas incrementa o contador; os detalhes são usados só pela projeção.
+func (a *Admin) applyAcaoAdminRegistrada(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyAcaoAdminRegistrada: marshal error: %w", err)
+	}
+	var ev AcaoAdminRegistradaEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyAcaoAdminRegistrada: unmarshal error (payload corrompido): %w", err)
+	}
 	a.TotalAcoesRealizadas++
 	return nil
 }
@@ -332,11 +370,11 @@ func (a *Admin) applyAcaoAdminRegistrada(_ DomainEvent) error {
 func (a *Admin) applyAdminDadosAtualizados(event DomainEvent) error {
 	data, err := json.Marshal(event.GetPayload())
 	if err != nil {
-		return fmt.Errorf("applyAdminDadosAtualizados: erro ao serializar payload: %w", err)
+		return fmt.Errorf("applyAdminDadosAtualizados: marshal error: %w", err)
 	}
 	var ev AdminDadosAtualizadosEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
-		return fmt.Errorf("applyAdminDadosAtualizados: erro ao deserializar evento: %w", err)
+		return fmt.Errorf("applyAdminDadosAtualizados: unmarshal error: %w", err)
 	}
 	if ev.Nome != nil {
 		a.Nome = *ev.Nome
@@ -353,11 +391,11 @@ func (a *Admin) applyAdminDadosAtualizados(event DomainEvent) error {
 func (a *Admin) applyAdminRoleAtualizado(event DomainEvent) error {
 	data, err := json.Marshal(event.GetPayload())
 	if err != nil {
-		return fmt.Errorf("applyAdminRoleAtualizado: erro ao serializar payload: %w", err)
+		return fmt.Errorf("applyAdminRoleAtualizado: marshal error: %w", err)
 	}
 	var ev AdminRoleAtualizadoEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
-		return fmt.Errorf("applyAdminRoleAtualizado: erro ao deserializar evento: %w", err)
+		return fmt.Errorf("applyAdminRoleAtualizado: unmarshal error: %w", err)
 	}
 	a.Role = ev.NovoRole
 	return nil
@@ -366,11 +404,11 @@ func (a *Admin) applyAdminRoleAtualizado(event DomainEvent) error {
 func (a *Admin) applyAdminSenhaAlterada(event DomainEvent) error {
 	data, err := json.Marshal(event.GetPayload())
 	if err != nil {
-		return fmt.Errorf("applyAdminSenhaAlterada: erro ao serializar payload: %w", err)
+		return fmt.Errorf("applyAdminSenhaAlterada: marshal error: %w", err)
 	}
 	var ev AdminSenhaAlteradaEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
-		return fmt.Errorf("applyAdminSenhaAlterada: erro ao deserializar evento: %w", err)
+		return fmt.Errorf("applyAdminSenhaAlterada: unmarshal error: %w", err)
 	}
 	if ev.NovaSenhaHash == "" {
 		return fmt.Errorf("applyAdminSenhaAlterada: NovaSenhaHash vazio no payload")

@@ -11,8 +11,6 @@ import (
 )
 
 // periodosAceitos é o conjunto global de períodos aceitos pelo sistema.
-// Renomeado de periodosValidos para evitar shadowing com parâmetros de função
-// no mesmo pacote.
 var periodosAceitos = map[string]bool{
 	"1_trimestre": true,
 	"2_trimestre": true,
@@ -29,12 +27,11 @@ type Curso struct {
 	AnosAcademicos []string // Anos do curso definidos pela academia
 	// Periodos define os períodos letivos do curso.
 	// Obrigatório para type="superior"; NULL/vazio para "medio".
-	// Deve ser subconjunto de: 1_trimestre, 2_trimestre, 3_trimestre, 1_semestre, 2_semestre.
 	Periodos       []string
 	CodigoAcademia string
 	Status         string
 	CreatedAt      time.Time
-	DeletedAt *time.Time
+	DeletedAt      *time.Time
 }
 
 func NewCurso() *Curso {
@@ -51,9 +48,7 @@ func NewCurso() *Curso {
 	}
 }
 
-func (c *Curso) GetType() string {
-	return "Curso"
-}
+func (c *Curso) GetType() string { return "Curso" }
 
 func (c *Curso) Apply(event DomainEvent) error {
 	log.Printf("[DEBUG] Aplicando evento %s ao Curso %s", event.GetEventType(), c.ID)
@@ -77,6 +72,9 @@ func (c *Curso) Apply(event DomainEvent) error {
 
 // ============================================================================
 // Eventos
+// FIX C-01: ToJSON() adicionado a todos os eventos concretos do Curso.
+// Sem essa sobrescrita, json.Marshal(e) no BaseEvent serializa apenas os campos
+// do BaseEvent, gravando payload nulo no ledger e impossibilitando o rebuild.
 // ============================================================================
 
 type CursoCriadoEvent struct {
@@ -84,13 +82,13 @@ type CursoCriadoEvent struct {
 	Nome           string
 	Type           string
 	AnosAcademicos []string
-	// Periodos: obrigatório para superior, vazio para medio.
 	Periodos       []string
 	CodigoAcademia string
 	CreatedAt      time.Time
 }
 
 func (e *CursoCriadoEvent) GetPayload() interface{} { return e }
+func (e *CursoCriadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) } // FIX C-01
 
 type CursoAtivadoEvent struct {
 	BaseEvent
@@ -98,6 +96,7 @@ type CursoAtivadoEvent struct {
 }
 
 func (e *CursoAtivadoEvent) GetPayload() interface{} { return e }
+func (e *CursoAtivadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) } // FIX C-01
 
 type CursoDesativadoEvent struct {
 	BaseEvent
@@ -105,18 +104,24 @@ type CursoDesativadoEvent struct {
 }
 
 func (e *CursoDesativadoEvent) GetPayload() interface{} { return e }
+func (e *CursoDesativadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) } // FIX C-01
 
-// CursoDadosAtualizadosEvent — Type foi removido: o tipo do curso é imutável após criação.
-// Periodos: nil = não alterar; lista não vazia = atualizar periodos.
+// CursoDadosAtualizadosEvent — Type é imutável após criação.
+// Periodos: nil = não alterar; ponteiro para lista = atualizar.
+// FIX C-02: AtualizadoPor adicionado para auditoria self-contained.
+// Etapa 4 deve preencher este campo no handler de atualização de curso.
 type CursoDadosAtualizadosEvent struct {
 	BaseEvent
 	Nome           *string
 	AnosAcademicos []string
 	Periodos       *[]string
 	UpdatedAt      time.Time
+	// FIX C-02: UUID do usuário que atualizou. uuid.Nil = legado/não preenchido.
+	AtualizadoPor uuid.UUID
 }
 
 func (e *CursoDadosAtualizadosEvent) GetPayload() interface{} { return e }
+func (e *CursoDadosAtualizadosEvent) ToJSON() ([]byte, error) { return json.Marshal(e) } // FIX C-01
 
 type CursoDeletadoEvent struct {
 	BaseEvent
@@ -126,6 +131,7 @@ type CursoDeletadoEvent struct {
 }
 
 func (e *CursoDeletadoEvent) GetPayload() interface{} { return e }
+func (e *CursoDeletadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) } // FIX C-01
 
 // ============================================================================
 // Commands
@@ -255,6 +261,7 @@ func (c *Curso) AtualizarDados(nome *string, anosAcademicos []string, periodos *
 		AnosAcademicos: anosAcademicos,
 		Periodos:       periodos,
 		UpdatedAt:      time.Now(),
+		AtualizadoPor:  uuid.Nil, // Etapa 4 deve preencher
 	}
 
 	c.RaiseEvent(event)
@@ -265,6 +272,10 @@ func (c *Curso) AtualizarDados(nome *string, anosAcademicos []string, periodos *
 // A validação de dependências (estudantes matriculados, matérias ativas)
 // é feita no handler ANTES de chamar este método.
 // Pré-condição aqui: curso deve estar inativo.
+//
+// NOTA C-03: a validação de estudantes matriculados é responsabilidade do
+// handler (requer acesso à projeção). O aggregate só pode validar seu próprio
+// estado (status).
 func (c *Curso) Deletar(deletadoPor uuid.UUID, motivo string) error {
 	if c.Status == "deletado" {
 		return fmt.Errorf("curso já está deletado")
@@ -312,13 +323,13 @@ func (c *Curso) applyCursoCriado(event DomainEvent) error {
 	return nil
 }
 
-func (c *Curso) applyCursoAtivado(event DomainEvent) error {
+func (c *Curso) applyCursoAtivado(_ DomainEvent) error {
 	c.Status = "ativo"
 	log.Printf("[DEBUG] applyCursoAtivado: curso=%s", c.Nome)
 	return nil
 }
 
-func (c *Curso) applyCursoDesativado(event DomainEvent) error {
+func (c *Curso) applyCursoDesativado(_ DomainEvent) error {
 	c.Status = "inativo"
 	log.Printf("[DEBUG] applyCursoDesativado: curso=%s", c.Nome)
 	return nil
@@ -360,7 +371,7 @@ func (c *Curso) applyCursoDeletado(event DomainEvent) error {
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return err
 	}
-	c.Status    = "deletado"
+	c.Status = "deletado"
 	c.DeletedAt = &ev.DeletedAt
 	return nil
 }
@@ -369,9 +380,6 @@ func (c *Curso) applyCursoDeletado(event DomainEvent) error {
 // Helpers internos
 // ============================================================================
 
-// validarPeriodosCurso valida os periodos conforme o tipo do curso:
-//   - superior → obrigatório, ≥1 item, todos do enum global
-//   - medio    → deve ser nil ou vazio
 func validarPeriodosCurso(tipo string, periodos []string) error {
 	switch tipo {
 	case "superior":
@@ -399,7 +407,6 @@ func validarPeriodosCurso(tipo string, periodos []string) error {
 	return nil
 }
 
-// normalizarPeriodos retorna slice vazio para medio e a lista para superior.
 func normalizarPeriodos(tipo string, periodos []string) []string {
 	if tipo == "medio" {
 		return []string{}

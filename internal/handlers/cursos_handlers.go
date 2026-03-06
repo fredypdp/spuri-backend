@@ -383,8 +383,8 @@ func DeletarCurso(c *gin.Context) {
 		}
 
 		materia := materiaAgg.(*aggregates.MateriaDisciplinar)
-		if err := materia.Deletar(); err != nil {
-			// FIX BUG #3: era `log + continue` — agora retorna erro ao cliente.
+		// FIX: Deletar agora requer (deletadoPor uuid.UUID, motivo string).
+		if err := materia.Deletar(academiaID, fmt.Sprintf("cascata: curso %s deletado", cursoDTO.Nome)); err != nil {
 			utils.RespondWithInternalError(c, fmt.Errorf("erro ao deletar matéria '%s': %w", m.Nome, err))
 			return
 		}
@@ -429,7 +429,6 @@ func DeletarCurso(c *gin.Context) {
 		}
 		turma := turmaAgg.(*aggregates.Turma)
 		if err := turma.Deletar(academiaID, fmt.Sprintf("cascata: curso %s deletado", cursoDTO.Nome)); err != nil {
-			// FIX BUG #3: era `log + continue` — agora retorna erro ao cliente.
 			utils.RespondWithInternalError(c, fmt.Errorf("erro ao deletar turma '%s': %w", t.CodigoTurma, err))
 			return
 		}
@@ -472,6 +471,10 @@ func DeletarCurso(c *gin.Context) {
 		"auditavel":          true,
 	})
 }
+
+// ============================================================================
+// PUT /estudante/:codigo/alterar-curso  (rota dentro do grupo /academia)
+// ============================================================================
 
 func AlterarCursoEstudante(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")

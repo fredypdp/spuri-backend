@@ -57,6 +57,17 @@ func (a *BaseAggregate) RaiseEvent(event DomainEvent) {
 	log.Printf("[DEBUG] Versão do agregado incrementada para: %d", a.Version)
 }
 
+// SetID permite setar o ID do agregado após a criação pela factory.
+// Usado em BuildFromEvents para corrigir o ID quando a factory cria o
+// agregado com uuid.Nil (ex: SistemaConfig) e o apply handler do primeiro
+// evento ainda não foi executado.
+//
+// FIX B-02: resolve o caso em que DefaultAggregateFactory.Create retorna
+// SistemaConfig com ID = uuid.Nil antes de qualquer evento ser aplicado.
+func (a *BaseAggregate) SetID(id uuid.UUID) {
+	a.ID = id
+}
+
 // BaseEvent estrutura base para eventos.
 //
 // Eventos concretos DEVEM sobrescrever GetPayload() e ToJSON() para
@@ -88,7 +99,7 @@ func (e *BaseEvent) GetPayload() interface{} {
 	return e.Payload
 }
 
-// ToJSON — FIX #1/#2: serializa o struct BaseEvent completo (EventType +
+// ToJSON — FIX B-01: serializa o struct BaseEvent completo (EventType +
 // AggregateID + Payload), não apenas e.Payload.
 // Eventos concretos sobrescrevem este método com json.Marshal(e) no tipo concreto.
 func (e *BaseEvent) ToJSON() ([]byte, error) {
@@ -104,7 +115,9 @@ type AggregateFactory interface {
 // DefaultAggregateFactory fábrica padrão de agregados
 type DefaultAggregateFactory struct{}
 
-// Create cria um agregado baseado no tipo
+// Create cria um agregado baseado no tipo.
+// NOTA B-02: SistemaConfig é criado com uuid.Nil intencionalmente — o ID real
+// é injetado via BuildFromEvents.SetID() antes da aplicação dos eventos.
 func (f *DefaultAggregateFactory) Create(aggregateType string) (Aggregate, error) {
 	log.Printf("[DEBUG] Criando agregado do tipo: %s", aggregateType)
 
@@ -149,7 +162,17 @@ func NewEventApplier(factory AggregateFactory) *EventApplier {
 	}
 }
 
-// BuildFromEvents reconstrói um agregado a partir de eventos
+// idSetter é uma interface local para injetar o ID no agregado antes
+// de aplicar os eventos. Satisfeita por todos os tipos que embarcam *BaseAggregate.
+type idSetter interface {
+	SetID(uuid.UUID)
+}
+
+// BuildFromEvents reconstrói um agregado a partir de eventos.
+//
+// FIX B-02: antes de aplicar o primeiro evento, injeta o AggregateID do
+// primeiro evento no agregado via SetID — corrige o caso em que a factory
+// cria SistemaConfig com ID = uuid.Nil.
 func (ea *EventApplier) BuildFromEvents(
 	aggregateType string,
 	events []DomainEvent,
@@ -167,6 +190,17 @@ func (ea *EventApplier) BuildFromEvents(
 		return nil, err
 	}
 
+	// FIX B-02: injeta o ID real antes de aplicar qualquer evento.
+	// Isso evita que comandos emitidos sobre o agregado reconstruído
+	// gravem AggregateID = uuid.Nil no ledger.
+	if aggregate.GetID() == uuid.Nil {
+		if setter, ok := aggregate.(idSetter); ok {
+			setter.SetID(events[0].GetAggregateID())
+			log.Printf("[DEBUG] ID do agregado %s injetado via SetID: %s",
+				aggregateType, events[0].GetAggregateID())
+		}
+	}
+
 	for i, event := range events {
 		log.Printf("[DEBUG] Aplicando evento %d/%d: %s", i+1, len(events), event.GetEventType())
 		if err := aggregate.Apply(event); err != nil {
@@ -176,6 +210,7 @@ func (ea *EventApplier) BuildFromEvents(
 		}
 	}
 
-	log.Printf("[DEBUG] Agregado reconstruído com sucesso. Versão final: %d", aggregate.GetVersion())
+	log.Printf("[DEBUG] Agregado %s reconstruído com sucesso. Versão: %d",
+		aggregateType, aggregate.GetVersion())
 	return aggregate, nil
 }

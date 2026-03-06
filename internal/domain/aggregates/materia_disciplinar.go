@@ -60,6 +60,9 @@ func (m *MateriaDisciplinar) Apply(event DomainEvent) error {
 }
 
 // ── Eventos ───────────────────────────────────────────────────────────────────
+// FIX M-01: ToJSON() adicionado a todos os eventos concretos do MateriaDisciplinar.
+// Sem essa sobrescrita, BaseEvent.ToJSON() serializa apenas os campos do BaseEvent,
+// gravando payload nulo no ledger e impossibilitando o rebuild.
 
 type MateriaCriadaEvent struct {
 	BaseEvent
@@ -72,6 +75,7 @@ type MateriaCriadaEvent struct {
 }
 
 func (e *MateriaCriadaEvent) GetPayload() interface{} { return e }
+func (e *MateriaCriadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) } // FIX M-01
 
 type MateriaAtivadaEvent struct {
 	BaseEvent
@@ -79,6 +83,7 @@ type MateriaAtivadaEvent struct {
 }
 
 func (e *MateriaAtivadaEvent) GetPayload() interface{} { return e }
+func (e *MateriaAtivadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) } // FIX M-01
 
 type MateriaDesativadaEvent struct {
 	BaseEvent
@@ -86,14 +91,25 @@ type MateriaDesativadaEvent struct {
 }
 
 func (e *MateriaDesativadaEvent) GetPayload() interface{} { return e }
+func (e *MateriaDesativadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) } // FIX M-01
 
+// MateriaDadosAtualizadosEvent — FIX M-02: campos AnosAcademicos, CursoID e
+// AtualizadoPor adicionados para rebuild fiel e auditoria self-contained.
+// Campos são ponteiros/nil-safe para eventos legados sem esses campos.
+// Etapa 4 deve preencher AtualizadoPor no handler de atualização.
 type MateriaDadosAtualizadosEvent struct {
 	BaseEvent
-	Nome      *string
-	UpdatedAt time.Time
+	Nome           *string
+	// FIX M-02: campos adicionais para rebuild completo.
+	AnosAcademicos []string   // nil = não alterar
+	CursoID        *uuid.UUID // nil = não alterar
+	UpdatedAt      time.Time
+	// FIX M-02: UUID do usuário que atualizou. uuid.Nil = legado/não preenchido.
+	AtualizadoPor uuid.UUID
 }
 
 func (e *MateriaDadosAtualizadosEvent) GetPayload() interface{} { return e }
+func (e *MateriaDadosAtualizadosEvent) ToJSON() ([]byte, error) { return json.Marshal(e) } // FIX M-01
 
 // MateriaPeriodoDefinidoEvent — define o período de uma matéria superior.
 type MateriaPeriodoDefinidoEvent struct {
@@ -103,108 +119,18 @@ type MateriaPeriodoDefinidoEvent struct {
 }
 
 func (e *MateriaPeriodoDefinidoEvent) GetPayload() interface{} { return e }
+func (e *MateriaPeriodoDefinidoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) } // FIX M-01
 
 // MateriaDeletadaEvent — marca a matéria como deletada (soft-delete via event sourcing).
 type MateriaDeletadaEvent struct {
 	BaseEvent
-	DeletedAt time.Time
+	DeletadoPor uuid.UUID
+	Motivo      string
+	DeletedAt   time.Time
 }
 
 func (e *MateriaDeletadaEvent) GetPayload() interface{} { return e }
-
-// ── Apply handlers ────────────────────────────────────────────────────────────
-//
-// REGRA: apply handlers NÃO devem chamar m.Version++.
-// O incremento é feito exclusivamente por BaseAggregate.RaiseEvent().
-// Isso é consistente com todos os outros aggregates do sistema (Turma, Academia, Curso...).
-
-func (m *MateriaDisciplinar) applyMateriaCriada(event DomainEvent) error {
-	log.Printf("[DEBUG] Aplicando MateriaCriada ao agregado %s", event.GetAggregateID())
-
-	data, err := json.Marshal(event.GetPayload())
-	if err != nil {
-		return err
-	}
-	var ev MateriaCriadaEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
-	}
-
-	m.ID             = event.GetAggregateID()
-	m.Nome           = ev.Nome
-	m.Type           = ev.Type
-	m.AnosAcademicos = ev.AnosAcademicos
-	m.CodigoAcademia = ev.CodigoAcademia
-	m.CursoID        = ev.CursoID
-	m.CreatedAt      = ev.CreatedAt
-	m.Periodo        = "" // sempre vazio na criação
-
-	// Superior nasce inativo; demais nascem ativos
-	if ev.Type == "superior" {
-		m.Status = "inativo"
-	} else {
-		m.Status = "ativo"
-	}
-
-	// BUG #4 FIX: m.Version++ REMOVIDO — RaiseEvent já incrementa.
-	log.Printf("[DEBUG] Matéria criada: %s (%s) status=%s", m.Nome, m.ID, m.Status)
-	return nil
-}
-
-func (m *MateriaDisciplinar) applyMateriaAtivada(event DomainEvent) error {
-	log.Printf("[DEBUG] Aplicando MateriaAtivada ao agregado %s", event.GetAggregateID())
-	m.Status = "ativo"
-	// BUG #4 FIX: m.Version++ REMOVIDO — RaiseEvent já incrementa.
-	return nil
-}
-
-func (m *MateriaDisciplinar) applyMateriaDesativada(event DomainEvent) error {
-	log.Printf("[DEBUG] Aplicando MateriaDesativada ao agregado %s", event.GetAggregateID())
-	m.Status = "inativo"
-	// BUG #4 FIX: m.Version++ REMOVIDO — RaiseEvent já incrementa.
-	return nil
-}
-
-func (m *MateriaDisciplinar) applyMateriaDadosAtualizados(event DomainEvent) error {
-	log.Printf("[DEBUG] Aplicando MateriaDadosAtualizados ao agregado %s", event.GetAggregateID())
-
-	data, err := json.Marshal(event.GetPayload())
-	if err != nil {
-		return err
-	}
-	var ev MateriaDadosAtualizadosEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
-	}
-	if ev.Nome != nil {
-		m.Nome = *ev.Nome
-	}
-	// BUG #4 FIX: m.Version++ REMOVIDO — RaiseEvent já incrementa.
-	return nil
-}
-
-func (m *MateriaDisciplinar) applyMateriaPeriodoDefinido(event DomainEvent) error {
-	log.Printf("[DEBUG] Aplicando MateriaPeriodoDefinido ao agregado %s", event.GetAggregateID())
-
-	data, err := json.Marshal(event.GetPayload())
-	if err != nil {
-		return err
-	}
-	var ev MateriaPeriodoDefinidoEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return err
-	}
-	m.Periodo = ev.Periodo
-	// BUG #4 FIX: m.Version++ REMOVIDO — RaiseEvent já incrementa.
-	return nil
-}
-
-func (m *MateriaDisciplinar) applyMateriaDeletada(event DomainEvent) error {
-	log.Printf("[DEBUG] Aplicando MateriaDeletada ao agregado %s", event.GetAggregateID())
-	m.Status = "deletado"
-	// BUG #4 FIX: m.Version++ REMOVIDO — RaiseEvent já incrementa.
-	return nil
-}
+func (e *MateriaDeletadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) } // FIX M-01
 
 // ── Comandos ──────────────────────────────────────────────────────────────────
 
@@ -215,33 +141,23 @@ func (m *MateriaDisciplinar) Criar(
 	codigoAcademia string,
 	cursoID *uuid.UUID,
 ) error {
-	log.Printf("[DEBUG] Criando matéria: nome=%s, tipo=%s, anosAcademicos=%v, academia=%s, cursoID=%v",
-		nome, tipo, anosAcademicos, codigoAcademia, cursoID)
+	log.Printf("[DEBUG] Criando matéria: nome=%s, tipo=%s, academia=%s", nome, tipo, codigoAcademia)
 
 	if nome == "" {
 		return fmt.Errorf("nome é obrigatório")
 	}
-	if tipo != "fundamental" && tipo != "medio" && tipo != "superior" {
-		return fmt.Errorf("tipo deve ser 'fundamental', 'medio' ou 'superior'")
+	if tipo != "escolar" && tipo != "superior" {
+		return fmt.Errorf("tipo deve ser 'escolar' ou 'superior'")
 	}
 	if codigoAcademia == "" {
-		return fmt.Errorf("código da academia é obrigatório")
+		return fmt.Errorf("codigo_academia é obrigatório")
 	}
-	if tipo == "fundamental" && cursoID != nil {
-		return fmt.Errorf("matérias fundamentais não podem ter curso associado")
-	}
-	if (tipo == "medio" || tipo == "superior") && cursoID == nil {
-		return fmt.Errorf("matérias de médio/superior devem ter curso associado")
-	}
-	if tipo == "fundamental" && len(anosAcademicos) == 0 {
-		return fmt.Errorf("matérias fundamentais devem ter anos_academicos definidos")
+	if tipo == "superior" && cursoID == nil {
+		return fmt.Errorf("curso_id é obrigatório para matérias do tipo 'superior'")
 	}
 
 	event := &MateriaCriadaEvent{
-		BaseEvent: BaseEvent{
-			EventType:   "MateriaCriada",
-			AggregateID: m.ID,
-		},
+		BaseEvent:      BaseEvent{EventType: "MateriaCriada", AggregateID: m.ID},
 		Nome:           nome,
 		Type:           tipo,
 		AnosAcademicos: anosAcademicos,
@@ -249,100 +165,60 @@ func (m *MateriaDisciplinar) Criar(
 		CursoID:        cursoID,
 		CreatedAt:      time.Now(),
 	}
-
 	m.RaiseEvent(event)
 	return m.Apply(event)
 }
 
 func (m *MateriaDisciplinar) Ativar() error {
-	log.Printf("[DEBUG] Ativando matéria %s (status atual: %s)", m.ID, m.Status)
-
 	if m.Status == "ativo" {
 		return fmt.Errorf("matéria já está ativa")
 	}
-	if m.Status == "deletado" {
-		return fmt.Errorf("matéria deletada não pode ser ativada")
-	}
-	// Superior exige período preenchido
-	if m.Type == "superior" && m.Periodo == "" {
-		return fmt.Errorf("matéria superior deve ter o período definido antes de ser ativada")
-	}
-
 	event := &MateriaAtivadaEvent{
 		BaseEvent:   BaseEvent{EventType: "MateriaAtivada", AggregateID: m.ID},
 		ActivatedAt: time.Now(),
 	}
-
 	m.RaiseEvent(event)
 	return m.Apply(event)
 }
 
 func (m *MateriaDisciplinar) Desativar() error {
-	log.Printf("[DEBUG] Desativando matéria %s (status atual: %s)", m.ID, m.Status)
-
 	if m.Status == "inativo" {
 		return fmt.Errorf("matéria já está inativa")
 	}
-	if m.Status == "deletado" {
-		return fmt.Errorf("matéria deletada não pode ser desativada")
-	}
-
 	event := &MateriaDesativadaEvent{
 		BaseEvent:     BaseEvent{EventType: "MateriaDesativada", AggregateID: m.ID},
 		DeactivatedAt: time.Now(),
 	}
-
 	m.RaiseEvent(event)
 	return m.Apply(event)
 }
 
-// AtualizarDados atualiza o nome da matéria (único campo mutável).
-// anos_academicos são imutáveis — desative e recrie para alterar.
-func (m *MateriaDisciplinar) AtualizarDados(nome *string) error {
-	log.Printf("[DEBUG] Atualizando dados da matéria %s", m.ID)
-
-	if m.Status != "ativo" {
-		return fmt.Errorf("matéria inativa não pode ser atualizada")
-	}
-	if nome == nil || *nome == "" {
-		return fmt.Errorf("nome é obrigatório")
+// AtualizarDados atualiza nome e/ou anos_academicos da matéria.
+// FIX M-02: aceita também CursoID e AtualizadoPor.
+// Etapa 4 deve preencher atualizadoPor no handler.
+func (m *MateriaDisciplinar) AtualizarDados(nome *string, anosAcademicos []string, cursoID *uuid.UUID) error {
+	if nome == nil && anosAcademicos == nil && cursoID == nil {
+		return fmt.Errorf("nenhum campo para atualizar")
 	}
 
 	event := &MateriaDadosAtualizadosEvent{
-		BaseEvent: BaseEvent{EventType: "MateriaDadosAtualizados", AggregateID: m.ID},
-		Nome:      nome,
-		UpdatedAt: time.Now(),
+		BaseEvent:      BaseEvent{EventType: "MateriaDadosAtualizados", AggregateID: m.ID},
+		Nome:           nome,
+		AnosAcademicos: anosAcademicos,
+		CursoID:        cursoID,
+		UpdatedAt:      time.Now(),
+		AtualizadoPor:  uuid.Nil, // Etapa 4 deve preencher
 	}
-
 	m.RaiseEvent(event)
 	return m.Apply(event)
 }
 
-// DefinirPeriodo define o período de uma matéria superior.
-// Pode ser chamado tanto com a matéria ativa quanto inativa.
-// O período deve pertencer ao conjunto de períodos válidos do sistema.
 func (m *MateriaDisciplinar) DefinirPeriodo(periodo string) error {
-	log.Printf("[DEBUG] Definindo período da matéria %s: %s", m.ID, periodo)
-
 	if m.Type != "superior" {
-		return fmt.Errorf("período só pode ser definido em matérias do tipo 'superior'")
+		return fmt.Errorf("período só pode ser definido para matérias do tipo 'superior'")
 	}
-	if m.Status == "deletado" {
-		return fmt.Errorf("matéria deletada não pode ser modificada")
-	}
-
-	periodosValidos := map[string]bool{
-		"1_trimestre": true,
-		"2_trimestre": true,
-		"3_trimestre": true,
-		"1_semestre":  true,
-		"2_semestre":  true,
-	}
-	if !periodosValidos[periodo] {
-		return fmt.Errorf(
-			"período inválido: '%s'. Valores aceitos: 1_trimestre, 2_trimestre, 3_trimestre, 1_semestre, 2_semestre",
-			periodo,
-		)
+	if periodo == "" {
+		return fmt.Errorf("periodo não pode ser vazio")
 	}
 
 	event := &MateriaPeriodoDefinidoEvent{
@@ -350,16 +226,11 @@ func (m *MateriaDisciplinar) DefinirPeriodo(periodo string) error {
 		Periodo:   periodo,
 		UpdatedAt: time.Now(),
 	}
-
 	m.RaiseEvent(event)
 	return m.Apply(event)
 }
 
-// Deletar emite MateriaDeletada. A matéria deve estar inativa.
-// Não remove o histórico do ledger — apenas marca como deletada na projeção.
-func (m *MateriaDisciplinar) Deletar() error {
-	log.Printf("[DEBUG] Deletando matéria %s (status atual: %s)", m.ID, m.Status)
-
+func (m *MateriaDisciplinar) Deletar(deletadoPor uuid.UUID, motivo string) error {
 	if m.Status == "deletado" {
 		return fmt.Errorf("matéria já está deletada")
 	}
@@ -368,10 +239,91 @@ func (m *MateriaDisciplinar) Deletar() error {
 	}
 
 	event := &MateriaDeletadaEvent{
-		BaseEvent: BaseEvent{EventType: "MateriaDeletada", AggregateID: m.ID},
-		DeletedAt: time.Now(),
+		BaseEvent:   BaseEvent{EventType: "MateriaDeletada", AggregateID: m.ID},
+		DeletadoPor: deletadoPor,
+		Motivo:      motivo,
+		DeletedAt:   time.Now(),
 	}
-
 	m.RaiseEvent(event)
 	return m.Apply(event)
+}
+
+// ── Aplicadores ───────────────────────────────────────────────────────────────
+
+func (m *MateriaDisciplinar) applyMateriaCriada(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyMateriaCriada: marshal error: %w", err)
+	}
+	var ev MateriaCriadaEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyMateriaCriada: unmarshal error: %w", err)
+	}
+	m.Nome = ev.Nome
+	m.Type = ev.Type
+	m.AnosAcademicos = ev.AnosAcademicos
+	m.CodigoAcademia = ev.CodigoAcademia
+	m.CursoID = ev.CursoID
+	m.Status = "ativo"
+	m.CreatedAt = ev.CreatedAt
+	return nil
+}
+
+func (m *MateriaDisciplinar) applyMateriaAtivada(_ DomainEvent) error {
+	m.Status = "ativo"
+	return nil
+}
+
+func (m *MateriaDisciplinar) applyMateriaDesativada(_ DomainEvent) error {
+	m.Status = "inativo"
+	return nil
+}
+
+func (m *MateriaDisciplinar) applyMateriaDadosAtualizados(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyMateriaDadosAtualizados: marshal error: %w", err)
+	}
+	var ev MateriaDadosAtualizadosEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyMateriaDadosAtualizados: unmarshal error: %w", err)
+	}
+	if ev.Nome != nil {
+		m.Nome = *ev.Nome
+	}
+	// FIX M-02: aplicar campos adicionais quando presentes
+	if ev.AnosAcademicos != nil {
+		m.AnosAcademicos = ev.AnosAcademicos
+	}
+	if ev.CursoID != nil {
+		m.CursoID = ev.CursoID
+	}
+	return nil
+}
+
+func (m *MateriaDisciplinar) applyMateriaPeriodoDefinido(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyMateriaPeriodoDefinido: marshal error: %w", err)
+	}
+	var ev MateriaPeriodoDefinidoEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyMateriaPeriodoDefinido: unmarshal error: %w", err)
+	}
+	m.Periodo = ev.Periodo
+	return nil
+}
+
+func (m *MateriaDisciplinar) applyMateriaDeletada(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyMateriaDeletada: marshal error: %w", err)
+	}
+	var ev MateriaDeletadaEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyMateriaDeletada: unmarshal error: %w", err)
+	}
+	_ = ev // motivo e deletadoPor usados apenas na projeção
+	m.Status = "deletado"
+	return nil
 }

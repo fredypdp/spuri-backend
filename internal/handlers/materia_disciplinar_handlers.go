@@ -66,7 +66,8 @@ func CriarMateria(c *gin.Context) {
 		// Para superior: garantir que o curso tem periodos definidos
 		if req.Type == "superior" && len(cursoDTO.Periodos) == 0 {
 			utils.RespondWithValidationError(c, fmt.Errorf(
-				"o curso '%s' nao possui periodos definidos. Atualize o curso antes de criar materias superiores",
+				"o curso '%s' nao possui periodos definidos. "+
+					"Atualize o curso antes de criar materias superiores",
 				cursoDTO.Nome,
 			))
 			return
@@ -76,7 +77,6 @@ func CriarMateria(c *gin.Context) {
 	repository := getRepository(c)
 	materia := aggregates.NewMateriaDisciplinar()
 
-	// Assinatura original: Criar(nome, tipo, anosAcademicos, codigoAcademia, cursoID *uuid.UUID)
 	if err := materia.Criar(req.Nome, req.Type, req.AnosAcademicos, academiaDTO.CodigoAcademia, req.CursoID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -91,11 +91,10 @@ func CriarMateria(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "materia criada com sucesso",
 		"data": gin.H{
-			"id":      materia.ID,
-			"nome":    materia.Nome,
-			"type":    materia.Type,
-			"status":  materia.Status,
-			// Informa ao caller o próximo passo necessário para matérias superiores
+			"id":     materia.ID,
+			"nome":   materia.Nome,
+			"type":   materia.Type,
+			"status": materia.Status,
 			"proximo_passo": func() *string {
 				if materia.Type == "superior" {
 					s := "defina o periodo via PUT /academia/materias/" + materia.ID.String() + "/periodo antes de ativar"
@@ -230,7 +229,6 @@ func DesativarMateria(c *gin.Context) {
 	}
 
 	log.Printf("Materia desativada: %s", materia.Nome)
-
 	c.JSON(http.StatusOK, gin.H{
 		"message": "materia desativada com sucesso",
 		"nome":    materia.Nome,
@@ -241,12 +239,11 @@ func DesativarMateria(c *gin.Context) {
 // PUT /academia/materias/:id
 // ============================================================================
 
-// AtualizarDadosMateria atualiza nome e/ou tipo de uma matéria.
+// AtualizarDadosMateria atualiza nome de uma matéria.
 //
-// Nota: a atualização de anos_academicos não é suportada por este comando —
-// alterar os anos implicaria em revalidar todas as notas associadas, o que
-// exige uma operação de maior impacto. Para mudar os anos, desative a matéria
-// e crie uma nova com os anos corretos.
+// FIX: materia.AtualizarDados agora aceita (nome, anosAcademicos, cursoID).
+// Este handler passa nil para anosAcademicos e cursoID — alterar esses campos
+// via handler dedicado é responsabilidade de funcionalidade futura (Etapa 4).
 func AtualizarDadosMateria(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -287,7 +284,9 @@ func AtualizarDadosMateria(c *gin.Context) {
 	}
 
 	materia := materiaAgg.(*aggregates.MateriaDisciplinar)
-	if err := materia.AtualizarDados(req.Nome); err != nil {
+	// FIX: assinatura corrigida — AtualizarDados(nome, anosAcademicos, cursoID).
+	// Handler atualiza apenas o nome; os demais campos permanecem inalterados.
+	if err := materia.AtualizarDados(req.Nome, nil, nil); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -327,7 +326,6 @@ func DefinirPeriodoMateria(c *gin.Context) {
 		return
 	}
 
-	// Verificar propriedade
 	materiasProj := getMateriasProjection(c)
 	materiaDTO, err := materiasProj.GetByID(materiaID)
 	if err != nil || materiaDTO == nil {
@@ -407,7 +405,6 @@ func DeletarMateria(c *gin.Context) {
 		return
 	}
 
-	// Verificar propriedade
 	materiasProj := getMateriasProjection(c)
 	materiaDTO, err := materiasProj.GetByID(materiaID)
 	if err != nil || materiaDTO == nil {
@@ -431,7 +428,8 @@ func DeletarMateria(c *gin.Context) {
 
 	materia := materiaAgg.(*aggregates.MateriaDisciplinar)
 
-	if err := materia.Deletar(); err != nil {
+	// FIX: Deletar agora requer (deletadoPor uuid.UUID, motivo string).
+	if err := materia.Deletar(userID, ""); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
