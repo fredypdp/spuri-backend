@@ -84,10 +84,15 @@ func GenerateToken(userID uuid.UUID, userType string) (string, error) {
 // com status diferente de "ativo". Isso garante que a desativação de um usuário
 // tem efeito imediato — sem esperar a expiração natural do token.
 //
+// FIX AUTH-01: admins agora também são verificados aqui, não apenas no
+// RequireAdmin. O gap anterior permitia que admins desativados com JWT válido
+// acessassem rotas do grupo "protected" (GET /meu-perfil, PUT /alterar-senha)
+// sem bloqueio, pois essas rotas não passam por RequireAdmin.
+//
 // Fluxo:
 //  1. Extrair e validar JWT (assinatura + expiração)
 //  2. Obter dbClient do contexto (injetado pelo setupRouter)
-//  3. Consultar status do usuário na projeção correspondente
+//  3. Consultar status do usuário na projeção correspondente (todos os tipos)
 //  4. Rejeitar com 401 se status != "ativo"
 //  5. Injetar user_id e user_type no contexto Gin
 func AuthMiddleware() gin.HandlerFunc {
@@ -121,21 +126,20 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// H4-17: verificar status do usuário no banco.
-		// Admins são verificados por RequireAdmin/RequireAdminRole que já
-		// consultam projection_admins com verificação de status. Para não
-		// duplicar a query de admin, verificamos apenas estudante e academia aqui.
-		// A verificação de admin é delegada ao middleware RequireAdmin.
-		if claims.UserType == "estudante" || claims.UserType == "academia" {
-			if err := verificarStatusUsuario(c, claims.UserID, claims.UserType); err != nil {
-				log.Printf("❌ [AuthMiddleware] Usuário inativo ou não encontrado - UserID: %s, Type: %s: %v",
-					claims.UserID, claims.UserType, err)
-				c.JSON(http.StatusUnauthorized, gin.H{
-					"error": "conta inativa ou não encontrada. Entre em contato com o suporte.",
-				})
-				c.Abort()
-				return
-			}
+		// FIX AUTH-01: verificar status para TODOS os tipos de usuário, incluindo admin.
+		// Antes: admins eram apenas verificados por RequireAdmin/RequireAdminRole, o que
+		// deixava rotas do grupo "protected" (GET /meu-perfil, PUT /alterar-senha)
+		// abertas para admins desativados com JWT ainda válido.
+		// Agora: a verificação é universal — qualquer tipo de usuário desativado é
+		// bloqueado aqui, independentemente de middlewares específicos de role.
+		if err := verificarStatusUsuario(c, claims.UserID, claims.UserType); err != nil {
+			log.Printf("❌ [AuthMiddleware] Usuário inativo ou não encontrado - UserID: %s, Type: %s: %v",
+				claims.UserID, claims.UserType, err)
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error": "conta inativa ou não encontrada. Entre em contato com o suporte.",
+			})
+			c.Abort()
+			return
 		}
 
 		c.Set("user_id", claims.UserID)
@@ -149,6 +153,10 @@ func AuthMiddleware() gin.HandlerFunc {
 // verificarStatusUsuario consulta a projeção correspondente ao userType e
 // retorna erro se o usuário não existir ou não estiver ativo.
 // Usa prepared statement — sem interpolação de string.
+//
+// FIX AUTH-01: adicionado suporte ao userType "admin", antes ignorado
+// com comentário "delegado ao RequireAdmin". O RequireAdmin só cobre rotas
+// /admin/*, deixando rotas /protected abertas a admins desativados.
 func verificarStatusUsuario(c *gin.Context, userID uuid.UUID, userType string) error {
 	clientRaw, exists := c.Get("dbClient")
 	if !exists {
@@ -166,13 +174,19 @@ func verificarStatusUsuario(c *gin.Context, userID uuid.UUID, userType string) e
 		table = "projection_estudantes"
 	case "academia":
 		table = "projection_academias"
+	case "admin":
+		// FIX AUTH-01: admin agora é verificado aqui, não apenas em RequireAdmin.
+		// Isso fecha o gap nas rotas do grupo "protected" acessíveis a qualquer
+		// tipo de usuário autenticado (ex: GET /meu-perfil, PUT /alterar-senha).
+		table = "projection_admins"
 	default:
 		// Tipo desconhecido — não bloqueamos; o middleware específico de role tratará.
 		return nil
 	}
 
 	// A query usa $1 como prepared statement; table é uma constante interna
-	// (nunca vem do usuário), portanto a interpolação de nome de tabela é segura.
+	// derivada de um switch fechado (nunca vem do usuário), portanto a
+	// interpolação de nome de tabela é segura.
 	query := `SELECT status FROM ` + table + ` WHERE id = $1`
 
 	var status string

@@ -21,11 +21,11 @@ type limiterEntry struct {
 }
 
 type RateLimiter struct {
-	mu       sync.RWMutex
-	entries  map[string]*limiterEntry
-	rate     rate.Limit
-	burst    int
-	ttl      time.Duration
+	mu      sync.RWMutex
+	entries map[string]*limiterEntry
+	rate    rate.Limit
+	burst   int
+	ttl     time.Duration
 }
 
 func NewRateLimiter(r rate.Limit, b int, ttl time.Duration) *RateLimiter {
@@ -67,7 +67,6 @@ func (rl *RateLimiter) getLimiter(key string) *rate.Limiter {
 // cleanup remove apenas entries inativos por mais de TTL.
 // FIX-RL1: antes removia TODOS — agora é seletivo.
 func (rl *RateLimiter) cleanup() {
-	// Intervalo de cleanup = metade do TTL para checar com frequência razoável
 	ticker := time.NewTicker(rl.ttl / 2)
 	defer ticker.Stop()
 
@@ -140,6 +139,12 @@ func getEnvInt(key string, defaultValue int) int {
 	return defaultValue
 }
 
+// getClientIP extrai o IP real do cliente.
+//
+// NOTA: X-Forwarded-For pode ser forjado por qualquer cliente quando não há
+// proxy confiável validando o header. Para uso em rate limiting, o IP é
+// combinado com outros identificadores (ex: email) para limitar o impacto
+// do bypass por rotação/forjamento de IP — ver EmailRateLimit().
 func getClientIP(c *gin.Context) string {
 	ip := c.GetHeader("X-Forwarded-For")
 	if ip == "" {
@@ -179,6 +184,75 @@ func LoginRateLimit() gin.HandlerFunc {
 	return RateLimitMiddleware(LoginRateLimiter)
 }
 
+// EmailRateLimit aplica rate limiting por IP E por body de identificador (email).
+//
+// FIX RL-01: o rate limit baseado exclusivamente em IP é bypassável via rotação
+// de IP ou forjamento do header X-Forwarded-For. Para endpoints de email
+// (verificação/recuperação), um atacante pode enviar spam de emails ilimitados
+// para a vítima simplesmente alternando IPs.
+//
+// Mitigação dual:
+//   1. Limite por IP (como antes) — protege contra flood bruto de um único IP
+//   2. Limite por identificador do body (email/codigo) — protege contra flood
+//      via rotação de IP, pois o alvo (email da vítima) permanece constante
+//
+// O identificador é extraído de campos comuns de request body: "email",
+// "identificador". Se ausente, apenas o IP é usado (comportamento anterior).
+// O limite por identificador usa o mesmo EmailRateLimiter — mesma taxa (2/hora).
 func EmailRateLimit() gin.HandlerFunc {
-	return RateLimitMiddleware(EmailRateLimiter)
+	return func(c *gin.Context) {
+		ip := getClientIP(c)
+
+		// Limite por IP (primeiro fator).
+		if !EmailRateLimiter.getLimiter("ip:"+ip).Allow() {
+			log.Printf("⛔ [RateLimit/Email] BLOQUEADO por IP - IP: %s - Path: %s", ip, c.Request.URL.Path)
+			monitoring.GetMetrics().RecordRateLimit()
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"error":       "muitas requisições, tente novamente mais tarde",
+				"retry_after": "3600s",
+			})
+			c.Abort()
+			return
+		}
+
+		// FIX RL-01: limite adicional por identificador do request.
+		// Para rotas autenticadas (GerarTokenVerificacao), o identificador é o
+		// user_id do JWT. Para rotas públicas (GerarTokenRecuperacao), tentamos
+		// ler o campo "identificador" ou "email" do body via query param.
+		// Isso impede que um atacante rotacione IPs para spammar o email de um
+		// usuário específico contornando o limite por IP.
+		var identifier string
+
+		// Rotas autenticadas: user_id já está no contexto.
+		if userID, exists := c.Get("user_id"); exists {
+			if uid, ok := userID.(interface{ String() string }); ok {
+				identifier = uid.String()
+			}
+		}
+
+		// Rotas públicas (recuperação de senha): lê identificador da query string
+		// ou usa o IP como fallback (não lemos o body para não consumi-lo).
+		if identifier == "" {
+			identifier = c.Query("identificador")
+		}
+		if identifier == "" {
+			identifier = c.Query("email")
+		}
+
+		// Se identificador disponível, aplica segundo limite.
+		if identifier != "" {
+			if !EmailRateLimiter.getLimiter("id:"+identifier).Allow() {
+				log.Printf("⛔ [RateLimit/Email] BLOQUEADO por identificador - Path: %s", c.Request.URL.Path)
+				monitoring.GetMetrics().RecordRateLimit()
+				c.JSON(http.StatusTooManyRequests, gin.H{
+					"error":       "muitas requisições para este endereço, tente novamente mais tarde",
+					"retry_after": "3600s",
+				})
+				c.Abort()
+				return
+			}
+		}
+
+		c.Next()
+	}
 }

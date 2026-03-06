@@ -45,7 +45,7 @@ func NewEmailService(db *sqlx.DB) *EmailService {
 	templateReset := os.Getenv("EMAILJS_TEMPLATE_RESET")
 	publicKey := os.Getenv("EMAILJS_PUBLIC_KEY")
 	privateKey := os.Getenv("EMAILJS_PRIVATE_KEY")
-	
+
 	enabled := serviceID != "" && templateVerify != "" && templateReset != "" && publicKey != ""
 
 	if !enabled {
@@ -84,6 +84,12 @@ func GenerateToken() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
+// SaveToken persiste um token de autenticação (verificação ou recuperação).
+//
+// FIX SVC-01: substituído fmt.Sprintf com interpolação direta por prepared
+// statement com $1..$6. Os parâmetros userType, tipo e email vinham
+// diretamente do input HTTP e permitiam SQL injection completo na tabela
+// auth_tokens.
 func (s *EmailService) SaveToken(userID uuid.UUID, userType, tipo, email string, expiresIn time.Duration) (string, error) {
 	token, err := GenerateToken()
 	if err != nil {
@@ -92,12 +98,11 @@ func (s *EmailService) SaveToken(userID uuid.UUID, userType, tipo, email string,
 
 	expiresAt := time.Now().Add(expiresIn)
 
-	query := fmt.Sprintf(`
+	// FIX SVC-01: prepared statement — sem interpolação de string.
+	_, err = s.db.Exec(`
 		INSERT INTO auth_tokens (user_id, user_type, token, tipo, email, expires_at)
-		VALUES ('%s', '%s', '%s', '%s', '%s', '%s')
-	`, userID.String(), userType, token, tipo, email, expiresAt.Format("2006-01-02 15:04:05"))
-
-	_, err = s.db.Exec(query)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, userID, userType, token, tipo, email, expiresAt)
 	if err != nil {
 		return "", fmt.Errorf("erro ao salvar token: %w", err)
 	}
@@ -106,22 +111,30 @@ func (s *EmailService) SaveToken(userID uuid.UUID, userType, tipo, email string,
 	return token, nil
 }
 
+// VerifyToken valida um token e o marca como usado atomicamente.
+//
+// FIX SVC-02: substituídos fmt.Sprintf com interpolação direta por prepared
+// statements com $1/$2. O parâmetro token vinha da URL e permitia SQL
+// injection no SELECT e no UPDATE.
+//
+// FIX SVC-03: o retorno do UPDATE agora é verificado. Se a marcação como
+// usado falhar, o erro é retornado — o token não é considerado válido para
+// evitar reutilização silenciosa.
 func (s *EmailService) VerifyToken(token, tipo string) (*TokenInfo, error) {
-	query := fmt.Sprintf(`
+	var info TokenInfo
+
+	// FIX SVC-02: prepared statement — sem interpolação de string.
+	err := s.db.QueryRow(`
 		SELECT user_id, user_type, email, usado, expires_at
 		FROM auth_tokens
-		WHERE token = '%s' AND tipo = '%s'
-	`, token, tipo)
-
-	var info TokenInfo
-	err := s.db.QueryRow(query).Scan(
+		WHERE token = $1 AND tipo = $2
+	`, token, tipo).Scan(
 		&info.UserID,
 		&info.UserType,
 		&info.Email,
 		&info.Usado,
 		&info.ExpiresAt,
 	)
-
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("token inválido ou expirado")
@@ -137,12 +150,17 @@ func (s *EmailService) VerifyToken(token, tipo string) (*TokenInfo, error) {
 		return nil, fmt.Errorf("token expirado")
 	}
 
-	updateQuery := fmt.Sprintf(`
-		UPDATE auth_tokens 
-		SET usado = TRUE, usado_em = CURRENT_TIMESTAMP 
-		WHERE token = '%s'
+	// FIX SVC-02: prepared statement no UPDATE.
+	// FIX SVC-03: erro do UPDATE não é mais silenciado. Se o UPDATE falhar,
+	// o token permaneceria como não-usado e poderia ser reutilizado.
+	_, err = s.db.Exec(`
+		UPDATE auth_tokens
+		SET usado = TRUE, usado_em = CURRENT_TIMESTAMP
+		WHERE token = $1
 	`, token)
-	s.db.Exec(updateQuery)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao marcar token como usado: %w", err)
+	}
 
 	return &info, nil
 }
@@ -196,7 +214,7 @@ func (s *EmailService) sendEmailViaEmailJS(to, nome, templateID string, params m
 		if err != nil {
 			lastErr = fmt.Errorf("erro na requisição: %w", err)
 			log.Printf("[EMAIL] ❌ Tentativa %d falhou: %v", attempt, lastErr)
-			
+
 			if attempt < maxRetries {
 				time.Sleep(time.Duration(attempt*2) * time.Second)
 			}
@@ -205,12 +223,11 @@ func (s *EmailService) sendEmailViaEmailJS(to, nome, templateID string, params m
 
 		defer resp.Body.Close()
 
-		// Ler o corpo da resposta
 		bodyBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
 			lastErr = fmt.Errorf("erro ao ler resposta: %w", err)
 			log.Printf("[EMAIL] ❌ Tentativa %d falhou: %v", attempt, lastErr)
-			
+
 			if attempt < maxRetries {
 				time.Sleep(time.Duration(attempt*2) * time.Second)
 			}
@@ -220,7 +237,6 @@ func (s *EmailService) sendEmailViaEmailJS(to, nome, templateID string, params m
 		bodyStr := string(bodyBytes)
 		log.Printf("[EMAIL] 📥 Response [%d]: %s", resp.StatusCode, bodyStr)
 
-		// EmailJS retorna "OK" em texto quando sucesso (status 200)
 		if resp.StatusCode == 200 {
 			if bodyStr == "OK" || bodyStr == "\"OK\"" {
 				log.Printf("[EMAIL] ✅ Enviado com sucesso (%d/%d)", attempt, maxRetries)
@@ -228,7 +244,6 @@ func (s *EmailService) sendEmailViaEmailJS(to, nome, templateID string, params m
 			}
 		}
 
-		// Se não for 200 ou não for "OK", tentar parsear como JSON de erro
 		var errorMsg string
 		var jsonError map[string]interface{}
 		if err := json.Unmarshal(bodyBytes, &jsonError); err == nil {
@@ -307,17 +322,16 @@ func (s *EmailService) SendPasswordResetEmail(userID uuid.UUID, userType, email,
 func GetDefaultPassword(userType, codigo string) string {
 	switch userType {
 	case "estudante":
-		return codigo // código do próprio estudante
+		return codigo
 	case "academia":
-		return codigo // código da própria academia
+		return codigo
 	case "admin":
-		// codigo contém o role quando chamado de ResetarSenha ou RegisterAdmin
 		switch codigo {
 		case "fpp":
 			return "spurifpp"
 		case "gerente":
 			return "spurigerente"
-		default: // "adm" e qualquer outro
+		default:
 			return "spuriadm"
 		}
 	default:

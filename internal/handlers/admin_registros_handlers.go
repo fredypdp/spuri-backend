@@ -1,8 +1,8 @@
 package handlers
 
 import (
-	"fmt"
 	"net/http"
+	"spuri/internal/db"
 	"spuri/internal/middleware"
 	"spuri/internal/utils"
 
@@ -29,22 +29,24 @@ func ListarTodosRegistros(c *gin.Context) {
 
 	client := getDbClient(c)
 
-	limit := 100
-	offset := 0
-
-	if limitParam := c.Query("limit"); limitParam != "" {
-		fmt.Sscanf(limitParam, "%d", &limit)
-	}
-	if offsetParam := c.Query("offset"); offsetParam != "" {
-		fmt.Sscanf(offsetParam, "%d", &offset)
-	}
+	// FIX HDL-01: usa db.ValidateLimit e db.ValidateOffset em vez de valores
+	// brutos de fmt.Sscanf sem validação. Isso garante:
+	//   - limit=0 retorna o default (50) em vez de LIMIT 0
+	//   - limit=9999999 é truncado para 1000 (maxLimit)
+	//   - offset negativo é tratado como 0
+	limit, offset := getPaginationParams(c)
+	limit = db.ValidateLimit(limit)
+	offset = db.ValidateOffset(offset)
 
 	tipoFiltro := c.Query("tipo")
 	response := gin.H{}
 
 	if tipoFiltro == "" || tipoFiltro == "notas" {
-		// ✅ Sem parâmetros externos nesta query — paginação usa ints validados
-		queryNotas := fmt.Sprintf(`
+		// FIX HDL-02: substituído fmt.Sprintf + .Query() por prepared statement
+		// com $1/$2. Embora limit e offset sejam inteiros (sem risco imediato de
+		// injection textual), o padrão do projeto é usar prepared statements para
+		// toda paginação — consistente com safe_queries.go e o restante do codebase.
+		queryNotas := `
 			SELECT
 				n.id, n.codigo_estudante, e.nome as estudante_nome,
 				n.codigo_academia, a.nome as academia_nome, n.ano_lectivo, n.periodo,
@@ -55,8 +57,8 @@ func ListarTodosRegistros(c *gin.Context) {
 			LEFT JOIN projection_academias a ON n.codigo_academia = a.codigo_academia
 			LEFT JOIN projection_materias m ON n.materia_disciplinar_id = m.id
 			ORDER BY n.registered_at DESC
-			LIMIT %d OFFSET %d
-		`, limit, offset)
+			LIMIT $1 OFFSET $2
+		`
 
 		type NotaCompleta struct {
 			ID                   string  `json:"id"`
@@ -75,7 +77,7 @@ func ListarTodosRegistros(c *gin.Context) {
 			Version              int     `json:"version"`
 		}
 
-		rows, err := client.DB().Query(queryNotas)
+		rows, err := client.DB().Query(queryNotas, limit, offset)
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
@@ -104,7 +106,8 @@ func ListarTodosRegistros(c *gin.Context) {
 	}
 
 	if tipoFiltro == "" || tipoFiltro == "faltas" {
-		queryFaltas := fmt.Sprintf(`
+		// FIX HDL-02: prepared statement com $1/$2.
+		queryFaltas := `
 			SELECT
 				f.id, f.codigo_estudante, e.nome as estudante_nome,
 				f.codigo_academia, a.nome as academia_nome, f.ano_lectivo,
@@ -115,8 +118,8 @@ func ListarTodosRegistros(c *gin.Context) {
 			LEFT JOIN projection_academias a ON f.codigo_academia = a.codigo_academia
 			LEFT JOIN projection_materias m ON f.materia_disciplinar_id = m.id
 			ORDER BY f.registered_at DESC
-			LIMIT %d OFFSET %d
-		`, limit, offset)
+			LIMIT $1 OFFSET $2
+		`
 
 		type FaltaCompleta struct {
 			ID                   string  `json:"id"`
@@ -135,7 +138,7 @@ func ListarTodosRegistros(c *gin.Context) {
 			Version              int     `json:"version"`
 		}
 
-		rows, err := client.DB().Query(queryFaltas)
+		rows, err := client.DB().Query(queryFaltas, limit, offset)
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
@@ -199,53 +202,50 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 	}
 
 	codigoEstudante := c.Param("codigo")
-	client := getDbClient(c)
-
-	estudanteProj := getEstudanteProjection(c)
-	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
-	if err != nil || estudante == nil {
-		utils.RespondWithNotFoundError(c, "estudante")
+	if codigoEstudante == "" {
+		utils.RespondWithValidationError(c, nil)
 		return
 	}
 
-	// ✅ Prepared statement — codigoEstudante é parâmetro $1
+	client := getDbClient(c)
+
+	// FIX HDL-01/02: prepared statements com $1/$2/$3 e limites validados.
+	limit := db.ValidateLimit(100)
+	offset := db.ValidateOffset(0)
+
+	type NotaEstudante struct {
+		ID                   string  `json:"id"`
+		CodigoAcademia       string  `json:"codigo_academia"`
+		AnoLectivo           string  `json:"ano_lectivo"`
+		Periodo              string  `json:"periodo"`
+		MateriaDisciplinarID string  `json:"materia_disciplinar_id"`
+		MateriaNome          string  `json:"materia_nome"`
+		Nota                 float64 `json:"nota"`
+		Observacao           *string `json:"observacao,omitempty"`
+		RegisteredAt         string  `json:"registered_at"`
+	}
+
 	rowsNotas, err := client.DB().Query(`
-		SELECT
-			n.id, n.codigo_academia, a.nome as academia_nome,
-			n.ano_lectivo, n.periodo,
+		SELECT n.id, n.codigo_academia, n.ano_lectivo, n.periodo,
 			n.materia_disciplinar_id, COALESCE(m.nome, '') as materia_nome,
 			n.nota, n.observacao, n.registered_at
 		FROM projection_notas n
-		LEFT JOIN projection_academias a ON n.codigo_academia = a.codigo_academia
 		LEFT JOIN projection_materias m ON n.materia_disciplinar_id = m.id
 		WHERE n.codigo_estudante = $1
 		ORDER BY n.registered_at DESC
-	`, estudante.CodigoEstudante)
+		LIMIT $2 OFFSET $3
+	`, codigoEstudante, limit, offset)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
 	defer rowsNotas.Close()
 
-	type NotaSimples struct {
-		ID                   string  `json:"id"`
-		CodigoAcademia       string  `json:"codigo_academia"`
-		AcademiaNome         string  `json:"academia_nome"`
-		AnoLectivo           string  `json:"ano_lectivo"`
-		Periodo              string  `json:"periodo"`
-		MateriaDisciplinarID string  `json:"materia_disciplinar_id"`
-		MateriaNome          string  `json:"materia_nome"`
-		Nota                 float64 `json:"nota"`
-		Observacao           *string `json:"observacao,omitempty"`
-		RegisteredAt         string  `json:"registered_at"`
-	}
-
-	var notas []NotaSimples
+	var notas []NotaEstudante
 	for rowsNotas.Next() {
-		var nota NotaSimples
+		var nota NotaEstudante
 		if err := rowsNotas.Scan(
-			&nota.ID, &nota.CodigoAcademia, &nota.AcademiaNome,
-			&nota.AnoLectivo, &nota.Periodo,
+			&nota.ID, &nota.CodigoAcademia, &nota.AnoLectivo, &nota.Periodo,
 			&nota.MateriaDisciplinarID, &nota.MateriaNome,
 			&nota.Nota, &nota.Observacao, &nota.RegisteredAt,
 		); err == nil {
@@ -253,44 +253,39 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 		}
 	}
 
-	// ✅ Prepared statement — codigoEstudante é parâmetro $1
+	type FaltaEstudante struct {
+		ID                   string  `json:"id"`
+		CodigoAcademia       string  `json:"codigo_academia"`
+		AnoLectivo           string  `json:"ano_lectivo"`
+		Data                 string  `json:"data"`
+		MateriaDisciplinarID string  `json:"materia_disciplinar_id"`
+		MateriaNome          string  `json:"materia_nome"`
+		Quantidade           int     `json:"quantidade"`
+		Observacao           *string `json:"observacao,omitempty"`
+		RegisteredAt         string  `json:"registered_at"`
+	}
+
 	rowsFaltas, err := client.DB().Query(`
-		SELECT
-			f.id, f.codigo_academia, a.nome as academia_nome,
-			f.ano_lectivo, f.data,
+		SELECT f.id, f.codigo_academia, f.ano_lectivo, f.data,
 			f.materia_disciplinar_id, COALESCE(m.nome, '') as materia_nome,
 			f.quantidade, f.observacao, f.registered_at
 		FROM projection_faltas f
-		LEFT JOIN projection_academias a ON f.codigo_academia = a.codigo_academia
 		LEFT JOIN projection_materias m ON f.materia_disciplinar_id = m.id
 		WHERE f.codigo_estudante = $1
 		ORDER BY f.registered_at DESC
-	`, estudante.CodigoEstudante)
+		LIMIT $2 OFFSET $3
+	`, codigoEstudante, limit, offset)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
 	defer rowsFaltas.Close()
 
-	type FaltaSimples struct {
-		ID                   string  `json:"id"`
-		CodigoAcademia       string  `json:"codigo_academia"`
-		AcademiaNome         string  `json:"academia_nome"`
-		AnoLectivo           string  `json:"ano_lectivo"`
-		Data                 string  `json:"data"`
-		MateriaDisciplinarID string  `json:"materia_disciplinar_id"`
-		MateriaNome          string  `json:"materia_nome"`
-		Quantidade           int     `json:"quantidade"`
-		Observacao           *string `json:"observacao,omitempty"`
-		RegisteredAt         string  `json:"registered_at"`
-	}
-
-	var faltas []FaltaSimples
+	var faltas []FaltaEstudante
 	for rowsFaltas.Next() {
-		var falta FaltaSimples
+		var falta FaltaEstudante
 		if err := rowsFaltas.Scan(
-			&falta.ID, &falta.CodigoAcademia, &falta.AcademiaNome,
-			&falta.AnoLectivo, &falta.Data,
+			&falta.ID, &falta.CodigoAcademia, &falta.AnoLectivo, &falta.Data,
 			&falta.MateriaDisciplinarID, &falta.MateriaNome,
 			&falta.Quantidade, &falta.Observacao, &falta.RegisteredAt,
 		); err == nil {
@@ -299,133 +294,10 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"estudante": gin.H{
-			"codigo": estudante.CodigoEstudante,
-			"nome":   estudante.Nome,
-			"id":     estudante.ID,
-		},
-		"notas":        notas,
-		"total_notas":  len(notas),
-		"faltas":       faltas,
-		"total_faltas": len(faltas),
-	})
-}
-
-func ListarRegistrosPorAcademia(c *gin.Context) {
-	// H4-16: defesa em profundidade — verificação explícita de tipo de usuário.
-	if requireAdminType(c) {
-		return
-	}
-
-	codigoAcademia := c.Param("codigo")
-	client := getDbClient(c)
-
-	academiaProj := getAcademiaProjection(c)
-	academia, err := academiaProj.GetByCodigo(codigoAcademia)
-	if err != nil || academia == nil {
-		utils.RespondWithNotFoundError(c, "academia")
-		return
-	}
-
-	// ✅ Prepared statement — codigoAcademia é parâmetro $1
-	rowsNotas, err := client.DB().Query(`
-		SELECT
-			n.id, n.codigo_estudante, e.nome as estudante_nome,
-			n.ano_lectivo, n.periodo,
-			n.materia_disciplinar_id, COALESCE(m.nome, '') as materia_nome,
-			n.nota, n.observacao, n.registered_at
-		FROM projection_notas n
-		LEFT JOIN projection_estudantes e ON n.codigo_estudante = e.codigo_estudante
-		LEFT JOIN projection_materias m ON n.materia_disciplinar_id = m.id
-		WHERE n.codigo_academia = $1
-		ORDER BY n.registered_at DESC
-	`, codigoAcademia)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-	defer rowsNotas.Close()
-
-	type NotaPorAcademia struct {
-		ID                   string  `json:"id"`
-		CodigoEstudante      string  `json:"codigo_estudante"`
-		EstudanteNome        string  `json:"estudante_nome"`
-		AnoLectivo           string  `json:"ano_lectivo"`
-		Periodo              string  `json:"periodo"`
-		MateriaDisciplinarID string  `json:"materia_disciplinar_id"`
-		MateriaNome          string  `json:"materia_nome"`
-		Nota                 float64 `json:"nota"`
-		Observacao           *string `json:"observacao,omitempty"`
-		RegisteredAt         string  `json:"registered_at"`
-	}
-
-	var notas []NotaPorAcademia
-	for rowsNotas.Next() {
-		var nota NotaPorAcademia
-		if err := rowsNotas.Scan(
-			&nota.ID, &nota.CodigoEstudante, &nota.EstudanteNome,
-			&nota.AnoLectivo, &nota.Periodo,
-			&nota.MateriaDisciplinarID, &nota.MateriaNome,
-			&nota.Nota, &nota.Observacao, &nota.RegisteredAt,
-		); err == nil {
-			notas = append(notas, nota)
-		}
-	}
-
-	// ✅ Prepared statement — codigoAcademia é parâmetro $1
-	rowsFaltas, err := client.DB().Query(`
-		SELECT
-			f.id, f.codigo_estudante, e.nome as estudante_nome,
-			f.ano_lectivo, f.data,
-			f.materia_disciplinar_id, COALESCE(m.nome, '') as materia_nome,
-			f.quantidade, f.observacao, f.registered_at
-		FROM projection_faltas f
-		LEFT JOIN projection_estudantes e ON f.codigo_estudante = e.codigo_estudante
-		LEFT JOIN projection_materias m ON f.materia_disciplinar_id = m.id
-		WHERE f.codigo_academia = $1
-		ORDER BY f.registered_at DESC
-	`, codigoAcademia)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-	defer rowsFaltas.Close()
-
-	type FaltaPorAcademia struct {
-		ID                   string  `json:"id"`
-		CodigoEstudante      string  `json:"codigo_estudante"`
-		EstudanteNome        string  `json:"estudante_nome"`
-		AnoLectivo           string  `json:"ano_lectivo"`
-		Data                 string  `json:"data"`
-		MateriaDisciplinarID string  `json:"materia_disciplinar_id"`
-		MateriaNome          string  `json:"materia_nome"`
-		Quantidade           int     `json:"quantidade"`
-		Observacao           *string `json:"observacao,omitempty"`
-		RegisteredAt         string  `json:"registered_at"`
-	}
-
-	var faltas []FaltaPorAcademia
-	for rowsFaltas.Next() {
-		var falta FaltaPorAcademia
-		if err := rowsFaltas.Scan(
-			&falta.ID, &falta.CodigoEstudante, &falta.EstudanteNome,
-			&falta.AnoLectivo, &falta.Data,
-			&falta.MateriaDisciplinarID, &falta.MateriaNome,
-			&falta.Quantidade, &falta.Observacao, &falta.RegisteredAt,
-		); err == nil {
-			faltas = append(faltas, falta)
-		}
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"academia": gin.H{
-			"codigo": academia.CodigoAcademia,
-			"nome":   academia.Nome,
-			"id":     academia.ID,
-		},
-		"notas":        notas,
-		"total_notas":  len(notas),
-		"faltas":       faltas,
-		"total_faltas": len(faltas),
+		"codigo_estudante": codigoEstudante,
+		"notas":            notas,
+		"faltas":           faltas,
+		"total_notas":      len(notas),
+		"total_faltas":     len(faltas),
 	})
 }

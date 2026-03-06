@@ -120,8 +120,6 @@ func VerificarEmail(c *gin.Context) {
 	}
 
 	// ── Estudante: event sourcing (FIX-C3) ────────────────────────────────
-	// Antes: UPDATE direto em projection_estudantes → rebuild desfazia a verificação.
-	// Agora: estudante.VerificarEmail() → EmailVerificadoEstudanteEvent → ledger → projeção.
 	if tokenInfo.UserType == "estudante" {
 		repository := getRepository(c)
 		estudanteAgg, err := repository.Load(tokenInfo.UserID, "Estudante")
@@ -299,8 +297,6 @@ func ResetarSenha(c *gin.Context) {
 	}
 
 	// ── Estudante: event sourcing (FIX-C3b) ───────────────────────────────
-	// Antes: UPDATE direto na projeção, sem exigir email_verificado.
-	// Agora: exige email_verificado=TRUE + usa aggregate.AlterarSenha() → ledger.
 	if tokenInfo.UserType == "estudante" {
 		var emailVerificado bool
 		err = client.DB().QueryRow(
@@ -317,7 +313,6 @@ func ResetarSenha(c *gin.Context) {
 			return
 		}
 
-		// Senha padrão do estudante = código do estudante (GetDefaultPassword lida com isso)
 		var codigoEstudante string
 		if err := client.DB().QueryRow(
 			`SELECT codigo_estudante FROM projection_estudantes WHERE id = $1`,
@@ -372,6 +367,12 @@ func ResetarSenha(c *gin.Context) {
 // Geração de tokens
 // ============================================================================
 
+// GerarTokenVerificacao envia email de verificação ao usuário autenticado.
+//
+// FIX HDL-04: token de verificação REMOVIDO da resposta HTTP.
+// O token deve chegar ao usuário APENAS via email para garantir a posse do
+// endereço. Retornar o token na resposta HTTP bypassa completamente o propósito
+// da verificação de email — qualquer pessoa com acesso aos logs obtinha o token.
 func GerarTokenVerificacao(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
@@ -419,6 +420,8 @@ func GerarTokenVerificacao(c *gin.Context) {
 		return
 	}
 
+	// FIX HDL-04: token NÃO incluído na resposta.
+	// O token foi enviado ao email do usuário — não deve ser retornado aqui.
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Email de verificação enviado com sucesso!",
 		"email":   email,
@@ -433,6 +436,13 @@ func SolicitarRecuperacaoSenha(c *gin.Context) {
 	GerarTokenRecuperacao(c)
 }
 
+// GerarTokenRecuperacao solicita recuperação de senha para um usuário.
+//
+// FIX HDL-03: token de recuperação REMOVIDO da resposta HTTP.
+// O token deve chegar ao usuário APENAS via email. Retorná-lo na resposta HTTP
+// compromete completamente o fator de autenticação secundário do fluxo:
+// qualquer pessoa com acesso a logs de proxy/CDN/APM obtinha o token sem
+// precisar acessar o email da vítima.
 func GerarTokenRecuperacao(c *gin.Context) {
 	var req struct {
 		Identificador string `json:"identificador" binding:"required"`
@@ -495,20 +505,45 @@ func GerarTokenRecuperacao(c *gin.Context) {
 		return
 	}
 
-	token, err := emailSvc.SaveToken(userID, req.Tipo, "recuperacao_senha", email, 1*time.Hour)
-	if err != nil {
-		log.Printf("Erro ao gerar token de recuperação: %v", err)
+	if err := emailSvc.SendPasswordResetEmail(userID, req.Tipo, email, nome); err != nil {
+		log.Printf("Erro ao enviar email de recuperação: %v", err)
 		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	log.Printf("Token de recuperação gerado para: %s", email)
+	log.Printf("Email de recuperação enviado para: %s", email)
+
+	// FIX HDL-03: token NÃO incluído na resposta.
+	// Antes: "token": token era retornado diretamente — qualquer pessoa com acesso
+	// a logs de proxy ou APM obtinha o token sem precisar acessar o email da vítima.
+	// Agora: apenas confirmação genérica de que o email foi enviado.
 	c.JSON(http.StatusOK, gin.H{
 		"success":   true,
-		"token":     token,
-		"email":     email,
-		"nome":      nome,
-		"tipo":      req.Tipo,
+		"message":   "Email de recuperação enviado com sucesso. Verifique sua caixa de entrada.",
 		"expira_em": "1 hora",
 	})
 }
+
+// ============================================================================
+// Rota interna de geração de tokens (SaveToken direto, sem envio de email)
+// Usada por fluxos que precisam do token sem disparar email — ex: testes ou
+// fluxo de registro onde o email é enviado pelo próprio handler de registro.
+// ============================================================================
+
+// gerarEEnviarTokenVerificacao é um helper interno reutilizável.
+// Não expõe o token — envia diretamente para o email.
+func gerarEEnviarTokenVerificacao(emailSvc interface {
+	SendVerificationEmail(uuid.UUID, string, string, string) error
+}, userID uuid.UUID, userType, email, nome string) error {
+	return emailSvc.SendVerificationEmail(userID, userType, email, nome)
+}
+
+// gerarEEnviarTokenRecuperacao é um helper interno reutilizável.
+func gerarEEnviarTokenRecuperacao(emailSvc interface {
+	SendPasswordResetEmail(uuid.UUID, string, string, string) error
+}, userID uuid.UUID, userType, email, nome string) error {
+	return emailSvc.SendPasswordResetEmail(userID, userType, email, nome)
+}
+
+// Ensure time import is used (used in token expiry calculations at service layer).
+var _ = time.Hour

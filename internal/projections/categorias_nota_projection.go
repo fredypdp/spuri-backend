@@ -115,69 +115,41 @@ func (p *CategoriasNotaProjection) Rebuild() error {
 	return rows.Err()
 }
 
+// clear limpa a tabela de categorias de nota.
+//
+// FIX PROJ-06: substituído TRUNCATE TABLE ... CASCADE por DELETE FROM.
+// TRUNCATE CASCADE propaga a deleção para tabelas dependentes via FK, podendo
+// silenciosamente destruir dados de outras projeções sem disparar seus rebuilds.
+// DELETE FROM remove apenas as linhas desta tabela, sem efeitos colaterais em
+// tabelas relacionadas. Como projection_categorias_nota raramente tem dependentes
+// críticos em runtime, DELETE é seguro e correto aqui.
 func (p *CategoriasNotaProjection) clear() error {
-	_, err := p.client.DB().Exec(`TRUNCATE TABLE projection_categorias_nota CASCADE`)
+	_, err := p.client.DB().Exec(`DELETE FROM projection_categorias_nota`)
 	return err
-}
-
-// ============================================================================
-// Handler de evento
-// ============================================================================
-
-// handleCategoriaAdicionada — P3-09: lê AdicionadoPor do payload e persiste.
-func (p *CategoriasNotaProjection) handleCategoriaAdicionada(event db.Event) error {
-	var payload struct {
-		CodigoAcademia string     `json:"CodigoAcademia"`
-		Nome           string     `json:"Nome"`
-		Descricao      *string    `json:"Descricao"`
-		// P3-09: campo estava ausente — adicionado para rastreabilidade de quem criou.
-		AdicionadoPor  uuid.UUID  `json:"AdicionadoPor"`
-		CreatedAt      time.Time  `json:"CreatedAt"`
-	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("handleCategoriaAdicionada: parse error: %w", err)
-	}
-
-	_, err := p.client.DB().Exec(`
-		INSERT INTO projection_categorias_nota (
-			id, codigo_academia, nome, descricao, adicionado_por,
-			status, created_at, event_id, version
-		) VALUES (
-			$1, $2, $3, $4, $5,
-			'ativo', $6, $7, $8
-		)
-		ON CONFLICT (codigo_academia, nome) DO NOTHING
-	`,
-		event.AggregateID,
-		payload.CodigoAcademia, payload.Nome, payload.Descricao, payload.AdicionadoPor,
-		payload.CreatedAt, event.EventID, event.EventVersion,
-	)
-	if err != nil {
-		return fmt.Errorf("handleCategoriaAdicionada: exec error: %w", err)
-	}
-	return nil
 }
 
 // ============================================================================
 // Queries de leitura
 // ============================================================================
 
+// CategoriaNotaDTO representa uma categoria de nota cadastrada por uma academia.
 type CategoriaNotaDTO struct {
 	ID             uuid.UUID  `json:"id"`
 	CodigoAcademia string     `json:"codigo_academia"`
 	Nome           string     `json:"nome"`
 	Descricao      *string    `json:"descricao,omitempty"`
-	AdicionadoPor  uuid.UUID  `json:"adicionado_por"`
+	AdicionadoPor  *uuid.UUID `json:"adicionado_por,omitempty"`
 	Status         string     `json:"status"`
 	CreatedAt      time.Time  `json:"created_at"`
-	EventID        uuid.UUID  `json:"event_id"`
 	Version        int        `json:"version"`
 }
 
-func (p *CategoriasNotaProjection) GetByAcademia(codigoAcademia string) ([]CategoriaNotaDTO, error) {
+// ListarPorAcademia retorna todas as categorias ativas de uma academia.
+// Usado por ListarCategoriasNota e carregarCategoriasAdicionais.
+func (p *CategoriasNotaProjection) ListarPorAcademia(codigoAcademia string) ([]CategoriaNotaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT id, codigo_academia, nome, descricao, adicionado_por,
-			status, created_at, event_id, version
+			status, created_at, version
 		FROM projection_categorias_nota
 		WHERE codigo_academia = $1 AND status = 'ativo'
 		ORDER BY created_at ASC
@@ -190,17 +162,25 @@ func (p *CategoriasNotaProjection) GetByAcademia(codigoAcademia string) ([]Categ
 	var cats []CategoriaNotaDTO
 	for rows.Next() {
 		var c CategoriaNotaDTO
+		var adicionadoPor sql.NullString
 		if err := rows.Scan(
-			&c.ID, &c.CodigoAcademia, &c.Nome, &c.Descricao, &c.AdicionadoPor,
-			&c.Status, &c.CreatedAt, &c.EventID, &c.Version,
+			&c.ID, &c.CodigoAcademia, &c.Nome, &c.Descricao, &adicionadoPor,
+			&c.Status, &c.CreatedAt, &c.Version,
 		); err != nil {
 			return nil, err
+		}
+		if adicionadoPor.Valid {
+			uid, _ := uuid.Parse(adicionadoPor.String)
+			c.AdicionadoPor = &uid
 		}
 		cats = append(cats, c)
 	}
 	return cats, rows.Err()
 }
 
+// GetNomesByAcademia retorna apenas os nomes das categorias ativas de uma academia.
+// Usado por CriarCategoriaNotaSuperior para verificar duplicatas antes de
+// emitir o evento — sem expor o DTO completo ao aggregate.
 func (p *CategoriasNotaProjection) GetNomesByAcademia(codigoAcademia string) ([]string, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT nome FROM projection_categorias_nota
@@ -223,8 +203,46 @@ func (p *CategoriasNotaProjection) GetNomesByAcademia(codigoAcademia string) ([]
 	return nomes, rows.Err()
 }
 
-// ListarPorAcademia é um alias de GetByAcademia.
-// Mantido para compatibilidade com notas_handlers.go.
-func (p *CategoriasNotaProjection) ListarPorAcademia(codigoAcademia string) ([]CategoriaNotaDTO, error) {
-	return p.GetByAcademia(codigoAcademia)
+// ============================================================================
+// Handler de evento
+// ============================================================================
+
+// handleCategoriaAdicionada — P3-09: lê AdicionadoPor do payload e persiste.
+func (p *CategoriasNotaProjection) handleCategoriaAdicionada(event db.Event) error {
+	var payload struct {
+		CodigoAcademia string     `json:"CodigoAcademia"`
+		Nome           string     `json:"Nome"`
+		Descricao      *string    `json:"Descricao"`
+		AdicionadoPor  *uuid.UUID `json:"AdicionadoPor"`
+		AdicionadoEm   time.Time  `json:"AdicionadoEm"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("handleCategoriaAdicionada: parse error: %w", err)
+	}
+
+	var adicionadoPor interface{}
+	if payload.AdicionadoPor != nil {
+		adicionadoPor = payload.AdicionadoPor.String()
+	}
+
+	_, err := p.client.DB().Exec(`
+		INSERT INTO projection_categorias_nota (
+			id, codigo_academia, nome, descricao, adicionado_por,
+			status, created_at, event_id, version
+		) VALUES ($1, $2, $3, $4, $5, 'ativo', $6, $7, $8)
+		ON CONFLICT (codigo_academia, nome) DO NOTHING
+	`,
+		event.AggregateID,
+		payload.CodigoAcademia,
+		payload.Nome,
+		payload.Descricao,
+		adicionadoPor,
+		payload.AdicionadoEm,
+		event.EventID,
+		event.EventVersion,
+	)
+	if err != nil {
+		return fmt.Errorf("handleCategoriaAdicionada: exec error: %w", err)
+	}
+	return nil
 }

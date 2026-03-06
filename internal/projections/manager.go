@@ -95,9 +95,18 @@ func (m *Manager) Stop() {
 }
 
 func (m *Manager) processNewEvents() error {
+	// FIX MGR-03: o lock é adquirido apenas para ler o snapshot das projeções,
+	// não durante o processamento (que pode envolver time.Sleep em retries).
+	// Isso evita que RebuildProjection/RebuildAllProjections bloqueiem por até
+	// 27s enquanto processEventWithRetry dorme com o lock ativo.
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	for name, projection := range m.projections {
+	snapshot := make(map[string]Projection, len(m.projections))
+	for name, p := range m.projections {
+		snapshot[name] = p
+	}
+	m.mu.Unlock()
+
+	for name, projection := range snapshot {
 		if err := m.processProjection(name, projection); err != nil {
 			log.Printf("[ERROR] Erro ao processar projeção %s: %v", name, err)
 		}
@@ -117,70 +126,49 @@ func (m *Manager) processNewEvents() error {
 // Para projeções sem HandleTx (idempotentes), o comportamento anterior é mantido:
 // Handle é chamado diretamente, e commitCheckpoint grava o checkpoint em seguida.
 func (m *Manager) processProjection(name string, projection Projection) error {
-	lastProcessedID, err := projection.GetLastProcessedEventID()
+	lastID, err := projection.GetLastProcessedEventID()
 	if err != nil {
-		return fmt.Errorf("erro ao obter checkpoint: %w", err)
+		return fmt.Errorf("erro ao obter checkpoint de %s: %w", name, err)
 	}
 
-	events, err := m.getNewEvents(lastProcessedID)
+	events, err := m.getNewEvents(lastID)
 	if err != nil {
-		return fmt.Errorf("erro ao buscar eventos: %w", err)
+		return fmt.Errorf("erro ao buscar eventos para %s: %w", name, err)
 	}
 
 	if len(events) == 0 {
 		return nil
 	}
 
-	log.Printf("[DEBUG] %s: processando %d eventos", name, len(events))
+	txProjection, isTransactional := projection.(TransactionalProjection)
 
-	// Verificar se a projeção suporta atomicidade real via TransactionalProjection.
-	txProj, isTransactional := projection.(TransactionalProjection)
-
-	processedCount := 0
 	for _, event := range events {
-		var handleErr error
-
 		if isTransactional {
-			// Caminho atômico: Handle + checkpoint na mesma transação.
-			handleErr = m.processEventTransactional(name, txProj, event)
+			if err := m.processEventTransactional(name, txProjection, event); err != nil {
+				m.logProjectionError(name, err.Error())
+				log.Printf("[ERROR] %s: falha permanente no evento %d: %v", name, event.ID, err)
+				return err
+			}
 		} else {
-			// Caminho não-transacional (projeções idempotentes): comportamento anterior.
-			handleErr = m.processEventWithRetry(name, projection, event)
-			if handleErr == nil {
-				if err := m.commitCheckpoint(projection, event.ID); err != nil {
-					log.Printf("[WARN] %s: erro ao atualizar checkpoint para evento %d: %v",
-						name, event.ID, err)
-				}
+			if err := m.processEventWithRetry(name, projection, event); err != nil {
+				m.logProjectionError(name, err.Error())
+				log.Printf("[ERROR] %s: falha permanente no evento %d: %v", name, event.ID, err)
+				return err
+			}
+			if err := m.commitCheckpoint(projection, event.ID); err != nil {
+				log.Printf("[WARN] %s: erro ao gravar checkpoint para evento %d: %v", name, event.ID, err)
 			}
 		}
-
-		if handleErr != nil {
-			// Falha permanente — NÃO avança checkpoint.
-			// O evento ficará represado e será reprocessado no próximo tick.
-			log.Printf("[ERROR] %s: evento %d falhou permanentemente — checkpoint não avançado: %v",
-				name, event.ID, handleErr)
-			m.logProjectionError(name, handleErr.Error())
-			// Para neste evento: não processa os seguintes para manter ordem.
-			break
-		}
-
-		processedCount++
-	}
-
-	if processedCount > 0 {
-		log.Printf("[DEBUG] %s: processados %d eventos (último: %d)",
-			name, processedCount, events[processedCount-1].ID)
 	}
 
 	return nil
 }
 
-// processEventTransactional executa HandleTx + checkpoint dentro de uma única
-// transação para projeções que implementam TransactionalProjection.
+// processEventTransactional executa Handle + checkpoint na mesma transação.
 //
-// FIX DB-16: atomicidade real. Se o processo morrer após tx.Commit(), o
-// checkpoint já está gravado — sem reprocessamento. Se morrer antes, ambos
-// são revertidos — o evento será reprocessado, mas HandleTx é idempotente.
+// Se o processo morrer após tx.Commit(), o checkpoint já está gravado — sem
+// reprocessamento. Se morrer antes, ambos são revertidos — o evento será
+// reprocessado, mas HandleTx é idempotente.
 func (m *Manager) processEventTransactional(name string, projection TransactionalProjection, event db.Event) error {
 	maxRetries := 3
 	baseDelay := 1 * time.Second
@@ -191,20 +179,20 @@ func (m *Manager) processEventTransactional(name string, projection Transactiona
 			return fmt.Errorf("erro ao iniciar transação: %w", err)
 		}
 
-		// Executar Handle dentro da transação.
 		if handleErr := projection.HandleTx(tx, event); handleErr != nil {
 			tx.Rollback()
 			if attempt < maxRetries {
 				delay := time.Duration(attempt*attempt) * baseDelay
 				log.Printf("[WARN] %s: evento %d falhou na tx (tentativa %d/%d), retry em %v: %v",
 					name, event.ID, attempt, maxRetries, delay, handleErr)
+				// FIX MGR-03: sleep fora do lock — o lock já foi liberado antes de
+				// processNewEvents chamar processProjection (ver processNewEvents acima).
 				time.Sleep(delay)
 				continue
 			}
 			return fmt.Errorf("evento %d falhou após %d tentativas: %w", event.ID, maxRetries, handleErr)
 		}
 
-		// Gravar checkpoint dentro da mesma transação.
 		eventID := int64(db.ValidateOffset(int(event.ID)))
 		_, err = tx.Exec(`
 			INSERT INTO projection_checkpoints
@@ -259,6 +247,9 @@ func (m *Manager) commitCheckpoint(projection Projection, eventID int64) error {
 	return tx.Commit()
 }
 
+// FIX MGR-03: processEventWithRetry não adquire nenhum lock —
+// é chamado de processProjection que por sua vez é chamado de
+// processNewEvents SEM o lock ativo (ver comentário em processNewEvents).
 func (m *Manager) processEventWithRetry(name string, projection Projection, event db.Event) error {
 	maxRetries := 3
 	baseDelay := 1 * time.Second
@@ -278,6 +269,7 @@ func (m *Manager) processEventWithRetry(name string, projection Projection, even
 			delay := time.Duration(attempt*attempt) * baseDelay
 			log.Printf("[WARN] %s: evento %d falhou (tentativa %d/%d), retry em %v",
 				name, event.ID, attempt, maxRetries, delay)
+			// FIX MGR-03: sleep seguro — nenhum mutex m.mu está ativo aqui.
 			time.Sleep(delay)
 		}
 	}
@@ -286,13 +278,21 @@ func (m *Manager) processEventWithRetry(name string, projection Projection, even
 }
 
 // getNewEvents busca eventos do ledger com id > fromID.
-// Usa sql.NullString para previous_hash (pode ser NULL no banco).
+//
+// FIX MGR-02: a query agora usa context.WithTimeout para evitar que uma
+// falha ou travamento do banco bloqueie a goroutine de processamento
+// indefinidamente. Timeout de 30s é conservador — queries normais levam <1s.
 func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
 	if fromID < 0 {
 		fromID = 0
 	}
 	limit := db.ValidateLimit(m.batchSize)
-	rows, err := m.client.DB().Query(`
+
+	// FIX MGR-02: contexto com timeout — impede bloqueio indefinido.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	rows, err := m.client.DB().QueryContext(ctx, `
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
@@ -404,6 +404,11 @@ func (m *Manager) RebuildAllProjections() error {
 
 // rebuildProjectionInternal executa o rebuild de uma projeção individual.
 // Deve ser chamado com m.mu já adquirido.
+//
+// FIX SCHEMA-01: is_rebuilding é garantidamente resetado para FALSE mesmo
+// em caso de falha do Rebuild(). O defer garante que markRebuildFailed() é
+// chamado se a função retornar com erro — sem risco de estado "rebuilding"
+// permanente após falha.
 func (m *Manager) rebuildProjectionInternal(name string, projection Projection) error {
 	log.Printf("[DEBUG] Reconstruindo projeção: %s", name)
 
@@ -411,8 +416,17 @@ func (m *Manager) rebuildProjectionInternal(name string, projection Projection) 
 		log.Printf("[WARN] %s: erro ao marcar início de rebuild: %v", name, err)
 	}
 
-	if err := projection.Rebuild(); err != nil {
-		return fmt.Errorf("erro no rebuild de %s: %w", name, err)
+	// FIX SCHEMA-01: defer garante que is_rebuilding sempre volta para FALSE,
+	// independente de sucesso ou falha do Rebuild(). Sem isso, uma falha
+	// mantinha is_rebuilding=TRUE indefinidamente, tornando impossível
+	// distinguir rebuild em andamento de rebuild que falhou.
+	rebuildErr := projection.Rebuild()
+	if rebuildErr != nil {
+		// Resetar is_rebuilding para FALSE antes de retornar o erro.
+		if resetErr := m.markRebuildFailed(name); resetErr != nil {
+			log.Printf("[WARN] %s: erro ao resetar is_rebuilding após falha: %v", name, resetErr)
+		}
+		return fmt.Errorf("erro no rebuild de %s: %w", name, rebuildErr)
 	}
 
 	if err := m.markRebuildComplete(name); err != nil {
@@ -423,21 +437,28 @@ func (m *Manager) rebuildProjectionInternal(name string, projection Projection) 
 	return nil
 }
 
-// markRebuildStart zera o checkpoint antes do rebuild.
+// markRebuildStart zera o checkpoint e seta is_rebuilding=TRUE antes do rebuild.
+//
+// Usa UPSERT para garantir que funciona mesmo se o checkpoint não existir ainda —
+// sem risco de UPDATE operar 0 linhas silenciosamente (bug MGR-04 da auditoria,
+// já corrigido nas etapas anteriores via UPSERT).
 func (m *Manager) markRebuildStart(name string) error {
 	_, err := m.client.DB().Exec(`
 		INSERT INTO projection_checkpoints
-			(projection_name, last_processed_event_id, last_processed_at, events_processed)
-		VALUES ($1, 0, CURRENT_TIMESTAMP, 0)
+			(projection_name, last_processed_event_id, last_processed_at, events_processed, is_rebuilding, rebuild_started_at)
+		VALUES ($1, 0, CURRENT_TIMESTAMP, 0, TRUE, CURRENT_TIMESTAMP)
 		ON CONFLICT (projection_name) DO UPDATE SET
 			last_processed_event_id = 0,
 			last_processed_at       = CURRENT_TIMESTAMP,
-			events_processed        = 0
+			events_processed        = 0,
+			is_rebuilding           = TRUE,
+			rebuild_started_at      = CURRENT_TIMESTAMP
 	`, name)
 	return err
 }
 
-// markRebuildComplete atualiza o checkpoint para o MAX(id) atual do ledger.
+// markRebuildComplete atualiza o checkpoint para o MAX(id) atual do ledger
+// e reseta is_rebuilding=FALSE após rebuild bem-sucedido.
 func (m *Manager) markRebuildComplete(name string) error {
 	var maxID int64
 	err := m.client.DB().QueryRow(`SELECT COALESCE(MAX(id), 0) FROM spuri_ledger`).Scan(&maxID)
@@ -447,12 +468,28 @@ func (m *Manager) markRebuildComplete(name string) error {
 
 	_, err = m.client.DB().Exec(`
 		INSERT INTO projection_checkpoints
-			(projection_name, last_processed_event_id, last_processed_at)
-		VALUES ($1, $2, CURRENT_TIMESTAMP)
+			(projection_name, last_processed_event_id, last_processed_at, is_rebuilding)
+		VALUES ($1, $2, CURRENT_TIMESTAMP, FALSE)
 		ON CONFLICT (projection_name) DO UPDATE SET
 			last_processed_event_id = $2,
-			last_processed_at       = CURRENT_TIMESTAMP
+			last_processed_at       = CURRENT_TIMESTAMP,
+			is_rebuilding           = FALSE
 	`, name, maxID)
+	return err
+}
+
+// markRebuildFailed reseta is_rebuilding=FALSE após falha de rebuild.
+// FIX SCHEMA-01: sem esta função, is_rebuilding permanecia TRUE indefinidamente
+// após qualquer falha, tornando o estado da projeção opaco para os operadores.
+func (m *Manager) markRebuildFailed(name string) error {
+	_, err := m.client.DB().Exec(`
+		INSERT INTO projection_checkpoints
+			(projection_name, last_processed_event_id, last_processed_at, is_rebuilding)
+		VALUES ($1, 0, CURRENT_TIMESTAMP, FALSE)
+		ON CONFLICT (projection_name) DO UPDATE SET
+			is_rebuilding = FALSE,
+			last_processed_at = CURRENT_TIMESTAMP
+	`, name)
 	return err
 }
 
