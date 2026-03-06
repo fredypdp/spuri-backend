@@ -59,6 +59,49 @@ func (p *FaltasProjection) Handle(event db.Event) error {
 	return nil
 }
 
+func (p *FaltasProjection) HandleTx(tx *sql.Tx, event db.Event) error {
+	switch event.EventType {
+	case "FaltasRegistradas":
+		return p.handleFaltasRegistradasTx(tx, event)
+	default:
+		return nil
+	}
+}
+
+func (p *FaltasProjection) handleFaltasRegistradasTx(tx *sql.Tx, event db.Event) error {
+	var payload struct {
+		CodigoEstudante      string    `json:"CodigoEstudante"`
+		CodigoAcademia       string    `json:"CodigoAcademia"`
+		AnoLectivo           string    `json:"AnoLectivo"`
+		AnoAcademico         string    `json:"AnoAcademico"`
+		Data                 time.Time `json:"Data"`
+		MateriaDisciplinarID string    `json:"MateriaDisciplinarID"`
+		Quantidade           int       `json:"Quantidade"`
+		Observacao           *string   `json:"Observacao"`
+		RegisteredAt         time.Time `json:"RegisteredAt"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("parse error FaltasRegistradas: %w", err)
+	}
+
+	_, err := tx.Exec(`
+		INSERT INTO projection_faltas (
+			codigo_estudante, codigo_academia, ano_lectivo, ano_academico,
+			data, materia_disciplinar_id, quantidade, observacao,
+			registered_at, event_id, version
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		ON CONFLICT (event_id) DO NOTHING
+	`,
+		payload.CodigoEstudante, payload.CodigoAcademia, payload.AnoLectivo, payload.AnoAcademico,
+		payload.Data.UTC(), payload.MateriaDisciplinarID, payload.Quantidade, payload.Observacao,
+		payload.RegisteredAt.UTC(), event.EventID, event.EventVersion,
+	)
+	if err != nil {
+		return fmt.Errorf("handleFaltasRegistradasTx: exec error: %w", err)
+	}
+	return nil
+}
+
 func (p *FaltasProjection) Rebuild() error {
 	log.Printf("[DEBUG] [faltas] Rebuild iniciado")
 	if err := p.clear(); err != nil {

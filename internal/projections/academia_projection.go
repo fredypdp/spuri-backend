@@ -63,6 +63,91 @@ func (p *AcademiaProjection) Handle(event db.Event) error {
 	return nil
 }
 
+func (p *AcademiaProjection) HandleTx(tx *sql.Tx, event db.Event) error {
+	if event.AggregateType == "Academia" {
+		academiaHandlers := map[string]func(*sql.Tx, db.Event) error{
+			"AcademiaCriada":           p.handleAcademiaCriadaTx,
+			"AcademiaAtivada":          p.handleStatusChangeTx("ativo"),
+			"AcademiaDesativada":       p.handleAcademiaDesativadaTx,
+			"CursosAtualizados":        p.handleCursosAtualizadosTx,
+			"AcademiaDadosAtualizados": p.handleAcademiaDadosAtualizadosTx,
+			"EmailVerificado":          p.handleEmailVerificadoTx,
+			"AcademiaSenhaAlterada":    p.handleAcademiaSenhaAlteradaTx,
+		}
+		if handler, ok := academiaHandlers[event.EventType]; ok {
+			return handler(tx, event)
+		}
+		return nil
+	}
+
+	// Cross-aggregate: acumulador não-idempotente — DEVE estar na tx.
+	if event.AggregateType == "Estudante" && event.EventType == "EstudanteCriadoComVinculo" {
+		return p.handleEstudanteCriadoComVinculoTx(tx, event)
+	}
+
+	return nil
+}
+
+// handleEstudanteCriadoComVinculoTx — acumulador não-idempotente dentro da tx.
+func (p *AcademiaProjection) handleEstudanteCriadoComVinculoTx(tx *sql.Tx, event db.Event) error {
+	var payload struct {
+		CodigoAcademia string `json:"CodigoAcademia"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("handleEstudanteCriadoComVinculoTx: parse error: %w", err)
+	}
+	if payload.CodigoAcademia == "" {
+		return fmt.Errorf("handleEstudanteCriadoComVinculoTx: CodigoAcademia ausente no payload")
+	}
+
+	_, err := tx.Exec(`
+		UPDATE projection_academias
+		SET total_estudantes = total_estudantes + 1,
+		    updated_at       = CURRENT_TIMESTAMP
+		WHERE codigo_academia = $1
+	`, payload.CodigoAcademia)
+	return err
+}
+
+// Os handlers Tx abaixo delegam ao pool do cliente (operações idempotentes),
+// mas são fornecidos para manter a interface consistente dentro de HandleTx.
+// Para estas operações, o benefício da atomicidade é a consistência do
+// checkpoint — não a idempotência do Handle em si.
+
+func (p *AcademiaProjection) handleAcademiaCriadaTx(tx *sql.Tx, event db.Event) error {
+	// Delegar ao handler existente — AcademiaCriada usa INSERT ON CONFLICT DO NOTHING (idempotente).
+	// O tx é passado mas a query usa p.client.DB(). Para atomicidade completa,
+	// seria necessário reescrever todos os handlers para aceitar Querier.
+	// Neste contexto, o benefício principal é o acumulador de estudantes acima.
+	return p.handleAcademiaCriada(event)
+}
+
+func (p *AcademiaProjection) handleStatusChangeTx(status string) func(*sql.Tx, db.Event) error {
+	return func(tx *sql.Tx, event db.Event) error {
+		return p.handleStatusChange(status)(event)
+	}
+}
+
+func (p *AcademiaProjection) handleAcademiaDesativadaTx(tx *sql.Tx, event db.Event) error {
+	return p.handleAcademiaDesativada(event)
+}
+
+func (p *AcademiaProjection) handleCursosAtualizadosTx(tx *sql.Tx, event db.Event) error {
+	return p.handleCursosAtualizados(event)
+}
+
+func (p *AcademiaProjection) handleAcademiaDadosAtualizadosTx(tx *sql.Tx, event db.Event) error {
+	return p.handleAcademiaDadosAtualizados(event)
+}
+
+func (p *AcademiaProjection) handleEmailVerificadoTx(tx *sql.Tx, event db.Event) error {
+	return p.handleEmailVerificado(event)
+}
+
+func (p *AcademiaProjection) handleAcademiaSenhaAlteradaTx(tx *sql.Tx, event db.Event) error {
+	return p.handleAcademiaSenhaAlterada(event)
+}
+
 // ============================================================================
 // Rebuild
 // ============================================================================

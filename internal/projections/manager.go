@@ -20,6 +20,25 @@ type Projection interface {
 	UpdateCheckpoint(eventID int64) error
 }
 
+// TransactionalProjection é uma interface opcional que projeções não-idempotentes
+// devem implementar para garantir atomicidade real entre Handle e checkpoint.
+//
+// FIX DB-16 (correção real): o problema original é que Handle() e o avanço do
+// checkpoint são operações separadas. Se o processo morrer entre elas, o evento
+// é reprocessado, causando double-write em projeções não-idempotentes
+// (ex: total_faltas += 1, total_estudantes += 1).
+//
+// Solução: projeções não-idempotentes implementam HandleTx(*sql.Tx, db.Event),
+// que recebe a transação aberta pelo Manager. O Manager executa Handle + checkpoint
+// dentro da mesma transação — se qualquer um falhar, ambos são revertidos.
+//
+// Projeções idempotentes (INSERT ... ON CONFLICT DO NOTHING/DO UPDATE) não
+// precisam implementar esta interface — o comportamento de retry é seguro para elas.
+type TransactionalProjection interface {
+	Projection
+	HandleTx(tx *sql.Tx, event db.Event) error
+}
+
 // Manager gerencia o ciclo de vida e o processamento de projeções.
 type Manager struct {
 	client       *db.Client
@@ -88,10 +107,15 @@ func (m *Manager) processNewEvents() error {
 
 // processProjection processa eventos novos para uma projeção específica.
 //
-// P3-13: UpdateCheckpoint() só é chamado quando Handle() succeeds.
-// Se processEventWithRetry() retornar erro (falha permanente após 3 tentativas),
-// o checkpoint NÃO avança — o evento permanece e será reprocessado na próxima
-// iteração, preservando auditabilidade.
+// FIX DB-16 (correção real): para projeções que implementam TransactionalProjection,
+// Handle e o avanço do checkpoint são executados dentro da mesma transação de banco.
+// Se o processo morrer após o Commit, o checkpoint já foi gravado — nenhum
+// double-write. Se morrer antes do Commit, ambos são revertidos — o evento será
+// reprocessado na próxima iteração, o que é seguro pois HandleTx deve ser
+// idempotente por design.
+//
+// Para projeções sem HandleTx (idempotentes), o comportamento anterior é mantido:
+// Handle é chamado diretamente, e commitCheckpoint grava o checkpoint em seguida.
 func (m *Manager) processProjection(name string, projection Projection) error {
 	lastProcessedID, err := projection.GetLastProcessedEventID()
 	if err != nil {
@@ -109,27 +133,37 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 
 	log.Printf("[DEBUG] %s: processando %d eventos", name, len(events))
 
+	// Verificar se a projeção suporta atomicidade real via TransactionalProjection.
+	txProj, isTransactional := projection.(TransactionalProjection)
+
 	processedCount := 0
 	for _, event := range events {
-		if err := m.processEventWithRetry(name, projection, event); err != nil {
+		var handleErr error
+
+		if isTransactional {
+			// Caminho atômico: Handle + checkpoint na mesma transação.
+			handleErr = m.processEventTransactional(name, txProj, event)
+		} else {
+			// Caminho não-transacional (projeções idempotentes): comportamento anterior.
+			handleErr = m.processEventWithRetry(name, projection, event)
+			if handleErr == nil {
+				if err := m.commitCheckpoint(projection, event.ID); err != nil {
+					log.Printf("[WARN] %s: erro ao atualizar checkpoint para evento %d: %v",
+						name, event.ID, err)
+				}
+			}
+		}
+
+		if handleErr != nil {
 			// Falha permanente — NÃO avança checkpoint.
 			// O evento ficará represado e será reprocessado no próximo tick.
 			log.Printf("[ERROR] %s: evento %d falhou permanentemente — checkpoint não avançado: %v",
-				name, event.ID, err)
-			m.logProjectionError(name, err.Error())
+				name, event.ID, handleErr)
+			m.logProjectionError(name, handleErr.Error())
 			// Para neste evento: não processa os seguintes para manter ordem.
 			break
 		}
 
-		// FIX DB-16: Handle() e UpdateCheckpoint() executados de forma atômica
-		// dentro de uma única transação de banco via commitCheckpoint().
-		// Sem atomicidade, se o processo morresse entre Handle() bem-sucedido e
-		// UpdateCheckpoint(), o evento seria reprocessado na próxima execução,
-		// causando double-write em projeções não-idempotentes (ex: total_faltas += 1).
-		if err := m.commitCheckpoint(projection, event.ID); err != nil {
-			log.Printf("[WARN] %s: erro ao atualizar checkpoint para evento %d: %v",
-				name, event.ID, err)
-		}
 		processedCount++
 	}
 
@@ -141,16 +175,66 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 	return nil
 }
 
-// commitCheckpoint atualiza o checkpoint da projeção de forma atômica.
+// processEventTransactional executa HandleTx + checkpoint dentro de uma única
+// transação para projeções que implementam TransactionalProjection.
 //
-// FIX DB-16: envolve a atualização em uma transação READ COMMITTED para garantir
-// que o checkpoint só avança após o Handle() ter sido confirmado com sucesso.
-// Sem isso, uma falha entre Handle() e UpdateCheckpoint() causava double-write.
-//
-// Nota: Handle() em si opera fora desta transação (usa o pool diretamente).
-// A atomicidade plena de Handle+Checkpoint requereria refatoração profunda
-// da interface Projection (passar *sql.Tx para Handle). Esta correção elimina
-// a janela de double-write do checkpoint sem alterar a interface pública.
+// FIX DB-16: atomicidade real. Se o processo morrer após tx.Commit(), o
+// checkpoint já está gravado — sem reprocessamento. Se morrer antes, ambos
+// são revertidos — o evento será reprocessado, mas HandleTx é idempotente.
+func (m *Manager) processEventTransactional(name string, projection TransactionalProjection, event db.Event) error {
+	maxRetries := 3
+	baseDelay := 1 * time.Second
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		tx, err := m.client.DB().Begin()
+		if err != nil {
+			return fmt.Errorf("erro ao iniciar transação: %w", err)
+		}
+
+		// Executar Handle dentro da transação.
+		if handleErr := projection.HandleTx(tx, event); handleErr != nil {
+			tx.Rollback()
+			if attempt < maxRetries {
+				delay := time.Duration(attempt*attempt) * baseDelay
+				log.Printf("[WARN] %s: evento %d falhou na tx (tentativa %d/%d), retry em %v: %v",
+					name, event.ID, attempt, maxRetries, delay, handleErr)
+				time.Sleep(delay)
+				continue
+			}
+			return fmt.Errorf("evento %d falhou após %d tentativas: %w", event.ID, maxRetries, handleErr)
+		}
+
+		// Gravar checkpoint dentro da mesma transação.
+		eventID := int64(db.ValidateOffset(int(event.ID)))
+		_, err = tx.Exec(`
+			INSERT INTO projection_checkpoints
+				(projection_name, last_processed_event_id, last_processed_at, events_processed)
+			VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
+			ON CONFLICT (projection_name) DO UPDATE SET
+				last_processed_event_id = $2,
+				last_processed_at       = CURRENT_TIMESTAMP,
+				events_processed        = projection_checkpoints.events_processed + 1
+		`, projection.Name(), eventID)
+		if err != nil {
+			tx.Rollback()
+			return fmt.Errorf("erro ao gravar checkpoint na transação para evento %d: %w", event.ID, err)
+		}
+
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("erro ao commitar transação para evento %d: %w", event.ID, err)
+		}
+
+		if attempt > 1 {
+			log.Printf("[DEBUG] %s: evento %d recuperado na tentativa %d", name, event.ID, attempt)
+		}
+		return nil
+	}
+
+	return fmt.Errorf("evento %d: máximo de tentativas atingido", event.ID)
+}
+
+// commitCheckpoint atualiza o checkpoint da projeção em uma transação própria.
+// Usado apenas para projeções idempotentes (sem TransactionalProjection).
 func (m *Manager) commitCheckpoint(projection Projection, eventID int64) error {
 	tx, err := m.client.DB().Begin()
 	if err != nil {
@@ -258,19 +342,11 @@ func (m *Manager) RebuildProjection(name string) error {
 // RebuildAllProjections reconstrói todas as projeções em ordem determinística.
 //
 // FIX DB-18: a iteração sobre map[string]Projection é não-determinística em Go.
-// A ordem abaixo respeita dependências de FK:
-//   - Tier 1: entidades raiz (sem FK para outras projeções)
-//   - Tier 2: entidades que dependem de tier 1
-//   - Tier 3: entidades que dependem de tier 2
-//   - Tier 4: entidades que dependem de tier 3
-//
-// Projeções não listadas em rebuildOrder são reconstruídas ao final, em ordem
-// alfabética, para comportamento determinístico.
+// A ordem abaixo respeita dependências de FK entre projeções.
 func (m *Manager) RebuildAllProjections() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Ordem explícita respeitando dependências de FK entre projeções.
 	rebuildOrder := []string{
 		// Tier 1 — sem dependências externas
 		"admins",
@@ -292,7 +368,6 @@ func (m *Manager) RebuildAllProjections() error {
 		"inscricoes",
 	}
 
-	// Registrar quais projeções já foram processadas nesta passagem.
 	processed := make(map[string]bool)
 
 	for _, name := range rebuildOrder {
@@ -308,7 +383,6 @@ func (m *Manager) RebuildAllProjections() error {
 		processed[name] = true
 	}
 
-	// Reconstruir projeções restantes (não listadas) em ordem alfabética.
 	remaining := make([]string, 0)
 	for name := range m.projections {
 		if !processed[name] {
@@ -392,4 +466,41 @@ func (m *Manager) logProjectionError(name string, errMsg string) {
 	if err != nil {
 		log.Printf("[WARN] Erro ao registrar falha de projeção %s: %v", name, err)
 	}
+}
+
+// IsProjectionRegistered verifica se uma projeção está registrada no manager.
+func (m *Manager) IsProjectionRegistered(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.projections[name]
+	return ok
+}
+
+// GetProjectionStatus retorna o status atual de uma projeção.
+func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, error) {
+	m.mu.Lock()
+	projection, ok := m.projections[name]
+	m.mu.Unlock()
+
+	if !ok {
+		return nil, fmt.Errorf("projeção não encontrada: %s", name)
+	}
+
+	lastID, err := projection.GetLastProcessedEventID()
+	if err != nil {
+		return nil, fmt.Errorf("erro ao obter checkpoint: %w", err)
+	}
+
+	var maxID int64
+	_ = m.client.DB().QueryRow(`SELECT COALESCE(MAX(id), 0) FROM spuri_ledger`).Scan(&maxID)
+
+	_, isTransactional := projection.(TransactionalProjection)
+
+	return map[string]interface{}{
+		"name":              name,
+		"last_processed_id": lastID,
+		"ledger_max_id":     maxID,
+		"lag":               maxID - lastID,
+		"transactional":     isTransactional,
+	}, nil
 }
