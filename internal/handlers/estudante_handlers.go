@@ -162,7 +162,7 @@ func RegisterEstudante(c *gin.Context) {
 		UserType: "sistema",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(c.Request.Context(), estudante, audit); err != nil {
+	if err := repository.SaveWithAudit(estudante, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -370,7 +370,7 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		UserType: "academia",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(c.Request.Context(), estudante, audit); err != nil {
+	if err := repository.SaveWithAudit(estudante, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -545,7 +545,7 @@ func GetEventosEstudante(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	eventos, err := repository.GetEventHistory(c.Request.Context(), estudante.ID)
+	eventos, err := repository.GetEventHistory(estudante.ID)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -594,7 +594,7 @@ func AtualizarDadosPessoais(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	estudanteAgg, err := repository.Load(c.Request.Context(), userID, "Estudante")
+	estudanteAgg, err := repository.Load(userID, "Estudante")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -614,7 +614,7 @@ func AtualizarDadosPessoais(c *gin.Context) {
 		UserType: "estudante",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(c.Request.Context(), estudante, audit); err != nil {
+	if err := repository.SaveWithAudit(estudante, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}

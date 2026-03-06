@@ -63,7 +63,7 @@ func CriarTurma(c *gin.Context) {
 		UserType: "academia",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(c.Request.Context(), turma, audit); err != nil {
+	if err := repository.SaveWithAudit(turma, audit); err != nil {
 		log.Printf("❌ [CriarTurma] Erro ao salvar: %v", err)
 		utils.RespondWithInternalError(c, err)
 		return
@@ -150,7 +150,7 @@ func AtivarTurma(c *gin.Context) {
 
 	// ── Carregar aggregate e executar comando ─────────────────────────────
 	repository := getRepository(c)
-	agg, err := repository.Load(c.Request.Context(), turmaDTO.ID, "Turma")
+	agg, err := repository.Load(turmaDTO.ID, "Turma")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -173,7 +173,7 @@ func AtivarTurma(c *gin.Context) {
 		UserType: "academia",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(c.Request.Context(), turma, audit); err != nil {
+	if err := repository.SaveWithAudit(turma, audit); err != nil {
 		log.Printf("❌ [AtivarTurma] Erro ao salvar: %v", err)
 		utils.RespondWithInternalError(c, err)
 		return
@@ -214,7 +214,7 @@ func DesativarTurma(c *gin.Context) {
 
 	// ── Carregar aggregate e executar comando ─────────────────────────────
 	repository := getRepository(c)
-	agg, err := repository.Load(c.Request.Context(), turmaDTO.ID, "Turma")
+	agg, err := repository.Load(turmaDTO.ID, "Turma")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -237,7 +237,7 @@ func DesativarTurma(c *gin.Context) {
 		UserType: "academia",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(c.Request.Context(), turma, audit); err != nil {
+	if err := repository.SaveWithAudit(turma, audit); err != nil {
 		log.Printf("❌ [DesativarTurma] Erro ao salvar: %v", err)
 		utils.RespondWithInternalError(c, err)
 		return
@@ -292,7 +292,7 @@ func AdicionarEstudanteATurma(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	agg, err := repository.Load(c.Request.Context(), turmaDTO.ID, "Turma")
+	agg, err := repository.Load(turmaDTO.ID, "Turma")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -314,7 +314,7 @@ func AdicionarEstudanteATurma(c *gin.Context) {
 		UserType: "academia",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(c.Request.Context(), turma, audit); err != nil {
+	if err := repository.SaveWithAudit(turma, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -348,7 +348,7 @@ func RemoverEstudanteDaTurma(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	agg, err := repository.Load(c.Request.Context(), turmaDTO.ID, "Turma")
+	agg, err := repository.Load(turmaDTO.ID, "Turma")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -370,7 +370,7 @@ func RemoverEstudanteDaTurma(c *gin.Context) {
 		UserType: "academia",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(c.Request.Context(), turma, audit); err != nil {
+	if err := repository.SaveWithAudit(turma, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -413,7 +413,7 @@ func AtualizarTurma(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	agg, err := repository.Load(c.Request.Context(), turmaDTO.ID, "Turma")
+	agg, err := repository.Load(turmaDTO.ID, "Turma")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -435,7 +435,7 @@ func AtualizarTurma(c *gin.Context) {
 		UserType: "academia",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(c.Request.Context(), turma, audit); err != nil {
+	if err := repository.SaveWithAudit(turma, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -479,7 +479,7 @@ func DeletarTurma(c *gin.Context) {
 
 	// ── Carregar aggregate ────────────────────────────────────────────────
 	repository := getRepository(c)
-	agg, err := repository.Load(c.Request.Context(), turmaDTO.ID, "Turma")
+	agg, err := repository.Load(turmaDTO.ID, "Turma")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -503,7 +503,7 @@ func DeletarTurma(c *gin.Context) {
 		UserType: "academia",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(c.Request.Context(), turma, audit); err != nil {
+	if err := repository.SaveWithAudit(turma, audit); err != nil {
 		log.Printf("❌ [DeletarTurma] Erro ao salvar: %v", err)
 		utils.RespondWithInternalError(c, err)
 		return

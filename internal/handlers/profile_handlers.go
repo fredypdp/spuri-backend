@@ -61,7 +61,7 @@ func AlterarSenha(c *gin.Context) {
 		}
 
 		repository := getRepository(c)
-		adminAgg, err := repository.Load(c.Request.Context(), uid, "Admin")
+		adminAgg, err := repository.Load(uid, "Admin")
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
@@ -78,7 +78,7 @@ func AlterarSenha(c *gin.Context) {
 			UserType: "admin",
 			IP:       c.ClientIP(),
 		}
-		if err := repository.SaveWithAudit(c.Request.Context(), admin, audit); err != nil {
+		if err := repository.SaveWithAudit(admin, audit); err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
@@ -111,7 +111,7 @@ func AlterarSenha(c *gin.Context) {
 		}
 
 		repository := getRepository(c)
-		academiaAgg, err := repository.Load(c.Request.Context(), uid, "Academia")
+		academiaAgg, err := repository.Load(uid, "Academia")
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
@@ -128,7 +128,7 @@ func AlterarSenha(c *gin.Context) {
 			UserType: "academia",
 			IP:       c.ClientIP(),
 		}
-		if err := repository.SaveWithAudit(c.Request.Context(), academia, audit); err != nil {
+		if err := repository.SaveWithAudit(academia, audit); err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
@@ -171,7 +171,7 @@ func AlterarSenha(c *gin.Context) {
 		}
 
 		repository := getRepository(c)
-		estudanteAgg, err := repository.Load(c.Request.Context(), uid, "Estudante")
+		estudanteAgg, err := repository.Load(uid, "Estudante")
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
@@ -188,7 +188,7 @@ func AlterarSenha(c *gin.Context) {
 			UserType: "estudante",
 			IP:       c.ClientIP(),
 		}
-		if err := repository.SaveWithAudit(c.Request.Context(), estudante, audit); err != nil {
+		if err := repository.SaveWithAudit(estudante, audit); err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}

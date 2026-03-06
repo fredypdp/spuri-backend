@@ -104,7 +104,7 @@ func BootstrapAdminFPP(c *gin.Context) {
 		UserType: "sistema",
 		IP:       c.ClientIP(),
 	}
-	if err := repository.SaveWithAudit(c.Request.Context(), newAdmin, audit); err != nil {
+	if err := repository.SaveWithAudit(newAdmin, audit); err != nil {
 		log.Printf("❌ [BOOTSTRAP] Erro ao salvar eventos: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao criar admin FPP"})
 		return

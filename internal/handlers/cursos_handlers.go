@@ -58,7 +58,7 @@ func CriarCurso(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(c.Request.Context(), curso); err != nil {
+	if err := repository.Save(curso); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -143,7 +143,7 @@ func AtualizarDadosCurso(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	cursoAgg, err := repository.Load(c.Request.Context(), cursoID, "Curso")
+	cursoAgg, err := repository.Load(cursoID, "Curso")
 	if err != nil {
 		utils.RespondWithNotFoundError(c, "curso")
 		return
@@ -156,7 +156,7 @@ func AtualizarDadosCurso(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(c.Request.Context(), curso); err != nil {
+	if err := repository.Save(curso); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -199,7 +199,7 @@ func AtivarCurso(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	cursoAgg, err := repository.Load(c.Request.Context(), cursoID, "Curso")
+	cursoAgg, err := repository.Load(cursoID, "Curso")
 	if err != nil {
 		utils.RespondWithNotFoundError(c, "curso")
 		return
@@ -212,7 +212,7 @@ func AtivarCurso(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(c.Request.Context(), curso); err != nil {
+	if err := repository.Save(curso); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -249,7 +249,7 @@ func DesativarCurso(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	cursoAgg, err := repository.Load(c.Request.Context(), cursoID, "Curso")
+	cursoAgg, err := repository.Load(cursoID, "Curso")
 	if err != nil {
 		utils.RespondWithNotFoundError(c, "curso")
 		return
@@ -262,7 +262,7 @@ func DesativarCurso(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(c.Request.Context(), curso); err != nil {
+	if err := repository.Save(curso); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -373,7 +373,7 @@ func DeletarCurso(c *gin.Context) {
 			continue // já deletada anteriormente — skip seguro
 		}
 
-		materiaAgg, err := repository.Load(c.Request.Context(), m.ID, "MateriaDisciplinar")
+		materiaAgg, err := repository.Load(m.ID, "MateriaDisciplinar")
 		if err != nil {
 			// FIX BUG #3: era `log + continue` — agora retorna erro ao cliente.
 			// O continue permitia que o curso fosse deletado com matérias ainda
@@ -389,7 +389,7 @@ func DeletarCurso(c *gin.Context) {
 			return
 		}
 
-		if err := repository.SaveWithAudit(c.Request.Context(), materia, audit); err != nil {
+		if err := repository.SaveWithAudit(materia, audit); err != nil {
 			utils.RespondWithInternalError(c, fmt.Errorf("erro ao salvar deleção da matéria '%s': %w", m.Nome, err))
 			return
 		}
@@ -422,7 +422,7 @@ func DeletarCurso(c *gin.Context) {
 			))
 			return
 		}
-		turmaAgg, err := repository.Load(c.Request.Context(), t.ID, "Turma")
+		turmaAgg, err := repository.Load(t.ID, "Turma")
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
@@ -432,7 +432,7 @@ func DeletarCurso(c *gin.Context) {
 			utils.RespondWithInternalError(c, fmt.Errorf("erro ao deletar turma '%s': %w", t.CodigoTurma, err))
 			return
 		}
-		if err := repository.SaveWithAudit(c.Request.Context(), turma, audit); err != nil {
+		if err := repository.SaveWithAudit(turma, audit); err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
@@ -440,7 +440,7 @@ func DeletarCurso(c *gin.Context) {
 	}
 
 	// ── 7. Deletar o curso em si ──────────────────────────────────────────
-	cursoAgg, err := repository.Load(c.Request.Context(), cursoID, "Curso")
+	cursoAgg, err := repository.Load(cursoID, "Curso")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -452,7 +452,7 @@ func DeletarCurso(c *gin.Context) {
 		return
 	}
 
-	if err := repository.SaveWithAudit(c.Request.Context(), curso, audit); err != nil {
+	if err := repository.SaveWithAudit(curso, audit); err != nil {
 		log.Printf("❌ [DeletarCurso] Erro ao salvar: %v", err)
 		utils.RespondWithInternalError(c, err)
 		return
@@ -536,7 +536,7 @@ func AlterarCursoEstudante(c *gin.Context) {
 	}
 
 	repository := getRepository(c)
-	aggregate, err := repository.Load(c.Request.Context(), estudanteDTO.ID, "Estudante")
+	aggregate, err := repository.Load(estudanteDTO.ID, "Estudante")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -553,7 +553,7 @@ func AlterarCursoEstudante(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(c.Request.Context(), estudante); err != nil {
+	if err := repository.Save(estudante); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}

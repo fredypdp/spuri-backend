@@ -39,7 +39,7 @@ func VerificarEmail(c *gin.Context) {
 	// ── Admin: event sourcing ──────────────────────────────────────────────
 	if tokenInfo.UserType == "admin" {
 		repository := getRepository(c)
-		adminAgg, err := repository.Load(c.Request.Context(), tokenInfo.UserID, "Admin")
+		adminAgg, err := repository.Load(tokenInfo.UserID, "Admin")
 		if err != nil {
 			utils.RespondWithNotFoundError(c, "administrador")
 			return
@@ -63,7 +63,7 @@ func VerificarEmail(c *gin.Context) {
 				UserType: "admin",
 				IP:       c.ClientIP(),
 			}
-			if err := repository.SaveWithAudit(c.Request.Context(), admin, audit); err != nil {
+			if err := repository.SaveWithAudit(admin, audit); err != nil {
 				utils.RespondWithInternalError(c, err)
 				return
 			}
@@ -81,7 +81,7 @@ func VerificarEmail(c *gin.Context) {
 	// ── Academia: event sourcing (FIX-C2) ─────────────────────────────────
 	if tokenInfo.UserType == "academia" {
 		repository := getRepository(c)
-		academiaAgg, err := repository.Load(c.Request.Context(), tokenInfo.UserID, "Academia")
+		academiaAgg, err := repository.Load(tokenInfo.UserID, "Academia")
 		if err != nil {
 			utils.RespondWithNotFoundError(c, "academia")
 			return
@@ -104,7 +104,7 @@ func VerificarEmail(c *gin.Context) {
 				UserType: "academia",
 				IP:       c.ClientIP(),
 			}
-			if err := repository.SaveWithAudit(c.Request.Context(), academia, audit); err != nil {
+			if err := repository.SaveWithAudit(academia, audit); err != nil {
 				utils.RespondWithInternalError(c, err)
 				return
 			}
@@ -124,7 +124,7 @@ func VerificarEmail(c *gin.Context) {
 	// Agora: estudante.VerificarEmail() → EmailVerificadoEstudanteEvent → ledger → projeção.
 	if tokenInfo.UserType == "estudante" {
 		repository := getRepository(c)
-		estudanteAgg, err := repository.Load(c.Request.Context(), tokenInfo.UserID, "Estudante")
+		estudanteAgg, err := repository.Load(tokenInfo.UserID, "Estudante")
 		if err != nil {
 			utils.RespondWithNotFoundError(c, "estudante")
 			return
@@ -147,7 +147,7 @@ func VerificarEmail(c *gin.Context) {
 				UserType: "estudante",
 				IP:       c.ClientIP(),
 			}
-			if err := repository.SaveWithAudit(c.Request.Context(), estudante, audit); err != nil {
+			if err := repository.SaveWithAudit(estudante, audit); err != nil {
 				utils.RespondWithInternalError(c, err)
 				return
 			}
@@ -212,7 +212,7 @@ func ResetarSenha(c *gin.Context) {
 		}
 
 		repository := getRepository(c)
-		adminAgg, err := repository.Load(c.Request.Context(), tokenInfo.UserID, "Admin")
+		adminAgg, err := repository.Load(tokenInfo.UserID, "Admin")
 		if err != nil {
 			utils.RespondWithNotFoundError(c, "administrador")
 			return
@@ -229,7 +229,7 @@ func ResetarSenha(c *gin.Context) {
 			UserType: "sistema",
 			IP:       c.ClientIP(),
 		}
-		if err := repository.SaveWithAudit(c.Request.Context(), admin, audit); err != nil {
+		if err := repository.SaveWithAudit(admin, audit); err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
@@ -268,7 +268,7 @@ func ResetarSenha(c *gin.Context) {
 		}
 
 		repository := getRepository(c)
-		academiaAgg, err := repository.Load(c.Request.Context(), tokenInfo.UserID, "Academia")
+		academiaAgg, err := repository.Load(tokenInfo.UserID, "Academia")
 		if err != nil {
 			utils.RespondWithNotFoundError(c, "academia")
 			return
@@ -285,7 +285,7 @@ func ResetarSenha(c *gin.Context) {
 			UserType: "sistema",
 			IP:       c.ClientIP(),
 		}
-		if err := repository.SaveWithAudit(c.Request.Context(), academia, audit); err != nil {
+		if err := repository.SaveWithAudit(academia, audit); err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
@@ -335,7 +335,7 @@ func ResetarSenha(c *gin.Context) {
 		}
 
 		repository := getRepository(c)
-		estudanteAgg, err := repository.Load(c.Request.Context(), tokenInfo.UserID, "Estudante")
+		estudanteAgg, err := repository.Load(tokenInfo.UserID, "Estudante")
 		if err != nil {
 			utils.RespondWithNotFoundError(c, "estudante")
 			return
@@ -352,7 +352,7 @@ func ResetarSenha(c *gin.Context) {
 			UserType: "sistema",
 			IP:       c.ClientIP(),
 		}
-		if err := repository.SaveWithAudit(c.Request.Context(), estudante, audit); err != nil {
+		if err := repository.SaveWithAudit(estudante, audit); err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
