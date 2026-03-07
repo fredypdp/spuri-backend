@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
 	"spuri/internal/projections"
@@ -46,7 +47,12 @@ func DefinirAnoLetivo(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(config); err != nil {
+	audit := db.AuditContext{
+		UserID:   adminID.String(),
+		UserType: "admin",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(config, audit); err != nil {
 		log.Printf("❌ [DefinirAnoLetivo] Erro ao salvar: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao definir ano letivo"})
 		return

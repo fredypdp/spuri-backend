@@ -246,7 +246,6 @@ func setupRouter() *gin.Engine {
 		admin.PUT("/admin/:id/ativar", handlers.AtivarAdmin)
 		admin.PUT("/admin/:id/desativar", handlers.DesativarAdmin)
 		admin.GET("/admins", handlers.ListarTodosAdmins)
-		admin.GET("/ano-letivo", handlers.GetAnoLetivoAtual)
 		admin.POST("/ano-letivo", handlers.DefinirAnoLetivo)
 		admin.GET("/metrics", handlers.GetSystemMetrics)
 		admin.POST("/projections/rebuild/:name", handlers.RebuildProjection)
