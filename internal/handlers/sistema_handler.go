@@ -15,10 +15,10 @@ import (
 )
 
 // UUID fixo e determinístico para o singleton de configuração do sistema.
-var sistemaConfigID = uuid.NewSHA1(uuid.NameSpaceDNS, []byte("sistema_config.spuri.ao"))
+var sistemaConfigID = uuid.NewSHA1(uuid.NameSpaceDNS, []byte("spuripainel.vercel.app"))
 
 // DefinirAnoLetivo define o ano letivo atual do sistema.
-// Rota: POST /admin/definir-ano-letivo  (apenas FPP)
+// Rota: POST /admin/ano-letivo  (apenas FPP)
 func DefinirAnoLetivo(c *gin.Context) {
 	adminID, _ := middleware.GetUserID(c)
 
@@ -47,6 +47,8 @@ func DefinirAnoLetivo(c *gin.Context) {
 		return
 	}
 
+	// FIX: usar SaveWithAudit em vez de Save — garante user_id, user_type e IP
+	// no metadata de cada linha do ledger, consistente com todas as outras rotas admin.
 	audit := db.AuditContext{
 		UserID:   adminID.String(),
 		UserType: "admin",
@@ -83,66 +85,45 @@ func GetAnoLetivoAtual(c *gin.Context) {
 // ============================================================================
 // POST /admin/projections/rebuild/:name
 // ============================================================================
-
-// RebuildProjection força o rebuild de uma projeção específica pelo nome.
-// Requer role admin. Útil para recovery após falha de processamento.
 func RebuildProjection(c *gin.Context) {
+	adminID, _ := middleware.GetUserID(c)
 	name := c.Param("name")
 	if name == "" {
 		utils.RespondWithValidationError(c, fmt.Errorf("nome da projeção é obrigatório"))
 		return
 	}
 
-	// Cada projeção tem o seu próprio Rebuild() — instanciar pelo nome.
-	type rebuilder interface {
-		Rebuild() error
-	}
-
-	dbClient := getDbClient(c)
-	if dbClient == nil {
-		return // getDbClient já abortou com 500
-	}
-
-	var proj rebuilder
-	switch name {
-	case "admins":
-		proj = projections.NewAdminProjection(dbClient)
-	case "academias":
-		proj = projections.NewAcademiaProjection(dbClient)
-	case "estudantes":
-		proj = projections.NewEstudanteProjection(dbClient)
-	case "cursos":
-		proj = projections.NewCursosProjection(dbClient)
-	case "materias":
-		proj = projections.NewMateriasProjection(dbClient)
-	case "notas":
-		proj = projections.NewNotasProjection(dbClient)
-	case "faltas":
-		proj = projections.NewFaltasProjection(dbClient)
-	case "turmas":
-		proj = projections.NewTurmasProjection(dbClient)
-	case "avaliacao_final":
-		proj = projections.NewAvaliacaoFinalProjection(dbClient)
-	case "aprovacoes":
-		proj = projections.NewAprovacaoAnoProjection(dbClient)
-	case "reprovacoes":
-		proj = projections.NewReprovacoesProjection(dbClient)
-	case "categorias_nota":
-		proj = projections.NewCategoriasNotaProjection(dbClient)
-	case "sistema_config":
-		proj = projections.NewSistemaConfigProjection(dbClient)
-	default:
-		utils.RespondWithValidationError(c, fmt.Errorf("projeção '%s' desconhecida", name))
+	// FIX RB-01: usar o Manager — garante markRebuildStart/Complete/Failed
+	// e atualização correta de is_rebuilding e checkpoint.
+	manager := getProjManager(c)
+	if manager == nil {
+		utils.RespondWithInternalError(c, fmt.Errorf("projection manager não disponível"))
 		return
 	}
 
-	if err := proj.Rebuild(); err != nil {
-		log.Printf("❌ [RebuildProjection] Falha ao reconstruir '%s': %v", name, err)
+	if err := manager.RebuildProjection(name); err != nil {
+		log.Printf("❌ [RebuildProjection] Falha ao reconstruir '%s' por admin %s: %v", name, adminID, err)
+
+		// FIX RB-02: registrar falha no ledger do admin executor.
+		registrarAcaoAdmin(c, adminID, "rebuild_projection", map[string]interface{}{
+			"projection": name,
+			"resultado":  "falha",
+			"erro":       err.Error(),
+		})
+
 		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	log.Printf("✅ [RebuildProjection] Projeção '%s' reconstruída com sucesso", name)
+	log.Printf("✅ [RebuildProjection] Projeção '%s' reconstruída com sucesso por admin %s", name, adminID)
+
+	// FIX RB-02: registrar sucesso no ledger do admin executor — rastreabilidade
+	// de quem disparou o rebuild, quando e com qual resultado.
+	registrarAcaoAdmin(c, adminID, "rebuild_projection", map[string]interface{}{
+		"projection": name,
+		"resultado":  "sucesso",
+	})
+
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "projeção reconstruída com sucesso",
 		"projection": name,
@@ -152,9 +133,6 @@ func RebuildProjection(c *gin.Context) {
 // ============================================================================
 // GET /health
 // ============================================================================
-
-// HealthCheck retorna o estado de saúde da aplicação.
-// Rota pública — sem autenticação.
 func HealthCheck(c *gin.Context) {
 	dbClient := getDbClient(c)
 	if dbClient == nil {
@@ -182,13 +160,10 @@ func HealthCheck(c *gin.Context) {
 // ============================================================================
 // GET /docs
 // ============================================================================
-
-// GetDocs retorna informação básica sobre a API.
-// Rota pública — sem autenticação.
 func GetDocs(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
-		"api":     "Spuri Backend API",
+		"api":     "Spuri Backend",
 		"version": "1.0.0",
-		"docs":    "Consulte a documentação interna para detalhes dos endpoints.",
+		"docs":    "https://docs.spuri.ao",
 	})
 }
