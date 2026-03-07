@@ -158,25 +158,45 @@ func (p *TurmasProjection) handleTurmaCriada(event db.Event) error {
 	return err
 }
 
-// handleTurmaAtivada — NOVO (BUG #2 FIX).
 func (p *TurmasProjection) handleTurmaAtivada(event db.Event) error {
+	var payload struct {
+		AlteradoPor uuid.UUID `json:"AlteradoPor"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("parse error TurmaAtivada: %w", err)
+	}
+
 	_, err := p.client.DB().Exec(`
 		UPDATE projection_turmas
-		SET status = 'ativo',
-			version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
-		WHERE id = $3
-	`, event.EventVersion, event.EventID, event.AggregateID)
+		SET status              = 'ativo',
+		    status_alterado_por = $1,
+		    status_alterado_em  = $2,
+		    version             = $3,
+		    updated_at          = CURRENT_TIMESTAMP,
+		    last_event_id       = $4
+		WHERE id = $5
+	`, payload.AlteradoPor, event.OccurredAt.UTC(), event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
-// handleTurmaDesativada — NOVO (BUG #2 FIX).
 func (p *TurmasProjection) handleTurmaDesativada(event db.Event) error {
+	var payload struct {
+		AlteradoPor uuid.UUID `json:"AlteradoPor"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("parse error TurmaDesativada: %w", err)
+	}
+
 	_, err := p.client.DB().Exec(`
 		UPDATE projection_turmas
-		SET status = 'inativo',
-			version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
-		WHERE id = $3
-	`, event.EventVersion, event.EventID, event.AggregateID)
+		SET status              = 'inativo',
+		    status_alterado_por = $1,
+		    status_alterado_em  = $2,
+		    version             = $3,
+		    updated_at          = CURRENT_TIMESTAMP,
+		    last_event_id       = $4
+		WHERE id = $5
+	`, payload.AlteradoPor, event.OccurredAt.UTC(), event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
@@ -211,10 +231,7 @@ func (p *TurmasProjection) handleEstudanteRemovido(event db.Event) error {
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("parse error EstudanteRemovidoDaTurma: %w", err)
 	}
-
-	// FIX PROJ-07: COALESCE aplicado no SELECT externo, não dentro do json_agg.
-	// Quando todos os estudantes são removidos (0 linhas no sub), o SELECT
-	// retorna NULL; o COALESCE externo converte para '[]'::json.
+	
 	_, err := p.client.DB().Exec(`
 		UPDATE projection_turmas
 		SET estudantes = COALESCE(
@@ -308,23 +325,26 @@ func (p *TurmasProjection) handleTurmaDeletada(event db.Event) error {
 // ============================================================================
 
 type TurmaDTO struct {
-	ID             uuid.UUID  `json:"id"`
-	CodigoTurma    string     `json:"codigo_turma"`
-	CodigoAcademia string     `json:"codigo_academia"`
-	Nivel          string     `json:"nivel"`
-	CursoID        *uuid.UUID `json:"curso_id,omitempty"`
-	Turno          string     `json:"turno"`
-	Estudantes     []string   `json:"estudantes"`
-	Status         string     `json:"status"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
-	Version        int        `json:"version"`
+	ID                uuid.UUID  `json:"id"`
+	CodigoTurma       string     `json:"codigo_turma"`
+	CodigoAcademia    string     `json:"codigo_academia"`
+	Nivel             string     `json:"nivel"`
+	CursoID           *uuid.UUID `json:"curso_id,omitempty"`
+	Turno             string     `json:"turno"`
+	Estudantes        []string   `json:"estudantes"`
+	Status            string     `json:"status"`
+	StatusAlteradoPor *uuid.UUID `json:"status_alterado_por,omitempty"`
+	StatusAlteradoEm  *time.Time `json:"status_alterado_em,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+	Version           int        `json:"version"`
 }
 
 func (p *TurmasProjection) GetByID(id uuid.UUID) (*TurmaDTO, error) {
 	row := p.client.DB().QueryRow(`
 		SELECT id, codigo_turma, codigo_academia, nivel, curso_id, turno,
-		       estudantes, status, created_at, updated_at, version
+		       estudantes, status, status_alterado_por, status_alterado_em,
+		       created_at, updated_at, version
 		FROM projection_turmas WHERE id = $1
 	`, id)
 	return scanTurmaRow(row)
@@ -333,7 +353,8 @@ func (p *TurmasProjection) GetByID(id uuid.UUID) (*TurmaDTO, error) {
 func (p *TurmasProjection) GetByCodigoTurma(codigoTurma, codigoAcademia string) (*TurmaDTO, error) {
 	row := p.client.DB().QueryRow(`
 		SELECT id, codigo_turma, codigo_academia, nivel, curso_id, turno,
-		       estudantes, status, created_at, updated_at, version
+		       estudantes, status, status_alterado_por, status_alterado_em,
+		       created_at, updated_at, version
 		FROM projection_turmas
 		WHERE codigo_turma = $1 AND codigo_academia = $2
 			AND deleted_at IS NULL
@@ -345,7 +366,8 @@ func (p *TurmasProjection) GetByCodigoTurma(codigoTurma, codigoAcademia string) 
 func (p *TurmasProjection) GetByAcademia(codigoAcademia string) ([]TurmaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT id, codigo_turma, codigo_academia, nivel, curso_id, turno,
-		       estudantes, status, created_at, updated_at, version
+		       estudantes, status, status_alterado_por, status_alterado_em,
+		       created_at, updated_at, version
 		FROM projection_turmas
 		WHERE codigo_academia = $1 AND deleted_at IS NULL
 		ORDER BY created_at DESC
@@ -374,7 +396,8 @@ func (p *TurmasProjection) ListByAcademia(codigoAcademia string) ([]*TurmaDTO, e
 func (p *TurmasProjection) ListByCurso(cursoID uuid.UUID) ([]*TurmaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT id, codigo_turma, codigo_academia, nivel, curso_id, turno,
-		       estudantes, status, created_at, updated_at, version
+		       estudantes, status, status_alterado_por, status_alterado_em,
+		       created_at, updated_at, version
 		FROM projection_turmas
 		WHERE curso_id = $1 AND deleted_at IS NULL
 		ORDER BY created_at DESC
@@ -398,11 +421,15 @@ func scanTurmaRow(row *sql.Row) (*TurmaDTO, error) {
 	var dto TurmaDTO
 	var cursoID sql.NullString
 	var estudantesRaw []byte
+	var statusAlteradoPor sql.NullString
+	var statusAlteradoEm sql.NullTime
 
 	err := row.Scan(
 		&dto.ID, &dto.CodigoTurma, &dto.CodigoAcademia,
 		&dto.Nivel, &cursoID, &dto.Turno,
-		&estudantesRaw, &dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version,
+		&estudantesRaw, &dto.Status,
+		&statusAlteradoPor, &statusAlteradoEm,
+		&dto.CreatedAt, &dto.UpdatedAt, &dto.Version,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -414,6 +441,16 @@ func scanTurmaRow(row *sql.Row) (*TurmaDTO, error) {
 	if cursoID.Valid {
 		uid, _ := uuid.Parse(cursoID.String)
 		dto.CursoID = &uid
+	}
+
+	if statusAlteradoPor.Valid {
+		uid, _ := uuid.Parse(statusAlteradoPor.String)
+		dto.StatusAlteradoPor = &uid
+	}
+
+	if statusAlteradoEm.Valid {
+		t := statusAlteradoEm.Time
+		dto.StatusAlteradoEm = &t
 	}
 
 	if len(estudantesRaw) > 0 {
@@ -432,11 +469,15 @@ func scanTurmas(rows *sql.Rows) ([]TurmaDTO, error) {
 		var dto TurmaDTO
 		var cursoID sql.NullString
 		var estudantesRaw []byte
+		var statusAlteradoPor sql.NullString
+		var statusAlteradoEm sql.NullTime
 
 		if err := rows.Scan(
 			&dto.ID, &dto.CodigoTurma, &dto.CodigoAcademia,
 			&dto.Nivel, &cursoID, &dto.Turno,
-			&estudantesRaw, &dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version,
+			&estudantesRaw, &dto.Status,
+			&statusAlteradoPor, &statusAlteradoEm,
+			&dto.CreatedAt, &dto.UpdatedAt, &dto.Version,
 		); err != nil {
 			continue
 		}
@@ -444,6 +485,16 @@ func scanTurmas(rows *sql.Rows) ([]TurmaDTO, error) {
 		if cursoID.Valid {
 			uid, _ := uuid.Parse(cursoID.String)
 			dto.CursoID = &uid
+		}
+
+		if statusAlteradoPor.Valid {
+			uid, _ := uuid.Parse(statusAlteradoPor.String)
+			dto.StatusAlteradoPor = &uid
+		}
+
+		if statusAlteradoEm.Valid {
+			t := statusAlteradoEm.Time
+			dto.StatusAlteradoEm = &t
 		}
 
 		if len(estudantesRaw) > 0 {
