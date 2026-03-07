@@ -159,6 +159,7 @@ func (e *Estudante) RegistrarNota(
 	observacao *string,
 	categoriasAdicionais []string,
 	periodosValidos []string,
+	registradoPor uuid.UUID,
 ) error {
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
@@ -189,7 +190,7 @@ func (e *Estudante) RegistrarNota(
 		Nota:                 nota,
 		Observacao:           observacao,
 		RegisteredAt:         time.Now(),
-		RegistradoPor:        uuid.Nil, // Etapa 4 deve preencher
+		RegistradoPor: registradoPor,
 	}
 
 	e.RaiseEvent(event)

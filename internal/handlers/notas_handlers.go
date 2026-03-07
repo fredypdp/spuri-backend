@@ -153,6 +153,7 @@ func RegistrarNota(c *gin.Context) {
 		req.Observacao,
 		categoriasAdicionais,
 		periodosValidos,
+		userID,
 	)
 	if err != nil {
 		utils.RespondWithValidationError(c, err)
