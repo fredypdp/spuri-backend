@@ -38,12 +38,6 @@ type RegisterAcademiaRequest struct {
 	AnosAcademicos []string `json:"anos_academicos"`
 }
 
-// RegisterAcademia cria uma nova academia.
-// Rota protegida por AuthMiddleware + RequireAdmin + RequireAdm.
-//
-// FIX E-01: audit agora usa o userID do admin autenticado, não "anonimo".
-// FIX E-12: ValidateNome, ValidateEndereco e validação de província já aplicados.
-// FIX C12: criadoPor passado ao aggregate para rastreabilidade forense.
 func RegisterAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -127,12 +121,11 @@ func RegisterAcademia(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-
+	
 	log.Printf("Academia registada: %s (%s) por admin %s", req.Nome, codigoAcademia, userID)
 	c.JSON(http.StatusCreated, gin.H{
 		"message":         "academia registada com sucesso",
 		"codigo_academia": codigoAcademia,
-		"senha_inicial":   codigoAcademia,
 		"data": gin.H{
 			"id":              academia.ID,
 			"nome":            req.Nome,
@@ -142,20 +135,6 @@ func RegisterAcademia(c *gin.Context) {
 	})
 }
 
-// ============================================================================
-// PUT /admin/academia/:id/ativar
-// ============================================================================
-
-// AtivarAcademia ativa uma academia por UUID.
-// Rota: PUT /admin/academia/:id/ativar
-// Protegida por AuthMiddleware + RequireAdmin + RequireAdm.
-//
-// FIX E4-AA-01: a rota registada em main.go usa o parâmetro `:id` (UUID da
-// academia), mas o handler original lia `c.Param("codigo")` — valor sempre
-// string vazia, academia nunca encontrada, resultado sempre 404.
-// Corrigido: lemos `:id` como UUID e carregamos o aggregate diretamente por ID,
-// sem lookup intermediário por código. Mais eficiente e consistente com os
-// demais handlers de admin que operam por UUID (AtivarAdmin, DesativarAdmin).
 func AtivarAcademia(c *gin.Context) {
 	// FIX E4-AA-01: ler `:id` (UUID) — consistente com a definição da rota.
 	academiaID, err := uuid.Parse(c.Param("id"))
@@ -171,7 +150,12 @@ func AtivarAcademia(c *gin.Context) {
 		return
 	}
 
-	academia := agg.(*aggregates.Academia)
+	// FIX H4-TRX-03: type assertion protegida.
+	academia, ok := agg.(*aggregates.Academia)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
 
 	if err := academia.Ativar(); err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -197,17 +181,6 @@ func AtivarAcademia(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "academia ativada com sucesso"})
 }
 
-// ============================================================================
-// PUT /admin/academia/:id/desativar
-// ============================================================================
-
-// DesativarAcademia desativa uma academia por UUID.
-// Rota: PUT /admin/academia/:id/desativar
-// Protegida por AuthMiddleware + RequireAdmin + RequireAdm.
-//
-// FIX E4-AA-01: mesma correção de AtivarAcademia — lê `:id` (UUID) em vez
-// de `:codigo` que nunca era preenchido pela rota.
-// FIX C9: desativadoPor passado ao aggregate para rastreabilidade forense.
 func DesativarAcademia(c *gin.Context) {
 	// FIX E4-AA-01: ler `:id` (UUID) — consistente com a definição da rota.
 	academiaID, err := uuid.Parse(c.Param("id"))
@@ -231,7 +204,12 @@ func DesativarAcademia(c *gin.Context) {
 		return
 	}
 
-	academia := agg.(*aggregates.Academia)
+	// FIX H4-TRX-03: type assertion protegida.
+	academia, ok := agg.(*aggregates.Academia)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
 
 	// FIX C9: passar desativadoPor ao aggregate para inclusão no payload do evento.
 	adminUserID, _ := middleware.GetUserID(c)
@@ -259,20 +237,14 @@ func DesativarAcademia(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "academia desativada com sucesso"})
 }
 
-// ============================================================================
-// GET /academias
-// ============================================================================
-
-// ListarTodasAcademias lista academias acessíveis ao usuário autenticado.
-//
-// E4-ED-03 (aceito por design): estudantes autenticados podem listar academias
-// com campos não-sensíveis (nome, endereço, província, nível escolar).
-// Email é ocultado para não-admins. Campos operacionais internos (total_estudantes,
-// version) são omitidos para estudantes. Este comportamento é intencional —
-// estudantes precisam localizar academias para matrícula.
 func ListarTodasAcademias(c *gin.Context) {
 	userType, _ := middleware.GetUserType(c)
 	client := getDbClient(c)
+
+	// FIX H4-REG-04: paginação com limites validados (antes: sem LIMIT, varredura total).
+	limit, offset := getPaginationParams(c)
+	limit = db.ValidateLimit(limit)
+	offset = db.ValidateOffset(offset)
 
 	// Academias são controladas por status (ativo/inativo), não por soft-delete.
 	rows, err := client.DB().Query(`
@@ -282,7 +254,8 @@ func ListarTodasAcademias(c *gin.Context) {
 		FROM projection_academias
 		WHERE status = 'ativo'
 		ORDER BY nome ASC
-	`)
+		LIMIT $1 OFFSET $2
+	`, limit, offset)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -324,7 +297,11 @@ func ListarTodasAcademias(c *gin.Context) {
 
 		var cursos []string
 		if aca.CursosJSON != nil && *aca.CursosJSON != "" {
-			_ = json.Unmarshal([]byte(*aca.CursosJSON), &cursos)
+			// FIX H4-REG-03: erro de unmarshal logado em vez de silenciado com `_ =`.
+			if unmarshalErr := json.Unmarshal([]byte(*aca.CursosJSON), &cursos); unmarshalErr != nil {
+				log.Printf("[WARN] ListarTodasAcademias: falha ao desserializar cursos da academia %s: %v",
+					aca.CodigoAcademia, unmarshalErr)
+			}
 		}
 		if cursos == nil {
 			cursos = []string{}
@@ -332,20 +309,20 @@ func ListarTodasAcademias(c *gin.Context) {
 
 		// Campos públicos — visíveis a todos os tipos autenticados.
 		acadMap := map[string]interface{}{
-			"id":              aca.ID,
-			"type":            aca.Type,
-			"nome":            aca.Nome,
-			"codigo_academia": aca.CodigoAcademia,
-			"provincia":       aca.Provincia,
-			"endereco":        aca.Endereco,
-			"numero_telefone": aca.NumeroTelefone,
-			"website":         aca.Website,
-			"nivel_escolar":   aca.NivelEscolar,
-			"status":          aca.Status,
-			"cursos":          cursos,
+			"id":               aca.ID,
+			"type":             aca.Type,
+			"nome":             aca.Nome,
+			"codigo_academia":  aca.CodigoAcademia,
+			"provincia":        aca.Provincia,
+			"endereco":         aca.Endereco,
+			"numero_telefone":  aca.NumeroTelefone,
+			"website":          aca.Website,
+			"nivel_escolar":    aca.NivelEscolar,
+			"status":           aca.Status,
+			"cursos":           cursos,
 			"email_verificado": aca.EmailVerificado,
-			"created_at":      aca.CreatedAt,
-			"updated_at":      aca.UpdatedAt,
+			"created_at":       aca.CreatedAt,
+			"updated_at":       aca.UpdatedAt,
 		}
 
 		// Campos operacionais internos — apenas para admin.
@@ -357,6 +334,12 @@ func ListarTodasAcademias(c *gin.Context) {
 
 		academias = append(academias, acadMap)
 	}
+	
+	if err := rows.Err(); err != nil {
+		log.Printf("[ERROR] ListarTodasAcademias: erro durante iteração de rows: %v", err)
+		utils.RespondWithInternalError(c, err)
+		return
+	}
 
 	if academias == nil {
 		academias = []map[string]interface{}{}
@@ -365,6 +348,8 @@ func ListarTodasAcademias(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"academias": academias,
 		"total":     len(academias),
+		"limit":     limit,
+		"offset":    offset,
 	})
 }
 
@@ -414,10 +399,6 @@ func GetAcademiaPorCodigo(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// ============================================================================
-// PUT /academia/dados
-// ============================================================================
-
 func AtualizarDadosAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -434,6 +415,14 @@ func AtualizarDadosAcademia(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("body inválido"))
+		return
+	}
+
+	// FIX H4-REG-05: rejeitar body completamente vazio — sem evento no ledger.
+	if req.Nome == nil && req.Provincia == nil && req.Endereco == nil &&
+		req.NumeroTelefone == nil && req.Email == nil && req.Website == nil &&
+		req.NivelEscolar == nil && len(req.AnosAcademicos) == 0 && len(req.Cursos) == 0 {
+		utils.RespondWithValidationError(c, fmt.Errorf("ao menos um campo deve ser fornecido para atualização"))
 		return
 	}
 
@@ -460,7 +449,12 @@ func AtualizarDadosAcademia(c *gin.Context) {
 		return
 	}
 
-	academia := agg.(*aggregates.Academia)
+	// FIX H4-TRX-03: type assertion protegida.
+	academia, ok := agg.(*aggregates.Academia)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
 
 	if err := academia.AtualizarDados(
 		req.Nome,
@@ -510,13 +504,13 @@ func validarProvincia(provincia string) (string, error) {
 	return "", fmt.Errorf("província inválida: %s", provincia)
 }
 
-func generateCodigoAcademia(codigoProvincia string, db *sqlx.DB) (string, error) {
+func generateCodigoAcademia(codigoProvincia string, sqlDB *sqlx.DB) (string, error) {
 	var codigo string
-	err := db.QueryRow(`
+	err := sqlDB.QueryRow(`
 		SELECT spuri_generate_codigo_academia($1)
 	`, codigoProvincia).Scan(&codigo)
 	if err != nil {
-		// Fallback com hash se função SQL não estiver disponível.
+		log.Printf("[WARN] generateCodigoAcademia: falha na função SQL (%v), usando fallback hash", err)
 		h := fnv.New32a()
 		h.Write([]byte(codigoProvincia + time.Now().String()))
 		codigo = fmt.Sprintf("%s%08d", codigoProvincia, h.Sum32()%100000000)

@@ -13,10 +13,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RegistrarAprovacaoAno registra a aprovação ou reprovação de um estudante
-// em um determinado ano escolar, avançando ou mantendo o nível.
-//
-// POST /academia/aprovacao-ano
+var niveisValidosPorTipo = map[string]map[string]bool{
+	"fundamental": {
+		"1_ano": true, "2_ano": true, "3_ano": true, "4_ano": true,
+		"5_ano": true, "6_ano": true, "7_ano": true, "8_ano": true, "9_ano": true,
+	},
+	"medio": {
+		"10_ano": true, "11_ano": true, "12_ano": true, "13_ano": true,
+	},
+	"superior": {
+		"1_ano": true, "2_ano": true, "3_ano": true, "4_ano": true,
+		"5_ano": true, "6_ano": true,
+	},
+}
+
 func RegistrarAprovacaoAno(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -45,8 +55,31 @@ func RegistrarAprovacaoAno(c *gin.Context) {
 		return
 	}
 
-	// Aprovado=true exige proximo_nivel (exceto quando é o último ano do ciclo)
-	// A validação de negócio é delegada ao aggregate.
+	// FIX H4-APR-02: validar nivel_atual contra o conjunto permitido para o tipo.
+	niveisPermitidos := niveisValidosPorTipo[req.TipoEnsino]
+	if !niveisPermitidos[req.NivelAtual] {
+		utils.RespondWithValidationError(c, fmt.Errorf(
+			"nivel_atual %q inválido para tipo_ensino %q",
+			req.NivelAtual, req.TipoEnsino,
+		))
+		return
+	}
+
+	// FIX H4-APR-02: validar proximo_nivel quando fornecido.
+	if req.ProximoNivel != nil && !niveisPermitidos[*req.ProximoNivel] {
+		utils.RespondWithValidationError(c, fmt.Errorf(
+			"proximo_nivel %q inválido para tipo_ensino %q",
+			*req.ProximoNivel, req.TipoEnsino,
+		))
+		return
+	}
+	
+	if req.Aprovado && req.ProximoNivel == nil {
+		utils.RespondWithValidationError(c, fmt.Errorf(
+			"proximo_nivel é obrigatório quando aprovado=true",
+		))
+		return
+	}
 
 	// ── Academia ──────────────────────────────────────────────────────────────
 	academiaProj := getAcademiaProjection(c)
@@ -77,7 +110,12 @@ func RegistrarAprovacaoAno(c *gin.Context) {
 		return
 	}
 
-	estudante := estudanteAgg.(*aggregates.Estudante)
+	// FIX H4-TRX-03: type assertion protegida.
+	estudante, ok := estudanteAgg.(*aggregates.Estudante)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
 
 	if err := estudante.RegistrarAprovacaoAno(
 		academiaDTO.CodigoAcademia,

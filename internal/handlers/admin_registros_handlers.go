@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"spuri/internal/db"
 	"spuri/internal/middleware"
@@ -21,6 +22,11 @@ func requireAdminType(c *gin.Context) bool {
 	return false
 }
 
+// ListarTodosRegistros lista notas e faltas de todos os estudantes.
+//
+// FIX H4-ADR-01: erros de rows.Scan agora são logados (não silenciados).
+// FIX H4-ADR-02: rows.Err() verificado após cada loop de iteração.
+// FIX H4-ADR-04: erros de QueryRow para contagens agora são logados.
 func ListarTodosRegistros(c *gin.Context) {
 	// H4-16: defesa em profundidade — verificação explícita de tipo de usuário.
 	if requireAdminType(c) {
@@ -42,10 +48,7 @@ func ListarTodosRegistros(c *gin.Context) {
 	response := gin.H{}
 
 	if tipoFiltro == "" || tipoFiltro == "notas" {
-		// FIX HDL-02: substituído fmt.Sprintf + .Query() por prepared statement
-		// com $1/$2. Embora limit e offset sejam inteiros (sem risco imediato de
-		// injection textual), o padrão do projeto é usar prepared statements para
-		// toda paginação — consistente com safe_queries.go e o restante do codebase.
+		// FIX HDL-02: prepared statement com $1/$2.
 		queryNotas := `
 			SELECT
 				n.id, n.codigo_estudante, e.nome as estudante_nome,
@@ -87,18 +90,31 @@ func ListarTodosRegistros(c *gin.Context) {
 		var notas []NotaCompleta
 		for rows.Next() {
 			var nota NotaCompleta
+			// FIX H4-ADR-01: erro de Scan logado em vez de silenciado.
 			if err := rows.Scan(
 				&nota.ID, &nota.CodigoEstudante, &nota.EstudanteNome,
 				&nota.CodigoAcademia, &nota.AcademiaNome, &nota.AnoLectivo, &nota.Periodo,
 				&nota.MateriaDisciplinarID, &nota.MateriaNome,
 				&nota.Nota, &nota.Observacao, &nota.RegisteredAt, &nota.EventID, &nota.Version,
-			); err == nil {
-				notas = append(notas, nota)
+			); err != nil {
+				log.Printf("[WARN] ListarTodosRegistros/notas: erro ao ler linha: %v", err)
+				continue
 			}
+			notas = append(notas, nota)
+		}
+
+		// FIX H4-ADR-02: verificar rows.Err() após iteração.
+		if err := rows.Err(); err != nil {
+			log.Printf("[ERROR] ListarTodosRegistros/notas: erro durante iteração: %v", err)
+			utils.RespondWithInternalError(c, err)
+			return
 		}
 
 		var totalNotas int
-		client.DB().QueryRow(`SELECT COUNT(*) FROM projection_notas`).Scan(&totalNotas)
+		// FIX H4-ADR-04: erro de QueryRow para contagem logado.
+		if err := client.DB().QueryRow(`SELECT COUNT(*) FROM projection_notas`).Scan(&totalNotas); err != nil {
+			log.Printf("[WARN] ListarTodosRegistros: erro ao contar notas: %v", err)
+		}
 
 		response["notas"] = notas
 		response["total_notas"] = len(notas)
@@ -148,18 +164,31 @@ func ListarTodosRegistros(c *gin.Context) {
 		var faltas []FaltaCompleta
 		for rows.Next() {
 			var falta FaltaCompleta
+			// FIX H4-ADR-01: erro de Scan logado em vez de silenciado.
 			if err := rows.Scan(
 				&falta.ID, &falta.CodigoEstudante, &falta.EstudanteNome,
 				&falta.CodigoAcademia, &falta.AcademiaNome, &falta.AnoLectivo,
 				&falta.Data, &falta.MateriaDisciplinarID, &falta.MateriaNome,
 				&falta.Quantidade, &falta.Observacao, &falta.RegisteredAt, &falta.EventID, &falta.Version,
-			); err == nil {
-				faltas = append(faltas, falta)
+			); err != nil {
+				log.Printf("[WARN] ListarTodosRegistros/faltas: erro ao ler linha: %v", err)
+				continue
 			}
+			faltas = append(faltas, falta)
+		}
+
+		// FIX H4-ADR-02: verificar rows.Err() após iteração.
+		if err := rows.Err(); err != nil {
+			log.Printf("[ERROR] ListarTodosRegistros/faltas: erro durante iteração: %v", err)
+			utils.RespondWithInternalError(c, err)
+			return
 		}
 
 		var totalFaltas int
-		client.DB().QueryRow(`SELECT COUNT(*) FROM projection_faltas`).Scan(&totalFaltas)
+		// FIX H4-ADR-04: erro de QueryRow para contagem logado.
+		if err := client.DB().QueryRow(`SELECT COUNT(*) FROM projection_faltas`).Scan(&totalFaltas); err != nil {
+			log.Printf("[WARN] ListarTodosRegistros: erro ao contar faltas: %v", err)
+		}
 
 		response["faltas"] = faltas
 		response["total_faltas"] = len(faltas)
@@ -180,12 +209,15 @@ func ListarTodosRegistros(c *gin.Context) {
 			(SELECT COUNT(*) FROM projection_notas) as total_notas,
 			(SELECT COUNT(*) FROM projection_faltas) as total_faltas
 	`
-	client.DB().QueryRow(queryStats).Scan(
+	// FIX H4-ADR-04: erro de QueryRow para estatísticas logado.
+	if err := client.DB().QueryRow(queryStats).Scan(
 		&stats.TotalEstudantes,
 		&stats.TotalAcademias,
 		&stats.TotalNotas,
 		&stats.TotalFaltas,
-	)
+	); err != nil {
+		log.Printf("[WARN] ListarTodosRegistros: erro ao carregar estatísticas: %v", err)
+	}
 
 	response["estatisticas"] = stats
 	response["limit"] = limit
@@ -195,6 +227,11 @@ func ListarTodosRegistros(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+// ListarRegistrosPorEstudante lista notas e faltas de um estudante específico.
+//
+// FIX H4-ADR-01: erros de rows.Scan agora são logados.
+// FIX H4-ADR-02: rows.Err() verificado após cada loop.
+// FIX H4-ADR-03: codigo_estudante validado contra vazio antes de qualquer query.
 func ListarRegistrosPorEstudante(c *gin.Context) {
 	// H4-16: defesa em profundidade — verificação explícita de tipo de usuário.
 	if requireAdminType(c) {
@@ -244,13 +281,23 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 	var notas []NotaEstudante
 	for rowsNotas.Next() {
 		var nota NotaEstudante
+		// FIX H4-ADR-01: erro de Scan logado.
 		if err := rowsNotas.Scan(
 			&nota.ID, &nota.CodigoAcademia, &nota.AnoLectivo, &nota.Periodo,
 			&nota.MateriaDisciplinarID, &nota.MateriaNome,
 			&nota.Nota, &nota.Observacao, &nota.RegisteredAt,
-		); err == nil {
-			notas = append(notas, nota)
+		); err != nil {
+			log.Printf("[WARN] ListarRegistrosPorEstudante/notas: erro ao ler linha: %v", err)
+			continue
 		}
+		notas = append(notas, nota)
+	}
+
+	// FIX H4-ADR-02: verificar rows.Err() após iteração de notas.
+	if err := rowsNotas.Err(); err != nil {
+		log.Printf("[ERROR] ListarRegistrosPorEstudante/notas: erro durante iteração: %v", err)
+		utils.RespondWithInternalError(c, err)
+		return
 	}
 
 	type FaltaEstudante struct {
@@ -284,13 +331,23 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 	var faltas []FaltaEstudante
 	for rowsFaltas.Next() {
 		var falta FaltaEstudante
+		// FIX H4-ADR-01: erro de Scan logado.
 		if err := rowsFaltas.Scan(
 			&falta.ID, &falta.CodigoAcademia, &falta.AnoLectivo, &falta.Data,
 			&falta.MateriaDisciplinarID, &falta.MateriaNome,
 			&falta.Quantidade, &falta.Observacao, &falta.RegisteredAt,
-		); err == nil {
-			faltas = append(faltas, falta)
+		); err != nil {
+			log.Printf("[WARN] ListarRegistrosPorEstudante/faltas: erro ao ler linha: %v", err)
+			continue
 		}
+		faltas = append(faltas, falta)
+	}
+
+	// FIX H4-ADR-02: verificar rows.Err() após iteração de faltas.
+	if err := rowsFaltas.Err(); err != nil {
+		log.Printf("[ERROR] ListarRegistrosPorEstudante/faltas: erro durante iteração: %v", err)
+		utils.RespondWithInternalError(c, err)
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{

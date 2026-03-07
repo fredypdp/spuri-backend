@@ -23,6 +23,8 @@ import (
 //
 // FIX-C3: estudante usa event sourcing via aggregate.VerificarEmail(),
 // idêntico ao fluxo do Admin e Academia.
+// FIX H4-RST-04: estrutura refatorada de if/if/if para switch — mais segura
+// ao adicionar novos tipos de usuário (qualquer tipo não coberto cai no default).
 func VerificarEmail(c *gin.Context) {
 	token := c.Param("token")
 
@@ -33,15 +35,23 @@ func VerificarEmail(c *gin.Context) {
 		return
 	}
 
+	switch tokenInfo.UserType {
+
 	// ── Admin: event sourcing ──────────────────────────────────────────────
-	if tokenInfo.UserType == "admin" {
+	case "admin":
 		repository := getRepository(c)
 		adminAgg, err := repository.Load(tokenInfo.UserID, "Admin")
 		if err != nil {
 			utils.RespondWithNotFoundError(c, "administrador")
 			return
 		}
-		admin := adminAgg.(*aggregates.Admin)
+
+		// FIX H4-TRX-03: type assertion protegida.
+		admin, ok := adminAgg.(*aggregates.Admin)
+		if !ok {
+			utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+			return
+		}
 
 		alreadyVerified := false
 		if err := admin.VerificarEmail(); err != nil {
@@ -72,18 +82,22 @@ func VerificarEmail(c *gin.Context) {
 			msg = "Email já estava verificado."
 		}
 		c.JSON(http.StatusOK, gin.H{"message": msg, "email": tokenInfo.Email})
-		return
-	}
 
 	// ── Academia: event sourcing (FIX-C2) ─────────────────────────────────
-	if tokenInfo.UserType == "academia" {
+	case "academia":
 		repository := getRepository(c)
 		academiaAgg, err := repository.Load(tokenInfo.UserID, "Academia")
 		if err != nil {
 			utils.RespondWithNotFoundError(c, "academia")
 			return
 		}
-		academia := academiaAgg.(*aggregates.Academia)
+
+		// FIX H4-TRX-03: type assertion protegida.
+		academia, ok := academiaAgg.(*aggregates.Academia)
+		if !ok {
+			utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+			return
+		}
 
 		alreadyVerified := false
 		if err := academia.VerificarEmail(); err != nil {
@@ -113,18 +127,22 @@ func VerificarEmail(c *gin.Context) {
 			msg = "Email já estava verificado."
 		}
 		c.JSON(http.StatusOK, gin.H{"message": msg, "email": tokenInfo.Email})
-		return
-	}
 
 	// ── Estudante: event sourcing (FIX-C3) ────────────────────────────────
-	if tokenInfo.UserType == "estudante" {
+	case "estudante":
 		repository := getRepository(c)
 		estudanteAgg, err := repository.Load(tokenInfo.UserID, "Estudante")
 		if err != nil {
 			utils.RespondWithNotFoundError(c, "estudante")
 			return
 		}
-		estudante := estudanteAgg.(*aggregates.Estudante)
+
+		// FIX H4-TRX-03: type assertion protegida.
+		estudante, ok := estudanteAgg.(*aggregates.Estudante)
+		if !ok {
+			utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+			return
+		}
 
 		alreadyVerified := false
 		if err := estudante.VerificarEmail(); err != nil {
@@ -154,10 +172,11 @@ func VerificarEmail(c *gin.Context) {
 			msg = "Email já estava verificado."
 		}
 		c.JSON(http.StatusOK, gin.H{"message": msg, "email": tokenInfo.Email})
-		return
-	}
 
-	utils.RespondWithValidationError(c, fmt.Errorf("tipo de usuário inválido"))
+	default:
+		// FIX H4-RST-04: default explícito — qualquer tipo desconhecido é rejeitado.
+		utils.RespondWithValidationError(c, fmt.Errorf("tipo de usuário inválido no token: %s", tokenInfo.UserType))
+	}
 }
 
 // ============================================================================
@@ -174,20 +193,34 @@ func VerificarEmail(c *gin.Context) {
 //   hardcoded era pública no repositório, tornando qualquer conta que
 //   passasse por reset trivialmente comprometível por qualquer pessoa
 //   com acesso ao código-fonte.
+// FIX H4-RST-01: fallback de senha para estudante usando codigo_estudante REMOVIDO.
+//   nova_senha agora é obrigatória para todos os tipos (admin, academia, estudante).
+// FIX H4-RST-02: ShouldBindJSON com erro tratado — binding obrigatório para todos.
+// FIX H4-RST-03: documentado que a invalidação do token é responsabilidade do
+//   emailSvc.VerifyToken() — chamado uma única vez antes de qualquer operação.
+// FIX H4-RST-04: switch/case em vez de if/if/if para cobertura de tipos.
 func ResetarSenha(c *gin.Context) {
 	token := c.Param("token")
 
-	// FIX E4-LN-01: nova_senha obrigatória no body para TODOS os tipos.
-	// Para admins: substitui o GetDefaultPassword hardcoded.
-	// Para estudantes: mantém compatibilidade com o fluxo existente que já
-	//   usava o código como senha; mas aceitar nova_senha do body é mais seguro.
-	// O campo é opcional para estudantes (preserva backward compat) mas
-	// obrigatório para admins.
+	// FIX H4-RST-01 + H4-RST-02: nova_senha obrigatória para TODOS os tipos.
+	// Removido o fallback inseguro que usava codigo_estudante/codigo_academia como senha.
+	// O bind é agora explícito e o erro tratado — não mais descartado com `_ =`.
 	var req struct {
-		NovaSenha string `json:"nova_senha"`
+		NovaSenha string `json:"nova_senha" binding:"required"`
 	}
-	_ = c.ShouldBindJSON(&req) // bind opcional — verificamos por tipo abaixo
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("nova_senha é obrigatória no body"))
+		return
+	}
 
+	if err := utils.ValidateSenha(req.NovaSenha); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	// FIX H4-RST-03: VerifyToken é chamado UMA vez e deve invalidar o token internamente
+	// de forma atômica (responsabilidade do emailSvc). Após esta chamada, o token
+	// não pode ser reutilizado — prevenindo replay attacks.
 	emailSvc := getEmailService(c)
 	tokenInfo, err := emailSvc.VerifyToken(token, "recuperacao_senha")
 	if err != nil {
@@ -195,21 +228,19 @@ func ResetarSenha(c *gin.Context) {
 		return
 	}
 
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NovaSenha), bcrypt.DefaultCost)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
 	client := getDbClient(c)
 
+	// FIX H4-RST-04: switch/case para cobertura explícita de todos os tipos.
+	switch tokenInfo.UserType {
+
 	// ── Admin: event sourcing ──────────────────────────────────────────────
-	if tokenInfo.UserType == "admin" {
-		// FIX E4-LN-01: nova_senha obrigatória no body para admins.
-		if req.NovaSenha == "" {
-			utils.RespondWithValidationError(c, fmt.Errorf("nova_senha é obrigatória no body"))
-			return
-		}
-
-		if err := utils.ValidateSenha(req.NovaSenha); err != nil {
-			utils.RespondWithValidationError(c, err)
-			return
-		}
-
+	case "admin":
 		var emailVerificado bool
 		err = client.DB().QueryRow(
 			`SELECT COALESCE(email_verificado, FALSE) FROM projection_admins WHERE id = $1`,
@@ -225,19 +256,19 @@ func ResetarSenha(c *gin.Context) {
 			return
 		}
 
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NovaSenha), bcrypt.DefaultCost)
-		if err != nil {
-			utils.RespondWithInternalError(c, err)
-			return
-		}
-
 		repository := getRepository(c)
 		adminAgg, err := repository.Load(tokenInfo.UserID, "Admin")
 		if err != nil {
 			utils.RespondWithNotFoundError(c, "administrador")
 			return
 		}
-		admin := adminAgg.(*aggregates.Admin)
+
+		// FIX H4-TRX-03: type assertion protegida.
+		admin, ok := adminAgg.(*aggregates.Admin)
+		if !ok {
+			utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+			return
+		}
 
 		if err := admin.AlterarSenha(string(hashedPassword), uuid.Nil, "reset_senha"); err != nil {
 			utils.RespondWithInternalError(c, err)
@@ -259,34 +290,21 @@ func ResetarSenha(c *gin.Context) {
 			"message": "Senha redefinida com sucesso!",
 			"email":   tokenInfo.Email,
 		})
-		return
-	}
 
 	// ── Academia: event sourcing (FIX-C1) ─────────────────────────────────
-	if tokenInfo.UserType == "academia" {
-		// Aceitar nova_senha do body se fornecida; caso contrário usar código como antes.
-		var senhaParaDefinir string
-		if req.NovaSenha != "" {
-			if err := utils.ValidateSenha(req.NovaSenha); err != nil {
-				utils.RespondWithValidationError(c, err)
-				return
-			}
-			senhaParaDefinir = req.NovaSenha
-		} else {
-			var codigoAcademia string
-			if err := client.DB().QueryRow(
-				`SELECT codigo_academia FROM projection_academias WHERE id = $1`,
-				tokenInfo.UserID,
-			).Scan(&codigoAcademia); err != nil {
-				utils.RespondWithNotFoundError(c, "academia")
-				return
-			}
-			senhaParaDefinir = codigoAcademia
+	case "academia":
+		var emailVerificado bool
+		err = client.DB().QueryRow(
+			`SELECT COALESCE(email_verificado, FALSE) FROM projection_academias WHERE id = $1`,
+			tokenInfo.UserID,
+		).Scan(&emailVerificado)
+		if err != nil {
+			utils.RespondWithNotFoundError(c, "academia")
+			return
 		}
 
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(senhaParaDefinir), bcrypt.DefaultCost)
-		if err != nil {
-			utils.RespondWithInternalError(c, err)
+		if !emailVerificado {
+			utils.RespondWithForbiddenError(c, "Por favor, verifique seu email antes de resetar a senha")
 			return
 		}
 
@@ -296,7 +314,13 @@ func ResetarSenha(c *gin.Context) {
 			utils.RespondWithNotFoundError(c, "academia")
 			return
 		}
-		academia := academiaAgg.(*aggregates.Academia)
+
+		// FIX H4-TRX-03: type assertion protegida.
+		academia, ok := academiaAgg.(*aggregates.Academia)
+		if !ok {
+			utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+			return
+		}
 
 		if err := academia.AlterarSenha(string(hashedPassword), uuid.Nil, "reset_senha"); err != nil {
 			utils.RespondWithInternalError(c, err)
@@ -318,11 +342,9 @@ func ResetarSenha(c *gin.Context) {
 			"message":         "Senha resetada com sucesso!",
 			"proximos_passos": "Faça login e altere para uma senha segura.",
 		})
-		return
-	}
 
 	// ── Estudante: event sourcing (FIX-C3b) ───────────────────────────────
-	if tokenInfo.UserType == "estudante" {
+	case "estudante":
 		var emailVerificado bool
 		err = client.DB().QueryRow(
 			`SELECT COALESCE(email_verificado, FALSE) FROM projection_estudantes WHERE id = $1`,
@@ -338,39 +360,19 @@ func ResetarSenha(c *gin.Context) {
 			return
 		}
 
-		// Aceitar nova_senha do body se fornecida; caso contrário usar código.
-		var senhaParaDefinir string
-		if req.NovaSenha != "" {
-			if err := utils.ValidateSenha(req.NovaSenha); err != nil {
-				utils.RespondWithValidationError(c, err)
-				return
-			}
-			senhaParaDefinir = req.NovaSenha
-		} else {
-			var codigoEstudante string
-			if err := client.DB().QueryRow(
-				`SELECT codigo_estudante FROM projection_estudantes WHERE id = $1`,
-				tokenInfo.UserID,
-			).Scan(&codigoEstudante); err != nil {
-				utils.RespondWithNotFoundError(c, "estudante")
-				return
-			}
-			senhaParaDefinir = codigoEstudante
-		}
-
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(senhaParaDefinir), bcrypt.DefaultCost)
-		if err != nil {
-			utils.RespondWithInternalError(c, err)
-			return
-		}
-
 		repository := getRepository(c)
 		estudanteAgg, err := repository.Load(tokenInfo.UserID, "Estudante")
 		if err != nil {
 			utils.RespondWithNotFoundError(c, "estudante")
 			return
 		}
-		estudante := estudanteAgg.(*aggregates.Estudante)
+
+		// FIX H4-TRX-03: type assertion protegida.
+		estudante, ok := estudanteAgg.(*aggregates.Estudante)
+		if !ok {
+			utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+			return
+		}
 
 		if err := estudante.AlterarSenha(string(hashedPassword)); err != nil {
 			utils.RespondWithInternalError(c, err)
@@ -392,10 +394,11 @@ func ResetarSenha(c *gin.Context) {
 			"message":         "Senha resetada com sucesso!",
 			"proximos_passos": "Faça login com sua nova senha.",
 		})
-		return
-	}
 
-	utils.RespondWithValidationError(c, fmt.Errorf("tipo de usuário inválido"))
+	default:
+		// FIX H4-RST-04: default explícito — tipo desconhecido rejeitado com erro claro.
+		utils.RespondWithValidationError(c, fmt.Errorf("tipo de usuário inválido no token: %s", tokenInfo.UserType))
+	}
 }
 
 // ============================================================================

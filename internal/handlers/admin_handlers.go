@@ -16,6 +16,11 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// LoginAdmin autentica um administrador.
+//
+// FIX H4-ADM-01: timing attack corrigido — bcrypt com hash dummy executado
+// mesmo quando o email não existe, igualando o tempo de resposta para emails
+// inexistentes e para senhas erradas (mesmo padrão de auth_handlers.go Login).
 func LoginAdmin(c *gin.Context) {
 	var req struct {
 		Email string `json:"email" binding:"required"`
@@ -26,20 +31,36 @@ func LoginAdmin(c *gin.Context) {
 		return
 	}
 
+	// Hash dummy com mesmo custo que um hash real para equalizar tempo de resposta.
+	const dummyHash = "$2a$10$dummyhashvaluethatdoesnotmatch000000000000000000000000000"
+
 	adminProj := getAdminProjection(c)
 	admin, err := adminProj.GetByEmailForLogin(req.Email)
-	if err != nil || admin == nil {
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	// FIX H4-ADM-01: sempre executar bcrypt para equalizar tempo de resposta.
+	// Quando admin == nil, compara contra dummyHash (sempre falha, mas leva o mesmo tempo).
+	hashToCompare := dummyHash
+	var adminStatus string
+	var adminFound bool
+	if admin != nil {
+		hashToCompare = admin.SenhaHash
+		adminStatus = admin.Status
+		adminFound = true
+	}
+
+	bcryptErr := bcrypt.CompareHashAndPassword([]byte(hashToCompare), []byte(req.Senha))
+
+	if !adminFound || bcryptErr != nil {
 		utils.RespondWithUnauthorizedError(c)
 		return
 	}
 
-	if admin.Status != "ativo" {
+	if adminStatus != "ativo" {
 		utils.RespondWithForbiddenError(c, "Administrador inativo. Entre em contato com o suporte.")
-		return
-	}
-
-	if err := bcrypt.CompareHashAndPassword([]byte(admin.SenhaHash), []byte(req.Senha)); err != nil {
-		utils.RespondWithUnauthorizedError(c)
 		return
 	}
 
@@ -58,6 +79,11 @@ func LoginAdmin(c *gin.Context) {
 	})
 }
 
+// RegisterAdmin cria um novo administrador.
+//
+// FIX H4-ADM-02: a ação do criador (segundo SaveWithAudit) é melhor esforço —
+// documentado explicitamente. A criação do newAdmin é a operação primária e atômica;
+// o registro da ação do criador é auditoria secundária e não deve bloquear a resposta.
 func RegisterAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -89,7 +115,13 @@ func RegisterAdmin(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	creator := creatorAgg.(*aggregates.Admin)
+
+	// FIX H4-TRX-03: type assertion protegida.
+	creator, ok := creatorAgg.(*aggregates.Admin)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado para criador"))
+		return
+	}
 
 	if err := creator.ValidatePermission(req.Role); err != nil {
 		utils.RespondWithForbiddenError(c, err.Error())
@@ -134,14 +166,18 @@ func RegisterAdmin(c *gin.Context) {
 		return
 	}
 
+	// FIX H4-ADM-02: o registro da ação do criador é auditoria secundária (melhor esforço).
+	// A criação do newAdmin já está persistida e é a operação primária.
+	// Falha aqui é logada mas não reverte a criação — consistente com o design de auditoria
+	// eventual do sistema (o evento "admin_criado" já está no ledger do newAdmin).
 	if err := creator.RegistrarAcao("admin_criado", map[string]interface{}{
 		"novo_admin_id": newAdmin.ID.String(),
 		"role":          req.Role,
 		"email":         req.Email,
 	}); err != nil {
-		log.Printf("[WARN] Falha ao preparar ação do criador: %v", err)
+		log.Printf("[WARN] RegisterAdmin: falha ao preparar ação do criador: %v", err)
 	} else if err := repository.SaveWithAudit(creator, audit); err != nil {
-		log.Printf("[WARN] Falha ao registrar ação do criador (admin_criado): %v", err)
+		log.Printf("[WARN] RegisterAdmin: falha ao registrar ação do criador no ledger (admin_criado): %v", err)
 	}
 
 	// FIX E4-AA-03: envia email de boas-vindas com a senha temporária gerada.
@@ -223,8 +259,13 @@ func GetAdminPorEmail(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"admin": resp})
 }
 
-// ListarTodosAdmins retorna todos os administradores sem expor senha_hash.
 func ListarTodosAdmins(c *gin.Context) {
+	// FIX H4-ADM-05: exigir role mínimo "adm" para listar todos os admins.
+	if err := verificarPermissaoAdmin(c, "adm"); err != nil {
+		utils.RespondWithForbiddenError(c, "acesso restrito a administradores com role 'adm' ou superior")
+		return
+	}
+
 	adminProj := getAdminProjection(c)
 	admins, err := adminProj.GetAll()
 	if err != nil {
@@ -273,14 +314,27 @@ func AtivarAdmin(c *gin.Context) {
 		utils.RespondWithNotFoundError(c, "administrador")
 		return
 	}
-	targetAdmin := targetAdminAgg.(*aggregates.Admin)
+
+	// FIX H4-TRX-03: type assertion protegida.
+	targetAdmin, ok := targetAdminAgg.(*aggregates.Admin)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado para target admin"))
+		return
+	}
 
 	executorAgg, err := repository.Load(userID, "Admin")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	executor := executorAgg.(*aggregates.Admin)
+
+	// FIX H4-TRX-03: type assertion protegida.
+	executor, ok := executorAgg.(*aggregates.Admin)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado para executor"))
+		return
+	}
+
 	if err := executor.ValidatePermission(targetAdmin.Role); err != nil {
 		utils.RespondWithForbiddenError(c, fmt.Sprintf("permissão negada para ativar admin com role '%s': %s", targetAdmin.Role, err.Error()))
 		return
@@ -344,14 +398,26 @@ func DesativarAdmin(c *gin.Context) {
 		utils.RespondWithNotFoundError(c, "administrador")
 		return
 	}
-	targetAdmin := targetAdminAgg.(*aggregates.Admin)
+	
+	targetAdmin, ok := targetAdminAgg.(*aggregates.Admin)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado para target admin"))
+		return
+	}
 
 	executorAgg, err := repository.Load(userID, "Admin")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	executor := executorAgg.(*aggregates.Admin)
+
+	// FIX H4-TRX-03: type assertion protegida.
+	executor, ok := executorAgg.(*aggregates.Admin)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado para executor"))
+		return
+	}
+
 	if err := executor.ValidatePermission(targetAdmin.Role); err != nil {
 		utils.RespondWithForbiddenError(c, fmt.Sprintf("permissão negada para desativar admin com role '%s': %s", targetAdmin.Role, err.Error()))
 		return
@@ -394,6 +460,12 @@ func AtualizarRoleAdmin(c *gin.Context) {
 		return
 	}
 
+	// FIX H4-ADM-03: bloquear auto-alteração de role no handler.
+	if adminID == userID {
+		utils.RespondWithValidationError(c, fmt.Errorf("você não pode alterar seu próprio role"))
+		return
+	}
+
 	var req struct {
 		NovoRole string `json:"novo_role" binding:"required"`
 	}
@@ -415,8 +487,29 @@ func AtualizarRoleAdmin(c *gin.Context) {
 		utils.RespondWithNotFoundError(c, "admin")
 		return
 	}
-	admin := adminAgg.(*aggregates.Admin)
+	
+	admin, ok := adminAgg.(*aggregates.Admin)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
+
 	roleAnterior := admin.Role
+	
+	executorAgg, err := repository.Load(userID, "Admin")
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	executor, ok := executorAgg.(*aggregates.Admin)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado para executor"))
+		return
+	}
+	if err := executor.ValidatePermission(roleAnterior); err != nil {
+		utils.RespondWithForbiddenError(c, fmt.Sprintf("permissão negada para alterar admin com role atual '%s': %s", roleAnterior, err.Error()))
+		return
+	}
 
 	if err := admin.AtualizarRole(req.NovoRole, userID, currentAdmin.Role); err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -484,7 +577,13 @@ func AtualizarDadosAdmin(c *gin.Context) {
 		utils.RespondWithNotFoundError(c, "admin")
 		return
 	}
-	admin := adminAgg.(*aggregates.Admin)
+
+	// FIX H4-TRX-03: type assertion protegida.
+	admin, ok := adminAgg.(*aggregates.Admin)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
 
 	if err := admin.AtualizarDados(req.Nome, req.Email, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
