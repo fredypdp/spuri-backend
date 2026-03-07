@@ -9,34 +9,19 @@ import (
 	"spuri/internal/utils"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
-// statusEscolarValidos define os valores permitidos para cada tipo de ensino.
-// FIX H4-STS-02: validação de novo_status contra conjunto de valores permitidos
-// aplicada no handler, antes de qualquer chamada ao aggregate.
 var statusEscolarValidos = map[string]bool{
-	"cursando":    true,
-	"concluido":   true,
-	"reprovado":   true,
-	"transferido": true,
-	"evadido":     true,
-	"matriculado": true,
-	"trancado":    true,
+	"inativo":      true,
+	"em_andamento": true,
+	"finalizado":   true,
 }
 
-// atualizarStatusEscolar é o helper centralizado que executa a lógica comum
-// dos três handlers de status escolar.
-//
-// FIX H4-STS-01: três handlers com corpo 100% duplicado substituídos por
-// um único helper tipado. Correções de segurança ou lógica aplicadas aqui
-// propagam-se automaticamente para todos os tipos de ensino.
-//
-// FIX H4-STS-02: validação de novo_status contra conjunto de valores permitidos.
-// FIX H4-TRX-03: type assertion protegida.
 func atualizarStatusEscolar(
 	c *gin.Context,
 	tipoEnsino string,
-	executarComando func(*aggregates.Estudante, string) error,
+	executarComando func(*aggregates.Estudante, string, uuid.UUID) error,
 	campoResposta string,
 ) {
 	codigoEstudante := c.Param("codigo")
@@ -48,11 +33,10 @@ func atualizarStatusEscolar(
 		utils.RespondWithValidationError(c, fmt.Errorf("novo_status é obrigatório"))
 		return
 	}
-
-	// FIX H4-STS-02: validar novo_status contra conjunto de valores permitidos.
+	
 	if !statusEscolarValidos[req.NovoStatus] {
 		utils.RespondWithValidationError(c, fmt.Errorf(
-			"novo_status inválido: %q. Valores aceitos: cursando, concluido, reprovado, transferido, evadido, matriculado, trancado",
+			"novo_status inválido: %q. Valores aceitos: inativo, em_andamento, finalizado",
 			req.NovoStatus,
 		))
 		return
@@ -84,15 +68,14 @@ func atualizarStatusEscolar(
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-
-	// FIX H4-TRX-03: type assertion protegida.
+	
 	estudante, ok := estudanteAgg.(*aggregates.Estudante)
 	if !ok {
 		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
 		return
 	}
-
-	if err := executarComando(estudante, req.NovoStatus); err != nil {
+	
+	if err := executarComando(estudante, req.NovoStatus, academiaID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -116,41 +99,34 @@ func atualizarStatusEscolar(
 	})
 }
 
-// AtualizarStatusEscolarFundamentalHandler — academia atualiza status escolar
-// fundamental de um estudante.
-// Protegido por RequireAcademia() + ValidarStatusAcademia().
 func AtualizarStatusEscolarFundamentalHandler(c *gin.Context) {
 	atualizarStatusEscolar(
 		c,
 		"fundamental",
-		func(e *aggregates.Estudante, status string) error {
-			return e.AtualizarStatusEscolarFundamental(status)
+		func(e *aggregates.Estudante, status string, atualizadoPor uuid.UUID) error {
+			return e.AtualizarStatusEscolarFundamental(status, atualizadoPor)
 		},
 		"status_escolar_fundamental",
 	)
 }
 
-// AtualizarStatusEscolarMedioHandler — academia atualiza status escolar médio
-// de um estudante.
 func AtualizarStatusEscolarMedioHandler(c *gin.Context) {
 	atualizarStatusEscolar(
 		c,
 		"medio",
-		func(e *aggregates.Estudante, status string) error {
-			return e.AtualizarStatusEscolarMedio(status)
+		func(e *aggregates.Estudante, status string, atualizadoPor uuid.UUID) error {
+			return e.AtualizarStatusEscolarMedio(status, atualizadoPor)
 		},
 		"status_escolar_medio",
 	)
 }
 
-// AtualizarStatusSuperiorHandler — academia atualiza status superior de um
-// estudante.
 func AtualizarStatusSuperiorHandler(c *gin.Context) {
 	atualizarStatusEscolar(
 		c,
 		"superior",
-		func(e *aggregates.Estudante, status string) error {
-			return e.AtualizarStatusSuperior(status)
+		func(e *aggregates.Estudante, status string, atualizadoPor uuid.UUID) error {
+			return e.AtualizarStatusSuperior(status, atualizadoPor)
 		},
 		"status_superior",
 	)

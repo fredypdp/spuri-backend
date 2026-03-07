@@ -62,9 +62,6 @@ func (e *Estudante) GetType() string { return "Estudante" }
 
 func (e *Estudante) Apply(event DomainEvent) error {
 	switch event.GetEventType() {
-	// REMOVIDO: "EstudanteCriado" — auto-cadastro público eliminado.
-	// Eventos legados no ledger são ignorados silenciosamente pelo dispatcher
-	// da projeção (return nil). O aggregate não precisa mais suportá-los.
 	case "EstudanteCriadoComVinculo":
 		return e.applyEstudanteCriadoComVinculo(event)
 	case "FaltasRegistradas":
@@ -100,16 +97,6 @@ func (e *Estudante) Apply(event DomainEvent) error {
 	}
 }
 
-// ============================================================================
-// Eventos base (definidos neste arquivo)
-// NOTA: AvaliacaoFinalAnoAcademicoEvent está em estudante_avaliacao.go
-//       NotasRegistradasEvent / NotaAtualizadaEvent estão em estudante_notas.go
-//       AprovacaoAnoRegistradaEvent / StatusEscolar*AtualizadoEvent estão em estudante_aprovacao.go
-// ============================================================================
-
-// EstudanteCriadoComVinculoEvent — FIX E-01: AcademiaID adicionado ao payload
-// para rastreabilidade forense sem depender dos metadados do ledger.
-// Etapa 4 deve preencher AcademiaID no handler de criação via academia.
 type EstudanteCriadoComVinculoEvent struct {
 	BaseEvent
 	Nome                     string
@@ -128,7 +115,6 @@ type EstudanteCriadoComVinculoEvent struct {
 	StatusEscolarMedio       string
 	StatusSuperior           string
 	CodigoAcademia           string
-	// FIX E-01: UUID da academia criadora. Etapa 4 preenche este campo.
 	AcademiaID *uuid.UUID
 	CreatedAt  time.Time
 	Genero     string
@@ -153,10 +139,16 @@ type FaltasRegistradasEvent struct {
 func (e *FaltasRegistradasEvent) GetPayload() interface{} { return e }
 func (e *FaltasRegistradasEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
+// StatusSuperiorAtualizadoEvent — atualização manual do ciclo superior.
+//
+// AtualizadoPor: UUID da academia que executou a operação.
+// Campo obrigatório para auditoria self-contained — permite rastrear quem
+// alterou o status sem inspecionar os metadados do ledger diretamente.
 type StatusSuperiorAtualizadoEvent struct {
 	BaseEvent
-	NovoStatus string
-	UpdatedAt  time.Time
+	NovoStatus    string
+	AtualizadoPor uuid.UUID
+	UpdatedAt     time.Time
 }
 
 func (e *StatusSuperiorAtualizadoEvent) GetPayload() interface{} { return e }
@@ -222,9 +214,6 @@ func (e *EmailVerificadoEstudanteEvent) ToJSON() ([]byte, error) { return json.M
 // ============================================================================
 // Comandos
 // ============================================================================
-
-// REMOVIDO: func (e *Estudante) Criar(...) — auto-cadastro público eliminado.
-// O estudante é criado EXCLUSIVAMENTE pela academia via CriarComVinculo.
 
 func (e *Estudante) CriarComVinculo(
 	nome string,
@@ -315,9 +304,6 @@ func (e *Estudante) VerificarEmail() error {
 	return e.Apply(event)
 }
 
-// AlterarSenha emite SenhaAlterada.
-// FIX E-05: valida comprimento mínimo do hash (bcrypt = mínimo 60 chars).
-// Hash inválido gravado no ledger é irrecuperável — falha aqui é obrigatória.
 func (e *Estudante) AlterarSenha(novaSenhaHash string) error {
 	if len(novaSenhaHash) < 60 {
 		return fmt.Errorf("senhaHash inválido: esperado hash bcrypt (mínimo 60 caracteres)")
@@ -379,42 +365,40 @@ func (e *Estudante) AtualizarDadosAcademicos(
 	return e.Apply(event)
 }
 
-func (e *Estudante) AtualizarStatusEscolarFundamental(novoStatus string) error {
+func (e *Estudante) AtualizarStatusEscolarFundamental(novoStatus string, atualizadoPor uuid.UUID) error {
 	validStatus := map[string]bool{"inativo": true, "em_andamento": true, "finalizado": true}
 	if !validStatus[novoStatus] {
-		return fmt.Errorf("status inválido: %s", novoStatus)
+		return fmt.Errorf("status inválido: '%s'. Use: inativo, em_andamento, finalizado", novoStatus)
 	}
 	event := &StatusEscolarFundamentalAtualizadoEvent{
-		BaseEvent:  BaseEvent{EventType: "StatusEscolarFundamentalAtualizado", AggregateID: e.ID},
-		NovoStatus: novoStatus,
-		UpdatedAt:  time.Now(),
+		BaseEvent:     BaseEvent{EventType: "StatusEscolarFundamentalAtualizado", AggregateID: e.ID},
+		NovoStatus:    novoStatus,
+		AtualizadoPor: atualizadoPor,
+		UpdatedAt:     time.Now(),
 	}
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
 
-func (e *Estudante) AtualizarStatusEscolarMedio(novoStatus string) error {
+func (e *Estudante) AtualizarStatusEscolarMedio(novoStatus string, atualizadoPor uuid.UUID) error {
 	validStatus := map[string]bool{"inativo": true, "em_andamento": true, "finalizado": true}
 	if !validStatus[novoStatus] {
-		return fmt.Errorf("status inválido: %s", novoStatus)
+		return fmt.Errorf("status inválido: '%s'. Use: inativo, em_andamento, finalizado", novoStatus)
 	}
 	event := &StatusEscolarMedioAtualizadoEvent{
-		BaseEvent:  BaseEvent{EventType: "StatusEscolarMedioAtualizado", AggregateID: e.ID},
-		NovoStatus: novoStatus,
-		UpdatedAt:  time.Now(),
+		BaseEvent:     BaseEvent{EventType: "StatusEscolarMedioAtualizado", AggregateID: e.ID},
+		NovoStatus:    novoStatus,
+		AtualizadoPor: atualizadoPor,
+		UpdatedAt:     time.Now(),
 	}
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
 
-// AtualizarStatusSuperior — FIX E-02: a pré-condição foi corrigida para
-// permitir estudantes de percurso exclusivamente superior (fundamental e
-// médio com status "inativo"). A restrição só bloqueia se algum dos ciclos
-// inferiores estiver "em_andamento" (existente mas incompleto).
-func (e *Estudante) AtualizarStatusSuperior(novoStatus string) error {
+func (e *Estudante) AtualizarStatusSuperior(novoStatus string, atualizadoPor uuid.UUID) error {
 	validStatus := map[string]bool{"inativo": true, "em_andamento": true, "finalizado": true}
 	if !validStatus[novoStatus] {
-		return fmt.Errorf("status inválido: %s", novoStatus)
+		return fmt.Errorf("status inválido: '%s'. Use: inativo, em_andamento, finalizado", novoStatus)
 	}
 
 	if novoStatus == "em_andamento" || novoStatus == "finalizado" {
@@ -436,9 +420,10 @@ func (e *Estudante) AtualizarStatusSuperior(novoStatus string) error {
 	}
 
 	event := &StatusSuperiorAtualizadoEvent{
-		BaseEvent:  BaseEvent{EventType: "StatusSuperiorAtualizado", AggregateID: e.ID},
-		NovoStatus: novoStatus,
-		UpdatedAt:  time.Now(),
+		BaseEvent:     BaseEvent{EventType: "StatusSuperiorAtualizado", AggregateID: e.ID},
+		NovoStatus:    novoStatus,
+		AtualizadoPor: atualizadoPor,
+		UpdatedAt:     time.Now(),
 	}
 	e.RaiseEvent(event)
 	return e.Apply(event)
@@ -473,8 +458,6 @@ func (e *Estudante) AlterarCurso(cursoID uuid.UUID, tipoEnsino string) error {
 	return e.Apply(event)
 }
 
-// RegistrarAprovacaoAno — FIX E-04: verifica duplicata usando AprovacoesPorAno
-// antes de emitir o evento, para evitar emissão dupla para o mesmo período.
 func (e *Estudante) RegistrarAprovacaoAno(
 	codigoAcademia string,
 	anoLectivo string,
@@ -516,13 +499,6 @@ func (e *Estudante) RegistrarAprovacaoAno(
 	return e.Apply(event)
 }
 
-// ============================================================================
-// Apply handlers
-// NOTA: applyNotasRegistradas e applyNotaAtualizada estão em estudante_notas.go
-//       applyAvaliacaoFinalAnoAcademico está em estudante_avaliacao.go
-//       applyStatusEscolar*Atualizado estão em estudante_aprovacao.go (via métodos abaixo)
-// ============================================================================
-
 func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
 	data, err := json.Marshal(event.GetPayload())
 	if err != nil {
@@ -557,9 +533,6 @@ func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
 	return nil
 }
 
-// applyFaltasRegistradas — FIX E-03: deserializa o payload para detectar
-// corrupção silenciosa. O aggregate não mantém faltas em estado (gerenciado
-// pela projeção), mas valida a estrutura do evento durante o rebuild.
 func (e *Estudante) applyFaltasRegistradas(event DomainEvent) error {
 	data, err := json.Marshal(event.GetPayload())
 	if err != nil {
@@ -573,9 +546,6 @@ func (e *Estudante) applyFaltasRegistradas(event DomainEvent) error {
 	return nil
 }
 
-// applyAprovacaoAnoRegistrada — FIX E-04: registra a aprovação em
-// AprovacoesPorAno para permitir detecção de duplicatas em comandos
-// subsequentes. Também atualiza o ano escolar quando aprovado.
 func (e *Estudante) applyAprovacaoAnoRegistrada(event DomainEvent) error {
 	data, err := json.Marshal(event.GetPayload())
 	if err != nil {
@@ -694,8 +664,6 @@ func (e *Estudante) applyDadosAcademicosAtualizados(event DomainEvent) error {
 	return nil
 }
 
-// applySenhaAlterada — FIX E-05: valida que o hash não é vazio no payload
-// (defesa em profundidade além da validação no comando AlterarSenha).
 func (e *Estudante) applySenhaAlterada(event DomainEvent) error {
 	data, err := json.Marshal(event.GetPayload())
 	if err != nil {
@@ -716,11 +684,6 @@ func (e *Estudante) applyEmailVerificado(_ DomainEvent) error {
 	e.EmailVerificado = true
 	return nil
 }
-
-// applyStatusEscolarFundamentalAtualizado e applyStatusEscolarMedioAtualizado
-// são definidos aqui porque o dispatcher Apply() está neste arquivo.
-// Os eventos (StatusEscolarFundamentalAtualizadoEvent / StatusEscolarMedioAtualizadoEvent)
-// estão definidos em estudante_aprovacao.go.
 
 func (e *Estudante) applyStatusEscolarFundamentalAtualizado(event DomainEvent) error {
 	data, err := json.Marshal(event.GetPayload())
@@ -747,8 +710,7 @@ func (e *Estudante) applyStatusEscolarMedioAtualizado(event DomainEvent) error {
 	e.StatusEscolarMedio = ev.NovoStatus
 	return nil
 }
-// applyFaltaAtualizada — o aggregate Estudante não mantém faltas em estado
-// (gerenciado pela projeção), mas valida a estrutura do payload durante rebuild.
+
 func (e *Estudante) applyFaltaAtualizada(event DomainEvent) error {
 	data, err := json.Marshal(event.GetPayload())
 	if err != nil {
