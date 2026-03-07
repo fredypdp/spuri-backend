@@ -55,7 +55,6 @@ var validEventTypes = map[string]bool{
 	"TurmaDeletada":             true,
 	"TurmaEncerrada":            true,
 	"EstudanteAdicionadoATurma": true,
-	"EstudanteAdicionadoNaTurma": true, // alias — aceitar ambos durante migração de nomes
 	"EstudanteRemovidoDaTurma":   true,
 	// ── Curso ─────────────────────────────────────────────────────────────────
 	"CursoCriado":           true,
