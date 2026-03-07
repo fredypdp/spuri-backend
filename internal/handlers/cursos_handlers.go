@@ -58,7 +58,12 @@ func CriarCurso(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(curso); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(curso, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -151,12 +156,17 @@ func AtualizarDadosCurso(c *gin.Context) {
 
 	curso := cursoAgg.(*aggregates.Curso)
 
-	if err := curso.AtualizarDados(req.Nome, req.AnosAcademicos, req.Periodos); err != nil {
+	if err := curso.AtualizarDados(req.Nome, req.AnosAcademicos, req.Periodos, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
-	if err := repository.Save(curso); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(curso, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -207,12 +217,17 @@ func AtivarCurso(c *gin.Context) {
 
 	curso := cursoAgg.(*aggregates.Curso)
 
-	if err := curso.Ativar(); err != nil {
+	if err := curso.Ativar(userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
-	if err := repository.Save(curso); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(curso, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -257,12 +272,17 @@ func DesativarCurso(c *gin.Context) {
 
 	curso := cursoAgg.(*aggregates.Curso)
 
-	if err := curso.Desativar(); err != nil {
+	if err := curso.Desativar(userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
-	if err := repository.Save(curso); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(curso, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}

@@ -92,6 +92,7 @@ func (e *CursoCriadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) } /
 
 type CursoAtivadoEvent struct {
 	BaseEvent
+	AtivadoPor  uuid.UUID
 	ActivatedAt time.Time
 }
 
@@ -100,6 +101,7 @@ func (e *CursoAtivadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) } 
 
 type CursoDesativadoEvent struct {
 	BaseEvent
+	DesativadoPor  uuid.UUID
 	DeactivatedAt time.Time
 }
 
@@ -191,7 +193,7 @@ func (c *Curso) Criar(
 	return c.Apply(event)
 }
 
-func (c *Curso) Ativar() error {
+func (c *Curso) Ativar(ativadoPor uuid.UUID) error {
 	log.Printf("[DEBUG] Ativando curso %s (status atual: %s)", c.ID, c.Status)
 
 	if c.Status == "ativo" {
@@ -203,6 +205,7 @@ func (c *Curso) Ativar() error {
 			EventType:   "CursoAtivado",
 			AggregateID: c.ID,
 		},
+		AtivadoPor:  ativadoPor,
 		ActivatedAt: time.Now(),
 	}
 
@@ -210,7 +213,7 @@ func (c *Curso) Ativar() error {
 	return c.Apply(event)
 }
 
-func (c *Curso) Desativar() error {
+func (c *Curso) Desativar(desativadoPor uuid.UUID) error {
 	log.Printf("[DEBUG] Desativando curso %s (status atual: %s)", c.ID, c.Status)
 
 	if c.Status == "inativo" {
@@ -222,6 +225,7 @@ func (c *Curso) Desativar() error {
 			EventType:   "CursoDesativado",
 			AggregateID: c.ID,
 		},
+		DesativadoPor: desativadoPor,
 		DeactivatedAt: time.Now(),
 	}
 
@@ -233,7 +237,7 @@ func (c *Curso) Desativar() error {
 // O tipo do curso é IMUTÁVEL após a criação.
 // Passe nil para não alterar os respectivos campos.
 // periodos=nil → não altera; periodos=&[]string{...} → atualiza.
-func (c *Curso) AtualizarDados(nome *string, anosAcademicos []string, periodos *[]string) error {
+func (c *Curso) AtualizarDados(nome *string, anosAcademicos []string, periodos *[]string, atualizadoPor uuid.UUID) error {
 	if nome == nil && anosAcademicos == nil && periodos == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
@@ -261,7 +265,7 @@ func (c *Curso) AtualizarDados(nome *string, anosAcademicos []string, periodos *
 		AnosAcademicos: anosAcademicos,
 		Periodos:       periodos,
 		UpdatedAt:      time.Now(),
-		AtualizadoPor:  uuid.Nil, // Etapa 4 deve preencher
+		AtualizadoPor: atualizadoPor,
 	}
 
 	c.RaiseEvent(event)

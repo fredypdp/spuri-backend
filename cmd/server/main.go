@@ -202,17 +202,17 @@ func setupRouter() *gin.Engine {
 		academia.PUT("/turmas/:codigo/desativar", handlers.DesativarTurma)
 		academia.PUT("/turmas/:codigo/dados", handlers.AtualizarDadosTurma)
 		academia.DELETE("/turmas/:codigo", handlers.DeletarTurma)
-		academia.POST("/turmas/:codigo/estudantes", handlers.AdicionarEstudanteATurma)
+		academia.POST("/turmas/:codigo/estudante", handlers.AdicionarEstudanteATurma)
 		academia.DELETE("/turmas/:codigo/estudantes/:codigo_estudante", handlers.RemoverEstudanteDaTurma)
 
 		// ── Cursos ────────────────────────────────────────────────────────
-		academia.POST("/cursos", handlers.CriarCurso)
+		academia.POST("/curso", handlers.CriarCurso)
 		academia.GET("/cursos", handlers.ListarCursos)
-		academia.GET("/cursos/:id", handlers.GetCurso)
-		academia.PUT("/cursos/:id/ativar", handlers.AtivarCurso)
-		academia.PUT("/cursos/:id/desativar", handlers.DesativarCurso)
-		academia.PUT("/cursos/:id/dados", handlers.AtualizarDadosCurso)
-		academia.DELETE("/cursos/:id", handlers.DeletarCurso)
+		academia.GET("/curso/:id", handlers.GetCurso)
+		academia.PUT("/curso/:id/ativar", handlers.AtivarCurso)
+		academia.PUT("/curso/:id/desativar", handlers.DesativarCurso)
+		academia.PUT("/curso/:id/dados", handlers.AtualizarDadosCurso)
+		academia.DELETE("/curso/:id", handlers.DeletarCurso)
 
 		// ── Matérias ──────────────────────────────────────────────────────
 		academia.POST("/materias", handlers.CriarMateria)
