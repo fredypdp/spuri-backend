@@ -365,7 +365,6 @@ func (m *Manager) RebuildAllProjections() error {
 		"aprovacao_ano",
 		"reprovacoes",
 		"avaliacao_final",
-		"inscricoes",
 	}
 
 	processed := make(map[string]bool)

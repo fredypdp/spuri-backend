@@ -58,22 +58,8 @@ func (p *EstudanteProjection) Handle(event db.Event) error {
 	}
 
 	switch event.EventType {
-	// REMOVIDO: "EstudanteCriado" — auto-cadastro público eliminado.
-	// Ignorado silenciosamente para compatibilidade com ledger histórico.
-	case "EstudanteCriado":
-		return nil
 	case "EstudanteCriadoComVinculo":
 		return p.handleEstudanteCriadoComVinculo(event)
-	// REMOVIDOS: handlers de inscrição — sistema de inscrição eliminado.
-	// Ignorados silenciosamente para não bloquear rebuild do ledger histórico.
-	case "EstudanteInscrito":
-		return nil
-	case "InscricaoAprovada":
-		return nil
-	case "InscricaoReprovada":
-		return nil
-	case "EstudanteVinculado":
-		return nil
 	// StatusEscolarFundamentalAtualizado e StatusEscolarMedioAtualizado:
 	// emitidos pelo aggregate em estudante_aprovacao.go.
 	case "StatusEscolarFundamentalAtualizado":
@@ -605,7 +591,6 @@ type EstudanteDTO struct {
 	AnoSuperior              *string    `json:"ano_superior,omitempty"`
 	CursoMedioID             *string    `json:"curso_medio_id,omitempty"`
 	CursoSuperiorID          *string    `json:"curso_superior_id,omitempty"`
-	TotalInscricoes          int        `json:"total_inscricoes"`
 	CreatedAt                time.Time  `json:"created_at"`
 	UpdatedAt                time.Time  `json:"updated_at"`
 	Version                  int        `json:"version"`
@@ -616,7 +601,7 @@ const estudanteCols = `
 	bilhete_identidade, bilhete_identidade_responsavel, genero,
 	codigo_academia, status, status_escolar_fundamental, status_escolar_medio, status_superior,
 	ano_escolar, ano_escolar_medio, ano_superior, curso_medio_id, curso_superior_id,
-	total_inscricoes, created_at, updated_at, version
+	created_at, updated_at, version
 `
 
 func scanEstudante(row *sql.Row) (*EstudanteDTO, error) {
@@ -626,7 +611,7 @@ func scanEstudante(row *sql.Row) (*EstudanteDTO, error) {
 		&e.BilheteIdentidade, &e.BilheteIdentidadeResp, &e.Genero,
 		&e.CodigoAcademia, &e.Status, &e.StatusEscolarFundamental, &e.StatusEscolarMedio, &e.StatusSuperior,
 		&e.AnoEscolar, &e.AnoEscolarMedio, &e.AnoSuperior, &e.CursoMedioID, &e.CursoSuperiorID,
-		&e.TotalInscricoes, &e.CreatedAt, &e.UpdatedAt, &e.Version,
+		&e.CreatedAt, &e.UpdatedAt, &e.Version,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -672,7 +657,7 @@ func (p *EstudanteProjection) GetAll() ([]EstudanteDTO, error) {
 			&e.BilheteIdentidade, &e.BilheteIdentidadeResp, &e.Genero,
 			&e.CodigoAcademia, &e.Status, &e.StatusEscolarFundamental, &e.StatusEscolarMedio, &e.StatusSuperior,
 			&e.AnoEscolar, &e.AnoEscolarMedio, &e.AnoSuperior, &e.CursoMedioID, &e.CursoSuperiorID,
-			&e.TotalInscricoes, &e.CreatedAt, &e.UpdatedAt, &e.Version,
+			&e.CreatedAt, &e.UpdatedAt, &e.Version,
 		); err != nil {
 			return nil, err
 		}
@@ -699,7 +684,7 @@ func (p *EstudanteProjection) GetByAcademia(codigoAcademia string) ([]EstudanteD
 			&e.BilheteIdentidade, &e.BilheteIdentidadeResp, &e.Genero,
 			&e.CodigoAcademia, &e.Status, &e.StatusEscolarFundamental, &e.StatusEscolarMedio, &e.StatusSuperior,
 			&e.AnoEscolar, &e.AnoEscolarMedio, &e.AnoSuperior, &e.CursoMedioID, &e.CursoSuperiorID,
-			&e.TotalInscricoes, &e.CreatedAt, &e.UpdatedAt, &e.Version,
+			&e.CreatedAt, &e.UpdatedAt, &e.Version,
 		); err != nil {
 			return nil, err
 		}
