@@ -46,6 +46,7 @@ var allMigrations = []string{
 	"migrations/032_add_adicionado_por_categoria_nota.sql",
 	"migrations/033_remove_curso_legado_varchar.sql",
 	"migrations/034_garantias_atomicidade.sql",
+	"migrations/035_spuri_generate_codigo_academia.sql",
 }
 
 func (c *Client) RunMigrations() error {

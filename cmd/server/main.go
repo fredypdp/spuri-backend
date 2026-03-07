@@ -236,8 +236,8 @@ func setupRouter() *gin.Engine {
 		admin.POST("/register", handlers.RegisterAdmin)
 		admin.POST("/academia/register", handlers.RegisterAcademia)
 		
-		admin.PUT("/academia/:id/ativar", middleware.RequireAdm(), handlers.AtivarAcademia)
-		admin.PUT("/academia/:id/desativar", middleware.RequireAdm(), handlers.DesativarAcademia)
+		admin.PUT("/academia/:codigo/ativar", middleware.RequireAdm(), handlers.AtivarAcademia)
+		admin.PUT("/academia/:codigo/desativar", middleware.RequireAdm(), handlers.DesativarAcademia)
 
 		admin.PUT("/admin/:id/ativar", handlers.AtivarAdmin)
 		admin.PUT("/admin/:id/desativar", handlers.DesativarAdmin)

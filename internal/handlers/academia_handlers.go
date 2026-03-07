@@ -3,7 +3,6 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
-	"hash/fnv"
 	"log"
 	"net/http"
 	"strings"
@@ -121,7 +120,7 @@ func RegisterAcademia(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	
+
 	log.Printf("Academia registada: %s (%s) por admin %s", req.Nome, codigoAcademia, userID)
 	c.JSON(http.StatusCreated, gin.H{
 		"message":         "academia registada com sucesso",
@@ -135,34 +134,49 @@ func RegisterAcademia(c *gin.Context) {
 	})
 }
 
+// ============================================================================
+// PUT /admin/academia/:codigo/ativar
+// ============================================================================
+//
+// Parâmetro de rota é `:codigo` (código de academia, ex: "LDA20261").
+// A resolução UUID→aggregate é feita via projeção (GetByCodigo).
+// Usa AtivarComAutor para registrar quem ativou no payload do evento.
 func AtivarAcademia(c *gin.Context) {
-	// FIX E4-AA-01: ler `:id` (UUID) — consistente com a definição da rota.
-	academiaID, err := uuid.Parse(c.Param("id"))
+	codigoAcademia := c.Param("codigo")
+	adminUserID, _ := middleware.GetUserID(c)
+
+	// Resolver código → DTO (contém o UUID interno)
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByCodigo(codigoAcademia)
 	if err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("ID de academia inválido"))
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if academiaDTO == nil {
+		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
 
+	// Carregar aggregate pelo UUID resolvido
 	repository := getRepository(c)
-	agg, err := repository.Load(academiaID, "Academia")
+	agg, err := repository.Load(academiaDTO.ID, "Academia")
 	if err != nil {
 		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
 
-	// FIX H4-TRX-03: type assertion protegida.
+	// Type assertion protegida
 	academia, ok := agg.(*aggregates.Academia)
 	if !ok {
 		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
 		return
 	}
 
-	if err := academia.Ativar(); err != nil {
+	if err := academia.AtivarComAutor(adminUserID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
-	adminUserID, _ := middleware.GetUserID(c)
 	audit := db.AuditContext{
 		UserID:   adminUserID.String(),
 		UserType: "admin",
@@ -174,20 +188,19 @@ func AtivarAcademia(c *gin.Context) {
 	}
 
 	registrarAcaoAdmin(c, adminUserID, "ativar_academia", map[string]interface{}{
-		"academia_id":     academiaID.String(),
-		"codigo_academia": academia.CodigoAcademia,
+		"academia_id":     academiaDTO.ID.String(),
+		"codigo_academia": codigoAcademia,
 	})
 
 	c.JSON(http.StatusOK, gin.H{"message": "academia ativada com sucesso"})
 }
 
+// ============================================================================
+// PUT /admin/academia/:codigo/desativar
+// ============================================================================
 func DesativarAcademia(c *gin.Context) {
-	// FIX E4-AA-01: ler `:id` (UUID) — consistente com a definição da rota.
-	academiaID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("ID de academia inválido"))
-		return
-	}
+	codigoAcademia := c.Param("codigo")
+	adminUserID, _ := middleware.GetUserID(c)
 
 	var req struct {
 		Motivo string `json:"motivo" binding:"required"`
@@ -197,14 +210,27 @@ func DesativarAcademia(c *gin.Context) {
 		return
 	}
 
+	// Resolver código → DTO (contém o UUID interno)
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByCodigo(codigoAcademia)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if academiaDTO == nil {
+		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+
+	// Carregar aggregate pelo UUID resolvido
 	repository := getRepository(c)
-	agg, err := repository.Load(academiaID, "Academia")
+	agg, err := repository.Load(academiaDTO.ID, "Academia")
 	if err != nil {
 		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
 
-	// FIX H4-TRX-03: type assertion protegida.
+	// Type assertion protegida
 	academia, ok := agg.(*aggregates.Academia)
 	if !ok {
 		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
@@ -212,7 +238,6 @@ func DesativarAcademia(c *gin.Context) {
 	}
 
 	// FIX C9: passar desativadoPor ao aggregate para inclusão no payload do evento.
-	adminUserID, _ := middleware.GetUserID(c)
 	if err := academia.Desativar(req.Motivo, adminUserID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -229,13 +254,17 @@ func DesativarAcademia(c *gin.Context) {
 	}
 
 	registrarAcaoAdmin(c, adminUserID, "desativar_academia", map[string]interface{}{
-		"academia_id":     academiaID.String(),
-		"codigo_academia": academia.CodigoAcademia,
+		"academia_id":     academiaDTO.ID.String(),
+		"codigo_academia": codigoAcademia,
 		"motivo":          req.Motivo,
 	})
 
 	c.JSON(http.StatusOK, gin.H{"message": "academia desativada com sucesso"})
 }
+
+// ============================================================================
+// GET /academias
+// ============================================================================
 
 func ListarTodasAcademias(c *gin.Context) {
 	userType, _ := middleware.GetUserType(c)
@@ -334,7 +363,7 @@ func ListarTodasAcademias(c *gin.Context) {
 
 		academias = append(academias, acadMap)
 	}
-	
+
 	if err := rows.Err(); err != nil {
 		log.Printf("[ERROR] ListarTodasAcademias: erro durante iteração de rows: %v", err)
 		utils.RespondWithInternalError(c, err)
@@ -398,6 +427,10 @@ func GetAcademiaPorCodigo(c *gin.Context) {
 
 	c.JSON(http.StatusOK, resp)
 }
+
+// ============================================================================
+// PUT /academia/dados
+// ============================================================================
 
 func AtualizarDadosAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
@@ -504,16 +537,63 @@ func validarProvincia(provincia string) (string, error) {
 	return "", fmt.Errorf("província inválida: %s", provincia)
 }
 
+// generateCodigoAcademia gera o código único da academia no formato
+// {PROVINCIA}{ANO}{SEQUENCIAL}, ex: LDA20261, LDA20262, BGU20261.
+//
+// A sequência é por (província, ano) e reinicia a cada ano-calendário.
+// Não há zero-padding no sequencial — cresce naturalmente (1, 2, … N).
+//
+// Caminho principal: delega para a função SQL spuri_generate_codigo_academia
+// (migration 035), que garante unicidade atômica via loop no banco.
+//
+// Fallback (se a função SQL não existir ainda): replica a mesma lógica no Go —
+// conta as academias com o prefixo {PROV}{ANO} e incrementa, com loop de
+// verificação de unicidade. O UNIQUE constraint em projection_academias é a
+// barreira definitiva contra colisões em qualquer cenário.
 func generateCodigoAcademia(codigoProvincia string, sqlDB *sqlx.DB) (string, error) {
+	// Caminho principal: função SQL atômica (migration 035).
 	var codigo string
-	err := sqlDB.QueryRow(`
-		SELECT spuri_generate_codigo_academia($1)
-	`, codigoProvincia).Scan(&codigo)
-	if err != nil {
-		log.Printf("[WARN] generateCodigoAcademia: falha na função SQL (%v), usando fallback hash", err)
-		h := fnv.New32a()
-		h.Write([]byte(codigoProvincia + time.Now().String()))
-		codigo = fmt.Sprintf("%s%08d", codigoProvincia, h.Sum32()%100000000)
+	err := sqlDB.QueryRow(`SELECT spuri_generate_codigo_academia($1)`, codigoProvincia).Scan(&codigo)
+	if err == nil {
+		return codigo, nil
 	}
+
+	// Fallback: replicar a lógica do SQL no Go.
+	log.Printf("[WARN] generateCodigoAcademia: função SQL indisponível (%v) — usando fallback Go", err)
+
+	ano := time.Now().Year()
+	prefix := fmt.Sprintf("%s%d", codigoProvincia, ano)
+
+	// Contar academias existentes com este prefixo para determinar o próximo seq.
+	var count int
+	if countErr := sqlDB.QueryRow(
+		`SELECT COUNT(*) FROM projection_academias WHERE codigo_academia LIKE $1`,
+		prefix+"%",
+	).Scan(&count); countErr != nil {
+		// Se até a contagem falhar, usa nanosegundo como último recurso.
+		// O formato ainda está correto; o UNIQUE constraint rejeita duplicatas.
+		seq := (time.Now().UnixNano() % 9999) + 1
+		codigo = fmt.Sprintf("%s%d", prefix, seq)
+		log.Printf("[WARN] generateCodigoAcademia: contagem falhou (%v) — emergência: %s", countErr, codigo)
+		return codigo, nil
+	}
+
+	seq := count + 1
+	codigo = fmt.Sprintf("%s%d", prefix, seq)
+
+	// Loop de verificação de unicidade (best-effort, até 50 tentativas).
+	for i := 0; i < 50; i++ {
+		var exists bool
+		if checkErr := sqlDB.QueryRow(
+			`SELECT EXISTS(SELECT 1 FROM projection_academias WHERE codigo_academia = $1)`,
+			codigo,
+		).Scan(&exists); checkErr != nil || !exists {
+			break
+		}
+		seq++
+		codigo = fmt.Sprintf("%s%d", prefix, seq)
+	}
+
+	log.Printf("[WARN] generateCodigoAcademia: código gerado pelo fallback Go: %s", codigo)
 	return codigo, nil
 }
