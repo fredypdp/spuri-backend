@@ -129,8 +129,7 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-
-	// FIX-S1: senha padrão = código do estudante (não mais "spuri123" hardcoded).
+	
 	// GetDefaultPassword("estudante", codigoEstudante) retorna o próprio código.
 	defaultPassword := services.GetDefaultPassword("estudante", codigoEstudante)
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(defaultPassword), bcrypt.DefaultCost)
@@ -198,6 +197,7 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		statusFundamentalPtr,
 		statusMedioPtr,
 		statusSuperiorPtr,
+		&academiaID,
 		academia.CodigoAcademia,
 		req.Genero,
 	); err != nil {

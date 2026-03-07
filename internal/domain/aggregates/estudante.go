@@ -240,6 +240,7 @@ func (e *Estudante) CriarComVinculo(
 	statusEscolarFundamental *string,
 	statusEscolarMedio *string,
 	statusSuperior *string,
+	academiaID *uuid.UUID,
 	codigoAcademia string,
 	genero string,
 ) error {
@@ -292,7 +293,7 @@ func (e *Estudante) CriarComVinculo(
 		StatusEscolarMedio:       statusMed,
 		StatusSuperior:           statusSup,
 		CodigoAcademia:           codigoAcademia,
-		AcademiaID:               nil, // Etapa 4 preenche com academia.ID
+		AcademiaID:               academiaID,
 		CreatedAt:                time.Now(),
 		Genero:                   genero,
 	}

@@ -190,7 +190,6 @@ func setupRouter() *gin.Engine {
 		academia.POST("/avaliacao-final", handlers.RegistrarAvaliacaoFinal)
 		academia.POST("/categorias-nota", handlers.CriarCategoriaNotaSuperior)
 		academia.GET("/categorias-nota", handlers.ListarCategoriasNota)
-
 		academia.PUT("/estudante/:codigo/status-escolar-fundamental", handlers.AtualizarStatusEscolarFundamentalHandler)
 		academia.PUT("/estudante/:codigo/status-escolar-medio", handlers.AtualizarStatusEscolarMedioHandler)
 		academia.PUT("/estudante/:codigo/status-superior", handlers.AtualizarStatusSuperiorHandler)
@@ -241,7 +240,7 @@ func setupRouter() *gin.Engine {
 		admin.PUT("/academia/:codigo/desativar", middleware.RequireAdm(), handlers.DesativarAcademia)
 		admin.PUT("/admin/:id/ativar", middleware.RequireAdm(), handlers.AtivarAdmin)
 		admin.PUT("/admin/:id/desativar", middleware.RequireAdm(), handlers.DesativarAdmin)
-		admin.GET("/admins", handlers.ListarTodosAdmins)
+		admin.GET("/admin-lista", handlers.ListarTodosAdmins)
 		admin.POST("/ano-letivo", middleware.RequireFPP(), handlers.DefinirAnoLetivo)
 		admin.GET("/metrics", handlers.GetSystemMetrics)
 		admin.POST("/projections/rebuild/:name", middleware.RequireFPP(), handlers.RebuildProjection)
