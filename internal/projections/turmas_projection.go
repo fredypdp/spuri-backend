@@ -50,16 +50,6 @@ func (p *TurmasProjection) UpdateCheckpoint(eventID int64) error {
 	return err
 }
 
-// Handle processa eventos do ledger e atualiza a projection_turmas.
-//
-// CORREÇÃO BUG #1: Os 3 nomes abaixo estavam errados e nunca faziam match
-// com os eventos reais emitidos pelo aggregate Turma:
-//   - "EstudanteAdicionadoTurma"  → corrigido para "EstudanteAdicionadoATurma"
-//   - "EstudanteRemovidoTurma"    → corrigido para "EstudanteRemovidoDaTurma"
-//   - "TurmaAtualizada"           → corrigido para "TurmaDadosAtualizados"
-//
-// CORREÇÃO BUG #2: "TurmaAtivada" e "TurmaDesativada" estavam completamente
-// ausentes do map — adicionados com seus respectivos handlers.
 func (p *TurmasProjection) Handle(event db.Event) error {
 	handlers := map[string]func(db.Event) error{
 		"TurmaCriada":               p.handleTurmaCriada,
@@ -128,6 +118,7 @@ func (p *TurmasProjection) handleTurmaCriada(event db.Event) error {
 		Nivel          string     `json:"Nivel"`
 		CursoID        *uuid.UUID `json:"CursoID"`
 		Turno          string     `json:"Turno"`
+		CreatedAt      time.Time  `json:"CreatedAt"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("parse error TurmaCriada: %w", err)
@@ -139,15 +130,30 @@ func (p *TurmasProjection) handleTurmaCriada(event db.Event) error {
 		cursoID = payload.CursoID.String()
 	}
 
+	// FIX PROJ-TUR-02: usar created_at do payload para preservar timestamp real.
+	createdAt := payload.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = event.OccurredAt
+	}
+
 	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_turmas (
 			id, codigo_turma, codigo_academia, nivel, curso_id, turno,
 			estudantes, status, created_at, updated_at, version, last_event_id
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, 'ativo', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $8, $9)
-		ON CONFLICT (id) DO NOTHING
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, 'ativo', $8, CURRENT_TIMESTAMP, $9, $10)
+		ON CONFLICT (id) DO UPDATE SET
+			codigo_turma    = EXCLUDED.codigo_turma,
+			codigo_academia = EXCLUDED.codigo_academia,
+			nivel           = EXCLUDED.nivel,
+			curso_id        = EXCLUDED.curso_id,
+			turno           = EXCLUDED.turno,
+			created_at      = EXCLUDED.created_at,
+			version         = EXCLUDED.version,
+			last_event_id   = EXCLUDED.last_event_id
 	`,
 		event.AggregateID, payload.CodigoTurma, payload.CodigoAcademia, payload.Nivel,
-		cursoID, payload.Turno, string(estudantesJSON), event.EventVersion, event.EventID,
+		cursoID, payload.Turno, string(estudantesJSON),
+		createdAt.UTC(), event.EventVersion, event.EventID,
 	)
 	return err
 }
@@ -198,15 +204,6 @@ func (p *TurmasProjection) handleEstudanteAdicionado(event db.Event) error {
 	return err
 }
 
-// handleEstudanteRemovido — BUG #1 FIX: event type corrigido para "EstudanteRemovidoDaTurma".
-//
-// FIX PROJ-07: quando o último estudante é removido, json_agg retorna NULL.
-// A subquery agora usa COALESCE diretamente sobre o resultado do SELECT para
-// garantir que '[]'::json seja retornado mesmo quando não há linhas restantes.
-// A estrutura anterior dependia do COALESCE sobre json_agg dentro do SELECT,
-// o que podia ser avaliado incorretamente dependendo do plano de execução.
-// A nova estrutura com subquery exterior garante o comportamento correto em
-// todas as versões do PostgreSQL.
 func (p *TurmasProjection) handleEstudanteRemovido(event db.Event) error {
 	var payload struct {
 		CodigoEstudante string `json:"CodigoEstudante"`
@@ -236,14 +233,6 @@ func (p *TurmasProjection) handleEstudanteRemovido(event db.Event) error {
 	return err
 }
 
-// handleTurmaAtualizada — BUG #1 FIX: event type corrigido para "TurmaDadosAtualizados".
-//
-// FIX PROJ-08: as atualizações parciais (nivel, curso_id, turno) agora são
-// executadas dentro de uma única transação. Antes, cada campo era atualizado
-// em um statement SQL separado sem transação — se o processo morresse após o
-// segundo UPDATE e antes do terceiro, a projeção ficaria em estado parcialmente
-// atualizado, e o checkpoint não avançaria, causando divergência de version
-// após reprocessamento.
 func (p *TurmasProjection) handleTurmaAtualizada(event db.Event) error {
 	var payload struct {
 		Nivel   *string    `json:"Nivel"`
