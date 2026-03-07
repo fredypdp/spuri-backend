@@ -312,6 +312,7 @@ func AtualizarNota(c *gin.Context) {
 		*req.NotaNova, // desreferência segura — nil já rejeitado acima
 		req.Observacao,
 		periodosValidos,
+		userID,
 	); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return

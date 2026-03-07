@@ -215,6 +215,7 @@ func (e *Estudante) AtualizarNota(
 	novaNota float64,
 	observacao string,
 	periodosValidos []string,
+	atualizadoPor uuid.UUID,
 ) error {
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
@@ -242,7 +243,7 @@ func (e *Estudante) AtualizarNota(
 		NotaNova:             novaNota,
 		Observacao:           observacao,
 		UpdatedAt:            time.Now(),
-		AtualizadoPor:        uuid.Nil, // Etapa 4 deve preencher
+		AtualizadoPor: atualizadoPor,
 	}
 
 	e.RaiseEvent(event)
