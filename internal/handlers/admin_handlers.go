@@ -16,69 +16,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// LoginAdmin autentica um administrador.
-//
-// FIX H4-ADM-01: timing attack corrigido — bcrypt com hash dummy executado
-// mesmo quando o email não existe, igualando o tempo de resposta para emails
-// inexistentes e para senhas erradas (mesmo padrão de auth_handlers.go Login).
-func LoginAdmin(c *gin.Context) {
-	var req struct {
-		Email string `json:"email" binding:"required"`
-		Senha string `json:"senha" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("email e senha são obrigatórios"))
-		return
-	}
-
-	// Hash dummy com mesmo custo que um hash real para equalizar tempo de resposta.
-	const dummyHash = "$2a$10$dummyhashvaluethatdoesnotmatch000000000000000000000000000"
-
-	adminProj := getAdminProjection(c)
-	admin, err := adminProj.GetByEmailForLogin(req.Email)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	// FIX H4-ADM-01: sempre executar bcrypt para equalizar tempo de resposta.
-	// Quando admin == nil, compara contra dummyHash (sempre falha, mas leva o mesmo tempo).
-	hashToCompare := dummyHash
-	var adminStatus string
-	var adminFound bool
-	if admin != nil {
-		hashToCompare = admin.SenhaHash
-		adminStatus = admin.Status
-		adminFound = true
-	}
-
-	bcryptErr := bcrypt.CompareHashAndPassword([]byte(hashToCompare), []byte(req.Senha))
-
-	if !adminFound || bcryptErr != nil {
-		utils.RespondWithUnauthorizedError(c)
-		return
-	}
-
-	if adminStatus != "ativo" {
-		utils.RespondWithForbiddenError(c, "Administrador inativo. Entre em contato com o suporte.")
-		return
-	}
-
-	token, err := middleware.GenerateToken(admin.ID, "admin")
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	log.Printf("Login admin bem-sucedido: %s (%s)", admin.Nome, admin.Role)
-	c.JSON(http.StatusOK, gin.H{
-		"token": token,
-		"nome":  admin.Nome,
-		"role":  admin.Role,
-		"type":  "admin",
-	})
-}
-
 // RegisterAdmin cria um novo administrador.
 //
 // FIX H4-ADM-02: a ação do criador (segundo SaveWithAudit) é melhor esforço —
@@ -88,9 +25,9 @@ func RegisterAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
 	var req struct {
-		Nome  string `json:"nome" binding:"required"`
+		Nome  string `json:"nome"  binding:"required"`
 		Email string `json:"email" binding:"required"`
-		Role  string `json:"role" binding:"required"`
+		Role  string `json:"role"  binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: nome, email e role"))
@@ -116,7 +53,6 @@ func RegisterAdmin(c *gin.Context) {
 		return
 	}
 
-	// FIX H4-TRX-03: type assertion protegida.
 	creator, ok := creatorAgg.(*aggregates.Admin)
 	if !ok {
 		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado para criador"))
@@ -135,7 +71,6 @@ func RegisterAdmin(c *gin.Context) {
 	}
 
 	// FIX E4-AA-03 / E4-AA-04: gera senha aleatória segura via crypto/rand.
-	// Cada criação produz uma senha única — nunca uma constante pública do código.
 	// A senha é enviada ao admin APENAS via email; a resposta HTTP nunca a expõe.
 	plainPassword, err := services.GenerateSecurePassword()
 	if err != nil {
@@ -166,10 +101,8 @@ func RegisterAdmin(c *gin.Context) {
 		return
 	}
 
-	// FIX H4-ADM-02: o registro da ação do criador é auditoria secundária (melhor esforço).
-	// A criação do newAdmin já está persistida e é a operação primária.
-	// Falha aqui é logada mas não reverte a criação — consistente com o design de auditoria
-	// eventual do sistema (o evento "admin_criado" já está no ledger do newAdmin).
+	// FIX H4-ADM-02: registro da ação do criador é auditoria secundária (melhor esforço).
+	// A criação já está persistida — falha aqui não reverte.
 	if err := creator.RegistrarAcao("admin_criado", map[string]interface{}{
 		"novo_admin_id": newAdmin.ID.String(),
 		"role":          req.Role,
@@ -177,16 +110,14 @@ func RegisterAdmin(c *gin.Context) {
 	}); err != nil {
 		log.Printf("[WARN] RegisterAdmin: falha ao preparar ação do criador: %v", err)
 	} else if err := repository.SaveWithAudit(creator, audit); err != nil {
-		log.Printf("[WARN] RegisterAdmin: falha ao registrar ação do criador no ledger (admin_criado): %v", err)
+		log.Printf("[WARN] RegisterAdmin: falha ao registrar ação do criador no ledger: %v", err)
 	}
 
-	// FIX E4-AA-03: envia email de boas-vindas com a senha temporária gerada.
-	// Falha de email não bloqueia a criação — admin pode solicitar reset de senha
-	// via /recuperar-senha/solicitar posteriormente.
+	// FIX E4-AA-03: envia email de boas-vindas com a senha temporária.
+	// Falha de email não bloqueia a criação.
 	emailSvc := getEmailService(c)
 	if emailErr := emailSvc.SendAdminWelcomeEmail(req.Email, req.Nome, plainPassword, req.Role); emailErr != nil {
-		log.Printf("[WARN] RegisterAdmin: falha ao enviar email de boas-vindas para %s: %v", req.Email, emailErr)
-		log.Printf("Admin criado: %s (%s) por %s — email NÃO enviado", req.Email, req.Role, creatorAdmin.Nome)
+		log.Printf("[WARN] RegisterAdmin: falha ao enviar email para %s: %v", req.Email, emailErr)
 		c.JSON(http.StatusCreated, gin.H{
 			"message": "administrador criado com sucesso. ATENÇÃO: falha ao enviar email — solicite reset de senha via /recuperar-senha/solicitar.",
 			"data": gin.H{
@@ -200,7 +131,7 @@ func RegisterAdmin(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Admin criado: %s (%s) por %s — email de boas-vindas enviado", req.Email, req.Role, creatorAdmin.Nome)
+	log.Printf("Admin criado: %s (%s) por %s", req.Email, req.Role, creatorAdmin.Nome)
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "administrador criado com sucesso. A senha temporária foi enviada por email.",
 		"data": gin.H{
@@ -215,13 +146,8 @@ func RegisterAdmin(c *gin.Context) {
 // GetAdminPorEmail consulta um administrador pelo e-mail.
 // Rota: GET /admin/consultar-admin/:email
 //
-// FIX E4-ED-02: restrito a admins com role "adm" ou superior (fpp ou adm).
-// Antes qualquer admin autenticado (incluindo "gerente") podia consultar
-// dados completos de qualquer outro admin — role, status, created_by e
-// total_acoes_realizadas — possibilitando mapeamento da hierarquia e escalada
-// de privilégios dirigida (gerente descobre quem é fpp e ataca essa conta).
+// FIX E4-ED-02: restrito a admins com role "adm" ou superior.
 func GetAdminPorEmail(c *gin.Context) {
-	// Verificar role mínimo "adm" antes de qualquer lógica de negócio.
 	if err := verificarPermissaoAdmin(c, "adm"); err != nil {
 		utils.RespondWithForbiddenError(c, "acesso restrito a administradores com role 'adm' ou superior")
 		return
@@ -236,7 +162,6 @@ func GetAdminPorEmail(c *gin.Context) {
 		return
 	}
 
-	// Campos de auditoria sensíveis (created_by, total_acoes) só para FPP.
 	executorID, _ := middleware.GetUserID(c)
 	executorAdmin, _ := adminProj.GetByID(executorID)
 
@@ -259,8 +184,9 @@ func GetAdminPorEmail(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"admin": resp})
 }
 
+// ListarTodosAdmins lista todos os administradores.
+// FIX H4-ADM-05: exige role mínimo "adm".
 func ListarTodosAdmins(c *gin.Context) {
-	// FIX H4-ADM-05: exigir role mínimo "adm" para listar todos os admins.
 	if err := verificarPermissaoAdmin(c, "adm"); err != nil {
 		utils.RespondWithForbiddenError(c, "acesso restrito a administradores com role 'adm' ou superior")
 		return
@@ -297,7 +223,6 @@ func ListarTodosAdmins(c *gin.Context) {
 }
 
 // AtivarAdmin ativa um admin.
-//
 // [A08] CORRIGIDO: verifica hierarquia do executor antes de ativar.
 func AtivarAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
@@ -315,7 +240,6 @@ func AtivarAdmin(c *gin.Context) {
 		return
 	}
 
-	// FIX H4-TRX-03: type assertion protegida.
 	targetAdmin, ok := targetAdminAgg.(*aggregates.Admin)
 	if !ok {
 		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado para target admin"))
@@ -328,7 +252,6 @@ func AtivarAdmin(c *gin.Context) {
 		return
 	}
 
-	// FIX H4-TRX-03: type assertion protegida.
 	executor, ok := executorAgg.(*aggregates.Admin)
 	if !ok {
 		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado para executor"))
@@ -368,7 +291,6 @@ func AtivarAdmin(c *gin.Context) {
 }
 
 // DesativarAdmin desativa um admin.
-//
 // [A10] CORRIGIDO: verifica hierarquia do executor antes de desativar.
 func DesativarAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
@@ -398,7 +320,7 @@ func DesativarAdmin(c *gin.Context) {
 		utils.RespondWithNotFoundError(c, "administrador")
 		return
 	}
-	
+
 	targetAdmin, ok := targetAdminAgg.(*aggregates.Admin)
 	if !ok {
 		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado para target admin"))
@@ -411,7 +333,6 @@ func DesativarAdmin(c *gin.Context) {
 		return
 	}
 
-	// FIX H4-TRX-03: type assertion protegida.
 	executor, ok := executorAgg.(*aggregates.Admin)
 	if !ok {
 		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado para executor"))
@@ -451,6 +372,8 @@ func DesativarAdmin(c *gin.Context) {
 	})
 }
 
+// AtualizarRoleAdmin altera o role de um admin.
+// FIX H4-ADM-03: bloqueia auto-alteração de role.
 func AtualizarRoleAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -460,7 +383,6 @@ func AtualizarRoleAdmin(c *gin.Context) {
 		return
 	}
 
-	// FIX H4-ADM-03: bloquear auto-alteração de role no handler.
 	if adminID == userID {
 		utils.RespondWithValidationError(c, fmt.Errorf("você não pode alterar seu próprio role"))
 		return
@@ -487,7 +409,7 @@ func AtualizarRoleAdmin(c *gin.Context) {
 		utils.RespondWithNotFoundError(c, "admin")
 		return
 	}
-	
+
 	admin, ok := adminAgg.(*aggregates.Admin)
 	if !ok {
 		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
@@ -495,7 +417,7 @@ func AtualizarRoleAdmin(c *gin.Context) {
 	}
 
 	roleAnterior := admin.Role
-	
+
 	executorAgg, err := repository.Load(userID, "Admin")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
@@ -506,8 +428,9 @@ func AtualizarRoleAdmin(c *gin.Context) {
 		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado para executor"))
 		return
 	}
+
 	if err := executor.ValidatePermission(roleAnterior); err != nil {
-		utils.RespondWithForbiddenError(c, fmt.Sprintf("permissão negada para alterar admin com role atual '%s': %s", roleAnterior, err.Error()))
+		utils.RespondWithForbiddenError(c, fmt.Sprintf("permissão negada para alterar admin com role '%s': %s", roleAnterior, err.Error()))
 		return
 	}
 
@@ -535,7 +458,6 @@ func AtualizarRoleAdmin(c *gin.Context) {
 }
 
 // AtualizarDadosAdmin atualiza nome e/ou email de um admin.
-//
 // [A14] CORRIGIDO: verifica unicidade do novo email via projeção ANTES de emitir evento.
 func AtualizarDadosAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
@@ -578,7 +500,6 @@ func AtualizarDadosAdmin(c *gin.Context) {
 		return
 	}
 
-	// FIX H4-TRX-03: type assertion protegida.
 	admin, ok := adminAgg.(*aggregates.Admin)
 	if !ok {
 		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))

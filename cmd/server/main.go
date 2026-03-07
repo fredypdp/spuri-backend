@@ -115,7 +115,7 @@ func setupRouter() *gin.Engine {
 	router.Use(middleware.MonitoringMiddleware())
 	router.Use(middleware.GlobalRateLimit())
 
-	// Injeção de dependências
+	// Injeção de dependências — disponível em todos os handlers via c.Get(...)
 	router.Use(func(c *gin.Context) {
 		c.Set("dbClient", dbClient)
 		c.Set("repository", repository)
@@ -123,7 +123,11 @@ func setupRouter() *gin.Engine {
 		c.Next()
 	})
 
-	// ── Rotas públicas ────────────────────────────────────────────────────
+	// ── Rotas públicas ─────────────────────────────────────────────────────
+	//
+	// POST /login é o único endpoint de autenticação do sistema.
+	// Aceita type "admin" | "academia" | "estudante" no body.
+	// Não existe /admin/login — o handler Login em auth_handlers.go cobre os 3 tipos.
 	router.POST("/login", middleware.LoginRateLimit(), handlers.Login)
 	router.POST("/bootstrap", handlers.BootstrapAdminFPP)
 
@@ -155,20 +159,19 @@ func setupRouter() *gin.Engine {
 		protected.GET("/avaliacoes", handlers.ListarAvaliacoes)
 		protected.GET("/aprovacoes", handlers.ListarAprovacoes)
 		protected.GET("/reprovacoes", handlers.ListarReprovacoes)
-		
+
 		protected.GET("/notas-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetNotasEstudante)
 		protected.GET("/faltas-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetFaltasEstudante)
 		protected.GET("/avaliacoes-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetAvaliacoesFinaisEstudante)
 	}
-	
+
+	// ── Rotas exclusivas do estudante ─────────────────────────────────────
 	estudante := router.Group("/estudante")
 	estudante.Use(middleware.AuthMiddleware())
 	estudante.Use(middleware.RequireEstudante())
 	{
 		estudante.PUT("/dados-pessoais", handlers.AtualizarDadosPessoais)
 		estudante.GET("/minhas-avaliacoes", handlers.GetMinhasAvaliacoes)
-		// H4-06: rotas de leitura exclusivas do estudante autenticado.
-		// O handler usa o userID do JWT — sem parâmetro de código na URL.
 		estudante.GET("/minhas-notas", handlers.GetMinhasNotas)
 		estudante.GET("/minhas-faltas", handlers.GetMinhasFaltas)
 	}
@@ -188,8 +191,6 @@ func setupRouter() *gin.Engine {
 		academia.POST("/categorias-nota", handlers.CriarCategoriaNotaSuperior)
 		academia.GET("/categorias-nota", handlers.ListarCategoriasNota)
 
-		// FIX-C4: novas rotas de status escolar — protegidas por RequireAcademia().
-		// Academia informa o codigo do estudante na URL e o novo status no body.
 		academia.PUT("/estudante/:codigo/status-escolar-fundamental", handlers.AtualizarStatusEscolarFundamentalHandler)
 		academia.PUT("/estudante/:codigo/status-escolar-medio", handlers.AtualizarStatusEscolarMedioHandler)
 		academia.PUT("/estudante/:codigo/status-superior", handlers.AtualizarStatusSuperiorHandler)
@@ -229,13 +230,16 @@ func setupRouter() *gin.Engine {
 	}
 
 	// ── Rotas de admin ────────────────────────────────────────────────────
+	// Este grupo exige autenticação válida (AuthMiddleware) e role admin
+	// (RequireAdmin). O login de admin ocorre em POST /login (acima) e não
+	// há nenhuma rota de login dentro deste grupo.
 	admin := router.Group("/admin")
 	admin.Use(middleware.AuthMiddleware())
 	admin.Use(middleware.RequireAdmin())
 	{
 		admin.POST("/register", handlers.RegisterAdmin)
 		admin.POST("/academia/register", handlers.RegisterAcademia)
-		
+
 		admin.PUT("/academia/:codigo/ativar", middleware.RequireAdm(), handlers.AtivarAcademia)
 		admin.PUT("/academia/:codigo/desativar", middleware.RequireAdm(), handlers.DesativarAcademia)
 
@@ -247,14 +251,11 @@ func setupRouter() *gin.Engine {
 		admin.GET("/metrics", handlers.GetSystemMetrics)
 		admin.POST("/projections/rebuild/:name", handlers.RebuildProjection)
 
-		// FIX E4-ED-02: /consultar-admin restrito a adm+ (verificado no handler).
 		admin.GET("/consultar-admin/:email", handlers.GetAdminPorEmail)
 
-		// Rotas de registros/relatórios
 		admin.GET("/registros", handlers.ListarTodosRegistros)
 		admin.GET("/registros/:codigo", handlers.ListarRegistrosPorEstudante)
 
-		// Rotas de gestão de admin
 		admin.PUT("/admin/:id/role", handlers.AtualizarRoleAdmin)
 		admin.PUT("/admin/:id/dados", handlers.AtualizarDadosAdmin)
 	}
@@ -268,72 +269,61 @@ func setupRouter() *gin.Engine {
 
 // corsMiddleware — whitelist configurável via ALLOWED_ORIGINS.
 func corsMiddleware() gin.HandlerFunc {
-	env := os.Getenv("ENV")
-	rawOrigins := os.Getenv("ALLOWED_ORIGINS")
-
-	allowedOrigins := map[string]bool{}
-
-	if rawOrigins != "" {
-		for _, o := range strings.Split(rawOrigins, ",") {
-			origin := strings.TrimSpace(o)
-			if origin != "" {
-				allowedOrigins[origin] = true
-				log.Printf("[CORS] Origin permitida: %s", origin)
+	return func(c *gin.Context) {
+		allowedOriginsEnv := os.Getenv("ALLOWED_ORIGINS")
+		var allowedOrigins []string
+		if allowedOriginsEnv != "" {
+			for _, o := range strings.Split(allowedOriginsEnv, ",") {
+				trimmed := strings.TrimSpace(o)
+				if trimmed != "" {
+					allowedOrigins = append(allowedOrigins, trimmed)
+				}
 			}
 		}
-	} else if env != "production" {
-		defaults := []string{
-			"http://localhost:3000",
-			"http://localhost:5173",
-			"http://localhost:8080",
-		}
-		for _, o := range defaults {
-			allowedOrigins[o] = true
-		}
-		log.Printf("[CORS] Modo desenvolvimento: permitindo origens localhost")
-	} else {
-		log.Printf("[WARN] [CORS] ALLOWED_ORIGINS não configurado em produção — CORS desativado para origens externas")
-	}
 
-	return func(c *gin.Context) {
-		origin := c.GetHeader("Origin")
+		origin := c.Request.Header.Get("Origin")
+		allowed := false
 
-		if origin != "" && allowedOrigins[origin] {
+		if len(allowedOrigins) == 0 {
+			allowed = true // modo dev: aceita qualquer origem
+		} else {
+			for _, o := range allowedOrigins {
+				if o == origin {
+					allowed = true
+					break
+				}
+			}
+		}
+
+		if allowed && origin != "" {
 			c.Header("Access-Control-Allow-Origin", origin)
-			c.Header("Access-Control-Allow-Credentials", "true")
-			c.Header("Vary", "Origin")
 		}
 
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID")
+		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Authorization, X-Request-ID")
+		c.Header("Access-Control-Allow-Credentials", "true")
+		c.Header("Access-Control-Max-Age", "86400")
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return
 		}
+
 		c.Next()
 	}
 }
 
+// requestIDMiddleware propaga ou gera um X-Request-ID para rastreamento.
 func requestIDMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestID := c.GetHeader("X-Request-ID")
 
-		if requestID != "" {
-			// FIX E4-ED-01: validar antes de usar — rejeitar se contiver
-			// caracteres fora da whitelist ou exceder 64 caracteres.
-			if !requestIDPattern.MatchString(requestID) {
-				log.Printf("[WARN] [requestID] X-Request-ID inválido descartado (len=%d) — IP: %s",
-					len(requestID), c.ClientIP())
-				requestID = ""
-			}
+		if requestID != "" && !requestIDPattern.MatchString(requestID) {
+			requestID = ""
 		}
 
 		if requestID == "" {
-			// Gerar ID interno: não usa entrada do cliente — sem risco de injection.
-			requestID = fmt.Sprintf("%d-%s",
-				time.Now().UnixNano(),
-				strings.ReplaceAll(c.ClientIP(), ".", "-"))
+			requestID = fmt.Sprintf("%d", time.Now().UnixNano())
 		}
 
 		c.Set("request_id", requestID)
