@@ -132,16 +132,14 @@ func (p *AprovacaoAnoProjection) handleAprovacaoAnoRegistrada(event db.Event) er
 		CodigoAcademia  string    `json:"CodigoAcademia"`
 		AnoLectivo      string    `json:"AnoLectivo"`
 		NivelAtual      string    `json:"NivelAtual"`
-		NivelSeguinte   *string   `json:"NivelSeguinte"`
-		AvancarAno      bool      `json:"AvancarAno"`
+		ProximoNivel    *string   `json:"ProximoNivel"`   // FIX: era "NivelSeguinte"
+		Aprovado        bool      `json:"Aprovado"`        // FIX: era "AvancarAno"
 		Observacao      *string   `json:"Observacao"`
 		RegisteredAt    time.Time `json:"RegisteredAt"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleAprovacaoAnoRegistrada: parse error: %w", err)
 	}
-
-	aprovado := payload.AvancarAno
 
 	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_aprovacao_ano (
@@ -157,8 +155,8 @@ func (p *AprovacaoAnoProjection) handleAprovacaoAnoRegistrada(event db.Event) er
 	`,
 		uuid.New(), event.EventID,
 		payload.CodigoEstudante, payload.CodigoAcademia,
-		payload.AnoLectivo, payload.NivelAtual, payload.NivelSeguinte,
-		aprovado, payload.Observacao, payload.RegisteredAt, event.EventVersion,
+		payload.AnoLectivo, payload.NivelAtual, payload.ProximoNivel,
+		payload.Aprovado, payload.Observacao, payload.RegisteredAt, event.EventVersion,
 	)
 	if err != nil {
 		return fmt.Errorf("handleAprovacaoAnoRegistrada: exec error: %w", err)

@@ -460,15 +460,15 @@ func (p *EstudanteProjection) handleCursoAlterado(event db.Event) error {
 
 func (p *EstudanteProjection) handleAprovacaoAnoRegistrada(event db.Event) error {
 	var payload struct {
-		TipoEnsino    string  `json:"TipoEnsino"`
-		NivelSeguinte *string `json:"NivelSeguinte"`
-		AvancarAno    bool    `json:"AvancarAno"`
+		TipoEnsino   string  `json:"TipoEnsino"`
+		ProximoNivel *string `json:"ProximoNivel"` // FIX: era "NivelSeguinte"
+		Aprovado     bool    `json:"Aprovado"`     // FIX: era "AvancarAno"
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleAprovacaoAnoRegistrada: parse error: %w", err)
 	}
 
-	if !payload.AvancarAno || payload.NivelSeguinte == nil {
+	if !payload.Aprovado || payload.ProximoNivel == nil {
 		_, err := p.client.DB().Exec(`
 			UPDATE projection_estudantes
 			SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
@@ -488,14 +488,13 @@ func (p *EstudanteProjection) handleAprovacaoAnoRegistrada(event db.Event) error
 	default:
 		return fmt.Errorf("handleAprovacaoAnoRegistrada: TipoEnsino inválido: %q", payload.TipoEnsino)
 	}
-
-	// col é derivada do switch fechado — não é input externo.
+	
 	query := fmt.Sprintf(`
 		UPDATE projection_estudantes
 		SET %s = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
 		WHERE id = $4
 	`, col)
-	_, err := p.client.DB().Exec(query, payload.NivelSeguinte, event.EventVersion, event.EventID, event.AggregateID)
+	_, err := p.client.DB().Exec(query, payload.ProximoNivel, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
