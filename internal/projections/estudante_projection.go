@@ -52,33 +52,28 @@ func (p *EstudanteProjection) UpdateCheckpoint(eventID int64) error {
 	return err
 }
 
-// ============================================================================
-// Handle — roteador canônico de eventos
-//
-// Cobre todos os eventos que o aggregate Estudante pode emitir.
-// Eventos não reconhecidos são ignorados silenciosamente (comportamento seguro).
-// ============================================================================
-
 func (p *EstudanteProjection) Handle(event db.Event) error {
 	if event.AggregateType != "Estudante" {
 		return nil
 	}
 
 	switch event.EventType {
+	// REMOVIDO: "EstudanteCriado" — auto-cadastro público eliminado.
+	// Ignorado silenciosamente para compatibilidade com ledger histórico.
 	case "EstudanteCriado":
-		return p.handleEstudanteCriado(event)
+		return nil
 	case "EstudanteCriadoComVinculo":
 		return p.handleEstudanteCriadoComVinculo(event)
+	// REMOVIDOS: handlers de inscrição — sistema de inscrição eliminado.
+	// Ignorados silenciosamente para não bloquear rebuild do ledger histórico.
 	case "EstudanteInscrito":
-		// P3-23: handler adicionado — antes inexistente.
-		return p.handleEstudanteInscrito(event)
+		return nil
 	case "InscricaoAprovada":
-		return p.handleInscricaoAprovada(event)
+		return nil
 	case "InscricaoReprovada":
-		// P3-23: handler adicionado — antes inexistente.
-		return p.handleInscricaoReprovada(event)
+		return nil
 	case "EstudanteVinculado":
-		return p.handleEstudanteVinculado(event)
+		return nil
 	// StatusEscolarFundamentalAtualizado e StatusEscolarMedioAtualizado:
 	// emitidos pelo aggregate em estudante_aprovacao.go.
 	case "StatusEscolarFundamentalAtualizado":
@@ -179,72 +174,6 @@ func (p *EstudanteProjection) clear() error {
 // Handlers de eventos
 // ============================================================================
 
-func (p *EstudanteProjection) handleEstudanteCriado(event db.Event) error {
-	var payload struct {
-		Nome                     string     `json:"Nome"`
-		CodigoEstudante          string     `json:"CodigoEstudante"`
-		SenhaHash                string     `json:"SenhaHash"`
-		Email                    *string    `json:"Email"`
-		Telefone                 *string    `json:"Telefone"`
-		BilheteIdentidade        *string    `json:"BilheteIdentidade"`
-		BilheteIdentidadeResp    *string    `json:"BilheteIdentidadeResp"`
-		Genero                   string     `json:"Genero"`
-		StatusEscolarFundamental string     `json:"StatusEscolarFundamental"`
-		StatusEscolarMedio       string     `json:"StatusEscolarMedio"`
-		StatusSuperior           string     `json:"StatusSuperior"`
-		AnoEscolar               *string    `json:"AnoEscolar"`
-		AnoEscolarMedio          *string    `json:"AnoEscolarMedio"`
-		AnoSuperior              *string    `json:"AnoSuperior"`
-		CursoMedioID             *uuid.UUID `json:"CursoMedioID"`
-		CursoSuperiorID          *uuid.UUID `json:"CursoSuperiorID"`
-		CodigoAcademia           *string    `json:"CodigoAcademia"`
-		CreatedAt                time.Time  `json:"CreatedAt"`
-	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("handleEstudanteCriado: parse error: %w", err)
-	}
-
-	var cursoMedioID, cursoSuperiorID *string
-	if payload.CursoMedioID != nil {
-		s := payload.CursoMedioID.String()
-		cursoMedioID = &s
-	}
-	if payload.CursoSuperiorID != nil {
-		s := payload.CursoSuperiorID.String()
-		cursoSuperiorID = &s
-	}
-
-	_, err := p.client.DB().Exec(`
-		INSERT INTO projection_estudantes (
-			id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
-			bilhete_identidade, bilhete_identidade_responsavel, genero,
-			status, status_escolar_fundamental, status_escolar_medio, status_superior,
-			ano_escolar, ano_escolar_medio, ano_superior, curso_medio_id, curso_superior_id,
-			codigo_academia, created_at, updated_at, version, last_event_id
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, FALSE,
-			$7, $8, $9,
-			'inativo', $10, $11, $12,
-			$13, $14, $15, $16, $17,
-			$18, $19, CURRENT_TIMESTAMP, $20, $21
-		)
-		ON CONFLICT (id) DO NOTHING
-	`,
-		event.AggregateID, payload.Nome, payload.CodigoEstudante, payload.SenhaHash,
-		payload.Email, payload.Telefone,
-		payload.BilheteIdentidade, payload.BilheteIdentidadeResp, payload.Genero,
-		payload.StatusEscolarFundamental, payload.StatusEscolarMedio, payload.StatusSuperior,
-		payload.AnoEscolar, payload.AnoEscolarMedio, payload.AnoSuperior,
-		cursoMedioID, cursoSuperiorID,
-		payload.CodigoAcademia,
-		payload.CreatedAt, event.EventVersion, event.EventID,
-	)
-	if err != nil {
-		return fmt.Errorf("handleEstudanteCriado: exec error: %w", err)
-	}
-	return nil
-}
-
 func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) error {
 	var payload struct {
 		Nome                     string     `json:"Nome"`
@@ -309,142 +238,6 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 		return fmt.Errorf("handleEstudanteCriadoComVinculo: exec error: %w", err)
 	}
 	return nil
-}
-
-// handleEstudanteInscrito — P3-23: handler adicionado.
-// Insere a inscrição em projection_inscricoes quando o estudante solicita inscrição.
-func (p *EstudanteProjection) handleEstudanteInscrito(event db.Event) error {
-	var payload struct {
-		InscricaoID    uuid.UUID  `json:"InscricaoID"`
-		CodigoAcademia string     `json:"CodigoAcademia"`
-		Tipo           string     `json:"Tipo"`
-		AnoInscricao   string     `json:"AnoInscricao"`
-		CursoID        *uuid.UUID `json:"CursoID"`
-		CreatedAt      time.Time  `json:"CreatedAt"`
-	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("handleEstudanteInscrito: parse error: %w", err)
-	}
-
-	// Busca academia_id a partir do codigo_academia
-	var academiaID uuid.UUID
-	if err := p.client.DB().QueryRow(
-		`SELECT id FROM projection_academias WHERE codigo_academia = $1`,
-		payload.CodigoAcademia,
-	).Scan(&academiaID); err != nil && err != sql.ErrNoRows {
-		return fmt.Errorf("handleEstudanteInscrito: academia não encontrada (%s): %w", payload.CodigoAcademia, err)
-	}
-
-	var cursoIDStr *string
-	if payload.CursoID != nil {
-		s := payload.CursoID.String()
-		cursoIDStr = &s
-	}
-
-	_, err := p.client.DB().Exec(`
-		INSERT INTO projection_inscricoes (
-			id, estudante_id, codigo_estudante, academia_id, codigo_academia,
-			tipo, ano_inscricao, curso_id, status, status_usado,
-			created_at, updated_at, event_id, version
-		) VALUES (
-			$1, $2,
-			(SELECT codigo_estudante FROM projection_estudantes WHERE id = $2),
-			$3, $4,
-			$5, $6, $7, 'espera', FALSE,
-			$8, CURRENT_TIMESTAMP, $9, $10
-		)
-		ON CONFLICT (id) DO NOTHING
-	`,
-		payload.InscricaoID, event.AggregateID,
-		academiaID, payload.CodigoAcademia,
-		payload.Tipo, payload.AnoInscricao, cursoIDStr,
-		payload.CreatedAt, event.EventID, event.EventVersion,
-	)
-	if err != nil {
-		return fmt.Errorf("handleEstudanteInscrito: exec error: %w", err)
-	}
-	return nil
-}
-
-// handleInscricaoAprovada atualiza o status da inscrição para 'aprovado'.
-func (p *EstudanteProjection) handleInscricaoAprovada(event db.Event) error {
-	var payload struct {
-		InscricaoID    uuid.UUID  `json:"InscricaoID"`
-		CodigoAcademia string     `json:"CodigoAcademia"`
-		Tipo           string     `json:"Tipo"`
-		AnoInscricao   string     `json:"AnoInscricao"`
-		CursoID        *uuid.UUID `json:"CursoID"`
-	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("handleInscricaoAprovada: parse error: %w", err)
-	}
-
-	_, err := p.client.DB().Exec(`
-		UPDATE projection_inscricoes
-		SET status = 'aprovado', updated_at = CURRENT_TIMESTAMP,
-			event_id = $1, version = $2
-		WHERE estudante_id = $3 AND codigo_academia = $4 AND status = 'espera'
-	`, event.EventID, event.EventVersion, event.AggregateID, payload.CodigoAcademia)
-	if err != nil {
-		return fmt.Errorf("handleInscricaoAprovada: exec error: %w", err)
-	}
-
-	// Incrementa total_inscricoes no estudante
-	_, err = p.client.DB().Exec(`
-		UPDATE projection_estudantes
-		SET total_inscricoes = total_inscricoes + 1,
-			version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
-		WHERE id = $3
-	`, event.EventVersion, event.EventID, event.AggregateID)
-	return err
-}
-
-// handleInscricaoReprovada — P3-23: handler adicionado.
-// Atualiza o status da inscrição para 'reprovado'.
-func (p *EstudanteProjection) handleInscricaoReprovada(event db.Event) error {
-	var payload struct {
-		InscricaoID    uuid.UUID `json:"InscricaoID"`
-		CodigoAcademia string    `json:"CodigoAcademia"`
-	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("handleInscricaoReprovada: parse error: %w", err)
-	}
-
-	_, err := p.client.DB().Exec(`
-		UPDATE projection_inscricoes
-		SET status = 'reprovado', updated_at = CURRENT_TIMESTAMP,
-			event_id = $1, version = $2
-		WHERE estudante_id = $3 AND codigo_academia = $4 AND status = 'espera'
-	`, event.EventID, event.EventVersion, event.AggregateID, payload.CodigoAcademia)
-	if err != nil {
-		return fmt.Errorf("handleInscricaoReprovada: exec error: %w", err)
-	}
-
-	// Atualiza version na projeção de estudantes
-	_, err = p.client.DB().Exec(`
-		UPDATE projection_estudantes
-		SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
-		WHERE id = $3
-	`, event.EventVersion, event.EventID, event.AggregateID)
-	return err
-}
-
-func (p *EstudanteProjection) handleEstudanteVinculado(event db.Event) error {
-	var payload struct {
-		CodigoAcademia string    `json:"CodigoAcademia"`
-		VinculadoAt    time.Time `json:"VinculadoAt"`
-	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("handleEstudanteVinculado: parse error: %w", err)
-	}
-
-	_, err := p.client.DB().Exec(`
-		UPDATE projection_estudantes
-		SET codigo_academia = $1, status = 'ativo',
-			version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
-		WHERE id = $4
-	`, payload.CodigoAcademia, event.EventVersion, event.EventID, event.AggregateID)
-	return err
 }
 
 func (p *EstudanteProjection) handleStatusEscolarFundamental(event db.Event) error {
@@ -738,9 +531,9 @@ func (p *EstudanteProjection) handleSenhaAlterada(event db.Event) error {
 
 func (p *EstudanteProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) error {
 	var payload struct {
-		TipoEnsino    string  `json:"TipoEnsino"`
-		ProximoNivel  *string `json:"ProximoNivel"`
-		Aprovado      bool    `json:"Aprovado"`
+		TipoEnsino   string  `json:"TipoEnsino"`
+		ProximoNivel *string `json:"ProximoNivel"`
+		Aprovado     bool    `json:"Aprovado"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleAvaliacaoFinalAnoAcademico: parse error: %w", err)

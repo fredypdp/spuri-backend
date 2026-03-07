@@ -62,8 +62,9 @@ func (e *Estudante) GetType() string { return "Estudante" }
 
 func (e *Estudante) Apply(event DomainEvent) error {
 	switch event.GetEventType() {
-	case "EstudanteCriado":
-		return e.applyEstudanteCriado(event)
+	// REMOVIDO: "EstudanteCriado" — auto-cadastro público eliminado.
+	// Eventos legados no ledger são ignorados silenciosamente pelo dispatcher
+	// da projeção (return nil). O aggregate não precisa mais suportá-los.
 	case "EstudanteCriadoComVinculo":
 		return e.applyEstudanteCriadoComVinculo(event)
 	case "FaltasRegistradas":
@@ -103,35 +104,6 @@ func (e *Estudante) Apply(event DomainEvent) error {
 //       NotasRegistradasEvent / NotaAtualizadaEvent estão em estudante_notas.go
 //       AprovacaoAnoRegistradaEvent / StatusEscolar*AtualizadoEvent estão em estudante_aprovacao.go
 // ============================================================================
-
-// EstudanteCriadoEvent — FIX E-01: CriadoPor adicionado para rastreabilidade
-// de quem iniciou o cadastro self-service (nil = o próprio estudante).
-type EstudanteCriadoEvent struct {
-	BaseEvent
-	Nome                     string
-	CodigoEstudante          string
-	SenhaHash                string
-	Email                    *string
-	Telefone                 *string
-	BilheteIdentidade        *string
-	BilheteIdentidadeResp    *string
-	AnoEscolar               *string
-	AnoEscolarMedio          *string
-	AnoSuperior              *string
-	CursoMedioID             *uuid.UUID
-	CursoSuperiorID          *uuid.UUID
-	StatusEscolarFundamental string
-	StatusEscolarMedio       string
-	StatusSuperior           string
-	CreatedAt                time.Time
-	Genero                   string
-	// FIX E-01: nil = auto-cadastro; preenchido quando criado por admin/academia.
-	// Etapa 4 deve passar este campo no handler de auto-cadastro (ou mantê-lo nil).
-	CriadoPor *uuid.UUID
-}
-
-func (e *EstudanteCriadoEvent) GetPayload() interface{} { return e }
-func (e *EstudanteCriadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 // EstudanteCriadoComVinculoEvent — FIX E-01: AcademiaID adicionado ao payload
 // para rastreabilidade forense sem depender dos metadados do ledger.
@@ -249,85 +221,8 @@ func (e *EmailVerificadoEstudanteEvent) ToJSON() ([]byte, error) { return json.M
 // Comandos
 // ============================================================================
 
-func (e *Estudante) Criar(
-	nome string,
-	codigoEstudante string,
-	senhaHash string,
-	email *string,
-	telefone *string,
-	bilhete *string,
-	bilheteResp *string,
-	anoEscolar *string,
-	anoEscolarMedio *string,
-	anoSuperior *string,
-	cursoMedioID *uuid.UUID,
-	cursoSuperiorID *uuid.UUID,
-	statusEscolarFundamental *string,
-	statusEscolarMedio *string,
-	statusSuperior *string,
-	genero string,
-) error {
-	if nome == "" || codigoEstudante == "" || senhaHash == "" {
-		return fmt.Errorf("campos obrigatórios vazios")
-	}
-	if genero != "masculino" && genero != "feminino" {
-		return fmt.Errorf("genero deve ser 'masculino' ou 'feminino'")
-	}
-	if bilhete == nil && bilheteResp == nil {
-		return fmt.Errorf("pelo menos um bilhete de identidade é obrigatório")
-	}
-	if bilhete != nil && bilheteResp != nil && *bilhete == *bilheteResp {
-		return fmt.Errorf("bilhete de identidade do estudante e do responsável não podem ser iguais")
-	}
-
-	statusFund := "inativo"
-	statusMed := "inativo"
-	statusSup := "inativo"
-	validStatus := map[string]bool{"inativo": true, "em_andamento": true, "finalizado": true}
-
-	if statusEscolarFundamental != nil {
-		if !validStatus[*statusEscolarFundamental] {
-			return fmt.Errorf("status_escolar_fundamental inválido")
-		}
-		statusFund = *statusEscolarFundamental
-	}
-	if statusEscolarMedio != nil {
-		if !validStatus[*statusEscolarMedio] {
-			return fmt.Errorf("status_escolar_medio inválido")
-		}
-		statusMed = *statusEscolarMedio
-	}
-	if statusSuperior != nil {
-		if !validStatus[*statusSuperior] {
-			return fmt.Errorf("status_superior inválido")
-		}
-		statusSup = *statusSuperior
-	}
-
-	event := &EstudanteCriadoEvent{
-		BaseEvent:                BaseEvent{EventType: "EstudanteCriado", AggregateID: e.ID},
-		Nome:                     nome,
-		CodigoEstudante:          codigoEstudante,
-		SenhaHash:                senhaHash,
-		Email:                    email,
-		Telefone:                 telefone,
-		BilheteIdentidade:        bilhete,
-		BilheteIdentidadeResp:    bilheteResp,
-		AnoEscolar:               anoEscolar,
-		AnoEscolarMedio:          anoEscolarMedio,
-		AnoSuperior:              anoSuperior,
-		CursoMedioID:             cursoMedioID,
-		CursoSuperiorID:          cursoSuperiorID,
-		StatusEscolarFundamental: statusFund,
-		StatusEscolarMedio:       statusMed,
-		StatusSuperior:           statusSup,
-		CreatedAt:                time.Now(),
-		Genero:                   genero,
-		CriadoPor:                nil, // auto-cadastro: sem autor explícito
-	}
-	e.RaiseEvent(event)
-	return e.Apply(event)
-}
+// REMOVIDO: func (e *Estudante) Criar(...) — auto-cadastro público eliminado.
+// O estudante é criado EXCLUSIVAMENTE pela academia via CriarComVinculo.
 
 func (e *Estudante) CriarComVinculo(
 	nome string,
@@ -624,39 +519,6 @@ func (e *Estudante) RegistrarAprovacaoAno(
 //       applyAvaliacaoFinalAnoAcademico está em estudante_avaliacao.go
 //       applyStatusEscolar*Atualizado estão em estudante_aprovacao.go (via métodos abaixo)
 // ============================================================================
-
-func (e *Estudante) applyEstudanteCriado(event DomainEvent) error {
-	data, err := json.Marshal(event.GetPayload())
-	if err != nil {
-		return fmt.Errorf("applyEstudanteCriado: marshal error: %w", err)
-	}
-	var ev EstudanteCriadoEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return fmt.Errorf("applyEstudanteCriado: unmarshal error: %w", err)
-	}
-	e.Nome = ev.Nome
-	e.CodigoEstudante = ev.CodigoEstudante
-	e.SenhaHash = ev.SenhaHash
-	e.Email = ev.Email
-	e.Telefone = ev.Telefone
-	e.BilheteIdentidade = ev.BilheteIdentidade
-	e.BilheteIdentidadeResp = ev.BilheteIdentidadeResp
-	e.AnoEscolar = ev.AnoEscolar
-	e.AnoEscolarMedio = ev.AnoEscolarMedio
-	e.AnoSuperior = ev.AnoSuperior
-	e.CursoMedioID = ev.CursoMedioID
-	e.CursoSuperiorID = ev.CursoSuperiorID
-	e.StatusEscolarFundamental = ev.StatusEscolarFundamental
-	e.StatusEscolarMedio = ev.StatusEscolarMedio
-	e.StatusSuperior = ev.StatusSuperior
-	e.Status = "inativo"
-	e.CreatedAt = ev.CreatedAt
-	e.Genero = ev.Genero
-	if e.AprovacoesPorAno == nil {
-		e.AprovacoesPorAno = make(map[string]bool)
-	}
-	return nil
-}
 
 func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
 	data, err := json.Marshal(event.GetPayload())

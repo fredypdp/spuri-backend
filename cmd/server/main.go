@@ -79,18 +79,6 @@ func initDB() error {
 	return nil
 }
 
-// initProjections registra todas as projeções no Manager e inicia o processamento.
-//
-// FIX E4-CI-01: as projeções turmas, cursos, categorias_nota e sistema_config
-// estavam ausentes do registro. Sem isso, eventos emitidos pelos aggregates
-// Turma, Curso, SistemaConfig e CategoriaNotaSuperior nunca eram processados
-// pelo loop do Manager em produção — os dados de leitura ficavam desatualizados
-// em relação ao ledger e o rebuild automático não cobria essas entidades.
-//
-// Ordem respeita dependências de FK (cursos antes de turmas; Tier 1 → Tier 2):
-//   Tier 1 — sem dependências: admins, academias, cursos, materias, sistema_config, categorias_nota
-//   Tier 2 — dependem de academias/cursos: estudantes, turmas
-//   Tier 3+ — dependem de estudantes/materias: notas, faltas, aprovacoes, etc.
 func initProjections() error {
 	projManager = projections.NewManager(dbClient)
 
@@ -137,13 +125,6 @@ func setupRouter() *gin.Engine {
 
 	// ── Rotas públicas ────────────────────────────────────────────────────
 	router.POST("/login", middleware.LoginRateLimit(), handlers.Login)
-	router.POST("/estudante/register", handlers.RegisterEstudante)
-
-	// FIX E4-CI-02: rota /bootstrap estava implementada no handler mas nunca
-	// registada no router — POST /bootstrap era inacessível em produção.
-	// O handler já protege contra uso após o primeiro admin ter sido criado
-	// (retorna 403) e contra race conditions via advisory lock PostgreSQL.
-	// Rate limit global (1 req/s) é suficiente; a proteção real está no handler.
 	router.POST("/bootstrap", handlers.BootstrapAdminFPP)
 
 	// ── Rotas de email (públicas com rate limit próprio) ──────────────────
@@ -174,21 +155,12 @@ func setupRouter() *gin.Engine {
 		protected.GET("/avaliacoes", handlers.ListarAvaliacoes)
 		protected.GET("/aprovacoes", handlers.ListarAprovacoes)
 		protected.GET("/reprovacoes", handlers.ListarReprovacoes)
-
-		// H4-06: rotas de dados educacionais restritas a academia ou admin.
-		// Os próprios estudantes acessam suas notas/faltas via grupo /estudante.
+		
 		protected.GET("/notas-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetNotasEstudante)
 		protected.GET("/faltas-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetFaltasEstudante)
 		protected.GET("/avaliacoes-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetAvaliacoesFinaisEstudante)
 	}
-
-	// ── Rotas de estudante ─────────────────────────────────────────────────
-	// FIX-C4: status-escolar-* REMOVIDOS daqui — estudante não pode mais alterar
-	// seu próprio status escolar. Essa responsabilidade é exclusiva da academia.
-	//
-	// H4-06: novas rotas /estudante/minhas-notas e /estudante/minhas-faltas
-	// permitem que o estudante acesse apenas seus próprios dados educacionais,
-	// sem expor o /:codigo que permitia consultar qualquer estudante.
+	
 	estudante := router.Group("/estudante")
 	estudante.Use(middleware.AuthMiddleware())
 	estudante.Use(middleware.RequireEstudante())
@@ -263,11 +235,7 @@ func setupRouter() *gin.Engine {
 	{
 		admin.POST("/register", handlers.RegisterAdmin)
 		admin.POST("/academia/register", handlers.RegisterAcademia)
-
-		// H4-13: ativar/desativar academia exige role mínimo "adm".
-		// Consistente com AtivarAdmin/DesativarAdmin que verificam hierarquia
-		// via ValidatePermission — operações sobre academias têm impacto sistêmico
-		// significativo e não devem estar acessíveis ao role "gerente".
+		
 		admin.PUT("/academia/:id/ativar", middleware.RequireAdm(), handlers.AtivarAcademia)
 		admin.PUT("/academia/:id/desativar", middleware.RequireAdm(), handlers.DesativarAcademia)
 
@@ -347,20 +315,6 @@ func corsMiddleware() gin.HandlerFunc {
 	}
 }
 
-// requestIDMiddleware injeta um request ID rastreável em cada requisição.
-//
-// FIX E4-ED-01: o header X-Request-ID era aceite sem qualquer validação,
-// permitindo log injection via caracteres de controlo (newlines, null bytes)
-// e poluição de SIEM/APM com eventos falsos injectados pelo atacante.
-//
-// Mitigação:
-//   - X-Request-ID externo é validado: máximo 64 caracteres, apenas [a-zA-Z0-9-].
-//   - Qualquer header que não cumpra o padrão é descartado silenciosamente;
-//     um UUID novo é gerado em seu lugar.
-//   - Quando nenhum header é fornecido, o ID é gerado internamente
-//     (timestamp nanosegundos + IP com pontos substituídos por hífen).
-//   - O valor gravado nos logs e retornado ao cliente é sempre o valor
-//     validado/gerado — nunca o input bruto do cliente.
 func requestIDMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestID := c.GetHeader("X-Request-ID")
