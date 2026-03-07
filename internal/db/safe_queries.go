@@ -47,6 +47,7 @@ var validEventTypes = map[string]bool{
 	"NotasRegistradas":  true,
 	"FaltasRegistradas": true,
 	"FaltaRegistrada":   true,
+	"FaltaAtualizada":   true,
 	// ── Turma ─────────────────────────────────────────────────────────────────
 	"TurmaCriada":               true,
 	"TurmaAtivada":              true,

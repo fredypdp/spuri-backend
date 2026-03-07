@@ -69,6 +69,8 @@ func (e *Estudante) Apply(event DomainEvent) error {
 		return e.applyEstudanteCriadoComVinculo(event)
 	case "FaltasRegistradas":
 		return e.applyFaltasRegistradas(event)
+	case "FaltaAtualizada":
+		return e.applyFaltaAtualizada(event)
 	case "NotasRegistradas":
 		return e.applyNotasRegistradas(event)
 	case "NotaAtualizada":
@@ -743,5 +745,21 @@ func (e *Estudante) applyStatusEscolarMedioAtualizado(event DomainEvent) error {
 		return fmt.Errorf("applyStatusEscolarMedioAtualizado: unmarshal error: %w", err)
 	}
 	e.StatusEscolarMedio = ev.NovoStatus
+	return nil
+}
+// applyFaltaAtualizada — o aggregate Estudante não mantém faltas em estado
+// (gerenciado pela projeção), mas valida a estrutura do payload durante rebuild.
+func (e *Estudante) applyFaltaAtualizada(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyFaltaAtualizada: marshal error: %w", err)
+	}
+	var ev FaltaAtualizadaEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyFaltaAtualizada: unmarshal error (payload corrompido): %w", err)
+	}
+	if ev.FaltaID == "" {
+		return fmt.Errorf("applyFaltaAtualizada: FaltaID vazio no payload")
+	}
 	return nil
 }

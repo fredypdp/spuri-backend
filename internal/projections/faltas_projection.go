@@ -51,6 +51,7 @@ func (p *FaltasProjection) UpdateCheckpoint(eventID int64) error {
 func (p *FaltasProjection) Handle(event db.Event) error {
 	handlers := map[string]func(db.Event) error{
 		"FaltasRegistradas": p.handleFaltasRegistradas,
+		"FaltaAtualizada":   p.handleFaltaAtualizada,
 	}
 	if handler, ok := handlers[event.EventType]; ok {
 		log.Printf("[DEBUG] [faltas] Processando %s: %s", event.EventType, event.EventID)
@@ -63,9 +64,92 @@ func (p *FaltasProjection) HandleTx(tx *sql.Tx, event db.Event) error {
 	switch event.EventType {
 	case "FaltasRegistradas":
 		return p.handleFaltasRegistradasTx(tx, event)
+	case "FaltaAtualizada":
+		return p.handleFaltaAtualizadaTx(tx, event)
 	default:
 		return nil
 	}
+}
+
+// ============================================================================
+// Handlers de evento
+// ============================================================================
+
+func (p *FaltasProjection) handleFaltasRegistradas(event db.Event) error {
+	var payload struct {
+		CodigoEstudante      string    `json:"CodigoEstudante"`
+		CodigoAcademia       string    `json:"CodigoAcademia"`
+		AnoLectivo           string    `json:"AnoLectivo"`
+		AnoAcademico         string    `json:"AnoAcademico"`
+		Data                 time.Time `json:"Data"`
+		MateriaDisciplinarID string    `json:"MateriaDisciplinarID"`
+		Quantidade           int       `json:"Quantidade"`
+		Observacao           *string   `json:"Observacao"`
+		RegisteredAt         time.Time `json:"RegisteredAt"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("parse error FaltasRegistradas: %w", err)
+	}
+
+	_, err := p.client.DB().Exec(`
+		INSERT INTO projection_faltas (
+			codigo_estudante, codigo_academia, ano_lectivo, ano_academico,
+			data, materia_disciplinar_id, quantidade, observacao,
+			registered_at, event_id, version
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+	`,
+		payload.CodigoEstudante, payload.CodigoAcademia, payload.AnoLectivo, payload.AnoAcademico,
+		payload.Data.Format("2006-01-02"), payload.MateriaDisciplinarID, payload.Quantidade, payload.Observacao,
+		payload.RegisteredAt, event.EventID, event.EventVersion,
+	)
+	return err
+}
+
+func (p *FaltasProjection) handleFaltaAtualizada(event db.Event) error {
+	var payload struct {
+		FaltaID              string     `json:"FaltaID"`
+		Data                 *time.Time `json:"Data"`
+		MateriaDisciplinarID *string    `json:"MateriaDisciplinarID"`
+		Quantidade           *int       `json:"Quantidade"`
+		Observacao           *string    `json:"Observacao"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("parse error FaltaAtualizada: %w", err)
+	}
+	if payload.FaltaID == "" {
+		return fmt.Errorf("handleFaltaAtualizada: FaltaID vazio no payload")
+	}
+
+	// Atualiza apenas os campos fornecidos (não-nil)
+	if payload.Data != nil {
+		if _, err := p.client.DB().Exec(`
+			UPDATE projection_faltas SET data = $1, version = $2, event_id = $3 WHERE id = $4
+		`, payload.Data.Format("2006-01-02"), event.EventVersion, event.EventID, payload.FaltaID); err != nil {
+			return fmt.Errorf("handleFaltaAtualizada: update data: %w", err)
+		}
+	}
+	if payload.MateriaDisciplinarID != nil {
+		if _, err := p.client.DB().Exec(`
+			UPDATE projection_faltas SET materia_disciplinar_id = $1, version = $2, event_id = $3 WHERE id = $4
+		`, *payload.MateriaDisciplinarID, event.EventVersion, event.EventID, payload.FaltaID); err != nil {
+			return fmt.Errorf("handleFaltaAtualizada: update materia: %w", err)
+		}
+	}
+	if payload.Quantidade != nil {
+		if _, err := p.client.DB().Exec(`
+			UPDATE projection_faltas SET quantidade = $1, version = $2, event_id = $3 WHERE id = $4
+		`, *payload.Quantidade, event.EventVersion, event.EventID, payload.FaltaID); err != nil {
+			return fmt.Errorf("handleFaltaAtualizada: update quantidade: %w", err)
+		}
+	}
+	if payload.Observacao != nil {
+		if _, err := p.client.DB().Exec(`
+			UPDATE projection_faltas SET observacao = $1, version = $2, event_id = $3 WHERE id = $4
+		`, *payload.Observacao, event.EventVersion, event.EventID, payload.FaltaID); err != nil {
+			return fmt.Errorf("handleFaltaAtualizada: update observacao: %w", err)
+		}
+	}
+	return nil
 }
 
 func (p *FaltasProjection) handleFaltasRegistradasTx(tx *sql.Tx, event db.Event) error {
@@ -102,6 +186,51 @@ func (p *FaltasProjection) handleFaltasRegistradasTx(tx *sql.Tx, event db.Event)
 	return nil
 }
 
+func (p *FaltasProjection) handleFaltaAtualizadaTx(tx *sql.Tx, event db.Event) error {
+	var payload struct {
+		FaltaID              string     `json:"FaltaID"`
+		Data                 *time.Time `json:"Data"`
+		MateriaDisciplinarID *string    `json:"MateriaDisciplinarID"`
+		Quantidade           *int       `json:"Quantidade"`
+		Observacao           *string    `json:"Observacao"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("parse error FaltaAtualizada: %w", err)
+	}
+	if payload.FaltaID == "" {
+		return fmt.Errorf("handleFaltaAtualizadaTx: FaltaID vazio no payload")
+	}
+	if payload.Data != nil {
+		if _, err := tx.Exec(`UPDATE projection_faltas SET data = $1, version = $2, event_id = $3 WHERE id = $4`,
+			payload.Data.Format("2006-01-02"), event.EventVersion, event.EventID, payload.FaltaID); err != nil {
+			return err
+		}
+	}
+	if payload.MateriaDisciplinarID != nil {
+		if _, err := tx.Exec(`UPDATE projection_faltas SET materia_disciplinar_id = $1, version = $2, event_id = $3 WHERE id = $4`,
+			*payload.MateriaDisciplinarID, event.EventVersion, event.EventID, payload.FaltaID); err != nil {
+			return err
+		}
+	}
+	if payload.Quantidade != nil {
+		if _, err := tx.Exec(`UPDATE projection_faltas SET quantidade = $1, version = $2, event_id = $3 WHERE id = $4`,
+			*payload.Quantidade, event.EventVersion, event.EventID, payload.FaltaID); err != nil {
+			return err
+		}
+	}
+	if payload.Observacao != nil {
+		if _, err := tx.Exec(`UPDATE projection_faltas SET observacao = $1, version = $2, event_id = $3 WHERE id = $4`,
+			*payload.Observacao, event.EventVersion, event.EventID, payload.FaltaID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ============================================================================
+// Rebuild
+// ============================================================================
+
 func (p *FaltasProjection) Rebuild() error {
 	log.Printf("[DEBUG] [faltas] Rebuild iniciado")
 	if err := p.clear(); err != nil {
@@ -112,7 +241,7 @@ func (p *FaltasProjection) Rebuild() error {
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger
-		WHERE event_type IN ('FaltasRegistradas')
+		WHERE event_type IN ('FaltasRegistradas', 'FaltaAtualizada')
 		ORDER BY id ASC
 	`)
 	if err != nil {
@@ -148,40 +277,6 @@ func (p *FaltasProjection) clear() error {
 }
 
 // ============================================================================
-// Handler de evento
-// ============================================================================
-
-func (p *FaltasProjection) handleFaltasRegistradas(event db.Event) error {
-	var payload struct {
-		CodigoEstudante      string    `json:"CodigoEstudante"`
-		CodigoAcademia       string    `json:"CodigoAcademia"`
-		AnoLectivo           string    `json:"AnoLectivo"`
-		AnoAcademico         string    `json:"AnoAcademico"`
-		Data                 time.Time `json:"Data"`
-		MateriaDisciplinarID string    `json:"MateriaDisciplinarID"`
-		Quantidade           int       `json:"Quantidade"`
-		Observacao           *string   `json:"Observacao"`
-		RegisteredAt         time.Time `json:"RegisteredAt"`
-	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("parse error FaltasRegistradas: %w", err)
-	}
-
-	_, err := p.client.DB().Exec(`
-		INSERT INTO projection_faltas (
-			codigo_estudante, codigo_academia, ano_lectivo, ano_academico,
-			data, materia_disciplinar_id, quantidade, observacao,
-			registered_at, event_id, version
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-	`,
-		payload.CodigoEstudante, payload.CodigoAcademia, payload.AnoLectivo, payload.AnoAcademico,
-		payload.Data.Format("2006-01-02"), payload.MateriaDisciplinarID, payload.Quantidade, payload.Observacao,
-		payload.RegisteredAt, event.EventID, event.EventVersion,
-	)
-	return err
-}
-
-// ============================================================================
 // Queries de leitura
 // ============================================================================
 
@@ -199,6 +294,26 @@ type FaltaDTO struct {
 	RegisteredAt         string  `json:"registered_at"`
 	EventID              string  `json:"event_id"`
 	Version              int     `json:"version"`
+}
+
+func (p *FaltasProjection) GetByID(id string) (*FaltaDTO, error) {
+	rows, err := p.client.DB().Query(`
+		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
+			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao,
+			f.registered_at, f.event_id, f.version
+		FROM projection_faltas f
+		LEFT JOIN projection_materias m ON m.id::text = f.materia_disciplinar_id
+		WHERE f.id = $1
+	`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	faltas, err := scanFaltas(rows)
+	if err != nil || len(faltas) == 0 {
+		return nil, err
+	}
+	return &faltas[0], nil
 }
 
 func (p *FaltasProjection) GetByEstudante(codigoEstudante string) ([]FaltaDTO, error) {
