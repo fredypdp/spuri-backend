@@ -231,7 +231,7 @@ func setupRouter() *gin.Engine {
 
 	// ── Rotas de admin ────────────────────────────────────────────────────
 	// Este grupo exige autenticação válida (AuthMiddleware) e role admin (RequireAdmin).
-	admin := router.Group("/admin")
+	admin := router.Group("/dominis")
 	admin.Use(middleware.AuthMiddleware())
 	admin.Use(middleware.RequireAdmin())
 	{
@@ -239,22 +239,18 @@ func setupRouter() *gin.Engine {
 		admin.POST("/academia/register", handlers.RegisterAcademia)
 		admin.PUT("/academia/:codigo/ativar", middleware.RequireAdm(), handlers.AtivarAcademia)
 		admin.PUT("/academia/:codigo/desativar", middleware.RequireAdm(), handlers.DesativarAcademia)
-		admin.PUT("/admin/:id/ativar", handlers.AtivarAdmin)
-		admin.PUT("/admin/:id/desativar", handlers.DesativarAdmin)
+		admin.PUT("/admin/:id/ativar", middleware.RequireAdm(), handlers.AtivarAdmin)
+		admin.PUT("/admin/:id/desativar", middleware.RequireAdm(), handlers.DesativarAdmin)
 		admin.GET("/admins", handlers.ListarTodosAdmins)
-		admin.POST("/ano-letivo", handlers.DefinirAnoLetivo)
+		admin.POST("/ano-letivo", middleware.RequireFPP(), handlers.DefinirAnoLetivo)
 		admin.GET("/metrics", handlers.GetSystemMetrics)
 		admin.POST("/projections/rebuild/:name", middleware.RequireFPP(), handlers.RebuildProjection)
 		admin.GET("/consultar-admin/:email", handlers.GetAdminPorEmail)
 		admin.GET("/registros", handlers.ListarTodosRegistros)
 		admin.GET("/registros/:codigo", handlers.ListarRegistrosPorEstudante)
-		admin.PUT("/admin/:id/role", handlers.AtualizarRoleAdmin)
+		admin.PUT("/admin/:id/role", middleware.RequireFPP(), handlers.AtualizarRoleAdmin)
 		admin.PUT("/admin/:id/dados", handlers.AtualizarDadosAdmin)
 	}
-
-	// ── Rotas de health / docs ─────────────────────────────────────────────
-	router.GET("/health", handlers.HealthCheck)
-	router.GET("/docs", handlers.GetDocs)
 
 	return router
 }

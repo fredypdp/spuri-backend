@@ -16,11 +16,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// RegisterAdmin cria um novo administrador.
-//
-// FIX H4-ADM-02: a ação do criador (segundo SaveWithAudit) é melhor esforço —
-// documentado explicitamente. A criação do newAdmin é a operação primária e atômica;
-// o registro da ação do criador é auditoria secundária e não deve bloquear a resposta.
 func RegisterAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -70,7 +65,7 @@ func RegisterAdmin(c *gin.Context) {
 		return
 	}
 
-	// FIX E4-AA-03 / E4-AA-04: gera senha aleatória segura via crypto/rand.
+	// gera senha aleatória segura via crypto/rand.
 	// A senha é enviada ao admin APENAS via email; a resposta HTTP nunca a expõe.
 	plainPassword, err := services.GenerateSecurePassword()
 	if err != nil {
@@ -101,7 +96,7 @@ func RegisterAdmin(c *gin.Context) {
 		return
 	}
 
-	// FIX H4-ADM-02: registro da ação do criador é auditoria secundária (melhor esforço).
+	// registro da ação do criador é auditoria secundária.
 	// A criação já está persistida — falha aqui não reverte.
 	if err := creator.RegistrarAcao("admin_criado", map[string]interface{}{
 		"novo_admin_id": newAdmin.ID.String(),
@@ -113,7 +108,7 @@ func RegisterAdmin(c *gin.Context) {
 		log.Printf("[WARN] RegisterAdmin: falha ao registrar ação do criador no ledger: %v", err)
 	}
 
-	// FIX E4-AA-03: envia email de boas-vindas com a senha temporária.
+	// envia email de boas-vindas com a senha temporária.
 	// Falha de email não bloqueia a criação.
 	emailSvc := getEmailService(c)
 	if emailErr := emailSvc.SendAdminWelcomeEmail(req.Email, req.Nome, plainPassword, req.Role); emailErr != nil {
@@ -143,10 +138,6 @@ func RegisterAdmin(c *gin.Context) {
 	})
 }
 
-// GetAdminPorEmail consulta um administrador pelo e-mail.
-// Rota: GET /admin/consultar-admin/:email
-//
-// FIX E4-ED-02: restrito a admins com role "adm" ou superior.
 func GetAdminPorEmail(c *gin.Context) {
 	if err := verificarPermissaoAdmin(c, "adm"); err != nil {
 		utils.RespondWithForbiddenError(c, "acesso restrito a administradores com role 'adm' ou superior")
@@ -184,8 +175,6 @@ func GetAdminPorEmail(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"admin": resp})
 }
 
-// ListarTodosAdmins lista todos os administradores.
-// FIX H4-ADM-05: exige role mínimo "adm".
 func ListarTodosAdmins(c *gin.Context) {
 	if err := verificarPermissaoAdmin(c, "adm"); err != nil {
 		utils.RespondWithForbiddenError(c, "acesso restrito a administradores com role 'adm' ou superior")
@@ -222,8 +211,6 @@ func ListarTodosAdmins(c *gin.Context) {
 	})
 }
 
-// AtivarAdmin ativa um admin.
-// [A08] CORRIGIDO: verifica hierarquia do executor antes de ativar.
 func AtivarAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -290,8 +277,6 @@ func AtivarAdmin(c *gin.Context) {
 	})
 }
 
-// DesativarAdmin desativa um admin.
-// [A10] CORRIGIDO: verifica hierarquia do executor antes de desativar.
 func DesativarAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -372,8 +357,6 @@ func DesativarAdmin(c *gin.Context) {
 	})
 }
 
-// AtualizarRoleAdmin altera o role de um admin.
-// FIX H4-ADM-03: bloqueia auto-alteração de role.
 func AtualizarRoleAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -448,6 +431,13 @@ func AtualizarRoleAdmin(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
+	
+	registrarAcaoAdmin(c, userID, "admin_role_atualizado", map[string]interface{}{
+		"target_admin_id": adminID.String(),
+		"target_email":    admin.Email,
+		"role_anterior":   roleAnterior,
+		"novo_role":       req.NovoRole,
+	})
 
 	log.Printf("Role atualizado: %s -> %s (Admin: %s)", roleAnterior, req.NovoRole, admin.Email)
 	c.JSON(http.StatusOK, gin.H{
@@ -457,8 +447,6 @@ func AtualizarRoleAdmin(c *gin.Context) {
 	})
 }
 
-// AtualizarDadosAdmin atualiza nome e/ou email de um admin.
-// [A14] CORRIGIDO: verifica unicidade do novo email via projeção ANTES de emitir evento.
 func AtualizarDadosAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -483,8 +471,7 @@ func AtualizarDadosAdmin(c *gin.Context) {
 	}
 
 	adminProj := getAdminProjection(c)
-
-	// [A14] Verificar unicidade do novo email antes de emitir evento.
+	
 	if req.Email != nil {
 		existing, _ := adminProj.GetByEmail(*req.Email)
 		if existing != nil && existing.ID != adminID {
