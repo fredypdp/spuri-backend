@@ -214,7 +214,7 @@ func (p *CategoriasNotaProjection) handleCategoriaAdicionada(event db.Event) err
 		Nome           string     `json:"Nome"`
 		Descricao      *string    `json:"Descricao"`
 		AdicionadoPor  *uuid.UUID `json:"AdicionadoPor"`
-		AdicionadoEm   time.Time  `json:"AdicionadoEm"`
+		CreatedAt   time.Time  `json:"CreatedAt"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleCategoriaAdicionada: parse error: %w", err)
@@ -237,7 +237,7 @@ func (p *CategoriasNotaProjection) handleCategoriaAdicionada(event db.Event) err
 		payload.Nome,
 		payload.Descricao,
 		adicionadoPor,
-		payload.AdicionadoEm,
+		payload.CreatedAt,
 		event.EventID,
 		event.EventVersion,
 	)
