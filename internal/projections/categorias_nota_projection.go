@@ -207,14 +207,21 @@ func (p *CategoriasNotaProjection) GetNomesByAcademia(codigoAcademia string) ([]
 // Handler de evento
 // ============================================================================
 
-// handleCategoriaAdicionada — P3-09: lê AdicionadoPor do payload e persiste.
+// handleCategoriaAdicionada persiste o evento CategoriaNotaAdicionada na projeção.
+//
+// P3-09: lê e persiste AdicionadoPor do payload para auditoria direta na projeção.
+//
+// FIX: ON CONFLICT DO UPDATE garante que um rebuild sempre sobrescreve dados
+// corrompidos (ex: created_at zerado por bug anterior). O campo status não é
+// atualizado intencionalmente — é gerenciado por eventos futuros de ativação/
+// inativação e não deve ser sobrescrito pelo evento de criação em um rebuild.
 func (p *CategoriasNotaProjection) handleCategoriaAdicionada(event db.Event) error {
 	var payload struct {
 		CodigoAcademia string     `json:"CodigoAcademia"`
 		Nome           string     `json:"Nome"`
 		Descricao      *string    `json:"Descricao"`
 		AdicionadoPor  *uuid.UUID `json:"AdicionadoPor"`
-		CreatedAt   time.Time  `json:"CreatedAt"`
+		CreatedAt      time.Time  `json:"CreatedAt"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleCategoriaAdicionada: parse error: %w", err)
@@ -230,7 +237,12 @@ func (p *CategoriasNotaProjection) handleCategoriaAdicionada(event db.Event) err
 			id, codigo_academia, nome, descricao, adicionado_por,
 			status, created_at, event_id, version
 		) VALUES ($1, $2, $3, $4, $5, 'ativo', $6, $7, $8)
-		ON CONFLICT (codigo_academia, nome) DO NOTHING
+		ON CONFLICT (codigo_academia, nome) DO UPDATE SET
+			descricao      = EXCLUDED.descricao,
+			adicionado_por = EXCLUDED.adicionado_por,
+			created_at     = EXCLUDED.created_at,
+			event_id       = EXCLUDED.event_id,
+			version        = EXCLUDED.version
 	`,
 		event.AggregateID,
 		payload.CodigoAcademia,
