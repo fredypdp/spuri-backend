@@ -75,7 +75,7 @@ CREATE OR REPLACE FUNCTION get_proximo_nivel(
 ) RETURNS VARCHAR AS $$
 DECLARE
     v_niveis_escolar TEXT[] := ARRAY[
-        'primeiro_fundamental', 'segundo_fundamental', 'terceiro_fundamental',
+        '1_fundamental', 'segundo_fundamental', 'terceiro_fundamental',
         'quarto_fundamental', 'quinto_fundamental', 'sexto_fundamental',
         'setimo_fundamental', 'oitavo_fundamental', 'nono_fundamental',
         'primeiro_medio', 'segundo_medio', 'terceiro_medio', 'quarto_medio'

@@ -5,7 +5,7 @@
 -- ATUALIZAÇÃO 1:
 --   O campo "nivel" (JSONB) em projection_materias passa a armazenar
 --   AnosAcademicos com as seguintes regras:
---     • fundamental : array com 1–9 itens (primeiro_fundamental…nono_fundamental)
+--     • fundamental : array com 1–9 itens (1_fundamental…nono_fundamental)
 --     • medio       : array com EXATAMENTE 1 item (ano do curso da matéria)
 --     • superior    : array com EXATAMENTE 1 item (ano do curso da matéria)
 --
@@ -24,7 +24,7 @@ BEGIN;
 -- 1. Atualizar comentário da coluna
 COMMENT ON COLUMN projection_materias.nivel IS
     'AnosAcademicos da matéria disciplinar. '
-    'fundamental: 1–9 itens (primeiro_fundamental…nono_fundamental). '
+    'fundamental: 1–9 itens (1_fundamental…nono_fundamental). '
     'medio/superior: exatamente 1 item — ano do curso ao qual a matéria pertence. '
     'Armazenado como JSONB array de strings.';
 

@@ -22,7 +22,7 @@ END $$;
 -- 2. Atualizar comentário da coluna
 COMMENT ON COLUMN projection_materias.anos_academicos IS
     'Apenas para type=fundamental: array JSON com os anos académicos '
-    'que esta matéria cobre. Ex: ["primeiro_fundamental","segundo_fundamental"]. '
+    'que esta matéria cobre. Ex: ["1_fundamental","segundo_fundamental"]. '
     'NULL para medio e superior (que usam CursoID).';
 
 -- 3. Atualizar índice GIN (caso exista baseado no nome antigo)

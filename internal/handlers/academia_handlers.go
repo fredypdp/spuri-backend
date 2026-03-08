@@ -35,7 +35,7 @@ type RegisterAcademiaRequest struct {
 	NivelEscolar   *string  `json:"nivel_escolar"`
 	Cursos         []string `json:"cursos"`
 	// AnosAcademicos — obrigatório para tipo="escola" com nivel_escolar "fundamental" ou "misto".
-	// Subconjunto de: primeiro_fundamental … nono_fundamental.
+	// Subconjunto de: 1_fundamental … nono_fundamental.
 	AnosAcademicos []string `json:"anos_academicos"`
 }
 
@@ -81,7 +81,7 @@ func RegisterAcademia(c *gin.Context) {
 			if len(req.AnosAcademicos) == 0 {
 				utils.RespondWithValidationError(c, fmt.Errorf(
 					"escolas de nivel_escolar '%s' devem definir anos_academicos "+
-						"(ex: primeiro_fundamental, segundo_fundamental, ...)",
+						"(ex: 1_fundamental, 2_fundamental, ...)",
 					nivel,
 				))
 				return
@@ -492,7 +492,7 @@ func AtualizarDadosAcademia(c *gin.Context) {
 			if len(req.AnosAcademicos) == 0 {
 				utils.RespondWithValidationError(c, fmt.Errorf(
 					"escolas de nivel_escolar '%s' devem definir anos_academicos "+
-						"(ex: primeiro_fundamental, segundo_fundamental, ...)",
+						"(ex: 1_fundamental, 2_fundamental, ...)",
 					nivel,
 				))
 				return

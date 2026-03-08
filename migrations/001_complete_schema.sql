@@ -838,7 +838,7 @@ COMMENT ON COLUMN projection_academias.cursos IS 'Array JSON com lista de nomes 
 
 COMMENT ON COLUMN projection_cursos.nivel IS 'Array JSON com anos do curso: ["primeiro_medio","segundo_medio","terceiro_medio"]';
 COMMENT ON COLUMN projection_materias.curso_id IS 'NULL para fundamental, FK para medio/superior';
-COMMENT ON COLUMN projection_materias.nivel IS 'Apenas para fundamental: ["primeiro_fundamental","segundo_fundamental",...]';
+COMMENT ON COLUMN projection_materias.nivel IS 'Apenas para fundamental: ["1_fundamental","2_fundamental",...]';
 
 COMMENT ON COLUMN projection_notas.periodo IS 'Período: 1_trimestre, 2_trimestre, 3_trimestre, 1_semestre, 2_semestre';
 COMMENT ON COLUMN projection_notas.nota IS 'Nota de 0 a 20';

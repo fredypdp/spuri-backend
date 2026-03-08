@@ -5,19 +5,21 @@ import (
 	"fmt"
 	"log"
 	"spuri/internal/utils"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-// periodosAceitos é o conjunto global de períodos aceitos pelo sistema.
-var periodosAceitos = map[string]bool{
-	"1_trimestre": true,
-	"2_trimestre": true,
-	"3_trimestre": true,
-	"1_semestre":  true,
-	"2_semestre":  true,
-}
+// Curso — aggregate raiz para cursos de médio e superior.
+//
+// Regras de períodos:
+//   - type="medio"    → períodos FIXOS no sistema: 1_trimestre, 2_trimestre, 3_trimestre.
+//                       A academia NÃO configura; o campo Periodos fica vazio no aggregate.
+//   - type="superior" → períodos DINÂMICOS definidos pela academia na criação.
+//                       Formato obrigatório: [número]_semestre (ex.: 1_semestre, 2_semestre).
+//                       Número deve ser inteiro ≥ 1; sem duplicatas.
 
 type Curso struct {
 	BaseAggregate
@@ -26,7 +28,7 @@ type Curso struct {
 	Type           string   // "medio" ou "superior" — imutável após criação
 	AnosAcademicos []string // Anos do curso definidos pela academia
 	// Periodos define os períodos letivos do curso.
-	// Obrigatório para type="superior"; NULL/vazio para "medio".
+	// Obrigatório para type="superior"; vazio para "medio" (fixos no sistema).
 	Periodos       []string
 	CodigoAcademia string
 	Status         string
@@ -49,6 +51,10 @@ func NewCurso() *Curso {
 }
 
 func (c *Curso) GetType() string { return "Curso" }
+
+// ============================================================================
+// Apply dispatcher
+// ============================================================================
 
 func (c *Curso) Apply(event DomainEvent) error {
 	log.Printf("[DEBUG] Aplicando evento %s ao Curso %s", event.GetEventType(), c.ID)
@@ -101,7 +107,7 @@ func (e *CursoAtivadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) } 
 
 type CursoDesativadoEvent struct {
 	BaseEvent
-	DesativadoPor  uuid.UUID
+	DesativadoPor uuid.UUID
 	DeactivatedAt time.Time
 }
 
@@ -111,7 +117,6 @@ func (e *CursoDesativadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e)
 // CursoDadosAtualizadosEvent — Type é imutável após criação.
 // Periodos: nil = não alterar; ponteiro para lista = atualizar.
 // FIX C-02: AtualizadoPor adicionado para auditoria self-contained.
-// Etapa 4 deve preencher este campo no handler de atualização de curso.
 type CursoDadosAtualizadosEvent struct {
 	BaseEvent
 	Nome           *string
@@ -141,9 +146,11 @@ func (e *CursoDeletadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 // Criar registra o evento de criação do curso.
 //
-// Para type="superior": periodos é OBRIGATÓRIO e deve ser um subconjunto
-// não vazio de {1_trimestre, 2_trimestre, 3_trimestre, 1_semestre, 2_semestre}.
-// Para type="medio": periodos deve ser nil ou vazio.
+// Para type="medio":    periodos deve ser nil ou vazio — fixos no sistema
+//                       (1_trimestre, 2_trimestre, 3_trimestre).
+// Para type="superior": periodos é OBRIGATÓRIO; formato [número]_semestre
+//                       (ex.: 1_semestre, 2_semestre); número inteiro ≥ 1;
+//                       sem duplicatas.
 func (c *Curso) Criar(
 	nome string,
 	tipo string,
@@ -265,7 +272,7 @@ func (c *Curso) AtualizarDados(nome *string, anosAcademicos []string, periodos *
 		AnosAcademicos: anosAcademicos,
 		Periodos:       periodos,
 		UpdatedAt:      time.Now(),
-		AtualizadoPor: atualizadoPor,
+		AtualizadoPor:  atualizadoPor,
 	}
 
 	c.RaiseEvent(event)
@@ -384,17 +391,40 @@ func (c *Curso) applyCursoDeletado(event DomainEvent) error {
 // Helpers internos
 // ============================================================================
 
+// isSemestreValido verifica se o período segue o formato [número]_semestre
+// onde número é um inteiro ≥ 1. Ex.: "1_semestre", "2_semestre", "10_semestre".
+// Usa apenas strings/strconv — sem import de regexp.
+func isSemestreValido(p string) bool {
+	const sufixo = "_semestre"
+	if !strings.HasSuffix(p, sufixo) {
+		return false
+	}
+	numStr := strings.TrimSuffix(p, sufixo)
+	if len(numStr) == 0 {
+		return false
+	}
+	n, err := strconv.Atoi(numStr)
+	return err == nil && n >= 1
+}
+
+// validarPeriodosCurso valida os períodos de acordo com o tipo do curso.
+//
+//   - "medio":    não deve ter períodos — são fixos no sistema
+//                 (1_trimestre, 2_trimestre, 3_trimestre).
+//   - "superior": obrigatório; cada item deve seguir [número]_semestre;
+//                 sem duplicatas.
 func validarPeriodosCurso(tipo string, periodos []string) error {
 	switch tipo {
 	case "superior":
 		if len(periodos) == 0 {
-			return fmt.Errorf("periodos é obrigatório para cursos do tipo 'superior'")
+			return fmt.Errorf("periodos é obrigatório para cursos do tipo 'superior' (formato: 1_semestre, 2_semestre, ...)")
 		}
 		seen := make(map[string]bool, len(periodos))
 		for _, p := range periodos {
-			if !periodosAceitos[p] {
+			if !isSemestreValido(p) {
 				return fmt.Errorf(
-					"período '%s' inválido. Aceitos: 1_trimestre, 2_trimestre, 3_trimestre, 1_semestre, 2_semestre",
+					"período '%s' inválido para curso superior. "+
+						"Use o formato [número]_semestre (ex.: 1_semestre, 2_semestre)",
 					p,
 				)
 			}
@@ -403,14 +433,20 @@ func validarPeriodosCurso(tipo string, periodos []string) error {
 			}
 			seen[p] = true
 		}
+
 	case "medio":
 		if len(periodos) > 0 {
-			return fmt.Errorf("cursos do tipo 'medio' não devem ter periodos definidos (são fixos no sistema: 1_trimestre, 2_trimestre, 3_trimestre)")
+			return fmt.Errorf(
+				"cursos do tipo 'medio' não devem ter periodos definidos — " +
+					"são fixos no sistema: 1_trimestre, 2_trimestre, 3_trimestre",
+			)
 		}
 	}
 	return nil
 }
 
+// normalizarPeriodos garante que médio nunca persista períodos no aggregate
+// (os trimestres são constantes do sistema, não dados do curso).
 func normalizarPeriodos(tipo string, periodos []string) []string {
 	if tipo == "medio" {
 		return []string{}

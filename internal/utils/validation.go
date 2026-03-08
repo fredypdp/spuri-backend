@@ -5,15 +5,16 @@ import (
 	"log"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 )
 
 var (
-	emailRegexV    = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
-	phoneRegex     = regexp.MustCompile(`^\+?[0-9]{9,15}$`)
-	sqlCharsRegex  = regexp.MustCompile(`[';-]|--`)
+	emailRegexV   = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+	phoneRegex    = regexp.MustCompile(`^\+?[0-9]{9,15}$`)
+	sqlCharsRegex = regexp.MustCompile(`[';-]|--`)
 )
 
 // SafeDeref desreferencia um *string com segurança, retornando "" para nil.
@@ -156,30 +157,19 @@ func ValidateSenha(senha string) error {
 }
 
 func ValidateBilhete(bilhete string) error {
-	if bilhete == "" {
-		log.Printf("⏭️ [ValidateBilhete] Bilhete vazio (opcional)")
-		return nil
-	}
+	log.Printf("🪪 [ValidateBilhete] Validando bilhete: %s", bilhete)
 
-	log.Printf("🆔 [ValidateBilhete] Validando bilhete: %s", bilhete)
-
-	bilhete = strings.TrimSpace(bilhete)
-
-	numDigits := 0
-	numLetters := 0
-
-	for _, char := range bilhete {
-		if unicode.IsDigit(char) {
-			numDigits++
-		} else if unicode.IsLetter(char) {
-			numLetters++
+	digits := 0
+	letters := 0
+	for _, c := range bilhete {
+		if unicode.IsDigit(c) {
+			digits++
+		} else if unicode.IsLetter(c) {
+			letters++
 		}
 	}
 
-	log.Printf("📊 [ValidateBilhete] Dígitos: %d, Letras: %d, Total: %d",
-		numDigits, numLetters, len(bilhete))
-
-	if numDigits != 12 || numLetters != 2 {
+	if digits != 12 || letters != 2 {
 		log.Printf("❌ [ValidateBilhete] Composição inválida - Esperado: 12 dígitos + 2 letras")
 		return fmt.Errorf("bilhete de identidade deve conter exatamente 12 números e 2 letras")
 	}
@@ -226,7 +216,6 @@ func ValidateURL(rawURL string) error {
 		return fmt.Errorf("URL contém caracteres não permitidos")
 	}
 
-	// Validação estrutural
 	if _, err := url.ParseRequestURI(rawURL); err != nil {
 		log.Printf("❌ [ValidateURL] URL inválida: %v", err)
 		return fmt.Errorf("URL inválida")
@@ -236,29 +225,44 @@ func ValidateURL(rawURL string) error {
 	return nil
 }
 
-// ValidatePeriodo valida se o período pertence ao conjunto global de períodos
-// aceitos pelo sistema (usado em contextos genéricos / admin).
+// ValidatePeriodo valida um período avulso.
+//
+// Aceitos:
+//   - "1_trimestre", "2_trimestre", "3_trimestre"  → períodos fixos do médio/escolar
+//   - "[número]_semestre" com número inteiro ≥ 1    → períodos dinâmicos do superior
+//
+// Esta função é usada em contextos genéricos onde o tipo do curso não está
+// disponível. A validação estrita por tipo é feita em validarPeriodosCurso
+// (aggregate) e validarPeriodoComLista (domain).
 func ValidatePeriodo(periodo string) error {
 	log.Printf("📅 [ValidatePeriodo] Validando período: %s", periodo)
 
-	validPeriodos := map[string]bool{
+	// Trimestres fixos (médio / escolar)
+	periodosFixos := map[string]bool{
 		"1_trimestre": true,
 		"2_trimestre": true,
 		"3_trimestre": true,
-		"1_semestre":  true,
-		"2_semestre":  true,
+	}
+	if periodosFixos[periodo] {
+		log.Printf("✅ [ValidatePeriodo] Período válido (trimestre fixo): %s", periodo)
+		return nil
 	}
 
-	if !validPeriodos[periodo] {
-		log.Printf("❌ [ValidatePeriodo] Período inválido: %s", periodo)
-		return fmt.Errorf(
-			"período '%s' inválido. Aceitos: 1_trimestre, 2_trimestre, 3_trimestre, 1_semestre, 2_semestre",
-			periodo,
-		)
+	// Semestres dinâmicos (superior): formato [número]_semestre, número ≥ 1
+	if strings.HasSuffix(periodo, "_semestre") {
+		numStr := strings.TrimSuffix(periodo, "_semestre")
+		if n, err := strconv.Atoi(numStr); err == nil && n >= 1 {
+			log.Printf("✅ [ValidatePeriodo] Período válido (semestre dinâmico): %s", periodo)
+			return nil
+		}
 	}
 
-	log.Printf("✅ [ValidatePeriodo] Período válido: %s", periodo)
-	return nil
+	log.Printf("❌ [ValidatePeriodo] Período inválido: %s", periodo)
+	return fmt.Errorf(
+		"período '%s' inválido. "+
+			"Use 1_trimestre/2_trimestre/3_trimestre (médio) ou [número]_semestre (superior, ex.: 1_semestre)",
+		periodo,
+	)
 }
 
 func ValidateRole(role string) error {
@@ -293,21 +297,30 @@ func SanitizeAndValidateString(value, fieldName string, minLen, maxLen int, requ
 	return sanitized, nil
 }
 
-// ValidateAnosFundamental valida que todos os itens são anos fundamentais válidos
-// (primeiro_fundamental … nono_fundamental).
-func ValidateAnosFundamental(anos []string) error {
-	validos := map[string]bool{
-		"primeiro_fundamental": true,
-		"segundo_fundamental":  true,
-		"terceiro_fundamental": true,
-		"quarto_fundamental":   true,
-		"quinto_fundamental":   true,
-		"sexto_fundamental":    true,
-		"setimo_fundamental":   true,
-		"oitavo_fundamental":   true,
-		"nono_fundamental":     true,
-	}
+// ============================================================================
+// Validação de anos_academicos
+// ============================================================================
 
+// isAnoComSufixo é um helper interno que valida o formato "[número]_[sufixo]"
+// onde número é um inteiro ≥ 1. Usado por ValidateAnosFundamental e ValidateAnosCurso.
+func isAnoComSufixo(ano, sufixo string) bool {
+	expected := "_" + sufixo
+	if !strings.HasSuffix(ano, expected) {
+		return false
+	}
+	numStr := strings.TrimSuffix(ano, expected)
+	if len(numStr) == 0 {
+		return false
+	}
+	n, err := strconv.Atoi(numStr)
+	return err == nil && n >= 1
+}
+
+// ValidateAnosFundamental valida que todos os itens seguem o formato [1-9]_fundamental.
+//
+// Valores aceitos: "1_fundamental" … "9_fundamental".
+// Números fora do intervalo 1–9 são rejeitados (o ensino fundamental tem 9 anos).
+func ValidateAnosFundamental(anos []string) error {
 	seen := make(map[string]bool, len(anos))
 	for i, ano := range anos {
 		trimmed := strings.TrimSpace(ano)
@@ -318,10 +331,23 @@ func ValidateAnosFundamental(anos []string) error {
 			return fmt.Errorf("ano duplicado: '%s'", trimmed)
 		}
 		seen[trimmed] = true
-		if !validos[trimmed] {
+
+		// Valida formato [n]_fundamental com n no intervalo 1–9
+		if !strings.HasSuffix(trimmed, "_fundamental") {
 			return fmt.Errorf(
 				"ano '%s' inválido para o ensino fundamental. "+
-					"Valores aceitos: primeiro_fundamental até nono_fundamental", trimmed)
+					"Formato esperado: [1-9]_fundamental (ex.: 1_fundamental, 9_fundamental)",
+				trimmed,
+			)
+		}
+		numStr := strings.TrimSuffix(trimmed, "_fundamental")
+		n, err := strconv.Atoi(numStr)
+		if err != nil || n < 1 || n > 9 {
+			return fmt.Errorf(
+				"ano '%s' inválido para o ensino fundamental. "+
+					"O número deve ser entre 1 e 9 (ex.: 1_fundamental … 9_fundamental)",
+				trimmed,
+			)
 		}
 	}
 
@@ -330,8 +356,11 @@ func ValidateAnosFundamental(anos []string) error {
 
 // ValidateAnosCurso valida os anos_academicos de um curso de médio ou superior.
 //
-// Para médio e superior, os anos são livres (definidos pela academia);
-// apenas garantimos que a lista não está vazia e não há duplicatas/vazios.
+// Os anos são definidos dinamicamente pela academia, mas devem seguir o formato:
+//   - tipo="medio":    [n]_medio    (ex.: 1_medio, 2_medio, 3_medio) — n inteiro ≥ 1
+//   - tipo="superior": [n]_superior (ex.: 1_superior, 2_superior)    — n inteiro ≥ 1
+//
+// A quantidade de anos é livre (a academia define quantos anos o curso tem).
 func ValidateAnosCurso(tipo string, anos []string) error {
 	if tipo != "medio" && tipo != "superior" {
 		return fmt.Errorf("tipo deve ser 'medio' ou 'superior'; para fundamental use ValidateAnosFundamental")
@@ -341,6 +370,7 @@ func ValidateAnosCurso(tipo string, anos []string) error {
 		return fmt.Errorf("o curso deve ter pelo menos um ano definido em anos_academicos")
 	}
 
+	sufixo := tipo // "medio" ou "superior"
 	seen := make(map[string]bool, len(anos))
 	for i, n := range anos {
 		trimmed := strings.TrimSpace(n)
@@ -351,6 +381,14 @@ func ValidateAnosCurso(tipo string, anos []string) error {
 			return fmt.Errorf("ano duplicado em anos_academicos: '%s'", trimmed)
 		}
 		seen[trimmed] = true
+
+		if !isAnoComSufixo(trimmed, sufixo) {
+			return fmt.Errorf(
+				"ano '%s' inválido para curso do tipo '%s'. "+
+					"Formato esperado: [número]_%s (ex.: 1_%s, 2_%s, ...)",
+				trimmed, tipo, sufixo, sufixo, sufixo,
+			)
+		}
 	}
 
 	return nil
@@ -367,9 +405,9 @@ func ValidateNivelCurso(tipo string, nivel []string) error {
 // ValidateAnosMateria valida o campo anos_academicos de uma MatériaDisciplinar.
 //
 // Regras:
-//   - fundamental: 1 a 9 itens, todos no conjunto primeiro_fundamental…nono_fundamental.
-//   - medio ou superior: exatamente 1 item (ano do curso ao qual pertence a matéria),
-//     valor livre (não-vazio, sem espaços).
+//   - fundamental: 1 a 9 itens, todos no formato [1-9]_fundamental.
+//   - medio:        exatamente 1 item no formato [n]_medio (ano do curso da matéria).
+//   - superior:     exatamente 1 item no formato [n]_superior (ano do curso da matéria).
 func ValidateAnosMateria(tipo string, anos []string) error {
 	switch tipo {
 	case "fundamental":
@@ -385,8 +423,16 @@ func ValidateAnosMateria(tipo string, anos []string) error {
 				len(anos),
 			)
 		}
-		if strings.TrimSpace(anos[0]) == "" {
+		trimmed := strings.TrimSpace(anos[0])
+		if trimmed == "" {
 			return fmt.Errorf("o ano acadêmico da matéria não pode ser vazio")
+		}
+		if !isAnoComSufixo(trimmed, tipo) {
+			return fmt.Errorf(
+				"ano '%s' inválido para matéria do tipo '%s'. "+
+					"Formato esperado: [número]_%s (ex.: 1_%s, 2_%s)",
+				trimmed, tipo, tipo, tipo, tipo,
+			)
 		}
 		return nil
 

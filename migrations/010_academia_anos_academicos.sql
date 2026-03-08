@@ -11,7 +11,7 @@ ALTER TABLE projection_academias
 COMMENT ON COLUMN projection_academias.anos_academicos IS
     'Array JSON com anos fundamentais oferecidos pela academia. '
     'Obrigatório para nivel_escolar IN (''fundamental'', ''misto''). '
-    'Exemplo: ["primeiro_fundamental","segundo_fundamental","terceiro_fundamental"]';
+    'Exemplo: ["1_fundamental","segundo_fundamental","terceiro_fundamental"]';
 
 -- Preencher academias fundamental/misto existentes com array vazio
 -- para não violar a constraint NOT NULL que será adicionada abaixo.

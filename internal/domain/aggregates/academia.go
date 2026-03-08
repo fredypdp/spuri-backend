@@ -99,7 +99,7 @@ func (a *Academia) Apply(event DomainEvent) error {
 // Criar registra o evento de criação da academia.
 //
 // anosAcademicos — obrigatório quando tipo="escola" E nivel_escolar IN
-// ("fundamental","misto"). Deve ser subconjunto de primeiro…nono_fundamental.
+// ("fundamental","misto"). Deve ser subconjunto de 1…9_fundamental.
 // Para tipo="superior" ou nivel_escolar="medio" deve ser nil/vazio.
 //
 // FIX C12: CriadoPor adicionado ao evento para rastreabilidade forense completa.
@@ -449,7 +449,7 @@ func validarAnosAcademicos(tipo string, nivelEscolar *string, anos []string) ([]
 		if len(anos) == 0 {
 			return nil, fmt.Errorf(
 				"escolas de nivel_escolar '%s' devem definir anos_academicos. "+
-					"Informe ao menos um ano (ex: primeiro_fundamental, segundo_fundamental, etc.)",
+					"Informe ao menos um ano (ex: 1_fundamental, 2_fundamental, etc.)",
 				*nivelEscolar,
 			)
 		}
