@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
 	"spuri/internal/utils"
@@ -77,12 +78,17 @@ func CriarMateria(c *gin.Context) {
 	repository := getRepository(c)
 	materia := aggregates.NewMateriaDisciplinar()
 
-	if err := materia.Criar(req.Nome, req.Type, req.AnosAcademicos, academiaDTO.CodigoAcademia, req.CursoID); err != nil {
+	if err := materia.Criar(req.Nome, req.Type, req.AnosAcademicos, academiaDTO.CodigoAcademia, req.CursoID, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
-	if err := repository.Save(materia); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(materia, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -168,12 +174,17 @@ func AtivarMateria(c *gin.Context) {
 	}
 
 	materia := materiaAgg.(*aggregates.MateriaDisciplinar)
-	if err := materia.Ativar(); err != nil {
+	if err := materia.Ativar(userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
-	if err := repository.Save(materia); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(materia, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -218,12 +229,17 @@ func DesativarMateria(c *gin.Context) {
 
 	materia := materiaAgg.(*aggregates.MateriaDisciplinar)
 
-	if err := materia.Desativar(); err != nil {
+	if err := materia.Desativar(userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
-	if err := repository.Save(materia); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(materia, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -239,11 +255,6 @@ func DesativarMateria(c *gin.Context) {
 // PUT /academia/materias/:id
 // ============================================================================
 
-// AtualizarDadosMateria atualiza nome de uma matéria.
-//
-// FIX: materia.AtualizarDados agora aceita (nome, anosAcademicos, cursoID).
-// Este handler passa nil para anosAcademicos e cursoID — alterar esses campos
-// via handler dedicado é responsabilidade de funcionalidade futura (Etapa 4).
 func AtualizarDadosMateria(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -286,12 +297,17 @@ func AtualizarDadosMateria(c *gin.Context) {
 	materia := materiaAgg.(*aggregates.MateriaDisciplinar)
 	// FIX: assinatura corrigida — AtualizarDados(nome, anosAcademicos, cursoID).
 	// Handler atualiza apenas o nome; os demais campos permanecem inalterados.
-	if err := materia.AtualizarDados(req.Nome, nil, nil); err != nil {
+	if err := materia.AtualizarDados(req.Nome, nil, nil, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
-	if err := repository.Save(materia); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(materia, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -371,12 +387,17 @@ func DefinirPeriodoMateria(c *gin.Context) {
 
 	materia := materiaAgg.(*aggregates.MateriaDisciplinar)
 
-	if err := materia.DefinirPeriodo(req.Periodo); err != nil {
+	if err := materia.DefinirPeriodo(req.Periodo, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
-	if err := repository.Save(materia); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(materia, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -434,7 +455,12 @@ func DeletarMateria(c *gin.Context) {
 		return
 	}
 
-	if err := repository.Save(materia); err != nil {
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(materia, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}

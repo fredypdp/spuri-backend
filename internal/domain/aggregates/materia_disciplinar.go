@@ -71,6 +71,7 @@ type MateriaCriadaEvent struct {
 	AnosAcademicos []string
 	CodigoAcademia string
 	CursoID        *uuid.UUID
+	CriadoPor      uuid.UUID
 	CreatedAt      time.Time
 }
 
@@ -79,6 +80,7 @@ func (e *MateriaCriadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 type MateriaAtivadaEvent struct {
 	BaseEvent
+	AtivadoPor  uuid.UUID
 	ActivatedAt time.Time
 }
 
@@ -87,6 +89,7 @@ func (e *MateriaAtivadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) 
 
 type MateriaDesativadaEvent struct {
 	BaseEvent
+	DesativadoPor uuid.UUID
 	DeactivatedAt time.Time
 }
 
@@ -115,6 +118,7 @@ func (e *MateriaDadosAtualizadosEvent) ToJSON() ([]byte, error) { return json.Ma
 type MateriaPeriodoDefinidoEvent struct {
 	BaseEvent
 	Periodo   string
+	DefinidoPor uuid.UUID
 	UpdatedAt time.Time
 }
 
@@ -140,6 +144,7 @@ func (m *MateriaDisciplinar) Criar(
 	anosAcademicos []string,
 	codigoAcademia string,
 	cursoID *uuid.UUID,
+	criadoPor uuid.UUID,
 ) error {
 	log.Printf("[DEBUG] Criando matéria: nome=%s, tipo=%s, academia=%s", nome, tipo, codigoAcademia)
 
@@ -163,30 +168,33 @@ func (m *MateriaDisciplinar) Criar(
 		AnosAcademicos: anosAcademicos,
 		CodigoAcademia: codigoAcademia,
 		CursoID:        cursoID,
+		CriadoPor: criadoPor,
 		CreatedAt:      time.Now(),
 	}
 	m.RaiseEvent(event)
 	return m.Apply(event)
 }
 
-func (m *MateriaDisciplinar) Ativar() error {
+func (m *MateriaDisciplinar) Ativar(ativadoPor uuid.UUID) error {
 	if m.Status == "ativo" {
 		return fmt.Errorf("matéria já está ativa")
 	}
 	event := &MateriaAtivadaEvent{
 		BaseEvent:   BaseEvent{EventType: "MateriaAtivada", AggregateID: m.ID},
+		AtivadoPor:  ativadoPor,
 		ActivatedAt: time.Now(),
 	}
 	m.RaiseEvent(event)
 	return m.Apply(event)
 }
 
-func (m *MateriaDisciplinar) Desativar() error {
+func (m *MateriaDisciplinar) Desativar(desativadoPor uuid.UUID) error {
 	if m.Status == "inativo" {
 		return fmt.Errorf("matéria já está inativa")
 	}
 	event := &MateriaDesativadaEvent{
 		BaseEvent:     BaseEvent{EventType: "MateriaDesativada", AggregateID: m.ID},
+		DesativadoPor: desativadoPor,
 		DeactivatedAt: time.Now(),
 	}
 	m.RaiseEvent(event)
@@ -196,7 +204,7 @@ func (m *MateriaDisciplinar) Desativar() error {
 // AtualizarDados atualiza nome e/ou anos_academicos da matéria.
 // FIX M-02: aceita também CursoID e AtualizadoPor.
 // Etapa 4 deve preencher atualizadoPor no handler.
-func (m *MateriaDisciplinar) AtualizarDados(nome *string, anosAcademicos []string, cursoID *uuid.UUID) error {
+func (m *MateriaDisciplinar) AtualizarDados(nome *string, anosAcademicos []string, cursoID *uuid.UUID, atualizadoPor uuid.UUID) error {
 	if nome == nil && anosAcademicos == nil && cursoID == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
@@ -207,13 +215,13 @@ func (m *MateriaDisciplinar) AtualizarDados(nome *string, anosAcademicos []strin
 		AnosAcademicos: anosAcademicos,
 		CursoID:        cursoID,
 		UpdatedAt:      time.Now(),
-		AtualizadoPor:  uuid.Nil, // Etapa 4 deve preencher
+		AtualizadoPor:  atualizadoPor, // Etapa 4 deve preencher
 	}
 	m.RaiseEvent(event)
 	return m.Apply(event)
 }
 
-func (m *MateriaDisciplinar) DefinirPeriodo(periodo string) error {
+func (m *MateriaDisciplinar) DefinirPeriodo(periodo string, definidoPor uuid.UUID) error {
 	if m.Type != "superior" {
 		return fmt.Errorf("período só pode ser definido para matérias do tipo 'superior'")
 	}
@@ -224,6 +232,7 @@ func (m *MateriaDisciplinar) DefinirPeriodo(periodo string) error {
 	event := &MateriaPeriodoDefinidoEvent{
 		BaseEvent: BaseEvent{EventType: "MateriaPeriodoDefinido", AggregateID: m.ID},
 		Periodo:   periodo,
+		DefinidoPor: definidoPor,
 		UpdatedAt: time.Now(),
 	}
 	m.RaiseEvent(event)

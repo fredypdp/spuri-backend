@@ -181,6 +181,8 @@ func setupRouter() *gin.Engine {
 	academia.Use(middleware.RequireAcademia())
 	academia.Use(middleware.ValidarStatusAcademia())
 	{
+		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
+		
 		academia.POST("/estudante/register", handlers.RegisterEstudantePorAcademia)
 		academia.POST("/notas-aluno", handlers.RegistrarNota)
 		academia.PUT("/atualizar-nota", handlers.AtualizarNota)
@@ -194,6 +196,25 @@ func setupRouter() *gin.Engine {
 		academia.PUT("/estudante/:codigo/status-escolar-medio", handlers.AtualizarStatusEscolarMedioHandler)
 		academia.PUT("/estudante/:codigo/status-superior", handlers.AtualizarStatusSuperiorHandler)
 
+		// ── Cursos ────────────────────────────────────────────────────────
+		academia.POST("/curso", handlers.CriarCurso)
+		academia.GET("/cursos", handlers.ListarCursos)
+		academia.GET("/curso/:id", handlers.GetCurso)
+		academia.PUT("/curso/:id/ativar", handlers.AtivarCurso)
+		academia.PUT("/curso/:id/desativar", handlers.DesativarCurso)
+		academia.PUT("/curso/:id/dados", handlers.AtualizarDadosCurso)
+		academia.DELETE("/curso/:id", handlers.DeletarCurso)
+
+		// ── Matérias ──────────────────────────────────────────────────────
+		academia.POST("/materia", handlers.CriarMateria)
+		academia.GET("/materias", handlers.ListarMaterias)
+		academia.GET("/materia/:id", handlers.GetMateria)
+		academia.PUT("/materia/:id/ativar", handlers.AtivarMateria)
+		academia.PUT("/materia/:id/desativar", handlers.DesativarMateria)
+		academia.PUT("/materia/:id/periodo", handlers.DefinirPeriodoMateria)
+		academia.PUT("/materia/:id/dados", handlers.AtualizarDadosMateria)
+		academia.DELETE("/materia/:id", handlers.DeletarMateria)
+
 		// ── Turmas ────────────────────────────────────────────────────────
 		academia.POST("/turmas", handlers.CriarTurma)
 		academia.GET("/turmas", handlers.ListarTurmasAcademia)
@@ -205,27 +226,6 @@ func setupRouter() *gin.Engine {
 		academia.POST("/turmas/:codigo/estudante", handlers.AdicionarEstudanteATurma)
 		academia.DELETE("/turmas/:codigo/estudantes/:codigo_estudante", handlers.RemoverEstudanteDaTurma)
 
-		// ── Cursos ────────────────────────────────────────────────────────
-		academia.POST("/curso", handlers.CriarCurso)
-		academia.GET("/cursos", handlers.ListarCursos)
-		academia.GET("/curso/:id", handlers.GetCurso)
-		academia.PUT("/curso/:id/ativar", handlers.AtivarCurso)
-		academia.PUT("/curso/:id/desativar", handlers.DesativarCurso)
-		academia.PUT("/curso/:id/dados", handlers.AtualizarDadosCurso)
-		academia.DELETE("/curso/:id", handlers.DeletarCurso)
-
-		// ── Matérias ──────────────────────────────────────────────────────
-		academia.POST("/materias", handlers.CriarMateria)
-		academia.GET("/materias", handlers.ListarMaterias)
-		academia.GET("/materias/:id", handlers.GetMateria)
-		academia.PUT("/materias/:id/ativar", handlers.AtivarMateria)
-		academia.PUT("/materias/:id/desativar", handlers.DesativarMateria)
-		academia.PUT("/materias/:id/periodo", handlers.DefinirPeriodoMateria)
-		academia.PUT("/materias/:id/dados", handlers.AtualizarDadosMateria)
-		academia.DELETE("/materias/:id", handlers.DeletarMateria)
-
-		// ── Atualização geral ─────────────────────────────────────────────
-		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
 	}
 
 	// ── Rotas de admin ────────────────────────────────────────────────────
