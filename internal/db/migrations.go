@@ -48,6 +48,7 @@ var allMigrations = []string{
 	"migrations/034_garantias_atomicidade.sql",
 	"migrations/035_spuri_generate_codigo_academia.sql",
 	"migrations/036_turmas_status_alterado_por.sql",
+	"migrations/037_soft_delete_faltas.sql",
 }
 
 func (c *Client) RunMigrations() error {

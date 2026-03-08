@@ -90,6 +90,22 @@ type NotaAtualizadaEvent struct {
 func (e *NotaAtualizadaEvent) GetPayload() interface{} { return e }
 func (e *NotaAtualizadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
+// NotaDeletadaEvent — emitido ao fazer soft delete de uma nota.
+// EventType: "NotaDeletada".
+// Motivo é OBRIGATÓRIO para auditoria self-contained no ledger.
+type NotaDeletadaEvent struct {
+	BaseEvent
+	NotaID          uuid.UUID
+	CodigoEstudante string
+	CodigoAcademia  string
+	Motivo          string
+	DeletadoPor     uuid.UUID
+	DeletedAt       time.Time
+}
+
+func (e *NotaDeletadaEvent) GetPayload() interface{} { return e }
+func (e *NotaDeletadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
 // ============================================================================
 // Validações internas
 // ============================================================================
@@ -190,7 +206,7 @@ func (e *Estudante) RegistrarNota(
 		Nota:                 nota,
 		Observacao:           observacao,
 		RegisteredAt:         time.Now(),
-		RegistradoPor: registradoPor,
+		RegistradoPor:        registradoPor,
 	}
 
 	e.RaiseEvent(event)
@@ -243,7 +259,43 @@ func (e *Estudante) AtualizarNota(
 		NotaNova:             novaNota,
 		Observacao:           observacao,
 		UpdatedAt:            time.Now(),
-		AtualizadoPor: atualizadoPor,
+		AtualizadoPor:        atualizadoPor,
+	}
+
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
+// ============================================================================
+// Método de comando: DeletarNota
+// ============================================================================
+
+// DeletarNota faz soft delete de uma nota via event sourcing.
+// motivo é OBRIGATÓRIO para auditoria self-contained no ledger.
+func (e *Estudante) DeletarNota(
+	codigoAcademia string,
+	notaID uuid.UUID,
+	motivo string,
+	deletadoPor uuid.UUID,
+) error {
+	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
+		return fmt.Errorf("estudante não pertence a esta academia")
+	}
+	if notaID == uuid.Nil {
+		return fmt.Errorf("nota_id inválido")
+	}
+	if strings.TrimSpace(motivo) == "" {
+		return fmt.Errorf("motivo é obrigatório para deletar nota")
+	}
+
+	event := &NotaDeletadaEvent{
+		BaseEvent:       BaseEvent{EventType: "NotaDeletada", AggregateID: e.ID},
+		NotaID:          notaID,
+		CodigoEstudante: e.CodigoEstudante,
+		CodigoAcademia:  codigoAcademia,
+		Motivo:          motivo,
+		DeletadoPor:     deletadoPor,
+		DeletedAt:       time.Now(),
 	}
 
 	e.RaiseEvent(event)
@@ -260,6 +312,11 @@ func (e *Estudante) applyNotasRegistradas(_ DomainEvent) error {
 }
 
 func (e *Estudante) applyNotaAtualizada(_ DomainEvent) error {
+	// O aggregate Estudante não mantém notas em estado — gerenciado pela projeção.
+	return nil
+}
+
+func (e *Estudante) applyNotaDeletada(_ DomainEvent) error {
 	// O aggregate Estudante não mantém notas em estado — gerenciado pela projeção.
 	return nil
 }

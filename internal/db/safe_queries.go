@@ -40,14 +40,16 @@ var validEventTypes = map[string]bool{
 	"AdminDesativado":       true,
 	"AdminDadosAtualizados": true,
 	"AdminSenhaAlterada":    true,
-	"AcaoAdminRegistrada": true,
-	"AdminRoleAtualizado": true,
+	"AcaoAdminRegistrada":   true,
+	"AdminRoleAtualizado":   true,
 	// ── Notas e Faltas ────────────────────────────────────────────────────────
 	"NotaAtualizada":    true,
 	"NotasRegistradas":  true,
+	"NotaDeletada":      true,
 	"FaltasRegistradas": true,
 	"FaltaRegistrada":   true,
 	"FaltaAtualizada":   true,
+	"FaltaDeletada":     true,
 	// ── Turma ─────────────────────────────────────────────────────────────────
 	"TurmaCriada":               true,
 	"TurmaAtivada":              true,
@@ -56,7 +58,7 @@ var validEventTypes = map[string]bool{
 	"TurmaDeletada":             true,
 	"TurmaEncerrada":            true,
 	"EstudanteAdicionadoATurma": true,
-	"EstudanteRemovidoDaTurma":   true,
+	"EstudanteRemovidoDaTurma":  true,
 	// ── Curso ─────────────────────────────────────────────────────────────────
 	"CursoCriado":           true,
 	"CursoAtivado":          true,

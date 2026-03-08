@@ -68,10 +68,14 @@ func (e *Estudante) Apply(event DomainEvent) error {
 		return e.applyFaltasRegistradas(event)
 	case "FaltaAtualizada":
 		return e.applyFaltaAtualizada(event)
+	case "FaltaDeletada":
+		return e.applyFaltaDeletada(event)
 	case "NotasRegistradas":
 		return e.applyNotasRegistradas(event)
 	case "NotaAtualizada":
 		return e.applyNotaAtualizada(event)
+	case "NotaDeletada":
+		return e.applyNotaDeletada(event)
 	case "StatusEscolarFundamentalAtualizado":
 		return e.applyStatusEscolarFundamentalAtualizado(event)
 	case "StatusEscolarMedioAtualizado":

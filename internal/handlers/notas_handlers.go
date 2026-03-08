@@ -341,6 +341,86 @@ func AtualizarNota(c *gin.Context) {
 }
 
 // ============================================================================
+// DELETE /academia/nota/:id
+// ============================================================================
+
+// DeletarNota faz soft delete de uma nota via event sourcing.
+// Body: { "motivo": "string" } (obrigatório).
+func DeletarNota(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+
+	notaIDStr := c.Param("id")
+	notaID, err := uuid.Parse(notaIDStr)
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("id de nota inválido"))
+		return
+	}
+
+	var req struct {
+		Motivo string `json:"motivo" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("campo obrigatório: motivo"))
+		return
+	}
+
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByID(userID)
+	if err != nil || academiaDTO == nil {
+		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+
+	notasProj := getNotasProjection(c)
+	notaAtual, err := notasProj.GetNotaByID(notaID)
+	if err != nil || notaAtual == nil {
+		utils.RespondWithNotFoundError(c, "nota")
+		return
+	}
+	if notaAtual.CodigoAcademia != academiaDTO.CodigoAcademia {
+		utils.RespondWithForbiddenError(c, "nota não pertence a esta academia")
+		return
+	}
+
+	estudanteProj := getEstudanteProjection(c)
+	estudanteDTO, err := estudanteProj.GetByCodigo(notaAtual.CodigoEstudante)
+	if err != nil || estudanteDTO == nil {
+		utils.RespondWithNotFoundError(c, "estudante")
+		return
+	}
+
+	repository := getRepository(c)
+	estudanteAgg, err := repository.Load(estudanteDTO.ID, "Estudante")
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	estudante := estudanteAgg.(*aggregates.Estudante)
+
+	if err := estudante.DeletarNota(academiaDTO.CodigoAcademia, notaID, req.Motivo, userID); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(estudante, audit); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	log.Printf("Nota deletada: id=%s estudante=%s (por academia %s, motivo=%s)",
+		notaIDStr, notaAtual.CodigoEstudante, academiaDTO.CodigoAcademia, req.Motivo)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "nota deletada com sucesso",
+	})
+}
+
+// ============================================================================
 // GET /notas-estudante/:codigo
 // ============================================================================
 

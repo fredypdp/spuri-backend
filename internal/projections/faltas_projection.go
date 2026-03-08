@@ -52,6 +52,7 @@ func (p *FaltasProjection) Handle(event db.Event) error {
 	handlers := map[string]func(db.Event) error{
 		"FaltasRegistradas": p.handleFaltasRegistradas,
 		"FaltaAtualizada":   p.handleFaltaAtualizada,
+		"FaltaDeletada":     p.handleFaltaDeletada,
 	}
 	if handler, ok := handlers[event.EventType]; ok {
 		log.Printf("[DEBUG] [faltas] Processando %s: %s", event.EventType, event.EventID)
@@ -66,6 +67,8 @@ func (p *FaltasProjection) HandleTx(tx *sql.Tx, event db.Event) error {
 		return p.handleFaltasRegistradasTx(tx, event)
 	case "FaltaAtualizada":
 		return p.handleFaltaAtualizadaTx(tx, event)
+	case "FaltaDeletada":
+		return p.handleFaltaDeletadaTx(tx, event)
 	default:
 		return nil
 	}
@@ -152,6 +155,36 @@ func (p *FaltasProjection) handleFaltaAtualizada(event db.Event) error {
 	return nil
 }
 
+// handleFaltaDeletada processa o evento "FaltaDeletada" — soft delete na projeção.
+// Idempotente: se a falta já estiver deletada (deleted_at IS NOT NULL), não falha.
+func (p *FaltasProjection) handleFaltaDeletada(event db.Event) error {
+	var payload struct {
+		FaltaID string `json:"FaltaID"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("handleFaltaDeletada: parse error: %w", err)
+	}
+
+	result, err := p.client.DB().Exec(`
+		UPDATE projection_faltas
+		SET deleted_at = NOW(),
+		    version    = $1,
+		    event_id   = $2
+		WHERE id = $3
+		  AND deleted_at IS NULL
+	`, event.EventVersion, event.EventID, payload.FaltaID)
+	if err != nil {
+		return fmt.Errorf("handleFaltaDeletada: exec error: %w", err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		log.Printf("[WARN] [faltas] FaltaDeletada %s: falta id=%s não encontrada ou já deletada — ignorado",
+			event.EventID, payload.FaltaID)
+	}
+	return nil
+}
+
 func (p *FaltasProjection) handleFaltasRegistradasTx(tx *sql.Tx, event db.Event) error {
 	var payload struct {
 		CodigoEstudante      string    `json:"CodigoEstudante"`
@@ -227,6 +260,35 @@ func (p *FaltasProjection) handleFaltaAtualizadaTx(tx *sql.Tx, event db.Event) e
 	return nil
 }
 
+// handleFaltaDeletadaTx processa FaltaDeletada dentro de uma transação.
+func (p *FaltasProjection) handleFaltaDeletadaTx(tx *sql.Tx, event db.Event) error {
+	var payload struct {
+		FaltaID string `json:"FaltaID"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("handleFaltaDeletadaTx: parse error: %w", err)
+	}
+
+	result, err := tx.Exec(`
+		UPDATE projection_faltas
+		SET deleted_at = NOW(),
+		    version    = $1,
+		    event_id   = $2
+		WHERE id = $3
+		  AND deleted_at IS NULL
+	`, event.EventVersion, event.EventID, payload.FaltaID)
+	if err != nil {
+		return fmt.Errorf("handleFaltaDeletadaTx: exec error: %w", err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		log.Printf("[WARN] [faltas] FaltaDeletadaTx %s: falta id=%s não encontrada ou já deletada — ignorado",
+			event.EventID, payload.FaltaID)
+	}
+	return nil
+}
+
 // ============================================================================
 // Rebuild
 // ============================================================================
@@ -241,7 +303,7 @@ func (p *FaltasProjection) Rebuild() error {
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger
-		WHERE event_type IN ('FaltasRegistradas', 'FaltaAtualizada')
+		WHERE event_type IN ('FaltasRegistradas', 'FaltaAtualizada', 'FaltaDeletada')
 		ORDER BY id ASC
 	`)
 	if err != nil {
@@ -304,6 +366,7 @@ func (p *FaltasProjection) GetByID(id string) (*FaltaDTO, error) {
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id::text = f.materia_disciplinar_id
 		WHERE f.id = $1
+		  AND f.deleted_at IS NULL
 	`, id)
 	if err != nil {
 		return nil, err
@@ -324,6 +387,7 @@ func (p *FaltasProjection) GetByEstudante(codigoEstudante string) ([]FaltaDTO, e
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id::text = f.materia_disciplinar_id
 		WHERE f.codigo_estudante = $1
+		  AND f.deleted_at IS NULL
 		ORDER BY f.data DESC
 	`, codigoEstudante)
 	if err != nil {
@@ -341,6 +405,7 @@ func (p *FaltasProjection) GetByAcademia(codigoAcademia string) ([]FaltaDTO, err
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id::text = f.materia_disciplinar_id
 		WHERE f.codigo_academia = $1
+		  AND f.deleted_at IS NULL
 		ORDER BY f.data DESC
 	`, codigoAcademia)
 	if err != nil {
@@ -360,6 +425,7 @@ func (p *FaltasProjection) GetByPeriodo(codigoEstudante, anoLectivo string, data
 		WHERE f.codigo_estudante = $1
 			AND f.ano_lectivo = $2
 			AND f.data BETWEEN $3 AND $4
+			AND f.deleted_at IS NULL
 		ORDER BY f.data DESC
 	`, codigoEstudante, anoLectivo, dataInicio.Format(time.RFC3339), dataFim.Format(time.RFC3339))
 	if err != nil {
@@ -376,6 +442,7 @@ func (p *FaltasProjection) GetAll() ([]FaltaDTO, error) {
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id::text = f.materia_disciplinar_id
+		WHERE f.deleted_at IS NULL
 		ORDER BY f.data DESC
 	`)
 	if err != nil {

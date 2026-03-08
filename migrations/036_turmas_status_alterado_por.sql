@@ -1,5 +1,5 @@
 -- ============================================================================
--- MIGRATION 034 — Auditoria de ativação/desativação de turmas
+-- MIGRATION 036 — Auditoria de ativação/desativação de turmas
 --
 -- PROBLEMA CORRIGIDO:
 --   Os eventos TurmaAtivada e TurmaDesativada gravam AlteradoPor no payload
@@ -44,6 +44,6 @@ CREATE INDEX IF NOT EXISTS idx_turmas_status_alterado_por
 COMMIT;
 
 DO $$ BEGIN
-    RAISE NOTICE '✅ MIGRATION 034 CONCLUÍDA — status_alterado_por e status_alterado_em adicionados a projection_turmas';
+    RAISE NOTICE '✅ MIGRATION 036 CONCLUÍDA — status_alterado_por e status_alterado_em adicionados a projection_turmas';
     RAISE NOTICE 'Execute POST /admin/rebuild-projection/turmas para popular as novas colunas.';
 END $$;

@@ -3,6 +3,7 @@ package aggregates
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -86,6 +87,38 @@ func (e *Estudante) AtualizarFalta(
 	return e.Apply(event)
 }
 
+// DeletarFalta faz soft delete de uma falta via event sourcing.
+// motivo é OBRIGATÓRIO para auditoria self-contained no ledger.
+func (e *Estudante) DeletarFalta(
+	codigoAcademia string,
+	faltaID string,
+	motivo string,
+	deletadoPor uuid.UUID,
+) error {
+	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
+		return fmt.Errorf("estudante não pertence a esta academia")
+	}
+	if strings.TrimSpace(faltaID) == "" {
+		return fmt.Errorf("falta_id inválido")
+	}
+	if strings.TrimSpace(motivo) == "" {
+		return fmt.Errorf("motivo é obrigatório para deletar falta")
+	}
+
+	event := &FaltaDeletadaEvent{
+		BaseEvent:       BaseEvent{EventType: "FaltaDeletada", AggregateID: e.ID},
+		FaltaID:         faltaID,
+		CodigoEstudante: e.CodigoEstudante,
+		CodigoAcademia:  codigoAcademia,
+		Motivo:          motivo,
+		DeletadoPor:     deletadoPor,
+		DeletedAt:       time.Now(),
+	}
+
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
 // ============================================================================
 // Eventos
 // ============================================================================
@@ -108,3 +141,28 @@ type FaltaAtualizadaEvent struct {
 
 func (e *FaltaAtualizadaEvent) GetPayload() interface{} { return e }
 func (e *FaltaAtualizadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+// FaltaDeletadaEvent — emitido ao fazer soft delete de uma falta.
+// EventType: "FaltaDeletada".
+// Motivo é OBRIGATÓRIO para auditoria self-contained no ledger.
+type FaltaDeletadaEvent struct {
+	BaseEvent
+	FaltaID         string
+	CodigoEstudante string
+	CodigoAcademia  string
+	Motivo          string
+	DeletadoPor     uuid.UUID
+	DeletedAt       time.Time
+}
+
+func (e *FaltaDeletadaEvent) GetPayload() interface{} { return e }
+func (e *FaltaDeletadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+// ============================================================================
+// Apply handlers
+// ============================================================================
+
+func (e *Estudante) applyFaltaDeletada(_ DomainEvent) error {
+	// O aggregate Estudante não mantém faltas em estado — gerenciado pela projeção.
+	return nil
+}

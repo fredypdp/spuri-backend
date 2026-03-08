@@ -263,6 +263,89 @@ func AtualizarFalta(c *gin.Context) {
 }
 
 // ============================================================================
+// DELETE /academia/falta/:id
+// ============================================================================
+
+// DeletarFalta faz soft delete de uma falta via event sourcing.
+// Body: { "motivo": "string" } (obrigatório).
+func DeletarFalta(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+
+	faltaID := c.Param("id")
+	if faltaID == "" {
+		utils.RespondWithValidationError(c, fmt.Errorf("id de falta inválido"))
+		return
+	}
+
+	var req struct {
+		Motivo string `json:"motivo" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("campo obrigatório: motivo"))
+		return
+	}
+
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByID(userID)
+	if err != nil || academiaDTO == nil {
+		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+
+	faltasProj := getFaltasProjection(c)
+	faltaAtual, err := faltasProj.GetByID(faltaID)
+	if err != nil || faltaAtual == nil {
+		utils.RespondWithNotFoundError(c, "falta")
+		return
+	}
+	if faltaAtual.CodigoAcademia != academiaDTO.CodigoAcademia {
+		utils.RespondWithForbiddenError(c, "falta não pertence a esta academia")
+		return
+	}
+
+	estudanteProj := getEstudanteProjection(c)
+	estudanteDTO, err := estudanteProj.GetByCodigo(faltaAtual.CodigoEstudante)
+	if err != nil || estudanteDTO == nil {
+		utils.RespondWithNotFoundError(c, "estudante")
+		return
+	}
+
+	repository := getRepository(c)
+	estudanteAgg, err := repository.Load(estudanteDTO.ID, "Estudante")
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	estudante, ok := estudanteAgg.(*aggregates.Estudante)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
+
+	if err := estudante.DeletarFalta(academiaDTO.CodigoAcademia, faltaID, req.Motivo, userID); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(estudante, audit); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	log.Printf("Falta deletada: id=%s estudante=%s (por academia %s, motivo=%s)",
+		faltaID, faltaAtual.CodigoEstudante, academiaDTO.CodigoAcademia, req.Motivo)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "falta deletada com sucesso",
+	})
+}
+
+// ============================================================================
 // GET /faltas-estudante/:codigo
 // ============================================================================
 

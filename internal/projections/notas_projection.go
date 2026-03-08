@@ -60,6 +60,7 @@ func (p *NotasProjection) Handle(event db.Event) error {
 	handlers := map[string]func(db.Event) error{
 		"NotasRegistradas": p.handleNotasRegistradas,
 		"NotaAtualizada":   p.handleNotaAtualizada,
+		"NotaDeletada":     p.handleNotaDeletada,
 	}
 	if handler, ok := handlers[event.EventType]; ok {
 		log.Printf("[DEBUG] [notas] Processando %s: %s", event.EventType, event.EventID)
@@ -83,7 +84,7 @@ func (p *NotasProjection) Rebuild() error {
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger
-		WHERE event_type IN ('NotasRegistradas', 'NotaAtualizada')
+		WHERE event_type IN ('NotasRegistradas', 'NotaAtualizada', 'NotaDeletada')
 		ORDER BY id ASC
 	`)
 	if err != nil {
@@ -224,6 +225,36 @@ func (p *NotasProjection) handleNotaAtualizada(event db.Event) error {
 		// Não falha: o evento está no ledger; o rebuild completo resolverá.
 		log.Printf("[WARN] [notas] NotaAtualizada %s: nota não encontrada para estudante=%s periodo=%s — ignorado",
 			event.EventID, payload.CodigoEstudante, payload.Periodo)
+	}
+	return nil
+}
+
+// handleNotaDeletada processa o evento "NotaDeletada" — soft delete na projeção.
+// Idempotente: se a nota já estiver deletada (deleted_at IS NOT NULL), não falha.
+func (p *NotasProjection) handleNotaDeletada(event db.Event) error {
+	var payload struct {
+		NotaID string `json:"NotaID"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("handleNotaDeletada: parse error: %w", err)
+	}
+
+	result, err := p.client.DB().Exec(`
+		UPDATE projection_notas
+		SET deleted_at = NOW(),
+		    version    = $1,
+		    event_id   = $2
+		WHERE id = $3
+		  AND deleted_at IS NULL
+	`, event.EventVersion, event.EventID, payload.NotaID)
+	if err != nil {
+		return fmt.Errorf("handleNotaDeletada: exec error: %w", err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		log.Printf("[WARN] [notas] NotaDeletada %s: nota id=%s não encontrada ou já deletada — ignorado",
+			event.EventID, payload.NotaID)
 	}
 	return nil
 }
