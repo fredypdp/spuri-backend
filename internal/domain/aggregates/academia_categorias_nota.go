@@ -12,21 +12,20 @@ import (
 // Comando
 // ============================================================================
 
-// AdicionarCategoriaNotaSuperior adiciona uma categoria de nota personalizada.
+// AdicionarCategoriaNota adiciona uma categoria de nota personalizada à academia.
+//
+// Disponível para academias de qualquer tipo (escola, universidade, instituto).
 //
 // categoriasExistentes — lista atual de categorias (nome) da academia,
 // carregada pelo handler via projeção. O aggregate também verifica
 // a.CategoriasNota em estado para detectar duplicatas durante o ciclo
 // de vida em memória (FIX A-02).
-func (a *Academia) AdicionarCategoriaNotaSuperior(
+func (a *Academia) AdicionarCategoriaNota(
 	nome string,
 	descricao *string,
 	adicionadoPor uuid.UUID,
 	categoriasExistentes []string,
 ) error {
-	if a.Type != "superior" {
-		return fmt.Errorf("categorias de nota são exclusivas de academias do tipo 'superior'")
-	}
 	if nome == "" {
 		return fmt.Errorf("nome da categoria não pode ser vazio")
 	}
@@ -72,14 +71,10 @@ func (a *Academia) applyCategoriaNotaAdicionada(event DomainEvent) error {
 	}
 	var ev CategoriaNotaAdicionadaEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
-		return fmt.Errorf("applyCategoriaNotaAdicionada: unmarshal error (payload corrompido): %w", err)
+		return fmt.Errorf("applyCategoriaNotaAdicionada: unmarshal error: %w", err)
 	}
 	if ev.Nome == "" {
-		return fmt.Errorf("applyCategoriaNotaAdicionada: campo Nome vazio no payload")
-	}
-	// Inicializa slice se necessário (ex: aggregate recém-criado)
-	if a.CategoriasNota == nil {
-		a.CategoriasNota = []string{}
+		return fmt.Errorf("applyCategoriaNotaAdicionada: Nome vazio no payload")
 	}
 	a.CategoriasNota = append(a.CategoriasNota, ev.Nome)
 	return nil
@@ -89,6 +84,8 @@ func (a *Academia) applyCategoriaNotaAdicionada(event DomainEvent) error {
 // Evento
 // ============================================================================
 
+// CategoriaNotaAdicionadaEvent — emitido ao adicionar uma categoria de nota.
+// EventType: "CategoriaNotaAdicionada" (canônico — não alterar).
 type CategoriaNotaAdicionadaEvent struct {
 	BaseEvent
 	CodigoAcademia string

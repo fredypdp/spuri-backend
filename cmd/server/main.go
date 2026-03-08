@@ -192,7 +192,7 @@ func setupRouter() *gin.Engine {
 		academia.DELETE("/falta/:id", handlers.DeletarFalta)
 		academia.POST("/aprovacao-ano", handlers.RegistrarAprovacaoAno)
 		academia.POST("/avaliacao-final", handlers.RegistrarAvaliacaoFinal)
-		academia.POST("/categorias-nota", handlers.CriarCategoriaNotaSuperior)
+		academia.POST("/categorias-nota", handlers.CriarCategoriaNota)
 		academia.GET("/categorias-nota", handlers.ListarCategoriasNota)
 		academia.PUT("/estudante/:codigo/status-escolar-fundamental", handlers.AtualizarStatusEscolarFundamentalHandler)
 		academia.PUT("/estudante/:codigo/status-escolar-medio", handlers.AtualizarStatusEscolarMedioHandler)

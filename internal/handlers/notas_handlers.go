@@ -126,11 +126,9 @@ func RegistrarNota(c *gin.Context) {
 		return
 	}
 
-	// Categorias adicionais (apenas para superior)
-	var categoriasAdicionais []string
-	if req.Tipo == aggregates.TipoSuperior {
-		categoriasAdicionais = carregarCategoriasAdicionais(c, academiaDTO.CodigoAcademia)
-	}
+	// Categorias adicionais — sempre carregadas para qualquer tipo de nota,
+	// pois academias de todos os tipos podem cadastrar categorias extras.
+	categoriasAdicionais := carregarCategoriasAdicionais(c, academiaDTO.CodigoAcademia)
 
 	// Aggregate e comando
 	repository := getRepository(c)
@@ -193,10 +191,6 @@ func RegistrarNota(c *gin.Context) {
 // FIX H4-19: NotaNova é *float64 (ponteiro) para distinguir entre:
 //   - campo omitido no JSON → nil → erro de validação explícito
 //   - nota intencionalmente zero → 0.0 → aceito normalmente
-//
-// Antes: NotaNova float64 — o zero-value de Go (0.0) era indistinguível
-// de um campo omitido. Um cliente que esquecia nota_nova recebia a nota
-// atualizada para 0 silenciosamente sem erro.
 func AtualizarNota(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -213,7 +207,6 @@ func AtualizarNota(c *gin.Context) {
 	}
 
 	// FIX H4-19: rejeita explicitamente se nota_nova foi omitida do JSON.
-	// Com float64, omitir o campo resultava em 0.0 sem erro — comportamento silencioso indesejado.
 	if req.NotaNova == nil {
 		utils.RespondWithValidationError(c, fmt.Errorf(
 			"nota_nova e obrigatorio. Para registrar zero, envie: \"nota_nova\": 0",
@@ -253,7 +246,6 @@ func AtualizarNota(c *gin.Context) {
 
 	materiaID, _ := uuid.Parse(notaAtual.MateriaDisciplinarID)
 
-	// Resolver periodos validos com base na materia da nota
 	materiasProj := getMateriasProjection(c)
 	materiaDTO, _ := materiasProj.GetByID(materiaID)
 
@@ -286,7 +278,6 @@ func AtualizarNota(c *gin.Context) {
 	}
 
 	estudanteProj := getEstudanteProjection(c)
-
 	estudanteDTO, err := estudanteProj.GetByCodigo(notaAtual.CodigoEstudante)
 	if err != nil || estudanteDTO == nil {
 		utils.RespondWithNotFoundError(c, "estudante")
@@ -309,7 +300,7 @@ func AtualizarNota(c *gin.Context) {
 		notaAtual.Tipo,
 		notaAtual.Categoria,
 		notaAtual.Nota,
-		*req.NotaNova, // desreferência segura — nil já rejeitado acima
+		*req.NotaNova,
 		req.Observacao,
 		periodosValidos,
 		userID,
@@ -470,7 +461,9 @@ func GetNotasEstudante(c *gin.Context) {
 // POST /academia/categorias-nota
 // ============================================================================
 
-func CriarCategoriaNotaSuperior(c *gin.Context) {
+// CriarCategoriaNota cria uma categoria de nota adicional para a academia.
+// Disponível para academias de qualquer tipo (escola, universidade, instituto).
+func CriarCategoriaNota(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
 	var req struct {
@@ -489,11 +482,6 @@ func CriarCategoriaNotaSuperior(c *gin.Context) {
 		return
 	}
 
-	if academiaDTO.Type != "superior" {
-		utils.RespondWithForbiddenError(c, "apenas universidades (tipo 'superior') podem criar categorias de nota")
-		return
-	}
-
 	categoriasProj := getCategoriasNotaProjection(c)
 	categoriasExistentes, _ := categoriasProj.GetNomesByAcademia(academiaDTO.CodigoAcademia)
 
@@ -505,7 +493,7 @@ func CriarCategoriaNotaSuperior(c *gin.Context) {
 	}
 	academia := agg.(*aggregates.Academia)
 
-	if err := academia.AdicionarCategoriaNotaSuperior(req.Nome, req.Descricao, userID, categoriasExistentes); err != nil {
+	if err := academia.AdicionarCategoriaNota(req.Nome, req.Descricao, userID, categoriasExistentes); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -527,6 +515,8 @@ func CriarCategoriaNotaSuperior(c *gin.Context) {
 // GET /academia/categorias-nota
 // ============================================================================
 
+// ListarCategoriasNota retorna todas as categorias de nota da academia.
+// Disponível para academias de qualquer tipo.
 func ListarCategoriasNota(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -534,11 +524,6 @@ func ListarCategoriasNota(c *gin.Context) {
 	academiaDTO, err := academiaProj.GetByID(userID)
 	if err != nil || academiaDTO == nil {
 		utils.RespondWithNotFoundError(c, "academia")
-		return
-	}
-
-	if academiaDTO.Type != "superior" {
-		utils.RespondWithForbiddenError(c, "apenas universidades (tipo 'superior') possuem categorias de nota")
 		return
 	}
 
@@ -625,6 +610,7 @@ func inferirAnoAcademicoParaNota(
 
 // carregarCategoriasAdicionais retorna os nomes das categorias adicionais
 // cadastradas pela academia. Retorna slice vazio em caso de erro (nao fatal).
+// Chamada para qualquer tipo de nota (escolar ou superior).
 func carregarCategoriasAdicionais(c *gin.Context, codigoAcademia string) []string {
 	categoriasProj := getCategoriasNotaProjection(c)
 	categorias, err := categoriasProj.ListarPorAcademia(codigoAcademia)
@@ -649,21 +635,12 @@ func inferirAnoAcademicoFaltas(
 }
 
 // validarNota verifica se a nota está no intervalo 0–20.
-// Usado tanto em RegistrarNota quanto como pré-validação no handler.
 func validarNota(nota float64) error {
 	if nota < 0 || nota > 20 {
 		return fmt.Errorf("nota deve estar entre 0 e 20, recebido: %.2f", nota)
 	}
 	return nil
 }
-
-// ============================================================================
-// Utilitário: GetNotasEstudante (alias do handler de query)
-// ============================================================================
-
-// getNotasProjection é um helper local que obtém a NotasProjection do contexto.
-// Definido em query_handlers.go; declarado aqui apenas para documentação.
-// (Não redeclarar — já existe em outro arquivo do pacote handlers)
 
 // NOTE: utils é importado via utils "spuri/internal/utils"
 var _ = utils.RespondWithValidationError

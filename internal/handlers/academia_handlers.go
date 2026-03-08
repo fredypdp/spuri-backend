@@ -69,15 +69,23 @@ func RegisterAcademia(c *gin.Context) {
 		return
 	}
 
-	if req.NivelEscolar != nil && len(req.AnosAcademicos) > 0 {
+	if req.NivelEscolar != nil {
 		nivel := *req.NivelEscolar
-		if nivel == "medio" {
+		if nivel == "medio" && len(req.AnosAcademicos) > 0 {
 			utils.RespondWithValidationError(c, fmt.Errorf(
 				"escolas de nivel_escolar 'medio' não devem definir anos_academicos",
 			))
 			return
 		}
 		if nivel == "fundamental" || nivel == "misto" {
+			if len(req.AnosAcademicos) == 0 {
+				utils.RespondWithValidationError(c, fmt.Errorf(
+					"escolas de nivel_escolar '%s' devem definir anos_academicos "+
+						"(ex: primeiro_fundamental, segundo_fundamental, ...)",
+					nivel,
+				))
+				return
+			}
 			if err := utils.ValidateAnosFundamental(req.AnosAcademicos); err != nil {
 				utils.RespondWithValidationError(c, err)
 				return
@@ -472,15 +480,23 @@ func AtualizarDadosAcademia(c *gin.Context) {
 		return
 	}
 
-	if req.NivelEscolar != nil && len(req.AnosAcademicos) > 0 {
+	if req.NivelEscolar != nil {
 		nivel := *req.NivelEscolar
-		if nivel == "medio" {
+		if nivel == "medio" && len(req.AnosAcademicos) > 0 {
 			utils.RespondWithValidationError(c, fmt.Errorf(
 				"escolas de nivel_escolar 'medio' não devem definir anos_academicos",
 			))
 			return
 		}
 		if nivel == "fundamental" || nivel == "misto" {
+			if len(req.AnosAcademicos) == 0 {
+				utils.RespondWithValidationError(c, fmt.Errorf(
+					"escolas de nivel_escolar '%s' devem definir anos_academicos "+
+						"(ex: primeiro_fundamental, segundo_fundamental, ...)",
+					nivel,
+				))
+				return
+			}
 			if err := utils.ValidateAnosFundamental(req.AnosAcademicos); err != nil {
 				utils.RespondWithValidationError(c, err)
 				return
