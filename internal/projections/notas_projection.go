@@ -21,11 +21,6 @@ func NewNotasProjection(client *db.Client) *NotasProjection {
 
 func (p *NotasProjection) Name() string { return "notas" }
 
-// ============================================================================
-// Interface Projection
-// ============================================================================
-
-// GetLastProcessedEventID — corrigido para prepared statement.
 func (p *NotasProjection) GetLastProcessedEventID() (int64, error) {
 	var lastID int64
 	err := p.client.DB().QueryRow(
@@ -38,7 +33,7 @@ func (p *NotasProjection) GetLastProcessedEventID() (int64, error) {
 	return lastID, err
 }
 
-// UpdateCheckpoint — corrigido para prepared statement.
+// UpdateCheckpoint — prepared statement.
 func (p *NotasProjection) UpdateCheckpoint(eventID int64) error {
 	eventID = int64(db.ValidateOffset(int(eventID)))
 	_, err := p.client.DB().Exec(`
@@ -70,7 +65,7 @@ func (p *NotasProjection) Handle(event db.Event) error {
 }
 
 // ============================================================================
-// Rebuild — sql.NullString para previous_hash
+// Rebuild
 // ============================================================================
 
 func (p *NotasProjection) Rebuild() error {
@@ -170,7 +165,6 @@ func (p *NotasProjection) handleNotasRegistradas(event db.Event) error {
 		return fmt.Errorf("handleNotasRegistradas: exec error: %w", err)
 	}
 
-	// Log informativo quando a nota já existia (replay/idempotência).
 	if rows, _ := result.RowsAffected(); rows == 0 {
 		log.Printf("[WARN] [notas] NotasRegistradas %s: nota já existia para estudante=%s periodo=%s materia=%s — atualizada via UPSERT",
 			event.EventID, payload.CodigoEstudante, payload.Periodo, payload.MateriaDisciplinarID)
@@ -200,16 +194,16 @@ func (p *NotasProjection) handleNotaAtualizada(event db.Event) error {
 
 	result, err := p.client.DB().Exec(`
 		UPDATE projection_notas
-		SET nota      = $1,
+		SET nota       = $1,
 		    observacao = $2,
 		    version    = $3,
 		    event_id   = $4
-		WHERE codigo_estudante      = $5
-		  AND ano_lectivo           = $6
-		  AND periodo               = $7
+		WHERE codigo_estudante       = $5
+		  AND ano_lectivo            = $6
+		  AND periodo                = $7
 		  AND materia_disciplinar_id = $8
-		  AND tipo                  = $9
-		  AND categoria             = $10
+		  AND tipo                   = $9
+		  AND categoria              = $10
 	`,
 		payload.NotaNova, payload.Observacao, event.EventVersion, event.EventID,
 		payload.CodigoEstudante, payload.AnoLectivo, payload.Periodo,
@@ -231,22 +225,41 @@ func (p *NotasProjection) handleNotaAtualizada(event db.Event) error {
 
 // handleNotaDeletada processa o evento "NotaDeletada" — soft delete na projeção.
 // Idempotente: se a nota já estiver deletada (deleted_at IS NOT NULL), não falha.
+//
+// FIX PROJ-NOTA-01: DeletadoPor e Motivo agora lidos do payload e gravados em
+// deletado_por e motivo_exclusao — permite consulta direta de auditoria sem
+// inspecionar o spuri_ledger.
+//
+// FIX PROJ-NOTA-02: deleted_at agora usa payload.DeletedAt em vez de NOW(),
+// preservando o timestamp real da deleção em rebuilds.
 func (p *NotasProjection) handleNotaDeletada(event db.Event) error {
 	var payload struct {
-		NotaID string `json:"NotaID"`
+		NotaID      string    `json:"NotaID"`
+		DeletadoPor uuid.UUID `json:"DeletadoPor"`
+		Motivo      string    `json:"Motivo"`
+		DeletedAt   time.Time `json:"DeletedAt"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleNotaDeletada: parse error: %w", err)
 	}
 
+	// FIX PROJ-NOTA-02: usar DeletedAt do payload; fallback para OccurredAt
+	// em eventos antigos que não tenham o campo preenchido.
+	deletedAt := payload.DeletedAt
+	if deletedAt.IsZero() {
+		deletedAt = event.OccurredAt
+	}
+
 	result, err := p.client.DB().Exec(`
 		UPDATE projection_notas
-		SET deleted_at = NOW(),
-		    version    = $1,
-		    event_id   = $2
-		WHERE id = $3
+		SET deleted_at      = $1,
+		    deletado_por    = $2,
+		    motivo_exclusao = $3,
+		    version         = $4,
+		    event_id        = $5
+		WHERE id = $6
 		  AND deleted_at IS NULL
-	`, event.EventVersion, event.EventID, payload.NotaID)
+	`, deletedAt.UTC(), payload.DeletadoPor, payload.Motivo, event.EventVersion, event.EventID, payload.NotaID)
 	if err != nil {
 		return fmt.Errorf("handleNotaDeletada: exec error: %w", err)
 	}
@@ -319,26 +332,9 @@ func (p *NotasProjection) GetByAcademia(codigoAcademia string) ([]NotaDTO, error
 	return scanNotas(rows)
 }
 
-func scanNotas(rows *sql.Rows) ([]NotaDTO, error) {
-	var notas []NotaDTO
-	for rows.Next() {
-		var n NotaDTO
-		if err := rows.Scan(
-			&n.ID, &n.CodigoEstudante, &n.CodigoAcademia, &n.AnoLectivo, &n.AnoAcademico,
-			&n.Periodo, &n.MateriaDisciplinarID, &n.MateriaNome,
-			&n.Tipo, &n.Categoria, &n.Nota, &n.Observacao,
-			&n.RegisteredAt, &n.EventID, &n.Version,
-		); err != nil {
-			return nil, err
-		}
-		notas = append(notas, n)
-	}
-	return notas, rows.Err()
-}
-
 // GetNotaByID busca uma nota específica pelo UUID.
 // Retorna nil sem erro quando a nota não existe ou foi soft-deleted.
-// Usado por AtualizarNota para verificar ownership antes de aceitar correção.
+// Usado por AtualizarNota e DeletarNota para verificar ownership antes do comando.
 func (p *NotasProjection) GetNotaByID(id uuid.UUID) (*NotaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT n.id, n.codigo_estudante, n.codigo_academia, n.ano_lectivo, n.ano_academico,
@@ -360,4 +356,21 @@ func (p *NotasProjection) GetNotaByID(id uuid.UUID) (*NotaDTO, error) {
 		return nil, err
 	}
 	return &notas[0], nil
+}
+
+func scanNotas(rows *sql.Rows) ([]NotaDTO, error) {
+	var notas []NotaDTO
+	for rows.Next() {
+		var n NotaDTO
+		if err := rows.Scan(
+			&n.ID, &n.CodigoEstudante, &n.CodigoAcademia, &n.AnoLectivo, &n.AnoAcademico,
+			&n.Periodo, &n.MateriaDisciplinarID, &n.MateriaNome,
+			&n.Tipo, &n.Categoria, &n.Nota, &n.Observacao,
+			&n.RegisteredAt, &n.EventID, &n.Version,
+		); err != nil {
+			return nil, err
+		}
+		notas = append(notas, n)
+	}
+	return notas, rows.Err()
 }
