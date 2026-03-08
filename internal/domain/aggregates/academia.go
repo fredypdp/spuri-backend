@@ -266,7 +266,7 @@ func (a *Academia) AtualizarDados(
 
 // AlterarSenha emite o evento AcademiaSenhaAlterada via event sourcing.
 // FIX C1: senha agora passa pelo ledger.
-func (a *Academia) AlterarSenha(novaSenhaHash string, changedBy uuid.UUID, motivo string) error {
+func (a *Academia) AlterarSenha(novaSenhaHash string, alteradoPor uuid.UUID, motivo string) error {
 	if novaSenhaHash == "" {
 		return fmt.Errorf("senha_hash não pode ser vazio")
 	}
@@ -274,7 +274,7 @@ func (a *Academia) AlterarSenha(novaSenhaHash string, changedBy uuid.UUID, motiv
 	event := &AcademiaSenhaAlteradaEvent{
 		BaseEvent:     BaseEvent{EventType: "AcademiaSenhaAlterada", AggregateID: a.ID},
 		NovaSenhaHash: novaSenhaHash,
-		ChangedBy:     changedBy,
+		AlteradoPor:   alteradoPor,
 		Motivo:        motivo,
 		ChangedAt:     time.Now(),
 	}
@@ -549,7 +549,7 @@ func (e *AcademiaDadosAtualizadosEvent) ToJSON() ([]byte, error) { return json.M
 type AcademiaSenhaAlteradaEvent struct {
 	BaseEvent
 	NovaSenhaHash string
-	ChangedBy     uuid.UUID
+	AlteradoPor   uuid.UUID
 	Motivo        string
 	ChangedAt     time.Time
 }

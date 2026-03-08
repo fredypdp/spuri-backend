@@ -242,7 +242,7 @@ func (a *Admin) AtualizarRole(novoRole string, updatedBy uuid.UUID, updatedByRol
 }
 
 // AlterarSenha registra a troca de senha como evento no ledger.
-func (a *Admin) AlterarSenha(novaSenhaHash string, changedBy uuid.UUID, motivo string) error {
+func (a *Admin) AlterarSenha(novaSenhaHash string, alteradoPor uuid.UUID, motivo string) error {
 	if a.Status != "ativo" {
 		return fmt.Errorf("administrador está inativo")
 	}
@@ -254,7 +254,7 @@ func (a *Admin) AlterarSenha(novaSenhaHash string, changedBy uuid.UUID, motivo s
 	event := &AdminSenhaAlteradaEvent{
 		BaseEvent:     BaseEvent{EventType: "AdminSenhaAlterada", AggregateID: a.ID},
 		NovaSenhaHash: novaSenhaHash,
-		ChangedBy:     changedBy,
+		AlteradoPor:   alteradoPor,
 		Motivo:        motivo,
 		ChangedAt:     time.Now(),
 	}
@@ -489,7 +489,7 @@ func (e *AdminRoleAtualizadoEvent) ToJSON() ([]byte, error) { return json.Marsha
 type AdminSenhaAlteradaEvent struct {
 	BaseEvent
 	NovaSenhaHash string
-	ChangedBy     uuid.UUID
+	AlteradoPor   uuid.UUID
 	Motivo        string
 	ChangedAt     time.Time
 }
