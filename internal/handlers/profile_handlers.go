@@ -377,6 +377,13 @@ func getPerfilAdmin(c *gin.Context, userID interface{}) {
 
 // BuscarUsuario localiza qualquer entidade (estudante, academia ou admin) por UUID.
 func BuscarUsuario(c *gin.Context) {
+	// FIX A-03: apenas admin pode buscar qualquer UUID.
+	userType, _ := middleware.GetUserType(c)
+	if userType != "admin" {
+		utils.RespondWithForbiddenError(c, "acesso restrito a administradores")
+		return
+	}
+
 	idStr := c.Query("id")
 	if idStr == "" {
 		utils.RespondWithValidationError(c, fmt.Errorf("parâmetro 'id' é obrigatório"))
@@ -389,7 +396,6 @@ func BuscarUsuario(c *gin.Context) {
 		return
 	}
 
-	// Tentar em cada projeção
 	estudanteProj := getEstudanteProjection(c)
 	if est, _ := estudanteProj.GetByID(id); est != nil {
 		c.JSON(http.StatusOK, gin.H{"tipo": "estudante", "usuario": est})

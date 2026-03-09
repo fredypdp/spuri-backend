@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -109,13 +110,31 @@ func initProjections() error {
 
 func setupRouter() *gin.Engine {
 	router := gin.New()
-	router.Use(gin.Recovery())
+
+	// FIX A-04: Recovery customizado — gin.Recovery() padrão expõe stack trace
+	// em produção. Este handler loga o panic internamente e retorna 500 genérico.
+	router.Use(gin.RecoveryWithWriter(gin.DefaultErrorWriter, func(c *gin.Context, recovered interface{}) {
+		log.Printf("[PANIC] Recuperado: %v — IP: %s — Path: %s", recovered, c.ClientIP(), c.Request.URL.Path)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro interno do servidor"})
+	}))
+	
+	router.Use(func(c *gin.Context) {
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-Frame-Options", "DENY")
+		c.Header("X-XSS-Protection", "1; mode=block")
+		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+		c.Header("Content-Security-Policy", "default-src 'none'")
+		if os.Getenv("ENV") == "production" {
+			c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+		c.Next()
+	})
+
 	router.Use(corsMiddleware())
 	router.Use(requestIDMiddleware())
 	router.Use(middleware.MonitoringMiddleware())
 	router.Use(middleware.GlobalRateLimit())
-
-	// Injeção de dependências — disponível em todos os handlers via c.Get(...)
+	
 	router.Use(func(c *gin.Context) {
 		c.Set("dbClient", dbClient)
 		c.Set("repository", repository)
@@ -124,14 +143,9 @@ func setupRouter() *gin.Engine {
 	})
 
 	// ── Rotas públicas ─────────────────────────────────────────────────────
-	//
-	// POST /login é o único endpoint de autenticação do sistema.
-	// Aceita type "admin" | "academia" | "estudante" no body.
-	// Não existe /admin/login — o handler Login em auth_handlers.go cobre os 3 tipos.
 	router.POST("/login", middleware.LoginRateLimit(), handlers.Login)
-	router.POST("/bootstrap", handlers.BootstrapAdminFPP)
-
-	// ── Rotas de email (públicas com rate limit próprio) ──────────────────
+	router.POST("/bootstrap", middleware.LoginRateLimit(), handlers.BootstrapAdminFPP)
+	
 	emailGroup := router.Group("/email")
 	emailGroup.Use(middleware.EmailRateLimit())
 	{
