@@ -515,7 +515,7 @@ type AcademiaDTO struct {
 	Type              string    `json:"type"`
 	Nome              string    `json:"nome"`
 	CodigoAcademia    string    `json:"codigo_academia"`
-	SenhaHash         string    `json:"senha_hash,omitempty"`
+	SenhaHash         string    `json:"-"`
 	Provincia         string    `json:"provincia"`
 	Endereco          string    `json:"endereco"`
 	NumeroTelefone    *string   `json:"numero_telefone,omitempty"`
