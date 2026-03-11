@@ -48,8 +48,8 @@ func RegisterAcademia(c *gin.Context) {
 		return
 	}
 
-	if req.Type != "escola" && req.Type != "universidade" && req.Type != "instituto" {
-		utils.RespondWithValidationError(c, fmt.Errorf("type deve ser 'escola', 'universidade' ou 'instituto'"))
+	if req.Type != "escola" && req.Type != "universidade" {
+		utils.RespondWithValidationError(c, fmt.Errorf("type deve ser 'escola', 'universidade'"))
 		return
 	}
 

@@ -14,7 +14,7 @@ import (
 
 // AdicionarCategoriaNota adiciona uma categoria de nota personalizada à academia.
 //
-// Disponível para academias de qualquer tipo (escola, universidade, instituto).
+// Disponível para academias de qualquer tipo (escola, universidade).
 //
 // categoriasExistentes — lista atual de categorias (nome) da academia,
 // carregada pelo handler via projeção. O aggregate também verifica

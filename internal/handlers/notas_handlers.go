@@ -462,7 +462,7 @@ func GetNotasEstudante(c *gin.Context) {
 // ============================================================================
 
 // CriarCategoriaNota cria uma categoria de nota adicional para a academia.
-// Disponível para academias de qualquer tipo (escola, universidade, instituto).
+// Disponível para academias de qualquer tipo (escola, universidade).
 func CriarCategoriaNota(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
