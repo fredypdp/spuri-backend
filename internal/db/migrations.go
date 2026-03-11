@@ -50,6 +50,7 @@ var allMigrations = []string{
 	"migrations/036_turmas_status_alterado_por.sql",
 	"migrations/037_soft_delete_faltas.sql",
 	"migrations/038_auditoria_delecao_notas_faltas.sql",
+	"migrations/039_idx_estudante_telefones.sql",
 }
 
 func (c *Client) RunMigrations() error {

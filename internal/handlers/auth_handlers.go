@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"spuri/internal/middleware"
@@ -15,13 +14,18 @@ import (
 // LoginRequest é o corpo do único endpoint de autenticação do sistema.
 //
 // Campos:
-//   - usuario: email (admin), código ou email (academia), código (estudante)
-//   - senha:   senha em texto plano — comparada via bcrypt
-//   - type:    "admin" | "academia" | "estudante"
+//   - usuario: qualquer identificador único do usuário —
+//     admin     → e-mail
+//     academia  → código de academia ou e-mail
+//     estudante → código de estudante, e-mail ou telefone
+//   - senha: senha em texto plano — comparada via bcrypt
+//
+// O tipo do usuário é inferido automaticamente pela busca em cascata
+// (admin → academia → estudante), eliminando a necessidade de o cliente
+// informar o campo "type" explicitamente.
 type LoginRequest struct {
 	Usuario string `json:"usuario" binding:"required"`
 	Senha   string `json:"senha"   binding:"required"`
-	Type    string `json:"type"    binding:"required"`
 }
 
 // Login é o único endpoint de autenticação do sistema.
@@ -30,6 +34,8 @@ type LoginRequest struct {
 // Segurança:
 //   - Timing-safe: bcrypt é SEMPRE executado, mesmo quando o usuário não existe,
 //     igualando o tempo de resposta a "senha errada" e prevenindo user enumeration.
+//   - Busca em cascata: admin → academia → estudante. O primeiro resultado válido
+//     é usado; os demais não são consultados.
 //   - Status verificado ANTES de emitir o JWT — conta inativa nunca recebe token.
 //   - Resposta genérica: não indica qual campo (usuário ou senha) estava errado.
 //   - SenhaHash NUNCA incluída na resposta.
@@ -37,14 +43,6 @@ func Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, err)
-		return
-	}
-
-	switch req.Type {
-	case "admin", "academia", "estudante":
-		// tipos válidos — prosseguir
-	default:
-		utils.RespondWithValidationError(c, fmt.Errorf("type inválido: use 'admin', 'academia' ou 'estudante'"))
 		return
 	}
 
@@ -57,40 +55,46 @@ func Login(c *gin.Context) {
 		userID     uuid.UUID
 		userName   string
 		senhaHash  string
-		identifier string // email (admin) ou código (academia/estudante) — retornado no response
+		identifier string // e-mail (admin) ou código (academia/estudante) — retornado no response
 		userStatus string
+		userType   string // inferido pela busca — "admin" | "academia" | "estudante"
 		userRole   string // preenchido apenas para admin
 		userFound  bool
 	)
 
-	switch req.Type {
+	// ── Busca em cascata: admin → academia → estudante ─────────────────────
+	//
+	// Ordem de prioridade deliberada:
+	//   1. Admin   — identificador exclusivo: e-mail (não colide com academia/estudante)
+	//   2. Academia — identificador: código ou e-mail
+	//   3. Estudante — identificador: código, e-mail ou telefone
+	//
+	// A busca para assim que o primeiro resultado é encontrado.
 
-	// ── Admin ──────────────────────────────────────────────────────────────
-	// usuario = email do administrador
-	case "admin":
-		adminProj := getAdminProjection(c)
-		if adminProj == nil {
-			return // getAdminProjection → getDbClient já abortou com 500
-		}
-		admin, err := adminProj.GetByEmailForLogin(req.Usuario)
-		if err != nil {
-			log.Printf("❌ [Login/admin] Erro ao buscar admin '%s': %v", req.Usuario, err)
-			utils.RespondWithInternalError(c, err)
-			return
-		}
-		if admin != nil {
-			userID = admin.ID
-			userName = admin.Nome
-			senhaHash = admin.SenhaHash
-			identifier = admin.Email
-			userStatus = admin.Status
-			userRole = admin.Role
-			userFound = true
-		}
+	// ── 1. Admin ───────────────────────────────────────────────────────────
+	adminProj := getAdminProjection(c)
+	if adminProj == nil {
+		return // getAdminProjection → getDbClient já abortou com 500
+	}
+	admin, err := adminProj.GetByEmailForLogin(req.Usuario)
+	if err != nil {
+		log.Printf("❌ [Login/admin] Erro ao buscar admin '%s': %v", req.Usuario, err)
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if admin != nil {
+		userID = admin.ID
+		userName = admin.Nome
+		senhaHash = admin.SenhaHash
+		identifier = admin.Email
+		userStatus = admin.Status
+		userRole = admin.Role
+		userType = "admin"
+		userFound = true
+	}
 
-	// ── Academia ───────────────────────────────────────────────────────────
-	// usuario = código ou email da academia
-	case "academia":
+	// ── 2. Academia ────────────────────────────────────────────────────────
+	if !userFound {
 		academiaProj := getAcademiaProjection(c)
 		if academiaProj == nil {
 			return
@@ -107,20 +111,20 @@ func Login(c *gin.Context) {
 			senhaHash = academia.SenhaHash
 			identifier = academia.CodigoAcademia
 			userStatus = academia.Status
+			userType = "academia"
 			userFound = true
 		}
+	}
 
-	// ── Estudante ──────────────────────────────────────────────────────────
-	// usuario = código do estudante
-	case "estudante":
+	// ── 3. Estudante ───────────────────────────────────────────────────────
+	// GetAuthByIdentificador aceita código, e-mail ou telefone em uma única
+	// query com LIMIT 1 — aproveitando os índices já existentes.
+	if !userFound {
 		estudanteProj := getEstudanteProjection(c)
 		if estudanteProj == nil {
 			return
 		}
-		// GetAuthByCodigo retorna EstudanteAuthDTO que contém o Hash mas tem
-		// todos os campos com json:"-" — nunca serializado em respostas HTTP.
-		// O EstudanteDTO público (GetByCodigo) não expõe SenhaHash.
-		estudanteAuth, err := estudanteProj.GetAuthByCodigo(req.Usuario)
+		estudanteAuth, err := estudanteProj.GetAuthByIdentificador(req.Usuario)
 		if err != nil {
 			log.Printf("❌ [Login/estudante] Erro ao buscar estudante '%s': %v", req.Usuario, err)
 			utils.RespondWithInternalError(c, err)
@@ -132,6 +136,7 @@ func Login(c *gin.Context) {
 			senhaHash = estudanteAuth.Hash
 			identifier = estudanteAuth.Codigo
 			userStatus = estudanteAuth.Status
+			userType = "estudante"
 			userFound = true
 		}
 	}
@@ -145,9 +150,10 @@ func Login(c *gin.Context) {
 	}
 	bcryptErr := bcrypt.CompareHashAndPassword([]byte(hashToCompare), []byte(req.Senha))
 
-	// Resposta deliberadamente genérica: não revela qual campo estava errado.
+	// Resposta deliberadamente genérica: não revela qual campo estava errado
+	// nem qual tipo de usuário foi (ou não) encontrado.
 	if !userFound || bcryptErr != nil {
-		log.Printf("[INFO] [Login] Falha — type: %s, usuario: %s, found: %v", req.Type, req.Usuario, userFound)
+		log.Printf("[INFO] [Login] Falha — usuario: %s, found: %v", req.Usuario, userFound)
 		utils.RespondWithUnauthorizedError(c)
 		return
 	}
@@ -155,9 +161,9 @@ func Login(c *gin.Context) {
 	// ── Verificação de status ANTES de emitir o JWT ────────────────────────
 	if userStatus != "ativo" {
 		log.Printf("[INFO] [Login] Conta inativa — type: %s, identifier: %s, status: %s",
-			req.Type, identifier, userStatus)
+			userType, identifier, userStatus)
 		var msg string
-		switch req.Type {
+		switch userType {
 		case "admin":
 			msg = "conta inativa. Entre em contato com o suporte."
 		case "academia":
@@ -170,21 +176,21 @@ func Login(c *gin.Context) {
 	}
 
 	// ── Emissão do JWT ─────────────────────────────────────────────────────
-	token, err := middleware.GenerateToken(userID, req.Type)
+	token, err := middleware.GenerateToken(userID, userType)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	log.Printf("✅ [Login] Autenticação bem-sucedida: %s (%s)", userName, req.Type)
+	log.Printf("✅ [Login] Autenticação bem-sucedida: %s (%s)", userName, userType)
 
 	// ── Resposta — SenhaHash NUNCA incluída ────────────────────────────────
 	resp := gin.H{
 		"token": token,
 		"nome":  userName,
-		"type":  req.Type,
+		"type":  userType,
 	}
-	if req.Type == "admin" {
+	if userType == "admin" {
 		resp["email"] = identifier
 		resp["role"] = userRole
 	} else {

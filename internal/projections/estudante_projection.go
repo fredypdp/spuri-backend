@@ -488,7 +488,7 @@ func (p *EstudanteProjection) handleAprovacaoAnoRegistrada(event db.Event) error
 	default:
 		return fmt.Errorf("handleAprovacaoAnoRegistrada: TipoEnsino inválido: %q", payload.TipoEnsino)
 	}
-	
+
 	query := fmt.Sprintf(`
 		UPDATE projection_estudantes
 		SET %s = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
@@ -709,7 +709,8 @@ type EstudanteAuthDTO struct {
 }
 
 // GetAuthByCodigo busca dados de autenticação pelo código do estudante.
-// Usado exclusivamente no fluxo de login (auth_handlers.go).
+// Usado exclusivamente no fluxo de troca de senha (profile_handlers.go) e
+// internamente por GetAuthByIdentificador.
 func (p *EstudanteProjection) GetAuthByCodigo(codigo string) (*EstudanteAuthDTO, error) {
 	var e EstudanteAuthDTO
 	err := p.client.DB().QueryRow(
@@ -737,6 +738,36 @@ func (p *EstudanteProjection) GetAuthByID(id uuid.UUID) (*EstudanteAuthDTO, erro
 		 WHERE id = $1`,
 		id,
 	).Scan(&e.ID, &e.Nome, &e.Codigo, &e.Status, &e.Hash)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+// GetAuthByIdentificador busca dados de autenticação pelo código, e-mail ou
+// telefone do estudante — usado no login universal sem campo "type".
+//
+// Ordem de prioridade da query: codigo_estudante → email → telefone.
+// A cláusula LIMIT 1 garante no máximo uma linha retornada, mesmo que — em
+// cenário improvável — dois campos distintos de estudantes diferentes batam
+// no mesmo valor de identificador.
+//
+// Requer os índices:
+//   - idx_estudante_email    (já existente — migration 028)
+//   - idx_estudante_telefone (criado na migration 029)
+func (p *EstudanteProjection) GetAuthByIdentificador(identificador string) (*EstudanteAuthDTO, error) {
+	var e EstudanteAuthDTO
+	err := p.client.DB().QueryRow(`
+		SELECT id, nome, codigo_estudante, status, senha_hash
+		FROM projection_estudantes
+		WHERE codigo_estudante = $1
+		   OR email            = $1
+		   OR telefone         = $1
+		LIMIT 1
+	`, identificador).Scan(&e.ID, &e.Nome, &e.Codigo, &e.Status, &e.Hash)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
