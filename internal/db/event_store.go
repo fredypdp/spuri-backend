@@ -369,3 +369,29 @@ func scanEvents(rows *sql.Rows) ([]Event, error) {
 
 	return events, rows.Err()
 }
+
+// GetDistinctAggregateIDs retorna a lista de todos os aggregate_id únicos presentes no ledger.
+//
+// Usado por verifyFullLedgerIntegrity no Manager para verificar a integridade
+// de todos os aggregates antes de um rebuild — sem precisar conhecer os tipos ou IDs antecipadamente.
+//
+// A query é simples e rápida graças ao índice idx_spuri_aggregate já existente em (aggregate_id, event_version).
+func (es *EventStore) GetDistinctAggregateIDs(ctx context.Context) ([]uuid.UUID, error) {
+	rows, err := es.client.db.QueryContext(ctx, `
+		SELECT DISTINCT aggregate_id FROM spuri_ledger ORDER BY aggregate_id ASC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("GetDistinctAggregateIDs: erro na query: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("GetDistinctAggregateIDs: erro ao scan: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}

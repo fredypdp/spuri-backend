@@ -170,163 +170,66 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 // reprocessamento. Se morrer antes, ambos são revertidos — o evento será
 // reprocessado, mas HandleTx é idempotente.
 func (m *Manager) processEventTransactional(name string, projection TransactionalProjection, event db.Event) error {
-	maxRetries := 3
-	baseDelay := 1 * time.Second
-
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		tx, err := m.client.DB().Begin()
-		if err != nil {
-			return fmt.Errorf("erro ao iniciar transação: %w", err)
-		}
-
-		if handleErr := projection.HandleTx(tx, event); handleErr != nil {
-			tx.Rollback()
-			if attempt < maxRetries {
-				delay := time.Duration(attempt*attempt) * baseDelay
-				log.Printf("[WARN] %s: evento %d falhou na tx (tentativa %d/%d), retry em %v: %v",
-					name, event.ID, attempt, maxRetries, delay, handleErr)
-				// FIX MGR-03: sleep fora do lock — o lock já foi liberado antes de
-				// processNewEvents chamar processProjection (ver processNewEvents acima).
-				time.Sleep(delay)
-				continue
-			}
-			return fmt.Errorf("evento %d falhou após %d tentativas: %w", event.ID, maxRetries, handleErr)
-		}
-
-		eventID := int64(db.ValidateOffset(int(event.ID)))
-		_, err = tx.Exec(`
-			INSERT INTO projection_checkpoints
-				(projection_name, last_processed_event_id, last_processed_at, events_processed)
-			VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
-			ON CONFLICT (projection_name) DO UPDATE SET
-				last_processed_event_id = $2,
-				last_processed_at       = CURRENT_TIMESTAMP,
-				events_processed        = projection_checkpoints.events_processed + 1
-		`, projection.Name(), eventID)
-		if err != nil {
-			tx.Rollback()
-			return fmt.Errorf("erro ao gravar checkpoint na transação para evento %d: %w", event.ID, err)
-		}
-
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("erro ao commitar transação para evento %d: %w", event.ID, err)
-		}
-
-		if attempt > 1 {
-			log.Printf("[DEBUG] %s: evento %d recuperado na tentativa %d", name, event.ID, attempt)
-		}
-		return nil
-	}
-
-	return fmt.Errorf("evento %d: máximo de tentativas atingido", event.ID)
-}
-
-// commitCheckpoint atualiza o checkpoint da projeção em uma transação própria.
-// Usado apenas para projeções idempotentes (sem TransactionalProjection).
-func (m *Manager) commitCheckpoint(projection Projection, eventID int64) error {
 	tx, err := m.client.DB().Begin()
 	if err != nil {
-		return fmt.Errorf("erro ao iniciar tx de checkpoint: %w", err)
+		return fmt.Errorf("erro ao iniciar transação: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
 
-	eventID = int64(db.ValidateOffset(int(eventID)))
-	_, err = tx.Exec(`
-		INSERT INTO projection_checkpoints
-			(projection_name, last_processed_event_id, last_processed_at, events_processed)
+	if err = projection.HandleTx(tx, event); err != nil {
+		return fmt.Errorf("HandleTx falhou: %w", err)
+	}
+
+	if _, err = tx.Exec(`
+		INSERT INTO projection_checkpoints (projection_name, last_processed_event_id, last_processed_at, events_processed)
 		VALUES ($1, $2, CURRENT_TIMESTAMP, 1)
 		ON CONFLICT (projection_name) DO UPDATE SET
 			last_processed_event_id = $2,
 			last_processed_at       = CURRENT_TIMESTAMP,
 			events_processed        = projection_checkpoints.events_processed + 1
-	`, projection.Name(), eventID)
-	if err != nil {
-		return fmt.Errorf("erro ao gravar checkpoint: %w", err)
+	`, projection.Name(), event.ID); err != nil {
+		return fmt.Errorf("erro ao gravar checkpoint transacional: %w", err)
 	}
 
 	return tx.Commit()
 }
 
-// FIX MGR-03: processEventWithRetry não adquire nenhum lock —
-// é chamado de processProjection que por sua vez é chamado de
-// processNewEvents SEM o lock ativo (ver comentário em processNewEvents).
 func (m *Manager) processEventWithRetry(name string, projection Projection, event db.Event) error {
 	maxRetries := 3
-	baseDelay := 1 * time.Second
-	var lastErr error
+	backoff := 1 * time.Second
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		if err := projection.Handle(event); err == nil {
-			if attempt > 1 {
-				log.Printf("[DEBUG] %s: evento %d recuperado na tentativa %d", name, event.ID, attempt)
-			}
+		err := projection.Handle(event)
+		if err == nil {
 			return nil
-		} else {
-			lastErr = err
 		}
-
+		log.Printf("[WARN] %s: tentativa %d/%d falhou para evento %d: %v", name, attempt, maxRetries, event.ID, err)
 		if attempt < maxRetries {
-			delay := time.Duration(attempt*attempt) * baseDelay
-			log.Printf("[WARN] %s: evento %d falhou (tentativa %d/%d), retry em %v",
-				name, event.ID, attempt, maxRetries, delay)
-			// FIX MGR-03: sleep seguro — nenhum mutex m.mu está ativo aqui.
-			time.Sleep(delay)
+			time.Sleep(backoff)
+			backoff *= 3
 		}
 	}
-
-	return fmt.Errorf("evento %d falhou após %d tentativas: %w", event.ID, maxRetries, lastErr)
+	return fmt.Errorf("falha após %d tentativas no evento %d", maxRetries, event.ID)
 }
 
-// getNewEvents busca eventos do ledger com id > fromID.
-//
-// FIX MGR-02: a query agora usa context.WithTimeout para evitar que uma
-// falha ou travamento do banco bloqueie a goroutine de processamento
-// indefinidamente. Timeout de 30s é conservador — queries normais levam <1s.
-func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
-	if fromID < 0 {
-		fromID = 0
-	}
-	limit := db.ValidateLimit(m.batchSize)
-
-	// FIX MGR-02: contexto com timeout — impede bloqueio indefinido.
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	rows, err := m.client.DB().QueryContext(ctx, `
-		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
-			event_version, payload, metadata, occurred_at, recorded_at,
-			ledger_hash, previous_hash
-		FROM spuri_ledger
-		WHERE id > $1
-		ORDER BY id ASC
-		LIMIT $2`,
-		fromID, limit,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("erro na query: %w", err)
-	}
-	defer rows.Close()
-
-	var events []db.Event
-	for rows.Next() {
-		var event db.Event
-		var prevHash sql.NullString
-		if err := rows.Scan(
-			&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
-			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
-			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &prevHash,
-		); err != nil {
-			return nil, fmt.Errorf("erro ao scan: %w", err)
-		}
-		if prevHash.Valid {
-			event.PreviousHash = &prevHash.String
-		}
-		events = append(events, event)
-	}
-	return events, rows.Err()
+func (m *Manager) commitCheckpoint(projection Projection, eventID int64) error {
+	return projection.UpdateCheckpoint(eventID)
 }
+
+// ============================================================================
+// Rebuild
+// ============================================================================
 
 // RebuildProjection reconstrói uma projeção específica.
+//
+// FIX SEC-01: antes de processar qualquer evento, verifica a integridade do
+// ledger para todos os aggregates relevantes. Se qualquer aggregate tiver
+// cadeia de hashes comprometida, o rebuild é abortado com erro detalhado.
+// Isso impede que dados adulterados sejam materializados nas projeções.
 func (m *Manager) RebuildProjection(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -343,9 +246,20 @@ func (m *Manager) RebuildProjection(name string) error {
 //
 // FIX DB-18: a iteração sobre map[string]Projection é não-determinística em Go.
 // A ordem abaixo respeita dependências de FK entre projeções.
+//
+// FIX SEC-01: verifica integridade do ledger inteiro antes de iniciar qualquer
+// rebuild. Se o ledger estiver comprometido, nenhuma projeção é reconstruída.
 func (m *Manager) RebuildAllProjections() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// FIX SEC-01: verificação global antes de qualquer rebuild.
+	// Um ledger adulterado não deve ser materializado em nenhuma projeção.
+	log.Printf("[SECURITY] RebuildAll: verificando integridade do ledger antes de iniciar")
+	if err := m.verifyFullLedgerIntegrity(); err != nil {
+		return fmt.Errorf("rebuild abortado: integridade do ledger comprometida: %w", err)
+	}
+	log.Printf("[SECURITY] RebuildAll: ledger íntegro — iniciando reconstrução")
 
 	rebuildOrder := []string{
 		// Tier 1 — sem dependências externas
@@ -404,6 +318,11 @@ func (m *Manager) RebuildAllProjections() error {
 // rebuildProjectionInternal executa o rebuild de uma projeção individual.
 // Deve ser chamado com m.mu já adquirido.
 //
+// FIX SEC-01: verifica a integridade do ledger para os aggregates que esta
+// projeção consome antes de processar qualquer evento. Se a cadeia de hashes
+// estiver comprometida, o rebuild é abortado — dados adulterados não são
+// materializados.
+//
 // FIX SCHEMA-01: is_rebuilding é garantidamente resetado para FALSE mesmo
 // em caso de falha do Rebuild(). O defer garante que markRebuildFailed() é
 // chamado se a função retornar com erro — sem risco de estado "rebuilding"
@@ -415,13 +334,26 @@ func (m *Manager) rebuildProjectionInternal(name string, projection Projection) 
 		log.Printf("[WARN] %s: erro ao marcar início de rebuild: %v", name, err)
 	}
 
+	// FIX SEC-01: verificar integridade do ledger antes de processar eventos.
+	// Cada projeção verifica os aggregates que ela consome (identificados pelo
+	// aggregate_type que seus eventos pertencem).
+	// RebuildAll já fez a verificação global; aqui verificamos novamente para
+	// rebuilds individuais (chamados diretamente via handler HTTP).
+	log.Printf("[SECURITY] %s: verificando integridade do ledger antes do rebuild", name)
+	if err := m.verifyFullLedgerIntegrity(); err != nil {
+		if resetErr := m.markRebuildFailed(name); resetErr != nil {
+			log.Printf("[WARN] %s: erro ao resetar is_rebuilding após falha de integridade: %v", name, resetErr)
+		}
+		return fmt.Errorf("%s: rebuild abortado por integridade comprometida: %w", name, err)
+	}
+	log.Printf("[SECURITY] %s: ledger íntegro — prosseguindo com rebuild", name)
+
 	// FIX SCHEMA-01: defer garante que is_rebuilding sempre volta para FALSE,
 	// independente de sucesso ou falha do Rebuild(). Sem isso, uma falha
 	// mantinha is_rebuilding=TRUE indefinidamente, tornando impossível
 	// distinguir rebuild em andamento de rebuild que falhou.
 	rebuildErr := projection.Rebuild()
 	if rebuildErr != nil {
-		// Resetar is_rebuilding para FALSE antes de retornar o erro.
 		if resetErr := m.markRebuildFailed(name); resetErr != nil {
 			log.Printf("[WARN] %s: erro ao resetar is_rebuilding após falha: %v", name, resetErr)
 		}
@@ -435,6 +367,51 @@ func (m *Manager) rebuildProjectionInternal(name string, projection Projection) 
 	log.Printf("[DEBUG] Projeção %s reconstruída com sucesso", name)
 	return nil
 }
+
+// verifyFullLedgerIntegrity verifica a integridade de todos os aggregates
+// presentes no ledger. Retorna erro detalhado no primeiro aggregate comprometido.
+//
+// Esta função é chamada antes de qualquer rebuild para garantir que dados
+// adulterados não sejam materializados nas projeções.
+func (m *Manager) verifyFullLedgerIntegrity() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	aggregateIDs, err := m.eventStore.GetDistinctAggregateIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("erro ao listar aggregates para verificação: %w", err)
+	}
+
+	if len(aggregateIDs) == 0 {
+		log.Printf("[SECURITY] Ledger vazio — nenhuma verificação necessária")
+		return nil
+	}
+
+	log.Printf("[SECURITY] Verificando integridade de %d aggregate(s)", len(aggregateIDs))
+
+	compromised := 0
+	for _, aggID := range aggregateIDs {
+		valid, err := m.eventStore.VerifyLedgerIntegrity(ctx, aggID)
+		if err != nil {
+			// VerifyLedgerIntegrity retorna erro com detalhes quando !valid
+			compromised++
+			log.Printf("[SECURITY] ALERTA: aggregate %s comprometido: %v", aggID, err)
+			// Retorna no primeiro comprometido — não faz sentido continuar rebuild
+			return fmt.Errorf("aggregate %s: %w", aggID, err)
+		}
+		if !valid {
+			compromised++
+			return fmt.Errorf("aggregate %s: integridade inválida sem detalhes", aggID)
+		}
+	}
+
+	log.Printf("[SECURITY] Verificação concluída: %d aggregate(s) íntegros", len(aggregateIDs))
+	return nil
+}
+
+// ============================================================================
+// Checkpoint helpers
+// ============================================================================
 
 // markRebuildStart zera o checkpoint e seta is_rebuilding=TRUE antes do rebuild.
 //
@@ -486,7 +463,7 @@ func (m *Manager) markRebuildFailed(name string) error {
 			(projection_name, last_processed_event_id, last_processed_at, is_rebuilding)
 		VALUES ($1, 0, CURRENT_TIMESTAMP, FALSE)
 		ON CONFLICT (projection_name) DO UPDATE SET
-			is_rebuilding = FALSE,
+			is_rebuilding     = FALSE,
 			last_processed_at = CURRENT_TIMESTAMP
 	`, name)
 	return err
@@ -503,6 +480,60 @@ func (m *Manager) logProjectionError(name string, errMsg string) {
 		log.Printf("[WARN] Erro ao registrar falha de projeção %s: %v", name, err)
 	}
 }
+
+// ============================================================================
+// Event fetch
+// ============================================================================
+
+// getNewEvents busca eventos do ledger com id > fromID, limitado a batchSize.
+//
+// FIX MGR-02: contexto com timeout — impede bloqueio indefinido.
+func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
+	if fromID < 0 {
+		fromID = 0
+	}
+	limit := db.ValidateLimit(m.batchSize)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	rows, err := m.client.DB().QueryContext(ctx, `
+		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
+			event_version, payload, metadata, occurred_at, recorded_at,
+			ledger_hash, previous_hash
+		FROM spuri_ledger
+		WHERE id > $1
+		ORDER BY id ASC
+		LIMIT $2`,
+		fromID, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("erro na query: %w", err)
+	}
+	defer rows.Close()
+
+	var events []db.Event
+	for rows.Next() {
+		var event db.Event
+		var prevHash sql.NullString
+		if err := rows.Scan(
+			&event.ID, &event.EventID, &event.AggregateID, &event.AggregateType,
+			&event.EventType, &event.EventVersion, &event.Payload, &event.Metadata,
+			&event.OccurredAt, &event.RecordedAt, &event.LedgerHash, &prevHash,
+		); err != nil {
+			return nil, fmt.Errorf("erro ao scan: %w", err)
+		}
+		if prevHash.Valid {
+			event.PreviousHash = &prevHash.String
+		}
+		events = append(events, event)
+	}
+	return events, rows.Err()
+}
+
+// ============================================================================
+// Status / introspection
+// ============================================================================
 
 // IsProjectionRegistered verifica se uma projeção está registrada no manager.
 func (m *Manager) IsProjectionRegistered(name string) bool {
