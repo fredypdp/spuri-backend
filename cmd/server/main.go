@@ -100,7 +100,7 @@ func initProjections() error {
 	projManager.RegisterProjection("faltas", projections.NewFaltasProjection(dbClient))
 
 	// ── Tier 4 — dependem de estudantes e aprovações ─────────────────────
-	projManager.RegisterProjection("aprovacoes", projections.NewAprovacaoAnoProjection(dbClient))
+	projManager.RegisterProjection("aprovacao_ano", projections.NewAprovacaoAnoProjection(dbClient))
 	projManager.RegisterProjection("reprovacoes", projections.NewReprovacoesProjection(dbClient))
 	projManager.RegisterProjection("avaliacao_final", projections.NewAvaliacaoFinalProjection(dbClient))
 
