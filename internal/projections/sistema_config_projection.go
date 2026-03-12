@@ -150,13 +150,17 @@ func (p *SistemaConfigProjection) handleAnoLetivoDefinido(event db.Event) error 
 		return fmt.Errorf("handleAnoLetivoDefinido: campo Valor/AnoLetivo ausente no payload")
 	}
 
+	// FIX SC-01: $1 e $2 recebem o mesmo valor (anoLetivo), mas são parâmetros
+	// distintos para evitar "inconsistent types deduced for parameter $1".
+	// O driver pq não aceita o mesmo placeholder em colunas de tipos diferentes
+	// (valor=TEXT vs ano_letivo_atual=VARCHAR(20)) na mesma query parametrizada.
 	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_sistema_config (
 			chave, valor, ano_letivo_atual, data_inicio, data_fim,
 			definido_por, observacao, updated_at, event_id, version
 		) VALUES (
-			'ano_letivo_atual', $1, $1, $2, $3,
-			$4, $5, CURRENT_TIMESTAMP, $6, $7
+			'ano_letivo_atual', $1, $2, $3, $4,
+			$5, $6, CURRENT_TIMESTAMP, $7, $8
 		)
 		ON CONFLICT (chave) DO UPDATE SET
 			valor            = EXCLUDED.valor,
@@ -169,9 +173,14 @@ func (p *SistemaConfigProjection) handleAnoLetivoDefinido(event db.Event) error 
 			event_id         = EXCLUDED.event_id,
 			version          = EXCLUDED.version
 	`,
-		anoLetivo, payload.DataInicio, payload.DataFim,
-		payload.DefinidoPor, payload.Observacao,
-		event.EventID, event.EventVersion,
+		anoLetivo,           // $1 → valor (TEXT)
+		anoLetivo,           // $2 → ano_letivo_atual (VARCHAR(20))
+		payload.DataInicio,  // $3
+		payload.DataFim,     // $4
+		payload.DefinidoPor, // $5
+		payload.Observacao,  // $6
+		event.EventID,       // $7
+		event.EventVersion,  // $8
 	)
 	if err != nil {
 		return fmt.Errorf("handleAnoLetivoDefinido: exec error: %w", err)
