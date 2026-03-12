@@ -41,34 +41,36 @@ type RegisterAcademiaRequest struct {
 
 func RegisterAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
-
+ 
 	var req RegisterAcademiaRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: type, nome, provincia e endereco"))
 		return
 	}
-
-	if req.Type != "escola" && req.Type != "universidade" {
-		utils.RespondWithValidationError(c, fmt.Errorf("type deve ser 'escola', 'universidade'"))
+ 
+	// FIX: era "universidade" — não correspondia ao aggregate (aceita "superior") nem ao schema DB.
+	if req.Type != "escola" && req.Type != "superior" {
+		utils.RespondWithValidationError(c, fmt.Errorf("type deve ser 'escola' ou 'superior'"))
 		return
 	}
-
+ 
 	if err := utils.ValidateNome(req.Nome); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
-
+ 
 	if err := utils.ValidateEndereco(req.Endereco); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
-
+ 
+	// validarProvincia converte nome completo → código 3 letras (ex: "Luanda" → "LDA").
 	codigoProvincia, err := validarProvincia(req.Provincia)
 	if err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
-
+ 
 	if req.NivelEscolar != nil {
 		nivel := *req.NivelEscolar
 		if nivel == "medio" && len(req.AnosAcademicos) > 0 {
@@ -92,23 +94,21 @@ func RegisterAcademia(c *gin.Context) {
 			}
 		}
 	}
-
+ 
 	client := getDbClient(c)
 	codigoAcademia, err := generateCodigoAcademia(codigoProvincia, client.DB())
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-
-	// Senha padrão = código da academia (mesmo padrão do estudante).
-	// A academia faz login com o código e esta senha, podendo alterá-la depois.
+ 
 	defaultPassword := services.GetDefaultPassword("academia", codigoAcademia)
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(defaultPassword), bcrypt.DefaultCost)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-
+ 
 	// Assinatura: Criar(tipo, nome, codigoAcademia, senhaHash, provincia, endereco,
 	//                   numeroTelefone, email, website, nivelEscolar, cursos, anosAcademicos, criadoPor)
 	academia := aggregates.NewAcademia()
@@ -117,7 +117,7 @@ func RegisterAcademia(c *gin.Context) {
 		req.Nome,
 		codigoAcademia,
 		string(hashedPassword),
-		req.Provincia,
+		codigoProvincia, // FIX: era req.Provincia (ex: "Luanda") → causava "value too long for type character varying(3)"
 		req.Endereco,
 		req.NumeroTelefone,
 		req.Email,
@@ -130,7 +130,7 @@ func RegisterAcademia(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
-
+ 
 	repository := getRepository(c)
 	audit := db.AuditContext{
 		UserID:   userID.String(),
@@ -141,7 +141,7 @@ func RegisterAcademia(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-
+ 
 	log.Printf("Academia registada: %s (%s) por admin %s", req.Nome, codigoAcademia, userID)
 	c.JSON(http.StatusCreated, gin.H{
 		"message":         "academia registada com sucesso",
@@ -149,10 +149,120 @@ func RegisterAcademia(c *gin.Context) {
 		"data": gin.H{
 			"id":              academia.ID,
 			"nome":            req.Nome,
-			"provincia":       req.Provincia,
+			"provincia":       codigoProvincia, // retorna o código gravado (consistente com o ledger)
 			"codigo_academia": codigoAcademia,
 		},
 	})
+}
+ 
+// ============================================================================
+// PUT /academia/dados
+// ============================================================================
+ 
+func AtualizarDadosAcademia(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+ 
+	var req struct {
+		Nome           *string  `json:"nome"`
+		Provincia      *string  `json:"provincia"`
+		Endereco       *string  `json:"endereco"`
+		NumeroTelefone *string  `json:"numero_telefone"`
+		Email          *string  `json:"email"`
+		Website        *string  `json:"website"`
+		NivelEscolar   *string  `json:"nivel_escolar"`
+		AnosAcademicos []string `json:"anos_academicos"`
+		Cursos         []string `json:"cursos"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("body inválido"))
+		return
+	}
+ 
+	// FIX H4-REG-05: rejeitar body completamente vazio — sem evento no ledger.
+	if req.Nome == nil && req.Provincia == nil && req.Endereco == nil &&
+		req.NumeroTelefone == nil && req.Email == nil && req.Website == nil &&
+		req.NivelEscolar == nil && len(req.AnosAcademicos) == 0 && len(req.Cursos) == 0 {
+		utils.RespondWithValidationError(c, fmt.Errorf("ao menos um campo deve ser fornecido para atualização"))
+		return
+	}
+ 
+	// FIX: converter req.Provincia (nome completo) para código de 3 letras antes de passar ao aggregate.
+	// Sem esta conversão, o evento seria gravado com o nome completo e a projeção
+	// falharia ao inserir em provincia VARCHAR(3).
+	var provCode *string
+	if req.Provincia != nil {
+		code, err := validarProvincia(*req.Provincia)
+		if err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+		provCode = &code
+	}
+ 
+	if req.NivelEscolar != nil {
+		nivel := *req.NivelEscolar
+		if nivel == "medio" && len(req.AnosAcademicos) > 0 {
+			utils.RespondWithValidationError(c, fmt.Errorf(
+				"escolas de nivel_escolar 'medio' não devem definir anos_academicos",
+			))
+			return
+		}
+		if nivel == "fundamental" || nivel == "misto" {
+			if len(req.AnosAcademicos) == 0 {
+				utils.RespondWithValidationError(c, fmt.Errorf(
+					"escolas de nivel_escolar '%s' devem definir anos_academicos "+
+						"(ex: 1_fundamental, 2_fundamental, ...)",
+					nivel,
+				))
+				return
+			}
+			if err := utils.ValidateAnosFundamental(req.AnosAcademicos); err != nil {
+				utils.RespondWithValidationError(c, err)
+				return
+			}
+		}
+	}
+ 
+	repository := getRepository(c)
+	agg, err := repository.Load(userID, "Academia")
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+ 
+	// FIX H4-TRX-03: type assertion protegida.
+	academia, ok := agg.(*aggregates.Academia)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
+ 
+	if err := academia.AtualizarDados(
+		req.Nome,
+		provCode,  // FIX: era req.Provincia (nome completo) → agora código de 3 letras validado
+		req.Endereco,
+		req.NumeroTelefone,
+		req.Email,
+		req.Website,
+		req.NivelEscolar,
+		req.AnosAcademicos,
+		req.Cursos,
+	); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+ 
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(academia, audit); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+ 
+	c.JSON(http.StatusOK, gin.H{"message": "dados atualizados com sucesso"})
 }
 
 // ============================================================================
@@ -447,103 +557,6 @@ func GetAcademiaPorCodigo(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, resp)
-}
-
-// ============================================================================
-// PUT /academia/dados
-// ============================================================================
-
-func AtualizarDadosAcademia(c *gin.Context) {
-	userID, _ := middleware.GetUserID(c)
-
-	var req struct {
-		Nome           *string  `json:"nome"`
-		Provincia      *string  `json:"provincia"`
-		Endereco       *string  `json:"endereco"`
-		NumeroTelefone *string  `json:"numero_telefone"`
-		Email          *string  `json:"email"`
-		Website        *string  `json:"website"`
-		NivelEscolar   *string  `json:"nivel_escolar"`
-		AnosAcademicos []string `json:"anos_academicos"`
-		Cursos         []string `json:"cursos"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("body inválido"))
-		return
-	}
-
-	// FIX H4-REG-05: rejeitar body completamente vazio — sem evento no ledger.
-	if req.Nome == nil && req.Provincia == nil && req.Endereco == nil &&
-		req.NumeroTelefone == nil && req.Email == nil && req.Website == nil &&
-		req.NivelEscolar == nil && len(req.AnosAcademicos) == 0 && len(req.Cursos) == 0 {
-		utils.RespondWithValidationError(c, fmt.Errorf("ao menos um campo deve ser fornecido para atualização"))
-		return
-	}
-
-	if req.NivelEscolar != nil {
-		nivel := *req.NivelEscolar
-		if nivel == "medio" && len(req.AnosAcademicos) > 0 {
-			utils.RespondWithValidationError(c, fmt.Errorf(
-				"escolas de nivel_escolar 'medio' não devem definir anos_academicos",
-			))
-			return
-		}
-		if nivel == "fundamental" || nivel == "misto" {
-			if len(req.AnosAcademicos) == 0 {
-				utils.RespondWithValidationError(c, fmt.Errorf(
-					"escolas de nivel_escolar '%s' devem definir anos_academicos "+
-						"(ex: 1_fundamental, 2_fundamental, ...)",
-					nivel,
-				))
-				return
-			}
-			if err := utils.ValidateAnosFundamental(req.AnosAcademicos); err != nil {
-				utils.RespondWithValidationError(c, err)
-				return
-			}
-		}
-	}
-
-	repository := getRepository(c)
-	agg, err := repository.Load(userID, "Academia")
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	// FIX H4-TRX-03: type assertion protegida.
-	academia, ok := agg.(*aggregates.Academia)
-	if !ok {
-		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
-		return
-	}
-
-	if err := academia.AtualizarDados(
-		req.Nome,
-		req.Provincia,
-		req.Endereco,
-		req.NumeroTelefone,
-		req.Email,
-		req.Website,
-		req.NivelEscolar,
-		req.AnosAcademicos,
-		req.Cursos,
-	); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-
-	audit := db.AuditContext{
-		UserID:   userID.String(),
-		UserType: "academia",
-		IP:       c.ClientIP(),
-	}
-	if err := repository.SaveWithAudit(academia, audit); err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "dados atualizados com sucesso"})
 }
 
 // ============================================================================
