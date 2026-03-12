@@ -259,10 +259,18 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleAcademiaCriada: parse error: %w", err)
 	}
-
+ 
 	cursosJSON, _ := json.Marshal(payload.Cursos)
-	anosJSON, _ := json.Marshal(payload.AnosAcademicos)
-
+ 
+	// FIX PROJ-01: nil → NULL no banco (constraint aceita NULL para fundamental/misto).
+	// Array vazio "[]" → jsonb_array_length = 0 → viola check_anos_academicos_nivel.
+	var anosValue interface{}
+	if len(payload.AnosAcademicos) > 0 {
+		b, _ := json.Marshal(payload.AnosAcademicos)
+		anosValue = string(b)
+	}
+	// anosValue permanece nil se o slice for vazio → NULL no banco
+ 
 	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_academias (
 			id, type, nome, codigo_academia, senha_hash,
@@ -281,7 +289,7 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 	`,
 		event.AggregateID, payload.Type, payload.Nome, payload.CodigoAcademia, payload.SenhaHash,
 		payload.Provincia, payload.Endereco, payload.NumeroTelefone, payload.Email, payload.Website,
-		payload.NivelEscolar, anosJSON, cursosJSON,
+		payload.NivelEscolar, anosValue, cursosJSON,
 		payload.CreatedAt, event.EventVersion, event.EventID,
 	)
 	return err
