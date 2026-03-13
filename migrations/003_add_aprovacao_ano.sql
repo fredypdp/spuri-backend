@@ -104,4 +104,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 
-RAISE NOTICE '✅ MIGRATION 003 CONCLUÍDA - Sistema de Aprovação de Ano';
+DO $$ BEGIN
+    RAISE NOTICE '✅ MIGRATION 003 CONCLUÍDA - Sistema de Aprovação de Ano';
+END $$;
