@@ -27,13 +27,17 @@ UPDATE projection_admins
 SET email_verificado = FALSE 
 WHERE email_verificado IS NULL;
 
-RAISE NOTICE '✅ Registros existentes atualizados com email_verificado = FALSE';
+DO $$ BEGIN
+    RAISE NOTICE '✅ Registros existentes atualizados com email_verificado = FALSE';
+END $$;
 
 -- 3. Adicionar NOT NULL constraint depois de preencher valores
 ALTER TABLE projection_admins 
 ALTER COLUMN email_verificado SET NOT NULL;
 
-RAISE NOTICE '✅ Constraint NOT NULL adicionada';
+DO $$ BEGIN
+    RAISE NOTICE '✅ Constraint NOT NULL adicionada';
+END $$;
 
 -- 4. Adicionar comentário
 COMMENT ON COLUMN projection_admins.email_verificado IS 'Indica se o email do admin foi verificado';
