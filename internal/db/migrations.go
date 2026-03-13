@@ -6,52 +6,36 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
-// allMigrations define a ordem exata de execução.
-// Todas são idempotentes (IF NOT EXISTS / IF EXISTS / OR REPLACE).
-var allMigrations = []string{
-	"migrations/001_complete_schema.sql",
-	"migrations/002_add_email_verificado_safe.sql",
-	"migrations/003_add_aprovacao_ano.sql",
-	"migrations/004_cursos_uuid.sql",
-	"migrations/005_add_sistema_config.sql",
-	"migrations/006_add_tipo_categoria_notas.sql",
-	"migrations/007_add_turmas_genero.sql",
-	"migrations/008_status_escolar_split_aprovacao.sql",
-	"migrations/009_ano_escolar_medio_reprovacoes.sql",
-	"migrations/010_academia_anos_academicos.sql",
-	"migrations/011_cursos_nivel_to_anos_academicos.sql",
-	"migrations/012_ano_academico.sql",
-	"migrations/013_anos_academicos_materia.sql",
-	"migrations/014_materias_nivel_to_anos_academicos.sql",
-	"migrations/015_add_periodos_to_cursos.sql",
-	"migrations/016_avaliacao_final.sql",
-	"migrations/017_avaliacao_turma.sql",
-	"migrations/018_materia_periodo.sql",
-	"migrations/019_soft_delete_auditavel.sql",
-	"migrations/020_fix_verify_hash_chain.sql",
-	"migrations/021_fix_projection_notas.sql",
-	"migrations/022_reforcar_anos_academicos_constraint.sql",
-	"migrations/023_admin_senha_alterada.sql",
-	"migrations/024_remove_inscricoes_sistema.sql",
-	"migrations/025_admin_email_unique_index.sql",
-	"migrations/026_academia_motivo_desativacao.sql",
-	"migrations/027_academia_senha_alterada.sql",
-	"migrations/028_fix_estudante_email_verificado.sql",
-	"migrations/029_fix_ledger_truncate_protection.sql",
-	"migrations/030_fix_view_estudantes_com_cursos.sql",
-	"migrations/031_fix_sistema_config_colunas.sql",
-	"migrations/032_add_adicionado_por_categoria_nota.sql",
-	"migrations/033_remove_curso_legado_varchar.sql",
-	"migrations/034_garantias_atomicidade.sql",
-	"migrations/035_spuri_generate_codigo_academia.sql",
-	"migrations/036_turmas_status_alterado_por.sql",
-	"migrations/037_soft_delete_faltas.sql",
-	"migrations/038_auditoria_delecao_notas_faltas.sql",
-	"migrations/039_idx_estudante_telefone.sql",
-	"migrations/040_projection_errors.sql",
+const migrationsDir = "migrations"
+
+// loadMigrations lê o diretório de migrations e retorna os caminhos
+// ordenados por nome de arquivo (ordem numérica 001_, 002_, ...).
+// Apenas arquivos .sql são incluídos.
+func loadMigrations(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao ler diretório de migrations '%s': %w", dir, err)
+	}
+
+	var paths []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(strings.ToLower(entry.Name()), ".sql") {
+			paths = append(paths, filepath.Join(dir, entry.Name()))
+		}
+	}
+
+	// os.ReadDir já retorna em ordem alfabética na maioria dos sistemas,
+	// mas ordenamos explicitamente para garantir consistência em qualquer OS.
+	sort.Strings(paths)
+
+	return paths, nil
 }
 
 func (c *Client) RunMigrations() error {
@@ -61,8 +45,20 @@ func (c *Client) RunMigrations() error {
 		return fmt.Errorf("erro ao criar tabela schema_migrations: %w", err)
 	}
 
+	migrations, err := loadMigrations(migrationsDir)
+	if err != nil {
+		return fmt.Errorf("erro ao carregar migrations: %w", err)
+	}
+
+	if len(migrations) == 0 {
+		log.Printf("⚠️  Nenhuma migration encontrada em '%s'", migrationsDir)
+		return nil
+	}
+
+	log.Printf("📂 %d migration(s) encontrada(s) em '%s'", len(migrations), migrationsDir)
+
 	applied := 0
-	for _, path := range allMigrations {
+	for _, path := range migrations {
 		name := filepath.Base(path)
 
 		done, err := c.isMigrationApplied(name)
@@ -71,11 +67,6 @@ func (c *Client) RunMigrations() error {
 		}
 		if done {
 			log.Printf("✅ Já aplicada: %s", name)
-			continue
-		}
-
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			log.Printf("⚠️  Arquivo não encontrado, pulando: %s", name)
 			continue
 		}
 
@@ -130,16 +121,9 @@ func (c *Client) markMigrationApplied(filename string) error {
 
 // runMigrationFile executa o conteúdo de um arquivo SQL.
 //
-// FIX DB-12: migrations sem BEGIN/COMMIT explícito (ex: 001_complete_schema.sql)
-// eram executadas sem proteção transacional — uma falha a meio deixava o banco
-// em estado parcialmente inicializado sem rollback automático.
-//
-// Agora: se o arquivo não contém BEGIN no início, o runner envolve o SQL em
-// BEGIN/COMMIT automaticamente. Arquivos que já têm BEGIN/COMMIT próprio
-// (maioria) são executados sem interferência.
-//
-// Nota: arquivos com COMMIT no meio (ex: múltiplas transações separadas) são
-// detectados e executados sem wrapping para não quebrar a lógica existente.
+// FIX DB-12: migrations sem BEGIN/COMMIT explícito são envolvidas em transação
+// automática. Arquivos que já têm BEGIN/COMMIT próprio são executados sem
+// interferência.
 func (c *Client) runMigrationFile(filename string) error {
 	content, err := os.ReadFile(filename)
 	if err != nil {
@@ -160,26 +144,32 @@ func (c *Client) runMigrationFile(filename string) error {
 }
 
 // migrationNeedsWrapper retorna true se o SQL não tem BEGIN explícito.
-// Arquivos que já têm BEGIN/COMMIT não precisam de wrapping.
-// A verificação é case-insensitive e ignora whitespace/comentários no início.
-func migrationNeedsWrapper(sql string) bool {
-	// Normalizar: remover comentários de linha e verificar tokens iniciais.
-	lines := strings.Split(sql, "\n")
+// Ignora linhas vazias, comentários de linha (--) e comentários de bloco (/* */).
+func migrationNeedsWrapper(content string) bool {
+	lines := strings.Split(content, "\n")
+	inBlockComment := false
+
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		// Ignorar linhas vazias e comentários SQL
+
+		if strings.Contains(trimmed, "/*") {
+			inBlockComment = true
+		}
+		if inBlockComment {
+			if strings.Contains(trimmed, "*/") {
+				inBlockComment = false
+			}
+			continue
+		}
+
 		if trimmed == "" || strings.HasPrefix(trimmed, "--") {
 			continue
 		}
-		// Primeira linha de código real: verificar se é BEGIN
-		upper := strings.ToUpper(trimmed)
-		if strings.HasPrefix(upper, "BEGIN") {
-			return false // já tem BEGIN
-		}
-		// Primeira instrução não é BEGIN — precisamos envolver
-		return true
+
+		// Primeira instrução real encontrada
+		return !strings.HasPrefix(strings.ToUpper(trimmed), "BEGIN")
 	}
-	// Arquivo vazio ou só comentários: não há risco, mas envolve por segurança
+
 	return true
 }
 
