@@ -46,11 +46,13 @@ VALUES ('turmas', 0, CURRENT_TIMESTAMP)
 ON CONFLICT (projection_name) DO NOTHING;
 
 -- Comentários
-COMMENT ON TABLE  projection_turmas             IS 'Projeção de turmas das academias';
+COMMENT ON TABLE  projection_turmas                IS 'Projeção de turmas das academias';
 COMMENT ON COLUMN projection_turmas.codigo_turma   IS 'Identificador único da turma dentro da academia';
 COMMENT ON COLUMN projection_turmas.nivel          IS 'Ano escolar/superior da turma';
 COMMENT ON COLUMN projection_turmas.curso_id       IS 'FK para curso (apenas médio/superior)';
 COMMENT ON COLUMN projection_turmas.turno          IS 'Turno: manha, tarde, noite';
 COMMENT ON COLUMN projection_turmas.estudantes     IS 'Array JSON com códigos dos estudantes da turma';
 
-RAISE NOTICE '✅ MIGRATION 006 CONCLUÍDA - Turmas criadas e gênero adicionado ao estudante';
+DO $$ BEGIN
+    RAISE NOTICE '✅ MIGRATION 007 CONCLUÍDA - Turmas criadas e gênero adicionado ao estudante';
+END $$;

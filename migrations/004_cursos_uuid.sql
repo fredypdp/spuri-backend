@@ -95,5 +95,7 @@ LEFT JOIN projection_estudantes e ON i.estudante_id = e.id
 LEFT JOIN projection_academias a ON i.academia_id = a.id
 LEFT JOIN projection_cursos c ON i.curso_id = c.id;
 
-RAISE NOTICE '✅ MIGRATION 004 CONCLUÍDA - Cursos agora são UUID com FKs';
-RAISE NOTICE '⚠️  LEMBRE-SE: Migre os dados existentes antes de dropar as colunas antigas';
+DO $$ BEGIN
+    RAISE NOTICE '✅ MIGRATION 004 CONCLUÍDA - Cursos agora são UUID com FKs';
+    RAISE NOTICE '⚠️  LEMBRE-SE: Migre os dados existentes antes de dropar as colunas antigas';
+END $$;
