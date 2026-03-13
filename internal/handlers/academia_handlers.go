@@ -560,8 +560,113 @@ func GetAcademiaPorCodigo(c *gin.Context) {
 }
 
 // ============================================================================
+// POST /academia/ano-letivo
+// ============================================================================
+
+// DefinirAnoLetivoAcademia define ou atualiza o ano letivo ativo desta academia.
+// Sem ano letivo ativo, nenhum registro de nota, falta, avaliação ou aprovação é permitido.
+func DefinirAnoLetivoAcademia(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+
+	var req struct {
+		AnoLetivo string `json:"ano_letivo" binding:"required"`
+		Tipo      string `json:"tipo"       binding:"required"` // "escola" ou "superior"
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("campos obrigatórios: ano_letivo e tipo"))
+		return
+	}
+
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByID(userID)
+	if err != nil || academiaDTO == nil {
+		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+
+	repository := getRepository(c)
+	agg, err := repository.Load(academiaDTO.ID, "Academia")
+	if err != nil {
+		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+	academia, ok := agg.(*aggregates.Academia)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
+
+	if err := academia.DefinirAnoLetivo(req.AnoLetivo, req.Tipo, userID); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "academia",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(academia, audit); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	log.Printf("✅ [DefinirAnoLetivoAcademia] %s/%s definido por academia %s",
+		req.AnoLetivo, req.Tipo, academiaDTO.CodigoAcademia)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":    "ano letivo definido com sucesso",
+		"ano_letivo": req.AnoLetivo,
+		"tipo":       req.Tipo,
+	})
+}
+
+// ============================================================================
+// GET /academia/ano-letivo
+// ============================================================================
+
+// GetAnoLetivoAcademia retorna o ano letivo ativo da academia autenticada.
+func GetAnoLetivoAcademia(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByID(userID)
+	if err != nil || academiaDTO == nil {
+		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+
+	if academiaDTO.AnoLetivo == nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "ano letivo não definido para esta academia. Configure via POST /academia/ano-letivo",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ano_letivo":   *academiaDTO.AnoLetivo,
+		"tipo":         academiaDTO.TipoAnoLetivo,
+		"ativado_em":   academiaDTO.AnoLetivoAtivadoEm,
+	})
+}
+
+// ============================================================================
 // Helpers internos
 // ============================================================================
+
+// resolverAnoLetivoAcademia retorna o ano letivo ativo da academia.
+// Retorna erro se não estiver configurado — qualquer handler de registro deve
+// chamar este helper antes de prosseguir, logo após carregar academiaDTO.
+func resolverAnoLetivoAcademia(anoLetivo *string, codigoAcademia string) (string, error) {
+	if anoLetivo == nil || strings.TrimSpace(*anoLetivo) == "" {
+		return "", fmt.Errorf(
+			"a academia '%s' não possui um ano letivo ativo. "+
+				"Configure via POST /academia/ano-letivo antes de registrar",
+			codigoAcademia,
+		)
+	}
+	return *anoLetivo, nil
+}
 
 func validarProvincia(provincia string) (string, error) {
 	provincias := map[string]string{

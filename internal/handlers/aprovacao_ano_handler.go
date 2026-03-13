@@ -32,7 +32,6 @@ func RegistrarAprovacaoAno(c *gin.Context) {
 
 	var req struct {
 		CodigoEstudante string  `json:"codigo_estudante"  binding:"required"`
-		AnoLectivo      string  `json:"ano_lectivo"       binding:"required"`
 		TipoEnsino      string  `json:"tipo_ensino"       binding:"required"`
 		NivelAtual      string  `json:"nivel_atual"       binding:"required"`
 		ProximoNivel    *string `json:"proximo_nivel"`
@@ -42,7 +41,7 @@ func RegistrarAprovacaoAno(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf(
-			"campos obrigatórios: codigo_estudante, ano_lectivo, tipo_ensino, nivel_atual",
+			"campos obrigatórios: codigo_estudante, tipo_ensino, nivel_atual",
 		))
 		return
 	}
@@ -89,6 +88,13 @@ func RegistrarAprovacaoAno(c *gin.Context) {
 		return
 	}
 
+	// Ano letivo obrigatório — bloqueia registro se a academia não tiver configurado
+	anoLectivo, err := resolverAnoLetivoAcademia(academiaDTO.AnoLetivo, academiaDTO.CodigoAcademia)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
 	// ── Estudante ─────────────────────────────────────────────────────────────
 	estudanteProj := getEstudanteProjection(c)
 	estudanteDTO, err := estudanteProj.GetByCodigo(req.CodigoEstudante)
@@ -119,7 +125,7 @@ func RegistrarAprovacaoAno(c *gin.Context) {
 
 	if err := estudante.RegistrarAprovacaoAno(
 		academiaDTO.CodigoAcademia,
-		req.AnoLectivo,
+		anoLectivo,
 		req.TipoEnsino,
 		req.NivelAtual,
 		req.ProximoNivel,

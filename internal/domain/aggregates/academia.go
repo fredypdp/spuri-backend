@@ -3,6 +3,7 @@ package aggregates
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"spuri/internal/utils"
 	"time"
 
@@ -45,6 +46,13 @@ type Academia struct {
 
 	// TotalEstudantes é mantido apenas pela projeção — não pelo aggregate.
 	TotalEstudantes int
+
+	// AnoLetivo define o ano letivo ativo desta academia.
+	// nil = sem ano letivo configurado; qualquer registro é bloqueado neste estado.
+	AnoLetivo           *string
+	TipoAnoLetivo       *string    // "escola" ou "superior"
+	AnoLetivoAtivadoEm  *time.Time
+	AnoLetivoAtivadoPor *uuid.UUID
 }
 
 func NewAcademia() *Academia {
@@ -87,6 +95,8 @@ func (a *Academia) Apply(event DomainEvent) error {
 	case "CategoriaNotaAdicionada":
 		// applyCategoriaNotaAdicionada definido em academia_categorias_nota.go
 		return a.applyCategoriaNotaAdicionada(event)
+	case "AnoLetivoAcademiaDefinido":
+		return a.applyAnoLetivoAcademiaDefinido(event)
 	default:
 		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
 	}
@@ -283,6 +293,37 @@ func (a *Academia) AlterarSenha(novaSenhaHash string, alteradoPor uuid.UUID, mot
 	return a.Apply(event)
 }
 
+// reAnoLetivo valida o formato YYYY_YYYY (ex: 2025_2026).
+var reAnoLetivo = regexp.MustCompile(`^\d{4}_\d{4}$`)
+
+// DefinirAnoLetivo define ou atualiza o ano letivo ativo desta academia.
+// Bloqueia qualquer registro de nota, falta, avaliação e aprovação enquanto nil.
+func (a *Academia) DefinirAnoLetivo(anoLetivo string, tipo string, definidoPor uuid.UUID) error {
+	if !reAnoLetivo.MatchString(anoLetivo) {
+		return fmt.Errorf("formato inválido: use YYYY_YYYY (ex: 2025_2026)")
+	}
+	var anoInicio, anoFim int
+	fmt.Sscanf(anoLetivo[:4], "%d", &anoInicio)
+	fmt.Sscanf(anoLetivo[5:], "%d", &anoFim)
+	if anoFim != anoInicio+1 {
+		return fmt.Errorf("ano letivo deve ser de um ano para o seguinte (ex: 2025_2026)")
+	}
+	if tipo != "escola" && tipo != "superior" {
+		return fmt.Errorf("tipo deve ser 'escola' ou 'superior'")
+	}
+
+	event := &AnoLetivoAcademiaDefinidoEvent{
+		BaseEvent:      BaseEvent{EventType: "AnoLetivoAcademiaDefinido", AggregateID: a.ID},
+		CodigoAcademia: a.CodigoAcademia,
+		AnoLetivo:      anoLetivo,
+		Tipo:           tipo,
+		DefinidoPor:    definidoPor,
+		DefinidoEm:     time.Now(),
+	}
+	a.RaiseEvent(event)
+	return a.Apply(event)
+}
+
 // ============================================================================
 // Apply handlers
 // NOTA: applyCategoriaNotaAdicionada está em academia_categorias_nota.go
@@ -431,6 +472,23 @@ func (a *Academia) applyAcademiaSenhaAlterada(event DomainEvent) error {
 	return nil
 }
 
+func (a *Academia) applyAnoLetivoAcademiaDefinido(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyAnoLetivoAcademiaDefinido: marshal error: %w", err)
+	}
+	var ev AnoLetivoAcademiaDefinidoEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyAnoLetivoAcademiaDefinido: unmarshal error: %w", err)
+	}
+	agora := ev.DefinidoEm
+	a.AnoLetivo           = &ev.AnoLetivo
+	a.TipoAnoLetivo       = &ev.Tipo
+	a.AnoLetivoAtivadoEm  = &agora
+	a.AnoLetivoAtivadoPor = &ev.DefinidoPor
+	return nil
+}
+
 // ============================================================================
 // Validações internas
 // ============================================================================
@@ -556,3 +614,17 @@ type AcademiaSenhaAlteradaEvent struct {
 
 func (e *AcademiaSenhaAlteradaEvent) GetPayload() interface{} { return e }
 func (e *AcademiaSenhaAlteradaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+// AnoLetivoAcademiaDefinidoEvent registra a definição ou atualização do ano
+// letivo ativo de uma academia específica.
+type AnoLetivoAcademiaDefinidoEvent struct {
+	BaseEvent
+	CodigoAcademia string
+	AnoLetivo      string    // ex: "2025_2026"
+	Tipo           string    // "escola" ou "superior"
+	DefinidoPor    uuid.UUID
+	DefinidoEm     time.Time
+}
+
+func (e *AnoLetivoAcademiaDefinidoEvent) GetPayload() interface{} { return e }
+func (e *AnoLetivoAcademiaDefinidoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }

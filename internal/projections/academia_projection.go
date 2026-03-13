@@ -44,7 +44,8 @@ func (p *AcademiaProjection) Handle(event db.Event) error {
 			"AcademiaDadosAtualizados": p.handleAcademiaDadosAtualizados,
 			"EmailVerificado":          p.handleEmailVerificado,
 			// FIX C1: handler para novo evento de senha da academia
-			"AcademiaSenhaAlterada": p.handleAcademiaSenhaAlterada,
+			"AcademiaSenhaAlterada":        p.handleAcademiaSenhaAlterada,
+			"AnoLetivoAcademiaDefinido":    p.handleAnoLetivoAcademiaDefinido,
 			// CategoriaNotaAdicionada é tratado pela CategoriasNotaProjection dedicada.
 		}
 		if handler, ok := academiaHandlers[event.EventType]; ok {
@@ -73,6 +74,7 @@ func (p *AcademiaProjection) HandleTx(tx *sql.Tx, event db.Event) error {
 			"AcademiaDadosAtualizados": p.handleAcademiaDadosAtualizadosTx,
 			"EmailVerificado":          p.handleEmailVerificadoTx,
 			"AcademiaSenhaAlterada":    p.handleAcademiaSenhaAlteradaTx,
+			"AnoLetivoAcademiaDefinido": p.handleAnoLetivoAcademiaDefinidoTx,
 		}
 		if handler, ok := academiaHandlers[event.EventType]; ok {
 			return handler(tx, event)
@@ -146,6 +148,10 @@ func (p *AcademiaProjection) handleEmailVerificadoTx(tx *sql.Tx, event db.Event)
 
 func (p *AcademiaProjection) handleAcademiaSenhaAlteradaTx(tx *sql.Tx, event db.Event) error {
 	return p.handleAcademiaSenhaAlterada(event)
+}
+
+func (p *AcademiaProjection) handleAnoLetivoAcademiaDefinidoTx(tx *sql.Tx, event db.Event) error {
+	return p.handleAnoLetivoAcademiaDefinido(event)
 }
 
 // ============================================================================
@@ -513,32 +519,64 @@ func (p *AcademiaProjection) handleAcademiaSenhaAlterada(event db.Event) error {
 	return err
 }
 
+// handleAnoLetivoAcademiaDefinido persiste o ano letivo ativo da academia.
+func (p *AcademiaProjection) handleAnoLetivoAcademiaDefinido(event db.Event) error {
+	var payload struct {
+		AnoLetivo   string    `json:"AnoLetivo"`
+		Tipo        string    `json:"Tipo"`
+		DefinidoEm  time.Time `json:"DefinidoEm"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("handleAnoLetivoAcademiaDefinido: parse error: %w", err)
+	}
+	if payload.AnoLetivo == "" {
+		return fmt.Errorf("handleAnoLetivoAcademiaDefinido: AnoLetivo ausente no payload")
+	}
+
+	_, err := p.client.DB().Exec(`
+		UPDATE projection_academias
+		SET ano_letivo             = $1,
+		    tipo_ano_letivo        = $2,
+		    ano_letivo_ativado_em  = $3,
+		    updated_at             = CURRENT_TIMESTAMP,
+		    version                = $4,
+		    last_event_id          = $5
+		WHERE id = $6
+	`, payload.AnoLetivo, payload.Tipo, payload.DefinidoEm,
+		event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
+
 // ============================================================================
 // Queries de leitura
 // ============================================================================
 
 // AcademiaDTO representa a visão de leitura de uma academia.
 type AcademiaDTO struct {
-	ID                uuid.UUID `json:"id"`
-	Type              string    `json:"type"`
-	Nome              string    `json:"nome"`
-	CodigoAcademia    string    `json:"codigo_academia"`
-	SenhaHash         string    `json:"-"`
-	Provincia         string    `json:"provincia"`
-	Endereco          string    `json:"endereco"`
-	NumeroTelefone    *string   `json:"numero_telefone,omitempty"`
-	Email             *string   `json:"email,omitempty"`
-	Website           *string   `json:"website,omitempty"`
-	NivelEscolar      *string   `json:"nivel_escolar,omitempty"`
-	AnosAcademicos    []string  `json:"anos_academicos,omitempty"`
-	Status            string    `json:"status"`
-	MotivoDesativacao *string   `json:"motivo_desativacao,omitempty"`
-	Cursos            []string  `json:"cursos"`
-	EmailVerificado   bool      `json:"email_verificado"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
-	TotalEstudantes   int       `json:"total_estudantes"`
-	Version           int       `json:"version"`
+	ID                uuid.UUID  `json:"id"`
+	Type              string     `json:"type"`
+	Nome              string     `json:"nome"`
+	CodigoAcademia    string     `json:"codigo_academia"`
+	SenhaHash         string     `json:"-"`
+	Provincia         string     `json:"provincia"`
+	Endereco          string     `json:"endereco"`
+	NumeroTelefone    *string    `json:"numero_telefone,omitempty"`
+	Email             *string    `json:"email,omitempty"`
+	Website           *string    `json:"website,omitempty"`
+	NivelEscolar      *string    `json:"nivel_escolar,omitempty"`
+	AnosAcademicos    []string   `json:"anos_academicos,omitempty"`
+	Status            string     `json:"status"`
+	MotivoDesativacao *string    `json:"motivo_desativacao,omitempty"`
+	Cursos            []string   `json:"cursos"`
+	EmailVerificado   bool       `json:"email_verificado"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+	TotalEstudantes   int        `json:"total_estudantes"`
+	Version           int        `json:"version"`
+	// Ano letivo ativo desta academia. nil = não configurado.
+	AnoLetivo          *string    `json:"ano_letivo,omitempty"`
+	TipoAnoLetivo      *string    `json:"tipo_ano_letivo,omitempty"`
+	AnoLetivoAtivadoEm *time.Time `json:"ano_letivo_ativado_em,omitempty"`
 }
 
 // FIX E-07: queries de leitura NÃO mais filtram `deleted_at IS NULL` porque
@@ -551,7 +589,8 @@ func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
 		SELECT id, type, nome, codigo_academia, senha_hash,
 			provincia, endereco, numero_telefone, email, website,
 			nivel_escolar, anos_academicos, status, motivo_desativacao, cursos, email_verificado,
-			created_at, updated_at, total_estudantes, version
+			created_at, updated_at, total_estudantes, version,
+			ano_letivo, tipo_ano_letivo, ano_letivo_ativado_em
 		FROM projection_academias
 		WHERE id = $1
 	`, id)
@@ -563,7 +602,8 @@ func (p *AcademiaProjection) GetByCodigo(codigo string) (*AcademiaDTO, error) {
 		SELECT id, type, nome, codigo_academia, senha_hash,
 			provincia, endereco, numero_telefone, email, website,
 			nivel_escolar, anos_academicos, status, motivo_desativacao, cursos, email_verificado,
-			created_at, updated_at, total_estudantes, version
+			created_at, updated_at, total_estudantes, version,
+			ano_letivo, tipo_ano_letivo, ano_letivo_ativado_em
 		FROM projection_academias
 		WHERE codigo_academia = $1
 	`, codigo)
@@ -575,7 +615,8 @@ func (p *AcademiaProjection) GetByEmail(email string) (*AcademiaDTO, error) {
 		SELECT id, type, nome, codigo_academia, senha_hash,
 			provincia, endereco, numero_telefone, email, website,
 			nivel_escolar, anos_academicos, status, motivo_desativacao, cursos, email_verificado,
-			created_at, updated_at, total_estudantes, version
+			created_at, updated_at, total_estudantes, version,
+			ano_letivo, tipo_ano_letivo, ano_letivo_ativado_em
 		FROM projection_academias
 		WHERE email = $1
 	`, email)
@@ -602,12 +643,15 @@ func scanAcademia(row interface{ Scan(...interface{}) error }) (*AcademiaDTO, er
 	var a AcademiaDTO
 	var cursosJSON, anosJSON []byte
 	var motivoDesativacao sql.NullString
+	var anoLetivo, tipoAnoLetivo sql.NullString
+	var anoLetivoAtivadoEm sql.NullTime
 
 	err := row.Scan(
 		&a.ID, &a.Type, &a.Nome, &a.CodigoAcademia, &a.SenhaHash,
 		&a.Provincia, &a.Endereco, &a.NumeroTelefone, &a.Email, &a.Website,
 		&a.NivelEscolar, &anosJSON, &a.Status, &motivoDesativacao, &cursosJSON, &a.EmailVerificado,
 		&a.CreatedAt, &a.UpdatedAt, &a.TotalEstudantes, &a.Version,
+		&anoLetivo, &tipoAnoLetivo, &anoLetivoAtivadoEm,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -623,6 +667,15 @@ func scanAcademia(row interface{ Scan(...interface{}) error }) (*AcademiaDTO, er
 	}
 	if motivoDesativacao.Valid {
 		a.MotivoDesativacao = &motivoDesativacao.String
+	}
+	if anoLetivo.Valid {
+		a.AnoLetivo = &anoLetivo.String
+	}
+	if tipoAnoLetivo.Valid {
+		a.TipoAnoLetivo = &tipoAnoLetivo.String
+	}
+	if anoLetivoAtivadoEm.Valid {
+		a.AnoLetivoAtivadoEm = &anoLetivoAtivadoEm.Time
 	}
 	return &a, nil
 }

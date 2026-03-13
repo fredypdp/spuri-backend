@@ -88,7 +88,6 @@ func initProjections() error {
 	projManager.RegisterProjection("academias", projections.NewAcademiaProjection(dbClient))
 	projManager.RegisterProjection("cursos", projections.NewCursosProjection(dbClient))
 	projManager.RegisterProjection("materias", projections.NewMateriasProjection(dbClient))
-	projManager.RegisterProjection("sistema_config", projections.NewSistemaConfigProjection(dbClient))
 	projManager.RegisterProjection("categorias_nota", projections.NewCategoriasNotaProjection(dbClient))
 
 	// ── Tier 2 — dependem de academias/cursos ────────────────────────────
@@ -169,7 +168,6 @@ func setupRouter() *gin.Engine {
 		protected.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)
 		protected.GET("/consultar-academia/:codigo", handlers.GetAcademiaPorCodigo)
 		protected.GET("/estudantes", handlers.ListarEstudantes)
-		protected.GET("/ano-letivo-atual", handlers.GetAnoLetivoAtual)
 		protected.GET("/avaliacoes", handlers.ListarAvaliacoes)
 		protected.GET("/aprovacoes", handlers.ListarAprovacoes)
 		protected.GET("/reprovacoes", handlers.ListarReprovacoes)
@@ -257,7 +255,6 @@ func setupRouter() *gin.Engine {
 		admin.PUT("/admin/:id/ativar", middleware.RequireAdm(), handlers.AtivarAdmin)
 		admin.PUT("/admin/:id/desativar", middleware.RequireAdm(), handlers.DesativarAdmin)
 		admin.GET("/admin-lista", handlers.ListarTodosAdmins)
-		admin.POST("/ano-letivo", middleware.RequireFPP(), handlers.DefinirAnoLetivo)
 		admin.GET("/metrics", handlers.GetSystemMetrics)
 		admin.POST("/projections/rebuild/:name", middleware.RequireFPP(), handlers.RebuildProjection)
 		admin.GET("/consultar-admin/:email", handlers.GetAdminPorEmail)

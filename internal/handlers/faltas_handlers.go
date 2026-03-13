@@ -24,7 +24,6 @@ func RegistrarFaltas(c *gin.Context) {
 
 	var req struct {
 		CodigoEstudante      string  `json:"codigo_estudante"       binding:"required"`
-		AnoLectivo           string  `json:"ano_lectivo"            binding:"required"`
 		Data                 string  `json:"data"                   binding:"required"`
 		MateriaDisciplinarID string  `json:"materia_disciplinar_id" binding:"required"`
 		Quantidade           int     `json:"quantidade"             binding:"required,min=1"`
@@ -33,7 +32,7 @@ func RegistrarFaltas(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf(
-			"dados obrigatórios: codigo_estudante, ano_lectivo, data, materia_disciplinar_id e quantidade",
+			"dados obrigatórios: codigo_estudante, data, materia_disciplinar_id e quantidade",
 		))
 		return
 	}
@@ -48,6 +47,13 @@ func RegistrarFaltas(c *gin.Context) {
 	academiaDTO, err := academiaProj.GetByID(userID)
 	if err != nil || academiaDTO == nil {
 		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+
+	// Ano letivo obrigatório — bloqueia registro se a academia não tiver configurado
+	anoLectivo, err := resolverAnoLetivoAcademia(academiaDTO.AnoLetivo, academiaDTO.CodigoAcademia)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
@@ -96,7 +102,7 @@ func RegistrarFaltas(c *gin.Context) {
 
 	err = estudante.RegistrarFalta(
 		academiaDTO.CodigoAcademia,
-		req.AnoLectivo,
+		anoLectivo,
 		anoAcademico,
 		data,
 		materiaID,

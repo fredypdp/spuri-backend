@@ -24,7 +24,6 @@ func RegistrarNota(c *gin.Context) {
 
 	var req struct {
 		CodigoEstudante      string  `json:"codigo_estudante"       binding:"required"`
-		AnoLectivo           string  `json:"ano_lectivo"            binding:"required"`
 		Periodo              string  `json:"periodo"                binding:"required"`
 		MateriaDisciplinarID string  `json:"materia_disciplinar_id" binding:"required"`
 		Tipo                 string  `json:"tipo"                   binding:"required"`
@@ -35,7 +34,7 @@ func RegistrarNota(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf(
-			"campos obrigatorios: codigo_estudante, ano_lectivo, periodo, "+
+			"campos obrigatorios: codigo_estudante, periodo, "+
 				"materia_disciplinar_id, tipo, categoria, nota",
 		))
 		return
@@ -46,6 +45,13 @@ func RegistrarNota(c *gin.Context) {
 	academiaDTO, err := academiaProj.GetByID(userID)
 	if err != nil || academiaDTO == nil {
 		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+
+	// Ano letivo obrigatório — bloqueia registro se a academia não tiver configurado
+	anoLectivo, err := resolverAnoLetivoAcademia(academiaDTO.AnoLetivo, academiaDTO.CodigoAcademia)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
@@ -141,7 +147,7 @@ func RegistrarNota(c *gin.Context) {
 
 	err = estudante.RegistrarNota(
 		academiaDTO.CodigoAcademia,
-		req.AnoLectivo,
+		anoLectivo,
 		anoAcademico,
 		req.Periodo,
 		materiaID,
