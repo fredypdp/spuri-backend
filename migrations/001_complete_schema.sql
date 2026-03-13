@@ -869,7 +869,7 @@ COMMENT ON FUNCTION get_total_faltas_estudante IS 'Soma total de faltas do estud
 -- VERIFICAÇÃO FINAL
 -- ============================================
 
-DO $
+DO $$
 DECLARE
     v_total_eventos BIGINT;
     v_total_checkpoints INT;
@@ -894,4 +894,4 @@ BEGIN
     RAISE NOTICE '   ✅ Funções de cálculo (média, total)';
     RAISE NOTICE '   ✅ Views auxiliares completas';
     RAISE NOTICE '╚═══════════════════════════════════╝';
-END $;
+END $$;
