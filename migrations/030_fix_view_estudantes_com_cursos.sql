@@ -25,17 +25,23 @@
 --
 -- CORREÇÃO APLICADA:
 --   1. DROP VIEW ... CASCADE (remove também v_estudante_completo que depende)
---   2. CREATE VIEW com todas as colunas corretas, incluindo `genero`
---   3. Recriar v_estudante_completo (derrubada pelo CASCADE)
+--   2. DROP VIEW IF EXISTS v_estudante_completo explícito — garante remoção
+--      mesmo que v_estudantes_com_cursos não existisse (CASCADE não dispara)
+--   3. CREATE VIEW com todas as colunas corretas, incluindo `genero`
+--   4. Recriar v_estudante_completo
 -- ============================================================================
 
 BEGIN;
 
 -- 1. Dropar views dependentes
---    CASCADE remove v_estudante_completo automaticamente
+--    CASCADE remove v_estudante_completo automaticamente se a view existir
 DROP VIEW IF EXISTS v_estudantes_com_cursos CASCADE;
 
--- 2. Recriar v_estudantes_com_cursos com todas as colunas corretas
+-- 2. Drop explícito de v_estudante_completo — necessário quando
+--    v_estudantes_com_cursos não existia e o CASCADE não foi disparado
+DROP VIEW IF EXISTS v_estudante_completo;
+
+-- 3. Recriar v_estudantes_com_cursos com todas as colunas corretas
 CREATE VIEW v_estudantes_com_cursos AS
 SELECT
     e.id,
@@ -73,8 +79,7 @@ COMMENT ON VIEW v_estudantes_com_cursos IS
     'ano_escolar_medio (mig 009), curso_*_type (mig 030). '
     'Filtra cursos soft-deleted (deleted_at IS NULL, mig 019).';
 
--- 3. Recriar v_estudante_completo — derrubada pelo CASCADE acima
---    Definição idêntica à migration 009
+-- 4. Recriar v_estudante_completo
 CREATE VIEW v_estudante_completo AS
 SELECT
     e.*,
@@ -92,6 +97,7 @@ COMMIT;
 DO $$ BEGIN
     RAISE NOTICE '✅ MIGRATION 030 — v_estudantes_com_cursos recriada corretamente';
     RAISE NOTICE '   FIX: DROP CASCADE + CREATE VIEW (não CREATE OR REPLACE)';
+    RAISE NOTICE '   FIX: DROP explícito de v_estudante_completo antes de recriar';
     RAISE NOTICE '   FIX: coluna genero incluída na posição correta (pos.5)';
     RAISE NOTICE '   FIX: v_estudante_completo recriada após CASCADE';
     RAISE NOTICE '   Colunas: id, nome, codigo_estudante, email, genero,';
