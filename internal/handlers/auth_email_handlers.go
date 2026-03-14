@@ -405,61 +405,65 @@ func ResetarSenha(c *gin.Context) {
 // Geração de tokens
 // ============================================================================
 
-// GerarTokenVerificacao envia email de verificação ao usuário autenticado.
-//
-// FIX HDL-04: token de verificação REMOVIDO da resposta HTTP.
+// GerarTokenVerificacao gera token e retorna ao frontend para envio de email.
+// Rota: POST /email/gerar-token/verificacao (protegida por AuthMiddleware)
 func GerarTokenVerificacao(c *gin.Context) {
-	userID, _ := middleware.GetUserID(c)
-	userType, _ := middleware.GetUserType(c)
+    userID, _ := middleware.GetUserID(c)
+    userType, _ := middleware.GetUserType(c)
 
-	var email, nome string
-	client := getDbClient(c)
+    var email, nome string
+    client := getDbClient(c)
 
-	switch userType {
-	case "estudante":
-		err := client.DB().QueryRow(
-			`SELECT COALESCE(email,''), nome FROM projection_estudantes WHERE id = $1`,
-			userID,
-		).Scan(&email, &nome)
-		if err != nil || email == "" {
-			utils.RespondWithValidationError(c, fmt.Errorf("estudante não possui email cadastrado"))
-			return
-		}
-	case "academia":
-		err := client.DB().QueryRow(
-			`SELECT COALESCE(email,''), nome FROM projection_academias WHERE id = $1`,
-			userID,
-		).Scan(&email, &nome)
-		if err != nil || email == "" {
-			utils.RespondWithValidationError(c, fmt.Errorf("academia não possui email cadastrado"))
-			return
-		}
-	case "admin":
-		err := client.DB().QueryRow(
-			`SELECT email, nome FROM projection_admins WHERE id = $1`,
-			userID,
-		).Scan(&email, &nome)
-		if err != nil {
-			utils.RespondWithNotFoundError(c, "administrador")
-			return
-		}
-	default:
-		utils.RespondWithValidationError(c, fmt.Errorf("tipo de usuário inválido"))
-		return
-	}
+    switch userType {
+    case "estudante":
+        err := client.DB().QueryRow(
+            `SELECT COALESCE(email,''), nome FROM projection_estudantes WHERE id = $1`,
+            userID,
+        ).Scan(&email, &nome)
+        if err != nil || email == "" {
+            utils.RespondWithValidationError(c, fmt.Errorf("estudante não possui email cadastrado"))
+            return
+        }
+    case "academia":
+        err := client.DB().QueryRow(
+            `SELECT COALESCE(email,''), nome FROM projection_academias WHERE id = $1`,
+            userID,
+        ).Scan(&email, &nome)
+        if err != nil || email == "" {
+            utils.RespondWithValidationError(c, fmt.Errorf("academia não possui email cadastrado"))
+            return
+        }
+    case "admin":
+        err := client.DB().QueryRow(
+            `SELECT email, nome FROM projection_admins WHERE id = $1`,
+            userID,
+        ).Scan(&email, &nome)
+        if err != nil {
+            utils.RespondWithNotFoundError(c, "administrador")
+            return
+        }
+    default:
+        utils.RespondWithValidationError(c, fmt.Errorf("tipo de usuário inválido"))
+        return
+    }
 
-	emailSvc := getEmailService(c)
-	if err := emailSvc.SendVerificationEmail(userID, userType, email, nome); err != nil {
-		log.Printf("Erro ao enviar email de verificação: %v", err)
-		utils.RespondWithInternalError(c, err)
-		return
-	}
+    emailSvc := getEmailService(c)
 
-	// FIX HDL-04: token NÃO incluído na resposta.
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Email de verificação enviado com sucesso!",
-		"email":   email,
-	})
+    // ✅ Gerar e salvar o token, retornando-o para o frontend enviar o email
+    token, err := emailSvc.SaveToken(userID, userType, "verificacao_email", email, 24*time.Hour)
+    if err != nil {
+        utils.RespondWithInternalError(c, fmt.Errorf("erro ao gerar token: %w", err))
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "success":   true,
+        "token":     token,
+        "email":     email,
+        "nome":      nome,
+        "tipo":      userType,
+        "expira_em": "24 horas",
+    })
 }
 
 func SolicitarVerificacaoEmail(c *gin.Context) {
@@ -471,8 +475,6 @@ func SolicitarRecuperacaoSenha(c *gin.Context) {
 }
 
 // GerarTokenRecuperacao solicita recuperação de senha para um usuário.
-//
-// FIX HDL-03: token de recuperação REMOVIDO da resposta HTTP.
 func GerarTokenRecuperacao(c *gin.Context) {
 	var req struct {
 		Identificador string `json:"identificador" binding:"required"`
@@ -543,10 +545,18 @@ func GerarTokenRecuperacao(c *gin.Context) {
 
 	log.Printf("Email de recuperação enviado para: %s", email)
 
-	// FIX HDL-03: token NÃO incluído na resposta.
+	token, err := emailSvc.SaveToken(userID, req.Tipo, "recuperacao_senha", email, 1*time.Hour)
+	if err != nil {
+		utils.RespondWithInternalError(c, fmt.Errorf("erro ao gerar token: %w", err))
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success":   true,
-		"message":   "Email de recuperação enviado com sucesso. Verifique sua caixa de entrada.",
+		"token":     token,
+		"email":     email,
+		"nome":      nome,
+		"tipo":      req.Tipo,
 		"expira_em": "1 hora",
 	})
 }

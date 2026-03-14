@@ -152,8 +152,13 @@ func setupRouter() *gin.Engine {
 		emailGroup.POST("/verificar-email/solicitar", handlers.SolicitarVerificacaoEmail)
 		emailGroup.POST("/recuperar-senha/solicitar", handlers.SolicitarRecuperacaoSenha)
 		emailGroup.POST("/recuperar-senha/:token", handlers.ResetarSenha)
-		emailGroup.POST("/gerar-token/verificacao", handlers.GerarTokenVerificacao)
 		emailGroup.POST("/gerar-token/recuperacao", handlers.GerarTokenRecuperacao)
+		
+		emailAuthGroup := emailGroup.Group("/")
+		emailAuthGroup.Use(middleware.AuthMiddleware())
+		{
+			emailAuthGroup.POST("/gerar-token/verificacao", handlers.GerarTokenVerificacao)
+		}
 	}
 
 	// ── Rotas autenticadas (qualquer tipo) ────────────────────────────────
