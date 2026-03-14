@@ -183,22 +183,6 @@ func VerificarEmail(c *gin.Context) {
 // Reset de senha
 // ============================================================================
 
-// ResetarSenha redefine senha usando token de recuperação.
-//
-// [A24] CORRIGIDO: senha_padrao REMOVIDA da resposta HTTP.
-// FIX-C1: academia usa event sourcing via aggregate.AlterarSenha().
-// FIX-C3b: estudante exige email_verificado=TRUE e usa event sourcing.
-// FIX E4-LN-01: admin recebe a nova senha no body do request — não mais
-//   uma constante hardcoded extraída de GetDefaultPassword(). A senha
-//   hardcoded era pública no repositório, tornando qualquer conta que
-//   passasse por reset trivialmente comprometível por qualquer pessoa
-//   com acesso ao código-fonte.
-// FIX H4-RST-01: fallback de senha para estudante usando codigo_estudante REMOVIDO.
-//   nova_senha agora é obrigatória para todos os tipos (admin, academia, estudante).
-// FIX H4-RST-02: ShouldBindJSON com erro tratado — binding obrigatório para todos.
-// FIX H4-RST-03: documentado que a invalidação do token é responsabilidade do
-//   emailSvc.VerifyToken() — chamado uma única vez antes de qualquer operação.
-// FIX H4-RST-04: switch/case em vez de if/if/if para cobertura de tipos.
 func ResetarSenha(c *gin.Context) {
 	token := c.Param("token")
 
@@ -405,8 +389,16 @@ func ResetarSenha(c *gin.Context) {
 // Geração de tokens
 // ============================================================================
 
-// GerarTokenVerificacao gera token e retorna ao frontend para envio de email.
-// Rota: POST /email/gerar-token/verificacao (protegida por AuthMiddleware)
+func SolicitarVerificacaoEmail(c *gin.Context) {
+	GerarTokenVerificacao(c)
+}
+
+func SolicitarRecuperacaoSenha(c *gin.Context) {
+	GerarTokenRecuperacao(c)
+}
+
+// GerarTokenVerificacao — gera o token e RETORNA ao frontend (não envia email).
+// Rota: POST /email/gerar-token/verificacao  (requer AuthMiddleware)
 func GerarTokenVerificacao(c *gin.Context) {
     userID, _ := middleware.GetUserID(c)
     userType, _ := middleware.GetUserType(c)
@@ -416,29 +408,23 @@ func GerarTokenVerificacao(c *gin.Context) {
 
     switch userType {
     case "estudante":
-        err := client.DB().QueryRow(
-            `SELECT COALESCE(email,''), nome FROM projection_estudantes WHERE id = $1`,
-            userID,
-        ).Scan(&email, &nome)
-        if err != nil || email == "" {
+        if err := client.DB().QueryRow(
+            `SELECT COALESCE(email,''), nome FROM projection_estudantes WHERE id = $1`, userID,
+        ).Scan(&email, &nome); err != nil || email == "" {
             utils.RespondWithValidationError(c, fmt.Errorf("estudante não possui email cadastrado"))
             return
         }
     case "academia":
-        err := client.DB().QueryRow(
-            `SELECT COALESCE(email,''), nome FROM projection_academias WHERE id = $1`,
-            userID,
-        ).Scan(&email, &nome)
-        if err != nil || email == "" {
+        if err := client.DB().QueryRow(
+            `SELECT COALESCE(email,''), nome FROM projection_academias WHERE id = $1`, userID,
+        ).Scan(&email, &nome); err != nil || email == "" {
             utils.RespondWithValidationError(c, fmt.Errorf("academia não possui email cadastrado"))
             return
         }
     case "admin":
-        err := client.DB().QueryRow(
-            `SELECT email, nome FROM projection_admins WHERE id = $1`,
-            userID,
-        ).Scan(&email, &nome)
-        if err != nil {
+        if err := client.DB().QueryRow(
+            `SELECT email, nome FROM projection_admins WHERE id = $1`, userID,
+        ).Scan(&email, &nome); err != nil {
             utils.RespondWithNotFoundError(c, "administrador")
             return
         }
@@ -449,7 +435,7 @@ func GerarTokenVerificacao(c *gin.Context) {
 
     emailSvc := getEmailService(c)
 
-    // ✅ Gerar e salvar o token, retornando-o para o frontend enviar o email
+    // Apenas gera e persiste o token — NÃO envia email
     token, err := emailSvc.SaveToken(userID, userType, "verificacao_email", email, 24*time.Hour)
     if err != nil {
         utils.RespondWithInternalError(c, fmt.Errorf("erro ao gerar token: %w", err))
@@ -466,99 +452,84 @@ func GerarTokenVerificacao(c *gin.Context) {
     })
 }
 
-func SolicitarVerificacaoEmail(c *gin.Context) {
-	GerarTokenVerificacao(c)
-}
-
-func SolicitarRecuperacaoSenha(c *gin.Context) {
-	GerarTokenRecuperacao(c)
-}
-
-// GerarTokenRecuperacao solicita recuperação de senha para um usuário.
+// GerarTokenRecuperacao — gera o token e RETORNA ao frontend (não envia email).
+// Rota: POST /email/gerar-token/recuperacao  (pública — usa identificador no body)
 func GerarTokenRecuperacao(c *gin.Context) {
-	var req struct {
-		Identificador string `json:"identificador" binding:"required"`
-		Tipo          string `json:"tipo" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("identificador e tipo são obrigatórios"))
-		return
-	}
+    var req struct {
+        Identificador string `json:"identificador" binding:"required"`
+        Tipo          string `json:"tipo" binding:"required"`
+    }
+    if err := c.ShouldBindJSON(&req); err != nil {
+        utils.RespondWithValidationError(c, fmt.Errorf("identificador e tipo são obrigatórios"))
+        return
+    }
 
-	client := getDbClient(c)
-	emailSvc := getEmailService(c)
+    client := getDbClient(c)
 
-	var userID uuid.UUID
-	var email, nome string
-	var emailVerificado bool
-	var idStr string
-	var err error
+    var userID uuid.UUID
+    var email, nome string
+    var emailVerificado bool
+    var idStr string
+    var err error
 
-	switch req.Tipo {
-	case "estudante":
-		err = client.DB().QueryRow(
-			`SELECT id, COALESCE(email,''), nome, COALESCE(email_verificado, FALSE)
-			 FROM projection_estudantes
-			 WHERE codigo_estudante = $1 OR email = $1`,
-			req.Identificador,
-		).Scan(&idStr, &email, &nome, &emailVerificado)
-	case "academia":
-		err = client.DB().QueryRow(
-			`SELECT id, COALESCE(email,''), nome, COALESCE(email_verificado, FALSE)
-			 FROM projection_academias
-			 WHERE codigo_academia = $1 OR email = $1`,
-			req.Identificador,
-		).Scan(&idStr, &email, &nome, &emailVerificado)
-	case "admin":
-		err = client.DB().QueryRow(
-			`SELECT id, email, nome, COALESCE(email_verificado, FALSE)
-			 FROM projection_admins WHERE email = $1`,
-			req.Identificador,
-		).Scan(&idStr, &email, &nome, &emailVerificado)
-	default:
-		utils.RespondWithValidationError(c, fmt.Errorf("tipo deve ser 'estudante', 'academia' ou 'admin'"))
-		return
-	}
+    switch req.Tipo {
+    case "estudante":
+        err = client.DB().QueryRow(
+            `SELECT id, COALESCE(email,''), nome, COALESCE(email_verificado, FALSE)
+             FROM projection_estudantes WHERE codigo_estudante = $1 OR email = $1`,
+            req.Identificador,
+        ).Scan(&idStr, &email, &nome, &emailVerificado)
+    case "academia":
+        err = client.DB().QueryRow(
+            `SELECT id, COALESCE(email,''), nome, COALESCE(email_verificado, FALSE)
+             FROM projection_academias WHERE codigo_academia = $1 OR email = $1`,
+            req.Identificador,
+        ).Scan(&idStr, &email, &nome, &emailVerificado)
+    case "admin":
+        err = client.DB().QueryRow(
+            `SELECT id, email, nome, COALESCE(email_verificado, FALSE)
+             FROM projection_admins WHERE email = $1`,
+            req.Identificador,
+        ).Scan(&idStr, &email, &nome, &emailVerificado)
+    default:
+        utils.RespondWithValidationError(c, fmt.Errorf("tipo deve ser 'estudante', 'academia' ou 'admin'"))
+        return
+    }
 
-	if err != nil {
-		utils.RespondWithNotFoundError(c, "usuário")
-		return
-	}
+    if err != nil {
+        utils.RespondWithNotFoundError(c, "usuário")
+        return
+    }
 
-	userID, _ = uuid.Parse(idStr)
+    userID, _ = uuid.Parse(idStr)
 
-	if email == "" {
-		utils.RespondWithValidationError(c, fmt.Errorf("usuário não possui email cadastrado"))
-		return
-	}
+    if email == "" {
+        utils.RespondWithValidationError(c, fmt.Errorf("usuário não possui email cadastrado"))
+        return
+    }
 
-	if !emailVerificado {
-		utils.RespondWithForbiddenError(c, "Por favor, verifique seu email antes de solicitar recuperação de senha")
-		return
-	}
+    if !emailVerificado {
+        utils.RespondWithForbiddenError(c, "Por favor, verifique seu email antes de solicitar recuperação de senha")
+        return
+    }
 
-	if err := emailSvc.SendPasswordResetEmail(userID, req.Tipo, email, nome); err != nil {
-		log.Printf("Erro ao enviar email de recuperação: %v", err)
-		utils.RespondWithInternalError(c, err)
-		return
-	}
+    emailSvc := getEmailService(c)
 
-	log.Printf("Email de recuperação enviado para: %s", email)
+    // Apenas gera e persiste o token — NÃO envia email
+    token, err := emailSvc.SaveToken(userID, req.Tipo, "recuperacao_senha", email, 1*time.Hour)
+    if err != nil {
+        utils.RespondWithInternalError(c, fmt.Errorf("erro ao gerar token: %w", err))
+        return
+    }
 
-	token, err := emailSvc.SaveToken(userID, req.Tipo, "recuperacao_senha", email, 1*time.Hour)
-	if err != nil {
-		utils.RespondWithInternalError(c, fmt.Errorf("erro ao gerar token: %w", err))
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success":   true,
-		"token":     token,
-		"email":     email,
-		"nome":      nome,
-		"tipo":      req.Tipo,
-		"expira_em": "1 hora",
-	})
+    c.JSON(http.StatusOK, gin.H{
+        "success":   true,
+        "token":     token,
+        "email":     email,
+        "nome":      nome,
+        "tipo":      req.Tipo,
+        "expira_em": "1 hora",
+    })
 }
 
 // ============================================================================
