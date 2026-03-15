@@ -30,22 +30,20 @@ func (p *AcademiaProjection) Name() string { return "academias" }
 // Handle processa eventos do ledger.
 //
 // FIX E-23: eventos de AggregateType="Estudante" com EventType="EstudanteCriadoComVinculo"
-// agora são processados corretamente. O guard anterior `event.AggregateType == "Academia"`
-// bloqueava todos esses eventos, mantendo total_estudantes sempre em 0.
+// agora são processados corretamente.
 //
 // FIX C1: AcademiaSenhaAlterada adicionado ao map de handlers.
 func (p *AcademiaProjection) Handle(event db.Event) error {
 	if event.AggregateType == "Academia" {
 		academiaHandlers := map[string]func(db.Event) error{
-			"AcademiaCriada":           p.handleAcademiaCriada,
-			"AcademiaAtivada":          p.handleStatusChange("ativo"),
-			"AcademiaDesativada":       p.handleAcademiaDesativada,
-			"CursosAtualizados":        p.handleCursosAtualizados,
-			"AcademiaDadosAtualizados": p.handleAcademiaDadosAtualizados,
-			"EmailVerificado":          p.handleEmailVerificado,
-			// FIX C1: handler para novo evento de senha da academia
-			"AcademiaSenhaAlterada":        p.handleAcademiaSenhaAlterada,
-			"AnoLetivoAcademiaDefinido":    p.handleAnoLetivoAcademiaDefinido,
+			"AcademiaCriada":            p.handleAcademiaCriada,
+			"AcademiaAtivada":           p.handleStatusChange("ativo"),
+			"AcademiaDesativada":        p.handleAcademiaDesativada,
+			"CursosAtualizados":         p.handleCursosAtualizados,
+			"AcademiaDadosAtualizados":  p.handleAcademiaDadosAtualizados,
+			"EmailVerificado":           p.handleEmailVerificado,
+			"AcademiaSenhaAlterada":     p.handleAcademiaSenhaAlterada,
+			"AnoLetivoAcademiaDefinido": p.handleAnoLetivoAcademiaDefinido,
 			// CategoriaNotaAdicionada é tratado pela CategoriasNotaProjection dedicada.
 		}
 		if handler, ok := academiaHandlers[event.EventType]; ok {
@@ -67,13 +65,13 @@ func (p *AcademiaProjection) Handle(event db.Event) error {
 func (p *AcademiaProjection) HandleTx(tx *sql.Tx, event db.Event) error {
 	if event.AggregateType == "Academia" {
 		academiaHandlers := map[string]func(*sql.Tx, db.Event) error{
-			"AcademiaCriada":           p.handleAcademiaCriadaTx,
-			"AcademiaAtivada":          p.handleStatusChangeTx("ativo"),
-			"AcademiaDesativada":       p.handleAcademiaDesativadaTx,
-			"CursosAtualizados":        p.handleCursosAtualizadosTx,
-			"AcademiaDadosAtualizados": p.handleAcademiaDadosAtualizadosTx,
-			"EmailVerificado":          p.handleEmailVerificadoTx,
-			"AcademiaSenhaAlterada":    p.handleAcademiaSenhaAlteradaTx,
+			"AcademiaCriada":            p.handleAcademiaCriadaTx,
+			"AcademiaAtivada":           p.handleStatusChangeTx("ativo"),
+			"AcademiaDesativada":        p.handleAcademiaDesativadaTx,
+			"CursosAtualizados":         p.handleCursosAtualizadosTx,
+			"AcademiaDadosAtualizados":  p.handleAcademiaDadosAtualizadosTx,
+			"EmailVerificado":           p.handleEmailVerificadoTx,
+			"AcademiaSenhaAlterada":     p.handleAcademiaSenhaAlteradaTx,
 			"AnoLetivoAcademiaDefinido": p.handleAnoLetivoAcademiaDefinidoTx,
 		}
 		if handler, ok := academiaHandlers[event.EventType]; ok {
@@ -117,10 +115,6 @@ func (p *AcademiaProjection) handleEstudanteCriadoComVinculoTx(tx *sql.Tx, event
 // checkpoint — não a idempotência do Handle em si.
 
 func (p *AcademiaProjection) handleAcademiaCriadaTx(tx *sql.Tx, event db.Event) error {
-	// Delegar ao handler existente — AcademiaCriada usa INSERT ON CONFLICT DO NOTHING (idempotente).
-	// O tx é passado mas a query usa p.client.DB(). Para atomicidade completa,
-	// seria necessário reescrever todos os handlers para aceitar Querier.
-	// Neste contexto, o benefício principal é o acumulador de estudantes acima.
 	return p.handleAcademiaCriada(event)
 }
 
@@ -204,7 +198,8 @@ func (p *AcademiaProjection) Rebuild() error {
 		}
 
 		if err := p.Handle(event); err != nil {
-			return fmt.Errorf("erro ao processar evento %d (type=%s): %w", event.ID, event.EventType, err)
+			return fmt.Errorf("erro ao processar evento %d (type=%s, aggregate=%s): %w",
+				event.ID, event.EventType, event.AggregateID, err)
 		}
 		count++
 	}
@@ -265,9 +260,9 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleAcademiaCriada: parse error: %w", err)
 	}
- 
+
 	cursosJSON, _ := json.Marshal(payload.Cursos)
- 
+
 	// FIX PROJ-01: nil → NULL no banco (constraint aceita NULL para fundamental/misto).
 	// Array vazio "[]" → jsonb_array_length = 0 → viola check_anos_academicos_nivel.
 	var anosValue interface{}
@@ -275,8 +270,7 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 		b, _ := json.Marshal(payload.AnosAcademicos)
 		anosValue = string(b)
 	}
-	// anosValue permanece nil se o slice for vazio → NULL no banco
- 
+
 	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_academias (
 			id, type, nome, codigo_academia, senha_hash,
@@ -301,10 +295,17 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 	return err
 }
 
-// handleStatusChange retorna um handler que atualiza apenas o status (para Ativada).
+// handleStatusChange retorna um handler que atualiza apenas o status.
+//
+// FIX PROJ-02: o resultado do UPDATE é verificado via RowsAffected.
+// Se 0 linhas forem afetadas (ex: evento com UUID errado gerado pelo bug do
+// repository.Load antes do FIX-REPO-03), loga um WARNING e retorna nil — não
+// retorna erro para evitar travar o Rebuild ao processar eventos históricos
+// com UUIDs inválidos. Eventos com UUIDs corretos (após FIX-REPO-03) sempre
+// afetarão 1 linha.
 func (p *AcademiaProjection) handleStatusChange(novoStatus string) func(db.Event) error {
 	return func(event db.Event) error {
-		_, err := p.client.DB().Exec(`
+		result, err := p.client.DB().Exec(`
 			UPDATE projection_academias
 			SET status = $1,
 			    updated_at = CURRENT_TIMESTAMP,
@@ -312,7 +313,24 @@ func (p *AcademiaProjection) handleStatusChange(novoStatus string) func(db.Event
 			    last_event_id = $3
 			WHERE id = $4
 		`, novoStatus, event.EventVersion, event.EventID, event.AggregateID)
-		return err
+		if err != nil {
+			return err
+		}
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("handleStatusChange: RowsAffected error: %w", err)
+		}
+		if rowsAffected == 0 {
+			// Evento com UUID que não existe na projeção — gerado pelo bug do
+			// repository.Load (FIX-REPO-03). Após o fix, novos eventos usam o
+			// UUID correto e sempre afetam 1 linha. Não retornamos erro aqui
+			// para não travar o Rebuild ao processar eventos históricos inválidos.
+			log.Printf("[WARN] [academias] handleStatusChange(%s): 0 linhas afetadas para aggregate %s — evento histórico com UUID inválido (ignorado)",
+				novoStatus, event.AggregateID)
+		} else {
+			log.Printf("[DEBUG] [academias] Status atualizado para '%s' — aggregate: %s", novoStatus, event.AggregateID)
+		}
+		return nil
 	}
 }
 
@@ -324,7 +342,6 @@ func (p *AcademiaProjection) handleStatusChange(novoStatus string) func(db.Event
 func (p *AcademiaProjection) handleAcademiaDesativada(event db.Event) error {
 	var payload struct {
 		Motivo        string    `json:"Motivo"`
-		// FIX C9: DesativadoPor vem do payload do evento (não só dos metadados)
 		DesativadoPor string    `json:"DesativadoPor"`
 		DeactivatedAt time.Time `json:"DeactivatedAt"`
 	}
@@ -392,10 +409,6 @@ func (p *AcademiaProjection) handleEstudanteCriadoComVinculo(event db.Event) err
 }
 
 // handleAcademiaDadosAtualizados atualiza campos opcionais da academia.
-//
-// FIX C6 (parcial): os nomes de campo da query são todos hardcoded no código,
-// não vêm do request. A query dinâmica é mantida para compatibilidade, mas
-// os nomes de campo são constantes — o risco de injection é mitigado.
 func (p *AcademiaProjection) handleAcademiaDadosAtualizados(event db.Event) error {
 	var payload struct {
 		Nome           *string  `json:"Nome"`
@@ -413,67 +426,79 @@ func (p *AcademiaProjection) handleAcademiaDadosAtualizados(event db.Event) erro
 		return fmt.Errorf("handleAcademiaDadosAtualizados: parse error: %w", err)
 	}
 
-	args := []interface{}{}
-	setClauses := []string{}
-	paramIdx := 1
-
-	addParam := func(clause string, val interface{}) {
-		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", clause, paramIdx))
-		args = append(args, val)
-		paramIdx++
+	setClauses := []string{
+		"updated_at = CURRENT_TIMESTAMP",
+		fmt.Sprintf("version = %d", event.EventVersion),
+		fmt.Sprintf("last_event_id = '%s'", event.EventID),
 	}
+	args := []interface{}{}
+	argIdx := 1
 
 	if payload.Nome != nil {
-		addParam("nome", *payload.Nome)
+		setClauses = append(setClauses, fmt.Sprintf("nome = $%d", argIdx))
+		args = append(args, *payload.Nome)
+		argIdx++
 	}
 	if payload.Provincia != nil {
-		addParam("provincia", *payload.Provincia)
+		setClauses = append(setClauses, fmt.Sprintf("provincia = $%d", argIdx))
+		args = append(args, *payload.Provincia)
+		argIdx++
 	}
 	if payload.Endereco != nil {
-		addParam("endereco", *payload.Endereco)
+		setClauses = append(setClauses, fmt.Sprintf("endereco = $%d", argIdx))
+		args = append(args, *payload.Endereco)
+		argIdx++
 	}
 	if payload.NumeroTelefone != nil {
-		addParam("numero_telefone", *payload.NumeroTelefone)
+		setClauses = append(setClauses, fmt.Sprintf("numero_telefone = $%d", argIdx))
+		args = append(args, *payload.NumeroTelefone)
+		argIdx++
 	}
 	if payload.Email != nil {
-		addParam("email", *payload.Email)
-		if payload.EmailAlterado {
-			addParam("email_verificado", false)
-		}
+		setClauses = append(setClauses, fmt.Sprintf("email = $%d", argIdx))
+		args = append(args, *payload.Email)
+		argIdx++
+	}
+	if payload.EmailAlterado {
+		setClauses = append(setClauses, "email_verificado = FALSE")
 	}
 	if payload.Website != nil {
-		addParam("website", *payload.Website)
+		setClauses = append(setClauses, fmt.Sprintf("website = $%d", argIdx))
+		args = append(args, *payload.Website)
+		argIdx++
 	}
 	if payload.NivelEscolar != nil {
-		addParam("nivel_escolar", *payload.NivelEscolar)
+		setClauses = append(setClauses, fmt.Sprintf("nivel_escolar = $%d", argIdx))
+		args = append(args, *payload.NivelEscolar)
+		argIdx++
 	}
 	if payload.AnosAcademicos != nil {
 		anosJSON, _ := json.Marshal(payload.AnosAcademicos)
-		addParam("anos_academicos", anosJSON)
+		setClauses = append(setClauses, fmt.Sprintf("anos_academicos = $%d", argIdx))
+		args = append(args, string(anosJSON))
+		argIdx++
 	}
 	if payload.Cursos != nil {
 		cursosJSON, _ := json.Marshal(payload.Cursos)
-		addParam("cursos", cursosJSON)
+		setClauses = append(setClauses, fmt.Sprintf("cursos = $%d", argIdx))
+		args = append(args, string(cursosJSON))
+		argIdx++
 	}
 
-	if len(setClauses) == 0 {
+	// Apenas os 3 campos fixos — nada para atualizar.
+	if len(setClauses) == 3 {
 		return nil
 	}
 
-	setClauses = append(setClauses, "updated_at = CURRENT_TIMESTAMP")
-	setClauses = append(setClauses, fmt.Sprintf("version = $%d", paramIdx))
-	args = append(args, event.EventVersion)
-	paramIdx++
-	setClauses = append(setClauses, fmt.Sprintf("last_event_id = $%d", paramIdx))
-	args = append(args, event.EventID)
-	paramIdx++
-
+	query := "UPDATE projection_academias SET "
+	for i, clause := range setClauses {
+		if i > 0 {
+			query += ", "
+		}
+		query += clause
+	}
+	query += fmt.Sprintf(" WHERE id = $%d", argIdx)
 	args = append(args, event.AggregateID)
-	query := fmt.Sprintf(
-		"UPDATE projection_academias SET %s WHERE id = $%d",
-		joinStrings(setClauses, ", "),
-		paramIdx,
-	)
 
 	_, err := p.client.DB().Exec(query, args...)
 	return err
@@ -491,7 +516,7 @@ func (p *AcademiaProjection) handleEmailVerificado(event db.Event) error {
 	return err
 }
 
-// handleAcademiaSenhaAlterada aplica a nova senha_hash na projeção.
+// handleAcademiaSenhaAlterada atualiza o hash de senha na projeção.
 //
 // FIX C1: antes da correção, a senha era alterada via UPDATE direto na projeção,
 // bypassando o ledger. Agora este handler garante que o evento AcademiaSenhaAlterada
@@ -522,9 +547,9 @@ func (p *AcademiaProjection) handleAcademiaSenhaAlterada(event db.Event) error {
 // handleAnoLetivoAcademiaDefinido persiste o ano letivo ativo da academia.
 func (p *AcademiaProjection) handleAnoLetivoAcademiaDefinido(event db.Event) error {
 	var payload struct {
-		AnoLetivo   string    `json:"AnoLetivo"`
-		Tipo        string    `json:"Tipo"`
-		DefinidoEm  time.Time `json:"DefinidoEm"`
+		AnoLetivo  string    `json:"AnoLetivo"`
+		Tipo       string    `json:"Tipo"`
+		DefinidoEm time.Time `json:"DefinidoEm"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleAnoLetivoAcademiaDefinido: parse error: %w", err)

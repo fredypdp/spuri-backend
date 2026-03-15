@@ -166,6 +166,12 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 
 // processEventTransactional executa Handle + checkpoint na mesma transação.
 //
+// FIX MGR-05: o defer anterior capturava a variável `err` do escopo da função.
+// Quando tx.Commit() falhava, `err` ainda era nil (do tx.Exec bem-sucedido),
+// fazendo o defer não chamar tx.Rollback(). A transação ficava sem Rollback
+// explícito até o timeout da conexão. Corrigido usando uma variável `txErr`
+// dedicada ao defer, independente dos erros de negócio da função.
+//
 // Se o processo morrer após tx.Commit(), o checkpoint já está gravado — sem
 // reprocessamento. Se morrer antes, ambos são revertidos — o evento será
 // reprocessado, mas HandleTx é idempotente.
@@ -174,8 +180,14 @@ func (m *Manager) processEventTransactional(name string, projection Transactiona
 	if err != nil {
 		return fmt.Errorf("erro ao iniciar transação: %w", err)
 	}
+
+	// FIX MGR-05: variável dedicada ao defer para garantir Rollback correto.
+	// Se qualquer passo falhar antes do Commit, committed permanece false
+	// e o defer faz o Rollback. O tx.Rollback() após um Commit bem-sucedido
+	// é um no-op seguro no driver pq.
+	committed := false
 	defer func() {
-		if err != nil {
+		if !committed {
 			_ = tx.Rollback()
 		}
 	}()
@@ -195,7 +207,12 @@ func (m *Manager) processEventTransactional(name string, projection Transactiona
 		return fmt.Errorf("erro ao gravar checkpoint transacional: %w", err)
 	}
 
-	return tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("erro ao commitar transação: %w", err)
+	}
+
+	committed = true
+	return nil
 }
 
 func (m *Manager) processEventWithRetry(name string, projection Projection, event db.Event) error {
@@ -253,8 +270,6 @@ func (m *Manager) RebuildAllProjections() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// FIX SEC-01: verificação global antes de qualquer rebuild.
-	// Um ledger adulterado não deve ser materializado em nenhuma projeção.
 	log.Printf("[SECURITY] RebuildAll: verificando integridade do ledger antes de iniciar")
 	if err := m.verifyFullLedgerIntegrity(); err != nil {
 		return fmt.Errorf("rebuild abortado: integridade do ledger comprometida: %w", err)
@@ -334,11 +349,6 @@ func (m *Manager) rebuildProjectionInternal(name string, projection Projection) 
 		log.Printf("[WARN] %s: erro ao marcar início de rebuild: %v", name, err)
 	}
 
-	// FIX SEC-01: verificar integridade do ledger antes de processar eventos.
-	// Cada projeção verifica os aggregates que ela consome (identificados pelo
-	// aggregate_type que seus eventos pertencem).
-	// RebuildAll já fez a verificação global; aqui verificamos novamente para
-	// rebuilds individuais (chamados diretamente via handler HTTP).
 	log.Printf("[SECURITY] %s: verificando integridade do ledger antes do rebuild", name)
 	if err := m.verifyFullLedgerIntegrity(); err != nil {
 		if resetErr := m.markRebuildFailed(name); resetErr != nil {
@@ -348,10 +358,6 @@ func (m *Manager) rebuildProjectionInternal(name string, projection Projection) 
 	}
 	log.Printf("[SECURITY] %s: ledger íntegro — prosseguindo com rebuild", name)
 
-	// FIX SCHEMA-01: defer garante que is_rebuilding sempre volta para FALSE,
-	// independente de sucesso ou falha do Rebuild(). Sem isso, uma falha
-	// mantinha is_rebuilding=TRUE indefinidamente, tornando impossível
-	// distinguir rebuild em andamento de rebuild que falhou.
 	rebuildErr := projection.Rebuild()
 	if rebuildErr != nil {
 		if resetErr := m.markRebuildFailed(name); resetErr != nil {
@@ -389,18 +395,13 @@ func (m *Manager) verifyFullLedgerIntegrity() error {
 
 	log.Printf("[SECURITY] Verificando integridade de %d aggregate(s)", len(aggregateIDs))
 
-	compromised := 0
 	for _, aggID := range aggregateIDs {
 		valid, err := m.eventStore.VerifyLedgerIntegrity(ctx, aggID)
 		if err != nil {
-			// VerifyLedgerIntegrity retorna erro com detalhes quando !valid
-			compromised++
 			log.Printf("[SECURITY] ALERTA: aggregate %s comprometido: %v", aggID, err)
-			// Retorna no primeiro comprometido — não faz sentido continuar rebuild
 			return fmt.Errorf("aggregate %s: %w", aggID, err)
 		}
 		if !valid {
-			compromised++
 			return fmt.Errorf("aggregate %s: integridade inválida sem detalhes", aggID)
 		}
 	}
@@ -416,8 +417,7 @@ func (m *Manager) verifyFullLedgerIntegrity() error {
 // markRebuildStart zera o checkpoint e seta is_rebuilding=TRUE antes do rebuild.
 //
 // Usa UPSERT para garantir que funciona mesmo se o checkpoint não existir ainda —
-// sem risco de UPDATE operar 0 linhas silenciosamente (bug MGR-04 da auditoria,
-// já corrigido nas etapas anteriores via UPSERT).
+// sem risco de UPDATE operar 0 linhas silenciosamente.
 func (m *Manager) markRebuildStart(name string) error {
 	_, err := m.client.DB().Exec(`
 		INSERT INTO projection_checkpoints
