@@ -61,9 +61,23 @@ func (r *AggregateRepository) WithContext(ctx context.Context) *AggregateReposit
 	}
 }
 
+// idSetter é uma interface local para injetar o ID no agregado antes
+// de aplicar os eventos. Satisfeita por todos os tipos que embarcam *BaseAggregate.
+type idSetter interface {
+	SetID(uuid.UUID)
+}
+
 // Load reconstrói um aggregate a partir dos eventos do ledger.
 //
 // FIX-REPO-02: valida consistência de aggregate_type em todos os eventos.
+//
+// FIX-REPO-03: após criar o aggregate via factory (que gera um uuid.New()
+// aleatório em NewAcademia/NewEstudante/etc.), o ID é sobrescrito com o `id`
+// real passado como parâmetro — ANTES de aplicar qualquer evento.
+// Sem este SetID, todo evento levantado por comandos pós-Load usaria um UUID
+// aleatório como AggregateID, fazendo SaveWithAudit gravar no ledger sob um
+// aggregate inexistente e a projeção nunca atualizar (UPDATE WHERE id = UUID
+// errado → 0 linhas afetadas, silencioso).
 func (r *AggregateRepository) Load(id uuid.UUID, aggregateType string) (aggregates.Aggregate, error) {
 	dbEvents, err := r.eventStore.LoadEventStream(r.ctx, id)
 	if err != nil {
@@ -91,6 +105,15 @@ func (r *AggregateRepository) Load(id uuid.UUID, aggregateType string) (aggregat
 	aggregate, err := r.factory.Create(aggregateType)
 	if err != nil {
 		return nil, err
+	}
+
+	// FIX-REPO-03: a factory gera um UUID aleatório (uuid.New()) que nunca
+	// é sobrescrito pelos apply handlers (applyAcademiaCriada, applyEstudanteCriado,
+	// etc. não setam a.ID). Sem este SetID, qualquer evento levantado sobre o
+	// aggregate reconstruído usaria o UUID errado como AggregateID, corrompendo
+	// silenciosamente o ledger e impossibilitando a atualização da projeção.
+	if setter, ok := aggregate.(idSetter); ok {
+		setter.SetID(id)
 	}
 
 	for _, event := range domainEvents {
@@ -219,6 +242,9 @@ func (r *AggregateRepository) Exists(id uuid.UUID) (bool, error) {
 }
 
 // LoadFromVersion reconstrói um aggregate a partir de uma versão específica.
+//
+// FIX-REPO-03 (mesma correção do Load): SetID injeta o ID real antes de aplicar
+// eventos — a factory gera uuid.New() que causaria AggregateID errado nos eventos.
 func (r *AggregateRepository) LoadFromVersion(
 	id uuid.UUID,
 	aggregateType string,
@@ -250,6 +276,11 @@ func (r *AggregateRepository) LoadFromVersion(
 	aggregate, err := r.factory.Create(aggregateType)
 	if err != nil {
 		return nil, err
+	}
+
+	// FIX-REPO-03: mesma correção do Load — SetID antes de aplicar eventos.
+	if setter, ok := aggregate.(idSetter); ok {
+		setter.SetID(id)
 	}
 
 	for _, event := range domainEvents {
