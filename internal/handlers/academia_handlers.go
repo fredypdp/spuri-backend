@@ -397,26 +397,60 @@ func DesativarAcademia(c *gin.Context) {
 // GET /academias
 // ============================================================================
 
+// ============================================================================
+// GET /academias
+// ============================================================================
+
 func ListarTodasAcademias(c *gin.Context) {
 	userType, _ := middleware.GetUserType(c)
 	client := getDbClient(c)
 
-	// FIX H4-REG-04: paginação com limites validados (antes: sem LIMIT, varredura total).
+	// FIX H4-REG-04: paginação com limites validados.
 	limit, offset := getPaginationParams(c)
 	limit = db.ValidateLimit(limit)
 	offset = db.ValidateOffset(offset)
 
-	// Academias são controladas por status (ativo/inativo), não por soft-delete.
-	rows, err := client.DB().Query(`
+	// FIX LISTA-01: admin vê TODAS as academias (ativo + inativo), pois academias
+	// são registradas com status='inativo' por padrão e precisam ser ativadas pelo
+	// admin. Sem este fix, o admin nunca enxerga uma academia recém-registrada.
+	// Não-admin continua vendo apenas academias ativas.
+	// Admin pode filtrar opcionalmente via ?status=ativo ou ?status=inativo.
+	const baseSelect = `
 		SELECT id, type, nome, codigo_academia, provincia, endereco,
 		       numero_telefone, email, website, nivel_escolar, status,
 		       cursos, email_verificado, created_at, updated_at, total_estudantes, version
-		FROM projection_academias
-		WHERE status = 'ativo'
-		ORDER BY nome ASC
-		LIMIT $1 OFFSET $2
-	`, limit, offset)
+		FROM projection_academias`
+
+	var (
+		rows *sql.Rows
+		err  error
+	)
+
+	if userType == "admin" {
+		statusFilter := c.Query("status")
+		switch statusFilter {
+		case "ativo", "inativo":
+			rows, err = client.DB().Query(
+				baseSelect+` WHERE status = $1 ORDER BY nome ASC LIMIT $2 OFFSET $3`,
+				statusFilter, limit, offset,
+			)
+		default:
+			// Sem filtro: admin vê todas (inativo incluso).
+			rows, err = client.DB().Query(
+				baseSelect+` ORDER BY nome ASC LIMIT $1 OFFSET $2`,
+				limit, offset,
+			)
+		}
+	} else {
+		// Não-admin: apenas academias ativas.
+		rows, err = client.DB().Query(
+			baseSelect+` WHERE status = 'ativo' ORDER BY nome ASC LIMIT $1 OFFSET $2`,
+			limit, offset,
+		)
+	}
+
 	if err != nil {
+		log.Printf("[ERROR] ListarTodasAcademias: erro na query: %v", err)
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -457,7 +491,6 @@ func ListarTodasAcademias(c *gin.Context) {
 
 		var cursos []string
 		if aca.CursosJSON != nil && *aca.CursosJSON != "" {
-			// FIX H4-REG-03: erro de unmarshal logado em vez de silenciado com `_ =`.
 			if unmarshalErr := json.Unmarshal([]byte(*aca.CursosJSON), &cursos); unmarshalErr != nil {
 				log.Printf("[WARN] ListarTodasAcademias: falha ao desserializar cursos da academia %s: %v",
 					aca.CodigoAcademia, unmarshalErr)
