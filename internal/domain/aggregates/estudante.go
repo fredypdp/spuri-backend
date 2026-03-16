@@ -40,6 +40,18 @@ type Estudante struct {
 	// em comandos subsequentes sem depender da projeção.
 	// Chave: "<tipoEnsino>_<anoLectivo>_<nivelAtual>"
 	AprovacoesPorAno map[string]bool
+
+	// FIX NOTA-AGG-01: mapa de notas registradas por chave composta para detectar
+	// duplicatas em RegistrarNota sem depender da projeção.
+	// Chave: "<anoLectivo>_<periodo>_<materiaID>_<tipo>_<categoria>"
+	// Deve coincidir com a constraint uq_nota_unica do banco.
+	NotasRegistradasPorChave map[string]bool
+
+	// FIX FALTA-AGG-01: mapa de faltas registradas por chave composta para detectar
+	// duplicatas em RegistrarFalta sem depender da projeção.
+	// Chave: "<anoLectivo>_<data AAAA-MM-DD>_<materiaID>"
+	// Corresponde à constraint UNIQUE(codigo_estudante, codigo_academia, data, materia_disciplinar_id).
+	FaltasRegistradasPorChave map[string]bool
 }
 
 func NewEstudante() *Estudante {
@@ -49,8 +61,10 @@ func NewEstudante() *Estudante {
 			Version:           0,
 			UncommittedEvents: []DomainEvent{},
 		},
-		Status:           "inativo",
-		AprovacoesPorAno: make(map[string]bool),
+		Status:                    "inativo",
+		AprovacoesPorAno:          make(map[string]bool),
+		NotasRegistradasPorChave:  make(map[string]bool),
+		FaltasRegistradasPorChave: make(map[string]bool),
 	}
 }
 
@@ -101,6 +115,12 @@ func (e *Estudante) Apply(event DomainEvent) error {
 	}
 }
 
+// ============================================================================
+// Eventos declarados neste arquivo
+// Nota: FaltasRegistradasEvent, FaltaAtualizadaEvent e FaltaDeletadaEvent
+//       estão declarados em estudante_falta.go.
+// ============================================================================
+
 type EstudanteCriadoComVinculoEvent struct {
 	BaseEvent
 	Nome                     string
@@ -119,29 +139,13 @@ type EstudanteCriadoComVinculoEvent struct {
 	StatusEscolarMedio       string
 	StatusSuperior           string
 	CodigoAcademia           string
-	AcademiaID *uuid.UUID
-	CreatedAt  time.Time
-	Genero     string
+	AcademiaID               *uuid.UUID
+	CreatedAt                time.Time
+	Genero                   string
 }
 
 func (e *EstudanteCriadoComVinculoEvent) GetPayload() interface{} { return e }
 func (e *EstudanteCriadoComVinculoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
-
-type FaltasRegistradasEvent struct {
-	BaseEvent
-	CodigoEstudante      string
-	CodigoAcademia       string
-	AnoLectivo           string
-	AnoAcademico         string
-	Data                 time.Time
-	MateriaDisciplinarID uuid.UUID
-	Quantidade           int
-	Observacao           *string
-	RegisteredAt         time.Time
-}
-
-func (e *FaltasRegistradasEvent) GetPayload() interface{} { return e }
-func (e *FaltasRegistradasEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 // StatusSuperiorAtualizadoEvent — atualização manual do ciclo superior.
 //
@@ -503,6 +507,10 @@ func (e *Estudante) RegistrarAprovacaoAno(
 	return e.Apply(event)
 }
 
+// ============================================================================
+// Apply handlers
+// ============================================================================
+
 func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
 	data, err := json.Marshal(event.GetPayload())
 	if err != nil {
@@ -534,19 +542,12 @@ func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
 	if e.AprovacoesPorAno == nil {
 		e.AprovacoesPorAno = make(map[string]bool)
 	}
-	return nil
-}
-
-func (e *Estudante) applyFaltasRegistradas(event DomainEvent) error {
-	data, err := json.Marshal(event.GetPayload())
-	if err != nil {
-		return fmt.Errorf("applyFaltasRegistradas: marshal error: %w", err)
+	if e.NotasRegistradasPorChave == nil {
+		e.NotasRegistradasPorChave = make(map[string]bool)
 	}
-	var ev FaltasRegistradasEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return fmt.Errorf("applyFaltasRegistradas: unmarshal error (payload corrompido): %w", err)
+	if e.FaltasRegistradasPorChave == nil {
+		e.FaltasRegistradasPorChave = make(map[string]bool)
 	}
-	// Aggregate não mantém faltas em estado — apenas valida o payload.
 	return nil
 }
 
@@ -712,20 +713,5 @@ func (e *Estudante) applyStatusEscolarMedioAtualizado(event DomainEvent) error {
 		return fmt.Errorf("applyStatusEscolarMedioAtualizado: unmarshal error: %w", err)
 	}
 	e.StatusEscolarMedio = ev.NovoStatus
-	return nil
-}
-
-func (e *Estudante) applyFaltaAtualizada(event DomainEvent) error {
-	data, err := json.Marshal(event.GetPayload())
-	if err != nil {
-		return fmt.Errorf("applyFaltaAtualizada: marshal error: %w", err)
-	}
-	var ev FaltaAtualizadaEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return fmt.Errorf("applyFaltaAtualizada: unmarshal error (payload corrompido): %w", err)
-	}
-	if ev.FaltaID == "" {
-		return fmt.Errorf("applyFaltaAtualizada: FaltaID vazio no payload")
-	}
 	return nil
 }

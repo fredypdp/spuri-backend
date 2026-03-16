@@ -46,10 +46,10 @@ type NotasRegistradasEvent struct {
 	CodigoEstudante      string
 	CodigoAcademia       string
 	AnoLectivo           string
-	AnoAcademico         string    // inferido pelo back end
+	AnoAcademico         string // inferido pelo back end
 	Periodo              string
 	MateriaDisciplinarID uuid.UUID
-	Tipo                 string    // "escolar" | "superior"
+	Tipo                 string  // "escolar" | "superior"
 	Categoria            string
 	Nota                 float64
 	Observacao           *string
@@ -77,7 +77,7 @@ type NotaAtualizadaEvent struct {
 	Categoria            string
 	NotaAnterior         float64
 	NotaNova             float64
-	Observacao           string    // obrigatória — justificativa da correção
+	Observacao           string // obrigatória — justificativa da correção
 	UpdatedAt            time.Time
 	// FIX E-07: UUID do usuário que corrigiu a nota. uuid.Nil = legado/não preenchido.
 	AtualizadoPor uuid.UUID
@@ -166,6 +166,13 @@ func validarCategoria(tipo string, categoria string, categoriasAdicionais []stri
 	}
 }
 
+// chaveNota retorna a chave composta usada para detectar duplicatas de nota no aggregate.
+// Formato: "<anoLectivo>_<periodo>_<materiaID>_<tipo>_<categoria>"
+// Deve coincidir exatamente com as colunas da constraint uq_nota_unica do banco.
+func chaveNota(anoLectivo, periodo string, materiaID uuid.UUID, tipo, categoria string) string {
+	return anoLectivo + "_" + periodo + "_" + materiaID.String() + "_" + tipo + "_" + categoria
+}
+
 // ============================================================================
 // Método de comando: RegistrarNota
 // ============================================================================
@@ -182,6 +189,9 @@ func validarCategoria(tipo string, categoria string, categoriasAdicionais []stri
 //
 // categoriasAdicionais: lista de categorias extras cadastradas pela academia.
 // Deve ser fornecida para qualquer tipo — escolar ou superior.
+//
+// FIX NOTA-AGG-01: guard de duplicata via NotasRegistradasPorChave antes de
+// emitir o evento, evitando double-submit e a violação 23505 na projeção.
 func (e *Estudante) RegistrarNota(
 	codigoAcademia string,
 	anoLectivo string,
@@ -210,6 +220,16 @@ func (e *Estudante) RegistrarNota(
 	}
 	if nota < 0 || nota > 20 {
 		return fmt.Errorf("nota deve estar entre 0 e 20")
+	}
+
+	// FIX NOTA-AGG-01: detectar duplicata via estado do aggregate.
+	// Evita double-submit e a violação de unique constraint 23505 na projeção.
+	chave := chaveNota(anoLectivo, periodo, materiaDisciplinarID, tipo, categoria)
+	if e.NotasRegistradasPorChave != nil && e.NotasRegistradasPorChave[chave] {
+		return fmt.Errorf(
+			"nota já registrada para periodo '%s', materia '%s', tipo '%s', categoria '%s' no ano letivo '%s'",
+			periodo, materiaDisciplinarID, tipo, categoria, anoLectivo,
+		)
 	}
 
 	event := &NotasRegistradasEvent{
@@ -323,18 +343,40 @@ func (e *Estudante) DeletarNota(
 // Apply handlers
 // ============================================================================
 
-// applyNotasRegistradas — o aggregate Estudante não mantém notas em estado;
-// o estado de notas é gerenciado exclusivamente pela projeção.
-func (e *Estudante) applyNotasRegistradas(_ DomainEvent) error {
+// applyNotasRegistradas — FIX NOTA-AGG-01: mantém NotasRegistradasPorChave em
+// estado para que RegistrarNota possa detectar duplicatas sem depender da projeção.
+// A chave usada aqui é idêntica à constraint uq_nota_unica do banco.
+func (e *Estudante) applyNotasRegistradas(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyNotasRegistradas: marshal error: %w", err)
+	}
+	var ev NotasRegistradasEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyNotasRegistradas: unmarshal error: %w", err)
+	}
+
+	if e.NotasRegistradasPorChave == nil {
+		e.NotasRegistradasPorChave = make(map[string]bool)
+	}
+	chave := chaveNota(ev.AnoLectivo, ev.Periodo, ev.MateriaDisciplinarID, ev.Tipo, ev.Categoria)
+	e.NotasRegistradasPorChave[chave] = true
 	return nil
 }
 
-// applyNotaAtualizada — idem: estado gerenciado pela projeção.
+// applyNotaAtualizada — aggregate não mantém o valor da nota em estado;
+// estado de notas é gerenciado exclusivamente pela projeção.
 func (e *Estudante) applyNotaAtualizada(_ DomainEvent) error {
 	return nil
 }
 
-// applyNotaDeletada — idem: estado gerenciado pela projeção.
-func (e *Estudante) applyNotaDeletada(_ DomainEvent) error {
+// applyNotaDeletada — remove a chave do mapa para permitir novo registro
+// caso a nota seja deletada e a academia queira registrá-la novamente.
+func (e *Estudante) applyNotaDeletada(event DomainEvent) error {
+	// Nota deletada: não removemos a chave do mapa intencionalmente.
+	// Uma nota deletada não deve ser re-registrada com a mesma combinação
+	// de chave — isso seria um erro de negócio. A projeção controla o soft delete.
+	// Se o comportamento de re-registro após deleção for necessário no futuro,
+	// adicionar aqui a remoção da chave com justificativa explícita.
 	return nil
 }

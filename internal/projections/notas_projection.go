@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"spuri/internal/db"
 	"time"
 
 	"github.com/google/uuid"
+
+	"spuri/internal/db"
 )
 
 type NotasProjection struct {
@@ -33,7 +34,6 @@ func (p *NotasProjection) GetLastProcessedEventID() (int64, error) {
 	return lastID, err
 }
 
-// UpdateCheckpoint — prepared statement.
 func (p *NotasProjection) UpdateCheckpoint(eventID int64) error {
 	eventID = int64(db.ValidateOffset(int(eventID)))
 	_, err := p.client.DB().Exec(`
@@ -120,10 +120,16 @@ func (p *NotasProjection) clear() error {
 // Handlers de evento
 // ============================================================================
 
-// handleNotasRegistradas — P3-18: ON CONFLICT DO NOTHING substituído por UPSERT.
-// Com "DO NOTHING", um replay de evento (idempotência ou rebuild parcial)
-// descartava a nota silenciosamente sem nenhum log. O UPSERT garante que
-// o dado mais recente prevalece e que a operação é rastreável.
+// handleNotasRegistradas insere ou atualiza uma nota na projeção.
+//
+// FIX PROJ-NOTA-03: o ON CONFLICT anterior usava colunas
+// (codigo_estudante, codigo_academia, ano_lectivo, periodo, materia_disciplinar_id)
+// que NÃO correspondem à constraint uq_nota_unica do banco, definida em migration 006 como:
+//   UNIQUE (codigo_estudante, ano_lectivo, periodo, materia_disciplinar_id, tipo, categoria)
+//
+// Com as colunas erradas o ON CONFLICT nunca disparava, resultando em violação
+// 23505 (unique_violation) em rebuild ou double-submit. Corrigido para usar
+// exatamente as colunas da constraint, incluindo tipo e categoria.
 func (p *NotasProjection) handleNotasRegistradas(event db.Event) error {
 	var payload struct {
 		CodigoEstudante      string    `json:"CodigoEstudante"`
@@ -148,7 +154,7 @@ func (p *NotasProjection) handleNotasRegistradas(event db.Event) error {
 			periodo, materia_disciplinar_id, tipo, categoria, nota, observacao,
 			registered_at, event_id, version
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-		ON CONFLICT (codigo_estudante, codigo_academia, ano_lectivo, periodo, materia_disciplinar_id)
+		ON CONFLICT (codigo_estudante, ano_lectivo, periodo, materia_disciplinar_id, tipo, categoria)
 		DO UPDATE SET
 			nota          = EXCLUDED.nota,
 			observacao    = EXCLUDED.observacao,
@@ -166,14 +172,16 @@ func (p *NotasProjection) handleNotasRegistradas(event db.Event) error {
 	}
 
 	if rows, _ := result.RowsAffected(); rows == 0 {
-		log.Printf("[WARN] [notas] NotasRegistradas %s: nota já existia para estudante=%s periodo=%s materia=%s — atualizada via UPSERT",
-			event.EventID, payload.CodigoEstudante, payload.Periodo, payload.MateriaDisciplinarID)
+		log.Printf("[WARN] [notas] NotasRegistradas %s: nota já existia para estudante=%s periodo=%s tipo=%s categoria=%s — atualizada via UPSERT",
+			event.EventID, payload.CodigoEstudante, payload.Periodo, payload.Tipo, payload.Categoria)
 	}
 
 	return nil
 }
 
 // handleNotaAtualizada processa o evento "NotaAtualizada".
+// Idempotente: se a nota não for encontrada (rebuild parcial ou ordem de eventos),
+// loga WARN mas não falha — o rebuild completo resolverá.
 func (p *NotasProjection) handleNotaAtualizada(event db.Event) error {
 	var payload struct {
 		CodigoEstudante      string    `json:"CodigoEstudante"`
@@ -204,6 +212,7 @@ func (p *NotasProjection) handleNotaAtualizada(event db.Event) error {
 		  AND materia_disciplinar_id = $8
 		  AND tipo                   = $9
 		  AND categoria              = $10
+		  AND deleted_at IS NULL
 	`,
 		payload.NotaNova, payload.Observacao, event.EventVersion, event.EventID,
 		payload.CodigoEstudante, payload.AnoLectivo, payload.Periodo,
@@ -215,10 +224,8 @@ func (p *NotasProjection) handleNotaAtualizada(event db.Event) error {
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		// Nota não encontrada — pode acontecer em rebuild parcial ou ordem de eventos.
-		// Não falha: o evento está no ledger; o rebuild completo resolverá.
-		log.Printf("[WARN] [notas] NotaAtualizada %s: nota não encontrada para estudante=%s periodo=%s — ignorado",
-			event.EventID, payload.CodigoEstudante, payload.Periodo)
+		log.Printf("[WARN] [notas] NotaAtualizada %s: nota não encontrada para estudante=%s periodo=%s tipo=%s categoria=%s — ignorado",
+			event.EventID, payload.CodigoEstudante, payload.Periodo, payload.Tipo, payload.Categoria)
 	}
 	return nil
 }
@@ -226,11 +233,11 @@ func (p *NotasProjection) handleNotaAtualizada(event db.Event) error {
 // handleNotaDeletada processa o evento "NotaDeletada" — soft delete na projeção.
 // Idempotente: se a nota já estiver deletada (deleted_at IS NOT NULL), não falha.
 //
-// FIX PROJ-NOTA-01: DeletadoPor e Motivo agora lidos do payload e gravados em
+// FIX PROJ-NOTA-01: DeletadoPor e Motivo lidos do payload e gravados em
 // deletado_por e motivo_exclusao — permite consulta direta de auditoria sem
 // inspecionar o spuri_ledger.
 //
-// FIX PROJ-NOTA-02: deleted_at agora usa payload.DeletedAt em vez de NOW(),
+// FIX PROJ-NOTA-02: deleted_at usa payload.DeletedAt em vez de NOW(),
 // preservando o timestamp real da deleção em rebuilds.
 func (p *NotasProjection) handleNotaDeletada(event db.Event) error {
 	var payload struct {
@@ -243,8 +250,7 @@ func (p *NotasProjection) handleNotaDeletada(event db.Event) error {
 		return fmt.Errorf("handleNotaDeletada: parse error: %w", err)
 	}
 
-	// FIX PROJ-NOTA-02: usar DeletedAt do payload; fallback para OccurredAt
-	// em eventos antigos que não tenham o campo preenchido.
+	// Fallback para OccurredAt em eventos antigos que não tenham DeletedAt preenchido.
 	deletedAt := payload.DeletedAt
 	if deletedAt.IsZero() {
 		deletedAt = event.OccurredAt
@@ -277,21 +283,21 @@ func (p *NotasProjection) handleNotaDeletada(event db.Event) error {
 // ============================================================================
 
 type NotaDTO struct {
-	ID                   uuid.UUID  `json:"id"`
-	CodigoEstudante      string     `json:"codigo_estudante"`
-	CodigoAcademia       string     `json:"codigo_academia"`
-	AnoLectivo           string     `json:"ano_lectivo"`
-	AnoAcademico         string     `json:"ano_academico"`
-	Periodo              string     `json:"periodo"`
-	MateriaDisciplinarID string     `json:"materia_disciplinar_id"`
-	MateriaNome          *string    `json:"materia_nome,omitempty"`
-	Tipo                 string     `json:"tipo"`
-	Categoria            string     `json:"categoria"`
-	Nota                 float64    `json:"nota"`
-	Observacao           *string    `json:"observacao,omitempty"`
-	RegisteredAt         time.Time  `json:"registered_at"`
-	EventID              uuid.UUID  `json:"event_id"`
-	Version              int        `json:"version"`
+	ID                   uuid.UUID `json:"id"`
+	CodigoEstudante      string    `json:"codigo_estudante"`
+	CodigoAcademia       string    `json:"codigo_academia"`
+	AnoLectivo           string    `json:"ano_lectivo"`
+	AnoAcademico         string    `json:"ano_academico"`
+	Periodo              string    `json:"periodo"`
+	MateriaDisciplinarID string    `json:"materia_disciplinar_id"`
+	MateriaNome          *string   `json:"materia_nome,omitempty"`
+	Tipo                 string    `json:"tipo"`
+	Categoria            string    `json:"categoria"`
+	Nota                 float64   `json:"nota"`
+	Observacao           *string   `json:"observacao,omitempty"`
+	RegisteredAt         time.Time `json:"registered_at"`
+	EventID              uuid.UUID `json:"event_id"`
+	Version              int       `json:"version"`
 }
 
 func (p *NotasProjection) GetByEstudante(codigoEstudante string) ([]NotaDTO, error) {
