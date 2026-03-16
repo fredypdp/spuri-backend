@@ -22,13 +22,19 @@ func RequireAdmin() gin.HandlerFunc {
 			return
 		}
 
-		// Delega para RequireAdminRole que valida role e status no banco.
+		// Delega para RequireAdminRole que valida role, status e email_verificado no banco.
 		RequireAdminRole("gerente")(c)
 	}
 }
 
-// RequireAdminRole verifica que o admin autenticado possui ao menos o role mínimo exigido
-// e que está ativo. Consulta projection_admins com prepared statement.
+// RequireAdminRole verifica que o admin autenticado:
+//   - existe na projeção
+//   - está ativo (status = "ativo")
+//   - possui e-mail verificado (email_verificado = true)
+//   - possui ao menos o role mínimo exigido
+//
+// Admins sem e-mail verificado só podem fazer login — todas as rotas
+// do grupo /dominis exigem email_verificado = true.
 func RequireAdminRole(minRole string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log.Printf("🔐 [RequireAdminRole] Role mínima: %s — Path: %s", minRole, c.Request.URL.Path)
@@ -60,11 +66,13 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 		}
 
 		// Prepared statement — sem interpolação de string.
+		// email_verificado incluído para bloquear admins que ainda não confirmaram o e-mail.
 		var role, status string
+		var emailVerificado bool
 		err := client.DB().QueryRow(
-			`SELECT role, status FROM projection_admins WHERE id = $1`,
+			`SELECT role, status, email_verificado FROM projection_admins WHERE id = $1`,
 			uid,
-		).Scan(&role, &status)
+		).Scan(&role, &status, &emailVerificado)
 		if err != nil {
 			log.Printf("❌ [RequireAdminRole] Erro ao buscar admin: %v", err)
 			c.JSON(http.StatusForbidden, gin.H{"error": "administrador não encontrado"})
@@ -72,11 +80,24 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 			return
 		}
 
-		log.Printf("✅ [RequireAdminRole] Admin encontrado — Role: %s, Status: %s", role, status)
+		log.Printf("✅ [RequireAdminRole] Admin encontrado — Role: %s, Status: %s, EmailVerificado: %v",
+			role, status, emailVerificado)
 
 		if status != "ativo" {
 			log.Printf("❌ [RequireAdminRole] Admin inativo")
 			c.JSON(http.StatusForbidden, gin.H{"error": "administrador inativo"})
+			c.Abort()
+			return
+		}
+
+		// Bloquear acesso a todas as rotas /dominis se o e-mail não foi verificado.
+		// O admin ainda pode fazer login e solicitar o reenvio do e-mail de verificação,
+		// mas não pode executar nenhuma ação administrativa.
+		if !emailVerificado {
+			log.Printf("❌ [RequireAdminRole] Admin sem e-mail verificado: %s", uid)
+			c.JSON(http.StatusForbidden, gin.H{
+				"error": "e-mail não verificado. Verifique sua caixa de entrada e confirme seu e-mail para acessar o painel administrativo.",
+			})
 			c.Abort()
 			return
 		}
@@ -105,7 +126,7 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 		}
 
 		c.Set("admin_role", role)
-		log.Printf("✅ [RequireAdminRole] Permissão OK")
+		log.Printf("✅ [RequireAdminRole] Permissão OK — email verificado, role suficiente")
 		c.Next()
 	}
 }
