@@ -17,7 +17,7 @@ import (
 //   - usuario: qualquer identificador único do usuário —
 //     admin     → e-mail
 //     academia  → código de academia ou e-mail
-//     estudante → código de estudante, e-mail ou telefone
+//     estudante → código de estudante ou e-mail (e-mail deve estar verificado)
 //   - senha: senha em texto plano — comparada via bcrypt
 //
 // O tipo do usuário é inferido automaticamente pela busca em cascata
@@ -106,6 +106,17 @@ func Login(c *gin.Context) {
 			return
 		}
 		if academia != nil {
+			// Bloquear login via e-mail se ainda não verificado.
+			// Login por código de academia (ex: AC1234) é sempre permitido —
+			// o código é atribuído pelo sistema e não requer verificação adicional.
+			if academia.Email != nil && *academia.Email == req.Usuario && !academia.EmailVerificado {
+				log.Printf("[INFO] [Login] Academia tentou login com e-mail não verificado: %s", req.Usuario)
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"error": "e-mail não verificado. Verifique sua caixa de entrada e confirme seu e-mail antes de fazer login.",
+				})
+				return
+			}
+
 			userID = academia.ID
 			userName = academia.Nome
 			senhaHash = academia.SenhaHash
@@ -117,8 +128,8 @@ func Login(c *gin.Context) {
 	}
 
 	// ── 3. Estudante ───────────────────────────────────────────────────────
-	// GetAuthByIdentificador aceita código, e-mail ou telefone em uma única
-	// query com LIMIT 1 — aproveitando os índices já existentes.
+	// GetAuthByIdentificador aceita código ou e-mail.
+	// Telefone removido — verificação de telefone ainda não existe no sistema.
 	if !userFound {
 		estudanteProj := getEstudanteProjection(c)
 		if estudanteProj == nil {
@@ -131,6 +142,17 @@ func Login(c *gin.Context) {
 			return
 		}
 		if estudanteAuth != nil {
+			// Bloquear login via e-mail se ainda não verificado.
+			// Login por código de estudante (ex: ABC1234) é sempre permitido —
+			// o código é atribuído pelo sistema e não requer verificação adicional.
+			if estudanteAuth.Email != nil && *estudanteAuth.Email == req.Usuario && !estudanteAuth.EmailVerificado {
+				log.Printf("[INFO] [Login] Estudante tentou login com e-mail não verificado: %s", req.Usuario)
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"error": "e-mail não verificado. Verifique sua caixa de entrada e confirme seu e-mail antes de fazer login.",
+				})
+				return
+			}
+
 			userID = estudanteAuth.ID
 			userName = estudanteAuth.Nome
 			senhaHash = estudanteAuth.Hash

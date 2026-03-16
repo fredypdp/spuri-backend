@@ -699,13 +699,14 @@ func (p *EstudanteProjection) GetByAcademia(codigoAcademia string) ([]EstudanteD
 // Existe para fornecer o hash ao fluxo de login e troca de senha,
 // sem expor senha_hash no EstudanteDTO geral (fix H4-05).
 // ----------------------------------------------------------------------------
-
 type EstudanteAuthDTO struct {
-	ID     uuid.UUID `json:"-"`
-	Nome   string    `json:"-"`
-	Codigo string    `json:"-"`
-	Status string    `json:"-"`
-	Hash   string    `json:"-"`
+	ID              uuid.UUID `json:"-"`
+	Nome            string    `json:"-"`
+	Codigo          string    `json:"-"`
+	Status          string    `json:"-"`
+	Hash            string    `json:"-"`
+	Email           *string   `json:"-"` // nil quando não cadastrado
+	EmailVerificado bool      `json:"-"`
 }
 
 // GetAuthByCodigo busca dados de autenticação pelo código do estudante.
@@ -760,19 +761,24 @@ func (p *EstudanteProjection) GetAuthByID(id uuid.UUID) (*EstudanteAuthDTO, erro
 //   - idx_estudante_telefone (criado na migration 029)
 func (p *EstudanteProjection) GetAuthByIdentificador(identificador string) (*EstudanteAuthDTO, error) {
 	var e EstudanteAuthDTO
+	var emailNull sql.NullString
 	err := p.client.DB().QueryRow(`
-		SELECT id, nome, codigo_estudante, status, senha_hash
+		SELECT id, nome, codigo_estudante, status, senha_hash,
+		       email, COALESCE(email_verificado, FALSE)
 		FROM projection_estudantes
 		WHERE codigo_estudante = $1
 		   OR email            = $1
-		   OR telefone         = $1
 		LIMIT 1
-	`, identificador).Scan(&e.ID, &e.Nome, &e.Codigo, &e.Status, &e.Hash)
+	`, identificador).Scan(&e.ID, &e.Nome, &e.Codigo, &e.Status, &e.Hash,
+		&emailNull, &e.EmailVerificado)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	if emailNull.Valid {
+		e.Email = &emailNull.String
 	}
 	return &e, nil
 }
