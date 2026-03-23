@@ -15,10 +15,6 @@ import (
 )
 
 // AlterarSenha permite que o usuário autenticado altere sua própria senha.
-//
-// FIX-C1: academia agora usa event sourcing via aggregate, idêntico ao admin.
-// H4-18:  estudante inativo bloqueado — token válido não é suficiente para
-//         alterar senha se o estudante estiver com status != "ativo".
 func AlterarSenha(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 	userType, _ := c.Get("user_type")
@@ -38,7 +34,7 @@ func AlterarSenha(c *gin.Context) {
 		return
 	}
 
-	// ── Admin: event sourcing ──────────────────────────────────────────────
+	// ── Admin ──────────────────────────────────────────────────────────────
 	if userType == "admin" {
 		uid := userID.(uuid.UUID)
 
@@ -92,7 +88,7 @@ func AlterarSenha(c *gin.Context) {
 		return
 	}
 
-	// ── Academia: event sourcing (FIX-C1) ─────────────────────────────────
+	// ── Academia ───────────────────────────────────────────────────────────
 	if userType == "academia" {
 		uid := userID.(uuid.UUID)
 
@@ -146,22 +142,17 @@ func AlterarSenha(c *gin.Context) {
 		return
 	}
 
-	// ── Estudante: event sourcing via SenhaAlterada ────────────────────────
+	// ── Estudante ──────────────────────────────────────────────────────────
 	if userType == "estudante" {
 		uid := userID.(uuid.UUID)
 
 		estudanteProj := getEstudanteProjection(c)
-		// FIX-COMPILE-01: GetAuthByID retorna EstudanteAuthDTO com Hash.
-		// GetByID retorna EstudanteDTO que não expõe SenhaHash (fix H4-05).
 		estudanteAuth, err := estudanteProj.GetAuthByID(uid)
 		if err != nil || estudanteAuth == nil {
 			utils.RespondWithNotFoundError(c, "estudante")
 			return
 		}
 
-		// H4-18: estudante inativo não pode alterar senha mesmo com token JWT válido.
-		// O AuthMiddleware não verifica status após emitir o token — esta é a barreira
-		// no nível do handler para operações de escrita sensíveis.
 		if estudanteAuth.Status != "ativo" {
 			utils.RespondWithForbiddenError(c, "conta inativa. Não é possível alterar a senha.")
 			return
@@ -307,6 +298,7 @@ func getPerfilEstudante(c *gin.Context, userID interface{}) {
 			"email_verificado":               estudante.EmailVerificado,
 			"bilhete_identidade":             estudante.BilheteIdentidade,
 			"bilhete_identidade_responsavel": estudante.BilheteIdentidadeResp,
+			"data_nascimento":                estudante.DataNascimento,
 			"codigo_academia":                estudante.CodigoAcademia,
 			"academia_info":                  academiaInfo,
 			"status":                         estudante.Status,
@@ -387,9 +379,7 @@ func getPerfilAdmin(c *gin.Context, userID interface{}) {
 // GET /buscar-usuario (admin only)
 // ============================================================================
 
-// BuscarUsuario localiza qualquer entidade (estudante, academia ou admin) por UUID.
 func BuscarUsuario(c *gin.Context) {
-	// FIX A-03: apenas admin pode buscar qualquer UUID.
 	userType, _ := middleware.GetUserType(c)
 	if userType != "admin" {
 		utils.RespondWithForbiddenError(c, "acesso restrito a administradores")

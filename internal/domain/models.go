@@ -30,6 +30,7 @@ type Estudante struct {
 	SenhaHash             string     `json:"-" db:"senha_hash"`
 	BilheteIdentidade     *string    `json:"bilhete_identidade,omitempty" db:"bilhete_identidade"`
 	BilheteIdentidadeResp *string    `json:"bilhete_identidade_responsavel,omitempty" db:"bilhete_identidade_responsavel"`
+	DataNascimento        *time.Time `json:"data_nascimento,omitempty" db:"data_nascimento"`
 	CodigoAcademia        *string    `json:"codigo_academia,omitempty" db:"codigo_academia"`
 	AnoEscolar            *string    `json:"ano_escolar,omitempty" db:"ano_escolar"`
 	AnoEscolarMedio       *string    `json:"ano_escolar_medio,omitempty" db:"ano_escolar_medio"`
@@ -112,6 +113,7 @@ type RegisterEstudanteRequest struct {
 	Nome                     string     `json:"nome" binding:"required"`
 	BilheteIdentidade        *string    `json:"bilhete_identidade"`
 	BilheteIdentidadeResp    *string    `json:"bilhete_identidade_responsavel"`
+	DataNascimento           *time.Time `json:"data_nascimento"`
 	AnoEscolar               *string    `json:"ano_escolar"`
 	AnoEscolarMedio          *string    `json:"ano_escolar_medio"`
 	AnoSuperior              *string    `json:"ano_superior"`

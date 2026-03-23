@@ -10,6 +10,7 @@ import (
 	"spuri/internal/middleware"
 	"spuri/internal/services"
 	"spuri/internal/utils"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -20,24 +21,22 @@ import (
 // POST /academia/estudante/register  (academia)
 // ============================================================================
 
-// REMOVIDO: CadastroEstudanteRequest e RegisterEstudante — auto-cadastro público eliminado.
-// O estudante é registrado EXCLUSIVAMENTE pela academia via RegisterEstudantePorAcademia.
-
 type CadastroEstudanteAcademiaRequest struct {
-	Nome                     string `json:"nome" binding:"required"`
-	Email                    string `json:"email"`
-	Telefone                 string `json:"telefone"`
-	BilheteIdentidade        string `json:"bilhete_identidade"`
-	BilheteResponsavel       string `json:"bilhete_identidade_responsavel"`
-	AnoEscolar               string `json:"ano_escolar"`
-	AnoEscolarMedio          string `json:"ano_escolar_medio"`
-	AnoSuperior              string `json:"ano_superior"`
-	CursoMedioID             string `json:"curso_medio_id"`
-	CursoSuperiorID          string `json:"curso_superior_id"`
-	StatusEscolarFundamental string `json:"status_escolar_fundamental"`
-	StatusEscolarMedio       string `json:"status_escolar_medio"`
-	StatusSuperior           string `json:"status_superior"`
-	Genero                   string `json:"genero" binding:"required"`
+	Nome                     string     `json:"nome" binding:"required"`
+	Email                    string     `json:"email"`
+	Telefone                 string     `json:"telefone"`
+	BilheteIdentidade        string     `json:"bilhete_identidade"`
+	BilheteResponsavel       string     `json:"bilhete_identidade_responsavel"`
+	DataNascimento           *time.Time `json:"data_nascimento"`
+	AnoEscolar               string     `json:"ano_escolar"`
+	AnoEscolarMedio          string     `json:"ano_escolar_medio"`
+	AnoSuperior              string     `json:"ano_superior"`
+	CursoMedioID             string     `json:"curso_medio_id"`
+	CursoSuperiorID          string     `json:"curso_superior_id"`
+	StatusEscolarFundamental string     `json:"status_escolar_fundamental"`
+	StatusEscolarMedio       string     `json:"status_escolar_medio"`
+	StatusSuperior           string     `json:"status_superior"`
+	Genero                   string     `json:"genero" binding:"required"`
 }
 
 func RegisterEstudantePorAcademia(c *gin.Context) {
@@ -62,6 +61,16 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 	if req.Genero != "masculino" && req.Genero != "feminino" {
 		utils.RespondWithValidationError(c, fmt.Errorf("genero deve ser 'masculino' ou 'feminino'"))
 		return
+	}
+
+	// Validar data_nascimento: deve ser anterior à data atual
+	if req.DataNascimento != nil {
+		hoje := time.Now().UTC().Truncate(24 * time.Hour)
+		dataNasc := req.DataNascimento.UTC().Truncate(24 * time.Hour)
+		if !dataNasc.Before(hoje) {
+			utils.RespondWithValidationError(c, fmt.Errorf("data_nascimento deve ser anterior à data atual"))
+			return
+		}
 	}
 
 	// Resolver curso médio
@@ -129,8 +138,7 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	
-	// GetDefaultPassword("estudante", codigoEstudante) retorna o próprio código.
+
 	defaultPassword := services.GetDefaultPassword("estudante", codigoEstudante)
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(defaultPassword), bcrypt.DefaultCost)
 	if err != nil {
@@ -201,6 +209,7 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		telefonePtr,
 		bilhetePtr,
 		bilheteRespPtr,
+		req.DataNascimento,
 		anoEscolarPtr,
 		anoEscolarMedioPtr,
 		anoSuperiorPtr,
@@ -217,7 +226,6 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		return
 	}
 
-	// FIX-S2: audit context com ID e tipo da academia.
 	audit := db.AuditContext{
 		UserID:   academiaID.String(),
 		UserType: "academia",
@@ -258,15 +266,13 @@ func ListarEstudantes(c *gin.Context) {
 			return
 		}
 
-		// H4-05: senha_hash removida do SELECT — hash bcrypt não deve ser trafegado
-		// desnecessariamente em listagens (visível em logs de query e APM).
 		rows, err := client.DB().Query(`
 			SELECT id, nome, codigo_estudante, email, telefone, email_verificado,
 				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
 				status, status_escolar_fundamental, status_escolar_medio, status_superior,
 				ano_escolar, ano_escolar_medio, ano_superior,
 				curso_medio_id, curso_superior_id,
-				COALESCE(genero, ''), created_at, updated_at,
+				COALESCE(genero, ''), data_nascimento, created_at, updated_at,
 				COALESCE(total_notas, 0), COALESCE(total_faltas, 0), version
 			FROM projection_estudantes
 			WHERE codigo_academia = $1
@@ -288,14 +294,13 @@ func ListarEstudantes(c *gin.Context) {
 		})
 
 	} else if userType == "admin" {
-		// H4-05: senha_hash removida do SELECT.
 		rows, err := client.DB().Query(`
 			SELECT id, nome, codigo_estudante, email, telefone, email_verificado,
 				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
 				status, status_escolar_fundamental, status_escolar_medio, status_superior,
 				ano_escolar, ano_escolar_medio, ano_superior,
 				curso_medio_id, curso_superior_id,
-				COALESCE(genero, ''), created_at, updated_at,
+				COALESCE(genero, ''), data_nascimento, created_at, updated_at,
 				COALESCE(total_notas, 0), COALESCE(total_faltas, 0), version
 			FROM projection_estudantes
 			ORDER BY created_at DESC
@@ -319,8 +324,6 @@ func ListarEstudantes(c *gin.Context) {
 }
 
 // scanEstudantesRows faz scan das linhas retornadas por ListarEstudantes.
-// H4-05: variável senhaHash e sua posição no Scan foram removidas —
-// a coluna senha_hash não está mais no SELECT, portanto não há scan correspondente.
 func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
 	var estudantes []map[string]interface{}
 	for rows.Next() {
@@ -331,6 +334,7 @@ func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
 		var anoEscolar, anoEscolarMedio, anoSuperior sql.NullString
 		var emailVerif bool
 		var genero string
+		var dataNascimento sql.NullTime
 		var createdAt, updatedAt string
 		var totalNotas, totalFaltas, version int
 
@@ -340,13 +344,14 @@ func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
 			&status, &statusFund, &statusMedio, &statusSuperior,
 			&anoEscolar, &anoEscolarMedio, &anoSuperior,
 			&cursoMedioID, &cursoSuperiorID,
-			&genero, &createdAt, &updatedAt, &totalNotas, &totalFaltas, &version,
+			&genero, &dataNascimento, &createdAt, &updatedAt,
+			&totalNotas, &totalFaltas, &version,
 		); err != nil {
 			log.Printf("[ERROR] ListarEstudantes scan: %v", err)
 			continue
 		}
 
-		estudantes = append(estudantes, map[string]interface{}{
+		m := map[string]interface{}{
 			"nome":                           nome,
 			"codigo_estudante":               codigoEstudante,
 			"email":                          getNullString(email),
@@ -370,7 +375,16 @@ func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
 			"total_notas":                    totalNotas,
 			"total_faltas":                   totalFaltas,
 			"version":                        version,
-		})
+		}
+
+		// Incluir data_nascimento apenas se preenchida
+		if dataNascimento.Valid {
+			m["data_nascimento"] = dataNascimento.Time.Format("2006-01-02")
+		} else {
+			m["data_nascimento"] = nil
+		}
+
+		estudantes = append(estudantes, m)
 	}
 	return estudantes
 }
@@ -378,8 +392,6 @@ func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
 // ============================================================================
 // GET /eventos-estudante/:codigo
 // ============================================================================
-// NOTA: getNullString está em helpers.go (pacote compartilhado).
-// NOTA: VerificarIntegridade está em query_handlers.go.
 
 func GetEventosEstudante(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
@@ -416,11 +428,12 @@ func GetEventosEstudante(c *gin.Context) {
 // ============================================================================
 
 type AtualizarDadosPessoaisRequest struct {
-	Nome                  *string `json:"nome"`
-	Email                 *string `json:"email"`
-	Telefone              *string `json:"telefone"`
-	BilheteIdentidade     *string `json:"bilhete_identidade"`
-	BilheteIdentidadeResp *string `json:"bilhete_identidade_responsavel"`
+	Nome                  *string    `json:"nome"`
+	Email                 *string    `json:"email"`
+	Telefone              *string    `json:"telefone"`
+	BilheteIdentidade     *string    `json:"bilhete_identidade"`
+	BilheteIdentidadeResp *string    `json:"bilhete_identidade_responsavel"`
+	DataNascimento        *time.Time `json:"data_nascimento"`
 }
 
 func AtualizarDadosPessoais(c *gin.Context) {
@@ -432,6 +445,16 @@ func AtualizarDadosPessoais(c *gin.Context) {
 		return
 	}
 
+	// Validar data_nascimento: deve ser anterior à data atual
+	if req.DataNascimento != nil {
+		hoje := time.Now().UTC().Truncate(24 * time.Hour)
+		dataNasc := req.DataNascimento.UTC().Truncate(24 * time.Hour)
+		if !dataNasc.Before(hoje) {
+			utils.RespondWithValidationError(c, fmt.Errorf("data_nascimento deve ser anterior à data atual"))
+			return
+		}
+	}
+
 	if req.BilheteIdentidade != nil && *req.BilheteIdentidade != "" {
 		estudanteProj := getEstudanteProjection(c)
 		existente, err := estudanteProj.GetByBilheteIdentidadePrincipal(*req.BilheteIdentidade)
@@ -439,7 +462,6 @@ func AtualizarDadosPessoais(c *gin.Context) {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-		// Verifica se o bilhete pertence a OUTRO estudante
 		if existente != nil && existente.ID != userID {
 			utils.RespondWithValidationError(c, fmt.Errorf("bilhete de identidade já cadastrado"))
 			return
@@ -458,9 +480,11 @@ func AtualizarDadosPessoais(c *gin.Context) {
 		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
 		return
 	}
+
 	if err := estudante.AtualizarDadosPessoais(
 		req.Nome, req.Email, req.Telefone,
 		req.BilheteIdentidade, req.BilheteIdentidadeResp,
+		req.DataNascimento,
 	); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -527,7 +551,6 @@ func GetEstudantePorCodigo(c *gin.Context) {
 		return
 	}
 
-	// Academia só pode consultar seus próprios estudantes
 	if userType == "academia" {
 		userID, _ := middleware.GetUserID(c)
 		academiaProj := getAcademiaProjection(c)
@@ -594,6 +617,7 @@ func GetEstudantePorCodigo(c *gin.Context) {
 			"email_verificado":               estudante.EmailVerificado,
 			"bilhete_identidade":             estudante.BilheteIdentidade,
 			"bilhete_identidade_responsavel": estudante.BilheteIdentidadeResp,
+			"data_nascimento":                estudante.DataNascimento,
 			"codigo_academia":                estudante.CodigoAcademia,
 			"academia":                       academiaInfo,
 			"status":                         estudante.Status,

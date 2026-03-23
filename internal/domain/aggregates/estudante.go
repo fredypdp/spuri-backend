@@ -23,6 +23,7 @@ type Estudante struct {
 	Telefone                 *string
 	BilheteIdentidade        *string
 	BilheteIdentidadeResp    *string
+	DataNascimento           *time.Time
 	CodigoAcademia           *string
 	Status                   string
 	StatusEscolarFundamental string
@@ -38,20 +39,12 @@ type Estudante struct {
 	EmailVerificado          bool
 
 	// FIX E-04: mapa de aprovações por tipo+ano para detectar duplicatas
-	// em comandos subsequentes sem depender da projeção.
-	// Chave: "<tipoEnsino>_<anoLectivo>_<nivelAtual>"
 	AprovacoesPorAno map[string]bool
 
-	// FIX NOTA-AGG-01: mapa de notas registradas por chave composta para detectar
-	// duplicatas em RegistrarNota sem depender da projeção.
-	// Chave: "<anoLectivo>_<periodo>_<materiaID>_<tipo>_<categoria>"
-	// Deve coincidir com a constraint uq_nota_unica do banco.
+	// FIX NOTA-AGG-01: mapa de notas registradas por chave composta
 	NotasRegistradasPorChave map[string]bool
 
-	// FIX FALTA-AGG-01: mapa de faltas registradas por chave composta para detectar
-	// duplicatas em RegistrarFalta sem depender da projeção.
-	// Chave: "<anoLectivo>_<data AAAA-MM-DD>_<materiaID>"
-	// Corresponde à constraint UNIQUE(codigo_estudante, codigo_academia, data, materia_disciplinar_id).
+	// FIX FALTA-AGG-01: mapa de faltas registradas por chave composta
 	FaltasRegistradasPorChave map[string]bool
 }
 
@@ -118,8 +111,6 @@ func (e *Estudante) Apply(event DomainEvent) error {
 
 // ============================================================================
 // Eventos declarados neste arquivo
-// Nota: FaltasRegistradasEvent, FaltaAtualizadaEvent e FaltaDeletadaEvent
-//       estão declarados em estudante_falta.go.
 // ============================================================================
 
 type EstudanteCriadoComVinculoEvent struct {
@@ -131,6 +122,7 @@ type EstudanteCriadoComVinculoEvent struct {
 	Telefone                 *string
 	BilheteIdentidade        *string
 	BilheteIdentidadeResp    *string
+	DataNascimento           *time.Time
 	AnoEscolar               *string
 	AnoEscolarMedio          *string
 	AnoSuperior              *string
@@ -148,11 +140,6 @@ type EstudanteCriadoComVinculoEvent struct {
 func (e *EstudanteCriadoComVinculoEvent) GetPayload() interface{} { return e }
 func (e *EstudanteCriadoComVinculoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
-// StatusSuperiorAtualizadoEvent — atualização manual do ciclo superior.
-//
-// AtualizadoPor: UUID da academia que executou a operação.
-// Campo obrigatório para auditoria self-contained — permite rastrear quem
-// alterou o status sem inspecionar os metadados do ledger diretamente.
 type StatusSuperiorAtualizadoEvent struct {
 	BaseEvent
 	NovoStatus    string
@@ -170,6 +157,7 @@ type DadosPessoaisAtualizadosEvent struct {
 	Telefone              *string
 	BilheteIdentidade     *string
 	BilheteIdentidadeResp *string
+	DataNascimento        *time.Time
 	EmailAlterado         bool
 	UpdatedAt             time.Time
 }
@@ -200,7 +188,6 @@ type CursoAlteradoEvent struct {
 func (e *CursoAlteradoEvent) GetPayload() interface{} { return e }
 func (e *CursoAlteradoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
-// SenhaAlteradaEvent — evento de troca de senha do estudante.
 type SenhaAlteradaEvent struct {
 	BaseEvent
 	NovaSenhaHash string
@@ -210,8 +197,6 @@ type SenhaAlteradaEvent struct {
 func (e *SenhaAlteradaEvent) GetPayload() interface{} { return e }
 func (e *SenhaAlteradaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
-// EmailVerificadoEstudanteEvent — evento exclusivo do aggregate Estudante.
-// Nome distinto de "EmailVerificado" (Admin/Academia) para evitar ambiguidade.
 type EmailVerificadoEstudanteEvent struct {
 	BaseEvent
 	VerifiedAt time.Time
@@ -219,6 +204,23 @@ type EmailVerificadoEstudanteEvent struct {
 
 func (e *EmailVerificadoEstudanteEvent) GetPayload() interface{} { return e }
 func (e *EmailVerificadoEstudanteEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+// ============================================================================
+// validarDataNascimento — regra central: deve ser estritamente no passado.
+// Trunca para meia-noite para comparar apenas datas, não horas.
+// ============================================================================
+
+func validarDataNascimento(data *time.Time) error {
+	if data == nil {
+		return nil
+	}
+	hoje := time.Now().UTC().Truncate(24 * time.Hour)
+	dataNasc := data.UTC().Truncate(24 * time.Hour)
+	if !dataNasc.Before(hoje) {
+		return fmt.Errorf("data_nascimento deve ser anterior à data atual")
+	}
+	return nil
+}
 
 // ============================================================================
 // Comandos
@@ -232,6 +234,7 @@ func (e *Estudante) CriarComVinculo(
 	telefone *string,
 	bilhete *string,
 	bilheteResp *string,
+	dataNascimento *time.Time,
 	anoEscolar *string,
 	anoEscolarMedio *string,
 	anoSuperior *string,
@@ -251,11 +254,10 @@ func (e *Estudante) CriarComVinculo(
 		return fmt.Errorf("genero deve ser 'masculino' ou 'feminino'")
 	}
 
-	// Validar formato dos anos académicos quando fornecidos.
-	// Formatos canônicos:
-	//   - anoEscolar      → [1-9]_ano_fundamental  (ex.: 1_ano_fundamental)
-	//   - anoEscolarMedio → [n]_ano_medio           (ex.: 1_ano_medio)
-	//   - anoSuperior     → [n]_ano_superior         (ex.: 1_ano_superior)
+	if err := validarDataNascimento(dataNascimento); err != nil {
+		return err
+	}
+
 	if anoEscolar != nil && *anoEscolar != "" {
 		if err := utils.ValidateAnoFundamental(*anoEscolar); err != nil {
 			return fmt.Errorf("ano_escolar inválido: %w", err)
@@ -305,6 +307,7 @@ func (e *Estudante) CriarComVinculo(
 		Telefone:                 telefone,
 		BilheteIdentidade:        bilhete,
 		BilheteIdentidadeResp:    bilheteResp,
+		DataNascimento:           dataNascimento,
 		AnoEscolar:               anoEscolar,
 		AnoEscolarMedio:          anoEscolarMedio,
 		AnoSuperior:              anoSuperior,
@@ -353,10 +356,17 @@ func (e *Estudante) AtualizarDadosPessoais(
 	telefone *string,
 	bilheteIdentidade *string,
 	bilheteIdentidadeResp *string,
+	dataNascimento *time.Time,
 ) error {
-	if nome == nil && email == nil && telefone == nil && bilheteIdentidade == nil && bilheteIdentidadeResp == nil {
+	if nome == nil && email == nil && telefone == nil &&
+		bilheteIdentidade == nil && bilheteIdentidadeResp == nil && dataNascimento == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
+
+	if err := validarDataNascimento(dataNascimento); err != nil {
+		return err
+	}
+
 	emailAlterado := email != nil && (e.Email == nil || *e.Email != *email)
 	event := &DadosPessoaisAtualizadosEvent{
 		BaseEvent:             BaseEvent{EventType: "DadosPessoaisAtualizados", AggregateID: e.ID},
@@ -365,6 +375,7 @@ func (e *Estudante) AtualizarDadosPessoais(
 		Telefone:              telefone,
 		BilheteIdentidade:     bilheteIdentidade,
 		BilheteIdentidadeResp: bilheteIdentidadeResp,
+		DataNascimento:        dataNascimento,
 		EmailAlterado:         emailAlterado,
 		UpdatedAt:             time.Now(),
 	}
@@ -372,12 +383,6 @@ func (e *Estudante) AtualizarDadosPessoais(
 	return e.Apply(event)
 }
 
-// AtualizarDadosAcademicos atualiza campos académicos do estudante.
-//
-// Formatos canônicos validados:
-//   - anoEscolar      → [1-9]_ano_fundamental  (ex.: 1_ano_fundamental)
-//   - anoEscolarMedio → [n]_ano_medio           (ex.: 1_ano_medio)
-//   - anoSuperior     → [n]_ano_superior         (ex.: 1_ano_superior)
 func (e *Estudante) AtualizarDadosAcademicos(
 	anoEscolar *string,
 	anoEscolarMedio *string,
@@ -385,7 +390,8 @@ func (e *Estudante) AtualizarDadosAcademicos(
 	cursoMedioID *uuid.UUID,
 	cursoSuperiorID *uuid.UUID,
 ) error {
-	if anoEscolar == nil && anoEscolarMedio == nil && anoSuperior == nil && cursoMedioID == nil && cursoSuperiorID == nil {
+	if anoEscolar == nil && anoEscolarMedio == nil && anoSuperior == nil &&
+		cursoMedioID == nil && cursoSuperiorID == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
 
@@ -455,9 +461,6 @@ func (e *Estudante) AtualizarStatusSuperior(novoStatus string, atualizadoPor uui
 	}
 
 	if novoStatus == "em_andamento" || novoStatus == "finalizado" {
-		// Só bloqueia se o ciclo existe (não-inativo) mas ainda não foi concluído.
-		// Estudantes com fundamental/médio = "inativo" são de percurso superior
-		// puro e não são bloqueados.
 		if e.StatusEscolarFundamental != "inativo" && e.StatusEscolarFundamental != "finalizado" {
 			return fmt.Errorf(
 				"status_superior só pode avançar se status_escolar_fundamental estiver 'finalizado' ou 'inativo' (atual: '%s')",
@@ -527,7 +530,6 @@ func (e *Estudante) RegistrarAprovacaoAno(
 		return fmt.Errorf("estudante não pertence a esta academia")
 	}
 
-	// FIX E-04: detectar duplicata via estado do aggregate
 	chave := tipoEnsino + "_" + anoLectivo + "_" + nivelAtual
 	if e.AprovacoesPorAno != nil && e.AprovacoesPorAno[chave] {
 		return fmt.Errorf(
@@ -572,6 +574,7 @@ func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
 	e.Telefone = ev.Telefone
 	e.BilheteIdentidade = ev.BilheteIdentidade
 	e.BilheteIdentidadeResp = ev.BilheteIdentidadeResp
+	e.DataNascimento = ev.DataNascimento
 	e.AnoEscolar = ev.AnoEscolar
 	e.AnoEscolarMedio = ev.AnoEscolarMedio
 	e.AnoSuperior = ev.AnoSuperior
@@ -606,7 +609,6 @@ func (e *Estudante) applyAprovacaoAnoRegistrada(event DomainEvent) error {
 		return fmt.Errorf("applyAprovacaoAnoRegistrada: unmarshal error: %w", err)
 	}
 
-	// FIX E-04: registrar no mapa de aprovações para dedup
 	if e.AprovacoesPorAno == nil {
 		e.AprovacoesPorAno = make(map[string]bool)
 	}
@@ -683,6 +685,9 @@ func (e *Estudante) applyDadosPessoaisAtualizados(event DomainEvent) error {
 	}
 	if ev.BilheteIdentidadeResp != nil {
 		e.BilheteIdentidadeResp = ev.BilheteIdentidadeResp
+	}
+	if ev.DataNascimento != nil {
+		e.DataNascimento = ev.DataNascimento
 	}
 	return nil
 }
