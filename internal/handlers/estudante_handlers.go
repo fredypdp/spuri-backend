@@ -155,12 +155,24 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 
 	var anoEscolarPtr, anoEscolarMedioPtr, anoSuperiorPtr *string
 	if req.AnoEscolar != "" {
+		if err := utils.ValidateAnoFundamental(req.AnoEscolar); err != nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("ano_escolar inválido: %w", err))
+			return
+		}
 		anoEscolarPtr = &req.AnoEscolar
 	}
 	if req.AnoEscolarMedio != "" {
+		if err := utils.ValidateAnoMedio(req.AnoEscolarMedio); err != nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("ano_escolar_medio inválido: %w", err))
+			return
+		}
 		anoEscolarMedioPtr = &req.AnoEscolarMedio
 	}
 	if req.AnoSuperior != "" {
+		if err := utils.ValidateAnoSuperior(req.AnoSuperior); err != nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("ano_superior inválido: %w", err))
+			return
+		}
 		anoSuperiorPtr = &req.AnoSuperior
 	}
 
@@ -441,7 +453,11 @@ func AtualizarDadosPessoais(c *gin.Context) {
 		return
 	}
 
-	estudante := estudanteAgg.(*aggregates.Estudante)
+	estudante, ok := estudanteAgg.(*aggregates.Estudante)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
 	if err := estudante.AtualizarDadosPessoais(
 		req.Nome, req.Email, req.Telefone,
 		req.BilheteIdentidade, req.BilheteIdentidadeResp,

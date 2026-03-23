@@ -143,7 +143,11 @@ func RegistrarNota(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	estudante := estudanteAgg.(*aggregates.Estudante)
+	estudante, ok := estudanteAgg.(*aggregates.Estudante)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
 
 	err = estudante.RegistrarNota(
 		academiaDTO.CodigoAcademia,
@@ -296,7 +300,11 @@ func AtualizarNota(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	estudante := estudanteAgg.(*aggregates.Estudante)
+	estudante, ok := estudanteAgg.(*aggregates.Estudante)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
 
 	if err := estudante.AtualizarNota(
 		academiaDTO.CodigoAcademia,
@@ -392,7 +400,11 @@ func DeletarNota(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	estudante := estudanteAgg.(*aggregates.Estudante)
+	estudante, ok := estudanteAgg.(*aggregates.Estudante)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
 
 	if err := estudante.DeletarNota(academiaDTO.CodigoAcademia, notaID, req.Motivo, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -497,7 +509,11 @@ func CriarCategoriaNota(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	academia := agg.(*aggregates.Academia)
+	academia, ok := agg.(*aggregates.Academia)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
 
 	if err := academia.AdicionarCategoriaNota(req.Nome, req.Descricao, userID, categoriasExistentes); err != nil {
 		utils.RespondWithValidationError(c, err)

@@ -173,7 +173,11 @@ func AtivarMateria(c *gin.Context) {
 		return
 	}
 
-	materia := materiaAgg.(*aggregates.MateriaDisciplinar)
+	materia, ok := materiaAgg.(*aggregates.MateriaDisciplinar)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
 	if err := materia.Ativar(userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -227,7 +231,11 @@ func DesativarMateria(c *gin.Context) {
 		return
 	}
 
-	materia := materiaAgg.(*aggregates.MateriaDisciplinar)
+	materia, ok := materiaAgg.(*aggregates.MateriaDisciplinar)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
 
 	if err := materia.Desativar(userID); err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -294,7 +302,11 @@ func AtualizarDadosMateria(c *gin.Context) {
 		return
 	}
 
-	materia := materiaAgg.(*aggregates.MateriaDisciplinar)
+	materia, ok := materiaAgg.(*aggregates.MateriaDisciplinar)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
 	// FIX: assinatura corrigida — AtualizarDados(nome, anosAcademicos, cursoID).
 	// Handler atualiza apenas o nome; os demais campos permanecem inalterados.
 	if err := materia.AtualizarDados(req.Nome, nil, nil, userID); err != nil {
@@ -385,7 +397,11 @@ func DefinirPeriodoMateria(c *gin.Context) {
 		return
 	}
 
-	materia := materiaAgg.(*aggregates.MateriaDisciplinar)
+	materia, ok := materiaAgg.(*aggregates.MateriaDisciplinar)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
 
 	if err := materia.DefinirPeriodo(req.Periodo, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -447,7 +463,11 @@ func DeletarMateria(c *gin.Context) {
 		return
 	}
 
-	materia := materiaAgg.(*aggregates.MateriaDisciplinar)
+	materia, ok := materiaAgg.(*aggregates.MateriaDisciplinar)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
 
 	// FIX: Deletar agora requer (deletadoPor uuid.UUID, motivo string).
 	if err := materia.Deletar(userID, ""); err != nil {

@@ -159,7 +159,11 @@ func registrarAcaoAdmin(c *gin.Context, adminID uuid.UUID, acao string, detalhes
 		log.Printf("[WARN] registrarAcaoAdmin: falha ao carregar admin %s: %v", adminID, err)
 		return
 	}
-	admin := agg.(*aggregates.Admin)
+	admin, ok := agg.(*aggregates.Admin)
+	if !ok {
+		log.Printf("[WARN] registrarAcaoAdmin: tipo de aggregate inesperado para admin %s", adminID)
+		return
+	}
 
 	if err := admin.RegistrarAcao(acao, detalhes); err != nil {
 		log.Printf("[WARN] registrarAcaoAdmin: falha ao registar ação '%s' para admin %s: %v", acao, adminID, err)

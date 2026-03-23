@@ -66,7 +66,11 @@ func AlterarSenha(c *gin.Context) {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-		admin := adminAgg.(*aggregates.Admin)
+		admin, ok := adminAgg.(*aggregates.Admin)
+		if !ok {
+			utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+			return
+		}
 
 		if err := admin.AlterarSenha(string(hashedPassword), uid, "alteracao_usuario"); err != nil {
 			utils.RespondWithInternalError(c, err)
@@ -116,7 +120,11 @@ func AlterarSenha(c *gin.Context) {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-		academia := academiaAgg.(*aggregates.Academia)
+		academia, ok := academiaAgg.(*aggregates.Academia)
+		if !ok {
+			utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+			return
+		}
 
 		if err := academia.AlterarSenha(string(hashedPassword), uid, "alteracao_usuario"); err != nil {
 			utils.RespondWithInternalError(c, err)
@@ -176,7 +184,11 @@ func AlterarSenha(c *gin.Context) {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-		estudante := estudanteAgg.(*aggregates.Estudante)
+		estudante, ok := estudanteAgg.(*aggregates.Estudante)
+		if !ok {
+			utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+			return
+		}
 
 		if err := estudante.AlterarSenha(string(hashedPassword)); err != nil {
 			utils.RespondWithInternalError(c, err)

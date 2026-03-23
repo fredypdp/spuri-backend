@@ -154,7 +154,11 @@ func AtualizarDadosCurso(c *gin.Context) {
 		return
 	}
 
-	curso := cursoAgg.(*aggregates.Curso)
+	curso, ok := cursoAgg.(*aggregates.Curso)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
 
 	if err := curso.AtualizarDados(req.Nome, req.AnosAcademicos, req.Periodos, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -270,7 +274,11 @@ func DesativarCurso(c *gin.Context) {
 		return
 	}
 
-	curso := cursoAgg.(*aggregates.Curso)
+	curso, ok := cursoAgg.(*aggregates.Curso)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
 
 	if err := curso.Desativar(userID); err != nil {
 		utils.RespondWithValidationError(c, err)

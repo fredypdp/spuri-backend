@@ -507,7 +507,7 @@ func validarAnosAcademicos(tipo string, nivelEscolar *string, anos []string) ([]
 		if len(anos) == 0 {
 			return nil, fmt.Errorf(
 				"escolas de nivel_escolar '%s' devem definir anos_academicos. "+
-					"Informe ao menos um ano (ex: 1_fundamental, 2_fundamental, etc.)",
+					"Informe ao menos um ano (ex: 1_ano_fundamental, 2_ano_fundamental, etc.)",
 				*nivelEscolar,
 			)
 		}

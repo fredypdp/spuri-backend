@@ -45,6 +45,43 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		return
 	}
 
+	// Validar formato de ano académico conforme o tipo de ensino
+	switch req.TipoEnsino {
+	case "fundamental":
+		if err := utils.ValidateAnoFundamental(req.AnoAcademicoAtual); err != nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("nivel_ano_academico_atual inválido: %w", err))
+			return
+		}
+		if req.ProximoAnoAcademico != nil {
+			if err := utils.ValidateAnoFundamental(*req.ProximoAnoAcademico); err != nil {
+				utils.RespondWithValidationError(c, fmt.Errorf("proximo_ano_academico inválido: %w", err))
+				return
+			}
+		}
+	case "medio":
+		if err := utils.ValidateAnoMedio(req.AnoAcademicoAtual); err != nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("nivel_ano_academico_atual inválido: %w", err))
+			return
+		}
+		if req.ProximoAnoAcademico != nil {
+			if err := utils.ValidateAnoMedio(*req.ProximoAnoAcademico); err != nil {
+				utils.RespondWithValidationError(c, fmt.Errorf("proximo_ano_academico inválido: %w", err))
+				return
+			}
+		}
+	case "superior":
+		if err := utils.ValidateAnoSuperior(req.AnoAcademicoAtual); err != nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("nivel_ano_academico_atual inválido: %w", err))
+			return
+		}
+		if req.ProximoAnoAcademico != nil {
+			if err := utils.ValidateAnoSuperior(*req.ProximoAnoAcademico); err != nil {
+				utils.RespondWithValidationError(c, fmt.Errorf("proximo_ano_academico inválido: %w", err))
+				return
+			}
+		}
+	}
+
 	if !req.Aprovado && req.ProximoAnoAcademico != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("estudante reprovado não deve ter proximo_ano_academico definido"))
 		return

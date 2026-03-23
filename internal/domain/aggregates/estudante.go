@@ -3,6 +3,7 @@ package aggregates
 import (
 	"encoding/json"
 	"fmt"
+	"spuri/internal/utils"
 	"time"
 
 	"github.com/google/uuid"
@@ -250,6 +251,27 @@ func (e *Estudante) CriarComVinculo(
 		return fmt.Errorf("genero deve ser 'masculino' ou 'feminino'")
 	}
 
+	// Validar formato dos anos académicos quando fornecidos.
+	// Formatos canônicos:
+	//   - anoEscolar      → [1-9]_ano_fundamental  (ex.: 1_ano_fundamental)
+	//   - anoEscolarMedio → [n]_ano_medio           (ex.: 1_ano_medio)
+	//   - anoSuperior     → [n]_ano_superior         (ex.: 1_ano_superior)
+	if anoEscolar != nil && *anoEscolar != "" {
+		if err := utils.ValidateAnoFundamental(*anoEscolar); err != nil {
+			return fmt.Errorf("ano_escolar inválido: %w", err)
+		}
+	}
+	if anoEscolarMedio != nil && *anoEscolarMedio != "" {
+		if err := utils.ValidateAnoMedio(*anoEscolarMedio); err != nil {
+			return fmt.Errorf("ano_escolar_medio inválido: %w", err)
+		}
+	}
+	if anoSuperior != nil && *anoSuperior != "" {
+		if err := utils.ValidateAnoSuperior(*anoSuperior); err != nil {
+			return fmt.Errorf("ano_superior inválido: %w", err)
+		}
+	}
+
 	statusFund := "em_andamento"
 	statusMed := "inativo"
 	statusSup := "inativo"
@@ -350,6 +372,12 @@ func (e *Estudante) AtualizarDadosPessoais(
 	return e.Apply(event)
 }
 
+// AtualizarDadosAcademicos atualiza campos académicos do estudante.
+//
+// Formatos canônicos validados:
+//   - anoEscolar      → [1-9]_ano_fundamental  (ex.: 1_ano_fundamental)
+//   - anoEscolarMedio → [n]_ano_medio           (ex.: 1_ano_medio)
+//   - anoSuperior     → [n]_ano_superior         (ex.: 1_ano_superior)
 func (e *Estudante) AtualizarDadosAcademicos(
 	anoEscolar *string,
 	anoEscolarMedio *string,
@@ -360,6 +388,23 @@ func (e *Estudante) AtualizarDadosAcademicos(
 	if anoEscolar == nil && anoEscolarMedio == nil && anoSuperior == nil && cursoMedioID == nil && cursoSuperiorID == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
+
+	if anoEscolar != nil && *anoEscolar != "" {
+		if err := utils.ValidateAnoFundamental(*anoEscolar); err != nil {
+			return fmt.Errorf("ano_escolar inválido: %w", err)
+		}
+	}
+	if anoEscolarMedio != nil && *anoEscolarMedio != "" {
+		if err := utils.ValidateAnoMedio(*anoEscolarMedio); err != nil {
+			return fmt.Errorf("ano_escolar_medio inválido: %w", err)
+		}
+	}
+	if anoSuperior != nil && *anoSuperior != "" {
+		if err := utils.ValidateAnoSuperior(*anoSuperior); err != nil {
+			return fmt.Errorf("ano_superior inválido: %w", err)
+		}
+	}
+
 	event := &DadosAcademicosAtualizadosEvent{
 		BaseEvent:       BaseEvent{EventType: "DadosAcademicosAtualizados", AggregateID: e.ID},
 		AnoEscolar:      anoEscolar,

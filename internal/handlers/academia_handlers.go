@@ -84,7 +84,7 @@ func RegisterAcademia(c *gin.Context) {
 			if len(req.AnosAcademicos) == 0 {
 				utils.RespondWithValidationError(c, fmt.Errorf(
 					"escolas de nivel_escolar '%s' devem definir anos_academicos "+
-						"(ex: 1_fundamental, 2_fundamental, ...)",
+						"(ex: 1_ano_fundamental, 2_ano_fundamental, ...)",
 					nivel,
 				))
 				return
@@ -212,7 +212,7 @@ func AtualizarDadosAcademia(c *gin.Context) {
 			if len(req.AnosAcademicos) == 0 {
 				utils.RespondWithValidationError(c, fmt.Errorf(
 					"escolas de nivel_escolar '%s' devem definir anos_academicos "+
-						"(ex: 1_fundamental, 2_fundamental, ...)",
+						"(ex: 1_ano_fundamental, 2_ano_fundamental, ...)",
 					nivel,
 				))
 				return

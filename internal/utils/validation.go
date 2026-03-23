@@ -316,10 +316,13 @@ func isAnoComSufixo(ano, sufixo string) bool {
 	return err == nil && n >= 1
 }
 
-// ValidateAnosFundamental valida que todos os itens seguem o formato [1-9]_fundamental.
+// ValidateAnosFundamental valida que todos os itens seguem o formato
+// [1-9]_ano_fundamental.
 //
-// Valores aceitos: "1_fundamental" … "9_fundamental".
+// Exemplos aceitos: "1_ano_fundamental", "9_ano_fundamental".
 // Números fora do intervalo 1–9 são rejeitados (o ensino fundamental tem 9 anos).
+//
+// FORMATO CANÔNICO: [número]_ano_fundamental
 func ValidateAnosFundamental(anos []string) error {
 	seen := make(map[string]bool, len(anos))
 	for i, ano := range anos {
@@ -332,20 +335,20 @@ func ValidateAnosFundamental(anos []string) error {
 		}
 		seen[trimmed] = true
 
-		// Valida formato [n]_fundamental com n no intervalo 1–9
-		if !strings.HasSuffix(trimmed, "_fundamental") {
+		// Valida formato [n]_ano_fundamental com n no intervalo 1–9
+		if !strings.HasSuffix(trimmed, "_ano_fundamental") {
 			return fmt.Errorf(
 				"ano '%s' inválido para o ensino fundamental. "+
-					"Formato esperado: [1-9]_fundamental (ex.: 1_fundamental, 9_fundamental)",
+					"Formato esperado: [1-9]_ano_fundamental (ex.: 1_ano_fundamental, 9_ano_fundamental)",
 				trimmed,
 			)
 		}
-		numStr := strings.TrimSuffix(trimmed, "_fundamental")
+		numStr := strings.TrimSuffix(trimmed, "_ano_fundamental")
 		n, err := strconv.Atoi(numStr)
 		if err != nil || n < 1 || n > 9 {
 			return fmt.Errorf(
 				"ano '%s' inválido para o ensino fundamental. "+
-					"O número deve ser entre 1 e 9 (ex.: 1_fundamental … 9_fundamental)",
+					"O número deve ser entre 1 e 9 (ex.: 1_ano_fundamental … 9_ano_fundamental)",
 				trimmed,
 			)
 		}
@@ -357,10 +360,14 @@ func ValidateAnosFundamental(anos []string) error {
 // ValidateAnosCurso valida os anos_academicos de um curso de médio ou superior.
 //
 // Os anos são definidos dinamicamente pela academia, mas devem seguir o formato:
-//   - tipo="medio":    [n]_medio    (ex.: 1_medio, 2_medio, 3_medio) — n inteiro ≥ 1
-//   - tipo="superior": [n]_superior (ex.: 1_superior, 2_superior)    — n inteiro ≥ 1
+//   - tipo="medio":    [n]_ano_medio    (ex.: 1_ano_medio, 2_ano_medio, 3_ano_medio)
+//   - tipo="superior": [n]_ano_superior (ex.: 1_ano_superior, 2_ano_superior)
 //
 // A quantidade de anos é livre (a academia define quantos anos o curso tem).
+//
+// FORMATO CANÔNICO:
+//   - médio:    [número]_ano_medio
+//   - superior: [número]_ano_superior
 func ValidateAnosCurso(tipo string, anos []string) error {
 	if tipo != "medio" && tipo != "superior" {
 		return fmt.Errorf("tipo deve ser 'medio' ou 'superior'; para fundamental use ValidateAnosFundamental")
@@ -370,7 +377,8 @@ func ValidateAnosCurso(tipo string, anos []string) error {
 		return fmt.Errorf("o curso deve ter pelo menos um ano definido em anos_academicos")
 	}
 
-	sufixo := tipo // "medio" ou "superior"
+	// sufixo canônico: "ano_medio" ou "ano_superior"
+	sufixo := "ano_" + tipo // "ano_medio" ou "ano_superior"
 	seen := make(map[string]bool, len(anos))
 	for i, n := range anos {
 		trimmed := strings.TrimSpace(n)
@@ -405,9 +413,14 @@ func ValidateNivelCurso(tipo string, nivel []string) error {
 // ValidateAnosMateria valida o campo anos_academicos de uma MatériaDisciplinar.
 //
 // Regras:
-//   - fundamental: 1 a 9 itens, todos no formato [1-9]_fundamental.
-//   - medio:        exatamente 1 item no formato [n]_medio (ano do curso da matéria).
-//   - superior:     exatamente 1 item no formato [n]_superior (ano do curso da matéria).
+//   - fundamental: 1 a 9 itens, todos no formato [1-9]_ano_fundamental.
+//   - medio:        exatamente 1 item no formato [n]_ano_medio.
+//   - superior:     exatamente 1 item no formato [n]_ano_superior.
+//
+// FORMATOS CANÔNICOS:
+//   - fundamental: [número]_ano_fundamental
+//   - medio:       [número]_ano_medio
+//   - superior:    [número]_ano_superior
 func ValidateAnosMateria(tipo string, anos []string) error {
 	switch tipo {
 	case "fundamental":
@@ -427,11 +440,13 @@ func ValidateAnosMateria(tipo string, anos []string) error {
 		if trimmed == "" {
 			return fmt.Errorf("o ano acadêmico da matéria não pode ser vazio")
 		}
-		if !isAnoComSufixo(trimmed, tipo) {
+		// sufixo canônico: "ano_medio" ou "ano_superior"
+		sufixo := "ano_" + tipo
+		if !isAnoComSufixo(trimmed, sufixo) {
 			return fmt.Errorf(
 				"ano '%s' inválido para matéria do tipo '%s'. "+
 					"Formato esperado: [número]_%s (ex.: 1_%s, 2_%s)",
-				trimmed, tipo, tipo, tipo, tipo,
+				trimmed, tipo, sufixo, sufixo, sufixo,
 			)
 		}
 		return nil
@@ -439,4 +454,54 @@ func ValidateAnosMateria(tipo string, anos []string) error {
 	default:
 		return fmt.Errorf("tipo de matéria inválido: '%s'. Use: fundamental, medio ou superior", tipo)
 	}
+}
+
+// ValidateAnoFundamental valida um único ano do ensino fundamental.
+// Aceita: "1_ano_fundamental" … "9_ano_fundamental".
+// Útil para validar nivel_atual / proximo_nivel no contexto de aprovações.
+func ValidateAnoFundamental(ano string) error {
+	trimmed := strings.TrimSpace(ano)
+	if !strings.HasSuffix(trimmed, "_ano_fundamental") {
+		return fmt.Errorf(
+			"'%s' inválido: formato esperado [1-9]_ano_fundamental (ex.: 1_ano_fundamental)",
+			ano,
+		)
+	}
+	numStr := strings.TrimSuffix(trimmed, "_ano_fundamental")
+	n, err := strconv.Atoi(numStr)
+	if err != nil || n < 1 || n > 9 {
+		return fmt.Errorf(
+			"'%s' inválido: número deve ser entre 1 e 9 (ex.: 1_ano_fundamental … 9_ano_fundamental)",
+			ano,
+		)
+	}
+	return nil
+}
+
+// ValidateAnoMedio valida um único ano do ensino médio.
+// Aceita: "[n]_ano_medio" com n inteiro ≥ 1.
+// Útil para validar nivel_atual / proximo_nivel no contexto de aprovações.
+func ValidateAnoMedio(ano string) error {
+	trimmed := strings.TrimSpace(ano)
+	if !isAnoComSufixo(trimmed, "ano_medio") {
+		return fmt.Errorf(
+			"'%s' inválido: formato esperado [número]_ano_medio (ex.: 1_ano_medio, 2_ano_medio)",
+			ano,
+		)
+	}
+	return nil
+}
+
+// ValidateAnoSuperior valida um único ano do ensino superior.
+// Aceita: "[n]_ano_superior" com n inteiro ≥ 1.
+// Útil para validar nivel_atual / proximo_nivel no contexto de aprovações.
+func ValidateAnoSuperior(ano string) error {
+	trimmed := strings.TrimSpace(ano)
+	if !isAnoComSufixo(trimmed, "ano_superior") {
+		return fmt.Errorf(
+			"'%s' inválido: formato esperado [número]_ano_superior (ex.: 1_ano_superior, 2_ano_superior)",
+			ano,
+		)
+	}
+	return nil
 }
