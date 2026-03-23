@@ -25,13 +25,14 @@ var validEventTypes = map[string]bool{
 	"AvaliacaoFinalAnoAcademico": true,
 
 	// ── Academia ─────────────────────────────────────────────────────────────
-	"AcademiaCriada":           true,
-	"AcademiaAtivada":          true,
-	"AcademiaDesativada":       true,
-	"AcademiaDadosAtualizados": true,
-	"CursosAtualizados":        true,
-	"AcademiaSenhaAlterada":    true,
-	"CategoriaNotaAdicionada":  true,
+	"AcademiaCriada":              true,
+	"AcademiaAtivada":             true,
+	"AcademiaDesativada":          true,
+	"AcademiaDadosAtualizados":    true,
+	"CursosAtualizados":           true,
+	"AcademiaSenhaAlterada":       true,
+	"CategoriaNotaAdicionada":     true,
+	"AnoLetivoAcademiaDefinido":   true,
 	// ── Email Academia / Admin (compartilhado) ───────────────────────────────
 	"EmailVerificado": true,
 	// ── Admin ────────────────────────────────────────────────────────────────
