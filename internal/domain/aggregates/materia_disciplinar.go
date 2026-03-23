@@ -99,16 +99,13 @@ func (e *MateriaDesativadaEvent) ToJSON() ([]byte, error) { return json.Marshal(
 // MateriaDadosAtualizadosEvent — FIX M-02: campos AnosAcademicos, CursoID e
 // AtualizadoPor adicionados para rebuild fiel e auditoria self-contained.
 // Campos são ponteiros/nil-safe para eventos legados sem esses campos.
-// Etapa 4 deve preencher AtualizadoPor no handler de atualização.
 type MateriaDadosAtualizadosEvent struct {
 	BaseEvent
 	Nome           *string
-	// FIX M-02: campos adicionais para rebuild completo.
 	AnosAcademicos []string   // nil = não alterar
 	CursoID        *uuid.UUID // nil = não alterar
 	UpdatedAt      time.Time
-	// FIX M-02: UUID do usuário que atualizou. uuid.Nil = legado/não preenchido.
-	AtualizadoPor uuid.UUID
+	AtualizadoPor  uuid.UUID
 }
 
 func (e *MateriaDadosAtualizadosEvent) GetPayload() interface{} { return e }
@@ -117,9 +114,9 @@ func (e *MateriaDadosAtualizadosEvent) ToJSON() ([]byte, error) { return json.Ma
 // MateriaPeriodoDefinidoEvent — define o período de uma matéria superior.
 type MateriaPeriodoDefinidoEvent struct {
 	BaseEvent
-	Periodo   string
+	Periodo     string
 	DefinidoPor uuid.UUID
-	UpdatedAt time.Time
+	UpdatedAt   time.Time
 }
 
 func (e *MateriaPeriodoDefinidoEvent) GetPayload() interface{} { return e }
@@ -151,8 +148,9 @@ func (m *MateriaDisciplinar) Criar(
 	if nome == "" {
 		return fmt.Errorf("nome é obrigatório")
 	}
-	if tipo != "escolar" && tipo != "superior" {
-		return fmt.Errorf("tipo deve ser 'escolar' ou 'superior'")
+	// FIX: aceita "fundamental", "medio" e "superior" (era "escolar" e "superior")
+	if tipo != "fundamental" && tipo != "medio" && tipo != "superior" {
+		return fmt.Errorf("tipo deve ser 'fundamental', 'medio' ou 'superior'")
 	}
 	if codigoAcademia == "" {
 		return fmt.Errorf("codigo_academia é obrigatório")
@@ -168,7 +166,7 @@ func (m *MateriaDisciplinar) Criar(
 		AnosAcademicos: anosAcademicos,
 		CodigoAcademia: codigoAcademia,
 		CursoID:        cursoID,
-		CriadoPor: criadoPor,
+		CriadoPor:      criadoPor,
 		CreatedAt:      time.Now(),
 	}
 	m.RaiseEvent(event)
@@ -203,7 +201,6 @@ func (m *MateriaDisciplinar) Desativar(desativadoPor uuid.UUID) error {
 
 // AtualizarDados atualiza nome e/ou anos_academicos da matéria.
 // FIX M-02: aceita também CursoID e AtualizadoPor.
-// Etapa 4 deve preencher atualizadoPor no handler.
 func (m *MateriaDisciplinar) AtualizarDados(nome *string, anosAcademicos []string, cursoID *uuid.UUID, atualizadoPor uuid.UUID) error {
 	if nome == nil && anosAcademicos == nil && cursoID == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
@@ -215,7 +212,7 @@ func (m *MateriaDisciplinar) AtualizarDados(nome *string, anosAcademicos []strin
 		AnosAcademicos: anosAcademicos,
 		CursoID:        cursoID,
 		UpdatedAt:      time.Now(),
-		AtualizadoPor:  atualizadoPor, // Etapa 4 deve preencher
+		AtualizadoPor:  atualizadoPor,
 	}
 	m.RaiseEvent(event)
 	return m.Apply(event)
@@ -230,10 +227,10 @@ func (m *MateriaDisciplinar) DefinirPeriodo(periodo string, definidoPor uuid.UUI
 	}
 
 	event := &MateriaPeriodoDefinidoEvent{
-		BaseEvent: BaseEvent{EventType: "MateriaPeriodoDefinido", AggregateID: m.ID},
-		Periodo:   periodo,
+		BaseEvent:   BaseEvent{EventType: "MateriaPeriodoDefinido", AggregateID: m.ID},
+		Periodo:     periodo,
 		DefinidoPor: definidoPor,
-		UpdatedAt: time.Now(),
+		UpdatedAt:   time.Now(),
 	}
 	m.RaiseEvent(event)
 	return m.Apply(event)
@@ -273,7 +270,13 @@ func (m *MateriaDisciplinar) applyMateriaCriada(event DomainEvent) error {
 	m.AnosAcademicos = ev.AnosAcademicos
 	m.CodigoAcademia = ev.CodigoAcademia
 	m.CursoID = ev.CursoID
-	m.Status = "ativo"
+	// Matérias superior nascem inativas (requerem DefinirPeriodo + Ativar).
+	// Fundamental e médio nascem ativas.
+	if ev.Type == "superior" {
+		m.Status = "inativo"
+	} else {
+		m.Status = "ativo"
+	}
 	m.CreatedAt = ev.CreatedAt
 	return nil
 }
@@ -300,7 +303,6 @@ func (m *MateriaDisciplinar) applyMateriaDadosAtualizados(event DomainEvent) err
 	if ev.Nome != nil {
 		m.Nome = *ev.Nome
 	}
-	// FIX M-02: aplicar campos adicionais quando presentes
 	if ev.AnosAcademicos != nil {
 		m.AnosAcademicos = ev.AnosAcademicos
 	}
