@@ -21,14 +21,12 @@ func AlterarSenha(c *gin.Context) {
 
 	var req struct {
 		SenhaAtual string `json:"senha_atual" binding:"required"`
-		NovaSenha  string `json:"nova_senha" binding:"required"`
+		NovaSenha  string `json:"nova_senha"  binding:"required"`
 	}
-
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("senha_atual e nova_senha são obrigatórios"))
 		return
 	}
-
 	if err := utils.ValidateSenha(req.NovaSenha); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -37,25 +35,21 @@ func AlterarSenha(c *gin.Context) {
 	// ── Admin ──────────────────────────────────────────────────────────────
 	if userType == "admin" {
 		uid := userID.(uuid.UUID)
-
 		adminProj := getAdminProjection(c)
 		adminDTO, err := adminProj.GetByID(uid)
 		if err != nil || adminDTO == nil {
 			utils.RespondWithNotFoundError(c, "administrador")
 			return
 		}
-
 		if err := bcrypt.CompareHashAndPassword([]byte(adminDTO.SenhaHash), []byte(req.SenhaAtual)); err != nil {
 			utils.RespondWithUnauthorizedError(c)
 			return
 		}
-
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NovaSenha), bcrypt.DefaultCost)
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-
 		repository := getRepository(c)
 		adminAgg, err := repository.Load(uid, "Admin")
 		if err != nil {
@@ -67,22 +61,15 @@ func AlterarSenha(c *gin.Context) {
 			utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
 			return
 		}
-
 		if err := admin.AlterarSenha(string(hashedPassword), uid, "alteracao_usuario"); err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-
-		audit := db.AuditContext{
-			UserID:   uid.String(),
-			UserType: "admin",
-			IP:       c.ClientIP(),
-		}
+		audit := db.AuditContext{UserID: uid.String(), UserType: "admin", IP: c.ClientIP()}
 		if err := repository.SaveWithAudit(admin, audit); err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-
 		log.Printf("Senha alterada (event sourcing) para admin: %v", uid)
 		c.JSON(http.StatusOK, gin.H{"message": "Senha alterada com sucesso!"})
 		return
@@ -91,25 +78,21 @@ func AlterarSenha(c *gin.Context) {
 	// ── Academia ───────────────────────────────────────────────────────────
 	if userType == "academia" {
 		uid := userID.(uuid.UUID)
-
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, err := academiaProj.GetByID(uid)
 		if err != nil || academiaDTO == nil {
 			utils.RespondWithNotFoundError(c, "academia")
 			return
 		}
-
 		if err := bcrypt.CompareHashAndPassword([]byte(academiaDTO.SenhaHash), []byte(req.SenhaAtual)); err != nil {
 			utils.RespondWithUnauthorizedError(c)
 			return
 		}
-
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NovaSenha), bcrypt.DefaultCost)
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-
 		repository := getRepository(c)
 		academiaAgg, err := repository.Load(uid, "Academia")
 		if err != nil {
@@ -121,22 +104,15 @@ func AlterarSenha(c *gin.Context) {
 			utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
 			return
 		}
-
 		if err := academia.AlterarSenha(string(hashedPassword), uid, "alteracao_usuario"); err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-
-		audit := db.AuditContext{
-			UserID:   uid.String(),
-			UserType: "academia",
-			IP:       c.ClientIP(),
-		}
+		audit := db.AuditContext{UserID: uid.String(), UserType: "academia", IP: c.ClientIP()}
 		if err := repository.SaveWithAudit(academia, audit); err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-
 		log.Printf("Senha alterada (event sourcing) para academia: %v", uid)
 		c.JSON(http.StatusOK, gin.H{"message": "Senha alterada com sucesso!"})
 		return
@@ -145,30 +121,25 @@ func AlterarSenha(c *gin.Context) {
 	// ── Estudante ──────────────────────────────────────────────────────────
 	if userType == "estudante" {
 		uid := userID.(uuid.UUID)
-
 		estudanteProj := getEstudanteProjection(c)
 		estudanteAuth, err := estudanteProj.GetAuthByID(uid)
 		if err != nil || estudanteAuth == nil {
 			utils.RespondWithNotFoundError(c, "estudante")
 			return
 		}
-
 		if estudanteAuth.Status != "ativo" {
 			utils.RespondWithForbiddenError(c, "conta inativa. Não é possível alterar a senha.")
 			return
 		}
-
 		if err := bcrypt.CompareHashAndPassword([]byte(estudanteAuth.Hash), []byte(req.SenhaAtual)); err != nil {
 			utils.RespondWithUnauthorizedError(c)
 			return
 		}
-
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NovaSenha), bcrypt.DefaultCost)
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-
 		repository := getRepository(c)
 		estudanteAgg, err := repository.Load(uid, "Estudante")
 		if err != nil {
@@ -180,22 +151,15 @@ func AlterarSenha(c *gin.Context) {
 			utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
 			return
 		}
-
 		if err := estudante.AlterarSenha(string(hashedPassword)); err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-
-		audit := db.AuditContext{
-			UserID:   uid.String(),
-			UserType: "estudante",
-			IP:       c.ClientIP(),
-		}
+		audit := db.AuditContext{UserID: uid.String(), UserType: "estudante", IP: c.ClientIP()}
 		if err := repository.SaveWithAudit(estudante, audit); err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-
 		log.Printf("Senha alterada (event sourcing) para estudante: %v", uid)
 		c.JSON(http.StatusOK, gin.H{"message": "Senha alterada com sucesso!"})
 		return
@@ -225,14 +189,13 @@ func GetMeuPerfil(c *gin.Context) {
 }
 
 func getPerfilEstudante(c *gin.Context, userID interface{}) {
-	estudanteProj := getEstudanteProjection(c)
-
 	id, ok := userID.(uuid.UUID)
 	if !ok {
 		utils.RespondWithInternalError(c, fmt.Errorf("erro ao processar ID do usuário"))
 		return
 	}
 
+	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByID(id)
 	if err != nil || estudante == nil {
 		utils.RespondWithNotFoundError(c, "estudante")
@@ -254,7 +217,6 @@ func getPerfilEstudante(c *gin.Context, userID interface{}) {
 
 	var cursoMedioInfo *gin.H
 	var cursoSuperiorInfo *gin.H
-
 	cursosProj := getCursosProjection(c)
 
 	if estudante.CursoMedioID != nil {
@@ -298,10 +260,17 @@ func getPerfilEstudante(c *gin.Context, userID interface{}) {
 			"email_verificado":               estudante.EmailVerificado,
 			"bilhete_identidade":             estudante.BilheteIdentidade,
 			"bilhete_identidade_responsavel": estudante.BilheteIdentidadeResp,
-			"data_nascimento":                estudante.DataNascimento,
+			"genero":                         estudante.Genero,
+			"data_nascimento":                estudante.DataNascimento.Format("2006-01-02"),
 			"codigo_academia":                estudante.CodigoAcademia,
 			"academia_info":                  academiaInfo,
 			"status":                         estudante.Status,
+			"status_escolar_fundamental":     estudante.StatusEscolarFundamental,
+			"status_escolar_medio":           estudante.StatusEscolarMedio,
+			"status_superior":                estudante.StatusSuperior,
+			"ano_escolar":                    estudante.AnoEscolar,
+			"ano_escolar_medio":              estudante.AnoEscolarMedio,
+			"ano_superior":                   estudante.AnoSuperior,
 			"curso_medio":                    cursoMedioInfo,
 			"curso_superior":                 cursoSuperiorInfo,
 		},
@@ -309,20 +278,17 @@ func getPerfilEstudante(c *gin.Context, userID interface{}) {
 }
 
 func getPerfilAcademia(c *gin.Context, userID interface{}) {
-	academiaProj := getAcademiaProjection(c)
-
 	id, ok := userID.(uuid.UUID)
 	if !ok {
 		utils.RespondWithInternalError(c, fmt.Errorf("erro ao processar ID do usuário"))
 		return
 	}
-
+	academiaProj := getAcademiaProjection(c)
 	academia, err := academiaProj.GetByID(id)
 	if err != nil || academia == nil {
 		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{
 		"tipo": "academia",
 		"academia": gin.H{
@@ -347,20 +313,17 @@ func getPerfilAcademia(c *gin.Context, userID interface{}) {
 }
 
 func getPerfilAdmin(c *gin.Context, userID interface{}) {
-	adminProj := getAdminProjection(c)
-
 	id, ok := userID.(uuid.UUID)
 	if !ok {
 		utils.RespondWithInternalError(c, fmt.Errorf("erro ao processar ID do usuário"))
 		return
 	}
-
+	adminProj := getAdminProjection(c)
 	admin, err := adminProj.GetByID(id)
 	if err != nil || admin == nil {
 		utils.RespondWithNotFoundError(c, "administrador")
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{
 		"tipo": "admin",
 		"admin": gin.H{

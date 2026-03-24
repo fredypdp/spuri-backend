@@ -56,7 +56,6 @@ func (p *EstudanteProjection) Handle(event db.Event) error {
 	if event.AggregateType != "Estudante" {
 		return nil
 	}
-
 	switch event.EventType {
 	case "EstudanteCriadoComVinculo":
 		return p.handleEstudanteCriadoComVinculo(event)
@@ -85,7 +84,6 @@ func (p *EstudanteProjection) Handle(event db.Event) error {
 	case "NotasRegistradas", "FaltasRegistradas":
 		return p.handleVersionOnly(event)
 	}
-
 	return nil
 }
 
@@ -95,7 +93,6 @@ func (p *EstudanteProjection) Handle(event db.Event) error {
 
 func (p *EstudanteProjection) Rebuild() error {
 	log.Printf("[DEBUG] [estudantes] Rebuild iniciado")
-
 	if err := p.clear(); err != nil {
 		return fmt.Errorf("falha ao limpar projection_estudantes: %w", err)
 	}
@@ -127,7 +124,6 @@ func (p *EstudanteProjection) Rebuild() error {
 		if prevHash.Valid {
 			event.PreviousHash = &prevHash.String
 		}
-
 		if err := p.Handle(event); err != nil {
 			return fmt.Errorf("erro ao processar evento %d (type=%s): %w", event.ID, event.EventType, err)
 		}
@@ -156,8 +152,8 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 		Telefone                 *string    `json:"Telefone"`
 		BilheteIdentidade        *string    `json:"BilheteIdentidade"`
 		BilheteIdentidadeResp    *string    `json:"BilheteIdentidadeResp"`
-		DataNascimento           *time.Time `json:"DataNascimento"`
 		Genero                   string     `json:"Genero"`
+		DataNascimento           time.Time  `json:"DataNascimento"`
 		StatusEscolarFundamental string     `json:"StatusEscolarFundamental"`
 		StatusEscolarMedio       string     `json:"StatusEscolarMedio"`
 		StatusSuperior           string     `json:"StatusSuperior"`
@@ -288,7 +284,7 @@ func (p *EstudanteProjection) handleDadosPessoaisAtualizados(event db.Event) err
 		Telefone              *string    `json:"Telefone"`
 		BilheteIdentidade     *string    `json:"BilheteIdentidade"`
 		BilheteIdentidadeResp *string    `json:"BilheteIdentidadeResp"`
-		DataNascimento        *time.Time `json:"DataNascimento"`
+		DataNascimento        *time.Time `json:"DataNascimento"` // ponteiro: nil = não alterar
 		EmailAlterado         bool       `json:"EmailAlterado"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
@@ -348,7 +344,6 @@ func (p *EstudanteProjection) handleDadosPessoaisAtualizados(event db.Event) err
 		"updated_at = CURRENT_TIMESTAMP",
 	)
 	args = append(args, event.EventVersion, event.EventID, event.AggregateID)
-
 	query := fmt.Sprintf("UPDATE projection_estudantes SET %s WHERE id = $%d",
 		strings.Join(setClauses, ", "), idx+2)
 	_, err := p.client.DB().Exec(query, args...)
@@ -412,7 +407,6 @@ func (p *EstudanteProjection) handleDadosAcademicosAtualizados(event db.Event) e
 		"updated_at = CURRENT_TIMESTAMP",
 	)
 	args = append(args, event.EventVersion, event.EventID, event.AggregateID)
-
 	query := fmt.Sprintf("UPDATE projection_estudantes SET %s WHERE id = $%d",
 		strings.Join(setClauses, ", "), idx+2)
 	_, err := p.client.DB().Exec(query, args...)
@@ -431,13 +425,12 @@ func (p *EstudanteProjection) handleEmailVerificadoEstudante(event db.Event) err
 
 func (p *EstudanteProjection) handleCursoAlterado(event db.Event) error {
 	var payload struct {
-		TipoEnsino string `json:"TipoEnsino"`
+		TipoEnsino string    `json:"TipoEnsino"`
 		CursoID    uuid.UUID `json:"CursoID"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleCursoAlterado: parse error: %w", err)
 	}
-
 	var col string
 	switch payload.TipoEnsino {
 	case "medio":
@@ -447,7 +440,6 @@ func (p *EstudanteProjection) handleCursoAlterado(event db.Event) error {
 	default:
 		return fmt.Errorf("handleCursoAlterado: TipoEnsino inválido: %q", payload.TipoEnsino)
 	}
-
 	query := fmt.Sprintf(`
 		UPDATE projection_estudantes
 		SET %s = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
@@ -466,7 +458,6 @@ func (p *EstudanteProjection) handleAprovacaoAnoRegistrada(event db.Event) error
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleAprovacaoAnoRegistrada: parse error: %w", err)
 	}
-
 	if !payload.Aprovado || payload.ProximoNivel == nil {
 		_, err := p.client.DB().Exec(`
 			UPDATE projection_estudantes
@@ -475,7 +466,6 @@ func (p *EstudanteProjection) handleAprovacaoAnoRegistrada(event db.Event) error
 		`, event.EventVersion, event.EventID, event.AggregateID)
 		return err
 	}
-
 	var col string
 	switch payload.TipoEnsino {
 	case "fundamental":
@@ -487,7 +477,6 @@ func (p *EstudanteProjection) handleAprovacaoAnoRegistrada(event db.Event) error
 	default:
 		return fmt.Errorf("handleAprovacaoAnoRegistrada: TipoEnsino inválido: %q", payload.TipoEnsino)
 	}
-
 	query := fmt.Sprintf(`
 		UPDATE projection_estudantes
 		SET %s = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
@@ -522,7 +511,6 @@ func (p *EstudanteProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) e
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleAvaliacaoFinalAnoAcademico: parse error: %w", err)
 	}
-
 	if !payload.Aprovado || payload.ProximoNivel == nil {
 		_, err := p.client.DB().Exec(`
 			UPDATE projection_estudantes
@@ -531,7 +519,6 @@ func (p *EstudanteProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) e
 		`, event.EventVersion, event.EventID, event.AggregateID)
 		return err
 	}
-
 	var col string
 	switch payload.TipoEnsino {
 	case "fundamental":
@@ -543,7 +530,6 @@ func (p *EstudanteProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) e
 	default:
 		return fmt.Errorf("handleAvaliacaoFinalAnoAcademico: TipoEnsino inválido: %q", payload.TipoEnsino)
 	}
-
 	query := fmt.Sprintf(`
 		UPDATE projection_estudantes
 		SET %s = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
@@ -563,35 +549,37 @@ func (p *EstudanteProjection) handleVersionOnly(event db.Event) error {
 }
 
 // ============================================================================
-// Queries de leitura
+// DTO de leitura
 // ============================================================================
 
+// EstudanteDTO — genero e data_nascimento são sempre preenchidos.
 type EstudanteDTO struct {
-	ID                       uuid.UUID  `json:"id"`
-	Nome                     string     `json:"nome"`
-	CodigoEstudante          string     `json:"codigo_estudante"`
-	Email                    *string    `json:"email,omitempty"`
-	Telefone                 *string    `json:"telefone,omitempty"`
-	EmailVerificado          bool       `json:"email_verificado"`
-	BilheteIdentidade        *string    `json:"bilhete_identidade,omitempty"`
-	BilheteIdentidadeResp    *string    `json:"bilhete_identidade_responsavel,omitempty"`
-	DataNascimento           *time.Time `json:"data_nascimento,omitempty"`
-	Genero                   string     `json:"genero"`
-	CodigoAcademia           *string    `json:"codigo_academia,omitempty"`
-	Status                   string     `json:"status"`
-	StatusEscolarFundamental string     `json:"status_escolar_fundamental"`
-	StatusEscolarMedio       string     `json:"status_escolar_medio"`
-	StatusSuperior           string     `json:"status_superior"`
-	AnoEscolar               *string    `json:"ano_escolar,omitempty"`
-	AnoEscolarMedio          *string    `json:"ano_escolar_medio,omitempty"`
-	AnoSuperior              *string    `json:"ano_superior,omitempty"`
-	CursoMedioID             *string    `json:"curso_medio_id,omitempty"`
-	CursoSuperiorID          *string    `json:"curso_superior_id,omitempty"`
-	CreatedAt                time.Time  `json:"created_at"`
-	UpdatedAt                time.Time  `json:"updated_at"`
-	Version                  int        `json:"version"`
+	ID                       uuid.UUID `json:"id"`
+	Nome                     string    `json:"nome"`
+	CodigoEstudante          string    `json:"codigo_estudante"`
+	Email                    *string   `json:"email,omitempty"`
+	Telefone                 *string   `json:"telefone,omitempty"`
+	EmailVerificado          bool      `json:"email_verificado"`
+	BilheteIdentidade        *string   `json:"bilhete_identidade,omitempty"`
+	BilheteIdentidadeResp    *string   `json:"bilhete_identidade_responsavel,omitempty"`
+	Genero                   string    `json:"genero"`
+	DataNascimento           time.Time `json:"data_nascimento"`
+	CodigoAcademia           *string   `json:"codigo_academia,omitempty"`
+	Status                   string    `json:"status"`
+	StatusEscolarFundamental string    `json:"status_escolar_fundamental"`
+	StatusEscolarMedio       string    `json:"status_escolar_medio"`
+	StatusSuperior           string    `json:"status_superior"`
+	AnoEscolar               *string   `json:"ano_escolar,omitempty"`
+	AnoEscolarMedio          *string   `json:"ano_escolar_medio,omitempty"`
+	AnoSuperior              *string   `json:"ano_superior,omitempty"`
+	CursoMedioID             *string   `json:"curso_medio_id,omitempty"`
+	CursoSuperiorID          *string   `json:"curso_superior_id,omitempty"`
+	CreatedAt                time.Time `json:"created_at"`
+	UpdatedAt                time.Time `json:"updated_at"`
+	Version                  int       `json:"version"`
 }
 
+// estudanteCols lista as colunas na mesma ordem dos Scan abaixo.
 const estudanteCols = `
 	id, nome, codigo_estudante, email, telefone, email_verificado,
 	bilhete_identidade, bilhete_identidade_responsavel, genero,
@@ -618,6 +606,25 @@ func scanEstudante(row *sql.Row) (*EstudanteDTO, error) {
 		return nil, err
 	}
 	return &e, nil
+}
+
+func scanEstudanteRows(rows *sql.Rows) ([]EstudanteDTO, error) {
+	var estudantes []EstudanteDTO
+	for rows.Next() {
+		var e EstudanteDTO
+		if err := rows.Scan(
+			&e.ID, &e.Nome, &e.CodigoEstudante, &e.Email, &e.Telefone, &e.EmailVerificado,
+			&e.BilheteIdentidade, &e.BilheteIdentidadeResp, &e.Genero,
+			&e.DataNascimento,
+			&e.CodigoAcademia, &e.Status, &e.StatusEscolarFundamental, &e.StatusEscolarMedio, &e.StatusSuperior,
+			&e.AnoEscolar, &e.AnoEscolarMedio, &e.AnoSuperior, &e.CursoMedioID, &e.CursoSuperiorID,
+			&e.CreatedAt, &e.UpdatedAt, &e.Version,
+		); err != nil {
+			return nil, err
+		}
+		estudantes = append(estudantes, e)
+	}
+	return estudantes, rows.Err()
 }
 
 func (p *EstudanteProjection) GetByID(id uuid.UUID) (*EstudanteDTO, error) {
@@ -661,28 +668,8 @@ func (p *EstudanteProjection) GetByAcademia(codigoAcademia string) ([]EstudanteD
 	return scanEstudanteRows(rows)
 }
 
-// scanEstudanteRows escaneia múltiplas linhas para []EstudanteDTO.
-func scanEstudanteRows(rows *sql.Rows) ([]EstudanteDTO, error) {
-	var estudantes []EstudanteDTO
-	for rows.Next() {
-		var e EstudanteDTO
-		if err := rows.Scan(
-			&e.ID, &e.Nome, &e.CodigoEstudante, &e.Email, &e.Telefone, &e.EmailVerificado,
-			&e.BilheteIdentidade, &e.BilheteIdentidadeResp, &e.Genero,
-			&e.DataNascimento,
-			&e.CodigoAcademia, &e.Status, &e.StatusEscolarFundamental, &e.StatusEscolarMedio, &e.StatusSuperior,
-			&e.AnoEscolar, &e.AnoEscolarMedio, &e.AnoSuperior, &e.CursoMedioID, &e.CursoSuperiorID,
-			&e.CreatedAt, &e.UpdatedAt, &e.Version,
-		); err != nil {
-			return nil, err
-		}
-		estudantes = append(estudantes, e)
-	}
-	return estudantes, rows.Err()
-}
-
 // ============================================================================
-// EstudanteAuthDTO — exclusivo para autenticação
+// Auth DTO — exclusivo para autenticação, nunca exposto em respostas HTTP
 // ============================================================================
 
 type EstudanteAuthDTO struct {
@@ -699,8 +686,7 @@ func (p *EstudanteProjection) GetAuthByCodigo(codigo string) (*EstudanteAuthDTO,
 	var e EstudanteAuthDTO
 	err := p.client.DB().QueryRow(
 		`SELECT id, nome, codigo_estudante, status, senha_hash
-		 FROM projection_estudantes
-		 WHERE codigo_estudante = $1`,
+		 FROM projection_estudantes WHERE codigo_estudante = $1`,
 		codigo,
 	).Scan(&e.ID, &e.Nome, &e.Codigo, &e.Status, &e.Hash)
 	if err == sql.ErrNoRows {
@@ -716,8 +702,7 @@ func (p *EstudanteProjection) GetAuthByID(id uuid.UUID) (*EstudanteAuthDTO, erro
 	var e EstudanteAuthDTO
 	err := p.client.DB().QueryRow(
 		`SELECT id, nome, codigo_estudante, status, senha_hash
-		 FROM projection_estudantes
-		 WHERE id = $1`,
+		 FROM projection_estudantes WHERE id = $1`,
 		id,
 	).Scan(&e.ID, &e.Nome, &e.Codigo, &e.Status, &e.Hash)
 	if err == sql.ErrNoRows {
@@ -756,8 +741,7 @@ func (p *EstudanteProjection) GetAuthByIdentificador(identificador string) (*Est
 func (p *EstudanteProjection) GetByBilheteIdentidadePrincipal(bilhete string) (*EstudanteDTO, error) {
 	return scanEstudante(p.client.DB().QueryRow(
 		`SELECT `+estudanteCols+` FROM projection_estudantes
-		 WHERE bilhete_identidade = $1
-		 LIMIT 1`,
+		 WHERE bilhete_identidade = $1 LIMIT 1`,
 		bilhete,
 	))
 }
@@ -765,10 +749,8 @@ func (p *EstudanteProjection) GetByBilheteIdentidadePrincipal(bilhete string) (*
 func (p *EstudanteProjection) CountByCurso(cursoID uuid.UUID) (int, error) {
 	var count int
 	err := p.client.DB().QueryRow(
-		`SELECT COUNT(*)
-		 FROM projection_estudantes
-		 WHERE (curso_medio_id = $1 OR curso_superior_id = $1)
-		   AND status = 'ativo'`,
+		`SELECT COUNT(*) FROM projection_estudantes
+		 WHERE (curso_medio_id = $1 OR curso_superior_id = $1) AND status = 'ativo'`,
 		cursoID.String(),
 	).Scan(&count)
 	return count, err

@@ -23,24 +23,26 @@ type Academia struct {
 	CreatedAt      time.Time `json:"created_at" db:"created_at"`
 }
 
+// Estudante — genero e data_nascimento são sempre preenchidos (obrigatórios).
 type Estudante struct {
-	ID                    uuid.UUID  `json:"id" db:"id"`
-	Nome                  string     `json:"nome" db:"nome"`
-	CodigoEstudante       string     `json:"codigo_estudante" db:"codigo_estudante"`
-	SenhaHash             string     `json:"-" db:"senha_hash"`
-	BilheteIdentidade     *string    `json:"bilhete_identidade,omitempty" db:"bilhete_identidade"`
-	BilheteIdentidadeResp *string    `json:"bilhete_identidade_responsavel,omitempty" db:"bilhete_identidade_responsavel"`
-	DataNascimento        *time.Time `json:"data_nascimento,omitempty" db:"data_nascimento"`
-	CodigoAcademia        *string    `json:"codigo_academia,omitempty" db:"codigo_academia"`
-	AnoEscolar            *string    `json:"ano_escolar,omitempty" db:"ano_escolar"`
-	AnoEscolarMedio       *string    `json:"ano_escolar_medio,omitempty" db:"ano_escolar_medio"`
-	AnoSuperior           *string    `json:"ano_superior,omitempty" db:"ano_superior"`
-	CursoMedioID          *uuid.UUID `json:"curso_medio_id,omitempty" db:"curso_medio_id"`
-	CursoSuperiorID       *uuid.UUID `json:"curso_superior_id,omitempty" db:"curso_superior_id"`
-	StatusEscolarFundamental *string `json:"status_escolar_fundamental,omitempty" db:"status_escolar_fundamental"`
-	StatusEscolarMedio    *string    `json:"status_escolar_medio,omitempty" db:"status_escolar_medio"`
-	StatusSuperior        *string    `json:"status_superior,omitempty" db:"status_superior"`
-	CreatedAt             time.Time  `json:"created_at" db:"created_at"`
+	ID                       uuid.UUID  `json:"id" db:"id"`
+	Nome                     string     `json:"nome" db:"nome"`
+	CodigoEstudante          string     `json:"codigo_estudante" db:"codigo_estudante"`
+	SenhaHash                string     `json:"-" db:"senha_hash"`
+	BilheteIdentidade        *string    `json:"bilhete_identidade,omitempty" db:"bilhete_identidade"`
+	BilheteIdentidadeResp    *string    `json:"bilhete_identidade_responsavel,omitempty" db:"bilhete_identidade_responsavel"`
+	Genero                   string     `json:"genero" db:"genero"`
+	DataNascimento           time.Time  `json:"data_nascimento" db:"data_nascimento"`
+	CodigoAcademia           *string    `json:"codigo_academia,omitempty" db:"codigo_academia"`
+	AnoEscolar               *string    `json:"ano_escolar,omitempty" db:"ano_escolar"`
+	AnoEscolarMedio          *string    `json:"ano_escolar_medio,omitempty" db:"ano_escolar_medio"`
+	AnoSuperior              *string    `json:"ano_superior,omitempty" db:"ano_superior"`
+	CursoMedioID             *uuid.UUID `json:"curso_medio_id,omitempty" db:"curso_medio_id"`
+	CursoSuperiorID          *uuid.UUID `json:"curso_superior_id,omitempty" db:"curso_superior_id"`
+	StatusEscolarFundamental *string    `json:"status_escolar_fundamental,omitempty" db:"status_escolar_fundamental"`
+	StatusEscolarMedio       *string    `json:"status_escolar_medio,omitempty" db:"status_escolar_medio"`
+	StatusSuperior           *string    `json:"status_superior,omitempty" db:"status_superior"`
+	CreatedAt                time.Time  `json:"created_at" db:"created_at"`
 }
 
 type Curso struct {
@@ -108,34 +110,36 @@ type RegisterAcademiaRequest struct {
 	Cursos         []string `json:"cursos"`
 }
 
+// RegisterEstudanteRequest — genero e data_nascimento são obrigatórios.
 type RegisterEstudanteRequest struct {
-	Senha                    string     `json:"senha" binding:"required"`
-	Nome                     string     `json:"nome" binding:"required"`
-	BilheteIdentidade        *string    `json:"bilhete_identidade"`
-	BilheteIdentidadeResp    *string    `json:"bilhete_identidade_responsavel"`
-	DataNascimento           *time.Time `json:"data_nascimento"`
-	AnoEscolar               *string    `json:"ano_escolar"`
-	AnoEscolarMedio          *string    `json:"ano_escolar_medio"`
-	AnoSuperior              *string    `json:"ano_superior"`
+	Senha                    string    `json:"senha"            binding:"required"`
+	Nome                     string    `json:"nome"             binding:"required"`
+	Genero                   string    `json:"genero"           binding:"required"`
+	DataNascimento           time.Time `json:"data_nascimento"  binding:"required"`
+	BilheteIdentidade        *string   `json:"bilhete_identidade"`
+	BilheteIdentidadeResp    *string   `json:"bilhete_identidade_responsavel"`
+	AnoEscolar               *string   `json:"ano_escolar"`
+	AnoEscolarMedio          *string   `json:"ano_escolar_medio"`
+	AnoSuperior              *string   `json:"ano_superior"`
 	CursoMedioID             *uuid.UUID `json:"curso_medio_id"`
 	CursoSuperiorID          *uuid.UUID `json:"curso_superior_id"`
-	StatusEscolarFundamental *string    `json:"status_escolar_fundamental"`
-	StatusEscolarMedio       *string    `json:"status_escolar_medio"`
-	StatusSuperior           *string    `json:"status_superior"`
+	StatusEscolarFundamental *string   `json:"status_escolar_fundamental"`
+	StatusEscolarMedio       *string   `json:"status_escolar_medio"`
+	StatusSuperior           *string   `json:"status_superior"`
 }
 
 type RegistrarNotasRequest struct {
 	CodigoEstudante string    `json:"codigo_estudante" binding:"required"`
-	AnoLectivo      string    `json:"ano_lectivo" binding:"required"`
-	Periodo         string    `json:"periodo" binding:"required"`
-	Materias        []Materia `json:"materias" binding:"required"`
+	AnoLectivo      string    `json:"ano_lectivo"      binding:"required"`
+	Periodo         string    `json:"periodo"          binding:"required"`
+	Materias        []Materia `json:"materias"         binding:"required"`
 }
 
 type RegistrarFaltasRequest struct {
 	CodigoEstudante string          `json:"codigo_estudante" binding:"required"`
-	AnoLectivo      string          `json:"ano_lectivo" binding:"required"`
-	Periodo         string          `json:"periodo" binding:"required"`
-	Materias        []MateriaFaltas `json:"materias" binding:"required"`
+	AnoLectivo      string          `json:"ano_lectivo"      binding:"required"`
+	Periodo         string          `json:"periodo"          binding:"required"`
+	Materias        []MateriaFaltas `json:"materias"         binding:"required"`
 }
 
 type ErrorResponse struct {

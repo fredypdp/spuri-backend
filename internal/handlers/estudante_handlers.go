@@ -5,44 +5,46 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"spuri/internal/db"
-	"spuri/internal/domain/aggregates"
-	"spuri/internal/middleware"
-	"spuri/internal/services"
-	"spuri/internal/utils"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
+
+	"spuri/internal/db"
+	"spuri/internal/domain/aggregates"
+	"spuri/internal/middleware"
+	"spuri/internal/services"
+	"spuri/internal/utils"
 )
 
 // ============================================================================
-// POST /academia/estudante/register  (academia)
+// POST /academia/estudante/register
 // ============================================================================
 
+// CadastroEstudanteAcademiaRequest — genero e data_nascimento são obrigatórios.
 type CadastroEstudanteAcademiaRequest struct {
-	Nome                     string     `json:"nome" binding:"required"`
-	Email                    string     `json:"email"`
-	Telefone                 string     `json:"telefone"`
-	BilheteIdentidade        string     `json:"bilhete_identidade"`
-	BilheteResponsavel       string     `json:"bilhete_identidade_responsavel"`
-	DataNascimento           *time.Time `json:"data_nascimento"`
-	AnoEscolar               string     `json:"ano_escolar"`
-	AnoEscolarMedio          string     `json:"ano_escolar_medio"`
-	AnoSuperior              string     `json:"ano_superior"`
-	CursoMedioID             string     `json:"curso_medio_id"`
-	CursoSuperiorID          string     `json:"curso_superior_id"`
-	StatusEscolarFundamental string     `json:"status_escolar_fundamental"`
-	StatusEscolarMedio       string     `json:"status_escolar_medio"`
-	StatusSuperior           string     `json:"status_superior"`
-	Genero                   string     `json:"genero" binding:"required"`
+	Nome                     string    `json:"nome"            binding:"required"`
+	Genero                   string    `json:"genero"          binding:"required"`
+	DataNascimento           time.Time `json:"data_nascimento" binding:"required"`
+	Email                    string    `json:"email"`
+	Telefone                 string    `json:"telefone"`
+	BilheteIdentidade        string    `json:"bilhete_identidade"`
+	BilheteResponsavel       string    `json:"bilhete_identidade_responsavel"`
+	AnoEscolar               string    `json:"ano_escolar"`
+	AnoEscolarMedio          string    `json:"ano_escolar_medio"`
+	AnoSuperior              string    `json:"ano_superior"`
+	CursoMedioID             string    `json:"curso_medio_id"`
+	CursoSuperiorID          string    `json:"curso_superior_id"`
+	StatusEscolarFundamental string    `json:"status_escolar_fundamental"`
+	StatusEscolarMedio       string    `json:"status_escolar_medio"`
+	StatusSuperior           string    `json:"status_superior"`
 }
 
 func RegisterEstudantePorAcademia(c *gin.Context) {
 	var req CadastroEstudanteAcademiaRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("nome e genero são obrigatórios"))
+		utils.RespondWithValidationError(c, fmt.Errorf("campos obrigatórios: nome, genero, data_nascimento"))
 		return
 	}
 
@@ -51,24 +53,22 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		return
 	}
 
-	if req.Email != "" {
-		if err := utils.ValidateEmail(req.Email); err != nil {
-			utils.RespondWithValidationError(c, err)
-			return
-		}
-	}
-
 	if req.Genero != "masculino" && req.Genero != "feminino" {
 		utils.RespondWithValidationError(c, fmt.Errorf("genero deve ser 'masculino' ou 'feminino'"))
 		return
 	}
 
-	// Validar data_nascimento: deve ser anterior à data atual
-	if req.DataNascimento != nil {
-		hoje := time.Now().UTC().Truncate(24 * time.Hour)
-		dataNasc := req.DataNascimento.UTC().Truncate(24 * time.Hour)
-		if !dataNasc.Before(hoje) {
-			utils.RespondWithValidationError(c, fmt.Errorf("data_nascimento deve ser anterior à data atual"))
+	// data_nascimento obrigatório e deve ser estritamente no passado
+	hoje := time.Now().UTC().Truncate(24 * time.Hour)
+	dataNasc := req.DataNascimento.UTC().Truncate(24 * time.Hour)
+	if !dataNasc.Before(hoje) {
+		utils.RespondWithValidationError(c, fmt.Errorf("data_nascimento deve ser anterior à data atual"))
+		return
+	}
+
+	if req.Email != "" {
+		if err := utils.ValidateEmail(req.Email); err != nil {
+			utils.RespondWithValidationError(c, err)
 			return
 		}
 	}
@@ -146,7 +146,7 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		return
 	}
 
-	// Converter campos opcionais de string para *string
+	// Campos opcionais string → *string
 	var emailPtr, telefonePtr, bilhetePtr, bilheteRespPtr *string
 	if req.Email != "" {
 		emailPtr = &req.Email
@@ -209,6 +209,7 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		telefonePtr,
 		bilhetePtr,
 		bilheteRespPtr,
+		req.Genero,
 		req.DataNascimento,
 		anoEscolarPtr,
 		anoEscolarMedioPtr,
@@ -220,7 +221,6 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		statusSuperiorPtr,
 		&academiaID,
 		academia.CodigoAcademia,
-		req.Genero,
 	); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -258,6 +258,20 @@ func ListarEstudantes(c *gin.Context) {
 
 	client := getDbClient(c)
 
+	// data_nascimento é NOT NULL após a migration — scan direto como time.Time.
+	const selectCols = `
+		SELECT id, nome, codigo_estudante, email, telefone, email_verificado,
+			bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
+			status, status_escolar_fundamental, status_escolar_medio, status_superior,
+			ano_escolar, ano_escolar_medio, ano_superior,
+			curso_medio_id, curso_superior_id,
+			genero, data_nascimento, created_at, updated_at,
+			COALESCE(total_notas, 0), COALESCE(total_faltas, 0), version
+		FROM projection_estudantes`
+
+	var rows *sql.Rows
+	var err error
+
 	if userType == "academia" {
 		academiaProj := getAcademiaProjection(c)
 		academiaDTO, err := academiaProj.GetByID(userID)
@@ -265,25 +279,15 @@ func ListarEstudantes(c *gin.Context) {
 			utils.RespondWithForbiddenError(c, "academia não encontrada")
 			return
 		}
-
-		rows, err := client.DB().Query(`
-			SELECT id, nome, codigo_estudante, email, telefone, email_verificado,
-				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
-				status, status_escolar_fundamental, status_escolar_medio, status_superior,
-				ano_escolar, ano_escolar_medio, ano_superior,
-				curso_medio_id, curso_superior_id,
-				COALESCE(genero, ''), data_nascimento, created_at, updated_at,
-				COALESCE(total_notas, 0), COALESCE(total_faltas, 0), version
-			FROM projection_estudantes
-			WHERE codigo_academia = $1
-			ORDER BY created_at DESC
-		`, academiaDTO.CodigoAcademia)
+		rows, err = client.DB().Query(
+			selectCols+` WHERE codigo_academia = $1 ORDER BY created_at DESC`,
+			academiaDTO.CodigoAcademia,
+		)
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
 		defer rows.Close()
-
 		estudantes := scanEstudantesRows(rows)
 		c.JSON(http.StatusOK, gin.H{
 			"estudantes":      estudantes,
@@ -292,38 +296,30 @@ func ListarEstudantes(c *gin.Context) {
 			"codigo_academia": academiaDTO.CodigoAcademia,
 			"nome_academia":   academiaDTO.Nome,
 		})
+		return
+	}
 
-	} else if userType == "admin" {
-		rows, err := client.DB().Query(`
-			SELECT id, nome, codigo_estudante, email, telefone, email_verificado,
-				bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
-				status, status_escolar_fundamental, status_escolar_medio, status_superior,
-				ano_escolar, ano_escolar_medio, ano_superior,
-				curso_medio_id, curso_superior_id,
-				COALESCE(genero, ''), data_nascimento, created_at, updated_at,
-				COALESCE(total_notas, 0), COALESCE(total_faltas, 0), version
-			FROM projection_estudantes
-			ORDER BY created_at DESC
-		`)
+	if userType == "admin" {
+		rows, err = client.DB().Query(selectCols + ` ORDER BY created_at DESC`)
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
 		defer rows.Close()
-
 		estudantes := scanEstudantesRows(rows)
 		c.JSON(http.StatusOK, gin.H{
 			"estudantes":   estudantes,
 			"total":        len(estudantes),
 			"tipo_usuario": "admin",
 		})
-
-	} else {
-		utils.RespondWithForbiddenError(c, "Acesso negado. Apenas academias e administradores podem listar estudantes.")
+		return
 	}
+
+	utils.RespondWithForbiddenError(c, "Acesso negado. Apenas academias e administradores podem listar estudantes.")
 }
 
 // scanEstudantesRows faz scan das linhas retornadas por ListarEstudantes.
+// data_nascimento é NOT NULL no banco após a migration 043.
 func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
 	var estudantes []map[string]interface{}
 	for rows.Next() {
@@ -334,7 +330,7 @@ func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
 		var anoEscolar, anoEscolarMedio, anoSuperior sql.NullString
 		var emailVerif bool
 		var genero string
-		var dataNascimento sql.NullTime
+		var dataNascimento time.Time
 		var createdAt, updatedAt string
 		var totalNotas, totalFaltas, version int
 
@@ -351,7 +347,7 @@ func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
 			continue
 		}
 
-		m := map[string]interface{}{
+		estudantes = append(estudantes, map[string]interface{}{
 			"nome":                           nome,
 			"codigo_estudante":               codigoEstudante,
 			"email":                          getNullString(email),
@@ -370,21 +366,13 @@ func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
 			"curso_medio_id":                 getNullString(cursoMedioID),
 			"curso_superior_id":              getNullString(cursoSuperiorID),
 			"genero":                         genero,
+			"data_nascimento":                dataNascimento.Format("2006-01-02"),
 			"created_at":                     createdAt,
 			"updated_at":                     updatedAt,
 			"total_notas":                    totalNotas,
 			"total_faltas":                   totalFaltas,
 			"version":                        version,
-		}
-
-		// Incluir data_nascimento apenas se preenchida
-		if dataNascimento.Valid {
-			m["data_nascimento"] = dataNascimento.Time.Format("2006-01-02")
-		} else {
-			m["data_nascimento"] = nil
-		}
-
-		estudantes = append(estudantes, m)
+		})
 	}
 	return estudantes
 }
@@ -427,6 +415,8 @@ func GetEventosEstudante(c *gin.Context) {
 // PUT /estudante/dados-pessoais
 // ============================================================================
 
+// AtualizarDadosPessoaisRequest — DataNascimento é ponteiro (nil = não alterar).
+// Genero não pode ser alterado após o cadastro inicial.
 type AtualizarDadosPessoaisRequest struct {
 	Nome                  *string    `json:"nome"`
 	Email                 *string    `json:"email"`
@@ -445,7 +435,7 @@ func AtualizarDadosPessoais(c *gin.Context) {
 		return
 	}
 
-	// Validar data_nascimento: deve ser anterior à data atual
+	// Validar data_nascimento apenas se fornecida
 	if req.DataNascimento != nil {
 		hoje := time.Now().UTC().Truncate(24 * time.Hour)
 		dataNasc := req.DataNascimento.UTC().Truncate(24 * time.Hour)
@@ -617,7 +607,8 @@ func GetEstudantePorCodigo(c *gin.Context) {
 			"email_verificado":               estudante.EmailVerificado,
 			"bilhete_identidade":             estudante.BilheteIdentidade,
 			"bilhete_identidade_responsavel": estudante.BilheteIdentidadeResp,
-			"data_nascimento":                estudante.DataNascimento,
+			"genero":                         estudante.Genero,
+			"data_nascimento":                estudante.DataNascimento.Format("2006-01-02"),
 			"codigo_academia":                estudante.CodigoAcademia,
 			"academia":                       academiaInfo,
 			"status":                         estudante.Status,
@@ -627,7 +618,6 @@ func GetEstudantePorCodigo(c *gin.Context) {
 			"ano_escolar":                    estudante.AnoEscolar,
 			"ano_escolar_medio":              estudante.AnoEscolarMedio,
 			"ano_superior":                   estudante.AnoSuperior,
-			"genero":                         estudante.Genero,
 			"curso_medio":                    cursoMedioInfo,
 			"curso_superior":                 cursoSuperiorInfo,
 			"created_at":                     estudante.CreatedAt,

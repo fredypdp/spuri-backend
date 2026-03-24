@@ -13,6 +13,7 @@ import (
 // Aggregate
 // ============================================================================
 
+// Estudante — genero e data_nascimento são sempre preenchidos (obrigatórios no cadastro).
 type Estudante struct {
 	BaseAggregate
 
@@ -23,7 +24,8 @@ type Estudante struct {
 	Telefone                 *string
 	BilheteIdentidade        *string
 	BilheteIdentidadeResp    *string
-	DataNascimento           *time.Time
+	Genero                   string    // obrigatório
+	DataNascimento           time.Time // obrigatório; valor zero indica aggregate não carregado
 	CodigoAcademia           *string
 	Status                   string
 	StatusEscolarFundamental string
@@ -35,16 +37,15 @@ type Estudante struct {
 	CursoMedioID             *uuid.UUID
 	CursoSuperiorID          *uuid.UUID
 	CreatedAt                time.Time
-	Genero                   string
 	EmailVerificado          bool
 
-	// FIX E-04: mapa de aprovações por tipo+ano para detectar duplicatas
+	// Mapa de aprovações por chave tipo+ano+nivel para idempotência
 	AprovacoesPorAno map[string]bool
 
-	// FIX NOTA-AGG-01: mapa de notas registradas por chave composta
+	// Mapa de notas registradas por chave composta
 	NotasRegistradasPorChave map[string]bool
 
-	// FIX FALTA-AGG-01: mapa de faltas registradas por chave composta
+	// Mapa de faltas registradas por chave composta
 	FaltasRegistradasPorChave map[string]bool
 }
 
@@ -110,9 +111,11 @@ func (e *Estudante) Apply(event DomainEvent) error {
 }
 
 // ============================================================================
-// Eventos declarados neste arquivo
+// Tipos de evento
 // ============================================================================
 
+// EstudanteCriadoComVinculoEvent — genero e data_nascimento são obrigatórios
+// e gravados como valores não-nulos no ledger.
 type EstudanteCriadoComVinculoEvent struct {
 	BaseEvent
 	Nome                     string
@@ -122,7 +125,8 @@ type EstudanteCriadoComVinculoEvent struct {
 	Telefone                 *string
 	BilheteIdentidade        *string
 	BilheteIdentidadeResp    *string
-	DataNascimento           *time.Time
+	Genero                   string    // obrigatório
+	DataNascimento           time.Time // obrigatório
 	AnoEscolar               *string
 	AnoEscolarMedio          *string
 	AnoSuperior              *string
@@ -134,7 +138,6 @@ type EstudanteCriadoComVinculoEvent struct {
 	CodigoAcademia           string
 	AcademiaID               *uuid.UUID
 	CreatedAt                time.Time
-	Genero                   string
 }
 
 func (e *EstudanteCriadoComVinculoEvent) GetPayload() interface{} { return e }
@@ -150,6 +153,8 @@ type StatusSuperiorAtualizadoEvent struct {
 func (e *StatusSuperiorAtualizadoEvent) GetPayload() interface{} { return e }
 func (e *StatusSuperiorAtualizadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
+// DadosPessoaisAtualizadosEvent — DataNascimento é ponteiro porque nil = "não alterar".
+// Genero não pode ser atualizado após o cadastro.
 type DadosPessoaisAtualizadosEvent struct {
 	BaseEvent
 	Nome                  *string
@@ -157,7 +162,7 @@ type DadosPessoaisAtualizadosEvent struct {
 	Telefone              *string
 	BilheteIdentidade     *string
 	BilheteIdentidadeResp *string
-	DataNascimento        *time.Time
+	DataNascimento        *time.Time // ponteiro: nil = não alterar
 	EmailAlterado         bool
 	UpdatedAt             time.Time
 }
@@ -206,14 +211,12 @@ func (e *EmailVerificadoEstudanteEvent) GetPayload() interface{} { return e }
 func (e *EmailVerificadoEstudanteEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 // ============================================================================
-// validarDataNascimento — regra central: deve ser estritamente no passado.
-// Trunca para meia-noite para comparar apenas datas, não horas.
+// validarDataNascimento — regra central, compartilhada por CriarComVinculo
+// e AtualizarDadosPessoais. A data deve ser estritamente no passado (antes
+// de hoje); comparação feita apenas por data, sem componente de hora.
 // ============================================================================
 
-func validarDataNascimento(data *time.Time) error {
-	if data == nil {
-		return nil
-	}
+func validarDataNascimento(data time.Time) error {
 	hoje := time.Now().UTC().Truncate(24 * time.Hour)
 	dataNasc := data.UTC().Truncate(24 * time.Hour)
 	if !dataNasc.Before(hoje) {
@@ -226,6 +229,8 @@ func validarDataNascimento(data *time.Time) error {
 // Comandos
 // ============================================================================
 
+// CriarComVinculo cria o estudante com vínculo direto a uma academia.
+// genero e dataNascimento são obrigatórios e validados no aggregate.
 func (e *Estudante) CriarComVinculo(
 	nome string,
 	codigoEstudante string,
@@ -234,7 +239,8 @@ func (e *Estudante) CriarComVinculo(
 	telefone *string,
 	bilhete *string,
 	bilheteResp *string,
-	dataNascimento *time.Time,
+	genero string,
+	dataNascimento time.Time,
 	anoEscolar *string,
 	anoEscolarMedio *string,
 	anoSuperior *string,
@@ -245,7 +251,6 @@ func (e *Estudante) CriarComVinculo(
 	statusSuperior *string,
 	academiaID *uuid.UUID,
 	codigoAcademia string,
-	genero string,
 ) error {
 	if nome == "" || codigoEstudante == "" || senhaHash == "" || codigoAcademia == "" {
 		return fmt.Errorf("campos obrigatórios vazios")
@@ -253,7 +258,6 @@ func (e *Estudante) CriarComVinculo(
 	if genero != "masculino" && genero != "feminino" {
 		return fmt.Errorf("genero deve ser 'masculino' ou 'feminino'")
 	}
-
 	if err := validarDataNascimento(dataNascimento); err != nil {
 		return err
 	}
@@ -307,6 +311,7 @@ func (e *Estudante) CriarComVinculo(
 		Telefone:                 telefone,
 		BilheteIdentidade:        bilhete,
 		BilheteIdentidadeResp:    bilheteResp,
+		Genero:                   genero,
 		DataNascimento:           dataNascimento,
 		AnoEscolar:               anoEscolar,
 		AnoEscolarMedio:          anoEscolarMedio,
@@ -319,7 +324,6 @@ func (e *Estudante) CriarComVinculo(
 		CodigoAcademia:           codigoAcademia,
 		AcademiaID:               academiaID,
 		CreatedAt:                time.Now(),
-		Genero:                   genero,
 	}
 	e.RaiseEvent(event)
 	return e.Apply(event)
@@ -350,6 +354,8 @@ func (e *Estudante) AlterarSenha(novaSenhaHash string) error {
 	return e.Apply(event)
 }
 
+// AtualizarDadosPessoais — dataNascimento é ponteiro (nil = não alterar).
+// Genero não pode ser alterado após o cadastro.
 func (e *Estudante) AtualizarDadosPessoais(
 	nome *string,
 	email *string,
@@ -362,9 +368,10 @@ func (e *Estudante) AtualizarDadosPessoais(
 		bilheteIdentidade == nil && bilheteIdentidadeResp == nil && dataNascimento == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
-
-	if err := validarDataNascimento(dataNascimento); err != nil {
-		return err
+	if dataNascimento != nil {
+		if err := validarDataNascimento(*dataNascimento); err != nil {
+			return err
+		}
 	}
 
 	emailAlterado := email != nil && (e.Email == nil || *e.Email != *email)
@@ -459,7 +466,6 @@ func (e *Estudante) AtualizarStatusSuperior(novoStatus string, atualizadoPor uui
 	if !validStatus[novoStatus] {
 		return fmt.Errorf("status inválido: '%s'. Use: inativo, em_andamento, finalizado", novoStatus)
 	}
-
 	if novoStatus == "em_andamento" || novoStatus == "finalizado" {
 		if e.StatusEscolarFundamental != "inativo" && e.StatusEscolarFundamental != "finalizado" {
 			return fmt.Errorf(
@@ -474,7 +480,6 @@ func (e *Estudante) AtualizarStatusSuperior(novoStatus string, atualizadoPor uui
 			)
 		}
 	}
-
 	event := &StatusSuperiorAtualizadoEvent{
 		BaseEvent:     BaseEvent{EventType: "StatusSuperiorAtualizado", AggregateID: e.ID},
 		NovoStatus:    novoStatus,
@@ -529,7 +534,6 @@ func (e *Estudante) RegistrarAprovacaoAno(
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
 	}
-
 	chave := tipoEnsino + "_" + anoLectivo + "_" + nivelAtual
 	if e.AprovacoesPorAno != nil && e.AprovacoesPorAno[chave] {
 		return fmt.Errorf(
@@ -537,7 +541,6 @@ func (e *Estudante) RegistrarAprovacaoAno(
 			tipoEnsino, anoLectivo, nivelAtual,
 		)
 	}
-
 	event := &AprovacaoAnoRegistradaEvent{
 		BaseEvent:       BaseEvent{EventType: "AprovacaoAnoRegistrada", AggregateID: e.ID},
 		CodigoEstudante: e.CodigoEstudante,
@@ -574,6 +577,7 @@ func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
 	e.Telefone = ev.Telefone
 	e.BilheteIdentidade = ev.BilheteIdentidade
 	e.BilheteIdentidadeResp = ev.BilheteIdentidadeResp
+	e.Genero = ev.Genero
 	e.DataNascimento = ev.DataNascimento
 	e.AnoEscolar = ev.AnoEscolar
 	e.AnoEscolarMedio = ev.AnoEscolarMedio
@@ -586,7 +590,6 @@ func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
 	e.CodigoAcademia = &ev.CodigoAcademia
 	e.Status = "ativo"
 	e.CreatedAt = ev.CreatedAt
-	e.Genero = ev.Genero
 	if e.AprovacoesPorAno == nil {
 		e.AprovacoesPorAno = make(map[string]bool)
 	}
@@ -608,13 +611,11 @@ func (e *Estudante) applyAprovacaoAnoRegistrada(event DomainEvent) error {
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return fmt.Errorf("applyAprovacaoAnoRegistrada: unmarshal error: %w", err)
 	}
-
 	if e.AprovacoesPorAno == nil {
 		e.AprovacoesPorAno = make(map[string]bool)
 	}
 	chave := ev.TipoEnsino + "_" + ev.AnoLectivo + "_" + ev.NivelAtual
 	e.AprovacoesPorAno[chave] = true
-
 	if !ev.Aprovado {
 		return nil
 	}
@@ -686,8 +687,9 @@ func (e *Estudante) applyDadosPessoaisAtualizados(event DomainEvent) error {
 	if ev.BilheteIdentidadeResp != nil {
 		e.BilheteIdentidadeResp = ev.BilheteIdentidadeResp
 	}
+	// DataNascimento: ponteiro — nil = não alterar
 	if ev.DataNascimento != nil {
-		e.DataNascimento = ev.DataNascimento
+		e.DataNascimento = *ev.DataNascimento
 	}
 	return nil
 }
