@@ -73,6 +73,9 @@ var validEventTypes = map[string]bool{
 	"MateriaDadosAtualizados": true,
 	"MateriaPeriodoDefinido":  true,
 	"MateriaDeletada":         true,
+	// ── TelefoneExtra ──────────────────────────────────────────────────────────
+	"TelefoneExtraAdicionado": true,
+	"TelefoneExtraVerificado":  true,
 }
 
 // validAggregateTypes é o mapa canônico de aggregate types permitidos no ledger.
@@ -83,7 +86,7 @@ var validAggregateTypes = map[string]bool{
 	"Curso":              true,
 	"MateriaDisciplinar": true,
 	"Turma":              true,
-	// FIX DB-08: "System" é o aggregate_type do evento de bootstrap da migration 001.
+	"TelefoneExtra": true,
 	"System": true,
 }
 

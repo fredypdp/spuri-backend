@@ -134,6 +134,8 @@ func (f *DefaultAggregateFactory) Create(aggregateType string) (Aggregate, error
 		return NewMateriaDisciplinar(), nil
 	case "Turma":
 		return NewTurma(), nil
+	case "TelefoneExtra":
+		return NewTelefoneExtra(), nil
 	default:
 		log.Printf("[ERROR] Tipo de agregado desconhecido: %s", aggregateType)
 		return nil, fmt.Errorf("tipo de agregado desconhecido: %s", aggregateType)

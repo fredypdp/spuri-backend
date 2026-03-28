@@ -89,6 +89,7 @@ func initProjections() error {
 	projManager.RegisterProjection("cursos", projections.NewCursosProjection(dbClient))
 	projManager.RegisterProjection("materias", projections.NewMateriasProjection(dbClient))
 	projManager.RegisterProjection("categorias_nota", projections.NewCategoriasNotaProjection(dbClient))
+	projManager.RegisterProjection("telefones_extra", projections.NewTelefonesExtraProjection(dbClient))
 
 	// ── Tier 2 — dependem de academias/cursos ────────────────────────────
 	projManager.RegisterProjection("estudantes", projections.NewEstudanteProjection(dbClient))
@@ -179,6 +180,7 @@ func setupRouter() *gin.Engine {
 		protected.GET("/notas-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetNotasEstudante)
 		protected.GET("/faltas-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetFaltasEstudante)
 		protected.GET("/avaliacoes-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetAvaliacoesFinaisEstudante)
+		protected.POST("/adicionar-telefone-extra", handlers.AdicionarTelefoneExtra)
 	}
 
 	// ── Rotas exclusivas do estudante ─────────────────────────────────────
