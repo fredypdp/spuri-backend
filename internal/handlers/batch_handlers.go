@@ -403,12 +403,10 @@ func CriarCursoBatch(c *gin.Context) {
 // =============================================================================
 
 func AtivarCursoBatch(c *gin.Context) {
-	// FIX: removido argumento "id" extra — runIDParamBatch não aceita paramKey
 	runIDParamBatch(c, 50, func(rc *gin.Context) { AtivarCurso(rc) })
 }
 
 func DesativarCursoBatch(c *gin.Context) {
-	// FIX: removido argumento "id" extra
 	runIDParamBatch(c, 50, func(rc *gin.Context) { DesativarCurso(rc) })
 }
 
@@ -484,17 +482,14 @@ func CriarMateriaBatch(c *gin.Context) {
 // =============================================================================
 
 func AtivarMateriaBatch(c *gin.Context) {
-	// FIX: removido argumento "id" extra
 	runIDParamBatch(c, 100, func(rc *gin.Context) { AtivarMateria(rc) })
 }
 
 func DesativarMateriaBatch(c *gin.Context) {
-	// FIX: removido argumento "id" extra
 	runIDParamBatch(c, 100, func(rc *gin.Context) { DesativarMateria(rc) })
 }
 
 func DeletarMateriaBatch(c *gin.Context) {
-	// FIX: removido argumento "id" extra
 	runIDParamBatch(c, 100, func(rc *gin.Context) { DeletarMateria(rc) })
 }
 
@@ -652,6 +647,13 @@ func RemoverEstudanteBatch(c *gin.Context) {
 
 // =============================================================================
 // POST /dominis/academia/register/batch — limite 50
+//
+// Permite que um admin registe até 50 academias numa única chamada HTTP.
+// Cada item do array segue a mesma estrutura de POST /dominis/academia/register.
+// A resposta indica sucesso/falha por item, com o codigo_academia gerado para
+// cada academia criada com sucesso.
+//
+// Requer: Auth admin + role >= gerente
 // =============================================================================
 
 func RegisterAcademiaBatch(c *gin.Context) {
@@ -678,6 +680,11 @@ func RegisterAcademiaBatch(c *gin.Context) {
 
 // =============================================================================
 // PUT /dominis/academia/ativar/batch — limite 50
+//
+// Activa até 50 academias de uma vez.
+// Body: [{ "codigo": "LDA20261" }, { "codigo": "BGU20261" }, ...]
+//
+// Requer: Auth admin + role >= adm
 // =============================================================================
 
 func AtivarAcademiaBatch(c *gin.Context) {
@@ -686,6 +693,13 @@ func AtivarAcademiaBatch(c *gin.Context) {
 
 // =============================================================================
 // PUT /dominis/academia/desativar/batch — limite 50
+//
+// Desactiva até 50 academias de uma vez.
+// O campo motivo é OBRIGATÓRIO por item — sem motivo, o item falha com 400.
+//
+// Body: [{ "codigo": "LDA20261", "motivo": "encerramento voluntário" }, ...]
+//
+// Requer: Auth admin + role >= adm
 // =============================================================================
 
 func DesativarAcademiaBatch(c *gin.Context) {
@@ -695,7 +709,7 @@ func DesativarAcademiaBatch(c *gin.Context) {
 	}
 	var reqs []ReqDesativar
 	if err := c.ShouldBindJSON(&reqs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve ser um array"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve ser um array de {codigo, motivo}"})
 		return
 	}
 	if err := validarTamanhoBatch(len(reqs), 50); err != nil {
@@ -705,6 +719,14 @@ func DesativarAcademiaBatch(c *gin.Context) {
 
 	results := make([]BatchItemResult, 0, len(reqs))
 	for i, req := range reqs {
+		if req.Codigo == "" {
+			results = append(results, batchErr(i, fmt.Errorf("codigo é obrigatório")))
+			continue
+		}
+		if req.Motivo == "" {
+			results = append(results, batchErr(i, fmt.Errorf("motivo é obrigatório para desativar a academia %q", req.Codigo)))
+			continue
+		}
 		rc := newFakeContext(c)
 		rc.Params = gin.Params{gin.Param{Key: "codigo", Value: req.Codigo}}
 		setJSONBody(rc, gin.H{"motivo": req.Motivo})
