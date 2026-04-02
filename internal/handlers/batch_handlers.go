@@ -10,20 +10,8 @@ import (
 
 // =============================================================================
 // Resposta padrão de batch
-//
-// Todas as rotas /batch retornam este envelope.
-// HTTP 200   — todos os itens tiveram sucesso
-// HTTP 207   — sucesso parcial (alguns falharam)
-// HTTP 422   — todos os itens falharam
-//
-// Semântica de atomicidade: NÃO há rollback entre itens. Cada item é uma
-// operação independente no ledger (Event Sourcing). Se o item 3 falhar,
-// os itens 1 e 2 já foram gravados. Esse comportamento é idêntico ao de
-// chamar a rota individual N vezes — o cliente deve tratar "falhas parciais"
-// re-enviando apenas os itens com sucesso=false.
 // =============================================================================
 
-// BatchItemResult descreve o resultado de um único item do batch.
 type BatchItemResult struct {
 	Index   int         `json:"index"`
 	Sucesso bool        `json:"sucesso"`
@@ -31,7 +19,6 @@ type BatchItemResult struct {
 	Erro    string      `json:"erro,omitempty"`
 }
 
-// BatchResponse é o envelope retornado por todos os endpoints /batch.
 type BatchResponse struct {
 	Total   int               `json:"total"`
 	Sucesso int               `json:"sucesso"`
@@ -76,8 +63,7 @@ func batchErr(index int, err error) BatchItemResult {
 }
 
 // =============================================================================
-// POST /academia/estudante/register/batch
-// Limite: 100 estudantes por chamada
+// POST /academia/estudante/register/batch — limite 100
 // =============================================================================
 
 func RegisterEstudanteBatch(c *gin.Context) {
@@ -103,8 +89,7 @@ func RegisterEstudanteBatch(c *gin.Context) {
 }
 
 // =============================================================================
-// POST /academia/notas-aluno/batch
-// Limite: 200 notas por chamada
+// POST /academia/notas-aluno/batch — limite 200
 // =============================================================================
 
 func RegistrarNotaBatch(c *gin.Context) {
@@ -139,8 +124,7 @@ func RegistrarNotaBatch(c *gin.Context) {
 }
 
 // =============================================================================
-// PUT /academia/atualizar-nota/batch
-// Limite: 200 correções por chamada
+// PUT /academia/atualizar-nota/batch — limite 200
 // =============================================================================
 
 func AtualizarNotaBatch(c *gin.Context) {
@@ -171,9 +155,7 @@ func AtualizarNotaBatch(c *gin.Context) {
 }
 
 // =============================================================================
-// DELETE /academia/nota/batch
-// Body: [{ "id": "uuid", "motivo": "string" }, ...]
-// Limite: 200 por chamada
+// DELETE /academia/nota/batch — limite 200
 // =============================================================================
 
 func DeletarNotaBatch(c *gin.Context) {
@@ -204,8 +186,7 @@ func DeletarNotaBatch(c *gin.Context) {
 }
 
 // =============================================================================
-// POST /academia/faltas-aluno/batch
-// Limite: 200 por chamada
+// POST /academia/faltas-aluno/batch — limite 200
 // =============================================================================
 
 func RegistrarFaltasBatch(c *gin.Context) {
@@ -238,8 +219,7 @@ func RegistrarFaltasBatch(c *gin.Context) {
 }
 
 // =============================================================================
-// PUT /academia/atualizar-falta/batch
-// Limite: 200 por chamada
+// PUT /academia/atualizar-falta/batch — limite 200
 // =============================================================================
 
 func AtualizarFaltaBatch(c *gin.Context) {
@@ -272,9 +252,7 @@ func AtualizarFaltaBatch(c *gin.Context) {
 }
 
 // =============================================================================
-// DELETE /academia/falta/batch
-// Body: [{ "id": "uuid", "motivo": "string" }, ...]
-// Limite: 200 por chamada
+// DELETE /academia/falta/batch — limite 200
 // =============================================================================
 
 func DeletarFaltaBatch(c *gin.Context) {
@@ -305,8 +283,7 @@ func DeletarFaltaBatch(c *gin.Context) {
 }
 
 // =============================================================================
-// POST /academia/avaliacao-final/batch
-// Limite: 100 por chamada (operação mais pesada — remove estudantes de turmas)
+// POST /academia/avaliacao-final/batch — limite 100
 // =============================================================================
 
 func RegistrarAvaliacaoFinalBatch(c *gin.Context) {
@@ -340,23 +317,13 @@ func RegistrarAvaliacaoFinalBatch(c *gin.Context) {
 }
 
 // =============================================================================
-// PUT /academia/estudante/status-escolar/batch
-//
-// Consolida os três endpoints de status escolar num único batch.
-// Cada item especifica o tipo ("fundamental" | "medio" | "superior").
-//
-// Body:
-// [
-//   { "codigo_estudante": "ABC1234", "tipo": "fundamental", "novo_status": "em_andamento" },
-//   { "codigo_estudante": "DEF5678", "tipo": "superior",    "novo_status": "finalizado" }
-// ]
-// Limite: 100 por chamada
+// PUT /academia/estudante/status-escolar/batch — limite 100
 // =============================================================================
 
 func AtualizarStatusEscolarBatch(c *gin.Context) {
 	type ReqStatus struct {
 		CodigoEstudante string `json:"codigo_estudante"`
-		Tipo            string `json:"tipo"` // "fundamental" | "medio" | "superior"
+		Tipo            string `json:"tipo"`
 		NovoStatus      string `json:"novo_status"`
 	}
 	var reqs []ReqStatus
@@ -399,8 +366,7 @@ func AtualizarStatusEscolarBatch(c *gin.Context) {
 }
 
 // =============================================================================
-// POST /academia/curso/batch
-// Limite: 50 cursos por chamada
+// POST /academia/curso/batch — limite 50
 // =============================================================================
 
 func CriarCursoBatch(c *gin.Context) {
@@ -433,23 +399,21 @@ func CriarCursoBatch(c *gin.Context) {
 
 // =============================================================================
 // PUT /academia/curso/ativar/batch
-// PUT /academia/curso/desativar/batch
-// Body: [{ "id": "uuid" }, ...]
-// Limite: 50 por chamada
+// PUT /academia/curso/desativar/batch — limite 50
 // =============================================================================
 
 func AtivarCursoBatch(c *gin.Context) {
-	runIDParamBatch(c, "id", 50, func(rc *gin.Context) { AtivarCurso(rc) })
+	// FIX: removido argumento "id" extra — runIDParamBatch não aceita paramKey
+	runIDParamBatch(c, 50, func(rc *gin.Context) { AtivarCurso(rc) })
 }
 
 func DesativarCursoBatch(c *gin.Context) {
-	runIDParamBatch(c, "id", 50, func(rc *gin.Context) { DesativarCurso(rc) })
+	// FIX: removido argumento "id" extra
+	runIDParamBatch(c, 50, func(rc *gin.Context) { DesativarCurso(rc) })
 }
 
 // =============================================================================
-// DELETE /academia/curso/batch
-// Body: [{ "id": "uuid", "motivo": "string (opcional)" }, ...]
-// Limite: 50 por chamada
+// DELETE /academia/curso/batch — limite 50
 // =============================================================================
 
 func DeletarCursoBatch(c *gin.Context) {
@@ -482,8 +446,7 @@ func DeletarCursoBatch(c *gin.Context) {
 }
 
 // =============================================================================
-// POST /academia/materia/batch
-// Limite: 100 matérias por chamada
+// POST /academia/materia/batch — limite 100
 // =============================================================================
 
 func CriarMateriaBatch(c *gin.Context) {
@@ -517,31 +480,26 @@ func CriarMateriaBatch(c *gin.Context) {
 // =============================================================================
 // PUT /academia/materia/ativar/batch
 // PUT /academia/materia/desativar/batch
-// Body: [{ "id": "uuid" }, ...]
-// Limite: 100 por chamada
+// DELETE /academia/materia/batch — limite 100
 // =============================================================================
 
 func AtivarMateriaBatch(c *gin.Context) {
-	runIDParamBatch(c, "id", 100, func(rc *gin.Context) { AtivarMateria(rc) })
+	// FIX: removido argumento "id" extra
+	runIDParamBatch(c, 100, func(rc *gin.Context) { AtivarMateria(rc) })
 }
 
 func DesativarMateriaBatch(c *gin.Context) {
-	runIDParamBatch(c, "id", 100, func(rc *gin.Context) { DesativarMateria(rc) })
+	// FIX: removido argumento "id" extra
+	runIDParamBatch(c, 100, func(rc *gin.Context) { DesativarMateria(rc) })
 }
-
-// =============================================================================
-// DELETE /academia/materia/batch
-// Body: [{ "id": "uuid" }, ...]
-// Limite: 100 por chamada
-// =============================================================================
 
 func DeletarMateriaBatch(c *gin.Context) {
-	runIDParamBatch(c, "id", 100, func(rc *gin.Context) { DeletarMateria(rc) })
+	// FIX: removido argumento "id" extra
+	runIDParamBatch(c, 100, func(rc *gin.Context) { DeletarMateria(rc) })
 }
 
 // =============================================================================
-// POST /academia/turma/batch
-// Limite: 50 turmas por chamada
+// POST /academia/turma/batch — limite 50
 // =============================================================================
 
 func CriarTurmaBatch(c *gin.Context) {
@@ -574,9 +532,7 @@ func CriarTurmaBatch(c *gin.Context) {
 
 // =============================================================================
 // PUT /academia/turma/ativar/batch
-// PUT /academia/turma/desativar/batch
-// Body: [{ "codigo": "string" }, ...]
-// Limite: 50 por chamada
+// PUT /academia/turma/desativar/batch — limite 50
 // =============================================================================
 
 func AtivarTurmaBatch(c *gin.Context) {
@@ -588,9 +544,7 @@ func DesativarTurmaBatch(c *gin.Context) {
 }
 
 // =============================================================================
-// DELETE /academia/turma/batch
-// Body: [{ "codigo": "string", "motivo": "string (opcional)" }, ...]
-// Limite: 50 por chamada
+// DELETE /academia/turma/batch — limite 50
 // =============================================================================
 
 func DeletarTurmaBatch(c *gin.Context) {
@@ -623,18 +577,7 @@ func DeletarTurmaBatch(c *gin.Context) {
 }
 
 // =============================================================================
-// POST /academia/turma/estudante/batch
-//
-// Adiciona vários pares (turma, estudante) de uma vez.
-// Cada item especifica a turma, permitindo distribuir estudantes por
-// turmas diferentes numa única chamada.
-//
-// Body:
-// [
-//   { "codigo_turma": "T1", "codigo_estudante": "ABC1234" },
-//   { "codigo_turma": "T2", "codigo_estudante": "DEF5678" }
-// ]
-// Limite: 100 por chamada
+// POST /academia/turma/estudante/batch — limite 100
 // =============================================================================
 
 func AdicionarEstudanteBatch(c *gin.Context) {
@@ -670,15 +613,7 @@ func AdicionarEstudanteBatch(c *gin.Context) {
 }
 
 // =============================================================================
-// DELETE /academia/turma/estudante/batch
-//
-// Remove vários pares (turma, estudante) de uma vez.
-// Body:
-// [
-//   { "codigo_turma": "T1", "codigo_estudante": "ABC1234" },
-//   { "codigo_turma": "T2", "codigo_estudante": "DEF5678" }
-// ]
-// Limite: 100 por chamada
+// DELETE /academia/turma/estudante/batch — limite 100
 // =============================================================================
 
 func RemoverEstudanteBatch(c *gin.Context) {
@@ -716,8 +651,7 @@ func RemoverEstudanteBatch(c *gin.Context) {
 }
 
 // =============================================================================
-// POST /dominis/academia/register/batch  (admin)
-// Limite: 50 academias por chamada
+// POST /dominis/academia/register/batch — limite 50
 // =============================================================================
 
 func RegisterAcademiaBatch(c *gin.Context) {
@@ -743,9 +677,7 @@ func RegisterAcademiaBatch(c *gin.Context) {
 }
 
 // =============================================================================
-// PUT /dominis/academia/ativar/batch  (admin, requer RequireAdm)
-// Body: [{ "codigo": "LDA20261" }, ...]
-// Limite: 50 por chamada
+// PUT /dominis/academia/ativar/batch — limite 50
 // =============================================================================
 
 func AtivarAcademiaBatch(c *gin.Context) {
@@ -753,9 +685,7 @@ func AtivarAcademiaBatch(c *gin.Context) {
 }
 
 // =============================================================================
-// PUT /dominis/academia/desativar/batch  (admin, requer RequireAdm)
-// Body: [{ "codigo": "LDA20261", "motivo": "string" }, ...]
-// Limite: 50 por chamada
+// PUT /dominis/academia/desativar/batch — limite 50
 // =============================================================================
 
 func DesativarAcademiaBatch(c *gin.Context) {
@@ -786,10 +716,9 @@ func DesativarAcademiaBatch(c *gin.Context) {
 }
 
 // =============================================================================
-// Helpers internos reutilizáveis
+// Helpers internos
 // =============================================================================
 
-// validarTamanhoBatch garante que o array tem entre 1 e max itens.
 func validarTamanhoBatch(n, max int) error {
 	if n == 0 {
 		return fmt.Errorf("array não pode ser vazio")
