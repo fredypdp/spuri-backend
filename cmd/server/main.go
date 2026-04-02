@@ -243,6 +243,46 @@ func setupRouter() *gin.Engine {
 		academia.DELETE("/turma/:codigo", handlers.DeletarTurma)
 		academia.POST("/turma/:codigo/estudante", handlers.AdicionarEstudanteATurma)
 		academia.DELETE("/turma/:codigo/estudantes/:codigo_estudante", handlers.RemoverEstudanteDaTurma)
+
+		// Rotas Batch
+		// Estudante
+		academia.POST("/estudante/register/batch", handlers.RegisterEstudanteBatch)
+		
+		// Notas
+		academia.POST("/notas-aluno/batch",    handlers.RegistrarNotaBatch)
+		academia.PUT("/atualizar-nota/batch",  handlers.AtualizarNotaBatch)
+		academia.DELETE("/nota/batch",         handlers.DeletarNotaBatch)
+		
+		// Faltas
+		academia.POST("/faltas-aluno/batch",   handlers.RegistrarFaltasBatch)
+		academia.PUT("/atualizar-falta/batch", handlers.AtualizarFaltaBatch)
+		academia.DELETE("/falta/batch",        handlers.DeletarFaltaBatch)
+		
+		// Avaliação final
+		academia.POST("/avaliacao-final/batch", handlers.RegistrarAvaliacaoFinalBatch)
+		
+		// Status escolar (consolida os 3 endpoints num único batch)
+		academia.PUT("/estudante/status-escolar/batch", handlers.AtualizarStatusEscolarBatch)
+		
+		// Cursos
+		academia.POST("/curso/batch",           handlers.CriarCursoBatch)
+		academia.PUT("/curso/ativar/batch",     handlers.AtivarCursoBatch)
+		academia.PUT("/curso/desativar/batch",  handlers.DesativarCursoBatch)
+		academia.DELETE("/curso/batch",         handlers.DeletarCursoBatch)
+		
+		// Matérias
+		academia.POST("/materia/batch",          handlers.CriarMateriaBatch)
+		academia.PUT("/materia/ativar/batch",    handlers.AtivarMateriaBatch)
+		academia.PUT("/materia/desativar/batch", handlers.DesativarMateriaBatch)
+		academia.DELETE("/materia/batch",        handlers.DeletarMateriaBatch)
+		
+		// Turmas
+		academia.POST("/turma/batch",           handlers.CriarTurmaBatch)
+		academia.PUT("/turma/ativar/batch",     handlers.AtivarTurmaBatch)
+		academia.PUT("/turma/desativar/batch",  handlers.DesativarTurmaBatch)
+		academia.DELETE("/turma/batch",         handlers.DeletarTurmaBatch)
+		academia.POST("/turma/estudante/batch", handlers.AdicionarEstudanteBatch)
+		academia.DELETE("/turma/estudante/batch", handlers.RemoverEstudanteBatch)
 	}
 
 	// ── Rotas de admin ────────────────────────────────────────────────────
@@ -264,6 +304,11 @@ func setupRouter() *gin.Engine {
 		admin.GET("/registros/:codigo", handlers.ListarRegistrosPorEstudante)
 		admin.PUT("/admin/:id/role", middleware.RequireFPP(), handlers.AtualizarRoleAdmin)
 		admin.PUT("/admin/:id/dados", handlers.AtualizarDadosAdmin)
+
+		// Rotas Batch
+		admin.POST("/academia/register/batch", handlers.RegisterAcademiaBatch)
+		admin.PUT("/academia/ativar/batch", middleware.RequireAdm(), handlers.AtivarAcademiaBatch)
+		admin.PUT("/academia/desativar/batch", middleware.RequireAdm(), handlers.DesativarAcademiaBatch)
 	}
 
 	return router
