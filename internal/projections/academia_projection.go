@@ -111,9 +111,6 @@ func (p *AcademiaProjection) handleEstudanteCriadoComVinculoTx(tx *sql.Tx, event
 
 // Os handlers Tx abaixo delegam ao pool do cliente (operações idempotentes),
 // mas são fornecidos para manter a interface consistente dentro de HandleTx.
-// Para estas operações, o benefício da atomicidade é a consistência do
-// checkpoint — não a idempotência do Handle em si.
-
 func (p *AcademiaProjection) handleAcademiaCriadaTx(tx *sql.Tx, event db.Event) error {
 	return p.handleAcademiaCriada(event)
 }
@@ -241,6 +238,24 @@ func (p *AcademiaProjection) UpdateCheckpoint(eventID int64) error {
 // Handlers de evento
 // ============================================================================
 
+// handleAcademiaCriada insere a academia na projeção de forma idempotente.
+//
+// FIX MIG-045: substituído ON CONFLICT (id) DO NOTHING por
+// ON CONFLICT (codigo_academia) DO UPDATE.
+//
+// MOTIVAÇÃO: quando dois eventos no ledger têm o mesmo codigo_academia (gerado
+// por race condition antes da migration 045 corrigir o gerador), o segundo
+// evento causava falha na constraint UNIQUE(codigo_academia) — o ON CONFLICT (id)
+// não protegia porque os dois eventos têm id (UUID) diferentes.
+//
+// Com ON CONFLICT (codigo_academia) DO UPDATE o handler é idempotente: se o
+// código já existir, atualiza os campos com os dados do evento mais recente
+// (exceto status e totais que são gerenciados por outros eventos).
+// Isso garante que o pipeline de eventos nunca trava por duplicata de código.
+//
+// O gerador foi corrigido na migration 045 para consultar o ledger em vez da
+// projeção, prevenindo novas colisões. Este ON CONFLICT é a segunda linha de
+// defesa para eventos já gravados no ledger histórico.
 func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 	var payload struct {
 		Type           string    `json:"Type"`
@@ -285,7 +300,22 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 			0,
 			$14, CURRENT_TIMESTAMP, $15, $16
 		)
-		ON CONFLICT (id) DO NOTHING
+		ON CONFLICT (codigo_academia) DO UPDATE SET
+			id              = EXCLUDED.id,
+			type            = EXCLUDED.type,
+			nome            = EXCLUDED.nome,
+			senha_hash      = EXCLUDED.senha_hash,
+			provincia       = EXCLUDED.provincia,
+			endereco        = EXCLUDED.endereco,
+			numero_telefone = EXCLUDED.numero_telefone,
+			email           = EXCLUDED.email,
+			website         = EXCLUDED.website,
+			nivel_escolar   = EXCLUDED.nivel_escolar,
+			anos_academicos = EXCLUDED.anos_academicos,
+			cursos          = EXCLUDED.cursos,
+			updated_at      = CURRENT_TIMESTAMP,
+			version         = EXCLUDED.version,
+			last_event_id   = EXCLUDED.last_event_id
 	`,
 		event.AggregateID, payload.Type, payload.Nome, payload.CodigoAcademia, payload.SenhaHash,
 		payload.Provincia, payload.Endereco, payload.NumeroTelefone, payload.Email, payload.Website,
@@ -321,10 +351,6 @@ func (p *AcademiaProjection) handleStatusChange(novoStatus string) func(db.Event
 			return fmt.Errorf("handleStatusChange: RowsAffected error: %w", err)
 		}
 		if rowsAffected == 0 {
-			// Evento com UUID que não existe na projeção — gerado pelo bug do
-			// repository.Load (FIX-REPO-03). Após o fix, novos eventos usam o
-			// UUID correto e sempre afetam 1 linha. Não retornamos erro aqui
-			// para não travar o Rebuild ao processar eventos históricos inválidos.
 			log.Printf("[WARN] [academias] handleStatusChange(%s): 0 linhas afetadas para aggregate %s — evento histórico com UUID inválido (ignorado)",
 				novoStatus, event.AggregateID)
 		} else {
@@ -385,9 +411,6 @@ func (p *AcademiaProjection) handleCursosAtualizados(event db.Event) error {
 
 // handleEstudanteCriadoComVinculo incrementa total_estudantes quando
 // uma academia cria um estudante diretamente (vínculo direto na criação).
-//
-// FIX E-23: este handler agora é efetivamente chamado porque Handle()
-// roteia eventos de AggregateType="Estudante" corretamente.
 func (p *AcademiaProjection) handleEstudanteCriadoComVinculo(event db.Event) error {
 	var payload struct {
 		CodigoAcademia string `json:"CodigoAcademia"`
@@ -517,11 +540,6 @@ func (p *AcademiaProjection) handleEmailVerificado(event db.Event) error {
 }
 
 // handleAcademiaSenhaAlterada atualiza o hash de senha na projeção.
-//
-// FIX C1: antes da correção, a senha era alterada via UPDATE direto na projeção,
-// bypassando o ledger. Agora este handler garante que o evento AcademiaSenhaAlterada
-// seja processado e a projeção atualizada de forma consistente com o event sourcing.
-// Rebuild agora restaura a senha correta.
 func (p *AcademiaProjection) handleAcademiaSenhaAlterada(event db.Event) error {
 	var payload struct {
 		NovaSenhaHash string `json:"NovaSenhaHash"`
@@ -598,16 +616,10 @@ type AcademiaDTO struct {
 	UpdatedAt         time.Time  `json:"updated_at"`
 	TotalEstudantes   int        `json:"total_estudantes"`
 	Version           int        `json:"version"`
-	// Ano letivo ativo desta academia. nil = não configurado.
 	AnoLetivo          *string    `json:"ano_letivo,omitempty"`
 	TipoAnoLetivo      *string    `json:"tipo_ano_letivo,omitempty"`
 	AnoLetivoAtivadoEm *time.Time `json:"ano_letivo_ativado_em,omitempty"`
 }
-
-// FIX E-07: queries de leitura NÃO mais filtram `deleted_at IS NULL` porque
-// a coluna deleted_at NÃO existe no schema projection_academias (migrations 001-025).
-// Academias são desativadas via status='inativo', não soft-deleted.
-// Se futuramente for necessário soft-delete, criar migration para adicionar a coluna ANTES.
 
 func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
 	row := p.client.DB().QueryRow(`
@@ -661,9 +673,6 @@ func (p *AcademiaProjection) GetByCodigoOrEmail(codigoOrEmail string) (*Academia
 	return p.GetByEmail(codigoOrEmail)
 }
 
-// scanAcademia lê uma linha da projeção para AcademiaDTO.
-// FIX E-07: não há mais `deleted_at` na query — campo removido do scan.
-// FIX E-10: motivo_desativacao adicionado ao scan.
 func scanAcademia(row interface{ Scan(...interface{}) error }) (*AcademiaDTO, error) {
 	var a AcademiaDTO
 	var cursosJSON, anosJSON []byte

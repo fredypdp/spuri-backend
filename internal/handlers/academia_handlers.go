@@ -42,36 +42,35 @@ type RegisterAcademiaRequest struct {
 
 func RegisterAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
- 
+
 	var req RegisterAcademiaRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: type, nome, provincia e endereco"))
 		return
 	}
- 
-	// FIX: era "universidade" — não correspondia ao aggregate (aceita "superior") nem ao schema DB.
+
 	if req.Type != "escola" && req.Type != "superior" {
 		utils.RespondWithValidationError(c, fmt.Errorf("type deve ser 'escola' ou 'superior'"))
 		return
 	}
- 
+
 	if err := utils.ValidateNome(req.Nome); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
- 
+
 	if err := utils.ValidateEndereco(req.Endereco); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
- 
+
 	// validarProvincia converte nome completo → código 3 letras (ex: "Luanda" → "LDA").
 	codigoProvincia, err := validarProvincia(req.Provincia)
 	if err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
- 
+
 	if req.NivelEscolar != nil {
 		nivel := *req.NivelEscolar
 		if nivel == "medio" && len(req.AnosAcademicos) > 0 {
@@ -95,30 +94,28 @@ func RegisterAcademia(c *gin.Context) {
 			}
 		}
 	}
- 
+
 	client := getDbClient(c)
 	codigoAcademia, err := generateCodigoAcademia(codigoProvincia, client.DB())
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
- 
+
 	defaultPassword := services.GetDefaultPassword("academia", codigoAcademia)
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(defaultPassword), bcrypt.DefaultCost)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
- 
-	// Assinatura: Criar(tipo, nome, codigoAcademia, senhaHash, provincia, endereco,
-	//                   numeroTelefone, email, website, nivelEscolar, cursos, anosAcademicos, criadoPor)
+
 	academia := aggregates.NewAcademia()
 	if err := academia.Criar(
 		req.Type,
 		req.Nome,
 		codigoAcademia,
 		string(hashedPassword),
-		codigoProvincia, // FIX: era req.Provincia (ex: "Luanda") → causava "value too long for type character varying(3)"
+		codigoProvincia,
 		req.Endereco,
 		req.NumeroTelefone,
 		req.Email,
@@ -131,7 +128,7 @@ func RegisterAcademia(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
- 
+
 	repository := getRepository(c)
 	audit := db.AuditContext{
 		UserID:   userID.String(),
@@ -142,7 +139,7 @@ func RegisterAcademia(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
- 
+
 	log.Printf("Academia registada: %s (%s) por admin %s", req.Nome, codigoAcademia, userID)
 	c.JSON(http.StatusCreated, gin.H{
 		"message":         "academia registada com sucesso",
@@ -150,19 +147,19 @@ func RegisterAcademia(c *gin.Context) {
 		"data": gin.H{
 			"id":              academia.ID,
 			"nome":            req.Nome,
-			"provincia":       codigoProvincia, // retorna o código gravado (consistente com o ledger)
+			"provincia":       codigoProvincia,
 			"codigo_academia": codigoAcademia,
 		},
 	})
 }
- 
+
 // ============================================================================
 // PUT /academia/dados
 // ============================================================================
- 
+
 func AtualizarDadosAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
- 
+
 	var req struct {
 		Nome           *string  `json:"nome"`
 		Provincia      *string  `json:"provincia"`
@@ -178,18 +175,14 @@ func AtualizarDadosAcademia(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("body inválido"))
 		return
 	}
- 
-	// FIX H4-REG-05: rejeitar body completamente vazio — sem evento no ledger.
+
 	if req.Nome == nil && req.Provincia == nil && req.Endereco == nil &&
 		req.NumeroTelefone == nil && req.Email == nil && req.Website == nil &&
 		req.NivelEscolar == nil && len(req.AnosAcademicos) == 0 && len(req.Cursos) == 0 {
 		utils.RespondWithValidationError(c, fmt.Errorf("ao menos um campo deve ser fornecido para atualização"))
 		return
 	}
- 
-	// FIX: converter req.Provincia (nome completo) para código de 3 letras antes de passar ao aggregate.
-	// Sem esta conversão, o evento seria gravado com o nome completo e a projeção
-	// falharia ao inserir em provincia VARCHAR(3).
+
 	var provCode *string
 	if req.Provincia != nil {
 		code, err := validarProvincia(*req.Provincia)
@@ -199,7 +192,7 @@ func AtualizarDadosAcademia(c *gin.Context) {
 		}
 		provCode = &code
 	}
- 
+
 	if req.NivelEscolar != nil {
 		nivel := *req.NivelEscolar
 		if nivel == "medio" && len(req.AnosAcademicos) > 0 {
@@ -223,24 +216,23 @@ func AtualizarDadosAcademia(c *gin.Context) {
 			}
 		}
 	}
- 
+
 	repository := getRepository(c)
 	agg, err := repository.Load(userID, "Academia")
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
- 
-	// FIX H4-TRX-03: type assertion protegida.
+
 	academia, ok := agg.(*aggregates.Academia)
 	if !ok {
 		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
 		return
 	}
- 
+
 	if err := academia.AtualizarDados(
 		req.Nome,
-		provCode,  // FIX: era req.Provincia (nome completo) → agora código de 3 letras validado
+		provCode,
 		req.Endereco,
 		req.NumeroTelefone,
 		req.Email,
@@ -252,7 +244,7 @@ func AtualizarDadosAcademia(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
- 
+
 	audit := db.AuditContext{
 		UserID:   userID.String(),
 		UserType: "academia",
@@ -262,22 +254,18 @@ func AtualizarDadosAcademia(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
- 
+
 	c.JSON(http.StatusOK, gin.H{"message": "dados atualizados com sucesso"})
 }
 
 // ============================================================================
 // PUT /admin/academia/:codigo/ativar
 // ============================================================================
-//
-// Parâmetro de rota é `:codigo` (código de academia, ex: "LDA20261").
-// A resolução UUID→aggregate é feita via projeção (GetByCodigo).
-// Usa AtivarComAutor para registrar quem ativou no payload do evento.
+
 func AtivarAcademia(c *gin.Context) {
 	codigoAcademia := c.Param("codigo")
 	adminUserID, _ := middleware.GetUserID(c)
 
-	// Resolver código → DTO (contém o UUID interno)
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByCodigo(codigoAcademia)
 	if err != nil {
@@ -289,7 +277,6 @@ func AtivarAcademia(c *gin.Context) {
 		return
 	}
 
-	// Carregar aggregate pelo UUID resolvido
 	repository := getRepository(c)
 	agg, err := repository.Load(academiaDTO.ID, "Academia")
 	if err != nil {
@@ -297,7 +284,6 @@ func AtivarAcademia(c *gin.Context) {
 		return
 	}
 
-	// Type assertion protegida
 	academia, ok := agg.(*aggregates.Academia)
 	if !ok {
 		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
@@ -330,6 +316,7 @@ func AtivarAcademia(c *gin.Context) {
 // ============================================================================
 // PUT /admin/academia/:codigo/desativar
 // ============================================================================
+
 func DesativarAcademia(c *gin.Context) {
 	codigoAcademia := c.Param("codigo")
 	adminUserID, _ := middleware.GetUserID(c)
@@ -342,7 +329,6 @@ func DesativarAcademia(c *gin.Context) {
 		return
 	}
 
-	// Resolver código → DTO (contém o UUID interno)
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByCodigo(codigoAcademia)
 	if err != nil {
@@ -354,7 +340,6 @@ func DesativarAcademia(c *gin.Context) {
 		return
 	}
 
-	// Carregar aggregate pelo UUID resolvido
 	repository := getRepository(c)
 	agg, err := repository.Load(academiaDTO.ID, "Academia")
 	if err != nil {
@@ -362,14 +347,12 @@ func DesativarAcademia(c *gin.Context) {
 		return
 	}
 
-	// Type assertion protegida
 	academia, ok := agg.(*aggregates.Academia)
 	if !ok {
 		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
 		return
 	}
 
-	// FIX C9: passar desativadoPor ao aggregate para inclusão no payload do evento.
 	if err := academia.Desativar(req.Motivo, adminUserID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -398,24 +381,14 @@ func DesativarAcademia(c *gin.Context) {
 // GET /academias
 // ============================================================================
 
-// ============================================================================
-// GET /academias
-// ============================================================================
-
 func ListarTodasAcademias(c *gin.Context) {
 	userType, _ := middleware.GetUserType(c)
 	client := getDbClient(c)
 
-	// FIX H4-REG-04: paginação com limites validados.
 	limit, offset := getPaginationParams(c)
 	limit = db.ValidateLimit(limit)
 	offset = db.ValidateOffset(offset)
 
-	// FIX LISTA-01: admin vê TODAS as academias (ativo + inativo), pois academias
-	// são registradas com status='inativo' por padrão e precisam ser ativadas pelo
-	// admin. Sem este fix, o admin nunca enxerga uma academia recém-registrada.
-	// Não-admin continua vendo apenas academias ativas.
-	// Admin pode filtrar opcionalmente via ?status=ativo ou ?status=inativo.
 	const baseSelect = `
 		SELECT id, type, nome, codigo_academia, provincia, endereco,
 		       numero_telefone, email, website, nivel_escolar, status,
@@ -436,14 +409,12 @@ func ListarTodasAcademias(c *gin.Context) {
 				statusFilter, limit, offset,
 			)
 		default:
-			// Sem filtro: admin vê todas (inativo incluso).
 			rows, err = client.DB().Query(
 				baseSelect+` ORDER BY nome ASC LIMIT $1 OFFSET $2`,
 				limit, offset,
 			)
 		}
 	} else {
-		// Não-admin: apenas academias ativas.
 		rows, err = client.DB().Query(
 			baseSelect+` WHERE status = 'ativo' ORDER BY nome ASC LIMIT $1 OFFSET $2`,
 			limit, offset,
@@ -501,7 +472,6 @@ func ListarTodasAcademias(c *gin.Context) {
 			cursos = []string{}
 		}
 
-		// Campos públicos — visíveis a todos os tipos autenticados.
 		acadMap := map[string]interface{}{
 			"id":               aca.ID,
 			"type":             aca.Type,
@@ -519,7 +489,6 @@ func ListarTodasAcademias(c *gin.Context) {
 			"updated_at":       aca.UpdatedAt,
 		}
 
-		// Campos operacionais internos — apenas para admin.
 		if userType == "admin" {
 			acadMap["email"] = aca.Email
 			acadMap["total_estudantes"] = aca.TotalEstudantes
@@ -584,7 +553,6 @@ func GetAcademiaPorCodigo(c *gin.Context) {
 		"total_estudantes": academia.TotalEstudantes,
 	}
 
-	// Ocultar email e dados sensíveis de não-admins.
 	if userType == "admin" {
 		resp["email"] = academia.Email
 		resp["motivo_desativacao"] = academia.MotivoDesativacao
@@ -597,14 +565,12 @@ func GetAcademiaPorCodigo(c *gin.Context) {
 // POST /academia/ano-letivo
 // ============================================================================
 
-// DefinirAnoLetivoAcademia define ou atualiza o ano letivo ativo desta academia.
-// Sem ano letivo ativo, nenhum registro de nota, falta, avaliação ou aprovação é permitido.
 func DefinirAnoLetivoAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
 	var req struct {
 		AnoLetivo string `json:"ano_letivo" binding:"required"`
-		Tipo      string `json:"tipo"       binding:"required"` // "escola" ou "superior"
+		Tipo      string `json:"tipo"       binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("campos obrigatórios: ano_letivo e tipo"))
@@ -659,7 +625,6 @@ func DefinirAnoLetivoAcademia(c *gin.Context) {
 // GET /academia/ano-letivo
 // ============================================================================
 
-// GetAnoLetivoAcademia retorna o ano letivo ativo da academia autenticada.
 func GetAnoLetivoAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -678,9 +643,9 @@ func GetAnoLetivoAcademia(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"ano_letivo":   *academiaDTO.AnoLetivo,
-		"tipo":         academiaDTO.TipoAnoLetivo,
-		"ativado_em":   academiaDTO.AnoLetivoAtivadoEm,
+		"ano_letivo": *academiaDTO.AnoLetivo,
+		"tipo":       academiaDTO.TipoAnoLetivo,
+		"ativado_em": academiaDTO.AnoLetivoAtivadoEm,
 	})
 }
 
@@ -688,9 +653,6 @@ func GetAnoLetivoAcademia(c *gin.Context) {
 // Helpers internos
 // ============================================================================
 
-// resolverAnoLetivoAcademia retorna o ano letivo ativo da academia.
-// Retorna erro se não estiver configurado — qualquer handler de registro deve
-// chamar este helper antes de prosseguir, logo após carregar academiaDTO.
 func resolverAnoLetivoAcademia(anoLetivo *string, codigoAcademia string) (string, error) {
 	if anoLetivo == nil || strings.TrimSpace(*anoLetivo) == "" {
 		return "", fmt.Errorf(
@@ -721,52 +683,60 @@ func validarProvincia(provincia string) (string, error) {
 // generateCodigoAcademia gera o código único da academia no formato
 // {PROVINCIA}{ANO}{SEQUENCIAL}, ex: LDA20261, LDA20262, BGU20261.
 //
-// A sequência é por (província, ano) e reinicia a cada ano-calendário.
-// Não há zero-padding no sequencial — cresce naturalmente (1, 2, … N).
+// CORREÇÃO (migration 045): o caminho principal agora delega para a função SQL
+// corrigida que consulta o spuri_ledger (não a projection_academias).
 //
-// Caminho principal: delega para a função SQL spuri_generate_codigo_academia
-// (migration 035), que garante unicidade atômica via loop no banco.
+// O fallback em Go também foi corrigido para consultar o ledger via
+// payload->>'CodigoAcademia', eliminando a race condition que ocorria
+// quando a projeção ainda não havia materializado o evento anterior.
 //
-// Fallback (se a função SQL não existir ainda): replica a mesma lógica no Go —
-// conta as academias com o prefixo {PROV}{ANO} e incrementa, com loop de
-// verificação de unicidade. O UNIQUE constraint em projection_academias é a
-// barreira definitiva contra colisões em qualquer cenário.
+// A race condition era: cadastro rápido de 2+ academias da mesma província
+// no mesmo segundo → ambas veem COUNT=0 na projeção → mesmo código gerado
+// → violação de unique constraint → projeção travada permanentemente.
 func generateCodigoAcademia(codigoProvincia string, sqlDB *sqlx.DB) (string, error) {
-	// Caminho principal: função SQL atômica (migration 035).
+	// Caminho principal: função SQL corrigida (migration 045) que consulta o ledger.
 	var codigo string
 	err := sqlDB.QueryRow(`SELECT spuri_generate_codigo_academia($1)`, codigoProvincia).Scan(&codigo)
 	if err == nil {
 		return codigo, nil
 	}
 
-	// Fallback: replicar a lógica do SQL no Go.
-	log.Printf("[WARN] generateCodigoAcademia: função SQL indisponível (%v) — usando fallback Go", err)
+	// Fallback: replicar a lógica corrigida no Go — consultar o LEDGER, não a projeção.
+	log.Printf("[WARN] generateCodigoAcademia: função SQL indisponível (%v) — usando fallback Go (ledger)", err)
 
 	ano := time.Now().Year()
 	prefix := fmt.Sprintf("%s%d", codigoProvincia, ano)
 
-	// Contar academias existentes com este prefixo para determinar o próximo seq.
+	// Contar academias já gravadas no LEDGER com este prefixo.
+	// O ledger é síncrono — o INSERT do evento já ocorreu antes desta função ser chamada.
+	// payload->>'CodigoAcademia' extrai o campo do JSON do evento AcademiaCriada.
 	var count int
 	if countErr := sqlDB.QueryRow(
-		`SELECT COUNT(*) FROM projection_academias WHERE codigo_academia LIKE $1`,
+		`SELECT COUNT(*)
+		 FROM spuri_ledger
+		 WHERE event_type = 'AcademiaCriada'
+		   AND payload->>'CodigoAcademia' LIKE $1`,
 		prefix+"%",
 	).Scan(&count); countErr != nil {
-		// Se até a contagem falhar, usa nanosegundo como último recurso.
-		// O formato ainda está correto; o UNIQUE constraint rejeita duplicatas.
+		// Se o ledger não estiver acessível, usar nanosegundo como último recurso.
 		seq := (time.Now().UnixNano() % 9999) + 1
 		codigo = fmt.Sprintf("%s%d", prefix, seq)
-		log.Printf("[WARN] generateCodigoAcademia: contagem falhou (%v) — emergência: %s", countErr, codigo)
+		log.Printf("[WARN] generateCodigoAcademia: falha ao consultar ledger (%v) — emergência: %s", countErr, codigo)
 		return codigo, nil
 	}
 
 	seq := count + 1
 	codigo = fmt.Sprintf("%s%d", prefix, seq)
 
-	// Loop de verificação de unicidade (best-effort, até 50 tentativas).
-	for i := 0; i < 50; i++ {
+	// Loop de verificação de unicidade no ledger (até 100 tentativas).
+	for i := 0; i < 100; i++ {
 		var exists bool
 		if checkErr := sqlDB.QueryRow(
-			`SELECT EXISTS(SELECT 1 FROM projection_academias WHERE codigo_academia = $1)`,
+			`SELECT EXISTS(
+				SELECT 1 FROM spuri_ledger
+				WHERE event_type = 'AcademiaCriada'
+				  AND payload->>'CodigoAcademia' = $1
+			)`,
 			codigo,
 		).Scan(&exists); checkErr != nil || !exists {
 			break
@@ -775,6 +745,6 @@ func generateCodigoAcademia(codigoProvincia string, sqlDB *sqlx.DB) (string, err
 		codigo = fmt.Sprintf("%s%d", prefix, seq)
 	}
 
-	log.Printf("[WARN] generateCodigoAcademia: código gerado pelo fallback Go: %s", codigo)
+	log.Printf("[WARN] generateCodigoAcademia: código gerado pelo fallback Go (ledger): %s", codigo)
 	return codigo, nil
 }
