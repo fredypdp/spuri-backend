@@ -75,8 +75,6 @@ func (p *EstudanteProjection) Handle(event db.Event) error {
 		return p.handleEmailVerificadoEstudante(event)
 	case "CursoAlterado":
 		return p.handleCursoAlterado(event)
-	case "AprovacaoAnoRegistrada":
-		return p.handleAprovacaoAnoRegistrada(event)
 	case "SenhaAlterada":
 		return p.handleSenhaAlterada(event)
 	case "AvaliacaoFinalAnoAcademico":
@@ -245,6 +243,9 @@ func (p *EstudanteProjection) handleStatusEscolarMedio(event db.Event) error {
 	return err
 }
 
+// handleStatusEscolarAtualizado — handler legado para o evento StatusEscolarAtualizado
+// (emitido antes da migration 008 que dividiu o campo). Mantido para rebuild
+// de ledgers históricos — não remove; apenas ignora se banco já está em novo formato.
 func (p *EstudanteProjection) handleStatusEscolarAtualizado(event db.Event) error {
 	var payload struct {
 		NovoStatus string `json:"NovoStatus"`
@@ -284,7 +285,7 @@ func (p *EstudanteProjection) handleDadosPessoaisAtualizados(event db.Event) err
 		Telefone              *string    `json:"Telefone"`
 		BilheteIdentidade     *string    `json:"BilheteIdentidade"`
 		BilheteIdentidadeResp *string    `json:"BilheteIdentidadeResp"`
-		DataNascimento        *time.Time `json:"DataNascimento"` // ponteiro: nil = não alterar
+		DataNascimento        *time.Time `json:"DataNascimento"`
 		EmailAlterado         bool       `json:"EmailAlterado"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
@@ -449,43 +450,6 @@ func (p *EstudanteProjection) handleCursoAlterado(event db.Event) error {
 	return err
 }
 
-func (p *EstudanteProjection) handleAprovacaoAnoRegistrada(event db.Event) error {
-	var payload struct {
-		TipoEnsino   string  `json:"TipoEnsino"`
-		ProximoNivel *string `json:"ProximoNivel"`
-		Aprovado     bool    `json:"Aprovado"`
-	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("handleAprovacaoAnoRegistrada: parse error: %w", err)
-	}
-	if !payload.Aprovado || payload.ProximoNivel == nil {
-		_, err := p.client.DB().Exec(`
-			UPDATE projection_estudantes
-			SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
-			WHERE id = $3
-		`, event.EventVersion, event.EventID, event.AggregateID)
-		return err
-	}
-	var col string
-	switch payload.TipoEnsino {
-	case "fundamental":
-		col = "ano_escolar"
-	case "medio":
-		col = "ano_escolar_medio"
-	case "superior":
-		col = "ano_superior"
-	default:
-		return fmt.Errorf("handleAprovacaoAnoRegistrada: TipoEnsino inválido: %q", payload.TipoEnsino)
-	}
-	query := fmt.Sprintf(`
-		UPDATE projection_estudantes
-		SET %s = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
-		WHERE id = $4
-	`, col)
-	_, err := p.client.DB().Exec(query, payload.ProximoNivel, event.EventVersion, event.EventID, event.AggregateID)
-	return err
-}
-
 func (p *EstudanteProjection) handleSenhaAlterada(event db.Event) error {
 	var payload struct {
 		NovaSenhaHash string `json:"NovaSenhaHash"`
@@ -502,16 +466,20 @@ func (p *EstudanteProjection) handleSenhaAlterada(event db.Event) error {
 	return err
 }
 
+// handleAvaliacaoFinalAnoAcademico atualiza o ano escolar do estudante quando
+// aprovado ou marca o status como "finalizado" quando é o último ano do ciclo.
 func (p *EstudanteProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) error {
 	var payload struct {
-		TipoEnsino   string  `json:"TipoEnsino"`
-		ProximoNivel *string `json:"ProximoNivel"`
-		Aprovado     bool    `json:"Aprovado"`
+		TipoEnsino          string  `json:"TipoEnsino"`
+		ProximoAnoAcademico *string `json:"ProximoAnoAcademico"`
+		Aprovado            bool    `json:"Aprovado"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleAvaliacaoFinalAnoAcademico: parse error: %w", err)
 	}
-	if !payload.Aprovado || payload.ProximoNivel == nil {
+
+	// Reprovado ou sem próximo nível sem ser o último — apenas avança versão.
+	if !payload.Aprovado {
 		_, err := p.client.DB().Exec(`
 			UPDATE projection_estudantes
 			SET version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
@@ -519,6 +487,30 @@ func (p *EstudanteProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) e
 		`, event.EventVersion, event.EventID, event.AggregateID)
 		return err
 	}
+
+	// Aprovado e é o último ano do ciclo — marcar status como finalizado.
+	if payload.ProximoAnoAcademico == nil {
+		var statusCol string
+		switch payload.TipoEnsino {
+		case "fundamental":
+			statusCol = "status_escolar_fundamental"
+		case "medio":
+			statusCol = "status_escolar_medio"
+		case "superior":
+			statusCol = "status_superior"
+		default:
+			return fmt.Errorf("handleAvaliacaoFinalAnoAcademico: TipoEnsino inválido: %q", payload.TipoEnsino)
+		}
+		query := fmt.Sprintf(`
+			UPDATE projection_estudantes
+			SET %s = 'finalizado', version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2
+			WHERE id = $3
+		`, statusCol)
+		_, err := p.client.DB().Exec(query, event.EventVersion, event.EventID, event.AggregateID)
+		return err
+	}
+
+	// Aprovado — avançar para o próximo nível.
 	var col string
 	switch payload.TipoEnsino {
 	case "fundamental":
@@ -535,7 +527,7 @@ func (p *EstudanteProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) e
 		SET %s = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
 		WHERE id = $4
 	`, col)
-	_, err := p.client.DB().Exec(query, payload.ProximoNivel, event.EventVersion, event.EventID, event.AggregateID)
+	_, err := p.client.DB().Exec(query, payload.ProximoAnoAcademico, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 

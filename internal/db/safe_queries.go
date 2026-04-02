@@ -20,19 +20,18 @@ var validEventTypes = map[string]bool{
 	"StatusSuperiorAtualizado":           true,
 	// ── Email Estudante ──────────────────────────────────────────────────────
 	"EmailVerificadoEstudante": true,
-	// ── Aprovação e Avaliação ─────────────────────────────────────────────────
-	"AprovacaoAnoRegistrada":     true,
+	// ── Avaliação Final (único caminho de avaliação de ano) ──────────────────
 	"AvaliacaoFinalAnoAcademico": true,
 
 	// ── Academia ─────────────────────────────────────────────────────────────
-	"AcademiaCriada":              true,
-	"AcademiaAtivada":             true,
-	"AcademiaDesativada":          true,
-	"AcademiaDadosAtualizados":    true,
-	"CursosAtualizados":           true,
-	"AcademiaSenhaAlterada":       true,
-	"CategoriaNotaAdicionada":     true,
-	"AnoLetivoAcademiaDefinido":   true,
+	"AcademiaCriada":            true,
+	"AcademiaAtivada":           true,
+	"AcademiaDesativada":        true,
+	"AcademiaDadosAtualizados":  true,
+	"CursosAtualizados":         true,
+	"AcademiaSenhaAlterada":     true,
+	"CategoriaNotaAdicionada":   true,
+	"AnoLetivoAcademiaDefinido": true,
 	// ── Email Academia / Admin (compartilhado) ───────────────────────────────
 	"EmailVerificado": true,
 	// ── Admin ────────────────────────────────────────────────────────────────
@@ -75,7 +74,7 @@ var validEventTypes = map[string]bool{
 	"MateriaDeletada":         true,
 	// ── TelefoneExtra ──────────────────────────────────────────────────────────
 	"TelefoneExtraAdicionado": true,
-	"TelefoneExtraVerificado":  true,
+	"TelefoneExtraVerificado": true,
 }
 
 // validAggregateTypes é o mapa canônico de aggregate types permitidos no ledger.
@@ -86,8 +85,8 @@ var validAggregateTypes = map[string]bool{
 	"Curso":              true,
 	"MateriaDisciplinar": true,
 	"Turma":              true,
-	"TelefoneExtra": true,
-	"System": true,
+	"TelefoneExtra":      true,
+	"System":             true,
 }
 
 // ValidateEventType verifica se o tipo de evento é permitido.

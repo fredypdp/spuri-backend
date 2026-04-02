@@ -27,6 +27,12 @@ type AvaliacaoFinalAnoAcademicoEvent struct {
 func (e *AvaliacaoFinalAnoAcademicoEvent) GetPayload() interface{} { return e }
 func (e *AvaliacaoFinalAnoAcademicoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
+// chaveAvaliacao retorna a chave de idempotência para avaliações finais.
+// Formato: "<tipoEnsino>_<anoLectivo>_<anoAcademicoAtual>"
+func chaveAvaliacao(tipoEnsino, anoLectivo, anoAcademicoAtual string) string {
+	return tipoEnsino + "_" + anoLectivo + "_" + anoAcademicoAtual
+}
+
 func (e *Estudante) RegistrarAvaliacaoFinal(
 	codigoAcademia string,
 	anoLectivo string,
@@ -39,6 +45,18 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 ) error {
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
+	}
+
+	// Guard de duplicata: impede double-submit e garante idempotência no aggregate.
+	// A chave cobre tipo+anoLetivo+anoAcademico — a mesma combinação que a
+	// constraint UNIQUE da projection_avaliacao_final, mas aplicada no aggregate
+	// para falhar antes de gravar no ledger.
+	chave := chaveAvaliacao(tipoEnsino, anoLectivo, anoAcademicoAtual)
+	if e.AvaliacoesPorAno != nil && e.AvaliacoesPorAno[chave] {
+		return fmt.Errorf(
+			"avaliação final já registrada para tipo '%s', ano letivo '%s', nível '%s'",
+			tipoEnsino, anoLectivo, anoAcademicoAtual,
+		)
 	}
 
 	event := &AvaliacaoFinalAnoAcademicoEvent{
@@ -71,6 +89,13 @@ func (e *Estudante) applyAvaliacaoFinalAnoAcademico(event DomainEvent) error {
 		return fmt.Errorf("applyAvaliacaoFinalAnoAcademico: unmarshal error: %w", err)
 	}
 
+	// Registrar no mapa de idempotência independentemente de aprovado ou não.
+	if e.AvaliacoesPorAno == nil {
+		e.AvaliacoesPorAno = make(map[string]bool)
+	}
+	chave := chaveAvaliacao(ev.TipoEnsino, ev.AnoLectivo, ev.AnoAcademicoAtual)
+	e.AvaliacoesPorAno[chave] = true
+
 	if !ev.Aprovado {
 		return nil
 	}
@@ -85,6 +110,7 @@ func (e *Estudante) applyAvaliacaoFinalAnoAcademico(event DomainEvent) error {
 			e.AnoSuperior = ev.ProximoAnoAcademico
 		}
 	} else {
+		// Último ano do ciclo — marcar como finalizado.
 		switch ev.TipoEnsino {
 		case "fundamental":
 			e.StatusEscolarFundamental = "finalizado"

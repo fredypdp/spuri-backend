@@ -39,8 +39,9 @@ type Estudante struct {
 	CreatedAt                time.Time
 	EmailVerificado          bool
 
-	// Mapa de aprovações por chave tipo+ano+nivel para idempotência
-	AprovacoesPorAno map[string]bool
+	// AvaliacoesPorAno previne double-submit de avaliações finais.
+	// Chave: "<tipoEnsino>_<anoLectivo>_<anoAcademicoAtual>"
+	AvaliacoesPorAno map[string]bool
 
 	// Mapa de notas registradas por chave composta
 	NotasRegistradasPorChave map[string]bool
@@ -57,7 +58,7 @@ func NewEstudante() *Estudante {
 			UncommittedEvents: []DomainEvent{},
 		},
 		Status:                    "inativo",
-		AprovacoesPorAno:          make(map[string]bool),
+		AvaliacoesPorAno:          make(map[string]bool),
 		NotasRegistradasPorChave:  make(map[string]bool),
 		FaltasRegistradasPorChave: make(map[string]bool),
 	}
@@ -93,8 +94,6 @@ func (e *Estudante) Apply(event DomainEvent) error {
 		return e.applyStatusSuperiorAtualizado(event)
 	case "CursoAlterado":
 		return e.applyCursoAlterado(event)
-	case "AprovacaoAnoRegistrada":
-		return e.applyAprovacaoAnoRegistrada(event)
 	case "AvaliacaoFinalAnoAcademico":
 		return e.applyAvaliacaoFinalAnoAcademico(event)
 	case "DadosPessoaisAtualizados":
@@ -519,44 +518,6 @@ func (e *Estudante) AlterarCurso(cursoID uuid.UUID, tipoEnsino string) error {
 	return e.Apply(event)
 }
 
-func (e *Estudante) RegistrarAprovacaoAno(
-	codigoAcademia string,
-	anoLectivo string,
-	tipoEnsino string,
-	nivelAtual string,
-	proximoNivel *string,
-	aprovado bool,
-	observacao *string,
-) error {
-	if tipoEnsino != "fundamental" && tipoEnsino != "medio" && tipoEnsino != "superior" {
-		return fmt.Errorf("tipo_ensino deve ser 'fundamental', 'medio' ou 'superior'")
-	}
-	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
-		return fmt.Errorf("estudante não pertence a esta academia")
-	}
-	chave := tipoEnsino + "_" + anoLectivo + "_" + nivelAtual
-	if e.AprovacoesPorAno != nil && e.AprovacoesPorAno[chave] {
-		return fmt.Errorf(
-			"aprovação do tipo '%s' para o ano '%s' / nível '%s' já foi registrada",
-			tipoEnsino, anoLectivo, nivelAtual,
-		)
-	}
-	event := &AprovacaoAnoRegistradaEvent{
-		BaseEvent:       BaseEvent{EventType: "AprovacaoAnoRegistrada", AggregateID: e.ID},
-		CodigoEstudante: e.CodigoEstudante,
-		CodigoAcademia:  codigoAcademia,
-		AnoLectivo:      anoLectivo,
-		TipoEnsino:      tipoEnsino,
-		NivelAtual:      nivelAtual,
-		ProximoNivel:    proximoNivel,
-		Aprovado:        aprovado,
-		Observacao:      observacao,
-		RegisteredAt:    time.Now(),
-	}
-	e.RaiseEvent(event)
-	return e.Apply(event)
-}
-
 // ============================================================================
 // Apply handlers
 // ============================================================================
@@ -590,42 +551,14 @@ func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
 	e.CodigoAcademia = &ev.CodigoAcademia
 	e.Status = "ativo"
 	e.CreatedAt = ev.CreatedAt
-	if e.AprovacoesPorAno == nil {
-		e.AprovacoesPorAno = make(map[string]bool)
+	if e.AvaliacoesPorAno == nil {
+		e.AvaliacoesPorAno = make(map[string]bool)
 	}
 	if e.NotasRegistradasPorChave == nil {
 		e.NotasRegistradasPorChave = make(map[string]bool)
 	}
 	if e.FaltasRegistradasPorChave == nil {
 		e.FaltasRegistradasPorChave = make(map[string]bool)
-	}
-	return nil
-}
-
-func (e *Estudante) applyAprovacaoAnoRegistrada(event DomainEvent) error {
-	data, err := json.Marshal(event.GetPayload())
-	if err != nil {
-		return fmt.Errorf("applyAprovacaoAnoRegistrada: marshal error: %w", err)
-	}
-	var ev AprovacaoAnoRegistradaEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return fmt.Errorf("applyAprovacaoAnoRegistrada: unmarshal error: %w", err)
-	}
-	if e.AprovacoesPorAno == nil {
-		e.AprovacoesPorAno = make(map[string]bool)
-	}
-	chave := ev.TipoEnsino + "_" + ev.AnoLectivo + "_" + ev.NivelAtual
-	e.AprovacoesPorAno[chave] = true
-	if !ev.Aprovado {
-		return nil
-	}
-	switch ev.TipoEnsino {
-	case "fundamental":
-		e.AnoEscolar = ev.ProximoNivel
-	case "medio":
-		e.AnoEscolarMedio = ev.ProximoNivel
-	case "superior":
-		e.AnoSuperior = ev.ProximoNivel
 	}
 	return nil
 }
@@ -687,7 +620,6 @@ func (e *Estudante) applyDadosPessoaisAtualizados(event DomainEvent) error {
 	if ev.BilheteIdentidadeResp != nil {
 		e.BilheteIdentidadeResp = ev.BilheteIdentidadeResp
 	}
-	// DataNascimento: ponteiro — nil = não alterar
 	if ev.DataNascimento != nil {
 		e.DataNascimento = *ev.DataNascimento
 	}

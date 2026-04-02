@@ -107,14 +107,14 @@ func (p *AvaliacaoFinalProjection) Rebuild() error {
 
 func (p *AvaliacaoFinalProjection) handleAvaliacaoFinal(event db.Event) error {
 	var payload struct {
-		CodigoEstudante      string    `json:"CodigoEstudante"`
-		CodigoAcademia       string    `json:"CodigoAcademia"`
-		AnoLectivo           string    `json:"AnoLectivo"`
-		TipoEnsino           string    `json:"TipoEnsino"`
-		AnoAcademicoAtual    string    `json:"AnoAcademicoAtual"`
-		ProximoAnoAcademico  *string   `json:"ProximoAnoAcademico"`
-		Aprovado             bool      `json:"Aprovado"`
-		Observacao           *string   `json:"Observacao"`
+		CodigoEstudante     string  `json:"CodigoEstudante"`
+		CodigoAcademia      string  `json:"CodigoAcademia"`
+		AnoLectivo          string  `json:"AnoLectivo"`
+		TipoEnsino          string  `json:"TipoEnsino"`
+		AnoAcademicoAtual   string  `json:"AnoAcademicoAtual"`
+		ProximoAnoAcademico *string `json:"ProximoAnoAcademico"`
+		Aprovado            bool    `json:"Aprovado"`
+		Observacao          *string `json:"Observacao"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("parse error AvaliacaoFinalAnoAcademico: %w", err)
@@ -166,18 +166,18 @@ func (p *AvaliacaoFinalProjection) handleAvaliacaoFinal(event db.Event) error {
 // ============================================================================
 
 type AvaliacaoFinalDTO struct {
-	ID                   uuid.UUID `json:"id"`
-	EventID              uuid.UUID `json:"event_id"`
-	CodigoEstudante      string    `json:"codigo_estudante"`
-	CodigoAcademia       string    `json:"codigo_academia"`
-	AnoLectivo           string    `json:"ano_lectivo"`
-	TipoEnsino           string    `json:"tipo_ensino"`
-	AnoAcademicoAtual    string    `json:"ano_academico_atual"`
-	ProximoAnoAcademico  *string   `json:"proximo_ano_academico,omitempty"`
-	Aprovado             bool      `json:"aprovado"`
-	Observacao           *string   `json:"observacao,omitempty"`
-	RegisteredAt         time.Time `json:"registered_at"`
-	Version              int       `json:"version"`
+	ID                  uuid.UUID `json:"id"`
+	EventID             uuid.UUID `json:"event_id"`
+	CodigoEstudante     string    `json:"codigo_estudante"`
+	CodigoAcademia      string    `json:"codigo_academia"`
+	AnoLectivo          string    `json:"ano_lectivo"`
+	TipoEnsino          string    `json:"tipo_ensino"`
+	AnoAcademicoAtual   string    `json:"ano_academico_atual"`
+	ProximoAnoAcademico *string   `json:"proximo_ano_academico,omitempty"`
+	Aprovado            bool      `json:"aprovado"`
+	Observacao          *string   `json:"observacao,omitempty"`
+	RegisteredAt        time.Time `json:"registered_at"`
+	Version             int       `json:"version"`
 }
 
 const avaliacaoFinalCols = `

@@ -25,7 +25,6 @@ var (
 )
 
 // requestIDPattern define os caracteres permitidos num X-Request-ID externo.
-// Apenas alfanuméricos e hífen — sem newlines, null bytes ou caracteres de controlo.
 var requestIDPattern = regexp.MustCompile(`^[a-zA-Z0-9\-]{1,64}$`)
 
 func main() {
@@ -99,9 +98,7 @@ func initProjections() error {
 	projManager.RegisterProjection("notas", projections.NewNotasProjection(dbClient))
 	projManager.RegisterProjection("faltas", projections.NewFaltasProjection(dbClient))
 
-	// ── Tier 4 — dependem de estudantes e aprovações ─────────────────────
-	projManager.RegisterProjection("aprovacao_ano", projections.NewAprovacaoAnoProjection(dbClient))
-	projManager.RegisterProjection("reprovacoes", projections.NewReprovacoesProjection(dbClient))
+	// ── Tier 4 — avaliação final ──────────────────────────────────────────
 	projManager.RegisterProjection("avaliacao_final", projections.NewAvaliacaoFinalProjection(dbClient))
 
 	go projManager.StartProcessing()
@@ -111,13 +108,11 @@ func initProjections() error {
 func setupRouter() *gin.Engine {
 	router := gin.New()
 
-	// FIX A-04: Recovery customizado — gin.Recovery() padrão expõe stack trace
-	// em produção. Este handler loga o panic internamente e retorna 500 genérico.
 	router.Use(gin.RecoveryWithWriter(gin.DefaultErrorWriter, func(c *gin.Context, recovered interface{}) {
 		log.Printf("[PANIC] Recuperado: %v — IP: %s — Path: %s", recovered, c.ClientIP(), c.Request.URL.Path)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro interno do servidor"})
 	}))
-	
+
 	router.Use(func(c *gin.Context) {
 		c.Header("X-Content-Type-Options", "nosniff")
 		c.Header("X-Frame-Options", "DENY")
@@ -134,7 +129,7 @@ func setupRouter() *gin.Engine {
 	router.Use(requestIDMiddleware())
 	router.Use(middleware.MonitoringMiddleware())
 	router.Use(middleware.GlobalRateLimit())
-	
+
 	router.Use(func(c *gin.Context) {
 		c.Set("dbClient", dbClient)
 		c.Set("repository", repository)
@@ -145,7 +140,7 @@ func setupRouter() *gin.Engine {
 	// ── Rotas públicas ─────────────────────────────────────────────────────
 	router.POST("/login", middleware.LoginRateLimit(), handlers.Login)
 	router.POST("/bootstrap", middleware.LoginRateLimit(), handlers.BootstrapAdminFPP)
-	
+
 	emailGroup := router.Group("/email")
 	emailGroup.Use(middleware.EmailRateLimit())
 	{
@@ -154,7 +149,7 @@ func setupRouter() *gin.Engine {
 		emailGroup.POST("/recuperar-senha/solicitar", handlers.SolicitarRecuperacaoSenha)
 		emailGroup.POST("/recuperar-senha/:token", handlers.ResetarSenha)
 		emailGroup.POST("/gerar-token/recuperacao", handlers.GerarTokenRecuperacao)
-		
+
 		emailAuthGroup := emailGroup.Group("/")
 		emailAuthGroup.Use(middleware.AuthMiddleware())
 		{
@@ -202,16 +197,16 @@ func setupRouter() *gin.Engine {
 	{
 		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
 		academia.POST("/ano-letivo", handlers.DefinirAnoLetivoAcademia)
-		academia.GET("/ano-letivo",  handlers.GetAnoLetivoAcademia)
-		
+		academia.GET("/ano-letivo", handlers.GetAnoLetivoAcademia)
+
 		academia.POST("/estudante/register", handlers.RegisterEstudantePorAcademia)
 		academia.POST("/notas-aluno", handlers.RegistrarNota)
 		academia.PUT("/atualizar-nota", handlers.AtualizarNota)
-		academia.DELETE("/nota/:id",  handlers.DeletarNota)
+		academia.DELETE("/nota/:id", handlers.DeletarNota)
 		academia.POST("/faltas-aluno", handlers.RegistrarFaltas)
 		academia.PUT("/atualizar-falta", handlers.AtualizarFalta)
 		academia.DELETE("/falta/:id", handlers.DeletarFalta)
-		academia.POST("/aprovacao-ano", handlers.RegistrarAprovacaoAno)
+		// Avaliação final é o único endpoint de avaliação de ano
 		academia.POST("/avaliacao-final", handlers.RegistrarAvaliacaoFinal)
 		academia.POST("/categorias-nota", handlers.CriarCategoriaNota)
 		academia.GET("/categorias-nota", handlers.ListarCategoriasNota)
@@ -248,11 +243,9 @@ func setupRouter() *gin.Engine {
 		academia.DELETE("/turma/:codigo", handlers.DeletarTurma)
 		academia.POST("/turma/:codigo/estudante", handlers.AdicionarEstudanteATurma)
 		academia.DELETE("/turma/:codigo/estudantes/:codigo_estudante", handlers.RemoverEstudanteDaTurma)
-
 	}
 
 	// ── Rotas de admin ────────────────────────────────────────────────────
-	// Este grupo exige autenticação válida (AuthMiddleware) e role admin (RequireAdmin).
 	admin := router.Group("/dominis")
 	admin.Use(middleware.AuthMiddleware())
 	admin.Use(middleware.RequireAdmin())
@@ -294,7 +287,7 @@ func corsMiddleware() gin.HandlerFunc {
 		allowed := false
 
 		if len(allowedOrigins) == 0 {
-			allowed = true // modo dev: aceita qualquer origem
+			allowed = true
 		} else {
 			for _, o := range allowedOrigins {
 				if o == origin {

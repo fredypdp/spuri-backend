@@ -22,18 +22,6 @@ type Projection interface {
 
 // TransactionalProjection é uma interface opcional que projeções não-idempotentes
 // devem implementar para garantir atomicidade real entre Handle e checkpoint.
-//
-// FIX DB-16 (correção real): o problema original é que Handle() e o avanço do
-// checkpoint são operações separadas. Se o processo morrer entre elas, o evento
-// é reprocessado, causando double-write em projeções não-idempotentes
-// (ex: total_faltas += 1, total_estudantes += 1).
-//
-// Solução: projeções não-idempotentes implementam HandleTx(*sql.Tx, db.Event),
-// que recebe a transação aberta pelo Manager. O Manager executa Handle + checkpoint
-// dentro da mesma transação — se qualquer um falhar, ambos são revertidos.
-//
-// Projeções idempotentes (INSERT ... ON CONFLICT DO NOTHING/DO UPDATE) não
-// precisam implementar esta interface — o comportamento de retry é seguro para elas.
 type TransactionalProjection interface {
 	Projection
 	HandleTx(tx *sql.Tx, event db.Event) error
@@ -95,10 +83,6 @@ func (m *Manager) Stop() {
 }
 
 func (m *Manager) processNewEvents() error {
-	// FIX MGR-03: o lock é adquirido apenas para ler o snapshot das projeções,
-	// não durante o processamento (que pode envolver time.Sleep em retries).
-	// Isso evita que RebuildProjection/RebuildAllProjections bloqueiem por até
-	// 27s enquanto processEventWithRetry dorme com o lock ativo.
 	m.mu.Lock()
 	snapshot := make(map[string]Projection, len(m.projections))
 	for name, p := range m.projections {
@@ -114,17 +98,6 @@ func (m *Manager) processNewEvents() error {
 	return nil
 }
 
-// processProjection processa eventos novos para uma projeção específica.
-//
-// FIX DB-16 (correção real): para projeções que implementam TransactionalProjection,
-// Handle e o avanço do checkpoint são executados dentro da mesma transação de banco.
-// Se o processo morrer após o Commit, o checkpoint já foi gravado — nenhum
-// double-write. Se morrer antes do Commit, ambos são revertidos — o evento será
-// reprocessado na próxima iteração, o que é seguro pois HandleTx deve ser
-// idempotente por design.
-//
-// Para projeções sem HandleTx (idempotentes), o comportamento anterior é mantido:
-// Handle é chamado diretamente, e commitCheckpoint grava o checkpoint em seguida.
 func (m *Manager) processProjection(name string, projection Projection) error {
 	lastID, err := projection.GetLastProcessedEventID()
 	if err != nil {
@@ -164,27 +137,12 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 	return nil
 }
 
-// processEventTransactional executa Handle + checkpoint na mesma transação.
-//
-// FIX MGR-05: o defer anterior capturava a variável `err` do escopo da função.
-// Quando tx.Commit() falhava, `err` ainda era nil (do tx.Exec bem-sucedido),
-// fazendo o defer não chamar tx.Rollback(). A transação ficava sem Rollback
-// explícito até o timeout da conexão. Corrigido usando uma variável `txErr`
-// dedicada ao defer, independente dos erros de negócio da função.
-//
-// Se o processo morrer após tx.Commit(), o checkpoint já está gravado — sem
-// reprocessamento. Se morrer antes, ambos são revertidos — o evento será
-// reprocessado, mas HandleTx é idempotente.
 func (m *Manager) processEventTransactional(name string, projection TransactionalProjection, event db.Event) error {
 	tx, err := m.client.DB().Begin()
 	if err != nil {
 		return fmt.Errorf("erro ao iniciar transação: %w", err)
 	}
 
-	// FIX MGR-05: variável dedicada ao defer para garantir Rollback correto.
-	// Se qualquer passo falhar antes do Commit, committed permanece false
-	// e o defer faz o Rollback. O tx.Rollback() após um Commit bem-sucedido
-	// é um no-op seguro no driver pq.
 	committed := false
 	defer func() {
 		if !committed {
@@ -241,12 +199,6 @@ func (m *Manager) commitCheckpoint(projection Projection, eventID int64) error {
 // Rebuild
 // ============================================================================
 
-// RebuildProjection reconstrói uma projeção específica.
-//
-// FIX SEC-01: antes de processar qualquer evento, verifica a integridade do
-// ledger para todos os aggregates relevantes. Se qualquer aggregate tiver
-// cadeia de hashes comprometida, o rebuild é abortado com erro detalhado.
-// Isso impede que dados adulterados sejam materializados nas projeções.
 func (m *Manager) RebuildProjection(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -260,12 +212,6 @@ func (m *Manager) RebuildProjection(name string) error {
 }
 
 // RebuildAllProjections reconstrói todas as projeções em ordem determinística.
-//
-// FIX DB-18: a iteração sobre map[string]Projection é não-determinística em Go.
-// A ordem abaixo respeita dependências de FK entre projeções.
-//
-// FIX SEC-01: verifica integridade do ledger inteiro antes de iniciar qualquer
-// rebuild. Se o ledger estiver comprometido, nenhuma projeção é reconstruída.
 func (m *Manager) RebuildAllProjections() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -276,23 +222,22 @@ func (m *Manager) RebuildAllProjections() error {
 	}
 	log.Printf("[SECURITY] RebuildAll: ledger íntegro — iniciando reconstrução")
 
+	// Ordem respeita dependências de FK entre projeções.
 	rebuildOrder := []string{
 		// Tier 1 — sem dependências externas
 		"admins",
 		"academias",
 		"cursos",
 		"materias",
-		"sistema_config",
 		"categorias_nota",
+		"telefones_extra",
 		// Tier 2 — dependem de academias/cursos
 		"estudantes",
 		"turmas",
 		// Tier 3 — dependem de estudantes e materias
 		"notas",
 		"faltas",
-		// Tier 4 — dependem de estudantes e aprovações
-		"aprovacao_ano",
-		"reprovacoes",
+		// Tier 4 — avaliação final (depende de estudantes)
 		"avaliacao_final",
 	}
 
@@ -330,18 +275,6 @@ func (m *Manager) RebuildAllProjections() error {
 	return nil
 }
 
-// rebuildProjectionInternal executa o rebuild de uma projeção individual.
-// Deve ser chamado com m.mu já adquirido.
-//
-// FIX SEC-01: verifica a integridade do ledger para os aggregates que esta
-// projeção consome antes de processar qualquer evento. Se a cadeia de hashes
-// estiver comprometida, o rebuild é abortado — dados adulterados não são
-// materializados.
-//
-// FIX SCHEMA-01: is_rebuilding é garantidamente resetado para FALSE mesmo
-// em caso de falha do Rebuild(). O defer garante que markRebuildFailed() é
-// chamado se a função retornar com erro — sem risco de estado "rebuilding"
-// permanente após falha.
 func (m *Manager) rebuildProjectionInternal(name string, projection Projection) error {
 	log.Printf("[DEBUG] Reconstruindo projeção: %s", name)
 
@@ -374,11 +307,6 @@ func (m *Manager) rebuildProjectionInternal(name string, projection Projection) 
 	return nil
 }
 
-// verifyFullLedgerIntegrity verifica a integridade de todos os aggregates
-// presentes no ledger. Retorna erro detalhado no primeiro aggregate comprometido.
-//
-// Esta função é chamada antes de qualquer rebuild para garantir que dados
-// adulterados não sejam materializados nas projeções.
 func (m *Manager) verifyFullLedgerIntegrity() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -414,10 +342,6 @@ func (m *Manager) verifyFullLedgerIntegrity() error {
 // Checkpoint helpers
 // ============================================================================
 
-// markRebuildStart zera o checkpoint e seta is_rebuilding=TRUE antes do rebuild.
-//
-// Usa UPSERT para garantir que funciona mesmo se o checkpoint não existir ainda —
-// sem risco de UPDATE operar 0 linhas silenciosamente.
 func (m *Manager) markRebuildStart(name string) error {
 	_, err := m.client.DB().Exec(`
 		INSERT INTO projection_checkpoints
@@ -433,8 +357,6 @@ func (m *Manager) markRebuildStart(name string) error {
 	return err
 }
 
-// markRebuildComplete atualiza o checkpoint para o MAX(id) atual do ledger
-// e reseta is_rebuilding=FALSE após rebuild bem-sucedido.
 func (m *Manager) markRebuildComplete(name string) error {
 	var maxID int64
 	err := m.client.DB().QueryRow(`SELECT COALESCE(MAX(id), 0) FROM spuri_ledger`).Scan(&maxID)
@@ -454,9 +376,6 @@ func (m *Manager) markRebuildComplete(name string) error {
 	return err
 }
 
-// markRebuildFailed reseta is_rebuilding=FALSE após falha de rebuild.
-// FIX SCHEMA-01: sem esta função, is_rebuilding permanecia TRUE indefinidamente
-// após qualquer falha, tornando o estado da projeção opaco para os operadores.
 func (m *Manager) markRebuildFailed(name string) error {
 	_, err := m.client.DB().Exec(`
 		INSERT INTO projection_checkpoints
@@ -469,7 +388,6 @@ func (m *Manager) markRebuildFailed(name string) error {
 	return err
 }
 
-// logProjectionError registra erros de processamento de projeção na tabela de log.
 func (m *Manager) logProjectionError(name string, errMsg string) {
 	_, err := m.client.DB().Exec(`
 		INSERT INTO projection_errors (projection_name, error_message, occurred_at)
@@ -485,9 +403,6 @@ func (m *Manager) logProjectionError(name string, errMsg string) {
 // Event fetch
 // ============================================================================
 
-// getNewEvents busca eventos do ledger com id > fromID, limitado a batchSize.
-//
-// FIX MGR-02: contexto com timeout — impede bloqueio indefinido.
 func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
 	if fromID < 0 {
 		fromID = 0
@@ -535,7 +450,6 @@ func (m *Manager) getNewEvents(fromID int64) ([]db.Event, error) {
 // Status / introspection
 // ============================================================================
 
-// IsProjectionRegistered verifica se uma projeção está registrada no manager.
 func (m *Manager) IsProjectionRegistered(name string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -543,7 +457,6 @@ func (m *Manager) IsProjectionRegistered(name string) bool {
 	return ok
 }
 
-// GetProjectionStatus retorna o status atual de uma projeção.
 func (m *Manager) GetProjectionStatus(name string) (map[string]interface{}, error) {
 	m.mu.Lock()
 	projection, ok := m.projections[name]
