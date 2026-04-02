@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 
@@ -50,6 +53,13 @@ func (w *batchResponseWriter) Pusher() http.Pusher {
 // (contexto sintético de batch não tem conexão real).
 func (w *batchResponseWriter) CloseNotify() <-chan bool {
 	return make(chan bool)
+}
+
+// Hijack implementa http.Hijacker — necessário para satisfazer gin.ResponseWriter.
+// Contextos sintéticos de batch não têm conexão real; retorna erro explícito
+// em vez de panic caso seja chamado inesperadamente.
+func (w *batchResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return nil, nil, fmt.Errorf("batch context: Hijack não suportado")
 }
 
 func newFakeContext(parent *gin.Context) *gin.Context {
