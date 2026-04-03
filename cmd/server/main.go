@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 
 	"spuri/internal/db"
 	"spuri/internal/handlers"
+	"spuri/internal/jobs"
 	"spuri/internal/middleware"
 	"spuri/internal/projections"
 )
@@ -22,6 +24,8 @@ var (
 	dbClient    *db.Client
 	repository  *db.AggregateRepository
 	projManager *projections.Manager
+	jobStore    *jobs.Store
+	jobWorker   *jobs.Worker
 )
 
 // requestIDPattern define os caracteres permitidos num X-Request-ID externo.
@@ -44,6 +48,10 @@ func main() {
 	if err := initProjections(); err != nil {
 		log.Fatalf("[ERROR] Erro ao inicializar projeções: %v", err)
 	}
+
+	ctx, ctxCancel := context.WithCancel(context.Background())
+	defer ctxCancel()
+	initJobs(ctx)
 
 	if os.Getenv("ENV") == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -105,6 +113,45 @@ func initProjections() error {
 	return nil
 }
 
+// initJobs inicializa o sistema de jobs assíncronos.
+// setupCtx injeta todas as dependências que os handlers individuais precisam.
+func initJobs(ctx context.Context) {
+	jobStore = jobs.NewStore(dbClient.DB())
+
+	setupCtx := func(c *gin.Context, userID interface{}, userType string) {
+		c.Set("user_id", userID)
+		c.Set("user_type", userType)
+		c.Set("dbClient", dbClient)
+		c.Set("repository", repository)
+		c.Set("projManager", projManager)
+		c.Set("jobStore", jobStore)
+	}
+
+	// 4 goroutines paralelas — ajustar conforme recursos do servidor
+	jobWorker = jobs.NewWorker(jobStore, setupCtx, 4)
+
+	// ── Handlers de job por tipo ──────────────────────────────────────────
+	jobWorker.RegisterHandler(jobs.JobTypeRegisterAcademiaBatch, handlers.RegisterAcademia)
+	jobWorker.RegisterHandler(jobs.JobTypeAtivarAcademiaBatch, handlers.AtivarAcademia)
+	jobWorker.RegisterHandler(jobs.JobTypeDesativarAcademiaBatch, handlers.DesativarAcademia)
+	jobWorker.RegisterHandler(jobs.JobTypeRegisterEstudanteBatch, handlers.RegisterEstudantePorAcademia)
+	jobWorker.RegisterHandler(jobs.JobTypeRegistrarNotaBatch, handlers.RegistrarNota)
+	jobWorker.RegisterHandler(jobs.JobTypeAtualizarNotaBatch, handlers.AtualizarNota)
+	jobWorker.RegisterHandler(jobs.JobTypeDeletarNotaBatch, handlers.DeletarNota)
+	jobWorker.RegisterHandler(jobs.JobTypeRegistrarFaltasBatch, handlers.RegistrarFaltas)
+	jobWorker.RegisterHandler(jobs.JobTypeAtualizarFaltaBatch, handlers.AtualizarFalta)
+	jobWorker.RegisterHandler(jobs.JobTypeDeletarFaltaBatch, handlers.DeletarFalta)
+	jobWorker.RegisterHandler(jobs.JobTypeRegistrarAvaliacaoFinalBatch, handlers.RegistrarAvaliacaoFinal)
+	jobWorker.RegisterHandler(jobs.JobTypeAtualizarStatusEscolarBatch, handlers.AtualizarStatusEscolarBatch)
+	jobWorker.RegisterHandler(jobs.JobTypeCriarCursoBatch, handlers.CriarCurso)
+	jobWorker.RegisterHandler(jobs.JobTypeCriarMateriaBatch, handlers.CriarMateria)
+	jobWorker.RegisterHandler(jobs.JobTypeCriarTurmaBatch, handlers.CriarTurma)
+	jobWorker.RegisterHandler(jobs.JobTypeAdicionarEstudanteBatch, handlers.AdicionarEstudanteATurma)
+
+	jobWorker.Start(ctx)
+	log.Println("[INFO] Job worker iniciado com 4 goroutines")
+}
+
 func setupRouter() *gin.Engine {
 	router := gin.New()
 
@@ -130,10 +177,13 @@ func setupRouter() *gin.Engine {
 	router.Use(middleware.MonitoringMiddleware())
 	router.Use(middleware.GlobalRateLimit())
 
+	// Injetar dependências no contexto de cada requisição
 	router.Use(func(c *gin.Context) {
 		c.Set("dbClient", dbClient)
 		c.Set("repository", repository)
 		c.Set("projManager", projManager)
+		c.Set("jobStore", jobStore)
+		c.Set("jobWorker", jobWorker)
 		c.Next()
 	})
 
@@ -155,6 +205,14 @@ func setupRouter() *gin.Engine {
 		{
 			emailAuthGroup.POST("/gerar-token/verificacao", handlers.GerarTokenVerificacao)
 		}
+	}
+
+	// ── Rotas de jobs assíncronos (qualquer usuário autenticado) ──────────
+	jobRoutes := router.Group("/jobs")
+	jobRoutes.Use(middleware.AuthMiddleware())
+	{
+		jobRoutes.GET("", handlers.ListJobs)
+		jobRoutes.GET("/:id", handlers.GetJob)
 	}
 
 	// ── Rotas autenticadas (qualquer tipo) ────────────────────────────────
@@ -244,45 +302,51 @@ func setupRouter() *gin.Engine {
 		academia.POST("/turma/:codigo/estudante", handlers.AdicionarEstudanteATurma)
 		academia.DELETE("/turma/:codigo/estudantes/:codigo_estudante", handlers.RemoverEstudanteDaTurma)
 
-		// Rotas Batch
-		// Estudante
+		// ── Batch síncronos ───────────────────────────────────────────────
 		academia.POST("/estudante/register/batch", handlers.RegisterEstudanteBatch)
-		
-		// Notas
-		academia.POST("/notas-aluno/batch",    handlers.RegistrarNotaBatch)
-		academia.PUT("/atualizar-nota/batch",  handlers.AtualizarNotaBatch)
-		academia.DELETE("/nota/batch",         handlers.DeletarNotaBatch)
-		
-		// Faltas
-		academia.POST("/faltas-aluno/batch",   handlers.RegistrarFaltasBatch)
+
+		academia.POST("/notas-aluno/batch", handlers.RegistrarNotaBatch)
+		academia.PUT("/atualizar-nota/batch", handlers.AtualizarNotaBatch)
+		academia.DELETE("/nota/batch", handlers.DeletarNotaBatch)
+
+		academia.POST("/faltas-aluno/batch", handlers.RegistrarFaltasBatch)
 		academia.PUT("/atualizar-falta/batch", handlers.AtualizarFaltaBatch)
-		academia.DELETE("/falta/batch",        handlers.DeletarFaltaBatch)
-		
-		// Avaliação final
+		academia.DELETE("/falta/batch", handlers.DeletarFaltaBatch)
+
 		academia.POST("/avaliacao-final/batch", handlers.RegistrarAvaliacaoFinalBatch)
-		
-		// Status escolar (consolida os 3 endpoints num único batch)
 		academia.PUT("/estudante/status-escolar/batch", handlers.AtualizarStatusEscolarBatch)
-		
-		// Cursos
-		academia.POST("/curso/batch",           handlers.CriarCursoBatch)
-		academia.PUT("/curso/ativar/batch",     handlers.AtivarCursoBatch)
-		academia.PUT("/curso/desativar/batch",  handlers.DesativarCursoBatch)
-		academia.DELETE("/curso/batch",         handlers.DeletarCursoBatch)
-		
-		// Matérias
-		academia.POST("/materia/batch",          handlers.CriarMateriaBatch)
-		academia.PUT("/materia/ativar/batch",    handlers.AtivarMateriaBatch)
+
+		academia.POST("/curso/batch", handlers.CriarCursoBatch)
+		academia.PUT("/curso/ativar/batch", handlers.AtivarCursoBatch)
+		academia.PUT("/curso/desativar/batch", handlers.DesativarCursoBatch)
+		academia.DELETE("/curso/batch", handlers.DeletarCursoBatch)
+
+		academia.POST("/materia/batch", handlers.CriarMateriaBatch)
+		academia.PUT("/materia/ativar/batch", handlers.AtivarMateriaBatch)
 		academia.PUT("/materia/desativar/batch", handlers.DesativarMateriaBatch)
-		academia.DELETE("/materia/batch",        handlers.DeletarMateriaBatch)
-		
-		// Turmas
-		academia.POST("/turma/batch",           handlers.CriarTurmaBatch)
-		academia.PUT("/turma/ativar/batch",     handlers.AtivarTurmaBatch)
-		academia.PUT("/turma/desativar/batch",  handlers.DesativarTurmaBatch)
-		academia.DELETE("/turma/batch",         handlers.DeletarTurmaBatch)
+		academia.DELETE("/materia/batch", handlers.DeletarMateriaBatch)
+
+		academia.POST("/turma/batch", handlers.CriarTurmaBatch)
+		academia.PUT("/turma/ativar/batch", handlers.AtivarTurmaBatch)
+		academia.PUT("/turma/desativar/batch", handlers.DesativarTurmaBatch)
+		academia.DELETE("/turma/batch", handlers.DeletarTurmaBatch)
 		academia.POST("/turma/estudante/batch", handlers.AdicionarEstudanteBatch)
 		academia.DELETE("/turma/estudante/batch", handlers.RemoverEstudanteBatch)
+
+		// ── Async (submissão de jobs de longa duração) ────────────────────
+		academia.POST("/estudante/register/async", handlers.RegisterEstudanteBatchAsync)
+		academia.POST("/notas-aluno/async", handlers.RegistrarNotaBatchAsync)
+		academia.PUT("/atualizar-nota/async", handlers.AtualizarNotaBatchAsync)
+		academia.DELETE("/nota/async", handlers.DeletarNotaBatchAsync)
+		academia.POST("/faltas-aluno/async", handlers.RegistrarFaltasBatchAsync)
+		academia.PUT("/atualizar-falta/async", handlers.AtualizarFaltaBatchAsync)
+		academia.DELETE("/falta/async", handlers.DeletarFaltaBatchAsync)
+		academia.POST("/avaliacao-final/async", handlers.RegistrarAvaliacaoFinalBatchAsync)
+		academia.PUT("/estudante/status-escolar/async", handlers.AtualizarStatusEscolarBatchAsync)
+		academia.POST("/curso/async", handlers.CriarCursoBatchAsync)
+		academia.POST("/materia/async", handlers.CriarMateriaBatchAsync)
+		academia.POST("/turma/async", handlers.CriarTurmaBatchAsync)
+		academia.POST("/turma/estudante/async", handlers.AdicionarEstudanteBatchAsync)
 	}
 
 	// ── Rotas de admin ────────────────────────────────────────────────────
@@ -305,10 +369,15 @@ func setupRouter() *gin.Engine {
 		admin.PUT("/admin/:id/role", middleware.RequireFPP(), handlers.AtualizarRoleAdmin)
 		admin.PUT("/admin/:id/dados", handlers.AtualizarDadosAdmin)
 
-		// Rotas Batch
+		// ── Batch síncronos (admin) ────────────────────────────────────────
 		admin.POST("/academia/register/batch", handlers.RegisterAcademiaBatch)
 		admin.PUT("/academia/ativar/batch", middleware.RequireAdm(), handlers.AtivarAcademiaBatch)
 		admin.PUT("/academia/desativar/batch", middleware.RequireAdm(), handlers.DesativarAcademiaBatch)
+
+		// ── Async (admin) ─────────────────────────────────────────────────
+		admin.POST("/academia/register/async", handlers.RegisterAcademiaBatchAsync)
+		admin.PUT("/academia/ativar/async", middleware.RequireAdm(), handlers.AtivarAcademiaBatchAsync)
+		admin.PUT("/academia/desativar/async", middleware.RequireAdm(), handlers.DesativarAcademiaBatchAsync)
 	}
 
 	return router
