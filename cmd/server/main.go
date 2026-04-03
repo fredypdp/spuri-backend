@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 
 	"spuri/internal/db"
@@ -118,7 +119,7 @@ func initProjections() error {
 func initJobs(ctx context.Context) {
 	jobStore = jobs.NewStore(dbClient.DB())
 
-	setupCtx := func(c *gin.Context, userID interface{}, userType string) {
+	setupCtx := func(c *gin.Context, userID uuid.UUID, userType string) {
 		c.Set("user_id", userID)
 		c.Set("user_type", userType)
 		c.Set("dbClient", dbClient)
