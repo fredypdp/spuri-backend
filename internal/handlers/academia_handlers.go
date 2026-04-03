@@ -400,23 +400,16 @@ func ListarTodasAcademias(c *gin.Context) {
 		err  error
 	)
 
-	if userType == "admin" {
-		statusFilter := c.Query("status")
-		switch statusFilter {
-		case "ativo", "inativo":
-			rows, err = client.DB().Query(
-				baseSelect+` WHERE status = $1 ORDER BY nome ASC LIMIT $2 OFFSET $3`,
-				statusFilter, limit, offset,
-			)
-		default:
-			rows, err = client.DB().Query(
-				baseSelect+` ORDER BY nome ASC LIMIT $1 OFFSET $2`,
-				limit, offset,
-			)
-		}
-	} else {
+	statusFilter := c.Query("status")
+	switch statusFilter {
+	case "ativo", "inativo":
 		rows, err = client.DB().Query(
-			baseSelect+` WHERE status = 'ativo' ORDER BY nome ASC LIMIT $1 OFFSET $2`,
+			baseSelect+` WHERE status = $1 ORDER BY nome ASC LIMIT $2 OFFSET $3`,
+			statusFilter, limit, offset,
+		)
+	default:
+		rows, err = client.DB().Query(
+			baseSelect+` ORDER BY nome ASC LIMIT $1 OFFSET $2`,
 			limit, offset,
 		)
 	}
