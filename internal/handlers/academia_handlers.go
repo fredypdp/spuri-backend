@@ -400,23 +400,16 @@ func ListarTodasAcademias(c *gin.Context) {
 		err  error
 	)
 
-	if userType == "admin" {
-		statusFilter := c.Query("status")
-		switch statusFilter {
-		case "ativo", "inativo":
-			rows, err = client.DB().Query(
-				baseSelect+` WHERE status = $1 ORDER BY nome ASC LIMIT $2 OFFSET $3`,
-				statusFilter, limit, offset,
-			)
-		default:
-			rows, err = client.DB().Query(
-				baseSelect+` ORDER BY nome ASC LIMIT $1 OFFSET $2`,
-				limit, offset,
-			)
-		}
-	} else {
+	statusFilter := c.Query("status")
+	switch statusFilter {
+	case "ativo", "inativo":
 		rows, err = client.DB().Query(
-			baseSelect+` WHERE status = 'ativo' ORDER BY nome ASC LIMIT $1 OFFSET $2`,
+			baseSelect+` WHERE status = $1 ORDER BY nome ASC LIMIT $2 OFFSET $3`,
+			statusFilter, limit, offset,
+		)
+	default:
+		rows, err = client.DB().Query(
+			baseSelect+` ORDER BY nome ASC LIMIT $1 OFFSET $2`,
 			limit, offset,
 		)
 	}
@@ -442,7 +435,7 @@ func ListarTodasAcademias(c *gin.Context) {
 			Website         *string    `db:"website"`
 			NivelEscolar    *string    `db:"nivel_escolar"`
 			Status          string     `db:"status"`
-			CursosJSON      *string    `db:"cursos"`
+			CursosJSON      []byte     `db:"cursos"`
 			EmailVerificado bool       `db:"email_verificado"`
 			CreatedAt       time.Time  `db:"created_at"`
 			UpdatedAt       *time.Time `db:"updated_at"`
@@ -462,8 +455,8 @@ func ListarTodasAcademias(c *gin.Context) {
 		}
 
 		var cursos []string
-		if aca.CursosJSON != nil && *aca.CursosJSON != "" {
-			if unmarshalErr := json.Unmarshal([]byte(*aca.CursosJSON), &cursos); unmarshalErr != nil {
+		if len(aca.CursosJSON) > 0 {
+			if unmarshalErr := json.Unmarshal(aca.CursosJSON, &cursos); unmarshalErr != nil {
 				log.Printf("[WARN] ListarTodasAcademias: falha ao desserializar cursos da academia %s: %v",
 					aca.CodigoAcademia, unmarshalErr)
 			}
