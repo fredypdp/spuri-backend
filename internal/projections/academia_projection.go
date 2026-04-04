@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"spuri/internal/db"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -335,6 +336,11 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 // afetarão 1 linha.
 func (p *AcademiaProjection) handleStatusChange(novoStatus string) func(db.Event) error {
 	return func(event db.Event) error {
+		var payload struct {
+			CodigoAcademia string `json:"CodigoAcademia"`
+		}
+		_ = json.Unmarshal(event.Payload, &payload)
+
 		result, err := p.client.DB().Exec(`
 			UPDATE projection_academias
 			SET status = $1,
@@ -351,11 +357,34 @@ func (p *AcademiaProjection) handleStatusChange(novoStatus string) func(db.Event
 			return fmt.Errorf("handleStatusChange: RowsAffected error: %w", err)
 		}
 		if rowsAffected == 0 {
-			log.Printf("[WARN] [academias] handleStatusChange(%s): 0 linhas afetadas para aggregate %s — evento histórico com UUID inválido (ignorado)",
+			codigo := strings.TrimSpace(payload.CodigoAcademia)
+			if codigo != "" {
+				fallbackResult, fallbackErr := p.client.DB().Exec(`
+					UPDATE projection_academias
+					SET status = $1,
+					    updated_at = CURRENT_TIMESTAMP,
+					    version = $2,
+					    last_event_id = $3
+					WHERE codigo_academia = $4
+				`, novoStatus, event.EventVersion, event.EventID, codigo)
+				if fallbackErr != nil {
+					return fmt.Errorf("handleStatusChange: fallback por codigo falhou: %w", fallbackErr)
+				}
+				fallbackRows, rowsErr := fallbackResult.RowsAffected()
+				if rowsErr != nil {
+					return fmt.Errorf("handleStatusChange: fallback RowsAffected error: %w", rowsErr)
+				}
+				if fallbackRows > 0 {
+					log.Printf("[WARN] [academias] handleStatusChange(%s): aggregate_id %s não encontrado; aplicado fallback por código %s",
+						novoStatus, event.AggregateID, codigo)
+					return nil
+				}
+			}
+			log.Printf("[WARN] [academias] handleStatusChange(%s): 0 linhas afetadas para aggregate %s — sem fallback aplicável",
 				novoStatus, event.AggregateID)
-		} else {
-			log.Printf("[DEBUG] [academias] Status atualizado para '%s' — aggregate: %s", novoStatus, event.AggregateID)
+			return nil
 		}
+		log.Printf("[DEBUG] [academias] Status atualizado para '%s' — aggregate: %s", novoStatus, event.AggregateID)
 		return nil
 	}
 }
@@ -367,15 +396,16 @@ func (p *AcademiaProjection) handleStatusChange(novoStatus string) func(db.Event
 // FIX C9: DesativadoPor agora é lido do payload e persistido.
 func (p *AcademiaProjection) handleAcademiaDesativada(event db.Event) error {
 	var payload struct {
-		Motivo        string    `json:"Motivo"`
-		DesativadoPor string    `json:"DesativadoPor"`
-		DeactivatedAt time.Time `json:"DeactivatedAt"`
+		CodigoAcademia string    `json:"CodigoAcademia"`
+		Motivo         string    `json:"Motivo"`
+		DesativadoPor  string    `json:"DesativadoPor"`
+		DeactivatedAt  time.Time `json:"DeactivatedAt"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleAcademiaDesativada: parse error: %w", err)
 	}
 
-	_, err := p.client.DB().Exec(`
+	result, err := p.client.DB().Exec(`
 		UPDATE projection_academias
 		SET status              = 'inativo',
 		    motivo_desativacao  = $1,
@@ -384,6 +414,31 @@ func (p *AcademiaProjection) handleAcademiaDesativada(event db.Event) error {
 		    last_event_id       = $3
 		WHERE id = $4
 	`, payload.Motivo, event.EventVersion, event.EventID, event.AggregateID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("handleAcademiaDesativada: RowsAffected error: %w", err)
+	}
+	if rowsAffected > 0 {
+		return nil
+	}
+
+	codigo := strings.TrimSpace(payload.CodigoAcademia)
+	if codigo == "" {
+		return nil
+	}
+
+	_, err = p.client.DB().Exec(`
+		UPDATE projection_academias
+		SET status              = 'inativo',
+		    motivo_desativacao  = $1,
+		    updated_at          = CURRENT_TIMESTAMP,
+		    version             = $2,
+		    last_event_id       = $3
+		WHERE codigo_academia = $4
+	`, payload.Motivo, event.EventVersion, event.EventID, codigo)
 	return err
 }
 
@@ -596,26 +651,26 @@ func (p *AcademiaProjection) handleAnoLetivoAcademiaDefinido(event db.Event) err
 
 // AcademiaDTO representa a visão de leitura de uma academia.
 type AcademiaDTO struct {
-	ID                uuid.UUID  `json:"id"`
-	Type              string     `json:"type"`
-	Nome              string     `json:"nome"`
-	CodigoAcademia    string     `json:"codigo_academia"`
-	SenhaHash         string     `json:"-"`
-	Provincia         string     `json:"provincia"`
-	Endereco          string     `json:"endereco"`
-	NumeroTelefone    *string    `json:"numero_telefone,omitempty"`
-	Email             *string    `json:"email,omitempty"`
-	Website           *string    `json:"website,omitempty"`
-	NivelEscolar      *string    `json:"nivel_escolar,omitempty"`
-	AnosAcademicos    []string   `json:"anos_academicos,omitempty"`
-	Status            string     `json:"status"`
-	MotivoDesativacao *string    `json:"motivo_desativacao,omitempty"`
-	Cursos            []string   `json:"cursos"`
-	EmailVerificado   bool       `json:"email_verificado"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
-	TotalEstudantes   int        `json:"total_estudantes"`
-	Version           int        `json:"version"`
+	ID                 uuid.UUID  `json:"id"`
+	Type               string     `json:"type"`
+	Nome               string     `json:"nome"`
+	CodigoAcademia     string     `json:"codigo_academia"`
+	SenhaHash          string     `json:"-"`
+	Provincia          string     `json:"provincia"`
+	Endereco           string     `json:"endereco"`
+	NumeroTelefone     *string    `json:"numero_telefone,omitempty"`
+	Email              *string    `json:"email,omitempty"`
+	Website            *string    `json:"website,omitempty"`
+	NivelEscolar       *string    `json:"nivel_escolar,omitempty"`
+	AnosAcademicos     []string   `json:"anos_academicos,omitempty"`
+	Status             string     `json:"status"`
+	MotivoDesativacao  *string    `json:"motivo_desativacao,omitempty"`
+	Cursos             []string   `json:"cursos"`
+	EmailVerificado    bool       `json:"email_verificado"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
+	TotalEstudantes    int        `json:"total_estudantes"`
+	Version            int        `json:"version"`
 	AnoLetivo          *string    `json:"ano_letivo,omitempty"`
 	TipoAnoLetivo      *string    `json:"tipo_ano_letivo,omitempty"`
 	AnoLetivoAtivadoEm *time.Time `json:"ano_letivo_ativado_em,omitempty"`
