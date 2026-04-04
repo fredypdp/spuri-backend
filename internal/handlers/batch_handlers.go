@@ -705,8 +705,9 @@ func AtivarAcademiaBatch(c *gin.Context) {
 
 func DesativarAcademiaBatch(c *gin.Context) {
 	type ReqDesativar struct {
-		Codigo string `json:"codigo"`
-		Motivo string `json:"motivo"`
+		Codigo         string `json:"codigo"`
+		CodigoAcademia string `json:"codigo_academia"`
+		Motivo         string `json:"motivo"`
 	}
 	var reqs []ReqDesativar
 	if err := c.ShouldBindJSON(&reqs); err != nil {
@@ -720,7 +721,7 @@ func DesativarAcademiaBatch(c *gin.Context) {
 
 	results := make([]BatchItemResult, 0, len(reqs))
 	for i, req := range reqs {
-		req.Codigo = strings.TrimSpace(req.Codigo)
+		req.Codigo = firstNonEmptyTrimmed(req.Codigo, req.CodigoAcademia)
 		req.Motivo = strings.TrimSpace(req.Motivo)
 		if req.Codigo == "" {
 			results = append(results, batchErr(i, fmt.Errorf("codigo é obrigatório")))
@@ -785,7 +786,8 @@ func runIDParamBatch(c *gin.Context, max int, fn func(*gin.Context)) {
 // Body esperado: [{ "codigo": "string" }, ...]
 func runCodigoParamBatch(c *gin.Context, max int, fn func(*gin.Context)) {
 	type ReqCodigo struct {
-		Codigo string `json:"codigo"`
+		Codigo         string `json:"codigo"`
+		CodigoAcademia string `json:"codigo_academia"`
 	}
 	var reqs []ReqCodigo
 	if err := c.ShouldBindJSON(&reqs); err != nil {
@@ -799,7 +801,7 @@ func runCodigoParamBatch(c *gin.Context, max int, fn func(*gin.Context)) {
 
 	results := make([]BatchItemResult, 0, len(reqs))
 	for i, req := range reqs {
-		codigo := strings.TrimSpace(req.Codigo)
+		codigo := firstNonEmptyTrimmed(req.Codigo, req.CodigoAcademia)
 		if codigo == "" {
 			results = append(results, batchErr(i, fmt.Errorf("codigo é obrigatório")))
 			continue
@@ -811,4 +813,13 @@ func runCodigoParamBatch(c *gin.Context, max int, fn func(*gin.Context)) {
 	}
 
 	c.JSON(batchHTTPStatus(results), newBatchResponse(results))
+}
+
+func firstNonEmptyTrimmed(values ...string) string {
+	for _, v := range values {
+		if s := strings.TrimSpace(v); s != "" {
+			return s
+		}
+	}
+	return ""
 }
