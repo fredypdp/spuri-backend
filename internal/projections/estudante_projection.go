@@ -177,7 +177,18 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 		cursoSuperiorID = &s
 	}
 
-	_, err := p.client.DB().Exec(`
+	// IMPORTANTE: projection_estudantes possui FK para projection_cursos.
+	// Como as projeções são processadas de forma assíncrona e independente,
+	// estudantes pode avançar mais rápido que cursos e tentar inserir um
+	// curso_*_id ainda não materializado em projection_cursos.
+	// Nesse caso, não bloqueamos toda a projeção: removemos temporariamente
+	// o vínculo de curso para permitir que o estudante seja projetado.
+	cursoMedioID, cursoSuperiorID, err := p.resolveExistingCursoIDs(cursoMedioID, cursoSuperiorID, event.EventID)
+	if err != nil {
+		return fmt.Errorf("handleEstudanteCriadoComVinculo: falha ao validar cursos referenciados: %w", err)
+	}
+
+	_, err = p.client.DB().Exec(`
 		INSERT INTO projection_estudantes (
 			id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
 			bilhete_identidade, bilhete_identidade_responsavel, genero,
@@ -209,6 +220,51 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 		return fmt.Errorf("handleEstudanteCriadoComVinculo: exec error: %w", err)
 	}
 	return nil
+}
+
+func (p *EstudanteProjection) resolveExistingCursoIDs(
+	cursoMedioID *string,
+	cursoSuperiorID *string,
+	eventID uuid.UUID,
+) (*string, *string, error) {
+	if cursoMedioID != nil {
+		exists, err := p.cursoExists(*cursoMedioID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !exists {
+			log.Printf("[WARN] [estudantes] evento=%s referenciou curso_medio_id=%s inexistente na projection_cursos no momento do processamento; vínculo será salvo como NULL", eventID, *cursoMedioID)
+			cursoMedioID = nil
+		}
+	}
+
+	if cursoSuperiorID != nil {
+		exists, err := p.cursoExists(*cursoSuperiorID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !exists {
+			log.Printf("[WARN] [estudantes] evento=%s referenciou curso_superior_id=%s inexistente na projection_cursos no momento do processamento; vínculo será salvo como NULL", eventID, *cursoSuperiorID)
+			cursoSuperiorID = nil
+		}
+	}
+
+	return cursoMedioID, cursoSuperiorID, nil
+}
+
+func (p *EstudanteProjection) cursoExists(cursoID string) (bool, error) {
+	var exists bool
+	err := p.client.DB().QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM projection_cursos
+			WHERE id = $1
+		)
+	`, cursoID).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
 }
 
 func (p *EstudanteProjection) handleStatusEscolarFundamental(event db.Event) error {
