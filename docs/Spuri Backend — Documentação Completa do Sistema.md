@@ -1,5 +1,5 @@
 ---
-modificado: 04-04-2026 01:01
+modificado: 04-04-2026 02:10
 criado: 07-03-2026 00:12
 ---
 ## 1. Visão Geral da Arquitetura
@@ -1263,6 +1263,168 @@ Esta secção detalha **como consumir cada rota** do bloco “Consultas e Sistem
 |`POST`|`/email/recuperar-senha/:token`|Pública|Define nova senha via token|
 |`POST`|`/email/gerar-token/verificacao`|Auth (qualquer tipo)|Gera token de verificação (retorna ao frontend)|
 |`POST`|`/email/gerar-token/recuperacao`|Pública|Gera token de recuperação (retorna ao frontend)|
+
+
+### 9.1 Contrato global de integração (válido para todas as rotas)
+
+Para evitar ambiguidade no cliente, **todas as rotas** seguem estes contratos transversais:
+
+- **Content-Type:** `application/json` (exceto `GET`/`DELETE` sem body).
+- **Auth bearer:** `Authorization: Bearer <jwt>` em todas as rotas protegidas.
+- **Timezone:** datas no payload sempre em UTC quando houver timestamp completo (`RFC3339`).
+- **Request ID:** toda resposta pode incluir `X-Request-ID`; o cliente deve persistir esse valor para suporte.
+- **Envelope de erro padrão:**
+
+```json
+{ "error": "mensagem clara para integração" }
+```
+
+- **Faixas de status HTTP esperadas:**
+  - `200/201/204` sucesso.
+  - `400` erro de validação de entrada.
+  - `401` token ausente/inválido/expirado.
+  - `403` sem permissão ou entidade inativa.
+  - `404` recurso não encontrado.
+  - `409` conflito (duplicidade/estado incompatível).
+  - `422` lote totalmente inválido.
+  - `500` erro interno não esperado.
+
+### 9.2 Matriz detalhada de rotas (integração cliente)
+
+> Regra prática para o cliente: trate **4xx** como erro funcional corrigível (dados/permissão) e **5xx** como erro transitório com retry exponencial.
+
+|Método|Rota|Auth|Path params|Query params|Body (resumo)|Sucesso|Erros de integração mais comuns|Notas de implementação cliente|
+|---|---|---|---|---|---|---|---|---|
+|POST|`/login`|Não|—|—|`identificador` + `senha`|`200` + token JWT|`400`, `401`|Salvar token + tipo de usuário retornado para controlar navegação.|
+|POST|`/bootstrap`|Não|—|—|dados do 1º admin FPP|`201`|`403` se já existir FPP|Rota one-shot; no cliente, esconder após bootstrap concluído.|
+|POST|`/email/verificar-email/:token`|Não|`token`|—|vazio|`200`|`400/404/410` token inválido/expirado|Fluxo ideal: abrir deep-link direto do email.|
+|POST|`/email/verificar-email/solicitar`|Sim|—|—|identificador do usuário|`200`|`401/429`|Implementar cooldown no frontend para evitar spam.|
+|POST|`/email/recuperar-senha/solicitar`|Não|—|—|email/código|`200`|`400/404/429`|Sempre mostrar mensagem neutra para evitar enumeração.|
+|POST|`/email/recuperar-senha/:token`|Não|`token`|—|nova senha|`200`|`400/410`|Forçar política de senha no formulário antes do submit.|
+|POST|`/email/gerar-token/recuperacao`|Não|—|—|identificador|`200`|`400/429`|Usado quando frontend envia email por conta própria.|
+|POST|`/email/gerar-token/verificacao`|Sim|—|—|vazio|`200`|`401/429`|Exigir usuário logado e não verificado.|
+|GET|`/jobs`|Sim|—|`limit`,`offset`,`status`|—|`200`|`401`|Polling para filas assíncronas com intervalo progressivo.|
+|GET|`/jobs/:id`|Sim|`id`|—|—|`200`|`401/404`|Parar polling quando status final (`completed`/`failed`).|
+|PUT|`/alterar-senha`|Sim|—|—|senha atual + nova|`200`|`400/401`|Após sucesso, forçar re-login por segurança.|
+|GET|`/meu-perfil`|Sim|—|—|—|`200`|`401`|DTO varia por tipo (`admin`,`academia`,`estudante`).|
+|GET|`/academias`|Sim|—|`limit`,`offset`,`status`|—|`200`|`401/400` query inválida|Paginar em cursor/offset; respeitar teto de `limit`.|
+|GET|`/consultar-academia/:codigo`|Sim|`codigo`|—|—|`200`|`401/404`|Usar cache local por `codigo`.|
+|GET|`/consultar-estudante/:codigo`|Sim (`academia/admin`)|`codigo`|—|—|`200`|`401/403/404`|Checar ownership no fluxo de academia.|
+|GET|`/estudantes`|Sim (`academia/admin`)|—|`limit`,`offset`,`busca`*|—|`200`|`401/403`|Aplicar debounce em busca textual.|
+|GET|`/notas-estudante/:codigo`|Sim (`academia/admin`)|`codigo`|filtros opcionais*|—|`200`|`401/403/404`|Ordenar por período/data no cliente.|
+|GET|`/faltas-estudante/:codigo`|Sim (`academia/admin`)|`codigo`|filtros opcionais*|—|`200`|`401/403/404`|Somar `quantidade` por período para dashboards.|
+|GET|`/avaliacoes-estudante/:codigo`|Sim (`academia/admin`)|`codigo`|—|—|`200`|`401/403/404`|Exibir trilha histórica por ano letivo.|
+|GET|`/avaliacoes`|Sim|—|`limit`,`offset`,`tipo_ensino`*|—|`200`|`401`|Tela global; para estudante tende a retornar escopo próprio.|
+|GET|`/aprovacoes`|Sim|—|`limit`,`offset`|—|`200`|`401`|Filtro server-side `aprovado=true`.|
+|GET|`/reprovacoes`|Sim|—|`limit`,`offset`|—|`200`|`401`|Filtro server-side `aprovado=false`.|
+|GET|`/verificar-integridade/:codigo`|Sim|`codigo`|—|—|`200`|`401/404`|Use para auditoria; não para fluxo transacional.|
+|GET|`/eventos-estudante/:codigo`|Sim (`admin`)|`codigo`|`limit`,`offset`|—|`200`|`401/403/404`|Pode gerar payload grande; pagine sempre.|
+|POST|`/adicionar-telefone-extra`|Sim|—|—|`numero_telefone`|`201`|`400/409`|Normalizar localmente melhora UX, mas backend também normaliza.|
+|PUT|`/estudante/dados-pessoais`|Sim (`estudante`)|—|—|dados pessoais|`200`|`400/401`|Atualização parcial; enviar somente campos alterados quando possível.|
+|GET|`/estudante/minhas-notas`|Sim (`estudante`)|—|filtros opcionais*|—|`200`|`401`|Renderizar por ano/período.|
+|GET|`/estudante/minhas-faltas`|Sim (`estudante`)|—|filtros opcionais*|—|`200`|`401`|Exibir consolidado e itens detalhados.|
+|GET|`/estudante/minhas-avaliacoes`|Sim (`estudante`)|—|—|—|`200`|`401`|Exibir histórico com status aprovado/reprovado.|
+|PUT|`/academia/dados`|Sim (`academia ativa`)|—|—|dados cadastrais|`200`|`400/401/403`|Se mudar email, pode exigir nova verificação.|
+|POST|`/academia/ano-letivo`|Sim (`academia ativa`)|—|—|`ano_letivo`,`tipo`|`200`|`400/403`|Pré-requisito para notas/faltas/avaliações.|
+|GET|`/academia/ano-letivo`|Sim (`academia ativa`)|—|—|—|`200`|`401/403/404`|Ao iniciar app da academia, buscar este endpoint primeiro.|
+|POST|`/academia/estudante/register`|Sim (`academia ativa`)|—|—|cadastro completo do estudante|`201`|`400/409`|Persistir `codigo_estudante` retornado para operações futuras.|
+|POST|`/academia/notas-aluno`|Sim (`academia ativa`)|—|—|dados da nota|`201`|`400/403/409`|Sem ano letivo ativo retorna `400`.|
+|PUT|`/academia/atualizar-nota`|Sim (`academia ativa`)|—|—|`id`,`nota`,`observacao`|`200`|`400/404`|`observacao` obrigatória na correção.|
+|DELETE|`/academia/nota/:id`|Sim (`academia ativa`)|`id`|—|`motivo`|`200`|`400/404`|Soft delete: item some das listas ativas.|
+|POST|`/academia/faltas-aluno`|Sim (`academia ativa`)|—|—|dados da falta|`201`|`400/403/409`|`quantidade` deve ser positiva.|
+|PUT|`/academia/atualizar-falta`|Sim (`academia ativa`)|—|—|`id`,`quantidade`,`observacao`*|`200`|`400/404`|Usar confirmação antes de editar histórico.|
+|DELETE|`/academia/falta/:id`|Sim (`academia ativa`)|`id`|—|`motivo`|`200`|`400/404`|`motivo` obrigatório.|
+|POST|`/academia/avaliacao-final`|Sim (`academia ativa`)|—|—|dados de avaliação final|`201`|`400/403/409`|Remove estudante das turmas automaticamente após registrar.|
+|POST|`/academia/categorias-nota`|Sim (`academia ativa`)|—|—|`nome`,`descricao`*|`201`|`400/409`|Sincronizar catálogo no cliente após criação.|
+|GET|`/academia/categorias-nota`|Sim (`academia ativa`)|—|—|—|`200`|`401/403`|Carregar no formulário de lançamento de notas.|
+|PUT|`/academia/estudante/:codigo/status-escolar-fundamental`|Sim (`academia ativa`)|`codigo`|—|`novo_status`|`200`|`400/404/409`|Respeitar progressão do ciclo.|
+|PUT|`/academia/estudante/:codigo/status-escolar-medio`|Sim (`academia ativa`)|`codigo`|—|`novo_status`|`200`|`400/404/409`|Validar dependência de status fundamental.|
+|PUT|`/academia/estudante/:codigo/status-superior`|Sim (`academia ativa`)|`codigo`|—|`novo_status`|`200`|`400/404/409`|Somente após ciclos anteriores compatíveis.|
+|POST|`/academia/curso`|Sim (`academia ativa`)|—|—|`nome`,`type`,`anos`,`periodos`*|`201`|`400/409`|`type` é imutável após criação.|
+|GET|`/academia/cursos`|Sim (`academia ativa`)|—|filtros opcionais*|—|`200`|`401/403`|Fonte principal para combos de matéria/turma.|
+|GET|`/academia/curso/:id`|Sim (`academia ativa`)|`id`|—|—|`200`|`404`|Validar UUID no cliente evita round-trip.|
+|PUT|`/academia/curso/:id/ativar`|Sim (`academia ativa`)|`id`|—|vazio|`200`|`404/409`|Só cursos inativos podem ativar.|
+|PUT|`/academia/curso/:id/desativar`|Sim (`academia ativa`)|`id`|—|vazio|`200`|`404/409`|Pré-requisito para deleção.|
+|PUT|`/academia/curso/:id/dados`|Sim (`academia ativa`)|`id`|—|campos editáveis|`200`|`400/404`|Não tentar alterar `type`.|
+|DELETE|`/academia/curso/:id`|Sim (`academia ativa`)|`id`|—|vazio|`200`|`404/409`|Falha se curso ativo ou com vínculos impeditivos.|
+|POST|`/academia/materia`|Sim (`academia ativa`)|—|—|dados da matéria|`201`|`400/409`|Para `superior`, período pode ser definido depois.|
+|GET|`/academia/materias`|Sim (`academia ativa`)|—|filtros opcionais*|—|`200`|`401/403`|Use filtro por curso/tipo para formularios.|
+|GET|`/academia/materia/:id`|Sim (`academia ativa`)|`id`|—|—|`200`|`404`|Detalhe para edição.|
+|PUT|`/academia/materia/:id/ativar`|Sim (`academia ativa`)|`id`|—|vazio|`200`|`404/409`|Matéria superior sem período retorna conflito.|
+|PUT|`/academia/materia/:id/desativar`|Sim (`academia ativa`)|`id`|—|vazio|`200`|`404/409`|Necessário para deleção.|
+|PUT|`/academia/materia/:id/periodo`|Sim (`academia ativa`)|`id`|—|`periodo`|`200`|`400/404/409`|Somente `superior`; deve existir no curso.|
+|PUT|`/academia/materia/:id/dados`|Sim (`academia ativa`)|`id`|—|campos editáveis|`200`|`400/404`|Atualização focada em metadados.|
+|DELETE|`/academia/materia/:id`|Sim (`academia ativa`)|`id`|—|vazio|`200`|`404/409`|Soft delete.|
+|POST|`/academia/turma`|Sim (`academia ativa`)|—|—|dados da turma|`201`|`400/409`|`codigo_turma` deve ser único na academia.|
+|GET|`/academia/turmas`|Sim (`academia ativa`)|—|filtros opcionais*|—|`200`|`401/403`|Carregar para gestão de matrícula.|
+|GET|`/academia/turma/:codigo`|Sim (`academia ativa`)|`codigo`|—|—|`200`|`404`|Código de turma é chave funcional.|
+|PUT|`/academia/turma/:codigo/ativar`|Sim (`academia ativa`)|`codigo`|—|vazio|`200`|`404/409`|Respeitar estados permitidos.|
+|PUT|`/academia/turma/:codigo/desativar`|Sim (`academia ativa`)|`codigo`|—|vazio|`200`|`404/409`|Para deletar, deve estar inativa.|
+|PUT|`/academia/turma/:codigo/dados`|Sim (`academia ativa`)|`codigo`|—|campos editáveis|`200`|`400/404`|Evitar mudar código sem necessidade.|
+|DELETE|`/academia/turma/:codigo`|Sim (`academia ativa`)|`codigo`|—|vazio|`200`|`404/409`|Falha se houver estudantes vinculados.|
+|POST|`/academia/turma/:codigo/estudante`|Sim (`academia ativa`)|`codigo`|—|`codigo_estudante`|`200`|`400/404/409`|Permite estudante em múltiplas turmas.|
+|DELETE|`/academia/turma/:codigo/estudantes/:codigo_estudante`|Sim (`academia ativa`)|`codigo`,`codigo_estudante`|—|vazio|`200`|`404`|Operação idempotente recomendada no cliente.|
+|POST|`/dominis/register`|Sim (`admin`)|—|—|dados do admin|`201`|`400/403/409`|Role alvo deve ser inferior ao criador.|
+|POST|`/dominis/academia/register`|Sim (`admin`)|—|—|dados da academia|`201`|`400/409`|Cria academia inicialmente inativa.|
+|PUT|`/dominis/academia/:codigo/ativar`|Sim (`adm/fpp`)|`codigo`|—|vazio|`200`|`404/409`|Somente admin pode ativar academia.|
+|PUT|`/dominis/academia/:codigo/desativar`|Sim (`adm/fpp`)|`codigo`|—|`motivo`*|`200`|`404/409`|Registrar motivo para trilha administrativa.|
+|PUT|`/dominis/admin/:id/ativar`|Sim (`adm/fpp`)|`id`|—|vazio|`200`|`404/409`|Não permitir auto-lock em fluxos UI.|
+|PUT|`/dominis/admin/:id/desativar`|Sim (`adm/fpp`)|`id`|—|vazio|`200`|`404/409`|Garantir pelo menos um admin operacional.|
+|GET|`/dominis/admin-lista`|Sim (`admin`)|—|`limit`,`offset`|—|`200`|`401/403`|Tela de gestão administrativa.|
+|GET|`/dominis/metrics`|Sim (`admin`)|—|—|—|`200`|`401/403`|Pode ser usado em dashboard.|
+|POST|`/dominis/projections/rebuild/:name`|Sim (`fpp`)|`name`|—|vazio|`200`|`403/404/409`|Operação sensível; mostrar confirmação forte.|
+|GET|`/dominis/consultar-admin/:email`|Sim (`admin`)|`email`|—|—|`200`|`404`|Encode URL do email corretamente.|
+|GET|`/dominis/registros`|Sim (`admin`)|—|`limit`,`offset`,`tipo`*|—|`200`|`401/403`|Consulta central de notas/faltas.|
+|GET|`/dominis/registros/:codigo`|Sim (`admin`)|`codigo`|`limit`,`offset`|—|`200`|`404`|Detalhamento por estudante.|
+|PUT|`/dominis/admin/:id/role`|Sim (`fpp`)|`id`|—|`role`|`200`|`400/403/404`|Mudança de privilégio: auditar no cliente.|
+|PUT|`/dominis/admin/:id/dados`|Sim (`admin`)|`id`|—|campos editáveis|`200`|`400/403/404`|Validação de email único.|
+
+\* Parâmetros/fields opcionais dependem de versão do handler e contexto de uso.
+
+### 9.3 Rotas batch e async (faltantes adicionadas)
+
+Além das rotas síncronas já listadas, o backend possui contratos para operações em massa com duas modalidades:
+
+1. **Batch síncrono** (`/batch`): responde na mesma requisição com `200`, `207` ou `422`.
+2. **Batch assíncrono** (`/async`): cria job e retorna imediatamente; o cliente acompanha em `GET /jobs` e `GET /jobs/:id`.
+
+#### 9.3.1 Endpoints `/async` disponíveis
+
+##### Academia
+- `POST /academia/estudante/register/async`
+- `POST /academia/notas-aluno/async`
+- `PUT /academia/atualizar-nota/async`
+- `DELETE /academia/nota/async`
+- `POST /academia/faltas-aluno/async`
+- `PUT /academia/atualizar-falta/async`
+- `DELETE /academia/falta/async`
+- `POST /academia/avaliacao-final/async`
+- `PUT /academia/estudante/status-escolar/async`
+- `POST /academia/curso/async`
+- `POST /academia/materia/async`
+- `POST /academia/turma/async`
+- `POST /academia/turma/estudante/async`
+
+##### Admin
+- `POST /dominis/academia/register/async`
+- `PUT /dominis/academia/ativar/async`
+- `PUT /dominis/academia/desativar/async`
+
+#### 9.3.2 Contrato de resposta esperado para `/async`
+
+```json
+{
+  "job_id": "uuid",
+  "status": "queued",
+  "message": "processamento agendado"
+}
+```
+
+Fluxo recomendado no cliente:
+- Criar job em `/async`.
+- Fazer polling em `GET /jobs/:id` com backoff (ex.: 2s, 4s, 8s, máximo 20s).
+- Encerrar polling quando `status` for final.
+- Se `failed`, exibir erros por item retornados pelo job.
 
 ---
 
