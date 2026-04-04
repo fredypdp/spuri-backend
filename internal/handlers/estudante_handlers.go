@@ -331,7 +331,7 @@ func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
 		var emailVerif bool
 		var genero string
 		var dataNascimento time.Time
-		var createdAt, updatedAt string
+		var createdAt, updatedAt time.Time
 		var totalNotas, totalFaltas, version int
 
 		if err := rows.Scan(
@@ -367,8 +367,8 @@ func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
 			"curso_superior_id":              getNullString(cursoSuperiorID),
 			"genero":                         genero,
 			"data_nascimento":                dataNascimento.Format("2006-01-02"),
-			"created_at":                     createdAt,
-			"updated_at":                     updatedAt,
+			"created_at":                     createdAt.Format(time.RFC3339),
+			"updated_at":                     updatedAt.Format(time.RFC3339),
 			"total_notas":                    totalNotas,
 			"total_faltas":                   totalFaltas,
 			"version":                        version,
