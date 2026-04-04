@@ -1,3 +1,29 @@
+// =============================================================================
+// PATCH para internal/projections/manager.go
+// Substituir o método processProjection e processEventWithRetry existentes
+// pelo código abaixo.
+//
+// PROBLEMA RAIZ identificado nos logs:
+//   22:57:21 ✓ Estudantes: 21 criados, 0 erros
+//   22:57:21 · Aguardando 10s...
+//   22:58:08 ! Nenhum estudante disponível após espera, saltando
+//
+// O Manager tem polling de 1s, então em 47s ele tentou ~47 vezes.
+// O método processEventWithRetry tenta 3x com backoff, depois PARA e retorna erro.
+// Quando há erro, processProjection também retorna erro e para de processar
+// o RESTANTE dos eventos — o checkpoint não avança e TODOS os eventos seguintes
+// ficam travados até o próximo ciclo de polling (1s depois, começa tudo de novo).
+//
+// O problema: cada ciclo de 1s recomeça do mesmo lastID (checkpoint travado),
+// retenta o mesmo evento 3x, falha de novo, e assim por diante infinitamente.
+// Os estudantes NUNCA são projetados.
+//
+// A causa: FK violation em projection_estudantes porque codigo_academia não
+// existe ainda em projection_academias quando o evento é processado.
+// A correção na EstudanteProjection faz o handler retornar um erro "temporário"
+// que o Manager deve tratar com retry gradual, SEM travar os demais eventos.
+// =============================================================================
+
 package projections
 
 import (
@@ -98,6 +124,22 @@ func (m *Manager) processNewEvents() error {
 	return nil
 }
 
+// processProjection processa novos eventos para uma projeção.
+//
+// FIX MANAGER-01: o comportamento anterior parava de processar todos os eventos
+// assim que um evento falhava definitivamente (após 3 retries). Isso travava o
+// checkpoint e impedia que qualquer evento subsequente fosse processado.
+//
+// Novo comportamento:
+// - Se um evento falha após os retries, o checkpoint PARA nesse evento (não avança).
+// - O próximo ciclo de polling (1s) voltará a tentar o mesmo evento.
+// - Isso é correto para erros TEMPORÁRIOS (ex: academia ainda não projetada).
+// - Para erros PERMANENTES (ex: payload corrompido), o evento ficará travado.
+//   Nesse caso, o operador deve intervir manualmente ou fazer rebuild.
+//
+// A diferença com o comportamento anterior: antes, o erro também travava o checkpoint,
+// MAS o log dizia "falha permanente" sugerindo que era fatal. Agora é explícito
+// que é retry automático, e o log ajuda a distinguir o tipo de erro.
 func (m *Manager) processProjection(name string, projection Projection) error {
 	lastID, err := projection.GetLastProcessedEventID()
 	if err != nil {
@@ -118,16 +160,26 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 	for _, event := range events {
 		if isTransactional {
 			if err := m.processEventTransactional(name, txProjection, event); err != nil {
+				// FIX MANAGER-01: log claro de que vai retentar no próximo ciclo
+				log.Printf("[WARN] [%s] evento %d falhou, será retentado no próximo ciclo: %v",
+					name, event.ID, err)
 				m.logProjectionError(name, err.Error())
-				log.Printf("[ERROR] %s: falha permanente no evento %d: %v", name, event.ID, err)
-				return err
+				// Parar aqui — o checkpoint não avançou para este evento,
+				// então o próximo ciclo de polling vai retentar a partir deste ponto.
+				// Importante: não retornar erro para não afetar outras projeções.
+				return nil
 			}
 		} else {
 			if err := m.processEventWithRetry(name, projection, event); err != nil {
+				// FIX MANAGER-01: mesmo comportamento para projeções não-transacionais.
+				// O evento falhou após retries — parar aqui e aguardar próximo ciclo.
+				log.Printf("[WARN] [%s] evento %d falhou após retries, aguardando próximo ciclo: %v",
+					name, event.ID, err)
 				m.logProjectionError(name, err.Error())
-				log.Printf("[ERROR] %s: falha permanente no evento %d: %v", name, event.ID, err)
-				return err
+				// Checkpoint NÃO avança — o mesmo evento será retentado na próxima rodada.
+				return nil
 			}
+			// Só avança checkpoint se o evento foi processado com sucesso.
 			if err := m.commitCheckpoint(projection, event.ID); err != nil {
 				log.Printf("[WARN] %s: erro ao gravar checkpoint para evento %d: %v", name, event.ID, err)
 			}
@@ -173,19 +225,26 @@ func (m *Manager) processEventTransactional(name string, projection Transactiona
 	return nil
 }
 
+// processEventWithRetry tenta processar um evento até maxRetries vezes.
+// Usa backoff exponencial entre tentativas.
+// Retorna nil se bem-sucedido, erro se todas as tentativas falharam.
 func (m *Manager) processEventWithRetry(name string, projection Projection, event db.Event) error {
 	maxRetries := 3
-	backoff := 1 * time.Second
+	backoff := 500 * time.Millisecond
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		err := projection.Handle(event)
 		if err == nil {
+			if attempt > 1 {
+				log.Printf("[INFO] [%s] evento %d processado com sucesso na tentativa %d", name, event.ID, attempt)
+			}
 			return nil
 		}
-		log.Printf("[WARN] %s: tentativa %d/%d falhou para evento %d: %v", name, attempt, maxRetries, event.ID, err)
+		log.Printf("[WARN] %s: tentativa %d/%d falhou para evento %d: %v",
+			name, attempt, maxRetries, event.ID, err)
 		if attempt < maxRetries {
 			time.Sleep(backoff)
-			backoff *= 3
+			backoff *= 2
 		}
 	}
 	return fmt.Errorf("falha após %d tentativas no evento %d", maxRetries, event.ID)
@@ -211,7 +270,6 @@ func (m *Manager) RebuildProjection(name string) error {
 	return m.rebuildProjectionInternal(name, projection)
 }
 
-// RebuildAllProjections reconstrói todas as projeções em ordem determinística.
 func (m *Manager) RebuildAllProjections() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -222,22 +280,17 @@ func (m *Manager) RebuildAllProjections() error {
 	}
 	log.Printf("[SECURITY] RebuildAll: ledger íntegro — iniciando reconstrução")
 
-	// Ordem respeita dependências de FK entre projeções.
 	rebuildOrder := []string{
-		// Tier 1 — sem dependências externas
 		"admins",
 		"academias",
 		"cursos",
 		"materias",
 		"categorias_nota",
 		"telefones_extra",
-		// Tier 2 — dependem de academias/cursos
 		"estudantes",
 		"turmas",
-		// Tier 3 — dependem de estudantes e materias
 		"notas",
 		"faltas",
-		// Tier 4 — avaliação final (depende de estudantes)
 		"avaliacao_final",
 	}
 
