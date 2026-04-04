@@ -386,6 +386,11 @@ func ListarTodasAcademias(c *gin.Context) {
 	client := getDbClient(c)
 
 	limit, offset := getPaginationParams(c)
+	if c.Query("limit") == "" {
+		// Para esta rota, sem `limit` explícito queremos retornar o conjunto completo
+		// (até o teto global de segurança do backend).
+		limit = 1000
+	}
 	limit = db.ValidateLimit(limit)
 	offset = db.ValidateOffset(offset)
 
