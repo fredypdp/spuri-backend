@@ -193,7 +193,7 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 			$14, $15, $16, $17, $18,
 			$19, $20, CURRENT_TIMESTAMP, $21, $22
 		)
-		ON CONFLICT (id) DO NOTHING
+		ON CONFLICT DO NOTHING
 	`,
 		event.AggregateID, payload.Nome, payload.CodigoEstudante, payload.SenhaHash,
 		payload.Email, payload.Telefone,
