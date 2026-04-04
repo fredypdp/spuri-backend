@@ -71,6 +71,7 @@ func newFakeContext(parent *gin.Context) *gin.Context {
 
 	c, _ := gin.CreateTestContext(w)
 	c.Request = req
+	c.Set("_batch_writer", w)
 
 	for _, key := range []string{
 		"user_id", "user_type", "admin_role",
@@ -96,17 +97,25 @@ func setJSONBody(c *gin.Context, v interface{}) {
 }
 
 func extractResult(c *gin.Context, index int) BatchItemResult {
-	w, ok := c.Writer.(*batchResponseWriter)
+	w, ok := c.Get("_batch_writer")
 	if !ok {
 		return BatchItemResult{
 			Index:   index,
 			Sucesso: false,
-			Erro:    "erro interno: writer inesperado no contexto fake",
+			Erro:    "erro interno: writer do contexto batch não encontrado",
+		}
+	}
+	bw, ok := w.(*batchResponseWriter)
+	if !ok {
+		return BatchItemResult{
+			Index:   index,
+			Sucesso: false,
+			Erro:    "erro interno: tipo de writer inválido no contexto batch",
 		}
 	}
 
-	code := w.Code
-	body := w.Body.Bytes()
+	code := bw.Code
+	body := bw.Body.Bytes()
 
 	if code >= 200 && code < 300 {
 		var dados interface{}
