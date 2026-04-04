@@ -324,14 +324,13 @@ func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
 	var estudantes []map[string]interface{}
 	for rows.Next() {
 		var id, cursoMedioID, cursoSuperiorID sql.NullString
-		var nome, codigoEstudante, status string
-		var statusFund, statusMedio, statusSuperior string
+		var nome, codigoEstudante string
+		var status, statusFund, statusMedio, statusSuperior sql.NullString
 		var email, telefone, bilhete, bilheteResp, codigoAcad sql.NullString
 		var anoEscolar, anoEscolarMedio, anoSuperior sql.NullString
 		var emailVerif bool
-		var genero string
-		var dataNascimento time.Time
-		var createdAt, updatedAt string
+		var genero sql.NullString
+		var dataNascimento, createdAt, updatedAt sql.NullTime
 		var totalNotas, totalFaltas, version int
 
 		if err := rows.Scan(
@@ -356,25 +355,39 @@ func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
 			"bilhete_identidade":             getNullString(bilhete),
 			"bilhete_identidade_responsavel": getNullString(bilheteResp),
 			"codigo_academia":                getNullString(codigoAcad),
-			"status":                         status,
-			"status_escolar_fundamental":     statusFund,
-			"status_escolar_medio":           statusMedio,
-			"status_superior":                statusSuperior,
+			"status":                         getNullString(status),
+			"status_escolar_fundamental":     getNullString(statusFund),
+			"status_escolar_medio":           getNullString(statusMedio),
+			"status_superior":                getNullString(statusSuperior),
 			"ano_escolar":                    getNullString(anoEscolar),
 			"ano_escolar_medio":              getNullString(anoEscolarMedio),
 			"ano_superior":                   getNullString(anoSuperior),
 			"curso_medio_id":                 getNullString(cursoMedioID),
 			"curso_superior_id":              getNullString(cursoSuperiorID),
-			"genero":                         genero,
-			"data_nascimento":                dataNascimento.Format("2006-01-02"),
-			"created_at":                     createdAt,
-			"updated_at":                     updatedAt,
+			"genero":                         getNullString(genero),
+			"data_nascimento":                formatNullDate(dataNascimento),
+			"created_at":                     formatNullRFC3339(createdAt),
+			"updated_at":                     formatNullRFC3339(updatedAt),
 			"total_notas":                    totalNotas,
 			"total_faltas":                   totalFaltas,
 			"version":                        version,
 		})
 	}
 	return estudantes
+}
+
+func formatNullDate(nt sql.NullTime) interface{} {
+	if nt.Valid {
+		return nt.Time.Format("2006-01-02")
+	}
+	return nil
+}
+
+func formatNullRFC3339(nt sql.NullTime) interface{} {
+	if nt.Valid {
+		return nt.Time.Format(time.RFC3339)
+	}
+	return nil
 }
 
 // ============================================================================
