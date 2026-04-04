@@ -601,7 +601,9 @@ Campos principais: `id`, `codigo_estudante`, `nome`, `email`, `telefone`, `bilhe
 
 ### 4.2 `projection_academias`
 
-Campos principais: `id`, `codigo_academia`, `nome`, `provincia`, `endereco`, `numero_telefone`, `email`, `website`, `nivel_escolar`, `anos_academicos`, `cursos`, `status`, `email_verificado`, `motivo_desativacao`, `total_estudantes`, `ano_letivo`, `tipo_ano_letivo`, `ano_letivo_ativado_em`, `ano_letivo_ativado_por`, `version`.
+Campos principais (atualizado): `id`, `type`, `nome`, `codigo_academia`, `senha_hash`, `provincia`, `endereco`, `numero_telefone`, `email`, `email_verificado`, `website`, `nivel_escolar`, `anos_academicos`, `cursos`, `status`, `motivo_desativacao`, `created_at`, `updated_at`, `last_event_id`, `total_estudantes`, `ano_letivo`, `tipo_ano_letivo`, `ano_letivo_ativado_em`, `ano_letivo_ativado_por`, `version`.
+
+> Nota: nem todos os campos acima são expostos nas respostas HTTP. Ex.: `senha_hash` e `last_event_id` ficam restritos ao backend/projeções.
 
 ### 4.3 `projection_admins`
 
@@ -1097,7 +1099,7 @@ Os batch handlers residem em `internal/handlers/batch_handlers.go` e utilizam `n
 |---|---|---|---|
 |`PUT`|`/alterar-senha`|Auth (qualquer tipo)|Altera própria senha|
 |`GET`|`/meu-perfil`|Auth (qualquer tipo)|Consulta próprio perfil|
-|`GET`|`/academias`|Auth (qualquer tipo)|Lista academias|
+|`GET`|`/academias`|Auth (qualquer tipo)|Lista academias (com paginação e filtro por status)|
 |`GET`|`/consultar-academia/:codigo`|Auth (qualquer tipo)|Consulta academia por código|
 |`GET`|`/estudantes`|Auth academia ou admin|Lista estudantes|
 |`GET`|`/consultar-estudante/:codigo`|Auth academia ou admin|Consulta estudante por código|
@@ -1112,6 +1114,144 @@ Os batch handlers residem em `internal/handlers/batch_handlers.go` e utilizam `n
 |`POST`|`/adicionar-telefone-extra`|Auth (qualquer tipo)|Adiciona telefone extra ao utilizador autenticado|
 |`GET`|`/dominis/registros`|Auth admin|Lista todos os registros (notas/faltas)|
 |`GET`|`/dominis/registros/:codigo`|Auth admin|Lista registros por estudante|
+
+#### Guia de consumo (cliente) — rotas compartilhadas
+
+Esta secção detalha **como consumir cada rota** do bloco “Consultas e Sistema” no frontend/client API.
+
+##### `PUT /alterar-senha`
+- **Auth:** obrigatório (qualquer tipo).
+- **Body:** dados de senha atual + nova senha.
+- **Resposta esperada:** confirmação de alteração (`message`) ou erro de validação/autorização.
+
+##### `GET /meu-perfil`
+- **Auth:** obrigatório.
+- **Uso:** recuperar dados do usuário logado para preencher telas de perfil.
+- **Resposta esperada:** objeto com os dados do usuário autenticado (campos variam por tipo: `admin`, `academia`, `estudante`).
+
+##### `GET /academias`
+- **Auth:** obrigatório.
+- **Uso:** listagem para dropdowns, filtros e páginas de gestão.
+- **Query params suportados:**
+
+- `limit` (opcional): quantidade máxima de itens.
+  - Sem `limit`, o endpoint usa **1000** por padrão.
+  - Valores inválidos/fora do intervalo passam por sanitização (`db.ValidateLimit`), com teto global de **1000**.
+- `offset` (opcional): deslocamento para paginação (default `0`).
+- `status` (opcional): `ativo` ou `inativo`. Se omitido, retorna ambos.
+
+- **Resposta base (`200 OK`):**
+
+```json
+{
+  "academias": [
+    {
+      "id": "uuid",
+      "type": "escola|superior",
+      "nome": "string",
+      "codigo_academia": "string",
+      "provincia": "LDA",
+      "endereco": "string",
+      "numero_telefone": "string|null",
+      "website": "string|null",
+      "nivel_escolar": "fundamental|medio|misto|null",
+      "status": "ativo|inativo",
+      "cursos": ["string"],
+      "email_verificado": false,
+      "created_at": "RFC3339",
+      "updated_at": "RFC3339|null"
+    }
+  ],
+  "total": 1,
+  "limit": 1000,
+  "offset": 0
+}
+```
+
+- **Campos adicionais quando o usuário autenticado é `admin`:**
+
+- `email`
+- `total_estudantes`
+- `version`
+
+##### `GET /consultar-academia/:codigo`
+- **Auth:** obrigatório.
+- **Path param:** `codigo` (código da academia, ex.: `LDA20261`).
+- **Uso:** tela de detalhes de academia.
+- **Resposta esperada:** objeto único da academia; `404` se não existir.
+
+##### `GET /estudantes`
+- **Auth:** obrigatório + perfil `academia` ou `admin`.
+- **Uso:** listagem de estudantes com paginação/filtros no client.
+- **Resposta esperada:** array paginado de estudantes da academia (ou escopo permitido ao admin).
+
+##### `GET /consultar-estudante/:codigo`
+- **Auth:** obrigatório + regras de ownership.
+- **Path param:** `codigo` do estudante.
+- **Uso:** página de perfil/detalhes do estudante.
+- **Resposta esperada:** objeto do estudante; `403/404` conforme permissão/existência.
+
+##### `GET /notas-estudante/:codigo`
+- **Auth:** obrigatório + `academia`/`admin`.
+- **Path param:** `codigo` do estudante.
+- **Uso:** histórico de notas para boletim/analytics.
+- **Resposta esperada:** lista de notas do estudante.
+
+##### `GET /faltas-estudante/:codigo`
+- **Auth:** obrigatório + `academia`/`admin`.
+- **Path param:** `codigo` do estudante.
+- **Uso:** acompanhamento de assiduidade.
+- **Resposta esperada:** lista de faltas do estudante.
+
+##### `GET /avaliacoes-estudante/:codigo`
+- **Auth:** obrigatório + `academia`/`admin`.
+- **Path param:** `codigo` do estudante.
+- **Uso:** consolidado de avaliação final por estudante.
+- **Resposta esperada:** lista de avaliações finais.
+
+##### `GET /avaliacoes`
+- **Auth:** obrigatório.
+- **Uso:** visão global de avaliações finais.
+- **Resposta esperada:** lista de avaliações (respeitando escopo de acesso).
+
+##### `GET /aprovacoes`
+- **Auth:** obrigatório.
+- **Uso:** listar apenas avaliações finais com `aprovado=true`.
+- **Resposta esperada:** lista filtrada de aprovações.
+
+##### `GET /reprovacoes`
+- **Auth:** obrigatório.
+- **Uso:** listar apenas avaliações finais com `aprovado=false`.
+- **Resposta esperada:** lista filtrada de reprovações.
+
+##### `GET /verificar-integridade/:codigo`
+- **Auth:** obrigatório.
+- **Path param:** `codigo` do estudante.
+- **Uso:** auditoria da cadeia de hashes (ledger) de um estudante.
+- **Resposta esperada:** `{ codigo_estudante, nome, integro, message }`.
+
+##### `GET /eventos-estudante/:codigo`
+- **Auth:** obrigatório + `admin`.
+- **Path param:** `codigo` do estudante.
+- **Uso:** trilha de auditoria (event sourcing) para suporte/forense.
+- **Resposta esperada:** stream/lista de eventos do estudante.
+
+##### `POST /adicionar-telefone-extra`
+- **Auth:** obrigatório.
+- **Body:** telefone extra e metadados necessários.
+- **Uso:** adicionar contacto alternativo do usuário autenticado.
+- **Resposta esperada:** confirmação de criação e dados do telefone registrado.
+
+##### `GET /dominis/registros`
+- **Auth:** obrigatório + `admin`.
+- **Uso:** consulta administrativa centralizada de registros (notas/faltas), para painéis de operação.
+- **Paginação:** suporta `limit/offset` sanitizados no backend.
+
+##### `GET /dominis/registros/:codigo`
+- **Auth:** obrigatório + `admin`.
+- **Path param:** `codigo` do estudante.
+- **Uso:** investigação/relatório de registros de um estudante específico.
+- **Resposta esperada:** coleção de registros associados ao código informado.
 
 ### Email
 
