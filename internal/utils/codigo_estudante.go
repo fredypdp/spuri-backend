@@ -48,18 +48,21 @@ func GenerateUniqueCodigoEstudante(db *sqlx.DB) (string, error) {
 			continue
 		}
 
-		// ✅ SEM PREPARED STATEMENT - usar interpolação direta
-		query := fmt.Sprintf(`
-			SELECT EXISTS(
-				SELECT 1 FROM projection_estudantes 
-				WHERE codigo_estudante = '%s'
+		// Verifica unicidade tanto na projeção quanto no ledger de eventos.
+		// Isso evita colisões quando a projeção está defasada/atrasada.
+		const query = `
+			SELECT EXISTS (
+				SELECT 1 FROM projection_estudantes WHERE codigo_estudante = $1
+				UNION ALL
+				SELECT 1 FROM spuri_ledger
+				WHERE aggregate_type = 'Estudante'
+				  AND event_type = 'EstudanteCriadoComVinculo'
+				  AND payload->>'CodigoEstudante' = $1
 			)
-		`, codigo)
-
-		log.Printf("📝 [GenerateUniqueCodigoEstudante] Query: %s", query)
+		`
 
 		var exists bool
-		err := db.QueryRow(query).Scan(&exists)
+		err := db.QueryRow(query, codigo).Scan(&exists)
 
 		if err != nil {
 			log.Printf("❌ [GenerateUniqueCodigoEstudante] Erro ao verificar código: %v", err)
