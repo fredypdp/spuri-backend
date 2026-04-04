@@ -50,7 +50,7 @@ type Academia struct {
 	// AnoLetivo define o ano letivo ativo desta academia.
 	// nil = sem ano letivo configurado; qualquer registro é bloqueado neste estado.
 	AnoLetivo           *string
-	TipoAnoLetivo       *string    // "escola" ou "superior"
+	TipoAnoLetivo       *string // "escola" ou "superior"
 	AnoLetivoAtivadoEm  *time.Time
 	AnoLetivoAtivadoPor *uuid.UUID
 }
@@ -198,9 +198,10 @@ func (a *Academia) AtivarComAutor(ativadoPor uuid.UUID) error {
 	}
 
 	event := &AcademiaAtivadaEvent{
-		BaseEvent:   BaseEvent{EventType: "AcademiaAtivada", AggregateID: a.ID},
-		AtivadoPor:  ativadoPor,
-		ActivatedAt: time.Now(),
+		BaseEvent:      BaseEvent{EventType: "AcademiaAtivada", AggregateID: a.ID},
+		CodigoAcademia: a.CodigoAcademia,
+		AtivadoPor:     ativadoPor,
+		ActivatedAt:    time.Now(),
 	}
 
 	a.RaiseEvent(event)
@@ -215,10 +216,11 @@ func (a *Academia) Desativar(motivo string, desativadoPor uuid.UUID) error {
 	}
 
 	event := &AcademiaDesativadaEvent{
-		BaseEvent:     BaseEvent{EventType: "AcademiaDesativada", AggregateID: a.ID},
-		Motivo:        motivo,
-		DesativadoPor: desativadoPor,
-		DeactivatedAt: time.Now(),
+		BaseEvent:      BaseEvent{EventType: "AcademiaDesativada", AggregateID: a.ID},
+		CodigoAcademia: a.CodigoAcademia,
+		Motivo:         motivo,
+		DesativadoPor:  desativadoPor,
+		DeactivatedAt:  time.Now(),
 	}
 
 	a.RaiseEvent(event)
@@ -482,9 +484,9 @@ func (a *Academia) applyAnoLetivoAcademiaDefinido(event DomainEvent) error {
 		return fmt.Errorf("applyAnoLetivoAcademiaDefinido: unmarshal error: %w", err)
 	}
 	agora := ev.DefinidoEm
-	a.AnoLetivo           = &ev.AnoLetivo
-	a.TipoAnoLetivo       = &ev.Tipo
-	a.AnoLetivoAtivadoEm  = &agora
+	a.AnoLetivo = &ev.AnoLetivo
+	a.TipoAnoLetivo = &ev.Tipo
+	a.AnoLetivoAtivadoEm = &agora
 	a.AnoLetivoAtivadoPor = &ev.DefinidoPor
 	return nil
 }
@@ -558,8 +560,9 @@ func (e *AcademiaCriadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) 
 // AcademiaDesativadaEvent (que já tinha DesativadoPor via FIX C9).
 type AcademiaAtivadaEvent struct {
 	BaseEvent
-	AtivadoPor  uuid.UUID
-	ActivatedAt time.Time
+	CodigoAcademia string
+	AtivadoPor     uuid.UUID
+	ActivatedAt    time.Time
 }
 
 func (e *AcademiaAtivadaEvent) GetPayload() interface{} { return e }
@@ -568,9 +571,10 @@ func (e *AcademiaAtivadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e)
 // AcademiaDesativadaEvent — FIX C9: DesativadoPor adicionado para auditoria forense.
 type AcademiaDesativadaEvent struct {
 	BaseEvent
-	Motivo        string
-	DesativadoPor uuid.UUID
-	DeactivatedAt time.Time
+	CodigoAcademia string
+	Motivo         string
+	DesativadoPor  uuid.UUID
+	DeactivatedAt  time.Time
 }
 
 func (e *AcademiaDesativadaEvent) GetPayload() interface{} { return e }
@@ -620,8 +624,8 @@ func (e *AcademiaSenhaAlteradaEvent) ToJSON() ([]byte, error) { return json.Mars
 type AnoLetivoAcademiaDefinidoEvent struct {
 	BaseEvent
 	CodigoAcademia string
-	AnoLetivo      string    // ex: "2025_2026"
-	Tipo           string    // "escola" ou "superior"
+	AnoLetivo      string // ex: "2025_2026"
+	Tipo           string // "escola" ou "superior"
 	DefinidoPor    uuid.UUID
 	DefinidoEm     time.Time
 }
