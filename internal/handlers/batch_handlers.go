@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -719,6 +720,8 @@ func DesativarAcademiaBatch(c *gin.Context) {
 
 	results := make([]BatchItemResult, 0, len(reqs))
 	for i, req := range reqs {
+		req.Codigo = strings.TrimSpace(req.Codigo)
+		req.Motivo = strings.TrimSpace(req.Motivo)
 		if req.Codigo == "" {
 			results = append(results, batchErr(i, fmt.Errorf("codigo é obrigatório")))
 			continue
@@ -796,8 +799,13 @@ func runCodigoParamBatch(c *gin.Context, max int, fn func(*gin.Context)) {
 
 	results := make([]BatchItemResult, 0, len(reqs))
 	for i, req := range reqs {
+		codigo := strings.TrimSpace(req.Codigo)
+		if codigo == "" {
+			results = append(results, batchErr(i, fmt.Errorf("codigo é obrigatório")))
+			continue
+		}
 		rc := newFakeContext(c)
-		rc.Params = gin.Params{gin.Param{Key: "codigo", Value: req.Codigo}}
+		rc.Params = gin.Params{gin.Param{Key: "codigo", Value: codigo}}
 		fn(rc)
 		results = append(results, extractResult(rc, i))
 	}
