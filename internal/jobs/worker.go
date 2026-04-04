@@ -157,8 +157,11 @@ func (w *Worker) process(j *Job) {
 		}
 	}
 
+	// Se qualquer item falhar, o job inteiro deve refletir falha.
+	// Antes, jobs com falha parcial ficavam como "done", o que fazia
+	// a API reportar sucesso mesmo quando apenas parte do batch foi aplicada.
 	finalStatus := StatusDone
-	if j.FailItems == j.TotalItems {
+	if j.FailItems > 0 {
 		finalStatus = StatusFailed
 	}
 
