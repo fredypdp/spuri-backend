@@ -15,26 +15,38 @@ import (
 
 func AtivarAcademiaJobItem(c *gin.Context) {
 	var req struct {
-		Codigo string `json:"codigo"`
+		Codigo         string `json:"codigo"`
+		CodigoAcademia string `json:"codigo_academia"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || req.Codigo == "" {
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": "body deve conter {codigo}"})
 		return
 	}
-	c.Params = gin.Params{gin.Param{Key: "codigo", Value: req.Codigo}}
+	codigo := firstNonEmptyTrimmed(req.Codigo, req.CodigoAcademia)
+	if codigo == "" {
+		c.JSON(400, gin.H{"error": "body deve conter {codigo}"})
+		return
+	}
+	c.Params = gin.Params{gin.Param{Key: "codigo", Value: codigo}}
 	AtivarAcademia(c)
 }
 
 func DesativarAcademiaJobItem(c *gin.Context) {
 	var req struct {
-		Codigo string `json:"codigo"`
-		Motivo string `json:"motivo"`
+		Codigo         string `json:"codigo"`
+		CodigoAcademia string `json:"codigo_academia"`
+		Motivo         string `json:"motivo"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || req.Codigo == "" || req.Motivo == "" {
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": "body deve conter {codigo, motivo}"})
 		return
 	}
-	c.Params = gin.Params{gin.Param{Key: "codigo", Value: req.Codigo}}
+	codigo := firstNonEmptyTrimmed(req.Codigo, req.CodigoAcademia)
+	if codigo == "" || req.Motivo == "" {
+		c.JSON(400, gin.H{"error": "body deve conter {codigo, motivo}"})
+		return
+	}
+	c.Params = gin.Params{gin.Param{Key: "codigo", Value: codigo}}
 	setJSONBody(c, gin.H{"motivo": req.Motivo})
 	DesativarAcademia(c)
 }
@@ -149,4 +161,3 @@ func AdicionarEstudanteATurmaJobItem(c *gin.Context) {
 	setJSONBody(c, gin.H{"codigo_estudante": req.CodigoEstudante})
 	AdicionarEstudanteATurma(c)
 }
-
