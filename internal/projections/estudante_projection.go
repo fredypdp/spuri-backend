@@ -188,7 +188,7 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 		return fmt.Errorf("handleEstudanteCriadoComVinculo: falha ao validar cursos referenciados: %w", err)
 	}
 
-	_, err = p.client.DB().Exec(`
+	result, err := p.client.DB().Exec(`
 		INSERT INTO projection_estudantes (
 			id, nome, codigo_estudante, senha_hash, email, telefone, email_verificado,
 			bilhete_identidade, bilhete_identidade_responsavel, genero,
@@ -204,7 +204,30 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 			$14, $15, $16, $17, $18,
 			$19, $20, CURRENT_TIMESTAMP, $21, $22
 		)
-		ON CONFLICT DO NOTHING
+		ON CONFLICT (id) DO UPDATE SET
+			nome                         = EXCLUDED.nome,
+			codigo_estudante             = EXCLUDED.codigo_estudante,
+			senha_hash                   = EXCLUDED.senha_hash,
+			email                        = EXCLUDED.email,
+			telefone                     = EXCLUDED.telefone,
+			bilhete_identidade           = EXCLUDED.bilhete_identidade,
+			bilhete_identidade_responsavel = EXCLUDED.bilhete_identidade_responsavel,
+			genero                       = EXCLUDED.genero,
+			data_nascimento              = EXCLUDED.data_nascimento,
+			status                       = EXCLUDED.status,
+			status_escolar_fundamental   = EXCLUDED.status_escolar_fundamental,
+			status_escolar_medio         = EXCLUDED.status_escolar_medio,
+			status_superior              = EXCLUDED.status_superior,
+			ano_escolar                  = EXCLUDED.ano_escolar,
+			ano_escolar_medio            = EXCLUDED.ano_escolar_medio,
+			ano_superior                 = EXCLUDED.ano_superior,
+			curso_medio_id               = EXCLUDED.curso_medio_id,
+			curso_superior_id            = EXCLUDED.curso_superior_id,
+			codigo_academia              = EXCLUDED.codigo_academia,
+			created_at                   = EXCLUDED.created_at,
+			updated_at                   = CURRENT_TIMESTAMP,
+			version                      = EXCLUDED.version,
+			last_event_id                = EXCLUDED.last_event_id
 	`,
 		event.AggregateID, payload.Nome, payload.CodigoEstudante, payload.SenhaHash,
 		payload.Email, payload.Telefone,
@@ -218,6 +241,14 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 	)
 	if err != nil {
 		return fmt.Errorf("handleEstudanteCriadoComVinculo: exec error: %w", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("handleEstudanteCriadoComVinculo: rows affected error: %w", err)
+	}
+	if affected == 0 {
+		return fmt.Errorf("handleEstudanteCriadoComVinculo: nenhum registro inserido/atualizado (event_id=%s aggregate_id=%s codigo_estudante=%s)", event.EventID, event.AggregateID, payload.CodigoEstudante)
 	}
 	return nil
 }
