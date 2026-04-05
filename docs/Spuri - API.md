@@ -1,0 +1,2946 @@
+---
+modificado: 05-04-2026 15:03
+criado: 05-04-2026 13:01
+---
+Versão atua: 1.0.1
+## Índice
+
+1. [[#1. Convenções Globais]]
+2. [[#2. Estruturas de Dados]]
+3. [[#3. Autenticação]]
+4. [[#4. Email]]
+5. [[#5. Perfil e Conta]]
+6. [[#6. Academias — Gestão pelo Admin]]
+7. [[#7. Academia — Operações Próprias]]
+8. [[#8. Estudantes]]
+9. [[#9. Notas]]
+10. [[#10. Faltas]]
+11. [[#11. Avaliações Finais]]
+12. [[#12. Cursos]]
+13. [[#13. Matérias]]
+14. [[#14. Turmas]]
+15. [[#15. Admins]]
+16. [[#16. Consultas Gerais]]
+17. [[#17. Jobs Assíncronos]]
+18. [[#18. Batch Síncrono — Academia]]
+19. [[#19. Batch Síncrono — Admin]]
+20. [[#20. Batch Assíncrono — Academia]]
+21. [[#21. Batch Assíncrono — Admin]]
+
+---
+
+## 1. Convenções Globais
+
+### Autenticação
+
+Todas as rotas protegidas exigem o header:
+
+```
+Authorization: Bearer <jwt_token>
+```
+
+### Content-Type
+
+```
+Content-Type: application/json
+```
+
+### Datas
+
+- Datas completas em UTC no formato RFC3339: `2025-03-15T10:30:00Z`
+- Datas simples: `2025-03-15` (formato ISO 8601)
+
+### Envelope de Erro
+
+Todas as respostas de erro seguem o formato:
+
+```json
+{
+  "error": "mensagem de erro para o cliente",
+  "message": "mensagem mais detalhada (quando disponível)",
+  "request_id": "identificador da requisição"
+}
+```
+
+### Códigos HTTP
+
+|Código|Situação|
+|---|---|
+|`200`|Sucesso|
+|`201`|Criado com sucesso|
+|`202`|Aceito (job assíncrono criado)|
+|`204`|Sem conteúdo|
+|`400`|Erro de validação de entrada|
+|`401`|Token ausente, inválido ou expirado|
+|`403`|Sem permissão ou entidade inativa|
+|`404`|Recurso não encontrado|
+|`409`|Conflito (duplicidade ou estado incompatível)|
+|`422`|Lote inteiramente inválido|
+|`500`|Erro interno do servidor|
+
+---
+
+## 2. Estruturas de Dados
+
+### 2.1 Tipos Base
+
+```typescript
+type UserType   = 'academia' | 'estudante' | 'admin'
+type AdminRole  = 'fpp' | 'adm' | 'gerente'
+type AcademiaType = 'escola' | 'superior'
+type NivelEscolar = 'fundamental' | 'medio' | 'misto'
+type StatusEscolar = 'inativo' | 'em_andamento' | 'finalizado'
+type TipoEnsino = 'fundamental' | 'medio' | 'superior'
+type Turno = 'manha' | 'tarde' | 'noite'
+type CursoType = 'medio' | 'superior'
+type MateriaType = 'fundamental' | 'medio' | 'superior'
+type Genero = 'masculino' | 'feminino'
+type TipoNota = 'escolar' | 'superior'
+type JobStatus = 'pending' | 'processing' | 'done' | 'failed'
+```
+
+**Períodos de nota:**
+
+- Escolar (fixos): `1_trimestre`, `2_trimestre`, `3_trimestre`
+- Superior (dinâmicos): `1_semestre`, `2_semestre`, ..., `N_semestre`
+
+**Categorias de nota fixas:**
+
+- Escolar: `nota_escola`, `nota_professor`
+- Superior: `nota_pp1`, `nota_pp2`, `nota_exame`
+- Adicionais: qualquer nome cadastrado pela academia
+
+**Formato do ano letivo:** `YYYY_YYYY` (ex: `2025_2026`)
+
+---
+
+### 2.2 Admin
+
+```typescript
+interface AdminDTO {
+  id: string               // UUID
+  nome: string
+  email: string
+  role: AdminRole          // 'fpp' | 'adm' | 'gerente'
+  status: string           // 'ativo' | 'inativo'
+  email_verificado: boolean
+  created_by?: string      // UUID do admin criador (null para o primeiro FPP)
+  total_acoes_realizadas?: number
+  created_at: string       // RFC3339
+  updated_at?: string      // RFC3339
+}
+```
+
+---
+
+### 2.3 Academia
+
+```typescript
+interface AcademiaDTO {
+  id: string
+  type: AcademiaType              // 'escola' | 'superior'
+  nome: string
+  codigo_academia: string         // ex: 'LDA20261'
+  provincia: string               // código de 3 letras, ex: 'LDA'
+  endereco: string
+  numero_telefone?: string
+  email?: string
+  email_verificado: boolean
+  website?: string
+  nivel_escolar?: NivelEscolar    // apenas para type='escola'
+  anos_academicos?: string[]      // anos do fundamental (ex: ['1_ano_fundamental'])
+  status: string                  // 'ativo' | 'inativo'
+  cursos: string[]                // lista de nomes de cursos
+  motivo_desativacao?: string     // apenas para admin ver
+  total_estudantes: number
+  ano_letivo?: string             // ex: '2025_2026'
+  tipo_ano_letivo?: string        // 'escola' | 'superior'
+  ano_letivo_ativado_em?: string  // RFC3339
+  created_at: string
+  updated_at?: string
+  version: number
+}
+```
+
+---
+
+### 2.4 Estudante
+
+```typescript
+interface EstudanteDTO {
+  id: string
+  nome: string
+  codigo_estudante: string        // ex: 'ABC1234'
+  email?: string
+  telefone?: string
+  email_verificado: boolean
+  bilhete_identidade?: string
+  bilhete_identidade_responsavel?: string
+  genero: Genero
+  data_nascimento: string         // 'YYYY-MM-DD'
+  codigo_academia?: string
+  status: string                  // 'ativo' | 'inativo'
+  status_escolar_fundamental: StatusEscolar
+  status_escolar_medio: StatusEscolar
+  status_superior: StatusEscolar
+  ano_escolar?: string            // ex: '3_ano_fundamental'
+  ano_escolar_medio?: string      // ex: '2_ano_medio'
+  ano_superior?: string           // ex: '1_ano_superior'
+  curso_medio_id?: string         // UUID
+  curso_superior_id?: string      // UUID
+  total_notas?: number
+  total_faltas?: number
+  created_at: string
+  updated_at: string
+  version: number
+}
+```
+
+---
+
+### 2.5 Curso
+
+```typescript
+interface CursoDTO {
+  id: string
+  nome: string
+  type: CursoType
+  anos_academicos: string[]  // ex: ['1_ano_medio', '2_ano_medio', '3_ano_medio']
+  periodos?: string[]        // ex: ['1_semestre', '2_semestre'] — apenas para superior
+  codigo_academia: string
+  status: string             // 'ativo' | 'inativo' | 'deletado'
+  created_at: string
+  updated_at: string
+  version: number
+}
+```
+
+---
+
+### 2.6 Matéria
+
+```typescript
+interface MateriaDTO {
+  id: string
+  nome: string
+  type: MateriaType
+  anos_academicos?: string[]  // ex: ['2_ano_fundamental'] ou ['1_ano_medio']
+  periodo?: string            // ex: '1_semestre' — apenas para superior
+  codigo_academia: string
+  curso_id?: string           // UUID — obrigatório para medio e superior
+  status: string              // 'ativo' | 'inativo' | 'deletado'
+  created_at: string
+  updated_at: string
+  version: number
+}
+```
+
+---
+
+### 2.7 Turma
+
+```typescript
+interface TurmaDTO {
+  id: string
+  codigo_turma: string
+  codigo_academia: string
+  nivel: string               // ex: '3_ano_fundamental'
+  curso_id?: string           // UUID
+  turno: Turno
+  estudantes: string[]        // lista de codigo_estudante
+  status: string              // 'ativo' | 'inativo' | 'deletado'
+  status_alterado_por?: string // UUID
+  status_alterado_em?: string  // RFC3339
+  created_at: string
+  updated_at: string
+  version: number
+}
+```
+
+---
+
+### 2.8 Nota
+
+```typescript
+interface NotaDTO {
+  id: string
+  codigo_estudante: string
+  codigo_academia: string
+  ano_lectivo: string         // ex: '2025_2026'
+  ano_academico: string       // ex: '3_ano_fundamental'
+  periodo: string             // ex: '1_trimestre' ou '1_semestre'
+  materia_disciplinar_id: string // UUID
+  materia_nome?: string
+  tipo: TipoNota
+  categoria: string           // ex: 'nota_escola', 'nota_exame'
+  nota: number                // 0 a 20
+  observacao?: string
+  registered_at: string
+  event_id: string
+  version: number
+}
+```
+
+---
+
+### 2.9 Falta
+
+```typescript
+interface FaltaDTO {
+  id: string
+  codigo_estudante: string
+  codigo_academia: string
+  ano_lectivo: string
+  ano_academico: string
+  data: string                // 'YYYY-MM-DD'
+  materia_disciplinar_id: string
+  materia_nome?: string
+  quantidade: number
+  observacao?: string
+  registered_at: string
+  event_id: string
+  version: number
+}
+```
+
+---
+
+### 2.10 Avaliação Final
+
+```typescript
+interface AvaliacaoFinalDTO {
+  id: string
+  event_id: string
+  codigo_estudante: string
+  codigo_academia: string
+  ano_lectivo: string
+  tipo_ensino: TipoEnsino
+  ano_academico_atual: string    // ex: '2_ano_fundamental'
+  proximo_ano_academico?: string // ex: '3_ano_fundamental'
+  aprovado: boolean
+  observacao?: string
+  registered_at: string
+  version: number
+}
+```
+
+---
+
+### 2.11 Categoria de Nota
+
+```typescript
+interface CategoriaNotaDTO {
+  id: string
+  codigo_academia: string
+  nome: string
+  descricao?: string
+  adicionado_por?: string  // UUID
+  status: string           // 'ativo' | 'inativo'
+  created_at: string
+  version: number
+}
+```
+
+---
+
+### 2.12 Job
+
+```typescript
+interface JobSummary {
+  id: string
+  type: string
+  status: JobStatus
+  progress: number        // 0 a 100
+  total_items: number
+  done_items: number
+  fail_items: number
+  error?: string
+  created_at: string
+  started_at?: string
+  completed_at?: string
+}
+
+interface JobDetail extends JobSummary {
+  results: JobItemResult[]
+}
+
+interface JobItemResult {
+  index: number
+  sucesso: boolean
+  dados?: any
+  erro?: string
+}
+```
+
+---
+
+### 2.13 Resposta de Batch Síncrono
+
+```typescript
+interface BatchResponse {
+  total: number
+  sucesso: number
+  falhas: number
+  items: BatchItemResult[]
+}
+
+interface BatchItemResult {
+  index: number
+  sucesso: boolean
+  dados?: any
+  erro?: string
+}
+```
+
+---
+
+## 3. Autenticação
+
+### POST /login
+
+Login unificado para todos os tipos de usuário. O tipo é inferido automaticamente.
+
+**Proteção**: pública | Rate limit ativo
+
+**Request:**
+
+```json
+{
+  "usuario": "string",  // email (admin), código ou email (academia/estudante)
+  "senha": "string"
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "token": "string",    // JWT
+  "nome": "string",
+  "type": "academia",   // 'admin' | 'academia' | 'estudante'
+  "codigo": "LDA20261", // apenas para academia/estudante
+  "email": "x@y.com",  // apenas para admin
+  "role": "fpp"         // apenas para admin
+}
+```
+
+**Erros:**
+
+- `400` — campos obrigatórios ausentes
+- `401` — credenciais inválidas ou conta inativa
+- `401` — email não verificado (quando login é feito por email e não por código)
+
+---
+
+### POST /bootstrap
+
+Cria o primeiro admin FPP do sistema. Bloqueado após o primeiro uso (retorna 403).
+
+**Proteção**: pública | Advisory lock PostgreSQL (impede race condition)
+
+**Request:**
+
+```json
+{
+  "nome": "string",
+  "email": "string",
+  "senha": "string"
+}
+```
+
+**Response 201:**
+
+```json
+{
+  "success": true,
+  "message": "Admin FPP criado com sucesso!",
+  "data": {
+    "id": "uuid",
+    "nome": "string",
+    "email": "string",
+    "role": "fpp"
+  },
+  "next_steps": ["string"]
+}
+```
+
+**Erros:**
+
+- `400` — campos obrigatórios ausentes
+- `403` — sistema já possui administradores
+- `409` — email já cadastrado
+
+---
+
+## 4. Email
+
+Todos os endpoints de email têm rate limiting ativo.
+
+### POST /email/verificar-email/:token
+
+Verifica o email usando o token recebido no email. Funciona para admin, academia e estudante.
+
+**Proteção**: pública
+
+**Path Params:**
+
+- `token` — token de verificação (hex de 64 caracteres)
+
+**Response 200:**
+
+```json
+{
+  "message": "Email verificado com sucesso!",
+  "email": "usuario@exemplo.com"
+}
+```
+
+**Erros:**
+
+- `400` — token inválido, expirado ou já utilizado
+
+---
+
+### POST /email/verificar-email/solicitar
+
+Envia email de verificação para o usuário autenticado (backend envia o email diretamente).
+
+**Proteção**: autenticado (qualquer tipo)
+
+**Response 200:**
+
+```json
+{
+  "success": true,
+  "message": "Email de verificação enviado com sucesso!",
+  "email": "usuario@exemplo.com"
+}
+```
+
+---
+
+### POST /email/gerar-token/verificacao
+
+Gera e retorna o token de verificação ao frontend, que fica responsável por enviar o email.
+
+**Proteção**: autenticado (qualquer tipo)
+
+**Response 200:**
+
+```json
+{
+  "success": true,
+  "token": "hex64chars",
+  "email": "usuario@exemplo.com",
+  "nome": "string",
+  "tipo": "academia",
+  "expira_em": "24 horas"
+}
+```
+
+---
+
+### POST /email/gerar-token/recuperacao
+
+Gera token de recuperação de senha e retorna ao frontend. O frontend envia o email.
+
+**Proteção**: pública
+
+**Request:**
+
+```json
+{
+  "identificador": "string",  // código, email ou código da academia
+  "tipo": "estudante"         // 'estudante' | 'academia' | 'admin'
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "success": true,
+  "token": "hex64chars",
+  "email": "usuario@exemplo.com",
+  "nome": "string",
+  "tipo": "academia",
+  "expira_em": "1 hora"
+}
+```
+
+**Erros:**
+
+- `400` — campos obrigatórios ausentes
+- `403` — email não verificado (deve verificar antes de recuperar senha)
+- `404` — usuário não encontrado
+
+---
+
+### POST /email/recuperar-senha/solicitar
+
+Solicita recuperação de senha. O backend envia o email diretamente.
+
+**Proteção**: pública
+
+**Request:**
+
+```json
+{
+  "identificador": "string",
+  "tipo": "estudante"
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "success": true,
+  "message": "Email de recuperação enviado com sucesso. Verifique sua caixa de entrada.",
+  "expira_em": "1 hora"
+}
+```
+
+---
+
+### POST /email/recuperar-senha/:token
+
+Define nova senha usando o token de recuperação.
+
+**Proteção**: pública
+
+**Path Params:**
+
+- `token` — token de recuperação
+
+**Request:**
+
+```json
+{
+  "nova_senha": "string"  // mínimo 6 caracteres
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "Senha redefinida com sucesso!",
+  "email": "usuario@exemplo.com"
+}
+```
+
+**Erros:**
+
+- `400` — token inválido/expirado ou senha muito curta
+- `403` — email não verificado
+
+---
+
+## 5. Perfil e Conta
+
+### GET /meu-perfil
+
+Retorna os dados do usuário autenticado. O formato da resposta varia por tipo.
+
+**Proteção**: autenticado (qualquer tipo)
+
+**Response 200 — Estudante:**
+
+```json
+{
+  "tipo": "estudante",
+  "estudante": {
+    "id": "uuid",
+    "nome": "string",
+    "codigo_estudante": "ABC1234",
+    "email": "string",
+    "telefone": "string",
+    "email_verificado": false,
+    "bilhete_identidade": "string",
+    "bilhete_identidade_responsavel": "string",
+    "genero": "masculino",
+    "data_nascimento": "2000-03-15",
+    "codigo_academia": "LDA20261",
+    "academia_info": {
+      "codigo": "LDA20261",
+      "nome": "string",
+      "tipo": "escola"
+    },
+    "status": "ativo",
+    "status_escolar_fundamental": "em_andamento",
+    "status_escolar_medio": "inativo",
+    "status_superior": "inativo",
+    "ano_escolar": "3_ano_fundamental",
+    "ano_escolar_medio": null,
+    "ano_superior": null,
+    "curso_medio": null,
+    "curso_superior": null
+  }
+}
+```
+
+**Response 200 — Academia:**
+
+```json
+{
+  "tipo": "academia",
+  "academia": {
+    "id": "uuid",
+    "type": "escola",
+    "nome": "string",
+    "codigo_academia": "LDA20261",
+    "provincia": "LDA",
+    "endereco": "string",
+    "numero_telefone": "string",
+    "email": "string",
+    "nivel_escolar": "fundamental",
+    "anos_academicos": ["1_ano_fundamental", "9_ano_fundamental"],
+    "status": "ativo",
+    "cursos": [],
+    "email_verificado": true,
+    "created_at": "2025-01-01T00:00:00Z",
+    "total_estudantes": 120
+  }
+}
+```
+
+**Response 200 — Admin:**
+
+```json
+{
+  "tipo": "admin",
+  "admin": {
+    "id": "uuid",
+    "nome": "string",
+    "email": "string",
+    "role": "fpp",
+    "status": "ativo",
+    "email_verificado": true,
+    "created_at": "2025-01-01T00:00:00Z"
+  }
+}
+```
+
+---
+
+### PUT /alterar-senha
+
+Altera a senha do usuário autenticado.
+
+**Proteção**: autenticado (qualquer tipo)
+
+**Request:**
+
+```json
+{
+  "senha_atual": "string",
+  "nova_senha": "string"   // mínimo 6 caracteres
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "Senha alterada com sucesso!"
+}
+```
+
+**Erros:**
+
+- `400` — campos obrigatórios ausentes ou nova senha muito curta
+- `401` — senha atual incorreta
+
+---
+
+### POST /adicionar-telefone-extra
+
+Adiciona um número de telefone extra ao usuário autenticado.
+
+**Proteção**: autenticado (qualquer tipo)
+
+**Request:**
+
+```json
+{
+  "numero_telefone": "string"  // ex: '+244923000000' ou '923000000'
+}
+```
+
+**Response 201:**
+
+```json
+{
+  "message": "telefone extra adicionado com sucesso",
+  "id": "uuid",
+  "numero_telefone": "244923000000",  // normalizado
+  "verificado": false
+}
+```
+
+**Erros:**
+
+- `400` — formato inválido (deve ter 7-15 dígitos)
+- `409` — número já verificado por outro usuário
+- `409` — você já cadastrou este número
+
+---
+
+## 6. Academias — Gestão pelo Admin
+
+### POST /dominis/academia/register
+
+Registra uma nova academia. Criada com status `inativo`.
+
+**Proteção**: autenticado + admin (qualquer role)
+
+**Request — Escola:**
+
+```json
+{
+  "type": "escola",
+  "nome": "Escola Primária Ngola Kiluanje",
+  "provincia": "luanda",
+  "endereco": "Rua Direita, 123",
+  "numero_telefone": "+244923000000",
+  "email": "escola@exemplo.ao",
+  "website": "https://escola.ao",
+  "nivel_escolar": "fundamental",
+  "anos_academicos": ["1_ano_fundamental", "2_ano_fundamental", "9_ano_fundamental"],
+  "cursos": []
+}
+```
+
+**Request — Universidade:**
+
+```json
+{
+  "type": "superior",
+  "nome": "Universidade Agostinho Neto",
+  "provincia": "luanda",
+  "endereco": "Av. 4 de Fevereiro",
+  "email": "uan@uan.ao"
+}
+```
+
+**Response 201:**
+
+```json
+{
+  "message": "academia registada com sucesso",
+  "codigo_academia": "LDA20261",
+  "data": {
+    "id": "uuid",
+    "nome": "string",
+    "provincia": "LDA",
+    "codigo_academia": "LDA20261"
+  }
+}
+```
+
+**Erros:**
+
+- `400` — tipo inválido, campos obrigatórios ausentes, anos_academicos inválidos
+- `409` — academia já existe
+
+---
+
+### PUT /dominis/academia/:codigo/ativar
+
+Ativa uma academia inativa.
+
+**Proteção**: autenticado + admin role `adm` ou `fpp`
+
+**Path Params:**
+
+- `codigo` — código da academia (ex: `LDA20261`)
+
+**Response 200:**
+
+```json
+{
+  "message": "academia ativada com sucesso"
+}
+```
+
+**Erros:**
+
+- `404` — academia não encontrada
+- `409` — academia já está ativa
+
+---
+
+### PUT /dominis/academia/:codigo/desativar
+
+Desativa uma academia ativa.
+
+**Proteção**: autenticado + admin role `adm` ou `fpp`
+
+**Path Params:**
+
+- `codigo` — código da academia
+
+**Request:**
+
+```json
+{
+  "motivo": "string"  // obrigatório
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "academia desativada com sucesso"
+}
+```
+
+**Erros:**
+
+- `400` — motivo ausente
+- `404` — academia não encontrada
+- `409` — academia já está inativa
+
+---
+
+## 7. Academia — Operações Próprias
+
+### PUT /academia/dados
+
+Atualiza os dados cadastrais da academia autenticada.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:** (todos os campos opcionais, enviar apenas o que deseja alterar)
+
+```json
+{
+  "nome": "string",
+  "provincia": "luanda",
+  "endereco": "string",
+  "numero_telefone": "string",
+  "email": "string",
+  "website": "string",
+  "nivel_escolar": "fundamental",
+  "anos_academicos": ["1_ano_fundamental"],
+  "cursos": ["Curso A"]
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "dados atualizados com sucesso"
+}
+```
+
+**Nota**: se o email for alterado, `email_verificado` volta para `false`.
+
+---
+
+### POST /academia/ano-letivo
+
+Define ou atualiza o ano letivo ativo da academia.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:**
+
+```json
+{
+  "ano_letivo": "2025_2026",  // formato YYYY_YYYY obrigatório
+  "tipo": "escola"             // 'escola' | 'superior'
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "ano letivo definido com sucesso",
+  "ano_letivo": "2025_2026",
+  "tipo": "escola"
+}
+```
+
+**Erros:**
+
+- `400` — formato inválido (o segundo ano deve ser exatamente o primeiro + 1)
+- `400` — tipo inválido
+
+---
+
+### GET /academia/ano-letivo
+
+Retorna o ano letivo ativo da academia.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:**
+
+```json
+{
+  "ano_letivo": "2025_2026",
+  "tipo": "escola",
+  "ativado_em": "2025-01-15T08:00:00Z"
+}
+```
+
+**Erros:**
+
+- `404` — ano letivo não configurado
+
+---
+
+### POST /academia/categorias-nota
+
+Cria uma categoria de nota adicional para a academia.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:**
+
+```json
+{
+  "nome": "nota_teste",        // obrigatório
+  "descricao": "string"        // opcional
+}
+```
+
+**Response 201:**
+
+```json
+{
+  "message": "categoria criada com sucesso",
+  "categoria": "nota_teste"
+}
+```
+
+**Erros:**
+
+- `400` — nome ausente
+- `409` — categoria já existe nesta academia
+
+---
+
+### GET /academia/categorias-nota
+
+Lista todas as categorias de nota da academia.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:**
+
+```json
+{
+  "categorias": [CategoriaNotaDTO],
+  "total": 2
+}
+```
+
+---
+
+## 8. Estudantes
+
+### POST /academia/estudante/register
+
+Cadastra um novo estudante vinculado à academia autenticada.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:**
+
+```json
+{
+  "nome": "João Silva",
+  "genero": "masculino",
+  "data_nascimento": "2010-05-20",
+  "email": "joao@exemplo.ao",
+  "telefone": "+244923000000",
+  "bilhete_identidade": "001234567LA089",
+  "bilhete_identidade_responsavel": "009876543LA089",
+  "ano_escolar": "3_ano_fundamental",
+  "status_escolar_fundamental": "em_andamento",
+  "ano_escolar_medio": null,
+  "status_escolar_medio": "inativo",
+  "curso_medio_id": null,
+  "ano_superior": null,
+  "status_superior": "inativo",
+  "curso_superior_id": null
+}
+```
+
+**Campos obrigatórios:** `nome`, `genero`, `data_nascimento`
+
+**Response 201:**
+
+```json
+{
+  "message": "estudante registrado com sucesso",
+  "data": {
+    "id": "uuid",
+    "codigo_estudante": "ABC1234",
+    "codigo_academia": "LDA20261"
+  }
+}
+```
+
+**Erros:**
+
+- `400` — genero inválido, data_nascimento inválida ou no futuro
+- `400` — ano_escolar em formato incorreto
+- `400` — curso_medio_id não encontrado ou tipo errado
+
+---
+
+### GET /estudantes
+
+Lista estudantes. Retorna apenas os da academia (para academia) ou todos (para admin).
+
+**Proteção**: autenticado + academia ou admin
+
+**Query Params:**
+
+- `limit` — máximo de itens (padrão: sem limit = retorna até 1000)
+- `offset` — deslocamento para paginação (padrão: 0)
+
+**Response 200:**
+
+```json
+{
+  "estudantes": [EstudanteDTO],
+  "total": 120,
+  "tipo_usuario": "academia",
+  "codigo_academia": "LDA20261",
+  "nome_academia": "string"
+}
+```
+
+---
+
+### GET /consultar-estudante/:codigo
+
+Consulta um estudante por código.
+
+**Proteção**: autenticado + academia (apenas próprios) ou admin
+
+**Path Params:**
+
+- `codigo` — código do estudante (ex: `ABC1234`)
+
+**Response 200:**
+
+```json
+{
+  "estudante": {
+    ... (EstudanteDTO) ...,
+    "academia": {
+      "codigo": "LDA20261",
+      "nome": "string",
+      "tipo": "escola"
+    },
+    "curso_medio": {
+      "id": "uuid",
+      "nome": "string",
+      "type": "medio",
+      "status": "ativo"
+    },
+    "curso_superior": null
+  }
+}
+```
+
+**Erros:**
+
+- `403` — estudante não pertence à academia autenticada
+- `404` — estudante não encontrado
+
+---
+
+### PUT /estudante/dados-pessoais
+
+Atualiza os dados pessoais do estudante autenticado.
+
+**Proteção**: autenticado + estudante
+
+**Request:** (todos os campos opcionais)
+
+```json
+{
+  "nome": "string",
+  "email": "string",
+  "telefone": "string",
+  "bilhete_identidade": "string",
+  "bilhete_identidade_responsavel": "string",
+  "data_nascimento": "2010-05-20"
+}
+```
+
+**Nota**: `genero` não pode ser alterado. `data_nascimento` deve ser anterior à data atual.
+
+**Response 200:**
+
+```json
+{
+  "message": "dados pessoais atualizados com sucesso"
+}
+```
+
+---
+
+### PUT /academia/estudante/:codigo/status-escolar-fundamental
+
+Atualiza o status do ensino fundamental do estudante.
+
+**Proteção**: autenticado + academia ativa
+
+**Path Params:**
+
+- `codigo` — código do estudante
+
+**Request:**
+
+```json
+{
+  "novo_status": "em_andamento"  // 'inativo' | 'em_andamento' | 'finalizado'
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "status_escolar_fundamental atualizado com sucesso",
+  "novo_status": "em_andamento"
+}
+```
+
+---
+
+### PUT /academia/estudante/:codigo/status-escolar-medio
+
+Atualiza o status do ensino médio do estudante.
+
+**Proteção**: autenticado + academia ativa
+
+**Request/Response**: igual ao endpoint de status fundamental.
+
+---
+
+### PUT /academia/estudante/:codigo/status-superior
+
+Atualiza o status do ensino superior do estudante.
+
+**Proteção**: autenticado + academia ativa
+
+**Regra**: só pode avançar se o fundamental e o médio estiverem `finalizado` ou `inativo`.
+
+**Request/Response**: igual ao endpoint de status fundamental.
+
+---
+
+### GET /eventos-estudante/:codigo
+
+Retorna todos os eventos do ledger de um estudante (trilha de auditoria completa).
+
+**Proteção**: autenticado + admin (qualquer role)
+
+**Path Params:**
+
+- `codigo` — código do estudante
+
+**Response 200:**
+
+```json
+{
+  "codigo_estudante": "ABC1234",
+  "eventos": [
+    {
+      "id": 1,
+      "event_id": "uuid",
+      "aggregate_id": "uuid",
+      "aggregate_type": "Estudante",
+      "event_type": "EstudanteCriadoComVinculo",
+      "event_version": 1,
+      "payload": {},
+      "metadata": {},
+      "occurred_at": "2025-01-01T08:00:00Z",
+      "recorded_at": "2025-01-01T08:00:01Z",
+      "ledger_hash": "sha256hex",
+      "previous_hash": "sha256hex"
+    }
+  ],
+  "total": 15
+}
+```
+
+---
+
+### GET /verificar-integridade/:codigo
+
+Verifica a integridade da hash chain do ledger para um estudante.
+
+**Proteção**: autenticado (qualquer tipo)
+
+**Nota de acesso:**
+
+- Estudante: apenas o próprio
+- Academia: apenas estudantes da própria academia
+- Admin: qualquer estudante
+
+**Response 200:**
+
+```json
+{
+  "codigo_estudante": "ABC1234",
+  "nome": "João Silva",
+  "integro": true,
+  "message": "✅ Cadeia de hashes íntegra. Eventos não foram alterados."
+}
+```
+
+---
+
+### GET /estudante/minhas-notas
+
+Retorna as notas do estudante autenticado.
+
+**Proteção**: autenticado + estudante
+
+**Response 200:**
+
+```json
+{
+  "codigo_estudante": "ABC1234",
+  "nome": "string",
+  "notas": [NotaDTO],
+  "total": 12
+}
+```
+
+---
+
+### GET /estudante/minhas-faltas
+
+Retorna as faltas do estudante autenticado.
+
+**Proteção**: autenticado + estudante
+
+**Response 200:**
+
+```json
+{
+  "codigo_estudante": "ABC1234",
+  "nome": "string",
+  "faltas": [FaltaDTO],
+  "total": 3
+}
+```
+
+---
+
+### GET /estudante/minhas-avaliacoes
+
+Retorna as avaliações finais do estudante autenticado.
+
+**Proteção**: autenticado + estudante
+
+**Response 200:**
+
+```json
+{
+  "avaliacoes": [AvaliacaoFinalDTO],
+  "total": 2
+}
+```
+
+---
+
+## 9. Notas
+
+### POST /academia/notas-aluno
+
+Registra uma nota para um estudante.
+
+**Proteção**: autenticado + academia ativa (com ano letivo configurado)
+
+**Request:**
+
+```json
+{
+  "codigo_estudante": "ABC1234",
+  "periodo": "1_trimestre",
+  "materia_disciplinar_id": "uuid",
+  "tipo": "escolar",
+  "categoria": "nota_escola",
+  "nota": 15.5,
+  "observacao": "string"  // opcional
+}
+```
+
+**Restrições:**
+
+- Academia `escola` só pode usar tipo `escolar`
+- Academia `superior` só pode usar tipo `superior`
+- `nota` deve ser entre 0 e 20
+- `periodo` deve ser válido para o tipo (`1_trimestre`/`2_trimestre`/`3_trimestre` para escolar; semestres do curso para superior)
+- `categoria` deve ser uma das fixas ou uma adicional da academia
+
+**Response 201:**
+
+```json
+{
+  "message": "nota registrada com sucesso",
+  "estudante": "ABC1234",
+  "materia": "Matemática",
+  "tipo": "escolar",
+  "categoria": "nota_escola",
+  "nota": 15.5,
+  "ano_academico": "3_ano_fundamental",
+  "periodo": "1_trimestre",
+  "periodos_validos": ["1_trimestre", "2_trimestre", "3_trimestre"]
+}
+```
+
+**Erros:**
+
+- `400` — nota fora do intervalo, período inválido, categoria inválida, duplicata
+- `403` — estudante ou matéria não pertencem à academia
+- `400` — academia sem ano letivo configurado
+
+---
+
+### PUT /academia/atualizar-nota
+
+Corrige uma nota já registada.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:**
+
+```json
+{
+  "id": "uuid",               // ID da nota na projeção
+  "nota_nova": 16.0,          // obrigatório (usar 0.0 para zerar, não omitir)
+  "observacao": "string"      // OBRIGATÓRIO (justificativa da correção)
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "nota atualizada com sucesso",
+  "nota_anterior": 15.5,
+  "nota_nova": 16.0,
+  "observacao": "string"
+}
+```
+
+**Erros:**
+
+- `400` — nota_nova omitida ou fora do intervalo
+- `400` — observacao ausente
+- `403` — nota não pertence à academia
+- `404` — nota não encontrada
+
+---
+
+### DELETE /academia/nota/:id
+
+Remove uma nota (soft delete — permanece no ledger para auditoria).
+
+**Proteção**: autenticado + academia ativa
+
+**Path Params:**
+
+- `id` — UUID da nota
+
+**Request:**
+
+```json
+{
+  "motivo": "string"  // OBRIGATÓRIO
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "nota deletada com sucesso"
+}
+```
+
+---
+
+### GET /notas-estudante/:codigo
+
+Retorna as notas de um estudante.
+
+**Proteção**: autenticado + academia (apenas próprios) ou admin
+
+**Response 200:**
+
+```json
+{
+  "codigo_estudante": "ABC1234",
+  "nome": "string",
+  "notas": [NotaDTO],
+  "total": 12
+}
+```
+
+---
+
+## 10. Faltas
+
+### POST /academia/faltas-aluno
+
+Registra falta(s) para um estudante.
+
+**Proteção**: autenticado + academia ativa (com ano letivo configurado)
+
+**Request:**
+
+```json
+{
+  "codigo_estudante": "ABC1234",
+  "data": "2025-03-15",              // formato AAAA-MM-DD
+  "materia_disciplinar_id": "uuid",
+  "quantidade": 2,                    // mínimo 1
+  "observacao": "string"              // opcional
+}
+```
+
+**Response 201:**
+
+```json
+{
+  "message": "faltas registradas com sucesso",
+  "estudante": "ABC1234",
+  "materia": "Matemática",
+  "quantidade": 2,
+  "ano_academico": "3_ano_fundamental"
+}
+```
+
+**Erros:**
+
+- `400` — quantidade inválida (deve ser ≥ 1), data inválida
+- `400` — duplicata (mesma data/matéria/ano)
+- `403` — estudante ou matéria não pertencem à academia
+
+---
+
+### PUT /academia/atualizar-falta
+
+Corrige uma falta registada.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:**
+
+```json
+{
+  "id": "uuid",                         // obrigatório
+  "data": "2025-03-16",                 // opcional
+  "materia_disciplinar_id": "uuid",     // opcional
+  "quantidade": 3,                      // opcional, mínimo 1
+  "observacao": "string"                // opcional
+}
+```
+
+**Pelo menos um campo além do `id` deve ser informado.**
+
+**Response 200:**
+
+```json
+{
+  "message": "falta atualizada com sucesso",
+  "id": "uuid",
+  "codigo_estudante": "ABC1234"
+}
+```
+
+---
+
+### DELETE /academia/falta/:id
+
+Remove uma falta (soft delete).
+
+**Proteção**: autenticado + academia ativa
+
+**Path Params:**
+
+- `id` — UUID da falta
+
+**Request:**
+
+```json
+{
+  "motivo": "string"  // OBRIGATÓRIO
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "falta deletada com sucesso"
+}
+```
+
+---
+
+### GET /faltas-estudante/:codigo
+
+Retorna as faltas de um estudante.
+
+**Proteção**: autenticado + academia (apenas próprios) ou admin
+
+**Response 200:**
+
+```json
+{
+  "codigo_estudante": "ABC1234",
+  "nome": "string",
+  "faltas": [FaltaDTO],
+  "total": 5
+}
+```
+
+---
+
+## 11. Avaliações Finais
+
+### POST /academia/avaliacao-final
+
+Registra a avaliação final de ano para um estudante.
+
+**Proteção**: autenticado + academia ativa (com ano letivo configurado)
+
+**Request:**
+
+```json
+{
+  "codigo_estudante": "ABC1234",
+  "tipo_ensino": "fundamental",
+  "nivel_ano_academico_atual": "3_ano_fundamental",
+  "proximo_ano_academico": "4_ano_fundamental",  // null se for o último ano
+  "aprovado": true,
+  "observacao": "string"  // opcional — se fornecido, bypassa validação de notas
+}
+```
+
+**Regras:**
+
+- `nivel_ano_academico_atual` deve seguir o formato canônico do tipo de ensino
+- Se `aprovado = true`: `proximo_ano_academico` é obrigatório exceto se for o último ano do ciclo
+- Se `aprovado = false`: `proximo_ano_academico` não deve ser informado
+- Sem `observacao`: notas de todas as matérias do período são validadas automaticamente
+
+**Response 201:**
+
+```json
+{
+  "message": "avaliação final registrada com sucesso",
+  "resultado": "aprovado → 4_ano_fundamental",
+  "turmas_removidas": ["T1A", "T2B"],
+  "avisos_turmas": []  // erros não fatais na remoção de turmas
+}
+```
+
+**Erros:**
+
+- `400` — formato de ano inválido
+- `400` — notas obrigatórias faltando (sem observacao para override)
+- `400` — proximo_ano_academico inválido ou não pertence ao ciclo
+- `409` — avaliação já registrada para este tipo/ano/nível
+
+---
+
+### GET /avaliacoes
+
+Lista avaliações finais. Escopo varia por tipo de usuário.
+
+**Proteção**: autenticado (qualquer tipo)
+
+**Query Params:**
+
+- `tipo_ensino` — filtro: `fundamental`, `medio`, `superior`
+
+**Response 200:**
+
+```json
+{
+  "avaliacoes": [AvaliacaoFinalDTO],
+  "total": 50
+}
+```
+
+---
+
+### GET /aprovacoes
+
+Lista apenas avaliações com `aprovado = true`.
+
+**Proteção**: autenticado (qualquer tipo)
+
+**Response 200:**
+
+```json
+{
+  "aprovacoes": [AvaliacaoFinalDTO],
+  "total": 35
+}
+```
+
+---
+
+### GET /reprovacoes
+
+Lista apenas avaliações com `aprovado = false`.
+
+**Proteção**: autenticado (qualquer tipo)
+
+**Response 200:**
+
+```json
+{
+  "reprovacoes": [AvaliacaoFinalDTO],
+  "total": 15
+}
+```
+
+---
+
+### GET /avaliacoes-estudante/:codigo
+
+Retorna avaliações finais de um estudante específico.
+
+**Proteção**: autenticado + academia ou admin
+
+**Response 200:**
+
+```json
+{
+  "codigo_estudante": "ABC1234",
+  "nome": "string",
+  "avaliacoes": [AvaliacaoFinalDTO],
+  "total": 3
+}
+```
+
+---
+
+## 12. Cursos
+
+### POST /academia/curso
+
+Cria um novo curso para a academia.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:**
+
+```json
+{
+  "nome": "Ciências e Tecnologia",
+  "type": "medio",
+  "anos_academicos": ["1_ano_medio", "2_ano_medio", "3_ano_medio"],
+  "periodos": []  // obrigatório para 'superior', vazio/ausente para 'medio'
+}
+```
+
+**Para superior:**
+
+```json
+{
+  "nome": "Engenharia Informática",
+  "type": "superior",
+  "anos_academicos": ["1_ano_superior", "2_ano_superior", "3_ano_superior", "4_ano_superior"],
+  "periodos": ["1_semestre", "2_semestre"]
+}
+```
+
+**Response 201:**
+
+```json
+{
+  "message": "curso criado com sucesso",
+  "data": {
+    "id": "uuid",
+    "nome": "string",
+    "type": "medio",
+    "periodos": []
+  }
+}
+```
+
+**Erros:**
+
+- `400` — tipo inválido, anos_academicos inválidos
+- `400` — periodos ausentes para tipo superior
+- `403` — academia do tipo escola não pode criar curso superior (e vice-versa)
+
+---
+
+### GET /academia/cursos
+
+Lista todos os cursos da academia.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:**
+
+```json
+{
+  "cursos": [CursoDTO],
+  "total": 3
+}
+```
+
+---
+
+### GET /academia/curso/:id
+
+Retorna um curso específico.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:** `CursoDTO`
+
+---
+
+### PUT /academia/curso/:id/ativar
+
+Ativa um curso inativo.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:**
+
+```json
+{
+  "message": "curso ativado com sucesso",
+  "nome": "string"
+}
+```
+
+---
+
+### PUT /academia/curso/:id/desativar
+
+Desativa um curso ativo.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:**
+
+```json
+{
+  "message": "curso desativado com sucesso",
+  "nome": "string"
+}
+```
+
+---
+
+### PUT /academia/curso/:id/dados
+
+Atualiza nome, anos_academicos ou periodos de um curso. O `type` é imutável.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:** (todos opcionais)
+
+```json
+{
+  "nome": "string",
+  "anos_academicos": ["1_ano_medio"],
+  "periodos": ["1_semestre", "2_semestre"]
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "curso atualizado com sucesso",
+  "nome": "string",
+  "type": "medio",
+  "anos_academicos": [],
+  "periodos": []
+}
+```
+
+---
+
+### DELETE /academia/curso/:id
+
+Deleta um curso (soft delete com cascata).
+
+**Proteção**: autenticado + academia ativa
+
+**Request:** (opcional)
+
+```json
+{
+  "motivo": "string"
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "curso deletado com sucesso",
+  "curso_id": "uuid",
+  "nome": "string",
+  "materias_deletadas": ["Matemática", "Física"],
+  "turmas_deletadas": ["T1A"],
+  "auditavel": true
+}
+```
+
+**Erros:**
+
+- `400` — curso está ativo (desativar primeiro)
+- `400` — curso tem estudantes matriculados
+- `400` — curso tem matérias ativas (desativar todas primeiro)
+- `400` — curso tem turmas ativas (desativar todas primeiro)
+
+---
+
+## 13. Matérias
+
+### POST /academia/materia
+
+Cria uma nova matéria disciplinar.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:**
+
+```json
+{
+  "nome": "Matemática",
+  "type": "fundamental",
+  "anos_academicos": ["3_ano_fundamental", "4_ano_fundamental"],
+  "curso_id": null
+}
+```
+
+**Para médio/superior:**
+
+```json
+{
+  "nome": "Álgebra Linear",
+  "type": "superior",
+  "anos_academicos": ["1_ano_superior"],
+  "curso_id": "uuid"  // obrigatório para medio e superior
+}
+```
+
+**Response 201:**
+
+```json
+{
+  "message": "materia criada com sucesso",
+  "data": {
+    "id": "uuid",
+    "nome": "string",
+    "type": "superior",
+    "status": "inativo",
+    "proximo_passo": "defina o periodo via PUT /academia/materias/uuid/periodo antes de ativar"
+  }
+}
+```
+
+**Notas:**
+
+- Matérias `superior` nascem **inativas** e exigem período antes de ativar
+- `curso_id` obrigatório para `medio` e `superior`
+- Para `fundamental`: `anos_academicos` com 1 a 9 itens no formato correto
+- Para `medio`/`superior`: exatamente 1 item no formato correto
+
+---
+
+### GET /academia/materias
+
+Lista todas as matérias da academia.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:**
+
+```json
+{
+  "materias": [MateriaDTO],
+  "total": 10
+}
+```
+
+---
+
+### GET /academia/materia/:id
+
+Retorna uma matéria específica.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:** `MateriaDTO`
+
+---
+
+### PUT /academia/materia/:id/ativar
+
+Ativa uma matéria inativa. Matérias superiores sem período definido não podem ser ativadas.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:**
+
+```json
+{
+  "message": "materia ativada com sucesso",
+  "nome": "string"
+}
+```
+
+---
+
+### PUT /academia/materia/:id/desativar
+
+Desativa uma matéria ativa.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:**
+
+```json
+{
+  "message": "materia desativada com sucesso",
+  "nome": "string"
+}
+```
+
+---
+
+### PUT /academia/materia/:id/periodo
+
+Define o período de uma matéria do tipo `superior`. Pré-requisito para ativar a matéria.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:**
+
+```json
+{
+  "periodo": "1_semestre"  // deve existir nos períodos do curso vinculado
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "periodo definido com sucesso",
+  "nome": "string",
+  "periodo": "1_semestre"
+}
+```
+
+**Erros:**
+
+- `400` — matéria não é do tipo superior
+- `400` — período não pertence ao curso vinculado
+
+---
+
+### PUT /academia/materia/:id/dados
+
+Atualiza o nome de uma matéria.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:**
+
+```json
+{
+  "nome": "string"
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "matéria atualizada com sucesso",
+  "nome": "string"
+}
+```
+
+---
+
+### DELETE /academia/materia/:id
+
+Deleta uma matéria (soft delete). Deve estar inativa.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:**
+
+```json
+{
+  "message": "materia deletada com sucesso",
+  "nome": "string"
+}
+```
+
+---
+
+## 14. Turmas
+
+### POST /academia/turma
+
+Cria uma nova turma.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:**
+
+```json
+{
+  "codigo_turma": "T1A",
+  "nivel": "3_ano_fundamental",
+  "turno": "manha",
+  "curso_id": null  // opcional, para turmas de médio/superior
+}
+```
+
+**Response 201:**
+
+```json
+{
+  "message": "turma criada com sucesso",
+  "id": "uuid",
+  "codigo_turma": "T1A"
+}
+```
+
+**Erros:**
+
+- `400` — turno inválido (deve ser `manha`, `tarde` ou `noite`)
+- `409` — código de turma já existe nesta academia
+
+---
+
+### GET /academia/turmas
+
+Lista todas as turmas da academia.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:**
+
+```json
+{
+  "turmas": [TurmaDTO]
+}
+```
+
+---
+
+### GET /academia/turma/:codigo
+
+Retorna uma turma pelo código.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:** `TurmaDTO`
+
+---
+
+### PUT /academia/turma/:codigo/ativar
+
+Ativa uma turma inativa.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:**
+
+```json
+{
+  "message": "turma ativada com sucesso",
+  "codigo_turma": "T1A"
+}
+```
+
+---
+
+### PUT /academia/turma/:codigo/desativar
+
+Desativa uma turma ativa. Pré-requisito para deletar.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:**
+
+```json
+{
+  "message": "turma desativada com sucesso",
+  "codigo_turma": "T1A"
+}
+```
+
+---
+
+### PUT /academia/turma/:codigo/dados
+
+Atualiza dados de uma turma.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:** (todos opcionais)
+
+```json
+{
+  "nivel": "string",
+  "turno": "tarde",
+  "curso_id": "uuid"
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "turma atualizada com sucesso"
+}
+```
+
+---
+
+### DELETE /academia/turma/:codigo
+
+Deleta uma turma (soft delete). Deve estar inativa e sem estudantes.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:** (opcional)
+
+```json
+{
+  "motivo": "string"
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "turma deletada com sucesso",
+  "codigo_turma": "T1A",
+  "auditavel": true
+}
+```
+
+---
+
+### POST /academia/turma/:codigo/estudante
+
+Adiciona um estudante à turma.
+
+**Proteção**: autenticado + academia ativa
+
+**Path Params:**
+
+- `codigo` — código da turma
+
+**Request:**
+
+```json
+{
+  "codigo_estudante": "ABC1234"
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "estudante adicionado à turma com sucesso",
+  "codigo_turma": "T1A",
+  "codigo_estudante": "ABC1234"
+}
+```
+
+**Erros:**
+
+- `403` — estudante não pertence à academia
+- `404` — estudante ou turma não encontrados
+- `409` — estudante já está na turma
+
+---
+
+### DELETE /academia/turma/:codigo/estudantes/:codigoEstudante
+
+Remove um estudante da turma.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:**
+
+```json
+{
+  "message": "estudante removido da turma com sucesso",
+  "codigo_turma": "T1A",
+  "codigo_estudante": "ABC1234"
+}
+```
+
+---
+
+## 15. Admins
+
+### POST /dominis/register
+
+Cria um novo admin. A senha é gerada automaticamente e enviada por email.
+
+**Proteção**: autenticado + admin (qualquer role)
+
+**Regra de hierarquia**: o admin criador deve ter role estritamente superior ao do novo admin.
+
+**Request:**
+
+```json
+{
+  "nome": "string",
+  "email": "string",
+  "role": "gerente"  // 'fpp' | 'adm' | 'gerente'
+}
+```
+
+**Response 201:**
+
+```json
+{
+  "message": "administrador criado com sucesso. A senha temporária foi enviada por email.",
+  "data": {
+    "id": "uuid",
+    "nome": "string",
+    "email": "string",
+    "role": "gerente"
+  }
+}
+```
+
+---
+
+### GET /dominis/admin-lista
+
+Lista todos os admins.
+
+**Proteção**: autenticado + admin (qualquer role)
+
+**Response 200:**
+
+```json
+{
+  "admins": [AdminDTO],
+  "total": 5
+}
+```
+
+---
+
+### GET /dominis/consultar-admin/:email
+
+Busca um admin pelo email.
+
+**Proteção**: autenticado + admin role `adm` ou `fpp`
+
+**Response 200:**
+
+```json
+{
+  "admin": AdminDTO
+}
+```
+
+---
+
+### PUT /dominis/admin/:id/ativar
+
+Ativa um admin inativo.
+
+**Proteção**: autenticado + admin role `adm` ou `fpp`
+
+**Response 200:**
+
+```json
+{
+  "message": "administrador ativado com sucesso",
+  "email": "string"
+}
+```
+
+---
+
+### PUT /dominis/admin/:id/desativar
+
+Desativa um admin ativo.
+
+**Proteção**: autenticado + admin role `adm` ou `fpp`
+
+**Request:**
+
+```json
+{
+  "motivo": "string"  // obrigatório
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "administrador desativado com sucesso",
+  "email": "string"
+}
+```
+
+---
+
+### PUT /dominis/admin/:id/role
+
+Altera o role de um admin. Apenas FPP pode fazer isso.
+
+**Proteção**: autenticado + admin role `fpp`
+
+**Request:**
+
+```json
+{
+  "novo_role": "adm"  // 'fpp' | 'adm' | 'gerente'
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "role atualizado com sucesso",
+  "role_anterior": "gerente",
+  "novo_role": "adm"
+}
+```
+
+---
+
+### PUT /dominis/admin/:id/dados
+
+Atualiza nome e/ou email de um admin.
+
+**Proteção**: autenticado + admin (qualquer role)
+
+**Request:** (pelo menos um campo obrigatório)
+
+```json
+{
+  "nome": "string",
+  "email": "string"
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "dados atualizados com sucesso"
+}
+```
+
+---
+
+### GET /dominis/metrics
+
+Retorna métricas do sistema (requisições, erros, latência por endpoint).
+
+**Proteção**: autenticado + admin (qualquer role)
+
+**Response 200:**
+
+```json
+{
+  "metrics": {
+    "uptime_seconds": 3600,
+    "total_requests": 1500,
+    "total_errors": 12,
+    "total_auth_failures": 3,
+    "requests_per_second": 0.42,
+    "error_rate": 0.8,
+    "endpoints": [
+      {
+        "path": "/login",
+        "requests": 200,
+        "errors": 5,
+        "avg_latency": 45000,
+        "error_rate": 2.5
+      }
+    ]
+  }
+}
+```
+
+---
+
+### POST /dominis/projections/rebuild/:name
+
+Reconstrói uma projeção do zero a partir do ledger.
+
+**Proteção**: autenticado + admin role `fpp`
+
+**Path Params:**
+
+- `name` — nome da projeção (ex: `estudantes`, `academias`, `notas`)
+
+**Response 200:**
+
+```json
+{
+  "message": "projeção reconstruída com sucesso",
+  "projection": "estudantes"
+}
+```
+
+**Erros:**
+
+- `404` — projeção não encontrada
+- `500` — integridade do ledger comprometida (rebuild abortado)
+
+---
+
+## 16. Consultas Gerais
+
+### GET /academias
+
+Lista todas as academias com paginação e filtro de status.
+
+**Proteção**: autenticado (qualquer tipo)
+
+**Query Params:**
+
+- `limit` — quantidade máxima (padrão sem limit: 1000, teto: 1000)
+- `offset` — deslocamento (padrão: 0)
+- `status` — `ativo` ou `inativo` (omitir = retorna ambos)
+
+**Response 200:**
+
+```json
+{
+  "academias": [AcademiaDTO],
+  "total": 25,
+  "limit": 1000,
+  "offset": 0
+}
+```
+
+**Nota**: admins veem campos extras (`email`, `total_estudantes`, `version`).
+
+---
+
+### GET /consultar-academia/:codigo
+
+Retorna detalhes de uma academia.
+
+**Proteção**: autenticado (qualquer tipo)
+
+**Response 200:**
+
+```json
+{
+  "id": "uuid",
+  "type": "escola",
+  "nome": "string",
+  "codigo_academia": "LDA20261",
+  "provincia": "LDA",
+  "status": "ativo",
+  ...
+}
+```
+
+**Nota**: admins veem também `email` e `motivo_desativacao`.
+
+---
+
+### GET /dominis/registros
+
+Lista notas e faltas de todos os estudantes (visão admin).
+
+**Proteção**: autenticado + admin (qualquer role)
+
+**Query Params:**
+
+- `limit` — padrão 50, máximo 1000
+- `offset` — padrão 0
+- `tipo` — `notas` ou `faltas` (omitir = retorna ambos)
+
+**Response 200:**
+
+```json
+{
+  "notas": [...],
+  "total_notas": 30,
+  "total_notas_geral": 5000,
+  "faltas": [...],
+  "total_faltas": 20,
+  "total_faltas_geral": 3000,
+  "estatisticas": {
+    "total_estudantes": 500,
+    "total_academias": 25,
+    "total_notas": 5000,
+    "total_faltas": 3000
+  },
+  "limit": 50,
+  "offset": 0,
+  "filtro_tipo": ""
+}
+```
+
+---
+
+### GET /dominis/registros/:codigo
+
+Lista notas e faltas de um estudante específico (visão admin).
+
+**Proteção**: autenticado + admin
+
+**Path Params:**
+
+- `codigo` — código do estudante
+
+**Response 200:**
+
+```json
+{
+  "codigo_estudante": "ABC1234",
+  "notas": [...],
+  "faltas": [...],
+  "total_notas": 12,
+  "total_faltas": 3
+}
+```
+
+---
+
+## 17. Jobs Assíncronos
+
+### GET /jobs
+
+Lista os jobs recentes do usuário autenticado.
+
+**Proteção**: autenticado (qualquer tipo)
+
+**Response 200:**
+
+```json
+{
+  "jobs": [JobSummary],
+  "total": 5
+}
+```
+
+---
+
+### GET /jobs/:id
+
+Retorna o status de um job específico.
+
+**Proteção**: autenticado (apenas o dono do job)
+
+**Query Params:**
+
+- `results=true` — inclui resultados por item (payload maior)
+
+**Response 200 (sem results):** `JobSummary`
+
+**Response 200 (com results=true):**
+
+```json
+{
+  "job": JobSummary,
+  "results": [JobItemResult]
+}
+```
+
+---
+
+## 18. Batch Síncrono — Academia
+
+Todos os endpoints batch retornam `BatchResponse`. O HTTP status depende do resultado:
+
+- `200` — todos com sucesso
+- `207` — sucesso parcial
+- `422` — todos falharam
+
+### POST /academia/estudante/register/batch
+
+**Limite**: 100 itens | **Body**: array de requests de cadastro de estudante
+
+---
+
+### POST /academia/notas-aluno/batch
+
+**Limite**: 200 itens | **Body**: array de requests de nota
+
+---
+
+### PUT /academia/atualizar-nota/batch
+
+**Limite**: 200 itens
+
+**Body:**
+
+```json
+[
+  { "id": "uuid", "nota_nova": 15.0, "observacao": "string" }
+]
+```
+
+---
+
+### DELETE /academia/nota/batch
+
+**Limite**: 200 itens
+
+**Body:**
+
+```json
+[
+  { "id": "uuid", "motivo": "string" }
+]
+```
+
+---
+
+### POST /academia/faltas-aluno/batch
+
+**Limite**: 200 itens | **Body**: array de requests de falta
+
+---
+
+### PUT /academia/atualizar-falta/batch
+
+**Limite**: 200 itens | **Body**: array de updates de falta
+
+---
+
+### DELETE /academia/falta/batch
+
+**Limite**: 200 itens
+
+**Body:**
+
+```json
+[{ "id": "uuid", "motivo": "string" }]
+```
+
+---
+
+### POST /academia/avaliacao-final/batch
+
+**Limite**: 100 itens | **Body**: array de requests de avaliação final
+
+---
+
+### PUT /academia/estudante/status-escolar/batch
+
+**Limite**: 100 itens
+
+**Body:**
+
+```json
+[
+  {
+    "codigo_estudante": "ABC1234",
+    "tipo": "fundamental",
+    "novo_status": "em_andamento"
+  }
+]
+```
+
+---
+
+### POST /academia/curso/batch
+
+**Limite**: 50 itens | **Body**: array de requests de curso
+
+---
+
+### PUT /academia/curso/ativar/batch
+
+**Limite**: 50 itens | **Body**: `[{ "id": "uuid" }]`
+
+---
+
+### PUT /academia/curso/desativar/batch
+
+**Limite**: 50 itens | **Body**: `[{ "id": "uuid" }]`
+
+---
+
+### DELETE /academia/curso/batch
+
+**Limite**: 50 itens | **Body**: `[{ "id": "uuid", "motivo": "string" }]`
+
+---
+
+### POST /academia/materia/batch
+
+**Limite**: 100 itens | **Body**: array de requests de matéria
+
+---
+
+### PUT /academia/materia/ativar/batch
+
+**Limite**: 100 itens | **Body**: `[{ "id": "uuid" }]`
+
+---
+
+### PUT /academia/materia/desativar/batch
+
+**Limite**: 100 itens | **Body**: `[{ "id": "uuid" }]`
+
+---
+
+### DELETE /academia/materia/batch
+
+**Limite**: 100 itens | **Body**: `[{ "id": "uuid" }]`
+
+---
+
+### POST /academia/turma/batch
+
+**Limite**: 50 itens | **Body**: array de requests de turma
+
+---
+
+### PUT /academia/turma/ativar/batch
+
+**Limite**: 50 itens | **Body**: `[{ "codigo": "T1A" }]`
+
+---
+
+### PUT /academia/turma/desativar/batch
+
+**Limite**: 50 itens | **Body**: `[{ "codigo": "T1A" }]`
+
+---
+
+### DELETE /academia/turma/batch
+
+**Limite**: 50 itens | **Body**: `[{ "codigo": "T1A", "motivo": "string" }]`
+
+---
+
+### POST /academia/turma/estudante/batch
+
+**Limite**: 100 itens
+
+**Body:**
+
+```json
+[
+  { "codigo_turma": "T1A", "codigo_estudante": "ABC1234" }
+]
+```
+
+---
+
+### DELETE /academia/turma/estudante/batch
+
+**Limite**: 100 itens
+
+**Body:**
+
+```json
+[
+  { "codigo_turma": "T1A", "codigo_estudante": "ABC1234" }
+]
+```
+
+---
+
+## 19. Batch Síncrono — Admin
+
+### POST /dominis/academia/register/batch
+
+**Proteção**: autenticado + admin | **Limite**: 50 itens | **Body**: array de requests de academia
+
+---
+
+### PUT /dominis/academia/ativar/batch
+
+**Proteção**: autenticado + admin role `adm` ou `fpp` | **Limite**: 50 itens
+
+**Body:** `[{ "codigo": "LDA20261" }]`
+
+---
+
+### PUT /dominis/academia/desativar/batch
+
+**Proteção**: autenticado + admin role `adm` ou `fpp` | **Limite**: 50 itens
+
+**Body:** `[{ "codigo": "LDA20261", "motivo": "string" }]`
+
+---
+
+## 20. Batch Assíncrono — Academia
+
+Todos criam um job e retornam `202 Accepted`. Usar `GET /jobs/:id` para acompanhar.
+
+**Response 202:**
+
+```json
+{
+  "message": "job criado com sucesso — use GET /jobs/:id para acompanhar o progresso",
+  "job_id": "uuid",
+  "total_items": 500,
+  "status": "pending",
+  "poll_url": "/jobs/uuid"
+}
+```
+
+|Endpoint|Limite|Equivalente síncrono|
+|---|---|---|
+|`POST /academia/estudante/register/async`|1000|`/batch`|
+|`POST /academia/notas-aluno/async`|2000|`/batch`|
+|`PUT /academia/atualizar-nota/async`|2000|`/batch`|
+|`DELETE /academia/nota/async`|2000|`/batch`|
+|`POST /academia/faltas-aluno/async`|2000|`/batch`|
+|`PUT /academia/atualizar-falta/async`|2000|`/batch`|
+|`DELETE /academia/falta/async`|2000|`/batch`|
+|`POST /academia/avaliacao-final/async`|1000|`/batch`|
+|`PUT /academia/estudante/status-escolar/async`|1000|`/batch`|
+|`POST /academia/curso/async`|200|`/batch`|
+|`POST /academia/materia/async`|500|`/batch`|
+|`POST /academia/turma/async`|200|`/batch`|
+|`POST /academia/turma/estudante/async`|1000|`/batch`|
+
+---
+
+## 21. Batch Assíncrono — Admin
+
+|Endpoint|Proteção|Limite|
+|---|---|---|
+|`POST /dominis/academia/register/async`|admin|500|
+|`PUT /dominis/academia/ativar/async`|admin role `adm`|500|
+|`PUT /dominis/academia/desativar/async`|admin role `adm`|500|
+
+**Response 202:** igual ao batch assíncrono de academia.
