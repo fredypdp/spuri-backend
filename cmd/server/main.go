@@ -303,38 +303,7 @@ func setupRouter() *gin.Engine {
 		academia.POST("/turma/:codigo/estudante", handlers.AdicionarEstudanteATurma)
 		academia.DELETE("/turma/:codigo/estudantes/:codigo_estudante", handlers.RemoverEstudanteDaTurma)
 
-		// ── Batch síncronos ───────────────────────────────────────────────
-		academia.POST("/estudante/register/batch", handlers.RegisterEstudanteBatch)
-
-		academia.POST("/notas-aluno/batch", handlers.RegistrarNotaBatch)
-		academia.PUT("/atualizar-nota/batch", handlers.AtualizarNotaBatch)
-		academia.DELETE("/nota/batch", handlers.DeletarNotaBatch)
-
-		academia.POST("/faltas-aluno/batch", handlers.RegistrarFaltasBatch)
-		academia.PUT("/atualizar-falta/batch", handlers.AtualizarFaltaBatch)
-		academia.DELETE("/falta/batch", handlers.DeletarFaltaBatch)
-
-		academia.POST("/avaliacao-final/batch", handlers.RegistrarAvaliacaoFinalBatch)
-		academia.PUT("/estudante/status-escolar/batch", handlers.AtualizarStatusEscolarBatch)
-
-		academia.POST("/curso/batch", handlers.CriarCursoBatch)
-		academia.PUT("/curso/ativar/batch", handlers.AtivarCursoBatch)
-		academia.PUT("/curso/desativar/batch", handlers.DesativarCursoBatch)
-		academia.DELETE("/curso/batch", handlers.DeletarCursoBatch)
-
-		academia.POST("/materia/batch", handlers.CriarMateriaBatch)
-		academia.PUT("/materia/ativar/batch", handlers.AtivarMateriaBatch)
-		academia.PUT("/materia/desativar/batch", handlers.DesativarMateriaBatch)
-		academia.DELETE("/materia/batch", handlers.DeletarMateriaBatch)
-
-		academia.POST("/turma/batch", handlers.CriarTurmaBatch)
-		academia.PUT("/turma/ativar/batch", handlers.AtivarTurmaBatch)
-		academia.PUT("/turma/desativar/batch", handlers.DesativarTurmaBatch)
-		academia.DELETE("/turma/batch", handlers.DeletarTurmaBatch)
-		academia.POST("/turma/estudante/batch", handlers.AdicionarEstudanteBatch)
-		academia.DELETE("/turma/estudante/batch", handlers.RemoverEstudanteBatch)
-
-		// ── Async (submissão de jobs de longa duração) ────────────────────
+		// ── Batch assíncronos (submissão de jobs de longa duração) ────────
 		academia.POST("/estudante/register/async", handlers.RegisterEstudanteBatchAsync)
 		academia.POST("/notas-aluno/async", handlers.RegistrarNotaBatchAsync)
 		academia.PUT("/atualizar-nota/async", handlers.AtualizarNotaBatchAsync)
@@ -370,12 +339,7 @@ func setupRouter() *gin.Engine {
 		admin.PUT("/admin/:id/role", middleware.RequireFPP(), handlers.AtualizarRoleAdmin)
 		admin.PUT("/admin/:id/dados", handlers.AtualizarDadosAdmin)
 
-		// ── Batch síncronos (admin) ────────────────────────────────────────
-		admin.POST("/academia/register/batch", middleware.RequireFPP(), handlers.RegisterAcademiaBatch)
-		admin.PUT("/academia/ativar/batch", middleware.RequireAdm(), handlers.AtivarAcademiaBatch)
-		admin.PUT("/academia/desativar/batch", middleware.RequireAdm(), handlers.DesativarAcademiaBatch)
-
-		// ── Async (admin) ─────────────────────────────────────────────────
+		// ── Batch assíncronos (admin) ─────────────────────────────────────
 		admin.POST("/academia/register/async", middleware.RequireFPP(), handlers.RegisterAcademiaBatchAsync)
 		admin.PUT("/academia/ativar/async", middleware.RequireAdm(), handlers.AtivarAcademiaBatchAsync)
 		admin.PUT("/academia/desativar/async", middleware.RequireAdm(), handlers.DesativarAcademiaBatchAsync)
