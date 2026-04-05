@@ -260,19 +260,22 @@ func (m *Manager) commitCheckpoint(projection Projection, eventID int64) error {
 
 func (m *Manager) RebuildProjection(name string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	projection, ok := m.projections[name]
+	m.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("projeção não encontrada: %s", name)
 	}
 
-	return m.rebuildProjectionInternal(name, projection)
+	return m.executeRebuild(name, projection, true)
 }
 
 func (m *Manager) RebuildAllProjections() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	snapshot := make(map[string]Projection, len(m.projections))
+	for name, projection := range m.projections {
+		snapshot[name] = projection
+	}
+	m.mu.Unlock()
 
 	log.Printf("[SECURITY] RebuildAll: verificando integridade do ledger antes de iniciar")
 	if err := m.verifyFullLedgerIntegrity(); err != nil {
@@ -297,20 +300,20 @@ func (m *Manager) RebuildAllProjections() error {
 	processed := make(map[string]bool)
 
 	for _, name := range rebuildOrder {
-		projection, ok := m.projections[name]
+		projection, ok := snapshot[name]
 		if !ok {
 			log.Printf("[DEBUG] RebuildAll: projeção %q não registrada, pulando", name)
 			continue
 		}
 		log.Printf("[DEBUG] RebuildAll: reconstruindo %s (tier ordenado)", name)
-		if err := m.rebuildProjectionInternal(name, projection); err != nil {
+		if err := m.executeRebuild(name, projection, false); err != nil {
 			return fmt.Errorf("falha ao reconstruir %s: %w", name, err)
 		}
 		processed[name] = true
 	}
 
 	remaining := make([]string, 0)
-	for name := range m.projections {
+	for name := range snapshot {
 		if !processed[name] {
 			remaining = append(remaining, name)
 		}
@@ -318,9 +321,9 @@ func (m *Manager) RebuildAllProjections() error {
 	sort.Strings(remaining)
 
 	for _, name := range remaining {
-		projection := m.projections[name]
+		projection := snapshot[name]
 		log.Printf("[DEBUG] RebuildAll: reconstruindo %s (ordem alfabética)", name)
-		if err := m.rebuildProjectionInternal(name, projection); err != nil {
+		if err := m.executeRebuild(name, projection, false); err != nil {
 			return fmt.Errorf("falha ao reconstruir %s: %w", name, err)
 		}
 	}
@@ -328,28 +331,30 @@ func (m *Manager) RebuildAllProjections() error {
 	return nil
 }
 
-func (m *Manager) rebuildProjectionInternal(name string, projection Projection) error {
+func (m *Manager) executeRebuild(name string, projection Projection, verifyIntegrity bool) error {
 	log.Printf("[DEBUG] Reconstruindo projeção: %s", name)
 
 	if err := m.markRebuildStart(name); err != nil {
 		log.Printf("[WARN] %s: erro ao marcar início de rebuild: %v", name, err)
 	}
 
-	log.Printf("[SECURITY] %s: verificando integridade do ledger antes do rebuild", name)
-	if err := m.verifyFullLedgerIntegrity(); err != nil {
-		if resetErr := m.markRebuildFailed(name); resetErr != nil {
-			log.Printf("[WARN] %s: erro ao resetar is_rebuilding após falha de integridade: %v", name, resetErr)
-		}
-		return fmt.Errorf("%s: rebuild abortado por integridade comprometida: %w", name, err)
-	}
-	log.Printf("[SECURITY] %s: ledger íntegro — prosseguindo com rebuild", name)
-
-	rebuildErr := projection.Rebuild()
-	if rebuildErr != nil {
+	fail := func(cause error, format string, args ...interface{}) error {
 		if resetErr := m.markRebuildFailed(name); resetErr != nil {
 			log.Printf("[WARN] %s: erro ao resetar is_rebuilding após falha: %v", name, resetErr)
 		}
-		return fmt.Errorf("erro no rebuild de %s: %w", name, rebuildErr)
+		return fmt.Errorf(format+": %w", append(args, cause)...)
+	}
+
+	if verifyIntegrity {
+		log.Printf("[SECURITY] %s: verificando integridade do ledger antes do rebuild", name)
+		if err := m.verifyFullLedgerIntegrity(); err != nil {
+			return fail(err, "%s: rebuild abortado por integridade comprometida", name)
+		}
+		log.Printf("[SECURITY] %s: ledger íntegro — prosseguindo com rebuild", name)
+	}
+
+	if err := projection.Rebuild(); err != nil {
+		return fail(err, "erro no rebuild de %s", name)
 	}
 
 	if err := m.markRebuildComplete(name); err != nil {
