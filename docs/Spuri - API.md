@@ -22,10 +22,8 @@ Versão atua: 1.0.1
 15. [[#15. Admins]]
 16. [[#16. Consultas Gerais]]
 17. [[#17. Jobs Assíncronos]]
-18. [[#18. Batch Síncrono — Academia]]
-19. [[#19. Batch Síncrono — Admin]]
-20. [[#20. Batch Assíncrono — Academia]]
-21. [[#21. Batch Assíncrono — Admin]]
+18. [[#18. Batch Assíncrono — Academia]]
+19. [[#19. Batch Assíncrono — Admin]]
 
 ---
 
@@ -374,21 +372,15 @@ interface JobItemResult {
 
 ---
 
-### 2.13 Resposta de Batch Síncrono
+### 2.13 Resposta de Criação de Job Batch Assíncrono
 
 ```typescript
-interface BatchResponse {
-  total: number
-  sucesso: number
-  falhas: number
-  items: BatchItemResult[]
-}
-
-interface BatchItemResult {
-  index: number
-  sucesso: boolean
-  dados?: any
-  erro?: string
+interface AsyncBatchAcceptedResponse {
+  message: string
+  job_id: string
+  total_items: number
+  status: JobStatus
+  poll_url: string
 }
 ```
 
@@ -2681,227 +2673,7 @@ Retorna o status de um job específico.
 
 ---
 
-## 18. Batch Síncrono — Academia
-
-Todos os endpoints batch retornam `BatchResponse`. O HTTP status depende do resultado:
-
-- `200` — todos com sucesso
-- `207` — sucesso parcial
-- `422` — todos falharam
-
-### POST /academia/estudante/register/batch
-
-**Limite**: 100 itens | **Body**: array de requests de cadastro de estudante
-
----
-
-### POST /academia/notas-aluno/batch
-
-**Limite**: 200 itens | **Body**: array de requests de nota
-
----
-
-### PUT /academia/atualizar-nota/batch
-
-**Limite**: 200 itens
-
-**Body:**
-
-```json
-[
-  { "id": "uuid", "nota_nova": 15.0, "observacao": "string" }
-]
-```
-
----
-
-### DELETE /academia/nota/batch
-
-**Limite**: 200 itens
-
-**Body:**
-
-```json
-[
-  { "id": "uuid", "motivo": "string" }
-]
-```
-
----
-
-### POST /academia/faltas-aluno/batch
-
-**Limite**: 200 itens | **Body**: array de requests de falta
-
----
-
-### PUT /academia/atualizar-falta/batch
-
-**Limite**: 200 itens | **Body**: array de updates de falta
-
----
-
-### DELETE /academia/falta/batch
-
-**Limite**: 200 itens
-
-**Body:**
-
-```json
-[{ "id": "uuid", "motivo": "string" }]
-```
-
----
-
-### POST /academia/avaliacao-final/batch
-
-**Limite**: 100 itens | **Body**: array de requests de avaliação final
-
----
-
-### PUT /academia/estudante/status-escolar/batch
-
-**Limite**: 100 itens
-
-**Body:**
-
-```json
-[
-  {
-    "codigo_estudante": "ABC1234",
-    "tipo": "fundamental",
-    "novo_status": "em_andamento"
-  }
-]
-```
-
----
-
-### POST /academia/curso/batch
-
-**Limite**: 50 itens | **Body**: array de requests de curso
-
----
-
-### PUT /academia/curso/ativar/batch
-
-**Limite**: 50 itens | **Body**: `[{ "id": "uuid" }]`
-
----
-
-### PUT /academia/curso/desativar/batch
-
-**Limite**: 50 itens | **Body**: `[{ "id": "uuid" }]`
-
----
-
-### DELETE /academia/curso/batch
-
-**Limite**: 50 itens | **Body**: `[{ "id": "uuid", "motivo": "string" }]`
-
----
-
-### POST /academia/materia/batch
-
-**Limite**: 100 itens | **Body**: array de requests de matéria
-
----
-
-### PUT /academia/materia/ativar/batch
-
-**Limite**: 100 itens | **Body**: `[{ "id": "uuid" }]`
-
----
-
-### PUT /academia/materia/desativar/batch
-
-**Limite**: 100 itens | **Body**: `[{ "id": "uuid" }]`
-
----
-
-### DELETE /academia/materia/batch
-
-**Limite**: 100 itens | **Body**: `[{ "id": "uuid" }]`
-
----
-
-### POST /academia/turma/batch
-
-**Limite**: 50 itens | **Body**: array de requests de turma
-
----
-
-### PUT /academia/turma/ativar/batch
-
-**Limite**: 50 itens | **Body**: `[{ "codigo": "T1A" }]`
-
----
-
-### PUT /academia/turma/desativar/batch
-
-**Limite**: 50 itens | **Body**: `[{ "codigo": "T1A" }]`
-
----
-
-### DELETE /academia/turma/batch
-
-**Limite**: 50 itens | **Body**: `[{ "codigo": "T1A", "motivo": "string" }]`
-
----
-
-### POST /academia/turma/estudante/batch
-
-**Limite**: 100 itens
-
-**Body:**
-
-```json
-[
-  { "codigo_turma": "T1A", "codigo_estudante": "ABC1234" }
-]
-```
-
----
-
-### DELETE /academia/turma/estudante/batch
-
-**Limite**: 100 itens
-
-**Body:**
-
-```json
-[
-  { "codigo_turma": "T1A", "codigo_estudante": "ABC1234" }
-]
-```
-
----
-
-## 19. Batch Síncrono — Admin
-
-### POST /dominis/academia/register/batch
-
-**Proteção**: autenticado + admin | **Limite**: 50 itens | **Body**: array de requests de academia
-
----
-
-### PUT /dominis/academia/ativar/batch
-
-**Proteção**: autenticado + admin role `adm` ou `fpp` | **Limite**: 50 itens
-
-**Body:** `[{ "codigo": "LDA20261" }]`
-
----
-
-### PUT /dominis/academia/desativar/batch
-
-**Proteção**: autenticado + admin role `adm` ou `fpp` | **Limite**: 50 itens
-
-**Body:** `[{ "codigo": "LDA20261", "motivo": "string" }]`
-
----
-
-## 20. Batch Assíncrono — Academia
+## 18. Batch Assíncrono — Academia
 
 Todos criam um job e retornam `202 Accepted`. Usar `GET /jobs/:id` para acompanhar.
 
@@ -2917,25 +2689,25 @@ Todos criam um job e retornam `202 Accepted`. Usar `GET /jobs/:id` para acompanh
 }
 ```
 
-|Endpoint|Limite|Equivalente síncrono|
-|---|---|---|
-|`POST /academia/estudante/register/async`|1000|`/batch`|
-|`POST /academia/notas-aluno/async`|2000|`/batch`|
-|`PUT /academia/atualizar-nota/async`|2000|`/batch`|
-|`DELETE /academia/nota/async`|2000|`/batch`|
-|`POST /academia/faltas-aluno/async`|2000|`/batch`|
-|`PUT /academia/atualizar-falta/async`|2000|`/batch`|
-|`DELETE /academia/falta/async`|2000|`/batch`|
-|`POST /academia/avaliacao-final/async`|1000|`/batch`|
-|`PUT /academia/estudante/status-escolar/async`|1000|`/batch`|
-|`POST /academia/curso/async`|200|`/batch`|
-|`POST /academia/materia/async`|500|`/batch`|
-|`POST /academia/turma/async`|200|`/batch`|
-|`POST /academia/turma/estudante/async`|1000|`/batch`|
+|Endpoint|Limite|
+|---|---|
+|`POST /academia/estudante/register/async`|1000|
+|`POST /academia/notas-aluno/async`|2000|
+|`PUT /academia/atualizar-nota/async`|2000|
+|`DELETE /academia/nota/async`|2000|
+|`POST /academia/faltas-aluno/async`|2000|
+|`PUT /academia/atualizar-falta/async`|2000|
+|`DELETE /academia/falta/async`|2000|
+|`POST /academia/avaliacao-final/async`|1000|
+|`PUT /academia/estudante/status-escolar/async`|1000|
+|`POST /academia/curso/async`|200|
+|`POST /academia/materia/async`|500|
+|`POST /academia/turma/async`|200|
+|`POST /academia/turma/estudante/async`|1000|
 
 ---
 
-## 21. Batch Assíncrono — Admin
+## 19. Batch Assíncrono — Admin
 
 |Endpoint|Proteção|Limite|
 |---|---|---|
