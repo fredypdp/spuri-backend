@@ -1,8 +1,8 @@
 ---
-modificado: 05-04-2026 15:03
+modificado: 05-04-2026 15:25
 criado: 05-04-2026 13:01
 ---
-Versão atua: 1.0.1
+Versão atua: 1.0.2
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -681,7 +681,7 @@ POST /dominis/projections/rebuild/:name
 Para operações em lote com muitos itens, o sistema oferece endpoints `/async` que criam um **job em background**:
 
 ```
-POST /academia/notas-aluno/async  →  { "job_id": "uuid", "status": "queued" }
+POST /academia/notas-aluno/async  →  { "job_id": "uuid", "status": "pending" }
 GET  /jobs/:id                    →  { "status": "done", "progress": 100, ... }
 ```
 
@@ -868,51 +868,11 @@ Apenas eventos previamente autorizados podem ser gravados no ledger (`safe_queri
 
 ## 9. Operações em Lote
 
-### 9.1 Batch Síncrono
-
-Endpoints `/batch` processam múltiplos itens em uma requisição, respondendo na mesma chamada.
-
-**Sem atomicidade**: cada item é processado independentemente. Se o item 3 falhar, os itens 1 e 2 já foram gravados no ledger.
-
-**Respostas:**
-
-|Situação|HTTP|
-|---|---|
-|Todos os itens com sucesso|`200 OK`|
-|Sucesso parcial|`207 Multi-Status`|
-|Todos os itens falharam|`422 Unprocessable Entity`|
-
-**Formato da resposta:**
-
-```json
-{
-  "total": 3,
-  "sucesso": 2,
-  "falhas": 1,
-  "items": [
-    { "index": 0, "sucesso": true, "dados": { ... } },
-    { "index": 1, "sucesso": true, "dados": { ... } },
-    { "index": 2, "sucesso": false, "erro": "estudante não pertence a esta academia" }
-  ]
-}
-```
-
-**Limites por endpoint:**
-
-|Operação|Limite|
-|---|---|
-|Cadastro de estudantes|100|
-|Notas e faltas|200|
-|Avaliações finais|100|
-|Cursos e matérias|50-100|
-|Turmas|50|
-|Academias (admin)|50|
-
-### 9.2 Batch Assíncrono
+### 9.1 Batch Assíncrono
 
 Endpoints `/async` criam um job e retornam imediatamente. O processamento ocorre em background.
 
-**Limites:** até 1000-2000 itens (maiores que batch síncrono).
+**Limites:** até 1000-2000 itens (dependendo do endpoint).
 
 **Fluxo:**
 
