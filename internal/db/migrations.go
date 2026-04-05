@@ -177,12 +177,11 @@ func (c *Client) tableExists(tableName string) (bool, error) {
 	if err := ValidateTableName(tableName); err != nil {
 		return false, err
 	}
-	safeName := SafeString(tableName)
-	query := fmt.Sprintf(`
+	query := `
 		SELECT COUNT(*) FROM information_schema.tables
-		WHERE table_schema = 'public' AND table_name = '%s'`, safeName)
+		WHERE table_schema = 'public' AND table_name = $1`
 	var count int
-	err := c.db.QueryRow(query).Scan(&count)
+	err := c.db.QueryRow(query, tableName).Scan(&count)
 	return count > 0, err
 }
 
