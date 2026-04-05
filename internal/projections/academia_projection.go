@@ -504,13 +504,14 @@ func (p *AcademiaProjection) handleAcademiaDadosAtualizados(event db.Event) erro
 		return fmt.Errorf("handleAcademiaDadosAtualizados: parse error: %w", err)
 	}
 
+	argIdx := 1
 	setClauses := []string{
 		"updated_at = CURRENT_TIMESTAMP",
-		fmt.Sprintf("version = %d", event.EventVersion),
-		fmt.Sprintf("last_event_id = '%s'", event.EventID),
+		fmt.Sprintf("version = $%d", argIdx),
+		fmt.Sprintf("last_event_id = $%d", argIdx+1),
 	}
-	args := []interface{}{}
-	argIdx := 1
+	args := []interface{}{event.EventVersion, event.EventID}
+	argIdx = 3
 
 	if payload.Nome != nil {
 		setClauses = append(setClauses, fmt.Sprintf("nome = $%d", argIdx))

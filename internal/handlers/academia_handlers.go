@@ -43,6 +43,17 @@ type RegisterAcademiaRequest struct {
 func RegisterAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
+	adminProj := getAdminProjection(c)
+	executorAdmin, err := adminProj.GetByID(userID)
+	if err != nil || executorAdmin == nil {
+		utils.RespondWithForbiddenError(c, "administrador executor não encontrado")
+		return
+	}
+	if executorAdmin.Role != "fpp" {
+		utils.RespondWithForbiddenError(c, "apenas admin com role 'fpp' pode cadastrar academias")
+		return
+	}
+
 	var req RegisterAcademiaRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: type, nome, provincia e endereco"))

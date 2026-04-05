@@ -174,9 +174,14 @@ func Login(c *gin.Context) {
 
 	// Resposta deliberadamente genérica: não revela qual campo estava errado
 	// nem qual tipo de usuário foi (ou não) encontrado.
-	if !userFound || bcryptErr != nil {
-		log.Printf("[INFO] [Login] Falha — usuario: %s, found: %v", req.Usuario, userFound)
-		utils.RespondWithUnauthorizedError(c)
+	if !userFound {
+		log.Printf("[INFO] [Login] Usuário não encontrado: %s", req.Usuario)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "usuário não encontrado"})
+		return
+	}
+	if bcryptErr != nil {
+		log.Printf("[INFO] [Login] Senha incorreta para usuário: %s", req.Usuario)
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "senha incorreta"})
 		return
 	}
 

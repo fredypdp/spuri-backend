@@ -40,6 +40,10 @@ func RegisterAdmin(c *gin.Context) {
 		utils.RespondWithForbiddenError(c, "Administrador não encontrado")
 		return
 	}
+	if creatorAdmin.Role != "fpp" {
+		utils.RespondWithForbiddenError(c, "apenas admin com role 'fpp' pode criar administradores")
+		return
+	}
 
 	repository := getRepository(c)
 	creatorAgg, err := repository.Load(userID, "Admin")
@@ -431,7 +435,7 @@ func AtualizarRoleAdmin(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	
+
 	registrarAcaoAdmin(c, userID, "admin_role_atualizado", map[string]interface{}{
 		"target_admin_id": adminID.String(),
 		"target_email":    admin.Email,
@@ -471,7 +475,7 @@ func AtualizarDadosAdmin(c *gin.Context) {
 	}
 
 	adminProj := getAdminProjection(c)
-	
+
 	if req.Email != nil {
 		existing, _ := adminProj.GetByEmail(*req.Email)
 		if existing != nil && existing.ID != adminID {
