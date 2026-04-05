@@ -355,8 +355,8 @@ func setupRouter() *gin.Engine {
 	admin.Use(middleware.AuthMiddleware())
 	admin.Use(middleware.RequireAdmin())
 	{
-		admin.POST("/register", handlers.RegisterAdmin)
-		admin.POST("/academia/register", handlers.RegisterAcademia)
+		admin.POST("/register", middleware.RequireFPP(), handlers.RegisterAdmin)
+		admin.POST("/academia/register", middleware.RequireFPP(), handlers.RegisterAcademia)
 		admin.PUT("/academia/:codigo/ativar", middleware.RequireAdm(), handlers.AtivarAcademia)
 		admin.PUT("/academia/:codigo/desativar", middleware.RequireAdm(), handlers.DesativarAcademia)
 		admin.PUT("/admin/:id/ativar", middleware.RequireAdm(), handlers.AtivarAdmin)
@@ -371,12 +371,12 @@ func setupRouter() *gin.Engine {
 		admin.PUT("/admin/:id/dados", handlers.AtualizarDadosAdmin)
 
 		// ── Batch síncronos (admin) ────────────────────────────────────────
-		admin.POST("/academia/register/batch", handlers.RegisterAcademiaBatch)
+		admin.POST("/academia/register/batch", middleware.RequireFPP(), handlers.RegisterAcademiaBatch)
 		admin.PUT("/academia/ativar/batch", middleware.RequireAdm(), handlers.AtivarAcademiaBatch)
 		admin.PUT("/academia/desativar/batch", middleware.RequireAdm(), handlers.DesativarAcademiaBatch)
 
 		// ── Async (admin) ─────────────────────────────────────────────────
-		admin.POST("/academia/register/async", handlers.RegisterAcademiaBatchAsync)
+		admin.POST("/academia/register/async", middleware.RequireFPP(), handlers.RegisterAcademiaBatchAsync)
 		admin.PUT("/academia/ativar/async", middleware.RequireAdm(), handlers.AtivarAcademiaBatchAsync)
 		admin.PUT("/academia/desativar/async", middleware.RequireAdm(), handlers.DesativarAcademiaBatchAsync)
 	}
