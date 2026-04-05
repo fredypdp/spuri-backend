@@ -358,5 +358,9 @@ func nullOrString2(b []byte) string {
 	if len(b) == 0 || string(b) == "null" {
 		return "NULL"
 	}
-	return fmt.Sprintf("'%s'", db.SafeString(string(b)))
+	value := string(b)
+	if !db.SafeString(value) {
+		return "NULL"
+	}
+	return fmt.Sprintf("'%s'", value)
 }
