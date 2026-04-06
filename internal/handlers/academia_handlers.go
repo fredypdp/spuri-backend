@@ -408,8 +408,15 @@ func ListarTodasAcademias(c *gin.Context) {
 	const baseSelect = `
 		SELECT id, type, nome, codigo_academia, provincia, endereco,
 		       numero_telefone, email, website, nivel_escolar, status,
-		       cursos, email_verificado, created_at, updated_at, total_estudantes, version
-		FROM projection_academias`
+		       cursos, email_verificado, created_at, updated_at,
+		       COALESCE(est_count.total_estudantes, 0) AS total_estudantes,
+		       version
+		FROM projection_academias pa
+		LEFT JOIN (
+			SELECT codigo_academia, COUNT(*)::INT AS total_estudantes
+			FROM projection_estudantes
+			GROUP BY codigo_academia
+		) est_count ON est_count.codigo_academia = pa.codigo_academia`
 
 	var (
 		rows *sql.Rows
@@ -420,12 +427,12 @@ func ListarTodasAcademias(c *gin.Context) {
 	switch statusFilter {
 	case "ativo", "inativo":
 		rows, err = client.DB().Query(
-			baseSelect+` WHERE status = $1 ORDER BY nome ASC LIMIT $2 OFFSET $3`,
+			baseSelect+` WHERE pa.status = $1 ORDER BY pa.nome ASC LIMIT $2 OFFSET $3`,
 			statusFilter, limit, offset,
 		)
 	default:
 		rows, err = client.DB().Query(
-			baseSelect+` ORDER BY nome ASC LIMIT $1 OFFSET $2`,
+			baseSelect+` ORDER BY pa.nome ASC LIMIT $1 OFFSET $2`,
 			limit, offset,
 		)
 	}
