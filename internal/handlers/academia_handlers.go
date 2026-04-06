@@ -406,11 +406,11 @@ func ListarTodasAcademias(c *gin.Context) {
 	offset = db.ValidateOffset(offset)
 
 	const baseSelect = `
-		SELECT id, type, nome, codigo_academia, provincia, endereco,
-		       numero_telefone, email, website, nivel_escolar, status,
-		       cursos, email_verificado, created_at, updated_at,
+		SELECT pa.id, pa.type, pa.nome, pa.codigo_academia, pa.provincia, pa.endereco,
+		       pa.numero_telefone, pa.email, pa.website, pa.nivel_escolar, pa.status,
+		       pa.cursos, pa.email_verificado, pa.created_at, pa.updated_at,
 		       COALESCE(est_count.total_estudantes, 0) AS total_estudantes,
-		       version
+		       pa.version
 		FROM projection_academias pa
 		LEFT JOIN (
 			SELECT codigo_academia, COUNT(*)::INT AS total_estudantes
