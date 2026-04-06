@@ -27,6 +27,7 @@ var (
 	projManager *projections.Manager
 	jobStore    *jobs.Store
 	jobWorker   *jobs.Worker
+	jobNotifier *jobs.Notifier
 )
 
 // requestIDPattern define os caracteres permitidos num X-Request-ID externo.
@@ -118,6 +119,7 @@ func initProjections() error {
 // setupCtx injeta todas as dependências que os handlers individuais precisam.
 func initJobs(ctx context.Context) {
 	jobStore = jobs.NewStore(dbClient.DB())
+	jobNotifier = jobs.NewNotifier()
 
 	setupCtx := func(c *gin.Context, userID uuid.UUID, userType string) {
 		c.Set("user_id", userID)
@@ -126,10 +128,11 @@ func initJobs(ctx context.Context) {
 		c.Set("repository", repository)
 		c.Set("projManager", projManager)
 		c.Set("jobStore", jobStore)
+		c.Set("jobNotifier", jobNotifier)
 	}
 
 	// 4 goroutines paralelas — ajustar conforme recursos do servidor
-	jobWorker = jobs.NewWorker(jobStore, setupCtx, 4)
+	jobWorker = jobs.NewWorker(jobStore, jobNotifier, setupCtx, 4)
 
 	// ── Handlers de job por tipo ──────────────────────────────────────────
 	jobWorker.RegisterHandler(jobs.JobTypeRegisterAcademiaBatch, handlers.RegisterAcademia)
@@ -185,6 +188,7 @@ func setupRouter() *gin.Engine {
 		c.Set("projManager", projManager)
 		c.Set("jobStore", jobStore)
 		c.Set("jobWorker", jobWorker)
+		c.Set("jobNotifier", jobNotifier)
 		c.Next()
 	})
 
@@ -213,6 +217,7 @@ func setupRouter() *gin.Engine {
 	jobRoutes.Use(middleware.AuthMiddleware())
 	{
 		jobRoutes.GET("", handlers.ListJobs)
+		jobRoutes.GET("/stream", handlers.StreamJobs)
 		jobRoutes.GET("/:id", handlers.GetJob)
 	}
 

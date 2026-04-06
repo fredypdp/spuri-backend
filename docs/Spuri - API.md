@@ -1,8 +1,8 @@
 ---
-modificado: 05-04-2026 15:25
+modificado: 06-04-2026 17:05
 criado: 05-04-2026 13:01
 ---
-Versão atua: 1.0.2
+Versão atua: 1.1.0
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -95,6 +95,7 @@ type MateriaType = 'fundamental' | 'medio' | 'superior'
 type Genero = 'masculino' | 'feminino'
 type TipoNota = 'escolar' | 'superior'
 type JobStatus = 'pending' | 'processing' | 'done' | 'failed'
+type JobEventType = 'job_enqueued' | 'job_progress' | 'job_done' | 'job_failed'
 ```
 
 **Períodos de nota:**
@@ -2514,7 +2515,7 @@ Reconstrói uma projeção do zero a partir do ledger.
 **Erros:**
 
 - `404` — projeção não encontrada
-- `500` — integridade do ledger comprometida (rebuild abortado)
+- `500` — integridade do ledger comprometida (rebuild abortado), com motivo detalhado no campo `message`
 
 ---
 
@@ -2671,11 +2672,48 @@ Retorna o status de um job específico.
 }
 ```
 
+**Observações importantes:**
+
+- `results[i].payload` contém o item original enviado no batch.
+- Em falha parcial, `job.error` sempre contém o motivo consolidado (com amostras de itens com erro).
+
+---
+
+### GET /jobs/stream
+
+Canal de notificações em tempo real via **Server-Sent Events (SSE)**.
+
+**Proteção**: autenticado (qualquer tipo)
+
+**Headers:**
+
+```
+Authorization: Bearer <jwt_token>
+Accept: text/event-stream
+```
+
+**Eventos enviados:**
+
+- `job_enqueued`
+- `job_progress`
+- `job_done`
+- `job_failed`
+
+**Exemplo:**
+
+```text
+event: job_progress
+data: {"type":"job_progress","job_id":"uuid","job_type":"register_estudante_batch","status":"processing","progress":56,"done_items":560,"fail_items":0,"total_items":1000}
+```
+
+**Heartbeat:** o servidor envia `: ping` periodicamente para manter a conexão ativa.
+
 ---
 
 ## 18. Batch Assíncrono — Academia
 
 Todos criam um job e retornam `202 Accepted`. Usar `GET /jobs/:id` para acompanhar.
+Para notificações push, abrir `GET /jobs/stream`.
 
 **Response 202:**
 

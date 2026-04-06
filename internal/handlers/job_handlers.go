@@ -1,10 +1,14 @@
 package handlers
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"spuri/internal/jobs"
 	"spuri/internal/middleware"
 	"spuri/internal/utils"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -37,6 +41,15 @@ func getJobWorker(c *gin.Context) *jobs.Worker {
 	}
 	w, _ := raw.(*jobs.Worker)
 	return w
+}
+
+func getJobNotifier(c *gin.Context) *jobs.Notifier {
+	raw, exists := c.Get("jobNotifier")
+	if !exists {
+		return nil
+	}
+	n, _ := raw.(*jobs.Notifier)
+	return n
 }
 
 // ============================================================================
@@ -114,5 +127,45 @@ func ListJobs(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"jobs":  summaries,
 		"total": len(summaries),
+	})
+}
+
+// StreamJobs abre um canal SSE com notificações em tempo real de jobs do usuário.
+// Endpoint: GET /jobs/stream
+func StreamJobs(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	notifier := getJobNotifier(c)
+	if notifier == nil {
+		utils.RespondWithInternalError(c, fmt.Errorf("notifier de jobs não disponível"))
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+
+	events := notifier.Subscribe(userID)
+	defer notifier.Unsubscribe(userID, events)
+
+	heartbeat := time.NewTicker(20 * time.Second)
+	defer heartbeat.Stop()
+
+	c.Stream(func(w io.Writer) bool {
+		select {
+		case <-c.Request.Context().Done():
+			return false
+		case <-heartbeat.C:
+			c.Writer.WriteString(": ping\n\n")
+			return true
+		case ev, ok := <-events:
+			if !ok {
+				return false
+			}
+			payload, _ := json.Marshal(ev)
+			c.Writer.WriteString("event: " + string(ev.Type) + "\n")
+			c.Writer.WriteString("data: " + string(payload) + "\n\n")
+			return true
+		}
 	})
 }

@@ -39,7 +39,7 @@ func RebuildProjection(c *gin.Context) {
 			"erro":       err.Error(),
 		})
 
-		utils.RespondWithInternalError(c, err)
+		utils.RespondWithError(c, http.StatusInternalServerError, err.Error(), err)
 		return
 	}
 

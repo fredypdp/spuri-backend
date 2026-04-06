@@ -9,6 +9,8 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -25,25 +27,30 @@ type ContextSetupFunc func(c *gin.Context, userID uuid.UUID, userType string)
 // Worker processa jobs de uma fila em background.
 type Worker struct {
 	store        *Store
+	notifier     *Notifier
 	setupCtx     ContextSetupFunc
 	handlers     map[JobType]HandlerFunc
 	queue        chan *Job
 	concurrency  int
 	stopCh       chan struct{}
+	inFlightMu   sync.Mutex
+	inFlightJobs map[uuid.UUID]struct{}
 }
 
 // NewWorker cria um worker com o número de goroutines especificado.
-func NewWorker(store *Store, setupCtx ContextSetupFunc, concurrency int) *Worker {
+func NewWorker(store *Store, notifier *Notifier, setupCtx ContextSetupFunc, concurrency int) *Worker {
 	if concurrency <= 0 {
 		concurrency = 3
 	}
 	return &Worker{
-		store:       store,
-		setupCtx:    setupCtx,
-		handlers:    make(map[JobType]HandlerFunc),
-		queue:       make(chan *Job, 500),
-		concurrency: concurrency,
-		stopCh:      make(chan struct{}),
+		store:        store,
+		notifier:     notifier,
+		setupCtx:     setupCtx,
+		handlers:     make(map[JobType]HandlerFunc),
+		queue:        make(chan *Job, 500),
+		concurrency:  concurrency,
+		stopCh:       make(chan struct{}),
+		inFlightJobs: make(map[uuid.UUID]struct{}),
 	}
 }
 
@@ -56,9 +63,13 @@ func (w *Worker) RegisterHandler(jobType JobType, h HandlerFunc) {
 // É não-bloqueante: se a fila estiver cheia, o job ainda está no banco e será
 // recuperado pelo próximo ciclo de varredura.
 func (w *Worker) Enqueue(j *Job) {
+	if !w.markInFlight(j.ID) {
+		return
+	}
 	select {
 	case w.queue <- j:
 	default:
+		w.unmarkInFlight(j.ID)
 		log.Printf("[worker] WARN: fila cheia, job %s será processado na próxima varredura", j.ID)
 	}
 }
@@ -102,9 +113,15 @@ func (w *Worker) sweepPending(ctx context.Context) {
 		case <-w.stopCh:
 			return
 		case <-ticker.C:
-			// Recarregar jobs pending que podem ter ficado presos
-			// (simplificado: apenas log — jobs são enfileirados no Enqueue do handler)
-			log.Printf("[worker] varredura de jobs pendentes — fila: %d", len(w.queue))
+			active, err := w.store.ListActive(500)
+			if err != nil {
+				log.Printf("[worker] WARN: erro na varredura de jobs ativos: %v", err)
+				continue
+			}
+			for _, j := range active {
+				w.Enqueue(j)
+			}
+			log.Printf("[worker] varredura de jobs ativos — ativos=%d fila=%d", len(active), len(w.queue))
 		}
 	}
 }
@@ -126,11 +143,23 @@ func (w *Worker) cleanupLoop(ctx context.Context) {
 
 // process executa um job item a item, reportando resultados parciais.
 func (w *Worker) process(j *Job) {
+	defer w.unmarkInFlight(j.ID)
+
+	latest, err := w.store.Get(j.ID)
+	if err == nil && latest != nil {
+		j = latest
+	}
+	if j.IsDone() {
+		return
+	}
+
 	log.Printf("[worker] iniciando job %s type=%s items=%d", j.ID, j.Type, j.TotalItems)
 
 	if err := w.store.UpdateStatus(j.ID, StatusProcessing, ""); err != nil {
 		log.Printf("[worker] ERR: UpdateStatus processing %s: %v", j.ID, err)
 	}
+	j.Status = StatusProcessing
+	w.publishProgress(j, EventJobProgress)
 
 	h, ok := w.handlers[j.Type]
 	if !ok {
@@ -151,25 +180,94 @@ func (w *Worker) process(j *Job) {
 	}
 
 	for idx, rawItem := range rawItems {
+		if idx < (j.DoneItems + j.FailItems) {
+			continue // retoma do ponto salvo
+		}
 		result := w.processItem(h, j, idx, rawItem)
 		if err := w.store.AppendResult(j.ID, result); err != nil {
 			log.Printf("[worker] WARN: AppendResult idx=%d job=%s: %v", idx, j.ID, err)
 		}
+		if latest, err := w.store.Get(j.ID); err == nil && latest != nil {
+			j = latest
+		}
+		w.publishProgress(j, EventJobProgress)
 	}
 
 	// Se qualquer item falhar, o job inteiro deve refletir falha.
 	// Antes, jobs com falha parcial ficavam como "done", o que fazia
 	// a API reportar sucesso mesmo quando apenas parte do batch foi aplicada.
 	finalStatus := StatusDone
+	finalError := ""
 	if j.FailItems > 0 {
 		finalStatus = StatusFailed
+		finalError = w.buildFailureReason(j)
 	}
 
-	if err := w.store.UpdateStatus(j.ID, finalStatus, ""); err != nil {
+	if err := w.store.UpdateStatus(j.ID, finalStatus, finalError); err != nil {
 		log.Printf("[worker] ERR: UpdateStatus final %s: %v", j.ID, err)
+	}
+	j.Status = finalStatus
+	j.Error = finalError
+	if finalStatus == StatusDone {
+		w.publishProgress(j, EventJobDone)
+	} else {
+		w.publishProgress(j, EventJobFailed)
 	}
 
 	log.Printf("[worker] job %s concluído: ok=%d fail=%d", j.ID, j.DoneItems, j.FailItems)
+}
+
+func (w *Worker) buildFailureReason(j *Job) string {
+	if j.FailItems == 0 {
+		return ""
+	}
+	samples := make([]string, 0, 3)
+	for _, r := range j.Results {
+		if r.Sucesso || r.Erro == "" {
+			continue
+		}
+		samples = append(samples, fmt.Sprintf("item[%d]: %s", r.Index, r.Erro))
+		if len(samples) == 3 {
+			break
+		}
+	}
+	if len(samples) == 0 {
+		return fmt.Sprintf("job concluído com %d falha(s)", j.FailItems)
+	}
+	return fmt.Sprintf("job concluído com %d falha(s): %s", j.FailItems, strings.Join(samples, " | "))
+}
+
+func (w *Worker) markInFlight(jobID uuid.UUID) bool {
+	w.inFlightMu.Lock()
+	defer w.inFlightMu.Unlock()
+	if _, exists := w.inFlightJobs[jobID]; exists {
+		return false
+	}
+	w.inFlightJobs[jobID] = struct{}{}
+	return true
+}
+
+func (w *Worker) unmarkInFlight(jobID uuid.UUID) {
+	w.inFlightMu.Lock()
+	defer w.inFlightMu.Unlock()
+	delete(w.inFlightJobs, jobID)
+}
+
+func (w *Worker) publishProgress(j *Job, eventType EventType) {
+	if w.notifier == nil {
+		return
+	}
+	w.notifier.Publish(j.UserID, Event{
+		Type:       eventType,
+		JobID:      j.ID,
+		JobType:    j.Type,
+		Status:     j.Status,
+		Progress:   j.Progress(),
+		DoneItems:  j.DoneItems,
+		FailItems:  j.FailItems,
+		TotalItems: j.TotalItems,
+		Error:      j.Error,
+	})
 }
 
 // processItem executa o handler Gin em modo sintético para um único item.
@@ -181,7 +279,7 @@ func (w *Worker) processItem(h HandlerFunc, j *Job, idx int, rawItem json.RawMes
 	// Criar request sintético
 	req, err := http.NewRequest(http.MethodPost, "/", io.NopCloser(bytes.NewReader(rawItem)))
 	if err != nil {
-		return ItemResult{Index: idx, Sucesso: false, Erro: fmt.Sprintf("criar request: %v", err)}
+		return ItemResult{Index: idx, Sucesso: false, Payload: rawItem, Erro: fmt.Sprintf("criar request: %v", err)}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.ContentLength = int64(len(rawItem))
@@ -204,7 +302,7 @@ func (w *Worker) processItem(h HandlerFunc, j *Job, idx int, rawItem json.RawMes
 		if len(body) > 0 {
 			dados = json.RawMessage(body)
 		}
-		return ItemResult{Index: idx, Sucesso: true, Dados: dados}
+		return ItemResult{Index: idx, Sucesso: true, Payload: rawItem, Dados: dados}
 	}
 
 	// Extrair mensagem de erro
@@ -223,5 +321,5 @@ func (w *Worker) processItem(h HandlerFunc, j *Job, idx int, rawItem json.RawMes
 		msg = http.StatusText(code)
 	}
 
-	return ItemResult{Index: idx, Sucesso: false, Erro: msg}
+	return ItemResult{Index: idx, Sucesso: false, Payload: rawItem, Erro: msg}
 }
