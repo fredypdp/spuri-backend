@@ -55,6 +55,18 @@ func enqueueAsyncBatch(c *gin.Context, jobType jobs.JobType, maxItems int) {
 	if w := getJobWorker(c); w != nil {
 		w.Enqueue(j)
 	}
+	if n := getJobNotifier(c); n != nil {
+		n.Publish(userID, jobs.Event{
+			Type:       jobs.EventJobEnqueued,
+			JobID:      j.ID,
+			JobType:    j.Type,
+			Status:     j.Status,
+			Progress:   j.Progress(),
+			DoneItems:  j.DoneItems,
+			FailItems:  j.FailItems,
+			TotalItems: j.TotalItems,
+		})
+	}
 
 	c.JSON(http.StatusAccepted, gin.H{
 		"message":     "job criado com sucesso — use GET /jobs/:id para acompanhar o progresso",

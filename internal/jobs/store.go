@@ -84,6 +84,38 @@ func (s *Store) GetByUser(userID uuid.UUID) ([]*Job, error) {
 	return scanJobs(rows)
 }
 
+// ListActive retorna jobs pendentes/em processamento para recuperação.
+func (s *Store) ListActive(limit int) ([]*Job, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := s.db.Query(`
+		SELECT id, type, status, user_id, user_type,
+		       payload, results, total_items, done_items, fail_items,
+		       error, created_at, started_at, completed_at
+		FROM async_jobs
+		WHERE status IN ('pending','processing')
+		ORDER BY created_at ASC
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("store.ListActive: %w", err)
+	}
+	defer rows.Close()
+
+	jobList, err := scanJobs(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	for _, j := range jobList {
+		s.cache[j.ID] = j
+	}
+	s.mu.Unlock()
+	return jobList, nil
+}
+
 // UpdateStatus atualiza o status de um job (thread-safe).
 func (s *Store) UpdateStatus(id uuid.UUID, status Status, errMsg string) error {
 	s.mu.Lock()
@@ -129,12 +161,9 @@ func (s *Store) AppendResult(id uuid.UUID, item ItemResult) error {
 		j.FailItems++
 	}
 
-	// Persistir a cada 10 itens ou no último
-	processed := j.DoneItems + j.FailItems
-	if processed%10 == 0 || processed == j.TotalItems {
-		if err := s.persist(j); err != nil {
-			log.Printf("[jobs] WARN: persist parcial falhou para %s: %v", id, err)
-		}
+	// Persistir todo item para retomada resiliente após restart/crash.
+	if err := s.persist(j); err != nil {
+		log.Printf("[jobs] WARN: persist parcial falhou para %s: %v", id, err)
 	}
 	return nil
 }

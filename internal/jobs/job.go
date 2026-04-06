@@ -43,6 +43,7 @@ const (
 type ItemResult struct {
 	Index   int             `json:"index"`
 	Sucesso bool            `json:"sucesso"`
+	Payload json.RawMessage `json:"payload,omitempty"`
 	Dados   json.RawMessage `json:"dados,omitempty"`
 	Erro    string          `json:"erro,omitempty"`
 }
@@ -54,12 +55,12 @@ type Job struct {
 	Status      Status          `json:"status"`
 	UserID      uuid.UUID       `json:"user_id"`
 	UserType    string          `json:"user_type"`
-	Payload     json.RawMessage `json:"payload"`          // input serializado
-	Results     []ItemResult    `json:"results"`          // resultados parciais/finais
+	Payload     json.RawMessage `json:"payload"` // input serializado
+	Results     []ItemResult    `json:"results"` // resultados parciais/finais
 	TotalItems  int             `json:"total_items"`
 	DoneItems   int             `json:"done_items"`
 	FailItems   int             `json:"fail_items"`
-	Error       string          `json:"error,omitempty"`  // erro fatal (não por item)
+	Error       string          `json:"error,omitempty"` // erro fatal (não por item)
 	CreatedAt   time.Time       `json:"created_at"`
 	StartedAt   *time.Time      `json:"started_at,omitempty"`
 	CompletedAt *time.Time      `json:"completed_at,omitempty"`

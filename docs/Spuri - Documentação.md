@@ -1,8 +1,8 @@
 ---
-modificado: 05-04-2026 15:25
+modificado: 06-04-2026 17:05
 criado: 05-04-2026 13:01
 ---
-Versão atua: 1.0.2
+Versão atua: 1.1.0
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -693,6 +693,18 @@ GET  /jobs/:id                    →  { "status": "done", "progress": 100, ... 
 
 Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que o cliente identifique e retente apenas os itens com falha.
 
+**Persistência resiliente de payload e progresso**:
+
+- Cada item processado é persistido imediatamente em `async_jobs.results` (sem janela de 10 itens).
+- O `payload` bruto do job é preservado integralmente em `async_jobs.payload`.
+- Cada resultado individual inclui também o `payload` do item, permitindo replay exato dos itens que falharam.
+- Em reinício/crash, o worker varre jobs `pending`/`processing` e retoma do ponto salvo (`done_items + fail_items`), evitando perda silenciosa de itens.
+
+**Erro sempre explícito em jobs assíncronos**:
+
+- Jobs com falha parcial agora finalizam com `status=failed` e `error` contendo o motivo com amostras de itens.
+- Rebuild de projeções retorna o erro real no body HTTP, não apenas log interno.
+
 ---
 
 ## 6. Regras de Negócio
@@ -923,6 +935,14 @@ GET  /jobs/:id?results=true       →  { ... resultados por item ... }
 **Problema atual**: o sistema é puramente request-response. Não há forma de notificar o frontend quando um job assíncrono termina.
 
 **Recomendação**: implementar WebSockets ou Server-Sent Events para notificações de jobs. O Projection Manager já tem a infraestrutura de eventos; bastaria adicionar um canal de notificação.
+
+**Implementado na versão 1.1.0 (SSE)**:
+
+- Endpoint `GET /jobs/stream` autenticado via JWT.
+- Canal SSE por usuário com eventos: `job_enqueued`, `job_progress`, `job_done`, `job_failed`.
+- Heartbeat periódico (`: ping`) para manter conexão ativa em proxies.
+- Compatível com Next.js via `EventSource` (ou polyfill com headers Authorization quando necessário).
+- Polling por `GET /jobs/:id` continua suportado como fallback.
 
 ### 10.7 Rate Limiting
 
