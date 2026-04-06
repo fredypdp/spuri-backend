@@ -930,21 +930,7 @@ GET  /jobs/:id?results=true       →  { ... resultados por item ... }
 
 **Recomendação**: para dados sensíveis, considerar um log de auditoria de leituras separado (não no ledger, mas numa tabela de auditoria).
 
-### 10.6 Notificações em Tempo Real
-
-**Problema atual**: o sistema é puramente request-response. Não há forma de notificar o frontend quando um job assíncrono termina.
-
-**Recomendação**: implementar WebSockets ou Server-Sent Events para notificações de jobs. O Projection Manager já tem a infraestrutura de eventos; bastaria adicionar um canal de notificação.
-
-**Implementado na versão 1.1.0 (SSE)**:
-
-- Endpoint `GET /jobs/stream` autenticado via JWT.
-- Canal SSE por usuário com eventos: `job_enqueued`, `job_progress`, `job_done`, `job_failed`.
-- Heartbeat periódico (`: ping`) para manter conexão ativa em proxies.
-- Compatível com Next.js via `EventSource` (ou polyfill com headers Authorization quando necessário).
-- Polling por `GET /jobs/:id` continua suportado como fallback.
-
-### 10.7 Rate Limiting
+### 10.6 Rate Limiting
 
 **Problema atual**: o rate limiting está desativado em todos os endpoints (todos os middlewares de rate limit retornam `c.Next()` sem verificar nada).
 
