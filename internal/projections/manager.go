@@ -31,9 +31,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"log"
 	"sort"
 	"spuri/internal/db"
+	"strings"
 	"sync"
 	"time"
 )
@@ -41,7 +43,11 @@ import (
 const (
 	ledgerIntegrityListTimeout         = 30 * time.Second
 	ledgerIntegrityPerAggregateTimeout = 60 * time.Second
+	ledgerIntegrityMaxRetries          = 3
+	ledgerIntegrityRetryBackoff        = 500 * time.Millisecond
 )
+
+var ErrLedgerIntegrityCheckUnavailable = errors.New("verificação de integridade indisponível")
 
 // Projection define a interface que toda projeção deve implementar.
 type Projection interface {
@@ -285,6 +291,9 @@ func (m *Manager) RebuildAllProjections() error {
 
 	log.Printf("[SECURITY] RebuildAll: verificando integridade do ledger antes de iniciar")
 	if err := m.verifyFullLedgerIntegrity(); err != nil {
+		if errors.Is(err, ErrLedgerIntegrityCheckUnavailable) {
+			return fmt.Errorf("rebuild abortado: verificação de integridade indisponível: %w", err)
+		}
 		return fmt.Errorf("rebuild abortado: integridade do ledger comprometida: %w", err)
 	}
 	log.Printf("[SECURITY] RebuildAll: ledger íntegro — iniciando reconstrução")
@@ -354,6 +363,9 @@ func (m *Manager) executeRebuild(name string, projection Projection, verifyInteg
 	if verifyIntegrity {
 		log.Printf("[SECURITY] %s: verificando integridade do ledger antes do rebuild", name)
 		if err := m.verifyFullLedgerIntegrity(); err != nil {
+			if errors.Is(err, ErrLedgerIntegrityCheckUnavailable) {
+				return fail(err, "%s: rebuild abortado por indisponibilidade na verificação de integridade", name)
+			}
 			return fail(err, "%s: rebuild abortado por integridade comprometida", name)
 		}
 		log.Printf("[SECURITY] %s: ledger íntegro — prosseguindo com rebuild", name)
@@ -388,9 +400,7 @@ func (m *Manager) verifyFullLedgerIntegrity() error {
 	log.Printf("[SECURITY] Verificando integridade de %d aggregate(s)", len(aggregateIDs))
 
 	for _, aggID := range aggregateIDs {
-		aggregateCtx, aggregateCancel := context.WithTimeout(context.Background(), ledgerIntegrityPerAggregateTimeout)
-		valid, err := m.eventStore.VerifyLedgerIntegrity(aggregateCtx, aggID)
-		aggregateCancel()
+		valid, err := m.verifyAggregateIntegrityWithRetry(aggID)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				err = fmt.Errorf(
@@ -408,6 +418,63 @@ func (m *Manager) verifyFullLedgerIntegrity() error {
 
 	log.Printf("[SECURITY] Verificação concluída: %d aggregate(s) íntegros", len(aggregateIDs))
 	return nil
+}
+
+func (m *Manager) verifyAggregateIntegrityWithRetry(aggID uuid.UUID) (bool, error) {
+	var lastErr error
+
+	for attempt := 1; attempt <= ledgerIntegrityMaxRetries; attempt++ {
+		aggregateCtx, aggregateCancel := context.WithTimeout(context.Background(), ledgerIntegrityPerAggregateTimeout)
+		valid, err := m.eventStore.VerifyLedgerIntegrity(aggregateCtx, aggID)
+		aggregateCancel()
+		if err == nil {
+			return valid, nil
+		}
+
+		lastErr = err
+		if !isTemporaryDBConnectivityError(err) || attempt == ledgerIntegrityMaxRetries {
+			break
+		}
+
+		log.Printf(
+			"[WARN] aggregate %s: falha temporária de conectividade na verificação de integridade (tentativa %d/%d): %v",
+			aggID.String(), attempt, ledgerIntegrityMaxRetries, err,
+		)
+		time.Sleep(time.Duration(attempt) * ledgerIntegrityRetryBackoff)
+	}
+
+	if isTemporaryDBConnectivityError(lastErr) {
+		return false, fmt.Errorf("%w: %v", ErrLedgerIntegrityCheckUnavailable, lastErr)
+	}
+
+	return false, lastErr
+}
+
+func isTemporaryDBConnectivityError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	signatures := []string{
+		"connection refused",
+		"connection reset",
+		"broken pipe",
+		"no such host",
+		"network is unreachable",
+		"i/o timeout",
+		"connection timed out",
+		"driver: bad connection",
+		"invalid connection",
+	}
+
+	for _, signature := range signatures {
+		if strings.Contains(msg, signature) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // ============================================================================
