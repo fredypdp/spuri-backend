@@ -2,7 +2,7 @@
 modificado: 06-04-2026 17:05
 criado: 05-04-2026 13:01
 ---
-Versão atua: 1.1.0
+Versão atua: 1.0.3
 ## Índice
 
 1. [[#1. Visão Geral]]
