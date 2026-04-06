@@ -29,12 +29,18 @@ package projections
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"sort"
 	"spuri/internal/db"
 	"sync"
 	"time"
+)
+
+const (
+	ledgerIntegrityListTimeout         = 30 * time.Second
+	ledgerIntegrityPerAggregateTimeout = 60 * time.Second
 )
 
 // Projection define a interface que toda projeção deve implementar.
@@ -366,10 +372,10 @@ func (m *Manager) executeRebuild(name string, projection Projection, verifyInteg
 }
 
 func (m *Manager) verifyFullLedgerIntegrity() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	listCtx, cancel := context.WithTimeout(context.Background(), ledgerIntegrityListTimeout)
 	defer cancel()
 
-	aggregateIDs, err := m.eventStore.GetDistinctAggregateIDs(ctx)
+	aggregateIDs, err := m.eventStore.GetDistinctAggregateIDs(listCtx)
 	if err != nil {
 		return fmt.Errorf("erro ao listar aggregates para verificação: %w", err)
 	}
@@ -382,8 +388,16 @@ func (m *Manager) verifyFullLedgerIntegrity() error {
 	log.Printf("[SECURITY] Verificando integridade de %d aggregate(s)", len(aggregateIDs))
 
 	for _, aggID := range aggregateIDs {
-		valid, err := m.eventStore.VerifyLedgerIntegrity(ctx, aggID)
+		aggregateCtx, aggregateCancel := context.WithTimeout(context.Background(), ledgerIntegrityPerAggregateTimeout)
+		valid, err := m.eventStore.VerifyLedgerIntegrity(aggregateCtx, aggID)
+		aggregateCancel()
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				err = fmt.Errorf(
+					"timeout de %s ao verificar integridade via SQL",
+					ledgerIntegrityPerAggregateTimeout,
+				)
+			}
 			log.Printf("[SECURITY] ALERTA: aggregate %s comprometido: %v", aggID, err)
 			return fmt.Errorf("aggregate %s: %w", aggID, err)
 		}
