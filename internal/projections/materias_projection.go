@@ -3,6 +3,7 @@ package projections
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"spuri/internal/db"
@@ -29,6 +30,8 @@ type MateriaDTO struct {
 type MateriasProjection struct {
 	client *db.Client
 }
+
+var ErrMateriaAcademiaNotProjected = errors.New("academia da matéria ainda não projetada")
 
 func NewMateriasProjection(client *db.Client) *MateriasProjection {
 	return &MateriasProjection{client: client}
@@ -102,6 +105,7 @@ func (p *MateriasProjection) Rebuild() error {
 	}
 	defer rows.Close()
 	count := 0
+	skipped := 0
 	for rows.Next() {
 		var event db.Event
 		var prevHash sql.NullString
@@ -116,11 +120,16 @@ func (p *MateriasProjection) Rebuild() error {
 			event.PreviousHash = &prevHash.String
 		}
 		if err := p.Handle(event); err != nil {
+			if errors.Is(err, ErrMateriaAcademiaNotProjected) {
+				skipped++
+				log.Printf("[WARN] [materias] evento %d ignorado no rebuild: %v", event.ID, err)
+				continue
+			}
 			return fmt.Errorf("erro no evento %d: %w", event.ID, err)
 		}
 		count++
 	}
-	log.Printf("[DEBUG] [materias] Rebuild concluído: %d eventos", count)
+	log.Printf("[DEBUG] [materias] Rebuild concluído: %d eventos processados, %d ignorados por academia ausente", count, skipped)
 	return rows.Err()
 }
 
@@ -131,15 +140,31 @@ func (p *MateriasProjection) Rebuild() error {
 func (p *MateriasProjection) handleMateriaCriada(event db.Event) error {
 	var payload struct {
 		Nome, Type, CodigoAcademia string
-		AnosAcademicos              []string
-		CursoID                     *uuid.UUID
-		CreatedAt                   time.Time
+		AnosAcademicos             []string
+		CursoID                    *uuid.UUID
+		CreatedAt                  time.Time
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return err
 	}
 	if event.AggregateID == uuid.Nil {
 		return fmt.Errorf("UUID inválido")
+	}
+	if payload.CodigoAcademia == "" {
+		return fmt.Errorf("codigo_academia inválido no evento %d", event.ID)
+	}
+
+	academiaExists, err := p.academiaExists(payload.CodigoAcademia)
+	if err != nil {
+		return fmt.Errorf("erro ao verificar academia da matéria: %w", err)
+	}
+	if !academiaExists {
+		return fmt.Errorf("%w: evento=%d aggregate=%s codigo_academia=%s",
+			ErrMateriaAcademiaNotProjected,
+			event.ID,
+			event.AggregateID,
+			payload.CodigoAcademia,
+		)
 	}
 
 	var anosJSON interface{}
@@ -159,7 +184,7 @@ func (p *MateriasProjection) handleMateriaCriada(event db.Event) error {
 		cursoID = payload.CursoID.String()
 	}
 
-	_, err := p.client.DB().Exec(`
+	_, err = p.client.DB().Exec(`
 		INSERT INTO projection_materias
 			(id, nome, type, anos_academicos, codigo_academia, curso_id, periodo, status, created_at, updated_at, version, last_event_id)
 		VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, CURRENT_TIMESTAMP, $9, $10)
@@ -169,6 +194,16 @@ func (p *MateriasProjection) handleMateriaCriada(event db.Event) error {
 		cursoID, status, payload.CreatedAt, event.EventVersion, event.EventID,
 	)
 	return err
+}
+
+func (p *MateriasProjection) academiaExists(codigoAcademia string) (bool, error) {
+	var exists bool
+	err := p.client.DB().QueryRow(`
+		SELECT EXISTS (
+			SELECT 1 FROM projection_academias WHERE codigo_academia = $1
+		)
+	`, codigoAcademia).Scan(&exists)
+	return exists, err
 }
 
 func (p *MateriasProjection) handleStatusChange(status string) func(db.Event) error {
