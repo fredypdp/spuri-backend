@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
@@ -11,20 +13,50 @@ import (
 //
 // Objetivo: todo processamento batch/async reaproveita os handlers normais
 // (mesma validação, mesmas regras de domínio e mesma resposta por item).
+//
+// Modelo adotado: preservar o body original do item (payload bruto) e apenas
+// extrair os campos mínimos necessários para preencher params de rota quando
+// o handler principal depende de path params.
 // ============================================================================
+
+func bindJobItemWithoutLosingBody(c *gin.Context, target interface{}) error {
+	if c.Request == nil || c.Request.Body == nil {
+		return fmt.Errorf("body ausente")
+	}
+
+	rawBody, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return err
+	}
+
+	// Sempre restaura o body original para o handler principal ler novamente.
+	setJSONBody(c, rawBody)
+
+	if len(rawBody) == 0 {
+		return fmt.Errorf("body ausente")
+	}
+
+	if err := c.ShouldBindJSON(target); err != nil {
+		return err
+	}
+
+	// ShouldBindJSON consome novamente o stream, então restaura de novo.
+	setJSONBody(c, rawBody)
+	return nil
+}
 
 func AtivarAcademiaJobItem(c *gin.Context) {
 	var req struct {
 		Codigo         string `json:"codigo"`
 		CodigoAcademia string `json:"codigo_academia"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": "body deve conter {codigo}"})
+	if err := bindJobItemWithoutLosingBody(c, &req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo}"})
 		return
 	}
 	codigo := firstNonEmptyTrimmed(req.Codigo, req.CodigoAcademia)
 	if codigo == "" {
-		c.JSON(400, gin.H{"error": "body deve conter {codigo}"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo}"})
 		return
 	}
 	c.Params = gin.Params{gin.Param{Key: "codigo", Value: codigo}}
@@ -37,87 +69,64 @@ func DesativarAcademiaJobItem(c *gin.Context) {
 		CodigoAcademia string `json:"codigo_academia"`
 		Motivo         string `json:"motivo"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": "body deve conter {codigo, motivo}"})
+	if err := bindJobItemWithoutLosingBody(c, &req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo, motivo}"})
 		return
 	}
 	codigo := firstNonEmptyTrimmed(req.Codigo, req.CodigoAcademia)
 	if codigo == "" || req.Motivo == "" {
-		c.JSON(400, gin.H{"error": "body deve conter {codigo, motivo}"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo, motivo}"})
 		return
 	}
 	c.Params = gin.Params{gin.Param{Key: "codigo", Value: codigo}}
-	setJSONBody(c, gin.H{"motivo": req.Motivo})
 	DesativarAcademia(c)
 }
 
 func AtualizarNotaJobItem(c *gin.Context) {
 	var req struct {
-		ID         string   `json:"id"`
-		NotaNova   *float64 `json:"nota_nova"`
-		Observacao string   `json:"observacao"`
+		ID string `json:"id"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || req.ID == "" {
-		c.JSON(400, gin.H{"error": "body deve conter ao menos {id}"})
+	if err := bindJobItemWithoutLosingBody(c, &req); err != nil || req.ID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter ao menos {id}"})
 		return
 	}
 	c.Params = gin.Params{gin.Param{Key: "id", Value: req.ID}}
-	setJSONBody(c, gin.H{
-		"nota_nova":  req.NotaNova,
-		"observacao": req.Observacao,
-	})
 	AtualizarNota(c)
 }
 
 func DeletarNotaJobItem(c *gin.Context) {
 	var req struct {
-		ID     string `json:"id"`
-		Motivo string `json:"motivo"`
+		ID string `json:"id"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || req.ID == "" {
-		c.JSON(400, gin.H{"error": "body deve conter ao menos {id}"})
+	if err := bindJobItemWithoutLosingBody(c, &req); err != nil || req.ID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter ao menos {id}"})
 		return
 	}
 	c.Params = gin.Params{gin.Param{Key: "id", Value: req.ID}}
-	setJSONBody(c, gin.H{"motivo": req.Motivo})
 	DeletarNota(c)
 }
 
 func AtualizarFaltaJobItem(c *gin.Context) {
 	var req struct {
-		ID           string  `json:"id"`
-		Quantidade   *int    `json:"quantidade"`
-		Data         *string `json:"data"`
-		Observacao   *string `json:"observacao"`
-		Justificada  *bool   `json:"justificada"`
-		TipoAusencia *string `json:"tipo_ausencia"`
+		ID string `json:"id"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || req.ID == "" {
-		c.JSON(400, gin.H{"error": "body deve conter ao menos {id}"})
+	if err := bindJobItemWithoutLosingBody(c, &req); err != nil || req.ID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter ao menos {id}"})
 		return
 	}
 	c.Params = gin.Params{gin.Param{Key: "id", Value: req.ID}}
-	setJSONBody(c, gin.H{
-		"quantidade":    req.Quantidade,
-		"data":          req.Data,
-		"observacao":    req.Observacao,
-		"justificada":   req.Justificada,
-		"tipo_ausencia": req.TipoAusencia,
-	})
 	AtualizarFalta(c)
 }
 
 func DeletarFaltaJobItem(c *gin.Context) {
 	var req struct {
-		ID     string `json:"id"`
-		Motivo string `json:"motivo"`
+		ID string `json:"id"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || req.ID == "" {
-		c.JSON(400, gin.H{"error": "body deve conter ao menos {id}"})
+	if err := bindJobItemWithoutLosingBody(c, &req); err != nil || req.ID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter ao menos {id}"})
 		return
 	}
 	c.Params = gin.Params{gin.Param{Key: "id", Value: req.ID}}
-	setJSONBody(c, gin.H{"motivo": req.Motivo})
 	DeletarFalta(c)
 }
 
@@ -127,13 +136,12 @@ func AtualizarStatusEscolarJobItem(c *gin.Context) {
 		Tipo            string `json:"tipo"`
 		NovoStatus      string `json:"novo_status"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || req.CodigoEstudante == "" {
-		c.JSON(400, gin.H{"error": "body deve conter {codigo_estudante, tipo, novo_status}"})
+	if err := bindJobItemWithoutLosingBody(c, &req); err != nil || req.CodigoEstudante == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo_estudante, tipo, novo_status}"})
 		return
 	}
 
 	c.Params = gin.Params{gin.Param{Key: "codigo", Value: req.CodigoEstudante}}
-	setJSONBody(c, gin.H{"novo_status": req.NovoStatus})
 
 	switch req.Tipo {
 	case "fundamental":
@@ -143,21 +151,19 @@ func AtualizarStatusEscolarJobItem(c *gin.Context) {
 	case "superior":
 		AtualizarStatusSuperiorHandler(c)
 	default:
-		c.JSON(400, gin.H{"error": fmt.Sprintf("tipo inválido: %q — use fundamental, medio ou superior", req.Tipo)})
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("tipo inválido: %q — use fundamental, medio ou superior", req.Tipo)})
 	}
 }
 
 func AdicionarEstudanteATurmaJobItem(c *gin.Context) {
 	var req struct {
-		CodigoTurma     string `json:"codigo_turma"`
-		CodigoEstudante string `json:"codigo_estudante"`
+		CodigoTurma string `json:"codigo_turma"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || req.CodigoTurma == "" {
-		c.JSON(400, gin.H{"error": "body deve conter ao menos {codigo_turma}"})
+	if err := bindJobItemWithoutLosingBody(c, &req); err != nil || req.CodigoTurma == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter ao menos {codigo_turma}"})
 		return
 	}
 
 	c.Params = gin.Params{gin.Param{Key: "codigo", Value: req.CodigoTurma}}
-	setJSONBody(c, gin.H{"codigo_estudante": req.CodigoEstudante})
 	AdicionarEstudanteATurma(c)
 }
