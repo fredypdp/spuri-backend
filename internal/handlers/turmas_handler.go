@@ -303,7 +303,13 @@ func AdicionarEstudanteATurma(c *gin.Context) {
 		return
 	}
 
-	if err := turma.AdicionarEstudante(req.CodigoEstudante, academiaID); err != nil {
+	anoLectivo, err := resolverAnoLetivoAcademia(academiaDTO.AnoLetivo, academiaDTO.CodigoAcademia)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if err := turma.AdicionarEstudanteNoAnoLectivo(req.CodigoEstudante, anoLectivo, academiaID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -329,7 +335,7 @@ func AdicionarEstudanteATurma(c *gin.Context) {
 // Rota: DELETE /academia/turmas/:codigo/estudantes/:codigoEstudante
 func RemoverEstudanteDaTurma(c *gin.Context) {
 	academiaID, _ := middleware.GetUserID(c)
-	codigoTurma     := c.Param("codigo")
+	codigoTurma := c.Param("codigo")
 	codigoEstudante := c.Param("codigoEstudante")
 
 	academiaProj := getAcademiaProjection(c)
@@ -359,7 +365,13 @@ func RemoverEstudanteDaTurma(c *gin.Context) {
 		return
 	}
 
-	if err := turma.RemoverEstudante(codigoEstudante, academiaID); err != nil {
+	anoLectivo, err := resolverAnoLetivoAcademia(academiaDTO.AnoLetivo, academiaDTO.CodigoAcademia)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if err := turma.RemoverEstudanteNoAnoLectivo(codigoEstudante, anoLectivo, academiaID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -453,7 +465,7 @@ func AtualizarTurma(c *gin.Context) {
 // Rota: DELETE /academia/turmas/:codigo
 func DeletarTurma(c *gin.Context) {
 	academiaID, _ := middleware.GetUserID(c)
-	codigoTurma   := c.Param("codigo")
+	codigoTurma := c.Param("codigo")
 
 	var req struct {
 		Motivo string `json:"motivo"` // opcional, recomendado para auditoria

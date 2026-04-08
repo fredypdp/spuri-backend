@@ -120,6 +120,10 @@ func (t *Turma) Desativar(desativadoPor uuid.UUID) error {
 }
 
 func (t *Turma) AdicionarEstudante(codigoEstudante string, adicionadoPor uuid.UUID) error {
+	return t.AdicionarEstudanteNoAnoLectivo(codigoEstudante, "", adicionadoPor)
+}
+
+func (t *Turma) AdicionarEstudanteNoAnoLectivo(codigoEstudante, anoLectivo string, adicionadoPor uuid.UUID) error {
 	if codigoEstudante == "" {
 		return fmt.Errorf("codigo_estudante é obrigatório")
 	}
@@ -131,6 +135,7 @@ func (t *Turma) AdicionarEstudante(codigoEstudante string, adicionadoPor uuid.UU
 	event := &EstudanteTurmaEvent{
 		BaseEvent:       BaseEvent{EventType: "EstudanteAdicionadoATurma", AggregateID: t.ID},
 		CodigoEstudante: codigoEstudante,
+		AnoLectivo:      anoLectivo,
 		AlteradoPor:     adicionadoPor,
 	}
 	t.RaiseEvent(event)
@@ -138,6 +143,10 @@ func (t *Turma) AdicionarEstudante(codigoEstudante string, adicionadoPor uuid.UU
 }
 
 func (t *Turma) RemoverEstudante(codigoEstudante string, removidoPor uuid.UUID) error {
+	return t.RemoverEstudanteNoAnoLectivo(codigoEstudante, "", removidoPor)
+}
+
+func (t *Turma) RemoverEstudanteNoAnoLectivo(codigoEstudante, anoLectivo string, removidoPor uuid.UUID) error {
 	found := false
 	for _, e := range t.Estudantes {
 		if e == codigoEstudante {
@@ -151,6 +160,7 @@ func (t *Turma) RemoverEstudante(codigoEstudante string, removidoPor uuid.UUID) 
 	event := &EstudanteTurmaEvent{
 		BaseEvent:       BaseEvent{EventType: "EstudanteRemovidoDaTurma", AggregateID: t.ID},
 		CodigoEstudante: codigoEstudante,
+		AnoLectivo:      anoLectivo,
 		AlteradoPor:     removidoPor,
 	}
 	t.RaiseEvent(event)
@@ -334,6 +344,7 @@ func (e *TurmaStatusEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 type EstudanteTurmaEvent struct {
 	BaseEvent
 	CodigoEstudante string
+	AnoLectivo      string
 	AlteradoPor     uuid.UUID
 }
 

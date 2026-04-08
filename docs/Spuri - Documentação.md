@@ -1,8 +1,8 @@
 ---
-modificado: 06-04-2026 17:05
+modificado: 08-04-2026 13:20
 criado: 05-04-2026 13:01
 ---
-Versão atua: 1.0.3
+Versão atua: 1.0.4
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -137,7 +137,7 @@ Projeções são tabelas PostgreSQL otimizadas para leitura. São reconstruídas
 |`projection_admins`|Dados actuais de todos os admins|
 |`projection_cursos`|Cursos por academia|
 |`projection_materias`|Matérias por academia|
-|`projection_turmas`|Turmas com lista de estudantes|
+|`projection_turmas`|Turmas com lista atual de estudantes e histórico por ano letivo|
 |`projection_notas`|Notas registadas|
 |`projection_faltas`|Faltas registadas|
 |`projection_avaliacao_final`|Avaliações finais de ano|
@@ -584,7 +584,7 @@ Este é o **único mecanismo de transição de ano** no sistema. Registar a aval
 
 - O estudante é **removido de todas as turmas** da academia
 
-**Nota sobre atomicidade**: a remoção das turmas não é atômica com a avaliação final. São salvamentos separados no ledger. Em caso de falha parcial, o rebuild restaura o estado correto.
+**Atomicidade na projeção**: a lista de turmas a remover é incluída no payload do evento `AvaliacaoFinalAnoAcademico`. A projeção de turmas processa este mesmo evento e remove o estudante de todas as turmas listadas no mesmo ciclo de projeção, evitando inconsistência por falha parcial entre avaliação final e remoção.
 
 **Consultas:**
 
@@ -610,7 +610,9 @@ Criada (ativo) → Desativada (inativo) → Deletada (deletado)
 
 **Adição de estudantes**: o estudante deve pertencer à academia. Apenas estudantes do superior podem estar em múltiplas turmas simultaneamente.
 
-**Remoção automática**: ao registar avaliação final, o estudante é removido de todas as turmas. O evento `EstudanteRemovidoDaTurma` é emitido para cada turma.
+**Remoção automática**: ao registar avaliação final, o estudante é removido de todas as turmas via processamento do evento `AvaliacaoFinalAnoAcademico` na projeção de turmas.
+
+**Histórico por ano letivo**: cada turma mantém `historico_estudantes_ano_letivo` (mapa `ano_letivo -> [codigo_estudante]`) com os estudantes que já fizeram parte dela em cada ano letivo.
 
 ---
 
@@ -900,37 +902,31 @@ GET  /jobs/:id?results=true       →  { ... resultados por item ... }
 
 ## 10. Recomendações de Melhoria
 
-### 10.1 Atomicidade na Remoção de Turmas (Avaliação Final)
-
-**Problema atual**: a avaliação final e as remoções de turma são eventos separados. Se o servidor reiniciar após salvar a avaliação mas antes de remover das turmas, o estudante fica com avaliação registada mas ainda nas turmas.
-
-**Recomendação**: criar um processo de reconciliação periódica que verifique estudantes com avaliação final registada e que ainda estejam em turmas, removendo automaticamente. Alternativamente, incluir a lista de turmas no payload do evento `AvaliacaoFinalAnoAcademico` e criar um handler que processe a remoção na própria projeção de turmas.
-
-### 10.2 Soft Delete de Estudante
+### 10.1 Soft Delete de Estudante
 
 **Problema atual**: não existe um mecanismo de "arquivar" um estudante que saiu da escola sem precisar deletar os dados históricos.
 
 **Recomendação**: adicionar um status `arquivado` para estudantes que saíram da academia mas cujos registos históricos devem ser mantidos.
 
-### 10.3 Validação de Data de Falta
+### 10.2 Validação de Data de Falta
 
 **Problema atual**: não existe validação de que a data de uma falta está dentro do ano letivo ativo.
 
 **Recomendação**: validar no handler que a data da falta pertence ao período do ano letivo ativo da academia.
 
-### 10.4 Nota Deletada Bloqueia Re-registro
+### 10.3 Nota Deletada Bloqueia Re-registro
 
 **Problema atual**: uma nota deletada não pode ser re-registada com a mesma combinação de chave. Isso pode ser inconveniente se a deleção foi um erro.
 
 **Recomendação**: avaliar se este comportamento é desejável. Se não, remover a chave do mapa `NotasRegistradasPorChave` no `applyNotaDeletada`.
 
-### 10.5 Auditoria de Acessos de Leitura
+### 10.4 Auditoria de Acessos de Leitura
 
 **Problema atual**: apenas mutações são registadas no ledger. Não há registo de quem consultou os dados de um estudante.
 
 **Recomendação**: para dados sensíveis, considerar um log de auditoria de leituras separado (não no ledger, mas numa tabela de auditoria).
 
-### 10.6 Rate Limiting
+### 10.5 Rate Limiting
 
 **Problema atual**: o rate limiting está desativado em todos os endpoints (todos os middlewares de rate limit retornam `c.Next()` sem verificar nada).
 
