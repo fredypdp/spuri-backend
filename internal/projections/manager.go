@@ -43,8 +43,10 @@ import (
 const (
 	ledgerIntegrityListTimeout         = 30 * time.Second
 	ledgerIntegrityPerAggregateTimeout = 60 * time.Second
-	ledgerIntegrityMaxRetries          = 3
-	ledgerIntegrityRetryBackoff        = 500 * time.Millisecond
+	ledgerIntegrityMaxRetries          = 8
+	ledgerIntegrityRetryBackoff        = 2 * time.Second
+	ledgerIntegrityStartupGracePeriod  = 90 * time.Second
+	ledgerIntegrityStartupPollInterval = 2 * time.Second
 )
 
 var ErrLedgerIntegrityCheckUnavailable = errors.New("verificação de integridade indisponível")
@@ -421,6 +423,10 @@ func (m *Manager) endRebuild() {
 }
 
 func (m *Manager) verifyFullLedgerIntegrity() error {
+	if err := m.waitForDatabaseReadiness(); err != nil {
+		return fmt.Errorf("%w: %v", ErrLedgerIntegrityCheckUnavailable, err)
+	}
+
 	listCtx, cancel := context.WithTimeout(context.Background(), ledgerIntegrityListTimeout)
 	defer cancel()
 
@@ -455,6 +461,39 @@ func (m *Manager) verifyFullLedgerIntegrity() error {
 
 	log.Printf("[SECURITY] Verificação concluída: %d aggregate(s) íntegros", len(aggregateIDs))
 	return nil
+}
+
+func (m *Manager) waitForDatabaseReadiness() error {
+	deadline := time.Now().Add(ledgerIntegrityStartupGracePeriod)
+	var lastErr error
+
+	for {
+		pingCtx, pingCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		err := m.client.DB().PingContext(pingCtx)
+		pingCancel()
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+		if !isTemporaryDBConnectivityError(err) {
+			return err
+		}
+
+		if time.Now().After(deadline) {
+			return fmt.Errorf(
+				"banco indisponível após %s de espera (%w)",
+				ledgerIntegrityStartupGracePeriod,
+				lastErr,
+			)
+		}
+
+		log.Printf(
+			"[WARN] Verificação de integridade aguardando banco ficar pronto: %v",
+			err,
+		)
+		time.Sleep(ledgerIntegrityStartupPollInterval)
+	}
 }
 
 func (m *Manager) verifyAggregateIntegrityWithRetry(aggID uuid.UUID) (bool, error) {
