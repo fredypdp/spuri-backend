@@ -12,14 +12,6 @@ import (
 // Comando
 // ============================================================================
 
-// AdicionarCategoriaNota adiciona uma categoria de nota personalizada à academia.
-//
-// Disponível para academias de qualquer tipo (escola, universidade).
-//
-// categoriasExistentes — lista atual de categorias (nome) da academia,
-// carregada pelo handler via projeção. O aggregate também verifica
-// a.CategoriasNota em estado para detectar duplicatas durante o ciclo
-// de vida em memória (FIX A-02).
 func (a *Academia) AdicionarCategoriaNota(
 	nome string,
 	descricao *string,
@@ -29,10 +21,7 @@ func (a *Academia) AdicionarCategoriaNota(
 	if nome == "" {
 		return fmt.Errorf("nome da categoria não pode ser vazio")
 	}
-
-	// FIX A-02: verificação de unicidade usando estado do aggregate (CategoriasNota)
-	// além do parâmetro externo, para cobrir o caso em que o handler não passa
-	// categoriasExistentes corretamente.
+	
 	for _, c := range a.CategoriasNota {
 		if c == nome {
 			return fmt.Errorf("categoria '%s' já existe nesta academia (detectado via estado do aggregate)", nome)
@@ -61,9 +50,6 @@ func (a *Academia) AdicionarCategoriaNota(
 // Apply handler
 // ============================================================================
 
-// applyCategoriaNotaAdicionada — FIX A-02: deserializa o payload para detectar
-// corrupção silenciosa e mantém a.CategoriasNota em estado para que comandos
-// subsequentes possam detectar duplicatas sem depender de parâmetros externos.
 func (a *Academia) applyCategoriaNotaAdicionada(event DomainEvent) error {
 	data, err := json.Marshal(event.GetPayload())
 	if err != nil {
