@@ -299,6 +299,7 @@ func isConnectionError(err error) bool {
 		"connection timed out",
 		"driver: bad connection",
 		"invalid connection",
+		"the database system is starting up",
 	}
 	
 	for _, connErr := range connectionErrors {
