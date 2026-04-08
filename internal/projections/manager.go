@@ -75,6 +75,8 @@ type Manager struct {
 	pollInterval time.Duration
 	batchSize    int
 	mu           sync.Mutex
+	rebuildMu    sync.Mutex
+	rebuilding   string
 }
 
 func NewManager(client *db.Client) *Manager {
@@ -271,6 +273,11 @@ func (m *Manager) commitCheckpoint(projection Projection, eventID int64) error {
 // ============================================================================
 
 func (m *Manager) RebuildProjection(name string) error {
+	if err := m.beginRebuild("projection:" + name); err != nil {
+		return err
+	}
+	defer m.endRebuild()
+
 	m.mu.Lock()
 	projection, ok := m.projections[name]
 	m.mu.Unlock()
@@ -282,6 +289,11 @@ func (m *Manager) RebuildProjection(name string) error {
 }
 
 func (m *Manager) RebuildAllProjections() error {
+	if err := m.beginRebuild("all_projections"); err != nil {
+		return err
+	}
+	defer m.endRebuild()
+
 	m.mu.Lock()
 	snapshot := make(map[string]Projection, len(m.projections))
 	for name, projection := range m.projections {
@@ -381,6 +393,31 @@ func (m *Manager) executeRebuild(name string, projection Projection, verifyInteg
 
 	log.Printf("[DEBUG] Projeção %s reconstruída com sucesso", name)
 	return nil
+}
+
+func (m *Manager) beginRebuild(target string) error {
+	m.rebuildMu.Lock()
+	defer m.rebuildMu.Unlock()
+
+	if m.rebuilding != "" {
+		return fmt.Errorf("rebuild já em andamento: %s", m.rebuilding)
+	}
+
+	m.rebuilding = target
+	log.Printf("[DEBUG] Rebuild lock adquirido para: %s", target)
+	return nil
+}
+
+func (m *Manager) endRebuild() {
+	m.rebuildMu.Lock()
+	defer m.rebuildMu.Unlock()
+
+	if m.rebuilding == "" {
+		return
+	}
+
+	log.Printf("[DEBUG] Rebuild lock liberado para: %s", m.rebuilding)
+	m.rebuilding = ""
 }
 
 func (m *Manager) verifyFullLedgerIntegrity() error {
