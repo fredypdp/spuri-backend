@@ -178,8 +178,14 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		return
 	}
 
-	// Captura a turma atual ANTES de remover o estudante
-	turmaAtual := buscarTurmaAtual(c, req.CodigoEstudante, academiaDTO.CodigoAcademia)
+	// Captura turmas atuais ANTES de registrar avaliação final.
+	// A remoção será aplicada de forma determinística na projeção de turmas ao
+	// processar este mesmo evento AvaliacaoFinalAnoAcademico.
+	turmasAtuais := buscarTurmasDoEstudante(c, req.CodigoEstudante, academiaDTO.CodigoAcademia)
+	var turmaAtual *string
+	if len(turmasAtuais) > 0 {
+		turmaAtual = &turmasAtuais[0]
+	}
 
 	if err := estudante.RegistrarAvaliacaoFinal(
 		academiaDTO.CodigoAcademia,
@@ -188,6 +194,7 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		req.AnoAcademicoAtual,
 		req.ProximoAnoAcademico,
 		turmaAtual,
+		turmasAtuais,
 		req.Aprovado,
 		req.Observacao,
 	); err != nil {
@@ -205,24 +212,6 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		return
 	}
 
-	// ── Remoção de turmas ─────────────────────────────────────────────────────
-	//
-	// FIX H4-10: LIMITAÇÃO ARQUITETURAL CONHECIDA (não atômico por design).
-	//
-	// O evento AvaliacaoFinalAnoAcademico já foi persistido no ledger acima.
-	// As remoções de turma abaixo são operações separadas no ledger (múltiplos
-	// SaveWithAudit), cada uma emitindo um evento EstudanteRemovidoDaTurma.
-	//
-	// Em caso de falha parcial (ex: servidor reinicia após salvar a avaliação
-	// mas antes de completar as remoções), o estudante terá avaliação registrada
-	// mas poderá permanecer em alguma turma. Essa inconsistência é detectável
-	// via rebuild da projeção e corrigi-la é responsabilidade do operador.
-	//
-	// Esta limitação é inerente ao padrão Event Sourcing adotado: não existe
-	// transação distribuída entre múltiplos aggregates. O rebuild é o mecanismo
-	// de recuperação previsto na arquitetura do sistema.
-	turmasRemovidas, errosTurmas := removerEstudanteDeTurmasAtual(c, req.CodigoEstudante, academiaDTO.CodigoAcademia, userID)
-
 	resultado := "reprovado"
 	if req.Aprovado {
 		if req.ProximoAnoAcademico != nil {
@@ -235,11 +224,7 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 	response := gin.H{
 		"message":          "avaliação final registrada com sucesso",
 		"resultado":        resultado,
-		"turmas_removidas": turmasRemovidas,
-	}
-	if len(errosTurmas) > 0 {
-		response["avisos_turmas"] = errosTurmas
-		log.Printf("[avaliacao-final] avaliação salva mas com erros em turmas: %v", errosTurmas)
+		"turmas_removidas": turmasAtuais,
 	}
 	c.JSON(http.StatusCreated, response)
 }
@@ -451,100 +436,24 @@ func ListarReprovacoes(c *gin.Context) {
 // Helpers internos
 // ============================================================================
 
-// buscarTurmaAtual encontra a turma atual do estudante antes de removê-lo.
-func buscarTurmaAtual(c *gin.Context, codigoEstudante, codigoAcademia string) *string {
+// buscarTurmasDoEstudante retorna todas as turmas atuais do estudante.
+func buscarTurmasDoEstudante(c *gin.Context, codigoEstudante, codigoAcademia string) []string {
 	turmasProj := getTurmasProjection(c)
 	turmas, err := turmasProj.ListByAcademia(codigoAcademia)
 	if err != nil {
 		log.Printf("[avaliacao-final] erro ao buscar turma atual do estudante %s: %v", codigoEstudante, err)
 		return nil
 	}
+	result := make([]string, 0, 2)
 	for _, turma := range turmas {
 		for _, cod := range turma.Estudantes {
 			if cod == codigoEstudante {
-				return &turma.CodigoTurma
-			}
-		}
-	}
-	return nil
-}
-
-// removerEstudanteDeTurmasAtual percorre TODAS as turmas da academia e remove o
-// estudante de cada uma em que for encontrado.
-//
-// FIX H4-11: recebe *gin.Context para extrair o IP real do cliente via c.ClientIP().
-// Antes, o AuditContext era preenchido com IP: "" — eventos EstudanteRemovidoDaTurma
-// gerados durante avaliação final não tinham IP nos metadados de auditoria.
-func removerEstudanteDeTurmasAtual(
-	c *gin.Context,
-	codigoEstudante string,
-	codigoAcademia string,
-	removidoPorID uuid.UUID,
-) (removidas []string, erros []string) {
-	turmasProj := getTurmasProjection(c)
-	turmas, err := turmasProj.ListByAcademia(codigoAcademia)
-	if err != nil {
-		log.Printf("[avaliacao-final] erro ao listar turmas: %v", err)
-		return nil, []string{"erro ao listar turmas: " + err.Error()}
-	}
-
-	repository := getRepository(c)
-
-	// FIX H4-11: IP extraído do contexto Gin uma única vez e reutilizado em
-	// todos os AuditContext das remoções. Antes era IP: "" em todos os eventos.
-	clientIP := c.ClientIP()
-
-	for _, turmaDTO := range turmas {
-		encontrado := false
-		for _, cod := range turmaDTO.Estudantes {
-			if cod == codigoEstudante {
-				encontrado = true
+				result = append(result, turma.CodigoTurma)
 				break
 			}
 		}
-		if !encontrado {
-			continue
-		}
-
-		agg, err := repository.Load(turmaDTO.ID, "Turma")
-		if err != nil {
-			msg := fmt.Sprintf("erro ao carregar turma %s: %v", turmaDTO.CodigoTurma, err)
-			log.Printf("[avaliacao-final] %s", msg)
-			erros = append(erros, msg)
-			continue
-		}
-		turmaAgg, ok := agg.(*aggregates.Turma)
-		if !ok {
-			msg := fmt.Sprintf("erro ao converter aggregate da turma %s", turmaDTO.CodigoTurma)
-			log.Printf("[avaliacao-final] %s", msg)
-			erros = append(erros, msg)
-			continue
-		}
-		if err := turmaAgg.RemoverEstudante(codigoEstudante, removidoPorID); err != nil {
-			msg := fmt.Sprintf("erro ao remover estudante da turma %s: %v", turmaDTO.CodigoTurma, err)
-			log.Printf("[avaliacao-final] %s", msg)
-			erros = append(erros, msg)
-			continue
-		}
-
-		// FIX H4-11: IP: clientIP em vez de IP: ""
-		auditTurma := db.AuditContext{
-			UserID:   removidoPorID.String(),
-			UserType: "academia",
-			IP:       clientIP,
-		}
-		if err := repository.SaveWithAudit(turmaAgg, auditTurma); err != nil {
-			// ⚠️ Crítico: aggregate foi mutado mas evento não foi gravado.
-			// Logar com severidade alta para investigação manual.
-			msg := fmt.Sprintf("FALHA CRÍTICA ao salvar remoção da turma %s: %v", turmaDTO.CodigoTurma, err)
-			log.Printf("[avaliacao-final] [ERRO CRÍTICO] %s", msg)
-			erros = append(erros, msg)
-			continue
-		}
-		removidas = append(removidas, turmaDTO.CodigoTurma)
 	}
-
-	return removidas, erros
+	return result
 }
 
 // validarNotasParaAprovacao verifica se todas as notas obrigatórias estão presentes.

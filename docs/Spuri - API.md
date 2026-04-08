@@ -1,8 +1,8 @@
 ---
-modificado: 06-04-2026 17:05
+modificado: 08-04-2026 13:20
 criado: 05-04-2026 13:01
 ---
-Versão atua: 1.0.3
+Versão atua: 1.0.4
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -247,6 +247,7 @@ interface TurmaDTO {
   curso_id?: string           // UUID
   turno: Turno
   estudantes: string[]        // lista de codigo_estudante
+  historico_estudantes_ano_letivo: Record<string, string[]> // ano_letivo -> estudantes que já passaram na turma
   status: string              // 'ativo' | 'inativo' | 'deletado'
   status_alterado_por?: string // UUID
   status_alterado_em?: string  // RFC3339
@@ -1642,8 +1643,7 @@ Registra a avaliação final de ano para um estudante.
 {
   "message": "avaliação final registrada com sucesso",
   "resultado": "aprovado → 4_ano_fundamental",
-  "turmas_removidas": ["T1A", "T2B"],
-  "avisos_turmas": []  // erros não fatais na remoção de turmas
+  "turmas_removidas": ["T1A", "T2B"]
 }
 ```
 

@@ -10,18 +10,19 @@ import (
 
 type AvaliacaoFinalAnoAcademicoEvent struct {
 	BaseEvent
-	ID                  uuid.UUID `json:"id"`
-	CodigoEstudante     string    `json:"codigo_estudante"`
-	CodigoAcademia      string    `json:"codigo_academia"`
-	AnoLectivo          string    `json:"ano_lectivo"`
-	TipoEnsino          string    `json:"tipo_ensino"`
-	AnoAcademicoAtual   string    `json:"nivel_ano_academico_atual"`
-	ProximoAnoAcademico *string   `json:"proximo_ano_academico,omitempty"`
-	CodigoTurma         *string   `json:"codigo_turma,omitempty"`
-	Aprovado            bool      `json:"aprovado"`
-	Observacao          *string   `json:"observacao,omitempty"`
-	Tipo                string    `json:"tipo"`
-	RegisteredAt        time.Time `json:"registered_at"`
+	ID                     uuid.UUID `json:"id"`
+	CodigoEstudante        string    `json:"codigo_estudante"`
+	CodigoAcademia         string    `json:"codigo_academia"`
+	AnoLectivo             string    `json:"ano_lectivo"`
+	TipoEnsino             string    `json:"tipo_ensino"`
+	AnoAcademicoAtual      string    `json:"nivel_ano_academico_atual"`
+	ProximoAnoAcademico    *string   `json:"proximo_ano_academico,omitempty"`
+	CodigoTurma            *string   `json:"codigo_turma,omitempty"`
+	CodigosTurmasRemovidas []string  `json:"codigos_turmas_removidas,omitempty"`
+	Aprovado               bool      `json:"aprovado"`
+	Observacao             *string   `json:"observacao,omitempty"`
+	Tipo                   string    `json:"tipo"`
+	RegisteredAt           time.Time `json:"registered_at"`
 }
 
 func (e *AvaliacaoFinalAnoAcademicoEvent) GetPayload() interface{} { return e }
@@ -40,6 +41,7 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 	anoAcademicoAtual string,
 	proximoAnoAcademico *string,
 	codigoTurma *string,
+	codigosTurmasRemovidas []string,
 	aprovado bool,
 	observacao *string,
 ) error {
@@ -60,19 +62,20 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 	}
 
 	event := &AvaliacaoFinalAnoAcademicoEvent{
-		BaseEvent:           BaseEvent{EventType: "AvaliacaoFinalAnoAcademico", AggregateID: e.ID},
-		ID:                  uuid.New(),
-		CodigoEstudante:     e.CodigoEstudante,
-		CodigoAcademia:      codigoAcademia,
-		AnoLectivo:          anoLectivo,
-		TipoEnsino:          tipoEnsino,
-		AnoAcademicoAtual:   anoAcademicoAtual,
-		ProximoAnoAcademico: proximoAnoAcademico,
-		CodigoTurma:         codigoTurma,
-		Aprovado:            aprovado,
-		Observacao:          observacao,
-		Tipo:                "avaliacao_final",
-		RegisteredAt:        time.Now(),
+		BaseEvent:              BaseEvent{EventType: "AvaliacaoFinalAnoAcademico", AggregateID: e.ID},
+		ID:                     uuid.New(),
+		CodigoEstudante:        e.CodigoEstudante,
+		CodigoAcademia:         codigoAcademia,
+		AnoLectivo:             anoLectivo,
+		TipoEnsino:             tipoEnsino,
+		AnoAcademicoAtual:      anoAcademicoAtual,
+		ProximoAnoAcademico:    proximoAnoAcademico,
+		CodigoTurma:            codigoTurma,
+		CodigosTurmasRemovidas: codigosTurmasRemovidas,
+		Aprovado:               aprovado,
+		Observacao:             observacao,
+		Tipo:                   "avaliacao_final",
+		RegisteredAt:           time.Now(),
 	}
 
 	e.RaiseEvent(event)
