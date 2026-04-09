@@ -1,8 +1,8 @@
 ---
-modificado: 08-04-2026 13:20
+modificado: 09-04-2026 13:20
 criado: 05-04-2026 13:01
 ---
-Versão atua: 1.0.4
+Versão atual: 1.0.5
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -672,6 +672,8 @@ POST /dominis/projections/rebuild/:name/async
 ```
 
 Esse endpoint retorna `202 Accepted` com `job_id`; o cliente pode acompanhar em `GET /jobs/:id` e/ou receber eventos em `GET /jobs/stream`.
+
+**Concorrência de rebuild**: o manager permite apenas **1 rebuild por vez** (lock global). Se outro rebuild já estiver em execução, o endpoint síncrono retorna `409 Conflict`.
 
 **Antes de reconstruir**, o sistema verifica a integridade completa do ledger. Se qualquer aggregate estiver com hash chain inválida, o rebuild é abortado.
 

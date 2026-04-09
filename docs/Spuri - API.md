@@ -1,8 +1,8 @@
 ---
-modificado: 08-04-2026 13:20
+modificado: 09-04-2026 13:20
 criado: 05-04-2026 13:01
 ---
-Versão atua: 1.0.4
+Versão atual: 1.0.5
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -2514,6 +2514,7 @@ Reconstrói uma projeção do zero a partir do ledger.
 
 **Erros:**
 
+- `409` — já existe outro rebuild em andamento
 - `404` — projeção não encontrada
 - `500` — integridade do ledger comprometida (rebuild abortado), com motivo detalhado no campo `message`
 

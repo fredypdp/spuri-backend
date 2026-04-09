@@ -8,6 +8,7 @@ import (
 	"spuri/internal/jobs"
 	"spuri/internal/middleware"
 	"spuri/internal/utils"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -46,6 +47,16 @@ func runProjectionRebuild(c *gin.Context, adminID uuid.UUID, name string) error 
 	return nil
 }
 
+func rebuildStatusCode(err error) int {
+	if err == nil {
+		return http.StatusOK
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "rebuild já em andamento") {
+		return http.StatusConflict
+	}
+	return http.StatusInternalServerError
+}
+
 // ============================================================================
 // POST /admin/projections/rebuild/:name
 // ============================================================================
@@ -54,7 +65,7 @@ func RebuildProjection(c *gin.Context) {
 	name := c.Param("name")
 
 	if err := runProjectionRebuild(c, adminID, name); err != nil {
-		utils.RespondWithError(c, http.StatusInternalServerError, err.Error(), err)
+		utils.RespondWithError(c, rebuildStatusCode(err), err.Error(), err)
 		return
 	}
 
@@ -135,7 +146,7 @@ func RebuildProjectionJobItem(c *gin.Context) {
 	}
 
 	if err := runProjectionRebuild(c, adminID, req.Name); err != nil {
-		utils.RespondWithError(c, http.StatusInternalServerError, err.Error(), err)
+		utils.RespondWithError(c, rebuildStatusCode(err), err.Error(), err)
 		return
 	}
 
