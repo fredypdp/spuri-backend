@@ -1,8 +1,8 @@
 ---
-modificado: 09-04-2026 13:20
+modificado: 09-04-2026 13:55
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.0.5
+Versão atual: 1.0.6
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -47,6 +47,12 @@ Content-Type: application/json
 
 - Datas completas em UTC no formato RFC3339: `2025-03-15T10:30:00Z`
 - Datas simples: `2025-03-15` (formato ISO 8601)
+
+### Convenção de Payload e Resposta
+
+- Toda rota desta documentação declara explicitamente o formato de entrada e saída.
+- Quando uma rota não tiver corpo de entrada, ela trará `Request: sem payload` ou será um `GET` sem body.
+- Nos endpoints batch (`/async`), o payload é sempre um objeto com `items`, e cada item segue o contrato da rota síncrona equivalente.
 
 ### Envelope de Erro
 
@@ -1220,7 +1226,26 @@ Atualiza o status do ensino médio do estudante.
 
 **Proteção**: autenticado + academia ativa
 
-**Request/Response**: igual ao endpoint de status fundamental.
+**Path Params:**
+
+- `codigo` — código do estudante
+
+**Request:**
+
+```json
+{
+  "novo_status": "em_andamento"  // 'inativo' | 'em_andamento' | 'finalizado'
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "status_escolar_medio atualizado com sucesso",
+  "novo_status": "em_andamento"
+}
+```
 
 ---
 
@@ -1232,7 +1257,26 @@ Atualiza o status do ensino superior do estudante.
 
 **Regra**: só pode avançar se o fundamental e o médio estiverem `finalizado` ou `inativo`.
 
-**Request/Response**: igual ao endpoint de status fundamental.
+**Path Params:**
+
+- `codigo` — código do estudante
+
+**Request:**
+
+```json
+{
+  "novo_status": "em_andamento"  // 'inativo' | 'em_andamento' | 'finalizado'
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "status_superior atualizado com sucesso",
+  "novo_status": "em_andamento"
+}
+```
 
 ---
 
@@ -2748,7 +2792,23 @@ data: {"type":"job_progress","job_id":"uuid","job_type":"register_estudante_batc
 Todos criam um job e retornam `202 Accepted`. Usar `GET /jobs/:id` para acompanhar.
 Para notificações push, abrir `GET /jobs/stream`.
 
-**Response 202:**
+**Formato de payload (todos os endpoints `/async`):**
+
+```json
+{
+  "items": [
+    {"...": "objeto com o mesmo payload do endpoint síncrono equivalente"}
+  ]
+}
+```
+
+**Regras do payload:**
+
+- `items` é obrigatório e deve conter pelo menos 1 item.
+- Cada objeto dentro de `items` deve seguir exatamente o mesmo contrato de payload da versão síncrona da rota.
+- O limite máximo de itens por requisição depende do endpoint (tabela abaixo).
+
+**Response 202 (igual para todos):**
 
 ```json
 {
@@ -2760,30 +2820,50 @@ Para notificações push, abrir `GET /jobs/stream`.
 }
 ```
 
-|Endpoint|Limite|
-|---|---|
-|`POST /academia/estudante/register/async`|1000|
-|`POST /academia/notas-aluno/async`|2000|
-|`PUT /academia/atualizar-nota/async`|2000|
-|`DELETE /academia/nota/async`|2000|
-|`POST /academia/faltas-aluno/async`|2000|
-|`PUT /academia/atualizar-falta/async`|2000|
-|`DELETE /academia/falta/async`|2000|
-|`POST /academia/avaliacao-final/async`|1000|
-|`PUT /academia/estudante/status-escolar/async`|1000|
-|`POST /academia/curso/async`|200|
-|`POST /academia/materia/async`|500|
-|`POST /academia/turma/async`|200|
-|`POST /academia/turma/estudante/async`|1000|
+|Endpoint|Payload por item|Resposta|Limite|
+|---|---|---|---|
+|`POST /academia/estudante/register/async`|igual ao `POST /academia/estudante/register`|`202` (job criado)|1000|
+|`POST /academia/notas-aluno/async`|igual ao `POST /academia/notas-aluno`|`202` (job criado)|2000|
+|`PUT /academia/atualizar-nota/async`|igual ao `PUT /academia/atualizar-nota`|`202` (job criado)|2000|
+|`DELETE /academia/nota/async`|igual ao `DELETE /academia/nota/:id` (sem `:id`, enviado no item)|`202` (job criado)|2000|
+|`POST /academia/faltas-aluno/async`|igual ao `POST /academia/faltas-aluno`|`202` (job criado)|2000|
+|`PUT /academia/atualizar-falta/async`|igual ao `PUT /academia/atualizar-falta`|`202` (job criado)|2000|
+|`DELETE /academia/falta/async`|igual ao `DELETE /academia/falta/:id` (sem `:id`, enviado no item)|`202` (job criado)|2000|
+|`POST /academia/avaliacao-final/async`|igual ao `POST /academia/avaliacao-final`|`202` (job criado)|1000|
+|`PUT /academia/estudante/status-escolar/async`|igual aos endpoints síncronos de status escolar do estudante|`202` (job criado)|1000|
+|`POST /academia/curso/async`|igual ao `POST /academia/curso`|`202` (job criado)|200|
+|`POST /academia/materia/async`|igual ao `POST /academia/materia`|`202` (job criado)|500|
+|`POST /academia/turma/async`|igual ao `POST /academia/turma`|`202` (job criado)|200|
+|`POST /academia/turma/estudante/async`|igual ao `POST /academia/turma/:codigo/estudante`|`202` (job criado)|1000|
 
 ---
 
 ## 19. Batch Assíncrono — Admin
 
-|Endpoint|Proteção|Limite|
-|---|---|---|
-|`POST /dominis/academia/register/async`|admin|500|
-|`PUT /dominis/academia/ativar/async`|admin role `adm`|500|
-|`PUT /dominis/academia/desativar/async`|admin role `adm`|500|
+**Formato de payload (todos os endpoints `/async`):**
 
-**Response 202:** igual ao batch assíncrono de academia.
+```json
+{
+  "items": [
+    {"...": "objeto com o mesmo payload do endpoint síncrono equivalente"}
+  ]
+}
+```
+
+**Response 202 (igual para todos):**
+
+```json
+{
+  "message": "job criado com sucesso — use GET /jobs/:id para acompanhar o progresso",
+  "job_id": "uuid",
+  "total_items": 500,
+  "status": "pending",
+  "poll_url": "/jobs/uuid"
+}
+```
+
+|Endpoint|Proteção|Payload por item|Resposta|Limite|
+|---|---|---|---|---|
+|`POST /dominis/academia/register/async`|admin|igual ao `POST /dominis/academia/register`|`202` (job criado)|500|
+|`PUT /dominis/academia/ativar/async`|admin role `adm`|igual ao `PUT /dominis/academia/:codigo/ativar`|`202` (job criado)|500|
+|`PUT /dominis/academia/desativar/async`|admin role `adm`|igual ao `PUT /dominis/academia/:codigo/desativar`|`202` (job criado)|500|
