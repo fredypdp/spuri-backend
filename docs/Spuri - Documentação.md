@@ -665,6 +665,14 @@ Admins com role `fpp` podem reconstruir projeções:
 POST /dominis/projections/rebuild/:name
 ```
 
+Para evitar timeout em rebuilds longos (ex.: projeções com alto volume de eventos no ledger), use a versão assíncrona:
+
+```
+POST /dominis/projections/rebuild/:name/async
+```
+
+Esse endpoint retorna `202 Accepted` com `job_id`; o cliente pode acompanhar em `GET /jobs/:id` e/ou receber eventos em `GET /jobs/stream`.
+
 **Antes de reconstruir**, o sistema verifica a integridade completa do ledger. Se qualquer aggregate estiver com hash chain inválida, o rebuild é abortado.
 
 **Ordem de rebuild recomendada** (respeita dependências):
@@ -706,6 +714,7 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 
 - Jobs com falha parcial agora finalizam com `status=failed` e `error` contendo o motivo com amostras de itens.
 - Rebuild de projeções retorna o erro real no body HTTP, não apenas log interno.
+- Rebuild assíncrono de projeções usa o mesmo pipeline de integridade do rebuild síncrono, mas sem manter a conexão HTTP aberta por minutos.
 
 ---
 
