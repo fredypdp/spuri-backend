@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,11 +14,22 @@ import (
 //
 // Objetivo: todo processamento batch/async reaproveita os handlers normais
 // (mesma validação, mesmas regras de domínio e mesma resposta por item).
-//
-// Modelo adotado: preservar o body original do item (payload bruto) e apenas
-// extrair os campos mínimos necessários para preencher params de rota quando
-// o handler principal depende de path params.
 // ============================================================================
+
+// restoreBody repõe o body original no request sem re-serializar.
+//
+// BUG ORIGINAL: a versão anterior usava setJSONBody(c, rawBody) que internamente
+// chama json.Marshal(rawBody). Quando rawBody é []byte, json.Marshal produz uma
+// string base64 em vez do JSON original — double-encoding que corrompe o payload
+// para qualquer handler que chame ShouldBindJSON depois.
+func restoreBody(c *gin.Context, raw []byte) {
+	c.Request.Body = io.NopCloser(bytes.NewReader(raw))
+	if c.Request.Header == nil {
+		c.Request.Header = make(http.Header)
+	}
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Request.ContentLength = int64(len(raw))
+}
 
 func bindJobItemWithoutLosingBody(c *gin.Context, target interface{}) error {
 	if c.Request == nil || c.Request.Body == nil {
@@ -29,19 +41,19 @@ func bindJobItemWithoutLosingBody(c *gin.Context, target interface{}) error {
 		return err
 	}
 
-	// Sempre restaura o body original para o handler principal ler novamente.
-	setJSONBody(c, rawBody)
-
 	if len(rawBody) == 0 {
 		return fmt.Errorf("body ausente")
 	}
+
+	// Restaura ANTES de ShouldBindJSON — o reader precisa estar disponível.
+	restoreBody(c, rawBody)
 
 	if err := c.ShouldBindJSON(target); err != nil {
 		return err
 	}
 
-	// ShouldBindJSON consome novamente o stream, então restaura de novo.
-	setJSONBody(c, rawBody)
+	// ShouldBindJSON consome o stream; restaura novamente para o handler principal.
+	restoreBody(c, rawBody)
 	return nil
 }
 
@@ -157,10 +169,15 @@ func AtualizarStatusEscolarJobItem(c *gin.Context) {
 
 func AdicionarEstudanteATurmaJobItem(c *gin.Context) {
 	var req struct {
-		CodigoTurma string `json:"codigo_turma"`
+		CodigoTurma     string `json:"codigo_turma"`
+		CodigoEstudante string `json:"codigo_estudante"`
 	}
 	if err := bindJobItemWithoutLosingBody(c, &req); err != nil || req.CodigoTurma == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter ao menos {codigo_turma}"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo_turma, codigo_estudante}"})
+		return
+	}
+	if req.CodigoEstudante == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo_turma, codigo_estudante}"})
 		return
 	}
 
