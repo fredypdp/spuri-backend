@@ -1,8 +1,8 @@
 ---
-modificado: 08-04-2026 13:20
+modificado: 09-04-2026 13:20
 criado: 05-04-2026 13:01
 ---
-Versão atua: 1.0.4
+Versão atual: 1.0.5
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -2514,8 +2514,41 @@ Reconstrói uma projeção do zero a partir do ledger.
 
 **Erros:**
 
+- `409` — já existe outro rebuild em andamento
 - `404` — projeção não encontrada
 - `500` — integridade do ledger comprometida (rebuild abortado), com motivo detalhado no campo `message`
+
+---
+
+### POST /dominis/projections/rebuild/:name/async
+
+Enfileira o rebuild de uma projeção para execução em background (job assíncrono).
+
+Use este endpoint quando o rebuild puder demorar vários minutos.
+
+**Proteção**: autenticado + admin role `fpp`
+
+**Path Params:**
+
+- `name` — nome da projeção (ex: `admins`, `estudantes`, `notas`)
+
+**Response 202:**
+
+```json
+{
+  "message": "rebuild enfileirado com sucesso — use GET /jobs/:id para acompanhar o progresso",
+  "projection": "admins",
+  "job_id": "8a362f5e-cfcd-4968-ab0a-b6a1cfce8812",
+  "status": "pending",
+  "total_items": 1,
+  "poll_url": "/jobs/8a362f5e-cfcd-4968-ab0a-b6a1cfce8812"
+}
+```
+
+**Acompanhamento:**
+
+- `GET /jobs/:id`
+- `GET /jobs/stream` (SSE)
 
 ---
 
