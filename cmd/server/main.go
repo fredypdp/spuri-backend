@@ -151,6 +151,7 @@ func initJobs(ctx context.Context) {
 	jobWorker.RegisterHandler(jobs.JobTypeCriarMateriaBatch, handlers.CriarMateria)
 	jobWorker.RegisterHandler(jobs.JobTypeCriarTurmaBatch, handlers.CriarTurma)
 	jobWorker.RegisterHandler(jobs.JobTypeAdicionarEstudanteBatch, handlers.AdicionarEstudanteATurmaJobItem)
+	jobWorker.RegisterHandler(jobs.JobTypeRebuildProjection, handlers.RebuildProjectionJobItem)
 
 	jobWorker.Start(ctx)
 	log.Println("[INFO] Job worker iniciado com 4 goroutines")
@@ -338,6 +339,7 @@ func setupRouter() *gin.Engine {
 		admin.GET("/admin-lista", handlers.ListarTodosAdmins)
 		admin.GET("/metrics", handlers.GetSystemMetrics)
 		admin.POST("/projections/rebuild/:name", middleware.RequireFPP(), handlers.RebuildProjection)
+		admin.POST("/projections/rebuild/:name/async", middleware.RequireFPP(), handlers.RebuildProjectionAsync)
 		admin.GET("/consultar-admin/:email", handlers.GetAdminPorEmail)
 		admin.GET("/registros", handlers.ListarTodosRegistros)
 		admin.GET("/registros/:codigo", handlers.ListarRegistrosPorEstudante)

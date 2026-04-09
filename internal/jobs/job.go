@@ -37,6 +37,7 @@ const (
 	JobTypeCriarMateriaBatch            JobType = "criar_materia_batch"
 	JobTypeCriarTurmaBatch              JobType = "criar_turma_batch"
 	JobTypeAdicionarEstudanteBatch      JobType = "adicionar_estudante_batch"
+	JobTypeRebuildProjection            JobType = "rebuild_projection"
 )
 
 // ItemResult representa o resultado de um item individual dentro do job.

@@ -2519,6 +2519,38 @@ Reconstrói uma projeção do zero a partir do ledger.
 
 ---
 
+### POST /dominis/projections/rebuild/:name/async
+
+Enfileira o rebuild de uma projeção para execução em background (job assíncrono).
+
+Use este endpoint quando o rebuild puder demorar vários minutos.
+
+**Proteção**: autenticado + admin role `fpp`
+
+**Path Params:**
+
+- `name` — nome da projeção (ex: `admins`, `estudantes`, `notas`)
+
+**Response 202:**
+
+```json
+{
+  "message": "rebuild enfileirado com sucesso — use GET /jobs/:id para acompanhar o progresso",
+  "projection": "admins",
+  "job_id": "8a362f5e-cfcd-4968-ab0a-b6a1cfce8812",
+  "status": "pending",
+  "total_items": 1,
+  "poll_url": "/jobs/8a362f5e-cfcd-4968-ab0a-b6a1cfce8812"
+}
+```
+
+**Acompanhamento:**
+
+- `GET /jobs/:id`
+- `GET /jobs/stream` (SSE)
+
+---
+
 ## 16. Consultas Gerais
 
 ### GET /academias
