@@ -1,8 +1,8 @@
 ---
-modificado: 09-04-2026 13:20
+modificado: 10-04-2026 11:10
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.0.5
+Versão atual: 1.0.7
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -899,6 +899,14 @@ Endpoints `/async` criam um job e retornam imediatamente. O processamento ocorre
 
 **Limites:** até 1000-2000 itens (dependendo do endpoint).
 
+**Formato de payload:** array JSON (não objeto com `items`).
+
+```json
+[
+  {"...": "payload do endpoint síncrono equivalente"}
+]
+```
+
 **Fluxo:**
 
 ```
@@ -908,6 +916,13 @@ GET  /jobs/:id                    →  { status, progress, done_items, fail_item
 (quando status = "done" ou "failed")
 GET  /jobs/:id?results=true       →  { ... resultados por item ... }
 ```
+
+**Cobertura adicional em 1.0.7 (novos `/async`):**
+- Academia: `PUT /academia/dados/async`, `POST /academia/categorias-nota/async`.
+- Cursos: `PUT /academia/curso/ativar|desativar|dados/async`, `DELETE /academia/curso/async`.
+- Matérias: `PUT /academia/materia/ativar|desativar|periodo|dados/async`, `DELETE /academia/materia/async`.
+- Turmas: `PUT /academia/turma/ativar|desativar|dados/async`, `DELETE /academia/turma/async`, `DELETE /academia/turma/estudante/async`.
+- Admin: `PUT /dominis/admin/ativar/async`, `PUT /dominis/admin/desativar/async`.
 
 ---
 
