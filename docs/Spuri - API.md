@@ -1,8 +1,8 @@
 ---
-modificado: 09-04-2026 13:55
+modificado: 10-04-2026 11:10
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.0.6
+Versão atual: 1.0.7
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -52,7 +52,7 @@ Content-Type: application/json
 
 - Toda rota desta documentação declara explicitamente o formato de entrada e saída.
 - Quando uma rota não tiver corpo de entrada, ela trará `Request: sem payload` ou será um `GET` sem body.
-- Nos endpoints batch (`/async`), o payload é sempre um objeto com `items`, e cada item segue o contrato da rota síncrona equivalente.
+- Nos endpoints batch (`/async`), o payload é sempre um array JSON; cada item segue o contrato da rota síncrona equivalente.
 
 ### Envelope de Erro
 
@@ -2795,17 +2795,15 @@ Para notificações push, abrir `GET /jobs/stream`.
 **Formato de payload (todos os endpoints `/async`):**
 
 ```json
-{
-  "items": [
-    {"...": "objeto com o mesmo payload do endpoint síncrono equivalente"}
-  ]
-}
+[
+  {"...": "objeto com o mesmo payload do endpoint síncrono equivalente"}
+]
 ```
 
 **Regras do payload:**
 
-- `items` é obrigatório e deve conter pelo menos 1 item.
-- Cada objeto dentro de `items` deve seguir exatamente o mesmo contrato de payload da versão síncrona da rota.
+- O array é obrigatório e deve conter pelo menos 1 item.
+- Cada objeto do array deve seguir exatamente o mesmo contrato de payload da versão síncrona da rota.
 - O limite máximo de itens por requisição depende do endpoint (tabela abaixo).
 
 **Response 202 (igual para todos):**
@@ -2835,6 +2833,22 @@ Para notificações push, abrir `GET /jobs/stream`.
 |`POST /academia/materia/async`|igual ao `POST /academia/materia`|`202` (job criado)|500|
 |`POST /academia/turma/async`|igual ao `POST /academia/turma`|`202` (job criado)|200|
 |`POST /academia/turma/estudante/async`|igual ao `POST /academia/turma/:codigo/estudante`|`202` (job criado)|1000|
+|`PUT /academia/dados/async`|igual ao `PUT /academia/dados`|`202` (job criado)|200|
+|`POST /academia/categorias-nota/async`|igual ao `POST /academia/categorias-nota`|`202` (job criado)|500|
+|`PUT /academia/curso/ativar/async`|igual ao `PUT /academia/curso/:id/ativar` (`id` vai no item)|`202` (job criado)|500|
+|`PUT /academia/curso/desativar/async`|igual ao `PUT /academia/curso/:id/desativar` (`id` vai no item)|`202` (job criado)|500|
+|`PUT /academia/curso/dados/async`|igual ao `PUT /academia/curso/:id/dados` (`id` vai no item)|`202` (job criado)|500|
+|`DELETE /academia/curso/async`|igual ao `DELETE /academia/curso/:id` (`id` vai no item)|`202` (job criado)|500|
+|`PUT /academia/materia/ativar/async`|igual ao `PUT /academia/materia/:id/ativar` (`id` vai no item)|`202` (job criado)|1000|
+|`PUT /academia/materia/desativar/async`|igual ao `PUT /academia/materia/:id/desativar` (`id` vai no item)|`202` (job criado)|1000|
+|`PUT /academia/materia/periodo/async`|igual ao `PUT /academia/materia/:id/periodo` (`id` vai no item)|`202` (job criado)|1000|
+|`PUT /academia/materia/dados/async`|igual ao `PUT /academia/materia/:id/dados` (`id` vai no item)|`202` (job criado)|1000|
+|`DELETE /academia/materia/async`|igual ao `DELETE /academia/materia/:id` (`id` vai no item)|`202` (job criado)|1000|
+|`PUT /academia/turma/ativar/async`|igual ao `PUT /academia/turma/:codigo/ativar` (`codigo_turma` vai no item)|`202` (job criado)|500|
+|`PUT /academia/turma/desativar/async`|igual ao `PUT /academia/turma/:codigo/desativar` (`codigo_turma` vai no item)|`202` (job criado)|500|
+|`PUT /academia/turma/dados/async`|igual ao `PUT /academia/turma/:codigo/dados` (`codigo_turma` vai no item)|`202` (job criado)|500|
+|`DELETE /academia/turma/async`|igual ao `DELETE /academia/turma/:codigo` (`codigo_turma` vai no item)|`202` (job criado)|500|
+|`DELETE /academia/turma/estudante/async`|igual ao `DELETE /academia/turma/:codigo/estudantes/:codigo_estudante` (`codigo_turma` + `codigo_estudante` no item)|`202` (job criado)|1000|
 
 ---
 
@@ -2843,11 +2857,9 @@ Para notificações push, abrir `GET /jobs/stream`.
 **Formato de payload (todos os endpoints `/async`):**
 
 ```json
-{
-  "items": [
-    {"...": "objeto com o mesmo payload do endpoint síncrono equivalente"}
-  ]
-}
+[
+  {"...": "objeto com o mesmo payload do endpoint síncrono equivalente"}
+]
 ```
 
 **Response 202 (igual para todos):**
@@ -2867,3 +2879,5 @@ Para notificações push, abrir `GET /jobs/stream`.
 |`POST /dominis/academia/register/async`|admin|igual ao `POST /dominis/academia/register`|`202` (job criado)|500|
 |`PUT /dominis/academia/ativar/async`|admin role `adm`|igual ao `PUT /dominis/academia/:codigo/ativar`|`202` (job criado)|500|
 |`PUT /dominis/academia/desativar/async`|admin role `adm`|igual ao `PUT /dominis/academia/:codigo/desativar`|`202` (job criado)|500|
+|`PUT /dominis/admin/ativar/async`|admin role `adm`|igual ao `PUT /dominis/admin/:id/ativar` (`id` vai no item)|`202` (job criado)|500|
+|`PUT /dominis/admin/desativar/async`|admin role `adm`|igual ao `PUT /dominis/admin/:id/desativar` (`id` + `motivo` no item)|`202` (job criado)|500|
