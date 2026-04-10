@@ -153,6 +153,7 @@ func initJobs(ctx context.Context) {
 	jobWorker.RegisterHandler(jobs.JobTypeAdicionarEstudanteBatch, handlers.AdicionarEstudanteATurmaJobItem)
 	jobWorker.RegisterHandler(jobs.JobTypeAtualizarDadosAcademiaBatch, handlers.AtualizarDadosAcademiaJobItem)
 	jobWorker.RegisterHandler(jobs.JobTypeCriarCategoriaNotaBatch, handlers.CriarCategoriaNotaJobItem)
+	jobWorker.RegisterHandler(jobs.JobTypeDeletarCategoriaNotaBatch, handlers.DeletarCategoriaNotaJobItem)
 	jobWorker.RegisterHandler(jobs.JobTypeAtivarCursoBatch, handlers.AtivarCursoJobItem)
 	jobWorker.RegisterHandler(jobs.JobTypeDesativarCursoBatch, handlers.DesativarCursoJobItem)
 	jobWorker.RegisterHandler(jobs.JobTypeAtualizarDadosCursoBatch, handlers.AtualizarDadosCursoJobItem)
@@ -258,6 +259,7 @@ func setupRouter() *gin.Engine {
 		protected.GET("/notas-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetNotasEstudante)
 		protected.GET("/faltas-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetFaltasEstudante)
 		protected.GET("/avaliacoes-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetAvaliacoesFinaisEstudante)
+		protected.GET("/turmas-estudante/:codigo", handlers.GetTurmasEstudante)
 		protected.POST("/adicionar-telefone-extra", handlers.AdicionarTelefoneExtra)
 	}
 
@@ -293,6 +295,7 @@ func setupRouter() *gin.Engine {
 		academia.POST("/avaliacao-final", handlers.RegistrarAvaliacaoFinal)
 		academia.POST("/categorias-nota", handlers.CriarCategoriaNota)
 		academia.GET("/categorias-nota", handlers.ListarCategoriasNota)
+		academia.DELETE("/categorias-nota/:nome", handlers.DeletarCategoriaNota)
 		academia.PUT("/estudante/:codigo/status-escolar-fundamental", handlers.AtualizarStatusEscolarFundamentalHandler)
 		academia.PUT("/estudante/:codigo/status-escolar-medio", handlers.AtualizarStatusEscolarMedioHandler)
 		academia.PUT("/estudante/:codigo/status-superior", handlers.AtualizarStatusSuperiorHandler)
@@ -343,6 +346,7 @@ func setupRouter() *gin.Engine {
 		academia.POST("/turma/estudante/async", handlers.AdicionarEstudanteBatchAsync)
 		academia.PUT("/dados/async", handlers.AtualizarDadosAcademiaBatchAsync)
 		academia.POST("/categorias-nota/async", handlers.CriarCategoriaNotaBatchAsync)
+		academia.DELETE("/categorias-nota/async", handlers.DeletarCategoriaNotaBatchAsync)
 		academia.PUT("/curso/ativar/async", handlers.AtivarCursoBatchAsync)
 		academia.PUT("/curso/desativar/async", handlers.DesativarCursoBatchAsync)
 		academia.PUT("/curso/dados/async", handlers.AtualizarDadosCursoBatchAsync)

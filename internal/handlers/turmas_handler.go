@@ -7,6 +7,7 @@ import (
 	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
+	"spuri/internal/projections"
 	"spuri/internal/utils"
 
 	"github.com/gin-gonic/gin"
@@ -97,6 +98,65 @@ func ListarTurmasAcademia(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"turmas": turmas})
+}
+
+// GetTurmasEstudante retorna as turmas de um estudante com autorização por papel.
+// Rota única: GET /turmas-estudante/:codigo
+//   - estudante: apenas o próprio código
+//   - academia: apenas estudantes da sua academia
+//   - admin: qualquer estudante
+func GetTurmasEstudante(c *gin.Context) {
+	codigoEstudante := c.Param("codigo")
+
+	estudanteProj := getEstudanteProjection(c)
+	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
+	if err != nil || estudante == nil {
+		utils.RespondWithNotFoundError(c, "estudante")
+		return
+	}
+
+	userID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
+	turmasProj := getTurmasProjection(c)
+
+	var turmas []*projections.TurmaDTO
+	switch userType {
+	case "estudante":
+		if userID != estudante.ID {
+			utils.RespondWithForbiddenError(c, "você só pode visualizar suas próprias turmas")
+			return
+		}
+		turmas, err = turmasProj.ListByEstudante(codigoEstudante, estudante.CodigoAcademia)
+	case "academia":
+		academiaProj := getAcademiaProjection(c)
+		academiaDTO, errAcademia := academiaProj.GetByID(userID)
+		if errAcademia != nil || academiaDTO == nil {
+			utils.RespondWithNotFoundError(c, "academia")
+			return
+		}
+		if estudante.CodigoAcademia == nil || *estudante.CodigoAcademia != academiaDTO.CodigoAcademia {
+			utils.RespondWithForbiddenError(c, "estudante não pertence a esta academia")
+			return
+		}
+		turmas, err = turmasProj.ListByEstudante(codigoEstudante, &academiaDTO.CodigoAcademia)
+	case "admin":
+		turmas, err = turmasProj.ListByEstudante(codigoEstudante, nil)
+	default:
+		utils.RespondWithForbiddenError(c, "tipo de usuário não autorizado")
+		return
+	}
+
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"codigo_estudante": codigoEstudante,
+		"nome":             estudante.Nome,
+		"turmas":           turmas,
+		"total":            len(turmas),
+	})
 }
 
 // GetTurma retorna uma turma pelo código.

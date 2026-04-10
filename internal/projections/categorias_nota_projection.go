@@ -55,11 +55,16 @@ func (p *CategoriasNotaProjection) UpdateCheckpoint(eventID int64) error {
 // ============================================================================
 
 func (p *CategoriasNotaProjection) Handle(event db.Event) error {
-	if event.EventType != "CategoriaNotaAdicionada" {
+	switch event.EventType {
+	case "CategoriaNotaAdicionada":
+		log.Printf("[categorias_nota] Processando CategoriaNotaAdicionada: %s", event.EventID)
+		return p.handleCategoriaAdicionada(event)
+	case "CategoriaNotaRemovida":
+		log.Printf("[categorias_nota] Processando CategoriaNotaRemovida: %s", event.EventID)
+		return p.handleCategoriaRemovida(event)
+	default:
 		return nil
 	}
-	log.Printf("[categorias_nota] Processando CategoriaNotaAdicionada: %s", event.EventID)
-	return p.handleCategoriaAdicionada(event)
 }
 
 // ============================================================================
@@ -83,7 +88,7 @@ func (p *CategoriasNotaProjection) Rebuild() error {
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger
-		WHERE event_type = 'CategoriaNotaAdicionada'
+		WHERE event_type IN ('CategoriaNotaAdicionada', 'CategoriaNotaRemovida')
 		ORDER BY id ASC
 	`)
 	if err != nil {
@@ -255,6 +260,30 @@ func (p *CategoriasNotaProjection) handleCategoriaAdicionada(event db.Event) err
 	)
 	if err != nil {
 		return fmt.Errorf("handleCategoriaAdicionada: exec error: %w", err)
+	}
+	return nil
+}
+
+func (p *CategoriasNotaProjection) handleCategoriaRemovida(event db.Event) error {
+	var payload struct {
+		CodigoAcademia string    `json:"CodigoAcademia"`
+		Nome           string    `json:"Nome"`
+		CreatedAt      time.Time `json:"CreatedAt"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("handleCategoriaRemovida: parse error: %w", err)
+	}
+	if payload.CodigoAcademia == "" || payload.Nome == "" {
+		return fmt.Errorf("handleCategoriaRemovida: payload inválido")
+	}
+
+	_, err := p.client.DB().Exec(`
+		UPDATE projection_categorias_nota
+		SET status = 'inativo', event_id = $1, version = $2
+		WHERE codigo_academia = $3 AND nome = $4
+	`, event.EventID, event.EventVersion, payload.CodigoAcademia, payload.Nome)
+	if err != nil {
+		return fmt.Errorf("handleCategoriaRemovida: exec error: %w", err)
 	}
 	return nil
 }

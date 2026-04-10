@@ -95,6 +95,9 @@ func (a *Academia) Apply(event DomainEvent) error {
 	case "CategoriaNotaAdicionada":
 		// applyCategoriaNotaAdicionada definido em academia_categorias_nota.go
 		return a.applyCategoriaNotaAdicionada(event)
+	case "CategoriaNotaRemovida":
+		// applyCategoriaNotaRemovida definido em academia_categorias_nota.go
+		return a.applyCategoriaNotaRemovida(event)
 	case "AnoLetivoAcademiaDefinido":
 		return a.applyAnoLetivoAcademiaDefinido(event)
 	default:
