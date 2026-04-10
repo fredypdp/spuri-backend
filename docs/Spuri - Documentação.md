@@ -1,8 +1,8 @@
 ---
-modificado: 10-04-2026 11:10
+modificado: 10-04-2026 12:05
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.0.7
+Versão atual: 1.0.8
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -917,12 +917,13 @@ GET  /jobs/:id                    →  { status, progress, done_items, fail_item
 GET  /jobs/:id?results=true       →  { ... resultados por item ... }
 ```
 
-**Cobertura adicional em 1.0.7 (novos `/async`):**
-- Academia: `PUT /academia/dados/async`, `POST /academia/categorias-nota/async`.
+**Cobertura adicional em 1.0.8 (novos `/async` e consultas):**
+- Academia: `PUT /academia/dados/async`, `POST /academia/categorias-nota/async`, `DELETE /academia/categorias-nota/async`.
 - Cursos: `PUT /academia/curso/ativar|desativar|dados/async`, `DELETE /academia/curso/async`.
 - Matérias: `PUT /academia/materia/ativar|desativar|periodo|dados/async`, `DELETE /academia/materia/async`.
 - Turmas: `PUT /academia/turma/ativar|desativar|dados/async`, `DELETE /academia/turma/async`, `DELETE /academia/turma/estudante/async`.
 - Admin: `PUT /dominis/admin/ativar/async`, `PUT /dominis/admin/desativar/async`.
+- Consulta única por papel: `GET /turmas-estudante/:codigo` (estudante: próprio, academia: da sua academia, admin: qualquer estudante).
 
 ---
 
