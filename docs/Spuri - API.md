@@ -1,8 +1,8 @@
 ---
-modificado: 10-04-2026 11:10
+modificado: 10-04-2026 12:05
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.0.7
+Versão atual: 1.0.8
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -1040,6 +1040,34 @@ Lista todas as categorias de nota da academia.
   "total": 2
 }
 ```
+
+---
+
+### DELETE /academia/categorias-nota/:nome
+
+Inativa (remove logicamente) uma categoria de nota adicional da academia.
+
+**Proteção**: autenticado + academia ativa
+
+**Path Params:**
+
+- `nome` — nome da categoria adicional a remover
+
+**Request:** sem payload
+
+**Response 200:**
+
+```json
+{
+  "message": "categoria removida com sucesso",
+  "categoria": "nota_teste"
+}
+```
+
+**Erros:**
+
+- `400` — nome ausente no path
+- `400` — categoria não existe nesta academia
 
 ---
 
@@ -2649,6 +2677,41 @@ Retorna detalhes de uma academia.
 
 ---
 
+### GET /turmas-estudante/:codigo
+
+Retorna as turmas de um estudante com autorização por perfil na mesma rota.
+
+**Proteção**: autenticado (qualquer tipo)
+
+**Path Params:**
+
+- `codigo` — código do estudante
+
+**Regras de autorização:**
+
+- `estudante`: só pode consultar as próprias turmas
+- `academia`: pode consultar qualquer estudante da sua academia
+- `admin`: pode consultar qualquer estudante
+
+**Response 200:**
+
+```json
+{
+  "codigo_estudante": "ABC1234",
+  "nome": "João Silva",
+  "turmas": [TurmaDTO],
+  "total": 2
+}
+```
+
+**Erros:**
+
+- `403` — estudante tentando consultar outro estudante
+- `403` — academia tentando consultar estudante de outra academia
+- `404` — estudante não encontrado
+
+---
+
 ### GET /dominis/registros
 
 Lista notas e faltas de todos os estudantes (visão admin).
@@ -2835,6 +2898,7 @@ Para notificações push, abrir `GET /jobs/stream`.
 |`POST /academia/turma/estudante/async`|igual ao `POST /academia/turma/:codigo/estudante`|`202` (job criado)|1000|
 |`PUT /academia/dados/async`|igual ao `PUT /academia/dados`|`202` (job criado)|200|
 |`POST /academia/categorias-nota/async`|igual ao `POST /academia/categorias-nota`|`202` (job criado)|500|
+|`DELETE /academia/categorias-nota/async`|igual ao `DELETE /academia/categorias-nota/:nome` (`nome` vai no item)|`202` (job criado)|500|
 |`PUT /academia/curso/ativar/async`|igual ao `PUT /academia/curso/:id/ativar` (`id` vai no item)|`202` (job criado)|500|
 |`PUT /academia/curso/desativar/async`|igual ao `PUT /academia/curso/:id/desativar` (`id` vai no item)|`202` (job criado)|500|
 |`PUT /academia/curso/dados/async`|igual ao `PUT /academia/curso/:id/dados` (`id` vai no item)|`202` (job criado)|500|

@@ -489,6 +489,47 @@ func (p *TurmasProjection) ListByCurso(cursoID uuid.UUID) ([]*TurmaDTO, error) {
 	return result, nil
 }
 
+// ListByEstudante retorna turmas que contêm o código do estudante no array estudantes.
+// Quando codigoAcademia != nil, limita o resultado à academia informada.
+func (p *TurmasProjection) ListByEstudante(codigoEstudante string, codigoAcademia *string) ([]*TurmaDTO, error) {
+	baseQuery := `
+		SELECT id, codigo_turma, codigo_academia, nivel, curso_id, turno,
+		       estudantes, historico_estudantes_ano_letivo, status, status_alterado_por, status_alterado_em,
+		       created_at, updated_at, version
+		FROM projection_turmas
+		WHERE deleted_at IS NULL
+		  AND EXISTS (
+			  SELECT 1
+			  FROM jsonb_array_elements_text(estudantes) AS e(codigo)
+			  WHERE e.codigo = $1
+		  )
+	`
+
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if codigoAcademia != nil {
+		rows, err = p.client.DB().Query(baseQuery+` AND codigo_academia = $2 ORDER BY created_at DESC`, codigoEstudante, *codigoAcademia)
+	} else {
+		rows, err = p.client.DB().Query(baseQuery+` ORDER BY created_at DESC`, codigoEstudante)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	turmas, err := scanTurmas(rows)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*TurmaDTO, len(turmas))
+	for i := range turmas {
+		result[i] = &turmas[i]
+	}
+	return result, nil
+}
+
 func scanTurmaRow(row *sql.Row) (*TurmaDTO, error) {
 	var dto TurmaDTO
 	var cursoID sql.NullString

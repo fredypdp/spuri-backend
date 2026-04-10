@@ -39,6 +39,7 @@ const (
 	JobTypeAdicionarEstudanteBatch      JobType = "adicionar_estudante_batch"
 	JobTypeAtualizarDadosAcademiaBatch  JobType = "atualizar_dados_academia_batch"
 	JobTypeCriarCategoriaNotaBatch      JobType = "criar_categoria_nota_batch"
+	JobTypeDeletarCategoriaNotaBatch    JobType = "deletar_categoria_nota_batch"
 	JobTypeAtivarCursoBatch             JobType = "ativar_curso_batch"
 	JobTypeDesativarCursoBatch          JobType = "desativar_curso_batch"
 	JobTypeAtualizarDadosCursoBatch     JobType = "atualizar_dados_curso_batch"

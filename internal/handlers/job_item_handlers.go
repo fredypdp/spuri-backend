@@ -193,6 +193,19 @@ func CriarCategoriaNotaJobItem(c *gin.Context) {
 	CriarCategoriaNota(c)
 }
 
+func DeletarCategoriaNotaJobItem(c *gin.Context) {
+	var req struct {
+		Nome string `json:"nome"`
+	}
+	if err := bindJobItemWithoutLosingBody(c, &req); err != nil || req.Nome == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {nome}"})
+		return
+	}
+
+	c.Params = gin.Params{gin.Param{Key: "nome", Value: req.Nome}}
+	DeletarCategoriaNota(c)
+}
+
 func AtivarCursoJobItem(c *gin.Context) {
 	var req struct {
 		ID string `json:"id"`

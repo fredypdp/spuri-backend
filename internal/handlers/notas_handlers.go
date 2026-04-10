@@ -562,6 +562,54 @@ func ListarCategoriasNota(c *gin.Context) {
 	})
 }
 
+// DeletarCategoriaNota remove (inativa) uma categoria de nota adicional da academia.
+// Rota: DELETE /academia/categorias-nota/:nome
+func DeletarCategoriaNota(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	nomeCategoria := strings.TrimSpace(c.Param("nome"))
+	if nomeCategoria == "" {
+		utils.RespondWithValidationError(c, fmt.Errorf("nome da categoria é obrigatório"))
+		return
+	}
+
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByID(userID)
+	if err != nil || academiaDTO == nil {
+		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+
+	categoriasProj := getCategoriasNotaProjection(c)
+	categoriasExistentes, _ := categoriasProj.GetNomesByAcademia(academiaDTO.CodigoAcademia)
+
+	repository := getRepository(c)
+	agg, err := repository.Load(userID, "Academia")
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	academia, ok := agg.(*aggregates.Academia)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
+
+	if err := academia.RemoverCategoriaNota(nomeCategoria, userID, categoriasExistentes); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if err := repository.Save(academia); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":   "categoria removida com sucesso",
+		"categoria": nomeCategoria,
+	})
+}
+
 // ============================================================================
 // Helpers internos
 // ============================================================================

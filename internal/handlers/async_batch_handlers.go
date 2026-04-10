@@ -189,6 +189,10 @@ func CriarCategoriaNotaBatchAsync(c *gin.Context) {
 	enqueueAsyncBatch(c, jobs.JobTypeCriarCategoriaNotaBatch, 500)
 }
 
+func DeletarCategoriaNotaBatchAsync(c *gin.Context) {
+	enqueueAsyncBatch(c, jobs.JobTypeDeletarCategoriaNotaBatch, 500)
+}
+
 func AtivarCursoBatchAsync(c *gin.Context) {
 	enqueueAsyncBatch(c, jobs.JobTypeAtivarCursoBatch, 500)
 }
