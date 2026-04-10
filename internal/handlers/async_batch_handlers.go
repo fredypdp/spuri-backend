@@ -96,6 +96,14 @@ func DesativarAcademiaBatchAsync(c *gin.Context) {
 	enqueueAsyncBatch(c, jobs.JobTypeDesativarAcademiaBatch, 500)
 }
 
+func AtivarAdminBatchAsync(c *gin.Context) {
+	enqueueAsyncBatch(c, jobs.JobTypeAtivarAdminBatch, 500)
+}
+
+func DesativarAdminBatchAsync(c *gin.Context) {
+	enqueueAsyncBatch(c, jobs.JobTypeDesativarAdminBatch, 500)
+}
+
 // ============================================================================
 // Academia — estudantes
 // ============================================================================
@@ -171,4 +179,68 @@ func CriarTurmaBatchAsync(c *gin.Context) {
 
 func AdicionarEstudanteBatchAsync(c *gin.Context) {
 	enqueueAsyncBatch(c, jobs.JobTypeAdicionarEstudanteBatch, 1000)
+}
+
+func AtualizarDadosAcademiaBatchAsync(c *gin.Context) {
+	enqueueAsyncBatch(c, jobs.JobTypeAtualizarDadosAcademiaBatch, 200)
+}
+
+func CriarCategoriaNotaBatchAsync(c *gin.Context) {
+	enqueueAsyncBatch(c, jobs.JobTypeCriarCategoriaNotaBatch, 500)
+}
+
+func AtivarCursoBatchAsync(c *gin.Context) {
+	enqueueAsyncBatch(c, jobs.JobTypeAtivarCursoBatch, 500)
+}
+
+func DesativarCursoBatchAsync(c *gin.Context) {
+	enqueueAsyncBatch(c, jobs.JobTypeDesativarCursoBatch, 500)
+}
+
+func AtualizarDadosCursoBatchAsync(c *gin.Context) {
+	enqueueAsyncBatch(c, jobs.JobTypeAtualizarDadosCursoBatch, 500)
+}
+
+func DeletarCursoBatchAsync(c *gin.Context) {
+	enqueueAsyncBatch(c, jobs.JobTypeDeletarCursoBatch, 500)
+}
+
+func AtivarMateriaBatchAsync(c *gin.Context) {
+	enqueueAsyncBatch(c, jobs.JobTypeAtivarMateriaBatch, 1000)
+}
+
+func DesativarMateriaBatchAsync(c *gin.Context) {
+	enqueueAsyncBatch(c, jobs.JobTypeDesativarMateriaBatch, 1000)
+}
+
+func DefinirPeriodoMateriaBatchAsync(c *gin.Context) {
+	enqueueAsyncBatch(c, jobs.JobTypeDefinirPeriodoMateriaBatch, 1000)
+}
+
+func AtualizarDadosMateriaBatchAsync(c *gin.Context) {
+	enqueueAsyncBatch(c, jobs.JobTypeAtualizarDadosMateriaBatch, 1000)
+}
+
+func DeletarMateriaBatchAsync(c *gin.Context) {
+	enqueueAsyncBatch(c, jobs.JobTypeDeletarMateriaBatch, 1000)
+}
+
+func AtivarTurmaBatchAsync(c *gin.Context) {
+	enqueueAsyncBatch(c, jobs.JobTypeAtivarTurmaBatch, 500)
+}
+
+func DesativarTurmaBatchAsync(c *gin.Context) {
+	enqueueAsyncBatch(c, jobs.JobTypeDesativarTurmaBatch, 500)
+}
+
+func AtualizarDadosTurmaBatchAsync(c *gin.Context) {
+	enqueueAsyncBatch(c, jobs.JobTypeAtualizarDadosTurmaBatch, 500)
+}
+
+func DeletarTurmaBatchAsync(c *gin.Context) {
+	enqueueAsyncBatch(c, jobs.JobTypeDeletarTurmaBatch, 500)
+}
+
+func RemoverEstudanteTurmaBatchAsync(c *gin.Context) {
+	enqueueAsyncBatch(c, jobs.JobTypeRemoverEstudanteTurmaBatch, 1000)
 }
