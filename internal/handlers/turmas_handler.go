@@ -124,15 +124,10 @@ func GetTurma(c *gin.Context) {
 
 // AtivarTurma ativa uma turma inativa da academia.
 // Rota: PUT /academia/turmas/:codigo/ativar
-//
-// NOVO (BUG #3 FIX): handler estava ausente — rota não existia em main.go.
-// O aggregate Turma.Ativar() já estava implementado; faltava apenas este handler
-// e o registro da rota.
 func AtivarTurma(c *gin.Context) {
 	academiaID, _ := middleware.GetUserID(c)
 	codigoTurma := c.Param("codigo")
 
-	// ── Verificar propriedade ──────────────────────────────────────────────
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByID(academiaID)
 	if err != nil || academiaDTO == nil {
@@ -147,7 +142,6 @@ func AtivarTurma(c *gin.Context) {
 		return
 	}
 
-	// ── Carregar aggregate e executar comando ─────────────────────────────
 	repository := getRepository(c)
 	agg, err := repository.Load(turmaDTO.ID, "Turma")
 	if err != nil {
@@ -166,7 +160,6 @@ func AtivarTurma(c *gin.Context) {
 		return
 	}
 
-	// ── Persistir ─────────────────────────────────────────────────────────
 	audit := db.AuditContext{
 		UserID:   academiaID.String(),
 		UserType: "academia",
@@ -188,15 +181,10 @@ func AtivarTurma(c *gin.Context) {
 
 // DesativarTurma desativa uma turma ativa da academia.
 // Rota: PUT /academia/turmas/:codigo/desativar
-//
-// NOVO (BUG #3 FIX): handler estava ausente — rota não existia em main.go.
-// O aggregate Turma.Desativar() já estava implementado; faltava apenas este handler
-// e o registro da rota. Desativar é pré-requisito para DeletarTurma.
 func DesativarTurma(c *gin.Context) {
 	academiaID, _ := middleware.GetUserID(c)
 	codigoTurma := c.Param("codigo")
 
-	// ── Verificar propriedade ──────────────────────────────────────────────
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByID(academiaID)
 	if err != nil || academiaDTO == nil {
@@ -211,7 +199,6 @@ func DesativarTurma(c *gin.Context) {
 		return
 	}
 
-	// ── Carregar aggregate e executar comando ─────────────────────────────
 	repository := getRepository(c)
 	agg, err := repository.Load(turmaDTO.ID, "Turma")
 	if err != nil {
@@ -230,7 +217,6 @@ func DesativarTurma(c *gin.Context) {
 		return
 	}
 
-	// ── Persistir ─────────────────────────────────────────────────────────
 	audit := db.AuditContext{
 		UserID:   academiaID.String(),
 		UserType: "academia",
@@ -250,8 +236,161 @@ func DesativarTurma(c *gin.Context) {
 	})
 }
 
+// validarCompatibilidadeEstudanteTurma verifica se o estudante pode ser vinculado
+// à turma com base no nível e curso.
+func validarCompatibilidadeEstudanteTurma(
+	_ interface{}, // reservado para compatibilidade futura
+	_ interface{}, // reservado para compatibilidade futura
+	academiaAnosAcademicos []string,
+	nivel string,
+	turmaCursoID *uuid.UUID,
+	anoEscolar *string,
+	anoEscolarMedio *string,
+	anoSuperior *string,
+	cursoMedioID *string,
+	cursoSuperiorID *string,
+) error {
+	tipoEnsino := inferirTipoEnsinoPorNivel(nivel)
+
+	switch tipoEnsino {
+	case "fundamental":
+		nivelValido := false
+		for _, ano := range academiaAnosAcademicos {
+			if ano == nivel {
+				nivelValido = true
+				break
+			}
+		}
+		if !nivelValido {
+			return fmt.Errorf(
+				"o nível da turma '%s' não está configurado nos anos académicos desta academia",
+				nivel,
+			)
+		}
+		if anoEscolar == nil || *anoEscolar == "" {
+			return fmt.Errorf(
+				"estudante não possui ano escolar fundamental definido — configure o ano escolar antes de vincular à turma '%s'",
+				nivel,
+			)
+		}
+		if *anoEscolar != nivel {
+			return fmt.Errorf(
+				"estudante está no %s mas a turma é do nível %s",
+				*anoEscolar, nivel,
+			)
+		}
+
+	case "medio":
+		if anoEscolarMedio == nil || *anoEscolarMedio == "" {
+			return fmt.Errorf(
+				"estudante não possui ano escolar médio definido — configure antes de vincular à turma '%s'",
+				nivel,
+			)
+		}
+		if *anoEscolarMedio != nivel {
+			return fmt.Errorf(
+				"estudante está no %s mas a turma é do nível %s",
+				*anoEscolarMedio, nivel,
+			)
+		}
+		if turmaCursoID == nil {
+			return fmt.Errorf(
+				"turma de nível médio '%s' não possui curso vinculado",
+				nivel,
+			)
+		}
+		if cursoMedioID == nil || *cursoMedioID == "" {
+			return fmt.Errorf(
+				"estudante não possui curso médio definido — configure antes de vincular à turma '%s'",
+				nivel,
+			)
+		}
+		if *cursoMedioID != turmaCursoID.String() {
+			return fmt.Errorf(
+				"o curso médio do estudante não corresponde ao curso da turma '%s'",
+				nivel,
+			)
+		}
+
+	case "superior":
+		if anoSuperior == nil || *anoSuperior == "" {
+			return fmt.Errorf(
+				"estudante não possui ano superior definido — configure antes de vincular à turma '%s'",
+				nivel,
+			)
+		}
+		if *anoSuperior != nivel {
+			return fmt.Errorf(
+				"estudante está no %s mas a turma é do nível %s",
+				*anoSuperior, nivel,
+			)
+		}
+		if turmaCursoID == nil {
+			return fmt.Errorf(
+				"turma de nível superior '%s' não possui curso vinculado",
+				nivel,
+			)
+		}
+		if cursoSuperiorID == nil || *cursoSuperiorID == "" {
+			return fmt.Errorf(
+				"estudante não possui curso superior definido — configure antes de vincular à turma '%s'",
+				nivel,
+			)
+		}
+		if *cursoSuperiorID != turmaCursoID.String() {
+			return fmt.Errorf(
+				"o curso superior do estudante não corresponde ao curso da turma '%s'",
+				nivel,
+			)
+		}
+
+	default:
+		return fmt.Errorf(
+			"não foi possível determinar o tipo de ensino para o nível '%s' (use formato como '3_ano_fundamental', '1_ano_medio', '2_ano_superior')",
+			nivel,
+		)
+	}
+
+	return nil
+}
+
+// inferirTipoEnsinoPorNivel determina o tipo de ensino com base no formato do campo nivel da turma.
+// Retorna "fundamental", "medio", "superior" ou "desconhecido".
+func inferirTipoEnsinoPorNivel(nivel string) string {
+	if len(nivel) > 16 && nivel[len(nivel)-16:] == "_ano_fundamental" {
+		return "fundamental"
+	}
+	if len(nivel) > 9 && nivel[len(nivel)-9:] == "_ano_medio" {
+		return "medio"
+	}
+	if len(nivel) > 12 && nivel[len(nivel)-12:] == "_ano_superior" {
+		return "superior"
+	}
+	// Fallback para sufixos mais curtos
+	for _, suf := range []string{"_ano_fundamental", "_ano_medio", "_ano_superior"} {
+		if len(nivel) >= len(suf) && nivel[len(nivel)-len(suf):] == suf {
+			switch suf {
+			case "_ano_fundamental":
+				return "fundamental"
+			case "_ano_medio":
+				return "medio"
+			case "_ano_superior":
+				return "superior"
+			}
+		}
+	}
+	return "desconhecido"
+}
+
 // AdicionarEstudanteATurma adiciona um estudante à turma.
 // Rota: POST /academia/turmas/:codigo/estudantes
+//
+// Validações de compatibilidade adicionadas:
+//   - Fundamental: o ano_escolar do estudante deve corresponder ao nivel da turma
+//   - Médio: o ano_escolar_medio e o curso_medio_id do estudante devem
+//     corresponder ao nivel e curso_id da turma
+//   - Superior: o ano_superior e o curso_superior_id do estudante devem
+//     corresponder ao nivel e curso_id da turma
 func AdicionarEstudanteATurma(c *gin.Context) {
 	academiaID, _ := middleware.GetUserID(c)
 	codigoTurma := c.Param("codigo")
@@ -287,6 +426,22 @@ func AdicionarEstudanteATurma(c *gin.Context) {
 	turmaDTO, err := turmasProj.GetByCodigoTurma(codigoTurma, academiaDTO.CodigoAcademia)
 	if err != nil || turmaDTO == nil {
 		utils.RespondWithNotFoundError(c, "turma")
+		return
+	}
+
+	// ── Validação de compatibilidade estudante ↔ turma ────────────────────
+	if err := validarCompatibilidadeEstudanteTurma(
+		nil, nil,
+		academiaDTO.AnosAcademicos,
+		turmaDTO.Nivel,
+		turmaDTO.CursoID,
+		estudanteDTO.AnoEscolar,
+		estudanteDTO.AnoEscolarMedio,
+		estudanteDTO.AnoSuperior,
+		estudanteDTO.CursoMedioID,
+		estudanteDTO.CursoSuperiorID,
+	); err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("estudante incompatível com esta turma: %w", err))
 		return
 	}
 
@@ -455,25 +610,16 @@ func AtualizarTurma(c *gin.Context) {
 }
 
 // DeletarTurma remove logicamente uma turma da academia.
-//
-// Regras:
-//   - Turma deve estar inativa (use PUT /turmas/:codigo/desativar antes)
-//   - Turma não pode ter estudantes vinculados
-//   - Apenas a academia dona pode deletar
-//   - Evento TurmaDeletada gravado no ledger (auditável)
-//
 // Rota: DELETE /academia/turmas/:codigo
 func DeletarTurma(c *gin.Context) {
 	academiaID, _ := middleware.GetUserID(c)
 	codigoTurma := c.Param("codigo")
 
 	var req struct {
-		Motivo string `json:"motivo"` // opcional, recomendado para auditoria
+		Motivo string `json:"motivo"`
 	}
-	// Não é obrigatório — ignorar erro de bind
 	_ = c.ShouldBindJSON(&req)
 
-	// ── Verificar propriedade ─────────────────────────────────────────────
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByID(academiaID)
 	if err != nil || academiaDTO == nil {
@@ -488,7 +634,6 @@ func DeletarTurma(c *gin.Context) {
 		return
 	}
 
-	// ── Carregar aggregate ────────────────────────────────────────────────
 	repository := getRepository(c)
 	agg, err := repository.Load(turmaDTO.ID, "Turma")
 	if err != nil {
@@ -502,13 +647,11 @@ func DeletarTurma(c *gin.Context) {
 		return
 	}
 
-	// ── Executar comando (validações de negócio ficam no aggregate) ───────
 	if err := turma.Deletar(academiaID, req.Motivo); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
-	// ── Persistir (grava no ledger + atualiza projeção via manager) ───────
 	audit := db.AuditContext{
 		UserID:   academiaID.String(),
 		UserType: "academia",
