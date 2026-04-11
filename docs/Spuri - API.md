@@ -1,8 +1,8 @@
 ---
-modificado: 10-04-2026 12:05
+modificado: 11-04-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.0.8
+Versão atual: 1.0.9
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -2608,12 +2608,13 @@ Use este endpoint quando o rebuild puder demorar vários minutos.
 
 ```json
 {
-  "message": "rebuild enfileirado com sucesso — use GET /jobs/:id para acompanhar o progresso",
+  "message": "rebuild enfileirado com sucesso — use GET /jobs/:id ou GET /jobs/stream para acompanhar o progresso",
   "projection": "admins",
   "job_id": "8a362f5e-cfcd-4968-ab0a-b6a1cfce8812",
   "status": "pending",
   "total_items": 1,
-  "poll_url": "/jobs/8a362f5e-cfcd-4968-ab0a-b6a1cfce8812"
+  "poll_url": "/jobs/8a362f5e-cfcd-4968-ab0a-b6a1cfce8812",
+  "sse_url": "/jobs/stream"
 }
 ```
 
@@ -2852,8 +2853,8 @@ data: {"type":"job_progress","job_id":"uuid","job_type":"register_estudante_batc
 
 ## 18. Batch Assíncrono — Academia
 
-Todos criam um job e retornam `202 Accepted`. Usar `GET /jobs/:id` para acompanhar.
-Para notificações push, abrir `GET /jobs/stream`.
+Todos criam um job e retornam `202 Accepted` com URLs de acompanhamento por polling e por SSE.
+Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 
 **Formato de payload (todos os endpoints `/async`):**
 
@@ -2873,11 +2874,12 @@ Para notificações push, abrir `GET /jobs/stream`.
 
 ```json
 {
-  "message": "job criado com sucesso — use GET /jobs/:id para acompanhar o progresso",
+  "message": "job criado com sucesso — use GET /jobs/:id ou GET /jobs/stream para acompanhar o progresso",
   "job_id": "uuid",
   "total_items": 500,
   "status": "pending",
-  "poll_url": "/jobs/uuid"
+  "poll_url": "/jobs/uuid",
+  "sse_url": "/jobs/stream"
 }
 ```
 
@@ -2930,11 +2932,12 @@ Para notificações push, abrir `GET /jobs/stream`.
 
 ```json
 {
-  "message": "job criado com sucesso — use GET /jobs/:id para acompanhar o progresso",
+  "message": "job criado com sucesso — use GET /jobs/:id ou GET /jobs/stream para acompanhar o progresso",
   "job_id": "uuid",
   "total_items": 500,
   "status": "pending",
-  "poll_url": "/jobs/uuid"
+  "poll_url": "/jobs/uuid",
+  "sse_url": "/jobs/stream"
 }
 ```
 

@@ -69,11 +69,12 @@ func enqueueAsyncBatch(c *gin.Context, jobType jobs.JobType, maxItems int) {
 	}
 
 	c.JSON(http.StatusAccepted, gin.H{
-		"message":     "job criado com sucesso — use GET /jobs/:id para acompanhar o progresso",
+		"message":     "job criado com sucesso — use GET /jobs/:id ou GET /jobs/stream para acompanhar o progresso",
 		"job_id":      j.ID,
 		"total_items": j.TotalItems,
 		"status":      j.Status,
 		"poll_url":    fmt.Sprintf("/jobs/%s", j.ID),
+		"sse_url":     "/jobs/stream",
 	})
 }
 
