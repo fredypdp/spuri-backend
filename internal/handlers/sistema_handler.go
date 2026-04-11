@@ -125,12 +125,13 @@ func RebuildProjectionAsync(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusAccepted, gin.H{
-		"message":     "rebuild enfileirado com sucesso — use GET /jobs/:id para acompanhar o progresso",
+		"message":     "rebuild enfileirado com sucesso — use GET /jobs/:id ou GET /jobs/stream para acompanhar o progresso",
 		"projection":  name,
 		"job_id":      j.ID,
 		"status":      j.Status,
 		"total_items": j.TotalItems,
 		"poll_url":    fmt.Sprintf("/jobs/%s", j.ID),
+		"sse_url":     "/jobs/stream",
 	})
 }
 

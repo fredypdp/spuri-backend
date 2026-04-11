@@ -1,8 +1,8 @@
 ---
-modificado: 10-04-2026 12:05
+modificado: 11-04-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.0.8
+Versão atual: 1.0.9
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -671,7 +671,7 @@ Para evitar timeout em rebuilds longos (ex.: projeções com alto volume de even
 POST /dominis/projections/rebuild/:name/async
 ```
 
-Esse endpoint retorna `202 Accepted` com `job_id`; o cliente pode acompanhar em `GET /jobs/:id` e/ou receber eventos em `GET /jobs/stream`.
+Esse endpoint retorna `202 Accepted` com `job_id`, `poll_url` e `sse_url`; o cliente pode acompanhar em `GET /jobs/:id` e/ou receber eventos em `GET /jobs/stream`.
 
 **Concorrência de rebuild**: o manager permite apenas **1 rebuild por vez** (lock global). Se outro rebuild já estiver em execução, o endpoint síncrono retorna `409 Conflict`.
 
@@ -693,7 +693,7 @@ Esse endpoint retorna `202 Accepted` com `job_id`; o cliente pode acompanhar em 
 Para operações em lote com muitos itens, o sistema oferece endpoints `/async` que criam um **job em background**:
 
 ```
-POST /academia/notas-aluno/async  →  { "job_id": "uuid", "status": "pending" }
+POST /academia/notas-aluno/async  →  { "job_id": "uuid", "status": "pending", "poll_url": "/jobs/:id", "sse_url": "/jobs/stream" }
 GET  /jobs/:id                    →  { "status": "done", "progress": 100, ... }
 ```
 
@@ -917,7 +917,7 @@ GET  /jobs/:id                    →  { status, progress, done_items, fail_item
 GET  /jobs/:id?results=true       →  { ... resultados por item ... }
 ```
 
-**Cobertura adicional em 1.0.8 (novos `/async` e consultas):**
+**Cobertura adicional em 1.0.9 (SSE padronizado em todas as respostas `/async` + novidades prévias):**
 - Academia: `PUT /academia/dados/async`, `POST /academia/categorias-nota/async`, `DELETE /academia/categorias-nota/async`.
 - Cursos: `PUT /academia/curso/ativar|desativar|dados/async`, `DELETE /academia/curso/async`.
 - Matérias: `PUT /academia/materia/ativar|desativar|periodo|dados/async`, `DELETE /academia/materia/async`.
