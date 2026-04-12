@@ -2,7 +2,7 @@
 modificado: 12-04-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.1.0
+Versão atual: 1.1.1
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -537,13 +537,15 @@ Academias podem criar **categorias adicionais** personalizadas, disponíveis par
 2. Sistema valida ano letivo ativo
 3. Sistema verifica pertencimento do estudante e da matéria à academia
 4. Sistema infere o `ano_academico` (mesma lógica das notas)
-5. Sistema emite `FaltasRegistradas` para cada envio recebido (sem bloqueio por data+matéria)
+5. Sistema verifica idempotência (chave: `anoLectivo_data_materiaID`)
 
 **Quantidade**: deve ser positiva (≥ 1)
 
 **Data**: formato `AAAA-MM-DD`
 
-**Regra de registro**: faltas são ilimitadas por combinação de data + matéria; múltiplos registros no mesmo dia/matéria são permitidos.
+**Regra de registro**: faltas mantêm unicidade por combinação de ano letivo + data + matéria.
+
+**Quantidade por registro**: não possui teto máximo (apenas deve ser `>= 1`).
 
 **Deleção de falta**: `motivo` é **obrigatório**; soft delete
 

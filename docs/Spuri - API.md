@@ -2,7 +2,7 @@
 modificado: 12-04-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.1.0
+Versão atual: 1.1.1
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -1577,7 +1577,7 @@ Registra falta(s) para um estudante.
   "codigo_estudante": "ABC1234",
   "data": "2025-03-15",              // formato AAAA-MM-DD
   "materia_disciplinar_id": "uuid",
-  "quantidade": 2,                    // mínimo 1
+  "quantidade": 2,                    // mínimo 1 (sem teto máximo)
   "observacao": "string"              // opcional
 }
 ```
