@@ -1,8 +1,8 @@
 ---
-modificado: 12-04-2026 00:00
+modificado: 12-04-2026 01:20
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.1.1
+Versão atual: 1.1.2
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -712,6 +712,7 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 - O `payload` bruto do job é preservado integralmente em `async_jobs.payload`.
 - Cada resultado individual inclui também o `payload` do item, permitindo replay exato dos itens que falharam.
 - Em reinício/crash, o worker varre jobs `pending`/`processing` e retoma do ponto salvo (`done_items + fail_items`), evitando perda silenciosa de itens.
+- O enqueue dos endpoints `/async` valida e conta itens no body bruto (sem dupla serialização do array), reduzindo consumo de CPU/memória e janelas de timeout em lotes grandes (ex.: notas/faltas).
 
 **Erro sempre explícito em jobs assíncronos**:
 
