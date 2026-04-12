@@ -8,14 +8,14 @@
 BEGIN;
 
 -- 1) Consolidar duplicatas ativas (deleted_at IS NULL) para permitir recriar UNIQUE.
---    Estratégia: manter o menor id e somar quantidades dos duplicados.
+--    Estratégia: manter o registro mais antigo (registered_at, depois id) e somar quantidades dos duplicados.
 WITH duplicados AS (
     SELECT
         codigo_estudante,
         codigo_academia,
         data,
         materia_disciplinar_id,
-        MIN(id) AS keep_id,
+        (ARRAY_AGG(id ORDER BY registered_at ASC, id ASC))[1] AS keep_id,
         SUM(quantidade) AS total_qtd,
         ARRAY_AGG(id) AS ids
     FROM projection_faltas
