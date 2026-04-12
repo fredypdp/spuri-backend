@@ -1,8 +1,8 @@
 ---
-modificado: 12-04-2026 00:00
+modificado: 12-04-2026 01:20
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.1.1
+Versão atual: 1.1.2
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -2868,6 +2868,7 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 - O array é obrigatório e deve conter pelo menos 1 item.
 - Cada objeto do array deve seguir exatamente o mesmo contrato de payload da versão síncrona da rota.
 - O limite máximo de itens por requisição depende do endpoint (tabela abaixo).
+- O servidor valida e conta itens diretamente no payload bruto do request (sem dupla serialização), reduzindo risco de timeout no enqueue de lotes grandes.
 
 **Response 202 (igual para todos):**
 
