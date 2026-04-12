@@ -1597,7 +1597,6 @@ Registra falta(s) para um estudante.
 **Erros:**
 
 - `400` — quantidade inválida (deve ser ≥ 1), data inválida
-- `400` — duplicata (mesma data/matéria/ano)
 - `403` — estudante ou matéria não pertencem à academia
 
 ---
