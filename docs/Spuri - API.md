@@ -1,8 +1,8 @@
 ---
-modificado: 11-04-2026 00:00
+modificado: 12-04-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.0.9
+Versão atual: 1.1.1
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -279,7 +279,7 @@ interface NotaDTO {
   materia_nome?: string
   tipo: TipoNota
   categoria: string           // ex: 'nota_escola', 'nota_exame'
-  nota: number                // 0 a 20
+  nota: number                // >= 0
   observacao?: string
   registered_at: string
   event_id: string
@@ -1451,7 +1451,7 @@ Registra uma nota para um estudante.
 
 - Academia `escola` só pode usar tipo `escolar`
 - Academia `superior` só pode usar tipo `superior`
-- `nota` deve ser entre 0 e 20
+- `nota` deve ser maior ou igual a 0 (`>= 0`)
 - `periodo` deve ser válido para o tipo (`1_trimestre`/`2_trimestre`/`3_trimestre` para escolar; semestres do curso para superior)
 - `categoria` deve ser uma das fixas ou uma adicional da academia
 
@@ -1473,7 +1473,7 @@ Registra uma nota para um estudante.
 
 **Erros:**
 
-- `400` — nota fora do intervalo, período inválido, categoria inválida, duplicata
+- `400` — nota negativa, período inválido, categoria inválida, duplicata
 - `403` — estudante ou matéria não pertencem à academia
 - `400` — academia sem ano letivo configurado
 
@@ -1508,7 +1508,7 @@ Corrige uma nota já registada.
 
 **Erros:**
 
-- `400` — nota_nova omitida ou fora do intervalo
+- `400` — nota_nova omitida ou negativa
 - `400` — observacao ausente
 - `403` — nota não pertence à academia
 - `404` — nota não encontrada
@@ -1577,7 +1577,7 @@ Registra falta(s) para um estudante.
   "codigo_estudante": "ABC1234",
   "data": "2025-03-15",              // formato AAAA-MM-DD
   "materia_disciplinar_id": "uuid",
-  "quantidade": 2,                    // mínimo 1
+  "quantidade": 2,                    // mínimo 1 (sem teto máximo)
   "observacao": "string"              // opcional
 }
 ```
