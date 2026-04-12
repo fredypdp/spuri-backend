@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"spuri/internal/jobs"
 	"spuri/internal/middleware"
@@ -18,25 +20,16 @@ func enqueueAsyncBatch(c *gin.Context, jobType jobs.JobType, maxItems int) {
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 
-	// Ler body bruto como array JSON para preservar o payload sem dupla serialização
-	var rawItems []json.RawMessage
-	if err := c.ShouldBindJSON(&rawItems); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("body deve ser um array JSON"))
-		return
-	}
-	if len(rawItems) == 0 {
-		utils.RespondWithValidationError(c, fmt.Errorf("array não pode ser vazio"))
-		return
-	}
-	if len(rawItems) > maxItems {
-		utils.RespondWithValidationError(c, fmt.Errorf("máximo de %d itens por batch assíncrono", maxItems))
-		return
-	}
-
-	// Re-serializar o array completo como payload do job
-	payloadBytes, err := json.Marshal(rawItems)
+	// Ler body bruto e validar que é um array JSON sem re-serializar.
+	// Isso reduz CPU/memória em batches grandes (ex.: notas/faltas com 2000 itens)
+	// e evita brechas de timeout no endpoint de enqueue.
+	payloadBytes, totalItems, err := readAndValidateJSONArrayBody(c, maxItems)
 	if err != nil {
-		utils.RespondWithInternalError(c, err)
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if totalItems == 0 {
+		utils.RespondWithValidationError(c, fmt.Errorf("array não pode ser vazio"))
 		return
 	}
 
@@ -45,7 +38,7 @@ func enqueueAsyncBatch(c *gin.Context, jobType jobs.JobType, maxItems int) {
 		return
 	}
 
-	j, err := store.Enqueue(jobType, userID, userType, payloadBytes, len(rawItems))
+	j, err := store.Enqueue(jobType, userID, userType, json.RawMessage(payloadBytes), totalItems)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -76,6 +69,56 @@ func enqueueAsyncBatch(c *gin.Context, jobType jobs.JobType, maxItems int) {
 		"poll_url":    fmt.Sprintf("/jobs/%s", j.ID),
 		"sse_url":     "/jobs/stream",
 	})
+}
+
+func readAndValidateJSONArrayBody(c *gin.Context, maxItems int) ([]byte, int, error) {
+	if c.Request == nil || c.Request.Body == nil {
+		return nil, 0, fmt.Errorf("body deve ser um array JSON")
+	}
+
+	payloadBytes, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return nil, 0, fmt.Errorf("erro ao ler body")
+	}
+	if len(bytes.TrimSpace(payloadBytes)) == 0 {
+		return nil, 0, fmt.Errorf("body deve ser um array JSON")
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(payloadBytes))
+	tok, err := decoder.Token()
+	if err != nil {
+		return nil, 0, fmt.Errorf("body deve ser um array JSON")
+	}
+	delim, ok := tok.(json.Delim)
+	if !ok || delim != '[' {
+		return nil, 0, fmt.Errorf("body deve ser um array JSON")
+	}
+
+	count := 0
+	for decoder.More() {
+		var item json.RawMessage
+		if err := decoder.Decode(&item); err != nil {
+			return nil, 0, fmt.Errorf("body deve ser um array JSON válido")
+		}
+		count++
+		if count > maxItems {
+			return nil, 0, fmt.Errorf("máximo de %d itens por batch assíncrono", maxItems)
+		}
+	}
+
+	endTok, err := decoder.Token()
+	if err != nil {
+		return nil, 0, fmt.Errorf("body deve ser um array JSON")
+	}
+	endDelim, ok := endTok.(json.Delim)
+	if !ok || endDelim != ']' {
+		return nil, 0, fmt.Errorf("body deve ser um array JSON")
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		return nil, 0, fmt.Errorf("body deve conter apenas um array JSON")
+	}
+
+	return payloadBytes, count, nil
 }
 
 // ============================================================================
