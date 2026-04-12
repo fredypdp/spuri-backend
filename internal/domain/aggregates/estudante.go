@@ -45,9 +45,6 @@ type Estudante struct {
 
 	// Mapa de notas registradas por chave composta
 	NotasRegistradasPorChave map[string]bool
-
-	// Mapa de faltas registradas por chave composta
-	FaltasRegistradasPorChave map[string]bool
 }
 
 func NewEstudante() *Estudante {
@@ -57,10 +54,9 @@ func NewEstudante() *Estudante {
 			Version:           0,
 			UncommittedEvents: []DomainEvent{},
 		},
-		Status:                    "inativo",
-		AvaliacoesPorAno:          make(map[string]bool),
-		NotasRegistradasPorChave:  make(map[string]bool),
-		FaltasRegistradasPorChave: make(map[string]bool),
+		Status:                   "inativo",
+		AvaliacoesPorAno:         make(map[string]bool),
+		NotasRegistradasPorChave: make(map[string]bool),
 	}
 }
 
@@ -556,9 +552,6 @@ func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
 	}
 	if e.NotasRegistradasPorChave == nil {
 		e.NotasRegistradasPorChave = make(map[string]bool)
-	}
-	if e.FaltasRegistradasPorChave == nil {
-		e.FaltasRegistradasPorChave = make(map[string]bool)
 	}
 	return nil
 }

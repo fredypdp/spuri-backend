@@ -224,8 +224,8 @@ func AtualizarNota(c *gin.Context) {
 		return
 	}
 
-	if *req.NotaNova < 0 || *req.NotaNova > 20 {
-		utils.RespondWithValidationError(c, fmt.Errorf("nota_nova deve estar entre 0 e 20"))
+	if *req.NotaNova < 0 {
+		utils.RespondWithValidationError(c, fmt.Errorf("nota_nova deve ser maior ou igual a 0"))
 		return
 	}
 
@@ -704,10 +704,10 @@ func inferirAnoAcademicoFaltas(
 	return inferirAnoAcademicoParaNota(anoEscolarEstudante, nivelMateria, nomeMateria)
 }
 
-// validarNota verifica se a nota está no intervalo 0–20.
+// validarNota verifica se a nota é maior ou igual a 0.
 func validarNota(nota float64) error {
-	if nota < 0 || nota > 20 {
-		return fmt.Errorf("nota deve estar entre 0 e 20, recebido: %.2f", nota)
+	if nota < 0 {
+		return fmt.Errorf("nota deve ser maior ou igual a 0, recebido: %.2f", nota)
 	}
 	return nil
 }

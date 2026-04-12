@@ -49,7 +49,7 @@ type NotasRegistradasEvent struct {
 	AnoAcademico         string // inferido pelo back end
 	Periodo              string
 	MateriaDisciplinarID uuid.UUID
-	Tipo                 string  // "escolar" | "superior"
+	Tipo                 string // "escolar" | "superior"
 	Categoria            string
 	Nota                 float64
 	Observacao           *string
@@ -122,9 +122,9 @@ func validarPeriodoComLista(periodo string, periodosValidos []string) error {
 //
 // Regras:
 //   - TipoEscolar:  aceita categorias fixas (nota_escola, nota_professor) OU
-//                  categorias adicionais cadastradas pela academia.
+//     categorias adicionais cadastradas pela academia.
 //   - TipoSuperior: aceita categorias fixas (nota_pp1, nota_pp2, nota_exame) OU
-//                  categorias adicionais cadastradas pela academia.
+//     categorias adicionais cadastradas pela academia.
 //
 // categoriasAdicionais é a lista de categorias extras cadastradas pela academia
 // e deve ser fornecida pelo handler para ambos os tipos.
@@ -218,8 +218,8 @@ func (e *Estudante) RegistrarNota(
 	if err := validarCategoria(tipo, categoria, categoriasAdicionais); err != nil {
 		return err
 	}
-	if nota < 0 || nota > 20 {
-		return fmt.Errorf("nota deve estar entre 0 e 20")
+	if nota < 0 {
+		return fmt.Errorf("nota deve ser maior ou igual a 0")
 	}
 
 	// FIX NOTA-AGG-01: detectar duplicata via estado do aggregate.
@@ -282,8 +282,8 @@ func (e *Estudante) AtualizarNota(
 	if err := validarPeriodoComLista(periodo, periodosValidos); err != nil {
 		return err
 	}
-	if notaNova < 0 || notaNova > 20 {
-		return fmt.Errorf("nota_nova deve estar entre 0 e 20")
+	if notaNova < 0 {
+		return fmt.Errorf("nota_nova deve ser maior ou igual a 0")
 	}
 
 	event := &NotaAtualizadaEvent{
