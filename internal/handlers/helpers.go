@@ -23,7 +23,11 @@ import (
 
 func getRepository(c *gin.Context) *db.AggregateRepository {
 	repo, _ := c.Get("repository")
-	return repo.(*db.AggregateRepository)
+	base := repo.(*db.AggregateRepository)
+	if c != nil && c.Request != nil {
+		return base.WithContext(c.Request.Context())
+	}
+	return base
 }
 
 // getDbClient retorna o *db.Client injetado pelo middleware de setup.

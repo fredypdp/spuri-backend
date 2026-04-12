@@ -17,6 +17,13 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	// itemProcessingTimeoutNotasFaltas limita o tempo de processamento de um item
+	// nos jobs assíncronos de REGISTRO de notas/faltas para evitar bloqueios
+	// indefinidos que deixariam workers presos.
+	itemProcessingTimeoutNotasFaltas = 20 * time.Second
+)
+
 // HandlerFunc é a assinatura de um handler Gin usado pelo worker.
 type HandlerFunc func(c *gin.Context)
 
@@ -281,6 +288,12 @@ func (w *Worker) processItem(h HandlerFunc, j *Job, idx int, rawItem json.RawMes
 	if err != nil {
 		return ItemResult{Index: idx, Sucesso: false, Payload: rawItem, Erro: fmt.Sprintf("criar request: %v", err)}
 	}
+	timeout := w.itemTimeout(j.Type)
+	if timeout > 0 {
+		ctx, cancel := context.WithTimeout(req.Context(), timeout)
+		defer cancel()
+		req = req.WithContext(ctx)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.ContentLength = int64(len(rawItem))
 
@@ -293,6 +306,15 @@ func (w *Worker) processItem(h HandlerFunc, j *Job, idx int, rawItem json.RawMes
 
 	// Executar handler
 	h(c)
+
+	if reqErr := req.Context().Err(); reqErr != nil {
+		return ItemResult{
+			Index:   idx,
+			Sucesso: false,
+			Payload: rawItem,
+			Erro:    fmt.Sprintf("timeout ao processar item (%s)", reqErr),
+		}
+	}
 
 	code := rec.Code
 	body := rec.Body.Bytes()
@@ -322,4 +344,13 @@ func (w *Worker) processItem(h HandlerFunc, j *Job, idx int, rawItem json.RawMes
 	}
 
 	return ItemResult{Index: idx, Sucesso: false, Payload: rawItem, Erro: msg}
+}
+
+func (w *Worker) itemTimeout(jobType JobType) time.Duration {
+	switch jobType {
+	case JobTypeRegistrarNotaBatch, JobTypeRegistrarFaltasBatch:
+		return itemProcessingTimeoutNotasFaltas
+	default:
+		return 0
+	}
 }
