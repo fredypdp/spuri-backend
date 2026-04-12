@@ -70,14 +70,6 @@ func (e *FaltaDeletadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 // Helpers internos
 // ============================================================================
 
-// chaveFalta retorna a chave composta usada para detectar duplicatas de falta no aggregate.
-// Formato: "<anoLectivo>_<data AAAA-MM-DD>_<materiaID>"
-// Deve coincidir com a constraint UNIQUE(codigo_estudante, codigo_academia, data, materia_disciplinar_id)
-// do banco — academia e estudante já são implícitos pelo aggregate carregado.
-func chaveFalta(anoLectivo string, data time.Time, materiaID uuid.UUID) string {
-	return anoLectivo + "_" + data.UTC().Format("2006-01-02") + "_" + materiaID.String()
-}
-
 // ============================================================================
 // Método de comando: RegistrarFalta
 // ============================================================================
@@ -87,10 +79,6 @@ func chaveFalta(anoLectivo string, data time.Time, materiaID uuid.UUID) string {
 // anoAcademico é inferido pelo handler:
 //   - Estudante no fundamental (AnoEscolar != nil) → AnoEscolar do estudante
 //   - Estudante no médio/superior                  → Nivel[0] da matéria
-//
-// FIX FALTA-AGG-01: guard de duplicata via FaltasRegistradasPorChave antes de
-// emitir o evento. Evita double-submit e retorna erro de negócio claro em vez
-// de deixar a violação de unique constraint 23505 explodir na projeção.
 func (e *Estudante) RegistrarFalta(
 	codigoAcademia string,
 	anoLectivo string,
@@ -105,17 +93,6 @@ func (e *Estudante) RegistrarFalta(
 	}
 	if quantidade <= 0 {
 		return fmt.Errorf("quantidade deve ser maior que zero")
-	}
-
-	// FIX FALTA-AGG-01: detectar duplicata via estado do aggregate.
-	// Evita double-submit e a violação de unique constraint 23505 na projeção,
-	// retornando um erro de negócio claro ao invés de um 500.
-	chave := chaveFalta(anoLectivo, data, materiaDisciplinarID)
-	if e.FaltasRegistradasPorChave != nil && e.FaltasRegistradasPorChave[chave] {
-		return fmt.Errorf(
-			"falta já registrada para data '%s' e materia '%s' no ano letivo '%s'",
-			data.UTC().Format("2006-01-02"), materiaDisciplinarID, anoLectivo,
-		)
 	}
 
 	event := &FaltasRegistradasEvent{
@@ -216,9 +193,8 @@ func (e *Estudante) DeletarFalta(
 // Apply handlers
 // ============================================================================
 
-// applyFaltasRegistradas — FIX FALTA-AGG-01: mantém FaltasRegistradasPorChave
-// em estado para que RegistrarFalta possa detectar duplicatas sem depender da projeção.
-// A chave usada aqui corresponde à constraint UNIQUE do banco.
+// applyFaltasRegistradas — aggregate não mantém estado derivado para faltas.
+// A projeção persiste cada registro sem restrição de unicidade por data/matéria.
 func (e *Estudante) applyFaltasRegistradas(event DomainEvent) error {
 	data, err := json.Marshal(event.GetPayload())
 	if err != nil {
@@ -229,11 +205,7 @@ func (e *Estudante) applyFaltasRegistradas(event DomainEvent) error {
 		return fmt.Errorf("applyFaltasRegistradas: unmarshal error (payload corrompido): %w", err)
 	}
 
-	if e.FaltasRegistradasPorChave == nil {
-		e.FaltasRegistradasPorChave = make(map[string]bool)
-	}
-	chave := chaveFalta(ev.AnoLectivo, ev.Data, ev.MateriaDisciplinarID)
-	e.FaltasRegistradasPorChave[chave] = true
+	_ = ev
 	return nil
 }
 
@@ -243,9 +215,7 @@ func (e *Estudante) applyFaltaAtualizada(_ DomainEvent) error {
 	return nil
 }
 
-// applyFaltaDeletada — não remove a chave do mapa intencionalmente.
-// Uma falta deletada não deve ser re-registrada com a mesma combinação
-// de chave (mesma data + matéria + ano letivo). A projeção controla o soft delete.
+// applyFaltaDeletada — sem estado derivado adicional no aggregate.
 func (e *Estudante) applyFaltaDeletada(_ DomainEvent) error {
 	return nil
 }
