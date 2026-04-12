@@ -37,7 +37,7 @@ BEGIN
               SELECT array_agg(a.attname ORDER BY u.ord)
               FROM unnest(c.conkey) WITH ORDINALITY AS u(attnum, ord)
               JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = u.attnum
-          ) = ARRAY['codigo_estudante','codigo_academia','data','materia_disciplinar_id']
+          ) = ARRAY['codigo_estudante','codigo_academia','data','materia_disciplinar_id']::name[]
     LOOP
         EXECUTE format('ALTER TABLE projection_faltas DROP CONSTRAINT %I', r.conname);
         RAISE NOTICE '✅ Constraint removida de projection_faltas: %', r.conname;
