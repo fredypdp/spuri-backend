@@ -142,37 +142,51 @@ func SafeErrorMessage(err error) string {
 	if err == nil {
 		return ""
 	}
-	
+
 	errStr := strings.ToLower(err.Error())
-	
-	errorMessages := map[string]string{
-		"no rows":                         "Registro não encontrado no sistema",
-		"duplicate key":                   "Este registro já existe",
-		"foreign key constraint":          "Operação inválida: referência inexistente",
-		"check constraint":                "Dados fornecidos são inválidos",
-		"invalid input syntax":            "Formato de dados inválido",
-		"not null":                        "Campo obrigatório não foi preenchido",
-		"unique constraint":               "Este valor já está cadastrado",
-		"value too long":                  "Valor excede tamanho máximo permitido",
-		"permission denied":               "Acesso negado",
-		"invalid uuid":                    "Identificador inválido",
-		"connection refused":              "Serviço temporariamente indisponível",
-		"timeout":                         "Operação demorou muito tempo",
-		"bilhete":                         "Bilhete de identidade inválido (deve conter 12 números e 2 letras)",
-		"email":                           "Formato de email inválido",
-		"senha":                           "Senha deve ter no mínimo 6 caracteres",
-		"provincia":                       "Província inválida",
-		"periodo":                         "Período inválido",
-		"role":                            "Perfil de acesso inválido",
-		"type":                            "Tipo inválido",
-		"status":                          "Status inválido",
+
+	// Regras específicas primeiro para evitar colisões com chaves genéricas
+	// (ex.: "periodo" em erros de duplicata de nota).
+	if strings.Contains(errStr, "nota já registrada") || strings.Contains(errStr, "nota ja registrada") {
+		return "Nota já registrada para o mesmo ano/período/matéria/tipo/categoria"
 	}
-	
-	for key, msg := range errorMessages {
-		if strings.Contains(errStr, key) {
-			return msg
+
+	// Mensagens realmente relacionadas à validade do período.
+	if (strings.Contains(errStr, "periodo '") || strings.Contains(errStr, "período '")) &&
+		(strings.Contains(errStr, "inválido") || strings.Contains(errStr, "invalido")) {
+		return "Período inválido"
+	}
+
+	errorRules := []struct {
+		key string
+		msg string
+	}{
+		{"no rows", "Registro não encontrado no sistema"},
+		{"duplicate key", "Este registro já existe"},
+		{"foreign key constraint", "Operação inválida: referência inexistente"},
+		{"check constraint", "Dados fornecidos são inválidos"},
+		{"invalid input syntax", "Formato de dados inválido"},
+		{"not null", "Campo obrigatório não foi preenchido"},
+		{"unique constraint", "Este valor já está cadastrado"},
+		{"value too long", "Valor excede tamanho máximo permitido"},
+		{"permission denied", "Acesso negado"},
+		{"invalid uuid", "Identificador inválido"},
+		{"connection refused", "Serviço temporariamente indisponível"},
+		{"timeout", "Operação demorou muito tempo"},
+		{"bilhete", "Bilhete de identidade inválido (deve conter 12 números e 2 letras)"},
+		{"email", "Formato de email inválido"},
+		{"senha", "Senha deve ter no mínimo 6 caracteres"},
+		{"provincia", "Província inválida"},
+		{"role", "Perfil de acesso inválido"},
+		{"type", "Tipo inválido"},
+		{"status", "Status inválido"},
+	}
+
+	for _, rule := range errorRules {
+		if strings.Contains(errStr, rule.key) {
+			return rule.msg
 		}
 	}
-	
+
 	return err.Error()
 }
