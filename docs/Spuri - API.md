@@ -1453,7 +1453,9 @@ Registra uma nota para um estudante.
 - Academia `superior` só pode usar tipo `superior`
 - `nota` deve ser maior ou igual a 0 (`>= 0`)
 - `periodo` deve ser válido para o tipo (`1_trimestre`/`2_trimestre`/`3_trimestre` para escolar; semestres do curso para superior)
+- Para `tipo=superior`, o `periodo` precisa coincidir com o `periodo` definido na matéria (além de existir na lista de períodos do curso)
 - `categoria` deve ser uma das fixas ou uma adicional da academia
+- O endpoint `POST /academia/notas-aluno/async` reaproveita exatamente as mesmas validações deste endpoint por item do lote
 
 **Response 201:**
 
