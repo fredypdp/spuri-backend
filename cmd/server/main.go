@@ -256,8 +256,8 @@ func setupRouter() *gin.Engine {
 		protected.GET("/avaliacoes", handlers.ListarAvaliacoes)
 		protected.GET("/aprovacoes", handlers.ListarAprovacoes)
 		protected.GET("/reprovacoes", handlers.ListarReprovacoes)
-		protected.GET("/notas-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetNotasEstudante)
-		protected.GET("/faltas-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetFaltasEstudante)
+		protected.GET("/notas-estudante/:codigo", handlers.GetNotasEstudante)
+		protected.GET("/faltas-estudante/:codigo", handlers.GetFaltasEstudante)
 		protected.GET("/avaliacoes-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetAvaliacoesFinaisEstudante)
 		protected.GET("/turmas-estudante/:codigo", handlers.GetTurmasEstudante)
 		protected.POST("/adicionar-telefone-extra", handlers.AdicionarTelefoneExtra)
@@ -270,8 +270,6 @@ func setupRouter() *gin.Engine {
 	{
 		estudante.PUT("/dados-pessoais", handlers.AtualizarDadosPessoais)
 		estudante.GET("/minhas-avaliacoes", handlers.GetMinhasAvaliacoes)
-		estudante.GET("/minhas-notas", handlers.GetMinhasNotas)
-		estudante.GET("/minhas-faltas", handlers.GetMinhasFaltas)
 	}
 
 	// ── Rotas de academia ─────────────────────────────────────────────────
