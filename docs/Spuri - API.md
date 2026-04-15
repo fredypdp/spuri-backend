@@ -1370,44 +1370,6 @@ Verifica a integridade da hash chain do ledger para um estudante.
 
 ---
 
-### GET /estudante/minhas-notas
-
-Retorna as notas do estudante autenticado.
-
-**Proteção**: autenticado + estudante
-
-**Response 200:**
-
-```json
-{
-  "codigo_estudante": "ABC1234",
-  "nome": "string",
-  "notas": [NotaDTO],
-  "total": 12
-}
-```
-
----
-
-### GET /estudante/minhas-faltas
-
-Retorna as faltas do estudante autenticado.
-
-**Proteção**: autenticado + estudante
-
-**Response 200:**
-
-```json
-{
-  "codigo_estudante": "ABC1234",
-  "nome": "string",
-  "faltas": [FaltaDTO],
-  "total": 3
-}
-```
-
----
-
 ### GET /estudante/minhas-avaliacoes
 
 Retorna as avaliações finais do estudante autenticado.
@@ -1549,7 +1511,13 @@ Remove uma nota (soft delete — permanece no ledger para auditoria).
 
 Retorna as notas de um estudante.
 
-**Proteção**: autenticado + academia (apenas próprios) ou admin
+**Proteção**: autenticado
+
+**Nota de acesso:**
+
+- Estudante: apenas o próprio código (`:codigo` deve ser o do estudante autenticado)
+- Academia: apenas estudantes da própria academia
+- Admin: qualquer estudante
 
 **Response 200:**
 
@@ -1667,7 +1635,13 @@ Remove uma falta (soft delete).
 
 Retorna as faltas de um estudante.
 
-**Proteção**: autenticado + academia (apenas próprios) ou admin
+**Proteção**: autenticado
+
+**Nota de acesso:**
+
+- Estudante: apenas o próprio código (`:codigo` deve ser o do estudante autenticado)
+- Academia: apenas estudantes da própria academia
+- Admin: qualquer estudante
 
 **Response 200:**
 
