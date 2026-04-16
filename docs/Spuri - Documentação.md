@@ -1,8 +1,8 @@
 ---
-modificado: 16-04-2026 15:10
+modificado: 16-04-2026 16:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.1.3
+Versão atual: 1.1.4
 ## Índice
 
 1. [[#1. Visão Geral]]

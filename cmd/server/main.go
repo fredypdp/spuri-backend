@@ -258,6 +258,8 @@ func setupRouter() *gin.Engine {
 		protected.GET("/avaliacoes", handlers.ListarAvaliacoes)
 		protected.GET("/aprovacoes", handlers.ListarAprovacoes)
 		protected.GET("/reprovacoes", handlers.ListarReprovacoes)
+		protected.GET("/notas", handlers.ListarNotas)
+		protected.GET("/faltas", handlers.ListarFaltas)
 		protected.GET("/notas-estudante/:codigo", handlers.GetNotasEstudante)
 		protected.GET("/faltas-estudante/:codigo", handlers.GetFaltasEstudante)
 		protected.GET("/avaliacoes-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetAvaliacoesFinaisEstudante)
@@ -379,8 +381,6 @@ func setupRouter() *gin.Engine {
 		admin.POST("/projections/rebuild/:name", middleware.RequireFPP(), handlers.RebuildProjection)
 		admin.POST("/projections/rebuild/:name/async", middleware.RequireFPP(), handlers.RebuildProjectionAsync)
 		admin.GET("/consultar-admin/:email", handlers.GetAdminPorEmail)
-		admin.GET("/registros", handlers.ListarTodosRegistros)
-		admin.GET("/registros/:codigo", handlers.ListarRegistrosPorEstudante)
 		admin.PUT("/admin/:id/role", middleware.RequireFPP(), handlers.AtualizarRoleAdmin)
 		admin.PUT("/admin/:id/dados", handlers.AtualizarDadosAdmin)
 

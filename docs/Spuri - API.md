@@ -1,8 +1,8 @@
 ---
-modificado: 16-04-2026 15:10
+modificado: 16-04-2026 16:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.1.4
+Versão atual: 1.1.5
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -2688,61 +2688,61 @@ Retorna as turmas de um estudante com autorização por perfil na mesma rota.
 
 ---
 
-### GET /dominis/registros
+### GET /notas
 
-Lista notas e faltas de todos os estudantes (visão admin).
+Lista registros de notas com escopo por perfil.
 
-**Proteção**: autenticado + admin (qualquer role)
+**Proteção**: autenticado (`admin` ou `academia`)
+
+**Regras de escopo:**
+
+- `admin`: lista todas as notas registradas no sistema
+- `academia`: lista apenas notas com `codigo_academia` da academia autenticada
 
 **Query Params:**
 
 - `limit` — padrão 50, máximo 1000
 - `offset` — padrão 0
-- `tipo` — `notas` ou `faltas` (omitir = retorna ambos)
 
 **Response 200:**
 
 ```json
 {
   "notas": [...],
-  "total_notas": 30,
-  "total_notas_geral": 5000,
-  "faltas": [...],
-  "total_faltas": 20,
-  "total_faltas_geral": 3000,
-  "estatisticas": {
-    "total_estudantes": 500,
-    "total_academias": 25,
-    "total_notas": 5000,
-    "total_faltas": 3000
-  },
+  "total": 30,
+  "total_geral": 5000,
   "limit": 50,
-  "offset": 0,
-  "filtro_tipo": ""
+  "offset": 0
 }
 ```
 
 ---
 
-### GET /dominis/registros/:codigo
+### GET /faltas
 
-Lista notas e faltas de um estudante específico (visão admin).
+Lista registros de faltas com escopo por perfil.
 
-**Proteção**: autenticado + admin
+**Proteção**: autenticado (`admin` ou `academia`)
 
-**Path Params:**
+**Regras de escopo:**
 
-- `codigo` — código do estudante
+- `admin`: lista todas as faltas registradas no sistema
+- `academia`: lista apenas faltas com `codigo_academia` da academia autenticada
+
+**Query Params:**
+
+- `limit` — padrão 50, máximo 1000
+- `offset` — padrão 0
 
 **Response 200:**
 
 ```json
 {
-  "codigo_estudante": "ABC1234",
-  "notas": [...],
   "faltas": [...],
-  "total_notas": 12,
-  "total_faltas": 3
+  "total": 20,
+  "total_geral": 3000,
+  "limit": 50,
+  "offset": 0
 }
 ```
 
