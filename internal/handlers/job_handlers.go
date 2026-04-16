@@ -107,6 +107,7 @@ func GetJob(c *gin.Context) {
 // ListJobs lista os jobs mais recentes do usuário autenticado.
 func ListJobs(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
 
 	store := getJobStore(c)
 	if store == nil {
@@ -119,8 +120,28 @@ func ListJobs(c *gin.Context) {
 		return
 	}
 
-	summaries := make([]jobs.Summary, 0, len(jobList))
+	filteredJobs := make([]*jobs.Job, 0, len(jobList))
 	for _, j := range jobList {
+		if userType == "academia" {
+			// Para academia: listar apenas jobs falhados ou ainda em andamento.
+			// Excluir jobs concluídos com sucesso e jobs ocultos (deletados do stream SSE).
+			if !shouldListForAcademia(j) {
+				continue
+			}
+			hidden, err := store.IsHiddenFromSSE(userID, j.ID)
+			if err != nil {
+				utils.RespondWithInternalError(c, err)
+				return
+			}
+			if hidden {
+				continue
+			}
+		}
+		filteredJobs = append(filteredJobs, j)
+	}
+
+	summaries := make([]jobs.Summary, 0, len(filteredJobs))
+	for _, j := range filteredJobs {
 		summaries = append(summaries, j.ToSummary())
 	}
 
@@ -128,6 +149,26 @@ func ListJobs(c *gin.Context) {
 		"jobs":  summaries,
 		"total": len(summaries),
 	})
+}
+
+func shouldListForAcademia(j *jobs.Job) bool {
+	if j == nil {
+		return false
+	}
+	switch j.Status {
+	case jobs.StatusPending, jobs.StatusProcessing, jobs.StatusFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func retryJobNotFoundMessage(jobID uuid.UUID) string {
+	return fmt.Sprintf("job %s não encontrado para retry-failed", jobID)
+}
+
+func retryJobMustBelongToAcademiaMessage() string {
+	return "confirme se o job pertence à academia autenticada e se foi criado neste ambiente"
 }
 
 // StreamJobs abre um canal SSE com notificações em tempo real de jobs do usuário.
@@ -247,7 +288,12 @@ func RetryFailedJob(c *gin.Context) {
 
 	originalJob, err := store.Get(jobID)
 	if err != nil {
-		utils.RespondWithNotFoundError(c, "job")
+		utils.RespondWithError(
+			c,
+			http.StatusNotFound,
+			fmt.Sprintf("%s — %s", retryJobNotFoundMessage(jobID), retryJobMustBelongToAcademiaMessage()),
+			err,
+		)
 		return
 	}
 	if originalJob.UserID != userID {
