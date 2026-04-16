@@ -15,15 +15,17 @@ import (
 // Store persiste e recupera jobs.
 // Usa memória como cache quente e PostgreSQL como storage durável.
 type Store struct {
-	db    *sqlx.DB
-	mu    sync.RWMutex
-	cache map[uuid.UUID]*Job
+	db            *sqlx.DB
+	mu            sync.RWMutex
+	cache         map[uuid.UUID]*Job
+	hiddenSSEJobs map[uuid.UUID]map[uuid.UUID]struct{}
 }
 
 func NewStore(db *sqlx.DB) *Store {
 	s := &Store{
-		db:    db,
-		cache: make(map[uuid.UUID]*Job),
+		db:            db,
+		cache:         make(map[uuid.UUID]*Job),
+		hiddenSSEJobs: make(map[uuid.UUID]map[uuid.UUID]struct{}),
 	}
 	return s
 }
@@ -280,4 +282,85 @@ func (s *Store) Cleanup() {
 		}
 	}
 	s.mu.Unlock()
+}
+
+// HideFromSSE marca um job como oculto no stream SSE para um usuário.
+func (s *Store) HideFromSSE(userID, jobID uuid.UUID) error {
+	_, err := s.db.Exec(`
+		INSERT INTO async_job_sse_hidden (user_id, job_id)
+		VALUES ($1, $2)
+		ON CONFLICT (user_id, job_id) DO NOTHING
+	`, userID, jobID)
+	if err != nil {
+		return fmt.Errorf("store.HideFromSSE: %w", err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.hiddenSSEJobs[userID]; !ok {
+		s.hiddenSSEJobs[userID] = make(map[uuid.UUID]struct{})
+	}
+	s.hiddenSSEJobs[userID][jobID] = struct{}{}
+	return nil
+}
+
+// UnhideFromSSE remove a marca de ocultação do stream SSE para um usuário.
+func (s *Store) UnhideFromSSE(userID, jobID uuid.UUID) error {
+	_, err := s.db.Exec(`
+		DELETE FROM async_job_sse_hidden
+		WHERE user_id = $1 AND job_id = $2
+	`, userID, jobID)
+	if err != nil {
+		return fmt.Errorf("store.UnhideFromSSE: %w", err)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if hidden, ok := s.hiddenSSEJobs[userID]; ok {
+		delete(hidden, jobID)
+		if len(hidden) == 0 {
+			delete(s.hiddenSSEJobs, userID)
+		}
+	}
+	return nil
+}
+
+// IsHiddenFromSSE indica se um job deve ser filtrado no stream SSE do usuário.
+func (s *Store) IsHiddenFromSSE(userID, jobID uuid.UUID) (bool, error) {
+	s.mu.RLock()
+	if hidden, ok := s.hiddenSSEJobs[userID]; ok {
+		_, exists := hidden[jobID]
+		s.mu.RUnlock()
+		return exists, nil
+	}
+	s.mu.RUnlock()
+
+	rows, err := s.db.Query(`
+		SELECT job_id
+		FROM async_job_sse_hidden
+		WHERE user_id = $1
+	`, userID)
+	if err != nil {
+		return false, fmt.Errorf("store.IsHiddenFromSSE: %w", err)
+	}
+	defer rows.Close()
+
+	loaded := make(map[uuid.UUID]struct{})
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return false, fmt.Errorf("store.IsHiddenFromSSE scan: %w", err)
+		}
+		loaded[id] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return false, fmt.Errorf("store.IsHiddenFromSSE rows: %w", err)
+	}
+
+	s.mu.Lock()
+	s.hiddenSSEJobs[userID] = loaded
+	s.mu.Unlock()
+
+	_, exists := loaded[jobID]
+	return exists, nil
 }
