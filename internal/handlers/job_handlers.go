@@ -135,8 +135,12 @@ func ListJobs(c *gin.Context) {
 func StreamJobs(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	notifier := getJobNotifier(c)
+	store := getJobStore(c)
 	if notifier == nil {
 		utils.RespondWithInternalError(c, fmt.Errorf("notifier de jobs não disponível"))
+		return
+	}
+	if store == nil {
 		return
 	}
 
@@ -162,10 +166,170 @@ func StreamJobs(c *gin.Context) {
 			if !ok {
 				return false
 			}
+			hidden, err := store.IsHiddenFromSSE(userID, ev.JobID)
+			if err != nil {
+				utils.RespondWithInternalError(c, err)
+				return false
+			}
+			if hidden {
+				return true
+			}
 			payload, _ := json.Marshal(ev)
 			c.Writer.WriteString("event: " + string(ev.Type) + "\n")
 			c.Writer.WriteString("data: " + string(payload) + "\n\n")
 			return true
 		}
 	})
+}
+
+// HideJobFromSSE permite que a academia oculte um job no stream SSE.
+// Endpoint: DELETE /jobs/:id/sse
+func HideJobFromSSE(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
+	if userType != "academia" {
+		utils.RespondWithForbiddenError(c, "apenas academias podem ocultar jobs no SSE")
+		return
+	}
+
+	jobID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	store := getJobStore(c)
+	if store == nil {
+		return
+	}
+
+	j, err := store.Get(jobID)
+	if err != nil {
+		utils.RespondWithNotFoundError(c, "job")
+		return
+	}
+	if j.UserID != userID {
+		utils.RespondWithForbiddenError(c, "acesso negado")
+		return
+	}
+
+	if err := store.HideFromSSE(userID, jobID); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "job ocultado do stream SSE com sucesso",
+		"job_id":  jobID,
+	})
+}
+
+// RetryFailedJob reenvia apenas itens com falha em um novo job.
+// Endpoint: POST /jobs/:id/retry-failed
+func RetryFailedJob(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
+	if userType != "academia" {
+		utils.RespondWithForbiddenError(c, "apenas academias podem reenviar itens falhados")
+		return
+	}
+
+	jobID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	store := getJobStore(c)
+	if store == nil {
+		return
+	}
+
+	originalJob, err := store.Get(jobID)
+	if err != nil {
+		utils.RespondWithNotFoundError(c, "job")
+		return
+	}
+	if originalJob.UserID != userID {
+		utils.RespondWithForbiddenError(c, "acesso negado")
+		return
+	}
+	if originalJob.FailItems == 0 {
+		utils.RespondWithValidationError(c, fmt.Errorf("job não possui itens falhados para retentar"))
+		return
+	}
+
+	retryPayload, err := buildRetryFailedPayload(originalJob)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if len(retryPayload) == 0 {
+		utils.RespondWithValidationError(c, fmt.Errorf("não foi possível extrair itens falhados para retentar"))
+		return
+	}
+
+	retryJob, err := store.Enqueue(originalJob.Type, userID, userType, retryPayload, len(retryPayload))
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	if w := getJobWorker(c); w != nil {
+		w.Enqueue(retryJob)
+	}
+	if n := getJobNotifier(c); n != nil {
+		n.Publish(userID, jobs.Event{
+			Type:       jobs.EventJobEnqueued,
+			JobID:      retryJob.ID,
+			JobType:    retryJob.Type,
+			Status:     retryJob.Status,
+			Progress:   retryJob.Progress(),
+			DoneItems:  retryJob.DoneItems,
+			FailItems:  retryJob.FailItems,
+			TotalItems: retryJob.TotalItems,
+		})
+	}
+
+	c.JSON(http.StatusAccepted, gin.H{
+		"message":         "job de retry criado com sucesso",
+		"original_job_id": originalJob.ID,
+		"retry_job_id":    retryJob.ID,
+		"retry_items":     retryJob.TotalItems,
+		"status":          retryJob.Status,
+		"poll_url":        fmt.Sprintf("/jobs/%s", retryJob.ID),
+		"sse_url":         "/jobs/stream",
+	})
+}
+
+func buildRetryFailedPayload(j *jobs.Job) (json.RawMessage, error) {
+	var failedItems []json.RawMessage
+	for _, r := range j.Results {
+		if r.Sucesso {
+			continue
+		}
+		if len(r.Payload) > 0 {
+			failedItems = append(failedItems, r.Payload)
+		}
+	}
+
+	// Fallback: em casos legados, tenta extrair do payload original usando índice.
+	if len(failedItems) == 0 && len(j.Payload) > 0 {
+		var originalItems []json.RawMessage
+		if err := json.Unmarshal(j.Payload, &originalItems); err != nil {
+			return nil, fmt.Errorf("falha ao decodificar payload original: %w", err)
+		}
+		for _, r := range j.Results {
+			if r.Sucesso || r.Index < 0 || r.Index >= len(originalItems) {
+				continue
+			}
+			failedItems = append(failedItems, originalItems[r.Index])
+		}
+	}
+
+	retryPayload, err := json.Marshal(failedItems)
+	if err != nil {
+		return nil, fmt.Errorf("falha ao serializar payload de retry: %w", err)
+	}
+	return retryPayload, nil
 }

@@ -238,6 +238,8 @@ func setupRouter() *gin.Engine {
 	{
 		jobRoutes.GET("", handlers.ListJobs)
 		jobRoutes.GET("/stream", handlers.StreamJobs)
+		jobRoutes.DELETE("/:id/sse", handlers.HideJobFromSSE)
+		jobRoutes.POST("/:id/retry-failed", handlers.RetryFailedJob)
 		jobRoutes.GET("/:id", handlers.GetJob)
 	}
 

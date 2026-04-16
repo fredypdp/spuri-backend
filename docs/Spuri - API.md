@@ -1,8 +1,8 @@
 ---
-modificado: 12-04-2026 01:20
+modificado: 16-04-2026 15:10
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.1.3
+Versão atual: 1.1.4
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -2823,6 +2823,51 @@ data: {"type":"job_progress","job_id":"uuid","job_type":"register_estudante_batc
 ```
 
 **Heartbeat:** o servidor envia `: ping` periodicamente para manter a conexão ativa.
+
+---
+
+### DELETE /jobs/:id/sse
+
+Oculta um job do stream SSE da academia autenticada.
+
+**Proteção**: autenticado + academia (apenas o dono do job)
+
+**Response 200:**
+
+```json
+{
+  "message": "job ocultado do stream SSE com sucesso",
+  "job_id": "uuid"
+}
+```
+
+---
+
+### POST /jobs/:id/retry-failed
+
+Cria um novo job de retry reaproveitando **somente os itens que falharam** no job original.
+
+**Proteção**: autenticado + academia (apenas o dono do job)
+
+**Regras:**
+
+- O job original deve ter `fail_items > 0`.
+- O novo job mantém o mesmo `job_type` do original.
+- O payload do retry contém somente os `results[i].payload` com `sucesso = false`.
+
+**Response 202:**
+
+```json
+{
+  "message": "job de retry criado com sucesso",
+  "original_job_id": "uuid",
+  "retry_job_id": "uuid",
+  "retry_items": 42,
+  "status": "pending",
+  "poll_url": "/jobs/uuid",
+  "sse_url": "/jobs/stream"
+}
+```
 
 ---
 

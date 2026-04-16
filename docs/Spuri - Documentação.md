@@ -1,8 +1,8 @@
 ---
-modificado: 12-04-2026 01:20
+modificado: 16-04-2026 15:10
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.1.2
+Versão atual: 1.1.3
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -918,6 +918,15 @@ GET  /jobs/:id                    →  { status, progress, done_items, fail_item
 (quando status = "done" ou "failed")
 GET  /jobs/:id?results=true       →  { ... resultados por item ... }
 ```
+
+**Gestão de stream SSE por academia:**
+
+- `DELETE /jobs/:id/sse`: remove/oculta um job específico do stream `GET /jobs/stream` da própria academia.
+
+**Retry parcial de falhas:**
+
+- `POST /jobs/:id/retry-failed`: cria um novo job com o mesmo tipo do original, reenviando apenas os itens com falha (`sucesso=false`).
+- Isso evita reprocessar itens que já deram certo.
 
 **Cobertura adicional em 1.0.9 (SSE padronizado em todas as respostas `/async` + novidades prévias):**
 - Academia: `PUT /academia/dados/async`, `POST /academia/categorias-nota/async`, `DELETE /academia/categorias-nota/async`.
