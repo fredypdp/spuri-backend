@@ -196,10 +196,16 @@ func verificarStatusUsuario(c *gin.Context, userID uuid.UUID, userType string) e
 	// A query usa $1 como prepared statement; table é uma constante interna
 	// derivada de um switch fechado (nunca vem do usuário), portanto a
 	// interpolação de nome de tabela é segura.
-	query := `SELECT status FROM ` + table + ` WHERE id = $1`
+	//
+	// Compatibilidade de schema:
+	// - Em algumas bases legadas, o campo "id" pode estar como TEXT.
+	// - Em bases atuais, ele é UUID.
+	// Para evitar erro de operador (text = uuid / uuid = text), comparamos
+	// sempre via representação textual.
+	query := `SELECT status FROM ` + table + ` WHERE id::text = $1`
 
 	var status string
-	err := client.DB().QueryRow(query, userID).Scan(&status)
+	err := client.DB().QueryRow(query, userID.String()).Scan(&status)
 	if err == sql.ErrNoRows {
 		return sql.ErrNoRows
 	}
