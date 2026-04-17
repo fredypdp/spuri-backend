@@ -216,7 +216,7 @@ func (p *FaltasProjection) handleFaltasRegistradasTx(tx *sql.Tx, event db.Event)
 			data, materia_disciplinar_id, quantidade, observacao,
 			registered_at, event_id, version
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-		ON CONFLICT (event_id) DO NOTHING
+		ON CONFLICT DO NOTHING
 	`,
 		payload.CodigoEstudante, payload.CodigoAcademia, payload.AnoLectivo, payload.AnoAcademico,
 		payload.Data.UTC(), payload.MateriaDisciplinarID, payload.Quantidade, payload.Observacao,
@@ -340,7 +340,7 @@ func (p *FaltasProjection) GetByID(id string) (*FaltaDTO, error) {
 			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
-		LEFT JOIN projection_materias m ON m.id::text = f.materia_disciplinar_id
+		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
 		WHERE f.id = $1
 		  AND f.deleted_at IS NULL
 	`, id)
@@ -361,7 +361,7 @@ func (p *FaltasProjection) GetByEstudante(codigoEstudante string) ([]FaltaDTO, e
 			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
-		LEFT JOIN projection_materias m ON m.id::text = f.materia_disciplinar_id
+		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
 		WHERE f.codigo_estudante = $1
 		  AND f.deleted_at IS NULL
 		ORDER BY f.data DESC
@@ -379,7 +379,7 @@ func (p *FaltasProjection) GetByAcademia(codigoAcademia string) ([]FaltaDTO, err
 			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
-		LEFT JOIN projection_materias m ON m.id::text = f.materia_disciplinar_id
+		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
 		WHERE f.codigo_academia = $1
 		  AND f.deleted_at IS NULL
 		ORDER BY f.data DESC
@@ -397,7 +397,7 @@ func (p *FaltasProjection) GetByPeriodo(codigoEstudante, anoLectivo string, data
 			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
-		LEFT JOIN projection_materias m ON m.id::text = f.materia_disciplinar_id
+		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
 		WHERE f.codigo_estudante = $1
 			AND f.ano_lectivo = $2
 			AND f.data BETWEEN $3 AND $4
@@ -417,7 +417,7 @@ func (p *FaltasProjection) GetAll() ([]FaltaDTO, error) {
 			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
-		LEFT JOIN projection_materias m ON m.id::text = f.materia_disciplinar_id
+		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
 		WHERE f.deleted_at IS NULL
 		ORDER BY f.data DESC
 	`)
