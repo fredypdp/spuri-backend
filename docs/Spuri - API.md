@@ -1,8 +1,8 @@
 ---
-modificado: 16-04-2026 16:00
+modificado: 17-04-2026 11:15
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.1.5
+Versão atual: 1.1.7
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -311,7 +311,57 @@ interface FaltaDTO {
 
 ---
 
-### 2.10 Avaliação Final
+### 2.10 Registro de Nota (consulta global)
+
+```typescript
+interface NotaRegistroDTO {
+  id: string
+  codigo_estudante: string
+  estudante_nome: string
+  codigo_academia: string
+  academia_nome: string
+  ano_lectivo: string
+  periodo: string
+  materia_disciplinar_id: string
+  materia_nome: string
+  nota: number
+  observacao?: string
+  registered_at: string
+  event_id: string
+  version: number
+}
+```
+
+Usado em: `GET /notas`
+
+---
+
+### 2.11 Registro de Falta (consulta global)
+
+```typescript
+interface FaltaRegistroDTO {
+  id: string
+  codigo_estudante: string
+  estudante_nome: string
+  codigo_academia: string
+  academia_nome: string
+  ano_lectivo: string
+  data: string
+  materia_disciplinar_id: string
+  materia_nome: string
+  quantidade: number
+  observacao?: string
+  registered_at: string
+  event_id: string
+  version: number
+}
+```
+
+Usado em: `GET /faltas`
+
+---
+
+### 2.12 Avaliação Final
 
 ```typescript
 interface AvaliacaoFinalDTO {
@@ -332,7 +382,7 @@ interface AvaliacaoFinalDTO {
 
 ---
 
-### 2.11 Categoria de Nota
+### 2.13 Categoria de Nota
 
 ```typescript
 interface CategoriaNotaDTO {
@@ -349,7 +399,7 @@ interface CategoriaNotaDTO {
 
 ---
 
-### 2.12 Job
+### 2.14 Job
 
 ```typescript
 interface JobSummary {
@@ -380,7 +430,7 @@ interface JobItemResult {
 
 ---
 
-### 2.13 Resposta de Criação de Job Batch Assíncrono
+### 2.15 Resposta de Criação de Job Batch Assíncrono
 
 ```typescript
 interface AsyncBatchAcceptedResponse {
@@ -2708,13 +2758,19 @@ Lista registros de notas com escopo por perfil.
 
 ```json
 {
-  "notas": [...],
+  "notas": [NotaRegistroDTO],
   "total": 30,
   "total_geral": 5000,
   "limit": 50,
   "offset": 0
 }
 ```
+
+**Observação sobre paginação e tipo retornado:**
+
+- `total`: quantidade de itens retornados no array `notas` nesta página.
+- `total_geral`: quantidade total de registros no escopo do usuário (ignorando `limit/offset`).
+- os itens em `notas` seguem `NotaRegistroDTO` (seção 2.10).
 
 ---
 
@@ -2738,13 +2794,19 @@ Lista registros de faltas com escopo por perfil.
 
 ```json
 {
-  "faltas": [...],
+  "faltas": [FaltaRegistroDTO],
   "total": 20,
   "total_geral": 3000,
   "limit": 50,
   "offset": 0
 }
 ```
+
+**Observação sobre paginação e tipo retornado:**
+
+- `total`: quantidade de itens retornados no array `faltas` nesta página.
+- `total_geral`: quantidade total de registros no escopo do usuário (ignorando `limit/offset`).
+- os itens em `faltas` seguem `FaltaRegistroDTO` (seção 2.11).
 
 ---
 
