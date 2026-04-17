@@ -1,8 +1,8 @@
 ---
-modificado: 16-04-2026 16:00
+modificado: 17-04-2026 10:30
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.1.5
+Versão atual: 1.1.6
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -2708,13 +2708,52 @@ Lista registros de notas com escopo por perfil.
 
 ```json
 {
-  "notas": [...],
+  "notas": [
+    {
+      "id": "uuid",
+      "codigo_estudante": "ABC1234",
+      "estudante_nome": "João Silva",
+      "codigo_academia": "LDA20261",
+      "academia_nome": "Escola Exemplo",
+      "ano_lectivo": "2025_2026",
+      "periodo": "1_trimestre",
+      "materia_disciplinar_id": "uuid",
+      "materia_nome": "Matemática",
+      "nota": 16.5,
+      "observacao": "Bom desempenho",
+      "registered_at": "2026-04-17T10:30:00Z",
+      "event_id": "uuid",
+      "version": 1
+    }
+  ],
   "total": 30,
   "total_geral": 5000,
   "limit": 50,
   "offset": 0
 }
 ```
+
+**Estrutura de `notas`:**
+
+- `id` *(string/uuid)* — id da projeção do registro de nota.
+- `codigo_estudante` *(string)* — código do estudante.
+- `estudante_nome` *(string)* — nome do estudante no momento da leitura.
+- `codigo_academia` *(string)* — código da academia da nota.
+- `academia_nome` *(string)* — nome da academia.
+- `ano_lectivo` *(string)* — ano letivo no formato `YYYY_YYYY`.
+- `periodo` *(string)* — período da nota (ex.: `1_trimestre`, `2_semestre`).
+- `materia_disciplinar_id` *(string/uuid)* — id da matéria.
+- `materia_nome` *(string)* — nome da matéria.
+- `nota` *(number)* — valor numérico da nota.
+- `observacao` *(string \| null)* — observação opcional; pode não vir quando nula.
+- `registered_at` *(string RFC3339)* — data/hora de registo do evento.
+- `event_id` *(string/uuid)* — id do evento no ledger.
+- `version` *(number)* — versão do agregado no evento que gerou o registro.
+
+**Observação sobre paginação:**
+
+- `total`: quantidade de itens retornados no array `notas` nesta página.
+- `total_geral`: quantidade total de registros no escopo do usuário (ignorando `limit/offset`).
 
 ---
 
@@ -2738,13 +2777,52 @@ Lista registros de faltas com escopo por perfil.
 
 ```json
 {
-  "faltas": [...],
+  "faltas": [
+    {
+      "id": "uuid",
+      "codigo_estudante": "ABC1234",
+      "estudante_nome": "João Silva",
+      "codigo_academia": "LDA20261",
+      "academia_nome": "Escola Exemplo",
+      "ano_lectivo": "2025_2026",
+      "data": "2026-04-15",
+      "materia_disciplinar_id": "uuid",
+      "materia_nome": "Matemática",
+      "quantidade": 2,
+      "observacao": "Faltou por motivo de saúde",
+      "registered_at": "2026-04-17T10:30:00Z",
+      "event_id": "uuid",
+      "version": 1
+    }
+  ],
   "total": 20,
   "total_geral": 3000,
   "limit": 50,
   "offset": 0
 }
 ```
+
+**Estrutura de `faltas`:**
+
+- `id` *(string/uuid)* — id da projeção do registro de falta.
+- `codigo_estudante` *(string)* — código do estudante.
+- `estudante_nome` *(string)* — nome do estudante no momento da leitura.
+- `codigo_academia` *(string)* — código da academia da falta.
+- `academia_nome` *(string)* — nome da academia.
+- `ano_lectivo` *(string)* — ano letivo no formato `YYYY_YYYY`.
+- `data` *(string YYYY-MM-DD)* — data da falta.
+- `materia_disciplinar_id` *(string/uuid)* — id da matéria.
+- `materia_nome` *(string)* — nome da matéria.
+- `quantidade` *(number)* — total de faltas registradas para aquele lançamento.
+- `observacao` *(string \| null)* — observação opcional; pode não vir quando nula.
+- `registered_at` *(string RFC3339)* — data/hora de registo do evento.
+- `event_id` *(string/uuid)* — id do evento no ledger.
+- `version` *(number)* — versão do agregado no evento que gerou o registro.
+
+**Observação sobre paginação:**
+
+- `total`: quantidade de itens retornados no array `faltas` nesta página.
+- `total_geral`: quantidade total de registros no escopo do usuário (ignorando `limit/offset`).
 
 ---
 
