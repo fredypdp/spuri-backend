@@ -345,11 +345,7 @@ func (a *Academia) applyAcademiaCriada(event DomainEvent) error {
 		return fmt.Errorf("applyAcademiaCriada: unmarshal error: %w", err)
 	}
 
-	if ev.Nivel != "" {
-		a.Nivel = ev.Nivel
-	} else {
-		a.Nivel = ev.Type
-	}
+	a.Nivel = ev.Nivel
 	a.Nome = ev.Nome
 	a.CodigoAcademia = ev.CodigoAcademia
 	a.SenhaHash = ev.SenhaHash
@@ -545,7 +541,6 @@ func validarAnosAcademicos(tipo string, nivelEscolar *string, anos []string) ([]
 type AcademiaCriadaEvent struct {
 	BaseEvent
 	Nivel          string
-	Type           string `json:"Type,omitempty"` // compatibilidade com eventos legados
 	Nome           string
 	CodigoAcademia string
 	SenhaHash      string

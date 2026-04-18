@@ -260,7 +260,6 @@ func (p *AcademiaProjection) UpdateCheckpoint(eventID int64) error {
 func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 	var payload struct {
 		Nivel          string    `json:"Nivel"`
-		Type           string    `json:"Type"`
 		Nome           string    `json:"Nome"`
 		CodigoAcademia string    `json:"CodigoAcademia"`
 		SenhaHash      string    `json:"SenhaHash"`
@@ -323,7 +322,7 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 			version         = EXCLUDED.version,
 			last_event_id   = EXCLUDED.last_event_id
 	`,
-		event.AggregateID, nivel, payload.Nome, payload.CodigoAcademia, payload.SenhaHash,
+		event.AggregateID, payload.Nivel, payload.Nome, payload.CodigoAcademia, payload.SenhaHash,
 		payload.Provincia, payload.Endereco, payload.NumeroTelefone, payload.Email, payload.Website,
 		payload.NivelEscolar, anosValue, cursosJSON,
 		payload.CreatedAt, event.EventVersion, event.EventID,
