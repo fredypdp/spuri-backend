@@ -45,7 +45,7 @@ func CriarCurso(c *gin.Context) {
 		return
 	}
 
-	if err := validarTipoCursoVsAcademia(req.Type, academiaDTO.Type); err != nil {
+	if err := validarTipoCursoVsAcademia(req.Type, academiaDTO.Nivel); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}

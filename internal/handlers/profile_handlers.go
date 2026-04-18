@@ -210,7 +210,7 @@ func getPerfilEstudante(c *gin.Context, userID interface{}) {
 			academiaInfo = &gin.H{
 				"codigo": academia.CodigoAcademia,
 				"nome":   academia.Nome,
-				"tipo":   academia.Type,
+				"nivel":  academia.Nivel,
 			}
 		}
 	}
@@ -293,7 +293,7 @@ func getPerfilAcademia(c *gin.Context, userID interface{}) {
 		"tipo": "academia",
 		"academia": gin.H{
 			"id":               academia.ID,
-			"type":             academia.Type,
+			"nivel":            academia.Nivel,
 			"nome":             academia.Nome,
 			"codigo_academia":  academia.CodigoAcademia,
 			"provincia":        academia.Provincia,

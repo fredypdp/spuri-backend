@@ -259,6 +259,7 @@ func (p *AcademiaProjection) UpdateCheckpoint(eventID int64) error {
 // defesa para eventos já gravados no ledger histórico.
 func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 	var payload struct {
+		Nivel          string    `json:"Nivel"`
 		Type           string    `json:"Type"`
 		Nome           string    `json:"Nome"`
 		CodigoAcademia string    `json:"CodigoAcademia"`
@@ -276,6 +277,10 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleAcademiaCriada: parse error: %w", err)
 	}
+	nivel := payload.Nivel
+	if nivel == "" {
+		nivel = payload.Type
+	}
 
 	cursosJSON, _ := json.Marshal(payload.Cursos)
 
@@ -289,7 +294,7 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 
 	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_academias (
-			id, type, nome, codigo_academia, senha_hash,
+			id, nivel, nome, codigo_academia, senha_hash,
 			provincia, endereco, numero_telefone, email, website,
 			nivel_escolar, anos_academicos, cursos, status, email_verificado,
 			total_estudantes,
@@ -303,7 +308,7 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 		)
 		ON CONFLICT (codigo_academia) DO UPDATE SET
 			id              = EXCLUDED.id,
-			type            = EXCLUDED.type,
+			nivel           = EXCLUDED.nivel,
 			nome            = EXCLUDED.nome,
 			senha_hash      = EXCLUDED.senha_hash,
 			provincia       = EXCLUDED.provincia,
@@ -318,7 +323,7 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 			version         = EXCLUDED.version,
 			last_event_id   = EXCLUDED.last_event_id
 	`,
-		event.AggregateID, payload.Type, payload.Nome, payload.CodigoAcademia, payload.SenhaHash,
+		event.AggregateID, nivel, payload.Nome, payload.CodigoAcademia, payload.SenhaHash,
 		payload.Provincia, payload.Endereco, payload.NumeroTelefone, payload.Email, payload.Website,
 		payload.NivelEscolar, anosValue, cursosJSON,
 		payload.CreatedAt, event.EventVersion, event.EventID,
@@ -653,7 +658,7 @@ func (p *AcademiaProjection) handleAnoLetivoAcademiaDefinido(event db.Event) err
 // AcademiaDTO representa a visão de leitura de uma academia.
 type AcademiaDTO struct {
 	ID                 uuid.UUID  `json:"id"`
-	Type               string     `json:"type"`
+	Nivel              string     `json:"nivel"`
 	Nome               string     `json:"nome"`
 	CodigoAcademia     string     `json:"codigo_academia"`
 	SenhaHash          string     `json:"-"`
@@ -679,7 +684,7 @@ type AcademiaDTO struct {
 
 func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
 	row := p.client.DB().QueryRow(`
-		SELECT id, type, nome, codigo_academia, senha_hash,
+		SELECT id, nivel, nome, codigo_academia, senha_hash,
 			provincia, endereco, numero_telefone, email, website,
 			nivel_escolar, anos_academicos, status, motivo_desativacao, cursos, email_verificado,
 			created_at, updated_at, total_estudantes, version,
@@ -692,7 +697,7 @@ func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
 
 func (p *AcademiaProjection) GetByCodigo(codigo string) (*AcademiaDTO, error) {
 	row := p.client.DB().QueryRow(`
-		SELECT id, type, nome, codigo_academia, senha_hash,
+		SELECT id, nivel, nome, codigo_academia, senha_hash,
 			provincia, endereco, numero_telefone, email, website,
 			nivel_escolar, anos_academicos, status, motivo_desativacao, cursos, email_verificado,
 			created_at, updated_at, total_estudantes, version,
@@ -705,7 +710,7 @@ func (p *AcademiaProjection) GetByCodigo(codigo string) (*AcademiaDTO, error) {
 
 func (p *AcademiaProjection) GetByEmail(email string) (*AcademiaDTO, error) {
 	row := p.client.DB().QueryRow(`
-		SELECT id, type, nome, codigo_academia, senha_hash,
+		SELECT id, nivel, nome, codigo_academia, senha_hash,
 			provincia, endereco, numero_telefone, email, website,
 			nivel_escolar, anos_academicos, status, motivo_desativacao, cursos, email_verificado,
 			created_at, updated_at, total_estudantes, version,
@@ -737,7 +742,7 @@ func scanAcademia(row interface{ Scan(...interface{}) error }) (*AcademiaDTO, er
 	var anoLetivoAtivadoEm sql.NullTime
 
 	err := row.Scan(
-		&a.ID, &a.Type, &a.Nome, &a.CodigoAcademia, &a.SenhaHash,
+		&a.ID, &a.Nivel, &a.Nome, &a.CodigoAcademia, &a.SenhaHash,
 		&a.Provincia, &a.Endereco, &a.NumeroTelefone, &a.Email, &a.Website,
 		&a.NivelEscolar, &anosJSON, &a.Status, &motivoDesativacao, &cursosJSON, &a.EmailVerificado,
 		&a.CreatedAt, &a.UpdatedAt, &a.TotalEstudantes, &a.Version,

@@ -572,7 +572,7 @@ func GetEstudantePorCodigo(c *gin.Context) {
 			academiaInfo = &gin.H{
 				"codigo": academia.CodigoAcademia,
 				"nome":   academia.Nome,
-				"tipo":   academia.Type,
+				"nivel":  academia.Nivel,
 			}
 		}
 	}
