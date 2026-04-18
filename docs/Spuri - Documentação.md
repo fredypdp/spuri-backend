@@ -1,8 +1,8 @@
 ---
-modificado: 16-04-2026 16:00
+modificado: 18-04-2026 10:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.1.4
+Versão atual: 1.1.5
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -559,7 +559,7 @@ Este é o **único mecanismo de transição de ano** no sistema. Registar a aval
 
 **Processo:**
 
-1. Academia envia: código do estudante, tipo de ensino, nível atual, próximo nível (se aprovado), flag de aprovação
+1. Academia envia: código do estudante, tipo de ensino, nível atual e flag de aprovação (sem próximo nível no payload)
 2. Sistema valida o ano letivo ativo
 3. Sistema valida pertencimento do estudante à academia
 4. Sistema verifica idempotência (chave: `tipoEnsino_anoLectivo_anoAcademicoAtual`)
@@ -574,8 +574,8 @@ Este é o **único mecanismo de transição de ano** no sistema. Registar a aval
 
 **Efeitos da aprovação:**
 
-- Com `proximo_ano_academico` preenchido → avança o estudante para o próximo nível
-- Com `proximo_ano_academico = null` (último ano do ciclo) → marca o status como `finalizado`
+- Se não for o último ano do ciclo → backend calcula e aplica automaticamente o próximo nível
+- Se for o último ano do ciclo → backend marca o status como `finalizado`
 
 **Efeitos da reprovação:**
 
@@ -764,7 +764,7 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 | ------------------------------------------- | ------------------------------------------ |
 | Aprovação exige notas presentes             | Verificação automática antes de aprovar    |
 | Observação permite override                 | Aprovação forçada mesmo sem todas as notas |
-| Próximo ano obrigatório se não for o último | Exceto quando o ciclo termina              |
+| Próximo ano é calculado no backend         | Payload não aceita `proximo_ano_academico` |
 | Reprovação não altera o ano/status          | Apenas registado no histórico              |
 | Uma avaliação por tipo/ano letivo/nível     | Idempotência via mapa no aggregate         |
 | Aprovação ou reprovação remove das turmas   | Automaticamente ao registar                |
