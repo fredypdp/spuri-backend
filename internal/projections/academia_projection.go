@@ -260,6 +260,7 @@ func (p *AcademiaProjection) UpdateCheckpoint(eventID int64) error {
 func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 	var payload struct {
 		Nivel          string    `json:"Nivel"`
+		Type           string    `json:"Type"`
 		Nome           string    `json:"Nome"`
 		CodigoAcademia string    `json:"CodigoAcademia"`
 		SenhaHash      string    `json:"SenhaHash"`
@@ -276,11 +277,11 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleAcademiaCriada: parse error: %w", err)
 	}
-	nivel := payload.Nivel
-	if nivel == "" {
-		nivel = payload.Type
+	payload.Type = strings.TrimSpace(strings.ToLower(payload.Type))
+	if payload.Type == "" {
+		// Compatibilidade com eventos legados sem o campo Type.
+		payload.Type = "private"
 	}
-
 	cursosJSON, _ := json.Marshal(payload.Cursos)
 
 	// FIX PROJ-01: nil → NULL no banco (constraint aceita NULL para fundamental/misto).
@@ -293,21 +294,22 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 
 	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_academias (
-			id, nivel, nome, codigo_academia, senha_hash,
+			id, nivel, type, nome, codigo_academia, senha_hash,
 			provincia, endereco, numero_telefone, email, website,
 			nivel_escolar, anos_academicos, cursos, status, email_verificado,
 			total_estudantes,
 			created_at, updated_at, version, last_event_id
 		) VALUES (
-			$1, $2, $3, $4, $5,
-			$6, $7, $8, $9, $10,
-			$11, $12, $13, 'inativo', FALSE,
+			$1, $2, $3, $4, $5, $6,
+			$7, $8, $9, $10, $11,
+			$12, $13, $14, 'inativo', FALSE,
 			0,
-			$14, CURRENT_TIMESTAMP, $15, $16
+			$15, CURRENT_TIMESTAMP, $16, $17
 		)
 		ON CONFLICT (codigo_academia) DO UPDATE SET
 			id              = EXCLUDED.id,
 			nivel           = EXCLUDED.nivel,
+			type            = EXCLUDED.type,
 			nome            = EXCLUDED.nome,
 			senha_hash      = EXCLUDED.senha_hash,
 			provincia       = EXCLUDED.provincia,
@@ -322,7 +324,7 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 			version         = EXCLUDED.version,
 			last_event_id   = EXCLUDED.last_event_id
 	`,
-		event.AggregateID, payload.Nivel, payload.Nome, payload.CodigoAcademia, payload.SenhaHash,
+		event.AggregateID, payload.Nivel, payload.Type, payload.Nome, payload.CodigoAcademia, payload.SenhaHash,
 		payload.Provincia, payload.Endereco, payload.NumeroTelefone, payload.Email, payload.Website,
 		payload.NivelEscolar, anosValue, cursosJSON,
 		payload.CreatedAt, event.EventVersion, event.EventID,
@@ -494,6 +496,7 @@ func (p *AcademiaProjection) handleEstudanteCriadoComVinculo(event db.Event) err
 func (p *AcademiaProjection) handleAcademiaDadosAtualizados(event db.Event) error {
 	var payload struct {
 		Nome           *string  `json:"Nome"`
+		Type           *string  `json:"Type"`
 		Provincia      *string  `json:"Provincia"`
 		Endereco       *string  `json:"Endereco"`
 		NumeroTelefone *string  `json:"NumeroTelefone"`
@@ -520,6 +523,15 @@ func (p *AcademiaProjection) handleAcademiaDadosAtualizados(event db.Event) erro
 	if payload.Nome != nil {
 		setClauses = append(setClauses, fmt.Sprintf("nome = $%d", argIdx))
 		args = append(args, *payload.Nome)
+		argIdx++
+	}
+	if payload.Type != nil {
+		typeValue := strings.TrimSpace(strings.ToLower(*payload.Type))
+		if typeValue != "public" && typeValue != "private" {
+			return fmt.Errorf("handleAcademiaDadosAtualizados: type inválido no payload: %q", *payload.Type)
+		}
+		setClauses = append(setClauses, fmt.Sprintf("type = $%d", argIdx))
+		args = append(args, typeValue)
 		argIdx++
 	}
 	if payload.Provincia != nil {
@@ -658,6 +670,7 @@ func (p *AcademiaProjection) handleAnoLetivoAcademiaDefinido(event db.Event) err
 type AcademiaDTO struct {
 	ID                 uuid.UUID  `json:"id"`
 	Nivel              string     `json:"nivel"`
+	Type               string     `json:"type"`
 	Nome               string     `json:"nome"`
 	CodigoAcademia     string     `json:"codigo_academia"`
 	SenhaHash          string     `json:"-"`
@@ -684,6 +697,7 @@ type AcademiaDTO struct {
 func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
 	row := p.client.DB().QueryRow(`
 		SELECT id, nivel, nome, codigo_academia, senha_hash,
+			type,
 			provincia, endereco, numero_telefone, email, website,
 			nivel_escolar, anos_academicos, status, motivo_desativacao, cursos, email_verificado,
 			created_at, updated_at, total_estudantes, version,
@@ -697,6 +711,7 @@ func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
 func (p *AcademiaProjection) GetByCodigo(codigo string) (*AcademiaDTO, error) {
 	row := p.client.DB().QueryRow(`
 		SELECT id, nivel, nome, codigo_academia, senha_hash,
+			type,
 			provincia, endereco, numero_telefone, email, website,
 			nivel_escolar, anos_academicos, status, motivo_desativacao, cursos, email_verificado,
 			created_at, updated_at, total_estudantes, version,
@@ -710,6 +725,7 @@ func (p *AcademiaProjection) GetByCodigo(codigo string) (*AcademiaDTO, error) {
 func (p *AcademiaProjection) GetByEmail(email string) (*AcademiaDTO, error) {
 	row := p.client.DB().QueryRow(`
 		SELECT id, nivel, nome, codigo_academia, senha_hash,
+			type,
 			provincia, endereco, numero_telefone, email, website,
 			nivel_escolar, anos_academicos, status, motivo_desativacao, cursos, email_verificado,
 			created_at, updated_at, total_estudantes, version,
@@ -742,6 +758,7 @@ func scanAcademia(row interface{ Scan(...interface{}) error }) (*AcademiaDTO, er
 
 	err := row.Scan(
 		&a.ID, &a.Nivel, &a.Nome, &a.CodigoAcademia, &a.SenhaHash,
+		&a.Type,
 		&a.Provincia, &a.Endereco, &a.NumeroTelefone, &a.Email, &a.Website,
 		&a.NivelEscolar, &anosJSON, &a.Status, &motivoDesativacao, &cursosJSON, &a.EmailVerificado,
 		&a.CreatedAt, &a.UpdatedAt, &a.TotalEstudantes, &a.Version,
