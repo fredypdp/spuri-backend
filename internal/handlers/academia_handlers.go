@@ -65,6 +65,7 @@ func RegisterAcademia(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("nivel deve ser 'escola' ou 'superior'"))
 		return
 	}
+	req.Type = strings.TrimSpace(strings.ToLower(req.Type))
 	if req.Type != "public" && req.Type != "private" {
 		utils.RespondWithValidationError(c, fmt.Errorf("type deve ser 'public' ou 'private'"))
 		return
@@ -164,6 +165,7 @@ func RegisterAcademia(c *gin.Context) {
 		"data": gin.H{
 			"id":              academia.ID,
 			"nome":            req.Nome,
+			"type":            req.Type,
 			"provincia":       codigoProvincia,
 			"codigo_academia": codigoAcademia,
 		},
@@ -199,6 +201,10 @@ func AtualizarDadosAcademia(c *gin.Context) {
 		req.NivelEscolar == nil && req.Type == nil && len(req.AnosAcademicos) == 0 && len(req.Cursos) == 0 {
 		utils.RespondWithValidationError(c, fmt.Errorf("ao menos um campo deve ser fornecido para atualização"))
 		return
+	}
+	if req.Type != nil && *req.Type != "public" && *req.Type != "private" {
+		t := strings.TrimSpace(strings.ToLower(*req.Type))
+		req.Type = &t
 	}
 	if req.Type != nil && *req.Type != "public" && *req.Type != "private" {
 		utils.RespondWithValidationError(c, fmt.Errorf("type deve ser 'public' ou 'private'"))

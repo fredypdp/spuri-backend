@@ -277,6 +277,11 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleAcademiaCriada: parse error: %w", err)
 	}
+	payload.Type = strings.TrimSpace(strings.ToLower(payload.Type))
+	if payload.Type == "" {
+		// Compatibilidade com eventos legados sem o campo Type.
+		payload.Type = "private"
+	}
 	cursosJSON, _ := json.Marshal(payload.Cursos)
 
 	// FIX PROJ-01: nil → NULL no banco (constraint aceita NULL para fundamental/misto).
@@ -521,8 +526,12 @@ func (p *AcademiaProjection) handleAcademiaDadosAtualizados(event db.Event) erro
 		argIdx++
 	}
 	if payload.Type != nil {
+		typeValue := strings.TrimSpace(strings.ToLower(*payload.Type))
+		if typeValue != "public" && typeValue != "private" {
+			return fmt.Errorf("handleAcademiaDadosAtualizados: type inválido no payload: %q", *payload.Type)
+		}
 		setClauses = append(setClauses, fmt.Sprintf("type = $%d", argIdx))
-		args = append(args, *payload.Type)
+		args = append(args, typeValue)
 		argIdx++
 	}
 	if payload.Provincia != nil {

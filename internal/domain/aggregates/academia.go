@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"spuri/internal/utils"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -136,6 +137,7 @@ func (a *Academia) Criar(
 	if tipo != "escola" && tipo != "superior" {
 		return fmt.Errorf("tipo deve ser 'escola' ou 'superior'")
 	}
+	academiaType = strings.TrimSpace(strings.ToLower(academiaType))
 	if academiaType != "public" && academiaType != "private" {
 		return fmt.Errorf("type deve ser 'public' ou 'private'")
 	}
@@ -264,8 +266,12 @@ func (a *Academia) AtualizarDados(
 		nivelEscolar == nil && anosAcademicos == nil && cursos == nil && academiaType == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
-	if academiaType != nil && *academiaType != "public" && *academiaType != "private" {
-		return fmt.Errorf("type deve ser 'public' ou 'private'")
+	if academiaType != nil {
+		t := strings.TrimSpace(strings.ToLower(*academiaType))
+		academiaType = &t
+		if *academiaType != "public" && *academiaType != "private" {
+			return fmt.Errorf("type deve ser 'public' ou 'private'")
+		}
 	}
 
 	emailAlterado := email != nil && a.Email != nil && *a.Email != *email
@@ -358,6 +364,10 @@ func (a *Academia) applyAcademiaCriada(event DomainEvent) error {
 
 	a.Nivel = ev.Nivel
 	a.Type = ev.Type
+	if a.Type == "" {
+		// Compatibilidade com eventos legados sem o campo Type.
+		a.Type = "private"
+	}
 	a.Nome = ev.Nome
 	a.CodigoAcademia = ev.CodigoAcademia
 	a.SenhaHash = ev.SenhaHash

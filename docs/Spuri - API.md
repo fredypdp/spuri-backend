@@ -897,7 +897,7 @@ Registra uma nova academia. Criada com status `inativo`.
 
 **Erros:**
 
-- `400` — tipo inválido, campos obrigatórios ausentes, anos_academicos inválidos
+- `400` — `nivel` inválido, `type` inválido (`public`/`private`) ou ausente, campos obrigatórios ausentes, anos_academicos inválidos
 - `409` — academia já existe
 
 ---

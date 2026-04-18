@@ -435,7 +435,7 @@ Permite que qualquer usuário (estudante, academia ou admin) registe números de
 **Regras de validação:**
 
 - `nivel` deve ser `escola` ou `superior`
-- `type` deve ser `public` ou `private`
+- `type` é obrigatório (campo textual) e deve ser `public` ou `private`
 - Para `nivel=escola` com nível escolar `fundamental` ou `misto`: `anos_academicos` é obrigatório (formato `[1-9]_ano_fundamental`)
 - Para `nivel=escola` com nível escolar `medio`: `anos_academicos` não deve ser informado
 - Província deve ser um código válido de Angola (21 províncias):
