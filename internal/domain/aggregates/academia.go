@@ -17,7 +17,7 @@ import (
 type Academia struct {
 	BaseAggregate
 
-	Type            string
+	Nivel           string
 	Nome            string
 	CodigoAcademia  string
 	SenhaHash       string
@@ -151,7 +151,7 @@ func (a *Academia) Criar(
 
 	event := &AcademiaCriadaEvent{
 		BaseEvent:      BaseEvent{EventType: "AcademiaCriada", AggregateID: a.ID},
-		Type:           tipo,
+		Nivel:          tipo,
 		Nome:           nome,
 		CodigoAcademia: codigoAcademia,
 		SenhaHash:      senhaHash,
@@ -345,7 +345,7 @@ func (a *Academia) applyAcademiaCriada(event DomainEvent) error {
 		return fmt.Errorf("applyAcademiaCriada: unmarshal error: %w", err)
 	}
 
-	a.Type = ev.Type
+	a.Nivel = ev.Nivel
 	a.Nome = ev.Nome
 	a.CodigoAcademia = ev.CodigoAcademia
 	a.SenhaHash = ev.SenhaHash
@@ -540,7 +540,7 @@ func validarAnosAcademicos(tipo string, nivelEscolar *string, anos []string) ([]
 // AcademiaCriadaEvent — FIX C12: CriadoPor adicionado para rastreabilidade.
 type AcademiaCriadaEvent struct {
 	BaseEvent
-	Type           string
+	Nivel          string
 	Nome           string
 	CodigoAcademia string
 	SenhaHash      string

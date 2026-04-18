@@ -1,8 +1,8 @@
 ---
-modificado: 18-04-2026 10:00
+modificado: 18-04-2026 13:40
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.1.6
+Versão atual: 1.2.0
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -419,7 +419,7 @@ Permite que qualquer usuário (estudante, academia ou admin) registe números de
 
 **Quem faz**: Admin (FPP)
 
-1. Admin envia dados da academia (tipo, nome, província, endereço, nível escolar, etc.)
+1. Admin envia dados da academia (nivel, nome, província, endereço, nível escolar, etc.)
 2. Sistema gera o código único consultando o ledger (ex: `LDA20261`)
 3. Sistema gera a senha padrão = código da academia (ex: `LDA20261`)
 4. Academia é criada com **status `inativo`**
@@ -427,9 +427,9 @@ Permite que qualquer usuário (estudante, academia ou admin) registe números de
 
 **Regras de validação:**
 
-- `type` deve ser `escola` ou `superior`
-- Para `escola` com nível `fundamental` ou `misto`: `anos_academicos` é obrigatório (formato `[1-9]_ano_fundamental`)
-- Para `escola` com nível `medio`: `anos_academicos` não deve ser informado
+- `nivel` deve ser `escola` ou `superior`
+- Para `nivel=escola` com nível escolar `fundamental` ou `misto`: `anos_academicos` é obrigatório (formato `[1-9]_ano_fundamental`)
+- Para `nivel=escola` com nível escolar `medio`: `anos_academicos` não deve ser informado
 - Província deve ser um código válido de Angola (21 províncias):
 	- `{ nome: 'BENGO', codigo: 'BGO' },
 	  { nome: 'BENGUELA', codigo: 'BGU' },

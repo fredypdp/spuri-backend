@@ -176,7 +176,7 @@ CREATE INDEX IF NOT EXISTS idx_proj_estudante_status ON projection_estudantes(st
 -- Projeção: Academias
 CREATE TABLE IF NOT EXISTS projection_academias (
     id UUID PRIMARY KEY,
-    type VARCHAR(20) NOT NULL CHECK (type IN ('escola', 'superior')),
+    nivel VARCHAR(20) NOT NULL CHECK (nivel IN ('escola', 'superior')),
     nome VARCHAR(255) NOT NULL,
     codigo_academia VARCHAR(50) UNIQUE NOT NULL,
     senha_hash VARCHAR(255) NOT NULL,
@@ -198,16 +198,16 @@ CREATE TABLE IF NOT EXISTS projection_academias (
     
     -- Constraint: nivel_escolar obrigatório para escolas, NULL para superior
     CONSTRAINT check_nivel_escolar_tipo CHECK (
-        (type = 'escola' AND nivel_escolar IN ('fundamental', 'medio', 'misto')) 
+        (nivel = 'escola' AND nivel_escolar IN ('fundamental', 'medio', 'misto')) 
         OR 
-        (type = 'superior' AND nivel_escolar IS NULL)
+        (nivel = 'superior' AND nivel_escolar IS NULL)
     )
 );
 
 CREATE INDEX IF NOT EXISTS idx_proj_academia_provincia ON projection_academias(provincia);
 CREATE INDEX IF NOT EXISTS idx_proj_academia_codigo ON projection_academias(codigo_academia);
 CREATE INDEX IF NOT EXISTS idx_proj_academia_email ON projection_academias(email);
-CREATE INDEX IF NOT EXISTS idx_proj_academia_type ON projection_academias(type);
+CREATE INDEX IF NOT EXISTS idx_proj_academia_nivel_tipo ON projection_academias(nivel);
 CREATE INDEX IF NOT EXISTS idx_proj_academia_status ON projection_academias(status);
 CREATE INDEX IF NOT EXISTS idx_proj_academia_nivel ON projection_academias(nivel_escolar);
 
@@ -832,7 +832,7 @@ COMMENT ON COLUMN projection_estudantes.status_escolar IS 'Status ensino escolar
 COMMENT ON COLUMN projection_estudantes.status_superior IS 'Status ensino superior: inativo, em_andamento, finalizado';
 
 COMMENT ON COLUMN projection_academias.email_verificado IS 'Se o email da academia foi verificado';
-COMMENT ON COLUMN projection_academias.nivel_escolar IS 'Nível escolar: fundamental, medio, misto (obrigatório para type=escola)';
+COMMENT ON COLUMN projection_academias.nivel_escolar IS 'Nível escolar: fundamental, medio, misto (obrigatório para nivel=escola)';
 COMMENT ON COLUMN projection_academias.status IS 'Status da academia (ativo/inativo) - academias iniciam inativas';
 COMMENT ON COLUMN projection_academias.cursos IS 'Array JSON com lista de nomes de cursos oferecidos';
 
