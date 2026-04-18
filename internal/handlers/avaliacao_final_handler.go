@@ -132,7 +132,7 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 	var proximoAnoAcademico *string
 	switch req.TipoEnsino {
 	case "fundamental":
-		proximoAnoAcademico, err = calcularProximoAnoFundamental(req.AnoAcademicoAtual, req.Aprovado, academiaDTO.AnosAcademicos)
+		proximoAnoAcademico, err = calcularProximoAnoFundamental(req.AnoAcademicoAtual, req.Aprovado)
 	case "medio":
 		proximoAnoAcademico, err = calcularProximoAnoCurso(c, cursoMedioUUID, req.AnoAcademicoAtual, req.Aprovado)
 	case "superior":
@@ -578,36 +578,44 @@ func validarNotasParaAprovacao(
 	return nil
 }
 
-// calcularProximoAnoFundamental calcula o próximo ano com base na sequência da academia.
+// calcularProximoAnoFundamental calcula o próximo ano na sequência fixa
+// 1_ano_fundamental..9_ano_fundamental.
 func calcularProximoAnoFundamental(
 	nivelAtual string,
 	aprovado bool,
-	anosAcademia []string,
 ) (*string, error) {
-	if len(anosAcademia) == 0 {
-		return nil, fmt.Errorf("academia não possui anos_academicos configurados para o ensino fundamental")
+	sequenciaFundamental := []string{
+		"1_ano_fundamental",
+		"2_ano_fundamental",
+		"3_ano_fundamental",
+		"4_ano_fundamental",
+		"5_ano_fundamental",
+		"6_ano_fundamental",
+		"7_ano_fundamental",
+		"8_ano_fundamental",
+		"9_ano_fundamental",
 	}
 
 	posAtual := -1
-	for i, ano := range anosAcademia {
+	for i, ano := range sequenciaFundamental {
 		if ano == nivelAtual {
 			posAtual = i
 			break
 		}
 	}
 	if posAtual == -1 {
-		return nil, fmt.Errorf("nivel_atual '%s' não pertence aos anos configurados nesta academia", nivelAtual)
+		return nil, fmt.Errorf("nivel_atual '%s' não pertence à sequência fundamental (1_ano_fundamental..9_ano_fundamental)", nivelAtual)
 	}
 
 	if !aprovado {
 		return nil, nil
 	}
 
-	if posAtual == len(anosAcademia)-1 {
+	if posAtual == len(sequenciaFundamental)-1 {
 		return nil, nil
 	}
 
-	proximo := anosAcademia[posAtual+1]
+	proximo := sequenciaFundamental[posAtual+1]
 	return &proximo, nil
 }
 

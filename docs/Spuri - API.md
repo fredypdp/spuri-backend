@@ -2,7 +2,7 @@
 modificado: 18-04-2026 10:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.1.8
+Versão atual: 1.1.9
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -1730,7 +1730,9 @@ Registra a avaliação final de ano para um estudante.
 
 - `nivel_ano_academico_atual` deve seguir o formato canônico do tipo de ensino
 - `proximo_ano_academico` é calculado automaticamente pelo backend e não deve ser enviado no payload
-- Se `aprovado = true`: o backend calcula o próximo ano pela sequência configurada (academia no fundamental, curso no médio/superior)
+- Se `aprovado = true`: o backend calcula o próximo ano automaticamente
+  - fundamental: sequência fixa `1_ano_fundamental` até `9_ano_fundamental`
+  - médio/superior: sequência configurada no curso do estudante
 - Se `aprovado = false`: o backend mantém o estudante no mesmo nível (sem próximo ano)
 - Sem `observacao`: notas de todas as matérias do período são validadas automaticamente
 
@@ -1749,7 +1751,7 @@ Registra a avaliação final de ano para um estudante.
 - `400` — formato de ano inválido
 - `400` — notas obrigatórias faltando (sem observacao para override)
 - `400` — `proximo_ano_academico` enviado no payload (campo não permitido)
-- `400` — `nivel_ano_academico_atual` não pertence ao ciclo configurado
+- `400` — `nivel_ano_academico_atual` inválido para o ciclo (fundamental fora de 1..9, ou fora do curso em médio/superior)
 - `409` — avaliação já registrada para este tipo/ano/nível
 
 ---

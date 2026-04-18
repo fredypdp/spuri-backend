@@ -2,7 +2,7 @@
 modificado: 18-04-2026 10:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.1.5
+Versão atual: 1.1.6
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -562,7 +562,10 @@ Este é o **único mecanismo de transição de ano** no sistema. Registar a aval
 1. Academia envia: código do estudante, tipo de ensino, nível atual e flag de aprovação (sem próximo nível no payload)
 2. Sistema valida o ano letivo ativo
 3. Sistema valida pertencimento do estudante à academia
-4. Sistema verifica idempotência (chave: `tipoEnsino_anoLectivo_anoAcademicoAtual`)
+4. Sistema calcula o próximo ano automaticamente
+   - fundamental: sequência fixa `1_ano_fundamental` até `9_ano_fundamental`
+   - médio/superior: sequência do curso do estudante
+5. Sistema verifica idempotência (chave: `tipoEnsino_anoLectivo_anoAcademicoAtual`)
 
 **Validação de notas antes da aprovação:**
 
@@ -764,7 +767,7 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 | ------------------------------------------- | ------------------------------------------ |
 | Aprovação exige notas presentes             | Verificação automática antes de aprovar    |
 | Observação permite override                 | Aprovação forçada mesmo sem todas as notas |
-| Próximo ano é calculado no backend         | Payload não aceita `proximo_ano_academico` |
+| Fundamental usa sequência fixa 1..9        | Não bloqueia avanço por anos da academia    |
 | Reprovação não altera o ano/status          | Apenas registado no histórico              |
 | Uma avaliação por tipo/ano letivo/nível     | Idempotência via mapa no aggregate         |
 | Aprovação ou reprovação remove das turmas   | Automaticamente ao registar                |
