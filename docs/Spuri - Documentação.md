@@ -1,8 +1,8 @@
 ---
-modificado: 18-04-2026 13:40
+modificado: 18-04-2026 15:05
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.2.0
+Versão atual: 1.3.0
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -253,6 +253,13 @@ Representa uma instituição de ensino. Pode ser uma **escola** (ensino fundamen
 | `escola`   | `misto`       | Tem anos_academicos para fundamental                                         |
 | `superior` | —             | Sem nível escolar; tem cursos superiores, eles são definidos nos seus cursos |
 
+**Natureza da academia (`type`):**
+
+| Type      | Significado |
+| --------- | ----------- |
+| `public`  | Instituição pública |
+| `private` | Instituição privada |
+
 **Ano Letivo**: cada academia define o seu próprio ano letivo ativo (ex: `2025_2026`). Sem ano letivo, nenhum registro de nota, falta ou avaliação é permitido.
 
 **Estados possíveis:** `ativo` / `inativo`
@@ -419,7 +426,7 @@ Permite que qualquer usuário (estudante, academia ou admin) registe números de
 
 **Quem faz**: Admin (FPP)
 
-1. Admin envia dados da academia (nivel, nome, província, endereço, nível escolar, etc.)
+1. Admin envia dados da academia (nivel, type, nome, província, endereço, nível escolar, etc.)
 2. Sistema gera o código único consultando o ledger (ex: `LDA20261`)
 3. Sistema gera a senha padrão = código da academia (ex: `LDA20261`)
 4. Academia é criada com **status `inativo`**
@@ -428,6 +435,7 @@ Permite que qualquer usuário (estudante, academia ou admin) registe números de
 **Regras de validação:**
 
 - `nivel` deve ser `escola` ou `superior`
+- `type` deve ser `public` ou `private`
 - Para `nivel=escola` com nível escolar `fundamental` ou `misto`: `anos_academicos` é obrigatório (formato `[1-9]_ano_fundamental`)
 - Para `nivel=escola` com nível escolar `medio`: `anos_academicos` não deve ser informado
 - Província deve ser um código válido de Angola (21 províncias):
