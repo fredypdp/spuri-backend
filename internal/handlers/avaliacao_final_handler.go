@@ -27,7 +27,7 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		CodigoEstudante     string  `json:"codigo_estudante"          binding:"required"`
 		TipoEnsino          string  `json:"tipo_ensino"               binding:"required"`
 		AnoAcademicoAtual   string  `json:"nivel_ano_academico_atual" binding:"required"`
-		ProximoAnoAcademico *string `json:"proximo_ano_academico"`
+		ProximoAnoAcademico *string `json:"proximo_ano_academico,omitempty"`
 		Aprovado            bool    `json:"aprovado"`
 		Observacao          *string `json:"observacao"`
 	}
@@ -45,6 +45,11 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		return
 	}
 
+	if req.ProximoAnoAcademico != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("proximo_ano_academico é calculado automaticamente pelo backend e não deve ser enviado"))
+		return
+	}
+
 	// Validar formato de ano académico conforme o tipo de ensino
 	switch req.TipoEnsino {
 	case "fundamental":
@@ -52,39 +57,16 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 			utils.RespondWithValidationError(c, fmt.Errorf("nivel_ano_academico_atual inválido: %w", err))
 			return
 		}
-		if req.ProximoAnoAcademico != nil {
-			if err := utils.ValidateAnoFundamental(*req.ProximoAnoAcademico); err != nil {
-				utils.RespondWithValidationError(c, fmt.Errorf("proximo_ano_academico inválido: %w", err))
-				return
-			}
-		}
 	case "medio":
 		if err := utils.ValidateAnoMedio(req.AnoAcademicoAtual); err != nil {
 			utils.RespondWithValidationError(c, fmt.Errorf("nivel_ano_academico_atual inválido: %w", err))
 			return
-		}
-		if req.ProximoAnoAcademico != nil {
-			if err := utils.ValidateAnoMedio(*req.ProximoAnoAcademico); err != nil {
-				utils.RespondWithValidationError(c, fmt.Errorf("proximo_ano_academico inválido: %w", err))
-				return
-			}
 		}
 	case "superior":
 		if err := utils.ValidateAnoSuperior(req.AnoAcademicoAtual); err != nil {
 			utils.RespondWithValidationError(c, fmt.Errorf("nivel_ano_academico_atual inválido: %w", err))
 			return
 		}
-		if req.ProximoAnoAcademico != nil {
-			if err := utils.ValidateAnoSuperior(*req.ProximoAnoAcademico); err != nil {
-				utils.RespondWithValidationError(c, fmt.Errorf("proximo_ano_academico inválido: %w", err))
-				return
-			}
-		}
-	}
-
-	if !req.Aprovado && req.ProximoAnoAcademico != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("estudante reprovado não deve ter proximo_ano_academico definido"))
-		return
 	}
 
 	// ── Academia ──────────────────────────────────────────────────────────────
@@ -116,7 +98,7 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 
 	// FIX-COMPILE-02: EstudanteDTO armazena CursoMedioID e CursoSuperiorID como
 	// *string (banco persiste UUID como texto). Converter para *uuid.UUID para
-	// passar para validarNotasParaAprovacao e validarNiveisCurso.
+	// passar para validarNotasParaAprovacao e calcularProximoAnoCurso.
 	var cursoMedioUUID, cursoSuperiorUUID *uuid.UUID
 	if estudanteDTO.CursoMedioID != nil {
 		if parsed, err := uuid.Parse(*estudanteDTO.CursoMedioID); err == nil {
@@ -146,23 +128,19 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		}
 	}
 
-	// ── Validação de níveis ───────────────────────────────────────────────────
+	// ── Cálculo do próximo nível (backend) ────────────────────────────────────
+	var proximoAnoAcademico *string
 	switch req.TipoEnsino {
 	case "fundamental":
-		if err := validarNiveisFundamental(req.AnoAcademicoAtual, req.ProximoAnoAcademico, req.Aprovado, academiaDTO.AnosAcademicos); err != nil {
-			utils.RespondWithValidationError(c, err)
-			return
-		}
+		proximoAnoAcademico, err = calcularProximoAnoFundamental(req.AnoAcademicoAtual, req.Aprovado)
 	case "medio":
-		if err := validarNiveisCurso(c, cursoMedioUUID, req.AnoAcademicoAtual, req.ProximoAnoAcademico, req.Aprovado); err != nil {
-			utils.RespondWithValidationError(c, err)
-			return
-		}
+		proximoAnoAcademico, err = calcularProximoAnoCurso(c, cursoMedioUUID, req.AnoAcademicoAtual, req.Aprovado)
 	case "superior":
-		if err := validarNiveisCurso(c, cursoSuperiorUUID, req.AnoAcademicoAtual, req.ProximoAnoAcademico, req.Aprovado); err != nil {
-			utils.RespondWithValidationError(c, err)
-			return
-		}
+		proximoAnoAcademico, err = calcularProximoAnoCurso(c, cursoSuperiorUUID, req.AnoAcademicoAtual, req.Aprovado)
+	}
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
 	}
 
 	// ── Aggregate ─────────────────────────────────────────────────────────────
@@ -192,7 +170,7 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		anoLectivo,
 		req.TipoEnsino,
 		req.AnoAcademicoAtual,
-		req.ProximoAnoAcademico,
+		proximoAnoAcademico,
 		turmaAtual,
 		turmasAtuais,
 		req.Aprovado,
@@ -214,8 +192,8 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 
 	resultado := "reprovado"
 	if req.Aprovado {
-		if req.ProximoAnoAcademico != nil {
-			resultado = fmt.Sprintf("aprovado → %s", *req.ProximoAnoAcademico)
+		if proximoAnoAcademico != nil {
+			resultado = fmt.Sprintf("aprovado → %s", *proximoAnoAcademico)
 		} else {
 			resultado = "aprovado (ciclo finalizado)"
 		}
@@ -600,117 +578,92 @@ func validarNotasParaAprovacao(
 	return nil
 }
 
-// validarNiveisFundamental valida nivel_atual e proximo_nivel contra os anos configurados na academia.
-func validarNiveisFundamental(
+// calcularProximoAnoFundamental calcula o próximo ano na sequência fixa
+// 1_ano_fundamental..9_ano_fundamental.
+func calcularProximoAnoFundamental(
 	nivelAtual string,
-	proximoNivel *string,
 	aprovado bool,
-	anosAcademia []string,
-) error {
-	if len(anosAcademia) == 0 {
-		return fmt.Errorf("academia não possui anos_academicos configurados para o ensino fundamental")
+) (*string, error) {
+	sequenciaFundamental := []string{
+		"1_ano_fundamental",
+		"2_ano_fundamental",
+		"3_ano_fundamental",
+		"4_ano_fundamental",
+		"5_ano_fundamental",
+		"6_ano_fundamental",
+		"7_ano_fundamental",
+		"8_ano_fundamental",
+		"9_ano_fundamental",
 	}
 
-	posicao := make(map[string]int, len(anosAcademia))
-	for i, a := range anosAcademia {
-		posicao[a] = i
+	posAtual := -1
+	for i, ano := range sequenciaFundamental {
+		if ano == nivelAtual {
+			posAtual = i
+			break
+		}
 	}
-
-	posAtual, ok := posicao[nivelAtual]
-	if !ok {
-		return fmt.Errorf("nivel_atual '%s' não pertence aos anos configurados nesta academia", nivelAtual)
+	if posAtual == -1 {
+		return nil, fmt.Errorf("nivel_atual '%s' não pertence à sequência fundamental (1_ano_fundamental..9_ano_fundamental)", nivelAtual)
 	}
 
 	if !aprovado {
-		return nil
+		return nil, nil
 	}
 
-	ultimoIdx := len(anosAcademia) - 1
-
-	if proximoNivel == nil {
-		if posAtual != ultimoIdx {
-			return fmt.Errorf(
-				"proximo_nivel é obrigatório: '%s' não é o último ano do ciclo fundamental nesta academia",
-				nivelAtual,
-			)
-		}
-		return nil
+	if posAtual == len(sequenciaFundamental)-1 {
+		return nil, nil
 	}
 
-	posProximo, ok := posicao[*proximoNivel]
-	if !ok {
-		return fmt.Errorf("proximo_nivel '%s' não pertence aos anos configurados nesta academia", *proximoNivel)
-	}
-	if posProximo <= posAtual {
-		return fmt.Errorf(
-			"proximo_nivel '%s' deve vir depois de nivel_atual '%s' na lista da academia",
-			*proximoNivel, nivelAtual,
-		)
-	}
-	return nil
+	proximo := sequenciaFundamental[posAtual+1]
+	return &proximo, nil
 }
 
-// validarNiveisCurso valida nivel_atual e proximo_nivel contra os AnosAcademicos do curso (médio ou superior).
-func validarNiveisCurso(
+// calcularProximoAnoCurso calcula o próximo ano com base na sequência do curso (médio/superior).
+
+func calcularProximoAnoCurso(
 	c *gin.Context,
 	cursoID *uuid.UUID,
 	nivelAtual string,
-	proximoNivel *string,
 	aprovado bool,
-) error {
+) (*string, error) {
 	if cursoID == nil {
-		return fmt.Errorf("estudante não possui curso vinculado para este tipo de ensino")
+		return nil, fmt.Errorf("estudante não possui curso vinculado para este tipo de ensino")
 	}
 
 	cursosProj := getCursosProjection(c)
 	curso, err := cursosProj.GetByID(*cursoID)
 	if err != nil || curso == nil {
-		return fmt.Errorf("curso do estudante não encontrado")
+		return nil, fmt.Errorf("curso do estudante não encontrado")
 	}
 
 	if curso.Status != "ativo" {
-		return fmt.Errorf("curso do estudante está inativo")
+		return nil, fmt.Errorf("curso do estudante está inativo")
 	}
 
 	if len(curso.AnosAcademicos) == 0 {
-		return fmt.Errorf("curso '%s' não possui anos_academicos definidos", curso.Nome)
+		return nil, fmt.Errorf("curso '%s' não possui anos_academicos definidos", curso.Nome)
 	}
 
-	posicao := make(map[string]int, len(curso.AnosAcademicos))
+	posAtual := -1
 	for i, n := range curso.AnosAcademicos {
-		posicao[n] = i
+		if n == nivelAtual {
+			posAtual = i
+			break
+		}
 	}
-
-	posAtual, ok := posicao[nivelAtual]
-	if !ok {
-		return fmt.Errorf("nivel_atual '%s' não pertence ao curso '%s'", nivelAtual, curso.Nome)
+	if posAtual == -1 {
+		return nil, fmt.Errorf("nivel_atual '%s' não pertence ao curso '%s'", nivelAtual, curso.Nome)
 	}
 
 	if !aprovado {
-		return nil
+		return nil, nil
 	}
 
-	ultimoIdx := len(curso.AnosAcademicos) - 1
-
-	if proximoNivel == nil {
-		if posAtual != ultimoIdx {
-			return fmt.Errorf(
-				"proximo_nivel é obrigatório: '%s' não é o último ano do curso '%s'",
-				nivelAtual, curso.Nome,
-			)
-		}
-		return nil
+	if posAtual == len(curso.AnosAcademicos)-1 {
+		return nil, nil
 	}
 
-	posProximo, ok := posicao[*proximoNivel]
-	if !ok {
-		return fmt.Errorf("proximo_nivel '%s' não pertence ao curso '%s'", *proximoNivel, curso.Nome)
-	}
-	if posProximo <= posAtual {
-		return fmt.Errorf(
-			"proximo_nivel '%s' deve vir depois de nivel_atual '%s' no curso '%s'",
-			*proximoNivel, nivelAtual, curso.Nome,
-		)
-	}
-	return nil
+	proximo := curso.AnosAcademicos[posAtual+1]
+	return &proximo, nil
 }

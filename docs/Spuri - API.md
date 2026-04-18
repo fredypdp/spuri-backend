@@ -1,8 +1,8 @@
 ---
-modificado: 17-04-2026 11:15
+modificado: 18-04-2026 10:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.1.7
+Versão atual: 1.1.9
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -1721,7 +1721,6 @@ Registra a avaliação final de ano para um estudante.
   "codigo_estudante": "ABC1234",
   "tipo_ensino": "fundamental",
   "nivel_ano_academico_atual": "3_ano_fundamental",
-  "proximo_ano_academico": "4_ano_fundamental",  // null se for o último ano
   "aprovado": true,
   "observacao": "string"  // opcional — se fornecido, bypassa validação de notas
 }
@@ -1730,8 +1729,11 @@ Registra a avaliação final de ano para um estudante.
 **Regras:**
 
 - `nivel_ano_academico_atual` deve seguir o formato canônico do tipo de ensino
-- Se `aprovado = true`: `proximo_ano_academico` é obrigatório exceto se for o último ano do ciclo
-- Se `aprovado = false`: `proximo_ano_academico` não deve ser informado
+- `proximo_ano_academico` é calculado automaticamente pelo backend e não deve ser enviado no payload
+- Se `aprovado = true`: o backend calcula o próximo ano automaticamente
+  - fundamental: sequência fixa `1_ano_fundamental` até `9_ano_fundamental`
+  - médio/superior: sequência configurada no curso do estudante
+- Se `aprovado = false`: o backend mantém o estudante no mesmo nível (sem próximo ano)
 - Sem `observacao`: notas de todas as matérias do período são validadas automaticamente
 
 **Response 201:**
@@ -1748,7 +1750,8 @@ Registra a avaliação final de ano para um estudante.
 
 - `400` — formato de ano inválido
 - `400` — notas obrigatórias faltando (sem observacao para override)
-- `400` — proximo_ano_academico inválido ou não pertence ao ciclo
+- `400` — `proximo_ano_academico` enviado no payload (campo não permitido)
+- `400` — `nivel_ano_academico_atual` inválido para o ciclo (fundamental fora de 1..9, ou fora do curso em médio/superior)
 - `409` — avaliação já registrada para este tipo/ano/nível
 
 ---
