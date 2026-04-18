@@ -1,8 +1,8 @@
 ---
-modificado: 18-04-2026 15:05
+modificado: 18-04-2026 15:40
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.3.0
+Versão atual: 1.3.1
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -91,8 +91,8 @@ Todas as respostas de erro seguem o formato:
 ```typescript
 type UserType   = 'academia' | 'estudante' | 'admin'
 type AdminRole  = 'fpp' | 'adm' | 'gerente'
-type AcademiaType = 'escola' | 'superior'
-type AcademiaAccessType = 'public' | 'private'
+type AcademiaNivel = 'escola' | 'superior'
+type AcademiaType = 'public' | 'private'
 type NivelEscolar = 'fundamental' | 'medio' | 'misto'
 type StatusEscolar = 'inativo' | 'em_andamento' | 'finalizado'
 type TipoEnsino = 'fundamental' | 'medio' | 'superior'
@@ -144,8 +144,8 @@ interface AdminDTO {
 ```typescript
 interface AcademiaDTO {
   id: string
-  nivel: AcademiaType             // 'escola' | 'superior'
-  type: AcademiaAccessType        // 'public' | 'private'
+  nivel: AcademiaNivel            // 'escola' | 'superior'
+  type: AcademiaType              // 'public' | 'private'
   nome: string
   codigo_academia: string         // ex: 'LDA20261'
   provincia: string               // código de 3 letras, ex: 'LDA'
