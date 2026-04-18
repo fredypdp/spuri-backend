@@ -278,9 +278,8 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 		return fmt.Errorf("handleAcademiaCriada: parse error: %w", err)
 	}
 	payload.Type = strings.TrimSpace(strings.ToLower(payload.Type))
-	if payload.Type == "" {
-		// Compatibilidade com eventos legados sem o campo Type.
-		payload.Type = "private"
+	if payload.Type != "public" && payload.Type != "private" {
+		return fmt.Errorf("handleAcademiaCriada: type inválido no payload: %q", payload.Type)
 	}
 	cursosJSON, _ := json.Marshal(payload.Cursos)
 

@@ -364,10 +364,6 @@ func (a *Academia) applyAcademiaCriada(event DomainEvent) error {
 
 	a.Nivel = ev.Nivel
 	a.Type = ev.Type
-	if a.Type == "" {
-		// Compatibilidade com eventos legados sem o campo Type.
-		a.Type = "private"
-	}
 	a.Nome = ev.Nome
 	a.CodigoAcademia = ev.CodigoAcademia
 	a.SenhaHash = ev.SenhaHash
