@@ -4,37 +4,14 @@
 
 BEGIN;
 
-DO $$
-BEGIN
-    IF EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = 'public'
-          AND table_name = 'projection_academias'
-          AND column_name = 'type'
-    )
-    AND NOT EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = 'public'
-          AND table_name = 'projection_academias'
-          AND column_name = 'nivel'
-    ) THEN
-        ALTER TABLE projection_academias
-            RENAME COLUMN type TO nivel;
-    END IF;
-END $$;
+-- IMPORTANTE:
+-- O campo `type` passou a representar a natureza da academia
+-- (public/private), enquanto `nivel` representa o nível de ensino
+-- (escola/superior). Portanto, não devemos mais renomear `type` -> `nivel`.
+-- Esta migration agora apenas reforça estrutura/constraints de `nivel`.
 
-DO $$
-BEGIN
-    IF EXISTS (
-        SELECT 1
-        FROM pg_indexes
-        WHERE indexname = 'idx_proj_academia_type'
-    ) THEN
-        ALTER INDEX idx_proj_academia_type RENAME TO idx_proj_academia_nivel_tipo;
-    END IF;
-END $$;
+CREATE INDEX IF NOT EXISTS idx_proj_academia_nivel_tipo
+    ON projection_academias(nivel);
 
 ALTER TABLE projection_academias
     DROP CONSTRAINT IF EXISTS check_nivel_escolar_tipo;
@@ -52,5 +29,5 @@ COMMENT ON COLUMN projection_academias.nivel IS
 COMMIT;
 
 DO $$ BEGIN
-    RAISE NOTICE '✅ MIGRATION 054 - campo projection_academias.type renomeado para nivel';
+    RAISE NOTICE '✅ MIGRATION 054 - estrutura/constraints de projection_academias.nivel reforçadas';
 END $$;
