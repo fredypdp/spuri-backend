@@ -226,3 +226,15 @@ func Login(c *gin.Context) {
 
 	c.JSON(http.StatusOK, resp)
 }
+
+// Logout encerra a sessão no cliente.
+//
+// Como a API usa JWT stateless sem blacklist/revogação server-side,
+// o logout efetivo consiste em o cliente descartar o token.
+// Este endpoint existe para padronizar o fluxo no frontend e confirmar
+// ao cliente que a operação de logout foi solicitada com sucesso.
+func Logout(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"message": "logout realizado com sucesso",
+	})
+}

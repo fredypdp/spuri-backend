@@ -247,6 +247,7 @@ func setupRouter() *gin.Engine {
 	protected := router.Group("/")
 	protected.Use(middleware.AuthMiddleware())
 	{
+		protected.POST("/logout", handlers.Logout)
 		protected.PUT("/alterar-senha", handlers.AlterarSenha)
 		protected.GET("/meu-perfil", handlers.GetMeuPerfil)
 		protected.GET("/academias", handlers.ListarTodasAcademias)

@@ -1,8 +1,8 @@
 ---
-modificado: 18-04-2026 15:40
+modificado: 18-04-2026 16:15
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.3.1
+Versão atual: 1.3.2
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -481,6 +481,30 @@ Login unificado para todos os tipos de usuário. O tipo é inferido automaticame
 - `400` — campos obrigatórios ausentes
 - `401` — credenciais inválidas ou conta inativa
 - `401` — email não verificado (quando login é feito por email e não por código)
+
+---
+
+### POST /logout
+
+Encerra a sessão do usuário autenticado no cliente.
+
+> Observação: como a autenticação usa JWT stateless, este endpoint confirma o logout, mas a invalidação do token depende do cliente remover o token localmente.
+
+**Proteção**: autenticado (qualquer tipo)
+
+**Request:** sem payload
+
+**Response 200:**
+
+```json
+{
+  "message": "logout realizado com sucesso"
+}
+```
+
+**Erros:**
+
+- `401` — token ausente, inválido ou expirado
 
 ---
 
