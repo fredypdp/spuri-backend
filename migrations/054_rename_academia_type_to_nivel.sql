@@ -4,8 +4,26 @@
 
 BEGIN;
 
-ALTER TABLE projection_academias
-    RENAME COLUMN type TO nivel;
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'projection_academias'
+          AND column_name = 'type'
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'projection_academias'
+          AND column_name = 'nivel'
+    ) THEN
+        ALTER TABLE projection_academias
+            RENAME COLUMN type TO nivel;
+    END IF;
+END $$;
 
 DO $$
 BEGIN
