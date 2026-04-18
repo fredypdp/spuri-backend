@@ -276,6 +276,10 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleAcademiaCriada: parse error: %w", err)
 	}
+	nivel := payload.Nivel
+	if nivel == "" {
+		nivel = payload.Type
+	}
 
 	cursosJSON, _ := json.Marshal(payload.Cursos)
 
