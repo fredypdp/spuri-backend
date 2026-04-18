@@ -64,16 +64,16 @@ func RegistrarNota(c *gin.Context) {
 	tipoEsperado := map[string]string{
 		"escola":   "escolar",
 		"superior": "superior",
-	}[academiaDTO.Type]
+	}[academiaDTO.Nivel]
 
 	if req.Tipo != tipoEsperado {
 		log.Printf(
 			"[nota-debug] tipo incompatível com academia: academia_tipo=%s tipo_esperado=%s tipo_recebido=%s estudante=%s periodo=%q",
-			academiaDTO.Type, tipoEsperado, req.Tipo, req.CodigoEstudante, req.Periodo,
+			academiaDTO.Nivel, tipoEsperado, req.Tipo, req.CodigoEstudante, req.Periodo,
 		)
 		utils.RespondWithValidationError(c, fmt.Errorf(
 			"academia do tipo '%s' so pode registrar notas do tipo '%s'",
-			academiaDTO.Type, tipoEsperado,
+			academiaDTO.Nivel, tipoEsperado,
 		))
 		return
 	}

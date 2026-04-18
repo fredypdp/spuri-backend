@@ -26,7 +26,7 @@ import (
 // ============================================================================
 
 type RegisterAcademiaRequest struct {
-	Type           string   `json:"type"            binding:"required"`
+	Nivel          string   `json:"nivel"           binding:"required"`
 	Nome           string   `json:"nome"            binding:"required"`
 	Provincia      string   `json:"provincia"       binding:"required"`
 	Endereco       string   `json:"endereco"        binding:"required"`
@@ -56,12 +56,12 @@ func RegisterAcademia(c *gin.Context) {
 
 	var req RegisterAcademiaRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: type, nome, provincia e endereco"))
+		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: nivel, nome, provincia e endereco"))
 		return
 	}
 
-	if req.Type != "escola" && req.Type != "superior" {
-		utils.RespondWithValidationError(c, fmt.Errorf("type deve ser 'escola' ou 'superior'"))
+	if req.Nivel != "escola" && req.Nivel != "superior" {
+		utils.RespondWithValidationError(c, fmt.Errorf("nivel deve ser 'escola' ou 'superior'"))
 		return
 	}
 
@@ -122,7 +122,7 @@ func RegisterAcademia(c *gin.Context) {
 
 	academia := aggregates.NewAcademia()
 	if err := academia.Criar(
-		req.Type,
+		req.Nivel,
 		req.Nome,
 		codigoAcademia,
 		string(hashedPassword),
@@ -406,7 +406,7 @@ func ListarTodasAcademias(c *gin.Context) {
 	offset = db.ValidateOffset(offset)
 
 	const baseSelect = `
-		SELECT pa.id, pa.type, pa.nome, pa.codigo_academia, pa.provincia, pa.endereco,
+		SELECT pa.id, pa.nivel, pa.nome, pa.codigo_academia, pa.provincia, pa.endereco,
 		       pa.numero_telefone, pa.email, pa.website, pa.nivel_escolar, pa.status,
 		       pa.cursos, pa.email_verificado, pa.created_at, pa.updated_at,
 		       COALESCE(est_count.total_estudantes, 0) AS total_estudantes,
@@ -448,7 +448,7 @@ func ListarTodasAcademias(c *gin.Context) {
 	for rows.Next() {
 		var aca struct {
 			ID              uuid.UUID  `db:"id"`
-			Type            string     `db:"type"`
+			Nivel           string     `db:"nivel"`
 			Nome            string     `db:"nome"`
 			CodigoAcademia  string     `db:"codigo_academia"`
 			Provincia       string     `db:"provincia"`
@@ -466,7 +466,7 @@ func ListarTodasAcademias(c *gin.Context) {
 			Version         int        `db:"version"`
 		}
 		if err := rows.Scan(
-			&aca.ID, &aca.Type, &aca.Nome, &aca.CodigoAcademia,
+			&aca.ID, &aca.Nivel, &aca.Nome, &aca.CodigoAcademia,
 			&aca.Provincia, &aca.Endereco, &aca.NumeroTelefone, &aca.Email,
 			&aca.Website, &aca.NivelEscolar, &aca.Status,
 			&aca.CursosJSON, &aca.EmailVerificado,
@@ -490,7 +490,7 @@ func ListarTodasAcademias(c *gin.Context) {
 
 		acadMap := map[string]interface{}{
 			"id":               aca.ID,
-			"type":             aca.Type,
+			"nivel":            aca.Nivel,
 			"nome":             aca.Nome,
 			"codigo_academia":  aca.CodigoAcademia,
 			"provincia":        aca.Provincia,
@@ -553,7 +553,7 @@ func GetAcademiaPorCodigo(c *gin.Context) {
 
 	resp := gin.H{
 		"id":               academia.ID,
-		"type":             academia.Type,
+		"nivel":            academia.Nivel,
 		"nome":             academia.Nome,
 		"codigo_academia":  academia.CodigoAcademia,
 		"provincia":        academia.Provincia,

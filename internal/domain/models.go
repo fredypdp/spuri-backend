@@ -8,7 +8,7 @@ import (
 
 type Academia struct {
 	ID             uuid.UUID `json:"id" db:"id"`
-	Type           string    `json:"type" db:"type"`
+	Nivel          string    `json:"nivel" db:"nivel"`
 	Nome           string    `json:"nome" db:"nome"`
 	CodigoAcademia string    `json:"codigo_academia" db:"codigo_academia"`
 	SenhaHash      string    `json:"-" db:"senha_hash"`
@@ -98,7 +98,7 @@ type LoginResponse struct {
 }
 
 type RegisterAcademiaRequest struct {
-	Type           string   `json:"type" binding:"required"`
+	Nivel          string   `json:"nivel" binding:"required"`
 	Senha          string   `json:"senha" binding:"required"`
 	Nome           string   `json:"nome" binding:"required"`
 	Provincia      string   `json:"provincia" binding:"required"`
@@ -112,20 +112,20 @@ type RegisterAcademiaRequest struct {
 
 // RegisterEstudanteRequest — genero e data_nascimento são obrigatórios.
 type RegisterEstudanteRequest struct {
-	Senha                    string    `json:"senha"            binding:"required"`
-	Nome                     string    `json:"nome"             binding:"required"`
-	Genero                   string    `json:"genero"           binding:"required"`
-	DataNascimento           time.Time `json:"data_nascimento"  binding:"required"`
-	BilheteIdentidade        *string   `json:"bilhete_identidade"`
-	BilheteIdentidadeResp    *string   `json:"bilhete_identidade_responsavel"`
-	AnoEscolar               *string   `json:"ano_escolar"`
-	AnoEscolarMedio          *string   `json:"ano_escolar_medio"`
-	AnoSuperior              *string   `json:"ano_superior"`
+	Senha                    string     `json:"senha"            binding:"required"`
+	Nome                     string     `json:"nome"             binding:"required"`
+	Genero                   string     `json:"genero"           binding:"required"`
+	DataNascimento           time.Time  `json:"data_nascimento"  binding:"required"`
+	BilheteIdentidade        *string    `json:"bilhete_identidade"`
+	BilheteIdentidadeResp    *string    `json:"bilhete_identidade_responsavel"`
+	AnoEscolar               *string    `json:"ano_escolar"`
+	AnoEscolarMedio          *string    `json:"ano_escolar_medio"`
+	AnoSuperior              *string    `json:"ano_superior"`
 	CursoMedioID             *uuid.UUID `json:"curso_medio_id"`
 	CursoSuperiorID          *uuid.UUID `json:"curso_superior_id"`
-	StatusEscolarFundamental *string   `json:"status_escolar_fundamental"`
-	StatusEscolarMedio       *string   `json:"status_escolar_medio"`
-	StatusSuperior           *string   `json:"status_superior"`
+	StatusEscolarFundamental *string    `json:"status_escolar_fundamental"`
+	StatusEscolarMedio       *string    `json:"status_escolar_medio"`
+	StatusSuperior           *string    `json:"status_superior"`
 }
 
 type RegistrarNotasRequest struct {
