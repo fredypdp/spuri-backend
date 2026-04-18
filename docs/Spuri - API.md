@@ -1,8 +1,8 @@
 ---
-modificado: 18-04-2026 10:00
+modificado: 18-04-2026 13:40
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.1.9
+Versão atual: 1.2.0
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -143,7 +143,7 @@ interface AdminDTO {
 ```typescript
 interface AcademiaDTO {
   id: string
-  type: AcademiaType              // 'escola' | 'superior'
+  nivel: AcademiaType             // 'escola' | 'superior'
   nome: string
   codigo_academia: string         // ex: 'LDA20261'
   provincia: string               // código de 3 letras, ex: 'LDA'
@@ -152,7 +152,7 @@ interface AcademiaDTO {
   email?: string
   email_verificado: boolean
   website?: string
-  nivel_escolar?: NivelEscolar    // apenas para type='escola'
+  nivel_escolar?: NivelEscolar    // apenas para nivel='escola'
   anos_academicos?: string[]      // anos do fundamental (ex: ['1_ano_fundamental'])
   status: string                  // 'ativo' | 'inativo'
   cursos: string[]                // lista de nomes de cursos
@@ -715,7 +715,7 @@ Retorna os dados do usuário autenticado. O formato da resposta varia por tipo.
     "academia_info": {
       "codigo": "LDA20261",
       "nome": "string",
-      "tipo": "escola"
+      "nivel": "escola"
     },
     "status": "ativo",
     "status_escolar_fundamental": "em_andamento",
@@ -737,7 +737,7 @@ Retorna os dados do usuário autenticado. O formato da resposta varia por tipo.
   "tipo": "academia",
   "academia": {
     "id": "uuid",
-    "type": "escola",
+    "nivel": "escola",
     "nome": "string",
     "codigo_academia": "LDA20261",
     "provincia": "LDA",
@@ -849,7 +849,7 @@ Registra uma nova academia. Criada com status `inativo`.
 
 ```json
 {
-  "type": "escola",
+  "nivel": "escola",
   "nome": "Escola Primária Ngola Kiluanje",
   "provincia": "luanda",
   "endereco": "Rua Direita, 123",
@@ -866,7 +866,7 @@ Registra uma nova academia. Criada com status `inativo`.
 
 ```json
 {
-  "type": "superior",
+  "nivel": "superior",
   "nome": "Universidade Agostinho Neto",
   "provincia": "luanda",
   "endereco": "Av. 4 de Fevereiro",
@@ -1218,7 +1218,7 @@ Consulta um estudante por código.
     "academia": {
       "codigo": "LDA20261",
       "nome": "string",
-      "tipo": "escola"
+      "nivel": "escola"
     },
     "curso_medio": {
       "id": "uuid",
@@ -2693,7 +2693,7 @@ Retorna detalhes de uma academia.
 ```json
 {
   "id": "uuid",
-  "type": "escola",
+  "nivel": "escola",
   "nome": "string",
   "codigo_academia": "LDA20261",
   "provincia": "LDA",
