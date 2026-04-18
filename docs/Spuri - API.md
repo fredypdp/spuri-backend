@@ -1,8 +1,8 @@
 ---
-modificado: 18-04-2026 13:40
+modificado: 18-04-2026 15:05
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.2.0
+Versão atual: 1.3.0
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -92,6 +92,7 @@ Todas as respostas de erro seguem o formato:
 type UserType   = 'academia' | 'estudante' | 'admin'
 type AdminRole  = 'fpp' | 'adm' | 'gerente'
 type AcademiaType = 'escola' | 'superior'
+type AcademiaAccessType = 'public' | 'private'
 type NivelEscolar = 'fundamental' | 'medio' | 'misto'
 type StatusEscolar = 'inativo' | 'em_andamento' | 'finalizado'
 type TipoEnsino = 'fundamental' | 'medio' | 'superior'
@@ -144,6 +145,7 @@ interface AdminDTO {
 interface AcademiaDTO {
   id: string
   nivel: AcademiaType             // 'escola' | 'superior'
+  type: AcademiaAccessType        // 'public' | 'private'
   nome: string
   codigo_academia: string         // ex: 'LDA20261'
   provincia: string               // código de 3 letras, ex: 'LDA'
@@ -715,7 +717,8 @@ Retorna os dados do usuário autenticado. O formato da resposta varia por tipo.
     "academia_info": {
       "codigo": "LDA20261",
       "nome": "string",
-      "nivel": "escola"
+      "nivel": "escola",
+      "type": "public"
     },
     "status": "ativo",
     "status_escolar_fundamental": "em_andamento",
@@ -738,6 +741,7 @@ Retorna os dados do usuário autenticado. O formato da resposta varia por tipo.
   "academia": {
     "id": "uuid",
     "nivel": "escola",
+    "type": "public",
     "nome": "string",
     "codigo_academia": "LDA20261",
     "provincia": "LDA",
@@ -850,6 +854,7 @@ Registra uma nova academia. Criada com status `inativo`.
 ```json
 {
   "nivel": "escola",
+  "type": "public",
   "nome": "Escola Primária Ngola Kiluanje",
   "provincia": "luanda",
   "endereco": "Rua Direita, 123",
@@ -867,6 +872,7 @@ Registra uma nova academia. Criada com status `inativo`.
 ```json
 {
   "nivel": "superior",
+  "type": "private",
   "nome": "Universidade Agostinho Neto",
   "provincia": "luanda",
   "endereco": "Av. 4 de Fevereiro",
@@ -891,7 +897,7 @@ Registra uma nova academia. Criada com status `inativo`.
 
 **Erros:**
 
-- `400` — tipo inválido, campos obrigatórios ausentes, anos_academicos inválidos
+- `400` — `nivel` inválido, `type` inválido (`public`/`private`) ou ausente, campos obrigatórios ausentes, anos_academicos inválidos
 - `409` — academia já existe
 
 ---
@@ -968,6 +974,7 @@ Atualiza os dados cadastrais da academia autenticada.
 ```json
 {
   "nome": "string",
+  "type": "private",
   "provincia": "luanda",
   "endereco": "string",
   "numero_telefone": "string",
@@ -1218,7 +1225,8 @@ Consulta um estudante por código.
     "academia": {
       "codigo": "LDA20261",
       "nome": "string",
-      "nivel": "escola"
+      "nivel": "escola",
+      "type": "public"
     },
     "curso_medio": {
       "id": "uuid",
@@ -2694,6 +2702,7 @@ Retorna detalhes de uma academia.
 {
   "id": "uuid",
   "nivel": "escola",
+  "type": "public",
   "nome": "string",
   "codigo_academia": "LDA20261",
   "provincia": "LDA",

@@ -9,6 +9,7 @@ import (
 type Academia struct {
 	ID             uuid.UUID `json:"id" db:"id"`
 	Nivel          string    `json:"nivel" db:"nivel"`
+	Type           string    `json:"type" db:"type"`
 	Nome           string    `json:"nome" db:"nome"`
 	CodigoAcademia string    `json:"codigo_academia" db:"codigo_academia"`
 	SenhaHash      string    `json:"-" db:"senha_hash"`
@@ -99,6 +100,7 @@ type LoginResponse struct {
 
 type RegisterAcademiaRequest struct {
 	Nivel          string   `json:"nivel" binding:"required"`
+	Type           string   `json:"type" binding:"required"`
 	Senha          string   `json:"senha" binding:"required"`
 	Nome           string   `json:"nome" binding:"required"`
 	Provincia      string   `json:"provincia" binding:"required"`

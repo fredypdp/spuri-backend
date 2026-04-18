@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"spuri/internal/utils"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +19,7 @@ type Academia struct {
 	BaseAggregate
 
 	Nivel           string
+	Type            string
 	Nome            string
 	CodigoAcademia  string
 	SenhaHash       string
@@ -118,6 +120,7 @@ func (a *Academia) Apply(event DomainEvent) error {
 // FIX C12: CriadoPor adicionado ao evento para rastreabilidade forense completa.
 func (a *Academia) Criar(
 	tipo string,
+	academiaType string,
 	nome string,
 	codigoAcademia string,
 	senhaHash string,
@@ -133,6 +136,10 @@ func (a *Academia) Criar(
 ) error {
 	if tipo != "escola" && tipo != "superior" {
 		return fmt.Errorf("tipo deve ser 'escola' ou 'superior'")
+	}
+	academiaType = strings.TrimSpace(strings.ToLower(academiaType))
+	if academiaType != "public" && academiaType != "private" {
+		return fmt.Errorf("type deve ser 'public' ou 'private'")
 	}
 	if nome == "" || codigoAcademia == "" {
 		return fmt.Errorf("campos obrigatórios vazios")
@@ -152,6 +159,7 @@ func (a *Academia) Criar(
 	event := &AcademiaCriadaEvent{
 		BaseEvent:      BaseEvent{EventType: "AcademiaCriada", AggregateID: a.ID},
 		Nivel:          tipo,
+		Type:           academiaType,
 		Nome:           nome,
 		CodigoAcademia: codigoAcademia,
 		SenhaHash:      senhaHash,
@@ -243,6 +251,7 @@ func (a *Academia) AtualizarCursos(novosCursos []string) error {
 
 func (a *Academia) AtualizarDados(
 	nome *string,
+	academiaType *string,
 	provincia *string,
 	endereco *string,
 	numeroTelefone *string,
@@ -254,8 +263,15 @@ func (a *Academia) AtualizarDados(
 ) error {
 	if nome == nil && provincia == nil && endereco == nil &&
 		numeroTelefone == nil && email == nil && website == nil &&
-		nivelEscolar == nil && anosAcademicos == nil && cursos == nil {
+		nivelEscolar == nil && anosAcademicos == nil && cursos == nil && academiaType == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
+	}
+	if academiaType != nil {
+		t := strings.TrimSpace(strings.ToLower(*academiaType))
+		academiaType = &t
+		if *academiaType != "public" && *academiaType != "private" {
+			return fmt.Errorf("type deve ser 'public' ou 'private'")
+		}
 	}
 
 	emailAlterado := email != nil && a.Email != nil && *a.Email != *email
@@ -263,6 +279,7 @@ func (a *Academia) AtualizarDados(
 	event := &AcademiaDadosAtualizadosEvent{
 		BaseEvent:      BaseEvent{EventType: "AcademiaDadosAtualizados", AggregateID: a.ID},
 		Nome:           nome,
+		Type:           academiaType,
 		Provincia:      provincia,
 		Endereco:       endereco,
 		NumeroTelefone: numeroTelefone,
@@ -346,6 +363,7 @@ func (a *Academia) applyAcademiaCriada(event DomainEvent) error {
 	}
 
 	a.Nivel = ev.Nivel
+	a.Type = ev.Type
 	a.Nome = ev.Nome
 	a.CodigoAcademia = ev.CodigoAcademia
 	a.SenhaHash = ev.SenhaHash
@@ -425,6 +443,9 @@ func (a *Academia) applyAcademiaDadosAtualizados(event DomainEvent) error {
 
 	if ev.Nome != nil {
 		a.Nome = *ev.Nome
+	}
+	if ev.Type != nil {
+		a.Type = *ev.Type
 	}
 	if ev.Provincia != nil {
 		a.Provincia = *ev.Provincia
@@ -541,6 +562,7 @@ func validarAnosAcademicos(tipo string, nivelEscolar *string, anos []string) ([]
 type AcademiaCriadaEvent struct {
 	BaseEvent
 	Nivel          string
+	Type           string
 	Nome           string
 	CodigoAcademia string
 	SenhaHash      string
@@ -595,6 +617,7 @@ func (e *CursosAtualizadosEvent) ToJSON() ([]byte, error) { return json.Marshal(
 type AcademiaDadosAtualizadosEvent struct {
 	BaseEvent
 	Nome           *string
+	Type           *string
 	Provincia      *string
 	Endereco       *string
 	NumeroTelefone *string
