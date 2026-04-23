@@ -1,18 +1,29 @@
 package utils
 
 import (
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
+	"unicode"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 )
 
 type ErrorResponse struct {
-	Error     string `json:"error"`
-	Message   string `json:"message"`
-	RequestID string `json:"request_id,omitempty"`
+	Error     string             `json:"error"`
+	Message   string             `json:"message"`
+	RequestID string             `json:"request_id,omitempty"`
+	Details   []ValidationDetail `json:"details,omitempty"`
+}
+
+type ValidationDetail struct {
+	Field   string `json:"field"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 type LoggedError struct {
@@ -26,10 +37,11 @@ type LoggedError struct {
 
 func RespondWithError(c *gin.Context, statusCode int, userMessage string, err error) {
 	requestID := getOrCreateRequestID(c)
-	
-	log.Printf("⚠️ [RespondWithError] Status: %d - Message: %s - RequestID: %s", 
+	details := extractValidationDetails(err)
+
+	log.Printf("⚠️ [RespondWithError] Status: %d - Message: %s - RequestID: %s",
 		statusCode, userMessage, requestID)
-	
+
 	logError(LoggedError{
 		RequestID: requestID,
 		Path:      c.Request.URL.Path,
@@ -38,11 +50,12 @@ func RespondWithError(c *gin.Context, statusCode int, userMessage string, err er
 		UserID:    getUserIDFromContext(c),
 		Error:     err,
 	})
-	
+
 	c.JSON(statusCode, ErrorResponse{
 		Error:     getErrorType(statusCode),
 		Message:   userMessage,
 		RequestID: requestID,
+		Details:   details,
 	})
 }
 
@@ -54,7 +67,7 @@ func RespondWithValidationError(c *gin.Context, err error) {
 
 func RespondWithInternalError(c *gin.Context, err error) {
 	log.Printf("💥 [RespondWithInternalError] Erro interno: %v", err)
-	RespondWithError(c, http.StatusInternalServerError, 
+	RespondWithError(c, http.StatusInternalServerError,
 		"Erro interno do servidor. Tente novamente mais tarde.", err)
 }
 
@@ -110,7 +123,7 @@ func getOrCreateRequestID(c *gin.Context) string {
 			return id
 		}
 	}
-	
+
 	reqID := uuid.New().String()
 	c.Set("request_id", reqID)
 	return reqID
@@ -136,6 +149,73 @@ func logError(le LoggedError) {
 		log.Printf(`⚠️ [WARNING] RequestID=%s Method=%s Path=%s IP=%s User=%s`,
 			le.RequestID, le.Method, le.Path, le.IP, le.UserID)
 	}
+}
+
+func extractValidationDetails(err error) []ValidationDetail {
+	if err == nil {
+		return nil
+	}
+
+	var validationErrors validator.ValidationErrors
+	if !errors.As(err, &validationErrors) {
+		return nil
+	}
+
+	details := make([]ValidationDetail, 0, len(validationErrors))
+	for _, ve := range validationErrors {
+		field := toJSONFieldName(ve)
+		details = append(details, ValidationDetail{
+			Field:   field,
+			Code:    ve.Tag(),
+			Message: humanizeValidationMessage(field, ve),
+		})
+	}
+	return details
+}
+
+func toJSONFieldName(fe validator.FieldError) string {
+	if structField := fe.StructField(); structField != "" {
+		return camelToSnake(structField)
+	}
+	if field := fe.Field(); field != "" {
+		return camelToSnake(field)
+	}
+	return "campo"
+}
+
+func humanizeValidationMessage(field string, ve validator.FieldError) string {
+	switch ve.Tag() {
+	case "required":
+		return fmt.Sprintf("o campo '%s' é obrigatório", field)
+	case "email":
+		return fmt.Sprintf("o campo '%s' deve ter formato de email válido", field)
+	case "oneof":
+		if param := strings.TrimSpace(ve.Param()); param != "" {
+			return fmt.Sprintf("o campo '%s' deve ser um dos valores: %s", field, param)
+		}
+		return fmt.Sprintf("o campo '%s' possui valor inválido", field)
+	case "min":
+		return fmt.Sprintf("o campo '%s' deve ter no mínimo %s caracteres", field, ve.Param())
+	case "max":
+		return fmt.Sprintf("o campo '%s' deve ter no máximo %s caracteres", field, ve.Param())
+	default:
+		return fmt.Sprintf("o campo '%s' é inválido", field)
+	}
+}
+
+func camelToSnake(s string) string {
+	var b strings.Builder
+	for i, r := range s {
+		if unicode.IsUpper(r) {
+			if i > 0 {
+				b.WriteByte('_')
+			}
+			b.WriteRune(unicode.ToLower(r))
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 func SafeErrorMessage(err error) string {
