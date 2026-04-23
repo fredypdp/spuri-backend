@@ -1,8 +1,8 @@
 ---
-modificado: 18-04-2026 16:15
+modificado: 23-04-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.3.2
+Versão atual: 1.3.3
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -60,11 +60,21 @@ Todas as respostas de erro seguem o formato:
 
 ```json
 {
-  "error": "mensagem de erro para o cliente",
-  "message": "mensagem mais detalhada (quando disponível)",
-  "request_id": "identificador da requisição"
+  "error": "VALIDATION_ERROR | UNAUTHORIZED | FORBIDDEN | NOT_FOUND | CONFLICT | RATE_LIMIT | INTERNAL_ERROR | ERROR",
+  "message": "mensagem de erro para o cliente",
+  "request_id": "identificador da requisição",
+  "details": [
+    {
+      "field": "type",
+      "code": "required",
+      "message": "o campo 'type' é obrigatório"
+    }
+  ]
 }
 ```
+
+> `details` é opcional e normalmente aparece em `400` quando a validação de payload
+> falha no bind/validator. Campos sem erro podem omitir essa chave.
 
 ### Códigos HTTP
 
