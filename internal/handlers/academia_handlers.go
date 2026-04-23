@@ -703,12 +703,24 @@ func resolverAnoLetivoAcademia(anoLetivo *string, codigoAcademia string) (string
 
 func validarProvincia(provincia string) (string, error) {
 	provincias := map[string]string{
-		"luanda": "LDA", "bengo": "BGO", "benguela": "BGU",
-		"bie": "BIE", "cabinda": "CAB", "cuando cubango": "CCU",
-		"cuanza norte": "CNO", "cuanza sul": "CSU", "cunene": "CUN",
-		"huambo": "HUA", "huila": "HUI", "lunda norte": "LNO",
-		"lunda sul": "LSU", "malanje": "MAL", "moxico": "MOX",
-		"namibe": "NAM", "uige": "UIG", "zaire": "ZAI",
+		// Códigos (aceita tanto os atuais quanto o legado "LDA" para Luanda).
+		"bgo": "BGO", "bgu": "BGU", "bie": "BIE", "cab": "CAB",
+		"cnd": "CND", "cno": "CNO", "cus": "CUS", "cbg": "CBG", "ccu": "CBG",
+		"cnn": "CNN", "cun": "CNN", "hua": "HUA", "hui": "HUI", "ibg": "IBG",
+		"lua": "LDA", "lda": "LDA", "lno": "LNO", "lsu": "LSU",
+		"mal": "MAL", "mox": "MOX", "mxl": "MXL", "nam": "NAM",
+		"uig": "UIG", "zai": "ZAI",
+
+		// Nomes (aceita grafias comuns/legadas).
+		"bengo": "BGO", "benguela": "BGU", "bié": "BIE",
+		"cabinda": "CAB", "cuanza norte": "CNO", "kwanza norte": "CNO",
+		"cuanza sul": "CUS", "kwanza sul": "CUS",
+		"cuando cubango": "CBG", "cubango": "CBG", "cuando": "CND",
+		"cunene": "CNN", "huambo": "HUA",
+		"huila": "HUI", "huíla": "HUI", "icolo e bengo": "IBG",
+		"luanda": "LDA", "lunda norte": "LNO", "lunda sul": "LSU",
+		"malanje": "MAL", "moxico": "MOX", "moxico leste": "MXL",
+		"namibe": "NAM", "uige": "UIG", "uíge": "UIG", "zaire": "ZAI",
 	}
 	normalized := strings.ToLower(strings.TrimSpace(provincia))
 	if code, ok := provincias[normalized]; ok {
