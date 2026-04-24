@@ -18,9 +18,12 @@ type NotaRegistroResponse struct {
 	CodigoAcademia       string  `json:"codigo_academia"`
 	AcademiaNome         string  `json:"academia_nome"`
 	AnoLectivo           string  `json:"ano_lectivo"`
+	AnoAcademico         string  `json:"ano_academico"`
 	Periodo              string  `json:"periodo"`
 	MateriaDisciplinarID string  `json:"materia_disciplinar_id"`
 	MateriaNome          string  `json:"materia_nome"`
+	Tipo                 string  `json:"tipo"`
+	Categoria            string  `json:"categoria"`
 	Nota                 float64 `json:"nota"`
 	Observacao           *string `json:"observacao,omitempty"`
 	RegisteredAt         string  `json:"registered_at"`
@@ -35,6 +38,7 @@ type FaltaRegistroResponse struct {
 	CodigoAcademia       string  `json:"codigo_academia"`
 	AcademiaNome         string  `json:"academia_nome"`
 	AnoLectivo           string  `json:"ano_lectivo"`
+	AnoAcademico         string  `json:"ano_academico"`
 	Data                 string  `json:"data"`
 	MateriaDisciplinarID string  `json:"materia_disciplinar_id"`
 	MateriaNome          string  `json:"materia_nome"`
@@ -83,9 +87,9 @@ func ListarNotas(c *gin.Context) {
 	query := `
 		SELECT
 			n.id, n.codigo_estudante, e.nome as estudante_nome,
-			n.codigo_academia, a.nome as academia_nome, n.ano_lectivo, n.periodo,
+			n.codigo_academia, a.nome as academia_nome, n.ano_lectivo, n.ano_academico, n.periodo,
 			n.materia_disciplinar_id, COALESCE(m.nome, '') as materia_nome,
-			n.nota, n.observacao, n.registered_at, n.event_id, n.version
+			n.tipo, n.categoria, n.nota, n.observacao, n.registered_at, n.event_id, n.version
 		FROM projection_notas n
 		LEFT JOIN projection_estudantes e ON n.codigo_estudante = e.codigo_estudante
 		LEFT JOIN projection_academias a ON n.codigo_academia = a.codigo_academia
@@ -122,9 +126,9 @@ func ListarNotas(c *gin.Context) {
 		var nota NotaRegistroResponse
 		if err := rows.Scan(
 			&nota.ID, &nota.CodigoEstudante, &nota.EstudanteNome,
-			&nota.CodigoAcademia, &nota.AcademiaNome, &nota.AnoLectivo, &nota.Periodo,
+			&nota.CodigoAcademia, &nota.AcademiaNome, &nota.AnoLectivo, &nota.AnoAcademico, &nota.Periodo,
 			&nota.MateriaDisciplinarID, &nota.MateriaNome,
-			&nota.Nota, &nota.Observacao, &nota.RegisteredAt, &nota.EventID, &nota.Version,
+			&nota.Tipo, &nota.Categoria, &nota.Nota, &nota.Observacao, &nota.RegisteredAt, &nota.EventID, &nota.Version,
 		); err != nil {
 			log.Printf("[WARN] ListarNotas: erro ao ler linha: %v", err)
 			continue
@@ -175,7 +179,7 @@ func ListarFaltas(c *gin.Context) {
 	query := `
 		SELECT
 			f.id, f.codigo_estudante, e.nome as estudante_nome,
-			f.codigo_academia, a.nome as academia_nome, f.ano_lectivo,
+			f.codigo_academia, a.nome as academia_nome, f.ano_lectivo, f.ano_academico,
 			f.data, f.materia_disciplinar_id, COALESCE(m.nome, '') as materia_nome,
 			f.quantidade, f.observacao, f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
@@ -212,7 +216,7 @@ func ListarFaltas(c *gin.Context) {
 		var falta FaltaRegistroResponse
 		if err := rows.Scan(
 			&falta.ID, &falta.CodigoEstudante, &falta.EstudanteNome,
-			&falta.CodigoAcademia, &falta.AcademiaNome, &falta.AnoLectivo,
+			&falta.CodigoAcademia, &falta.AcademiaNome, &falta.AnoLectivo, &falta.AnoAcademico,
 			&falta.Data, &falta.MateriaDisciplinarID, &falta.MateriaNome,
 			&falta.Quantidade, &falta.Observacao, &falta.RegisteredAt, &falta.EventID, &falta.Version,
 		); err != nil {

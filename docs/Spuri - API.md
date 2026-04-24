@@ -1,8 +1,8 @@
 ---
-modificado: 23-04-2026 00:00
+modificado: 24-04-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.3.3
+Versão atual: 1.3.4
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -333,9 +333,12 @@ interface NotaRegistroDTO {
   codigo_academia: string
   academia_nome: string
   ano_lectivo: string
+  ano_academico: string
   periodo: string
   materia_disciplinar_id: string
   materia_nome: string
+  tipo: TipoNota
+  categoria: string
   nota: number
   observacao?: string
   registered_at: string
@@ -358,6 +361,7 @@ interface FaltaRegistroDTO {
   codigo_academia: string
   academia_nome: string
   ano_lectivo: string
+  ano_academico: string
   data: string
   materia_disciplinar_id: string
   materia_nome: string
