@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"spuri/internal/db"
+	"spuri/internal/utils"
 	"time"
 
 	"github.com/google/uuid"
@@ -319,19 +320,19 @@ func (p *FaltasProjection) handleFaltaDeletadaTx(tx *sql.Tx, event db.Event) err
 // ============================================================================
 
 type FaltaDTO struct {
-	ID                   string  `json:"id"`
-	CodigoEstudante      string  `json:"codigo_estudante"`
-	CodigoAcademia       string  `json:"codigo_academia"`
-	AnoLectivo           string  `json:"ano_lectivo"`
-	AnoAcademico         string  `json:"ano_academico"`
-	Data                 string  `json:"data"`
-	MateriaDisciplinarID string  `json:"materia_disciplinar_id"`
-	MateriaNome          *string `json:"materia_nome,omitempty"`
-	Quantidade           int     `json:"quantidade"`
-	Observacao           *string `json:"observacao,omitempty"`
-	RegisteredAt         string  `json:"registered_at"`
-	EventID              string  `json:"event_id"`
-	Version              int     `json:"version"`
+	ID                   string     `json:"id"`
+	CodigoEstudante      string     `json:"codigo_estudante"`
+	CodigoAcademia       string     `json:"codigo_academia"`
+	AnoLectivo           string     `json:"ano_lectivo"`
+	AnoAcademico         string     `json:"ano_academico"`
+	Data                 utils.Date `json:"data"`
+	MateriaDisciplinarID string     `json:"materia_disciplinar_id"`
+	MateriaNome          *string    `json:"materia_nome,omitempty"`
+	Quantidade           int        `json:"quantidade"`
+	Observacao           *string    `json:"observacao,omitempty"`
+	RegisteredAt         string     `json:"registered_at"`
+	EventID              string     `json:"event_id"`
+	Version              int        `json:"version"`
 }
 
 func (p *FaltasProjection) GetByID(id string) (*FaltaDTO, error) {
@@ -403,7 +404,7 @@ func (p *FaltasProjection) GetByPeriodo(codigoEstudante, anoLectivo string, data
 			AND f.data BETWEEN $3 AND $4
 			AND f.deleted_at IS NULL
 		ORDER BY f.data DESC
-	`, codigoEstudante, anoLectivo, dataInicio.Format(time.RFC3339), dataFim.Format(time.RFC3339))
+	`, codigoEstudante, anoLectivo, dataInicio.Format("2006-01-02"), dataFim.Format("2006-01-02"))
 	if err != nil {
 		return nil, err
 	}

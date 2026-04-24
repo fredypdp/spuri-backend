@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"spuri/internal/utils"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -192,11 +193,11 @@ func DeletarNotaBatch(c *gin.Context) {
 
 func RegistrarFaltasBatch(c *gin.Context) {
 	type ReqFalta struct {
-		CodigoEstudante      string  `json:"codigo_estudante"`
-		Data                 string  `json:"data"`
-		MateriaDisciplinarID string  `json:"materia_disciplinar_id"`
-		Quantidade           int     `json:"quantidade"`
-		Observacao           *string `json:"observacao"`
+		CodigoEstudante      string     `json:"codigo_estudante"`
+		Data                 utils.Date `json:"data"`
+		MateriaDisciplinarID string     `json:"materia_disciplinar_id"`
+		Quantidade           int        `json:"quantidade"`
+		Observacao           *string    `json:"observacao"`
 	}
 	var reqs []ReqFalta
 	if err := c.ShouldBindJSON(&reqs); err != nil {
@@ -225,11 +226,11 @@ func RegistrarFaltasBatch(c *gin.Context) {
 
 func AtualizarFaltaBatch(c *gin.Context) {
 	type ReqAtualizar struct {
-		ID                   string  `json:"id"`
-		Data                 *string `json:"data"`
-		MateriaDisciplinarID *string `json:"materia_disciplinar_id"`
-		Quantidade           *int    `json:"quantidade"`
-		Observacao           *string `json:"observacao"`
+		ID                   string      `json:"id"`
+		Data                 *utils.Date `json:"data"`
+		MateriaDisciplinarID *string     `json:"materia_disciplinar_id"`
+		Quantidade           *int        `json:"quantidade"`
+		Observacao           *string     `json:"observacao"`
 	}
 	var reqs []ReqAtualizar
 	if err := c.ShouldBindJSON(&reqs); err != nil {

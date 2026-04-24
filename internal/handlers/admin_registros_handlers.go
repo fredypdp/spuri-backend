@@ -141,21 +141,21 @@ func ListarTodosRegistros(c *gin.Context) {
 		`
 
 		type FaltaCompleta struct {
-			ID                   string  `json:"id"`
-			CodigoEstudante      string  `json:"codigo_estudante"`
-			EstudanteNome        string  `json:"estudante_nome"`
-			CodigoAcademia       string  `json:"codigo_academia"`
-			AcademiaNome         string  `json:"academia_nome"`
-			AnoLectivo           string  `json:"ano_lectivo"`
-			AnoAcademico         string  `json:"ano_academico"`
-			Data                 string  `json:"data"`
-			MateriaDisciplinarID string  `json:"materia_disciplinar_id"`
-			MateriaNome          string  `json:"materia_nome"`
-			Quantidade           int     `json:"quantidade"`
-			Observacao           *string `json:"observacao,omitempty"`
-			RegisteredAt         string  `json:"registered_at"`
-			EventID              string  `json:"event_id"`
-			Version              int     `json:"version"`
+			ID                   string     `json:"id"`
+			CodigoEstudante      string     `json:"codigo_estudante"`
+			EstudanteNome        string     `json:"estudante_nome"`
+			CodigoAcademia       string     `json:"codigo_academia"`
+			AcademiaNome         string     `json:"academia_nome"`
+			AnoLectivo           string     `json:"ano_lectivo"`
+			AnoAcademico         string     `json:"ano_academico"`
+			Data                 utils.Date `json:"data"`
+			MateriaDisciplinarID string     `json:"materia_disciplinar_id"`
+			MateriaNome          string     `json:"materia_nome"`
+			Quantidade           int        `json:"quantidade"`
+			Observacao           *string    `json:"observacao,omitempty"`
+			RegisteredAt         string     `json:"registered_at"`
+			EventID              string     `json:"event_id"`
+			Version              int        `json:"version"`
 		}
 
 		rows, err := client.DB().Query(queryFaltas, limit, offset)
@@ -310,18 +310,18 @@ func ListarRegistrosPorEstudante(c *gin.Context) {
 	}
 
 	type FaltaEstudante struct {
-		ID                   string  `json:"id"`
-		CodigoAcademia       string  `json:"codigo_academia"`
-		AnoLectivo           string  `json:"ano_lectivo"`
-		AnoAcademico         string  `json:"ano_academico"`
-		Data                 string  `json:"data"`
-		MateriaDisciplinarID string  `json:"materia_disciplinar_id"`
-		MateriaNome          string  `json:"materia_nome"`
-		Quantidade           int     `json:"quantidade"`
-		Observacao           *string `json:"observacao,omitempty"`
-		RegisteredAt         string  `json:"registered_at"`
-		EventID              string  `json:"event_id"`
-		Version              int     `json:"version"`
+		ID                   string     `json:"id"`
+		CodigoAcademia       string     `json:"codigo_academia"`
+		AnoLectivo           string     `json:"ano_lectivo"`
+		AnoAcademico         string     `json:"ano_academico"`
+		Data                 utils.Date `json:"data"`
+		MateriaDisciplinarID string     `json:"materia_disciplinar_id"`
+		MateriaNome          string     `json:"materia_nome"`
+		Quantidade           int        `json:"quantidade"`
+		Observacao           *string    `json:"observacao,omitempty"`
+		RegisteredAt         string     `json:"registered_at"`
+		EventID              string     `json:"event_id"`
+		Version              int        `json:"version"`
 	}
 
 	rowsFaltas, err := client.DB().Query(`
