@@ -1,8 +1,8 @@
 ---
-modificado: 24-04-2026 00:00
+modificado: 24-04-2026 10:30
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.3.4
+Versão atual: 1.3.5
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -310,7 +310,7 @@ interface FaltaDTO {
   codigo_academia: string
   ano_lectivo: string
   ano_academico: string
-  data: string                // 'YYYY-MM-DD'
+  data: date                  // date-only (ISO: YYYY-MM-DD)
   materia_disciplinar_id: string
   materia_nome?: string
   quantidade: number
@@ -362,7 +362,7 @@ interface FaltaRegistroDTO {
   academia_nome: string
   ano_lectivo: string
   ano_academico: string
-  data: string
+  data: date
   materia_disciplinar_id: string
   materia_nome: string
   quantidade: number
@@ -1652,6 +1652,7 @@ Registra falta(s) para um estudante.
 **Restrições:**
 
 - `quantidade` deve ser maior ou igual a 1
+- `data` é tratada como **date-only** (sem hora), em formato `AAAA-MM-DD`
 - Se o estudante tiver `ano_escolar`, esse ano deve existir em `anos_academicos` da matéria; caso contrário, o registro é bloqueado
 - O endpoint `POST /academia/faltas-aluno/async` reaproveita exatamente as mesmas validações deste endpoint por item do lote
 

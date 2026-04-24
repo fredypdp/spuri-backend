@@ -32,21 +32,21 @@ type NotaRegistroResponse struct {
 }
 
 type FaltaRegistroResponse struct {
-	ID                   string  `json:"id"`
-	CodigoEstudante      string  `json:"codigo_estudante"`
-	EstudanteNome        string  `json:"estudante_nome"`
-	CodigoAcademia       string  `json:"codigo_academia"`
-	AcademiaNome         string  `json:"academia_nome"`
-	AnoLectivo           string  `json:"ano_lectivo"`
-	AnoAcademico         string  `json:"ano_academico"`
-	Data                 string  `json:"data"`
-	MateriaDisciplinarID string  `json:"materia_disciplinar_id"`
-	MateriaNome          string  `json:"materia_nome"`
-	Quantidade           int     `json:"quantidade"`
-	Observacao           *string `json:"observacao,omitempty"`
-	RegisteredAt         string  `json:"registered_at"`
-	EventID              string  `json:"event_id"`
-	Version              int     `json:"version"`
+	ID                   string     `json:"id"`
+	CodigoEstudante      string     `json:"codigo_estudante"`
+	EstudanteNome        string     `json:"estudante_nome"`
+	CodigoAcademia       string     `json:"codigo_academia"`
+	AcademiaNome         string     `json:"academia_nome"`
+	AnoLectivo           string     `json:"ano_lectivo"`
+	AnoAcademico         string     `json:"ano_academico"`
+	Data                 utils.Date `json:"data"`
+	MateriaDisciplinarID string     `json:"materia_disciplinar_id"`
+	MateriaNome          string     `json:"materia_nome"`
+	Quantidade           int        `json:"quantidade"`
+	Observacao           *string    `json:"observacao,omitempty"`
+	RegisteredAt         string     `json:"registered_at"`
+	EventID              string     `json:"event_id"`
+	Version              int        `json:"version"`
 }
 
 func resolverEscopoRegistros(c *gin.Context) (userType, codigoAcademia string, ok bool) {

@@ -23,23 +23,17 @@ func RegistrarFaltas(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
 	var req struct {
-		CodigoEstudante      string  `json:"codigo_estudante"       binding:"required"`
-		Data                 string  `json:"data"                   binding:"required"`
-		MateriaDisciplinarID string  `json:"materia_disciplinar_id" binding:"required"`
-		Quantidade           int     `json:"quantidade"             binding:"required,min=1"`
-		Observacao           *string `json:"observacao"`
+		CodigoEstudante      string     `json:"codigo_estudante"       binding:"required"`
+		Data                 utils.Date `json:"data"                binding:"required"`
+		MateriaDisciplinarID string     `json:"materia_disciplinar_id" binding:"required"`
+		Quantidade           int        `json:"quantidade"             binding:"required,min=1"`
+		Observacao           *string    `json:"observacao"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf(
 			"dados obrigatórios: codigo_estudante, data, materia_disciplinar_id e quantidade",
 		))
-		return
-	}
-
-	data, err := time.Parse("2006-01-02", req.Data)
-	if err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("formato de data inválido. Use AAAA-MM-DD"))
 		return
 	}
 
@@ -103,7 +97,7 @@ func RegistrarFaltas(c *gin.Context) {
 		academiaDTO.CodigoAcademia,
 		anoLectivo,
 		anoAcademico,
-		data,
+		req.Data.Time,
 		materiaID,
 		req.Quantidade,
 		req.Observacao,
@@ -143,11 +137,11 @@ func AtualizarFalta(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
 	var req struct {
-		ID                   string  `json:"id"                     binding:"required"` // ID da linha em projection_faltas
-		Data                 *string `json:"data"`
-		MateriaDisciplinarID *string `json:"materia_disciplinar_id"`
-		Quantidade           *int    `json:"quantidade"`
-		Observacao           *string `json:"observacao"`
+		ID                   string      `json:"id"                     binding:"required"` // ID da linha em projection_faltas
+		Data                 *utils.Date `json:"data"`
+		MateriaDisciplinarID *string     `json:"materia_disciplinar_id"`
+		Quantidade           *int        `json:"quantidade"`
+		Observacao           *string     `json:"observacao"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("campo obrigatório: id"))
@@ -169,11 +163,7 @@ func AtualizarFalta(c *gin.Context) {
 	// Converter data se fornecida
 	var dataPtr *time.Time
 	if req.Data != nil {
-		parsed, err := time.Parse("2006-01-02", *req.Data)
-		if err != nil {
-			utils.RespondWithValidationError(c, fmt.Errorf("formato de data inválido. Use AAAA-MM-DD"))
-			return
-		}
+		parsed := req.Data.Time
 		dataPtr = &parsed
 	}
 

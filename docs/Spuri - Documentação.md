@@ -1,8 +1,8 @@
 ---
-modificado: 18-04-2026 15:05
+modificado: 24-04-2026 10:30
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.3.0
+Versão atual: 1.3.1
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -550,7 +550,7 @@ Academias podem criar **categorias adicionais** personalizadas, disponíveis par
 
 **Quantidade**: deve ser positiva (≥ 1)
 
-**Data**: formato `AAAA-MM-DD`
+**Data**: formato `AAAA-MM-DD` (date-only, sem componente de hora)
 
 **Regra de registro**: faltas mantêm unicidade por combinação de ano letivo + data + matéria.
 
