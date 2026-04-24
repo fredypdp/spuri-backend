@@ -1512,6 +1512,7 @@ Registra uma nota para um estudante.
 - `nota` deve ser maior ou igual a 0 (`>= 0`)
 - `periodo` deve ser válido para o tipo (`1_trimestre`/`2_trimestre`/`3_trimestre` para escolar; semestres do curso para superior)
 - Para `tipo=superior`, o `periodo` precisa coincidir com o `periodo` definido na matéria (além de existir na lista de períodos do curso)
+- Se o estudante tiver `ano_escolar`, esse ano deve existir em `anos_academicos` da matéria; caso contrário, o registro é bloqueado
 - `categoria` deve ser uma das fixas ou uma adicional da academia
 - O endpoint `POST /academia/notas-aluno/async` reaproveita exatamente as mesmas validações deste endpoint por item do lote
 
@@ -1533,7 +1534,7 @@ Registra uma nota para um estudante.
 
 **Erros:**
 
-- `400` — nota negativa, período inválido, categoria inválida, duplicata
+- `400` — nota negativa, período inválido, categoria inválida, duplicata, ou incompatibilidade entre `ano_escolar` do estudante e `anos_academicos` da matéria
 - `403` — estudante ou matéria não pertencem à academia
 - `400` — academia sem ano letivo configurado
 
@@ -1648,6 +1649,12 @@ Registra falta(s) para um estudante.
 }
 ```
 
+**Restrições:**
+
+- `quantidade` deve ser maior ou igual a 1
+- Se o estudante tiver `ano_escolar`, esse ano deve existir em `anos_academicos` da matéria; caso contrário, o registro é bloqueado
+- O endpoint `POST /academia/faltas-aluno/async` reaproveita exatamente as mesmas validações deste endpoint por item do lote
+
 **Response 201:**
 
 ```json
@@ -1662,7 +1669,7 @@ Registra falta(s) para um estudante.
 
 **Erros:**
 
-- `400` — quantidade inválida (deve ser ≥ 1), data inválida
+- `400` — quantidade inválida (deve ser ≥ 1), data inválida, ou incompatibilidade entre `ano_escolar` do estudante e `anos_academicos` da matéria
 - `403` — estudante ou matéria não pertencem à academia
 
 ---

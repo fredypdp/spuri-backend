@@ -685,7 +685,19 @@ func inferirAnoAcademicoParaNota(
 	nomeMateria string,
 ) (string, error) {
 	if anoEscolarEstudante != nil && strings.TrimSpace(*anoEscolarEstudante) != "" {
-		return *anoEscolarEstudante, nil
+		anoEstudante := strings.TrimSpace(*anoEscolarEstudante)
+		for _, anoMateria := range nivelMateria {
+			if strings.TrimSpace(anoMateria) == anoEstudante {
+				return anoEstudante, nil
+			}
+		}
+
+		return "", fmt.Errorf(
+			"o estudante está no ano acadêmico '%s', que não faz parte da matéria '%s' (anos permitidos: %v)",
+			anoEstudante,
+			nomeMateria,
+			nivelMateria,
+		)
 	}
 
 	if len(nivelMateria) == 0 {
