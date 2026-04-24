@@ -80,12 +80,11 @@ func RegistrarFaltas(c *gin.Context) {
 		return
 	}
 
-	// Inferir anoAcademico
-	anoAcademico := ""
-	if estudanteDTO.AnoEscolar != nil && *estudanteDTO.AnoEscolar != "" {
-		anoAcademico = *estudanteDTO.AnoEscolar
-	} else if len(materiaDTO.AnosAcademicos) > 0 {
-		anoAcademico = materiaDTO.AnosAcademicos[0]
+	// Inferir anoAcademico com bloqueio de incompatibilidade estudante x matéria
+	anoAcademico, err := inferirAnoAcademicoFaltas(estudanteDTO.AnoEscolar, materiaDTO.AnosAcademicos, materiaDTO.Nome)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
 	}
 
 	repository := getRepository(c)
