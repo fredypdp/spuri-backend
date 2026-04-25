@@ -55,6 +55,7 @@ type Academia struct {
 	TipoAnoLetivo       *string // "escola" ou "superior"
 	AnoLetivoAtivadoEm  *time.Time
 	AnoLetivoAtivadoPor *uuid.UUID
+	AnosLetivoLista     []AnoLetivoHistoricoItem
 }
 
 func NewAcademia() *Academia {
@@ -68,6 +69,7 @@ func NewAcademia() *Academia {
 		AnosAcademicos:  []string{},
 		Cursos:          []string{},
 		CategoriasNota:  []string{},
+		AnosLetivoLista: []AnoLetivoHistoricoItem{},
 		EmailVerificado: false,
 	}
 }
@@ -334,13 +336,27 @@ func (a *Academia) DefinirAnoLetivo(anoLetivo string, tipo string, definidoPor u
 		return fmt.Errorf("tipo deve ser 'escola' ou 'superior'")
 	}
 
+	now := time.Now()
+
+	anosLetivosLista := make([]AnoLetivoHistoricoItem, len(a.AnosLetivoLista))
+	copy(anosLetivosLista, a.AnosLetivoLista)
+	if !containsAnoLetivoHistorico(anosLetivosLista, anoLetivo) {
+		anosLetivosLista = append(anosLetivosLista, AnoLetivoHistoricoItem{
+			AnoLetivo:   anoLetivo,
+			Tipo:        tipo,
+			DefinidoPor: definidoPor,
+			DefinidoEm:  now,
+		})
+	}
+
 	event := &AnoLetivoAcademiaDefinidoEvent{
-		BaseEvent:      BaseEvent{EventType: "AnoLetivoAcademiaDefinido", AggregateID: a.ID},
-		CodigoAcademia: a.CodigoAcademia,
-		AnoLetivo:      anoLetivo,
-		Tipo:           tipo,
-		DefinidoPor:    definidoPor,
-		DefinidoEm:     time.Now(),
+		BaseEvent:       BaseEvent{EventType: "AnoLetivoAcademiaDefinido", AggregateID: a.ID},
+		CodigoAcademia:  a.CodigoAcademia,
+		AnoLetivo:       anoLetivo,
+		Tipo:            tipo,
+		DefinidoPor:     definidoPor,
+		DefinidoEm:      now,
+		AnosLetivoLista: anosLetivosLista,
 	}
 	a.RaiseEvent(event)
 	return a.Apply(event)
@@ -380,6 +396,9 @@ func (a *Academia) applyAcademiaCriada(event DomainEvent) error {
 	a.EmailVerificado = false
 	if a.CategoriasNota == nil {
 		a.CategoriasNota = []string{}
+	}
+	if a.AnosLetivoLista == nil {
+		a.AnosLetivoLista = []AnoLetivoHistoricoItem{}
 	}
 	return nil
 }
@@ -512,6 +531,7 @@ func (a *Academia) applyAnoLetivoAcademiaDefinido(event DomainEvent) error {
 	a.TipoAnoLetivo = &ev.Tipo
 	a.AnoLetivoAtivadoEm = &agora
 	a.AnoLetivoAtivadoPor = &ev.DefinidoPor
+	a.AnosLetivoLista = ev.AnosLetivoLista
 	return nil
 }
 
@@ -649,12 +669,29 @@ func (e *AcademiaSenhaAlteradaEvent) ToJSON() ([]byte, error) { return json.Mars
 // letivo ativo de uma academia específica.
 type AnoLetivoAcademiaDefinidoEvent struct {
 	BaseEvent
-	CodigoAcademia string
-	AnoLetivo      string // ex: "2025_2026"
-	Tipo           string // "escola" ou "superior"
-	DefinidoPor    uuid.UUID
-	DefinidoEm     time.Time
+	CodigoAcademia  string
+	AnoLetivo       string // ex: "2025_2026"
+	Tipo            string // "escola" ou "superior"
+	DefinidoPor     uuid.UUID
+	DefinidoEm      time.Time
+	AnosLetivoLista []AnoLetivoHistoricoItem
 }
 
 func (e *AnoLetivoAcademiaDefinidoEvent) GetPayload() interface{} { return e }
 func (e *AnoLetivoAcademiaDefinidoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+type AnoLetivoHistoricoItem struct {
+	AnoLetivo   string    `json:"ano_letivo"`
+	Tipo        string    `json:"tipo"`
+	DefinidoPor uuid.UUID `json:"definido_por"`
+	DefinidoEm  time.Time `json:"definido_em"`
+}
+
+func containsAnoLetivoHistorico(lista []AnoLetivoHistoricoItem, anoLetivo string) bool {
+	for _, item := range lista {
+		if item.AnoLetivo == anoLetivo {
+			return true
+		}
+	}
+	return false
+}

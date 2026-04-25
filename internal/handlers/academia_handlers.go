@@ -572,22 +572,25 @@ func GetAcademiaPorCodigo(c *gin.Context) {
 	}
 
 	resp := gin.H{
-		"id":               academia.ID,
-		"nivel":            academia.Nivel,
-		"type":             academia.Type,
-		"nome":             academia.Nome,
-		"codigo_academia":  academia.CodigoAcademia,
-		"provincia":        academia.Provincia,
-		"endereco":         academia.Endereco,
-		"numero_telefone":  academia.NumeroTelefone,
-		"website":          academia.Website,
-		"nivel_escolar":    academia.NivelEscolar,
-		"anos_academicos":  academia.AnosAcademicos,
-		"status":           academia.Status,
-		"cursos":           academia.Cursos,
-		"email_verificado": academia.EmailVerificado,
-		"created_at":       academia.CreatedAt,
-		"total_estudantes": academia.TotalEstudantes,
+		"id":                 academia.ID,
+		"nivel":              academia.Nivel,
+		"type":               academia.Type,
+		"nome":               academia.Nome,
+		"codigo_academia":    academia.CodigoAcademia,
+		"provincia":          academia.Provincia,
+		"endereco":           academia.Endereco,
+		"numero_telefone":    academia.NumeroTelefone,
+		"website":            academia.Website,
+		"nivel_escolar":      academia.NivelEscolar,
+		"anos_academicos":    academia.AnosAcademicos,
+		"status":             academia.Status,
+		"cursos":             academia.Cursos,
+		"email_verificado":   academia.EmailVerificado,
+		"created_at":         academia.CreatedAt,
+		"total_estudantes":   academia.TotalEstudantes,
+		"ano_letivo":         academia.AnoLetivo,
+		"tipo_ano_letivo":    academia.TipoAnoLetivo,
+		"anos_letivos_lista": academia.AnosLetivosLista,
 	}
 
 	if userType == "admin" {
@@ -683,6 +686,25 @@ func GetAnoLetivoAcademia(c *gin.Context) {
 		"ano_letivo": *academiaDTO.AnoLetivo,
 		"tipo":       academiaDTO.TipoAnoLetivo,
 		"ativado_em": academiaDTO.AnoLetivoAtivadoEm,
+	})
+}
+
+// ============================================================================
+// GET /academia/anos-letivos-lista
+// ============================================================================
+
+func GetAnosLetivosListaAcademia(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByID(userID)
+	if err != nil || academiaDTO == nil {
+		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"anos_letivos_lista": academiaDTO.AnosLetivosLista,
 	})
 }
 

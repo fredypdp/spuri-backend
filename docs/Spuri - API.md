@@ -1,8 +1,8 @@
 ---
-modificado: 24-04-2026 10:30
+modificado: 25-04-2026 11:20
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.3.5
+Versão atual: 1.3.6
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -173,9 +173,17 @@ interface AcademiaDTO {
   ano_letivo?: string             // ex: '2025_2026'
   tipo_ano_letivo?: string        // 'escola' | 'superior'
   ano_letivo_ativado_em?: string  // RFC3339
+  anos_letivos_lista: AnoLetivoItem[]
   created_at: string
   updated_at?: string
   version: number
+}
+
+interface AnoLetivoItem {
+  ano_letivo: string              // ex: '2025_2026'
+  tipo: 'escola' | 'superior'
+  definido_por: string            // UUID da academia
+  definido_em: string             // RFC3339
 }
 ```
 
@@ -1066,6 +1074,8 @@ Define ou atualiza o ano letivo ativo da academia.
 - `400` — formato inválido (o segundo ano deve ser exatamente o primeiro + 1)
 - `400` — tipo inválido
 
+**Regra da lista histórica (`anos_letivos_lista`)**: quando um ano letivo é definido, ele é adicionado na lista apenas se ainda não existir. Se já estiver listado, o backend ignora a duplicação.
+
 ---
 
 ### GET /academia/ano-letivo
@@ -1087,6 +1097,35 @@ Retorna o ano letivo ativo da academia.
 **Erros:**
 
 - `404` — ano letivo não configurado
+
+---
+
+### GET /academia/anos-letivos-lista
+
+Retorna a lista histórica de anos letivos definidos pela academia autenticada.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:**
+
+```json
+{
+  "anos_letivos_lista": [
+    {
+      "ano_letivo": "2024_2025",
+      "tipo": "escola",
+      "definido_por": "11111111-1111-1111-1111-111111111111",
+      "definido_em": "2024-09-01T08:00:00Z"
+    },
+    {
+      "ano_letivo": "2025_2026",
+      "tipo": "escola",
+      "definido_por": "11111111-1111-1111-1111-111111111111",
+      "definido_em": "2025-09-01T08:00:00Z"
+    }
+  ]
+}
+```
 
 ---
 
