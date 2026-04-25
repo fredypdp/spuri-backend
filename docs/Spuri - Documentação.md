@@ -1,8 +1,8 @@
 ---
-modificado: 24-04-2026 10:30
+modificado: 25-04-2026 11:20
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.3.1
+Versão atual: 1.3.2
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -260,7 +260,7 @@ Representa uma instituição de ensino. Pode ser uma **escola** (ensino fundamen
 | `public`  | Instituição pública |
 | `private` | Instituição privada |
 
-**Ano Letivo**: cada academia define o seu próprio ano letivo ativo (ex: `2025_2026`). Sem ano letivo, nenhum registro de nota, falta ou avaliação é permitido.
+**Ano Letivo**: cada academia define o seu próprio ano letivo ativo (ex: `2025_2026`). Sem ano letivo, nenhum registro de nota, falta ou avaliação é permitido. O sistema também mantém `anos_letivos_lista` (array de objetos) com histórico sem duplicação por `ano_letivo`.
 
 **Estados possíveis:** `ativo` / `inativo`
 
@@ -496,7 +496,9 @@ Antes de registar qualquer nota, falta ou avaliação, a academia deve definir o
 
 **Tipo**: `escola` ou `superior`
 
-Pode ser chamado múltiplas vezes — cada chamada substitui o valor anterior. O ano letivo ativo é resolvido automaticamente em todos os novos registos de nota, falta e avaliação
+Pode ser chamado múltiplas vezes — cada chamada substitui o valor anterior. O ano letivo ativo é resolvido automaticamente em todos os novos registos de nota, falta e avaliação.
+
+Sempre que o ano letivo for atualizado, ele é adicionado em `anos_letivos_lista` apenas se ainda não existir para aquela academia. Se já existir, o backend ignora a duplicação.
 
 ---
 
@@ -745,6 +747,7 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 | Escola com nível médio não deve ter `anos_academicos`         | Anos são do curso, não da academia                     |
 | Apenas academias ativas podem operar                          | Middleware valida status em cada request               |
 | Cada academia define o seu próprio ano letivo                 | Sem ano letivo, notas/faltas/avaliações são bloqueadas |
+| Histórico `anos_letivos_lista` não duplica `ano_letivo`       | Atualizações repetidas do mesmo ano são ignoradas       |
 | Senha padrão = código da academia                             | Deve ser alterada após o primeiro login                |
 | Desativação exige motivo                                      | Registado no ledger e na projeção para auditoria       |
 

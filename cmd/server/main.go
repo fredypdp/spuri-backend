@@ -286,6 +286,7 @@ func setupRouter() *gin.Engine {
 		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
 		academia.POST("/ano-letivo", handlers.DefinirAnoLetivoAcademia)
 		academia.GET("/ano-letivo", handlers.GetAnoLetivoAcademia)
+		academia.GET("/anos-letivos-lista", handlers.GetAnosLetivosListaAcademia)
 
 		academia.POST("/estudante/register", handlers.RegisterEstudantePorAcademia)
 		academia.POST("/notas-aluno", handlers.RegistrarNota)
