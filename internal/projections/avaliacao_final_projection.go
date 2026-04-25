@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"spuri/internal/db"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -180,6 +181,13 @@ type AvaliacaoFinalDTO struct {
 	Version             int       `json:"version"`
 }
 
+type AvaliacaoFinalFilters struct {
+	TipoEnsino        *string
+	AnoLectivo        *string
+	AnoAcademicoAtual *string
+	CodigoTurma       *string
+}
+
 const avaliacaoFinalCols = `
 	id, event_id, codigo_estudante, codigo_academia,
 	ano_lectivo, tipo_ensino, ano_academico_atual, proximo_ano_academico,
@@ -202,48 +210,70 @@ func (p *AvaliacaoFinalProjection) GetByEstudante(codigoEstudante string) ([]Ava
 // GetByAcademia retorna avaliações de uma academia.
 // tipoEnsino e aprovado são opcionais (nil = sem filtro).
 func (p *AvaliacaoFinalProjection) GetByAcademia(codigoAcademia string, tipoEnsino *string, aprovado *bool) ([]AvaliacaoFinalDTO, error) {
-	query := `SELECT ` + avaliacaoFinalCols + ` FROM projection_avaliacao_final WHERE codigo_academia = $1`
-	args := []interface{}{codigoAcademia}
-	idx := 2
-	if tipoEnsino != nil && *tipoEnsino != "" {
-		query += fmt.Sprintf(" AND tipo_ensino = $%d", idx)
-		args = append(args, *tipoEnsino)
-		idx++
-	}
-	if aprovado != nil {
-		if *aprovado {
-			query += " AND aprovado = TRUE"
-		} else {
-			query += " AND aprovado = FALSE"
-		}
-	}
-	query += " ORDER BY registered_at DESC"
-	rows, err := p.client.DB().Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	return scanAvaliacoes(rows)
+	return p.ListByFilters(&codigoAcademia, aprovado, AvaliacaoFinalFilters{
+		TipoEnsino: tipoEnsino,
+	})
 }
 
 // GetAll retorna todas as avaliações do sistema (uso admin) com filtros opcionais.
 func (p *AvaliacaoFinalProjection) GetAll(tipoEnsino *string, aprovado *bool) ([]AvaliacaoFinalDTO, error) {
-	query := `SELECT ` + avaliacaoFinalCols + ` FROM projection_avaliacao_final WHERE 1=1`
-	var args []interface{}
-	idx := 1
-	if tipoEnsino != nil && *tipoEnsino != "" {
-		query += fmt.Sprintf(" AND tipo_ensino = $%d", idx)
-		args = append(args, *tipoEnsino)
-		idx++
+	return p.ListByFilters(nil, aprovado, AvaliacaoFinalFilters{
+		TipoEnsino: tipoEnsino,
+	})
+}
+
+func (p *AvaliacaoFinalProjection) ListByFilters(codigoAcademiaEscopo *string, aprovado *bool, filtros AvaliacaoFinalFilters) ([]AvaliacaoFinalDTO, error) {
+	query := `SELECT ` + avaliacaoFinalCols + ` FROM projection_avaliacao_final avf`
+	conditions := make([]string, 0, 8)
+	args := make([]interface{}, 0, 8)
+	add := func(sql string, value interface{}) {
+		args = append(args, value)
+		conditions = append(conditions, fmt.Sprintf(sql, len(args)))
+	}
+
+	if codigoAcademiaEscopo != nil && *codigoAcademiaEscopo != "" {
+		add("avf.codigo_academia = $%d", *codigoAcademiaEscopo)
+	}
+	if filtros.TipoEnsino != nil && *filtros.TipoEnsino != "" {
+		add("avf.tipo_ensino = $%d", *filtros.TipoEnsino)
+	}
+	if filtros.AnoLectivo != nil && *filtros.AnoLectivo != "" {
+		add("avf.ano_lectivo = $%d", *filtros.AnoLectivo)
+	}
+	if filtros.AnoAcademicoAtual != nil && *filtros.AnoAcademicoAtual != "" {
+		add("avf.ano_academico_atual = $%d", *filtros.AnoAcademicoAtual)
 	}
 	if aprovado != nil {
 		if *aprovado {
-			query += " AND aprovado = TRUE"
+			conditions = append(conditions, "avf.aprovado = TRUE")
 		} else {
-			query += " AND aprovado = FALSE"
+			conditions = append(conditions, "avf.aprovado = FALSE")
 		}
 	}
-	query += " ORDER BY registered_at DESC"
+	if filtros.CodigoTurma != nil && *filtros.CodigoTurma != "" {
+		args = append(args, *filtros.CodigoTurma)
+		conditions = append(conditions, fmt.Sprintf(`
+EXISTS (
+	SELECT 1
+	FROM projection_turmas t
+	WHERE t.deleted_at IS NULL
+	  AND t.codigo_academia = avf.codigo_academia
+	  AND t.codigo_turma = $%d
+	  AND EXISTS (
+		  SELECT 1
+		  FROM jsonb_array_elements_text(
+			  COALESCE(t.historico_estudantes_ano_letivo -> avf.ano_lectivo, '[]'::jsonb)
+		  ) AS est(codigo)
+		  WHERE est.codigo = avf.codigo_estudante
+	  )
+)`, len(args)))
+	}
+
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	query += " ORDER BY avf.registered_at DESC"
+
 	rows, err := p.client.DB().Query(query, args...)
 	if err != nil {
 		return nil, err
