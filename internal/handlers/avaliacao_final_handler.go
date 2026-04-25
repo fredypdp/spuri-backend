@@ -217,8 +217,12 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 func ListarAvaliacoes(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
-	tipoEnsino := c.Query("tipo_ensino")
 	avaliacaoProj := getAvaliacaoFinalProjection(c)
+	filtros, err := parseFiltrosAvaliacaoFinal(c)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 
 	switch userType {
 	case "estudante":
@@ -233,6 +237,7 @@ func ListarAvaliacoes(c *gin.Context) {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
+		avaliacoes = filtrarAvaliacoesMemoria(avaliacoes, filtros)
 		c.JSON(http.StatusOK, gin.H{"avaliacoes": avaliacoes, "total": len(avaliacoes)})
 
 	case "academia":
@@ -242,11 +247,12 @@ func ListarAvaliacoes(c *gin.Context) {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-		var tp *string
-		if tipoEnsino != "" {
-			tp = &tipoEnsino
+		if filtros.CodigoAcademia != nil && *filtros.CodigoAcademia != academiaDTO.CodigoAcademia {
+			utils.RespondWithForbiddenError(c, "academia só pode consultar os próprios dados")
+			return
 		}
-		avaliacoes, err := avaliacaoProj.GetByAcademia(academiaDTO.CodigoAcademia, tp, nil)
+		filtros.CodigoAcademia = &academiaDTO.CodigoAcademia
+		avaliacoes, err := avaliacaoProj.ListByFilters(filtros.CodigoAcademia, nil, filtros.toProjectionFilters())
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
@@ -254,11 +260,11 @@ func ListarAvaliacoes(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"avaliacoes": avaliacoes, "total": len(avaliacoes)})
 
 	default: // admin
-		var tp *string
-		if tipoEnsino != "" {
-			tp = &tipoEnsino
+		if filtros.CodigoTurma != nil && filtros.CodigoAcademia == nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("filtro codigo_turma exige codigo_academia para consultas admin"))
+			return
 		}
-		avaliacoes, err := avaliacaoProj.GetAll(tp, nil)
+		avaliacoes, err := avaliacaoProj.ListByFilters(filtros.CodigoAcademia, nil, filtros.toProjectionFilters())
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
@@ -322,6 +328,12 @@ func ListarAprovacoes(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 	avaliacaoProj := getAvaliacaoFinalProjection(c)
+	filtros, err := parseFiltrosAvaliacaoFinal(c)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	aprovado := true
 
 	switch userType {
 	case "estudante":
@@ -336,6 +348,7 @@ func ListarAprovacoes(c *gin.Context) {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
+		aprovacoes = filtrarAvaliacoesMemoria(aprovacoes, filtros)
 		c.JSON(http.StatusOK, gin.H{"aprovacoes": aprovacoes, "total": len(aprovacoes)})
 
 	case "academia":
@@ -345,7 +358,12 @@ func ListarAprovacoes(c *gin.Context) {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-		aprovacoes, err := avaliacaoProj.GetAprovacoes(academiaDTO.CodigoAcademia)
+		if filtros.CodigoAcademia != nil && *filtros.CodigoAcademia != academiaDTO.CodigoAcademia {
+			utils.RespondWithForbiddenError(c, "academia só pode consultar os próprios dados")
+			return
+		}
+		filtros.CodigoAcademia = &academiaDTO.CodigoAcademia
+		aprovacoes, err := avaliacaoProj.ListByFilters(filtros.CodigoAcademia, &aprovado, filtros.toProjectionFilters())
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
@@ -353,7 +371,11 @@ func ListarAprovacoes(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"aprovacoes": aprovacoes, "total": len(aprovacoes)})
 
 	default: // admin
-		aprovacoes, err := avaliacaoProj.GetAprovacoes("")
+		if filtros.CodigoTurma != nil && filtros.CodigoAcademia == nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("filtro codigo_turma exige codigo_academia para consultas admin"))
+			return
+		}
+		aprovacoes, err := avaliacaoProj.ListByFilters(filtros.CodigoAcademia, &aprovado, filtros.toProjectionFilters())
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
@@ -370,6 +392,12 @@ func ListarReprovacoes(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 	avaliacaoProj := getAvaliacaoFinalProjection(c)
+	filtros, err := parseFiltrosAvaliacaoFinal(c)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	aprovado := false
 
 	switch userType {
 	case "estudante":
@@ -384,6 +412,7 @@ func ListarReprovacoes(c *gin.Context) {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
+		reprovacoes = filtrarAvaliacoesMemoria(reprovacoes, filtros)
 		c.JSON(http.StatusOK, gin.H{"reprovacoes": reprovacoes, "total": len(reprovacoes)})
 
 	case "academia":
@@ -393,7 +422,12 @@ func ListarReprovacoes(c *gin.Context) {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-		reprovacoes, err := avaliacaoProj.GetReprovacoes(academiaDTO.CodigoAcademia)
+		if filtros.CodigoAcademia != nil && *filtros.CodigoAcademia != academiaDTO.CodigoAcademia {
+			utils.RespondWithForbiddenError(c, "academia só pode consultar os próprios dados")
+			return
+		}
+		filtros.CodigoAcademia = &academiaDTO.CodigoAcademia
+		reprovacoes, err := avaliacaoProj.ListByFilters(filtros.CodigoAcademia, &aprovado, filtros.toProjectionFilters())
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
@@ -401,13 +435,76 @@ func ListarReprovacoes(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"reprovacoes": reprovacoes, "total": len(reprovacoes)})
 
 	default: // admin
-		reprovacoes, err := avaliacaoProj.GetReprovacoes("")
+		if filtros.CodigoTurma != nil && filtros.CodigoAcademia == nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("filtro codigo_turma exige codigo_academia para consultas admin"))
+			return
+		}
+		reprovacoes, err := avaliacaoProj.ListByFilters(filtros.CodigoAcademia, &aprovado, filtros.toProjectionFilters())
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"reprovacoes": reprovacoes, "total": len(reprovacoes)})
 	}
+}
+
+type filtrosAvaliacaoFinal struct {
+	TipoEnsino        *string
+	AnoLectivo        *string
+	AnoAcademicoAtual *string
+	CodigoTurma       *string
+	CodigoAcademia    *string
+}
+
+func parseFiltrosAvaliacaoFinal(c *gin.Context) (filtrosAvaliacaoFinal, error) {
+	parse := func(name string) *string {
+		value := strings.TrimSpace(c.Query(name))
+		if value == "" {
+			return nil
+		}
+		return &value
+	}
+	f := filtrosAvaliacaoFinal{
+		TipoEnsino:        parse("tipo_ensino"),
+		AnoLectivo:        parse("ano_letivo"),
+		AnoAcademicoAtual: parse("ano_academico_atual"),
+		CodigoTurma:       parse("codigo_turma"),
+		CodigoAcademia:    parse("codigo_academia"),
+	}
+	if f.TipoEnsino != nil {
+		switch *f.TipoEnsino {
+		case "fundamental", "medio", "superior":
+		default:
+			return f, fmt.Errorf("tipo_ensino deve ser: fundamental, medio ou superior")
+		}
+	}
+	return f, nil
+}
+
+func (f filtrosAvaliacaoFinal) toProjectionFilters() projections.AvaliacaoFinalFilters {
+	return projections.AvaliacaoFinalFilters{
+		TipoEnsino:        f.TipoEnsino,
+		AnoLectivo:        f.AnoLectivo,
+		AnoAcademicoAtual: f.AnoAcademicoAtual,
+		CodigoTurma:       f.CodigoTurma,
+	}
+}
+
+func filtrarAvaliacoesMemoria(in []projections.AvaliacaoFinalDTO, f filtrosAvaliacaoFinal) []projections.AvaliacaoFinalDTO {
+	out := make([]projections.AvaliacaoFinalDTO, 0, len(in))
+	for _, a := range in {
+		if f.TipoEnsino != nil && a.TipoEnsino != *f.TipoEnsino {
+			continue
+		}
+		if f.AnoLectivo != nil && a.AnoLectivo != *f.AnoLectivo {
+			continue
+		}
+		if f.AnoAcademicoAtual != nil && a.AnoAcademicoAtual != *f.AnoAcademicoAtual {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
 }
 
 // ============================================================================

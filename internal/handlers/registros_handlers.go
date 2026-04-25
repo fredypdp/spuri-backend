@@ -1,14 +1,17 @@
 package handlers
 
 import (
+	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
 	"spuri/internal/db"
 	"spuri/internal/middleware"
 	"spuri/internal/utils"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 type NotaRegistroResponse struct {
@@ -84,7 +87,17 @@ func ListarNotas(c *gin.Context) {
 	limit = db.ValidateLimit(limit)
 	offset = db.ValidateOffset(offset)
 
-	query := `
+	filtros, err := parseFiltrosRegistros(c, userType, codigoAcademia)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if filtros.forbidden {
+		utils.RespondWithForbiddenError(c, "academia só pode consultar os próprios dados")
+		return
+	}
+
+	baseQuery := `
 		SELECT
 			n.id, n.codigo_estudante, e.nome as estudante_nome,
 			n.codigo_academia, a.nome as academia_nome, n.ano_lectivo, n.ano_academico, n.periodo,
@@ -95,6 +108,14 @@ func ListarNotas(c *gin.Context) {
 		LEFT JOIN projection_academias a ON n.codigo_academia = a.codigo_academia
 		LEFT JOIN projection_materias m ON n.materia_disciplinar_id = m.id
 	`
+	baseCountQuery := `
+		SELECT COUNT(*)
+		FROM projection_notas n
+		LEFT JOIN projection_materias m ON n.materia_disciplinar_id = m.id
+	`
+	whereSQL, args := filtros.buildWhereSQL("n", true)
+	orderPagination := fmt.Sprintf(" ORDER BY n.registered_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	argsRows := append(append([]interface{}{}, args...), limit, offset)
 
 	var rowsErr error
 	var rows interface {
@@ -104,21 +125,12 @@ func ListarNotas(c *gin.Context) {
 		Err() error
 	}
 
-	if userType == "academia" {
-		rowsTyped, err := client.DB().Query(query+` WHERE n.codigo_academia = $1 ORDER BY n.registered_at DESC LIMIT $2 OFFSET $3`, codigoAcademia, limit, offset)
-		if err != nil {
-			utils.RespondWithInternalError(c, err)
-			return
-		}
-		rows = rowsTyped
-	} else {
-		rowsTyped, err := client.DB().Query(query+` ORDER BY n.registered_at DESC LIMIT $1 OFFSET $2`, limit, offset)
-		if err != nil {
-			utils.RespondWithInternalError(c, err)
-			return
-		}
-		rows = rowsTyped
+	rowsTyped, err := client.DB().Query(baseQuery+whereSQL+orderPagination, argsRows...)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
 	}
+	rows = rowsTyped
 	defer rows.Close()
 
 	var notas []NotaRegistroResponse
@@ -143,12 +155,10 @@ func ListarNotas(c *gin.Context) {
 	}
 
 	var total int
-	if userType == "academia" {
-		if err := client.DB().QueryRow(`SELECT COUNT(*) FROM projection_notas WHERE codigo_academia = $1`, codigoAcademia).Scan(&total); err != nil {
+	if err := client.DB().QueryRow(baseCountQuery+whereSQL, args...).Scan(&total); err != nil {
+		if userType == "academia" {
 			log.Printf("[WARN] ListarNotas: erro ao contar notas da academia %s: %v", codigoAcademia, err)
-		}
-	} else {
-		if err := client.DB().QueryRow(`SELECT COUNT(*) FROM projection_notas`).Scan(&total); err != nil {
+		} else {
 			log.Printf("[WARN] ListarNotas: erro ao contar notas: %v", err)
 		}
 	}
@@ -176,7 +186,17 @@ func ListarFaltas(c *gin.Context) {
 	limit = db.ValidateLimit(limit)
 	offset = db.ValidateOffset(offset)
 
-	query := `
+	filtros, err := parseFiltrosRegistros(c, userType, codigoAcademia)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if filtros.forbidden {
+		utils.RespondWithForbiddenError(c, "academia só pode consultar os próprios dados")
+		return
+	}
+
+	baseQuery := `
 		SELECT
 			f.id, f.codigo_estudante, e.nome as estudante_nome,
 			f.codigo_academia, a.nome as academia_nome, f.ano_lectivo, f.ano_academico,
@@ -187,6 +207,14 @@ func ListarFaltas(c *gin.Context) {
 		LEFT JOIN projection_academias a ON f.codigo_academia = a.codigo_academia
 		LEFT JOIN projection_materias m ON f.materia_disciplinar_id = m.id
 	`
+	baseCountQuery := `
+		SELECT COUNT(*)
+		FROM projection_faltas f
+		LEFT JOIN projection_materias m ON f.materia_disciplinar_id = m.id
+	`
+	whereSQL, args := filtros.buildWhereSQL("f", false)
+	orderPagination := fmt.Sprintf(" ORDER BY f.registered_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	argsRows := append(append([]interface{}{}, args...), limit, offset)
 
 	var rows interface {
 		Close() error
@@ -194,21 +222,12 @@ func ListarFaltas(c *gin.Context) {
 		Scan(...interface{}) error
 		Err() error
 	}
-	if userType == "academia" {
-		rowsTyped, err := client.DB().Query(query+` WHERE f.codigo_academia = $1 ORDER BY f.registered_at DESC LIMIT $2 OFFSET $3`, codigoAcademia, limit, offset)
-		if err != nil {
-			utils.RespondWithInternalError(c, err)
-			return
-		}
-		rows = rowsTyped
-	} else {
-		rowsTyped, err := client.DB().Query(query+` ORDER BY f.registered_at DESC LIMIT $1 OFFSET $2`, limit, offset)
-		if err != nil {
-			utils.RespondWithInternalError(c, err)
-			return
-		}
-		rows = rowsTyped
+	rowsTyped, err := client.DB().Query(baseQuery+whereSQL+orderPagination, argsRows...)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
 	}
+	rows = rowsTyped
 	defer rows.Close()
 
 	var faltas []FaltaRegistroResponse
@@ -233,12 +252,10 @@ func ListarFaltas(c *gin.Context) {
 	}
 
 	var total int
-	if userType == "academia" {
-		if err := client.DB().QueryRow(`SELECT COUNT(*) FROM projection_faltas WHERE codigo_academia = $1`, codigoAcademia).Scan(&total); err != nil {
+	if err := client.DB().QueryRow(baseCountQuery+whereSQL, args...).Scan(&total); err != nil {
+		if userType == "academia" {
 			log.Printf("[WARN] ListarFaltas: erro ao contar faltas da academia %s: %v", codigoAcademia, err)
-		}
-	} else {
-		if err := client.DB().QueryRow(`SELECT COUNT(*) FROM projection_faltas`).Scan(&total); err != nil {
+		} else {
 			log.Printf("[WARN] ListarFaltas: erro ao contar faltas: %v", err)
 		}
 	}
@@ -250,4 +267,107 @@ func ListarFaltas(c *gin.Context) {
 		"limit":       limit,
 		"offset":      offset,
 	})
+}
+
+type filtrosRegistros struct {
+	anoLectivo           string
+	anoAcademico         string
+	cursoID              string
+	codigoTurma          string
+	periodo              string
+	materiaDisciplinarID string
+	codigoAcademia       string
+	forbidden            bool
+}
+
+func parseFiltrosRegistros(c *gin.Context, userType, codigoAcademiaEscopo string) (filtrosRegistros, error) {
+	f := filtrosRegistros{
+		anoLectivo:           strings.TrimSpace(c.Query("ano_letivo")),
+		anoAcademico:         strings.TrimSpace(c.Query("ano_academico")),
+		cursoID:              strings.TrimSpace(c.Query("curso_id")),
+		codigoTurma:          strings.TrimSpace(c.Query("codigo_turma")),
+		periodo:              strings.TrimSpace(c.Query("periodo")),
+		materiaDisciplinarID: strings.TrimSpace(c.Query("materia_disciplinar_id")),
+		codigoAcademia:       strings.TrimSpace(c.Query("codigo_academia")),
+	}
+
+	if f.codigoTurma != "" && userType == "admin" && f.codigoAcademia == "" {
+		return f, fmt.Errorf("filtro codigo_turma exige codigo_academia para consultas admin")
+	}
+
+	if userType == "academia" {
+		if f.codigoAcademia != "" && f.codigoAcademia != codigoAcademiaEscopo {
+			f.forbidden = true
+			return f, nil
+		}
+		f.codigoAcademia = codigoAcademiaEscopo
+	}
+
+	if f.cursoID != "" {
+		if _, err := uuid.Parse(f.cursoID); err != nil {
+			return f, fmt.Errorf("curso_id inválido")
+		}
+	}
+	if f.materiaDisciplinarID != "" {
+		if _, err := uuid.Parse(f.materiaDisciplinarID); err != nil {
+			return f, fmt.Errorf("materia_disciplinar_id inválido")
+		}
+	}
+
+	return f, nil
+}
+
+func (f filtrosRegistros) buildWhereSQL(alias string, includePeriodoRegistro bool) (string, []interface{}) {
+	conditions := make([]string, 0, 10)
+	args := make([]interface{}, 0, 10)
+	add := func(sql string, value interface{}) {
+		args = append(args, value)
+		conditions = append(conditions, fmt.Sprintf(sql, len(args)))
+	}
+
+	if f.codigoAcademia != "" {
+		add(alias+".codigo_academia = $%d", f.codigoAcademia)
+	}
+	if f.anoLectivo != "" {
+		add(alias+".ano_lectivo = $%d", f.anoLectivo)
+	}
+	if f.anoAcademico != "" {
+		add(alias+".ano_academico = $%d", f.anoAcademico)
+	}
+	if f.cursoID != "" {
+		add("m.curso_id = $%d", f.cursoID)
+	}
+	if f.periodo != "" {
+		if includePeriodoRegistro {
+			add(alias+".periodo = $%d", f.periodo)
+		} else {
+			add("m.periodo = $%d", f.periodo)
+		}
+	}
+	if f.materiaDisciplinarID != "" {
+		add(alias+".materia_disciplinar_id = $%d", f.materiaDisciplinarID)
+	}
+	if f.codigoTurma != "" {
+		args = append(args, f.codigoTurma)
+		conditions = append(conditions, fmt.Sprintf(`
+EXISTS (
+	SELECT 1
+	FROM projection_turmas t
+	WHERE t.deleted_at IS NULL
+	  AND t.codigo_academia = %s.codigo_academia
+	  AND t.codigo_turma = $%d
+	  AND EXISTS (
+		  SELECT 1
+		  FROM jsonb_array_elements_text(
+			  COALESCE(t.historico_estudantes_ano_letivo -> %s.ano_lectivo, '[]'::jsonb)
+		  ) AS est(codigo)
+		  WHERE est.codigo = %s.codigo_estudante
+	  )
+)`, alias, len(args), alias, alias))
+	}
+
+	if len(conditions) == 0 {
+		return "", args
+	}
+	return " WHERE " + strings.Join(conditions, " AND "), args
 }

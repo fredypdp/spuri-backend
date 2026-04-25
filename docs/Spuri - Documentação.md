@@ -1,8 +1,8 @@
 ---
-modificado: 25-04-2026 11:20
+modificado: 25-04-2026 13:10
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.3.2
+Versão atual: 1.3.3
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -603,9 +603,19 @@ Este é o **único mecanismo de transição de ano** no sistema. Registar a aval
 
 **Consultas:**
 
-- `GET /avaliacoes` → todos os registos
-- `GET /aprovacoes` → apenas aprovados (`aprovado = TRUE`)
-- `GET /reprovacoes` → apenas reprovados (`aprovado = FALSE`)
+- `GET /avaliacoes` → todos os registos, com filtros por `tipo_ensino`, `ano_letivo`, `ano_academico_atual`, `codigo_turma`, `codigo_academia`
+- `GET /aprovacoes` → apenas aprovados (`aprovado = TRUE`) com os mesmos filtros
+- `GET /reprovacoes` → apenas reprovados (`aprovado = FALSE`) com os mesmos filtros
+
+**Escopo por academia:** quando o usuário autenticado é academia, o backend força `codigo_academia` para a academia autenticada; não é permitido consultar dados de outra academia.
+
+**Dependência entre filtros:** para consultas admin, o filtro `codigo_turma` exige também `codigo_academia` para garantir resolução correta da turma no contexto da academia.
+
+**Consultas globais de notas/faltas (`GET /notas`, `GET /faltas`):**
+
+- suportam filtros por `ano_letivo`, `ano_academico`, `curso_id`, `codigo_turma`, `periodo`, `materia_disciplinar_id`, `codigo_academia`
+- em `GET /notas`, `periodo` filtra o período registado da nota
+- em `GET /faltas`, `periodo` filtra o período configurado na matéria
 
 ---
 

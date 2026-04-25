@@ -1,8 +1,8 @@
 ---
-modificado: 25-04-2026 11:20
+modificado: 25-04-2026 13:10
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.3.6
+Versão atual: 1.3.7
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -1858,6 +1858,10 @@ Lista avaliações finais. Escopo varia por tipo de usuário.
 **Query Params:**
 
 - `tipo_ensino` — filtro: `fundamental`, `medio`, `superior`
+- `ano_letivo` — filtra por ano letivo
+- `ano_academico_atual` — filtra pelo ano académico em que o estudante foi re/aprovado
+- `codigo_turma` — filtra por turma (requer `codigo_academia` em consultas admin)
+- `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
 
 **Response 200:**
 
@@ -1876,6 +1880,14 @@ Lista apenas avaliações com `aprovado = true`.
 
 **Proteção**: autenticado (qualquer tipo)
 
+**Query Params:**
+
+- `tipo_ensino` — filtro: `fundamental`, `medio`, `superior`
+- `ano_letivo` — filtra por ano letivo
+- `ano_academico_atual` — filtra pelo ano académico em que o estudante foi aprovado
+- `codigo_turma` — filtra por turma (requer `codigo_academia` em consultas admin)
+- `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
+
 **Response 200:**
 
 ```json
@@ -1892,6 +1904,14 @@ Lista apenas avaliações com `aprovado = true`.
 Lista apenas avaliações com `aprovado = false`.
 
 **Proteção**: autenticado (qualquer tipo)
+
+**Query Params:**
+
+- `tipo_ensino` — filtro: `fundamental`, `medio`, `superior`
+- `ano_letivo` — filtra por ano letivo
+- `ano_academico_atual` — filtra pelo ano académico em que o estudante foi reprovado
+- `codigo_turma` — filtra por turma (requer `codigo_academia` em consultas admin)
+- `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
 
 **Response 200:**
 
@@ -2850,6 +2870,13 @@ Lista registros de notas com escopo por perfil.
 
 - `limit` — padrão 50, máximo 1000
 - `offset` — padrão 0
+- `ano_letivo` — filtra por ano letivo
+- `ano_academico` — filtra por ano académico
+- `curso_id` — filtra por curso (nível médio ou superior)
+- `codigo_turma` — filtra por turma (requer `codigo_academia` em consultas admin)
+- `periodo` — filtra por período (`1_trimestre`, `2_trimestre`, `3_trimestre`, `1_semestre`, `2_semestre`)
+- `materia_disciplinar_id` — filtra por matéria disciplinar
+- `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
 
 **Response 200:**
 
@@ -2886,6 +2913,13 @@ Lista registros de faltas com escopo por perfil.
 
 - `limit` — padrão 50, máximo 1000
 - `offset` — padrão 0
+- `ano_letivo` — filtra por ano letivo
+- `ano_academico` — filtra por ano académico
+- `curso_id` — filtra por curso (nível médio ou superior)
+- `codigo_turma` — filtra por turma (requer `codigo_academia` em consultas admin)
+- `periodo` — filtra por período da matéria (`1_trimestre`, `2_trimestre`, `3_trimestre`, `1_semestre`, `2_semestre`)
+- `materia_disciplinar_id` — filtra por matéria disciplinar
+- `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
 
 **Response 200:**
 
