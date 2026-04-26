@@ -107,21 +107,12 @@ func (p *AvaliacaoFinalProjection) Rebuild() error {
 // ============================================================================
 
 func (p *AvaliacaoFinalProjection) handleAvaliacaoFinal(event db.Event) error {
-	var payload struct {
-		CodigoEstudante     string  `json:"CodigoEstudante"`
-		CodigoAcademia      string  `json:"CodigoAcademia"`
-		AnoLectivo          string  `json:"AnoLectivo"`
-		TipoEnsino          string  `json:"TipoEnsino"`
-		AnoAcademicoAtual   string  `json:"AnoAcademicoAtual"`
-		ProximoAnoAcademico *string `json:"ProximoAnoAcademico"`
-		Aprovado            bool    `json:"Aprovado"`
-		Observacao          *string `json:"Observacao"`
-	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+	payload, err := parseAvaliacaoFinalPayload(event.Payload)
+	if err != nil {
 		return fmt.Errorf("parse error AvaliacaoFinalAnoAcademico: %w", err)
 	}
 
-	_, err := p.client.DB().Exec(`
+	_, err = p.client.DB().Exec(`
 		INSERT INTO projection_avaliacao_final (
 			id, event_id,
 			codigo_estudante, codigo_academia,
@@ -160,6 +151,75 @@ func (p *AvaliacaoFinalProjection) handleAvaliacaoFinal(event db.Event) error {
 	log.Printf("[avaliacao_final] Avaliação registrada — estudante=%s tipo=%s aprovado=%v",
 		payload.CodigoEstudante, payload.TipoEnsino, payload.Aprovado)
 	return nil
+}
+
+type avaliacaoFinalPayload struct {
+	CodigoEstudante     string
+	CodigoAcademia      string
+	AnoLectivo          string
+	TipoEnsino          string
+	AnoAcademicoAtual   string
+	ProximoAnoAcademico *string
+	Aprovado            bool
+	Observacao          *string
+}
+
+func parseAvaliacaoFinalPayload(raw json.RawMessage) (avaliacaoFinalPayload, error) {
+	var snake struct {
+		CodigoEstudante     string  `json:"codigo_estudante"`
+		CodigoAcademia      string  `json:"codigo_academia"`
+		AnoLectivo          string  `json:"ano_lectivo"`
+		TipoEnsino          string  `json:"tipo_ensino"`
+		AnoAcademicoAtual   string  `json:"nivel_ano_academico_atual"`
+		ProximoAnoAcademico *string `json:"proximo_ano_academico"`
+		Aprovado            bool    `json:"aprovado"`
+		Observacao          *string `json:"observacao"`
+	}
+	if err := json.Unmarshal(raw, &snake); err != nil {
+		return avaliacaoFinalPayload{}, err
+	}
+
+	// Compatibilidade com payloads legados em PascalCase.
+	var legacy struct {
+		CodigoEstudante     string  `json:"CodigoEstudante"`
+		CodigoAcademia      string  `json:"CodigoAcademia"`
+		AnoLectivo          string  `json:"AnoLectivo"`
+		TipoEnsino          string  `json:"TipoEnsino"`
+		AnoAcademicoAtual   string  `json:"AnoAcademicoAtual"`
+		ProximoAnoAcademico *string `json:"ProximoAnoAcademico"`
+		Aprovado            bool    `json:"Aprovado"`
+		Observacao          *string `json:"Observacao"`
+	}
+	if err := json.Unmarshal(raw, &legacy); err != nil {
+		return avaliacaoFinalPayload{}, err
+	}
+
+	payload := avaliacaoFinalPayload{
+		CodigoEstudante:     firstNonEmpty(snake.CodigoEstudante, legacy.CodigoEstudante),
+		CodigoAcademia:      firstNonEmpty(snake.CodigoAcademia, legacy.CodigoAcademia),
+		AnoLectivo:          firstNonEmpty(snake.AnoLectivo, legacy.AnoLectivo),
+		TipoEnsino:          firstNonEmpty(snake.TipoEnsino, legacy.TipoEnsino),
+		AnoAcademicoAtual:   firstNonEmpty(snake.AnoAcademicoAtual, legacy.AnoAcademicoAtual),
+		ProximoAnoAcademico: snake.ProximoAnoAcademico,
+		Aprovado:            snake.Aprovado || legacy.Aprovado,
+		Observacao:          snake.Observacao,
+	}
+	if payload.ProximoAnoAcademico == nil {
+		payload.ProximoAnoAcademico = legacy.ProximoAnoAcademico
+	}
+	if payload.Observacao == nil {
+		payload.Observacao = legacy.Observacao
+	}
+	return payload, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // ============================================================================
