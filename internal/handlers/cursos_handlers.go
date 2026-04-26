@@ -87,16 +87,37 @@ func CriarCurso(c *gin.Context) {
 
 func ListarCursos(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
 
 	academiaProj := getAcademiaProjection(c)
-	academiaDTO, err := academiaProj.GetByID(userID)
-	if err != nil || academiaDTO == nil {
-		utils.RespondWithInternalError(c, err)
-		return
+	codigoAcademia := ""
+
+	if userType == "admin" {
+		codigoAcademia = c.Query("codigo_academia")
+		if codigoAcademia == "" {
+			utils.RespondWithValidationError(c, fmt.Errorf("codigo_academia é obrigatório para admin"))
+			return
+		}
+		academiaDTO, err := academiaProj.GetByCodigo(codigoAcademia)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		if academiaDTO == nil {
+			utils.RespondWithNotFoundError(c, "academia")
+			return
+		}
+	} else {
+		academiaDTO, err := academiaProj.GetByID(userID)
+		if err != nil || academiaDTO == nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		codigoAcademia = academiaDTO.CodigoAcademia
 	}
 
 	cursosProj := getCursosProjection(c)
-	cursos, err := cursosProj.GetByAcademia(academiaDTO.CodigoAcademia)
+	cursos, err := cursosProj.GetByAcademia(codigoAcademia)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -621,6 +642,7 @@ func validarTipoCursoVsAcademia(tipoCurso, tipoAcademia string) error {
 // Protegido por RequireAcademia — academia só pode ver seus próprios cursos.
 func GetCurso(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
 
 	cursoID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -636,10 +658,12 @@ func GetCurso(c *gin.Context) {
 	}
 
 	academiaProj := getAcademiaProjection(c)
-	academiaDTO, _ := academiaProj.GetByID(userID)
-	if academiaDTO == nil || academiaDTO.CodigoAcademia != cursoDTO.CodigoAcademia {
-		utils.RespondWithForbiddenError(c, "curso não pertence a esta academia")
-		return
+	if userType == "academia" {
+		academiaDTO, _ := academiaProj.GetByID(userID)
+		if academiaDTO == nil || academiaDTO.CodigoAcademia != cursoDTO.CodigoAcademia {
+			utils.RespondWithForbiddenError(c, "curso não pertence a esta academia")
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, cursoDTO)

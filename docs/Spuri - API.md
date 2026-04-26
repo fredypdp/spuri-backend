@@ -2032,7 +2032,11 @@ Cria um novo curso para a academia.
 
 Lista todos os cursos da academia.
 
-**Proteção**: autenticado + academia ativa
+**Proteção**: autenticado + (`academia` ativa **ou** `admin`)
+
+**Query params (quando `admin`)**:
+
+- `codigo_academia` (obrigatório)
 
 **Response 200:**
 
@@ -2049,7 +2053,7 @@ Lista todos os cursos da academia.
 
 Retorna um curso específico.
 
-**Proteção**: autenticado + academia ativa
+**Proteção**: autenticado + (`academia` ativa **ou** `admin`)
 
 **Response 200:** `CursoDTO`
 
@@ -2213,7 +2217,11 @@ Cria uma nova matéria disciplinar.
 
 Lista todas as matérias da academia.
 
-**Proteção**: autenticado + academia ativa
+**Proteção**: autenticado + (`academia` ativa **ou** `admin`)
+
+**Query params (quando `admin`)**:
+
+- `codigo_academia` (obrigatório)
 
 **Response 200:**
 
@@ -2230,7 +2238,7 @@ Lista todas as matérias da academia.
 
 Retorna uma matéria específica.
 
-**Proteção**: autenticado + academia ativa
+**Proteção**: autenticado + (`academia` ativa **ou** `admin`)
 
 **Response 200:** `MateriaDTO`
 
@@ -2383,7 +2391,11 @@ Cria uma nova turma.
 
 Lista todas as turmas da academia.
 
-**Proteção**: autenticado + academia ativa
+**Proteção**: autenticado + (`academia` ativa **ou** `admin`)
+
+**Query params (quando `admin`)**:
+
+- `codigo_academia` (obrigatório)
 
 **Response 200:**
 
@@ -2399,7 +2411,11 @@ Lista todas as turmas da academia.
 
 Retorna uma turma pelo código.
 
-**Proteção**: autenticado + academia ativa
+**Proteção**: autenticado + (`academia` ativa **ou** `admin`)
+
+**Query params (quando `admin`)**:
+
+- `codigo_academia` (obrigatório, porque o código da turma é contextual por academia)
 
 **Response 200:** `TurmaDTO`
 
