@@ -490,11 +490,44 @@ func GetNotasEstudante(c *gin.Context) {
 		return
 	}
 
+	filtros, err := parseFiltrosRegistrosEstudante(c, true)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	notasFiltradas := make([]interface{}, 0, len(notas))
+	materiasProj := getMateriasProjection(c)
+	materiaMetaCache := map[string]materiaMeta{}
+	for _, nota := range notas {
+		if !matchesFiltroString(filtros.anoLectivos, nota.AnoLectivo) ||
+			!matchesFiltroString(filtros.anoAcademicos, nota.AnoAcademico) ||
+			!matchesFiltroString(filtros.periodos, nota.Periodo) ||
+			!matchesFiltroString(filtros.materiasDisciplinares, nota.MateriaDisciplinarID) ||
+			!matchesFiltroString(filtros.codigosAcademia, nota.CodigoAcademia) ||
+			!matchesFiltroString(filtros.categorias, nota.Categoria) {
+			continue
+		}
+
+		if len(filtros.cursoIDs) > 0 {
+			materiaMetaAtual, err := getMateriaMeta(materiasProj, materiaMetaCache, nota.MateriaDisciplinarID)
+			if err != nil {
+				utils.RespondWithInternalError(c, err)
+				return
+			}
+			if !matchesFiltroString(filtros.cursoIDs, materiaMetaAtual.cursoID) {
+				continue
+			}
+		}
+
+		notasFiltradas = append(notasFiltradas, nota)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"codigo_estudante": codigoEstudante,
 		"nome":             estudante.Nome,
-		"notas":            notas,
-		"total":            len(notas),
+		"notas":            notasFiltradas,
+		"total":            len(notasFiltradas),
 	})
 }
 

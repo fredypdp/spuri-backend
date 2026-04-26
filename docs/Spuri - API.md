@@ -1,8 +1,8 @@
 ---
-modificado: 26-04-2026 10:20
+modificado: 26-04-2026 11:05
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.3.8
+Versão atual: 1.3.9
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -1655,6 +1655,22 @@ Retorna as notas de um estudante.
 - Academia: apenas estudantes da própria academia
 - Admin: qualquer estudante
 
+**Query Params (opcionais):**
+
+- `ano_letivo` — aceita múltiplos valores
+- `ano_academico` — aceita múltiplos valores
+- `curso_id` — aceita múltiplos valores
+- `periodo` — filtra o período registado da nota (aceita múltiplos valores)
+- `materia_disciplinar_id` — aceita múltiplos valores
+- `categoria` — filtra por categoria da nota (aceita múltiplos valores)
+- `codigo_academia` — aceita múltiplos valores
+
+**Formato de múltiplos valores:**
+
+- chave repetida: `?ano_letivo=2024_2025&ano_letivo=2025_2026`
+- CSV na mesma chave: `?ano_letivo=2024_2025,2025_2026`
+- também é possível combinar os dois formatos na mesma chamada
+
 **Response 200:**
 
 ```json
@@ -1785,6 +1801,23 @@ Retorna as faltas de um estudante.
 - Estudante: apenas o próprio código (`:codigo` deve ser o do estudante autenticado)
 - Academia: apenas estudantes da própria academia
 - Admin: qualquer estudante
+
+**Query Params (opcionais):**
+
+- `ano_letivo` — aceita múltiplos valores
+- `ano_academico` — aceita múltiplos valores
+- `curso_id` — aceita múltiplos valores
+- `periodo` — filtra pelo período configurado na matéria (aceita múltiplos valores)
+- `materia_disciplinar_id` — aceita múltiplos valores
+- `codigo_academia` — aceita múltiplos valores
+
+> Nesta rota, o filtro `codigo_turma` não é utilizado.
+
+**Formato de múltiplos valores:**
+
+- chave repetida: `?periodo=1_trimestre&periodo=2_trimestre`
+- CSV na mesma chave: `?periodo=1_trimestre,2_trimestre`
+- também é possível combinar os dois formatos na mesma chamada
 
 **Response 200:**
 

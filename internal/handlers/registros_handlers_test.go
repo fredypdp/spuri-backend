@@ -53,3 +53,20 @@ func TestBuildWhereSQL_NotasComCategoriaEMultiplosValores(t *testing.T) {
 		t.Fatalf("esperava filtro multi-valor de codigo_academia no SQL. where=%s", where)
 	}
 }
+
+func TestParseFiltrosRegistrosEstudante_DeveIgnorarCategoriaQuandoNaoSuportado(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest("GET", "/faltas-estudante/ABC1234?categoria=p1&periodo=1_semestre,2_semestre", nil)
+
+	filtros, err := parseFiltrosRegistrosEstudante(ctx, false)
+	if err != nil {
+		t.Fatalf("não esperava erro, recebeu: %v", err)
+	}
+	if len(filtros.categorias) != 0 {
+		t.Fatalf("esperava categorias vazias para filtros sem categoria, recebeu=%v", filtros.categorias)
+	}
+	if !reflect.DeepEqual(filtros.periodos, []string{"1_semestre", "2_semestre"}) {
+		t.Fatalf("periodos inesperados: %v", filtros.periodos)
+	}
+}
