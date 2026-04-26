@@ -167,10 +167,10 @@ func validarCategoria(tipo string, categoria string, categoriasAdicionais []stri
 }
 
 // chaveNota retorna a chave composta usada para detectar duplicatas de nota no aggregate.
-// Formato: "<anoLectivo>_<periodo>_<materiaID>_<tipo>_<categoria>"
+// Formato: "<codigoAcademia>_<anoLectivo>_<periodo>_<materiaID>_<tipo>_<categoria>"
 // Deve coincidir exatamente com as colunas da constraint uq_nota_unica do banco.
-func chaveNota(anoLectivo, periodo string, materiaID uuid.UUID, tipo, categoria string) string {
-	return anoLectivo + "_" + periodo + "_" + materiaID.String() + "_" + tipo + "_" + categoria
+func chaveNota(codigoAcademia, anoLectivo, periodo string, materiaID uuid.UUID, tipo, categoria string) string {
+	return codigoAcademia + "_" + anoLectivo + "_" + periodo + "_" + materiaID.String() + "_" + tipo + "_" + categoria
 }
 
 // ============================================================================
@@ -224,7 +224,7 @@ func (e *Estudante) RegistrarNota(
 
 	// FIX NOTA-AGG-01: detectar duplicata via estado do aggregate.
 	// Evita double-submit e a violação de unique constraint 23505 na projeção.
-	chave := chaveNota(anoLectivo, periodo, materiaDisciplinarID, tipo, categoria)
+	chave := chaveNota(codigoAcademia, anoLectivo, periodo, materiaDisciplinarID, tipo, categoria)
 	if e.NotasRegistradasPorChave != nil && e.NotasRegistradasPorChave[chave] {
 		return fmt.Errorf(
 			"nota já registrada para periodo '%s', materia '%s', tipo '%s', categoria '%s' no ano letivo '%s'",
@@ -359,7 +359,7 @@ func (e *Estudante) applyNotasRegistradas(event DomainEvent) error {
 	if e.NotasRegistradasPorChave == nil {
 		e.NotasRegistradasPorChave = make(map[string]bool)
 	}
-	chave := chaveNota(ev.AnoLectivo, ev.Periodo, ev.MateriaDisciplinarID, ev.Tipo, ev.Categoria)
+	chave := chaveNota(ev.CodigoAcademia, ev.AnoLectivo, ev.Periodo, ev.MateriaDisciplinarID, ev.Tipo, ev.Categoria)
 	e.NotasRegistradasPorChave[chave] = true
 	return nil
 }

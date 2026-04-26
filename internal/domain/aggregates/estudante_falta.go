@@ -70,6 +70,10 @@ func (e *FaltaDeletadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 // Helpers internos
 // ============================================================================
 
+func chaveFalta(codigoAcademia, anoLectivo string, data time.Time, materiaID uuid.UUID) string {
+	return codigoAcademia + "_" + anoLectivo + "_" + data.Format("2006-01-02") + "_" + materiaID.String()
+}
+
 // ============================================================================
 // Método de comando: RegistrarFalta
 // ============================================================================
@@ -93,6 +97,13 @@ func (e *Estudante) RegistrarFalta(
 	}
 	if quantidade <= 0 {
 		return fmt.Errorf("quantidade deve ser maior que zero")
+	}
+	chave := chaveFalta(codigoAcademia, anoLectivo, data, materiaDisciplinarID)
+	if e.FaltasRegistradasPorChave != nil && e.FaltasRegistradasPorChave[chave] {
+		return fmt.Errorf(
+			"falta já registrada para data '%s', materia '%s' no ano letivo '%s' para academia '%s'",
+			data.Format("2006-01-02"), materiaDisciplinarID, anoLectivo, codigoAcademia,
+		)
 	}
 
 	event := &FaltasRegistradasEvent{
@@ -206,6 +217,11 @@ func (e *Estudante) applyFaltasRegistradas(event DomainEvent) error {
 	}
 
 	_ = ev
+	if e.FaltasRegistradasPorChave == nil {
+		e.FaltasRegistradasPorChave = make(map[string]bool)
+	}
+	chave := chaveFalta(ev.CodigoAcademia, ev.AnoLectivo, ev.Data, ev.MateriaDisciplinarID)
+	e.FaltasRegistradasPorChave[chave] = true
 	return nil
 }
 

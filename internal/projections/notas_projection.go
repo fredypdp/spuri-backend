@@ -125,7 +125,8 @@ func (p *NotasProjection) clear() error {
 // FIX PROJ-NOTA-03: o ON CONFLICT anterior usava colunas
 // (codigo_estudante, codigo_academia, ano_lectivo, periodo, materia_disciplinar_id)
 // que NÃO correspondem à constraint uq_nota_unica do banco, definida em migration 006 como:
-//   UNIQUE (codigo_estudante, ano_lectivo, periodo, materia_disciplinar_id, tipo, categoria)
+//
+//	UNIQUE (codigo_estudante, codigo_academia, ano_lectivo, periodo, materia_disciplinar_id, tipo, categoria)
 //
 // Com as colunas erradas o ON CONFLICT nunca disparava, resultando em violação
 // 23505 (unique_violation) em rebuild ou double-submit. Corrigido para usar
@@ -154,7 +155,7 @@ func (p *NotasProjection) handleNotasRegistradas(event db.Event) error {
 			periodo, materia_disciplinar_id, tipo, categoria, nota, observacao,
 			registered_at, event_id, version
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-		ON CONFLICT (codigo_estudante, ano_lectivo, periodo, materia_disciplinar_id, tipo, categoria)
+		ON CONFLICT (codigo_estudante, codigo_academia, ano_lectivo, periodo, materia_disciplinar_id, tipo, categoria)
 		DO UPDATE SET
 			nota          = EXCLUDED.nota,
 			observacao    = EXCLUDED.observacao,
@@ -207,15 +208,16 @@ func (p *NotasProjection) handleNotaAtualizada(event db.Event) error {
 		    version    = $3,
 		    event_id   = $4
 		WHERE codigo_estudante       = $5
-		  AND ano_lectivo            = $6
-		  AND periodo                = $7
-		  AND materia_disciplinar_id = $8
-		  AND tipo                   = $9
-		  AND categoria              = $10
+		  AND codigo_academia        = $6
+		  AND ano_lectivo            = $7
+		  AND periodo                = $8
+		  AND materia_disciplinar_id = $9
+		  AND tipo                   = $10
+		  AND categoria              = $11
 		  AND deleted_at IS NULL
 	`,
 		payload.NotaNova, payload.Observacao, event.EventVersion, event.EventID,
-		payload.CodigoEstudante, payload.AnoLectivo, payload.Periodo,
+		payload.CodigoEstudante, payload.CodigoAcademia, payload.AnoLectivo, payload.Periodo,
 		payload.MateriaDisciplinarID, payload.Tipo, payload.Categoria,
 	)
 	if err != nil {
