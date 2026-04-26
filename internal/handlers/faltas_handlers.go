@@ -378,10 +378,42 @@ func GetFaltasEstudante(c *gin.Context) {
 		return
 	}
 
+	filtros, err := parseFiltrosRegistrosEstudante(c, false)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	faltasFiltradas := make([]interface{}, 0, len(faltas))
+	materiasProj := getMateriasProjection(c)
+	materiaMetaCache := map[string]materiaMeta{}
+	for _, falta := range faltas {
+		if !matchesFiltroString(filtros.anoLectivos, falta.AnoLectivo) ||
+			!matchesFiltroString(filtros.anoAcademicos, falta.AnoAcademico) ||
+			!matchesFiltroString(filtros.materiasDisciplinares, falta.MateriaDisciplinarID) ||
+			!matchesFiltroString(filtros.codigosAcademia, falta.CodigoAcademia) {
+			continue
+		}
+
+		if len(filtros.cursoIDs) > 0 || len(filtros.periodos) > 0 {
+			materiaMetaAtual, err := getMateriaMeta(materiasProj, materiaMetaCache, falta.MateriaDisciplinarID)
+			if err != nil {
+				utils.RespondWithInternalError(c, err)
+				return
+			}
+			if !matchesFiltroString(filtros.cursoIDs, materiaMetaAtual.cursoID) ||
+				!matchesFiltroString(filtros.periodos, materiaMetaAtual.periodo) {
+				continue
+			}
+		}
+
+		faltasFiltradas = append(faltasFiltradas, falta)
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"codigo_estudante": codigoEstudante,
 		"nome":             estudante.Nome,
-		"faltas":           faltas,
-		"total":            len(faltas),
+		"faltas":           faltasFiltradas,
+		"total":            len(faltasFiltradas),
 	})
 }

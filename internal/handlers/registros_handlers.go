@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 type NotaRegistroResponse struct {
@@ -270,51 +271,81 @@ func ListarFaltas(c *gin.Context) {
 }
 
 type filtrosRegistros struct {
-	anoLectivo           string
-	anoAcademico         string
-	cursoID              string
-	codigoTurma          string
-	periodo              string
-	materiaDisciplinarID string
-	codigoAcademia       string
-	forbidden            bool
+	anoLectivos           []string
+	anoAcademicos         []string
+	cursoIDs              []string
+	codigosTurma          []string
+	periodos              []string
+	materiasDisciplinares []string
+	codigosAcademia       []string
+	categorias            []string
+	forbidden             bool
 }
 
 func parseFiltrosRegistros(c *gin.Context, userType, codigoAcademiaEscopo string) (filtrosRegistros, error) {
 	f := filtrosRegistros{
-		anoLectivo:           strings.TrimSpace(c.Query("ano_letivo")),
-		anoAcademico:         strings.TrimSpace(c.Query("ano_academico")),
-		cursoID:              strings.TrimSpace(c.Query("curso_id")),
-		codigoTurma:          strings.TrimSpace(c.Query("codigo_turma")),
-		periodo:              strings.TrimSpace(c.Query("periodo")),
-		materiaDisciplinarID: strings.TrimSpace(c.Query("materia_disciplinar_id")),
-		codigoAcademia:       strings.TrimSpace(c.Query("codigo_academia")),
+		anoLectivos:           parseMultiValueQueryParam(c, "ano_letivo"),
+		anoAcademicos:         parseMultiValueQueryParam(c, "ano_academico"),
+		cursoIDs:              parseMultiValueQueryParam(c, "curso_id"),
+		codigosTurma:          parseMultiValueQueryParam(c, "codigo_turma"),
+		periodos:              parseMultiValueQueryParam(c, "periodo"),
+		materiasDisciplinares: parseMultiValueQueryParam(c, "materia_disciplinar_id"),
+		codigosAcademia:       parseMultiValueQueryParam(c, "codigo_academia"),
+		categorias:            parseMultiValueQueryParam(c, "categoria"),
 	}
 
-	if f.codigoTurma != "" && userType == "admin" && f.codigoAcademia == "" {
+	if len(f.codigosTurma) > 0 && userType == "admin" && len(f.codigosAcademia) == 0 {
 		return f, fmt.Errorf("filtro codigo_turma exige codigo_academia para consultas admin")
 	}
 
 	if userType == "academia" {
-		if f.codigoAcademia != "" && f.codigoAcademia != codigoAcademiaEscopo {
-			f.forbidden = true
-			return f, nil
+		if len(f.codigosAcademia) > 0 {
+			for _, codigoAcademia := range f.codigosAcademia {
+				if codigoAcademia != codigoAcademiaEscopo {
+					f.forbidden = true
+					return f, nil
+				}
+			}
 		}
-		f.codigoAcademia = codigoAcademiaEscopo
+		f.codigosAcademia = []string{codigoAcademiaEscopo}
 	}
 
-	if f.cursoID != "" {
-		if _, err := uuid.Parse(f.cursoID); err != nil {
+	for _, cursoID := range f.cursoIDs {
+		if _, err := uuid.Parse(cursoID); err != nil {
 			return f, fmt.Errorf("curso_id inválido")
 		}
 	}
-	if f.materiaDisciplinarID != "" {
-		if _, err := uuid.Parse(f.materiaDisciplinarID); err != nil {
+	for _, materiaID := range f.materiasDisciplinares {
+		if _, err := uuid.Parse(materiaID); err != nil {
 			return f, fmt.Errorf("materia_disciplinar_id inválido")
 		}
 	}
 
 	return f, nil
+}
+
+func parseMultiValueQueryParam(c *gin.Context, key string) []string {
+	rawValues := c.QueryArray(key)
+	if len(rawValues) == 0 {
+		return nil
+	}
+
+	parsedValues := make([]string, 0, len(rawValues))
+	seen := make(map[string]struct{}, len(rawValues))
+	for _, raw := range rawValues {
+		for _, part := range strings.Split(raw, ",") {
+			value := strings.TrimSpace(part)
+			if value == "" {
+				continue
+			}
+			if _, exists := seen[value]; exists {
+				continue
+			}
+			seen[value] = struct{}{}
+			parsedValues = append(parsedValues, value)
+		}
+	}
+	return parsedValues
 }
 
 func (f filtrosRegistros) buildWhereSQL(alias string, includePeriodoRegistro bool) (string, []interface{}) {
@@ -325,37 +356,40 @@ func (f filtrosRegistros) buildWhereSQL(alias string, includePeriodoRegistro boo
 		conditions = append(conditions, fmt.Sprintf(sql, len(args)))
 	}
 
-	if f.codigoAcademia != "" {
-		add(alias+".codigo_academia = $%d", f.codigoAcademia)
+	if len(f.codigosAcademia) > 0 {
+		add(alias+".codigo_academia = ANY($%d)", pq.Array(f.codigosAcademia))
 	}
-	if f.anoLectivo != "" {
-		add(alias+".ano_lectivo = $%d", f.anoLectivo)
+	if len(f.anoLectivos) > 0 {
+		add(alias+".ano_lectivo = ANY($%d)", pq.Array(f.anoLectivos))
 	}
-	if f.anoAcademico != "" {
-		add(alias+".ano_academico = $%d", f.anoAcademico)
+	if len(f.anoAcademicos) > 0 {
+		add(alias+".ano_academico = ANY($%d)", pq.Array(f.anoAcademicos))
 	}
-	if f.cursoID != "" {
-		add("m.curso_id = $%d", f.cursoID)
+	if len(f.cursoIDs) > 0 {
+		add("m.curso_id = ANY($%d)", pq.Array(f.cursoIDs))
 	}
-	if f.periodo != "" {
+	if len(f.periodos) > 0 {
 		if includePeriodoRegistro {
-			add(alias+".periodo = $%d", f.periodo)
+			add(alias+".periodo = ANY($%d)", pq.Array(f.periodos))
 		} else {
-			add("m.periodo = $%d", f.periodo)
+			add("m.periodo = ANY($%d)", pq.Array(f.periodos))
 		}
 	}
-	if f.materiaDisciplinarID != "" {
-		add(alias+".materia_disciplinar_id = $%d", f.materiaDisciplinarID)
+	if len(f.materiasDisciplinares) > 0 {
+		add(alias+".materia_disciplinar_id = ANY($%d)", pq.Array(f.materiasDisciplinares))
 	}
-	if f.codigoTurma != "" {
-		args = append(args, f.codigoTurma)
+	if includePeriodoRegistro && len(f.categorias) > 0 {
+		add(alias+".categoria = ANY($%d)", pq.Array(f.categorias))
+	}
+	if len(f.codigosTurma) > 0 {
+		args = append(args, pq.Array(f.codigosTurma))
 		conditions = append(conditions, fmt.Sprintf(`
 EXISTS (
 	SELECT 1
 	FROM projection_turmas t
 	WHERE t.deleted_at IS NULL
 	  AND t.codigo_academia = %s.codigo_academia
-	  AND t.codigo_turma = $%d
+	  AND t.codigo_turma = ANY($%d)
 	  AND EXISTS (
 		  SELECT 1
 		  FROM jsonb_array_elements_text(

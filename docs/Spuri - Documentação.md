@@ -1,8 +1,8 @@
 ---
-modificado: 25-04-2026 13:10
+modificado: 26-04-2026 11:05
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.3.3
+Versão atual: 1.3.5
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -614,8 +614,18 @@ Este é o **único mecanismo de transição de ano** no sistema. Registar a aval
 **Consultas globais de notas/faltas (`GET /notas`, `GET /faltas`):**
 
 - suportam filtros por `ano_letivo`, `ano_academico`, `curso_id`, `codigo_turma`, `periodo`, `materia_disciplinar_id`, `codigo_academia`
+- em `GET /notas`, também suportam filtro por `categoria`
+- todos os filtros aceitam múltiplos valores (parâmetro repetido e/ou CSV no mesmo parâmetro)
 - em `GET /notas`, `periodo` filtra o período registado da nota
 - em `GET /faltas`, `periodo` filtra o período configurado na matéria
+
+**Consultas por estudante (`GET /notas-estudante/:codigo`, `GET /faltas-estudante/:codigo`):**
+
+- agora aceitam os mesmos filtros base (`ano_letivo`, `ano_academico`, `curso_id`, `periodo`, `materia_disciplinar_id`, `codigo_academia`) com múltiplos valores
+- em `GET /notas-estudante/:codigo`, também aceitam `categoria`
+- em `GET /notas-estudante/:codigo`, `periodo` filtra o período registado da nota
+- em `GET /faltas-estudante/:codigo`, `periodo` filtra o período configurado na matéria
+- para essas rotas por estudante, `codigo_turma` não é necessário
 
 ---
 

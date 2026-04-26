@@ -1,8 +1,8 @@
 ---
-modificado: 25-04-2026 13:10
+modificado: 26-04-2026 11:05
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.3.7
+Versão atual: 1.3.9
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -1655,6 +1655,22 @@ Retorna as notas de um estudante.
 - Academia: apenas estudantes da própria academia
 - Admin: qualquer estudante
 
+**Query Params (opcionais):**
+
+- `ano_letivo` — aceita múltiplos valores
+- `ano_academico` — aceita múltiplos valores
+- `curso_id` — aceita múltiplos valores
+- `periodo` — filtra o período registado da nota (aceita múltiplos valores)
+- `materia_disciplinar_id` — aceita múltiplos valores
+- `categoria` — filtra por categoria da nota (aceita múltiplos valores)
+- `codigo_academia` — aceita múltiplos valores
+
+**Formato de múltiplos valores:**
+
+- chave repetida: `?ano_letivo=2024_2025&ano_letivo=2025_2026`
+- CSV na mesma chave: `?ano_letivo=2024_2025,2025_2026`
+- também é possível combinar os dois formatos na mesma chamada
+
 **Response 200:**
 
 ```json
@@ -1785,6 +1801,23 @@ Retorna as faltas de um estudante.
 - Estudante: apenas o próprio código (`:codigo` deve ser o do estudante autenticado)
 - Academia: apenas estudantes da própria academia
 - Admin: qualquer estudante
+
+**Query Params (opcionais):**
+
+- `ano_letivo` — aceita múltiplos valores
+- `ano_academico` — aceita múltiplos valores
+- `curso_id` — aceita múltiplos valores
+- `periodo` — filtra pelo período configurado na matéria (aceita múltiplos valores)
+- `materia_disciplinar_id` — aceita múltiplos valores
+- `codigo_academia` — aceita múltiplos valores
+
+> Nesta rota, o filtro `codigo_turma` não é utilizado.
+
+**Formato de múltiplos valores:**
+
+- chave repetida: `?periodo=1_trimestre&periodo=2_trimestre`
+- CSV na mesma chave: `?periodo=1_trimestre,2_trimestre`
+- também é possível combinar os dois formatos na mesma chamada
 
 **Response 200:**
 
@@ -2870,13 +2903,20 @@ Lista registros de notas com escopo por perfil.
 
 - `limit` — padrão 50, máximo 1000
 - `offset` — padrão 0
-- `ano_letivo` — filtra por ano letivo
-- `ano_academico` — filtra por ano académico
-- `curso_id` — filtra por curso (nível médio ou superior)
-- `codigo_turma` — filtra por turma (requer `codigo_academia` em consultas admin)
-- `periodo` — filtra por período (`1_trimestre`, `2_trimestre`, `3_trimestre`, `1_semestre`, `2_semestre`)
-- `materia_disciplinar_id` — filtra por matéria disciplinar
-- `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
+- `ano_letivo` — filtra por ano letivo (aceita múltiplos valores)
+- `ano_academico` — filtra por ano académico (aceita múltiplos valores)
+- `curso_id` — filtra por curso (nível médio ou superior) (aceita múltiplos valores)
+- `codigo_turma` — filtra por turma (requer `codigo_academia` em consultas admin) (aceita múltiplos valores)
+- `periodo` — filtra por período (`1_trimestre`, `2_trimestre`, `3_trimestre`, `1_semestre`, `2_semestre`) (aceita múltiplos valores)
+- `materia_disciplinar_id` — filtra por matéria disciplinar (aceita múltiplos valores)
+- `categoria` — filtra por categoria da nota (aceita múltiplos valores)
+- `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código (aceita múltiplos valores)
+
+**Formato de múltiplos valores (todos os filtros acima):**
+
+- chave repetida: `?ano_letivo=2024_2025&ano_letivo=2025_2026`
+- CSV na mesma chave: `?ano_letivo=2024_2025,2025_2026`
+- também é possível combinar os dois formatos na mesma chamada
 
 **Response 200:**
 
@@ -2913,13 +2953,19 @@ Lista registros de faltas com escopo por perfil.
 
 - `limit` — padrão 50, máximo 1000
 - `offset` — padrão 0
-- `ano_letivo` — filtra por ano letivo
-- `ano_academico` — filtra por ano académico
-- `curso_id` — filtra por curso (nível médio ou superior)
-- `codigo_turma` — filtra por turma (requer `codigo_academia` em consultas admin)
-- `periodo` — filtra por período da matéria (`1_trimestre`, `2_trimestre`, `3_trimestre`, `1_semestre`, `2_semestre`)
-- `materia_disciplinar_id` — filtra por matéria disciplinar
-- `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
+- `ano_letivo` — filtra por ano letivo (aceita múltiplos valores)
+- `ano_academico` — filtra por ano académico (aceita múltiplos valores)
+- `curso_id` — filtra por curso (nível médio ou superior) (aceita múltiplos valores)
+- `codigo_turma` — filtra por turma (requer `codigo_academia` em consultas admin) (aceita múltiplos valores)
+- `periodo` — filtra por período da matéria (`1_trimestre`, `2_trimestre`, `3_trimestre`, `1_semestre`, `2_semestre`) (aceita múltiplos valores)
+- `materia_disciplinar_id` — filtra por matéria disciplinar (aceita múltiplos valores)
+- `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código (aceita múltiplos valores)
+
+**Formato de múltiplos valores (todos os filtros acima):**
+
+- chave repetida: `?periodo=1_trimestre&periodo=2_trimestre`
+- CSV na mesma chave: `?periodo=1_trimestre,2_trimestre`
+- também é possível combinar os dois formatos na mesma chamada
 
 **Response 200:**
 
