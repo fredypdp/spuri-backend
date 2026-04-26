@@ -518,7 +518,7 @@ Sempre que o ano letivo for atualizado, ele é adicionado em `anos_letivos_lista
     - Se estudante tem `ano_escolar` preenchido (fundamental) → usa esse valor **somente se** esse ano existir em `anos_academicos` da matéria
     - Se não existir, o registro é bloqueado com erro de validação (incompatibilidade estudante × matéria)
     - Caso contrário → usa `anos_academicos[0]` da matéria
-6. Sistema verifica idempotência (chave: `anoLectivo_periodo_materiaID_tipo_categoria`)
+6. Sistema verifica idempotência (chave: `codigoAcademia_anoLectivo_periodo_materiaID_tipo_categoria`)
 7. Se não for duplicata, emite `NotasRegistradas` no ledger do estudante
 
 **Tipos de nota:**
@@ -536,7 +536,7 @@ Academias podem criar **categorias adicionais** personalizadas, disponíveis par
 
 **Deleção de nota**: `motivo` é **obrigatório**; soft delete (permanece no ledger)
 
-**Proteção contra duplicatas**: o aggregate mantém um mapa em memória (`NotasRegistradasPorChave`). Se a mesma combinação de ano/período/matéria/tipo/categoria já existir, o comando é rejeitado com erro de negócio claro antes de tocar o banco.
+**Proteção contra duplicatas**: o aggregate mantém um mapa em memória (`NotasRegistradasPorChave`). Se a mesma combinação de academia/ano/período/matéria/tipo/categoria já existir, o comando é rejeitado com erro de negócio claro antes de tocar o banco.
 
 ---
 
@@ -550,13 +550,13 @@ Academias podem criar **categorias adicionais** personalizadas, disponíveis par
 2. Sistema valida ano letivo ativo
 3. Sistema verifica pertencimento do estudante e da matéria à academia
 4. Sistema infere o `ano_academico` (mesma lógica das notas)
-5. Sistema verifica idempotência (chave: `anoLectivo_data_materiaID`)
+5. Sistema verifica idempotência (chave: `codigoAcademia_anoLectivo_data_materiaID`)
 
 **Quantidade**: deve ser positiva (≥ 1)
 
 **Data**: formato `AAAA-MM-DD` (date-only, sem componente de hora)
 
-**Regra de registro**: faltas mantêm unicidade por combinação de ano letivo + data + matéria.
+**Regra de registro**: faltas mantêm unicidade por combinação de academia + ano letivo + data + matéria.
 
 **Quantidade por registro**: não possui teto máximo (apenas deve ser `>= 1`).
 
