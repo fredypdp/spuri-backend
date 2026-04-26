@@ -414,6 +414,43 @@ func validarCompatibilidadeEstudanteTurma(
 	return nil
 }
 
+type estudanteCompatibilidadeDTO struct {
+	Codigo          string
+	AnoEscolar      *string
+	AnoEscolarMedio *string
+	AnoSuperior     *string
+	CursoMedioID    *string
+	CursoSuperiorID *string
+}
+
+func validarCompatibilidadeTurmaComEstudantes(
+	academiaAnosAcademicos []string,
+	nivel string,
+	cursoID *uuid.UUID,
+	estudantes []estudanteCompatibilidadeDTO,
+) error {
+	for _, est := range estudantes {
+		if err := validarCompatibilidadeEstudanteTurma(
+			nil, nil,
+			academiaAnosAcademicos,
+			nivel,
+			cursoID,
+			est.AnoEscolar,
+			est.AnoEscolarMedio,
+			est.AnoSuperior,
+			est.CursoMedioID,
+			est.CursoSuperiorID,
+		); err != nil {
+			return fmt.Errorf(
+				"estudante '%s' ficaria incompatível com os novos dados (%w)",
+				est.Codigo,
+				err,
+			)
+		}
+	}
+	return nil
+}
+
 // inferirTipoEnsinoPorNivel determina o tipo de ensino com base no formato do campo nivel da turma.
 // Retorna "fundamental", "medio", "superior" ou "desconhecido".
 func inferirTipoEnsinoPorNivel(nivel string) string {
@@ -651,6 +688,7 @@ func AtualizarTurma(c *gin.Context) {
 
 	if (req.Nivel != nil || req.CursoID != nil) && len(turmaDTO.Estudantes) > 0 {
 		estudanteProj := getEstudanteProjection(c)
+		estudantesParaValidar := make([]estudanteCompatibilidadeDTO, 0, len(turmaDTO.Estudantes))
 
 		for _, codigoEstudante := range turmaDTO.Estudantes {
 			estudanteDTO, err := estudanteProj.GetByCodigo(codigoEstudante)
@@ -666,24 +704,24 @@ func AtualizarTurma(c *gin.Context) {
 				return
 			}
 
-			if err := validarCompatibilidadeEstudanteTurma(
-				nil, nil,
-				academiaDTO.AnosAcademicos,
-				nivelEfetivo,
-				cursoIDEfetivo,
-				estudanteDTO.AnoEscolar,
-				estudanteDTO.AnoEscolarMedio,
-				estudanteDTO.AnoSuperior,
-				estudanteDTO.CursoMedioID,
-				estudanteDTO.CursoSuperiorID,
-			); err != nil {
-				utils.RespondWithValidationError(c, fmt.Errorf(
-					"não é possível atualizar turma: estudante '%s' ficaria incompatível com os novos dados (%w)",
-					codigoEstudante,
-					err,
-				))
-				return
-			}
+			estudantesParaValidar = append(estudantesParaValidar, estudanteCompatibilidadeDTO{
+				Codigo:          codigoEstudante,
+				AnoEscolar:      estudanteDTO.AnoEscolar,
+				AnoEscolarMedio: estudanteDTO.AnoEscolarMedio,
+				AnoSuperior:     estudanteDTO.AnoSuperior,
+				CursoMedioID:    estudanteDTO.CursoMedioID,
+				CursoSuperiorID: estudanteDTO.CursoSuperiorID,
+			})
+		}
+
+		if err := validarCompatibilidadeTurmaComEstudantes(
+			academiaDTO.AnosAcademicos,
+			nivelEfetivo,
+			cursoIDEfetivo,
+			estudantesParaValidar,
+		); err != nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("não é possível atualizar turma: %w", err))
+			return
 		}
 	}
 

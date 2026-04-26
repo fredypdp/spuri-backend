@@ -1,8 +1,8 @@
 ---
-modificado: 26-04-2026 11:05
+modificado: 26-04-2026 12:10
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.3.9
+Versão atual: 1.3.10
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -2445,6 +2445,10 @@ Atualiza dados de uma turma.
 
 **Proteção**: autenticado + academia ativa
 
+**Regra de compatibilidade (novo)**:
+- Ao alterar `nivel` e/ou `curso_id`, o backend valida todos os estudantes já vinculados.
+- Se pelo menos um estudante ficar incompatível com os novos dados, a atualização é bloqueada com `400`.
+
 **Request:** (todos opcionais)
 
 ```json
@@ -2462,6 +2466,9 @@ Atualiza dados de uma turma.
   "message": "turma atualizada com sucesso"
 }
 ```
+
+**Erros comuns:**
+- `400` — estudante vinculado ficaria incompatível com o novo `nivel` e/ou `curso_id`
 
 ---
 
