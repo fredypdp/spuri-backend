@@ -82,16 +82,36 @@ func CriarTurma(c *gin.Context) {
 // Rota: GET /academia/turmas
 func ListarTurmasAcademia(c *gin.Context) {
 	academiaID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
 
 	academiaProj := getAcademiaProjection(c)
-	academiaDTO, err := academiaProj.GetByID(academiaID)
-	if err != nil || academiaDTO == nil {
-		utils.RespondWithInternalError(c, err)
-		return
+	codigoAcademia := ""
+	if userType == "admin" {
+		codigoAcademia = c.Query("codigo_academia")
+		if codigoAcademia == "" {
+			utils.RespondWithValidationError(c, fmt.Errorf("codigo_academia é obrigatório para admin"))
+			return
+		}
+		academiaDTO, err := academiaProj.GetByCodigo(codigoAcademia)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		if academiaDTO == nil {
+			utils.RespondWithNotFoundError(c, "academia")
+			return
+		}
+	} else {
+		academiaDTO, err := academiaProj.GetByID(academiaID)
+		if err != nil || academiaDTO == nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		codigoAcademia = academiaDTO.CodigoAcademia
 	}
 
 	turmasProj := getTurmasProjection(c)
-	turmas, err := turmasProj.ListByAcademia(academiaDTO.CodigoAcademia)
+	turmas, err := turmasProj.ListByAcademia(codigoAcademia)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -163,17 +183,31 @@ func GetTurmasEstudante(c *gin.Context) {
 // Rota: GET /academia/turmas/:codigo
 func GetTurma(c *gin.Context) {
 	academiaID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
 	codigoTurma := c.Param("codigo")
 
-	academiaProj := getAcademiaProjection(c)
-	academiaDTO, err := academiaProj.GetByID(academiaID)
-	if err != nil || academiaDTO == nil {
-		utils.RespondWithInternalError(c, err)
-		return
+	turmasProj := getTurmasProjection(c)
+	var (
+		turma *projections.TurmaDTO
+		err   error
+	)
+	if userType == "admin" {
+		codigoAcademia := c.Query("codigo_academia")
+		if codigoAcademia == "" {
+			utils.RespondWithValidationError(c, fmt.Errorf("codigo_academia é obrigatório para admin"))
+			return
+		}
+		turma, err = turmasProj.GetByCodigoTurma(codigoTurma, codigoAcademia)
+	} else {
+		academiaProj := getAcademiaProjection(c)
+		academiaDTO, errAcademia := academiaProj.GetByID(academiaID)
+		if errAcademia != nil || academiaDTO == nil {
+			utils.RespondWithInternalError(c, errAcademia)
+			return
+		}
+		turma, err = turmasProj.GetByCodigoTurma(codigoTurma, academiaDTO.CodigoAcademia)
 	}
 
-	turmasProj := getTurmasProjection(c)
-	turma, err := turmasProj.GetByCodigoTurma(codigoTurma, academiaDTO.CodigoAcademia)
 	if err != nil || turma == nil {
 		utils.RespondWithNotFoundError(c, "turma")
 		return

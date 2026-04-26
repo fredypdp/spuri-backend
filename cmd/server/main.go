@@ -278,6 +278,19 @@ func setupRouter() *gin.Engine {
 	}
 
 	// ── Rotas de academia ─────────────────────────────────────────────────
+	academiaRead := router.Group("/academia")
+	academiaRead.Use(middleware.AuthMiddleware())
+	academiaRead.Use(middleware.RequireAcademiaOuAdmin())
+	academiaRead.Use(middleware.ValidarStatusAcademia())
+	{
+		academiaRead.GET("/cursos", handlers.ListarCursos)
+		academiaRead.GET("/curso/:id", handlers.GetCurso)
+		academiaRead.GET("/materias", handlers.ListarMaterias)
+		academiaRead.GET("/materia/:id", handlers.GetMateria)
+		academiaRead.GET("/turmas", handlers.ListarTurmasAcademia)
+		academiaRead.GET("/turma/:codigo", handlers.GetTurma)
+	}
+
 	academia := router.Group("/academia")
 	academia.Use(middleware.AuthMiddleware())
 	academia.Use(middleware.RequireAcademia())
@@ -306,8 +319,6 @@ func setupRouter() *gin.Engine {
 
 		// ── Cursos ────────────────────────────────────────────────────────
 		academia.POST("/curso", handlers.CriarCurso)
-		academia.GET("/cursos", handlers.ListarCursos)
-		academia.GET("/curso/:id", handlers.GetCurso)
 		academia.PUT("/curso/:id/ativar", handlers.AtivarCurso)
 		academia.PUT("/curso/:id/desativar", handlers.DesativarCurso)
 		academia.PUT("/curso/:id/dados", handlers.AtualizarDadosCurso)
@@ -315,8 +326,6 @@ func setupRouter() *gin.Engine {
 
 		// ── Matérias ──────────────────────────────────────────────────────
 		academia.POST("/materia", handlers.CriarMateria)
-		academia.GET("/materias", handlers.ListarMaterias)
-		academia.GET("/materia/:id", handlers.GetMateria)
 		academia.PUT("/materia/:id/ativar", handlers.AtivarMateria)
 		academia.PUT("/materia/:id/desativar", handlers.DesativarMateria)
 		academia.PUT("/materia/:id/periodo", handlers.DefinirPeriodoMateria)
@@ -325,8 +334,6 @@ func setupRouter() *gin.Engine {
 
 		// ── Turmas ────────────────────────────────────────────────────────
 		academia.POST("/turma", handlers.CriarTurma)
-		academia.GET("/turmas", handlers.ListarTurmasAcademia)
-		academia.GET("/turma/:codigo", handlers.GetTurma)
 		academia.PUT("/turma/:codigo/ativar", handlers.AtivarTurma)
 		academia.PUT("/turma/:codigo/desativar", handlers.DesativarTurma)
 		academia.PUT("/turma/:codigo/dados", handlers.AtualizarDadosTurma)

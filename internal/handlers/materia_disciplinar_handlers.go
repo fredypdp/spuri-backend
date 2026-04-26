@@ -118,16 +118,36 @@ func CriarMateria(c *gin.Context) {
 
 func ListarMaterias(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
 
 	academiaProj := getAcademiaProjection(c)
-	academiaDTO, err := academiaProj.GetByID(userID)
-	if err != nil || academiaDTO == nil {
-		utils.RespondWithInternalError(c, err)
-		return
+	codigoAcademia := ""
+	if userType == "admin" {
+		codigoAcademia = c.Query("codigo_academia")
+		if codigoAcademia == "" {
+			utils.RespondWithValidationError(c, fmt.Errorf("codigo_academia é obrigatório para admin"))
+			return
+		}
+		academiaDTO, err := academiaProj.GetByCodigo(codigoAcademia)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		if academiaDTO == nil {
+			utils.RespondWithNotFoundError(c, "academia")
+			return
+		}
+	} else {
+		academiaDTO, err := academiaProj.GetByID(userID)
+		if err != nil || academiaDTO == nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		codigoAcademia = academiaDTO.CodigoAcademia
 	}
 
 	materiasProj := getMateriasProjection(c)
-	materias, err := materiasProj.GetByAcademia(academiaDTO.CodigoAcademia)
+	materias, err := materiasProj.GetByAcademia(codigoAcademia)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -500,6 +520,7 @@ func DeletarMateria(c *gin.Context) {
 // Protegido por RequireAcademia — academia só pode ver suas próprias matérias.
 func GetMateria(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
 
 	materiaID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -515,10 +536,12 @@ func GetMateria(c *gin.Context) {
 	}
 
 	academiaProj := getAcademiaProjection(c)
-	academiaDTO, _ := academiaProj.GetByID(userID)
-	if academiaDTO == nil || academiaDTO.CodigoAcademia != materiaDTO.CodigoAcademia {
-		utils.RespondWithForbiddenError(c, "matéria não pertence a esta academia")
-		return
+	if userType == "academia" {
+		academiaDTO, _ := academiaProj.GetByID(userID)
+		if academiaDTO == nil || academiaDTO.CodigoAcademia != materiaDTO.CodigoAcademia {
+			utils.RespondWithForbiddenError(c, "matéria não pertence a esta academia")
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, materiaDTO)
