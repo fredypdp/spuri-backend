@@ -638,6 +638,55 @@ func AtualizarTurma(c *gin.Context) {
 		return
 	}
 
+	// Se houver alteração de nível e/ou curso, valida todos os estudantes já
+	// vinculados antes de persistir a mudança.
+	nivelEfetivo := turmaDTO.Nivel
+	if req.Nivel != nil {
+		nivelEfetivo = *req.Nivel
+	}
+	cursoIDEfetivo := turmaDTO.CursoID
+	if req.CursoID != nil {
+		cursoIDEfetivo = req.CursoID
+	}
+
+	if (req.Nivel != nil || req.CursoID != nil) && len(turmaDTO.Estudantes) > 0 {
+		estudanteProj := getEstudanteProjection(c)
+
+		for _, codigoEstudante := range turmaDTO.Estudantes {
+			estudanteDTO, err := estudanteProj.GetByCodigo(codigoEstudante)
+			if err != nil {
+				utils.RespondWithInternalError(c, err)
+				return
+			}
+			if estudanteDTO == nil {
+				utils.RespondWithValidationError(c, fmt.Errorf(
+					"não é possível atualizar a turma: estudante '%s' não foi encontrado para validação de compatibilidade",
+					codigoEstudante,
+				))
+				return
+			}
+
+			if err := validarCompatibilidadeEstudanteTurma(
+				nil, nil,
+				academiaDTO.AnosAcademicos,
+				nivelEfetivo,
+				cursoIDEfetivo,
+				estudanteDTO.AnoEscolar,
+				estudanteDTO.AnoEscolarMedio,
+				estudanteDTO.AnoSuperior,
+				estudanteDTO.CursoMedioID,
+				estudanteDTO.CursoSuperiorID,
+			); err != nil {
+				utils.RespondWithValidationError(c, fmt.Errorf(
+					"não é possível atualizar turma: estudante '%s' ficaria incompatível com os novos dados (%w)",
+					codigoEstudante,
+					err,
+				))
+				return
+			}
+		}
+	}
+
 	repository := getRepository(c)
 	agg, err := repository.Load(turmaDTO.ID, "Turma")
 	if err != nil {
