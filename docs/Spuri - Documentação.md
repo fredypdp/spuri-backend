@@ -1,8 +1,8 @@
 ---
-modificado: 26-04-2026 11:05
+modificado: 26-04-2026 12:10
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.3.5
+Versão atual: 1.3.6
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -392,6 +392,8 @@ Agrupa estudantes num contexto de nível, turno e curso.
 O código de turma deve ser **único dentro da academia**.
 
 **Estudantes na turma**: guardados como lista de `CodigoEstudante` (strings). Um estudante pode estar em múltiplas turmas simultaneamente.
+
+**Integridade em atualização**: ao atualizar `nivel` e/ou `curso_id` da turma, o sistema valida os estudantes já vinculados. Se algum ficar incompatível, a alteração é rejeitada para evitar estado inconsistente.
 
 **Deleção**: a turma deve estar inativa e sem estudantes vinculados.
 
