@@ -1,8 +1,8 @@
 ---
-modificado: 26-04-2026 12:10
+modificado: 27-04-2026 10:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.4.0
+Versão atual: 1.4.1
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -1080,9 +1080,15 @@ Define ou atualiza o ano letivo ativo da academia.
 
 ### GET /academia/ano-letivo
 
-Retorna o ano letivo ativo da academia.
+Retorna o ano letivo ativo da academia autenticada.
 
-**Proteção**: autenticado + academia ativa
+**Proteção**: autenticado + academia ativa **ou** admin
+
+**Query params:**
+
+- `codigo_academia` (opcional para academia, obrigatório para admin): código da academia alvo.
+  - Se o usuário for `academia`, o backend ignora o parâmetro e retorna o próprio ano letivo.
+  - Se o usuário for `admin`, deve informar `?codigo_academia=...`.
 
 **Response 200:**
 
@@ -1097,14 +1103,21 @@ Retorna o ano letivo ativo da academia.
 **Erros:**
 
 - `404` — ano letivo não configurado
+- `404` — academia não encontrada (incluindo admin sem `codigo_academia`)
 
 ---
 
 ### GET /academia/anos-letivos-lista
 
-Retorna a lista histórica de anos letivos definidos pela academia autenticada.
+Retorna a lista histórica de anos letivos definidos pela academia alvo.
 
-**Proteção**: autenticado + academia ativa
+**Proteção**: autenticado + academia ativa **ou** admin
+
+**Query params:**
+
+- `codigo_academia` (opcional para academia, obrigatório para admin): código da academia alvo.
+  - Se o usuário for `academia`, o backend ignora o parâmetro e retorna a própria lista.
+  - Se o usuário for `admin`, deve informar `?codigo_academia=...`.
 
 **Response 200:**
 
@@ -1126,6 +1139,10 @@ Retorna a lista histórica de anos letivos definidos pela academia autenticada.
   ]
 }
 ```
+
+**Erros:**
+
+- `404` — academia não encontrada (incluindo admin sem `codigo_academia`)
 
 ---
 

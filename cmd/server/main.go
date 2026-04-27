@@ -289,6 +289,8 @@ func setupRouter() *gin.Engine {
 		academiaRead.GET("/materia/:id", handlers.GetMateria)
 		academiaRead.GET("/turmas", handlers.ListarTurmasAcademia)
 		academiaRead.GET("/turma/:codigo", handlers.GetTurma)
+		academiaRead.GET("/ano-letivo", handlers.GetAnoLetivoAcademia)
+		academiaRead.GET("/anos-letivos-lista", handlers.GetAnosLetivosListaAcademia)
 	}
 
 	academia := router.Group("/academia")
@@ -298,8 +300,6 @@ func setupRouter() *gin.Engine {
 	{
 		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
 		academia.POST("/ano-letivo", handlers.DefinirAnoLetivoAcademia)
-		academia.GET("/ano-letivo", handlers.GetAnoLetivoAcademia)
-		academia.GET("/anos-letivos-lista", handlers.GetAnosLetivosListaAcademia)
 
 		academia.POST("/estudante/register", handlers.RegisterEstudantePorAcademia)
 		academia.POST("/notas-aluno", handlers.RegistrarNota)
