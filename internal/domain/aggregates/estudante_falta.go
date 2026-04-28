@@ -70,8 +70,8 @@ func (e *FaltaDeletadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 // Helpers internos
 // ============================================================================
 
-func chaveFalta(codigoAcademia, anoLectivo string, data time.Time, materiaID uuid.UUID) string {
-	return codigoAcademia + "_" + anoLectivo + "_" + data.Format("2006-01-02") + "_" + materiaID.String()
+func chaveFalta(codigoEstudante, codigoAcademia, anoLectivo string, data time.Time, materiaID uuid.UUID) string {
+	return codigoEstudante + "_" + codigoAcademia + "_" + anoLectivo + "_" + data.Format("2006-01-02") + "_" + materiaID.String()
 }
 
 // ============================================================================
@@ -98,7 +98,7 @@ func (e *Estudante) RegistrarFalta(
 	if quantidade <= 0 {
 		return fmt.Errorf("quantidade deve ser maior que zero")
 	}
-	chave := chaveFalta(codigoAcademia, anoLectivo, data, materiaDisciplinarID)
+	chave := chaveFalta(e.CodigoEstudante, codigoAcademia, anoLectivo, data, materiaDisciplinarID)
 	if e.FaltasRegistradasPorChave != nil && e.FaltasRegistradasPorChave[chave] {
 		return fmt.Errorf(
 			"falta já registrada para data '%s', materia '%s' no ano letivo '%s' para academia '%s'",
@@ -145,6 +145,9 @@ func (e *Estudante) AtualizarFalta(
 	}
 	if data == nil && materiaDisciplinarID == nil && quantidade == nil && observacao == nil {
 		return fmt.Errorf("ao menos um campo deve ser fornecido para atualização")
+	}
+	if observacao == nil || strings.TrimSpace(*observacao) == "" {
+		return fmt.Errorf("observacao é obrigatória para atualizar uma falta")
 	}
 	if quantidade != nil && *quantidade <= 0 {
 		return fmt.Errorf("quantidade deve ser maior que zero")
@@ -220,7 +223,7 @@ func (e *Estudante) applyFaltasRegistradas(event DomainEvent) error {
 	if e.FaltasRegistradasPorChave == nil {
 		e.FaltasRegistradasPorChave = make(map[string]bool)
 	}
-	chave := chaveFalta(ev.CodigoAcademia, ev.AnoLectivo, ev.Data, ev.MateriaDisciplinarID)
+	chave := chaveFalta(ev.CodigoEstudante, ev.CodigoAcademia, ev.AnoLectivo, ev.Data, ev.MateriaDisciplinarID)
 	e.FaltasRegistradasPorChave[chave] = true
 	return nil
 }

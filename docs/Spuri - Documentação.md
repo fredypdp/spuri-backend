@@ -1,8 +1,8 @@
 ---
-modificado: 26-04-2026 12:10
+modificado: 28-04-2026 14:20
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.3.6
+Versão atual: 1.3.7
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -550,15 +550,17 @@ Academias podem criar **categorias adicionais** personalizadas, disponíveis par
 2. Sistema valida ano letivo ativo
 3. Sistema verifica pertencimento do estudante e da matéria à academia
 4. Sistema infere o `ano_academico` (mesma lógica das notas)
-5. Sistema verifica idempotência (chave: `codigoAcademia_anoLectivo_data_materiaID`)
+5. Sistema verifica idempotência (chave: `data+codigo_estudante+materia_disciplinar_id`; no aggregate ela é resolvida no contexto de academia + ano letivo)
 
 **Quantidade**: deve ser positiva (≥ 1)
 
 **Data**: formato `AAAA-MM-DD` (date-only, sem componente de hora)
 
-**Regra de registro**: faltas mantêm unicidade por combinação de academia + ano letivo + data + matéria.
+**Regra de registro**: faltas mantêm unicidade por combinação de `data + codigo_estudante + materia_disciplinar_id` (equivalente à unicidade técnica em projeção: estudante + academia + data + matéria).
 
 **Quantidade por registro**: não possui teto máximo (apenas deve ser `>= 1`).
+
+**Correção de falta**: `observacao` é **obrigatória** (justificativa da correção).
 
 **Deleção de falta**: `motivo` é **obrigatório**; soft delete
 
@@ -796,7 +798,18 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 | Duplicata bloqueada no aggregate            | Mesma combinação ano/período/matéria/tipo/categoria rejeitada |
 | Nota deletada não pode ser re-registada     | Mapa de chaves não remove entradas deletadas                  |
 
-### 6.4 Regras de Avaliação Final
+### 6.4 Regras de Faltas
+
+| Regra                                            | Detalhe                                                                                 |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| Quantidade deve ser 1 ou mais                    | Validação no handler e no aggregate                                                     |
+| Data no formato date (`AAAA-MM-DD`)              | Campo date-only em faltas (sem hora)                                                    |
+| Ano do estudante deve pertencer à matéria        | Se `ano_escolar` do estudante não existir em `anos_academicos` da matéria, bloqueia    |
+| Observação obrigatória na correção               | Justificativa da alteração em `PUT /academia/atualizar-falta`                           |
+| Motivo obrigatório na deleção                    | Para auditoria no ledger e na projeção                                                  |
+| Duplicata bloqueada                              | Mesma combinação `data + codigo_estudante + materia_disciplinar_id` é rejeitada         |
+
+### 6.5 Regras de Avaliação Final
 
 | Regra                                       | Detalhe                                    |
 | ------------------------------------------- | ------------------------------------------ |
@@ -807,7 +820,7 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 | Uma avaliação por tipo/ano letivo/nível     | Idempotência via mapa no aggregate         |
 | Aprovação ou reprovação remove das turmas   | Automaticamente ao registar                |
 
-### 6.5 Regras de Turma
+### 6.6 Regras de Turma
 
 | Regra                                                | Detalhe                                   |
 | ---------------------------------------------------- | ----------------------------------------- |
@@ -817,7 +830,7 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 | Deleção exige sem estudantes                         | Remover todos os estudantes primeiro      |
 | Estudante do superior pode estar em múltiplas turmas | Sem restrição de exclusividade            |
 
-### 6.6 Regras de Curso
+### 6.7 Regras de Curso
 
 | Regra                                     | Detalhe                                                  |
 | ----------------------------------------- | -------------------------------------------------------- |
@@ -829,7 +842,7 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 | Matérias ativas bloqueiam deleção         | Desativar todas as matérias antes                        |
 | Cascata na deleção                        | Matérias e turmas inativas são deletadas automaticamente |
 
-### 6.7 Regras de Admin
+### 6.8 Regras de Admin
 
 | Regra                                    | Detalhe                                                                                            |
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------- |
