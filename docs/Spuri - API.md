@@ -1,8 +1,8 @@
 ---
-modificado: 27-04-2026 10:00
+modificado: 28-04-2026 14:20
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.4.1
+Versão atual: 1.4.2
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -1726,6 +1726,7 @@ Registra falta(s) para um estudante.
 - `quantidade` deve ser maior ou igual a 1
 - `data` é tratada como **date-only** (sem hora), em formato `AAAA-MM-DD`
 - Se o estudante tiver `ano_escolar`, esse ano deve existir em `anos_academicos` da matéria; caso contrário, o registro é bloqueado
+- Idempotência (duplicata bloqueada): combinação `data + codigo_estudante + materia_disciplinar_id`
 - O endpoint `POST /academia/faltas-aluno/async` reaproveita exatamente as mesmas validações deste endpoint por item do lote
 
 **Response 201:**
@@ -1761,11 +1762,19 @@ Corrige uma falta registada.
   "data": "2025-03-16",                 // opcional
   "materia_disciplinar_id": "uuid",     // opcional
   "quantidade": 3,                      // opcional, mínimo 1
-  "observacao": "string"                // opcional
+  "observacao": "string"                // OBRIGATÓRIO (justificativa da correção)
 }
 ```
 
 **Pelo menos um campo além do `id` deve ser informado.**
+
+**Restrições:**
+
+- `observacao` é obrigatória e não pode ser vazia
+- `quantidade`, quando enviada, deve ser `>= 1`
+- `data`, quando enviada, deve estar em `AAAA-MM-DD`
+- Se `materia_disciplinar_id` for alterada (ou mantida), continua valendo a regra de compatibilidade com `ano_escolar` do estudante
+- A atualização também bloqueia duplicata pela combinação `data + codigo_estudante + materia_disciplinar_id`
 
 **Response 200:**
 
@@ -1804,6 +1813,10 @@ Remove uma falta (soft delete).
   "message": "falta deletada com sucesso"
 }
 ```
+
+**Restrições:**
+
+- `motivo` é obrigatório e não pode ser vazio
 
 ---
 

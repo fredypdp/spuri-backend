@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -154,6 +155,10 @@ func AtualizarFalta(c *gin.Context) {
 		))
 		return
 	}
+	if req.Observacao == nil || strings.TrimSpace(*req.Observacao) == "" {
+		utils.RespondWithValidationError(c, fmt.Errorf("observacao é obrigatória para atualizar uma falta"))
+		return
+	}
 
 	if req.Quantidade != nil && *req.Quantidade <= 0 {
 		utils.RespondWithValidationError(c, fmt.Errorf("quantidade deve ser maior que zero"))
@@ -210,6 +215,52 @@ func AtualizarFalta(c *gin.Context) {
 	if err != nil || estudanteDTO == nil {
 		utils.RespondWithNotFoundError(c, "estudante")
 		return
+	}
+
+	// Validar ano acadêmico do estudante na matéria alvo (nova ou atual).
+	materiaIDFinal := faltaAtual.MateriaDisciplinarID
+	if materiaIDPtr != nil {
+		materiaIDFinal = materiaIDPtr.String()
+	}
+	materiaFinalUUID, err := uuid.Parse(materiaIDFinal)
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("materia_disciplinar_id inválido"))
+		return
+	}
+	materiasProj := getMateriasProjection(c)
+	materiaFinalDTO, _ := materiasProj.GetByID(materiaFinalUUID)
+	if materiaFinalDTO == nil || materiaFinalDTO.CodigoAcademia != academiaDTO.CodigoAcademia {
+		utils.RespondWithForbiddenError(c, "materia não pertence a esta academia")
+		return
+	}
+	if _, err := inferirAnoAcademicoFaltas(estudanteDTO.AnoEscolar, materiaFinalDTO.AnosAcademicos, materiaFinalDTO.Nome); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	// Bloquear duplicata por (data + codigo_estudante + materia_disciplinar_id).
+	dataFinal := faltaAtual.Data.Time
+	if dataPtr != nil {
+		dataFinal = dataPtr.UTC()
+	}
+	faltasEstudante, err := faltasProj.GetByEstudante(faltaAtual.CodigoEstudante)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	for _, f := range faltasEstudante {
+		if f.ID == faltaAtual.ID {
+			continue
+		}
+		if f.CodigoEstudante == faltaAtual.CodigoEstudante &&
+			f.MateriaDisciplinarID == materiaIDFinal &&
+			f.Data.Time.Format("2006-01-02") == dataFinal.Format("2006-01-02") {
+			utils.RespondWithValidationError(c, fmt.Errorf(
+				"falta já registrada para data '%s', materia '%s' e estudante '%s'",
+				dataFinal.Format("2006-01-02"), materiaIDFinal, faltaAtual.CodigoEstudante,
+			))
+			return
+		}
 	}
 
 	repository := getRepository(c)
