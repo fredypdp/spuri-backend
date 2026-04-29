@@ -23,13 +23,12 @@ func CriarCurso(c *gin.Context) {
 
 	var req struct {
 		Nome           string   `json:"nome"            binding:"required"`
-		Type           string   `json:"type"            binding:"required"`
 		AnosAcademicos []string `json:"anos_academicos" binding:"required"`
 		Periodos       []string `json:"periodos"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("campos obrigatórios: nome, type, anos_academicos"))
+		utils.RespondWithValidationError(c, fmt.Errorf("campos obrigatórios: nome, anos_academicos"))
 		return
 	}
 
@@ -45,15 +44,24 @@ func CriarCurso(c *gin.Context) {
 		return
 	}
 
-	if err := validarTipoCursoVsAcademia(req.Type, academiaDTO.Nivel); err != nil {
+	tipoCurso, err := resolverTipoCurso(academiaDTO.Nivel, academiaDTO.NivelEscolar)
+	if err != nil {
 		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if tipoCurso == "superior" && len(req.Periodos) == 0 {
+		utils.RespondWithValidationError(c, fmt.Errorf("curso superior exige ao menos um período"))
+		return
+	}
+	if tipoCurso == "medio" && len(req.Periodos) > 0 {
+		utils.RespondWithValidationError(c, fmt.Errorf("curso médio não deve ter períodos"))
 		return
 	}
 
 	repository := getRepository(c)
 	curso := aggregates.NewCurso()
 
-	if err := curso.Criar(req.Nome, req.Type, req.AnosAcademicos, req.Periodos, academiaDTO.CodigoAcademia); err != nil {
+	if err := curso.Criar(req.Nome, tipoCurso, req.AnosAcademicos, req.Periodos, academiaDTO.CodigoAcademia); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -620,18 +628,17 @@ func AlterarCursoEstudante(c *gin.Context) {
 // Helpers internos
 // ============================================================================
 
-func validarTipoCursoVsAcademia(tipoCurso, tipoAcademia string) error {
-	switch tipoAcademia {
-	case "escola":
-		if tipoCurso != "medio" {
-			return fmt.Errorf("academias do tipo 'escola' so podem criar cursos do tipo 'medio'")
-		}
-	case "superior":
-		if tipoCurso != "superior" {
-			return fmt.Errorf("academias do tipo 'superior' so podem criar cursos do tipo 'superior'")
-		}
+func resolverTipoCurso(nivelAcademia string, nivelEscolar *string) (string, error) {
+	if nivelAcademia == "superior" {
+		return "superior", nil
 	}
-	return nil
+	if nivelAcademia == "escola" {
+		if nivelEscolar == nil || *nivelEscolar != "medio" {
+			return "", fmt.Errorf("apenas academias escolares de nível médio podem criar cursos")
+		}
+		return "medio", nil
+	}
+	return "", fmt.Errorf("nível de academia inválido para criação de curso")
 }
 
 // ============================================================================

@@ -2,7 +2,7 @@
 modificado: 28-04-2026 14:20
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.4.2
+Versão atual: 1.4.3
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -229,7 +229,7 @@ interface EstudanteDTO {
 interface CursoDTO {
   id: string
   nome: string
-  type: CursoType
+  type: CursoType            // preenchido automaticamente pelo backend e imutável
   anos_academicos: string[]  // ex: ['1_ano_medio', '2_ano_medio', '3_ano_medio']
   periodos?: string[]        // ex: ['1_semestre', '2_semestre'] — apenas para superior
   codigo_academia: string
@@ -248,9 +248,9 @@ interface CursoDTO {
 interface MateriaDTO {
   id: string
   nome: string
-  type: MateriaType
+  type: MateriaType          // preenchido automaticamente (exceto escola mista, que informa no create)
   anos_academicos?: string[]  // ex: ['2_ano_fundamental'] ou ['1_ano_medio']
-  periodo?: string            // ex: '1_semestre' — apenas para superior
+  periodo?: string            // ex: '1_semestre' — obrigatório para superior
   codigo_academia: string
   curso_id?: string           // UUID — obrigatório para medio e superior
   status: string              // 'ativo' | 'inativo' | 'deletado'
@@ -272,7 +272,7 @@ interface TurmaDTO {
   nivel: string               // ex: '3_ano_fundamental'
   curso_id?: string           // UUID
   turno: Turno
-  estudantes: string[]        // lista de codigo_estudante
+  estudantes: string[]        // lista de codigo_estudante (estudante só pode estar em uma turma por vez)
   historico_estudantes_ano_letivo: Record<string, string[]> // ano_letivo -> estudantes que já passaram na turma
   status: string              // 'ativo' | 'inativo' | 'deletado'
   status_alterado_por?: string // UUID
