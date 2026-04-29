@@ -2,7 +2,7 @@
 modificado: 29-04-2026 10:15
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.3.8
+Versão atual: 1.3.9
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -822,39 +822,38 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 
 ### 6.6 Regras de Turma
 
-| Regra                                                                        | Detalhe |
-| ---------------------------------------------------------------------------- | ------- |
-| Código único por academia                                                    | Não pode repetir dentro da mesma academia |
-| Turno: `manha`, `tarde` ou `noite`                                           | Valores fixos |
-| Edição restrita à academia dona da turma                                     | |
-| Edição aceita apenas `nivel`, `curso_id` e `turno`                           | |
-| Mudança de nível/curso enquanto a turma tem estudantes exige compatibilidade | Se a turma já tiver estudantes vinculados, qualquer alteração de `nivel` e/ou `curso_id` dispara revalidação de compatibilidade antes de persistir. |
-| Deleção exige inatividade                                                    | Desativar antes de deletar |
-| Deleção exige sem estudantes                                                 | Remover todos os estudantes primeiro |
+| Regra                                                                        | Detalhe                                                                                                                                                                                                                                                                                    |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Código único por academia                                                    | Não pode repetir dentro da mesma academia                                                                                                                                                                                                                                                  |
+| Turno: `manha`, `tarde` ou `noite`                                           | Valores fixos                                                                                                                                                                                                                                                                              |
+| Edição restrita à academia dona da turma                                     |                                                                                                                                                                                                                                                                                            |
+| Edição aceita apenas `nivel`, `curso_id` e `turno`                           |                                                                                                                                                                                                                                                                                            |
+| Mudança de nível/curso enquanto a turma tem estudantes exige compatibilidade | Se a turma já tiver estudantes vinculados, qualquer alteração de `nivel` e/ou `curso_id` dispara revalidação de compatibilidade antes de persistir. Onde os estudantes devem ter o ano acadêmico igual à esse novo nível, ou o curso_medio_id ou curso_superior_id igual à esse novo curso |
+| Deleção exige inatividade                                                    | Desativar antes de deletar                                                                                                                                                                                                                                                                 |
+| Deleção exige sem estudantes                                                 | Remover todos os estudantes primeiro                                                                                                                                                                                                                                                       |
 
 ### 6.7 Regras de Matéria Disciplinar
 
-| Regra                                                                                                | Detalhe |
-| ---------------------------------------------------------------------------------------------------- | ------- |
-| Edição restrita à academia dona da matéria                                                           | |
-| Anos acadêmicos deve ser compatível aos anos acadêmicos da academia ou do curso                      | Fundamental usa anos da academia; médio/superior usa anos do curso vinculado |
-| Tipo compativel com o nivel da academia                                                              | Tipo é automático, exceto escola `misto` (informa `fundamental`/`medio`) |
-| Período só pode ser definido para matéria do tipo `superior`. E deve ser compatível com o seu curso. | Matérias `fundamental` e `medio` não aceitam período |
-| Quando a matéria é do tipo `superior` período não pode ser vazio                                     | Obrigatório na criação/edição |
-| Deleção exige inatividade                                                                            | Matéria com status `ativo` é rejeitada |
+| Regra                                                                                                | Detalhe                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Edição restrita à academia dona da matéria                                                           |                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Anos acadêmicos deve ser compatível aos anos acadêmicos da academia ou do curso                      | Ao criar ou editar anos_academicos ele deve ser compatível com os anos acadêmicos da academia (para matéria do tipo fundamental), ou com os anos acadêmicos do curso (matéria do tipo medio ou superior)                                                                                                                                                                                                                                                              |
+| Tipo compativel com o nivel da academia                                                              | - Quando a academia é do nível escola e `NivelEscolar` = "fundamental", o tipo será `fundamental`.<br>- Quando a academia é do nível escola e `NivelEscolar` = "medio", o tipo será `medio`.<br>- Quando a academia é do nível superior o tipo será `superior`.<br><br>MateriaType será preenchido automaticamente, apenas quando a academia é do nível escola e `NivelEscolar` = "misto", a academia terá que enviar o tipo definindo se é `fundamental` ou `medio`. |
+| Período só pode ser definido para matéria do tipo `superior`. E deve ser compatível com o seu curso. | Matérias `fundamental` e `medio` não aceitam definição de período. E o período da matéria do tipo superior deve ser compatível com um dos períodos do seu curso                                                                                                                                                                                                                                                                                                       |
+| Quando a matéria é do tipo `superior` período não pode ser vazio                                     |                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Deleção exige inatividade                                                                            | Matéria com status `ativo` é rejeitada; é obrigatório desativar antes de deletar                                                                                                                                                                                                                                                                                                                                                                                      |
 
 ### 6.8 Regras de Curso
 
-| Regra                                     | Detalhe                                                  |
-| ----------------------------------------- | -------------------------------------------------------- |
-| Tipo imutável após criação                | `medio` nunca vira `superior`                            |
-| Curso superior exige períodos             | Ao menos um semestre                                     |
-| Curso médio não deve ter períodos         | Trimestres são fixos do sistema                          |
-| Período de matéria superior deve existir no curso | Ao definir período de uma matéria `superior`, se o curso vinculado já possuir períodos cadastrados, o valor informado deve pertencer à lista do curso |
-| Deleção exige inatividade                 | Desativar primeiro                                       |
-| Deleção exige sem estudantes matriculados | Verificação antes de deletar                             |
-| Matérias ativas bloqueiam deleção         | Desativar todas as matérias antes                        |
-| Cascata na deleção                        | Matérias e turmas inativas são deletadas automaticamente |
+| Regra                                                           | Detalhe                                                                                                                                                                                    |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Tipo imutável após criação e compatível com o nível da academia | Preenchido automaticamente no back end. Quando a academia é do nível escola e `NivelEscolar` = "medio", o tipo será `medio`. Quando a academia é do nível superior o tipo será `superior`. |
+| Curso superior exige períodos                                   | Ao menos um semestre                                                                                                                                                                       |
+| Curso médio não deve ter períodos                               | Trimestres são fixos do sistema                                                                                                                                                            |
+| Deleção exige inatividade                                       | Desativar primeiro                                                                                                                                                                         |
+| Deleção exige sem estudantes matriculados                       | Verificação antes de deletar                                                                                                                                                               |
+| Matérias ativas bloqueiam deleção                               | Desativar todas as matérias antes                                                                                                                                                          |
+| Cascata na deleção                                              | Matérias e turmas inativas e sem estudantes são deletadas automaticamente                                                                                                                  |
 
 ### 6.9 Regras de Admin
 
