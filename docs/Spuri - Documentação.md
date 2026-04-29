@@ -842,7 +842,6 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 | Atualização exige ao menos um campo                       | Sem campo, o aggregate rejeita (`nenhum campo para atualizar`) |
 | Período só pode ser definido para matéria `superior`      | Tentativa em `fundamental`/`medio` é bloqueada |
 | Período não pode ser vazio                                | Validação no aggregate |
-| Se o curso tiver períodos definidos, o período deve existir no curso | Valor fora da lista do curso é rejeitado |
 | Deleção exige inatividade                                 | Matéria ativa precisa ser desativada antes de deletar |
 
 ### 6.8 Regras de Curso
@@ -852,6 +851,7 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 | Tipo imutável após criação                | `medio` nunca vira `superior`                            |
 | Curso superior exige períodos             | Ao menos um semestre                                     |
 | Curso médio não deve ter períodos         | Trimestres são fixos do sistema                          |
+| Período de matéria superior deve existir no curso | Se o curso tiver períodos definidos, valores fora da lista são rejeitados |
 | Deleção exige inatividade                 | Desativar primeiro                                       |
 | Deleção exige sem estudantes matriculados | Verificação antes de deletar                             |
 | Matérias ativas bloqueiam deleção         | Desativar todas as matérias antes                        |
