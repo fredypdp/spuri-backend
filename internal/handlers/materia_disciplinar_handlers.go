@@ -23,9 +23,10 @@ func CriarMateria(c *gin.Context) {
 
 	var req struct {
 		Nome           string     `json:"nome"            binding:"required"`
-		Type           string     `json:"type"            binding:"required"`
+		Type           *string    `json:"type"`
 		AnosAcademicos []string   `json:"anos_academicos"`
 		CursoID        *uuid.UUID `json:"curso_id"`
+		Periodo        *string    `json:"periodo"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -45,7 +46,13 @@ func CriarMateria(c *gin.Context) {
 		return
 	}
 
-	if (req.Type == "medio" || req.Type == "superior") && req.CursoID != nil {
+	tipoMateria, err := resolverTipoMateria(academiaDTO.Nivel, academiaDTO.NivelEscolar, req.Type)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if (tipoMateria == "medio" || tipoMateria == "superior") && req.CursoID != nil {
 		cursosProj := getCursosProjection(c)
 		cursoDTO, _ := cursosProj.GetByID(*req.CursoID)
 
@@ -65,7 +72,7 @@ func CriarMateria(c *gin.Context) {
 		}
 
 		// Para superior: garantir que o curso tem periodos definidos
-		if req.Type == "superior" && len(cursoDTO.Periodos) == 0 {
+		if tipoMateria == "superior" && len(cursoDTO.Periodos) == 0 {
 			utils.RespondWithValidationError(c, fmt.Errorf(
 				"o curso '%s' nao possui periodos definidos. "+
 					"Atualize o curso antes de criar materias superiores",
@@ -78,9 +85,23 @@ func CriarMateria(c *gin.Context) {
 	repository := getRepository(c)
 	materia := aggregates.NewMateriaDisciplinar()
 
-	if err := materia.Criar(req.Nome, req.Type, req.AnosAcademicos, academiaDTO.CodigoAcademia, req.CursoID, userID); err != nil {
+	if err := materia.Criar(req.Nome, tipoMateria, req.AnosAcademicos, academiaDTO.CodigoAcademia, req.CursoID, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
+	}
+	if tipoMateria != "superior" && req.Periodo != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("periodo só pode ser definido para matérias do tipo superior"))
+		return
+	}
+	if tipoMateria == "superior" {
+		if req.Periodo == nil || *req.Periodo == "" {
+			utils.RespondWithValidationError(c, fmt.Errorf("periodo é obrigatório para matérias do tipo superior"))
+			return
+		}
+		if err := materia.DefinirPeriodo(*req.Periodo, userID); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
 	}
 
 	audit := db.AuditContext{
@@ -293,7 +314,10 @@ func AtualizarDadosMateria(c *gin.Context) {
 	}
 
 	var req struct {
-		Nome *string `json:"nome"`
+		Nome           *string    `json:"nome"`
+		AnosAcademicos *[]string  `json:"anos_academicos"`
+		CursoID        *uuid.UUID `json:"curso_id"`
+		Periodo        *string    `json:"periodo"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -327,11 +351,19 @@ func AtualizarDadosMateria(c *gin.Context) {
 		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
 		return
 	}
-	// FIX: assinatura corrigida — AtualizarDados(nome, anosAcademicos, cursoID).
-	// Handler atualiza apenas o nome; os demais campos permanecem inalterados.
-	if err := materia.AtualizarDados(req.Nome, nil, nil, userID); err != nil {
+	var anos []string
+	if req.AnosAcademicos != nil {
+		anos = *req.AnosAcademicos
+	}
+	if err := materia.AtualizarDados(req.Nome, anos, req.CursoID, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
+	}
+	if req.Periodo != nil {
+		if err := materia.DefinirPeriodo(*req.Periodo, userID); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
 	}
 
 	audit := db.AuditContext{
@@ -349,6 +381,31 @@ func AtualizarDadosMateria(c *gin.Context) {
 		"message": "matéria atualizada com sucesso",
 		"nome":    materia.Nome,
 	})
+}
+
+func resolverTipoMateria(nivelAcademia string, nivelEscolar *string, tipoReq *string) (string, error) {
+	if nivelAcademia == "superior" {
+		return "superior", nil
+	}
+	if nivelAcademia != "escola" || nivelEscolar == nil {
+		return "", fmt.Errorf("não foi possível inferir o tipo da matéria para esta academia")
+	}
+	switch *nivelEscolar {
+	case "fundamental":
+		return "fundamental", nil
+	case "medio":
+		return "medio", nil
+	case "misto":
+		if tipoReq == nil {
+			return "", fmt.Errorf("type é obrigatório para academia escolar de nível misto")
+		}
+		if *tipoReq != "fundamental" && *tipoReq != "medio" {
+			return "", fmt.Errorf("type deve ser 'fundamental' ou 'medio' para academias mistas")
+		}
+		return *tipoReq, nil
+	default:
+		return "", fmt.Errorf("nivel_escolar inválido")
+	}
 }
 
 // ============================================================================
