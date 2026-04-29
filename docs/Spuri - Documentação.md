@@ -1,8 +1,8 @@
 ---
-modificado: 28-04-2026 14:20
+modificado: 29-04-2026 10:15
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.3.7
+Versão atual: 1.3.8
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -826,23 +826,38 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 | ---------------------------------------------------- | ----------------------------------------- |
 | Código único por academia                            | Não pode repetir dentro da mesma academia |
 | Turno: `manha`, `tarde` ou `noite`                   | Valores fixos                             |
+| Edição restrita à academia dona da turma             | Em `PUT /academia/turmas/:codigo`, a turma é localizada dentro do `codigo_academia` da academia autenticada; fora desse escopo a atualização é bloqueada |
+| Edição aceita apenas `nivel`, `curso_id` e `turno`   | O payload de atualização da turma é parcial e considera somente esses campos; outros atributos da turma não são alterados por esse endpoint |
+| Mudança de nível/curso com estudantes exige compatibilidade | Se a turma já tiver estudantes vinculados, qualquer alteração de `nivel` e/ou `curso_id` dispara revalidação de compatibilidade antes de persistir |
 | Deleção exige inatividade                            | Desativar antes de deletar                |
 | Deleção exige sem estudantes                         | Remover todos os estudantes primeiro      |
 | Estudante do superior pode estar em múltiplas turmas | Sem restrição de exclusividade            |
 
-### 6.7 Regras de Curso
+### 6.7 Regras de Matéria Disciplinar
+
+| Regra                                                     | Detalhe |
+| --------------------------------------------------------- | ------- |
+| Edição restrita à academia dona da matéria                | Em `PUT /academia/materias/:id`, apenas matérias do mesmo `codigo_academia` da academia autenticada podem ser alteradas |
+| Endpoint de edição de dados atualiza apenas `nome`        | No fluxo atual de atualização de dados da matéria, somente `nome` é enviado ao aggregate; `anos_academicos` e `curso_id` permanecem inalterados |
+| Atualização exige ao menos um campo                       | O comando de atualização rejeita requisição sem campos de mudança (retorno de validação: `nenhum campo para atualizar`) |
+| Período só pode ser definido para matéria `superior`      | A regra aplica-se ao endpoint específico de período (`PUT /academia/materias/:id/periodo`); matérias `fundamental` e `medio` não aceitam definição de período |
+| Período não pode ser vazio                                | Quando a matéria é `superior` e o cliente chama `PUT /academia/materias/:id/periodo`, o campo `periodo` é obrigatório e não pode ser string vazia |
+| Deleção exige inatividade                                 | Em `DELETE /academia/materias/:id`, matéria com status `ativo` é rejeitada; é obrigatório desativar antes de deletar |
+
+### 6.8 Regras de Curso
 
 | Regra                                     | Detalhe                                                  |
 | ----------------------------------------- | -------------------------------------------------------- |
 | Tipo imutável após criação                | `medio` nunca vira `superior`                            |
 | Curso superior exige períodos             | Ao menos um semestre                                     |
 | Curso médio não deve ter períodos         | Trimestres são fixos do sistema                          |
+| Período de matéria superior deve existir no curso | Ao definir período de uma matéria `superior`, se o curso vinculado já possuir períodos cadastrados, o valor informado deve pertencer à lista do curso |
 | Deleção exige inatividade                 | Desativar primeiro                                       |
 | Deleção exige sem estudantes matriculados | Verificação antes de deletar                             |
 | Matérias ativas bloqueiam deleção         | Desativar todas as matérias antes                        |
 | Cascata na deleção                        | Matérias e turmas inativas são deletadas automaticamente |
 
-### 6.8 Regras de Admin
+### 6.9 Regras de Admin
 
 | Regra                                    | Detalhe                                                                                            |
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------- |
