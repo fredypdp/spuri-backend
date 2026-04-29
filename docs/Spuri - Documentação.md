@@ -822,27 +822,26 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 
 ### 6.6 Regras de Turma
 
-| Regra                                                | Detalhe                                   |
-| ---------------------------------------------------- | ----------------------------------------- |
-| Código único por academia                            | Não pode repetir dentro da mesma academia |
-| Turno: `manha`, `tarde` ou `noite`                   | Valores fixos                             |
-| Edição restrita à academia dona da turma             | Em `PUT /academia/turmas/:codigo`, a turma é localizada dentro do `codigo_academia` da academia autenticada; fora desse escopo a atualização é bloqueada |
-| Edição aceita apenas `nivel`, `curso_id` e `turno`   | O payload de atualização da turma é parcial e considera somente esses campos; outros atributos da turma não são alterados por esse endpoint |
-| Mudança de nível/curso com estudantes exige compatibilidade | Se a turma já tiver estudantes vinculados, qualquer alteração de `nivel` e/ou `curso_id` dispara revalidação de compatibilidade antes de persistir |
-| Deleção exige inatividade                            | Desativar antes de deletar                |
-| Deleção exige sem estudantes                         | Remover todos os estudantes primeiro      |
-| Estudante do superior pode estar em múltiplas turmas | Sem restrição de exclusividade            |
+| Regra                                                                        | Detalhe |
+| ---------------------------------------------------------------------------- | ------- |
+| Código único por academia                                                    | Não pode repetir dentro da mesma academia |
+| Turno: `manha`, `tarde` ou `noite`                                           | Valores fixos |
+| Edição restrita à academia dona da turma                                     | |
+| Edição aceita apenas `nivel`, `curso_id` e `turno`                           | |
+| Mudança de nível/curso enquanto a turma tem estudantes exige compatibilidade | Se a turma já tiver estudantes vinculados, qualquer alteração de `nivel` e/ou `curso_id` dispara revalidação de compatibilidade antes de persistir. |
+| Deleção exige inatividade                                                    | Desativar antes de deletar |
+| Deleção exige sem estudantes                                                 | Remover todos os estudantes primeiro |
 
 ### 6.7 Regras de Matéria Disciplinar
 
-| Regra                                                     | Detalhe |
-| --------------------------------------------------------- | ------- |
-| Edição restrita à academia dona da matéria                | Em `PUT /academia/materias/:id`, apenas matérias do mesmo `codigo_academia` da academia autenticada podem ser alteradas |
-| Endpoint de edição de dados atualiza apenas `nome`        | No fluxo atual de atualização de dados da matéria, somente `nome` é enviado ao aggregate; `anos_academicos` e `curso_id` permanecem inalterados |
-| Atualização exige ao menos um campo                       | O comando de atualização rejeita requisição sem campos de mudança (retorno de validação: `nenhum campo para atualizar`) |
-| Período só pode ser definido para matéria `superior`      | A regra aplica-se ao endpoint específico de período (`PUT /academia/materias/:id/periodo`); matérias `fundamental` e `medio` não aceitam definição de período |
-| Período não pode ser vazio                                | Quando a matéria é `superior` e o cliente chama `PUT /academia/materias/:id/periodo`, o campo `periodo` é obrigatório e não pode ser string vazia |
-| Deleção exige inatividade                                 | Em `DELETE /academia/materias/:id`, matéria com status `ativo` é rejeitada; é obrigatório desativar antes de deletar |
+| Regra                                                                                                | Detalhe |
+| ---------------------------------------------------------------------------------------------------- | ------- |
+| Edição restrita à academia dona da matéria                                                           | |
+| Anos acadêmicos deve ser compatível aos anos acadêmicos da academia ou do curso                      | Fundamental usa anos da academia; médio/superior usa anos do curso vinculado |
+| Tipo compativel com o nivel da academia                                                              | Tipo é automático, exceto escola `misto` (informa `fundamental`/`medio`) |
+| Período só pode ser definido para matéria do tipo `superior`. E deve ser compatível com o seu curso. | Matérias `fundamental` e `medio` não aceitam período |
+| Quando a matéria é do tipo `superior` período não pode ser vazio                                     | Obrigatório na criação/edição |
+| Deleção exige inatividade                                                                            | Matéria com status `ativo` é rejeitada |
 
 ### 6.8 Regras de Curso
 
