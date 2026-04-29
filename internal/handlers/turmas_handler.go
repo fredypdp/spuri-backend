@@ -559,6 +559,21 @@ func AdicionarEstudanteATurma(c *gin.Context) {
 		utils.RespondWithNotFoundError(c, "turma")
 		return
 	}
+	// Regra: estudante só pode pertencer a uma turma por vez.
+	turmasAtuais, err := turmasProj.ListByEstudante(req.CodigoEstudante, &academiaDTO.CodigoAcademia)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	for _, t := range turmasAtuais {
+		if t.ID != turmaDTO.ID && t.Status != "deletado" {
+			utils.RespondWithValidationError(c, fmt.Errorf(
+				"estudante já pertence à turma '%s' e não pode ser vinculado a múltiplas turmas",
+				t.CodigoTurma,
+			))
+			return
+		}
+	}
 
 	// ── Validação de compatibilidade estudante ↔ turma ────────────────────
 	if err := validarCompatibilidadeEstudanteTurma(
