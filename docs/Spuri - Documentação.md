@@ -1,8 +1,8 @@
 ---
-modificado: 28-04-2026 14:20
+modificado: 29-04-2026 10:15
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.3.7
+Versão atual: 1.3.8
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -826,23 +826,38 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 | ---------------------------------------------------- | ----------------------------------------- |
 | Código único por academia                            | Não pode repetir dentro da mesma academia |
 | Turno: `manha`, `tarde` ou `noite`                   | Valores fixos                             |
+| Edição restrita à academia dona da turma             | Só pode atualizar turmas do próprio `codigo_academia` |
+| Edição aceita apenas `nivel`, `curso_id` e `turno`   | Campos fora disso não fazem parte do endpoint de atualização |
+| Mudança de nível/curso com estudantes exige compatibilidade | Todos os estudantes vinculados são validados antes de persistir |
 | Deleção exige inatividade                            | Desativar antes de deletar                |
 | Deleção exige sem estudantes                         | Remover todos os estudantes primeiro      |
 | Estudante do superior pode estar em múltiplas turmas | Sem restrição de exclusividade            |
 
-### 6.7 Regras de Curso
+### 6.7 Regras de Matéria Disciplinar
+
+| Regra                                                     | Detalhe |
+| --------------------------------------------------------- | ------- |
+| Edição restrita à academia dona da matéria                | Só pode atualizar matérias do próprio `codigo_academia` |
+| Endpoint de edição de dados atualiza apenas `nome`        | O handler de `PUT /academia/materias/:id` não altera `anos_academicos` nem `curso_id` |
+| Atualização exige ao menos um campo                       | Sem campo, o aggregate rejeita (`nenhum campo para atualizar`) |
+| Período só pode ser definido para matéria `superior`      | Tentativa em `fundamental`/`medio` é bloqueada |
+| Período não pode ser vazio                                | Validação no aggregate |
+| Deleção exige inatividade                                 | Matéria ativa precisa ser desativada antes de deletar |
+
+### 6.8 Regras de Curso
 
 | Regra                                     | Detalhe                                                  |
 | ----------------------------------------- | -------------------------------------------------------- |
 | Tipo imutável após criação                | `medio` nunca vira `superior`                            |
 | Curso superior exige períodos             | Ao menos um semestre                                     |
 | Curso médio não deve ter períodos         | Trimestres são fixos do sistema                          |
+| Período de matéria superior deve existir no curso | Se o curso tiver períodos definidos, valores fora da lista são rejeitados |
 | Deleção exige inatividade                 | Desativar primeiro                                       |
 | Deleção exige sem estudantes matriculados | Verificação antes de deletar                             |
 | Matérias ativas bloqueiam deleção         | Desativar todas as matérias antes                        |
 | Cascata na deleção                        | Matérias e turmas inativas são deletadas automaticamente |
 
-### 6.8 Regras de Admin
+### 6.9 Regras de Admin
 
 | Regra                                    | Detalhe                                                                                            |
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------- |
