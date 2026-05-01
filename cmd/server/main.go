@@ -275,6 +275,7 @@ func setupRouter() *gin.Engine {
 	{
 		estudante.PUT("/dados-pessoais", handlers.AtualizarDadosPessoais)
 		estudante.GET("/minhas-avaliacoes", handlers.GetMinhasAvaliacoes)
+		estudante.GET("/categorias-nota", handlers.ListarCategoriasNota)
 	}
 
 	// ── Rotas de academia ─────────────────────────────────────────────────
@@ -312,7 +313,7 @@ func setupRouter() *gin.Engine {
 		// Avaliação final é o único endpoint de avaliação de ano
 		academia.POST("/avaliacao-final", handlers.RegistrarAvaliacaoFinal)
 		academia.POST("/categorias-nota", handlers.CriarCategoriaNota)
-		academia.DELETE("/categorias-nota/:nome", handlers.DeletarCategoriaNota)
+		academia.DELETE("/categorias-nota/:codigo", handlers.DeletarCategoriaNota)
 		academia.PUT("/estudante/:codigo/status-escolar-fundamental", handlers.AtualizarStatusEscolarFundamentalHandler)
 		academia.PUT("/estudante/:codigo/status-escolar-medio", handlers.AtualizarStatusEscolarMedioHandler)
 		academia.PUT("/estudante/:codigo/status-superior", handlers.AtualizarStatusSuperiorHandler)

@@ -3,6 +3,8 @@ package aggregates
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,29 +15,42 @@ import (
 // ============================================================================
 
 func (a *Academia) AdicionarCategoriaNota(
+	codigo string,
 	nome string,
 	descricao *string,
 	adicionadoPor uuid.UUID,
-	categoriasExistentes []string,
+	codigosExistentes []string,
 ) error {
+	codigo = strings.TrimSpace(codigo)
+	nome = strings.TrimSpace(nome)
+	if codigo == "" {
+		return fmt.Errorf("codigo da categoria não pode ser vazio")
+	}
 	if nome == "" {
 		return fmt.Errorf("nome da categoria não pode ser vazio")
 	}
+	if strings.Contains(codigo, " ") {
+		return fmt.Errorf("codigo da categoria não pode conter espaços")
+	}
+	if ok, _ := regexp.MatchString(`^[a-z0-9_]+$`, codigo); !ok {
+		return fmt.Errorf("codigo da categoria inválido: use apenas letras minúsculas, números e underscore")
+	}
 
 	for _, c := range a.CategoriasNota {
-		if c == nome {
-			return fmt.Errorf("categoria '%s' já existe nesta academia (detectado via estado do aggregate)", nome)
+		if c == codigo {
+			return fmt.Errorf("categoria '%s' já existe nesta academia (detectado via estado do aggregate)", codigo)
 		}
 	}
-	for _, c := range categoriasExistentes {
-		if c == nome {
-			return fmt.Errorf("categoria '%s' já existe nesta academia", nome)
+	for _, c := range codigosExistentes {
+		if c == codigo {
+			return fmt.Errorf("categoria '%s' já existe nesta academia", codigo)
 		}
 	}
 
 	event := &CategoriaNotaAdicionadaEvent{
 		BaseEvent:      BaseEvent{EventType: "CategoriaNotaAdicionada", AggregateID: a.ID},
 		CodigoAcademia: a.CodigoAcademia,
+		Codigo:         codigo,
 		Nome:           nome,
 		Descricao:      descricao,
 		AdicionadoPor:  adicionadoPor,
@@ -47,38 +62,39 @@ func (a *Academia) AdicionarCategoriaNota(
 }
 
 func (a *Academia) RemoverCategoriaNota(
-	nome string,
+	codigo string,
 	removidoPor uuid.UUID,
-	categoriasExistentes []string,
+	codigosExistentes []string,
 ) error {
-	if nome == "" {
-		return fmt.Errorf("nome da categoria não pode ser vazio")
+	codigo = strings.TrimSpace(codigo)
+	if codigo == "" {
+		return fmt.Errorf("codigo da categoria não pode ser vazio")
 	}
 
 	existeNoAggregate := false
 	for _, c := range a.CategoriasNota {
-		if c == nome {
+		if c == codigo {
 			existeNoAggregate = true
 			break
 		}
 	}
 
 	existeNaProjecao := false
-	for _, c := range categoriasExistentes {
-		if c == nome {
+	for _, c := range codigosExistentes {
+		if c == codigo {
 			existeNaProjecao = true
 			break
 		}
 	}
 
 	if !existeNoAggregate && !existeNaProjecao {
-		return fmt.Errorf("categoria '%s' não existe nesta academia", nome)
+		return fmt.Errorf("categoria '%s' não existe nesta academia", codigo)
 	}
 
 	event := &CategoriaNotaRemovidaEvent{
 		BaseEvent:      BaseEvent{EventType: "CategoriaNotaRemovida", AggregateID: a.ID},
 		CodigoAcademia: a.CodigoAcademia,
-		Nome:           nome,
+		Codigo:         codigo,
 		RemovidoPor:    removidoPor,
 		CreatedAt:      time.Now(),
 	}
@@ -100,10 +116,10 @@ func (a *Academia) applyCategoriaNotaAdicionada(event DomainEvent) error {
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return fmt.Errorf("applyCategoriaNotaAdicionada: unmarshal error: %w", err)
 	}
-	if ev.Nome == "" {
-		return fmt.Errorf("applyCategoriaNotaAdicionada: Nome vazio no payload")
+	if ev.Codigo == "" {
+		return fmt.Errorf("applyCategoriaNotaAdicionada: Codigo vazio no payload")
 	}
-	a.CategoriasNota = append(a.CategoriasNota, ev.Nome)
+	a.CategoriasNota = append(a.CategoriasNota, ev.Codigo)
 	return nil
 }
 
@@ -116,8 +132,8 @@ func (a *Academia) applyCategoriaNotaRemovida(event DomainEvent) error {
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return fmt.Errorf("applyCategoriaNotaRemovida: unmarshal error: %w", err)
 	}
-	if ev.Nome == "" {
-		return fmt.Errorf("applyCategoriaNotaRemovida: Nome vazio no payload")
+	if ev.Codigo == "" {
+		return fmt.Errorf("applyCategoriaNotaRemovida: Codigo vazio no payload")
 	}
 
 	if len(a.CategoriasNota) == 0 {
@@ -125,7 +141,7 @@ func (a *Academia) applyCategoriaNotaRemovida(event DomainEvent) error {
 	}
 	nova := make([]string, 0, len(a.CategoriasNota))
 	for _, c := range a.CategoriasNota {
-		if c != ev.Nome {
+		if c != ev.Codigo {
 			nova = append(nova, c)
 		}
 	}
@@ -142,6 +158,7 @@ func (a *Academia) applyCategoriaNotaRemovida(event DomainEvent) error {
 type CategoriaNotaAdicionadaEvent struct {
 	BaseEvent
 	CodigoAcademia string
+	Codigo         string
 	Nome           string
 	Descricao      *string
 	AdicionadoPor  uuid.UUID
@@ -154,7 +171,7 @@ func (e *CategoriaNotaAdicionadaEvent) ToJSON() ([]byte, error) { return json.Ma
 type CategoriaNotaRemovidaEvent struct {
 	BaseEvent
 	CodigoAcademia string
-	Nome           string
+	Codigo         string
 	RemovidoPor    uuid.UUID
 	CreatedAt      time.Time
 }

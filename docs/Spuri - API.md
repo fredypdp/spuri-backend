@@ -2,7 +2,7 @@
 modificado: 01-05-2026 11:10
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.5.3
+Versão atual: 1.5.4
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -418,6 +418,7 @@ interface AvaliacaoFinalDTO {
 interface CategoriaNotaDTO {
   id: string
   codigo_academia: string
+  codigo: string
   nome: string
   descricao?: string
   adicionado_por?: string  // UUID
@@ -1208,7 +1209,8 @@ Cria uma categoria de nota adicional para a academia.
 
 ```json
 {
-  "nome": "nota_teste",        // obrigatório
+  "codigo": "nota_teste",      // obrigatório, sem espaços
+  "nome": "Nota de teste",      // obrigatório (rótulo)
   "descricao": "string"        // opcional
 }
 ```
@@ -1224,7 +1226,7 @@ Cria uma categoria de nota adicional para a academia.
 
 **Erros:**
 
-- `400` — nome ausente
+- `400` — codigo ou nome ausente
 - `409` — categoria já existe nesta academia
 
 ---
@@ -1233,7 +1235,7 @@ Cria uma categoria de nota adicional para a academia.
 
 Lista todas as categorias de nota da academia alvo.
 
-**Proteção**: autenticado + (`academia` ativa **ou** `admin`)
+**Proteção**: autenticado + (`academia` ativa **ou** `admin` **ou** `estudante`)
 
 **Query params (quando `admin`)**:
 
@@ -1254,7 +1256,7 @@ Lista todas as categorias de nota da academia alvo.
 
 ---
 
-### DELETE /academia/categorias-nota/:nome
+### DELETE /academia/categorias-nota/:codigo
 
 Inativa (remove logicamente) uma categoria de nota adicional da academia.
 
@@ -1262,7 +1264,7 @@ Inativa (remove logicamente) uma categoria de nota adicional da academia.
 
 **Path Params:**
 
-- `nome` — nome da categoria adicional a remover
+- `codigo` — código da categoria adicional a remover
 
 **Request:** sem payload
 
@@ -1277,7 +1279,7 @@ Inativa (remove logicamente) uma categoria de nota adicional da academia.
 
 **Erros:**
 
-- `400` — nome ausente no path
+- `400` — codigo ou nome ausente no path
 - `400` — categoria não existe nesta academia
 
 ---
@@ -2122,7 +2124,7 @@ Cria um novo curso para a academia.
 
 Lista todos os cursos da academia.
 
-**Proteção**: autenticado + (`academia` ativa **ou** `admin`)
+**Proteção**: autenticado + (`academia` ativa **ou** `admin` **ou** `estudante`)
 
 **Query params (quando `admin`)**:
 
@@ -2143,7 +2145,7 @@ Lista todos os cursos da academia.
 
 Retorna um curso específico.
 
-**Proteção**: autenticado + (`academia` ativa **ou** `admin`)
+**Proteção**: autenticado + (`academia` ativa **ou** `admin` **ou** `estudante`)
 
 **Response 200:** `CursoDTO`
 
@@ -2307,7 +2309,7 @@ Cria uma nova matéria disciplinar.
 
 Lista todas as matérias da academia.
 
-**Proteção**: autenticado + (`academia` ativa **ou** `admin`)
+**Proteção**: autenticado + (`academia` ativa **ou** `admin` **ou** `estudante`)
 
 **Query params (quando `admin`)**:
 
@@ -2328,7 +2330,7 @@ Lista todas as matérias da academia.
 
 Retorna uma matéria específica.
 
-**Proteção**: autenticado + (`academia` ativa **ou** `admin`)
+**Proteção**: autenticado + (`academia` ativa **ou** `admin` **ou** `estudante`)
 
 **Response 200:** `MateriaDTO`
 
@@ -2481,7 +2483,7 @@ Cria uma nova turma.
 
 Lista todas as turmas da academia.
 
-**Proteção**: autenticado + (`academia` ativa **ou** `admin`)
+**Proteção**: autenticado + (`academia` ativa **ou** `admin` **ou** `estudante`)
 
 **Query params (quando `admin`)**:
 
@@ -2501,7 +2503,7 @@ Lista todas as turmas da academia.
 
 Retorna uma turma pelo código.
 
-**Proteção**: autenticado + (`academia` ativa **ou** `admin`)
+**Proteção**: autenticado + (`academia` ativa **ou** `admin` **ou** `estudante`)
 
 **Query params (quando `admin`)**:
 
