@@ -625,6 +625,20 @@ func DefinirAnoLetivoAcademia(c *gin.Context) {
 		return
 	}
 
+	anoLetivoGlobal, err := getAnoLetivoGlobalSistema(c)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if strings.TrimSpace(anoLetivoGlobal) == "" {
+		utils.RespondWithConflictError(c, "ano letivo global do sistema ainda não foi definido pelo admin fpp")
+		return
+	}
+	if strings.TrimSpace(req.AnoLetivo) != strings.TrimSpace(anoLetivoGlobal) {
+		utils.RespondWithValidationError(c, fmt.Errorf("o ano letivo da academia deve ser igual ao ano letivo global do sistema: %s", anoLetivoGlobal))
+		return
+	}
+
 	repository := getRepository(c)
 	agg, err := repository.Load(academiaDTO.ID, "Academia")
 	if err != nil {
@@ -660,6 +674,30 @@ func DefinirAnoLetivoAcademia(c *gin.Context) {
 		"ano_letivo": req.AnoLetivo,
 		"tipo":       req.Tipo,
 	})
+}
+
+func getAnoLetivoGlobalSistema(c *gin.Context) (string, error) {
+	client := getDbClient(c)
+	if client == nil {
+		return "", fmt.Errorf("cliente de banco indisponível")
+	}
+
+	var anoLetivo sql.NullString
+	err := client.DB().QueryRow(`
+		SELECT ano_letivo_atual
+		FROM projection_sistema_config
+		WHERE chave = 'ano_letivo_atual'
+	`).Scan(&anoLetivo)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", err
+	}
+	if !anoLetivo.Valid {
+		return "", nil
+	}
+	return strings.TrimSpace(anoLetivo.String), nil
 }
 
 // ============================================================================
