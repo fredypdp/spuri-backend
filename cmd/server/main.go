@@ -291,6 +291,7 @@ func setupRouter() *gin.Engine {
 		academiaRead.GET("/turma/:codigo", handlers.GetTurma)
 		academiaRead.GET("/ano-letivo", handlers.GetAnoLetivoAcademia)
 		academiaRead.GET("/anos-letivos-lista", handlers.GetAnosLetivosListaAcademia)
+		academiaRead.GET("/categorias-nota", handlers.ListarCategoriasNota)
 	}
 
 	academia := router.Group("/academia")
@@ -311,7 +312,6 @@ func setupRouter() *gin.Engine {
 		// Avaliação final é o único endpoint de avaliação de ano
 		academia.POST("/avaliacao-final", handlers.RegistrarAvaliacaoFinal)
 		academia.POST("/categorias-nota", handlers.CriarCategoriaNota)
-		academia.GET("/categorias-nota", handlers.ListarCategoriasNota)
 		academia.DELETE("/categorias-nota/:nome", handlers.DeletarCategoriaNota)
 		academia.PUT("/estudante/:codigo/status-escolar-fundamental", handlers.AtualizarStatusEscolarFundamentalHandler)
 		academia.PUT("/estudante/:codigo/status-escolar-medio", handlers.AtualizarStatusEscolarMedioHandler)

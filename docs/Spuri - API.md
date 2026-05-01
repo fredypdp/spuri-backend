@@ -2,7 +2,7 @@
 modificado: 01-05-2026 11:10
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.5.2
+Versão atual: 1.5.3
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -1231,9 +1231,13 @@ Cria uma categoria de nota adicional para a academia.
 
 ### GET /academia/categorias-nota
 
-Lista todas as categorias de nota da academia.
+Lista todas as categorias de nota da academia alvo.
 
-**Proteção**: autenticado + academia ativa
+**Proteção**: autenticado + (`academia` ativa **ou** `admin`)
+
+**Query params (quando `admin`)**:
+
+- `codigo_academia` (obrigatório)
 
 **Response 200:**
 
@@ -1243,6 +1247,10 @@ Lista todas as categorias de nota da academia.
   "total": 2
 }
 ```
+
+**Erros:**
+
+- `404` — academia não encontrada (incluindo admin sem `codigo_academia`)
 
 ---
 
