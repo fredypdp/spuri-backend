@@ -214,7 +214,7 @@ interface EstudanteDTO {
   status_escolar_fundamental: StatusEscolar
   status_escolar_medio: StatusEscolar
   status_superior: StatusEscolar
-  ano_escolar?: string            // ex: '3_ano_fundamental'
+  ano_escolar_fundamental?: string // ex: '3_ano_fundamental'
   ano_escolar_medio?: string      // ex: '2_ano_medio'
   ano_superior?: string           // ex: '1_ano_superior'
   curso_medio_id?: string         // UUID
