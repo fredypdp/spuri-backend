@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -399,10 +400,12 @@ func resolverTipoMateria(nivelAcademia string, nivelEscolar *string, tipoReq *st
 		if tipoReq == nil {
 			return "", fmt.Errorf("type é obrigatório para academia escolar de nível misto")
 		}
-		if *tipoReq != "fundamental" && *tipoReq != "medio" {
+
+		tipoNormalizado := strings.ToLower(strings.TrimSpace(*tipoReq))
+		if tipoNormalizado != "fundamental" && tipoNormalizado != "medio" {
 			return "", fmt.Errorf("type deve ser 'fundamental' ou 'medio' para academias mistas")
 		}
-		return *tipoReq, nil
+		return tipoNormalizado, nil
 	default:
 		return "", fmt.Errorf("nivel_escolar inválido")
 	}
