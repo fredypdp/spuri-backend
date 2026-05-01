@@ -1,8 +1,8 @@
 ---
-modificado: 28-04-2026 14:20
+modificado: 01-05-2026 09:40
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.4.3
+Versão atual: 1.5.0
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -53,6 +53,12 @@ Content-Type: application/json
 - Toda rota desta documentação declara explicitamente o formato de entrada e saída.
 - Quando uma rota não tiver corpo de entrada, ela trará `Request: sem payload` ou será um `GET` sem body.
 - Nos endpoints batch (`/async`), o payload é sempre um array JSON; cada item segue o contrato da rota síncrona equivalente.
+
+### Regras de Negócio por Rota
+
+- Cada rota documenta explicitamente: permissões, pré-condições, validações de domínio e bloqueios de negócio.
+- As regras de negócio vêm da documentação do sistema (`Spuri - Documentação.md`) e devem ser consideradas fonte principal.
+- Em caso de diferença entre exemplo de payload e regra de negócio, prevalece a regra de negócio.
 
 ### Envelope de Erro
 
@@ -1007,6 +1013,42 @@ Desativa uma academia ativa.
 
 ---
 
+### POST /admin/sistema/ano-letivo
+
+Define ou atualiza o **ano letivo oficial global do sistema**.
+
+**Proteção**: autenticado + admin role `fpp`
+
+**Regras de negócio:**
+
+- Apenas `fpp` pode alterar o ano letivo global.
+- O formato deve ser `YYYY_YYYY` com segundo ano = primeiro + 1.
+- Esse valor torna-se referência obrigatória para a rota `POST /academia/ano-letivo`.
+
+**Request:**
+
+```json
+{
+  "ano_letivo": "2026_2027"
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "ano letivo global definido com sucesso",
+  "ano_letivo": "2026_2027"
+}
+```
+
+**Erros:**
+
+- `400` — formato inválido
+- `403` — usuário não é `fpp`
+
+---
+
 ## 7. Academia — Operações Próprias
 
 ### PUT /academia/dados
@@ -1050,6 +1092,14 @@ Define ou atualiza o ano letivo ativo da academia.
 
 **Proteção**: autenticado + academia ativa
 
+**Regras de negócio:**
+
+- A academia só altera o próprio ano letivo (não altera o de outras academias).
+- `ano_letivo` deve seguir `YYYY_YYYY` com segundo ano = primeiro + 1.
+- `ano_letivo` deve ser igual ao ano letivo oficial global do sistema (definido por admin `fpp`).
+- Se o ano letivo global ainda não existir, a definição na academia deve ser rejeitada.
+- Sem ano letivo ativo válido, operações de notas/faltas/avaliações finais ficam bloqueadas.
+
 **Request:**
 
 ```json
@@ -1073,6 +1123,8 @@ Define ou atualiza o ano letivo ativo da academia.
 
 - `400` — formato inválido (o segundo ano deve ser exatamente o primeiro + 1)
 - `400` — tipo inválido
+- `400` — ano letivo diferente do ano letivo global oficial
+- `409` — ano letivo global ainda não definido pelo admin `fpp`
 
 **Regra da lista histórica (`anos_letivos_lista`)**: quando um ano letivo é definido, ele é adicionado na lista apenas se ainda não existir. Se já estiver listado, o backend ignora a duplicação.
 
