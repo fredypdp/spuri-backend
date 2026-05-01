@@ -12,6 +12,7 @@ import (
 	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
+	"spuri/internal/projections"
 	"spuri/internal/utils"
 )
 
@@ -594,12 +595,9 @@ func CriarCategoriaNota(c *gin.Context) {
 // ============================================================================
 
 // ListarCategoriasNota retorna todas as categorias de nota da academia.
-// Disponível para academias de qualquer tipo.
+// Disponível para academias de qualquer tipo e para admins (informando codigo_academia).
 func ListarCategoriasNota(c *gin.Context) {
-	userID, _ := middleware.GetUserID(c)
-
-	academiaProj := getAcademiaProjection(c)
-	academiaDTO, err := academiaProj.GetByID(userID)
+	academiaDTO, err := getAcademiaCategoriasNotaTarget(c)
 	if err != nil || academiaDTO == nil {
 		utils.RespondWithNotFoundError(c, "academia")
 		return
@@ -616,6 +614,22 @@ func ListarCategoriasNota(c *gin.Context) {
 		"categorias": categorias,
 		"total":      len(categorias),
 	})
+}
+
+func getAcademiaCategoriasNotaTarget(c *gin.Context) (*projections.AcademiaDTO, error) {
+	userType, _ := middleware.GetUserType(c)
+	academiaProj := getAcademiaProjection(c)
+
+	if userType == "admin" {
+		codigoAcademia := strings.TrimSpace(c.Query("codigo_academia"))
+		if codigoAcademia == "" {
+			return nil, fmt.Errorf("admin deve informar ?codigo_academia=CODIGO")
+		}
+		return academiaProj.GetByCodigo(codigoAcademia)
+	}
+
+	userID, _ := middleware.GetUserID(c)
+	return academiaProj.GetByID(userID)
 }
 
 // DeletarCategoriaNota remove (inativa) uma categoria de nota adicional da academia.
