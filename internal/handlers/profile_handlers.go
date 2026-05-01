@@ -269,7 +269,7 @@ func getPerfilEstudante(c *gin.Context, userID interface{}) {
 			"status_escolar_fundamental":     estudante.StatusEscolarFundamental,
 			"status_escolar_medio":           estudante.StatusEscolarMedio,
 			"status_superior":                estudante.StatusSuperior,
-			"ano_escolar":                    estudante.AnoEscolar,
+			"ano_escolar_fundamental":        estudante.AnoEscolar,
 			"ano_escolar_medio":              estudante.AnoEscolarMedio,
 			"ano_superior":                   estudante.AnoSuperior,
 			"curso_medio":                    cursoMedioInfo,

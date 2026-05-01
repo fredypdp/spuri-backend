@@ -263,7 +263,7 @@ func (e *Estudante) CriarComVinculo(
 
 	if anoEscolar != nil && *anoEscolar != "" {
 		if err := utils.ValidateAnoFundamental(*anoEscolar); err != nil {
-			return fmt.Errorf("ano_escolar inválido: %w", err)
+			return fmt.Errorf("ano_escolar_fundamental inválido: %w", err)
 		}
 	}
 	if anoEscolarMedio != nil && *anoEscolarMedio != "" {
@@ -403,7 +403,7 @@ func (e *Estudante) AtualizarDadosAcademicos(
 
 	if anoEscolar != nil && *anoEscolar != "" {
 		if err := utils.ValidateAnoFundamental(*anoEscolar); err != nil {
-			return fmt.Errorf("ano_escolar inválido: %w", err)
+			return fmt.Errorf("ano_escolar_fundamental inválido: %w", err)
 		}
 	}
 	if anoEscolarMedio != nil && *anoEscolarMedio != "" {

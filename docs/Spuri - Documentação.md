@@ -2,7 +2,7 @@
 modificado: 01-05-2026 11:10
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.4.1
+Versão atual: 1.4.2
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -480,7 +480,7 @@ Permite que qualquer usuário (estudante, academia ou admin) registe números de
 
 - `genero` obrigatório: `masculino` ou `feminino`
 - `data_nascimento` obrigatório: deve ser anterior à data atual
-- `ano_escolar` deve seguir o formato canônico para o tipo de ensino
+- `ano_escolar_fundamental` deve seguir o formato canônico para o tipo de ensino
 - Se informar `curso_medio_id`, o curso deve existir e ser do tipo `medio`
 - Se informar `curso_superior_id`, o curso deve existir e ser do tipo `superior`
 - Status inicial padrão para fundamental: `em_andamento`
@@ -520,7 +520,7 @@ Sempre que o ano letivo for atualizado, ele é adicionado em `anos_letivos_lista
 3. Sistema verifica que estudante pertence à academia
 4. Sistema verifica que matéria pertence à academia
 5. Sistema infere o `ano_academico`:
-    - Se estudante tem `ano_escolar` preenchido (fundamental) → usa esse valor **somente se** esse ano existir em `anos_academicos` da matéria
+    - Se estudante tem `ano_escolar_fundamental` preenchido (fundamental) → usa esse valor **somente se** esse ano existir em `anos_academicos` da matéria
     - Se não existir, o registro é bloqueado com erro de validação (incompatibilidade estudante × matéria)
     - Caso contrário → usa `anos_academicos[0]` da matéria
 6. Sistema verifica idempotência (chave: `codigoAcademia_anoLectivo_periodo_materiaID_tipo_categoria`)
@@ -799,7 +799,7 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 | ------------------------------------------- | ------------------------------------------------------------- |
 | Nota deve ser 0 ou mais                     | Validação no aggregate, não apenas no handler                 |
 | Academia escola só registra notas `escolar` | Academia superior só registra `superior`                      |
-| Ano do estudante deve pertencer à matéria   | Se `ano_escolar` não estiver em `anos_academicos`, bloqueia   |
+| Ano do estudante deve pertencer à matéria   | Se `ano_escolar_fundamental` não estiver em `anos_academicos`, bloqueia   |
 | Observação obrigatória na correção          | Justificativa da alteração                                    |
 | Motivo obrigatório na deleção               | Para auditoria                                                |
 | Duplicata bloqueada no aggregate            | Mesma combinação ano/período/matéria/tipo/categoria rejeitada |
@@ -811,7 +811,7 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 | ------------------------------------------------ | --------------------------------------------------------------------------------------- |
 | Quantidade deve ser 1 ou mais                    | Validação no handler e no aggregate                                                     |
 | Data no formato date (`AAAA-MM-DD`)              | Campo date-only em faltas (sem hora)                                                    |
-| Ano do estudante deve pertencer à matéria        | Se `ano_escolar` do estudante não existir em `anos_academicos` da matéria, bloqueia    |
+| Ano do estudante deve pertencer à matéria        | Se `ano_escolar_fundamental` do estudante não existir em `anos_academicos` da matéria, bloqueia    |
 | Observação obrigatória na correção               | Justificativa da alteração em `PUT /academia/atualizar-falta`                           |
 | Motivo obrigatório na deleção                    | Para auditoria no ledger e na projeção                                                  |
 | Duplicata bloqueada                              | Mesma combinação `data + codigo_estudante + materia_disciplinar_id` é rejeitada         |
