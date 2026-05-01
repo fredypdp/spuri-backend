@@ -31,7 +31,7 @@ type CadastroEstudanteAcademiaRequest struct {
 	Telefone                 string    `json:"telefone"`
 	BilheteIdentidade        string    `json:"bilhete_identidade"`
 	BilheteResponsavel       string    `json:"bilhete_identidade_responsavel"`
-	AnoEscolar               string    `json:"ano_escolar"`
+	AnoEscolar               string    `json:"ano_escolar_fundamental"`
 	AnoEscolarMedio          string    `json:"ano_escolar_medio"`
 	AnoSuperior              string    `json:"ano_superior"`
 	CursoMedioID             string    `json:"curso_medio_id"`
@@ -164,7 +164,7 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 	var anoEscolarPtr, anoEscolarMedioPtr, anoSuperiorPtr *string
 	if req.AnoEscolar != "" {
 		if err := utils.ValidateAnoFundamental(req.AnoEscolar); err != nil {
-			utils.RespondWithValidationError(c, fmt.Errorf("ano_escolar inválido: %w", err))
+			utils.RespondWithValidationError(c, fmt.Errorf("ano_escolar_fundamental inválido: %w", err))
 			return
 		}
 		anoEscolarPtr = &req.AnoEscolar
@@ -359,7 +359,7 @@ func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
 			"status_escolar_fundamental":     getNullString(statusFund),
 			"status_escolar_medio":           getNullString(statusMedio),
 			"status_superior":                getNullString(statusSuperior),
-			"ano_escolar":                    getNullString(anoEscolar),
+			"ano_escolar_fundamental":        getNullString(anoEscolar),
 			"ano_escolar_medio":              getNullString(anoEscolarMedio),
 			"ano_superior":                   getNullString(anoSuperior),
 			"curso_medio_id":                 getNullString(cursoMedioID),
@@ -629,7 +629,7 @@ func GetEstudantePorCodigo(c *gin.Context) {
 			"status_escolar_fundamental":     estudante.StatusEscolarFundamental,
 			"status_escolar_medio":           estudante.StatusEscolarMedio,
 			"status_superior":                estudante.StatusSuperior,
-			"ano_escolar":                    estudante.AnoEscolar,
+			"ano_escolar_fundamental":        estudante.AnoEscolar,
 			"ano_escolar_medio":              estudante.AnoEscolarMedio,
 			"ano_superior":                   estudante.AnoSuperior,
 			"curso_medio":                    cursoMedioInfo,

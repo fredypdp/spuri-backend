@@ -517,7 +517,7 @@ func inferirTipoEnsinoPorNivel(nivel string) string {
 // Rota: POST /academia/turmas/:codigo/estudantes
 //
 // Validações de compatibilidade adicionadas:
-//   - Fundamental: o ano_escolar do estudante deve corresponder ao nivel da turma
+//   - Fundamental: o ano_escolar_fundamental do estudante deve corresponder ao nivel da turma
 //   - Médio: o ano_escolar_medio e o curso_medio_id do estudante devem
 //     corresponder ao nivel e curso_id da turma
 //   - Superior: o ano_superior e o curso_superior_id do estudante devem
