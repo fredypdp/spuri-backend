@@ -2,7 +2,7 @@
 modificado: 01-05-2026 11:10
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.4.2
+Versão atual: 1.4.3
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -277,6 +277,18 @@ Representa uma instituição de ensino. Pode ser uma **escola** (ensino fundamen
 |`AcademiaSenhaAlterada`|Senha alterada|
 |`CategoriaNotaAdicionada`|Categoria de nota personalizada criada|
 |`AnoLetivoAcademiaDefinido`|Ano letivo ativo definido ou atualizado|
+
+
+### Categorias de nota (código vs rótulo)
+
+- `codigo`: identificador técnico único por academia (sem espaços).
+- `nome`: rótulo descritivo exibido ao usuário (pode conter espaços).
+- Códigos fixos e rótulos padrão:
+  - `nota_escola` -> `Nota da escola`
+  - `nota_professor` -> `Nota do professor`
+  - `nota_pp1` -> `Prova Parcelar 1`
+  - `nota_pp2` -> `Prova Parcelar 2`
+  - `nota_exame` -> `Exame Final`
 
 ---
 

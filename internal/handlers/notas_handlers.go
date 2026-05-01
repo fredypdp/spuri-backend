@@ -542,11 +542,12 @@ func CriarCategoriaNota(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
 	var req struct {
+		Codigo    string  `json:"codigo"    binding:"required"`
 		Nome      string  `json:"nome"      binding:"required"`
 		Descricao *string `json:"descricao"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("nome é obrigatorio"))
+		utils.RespondWithValidationError(c, fmt.Errorf("codigo e nome são obrigatorios"))
 		return
 	}
 
@@ -558,7 +559,7 @@ func CriarCategoriaNota(c *gin.Context) {
 	}
 
 	categoriasProj := getCategoriasNotaProjection(c)
-	categoriasExistentes, _ := categoriasProj.GetNomesByAcademia(academiaDTO.CodigoAcademia)
+	categoriasExistentes, _ := categoriasProj.GetCodigosByAcademia(academiaDTO.CodigoAcademia)
 
 	repository := getRepository(c)
 	agg, err := repository.Load(userID, "Academia")
@@ -572,7 +573,7 @@ func CriarCategoriaNota(c *gin.Context) {
 		return
 	}
 
-	if err := academia.AdicionarCategoriaNota(req.Nome, req.Descricao, userID, categoriasExistentes); err != nil {
+	if err := academia.AdicionarCategoriaNota(req.Codigo, req.Nome, req.Descricao, userID, categoriasExistentes); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -582,11 +583,11 @@ func CriarCategoriaNota(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Categoria de nota criada: %s para academia %s", req.Nome, academiaDTO.CodigoAcademia)
+	log.Printf("Categoria de nota criada: %s (%s) para academia %s", req.Codigo, req.Nome, academiaDTO.CodigoAcademia)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message":   "categoria criada com sucesso",
-		"categoria": req.Nome,
+		"categoria": req.Codigo,
 	})
 }
 
@@ -627,18 +628,27 @@ func getAcademiaCategoriasNotaTarget(c *gin.Context) (*projections.AcademiaDTO, 
 		}
 		return academiaProj.GetByCodigo(codigoAcademia)
 	}
+	if userType == "estudante" {
+		userID, _ := middleware.GetUserID(c)
+		estudanteProj := getEstudanteProjection(c)
+		estudanteDTO, err := estudanteProj.GetByID(userID)
+		if err != nil || estudanteDTO == nil || estudanteDTO.CodigoAcademia == nil {
+			return nil, fmt.Errorf("estudante sem academia associada")
+		}
+		return academiaProj.GetByCodigo(*estudanteDTO.CodigoAcademia)
+	}
 
 	userID, _ := middleware.GetUserID(c)
 	return academiaProj.GetByID(userID)
 }
 
 // DeletarCategoriaNota remove (inativa) uma categoria de nota adicional da academia.
-// Rota: DELETE /academia/categorias-nota/:nome
+// Rota: DELETE /academia/categorias-nota/:codigo
 func DeletarCategoriaNota(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
-	nomeCategoria := strings.TrimSpace(c.Param("nome"))
-	if nomeCategoria == "" {
-		utils.RespondWithValidationError(c, fmt.Errorf("nome da categoria é obrigatório"))
+	codigoCategoria := strings.TrimSpace(c.Param("codigo"))
+	if codigoCategoria == "" {
+		utils.RespondWithValidationError(c, fmt.Errorf("codigo da categoria é obrigatório"))
 		return
 	}
 
@@ -650,7 +660,7 @@ func DeletarCategoriaNota(c *gin.Context) {
 	}
 
 	categoriasProj := getCategoriasNotaProjection(c)
-	categoriasExistentes, _ := categoriasProj.GetNomesByAcademia(academiaDTO.CodigoAcademia)
+	categoriasExistentes, _ := categoriasProj.GetCodigosByAcademia(academiaDTO.CodigoAcademia)
 
 	repository := getRepository(c)
 	agg, err := repository.Load(userID, "Academia")
@@ -664,7 +674,7 @@ func DeletarCategoriaNota(c *gin.Context) {
 		return
 	}
 
-	if err := academia.RemoverCategoriaNota(nomeCategoria, userID, categoriasExistentes); err != nil {
+	if err := academia.RemoverCategoriaNota(codigoCategoria, userID, categoriasExistentes); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -676,7 +686,7 @@ func DeletarCategoriaNota(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":   "categoria removida com sucesso",
-		"categoria": nomeCategoria,
+		"categoria": codigoCategoria,
 	})
 }
 
