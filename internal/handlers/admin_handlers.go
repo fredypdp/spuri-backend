@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
@@ -15,6 +16,62 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
+
+func DefinirAnoLetivoGlobalSistema(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+
+	var req struct {
+		AnoLetivo string `json:"ano_letivo" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("campo obrigatório: ano_letivo"))
+		return
+	}
+
+	anoLetivo := strings.TrimSpace(req.AnoLetivo)
+	if !isAnoLetivoValido(anoLetivo) {
+		utils.RespondWithValidationError(c, fmt.Errorf("ano_letivo inválido: use o formato YYYY_YYYY com segundo ano = primeiro + 1"))
+		return
+	}
+
+	client := getDbClient(c)
+	if client == nil {
+		return
+	}
+
+	_, err := client.DB().Exec(`
+		INSERT INTO projection_sistema_config (
+			chave, valor, ano_letivo_atual, definido_por, updated_at, version
+		) VALUES (
+			'ano_letivo_atual', $1, $1, $2, NOW(), 1
+		)
+		ON CONFLICT (chave) DO UPDATE SET
+			valor = EXCLUDED.valor,
+			ano_letivo_atual = EXCLUDED.ano_letivo_atual,
+			definido_por = EXCLUDED.definido_por,
+			updated_at = NOW(),
+			version = COALESCE(projection_sistema_config.version, 0) + 1
+	`, anoLetivo, userID)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	log.Printf("✅ [DefinirAnoLetivoGlobalSistema] ano_letivo=%s definido por admin=%s", anoLetivo, userID.String())
+	c.JSON(http.StatusOK, gin.H{
+		"message":    "ano letivo global definido com sucesso",
+		"ano_letivo": anoLetivo,
+	})
+}
+
+func isAnoLetivoValido(v string) bool {
+	if len(v) != 9 || v[4] != '_' {
+		return false
+	}
+	var inicio, fim int
+	_, err := fmt.Sscanf(v, "%4d_%4d", &inicio, &fim)
+	return err == nil && fim == inicio+1
+}
 
 func RegisterAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)

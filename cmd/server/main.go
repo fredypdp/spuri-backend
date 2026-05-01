@@ -392,6 +392,7 @@ func setupRouter() *gin.Engine {
 		admin.GET("/consultar-admin/:email", handlers.GetAdminPorEmail)
 		admin.PUT("/admin/:id/role", middleware.RequireFPP(), handlers.AtualizarRoleAdmin)
 		admin.PUT("/admin/:id/dados", handlers.AtualizarDadosAdmin)
+		admin.POST("/sistema/ano-letivo", middleware.RequireFPP(), handlers.DefinirAnoLetivoGlobalSistema)
 
 		// ── Batch assíncronos (admin) ─────────────────────────────────────
 		admin.POST("/academia/register/async", middleware.RequireFPP(), handlers.RegisterAcademiaBatchAsync)
