@@ -679,7 +679,7 @@ type EstudanteDTO struct {
 	StatusEscolarFundamental string    `json:"status_escolar_fundamental"`
 	StatusEscolarMedio       string    `json:"status_escolar_medio"`
 	StatusSuperior           string    `json:"status_superior"`
-	AnoEscolar               *string   `json:"ano_escolar,omitempty"`
+	AnoEscolar               *string   `json:"ano_escolar_fundamental,omitempty"`
 	AnoEscolarMedio          *string   `json:"ano_escolar_medio,omitempty"`
 	AnoSuperior              *string   `json:"ano_superior,omitempty"`
 	CursoMedioID             *string   `json:"curso_medio_id,omitempty"`

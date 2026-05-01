@@ -2,7 +2,7 @@
 modificado: 01-05-2026 11:10
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.5.1
+Versão atual: 1.5.2
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -776,7 +776,7 @@ Retorna os dados do usuário autenticado. O formato da resposta varia por tipo.
     "status_escolar_fundamental": "em_andamento",
     "status_escolar_medio": "inativo",
     "status_superior": "inativo",
-    "ano_escolar": "3_ano_fundamental",
+    "ano_escolar_fundamental": "3_ano_fundamental",
     "ano_escolar_medio": null,
     "ano_superior": null,
     "curso_medio": null,
@@ -1293,7 +1293,7 @@ Cadastra um novo estudante vinculado à academia autenticada.
   "telefone": "+244923000000",
   "bilhete_identidade": "001234567LA089",
   "bilhete_identidade_responsavel": "009876543LA089",
-  "ano_escolar": "3_ano_fundamental",
+  "ano_escolar_fundamental": "3_ano_fundamental",
   "status_escolar_fundamental": "em_andamento",
   "ano_escolar_medio": null,
   "status_escolar_medio": "inativo",
@@ -1322,7 +1322,7 @@ Cadastra um novo estudante vinculado à academia autenticada.
 **Erros:**
 
 - `400` — genero inválido, data_nascimento inválida ou no futuro
-- `400` — ano_escolar em formato incorreto
+- `400` — ano_escolar_fundamental em formato incorreto
 - `400` — curso_medio_id não encontrado ou tipo errado
 
 ---
@@ -1620,7 +1620,7 @@ Registra uma nota para um estudante.
 - `nota` deve ser maior ou igual a 0 (`>= 0`)
 - `periodo` deve ser válido para o tipo (`1_trimestre`/`2_trimestre`/`3_trimestre` para escolar; semestres do curso para superior)
 - Para `tipo=superior`, o `periodo` precisa coincidir com o `periodo` definido na matéria (além de existir na lista de períodos do curso)
-- Se o estudante tiver `ano_escolar`, esse ano deve existir em `anos_academicos` da matéria; caso contrário, o registro é bloqueado
+- Se o estudante tiver `ano_escolar_fundamental`, esse ano deve existir em `anos_academicos` da matéria; caso contrário, o registro é bloqueado
 - `categoria` deve ser uma das fixas ou uma adicional da academia
 - O endpoint `POST /academia/notas-aluno/async` reaproveita exatamente as mesmas validações deste endpoint por item do lote
 
@@ -1642,7 +1642,7 @@ Registra uma nota para um estudante.
 
 **Erros:**
 
-- `400` — nota negativa, período inválido, categoria inválida, duplicata, ou incompatibilidade entre `ano_escolar` do estudante e `anos_academicos` da matéria
+- `400` — nota negativa, período inválido, categoria inválida, duplicata, ou incompatibilidade entre `ano_escolar_fundamental` do estudante e `anos_academicos` da matéria
 - `403` — estudante ou matéria não pertencem à academia
 - `400` — academia sem ano letivo configurado
 
@@ -1777,7 +1777,7 @@ Registra falta(s) para um estudante.
 
 - `quantidade` deve ser maior ou igual a 1
 - `data` é tratada como **date-only** (sem hora), em formato `AAAA-MM-DD`
-- Se o estudante tiver `ano_escolar`, esse ano deve existir em `anos_academicos` da matéria; caso contrário, o registro é bloqueado
+- Se o estudante tiver `ano_escolar_fundamental`, esse ano deve existir em `anos_academicos` da matéria; caso contrário, o registro é bloqueado
 - Idempotência (duplicata bloqueada): combinação `data + codigo_estudante + materia_disciplinar_id`
 - O endpoint `POST /academia/faltas-aluno/async` reaproveita exatamente as mesmas validações deste endpoint por item do lote
 
@@ -1795,7 +1795,7 @@ Registra falta(s) para um estudante.
 
 **Erros:**
 
-- `400` — quantidade inválida (deve ser ≥ 1), data inválida, ou incompatibilidade entre `ano_escolar` do estudante e `anos_academicos` da matéria
+- `400` — quantidade inválida (deve ser ≥ 1), data inválida, ou incompatibilidade entre `ano_escolar_fundamental` do estudante e `anos_academicos` da matéria
 - `403` — estudante ou matéria não pertencem à academia
 
 ---
@@ -1825,7 +1825,7 @@ Corrige uma falta registada.
 - `observacao` é obrigatória e não pode ser vazia
 - `quantidade`, quando enviada, deve ser `>= 1`
 - `data`, quando enviada, deve estar em `AAAA-MM-DD`
-- Se `materia_disciplinar_id` for alterada (ou mantida), continua valendo a regra de compatibilidade com `ano_escolar` do estudante
+- Se `materia_disciplinar_id` for alterada (ou mantida), continua valendo a regra de compatibilidade com `ano_escolar_fundamental` do estudante
 - A atualização também bloqueia duplicata pela combinação `data + codigo_estudante + materia_disciplinar_id`
 
 **Response 200:**
