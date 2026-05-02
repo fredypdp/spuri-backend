@@ -58,7 +58,8 @@ func (p *TurmasProjection) Handle(event db.Event) error {
 		"TurmaDesativada":            p.handleTurmaDesativada,
 		"EstudanteAdicionadoATurma":  p.handleEstudanteAdicionado,
 		"EstudanteRemovidoDaTurma":   p.handleEstudanteRemovido,
-		"AvaliacaoFinalAnoAcademico": p.handleAvaliacaoFinalAnoAcademico,
+		"AvaliacaoFinalEscolar":      p.handleAvaliacaoFinalAnoAcademico,
+		"AvaliacaoFinalSuperior":     p.handleAvaliacaoFinalAnoAcademico,
 		"TurmaDadosAtualizados":      p.handleTurmaAtualizada,
 		"TurmaDeletada":              p.handleTurmaDeletada,
 	}
@@ -79,7 +80,7 @@ func (p *TurmasProjection) Rebuild() error {
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger
-		WHERE aggregate_type = 'Turma' OR event_type = 'AvaliacaoFinalAnoAcademico'
+		WHERE aggregate_type = 'Turma' OR event_type IN ('AvaliacaoFinalEscolar','AvaliacaoFinalSuperior')
 		ORDER BY id ASC
 	`)
 	if err != nil {

@@ -56,7 +56,7 @@ func (p *AvaliacaoFinalProjection) Handle(event db.Event) error {
 	if event.AggregateType != "Estudante" {
 		return nil
 	}
-	if event.EventType == "AvaliacaoFinalAnoAcademico" {
+	if event.EventType == "AvaliacaoFinalEscolar" || event.EventType == "AvaliacaoFinalSuperior" {
 		return p.handleAvaliacaoFinal(event)
 	}
 	return nil
@@ -72,7 +72,7 @@ func (p *AvaliacaoFinalProjection) Rebuild() error {
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger
-		WHERE aggregate_type = 'Estudante' AND event_type = 'AvaliacaoFinalAnoAcademico'
+		WHERE aggregate_type = 'Estudante' AND event_type IN ('AvaliacaoFinalEscolar','AvaliacaoFinalSuperior')
 		ORDER BY id ASC
 	`)
 	if err != nil {

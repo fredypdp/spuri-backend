@@ -2,7 +2,7 @@
 modificado: 01-05-2026 11:10
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.5.4
+Versão atual: 1.5.5
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -217,6 +217,7 @@ interface EstudanteDTO {
   ano_escolar_fundamental?: string // ex: '3_ano_fundamental'
   ano_escolar_medio?: string      // ex: '2_ano_medio'
   ano_superior?: string           // ex: '1_ano_superior'
+  semestre_atual?: number         // apenas superior; inteiro sequencial (1..N)
   curso_medio_id?: string         // UUID
   curso_superior_id?: string      // UUID
   total_notas?: number
@@ -1937,7 +1938,6 @@ Registra a avaliação final de ano para um estudante.
 ```json
 {
   "codigo_estudante": "ABC1234",
-  "tipo_ensino": "fundamental",
   "nivel_ano_academico_atual": "3_ano_fundamental",
   "aprovado": true,
   "observacao": "string"  // opcional — se fornecido, bypassa validação de notas
@@ -1946,11 +1946,13 @@ Registra a avaliação final de ano para um estudante.
 
 **Regras:**
 
-- `nivel_ano_academico_atual` deve seguir o formato canônico do tipo de ensino
+- `tipo_ensino` não é enviado no payload; o backend infere automaticamente com base no estudante (sessão + código da academia)
+- `nivel_ano_academico_atual` deve seguir o formato canônico do tipo inferido
 - `proximo_ano_academico` é calculado automaticamente pelo backend e não deve ser enviado no payload
 - Se `aprovado = true`: o backend calcula o próximo ano automaticamente
   - fundamental: sequência fixa `1_ano_fundamental` até `9_ano_fundamental`
-  - médio/superior: sequência configurada no curso do estudante
+  - médio: sequência configurada no curso do estudante
+  - superior: avanço sequencial por semestre (`semestre_atual += 1`) até o último semestre configurado do curso
 - Se `aprovado = false`: o backend mantém o estudante no mesmo nível (sem próximo ano)
 - Sem `observacao`: notas de todas as matérias do período são validadas automaticamente
 
@@ -1971,6 +1973,10 @@ Registra a avaliação final de ano para um estudante.
 - `400` — `proximo_ano_academico` enviado no payload (campo não permitido)
 - `400` — `nivel_ano_academico_atual` inválido para o ciclo (fundamental fora de 1..9, ou fora do curso em médio/superior)
 - `409` — avaliação já registrada para este tipo/ano/nível
+
+**Modelos de avaliação final:**
+- **Escolar (fundamental/médio):** mantém o comportamento atual por ano acadêmico.
+- **Superior:** aprovação sempre avança para o próximo semestre; o avanço de `ano_superior` é automático por `ceil(semestre_atual / 2)`.
 
 ---
 

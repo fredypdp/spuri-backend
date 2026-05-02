@@ -94,8 +94,10 @@ func (e *Estudante) Apply(event DomainEvent) error {
 		return e.applyStatusSuperiorAtualizado(event)
 	case "CursoAlterado":
 		return e.applyCursoAlterado(event)
-	case "AvaliacaoFinalAnoAcademico":
-		return e.applyAvaliacaoFinalAnoAcademico(event)
+	case "AvaliacaoFinalEscolar":
+		return e.applyAvaliacaoFinalEscolar(event)
+	case "AvaliacaoFinalSuperior":
+		return e.applyAvaliacaoFinalSuperior(event)
 	case "DadosPessoaisAtualizados":
 		return e.applyDadosPessoaisAtualizados(event)
 	case "DadosAcademicosAtualizados":

@@ -77,7 +77,7 @@ func (p *EstudanteProjection) Handle(event db.Event) error {
 		return p.handleCursoAlterado(event)
 	case "SenhaAlterada":
 		return p.handleSenhaAlterada(event)
-	case "AvaliacaoFinalAnoAcademico":
+	case "AvaliacaoFinalEscolar", "AvaliacaoFinalSuperior":
 		return p.handleAvaliacaoFinalAnoAcademico(event)
 	case "NotasRegistradas", "FaltasRegistradas":
 		return p.handleVersionOnly(event)
@@ -233,7 +233,7 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 			bilhete_identidade, bilhete_identidade_responsavel, genero,
 			data_nascimento,
 			status, status_escolar_fundamental, status_escolar_medio, status_superior,
-			ano_escolar, ano_escolar_medio, ano_superior, curso_medio_id, curso_superior_id,
+			ano_escolar, ano_escolar_medio, ano_superior, semestre_atual, curso_medio_id, curso_superior_id,
 			codigo_academia, created_at, updated_at, version, last_event_id
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, FALSE,
@@ -682,6 +682,7 @@ type EstudanteDTO struct {
 	AnoEscolar               *string   `json:"ano_escolar_fundamental,omitempty"`
 	AnoEscolarMedio          *string   `json:"ano_escolar_medio,omitempty"`
 	AnoSuperior              *string   `json:"ano_superior,omitempty"`
+	SemestreAtual            *int      `json:"semestre_atual,omitempty"`
 	CursoMedioID             *string   `json:"curso_medio_id,omitempty"`
 	CursoSuperiorID          *string   `json:"curso_superior_id,omitempty"`
 	CreatedAt                time.Time `json:"created_at"`
@@ -694,7 +695,7 @@ const estudanteCols = `
 	bilhete_identidade, bilhete_identidade_responsavel, genero,
 	data_nascimento,
 	codigo_academia, status, status_escolar_fundamental, status_escolar_medio, status_superior,
-	ano_escolar, ano_escolar_medio, ano_superior, curso_medio_id, curso_superior_id,
+	ano_escolar, ano_escolar_medio, ano_superior, semestre_atual, curso_medio_id, curso_superior_id,
 	created_at, updated_at, version
 `
 
@@ -705,7 +706,7 @@ func scanEstudante(row *sql.Row) (*EstudanteDTO, error) {
 		&e.BilheteIdentidade, &e.BilheteIdentidadeResp, &e.Genero,
 		&e.DataNascimento,
 		&e.CodigoAcademia, &e.Status, &e.StatusEscolarFundamental, &e.StatusEscolarMedio, &e.StatusSuperior,
-		&e.AnoEscolar, &e.AnoEscolarMedio, &e.AnoSuperior, &e.CursoMedioID, &e.CursoSuperiorID,
+		&e.AnoEscolar, &e.AnoEscolarMedio, &e.AnoSuperior, &e.SemestreAtual, &e.CursoMedioID, &e.CursoSuperiorID,
 		&e.CreatedAt, &e.UpdatedAt, &e.Version,
 	)
 	if err == sql.ErrNoRows {
@@ -726,7 +727,7 @@ func scanEstudanteRows(rows *sql.Rows) ([]EstudanteDTO, error) {
 			&e.BilheteIdentidade, &e.BilheteIdentidadeResp, &e.Genero,
 			&e.DataNascimento,
 			&e.CodigoAcademia, &e.Status, &e.StatusEscolarFundamental, &e.StatusEscolarMedio, &e.StatusSuperior,
-			&e.AnoEscolar, &e.AnoEscolarMedio, &e.AnoSuperior, &e.CursoMedioID, &e.CursoSuperiorID,
+			&e.AnoEscolar, &e.AnoEscolarMedio, &e.AnoSuperior, &e.SemestreAtual, &e.CursoMedioID, &e.CursoSuperiorID,
 			&e.CreatedAt, &e.UpdatedAt, &e.Version,
 		); err != nil {
 			return nil, err
