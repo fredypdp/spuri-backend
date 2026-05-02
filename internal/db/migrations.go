@@ -12,6 +12,8 @@ import (
 
 const migrationsDir = "migrations"
 
+const unifiedBaselineMigration = "000_unified_baseline.sql"
+
 // loadMigrations lê o diretório de migrations e retorna os caminhos
 // ordenados por nome de arquivo (ordem numérica 001_, 002_, ...).
 // Apenas arquivos .sql são incluídos.
@@ -57,6 +59,15 @@ func (c *Client) RunMigrations() error {
 
 	log.Printf("📂 %d migration(s) encontrada(s) em '%s'", len(migrations), migrationsDir)
 
+	legacyApplied, err := c.countAppliedMigrations()
+	if err != nil {
+		return fmt.Errorf("erro ao contar migrations aplicadas: %w", err)
+	}
+
+	if err := c.handleUnifiedBaseline(migrations, legacyApplied); err != nil {
+		return err
+	}
+
 	applied := 0
 	for _, path := range migrations {
 		name := filepath.Base(path)
@@ -90,6 +101,48 @@ func (c *Client) RunMigrations() error {
 	}
 
 	c.logStats()
+	return nil
+}
+
+func (c *Client) countAppliedMigrations() (int, error) {
+	var count int
+	err := c.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&count)
+	return count, err
+}
+
+func (c *Client) handleUnifiedBaseline(migrations []string, appliedCount int) error {
+	baselineFound := false
+	for _, path := range migrations {
+		if filepath.Base(path) == unifiedBaselineMigration {
+			baselineFound = true
+			break
+		}
+	}
+	if !baselineFound {
+		return nil
+	}
+
+	if appliedCount > 0 {
+		if err := c.markMigrationApplied(unifiedBaselineMigration); err != nil {
+			return fmt.Errorf("erro ao registrar baseline unificada: %w", err)
+		}
+		log.Printf("ℹ️ Baseline unificada detectada: %s (ambiente legado)", unifiedBaselineMigration)
+		return nil
+	}
+
+	log.Printf("🚀 Ambiente novo detectado. Aplicando baseline unificada: %s", unifiedBaselineMigration)
+	if err := c.runMigrationFile(filepath.Join(migrationsDir, unifiedBaselineMigration)); err != nil {
+		return fmt.Errorf("erro ao aplicar baseline unificada: %w", err)
+	}
+
+	for _, path := range migrations {
+		name := filepath.Base(path)
+		if err := c.markMigrationApplied(name); err != nil {
+			return fmt.Errorf("erro ao registrar migration %s após baseline: %w", name, err)
+		}
+	}
+
+	log.Printf("✅ Baseline aplicada e histórico marcado como executado")
 	return nil
 }
 
