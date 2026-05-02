@@ -895,3 +895,6 @@ BEGIN
     RAISE NOTICE '   ✅ Views auxiliares completas';
     RAISE NOTICE '╚═══════════════════════════════════╝';
 END $$;
+
+-- Baseline unificada para ambientes novos.
+-- Esta migration substitui o histórico completo em instalações novas.
