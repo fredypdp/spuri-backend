@@ -12,6 +12,8 @@ import (
 
 const migrationsDir = "migrations"
 
+const unifiedBaselineMigration = "000_unified_baseline.sql"
+
 // loadMigrations lê o diretório de migrations e retorna os caminhos
 // ordenados por nome de arquivo (ordem numérica 001_, 002_, ...).
 // Apenas arquivos .sql são incluídos.
@@ -55,6 +57,11 @@ func (c *Client) RunMigrations() error {
 		return nil
 	}
 
+	if hasUnifiedBaseline(migrations) {
+		migrations = []string{filepath.Join(migrationsDir, unifiedBaselineMigration)}
+		log.Printf("📦 Baseline unificada detectada. Executando apenas %s", unifiedBaselineMigration)
+	}
+
 	log.Printf("📂 %d migration(s) encontrada(s) em '%s'", len(migrations), migrationsDir)
 
 	applied := 0
@@ -91,6 +98,15 @@ func (c *Client) RunMigrations() error {
 
 	c.logStats()
 	return nil
+}
+
+func hasUnifiedBaseline(migrations []string) bool {
+	for _, path := range migrations {
+		if filepath.Base(path) == unifiedBaselineMigration {
+			return true
+		}
+	}
+	return false
 }
 
 // ensureMigrationsTable cria a tabela de controle se não existir.
