@@ -57,16 +57,12 @@ func (c *Client) RunMigrations() error {
 		return nil
 	}
 
+	if hasUnifiedBaseline(migrations) {
+		migrations = []string{filepath.Join(migrationsDir, unifiedBaselineMigration)}
+		log.Printf("📦 Baseline unificada detectada. Executando apenas %s", unifiedBaselineMigration)
+	}
+
 	log.Printf("📂 %d migration(s) encontrada(s) em '%s'", len(migrations), migrationsDir)
-
-	legacyApplied, err := c.countAppliedMigrations()
-	if err != nil {
-		return fmt.Errorf("erro ao contar migrations aplicadas: %w", err)
-	}
-
-	if err := c.handleUnifiedBaseline(migrations, legacyApplied); err != nil {
-		return err
-	}
 
 	applied := 0
 	for _, path := range migrations {
@@ -104,46 +100,13 @@ func (c *Client) RunMigrations() error {
 	return nil
 }
 
-func (c *Client) countAppliedMigrations() (int, error) {
-	var count int
-	err := c.db.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&count)
-	return count, err
-}
-
-func (c *Client) handleUnifiedBaseline(migrations []string, appliedCount int) error {
-	baselineFound := false
+func hasUnifiedBaseline(migrations []string) bool {
 	for _, path := range migrations {
 		if filepath.Base(path) == unifiedBaselineMigration {
-			baselineFound = true
-			break
+			return true
 		}
 	}
-	if !baselineFound {
-		return nil
-	}
-
-	if appliedCount > 0 {
-		if err := c.markMigrationApplied(unifiedBaselineMigration); err != nil {
-			return fmt.Errorf("erro ao registrar baseline unificada: %w", err)
-		}
-		log.Printf("ℹ️ Baseline unificada detectada: %s (ambiente legado)", unifiedBaselineMigration)
-		return nil
-	}
-
-	log.Printf("🚀 Ambiente novo detectado. Aplicando baseline unificada: %s", unifiedBaselineMigration)
-	if err := c.runMigrationFile(filepath.Join(migrationsDir, unifiedBaselineMigration)); err != nil {
-		return fmt.Errorf("erro ao aplicar baseline unificada: %w", err)
-	}
-
-	for _, path := range migrations {
-		name := filepath.Base(path)
-		if err := c.markMigrationApplied(name); err != nil {
-			return fmt.Errorf("erro ao registrar migration %s após baseline: %w", name, err)
-		}
-	}
-
-	log.Printf("✅ Baseline aplicada e histórico marcado como executado")
-	return nil
+	return false
 }
 
 // ensureMigrationsTable cria a tabela de controle se não existir.
