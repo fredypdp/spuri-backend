@@ -2,7 +2,7 @@
 modificado: 01-05-2026 11:10
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.4.3
+Versão atual: 1.4.4
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -260,7 +260,7 @@ Representa uma instituição de ensino. Pode ser uma **escola** (ensino fundamen
 | `public`  | Instituição pública |
 | `private` | Instituição privada |
 
-**Ano Letivo**: o sistema mantém um **ano letivo oficial global** (ex: `2025_2026`) definido exclusivamente por **admin FPP**. Cada academia continua a ter o seu ano letivo ativo, porém ele **deve ser igual ao ano letivo global oficial** no momento da definição. Sem ano letivo ativo na academia, nenhum registro de nota, falta ou avaliação é permitido. O sistema também mantém `anos_letivos_lista` (array de objetos) com histórico sem duplicação por `ano_letivo`.
+**Ano Letivo**: o ano letivo ativo é definido e mantido por academia. Sem ano letivo ativo na academia, nenhum registro de nota, falta ou avaliação é permitido. O sistema também mantém `anos_letivos_lista` (array de objetos) com histórico sem duplicação por `ano_letivo`.
 
 **Estados possíveis:** `ativo` / `inativo`
 
@@ -835,6 +835,9 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 | Aprovação exige notas presentes             | Verificação automática antes de aprovar    |
 | Observação permite override                 | Aprovação forçada mesmo sem todas as notas |
 | Fundamental usa sequência fixa 1..9        | Não bloqueia avanço por anos da academia    |
+| Tipo de ensino é inferido no backend        | Não deve ser enviado no payload da avaliação final |
+| Superior avança por semestre                | Aprovado sempre progride para `semestre_atual + 1` até o último semestre |
+| `ano_superior` derivado de semestre         | `ano_superior = ceil(semestre_atual / 2)` |
 | Reprovação não altera o ano/status          | Apenas registado no histórico              |
 | Uma avaliação por tipo/ano letivo/nível     | Idempotência via mapa no aggregate         |
 | Aprovação ou reprovação remove das turmas   | Automaticamente ao registar                |
@@ -868,6 +871,7 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Tipo imutável após criação e compatível com o nível da academia | Preenchido automaticamente no back end. Quando a academia é do nível escola e `NivelEscolar` = "medio", o tipo será `medio`. Quando a academia é do nível superior o tipo será `superior`. |
 | Curso superior exige períodos                                   | Ao menos um semestre                                                                                                                                                                       |
+| Curso superior limita semestres por ano                         | `total_semestres >= total_anos` e `total_semestres <= total_anos * 2`                                                                                                                     |
 | Curso médio não deve ter períodos                               | Trimestres são fixos do sistema                                                                                                                                                            |
 | Deleção exige inatividade                                       | Desativar primeiro                                                                                                                                                                         |
 | Deleção exige sem estudantes matriculados                       | Verificação antes de deletar                                                                                                                                                               |
