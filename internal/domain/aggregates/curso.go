@@ -178,7 +178,7 @@ func (c *Curso) Criar(
 		return err
 	}
 
-	if err := validarPeriodosCurso(tipo, periodos); err != nil {
+	if err := validarPeriodosCurso(tipo, periodos, len(anosAcademicos)); err != nil {
 		return err
 	}
 
@@ -256,7 +256,7 @@ func (c *Curso) AtualizarDados(nome *string, anosAcademicos []string, periodos *
 	}
 
 	if periodos != nil {
-		if err := validarPeriodosCurso(c.Type, *periodos); err != nil {
+		if err := validarPeriodosCurso(c.Type, *periodos, len(c.AnosAcademicos)); err != nil {
 			return err
 		}
 		normalized := normalizarPeriodos(c.Type, *periodos)
@@ -413,11 +413,19 @@ func isSemestreValido(p string) bool {
 //                 (1_trimestre, 2_trimestre, 3_trimestre).
 //   - "superior": obrigatório; cada item deve seguir [número]_semestre;
 //                 sem duplicatas.
-func validarPeriodosCurso(tipo string, periodos []string) error {
+func validarPeriodosCurso(tipo string, periodos []string, totalAnos int) error {
 	switch tipo {
 	case "superior":
 		if len(periodos) == 0 {
 			return fmt.Errorf("periodos é obrigatório para cursos do tipo 'superior' (formato: 1_semestre, 2_semestre, ...)")
+		}
+		// Consistência: cada ano acadêmico deve ter entre 1 e 2 semestres.
+		// Como anos acadêmicos do superior são sequenciais e únicos, isso implica:
+		// total_semestres >= total_anos e total_semestres <= total_anos*2.
+		if totalAnos > 0 {
+			if len(periodos) < totalAnos || len(periodos) > totalAnos*2 {
+				return fmt.Errorf("cursos superiores devem respeitar: total_semestres >= total_anos e total_semestres <= total_anos*2")
+			}
 		}
 		seen := make(map[string]bool, len(periodos))
 		for _, p := range periodos {
