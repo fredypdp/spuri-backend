@@ -25,7 +25,6 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 
 	var req struct {
 		CodigoEstudante     string  `json:"codigo_estudante"          binding:"required"`
-		TipoEnsino          string  `json:"tipo_ensino"               binding:"required"`
 		AnoAcademicoAtual   string  `json:"nivel_ano_academico_atual" binding:"required"`
 		ProximoAnoAcademico *string `json:"proximo_ano_academico,omitempty"`
 		Aprovado            bool    `json:"aprovado"`
@@ -34,39 +33,15 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf(
-			"campos obrigatórios: codigo_estudante, tipo_ensino, nivel_ano_academico_atual",
+			"campos obrigatórios: codigo_estudante, nivel_ano_academico_atual",
 		))
 		return
 	}
 
-	tiposValidos := map[string]bool{"fundamental": true, "medio": true, "superior": true}
-	if !tiposValidos[req.TipoEnsino] {
-		utils.RespondWithValidationError(c, fmt.Errorf("tipo_ensino deve ser: fundamental, medio ou superior"))
-		return
-	}
 
 	if req.ProximoAnoAcademico != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("proximo_ano_academico é calculado automaticamente pelo backend e não deve ser enviado"))
 		return
-	}
-
-	// Validar formato de ano académico conforme o tipo de ensino
-	switch req.TipoEnsino {
-	case "fundamental":
-		if err := utils.ValidateAnoFundamental(req.AnoAcademicoAtual); err != nil {
-			utils.RespondWithValidationError(c, fmt.Errorf("nivel_ano_academico_atual inválido: %w", err))
-			return
-		}
-	case "medio":
-		if err := utils.ValidateAnoMedio(req.AnoAcademicoAtual); err != nil {
-			utils.RespondWithValidationError(c, fmt.Errorf("nivel_ano_academico_atual inválido: %w", err))
-			return
-		}
-	case "superior":
-		if err := utils.ValidateAnoSuperior(req.AnoAcademicoAtual); err != nil {
-			utils.RespondWithValidationError(c, fmt.Errorf("nivel_ano_academico_atual inválido: %w", err))
-			return
-		}
 	}
 
 	// ── Academia ──────────────────────────────────────────────────────────────
@@ -95,6 +70,24 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		utils.RespondWithForbiddenError(c, "estudante não pertence a esta academia")
 		return
 	}
+	tipoEnsino := inferirTipoEnsinoDoEstudante(estudanteDTO)
+	switch tipoEnsino {
+	case "fundamental":
+		if err := utils.ValidateAnoFundamental(req.AnoAcademicoAtual); err != nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("nivel_ano_academico_atual inválido: %w", err))
+			return
+		}
+	case "medio":
+		if err := utils.ValidateAnoMedio(req.AnoAcademicoAtual); err != nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("nivel_ano_academico_atual inválido: %w", err))
+			return
+		}
+	case "superior":
+		if err := utils.ValidateAnoSuperior(req.AnoAcademicoAtual); err != nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("nivel_ano_academico_atual inválido: %w", err))
+			return
+		}
+	}
 
 	// FIX-COMPILE-02: EstudanteDTO armazena CursoMedioID e CursoSuperiorID como
 	// *string (banco persiste UUID como texto). Converter para *uuid.UUID para
@@ -117,7 +110,7 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 			c,
 			req.CodigoEstudante,
 			anoLectivo,
-			req.TipoEnsino,
+			tipoEnsino,
 			req.AnoAcademicoAtual,
 			academiaDTO.CodigoAcademia,
 			cursoMedioUUID,
@@ -130,7 +123,7 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 
 	// ── Cálculo do próximo nível (backend) ────────────────────────────────────
 	var proximoAnoAcademico *string
-	switch req.TipoEnsino {
+	switch tipoEnsino {
 	case "fundamental":
 		proximoAnoAcademico, err = calcularProximoAnoFundamental(req.AnoAcademicoAtual, req.Aprovado)
 	case "medio":
@@ -168,7 +161,7 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 	if err := estudante.RegistrarAvaliacaoFinal(
 		academiaDTO.CodigoAcademia,
 		anoLectivo,
-		req.TipoEnsino,
+		tipoEnsino,
 		req.AnoAcademicoAtual,
 		proximoAnoAcademico,
 		turmaAtual,
@@ -201,10 +194,24 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 
 	response := gin.H{
 		"message":          "avaliação final registrada com sucesso",
+		"tipo_ensino":      tipoEnsino,
 		"resultado":        resultado,
 		"turmas_removidas": turmasAtuais,
 	}
 	c.JSON(http.StatusCreated, response)
+}
+
+func inferirTipoEnsinoDoEstudante(estudante *projections.EstudanteDTO) string {
+	if estudante == nil {
+		return "fundamental"
+	}
+	if estudante.CursoSuperiorID != nil || estudante.AnoSuperior != nil || estudante.StatusSuperior == "em_andamento" {
+		return "superior"
+	}
+	if estudante.CursoMedioID != nil || estudante.AnoEscolarMedio != nil || estudante.StatusEscolarMedio == "em_andamento" {
+		return "medio"
+	}
+	return "fundamental"
 }
 
 // ============================================================================
