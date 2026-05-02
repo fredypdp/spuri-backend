@@ -77,7 +77,7 @@ func (p *EstudanteProjection) Handle(event db.Event) error {
 		return p.handleCursoAlterado(event)
 	case "SenhaAlterada":
 		return p.handleSenhaAlterada(event)
-	case "AvaliacaoFinalAnoAcademico":
+	case "AvaliacaoFinalAnoAcademico", "AvaliacaoFinalEscolar", "AvaliacaoFinalSuperior":
 		return p.handleAvaliacaoFinalAnoAcademico(event)
 	case "NotasRegistradas", "FaltasRegistradas":
 		return p.handleVersionOnly(event)

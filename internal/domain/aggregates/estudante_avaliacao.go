@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type AvaliacaoFinalAnoAcademicoEvent struct {
+type AvaliacaoFinalBasePayload struct {
 	BaseEvent
 	ID                     uuid.UUID `json:"id"`
 	CodigoEstudante        string    `json:"codigo_estudante"`
@@ -25,7 +25,16 @@ type AvaliacaoFinalAnoAcademicoEvent struct {
 	RegisteredAt           time.Time `json:"registered_at"`
 }
 
-func (e *AvaliacaoFinalAnoAcademicoEvent) GetPayload() interface{} { return e }
+type AvaliacaoFinalEscolarEvent struct{ AvaliacaoFinalBasePayload }
+type AvaliacaoFinalSuperiorEvent struct{ AvaliacaoFinalBasePayload }
+type AvaliacaoFinalAnoAcademicoEvent struct{ AvaliacaoFinalBasePayload } // legado
+
+func (e *AvaliacaoFinalEscolarEvent) GetPayload() interface{} { return e }
+func (e *AvaliacaoFinalEscolarEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+func (e *AvaliacaoFinalSuperiorEvent) GetPayload() interface{} { return e }
+func (e *AvaliacaoFinalSuperiorEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+func (e *AvaliacaoFinalAnoAcademicoEvent) GetPayload() interface{} { return e } // legado
 func (e *AvaliacaoFinalAnoAcademicoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 // chaveAvaliacao retorna a chave de idempotência para avaliações finais.
@@ -61,8 +70,8 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 		)
 	}
 
-	event := &AvaliacaoFinalAnoAcademicoEvent{
-		BaseEvent:              BaseEvent{EventType: "AvaliacaoFinalAnoAcademico", AggregateID: e.ID},
+	base := AvaliacaoFinalBasePayload{
+		BaseEvent:              BaseEvent{AggregateID: e.ID},
 		ID:                     uuid.New(),
 		CodigoEstudante:        e.CodigoEstudante,
 		CodigoAcademia:         codigoAcademia,
@@ -76,6 +85,14 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 		Observacao:             observacao,
 		Tipo:                   "avaliacao_final",
 		RegisteredAt:           time.Now(),
+	}
+	var event DomainEvent
+	if tipoEnsino == "superior" {
+		base.EventType = "AvaliacaoFinalSuperior"
+		event = &AvaliacaoFinalSuperiorEvent{AvaliacaoFinalBasePayload: base}
+	} else {
+		base.EventType = "AvaliacaoFinalEscolar"
+		event = &AvaliacaoFinalEscolarEvent{AvaliacaoFinalBasePayload: base}
 	}
 
 	e.RaiseEvent(event)
@@ -91,7 +108,34 @@ func (e *Estudante) applyAvaliacaoFinalAnoAcademico(event DomainEvent) error {
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return fmt.Errorf("applyAvaliacaoFinalAnoAcademico: unmarshal error: %w", err)
 	}
+	return e.applyAvaliacaoFinalPayload(ev.AvaliacaoFinalBasePayload)
+}
 
+func (e *Estudante) applyAvaliacaoFinalEscolar(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyAvaliacaoFinalEscolar: marshal error: %w", err)
+	}
+	var ev AvaliacaoFinalEscolarEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyAvaliacaoFinalEscolar: unmarshal error: %w", err)
+	}
+	return e.applyAvaliacaoFinalPayload(ev.AvaliacaoFinalBasePayload)
+}
+
+func (e *Estudante) applyAvaliacaoFinalSuperior(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyAvaliacaoFinalSuperior: marshal error: %w", err)
+	}
+	var ev AvaliacaoFinalSuperiorEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyAvaliacaoFinalSuperior: unmarshal error: %w", err)
+	}
+	return e.applyAvaliacaoFinalPayload(ev.AvaliacaoFinalBasePayload)
+}
+
+func (e *Estudante) applyAvaliacaoFinalPayload(ev AvaliacaoFinalBasePayload) error {
 	// Registrar no mapa de idempotência independentemente de aprovado ou não.
 	if e.AvaliacoesPorAno == nil {
 		e.AvaliacoesPorAno = make(map[string]bool)
