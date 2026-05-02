@@ -27,15 +27,11 @@ type AvaliacaoFinalBasePayload struct {
 
 type AvaliacaoFinalEscolarEvent struct{ AvaliacaoFinalBasePayload }
 type AvaliacaoFinalSuperiorEvent struct{ AvaliacaoFinalBasePayload }
-type AvaliacaoFinalAnoAcademicoEvent struct{ AvaliacaoFinalBasePayload } // legado
 
 func (e *AvaliacaoFinalEscolarEvent) GetPayload() interface{} { return e }
 func (e *AvaliacaoFinalEscolarEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 func (e *AvaliacaoFinalSuperiorEvent) GetPayload() interface{} { return e }
 func (e *AvaliacaoFinalSuperiorEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
-
-func (e *AvaliacaoFinalAnoAcademicoEvent) GetPayload() interface{} { return e } // legado
-func (e *AvaliacaoFinalAnoAcademicoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 // chaveAvaliacao retorna a chave de idempotência para avaliações finais.
 // Formato: "<tipoEnsino>_<anoLectivo>_<anoAcademicoAtual>"
@@ -97,18 +93,6 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 
 	e.RaiseEvent(event)
 	return e.Apply(event)
-}
-
-func (e *Estudante) applyAvaliacaoFinalAnoAcademico(event DomainEvent) error {
-	data, err := json.Marshal(event.GetPayload())
-	if err != nil {
-		return fmt.Errorf("applyAvaliacaoFinalAnoAcademico: marshal error: %w", err)
-	}
-	var ev AvaliacaoFinalAnoAcademicoEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return fmt.Errorf("applyAvaliacaoFinalAnoAcademico: unmarshal error: %w", err)
-	}
-	return e.applyAvaliacaoFinalPayload(ev.AvaliacaoFinalBasePayload)
 }
 
 func (e *Estudante) applyAvaliacaoFinalEscolar(event DomainEvent) error {
