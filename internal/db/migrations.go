@@ -58,8 +58,7 @@ func (c *Client) RunMigrations() error {
 	}
 
 	if hasUnifiedBaseline(migrations) {
-		migrations = []string{filepath.Join(migrationsDir, unifiedBaselineMigration)}
-		log.Printf("📦 Baseline unificada detectada. Executando apenas %s", unifiedBaselineMigration)
+		log.Printf("📦 Baseline unificada detectada. Executando %s e migrations incrementais posteriores", unifiedBaselineMigration)
 	}
 
 	log.Printf("📂 %d migration(s) encontrada(s) em '%s'", len(migrations), migrationsDir)

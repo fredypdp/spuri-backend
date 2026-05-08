@@ -241,7 +241,7 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 			$10,
 			'ativo', $11, $12, $13,
 			$14, $15, $16, $17, $18,
-			$19, $20, CURRENT_TIMESTAMP, $21, $22
+			$19, $20, CURRENT_TIMESTAMP, $21, $22, $23
 		)
 		ON CONFLICT (id) DO UPDATE SET
 			nome                           = EXCLUDED.nome,
