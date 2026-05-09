@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -42,13 +43,40 @@ func DefinirAnoLetivoGlobalSistema(c *gin.Context) {
 
 	_, err := client.DB().Exec(`
 		INSERT INTO projection_sistema_config (
-			chave, valor, ano_letivo_atual, definido_por, updated_at, version
+			chave, valor, ano_letivo_atual, anos_letivos_lista, definido_por, updated_at, version
 		) VALUES (
-			'ano_letivo_atual', $1::text, $1::varchar(20), $2::uuid, NOW(), 1
+			'ano_letivo_atual',
+			$1::text,
+			$1::varchar(20),
+			jsonb_build_array(
+				jsonb_build_object(
+					'ano_letivo', $1::text,
+					'definido_em', NOW(),
+					'definido_por', $2::text
+				)
+			),
+			$2::uuid,
+			NOW(),
+			1
 		)
 		ON CONFLICT (chave) DO UPDATE SET
 			valor = EXCLUDED.valor,
 			ano_letivo_atual = EXCLUDED.ano_letivo_atual,
+			anos_letivos_lista = CASE
+				WHEN EXISTS (
+					SELECT 1
+					FROM jsonb_array_elements(COALESCE(projection_sistema_config.anos_letivos_lista, '[]'::jsonb)) elem
+					WHERE elem->>'ano_letivo' = EXCLUDED.ano_letivo_atual
+				)
+				THEN COALESCE(projection_sistema_config.anos_letivos_lista, '[]'::jsonb)
+				ELSE COALESCE(projection_sistema_config.anos_letivos_lista, '[]'::jsonb) || jsonb_build_array(
+					jsonb_build_object(
+						'ano_letivo', EXCLUDED.ano_letivo_atual,
+						'definido_em', NOW(),
+						'definido_por', EXCLUDED.definido_por::text
+					)
+				)
+			END,
 			definido_por = EXCLUDED.definido_por,
 			updated_at = NOW(),
 			version = COALESCE(projection_sistema_config.version, 0) + 1
@@ -62,6 +90,64 @@ func DefinirAnoLetivoGlobalSistema(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "ano letivo global definido com sucesso",
 		"ano_letivo": anoLetivo,
+	})
+}
+
+func GetAnoLetivoGlobalSistemaAtual(c *gin.Context) {
+	client := getDbClient(c)
+	if client == nil {
+		return
+	}
+
+	var anoLetivo sql.NullString
+	err := client.DB().QueryRow(`
+		SELECT ano_letivo_atual
+		FROM projection_sistema_config
+		WHERE chave = 'ano_letivo_atual'
+	`).Scan(&anoLetivo)
+	if err != nil {
+		if err == sql.ErrNoRows || !anoLetivo.Valid || strings.TrimSpace(anoLetivo.String) == "" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "ano letivo global não definido"})
+			return
+		}
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ano_letivo": strings.TrimSpace(anoLetivo.String),
+	})
+}
+
+func GetAnosLetivosGlobaisLista(c *gin.Context) {
+	client := getDbClient(c)
+	if client == nil {
+		return
+	}
+
+	var anosListaRaw []byte
+	err := client.DB().QueryRow(`
+		SELECT COALESCE(anos_letivos_lista, '[]'::jsonb)::text
+		FROM projection_sistema_config
+		WHERE chave = 'ano_letivo_atual'
+	`).Scan(&anosListaRaw)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusOK, gin.H{"anos_letivos_lista": []interface{}{}})
+			return
+		}
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	var anosLista []map[string]interface{}
+	if err := json.Unmarshal(anosListaRaw, &anosLista); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"anos_letivos_lista": anosLista,
 	})
 }
 

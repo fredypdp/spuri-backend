@@ -1,8 +1,8 @@
 ---
-modificado: 09-05-2026 19:20
+modificado: 09-05-2026 20:05
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.5.7
+Versão atual: 1.5.8
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -1048,6 +1048,55 @@ Define ou atualiza o **ano letivo oficial global do sistema**. Esta é a única 
 
 - `400` — formato inválido
 - `403` — usuário não é `fpp`
+
+---
+
+### GET /admin/sistema/ano-letivo
+
+Retorna o **ano letivo oficial global atual** da plataforma.
+
+**Proteção**: autenticado + admin
+
+**Response 200:**
+
+```json
+{
+  "ano_letivo": "2026_2027"
+}
+```
+
+**Erros:**
+
+- `404` — ano letivo global ainda não definido
+
+---
+
+### GET /admin/sistema/anos-letivos-lista
+
+Retorna a **lista histórica de anos letivos globais** já definidos pelo admin.
+
+**Proteção**: autenticado + admin
+
+**Response 200:**
+
+```json
+{
+  "anos_letivos_lista": [
+    {
+      "ano_letivo": "2025_2026",
+      "definido_por": "11111111-1111-1111-1111-111111111111",
+      "definido_em": "2025-09-01T08:00:00Z"
+    },
+    {
+      "ano_letivo": "2026_2027",
+      "definido_por": "11111111-1111-1111-1111-111111111111",
+      "definido_em": "2026-09-01T08:00:00Z"
+    }
+  ]
+}
+```
+
+**Regra da lista histórica (`anos_letivos_lista`)**: cada ano letivo global é adicionado apenas uma vez; tentativas repetidas do mesmo `ano_letivo` não duplicam itens.
 
 ---
 
