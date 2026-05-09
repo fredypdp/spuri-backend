@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+
 	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
@@ -43,7 +44,7 @@ func DefinirAnoLetivoGlobalSistema(c *gin.Context) {
 		INSERT INTO projection_sistema_config (
 			chave, valor, ano_letivo_atual, definido_por, updated_at, version
 		) VALUES (
-			'ano_letivo_atual', $1, $1, $2, NOW(), 1
+			'ano_letivo_atual', $1::text, $1::varchar(20), $2::uuid, NOW(), 1
 		)
 		ON CONFLICT (chave) DO UPDATE SET
 			valor = EXCLUDED.valor,
