@@ -370,6 +370,9 @@ func setupRouter() *gin.Engine {
 		academia.DELETE("/materia/async", handlers.DeletarMateriaBatchAsync)
 		academia.PUT("/turma/ativar/async", handlers.AtivarTurmaBatchAsync)
 		academia.PUT("/turma/desativar/async", handlers.DesativarTurmaBatchAsync)
+		// Compatibilidade retroativa para clientes que ainda usam /batch
+		academia.PUT("/turma/ativar/batch", handlers.AtivarTurmaBatchAsync)
+		academia.PUT("/turma/desativar/batch", handlers.DesativarTurmaBatchAsync)
 		academia.PUT("/turma/dados/async", handlers.AtualizarDadosTurmaBatchAsync)
 		academia.DELETE("/turma/async", handlers.DeletarTurmaBatchAsync)
 		academia.DELETE("/turma/estudante/async", handlers.RemoverEstudanteTurmaBatchAsync)
