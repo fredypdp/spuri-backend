@@ -408,6 +408,8 @@ func setupRouter() *gin.Engine {
 	adminSistema.Use(middleware.RequireAdmin())
 	{
 		adminSistema.POST("/sistema/ano-letivo", middleware.RequireFPP(), handlers.DefinirAnoLetivoGlobalSistema)
+		adminSistema.GET("/sistema/ano-letivo", handlers.GetAnoLetivoGlobalSistemaAtual)
+		adminSistema.GET("/sistema/anos-letivos-lista", handlers.GetAnosLetivosGlobaisLista)
 	}
 
 	return router

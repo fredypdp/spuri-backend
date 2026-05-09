@@ -1,8 +1,8 @@
 ---
-modificado: 09-05-2026 19:20
+modificado: 09-05-2026 20:05
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.4.6
+Versão atual: 1.4.7
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -511,6 +511,8 @@ Antes de registar qualquer nota, falta ou avaliação, a academia deve definir o
 
 O ano letivo oficial global é persistido em `projection_sistema_config` com a chave `ano_letivo_atual`; essa projeção deve existir antes da chamada administrativa.
 
+Além do valor atual, o sistema mantém `anos_letivos_lista` em `projection_sistema_config` como histórico global (sem duplicar `ano_letivo`). Esse histórico pode ser consultado por admin nas rotas `GET /admin/sistema/anos-letivos-lista` e o valor atual em `GET /admin/sistema/ano-letivo`.
+
 **Formato obrigatório**: `YYYY_YYYY` onde o segundo ano é exatamente o primeiro + 1 (ex: `2025_2026`)
 
 **Tipo**: `escola` ou `superior`
@@ -793,6 +795,7 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 | Academia só pode definir ano letivo igual ao oficial global  | Divergência é bloqueada com erro de negócio             |
 | Sem ano letivo na academia, notas/faltas/avaliações são bloqueadas | Pré-condição para registos académicos               |
 | Histórico `anos_letivos_lista` não duplica `ano_letivo`       | Atualizações repetidas do mesmo ano são ignoradas       |
+| Histórico global `anos_letivos_lista` (admin) não duplica `ano_letivo` | Lista global de anos letivos mantém unicidade por ano |
 | Senha padrão = código da academia                             | Deve ser alterada após o primeiro login                |
 | Desativação exige motivo                                      | Registado no ledger e na projeção para auditoria       |
 
