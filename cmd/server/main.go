@@ -393,7 +393,6 @@ func setupRouter() *gin.Engine {
 		admin.GET("/consultar-admin/:email", handlers.GetAdminPorEmail)
 		admin.PUT("/admin/:id/role", middleware.RequireFPP(), handlers.AtualizarRoleAdmin)
 		admin.PUT("/admin/:id/dados", handlers.AtualizarDadosAdmin)
-		admin.POST("/sistema/ano-letivo", middleware.RequireFPP(), handlers.DefinirAnoLetivoGlobalSistema)
 
 		// ── Batch assíncronos (admin) ─────────────────────────────────────
 		admin.POST("/academia/register/async", middleware.RequireFPP(), handlers.RegisterAcademiaBatchAsync)
@@ -401,6 +400,14 @@ func setupRouter() *gin.Engine {
 		admin.PUT("/academia/desativar/async", middleware.RequireAdm(), handlers.DesativarAcademiaBatchAsync)
 		admin.PUT("/admin/ativar/async", middleware.RequireAdm(), handlers.AtivarAdminBatchAsync)
 		admin.PUT("/admin/desativar/async", middleware.RequireAdm(), handlers.DesativarAdminBatchAsync)
+	}
+
+	// Configurações globais do painel administrativo.
+	adminSistema := router.Group("/admin")
+	adminSistema.Use(middleware.AuthMiddleware())
+	adminSistema.Use(middleware.RequireAdmin())
+	{
+		adminSistema.POST("/sistema/ano-letivo", middleware.RequireFPP(), handlers.DefinirAnoLetivoGlobalSistema)
 	}
 
 	return router
