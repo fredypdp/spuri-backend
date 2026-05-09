@@ -1,8 +1,8 @@
 ---
-modificado: 09-05-2026 17:40
+modificado: 09-05-2026 19:20
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.4.5
+Versão atual: 1.4.6
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -508,6 +508,8 @@ Permite que qualquer usuário (estudante, academia ou admin) registe números de
 - **Academia** define o seu ano letivo ativo, mas apenas com o mesmo valor do ano oficial global
 
 Antes de registar qualquer nota, falta ou avaliação, a academia deve definir o ano letivo ativo.
+
+O ano letivo oficial global é persistido em `projection_sistema_config` com a chave `ano_letivo_atual`; essa projeção deve existir antes da chamada administrativa.
 
 **Formato obrigatório**: `YYYY_YYYY` onde o segundo ano é exatamente o primeiro + 1 (ex: `2025_2026`)
 
