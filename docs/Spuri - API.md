@@ -1,8 +1,8 @@
 ---
-modificado: 01-05-2026 11:10
+modificado: 09-05-2026 17:40
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.5.5
+Versão atual: 1.5.6
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -1017,7 +1017,7 @@ Desativa uma academia ativa.
 
 ### POST /admin/sistema/ano-letivo
 
-Define ou atualiza o **ano letivo oficial global do sistema**.
+Define ou atualiza o **ano letivo oficial global do sistema**. Esta é a única rota vigente para esta configuração; a rota legada `POST /dominis/sistema/ano-letivo` foi removida.
 
 **Proteção**: autenticado + admin role `fpp`
 
