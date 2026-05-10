@@ -601,6 +601,19 @@ func (p *EstudanteProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) e
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleAvaliacaoFinalAnoAcademico: parse error: %w", err)
 	}
+	tipoEnsino := strings.TrimSpace(strings.ToLower(payload.TipoEnsino))
+	if tipoEnsino == "" {
+		switch event.EventType {
+		case "AvaliacaoFinalEscolar":
+			inferredTipoEnsino, err := p.inferTipoEnsinoEscolar(event.AggregateID)
+			if err != nil {
+				return fmt.Errorf("handleAvaliacaoFinalAnoAcademico: falha ao inferir TipoEnsino escolar: %w", err)
+			}
+			tipoEnsino = inferredTipoEnsino
+		case "AvaliacaoFinalSuperior":
+			tipoEnsino = "superior"
+		}
+	}
 
 	if !payload.Aprovado {
 		_, err := p.client.DB().Exec(`
@@ -613,7 +626,7 @@ func (p *EstudanteProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) e
 
 	if payload.ProximoAnoAcademico == nil {
 		var statusCol string
-		switch payload.TipoEnsino {
+		switch tipoEnsino {
 		case "fundamental":
 			statusCol = "status_escolar_fundamental"
 		case "medio":
@@ -633,7 +646,7 @@ func (p *EstudanteProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) e
 	}
 
 	var col string
-	switch payload.TipoEnsino {
+	switch tipoEnsino {
 	case "fundamental":
 		col = "ano_escolar"
 	case "medio":
@@ -650,6 +663,28 @@ func (p *EstudanteProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) e
 	`, col)
 	_, err := p.client.DB().Exec(query, payload.ProximoAnoAcademico, event.EventVersion, event.EventID, event.AggregateID)
 	return err
+}
+
+
+func (p *EstudanteProjection) inferTipoEnsinoEscolar(estudanteID uuid.UUID) (string, error) {
+	var anoEscolarMedio, cursoMedioID sql.NullString
+	if err := p.client.DB().QueryRow(`
+		SELECT ano_escolar_medio, curso_medio_id
+		FROM projection_estudantes
+		WHERE id = $1
+	`, estudanteID).Scan(&anoEscolarMedio, &cursoMedioID); err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("estudante %s não encontrado na projeção", estudanteID)
+		}
+		return "", err
+	}
+
+	if (anoEscolarMedio.Valid && strings.TrimSpace(anoEscolarMedio.String) != "") ||
+		(cursoMedioID.Valid && strings.TrimSpace(cursoMedioID.String) != "") {
+		return "medio", nil
+	}
+
+	return "fundamental", nil
 }
 
 func (p *EstudanteProjection) handleVersionOnly(event db.Event) error {
