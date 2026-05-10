@@ -601,6 +601,15 @@ func (p *EstudanteProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) e
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleAvaliacaoFinalAnoAcademico: parse error: %w", err)
 	}
+	tipoEnsino := strings.TrimSpace(strings.ToLower(payload.TipoEnsino))
+	if tipoEnsino == "" {
+		switch event.EventType {
+		case "AvaliacaoFinalEscolar":
+			tipoEnsino = "fundamental"
+		case "AvaliacaoFinalSuperior":
+			tipoEnsino = "superior"
+		}
+	}
 
 	if !payload.Aprovado {
 		_, err := p.client.DB().Exec(`
@@ -613,7 +622,7 @@ func (p *EstudanteProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) e
 
 	if payload.ProximoAnoAcademico == nil {
 		var statusCol string
-		switch payload.TipoEnsino {
+		switch tipoEnsino {
 		case "fundamental":
 			statusCol = "status_escolar_fundamental"
 		case "medio":
@@ -633,7 +642,7 @@ func (p *EstudanteProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) e
 	}
 
 	var col string
-	switch payload.TipoEnsino {
+	switch tipoEnsino {
 	case "fundamental":
 		col = "ano_escolar"
 	case "medio":
