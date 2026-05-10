@@ -605,7 +605,11 @@ func (p *EstudanteProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) e
 	if tipoEnsino == "" {
 		switch event.EventType {
 		case "AvaliacaoFinalEscolar":
-			tipoEnsino = "fundamental"
+			inferredTipoEnsino, err := p.inferTipoEnsinoEscolar(event.AggregateID)
+			if err != nil {
+				return fmt.Errorf("handleAvaliacaoFinalAnoAcademico: falha ao inferir TipoEnsino escolar: %w", err)
+			}
+			tipoEnsino = inferredTipoEnsino
 		case "AvaliacaoFinalSuperior":
 			tipoEnsino = "superior"
 		}
@@ -659,6 +663,28 @@ func (p *EstudanteProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) e
 	`, col)
 	_, err := p.client.DB().Exec(query, payload.ProximoAnoAcademico, event.EventVersion, event.EventID, event.AggregateID)
 	return err
+}
+
+
+func (p *EstudanteProjection) inferTipoEnsinoEscolar(estudanteID uuid.UUID) (string, error) {
+	var anoEscolarMedio, cursoMedioID sql.NullString
+	if err := p.client.DB().QueryRow(`
+		SELECT ano_escolar_medio, curso_medio_id
+		FROM projection_estudantes
+		WHERE id = $1
+	`, estudanteID).Scan(&anoEscolarMedio, &cursoMedioID); err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("estudante %s não encontrado na projeção", estudanteID)
+		}
+		return "", err
+	}
+
+	if (anoEscolarMedio.Valid && strings.TrimSpace(anoEscolarMedio.String) != "") ||
+		(cursoMedioID.Valid && strings.TrimSpace(cursoMedioID.String) != "") {
+		return "medio", nil
+	}
+
+	return "fundamental", nil
 }
 
 func (p *EstudanteProjection) handleVersionOnly(event db.Event) error {
