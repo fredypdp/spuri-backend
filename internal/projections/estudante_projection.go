@@ -158,6 +158,7 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 		AnoEscolar               *string    `json:"AnoEscolar"`
 		AnoEscolarMedio          *string    `json:"AnoEscolarMedio"`
 		AnoSuperior              *string    `json:"AnoSuperior"`
+		SemestreAtual            *int       `json:"SemestreAtual"`
 		CursoMedioID             *uuid.UUID `json:"CursoMedioID"`
 		CursoSuperiorID          *uuid.UUID `json:"CursoSuperiorID"`
 		CodigoAcademia           string     `json:"CodigoAcademia"`
@@ -240,8 +241,8 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 			$7, $8, $9,
 			$10,
 			'ativo', $11, $12, $13,
-			$14, $15, $16, $17, $18,
-			$19, $20, CURRENT_TIMESTAMP, $21, $22
+			$14, $15, $16, $17, $18, $19,
+			$20, $21, CURRENT_TIMESTAMP, $22, $23
 		)
 		ON CONFLICT (id) DO UPDATE SET
 			nome                           = EXCLUDED.nome,
@@ -260,6 +261,7 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 			ano_escolar                    = EXCLUDED.ano_escolar,
 			ano_escolar_medio              = EXCLUDED.ano_escolar_medio,
 			ano_superior                   = EXCLUDED.ano_superior,
+			semestre_atual                 = EXCLUDED.semestre_atual,
 			curso_medio_id                 = EXCLUDED.curso_medio_id,
 			curso_superior_id              = EXCLUDED.curso_superior_id,
 			codigo_academia                = EXCLUDED.codigo_academia,
@@ -273,7 +275,7 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 		payload.BilheteIdentidade, payload.BilheteIdentidadeResp, payload.Genero,
 		payload.DataNascimento,
 		payload.StatusEscolarFundamental, payload.StatusEscolarMedio, payload.StatusSuperior,
-		payload.AnoEscolar, payload.AnoEscolarMedio, payload.AnoSuperior,
+		payload.AnoEscolar, payload.AnoEscolarMedio, payload.AnoSuperior, payload.SemestreAtual,
 		resolvedCursoMedio, resolvedCursoSuperior,
 		payload.CodigoAcademia,
 		payload.CreatedAt, event.EventVersion, event.EventID,
