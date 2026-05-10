@@ -21,7 +21,6 @@ var validEventTypes = map[string]bool{
 	// ── Email Estudante ──────────────────────────────────────────────────────
 	"EmailVerificadoEstudante": true,
 	// ── Avaliação Final ───────────────────────────────────────────────────────
-	"AvaliacaoFinalAnoAcademico": true,
 	"AvaliacaoFinalEscolar":      true,
 	"AvaliacaoFinalSuperior":     true,
 
