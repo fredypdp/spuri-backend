@@ -1,8 +1,8 @@
 ---
-modificado: 09-05-2026 20:05
+modificado: 10-05-2026 10:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.4.7
+Versão atual: 1.4.8
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -409,7 +409,7 @@ O código de turma deve ser **único dentro da academia**.
 
 **Deleção**: a turma deve estar inativa e sem estudantes vinculados.
 
-**Remoção automática**: quando uma avaliação final é registada, o estudante é automaticamente removido de todas as turmas da academia.
+**Remoção automática**: removida para avaliações finais escolares; nesses casos o efeito agora é progressão/retenção de turma (ver seção de avaliação final).
 
 **Estados:** `ativo` / `inativo` / `deletado`
 
@@ -611,20 +611,20 @@ Este é o **único mecanismo de transição de ano** no sistema. Registar a aval
 - Se notas estiverem faltando, a aprovação é bloqueada — a menos que `observacao` seja fornecida (override manual)
 - Se `aprovado = false`, a validação de notas é ignorada
 
-**Efeitos da aprovação:**
+**Efeitos da aprovação (escola):**
 
 - Se não for o último ano do ciclo → backend calcula e aplica automaticamente o próximo nível
 - Se for o último ano do ciclo → backend marca o status como `finalizado`
+- O estudante é movido da turma atual para uma turma do **próximo ano académico**
 
-**Efeitos da reprovação:**
+**Efeitos da reprovação (escola):**
 
 - Nenhuma alteração de ano ou status; apenas registado no histórico
+- O estudante permanece na mesma turma
 
-**Efeitos automáticos (em ambos os casos):**
+**Efeito removido (escola):**
 
-- O estudante é **removido de todas as turmas** da academia
-
-**Atomicidade na projeção**: a lista de turmas a remover é incluída no payload do evento `AvaliacaoFinalAnoAcademico`. A projeção de turmas processa este mesmo evento e remove o estudante de todas as turmas listadas no mesmo ciclo de projeção, evitando inconsistência por falha parcial entre avaliação final e remoção.
+- O estudante **não** é mais removido automaticamente de todas as turmas da academia
 
 **Consultas:**
 
@@ -670,7 +670,7 @@ Criada (ativo) → Desativada (inativo) → Deletada (deletado)
 
 **Adição de estudantes**: o estudante deve pertencer à academia. Apenas estudantes do superior podem estar em múltiplas turmas simultaneamente.
 
-**Remoção automática**: ao registar avaliação final, o estudante é removido de todas as turmas via processamento do evento `AvaliacaoFinalAnoAcademico` na projeção de turmas.
+**Remoção automática**: para avaliações finais escolares, removida. Agora há progressão de turma na aprovação e permanência na turma na reprovação.
 
 **Histórico por ano letivo**: cada turma mantém `historico_estudantes_ano_letivo` (mapa `ano_letivo -> [codigo_estudante]`) com os estudantes que já fizeram parte dela em cada ano letivo.
 
@@ -845,7 +845,7 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 | `ano_superior` derivado de semestre         | `ano_superior = ceil(semestre_atual / 2)` |
 | Reprovação não altera o ano/status          | Apenas registado no histórico              |
 | Uma avaliação por tipo/ano letivo/nível     | Idempotência via mapa no aggregate         |
-| Aprovação ou reprovação remove das turmas   | Automaticamente ao registar                |
+| Aprovação (escola) move para turma do próximo ano; reprovação (escola) mantém na turma | Automaticamente ao registar |
 
 ### 6.6 Regras de Turma
 
