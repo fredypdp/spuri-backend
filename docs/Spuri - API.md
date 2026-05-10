@@ -1,8 +1,8 @@
 ---
-modificado: 09-05-2026 20:05
+modificado: 10-05-2026 10:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.5.8
+Versão atual: 1.5.9
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -1998,11 +1998,14 @@ Registra a avaliação final de ano para um estudante.
 - `tipo_ensino` não é enviado no payload; o backend infere automaticamente com base no estudante (sessão + código da academia)
 - `nivel_ano_academico_atual` deve seguir o formato canônico do tipo inferido
 - `proximo_ano_academico` é calculado automaticamente pelo backend e não deve ser enviado no payload
-- Se `aprovado = true`: o backend calcula o próximo ano automaticamente
+- Se `aprovado = true`:
+  - **escola**: o backend calcula o próximo ano automaticamente e move o estudante da turma atual para uma turma do ano acadêmico seguinte
   - fundamental: sequência fixa `1_ano_fundamental` até `9_ano_fundamental`
   - médio: sequência configurada no curso do estudante
   - superior: avanço sequencial por semestre (`semestre_atual += 1`) até o último semestre configurado do curso
-- Se `aprovado = false`: o backend mantém o estudante no mesmo nível (sem próximo ano)
+- Se `aprovado = false`:
+  - **escola**: o backend mantém o estudante no mesmo nível e na mesma turma
+  - demais tipos: sem avanço de nível (sem próximo ano)
 - Sem `observacao`: notas de todas as matérias do período são validadas automaticamente
 
 **Response 201:**
@@ -2011,7 +2014,7 @@ Registra a avaliação final de ano para um estudante.
 {
   "message": "avaliação final registrada com sucesso",
   "resultado": "aprovado → 4_ano_fundamental",
-  "turmas_removidas": ["T1A", "T2B"]
+  "turmas_removidas": ["T1A"]
 }
 ```
 

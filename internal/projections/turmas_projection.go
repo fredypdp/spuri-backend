@@ -276,17 +276,36 @@ func (p *TurmasProjection) handleEstudanteRemovido(event db.Event) error {
 func (p *TurmasProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) error {
 	var payload struct {
 		CodigoEstudante        string   `json:"codigo_estudante"`
+		CodigoAcademia         string   `json:"codigo_academia"`
 		AnoLectivo             string   `json:"ano_lectivo"`
+		ProximoAnoAcademico    *string  `json:"proximo_ano_academico"`
 		CodigosTurmasRemovidas []string `json:"codigos_turmas_removidas"`
+		Aprovado               bool     `json:"aprovado"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("parse error AvaliacaoFinalAnoAcademico em turmas: %w", err)
 	}
-	if payload.CodigoEstudante == "" || len(payload.CodigosTurmasRemovidas) == 0 {
+	if payload.CodigoEstudante == "" {
 		return nil
 	}
 
-	_, err := p.client.DB().Exec(`
+	if event.EventType != "AvaliacaoFinalEscolar" {
+		return nil
+	}
+	if !payload.Aprovado {
+		return nil
+	}
+	if payload.ProximoAnoAcademico == nil || *payload.ProximoAnoAcademico == "" || len(payload.CodigosTurmasRemovidas) == 0 {
+		return nil
+	}
+
+	tx, err := p.client.DB().Begin()
+	if err != nil {
+		return fmt.Errorf("handleAvaliacaoFinalAnoAcademico: erro ao iniciar transação: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	if _, err := tx.Exec(`
 		UPDATE projection_turmas
 		SET estudantes = COALESCE(
 			(
@@ -318,8 +337,37 @@ func (p *TurmasProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) erro
 		END,
 		updated_at = CURRENT_TIMESTAMP
 		WHERE codigo_turma = ANY($3) AND deleted_at IS NULL
-	`, payload.CodigoEstudante, payload.AnoLectivo, pq.Array(payload.CodigosTurmasRemovidas))
-	return err
+	`, payload.CodigoEstudante, payload.AnoLectivo, pq.Array(payload.CodigosTurmasRemovidas)); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(`
+		WITH destino AS (
+			SELECT id
+			FROM projection_turmas
+			WHERE codigo_academia = $1
+			  AND nivel = $2
+			  AND deleted_at IS NULL
+			ORDER BY codigo_turma ASC
+			LIMIT 1
+		)
+		UPDATE projection_turmas t
+		SET estudantes = CASE
+				WHEN EXISTS (
+					SELECT 1
+					FROM jsonb_array_elements_text(COALESCE(t.estudantes::jsonb, '[]'::jsonb)) AS v(val)
+					WHERE v.val = $3
+				) THEN t.estudantes
+				ELSE COALESCE(t.estudantes, '[]'::json)::jsonb || to_jsonb($3::text)
+			END,
+			updated_at = CURRENT_TIMESTAMP
+		FROM destino d
+		WHERE t.id = d.id
+	`, payload.CodigoAcademia, *payload.ProximoAnoAcademico, payload.CodigoEstudante); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func (p *TurmasProjection) handleTurmaAtualizada(event db.Event) error {
