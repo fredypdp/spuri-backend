@@ -358,7 +358,7 @@ func (p *TurmasProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) erro
 					FROM jsonb_array_elements_text(COALESCE(t.estudantes::jsonb, '[]'::jsonb)) AS v(val)
 					WHERE v.val = $3
 				) THEN t.estudantes
-				ELSE COALESCE(t.estudantes, '[]'::json)::jsonb || to_jsonb($3::text)
+				ELSE COALESCE(t.estudantes::jsonb, '[]'::jsonb) || to_jsonb($3::text)
 			END,
 			updated_at = CURRENT_TIMESTAMP
 		FROM destino d
