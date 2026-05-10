@@ -234,7 +234,7 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 			bilhete_identidade, bilhete_identidade_responsavel, genero,
 			data_nascimento,
 			status, status_escolar_fundamental, status_escolar_medio, status_superior,
-			ano_escolar, ano_escolar_medio, ano_superior, semestre_atual, curso_medio_id, curso_superior_id,
+			ano_escolar_fundamental, ano_escolar_medio, ano_superior, semestre_atual, curso_medio_id, curso_superior_id,
 			codigo_academia, created_at, updated_at, version, last_event_id
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, FALSE,
@@ -258,7 +258,7 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 			status_escolar_fundamental     = EXCLUDED.status_escolar_fundamental,
 			status_escolar_medio           = EXCLUDED.status_escolar_medio,
 			status_superior                = EXCLUDED.status_superior,
-			ano_escolar                    = EXCLUDED.ano_escolar,
+			ano_escolar_fundamental         = EXCLUDED.ano_escolar_fundamental,
 			ano_escolar_medio              = EXCLUDED.ano_escolar_medio,
 			ano_superior                   = EXCLUDED.ano_superior,
 			semestre_atual                 = EXCLUDED.semestre_atual,
@@ -494,7 +494,7 @@ func (p *EstudanteProjection) handleDadosAcademicosAtualizados(event db.Event) e
 	idx := 1
 
 	if payload.AnoEscolar != nil {
-		setClauses = append(setClauses, fmt.Sprintf("ano_escolar = $%d", idx))
+		setClauses = append(setClauses, fmt.Sprintf("ano_escolar_fundamental = $%d", idx))
 		args = append(args, *payload.AnoEscolar)
 		idx++
 	}
@@ -648,7 +648,7 @@ func (p *EstudanteProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) e
 	var col string
 	switch tipoEnsino {
 	case "fundamental":
-		col = "ano_escolar"
+		col = "ano_escolar_fundamental"
 	case "medio":
 		col = "ano_escolar_medio"
 	case "superior":
@@ -664,7 +664,6 @@ func (p *EstudanteProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) e
 	_, err := p.client.DB().Exec(query, payload.ProximoAnoAcademico, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
-
 
 func (p *EstudanteProjection) inferTipoEnsinoEscolar(estudanteID uuid.UUID) (string, error) {
 	var anoEscolarMedio, cursoMedioID sql.NullString
@@ -732,7 +731,7 @@ const estudanteCols = `
 	bilhete_identidade, bilhete_identidade_responsavel, genero,
 	data_nascimento,
 	codigo_academia, status, status_escolar_fundamental, status_escolar_medio, status_superior,
-	ano_escolar, ano_escolar_medio, ano_superior, semestre_atual, curso_medio_id, curso_superior_id,
+	ano_escolar_fundamental, ano_escolar_medio, ano_superior, semestre_atual, curso_medio_id, curso_superior_id,
 	created_at, updated_at, version
 `
 
