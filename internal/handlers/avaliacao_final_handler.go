@@ -38,7 +38,6 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		return
 	}
 
-
 	if req.ProximoAnoAcademico != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("proximo_ano_academico é calculado automaticamente pelo backend e não deve ser enviado"))
 		return
@@ -102,6 +101,13 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		if parsed, err := uuid.Parse(*estudanteDTO.CursoSuperiorID); err == nil {
 			cursoSuperiorUUID = &parsed
 		}
+	}
+
+	// O nível informado deve corresponder ao nível atual do estudante para evitar
+	// finalizações indevidas quando um nível incorreto é enviado no payload.
+	if err := validarNivelAtualDoEstudante(estudanteDTO, tipoEnsino, req.AnoAcademicoAtual); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
 	}
 
 	// ── Validação de notas (bloqueia aprovação sem observação de override) ────
@@ -770,4 +776,28 @@ func calcularProximoAnoCurso(
 
 	proximo := curso.AnosAcademicos[posAtual+1]
 	return &proximo, nil
+}
+
+func validarNivelAtualDoEstudante(estudante *projections.EstudanteDTO, tipoEnsino, nivelInformado string) error {
+	if estudante == nil {
+		return fmt.Errorf("estudante inválido")
+	}
+
+	var nivelAtual *string
+	switch tipoEnsino {
+	case "fundamental":
+		nivelAtual = estudante.AnoEscolar
+	case "medio":
+		nivelAtual = estudante.AnoEscolarMedio
+	case "superior":
+		nivelAtual = estudante.AnoSuperior
+	}
+
+	if nivelAtual == nil || strings.TrimSpace(*nivelAtual) == "" {
+		return fmt.Errorf("estudante não possui nível acadêmico atual definido para '%s'", tipoEnsino)
+	}
+	if *nivelAtual != nivelInformado {
+		return fmt.Errorf("nivel_ano_academico_atual incompatível: esperado '%s', recebido '%s'", *nivelAtual, nivelInformado)
+	}
+	return nil
 }
