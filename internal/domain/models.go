@@ -35,7 +35,7 @@ type Estudante struct {
 	Genero                   string     `json:"genero" db:"genero"`
 	DataNascimento           time.Time  `json:"data_nascimento" db:"data_nascimento"`
 	CodigoAcademia           *string    `json:"codigo_academia,omitempty" db:"codigo_academia"`
-	AnoEscolar               *string    `json:"ano_escolar_fundamental,omitempty" db:"ano_escolar"`
+	AnoEscolar               *string    `json:"ano_escolar_fundamental,omitempty" db:"ano_escolar_fundamental"`
 	AnoEscolarMedio          *string    `json:"ano_escolar_medio,omitempty" db:"ano_escolar_medio"`
 	AnoSuperior              *string    `json:"ano_superior,omitempty" db:"ano_superior"`
 	CursoMedioID             *uuid.UUID `json:"curso_medio_id,omitempty" db:"curso_medio_id"`

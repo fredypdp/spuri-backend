@@ -263,7 +263,7 @@ func ListarEstudantes(c *gin.Context) {
 		SELECT id, nome, codigo_estudante, email, telefone, email_verificado,
 			bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
 			status, status_escolar_fundamental, status_escolar_medio, status_superior,
-			ano_escolar, ano_escolar_medio, ano_superior,
+			ano_escolar_fundamental, ano_escolar_medio, ano_superior,
 			curso_medio_id, curso_superior_id,
 			genero, data_nascimento, created_at, updated_at,
 			COALESCE(total_notas, 0), COALESCE(total_faltas, 0), version
