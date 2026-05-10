@@ -20,8 +20,10 @@ var validEventTypes = map[string]bool{
 	"StatusSuperiorAtualizado":           true,
 	// ── Email Estudante ──────────────────────────────────────────────────────
 	"EmailVerificadoEstudante": true,
-	// ── Avaliação Final (único caminho de avaliação de ano) ──────────────────
+	// ── Avaliação Final ───────────────────────────────────────────────────────
 	"AvaliacaoFinalAnoAcademico": true,
+	"AvaliacaoFinalEscolar":      true,
+	"AvaliacaoFinalSuperior":     true,
 
 	// ── Academia ─────────────────────────────────────────────────────────────
 	"AcademiaCriada":            true,
