@@ -616,6 +616,9 @@ Este é o **único mecanismo de transição de ano** no sistema. Registar a aval
 - Se não for o último ano do ciclo → backend calcula e aplica automaticamente o próximo nível
 - Se for o último ano do ciclo → backend marca o status como `finalizado`
 - O estudante é movido da turma atual para uma turma do **próximo ano académico**
+- A seleção da turma destino prioriza compatibilidade por `turno` e `curso_id` da turma de origem
+- Se não houver turma destino compatível suficiente, os aprovados são distribuídos entre as turmas existentes do próximo ano
+- Para ensino médio, **nunca** há transferência para turma de outro curso (`curso_id` diferente)
 
 **Efeitos da reprovação (escola):**
 

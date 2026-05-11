@@ -342,13 +342,57 @@ func (p *TurmasProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) erro
 	}
 
 	if _, err := tx.Exec(`
-		WITH destino AS (
-			SELECT id
+		WITH origem AS (
+			SELECT turno, curso_id
 			FROM projection_turmas
-			WHERE codigo_academia = $1
-			  AND nivel = $2
+			WHERE codigo_turma = ANY($4)
+			  AND codigo_academia = $1
 			  AND deleted_at IS NULL
 			ORDER BY codigo_turma ASC
+			LIMIT 1
+		),
+		destinos_nivel AS (
+			SELECT
+				t.id,
+				t.codigo_turma,
+				t.turno,
+				t.curso_id
+			FROM projection_turmas t
+			WHERE t.codigo_academia = $1
+			  AND t.nivel = $2
+			  AND t.deleted_at IS NULL
+		),
+		destino_compat AS (
+			SELECT d.id
+			FROM destinos_nivel d
+			JOIN origem o
+			  ON d.turno IS NOT DISTINCT FROM o.turno
+			 AND d.curso_id IS NOT DISTINCT FROM o.curso_id
+			ORDER BY d.codigo_turma ASC
+			LIMIT 1
+		),
+		destino_fallback AS (
+			SELECT d.id
+			FROM (
+				SELECT
+					dn.id,
+					dn.codigo_turma,
+					ROW_NUMBER() OVER (ORDER BY dn.codigo_turma ASC) - 1 AS idx,
+					COUNT(*) OVER () AS total
+				FROM destinos_nivel dn
+				JOIN origem o ON true
+				WHERE o.curso_id IS NULL
+				   OR dn.curso_id IS NOT DISTINCT FROM o.curso_id
+			) d
+			WHERE d.total > 0
+			  AND d.idx = (ABS(hashtext($3)) % d.total)
+			LIMIT 1
+		),
+		destino AS (
+			SELECT id FROM destino_compat
+			UNION ALL
+			SELECT id FROM destino_fallback
+			WHERE NOT EXISTS (SELECT 1 FROM destino_compat)
 			LIMIT 1
 		)
 		UPDATE projection_turmas t
@@ -363,7 +407,7 @@ func (p *TurmasProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) erro
 			updated_at = CURRENT_TIMESTAMP
 		FROM destino d
 		WHERE t.id = d.id
-	`, payload.CodigoAcademia, *payload.ProximoAnoAcademico, payload.CodigoEstudante); err != nil {
+	`, payload.CodigoAcademia, *payload.ProximoAnoAcademico, payload.CodigoEstudante, pq.Array(payload.CodigosTurmasRemovidas)); err != nil {
 		return err
 	}
 

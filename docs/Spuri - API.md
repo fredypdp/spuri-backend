@@ -2000,6 +2000,9 @@ Registra a avaliação final de ano para um estudante.
 - `proximo_ano_academico` é calculado automaticamente pelo backend e não deve ser enviado no payload
 - Se `aprovado = true`:
   - **escola**: o backend calcula o próximo ano automaticamente e move o estudante da turma atual para uma turma do ano acadêmico seguinte
+    - prioriza turma destino compatível por `turno` e `curso_id` da turma de origem
+    - se não houver compatível suficiente, distribui os aprovados entre as turmas existentes do próximo ano
+    - para ensino médio, não transfere para turma de outro curso (`curso_id` diferente)
   - fundamental: sequência fixa `1_ano_fundamental` até `9_ano_fundamental`
   - médio: sequência configurada no curso do estudante
   - superior: avanço sequencial por semestre (`semestre_atual += 1`) até o último semestre configurado do curso
