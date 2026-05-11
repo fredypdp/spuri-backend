@@ -593,12 +593,8 @@ func (p *EstudanteProjection) handleSenhaAlterada(event db.Event) error {
 }
 
 func (p *EstudanteProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) error {
-	var payload struct {
-		TipoEnsino          string  `json:"TipoEnsino"`
-		ProximoAnoAcademico *string `json:"ProximoAnoAcademico"`
-		Aprovado            bool    `json:"Aprovado"`
-	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+	payload, err := parseAvaliacaoFinalPayloadEstudante(event.Payload)
+	if err != nil {
 		return fmt.Errorf("handleAvaliacaoFinalAnoAcademico: parse error: %w", err)
 	}
 	tipoEnsino := strings.TrimSpace(strings.ToLower(payload.TipoEnsino))
@@ -661,8 +657,48 @@ func (p *EstudanteProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) e
 		SET %s = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
 		WHERE id = $4
 	`, col)
-	_, err := p.client.DB().Exec(query, payload.ProximoAnoAcademico, event.EventVersion, event.EventID, event.AggregateID)
+	_, err = p.client.DB().Exec(query, payload.ProximoAnoAcademico, event.EventVersion, event.EventID, event.AggregateID)
 	return err
+}
+
+type avaliacaoFinalPayloadEstudante struct {
+	TipoEnsino          string
+	ProximoAnoAcademico *string
+	Aprovado            bool
+}
+
+func parseAvaliacaoFinalPayloadEstudante(raw json.RawMessage) (avaliacaoFinalPayloadEstudante, error) {
+	var snake struct {
+		TipoEnsino          string  `json:"tipo_ensino"`
+		ProximoAnoAcademico *string `json:"proximo_ano_academico"`
+		Aprovado            bool    `json:"aprovado"`
+	}
+	if err := json.Unmarshal(raw, &snake); err != nil {
+		return avaliacaoFinalPayloadEstudante{}, err
+	}
+
+	result := avaliacaoFinalPayloadEstudante{
+		TipoEnsino:          snake.TipoEnsino,
+		ProximoAnoAcademico: snake.ProximoAnoAcademico,
+		Aprovado:            snake.Aprovado,
+	}
+
+	if result.TipoEnsino == "" && result.ProximoAnoAcademico == nil {
+		var legacy struct {
+			TipoEnsino          string  `json:"TipoEnsino"`
+			ProximoAnoAcademico *string `json:"ProximoAnoAcademico"`
+			Aprovado            bool    `json:"Aprovado"`
+		}
+		if err := json.Unmarshal(raw, &legacy); err != nil {
+			return avaliacaoFinalPayloadEstudante{}, err
+		}
+		if legacy.TipoEnsino != "" || legacy.ProximoAnoAcademico != nil {
+			result.TipoEnsino = legacy.TipoEnsino
+			result.ProximoAnoAcademico = legacy.ProximoAnoAcademico
+		}
+	}
+
+	return result, nil
 }
 
 func (p *EstudanteProjection) inferTipoEnsinoEscolar(estudanteID uuid.UUID) (string, error) {
