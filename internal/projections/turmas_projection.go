@@ -295,7 +295,7 @@ func (p *TurmasProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) erro
 	if !payload.Aprovado {
 		return nil
 	}
-	if payload.ProximoAnoAcademico == nil || *payload.ProximoAnoAcademico == "" || len(payload.CodigosTurmasRemovidas) == 0 {
+	if len(payload.CodigosTurmasRemovidas) == 0 {
 		return nil
 	}
 
@@ -339,6 +339,11 @@ func (p *TurmasProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) erro
 		WHERE codigo_turma = ANY($3) AND deleted_at IS NULL
 	`, payload.CodigoEstudante, payload.AnoLectivo, pq.Array(payload.CodigosTurmasRemovidas)); err != nil {
 		return err
+	}
+
+
+	if payload.ProximoAnoAcademico == nil || *payload.ProximoAnoAcademico == "" {
+		return tx.Commit()
 	}
 
 	if _, err := tx.Exec(`
