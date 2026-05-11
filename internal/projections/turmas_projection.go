@@ -375,11 +375,14 @@ func (p *TurmasProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) erro
 			SELECT d.id
 			FROM (
 				SELECT
-					id,
-					codigo_turma,
-					ROW_NUMBER() OVER (ORDER BY codigo_turma ASC) - 1 AS idx,
+					dn.id,
+					dn.codigo_turma,
+					ROW_NUMBER() OVER (ORDER BY dn.codigo_turma ASC) - 1 AS idx,
 					COUNT(*) OVER () AS total
-				FROM destinos_nivel
+				FROM destinos_nivel dn
+				JOIN origem o ON true
+				WHERE o.curso_id IS NULL
+				   OR dn.curso_id IS NOT DISTINCT FROM o.curso_id
 			) d
 			WHERE d.total > 0
 			  AND d.idx = (ABS(hashtext($3)) % d.total)
