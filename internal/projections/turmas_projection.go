@@ -342,14 +342,23 @@ func (p *TurmasProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) erro
 	}
 
 	if _, err := tx.Exec(`
-		WITH destino AS (
-			SELECT id
+		WITH origem AS (
+			SELECT DISTINCT turno, curso_id
 			FROM projection_turmas
-			WHERE codigo_academia = $1
-			  AND nivel = $2
+			WHERE codigo_turma = ANY($4)
+			  AND codigo_academia = $1
 			  AND deleted_at IS NULL
-			ORDER BY codigo_turma ASC
-			LIMIT 1
+		),
+		destino AS (
+			SELECT DISTINCT ON (o.turno, o.curso_id) t.id
+			FROM origem o
+			JOIN projection_turmas t
+			  ON t.codigo_academia = $1
+			 AND t.nivel = $2
+			 AND t.deleted_at IS NULL
+			 AND t.turno IS NOT DISTINCT FROM o.turno
+			 AND t.curso_id IS NOT DISTINCT FROM o.curso_id
+			ORDER BY o.turno, o.curso_id, t.codigo_turma ASC
 		)
 		UPDATE projection_turmas t
 		SET estudantes = CASE
@@ -363,7 +372,7 @@ func (p *TurmasProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) erro
 			updated_at = CURRENT_TIMESTAMP
 		FROM destino d
 		WHERE t.id = d.id
-	`, payload.CodigoAcademia, *payload.ProximoAnoAcademico, payload.CodigoEstudante); err != nil {
+	`, payload.CodigoAcademia, *payload.ProximoAnoAcademico, payload.CodigoEstudante, pq.Array(payload.CodigosTurmasRemovidas)); err != nil {
 		return err
 	}
 
