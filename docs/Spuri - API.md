@@ -1,8 +1,8 @@
 ---
-modificado: 10-05-2026 10:00
+modificado: 12-05-2026 15:40
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.5.9
+Versão atual: 1.6.0
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -1395,8 +1395,23 @@ Lista estudantes. Retorna apenas os da academia (para academia) ou todos (para a
 
 **Query Params:**
 
-- `limit` — máximo de itens (padrão: sem limit = retorna até 1000)
-- `offset` — deslocamento para paginação (padrão: 0)
+- `genero` — filtro por gênero (`masculino`, `feminino`). Aceita múltiplos valores (`?genero=masculino,feminino` ou repetindo o parâmetro).
+- `idade_min` — idade mínima (inteiro >= 0).
+- `idade_max` — idade máxima (inteiro >= 0).
+- `ano_escolar_fundamental` — filtro por ano do fundamental (aceita múltiplos).
+- `ano_escolar_medio` — filtro por ano do médio (aceita múltiplos).
+- `ano_superior` — filtro por ano superior (aceita múltiplos).
+- `status_escolar_fundamental` — filtro por status escolar no fundamental (`inativo`, `em_andamento`, `finalizado`; aceita múltiplos).
+- `status_escolar_medio` — filtro por status escolar no médio (`inativo`, `em_andamento`, `finalizado`; aceita múltiplos).
+- `status_superior` — filtro por status no superior (`inativo`, `em_andamento`, `finalizado`; aceita múltiplos).
+- `turno` — filtro por turno da turma (`manha`, `tarde`, `noite`; aceita múltiplos).
+- `codigo_turma` — filtra estudantes de turma(s) específica(s) via código da turma (aceita múltiplos).
+- `com_turma` — booleano (`true`/`false`) para filtrar estudantes com ou sem turma.
+
+> Os filtros acima são **combináveis** entre si (AND), permitindo consultas compostas.
+> Exemplos:  
+> - `GET /estudantes?genero=feminino&idade_min=12&idade_max=15&turno=manha`  
+> - `GET /estudantes?status_escolar_medio=em_andamento&codigo_turma=TURMA-10A&com_turma=true`
 
 **Response 200:**
 
@@ -1409,6 +1424,12 @@ Lista estudantes. Retorna apenas os da academia (para academia) ou todos (para a
   "nome_academia": "string"
 }
 ```
+
+**Erros de validação (400):**
+
+- `com_turma` inválido (deve ser `true` ou `false`).
+- `idade_min` inválida.
+- `idade_max` inválida.
 
 ---
 
