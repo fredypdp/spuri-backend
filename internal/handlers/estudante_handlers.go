@@ -263,13 +263,13 @@ func ListarEstudantes(c *gin.Context) {
 
 	// data_nascimento é NOT NULL após a migration — scan direto como time.Time.
 	const selectCols = `
-		SELECT id, nome, codigo_estudante, email, telefone, email_verificado,
-			bilhete_identidade, bilhete_identidade_responsavel, codigo_academia,
-			status, status_escolar_fundamental, status_escolar_medio, status_superior,
-			ano_escolar_fundamental, ano_escolar_medio, ano_superior,
-			curso_medio_id, curso_superior_id,
-			genero, data_nascimento, created_at, updated_at,
-			COALESCE(total_notas, 0), COALESCE(total_faltas, 0), version
+		SELECT e.id, e.nome, e.codigo_estudante, e.email, e.telefone, e.email_verificado,
+			e.bilhete_identidade, e.bilhete_identidade_responsavel, e.codigo_academia,
+			e.status, e.status_escolar_fundamental, e.status_escolar_medio, e.status_superior,
+			e.ano_escolar_fundamental, e.ano_escolar_medio, e.ano_superior,
+			e.curso_medio_id, e.curso_superior_id,
+			e.genero, e.data_nascimento, e.created_at, e.updated_at,
+			COALESCE(e.total_notas, 0), COALESCE(e.total_faltas, 0), e.version
 		FROM projection_estudantes`
 
 	var (
