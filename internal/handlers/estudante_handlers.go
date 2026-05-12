@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
 
 	"spuri/internal/db"
@@ -269,8 +272,88 @@ func ListarEstudantes(c *gin.Context) {
 			COALESCE(total_notas, 0), COALESCE(total_faltas, 0), version
 		FROM projection_estudantes`
 
-	var rows *sql.Rows
-	var err error
+	var (
+		rows       *sql.Rows
+		err        error
+		conditions []string
+		args       []interface{}
+	)
+
+	if generos := parseMultiValueQueryParam(c, "genero"); len(generos) > 0 {
+		args = append(args, pq.Array(generos))
+		conditions = append(conditions, fmt.Sprintf("e.genero = ANY($%d)", len(args)))
+	}
+	if anosFund := parseMultiValueQueryParam(c, "ano_escolar_fundamental"); len(anosFund) > 0 {
+		args = append(args, pq.Array(anosFund))
+		conditions = append(conditions, fmt.Sprintf("e.ano_escolar_fundamental = ANY($%d)", len(args)))
+	}
+	if anosMedio := parseMultiValueQueryParam(c, "ano_escolar_medio"); len(anosMedio) > 0 {
+		args = append(args, pq.Array(anosMedio))
+		conditions = append(conditions, fmt.Sprintf("e.ano_escolar_medio = ANY($%d)", len(args)))
+	}
+	if anosSup := parseMultiValueQueryParam(c, "ano_superior"); len(anosSup) > 0 {
+		args = append(args, pq.Array(anosSup))
+		conditions = append(conditions, fmt.Sprintf("e.ano_superior = ANY($%d)", len(args)))
+	}
+	if turno := parseMultiValueQueryParam(c, "turno"); len(turno) > 0 {
+		args = append(args, pq.Array(turno))
+		conditions = append(conditions, fmt.Sprintf("t.turno = ANY($%d)", len(args)))
+	}
+	if codigoTurma := parseMultiValueQueryParam(c, "codigo_turma"); len(codigoTurma) > 0 {
+		args = append(args, pq.Array(codigoTurma))
+		conditions = append(conditions, fmt.Sprintf("t.codigo_turma = ANY($%d)", len(args)))
+	}
+
+	if withClass := strings.TrimSpace(c.Query("com_turma")); withClass != "" {
+		v, parseErr := strconv.ParseBool(withClass)
+		if parseErr != nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("com_turma deve ser booleano (true/false)"))
+			return
+		}
+		if v {
+			conditions = append(conditions, "t.codigo_turma IS NOT NULL")
+		} else {
+			conditions = append(conditions, "t.codigo_turma IS NULL")
+		}
+	}
+
+	if idadeMinStr := strings.TrimSpace(c.Query("idade_min")); idadeMinStr != "" {
+		idadeMin, parseErr := strconv.Atoi(idadeMinStr)
+		if parseErr != nil || idadeMin < 0 {
+			utils.RespondWithValidationError(c, fmt.Errorf("idade_min inválida"))
+			return
+		}
+		args = append(args, time.Now().AddDate(-idadeMin, 0, 0))
+		conditions = append(conditions, fmt.Sprintf("e.data_nascimento <= $%d", len(args)))
+	}
+	if idadeMaxStr := strings.TrimSpace(c.Query("idade_max")); idadeMaxStr != "" {
+		idadeMax, parseErr := strconv.Atoi(idadeMaxStr)
+		if parseErr != nil || idadeMax < 0 {
+			utils.RespondWithValidationError(c, fmt.Errorf("idade_max inválida"))
+			return
+		}
+		args = append(args, time.Now().AddDate(-(idadeMax+1), 0, 1))
+		conditions = append(conditions, fmt.Sprintf("e.data_nascimento >= $%d", len(args)))
+	}
+
+	for _, item := range []struct{ key, col string }{
+		{"status_escolar_fundamental", "e.status_escolar_fundamental"},
+		{"status_escolar_medio", "e.status_escolar_medio"},
+		{"status_superior", "e.status_superior"},
+	} {
+		if values := parseMultiValueQueryParam(c, item.key); len(values) > 0 {
+			args = append(args, pq.Array(values))
+			conditions = append(conditions, fmt.Sprintf("%s = ANY($%d)", item.col, len(args)))
+		}
+	}
+
+	baseQuery := selectCols + ` e
+		LEFT JOIN projection_turmas t
+		  ON t.codigo_academia = e.codigo_academia
+		 AND EXISTS (
+		    SELECT 1 FROM jsonb_array_elements_text(COALESCE(t.estudantes, '[]'::jsonb)) AS cod(codigo)
+		    WHERE cod.codigo = e.codigo_estudante
+		 )`
 
 	if userType == "academia" {
 		academiaProj := getAcademiaProjection(c)
@@ -279,10 +362,11 @@ func ListarEstudantes(c *gin.Context) {
 			utils.RespondWithForbiddenError(c, "academia não encontrada")
 			return
 		}
-		rows, err = client.DB().Query(
-			selectCols+` WHERE codigo_academia = $1 ORDER BY created_at DESC`,
-			academiaDTO.CodigoAcademia,
-		)
+		argsAcademia := append([]interface{}{}, args...)
+		argsAcademia = append(argsAcademia, academiaDTO.CodigoAcademia)
+		where := append([]string{}, conditions...)
+		where = append(where, fmt.Sprintf("e.codigo_academia = $%d", len(argsAcademia)))
+		rows, err = client.DB().Query(baseQuery+` WHERE `+strings.Join(where, " AND ")+` ORDER BY e.created_at DESC`, argsAcademia...)
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
@@ -300,7 +384,12 @@ func ListarEstudantes(c *gin.Context) {
 	}
 
 	if userType == "admin" {
-		rows, err = client.DB().Query(selectCols + ` ORDER BY created_at DESC`)
+		query := baseQuery
+		if len(conditions) > 0 {
+			query += ` WHERE ` + strings.Join(conditions, " AND ")
+		}
+		query += ` ORDER BY e.created_at DESC`
+		rows, err = client.DB().Query(query, args...)
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
