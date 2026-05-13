@@ -266,7 +266,7 @@ func ListarEstudantes(c *gin.Context) {
 		SELECT e.id, e.nome, e.codigo_estudante, e.email, e.telefone, e.email_verificado,
 			e.bilhete_identidade, e.bilhete_identidade_responsavel, e.codigo_academia,
 			e.status, e.status_escolar_fundamental, e.status_escolar_medio, e.status_superior,
-			e.ano_escolar_fundamental, e.ano_escolar_medio, e.ano_superior,
+			e.ano_escolar_fundamental, e.ano_escolar_medio, e.ano_superior, e.semestre_atual,
 			e.curso_medio_id, e.curso_superior_id,
 			e.genero, e.data_nascimento, e.created_at, e.updated_at,
 			COALESCE(e.total_notas, 0), COALESCE(e.total_faltas, 0), e.version
@@ -302,6 +302,23 @@ func ListarEstudantes(c *gin.Context) {
 	if codigoTurma := parseMultiValueQueryParam(c, "codigo_turma"); len(codigoTurma) > 0 {
 		args = append(args, pq.Array(codigoTurma))
 		conditions = append(conditions, fmt.Sprintf("t.codigo_turma = ANY($%d)", len(args)))
+	}
+	if semestresAtuais, parseErr := parseMultiPositiveInt64QueryParam(c, "semestre_atual"); parseErr != nil {
+		utils.RespondWithValidationError(c, parseErr)
+		return
+	} else if len(semestresAtuais) > 0 {
+		args = append(args, pq.Array(semestresAtuais))
+		conditions = append(conditions, fmt.Sprintf("e.semestre_atual = ANY($%d)", len(args)))
+	}
+	if cursos := parseMultiValueQueryParams(c, "curso_id", "curso"); len(cursos) > 0 {
+		for _, curso := range cursos {
+			if _, parseErr := uuid.Parse(curso); parseErr != nil {
+				utils.RespondWithValidationError(c, fmt.Errorf("curso_id inválido"))
+				return
+			}
+		}
+		args = append(args, pq.Array(cursos))
+		conditions = append(conditions, fmt.Sprintf("(e.curso_medio_id::text = ANY($%d) OR e.curso_superior_id::text = ANY($%d))", len(args), len(args)))
 	}
 
 	if withClass := strings.TrimSpace(c.Query("com_turma")); withClass != "" {
@@ -384,6 +401,11 @@ func ListarEstudantes(c *gin.Context) {
 	}
 
 	if userType == "admin" {
+		if codigosAcademia := parseMultiValueQueryParam(c, "codigo_academia"); len(codigosAcademia) > 0 {
+			args = append(args, pq.Array(codigosAcademia))
+			conditions = append(conditions, fmt.Sprintf("e.codigo_academia = ANY($%d)", len(args)))
+		}
+
 		query := baseQuery
 		if len(conditions) > 0 {
 			query += ` WHERE ` + strings.Join(conditions, " AND ")
@@ -413,6 +435,7 @@ func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
 	var estudantes []map[string]interface{}
 	for rows.Next() {
 		var id, cursoMedioID, cursoSuperiorID sql.NullString
+		var semestreAtual sql.NullInt64
 		var nome, codigoEstudante string
 		var status, statusFund, statusMedio, statusSuperior sql.NullString
 		var email, telefone, bilhete, bilheteResp, codigoAcad sql.NullString
@@ -426,7 +449,7 @@ func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
 			&id, &nome, &codigoEstudante,
 			&email, &telefone, &emailVerif, &bilhete, &bilheteResp, &codigoAcad,
 			&status, &statusFund, &statusMedio, &statusSuperior,
-			&anoEscolar, &anoEscolarMedio, &anoSuperior,
+			&anoEscolar, &anoEscolarMedio, &anoSuperior, &semestreAtual,
 			&cursoMedioID, &cursoSuperiorID,
 			&genero, &dataNascimento, &createdAt, &updatedAt,
 			&totalNotas, &totalFaltas, &version,
@@ -451,6 +474,7 @@ func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
 			"ano_escolar_fundamental":        getNullString(anoEscolar),
 			"ano_escolar_medio":              getNullString(anoEscolarMedio),
 			"ano_superior":                   getNullString(anoSuperior),
+			"semestre_atual":                 getNullInt64(semestreAtual),
 			"curso_medio_id":                 getNullString(cursoMedioID),
 			"curso_superior_id":              getNullString(cursoSuperiorID),
 			"genero":                         getNullString(genero),
@@ -463,6 +487,48 @@ func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
 		})
 	}
 	return estudantes
+}
+
+func parseMultiValueQueryParams(c *gin.Context, keys ...string) []string {
+	parsedValues := make([]string, 0)
+	seen := make(map[string]struct{})
+
+	for _, key := range keys {
+		for _, value := range parseMultiValueQueryParam(c, key) {
+			if _, exists := seen[value]; exists {
+				continue
+			}
+			seen[value] = struct{}{}
+			parsedValues = append(parsedValues, value)
+		}
+	}
+
+	return parsedValues
+}
+
+func parseMultiPositiveInt64QueryParam(c *gin.Context, key string) ([]int64, error) {
+	values := parseMultiValueQueryParam(c, key)
+	if len(values) == 0 {
+		return nil, nil
+	}
+
+	parsedValues := make([]int64, 0, len(values))
+	for _, value := range values {
+		parsedValue, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || parsedValue < 1 {
+			return nil, fmt.Errorf("%s inválido", key)
+		}
+		parsedValues = append(parsedValues, parsedValue)
+	}
+
+	return parsedValues, nil
+}
+
+func getNullInt64(ns sql.NullInt64) interface{} {
+	if ns.Valid {
+		return ns.Int64
+	}
+	return nil
 }
 
 func formatNullDate(nt sql.NullTime) interface{} {
