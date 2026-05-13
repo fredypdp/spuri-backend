@@ -1401,6 +1401,9 @@ Lista estudantes. Retorna apenas os da academia (para academia) ou todos (para a
 - `ano_escolar_fundamental` — filtro por ano do fundamental (aceita múltiplos).
 - `ano_escolar_medio` — filtro por ano do médio (aceita múltiplos).
 - `ano_superior` — filtro por ano superior (aceita múltiplos).
+- `semestre_atual` — filtro pelo semestre sequencial atual do estudante superior (inteiro >= 1; aceita múltiplos).
+- `curso_id` — filtro por UUID de curso médio ou superior usando o mesmo parâmetro para os dois vínculos (`curso_medio_id` ou `curso_superior_id`; aceita múltiplos). Alias aceito: `curso`.
+- `codigo_academia` — filtro por código da academia (aceita múltiplos; disponível para admin).
 - `status_escolar_fundamental` — filtro por status escolar no fundamental (`inativo`, `em_andamento`, `finalizado`; aceita múltiplos).
 - `status_escolar_medio` — filtro por status escolar no médio (`inativo`, `em_andamento`, `finalizado`; aceita múltiplos).
 - `status_superior` — filtro por status no superior (`inativo`, `em_andamento`, `finalizado`; aceita múltiplos).
@@ -1412,6 +1415,7 @@ Lista estudantes. Retorna apenas os da academia (para academia) ou todos (para a
 > Exemplos:  
 > - `GET /estudantes?genero=feminino&idade_min=12&idade_max=15&turno=manha`  
 > - `GET /estudantes?status_escolar_medio=em_andamento&codigo_turma=TURMA-10A&com_turma=true`
+> - `GET /estudantes?codigo_academia=LDA20261&semestre_atual=1,2&curso_id=550e8400-e29b-41d4-a716-446655440000`
 
 **Response 200:**
 
@@ -1428,6 +1432,8 @@ Lista estudantes. Retorna apenas os da academia (para academia) ou todos (para a
 **Erros de validação (400):**
 
 - `com_turma` inválido (deve ser `true` ou `false`).
+- `semestre_atual` inválido (deve ser inteiro >= 1).
+- `curso_id` inválido (deve ser UUID).
 - `idade_min` inválida.
 - `idade_max` inválida.
 
