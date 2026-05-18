@@ -247,6 +247,26 @@ const avaliacaoFinalCols = `
 	aprovado, observacao, registered_at, version
 `
 
+func (p *AvaliacaoFinalProjection) ExistsByEstudanteAnoLetivoNivel(codigoEstudante, codigoAcademia, anoLectivo, tipoEnsino, anoAcademicoAtual string) (bool, error) {
+	var exists bool
+	err := p.client.DB().QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM projection_avaliacao_final
+			WHERE codigo_estudante = $1
+			  AND codigo_academia = $2
+			  AND ano_lectivo = $3
+			  AND (
+				($4 = 'superior' AND tipo_ensino = 'superior')
+				OR ($4 <> 'superior' AND tipo_ensino <> 'superior')
+			  )
+			  AND ano_academico_atual = $5
+		)`,
+		codigoEstudante, codigoAcademia, anoLectivo, tipoEnsino, anoAcademicoAtual,
+	).Scan(&exists)
+	return exists, err
+}
+
 func (p *AvaliacaoFinalProjection) ExistsByEstudanteAnoLetivo(codigoEstudante, codigoAcademia, anoLectivo string) (bool, error) {
 	var exists bool
 	err := p.client.DB().QueryRow(`

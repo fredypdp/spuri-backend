@@ -89,16 +89,36 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 	}
 
 	avaliacaoProj := getAvaliacaoFinalProjection(c)
-	jaAvaliado, err := avaliacaoProj.ExistsByEstudanteAnoLetivo(
+	jaAvaliadoNoNivel, err := avaliacaoProj.ExistsByEstudanteAnoLetivoNivel(
+		req.CodigoEstudante,
+		academiaDTO.CodigoAcademia,
+		anoLectivo,
+		tipoEnsino,
+		req.AnoAcademicoAtual,
+	)
+	if err != nil {
+		utils.RespondWithInternalError(c, fmt.Errorf("erro ao verificar avaliação final existente no nível: %w", err))
+		return
+	}
+	if jaAvaliadoNoNivel {
+		utils.RespondWithValidationError(c, fmt.Errorf(
+			"avaliação final já registrada para este estudante no nível %s do ano letivo %s",
+			req.AnoAcademicoAtual,
+			anoLectivo,
+		))
+		return
+	}
+
+	jaAvaliadoNoAnoLetivo, err := avaliacaoProj.ExistsByEstudanteAnoLetivo(
 		req.CodigoEstudante,
 		academiaDTO.CodigoAcademia,
 		anoLectivo,
 	)
 	if err != nil {
-		utils.RespondWithInternalError(c, fmt.Errorf("erro ao verificar avaliação final existente: %w", err))
+		utils.RespondWithInternalError(c, fmt.Errorf("erro ao verificar avaliação final existente no ano letivo: %w", err))
 		return
 	}
-	if jaAvaliado {
+	if jaAvaliadoNoAnoLetivo {
 		utils.RespondWithValidationError(c, fmt.Errorf(
 			"avaliação final já registrada para este estudante no ano letivo %s",
 			anoLectivo,
