@@ -28,15 +28,25 @@ type AvaliacaoFinalBasePayload struct {
 type AvaliacaoFinalEscolarEvent struct{ AvaliacaoFinalBasePayload }
 type AvaliacaoFinalSuperiorEvent struct{ AvaliacaoFinalBasePayload }
 
-func (e *AvaliacaoFinalEscolarEvent) GetPayload() interface{} { return e }
-func (e *AvaliacaoFinalEscolarEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+func (e *AvaliacaoFinalEscolarEvent) GetPayload() interface{}  { return e }
+func (e *AvaliacaoFinalEscolarEvent) ToJSON() ([]byte, error)  { return json.Marshal(e) }
 func (e *AvaliacaoFinalSuperiorEvent) GetPayload() interface{} { return e }
 func (e *AvaliacaoFinalSuperiorEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
-// chaveAvaliacao retorna a chave de idempotência para avaliações finais.
-// Formato: "<tipoEnsino>_<anoLectivo>_<anoAcademicoAtual>"
-func chaveAvaliacao(tipoEnsino, anoLectivo, anoAcademicoAtual string) string {
-	return tipoEnsino + "_" + anoLectivo + "_" + anoAcademicoAtual
+// chaveAvaliacaoAnoLetivo retorna a chave de idempotência para avaliações finais
+// no mesmo ano letivo.
+func chaveAvaliacaoAnoLetivo(anoLectivo string) string {
+	return "ano_letivo:" + anoLectivo
+}
+
+// chaveAvaliacaoNivel retorna a chave de idempotência para avaliações finais
+// Escolar/Superior no mesmo nível dentro do mesmo ano letivo.
+func chaveAvaliacaoNivel(tipoEnsino, anoLectivo, anoAcademicoAtual string) string {
+	grupo := "escolar"
+	if tipoEnsino == "superior" {
+		grupo = "superior"
+	}
+	return "nivel:" + grupo + ":" + anoLectivo + ":" + anoAcademicoAtual
 }
 
 func (e *Estudante) RegistrarAvaliacaoFinal(
@@ -55,14 +65,21 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 	}
 
 	// Guard de duplicata: impede double-submit e garante idempotência no aggregate.
-	// A chave cobre tipo+anoLetivo+anoAcademico — a mesma combinação que a
-	// constraint UNIQUE da projection_avaliacao_final, mas aplicada no aggregate
-	// para falhar antes de gravar no ledger.
-	chave := chaveAvaliacao(tipoEnsino, anoLectivo, anoAcademicoAtual)
-	if e.AvaliacoesPorAno != nil && e.AvaliacoesPorAno[chave] {
+	// Primeiro bloqueia a duplicidade no mesmo nível de Avaliação Final
+	// Escolar/Superior; depois bloqueia qualquer segunda decisão no ano letivo.
+	chaveNivel := chaveAvaliacaoNivel(tipoEnsino, anoLectivo, anoAcademicoAtual)
+	if e.AvaliacoesPorAno != nil && e.AvaliacoesPorAno[chaveNivel] {
 		return fmt.Errorf(
-			"avaliação final já registrada para tipo '%s', ano letivo '%s', nível '%s'",
-			tipoEnsino, anoLectivo, anoAcademicoAtual,
+			"avaliação final já registrada para o nível '%s' no ano letivo '%s'",
+			anoAcademicoAtual, anoLectivo,
+		)
+	}
+
+	chaveAnoLetivo := chaveAvaliacaoAnoLetivo(anoLectivo)
+	if e.AvaliacoesPorAno != nil && e.AvaliacoesPorAno[chaveAnoLetivo] {
+		return fmt.Errorf(
+			"avaliação final já registrada no ano letivo '%s'",
+			anoLectivo,
 		)
 	}
 
@@ -124,8 +141,8 @@ func (e *Estudante) applyAvaliacaoFinalPayload(ev AvaliacaoFinalBasePayload) err
 	if e.AvaliacoesPorAno == nil {
 		e.AvaliacoesPorAno = make(map[string]bool)
 	}
-	chave := chaveAvaliacao(ev.TipoEnsino, ev.AnoLectivo, ev.AnoAcademicoAtual)
-	e.AvaliacoesPorAno[chave] = true
+	e.AvaliacoesPorAno[chaveAvaliacaoAnoLetivo(ev.AnoLectivo)] = true
+	e.AvaliacoesPorAno[chaveAvaliacaoNivel(ev.TipoEnsino, ev.AnoLectivo, ev.AnoAcademicoAtual)] = true
 
 	if !ev.Aprovado {
 		return nil
