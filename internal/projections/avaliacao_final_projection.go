@@ -128,15 +128,8 @@ func (p *AvaliacaoFinalProjection) handleAvaliacaoFinal(event db.Event) error {
 			$8, $9,
 			CURRENT_TIMESTAMP, $10
 		)
-		ON CONFLICT (codigo_estudante, codigo_academia, ano_lectivo, tipo_ensino)
-		DO UPDATE SET
-			ano_academico_atual   = EXCLUDED.ano_academico_atual,
-			proximo_ano_academico = EXCLUDED.proximo_ano_academico,
-			aprovado              = EXCLUDED.aprovado,
-			observacao            = EXCLUDED.observacao,
-			event_id              = EXCLUDED.event_id,
-			version               = EXCLUDED.version,
-			registered_at         = EXCLUDED.registered_at
+		ON CONFLICT (codigo_estudante, codigo_academia, ano_lectivo)
+		DO NOTHING
 	`,
 		event.EventID,
 		payload.CodigoEstudante, payload.CodigoAcademia,
@@ -253,6 +246,21 @@ const avaliacaoFinalCols = `
 	ano_lectivo, tipo_ensino, ano_academico_atual, proximo_ano_academico,
 	aprovado, observacao, registered_at, version
 `
+
+func (p *AvaliacaoFinalProjection) ExistsByEstudanteAnoLetivo(codigoEstudante, codigoAcademia, anoLectivo string) (bool, error) {
+	var exists bool
+	err := p.client.DB().QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM projection_avaliacao_final
+			WHERE codigo_estudante = $1
+			  AND codigo_academia = $2
+			  AND ano_lectivo = $3
+		)`,
+		codigoEstudante, codigoAcademia, anoLectivo,
+	).Scan(&exists)
+	return exists, err
+}
 
 func (p *AvaliacaoFinalProjection) GetByEstudante(codigoEstudante string) ([]AvaliacaoFinalDTO, error) {
 	rows, err := p.client.DB().Query(

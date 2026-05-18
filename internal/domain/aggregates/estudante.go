@@ -40,7 +40,7 @@ type Estudante struct {
 	EmailVerificado          bool
 
 	// AvaliacoesPorAno previne double-submit de avaliações finais.
-	// Chave: "<tipoEnsino>_<anoLectivo>_<anoAcademicoAtual>"
+	// Chave: "<anoLectivo>"
 	AvaliacoesPorAno map[string]bool
 
 	// Mapa de notas registradas por chave composta

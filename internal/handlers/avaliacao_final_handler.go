@@ -88,6 +88,24 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		}
 	}
 
+	avaliacaoProj := getAvaliacaoFinalProjection(c)
+	jaAvaliado, err := avaliacaoProj.ExistsByEstudanteAnoLetivo(
+		req.CodigoEstudante,
+		academiaDTO.CodigoAcademia,
+		anoLectivo,
+	)
+	if err != nil {
+		utils.RespondWithInternalError(c, fmt.Errorf("erro ao verificar avaliação final existente: %w", err))
+		return
+	}
+	if jaAvaliado {
+		utils.RespondWithValidationError(c, fmt.Errorf(
+			"avaliação final já registrada para este estudante no ano letivo %s",
+			anoLectivo,
+		))
+		return
+	}
+
 	// FIX-COMPILE-02: EstudanteDTO armazena CursoMedioID e CursoSuperiorID como
 	// *string (banco persiste UUID como texto). Converter para *uuid.UUID para
 	// passar para validarNotasParaAprovacao e calcularProximoAnoCurso.
