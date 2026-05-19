@@ -923,8 +923,20 @@ func (p *EstudanteProjection) GetAuthByIdentificador(identificador string) (*Est
 func (p *EstudanteProjection) GetByBilheteIdentidadePrincipal(bilhete string) (*EstudanteDTO, error) {
 	return scanEstudante(p.client.DB().QueryRow(
 		`SELECT `+estudanteCols+` FROM projection_estudantes
-		 WHERE bilhete_identidade = $1 LIMIT 1`,
+		 WHERE lower(btrim(bilhete_identidade)) = lower(btrim($1))
+		 LIMIT 1`,
 		bilhete,
+	))
+}
+
+func (p *EstudanteProjection) GetByBilheteIdentidadePrincipalExcludingID(bilhete string, estudanteID uuid.UUID) (*EstudanteDTO, error) {
+	return scanEstudante(p.client.DB().QueryRow(
+		`SELECT `+estudanteCols+` FROM projection_estudantes
+		 WHERE lower(btrim(bilhete_identidade)) = lower(btrim($1))
+		   AND id <> $2
+		 LIMIT 1`,
+		bilhete,
+		estudanteID,
 	))
 }
 
