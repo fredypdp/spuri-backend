@@ -164,6 +164,19 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		bilheteRespPtr = &req.BilheteResponsavel
 	}
 
+	if bilhetePtr != nil {
+		estudanteProj := getEstudanteProjection(c)
+		existente, err := estudanteProj.GetByBilheteIdentidadePrincipal(*bilhetePtr)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		if existente != nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("bilhete de identidade já cadastrado"))
+			return
+		}
+	}
+
 	var anoEscolarPtr, anoEscolarMedioPtr, anoSuperiorPtr *string
 	if req.AnoEscolar != "" {
 		if err := utils.ValidateAnoFundamental(req.AnoEscolar); err != nil {
@@ -615,12 +628,12 @@ func AtualizarDadosPessoais(c *gin.Context) {
 
 	if req.BilheteIdentidade != nil && *req.BilheteIdentidade != "" {
 		estudanteProj := getEstudanteProjection(c)
-		existente, err := estudanteProj.GetByBilheteIdentidadePrincipal(*req.BilheteIdentidade)
+		existente, err := estudanteProj.GetByBilheteIdentidadePrincipalExcludingID(*req.BilheteIdentidade, userID)
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-		if existente != nil && existente.ID != userID {
+		if existente != nil {
 			utils.RespondWithValidationError(c, fmt.Errorf("bilhete de identidade já cadastrado"))
 			return
 		}
