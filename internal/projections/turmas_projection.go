@@ -346,9 +346,9 @@ func (p *TurmasProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) erro
 		return tx.Commit()
 	}
 
-	if _, err := tx.Exec(`
+	res, err := tx.Exec(`
 		WITH origem_info AS (
-			SELECT t.codigo_turma, t.nivel, t.turno, t.curso_id
+			SELECT t.codigo_turma, t.turno, t.curso_id
 			FROM projection_turmas t
 			WHERE t.codigo_turma = ANY($4)
 			  AND t.codigo_academia = $1
@@ -356,26 +356,11 @@ func (p *TurmasProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) erro
 			ORDER BY t.codigo_turma ASC
 			LIMIT 1
 		),
-		origens_ranked AS (
+		destinos_compativeis AS (
 			SELECT
+				t.id,
 				t.codigo_turma,
-				ROW_NUMBER() OVER (ORDER BY t.codigo_turma ASC) - 1 AS idx
-			FROM projection_turmas t
-			JOIN origem_info o ON true
-			WHERE t.codigo_academia = $1
-			  AND t.nivel = o.nivel
-			  AND t.turno IS NOT DISTINCT FROM o.turno
-			  AND t.curso_id IS NOT DISTINCT FROM o.curso_id
-			  AND t.deleted_at IS NULL
-		),
-		origem_rank AS (
-			SELECT r.idx
-			FROM origens_ranked r
-			JOIN origem_info o ON r.codigo_turma = o.codigo_turma
-			LIMIT 1
-		),
-		destinos_nivel AS (
-			SELECT t.id, t.codigo_turma
+				COALESCE(jsonb_array_length(COALESCE(t.estudantes::jsonb, '[]'::jsonb)), 0) AS qtd_estudantes
 			FROM projection_turmas t
 			JOIN origem_info o ON true
 			WHERE t.codigo_academia = $1
@@ -384,22 +369,42 @@ func (p *TurmasProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) erro
 			  AND t.curso_id IS NOT DISTINCT FROM o.curso_id
 			  AND t.deleted_at IS NULL
 		),
+		destinos_gerais AS (
+			SELECT
+				t.id,
+				t.codigo_turma,
+				COALESCE(jsonb_array_length(COALESCE(t.estudantes::jsonb, '[]'::jsonb)), 0) AS qtd_estudantes
+			FROM projection_turmas t
+			WHERE t.codigo_academia = $1
+			  AND t.nivel = $2
+			  AND t.deleted_at IS NULL
+		),
+		destinos_priorizados AS (
+			SELECT 1 AS prioridade, dc.id, dc.codigo_turma, dc.qtd_estudantes FROM destinos_compativeis dc
+			UNION ALL
+			SELECT 2 AS prioridade, dg.id, dg.codigo_turma, dg.qtd_estudantes
+			FROM destinos_gerais dg
+			WHERE NOT EXISTS (SELECT 1 FROM destinos_compativeis)
+		),
 		destinos_ranked AS (
 			SELECT
-				dn.id,
-				ROW_NUMBER() OVER (ORDER BY dn.codigo_turma ASC) - 1 AS idx,
-				COUNT(*) OVER () AS total
-			FROM destinos_nivel dn
+				dp.id,
+				dp.prioridade,
+				dp.qtd_estudantes,
+				ROW_NUMBER() OVER (PARTITION BY dp.prioridade ORDER BY dp.codigo_turma ASC) - 1 AS idx,
+				COUNT(*) OVER (PARTITION BY dp.prioridade) AS total
+			FROM destinos_priorizados dp
 		),
 		destino AS (
 			SELECT dr.id
 			FROM destinos_ranked dr
-			CROSS JOIN origem_rank o
+			CROSS JOIN origem_info o
 			WHERE dr.total > 0
 			  AND dr.idx = CASE
-				WHEN o.idx < dr.total THEN o.idx
+				WHEN dr.prioridade = 1 THEN ABS(hashtext(COALESCE(o.codigo_turma, $3))) % dr.total
 				ELSE ABS(hashtext($3)) % dr.total
 			  END
+			ORDER BY dr.prioridade ASC, dr.qtd_estudantes ASC, dr.id ASC
 			LIMIT 1
 		)
 		UPDATE projection_turmas t
@@ -414,8 +419,12 @@ func (p *TurmasProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) erro
 			updated_at = CURRENT_TIMESTAMP
 		FROM destino d
 		WHERE t.id = d.id
-	`, payload.CodigoAcademia, *payload.ProximoAnoAcademico, payload.CodigoEstudante, pq.Array(payload.CodigosTurmasRemovidas)); err != nil {
+	`, payload.CodigoAcademia, *payload.ProximoAnoAcademico, payload.CodigoEstudante, pq.Array(payload.CodigosTurmasRemovidas))
+	if err != nil {
 		return err
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		return fmt.Errorf("nenhuma turma destino válida encontrada para estudante aprovado %s no nível %s", payload.CodigoEstudante, *payload.ProximoAnoAcademico)
 	}
 
 	return tx.Commit()
