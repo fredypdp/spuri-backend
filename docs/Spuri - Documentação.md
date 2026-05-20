@@ -1,8 +1,8 @@
 ---
-modificado: 10-05-2026 10:00
+modificado: 20-05-2026 11:20
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.4.8
+Versão atual: 1.4.9
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -616,9 +616,11 @@ Este é o **único mecanismo de transição de ano** no sistema. Registar a aval
 - Se não for o último ano do ciclo → backend calcula e aplica automaticamente o próximo nível
 - Se for o último ano do ciclo → backend marca o status como `finalizado`
 - O estudante é movido da turma atual para uma turma do **próximo ano académico**
+- Regra mandatória de consistência: **todo aprovado deve terminar com turma de destino válida**
 - A seleção da turma destino prioriza compatibilidade por `turno` e `curso_id` da turma de origem
-- Se não houver turma destino compatível suficiente, os aprovados são distribuídos entre as turmas existentes do próximo ano
-- Para ensino médio, **nunca** há transferência para turma de outro curso (`curso_id` diferente)
+- Se não houver turma destino compatível, aplica fallback para qualquer turma ativa do próximo ano no mesmo `nivel`
+- A redistribuição usa o tamanho atual das turmas para reduzir desbalanceamento entre destinos
+- Se nenhuma turma válida for encontrada, a transação é revertida para impedir estado parcial (aprovado sem turma)
 
 **Efeitos da reprovação (escola):**
 
