@@ -1,8 +1,8 @@
 ---
-modificado: 12-05-2026 15:40
+modificado: 20-05-2026 11:20
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.6.0
+Versão atual: 1.6.1
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -2027,9 +2027,11 @@ Registra a avaliação final de ano para um estudante.
 - `proximo_ano_academico` é calculado automaticamente pelo backend e não deve ser enviado no payload
 - Se `aprovado = true`:
   - **escola**: o backend calcula o próximo ano automaticamente e move o estudante da turma atual para uma turma do ano acadêmico seguinte
+    - regra obrigatória: **nenhum aprovado pode ficar sem turma de destino**; em falha de atribuição, a operação é abortada
     - prioriza turma destino compatível por `turno` e `curso_id` da turma de origem
-    - se não houver compatível suficiente, distribui os aprovados entre as turmas existentes do próximo ano
-    - para ensino médio, não transfere para turma de outro curso (`curso_id` diferente)
+    - se não houver compatível, usa fallback para qualquer turma ativa do próximo ano acadêmico com o mesmo `nivel`
+    - a redistribuição busca balancear as turmas de destino usando a quantidade atual de estudantes como critério
+    - para ensino médio, mantém a restrição de não transferir para turma de outro curso (`curso_id` diferente) quando há compatíveis
   - fundamental: sequência fixa `1_ano_fundamental` até `9_ano_fundamental`
   - médio: sequência configurada no curso do estudante
   - superior: avanço sequencial por semestre (`semestre_atual += 1`) até o último semestre configurado do curso
