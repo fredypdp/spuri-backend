@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
@@ -12,34 +14,26 @@ import (
 	"github.com/google/uuid"
 )
 
-var statusEscolarValidos = map[string]bool{
-	"inativo":      true,
-	"em_andamento": true,
-	"finalizado":   true,
-}
+type comandoAcontecimentoEstudante func(*aggregates.Estudante, uuid.UUID, *string) error
 
-func atualizarStatusEscolar(
+func registrarAcontecimentoEstudante(
 	c *gin.Context,
-	tipoEnsino string,
-	executarComando func(*aggregates.Estudante, string, uuid.UUID) error,
-	campoResposta string,
+	nomeAcontecimento string,
+	executarComando comandoAcontecimentoEstudante,
+	mensagemSucesso string,
 ) {
 	codigoEstudante := c.Param("codigo")
 
 	var req struct {
-		NovoStatus string `json:"novo_status" binding:"required"`
+		Motivo *string `json:"motivo"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("novo_status é obrigatório"))
-		return
-	}
-	
-	if !statusEscolarValidos[req.NovoStatus] {
-		utils.RespondWithValidationError(c, fmt.Errorf(
-			"novo_status inválido: %q. Valores aceitos: inativo, em_andamento, finalizado",
-			req.NovoStatus,
-		))
-		return
+		// Corpo é opcional; quando ausente, Gin retorna EOF e seguimos sem motivo.
+		if !errors.Is(err, io.EOF) {
+			utils.RespondWithValidationError(c, fmt.Errorf("corpo inválido: %w", err))
+			return
+		}
+		req.Motivo = nil
 	}
 
 	academiaID, _ := middleware.GetUserID(c)
@@ -68,14 +62,14 @@ func atualizarStatusEscolar(
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	
+
 	estudante, ok := estudanteAgg.(*aggregates.Estudante)
 	if !ok {
 		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
 		return
 	}
-	
-	if err := executarComando(estudante, req.NovoStatus, academiaID); err != nil {
+
+	if err := executarComando(estudante, academiaID, req.Motivo); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -90,44 +84,43 @@ func atualizarStatusEscolar(
 		return
 	}
 
-	log.Printf("✅ [Academia %s] Status escolar (%s) atualizado: %s → %s",
-		academia.CodigoAcademia, tipoEnsino, codigoEstudante, req.NovoStatus)
+	log.Printf("✅ [Academia %s] Acontecimento '%s' registrado para estudante %s",
+		academia.CodigoAcademia, nomeAcontecimento, codigoEstudante)
 
 	c.JSON(200, gin.H{
-		"message":     campoResposta + " atualizado com sucesso",
-		"novo_status": req.NovoStatus,
+		"message":       mensagemSucesso,
+		"acontecimento": nomeAcontecimento,
 	})
 }
 
-func AtualizarStatusEscolarFundamentalHandler(c *gin.Context) {
-	atualizarStatusEscolar(
-		c,
-		"fundamental",
-		func(e *aggregates.Estudante, status string, atualizadoPor uuid.UUID) error {
-			return e.AtualizarStatusEscolarFundamental(status, atualizadoPor)
-		},
-		"status_escolar_fundamental",
-	)
+func EfetivarMatriculaFundamentalHandler(c *gin.Context) {
+	registrarAcontecimentoEstudante(c, "MatriculaFundamentalEfetivada", (*aggregates.Estudante).EfetivarMatriculaFundamental, "matrícula no fundamental efetivada com sucesso")
 }
 
-func AtualizarStatusEscolarMedioHandler(c *gin.Context) {
-	atualizarStatusEscolar(
-		c,
-		"medio",
-		func(e *aggregates.Estudante, status string, atualizadoPor uuid.UUID) error {
-			return e.AtualizarStatusEscolarMedio(status, atualizadoPor)
-		},
-		"status_escolar_medio",
-	)
+func EfetivarMatriculaMedioHandler(c *gin.Context) {
+	registrarAcontecimentoEstudante(c, "MatriculaMedioEfetivada", (*aggregates.Estudante).EfetivarMatriculaMedio, "matrícula no médio efetivada com sucesso")
 }
 
-func AtualizarStatusSuperiorHandler(c *gin.Context) {
-	atualizarStatusEscolar(
-		c,
-		"superior",
-		func(e *aggregates.Estudante, status string, atualizadoPor uuid.UUID) error {
-			return e.AtualizarStatusSuperior(status, atualizadoPor)
-		},
-		"status_superior",
-	)
+func EfetivarMatriculaSuperiorHandler(c *gin.Context) {
+	registrarAcontecimentoEstudante(c, "MatriculaSuperiorEfetivada", (*aggregates.Estudante).EfetivarMatriculaSuperior, "matrícula no superior efetivada com sucesso")
+}
+
+func InterromperFundamentalHandler(c *gin.Context) {
+	registrarAcontecimentoEstudante(c, "FundamentalInterrompido", (*aggregates.Estudante).InterromperFundamental, "interrupção do fundamental registrada com sucesso")
+}
+
+func InterromperMedioHandler(c *gin.Context) {
+	registrarAcontecimentoEstudante(c, "MedioInterrompido", (*aggregates.Estudante).InterromperMedio, "interrupção do médio registrada com sucesso")
+}
+
+func TrancarSuperiorHandler(c *gin.Context) {
+	registrarAcontecimentoEstudante(c, "SuperiorTrancado", (*aggregates.Estudante).TrancarSuperior, "trancamento do superior registrado com sucesso")
+}
+
+func ArquivarEstudanteHandler(c *gin.Context) {
+	registrarAcontecimentoEstudante(c, "EstudanteArquivado", (*aggregates.Estudante).Arquivar, "estudante arquivado com sucesso")
+}
+
+func ReativarEstudanteHandler(c *gin.Context) {
+	registrarAcontecimentoEstudante(c, "EstudanteReativado", (*aggregates.Estudante).Reativar, "estudante reativado com sucesso")
 }

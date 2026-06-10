@@ -339,9 +339,14 @@ Status Superior:    inativo → em_andamento → finalizado
 |`SenhaAlterada`|Senha alterada|
 |`CursoAlterado`|Curso médio ou superior alterado|
 |`EmailVerificadoEstudante`|Email confirmado|
-|`StatusEscolarFundamentalAtualizado`|Status fundamental alterado|
-|`StatusEscolarMedioAtualizado`|Status médio alterado|
-|`StatusSuperiorAtualizado`|Status superior alterado|
+|`MatriculaFundamentalEfetivada`|Matrícula no fundamental efetivada; status fundamental passa a `em_andamento`|
+|`MatriculaMedioEfetivada`|Matrícula no médio efetivada; status médio passa a `em_andamento`|
+|`MatriculaSuperiorEfetivada`|Matrícula no superior efetivada; status superior passa a `em_andamento`|
+|`FundamentalInterrompido`|Interrupção do fundamental registrada; status fundamental passa a `inativo`|
+|`MedioInterrompido`|Interrupção do médio registrada; status médio passa a `inativo`|
+|`SuperiorTrancado`|Trancamento do superior registrado; status superior passa a `inativo`|
+|`EstudanteArquivado`|Estudante arquivado; status geral passa a `inativo`|
+|`EstudanteReativado`|Estudante reativado; status geral passa a `ativo`|
 |`AvaliacaoFinalAnoAcademico`|Avaliação final registada|
 |`NotasRegistradas`|Nota registada|
 |`NotaAtualizada`|Nota corrigida|

@@ -1510,92 +1510,37 @@ Atualiza os dados pessoais do estudante autenticado.
 
 ---
 
-### PUT /academia/estudante/:codigo/status-escolar-fundamental
+### Endpoints de acontecimentos que alteram status do estudante
 
-Atualiza o status do ensino fundamental do estudante.
-
-**Proteção**: autenticado + academia ativa
-
-**Path Params:**
-
-- `codigo` — código do estudante
-
-**Request:**
+Os status do estudante não são mais alterados por endpoints diretos de “setar status”. Eles mudam como consequência de acontecimentos reais do domínio. Todos os endpoints abaixo exigem autenticação de academia ativa e recebem opcionalmente:
 
 ```json
 {
-  "novo_status": "em_andamento"  // 'inativo' | 'em_andamento' | 'finalizado'
+  "motivo": "string opcional"
 }
 ```
+
+|Endpoint|Evento emitido|Efeito no status|
+|---|---|---|
+|`POST /academia/estudante/:codigo/matricula/fundamental`|`MatriculaFundamentalEfetivada`|`status_escolar_fundamental = em_andamento`|
+|`POST /academia/estudante/:codigo/matricula/medio`|`MatriculaMedioEfetivada`|`status_escolar_medio = em_andamento`|
+|`POST /academia/estudante/:codigo/matricula/superior`|`MatriculaSuperiorEfetivada`|`status_superior = em_andamento`|
+|`POST /academia/estudante/:codigo/interrupcao/fundamental`|`FundamentalInterrompido`|`status_escolar_fundamental = inativo`|
+|`POST /academia/estudante/:codigo/interrupcao/medio`|`MedioInterrompido`|`status_escolar_medio = inativo`|
+|`POST /academia/estudante/:codigo/trancamento/superior`|`SuperiorTrancado`|`status_superior = inativo`|
+|`POST /academia/estudante/:codigo/arquivar`|`EstudanteArquivado`|`status = inativo`|
+|`POST /academia/estudante/:codigo/reativar`|`EstudanteReativado`|`status = ativo`|
 
 **Response 200:**
 
 ```json
 {
-  "message": "status_escolar_fundamental atualizado com sucesso",
-  "novo_status": "em_andamento"
+  "message": "matrícula no médio efetivada com sucesso",
+  "acontecimento": "MatriculaMedioEfetivada"
 }
 ```
 
----
-
-### PUT /academia/estudante/:codigo/status-escolar-medio
-
-Atualiza o status do ensino médio do estudante.
-
-**Proteção**: autenticado + academia ativa
-
-**Path Params:**
-
-- `codigo` — código do estudante
-
-**Request:**
-
-```json
-{
-  "novo_status": "em_andamento"  // 'inativo' | 'em_andamento' | 'finalizado'
-}
-```
-
-**Response 200:**
-
-```json
-{
-  "message": "status_escolar_medio atualizado com sucesso",
-  "novo_status": "em_andamento"
-}
-```
-
----
-
-### PUT /academia/estudante/:codigo/status-superior
-
-Atualiza o status do ensino superior do estudante.
-
-**Proteção**: autenticado + academia ativa
-
-**Regra**: só pode avançar se o fundamental e o médio estiverem `finalizado` ou `inativo`.
-
-**Path Params:**
-
-- `codigo` — código do estudante
-
-**Request:**
-
-```json
-{
-  "novo_status": "em_andamento"  // 'inativo' | 'em_andamento' | 'finalizado'
-}
-```
-
-**Response 200:**
-
-```json
-{
-  "message": "status_superior atualizado com sucesso",
-  "novo_status": "em_andamento"
-}
-```
+**Endpoints removidos:** `PUT /academia/estudante/:codigo/status-escolar-fundamental`, `PUT /academia/estudante/:codigo/status-escolar-medio`, `PUT /academia/estudante/:codigo/status-superior` e `PUT /academia/estudante/status-escolar/async` foram descontinuados porque representavam alteração direta de status.
 
 ---
 
@@ -3358,7 +3303,6 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 |`PUT /academia/atualizar-falta/async`|igual ao `PUT /academia/atualizar-falta`|`202` (job criado)|2000|
 |`DELETE /academia/falta/async`|igual ao `DELETE /academia/falta/:id` (sem `:id`, enviado no item)|`202` (job criado)|2000|
 |`POST /academia/avaliacao-final/async`|igual ao `POST /academia/avaliacao-final`|`202` (job criado)|1000|
-|`PUT /academia/estudante/status-escolar/async`|igual aos endpoints síncronos de status escolar do estudante|`202` (job criado)|1000|
 |`POST /academia/curso/async`|igual ao `POST /academia/curso`|`202` (job criado)|200|
 |`POST /academia/materia/async`|igual ao `POST /academia/materia`|`202` (job criado)|500|
 |`POST /academia/turma/async`|igual ao `POST /academia/turma`|`202` (job criado)|200|

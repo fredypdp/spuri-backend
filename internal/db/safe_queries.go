@@ -14,15 +14,27 @@ var validEventTypes = map[string]bool{
 	"DadosAcademicosAtualizados": true,
 	"SenhaAlterada":              true,
 	"CursoAlterado":              true,
-	// ── Status Escolar ───────────────────────────────────────────────────────
+	// ── Status Escolar legado (mantidos apenas para leitura/replay histórico) ─
 	"StatusEscolarFundamentalAtualizado": true,
 	"StatusEscolarMedioAtualizado":       true,
 	"StatusSuperiorAtualizado":           true,
+	// ── Acontecimentos que alteram status do estudante indiretamente ─────────
+	"MatriculaFundamentalEfetivada": true,
+	"MatriculaMedioEfetivada":       true,
+	"MatriculaSuperiorEfetivada":    true,
+	"FundamentalInterrompido":       true,
+	"FundamentalRetomado":           true,
+	"MedioInterrompido":             true,
+	"MedioRetomado":                 true,
+	"SuperiorTrancado":              true,
+	"SuperiorReaberto":              true,
+	"EstudanteArquivado":            true,
+	"EstudanteReativado":            true,
 	// ── Email Estudante ──────────────────────────────────────────────────────
 	"EmailVerificadoEstudante": true,
 	// ── Avaliação Final ───────────────────────────────────────────────────────
-	"AvaliacaoFinalEscolar":      true,
-	"AvaliacaoFinalSuperior":     true,
+	"AvaliacaoFinalEscolar":  true,
+	"AvaliacaoFinalSuperior": true,
 
 	// ── Academia ─────────────────────────────────────────────────────────────
 	"AcademiaCriada":            true,

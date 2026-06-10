@@ -67,6 +67,22 @@ func (p *EstudanteProjection) Handle(event db.Event) error {
 		return p.handleStatusEscolarAtualizado(event)
 	case "StatusSuperiorAtualizado":
 		return p.handleStatusSuperiorAtualizado(event)
+	case "MatriculaFundamentalEfetivada", "FundamentalRetomado":
+		return p.handleStatusIndireto(event, "status_escolar_fundamental", "em_andamento")
+	case "FundamentalInterrompido":
+		return p.handleStatusIndireto(event, "status_escolar_fundamental", "inativo")
+	case "MatriculaMedioEfetivada", "MedioRetomado":
+		return p.handleStatusIndireto(event, "status_escolar_medio", "em_andamento")
+	case "MedioInterrompido":
+		return p.handleStatusIndireto(event, "status_escolar_medio", "inativo")
+	case "MatriculaSuperiorEfetivada", "SuperiorReaberto":
+		return p.handleStatusIndireto(event, "status_superior", "em_andamento")
+	case "SuperiorTrancado":
+		return p.handleStatusIndireto(event, "status_superior", "inativo")
+	case "EstudanteArquivado":
+		return p.handleStatusIndireto(event, "status", "inativo")
+	case "EstudanteReativado":
+		return p.handleStatusIndireto(event, "status", "ativo")
 	case "DadosPessoaisAtualizados":
 		return p.handleDadosPessoaisAtualizados(event)
 	case "DadosAcademicosAtualizados":
@@ -401,6 +417,20 @@ func (p *EstudanteProjection) handleStatusSuperiorAtualizado(event db.Event) err
 			version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
 		WHERE id = $4
 	`, payload.NovoStatus, event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
+
+func (p *EstudanteProjection) handleStatusIndireto(event db.Event, coluna string, status string) error {
+	if !db.SafeString(coluna) {
+		return fmt.Errorf("handleStatusIndireto: coluna insegura: %q", coluna)
+	}
+	query := fmt.Sprintf(`
+		UPDATE projection_estudantes
+		SET %s = $1,
+			version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
+		WHERE id = $4
+	`, coluna)
+	_, err := p.client.DB().Exec(query, status, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 

@@ -92,6 +92,22 @@ func (e *Estudante) Apply(event DomainEvent) error {
 		return e.applyStatusEscolarMedioAtualizado(event)
 	case "StatusSuperiorAtualizado":
 		return e.applyStatusSuperiorAtualizado(event)
+	case "MatriculaFundamentalEfetivada", "FundamentalRetomado":
+		return e.applyStatusEscolarIndireto(event, "status_escolar_fundamental", "em_andamento")
+	case "FundamentalInterrompido":
+		return e.applyStatusEscolarIndireto(event, "status_escolar_fundamental", "inativo")
+	case "MatriculaMedioEfetivada", "MedioRetomado":
+		return e.applyStatusEscolarIndireto(event, "status_escolar_medio", "em_andamento")
+	case "MedioInterrompido":
+		return e.applyStatusEscolarIndireto(event, "status_escolar_medio", "inativo")
+	case "MatriculaSuperiorEfetivada", "SuperiorReaberto":
+		return e.applyStatusEscolarIndireto(event, "status_superior", "em_andamento")
+	case "SuperiorTrancado":
+		return e.applyStatusEscolarIndireto(event, "status_superior", "inativo")
+	case "EstudanteArquivado":
+		return e.applyStatusGeralIndireto(event, "inativo")
+	case "EstudanteReativado":
+		return e.applyStatusGeralIndireto(event, "ativo")
 	case "CursoAlterado":
 		return e.applyCursoAlterado(event)
 	case "AvaliacaoFinalEscolar":
@@ -153,6 +169,16 @@ type StatusSuperiorAtualizadoEvent struct {
 
 func (e *StatusSuperiorAtualizadoEvent) GetPayload() interface{} { return e }
 func (e *StatusSuperiorAtualizadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+type EstudanteStatusIndiretoEvent struct {
+	BaseEvent
+	Motivo        *string
+	RegistradoPor uuid.UUID
+	RegisteredAt  time.Time
+}
+
+func (e *EstudanteStatusIndiretoEvent) GetPayload() interface{} { return e }
+func (e *EstudanteStatusIndiretoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 // DadosPessoaisAtualizadosEvent — DataNascimento é ponteiro porque nil = "não alterar".
 // Genero não pode ser atualizado após o cadastro.
@@ -432,63 +458,74 @@ func (e *Estudante) AtualizarDadosAcademicos(
 	return e.Apply(event)
 }
 
-func (e *Estudante) AtualizarStatusEscolarFundamental(novoStatus string, atualizadoPor uuid.UUID) error {
-	validStatus := map[string]bool{"inativo": true, "em_andamento": true, "finalizado": true}
-	if !validStatus[novoStatus] {
-		return fmt.Errorf("status inválido: '%s'. Use: inativo, em_andamento, finalizado", novoStatus)
+func (e *Estudante) registrarEventoStatusIndireto(eventType string, registradoPor uuid.UUID, motivo *string) error {
+	if registradoPor == uuid.Nil {
+		return fmt.Errorf("registrado_por inválido")
 	}
-	event := &StatusEscolarFundamentalAtualizadoEvent{
-		BaseEvent:     BaseEvent{EventType: "StatusEscolarFundamentalAtualizado", AggregateID: e.ID},
-		NovoStatus:    novoStatus,
-		AtualizadoPor: atualizadoPor,
-		UpdatedAt:     time.Now(),
-	}
-	e.RaiseEvent(event)
-	return e.Apply(event)
-}
-
-func (e *Estudante) AtualizarStatusEscolarMedio(novoStatus string, atualizadoPor uuid.UUID) error {
-	validStatus := map[string]bool{"inativo": true, "em_andamento": true, "finalizado": true}
-	if !validStatus[novoStatus] {
-		return fmt.Errorf("status inválido: '%s'. Use: inativo, em_andamento, finalizado", novoStatus)
-	}
-	event := &StatusEscolarMedioAtualizadoEvent{
-		BaseEvent:     BaseEvent{EventType: "StatusEscolarMedioAtualizado", AggregateID: e.ID},
-		NovoStatus:    novoStatus,
-		AtualizadoPor: atualizadoPor,
-		UpdatedAt:     time.Now(),
+	event := &EstudanteStatusIndiretoEvent{
+		BaseEvent:     BaseEvent{EventType: eventType, AggregateID: e.ID},
+		Motivo:        motivo,
+		RegistradoPor: registradoPor,
+		RegisteredAt:  time.Now(),
 	}
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
 
-func (e *Estudante) AtualizarStatusSuperior(novoStatus string, atualizadoPor uuid.UUID) error {
-	validStatus := map[string]bool{"inativo": true, "em_andamento": true, "finalizado": true}
-	if !validStatus[novoStatus] {
-		return fmt.Errorf("status inválido: '%s'. Use: inativo, em_andamento, finalizado", novoStatus)
+func (e *Estudante) EfetivarMatriculaFundamental(registradoPor uuid.UUID, motivo *string) error {
+	return e.registrarEventoStatusIndireto("MatriculaFundamentalEfetivada", registradoPor, motivo)
+}
+
+func (e *Estudante) InterromperFundamental(registradoPor uuid.UUID, motivo *string) error {
+	if e.StatusEscolarFundamental != "em_andamento" {
+		return fmt.Errorf("só pode interromper fundamental se status_escolar_fundamental for 'em_andamento'")
 	}
-	if novoStatus == "em_andamento" || novoStatus == "finalizado" {
-		if e.StatusEscolarFundamental != "inativo" && e.StatusEscolarFundamental != "finalizado" {
-			return fmt.Errorf(
-				"status_superior só pode avançar se status_escolar_fundamental estiver 'finalizado' ou 'inativo' (atual: '%s')",
-				e.StatusEscolarFundamental,
-			)
-		}
-		if e.StatusEscolarMedio != "inativo" && e.StatusEscolarMedio != "finalizado" {
-			return fmt.Errorf(
-				"status_superior só pode avançar se status_escolar_medio estiver 'finalizado' ou 'inativo' (atual: '%s')",
-				e.StatusEscolarMedio,
-			)
-		}
+	return e.registrarEventoStatusIndireto("FundamentalInterrompido", registradoPor, motivo)
+}
+
+func (e *Estudante) EfetivarMatriculaMedio(registradoPor uuid.UUID, motivo *string) error {
+	if e.StatusEscolarFundamental != "finalizado" && e.StatusEscolarFundamental != "inativo" {
+		return fmt.Errorf("matrícula no médio exige status_escolar_fundamental 'finalizado' ou 'inativo' (atual: '%s')", e.StatusEscolarFundamental)
 	}
-	event := &StatusSuperiorAtualizadoEvent{
-		BaseEvent:     BaseEvent{EventType: "StatusSuperiorAtualizado", AggregateID: e.ID},
-		NovoStatus:    novoStatus,
-		AtualizadoPor: atualizadoPor,
-		UpdatedAt:     time.Now(),
+	return e.registrarEventoStatusIndireto("MatriculaMedioEfetivada", registradoPor, motivo)
+}
+
+func (e *Estudante) InterromperMedio(registradoPor uuid.UUID, motivo *string) error {
+	if e.StatusEscolarMedio != "em_andamento" {
+		return fmt.Errorf("só pode interromper médio se status_escolar_medio for 'em_andamento'")
 	}
-	e.RaiseEvent(event)
-	return e.Apply(event)
+	return e.registrarEventoStatusIndireto("MedioInterrompido", registradoPor, motivo)
+}
+
+func (e *Estudante) EfetivarMatriculaSuperior(registradoPor uuid.UUID, motivo *string) error {
+	if e.StatusEscolarFundamental != "inativo" && e.StatusEscolarFundamental != "finalizado" {
+		return fmt.Errorf("matrícula no superior exige status_escolar_fundamental 'finalizado' ou 'inativo' (atual: '%s')", e.StatusEscolarFundamental)
+	}
+	if e.StatusEscolarMedio != "inativo" && e.StatusEscolarMedio != "finalizado" {
+		return fmt.Errorf("matrícula no superior exige status_escolar_medio 'finalizado' ou 'inativo' (atual: '%s')", e.StatusEscolarMedio)
+	}
+	return e.registrarEventoStatusIndireto("MatriculaSuperiorEfetivada", registradoPor, motivo)
+}
+
+func (e *Estudante) TrancarSuperior(registradoPor uuid.UUID, motivo *string) error {
+	if e.StatusSuperior != "em_andamento" {
+		return fmt.Errorf("só pode trancar superior se status_superior for 'em_andamento'")
+	}
+	return e.registrarEventoStatusIndireto("SuperiorTrancado", registradoPor, motivo)
+}
+
+func (e *Estudante) Arquivar(registradoPor uuid.UUID, motivo *string) error {
+	if e.Status != "ativo" {
+		return fmt.Errorf("só pode arquivar estudante com status 'ativo'")
+	}
+	return e.registrarEventoStatusIndireto("EstudanteArquivado", registradoPor, motivo)
+}
+
+func (e *Estudante) Reativar(registradoPor uuid.UUID, motivo *string) error {
+	if e.Status == "ativo" {
+		return fmt.Errorf("estudante já está ativo")
+	}
+	return e.registrarEventoStatusIndireto("EstudanteReativado", registradoPor, motivo)
 }
 
 func (e *Estudante) AlterarCurso(cursoID uuid.UUID, tipoEnsino string) error {
@@ -699,5 +736,24 @@ func (e *Estudante) applyStatusEscolarMedioAtualizado(event DomainEvent) error {
 		return fmt.Errorf("applyStatusEscolarMedioAtualizado: unmarshal error: %w", err)
 	}
 	e.StatusEscolarMedio = ev.NovoStatus
+	return nil
+}
+
+func (e *Estudante) applyStatusEscolarIndireto(_ DomainEvent, campo string, status string) error {
+	switch campo {
+	case "status_escolar_fundamental":
+		e.StatusEscolarFundamental = status
+	case "status_escolar_medio":
+		e.StatusEscolarMedio = status
+	case "status_superior":
+		e.StatusSuperior = status
+	default:
+		return fmt.Errorf("campo de status escolar inválido: %s", campo)
+	}
+	return nil
+}
+
+func (e *Estudante) applyStatusGeralIndireto(_ DomainEvent, status string) error {
+	e.Status = status
 	return nil
 }
