@@ -317,7 +317,7 @@ Status Médio:       inativo → em_andamento → finalizado
 Status Superior:    inativo → em_andamento → finalizado
 ```
 
-**Regra de progressão**: o status superior só pode avançar para `em_andamento` ou `finalizado` se o fundamental e o médio estiverem `finalizado` ou `inativo`. O status médio só pode avançar para `em_andamento` ou `finalizado` se o fundamental estiver `finalizado` ou `inativo`.
+**Regra de status**: o status geral do estudante pode ser `inativo`, `ativo` ou `arquivado`; `finalizado` não é status geral. Os status escolares (`status_escolar_fundamental`, `status_escolar_medio`, `status_superior`) continuam aceitando `inativo`, `em_andamento` e `finalizado`, mas não são definidos por endpoints diretos: eles mudam por eventos reais como matrícula, interrupção, trancamento, avaliação final aprovada, equivalência/conclusão externa reconhecida, desvinculação e reintegração.
 
 **Formato dos anos académicos:**
 
@@ -339,9 +339,14 @@ Status Superior:    inativo → em_andamento → finalizado
 |`SenhaAlterada`|Senha alterada|
 |`CursoAlterado`|Curso médio ou superior alterado|
 |`EmailVerificadoEstudante`|Email confirmado|
-|`StatusEscolarFundamentalAtualizado`|Status fundamental alterado|
-|`StatusEscolarMedioAtualizado`|Status médio alterado|
-|`StatusSuperiorAtualizado`|Status superior alterado|
+|`MatriculaFundamentalEfetivada`|Fundamental iniciado ou retomado|
+|`FundamentalInterrompido`|Fundamental interrompido sem conclusão|
+|`MatriculaMedioEfetivada`|Médio iniciado ou retomado|
+|`MedioInterrompido`|Médio interrompido sem conclusão|
+|`MatriculaSuperiorEfetivada`|Superior iniciado|
+|`SuperiorTrancado`|Superior trancado|
+|`EstudanteDesvinculadoDaAcademia`|Estudante saiu da academia e foi arquivado|
+|`EstudanteReintegrado`|Estudante arquivado voltou para a academia|
 |`AvaliacaoFinalAnoAcademico`|Avaliação final registada|
 |`NotasRegistradas`|Nota registada|
 |`NotaAtualizada`|Nota corrigida|
@@ -1037,11 +1042,9 @@ GET  /jobs/:id?results=true       →  { ... resultados por item ... }
 
 ## 10. Recomendações de Melhoria
 
-### 10.1 Soft Delete de Estudante
+### 10.1 Arquivamento de Estudante
 
-**Problema atual**: não existe um mecanismo de "arquivar" um estudante que saiu da escola sem precisar deletar os dados históricos.
-
-**Recomendação**: adicionar um status `arquivado` para estudantes que saíram da academia mas cujos registos históricos devem ser mantidos.
+O sistema possui o status geral `arquivado` para estudantes que saíram da academia, mas cujos registos históricos devem ser mantidos. A academia não define esse status diretamente: usa `POST /academia/estudante/:codigo/desvincular`, que registra `EstudanteDesvinculadoDaAcademia`. Para retorno do estudante, usa `POST /academia/estudante/:codigo/revincular`, que registra `EstudanteReintegrado` e reativa o vínculo.
 
 ### 10.2 Validação de Data de Falta
 

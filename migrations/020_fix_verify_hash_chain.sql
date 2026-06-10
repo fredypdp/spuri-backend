@@ -6,9 +6,8 @@
 -- 1. A função verify_hash_chain já existe na migration 001, mas o Go lê
 --    broken_at_version como *int via Scan — a função retorna INTEGER ok.
 --    Recriamos aqui para garantir a assinatura correta (idempotente).
--- 2. Remove da lógica qualquer referência ao evento StatusEscolarAtualizado
---    (removido na migration 008 em favor de StatusEscolarFundamentalAtualizado
---    e StatusEscolarMedioAtualizado).
+-- 2. Remove da lógica qualquer referência ao evento legado StatusEscolarAtualizado.
+--    Status de estudante agora é alterado por acontecimentos de domínio.
 -- ============================================
 
 BEGIN;

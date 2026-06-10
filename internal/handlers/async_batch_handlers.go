@@ -198,14 +198,6 @@ func RegistrarAvaliacaoFinalBatchAsync(c *gin.Context) {
 }
 
 // ============================================================================
-// Academia — status escolar
-// ============================================================================
-
-func AtualizarStatusEscolarBatchAsync(c *gin.Context) {
-	enqueueAsyncBatch(c, jobs.JobTypeAtualizarStatusEscolarBatch, 1000)
-}
-
-// ============================================================================
 // Academia — cursos, matérias, turmas
 // ============================================================================
 

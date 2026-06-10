@@ -150,7 +150,7 @@ CREATE TABLE IF NOT EXISTS projection_estudantes (
     bilhete_identidade VARCHAR(50),
     bilhete_identidade_responsavel VARCHAR(50),
     codigo_academia VARCHAR(50),
-    status VARCHAR(20) DEFAULT 'inativo' CHECK (status IN ('inativo', 'ativo', 'finalizado')),
+    status VARCHAR(20) DEFAULT 'inativo' CHECK (status IN ('inativo', 'ativo', 'arquivado')),
     ano_escolar VARCHAR(50),
     ano_superior VARCHAR(50),
     curso_medio VARCHAR(255),
@@ -827,7 +827,7 @@ COMMENT ON COLUMN projection_estudantes.email IS 'Email do estudante (opcional)'
 COMMENT ON COLUMN projection_estudantes.telefone IS 'Telefone do estudante (opcional)';
 COMMENT ON COLUMN projection_estudantes.email_verificado IS 'Se o email do estudante foi verificado';
 COMMENT ON COLUMN projection_estudantes.codigo_academia IS 'Código da academia à qual o estudante pertence';
-COMMENT ON COLUMN projection_estudantes.status IS 'Status geral: inativo, ativo, finalizado';
+COMMENT ON COLUMN projection_estudantes.status IS 'Status geral: inativo, ativo, arquivado';
 COMMENT ON COLUMN projection_estudantes.status_escolar IS 'Status ensino escolar: inativo, em_andamento, finalizado';
 COMMENT ON COLUMN projection_estudantes.status_superior IS 'Status ensino superior: inativo, em_andamento, finalizado';
 

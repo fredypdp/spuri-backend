@@ -32,7 +32,6 @@ const (
 	JobTypeAtualizarFaltaBatch          JobType = "atualizar_falta_batch"
 	JobTypeDeletarFaltaBatch            JobType = "deletar_falta_batch"
 	JobTypeRegistrarAvaliacaoFinalBatch JobType = "registrar_avaliacao_final_batch"
-	JobTypeAtualizarStatusEscolarBatch  JobType = "atualizar_status_escolar_batch"
 	JobTypeCriarCursoBatch              JobType = "criar_curso_batch"
 	JobTypeCriarMateriaBatch            JobType = "criar_materia_batch"
 	JobTypeCriarTurmaBatch              JobType = "criar_turma_batch"
