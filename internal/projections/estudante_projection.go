@@ -59,14 +59,26 @@ func (p *EstudanteProjection) Handle(event db.Event) error {
 	switch event.EventType {
 	case "EstudanteCriadoComVinculo":
 		return p.handleEstudanteCriadoComVinculo(event)
-	case "StatusEscolarFundamentalAtualizado":
-		return p.handleStatusEscolarFundamental(event)
-	case "StatusEscolarMedioAtualizado":
-		return p.handleStatusEscolarMedio(event)
-	case "StatusEscolarAtualizado":
-		return p.handleStatusEscolarAtualizado(event)
-	case "StatusSuperiorAtualizado":
-		return p.handleStatusSuperiorAtualizado(event)
+	case "MatriculaFundamentalEfetivada", "FundamentalRetomado":
+		return p.handleMatriculaFundamentalEfetivada(event)
+	case "FundamentalInterrompido":
+		return p.handleStatusEscolarFundamentalInativo(event)
+	case "EquivalenciaFundamentalReconhecida":
+		return p.handleStatusEscolarFundamentalFinalizado(event)
+	case "MatriculaMedioEfetivada", "MedioRetomado":
+		return p.handleMatriculaMedioEfetivada(event)
+	case "MedioInterrompido":
+		return p.handleStatusEscolarMedioInativo(event)
+	case "EquivalenciaMedioReconhecida":
+		return p.handleStatusEscolarMedioFinalizado(event)
+	case "MatriculaSuperiorEfetivada", "MatriculaSuperiorReativada", "IngressoSuperiorPorEquivalenciaRegistrado":
+		return p.handleMatriculaSuperiorEfetivada(event)
+	case "SuperiorTrancado", "SuperiorAbandonado":
+		return p.handleStatusSuperiorInativo(event)
+	case "EstudanteDesvinculadoDaAcademia":
+		return p.handleEstudanteDesvinculadoDaAcademia(event)
+	case "EstudanteReintegrado":
+		return p.handleEstudanteReintegrado(event)
 	case "DadosPessoaisAtualizados":
 		return p.handleDadosPessoaisAtualizados(event)
 	case "DadosAcademicosAtualizados":
@@ -340,67 +352,117 @@ func (p *EstudanteProjection) cursoExists(cursoID string) (bool, error) {
 	return exists, err
 }
 
-func (p *EstudanteProjection) handleStatusEscolarFundamental(event db.Event) error {
+func (p *EstudanteProjection) handleMatriculaFundamentalEfetivada(event db.Event) error {
 	var payload struct {
-		NovoStatus string `json:"NovoStatus"`
+		AnoEscolar string `json:"AnoEscolar"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("handleStatusEscolarFundamental: parse error: %w", err)
+		return fmt.Errorf("handleMatriculaFundamentalEfetivada: parse error: %w", err)
 	}
 	_, err := p.client.DB().Exec(`
 		UPDATE projection_estudantes
-		SET status_escolar_fundamental = $1,
+		SET status_escolar_fundamental = 'em_andamento', ano_escolar_fundamental = $1,
 			version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
 		WHERE id = $4
-	`, payload.NovoStatus, event.EventVersion, event.EventID, event.AggregateID)
+	`, payload.AnoEscolar, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
-func (p *EstudanteProjection) handleStatusEscolarMedio(event db.Event) error {
-	var payload struct {
-		NovoStatus string `json:"NovoStatus"`
-	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("handleStatusEscolarMedio: parse error: %w", err)
-	}
-	_, err := p.client.DB().Exec(`
-		UPDATE projection_estudantes
-		SET status_escolar_medio = $1,
-			version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
-		WHERE id = $4
-	`, payload.NovoStatus, event.EventVersion, event.EventID, event.AggregateID)
+func (p *EstudanteProjection) handleStatusEscolarFundamentalInativo(event db.Event) error {
+	_, err := p.client.DB().Exec(`UPDATE projection_estudantes SET status_escolar_fundamental = 'inativo', version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2 WHERE id = $3`, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
-func (p *EstudanteProjection) handleStatusEscolarAtualizado(event db.Event) error {
-	var payload struct {
-		NovoStatus string `json:"NovoStatus"`
-	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("handleStatusEscolarAtualizado: parse error: %w", err)
-	}
-	_, err := p.client.DB().Exec(`
-		UPDATE projection_estudantes
-		SET status_escolar_fundamental = $1, status_escolar_medio = $1,
-			version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
-		WHERE id = $4
-	`, payload.NovoStatus, event.EventVersion, event.EventID, event.AggregateID)
+func (p *EstudanteProjection) handleStatusEscolarFundamentalFinalizado(event db.Event) error {
+	_, err := p.client.DB().Exec(`UPDATE projection_estudantes SET status_escolar_fundamental = 'finalizado', version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2 WHERE id = $3`, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
-func (p *EstudanteProjection) handleStatusSuperiorAtualizado(event db.Event) error {
+func (p *EstudanteProjection) handleMatriculaMedioEfetivada(event db.Event) error {
 	var payload struct {
-		NovoStatus string `json:"NovoStatus"`
+		AnoEscolar string    `json:"AnoEscolar"`
+		CursoID    uuid.UUID `json:"CursoID"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("handleStatusSuperiorAtualizado: parse error: %w", err)
+		return fmt.Errorf("handleMatriculaMedioEfetivada: parse error: %w", err)
 	}
 	_, err := p.client.DB().Exec(`
 		UPDATE projection_estudantes
-		SET status_superior = $1,
-			version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
-		WHERE id = $4
-	`, payload.NovoStatus, event.EventVersion, event.EventID, event.AggregateID)
+		SET status_escolar_medio = 'em_andamento', ano_escolar_medio = $1, curso_medio_id = $2,
+			version = $3, updated_at = CURRENT_TIMESTAMP, last_event_id = $4
+		WHERE id = $5
+	`, payload.AnoEscolar, payload.CursoID, event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
+
+func (p *EstudanteProjection) handleStatusEscolarMedioInativo(event db.Event) error {
+	_, err := p.client.DB().Exec(`UPDATE projection_estudantes SET status_escolar_medio = 'inativo', version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2 WHERE id = $3`, event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
+
+func (p *EstudanteProjection) handleStatusEscolarMedioFinalizado(event db.Event) error {
+	_, err := p.client.DB().Exec(`UPDATE projection_estudantes SET status_escolar_medio = 'finalizado', version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2 WHERE id = $3`, event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
+
+func (p *EstudanteProjection) handleMatriculaSuperiorEfetivada(event db.Event) error {
+	var payload struct {
+		CursoID       uuid.UUID `json:"CursoID"`
+		AnoSuperior   string    `json:"AnoSuperior"`
+		SemestreAtual int       `json:"SemestreAtual"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("handleMatriculaSuperiorEfetivada: parse error: %w", err)
+	}
+	_, err := p.client.DB().Exec(`
+		UPDATE projection_estudantes
+		SET status_superior = 'em_andamento', curso_superior_id = $1, ano_superior = $2, semestre_atual = $3,
+			version = $4, updated_at = CURRENT_TIMESTAMP, last_event_id = $5
+		WHERE id = $6
+	`, payload.CursoID, payload.AnoSuperior, payload.SemestreAtual, event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
+
+func (p *EstudanteProjection) handleStatusSuperiorInativo(event db.Event) error {
+	_, err := p.client.DB().Exec(`UPDATE projection_estudantes SET status_superior = 'inativo', version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2 WHERE id = $3`, event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
+
+func (p *EstudanteProjection) handleEstudanteDesvinculadoDaAcademia(event db.Event) error {
+	_, err := p.client.DB().Exec(`UPDATE projection_estudantes SET status = 'arquivado', version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2 WHERE id = $3`, event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
+
+func (p *EstudanteProjection) handleEstudanteReintegrado(event db.Event) error {
+	var payload struct {
+		TipoEnsino      string     `json:"TipoEnsino"`
+		CodigoAcademia  string     `json:"CodigoAcademia"`
+		AnoEscolar      *string    `json:"AnoEscolar"`
+		AnoEscolarMedio *string    `json:"AnoEscolarMedio"`
+		AnoSuperior     *string    `json:"AnoSuperior"`
+		SemestreAtual   *int       `json:"SemestreAtual"`
+		CursoMedioID    *uuid.UUID `json:"CursoMedioID"`
+		CursoSuperiorID *uuid.UUID `json:"CursoSuperiorID"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("handleEstudanteReintegrado: parse error: %w", err)
+	}
+	query := `UPDATE projection_estudantes SET status = 'ativo', codigo_academia = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3`
+	args := []interface{}{payload.CodigoAcademia, event.EventVersion, event.EventID}
+	switch payload.TipoEnsino {
+	case "fundamental":
+		query += `, status_escolar_fundamental = 'em_andamento', ano_escolar_fundamental = $4 WHERE id = $5`
+		args = append(args, payload.AnoEscolar, event.AggregateID)
+	case "medio":
+		query += `, status_escolar_medio = 'em_andamento', ano_escolar_medio = $4, curso_medio_id = $5 WHERE id = $6`
+		args = append(args, payload.AnoEscolarMedio, payload.CursoMedioID, event.AggregateID)
+	case "superior":
+		query += `, status_superior = 'em_andamento', ano_superior = $4, semestre_atual = $5, curso_superior_id = $6 WHERE id = $7`
+		args = append(args, payload.AnoSuperior, payload.SemestreAtual, payload.CursoSuperiorID, event.AggregateID)
+	default:
+		return fmt.Errorf("handleEstudanteReintegrado: TipoEnsino inválido: %q", payload.TipoEnsino)
+	}
+	_, err := p.client.DB().Exec(query, args...)
 	return err
 }
 

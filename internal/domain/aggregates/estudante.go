@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"spuri/internal/utils"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,6 +32,7 @@ type Estudante struct {
 	StatusEscolarFundamental string
 	StatusEscolarMedio       string
 	StatusSuperior           string
+	SemestreAtual            *int
 	AnoEscolar               *string
 	AnoEscolarMedio          *string
 	AnoSuperior              *string
@@ -86,12 +88,26 @@ func (e *Estudante) Apply(event DomainEvent) error {
 		return e.applyNotaAtualizada(event)
 	case "NotaDeletada":
 		return e.applyNotaDeletada(event)
-	case "StatusEscolarFundamentalAtualizado":
-		return e.applyStatusEscolarFundamentalAtualizado(event)
-	case "StatusEscolarMedioAtualizado":
-		return e.applyStatusEscolarMedioAtualizado(event)
-	case "StatusSuperiorAtualizado":
-		return e.applyStatusSuperiorAtualizado(event)
+	case "MatriculaFundamentalEfetivada", "FundamentalRetomado":
+		return e.applyFundamentalEmAndamento(event)
+	case "FundamentalInterrompido":
+		return e.applyFundamentalInativo(event)
+	case "EquivalenciaFundamentalReconhecida":
+		return e.applyFundamentalFinalizado(event)
+	case "MatriculaMedioEfetivada", "MedioRetomado":
+		return e.applyMedioEmAndamento(event)
+	case "MedioInterrompido":
+		return e.applyMedioInativo(event)
+	case "EquivalenciaMedioReconhecida":
+		return e.applyMedioFinalizado(event)
+	case "MatriculaSuperiorEfetivada", "MatriculaSuperiorReativada", "IngressoSuperiorPorEquivalenciaRegistrado":
+		return e.applySuperiorEmAndamento(event)
+	case "SuperiorTrancado", "SuperiorAbandonado":
+		return e.applySuperiorInativo(event)
+	case "EstudanteDesvinculadoDaAcademia":
+		return e.applyEstudanteDesvinculadoDaAcademia(event)
+	case "EstudanteReintegrado":
+		return e.applyEstudanteReintegrado(event)
 	case "CursoAlterado":
 		return e.applyCursoAlterado(event)
 	case "AvaliacaoFinalEscolar":
@@ -131,6 +147,7 @@ type EstudanteCriadoComVinculoEvent struct {
 	AnoEscolar               *string
 	AnoEscolarMedio          *string
 	AnoSuperior              *string
+	SemestreAtual            *int
 	CursoMedioID             *uuid.UUID
 	CursoSuperiorID          *uuid.UUID
 	StatusEscolarFundamental string
@@ -144,15 +161,99 @@ type EstudanteCriadoComVinculoEvent struct {
 func (e *EstudanteCriadoComVinculoEvent) GetPayload() interface{} { return e }
 func (e *EstudanteCriadoComVinculoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
-type StatusSuperiorAtualizadoEvent struct {
+type MatriculaFundamentalEfetivadaEvent struct {
 	BaseEvent
-	NovoStatus    string
-	AtualizadoPor uuid.UUID
-	UpdatedAt     time.Time
+	AnoEscolar   string
+	EfetivadaPor uuid.UUID
+	EfetivadaAt  time.Time
 }
 
-func (e *StatusSuperiorAtualizadoEvent) GetPayload() interface{} { return e }
-func (e *StatusSuperiorAtualizadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+func (e *MatriculaFundamentalEfetivadaEvent) GetPayload() interface{} { return e }
+func (e *MatriculaFundamentalEfetivadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+type FundamentalInterrompidoEvent struct {
+	BaseEvent
+	Motivo          string
+	InterrompidoPor uuid.UUID
+	InterrompidoAt  time.Time
+}
+
+func (e *FundamentalInterrompidoEvent) GetPayload() interface{} { return e }
+func (e *FundamentalInterrompidoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+type MatriculaMedioEfetivadaEvent struct {
+	BaseEvent
+	AnoEscolar   string
+	CursoID      uuid.UUID
+	EfetivadaPor uuid.UUID
+	EfetivadaAt  time.Time
+}
+
+func (e *MatriculaMedioEfetivadaEvent) GetPayload() interface{} { return e }
+func (e *MatriculaMedioEfetivadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+type MedioInterrompidoEvent struct {
+	BaseEvent
+	Motivo          string
+	InterrompidoPor uuid.UUID
+	InterrompidoAt  time.Time
+}
+
+func (e *MedioInterrompidoEvent) GetPayload() interface{} { return e }
+func (e *MedioInterrompidoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+type MatriculaSuperiorEfetivadaEvent struct {
+	BaseEvent
+	CursoID       uuid.UUID
+	AnoSuperior   string
+	SemestreAtual int
+	EfetivadaPor  uuid.UUID
+	EfetivadaAt   time.Time
+}
+
+func (e *MatriculaSuperiorEfetivadaEvent) GetPayload() interface{} { return e }
+func (e *MatriculaSuperiorEfetivadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+type SuperiorTrancadoEvent struct {
+	BaseEvent
+	Motivo      string
+	TrancadoPor uuid.UUID
+	TrancadoAt  time.Time
+}
+
+func (e *SuperiorTrancadoEvent) GetPayload() interface{} { return e }
+func (e *SuperiorTrancadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+type EstudanteDesvinculadoDaAcademiaEvent struct {
+	BaseEvent
+	CodigoAcademia  string
+	CodigoEstudante string
+	Motivo          string
+	Nivel           string
+	DesvinculadoPor uuid.UUID
+	DesvinculadoAt  time.Time
+}
+
+func (e *EstudanteDesvinculadoDaAcademiaEvent) GetPayload() interface{} { return e }
+func (e *EstudanteDesvinculadoDaAcademiaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+type EstudanteReintegradoEvent struct {
+	BaseEvent
+	CodigoAcademia  string
+	CodigoEstudante string
+	TipoEnsino      string
+	AnoEscolar      *string
+	AnoEscolarMedio *string
+	AnoSuperior     *string
+	SemestreAtual   *int
+	CursoMedioID    *uuid.UUID
+	CursoSuperiorID *uuid.UUID
+	ReintegradoPor  uuid.UUID
+	ReintegradoAt   time.Time
+}
+
+func (e *EstudanteReintegradoEvent) GetPayload() interface{} { return e }
+func (e *EstudanteReintegradoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 // DadosPessoaisAtualizadosEvent — DataNascimento é ponteiro porque nil = "não alterar".
 // Genero não pode ser atualizado após o cadastro.
@@ -247,9 +348,6 @@ func (e *Estudante) CriarComVinculo(
 	anoSuperior *string,
 	cursoMedioID *uuid.UUID,
 	cursoSuperiorID *uuid.UUID,
-	statusEscolarFundamental *string,
-	statusEscolarMedio *string,
-	statusSuperior *string,
 	academiaID *uuid.UUID,
 	codigoAcademia string,
 ) error {
@@ -282,26 +380,6 @@ func (e *Estudante) CriarComVinculo(
 	statusFund := "em_andamento"
 	statusMed := "inativo"
 	statusSup := "inativo"
-	validStatus := map[string]bool{"inativo": true, "em_andamento": true, "finalizado": true}
-
-	if statusEscolarFundamental != nil {
-		if !validStatus[*statusEscolarFundamental] {
-			return fmt.Errorf("status_escolar_fundamental inválido")
-		}
-		statusFund = *statusEscolarFundamental
-	}
-	if statusEscolarMedio != nil {
-		if !validStatus[*statusEscolarMedio] {
-			return fmt.Errorf("status_escolar_medio inválido")
-		}
-		statusMed = *statusEscolarMedio
-	}
-	if statusSuperior != nil {
-		if !validStatus[*statusSuperior] {
-			return fmt.Errorf("status_superior inválido")
-		}
-		statusSup = *statusSuperior
-	}
 
 	event := &EstudanteCriadoComVinculoEvent{
 		BaseEvent:                BaseEvent{EventType: "EstudanteCriadoComVinculo", AggregateID: e.ID},
@@ -317,6 +395,7 @@ func (e *Estudante) CriarComVinculo(
 		AnoEscolar:               anoEscolar,
 		AnoEscolarMedio:          anoEscolarMedio,
 		AnoSuperior:              anoSuperior,
+		SemestreAtual:            nil,
 		CursoMedioID:             cursoMedioID,
 		CursoSuperiorID:          cursoSuperiorID,
 		StatusEscolarFundamental: statusFund,
@@ -432,63 +511,169 @@ func (e *Estudante) AtualizarDadosAcademicos(
 	return e.Apply(event)
 }
 
-func (e *Estudante) AtualizarStatusEscolarFundamental(novoStatus string, atualizadoPor uuid.UUID) error {
-	validStatus := map[string]bool{"inativo": true, "em_andamento": true, "finalizado": true}
-	if !validStatus[novoStatus] {
-		return fmt.Errorf("status inválido: '%s'. Use: inativo, em_andamento, finalizado", novoStatus)
+func (e *Estudante) MatricularFundamental(anoEscolar string, efetuadoPor uuid.UUID) error {
+	if err := utils.ValidateAnoFundamental(anoEscolar); err != nil {
+		return fmt.Errorf("ano_escolar_fundamental inválido: %w", err)
 	}
-	event := &StatusEscolarFundamentalAtualizadoEvent{
-		BaseEvent:     BaseEvent{EventType: "StatusEscolarFundamentalAtualizado", AggregateID: e.ID},
-		NovoStatus:    novoStatus,
-		AtualizadoPor: atualizadoPor,
-		UpdatedAt:     time.Now(),
+	if e.Status == "arquivado" {
+		return fmt.Errorf("estudante arquivado deve ser reintegrado antes de receber matrícula")
 	}
-	e.RaiseEvent(event)
-	return e.Apply(event)
-}
-
-func (e *Estudante) AtualizarStatusEscolarMedio(novoStatus string, atualizadoPor uuid.UUID) error {
-	validStatus := map[string]bool{"inativo": true, "em_andamento": true, "finalizado": true}
-	if !validStatus[novoStatus] {
-		return fmt.Errorf("status inválido: '%s'. Use: inativo, em_andamento, finalizado", novoStatus)
-	}
-	event := &StatusEscolarMedioAtualizadoEvent{
-		BaseEvent:     BaseEvent{EventType: "StatusEscolarMedioAtualizado", AggregateID: e.ID},
-		NovoStatus:    novoStatus,
-		AtualizadoPor: atualizadoPor,
-		UpdatedAt:     time.Now(),
+	event := &MatriculaFundamentalEfetivadaEvent{
+		BaseEvent:    BaseEvent{EventType: "MatriculaFundamentalEfetivada", AggregateID: e.ID},
+		AnoEscolar:   anoEscolar,
+		EfetivadaPor: efetuadoPor,
+		EfetivadaAt:  time.Now(),
 	}
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
 
-func (e *Estudante) AtualizarStatusSuperior(novoStatus string, atualizadoPor uuid.UUID) error {
-	validStatus := map[string]bool{"inativo": true, "em_andamento": true, "finalizado": true}
-	if !validStatus[novoStatus] {
-		return fmt.Errorf("status inválido: '%s'. Use: inativo, em_andamento, finalizado", novoStatus)
+func (e *Estudante) InterromperFundamental(motivo string, interrompidoPor uuid.UUID) error {
+	if strings.TrimSpace(motivo) == "" {
+		return fmt.Errorf("motivo é obrigatório")
 	}
-	if novoStatus == "em_andamento" || novoStatus == "finalizado" {
-		if e.StatusEscolarFundamental != "inativo" && e.StatusEscolarFundamental != "finalizado" {
-			return fmt.Errorf(
-				"status_superior só pode avançar se status_escolar_fundamental estiver 'finalizado' ou 'inativo' (atual: '%s')",
-				e.StatusEscolarFundamental,
-			)
-		}
-		if e.StatusEscolarMedio != "inativo" && e.StatusEscolarMedio != "finalizado" {
-			return fmt.Errorf(
-				"status_superior só pode avançar se status_escolar_medio estiver 'finalizado' ou 'inativo' (atual: '%s')",
-				e.StatusEscolarMedio,
-			)
-		}
+	if e.StatusEscolarFundamental != "em_andamento" {
+		return fmt.Errorf("só pode interromper fundamental em andamento")
 	}
-	event := &StatusSuperiorAtualizadoEvent{
-		BaseEvent:     BaseEvent{EventType: "StatusSuperiorAtualizado", AggregateID: e.ID},
-		NovoStatus:    novoStatus,
-		AtualizadoPor: atualizadoPor,
-		UpdatedAt:     time.Now(),
+	event := &FundamentalInterrompidoEvent{BaseEvent: BaseEvent{EventType: "FundamentalInterrompido", AggregateID: e.ID}, Motivo: motivo, InterrompidoPor: interrompidoPor, InterrompidoAt: time.Now()}
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
+func (e *Estudante) MatricularMedio(anoEscolar string, cursoID uuid.UUID, efetuadoPor uuid.UUID) error {
+	if err := utils.ValidateAnoMedio(anoEscolar); err != nil {
+		return fmt.Errorf("ano_escolar_medio inválido: %w", err)
+	}
+	if cursoID == uuid.Nil {
+		return fmt.Errorf("curso_id é obrigatório")
+	}
+	if e.StatusEscolarFundamental != "finalizado" {
+		return fmt.Errorf("matrícula no médio exige status_escolar_fundamental finalizado")
+	}
+	event := &MatriculaMedioEfetivadaEvent{BaseEvent: BaseEvent{EventType: "MatriculaMedioEfetivada", AggregateID: e.ID}, AnoEscolar: anoEscolar, CursoID: cursoID, EfetivadaPor: efetuadoPor, EfetivadaAt: time.Now()}
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
+func (e *Estudante) InterromperMedio(motivo string, interrompidoPor uuid.UUID) error {
+	if strings.TrimSpace(motivo) == "" {
+		return fmt.Errorf("motivo é obrigatório")
+	}
+	if e.StatusEscolarMedio != "em_andamento" {
+		return fmt.Errorf("só pode interromper médio em andamento")
+	}
+	event := &MedioInterrompidoEvent{BaseEvent: BaseEvent{EventType: "MedioInterrompido", AggregateID: e.ID}, Motivo: motivo, InterrompidoPor: interrompidoPor, InterrompidoAt: time.Now()}
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
+func (e *Estudante) MatricularSuperior(cursoID uuid.UUID, efetuadoPor uuid.UUID) error {
+	if cursoID == uuid.Nil {
+		return fmt.Errorf("curso_id é obrigatório")
+	}
+	if e.StatusEscolarFundamental != "finalizado" && e.StatusEscolarFundamental != "inativo" {
+		return fmt.Errorf("matrícula superior exige fundamental finalizado ou inativo")
+	}
+	if e.StatusEscolarMedio != "finalizado" && e.StatusEscolarMedio != "inativo" {
+		return fmt.Errorf("matrícula superior exige médio finalizado ou inativo")
+	}
+	ano := "1_ano_superior"
+	semestre := 1
+	event := &MatriculaSuperiorEfetivadaEvent{BaseEvent: BaseEvent{EventType: "MatriculaSuperiorEfetivada", AggregateID: e.ID}, CursoID: cursoID, AnoSuperior: ano, SemestreAtual: semestre, EfetivadaPor: efetuadoPor, EfetivadaAt: time.Now()}
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
+func (e *Estudante) TrancarSuperior(motivo string, trancadoPor uuid.UUID) error {
+	if strings.TrimSpace(motivo) == "" {
+		return fmt.Errorf("motivo é obrigatório")
+	}
+	if e.StatusSuperior != "em_andamento" {
+		return fmt.Errorf("só pode trancar superior em andamento")
+	}
+	event := &SuperiorTrancadoEvent{BaseEvent: BaseEvent{EventType: "SuperiorTrancado", AggregateID: e.ID}, Motivo: motivo, TrancadoPor: trancadoPor, TrancadoAt: time.Now()}
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
+func (e *Estudante) DesvincularDaAcademia(codigoAcademia, motivo string, desvinculadoPor uuid.UUID) error {
+	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
+		return fmt.Errorf("estudante não pertence a esta academia")
+	}
+	if e.Status != "ativo" {
+		return fmt.Errorf("apenas estudante ativo pode ser desvinculado")
+	}
+	if strings.TrimSpace(motivo) == "" {
+		return fmt.Errorf("motivo é obrigatório")
+	}
+	nivel := e.nivelAcademicoAtual()
+	event := &EstudanteDesvinculadoDaAcademiaEvent{BaseEvent: BaseEvent{EventType: "EstudanteDesvinculadoDaAcademia", AggregateID: e.ID}, CodigoAcademia: codigoAcademia, CodigoEstudante: e.CodigoEstudante, Motivo: motivo, Nivel: nivel, DesvinculadoPor: desvinculadoPor, DesvinculadoAt: time.Now()}
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
+func (e *Estudante) Reintegrar(codigoAcademia, tipoEnsino string, anoEscolar, anoEscolarMedio *string, cursoMedioID, cursoSuperiorID *uuid.UUID, reintegradoPor uuid.UUID) error {
+	if e.Status != "arquivado" {
+		return fmt.Errorf("apenas estudante arquivado pode ser reintegrado")
+	}
+	event := &EstudanteReintegradoEvent{BaseEvent: BaseEvent{EventType: "EstudanteReintegrado", AggregateID: e.ID}, CodigoAcademia: codigoAcademia, CodigoEstudante: e.CodigoEstudante, TipoEnsino: tipoEnsino, ReintegradoPor: reintegradoPor, ReintegradoAt: time.Now()}
+	switch tipoEnsino {
+	case "fundamental":
+		if anoEscolar == nil {
+			return fmt.Errorf("ano_escolar_fundamental é obrigatório")
+		}
+		if err := utils.ValidateAnoFundamental(*anoEscolar); err != nil {
+			return fmt.Errorf("ano_escolar_fundamental inválido: %w", err)
+		}
+		event.AnoEscolar = anoEscolar
+	case "medio":
+		if anoEscolarMedio == nil || cursoMedioID == nil {
+			return fmt.Errorf("ano_escolar_medio e curso_medio_id são obrigatórios")
+		}
+		if err := utils.ValidateAnoMedio(*anoEscolarMedio); err != nil {
+			return fmt.Errorf("ano_escolar_medio inválido: %w", err)
+		}
+		event.AnoEscolarMedio = anoEscolarMedio
+		event.CursoMedioID = cursoMedioID
+	case "superior":
+		if cursoSuperiorID == nil {
+			return fmt.Errorf("curso_superior_id é obrigatório")
+		}
+		ano := "1_ano_superior"
+		semestre := 1
+		event.AnoSuperior = &ano
+		event.SemestreAtual = &semestre
+		event.CursoSuperiorID = cursoSuperiorID
+	default:
+		return fmt.Errorf("tipo_ensino deve ser fundamental, medio ou superior")
 	}
 	e.RaiseEvent(event)
 	return e.Apply(event)
+}
+
+func (e *Estudante) nivelAcademicoAtual() string {
+	if e.StatusSuperior == "em_andamento" {
+		if e.AnoSuperior != nil && e.SemestreAtual != nil {
+			return fmt.Sprintf("superior:%s:semestre_%d", *e.AnoSuperior, *e.SemestreAtual)
+		}
+		if e.AnoSuperior != nil {
+			return "superior:" + *e.AnoSuperior
+		}
+		return "superior"
+	}
+	if e.StatusEscolarMedio == "em_andamento" {
+		if e.AnoEscolarMedio != nil {
+			return "medio:" + *e.AnoEscolarMedio
+		}
+		return "medio"
+	}
+	if e.StatusEscolarFundamental == "em_andamento" {
+		if e.AnoEscolar != nil {
+			return "fundamental:" + *e.AnoEscolar
+		}
+		return "fundamental"
+	}
+	return "sem_etapa_em_andamento"
 }
 
 func (e *Estudante) AlterarCurso(cursoID uuid.UUID, tipoEnsino string) error {
@@ -502,8 +687,8 @@ func (e *Estudante) AlterarCurso(cursoID uuid.UUID, tipoEnsino string) error {
 		return fmt.Errorf("estudante não está vinculado a nenhuma academia")
 	}
 	if tipoEnsino == "medio" {
-		if e.StatusEscolarMedio != "em_andamento" {
-			return fmt.Errorf("só pode alterar curso médio se status_escolar_medio for 'em_andamento'")
+		if e.StatusEscolarFundamental != "finalizado" {
+			return fmt.Errorf("só pode alterar curso médio se status_escolar_fundamental for 'finalizado'")
 		}
 	} else {
 		if e.StatusSuperior != "em_andamento" {
@@ -545,6 +730,7 @@ func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
 	e.AnoEscolar = ev.AnoEscolar
 	e.AnoEscolarMedio = ev.AnoEscolarMedio
 	e.AnoSuperior = ev.AnoSuperior
+	e.SemestreAtual = ev.SemestreAtual
 	e.CursoMedioID = ev.CursoMedioID
 	e.CursoSuperiorID = ev.CursoSuperiorID
 	e.StatusEscolarFundamental = ev.StatusEscolarFundamental
@@ -565,16 +751,105 @@ func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
 	return nil
 }
 
-func (e *Estudante) applyStatusSuperiorAtualizado(event DomainEvent) error {
+func (e *Estudante) applyFundamentalEmAndamento(event DomainEvent) error {
+	data, _ := json.Marshal(event.GetPayload())
+	var ev struct{ AnoEscolar string }
+	_ = json.Unmarshal(data, &ev)
+	e.StatusEscolarFundamental = "em_andamento"
+	if ev.AnoEscolar != "" {
+		e.AnoEscolar = &ev.AnoEscolar
+	}
+	return nil
+}
+
+func (e *Estudante) applyFundamentalInativo(DomainEvent) error {
+	e.StatusEscolarFundamental = "inativo"
+	return nil
+}
+func (e *Estudante) applyFundamentalFinalizado(DomainEvent) error {
+	e.StatusEscolarFundamental = "finalizado"
+	return nil
+}
+
+func (e *Estudante) applyMedioEmAndamento(event DomainEvent) error {
+	data, _ := json.Marshal(event.GetPayload())
+	var ev struct {
+		AnoEscolar string
+		CursoID    uuid.UUID
+	}
+	_ = json.Unmarshal(data, &ev)
+	e.StatusEscolarMedio = "em_andamento"
+	if ev.AnoEscolar != "" {
+		e.AnoEscolarMedio = &ev.AnoEscolar
+	}
+	if ev.CursoID != uuid.Nil {
+		e.CursoMedioID = &ev.CursoID
+	}
+	return nil
+}
+
+func (e *Estudante) applyMedioInativo(DomainEvent) error {
+	e.StatusEscolarMedio = "inativo"
+	return nil
+}
+func (e *Estudante) applyMedioFinalizado(DomainEvent) error {
+	e.StatusEscolarMedio = "finalizado"
+	return nil
+}
+
+func (e *Estudante) applySuperiorEmAndamento(event DomainEvent) error {
+	data, _ := json.Marshal(event.GetPayload())
+	var ev struct {
+		CursoID       uuid.UUID
+		AnoSuperior   string
+		SemestreAtual int
+	}
+	_ = json.Unmarshal(data, &ev)
+	e.StatusSuperior = "em_andamento"
+	if ev.CursoID != uuid.Nil {
+		e.CursoSuperiorID = &ev.CursoID
+	}
+	if ev.AnoSuperior != "" {
+		e.AnoSuperior = &ev.AnoSuperior
+	}
+	if ev.SemestreAtual > 0 {
+		e.SemestreAtual = &ev.SemestreAtual
+	}
+	return nil
+}
+
+func (e *Estudante) applySuperiorInativo(DomainEvent) error { e.StatusSuperior = "inativo"; return nil }
+
+func (e *Estudante) applyEstudanteDesvinculadoDaAcademia(DomainEvent) error {
+	e.Status = "arquivado"
+	return nil
+}
+
+func (e *Estudante) applyEstudanteReintegrado(event DomainEvent) error {
 	data, err := json.Marshal(event.GetPayload())
 	if err != nil {
-		return fmt.Errorf("applyStatusSuperiorAtualizado: marshal error: %w", err)
+		return fmt.Errorf("applyEstudanteReintegrado: marshal error: %w", err)
 	}
-	var ev StatusSuperiorAtualizadoEvent
+	var ev EstudanteReintegradoEvent
 	if err := json.Unmarshal(data, &ev); err != nil {
-		return fmt.Errorf("applyStatusSuperiorAtualizado: unmarshal error: %w", err)
+		return fmt.Errorf("applyEstudanteReintegrado: unmarshal error: %w", err)
 	}
-	e.StatusSuperior = ev.NovoStatus
+	e.Status = "ativo"
+	e.CodigoAcademia = &ev.CodigoAcademia
+	switch ev.TipoEnsino {
+	case "fundamental":
+		e.StatusEscolarFundamental = "em_andamento"
+		e.AnoEscolar = ev.AnoEscolar
+	case "medio":
+		e.StatusEscolarMedio = "em_andamento"
+		e.AnoEscolarMedio = ev.AnoEscolarMedio
+		e.CursoMedioID = ev.CursoMedioID
+	case "superior":
+		e.StatusSuperior = "em_andamento"
+		e.AnoSuperior = ev.AnoSuperior
+		e.SemestreAtual = ev.SemestreAtual
+		e.CursoSuperiorID = ev.CursoSuperiorID
+	}
 	return nil
 }
 
@@ -673,31 +948,5 @@ func (e *Estudante) applySenhaAlterada(event DomainEvent) error {
 
 func (e *Estudante) applyEmailVerificado(_ DomainEvent) error {
 	e.EmailVerificado = true
-	return nil
-}
-
-func (e *Estudante) applyStatusEscolarFundamentalAtualizado(event DomainEvent) error {
-	data, err := json.Marshal(event.GetPayload())
-	if err != nil {
-		return fmt.Errorf("applyStatusEscolarFundamentalAtualizado: marshal error: %w", err)
-	}
-	var ev StatusEscolarFundamentalAtualizadoEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return fmt.Errorf("applyStatusEscolarFundamentalAtualizado: unmarshal error: %w", err)
-	}
-	e.StatusEscolarFundamental = ev.NovoStatus
-	return nil
-}
-
-func (e *Estudante) applyStatusEscolarMedioAtualizado(event DomainEvent) error {
-	data, err := json.Marshal(event.GetPayload())
-	if err != nil {
-		return fmt.Errorf("applyStatusEscolarMedioAtualizado: marshal error: %w", err)
-	}
-	var ev StatusEscolarMedioAtualizadoEvent
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return fmt.Errorf("applyStatusEscolarMedioAtualizado: unmarshal error: %w", err)
-	}
-	e.StatusEscolarMedio = ev.NovoStatus
 	return nil
 }

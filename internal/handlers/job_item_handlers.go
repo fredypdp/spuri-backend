@@ -142,31 +142,6 @@ func DeletarFaltaJobItem(c *gin.Context) {
 	DeletarFalta(c)
 }
 
-func AtualizarStatusEscolarJobItem(c *gin.Context) {
-	var req struct {
-		CodigoEstudante string `json:"codigo_estudante"`
-		Tipo            string `json:"tipo"`
-		NovoStatus      string `json:"novo_status"`
-	}
-	if err := bindJobItemWithoutLosingBody(c, &req); err != nil || req.CodigoEstudante == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo_estudante, tipo, novo_status}"})
-		return
-	}
-
-	c.Params = gin.Params{gin.Param{Key: "codigo", Value: req.CodigoEstudante}}
-
-	switch req.Tipo {
-	case "fundamental":
-		AtualizarStatusEscolarFundamentalHandler(c)
-	case "medio":
-		AtualizarStatusEscolarMedioHandler(c)
-	case "superior":
-		AtualizarStatusSuperiorHandler(c)
-	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("tipo inválido: %q — use fundamental, medio ou superior", req.Tipo)})
-	}
-}
-
 func AdicionarEstudanteATurmaJobItem(c *gin.Context) {
 	var req struct {
 		CodigoTurma     string `json:"codigo_turma"`

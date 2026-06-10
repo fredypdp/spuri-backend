@@ -27,21 +27,18 @@ import (
 
 // CadastroEstudanteAcademiaRequest — genero e data_nascimento são obrigatórios.
 type CadastroEstudanteAcademiaRequest struct {
-	Nome                     string    `json:"nome"            binding:"required"`
-	Genero                   string    `json:"genero"          binding:"required"`
-	DataNascimento           time.Time `json:"data_nascimento" binding:"required"`
-	Email                    string    `json:"email"`
-	Telefone                 string    `json:"telefone"`
-	BilheteIdentidade        string    `json:"bilhete_identidade"`
-	BilheteResponsavel       string    `json:"bilhete_identidade_responsavel"`
-	AnoEscolar               string    `json:"ano_escolar_fundamental"`
-	AnoEscolarMedio          string    `json:"ano_escolar_medio"`
-	AnoSuperior              string    `json:"ano_superior"`
-	CursoMedioID             string    `json:"curso_medio_id"`
-	CursoSuperiorID          string    `json:"curso_superior_id"`
-	StatusEscolarFundamental string    `json:"status_escolar_fundamental"`
-	StatusEscolarMedio       string    `json:"status_escolar_medio"`
-	StatusSuperior           string    `json:"status_superior"`
+	Nome               string    `json:"nome"            binding:"required"`
+	Genero             string    `json:"genero"          binding:"required"`
+	DataNascimento     time.Time `json:"data_nascimento" binding:"required"`
+	Email              string    `json:"email"`
+	Telefone           string    `json:"telefone"`
+	BilheteIdentidade  string    `json:"bilhete_identidade"`
+	BilheteResponsavel string    `json:"bilhete_identidade_responsavel"`
+	AnoEscolar         string    `json:"ano_escolar_fundamental"`
+	AnoEscolarMedio    string    `json:"ano_escolar_medio"`
+	AnoSuperior        string    `json:"ano_superior"`
+	CursoMedioID       string    `json:"curso_medio_id"`
+	CursoSuperiorID    string    `json:"curso_superior_id"`
 }
 
 func RegisterEstudantePorAcademia(c *gin.Context) {
@@ -200,20 +197,6 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		anoSuperiorPtr = &req.AnoSuperior
 	}
 
-	var statusFundamentalPtr, statusMedioPtr, statusSuperiorPtr *string
-	if req.StatusEscolarFundamental != "" {
-		statusFundamentalPtr = &req.StatusEscolarFundamental
-	} else {
-		defaultStatus := "em_andamento"
-		statusFundamentalPtr = &defaultStatus
-	}
-	if req.StatusEscolarMedio != "" {
-		statusMedioPtr = &req.StatusEscolarMedio
-	}
-	if req.StatusSuperior != "" {
-		statusSuperiorPtr = &req.StatusSuperior
-	}
-
 	repository := getRepository(c)
 	estudante := aggregates.NewEstudante()
 
@@ -232,9 +215,6 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		anoSuperiorPtr,
 		cursoMedioUUID,
 		cursoSuperiorUUID,
-		statusFundamentalPtr,
-		statusMedioPtr,
-		statusSuperiorPtr,
 		&academiaID,
 		academia.CodigoAcademia,
 	); err != nil {

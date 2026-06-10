@@ -14,15 +14,27 @@ var validEventTypes = map[string]bool{
 	"DadosAcademicosAtualizados": true,
 	"SenhaAlterada":              true,
 	"CursoAlterado":              true,
-	// ── Status Escolar ───────────────────────────────────────────────────────
-	"StatusEscolarFundamentalAtualizado": true,
-	"StatusEscolarMedioAtualizado":       true,
-	"StatusSuperiorAtualizado":           true,
+	// ── Acontecimentos de vínculo e trajetória escolar ───────────────────────
+	"MatriculaFundamentalEfetivada":             true,
+	"FundamentalRetomado":                       true,
+	"FundamentalInterrompido":                   true,
+	"EquivalenciaFundamentalReconhecida":        true,
+	"MatriculaMedioEfetivada":                   true,
+	"MedioRetomado":                             true,
+	"MedioInterrompido":                         true,
+	"EquivalenciaMedioReconhecida":              true,
+	"MatriculaSuperiorEfetivada":                true,
+	"MatriculaSuperiorReativada":                true,
+	"IngressoSuperiorPorEquivalenciaRegistrado": true,
+	"SuperiorTrancado":                          true,
+	"SuperiorAbandonado":                        true,
+	"EstudanteDesvinculadoDaAcademia":           true,
+	"EstudanteReintegrado":                      true,
 	// ── Email Estudante ──────────────────────────────────────────────────────
 	"EmailVerificadoEstudante": true,
 	// ── Avaliação Final ───────────────────────────────────────────────────────
-	"AvaliacaoFinalEscolar":      true,
-	"AvaliacaoFinalSuperior":     true,
+	"AvaliacaoFinalEscolar":  true,
+	"AvaliacaoFinalSuperior": true,
 
 	// ── Academia ─────────────────────────────────────────────────────────────
 	"AcademiaCriada":            true,

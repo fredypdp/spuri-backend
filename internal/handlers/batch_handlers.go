@@ -319,55 +319,6 @@ func RegistrarAvaliacaoFinalBatch(c *gin.Context) {
 }
 
 // =============================================================================
-// PUT /academia/estudante/status-escolar/batch — limite 100
-// =============================================================================
-
-func AtualizarStatusEscolarBatch(c *gin.Context) {
-	type ReqStatus struct {
-		CodigoEstudante string `json:"codigo_estudante"`
-		Tipo            string `json:"tipo"`
-		NovoStatus      string `json:"novo_status"`
-	}
-	var reqs []ReqStatus
-	if err := c.ShouldBindJSON(&reqs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve ser um array"})
-		return
-	}
-	if err := validarTamanhoBatch(len(reqs), 100); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	results := make([]BatchItemResult, 0, len(reqs))
-	for i, req := range reqs {
-		if req.CodigoEstudante == "" {
-			results = append(results, batchErr(i, fmt.Errorf("codigo_estudante é obrigatório")))
-			continue
-		}
-
-		rc := newFakeContext(c)
-		rc.Params = gin.Params{gin.Param{Key: "codigo", Value: req.CodigoEstudante}}
-		setJSONBody(rc, gin.H{"novo_status": req.NovoStatus})
-
-		switch req.Tipo {
-		case "fundamental":
-			AtualizarStatusEscolarFundamentalHandler(rc)
-		case "medio":
-			AtualizarStatusEscolarMedioHandler(rc)
-		case "superior":
-			AtualizarStatusSuperiorHandler(rc)
-		default:
-			results = append(results, batchErr(i,
-				fmt.Errorf("tipo inválido: %q — use fundamental, medio ou superior", req.Tipo)))
-			continue
-		}
-		results = append(results, extractResult(rc, i))
-	}
-
-	c.JSON(batchHTTPStatus(results), newBatchResponse(results))
-}
-
-// =============================================================================
 // POST /academia/curso/batch — limite 50
 // =============================================================================
 

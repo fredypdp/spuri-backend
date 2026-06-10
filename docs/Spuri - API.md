@@ -110,6 +110,7 @@ type AdminRole  = 'fpp' | 'adm' | 'gerente'
 type AcademiaNivel = 'escola' | 'superior'
 type AcademiaType = 'public' | 'private'
 type NivelEscolar = 'fundamental' | 'medio' | 'misto'
+type StatusGeralEstudante = 'inativo' | 'ativo' | 'arquivado'
 type StatusEscolar = 'inativo' | 'em_andamento' | 'finalizado'
 type TipoEnsino = 'fundamental' | 'medio' | 'superior'
 type Turno = 'manha' | 'tarde' | 'noite'
@@ -1354,17 +1355,16 @@ Cadastra um novo estudante vinculado à academia autenticada.
   "bilhete_identidade": "001234567LA089",
   "bilhete_identidade_responsavel": "009876543LA089",
   "ano_escolar_fundamental": "3_ano_fundamental",
-  "status_escolar_fundamental": "em_andamento",
   "ano_escolar_medio": null,
-  "status_escolar_medio": "inativo",
   "curso_medio_id": null,
   "ano_superior": null,
-  "status_superior": "inativo",
   "curso_superior_id": null
 }
 ```
 
 **Campos obrigatórios:** `nome`, `genero`, `data_nascimento`
+
+**Status na criação:** o cadastro cria o vínculo ativo com a academia. Por padrão, `status = "ativo"`, `status_escolar_fundamental = "em_andamento"`, `status_escolar_medio = "inativo"` e `status_superior = "inativo"`. Depois do cadastro, alterações de status acontecem somente por endpoints de acontecimentos (matrícula, interrupção, trancamento, desvinculação, reintegração ou avaliação final).
 
 **Response 201:**
 
@@ -1510,94 +1510,112 @@ Atualiza os dados pessoais do estudante autenticado.
 
 ---
 
-### PUT /academia/estudante/:codigo/status-escolar-fundamental
+### Endpoints de acontecimentos que alteram status do estudante
 
-Atualiza o status do ensino fundamental do estudante.
+Os status do estudante não são alterados diretamente. Eles mudam como consequência dos acontecimentos de domínio abaixo.
 
-**Proteção**: autenticado + academia ativa
+#### POST /academia/estudante/:codigo/matricula/fundamental
 
-**Path Params:**
-
-- `codigo` — código do estudante
+Efetiva matrícula no fundamental e muda `status_escolar_fundamental` para `em_andamento`.
 
 **Request:**
 
 ```json
 {
-  "novo_status": "em_andamento"  // 'inativo' | 'em_andamento' | 'finalizado'
+  "ano_escolar_fundamental": "1_ano_fundamental"
 }
 ```
 
-**Response 200:**
+#### POST /academia/estudante/:codigo/matricula/medio
 
-```json
-{
-  "message": "status_escolar_fundamental atualizado com sucesso",
-  "novo_status": "em_andamento"
-}
-```
-
----
-
-### PUT /academia/estudante/:codigo/status-escolar-medio
-
-Atualiza o status do ensino médio do estudante.
-
-**Proteção**: autenticado + academia ativa
-
-**Path Params:**
-
-- `codigo` — código do estudante
+Efetiva matrícula no médio e muda `status_escolar_medio` para `em_andamento`. Exige fundamental `finalizado`.
 
 **Request:**
 
 ```json
 {
-  "novo_status": "em_andamento"  // 'inativo' | 'em_andamento' | 'finalizado'
+  "ano_escolar_medio": "1_ano_medio",
+  "curso_id": "uuid-do-curso-medio"
 }
 ```
 
-**Response 200:**
+#### POST /academia/estudante/:codigo/matricula/superior
 
-```json
-{
-  "message": "status_escolar_medio atualizado com sucesso",
-  "novo_status": "em_andamento"
-}
-```
-
----
-
-### PUT /academia/estudante/:codigo/status-superior
-
-Atualiza o status do ensino superior do estudante.
-
-**Proteção**: autenticado + academia ativa
-
-**Regra**: só pode avançar se o fundamental e o médio estiverem `finalizado` ou `inativo`.
-
-**Path Params:**
-
-- `codigo` — código do estudante
+Efetiva matrícula no superior, muda `status_superior` para `em_andamento` e define `ano_superior = "1_ano_superior"` e `semestre_atual = 1`.
 
 **Request:**
 
 ```json
 {
-  "novo_status": "em_andamento"  // 'inativo' | 'em_andamento' | 'finalizado'
+  "curso_id": "uuid-do-curso-superior"
 }
 ```
 
-**Response 200:**
+#### POST /academia/estudante/:codigo/interrupcao/fundamental
+
+Registra interrupção do fundamental e muda `status_escolar_fundamental` para `inativo`.
+
+```json
+{ "motivo": "mudança de residência" }
+```
+
+#### POST /academia/estudante/:codigo/interrupcao/medio
+
+Registra interrupção do médio e muda `status_escolar_medio` para `inativo`.
+
+```json
+{ "motivo": "pausa solicitada" }
+```
+
+#### POST /academia/estudante/:codigo/trancamento/superior
+
+Registra trancamento do superior e muda `status_superior` para `inativo`.
+
+```json
+{ "motivo": "trancamento formal" }
+```
+
+#### POST /academia/estudante/:codigo/desvincular
+
+Desvincula o estudante da academia preservando histórico e muda o status geral para `arquivado`. O evento registra `codigo_academia`, `codigo_estudante`, `motivo` e o nível acadêmico em que o estudante estava.
+
+```json
+{ "motivo": "transferência para outra instituição" }
+```
+
+#### POST /academia/estudante/:codigo/revincular
+
+Reintegra estudante arquivado à academia e muda o status geral para `ativo`.
+
+Para reingresso no fundamental:
 
 ```json
 {
-  "message": "status_superior atualizado com sucesso",
-  "novo_status": "em_andamento"
+  "tipo_ensino": "fundamental",
+  "ano_escolar_fundamental": "4_ano_fundamental"
 }
 ```
 
----
+Para reingresso no médio:
+
+```json
+{
+  "tipo_ensino": "medio",
+  "ano_escolar_medio": "2_ano_medio",
+  "curso_medio_id": "uuid-do-curso-medio"
+}
+```
+
+Para reingresso no superior:
+
+```json
+{
+  "tipo_ensino": "superior",
+  "curso_superior_id": "uuid-do-curso-superior"
+}
+```
+
+No reingresso superior o sistema define `ano_superior = "1_ano_superior"` e `semestre_atual = 1`.
 
 ### GET /eventos-estudante/:codigo
 
@@ -3358,7 +3376,6 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 |`PUT /academia/atualizar-falta/async`|igual ao `PUT /academia/atualizar-falta`|`202` (job criado)|2000|
 |`DELETE /academia/falta/async`|igual ao `DELETE /academia/falta/:id` (sem `:id`, enviado no item)|`202` (job criado)|2000|
 |`POST /academia/avaliacao-final/async`|igual ao `POST /academia/avaliacao-final`|`202` (job criado)|1000|
-|`PUT /academia/estudante/status-escolar/async`|igual aos endpoints síncronos de status escolar do estudante|`202` (job criado)|1000|
 |`POST /academia/curso/async`|igual ao `POST /academia/curso`|`202` (job criado)|200|
 |`POST /academia/materia/async`|igual ao `POST /academia/materia`|`202` (job criado)|500|
 |`POST /academia/turma/async`|igual ao `POST /academia/turma`|`202` (job criado)|200|
