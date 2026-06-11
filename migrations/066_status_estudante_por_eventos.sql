@@ -10,21 +10,19 @@ WHERE status = 'finalizado';
 
 DO $$
 DECLARE
-    constraint_name text;
+    constraint_record record;
 BEGIN
-    SELECT conname INTO constraint_name
-    FROM pg_constraint
-    WHERE conrelid = 'projection_estudantes'::regclass
-      AND contype = 'c'
-      AND pg_get_constraintdef(oid) LIKE '%status%'
-      AND pg_get_constraintdef(oid) LIKE '%finalizado%'
-      AND pg_get_constraintdef(oid) NOT LIKE '%status_escolar%'
-      AND pg_get_constraintdef(oid) NOT LIKE '%status_superior%'
-    LIMIT 1;
-
-    IF constraint_name IS NOT NULL THEN
-        EXECUTE format('ALTER TABLE projection_estudantes DROP CONSTRAINT %I', constraint_name);
-    END IF;
+    FOR constraint_record IN
+        SELECT conname
+        FROM pg_constraint
+        WHERE conrelid = 'projection_estudantes'::regclass
+          AND contype = 'c'
+          AND pg_get_constraintdef(oid) ~ '\mstatus\M'
+          AND pg_get_constraintdef(oid) !~ '\mstatus_escolar\M'
+          AND pg_get_constraintdef(oid) !~ '\mstatus_superior\M'
+    LOOP
+        EXECUTE format('ALTER TABLE projection_estudantes DROP CONSTRAINT %I', constraint_record.conname);
+    END LOOP;
 END $$;
 
 ALTER TABLE projection_estudantes
