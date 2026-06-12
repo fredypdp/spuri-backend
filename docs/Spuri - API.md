@@ -2,7 +2,7 @@
 modificado: 10-06-2026 23:55
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.6.2
+Versão atual: 1.7.0
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -24,6 +24,8 @@ Versão atual: 1.6.2
 17. [[#17. Jobs Assíncronos]]
 18. [[#18. Batch Assíncrono — Academia]]
 19. [[#19. Batch Assíncrono — Admin]]
+20. [[#20. Solicitação de Matrícula]]
+21. [[#21. Armazenamento]]
 
 ---
 
@@ -120,6 +122,7 @@ type Genero = 'masculino' | 'feminino'
 type TipoNota = 'escolar' | 'superior'
 type JobStatus = 'pending' | 'processing' | 'done' | 'failed'
 type JobEventType = 'job_enqueued' | 'job_progress' | 'job_done' | 'job_failed'
+type SolicitacaoMatriculaStatus = 'pendente' | 'aprovada' | 'reprovada'
 ```
 
 **Períodos de nota:**
@@ -181,6 +184,10 @@ interface AcademiaDTO {
   tipo_ano_letivo?: string        // 'escola' | 'superior'
   ano_letivo_ativado_em?: string  // RFC3339
   anos_letivos_lista: AnoLetivoItem[]
+  documentos_obrigatorios: {
+    declaracao: string[]
+    certificado: string[]
+  }
   created_at: string
   updated_at?: string
   version: number
@@ -230,6 +237,38 @@ interface EstudanteDTO {
 ```
 
 ---
+
+
+### 2.x SolicitacaoMatricula
+
+```typescript
+interface SolicitacaoMatriculaDTO {
+  id: string
+  codigo_solicitacao: string
+  codigo_academia: string
+  nome: string
+  genero: Genero
+  data_nascimento: string
+  email?: string
+  telefone?: string
+  bilhete_identidade?: string
+  bilhete_identidade_responsavel?: string
+  ano_escolar_fundamental?: string
+  ano_escolar_medio?: string
+  curso_medio_id?: string
+  ano_superior?: string
+  curso_superior_id?: string
+  status: SolicitacaoMatriculaStatus
+  motivo_reprovacao?: string
+  documentos: Record<string, string>
+  codigo_estudante_gerado?: string
+  aprovada_por?: string
+  reprovada_por?: string
+  created_at: string
+  updated_at: string
+  version: number
+}
+```
 
 ### 2.5 Curso
 
@@ -1137,6 +1176,54 @@ Atualiza os dados cadastrais da academia autenticada.
 **Nota**: se o email for alterado, `email_verificado` volta para `false`.
 
 ---
+
+
+### PUT /academia/documentos-obrigatorios
+
+Define/atualiza os anos em que `declaracao` e `certificado` são obrigatórios para solicitações de matrícula da academia autenticada. Campos omitidos permanecem inalterados; envie `[]` para limpar uma lista.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:**
+
+```json
+{
+  "declaracao": ["1_ano_fundamental"],
+  "certificado": ["9_ano_fundamental"]
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "configuração de documentos obrigatórios atualizada com sucesso",
+  "documentos_obrigatorios": {
+    "declaracao": ["1_ano_fundamental"],
+    "certificado": ["9_ano_fundamental"]
+  }
+}
+```
+
+**Erros:** `400` quando algum ano não pertence à academia.
+
+### GET /academia/documentos-obrigatorios
+
+Retorna a configuração de documentos obrigatórios da academia autenticada ou, para admin, da academia indicada por `codigo_academia`.
+
+**Proteção**: autenticado + academia ativa **ou** admin
+
+**Response 200:**
+
+```json
+{
+  "codigo_academia": "LDA20261",
+  "documentos_obrigatorios": {
+    "declaracao": [],
+    "certificado": []
+  }
+}
+```
 
 ### POST /academia/ano-letivo
 
@@ -3430,3 +3517,89 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 |`PUT /dominis/academia/desativar/async`|admin role `adm`|igual ao `PUT /dominis/academia/:codigo/desativar`|`202` (job criado)|500|
 |`PUT /dominis/admin/ativar/async`|admin role `adm`|igual ao `PUT /dominis/admin/:id/ativar` (`id` vai no item)|`202` (job criado)|500|
 |`PUT /dominis/admin/desativar/async`|admin role `adm`|igual ao `PUT /dominis/admin/:id/desativar` (`id` + `motivo` no item)|`202` (job criado)|500|
+
+
+---
+
+## 20. Solicitação de Matrícula
+
+### POST /solicitacao-matricula
+
+Cria uma solicitação pública de matrícula via `multipart/form-data`. O backend gera `codigo_solicitacao`, valida dados e PDFs, envia documentos para o armazenamento no caminho `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/` e grava `SolicitacaoMatriculaCriada` no ledger.
+
+**Proteção**: pública
+
+**Campos**: `codigo_academia`, `nome`, `genero`, `data_nascimento`, `email`, `telefone`, `bilhete_identidade`, `bilhete_identidade_responsavel`, `ano_escolar_fundamental`, `ano_escolar_medio`, `curso_medio_id`, `ano_superior`, `curso_superior_id`.
+
+**Ficheiros PDF**: `bi_estudante`, `bi_responsavel`, `cedula`, `declaracao`, `certificado`. Pelo menos um BI é obrigatório; se não houver BI do estudante, `cedula` é obrigatória. `declaracao` e `certificado` dependem de `documentos_obrigatorios`.
+
+**Response 201:**
+
+```json
+{
+  "message": "solicitação de matrícula criada com sucesso",
+  "codigo_solicitacao": "A3F9K2BPQ7X",
+  "codigo_academia": "LDA20261",
+  "status": "pendente"
+}
+```
+
+### GET /academia/solicitacoes-matricula
+
+Lista solicitações da academia autenticada. Query params: `status`, `limit`, `offset`.
+
+### GET /academia/solicitacao-matricula/:codigo
+
+Consulta uma solicitação da academia autenticada. Retorna `404` se não existir e `403` se pertencer a outra academia.
+
+### PUT /academia/solicitacao-matricula/:codigo/aprovar
+
+Aprova uma solicitação pendente e cria automaticamente o estudante com o aggregate `Estudante`.
+
+**Response 200:**
+
+```json
+{
+  "message": "solicitação aprovada e estudante registado com sucesso",
+  "codigo_solicitacao": "A3F9K2BPQ7X",
+  "codigo_estudante_gerado": "ABC1234"
+}
+```
+
+### PUT /academia/solicitacao-matricula/:codigo/reprovar
+
+Reprova uma solicitação pendente, grava `SolicitacaoMatriculaReprovada` e remove o diretório de documentos.
+
+**Request:**
+
+```json
+{ "motivo_reprovacao": "Documentos ilegíveis." }
+```
+
+### GET /solicitacoes-matricula
+
+Lista todas as solicitações do sistema para admin. Query params: `status`, `codigo_academia`, `limit`, `offset`.
+
+---
+
+## 21. Armazenamento
+
+### GET /dominis/storage/quota
+
+Retorna quota do provider de armazenamento externo.
+
+**Proteção**: autenticado + admin
+
+**Response 200:**
+
+```json
+{
+  "provider": "mega",
+  "total_bytes": 53687091200,
+  "used_bytes": 1073741824,
+  "available_bytes": 52613349376,
+  "total_human": "50.00 GB",
+  "used_human": "1.00 GB",
+  "available_human": "49.00 GB"
+}
+```

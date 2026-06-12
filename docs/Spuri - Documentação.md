@@ -2,7 +2,7 @@
 modificado: 10-06-2026 23:55
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.5.0
+Versão atual: 1.6.0
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -15,6 +15,7 @@ Versão atual: 1.5.0
 8. [[#8. Segurança e Autenticação]]
 9. [[#9. Operações em Lote]]
 10. [[#10. Recomendações de Melhoria]]
+11. [[#11. Solicitação de Matrícula e Armazenamento]]
 
 ---
 
@@ -1069,3 +1070,58 @@ O sistema possui o status geral `arquivado` para estudantes que saíram da acade
 **Problema atual**: o rate limiting está desativado em todos os endpoints (todos os middlewares de rate limit retornam `c.Next()` sem verificar nada).
 
 **Recomendação**: ativar rate limiting real com `golang.org/x/time/rate` ou similar, especialmente nos endpoints de login, email e bootstrap.
+
+
+---
+
+## 11. Solicitação de Matrícula e Armazenamento
+
+### Entidade `SolicitacaoMatricula`
+
+A entidade representa o pedido feito pelo estudante para se matricular numa academia. Ela possui código único de 11 caracteres (`codigo_solicitacao`), dados pessoais/académicos, mapa de documentos enviados, status (`pendente`, `aprovada`, `reprovada`) e campos de decisão (`codigo_estudante_gerado`, `motivo_reprovacao`, `aprovada_por`, `reprovada_por`).
+
+Eventos do ledger:
+
+- `SolicitacaoMatriculaCriada`
+- `SolicitacaoMatriculaAprovada`
+- `SolicitacaoMatriculaReprovada`
+- `AcademiaDocumentosObrigatoriosAtualizados` (aggregate `Academia`)
+
+### Academia: `documentos_obrigatorios`
+
+`projection_academias` contém `documentos_obrigatorios` com listas `declaracao` e `certificado`. A academia só pode informar anos académicos que pertençam aos seus próprios anos fundamentais ou aos cursos médio/superior ativos.
+
+### Processo de negócio
+
+1. O estudante envia `POST /solicitacao-matricula` com formulário multipart e PDFs.
+2. O backend valida BI, cédula, data de nascimento, academia ativa e obrigatoriedade dinâmica de declaração/certificado.
+3. Os documentos são enviados ao storage em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`.
+4. O aggregate `SolicitacaoMatricula` grava o evento de criação.
+5. A academia lista/consulta solicitações e aprova ou reprova.
+6. Na aprovação, o sistema reutiliza o aggregate `Estudante` e emite `EstudanteCriadoComVinculo`.
+7. Na reprovação, grava o evento de reprovação e remove o diretório dos documentos.
+
+### Regras de negócio
+
+- Pelo menos um entre BI do estudante e BI do responsável é obrigatório.
+- Se apenas BI do responsável for enviado, a cédula é obrigatória.
+- Declaração e certificado são obrigatórios apenas quando o ano alvo estiver configurado em `documentos_obrigatorios`.
+- Arquivos devem ser PDFs (`Content-Type`, extensão e assinatura `%PDF`).
+- Apenas a academia dona pode aprovar/reprovar.
+- Solicitação decidida não volta para pendente.
+- Rebuild inclui `solicitacoes_matricula` após as projeções principais.
+
+### Armazenamento de arquivos (Mega)
+
+O backend expõe a interface interna `StorageProvider` com `Upload`, `Delete`, `GetQuota` e `EnsureDir`. A implementação atual é `MegaProvider`, configurada por `MEGA_AUTH_MODE`, `MEGA_EMAIL`, `MEGA_PASSWORD`, `MEGA_TOTP_CODE`, `MEGA_SESSION_FILE`, `MEGA_SESSION_ID` e `MEGA_MASTER_KEY`. A sessão persistida fica em `data/mega_session.json` e não deve ser versionada.
+
+### Permissões
+
+|Ação|Quem pode|
+|---|---|
+|Criar solicitação|Público|
+|Listar/consultar solicitações da academia|Academia dona|
+|Aprovar/reprovar|Academia dona|
+|Listar todas|Admin|
+|Configurar documentos obrigatórios|Academia dona|
+|Consultar quota de storage|Admin|

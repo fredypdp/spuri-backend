@@ -56,6 +56,8 @@ type Academia struct {
 	AnoLetivoAtivadoEm  *time.Time
 	AnoLetivoAtivadoPor *uuid.UUID
 	AnosLetivoLista     []AnoLetivoHistoricoItem
+
+	DocumentosObrigatorios DocumentosObrigatorios
 }
 
 func NewAcademia() *Academia {
@@ -65,12 +67,13 @@ func NewAcademia() *Academia {
 			Version:           0,
 			UncommittedEvents: []DomainEvent{},
 		},
-		Status:          "inativo",
-		AnosAcademicos:  []string{},
-		Cursos:          []string{},
-		CategoriasNota:  []string{},
-		AnosLetivoLista: []AnoLetivoHistoricoItem{},
-		EmailVerificado: false,
+		Status:                 "inativo",
+		AnosAcademicos:         []string{},
+		Cursos:                 []string{},
+		CategoriasNota:         []string{},
+		AnosLetivoLista:        []AnoLetivoHistoricoItem{},
+		EmailVerificado:        false,
+		DocumentosObrigatorios: DocumentosObrigatorios{Declaracao: []string{}, Certificado: []string{}},
 	}
 }
 
@@ -104,6 +107,8 @@ func (a *Academia) Apply(event DomainEvent) error {
 		return a.applyCategoriaNotaRemovida(event)
 	case "AnoLetivoAcademiaDefinido":
 		return a.applyAnoLetivoAcademiaDefinido(event)
+	case "AcademiaDocumentosObrigatoriosAtualizados":
+		return a.applyDocumentosObrigatoriosAtualizados(event)
 	default:
 		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
 	}
@@ -535,6 +540,33 @@ func (a *Academia) applyAnoLetivoAcademiaDefinido(event DomainEvent) error {
 	return nil
 }
 
+func (a *Academia) applyDocumentosObrigatoriosAtualizados(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyDocumentosObrigatoriosAtualizados: marshal error: %w", err)
+	}
+	var ev AcademiaDocumentosObrigatoriosAtualizadosEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyDocumentosObrigatoriosAtualizados: unmarshal error: %w", err)
+	}
+	a.DocumentosObrigatorios = ev.DocumentosObrigatorios
+	return nil
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	return out
+}
+
 // ============================================================================
 // Validações internas
 // ============================================================================
@@ -572,6 +604,19 @@ func validarAnosAcademicos(tipo string, nivelEscolar *string, anos []string) ([]
 	}
 
 	return nil, nil
+}
+
+func (a *Academia) AtualizarDocumentosObrigatorios(documentos DocumentosObrigatorios) error {
+	documentos.Declaracao = uniqueStrings(documentos.Declaracao)
+	documentos.Certificado = uniqueStrings(documentos.Certificado)
+	ev := &AcademiaDocumentosObrigatoriosAtualizadosEvent{
+		BaseEvent:              BaseEvent{EventType: "AcademiaDocumentosObrigatoriosAtualizados", AggregateID: a.ID},
+		CodigoAcademia:         a.CodigoAcademia,
+		DocumentosObrigatorios: documentos,
+		UpdatedAt:              time.Now().UTC(),
+	}
+	a.RaiseEvent(ev)
+	return nil
 }
 
 // ============================================================================
@@ -679,6 +724,23 @@ type AnoLetivoAcademiaDefinidoEvent struct {
 
 func (e *AnoLetivoAcademiaDefinidoEvent) GetPayload() interface{} { return e }
 func (e *AnoLetivoAcademiaDefinidoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+type DocumentosObrigatorios struct {
+	Declaracao  []string `json:"declaracao"`
+	Certificado []string `json:"certificado"`
+}
+
+type AcademiaDocumentosObrigatoriosAtualizadosEvent struct {
+	BaseEvent
+	CodigoAcademia         string
+	DocumentosObrigatorios DocumentosObrigatorios
+	UpdatedAt              time.Time
+}
+
+func (e *AcademiaDocumentosObrigatoriosAtualizadosEvent) GetPayload() interface{} { return e }
+func (e *AcademiaDocumentosObrigatoriosAtualizadosEvent) ToJSON() ([]byte, error) {
+	return json.Marshal(e)
+}
 
 type AnoLetivoHistoricoItem struct {
 	AnoLetivo   string    `json:"ano_letivo"`

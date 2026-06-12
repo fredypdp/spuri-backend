@@ -19,15 +19,17 @@ import (
 	"spuri/internal/jobs"
 	"spuri/internal/middleware"
 	"spuri/internal/projections"
+	"spuri/internal/storage"
 )
 
 var (
-	dbClient    *db.Client
-	repository  *db.AggregateRepository
-	projManager *projections.Manager
-	jobStore    *jobs.Store
-	jobWorker   *jobs.Worker
-	jobNotifier *jobs.Notifier
+	dbClient        *db.Client
+	repository      *db.AggregateRepository
+	projManager     *projections.Manager
+	jobStore        *jobs.Store
+	jobWorker       *jobs.Worker
+	jobNotifier     *jobs.Notifier
+	storageProvider storage.StorageProvider
 )
 
 // requestIDPattern define os caracteres permitidos num X-Request-ID externo.
@@ -46,6 +48,10 @@ func main() {
 		log.Fatalf("[ERROR] Erro ao conectar ao banco de dados: %v", err)
 	}
 	defer dbClient.Close()
+
+	if err := initStorage(); err != nil {
+		log.Fatalf("[ERROR] Erro ao inicializar armazenamento: %v", err)
+	}
 
 	if err := initProjections(); err != nil {
 		log.Fatalf("[ERROR] Erro ao inicializar projeções: %v", err)
@@ -89,6 +95,23 @@ func initDB() error {
 	return nil
 }
 
+func initStorage() error {
+	provider, err := storage.NewMegaProvider()
+	if err != nil {
+		if os.Getenv("ENV") == "production" {
+			return err
+		}
+		log.Printf("[WARN] armazenamento Mega não configurado, usando provider local: %v", err)
+		os.Setenv("MEGA_AUTH_MODE", "password")
+		provider, err = storage.NewMegaProvider()
+		if err != nil {
+			return err
+		}
+	}
+	storageProvider = provider
+	return nil
+}
+
 func initProjections() error {
 	projManager = projections.NewManager(dbClient)
 
@@ -110,6 +133,7 @@ func initProjections() error {
 
 	// ── Tier 4 — avaliação final ──────────────────────────────────────────
 	projManager.RegisterProjection("avaliacao_final", projections.NewAvaliacaoFinalProjection(dbClient))
+	projManager.RegisterProjection("solicitacoes_matricula", projections.NewSolicitacaoMatriculaProjection(dbClient))
 
 	go projManager.StartProcessing()
 	return nil
@@ -129,6 +153,7 @@ func initJobs(ctx context.Context) {
 		c.Set("projManager", projManager)
 		c.Set("jobStore", jobStore)
 		c.Set("jobNotifier", jobNotifier)
+		c.Set("storageProvider", storageProvider)
 	}
 
 	// 4 goroutines paralelas — ajustar conforme recursos do servidor
@@ -208,12 +233,14 @@ func setupRouter() *gin.Engine {
 		c.Set("jobStore", jobStore)
 		c.Set("jobWorker", jobWorker)
 		c.Set("jobNotifier", jobNotifier)
+		c.Set("storageProvider", storageProvider)
 		c.Next()
 	})
 
 	// ── Rotas públicas ─────────────────────────────────────────────────────
 	router.POST("/login", middleware.LoginRateLimit(), handlers.Login)
 	router.POST("/bootstrap", middleware.LoginRateLimit(), handlers.BootstrapAdminFPP)
+	router.POST("/solicitacao-matricula", handlers.CriarSolicitacaoMatricula)
 
 	emailGroup := router.Group("/email")
 	emailGroup.Use(middleware.EmailRateLimit())
@@ -262,6 +289,7 @@ func setupRouter() *gin.Engine {
 		protected.GET("/faltas", handlers.ListarFaltas)
 		protected.GET("/notas-estudante/:codigo", handlers.GetNotasEstudante)
 		protected.GET("/faltas-estudante/:codigo", handlers.GetFaltasEstudante)
+		protected.GET("/solicitacoes-matricula", middleware.RequireAdmin(), handlers.ListarSolicitacoesMatriculaAdmin)
 		protected.GET("/avaliacoes-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetAvaliacoesFinaisEstudante)
 		protected.GET("/turmas-estudante/:codigo", handlers.GetTurmasEstudante)
 		protected.POST("/adicionar-telefone-extra", handlers.AdicionarTelefoneExtra)
@@ -292,6 +320,9 @@ func setupRouter() *gin.Engine {
 		academiaRead.GET("/ano-letivo", handlers.GetAnoLetivoAcademia)
 		academiaRead.GET("/anos-letivos-lista", handlers.GetAnosLetivosListaAcademia)
 		academiaRead.GET("/categorias-nota", handlers.ListarCategoriasNota)
+		academiaRead.GET("/solicitacoes-matricula", handlers.ListarSolicitacoesMatriculaAcademia)
+		academiaRead.GET("/solicitacao-matricula/:codigo", handlers.GetSolicitacaoMatriculaAcademia)
+		academiaRead.GET("/documentos-obrigatorios", handlers.GetDocumentosObrigatorios)
 	}
 
 	academia := router.Group("/academia")
@@ -301,6 +332,9 @@ func setupRouter() *gin.Engine {
 	{
 		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
 		academia.POST("/ano-letivo", handlers.DefinirAnoLetivoAcademia)
+		academia.PUT("/documentos-obrigatorios", handlers.AtualizarDocumentosObrigatorios)
+		academia.PUT("/solicitacao-matricula/:codigo/aprovar", handlers.AprovarSolicitacaoMatricula)
+		academia.PUT("/solicitacao-matricula/:codigo/reprovar", handlers.ReprovarSolicitacaoMatricula)
 
 		academia.POST("/estudante/register", handlers.RegisterEstudantePorAcademia)
 		academia.POST("/notas-aluno", handlers.RegistrarNota)
@@ -391,6 +425,8 @@ func setupRouter() *gin.Engine {
 		admin.PUT("/admin/:id/desativar", middleware.RequireAdm(), handlers.DesativarAdmin)
 		admin.GET("/admin-lista", handlers.ListarTodosAdmins)
 		admin.GET("/metrics", handlers.GetSystemMetrics)
+		admin.GET("/storage/quota", handlers.GetStorageQuota)
+		admin.GET("/solicitacoes-matricula", handlers.ListarSolicitacoesMatriculaAdmin)
 		admin.POST("/projections/rebuild/:name", middleware.RequireFPP(), handlers.RebuildProjection)
 		admin.POST("/projections/rebuild/:name/async", middleware.RequireFPP(), handlers.RebuildProjectionAsync)
 		admin.GET("/consultar-admin/:email", handlers.GetAdminPorEmail)
