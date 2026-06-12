@@ -45,6 +45,7 @@ var validEventTypes = map[string]bool{
 	"AcademiaSenhaAlterada":     true,
 	"CategoriaNotaAdicionada":   true,
 	"AnoLetivoAcademiaDefinido": true,
+	"AcademiaDocumentosObrigatoriosAtualizados": true,
 	// ── Email Academia / Admin (compartilhado) ───────────────────────────────
 	"EmailVerificado": true,
 	// ── Admin ────────────────────────────────────────────────────────────────
@@ -88,6 +89,10 @@ var validEventTypes = map[string]bool{
 	// ── TelefoneExtra ──────────────────────────────────────────────────────────
 	"TelefoneExtraAdicionado": true,
 	"TelefoneExtraVerificado": true,
+	// ── Solicitação de Matrícula ───────────────────────────────────────────────
+	"SolicitacaoMatriculaCriada": true,
+	"SolicitacaoMatriculaAprovada": true,
+	"SolicitacaoMatriculaReprovada": true,
 }
 
 // validAggregateTypes é o mapa canônico de aggregate types permitidos no ledger.
@@ -99,6 +104,7 @@ var validAggregateTypes = map[string]bool{
 	"MateriaDisciplinar": true,
 	"Turma":              true,
 	"TelefoneExtra":      true,
+	"SolicitacaoMatricula": true,
 	"System":             true,
 }
 

@@ -38,3 +38,6 @@ Thumbs.db
 # Database
 *.db
 *.sqlite
+
+# Mega session credentials
+data/mega_session.json

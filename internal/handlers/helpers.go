@@ -15,6 +15,7 @@ import (
 	"spuri/internal/middleware"
 	"spuri/internal/projections"
 	"spuri/internal/services"
+	"spuri/internal/storage"
 )
 
 // ============================================================================
@@ -112,6 +113,19 @@ func getCategoriasNotaProjection(c *gin.Context) *projections.CategoriasNotaProj
 
 func getEmailService(c *gin.Context) *services.EmailService {
 	return services.NewEmailService(getDbClient(c).DB())
+}
+
+func getStorageProvider(c *gin.Context) storage.StorageProvider {
+	raw, exists := c.Get("storageProvider")
+	if !exists || raw == nil {
+		return nil
+	}
+	provider, _ := raw.(storage.StorageProvider)
+	return provider
+}
+
+func getSolicitacaoMatriculaProjection(c *gin.Context) *projections.SolicitacaoMatriculaProjection {
+	return projections.NewSolicitacaoMatriculaProjection(getDbClient(c))
 }
 
 // ============================================================================
