@@ -1,20 +1,21 @@
 package storage
 
 import (
-	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime/multipart"
-	"net/http"
-	"net/textproto"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/oauth2/google"
+	"google.golang.org/api/drive/v3"
+	"google.golang.org/api/option"
 )
 
 type StorageProvider interface {
@@ -48,14 +49,14 @@ type AccountFileUsage struct {
 
 // DriveProvider implements StorageProvider for Google Drive.
 //
-// In production it uses the Google Drive API with GOOGLE_DRIVE_ACCESS_TOKEN.
-// Local/test environments may opt into a filesystem-backed estimate by setting
-// GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true; files are stored under
-// GOOGLE_DRIVE_LOCAL_ROOT (default data/google_drive_storage).
+// In production it uses the official Google Drive API client authenticated with
+// service account credentials. Local/test environments may opt into a
+// filesystem-backed estimate by setting GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true;
+// files are stored under GOOGLE_DRIVE_LOCAL_ROOT (default data/google_drive_storage).
 type DriveProvider struct {
 	root         string
 	rootFolderID string
-	service      *driveRESTClient
+	service      *drive.Service
 }
 
 func NewDriveProvider() (StorageProvider, error) {
@@ -68,13 +69,54 @@ func NewDriveProvider() (StorageProvider, error) {
 	if useLocalDriveFallback() {
 		return &DriveProvider{root: root, rootFolderID: rootFolderID}, nil
 	}
+
+	credBytes, err := googleDriveCredentialBytes()
+	if err != nil {
+		return nil, err
+	}
+	if !isGoogleDriveServiceAccountJSON(credBytes) {
+		return nil, fmt.Errorf("credencial Google Drive inválida: JSON malformado ou não é uma service account")
+	}
 	if rootFolderID == "" {
 		return nil, fmt.Errorf("configuração Google Drive incompleta: GOOGLE_DRIVE_ROOT_FOLDER_ID é obrigatório")
 	}
-	if strings.TrimSpace(os.Getenv("GOOGLE_DRIVE_ACCESS_TOKEN")) == "" {
-		return nil, fmt.Errorf("configuração Google Drive incompleta: GOOGLE_DRIVE_ACCESS_TOKEN é obrigatório")
+
+	ctx := context.Background()
+	creds, err := google.CredentialsFromJSON(ctx, credBytes, drive.DriveScope)
+	if err != nil {
+		return nil, fmt.Errorf("credencial Google Drive inválida: JSON malformado ou não é uma service account")
 	}
-	return &DriveProvider{root: root, rootFolderID: rootFolderID, service: &driveRESTClient{client: &http.Client{Timeout: 2 * time.Minute}, token: strings.TrimSpace(os.Getenv("GOOGLE_DRIVE_ACCESS_TOKEN"))}}, nil
+	svc, err := drive.NewService(ctx, option.WithCredentials(creds))
+	if err != nil {
+		return nil, fmt.Errorf("falha ao criar Drive client: %w", err)
+	}
+
+	return &DriveProvider{root: root, rootFolderID: rootFolderID, service: svc}, nil
+}
+
+func googleDriveCredentialBytes() ([]byte, error) {
+	if path := strings.TrimSpace(os.Getenv("GOOGLE_DRIVE_CREDENTIALS_PATH")); path != "" {
+		credBytes, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("falha ao ler credencial Google Drive: %w", err)
+		}
+		return credBytes, nil
+	}
+	if b64 := strings.TrimSpace(os.Getenv("GOOGLE_DRIVE_CREDENTIALS_JSON")); b64 != "" {
+		credBytes, err := base64.StdEncoding.DecodeString(b64)
+		if err != nil {
+			return nil, fmt.Errorf("credencial Google Drive inválida: JSON malformado ou não é uma service account")
+		}
+		return credBytes, nil
+	}
+	return nil, fmt.Errorf("configuração Google Drive incompleta: nenhuma credencial configurada (defina GOOGLE_DRIVE_CREDENTIALS_PATH ou GOOGLE_DRIVE_CREDENTIALS_JSON)")
+}
+
+func isGoogleDriveServiceAccountJSON(credBytes []byte) bool {
+	var payload struct {
+		Type string `json:"type"`
+	}
+	return json.Unmarshal(credBytes, &payload) == nil && payload.Type == "service_account"
 }
 
 func useLocalDriveFallback() bool {
@@ -133,11 +175,11 @@ func (d *DriveProvider) Upload(remotePath string, content io.Reader, sizeBytes i
 	if err != nil {
 		return err
 	}
-	if _, err := d.service.uploadFile(ctx, parent, name, "application/pdf", content); err != nil {
+	if _, err := d.service.Files.Create(&drive.File{Name: name, Parents: []string{parent}}).Media(content).Fields("id").SupportsAllDrives(true).Context(ctx).Do(); err != nil {
 		return fmt.Errorf("falha no upload para Google Drive: %w", err)
 	}
 	if existing != nil {
-		_ = d.service.deleteFile(ctx, existing.ID)
+		_ = d.service.Files.Delete(existing.Id).SupportsAllDrives(true).Context(ctx).Do()
 	}
 	return nil
 }
@@ -159,19 +201,19 @@ func (d *DriveProvider) Delete(remotePath string) error {
 	if id == "" {
 		return nil
 	}
-	return d.service.deleteFile(ctx, id)
+	return d.service.Files.Delete(id).SupportsAllDrives(true).Context(ctx).Do()
 }
 
 func (d *DriveProvider) GetQuota() (QuotaInfo, error) {
 	if d.isLocal() {
 		if strings.TrimSpace(os.Getenv("GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE")) != "true" && os.Getenv("ENV") != "test" {
-			return QuotaInfo{}, fmt.Errorf("quota do Google Drive indisponível: configure credenciais do Google Drive e GOOGLE_DRIVE_ROOT_FOLDER_ID; para ambiente local, defina GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true para estimar apenas os arquivos em %q", d.root)
+			return QuotaInfo{}, fmt.Errorf("quota do Google Drive indisponível: configure credenciais e GOOGLE_DRIVE_ROOT_FOLDER_ID; para ambiente local, defina GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true")
 		}
 		return d.getLocalQuota()
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	about, err := d.service.getAbout(ctx)
+	about, err := d.service.About.Get().Fields("storageQuota").Context(ctx).Do()
 	if err != nil {
 		return QuotaInfo{}, fmt.Errorf("falha ao consultar quota do Google Drive: %w", err)
 	}
@@ -179,8 +221,8 @@ func (d *DriveProvider) GetQuota() (QuotaInfo, error) {
 	if err != nil {
 		return QuotaInfo{}, err
 	}
-	total := about.StorageQuota.Limit
-	used := about.StorageQuota.Usage
+	total := uint64FromDriveInt64(about.StorageQuota.Limit)
+	used := uint64FromDriveInt64(about.StorageQuota.Usage)
 	available := uint64(0)
 	if total > used {
 		available = total - used
@@ -276,30 +318,30 @@ func (d *DriveProvider) ensureDriveFolderPath(remotePath string) (string, error)
 			return "", err
 		}
 		if folder == nil {
-			folder, err = d.service.createFolder(ctx, parent, part)
+			folder, err = d.service.Files.Create(&drive.File{Name: part, MimeType: "application/vnd.google-apps.folder", Parents: []string{parent}}).Fields("id,name,mimeType").SupportsAllDrives(true).Context(ctx).Do()
 			if err != nil {
 				return "", fmt.Errorf("falha ao criar diretório no Google Drive: %w", err)
 			}
 		}
-		parent = folder.ID
+		parent = folder.Id
 	}
 	return parent, nil
 }
 
-func (d *DriveProvider) findDriveChild(ctx context.Context, parentID, name string, folder bool) (*driveFile, error) {
+func (d *DriveProvider) findDriveChild(ctx context.Context, parentID, name string, folder bool) (*drive.File, error) {
 	mimeOp := "!="
 	if folder {
 		mimeOp = "="
 	}
 	q := fmt.Sprintf("%s in parents and name = %s and mimeType %s 'application/vnd.google-apps.folder' and trashed = false", quoteDriveQueryString(parentID), quoteDriveQueryString(name), mimeOp)
-	resp, err := d.service.listFiles(ctx, q, 1, "")
+	resp, err := d.service.Files.List().Q(q).PageSize(1).Fields("files(id,name,mimeType,size,parents)").SupportsAllDrives(true).IncludeItemsFromAllDrives(true).Context(ctx).Do()
 	if err != nil {
 		return nil, err
 	}
 	if len(resp.Files) == 0 {
 		return nil, nil
 	}
-	return &resp.Files[0], nil
+	return resp.Files[0], nil
 }
 
 func (d *DriveProvider) resolveDrivePath(ctx context.Context, remotePath string) (string, error) {
@@ -315,7 +357,7 @@ func (d *DriveProvider) resolveDrivePath(ctx context.Context, remotePath string)
 		if err != nil || child == nil {
 			return "", err
 		}
-		parent = child.ID
+		parent = child.Id
 	}
 	return parent, nil
 }
@@ -332,7 +374,7 @@ func (d *DriveProvider) getDriveAccountUsage(ctx context.Context) ([]AcademiaUsa
 		pageToken := ""
 		for {
 			q := fmt.Sprintf("%s in parents and trashed = false", quoteDriveQueryString(parent))
-			resp, err := d.service.listFiles(ctx, q, 1000, pageToken)
+			resp, err := d.service.Files.List().Q(q).PageSize(1000).PageToken(pageToken).Fields("nextPageToken,files(id,name,mimeType,size,parents)").SupportsAllDrives(true).IncludeItemsFromAllDrives(true).Context(ctx).Do()
 			if err != nil {
 				return nil, nil, 0, fmt.Errorf("falha ao listar arquivos do Google Drive: %w", err)
 			}
@@ -343,11 +385,11 @@ func (d *DriveProvider) getDriveAccountUsage(ctx context.Context) ([]AcademiaUsa
 					path = base + "/" + f.Name
 				}
 				if f.MimeType == "application/vnd.google-apps.folder" {
-					parents[f.ID] = path
-					queue = append(queue, f.ID)
+					parents[f.Id] = path
+					queue = append(queue, f.Id)
 					continue
 				}
-				size := f.Size
+				size := uint64FromDriveInt64(f.Size)
 				parts := strings.Split(path, "/")
 				isManaged := len(parts) > 1 && parts[0] != ""
 				if isManaged {
@@ -366,142 +408,11 @@ func (d *DriveProvider) getDriveAccountUsage(ctx context.Context) ([]AcademiaUsa
 	return sortedAcademiaUsage(usage), files, managed, nil
 }
 
-type driveRESTClient struct {
-	client *http.Client
-	token  string
-}
-
-type driveFile struct {
-	ID       string   `json:"id"`
-	Name     string   `json:"name"`
-	MimeType string   `json:"mimeType"`
-	Size     uint64   `json:"size,string"`
-	Parents  []string `json:"parents,omitempty"`
-}
-
-type driveListResponse struct {
-	NextPageToken string      `json:"nextPageToken"`
-	Files         []driveFile `json:"files"`
-}
-
-type driveAboutResponse struct {
-	StorageQuota struct {
-		Limit uint64 `json:"limit,string"`
-		Usage uint64 `json:"usage,string"`
-	} `json:"storageQuota"`
-}
-
-func (c *driveRESTClient) do(ctx context.Context, req *http.Request, dest any) error {
-	req = req.WithContext(ctx)
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return err
+func uint64FromDriveInt64(v int64) uint64 {
+	if v < 0 {
+		return 0
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("Google Drive retornou HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-	if dest == nil {
-		return nil
-	}
-	return json.NewDecoder(resp.Body).Decode(dest)
-}
-
-func (c *driveRESTClient) getAbout(ctx context.Context) (*driveAboutResponse, error) {
-	req, err := http.NewRequest(http.MethodGet, "https://www.googleapis.com/drive/v3/about?fields=storageQuota", nil)
-	if err != nil {
-		return nil, err
-	}
-	var out driveAboutResponse
-	if err := c.do(ctx, req, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-func (c *driveRESTClient) listFiles(ctx context.Context, query string, pageSize int, pageToken string) (*driveListResponse, error) {
-	req, err := http.NewRequest(http.MethodGet, "https://www.googleapis.com/drive/v3/files", nil)
-	if err != nil {
-		return nil, err
-	}
-	q := req.URL.Query()
-	q.Set("q", query)
-	q.Set("fields", "nextPageToken,files(id,name,mimeType,size,parents)")
-	q.Set("pageSize", strconv.Itoa(pageSize))
-	q.Set("supportsAllDrives", "true")
-	q.Set("includeItemsFromAllDrives", "true")
-	if pageToken != "" {
-		q.Set("pageToken", pageToken)
-	}
-	req.URL.RawQuery = q.Encode()
-	var out driveListResponse
-	if err := c.do(ctx, req, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-func (c *driveRESTClient) createFolder(ctx context.Context, parentID, name string) (*driveFile, error) {
-	body, err := json.Marshal(map[string]any{
-		"name":     name,
-		"mimeType": "application/vnd.google-apps.folder",
-		"parents":  []string{parentID},
-	})
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequest(http.MethodPost, "https://www.googleapis.com/drive/v3/files?fields=id,name,mimeType", bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	var out driveFile
-	if err := c.do(ctx, req, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-func (c *driveRESTClient) uploadFile(ctx context.Context, parentID, name, mimeType string, content io.Reader) (*driveFile, error) {
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	meta, err := writer.CreatePart(textproto.MIMEHeader{"Content-Type": {"application/json; charset=UTF-8"}})
-	if err != nil {
-		return nil, err
-	}
-	if err := json.NewEncoder(meta).Encode(map[string]any{"name": name, "parents": []string{parentID}, "mimeType": mimeType}); err != nil {
-		return nil, err
-	}
-	filePart, err := writer.CreatePart(textproto.MIMEHeader{"Content-Type": {mimeType}})
-	if err != nil {
-		return nil, err
-	}
-	if _, err := io.Copy(filePart, content); err != nil {
-		return nil, err
-	}
-	if err := writer.Close(); err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequest(http.MethodPost, "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,size", &body)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "multipart/related; boundary="+writer.Boundary())
-	var out driveFile
-	if err := c.do(ctx, req, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-func (c *driveRESTClient) deleteFile(ctx context.Context, id string) error {
-	req, err := http.NewRequest(http.MethodDelete, "https://www.googleapis.com/drive/v3/files/"+id+"?supportsAllDrives=true", nil)
-	if err != nil {
-		return err
-	}
-	return c.do(ctx, req, nil)
+	return uint64(v)
 }
 
 func quoteDriveQueryString(v string) string {

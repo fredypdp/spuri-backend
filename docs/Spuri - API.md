@@ -3643,15 +3643,16 @@ Lista todas as solicitações do sistema para admin. Query params: `status`, `co
 
 ### GET /dominis/storage/quota
 
-Retorna a quota da conta Google Drive e a distribuição dos arquivos gerenciados pelo Spuri. Em produção, o backend deve estar configurado com `GOOGLE_DRIVE_ROOT_FOLDER_ID` e `GOOGLE_DRIVE_ACCESS_TOKEN`; nessa configuração, `total_bytes` e `used_bytes` vêm de `about.storageQuota` da API Google Drive, enquanto `account_files`, `managed_bytes` e `academias` são calculados pela listagem recursiva da pasta raiz gerenciada pelo Spuri. `unmanaged_bytes` representa o uso da conta que não está dentro da pasta raiz gerenciada, como arquivos enviados manualmente fora da estrutura do sistema.
+Retorna a quota da conta Google Drive e a distribuição dos arquivos gerenciados pelo Spuri. Em produção, o backend deve estar configurado com `GOOGLE_DRIVE_CREDENTIALS_PATH` ou `GOOGLE_DRIVE_CREDENTIALS_JSON`, além de `GOOGLE_DRIVE_ROOT_FOLDER_ID`; nessa configuração, `total_bytes` e `used_bytes` vêm de `about.storageQuota` da API Google Drive, enquanto `account_files`, `managed_bytes` e `academias` são calculados pela listagem recursiva da pasta raiz gerenciada pelo Spuri. `unmanaged_bytes` representa o uso da conta que não está dentro da pasta raiz gerenciada, como arquivos enviados manualmente fora da estrutura do sistema.
 
 Sem credenciais de produção, o backend só permite estimativa local quando `GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true`, contabilizando apenas `GOOGLE_DRIVE_LOCAL_ROOT` (padrão `data/google_drive_storage`). `GOOGLE_DRIVE_QUOTA_TOTAL_BYTES` ou `GOOGLE_DRIVE_QUOTA_TOTAL_GB` podem ajustar o total estimado.
 
 Quando a configuração do Google Drive ou da quota estiver incompleta ou inválida, a rota retorna `503 Service Unavailable` com a mensagem operacional gerada pelo storage. Exemplos de mensagens:
 
 - `configuração Google Drive incompleta: GOOGLE_DRIVE_ROOT_FOLDER_ID é obrigatório`
-- `configuração Google Drive incompleta: GOOGLE_DRIVE_ACCESS_TOKEN é obrigatório`
-- `quota do Google Drive indisponível: configure credenciais do Google Drive e GOOGLE_DRIVE_ROOT_FOLDER_ID; para ambiente local, defina GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true para estimar apenas os arquivos em "data/google_drive_storage"`
+- `configuração Google Drive incompleta: nenhuma credencial configurada (defina GOOGLE_DRIVE_CREDENTIALS_PATH ou GOOGLE_DRIVE_CREDENTIALS_JSON)`
+- `credencial Google Drive inválida: JSON malformado ou não é uma service account`
+- `quota do Google Drive indisponível: configure credenciais e GOOGLE_DRIVE_ROOT_FOLDER_ID; para ambiente local, defina GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true`
 - `configuração Google Drive inválida: GOOGLE_DRIVE_QUOTA_TOTAL_BYTES="..." deve ser um inteiro positivo em bytes`
 - `configuração Google Drive inválida: GOOGLE_DRIVE_QUOTA_TOTAL_GB="..." deve ser um inteiro positivo em GB`
 
@@ -3696,7 +3697,7 @@ Quando a configuração do Google Drive ou da quota estiver incompleta ou invál
 ```json
 {
   "error": "SERVICE_UNAVAILABLE",
-  "message": "quota do Google Drive indisponível: configure credenciais do Google Drive e GOOGLE_DRIVE_ROOT_FOLDER_ID; para ambiente local, defina GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true para estimar apenas os arquivos em \"data/google_drive_storage\"",
+  "message": "quota do Google Drive indisponível: configure credenciais e GOOGLE_DRIVE_ROOT_FOLDER_ID; para ambiente local, defina GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true",
   "request_id": "8c7e6a5d-9b9f-4fd2-a2d0-3a989a8c2d8b"
 }
 ```
