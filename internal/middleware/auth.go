@@ -148,6 +148,56 @@ func AuthMiddleware() gin.HandlerFunc {
 	}
 }
 
+// OptionalAuthMiddleware autentica a requisição quando um token Bearer é enviado,
+// mas permite o acesso sem Authorization. Tokens presentes continuam sendo
+// validados para preservar o comportamento seguro de rotas que têm resposta
+// ampliada para usuários autenticados.
+func OptionalAuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.Next()
+			return
+		}
+
+		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+		if tokenString == authHeader {
+			log.Printf("❌ [OptionalAuthMiddleware] Formato de token inválido (sem 'Bearer ')")
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "formato de token inválido"})
+			c.Abort()
+			return
+		}
+
+		claims := &Claims{}
+		token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+			return jwtSecret, nil
+		})
+
+		if err != nil || !token.Valid {
+			log.Printf("❌ [OptionalAuthMiddleware] Token inválido ou expirado: %v - IP: %s", err, c.ClientIP())
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "token inválido ou expirado"})
+			c.Abort()
+			return
+		}
+
+		if err := verificarStatusUsuario(c, claims.UserID, claims.UserType); err != nil {
+			log.Printf("❌ [OptionalAuthMiddleware] Usuário inativo ou não encontrado - UserID: %s, Type: %s: %v",
+				claims.UserID, claims.UserType, err)
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error": "conta inativa ou não encontrada. Entre em contato com o suporte.",
+			})
+			c.Abort()
+			return
+		}
+
+		c.Set("user_id", claims.UserID)
+		c.Set("user_type", claims.UserType)
+
+		log.Printf("✅ [OptionalAuthMiddleware] Autenticado - UserID: %s, UserType: %s", claims.UserID, claims.UserType)
+		c.Next()
+	}
+}
+
 // verificarStatusUsuario consulta a projeção correspondente ao userType e
 // retorna erro se o usuário não existir ou não estiver ativo.
 //
