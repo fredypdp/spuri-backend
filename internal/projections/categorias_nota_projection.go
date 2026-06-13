@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 type CategoriasNotaProjection struct {
@@ -144,6 +145,7 @@ type CategoriaNotaDTO struct {
 	Codigo         string     `json:"codigo"`
 	Nome           string     `json:"nome"`
 	Descricao      *string    `json:"descricao,omitempty"`
+	AnosAcademicos []string   `json:"anos_academicos"`
 	AdicionadoPor  *uuid.UUID `json:"adicionado_por,omitempty"`
 	Status         string     `json:"status"`
 	CreatedAt      time.Time  `json:"created_at"`
@@ -154,7 +156,7 @@ type CategoriaNotaDTO struct {
 // Usado por ListarCategoriasNota e carregarCategoriasAdicionais.
 func (p *CategoriasNotaProjection) ListarPorAcademia(codigoAcademia string) ([]CategoriaNotaDTO, error) {
 	rows, err := p.client.DB().Query(`
-		SELECT id, codigo_academia, codigo, nome, descricao, adicionado_por,
+		SELECT id, codigo_academia, codigo, nome, descricao, COALESCE(anos_academicos, '[]'::jsonb), adicionado_por,
 			status, created_at, version
 		FROM projection_categorias_nota
 		WHERE codigo_academia = $1 AND status = 'ativo'
@@ -169,12 +171,14 @@ func (p *CategoriasNotaProjection) ListarPorAcademia(codigoAcademia string) ([]C
 	for rows.Next() {
 		var c CategoriaNotaDTO
 		var adicionadoPor sql.NullString
+		var anosJSON []byte
 		if err := rows.Scan(
-			&c.ID, &c.CodigoAcademia, &c.Codigo, &c.Nome, &c.Descricao, &adicionadoPor,
+			&c.ID, &c.CodigoAcademia, &c.Codigo, &c.Nome, &c.Descricao, &anosJSON, &adicionadoPor,
 			&c.Status, &c.CreatedAt, &c.Version,
 		); err != nil {
 			return nil, err
 		}
+		_ = json.Unmarshal(anosJSON, &c.AnosAcademicos)
 		if adicionadoPor.Valid {
 			uid, _ := uuid.Parse(adicionadoPor.String)
 			c.AdicionadoPor = &uid
@@ -227,6 +231,7 @@ func (p *CategoriasNotaProjection) handleCategoriaAdicionada(event db.Event) err
 		Codigo         string     `json:"Codigo"`
 		Nome           string     `json:"Nome"`
 		Descricao      *string    `json:"Descricao"`
+		AnosAcademicos []string   `json:"AnosAcademicos"`
 		AdicionadoPor  *uuid.UUID `json:"AdicionadoPor"`
 		CreatedAt      time.Time  `json:"CreatedAt"`
 	}
@@ -241,12 +246,13 @@ func (p *CategoriasNotaProjection) handleCategoriaAdicionada(event db.Event) err
 
 	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_categorias_nota (
-			id, codigo_academia, codigo, nome, descricao, adicionado_por,
+			id, codigo_academia, codigo, nome, descricao, anos_academicos, adicionado_por,
 			status, created_at, event_id, version
-		) VALUES ($1, $2, $3, $4, $5, $6, 'ativo', $7, $8, $9)
+		) VALUES ($1, $2, $3, $4, $5, to_jsonb($6::text[]), $7, 'ativo', $8, $9, $10)
 		ON CONFLICT (codigo_academia, codigo) DO UPDATE SET
 			nome           = EXCLUDED.nome,
 			descricao      = EXCLUDED.descricao,
+			anos_academicos = EXCLUDED.anos_academicos,
 			adicionado_por = EXCLUDED.adicionado_por,
 			created_at     = EXCLUDED.created_at,
 			event_id       = EXCLUDED.event_id,
@@ -257,6 +263,7 @@ func (p *CategoriasNotaProjection) handleCategoriaAdicionada(event db.Event) err
 		payload.Codigo,
 		payload.Nome,
 		payload.Descricao,
+		pq.Array(payload.AnosAcademicos),
 		adicionadoPor,
 		payload.CreatedAt,
 		event.EventID,

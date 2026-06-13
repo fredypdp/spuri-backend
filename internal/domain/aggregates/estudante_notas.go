@@ -121,46 +121,40 @@ func validarPeriodoComLista(periodo string, periodosValidos []string) error {
 // validarCategoria verifica se a categoria é aceita para o tipo de nota.
 //
 // Regras:
-//   - TipoEscolar:  aceita categorias fixas (nota_escola, nota_professor) OU
-//     categorias adicionais cadastradas pela academia.
-//   - TipoSuperior: aceita categorias fixas (nota_pp1, nota_pp2, nota_exame) OU
-//     categorias adicionais cadastradas pela academia.
+//   - A categoria deve estar configurada pela academia para o ano_academico
+//     inferido da nota. Categorias sem anos definidos não chegam aqui.
+//   - TipoEscolar rejeita categorias fixas de superior.
+//   - TipoSuperior rejeita categorias fixas de escolar.
 //
-// categoriasAdicionais é a lista de categorias extras cadastradas pela academia
-// e deve ser fornecida pelo handler para ambos os tipos.
+// categoriasAdicionais contém os códigos das categorias configuradas para o
+// ano_academico da nota, incluindo categorias fixas/obrigatórias e adicionais.
 func validarCategoria(tipo string, categoria string, categoriasAdicionais []string) error {
 	if categoria == "" {
 		return fmt.Errorf("categoria não pode ser vazia")
 	}
+
+	categoriaConfigurada := false
+	for _, c := range categoriasAdicionais {
+		if c == categoria {
+			categoriaConfigurada = true
+			break
+		}
+	}
+	if !categoriaConfigurada {
+		return fmt.Errorf("categoria '%s' não está configurada para o ano_academico da nota", categoria)
+	}
+
 	switch tipo {
 	case TipoEscolar:
-		if categoriasEscolarFixas[categoria] {
-			return nil
-		}
-		for _, c := range categoriasAdicionais {
-			if c == categoria {
-				return nil
-			}
-		}
-		return fmt.Errorf(
-			"categoria '%s' inválida para tipo 'escolar'. "+
-				"Aceitas: nota_escola, nota_professor, ou categorias adicionais da academia",
-			categoria,
-		)
-	case TipoSuperior:
 		if categoriasSuperiorFixas[categoria] {
-			return nil
+			return fmt.Errorf("categoria '%s' inválida para tipo 'escolar'", categoria)
 		}
-		for _, c := range categoriasAdicionais {
-			if c == categoria {
-				return nil
-			}
+		return nil
+	case TipoSuperior:
+		if categoriasEscolarFixas[categoria] {
+			return fmt.Errorf("categoria '%s' inválida para tipo 'superior'", categoria)
 		}
-		return fmt.Errorf(
-			"categoria '%s' não reconhecida para tipo 'superior'. "+
-				"Aceitas: nota_pp1, nota_pp2, nota_exame, ou categorias adicionais da academia",
-			categoria,
-		)
+		return nil
 	default:
 		return fmt.Errorf("tipo '%s' inválido. Use 'escolar' ou 'superior'", tipo)
 	}
@@ -187,8 +181,9 @@ func chaveNota(codigoAcademia, anoLectivo, periodo string, materiaID uuid.UUID, 
 //   - estudante no fundamental → estudante.AnoEscolar
 //   - estudante no médio/superior → materia.AnosAcademicos[0]
 //
-// categoriasAdicionais: lista de categorias extras cadastradas pela academia.
-// Deve ser fornecida para qualquer tipo — escolar ou superior.
+// categoriasAdicionais: códigos das categorias configuradas pela academia
+// para o ano_academico da nota. Deve ser fornecida para qualquer tipo —
+// escolar ou superior.
 //
 // FIX NOTA-AGG-01: guard de duplicata via NotasRegistradasPorChave antes de
 // emitir o evento, evitando double-submit e a violação 23505 na projeção.

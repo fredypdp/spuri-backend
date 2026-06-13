@@ -20,6 +20,7 @@ func (a *Academia) AdicionarCategoriaNota(
 	descricao *string,
 	adicionadoPor uuid.UUID,
 	codigosExistentes []string,
+	anosAcademicos []string,
 ) error {
 	codigo = strings.TrimSpace(codigo)
 	nome = strings.TrimSpace(nome)
@@ -28,6 +29,14 @@ func (a *Academia) AdicionarCategoriaNota(
 	}
 	if nome == "" {
 		return fmt.Errorf("nome da categoria não pode ser vazio")
+	}
+	if len(anosAcademicos) == 0 {
+		return fmt.Errorf("anos_academicos da categoria não pode ser vazio")
+	}
+	for _, ano := range anosAcademicos {
+		if strings.TrimSpace(ano) == "" {
+			return fmt.Errorf("anos_academicos da categoria não pode conter valores vazios")
+		}
 	}
 	if strings.Contains(codigo, " ") {
 		return fmt.Errorf("codigo da categoria não pode conter espaços")
@@ -53,6 +62,7 @@ func (a *Academia) AdicionarCategoriaNota(
 		Codigo:         codigo,
 		Nome:           nome,
 		Descricao:      descricao,
+		AnosAcademicos: anosAcademicos,
 		AdicionadoPor:  adicionadoPor,
 		CreatedAt:      time.Now(),
 	}
@@ -161,6 +171,7 @@ type CategoriaNotaAdicionadaEvent struct {
 	Codigo         string
 	Nome           string
 	Descricao      *string
+	AnosAcademicos []string
 	AdicionadoPor  uuid.UUID
 	CreatedAt      time.Time
 }
