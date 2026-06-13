@@ -61,3 +61,30 @@ func TestConfiguredQuotaTotalBytesUsesGBOverride(t *testing.T) {
 		t.Fatalf("configuredQuotaTotalBytes() = %d, want %d", total, want)
 	}
 }
+
+func TestMegaAccountUsageSeparatesRootFilesFromManagedFolders(t *testing.T) {
+	nodes := map[string]megaNode{
+		"root":  {Hash: "root", Type: 2},
+		"aca":   {Hash: "aca", Parent: "root", Type: 1},
+		"file":  {Hash: "file", Parent: "aca", Type: 0, Size: 10},
+		"loose": {Hash: "loose", Parent: "root", Type: 0, Size: 20},
+	}
+	names := map[string]string{
+		"aca":   "ACA001",
+		"file":  "video.mp4",
+		"loose": "avulso.mp4",
+	}
+
+	if got := topLevelMegaFolder(nodes["file"], nodes, names); got != "ACA001" {
+		t.Fatalf("topLevelMegaFolder(managed) = %q, want ACA001", got)
+	}
+	if got := topLevelMegaFolder(nodes["loose"], nodes, names); got != "" {
+		t.Fatalf("topLevelMegaFolder(root file) = %q, want empty", got)
+	}
+	if got := megaNodePath(nodes["file"], nodes, names); got != "ACA001/video.mp4" {
+		t.Fatalf("megaNodePath(managed) = %q, want ACA001/video.mp4", got)
+	}
+	if got := megaNodePath(nodes["loose"], nodes, names); got != "avulso.mp4" {
+		t.Fatalf("megaNodePath(root file) = %q, want avulso.mp4", got)
+	}
+}
