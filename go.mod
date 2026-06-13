@@ -12,6 +12,8 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/lib/pq v1.10.9
 	golang.org/x/crypto v0.23.0
+	golang.org/x/oauth2 v0.30.0
+	google.golang.org/api v0.247.0
 	golang.org/x/time v0.14.0
 	gopkg.in/gomail.v2 v2.0.0-20160411212932-81ebce5c23df
 )
