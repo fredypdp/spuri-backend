@@ -1,8 +1,8 @@
 ---
-modificado: 10-06-2026 23:55
+modificado: 13-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.6.4
+Versão atual: 1.6.5
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -3128,7 +3128,11 @@ Use este endpoint quando o rebuild puder demorar vários minutos.
 
 Lista todas as academias com paginação e filtro de status.
 
-**Proteção**: autenticado (qualquer tipo)
+**Proteção**: pública com autenticação opcional.
+
+- Sem `Authorization`, a rota retorna apenas dados públicos de cada academia.
+- Com `Authorization: Bearer <jwt_token>` válido, a rota mantém o contrato autenticado anterior.
+- Se um header `Authorization` for enviado, ele deve ser um Bearer token válido; tokens inválidos/expirados retornam `401`.
 
 **Query Params:**
 
@@ -3136,7 +3140,30 @@ Lista todas as academias com paginação e filtro de status.
 - `offset` — deslocamento (padrão: 0)
 - `status` — `ativo` ou `inativo` (omitir = retorna ambos)
 
-**Response 200:**
+**Response 200 — usuário não autenticado:**
+
+```json
+{
+  "academias": [
+    {
+      "nivel": "escola",
+      "type": "public",
+      "nome": "Escola Exemplo",
+      "codigo_academia": "LUA20261",
+      "provincia": "Luanda",
+      "endereco": "Rua Exemplo, 123",
+      "nivel_escolar": "fundamental"
+    }
+  ],
+  "total": 1,
+  "limit": 1000,
+  "offset": 0
+}
+```
+
+**Campos públicos por academia:** `nivel`, `type`, `nome`, `codigo_academia`, `provincia`, `endereco`, `nivel_escolar`.
+
+**Response 200 — usuário autenticado:**
 
 ```json
 {
@@ -3147,7 +3174,7 @@ Lista todas as academias com paginação e filtro de status.
 }
 ```
 
-**Nota**: admins veem campos extras (`email`, `total_estudantes`, `version`).
+**Nota**: usuários autenticados veem os campos operacionais do `AcademiaDTO`; admins veem campos extras (`email`, `total_estudantes`, `version`).
 
 ---
 
