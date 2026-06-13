@@ -387,13 +387,13 @@ func GetStorageQuota(c *gin.Context) {
 		var err error
 		p, err = storage.NewMegaProvider()
 		if err != nil {
-			utils.RespondWithInternalError(c, err)
+			utils.RespondWithError(c, http.StatusServiceUnavailable, err.Error(), err)
 			return
 		}
 	}
 	q, err := p.GetQuota()
 	if err != nil {
-		utils.RespondWithInternalError(c, err)
+		utils.RespondWithError(c, http.StatusServiceUnavailable, err.Error(), err)
 		return
 	}
 	academias := make([]gin.H, 0, len(q.Academias))
