@@ -2,7 +2,7 @@
 modificado: 13-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.6.8
+Versão atual: 1.6.9
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -3643,15 +3643,17 @@ Lista todas as solicitações do sistema para admin. Query params: `status`, `co
 
 ### GET /dominis/storage/quota
 
-Retorna quota real da conta Mega quando o backend está configurado com sessão (`MEGA_AUTH_MODE=session`, `MEGA_SESSION_ID` e `MEGA_MASTER_KEY`). Nessa configuração, `total_bytes` e `used_bytes` vêm da API do Mega e representam todo o armazenamento ocupado na conta, inclusive arquivos enviados diretamente pelo site do Mega na raiz do Cloud Drive. A resposta também traz `account_files` com todos os arquivos visíveis no Cloud Drive, `managed_bytes` para arquivos dentro de diretórios de academia, `unmanaged_bytes` para o uso restante da conta, e `academias` com a soma por diretório de academia. Sem sessão, o backend só permite a estimativa local se `MEGA_QUOTA_LOCAL_ESTIMATE=true`, contabilizando apenas `MEGA_LOCAL_ROOT` (padrão `data/mega_storage`).
+Retorna a quota da conta Google Drive e a distribuição dos arquivos gerenciados pelo Spuri. Em produção, o backend deve estar configurado com `GOOGLE_DRIVE_ROOT_FOLDER_ID` e `GOOGLE_DRIVE_ACCESS_TOKEN`; nessa configuração, `total_bytes` e `used_bytes` vêm de `about.storageQuota` da API Google Drive, enquanto `account_files`, `managed_bytes` e `academias` são calculados pela listagem recursiva da pasta raiz gerenciada pelo Spuri. `unmanaged_bytes` representa o uso da conta que não está dentro da pasta raiz gerenciada, como arquivos enviados manualmente fora da estrutura do sistema.
 
-Quando a configuração do Mega ou da quota estiver incompleta ou inválida, a rota retorna `503 Service Unavailable` com a mensagem operacional gerada pelo storage. Exemplos de mensagens:
+Sem credenciais de produção, o backend só permite estimativa local quando `GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true`, contabilizando apenas `GOOGLE_DRIVE_LOCAL_ROOT` (padrão `data/google_drive_storage`). `GOOGLE_DRIVE_QUOTA_TOTAL_BYTES` ou `GOOGLE_DRIVE_QUOTA_TOTAL_GB` podem ajustar o total estimado.
 
-- `configuração Mega inválida: MEGA_AUTH_MODE="..." não é suportado; use password, 2fa ou session`
-- `configuração Mega incompleta: MEGA_SESSION_ID e MEGA_MASTER_KEY são obrigatórios quando MEGA_AUTH_MODE=session`
-- `quota do Mega indisponível: configure MEGA_AUTH_MODE=session com MEGA_SESSION_ID e MEGA_MASTER_KEY para consultar a conta Mega; para ambiente local, defina MEGA_QUOTA_LOCAL_ESTIMATE=true para estimar apenas os arquivos em "data/mega_storage"`
-- `configuração Mega inválida: MEGA_QUOTA_TOTAL_BYTES="..." deve ser um inteiro positivo em bytes`
-- `configuração Mega inválida: MEGA_QUOTA_TOTAL_GB="..." deve ser um inteiro positivo em GB`
+Quando a configuração do Google Drive ou da quota estiver incompleta ou inválida, a rota retorna `503 Service Unavailable` com a mensagem operacional gerada pelo storage. Exemplos de mensagens:
+
+- `configuração Google Drive incompleta: GOOGLE_DRIVE_ROOT_FOLDER_ID é obrigatório`
+- `configuração Google Drive incompleta: GOOGLE_DRIVE_ACCESS_TOKEN é obrigatório`
+- `quota do Google Drive indisponível: configure credenciais do Google Drive e GOOGLE_DRIVE_ROOT_FOLDER_ID; para ambiente local, defina GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true para estimar apenas os arquivos em "data/google_drive_storage"`
+- `configuração Google Drive inválida: GOOGLE_DRIVE_QUOTA_TOTAL_BYTES="..." deve ser um inteiro positivo em bytes`
+- `configuração Google Drive inválida: GOOGLE_DRIVE_QUOTA_TOTAL_GB="..." deve ser um inteiro positivo em GB`
 
 **Proteção**: autenticado + admin
 
@@ -3659,37 +3661,30 @@ Quando a configuração do Mega ou da quota estiver incompleta ou inválida, a r
 
 ```json
 {
-  "provider": "mega",
-  "total_bytes": 21474836480,
-  "used_bytes": 1073741824,
-  "available_bytes": 20401094656,
-  "managed_bytes": 524288000,
-  "unmanaged_bytes": 549453824,
-  "total_human": "20.00 GB",
-  "used_human": "1.00 GB",
-  "available_human": "19.00 GB",
-  "managed_human": "500.00 MB",
-  "unmanaged_human": "524.00 MB",
+  "provider": "google_drive",
+  "total_bytes": 16106127360,
+  "used_bytes": 536870912,
+  "available_bytes": 15569256448,
+  "managed_bytes": 104857600,
+  "unmanaged_bytes": 432013312,
+  "total_human": "15.00 GB",
+  "used_human": "512.00 MB",
+  "available_human": "14.50 GB",
+  "managed_human": "100.00 MB",
+  "unmanaged_human": "412.00 MB",
   "academias": [
     {
       "codigo_academia": "ACA001",
-      "used_bytes": 524288000,
-      "used_human": "500.00 MB"
+      "used_bytes": 104857600,
+      "used_human": "100.00 MB"
     }
   ],
   "account_files": [
     {
-      "path": "video-avulso.mp4",
-      "name": "video-avulso.mp4",
-      "size_bytes": 549453824,
-      "size_human": "524.00 MB",
-      "managed": false
-    },
-    {
       "path": "ACA001/matriculas/matricula_2026_0001/documento.pdf",
       "name": "documento.pdf",
-      "size_bytes": 524288000,
-      "size_human": "500.00 MB",
+      "size_bytes": 1048576,
+      "size_human": "1.00 MB",
       "managed": true
     }
   ]
@@ -3701,7 +3696,7 @@ Quando a configuração do Mega ou da quota estiver incompleta ou inválida, a r
 ```json
 {
   "error": "SERVICE_UNAVAILABLE",
-  "message": "quota do Mega indisponível: configure MEGA_AUTH_MODE=session com MEGA_SESSION_ID e MEGA_MASTER_KEY para consultar a conta Mega; para ambiente local, defina MEGA_QUOTA_LOCAL_ESTIMATE=true para estimar apenas os arquivos em \"data/mega_storage\"",
+  "message": "quota do Google Drive indisponível: configure credenciais do Google Drive e GOOGLE_DRIVE_ROOT_FOLDER_ID; para ambiente local, defina GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true para estimar apenas os arquivos em \"data/google_drive_storage\"",
   "request_id": "8c7e6a5d-9b9f-4fd2-a2d0-3a989a8c2d8b"
 }
 ```

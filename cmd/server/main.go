@@ -96,14 +96,14 @@ func initDB() error {
 }
 
 func initStorage() error {
-	provider, err := storage.NewMegaProvider()
+	provider, err := storage.NewDriveProvider()
 	if err != nil {
 		if os.Getenv("ENV") == "production" {
 			return err
 		}
-		log.Printf("[WARN] armazenamento Mega não configurado, usando provider local: %v", err)
-		os.Setenv("MEGA_AUTH_MODE", "password")
-		provider, err = storage.NewMegaProvider()
+		log.Printf("[WARN] armazenamento Google Drive não configurado, usando provider local: %v", err)
+		os.Setenv("GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE", "true")
+		provider, err = storage.NewDriveProvider()
 		if err != nil {
 			return err
 		}
