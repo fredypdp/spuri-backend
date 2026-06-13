@@ -390,6 +390,25 @@ func sortedAcademiaUsage(usage map[string]uint64) []AcademiaUsage {
 	return out
 }
 
+func configuredQuotaTotalBytes() (uint64, error) {
+	if raw := strings.TrimSpace(os.Getenv("MEGA_QUOTA_TOTAL_BYTES")); raw != "" {
+		v, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil || v == 0 {
+			return 0, fmt.Errorf("MEGA_QUOTA_TOTAL_BYTES inválido: %q", raw)
+		}
+		return v, nil
+	}
+	if raw := strings.TrimSpace(os.Getenv("MEGA_QUOTA_TOTAL_GB")); raw != "" {
+		v, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil || v == 0 {
+			return 0, fmt.Errorf("MEGA_QUOTA_TOTAL_GB inválido: %q", raw)
+		}
+		return v * 1024 * 1024 * 1024, nil
+	}
+	const freeAccountDefault uint64 = 20 * 1024 * 1024 * 1024
+	return freeAccountDefault, nil
+}
+
 func HumanBytes(v uint64) string {
 	units := []string{"B", "KB", "MB", "GB", "TB"}
 	f := float64(v)
