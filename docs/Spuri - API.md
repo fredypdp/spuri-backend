@@ -1339,7 +1339,7 @@ Retorna a lista histórica de anos letivos definidos pela academia alvo.
 
 ### POST /academia/categorias-nota
 
-Cria uma categoria de nota adicional para a academia.
+Cria ou configura uma categoria de nota para a academia. O mesmo endpoint é usado para categorias adicionais e para definir os anos acadêmicos das categorias fixas/obrigatórias (`nota_escola`, `nota_professor`, `nota_pp1`, `nota_pp2`, `nota_exame`).
 
 **Proteção**: autenticado + academia ativa
 
@@ -1347,9 +1347,10 @@ Cria uma categoria de nota adicional para a academia.
 
 ```json
 {
-  "codigo": "nota_teste",      // obrigatório, sem espaços
-  "nome": "Nota de teste",      // obrigatório (rótulo)
-  "descricao": "string"        // opcional
+  "codigo": "nota_teste",
+  "nome": "Nota de teste",
+  "descricao": "string",
+  "anos_academicos": ["3_ano_fundamental", "4_ano_fundamental"]
 }
 ```
 
@@ -1364,7 +1365,7 @@ Cria uma categoria de nota adicional para a academia.
 
 **Erros:**
 
-- `400` — codigo ou nome ausente
+- `400` — codigo, nome ou anos_academicos ausente/vazio
 - `409` — categoria já existe nesta academia
 
 ---
@@ -1383,7 +1384,19 @@ Lista todas as categorias de nota da academia alvo.
 
 ```json
 {
-  "categorias": [CategoriaNotaDTO],
+  "categorias": [
+    {
+      "id": "uuid",
+      "codigo_academia": "ACAD20251",
+      "codigo": "nota_teste",
+      "nome": "Nota de teste",
+      "descricao": "string",
+      "anos_academicos": ["3_ano_fundamental"],
+      "status": "ativo",
+      "created_at": "2026-06-13T00:00:00Z",
+      "version": 1
+    }
+  ],
   "total": 2
 }
 ```
@@ -1417,7 +1430,7 @@ Inativa (remove logicamente) uma categoria de nota adicional da academia.
 
 **Erros:**
 
-- `400` — codigo ou nome ausente no path
+- `400` — codigo, nome ou anos_academicos ausente/vazio no path
 - `400` — categoria não existe nesta academia
 
 ---
@@ -1813,7 +1826,7 @@ Registra uma nota para um estudante.
 - `periodo` deve ser válido para o tipo (`1_trimestre`/`2_trimestre`/`3_trimestre` para escolar; semestres do curso para superior)
 - Para `tipo=superior`, o `periodo` precisa coincidir com o `periodo` definido na matéria (além de existir na lista de períodos do curso)
 - Se o estudante tiver `ano_escolar_fundamental`, esse ano deve existir em `anos_academicos` da matéria; caso contrário, o registro é bloqueado
-- `categoria` deve ser uma das fixas ou uma adicional da academia
+- `categoria` deve estar configurada em `POST /academia/categorias-nota` com `anos_academicos` contendo o `ano_academico` inferido da nota; sem anos definidos ou sem correspondência com o ano, nenhuma nota pode ser registrada nessa categoria
 - O endpoint `POST /academia/notas-aluno/async` reaproveita exatamente as mesmas validações deste endpoint por item do lote
 
 **Response 201:**
@@ -1834,7 +1847,7 @@ Registra uma nota para um estudante.
 
 **Erros:**
 
-- `400` — nota negativa, período inválido, categoria inválida, duplicata, ou incompatibilidade entre `ano_escolar_fundamental` do estudante e `anos_academicos` da matéria
+- `400` — nota negativa, período inválido, categoria inválida/não configurada para o ano acadêmico, duplicata, ou incompatibilidade entre `ano_escolar_fundamental` do estudante e `anos_academicos` da matéria
 - `403` — estudante ou matéria não pertencem à academia
 - `400` — academia sem ano letivo configurado
 

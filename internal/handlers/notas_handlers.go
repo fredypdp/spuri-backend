@@ -152,7 +152,7 @@ func RegistrarNota(c *gin.Context) {
 
 	// Categorias adicionais — sempre carregadas para qualquer tipo de nota,
 	// pois academias de todos os tipos podem cadastrar categorias extras.
-	categoriasAdicionais := carregarCategoriasAdicionais(c, academiaDTO.CodigoAcademia)
+	categoriasAdicionais := carregarCategoriasDisponiveisParaAno(c, academiaDTO.CodigoAcademia, anoAcademico)
 
 	// Aggregate e comando
 	repository := getRepository(c)
@@ -542,12 +542,13 @@ func CriarCategoriaNota(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
 	var req struct {
-		Codigo    string  `json:"codigo"    binding:"required"`
-		Nome      string  `json:"nome"      binding:"required"`
-		Descricao *string `json:"descricao"`
+		Codigo         string   `json:"codigo"           binding:"required"`
+		Nome           string   `json:"nome"             binding:"required"`
+		Descricao      *string  `json:"descricao"`
+		AnosAcademicos []string `json:"anos_academicos" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("codigo e nome são obrigatorios"))
+		utils.RespondWithValidationError(c, fmt.Errorf("codigo, nome e anos_academicos são obrigatorios"))
 		return
 	}
 
@@ -573,7 +574,7 @@ func CriarCategoriaNota(c *gin.Context) {
 		return
 	}
 
-	if err := academia.AdicionarCategoriaNota(req.Codigo, req.Nome, req.Descricao, userID, categoriasExistentes); err != nil {
+	if err := academia.AdicionarCategoriaNota(req.Codigo, req.Nome, req.Descricao, userID, categoriasExistentes, req.AnosAcademicos); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -774,20 +775,26 @@ func inferirAnoAcademicoParaNota(
 	return nivelMateria[0], nil
 }
 
-// carregarCategoriasAdicionais retorna os nomes das categorias adicionais
-// cadastradas pela academia. Retorna slice vazio em caso de erro (nao fatal).
-// Chamada para qualquer tipo de nota (escolar ou superior).
-func carregarCategoriasAdicionais(c *gin.Context, codigoAcademia string) []string {
+// carregarCategoriasDisponiveisParaAno retorna os códigos das categorias de nota
+// configuradas pela academia para o ano acadêmico informado. Categorias sem
+// anos_academicos ou sem correspondência com o ano são ignoradas, bloqueando o
+// registro no aggregate.
+func carregarCategoriasDisponiveisParaAno(c *gin.Context, codigoAcademia, anoAcademico string) []string {
 	categoriasProj := getCategoriasNotaProjection(c)
 	categorias, err := categoriasProj.ListarPorAcademia(codigoAcademia)
 	if err != nil {
 		return []string{}
 	}
-	nomes := make([]string, 0, len(categorias))
+	codigos := make([]string, 0, len(categorias))
 	for _, cat := range categorias {
-		nomes = append(nomes, cat.Nome)
+		for _, ano := range cat.AnosAcademicos {
+			if ano == anoAcademico {
+				codigos = append(codigos, cat.Codigo)
+				break
+			}
+		}
 	}
-	return nomes
+	return codigos
 }
 
 // inferirAnoAcademicoFaltas é idêntico a inferirAnoAcademicoParaNota —

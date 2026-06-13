@@ -545,8 +545,9 @@ Sempre que o ano letivo for atualizado, ele é adicionado em `anos_letivos_lista
     - Se estudante tem `ano_escolar_fundamental` preenchido (fundamental) → usa esse valor **somente se** esse ano existir em `anos_academicos` da matéria
     - Se não existir, o registro é bloqueado com erro de validação (incompatibilidade estudante × matéria)
     - Caso contrário → usa `anos_academicos[0]` da matéria
-6. Sistema verifica idempotência (chave: `codigoAcademia_anoLectivo_periodo_materiaID_tipo_categoria`)
-7. Se não for duplicata, emite `NotasRegistradas` no ledger do estudante
+6. Sistema valida se a `categoria` está configurada na academia com `anos_academicos` contendo o `ano_academico` inferido; sem anos definidos ou sem correspondência, o registro é bloqueado
+7. Sistema verifica idempotência (chave: `codigoAcademia_anoLectivo_periodo_materiaID_tipo_categoria`)
+8. Se não for duplicata, emite `NotasRegistradas` no ledger do estudante
 
 **Tipos de nota:**
 
@@ -555,7 +556,7 @@ Sempre que o ano letivo for atualizado, ele é adicionado em `anos_letivos_lista
 |`escolar`|`escola`|`nota_escola`, `nota_professor`|`1_trimestre`, `2_trimestre`, `3_trimestre`|
 |`superior`|`superior`|`nota_pp1`, `nota_pp2`, `nota_exame`|Semestres do curso|
 
-Academias podem criar **categorias adicionais** personalizadas, disponíveis para qualquer tipo de nota.
+Academias podem criar **categorias adicionais** personalizadas e também configurar as categorias fixas/obrigatórias. Toda categoria de nota possui `anos_academicos`; apenas os anos presentes nessa lista aceitam registros. Se a categoria não tiver anos definidos, nenhuma nota pode ser registrada nela.
 
 **Valor**: entre 0 ou mais (validado no aggregate)
 
