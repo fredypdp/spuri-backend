@@ -2,7 +2,7 @@
 modificado: 13-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.6.7
+Versão atual: 1.6.8
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -186,7 +186,9 @@ interface AcademiaDTO {
   anos_letivos_lista: AnoLetivoItem[]
   documentos_obrigatorios: {
     declaracao: string[]
-    certificado: string[]
+    certificado_6_ano_fundamental: string[]
+    certificado_9_ano_fundamental: string[]
+    certificado_ensino_medio: string[]
   }
   created_at: string
   updated_at?: string
@@ -1180,7 +1182,7 @@ Atualiza os dados cadastrais da academia autenticada.
 
 ### PUT /academia/documentos-obrigatorios
 
-Define/atualiza os anos em que `declaracao` e `certificado` são obrigatórios para solicitações de matrícula da academia autenticada. Campos omitidos permanecem inalterados; envie `[]` para limpar uma lista.
+Define/atualiza os anos em que `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental` e `certificado_ensino_medio` são obrigatórios para solicitações de matrícula da academia autenticada. Campos omitidos permanecem inalterados; envie `[]` para limpar uma lista.
 
 **Proteção**: autenticado + academia ativa
 
@@ -1189,7 +1191,9 @@ Define/atualiza os anos em que `declaracao` e `certificado` são obrigatórios p
 ```json
 {
   "declaracao": ["1_ano_fundamental"],
-  "certificado": ["9_ano_fundamental"]
+  "certificado_6_ano_fundamental": ["6_ano_fundamental"],
+  "certificado_9_ano_fundamental": ["9_ano_fundamental"],
+  "certificado_ensino_medio": ["3_ano_medio"]
 }
 ```
 
@@ -1200,7 +1204,9 @@ Define/atualiza os anos em que `declaracao` e `certificado` são obrigatórios p
   "message": "configuração de documentos obrigatórios atualizada com sucesso",
   "documentos_obrigatorios": {
     "declaracao": ["1_ano_fundamental"],
-    "certificado": ["9_ano_fundamental"]
+    "certificado_6_ano_fundamental": ["6_ano_fundamental"],
+    "certificado_9_ano_fundamental": ["9_ano_fundamental"],
+    "certificado_ensino_medio": ["3_ano_medio"]
   }
 }
 ```
@@ -1220,7 +1226,9 @@ Retorna a configuração de documentos obrigatórios da academia autenticada ou,
   "codigo_academia": "LDA20261",
   "documentos_obrigatorios": {
     "declaracao": [],
-    "certificado": []
+    "certificado_6_ano_fundamental": [],
+    "certificado_9_ano_fundamental": [],
+    "certificado_ensino_medio": []
   }
 }
 ```
@@ -3580,7 +3588,7 @@ Cria uma solicitação pública de matrícula via `multipart/form-data`. O backe
 
 **Campos**: `codigo_academia`, `nome`, `genero`, `data_nascimento`, `email`, `telefone`, `bilhete_identidade`, `bilhete_identidade_responsavel`, `ano_escolar_fundamental`, `ano_escolar_medio`, `curso_medio_id`, `ano_superior`, `curso_superior_id`.
 
-**Ficheiros PDF**: `bi_estudante`, `bi_responsavel`, `cedula`, `declaracao`, `certificado`. Pelo menos um BI é obrigatório; se não houver BI do estudante, `cedula` é obrigatória. `declaracao` e `certificado` dependem de `documentos_obrigatorios`.
+**Ficheiros PDF**: `bi_estudante`, `bi_responsavel`, `cedula`, `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`. Pelo menos um BI é obrigatório; se não houver BI do estudante, `cedula` é obrigatória. `declaracao` e o tipo específico de certificado dependem de `documentos_obrigatorios`.
 
 **Response 201:**
 
