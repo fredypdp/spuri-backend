@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -98,12 +99,34 @@ func (m *MegaProvider) GetQuota() (QuotaInfo, error) {
 		}
 		return nil
 	})
-	const total uint64 = 50 * 1024 * 1024 * 1024
+	total, err := configuredQuotaTotalBytes()
+	if err != nil {
+		return QuotaInfo{}, err
+	}
 	avail := uint64(0)
 	if total > used {
 		avail = total - used
 	}
 	return QuotaInfo{TotalBytes: total, UsedBytes: used, AvailableBytes: avail}, nil
+}
+
+func configuredQuotaTotalBytes() (uint64, error) {
+	if raw := strings.TrimSpace(os.Getenv("MEGA_QUOTA_TOTAL_BYTES")); raw != "" {
+		v, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil || v == 0 {
+			return 0, fmt.Errorf("MEGA_QUOTA_TOTAL_BYTES inválido: %q", raw)
+		}
+		return v, nil
+	}
+	if raw := strings.TrimSpace(os.Getenv("MEGA_QUOTA_TOTAL_GB")); raw != "" {
+		v, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil || v == 0 {
+			return 0, fmt.Errorf("MEGA_QUOTA_TOTAL_GB inválido: %q", raw)
+		}
+		return v * 1024 * 1024 * 1024, nil
+	}
+	const freeAccountDefault uint64 = 20 * 1024 * 1024 * 1024
+	return freeAccountDefault, nil
 }
 
 func HumanBytes(v uint64) string {

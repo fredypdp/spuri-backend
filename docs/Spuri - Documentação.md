@@ -1114,7 +1114,7 @@ Eventos do ledger:
 
 ### Armazenamento de arquivos (Mega)
 
-O backend expõe a interface interna `StorageProvider` com `Upload`, `Delete`, `GetQuota` e `EnsureDir`. A implementação atual é `MegaProvider`, configurada por `MEGA_AUTH_MODE`, `MEGA_EMAIL`, `MEGA_PASSWORD`, `MEGA_TOTP_CODE`, `MEGA_SESSION_FILE`, `MEGA_SESSION_ID` e `MEGA_MASTER_KEY`. A sessão persistida fica em `data/mega_session.json` e não deve ser versionada.
+O backend expõe a interface interna `StorageProvider` com `Upload`, `Delete`, `GetQuota` e `EnsureDir`. A implementação atual é `MegaProvider`, configurada por `MEGA_AUTH_MODE`, `MEGA_EMAIL`, `MEGA_PASSWORD`, `MEGA_TOTP_CODE`, `MEGA_SESSION_FILE`, `MEGA_SESSION_ID`, `MEGA_MASTER_KEY`, `MEGA_QUOTA_TOTAL_BYTES` e `MEGA_QUOTA_TOTAL_GB`. A quota atual não é consultada diretamente na API do Mega: o uso é calculado pelos arquivos armazenados localmente e a capacidade total vem de `MEGA_QUOTA_TOTAL_BYTES` ou `MEGA_QUOTA_TOTAL_GB`; sem configuração explícita, o padrão é 20 GiB para contas free. A sessão persistida fica em `data/mega_session.json` e não deve ser versionada.
 
 ### Permissões
 
