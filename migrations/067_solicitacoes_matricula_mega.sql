@@ -1,5 +1,20 @@
 ALTER TABLE projection_academias
-    ADD COLUMN IF NOT EXISTS documentos_obrigatorios JSONB NOT NULL DEFAULT '{"declaracao": [], "certificado": []}'::jsonb;
+    ADD COLUMN IF NOT EXISTS documentos_obrigatorios JSONB NOT NULL DEFAULT '{"declaracao": [], "certificado_6_ano_fundamental": [], "certificado_9_ano_fundamental": [], "certificado_ensino_medio": []}'::jsonb;
+
+ALTER TABLE projection_academias
+    ALTER COLUMN documentos_obrigatorios SET DEFAULT '{"declaracao": [], "certificado_6_ano_fundamental": [], "certificado_9_ano_fundamental": [], "certificado_ensino_medio": []}'::jsonb;
+
+UPDATE projection_academias
+SET documentos_obrigatorios = jsonb_build_object(
+    'declaracao', COALESCE(documentos_obrigatorios->'declaracao', '[]'::jsonb),
+    'certificado_6_ano_fundamental', COALESCE(documentos_obrigatorios->'certificado_6_ano_fundamental', '[]'::jsonb),
+    'certificado_9_ano_fundamental', COALESCE(documentos_obrigatorios->'certificado_9_ano_fundamental', documentos_obrigatorios->'certificado', '[]'::jsonb),
+    'certificado_ensino_medio', COALESCE(documentos_obrigatorios->'certificado_ensino_medio', '[]'::jsonb)
+)
+WHERE documentos_obrigatorios ? 'certificado'
+   OR NOT (documentos_obrigatorios ? 'certificado_6_ano_fundamental')
+   OR NOT (documentos_obrigatorios ? 'certificado_9_ano_fundamental')
+   OR NOT (documentos_obrigatorios ? 'certificado_ensino_medio');
 
 CREATE TABLE IF NOT EXISTS projection_solicitacoes_matricula (
     id UUID PRIMARY KEY,

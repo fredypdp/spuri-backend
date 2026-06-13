@@ -2,7 +2,7 @@
 modificado: 13-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.5.5
+Versão atual: 1.5.6
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -1098,12 +1098,12 @@ Eventos do ledger:
 
 ### Academia: `documentos_obrigatorios`
 
-`projection_academias` contém `documentos_obrigatorios` com listas `declaracao` e `certificado`. A academia só pode informar anos académicos que pertençam aos seus próprios anos fundamentais ou aos cursos médio/superior ativos.
+`projection_academias` contém `documentos_obrigatorios` com listas `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental` e `certificado_ensino_medio`. A academia só pode informar anos académicos que pertençam aos seus próprios anos fundamentais ou aos cursos médio/superior ativos.
 
 ### Processo de negócio
 
 1. O estudante envia `POST /solicitacao-matricula` com formulário multipart e PDFs.
-2. O backend valida BI, cédula, data de nascimento, academia ativa e obrigatoriedade dinâmica de declaração/certificado.
+2. O backend valida BI, cédula, data de nascimento, academia ativa e obrigatoriedade dinâmica de declaração e do tipo específico de certificado.
 3. Os documentos são enviados ao storage em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`.
 4. O aggregate `SolicitacaoMatricula` grava o evento de criação.
 5. A academia lista/consulta solicitações e aprova ou reprova.
@@ -1114,7 +1114,7 @@ Eventos do ledger:
 
 - Pelo menos um entre BI do estudante e BI do responsável é obrigatório.
 - Se apenas BI do responsável for enviado, a cédula é obrigatória.
-- Declaração e certificado são obrigatórios apenas quando o ano alvo estiver configurado em `documentos_obrigatorios`.
+- Declaração e cada certificado (`certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`) são obrigatórios apenas quando o ano alvo estiver configurado na lista correspondente em `documentos_obrigatorios`.
 - Arquivos devem ser PDFs (`Content-Type`, extensão e assinatura `%PDF`).
 - Apenas a academia dona pode aprovar/reprovar.
 - Solicitação decidida não volta para pendente.

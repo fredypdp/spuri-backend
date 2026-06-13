@@ -73,7 +73,7 @@ func NewAcademia() *Academia {
 		CategoriasNota:         []string{},
 		AnosLetivoLista:        []AnoLetivoHistoricoItem{},
 		EmailVerificado:        false,
-		DocumentosObrigatorios: DocumentosObrigatorios{Declaracao: []string{}, Certificado: []string{}},
+		DocumentosObrigatorios: DocumentosObrigatorios{Declaracao: []string{}, Certificado6AnoFundamental: []string{}, Certificado9AnoFundamental: []string{}, CertificadoEnsinoMedio: []string{}},
 	}
 }
 
@@ -608,7 +608,9 @@ func validarAnosAcademicos(tipo string, nivelEscolar *string, anos []string) ([]
 
 func (a *Academia) AtualizarDocumentosObrigatorios(documentos DocumentosObrigatorios) error {
 	documentos.Declaracao = uniqueStrings(documentos.Declaracao)
-	documentos.Certificado = uniqueStrings(documentos.Certificado)
+	documentos.Certificado6AnoFundamental = uniqueStrings(documentos.Certificado6AnoFundamental)
+	documentos.Certificado9AnoFundamental = uniqueStrings(documentos.Certificado9AnoFundamental)
+	documentos.CertificadoEnsinoMedio = uniqueStrings(documentos.CertificadoEnsinoMedio)
 	ev := &AcademiaDocumentosObrigatoriosAtualizadosEvent{
 		BaseEvent:              BaseEvent{EventType: "AcademiaDocumentosObrigatoriosAtualizados", AggregateID: a.ID},
 		CodigoAcademia:         a.CodigoAcademia,
@@ -726,8 +728,10 @@ func (e *AnoLetivoAcademiaDefinidoEvent) GetPayload() interface{} { return e }
 func (e *AnoLetivoAcademiaDefinidoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 type DocumentosObrigatorios struct {
-	Declaracao  []string `json:"declaracao"`
-	Certificado []string `json:"certificado"`
+	Declaracao                 []string `json:"declaracao"`
+	Certificado6AnoFundamental []string `json:"certificado_6_ano_fundamental"`
+	Certificado9AnoFundamental []string `json:"certificado_9_ano_fundamental"`
+	CertificadoEnsinoMedio     []string `json:"certificado_ensino_medio"`
 }
 
 type AcademiaDocumentosObrigatoriosAtualizadosEvent struct {

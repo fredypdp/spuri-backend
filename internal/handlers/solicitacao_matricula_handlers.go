@@ -25,7 +25,7 @@ import (
 	"spuri/internal/utils"
 )
 
-var solicitacaoDocFields = []string{"bi_estudante", "bi_responsavel", "cedula", "declaracao", "certificado"}
+var solicitacaoDocFields = []string{"bi_estudante", "bi_responsavel", "cedula", "declaracao", "certificado_6_ano_fundamental", "certificado_9_ano_fundamental", "certificado_ensino_medio"}
 
 type uploadedPDF struct {
 	field string
@@ -77,7 +77,7 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 
 	year := firstNonEmpty(get("ano_escolar_fundamental"), get("ano_escolar_medio"), get("ano_superior"))
 	requiredDecl := containsString(academia.DocumentosObrigatorios["declaracao"], year)
-	requiredCert := containsString(academia.DocumentosObrigatorios["certificado"], year)
+	requiredCertField := requiredCertificateField(academia.DocumentosObrigatorios, year)
 	files := map[string]uploadedPDF{}
 	for _, field := range solicitacaoDocFields {
 		if fh, err := c.FormFile(field); err == nil {
@@ -107,9 +107,9 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 			return
 		}
 	}
-	if requiredCert {
-		if _, ok := files["certificado"]; !ok {
-			utils.RespondWithValidationError(c, fmt.Errorf("certificado é obrigatório para o ano académico informado"))
+	if requiredCertField != "" {
+		if _, ok := files[requiredCertField]; !ok {
+			utils.RespondWithValidationError(c, fmt.Errorf("%s é obrigatório para o ano académico informado", requiredCertField))
 			return
 		}
 	}
@@ -327,12 +327,19 @@ func AtualizarDocumentosObrigatorios(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("payload inválido"))
 		return
 	}
-	docs := map[string][]string{"declaracao": academia.DocumentosObrigatorios["declaracao"], "certificado": academia.DocumentosObrigatorios["certificado"]}
-	if v, ok := req["declaracao"]; ok {
-		docs["declaracao"] = v
+	docs := defaultDocumentosObrigatoriosMap()
+	for key := range docs {
+		docs[key] = academia.DocumentosObrigatorios[key]
+		if docs[key] == nil {
+			docs[key] = []string{}
+		}
 	}
-	if v, ok := req["certificado"]; ok {
-		docs["certificado"] = v
+	for key, v := range req {
+		if _, ok := docs[key]; !ok {
+			utils.RespondWithValidationError(c, fmt.Errorf("documento obrigatório %q não é suportado", key))
+			return
+		}
+		docs[key] = v
 	}
 	if err := validarAnosDocumentosObrigatorios(c, academia.CodigoAcademia, docs); err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -344,7 +351,7 @@ func AtualizarDocumentosObrigatorios(c *gin.Context) {
 		return
 	}
 	agg := loaded.(*aggregates.Academia)
-	if err := agg.AtualizarDocumentosObrigatorios(aggregates.DocumentosObrigatorios{Declaracao: docs["declaracao"], Certificado: docs["certificado"]}); err != nil {
+	if err := agg.AtualizarDocumentosObrigatorios(aggregates.DocumentosObrigatorios{Declaracao: docs["declaracao"], Certificado6AnoFundamental: docs["certificado_6_ano_fundamental"], Certificado9AnoFundamental: docs["certificado_9_ano_fundamental"], CertificadoEnsinoMedio: docs["certificado_ensino_medio"]}); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -543,6 +550,24 @@ func parseBoundedInt(raw string, def, min, max int) int {
 	}
 	return v
 }
+func defaultDocumentosObrigatoriosMap() map[string][]string {
+	return map[string][]string{
+		"declaracao":                    {},
+		"certificado_6_ano_fundamental": {},
+		"certificado_9_ano_fundamental": {},
+		"certificado_ensino_medio":      {},
+	}
+}
+
+func requiredCertificateField(docs map[string][]string, year string) string {
+	for _, field := range []string{"certificado_6_ano_fundamental", "certificado_9_ano_fundamental", "certificado_ensino_medio"} {
+		if containsString(docs[field], year) {
+			return field
+		}
+	}
+	return ""
+}
+
 func validarAnosDocumentosObrigatorios(c *gin.Context, codigoAcademia string, docs map[string][]string) error {
 	cursos, err := getCursosProjection(c).GetByAcademia(codigoAcademia)
 	if err != nil {

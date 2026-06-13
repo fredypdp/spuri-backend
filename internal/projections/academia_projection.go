@@ -687,8 +687,9 @@ func (p *AcademiaProjection) handleDocumentosObrigatoriosAtualizados(event db.Ev
 		return fmt.Errorf("handleDocumentosObrigatoriosAtualizados: parse error: %w", err)
 	}
 	if payload.DocumentosObrigatorios == nil {
-		payload.DocumentosObrigatorios = map[string][]string{"declaracao": {}, "certificado": {}}
+		payload.DocumentosObrigatorios = defaultDocumentosObrigatoriosMap()
 	}
+	normalizeDocumentosObrigatoriosMap(payload.DocumentosObrigatorios)
 	raw, err := json.Marshal(payload.DocumentosObrigatorios)
 	if err != nil {
 		return err
@@ -842,14 +843,30 @@ func scanAcademia(row interface{ Scan(...interface{}) error }) (*AcademiaDTO, er
 	if len(anosLetivosListaJSON) > 0 {
 		_ = json.Unmarshal(anosLetivosListaJSON, &a.AnosLetivosLista)
 	}
-	a.DocumentosObrigatorios = map[string][]string{"declaracao": {}, "certificado": {}}
+	a.DocumentosObrigatorios = defaultDocumentosObrigatoriosMap()
 	if len(documentosObrigatoriosJSON) > 0 {
 		_ = json.Unmarshal(documentosObrigatoriosJSON, &a.DocumentosObrigatorios)
 	}
-	if a.DocumentosObrigatorios == nil {
-		a.DocumentosObrigatorios = map[string][]string{"declaracao": {}, "certificado": {}}
-	}
+	normalizeDocumentosObrigatoriosMap(a.DocumentosObrigatorios)
 	return &a, nil
+}
+
+func defaultDocumentosObrigatoriosMap() map[string][]string {
+	return map[string][]string{
+		"declaracao":                    {},
+		"certificado_6_ano_fundamental": {},
+		"certificado_9_ano_fundamental": {},
+		"certificado_ensino_medio":      {},
+	}
+}
+
+func normalizeDocumentosObrigatoriosMap(docs map[string][]string) {
+	defaults := defaultDocumentosObrigatoriosMap()
+	for key, value := range defaults {
+		if docs[key] == nil {
+			docs[key] = value
+		}
+	}
 }
 
 // ============================================================================
