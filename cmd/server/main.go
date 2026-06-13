@@ -258,6 +258,9 @@ func setupRouter() *gin.Engine {
 		}
 	}
 
+	// ── Rotas públicas com autenticação opcional ─────────────────────────
+	router.GET("/academias", middleware.OptionalAuthMiddleware(), handlers.ListarTodasAcademias)
+
 	// ── Rotas de jobs assíncronos (qualquer usuário autenticado) ──────────
 	jobRoutes := router.Group("/jobs")
 	jobRoutes.Use(middleware.AuthMiddleware())
@@ -276,7 +279,6 @@ func setupRouter() *gin.Engine {
 		protected.POST("/logout", handlers.Logout)
 		protected.PUT("/alterar-senha", handlers.AlterarSenha)
 		protected.GET("/meu-perfil", handlers.GetMeuPerfil)
-		protected.GET("/academias", handlers.ListarTodasAcademias)
 		protected.GET("/eventos-estudante/:codigo", handlers.GetEventosEstudante)
 		protected.GET("/verificar-integridade/:codigo", handlers.VerificarIntegridade)
 		protected.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)

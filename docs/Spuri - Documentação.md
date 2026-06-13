@@ -1,8 +1,8 @@
 ---
-modificado: 10-06-2026 23:55
+modificado: 13-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.5.2
+Versão atual: 1.5.3
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -960,6 +960,12 @@ Retornar mensagem de aviso quando a senha for incorreta
 ---
 
 ## 8. Segurança e Autenticação
+
+### Consulta pública de academias
+
+A rota `GET /academias` é pública com autenticação opcional. Usuários não autenticados podem consultar a lista de academias, mas cada item da resposta expõe somente os campos públicos: `nivel`, `type`, `nome`, `codigo_academia`, `provincia`, `endereco` e `nivel_escolar`.
+
+Quando a requisição envia `Authorization: Bearer <jwt_token>` válido, a API preserva o contrato autenticado anterior, retornando também campos operacionais para usuários autenticados e campos administrativos adicionais para admins. Tokens enviados em formato inválido, expirados ou pertencentes a contas inativas devem ser rejeitados com `401`.
 
 ### 8.1 JWT
 
