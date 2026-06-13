@@ -2,7 +2,7 @@
 modificado: 13-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.5.6
+Versão atual: 1.5.7
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -1120,9 +1120,22 @@ Eventos do ledger:
 - Solicitação decidida não volta para pendente.
 - Rebuild inclui `solicitacoes_matricula` após as projeções principais.
 
-### Armazenamento de arquivos (Mega)
+### Armazenamento de arquivos (Google Drive)
 
-O backend expõe a interface interna `StorageProvider` com `Upload`, `Delete`, `GetQuota` e `EnsureDir`. A implementação atual é `MegaProvider`, configurada por `MEGA_AUTH_MODE`, `MEGA_EMAIL`, `MEGA_PASSWORD`, `MEGA_TOTP_CODE`, `MEGA_SESSION_FILE`, `MEGA_SESSION_ID`, `MEGA_MASTER_KEY`, `MEGA_LOCAL_ROOT`, `MEGA_QUOTA_LOCAL_ESTIMATE`, `MEGA_QUOTA_TOTAL_BYTES` e `MEGA_QUOTA_TOTAL_GB`. A biblioteca Go avaliada para integração Mega (`github.com/t3rm1n4l/go-mega`) declara suporte a login de usuário, leitura da árvore de arquivos, upload, criação de diretório, movimentação/renomeação e remoção; porém o backend atual usa chamadas diretas à API do Mega para quota e listagem, sem adicionar a dependência externa. Quando `MEGA_AUTH_MODE=session` está configurado com `MEGA_SESSION_ID` e `MEGA_MASTER_KEY`, `GetQuota` consulta a API do Mega para obter a quota real da conta, percorre todos os nós do Cloud Drive, expõe `account_files` com todos os arquivos disponíveis, soma `managed_bytes`/`academias` para arquivos dentro de diretórios de academia e separa `unmanaged_bytes` para arquivos fora desses diretórios (por exemplo vídeos enviados manualmente pela interface web). Sem sessão, só há estimativa local com `MEGA_QUOTA_LOCAL_ESTIMATE=true`, contabilizando apenas arquivos em `MEGA_LOCAL_ROOT` (padrão `data/mega_storage`). Falhas de configuração do Mega retornam mensagens operacionais explícitas, por exemplo modo de autenticação inválido, credenciais de sessão ausentes, quota indisponível sem sessão/estimativa local e valores não positivos em `MEGA_QUOTA_TOTAL_BYTES` ou `MEGA_QUOTA_TOTAL_GB`. A sessão persistida fica em `data/mega_session.json` e não deve ser versionada.
+O backend expõe a interface interna `StorageProvider` com `Upload`, `Delete`, `GetQuota` e `EnsureDir`. A implementação atual é `DriveProvider`, integrada ao Google Drive por chamadas REST oficiais da API Drive v3. A biblioteca `cloud.google.com/go` foi avaliada, mas ela atende principalmente produtos Google Cloud; para Google Drive, a API correta é a Drive API. Para evitar nova dependência bloqueada pelo ambiente, o backend usa HTTP direto com token OAuth em vez de adicionar um SDK.
+
+Configuração de produção:
+
+- `GOOGLE_DRIVE_ROOT_FOLDER_ID`: ID da pasta raiz gerenciada pelo Spuri no Google Drive.
+- `GOOGLE_DRIVE_ACCESS_TOKEN`: token OAuth com permissão de Drive para criar pastas, enviar PDFs, remover arquivos e consultar quota.
+
+Configuração local/teste:
+
+- `GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true`: habilita o provider local sem chamar Google Drive.
+- `GOOGLE_DRIVE_LOCAL_ROOT`: diretório local usado para simular o Drive (padrão `data/google_drive_storage`).
+- `GOOGLE_DRIVE_QUOTA_TOTAL_BYTES` ou `GOOGLE_DRIVE_QUOTA_TOTAL_GB`: total usado na estimativa local (padrão 15 GB).
+
+Os documentos de matrícula continuam sendo gravados em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`. `EnsureDir` cria a hierarquia de pastas no Drive, `Upload` envia PDFs via upload multipart, `Delete` remove arquivos ou diretórios resolvendo o caminho dentro da pasta raiz configurada, e `GetQuota` consulta `about.storageQuota`, lista recursivamente a pasta raiz gerenciada, preenche `account_files`, soma `managed_bytes`/`academias` para arquivos dentro de diretórios de academia e separa `unmanaged_bytes` como a diferença entre o uso total da conta e o uso gerenciado pela pasta raiz do Spuri. Falhas de configuração retornam mensagens operacionais explícitas, por exemplo ausência de `GOOGLE_DRIVE_ROOT_FOLDER_ID`, ausência de `GOOGLE_DRIVE_ACCESS_TOKEN`, quota indisponível sem credenciais/estimativa local e valores inválidos em `GOOGLE_DRIVE_QUOTA_TOTAL_BYTES` ou `GOOGLE_DRIVE_QUOTA_TOTAL_GB`.
 
 ### Permissões
 
