@@ -3599,7 +3599,7 @@ Lista todas as solicitações do sistema para admin. Query params: `status`, `co
 
 ### GET /dominis/storage/quota
 
-Retorna quota do provider de armazenamento externo.
+Retorna quota real da conta Mega quando o backend está configurado com sessão (`MEGA_AUTH_MODE=session`, `MEGA_SESSION_ID` e `MEGA_MASTER_KEY`). Nessa configuração, `total_bytes` e `used_bytes` vêm da API do Mega e `academias` soma os arquivos por diretório de academia no Cloud Drive. Sem sessão, o backend só permite a estimativa local se `MEGA_QUOTA_LOCAL_ESTIMATE=true`, contabilizando apenas `MEGA_LOCAL_ROOT` (padrão `data/mega_storage`).
 
 **Proteção**: autenticado + admin
 
@@ -3608,11 +3608,18 @@ Retorna quota do provider de armazenamento externo.
 ```json
 {
   "provider": "mega",
-  "total_bytes": 53687091200,
+  "total_bytes": 21474836480,
   "used_bytes": 1073741824,
-  "available_bytes": 52613349376,
-  "total_human": "50.00 GB",
+  "available_bytes": 20401094656,
+  "total_human": "20.00 GB",
   "used_human": "1.00 GB",
-  "available_human": "49.00 GB"
+  "available_human": "19.00 GB",
+  "academias": [
+    {
+      "codigo_academia": "ACA001",
+      "used_bytes": 524288000,
+      "used_human": "500.00 MB"
+    }
+  ]
 }
 ```
