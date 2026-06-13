@@ -260,6 +260,8 @@ func setupRouter() *gin.Engine {
 
 	// ── Rotas públicas com autenticação opcional ─────────────────────────
 	router.GET("/academias", middleware.OptionalAuthMiddleware(), handlers.ListarTodasAcademias)
+	router.GET("/academia/cursos", middleware.OptionalAuthMiddleware(), handlers.ListarCursos)
+	router.GET("/academia/curso/:id", middleware.OptionalAuthMiddleware(), handlers.GetCurso)
 
 	// ── Rotas de jobs assíncronos (qualquer usuário autenticado) ──────────
 	jobRoutes := router.Group("/jobs")
@@ -313,8 +315,6 @@ func setupRouter() *gin.Engine {
 	academiaRead.Use(middleware.RequireAcademiaOuAdmin())
 	academiaRead.Use(middleware.ValidarStatusAcademia())
 	{
-		academiaRead.GET("/cursos", handlers.ListarCursos)
-		academiaRead.GET("/curso/:id", handlers.GetCurso)
 		academiaRead.GET("/materias", handlers.ListarMaterias)
 		academiaRead.GET("/materia/:id", handlers.GetMateria)
 		academiaRead.GET("/turmas", handlers.ListarTurmasAcademia)
