@@ -3599,7 +3599,7 @@ Lista todas as solicitações do sistema para admin. Query params: `status`, `co
 
 ### GET /dominis/storage/quota
 
-Retorna quota do provider de armazenamento externo.
+Retorna quota do provider de armazenamento externo. Na implementação atual, o backend calcula o uso a partir do storage local compatível com Mega e usa `MEGA_QUOTA_TOTAL_BYTES` ou `MEGA_QUOTA_TOTAL_GB` como capacidade total configurada; se nenhuma variável for informada, assume 20 GiB para contas free.
 
 **Proteção**: autenticado + admin
 
@@ -3608,11 +3608,11 @@ Retorna quota do provider de armazenamento externo.
 ```json
 {
   "provider": "mega",
-  "total_bytes": 53687091200,
+  "total_bytes": 21474836480,
   "used_bytes": 1073741824,
-  "available_bytes": 52613349376,
-  "total_human": "50.00 GB",
+  "available_bytes": 20401094656,
+  "total_human": "20.00 GB",
   "used_human": "1.00 GB",
-  "available_human": "49.00 GB"
+  "available_human": "19.00 GB"
 }
 ```
