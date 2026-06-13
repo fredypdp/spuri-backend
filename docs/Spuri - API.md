@@ -2,7 +2,7 @@
 modificado: 13-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.7.0
+Versão atual: 1.7.2
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -3197,11 +3197,30 @@ Lista todas as academias com paginação e filtro de status.
 
 ### GET /consultar-academia/:codigo
 
-Retorna detalhes de uma academia.
+Retorna detalhes de uma academia pelo código.
 
-**Proteção**: autenticado (qualquer tipo)
+**Proteção**: pública com autenticação opcional.
 
-**Response 200:**
+- Sem `Authorization`, a rota retorna somente os mesmos campos públicos usados em `GET /academias`.
+- Com `Authorization: Bearer <jwt_token>` válido, a rota mantém o contrato autenticado anterior.
+- Se um header `Authorization` for enviado, ele deve ser um Bearer token válido; tokens inválidos/expirados retornam `401`.
+
+**Response 200 — usuário não autenticado:**
+
+```json
+{
+  "nivel": "escola",
+  "type": "public",
+  "nome": "Escola Exemplo",
+  "codigo_academia": "LDA20261",
+  "provincia": "LDA",
+  "endereco": "Rua Exemplo, 123",
+  "nivel_escolar": "fundamental",
+  "anos_academicos": ["1_ano_fundamental", "2_ano_fundamental"]
+}
+```
+
+**Response 200 — usuário autenticado:**
 
 ```json
 {
@@ -3211,10 +3230,23 @@ Retorna detalhes de uma academia.
   "nome": "string",
   "codigo_academia": "LDA20261",
   "provincia": "LDA",
+  "endereco": "string",
+  "numero_telefone": "+244900000000",
+  "website": "https://exemplo.ao",
+  "nivel_escolar": "fundamental",
+  "anos_academicos": ["1_ano_fundamental"],
   "status": "ativo",
-  ...
+  "cursos": [],
+  "email_verificado": true,
+  "created_at": "2026-06-13T00:00:00Z",
+  "total_estudantes": 10,
+  "ano_letivo": "2026",
+  "tipo_ano_letivo": "anual",
+  "anos_letivos_lista": ["2026"]
 }
 ```
+
+**Campos públicos para usuário não autenticado:** `nivel`, `type`, `nome`, `codigo_academia`, `provincia`, `endereco`, `nivel_escolar`, `anos_academicos`.
 
 **Nota**: admins veem também `email` e `motivo_desativacao`.
 
@@ -3588,7 +3620,7 @@ Cria uma solicitação pública de matrícula via `multipart/form-data`. O backe
 
 **Campos**: `codigo_academia`, `nome`, `genero`, `data_nascimento`, `email`, `telefone`, `bilhete_identidade`, `bilhete_identidade_responsavel`, `ano_escolar_fundamental`, `ano_escolar_medio`, `curso_medio_id`, `ano_superior`, `curso_superior_id`.
 
-**Ficheiros PDF**: `bi_estudante`, `bi_responsavel`, `cedula`, `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`. Pelo menos um BI é obrigatório; se não houver BI do estudante, `cedula` é obrigatória. `declaracao` e o tipo específico de certificado dependem de `documentos_obrigatorios`.
+**Ficheiros PDF**: `bi_estudante`, `bi_responsavel`, `cedula`, `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`. Cada ficheiro deve ser PDF válido e ter no máximo 5MB. Pelo menos um BI é obrigatório; se não houver BI do estudante, `cedula` é obrigatória. `declaracao` e o tipo específico de certificado dependem de `documentos_obrigatorios`.
 
 **Response 201:**
 

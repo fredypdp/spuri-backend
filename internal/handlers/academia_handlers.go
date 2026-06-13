@@ -589,25 +589,28 @@ func GetAcademiaPorCodigo(c *gin.Context) {
 	}
 
 	resp := gin.H{
-		"id":                 academia.ID,
-		"nivel":              academia.Nivel,
-		"type":               academia.Type,
-		"nome":               academia.Nome,
-		"codigo_academia":    academia.CodigoAcademia,
-		"provincia":          academia.Provincia,
-		"endereco":           academia.Endereco,
-		"numero_telefone":    academia.NumeroTelefone,
-		"website":            academia.Website,
-		"nivel_escolar":      academia.NivelEscolar,
-		"anos_academicos":    academia.AnosAcademicos,
-		"status":             academia.Status,
-		"cursos":             academia.Cursos,
-		"email_verificado":   academia.EmailVerificado,
-		"created_at":         academia.CreatedAt,
-		"total_estudantes":   academia.TotalEstudantes,
-		"ano_letivo":         academia.AnoLetivo,
-		"tipo_ano_letivo":    academia.TipoAnoLetivo,
-		"anos_letivos_lista": academia.AnosLetivosLista,
+		"nivel":           academia.Nivel,
+		"type":            academia.Type,
+		"nome":            academia.Nome,
+		"codigo_academia": academia.CodigoAcademia,
+		"provincia":       academia.Provincia,
+		"endereco":        academia.Endereco,
+		"nivel_escolar":   academia.NivelEscolar,
+		"anos_academicos": academia.AnosAcademicos,
+	}
+
+	if userType != "" {
+		resp["id"] = academia.ID
+		resp["numero_telefone"] = academia.NumeroTelefone
+		resp["website"] = academia.Website
+		resp["status"] = academia.Status
+		resp["cursos"] = academia.Cursos
+		resp["email_verificado"] = academia.EmailVerificado
+		resp["created_at"] = academia.CreatedAt
+		resp["total_estudantes"] = academia.TotalEstudantes
+		resp["ano_letivo"] = academia.AnoLetivo
+		resp["tipo_ano_letivo"] = academia.TipoAnoLetivo
+		resp["anos_letivos_lista"] = academia.AnosLetivosLista
 	}
 
 	if userType == "admin" {
