@@ -49,16 +49,16 @@ func NewMegaProvider() (StorageProvider, error) {
 		mode = "password"
 	}
 	if mode != "" && mode != "password" && mode != "2fa" && mode != "session" {
-		return nil, fmt.Errorf("MEGA_AUTH_MODE inválido ou não definido: %q", mode)
+		return nil, fmt.Errorf("configuração Mega inválida: MEGA_AUTH_MODE=%q não é suportado; use password, 2fa ou session", mode)
 	}
 	if mode == "session" && (os.Getenv("MEGA_SESSION_ID") == "" || os.Getenv("MEGA_MASTER_KEY") == "") {
-		return nil, fmt.Errorf("MEGA_SESSION_ID e MEGA_MASTER_KEY são obrigatórios no modo session")
+		return nil, fmt.Errorf("configuração Mega incompleta: MEGA_SESSION_ID e MEGA_MASTER_KEY são obrigatórios quando MEGA_AUTH_MODE=session")
 	}
 	if (mode == "password" || mode == "2fa") && os.Getenv("MEGA_EMAIL") == "" && os.Getenv("ENV") == "production" {
-		return nil, fmt.Errorf("MEGA_EMAIL é obrigatório para autenticação Mega")
+		return nil, fmt.Errorf("configuração Mega incompleta: MEGA_EMAIL é obrigatório em produção quando MEGA_AUTH_MODE=%s", mode)
 	}
 	if mode == "2fa" && os.Getenv("MEGA_TOTP_CODE") == "" && os.Getenv("ENV") == "production" {
-		return nil, fmt.Errorf("MEGA_TOTP_CODE é obrigatório no modo 2fa")
+		return nil, fmt.Errorf("configuração Mega incompleta: MEGA_TOTP_CODE é obrigatório em produção quando MEGA_AUTH_MODE=2fa")
 	}
 	root := os.Getenv("MEGA_LOCAL_ROOT")
 	if root == "" {
@@ -110,7 +110,7 @@ func (m *MegaProvider) GetQuota() (QuotaInfo, error) {
 	}
 
 	if strings.TrimSpace(os.Getenv("MEGA_QUOTA_LOCAL_ESTIMATE")) != "true" {
-		return QuotaInfo{}, fmt.Errorf("quota real do Mega indisponível: defina MEGA_AUTH_MODE=session, MEGA_SESSION_ID e MEGA_MASTER_KEY para consultar a conta Mega; a estimativa local de %q só é usada com MEGA_QUOTA_LOCAL_ESTIMATE=true", m.root)
+		return QuotaInfo{}, fmt.Errorf("quota do Mega indisponível: configure MEGA_AUTH_MODE=session com MEGA_SESSION_ID e MEGA_MASTER_KEY para consultar a conta Mega; para ambiente local, defina MEGA_QUOTA_LOCAL_ESTIMATE=true para estimar apenas os arquivos em %q", m.root)
 	}
 	return m.getLocalQuota()
 }
@@ -149,14 +149,14 @@ func configuredQuotaTotalBytes() (uint64, error) {
 	if raw := strings.TrimSpace(os.Getenv("MEGA_QUOTA_TOTAL_BYTES")); raw != "" {
 		v, err := strconv.ParseUint(raw, 10, 64)
 		if err != nil || v == 0 {
-			return 0, fmt.Errorf("MEGA_QUOTA_TOTAL_BYTES inválido: %q", raw)
+			return 0, fmt.Errorf("configuração Mega inválida: MEGA_QUOTA_TOTAL_BYTES=%q deve ser um inteiro positivo em bytes", raw)
 		}
 		return v, nil
 	}
 	if raw := strings.TrimSpace(os.Getenv("MEGA_QUOTA_TOTAL_GB")); raw != "" {
 		v, err := strconv.ParseUint(raw, 10, 64)
 		if err != nil || v == 0 {
-			return 0, fmt.Errorf("MEGA_QUOTA_TOTAL_GB inválido: %q", raw)
+			return 0, fmt.Errorf("configuração Mega inválida: MEGA_QUOTA_TOTAL_GB=%q deve ser um inteiro positivo em GB", raw)
 		}
 		return v * 1024 * 1024 * 1024, nil
 	}

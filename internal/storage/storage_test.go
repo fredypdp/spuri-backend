@@ -15,8 +15,8 @@ func TestGetQuotaRequiresExplicitLocalEstimate(t *testing.T) {
 	if err == nil {
 		t.Fatal("GetQuota() error = nil, want quota unavailable error")
 	}
-	if !strings.Contains(err.Error(), "MEGA_AUTH_MODE=session") {
-		t.Fatalf("GetQuota() error = %q, want message explaining Mega API is not queried", err.Error())
+	if !strings.Contains(err.Error(), "quota do Mega indisponível") || !strings.Contains(err.Error(), "MEGA_QUOTA_LOCAL_ESTIMATE=true") {
+		t.Fatalf("GetQuota() error = %q, want message explaining Mega quota configuration", err.Error())
 	}
 }
 

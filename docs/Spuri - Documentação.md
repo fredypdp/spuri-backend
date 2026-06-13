@@ -2,7 +2,7 @@
 modificado: 13-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.5.3
+Versão atual: 1.5.4
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -1120,7 +1120,7 @@ Eventos do ledger:
 
 ### Armazenamento de arquivos (Mega)
 
-O backend expõe a interface interna `StorageProvider` com `Upload`, `Delete`, `GetQuota` e `EnsureDir`. A implementação atual é `MegaProvider`, configurada por `MEGA_AUTH_MODE`, `MEGA_EMAIL`, `MEGA_PASSWORD`, `MEGA_TOTP_CODE`, `MEGA_SESSION_FILE`, `MEGA_SESSION_ID`, `MEGA_MASTER_KEY`, `MEGA_LOCAL_ROOT`, `MEGA_QUOTA_LOCAL_ESTIMATE`, `MEGA_QUOTA_TOTAL_BYTES` e `MEGA_QUOTA_TOTAL_GB`. Quando `MEGA_AUTH_MODE=session` está configurado com `MEGA_SESSION_ID` e `MEGA_MASTER_KEY`, `GetQuota` consulta a API do Mega para obter a quota real da conta e percorre os nós do Cloud Drive para somar o uso por diretório de academia. Sem sessão, só há estimativa local com `MEGA_QUOTA_LOCAL_ESTIMATE=true`, contabilizando apenas arquivos em `MEGA_LOCAL_ROOT` (padrão `data/mega_storage`). A sessão persistida fica em `data/mega_session.json` e não deve ser versionada.
+O backend expõe a interface interna `StorageProvider` com `Upload`, `Delete`, `GetQuota` e `EnsureDir`. A implementação atual é `MegaProvider`, configurada por `MEGA_AUTH_MODE`, `MEGA_EMAIL`, `MEGA_PASSWORD`, `MEGA_TOTP_CODE`, `MEGA_SESSION_FILE`, `MEGA_SESSION_ID`, `MEGA_MASTER_KEY`, `MEGA_LOCAL_ROOT`, `MEGA_QUOTA_LOCAL_ESTIMATE`, `MEGA_QUOTA_TOTAL_BYTES` e `MEGA_QUOTA_TOTAL_GB`. Quando `MEGA_AUTH_MODE=session` está configurado com `MEGA_SESSION_ID` e `MEGA_MASTER_KEY`, `GetQuota` consulta a API do Mega para obter a quota real da conta e percorre os nós do Cloud Drive para somar o uso por diretório de academia. Sem sessão, só há estimativa local com `MEGA_QUOTA_LOCAL_ESTIMATE=true`, contabilizando apenas arquivos em `MEGA_LOCAL_ROOT` (padrão `data/mega_storage`). Falhas de configuração do Mega retornam mensagens operacionais explícitas, por exemplo modo de autenticação inválido, credenciais de sessão ausentes, quota indisponível sem sessão/estimativa local e valores não positivos em `MEGA_QUOTA_TOTAL_BYTES` ou `MEGA_QUOTA_TOTAL_GB`. A sessão persistida fica em `data/mega_session.json` e não deve ser versionada.
 
 ### Permissões
 

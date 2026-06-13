@@ -110,6 +110,8 @@ func getErrorType(statusCode int) string {
 		return "CONFLICT"
 	case http.StatusTooManyRequests:
 		return "RATE_LIMIT"
+	case http.StatusServiceUnavailable:
+		return "SERVICE_UNAVAILABLE"
 	case http.StatusInternalServerError:
 		return "INTERNAL_ERROR"
 	default:

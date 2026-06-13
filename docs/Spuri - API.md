@@ -2,7 +2,7 @@
 modificado: 13-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.6.5
+Versão atual: 1.6.6
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -3628,6 +3628,14 @@ Lista todas as solicitações do sistema para admin. Query params: `status`, `co
 
 Retorna quota real da conta Mega quando o backend está configurado com sessão (`MEGA_AUTH_MODE=session`, `MEGA_SESSION_ID` e `MEGA_MASTER_KEY`). Nessa configuração, `total_bytes` e `used_bytes` vêm da API do Mega e `academias` soma os arquivos por diretório de academia no Cloud Drive. Sem sessão, o backend só permite a estimativa local se `MEGA_QUOTA_LOCAL_ESTIMATE=true`, contabilizando apenas `MEGA_LOCAL_ROOT` (padrão `data/mega_storage`).
 
+Quando a configuração do Mega ou da quota estiver incompleta ou inválida, a rota retorna `503 Service Unavailable` com a mensagem operacional gerada pelo storage. Exemplos de mensagens:
+
+- `configuração Mega inválida: MEGA_AUTH_MODE="..." não é suportado; use password, 2fa ou session`
+- `configuração Mega incompleta: MEGA_SESSION_ID e MEGA_MASTER_KEY são obrigatórios quando MEGA_AUTH_MODE=session`
+- `quota do Mega indisponível: configure MEGA_AUTH_MODE=session com MEGA_SESSION_ID e MEGA_MASTER_KEY para consultar a conta Mega; para ambiente local, defina MEGA_QUOTA_LOCAL_ESTIMATE=true para estimar apenas os arquivos em "data/mega_storage"`
+- `configuração Mega inválida: MEGA_QUOTA_TOTAL_BYTES="..." deve ser um inteiro positivo em bytes`
+- `configuração Mega inválida: MEGA_QUOTA_TOTAL_GB="..." deve ser um inteiro positivo em GB`
+
 **Proteção**: autenticado + admin
 
 **Response 200:**
@@ -3648,5 +3656,15 @@ Retorna quota real da conta Mega quando o backend está configurado com sessão 
       "used_human": "500.00 MB"
     }
   ]
+}
+```
+
+**Response 503:**
+
+```json
+{
+  "error": "SERVICE_UNAVAILABLE",
+  "message": "quota do Mega indisponível: configure MEGA_AUTH_MODE=session com MEGA_SESSION_ID e MEGA_MASTER_KEY para consultar a conta Mega; para ambiente local, defina MEGA_QUOTA_LOCAL_ESTIMATE=true para estimar apenas os arquivos em \"data/mega_storage\"",
+  "request_id": "8c7e6a5d-9b9f-4fd2-a2d0-3a989a8c2d8b"
 }
 ```
