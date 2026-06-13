@@ -97,15 +97,33 @@ func ListarCursos(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	userType, _ := middleware.GetUserType(c)
 
-	academiaProj := getAcademiaProjection(c)
 	codigoAcademia := ""
 
-	if userType == "admin" {
+	switch userType {
+	case "admin":
 		codigoAcademia = c.Query("codigo_academia")
 		if codigoAcademia == "" {
 			utils.RespondWithValidationError(c, fmt.Errorf("codigo_academia é obrigatório para admin"))
 			return
 		}
+	case "academia":
+		academiaProj := getAcademiaProjection(c)
+		academiaDTO, err := academiaProj.GetByID(userID)
+		if err != nil || academiaDTO == nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		codigoAcademia = academiaDTO.CodigoAcademia
+	default:
+		codigoAcademia = c.Query("codigo_academia")
+		if codigoAcademia == "" {
+			utils.RespondWithValidationError(c, fmt.Errorf("codigo_academia é obrigatório"))
+			return
+		}
+	}
+
+	if userType != "academia" {
+		academiaProj := getAcademiaProjection(c)
 		academiaDTO, err := academiaProj.GetByCodigo(codigoAcademia)
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
@@ -115,13 +133,6 @@ func ListarCursos(c *gin.Context) {
 			utils.RespondWithNotFoundError(c, "academia")
 			return
 		}
-	} else {
-		academiaDTO, err := academiaProj.GetByID(userID)
-		if err != nil || academiaDTO == nil {
-			utils.RespondWithInternalError(c, err)
-			return
-		}
-		codigoAcademia = academiaDTO.CodigoAcademia
 	}
 
 	cursosProj := getCursosProjection(c)

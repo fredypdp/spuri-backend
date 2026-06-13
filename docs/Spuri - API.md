@@ -2,7 +2,7 @@
 modificado: 13-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.6.6
+Versão atual: 1.6.7
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -2330,13 +2330,17 @@ Cria um novo curso para a academia.
 
 ### GET /academia/cursos
 
-Lista todos os cursos da academia.
+Lista todos os cursos da academia, incluindo `anos_academicos` de cada curso.
 
-**Proteção**: autenticado + (`academia` ativa **ou** `admin` **ou** `estudante`)
+**Proteção**: pública com autenticação opcional.
 
-**Query params (quando `admin`)**:
+- Sem `Authorization`, permite consultar cursos de escolas do médio e academias do nível superior por `codigo_academia`.
+- Com `Authorization: Bearer <jwt_token>` válido, mantém o contrato anterior para academias e admins.
+- Tokens enviados em formato inválido, expirados ou pertencentes a contas inativas retornam `401`.
 
-- `codigo_academia` (obrigatório)
+**Query params:**
+
+- `codigo_academia` — obrigatório para usuários sem sessão e para admins; ignorado para academias autenticadas, que consultam os próprios cursos.
 
 **Response 200:**
 
@@ -2351,9 +2355,13 @@ Lista todos os cursos da academia.
 
 ### GET /academia/curso/:id
 
-Retorna um curso específico.
+Retorna um curso específico, incluindo seus `anos_academicos`.
 
-**Proteção**: autenticado + (`academia` ativa **ou** `admin` **ou** `estudante`)
+**Proteção**: pública com autenticação opcional.
+
+- Sem `Authorization`, permite consultar os anos acadêmicos de cursos de escolas do médio e academias do nível superior pelo ID do curso.
+- Academias autenticadas só podem consultar os próprios cursos.
+- Admins autenticados podem consultar qualquer curso.
 
 **Response 200:** `CursoDTO`
 
@@ -3152,7 +3160,8 @@ Lista todas as academias com paginação e filtro de status.
       "codigo_academia": "LUA20261",
       "provincia": "Luanda",
       "endereco": "Rua Exemplo, 123",
-      "nivel_escolar": "fundamental"
+      "nivel_escolar": "fundamental",
+      "anos_academicos": ["1_ano_fundamental", "2_ano_fundamental"]
     }
   ],
   "total": 1,
@@ -3161,7 +3170,7 @@ Lista todas as academias com paginação e filtro de status.
 }
 ```
 
-**Campos públicos por academia:** `nivel`, `type`, `nome`, `codigo_academia`, `provincia`, `endereco`, `nivel_escolar`.
+**Campos públicos por academia:** `nivel`, `type`, `nome`, `codigo_academia`, `provincia`, `endereco`, `nivel_escolar`, `anos_academicos`. Para escolas fundamentais ou mistas, `anos_academicos` permite que usuários sem sessão recebam os anos acadêmicos ofertados.
 
 **Response 200 — usuário autenticado:**
 

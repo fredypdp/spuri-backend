@@ -426,7 +426,7 @@ func ListarTodasAcademias(c *gin.Context) {
 
 	const baseSelect = `
 		SELECT pa.id, pa.nivel, pa.type, pa.nome, pa.codigo_academia, pa.provincia, pa.endereco,
-		       pa.numero_telefone, pa.email, pa.website, pa.nivel_escolar, pa.status,
+		       pa.numero_telefone, pa.email, pa.website, pa.nivel_escolar, pa.anos_academicos, pa.status,
 		       pa.cursos, pa.email_verificado, pa.created_at, pa.updated_at,
 		       COALESCE(est_count.total_estudantes, 0) AS total_estudantes,
 		       pa.version
@@ -477,6 +477,7 @@ func ListarTodasAcademias(c *gin.Context) {
 			Email           *string    `db:"email"`
 			Website         *string    `db:"website"`
 			NivelEscolar    *string    `db:"nivel_escolar"`
+			AnosJSON        []byte     `db:"anos_academicos"`
 			Status          string     `db:"status"`
 			CursosJSON      []byte     `db:"cursos"`
 			EmailVerificado bool       `db:"email_verificado"`
@@ -488,13 +489,24 @@ func ListarTodasAcademias(c *gin.Context) {
 		if err := rows.Scan(
 			&aca.ID, &aca.Nivel, &aca.Type, &aca.Nome, &aca.CodigoAcademia,
 			&aca.Provincia, &aca.Endereco, &aca.NumeroTelefone, &aca.Email,
-			&aca.Website, &aca.NivelEscolar, &aca.Status,
+			&aca.Website, &aca.NivelEscolar, &aca.AnosJSON, &aca.Status,
 			&aca.CursosJSON, &aca.EmailVerificado,
 			&aca.CreatedAt, &aca.UpdatedAt,
 			&aca.TotalEstudantes, &aca.Version,
 		); err != nil {
 			log.Printf("[WARN] ListarTodasAcademias: erro ao ler linha: %v", err)
 			continue
+		}
+
+		var anosAcademicos []string
+		if len(aca.AnosJSON) > 0 {
+			if unmarshalErr := json.Unmarshal(aca.AnosJSON, &anosAcademicos); unmarshalErr != nil {
+				log.Printf("[WARN] ListarTodasAcademias: falha ao desserializar anos_academicos da academia %s: %v",
+					aca.CodigoAcademia, unmarshalErr)
+			}
+		}
+		if anosAcademicos == nil {
+			anosAcademicos = []string{}
 		}
 
 		var cursos []string
@@ -516,6 +528,7 @@ func ListarTodasAcademias(c *gin.Context) {
 			"provincia":       aca.Provincia,
 			"endereco":        aca.Endereco,
 			"nivel_escolar":   aca.NivelEscolar,
+			"anos_academicos": anosAcademicos,
 		}
 
 		if userType != "" {
