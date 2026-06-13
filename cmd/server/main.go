@@ -262,6 +262,7 @@ func setupRouter() *gin.Engine {
 	router.GET("/academias", middleware.OptionalAuthMiddleware(), handlers.ListarTodasAcademias)
 	router.GET("/academia/cursos", middleware.OptionalAuthMiddleware(), handlers.ListarCursos)
 	router.GET("/academia/curso/:id", middleware.OptionalAuthMiddleware(), handlers.GetCurso)
+	router.GET("/consultar-academia/:codigo", middleware.OptionalAuthMiddleware(), handlers.GetAcademiaPorCodigo)
 
 	// ── Rotas de jobs assíncronos (qualquer usuário autenticado) ──────────
 	jobRoutes := router.Group("/jobs")
@@ -284,7 +285,6 @@ func setupRouter() *gin.Engine {
 		protected.GET("/eventos-estudante/:codigo", handlers.GetEventosEstudante)
 		protected.GET("/verificar-integridade/:codigo", handlers.VerificarIntegridade)
 		protected.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)
-		protected.GET("/consultar-academia/:codigo", handlers.GetAcademiaPorCodigo)
 		protected.GET("/estudantes", middleware.RequireAcademiaOuAdmin(), handlers.ListarEstudantes)
 		protected.GET("/avaliacoes", handlers.ListarAvaliacoes)
 		protected.GET("/aprovacoes", handlers.ListarAprovacoes)

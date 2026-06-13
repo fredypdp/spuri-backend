@@ -2,7 +2,7 @@
 modificado: 13-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.5.8
+Versão atual: 1.5.9
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -963,7 +963,7 @@ Retornar mensagem de aviso quando a senha for incorreta
 
 ### Consulta pública de academias
 
-A rota `GET /academias` é pública com autenticação opcional. Usuários não autenticados podem consultar a lista de academias, mas cada item da resposta expõe somente os campos públicos: `nivel`, `type`, `nome`, `codigo_academia`, `provincia`, `endereco`, `nivel_escolar` e `anos_academicos`. Para escolas fundamentais ou mistas, `anos_academicos` informa os anos acadêmicos ofertados sem exigir sessão.
+As rotas `GET /academias` e `GET /consultar-academia/:codigo` são públicas com autenticação opcional. Usuários não autenticados podem consultar a lista de academias ou uma academia específica pelo código, mas a resposta expõe somente os campos públicos: `nivel`, `type`, `nome`, `codigo_academia`, `provincia`, `endereco`, `nivel_escolar` e `anos_academicos`. Para escolas fundamentais ou mistas, `anos_academicos` informa os anos acadêmicos ofertados sem exigir sessão.
 
 As rotas `GET /academia/cursos?codigo_academia=...` e `GET /academia/curso/:id` também são públicas com autenticação opcional para consulta dos cursos e dos anos desses cursos em escolas do médio e academias do nível superior. Academias autenticadas continuam consultando os próprios cursos sem informar `codigo_academia`; admins autenticados continuam informando `codigo_academia` na listagem.
 
