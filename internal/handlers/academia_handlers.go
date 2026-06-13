@@ -509,21 +509,24 @@ func ListarTodasAcademias(c *gin.Context) {
 		}
 
 		acadMap := map[string]interface{}{
-			"id":               aca.ID,
-			"nivel":            aca.Nivel,
-			"type":             aca.Type,
-			"nome":             aca.Nome,
-			"codigo_academia":  aca.CodigoAcademia,
-			"provincia":        aca.Provincia,
-			"endereco":         aca.Endereco,
-			"numero_telefone":  aca.NumeroTelefone,
-			"website":          aca.Website,
-			"nivel_escolar":    aca.NivelEscolar,
-			"status":           aca.Status,
-			"cursos":           cursos,
-			"email_verificado": aca.EmailVerificado,
-			"created_at":       aca.CreatedAt,
-			"updated_at":       aca.UpdatedAt,
+			"nivel":           aca.Nivel,
+			"type":            aca.Type,
+			"nome":            aca.Nome,
+			"codigo_academia": aca.CodigoAcademia,
+			"provincia":       aca.Provincia,
+			"endereco":        aca.Endereco,
+			"nivel_escolar":   aca.NivelEscolar,
+		}
+
+		if userType != "" {
+			acadMap["id"] = aca.ID
+			acadMap["numero_telefone"] = aca.NumeroTelefone
+			acadMap["website"] = aca.Website
+			acadMap["status"] = aca.Status
+			acadMap["cursos"] = cursos
+			acadMap["email_verificado"] = aca.EmailVerificado
+			acadMap["created_at"] = aca.CreatedAt
+			acadMap["updated_at"] = aca.UpdatedAt
 		}
 
 		if userType == "admin" {
