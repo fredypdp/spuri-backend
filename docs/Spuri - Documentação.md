@@ -1122,12 +1122,15 @@ Eventos do ledger:
 
 ### Armazenamento de arquivos (Google Drive)
 
-O backend expõe a interface interna `StorageProvider` com `Upload`, `Delete`, `GetQuota` e `EnsureDir`. A implementação atual é `DriveProvider`, integrada ao Google Drive por chamadas REST oficiais da API Drive v3. A biblioteca `cloud.google.com/go` foi avaliada, mas ela atende principalmente produtos Google Cloud; para Google Drive, a API correta é a Drive API. Para evitar nova dependência bloqueada pelo ambiente, o backend usa HTTP direto com token OAuth em vez de adicionar um SDK.
+O backend usa a biblioteca oficial `google.golang.org/api/drive/v3` integrada com `golang.org/x/oauth2/google` para autenticar-se como service account. A autenticação é feita a partir do ficheiro JSON da service account (`GOOGLE_DRIVE_CREDENTIALS_PATH` ou `GOOGLE_DRIVE_CREDENTIALS_JSON` em base64), com renovação automática de tokens OAuth — sem necessidade de gestão manual de tokens.
 
 Configuração de produção:
 
-- `GOOGLE_DRIVE_ROOT_FOLDER_ID`: ID da pasta raiz gerenciada pelo Spuri no Google Drive.
-- `GOOGLE_DRIVE_ACCESS_TOKEN`: token OAuth com permissão de Drive para criar pastas, enviar PDFs, remover arquivos e consultar quota.
+- `GOOGLE_DRIVE_CREDENTIALS_PATH`: caminho para o ficheiro JSON da service account.
+- `GOOGLE_DRIVE_CREDENTIALS_JSON`: alternativa em base64 para ambientes sem disco persistente.
+- `GOOGLE_DRIVE_ROOT_FOLDER_ID`: ID da pasta raiz no Drive partilhada com a service account.
+
+Remover: `GOOGLE_DRIVE_ACCESS_TOKEN` (deixa de existir).
 
 Configuração local/teste:
 
@@ -1135,7 +1138,7 @@ Configuração local/teste:
 - `GOOGLE_DRIVE_LOCAL_ROOT`: diretório local usado para simular o Drive (padrão `data/google_drive_storage`).
 - `GOOGLE_DRIVE_QUOTA_TOTAL_BYTES` ou `GOOGLE_DRIVE_QUOTA_TOTAL_GB`: total usado na estimativa local (padrão 15 GB).
 
-Os documentos de matrícula continuam sendo gravados em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`. `EnsureDir` cria a hierarquia de pastas no Drive, `Upload` envia PDFs via upload multipart, `Delete` remove arquivos ou diretórios resolvendo o caminho dentro da pasta raiz configurada, e `GetQuota` consulta `about.storageQuota`, lista recursivamente a pasta raiz gerenciada, preenche `account_files`, soma `managed_bytes`/`academias` para arquivos dentro de diretórios de academia e separa `unmanaged_bytes` como a diferença entre o uso total da conta e o uso gerenciado pela pasta raiz do Spuri. Falhas de configuração retornam mensagens operacionais explícitas, por exemplo ausência de `GOOGLE_DRIVE_ROOT_FOLDER_ID`, ausência de `GOOGLE_DRIVE_ACCESS_TOKEN`, quota indisponível sem credenciais/estimativa local e valores inválidos em `GOOGLE_DRIVE_QUOTA_TOTAL_BYTES` ou `GOOGLE_DRIVE_QUOTA_TOTAL_GB`.
+Os documentos de matrícula continuam sendo gravados em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`. `EnsureDir` cria a hierarquia de pastas no Drive verificando cada nível antes de criá-lo, `Upload` envia PDFs para a pasta pai resolvida, `Delete` remove arquivos ou diretórios resolvendo o caminho dentro da pasta raiz configurada, e `GetQuota` consulta `about.storageQuota`, lista recursivamente a pasta raiz gerenciada, preenche `account_files`, soma `managed_bytes`/`academias` para arquivos dentro de diretórios de academia e separa `unmanaged_bytes` como a diferença entre o uso total da conta e o uso gerenciado pela pasta raiz do Spuri. Falhas de configuração retornam mensagens operacionais explícitas para ausência de credenciais, ausência de `GOOGLE_DRIVE_ROOT_FOLDER_ID`, credencial inválida, quota indisponível sem credenciais/estimativa local e valores inválidos em `GOOGLE_DRIVE_QUOTA_TOTAL_BYTES` ou `GOOGLE_DRIVE_QUOTA_TOTAL_GB`.
 
 ### Permissões
 
