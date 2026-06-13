@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -26,13 +25,14 @@ type StorageProvider interface {
 }
 
 type QuotaInfo struct {
-	TotalBytes     uint64
-	UsedBytes      uint64
-	AvailableBytes uint64
-	ManagedBytes   uint64
-	UnmanagedBytes uint64
-	Academias      []AcademiaUsage
-	AccountFiles   []AccountFileUsage
+	TotalBytes            uint64
+	UsedBytes             uint64
+	AvailableBytes        uint64
+	ManagedBytes          uint64
+	UnmanagedBytes        uint64
+	OutsideAcademiasBytes uint64
+	Academias             []AcademiaUsage
+	AccountFiles          []AccountFileUsage
 }
 
 type AcademiaUsage struct {
@@ -213,29 +213,17 @@ func (d *DriveProvider) GetQuota() (QuotaInfo, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	about, err := d.service.About.Get().Fields("storageQuota").Context(ctx).Do()
-	if err != nil {
-		return QuotaInfo{}, fmt.Errorf("falha ao consultar quota do Google Drive: %w", err)
-	}
-	academias, accountFiles, managed, err := d.getDriveAccountUsage(ctx)
+	academias, accountFiles, managed, outsideAcademias, err := d.getDriveAccountUsage(ctx)
 	if err != nil {
 		return QuotaInfo{}, err
 	}
-	total := uint64FromDriveInt64(about.StorageQuota.Limit)
-	used := uint64FromDriveInt64(about.StorageQuota.Usage)
-	available := uint64(0)
-	if total > used {
-		available = total - used
-	}
-	unmanaged := uint64(0)
-	if used > managed {
-		unmanaged = used - managed
-	}
-	return QuotaInfo{TotalBytes: total, UsedBytes: used, AvailableBytes: available, ManagedBytes: managed, UnmanagedBytes: unmanaged, Academias: academias, AccountFiles: accountFiles}, nil
+	total := managed + outsideAcademias
+	return QuotaInfo{TotalBytes: total, UsedBytes: total, ManagedBytes: managed, OutsideAcademiasBytes: outsideAcademias, Academias: academias, AccountFiles: accountFiles}, nil
 }
 
 func (d *DriveProvider) getLocalQuota() (QuotaInfo, error) {
 	var used uint64
+	var outsideAcademias uint64
 	academias := map[string]uint64{}
 	accountFiles := []AccountFileUsage{}
 	_ = filepath.WalkDir(d.root, func(path string, de os.DirEntry, err error) error {
@@ -250,6 +238,8 @@ func (d *DriveProvider) getLocalQuota() (QuotaInfo, error) {
 					managed := len(parts) > 1 && parts[0] != "."
 					if managed {
 						academias[parts[0]] += size
+					} else {
+						outsideAcademias += size
 					}
 					accountFiles = append(accountFiles, AccountFileUsage{Path: path, Name: filepath.Base(path), SizeBytes: size, Managed: managed})
 				}
@@ -257,35 +247,8 @@ func (d *DriveProvider) getLocalQuota() (QuotaInfo, error) {
 		}
 		return nil
 	})
-	total, err := configuredQuotaTotalBytes()
-	if err != nil {
-		return QuotaInfo{}, err
-	}
-	avail := uint64(0)
-	if total > used {
-		avail = total - used
-	}
 	sort.Slice(accountFiles, func(i, j int) bool { return accountFiles[i].Path < accountFiles[j].Path })
-	return QuotaInfo{TotalBytes: total, UsedBytes: used, AvailableBytes: avail, ManagedBytes: used, Academias: sortedAcademiaUsage(academias), AccountFiles: accountFiles}, nil
-}
-
-func configuredQuotaTotalBytes() (uint64, error) {
-	if raw := strings.TrimSpace(os.Getenv("GOOGLE_DRIVE_QUOTA_TOTAL_BYTES")); raw != "" {
-		v, err := strconv.ParseUint(raw, 10, 64)
-		if err != nil || v == 0 {
-			return 0, fmt.Errorf("configuração Google Drive inválida: GOOGLE_DRIVE_QUOTA_TOTAL_BYTES=%q deve ser um inteiro positivo em bytes", raw)
-		}
-		return v, nil
-	}
-	if raw := strings.TrimSpace(os.Getenv("GOOGLE_DRIVE_QUOTA_TOTAL_GB")); raw != "" {
-		v, err := strconv.ParseUint(raw, 10, 64)
-		if err != nil || v == 0 {
-			return 0, fmt.Errorf("configuração Google Drive inválida: GOOGLE_DRIVE_QUOTA_TOTAL_GB=%q deve ser um inteiro positivo em GB", raw)
-		}
-		return v * 1024 * 1024 * 1024, nil
-	}
-	const defaultDriveQuota uint64 = 15 * 1024 * 1024 * 1024
-	return defaultDriveQuota, nil
+	return QuotaInfo{TotalBytes: used, UsedBytes: used, ManagedBytes: used - outsideAcademias, OutsideAcademiasBytes: outsideAcademias, Academias: sortedAcademiaUsage(academias), AccountFiles: accountFiles}, nil
 }
 
 func (d *DriveProvider) driveParentAndName(remotePath string) (string, string, error) {
@@ -362,12 +325,13 @@ func (d *DriveProvider) resolveDrivePath(ctx context.Context, remotePath string)
 	return parent, nil
 }
 
-func (d *DriveProvider) getDriveAccountUsage(ctx context.Context) ([]AcademiaUsage, []AccountFileUsage, uint64, error) {
+func (d *DriveProvider) getDriveAccountUsage(ctx context.Context) ([]AcademiaUsage, []AccountFileUsage, uint64, uint64, error) {
 	usage := map[string]uint64{}
 	files := []AccountFileUsage{}
 	parents := map[string]string{d.rootFolderID: ""}
 	queue := []string{d.rootFolderID}
 	var managed uint64
+	var outsideAcademias uint64
 	for len(queue) > 0 {
 		parent := queue[0]
 		queue = queue[1:]
@@ -376,7 +340,7 @@ func (d *DriveProvider) getDriveAccountUsage(ctx context.Context) ([]AcademiaUsa
 			q := fmt.Sprintf("%s in parents and trashed = false", quoteDriveQueryString(parent))
 			resp, err := d.service.Files.List().Q(q).PageSize(1000).PageToken(pageToken).Fields("nextPageToken,files(id,name,mimeType,size,parents)").SupportsAllDrives(true).IncludeItemsFromAllDrives(true).Context(ctx).Do()
 			if err != nil {
-				return nil, nil, 0, fmt.Errorf("falha ao listar arquivos do Google Drive: %w", err)
+				return nil, nil, 0, 0, fmt.Errorf("falha ao listar arquivos do Google Drive: %w", err)
 			}
 			for _, f := range resp.Files {
 				base := parents[parent]
@@ -395,6 +359,8 @@ func (d *DriveProvider) getDriveAccountUsage(ctx context.Context) ([]AcademiaUsa
 				if isManaged {
 					usage[parts[0]] += size
 					managed += size
+				} else {
+					outsideAcademias += size
 				}
 				files = append(files, AccountFileUsage{Path: path, Name: f.Name, SizeBytes: size, Managed: isManaged})
 			}
@@ -405,7 +371,7 @@ func (d *DriveProvider) getDriveAccountUsage(ctx context.Context) ([]AcademiaUsa
 		}
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
-	return sortedAcademiaUsage(usage), files, managed, nil
+	return sortedAcademiaUsage(usage), files, managed, outsideAcademias, nil
 }
 
 func uint64FromDriveInt64(v int64) uint64 {

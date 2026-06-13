@@ -2,7 +2,7 @@
 modificado: 13-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.5.7
+Versão atual: 1.5.8
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -1136,9 +1136,8 @@ Configuração local/teste:
 
 - `GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true`: habilita o provider local sem chamar Google Drive.
 - `GOOGLE_DRIVE_LOCAL_ROOT`: diretório local usado para simular o Drive (padrão `data/google_drive_storage`).
-- `GOOGLE_DRIVE_QUOTA_TOTAL_BYTES` ou `GOOGLE_DRIVE_QUOTA_TOTAL_GB`: total usado na estimativa local (padrão 15 GB).
 
-Os documentos de matrícula continuam sendo gravados em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`. `EnsureDir` cria a hierarquia de pastas no Drive verificando cada nível antes de criá-lo, `Upload` envia PDFs para a pasta pai resolvida, `Delete` remove arquivos ou diretórios resolvendo o caminho dentro da pasta raiz configurada, e `GetQuota` consulta `about.storageQuota`, lista recursivamente a pasta raiz gerenciada, preenche `account_files`, soma `managed_bytes`/`academias` para arquivos dentro de diretórios de academia e separa `unmanaged_bytes` como a diferença entre o uso total da conta e o uso gerenciado pela pasta raiz do Spuri. Falhas de configuração retornam mensagens operacionais explícitas para ausência de credenciais, ausência de `GOOGLE_DRIVE_ROOT_FOLDER_ID`, credencial inválida, quota indisponível sem credenciais/estimativa local e valores inválidos em `GOOGLE_DRIVE_QUOTA_TOTAL_BYTES` ou `GOOGLE_DRIVE_QUOTA_TOTAL_GB`.
+Os documentos de matrícula continuam sendo gravados em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`. `EnsureDir` cria a hierarquia de pastas no Drive verificando cada nível antes de criá-lo, `Upload` envia PDFs para a pasta pai resolvida e `Delete` remove arquivos ou diretórios resolvendo o caminho dentro da pasta raiz configurada. `GetQuota` não tenta mais estimar consumo fora da pasta raiz compartilhada/gerenciada: ele lista recursivamente apenas essa pasta, define `total_bytes`/`used_bytes` como a soma real dos arquivos existentes nela, preenche `academias`/`managed_bytes` com arquivos dentro dos diretórios de academia e preenche `outside_academias_bytes` com arquivos que estão na raiz ou fora de diretórios de academia. `unmanaged_bytes` fica reservado para compatibilidade e não representa mais consumo externo à pasta raiz. Falhas de configuração retornam mensagens operacionais explícitas para ausência de credenciais, ausência de `GOOGLE_DRIVE_ROOT_FOLDER_ID`, credencial inválida e quota indisponível sem credenciais/estimativa local.
 
 ### Permissões
 

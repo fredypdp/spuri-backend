@@ -2,7 +2,7 @@
 modificado: 13-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.6.9
+Versão atual: 1.7.0
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -3643,9 +3643,9 @@ Lista todas as solicitações do sistema para admin. Query params: `status`, `co
 
 ### GET /dominis/storage/quota
 
-Retorna a quota da conta Google Drive e a distribuição dos arquivos gerenciados pelo Spuri. Em produção, o backend deve estar configurado com `GOOGLE_DRIVE_CREDENTIALS_PATH` ou `GOOGLE_DRIVE_CREDENTIALS_JSON`, além de `GOOGLE_DRIVE_ROOT_FOLDER_ID`; nessa configuração, `total_bytes` e `used_bytes` vêm de `about.storageQuota` da API Google Drive, enquanto `account_files`, `managed_bytes` e `academias` são calculados pela listagem recursiva da pasta raiz gerenciada pelo Spuri. `unmanaged_bytes` representa o uso da conta que não está dentro da pasta raiz gerenciada, como arquivos enviados manualmente fora da estrutura do sistema.
+Retorna a distribuição dos arquivos existentes dentro da pasta raiz compartilhada/gerenciada pelo Spuri no Google Drive. Em produção, o backend deve estar configurado com `GOOGLE_DRIVE_CREDENTIALS_PATH` ou `GOOGLE_DRIVE_CREDENTIALS_JSON`, além de `GOOGLE_DRIVE_ROOT_FOLDER_ID`; nessa configuração, o backend lista recursivamente apenas a pasta raiz configurada. `total_bytes` e `used_bytes` são a soma dos arquivos existentes nessa pasta raiz, `managed_bytes` e `academias` detalham arquivos dentro dos diretórios de academia, e `outside_academias_bytes` detalha arquivos da raiz que não estão dentro de diretórios de academia. O backend não consulta nem estima consumo de arquivos fora da pasta raiz compartilhada; `unmanaged_bytes` permanece apenas por compatibilidade e não representa mais uso externo da conta.
 
-Sem credenciais de produção, o backend só permite estimativa local quando `GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true`, contabilizando apenas `GOOGLE_DRIVE_LOCAL_ROOT` (padrão `data/google_drive_storage`). `GOOGLE_DRIVE_QUOTA_TOTAL_BYTES` ou `GOOGLE_DRIVE_QUOTA_TOTAL_GB` podem ajustar o total estimado.
+Sem credenciais de produção, o backend só permite estimativa local quando `GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true`, contabilizando apenas os arquivos dentro de `GOOGLE_DRIVE_LOCAL_ROOT` (padrão `data/google_drive_storage`) com a mesma regra relativa à pasta raiz.
 
 Quando a configuração do Google Drive ou da quota estiver incompleta ou inválida, a rota retorna `503 Service Unavailable` com a mensagem operacional gerada pelo storage. Exemplos de mensagens:
 
@@ -3653,8 +3653,6 @@ Quando a configuração do Google Drive ou da quota estiver incompleta ou invál
 - `configuração Google Drive incompleta: nenhuma credencial configurada (defina GOOGLE_DRIVE_CREDENTIALS_PATH ou GOOGLE_DRIVE_CREDENTIALS_JSON)`
 - `credencial Google Drive inválida: JSON malformado ou não é uma service account`
 - `quota do Google Drive indisponível: configure credenciais e GOOGLE_DRIVE_ROOT_FOLDER_ID; para ambiente local, defina GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true`
-- `configuração Google Drive inválida: GOOGLE_DRIVE_QUOTA_TOTAL_BYTES="..." deve ser um inteiro positivo em bytes`
-- `configuração Google Drive inválida: GOOGLE_DRIVE_QUOTA_TOTAL_GB="..." deve ser um inteiro positivo em GB`
 
 **Proteção**: autenticado + admin
 
@@ -3663,16 +3661,18 @@ Quando a configuração do Google Drive ou da quota estiver incompleta ou invál
 ```json
 {
   "provider": "google_drive",
-  "total_bytes": 16106127360,
-  "used_bytes": 536870912,
-  "available_bytes": 15569256448,
+  "total_bytes": 108003328,
+  "used_bytes": 108003328,
+  "available_bytes": 0,
   "managed_bytes": 104857600,
-  "unmanaged_bytes": 432013312,
-  "total_human": "15.00 GB",
-  "used_human": "512.00 MB",
-  "available_human": "14.50 GB",
+  "outside_academias_bytes": 3145728,
+  "unmanaged_bytes": 0,
+  "total_human": "103.00 MB",
+  "used_human": "103.00 MB",
+  "available_human": "0 B",
   "managed_human": "100.00 MB",
-  "unmanaged_human": "412.00 MB",
+  "outside_academias_human": "3.00 MB",
+  "unmanaged_human": "0 B",
   "academias": [
     {
       "codigo_academia": "ACA001",
