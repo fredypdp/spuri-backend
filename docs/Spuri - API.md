@@ -3626,7 +3626,7 @@ Lista todas as solicitações do sistema para admin. Query params: `status`, `co
 
 ### GET /dominis/storage/quota
 
-Retorna quota real da conta Mega quando o backend está configurado com sessão (`MEGA_AUTH_MODE=session`, `MEGA_SESSION_ID` e `MEGA_MASTER_KEY`). Nessa configuração, `total_bytes` e `used_bytes` vêm da API do Mega e `academias` soma os arquivos por diretório de academia no Cloud Drive. Sem sessão, o backend só permite a estimativa local se `MEGA_QUOTA_LOCAL_ESTIMATE=true`, contabilizando apenas `MEGA_LOCAL_ROOT` (padrão `data/mega_storage`).
+Retorna quota real da conta Mega quando o backend está configurado com sessão (`MEGA_AUTH_MODE=session`, `MEGA_SESSION_ID` e `MEGA_MASTER_KEY`). Nessa configuração, `total_bytes` e `used_bytes` vêm da API do Mega e representam todo o armazenamento ocupado na conta, inclusive arquivos enviados diretamente pelo site do Mega na raiz do Cloud Drive. A resposta também traz `account_files` com todos os arquivos visíveis no Cloud Drive, `managed_bytes` para arquivos dentro de diretórios de academia, `unmanaged_bytes` para o uso restante da conta, e `academias` com a soma por diretório de academia. Sem sessão, o backend só permite a estimativa local se `MEGA_QUOTA_LOCAL_ESTIMATE=true`, contabilizando apenas `MEGA_LOCAL_ROOT` (padrão `data/mega_storage`).
 
 Quando a configuração do Mega ou da quota estiver incompleta ou inválida, a rota retorna `503 Service Unavailable` com a mensagem operacional gerada pelo storage. Exemplos de mensagens:
 
@@ -3646,14 +3646,34 @@ Quando a configuração do Mega ou da quota estiver incompleta ou inválida, a r
   "total_bytes": 21474836480,
   "used_bytes": 1073741824,
   "available_bytes": 20401094656,
+  "managed_bytes": 524288000,
+  "unmanaged_bytes": 549453824,
   "total_human": "20.00 GB",
   "used_human": "1.00 GB",
   "available_human": "19.00 GB",
+  "managed_human": "500.00 MB",
+  "unmanaged_human": "524.00 MB",
   "academias": [
     {
       "codigo_academia": "ACA001",
       "used_bytes": 524288000,
       "used_human": "500.00 MB"
+    }
+  ],
+  "account_files": [
+    {
+      "path": "video-avulso.mp4",
+      "name": "video-avulso.mp4",
+      "size_bytes": 549453824,
+      "size_human": "524.00 MB",
+      "managed": false
+    },
+    {
+      "path": "ACA001/matriculas/matricula_2026_0001/documento.pdf",
+      "name": "documento.pdf",
+      "size_bytes": 524288000,
+      "size_human": "500.00 MB",
+      "managed": true
     }
   ]
 }

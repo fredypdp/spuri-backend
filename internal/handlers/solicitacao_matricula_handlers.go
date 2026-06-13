@@ -400,7 +400,11 @@ func GetStorageQuota(c *gin.Context) {
 	for _, a := range q.Academias {
 		academias = append(academias, gin.H{"codigo_academia": a.CodigoAcademia, "used_bytes": a.UsedBytes, "used_human": storage.HumanBytes(a.UsedBytes)})
 	}
-	c.JSON(http.StatusOK, gin.H{"provider": "mega", "total_bytes": q.TotalBytes, "used_bytes": q.UsedBytes, "available_bytes": q.AvailableBytes, "total_human": storage.HumanBytes(q.TotalBytes), "used_human": storage.HumanBytes(q.UsedBytes), "available_human": storage.HumanBytes(q.AvailableBytes), "academias": academias})
+	files := make([]gin.H, 0, len(q.AccountFiles))
+	for _, f := range q.AccountFiles {
+		files = append(files, gin.H{"path": f.Path, "name": f.Name, "size_bytes": f.SizeBytes, "size_human": storage.HumanBytes(f.SizeBytes), "managed": f.Managed})
+	}
+	c.JSON(http.StatusOK, gin.H{"provider": "mega", "total_bytes": q.TotalBytes, "used_bytes": q.UsedBytes, "available_bytes": q.AvailableBytes, "managed_bytes": q.ManagedBytes, "unmanaged_bytes": q.UnmanagedBytes, "total_human": storage.HumanBytes(q.TotalBytes), "used_human": storage.HumanBytes(q.UsedBytes), "available_human": storage.HumanBytes(q.AvailableBytes), "managed_human": storage.HumanBytes(q.ManagedBytes), "unmanaged_human": storage.HumanBytes(q.UnmanagedBytes), "academias": academias, "account_files": files})
 }
 
 func currentAcademiaDTO(c *gin.Context) (*projections.AcademiaDTO, bool) {

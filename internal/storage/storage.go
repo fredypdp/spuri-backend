@@ -29,12 +29,22 @@ type QuotaInfo struct {
 	TotalBytes     uint64
 	UsedBytes      uint64
 	AvailableBytes uint64
+	ManagedBytes   uint64
+	UnmanagedBytes uint64
 	Academias      []AcademiaUsage
+	AccountFiles   []AccountFileUsage
 }
 
 type AcademiaUsage struct {
 	CodigoAcademia string
 	UsedBytes      uint64
+}
+
+type AccountFileUsage struct {
+	Path      string
+	Name      string
+	SizeBytes uint64
+	Managed   bool
 }
 
 // MegaProvider implements StorageProvider. The production-facing type is kept
@@ -142,7 +152,7 @@ func (m *MegaProvider) getLocalQuota() (QuotaInfo, error) {
 	if total > used {
 		avail = total - used
 	}
-	return QuotaInfo{TotalBytes: total, UsedBytes: used, AvailableBytes: avail, Academias: sortedAcademiaUsage(academias)}, nil
+	return QuotaInfo{TotalBytes: total, UsedBytes: used, AvailableBytes: avail, ManagedBytes: used, Academias: sortedAcademiaUsage(academias)}, nil
 }
 
 func configuredQuotaTotalBytes() (uint64, error) {
@@ -194,25 +204,29 @@ func (m *MegaProvider) getMegaQuota(sessionID string) (QuotaInfo, error) {
 	if err := megaAPI(sessionID, []megaAPIRequest{{Cmd: "uq", Xfer: 1, Strg: 1}}, &quota); err != nil {
 		return QuotaInfo{}, fmt.Errorf("falha ao consultar quota real do Mega: %w", err)
 	}
-	academias, err := m.getMegaAcademiaUsage(sessionID)
+	academias, accountFiles, managed, err := m.getMegaAccountUsage(sessionID)
 	if err != nil {
-		return QuotaInfo{}, fmt.Errorf("falha ao calcular uso por academia no Mega: %w", err)
+		return QuotaInfo{}, fmt.Errorf("falha ao calcular arquivos da conta Mega: %w", err)
 	}
 	available := uint64(0)
 	if quota.TotalBytes > quota.UsedBytes {
 		available = quota.TotalBytes - quota.UsedBytes
 	}
-	return QuotaInfo{TotalBytes: quota.TotalBytes, UsedBytes: quota.UsedBytes, AvailableBytes: available, Academias: academias}, nil
+	unmanaged := uint64(0)
+	if quota.UsedBytes > managed {
+		unmanaged = quota.UsedBytes - managed
+	}
+	return QuotaInfo{TotalBytes: quota.TotalBytes, UsedBytes: quota.UsedBytes, AvailableBytes: available, ManagedBytes: managed, UnmanagedBytes: unmanaged, Academias: academias, AccountFiles: accountFiles}, nil
 }
 
-func (m *MegaProvider) getMegaAcademiaUsage(sessionID string) ([]AcademiaUsage, error) {
+func (m *MegaProvider) getMegaAccountUsage(sessionID string) ([]AcademiaUsage, []AccountFileUsage, uint64, error) {
 	masterKey, err := megaMasterKey()
 	if err != nil {
-		return nil, err
+		return nil, nil, 0, err
 	}
 	var files megaFilesResponse
 	if err := megaAPI(sessionID, []megaAPIRequest{{Cmd: "f", C: 1}}, &files); err != nil {
-		return nil, err
+		return nil, nil, 0, err
 	}
 	nodes := map[string]megaNode{}
 	names := map[string]string{}
@@ -224,15 +238,24 @@ func (m *MegaProvider) getMegaAcademiaUsage(sessionID string) ([]AcademiaUsage, 
 		}
 	}
 	usage := map[string]uint64{}
+	accountFiles := make([]AccountFileUsage, 0)
+	var managed uint64
 	for _, n := range files.Files {
 		if n.Type != 0 || n.Size == 0 {
 			continue
 		}
-		if academia := topLevelMegaFolder(n, nodes, names); academia != "" {
+		path := megaNodePath(n, nodes, names)
+		name := names[n.Hash]
+		academia := topLevelMegaFolder(n, nodes, names)
+		isManaged := academia != ""
+		if isManaged {
 			usage[academia] += n.Size
+			managed += n.Size
 		}
+		accountFiles = append(accountFiles, AccountFileUsage{Path: path, Name: name, SizeBytes: n.Size, Managed: isManaged})
 	}
-	return sortedAcademiaUsage(usage), nil
+	sort.Slice(accountFiles, func(i, j int) bool { return accountFiles[i].Path < accountFiles[j].Path })
+	return sortedAcademiaUsage(usage), accountFiles, managed, nil
 }
 
 func megaAPI[T any](sessionID string, payload []megaAPIRequest, dest *T) error {
@@ -377,6 +400,28 @@ func topLevelMegaFolder(n megaNode, nodes map[string]megaNode, names map[string]
 		current = parent
 	}
 	return top
+}
+
+func megaNodePath(n megaNode, nodes map[string]megaNode, names map[string]string) string {
+	parts := []string{}
+	if name := names[n.Hash]; name != "" {
+		parts = append(parts, name)
+	}
+	current := n
+	for current.Parent != "" {
+		parent, ok := nodes[current.Parent]
+		if !ok || parent.Type == 2 {
+			break
+		}
+		if name := names[parent.Hash]; name != "" {
+			parts = append(parts, name)
+		}
+		current = parent
+	}
+	for i, j := 0, len(parts)-1; i < j; i, j = i+1, j-1 {
+		parts[i], parts[j] = parts[j], parts[i]
+	}
+	return strings.Join(parts, "/")
 }
 
 func sortedAcademiaUsage(usage map[string]uint64) []AcademiaUsage {
