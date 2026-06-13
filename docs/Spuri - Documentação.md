@@ -2,7 +2,7 @@
 modificado: 13-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.5.9
+Versão atual: 1.5.10
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -1103,7 +1103,7 @@ Eventos do ledger:
 ### Processo de negócio
 
 1. O estudante envia `POST /solicitacao-matricula` com formulário multipart e PDFs.
-2. O backend valida BI, cédula, data de nascimento, academia ativa e obrigatoriedade dinâmica de declaração e do tipo específico de certificado.
+2. O backend valida BI, cédula, data de nascimento, academia ativa, assinatura/extensão PDF, limite máximo de 5MB por ficheiro e obrigatoriedade dinâmica de declaração e do tipo específico de certificado.
 3. Os documentos são enviados ao storage em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`.
 4. O aggregate `SolicitacaoMatricula` grava o evento de criação.
 5. A academia lista/consulta solicitações e aprova ou reprova.
