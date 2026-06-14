@@ -1,8 +1,8 @@
 ---
-modificado: 13-06-2026 00:00
+modificado: 14-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.7.3
+Versão atual: 1.7.4
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -238,6 +238,12 @@ interface EstudanteDTO {
 ### 2.x SolicitacaoMatricula
 
 ```typescript
+interface SolicitacaoMatriculaDocumentoDTO {
+  path: string
+  file_url: string
+  download_url: string
+}
+
 interface SolicitacaoMatriculaDTO {
   id: string
   codigo_solicitacao: string
@@ -256,7 +262,7 @@ interface SolicitacaoMatriculaDTO {
   curso_superior_id?: string
   status: SolicitacaoMatriculaStatus
   motivo_reprovacao?: string
-  documentos: Record<string, string>
+  documentos: Record<string, SolicitacaoMatriculaDocumentoDTO>
   codigo_estudante_gerado?: string
   aprovada_por?: string
   reprovada_por?: string
@@ -3525,7 +3531,7 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 
 ### POST /solicitacao-matricula
 
-Cria uma solicitação pública de matrícula via `multipart/form-data`. O backend gera `codigo_solicitacao`, valida dados e PDFs, envia documentos para o armazenamento no caminho `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/` e grava `SolicitacaoMatriculaCriada` no ledger.
+Cria uma solicitação pública de matrícula via `multipart/form-data`. O backend gera `codigo_solicitacao`, valida dados e PDFs, envia documentos para o armazenamento no caminho `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/` e grava `SolicitacaoMatriculaCriada` no ledger. Para cada arquivo enviado, o evento e a projeção salvam `path`, `file_url` (URL de visualização/arquivo no Drive) e `download_url` (URL direta de download quando o Google Drive disponibilizar `webContentLink`).
 
 **Proteção**: pública
 
@@ -3546,11 +3552,78 @@ Cria uma solicitação pública de matrícula via `multipart/form-data`. O backe
 
 ### GET /academia/solicitacoes-matricula
 
-Lista solicitações da academia autenticada. Query params: `status`, `limit`, `offset`.
+Lista solicitações da academia autenticada em ordem decrescente de criação.
+
+**Proteção**: autenticado + academia
+
+**Query params**:
+
+- `status`: filtro repetível por status (`pendente`, `aprovada`, `reprovada`). Ex.: `?status=pendente&status=reprovada`.
+- `limit`: quantidade máxima de registros. Padrão `50`, mínimo `1`, máximo `1000`.
+- `offset`: deslocamento de paginação. Padrão `0`.
+
+**Response 200:**
+
+```json
+{
+  "solicitacoes": [
+    {
+      "id": "0d0f5f7d-2f80-4e2d-9b48-b016f8d8f2ab",
+      "codigo_solicitacao": "A3F9K2BPQ7X",
+      "codigo_academia": "LDA20261",
+      "nome": "Maria da Silva",
+      "genero": "feminino",
+      "data_nascimento": "2010-05-12T00:00:00Z",
+      "status": "pendente",
+      "documentos": {
+        "bi_responsavel": {
+          "path": "LDA20261/matriculas/matricula_A3F9K2BPQ7X/bi_responsavel_A3F9K2BPQ7X.pdf",
+          "file_url": "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk",
+          "download_url": "https://drive.google.com/uc?id=FILE_ID&export=download"
+        }
+      },
+      "created_at": "2026-06-14T10:00:00Z",
+      "updated_at": "2026-06-14T10:00:00Z",
+      "version": 1
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
 
 ### GET /academia/solicitacao-matricula/:codigo
 
-Consulta uma solicitação da academia autenticada. Retorna `404` se não existir e `403` se pertencer a outra academia.
+Consulta uma solicitação da academia autenticada pelo `codigo_solicitacao`. Retorna `404` se não existir e `403` se pertencer a outra academia.
+
+**Proteção**: autenticado + academia dona
+
+**Response 200:**
+
+```json
+{
+  "solicitacao": {
+    "id": "0d0f5f7d-2f80-4e2d-9b48-b016f8d8f2ab",
+    "codigo_solicitacao": "A3F9K2BPQ7X",
+    "codigo_academia": "LDA20261",
+    "nome": "Maria da Silva",
+    "genero": "feminino",
+    "data_nascimento": "2010-05-12T00:00:00Z",
+    "status": "pendente",
+    "documentos": {
+      "declaracao": {
+        "path": "LDA20261/matriculas/matricula_A3F9K2BPQ7X/declaracao_A3F9K2BPQ7X.pdf",
+        "file_url": "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk",
+        "download_url": "https://drive.google.com/uc?id=FILE_ID&export=download"
+      }
+    },
+    "created_at": "2026-06-14T10:00:00Z",
+    "updated_at": "2026-06-14T10:00:00Z",
+    "version": 1
+  }
+}
+```
 
 ### PUT /academia/solicitacao-matricula/:codigo/aprovar
 
@@ -3578,7 +3651,11 @@ Reprova uma solicitação pendente, grava `SolicitacaoMatriculaReprovada` e remo
 
 ### GET /solicitacoes-matricula
 
-Lista todas as solicitações do sistema para admin. Query params: `status`, `codigo_academia`, `limit`, `offset`.
+Lista todas as solicitações do sistema para admin em ordem decrescente de criação. Retorna o mesmo formato de `GET /academia/solicitacoes-matricula`, incluindo `documentos.<campo>.path`, `documentos.<campo>.file_url` e `documentos.<campo>.download_url` para cada arquivo enviado.
+
+**Proteção**: autenticado + admin
+
+**Query params**: `status` repetível, `codigo_academia` repetível, `limit` e `offset`.
 
 ---
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"spuri/internal/db"
+	"spuri/internal/domain/aggregates"
 	"time"
 
 	"github.com/google/uuid"
@@ -76,24 +77,24 @@ func (p *SolicitacaoMatriculaProjection) clear() error {
 
 func (p *SolicitacaoMatriculaProjection) handleCriada(event db.Event) error {
 	var payload struct {
-		CodigoSolicitacao            string            `json:"CodigoSolicitacao"`
-		CodigoAcademia               string            `json:"CodigoAcademia"`
-		Nome                         string            `json:"Nome"`
-		Genero                       string            `json:"Genero"`
-		DataNascimento               time.Time         `json:"DataNascimento"`
-		Email                        *string           `json:"Email"`
-		Telefone                     *string           `json:"Telefone"`
-		BilheteIdentidade            *string           `json:"BilheteIdentidade"`
-		BilheteIdentidadeResponsavel *string           `json:"BilheteIdentidadeResponsavel"`
-		AnoEscolarFundamental        *string           `json:"AnoEscolarFundamental"`
-		AnoEscolarMedio              *string           `json:"AnoEscolarMedio"`
-		CursoMedioID                 *uuid.UUID        `json:"CursoMedioID"`
-		AnoSuperior                  *string           `json:"AnoSuperior"`
-		CursoSuperiorID              *uuid.UUID        `json:"CursoSuperiorID"`
-		Status                       string            `json:"Status"`
-		Documentos                   map[string]string `json:"Documentos"`
-		CreatedAt                    time.Time         `json:"CreatedAt"`
-		UpdatedAt                    time.Time         `json:"UpdatedAt"`
+		CodigoSolicitacao            string                                   `json:"CodigoSolicitacao"`
+		CodigoAcademia               string                                   `json:"CodigoAcademia"`
+		Nome                         string                                   `json:"Nome"`
+		Genero                       string                                   `json:"Genero"`
+		DataNascimento               time.Time                                `json:"DataNascimento"`
+		Email                        *string                                  `json:"Email"`
+		Telefone                     *string                                  `json:"Telefone"`
+		BilheteIdentidade            *string                                  `json:"BilheteIdentidade"`
+		BilheteIdentidadeResponsavel *string                                  `json:"BilheteIdentidadeResponsavel"`
+		AnoEscolarFundamental        *string                                  `json:"AnoEscolarFundamental"`
+		AnoEscolarMedio              *string                                  `json:"AnoEscolarMedio"`
+		CursoMedioID                 *uuid.UUID                               `json:"CursoMedioID"`
+		AnoSuperior                  *string                                  `json:"AnoSuperior"`
+		CursoSuperiorID              *uuid.UUID                               `json:"CursoSuperiorID"`
+		Status                       string                                   `json:"Status"`
+		Documentos                   map[string]aggregates.DocumentoMatricula `json:"Documentos"`
+		CreatedAt                    time.Time                                `json:"CreatedAt"`
+		UpdatedAt                    time.Time                                `json:"UpdatedAt"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return err
@@ -147,30 +148,30 @@ func (p *SolicitacaoMatriculaProjection) handleReprovada(event db.Event) error {
 }
 
 type SolicitacaoMatriculaDTO struct {
-	ID                           uuid.UUID         `json:"id"`
-	CodigoSolicitacao            string            `json:"codigo_solicitacao"`
-	CodigoAcademia               string            `json:"codigo_academia"`
-	Nome                         string            `json:"nome"`
-	Genero                       string            `json:"genero"`
-	DataNascimento               time.Time         `json:"data_nascimento"`
-	Email                        *string           `json:"email,omitempty"`
-	Telefone                     *string           `json:"telefone,omitempty"`
-	BilheteIdentidade            *string           `json:"bilhete_identidade,omitempty"`
-	BilheteIdentidadeResponsavel *string           `json:"bilhete_identidade_responsavel,omitempty"`
-	AnoEscolarFundamental        *string           `json:"ano_escolar_fundamental,omitempty"`
-	AnoEscolarMedio              *string           `json:"ano_escolar_medio,omitempty"`
-	CursoMedioID                 *uuid.UUID        `json:"curso_medio_id,omitempty"`
-	AnoSuperior                  *string           `json:"ano_superior,omitempty"`
-	CursoSuperiorID              *uuid.UUID        `json:"curso_superior_id,omitempty"`
-	Status                       string            `json:"status"`
-	MotivoReprovacao             *string           `json:"motivo_reprovacao,omitempty"`
-	Documentos                   map[string]string `json:"documentos"`
-	CodigoEstudanteGerado        *string           `json:"codigo_estudante_gerado,omitempty"`
-	AprovadaPor                  *uuid.UUID        `json:"aprovada_por,omitempty"`
-	ReprovadaPor                 *uuid.UUID        `json:"reprovada_por,omitempty"`
-	CreatedAt                    time.Time         `json:"created_at"`
-	UpdatedAt                    time.Time         `json:"updated_at"`
-	Version                      int               `json:"version"`
+	ID                           uuid.UUID                                `json:"id"`
+	CodigoSolicitacao            string                                   `json:"codigo_solicitacao"`
+	CodigoAcademia               string                                   `json:"codigo_academia"`
+	Nome                         string                                   `json:"nome"`
+	Genero                       string                                   `json:"genero"`
+	DataNascimento               time.Time                                `json:"data_nascimento"`
+	Email                        *string                                  `json:"email,omitempty"`
+	Telefone                     *string                                  `json:"telefone,omitempty"`
+	BilheteIdentidade            *string                                  `json:"bilhete_identidade,omitempty"`
+	BilheteIdentidadeResponsavel *string                                  `json:"bilhete_identidade_responsavel,omitempty"`
+	AnoEscolarFundamental        *string                                  `json:"ano_escolar_fundamental,omitempty"`
+	AnoEscolarMedio              *string                                  `json:"ano_escolar_medio,omitempty"`
+	CursoMedioID                 *uuid.UUID                               `json:"curso_medio_id,omitempty"`
+	AnoSuperior                  *string                                  `json:"ano_superior,omitempty"`
+	CursoSuperiorID              *uuid.UUID                               `json:"curso_superior_id,omitempty"`
+	Status                       string                                   `json:"status"`
+	MotivoReprovacao             *string                                  `json:"motivo_reprovacao,omitempty"`
+	Documentos                   map[string]aggregates.DocumentoMatricula `json:"documentos"`
+	CodigoEstudanteGerado        *string                                  `json:"codigo_estudante_gerado,omitempty"`
+	AprovadaPor                  *uuid.UUID                               `json:"aprovada_por,omitempty"`
+	ReprovadaPor                 *uuid.UUID                               `json:"reprovada_por,omitempty"`
+	CreatedAt                    time.Time                                `json:"created_at"`
+	UpdatedAt                    time.Time                                `json:"updated_at"`
+	Version                      int                                      `json:"version"`
 }
 
 type SolicitacaoListResult struct {
@@ -277,7 +278,7 @@ func scanSolicitacao(row interface{ Scan(...interface{}) error }) (*SolicitacaoM
 	if reprovadaPor.Valid {
 		dto.ReprovadaPor = &reprovadaPor.UUID
 	}
-	dto.Documentos = map[string]string{}
+	dto.Documentos = map[string]aggregates.DocumentoMatricula{}
 	_ = json.Unmarshal(docs, &dto.Documentos)
 	return &dto, nil
 }
