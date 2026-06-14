@@ -27,7 +27,7 @@ import (
 
 const maxSolicitacaoDocumentoBytes int64 = 5 << 20
 
-var solicitacaoDocFields = []string{"bi_estudante", "bi_responsavel", "cedula_estudante", "cedula", "declaracao", "certificado_6_ano_fundamental", "certificado_9_ano_fundamental", "certificado_ensino_medio"}
+var solicitacaoDocFields = []string{"bi_estudante", "bi_responsavel", "cedula_estudante", "declaracao", "certificado_6_ano_fundamental", "certificado_9_ano_fundamental", "certificado_ensino_medio"}
 
 type uploadedPDF struct {
 	field string
@@ -100,13 +100,8 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 	}
 	if _, hasStudentBI := files["bi_estudante"]; !hasStudentBI {
 		if _, ok := files["cedula_estudante"]; !ok {
-			if legacy, legacyOK := files["cedula"]; legacyOK {
-				files["cedula_estudante"] = legacy
-				delete(files, "cedula")
-			} else {
-				utils.RespondWithValidationError(c, fmt.Errorf("envie a cédula do estudante quando o bilhete de identidade do estudante não for informado"))
-				return
-			}
+			utils.RespondWithValidationError(c, fmt.Errorf("envie a cédula do estudante quando o bilhete de identidade do estudante não for informado"))
+			return
 		}
 	}
 	if requiredCertField == "" {
