@@ -2,7 +2,7 @@
 modificado: 13-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.5.10
+Versão atual: 1.5.11
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -1094,16 +1094,11 @@ Eventos do ledger:
 - `SolicitacaoMatriculaCriada`
 - `SolicitacaoMatriculaAprovada`
 - `SolicitacaoMatriculaReprovada`
-- `AcademiaDocumentosObrigatoriosAtualizados` (aggregate `Academia`)
-
-### Academia: `documentos_obrigatorios`
-
-`projection_academias` contém `documentos_obrigatorios` com listas `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental` e `certificado_ensino_medio`. A academia só pode informar anos académicos que pertençam aos seus próprios anos fundamentais ou aos cursos médio/superior ativos.
 
 ### Processo de negócio
 
 1. O estudante envia `POST /solicitacao-matricula` com formulário multipart e PDFs.
-2. O backend valida BI, cédula, data de nascimento, academia ativa, assinatura/extensão PDF, limite máximo de 5MB por ficheiro e obrigatoriedade dinâmica de declaração e do tipo específico de certificado.
+2. O backend valida bilhete de identidade do responsável, cédula do estudante quando necessário, data de nascimento, academia ativa, assinatura/extensão PDF, limite máximo de 5MB por ficheiro e as regras automáticas de declaração/certificados.
 3. Os documentos são enviados ao storage em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`.
 4. O aggregate `SolicitacaoMatricula` grava o evento de criação.
 5. A academia lista/consulta solicitações e aprova ou reprova.
@@ -1112,9 +1107,12 @@ Eventos do ledger:
 
 ### Regras de negócio
 
-- Pelo menos um entre BI do estudante e BI do responsável é obrigatório.
-- Se apenas BI do responsável for enviado, a cédula é obrigatória.
-- Declaração e cada certificado (`certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`) são obrigatórios apenas quando o ano alvo estiver configurado na lista correspondente em `documentos_obrigatorios`.
+- O bilhete de identidade do responsável é obrigatório para toda academia escolar e de nível superior.
+- A cédula do estudante é obrigatória quando o bilhete de identidade do estudante não for enviado.
+- Certificado do 6.º ano fundamental só é aplicável para matrículas do 7.º ao 9.º ano fundamental.
+- Certificado do 9.º ano fundamental só é aplicável para matrículas do ensino médio.
+- Certificado do ensino médio só é aplicável para matrículas do ensino superior.
+- A declaração escolar é obrigatória quando o certificado aplicável não for enviado ou quando não houver certificado aplicável ao ano académico informado.
 - Arquivos devem ser PDFs (`Content-Type`, extensão e assinatura `%PDF`).
 - Apenas a academia dona pode aprovar/reprovar.
 - Solicitação decidida não volta para pendente.
