@@ -33,7 +33,7 @@ type SolicitacaoMatricula struct {
 	CursoSuperiorID              *uuid.UUID
 	Status                       string
 	MotivoReprovacao             *string
-	Documentos                   map[string]string
+	Documentos                   map[string]DocumentoMatricula
 	CodigoEstudanteGerado        *string
 	AprovadaPor                  *uuid.UUID
 	ReprovadaPor                 *uuid.UUID
@@ -45,7 +45,7 @@ func NewSolicitacaoMatricula() *SolicitacaoMatricula {
 	return &SolicitacaoMatricula{
 		BaseAggregate: BaseAggregate{ID: uuid.New(), Version: 0, UncommittedEvents: []DomainEvent{}},
 		Status:        StatusSolicitacaoPendente,
-		Documentos:    map[string]string{},
+		Documentos:    map[string]DocumentoMatricula{},
 	}
 }
 
@@ -64,7 +64,7 @@ func (s *SolicitacaoMatricula) Apply(event DomainEvent) error {
 	}
 }
 
-func (s *SolicitacaoMatricula) Criar(codigoSolicitacao, codigoAcademia, nome, genero string, dataNascimento time.Time, email, telefone, bi, biResp, anoFund, anoMedio *string, cursoMedioID *uuid.UUID, anoSuperior *string, cursoSuperiorID *uuid.UUID, documentos map[string]string) error {
+func (s *SolicitacaoMatricula) Criar(codigoSolicitacao, codigoAcademia, nome, genero string, dataNascimento time.Time, email, telefone, bi, biResp, anoFund, anoMedio *string, cursoMedioID *uuid.UUID, anoSuperior *string, cursoSuperiorID *uuid.UUID, documentos map[string]DocumentoMatricula) error {
 	if strings.TrimSpace(codigoSolicitacao) == "" || strings.TrimSpace(codigoAcademia) == "" || strings.TrimSpace(nome) == "" {
 		return fmt.Errorf("codigo_solicitacao, codigo_academia e nome são obrigatórios")
 	}
@@ -118,6 +118,27 @@ func (s *SolicitacaoMatricula) Reprovar(reprovadaPor uuid.UUID, motivo string) e
 
 func isNilOrBlank(v *string) bool { return v == nil || strings.TrimSpace(*v) == "" }
 
+type DocumentoMatricula struct {
+	Path        string `json:"path"`
+	FileURL     string `json:"file_url"`
+	DownloadURL string `json:"download_url"`
+}
+
+func (d *DocumentoMatricula) UnmarshalJSON(data []byte) error {
+	var legacyPath string
+	if err := json.Unmarshal(data, &legacyPath); err == nil {
+		d.Path = legacyPath
+		return nil
+	}
+	type alias DocumentoMatricula
+	var v alias
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	*d = DocumentoMatricula(v)
+	return nil
+}
+
 type SolicitacaoMatriculaCriadaEvent struct {
 	BaseEvent
 	CodigoSolicitacao            string
@@ -135,7 +156,7 @@ type SolicitacaoMatriculaCriadaEvent struct {
 	AnoSuperior                  *string
 	CursoSuperiorID              *uuid.UUID
 	Status                       string
-	Documentos                   map[string]string
+	Documentos                   map[string]DocumentoMatricula
 	CreatedAt                    time.Time
 	UpdatedAt                    time.Time
 }

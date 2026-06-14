@@ -18,10 +18,16 @@ import (
 )
 
 type StorageProvider interface {
-	Upload(remotePath string, content io.Reader, sizeBytes int64) error
+	Upload(remotePath string, content io.Reader, sizeBytes int64) (StoredFile, error)
 	Delete(remotePath string) error
 	GetQuota() (QuotaInfo, error)
 	EnsureDir(remotePath string) error
+}
+
+type StoredFile struct {
+	Path        string
+	FileURL     string
+	DownloadURL string
 }
 
 type QuotaInfo struct {
@@ -148,40 +154,48 @@ func (d *DriveProvider) EnsureDir(remotePath string) error {
 	return err
 }
 
-func (d *DriveProvider) Upload(remotePath string, content io.Reader, sizeBytes int64) error {
+func (d *DriveProvider) Upload(remotePath string, content io.Reader, sizeBytes int64) (StoredFile, error) {
 	if d.isLocal() {
 		p, err := d.path(remotePath)
 		if err != nil {
-			return err
+			return StoredFile{}, err
 		}
 		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-			return err
+			return StoredFile{}, err
 		}
 		f, err := os.Create(p)
 		if err != nil {
-			return err
+			return StoredFile{}, err
 		}
 		defer f.Close()
-		_, err = io.Copy(f, content)
-		return err
+		if _, err = io.Copy(f, content); err != nil {
+			return StoredFile{}, err
+		}
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			abs = p
+		}
+		url := "file://" + filepath.ToSlash(abs)
+		return StoredFile{Path: filepath.ToSlash(filepath.Clean(strings.TrimPrefix(remotePath, "/"))), FileURL: url, DownloadURL: url}, nil
 	}
 	parent, name, err := d.driveParentAndName(remotePath)
 	if err != nil {
-		return err
+		return StoredFile{}, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	existing, err := d.findDriveChild(ctx, parent, name, false)
 	if err != nil {
-		return err
+		return StoredFile{}, err
 	}
-	if _, err := d.service.Files.Create(&drive.File{Name: name, Parents: []string{parent}}).Media(content).Fields("id").SupportsAllDrives(true).Context(ctx).Do(); err != nil {
-		return fmt.Errorf("falha no upload para Google Drive: %w", err)
+	created, err := d.service.Files.Create(&drive.File{Name: name, Parents: []string{parent}}).Media(content).Fields("id,webViewLink,webContentLink").SupportsAllDrives(true).Context(ctx).Do()
+	if err != nil {
+		return StoredFile{}, fmt.Errorf("falha no upload para Google Drive: %w", err)
 	}
 	if existing != nil {
 		_ = d.service.Files.Delete(existing.Id).SupportsAllDrives(true).Context(ctx).Do()
 	}
-	return nil
+	return StoredFile{Path: filepath.ToSlash(filepath.Clean(strings.TrimPrefix(remotePath, "/"))), FileURL: created.WebViewLink, DownloadURL: created.WebContentLink}, nil
 }
 
 func (d *DriveProvider) Delete(remotePath string) error {

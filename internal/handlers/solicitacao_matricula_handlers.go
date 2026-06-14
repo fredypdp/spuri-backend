@@ -131,15 +131,16 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	documentos := map[string]string{}
+	documentos := map[string]aggregates.DocumentoMatricula{}
 	for field, f := range files {
 		remote := fmt.Sprintf("%s/%s_%s.pdf", dir, field, codigo)
-		if err := provider.Upload(remote, bytes.NewReader(f.data), f.size); err != nil {
+		stored, err := provider.Upload(remote, bytes.NewReader(f.data), f.size)
+		if err != nil {
 			_ = provider.Delete(dir)
 			utils.RespondWithInternalError(c, fmt.Errorf("falha no upload dos documentos: %w", err))
 			return
 		}
-		documentos[field] = remote
+		documentos[field] = aggregates.DocumentoMatricula{Path: stored.Path, FileURL: stored.FileURL, DownloadURL: stored.DownloadURL}
 	}
 
 	var emailPtr, telPtr, biPtr, biRespPtr, anoFundPtr, anoMedioPtr, anoSupPtr *string
