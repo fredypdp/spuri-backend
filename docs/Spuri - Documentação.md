@@ -308,7 +308,9 @@ Representa um aluno vinculado a uma academia.
 | `genero`                       | `masculino` / `feminino`           |                                                              |
 | `data_nascimento`              | Data ISO, deve ser anterior a hoje |                                                              |
 | bilhete_identidade             | Texto                              | Obrigatório caso bilhete_identidade_responsavel esteja vazio |
-| bilhete_identidade_responsavel | Texto                              | Obrigatório caso bilhete_identidade esteja vazio             |
+| bilhete_identidade_responsavel | Texto                              | Obrigatório caso bilhete_identidade esteja vazio; não pode ser igual a `bilhete_identidade` |
+
+> Regra de documentos: quando ambos forem informados, `bilhete_identidade` e `bilhete_identidade_responsavel` são comparados sem espaços nas extremidades e sem diferenciar maiúsculas/minúsculas; valores iguais são rejeitados no cadastro direto, atualização de dados pessoais e solicitação de matrícula.
 
 **Progressão escolar**: o estudante tem três trajetórias paralelas e independentes:
 
@@ -1101,10 +1103,11 @@ Eventos do ledger:
 2. O backend valida bilhete de identidade do responsável, cédula do estudante quando necessário, data de nascimento, academia ativa, assinatura/extensão PDF, limite máximo de 5MB por ficheiro e as regras automáticas de declaração/certificados.
 3. Os documentos são enviados ao storage em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`.
 4. Para cada PDF, o storage devolve o caminho interno, a URL do arquivo (`file_url`) e a URL de download (`download_url`); esses dados são gravados no evento de criação e na projeção.
-5. O aggregate `SolicitacaoMatricula` grava o evento de criação.
-6. A academia lista/consulta solicitações e aprova ou reprova.
-7. Na aprovação, o sistema reutiliza o aggregate `Estudante` e emite `EstudanteCriadoComVinculo`.
-8. Na reprovação, grava o evento de reprovação e remove o diretório dos documentos.
+5. O aggregate `SolicitacaoMatricula` valida que `bilhete_identidade` e `bilhete_identidade_responsavel`, quando ambos informados, não sejam iguais.
+6. O aggregate `SolicitacaoMatricula` grava o evento de criação.
+7. A academia lista/consulta solicitações e aprova ou reprova.
+8. Na aprovação, o sistema reutiliza o aggregate `Estudante` e emite `EstudanteCriadoComVinculo`.
+9. Na reprovação, grava o evento de reprovação e remove o diretório dos documentos.
 
 ### Regras de negócio
 

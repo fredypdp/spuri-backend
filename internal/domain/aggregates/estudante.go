@@ -318,6 +318,21 @@ func (e *EmailVerificadoEstudanteEvent) ToJSON() ([]byte, error) { return json.M
 // de hoje); comparação feita apenas por data, sem componente de hora.
 // ============================================================================
 
+func validarBilhetesDiferentes(bilhete, bilheteResp *string) error {
+	if bilhete == nil || bilheteResp == nil {
+		return nil
+	}
+	bi := strings.TrimSpace(*bilhete)
+	biResp := strings.TrimSpace(*bilheteResp)
+	if bi == "" || biResp == "" {
+		return nil
+	}
+	if strings.EqualFold(bi, biResp) {
+		return fmt.Errorf("bilhete_identidade e bilhete_identidade_responsavel não podem ser iguais")
+	}
+	return nil
+}
+
 func validarDataNascimento(data time.Time) error {
 	hoje := time.Now().UTC().Truncate(24 * time.Hour)
 	dataNasc := data.UTC().Truncate(24 * time.Hour)
@@ -358,6 +373,9 @@ func (e *Estudante) CriarComVinculo(
 		return fmt.Errorf("genero deve ser 'masculino' ou 'feminino'")
 	}
 	if err := validarDataNascimento(dataNascimento); err != nil {
+		return err
+	}
+	if err := validarBilhetesDiferentes(bilhete, bilheteResp); err != nil {
 		return err
 	}
 
@@ -452,6 +470,17 @@ func (e *Estudante) AtualizarDadosPessoais(
 		if err := validarDataNascimento(*dataNascimento); err != nil {
 			return err
 		}
+	}
+	effectiveBilhete := e.BilheteIdentidade
+	if bilheteIdentidade != nil {
+		effectiveBilhete = bilheteIdentidade
+	}
+	effectiveBilheteResp := e.BilheteIdentidadeResp
+	if bilheteIdentidadeResp != nil {
+		effectiveBilheteResp = bilheteIdentidadeResp
+	}
+	if err := validarBilhetesDiferentes(effectiveBilhete, effectiveBilheteResp); err != nil {
+		return err
 	}
 
 	emailAlterado := email != nil && (e.Email == nil || *e.Email != *email)

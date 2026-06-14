@@ -27,6 +27,13 @@ CREATE TABLE IF NOT EXISTS projection_solicitacoes_matricula (
     telefone VARCHAR(20),
     bilhete_identidade VARCHAR(50),
     bilhete_identidade_responsavel VARCHAR(50),
+    CONSTRAINT projection_solicitacoes_matricula_bilhetes_diferentes_check CHECK (
+        bilhete_identidade IS NULL
+        OR bilhete_identidade_responsavel IS NULL
+        OR btrim(bilhete_identidade) = ''
+        OR btrim(bilhete_identidade_responsavel) = ''
+        OR lower(btrim(bilhete_identidade)) <> lower(btrim(bilhete_identidade_responsavel))
+    ),
     ano_escolar_fundamental VARCHAR(50),
     ano_escolar_medio VARCHAR(50),
     curso_medio_id UUID,
