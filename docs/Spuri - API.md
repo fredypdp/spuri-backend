@@ -2,7 +2,7 @@
 modificado: 13-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.7.2
+Versão atual: 1.7.3
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -184,12 +184,6 @@ interface AcademiaDTO {
   tipo_ano_letivo?: string        // 'escola' | 'superior'
   ano_letivo_ativado_em?: string  // RFC3339
   anos_letivos_lista: AnoLetivoItem[]
-  documentos_obrigatorios: {
-    declaracao: string[]
-    certificado_6_ano_fundamental: string[]
-    certificado_9_ano_fundamental: string[]
-    certificado_ensino_medio: string[]
-  }
   created_at: string
   updated_at?: string
   version: number
@@ -1180,100 +1174,17 @@ Atualiza os dados cadastrais da academia autenticada.
 ---
 
 
-### PUT /academia/documentos-obrigatorios
+### Regras automáticas de documentos de matrícula
 
-Define/atualiza os anos em que `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental` e `certificado_ensino_medio` são obrigatórios para solicitações de matrícula da academia autenticada. Campos omitidos permanecem inalterados; envie `[]` para limpar uma lista.
+A obrigatoriedade dos documentos não é mais configurada por academia. O backend aplica automaticamente as regras abaixo no `POST /solicitacao-matricula`:
 
-**Proteção**: autenticado + academia ativa
+- `bi_responsavel` e `bilhete_identidade_responsavel` são obrigatórios para academias escolares e de nível superior.
+- `cedula_estudante` é obrigatória quando `bi_estudante` não for enviado.
+- `certificado_6_ano_fundamental` é o certificado aplicável somente para `7_ano_fundamental`, `8_ano_fundamental` e `9_ano_fundamental`.
+- `certificado_9_ano_fundamental` é o certificado aplicável somente para anos do ensino médio.
+- `certificado_ensino_medio` é o certificado aplicável somente para anos do ensino superior.
+- `declaracao` é obrigatória quando o certificado aplicável não for enviado ou quando não existir certificado aplicável ao ano académico informado.
 
-**Request:**
-
-```json
-{
-  "declaracao": ["1_ano_fundamental"],
-  "certificado_6_ano_fundamental": ["6_ano_fundamental"],
-  "certificado_9_ano_fundamental": ["9_ano_fundamental"],
-  "certificado_ensino_medio": ["3_ano_medio"]
-}
-```
-
-**Response 200:**
-
-```json
-{
-  "message": "configuração de documentos obrigatórios atualizada com sucesso",
-  "documentos_obrigatorios": {
-    "declaracao": ["1_ano_fundamental"],
-    "certificado_6_ano_fundamental": ["6_ano_fundamental"],
-    "certificado_9_ano_fundamental": ["9_ano_fundamental"],
-    "certificado_ensino_medio": ["3_ano_medio"]
-  }
-}
-```
-
-**Erros:** `400` quando algum ano não pertence à academia.
-
-### GET /academia/documentos-obrigatorios
-
-Retorna a configuração de documentos obrigatórios da academia autenticada ou, para admin, da academia indicada por `codigo_academia`.
-
-**Proteção**: autenticado + academia ativa **ou** admin
-
-**Response 200:**
-
-```json
-{
-  "codigo_academia": "LDA20261",
-  "documentos_obrigatorios": {
-    "declaracao": [],
-    "certificado_6_ano_fundamental": [],
-    "certificado_9_ano_fundamental": [],
-    "certificado_ensino_medio": []
-  }
-}
-```
-
-### POST /academia/ano-letivo
-
-Define ou atualiza o ano letivo ativo da academia.
-
-**Proteção**: autenticado + academia ativa
-
-**Regras de negócio:**
-
-- A academia só altera o próprio ano letivo (não altera o de outras academias).
-- `ano_letivo` deve seguir `YYYY_YYYY` com segundo ano = primeiro + 1.
-- `ano_letivo` deve ser igual ao ano letivo oficial global do sistema (definido por admin `fpp`).
-- Se o ano letivo global ainda não existir, a definição na academia deve ser rejeitada.
-- Sem ano letivo ativo válido, operações de notas/faltas/avaliações finais ficam bloqueadas.
-
-**Request:**
-
-```json
-{
-  "ano_letivo": "2025_2026",  // formato YYYY_YYYY obrigatório
-  "tipo": "escola"             // 'escola' | 'superior'
-}
-```
-
-**Response 200:**
-
-```json
-{
-  "message": "ano letivo definido com sucesso",
-  "ano_letivo": "2025_2026",
-  "tipo": "escola"
-}
-```
-
-**Erros:**
-
-- `400` — formato inválido (o segundo ano deve ser exatamente o primeiro + 1)
-- `400` — tipo inválido
-- `400` — ano letivo diferente do ano letivo global oficial
-- `409` — ano letivo global ainda não definido pelo admin `fpp`
-
-**Regra da lista histórica (`anos_letivos_lista`)**: quando um ano letivo é definido, ele é adicionado na lista apenas se ainda não existir. Se já estiver listado, o backend ignora a duplicação.
 
 ---
 
@@ -3620,7 +3531,7 @@ Cria uma solicitação pública de matrícula via `multipart/form-data`. O backe
 
 **Campos**: `codigo_academia`, `nome`, `genero`, `data_nascimento`, `email`, `telefone`, `bilhete_identidade`, `bilhete_identidade_responsavel`, `ano_escolar_fundamental`, `ano_escolar_medio`, `curso_medio_id`, `ano_superior`, `curso_superior_id`.
 
-**Ficheiros PDF**: `bi_estudante`, `bi_responsavel`, `cedula`, `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`. Cada ficheiro deve ser PDF válido e ter no máximo 5MB. Pelo menos um BI é obrigatório; se não houver BI do estudante, `cedula` é obrigatória. `declaracao` e o tipo específico de certificado dependem de `documentos_obrigatorios`.
+**Ficheiros PDF**: `bi_estudante`, `bi_responsavel`, `cedula_estudante`, `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`. Cada ficheiro deve ser PDF válido e ter no máximo 5MB. `bi_responsavel` é obrigatório. Se não houver `bi_estudante`, `cedula_estudante` é obrigatória. `declaracao` é obrigatória quando o certificado aplicável ao ano académico não for enviado.
 
 **Response 201:**
 

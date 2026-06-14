@@ -324,7 +324,6 @@ func setupRouter() *gin.Engine {
 		academiaRead.GET("/categorias-nota", handlers.ListarCategoriasNota)
 		academiaRead.GET("/solicitacoes-matricula", handlers.ListarSolicitacoesMatriculaAcademia)
 		academiaRead.GET("/solicitacao-matricula/:codigo", handlers.GetSolicitacaoMatriculaAcademia)
-		academiaRead.GET("/documentos-obrigatorios", handlers.GetDocumentosObrigatorios)
 	}
 
 	academia := router.Group("/academia")
@@ -334,7 +333,6 @@ func setupRouter() *gin.Engine {
 	{
 		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
 		academia.POST("/ano-letivo", handlers.DefinirAnoLetivoAcademia)
-		academia.PUT("/documentos-obrigatorios", handlers.AtualizarDocumentosObrigatorios)
 		academia.PUT("/solicitacao-matricula/:codigo/aprovar", handlers.AprovarSolicitacaoMatricula)
 		academia.PUT("/solicitacao-matricula/:codigo/reprovar", handlers.ReprovarSolicitacaoMatricula)
 
