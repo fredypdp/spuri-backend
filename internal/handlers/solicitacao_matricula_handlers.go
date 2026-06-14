@@ -27,7 +27,7 @@ import (
 
 const maxSolicitacaoDocumentoBytes int64 = 5 << 20
 
-var solicitacaoDocFields = []string{"bi_estudante", "bi_responsavel", "cedula", "declaracao", "certificado_6_ano_fundamental", "certificado_9_ano_fundamental", "certificado_ensino_medio"}
+var solicitacaoDocFields = []string{"bi_estudante", "bi_responsavel", "cedula_estudante", "cedula", "declaracao", "certificado_6_ano_fundamental", "certificado_9_ano_fundamental", "certificado_ensino_medio"}
 
 type uploadedPDF struct {
 	field string
@@ -66,8 +66,8 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 	}
 
 	bi, biResp := get("bilhete_identidade"), get("bilhete_identidade_responsavel")
-	if bi == "" && biResp == "" {
-		utils.RespondWithValidationError(c, fmt.Errorf("bilhete_identidade ou bilhete_identidade_responsavel é obrigatório"))
+	if biResp == "" {
+		utils.RespondWithValidationError(c, fmt.Errorf("informe o bilhete de identidade do responsável; este documento é obrigatório para todas as academias"))
 		return
 	}
 	if email := get("email"); email != "" {
@@ -78,8 +78,11 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 	}
 
 	year := firstNonEmpty(get("ano_escolar_fundamental"), get("ano_escolar_medio"), get("ano_superior"))
-	requiredDecl := containsString(academia.DocumentosObrigatorios["declaracao"], year)
-	requiredCertField := requiredCertificateField(academia.DocumentosObrigatorios, year)
+	requiredCertField, err := certificateFieldForMatricula(c, academia, year)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 	files := map[string]uploadedPDF{}
 	for _, field := range solicitacaoDocFields {
 		if fh, err := c.FormFile(field); err == nil {
@@ -91,27 +94,29 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 			files[field] = pdf
 		}
 	}
-	if _, ok := files["bi_estudante"]; !ok {
-		if _, ok := files["bi_responsavel"]; !ok {
-			utils.RespondWithValidationError(c, fmt.Errorf("documento bi_estudante ou bi_responsavel é obrigatório"))
-			return
-		}
+	if _, ok := files["bi_responsavel"]; !ok {
+		utils.RespondWithValidationError(c, fmt.Errorf("envie o PDF do bilhete de identidade do responsável; este documento é obrigatório para concluir a solicitação de matrícula"))
+		return
 	}
 	if _, hasStudentBI := files["bi_estudante"]; !hasStudentBI {
-		if _, ok := files["cedula"]; !ok {
-			utils.RespondWithValidationError(c, fmt.Errorf("cedula é obrigatória quando apenas bi_responsavel é enviado"))
-			return
+		if _, ok := files["cedula_estudante"]; !ok {
+			if legacy, legacyOK := files["cedula"]; legacyOK {
+				files["cedula_estudante"] = legacy
+				delete(files, "cedula")
+			} else {
+				utils.RespondWithValidationError(c, fmt.Errorf("envie a cédula do estudante quando o bilhete de identidade do estudante não for informado"))
+				return
+			}
 		}
 	}
-	if requiredDecl {
+	if requiredCertField == "" {
 		if _, ok := files["declaracao"]; !ok {
-			utils.RespondWithValidationError(c, fmt.Errorf("declaracao é obrigatória para o ano académico informado"))
+			utils.RespondWithValidationError(c, fmt.Errorf("envie a declaração escolar quando não houver certificado aplicável para o ano académico informado"))
 			return
 		}
-	}
-	if requiredCertField != "" {
-		if _, ok := files[requiredCertField]; !ok {
-			utils.RespondWithValidationError(c, fmt.Errorf("%s é obrigatório para o ano académico informado", requiredCertField))
+	} else if _, ok := files[requiredCertField]; !ok {
+		if _, hasDeclaration := files["declaracao"]; !hasDeclaration {
+			utils.RespondWithValidationError(c, fmt.Errorf("envie o %s ou, caso ainda não o tenha, envie a declaração escolar", documentLabel(requiredCertField)))
 			return
 		}
 	}
@@ -319,77 +324,6 @@ func ReprovarSolicitacaoMatricula(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "solicitação reprovada com sucesso", "codigo_solicitacao": agg.CodigoSolicitacao})
 }
 
-func AtualizarDocumentosObrigatorios(c *gin.Context) {
-	academia, ok := currentAcademiaDTO(c)
-	if !ok {
-		return
-	}
-	var req map[string][]string
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("payload inválido"))
-		return
-	}
-	docs := defaultDocumentosObrigatoriosMap()
-	for key := range docs {
-		docs[key] = academia.DocumentosObrigatorios[key]
-		if docs[key] == nil {
-			docs[key] = []string{}
-		}
-	}
-	for key, v := range req {
-		if _, ok := docs[key]; !ok {
-			utils.RespondWithValidationError(c, fmt.Errorf("documento obrigatório %q não é suportado", key))
-			return
-		}
-		docs[key] = v
-	}
-	if err := validarAnosDocumentosObrigatorios(c, academia.CodigoAcademia, docs); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-	loaded, err := getRepository(c).WithContext(c.Request.Context()).Load(academia.ID, "Academia")
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-	agg := loaded.(*aggregates.Academia)
-	if err := agg.AtualizarDocumentosObrigatorios(aggregates.DocumentosObrigatorios{Declaracao: docs["declaracao"], Certificado6AnoFundamental: docs["certificado_6_ano_fundamental"], Certificado9AnoFundamental: docs["certificado_9_ano_fundamental"], CertificadoEnsinoMedio: docs["certificado_ensino_medio"]}); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-	if err := getRepository(c).WithContext(c.Request.Context()).SaveWithAudit(agg, db.AuditContext{UserID: academia.ID.String(), UserType: "academia", IP: c.ClientIP()}); err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"message": "configuração de documentos obrigatórios atualizada com sucesso", "documentos_obrigatorios": docs})
-}
-func GetDocumentosObrigatorios(c *gin.Context) {
-	userType, _ := middleware.GetUserType(c)
-	var codigo string
-	if userType == "academia" {
-		a, ok := currentAcademiaDTO(c)
-		if !ok {
-			return
-		}
-		codigo = a.CodigoAcademia
-	} else {
-		codigo = strings.TrimSpace(c.Query("codigo_academia"))
-		if codigo == "" {
-			utils.RespondWithError(c, http.StatusNotFound, "academia não encontrada", nil)
-			return
-		}
-	}
-	a, err := getAcademiaProjection(c).GetByCodigo(codigo)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-	if a == nil {
-		utils.RespondWithError(c, http.StatusNotFound, "academia não encontrada", nil)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"codigo_academia": a.CodigoAcademia, "documentos_obrigatorios": a.DocumentosObrigatorios})
-}
 func GetStorageQuota(c *gin.Context) {
 	p := getStorageProvider(c)
 	if p == nil {
@@ -531,17 +465,6 @@ func firstNonEmpty(values ...string) string {
 	}
 	return ""
 }
-func containsString(values []string, target string) bool {
-	if target == "" {
-		return false
-	}
-	for _, v := range values {
-		if v == target {
-			return true
-		}
-	}
-	return false
-}
 func parseBoundedInt(raw string, def, min, max int) int {
 	if raw == "" {
 		return def
@@ -558,51 +481,65 @@ func parseBoundedInt(raw string, def, min, max int) int {
 	}
 	return v
 }
-func defaultDocumentosObrigatoriosMap() map[string][]string {
-	return map[string][]string{
-		"declaracao":                    {},
-		"certificado_6_ano_fundamental": {},
-		"certificado_9_ano_fundamental": {},
-		"certificado_ensino_medio":      {},
-	}
-}
 
-func requiredCertificateField(docs map[string][]string, year string) string {
-	for _, field := range []string{"certificado_6_ano_fundamental", "certificado_9_ano_fundamental", "certificado_ensino_medio"} {
-		if containsString(docs[field], year) {
-			return field
+func certificateFieldForMatricula(c *gin.Context, academia *projections.AcademiaDTO, year string) (string, error) {
+	if year == "" {
+		return "", fmt.Errorf("informe o ano académico da matrícula")
+	}
+	if strings.HasSuffix(year, "_ano_fundamental") {
+		if academia.Nivel != "escola" {
+			return "", fmt.Errorf("o ano fundamental informado não pertence a uma academia de nível superior")
 		}
+		if strings.HasPrefix(year, "7_") || strings.HasPrefix(year, "8_") || strings.HasPrefix(year, "9_") {
+			return "certificado_6_ano_fundamental", nil
+		}
+		return "", nil
 	}
-	return ""
+	if strings.HasSuffix(year, "_ano_medio") {
+		if err := ensureActiveCourseYear(c, academia.CodigoAcademia, "medio", year); err != nil {
+			return "", err
+		}
+		return "certificado_9_ano_fundamental", nil
+	}
+	if strings.HasSuffix(year, "_ano_superior") {
+		if err := ensureActiveCourseYear(c, academia.CodigoAcademia, "superior", year); err != nil {
+			return "", err
+		}
+		return "certificado_ensino_medio", nil
+	}
+	return "", fmt.Errorf("ano académico inválido para matrícula: %s", year)
 }
 
-func validarAnosDocumentosObrigatorios(c *gin.Context, codigoAcademia string, docs map[string][]string) error {
+func ensureActiveCourseYear(c *gin.Context, codigoAcademia, tipo, year string) error {
 	cursos, err := getCursosProjection(c).GetByAcademia(codigoAcademia)
 	if err != nil {
 		return err
 	}
-	academia, err := getAcademiaProjection(c).GetByCodigo(codigoAcademia)
-	if err != nil {
-		return err
-	}
-	allowed := map[string]bool{}
-	for _, a := range academia.AnosAcademicos {
-		allowed[a] = true
-	}
 	for _, curso := range cursos {
-		if curso.Status != "ativo" {
+		if curso.Status != "ativo" || curso.Type != tipo {
 			continue
 		}
-		for _, a := range curso.AnosAcademicos {
-			allowed[a] = true
-		}
-	}
-	for key, anos := range docs {
-		for _, ano := range anos {
-			if !allowed[ano] {
-				return fmt.Errorf("ano académico %q em %s não pertence à academia", ano, key)
+		for _, ano := range curso.AnosAcademicos {
+			if ano == year {
+				return nil
 			}
 		}
 	}
-	return nil
+	if tipo == "medio" {
+		return fmt.Errorf("o ano do ensino médio informado não está ativo para esta academia")
+	}
+	return fmt.Errorf("o ano do ensino superior informado não está ativo para esta academia")
+}
+
+func documentLabel(field string) string {
+	switch field {
+	case "certificado_6_ano_fundamental":
+		return "certificado do 6.º ano fundamental"
+	case "certificado_9_ano_fundamental":
+		return "certificado do 9.º ano fundamental"
+	case "certificado_ensino_medio":
+		return "certificado do ensino médio"
+	default:
+		return field
+	}
 }

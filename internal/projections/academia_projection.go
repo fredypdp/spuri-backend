@@ -735,7 +735,7 @@ type AcademiaDTO struct {
 	AnoLetivo              *string             `json:"ano_letivo,omitempty"`
 	TipoAnoLetivo          *string             `json:"tipo_ano_letivo,omitempty"`
 	AnoLetivoAtivadoEm     *time.Time          `json:"ano_letivo_ativado_em,omitempty"`
-	DocumentosObrigatorios map[string][]string `json:"documentos_obrigatorios"`
+	DocumentosObrigatorios map[string][]string `json:"-"`
 	AnosLetivosLista       []struct {
 		AnoLetivo   string    `json:"ano_letivo"`
 		Tipo        string    `json:"tipo"`
