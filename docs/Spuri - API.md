@@ -1185,6 +1185,7 @@ Atualiza os dados cadastrais da academia autenticada.
 A obrigatoriedade dos documentos não é mais configurada por academia. O backend aplica automaticamente as regras abaixo no `POST /solicitacao-matricula`:
 
 - `bi_responsavel` e `bilhete_identidade_responsavel` são obrigatórios para academias escolares e de nível superior.
+- `bilhete_identidade` e `bilhete_identidade_responsavel`, quando ambos informados para o mesmo estudante, não podem ser iguais.
 - `cedula_estudante` é obrigatória quando `bi_estudante` não for enviado.
 - `certificado_6_ano_fundamental` é o certificado aplicável somente para `7_ano_fundamental`, `8_ano_fundamental` e `9_ano_fundamental`.
 - `certificado_9_ano_fundamental` é o certificado aplicável somente para anos do ensino médio.
@@ -3535,7 +3536,7 @@ Cria uma solicitação pública de matrícula via `multipart/form-data`. O backe
 
 **Proteção**: pública
 
-**Campos**: `codigo_academia`, `nome`, `genero`, `data_nascimento`, `email`, `telefone`, `bilhete_identidade`, `bilhete_identidade_responsavel`, `ano_escolar_fundamental`, `ano_escolar_medio`, `curso_medio_id`, `ano_superior`, `curso_superior_id`.
+**Campos**: `codigo_academia`, `nome`, `genero`, `data_nascimento`, `email`, `telefone`, `bilhete_identidade`, `bilhete_identidade_responsavel`, `ano_escolar_fundamental`, `ano_escolar_medio`, `curso_medio_id`, `ano_superior`, `curso_superior_id`. Quando `bilhete_identidade` e `bilhete_identidade_responsavel` forem enviados juntos, eles não podem ser iguais (comparação sem espaços nas extremidades e sem diferenciar maiúsculas/minúsculas).
 
 **Ficheiros PDF**: `bi_estudante`, `bi_responsavel`, `cedula_estudante`, `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`. Cada ficheiro deve ser PDF válido e ter no máximo 5MB. `bi_responsavel` é obrigatório. Se não houver `bi_estudante`, `cedula_estudante` é obrigatória. `declaracao` é obrigatória quando o certificado aplicável ao ano académico não for enviado.
 

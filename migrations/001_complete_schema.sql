@@ -149,6 +149,13 @@ CREATE TABLE IF NOT EXISTS projection_estudantes (
     email_verificado BOOLEAN DEFAULT FALSE,
     bilhete_identidade VARCHAR(50),
     bilhete_identidade_responsavel VARCHAR(50),
+    CONSTRAINT projection_estudantes_bilhetes_diferentes_check CHECK (
+        bilhete_identidade IS NULL
+        OR bilhete_identidade_responsavel IS NULL
+        OR btrim(bilhete_identidade) = ''
+        OR btrim(bilhete_identidade_responsavel) = ''
+        OR lower(btrim(bilhete_identidade)) <> lower(btrim(bilhete_identidade_responsavel))
+    ),
     codigo_academia VARCHAR(50),
     status VARCHAR(20) DEFAULT 'inativo' CHECK (status IN ('inativo', 'ativo', 'arquivado')),
     ano_escolar VARCHAR(50),

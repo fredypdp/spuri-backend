@@ -77,6 +77,9 @@ func (s *SolicitacaoMatricula) Criar(codigoSolicitacao, codigoAcademia, nome, ge
 	if isNilOrBlank(bi) && isNilOrBlank(biResp) {
 		return fmt.Errorf("bilhete_identidade ou bilhete_identidade_responsavel é obrigatório")
 	}
+	if bilhetesSolicitacaoIguais(bi, biResp) {
+		return fmt.Errorf("bilhete_identidade e bilhete_identidade_responsavel não podem ser iguais")
+	}
 	if documentos == nil || len(documentos) == 0 {
 		return fmt.Errorf("documentos são obrigatórios")
 	}
@@ -117,6 +120,13 @@ func (s *SolicitacaoMatricula) Reprovar(reprovadaPor uuid.UUID, motivo string) e
 }
 
 func isNilOrBlank(v *string) bool { return v == nil || strings.TrimSpace(*v) == "" }
+
+func bilhetesSolicitacaoIguais(bi, biResp *string) bool {
+	if isNilOrBlank(bi) || isNilOrBlank(biResp) {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(*bi), strings.TrimSpace(*biResp))
+}
 
 type DocumentoMatricula struct {
 	Path        string `json:"path"`
