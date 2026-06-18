@@ -1,5 +1,5 @@
 ---
-modificado: 2026-06-18 20:30
+modificado: 2026-06-18 20:08
 criado: 2026-06-18 20:30
 ---
 # Adaptar avaliação final automática do ensino superior para progressão semestral
