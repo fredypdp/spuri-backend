@@ -1,8 +1,8 @@
 ---
-modificado: 14-06-2026 00:00
+modificado: 18-06-2026 17:30
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.7.4
+Versão atual: 1.8.0
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -2049,9 +2049,7 @@ Retorna as faltas de um estudante.
 
 ### POST /academia/avaliacao-final
 
-Registra a avaliação final de ano para um estudante.
-
-**Proteção**: autenticado + academia ativa (com ano letivo configurado)
+Registra a avaliação final automática de um estudante usando uma regra configurável da academia. A decisão manual `aprovado` não é mais aceita como fonte de verdade: o backend calcula `nota_final`, compara com `nota_minima_aprovacao` e persiste o resultado com snapshot da fórmula.
 
 **Request:**
 
@@ -2059,52 +2057,63 @@ Registra a avaliação final de ano para um estudante.
 {
   "codigo_estudante": "ABC1234",
   "nivel_ano_academico_atual": "3_ano_fundamental",
-  "aprovado": true,
-  "observacao": "string"  // opcional — se fornecido, bypassa validação de notas
+  "type": "normal",
+  "observacao": "string"
 }
 ```
 
 **Regras:**
 
-- `tipo_ensino` não é enviado no payload; o backend infere automaticamente com base no estudante (sessão + código da academia)
-- `nivel_ano_academico_atual` deve seguir o formato canônico do tipo inferido
-- `proximo_ano_academico` é calculado automaticamente pelo backend e não deve ser enviado no payload
-- Se `aprovado = true`:
-  - **escola**: o backend calcula o próximo ano automaticamente e move o estudante da turma atual para uma turma do ano acadêmico seguinte
-    - regra obrigatória: **nenhum aprovado pode ficar sem turma de destino**; em falha de atribuição, a operação é abortada
-    - prioriza turma destino compatível por `turno` e `curso_id` da turma de origem
-    - se não houver compatível, usa fallback para qualquer turma ativa do próximo ano acadêmico com o mesmo `nivel`
-    - a redistribuição busca balancear as turmas de destino usando a quantidade atual de estudantes como critério
-    - para ensino médio, mantém a restrição de não transferir para turma de outro curso (`curso_id` diferente) quando há compatíveis
-  - fundamental: sequência fixa `1_ano_fundamental` até `9_ano_fundamental`
-  - médio: sequência configurada no curso do estudante
-  - superior: avanço sequencial por semestre (`semestre_atual += 1`) até o último semestre configurado do curso
-- Se `aprovado = false`:
-  - **escola**: o backend mantém o estudante no mesmo nível e na mesma turma
-  - demais tipos: sem avanço de nível (sem próximo ano)
-- Sem `observacao`: notas de todas as matérias do período são validadas automaticamente
+- `type` é público; se omitido, assume `normal`.
+- `aprovado` e `proximo_ano_academico` não devem ser enviados; ambos são calculados pelo backend.
+- O backend localiza uma regra ativa por academia, `type`, tipo de ensino inferido e ano acadêmico.
+- A fórmula é uma DSL JSON segura, sem `eval`, com `sum_periods`, `category_total`, `add` e `div`.
+- Avaliações como `recurso` podem depender de reprovação anterior via `aplica_se_reprovado_em_type`.
+- Evento e projeção salvam `type`, `nota_final`, `nota_minima_aprovacao`, `regra_avaliacao_final_id`, `formula_snapshot` e o pré-requisito resolvido.
 
 **Response 201:**
 
 ```json
 {
   "message": "avaliação final registrada com sucesso",
+  "tipo_ensino": "fundamental",
+  "type": "normal",
+  "nota_final": 12.5,
+  "nota_minima_aprovacao": 10,
   "resultado": "aprovado → 4_ano_fundamental",
   "turmas_removidas": ["T1A"]
 }
 ```
 
-**Erros:**
+---
 
-- `400` — formato de ano inválido
-- `400` — notas obrigatórias faltando (sem observacao para override)
-- `400` — `proximo_ano_academico` enviado no payload (campo não permitido)
-- `400` — `nivel_ano_academico_atual` inválido para o ciclo (fundamental fora de 1..9, ou fora do curso em médio/superior)
-- `409` — avaliação já registrada para este tipo/ano/nível
+### POST /academia/avaliacao-final/regras
 
-**Modelos de avaliação final:**
-- **Escolar (fundamental/médio):** mantém o comportamento atual por ano acadêmico.
-- **Superior:** aprovação sempre avança para o próximo semestre; o avanço de `ano_superior` é automático por `ceil(semestre_atual / 2)`.
+Cria uma regra de avaliação final.
+
+```json
+{
+  "type": "normal",
+  "nome": "Avaliação normal",
+  "tipo_ensino": "fundamental",
+  "anos_academicos": ["3_ano_fundamental"],
+  "nota_minima_aprovacao": 10,
+  "categorias_envolvidas": ["nota_escola", "nota_professor"],
+  "formula": {
+    "op": "div",
+    "left": {
+      "op": "sum_periods",
+      "categories": ["nota_escola", "nota_professor"],
+      "periods": ["1_trimestre", "2_trimestre", "3_trimestre"]
+    },
+    "right": 3
+  }
+}
+```
+
+### GET /academia/avaliacao-final/regras
+
+Lista as regras de avaliação final da academia autenticada.
 
 ---
 
@@ -2121,6 +2130,7 @@ Lista avaliações finais. Escopo varia por tipo de usuário.
 - `ano_academico_atual` — filtra pelo ano académico em que o estudante foi re/aprovado
 - `codigo_turma` — filtra por turma (requer `codigo_academia` em consultas admin)
 - `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
+- `type` — filtra o tipo de avaliação final (`normal`, `recurso`, etc.)
 
 **Response 200:**
 
@@ -2146,6 +2156,7 @@ Lista apenas avaliações com `aprovado = true`.
 - `ano_academico_atual` — filtra pelo ano académico em que o estudante foi aprovado
 - `codigo_turma` — filtra por turma (requer `codigo_academia` em consultas admin)
 - `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
+- `type` — filtra o tipo de avaliação final (`normal`, `recurso`, etc.)
 
 **Response 200:**
 
@@ -2171,6 +2182,7 @@ Lista apenas avaliações com `aprovado = false`.
 - `ano_academico_atual` — filtra pelo ano académico em que o estudante foi reprovado
 - `codigo_turma` — filtra por turma (requer `codigo_academia` em consultas admin)
 - `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
+- `type` — filtra o tipo de avaliação final (`normal`, `recurso`, etc.)
 
 **Response 200:**
 
@@ -3227,7 +3239,8 @@ Lista registros de notas com escopo por perfil.
 - `periodo` — filtra por período (`1_trimestre`, `2_trimestre`, `3_trimestre`, `1_semestre`, `2_semestre`) (aceita múltiplos valores)
 - `materia_disciplinar_id` — filtra por matéria disciplinar (aceita múltiplos valores)
 - `categoria` — filtra por categoria da nota (aceita múltiplos valores)
-- `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código (aceita múltiplos valores)
+- `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
+- `type` — filtra o tipo de avaliação final (`normal`, `recurso`, etc.) (aceita múltiplos valores)
 
 **Formato de múltiplos valores (todos os filtros acima):**
 
@@ -3276,7 +3289,8 @@ Lista registros de faltas com escopo por perfil.
 - `codigo_turma` — filtra por turma (requer `codigo_academia` em consultas admin) (aceita múltiplos valores)
 - `periodo` — filtra por período da matéria (`1_trimestre`, `2_trimestre`, `3_trimestre`, `1_semestre`, `2_semestre`) (aceita múltiplos valores)
 - `materia_disciplinar_id` — filtra por matéria disciplinar (aceita múltiplos valores)
-- `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código (aceita múltiplos valores)
+- `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
+- `type` — filtra o tipo de avaliação final (`normal`, `recurso`, etc.) (aceita múltiplos valores)
 
 **Formato de múltiplos valores (todos os filtros acima):**
 

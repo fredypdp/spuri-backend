@@ -322,6 +322,7 @@ func setupRouter() *gin.Engine {
 		academiaRead.GET("/ano-letivo", handlers.GetAnoLetivoAcademia)
 		academiaRead.GET("/anos-letivos-lista", handlers.GetAnosLetivosListaAcademia)
 		academiaRead.GET("/categorias-nota", handlers.ListarCategoriasNota)
+		academiaRead.GET("/avaliacao-final/regras", handlers.ListarRegrasAvaliacaoFinal)
 		academiaRead.GET("/solicitacoes-matricula", handlers.ListarSolicitacoesMatriculaAcademia)
 		academiaRead.GET("/solicitacao-matricula/:codigo", handlers.GetSolicitacaoMatriculaAcademia)
 	}
@@ -345,6 +346,7 @@ func setupRouter() *gin.Engine {
 		academia.DELETE("/falta/:id", handlers.DeletarFalta)
 		// Avaliação final é o único endpoint de avaliação de ano
 		academia.POST("/avaliacao-final", handlers.RegistrarAvaliacaoFinal)
+		academia.POST("/avaliacao-final/regras", handlers.CriarRegraAvaliacaoFinal)
 		academia.POST("/categorias-nota", handlers.CriarCategoriaNota)
 		academia.DELETE("/categorias-nota/:codigo", handlers.DeletarCategoriaNota)
 		academia.POST("/estudante/:codigo/matricula/fundamental", handlers.MatricularFundamentalHandler)

@@ -27,7 +27,7 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		CodigoEstudante     string  `json:"codigo_estudante"          binding:"required"`
 		AnoAcademicoAtual   string  `json:"nivel_ano_academico_atual" binding:"required"`
 		ProximoAnoAcademico *string `json:"proximo_ano_academico,omitempty"`
-		Aprovado            bool    `json:"aprovado"`
+		Type                string  `json:"type"`
 		Observacao          *string `json:"observacao"`
 	}
 
@@ -89,12 +89,22 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 	}
 
 	avaliacaoProj := getAvaliacaoFinalProjection(c)
-	jaAvaliadoNoNivel, err := avaliacaoProj.ExistsByEstudanteAnoLetivoNivel(
+	if strings.TrimSpace(req.Type) == "" {
+		req.Type = "normal"
+	}
+	regra, err := getRegraAvaliacaoFinal(c, academiaDTO.CodigoAcademia, tipoEnsino, req.AnoAcademicoAtual, req.Type)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	jaAvaliadoNoNivel, err := avaliacaoProj.ExistsByEstudanteAnoLetivoNivelType(
 		req.CodigoEstudante,
 		academiaDTO.CodigoAcademia,
 		anoLectivo,
 		tipoEnsino,
 		req.AnoAcademicoAtual,
+		req.Type,
 	)
 	if err != nil {
 		utils.RespondWithInternalError(c, fmt.Errorf("erro ao verificar avaliação final existente no nível: %w", err))
@@ -104,23 +114,6 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf(
 			"avaliação final já registrada para este estudante no nível %s do ano letivo %s",
 			req.AnoAcademicoAtual,
-			anoLectivo,
-		))
-		return
-	}
-
-	jaAvaliadoNoAnoLetivo, err := avaliacaoProj.ExistsByEstudanteAnoLetivo(
-		req.CodigoEstudante,
-		academiaDTO.CodigoAcademia,
-		anoLectivo,
-	)
-	if err != nil {
-		utils.RespondWithInternalError(c, fmt.Errorf("erro ao verificar avaliação final existente no ano letivo: %w", err))
-		return
-	}
-	if jaAvaliadoNoAnoLetivo {
-		utils.RespondWithValidationError(c, fmt.Errorf(
-			"avaliação final já registrada para este estudante no ano letivo %s",
 			anoLectivo,
 		))
 		return
@@ -148,32 +141,34 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		return
 	}
 
-	// ── Validação de notas (bloqueia aprovação sem observação de override) ────
-	if req.Aprovado && (req.Observacao == nil || strings.TrimSpace(*req.Observacao) == "") {
-		if errNota := validarNotasParaAprovacao(
-			c,
-			req.CodigoEstudante,
-			anoLectivo,
-			tipoEnsino,
-			req.AnoAcademicoAtual,
-			academiaDTO.CodigoAcademia,
-			cursoMedioUUID,
-			cursoSuperiorUUID,
-		); errNota != nil {
-			utils.RespondWithValidationError(c, errNota)
+	if regra.AplicaSeReprovadoEmType != nil {
+		prev, err := avaliacaoProj.GetResultadoByType(req.CodigoEstudante, academiaDTO.CodigoAcademia, anoLectivo, tipoEnsino, req.AnoAcademicoAtual, *regra.AplicaSeReprovadoEmType)
+		if err != nil || prev == nil || prev.Aprovado {
+			utils.RespondWithValidationError(c, fmt.Errorf("avaliação '%s' exige reprovação anterior em '%s'", req.Type, *regra.AplicaSeReprovadoEmType))
 			return
 		}
 	}
+	notasFormula, err := carregarNotasFormula(c, req.CodigoEstudante, academiaDTO.CodigoAcademia, anoLectivo, regra.CategoriasEnvolvidas)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	notaFinal, err := calcularFormulaAvaliacao(regra.Formula, notasFormula)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	aprovado := notaFinal >= regra.NotaMinimaAprovacao
 
 	// ── Cálculo do próximo nível (backend) ────────────────────────────────────
 	var proximoAnoAcademico *string
 	switch tipoEnsino {
 	case "fundamental":
-		proximoAnoAcademico, err = calcularProximoAnoFundamental(req.AnoAcademicoAtual, req.Aprovado)
+		proximoAnoAcademico, err = calcularProximoAnoFundamental(req.AnoAcademicoAtual, aprovado)
 	case "medio":
-		proximoAnoAcademico, err = calcularProximoAnoCurso(c, cursoMedioUUID, req.AnoAcademicoAtual, req.Aprovado)
+		proximoAnoAcademico, err = calcularProximoAnoCurso(c, cursoMedioUUID, req.AnoAcademicoAtual, aprovado)
 	case "superior":
-		proximoAnoAcademico, err = calcularProximoAnoCurso(c, cursoSuperiorUUID, req.AnoAcademicoAtual, req.Aprovado)
+		proximoAnoAcademico, err = calcularProximoAnoCurso(c, cursoSuperiorUUID, req.AnoAcademicoAtual, aprovado)
 	}
 	if err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -210,8 +205,14 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		proximoAnoAcademico,
 		turmaAtual,
 		turmasAtuais,
-		req.Aprovado,
+		aprovado,
 		req.Observacao,
+		req.Type,
+		notaFinal,
+		regra.NotaMinimaAprovacao,
+		&regra.ID,
+		regra.Formula,
+		regra.AplicaSeReprovadoEmType,
 	); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -228,7 +229,7 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 	}
 
 	resultado := "reprovado"
-	if req.Aprovado {
+	if aprovado {
 		if proximoAnoAcademico != nil {
 			resultado = fmt.Sprintf("aprovado → %s", *proximoAnoAcademico)
 		} else {
@@ -237,10 +238,13 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 	}
 
 	response := gin.H{
-		"message":          "avaliação final registrada com sucesso",
-		"tipo_ensino":      tipoEnsino,
-		"resultado":        resultado,
-		"turmas_removidas": turmasAtuais,
+		"message":               "avaliação final registrada com sucesso",
+		"tipo_ensino":           tipoEnsino,
+		"type":                  req.Type,
+		"nota_final":            notaFinal,
+		"nota_minima_aprovacao": regra.NotaMinimaAprovacao,
+		"resultado":             resultado,
+		"turmas_removidas":      turmasAtuais,
 	}
 	c.JSON(http.StatusCreated, response)
 }
@@ -505,6 +509,7 @@ type filtrosAvaliacaoFinal struct {
 	AnoAcademicoAtual *string
 	CodigoTurma       *string
 	CodigoAcademia    *string
+	Type              *string
 }
 
 func parseFiltrosAvaliacaoFinal(c *gin.Context) (filtrosAvaliacaoFinal, error) {
@@ -521,6 +526,7 @@ func parseFiltrosAvaliacaoFinal(c *gin.Context) (filtrosAvaliacaoFinal, error) {
 		AnoAcademicoAtual: parse("ano_academico_atual"),
 		CodigoTurma:       parse("codigo_turma"),
 		CodigoAcademia:    parse("codigo_academia"),
+		Type:              parse("type"),
 	}
 	if f.TipoEnsino != nil {
 		switch *f.TipoEnsino {
@@ -538,6 +544,7 @@ func (f filtrosAvaliacaoFinal) toProjectionFilters() projections.AvaliacaoFinalF
 		AnoLectivo:        f.AnoLectivo,
 		AnoAcademicoAtual: f.AnoAcademicoAtual,
 		CodigoTurma:       f.CodigoTurma,
+		Type:              f.Type,
 	}
 }
 
@@ -551,6 +558,9 @@ func filtrarAvaliacoesMemoria(in []projections.AvaliacaoFinalDTO, f filtrosAvali
 			continue
 		}
 		if f.AnoAcademicoAtual != nil && a.AnoAcademicoAtual != *f.AnoAcademicoAtual {
+			continue
+		}
+		if f.Type != nil && a.Type != *f.Type {
 			continue
 		}
 		out = append(out, a)

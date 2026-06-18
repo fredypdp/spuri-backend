@@ -10,19 +10,24 @@ import (
 
 type AvaliacaoFinalBasePayload struct {
 	BaseEvent
-	ID                     uuid.UUID `json:"id"`
-	CodigoEstudante        string    `json:"codigo_estudante"`
-	CodigoAcademia         string    `json:"codigo_academia"`
-	AnoLectivo             string    `json:"ano_lectivo"`
-	TipoEnsino             string    `json:"tipo_ensino"`
-	AnoAcademicoAtual      string    `json:"nivel_ano_academico_atual"`
-	ProximoAnoAcademico    *string   `json:"proximo_ano_academico,omitempty"`
-	CodigoTurma            *string   `json:"codigo_turma,omitempty"`
-	CodigosTurmasRemovidas []string  `json:"codigos_turmas_removidas,omitempty"`
-	Aprovado               bool      `json:"aprovado"`
-	Observacao             *string   `json:"observacao,omitempty"`
-	Tipo                   string    `json:"tipo"`
-	RegisteredAt           time.Time `json:"registered_at"`
+	ID                      uuid.UUID       `json:"id"`
+	CodigoEstudante         string          `json:"codigo_estudante"`
+	CodigoAcademia          string          `json:"codigo_academia"`
+	AnoLectivo              string          `json:"ano_lectivo"`
+	TipoEnsino              string          `json:"tipo_ensino"`
+	AnoAcademicoAtual       string          `json:"nivel_ano_academico_atual"`
+	ProximoAnoAcademico     *string         `json:"proximo_ano_academico,omitempty"`
+	CodigoTurma             *string         `json:"codigo_turma,omitempty"`
+	CodigosTurmasRemovidas  []string        `json:"codigos_turmas_removidas,omitempty"`
+	Aprovado                bool            `json:"aprovado"`
+	Observacao              *string         `json:"observacao,omitempty"`
+	Type                    string          `json:"type"`
+	NotaFinal               float64         `json:"nota_final"`
+	NotaMinimaAprovacao     float64         `json:"nota_minima_aprovacao"`
+	RegraAvaliacaoFinalID   *uuid.UUID      `json:"regra_avaliacao_final_id,omitempty"`
+	FormulaSnapshot         json.RawMessage `json:"formula_snapshot,omitempty"`
+	AplicaSeReprovadoEmType *string         `json:"aplica_se_reprovado_em_type,omitempty"`
+	RegisteredAt            time.Time       `json:"registered_at"`
 }
 
 type AvaliacaoFinalEscolarEvent struct{ AvaliacaoFinalBasePayload }
@@ -35,18 +40,18 @@ func (e *AvaliacaoFinalSuperiorEvent) ToJSON() ([]byte, error) { return json.Mar
 
 // chaveAvaliacaoAnoLetivo retorna a chave de idempotência para avaliações finais
 // no mesmo ano letivo.
-func chaveAvaliacaoAnoLetivo(anoLectivo string) string {
-	return "ano_letivo:" + anoLectivo
+func chaveAvaliacaoAnoLetivo(anoLectivo, avaliacaoType string) string {
+	return "ano_letivo:" + anoLectivo + ":" + avaliacaoType
 }
 
 // chaveAvaliacaoNivel retorna a chave de idempotência para avaliações finais
 // Escolar/Superior no mesmo nível dentro do mesmo ano letivo.
-func chaveAvaliacaoNivel(tipoEnsino, anoLectivo, anoAcademicoAtual string) string {
+func chaveAvaliacaoNivel(tipoEnsino, anoLectivo, anoAcademicoAtual, avaliacaoType string) string {
 	grupo := "escolar"
 	if tipoEnsino == "superior" {
 		grupo = "superior"
 	}
-	return "nivel:" + grupo + ":" + anoLectivo + ":" + anoAcademicoAtual
+	return "nivel:" + grupo + ":" + anoLectivo + ":" + anoAcademicoAtual + ":" + avaliacaoType
 }
 
 func (e *Estudante) RegistrarAvaliacaoFinal(
@@ -59,6 +64,12 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 	codigosTurmasRemovidas []string,
 	aprovado bool,
 	observacao *string,
+	avaliacaoType string,
+	notaFinal float64,
+	notaMinimaAprovacao float64,
+	regraAvaliacaoFinalID *uuid.UUID,
+	formulaSnapshot json.RawMessage,
+	aplicaSeReprovadoEmType *string,
 ) error {
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
@@ -67,7 +78,10 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 	// Guard de duplicata: impede double-submit e garante idempotência no aggregate.
 	// Primeiro bloqueia a duplicidade no mesmo nível de Avaliação Final
 	// Escolar/Superior; depois bloqueia qualquer segunda decisão no ano letivo.
-	chaveNivel := chaveAvaliacaoNivel(tipoEnsino, anoLectivo, anoAcademicoAtual)
+	if avaliacaoType == "" {
+		avaliacaoType = "normal"
+	}
+	chaveNivel := chaveAvaliacaoNivel(tipoEnsino, anoLectivo, anoAcademicoAtual, avaliacaoType)
 	if e.AvaliacoesPorAno != nil && e.AvaliacoesPorAno[chaveNivel] {
 		return fmt.Errorf(
 			"avaliação final já registrada para o nível '%s' no ano letivo '%s'",
@@ -75,7 +89,7 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 		)
 	}
 
-	chaveAnoLetivo := chaveAvaliacaoAnoLetivo(anoLectivo)
+	chaveAnoLetivo := chaveAvaliacaoAnoLetivo(anoLectivo, avaliacaoType)
 	if e.AvaliacoesPorAno != nil && e.AvaliacoesPorAno[chaveAnoLetivo] {
 		return fmt.Errorf(
 			"avaliação final já registrada no ano letivo '%s'",
@@ -84,20 +98,25 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 	}
 
 	base := AvaliacaoFinalBasePayload{
-		BaseEvent:              BaseEvent{AggregateID: e.ID},
-		ID:                     uuid.New(),
-		CodigoEstudante:        e.CodigoEstudante,
-		CodigoAcademia:         codigoAcademia,
-		AnoLectivo:             anoLectivo,
-		TipoEnsino:             tipoEnsino,
-		AnoAcademicoAtual:      anoAcademicoAtual,
-		ProximoAnoAcademico:    proximoAnoAcademico,
-		CodigoTurma:            codigoTurma,
-		CodigosTurmasRemovidas: codigosTurmasRemovidas,
-		Aprovado:               aprovado,
-		Observacao:             observacao,
-		Tipo:                   "avaliacao_final",
-		RegisteredAt:           time.Now(),
+		BaseEvent:               BaseEvent{AggregateID: e.ID},
+		ID:                      uuid.New(),
+		CodigoEstudante:         e.CodigoEstudante,
+		CodigoAcademia:          codigoAcademia,
+		AnoLectivo:              anoLectivo,
+		TipoEnsino:              tipoEnsino,
+		AnoAcademicoAtual:       anoAcademicoAtual,
+		ProximoAnoAcademico:     proximoAnoAcademico,
+		CodigoTurma:             codigoTurma,
+		CodigosTurmasRemovidas:  codigosTurmasRemovidas,
+		Aprovado:                aprovado,
+		Observacao:              observacao,
+		Type:                    avaliacaoType,
+		NotaFinal:               notaFinal,
+		NotaMinimaAprovacao:     notaMinimaAprovacao,
+		RegraAvaliacaoFinalID:   regraAvaliacaoFinalID,
+		FormulaSnapshot:         formulaSnapshot,
+		AplicaSeReprovadoEmType: aplicaSeReprovadoEmType,
+		RegisteredAt:            time.Now(),
 	}
 	var event DomainEvent
 	if tipoEnsino == "superior" {
@@ -141,8 +160,12 @@ func (e *Estudante) applyAvaliacaoFinalPayload(ev AvaliacaoFinalBasePayload) err
 	if e.AvaliacoesPorAno == nil {
 		e.AvaliacoesPorAno = make(map[string]bool)
 	}
-	e.AvaliacoesPorAno[chaveAvaliacaoAnoLetivo(ev.AnoLectivo)] = true
-	e.AvaliacoesPorAno[chaveAvaliacaoNivel(ev.TipoEnsino, ev.AnoLectivo, ev.AnoAcademicoAtual)] = true
+	avaliacaoType := ev.Type
+	if avaliacaoType == "" {
+		avaliacaoType = "normal"
+	}
+	e.AvaliacoesPorAno[chaveAvaliacaoAnoLetivo(ev.AnoLectivo, avaliacaoType)] = true
+	e.AvaliacoesPorAno[chaveAvaliacaoNivel(ev.TipoEnsino, ev.AnoLectivo, ev.AnoAcademicoAtual, avaliacaoType)] = true
 
 	if !ev.Aprovado {
 		return nil
