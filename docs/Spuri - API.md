@@ -2,7 +2,7 @@
 modificado: 18-06-2026 18:30
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.8.1
+Versão atual: 1.8.2
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -2047,67 +2047,52 @@ Retorna as faltas de um estudante.
 
 ## 11. Avaliações Finais
 
-### POST /academia/avaliacao-final
+### Execução automática da avaliação final
 
-Registra manualmente uma avaliação final calculada pelo backend para um estudante. A rota não aceita decisão manual de aprovação: o backend busca a regra ativa, calcula `nota_final`, compara com `nota_minima_aprovacao`, decide `aprovado`, calcula `proximo_ano_academico` e persiste o evento com snapshot da fórmula.
+Não existe rota pública/registrada para executar avaliação final manualmente. Em `cmd/server/main.go`, a academia só registra notas (`POST /academia/notas-aluno`) e configura/lista regras (`POST /academia/avaliacao-final/regras`, `GET /academia/avaliacao-final/regras`); a avaliação final é disparada automaticamente pelo backend quando uma nota é registrada.
 
-**Proteção**: academia autenticada.
+**Por que o cliente não envia `type` para executar avaliação final:**
 
-**Request:**
+- O `type` da avaliação final executada (`normal`, `recurso`, `especial`, etc.) vem da regra aplicável, não do payload de uma requisição manual.
+- Ao registrar/atualizar notas, o backend identifica o estudante, infere o `tipo_ensino`, descobre o ano acadêmico atual e busca todas as regras ativas aplicáveis àquele ano.
+- A cadeia precisa ter exatamente uma regra raiz, isto é, a regra sem `aplica_se_reprovado_em_type`. O processamento começa sempre nessa raiz.
+- Cada regra dependente é alcançada pelo campo `aplica_se_reprovado_em_type`: por exemplo, `recurso` pode depender de reprovação em `normal`, e `especial` pode depender de reprovação em `recurso`.
+- O backend só executa uma dependente quando encontra reprovação no `type` pré-requisito. Se o pré-requisito aprovou, a dependente é encerrada e não executa. Se o pré-requisito ainda não existe, a dependente aguarda.
+- Portanto, a ordem correta não é decidida pelo cliente nem pela categoria da nota recém-registrada; ela é calculada a partir da cadeia de regras configurada até a raiz.
 
-```json
-{
-  "codigo_estudante": "ABC1234",
-  "nivel_ano_academico_atual": "3_ano_fundamental",
-  "type": "normal",
-  "observacao": "string"
-}
-```
+**Regras de execução automática:**
 
-**Campos:**
+- Se não houver regra ativa aplicável, nenhuma avaliação final é registrada.
+- Se a cadeia aplicável não tiver exatamente uma raiz, o backend retorna erro para evitar ambiguidade.
+- O backend evita duplicidade por `codigo_estudante`, `codigo_academia`, `ano_lectivo`, `tipo_ensino`, `ano_academico_atual` e `type`.
+- Se alguma nota exigida pela fórmula ainda estiver ausente, aquela regra é ignorada naquele momento e poderá ser calculada quando novas notas forem registradas.
+- Quando uma regra é executada, o backend calcula `nota_final`, define `aprovado = nota_final >= nota_minima_aprovacao`, calcula o próximo ano acadêmico e persiste o evento com snapshot da regra.
+- O registro de nota retorna o campo `avaliacoes_finais_automaticas` com os resultados automáticos disparados naquele request.
 
-- `codigo_estudante` — obrigatório. O estudante precisa pertencer à academia autenticada.
-- `nivel_ano_academico_atual` — obrigatório. Deve ser válido para o tipo de ensino inferido e deve corresponder ao nível atual real do estudante.
-- `type` — opcional. Se omitido ou vazio, assume `normal`. Deve existir regra ativa aplicável.
-- `observacao` — opcional. É salva no evento/projeção.
-- `proximo_ano_academico` — proibido no request; o backend retorna erro se enviado.
-- `aprovado` — não faz parte do contrato; aprovação/reprovação é calculada.
-
-**Regras de execução:**
-
-- O ano letivo da academia precisa estar configurado.
-- O tipo de ensino é inferido pelo backend a partir do estudante: superior, médio ou fundamental.
-- O backend localiza uma única regra ativa por academia, tipo de ensino, ano acadêmico atual e `type`.
-- A avaliação é única para a combinação `codigo_estudante`, `codigo_academia`, `ano_lectivo`, `tipo_ensino`, `ano_academico_atual` e `type`.
-- Se a regra tiver `aplica_se_reprovado_em_type`, só executa quando já existe avaliação anterior reprovada no `type` pré-requisito.
-- A fórmula usa somente notas do ano letivo atual e das `categorias_envolvidas` da regra.
-- Se faltar nota exigida pela fórmula, a rota retorna erro de validação.
-- `aprovado = nota_final >= nota_minima_aprovacao`.
-- O evento e a projeção salvam `type`, `nota_final`, `nota_minima_aprovacao`, `regra_avaliacao_final_id`, `formula_snapshot` e `aplica_se_reprovado_em_type`.
-
-**Response 201:**
+**Exemplo de resposta parcial de `POST /academia/notas-aluno` quando uma avaliação é disparada:**
 
 ```json
 {
-  "message": "avaliação final registrada com sucesso",
-  "tipo_ensino": "fundamental",
-  "type": "normal",
-  "nota_final": 12.5,
-  "nota_minima_aprovacao": 10,
-  "resultado": "aprovado → 4_ano_fundamental",
-  "turmas_removidas": ["T1A"]
+  "message": "nota registrada com sucesso",
+  "estudante": "ABC1234",
+  "categoria": "nota_exame_final",
+  "periodo": "3_trimestre",
+  "avaliacoes_finais_automaticas": [
+    {
+      "message": "avaliação final registrada automaticamente",
+      "tipo_ensino": "fundamental",
+      "type": "normal",
+      "aprovado": true,
+      "nota_final": 12.5,
+      "nota_minima_aprovacao": 10,
+      "resultado": "aprovado → 4_ano_fundamental",
+      "turmas_removidas": ["T1A"]
+    }
+  ]
 }
 ```
-
-**Observações sobre efeitos:**
-
-- Em reprovação, o estudante permanece no mesmo nível.
-- Em aprovação com próximo nível, o aggregate atualiza o nível atual do estudante.
-- Em aprovação no último nível, o status do ciclo é marcado como `finalizado`.
-- Para avaliação escolar aprovada, a projeção de turmas remove o estudante das turmas atuais e tenta adicioná-lo a uma turma ativa do próximo nível; para superior, turmas não são alteradas.
 
 ---
-
 ### POST /academia/avaliacao-final/regras
 
 Cria uma regra ativa de avaliação final para a academia autenticada.
@@ -2155,12 +2140,54 @@ Cria uma regra ativa de avaliação final para a academia autenticada.
 - Regras dependentes formam uma cadeia de novas chances; elas só executam depois de reprovação no `type` apontado.
 - A regra é criada com `status = "ativo"` e `version = 1`.
 
-**DSL da fórmula:**
+**DSL da fórmula — como montar:**
 
-- `sum_periods`: `{ "op": "sum_periods", "categories": ["nota_escola"], "periods": ["1_trimestre"] }`
-- `category_total`: `{ "op": "category_total", "category": "nota_escola" }`
-- `add`: `{ "op": "add", "items": [/* nós */] }`
-- `div`: `{ "op": "div", "left": {/* nó */}, "right": 3 }`
+A fórmula é uma árvore JSON. Cada nó retorna um número, e o resultado do nó raiz é a `nota_final`. Todas as categorias referenciadas precisam estar em `categorias_envolvidas`; o backend carrega somente notas do ano letivo atual nessas categorias.
+
+- `sum_periods`: soma todas as notas das `categories` em cada período listado em `periods`. Use quando a regra deve exigir períodos específicos (por exemplo, todos os trimestres ou semestres). Se faltar qualquer par categoria/período, a avaliação aguarda novas notas. Exemplo: `{ "op": "sum_periods", "categories": ["nota_escola", "nota_professor"], "periods": ["1_trimestre", "2_trimestre", "3_trimestre"] }`.
+- `category_total`: soma todas as notas existentes de uma categoria, independentemente do período. Use quando a quantidade de lançamentos pode variar ou quando a categoria só aparece uma vez, como exame final. Atenção: esta operação não garante que todos os períodos esperados da academia/curso foram lançados; ela apenas soma o que existe para a categoria. Exemplo: `{ "op": "category_total", "category": "nota_exame_final" }`.
+- `add`: soma os resultados de vários nós. Use para combinar médias, exames e outros componentes. Exemplo: `{ "op": "add", "items": [{ "op": "category_total", "category": "nota_exame_final" }, { "op": "category_total", "category": "nota_recurso" }] }`.
+- `div`: divide o resultado de `left` por uma constante numérica `right` diferente de zero. Use para calcular médias. Exemplo: `{ "op": "div", "left": { "op": "sum_periods", "categories": ["nota_escola"], "periods": ["1_trimestre", "2_trimestre", "3_trimestre"] }, "right": 3 }`.
+
+Para considerar todos os trimestres/semestres, o cliente deve listar explicitamente esses períodos em `sum_periods`. O backend não presume automaticamente “todos os períodos da academia/curso”.
+
+**Exemplo — média dos três trimestres:**
+
+```json
+{
+  "op": "div",
+  "left": {
+    "op": "sum_periods",
+    "categories": ["nota_escola", "nota_professor"],
+    "periods": ["1_trimestre", "2_trimestre", "3_trimestre"]
+  },
+  "right": 3
+}
+```
+
+**Exemplo — média trimestral + exame final:**
+
+```json
+{
+  "op": "div",
+  "left": {
+    "op": "add",
+    "items": [
+      {
+        "op": "div",
+        "left": {
+          "op": "sum_periods",
+          "categories": ["nota_escola", "nota_professor"],
+          "periods": ["1_trimestre", "2_trimestre", "3_trimestre"]
+        },
+        "right": 3
+      },
+      { "op": "category_total", "category": "nota_exame_final" }
+    ]
+  },
+  "right": 2
+}
+```
 
 **Response 201:**
 
@@ -3572,7 +3599,6 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 |`POST /academia/faltas-aluno/async`|igual ao `POST /academia/faltas-aluno`|`202` (job criado)|2000|
 |`PUT /academia/atualizar-falta/async`|igual ao `PUT /academia/atualizar-falta`|`202` (job criado)|2000|
 |`DELETE /academia/falta/async`|igual ao `DELETE /academia/falta/:id` (sem `:id`, enviado no item)|`202` (job criado)|2000|
-|`POST /academia/avaliacao-final/async`|igual ao `POST /academia/avaliacao-final`|`202` (job criado)|1000|
 |`POST /academia/curso/async`|igual ao `POST /academia/curso`|`202` (job criado)|200|
 |`POST /academia/materia/async`|igual ao `POST /academia/materia`|`202` (job criado)|500|
 |`POST /academia/turma/async`|igual ao `POST /academia/turma`|`202` (job criado)|200|
