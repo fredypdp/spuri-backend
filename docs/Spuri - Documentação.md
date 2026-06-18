@@ -2,7 +2,7 @@
 modificado: 18-06-2026 18:30
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.6.1
+Versão atual: 1.6.2
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -604,7 +604,7 @@ A avaliação final é o mecanismo auditável que decide aprovação, reprovaç�
 
 **Conceitos principais:**
 
-- `type` identifica publicamente a etapa da avaliação final. Quando omitido, o backend usa `normal`. Outros exemplos válidos são `recurso` ou `especial`, desde que cadastrados como regras.
+- `type` identifica publicamente a etapa da avaliação final configurada na regra (`normal`, `recurso`, `especial`, etc.). Ele não é enviado pelo cliente para executar a avaliação: na execução automática, o backend descobre o `type` percorrendo a cadeia de regras aplicável, da raiz até as dependentes.
 - `tipo_ensino` da avaliação é sempre inferido do estudante: `superior` tem prioridade quando há curso/ano/status superior; depois `medio`; caso contrário, `fundamental`.
 - `nivel_ano_academico_atual` precisa ser o nível atual real do estudante e precisa ser válido para o tipo de ensino inferido.
 - `proximo_ano_academico` é sempre calculado pelo backend. O cliente não pode enviá-lo.
@@ -630,28 +630,29 @@ A fórmula é JSON estruturado, sem execução de código arbitrário. Operaçõ
 - `add`: soma os valores retornados pelos nós em `items`; exige ao menos um item.
 - `div`: divide o resultado de `left` por uma constante numérica em `right`; `right` precisa ser diferente de zero.
 
-**Processo manual via `POST /academia/avaliacao-final`:**
-
-1. A academia envia `codigo_estudante`, `nivel_ano_academico_atual`, opcionalmente `type` e `observacao`.
-2. O backend rejeita payload com `proximo_ano_academico`; esse campo é calculado.
-3. O backend valida academia autenticada, ano letivo configurado, estudante existente e pertencimento à academia.
-4. O backend infere o tipo de ensino do estudante e valida o nível informado contra as regras do ciclo (`fundamental`, `medio` ou `superior`).
-5. O backend normaliza `type` vazio para `normal` e localiza uma única regra ativa aplicável à academia, ao tipo de ensino, ao ano acadêmico atual e ao `type`.
-6. O backend impede duplicidade para o mesmo estudante, academia, ano letivo, tipo de ensino, ano acadêmico e `type`.
-7. O backend valida que o nível informado corresponde ao nível atual do estudante.
-8. Se a regra tiver `aplica_se_reprovado_em_type`, o backend exige uma avaliação anterior reprovada naquele `type` pré-requisito; se a avaliação anterior não existir ou foi aprovada, a etapa dependente é bloqueada.
-9. O backend carrega notas do ano letivo atual apenas nas categorias envolvidas, calcula a fórmula e obtém `nota_final`.
-10. O backend define `aprovado = nota_final >= nota_minima_aprovacao`.
-11. O backend calcula `proximo_ano_academico`: quando reprovado, permanece no nível; quando aprovado, avança para o próximo nível ou retorna `null` no último nível do ciclo.
-12. O evento registra `type`, `nota_final`, `nota_minima_aprovacao`, `regra_avaliacao_final_id`, `formula_snapshot`, `aplica_se_reprovado_em_type`, turma atual e turmas removidas.
-
 **Processo automático ao registrar notas:**
 
-- Ao registrar nota, o backend tenta executar automaticamente a cadeia completa de regras aplicável ao estudante, academia, tipo de ensino e ano acadêmico atual.
-- O gatilho não escolhe a regra pela categoria da nota recém-registrada; ele busca a cadeia aplicável completa e começa pela única regra raiz.
-- Se alguma nota necessária à fórmula ainda estiver ausente, a regra é ignorada naquele momento e poderá ser calculada quando novas notas chegarem.
-- Uma regra dependente só executa automaticamente depois de reprovação no `type` pré-requisito. Se o pré-requisito aprovou, a dependente é encerrada e não executa.
-- O processamento evita registrar novamente um `type` já avaliado no mesmo estudante/ano/tipo/nível.
+Não há rota pública registrada para execução manual de avaliação final. A antiga rota manual de avaliação final não faz parte do contrato exposto; a avaliação final é acionada automaticamente pelo registro de notas. O cliente configura regras e lança notas, e o backend decide quando a avaliação pode ser calculada.
+
+1. Ao registrar uma nota, o backend valida a academia autenticada, o ano letivo, o estudante, a matéria/categoria/período e o pertencimento à academia.
+2. O backend infere o `tipo_ensino` do estudante e identifica o ano acadêmico atual real.
+3. O backend busca todas as regras ativas aplicáveis à academia, ao tipo de ensino e ao ano acadêmico.
+4. A cadeia precisa ter exatamente uma regra raiz, isto é, uma regra sem `aplica_se_reprovado_em_type`.
+5. A execução começa na raiz e não na categoria da nota recém-registrada. O `type` executado vem da regra encontrada.
+6. Para regras dependentes, o backend segue `aplica_se_reprovado_em_type` e só executa a regra se o estudante foi reprovado no `type` pré-requisito, seja no mesmo processamento, seja em avaliação já persistida.
+7. Se um pré-requisito aprovou, a dependente é encerrada sem execução; se o pré-requisito ainda não existe, a dependente aguarda.
+8. O backend impede duplicidade para o mesmo estudante, academia, ano letivo, tipo de ensino, ano acadêmico e `type`.
+9. O backend carrega notas do ano letivo atual apenas nas categorias envolvidas na regra, calcula a fórmula e obtém `nota_final`.
+10. Se faltar nota exigida pela fórmula, a regra é ignorada naquele momento e será tentada novamente em novos lançamentos de nota.
+11. O backend define `aprovado = nota_final >= nota_minima_aprovacao`.
+12. O backend calcula `proximo_ano_academico`: quando reprovado, permanece no nível; quando aprovado, avança para o próximo nível ou retorna `null` no último nível do ciclo.
+13. O evento registra `type`, `nota_final`, `nota_minima_aprovacao`, `regra_avaliacao_final_id`, `formula_snapshot`, `aplica_se_reprovado_em_type`, turma atual e turmas removidas.
+
+**Como a fórmula considera períodos:**
+
+- `sum_periods` deve ser usado quando a regra precisa exigir períodos específicos. O cliente deve listar explicitamente todos os trimestres/semestres obrigatórios em `periods`; o backend não assume automaticamente todos os períodos da academia/curso.
+- `category_total` soma todas as notas existentes da categoria em qualquer período, mas não valida que todos os períodos esperados foram lançados. Use para componentes pontuais ou variáveis, como exame final, não para garantir completude de trimestres/semestres.
+- `add` combina nós numéricos e `div` calcula médias dividindo o nó `left` por uma constante `right`.
 
 **Persistência, auditoria e versionamento:**
 
