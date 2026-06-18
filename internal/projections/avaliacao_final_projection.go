@@ -118,24 +118,27 @@ func (p *AvaliacaoFinalProjection) handleAvaliacaoFinal(event db.Event) error {
 			codigo_estudante, codigo_academia,
 			ano_lectivo, tipo_ensino,
 			ano_academico_atual, proximo_ano_academico,
-			aprovado, observacao,
+			aprovado, observacao, type, nota_final, nota_minima_aprovacao,
+			regra_avaliacao_final_id, formula_snapshot, aplica_se_reprovado_em_type,
 			registered_at, version
 		) VALUES (
 			uuid_generate_v4(), $1,
 			$2, $3,
 			$4, $5,
 			$6, $7,
-			$8, $9,
-			CURRENT_TIMESTAMP, $10
+			$8, $9, $10, $11, $12,
+			$13, $14, $15,
+			CURRENT_TIMESTAMP, $16
 		)
-		ON CONFLICT (codigo_estudante, codigo_academia, ano_lectivo)
+		ON CONFLICT (codigo_estudante, codigo_academia, ano_lectivo, tipo_ensino, ano_academico_atual, type)
 		DO NOTHING
 	`,
 		event.EventID,
 		payload.CodigoEstudante, payload.CodigoAcademia,
 		payload.AnoLectivo, payload.TipoEnsino,
 		payload.AnoAcademicoAtual, payload.ProximoAnoAcademico,
-		payload.Aprovado, payload.Observacao,
+		payload.Aprovado, payload.Observacao, payload.Type, payload.NotaFinal, payload.NotaMinimaAprovacao,
+		payload.RegraAvaliacaoFinalID, payload.FormulaSnapshot, payload.AplicaSeReprovadoEmType,
 		event.EventVersion,
 	)
 	if err != nil {
@@ -147,26 +150,38 @@ func (p *AvaliacaoFinalProjection) handleAvaliacaoFinal(event db.Event) error {
 }
 
 type avaliacaoFinalPayload struct {
-	CodigoEstudante     string
-	CodigoAcademia      string
-	AnoLectivo          string
-	TipoEnsino          string
-	AnoAcademicoAtual   string
-	ProximoAnoAcademico *string
-	Aprovado            bool
-	Observacao          *string
+	CodigoEstudante         string
+	CodigoAcademia          string
+	AnoLectivo              string
+	TipoEnsino              string
+	AnoAcademicoAtual       string
+	ProximoAnoAcademico     *string
+	Aprovado                bool
+	Observacao              *string
+	Type                    string
+	NotaFinal               float64
+	NotaMinimaAprovacao     float64
+	RegraAvaliacaoFinalID   *uuid.UUID
+	FormulaSnapshot         json.RawMessage
+	AplicaSeReprovadoEmType *string
 }
 
 func parseAvaliacaoFinalPayload(raw json.RawMessage) (avaliacaoFinalPayload, error) {
 	var snake struct {
-		CodigoEstudante     string  `json:"codigo_estudante"`
-		CodigoAcademia      string  `json:"codigo_academia"`
-		AnoLectivo          string  `json:"ano_lectivo"`
-		TipoEnsino          string  `json:"tipo_ensino"`
-		AnoAcademicoAtual   string  `json:"nivel_ano_academico_atual"`
-		ProximoAnoAcademico *string `json:"proximo_ano_academico"`
-		Aprovado            bool    `json:"aprovado"`
-		Observacao          *string `json:"observacao"`
+		CodigoEstudante         string          `json:"codigo_estudante"`
+		CodigoAcademia          string          `json:"codigo_academia"`
+		AnoLectivo              string          `json:"ano_lectivo"`
+		TipoEnsino              string          `json:"tipo_ensino"`
+		AnoAcademicoAtual       string          `json:"nivel_ano_academico_atual"`
+		ProximoAnoAcademico     *string         `json:"proximo_ano_academico"`
+		Aprovado                bool            `json:"aprovado"`
+		Observacao              *string         `json:"observacao"`
+		Type                    string          `json:"type"`
+		NotaFinal               float64         `json:"nota_final"`
+		NotaMinimaAprovacao     float64         `json:"nota_minima_aprovacao"`
+		RegraAvaliacaoFinalID   *uuid.UUID      `json:"regra_avaliacao_final_id"`
+		FormulaSnapshot         json.RawMessage `json:"formula_snapshot"`
+		AplicaSeReprovadoEmType *string         `json:"aplica_se_reprovado_em_type"`
 	}
 	if err := json.Unmarshal(raw, &snake); err != nil {
 		return avaliacaoFinalPayload{}, err
@@ -174,28 +189,40 @@ func parseAvaliacaoFinalPayload(raw json.RawMessage) (avaliacaoFinalPayload, err
 
 	// Compatibilidade com payloads legados em PascalCase.
 	var legacy struct {
-		CodigoEstudante     string  `json:"CodigoEstudante"`
-		CodigoAcademia      string  `json:"CodigoAcademia"`
-		AnoLectivo          string  `json:"AnoLectivo"`
-		TipoEnsino          string  `json:"TipoEnsino"`
-		AnoAcademicoAtual   string  `json:"AnoAcademicoAtual"`
-		ProximoAnoAcademico *string `json:"ProximoAnoAcademico"`
-		Aprovado            bool    `json:"Aprovado"`
-		Observacao          *string `json:"Observacao"`
+		CodigoEstudante         string          `json:"CodigoEstudante"`
+		CodigoAcademia          string          `json:"CodigoAcademia"`
+		AnoLectivo              string          `json:"AnoLectivo"`
+		TipoEnsino              string          `json:"TipoEnsino"`
+		AnoAcademicoAtual       string          `json:"AnoAcademicoAtual"`
+		ProximoAnoAcademico     *string         `json:"ProximoAnoAcademico"`
+		Aprovado                bool            `json:"Aprovado"`
+		Observacao              *string         `json:"Observacao"`
+		Type                    string          `json:"Type"`
+		NotaFinal               float64         `json:"NotaFinal"`
+		NotaMinimaAprovacao     float64         `json:"NotaMinimaAprovacao"`
+		RegraAvaliacaoFinalID   *uuid.UUID      `json:"RegraAvaliacaoFinalID"`
+		FormulaSnapshot         json.RawMessage `json:"FormulaSnapshot"`
+		AplicaSeReprovadoEmType *string         `json:"AplicaSeReprovadoEmType"`
 	}
 	if err := json.Unmarshal(raw, &legacy); err != nil {
 		return avaliacaoFinalPayload{}, err
 	}
 
 	payload := avaliacaoFinalPayload{
-		CodigoEstudante:     firstNonEmpty(snake.CodigoEstudante, legacy.CodigoEstudante),
-		CodigoAcademia:      firstNonEmpty(snake.CodigoAcademia, legacy.CodigoAcademia),
-		AnoLectivo:          firstNonEmpty(snake.AnoLectivo, legacy.AnoLectivo),
-		TipoEnsino:          firstNonEmpty(snake.TipoEnsino, legacy.TipoEnsino),
-		AnoAcademicoAtual:   firstNonEmpty(snake.AnoAcademicoAtual, legacy.AnoAcademicoAtual),
-		ProximoAnoAcademico: snake.ProximoAnoAcademico,
-		Aprovado:            snake.Aprovado || legacy.Aprovado,
-		Observacao:          snake.Observacao,
+		CodigoEstudante:         firstNonEmpty(snake.CodigoEstudante, legacy.CodigoEstudante),
+		CodigoAcademia:          firstNonEmpty(snake.CodigoAcademia, legacy.CodigoAcademia),
+		AnoLectivo:              firstNonEmpty(snake.AnoLectivo, legacy.AnoLectivo),
+		TipoEnsino:              firstNonEmpty(snake.TipoEnsino, legacy.TipoEnsino),
+		AnoAcademicoAtual:       firstNonEmpty(snake.AnoAcademicoAtual, legacy.AnoAcademicoAtual),
+		ProximoAnoAcademico:     snake.ProximoAnoAcademico,
+		Aprovado:                snake.Aprovado || legacy.Aprovado,
+		Observacao:              snake.Observacao,
+		Type:                    firstNonEmpty(snake.Type, legacy.Type, "normal"),
+		NotaFinal:               firstNonZero(snake.NotaFinal, legacy.NotaFinal),
+		NotaMinimaAprovacao:     firstNonZero(snake.NotaMinimaAprovacao, legacy.NotaMinimaAprovacao),
+		RegraAvaliacaoFinalID:   snake.RegraAvaliacaoFinalID,
+		FormulaSnapshot:         snake.FormulaSnapshot,
+		AplicaSeReprovadoEmType: snake.AplicaSeReprovadoEmType,
 	}
 	if payload.ProximoAnoAcademico == nil {
 		payload.ProximoAnoAcademico = legacy.ProximoAnoAcademico
@@ -203,7 +230,25 @@ func parseAvaliacaoFinalPayload(raw json.RawMessage) (avaliacaoFinalPayload, err
 	if payload.Observacao == nil {
 		payload.Observacao = legacy.Observacao
 	}
+	if payload.RegraAvaliacaoFinalID == nil {
+		payload.RegraAvaliacaoFinalID = legacy.RegraAvaliacaoFinalID
+	}
+	if len(payload.FormulaSnapshot) == 0 {
+		payload.FormulaSnapshot = legacy.FormulaSnapshot
+	}
+	if payload.AplicaSeReprovadoEmType == nil {
+		payload.AplicaSeReprovadoEmType = legacy.AplicaSeReprovadoEmType
+	}
 	return payload, nil
+}
+
+func firstNonZero(values ...float64) float64 {
+	for _, v := range values {
+		if v != 0 {
+			return v
+		}
+	}
+	return 0
 }
 
 func firstNonEmpty(values ...string) string {
@@ -220,18 +265,24 @@ func firstNonEmpty(values ...string) string {
 // ============================================================================
 
 type AvaliacaoFinalDTO struct {
-	ID                  uuid.UUID `json:"id"`
-	EventID             uuid.UUID `json:"event_id"`
-	CodigoEstudante     string    `json:"codigo_estudante"`
-	CodigoAcademia      string    `json:"codigo_academia"`
-	AnoLectivo          string    `json:"ano_lectivo"`
-	TipoEnsino          string    `json:"tipo_ensino"`
-	AnoAcademicoAtual   string    `json:"ano_academico_atual"`
-	ProximoAnoAcademico *string   `json:"proximo_ano_academico,omitempty"`
-	Aprovado            bool      `json:"aprovado"`
-	Observacao          *string   `json:"observacao,omitempty"`
-	RegisteredAt        time.Time `json:"registered_at"`
-	Version             int       `json:"version"`
+	ID                      uuid.UUID       `json:"id"`
+	EventID                 uuid.UUID       `json:"event_id"`
+	CodigoEstudante         string          `json:"codigo_estudante"`
+	CodigoAcademia          string          `json:"codigo_academia"`
+	AnoLectivo              string          `json:"ano_lectivo"`
+	TipoEnsino              string          `json:"tipo_ensino"`
+	AnoAcademicoAtual       string          `json:"ano_academico_atual"`
+	ProximoAnoAcademico     *string         `json:"proximo_ano_academico,omitempty"`
+	Aprovado                bool            `json:"aprovado"`
+	Observacao              *string         `json:"observacao,omitempty"`
+	Type                    string          `json:"type"`
+	NotaFinal               *float64        `json:"nota_final,omitempty"`
+	NotaMinimaAprovacao     *float64        `json:"nota_minima_aprovacao,omitempty"`
+	RegraAvaliacaoFinalID   *uuid.UUID      `json:"regra_avaliacao_final_id,omitempty"`
+	FormulaSnapshot         json.RawMessage `json:"formula_snapshot,omitempty"`
+	AplicaSeReprovadoEmType *string         `json:"aplica_se_reprovado_em_type,omitempty"`
+	RegisteredAt            time.Time       `json:"registered_at"`
+	Version                 int             `json:"version"`
 }
 
 type AvaliacaoFinalFilters struct {
@@ -239,12 +290,13 @@ type AvaliacaoFinalFilters struct {
 	AnoLectivo        *string
 	AnoAcademicoAtual *string
 	CodigoTurma       *string
+	Type              *string
 }
 
 const avaliacaoFinalCols = `
 	id, event_id, codigo_estudante, codigo_academia,
 	ano_lectivo, tipo_ensino, ano_academico_atual, proximo_ano_academico,
-	aprovado, observacao, registered_at, version
+	aprovado, observacao, type, nota_final, nota_minima_aprovacao, regra_avaliacao_final_id, formula_snapshot, aplica_se_reprovado_em_type, registered_at, version
 `
 
 func (p *AvaliacaoFinalProjection) ExistsByEstudanteAnoLetivoNivel(codigoEstudante, codigoAcademia, anoLectivo, tipoEnsino, anoAcademicoAtual string) (bool, error) {
@@ -330,6 +382,9 @@ func (p *AvaliacaoFinalProjection) ListByFilters(codigoAcademiaEscopo *string, a
 	}
 	if filtros.AnoAcademicoAtual != nil && *filtros.AnoAcademicoAtual != "" {
 		add("avf.ano_academico_atual = $%d", *filtros.AnoAcademicoAtual)
+	}
+	if filtros.Type != nil && *filtros.Type != "" {
+		add("avf.type = $%d", *filtros.Type)
 	}
 	if aprovado != nil {
 		if *aprovado {
@@ -437,11 +492,26 @@ func scanAvaliacoes(rows *sql.Rows) ([]AvaliacaoFinalDTO, error) {
 		if err := rows.Scan(
 			&dto.ID, &dto.EventID, &dto.CodigoEstudante, &dto.CodigoAcademia,
 			&dto.AnoLectivo, &dto.TipoEnsino, &dto.AnoAcademicoAtual, &dto.ProximoAnoAcademico,
-			&dto.Aprovado, &dto.Observacao, &dto.RegisteredAt, &dto.Version,
+			&dto.Aprovado, &dto.Observacao, &dto.Type, &dto.NotaFinal, &dto.NotaMinimaAprovacao, &dto.RegraAvaliacaoFinalID, &dto.FormulaSnapshot, &dto.AplicaSeReprovadoEmType, &dto.RegisteredAt, &dto.Version,
 		); err != nil {
 			continue
 		}
 		result = append(result, dto)
 	}
 	return result, rows.Err()
+}
+
+func (p *AvaliacaoFinalProjection) ExistsByEstudanteAnoLetivoNivelType(codigoEstudante, codigoAcademia, anoLectivo, tipoEnsino, anoAcademicoAtual, avaliacaoType string) (bool, error) {
+	var exists bool
+	err := p.client.DB().QueryRow(`SELECT EXISTS (SELECT 1 FROM projection_avaliacao_final WHERE codigo_estudante=$1 AND codigo_academia=$2 AND ano_lectivo=$3 AND tipo_ensino=$4 AND ano_academico_atual=$5 AND type=$6)`, codigoEstudante, codigoAcademia, anoLectivo, tipoEnsino, anoAcademicoAtual, avaliacaoType).Scan(&exists)
+	return exists, err
+}
+
+func (p *AvaliacaoFinalProjection) GetResultadoByType(codigoEstudante, codigoAcademia, anoLectivo, tipoEnsino, anoAcademicoAtual, avaliacaoType string) (*AvaliacaoFinalDTO, error) {
+	row := p.client.DB().QueryRow(`SELECT `+avaliacaoFinalCols+` FROM projection_avaliacao_final WHERE codigo_estudante=$1 AND codigo_academia=$2 AND ano_lectivo=$3 AND tipo_ensino=$4 AND ano_academico_atual=$5 AND type=$6 ORDER BY registered_at DESC LIMIT 1`, codigoEstudante, codigoAcademia, anoLectivo, tipoEnsino, anoAcademicoAtual, avaliacaoType)
+	var dto AvaliacaoFinalDTO
+	if err := row.Scan(&dto.ID, &dto.EventID, &dto.CodigoEstudante, &dto.CodigoAcademia, &dto.AnoLectivo, &dto.TipoEnsino, &dto.AnoAcademicoAtual, &dto.ProximoAnoAcademico, &dto.Aprovado, &dto.Observacao, &dto.Type, &dto.NotaFinal, &dto.NotaMinimaAprovacao, &dto.RegraAvaliacaoFinalID, &dto.FormulaSnapshot, &dto.AplicaSeReprovadoEmType, &dto.RegisteredAt, &dto.Version); err != nil {
+		return nil, err
+	}
+	return &dto, nil
 }

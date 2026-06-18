@@ -1,8 +1,8 @@
 ---
-modificado: 14-06-2026 00:00
+modificado: 18-06-2026 17:30
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.5.12
+Versão atual: 1.6.0
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -600,25 +600,32 @@ Academias podem criar **categorias adicionais** personalizadas e também configu
 
 **Quem faz**: Academia (status ativo, com ano letivo configurado)
 
-Este é o **único mecanismo de transição de ano** no sistema. Registar a avaliação final é o que faz o estudante avançar (ou não) de ano.
+Este é o **único mecanismo de transição de ano** no sistema, mas a decisão deixou de ser manual. A academia configura regras de avaliação final e o backend calcula a nota final com uma fórmula segura, auditável e versionada.
+
+**Configuração de regras:**
+
+- Cada regra pertence à academia e define `type` público (`normal` por padrão, podendo existir `recurso`, `especial`, etc.).
+- A regra possui nome/descrição, `tipo_ensino`, `anos_academicos`, `nota_minima_aprovacao`, `categorias_envolvidas` e uma `formula` JSON.
+- A fórmula é uma DSL estruturada, sem execução de código arbitrário, com operações como soma de períodos, total de categoria, adição e divisão por constante.
+- Uma regra pode depender de reprovação anterior via `aplica_se_reprovado_em_type`.
+- A regra usada é registrada na avaliação por `regra_avaliacao_final_id` e `formula_snapshot`, garantindo rebuild determinístico mesmo se a regra for alterada depois.
 
 **Processo:**
 
-1. Academia envia: código do estudante, tipo de ensino, nível atual e flag de aprovação (sem próximo nível no payload)
-2. Sistema valida o ano letivo ativo
-3. Sistema valida pertencimento do estudante à academia
-4. Sistema calcula o próximo ano automaticamente
-   - fundamental: sequência fixa `1_ano_fundamental` até `9_ano_fundamental`
-   - médio/superior: sequência do curso do estudante
-5. Sistema verifica idempotência (chave: `tipoEnsino_anoLectivo_anoAcademicoAtual`)
+1. Academia envia código do estudante, nível atual e opcionalmente `type` (padrão `normal`); não envia `aprovado`.
+2. Sistema valida ano letivo ativo, pertencimento do estudante e nível acadêmico atual.
+3. Sistema localiza uma única regra ativa aplicável ao `type`, tipo de ensino e ano acadêmico.
+4. Se a regra for dependente, valida que existe reprovação anterior no `type` pré-requisito.
+5. Sistema carrega as notas existentes, valida categorias/períodos exigidos pela fórmula e calcula `nota_final`.
+6. Sistema define `aprovado = nota_final >= nota_minima_aprovacao`.
+7. Sistema calcula o próximo ano apenas quando aprovado.
+8. Evento e projeção registram `type`, `nota_final`, nota mínima, regra usada e snapshot da fórmula.
 
-**Validação de notas antes da aprovação:**
+**Sequência e duplicidade:**
 
-- Para `fundamental`: todas as matérias do ano devem ter `nota_escola` nos 3 trimestres
-- Para `medio`: todas as matérias do curso/ano devem ter `nota_escola` nos 3 trimestres
-- Para `superior`: todas as matérias do curso/período devem ter `nota_exame`
-- Se notas estiverem faltando, a aprovação é bloqueada — a menos que `observacao` seja fornecida (override manual)
-- Se `aprovado = false`, a validação de notas é ignorada
+- Um estudante não pode ter duas avaliações do mesmo `type` no mesmo ano letivo, tipo de ensino e ano acadêmico.
+- Um estudante pode reprovar em `normal` e depois fazer `recurso`, desde que a regra de `recurso` dependa de `normal`.
+- Se `normal` aprovou, avaliações dependentes de reprovação em `normal` são bloqueadas.
 
 **Efeitos da aprovação (escola):**
 
