@@ -65,6 +65,10 @@ func CriarRegraAvaliacaoFinal(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("tipo_ensino deve ser fundamental, medio ou superior"))
 		return
 	}
+	if err := validarEscopoRegraAvaliacaoFinal(req.TipoEnsino, req.AnosAcademicos); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 	if req.AplicaSeReprovadoEmType != nil && *req.AplicaSeReprovadoEmType == req.Type {
 		utils.RespondWithValidationError(c, fmt.Errorf("aplica_se_reprovado_em_type não pode apontar para o próprio type"))
 		return
@@ -116,6 +120,30 @@ func ListarRegrasAvaliacaoFinal(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"regras": out, "total": len(out)})
+}
+
+func validarEscopoRegraAvaliacaoFinal(tipoEnsino string, niveis []string) error {
+	for _, nivel := range niveis {
+		nivel = strings.TrimSpace(nivel)
+		if nivel == "" {
+			return fmt.Errorf("anos_academicos não pode conter valores vazios")
+		}
+		switch tipoEnsino {
+		case "fundamental":
+			if err := utils.ValidateAnoFundamental(nivel); err != nil {
+				return fmt.Errorf("anos_academicos inválido para fundamental: %w", err)
+			}
+		case "medio":
+			if err := utils.ValidateAnoMedio(nivel); err != nil {
+				return fmt.Errorf("anos_academicos inválido para médio: %w", err)
+			}
+		case "superior":
+			if err := utils.ValidatePeriodo(nivel); err != nil || !strings.HasSuffix(nivel, "_semestre") {
+				return fmt.Errorf("anos_academicos de regra superior deve usar semestres no formato [n]_semestre")
+			}
+		}
+	}
+	return nil
 }
 
 func validarUnicidadeRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipoEnsino, typ string, anos []string) error {
@@ -425,3 +453,34 @@ func carregarNotasFormula(c *gin.Context, codigoEstudante, codigoAcademia, anoLe
 	return out, rows.Err()
 }
 func _sqlNoRows(err error) bool { return err == sql.ErrNoRows }
+
+func validarFormulaSuperiorContemPeriodo(raw json.RawMessage, periodoAtual string) error {
+	var n formulaNode
+	if err := json.Unmarshal(raw, &n); err != nil {
+		return err
+	}
+	return validarNodeSuperiorContemPeriodo(n, periodoAtual)
+}
+
+func validarNodeSuperiorContemPeriodo(n formulaNode, periodoAtual string) error {
+	switch n.Op {
+	case "add":
+		for _, it := range n.Items {
+			if err := validarNodeSuperiorContemPeriodo(it, periodoAtual); err != nil {
+				return err
+			}
+		}
+	case "div":
+		if n.Left != nil {
+			return validarNodeSuperiorContemPeriodo(*n.Left, periodoAtual)
+		}
+	case "sum_periods":
+		for _, p := range n.Periods {
+			if p == periodoAtual {
+				return nil
+			}
+		}
+		return fmt.Errorf("formula superior deve incluir o periodo atual %s em sum_periods", periodoAtual)
+	}
+	return nil
+}

@@ -682,6 +682,25 @@ func (p *EstudanteProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) e
 		return err
 	}
 
+	if tipoEnsino == "superior" {
+		if payload.ProximoSemestreAtual != nil {
+			_, err := p.client.DB().Exec(`
+				UPDATE projection_estudantes
+				SET semestre_atual = $1, ano_superior = $2, version = $3, updated_at = CURRENT_TIMESTAMP, last_event_id = $4
+				WHERE id = $5
+			`, payload.ProximoSemestreAtual, payload.AnoSuperiorDepois, event.EventVersion, event.EventID, event.AggregateID)
+			return err
+		}
+		if payload.AnoSuperiorDepois != nil {
+			_, err := p.client.DB().Exec(`
+				UPDATE projection_estudantes
+				SET status_superior = 'finalizado', ano_superior = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
+				WHERE id = $4
+			`, payload.AnoSuperiorDepois, event.EventVersion, event.EventID, event.AggregateID)
+			return err
+		}
+	}
+
 	if payload.ProximoAnoAcademico == nil {
 		var statusCol string
 		switch tipoEnsino {
@@ -724,25 +743,31 @@ func (p *EstudanteProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) e
 }
 
 type avaliacaoFinalPayloadEstudante struct {
-	TipoEnsino          string
-	ProximoAnoAcademico *string
-	Aprovado            bool
+	TipoEnsino           string
+	ProximoAnoAcademico  *string
+	ProximoSemestreAtual *int
+	AnoSuperiorDepois    *string
+	Aprovado             bool
 }
 
 func parseAvaliacaoFinalPayloadEstudante(raw json.RawMessage) (avaliacaoFinalPayloadEstudante, error) {
 	var snake struct {
-		TipoEnsino          string  `json:"tipo_ensino"`
-		ProximoAnoAcademico *string `json:"proximo_ano_academico"`
-		Aprovado            bool    `json:"aprovado"`
+		TipoEnsino           string  `json:"tipo_ensino"`
+		ProximoAnoAcademico  *string `json:"proximo_ano_academico"`
+		ProximoSemestreAtual *int    `json:"proximo_semestre_atual"`
+		AnoSuperiorDepois    *string `json:"ano_superior_depois"`
+		Aprovado             bool    `json:"aprovado"`
 	}
 	if err := json.Unmarshal(raw, &snake); err != nil {
 		return avaliacaoFinalPayloadEstudante{}, err
 	}
 
 	result := avaliacaoFinalPayloadEstudante{
-		TipoEnsino:          snake.TipoEnsino,
-		ProximoAnoAcademico: snake.ProximoAnoAcademico,
-		Aprovado:            snake.Aprovado,
+		TipoEnsino:           snake.TipoEnsino,
+		ProximoAnoAcademico:  snake.ProximoAnoAcademico,
+		ProximoSemestreAtual: snake.ProximoSemestreAtual,
+		AnoSuperiorDepois:    snake.AnoSuperiorDepois,
+		Aprovado:             snake.Aprovado,
 	}
 
 	if result.TipoEnsino == "" && result.ProximoAnoAcademico == nil {
