@@ -1,5 +1,7 @@
-# Tarefa: automatizar a avaliação final por fórmulas configuráveis pela academia
-
+---
+modificado: 2026-06-18 17:05
+criado: 2026-06-18 16:04
+---
 ## Contexto do código atual
 
 O fluxo atual de avaliação final ainda recebe a decisão pronta no payload de `POST /academia/avaliacao-final`: a academia envia `aprovado` e o backend apenas valida algumas notas obrigatórias quando a aprovação é enviada sem observação. A decisão fica persistida em `projection_avaliacao_final.aprovado`, e as consultas legadas `GET /aprovacoes` e `GET /reprovacoes` continuam filtrando essa mesma projeção.
@@ -21,13 +23,13 @@ Substituir a avaliação final manual por um fluxo automático, configurável e 
 
 Implementar um modelo em que:
 
-1. A academia consiga configurar fórmulas de avaliação final por ano acadêmico, tipo de ensino e tipo de avaliação.
+1. A academia consiga configurar fórmulas de avaliação final por ano acadêmico (mais de um se ela quiser), tipo de ensino e tipo de avaliação.
 2. O registro da avaliação final não aceite mais a decisão manual `aprovado` como fonte de verdade.
 3. O backend calcule `nota_final` a partir das notas existentes e da fórmula configurada.
 4. O backend compare `nota_final` com a nota mínima da regra e defina automaticamente se o estudante foi aprovado.
 5. A avaliação final passe a ter um campo público `type`, com valor padrão `normal`.
 6. Tipos adicionais, como `recurso`, possam ser cadastrados pela academia e vinculados a uma regra anterior que precisa ter sido reprovada.
-7. Escolas mistas consigam configurar padrões diferentes para fundamental e médio; para médio, a regra vale para o ano acadêmico médio em geral, e não para um curso específico.
+7. Escolas mistas consigam configurar padrões diferentes para fundamental e médio; para médio, a regra vale para o ano acadêmico médio em geral, e não para o ano acadêmico de um curso específico.
 
 ## Requisitos funcionais
 
@@ -37,10 +39,10 @@ Criar uma configuração administrada pela academia para regras de avaliação f
 
 - `codigo_academia`;
 - `type` da avaliação final (`normal` por padrão; exemplos: `normal`, `recurso`, `especial`);
-- `nome`/`descricao` opcionais para exibição;
-- `tipo_ensino` ou escopo equivalente (`fundamental`, `medio`, `superior`, quando aplicável);
-- `anos_academicos` aos quais a regra se aplica;
-- `nota_minima_aprovacao`;
+- `nome`/`descricao` para exibição (obrigatório);
+- `tipo_ensino` ou escopo equivalente (`fundamental`, `medio`, `superior`, quando aplicável), o sistema pega diretamente do tipo da academia mas se ela for misto então ela pode definir esse campo;
+- `anos_academicos` aos quais a regra se aplica (um ano não pode estar aplicado a duas regras do mesmo tipo);
+- `nota_minima_aprovacao` (deve ser maior que zero e é definida pela academia);
 - `categorias_envolvidas` na fórmula;
 - `formula` em formato seguro e interpretável pelo backend;
 - campo opcional para indicar dependência de reprovação anterior, por exemplo `aplica_se_reprovado_em_type`;
@@ -64,7 +66,7 @@ A fórmula deve suportar, pelo menos:
 - média/divisão por constante;
 - composição de subexpressões;
 - referência a categorias configuradas pela academia;
-- períodos letivos existentes (`1_trimestre`, `2_trimestre`, `3_trimestre`, etc.);
+- períodos letivos existentes (`1_trimestre`, `2_trimestre`, `3_trimestre`, `N_semestre` etc.);
 - regra de agregação por matéria quando houver várias matérias.
 
 Exemplo sugerido de representação estruturada:
@@ -109,27 +111,19 @@ Para recuperação/recurso, a academia poderia cadastrar um novo `type = recurso
 
 ### 3. Registro automático da avaliação final
 
-Atualizar `POST /academia/avaliacao-final` para receber o mínimo necessário:
+Remover as rotas responsáveis por aplicar a avaliação final do estudante, agora a avaliação final adequada é acionada assim que todas as notas necessárias para aquela avaliação final forem registradas para o estudante. Se a academia tiver alguma avaliação para aqueles reprovados numa anterior o estudante ainda não deve ser reprovado, ele só é provado definitivamente se também reprovar nessa avaliação final que depende de uma primeira
 
-- `codigo_estudante`;
-- `nivel_ano_academico_atual`;
-- `type` opcional, default `normal`;
-- `observacao` opcional apenas para comentário/auditoria, não para forçar aprovação;
-- `proximo_ano_academico` deve continuar calculado pelo backend.
-
-O backend deve:
-
-1. carregar a academia e ano letivo ativo;
-2. validar que o estudante pertence à academia;
-3. inferir/validar tipo de ensino e ano acadêmico atual;
-4. localizar exatamente uma regra ativa aplicável ao `type`, tipo de ensino e ano acadêmico;
-5. se o `type` depender de reprovação em outro tipo, validar que existe avaliação final anterior reprovada para o estudante no mesmo ano letivo/ano acadêmico;
-6. carregar notas do estudante no ano letivo;
-7. validar presença das categorias/períodos/matérias exigidas pela fórmula;
-8. calcular `nota_final` com precisão decimal adequada;
-9. definir `aprovado = nota_final >= nota_minima_aprovacao`;
-10. calcular `proximo_ano_academico` somente se aprovado;
-11. registrar evento e projeção com `type`, `nota_final`, `nota_minima_aprovacao`, `formula_snapshot` e identificador/versão da regra usada.
+Depois que a avaliação final for acionada o backend deve:
+1. validar que o estudante pertence à academia;
+2. inferir/validar tipo de ensino e ano acadêmico atual;
+3. localizar exatamente uma regra ativa aplicável ao `type`, tipo de ensino e ano acadêmico;
+4. se o `type` depender de reprovação em outro tipo, validar que existe avaliação final anterior reprovada para o estudante no mesmo ano letivo/ano acadêmico;
+5. carregar notas do estudante no ano letivo;
+6. validar presença das categorias/períodos/matérias exigidas pela fórmula;
+7. calcular `nota_final` com precisão decimal adequada;
+8. definir `aprovado = nota_final >= nota_minima_aprovacao`;
+9. calcular `proximo_ano_academico` somente se aprovado;
+10. registrar evento e projeção com `type`, `nota_final`, `nota_minima_aprovacao`, `formula_snapshot` e identificador/versão da regra usada.
 
 ### 4. Persistência e eventos
 
@@ -153,9 +147,9 @@ Revisar a regra de unicidade atual. Como agora podem existir tipos diferentes de
 Regras esperadas:
 
 - um estudante não pode ter duas avaliações finais do mesmo `type`, no mesmo ano letivo, escopo e ano acadêmico;
-- um estudante pode ter `normal` reprovado e depois `recurso`, se a regra `recurso` permitir isso;
-- não deve ser possível registrar `recurso` antes de existir uma reprovação no `type` configurado como pré-requisito;
-- se `normal` já aprovou, não deve ser possível registrar `recurso` dependente de `normal`.
+- um estudante pode ter `normal` reprovado e depois `exame_recurso`, se a regra `recurso` permitir isso;
+- não deve ser possível registrar `exame_recurso` antes de existir uma reprovação no `type` configurado como pré-requisito;
+- se `normal` já aprovou, não deve ser possível registrar `exame_recurso` dependente de `normal`.
 
 ### 6. Compatibilidade das rotas de consulta
 
@@ -167,14 +161,6 @@ Manter `GET /avaliacoes`, `GET /aprovacoes` e `GET /reprovacoes`, mas enriquecer
 - dados mínimos da regra usada, quando útil.
 
 Adicionar filtro opcional por `type` nas consultas de avaliação final/aprovações/reprovações.
-
-### 7. Batch/async
-
-Atualizar os fluxos batch/async de avaliação final para usar o novo contrato:
-
-- cada item deve aceitar `type` opcional;
-- não deve aceitar `aprovado` manual;
-- erros por item devem explicar se faltam notas, regra aplicável ou pré-requisito de reprovação.
 
 ## Exemplos de regra
 
@@ -201,16 +187,6 @@ Atualizar os fluxos batch/async de avaliação final para usar o novo contrato:
 - `aplica_se_reprovado_em_type`: `normal`
 - `nota_minima_aprovacao`: definido pela academia;
 - fórmula similar à normal, mas usando `nota_exame_recurso` em vez de `nota_exame_final`.
-
-## Critérios de aceite
-
-- `POST /academia/avaliacao-final` calcula e persiste `nota_final` e `aprovado` sem aceitar decisão manual como fonte de verdade.
-- O payload/response de avaliação final expõe `type`, `nota_final` e `nota_minima_aprovacao`.
-- A academia consegue cadastrar/listar/alterar/inativar regras de avaliação final.
-- A regra `normal` funciona como padrão.
-- Tipos dependentes, como `recurso`, só podem ser usados após reprovação no tipo configurado.
-- A alteração preserva rebuild de projections e idempotência de eventos.
-- Testes cobrem: aprovação automática, reprovação automática, falta de notas exigidas, regra inexistente, recurso antes da reprovação, recurso após reprovação, impedimento de duplicidade por `type`, e escola mista com regras diferentes para fundamental e médio.
 
 ## Observações de implementação
 
