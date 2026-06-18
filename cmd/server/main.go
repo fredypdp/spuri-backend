@@ -170,7 +170,6 @@ func initJobs(ctx context.Context) {
 	jobWorker.RegisterHandler(jobs.JobTypeRegistrarFaltasBatch, handlers.RegistrarFaltas)
 	jobWorker.RegisterHandler(jobs.JobTypeAtualizarFaltaBatch, handlers.AtualizarFaltaJobItem)
 	jobWorker.RegisterHandler(jobs.JobTypeDeletarFaltaBatch, handlers.DeletarFaltaJobItem)
-	jobWorker.RegisterHandler(jobs.JobTypeRegistrarAvaliacaoFinalBatch, handlers.RegistrarAvaliacaoFinal)
 	jobWorker.RegisterHandler(jobs.JobTypeCriarCursoBatch, handlers.CriarCurso)
 	jobWorker.RegisterHandler(jobs.JobTypeCriarMateriaBatch, handlers.CriarMateria)
 	jobWorker.RegisterHandler(jobs.JobTypeCriarTurmaBatch, handlers.CriarTurma)
@@ -344,8 +343,7 @@ func setupRouter() *gin.Engine {
 		academia.POST("/faltas-aluno", handlers.RegistrarFaltas)
 		academia.PUT("/atualizar-falta", handlers.AtualizarFalta)
 		academia.DELETE("/falta/:id", handlers.DeletarFalta)
-		// Avaliação final é o único endpoint de avaliação de ano
-		academia.POST("/avaliacao-final", handlers.RegistrarAvaliacaoFinal)
+		// Avaliação final é acionada automaticamente pelo registro de notas
 		academia.POST("/avaliacao-final/regras", handlers.CriarRegraAvaliacaoFinal)
 		academia.POST("/categorias-nota", handlers.CriarCategoriaNota)
 		academia.DELETE("/categorias-nota/:codigo", handlers.DeletarCategoriaNota)
@@ -390,7 +388,6 @@ func setupRouter() *gin.Engine {
 		academia.POST("/faltas-aluno/async", handlers.RegistrarFaltasBatchAsync)
 		academia.PUT("/atualizar-falta/async", handlers.AtualizarFaltaBatchAsync)
 		academia.DELETE("/falta/async", handlers.DeletarFaltaBatchAsync)
-		academia.POST("/avaliacao-final/async", handlers.RegistrarAvaliacaoFinalBatchAsync)
 		academia.POST("/curso/async", handlers.CriarCursoBatchAsync)
 		academia.POST("/materia/async", handlers.CriarMateriaBatchAsync)
 		academia.POST("/turma/async", handlers.CriarTurmaBatchAsync)

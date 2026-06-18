@@ -69,6 +69,14 @@ func CriarRegraAvaliacaoFinal(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("aplica_se_reprovado_em_type não pode apontar para o próprio type"))
 		return
 	}
+	if err := validarUnicidadeRegraAvaliacaoFinal(c, academiaDTO.CodigoAcademia, req.TipoEnsino, req.Type, req.AnosAcademicos); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if err := validarDependenciaRegraAvaliacaoFinal(c, academiaDTO.CodigoAcademia, req.TipoEnsino, req.Type, req.AplicaSeReprovadoEmType); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 	if err := validarFormulaAvaliacao(req.Formula, req.CategoriasEnvolvidas); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -76,7 +84,7 @@ func CriarRegraAvaliacaoFinal(c *gin.Context) {
 	id := uuid.New()
 	_, err = getDbClient(c).DB().Exec(`INSERT INTO projection_regras_avaliacao_final (id,codigo_academia,type,nome,descricao,tipo_ensino,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,status,version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'ativo',1)`, id, academiaDTO.CodigoAcademia, req.Type, req.Nome, req.Descricao, req.TipoEnsino, toJSON(req.AnosAcademicos), req.NotaMinimaAprovacao, toJSON(req.CategoriasEnvolvidas), req.Formula, req.AplicaSeReprovadoEmType)
 	if err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("erro ao criar regra (verifique duplicidade de type/tipo_ensino ativo): %w", err))
+		utils.RespondWithValidationError(c, fmt.Errorf("erro ao criar regra de avaliação final: %w", err))
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"message": "regra de avaliação final criada", "id": id})
@@ -106,6 +114,56 @@ func ListarRegrasAvaliacaoFinal(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"regras": out, "total": len(out)})
 }
 
+func validarUnicidadeRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipoEnsino, typ string, anos []string) error {
+	for _, ano := range anos {
+		ano = strings.TrimSpace(ano)
+		if ano == "" {
+			return fmt.Errorf("anos_academicos não pode conter valores vazios")
+		}
+		var exists bool
+		if err := getDbClient(c).DB().QueryRow(`SELECT EXISTS (
+			SELECT 1 FROM projection_regras_avaliacao_final
+			WHERE codigo_academia=$1 AND tipo_ensino=$2 AND type=$3 AND status='ativo' AND anos_academicos ? $4
+		)`, codigoAcademia, tipoEnsino, typ, ano).Scan(&exists); err != nil {
+			return err
+		}
+		if exists {
+			return fmt.Errorf("já existe regra ativa de avaliação final para type=%s tipo_ensino=%s ano=%s", typ, tipoEnsino, ano)
+		}
+	}
+	return nil
+}
+
+func validarDependenciaRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipoEnsino, typ string, dependeDe *string) error {
+	if dependeDe == nil || strings.TrimSpace(*dependeDe) == "" {
+		return nil
+	}
+	visitado := map[string]bool{typ: true}
+	atual := strings.TrimSpace(*dependeDe)
+	for atual != "" {
+		if visitado[atual] {
+			return fmt.Errorf("aplica_se_reprovado_em_type cria ciclo em %s", atual)
+		}
+		visitado[atual] = true
+		var prox sql.NullString
+		err := getDbClient(c).DB().QueryRow(`SELECT aplica_se_reprovado_em_type
+			FROM projection_regras_avaliacao_final
+			WHERE codigo_academia=$1 AND tipo_ensino=$2 AND type=$3 AND status='ativo'
+			ORDER BY created_at DESC LIMIT 1`, codigoAcademia, tipoEnsino, atual).Scan(&prox)
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("aplica_se_reprovado_em_type referencia type inexistente ou inativo: %s", atual)
+		}
+		if err != nil {
+			return err
+		}
+		if !prox.Valid {
+			return nil
+		}
+		atual = strings.TrimSpace(prox.String)
+	}
+	return nil
+}
+
 func getRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipoEnsino, anoAcademico, typ string) (*regraAvaliacaoFinalDTO, error) {
 	if typ == "" {
 		typ = "normal"
@@ -130,6 +188,37 @@ func getRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipoEnsino, anoAcade
 		return nil, fmt.Errorf("nenhuma regra ativa de avaliação final encontrada para type=%s tipo_ensino=%s ano=%s", typ, tipoEnsino, anoAcademico)
 	}
 	return found, nil
+}
+
+func listarRegrasAvaliacaoFinalAplicaveis(c *gin.Context, codigoAcademia, tipoEnsino, anoAcademico string, categoria *string) ([]regraAvaliacaoFinalDTO, error) {
+	query := `SELECT id,codigo_academia,type,nome,descricao,tipo_ensino,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,status,version
+		FROM projection_regras_avaliacao_final
+		WHERE codigo_academia=$1
+		  AND tipo_ensino=$2
+		  AND status='ativo'
+		  AND anos_academicos ? $3`
+	args := []interface{}{codigoAcademia, tipoEnsino, anoAcademico}
+	if categoria != nil && strings.TrimSpace(*categoria) != "" {
+		args = append(args, strings.TrimSpace(*categoria))
+		query += fmt.Sprintf(" AND categorias_envolvidas ? $%d", len(args))
+	}
+	query += ` ORDER BY CASE WHEN aplica_se_reprovado_em_type IS NULL THEN 0 ELSE 1 END, type`
+
+	rows, err := getDbClient(c).DB().Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []regraAvaliacaoFinalDTO{}
+	for rows.Next() {
+		r, err := scanRegra(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 type rowScanner interface {

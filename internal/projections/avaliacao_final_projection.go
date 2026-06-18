@@ -391,6 +391,7 @@ func (p *AvaliacaoFinalProjection) ListByFilters(codigoAcademiaEscopo *string, a
 			conditions = append(conditions, "avf.aprovado = TRUE")
 		} else {
 			conditions = append(conditions, "avf.aprovado = FALSE")
+			conditions = append(conditions, condicaoReprovacaoDefinitiva())
 		}
 	}
 	if filtros.CodigoTurma != nil && *filtros.CodigoTurma != "" {
@@ -460,8 +461,11 @@ func (p *AvaliacaoFinalProjection) GetAprovacoesByEstudante(codigoEstudante stri
 // GetReprovacoesByEstudante retorna reprovações (aprovado=FALSE) de um estudante.
 func (p *AvaliacaoFinalProjection) GetReprovacoesByEstudante(codigoEstudante string) ([]AvaliacaoFinalDTO, error) {
 	rows, err := p.client.DB().Query(
-		`SELECT `+avaliacaoFinalCols+` FROM projection_avaliacao_final
-		WHERE codigo_estudante = $1 AND aprovado = FALSE ORDER BY registered_at DESC`,
+		`SELECT `+avaliacaoFinalCols+` FROM projection_avaliacao_final avf
+		WHERE avf.codigo_estudante = $1
+		  AND avf.aprovado = FALSE
+		  AND `+condicaoReprovacaoDefinitiva()+`
+		ORDER BY avf.registered_at DESC`,
 		codigoEstudante,
 	)
 	if err != nil {
@@ -483,6 +487,22 @@ func (p *AvaliacaoFinalProjection) GetByEstudanteETipo(codigoEstudante, tipoEnsi
 	}
 	defer rows.Close()
 	return scanAvaliacoes(rows)
+}
+
+// condicaoReprovacaoDefinitiva exclui reprovações intermediárias quando a
+// academia tem uma regra ativa posterior que se aplica aos reprovados naquele
+// type. Nesses casos, a reprovação só é definitiva após a última avaliação
+// dependente também reprovar.
+func condicaoReprovacaoDefinitiva() string {
+	return `NOT EXISTS (
+		SELECT 1
+		FROM projection_regras_avaliacao_final raf
+		WHERE raf.codigo_academia = avf.codigo_academia
+		  AND raf.tipo_ensino = avf.tipo_ensino
+		  AND raf.status = 'ativo'
+		  AND raf.aplica_se_reprovado_em_type = avf.type
+		  AND raf.anos_academicos ? avf.ano_academico_atual
+	)`
 }
 
 func scanAvaliacoes(rows *sql.Rows) ([]AvaliacaoFinalDTO, error) {
