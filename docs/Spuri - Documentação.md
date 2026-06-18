@@ -1,8 +1,8 @@
 ---
-modificado: 18-06-2026 17:30
+modificado: 18-06-2026 18:30
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.6.0
+Versão atual: 1.6.1
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -600,78 +600,87 @@ Academias podem criar **categorias adicionais** personalizadas e também configu
 
 **Quem faz**: Academia (status ativo, com ano letivo configurado)
 
-Este é o **único mecanismo de transição de ano** no sistema, mas a decisão deixou de ser manual. A academia configura regras de avaliação final e o backend calcula a nota final com uma fórmula segura, auditável e versionada.
+A avaliação final é o mecanismo auditável que decide aprovação, reprovação, progressão de nível e finalização de ciclo. A decisão **não é manual**: a academia configura regras de avaliação final, e o backend calcula a `nota_final` por fórmula, compara com a `nota_minima_aprovacao` da regra e registra o resultado por evento.
+
+**Conceitos principais:**
+
+- `type` identifica publicamente a etapa da avaliação final. Quando omitido, o backend usa `normal`. Outros exemplos válidos são `recurso` ou `especial`, desde que cadastrados como regras.
+- `tipo_ensino` da avaliação é sempre inferido do estudante: `superior` tem prioridade quando há curso/ano/status superior; depois `medio`; caso contrário, `fundamental`.
+- `nivel_ano_academico_atual` precisa ser o nível atual real do estudante e precisa ser válido para o tipo de ensino inferido.
+- `proximo_ano_academico` é sempre calculado pelo backend. O cliente não pode enviá-lo.
+- `aprovado` também é sempre calculado pelo backend e não é aceito como decisão manual.
 
 **Configuração de regras:**
 
-- Cada regra pertence à academia e define `type` público (`normal` por padrão, podendo existir `recurso`, `especial`, etc.).
-- A regra possui nome/descrição, `tipo_ensino`, `anos_academicos`, `nota_minima_aprovacao`, `categorias_envolvidas` e uma `formula` JSON.
-- A fórmula é uma DSL estruturada, sem execução de código arbitrário, com operações como soma de períodos, total de categoria, adição e divisão por constante.
-- Uma regra pode depender de reprovação anterior via `aplica_se_reprovado_em_type`.
-- A regra usada é registrada na avaliação por `regra_avaliacao_final_id` e `formula_snapshot`, garantindo rebuild determinístico mesmo se a regra for alterada depois.
+- Cada regra pertence à academia autenticada e contém `type`, `nome`, `descricao`, `tipo_ensino`, `anos_academicos`, `nota_minima_aprovacao`, `categorias_envolvidas`, `formula`, `aplica_se_reprovado_em_type`, `status` e `version`.
+- `type` vazio na criação vira `normal`.
+- `nome`, `anos_academicos`, `categorias_envolvidas`, `formula` e `nota_minima_aprovacao > 0` são obrigatórios.
+- `tipo_ensino` deve ser exatamente `fundamental`, `medio` ou `superior`.
+- Não pode haver dois registros ativos com o mesmo `codigo_academia`, `tipo_ensino`, `type` e ano acadêmico sobreposto. Assim, regras do mesmo `type` podem coexistir para anos diferentes, mas não para o mesmo ano.
+- Para cada academia, tipo de ensino e ano acadêmico, deve existir no máximo uma regra raiz ativa. Regra raiz é a regra sem `aplica_se_reprovado_em_type`.
+- Uma regra dependente (`recurso`, por exemplo) só pode apontar para um `type` ativo existente na mesma academia e tipo de ensino, não pode apontar para o próprio `type` e não pode criar ciclo de dependências.
+- A cadeia aplicável a um estudante precisa ter exatamente uma raiz; regras dependentes só participam quando apontam para outro `type` dentro da mesma cadeia aplicável ao ano acadêmico.
 
-**Processo:**
+**DSL de fórmula:**
 
-1. Academia envia código do estudante, nível atual e opcionalmente `type` (padrão `normal`); não envia `aprovado`.
-2. Sistema valida ano letivo ativo, pertencimento do estudante e nível acadêmico atual.
-3. Sistema localiza uma única regra ativa aplicável ao `type`, tipo de ensino e ano acadêmico.
-4. Se a regra for dependente, valida que existe reprovação anterior no `type` pré-requisito.
-5. Sistema carrega as notas existentes, valida categorias/períodos exigidos pela fórmula e calcula `nota_final`.
-6. Sistema define `aprovado = nota_final >= nota_minima_aprovacao`.
-7. Sistema calcula o próximo ano apenas quando aprovado.
-8. Evento e projeção registram `type`, `nota_final`, nota mínima, regra usada e snapshot da fórmula.
+A fórmula é JSON estruturado, sem execução de código arbitrário. Operações suportadas:
 
-**Sequência e duplicidade:**
+- `sum_periods`: soma todas as notas das `categories` nos `periods` indicados. Exige `categories` e `periods`. Cada categoria precisa estar em `categorias_envolvidas`. Se faltar nota para qualquer par categoria/período exigido, a avaliação não pode ser calculada.
+- `category_total`: soma todas as notas existentes da `category`, em todos os períodos. A categoria precisa estar em `categorias_envolvidas` e precisa ter ao menos uma nota.
+- `add`: soma os valores retornados pelos nós em `items`; exige ao menos um item.
+- `div`: divide o resultado de `left` por uma constante numérica em `right`; `right` precisa ser diferente de zero.
 
-- Um estudante não pode ter duas avaliações do mesmo `type` no mesmo ano letivo, tipo de ensino e ano acadêmico.
-- Um estudante pode reprovar em `normal` e depois fazer `recurso`, desde que a regra de `recurso` dependa de `normal`.
-- Se `normal` aprovou, avaliações dependentes de reprovação em `normal` são bloqueadas.
+**Processo manual via `POST /academia/avaliacao-final`:**
 
-**Efeitos da aprovação (escola):**
+1. A academia envia `codigo_estudante`, `nivel_ano_academico_atual`, opcionalmente `type` e `observacao`.
+2. O backend rejeita payload com `proximo_ano_academico`; esse campo é calculado.
+3. O backend valida academia autenticada, ano letivo configurado, estudante existente e pertencimento à academia.
+4. O backend infere o tipo de ensino do estudante e valida o nível informado contra as regras do ciclo (`fundamental`, `medio` ou `superior`).
+5. O backend normaliza `type` vazio para `normal` e localiza uma única regra ativa aplicável à academia, ao tipo de ensino, ao ano acadêmico atual e ao `type`.
+6. O backend impede duplicidade para o mesmo estudante, academia, ano letivo, tipo de ensino, ano acadêmico e `type`.
+7. O backend valida que o nível informado corresponde ao nível atual do estudante.
+8. Se a regra tiver `aplica_se_reprovado_em_type`, o backend exige uma avaliação anterior reprovada naquele `type` pré-requisito; se a avaliação anterior não existir ou foi aprovada, a etapa dependente é bloqueada.
+9. O backend carrega notas do ano letivo atual apenas nas categorias envolvidas, calcula a fórmula e obtém `nota_final`.
+10. O backend define `aprovado = nota_final >= nota_minima_aprovacao`.
+11. O backend calcula `proximo_ano_academico`: quando reprovado, permanece no nível; quando aprovado, avança para o próximo nível ou retorna `null` no último nível do ciclo.
+12. O evento registra `type`, `nota_final`, `nota_minima_aprovacao`, `regra_avaliacao_final_id`, `formula_snapshot`, `aplica_se_reprovado_em_type`, turma atual e turmas removidas.
 
-- Se não for o último ano do ciclo → backend calcula e aplica automaticamente o próximo nível
-- Se for o último ano do ciclo → backend marca o status como `finalizado`
-- O estudante é movido da turma atual para uma turma do **próximo ano académico**
-- Regra mandatória de consistência: **todo aprovado deve terminar com turma de destino válida**
-- A seleção da turma destino prioriza compatibilidade por `turno` e `curso_id` da turma de origem
-- Se não houver turma destino compatível, aplica fallback para qualquer turma ativa do próximo ano no mesmo `nivel`
-- A redistribuição usa o tamanho atual das turmas para reduzir desbalanceamento entre destinos
-- Se nenhuma turma válida for encontrada, a transação é revertida para impedir estado parcial (aprovado sem turma)
+**Processo automático ao registrar notas:**
 
-**Efeitos da reprovação (escola):**
+- Ao registrar nota, o backend tenta executar automaticamente a cadeia completa de regras aplicável ao estudante, academia, tipo de ensino e ano acadêmico atual.
+- O gatilho não escolhe a regra pela categoria da nota recém-registrada; ele busca a cadeia aplicável completa e começa pela única regra raiz.
+- Se alguma nota necessária à fórmula ainda estiver ausente, a regra é ignorada naquele momento e poderá ser calculada quando novas notas chegarem.
+- Uma regra dependente só executa automaticamente depois de reprovação no `type` pré-requisito. Se o pré-requisito aprovou, a dependente é encerrada e não executa.
+- O processamento evita registrar novamente um `type` já avaliado no mesmo estudante/ano/tipo/nível.
 
-- Nenhuma alteração de ano ou status; apenas registado no histórico
-- O estudante permanece na mesma turma
+**Persistência, auditoria e versionamento:**
 
-**Efeito removido (escola):**
+- O aggregate emite `AvaliacaoFinalEscolar` para fundamental/médio e `AvaliacaoFinalSuperior` para superior.
+- A projeção `projection_avaliacao_final` grava os dados calculados e usa unicidade por `codigo_estudante`, `codigo_academia`, `ano_lectivo`, `tipo_ensino`, `ano_academico_atual` e `type`.
+- A avaliação salva o snapshot da regra usada (`formula_snapshot`) e o identificador `regra_avaliacao_final_id`; alterações futuras na regra não alteram avaliações já registradas.
+- O campo `version` da avaliação na projeção acompanha a versão do evento do aggregate.
+- O campo `version` da regra começa em `1` na criação da regra.
 
-- O estudante **não** é mais removido automaticamente de todas as turmas da academia
+**Efeitos de aprovação e reprovação:**
+
+- Reprovado: o estudante permanece no mesmo nível, não altera status de ciclo e não é removido de turmas.
+- Aprovado com próximo nível: o aggregate atualiza o ano atual do estudante (`ano_escolar`, `ano_escolar_medio` ou `ano_superior`) para o próximo nível calculado.
+- Aprovado no último nível: o aggregate marca o status do ciclo correspondente como `finalizado`.
+- Para eventos escolares aprovados (`fundamental`/`medio`) com turmas removidas, a projeção de turmas remove o estudante das turmas atuais, registra histórico no ano letivo e tenta adicioná-lo a uma turma ativa do próximo nível.
+- A seleção de turma destino prioriza compatibilidade com `turno` e `curso_id` da turma de origem; se não houver compatível, usa qualquer turma ativa do próximo nível na mesma academia.
+- Se não existir turma destino válida para aprovado com próximo nível, a projeção de turmas falha para impedir estado parcial.
+- Avaliação superior não altera turmas.
 
 **Consultas:**
 
-- `GET /avaliacoes` → todos os registos, com filtros por `tipo_ensino`, `ano_letivo`, `ano_academico_atual`, `codigo_turma`, `codigo_academia`
-- `GET /aprovacoes` → apenas aprovados (`aprovado = TRUE`) com os mesmos filtros
-- `GET /reprovacoes` → apenas reprovados (`aprovado = FALSE`) com os mesmos filtros
+- `GET /avaliacoes` → todos os registos, com filtros por `tipo_ensino`, `ano_letivo`, `ano_academico_atual`, `codigo_turma`, `codigo_academia` e `type`.
+- `GET /aprovacoes` → apenas aprovados (`aprovado = TRUE`) com os mesmos filtros.
+- `GET /reprovacoes` → apenas reprovados (`aprovado = FALSE`) com os mesmos filtros.
+- `GET /academia/avaliacao-final/regras` → lista regras da academia autenticada.
 
 **Escopo por academia:** quando o usuário autenticado é academia, o backend força `codigo_academia` para a academia autenticada; não é permitido consultar dados de outra academia.
 
 **Dependência entre filtros:** para consultas admin, o filtro `codigo_turma` exige também `codigo_academia` para garantir resolução correta da turma no contexto da academia.
-
-**Consultas globais de notas/faltas (`GET /notas`, `GET /faltas`):**
-
-- suportam filtros por `ano_letivo`, `ano_academico`, `curso_id`, `codigo_turma`, `periodo`, `materia_disciplinar_id`, `codigo_academia`
-- em `GET /notas`, também suportam filtro por `categoria`
-- todos os filtros aceitam múltiplos valores (parâmetro repetido e/ou CSV no mesmo parâmetro)
-- em `GET /notas`, `periodo` filtra o período registado da nota
-- em `GET /faltas`, `periodo` filtra o período configurado na matéria
-
-**Consultas por estudante (`GET /notas-estudante/:codigo`, `GET /faltas-estudante/:codigo`):**
-
-- agora aceitam os mesmos filtros base (`ano_letivo`, `ano_academico`, `curso_id`, `periodo`, `materia_disciplinar_id`, `codigo_academia`) com múltiplos valores
-- em `GET /notas-estudante/:codigo`, também aceitam `categoria`
-- em `GET /notas-estudante/:codigo`, `periodo` filtra o período registado da nota
-- em `GET /faltas-estudante/:codigo`, `periodo` filtra o período configurado na matéria
-- para essas rotas por estudante, `codigo_turma` não é necessário
 
 ---
 

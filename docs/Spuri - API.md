@@ -1,8 +1,8 @@
 ---
-modificado: 18-06-2026 17:30
+modificado: 18-06-2026 18:30
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.8.0
+Versão atual: 1.8.1
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -2049,7 +2049,9 @@ Retorna as faltas de um estudante.
 
 ### POST /academia/avaliacao-final
 
-Registra a avaliação final automática de um estudante usando uma regra configurável da academia. A decisão manual `aprovado` não é mais aceita como fonte de verdade: o backend calcula `nota_final`, compara com `nota_minima_aprovacao` e persiste o resultado com snapshot da fórmula.
+Registra manualmente uma avaliação final calculada pelo backend para um estudante. A rota não aceita decisão manual de aprovação: o backend busca a regra ativa, calcula `nota_final`, compara com `nota_minima_aprovacao`, decide `aprovado`, calcula `proximo_ano_academico` e persiste o evento com snapshot da fórmula.
+
+**Proteção**: academia autenticada.
 
 **Request:**
 
@@ -2062,14 +2064,26 @@ Registra a avaliação final automática de um estudante usando uma regra config
 }
 ```
 
-**Regras:**
+**Campos:**
 
-- `type` é público; se omitido, assume `normal`.
-- `aprovado` e `proximo_ano_academico` não devem ser enviados; ambos são calculados pelo backend.
-- O backend localiza uma regra ativa por academia, `type`, tipo de ensino inferido e ano acadêmico.
-- A fórmula é uma DSL JSON segura, sem `eval`, com `sum_periods`, `category_total`, `add` e `div`.
-- Avaliações como `recurso` podem depender de reprovação anterior via `aplica_se_reprovado_em_type`.
-- Evento e projeção salvam `type`, `nota_final`, `nota_minima_aprovacao`, `regra_avaliacao_final_id`, `formula_snapshot` e o pré-requisito resolvido.
+- `codigo_estudante` — obrigatório. O estudante precisa pertencer à academia autenticada.
+- `nivel_ano_academico_atual` — obrigatório. Deve ser válido para o tipo de ensino inferido e deve corresponder ao nível atual real do estudante.
+- `type` — opcional. Se omitido ou vazio, assume `normal`. Deve existir regra ativa aplicável.
+- `observacao` — opcional. É salva no evento/projeção.
+- `proximo_ano_academico` — proibido no request; o backend retorna erro se enviado.
+- `aprovado` — não faz parte do contrato; aprovação/reprovação é calculada.
+
+**Regras de execução:**
+
+- O ano letivo da academia precisa estar configurado.
+- O tipo de ensino é inferido pelo backend a partir do estudante: superior, médio ou fundamental.
+- O backend localiza uma única regra ativa por academia, tipo de ensino, ano acadêmico atual e `type`.
+- A avaliação é única para a combinação `codigo_estudante`, `codigo_academia`, `ano_lectivo`, `tipo_ensino`, `ano_academico_atual` e `type`.
+- Se a regra tiver `aplica_se_reprovado_em_type`, só executa quando já existe avaliação anterior reprovada no `type` pré-requisito.
+- A fórmula usa somente notas do ano letivo atual e das `categorias_envolvidas` da regra.
+- Se faltar nota exigida pela fórmula, a rota retorna erro de validação.
+- `aprovado = nota_final >= nota_minima_aprovacao`.
+- O evento e a projeção salvam `type`, `nota_final`, `nota_minima_aprovacao`, `regra_avaliacao_final_id`, `formula_snapshot` e `aplica_se_reprovado_em_type`.
 
 **Response 201:**
 
@@ -2085,16 +2099,26 @@ Registra a avaliação final automática de um estudante usando uma regra config
 }
 ```
 
+**Observações sobre efeitos:**
+
+- Em reprovação, o estudante permanece no mesmo nível.
+- Em aprovação com próximo nível, o aggregate atualiza o nível atual do estudante.
+- Em aprovação no último nível, o status do ciclo é marcado como `finalizado`.
+- Para avaliação escolar aprovada, a projeção de turmas remove o estudante das turmas atuais e tenta adicioná-lo a uma turma ativa do próximo nível; para superior, turmas não são alteradas.
+
 ---
 
 ### POST /academia/avaliacao-final/regras
 
-Cria uma regra de avaliação final.
+Cria uma regra ativa de avaliação final para a academia autenticada.
+
+**Proteção**: academia autenticada.
 
 ```json
 {
   "type": "normal",
   "nome": "Avaliação normal",
+  "descricao": "Média dos três trimestres",
   "tipo_ensino": "fundamental",
   "anos_academicos": ["3_ano_fundamental"],
   "nota_minima_aprovacao": 10,
@@ -2107,13 +2131,78 @@ Cria uma regra de avaliação final.
       "periods": ["1_trimestre", "2_trimestre", "3_trimestre"]
     },
     "right": 3
-  }
+  },
+  "aplica_se_reprovado_em_type": null
 }
 ```
 
+**Campos e validações:**
+
+- `type` — opcional; vazio vira `normal`. Identifica a etapa pública (`normal`, `recurso`, `especial`, etc.).
+- `nome` — obrigatório.
+- `descricao` — opcional.
+- `tipo_ensino` — obrigatório; apenas `fundamental`, `medio` ou `superior`.
+- `anos_academicos` — obrigatório e não vazio; não pode conter string vazia.
+- `nota_minima_aprovacao` — obrigatório e maior que zero.
+- `categorias_envolvidas` — obrigatório e não vazio.
+- `formula` — obrigatório; deve usar a DSL aceita.
+- `aplica_se_reprovado_em_type` — opcional; quando informado, deve apontar para regra ativa existente na mesma academia/tipo de ensino, não pode ser igual ao próprio `type` e não pode criar ciclo.
+
+**Unicidade e cadeia:**
+
+- Não pode existir outra regra ativa com o mesmo `type`, `tipo_ensino` e ano acadêmico sobreposto para a mesma academia.
+- Para cada academia, tipo de ensino e ano acadêmico, só pode haver uma regra raiz ativa. Regra raiz é a regra sem `aplica_se_reprovado_em_type`.
+- Regras dependentes formam uma cadeia de novas chances; elas só executam depois de reprovação no `type` apontado.
+- A regra é criada com `status = "ativo"` e `version = 1`.
+
+**DSL da fórmula:**
+
+- `sum_periods`: `{ "op": "sum_periods", "categories": ["nota_escola"], "periods": ["1_trimestre"] }`
+- `category_total`: `{ "op": "category_total", "category": "nota_escola" }`
+- `add`: `{ "op": "add", "items": [/* nós */] }`
+- `div`: `{ "op": "div", "left": {/* nó */}, "right": 3 }`
+
+**Response 201:**
+
+```json
+{
+  "message": "regra de avaliação final criada",
+  "id": "7e5f0b8d-8c7a-4b1a-9f4c-1f4cfd0c2f11"
+}
+```
+
+---
+
 ### GET /academia/avaliacao-final/regras
 
-Lista as regras de avaliação final da academia autenticada.
+Lista todas as regras de avaliação final da academia autenticada, ordenadas por criação decrescente.
+
+**Proteção**: academia autenticada.
+
+**Response 200:**
+
+```json
+{
+  "regras": [
+    {
+      "id": "7e5f0b8d-8c7a-4b1a-9f4c-1f4cfd0c2f11",
+      "codigo_academia": "ACA001",
+      "type": "normal",
+      "nome": "Avaliação normal",
+      "descricao": "Média dos três trimestres",
+      "tipo_ensino": "fundamental",
+      "anos_academicos": ["3_ano_fundamental"],
+      "nota_minima_aprovacao": 10,
+      "categorias_envolvidas": ["nota_escola", "nota_professor"],
+      "formula": { "op": "category_total", "category": "nota_escola" },
+      "aplica_se_reprovado_em_type": null,
+      "status": "ativo",
+      "version": 1
+    }
+  ],
+  "total": 1
+}
+```
 
 ---
 
