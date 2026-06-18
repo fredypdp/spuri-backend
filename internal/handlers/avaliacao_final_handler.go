@@ -255,6 +255,10 @@ type notaFormulaOverlay struct {
 	Nota      float64
 }
 
+type resultadoAvaliacaoAutomatica struct {
+	Aprovado bool
+}
+
 func tentarAvaliacoesFinaisAutomaticas(
 	c *gin.Context,
 	estudante *aggregates.Estudante,
@@ -266,125 +270,230 @@ func tentarAvaliacoesFinaisAutomaticas(
 	categoriaAlterada string,
 	overlay *notaFormulaOverlay,
 ) ([]gin.H, error) {
-	regras, err := listarRegrasAvaliacaoFinalAplicaveis(c, codigoAcademia, tipoEnsino, anoAcademicoAtual, &categoriaAlterada)
+	// O gatilho não escolhe a avaliação pela categoria da nota. Ele olha para a
+	// cadeia completa aplicável ao estudante e começa pela única regra raiz — a
+	// regra sem aplica_se_reprovado_em_type. Assim, quando a última nota necessária
+	// de qualquer fórmula chega, o fluxo correto é descoberto pela configuração da
+	// academia e não pela ordem/rota usada pelo cliente.
+	regras, err := listarRegrasAvaliacaoFinalAplicaveis(c, codigoAcademia, tipoEnsino, anoAcademicoAtual, nil)
 	if err != nil {
 		return nil, err
 	}
 	if len(regras) == 0 {
 		return nil, nil
 	}
+	if err := validarCadeiaAvaliacaoFinalAplicavel(regras, codigoAcademia, tipoEnsino, anoAcademicoAtual); err != nil {
+		return nil, err
+	}
 
 	avaliacaoProj := getAvaliacaoFinalProjection(c)
 	resultados := make([]gin.H, 0, len(regras))
-	for _, regra := range regras {
-		jaAvaliado, err := avaliacaoProj.ExistsByEstudanteAnoLetivoNivelType(
-			estudanteDTO.CodigoEstudante,
-			codigoAcademia,
-			anoLectivo,
-			tipoEnsino,
-			anoAcademicoAtual,
-			regra.Type,
-		)
-		if err != nil {
-			return resultados, fmt.Errorf("erro ao verificar avaliação final existente: %w", err)
-		}
-		if jaAvaliado {
-			continue
-		}
+	resultadosPorType := map[string]resultadoAvaliacaoAutomatica{}
+	processadas := map[string]bool{}
 
-		if regra.AplicaSeReprovadoEmType != nil {
-			prev, err := avaliacaoProj.GetResultadoByType(estudanteDTO.CodigoEstudante, codigoAcademia, anoLectivo, tipoEnsino, anoAcademicoAtual, *regra.AplicaSeReprovadoEmType)
-			if err != nil || prev == nil || prev.Aprovado {
+	for {
+		avancou := false
+		for _, regra := range regras {
+			if processadas[regra.Type] {
 				continue
 			}
-		}
-
-		notasFormula, err := carregarNotasFormula(c, estudanteDTO.CodigoEstudante, codigoAcademia, anoLectivo, regra.CategoriasEnvolvidas)
-		if err != nil {
-			return resultados, err
-		}
-		if overlay != nil {
-			if notasFormula[overlay.Categoria] == nil {
-				notasFormula[overlay.Categoria] = map[string][]float64{}
+			podeExecutar, encerrar, err := regraPodeExecutarAutomaticamente(
+				avaliacaoProj,
+				estudanteDTO.CodigoEstudante,
+				codigoAcademia,
+				anoLectivo,
+				tipoEnsino,
+				anoAcademicoAtual,
+				regra,
+				resultadosPorType,
+			)
+			if err != nil {
+				return resultados, err
 			}
-			notasFormula[overlay.Categoria][overlay.Periodo] = append(notasFormula[overlay.Categoria][overlay.Periodo], overlay.Nota)
-		}
-		notaFinal, err := calcularFormulaAvaliacao(regra.Formula, notasFormula)
-		if err != nil {
-			if strings.Contains(err.Error(), "nota ausente") {
+			if encerrar {
+				processadas[regra.Type] = true
+				avancou = true
 				continue
 			}
-			return resultados, err
-		}
-		aprovado := notaFinal >= regra.NotaMinimaAprovacao
-
-		var cursoMedioUUID, cursoSuperiorUUID *uuid.UUID
-		if estudanteDTO.CursoMedioID != nil {
-			if parsed, err := uuid.Parse(*estudanteDTO.CursoMedioID); err == nil {
-				cursoMedioUUID = &parsed
-			}
-		}
-		if estudanteDTO.CursoSuperiorID != nil {
-			if parsed, err := uuid.Parse(*estudanteDTO.CursoSuperiorID); err == nil {
-				cursoSuperiorUUID = &parsed
-			}
-		}
-
-		if err := validarNivelAtualDoEstudante(estudanteDTO, tipoEnsino, anoAcademicoAtual); err != nil {
-			return resultados, err
-		}
-
-		var proximoAnoAcademico *string
-		switch tipoEnsino {
-		case "fundamental":
-			proximoAnoAcademico, err = calcularProximoAnoFundamental(anoAcademicoAtual, aprovado)
-		case "medio":
-			proximoAnoAcademico, err = calcularProximoAnoCurso(c, cursoMedioUUID, anoAcademicoAtual, aprovado)
-		case "superior":
-			proximoAnoAcademico, err = calcularProximoAnoCurso(c, cursoSuperiorUUID, anoAcademicoAtual, aprovado)
-		}
-		if err != nil {
-			return resultados, err
-		}
-
-		turmasAtuais := buscarTurmasDoEstudante(c, estudanteDTO.CodigoEstudante, codigoAcademia)
-		var turmaAtual *string
-		if len(turmasAtuais) > 0 {
-			turmaAtual = &turmasAtuais[0]
-		}
-
-		if err := estudante.RegistrarAvaliacaoFinal(
-			codigoAcademia,
-			anoLectivo,
-			tipoEnsino,
-			anoAcademicoAtual,
-			proximoAnoAcademico,
-			turmaAtual,
-			turmasAtuais,
-			aprovado,
-			nil,
-			regra.Type,
-			notaFinal,
-			regra.NotaMinimaAprovacao,
-			&regra.ID,
-			regra.Formula,
-			regra.AplicaSeReprovadoEmType,
-		); err != nil {
-			if strings.Contains(err.Error(), "já registrada") {
+			if !podeExecutar {
 				continue
 			}
-			return resultados, err
-		}
 
-		resultados = append(resultados, gin.H{
-			"type":                  regra.Type,
-			"aprovado":              aprovado,
-			"nota_final":            notaFinal,
-			"nota_minima_aprovacao": regra.NotaMinimaAprovacao,
-			"proximo_ano_academico": proximoAnoAcademico,
-		})
+			resultado, registrado, err := executarRegraAvaliacaoFinalAutomatica(
+				c,
+				estudante,
+				estudanteDTO,
+				codigoAcademia,
+				anoLectivo,
+				tipoEnsino,
+				anoAcademicoAtual,
+				regra,
+				overlay,
+			)
+			if err != nil {
+				if strings.Contains(err.Error(), "nota ausente") {
+					continue
+				}
+				return resultados, err
+			}
+			if !registrado {
+				continue
+			}
+
+			resultados = append(resultados, resultado)
+			if aprovado, ok := resultado["aprovado"].(bool); ok {
+				resultadosPorType[regra.Type] = resultadoAvaliacaoAutomatica{Aprovado: aprovado}
+			}
+			processadas[regra.Type] = true
+			avancou = true
+		}
+		if !avancou {
+			break
+		}
 	}
+
 	return resultados, nil
+}
+
+func regraPodeExecutarAutomaticamente(
+	avaliacaoProj *projections.AvaliacaoFinalProjection,
+	codigoEstudante string,
+	codigoAcademia string,
+	anoLectivo string,
+	tipoEnsino string,
+	anoAcademicoAtual string,
+	regra regraAvaliacaoFinalDTO,
+	resultadosPorType map[string]resultadoAvaliacaoAutomatica,
+) (podeExecutar bool, encerrar bool, err error) {
+	jaAvaliado, err := avaliacaoProj.ExistsByEstudanteAnoLetivoNivelType(
+		codigoEstudante,
+		codigoAcademia,
+		anoLectivo,
+		tipoEnsino,
+		anoAcademicoAtual,
+		regra.Type,
+	)
+	if err != nil {
+		return false, false, fmt.Errorf("erro ao verificar avaliação final existente: %w", err)
+	}
+	if jaAvaliado {
+		return false, true, nil
+	}
+
+	if regra.AplicaSeReprovadoEmType == nil || strings.TrimSpace(*regra.AplicaSeReprovadoEmType) == "" {
+		return true, false, nil
+	}
+
+	dependencia := strings.TrimSpace(*regra.AplicaSeReprovadoEmType)
+	if resultado, ok := resultadosPorType[dependencia]; ok {
+		if resultado.Aprovado {
+			return false, true, nil
+		}
+		return true, false, nil
+	}
+
+	prev, err := avaliacaoProj.GetResultadoByType(codigoEstudante, codigoAcademia, anoLectivo, tipoEnsino, anoAcademicoAtual, dependencia)
+	if err != nil || prev == nil {
+		return false, false, nil
+	}
+	if prev.Aprovado {
+		return false, true, nil
+	}
+	return true, false, nil
+}
+
+func executarRegraAvaliacaoFinalAutomatica(
+	c *gin.Context,
+	estudante *aggregates.Estudante,
+	estudanteDTO *projections.EstudanteDTO,
+	codigoAcademia string,
+	anoLectivo string,
+	tipoEnsino string,
+	anoAcademicoAtual string,
+	regra regraAvaliacaoFinalDTO,
+	overlay *notaFormulaOverlay,
+) (gin.H, bool, error) {
+	notasFormula, err := carregarNotasFormula(c, estudanteDTO.CodigoEstudante, codigoAcademia, anoLectivo, regra.CategoriasEnvolvidas)
+	if err != nil {
+		return nil, false, err
+	}
+	if overlay != nil {
+		if notasFormula[overlay.Categoria] == nil {
+			notasFormula[overlay.Categoria] = map[string][]float64{}
+		}
+		notasFormula[overlay.Categoria][overlay.Periodo] = append(notasFormula[overlay.Categoria][overlay.Periodo], overlay.Nota)
+	}
+	notaFinal, err := calcularFormulaAvaliacao(regra.Formula, notasFormula)
+	if err != nil {
+		return nil, false, err
+	}
+	aprovado := notaFinal >= regra.NotaMinimaAprovacao
+
+	var cursoMedioUUID, cursoSuperiorUUID *uuid.UUID
+	if estudanteDTO.CursoMedioID != nil {
+		if parsed, err := uuid.Parse(*estudanteDTO.CursoMedioID); err == nil {
+			cursoMedioUUID = &parsed
+		}
+	}
+	if estudanteDTO.CursoSuperiorID != nil {
+		if parsed, err := uuid.Parse(*estudanteDTO.CursoSuperiorID); err == nil {
+			cursoSuperiorUUID = &parsed
+		}
+	}
+
+	if err := validarNivelAtualDoEstudante(estudanteDTO, tipoEnsino, anoAcademicoAtual); err != nil {
+		return nil, false, err
+	}
+
+	var proximoAnoAcademico *string
+	switch tipoEnsino {
+	case "fundamental":
+		proximoAnoAcademico, err = calcularProximoAnoFundamental(anoAcademicoAtual, aprovado)
+	case "medio":
+		proximoAnoAcademico, err = calcularProximoAnoCurso(c, cursoMedioUUID, anoAcademicoAtual, aprovado)
+	case "superior":
+		proximoAnoAcademico, err = calcularProximoAnoCurso(c, cursoSuperiorUUID, anoAcademicoAtual, aprovado)
+	}
+	if err != nil {
+		return nil, false, err
+	}
+
+	turmasAtuais := buscarTurmasDoEstudante(c, estudanteDTO.CodigoEstudante, codigoAcademia)
+	var turmaAtual *string
+	if len(turmasAtuais) > 0 {
+		turmaAtual = &turmasAtuais[0]
+	}
+
+	if err := estudante.RegistrarAvaliacaoFinal(
+		codigoAcademia,
+		anoLectivo,
+		tipoEnsino,
+		anoAcademicoAtual,
+		proximoAnoAcademico,
+		turmaAtual,
+		turmasAtuais,
+		aprovado,
+		nil,
+		regra.Type,
+		notaFinal,
+		regra.NotaMinimaAprovacao,
+		&regra.ID,
+		regra.Formula,
+		regra.AplicaSeReprovadoEmType,
+	); err != nil {
+		if strings.Contains(err.Error(), "já registrada") {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+
+	return gin.H{
+		"type":                  regra.Type,
+		"aprovado":              aprovado,
+		"nota_final":            notaFinal,
+		"nota_minima_aprovacao": regra.NotaMinimaAprovacao,
+		"proximo_ano_academico": proximoAnoAcademico,
+	}, true, nil
 }
 
 func inferirTipoEnsinoDoEstudante(estudante *projections.EstudanteDTO) string {

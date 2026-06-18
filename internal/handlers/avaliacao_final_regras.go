@@ -73,6 +73,10 @@ func CriarRegraAvaliacaoFinal(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
+	if err := validarRaizUnicaRegraAvaliacaoFinal(c, academiaDTO.CodigoAcademia, req.TipoEnsino, req.Type, req.AnosAcademicos, req.AplicaSeReprovadoEmType); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 	if err := validarDependenciaRegraAvaliacaoFinal(c, academiaDTO.CodigoAcademia, req.TipoEnsino, req.Type, req.AplicaSeReprovadoEmType); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -129,6 +133,60 @@ func validarUnicidadeRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipoEns
 		}
 		if exists {
 			return fmt.Errorf("já existe regra ativa de avaliação final para type=%s tipo_ensino=%s ano=%s", typ, tipoEnsino, ano)
+		}
+	}
+	return nil
+}
+
+func validarRaizUnicaRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipoEnsino, typ string, anos []string, dependeDe *string) error {
+	if dependeDe != nil && strings.TrimSpace(*dependeDe) != "" {
+		return nil
+	}
+	for _, ano := range anos {
+		ano = strings.TrimSpace(ano)
+		var rootType string
+		err := getDbClient(c).DB().QueryRow(`SELECT type
+			FROM projection_regras_avaliacao_final
+			WHERE codigo_academia=$1
+			  AND tipo_ensino=$2
+			  AND status='ativo'
+			  AND aplica_se_reprovado_em_type IS NULL
+			  AND anos_academicos ? $3
+			LIMIT 1`, codigoAcademia, tipoEnsino, ano).Scan(&rootType)
+		if err == sql.ErrNoRows {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if rootType != typ {
+			return fmt.Errorf("já existe avaliação final raiz ativa para tipo_ensino=%s ano=%s: %s", tipoEnsino, ano, rootType)
+		}
+	}
+	return nil
+}
+
+func validarCadeiaAvaliacaoFinalAplicavel(regras []regraAvaliacaoFinalDTO, codigoAcademia, tipoEnsino, anoAcademico string) error {
+	raizes := 0
+	tipos := map[string]bool{}
+	for _, regra := range regras {
+		tipos[regra.Type] = true
+		if regra.AplicaSeReprovadoEmType == nil || strings.TrimSpace(*regra.AplicaSeReprovadoEmType) == "" {
+			raizes++
+		}
+	}
+	if raizes == 0 {
+		return fmt.Errorf("nenhuma regra raiz de avaliação final encontrada para academia=%s tipo_ensino=%s ano=%s", codigoAcademia, tipoEnsino, anoAcademico)
+	}
+	if raizes > 1 {
+		return fmt.Errorf("mais de uma regra raiz de avaliação final encontrada para academia=%s tipo_ensino=%s ano=%s", codigoAcademia, tipoEnsino, anoAcademico)
+	}
+	for _, regra := range regras {
+		if regra.AplicaSeReprovadoEmType == nil || strings.TrimSpace(*regra.AplicaSeReprovadoEmType) == "" {
+			continue
+		}
+		if !tipos[strings.TrimSpace(*regra.AplicaSeReprovadoEmType)] {
+			return fmt.Errorf("regra type=%s depende de type fora da cadeia aplicável: %s", regra.Type, *regra.AplicaSeReprovadoEmType)
 		}
 	}
 	return nil
