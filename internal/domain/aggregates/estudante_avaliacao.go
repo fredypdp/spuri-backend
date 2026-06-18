@@ -27,7 +27,18 @@ type AvaliacaoFinalBasePayload struct {
 	RegraAvaliacaoFinalID   *uuid.UUID      `json:"regra_avaliacao_final_id,omitempty"`
 	FormulaSnapshot         json.RawMessage `json:"formula_snapshot,omitempty"`
 	AplicaSeReprovadoEmType *string         `json:"aplica_se_reprovado_em_type,omitempty"`
+	SemestreAtualAvaliado   *int            `json:"semestre_atual,omitempty"`
+	ProximoSemestreAtual    *int            `json:"proximo_semestre_atual,omitempty"`
+	AnoSuperiorAntes        *string         `json:"ano_superior_antes,omitempty"`
+	AnoSuperiorDepois       *string         `json:"ano_superior_depois,omitempty"`
 	RegisteredAt            time.Time       `json:"registered_at"`
+}
+
+type AvaliacaoFinalSuperiorProgressao struct {
+	SemestreAtualAvaliado *int
+	ProximoSemestreAtual  *int
+	AnoSuperiorAntes      *string
+	AnoSuperiorDepois     *string
 }
 
 type AvaliacaoFinalEscolarEvent struct{ AvaliacaoFinalBasePayload }
@@ -70,6 +81,7 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 	regraAvaliacaoFinalID *uuid.UUID,
 	formulaSnapshot json.RawMessage,
 	aplicaSeReprovadoEmType *string,
+	progressaoSuperior ...AvaliacaoFinalSuperiorProgressao,
 ) error {
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
@@ -90,11 +102,16 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 	}
 
 	chaveAnoLetivo := chaveAvaliacaoAnoLetivo(anoLectivo, avaliacaoType)
-	if e.AvaliacoesPorAno != nil && e.AvaliacoesPorAno[chaveAnoLetivo] {
+	if tipoEnsino != "superior" && e.AvaliacoesPorAno != nil && e.AvaliacoesPorAno[chaveAnoLetivo] {
 		return fmt.Errorf(
 			"avaliação final já registrada no ano letivo '%s'",
 			anoLectivo,
 		)
+	}
+
+	var progressao AvaliacaoFinalSuperiorProgressao
+	if len(progressaoSuperior) > 0 {
+		progressao = progressaoSuperior[0]
 	}
 
 	base := AvaliacaoFinalBasePayload{
@@ -116,6 +133,10 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 		RegraAvaliacaoFinalID:   regraAvaliacaoFinalID,
 		FormulaSnapshot:         formulaSnapshot,
 		AplicaSeReprovadoEmType: aplicaSeReprovadoEmType,
+		SemestreAtualAvaliado:   progressao.SemestreAtualAvaliado,
+		ProximoSemestreAtual:    progressao.ProximoSemestreAtual,
+		AnoSuperiorAntes:        progressao.AnoSuperiorAntes,
+		AnoSuperiorDepois:       progressao.AnoSuperiorDepois,
 		RegisteredAt:            time.Now(),
 	}
 	var event DomainEvent
@@ -164,7 +185,9 @@ func (e *Estudante) applyAvaliacaoFinalPayload(ev AvaliacaoFinalBasePayload) err
 	if avaliacaoType == "" {
 		avaliacaoType = "normal"
 	}
-	e.AvaliacoesPorAno[chaveAvaliacaoAnoLetivo(ev.AnoLectivo, avaliacaoType)] = true
+	if ev.TipoEnsino != "superior" {
+		e.AvaliacoesPorAno[chaveAvaliacaoAnoLetivo(ev.AnoLectivo, avaliacaoType)] = true
+	}
 	e.AvaliacoesPorAno[chaveAvaliacaoNivel(ev.TipoEnsino, ev.AnoLectivo, ev.AnoAcademicoAtual, avaliacaoType)] = true
 
 	if !ev.Aprovado {
@@ -178,7 +201,14 @@ func (e *Estudante) applyAvaliacaoFinalPayload(ev AvaliacaoFinalBasePayload) err
 		case "medio":
 			e.AnoEscolarMedio = ev.ProximoAnoAcademico
 		case "superior":
-			e.AnoSuperior = ev.ProximoAnoAcademico
+			if ev.ProximoSemestreAtual != nil {
+				e.SemestreAtual = ev.ProximoSemestreAtual
+			}
+			if ev.AnoSuperiorDepois != nil {
+				e.AnoSuperior = ev.AnoSuperiorDepois
+			} else {
+				e.AnoSuperior = ev.ProximoAnoAcademico
+			}
 		}
 	} else {
 		// Último ano do ciclo — marcar como finalizado.
@@ -188,6 +218,9 @@ func (e *Estudante) applyAvaliacaoFinalPayload(ev AvaliacaoFinalBasePayload) err
 		case "medio":
 			e.StatusEscolarMedio = "finalizado"
 		case "superior":
+			if ev.AnoSuperiorDepois != nil {
+				e.AnoSuperior = ev.AnoSuperiorDepois
+			}
 			e.StatusSuperior = "finalizado"
 		}
 	}

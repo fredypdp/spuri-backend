@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"strings"
 
@@ -69,6 +70,22 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		utils.RespondWithForbiddenError(c, "estudante não pertence a esta academia")
 		return
 	}
+
+	// FIX-COMPILE-02: EstudanteDTO armazena CursoMedioID e CursoSuperiorID como
+	// *string (banco persiste UUID como texto). Converter para *uuid.UUID para
+	// passar para validarNotasParaAprovacao e calcularProximoAnoCurso.
+	var cursoMedioUUID, cursoSuperiorUUID *uuid.UUID
+	if estudanteDTO.CursoMedioID != nil {
+		if parsed, err := uuid.Parse(*estudanteDTO.CursoMedioID); err == nil {
+			cursoMedioUUID = &parsed
+		}
+	}
+	if estudanteDTO.CursoSuperiorID != nil {
+		if parsed, err := uuid.Parse(*estudanteDTO.CursoSuperiorID); err == nil {
+			cursoSuperiorUUID = &parsed
+		}
+	}
+
 	tipoEnsino := inferirTipoEnsinoDoEstudante(estudanteDTO)
 	switch tipoEnsino {
 	case "fundamental":
@@ -82,10 +99,12 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 			return
 		}
 	case "superior":
-		if err := utils.ValidateAnoSuperior(req.AnoAcademicoAtual); err != nil {
-			utils.RespondWithValidationError(c, fmt.Errorf("nivel_ano_academico_atual inválido: %w", err))
+		periodoAtual, err := periodoSuperiorAtual(c, estudanteDTO, cursoSuperiorUUID)
+		if err != nil {
+			utils.RespondWithValidationError(c, err)
 			return
 		}
+		req.AnoAcademicoAtual = periodoAtual
 	}
 
 	avaliacaoProj := getAvaliacaoFinalProjection(c)
@@ -119,21 +138,6 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		return
 	}
 
-	// FIX-COMPILE-02: EstudanteDTO armazena CursoMedioID e CursoSuperiorID como
-	// *string (banco persiste UUID como texto). Converter para *uuid.UUID para
-	// passar para validarNotasParaAprovacao e calcularProximoAnoCurso.
-	var cursoMedioUUID, cursoSuperiorUUID *uuid.UUID
-	if estudanteDTO.CursoMedioID != nil {
-		if parsed, err := uuid.Parse(*estudanteDTO.CursoMedioID); err == nil {
-			cursoMedioUUID = &parsed
-		}
-	}
-	if estudanteDTO.CursoSuperiorID != nil {
-		if parsed, err := uuid.Parse(*estudanteDTO.CursoSuperiorID); err == nil {
-			cursoSuperiorUUID = &parsed
-		}
-	}
-
 	// O nível informado deve corresponder ao nível atual do estudante para evitar
 	// finalizações indevidas quando um nível incorreto é enviado no payload.
 	if err := validarNivelAtualDoEstudante(estudanteDTO, tipoEnsino, req.AnoAcademicoAtual); err != nil {
@@ -145,6 +149,12 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		prev, err := avaliacaoProj.GetResultadoByType(req.CodigoEstudante, academiaDTO.CodigoAcademia, anoLectivo, tipoEnsino, req.AnoAcademicoAtual, *regra.AplicaSeReprovadoEmType)
 		if err != nil || prev == nil || prev.Aprovado {
 			utils.RespondWithValidationError(c, fmt.Errorf("avaliação '%s' exige reprovação anterior em '%s'", req.Type, *regra.AplicaSeReprovadoEmType))
+			return
+		}
+	}
+	if tipoEnsino == "superior" {
+		if err := validarFormulaSuperiorContemPeriodo(regra.Formula, req.AnoAcademicoAtual); err != nil {
+			utils.RespondWithValidationError(c, err)
 			return
 		}
 	}
@@ -162,13 +172,18 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 
 	// ── Cálculo do próximo nível (backend) ────────────────────────────────────
 	var proximoAnoAcademico *string
+	var semestreAvaliado, proximoSemestre *int
+	var anoSuperiorAntes, anoSuperiorDepois *string
 	switch tipoEnsino {
 	case "fundamental":
 		proximoAnoAcademico, err = calcularProximoAnoFundamental(req.AnoAcademicoAtual, aprovado)
 	case "medio":
 		proximoAnoAcademico, err = calcularProximoAnoCurso(c, cursoMedioUUID, req.AnoAcademicoAtual, aprovado)
 	case "superior":
-		proximoAnoAcademico, err = calcularProximoAnoCurso(c, cursoSuperiorUUID, req.AnoAcademicoAtual, aprovado)
+		proximoSemestre, anoSuperiorDepois, err = calcularProximoSemestreCurso(c, cursoSuperiorUUID, estudanteDTO.SemestreAtual, aprovado)
+		semestreAvaliado = estudanteDTO.SemestreAtual
+		anoSuperiorAntes = estudanteDTO.AnoSuperior
+		proximoAnoAcademico = anoSuperiorDepois
 	}
 	if err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -213,6 +228,12 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		&regra.ID,
 		regra.Formula,
 		regra.AplicaSeReprovadoEmType,
+		aggregates.AvaliacaoFinalSuperiorProgressao{
+			SemestreAtualAvaliado: semestreAvaliado,
+			ProximoSemestreAtual:  proximoSemestre,
+			AnoSuperiorAntes:      anoSuperiorAntes,
+			AnoSuperiorDepois:     anoSuperiorDepois,
+		},
 	); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -270,6 +291,20 @@ func tentarAvaliacoesFinaisAutomaticas(
 	categoriaAlterada string,
 	overlay *notaFormulaOverlay,
 ) ([]gin.H, error) {
+	if tipoEnsino == "superior" {
+		var cursoSuperiorUUID *uuid.UUID
+		if estudanteDTO.CursoSuperiorID != nil {
+			if parsed, err := uuid.Parse(*estudanteDTO.CursoSuperiorID); err == nil {
+				cursoSuperiorUUID = &parsed
+			}
+		}
+		periodoAtual, err := periodoSuperiorAtual(c, estudanteDTO, cursoSuperiorUUID)
+		if err != nil {
+			return nil, err
+		}
+		anoAcademicoAtual = periodoAtual
+	}
+
 	// O gatilho não escolhe a avaliação pela categoria da nota. Ele olha para a
 	// cadeia completa aplicável ao estudante e começa pela única regra raiz — a
 	// regra sem aplica_se_reprovado_em_type. Assim, quando a última nota necessária
@@ -413,6 +448,11 @@ func executarRegraAvaliacaoFinalAutomatica(
 	regra regraAvaliacaoFinalDTO,
 	overlay *notaFormulaOverlay,
 ) (gin.H, bool, error) {
+	if tipoEnsino == "superior" {
+		if err := validarFormulaSuperiorContemPeriodo(regra.Formula, anoAcademicoAtual); err != nil {
+			return nil, false, err
+		}
+	}
 	notasFormula, err := carregarNotasFormula(c, estudanteDTO.CodigoEstudante, codigoAcademia, anoLectivo, regra.CategoriasEnvolvidas)
 	if err != nil {
 		return nil, false, err
@@ -446,13 +486,18 @@ func executarRegraAvaliacaoFinalAutomatica(
 	}
 
 	var proximoAnoAcademico *string
+	var semestreAvaliado, proximoSemestre *int
+	var anoSuperiorAntes, anoSuperiorDepois *string
 	switch tipoEnsino {
 	case "fundamental":
 		proximoAnoAcademico, err = calcularProximoAnoFundamental(anoAcademicoAtual, aprovado)
 	case "medio":
 		proximoAnoAcademico, err = calcularProximoAnoCurso(c, cursoMedioUUID, anoAcademicoAtual, aprovado)
 	case "superior":
-		proximoAnoAcademico, err = calcularProximoAnoCurso(c, cursoSuperiorUUID, anoAcademicoAtual, aprovado)
+		proximoSemestre, anoSuperiorDepois, err = calcularProximoSemestreCurso(c, cursoSuperiorUUID, estudanteDTO.SemestreAtual, aprovado)
+		semestreAvaliado = estudanteDTO.SemestreAtual
+		anoSuperiorAntes = estudanteDTO.AnoSuperior
+		proximoAnoAcademico = anoSuperiorDepois
 	}
 	if err != nil {
 		return nil, false, err
@@ -480,6 +525,12 @@ func executarRegraAvaliacaoFinalAutomatica(
 		&regra.ID,
 		regra.Formula,
 		regra.AplicaSeReprovadoEmType,
+		aggregates.AvaliacaoFinalSuperiorProgressao{
+			SemestreAtualAvaliado: semestreAvaliado,
+			ProximoSemestreAtual:  proximoSemestre,
+			AnoSuperiorAntes:      anoSuperiorAntes,
+			AnoSuperiorDepois:     anoSuperiorDepois,
+		},
 	); err != nil {
 		if strings.Contains(err.Error(), "já registrada") {
 			return nil, false, nil
@@ -1073,6 +1124,65 @@ func calcularProximoAnoCurso(
 	return &proximo, nil
 }
 
+func periodoSuperiorAtual(c *gin.Context, estudante *projections.EstudanteDTO, cursoID *uuid.UUID) (string, error) {
+	if estudante == nil || estudante.SemestreAtual == nil || *estudante.SemestreAtual < 1 {
+		return "", fmt.Errorf("estudante superior não possui semestre_atual válido")
+	}
+	periodo := fmt.Sprintf("%d_semestre", *estudante.SemestreAtual)
+	if cursoID == nil {
+		return "", fmt.Errorf("estudante não possui curso superior vinculado")
+	}
+	curso, err := getCursosProjection(c).GetByID(*cursoID)
+	if err != nil || curso == nil {
+		return "", fmt.Errorf("curso superior não encontrado")
+	}
+	if curso.Status != "ativo" {
+		return "", fmt.Errorf("curso superior do estudante está inativo")
+	}
+	for _, p := range curso.Periodos {
+		if p == periodo {
+			return periodo, nil
+		}
+	}
+	return "", fmt.Errorf("semestre_atual %d não existe nos periodos do curso superior '%s'", *estudante.SemestreAtual, curso.Nome)
+}
+
+func calcularAnoSuperiorPorSemestre(semestre int) string {
+	ano := int(math.Ceil(float64(semestre) / 2.0))
+	return fmt.Sprintf("%d_ano_superior", ano)
+}
+
+func calcularProximoSemestreCurso(c *gin.Context, cursoID *uuid.UUID, semestreAtual *int, aprovado bool) (*int, *string, error) {
+	if semestreAtual == nil || *semestreAtual < 1 {
+		return nil, nil, fmt.Errorf("estudante superior não possui semestre_atual válido")
+	}
+	if cursoID == nil {
+		return nil, nil, fmt.Errorf("estudante não possui curso superior vinculado")
+	}
+	curso, err := getCursosProjection(c).GetByID(*cursoID)
+	if err != nil || curso == nil {
+		return nil, nil, fmt.Errorf("curso superior não encontrado")
+	}
+	periodoAtual := fmt.Sprintf("%d_semestre", *semestreAtual)
+	pos := -1
+	for i, p := range curso.Periodos {
+		if p == periodoAtual {
+			pos = i
+			break
+		}
+	}
+	if pos == -1 {
+		return nil, nil, fmt.Errorf("semestre_atual %d não pertence ao curso '%s'", *semestreAtual, curso.Nome)
+	}
+	anoAtual := calcularAnoSuperiorPorSemestre(*semestreAtual)
+	if !aprovado || pos == len(curso.Periodos)-1 {
+		return nil, &anoAtual, nil
+	}
+	prox := *semestreAtual + 1
+	anoDepois := calcularAnoSuperiorPorSemestre(prox)
+	return &prox, &anoDepois, nil
+}
+
 func validarNivelAtualDoEstudante(estudante *projections.EstudanteDTO, tipoEnsino, nivelInformado string) error {
 	if estudante == nil {
 		return fmt.Errorf("estudante inválido")
@@ -1085,7 +1195,14 @@ func validarNivelAtualDoEstudante(estudante *projections.EstudanteDTO, tipoEnsin
 	case "medio":
 		nivelAtual = estudante.AnoEscolarMedio
 	case "superior":
-		nivelAtual = estudante.AnoSuperior
+		if estudante.SemestreAtual == nil || *estudante.SemestreAtual < 1 {
+			return fmt.Errorf("estudante superior não possui semestre_atual válido")
+		}
+		esperado := fmt.Sprintf("%d_semestre", *estudante.SemestreAtual)
+		if esperado != nivelInformado {
+			return fmt.Errorf("nivel_ano_academico_atual incompatível: esperado semestre '%s', recebido '%s'", esperado, nivelInformado)
+		}
+		return nil
 	}
 
 	if nivelAtual == nil || strings.TrimSpace(*nivelAtual) == "" {

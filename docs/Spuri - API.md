@@ -2,7 +2,7 @@
 modificado: 18-06-2026 18:30
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.8.2
+Versão atual: 1.8.3
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -2046,6 +2046,17 @@ Retorna as faltas de um estudante.
 ---
 
 ## 11. Avaliações Finais
+
+
+### Progressão semestral do ensino superior na avaliação final
+
+Para `tipo_ensino = "superior"`, a avaliação final automática usa `semestre_atual` como unidade de progressão. O backend converte o inteiro armazenado no estudante para o período `[n]_semestre` (por exemplo, `semestre_atual = 3` vira `3_semestre`) e esse período deve existir em `curso.periodos`.
+
+Regras superiores devem ser configuradas em `anos_academicos` com valores semestrais (`1_semestre`, `2_semestre`, ...). Fundamental e médio continuam usando anos acadêmicos (`[n]_ano_fundamental` e `[n]_ano_medio`). A unicidade da avaliação final superior considera estudante, academia, ano letivo, `tipo_ensino`, semestre avaliado e `type`, portanto uma avaliação de `1_semestre` não bloqueia a posterior avaliação de `2_semestre` no mesmo ano letivo.
+
+Na aprovação superior, o backend incrementa `semestre_atual` quando ainda existe próximo semestre no curso e recalcula `ano_superior = ceil(semestre_atual / 2)`. Assim, `1_semestre → semestre_atual = 2` mantém `1_ano_superior`, enquanto `2_semestre → semestre_atual = 3` muda para `2_ano_superior`. Na aprovação no último semestre, `status_superior` passa para `finalizado`; na reprovação, `semestre_atual`, `ano_superior` e `status_superior` permanecem inalterados.
+
+O cliente não envia `proximo_ano_academico`, `proximo_semestre_atual` nem resultado de aprovação: a fórmula da regra calcula `nota_final`, compara com `nota_minima_aprovacao` e emite o evento auditável com `semestre_atual`, `proximo_semestre_atual`, `ano_superior_antes` e `ano_superior_depois` para rebuild determinístico.
 
 ### Execução automática da avaliação final
 

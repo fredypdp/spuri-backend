@@ -120,6 +120,7 @@ func (p *AvaliacaoFinalProjection) handleAvaliacaoFinal(event db.Event) error {
 			ano_academico_atual, proximo_ano_academico,
 			aprovado, observacao, type, nota_final, nota_minima_aprovacao,
 			regra_avaliacao_final_id, formula_snapshot, aplica_se_reprovado_em_type,
+			semestre_atual, proximo_semestre_atual, ano_superior_antes, ano_superior_depois,
 			registered_at, version
 		) VALUES (
 			uuid_generate_v4(), $1,
@@ -128,7 +129,8 @@ func (p *AvaliacaoFinalProjection) handleAvaliacaoFinal(event db.Event) error {
 			$6, $7,
 			$8, $9, $10, $11, $12,
 			$13, $14, $15,
-			CURRENT_TIMESTAMP, $16
+			$16, $17, $18, $19,
+			CURRENT_TIMESTAMP, $20
 		)
 		ON CONFLICT (codigo_estudante, codigo_academia, ano_lectivo, tipo_ensino, ano_academico_atual, type)
 		DO NOTHING
@@ -139,6 +141,7 @@ func (p *AvaliacaoFinalProjection) handleAvaliacaoFinal(event db.Event) error {
 		payload.AnoAcademicoAtual, payload.ProximoAnoAcademico,
 		payload.Aprovado, payload.Observacao, payload.Type, payload.NotaFinal, payload.NotaMinimaAprovacao,
 		payload.RegraAvaliacaoFinalID, payload.FormulaSnapshot, payload.AplicaSeReprovadoEmType,
+		payload.SemestreAtualAvaliado, payload.ProximoSemestreAtual, payload.AnoSuperiorAntes, payload.AnoSuperiorDepois,
 		event.EventVersion,
 	)
 	if err != nil {
@@ -164,6 +167,10 @@ type avaliacaoFinalPayload struct {
 	RegraAvaliacaoFinalID   *uuid.UUID
 	FormulaSnapshot         json.RawMessage
 	AplicaSeReprovadoEmType *string
+	SemestreAtualAvaliado   *int
+	ProximoSemestreAtual    *int
+	AnoSuperiorAntes        *string
+	AnoSuperiorDepois       *string
 }
 
 func parseAvaliacaoFinalPayload(raw json.RawMessage) (avaliacaoFinalPayload, error) {
@@ -182,6 +189,10 @@ func parseAvaliacaoFinalPayload(raw json.RawMessage) (avaliacaoFinalPayload, err
 		RegraAvaliacaoFinalID   *uuid.UUID      `json:"regra_avaliacao_final_id"`
 		FormulaSnapshot         json.RawMessage `json:"formula_snapshot"`
 		AplicaSeReprovadoEmType *string         `json:"aplica_se_reprovado_em_type"`
+		SemestreAtualAvaliado   *int            `json:"semestre_atual"`
+		ProximoSemestreAtual    *int            `json:"proximo_semestre_atual"`
+		AnoSuperiorAntes        *string         `json:"ano_superior_antes"`
+		AnoSuperiorDepois       *string         `json:"ano_superior_depois"`
 	}
 	if err := json.Unmarshal(raw, &snake); err != nil {
 		return avaliacaoFinalPayload{}, err
@@ -203,6 +214,10 @@ func parseAvaliacaoFinalPayload(raw json.RawMessage) (avaliacaoFinalPayload, err
 		RegraAvaliacaoFinalID   *uuid.UUID      `json:"RegraAvaliacaoFinalID"`
 		FormulaSnapshot         json.RawMessage `json:"FormulaSnapshot"`
 		AplicaSeReprovadoEmType *string         `json:"AplicaSeReprovadoEmType"`
+		SemestreAtualAvaliado   *int            `json:"SemestreAtualAvaliado"`
+		ProximoSemestreAtual    *int            `json:"ProximoSemestreAtual"`
+		AnoSuperiorAntes        *string         `json:"AnoSuperiorAntes"`
+		AnoSuperiorDepois       *string         `json:"AnoSuperiorDepois"`
 	}
 	if err := json.Unmarshal(raw, &legacy); err != nil {
 		return avaliacaoFinalPayload{}, err
@@ -223,6 +238,10 @@ func parseAvaliacaoFinalPayload(raw json.RawMessage) (avaliacaoFinalPayload, err
 		RegraAvaliacaoFinalID:   snake.RegraAvaliacaoFinalID,
 		FormulaSnapshot:         snake.FormulaSnapshot,
 		AplicaSeReprovadoEmType: snake.AplicaSeReprovadoEmType,
+		SemestreAtualAvaliado:   snake.SemestreAtualAvaliado,
+		ProximoSemestreAtual:    snake.ProximoSemestreAtual,
+		AnoSuperiorAntes:        snake.AnoSuperiorAntes,
+		AnoSuperiorDepois:       snake.AnoSuperiorDepois,
 	}
 	if payload.ProximoAnoAcademico == nil {
 		payload.ProximoAnoAcademico = legacy.ProximoAnoAcademico
@@ -238,6 +257,18 @@ func parseAvaliacaoFinalPayload(raw json.RawMessage) (avaliacaoFinalPayload, err
 	}
 	if payload.AplicaSeReprovadoEmType == nil {
 		payload.AplicaSeReprovadoEmType = legacy.AplicaSeReprovadoEmType
+	}
+	if payload.SemestreAtualAvaliado == nil {
+		payload.SemestreAtualAvaliado = legacy.SemestreAtualAvaliado
+	}
+	if payload.ProximoSemestreAtual == nil {
+		payload.ProximoSemestreAtual = legacy.ProximoSemestreAtual
+	}
+	if payload.AnoSuperiorAntes == nil {
+		payload.AnoSuperiorAntes = legacy.AnoSuperiorAntes
+	}
+	if payload.AnoSuperiorDepois == nil {
+		payload.AnoSuperiorDepois = legacy.AnoSuperiorDepois
 	}
 	return payload, nil
 }
@@ -281,6 +312,10 @@ type AvaliacaoFinalDTO struct {
 	RegraAvaliacaoFinalID   *uuid.UUID      `json:"regra_avaliacao_final_id,omitempty"`
 	FormulaSnapshot         json.RawMessage `json:"formula_snapshot,omitempty"`
 	AplicaSeReprovadoEmType *string         `json:"aplica_se_reprovado_em_type,omitempty"`
+	SemestreAtual           *int            `json:"semestre_atual,omitempty"`
+	ProximoSemestreAtual    *int            `json:"proximo_semestre_atual,omitempty"`
+	AnoSuperiorAntes        *string         `json:"ano_superior_antes,omitempty"`
+	AnoSuperiorDepois       *string         `json:"ano_superior_depois,omitempty"`
 	RegisteredAt            time.Time       `json:"registered_at"`
 	Version                 int             `json:"version"`
 }
@@ -296,7 +331,7 @@ type AvaliacaoFinalFilters struct {
 const avaliacaoFinalCols = `
 	id, event_id, codigo_estudante, codigo_academia,
 	ano_lectivo, tipo_ensino, ano_academico_atual, proximo_ano_academico,
-	aprovado, observacao, type, nota_final, nota_minima_aprovacao, regra_avaliacao_final_id, formula_snapshot, aplica_se_reprovado_em_type, registered_at, version
+	aprovado, observacao, type, nota_final, nota_minima_aprovacao, regra_avaliacao_final_id, formula_snapshot, aplica_se_reprovado_em_type, semestre_atual, proximo_semestre_atual, ano_superior_antes, ano_superior_depois, registered_at, version
 `
 
 func (p *AvaliacaoFinalProjection) ExistsByEstudanteAnoLetivoNivel(codigoEstudante, codigoAcademia, anoLectivo, tipoEnsino, anoAcademicoAtual string) (bool, error) {
@@ -512,7 +547,7 @@ func scanAvaliacoes(rows *sql.Rows) ([]AvaliacaoFinalDTO, error) {
 		if err := rows.Scan(
 			&dto.ID, &dto.EventID, &dto.CodigoEstudante, &dto.CodigoAcademia,
 			&dto.AnoLectivo, &dto.TipoEnsino, &dto.AnoAcademicoAtual, &dto.ProximoAnoAcademico,
-			&dto.Aprovado, &dto.Observacao, &dto.Type, &dto.NotaFinal, &dto.NotaMinimaAprovacao, &dto.RegraAvaliacaoFinalID, &dto.FormulaSnapshot, &dto.AplicaSeReprovadoEmType, &dto.RegisteredAt, &dto.Version,
+			&dto.Aprovado, &dto.Observacao, &dto.Type, &dto.NotaFinal, &dto.NotaMinimaAprovacao, &dto.RegraAvaliacaoFinalID, &dto.FormulaSnapshot, &dto.AplicaSeReprovadoEmType, &dto.SemestreAtual, &dto.ProximoSemestreAtual, &dto.AnoSuperiorAntes, &dto.AnoSuperiorDepois, &dto.RegisteredAt, &dto.Version,
 		); err != nil {
 			continue
 		}
