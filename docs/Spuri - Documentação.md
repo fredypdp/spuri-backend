@@ -1,8 +1,8 @@
 ---
-modificado: 18-06-2026 19:10
+modificado: 18-06-2026 19:35
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.6.3
+Versão atual: 1.6.4
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -691,6 +691,16 @@ Não há rota pública registrada para execução manual de avaliação final. A
 - A reprovação no superior mantém o estudante no mesmo `ano_superior`, deixa `proximo_ano_academico = null` e não altera `status_superior`.
 - Avaliação superior não altera turmas automaticamente; vínculos com turmas do superior são geridos pelas regras próprias de turmas/matrícula.
 
+**Transição para ano seguinte e semestres:**
+
+- A transição do estudante sempre usa o **nível acadêmico atual** e o **próximo nível acadêmico** calculado pelo backend. Para Fundamental, a sequência é fixa; para Médio e Superior, a sequência vem de `curso.anos_academicos`.
+- Em aprovação com próximo nível, o evento grava `proximo_ano_academico` e a projeção/aggregate substitui o campo atual do estudante pelo próximo valor: `ano_escolar`, `ano_escolar_medio` ou `ano_superior`.
+- Em aprovação sem próximo nível, significa conclusão do último nível configurado: o campo de ano não avança e o status do ciclo passa para `finalizado`.
+- Em reprovação, `proximo_ano_academico` fica `null`; isto significa retenção no mesmo nível, não conclusão.
+- No Superior, a avaliação final **não muda diretamente de um semestre para outro** pelo campo `semestre_atual`. O avanço implementado é de `ano_superior` para o próximo item em `anos_academicos` do curso superior, por exemplo `1_ano_superior` → `2_ano_superior`.
+- Os semestres do Superior (`1_semestre`, `2_semestre`, etc.) são usados como `periodos` de curso/matéria/nota e podem entrar na fórmula de avaliação (`sum_periods`), mas não são o campo de progressão da avaliação final.
+- Portanto, se a instituição modelar cada ano superior com dois semestres, a fórmula deve exigir os semestres necessários nas notas; depois de aprovado, o estudante avança para o próximo `ano_superior` do curso. Se a regra de negócio desejada for progressão semestral, o curso precisa ser modelado nos `anos_academicos` de forma compatível com o nível que se pretende avançar, pois o backend não incrementa `semestre_atual` nesse fluxo.
+
 **Cadeias de avaliação final (normal, recurso, especial etc.):**
 
 - Para cada academia, tipo de ensino e ano acadêmico deve haver exatamente uma regra raiz aplicável, ou seja, uma regra ativa sem `aplica_se_reprovado_em_type`.
@@ -900,6 +910,7 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 | Médio usa sequência do curso | Avança conforme `anos_academicos` do curso médio ativo vinculado |
 | Tipo de ensino é inferido no backend | Não deve ser enviado no payload da avaliação final |
 | Superior usa sequência do curso | Avança conforme `anos_academicos` do curso superior ativo vinculado; não há regra fixa por `semestre_atual + 1` |
+| Semestres no superior são períodos, não progressão da avaliação final | `periodos` como `1_semestre` entram nas notas/fórmulas; o fluxo não incrementa `semestre_atual` |
 | Reprovação não altera o ano/status | Mantém nível atual e não finaliza ciclo |
 | Aprovação no último nível finaliza ciclo | Define o status do ciclo correspondente como `finalizado` |
 | Uma avaliação por type/ano letivo/nível | Idempotência via aggregate e projeção |
