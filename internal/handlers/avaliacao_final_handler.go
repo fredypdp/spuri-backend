@@ -249,6 +249,144 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 	c.JSON(http.StatusCreated, response)
 }
 
+type notaFormulaOverlay struct {
+	Categoria string
+	Periodo   string
+	Nota      float64
+}
+
+func tentarAvaliacoesFinaisAutomaticas(
+	c *gin.Context,
+	estudante *aggregates.Estudante,
+	estudanteDTO *projections.EstudanteDTO,
+	codigoAcademia string,
+	anoLectivo string,
+	tipoEnsino string,
+	anoAcademicoAtual string,
+	categoriaAlterada string,
+	overlay *notaFormulaOverlay,
+) ([]gin.H, error) {
+	regras, err := listarRegrasAvaliacaoFinalAplicaveis(c, codigoAcademia, tipoEnsino, anoAcademicoAtual, &categoriaAlterada)
+	if err != nil {
+		return nil, err
+	}
+	if len(regras) == 0 {
+		return nil, nil
+	}
+
+	avaliacaoProj := getAvaliacaoFinalProjection(c)
+	resultados := make([]gin.H, 0, len(regras))
+	for _, regra := range regras {
+		jaAvaliado, err := avaliacaoProj.ExistsByEstudanteAnoLetivoNivelType(
+			estudanteDTO.CodigoEstudante,
+			codigoAcademia,
+			anoLectivo,
+			tipoEnsino,
+			anoAcademicoAtual,
+			regra.Type,
+		)
+		if err != nil {
+			return resultados, fmt.Errorf("erro ao verificar avaliação final existente: %w", err)
+		}
+		if jaAvaliado {
+			continue
+		}
+
+		if regra.AplicaSeReprovadoEmType != nil {
+			prev, err := avaliacaoProj.GetResultadoByType(estudanteDTO.CodigoEstudante, codigoAcademia, anoLectivo, tipoEnsino, anoAcademicoAtual, *regra.AplicaSeReprovadoEmType)
+			if err != nil || prev == nil || prev.Aprovado {
+				continue
+			}
+		}
+
+		notasFormula, err := carregarNotasFormula(c, estudanteDTO.CodigoEstudante, codigoAcademia, anoLectivo, regra.CategoriasEnvolvidas)
+		if err != nil {
+			return resultados, err
+		}
+		if overlay != nil {
+			if notasFormula[overlay.Categoria] == nil {
+				notasFormula[overlay.Categoria] = map[string][]float64{}
+			}
+			notasFormula[overlay.Categoria][overlay.Periodo] = append(notasFormula[overlay.Categoria][overlay.Periodo], overlay.Nota)
+		}
+		notaFinal, err := calcularFormulaAvaliacao(regra.Formula, notasFormula)
+		if err != nil {
+			if strings.Contains(err.Error(), "nota ausente") {
+				continue
+			}
+			return resultados, err
+		}
+		aprovado := notaFinal >= regra.NotaMinimaAprovacao
+
+		var cursoMedioUUID, cursoSuperiorUUID *uuid.UUID
+		if estudanteDTO.CursoMedioID != nil {
+			if parsed, err := uuid.Parse(*estudanteDTO.CursoMedioID); err == nil {
+				cursoMedioUUID = &parsed
+			}
+		}
+		if estudanteDTO.CursoSuperiorID != nil {
+			if parsed, err := uuid.Parse(*estudanteDTO.CursoSuperiorID); err == nil {
+				cursoSuperiorUUID = &parsed
+			}
+		}
+
+		if err := validarNivelAtualDoEstudante(estudanteDTO, tipoEnsino, anoAcademicoAtual); err != nil {
+			return resultados, err
+		}
+
+		var proximoAnoAcademico *string
+		switch tipoEnsino {
+		case "fundamental":
+			proximoAnoAcademico, err = calcularProximoAnoFundamental(anoAcademicoAtual, aprovado)
+		case "medio":
+			proximoAnoAcademico, err = calcularProximoAnoCurso(c, cursoMedioUUID, anoAcademicoAtual, aprovado)
+		case "superior":
+			proximoAnoAcademico, err = calcularProximoAnoCurso(c, cursoSuperiorUUID, anoAcademicoAtual, aprovado)
+		}
+		if err != nil {
+			return resultados, err
+		}
+
+		turmasAtuais := buscarTurmasDoEstudante(c, estudanteDTO.CodigoEstudante, codigoAcademia)
+		var turmaAtual *string
+		if len(turmasAtuais) > 0 {
+			turmaAtual = &turmasAtuais[0]
+		}
+
+		if err := estudante.RegistrarAvaliacaoFinal(
+			codigoAcademia,
+			anoLectivo,
+			tipoEnsino,
+			anoAcademicoAtual,
+			proximoAnoAcademico,
+			turmaAtual,
+			turmasAtuais,
+			aprovado,
+			nil,
+			regra.Type,
+			notaFinal,
+			regra.NotaMinimaAprovacao,
+			&regra.ID,
+			regra.Formula,
+			regra.AplicaSeReprovadoEmType,
+		); err != nil {
+			if strings.Contains(err.Error(), "já registrada") {
+				continue
+			}
+			return resultados, err
+		}
+
+		resultados = append(resultados, gin.H{
+			"type":                  regra.Type,
+			"aprovado":              aprovado,
+			"nota_final":            notaFinal,
+			"nota_minima_aprovacao": regra.NotaMinimaAprovacao,
+			"proximo_ano_academico": proximoAnoAcademico,
+		})
+	}
+	return resultados, nil
+}
+
 func inferirTipoEnsinoDoEstudante(estudante *projections.EstudanteDTO) string {
 	if estudante == nil {
 		return "fundamental"

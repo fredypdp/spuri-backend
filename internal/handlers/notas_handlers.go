@@ -192,6 +192,23 @@ func RegistrarNota(c *gin.Context) {
 		return
 	}
 
+	tipoEnsino := inferirTipoEnsinoDoEstudante(estudanteDTO)
+	avaliacoesAutomaticas, err := tentarAvaliacoesFinaisAutomaticas(
+		c,
+		estudante,
+		estudanteDTO,
+		academiaDTO.CodigoAcademia,
+		anoLectivo,
+		tipoEnsino,
+		anoAcademico,
+		req.Categoria,
+		&notaFormulaOverlay{Categoria: req.Categoria, Periodo: req.Periodo, Nota: req.Nota},
+	)
+	if err != nil {
+		utils.RespondWithInternalError(c, fmt.Errorf("erro ao avaliar automaticamente avaliação final: %w", err))
+		return
+	}
+
 	audit := db.AuditContext{
 		UserID:   userID.String(),
 		UserType: "academia",
@@ -206,15 +223,16 @@ func RegistrarNota(c *gin.Context) {
 		req.CodigoEstudante, req.Nota, req.Tipo, req.Categoria, materiaDTO.Nome, anoAcademico, req.Periodo)
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message":          "nota registrada com sucesso",
-		"estudante":        req.CodigoEstudante,
-		"materia":          materiaDTO.Nome,
-		"tipo":             req.Tipo,
-		"categoria":        req.Categoria,
-		"nota":             req.Nota,
-		"ano_academico":    anoAcademico,
-		"periodo":          req.Periodo,
-		"periodos_validos": periodosValidos,
+		"message":                       "nota registrada com sucesso",
+		"estudante":                     req.CodigoEstudante,
+		"materia":                       materiaDTO.Nome,
+		"tipo":                          req.Tipo,
+		"categoria":                     req.Categoria,
+		"nota":                          req.Nota,
+		"ano_academico":                 anoAcademico,
+		"periodo":                       req.Periodo,
+		"periodos_validos":              periodosValidos,
+		"avaliacoes_finais_automaticas": avaliacoesAutomaticas,
 	})
 }
 
