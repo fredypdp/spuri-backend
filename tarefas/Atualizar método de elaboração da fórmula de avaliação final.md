@@ -1,3 +1,7 @@
+---
+modificado: 2026-06-20 0:12
+criado: 2026-06-20 0:12
+---
 # Tarefa: substituir a DSL JSON de avaliação final por uma fórmula textual segura
 
 ## Contexto
@@ -38,11 +42,11 @@ A gramática deve rejeitar qualquer caractere ou estrutura fora da lista permiti
 - Validar todas as categorias referenciadas contra `categorias_envolvidas`.
 - Validar todos os períodos referenciados com as regras já existentes de período/ano/semestre.
 - Impedir divisão por zero em constantes e durante execução.
-- Definir limite máximo de tamanho da fórmula.
-- Definir limite máximo de tokens/nós para evitar payloads abusivos.
 - Definir precisão/normalização dos cálculos para manter comportamento determinístico.
 - Garantir que a avaliação continue usando apenas notas do estudante, academia e ano letivo corretos, não deletadas.
 - Manter snapshot auditável da fórmula textual usada no momento da avaliação final.
+- Impedir duplicatas
+- Garantir o uso de categorias que a acadmeia possui
 
 ## Comportamento esperado
 
@@ -58,7 +62,7 @@ A gramática deve rejeitar qualquer caractere ou estrutura fora da lista permiti
 
 O modelo antigo de fórmula em árvore JSON deve ser totalmente apagado do código, sem deixar resquícios funcionais ou documentação antiga como alternativa.
 
-Remover completamente:
+Remover coisas como completamente:
 
 - Structs e funções específicas da DSL JSON atual.
 - Validações das operações `sum_periods`, `category_total`, `add` e `div`.
@@ -66,7 +70,7 @@ Remover completamente:
 - Textos que indiquem suporte ao modelo antigo.
 - Testes antigos que validem a DSL JSON, substituindo-os por testes da fórmula textual.
 
-Se for necessário manter compatibilidade temporária de dados existentes, isso deve ser feito por migração explícita e documentada, não por suporte silencioso permanente aos dois modelos.
+Não manter compatibilidade temporária de dados legado pois não existem.
 
 ## Atualização de banco e versionamento
 
@@ -85,7 +89,6 @@ Depois de atualizar completamente o código, atualizar as duas documentações d
 
 As duas documentações devem ser bem didáticas e conter:
 
-- Explicação do motivo da mudança.
 - Sintaxe oficial da fórmula textual.
 - Lista de operadores permitidos.
 - Regras de precedência e uso de parênteses.
