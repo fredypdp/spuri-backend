@@ -1,8 +1,8 @@
 ---
-modificado: 18-06-2026 20:05
+modificado: 20-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.6.6
+Versão atual: 1.6.7
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -613,12 +613,12 @@ A avaliação final é o mecanismo auditável que decide aprovação, reprovaç�
 **Configuração de regras:**
 
 - Cada regra pertence à academia autenticada e contém `type`, `nome`, `descricao`, `tipo_ensino`, `anos_academicos`, `nota_minima_aprovacao`, `categorias_envolvidas`, `formula`, `aplica_se_reprovado_em_type`, `status` e `version`.
-- `type` vazio na criação vira `normal`.
-- `nome`, `anos_academicos`, `categorias_envolvidas`, `formula` e `nota_minima_aprovacao > 0` são obrigatórios.
+- `type` é obrigatório na criação; o cliente deve enviar explicitamente a etapa pública (`normal`, `recurso`, `especial`, etc.).
+- `type`, `nome`, `tipo_ensino`, `anos_academicos`, `categorias_envolvidas`, `formula` e `nota_minima_aprovacao > 0` são obrigatórios na criação; `descricao` é opcional.
 - `tipo_ensino` deve ser exatamente `fundamental`, `medio` ou `superior`.
 - Não pode haver dois registros ativos com o mesmo `codigo_academia`, `tipo_ensino`, `type` e ano acadêmico sobreposto. Assim, regras do mesmo `type` podem coexistir para anos diferentes, mas não para o mesmo ano.
 - Para cada academia, tipo de ensino e ano acadêmico, deve existir no máximo uma regra raiz ativa. Regra raiz é a regra sem `aplica_se_reprovado_em_type`.
-- Uma regra dependente (`recurso`, por exemplo) só pode apontar para um `type` ativo existente na mesma academia e tipo de ensino, não pode apontar para o próprio `type` e não pode criar ciclo de dependências.
+- `aplica_se_reprovado_em_type` é opcional apenas para a regra raiz; em regra dependente (`recurso`, por exemplo), deve apontar para um `type` ativo existente na mesma academia e tipo de ensino, não pode apontar para o próprio `type` e não pode criar ciclo de dependências.
 - A cadeia aplicável a um estudante precisa ter exatamente uma raiz; regras dependentes só participam quando apontam para outro `type` dentro da mesma cadeia aplicável ao ano acadêmico.
 
 **Fórmula textual (`formula_textual_v1`):**

@@ -21,14 +21,14 @@ import (
 type regraAvaliacaoFinalDTO struct {
 	ID                      uuid.UUID `json:"id"`
 	CodigoAcademia          string    `json:"codigo_academia"`
-	Type                    string    `json:"type"`
-	Nome                    string    `json:"nome"`
+	Type                    string    `json:"type" binding:"required"`
+	Nome                    string    `json:"nome" binding:"required"`
 	Descricao               *string   `json:"descricao,omitempty"`
-	TipoEnsino              string    `json:"tipo_ensino"`
-	AnosAcademicos          []string  `json:"anos_academicos"`
-	NotaMinimaAprovacao     float64   `json:"nota_minima_aprovacao"`
-	CategoriasEnvolvidas    []string  `json:"categorias_envolvidas"`
-	Formula                 string    `json:"formula"`
+	TipoEnsino              string    `json:"tipo_ensino" binding:"required"`
+	AnosAcademicos          []string  `json:"anos_academicos" binding:"required"`
+	NotaMinimaAprovacao     float64   `json:"nota_minima_aprovacao" binding:"required"`
+	CategoriasEnvolvidas    []string  `json:"categorias_envolvidas" binding:"required"`
+	Formula                 string    `json:"formula" binding:"required"`
 	AplicaSeReprovadoEmType *string   `json:"aplica_se_reprovado_em_type,omitempty"`
 	Status                  string    `json:"status"`
 	Version                 int       `json:"version"`
@@ -44,13 +44,10 @@ func CriarRegraAvaliacaoFinal(c *gin.Context) {
 	}
 	var req regraAvaliacaoFinalDTO
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("campos obrigatórios: nome, tipo_ensino, anos_academicos, nota_minima_aprovacao, categorias_envolvidas, formula"))
+		utils.RespondWithValidationError(c, fmt.Errorf("campos obrigatórios: type, nome, tipo_ensino, anos_academicos, nota_minima_aprovacao, categorias_envolvidas, formula"))
 		return
 	}
-	if strings.TrimSpace(req.Type) == "" {
-		req.Type = "normal"
-	}
-	if strings.TrimSpace(req.Nome) == "" || req.NotaMinimaAprovacao <= 0 || len(req.AnosAcademicos) == 0 || len(req.CategoriasEnvolvidas) == 0 || strings.TrimSpace(req.Formula) == "" {
+	if strings.TrimSpace(req.Type) == "" || strings.TrimSpace(req.Nome) == "" || req.NotaMinimaAprovacao <= 0 || len(req.AnosAcademicos) == 0 || len(req.CategoriasEnvolvidas) == 0 || strings.TrimSpace(req.Formula) == "" {
 		utils.RespondWithValidationError(c, fmt.Errorf("regra de avaliação final incompleta"))
 		return
 	}
