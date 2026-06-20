@@ -9,6 +9,7 @@ func TestNormalizarTypeRegraAvaliacaoFinal(t *testing.T) {
 		want string
 	}{
 		{name: "trim", in: " normal ", want: "normal"},
+		{name: "leading and trailing spaces are trimmed before conversion", in: "  exame final  ", want: "exame_final"},
 		{name: "space to underscore", in: "exame final", want: "exame_final"},
 		{name: "multiple spaces collapse", in: "exame   final", want: "exame_final"},
 		{name: "letters numbers underscore", in: "recurso_2", want: "recurso_2"},
