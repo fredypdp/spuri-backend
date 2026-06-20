@@ -2,7 +2,7 @@
 modificado: 20-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.7.1
+Versão atual: 1.7.2
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -616,9 +616,9 @@ A avaliação final é o mecanismo auditável que decide aprovação, reprovaç�
 - `type` é obrigatório na criação; o cliente deve enviar explicitamente a etapa pública (`avaliacao_final`, `avaliacao_final_com_exame`, `avaliacao_final_com_recurso`, etc.). O backend aceita apenas letras, números, espaços e `_`, descarta espaços antes/depois, converte apenas espaços internos entre textos para `_` antes de persistir e rejeita outros caracteres.
 - `type`, `nome`, `tipo_ensino`, `anos_academicos`, `formula` e `nota_minima_aprovacao > 0` são obrigatórios na criação; `descricao` é opcional. `categorias_envolvidas` não precisa ser enviado: o backend extrai automaticamente as categorias referenciadas na `formula`. Se o cliente enviar esse campo, ele deve bater exatamente com as categorias da fórmula, sem sobras nem omissões. Exemplos de `nome`: `Avaliação final`, `Avaliação final (com exame)` e `Avaliação final (com recurso)`.
 - `tipo_ensino` deve ser exatamente `fundamental`, `medio` ou `superior`.
-- Não pode haver dois registros ativos com o mesmo `codigo_academia`, `tipo_ensino`, `type` e ano acadêmico sobreposto. Assim, regras do mesmo `type` podem coexistir para anos diferentes, mas não para o mesmo ano.
+- Não pode haver dois registros ativos com o mesmo `codigo_academia`, `tipo_ensino`, `type` e ano acadêmico sobreposto. Assim, regras do mesmo `type` podem coexistir para anos diferentes, mas não para o mesmo ano. Ao criar ou editar uma regra, o `type` pode ser igual ao de uma regra inativa; nesse caso, a regra inativa fica impedida de ser ativada enquanto existir regra ativa conflitante.
 - Para cada academia, tipo de ensino e ano acadêmico, deve existir no máximo uma regra raiz ativa. Regra raiz é a regra sem `aplica_se_reprovado_em_type`.
-- `aplica_se_reprovado_em_type` é opcional apenas para a regra raiz; em regra dependente (`avaliacao_final_com_recurso`, por exemplo), passa pela mesma normalização de `type`, deve apontar para um `type` ativo existente na mesma academia e tipo de ensino, não pode apontar para o próprio `type`, não pode criar ciclo de dependências e deve usar exatamente os mesmos `anos_academicos` da regra raiz da cadeia.
+- `aplica_se_reprovado_em_type` é opcional apenas para a regra raiz; em regra dependente (`avaliacao_final_com_recurso`, por exemplo), passa pela mesma normalização de `type`, deve apontar para um `type` ativo existente na mesma academia e tipo de ensino, não pode apontar para o próprio `type`, não pode criar ciclo de dependências e deve usar exatamente os mesmos `anos_academicos` da regra raiz da cadeia. Uma regra dependente inativa não pode ser ativada enquanto a regra da qual ela depende estiver inativa.
 - A cadeia aplicável a um estudante precisa ter exatamente uma raiz; regras dependentes só participam quando apontam para outro `type` dentro da mesma cadeia aplicável ao ano acadêmico.
 
 **Fórmula textual (`formula_textual_v1`):**
@@ -743,7 +743,7 @@ Não há rota pública registrada para execução manual de avaliação final. A
 - `GET /reprovacoes` → apenas reprovados (`aprovado = FALSE`) com os mesmos filtros.
 - `GET /academia/avaliacao-final/regras` → lista regras da academia autenticada.
 - `PUT /academia/avaliacao-final/regras/:id` → edita apenas `nome`, `descricao`, `nota_minima_aprovacao` e `formula`; as categorias são recalculadas pela fórmula.
-- `DELETE /academia/avaliacao-final/regras/:id` → inativa a regra e suas dependentes em cadeia. A deleção é lógica, não física, para preservar histórico e snapshots de avaliações já registradas.
+- `DELETE /academia/avaliacao-final/regras/:id` → inativa a regra e suas dependentes em cadeia. A deleção é lógica, não física, para preservar histórico e snapshots de avaliações já registradas. Após a inativação, dependentes não podem ser reativadas sem o pré-requisito ativo, e regras inativas com `type` conflitante com regra ativa permanecem bloqueadas para ativação.
 
 **Escopo por academia:** quando o usuário autenticado é academia, o backend força `codigo_academia` para a academia autenticada; não é permitido consultar dados de outra academia.
 
@@ -943,6 +943,8 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 | Reprovação não altera o ano/status | Mantém nível atual e não finaliza ciclo |
 | Aprovação no último nível finaliza ciclo | Define o status do ciclo correspondente como `finalizado` |
 | Uma avaliação por type/ano letivo/nível | Idempotência via aggregate e projeção |
+| Ativação de regra dependente | Uma regra dependente inativa só pode ser ativada se o `type` apontado em `aplica_se_reprovado_em_type` estiver ativo |
+| Reativação com `type` conflitante | Regra inativa não pode ser ativada enquanto houver regra ativa com o mesmo `type`, tipo de ensino e ano acadêmico sobreposto |
 | Aprovação escolar move para turma do próximo ano; reprovação escolar mantém na turma | Automático na projeção de turmas para fundamental/médio |
 | Avaliação superior não altera turmas | Turmas do superior são geridas separadamente |
 
