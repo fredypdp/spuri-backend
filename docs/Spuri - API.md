@@ -1,8 +1,8 @@
 ---
-modificado: 18-06-2026 18:30
+modificado: 20-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.8.3
+Versão atual: 1.8.4
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -2126,7 +2126,7 @@ Cria uma regra ativa de avaliação final para a academia autenticada.
 
 **Campos e validações:**
 
-- `type` — opcional; vazio vira `normal`. Identifica a etapa pública (`normal`, `recurso`, `especial`, etc.).
+- `type` — obrigatório. Identifica a etapa pública (`normal`, `recurso`, `especial`, etc.).
 - `nome` — obrigatório.
 - `descricao` — opcional.
 - `tipo_ensino` — obrigatório; apenas `fundamental`, `medio` ou `superior`.
@@ -2134,14 +2134,14 @@ Cria uma regra ativa de avaliação final para a academia autenticada.
 - `nota_minima_aprovacao` — obrigatório e maior que zero.
 - `categorias_envolvidas` — obrigatório, não vazio, sem duplicatas e contendo apenas categorias ativas/configuradas pela academia para os anos da regra.
 - `formula` — obrigatório; deve ser uma string textual no modelo `formula_textual_v1`. O formato JSON em árvore antigo foi removido e não é aceito.
-- `aplica_se_reprovado_em_type` — opcional; quando informado, deve apontar para regra ativa existente na mesma academia/tipo de ensino, não pode ser igual ao próprio `type` e não pode criar ciclo.
+- `aplica_se_reprovado_em_type` — opcional para regra raiz; obrigatório para regras dependentes. Quando informado, deve apontar para regra ativa existente na mesma academia/tipo de ensino, não pode ser igual ao próprio `type` e não pode criar ciclo.
 
 **Unicidade e cadeia:**
 
 - Não pode existir outra regra ativa com o mesmo `type`, `tipo_ensino` e ano acadêmico sobreposto para a mesma academia.
 - Para cada academia, tipo de ensino e ano acadêmico, só pode haver uma regra raiz ativa. Regra raiz é a regra sem `aplica_se_reprovado_em_type`.
 - Regras dependentes formam uma cadeia de novas chances; elas só executam depois de reprovação no `type` apontado.
-- A regra é criada com `status = "ativo"` e `version = 1`.
+- A regra é criada pelo backend com `status = "ativo"` e `version = 1`; esses campos não são enviados na criação.
 
 **Fórmula textual (`formula_textual_v1`):**
 
