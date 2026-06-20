@@ -621,14 +621,41 @@ A avaliação final é o mecanismo auditável que decide aprovação, reprovaç�
 - Uma regra dependente (`recurso`, por exemplo) só pode apontar para um `type` ativo existente na mesma academia e tipo de ensino, não pode apontar para o próprio `type` e não pode criar ciclo de dependências.
 - A cadeia aplicável a um estudante precisa ter exatamente uma raiz; regras dependentes só participam quando apontam para outro `type` dentro da mesma cadeia aplicável ao ano acadêmico.
 
-**DSL de fórmula:**
+**Fórmula textual (`formula_textual_v1`):**
 
-A fórmula é JSON estruturado, sem execução de código arbitrário. Operações suportadas:
+A regra usa `formula` como string declarativa. O backend valida e interpreta a expressão com parser próprio; não há `eval`, JavaScript, SQL dinâmico, templates executáveis nem execução de código do usuário. O modelo antigo em árvore JSON foi removido e não é alternativa suportada.
 
-- `sum_periods`: soma todas as notas das `categories` nos `periods` indicados. Exige `categories` e `periods`. Cada categoria precisa estar em `categorias_envolvidas`. Se faltar nota para qualquer par categoria/período exigido, a avaliação não pode ser calculada.
-- `category_total`: soma todas as notas existentes da `category`, em todos os períodos. A categoria precisa estar em `categorias_envolvidas` e precisa ter ao menos uma nota.
-- `add`: soma os valores retornados pelos nós em `items`; exige ao menos um item.
-- `div`: divide o resultado de `left` por uma constante numérica em `right`; `right` precisa ser diferente de zero.
+Sintaxe oficial:
+
+- Referência de nota: `[categoria,periodo]`, por exemplo `[nota_escola,1_trimestre]`.
+- Operadores permitidos: `+`, `-`, `*`, `/`.
+- Precedência: multiplicação/divisão antes de soma/subtração. Parênteses podem agrupar partes da fórmula.
+- Constantes numéricas positivas ou zero podem ser usadas para médias, pesos e divisores, com decimal por ponto (`0.4`).
+- Espaços são ignorados. Qualquer caractere fora dessa gramática é rejeitado.
+- Todas as categorias referenciadas precisam estar em `categorias_envolvidas`, sem duplicatas, e precisam estar ativas/configuradas para a academia nos anos acadêmicos da regra.
+- Todos os períodos são validados pelas regras existentes (`1_trimestre`, `2_trimestre`, `3_trimestre`, `[n]_semestre` etc.).
+- Divisão por zero é bloqueada tanto na validação quanto durante o cálculo.
+- Fórmulas grandes demais são rejeitadas.
+
+Exemplos válidos:
+
+```text
+([nota_escola,1_trimestre]+[nota_escola,2_trimestre]+[nota_escola,3_trimestre])/3
+([nota_escola,1_trimestre]*0.3)+([nota_escola,2_trimestre]*0.3)+([nota_exame_final,3_trimestre]*0.4)
+[nota_escola,1_trimestre]+[nota_professor,1_trimestre]
+```
+
+Exemplos inválidos:
+
+```text
+{ "op": "..." }
+[nota_escola]
+[nota_escola,1_trimestre]/0
+eval([nota_escola,1_trimestre])
+[nota_inexistente,1_trimestre]
+```
+
+Quando a fórmula referencia uma nota ainda ausente, a avaliação não é fechada naquele momento; ela aguarda novo lançamento.
 
 **Processo automático ao registrar notas:**
 
@@ -650,9 +677,9 @@ Não há rota pública registrada para execução manual de avaliação final. A
 
 **Como a fórmula considera períodos:**
 
-- `sum_periods` deve ser usado quando a regra precisa exigir períodos específicos. O cliente deve listar explicitamente todos os trimestres/semestres obrigatórios em `periods`; o backend não assume automaticamente todos os períodos da academia/curso.
-- `category_total` soma todas as notas existentes da categoria em qualquer período, mas não valida que todos os períodos esperados foram lançados. Use para componentes pontuais ou variáveis, como exame final, não para garantir completude de trimestres/semestres.
-- `add` combina nós numéricos e `div` calcula médias dividindo o nó `left` por uma constante `right`.
+- Cada referência `[categoria,periodo]` exige nota naquele par exato de categoria e período.
+- Para médias simples, some explicitamente os períodos necessários e divida pela quantidade desejada.
+- Para pesos, multiplique cada referência ou grupo por sua constante, por exemplo `[nota_escola,1_trimestre]*0.3`.
 
 **Persistência, auditoria e versionamento:**
 
@@ -905,7 +932,7 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 
 | Regra                                       | Detalhe                                    |
 | ------------------------------------------- | ------------------------------------------ |
-| Aprovação exige notas presentes na fórmula | `sum_periods` bloqueia pares categoria/período ausentes; `category_total` exige ao menos uma nota na categoria |
+| Aprovação exige notas presentes na fórmula | Cada referência `[categoria,periodo]` exige nota daquele par; se faltar, a avaliação aguarda novo lançamento |
 | Observação não faz override de nota | `observacao` é apenas metadado; aprovação/reprovação vem de `nota_final >= nota_minima_aprovacao` |
 | Fundamental usa sequência fixa 1..9 | `1_ano_fundamental` até `9_ano_fundamental` |
 | Médio usa sequência do curso | Avança conforme `anos_academicos` do curso médio ativo vinculado |

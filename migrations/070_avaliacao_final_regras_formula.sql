@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS projection_regras_avaliacao_final (
     anos_academicos JSONB NOT NULL DEFAULT '[]'::jsonb,
     nota_minima_aprovacao NUMERIC(10,2) NOT NULL CHECK (nota_minima_aprovacao > 0),
     categorias_envolvidas JSONB NOT NULL DEFAULT '[]'::jsonb,
-    formula JSONB NOT NULL,
+    formula TEXT NOT NULL,
     aplica_se_reprovado_em_type VARCHAR(50),
     status VARCHAR(20) NOT NULL DEFAULT 'ativo' CHECK (status IN ('ativo','inativo')),
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -28,7 +28,7 @@ ALTER TABLE projection_avaliacao_final
     ADD COLUMN IF NOT EXISTS nota_final NUMERIC(10,2),
     ADD COLUMN IF NOT EXISTS nota_minima_aprovacao NUMERIC(10,2),
     ADD COLUMN IF NOT EXISTS regra_avaliacao_final_id UUID,
-    ADD COLUMN IF NOT EXISTS formula_snapshot JSONB,
+    ADD COLUMN IF NOT EXISTS formula_snapshot TEXT,
     ADD COLUMN IF NOT EXISTS aplica_se_reprovado_em_type VARCHAR(50);
 
 DROP INDEX IF EXISTS uq_avaliacao_final_estudante_ano_letivo;
