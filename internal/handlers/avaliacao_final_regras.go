@@ -21,14 +21,14 @@ import (
 type regraAvaliacaoFinalDTO struct {
 	ID                      uuid.UUID `json:"id"`
 	CodigoAcademia          string    `json:"codigo_academia"`
-	Type                    string    `json:"type"`
-	Nome                    string    `json:"nome"`
+	Type                    string    `json:"type" binding:"required"`
+	Nome                    string    `json:"nome" binding:"required"`
 	Descricao               *string   `json:"descricao,omitempty"`
-	TipoEnsino              string    `json:"tipo_ensino"`
-	AnosAcademicos          []string  `json:"anos_academicos"`
-	NotaMinimaAprovacao     float64   `json:"nota_minima_aprovacao"`
-	CategoriasEnvolvidas    []string  `json:"categorias_envolvidas"`
-	Formula                 string    `json:"formula"`
+	TipoEnsino              string    `json:"tipo_ensino" binding:"required"`
+	AnosAcademicos          []string  `json:"anos_academicos" binding:"required"`
+	NotaMinimaAprovacao     float64   `json:"nota_minima_aprovacao" binding:"required"`
+	CategoriasEnvolvidas    []string  `json:"categorias_envolvidas" binding:"required"`
+	Formula                 string    `json:"formula" binding:"required"`
 	AplicaSeReprovadoEmType *string   `json:"aplica_se_reprovado_em_type,omitempty"`
 	Status                  string    `json:"status"`
 	Version                 int       `json:"version"`
@@ -44,15 +44,29 @@ func CriarRegraAvaliacaoFinal(c *gin.Context) {
 	}
 	var req regraAvaliacaoFinalDTO
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("campos obrigatórios: nome, tipo_ensino, anos_academicos, nota_minima_aprovacao, categorias_envolvidas, formula"))
+		utils.RespondWithValidationError(c, fmt.Errorf("campos obrigatórios: type, nome, tipo_ensino, anos_academicos, nota_minima_aprovacao, categorias_envolvidas, formula"))
 		return
 	}
-	if strings.TrimSpace(req.Type) == "" {
-		req.Type = "normal"
-	}
-	if strings.TrimSpace(req.Nome) == "" || req.NotaMinimaAprovacao <= 0 || len(req.AnosAcademicos) == 0 || len(req.CategoriasEnvolvidas) == 0 || strings.TrimSpace(req.Formula) == "" {
+	if strings.TrimSpace(req.Type) == "" || strings.TrimSpace(req.Nome) == "" || req.NotaMinimaAprovacao <= 0 || len(req.AnosAcademicos) == 0 || len(req.CategoriasEnvolvidas) == 0 || strings.TrimSpace(req.Formula) == "" {
 		utils.RespondWithValidationError(c, fmt.Errorf("regra de avaliação final incompleta"))
 		return
+	}
+	req.Type, err = normalizarTypeRegraAvaliacaoFinal(req.Type)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if req.AplicaSeReprovadoEmType != nil {
+		if strings.TrimSpace(*req.AplicaSeReprovadoEmType) == "" {
+			req.AplicaSeReprovadoEmType = nil
+		} else {
+			dependeDe, err := normalizarTypeRegraAvaliacaoFinal(*req.AplicaSeReprovadoEmType)
+			if err != nil {
+				utils.RespondWithValidationError(c, fmt.Errorf("aplica_se_reprovado_em_type inválido: %w", err))
+				return
+			}
+			req.AplicaSeReprovadoEmType = &dependeDe
+		}
 	}
 	if req.TipoEnsino != "fundamental" && req.TipoEnsino != "medio" && req.TipoEnsino != "superior" {
 		utils.RespondWithValidationError(c, fmt.Errorf("tipo_ensino deve ser fundamental, medio ou superior"))
@@ -94,6 +108,39 @@ func CriarRegraAvaliacaoFinal(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"message": "regra de avaliação final criada", "id": id})
+}
+
+func normalizarTypeRegraAvaliacaoFinal(typ string) (string, error) {
+	typ = strings.TrimSpace(typ)
+	if typ == "" {
+		return "", fmt.Errorf("type é obrigatório")
+	}
+
+	var b strings.Builder
+	ultimoUnderscore := false
+	for _, r := range typ {
+		switch {
+		case unicode.IsSpace(r):
+			if !ultimoUnderscore {
+				b.WriteRune('_')
+				ultimoUnderscore = true
+			}
+		case unicode.IsLetter(r) || unicode.IsNumber(r):
+			b.WriteRune(r)
+			ultimoUnderscore = false
+		case r == '_':
+			b.WriteRune(r)
+			ultimoUnderscore = true
+		default:
+			return "", fmt.Errorf("type deve conter apenas letras, números, espaços ou underscore; espaços são convertidos para '_'")
+		}
+	}
+
+	normalizado := strings.Trim(b.String(), "_")
+	if normalizado == "" {
+		return "", fmt.Errorf("type deve conter pelo menos uma letra ou número")
+	}
+	return normalizado, nil
 }
 
 func ListarRegrasAvaliacaoFinal(c *gin.Context) {
