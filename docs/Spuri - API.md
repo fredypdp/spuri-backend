@@ -2,7 +2,7 @@
 modificado: 20-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.8.8
+Versão atual: 1.8.9
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -2135,11 +2135,11 @@ Cria uma regra ativa de avaliação final para a academia autenticada.
 - `nota_minima_aprovacao` — obrigatório e maior que zero.
 - `categorias_envolvidas` — opcional. O backend extrai automaticamente as categorias usadas em `formula`. Se enviado, deve corresponder exatamente às categorias extraídas da fórmula, sem duplicatas, sobras ou omissões, e todas precisam estar ativas/configuradas pela academia para os anos da regra.
 - `formula` — obrigatório; deve ser uma string textual no modelo `formula_textual_v1`. O formato JSON em árvore antigo foi removido e não é aceito.
-- `aplica_se_reprovado_em_type` — opcional para regra raiz; obrigatório para regras dependentes. Quando informado, passa pela mesma normalização de `type`, deve apontar para regra ativa existente na mesma academia/tipo de ensino, não pode ser igual ao próprio `type`, não pode criar ciclo e obriga a regra dependente a usar exatamente os mesmos `anos_academicos` da regra raiz da cadeia.
+- `aplica_se_reprovado_em_type` — opcional para regra raiz; obrigatório para regras dependentes. Quando informado, passa pela mesma normalização de `type`, deve apontar para regra ativa existente na mesma academia/tipo de ensino, não pode ser igual ao próprio `type`, não pode criar ciclo e obriga a regra dependente a usar exatamente os mesmos `anos_academicos` da regra raiz da cadeia. Uma regra dependente inativa não pode ser ativada enquanto a regra da qual ela depende estiver inativa.
 
 **Unicidade e cadeia:**
 
-- Não pode existir outra regra ativa com o mesmo `type`, `tipo_ensino` e ano acadêmico sobreposto para a mesma academia.
+- Não pode existir outra regra ativa com o mesmo `type`, `tipo_ensino` e ano acadêmico sobreposto para a mesma academia. Ao criar ou editar uma regra, é permitido definir um `type` igual ao de uma regra inativa; porém essa regra inativa não poderá ser reativada enquanto existir uma regra ativa com o mesmo `type`, `tipo_ensino` e ano acadêmico sobreposto.
 - Para cada academia, tipo de ensino e ano acadêmico, só pode haver uma regra raiz ativa. Regra raiz é a regra sem `aplica_se_reprovado_em_type`.
 - Regras dependentes formam uma cadeia de novas chances; elas precisam ter os mesmos `anos_academicos` da raiz e só executam depois de reprovação no `type` apontado.
 - A regra é criada pelo backend com `status = "ativo"` e `version = 1`; esses campos não são enviados na criação.
@@ -2241,7 +2241,7 @@ Edita uma regra ativa de avaliação final da academia autenticada. Por seguran�
 
 - O `id` precisa ser UUID válido e pertencer à academia autenticada.
 - A regra precisa estar `ativo`; regras inativas não são editadas.
-- Não é permitido editar `type`, `tipo_ensino`, `anos_academicos`, `aplica_se_reprovado_em_type`, `status` nem `version` via payload, para não quebrar a cadeia já configurada.
+- Não é permitido editar `type`, `tipo_ensino`, `anos_academicos`, `aplica_se_reprovado_em_type`, `status` nem `version` via payload, para não quebrar a cadeia já configurada. Caso uma versão futura permita editar `type`, a validação deve seguir a mesma regra da criação: o `type` pode coincidir com regra inativa, mas a regra inativa permanecerá bloqueada para ativação enquanto houver regra ativa conflitante.
 - `nome` é obrigatório e não pode ser vazio.
 - `nota_minima_aprovacao` precisa ser maior que zero.
 - `formula` passa pelo mesmo parser seguro da criação; categorias são extraídas da fórmula e precisam estar ativas/configuradas para os anos da regra.
@@ -2269,6 +2269,8 @@ Inativa uma regra ativa de avaliação final da academia autenticada. A deleçã
 
 - Se a regra tiver dependentes, o backend inativa também todas as dependentes diretas e indiretas.
 - Essa cascata evita deixar regras órfãs apontando para um `type` inativo.
+- Depois da inativação em cascata, uma regra dependente não pode ser ativada se a regra indicada em `aplica_se_reprovado_em_type` continuar inativa.
+- Regra inativa cujo `type` conflite com outra regra ativa no mesmo `tipo_ensino` e ano acadêmico sobreposto não pode ser ativada até que o conflito seja removido.
 - A operação não apaga avaliações finais já registradas em `projection_avaliacao_final`; elas continuam auditáveis.
 - Cada regra inativada recebe `version = version + 1` e `updated_at` novo.
 
