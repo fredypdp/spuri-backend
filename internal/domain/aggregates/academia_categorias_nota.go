@@ -3,9 +3,9 @@ package aggregates
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 )
@@ -22,7 +22,11 @@ func (a *Academia) AdicionarCategoriaNota(
 	codigosExistentes []string,
 	anosAcademicos []string,
 ) error {
-	codigo = strings.TrimSpace(codigo)
+	codigoNormalizado, err := normalizarCodigoCategoriaNota(codigo)
+	if err != nil {
+		return err
+	}
+	codigo = codigoNormalizado
 	nome = strings.TrimSpace(nome)
 	if codigo == "" {
 		return fmt.Errorf("codigo da categoria não pode ser vazio")
@@ -38,13 +42,6 @@ func (a *Academia) AdicionarCategoriaNota(
 			return fmt.Errorf("anos_academicos da categoria não pode conter valores vazios")
 		}
 	}
-	if strings.Contains(codigo, " ") {
-		return fmt.Errorf("codigo da categoria não pode conter espaços")
-	}
-	if ok, _ := regexp.MatchString(`^[a-z0-9_]+$`, codigo); !ok {
-		return fmt.Errorf("codigo da categoria inválido: use apenas letras minúsculas, números e underscore")
-	}
-
 	for _, c := range a.CategoriasNota {
 		if c == codigo {
 			return fmt.Errorf("categoria '%s' já existe nesta academia (detectado via estado do aggregate)", codigo)
@@ -76,10 +73,11 @@ func (a *Academia) RemoverCategoriaNota(
 	removidoPor uuid.UUID,
 	codigosExistentes []string,
 ) error {
-	codigo = strings.TrimSpace(codigo)
-	if codigo == "" {
-		return fmt.Errorf("codigo da categoria não pode ser vazio")
+	codigoNormalizado, err := normalizarCodigoCategoriaNota(codigo)
+	if err != nil {
+		return err
 	}
+	codigo = codigoNormalizado
 
 	existeNoAggregate := false
 	for _, c := range a.CategoriasNota {
@@ -111,6 +109,39 @@ func (a *Academia) RemoverCategoriaNota(
 
 	a.RaiseEvent(event)
 	return a.Apply(event)
+}
+
+func normalizarCodigoCategoriaNota(codigo string) (string, error) {
+	codigo = strings.TrimSpace(strings.ToLower(codigo))
+	if codigo == "" {
+		return "", fmt.Errorf("codigo da categoria não pode ser vazio")
+	}
+
+	var b strings.Builder
+	ultimoUnderscore := false
+	for _, r := range codigo {
+		switch {
+		case unicode.IsSpace(r):
+			if !ultimoUnderscore {
+				b.WriteRune('_')
+				ultimoUnderscore = true
+			}
+		case unicode.IsLower(r) || unicode.IsNumber(r):
+			b.WriteRune(r)
+			ultimoUnderscore = false
+		case r == '_':
+			b.WriteRune(r)
+			ultimoUnderscore = true
+		default:
+			return "", fmt.Errorf("codigo da categoria inválido: use apenas letras minúsculas, números, espaços ou underscore; espaços são convertidos para '_'")
+		}
+	}
+
+	normalizado := strings.Trim(b.String(), "_")
+	if normalizado == "" {
+		return "", fmt.Errorf("codigo da categoria deve conter pelo menos uma letra ou número")
+	}
+	return normalizado, nil
 }
 
 // ============================================================================

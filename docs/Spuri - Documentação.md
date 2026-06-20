@@ -2,7 +2,7 @@
 modificado: 20-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.6.8
+Versão atual: 1.6.9
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -409,7 +409,7 @@ Agrupa estudantes num contexto de nível, turno e curso.
 
 **Campos obrigatórios**: `codigo_turma`, `nivel`, `turno` (`manha`/`tarde`/`noite`)
 
-O código de turma deve ser **único dentro da academia**.
+O código de turma deve ser **único dentro da academia**. Antes da validação de unicidade, `codigo_turma` é normalizado: espaços antes/depois são descartados, somente espaços internos entre textos viram `_` e caracteres especiais diferentes de `_` são rejeitados.
 
 **Estudantes na turma**: guardados como lista de `CodigoEstudante` (strings). Um estudante pode estar em múltiplas turmas simultaneamente.
 
@@ -558,7 +558,7 @@ Sempre que o ano letivo for atualizado, ele é adicionado em `anos_letivos_lista
 |`escolar`|`escola`|`nota_escola`, `nota_professor`|`1_trimestre`, `2_trimestre`, `3_trimestre`|
 |`superior`|`superior`|`nota_pp1`, `nota_pp2`, `nota_exame`|Semestres do curso|
 
-Academias podem criar **categorias adicionais** personalizadas e também configurar as categorias fixas/obrigatórias. Toda categoria de nota possui `anos_academicos`; apenas os anos presentes nessa lista aceitam registros. Se a categoria não tiver anos definidos, nenhuma nota pode ser registrada nela.
+Academias podem criar **categorias adicionais** personalizadas e também configurar as categorias fixas/obrigatórias. Toda categoria de nota possui `anos_academicos`; apenas os anos presentes nessa lista aceitam registros. Se a categoria não tiver anos definidos, nenhuma nota pode ser registrada nela. O `codigo` da categoria é normalizado antes de persistir: espaços antes/depois são descartados, somente espaços internos entre textos viram `_`, letras maiúsculas viram minúsculas e caracteres especiais diferentes de `_` são rejeitados.
 
 **Valor**: entre 0 ou mais (validado no aggregate)
 
@@ -613,7 +613,7 @@ A avaliação final é o mecanismo auditável que decide aprovação, reprovaç�
 **Configuração de regras:**
 
 - Cada regra pertence à academia autenticada e contém `type`, `nome`, `descricao`, `tipo_ensino`, `anos_academicos`, `nota_minima_aprovacao`, `categorias_envolvidas`, `formula`, `aplica_se_reprovado_em_type`, `status` e `version`.
-- `type` é obrigatório na criação; o cliente deve enviar explicitamente a etapa pública (`normal`, `recurso`, `especial`, etc.). O backend aceita apenas letras, números, espaços e `_`, normaliza espaços para `_` antes de persistir e rejeita outros caracteres.
+- `type` é obrigatório na criação; o cliente deve enviar explicitamente a etapa pública (`normal`, `recurso`, `especial`, etc.). O backend aceita apenas letras, números, espaços e `_`, descarta espaços antes/depois, converte apenas espaços internos entre textos para `_` antes de persistir e rejeita outros caracteres.
 - `type`, `nome`, `tipo_ensino`, `anos_academicos`, `categorias_envolvidas`, `formula` e `nota_minima_aprovacao > 0` são obrigatórios na criação; `descricao` é opcional.
 - `tipo_ensino` deve ser exatamente `fundamental`, `medio` ou `superior`.
 - Não pode haver dois registros ativos com o mesmo `codigo_academia`, `tipo_ensino`, `type` e ano acadêmico sobreposto. Assim, regras do mesmo `type` podem coexistir para anos diferentes, mas não para o mesmo ano.

@@ -2,7 +2,7 @@
 modificado: 20-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.8.5
+Versão atual: 1.8.6
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -1267,6 +1267,8 @@ Retorna a lista histórica de anos letivos definidos pela academia alvo.
 
 Cria ou configura uma categoria de nota para a academia. O mesmo endpoint é usado para categorias adicionais e para definir os anos acadêmicos das categorias fixas/obrigatórias (`nota_escola`, `nota_professor`, `nota_pp1`, `nota_pp2`, `nota_exame`).
 
+O campo `codigo` é normalizado antes de persistir: espaços antes/depois são descartados, somente espaços internos entre textos viram `_` (ex.: ` nota teste ` vira `nota_teste`) e caracteres especiais diferentes de `_` são rejeitados. O código aceita letras minúsculas, números, espaços e `_`; letras maiúsculas são convertidas para minúsculas.
+
 **Proteção**: autenticado + academia ativa
 
 **Request:**
@@ -1291,7 +1293,7 @@ Cria ou configura uma categoria de nota para a academia. O mesmo endpoint é usa
 
 **Erros:**
 
-- `400` — codigo, nome ou anos_academicos ausente/vazio
+- `400` — codigo, nome ou anos_academicos ausente/vazio, ou codigo com caracteres especiais inválidos
 - `409` — categoria já existe nesta academia
 
 ---
@@ -1356,7 +1358,7 @@ Inativa (remove logicamente) uma categoria de nota adicional da academia.
 
 **Erros:**
 
-- `400` — codigo, nome ou anos_academicos ausente/vazio no path
+- `400` — codigo, nome ou anos_academicos ausente/vazio, ou codigo com caracteres especiais inválidos no path
 - `400` — categoria não existe nesta academia
 
 ---
@@ -2706,6 +2708,8 @@ Deleta uma matéria (soft delete). Deve estar inativa.
 
 Cria uma nova turma.
 
+O campo `codigo_turma` é normalizado antes de persistir e validar duplicidade: espaços antes/depois são descartados, somente espaços internos entre textos viram `_` (ex.: ` Turma 10 A ` vira `Turma_10_A`) e caracteres especiais diferentes de `_` são rejeitados. O código aceita letras, números, espaços e `_`.
+
 **Proteção**: autenticado + academia ativa
 
 **Request:**
@@ -2731,7 +2735,7 @@ Cria uma nova turma.
 
 **Erros:**
 
-- `400` — turno inválido (deve ser `manha`, `tarde` ou `noite`)
+- `400` — turno inválido (deve ser `manha`, `tarde` ou `noite`) ou `codigo_turma` com caracteres especiais inválidos
 - `409` — código de turma já existe nesta academia
 
 ---
