@@ -10,28 +10,28 @@ import (
 
 type AvaliacaoFinalBasePayload struct {
 	BaseEvent
-	ID                      uuid.UUID       `json:"id"`
-	CodigoEstudante         string          `json:"codigo_estudante"`
-	CodigoAcademia          string          `json:"codigo_academia"`
-	AnoLectivo              string          `json:"ano_lectivo"`
-	TipoEnsino              string          `json:"tipo_ensino"`
-	AnoAcademicoAtual       string          `json:"nivel_ano_academico_atual"`
-	ProximoAnoAcademico     *string         `json:"proximo_ano_academico,omitempty"`
-	CodigoTurma             *string         `json:"codigo_turma,omitempty"`
-	CodigosTurmasRemovidas  []string        `json:"codigos_turmas_removidas,omitempty"`
-	Aprovado                bool            `json:"aprovado"`
-	Observacao              *string         `json:"observacao,omitempty"`
-	Type                    string          `json:"type"`
-	NotaFinal               float64         `json:"nota_final"`
-	NotaMinimaAprovacao     float64         `json:"nota_minima_aprovacao"`
-	RegraAvaliacaoFinalID   *uuid.UUID      `json:"regra_avaliacao_final_id,omitempty"`
-	FormulaSnapshot         json.RawMessage `json:"formula_snapshot,omitempty"`
-	AplicaSeReprovadoEmType *string         `json:"aplica_se_reprovado_em_type,omitempty"`
-	SemestreAtualAvaliado   *int            `json:"semestre_atual,omitempty"`
-	ProximoSemestreAtual    *int            `json:"proximo_semestre_atual,omitempty"`
-	AnoSuperiorAntes        *string         `json:"ano_superior_antes,omitempty"`
-	AnoSuperiorDepois       *string         `json:"ano_superior_depois,omitempty"`
-	RegisteredAt            time.Time       `json:"registered_at"`
+	ID                      uuid.UUID  `json:"id"`
+	CodigoEstudante         string     `json:"codigo_estudante"`
+	CodigoAcademia          string     `json:"codigo_academia"`
+	AnoLectivo              string     `json:"ano_lectivo"`
+	TipoEnsino              string     `json:"tipo_ensino"`
+	AnoAcademicoAtual       string     `json:"nivel_ano_academico_atual"`
+	ProximoAnoAcademico     *string    `json:"proximo_ano_academico,omitempty"`
+	CodigoTurma             *string    `json:"codigo_turma,omitempty"`
+	CodigosTurmasRemovidas  []string   `json:"codigos_turmas_removidas,omitempty"`
+	Aprovado                bool       `json:"aprovado"`
+	Observacao              *string    `json:"observacao,omitempty"`
+	Type                    string     `json:"type"`
+	NotaFinal               float64    `json:"nota_final"`
+	NotaMinimaAprovacao     float64    `json:"nota_minima_aprovacao"`
+	RegraAvaliacaoFinalID   *uuid.UUID `json:"regra_avaliacao_final_id,omitempty"`
+	FormulaSnapshot         string     `json:"formula_snapshot,omitempty"`
+	AplicaSeReprovadoEmType *string    `json:"aplica_se_reprovado_em_type,omitempty"`
+	SemestreAtualAvaliado   *int       `json:"semestre_atual,omitempty"`
+	ProximoSemestreAtual    *int       `json:"proximo_semestre_atual,omitempty"`
+	AnoSuperiorAntes        *string    `json:"ano_superior_antes,omitempty"`
+	AnoSuperiorDepois       *string    `json:"ano_superior_depois,omitempty"`
+	RegisteredAt            time.Time  `json:"registered_at"`
 }
 
 type AvaliacaoFinalSuperiorProgressao struct {
@@ -79,7 +79,7 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 	notaFinal float64,
 	notaMinimaAprovacao float64,
 	regraAvaliacaoFinalID *uuid.UUID,
-	formulaSnapshot json.RawMessage,
+	formulaSnapshot string,
 	aplicaSeReprovadoEmType *string,
 	progressaoSuperior ...AvaliacaoFinalSuperiorProgressao,
 ) error {

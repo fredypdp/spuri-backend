@@ -4,8 +4,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -16,29 +19,19 @@ import (
 )
 
 type regraAvaliacaoFinalDTO struct {
-	ID                      uuid.UUID       `json:"id"`
-	CodigoAcademia          string          `json:"codigo_academia"`
-	Type                    string          `json:"type"`
-	Nome                    string          `json:"nome"`
-	Descricao               *string         `json:"descricao,omitempty"`
-	TipoEnsino              string          `json:"tipo_ensino"`
-	AnosAcademicos          []string        `json:"anos_academicos"`
-	NotaMinimaAprovacao     float64         `json:"nota_minima_aprovacao"`
-	CategoriasEnvolvidas    []string        `json:"categorias_envolvidas"`
-	Formula                 json.RawMessage `json:"formula"`
-	AplicaSeReprovadoEmType *string         `json:"aplica_se_reprovado_em_type,omitempty"`
-	Status                  string          `json:"status"`
-	Version                 int             `json:"version"`
-}
-
-type formulaNode struct {
-	Op         string          `json:"op"`
-	Left       *formulaNode    `json:"left"`
-	Right      json.RawMessage `json:"right"`
-	Items      []formulaNode   `json:"items"`
-	Categories []string        `json:"categories"`
-	Category   string          `json:"category"`
-	Periods    []string        `json:"periods"`
+	ID                      uuid.UUID `json:"id"`
+	CodigoAcademia          string    `json:"codigo_academia"`
+	Type                    string    `json:"type"`
+	Nome                    string    `json:"nome"`
+	Descricao               *string   `json:"descricao,omitempty"`
+	TipoEnsino              string    `json:"tipo_ensino"`
+	AnosAcademicos          []string  `json:"anos_academicos"`
+	NotaMinimaAprovacao     float64   `json:"nota_minima_aprovacao"`
+	CategoriasEnvolvidas    []string  `json:"categorias_envolvidas"`
+	Formula                 string    `json:"formula"`
+	AplicaSeReprovadoEmType *string   `json:"aplica_se_reprovado_em_type,omitempty"`
+	Status                  string    `json:"status"`
+	Version                 int       `json:"version"`
 }
 
 func CriarRegraAvaliacaoFinal(c *gin.Context) {
@@ -57,7 +50,7 @@ func CriarRegraAvaliacaoFinal(c *gin.Context) {
 	if strings.TrimSpace(req.Type) == "" {
 		req.Type = "normal"
 	}
-	if strings.TrimSpace(req.Nome) == "" || req.NotaMinimaAprovacao <= 0 || len(req.AnosAcademicos) == 0 || len(req.CategoriasEnvolvidas) == 0 || len(req.Formula) == 0 {
+	if strings.TrimSpace(req.Nome) == "" || req.NotaMinimaAprovacao <= 0 || len(req.AnosAcademicos) == 0 || len(req.CategoriasEnvolvidas) == 0 || strings.TrimSpace(req.Formula) == "" {
 		utils.RespondWithValidationError(c, fmt.Errorf("regra de avaliação final incompleta"))
 		return
 	}
@@ -85,12 +78,17 @@ func CriarRegraAvaliacaoFinal(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
-	if err := validarFormulaAvaliacao(req.Formula, req.CategoriasEnvolvidas); err != nil {
+	if err := validarCategoriasRegraAvaliacaoFinal(c, academiaDTO.CodigoAcademia, req.AnosAcademicos, req.CategoriasEnvolvidas); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	formulaNormalizada, err := validarFormulaAvaliacao(req.Formula, req.CategoriasEnvolvidas)
+	if err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 	id := uuid.New()
-	_, err = getDbClient(c).DB().Exec(`INSERT INTO projection_regras_avaliacao_final (id,codigo_academia,type,nome,descricao,tipo_ensino,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,status,version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'ativo',1)`, id, academiaDTO.CodigoAcademia, req.Type, req.Nome, req.Descricao, req.TipoEnsino, toJSON(req.AnosAcademicos), req.NotaMinimaAprovacao, toJSON(req.CategoriasEnvolvidas), req.Formula, req.AplicaSeReprovadoEmType)
+	_, err = getDbClient(c).DB().Exec(`INSERT INTO projection_regras_avaliacao_final (id,codigo_academia,type,nome,descricao,tipo_ensino,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,status,version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'ativo',1)`, id, academiaDTO.CodigoAcademia, req.Type, req.Nome, req.Descricao, req.TipoEnsino, toJSON(req.AnosAcademicos), req.NotaMinimaAprovacao, toJSON(req.CategoriasEnvolvidas), formulaNormalizada, req.AplicaSeReprovadoEmType)
 	if err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("erro ao criar regra de avaliação final: %w", err))
 		return
@@ -314,122 +312,344 @@ type rowScanner interface {
 func scanRegra(rows rowScanner) (regraAvaliacaoFinalDTO, error) {
 	var r regraAvaliacaoFinalDTO
 	var anos, cats []byte
-	var formula []byte
+	var formula string
 	err := rows.Scan(&r.ID, &r.CodigoAcademia, &r.Type, &r.Nome, &r.Descricao, &r.TipoEnsino, &anos, &r.NotaMinimaAprovacao, &cats, &formula, &r.AplicaSeReprovadoEmType, &r.Status, &r.Version)
 	_ = json.Unmarshal(anos, &r.AnosAcademicos)
 	_ = json.Unmarshal(cats, &r.CategoriasEnvolvidas)
-	r.Formula = json.RawMessage(formula)
+	r.Formula = formula
 	return r, err
 }
 func toJSON(v any) []byte { b, _ := json.Marshal(v); return b }
 
-func validarFormulaAvaliacao(raw json.RawMessage, categorias []string) error {
-	var n formulaNode
-	if err := json.Unmarshal(raw, &n); err != nil {
-		return fmt.Errorf("formula inválida: %w", err)
-	}
-	allowed := map[string]bool{}
-	for _, c := range categorias {
-		allowed[c] = true
-	}
-	return validarNode(n, allowed)
+type formulaASTKind int
+
+const (
+	formulaASTNumber formulaASTKind = iota
+	formulaASTReference
+	formulaASTBinary
+)
+
+type formulaAST struct {
+	Kind      formulaASTKind
+	Value     float64
+	Categoria string
+	Periodo   string
+	Op        rune
+	Left      *formulaAST
+	Right     *formulaAST
 }
-func validarNode(n formulaNode, cats map[string]bool) error {
-	switch n.Op {
-	case "add":
-		if len(n.Items) == 0 {
-			return fmt.Errorf("add exige items")
+
+type formulaParser struct {
+	input string
+	pos   int
+}
+
+const maxFormulaAvaliacaoLen = 1000
+
+func validarCategoriasRegraAvaliacaoFinal(c *gin.Context, codigoAcademia string, anosAcademicos, categorias []string) error {
+	vistos := map[string]bool{}
+	for _, cat := range categorias {
+		cat = strings.TrimSpace(cat)
+		if cat == "" {
+			return fmt.Errorf("categorias_envolvidas não pode conter valores vazios")
 		}
-		for _, it := range n.Items {
-			if err := validarNode(it, cats); err != nil {
-				return err
+		if vistos[cat] {
+			return fmt.Errorf("categoria duplicada em categorias_envolvidas: %s", cat)
+		}
+		vistos[cat] = true
+	}
+
+	categoriasProj := getCategoriasNotaProjection(c)
+	categoriasAcademia, err := categoriasProj.ListarPorAcademia(codigoAcademia)
+	if err != nil {
+		return err
+	}
+	disponiveis := map[string]bool{}
+	anos := map[string]bool{}
+	for _, ano := range anosAcademicos {
+		anos[strings.TrimSpace(ano)] = true
+	}
+	for _, cat := range categoriasAcademia {
+		for _, ano := range cat.AnosAcademicos {
+			if anos[ano] {
+				disponiveis[cat.Codigo] = true
+				break
 			}
 		}
-	case "div":
-		if n.Left == nil || len(n.Right) == 0 {
-			return fmt.Errorf("div exige left/right")
+	}
+	for cat := range vistos {
+		if !disponiveis[cat] {
+			return fmt.Errorf("categoria %s não está ativa/configurada para a academia nos anos_academicos da regra", cat)
 		}
-		var f float64
-		if err := json.Unmarshal(n.Right, &f); err != nil || f == 0 {
-			return fmt.Errorf("div right deve ser constante numérica diferente de zero")
-		}
-		return validarNode(*n.Left, cats)
-	case "sum_periods":
-		if len(n.Categories) == 0 || len(n.Periods) == 0 {
-			return fmt.Errorf("sum_periods exige categories e periods")
-		}
-		for _, c := range n.Categories {
-			if !cats[c] {
-				return fmt.Errorf("categoria %s não está em categorias_envolvidas", c)
-			}
-		}
-	case "category_total":
-		if n.Category == "" || !cats[n.Category] {
-			return fmt.Errorf("category_total usa categoria inválida")
-		}
-	default:
-		return fmt.Errorf("operação de fórmula não suportada: %s", n.Op)
 	}
 	return nil
 }
 
-func calcularFormulaAvaliacao(raw json.RawMessage, notas map[string]map[string][]float64) (float64, error) {
-	var n formulaNode
-	if err := json.Unmarshal(raw, &n); err != nil {
+func validarFormulaAvaliacao(formula string, categorias []string) (string, error) {
+	ast, normalized, err := parseFormulaAvaliacao(formula)
+	if err != nil {
+		return "", err
+	}
+	allowed := map[string]bool{}
+	for _, c := range categorias {
+		allowed[strings.TrimSpace(c)] = true
+	}
+	if err := validarASTFormula(ast, allowed); err != nil {
+		return "", err
+	}
+	return normalized, nil
+}
+
+func parseFormulaAvaliacao(formula string) (*formulaAST, string, error) {
+	formula = strings.TrimSpace(formula)
+	if formula == "" {
+		return nil, "", fmt.Errorf("formula não pode ser vazia")
+	}
+	if len(formula) > maxFormulaAvaliacaoLen {
+		return nil, "", fmt.Errorf("formula excede o limite de %d caracteres", maxFormulaAvaliacaoLen)
+	}
+	p := &formulaParser{input: formula}
+	ast, err := p.parseExpression()
+	if err != nil {
+		return nil, "", err
+	}
+	p.skipSpaces()
+	if p.pos != len(p.input) {
+		return nil, "", fmt.Errorf("token inválido na formula na posição %d", p.pos+1)
+	}
+	return ast, ast.String(), nil
+}
+
+func (p *formulaParser) parseExpression() (*formulaAST, error) {
+	left, err := p.parseTerm()
+	if err != nil {
+		return nil, err
+	}
+	for {
+		p.skipSpaces()
+		if !p.consume('+') && !p.consume('-') {
+			return left, nil
+		}
+		op := rune(p.input[p.pos-1])
+		right, err := p.parseTerm()
+		if err != nil {
+			return nil, err
+		}
+		left = &formulaAST{Kind: formulaASTBinary, Op: op, Left: left, Right: right}
+	}
+}
+
+func (p *formulaParser) parseTerm() (*formulaAST, error) {
+	left, err := p.parseFactor()
+	if err != nil {
+		return nil, err
+	}
+	for {
+		p.skipSpaces()
+		if !p.consume('*') && !p.consume('/') {
+			return left, nil
+		}
+		op := rune(p.input[p.pos-1])
+		right, err := p.parseFactor()
+		if err != nil {
+			return nil, err
+		}
+		if op == '/' && right.Kind == formulaASTNumber && right.Value == 0 {
+			return nil, fmt.Errorf("divisão por zero não permitida")
+		}
+		left = &formulaAST{Kind: formulaASTBinary, Op: op, Left: left, Right: right}
+	}
+}
+
+func (p *formulaParser) parseFactor() (*formulaAST, error) {
+	p.skipSpaces()
+	if p.pos >= len(p.input) {
+		return nil, fmt.Errorf("formula incompleta")
+	}
+	ch := rune(p.input[p.pos])
+	if ch == '(' {
+		p.pos++
+		n, err := p.parseExpression()
+		if err != nil {
+			return nil, err
+		}
+		p.skipSpaces()
+		if !p.consume(')') {
+			return nil, fmt.Errorf("parêntese ')' esperado")
+		}
+		return n, nil
+	}
+	if ch == '[' {
+		return p.parseReference()
+	}
+	if unicode.IsDigit(ch) {
+		return p.parseNumber()
+	}
+	return nil, fmt.Errorf("token inválido na formula na posição %d", p.pos+1)
+}
+
+func (p *formulaParser) parseReference() (*formulaAST, error) {
+	p.pos++
+	catStart := p.pos
+	for p.pos < len(p.input) && isFormulaIdentRune(rune(p.input[p.pos])) {
+		p.pos++
+	}
+	categoria := p.input[catStart:p.pos]
+	if categoria == "" {
+		return nil, fmt.Errorf("referência de nota exige categoria")
+	}
+	p.skipSpaces()
+	if !p.consume(',') {
+		return nil, fmt.Errorf("referência de nota deve usar [categoria,periodo]")
+	}
+	p.skipSpaces()
+	perStart := p.pos
+	for p.pos < len(p.input) && isFormulaIdentRune(rune(p.input[p.pos])) {
+		p.pos++
+	}
+	periodo := p.input[perStart:p.pos]
+	if periodo == "" {
+		return nil, fmt.Errorf("referência de nota exige periodo")
+	}
+	p.skipSpaces()
+	if !p.consume(']') {
+		return nil, fmt.Errorf("referência de nota deve terminar com ']'")
+	}
+	return &formulaAST{Kind: formulaASTReference, Categoria: categoria, Periodo: periodo}, nil
+}
+
+func (p *formulaParser) parseNumber() (*formulaAST, error) {
+	start := p.pos
+	for p.pos < len(p.input) && unicode.IsDigit(rune(p.input[p.pos])) {
+		p.pos++
+	}
+	if p.pos < len(p.input) && p.input[p.pos] == '.' {
+		p.pos++
+		if p.pos >= len(p.input) || !unicode.IsDigit(rune(p.input[p.pos])) {
+			return nil, fmt.Errorf("número decimal inválido")
+		}
+		for p.pos < len(p.input) && unicode.IsDigit(rune(p.input[p.pos])) {
+			p.pos++
+		}
+	}
+	v, err := strconv.ParseFloat(p.input[start:p.pos], 64)
+	if err != nil || math.IsInf(v, 0) || math.IsNaN(v) {
+		return nil, fmt.Errorf("número inválido")
+	}
+	return &formulaAST{Kind: formulaASTNumber, Value: v}, nil
+}
+
+func (p *formulaParser) skipSpaces() {
+	for p.pos < len(p.input) && unicode.IsSpace(rune(p.input[p.pos])) {
+		p.pos++
+	}
+}
+func (p *formulaParser) consume(ch byte) bool {
+	if p.pos < len(p.input) && p.input[p.pos] == ch {
+		p.pos++
+		return true
+	}
+	return false
+}
+func isFormulaIdentRune(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-'
+}
+
+func (n *formulaAST) String() string {
+	switch n.Kind {
+	case formulaASTNumber:
+		return strconv.FormatFloat(n.Value, 'f', -1, 64)
+	case formulaASTReference:
+		return fmt.Sprintf("[%s,%s]", n.Categoria, n.Periodo)
+	case formulaASTBinary:
+		return fmt.Sprintf("(%s%c%s)", n.Left.String(), n.Op, n.Right.String())
+	}
+	return ""
+}
+
+func validarASTFormula(n *formulaAST, cats map[string]bool) error {
+	switch n.Kind {
+	case formulaASTNumber:
+		if n.Value < 0 {
+			return fmt.Errorf("constantes negativas não são permitidas")
+		}
+	case formulaASTReference:
+		if !cats[n.Categoria] {
+			return fmt.Errorf("categoria %s não está em categorias_envolvidas", n.Categoria)
+		}
+		if err := utils.ValidatePeriodo(n.Periodo); err != nil {
+			return fmt.Errorf("periodo inválido na formula: %s", n.Periodo)
+		}
+	case formulaASTBinary:
+		if n.Op == '/' && n.Right.Kind == formulaASTNumber && n.Right.Value == 0 {
+			return fmt.Errorf("divisão por zero não permitida")
+		}
+		if err := validarASTFormula(n.Left, cats); err != nil {
+			return err
+		}
+		if err := validarASTFormula(n.Right, cats); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func calcularFormulaAvaliacao(formula string, notas map[string]map[string][]float64) (float64, error) {
+	ast, _, err := parseFormulaAvaliacao(formula)
+	if err != nil {
 		return 0, err
 	}
-	return evalNode(n, notas)
+	return evalASTFormula(ast, notas)
 }
-func evalNode(n formulaNode, notas map[string]map[string][]float64) (float64, error) {
-	switch n.Op {
-	case "add":
+
+func evalASTFormula(n *formulaAST, notas map[string]map[string][]float64) (float64, error) {
+	switch n.Kind {
+	case formulaASTNumber:
+		return n.Value, nil
+	case formulaASTReference:
+		vals := notas[n.Categoria][n.Periodo]
+		if len(vals) == 0 {
+			return 0, fmt.Errorf("nota ausente: categoria=%s periodo=%s", n.Categoria, n.Periodo)
+		}
 		var s float64
-		for _, it := range n.Items {
-			v, e := evalNode(it, notas)
-			if e != nil {
-				return 0, e
-			}
+		for _, v := range vals {
 			s += v
 		}
 		return s, nil
-	case "div":
-		v, e := evalNode(*n.Left, notas)
-		if e != nil {
-			return 0, e
+	case formulaASTBinary:
+		l, err := evalASTFormula(n.Left, notas)
+		if err != nil {
+			return 0, err
 		}
-		var d float64
-		_ = json.Unmarshal(n.Right, &d)
-		if d == 0 {
-			return 0, fmt.Errorf("divisão por zero")
+		r, err := evalASTFormula(n.Right, notas)
+		if err != nil {
+			return 0, err
 		}
-		return v / d, nil
-	case "sum_periods":
-		var s float64
-		for _, p := range n.Periods {
-			for _, c := range n.Categories {
-				vals := notas[c][p]
-				if len(vals) == 0 {
-					return 0, fmt.Errorf("nota ausente: categoria=%s periodo=%s", c, p)
-				}
-				for _, v := range vals {
-					s += v
-				}
+		switch n.Op {
+		case '+':
+			return l + r, nil
+		case '-':
+			return l - r, nil
+		case '*':
+			return l * r, nil
+		case '/':
+			if r == 0 {
+				return 0, fmt.Errorf("divisão por zero")
 			}
+			return l / r, nil
 		}
-		return s, nil
-	case "category_total":
-		var s float64
-		if len(notas[n.Category]) == 0 {
-			return 0, fmt.Errorf("nota ausente: categoria=%s", n.Category)
-		}
-		for _, vals := range notas[n.Category] {
-			for _, v := range vals {
-				s += v
-			}
-		}
-		return s, nil
 	}
-	return 0, fmt.Errorf("operação não suportada")
+	return 0, fmt.Errorf("formula inválida")
+}
+
+func formulaContemPeriodo(n *formulaAST, periodoAtual string) bool {
+	if n == nil {
+		return false
+	}
+	if n.Kind == formulaASTReference {
+		return n.Periodo == periodoAtual
+	}
+	return formulaContemPeriodo(n.Left, periodoAtual) || formulaContemPeriodo(n.Right, periodoAtual)
 }
 
 func carregarNotasFormula(c *gin.Context, codigoEstudante, codigoAcademia, anoLectivo string, categorias []string) (map[string]map[string][]float64, error) {
@@ -454,33 +674,13 @@ func carregarNotasFormula(c *gin.Context, codigoEstudante, codigoAcademia, anoLe
 }
 func _sqlNoRows(err error) bool { return err == sql.ErrNoRows }
 
-func validarFormulaSuperiorContemPeriodo(raw json.RawMessage, periodoAtual string) error {
-	var n formulaNode
-	if err := json.Unmarshal(raw, &n); err != nil {
+func validarFormulaSuperiorContemPeriodo(formula string, periodoAtual string) error {
+	ast, _, err := parseFormulaAvaliacao(formula)
+	if err != nil {
 		return err
 	}
-	return validarNodeSuperiorContemPeriodo(n, periodoAtual)
-}
-
-func validarNodeSuperiorContemPeriodo(n formulaNode, periodoAtual string) error {
-	switch n.Op {
-	case "add":
-		for _, it := range n.Items {
-			if err := validarNodeSuperiorContemPeriodo(it, periodoAtual); err != nil {
-				return err
-			}
-		}
-	case "div":
-		if n.Left != nil {
-			return validarNodeSuperiorContemPeriodo(*n.Left, periodoAtual)
-		}
-	case "sum_periods":
-		for _, p := range n.Periods {
-			if p == periodoAtual {
-				return nil
-			}
-		}
-		return fmt.Errorf("formula superior deve incluir o periodo atual %s em sum_periods", periodoAtual)
+	if !formulaContemPeriodo(ast, periodoAtual) {
+		return fmt.Errorf("formula superior deve incluir o periodo atual %s", periodoAtual)
 	}
 	return nil
 }

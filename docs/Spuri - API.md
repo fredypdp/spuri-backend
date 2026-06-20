@@ -2119,15 +2119,7 @@ Cria uma regra ativa de avaliação final para a academia autenticada.
   "anos_academicos": ["3_ano_fundamental"],
   "nota_minima_aprovacao": 10,
   "categorias_envolvidas": ["nota_escola", "nota_professor"],
-  "formula": {
-    "op": "div",
-    "left": {
-      "op": "sum_periods",
-      "categories": ["nota_escola", "nota_professor"],
-      "periods": ["1_trimestre", "2_trimestre", "3_trimestre"]
-    },
-    "right": 3
-  },
+  "formula": "([nota_escola,1_trimestre]+[nota_professor,1_trimestre]+[nota_escola,2_trimestre]+[nota_professor,2_trimestre]+[nota_escola,3_trimestre]+[nota_professor,3_trimestre])/3",
   "aplica_se_reprovado_em_type": null
 }
 ```
@@ -2140,8 +2132,8 @@ Cria uma regra ativa de avaliação final para a academia autenticada.
 - `tipo_ensino` — obrigatório; apenas `fundamental`, `medio` ou `superior`.
 - `anos_academicos` — obrigatório e não vazio; não pode conter string vazia.
 - `nota_minima_aprovacao` — obrigatório e maior que zero.
-- `categorias_envolvidas` — obrigatório e não vazio.
-- `formula` — obrigatório; deve usar a DSL aceita.
+- `categorias_envolvidas` — obrigatório, não vazio, sem duplicatas e contendo apenas categorias ativas/configuradas pela academia para os anos da regra.
+- `formula` — obrigatório; deve ser uma string textual no modelo `formula_textual_v1`. O formato JSON em árvore antigo foi removido e não é aceito.
 - `aplica_se_reprovado_em_type` — opcional; quando informado, deve apontar para regra ativa existente na mesma academia/tipo de ensino, não pode ser igual ao próprio `type` e não pode criar ciclo.
 
 **Unicidade e cadeia:**
@@ -2151,53 +2143,37 @@ Cria uma regra ativa de avaliação final para a academia autenticada.
 - Regras dependentes formam uma cadeia de novas chances; elas só executam depois de reprovação no `type` apontado.
 - A regra é criada com `status = "ativo"` e `version = 1`.
 
-**DSL da fórmula — como montar:**
+**Fórmula textual (`formula_textual_v1`):**
 
-A fórmula é uma árvore JSON. Cada nó retorna um número, e o resultado do nó raiz é a `nota_final`. Todas as categorias referenciadas precisam estar em `categorias_envolvidas`; o backend carrega somente notas do ano letivo atual nessas categorias.
+A fórmula é uma expressão declarativa interpretada por parser próprio do backend, sem `eval`, sem JavaScript e sem execução dinâmica. O resultado numérico da expressão vira `nota_final`.
 
-- `sum_periods`: soma todas as notas das `categories` em cada período listado em `periods`. Use quando a regra deve exigir períodos específicos (por exemplo, todos os trimestres ou semestres). Se faltar qualquer par categoria/período, a avaliação aguarda novas notas. Exemplo: `{ "op": "sum_periods", "categories": ["nota_escola", "nota_professor"], "periods": ["1_trimestre", "2_trimestre", "3_trimestre"] }`.
-- `category_total`: soma todas as notas existentes de uma categoria, independentemente do período. Use quando a quantidade de lançamentos pode variar ou quando a categoria só aparece uma vez, como exame final. Atenção: esta operação não garante que todos os períodos esperados da academia/curso foram lançados; ela apenas soma o que existe para a categoria. Exemplo: `{ "op": "category_total", "category": "nota_exame_final" }`.
-- `add`: soma os resultados de vários nós. Use para combinar médias, exames e outros componentes. Exemplo: `{ "op": "add", "items": [{ "op": "category_total", "category": "nota_exame_final" }, { "op": "category_total", "category": "nota_recurso" }] }`.
-- `div`: divide o resultado de `left` por uma constante numérica `right` diferente de zero. Use para calcular médias. Exemplo: `{ "op": "div", "left": { "op": "sum_periods", "categories": ["nota_escola"], "periods": ["1_trimestre", "2_trimestre", "3_trimestre"] }, "right": 3 }`.
+- Referência de nota: `[categoria,periodo]`, por exemplo `[nota_escola,1_trimestre]` ou `[nota_exame,2_semestre]`.
+- Operadores permitidos: `+`, `-`, `*`, `/`.
+- Precedência: `*` e `/` são calculados antes de `+` e `-`. Use parênteses para deixar médias e pesos explícitos.
+- Constantes: números positivos ou zero com ponto decimal opcional, como `3`, `0.3` e `10.5`.
+- Espaços são opcionais e ignorados.
+- Períodos devem seguir os formatos validados pelo backend, como `1_trimestre`, `2_trimestre`, `3_trimestre` ou `[n]_semestre`.
+- Cada categoria referenciada precisa existir em `categorias_envolvidas` e pertencer à academia.
+- Divisão por zero é bloqueada na validação quando o divisor é constante e também durante a execução.
+- Fórmulas com caracteres fora da gramática, chamadas de função, chaves JSON, strings, `@`, `;`, comandos SQL ou JavaScript são rejeitadas.
+- Se faltar nota para qualquer referência `[categoria,periodo]`, a avaliação fica aguardando novo lançamento.
 
-Para considerar todos os trimestres/semestres, o cliente deve listar explicitamente esses períodos em `sum_periods`. O backend não presume automaticamente “todos os períodos da academia/curso”.
+**Exemplos válidos:**
 
-**Exemplo — média dos três trimestres:**
-
-```json
-{
-  "op": "div",
-  "left": {
-    "op": "sum_periods",
-    "categories": ["nota_escola", "nota_professor"],
-    "periods": ["1_trimestre", "2_trimestre", "3_trimestre"]
-  },
-  "right": 3
-}
+```text
+([nota_escola,1_trimestre]+[nota_escola,2_trimestre]+[nota_escola,3_trimestre])/3
+([nota_escola,1_trimestre]*0.3)+([nota_escola,2_trimestre]*0.3)+([nota_exame,3_trimestre]*0.4)
+[nota_escola,1_trimestre]+[nota_professor,1_trimestre]
 ```
 
-**Exemplo — média trimestral + exame final:**
+**Exemplos inválidos:**
 
-```json
-{
-  "op": "div",
-  "left": {
-    "op": "add",
-    "items": [
-      {
-        "op": "div",
-        "left": {
-          "op": "sum_periods",
-          "categories": ["nota_escola", "nota_professor"],
-          "periods": ["1_trimestre", "2_trimestre", "3_trimestre"]
-        },
-        "right": 3
-      },
-      { "op": "category_total", "category": "nota_exame_final" }
-    ]
-  },
-  "right": 2
-}
+```text
+{ "op": "..." }                  # modelo JSON antigo removido
+[nota_escola]                     # falta período
+[nota_escola,1_trimestre]/0       # divisão por zero
+eval([nota_escola,1_trimestre])   # chamadas de função não são permitidas
+[nota_inexistente,1_trimestre]    # categoria fora de categorias_envolvidas/academia
 ```
 
 **Response 201:**
@@ -2232,7 +2208,7 @@ Lista todas as regras de avaliação final da academia autenticada, ordenadas po
       "anos_academicos": ["3_ano_fundamental"],
       "nota_minima_aprovacao": 10,
       "categorias_envolvidas": ["nota_escola", "nota_professor"],
-      "formula": { "op": "category_total", "category": "nota_escola" },
+      "formula": "([nota_escola,1_trimestre]+[nota_escola,2_trimestre]+[nota_escola,3_trimestre])/3",
       "aplica_se_reprovado_em_type": null,
       "status": "ativo",
       "version": 1

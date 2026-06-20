@@ -165,7 +165,7 @@ type avaliacaoFinalPayload struct {
 	NotaFinal               float64
 	NotaMinimaAprovacao     float64
 	RegraAvaliacaoFinalID   *uuid.UUID
-	FormulaSnapshot         json.RawMessage
+	FormulaSnapshot         string
 	AplicaSeReprovadoEmType *string
 	SemestreAtualAvaliado   *int
 	ProximoSemestreAtual    *int
@@ -175,24 +175,24 @@ type avaliacaoFinalPayload struct {
 
 func parseAvaliacaoFinalPayload(raw json.RawMessage) (avaliacaoFinalPayload, error) {
 	var snake struct {
-		CodigoEstudante         string          `json:"codigo_estudante"`
-		CodigoAcademia          string          `json:"codigo_academia"`
-		AnoLectivo              string          `json:"ano_lectivo"`
-		TipoEnsino              string          `json:"tipo_ensino"`
-		AnoAcademicoAtual       string          `json:"nivel_ano_academico_atual"`
-		ProximoAnoAcademico     *string         `json:"proximo_ano_academico"`
-		Aprovado                bool            `json:"aprovado"`
-		Observacao              *string         `json:"observacao"`
-		Type                    string          `json:"type"`
-		NotaFinal               float64         `json:"nota_final"`
-		NotaMinimaAprovacao     float64         `json:"nota_minima_aprovacao"`
-		RegraAvaliacaoFinalID   *uuid.UUID      `json:"regra_avaliacao_final_id"`
-		FormulaSnapshot         json.RawMessage `json:"formula_snapshot"`
-		AplicaSeReprovadoEmType *string         `json:"aplica_se_reprovado_em_type"`
-		SemestreAtualAvaliado   *int            `json:"semestre_atual"`
-		ProximoSemestreAtual    *int            `json:"proximo_semestre_atual"`
-		AnoSuperiorAntes        *string         `json:"ano_superior_antes"`
-		AnoSuperiorDepois       *string         `json:"ano_superior_depois"`
+		CodigoEstudante         string     `json:"codigo_estudante"`
+		CodigoAcademia          string     `json:"codigo_academia"`
+		AnoLectivo              string     `json:"ano_lectivo"`
+		TipoEnsino              string     `json:"tipo_ensino"`
+		AnoAcademicoAtual       string     `json:"nivel_ano_academico_atual"`
+		ProximoAnoAcademico     *string    `json:"proximo_ano_academico"`
+		Aprovado                bool       `json:"aprovado"`
+		Observacao              *string    `json:"observacao"`
+		Type                    string     `json:"type"`
+		NotaFinal               float64    `json:"nota_final"`
+		NotaMinimaAprovacao     float64    `json:"nota_minima_aprovacao"`
+		RegraAvaliacaoFinalID   *uuid.UUID `json:"regra_avaliacao_final_id"`
+		FormulaSnapshot         string     `json:"formula_snapshot"`
+		AplicaSeReprovadoEmType *string    `json:"aplica_se_reprovado_em_type"`
+		SemestreAtualAvaliado   *int       `json:"semestre_atual"`
+		ProximoSemestreAtual    *int       `json:"proximo_semestre_atual"`
+		AnoSuperiorAntes        *string    `json:"ano_superior_antes"`
+		AnoSuperiorDepois       *string    `json:"ano_superior_depois"`
 	}
 	if err := json.Unmarshal(raw, &snake); err != nil {
 		return avaliacaoFinalPayload{}, err
@@ -200,24 +200,24 @@ func parseAvaliacaoFinalPayload(raw json.RawMessage) (avaliacaoFinalPayload, err
 
 	// Compatibilidade com payloads legados em PascalCase.
 	var legacy struct {
-		CodigoEstudante         string          `json:"CodigoEstudante"`
-		CodigoAcademia          string          `json:"CodigoAcademia"`
-		AnoLectivo              string          `json:"AnoLectivo"`
-		TipoEnsino              string          `json:"TipoEnsino"`
-		AnoAcademicoAtual       string          `json:"AnoAcademicoAtual"`
-		ProximoAnoAcademico     *string         `json:"ProximoAnoAcademico"`
-		Aprovado                bool            `json:"Aprovado"`
-		Observacao              *string         `json:"Observacao"`
-		Type                    string          `json:"Type"`
-		NotaFinal               float64         `json:"NotaFinal"`
-		NotaMinimaAprovacao     float64         `json:"NotaMinimaAprovacao"`
-		RegraAvaliacaoFinalID   *uuid.UUID      `json:"RegraAvaliacaoFinalID"`
-		FormulaSnapshot         json.RawMessage `json:"FormulaSnapshot"`
-		AplicaSeReprovadoEmType *string         `json:"AplicaSeReprovadoEmType"`
-		SemestreAtualAvaliado   *int            `json:"SemestreAtualAvaliado"`
-		ProximoSemestreAtual    *int            `json:"ProximoSemestreAtual"`
-		AnoSuperiorAntes        *string         `json:"AnoSuperiorAntes"`
-		AnoSuperiorDepois       *string         `json:"AnoSuperiorDepois"`
+		CodigoEstudante         string     `json:"CodigoEstudante"`
+		CodigoAcademia          string     `json:"CodigoAcademia"`
+		AnoLectivo              string     `json:"AnoLectivo"`
+		TipoEnsino              string     `json:"TipoEnsino"`
+		AnoAcademicoAtual       string     `json:"AnoAcademicoAtual"`
+		ProximoAnoAcademico     *string    `json:"ProximoAnoAcademico"`
+		Aprovado                bool       `json:"Aprovado"`
+		Observacao              *string    `json:"Observacao"`
+		Type                    string     `json:"Type"`
+		NotaFinal               float64    `json:"NotaFinal"`
+		NotaMinimaAprovacao     float64    `json:"NotaMinimaAprovacao"`
+		RegraAvaliacaoFinalID   *uuid.UUID `json:"RegraAvaliacaoFinalID"`
+		FormulaSnapshot         string     `json:"FormulaSnapshot"`
+		AplicaSeReprovadoEmType *string    `json:"AplicaSeReprovadoEmType"`
+		SemestreAtualAvaliado   *int       `json:"SemestreAtualAvaliado"`
+		ProximoSemestreAtual    *int       `json:"ProximoSemestreAtual"`
+		AnoSuperiorAntes        *string    `json:"AnoSuperiorAntes"`
+		AnoSuperiorDepois       *string    `json:"AnoSuperiorDepois"`
 	}
 	if err := json.Unmarshal(raw, &legacy); err != nil {
 		return avaliacaoFinalPayload{}, err
@@ -296,28 +296,28 @@ func firstNonEmpty(values ...string) string {
 // ============================================================================
 
 type AvaliacaoFinalDTO struct {
-	ID                      uuid.UUID       `json:"id"`
-	EventID                 uuid.UUID       `json:"event_id"`
-	CodigoEstudante         string          `json:"codigo_estudante"`
-	CodigoAcademia          string          `json:"codigo_academia"`
-	AnoLectivo              string          `json:"ano_lectivo"`
-	TipoEnsino              string          `json:"tipo_ensino"`
-	AnoAcademicoAtual       string          `json:"ano_academico_atual"`
-	ProximoAnoAcademico     *string         `json:"proximo_ano_academico,omitempty"`
-	Aprovado                bool            `json:"aprovado"`
-	Observacao              *string         `json:"observacao,omitempty"`
-	Type                    string          `json:"type"`
-	NotaFinal               *float64        `json:"nota_final,omitempty"`
-	NotaMinimaAprovacao     *float64        `json:"nota_minima_aprovacao,omitempty"`
-	RegraAvaliacaoFinalID   *uuid.UUID      `json:"regra_avaliacao_final_id,omitempty"`
-	FormulaSnapshot         json.RawMessage `json:"formula_snapshot,omitempty"`
-	AplicaSeReprovadoEmType *string         `json:"aplica_se_reprovado_em_type,omitempty"`
-	SemestreAtual           *int            `json:"semestre_atual,omitempty"`
-	ProximoSemestreAtual    *int            `json:"proximo_semestre_atual,omitempty"`
-	AnoSuperiorAntes        *string         `json:"ano_superior_antes,omitempty"`
-	AnoSuperiorDepois       *string         `json:"ano_superior_depois,omitempty"`
-	RegisteredAt            time.Time       `json:"registered_at"`
-	Version                 int             `json:"version"`
+	ID                      uuid.UUID  `json:"id"`
+	EventID                 uuid.UUID  `json:"event_id"`
+	CodigoEstudante         string     `json:"codigo_estudante"`
+	CodigoAcademia          string     `json:"codigo_academia"`
+	AnoLectivo              string     `json:"ano_lectivo"`
+	TipoEnsino              string     `json:"tipo_ensino"`
+	AnoAcademicoAtual       string     `json:"ano_academico_atual"`
+	ProximoAnoAcademico     *string    `json:"proximo_ano_academico,omitempty"`
+	Aprovado                bool       `json:"aprovado"`
+	Observacao              *string    `json:"observacao,omitempty"`
+	Type                    string     `json:"type"`
+	NotaFinal               *float64   `json:"nota_final,omitempty"`
+	NotaMinimaAprovacao     *float64   `json:"nota_minima_aprovacao,omitempty"`
+	RegraAvaliacaoFinalID   *uuid.UUID `json:"regra_avaliacao_final_id,omitempty"`
+	FormulaSnapshot         string     `json:"formula_snapshot,omitempty"`
+	AplicaSeReprovadoEmType *string    `json:"aplica_se_reprovado_em_type,omitempty"`
+	SemestreAtual           *int       `json:"semestre_atual,omitempty"`
+	ProximoSemestreAtual    *int       `json:"proximo_semestre_atual,omitempty"`
+	AnoSuperiorAntes        *string    `json:"ano_superior_antes,omitempty"`
+	AnoSuperiorDepois       *string    `json:"ano_superior_depois,omitempty"`
+	RegisteredAt            time.Time  `json:"registered_at"`
+	Version                 int        `json:"version"`
 }
 
 type AvaliacaoFinalFilters struct {
