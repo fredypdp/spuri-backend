@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 type EstudanteProjection struct {
@@ -1034,5 +1035,47 @@ func (p *EstudanteProjection) CountByCurso(cursoID uuid.UUID) (int, error) {
 		 WHERE (curso_medio_id = $1 OR curso_superior_id = $1) AND status = 'ativo'`,
 		cursoID.String(),
 	).Scan(&count)
+	return count, err
+}
+
+func (p *EstudanteProjection) CountActiveByCursoAndAnos(cursoID uuid.UUID, tipo string, anos []string) (int, error) {
+	if len(anos) == 0 {
+		return 0, nil
+	}
+
+	var col string
+	switch tipo {
+	case "medio":
+		col = "ano_escolar_medio"
+	case "superior":
+		col = "ano_superior"
+	default:
+		return 0, fmt.Errorf("tipo de curso inválido")
+	}
+
+	query := fmt.Sprintf(`
+		SELECT COUNT(*) FROM projection_estudantes
+		 WHERE status = 'ativo'
+		   AND curso_%s_id = $1
+		   AND %s = ANY($2)
+	`, tipo, col)
+
+	var count int
+	err := p.client.DB().QueryRow(query, cursoID.String(), pq.Array(anos)).Scan(&count)
+	return count, err
+}
+
+func (p *EstudanteProjection) CountActiveByCursoSuperiorAndSemestres(cursoID uuid.UUID, semestres []int) (int, error) {
+	if len(semestres) == 0 {
+		return 0, nil
+	}
+
+	var count int
+	err := p.client.DB().QueryRow(`
+		SELECT COUNT(*) FROM projection_estudantes
+		 WHERE status = 'ativo'
+		   AND curso_superior_id = $1
+		   AND semestre_atual = ANY($2)
+	`, cursoID.String(), pq.Array(semestres)).Scan(&count)
 	return count, err
 }
