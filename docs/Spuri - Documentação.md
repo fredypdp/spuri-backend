@@ -2,7 +2,7 @@
 modificado: 20-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.6.9
+Versão atual: 1.7.0
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -614,11 +614,11 @@ A avaliação final é o mecanismo auditável que decide aprovação, reprovaç�
 
 - Cada regra pertence à academia autenticada e contém `type`, `nome`, `descricao`, `tipo_ensino`, `anos_academicos`, `nota_minima_aprovacao`, `categorias_envolvidas`, `formula`, `aplica_se_reprovado_em_type`, `status` e `version`.
 - `type` é obrigatório na criação; o cliente deve enviar explicitamente a etapa pública (`avaliacao_final`, `avaliacao_final_com_exame`, `avaliacao_final_com_recurso`, etc.). O backend aceita apenas letras, números, espaços e `_`, descarta espaços antes/depois, converte apenas espaços internos entre textos para `_` antes de persistir e rejeita outros caracteres.
-- `type`, `nome`, `tipo_ensino`, `anos_academicos`, `categorias_envolvidas`, `formula` e `nota_minima_aprovacao > 0` são obrigatórios na criação; `descricao` é opcional. Exemplos de `nome`: `Avaliação final`, `Avaliação final (com exame)` e `Avaliação final (com recurso)`.
+- `type`, `nome`, `tipo_ensino`, `anos_academicos`, `formula` e `nota_minima_aprovacao > 0` são obrigatórios na criação; `descricao` é opcional. `categorias_envolvidas` não precisa ser enviado: o backend extrai automaticamente as categorias referenciadas na `formula`. Se o cliente enviar esse campo, ele deve bater exatamente com as categorias da fórmula, sem sobras nem omissões. Exemplos de `nome`: `Avaliação final`, `Avaliação final (com exame)` e `Avaliação final (com recurso)`.
 - `tipo_ensino` deve ser exatamente `fundamental`, `medio` ou `superior`.
 - Não pode haver dois registros ativos com o mesmo `codigo_academia`, `tipo_ensino`, `type` e ano acadêmico sobreposto. Assim, regras do mesmo `type` podem coexistir para anos diferentes, mas não para o mesmo ano.
 - Para cada academia, tipo de ensino e ano acadêmico, deve existir no máximo uma regra raiz ativa. Regra raiz é a regra sem `aplica_se_reprovado_em_type`.
-- `aplica_se_reprovado_em_type` é opcional apenas para a regra raiz; em regra dependente (`avaliacao_final_com_recurso`, por exemplo), passa pela mesma normalização de `type`, deve apontar para um `type` ativo existente na mesma academia e tipo de ensino, não pode apontar para o próprio `type` e não pode criar ciclo de dependências.
+- `aplica_se_reprovado_em_type` é opcional apenas para a regra raiz; em regra dependente (`avaliacao_final_com_recurso`, por exemplo), passa pela mesma normalização de `type`, deve apontar para um `type` ativo existente na mesma academia e tipo de ensino, não pode apontar para o próprio `type`, não pode criar ciclo de dependências e deve usar exatamente os mesmos `anos_academicos` da regra raiz da cadeia.
 - A cadeia aplicável a um estudante precisa ter exatamente uma raiz; regras dependentes só participam quando apontam para outro `type` dentro da mesma cadeia aplicável ao ano acadêmico.
 
 **Fórmula textual (`formula_textual_v1`):**
@@ -632,7 +632,7 @@ Sintaxe oficial:
 - Precedência: multiplicação/divisão antes de soma/subtração. Parênteses podem agrupar partes da fórmula.
 - Constantes numéricas positivas ou zero podem ser usadas para médias, pesos e divisores, com decimal por ponto (`0.4`).
 - Espaços são ignorados. Qualquer caractere fora dessa gramática é rejeitado.
-- Todas as categorias referenciadas precisam estar em `categorias_envolvidas`, sem duplicatas, e precisam estar ativas/configuradas para a academia nos anos acadêmicos da regra.
+- O backend extrai de `formula` as `categorias_envolvidas`; todas as categorias referenciadas precisam estar ativas/configuradas para a academia nos anos acadêmicos da regra. Se `categorias_envolvidas` for enviado manualmente, ele precisa corresponder exatamente à extração da fórmula.
 - Todos os períodos são validados pelas regras existentes (`1_trimestre`, `2_trimestre`, `3_trimestre`, `[n]_semestre` etc.).
 - Divisão por zero é bloqueada tanto na validação quanto durante o cálculo.
 - Fórmulas grandes demais são rejeitadas.
@@ -687,7 +687,7 @@ Não há rota pública registrada para execução manual de avaliação final. A
 - A projeção `projection_avaliacao_final` grava os dados calculados e usa unicidade por `codigo_estudante`, `codigo_academia`, `ano_lectivo`, `tipo_ensino`, `ano_academico_atual` e `type`.
 - A avaliação salva o snapshot da regra usada (`formula_snapshot`) e o identificador `regra_avaliacao_final_id`; alterações futuras na regra não alteram avaliações já registradas.
 - O campo `version` da avaliação na projeção acompanha a versão do evento do aggregate.
-- O campo `version` da regra começa em `1` na criação da regra.
+- O campo `version` da regra começa em `1` na criação da regra e aumenta a cada edição ou inativação/deleção lógica.
 
 **Cálculo da nota final e decisão de aprovação/reprovação:**
 
@@ -732,7 +732,7 @@ Não há rota pública registrada para execução manual de avaliação final. A
 **Cadeias de avaliação final (`avaliacao_final`, `avaliacao_final_com_exame`, `avaliacao_final_com_recurso` etc.):**
 
 - Para cada academia, tipo de ensino e ano acadêmico deve haver exatamente uma regra raiz aplicável, ou seja, uma regra ativa sem `aplica_se_reprovado_em_type`.
-- Regras dependentes só executam se o estudante foi reprovado no `type` indicado em `aplica_se_reprovado_em_type`. Exemplo: `avaliacao_final_com_recurso` pode depender de reprovação em `avaliacao_final`; `avaliacao_final_com_exame` pode depender de reprovação em `avaliacao_final_com_recurso`.
+- Regras dependentes precisam ter o mesmo escopo de `anos_academicos` da raiz e só executam se o estudante foi reprovado no `type` indicado em `aplica_se_reprovado_em_type`. Exemplo: `avaliacao_final_com_recurso` pode depender de reprovação em `avaliacao_final`; `avaliacao_final_com_exame` pode depender de reprovação em `avaliacao_final_com_recurso`.
 - Se a regra anterior aprovar, as dependentes são encerradas sem execução, porque não há reprovação a recuperar.
 - Cada `type` tem idempotência própria: o estudante pode ter uma avaliação `avaliacao_final` e, se reprovado, uma avaliação `avaliacao_final_com_recurso`, mas não duas avaliações `avaliacao_final` para o mesmo ano letivo, nível e tipo de ensino.
 
@@ -742,6 +742,8 @@ Não há rota pública registrada para execução manual de avaliação final. A
 - `GET /aprovacoes` → apenas aprovados (`aprovado = TRUE`) com os mesmos filtros.
 - `GET /reprovacoes` → apenas reprovados (`aprovado = FALSE`) com os mesmos filtros.
 - `GET /academia/avaliacao-final/regras` → lista regras da academia autenticada.
+- `PUT /academia/avaliacao-final/regras/:id` → edita apenas `nome`, `descricao`, `nota_minima_aprovacao` e `formula`; as categorias são recalculadas pela fórmula.
+- `DELETE /academia/avaliacao-final/regras/:id` → inativa a regra e suas dependentes em cadeia. A deleção é lógica, não física, para preservar histórico e snapshots de avaliações já registradas.
 
 **Escopo por academia:** quando o usuário autenticado é academia, o backend força `codigo_academia` para a academia autenticada; não é permitido consultar dados de outra academia.
 

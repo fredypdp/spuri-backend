@@ -345,6 +345,8 @@ func setupRouter() *gin.Engine {
 		academia.DELETE("/falta/:id", handlers.DeletarFalta)
 		// Avaliação final é acionada automaticamente pelo registro de notas
 		academia.POST("/avaliacao-final/regras", handlers.CriarRegraAvaliacaoFinal)
+		academia.PUT("/avaliacao-final/regras/:id", handlers.EditarRegraAvaliacaoFinal)
+		academia.DELETE("/avaliacao-final/regras/:id", handlers.DeletarRegraAvaliacaoFinal)
 		academia.POST("/categorias-nota", handlers.CriarCategoriaNota)
 		academia.DELETE("/categorias-nota/:codigo", handlers.DeletarCategoriaNota)
 		academia.POST("/estudante/:codigo/matricula/fundamental", handlers.MatricularFundamentalHandler)

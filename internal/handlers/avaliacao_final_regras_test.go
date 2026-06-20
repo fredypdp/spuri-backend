@@ -45,3 +45,27 @@ func TestNormalizarTypeRegraAvaliacaoFinalRejeitaCaracteresInvalidos(t *testing.
 		})
 	}
 }
+
+func TestValidarFormulaAvaliacaoExtraiCategorias(t *testing.T) {
+	_, categorias, err := validarFormulaAvaliacao("([nota_escola,1_trimestre]+[nota_exame,3_trimestre])/2", nil)
+	if err != nil {
+		t.Fatalf("validarFormulaAvaliacao() unexpected error = %v", err)
+	}
+	want := []string{"nota_escola", "nota_exame"}
+	if !mesmasCategorias(categorias, want) {
+		t.Fatalf("categorias = %v, want %v", categorias, want)
+	}
+}
+
+func TestValidarFormulaAvaliacaoRejeitaCategoriasInformadasDiferentesDaFormula(t *testing.T) {
+	_, _, err := validarFormulaAvaliacao("[nota_escola,1_trimestre]", []string{"nota_escola", "nota_exame"})
+	if err == nil {
+		t.Fatal("validarFormulaAvaliacao() should reject extra categorias_envolvidas")
+	}
+}
+
+func TestMesmosAnosAcademicosIgnoraOrdem(t *testing.T) {
+	if !mesmosAnosAcademicos([]string{"2_ano_fundamental", "1_ano_fundamental"}, []string{"1_ano_fundamental", "2_ano_fundamental"}) {
+		t.Fatal("mesmosAnosAcademicos() should ignore order")
+	}
+}

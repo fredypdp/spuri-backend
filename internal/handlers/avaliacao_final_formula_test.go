@@ -7,7 +7,7 @@ import (
 
 func TestFormulaTextualValidaPrecedenciaParentesesPesos(t *testing.T) {
 	formula := "([nota_escola,1_trimestre]+[nota_escola,2_trimestre]*2+[nota_exame_final,3_trimestre]*0.5)/2"
-	if _, err := validarFormulaAvaliacao(formula, []string{"nota_escola", "nota_exame_final"}); err != nil {
+	if _, _, err := validarFormulaAvaliacao(formula, []string{"nota_escola", "nota_exame_final"}); err != nil {
 		t.Fatalf("formula deveria ser válida: %v", err)
 	}
 
@@ -36,20 +36,20 @@ func TestFormulaTextualRejeitaJSONAntigoECaracteresInvalidos(t *testing.T) {
 		"[nota_escola]",
 	}
 	for _, formula := range invalidas {
-		if _, err := validarFormulaAvaliacao(formula, []string{"nota_escola"}); err == nil {
+		if _, _, err := validarFormulaAvaliacao(formula, []string{"nota_escola"}); err == nil {
 			t.Fatalf("formula %q deveria ser inválida", formula)
 		}
 	}
 }
 
 func TestFormulaTextualValidaCategoriaPeriodoDivisaoZeroEAusencia(t *testing.T) {
-	if _, err := validarFormulaAvaliacao("[nota_inexistente,1_trimestre]", []string{"nota_escola"}); err == nil || !strings.Contains(err.Error(), "categoria") {
+	if _, _, err := validarFormulaAvaliacao("[nota_inexistente,1_trimestre]", []string{"nota_escola"}); err == nil || !strings.Contains(err.Error(), "categoria") {
 		t.Fatalf("categoria fora da lista deveria ser rejeitada, err=%v", err)
 	}
-	if _, err := validarFormulaAvaliacao("[nota_escola,periodo_invalido]", []string{"nota_escola"}); err == nil || !strings.Contains(err.Error(), "periodo") {
+	if _, _, err := validarFormulaAvaliacao("[nota_escola,periodo_invalido]", []string{"nota_escola"}); err == nil || !strings.Contains(err.Error(), "periodo") {
 		t.Fatalf("periodo inválido deveria ser rejeitado, err=%v", err)
 	}
-	if _, err := validarFormulaAvaliacao("[nota_escola,1_trimestre]/0", []string{"nota_escola"}); err == nil || !strings.Contains(err.Error(), "zero") {
+	if _, _, err := validarFormulaAvaliacao("[nota_escola,1_trimestre]/0", []string{"nota_escola"}); err == nil || !strings.Contains(err.Error(), "zero") {
 		t.Fatalf("divisão por zero deveria ser rejeitada, err=%v", err)
 	}
 	if _, err := calcularFormulaAvaliacao("[nota_escola,1_trimestre]", map[string]map[string][]float64{}); err == nil || !strings.Contains(err.Error(), "nota ausente") {

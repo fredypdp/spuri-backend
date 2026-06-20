@@ -2,7 +2,7 @@
 modificado: 20-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.8.6
+Versão atual: 1.8.7
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -2120,7 +2120,6 @@ Cria uma regra ativa de avaliação final para a academia autenticada.
   "tipo_ensino": "fundamental",
   "anos_academicos": ["3_ano_fundamental"],
   "nota_minima_aprovacao": 10,
-  "categorias_envolvidas": ["nota_escola", "nota_professor"],
   "formula": "([nota_escola,1_trimestre]+[nota_professor,1_trimestre]+[nota_escola,2_trimestre]+[nota_professor,2_trimestre]+[nota_escola,3_trimestre]+[nota_professor,3_trimestre])/3",
   "aplica_se_reprovado_em_type": null
 }
@@ -2134,15 +2133,15 @@ Cria uma regra ativa de avaliação final para a academia autenticada.
 - `tipo_ensino` — obrigatório; apenas `fundamental`, `medio` ou `superior`.
 - `anos_academicos` — obrigatório e não vazio; não pode conter string vazia.
 - `nota_minima_aprovacao` — obrigatório e maior que zero.
-- `categorias_envolvidas` — obrigatório, não vazio, sem duplicatas e contendo apenas categorias ativas/configuradas pela academia para os anos da regra.
+- `categorias_envolvidas` — opcional. O backend extrai automaticamente as categorias usadas em `formula`. Se enviado, deve corresponder exatamente às categorias extraídas da fórmula, sem duplicatas, sobras ou omissões, e todas precisam estar ativas/configuradas pela academia para os anos da regra.
 - `formula` — obrigatório; deve ser uma string textual no modelo `formula_textual_v1`. O formato JSON em árvore antigo foi removido e não é aceito.
-- `aplica_se_reprovado_em_type` — opcional para regra raiz; obrigatório para regras dependentes. Quando informado, passa pela mesma normalização de `type`, deve apontar para regra ativa existente na mesma academia/tipo de ensino, não pode ser igual ao próprio `type` e não pode criar ciclo.
+- `aplica_se_reprovado_em_type` — opcional para regra raiz; obrigatório para regras dependentes. Quando informado, passa pela mesma normalização de `type`, deve apontar para regra ativa existente na mesma academia/tipo de ensino, não pode ser igual ao próprio `type`, não pode criar ciclo e obriga a regra dependente a usar exatamente os mesmos `anos_academicos` da regra raiz da cadeia.
 
 **Unicidade e cadeia:**
 
 - Não pode existir outra regra ativa com o mesmo `type`, `tipo_ensino` e ano acadêmico sobreposto para a mesma academia.
 - Para cada academia, tipo de ensino e ano acadêmico, só pode haver uma regra raiz ativa. Regra raiz é a regra sem `aplica_se_reprovado_em_type`.
-- Regras dependentes formam uma cadeia de novas chances; elas só executam depois de reprovação no `type` apontado.
+- Regras dependentes formam uma cadeia de novas chances; elas precisam ter os mesmos `anos_academicos` da raiz e só executam depois de reprovação no `type` apontado.
 - A regra é criada pelo backend com `status = "ativo"` e `version = 1`; esses campos não são enviados na criação.
 
 **Fórmula textual (`formula_textual_v1`):**
@@ -2155,7 +2154,7 @@ A fórmula é uma expressão declarativa interpretada por parser próprio do bac
 - Constantes: números positivos ou zero com ponto decimal opcional, como `3`, `0.3` e `10.5`.
 - Espaços são opcionais e ignorados.
 - Períodos devem seguir os formatos validados pelo backend, como `1_trimestre`, `2_trimestre`, `3_trimestre` ou `[n]_semestre`.
-- Cada categoria referenciada precisa existir em `categorias_envolvidas` e pertencer à academia.
+- Cada categoria referenciada precisa pertencer à academia e estar ativa/configurada para os anos da regra; `categorias_envolvidas` é persistido a partir da extração da fórmula.
 - Divisão por zero é bloqueada na validação quando o divisor é constante e também durante a execução.
 - Fórmulas com caracteres fora da gramática, chamadas de função, chaves JSON, strings, `@`, `;`, comandos SQL ou JavaScript são rejeitadas.
 - Se faltar nota para qualquer referência `[categoria,periodo]`, a avaliação fica aguardando novo lançamento.
@@ -2175,7 +2174,7 @@ A fórmula é uma expressão declarativa interpretada por parser próprio do bac
 [nota_escola]                     # falta período
 [nota_escola,1_trimestre]/0       # divisão por zero
 eval([nota_escola,1_trimestre])   # chamadas de função não são permitidas
-[nota_inexistente,1_trimestre]    # categoria fora de categorias_envolvidas/academia
+[nota_inexistente,1_trimestre]    # categoria fora da academia/anos da regra
 ```
 
 **Response 201:**
@@ -2209,7 +2208,7 @@ Lista todas as regras de avaliação final da academia autenticada, ordenadas po
       "tipo_ensino": "fundamental",
       "anos_academicos": ["3_ano_fundamental"],
       "nota_minima_aprovacao": 10,
-      "categorias_envolvidas": ["nota_escola", "nota_professor"],
+      "categorias_envolvidas": ["nota_escola"],
       "formula": "([nota_escola,1_trimestre]+[nota_escola,2_trimestre]+[nota_escola,3_trimestre])/3",
       "aplica_se_reprovado_em_type": null,
       "status": "ativo",
@@ -2217,6 +2216,69 @@ Lista todas as regras de avaliação final da academia autenticada, ordenadas po
     }
   ],
   "total": 1
+}
+```
+
+---
+
+
+### PUT /academia/avaliacao-final/regras/:id
+
+Edita uma regra ativa de avaliação final da academia autenticada. Por segurança, a edição é limitada aos campos que não mudam o desenho da cadeia: `nome`, `descricao`, `nota_minima_aprovacao` e `formula`. O backend recalcula `categorias_envolvidas` a partir da nova fórmula.
+
+**Proteção**: academia autenticada.
+
+```json
+{
+  "nome": "Avaliação final atualizada",
+  "descricao": "Média ponderada atualizada",
+  "nota_minima_aprovacao": 10,
+  "formula": "([nota_escola,1_trimestre]*0.3)+([nota_escola,2_trimestre]*0.3)+([nota_exame,3_trimestre]*0.4)"
+}
+```
+
+**Validações de segurança:**
+
+- O `id` precisa ser UUID válido e pertencer à academia autenticada.
+- A regra precisa estar `ativo`; regras inativas não são editadas.
+- Não é permitido editar `type`, `tipo_ensino`, `anos_academicos`, `aplica_se_reprovado_em_type`, `status` nem `version` via payload, para não quebrar a cadeia já configurada.
+- `nome` é obrigatório e não pode ser vazio.
+- `nota_minima_aprovacao` precisa ser maior que zero.
+- `formula` passa pelo mesmo parser seguro da criação; categorias são extraídas da fórmula e precisam estar ativas/configuradas para os anos da regra.
+- Se `categorias_envolvidas` for enviado por compatibilidade, deve bater exatamente com as categorias da fórmula.
+- Ao editar, `version` aumenta em 1 e `updated_at` é atualizado. Avaliações finais já registradas continuam preservadas porque carregam `formula_snapshot` e `regra_avaliacao_final_id`.
+
+**Response 200:**
+
+```json
+{
+  "message": "regra de avaliação final atualizada",
+  "id": "7e5f0b8d-8c7a-4b1a-9f4c-1f4cfd0c2f11"
+}
+```
+
+---
+
+### DELETE /academia/avaliacao-final/regras/:id
+
+Inativa uma regra ativa de avaliação final da academia autenticada. A deleção é **lógica** (`status = "inativo"`), não física, para preservar histórico, auditoria e snapshots de avaliações já calculadas.
+
+**Proteção**: academia autenticada.
+
+**Comportamento em cadeia:**
+
+- Se a regra tiver dependentes, o backend inativa também todas as dependentes diretas e indiretas.
+- Essa cascata evita deixar regras órfãs apontando para um `type` inativo.
+- A operação não apaga avaliações finais já registradas em `projection_avaliacao_final`; elas continuam auditáveis.
+- Cada regra inativada recebe `version = version + 1` e `updated_at` novo.
+
+**Response 200:**
+
+```json
+{
+  "message": "regra de avaliação final inativada com dependentes",
+  "id": "7e5f0b8d-8c7a-4b1a-9f4c-1f4cfd0c2f11",
+  "total_inativadas": 3
 }
 ```
 
@@ -2299,6 +2361,7 @@ Lista apenas avaliações com `aprovado = false`.
 ```
 
 ---
+
 
 ### GET /avaliacoes-estudante/:codigo
 
