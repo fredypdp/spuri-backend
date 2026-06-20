@@ -51,6 +51,23 @@ func CriarRegraAvaliacaoFinal(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("regra de avaliação final incompleta"))
 		return
 	}
+	req.Type, err = normalizarTypeRegraAvaliacaoFinal(req.Type)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if req.AplicaSeReprovadoEmType != nil {
+		if strings.TrimSpace(*req.AplicaSeReprovadoEmType) == "" {
+			req.AplicaSeReprovadoEmType = nil
+		} else {
+			dependeDe, err := normalizarTypeRegraAvaliacaoFinal(*req.AplicaSeReprovadoEmType)
+			if err != nil {
+				utils.RespondWithValidationError(c, fmt.Errorf("aplica_se_reprovado_em_type inválido: %w", err))
+				return
+			}
+			req.AplicaSeReprovadoEmType = &dependeDe
+		}
+	}
 	if req.TipoEnsino != "fundamental" && req.TipoEnsino != "medio" && req.TipoEnsino != "superior" {
 		utils.RespondWithValidationError(c, fmt.Errorf("tipo_ensino deve ser fundamental, medio ou superior"))
 		return
@@ -91,6 +108,39 @@ func CriarRegraAvaliacaoFinal(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"message": "regra de avaliação final criada", "id": id})
+}
+
+func normalizarTypeRegraAvaliacaoFinal(typ string) (string, error) {
+	typ = strings.TrimSpace(typ)
+	if typ == "" {
+		return "", fmt.Errorf("type é obrigatório")
+	}
+
+	var b strings.Builder
+	ultimoUnderscore := false
+	for _, r := range typ {
+		switch {
+		case unicode.IsSpace(r):
+			if !ultimoUnderscore {
+				b.WriteRune('_')
+				ultimoUnderscore = true
+			}
+		case unicode.IsLetter(r) || unicode.IsNumber(r):
+			b.WriteRune(r)
+			ultimoUnderscore = false
+		case r == '_':
+			b.WriteRune(r)
+			ultimoUnderscore = true
+		default:
+			return "", fmt.Errorf("type deve conter apenas letras, números, espaços ou underscore; espaços são convertidos para '_'")
+		}
+	}
+
+	normalizado := strings.Trim(b.String(), "_")
+	if normalizado == "" {
+		return "", fmt.Errorf("type deve conter pelo menos uma letra ou número")
+	}
+	return normalizado, nil
 }
 
 func ListarRegrasAvaliacaoFinal(c *gin.Context) {

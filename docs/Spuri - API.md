@@ -2,7 +2,7 @@
 modificado: 20-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.8.4
+Versão atual: 1.8.5
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -2126,7 +2126,7 @@ Cria uma regra ativa de avaliação final para a academia autenticada.
 
 **Campos e validações:**
 
-- `type` — obrigatório. Identifica a etapa pública (`normal`, `recurso`, `especial`, etc.).
+- `type` — obrigatório. Identifica a etapa pública (`normal`, `recurso`, `especial`, etc.). Aceita apenas letras, números, espaços e `_`; espaços são normalizados para `_` antes de persistir (ex.: `exame final` vira `exame_final`), e outros caracteres são rejeitados.
 - `nome` — obrigatório.
 - `descricao` — opcional.
 - `tipo_ensino` — obrigatório; apenas `fundamental`, `medio` ou `superior`.
@@ -2134,7 +2134,7 @@ Cria uma regra ativa de avaliação final para a academia autenticada.
 - `nota_minima_aprovacao` — obrigatório e maior que zero.
 - `categorias_envolvidas` — obrigatório, não vazio, sem duplicatas e contendo apenas categorias ativas/configuradas pela academia para os anos da regra.
 - `formula` — obrigatório; deve ser uma string textual no modelo `formula_textual_v1`. O formato JSON em árvore antigo foi removido e não é aceito.
-- `aplica_se_reprovado_em_type` — opcional para regra raiz; obrigatório para regras dependentes. Quando informado, deve apontar para regra ativa existente na mesma academia/tipo de ensino, não pode ser igual ao próprio `type` e não pode criar ciclo.
+- `aplica_se_reprovado_em_type` — opcional para regra raiz; obrigatório para regras dependentes. Quando informado, passa pela mesma normalização de `type`, deve apontar para regra ativa existente na mesma academia/tipo de ensino, não pode ser igual ao próprio `type` e não pode criar ciclo.
 
 **Unicidade e cadeia:**
 
