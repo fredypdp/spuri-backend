@@ -2,7 +2,7 @@
 modificado: 20-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.8.7
+Versão atual: 1.8.8
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -1093,11 +1093,11 @@ Define ou atualiza o **ano letivo oficial global do sistema**. Esta é a única 
 
 ---
 
-### GET /admin/sistema/ano-letivo
+### GET /ano-letivo
 
 Retorna o **ano letivo oficial global atual** da plataforma.
 
-**Proteção**: autenticado + admin
+**Proteção**: autenticado (qualquer usuário logado)
 
 **Response 200:**
 
@@ -1113,11 +1113,11 @@ Retorna o **ano letivo oficial global atual** da plataforma.
 
 ---
 
-### GET /admin/sistema/anos-letivos-lista
+### GET /anos-letivos-lista
 
 Retorna a **lista histórica de anos letivos globais** já definidos pelo admin.
 
-**Proteção**: autenticado + admin
+**Proteção**: autenticado (qualquer usuário logado)
 
 **Response 200:**
 

@@ -292,6 +292,8 @@ func setupRouter() *gin.Engine {
 		protected.GET("/faltas", handlers.ListarFaltas)
 		protected.GET("/notas-estudante/:codigo", handlers.GetNotasEstudante)
 		protected.GET("/faltas-estudante/:codigo", handlers.GetFaltasEstudante)
+		protected.GET("/ano-letivo", handlers.GetAnoLetivoGlobalSistemaAtual)
+		protected.GET("/anos-letivos-lista", handlers.GetAnosLetivosGlobaisLista)
 		protected.GET("/solicitacoes-matricula", middleware.RequireAdmin(), handlers.ListarSolicitacoesMatriculaAdmin)
 		protected.GET("/avaliacoes-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetAvaliacoesFinaisEstudante)
 		protected.GET("/turmas-estudante/:codigo", handlers.GetTurmasEstudante)
@@ -448,8 +450,6 @@ func setupRouter() *gin.Engine {
 	adminSistema.Use(middleware.RequireAdmin())
 	{
 		adminSistema.POST("/sistema/ano-letivo", middleware.RequireFPP(), handlers.DefinirAnoLetivoGlobalSistema)
-		adminSistema.GET("/sistema/ano-letivo", handlers.GetAnoLetivoGlobalSistemaAtual)
-		adminSistema.GET("/sistema/anos-letivos-lista", handlers.GetAnosLetivosGlobaisLista)
 	}
 
 	return router

@@ -25,6 +25,41 @@ func TestAdminSistemaAnoLetivoRouteIsRegistered(t *testing.T) {
 	}
 }
 
+func TestGlobalAnoLetivoReadRoutesRequireOnlyAuthentication(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := setupRouter()
+
+	for _, path := range []string{"/ano-letivo", "/anos-letivos-lista"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code == http.StatusNotFound {
+			t.Fatalf("expected %s to be registered, got 404", path)
+		}
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("expected %s to require authentication with 401, got %d", path, w.Code)
+		}
+	}
+}
+
+func TestLegacyAdminSistemaAnoLetivoReadRoutesAreRemoved(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := setupRouter()
+
+	for _, path := range []string{"/admin/sistema/ano-letivo", "/admin/sistema/anos-letivos-lista"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected legacy GET %s to be removed with 404, got %d", path, w.Code)
+		}
+	}
+}
+
 func TestLegacyDominisSistemaAnoLetivoRouteIsRemoved(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
