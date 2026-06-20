@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 )
@@ -64,6 +66,42 @@ func (t *Turma) Apply(event DomainEvent) error {
 	}
 }
 
+// NormalizarCodigoTurma normaliza codigo_turma para identificadores seguros.
+// Espaços internos viram underscore; espaços antes/depois são descartados.
+// Caracteres especiais diferentes de underscore são rejeitados.
+func NormalizarCodigoTurma(codigoTurma string) (string, error) {
+	codigoTurma = strings.TrimSpace(codigoTurma)
+	if codigoTurma == "" {
+		return "", fmt.Errorf("codigo_turma é obrigatório")
+	}
+
+	var b strings.Builder
+	ultimoUnderscore := false
+	for _, r := range codigoTurma {
+		switch {
+		case unicode.IsSpace(r):
+			if !ultimoUnderscore {
+				b.WriteRune('_')
+				ultimoUnderscore = true
+			}
+		case unicode.IsLetter(r) || unicode.IsNumber(r):
+			b.WriteRune(r)
+			ultimoUnderscore = false
+		case r == '_':
+			b.WriteRune(r)
+			ultimoUnderscore = true
+		default:
+			return "", fmt.Errorf("codigo_turma deve conter apenas letras, números, espaços ou underscore; espaços são convertidos para '_'")
+		}
+	}
+
+	normalizado := strings.Trim(b.String(), "_")
+	if normalizado == "" {
+		return "", fmt.Errorf("codigo_turma deve conter pelo menos uma letra ou número")
+	}
+	return normalizado, nil
+}
+
 // ── Comandos ──────────────────────────────────────────────────────────────────
 
 func (t *Turma) Criar(
@@ -74,6 +112,13 @@ func (t *Turma) Criar(
 	turno string,
 	criadoPor uuid.UUID,
 ) error {
+	codigoTurmaNormalizado, err := NormalizarCodigoTurma(codigoTurma)
+	if err != nil {
+		return err
+	}
+	codigoTurma = codigoTurmaNormalizado
+	codigoAcademia = strings.TrimSpace(codigoAcademia)
+	nivel = strings.TrimSpace(nivel)
 	if codigoTurma == "" || codigoAcademia == "" || nivel == "" {
 		return fmt.Errorf("codigo_turma, codigo_academia e nivel são obrigatórios")
 	}

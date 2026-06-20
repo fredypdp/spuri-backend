@@ -37,6 +37,13 @@ func CriarTurma(c *gin.Context) {
 		return
 	}
 
+	codigoTurmaNormalizado, err := aggregates.NormalizarCodigoTurma(req.CodigoTurma)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	req.CodigoTurma = codigoTurmaNormalizado
+
 	turmasProj := getTurmasProjection(c)
 	existing, _ := turmasProj.GetByCodigoTurma(req.CodigoTurma, academiaDTO.CodigoAcademia)
 	if existing != nil {
