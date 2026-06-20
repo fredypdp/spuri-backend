@@ -27,7 +27,7 @@ type regraAvaliacaoFinalDTO struct {
 	TipoEnsino              string    `json:"tipo_ensino" binding:"required"`
 	AnosAcademicos          []string  `json:"anos_academicos" binding:"required"`
 	NotaMinimaAprovacao     float64   `json:"nota_minima_aprovacao" binding:"required"`
-	CategoriasEnvolvidas    []string  `json:"categorias_envolvidas" binding:"required"`
+	CategoriasEnvolvidas    []string  `json:"categorias_envolvidas,omitempty"`
 	Formula                 string    `json:"formula" binding:"required"`
 	AplicaSeReprovadoEmType *string   `json:"aplica_se_reprovado_em_type,omitempty"`
 	Status                  string    `json:"status"`
@@ -44,10 +44,10 @@ func CriarRegraAvaliacaoFinal(c *gin.Context) {
 	}
 	var req regraAvaliacaoFinalDTO
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("campos obrigatórios: type, nome, tipo_ensino, anos_academicos, nota_minima_aprovacao, categorias_envolvidas, formula"))
+		utils.RespondWithValidationError(c, fmt.Errorf("campos obrigatórios: type, nome, tipo_ensino, anos_academicos, nota_minima_aprovacao, formula"))
 		return
 	}
-	if strings.TrimSpace(req.Type) == "" || strings.TrimSpace(req.Nome) == "" || req.NotaMinimaAprovacao <= 0 || len(req.AnosAcademicos) == 0 || len(req.CategoriasEnvolvidas) == 0 || strings.TrimSpace(req.Formula) == "" {
+	if strings.TrimSpace(req.Type) == "" || strings.TrimSpace(req.Nome) == "" || req.NotaMinimaAprovacao <= 0 || len(req.AnosAcademicos) == 0 || strings.TrimSpace(req.Formula) == "" {
 		utils.RespondWithValidationError(c, fmt.Errorf("regra de avaliação final incompleta"))
 		return
 	}
@@ -88,16 +88,17 @@ func CriarRegraAvaliacaoFinal(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
-	if err := validarDependenciaRegraAvaliacaoFinal(c, academiaDTO.CodigoAcademia, req.TipoEnsino, req.Type, req.AplicaSeReprovadoEmType); err != nil {
+	if err := validarDependenciaRegraAvaliacaoFinal(c, academiaDTO.CodigoAcademia, req.TipoEnsino, req.Type, req.AnosAcademicos, req.AplicaSeReprovadoEmType); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
-	if err := validarCategoriasRegraAvaliacaoFinal(c, academiaDTO.CodigoAcademia, req.AnosAcademicos, req.CategoriasEnvolvidas); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-	formulaNormalizada, err := validarFormulaAvaliacao(req.Formula, req.CategoriasEnvolvidas)
+	formulaNormalizada, categoriasFormula, err := validarFormulaAvaliacao(req.Formula, req.CategoriasEnvolvidas)
 	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	req.CategoriasEnvolvidas = categoriasFormula
+	if err := validarCategoriasRegraAvaliacaoFinal(c, academiaDTO.CodigoAcademia, req.AnosAcademicos, req.CategoriasEnvolvidas); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -165,6 +166,117 @@ func ListarRegrasAvaliacaoFinal(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"regras": out, "total": len(out)})
+}
+
+type editarRegraAvaliacaoFinalDTO struct {
+	Nome                 string   `json:"nome" binding:"required"`
+	Descricao            *string  `json:"descricao,omitempty"`
+	NotaMinimaAprovacao  float64  `json:"nota_minima_aprovacao" binding:"required"`
+	Formula              string   `json:"formula" binding:"required"`
+	CategoriasEnvolvidas []string `json:"categorias_envolvidas,omitempty"`
+}
+
+func EditarRegraAvaliacaoFinal(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByID(userID)
+	if err != nil || academiaDTO == nil {
+		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("id inválido"))
+		return
+	}
+	var req editarRegraAvaliacaoFinalDTO
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("campos obrigatórios: nome, nota_minima_aprovacao, formula"))
+		return
+	}
+	if strings.TrimSpace(req.Nome) == "" || req.NotaMinimaAprovacao <= 0 || strings.TrimSpace(req.Formula) == "" {
+		utils.RespondWithValidationError(c, fmt.Errorf("edição de regra de avaliação final incompleta"))
+		return
+	}
+	regra, err := getRegraAvaliacaoFinalPorID(c, academiaDTO.CodigoAcademia, id)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if regra == nil {
+		utils.RespondWithNotFoundError(c, "regra de avaliação final")
+		return
+	}
+	if regra.Status != "ativo" {
+		utils.RespondWithValidationError(c, fmt.Errorf("somente regras ativas podem ser editadas"))
+		return
+	}
+	formulaNormalizada, categoriasFormula, err := validarFormulaAvaliacao(req.Formula, req.CategoriasEnvolvidas)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if err := validarCategoriasRegraAvaliacaoFinal(c, academiaDTO.CodigoAcademia, regra.AnosAcademicos, categoriasFormula); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	res, err := getDbClient(c).DB().Exec(`UPDATE projection_regras_avaliacao_final
+		SET nome=$1, descricao=$2, nota_minima_aprovacao=$3, categorias_envolvidas=$4, formula=$5, updated_at=CURRENT_TIMESTAMP, version=version+1
+		WHERE id=$6 AND codigo_academia=$7 AND status='ativo'`,
+		strings.TrimSpace(req.Nome), req.Descricao, req.NotaMinimaAprovacao, toJSON(categoriasFormula), formulaNormalizada, id, academiaDTO.CodigoAcademia)
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("erro ao editar regra de avaliação final: %w", err))
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		utils.RespondWithNotFoundError(c, "regra de avaliação final")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "regra de avaliação final atualizada", "id": id})
+}
+
+func DeletarRegraAvaliacaoFinal(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByID(userID)
+	if err != nil || academiaDTO == nil {
+		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("id inválido"))
+		return
+	}
+	regra, err := getRegraAvaliacaoFinalPorID(c, academiaDTO.CodigoAcademia, id)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if regra == nil {
+		utils.RespondWithNotFoundError(c, "regra de avaliação final")
+		return
+	}
+	if regra.Status != "ativo" {
+		utils.RespondWithValidationError(c, fmt.Errorf("regra de avaliação final já está inativa"))
+		return
+	}
+	ids, err := idsCadeiaDependenteRegraAvaliacaoFinal(c, academiaDTO.CodigoAcademia, regra.TipoEnsino, regra.Type, regra.AnosAcademicos)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if len(ids) == 0 {
+		ids = []uuid.UUID{id}
+	}
+	_, err = getDbClient(c).DB().Exec(`UPDATE projection_regras_avaliacao_final
+		SET status='inativo', updated_at=CURRENT_TIMESTAMP, version=version+1
+		WHERE codigo_academia=$1 AND id = ANY($2::uuid[]) AND status='ativo'`, academiaDTO.CodigoAcademia, pq.Array(uuidStrings(ids)))
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("erro ao deletar regra de avaliação final: %w", err))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "regra de avaliação final inativada com dependentes", "id": id, "total_inativadas": len(ids)})
 }
 
 func validarEscopoRegraAvaliacaoFinal(tipoEnsino string, niveis []string) error {
@@ -265,34 +377,96 @@ func validarCadeiaAvaliacaoFinalAplicavel(regras []regraAvaliacaoFinalDTO, codig
 	return nil
 }
 
-func validarDependenciaRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipoEnsino, typ string, dependeDe *string) error {
+func validarDependenciaRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipoEnsino, typ string, anos []string, dependeDe *string) error {
 	if dependeDe == nil || strings.TrimSpace(*dependeDe) == "" {
 		return nil
 	}
 	visitado := map[string]bool{typ: true}
 	atual := strings.TrimSpace(*dependeDe)
+	var anosRaiz []byte
 	for atual != "" {
 		if visitado[atual] {
 			return fmt.Errorf("aplica_se_reprovado_em_type cria ciclo em %s", atual)
 		}
 		visitado[atual] = true
 		var prox sql.NullString
-		err := getDbClient(c).DB().QueryRow(`SELECT aplica_se_reprovado_em_type
+		rows, err := getDbClient(c).DB().Query(`SELECT aplica_se_reprovado_em_type, anos_academicos
 			FROM projection_regras_avaliacao_final
 			WHERE codigo_academia=$1 AND tipo_ensino=$2 AND type=$3 AND status='ativo'
-			ORDER BY created_at DESC LIMIT 1`, codigoAcademia, tipoEnsino, atual).Scan(&prox)
-		if err == sql.ErrNoRows {
-			return fmt.Errorf("aplica_se_reprovado_em_type referencia type inexistente ou inativo: %s", atual)
-		}
+			ORDER BY created_at DESC`, codigoAcademia, tipoEnsino, atual)
 		if err != nil {
 			return err
 		}
+		var anosAtual []byte
+		encontrouEscopo := false
+		for rows.Next() {
+			var proxCandidato sql.NullString
+			var anosCandidato []byte
+			if err := rows.Scan(&proxCandidato, &anosCandidato); err != nil {
+				rows.Close()
+				return err
+			}
+			var anosRegra []string
+			if err := json.Unmarshal(anosCandidato, &anosRegra); err != nil {
+				rows.Close()
+				return err
+			}
+			if mesmosAnosAcademicos(anos, anosRegra) {
+				prox = proxCandidato
+				anosAtual = anosCandidato
+				encontrouEscopo = true
+				break
+			}
+		}
+		if closeErr := rows.Close(); closeErr != nil {
+			return closeErr
+		}
+		if !encontrouEscopo {
+			return fmt.Errorf("aplica_se_reprovado_em_type referencia type inexistente/inativo ou fora do escopo de anos_academicos da cadeia: %s", atual)
+		}
 		if !prox.Valid {
-			return nil
+			anosRaiz = anosAtual
+			break
 		}
 		atual = strings.TrimSpace(prox.String)
 	}
+	if len(anosRaiz) == 0 {
+		return nil
+	}
+	var raiz []string
+	if err := json.Unmarshal(anosRaiz, &raiz); err != nil {
+		return err
+	}
+	if !mesmosAnosAcademicos(anos, raiz) {
+		return fmt.Errorf("regra dependente deve usar exatamente os mesmos anos_academicos da regra raiz")
+	}
 	return nil
+}
+
+func mesmosAnosAcademicos(a, b []string) bool {
+	ma := map[string]bool{}
+	for _, v := range a {
+		v = strings.TrimSpace(v)
+		if v != "" {
+			ma[v] = true
+		}
+	}
+	mb := map[string]bool{}
+	for _, v := range b {
+		v = strings.TrimSpace(v)
+		if v != "" {
+			mb[v] = true
+		}
+	}
+	if len(ma) != len(mb) {
+		return false
+	}
+	for v := range ma {
+		if !mb[v] {
+			return false
+		}
+	}
+	return true
 }
 
 func getRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipoEnsino, anoAcademico, typ string) (*regraAvaliacaoFinalDTO, error) {
@@ -319,6 +493,71 @@ func getRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipoEnsino, anoAcade
 		return nil, fmt.Errorf("nenhuma regra ativa de avaliação final encontrada para type=%s tipo_ensino=%s ano=%s", typ, tipoEnsino, anoAcademico)
 	}
 	return found, nil
+}
+
+func uuidStrings(ids []uuid.UUID) []string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, id.String())
+	}
+	return out
+}
+
+func getRegraAvaliacaoFinalPorID(c *gin.Context, codigoAcademia string, id uuid.UUID) (*regraAvaliacaoFinalDTO, error) {
+	row := getDbClient(c).DB().QueryRow(`SELECT id,codigo_academia,type,nome,descricao,tipo_ensino,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,status,version
+		FROM projection_regras_avaliacao_final
+		WHERE id=$1 AND codigo_academia=$2`, id, codigoAcademia)
+	r, err := scanRegra(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
+func idsCadeiaDependenteRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipoEnsino, rootType string, rootAnos []string) ([]uuid.UUID, error) {
+	rows, err := getDbClient(c).DB().Query(`SELECT id,codigo_academia,type,nome,descricao,tipo_ensino,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,status,version
+		FROM projection_regras_avaliacao_final
+		WHERE codigo_academia=$1 AND tipo_ensino=$2 AND status='ativo'`, codigoAcademia, tipoEnsino)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var regras []regraAvaliacaoFinalDTO
+	for rows.Next() {
+		r, err := scanRegra(rows)
+		if err != nil {
+			return nil, err
+		}
+		if mesmosAnosAcademicos(r.AnosAcademicos, rootAnos) {
+			regras = append(regras, r)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	selecionados := map[string]bool{rootType: true}
+	for mudou := true; mudou; {
+		mudou = false
+		for _, r := range regras {
+			if r.AplicaSeReprovadoEmType == nil {
+				continue
+			}
+			if selecionados[strings.TrimSpace(*r.AplicaSeReprovadoEmType)] && !selecionados[r.Type] {
+				selecionados[r.Type] = true
+				mudou = true
+			}
+		}
+	}
+	var ids []uuid.UUID
+	for _, r := range regras {
+		if selecionados[r.Type] {
+			ids = append(ids, r.ID)
+		}
+	}
+	return ids, nil
 }
 
 func listarRegrasAvaliacaoFinalAplicaveis(c *gin.Context, codigoAcademia, tipoEnsino, anoAcademico string, categoria *string) ([]regraAvaliacaoFinalDTO, error) {
@@ -432,20 +671,58 @@ func validarCategoriasRegraAvaliacaoFinal(c *gin.Context, codigoAcademia string,
 	return nil
 }
 
-func validarFormulaAvaliacao(formula string, categorias []string) (string, error) {
+func validarFormulaAvaliacao(formula string, categorias []string) (string, []string, error) {
 	ast, normalized, err := parseFormulaAvaliacao(formula)
 	if err != nil {
-		return "", err
+		return "", nil, err
+	}
+	extraidas := categoriasFormula(ast)
+	if len(categorias) == 0 {
+		allowed := map[string]bool{}
+		for _, c := range extraidas {
+			allowed[c] = true
+		}
+		if err := validarASTFormula(ast, allowed); err != nil {
+			return "", nil, err
+		}
+		return normalized, extraidas, nil
 	}
 	allowed := map[string]bool{}
 	for _, c := range categorias {
 		allowed[strings.TrimSpace(c)] = true
 	}
 	if err := validarASTFormula(ast, allowed); err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return normalized, nil
+	if !mesmasCategorias(categorias, extraidas) {
+		return "", nil, fmt.Errorf("categorias_envolvidas deve corresponder exatamente às categorias referenciadas na formula")
+	}
+	return normalized, extraidas, nil
 }
+
+func categoriasFormula(ast *formulaAST) []string {
+	vistos := map[string]bool{}
+	var out []string
+	var walk func(*formulaAST)
+	walk = func(n *formulaAST) {
+		if n == nil {
+			return
+		}
+		if n.Kind == formulaASTReference {
+			if !vistos[n.Categoria] {
+				vistos[n.Categoria] = true
+				out = append(out, n.Categoria)
+			}
+			return
+		}
+		walk(n.Left)
+		walk(n.Right)
+	}
+	walk(ast)
+	return out
+}
+
+func mesmasCategorias(a, b []string) bool { return mesmosAnosAcademicos(a, b) }
 
 func parseFormulaAvaliacao(formula string) (*formulaAST, string, error) {
 	formula = strings.TrimSpace(formula)
