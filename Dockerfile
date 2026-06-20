@@ -46,4 +46,4 @@ CMD ["./spuri"]
 
 LABEL maintainer="Spuri Team"
 LABEL description="Spuri Event Sourcing API"
-LABEL version="2.0.2"
+LABEL version="2.0.3"

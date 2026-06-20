@@ -2,7 +2,7 @@
 modificado: 20-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.7.2
+Versão atual: 1.7.3
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -979,6 +979,8 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 | Curso superior exige períodos                                   | Ao menos um semestre                                                                                                                                                                       |
 | Curso superior limita semestres por ano                         | `total_semestres >= total_anos` e `total_semestres <= total_anos * 2`                                                                                                                     |
 | Curso médio não deve ter períodos                               | Trimestres são fixos do sistema                                                                                                                                                            |
+| Edição de anos acadêmicos bloqueia remoções em uso              | Não é permitido remover de `anos_academicos` um ano com estudantes ativos matriculados no curso                                                                                            |
+| Edição de períodos do superior bloqueia remoções em uso          | Não é permitido remover de `periodos` um semestre com estudantes ativos no curso superior usando o `semestre_atual` correspondente                                                         |
 | Deleção exige inatividade                                       | Desativar primeiro                                                                                                                                                                         |
 | Deleção exige sem estudantes matriculados                       | Verificação antes de deletar                                                                                                                                                               |
 | Matérias ativas bloqueiam deleção                               | Desativar todas as matérias antes                                                                                                                                                          |

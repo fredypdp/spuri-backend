@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -11,6 +13,7 @@ import (
 	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
+	"spuri/internal/projections"
 	"spuri/internal/utils"
 )
 
@@ -200,6 +203,11 @@ func AtualizarDadosCurso(c *gin.Context) {
 		return
 	}
 
+	if err := validarEdicaoCursoComEstudantesAtivos(c, cursoDTO, req.AnosAcademicos, req.Periodos); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
 	if err := curso.AtualizarDados(req.Nome, req.AnosAcademicos, req.Periodos, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -223,6 +231,63 @@ func AtualizarDadosCurso(c *gin.Context) {
 		"anos_academicos": curso.AnosAcademicos,
 		"periodos":        curso.Periodos,
 	})
+}
+
+func validarEdicaoCursoComEstudantesAtivos(c *gin.Context, curso *projections.CursoDTO, novosAnos []string, novosPeriodos *[]string) error {
+	if novosAnos != nil {
+		anosRemovidos := valoresRemovidos(curso.AnosAcademicos, novosAnos)
+		qtd, err := getEstudanteProjection(c).CountActiveByCursoAndAnos(curso.ID, curso.Type, anosRemovidos)
+		if err != nil {
+			return err
+		}
+		if qtd > 0 {
+			return fmt.Errorf("não é possível remover anos_academicos %v porque existem %d estudante(s) ativo(s) matriculado(s) nesses anos", anosRemovidos, qtd)
+		}
+	}
+
+	if curso.Type == "superior" && novosPeriodos != nil {
+		periodosRemovidos := valoresRemovidos(curso.Periodos, *novosPeriodos)
+		semestresRemovidos := semestresDosPeriodos(periodosRemovidos)
+		qtd, err := getEstudanteProjection(c).CountActiveByCursoSuperiorAndSemestres(curso.ID, semestresRemovidos)
+		if err != nil {
+			return err
+		}
+		if qtd > 0 {
+			return fmt.Errorf("não é possível remover periodos %v porque existem %d estudante(s) ativo(s) matriculado(s) nesses semestres", periodosRemovidos, qtd)
+		}
+	}
+
+	return nil
+}
+
+func valoresRemovidos(atuais, novos []string) []string {
+	permitidos := make(map[string]struct{}, len(novos))
+	for _, v := range novos {
+		permitidos[v] = struct{}{}
+	}
+
+	removidos := make([]string, 0)
+	for _, v := range atuais {
+		if _, ok := permitidos[v]; !ok {
+			removidos = append(removidos, v)
+		}
+	}
+	return removidos
+}
+
+func semestresDosPeriodos(periodos []string) []int {
+	semestres := make([]int, 0, len(periodos))
+	for _, periodo := range periodos {
+		numero, _, ok := strings.Cut(periodo, "_")
+		if !ok {
+			continue
+		}
+		semestre, err := strconv.Atoi(numero)
+		if err == nil {
+			semestres = append(semestres, semestre)
+		}
+	}
+	return semestres
 }
 
 // ============================================================================

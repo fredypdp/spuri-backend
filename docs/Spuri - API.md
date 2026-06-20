@@ -2,7 +2,7 @@
 modificado: 20-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.8.9
+Versão atual: 1.9.0
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -2515,6 +2515,11 @@ Atualiza nome, anos_academicos ou periodos de um curso. O `type` é imutável.
 
 **Proteção**: autenticado + academia ativa
 
+**Validações de integridade:**
+
+- Ao enviar `anos_academicos`, a atualização é rejeitada se remover algum ano que ainda possua estudante ativo matriculado no curso.
+- Para cursos superiores, ao enviar `periodos`, a atualização é rejeitada se remover algum semestre que ainda possua estudante ativo com `semestre_atual` correspondente.
+
 **Request:** (todos opcionais)
 
 ```json
@@ -2536,6 +2541,10 @@ Atualiza nome, anos_academicos ou periodos de um curso. O `type` é imutável.
   "periodos": []
 }
 ```
+
+**Erros:**
+
+- `400` — tentativa de remover `anos_academicos` ou `periodos` ainda usados por estudantes ativos
 
 ---
 
