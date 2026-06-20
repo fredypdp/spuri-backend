@@ -37,14 +37,15 @@ var validEventTypes = map[string]bool{
 	"AvaliacaoFinalSuperior": true,
 
 	// ── Academia ─────────────────────────────────────────────────────────────
-	"AcademiaCriada":            true,
-	"AcademiaAtivada":           true,
-	"AcademiaDesativada":        true,
-	"AcademiaDadosAtualizados":  true,
-	"CursosAtualizados":         true,
-	"AcademiaSenhaAlterada":     true,
-	"CategoriaNotaAdicionada":   true,
-	"AnoLetivoAcademiaDefinido": true,
+	"AcademiaCriada":                            true,
+	"AcademiaAtivada":                           true,
+	"AcademiaDesativada":                        true,
+	"AcademiaDadosAtualizados":                  true,
+	"CursosAtualizados":                         true,
+	"AcademiaSenhaAlterada":                     true,
+	"CategoriaNotaAdicionada":                   true,
+	"CategoriaNotaRemovida":                     true,
+	"AnoLetivoAcademiaDefinido":                 true,
 	"AcademiaDocumentosObrigatoriosAtualizados": true,
 	// ── Email Academia / Admin (compartilhado) ───────────────────────────────
 	"EmailVerificado": true,
@@ -90,22 +91,22 @@ var validEventTypes = map[string]bool{
 	"TelefoneExtraAdicionado": true,
 	"TelefoneExtraVerificado": true,
 	// ── Solicitação de Matrícula ───────────────────────────────────────────────
-	"SolicitacaoMatriculaCriada": true,
-	"SolicitacaoMatriculaAprovada": true,
+	"SolicitacaoMatriculaCriada":    true,
+	"SolicitacaoMatriculaAprovada":  true,
 	"SolicitacaoMatriculaReprovada": true,
 }
 
 // validAggregateTypes é o mapa canônico de aggregate types permitidos no ledger.
 var validAggregateTypes = map[string]bool{
-	"Estudante":          true,
-	"Academia":           true,
-	"Admin":              true,
-	"Curso":              true,
-	"MateriaDisciplinar": true,
-	"Turma":              true,
-	"TelefoneExtra":      true,
+	"Estudante":            true,
+	"Academia":             true,
+	"Admin":                true,
+	"Curso":                true,
+	"MateriaDisciplinar":   true,
+	"Turma":                true,
+	"TelefoneExtra":        true,
 	"SolicitacaoMatricula": true,
-	"System":             true,
+	"System":               true,
 }
 
 // ValidateEventType verifica se o tipo de evento é permitido.
