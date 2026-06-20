@@ -244,6 +244,8 @@ func (p *CategoriasNotaProjection) handleCategoriaAdicionada(event db.Event) err
 		adicionadoPor = payload.AdicionadoPor.String()
 	}
 
+	projectionID := categoriaNotaProjectionID(event)
+
 	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_categorias_nota (
 			id, codigo_academia, codigo, nome, descricao, anos_academicos, adicionado_por,
@@ -258,7 +260,7 @@ func (p *CategoriasNotaProjection) handleCategoriaAdicionada(event db.Event) err
 			event_id       = EXCLUDED.event_id,
 			version        = EXCLUDED.version
 	`,
-		event.AggregateID,
+		projectionID,
 		payload.CodigoAcademia,
 		payload.Codigo,
 		payload.Nome,
@@ -273,6 +275,10 @@ func (p *CategoriasNotaProjection) handleCategoriaAdicionada(event db.Event) err
 		return fmt.Errorf("handleCategoriaAdicionada: exec error: %w", err)
 	}
 	return nil
+}
+
+func categoriaNotaProjectionID(event db.Event) uuid.UUID {
+	return event.EventID
 }
 
 func (p *CategoriasNotaProjection) handleCategoriaRemovida(event db.Event) error {
