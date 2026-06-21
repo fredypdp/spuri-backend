@@ -298,6 +298,7 @@ func setupRouter() *gin.Engine {
 		protected.GET("/avaliacoes-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetAvaliacoesFinaisEstudante)
 		protected.GET("/turmas-estudante/:codigo", handlers.GetTurmasEstudante)
 		protected.POST("/adicionar-telefone-extra", handlers.AdicionarTelefoneExtra)
+		protected.POST("/definir-ano-letivo-seguinte", middleware.RequireAcademiaOuAdmin(), handlers.DefinirAnoLetivoSeguinte)
 	}
 
 	// ── Rotas exclusivas do estudante ─────────────────────────────────────
@@ -335,6 +336,7 @@ func setupRouter() *gin.Engine {
 	{
 		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
 		academia.POST("/ano-letivo", handlers.DefinirAnoLetivoAcademia)
+		academia.POST("/definir-ano-letivo", handlers.DefinirAnoLetivoAcademia)
 		academia.PUT("/solicitacao-matricula/:codigo/aprovar", handlers.AprovarSolicitacaoMatricula)
 		academia.PUT("/solicitacao-matricula/:codigo/reprovar", handlers.ReprovarSolicitacaoMatricula)
 
@@ -450,6 +452,7 @@ func setupRouter() *gin.Engine {
 	adminSistema.Use(middleware.RequireAdmin())
 	{
 		adminSistema.POST("/sistema/ano-letivo", middleware.RequireFPP(), handlers.DefinirAnoLetivoGlobalSistema)
+		adminSistema.POST("/definir-ano-letivo-geral", middleware.RequireFPP(), handlers.DefinirAnoLetivoGlobalSistema)
 	}
 
 	return router

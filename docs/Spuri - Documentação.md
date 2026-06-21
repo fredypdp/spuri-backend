@@ -1,8 +1,8 @@
 ---
-modificado: 20-06-2026 00:00
+modificado: 21-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.7.3
+Versão atual: 1.8.0
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -512,8 +512,8 @@ Permite que qualquer usuário (estudante, academia ou admin) registe números de
 
 **Quem faz**:
 
-- **Admin FPP** define o **ano letivo oficial global do sistema** via `POST /admin/sistema/ano-letivo`
-- **Academia** define o seu ano letivo ativo, mas apenas com o mesmo valor do ano oficial global
+- **Admin FPP** define diretamente uma única vez o **ano letivo oficial global do sistema** via `POST /admin/definir-ano-letivo-geral`; depois avança via `POST /definir-ano-letivo-seguinte`
+- **Academia** define diretamente uma única vez o seu ano letivo ativo via `POST /academia/definir-ano-letivo`, sempre alinhado ao global; depois avança via `POST /definir-ano-letivo-seguinte`
 
 Antes de registar qualquer nota, falta ou avaliação, a academia deve definir o ano letivo ativo.
 
@@ -525,7 +525,7 @@ Além do valor atual, o sistema mantém `anos_letivos_lista` em `projection_sist
 
 **Tipo**: `escola` ou `superior`
 
-Pode ser chamado múltiplas vezes — cada chamada substitui o valor anterior. O ano letivo ativo é resolvido automaticamente em todos os novos registos de nota, falta e avaliação.
+Pode ser chamado diretamente apenas uma vez. Depois disso, a evolução deve usar `POST /definir-ano-letivo-seguinte`, que calcula o próximo período a partir do ano final do anterior. O ano letivo ativo é resolvido automaticamente em todos os novos registos de nota, falta e avaliação.
 
 **Regra de alinhamento obrigatório**: se a academia tentar definir um ano letivo diferente do ano oficial global definido pelo admin FPP, a operação deve ser rejeitada com erro de negócio.
 
@@ -888,8 +888,8 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 | Escola com nível fundamental/misto deve ter `anos_academicos` | Sem anos, o cadastro é rejeitado                       |
 | Escola com nível médio não deve ter `anos_academicos`         | Anos são do curso, não da academia                     |
 | Apenas academias ativas podem operar                          | Middleware valida status em cada request               |
-| Admin FPP define o ano letivo oficial global via `POST /admin/sistema/ano-letivo` | É a referência obrigatória para todo o sistema          |
-| Academia só pode definir ano letivo igual ao oficial global  | Divergência é bloqueada com erro de negócio             |
+| Admin FPP define diretamente uma única vez o ano letivo oficial global via `POST /admin/definir-ano-letivo-geral`; depois avança via `POST /definir-ano-letivo-seguinte` | É a referência obrigatória para todo o sistema          |
+| Academia só pode definir diretamente uma vez e sempre igual ao oficial global; avanços usam `POST /definir-ano-letivo-seguinte` | Divergência é bloqueada com erro de negócio             |
 | Sem ano letivo na academia, notas/faltas/avaliações são bloqueadas | Pré-condição para registos académicos               |
 | Histórico `anos_letivos_lista` não duplica `ano_letivo`       | Atualizações repetidas do mesmo ano são ignoradas       |
 | Histórico global `anos_letivos_lista` (admin) não duplica `ano_letivo` | Lista global de anos letivos mantém unicidade por ano |
