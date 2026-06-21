@@ -13,12 +13,12 @@ func TestAdminSistemaAnoLetivoRouteIsRegistered(t *testing.T) {
 
 	router := setupRouter()
 
-	req := httptest.NewRequest(http.MethodPost, "/admin/sistema/ano-letivo", nil)
+	req := httptest.NewRequest(http.MethodPost, "/admin/definir-ano-letivo-geral", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
 	if w.Code == http.StatusNotFound {
-		t.Fatalf("expected /admin/sistema/ano-letivo to be registered, got 404")
+		t.Fatalf("expected /admin/definir-ano-letivo-geral to be registered, got 404")
 	}
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected registered route to require authentication with 401, got %d", w.Code)
@@ -41,6 +41,23 @@ func TestGlobalAnoLetivoReadRoutesRequireOnlyAuthentication(t *testing.T) {
 		if w.Code != http.StatusUnauthorized {
 			t.Fatalf("expected %s to require authentication with 401, got %d", path, w.Code)
 		}
+	}
+}
+
+func TestDefinirAnoLetivoSeguinteRouteIsRegistered(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := setupRouter()
+
+	req := httptest.NewRequest(http.MethodPost, "/definir-ano-letivo-seguinte", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code == http.StatusNotFound {
+		t.Fatalf("expected /definir-ano-letivo-seguinte to be registered, got 404")
+	}
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected registered route to require authentication with 401, got %d", w.Code)
 	}
 }
 

@@ -629,11 +629,11 @@ func DefinirAnoLetivoAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
 	var req struct {
-		AnoLetivo string `json:"ano_letivo" binding:"required"`
-		Tipo      string `json:"tipo"       binding:"required"`
+		AnoLetivo string `json:"ano_letivo"`
+		Tipo      string `json:"tipo" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("campos obrigatórios: ano_letivo e tipo"))
+		utils.RespondWithValidationError(c, fmt.Errorf("campo obrigatório: tipo"))
 		return
 	}
 
@@ -653,8 +653,16 @@ func DefinirAnoLetivoAcademia(c *gin.Context) {
 		utils.RespondWithConflictError(c, "ano letivo global do sistema ainda não foi definido pelo admin fpp")
 		return
 	}
-	if strings.TrimSpace(req.AnoLetivo) != strings.TrimSpace(anoLetivoGlobal) {
+	anoLetivoSolicitado := strings.TrimSpace(req.AnoLetivo)
+	if anoLetivoSolicitado == "" {
+		anoLetivoSolicitado = strings.TrimSpace(anoLetivoGlobal)
+	}
+	if anoLetivoSolicitado != strings.TrimSpace(anoLetivoGlobal) {
 		utils.RespondWithValidationError(c, fmt.Errorf("o ano letivo da academia deve ser igual ao ano letivo global do sistema: %s", anoLetivoGlobal))
+		return
+	}
+	if academiaDTO.AnoLetivo != nil && strings.TrimSpace(*academiaDTO.AnoLetivo) != "" {
+		utils.RespondWithConflictError(c, "ano letivo da academia já foi definido diretamente; use POST /definir-ano-letivo-seguinte")
 		return
 	}
 
@@ -670,7 +678,7 @@ func DefinirAnoLetivoAcademia(c *gin.Context) {
 		return
 	}
 
-	if err := academia.DefinirAnoLetivo(req.AnoLetivo, req.Tipo, userID); err != nil {
+	if err := academia.DefinirAnoLetivo(anoLetivoSolicitado, req.Tipo, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -686,13 +694,68 @@ func DefinirAnoLetivoAcademia(c *gin.Context) {
 	}
 
 	log.Printf("✅ [DefinirAnoLetivoAcademia] %s/%s definido por academia %s",
-		req.AnoLetivo, req.Tipo, academiaDTO.CodigoAcademia)
+		anoLetivoSolicitado, req.Tipo, academiaDTO.CodigoAcademia)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "ano letivo definido com sucesso",
-		"ano_letivo": req.AnoLetivo,
+		"ano_letivo": anoLetivoSolicitado,
 		"tipo":       req.Tipo,
 	})
+}
+
+func definirAnoLetivoAcademiaSeguinte(c *gin.Context, userID uuid.UUID) {
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByID(userID)
+	if err != nil || academiaDTO == nil {
+		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+	if academiaDTO.AnoLetivo == nil || strings.TrimSpace(*academiaDTO.AnoLetivo) == "" {
+		utils.RespondWithConflictError(c, "ano letivo da academia ainda não foi definido diretamente")
+		return
+	}
+	seguinte, err := proximoAnoLetivo(strings.TrimSpace(*academiaDTO.AnoLetivo))
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	anoLetivoGlobal, err := getAnoLetivoGlobalSistema(c)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if strings.TrimSpace(anoLetivoGlobal) == "" {
+		utils.RespondWithConflictError(c, "ano letivo global do sistema ainda não foi definido pelo admin fpp")
+		return
+	}
+	if seguinte != strings.TrimSpace(anoLetivoGlobal) {
+		utils.RespondWithValidationError(c, fmt.Errorf("o ano letivo seguinte da academia deve estar alinhado ao ano letivo global atual do sistema: %s", anoLetivoGlobal))
+		return
+	}
+	tipo := ""
+	if academiaDTO.TipoAnoLetivo != nil {
+		tipo = strings.TrimSpace(*academiaDTO.TipoAnoLetivo)
+	}
+	repository := getRepository(c)
+	agg, err := repository.Load(academiaDTO.ID, "Academia")
+	if err != nil {
+		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+	academia, ok := agg.(*aggregates.Academia)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
+	if err := academia.DefinirAnoLetivo(seguinte, tipo, userID); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if err := repository.SaveWithAudit(academia, db.AuditContext{UserID: userID.String(), UserType: "academia", IP: c.ClientIP()}); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "ano letivo seguinte definido com sucesso", "ano_letivo": seguinte, "tipo": tipo})
 }
 
 func getAnoLetivoGlobalSistema(c *gin.Context) (string, error) {

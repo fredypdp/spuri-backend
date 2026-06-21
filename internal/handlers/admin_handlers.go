@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
@@ -21,27 +22,24 @@ import (
 
 func DefinirAnoLetivoGlobalSistema(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
-
-	var req struct {
-		AnoLetivo string `json:"ano_letivo" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("campo obrigatório: ano_letivo"))
-		return
-	}
-
-	anoLetivo := strings.TrimSpace(req.AnoLetivo)
-	if !isAnoLetivoValido(anoLetivo) {
-		utils.RespondWithValidationError(c, fmt.Errorf("ano_letivo inválido: use o formato YYYY_YYYY com segundo ano = primeiro + 1"))
-		return
-	}
+	anoLetivo := anoLetivoDoAnoAtual()
 
 	client := getDbClient(c)
 	if client == nil {
 		return
 	}
 
-	_, err := client.DB().Exec(`
+	atual, err := buscarAnoLetivoGlobalAtual(client)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if atual != "" {
+		utils.RespondWithConflictError(c, "ano letivo global já foi definido diretamente; use POST /definir-ano-letivo-seguinte")
+		return
+	}
+
+	_, err = client.DB().Exec(`
 		INSERT INTO projection_sistema_config (
 			chave, valor, ano_letivo_atual, anos_letivos_lista, definido_por, updated_at, version
 		) VALUES (
@@ -91,6 +89,101 @@ func DefinirAnoLetivoGlobalSistema(c *gin.Context) {
 		"message":    "ano letivo global definido com sucesso",
 		"ano_letivo": anoLetivo,
 	})
+}
+
+func DefinirAnoLetivoSeguinte(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
+
+	switch userType {
+	case "admin":
+		definirAnoLetivoGlobalSeguinte(c, userID)
+	case "academia":
+		definirAnoLetivoAcademiaSeguinte(c, userID)
+	default:
+		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas academias e administradores"})
+	}
+}
+
+func definirAnoLetivoGlobalSeguinte(c *gin.Context, userID uuid.UUID) {
+	client := getDbClient(c)
+	if client == nil {
+		return
+	}
+	atual, err := buscarAnoLetivoGlobalAtual(client)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if atual == "" {
+		utils.RespondWithConflictError(c, "ano letivo global ainda não foi definido diretamente")
+		return
+	}
+	seguinte, err := proximoAnoLetivo(atual)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if err := salvarAnoLetivoGlobal(c, seguinte, userID); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "ano letivo global seguinte definido com sucesso", "ano_letivo": seguinte})
+}
+
+func buscarAnoLetivoGlobalAtual(client *db.Client) (string, error) {
+	var anoLetivo sql.NullString
+	err := client.DB().QueryRow(`SELECT ano_letivo_atual FROM projection_sistema_config WHERE chave = 'ano_letivo_atual'`).Scan(&anoLetivo)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if !anoLetivo.Valid {
+		return "", nil
+	}
+	return strings.TrimSpace(anoLetivo.String), nil
+}
+
+func salvarAnoLetivoGlobal(c *gin.Context, anoLetivo string, userID uuid.UUID) error {
+	client := getDbClient(c)
+	if client == nil {
+		return fmt.Errorf("cliente de banco indisponível")
+	}
+	_, err := client.DB().Exec(`
+		INSERT INTO projection_sistema_config (
+			chave, valor, ano_letivo_atual, anos_letivos_lista, definido_por, updated_at, version
+		) VALUES (
+			'ano_letivo_atual', $1::text, $1::varchar(20),
+			jsonb_build_array(jsonb_build_object('ano_letivo', $1::text, 'definido_em', NOW(), 'definido_por', $2::text)),
+			$2::uuid, NOW(), 1
+		)
+		ON CONFLICT (chave) DO UPDATE SET
+			valor = EXCLUDED.valor,
+			ano_letivo_atual = EXCLUDED.ano_letivo_atual,
+			anos_letivos_lista = CASE
+				WHEN EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(projection_sistema_config.anos_letivos_lista, '[]'::jsonb)) elem WHERE elem->>'ano_letivo' = EXCLUDED.ano_letivo_atual)
+				THEN COALESCE(projection_sistema_config.anos_letivos_lista, '[]'::jsonb)
+				ELSE COALESCE(projection_sistema_config.anos_letivos_lista, '[]'::jsonb) || jsonb_build_array(jsonb_build_object('ano_letivo', EXCLUDED.ano_letivo_atual, 'definido_em', NOW(), 'definido_por', EXCLUDED.definido_por::text))
+			END,
+			definido_por = EXCLUDED.definido_por, updated_at = NOW(), version = COALESCE(projection_sistema_config.version, 0) + 1
+	`, anoLetivo, userID)
+	return err
+}
+
+func anoLetivoDoAnoAtual() string {
+	inicio := time.Now().Year()
+	return fmt.Sprintf("%04d_%04d", inicio, inicio+1)
+}
+
+func proximoAnoLetivo(atual string) (string, error) {
+	if !isAnoLetivoValido(atual) {
+		return "", fmt.Errorf("ano letivo atual inválido: %s", atual)
+	}
+	var inicio, fim int
+	_, _ = fmt.Sscanf(atual, "%4d_%4d", &inicio, &fim)
+	return fmt.Sprintf("%04d_%04d", fim, fim+1), nil
 }
 
 func GetAnoLetivoGlobalSistemaAtual(c *gin.Context) {
