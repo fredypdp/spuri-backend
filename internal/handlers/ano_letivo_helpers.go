@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -61,8 +62,13 @@ func compareAnoLetivo(a, b string) (int, error) {
 
 func normalizarPeriodoLetivo(periodo string) (string, error) {
 	periodo = strings.TrimSpace(periodo)
-	var ini, fim int
-	if _, err := fmt.Sscanf(periodo, "%d_%d", &ini, &fim); err != nil || ini < 1 || ini > 12 || fim < 1 || fim > 12 {
+	partes := strings.Split(periodo, "_")
+	if len(partes) != 2 || strings.TrimSpace(partes[0]) == "" || strings.TrimSpace(partes[1]) == "" {
+		return "", fmt.Errorf("periodo deve usar formato MM_MM com meses entre 01 e 12")
+	}
+	ini, errIni := strconv.Atoi(partes[0])
+	fim, errFim := strconv.Atoi(partes[1])
+	if errIni != nil || errFim != nil || ini < 1 || ini > 12 || fim < 1 || fim > 12 {
 		return "", fmt.Errorf("periodo deve usar formato MM_MM com meses entre 01 e 12")
 	}
 	return fmt.Sprintf("%02d_%02d", ini, fim), nil
