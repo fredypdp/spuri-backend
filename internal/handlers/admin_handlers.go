@@ -39,6 +39,11 @@ func DefinirAnoLetivoGlobalSistema(c *gin.Context) {
 		return
 	}
 
+	if err := validarLimiteRetrocessoGlobal(client, "escolar", anoLetivo); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
 	_, err = client.DB().Exec(`
 		INSERT INTO projection_sistema_config (
 			chave, valor, ano_letivo_atual, anos_letivos_lista, definido_por, updated_at, version
@@ -124,6 +129,10 @@ func definirAnoLetivoGlobalSeguinte(c *gin.Context, userID uuid.UUID) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
+	if err := validarLimiteRetrocessoGlobal(client, "escolar", seguinte); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 	if err := salvarAnoLetivoGlobal(c, seguinte, userID); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -178,12 +187,7 @@ func anoLetivoDoAnoAtual() string {
 }
 
 func proximoAnoLetivo(atual string) (string, error) {
-	if !isAnoLetivoValido(atual) {
-		return "", fmt.Errorf("ano letivo atual inválido: %s", atual)
-	}
-	var inicio, fim int
-	_, _ = fmt.Sscanf(atual, "%4d_%4d", &inicio, &fim)
-	return fmt.Sprintf("%04d_%04d", fim, fim+1), nil
+	return proximoAnoLetivoValidado(atual)
 }
 
 func GetAnoLetivoGlobalSistemaAtual(c *gin.Context) {
@@ -750,4 +754,93 @@ func AtualizarDadosAdmin(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "dados atualizados com sucesso"})
+}
+
+func AtualizarConfiguracaoAnoLetivo(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	tipo, err := normalizarTipoAnoLetivo(c.Param("type"))
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	var req struct {
+		Periodo string `json:"periodo" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("campo obrigatório: periodo"))
+		return
+	}
+	periodo, err := normalizarPeriodoLetivo(req.Periodo)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	client := getDbClient(c)
+	if client == nil {
+		return
+	}
+	_, err = client.DB().Exec(`INSERT INTO projection_anos_letivos_configuracoes (type, periodo, updated_by, updated_at)
+		VALUES ($1,$2,$3,NOW()) ON CONFLICT (type) DO UPDATE SET periodo=EXCLUDED.periodo, updated_by=EXCLUDED.updated_by, updated_at=NOW()`, tipo, periodo, userID)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "configuração de ano letivo atualizada com sucesso", "type": tipo, "periodo": periodo})
+}
+
+func ListarConfiguracoesAnosLetivos(c *gin.Context) {
+	client := getDbClient(c)
+	if client == nil {
+		return
+	}
+	rows, err := client.DB().Query(`SELECT type, periodo, updated_at, updated_by FROM projection_anos_letivos_configuracoes ORDER BY type`)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	defer rows.Close()
+	items := []gin.H{}
+	for rows.Next() {
+		var tipo, periodo string
+		var updatedAt time.Time
+		var updatedBy sql.NullString
+		if err := rows.Scan(&tipo, &periodo, &updatedAt, &updatedBy); err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		items = append(items, gin.H{"type": tipo, "periodo": periodo, "updated_at": updatedAt, "updated_by": updatedBy.String})
+	}
+	c.JSON(http.StatusOK, gin.H{"configuracoes": items})
+}
+
+func validarLimiteRetrocessoGlobal(client *db.Client, tipo, novoAno string) error {
+	limite, minimo, _, _, err := calcularLimiteFinalizacao(client, tipo, "")
+	if err != nil || limite == "" {
+		return err
+	}
+	cmp, err := compareAnoLetivo(novoAno, minimo)
+	if err != nil {
+		return err
+	}
+	if cmp < 0 {
+		return fmt.Errorf("não é possível definir o ano letivo %s para %s: todas as academias já finalizaram %s; o mínimo permitido é %s", tipo, novoAno, limite, minimo)
+	}
+	return nil
+}
+
+func GetLimitesFinalizacaoAnosLetivos(c *gin.Context) {
+	client := getDbClient(c)
+	if client == nil {
+		return
+	}
+	resp := []gin.H{}
+	for _, tipo := range []string{"escolar", "superior"} {
+		marco, minimo, total, fin, err := calcularLimiteFinalizacao(client, tipo, "")
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		resp = append(resp, gin.H{"type": tipo, "ano_letivo_finalizado_por_todas": marco, "minimo_global_permitido": minimo, "academias_total": total, "academias_finalizadas": fin})
+	}
+	c.JSON(http.StatusOK, gin.H{"limites": resp})
 }

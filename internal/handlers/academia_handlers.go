@@ -950,3 +950,171 @@ func generateCodigoAcademia(codigoProvincia string, sqlDB *sqlx.DB) (string, err
 	log.Printf("[WARN] generateCodigoAcademia: código gerado pelo fallback Go (ledger): %s", codigo)
 	return codigo, nil
 }
+
+func FinalizarAnoLetivoAcademia(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	var req struct {
+		Type       string `json:"type" binding:"required"`
+		AnoLetivo  string `json:"ano_letivo"`
+		Observacao string `json:"observacao"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("campo obrigatório: type"))
+		return
+	}
+	tipo, err := normalizarTipoAnoLetivo(req.Type)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByID(userID)
+	if err != nil || academiaDTO == nil {
+		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+	ano := strings.TrimSpace(req.AnoLetivo)
+	if ano == "" && academiaDTO.AnoLetivo != nil {
+		ano = strings.TrimSpace(*academiaDTO.AnoLetivo)
+	}
+	if _, err := parseAnoLetivo(ano); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	client := getDbClient(c)
+	if client == nil {
+		return
+	}
+	_, err = client.DB().Exec(`INSERT INTO projection_anos_letivos_academia_finalizacoes
+		(academia_id, codigo_academia, type, ano_letivo, finalizado, finalizado_por, finalizado_em, observacao)
+		VALUES ($1,$2,$3,$4,TRUE,$5,NOW(),NULLIF($6,''))
+		ON CONFLICT (academia_id, type, ano_letivo) DO UPDATE SET finalizado=TRUE`, academiaDTO.ID, academiaDTO.CodigoAcademia, tipo, ano, userID, strings.TrimSpace(req.Observacao))
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "ano letivo finalizado com sucesso", "academia_id": academiaDTO.ID, "type": tipo, "ano_letivo": ano, "finalizado": true})
+}
+
+func ListarFinalizacoesAnoLetivoAcademia(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByID(userID)
+	if err != nil || academiaDTO == nil {
+		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+	client := getDbClient(c)
+	if client == nil {
+		return
+	}
+	rows, err := client.DB().Query(`SELECT type, ano_letivo, finalizado, finalizado_em, observacao FROM projection_anos_letivos_academia_finalizacoes WHERE academia_id=$1 ORDER BY ano_letivo DESC, type`, academiaDTO.ID)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	defer rows.Close()
+	items := []gin.H{}
+	for rows.Next() {
+		var tipo, ano string
+		var fin bool
+		var em time.Time
+		var obs sql.NullString
+		if err := rows.Scan(&tipo, &ano, &fin, &em, &obs); err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		items = append(items, gin.H{"type": tipo, "ano_letivo": ano, "finalizado": fin, "finalizado_em": em, "observacao": obs.String})
+	}
+	c.JSON(http.StatusOK, gin.H{"finalizacoes": items})
+}
+
+func ListarFinalizacoesAnoLetivoAdmin(c *gin.Context) {
+	client := getDbClient(c)
+	if client == nil {
+		return
+	}
+	tipo := strings.TrimSpace(c.Query("type"))
+	ano := strings.TrimSpace(c.Query("ano_letivo"))
+	args := []interface{}{}
+	where := "WHERE 1=1"
+	if tipo != "" {
+		nt, err := normalizarTipoAnoLetivo(tipo)
+		if err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+		args = append(args, nt)
+		where += fmt.Sprintf(" AND f.type=$%d", len(args))
+	}
+	if ano != "" {
+		if _, err := parseAnoLetivo(ano); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+		args = append(args, ano)
+		where += fmt.Sprintf(" AND f.ano_letivo=$%d", len(args))
+	}
+	rows, err := client.DB().Query(`SELECT f.academia_id, f.codigo_academia, f.type, f.ano_letivo, f.finalizado, f.finalizado_em, f.observacao FROM projection_anos_letivos_academia_finalizacoes f `+where+` ORDER BY f.ano_letivo DESC, f.codigo_academia`, args...)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	defer rows.Close()
+	items := []gin.H{}
+	for rows.Next() {
+		var aid uuid.UUID
+		var cod, t, a string
+		var fin bool
+		var em time.Time
+		var obs sql.NullString
+		if err := rows.Scan(&aid, &cod, &t, &a, &fin, &em, &obs); err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		items = append(items, gin.H{"academia_id": aid, "codigo_academia": cod, "type": t, "ano_letivo": a, "finalizado": fin, "finalizado_em": em, "observacao": obs.String})
+	}
+	c.JSON(http.StatusOK, gin.H{"finalizacoes": items})
+}
+
+func calcularLimiteFinalizacao(client *db.Client, tipo, anoFiltro string) (string, string, int, int, error) {
+	var total int
+	nivel := "escola"
+	if tipo == "superior" {
+		nivel = "superior"
+	}
+	if err := client.DB().QueryRow(`SELECT COUNT(*) FROM projection_academias WHERE status='ativo' AND nivel=$1`, nivel).Scan(&total); err != nil {
+		return "", "", 0, 0, err
+	}
+	if total == 0 {
+		return "", "", 0, 0, nil
+	}
+	rows, err := client.DB().Query(`SELECT ano_letivo, COUNT(DISTINCT academia_id) FROM projection_anos_letivos_academia_finalizacoes WHERE type=$1 AND finalizado=TRUE GROUP BY ano_letivo`, tipo)
+	if err != nil {
+		return "", "", 0, 0, err
+	}
+	defer rows.Close()
+	marco := ""
+	fin := 0
+	for rows.Next() {
+		var ano string
+		var c int
+		if err := rows.Scan(&ano, &c); err != nil {
+			return "", "", 0, 0, err
+		}
+		if c >= total {
+			if marco == "" {
+				marco = ano
+				fin = c
+			} else if cmp, _ := compareAnoLetivo(ano, marco); cmp > 0 {
+				marco = ano
+				fin = c
+			}
+		}
+	}
+	minimo := ""
+	if marco != "" {
+		minimo, _ = proximoAnoLetivoValidado(marco)
+	}
+	return marco, minimo, total, fin, nil
+}

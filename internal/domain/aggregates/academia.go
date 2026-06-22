@@ -141,8 +141,12 @@ func (a *Academia) Criar(
 	anosAcademicos []string,
 	criadoPor *uuid.UUID,
 ) error {
-	if tipo != "escola" && tipo != "superior" {
-		return fmt.Errorf("tipo deve ser 'escola' ou 'superior'")
+	tipo = strings.TrimSpace(strings.ToLower(tipo))
+	if tipo == "escola" {
+		tipo = "escolar"
+	}
+	if tipo != "escolar" && tipo != "superior" {
+		return fmt.Errorf("tipo deve ser 'escolar' ou 'superior'")
 	}
 	academiaType = strings.TrimSpace(strings.ToLower(academiaType))
 	if academiaType != "public" && academiaType != "private" {
@@ -337,8 +341,12 @@ func (a *Academia) DefinirAnoLetivo(anoLetivo string, tipo string, definidoPor u
 	if anoFim != anoInicio+1 {
 		return fmt.Errorf("ano letivo deve ser de um ano para o seguinte (ex: 2025_2026)")
 	}
-	if tipo != "escola" && tipo != "superior" {
-		return fmt.Errorf("tipo deve ser 'escola' ou 'superior'")
+	tipo = strings.TrimSpace(strings.ToLower(tipo))
+	if tipo == "escola" {
+		tipo = "escolar"
+	}
+	if tipo != "escolar" && tipo != "superior" {
+		return fmt.Errorf("tipo deve ser 'escolar' ou 'superior'")
 	}
 
 	now := time.Now()

@@ -75,6 +75,16 @@ func RegistrarFaltas(c *gin.Context) {
 		return
 	}
 
+	tipoLetivo, err := inferirTipoLetivoMateria(materiaDTO.Type)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if err := validarDataNoPeriodoLetivo(getDbClient(c), tipoLetivo, anoLectivo, req.Data.Time); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
 	// Inferir anoAcademico com bloqueio de incompatibilidade estudante x matéria
 	anoAcademico, err := inferirAnoAcademicoFaltas(estudanteDTO.AnoEscolar, materiaDTO.AnosAcademicos, materiaDTO.Nome)
 	if err != nil {
@@ -234,6 +244,24 @@ func AtualizarFalta(c *gin.Context) {
 		return
 	}
 	if _, err := inferirAnoAcademicoFaltas(estudanteDTO.AnoEscolar, materiaFinalDTO.AnosAcademicos, materiaFinalDTO.Nome); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	tipoLetivo, err := inferirTipoLetivoMateria(materiaFinalDTO.Type)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	anoLectivo, err := resolverAnoLetivoAcademia(academiaDTO.AnoLetivo, academiaDTO.CodigoAcademia)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	dataParaValidar := faltaAtual.Data.Time
+	if dataPtr != nil {
+		dataParaValidar = *dataPtr
+	}
+	if err := validarDataNoPeriodoLetivo(getDbClient(c), tipoLetivo, anoLectivo, dataParaValidar); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}

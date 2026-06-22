@@ -1,8 +1,8 @@
 ---
-modificado: 21-06-2026 00:00
+modificado: 22-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.8.0
+Versão atual: 1.9.0
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -1240,3 +1240,18 @@ Os documentos de matrícula continuam sendo gravados em `{codigo_academia}/matri
 |Listar todas|Admin|
 |Configurar documentos obrigatórios|Academia dona|
 |Consultar quota de storage|Admin|
+
+---
+
+## 12. Anos letivos escolar/superior
+
+Versão 1.9.0.
+
+O ano letivo global e o ano letivo da academia passam a separar o identificador evolutivo (`YYYY_YYYY`) das configurações estáveis por tipo:
+
+- `escolar`: fundamental e médio, com alias legado `escola` normalizado no backend.
+- `superior`: ensino superior.
+
+Cada tipo possui um único `periodo` configurado por Admin FPP no formato `MM_MM`. Esse período não é recriado a cada virada de ano; ele é combinado com o `ano_letivo` ativo para calcular o intervalo real aceito nas operações de faltas.
+
+As academias podem declarar a finalização de um ano letivo por tipo. A projeção `projection_anos_letivos_academia_finalizacoes` mantém a informação auditável por academia, tipo, ano, usuário e data. Quando todas as academias ativas aplicáveis a um tipo finalizam um ano, a plataforma bloqueia retrocessos globais para esse mesmo ano ou anos anteriores.
