@@ -294,6 +294,7 @@ func setupRouter() *gin.Engine {
 		protected.GET("/faltas-estudante/:codigo", handlers.GetFaltasEstudante)
 		protected.GET("/ano-letivo", handlers.GetAnoLetivoGlobalSistemaAtual)
 		protected.GET("/anos-letivos-lista", handlers.GetAnosLetivosGlobaisLista)
+		protected.GET("/anos-letivos/configuracoes", handlers.ListarConfiguracoesAnosLetivos)
 		protected.GET("/solicitacoes-matricula", middleware.RequireAdmin(), handlers.ListarSolicitacoesMatriculaAdmin)
 		protected.GET("/avaliacoes-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetAvaliacoesFinaisEstudante)
 		protected.GET("/turmas-estudante/:codigo", handlers.GetTurmasEstudante)
@@ -323,6 +324,7 @@ func setupRouter() *gin.Engine {
 		academiaRead.GET("/turma/:codigo", handlers.GetTurma)
 		academiaRead.GET("/ano-letivo", handlers.GetAnoLetivoAcademia)
 		academiaRead.GET("/anos-letivos-lista", handlers.GetAnosLetivosListaAcademia)
+		academiaRead.GET("/anos-letivos/finalizacoes", handlers.ListarFinalizacoesAnoLetivoAcademia)
 		academiaRead.GET("/categorias-nota", handlers.ListarCategoriasNota)
 		academiaRead.GET("/avaliacao-final/regras", handlers.ListarRegrasAvaliacaoFinal)
 		academiaRead.GET("/solicitacoes-matricula", handlers.ListarSolicitacoesMatriculaAcademia)
@@ -337,6 +339,7 @@ func setupRouter() *gin.Engine {
 		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
 		academia.POST("/ano-letivo", handlers.DefinirAnoLetivoAcademia)
 		academia.POST("/definir-ano-letivo", handlers.DefinirAnoLetivoAcademia)
+		academia.POST("/anos-letivos/finalizar", handlers.FinalizarAnoLetivoAcademia)
 		academia.PUT("/solicitacao-matricula/:codigo/aprovar", handlers.AprovarSolicitacaoMatricula)
 		academia.PUT("/solicitacao-matricula/:codigo/reprovar", handlers.ReprovarSolicitacaoMatricula)
 
@@ -453,6 +456,10 @@ func setupRouter() *gin.Engine {
 	{
 		adminSistema.POST("/sistema/ano-letivo", middleware.RequireFPP(), handlers.DefinirAnoLetivoGlobalSistema)
 		adminSistema.POST("/definir-ano-letivo-geral", middleware.RequireFPP(), handlers.DefinirAnoLetivoGlobalSistema)
+		adminSistema.GET("/sistema/anos-letivos/configuracoes", middleware.RequireFPP(), handlers.ListarConfiguracoesAnosLetivos)
+		adminSistema.PUT("/sistema/anos-letivos/configuracoes/:type", middleware.RequireFPP(), handlers.AtualizarConfiguracaoAnoLetivo)
+		adminSistema.GET("/sistema/anos-letivos/finalizacao-limites", middleware.RequireFPP(), handlers.GetLimitesFinalizacaoAnosLetivos)
+		adminSistema.GET("/academias/anos-letivos/finalizacoes", middleware.RequireFPP(), handlers.ListarFinalizacoesAnoLetivoAdmin)
 	}
 
 	return router
