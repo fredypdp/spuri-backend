@@ -981,6 +981,10 @@ func FinalizarAnoLetivoAcademia(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
+	if err := validarMesAtualPermiteFinalizacaoAnoLetivo(getDbClient(c), tipo, time.Now()); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 	repository := getRepository(c)
 	agg, err := repository.Load(academiaDTO.ID, "Academia")
 	if err != nil {

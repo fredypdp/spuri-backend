@@ -4084,7 +4084,7 @@ O registro e a atualização de faltas validam a data no backend usando o tipo i
 
 #### POST `/academia/anos-letivos/finalizar`
 
-A academia autenticada finaliza um ano letivo no próprio escopo. O cliente não envia `academia_id`; o backend obtém a academia pelo token, normaliza `type`, valida `ano_letivo` no formato `YYYY_YYYY` com segundo ano igual ao primeiro + 1 e grava um evento auditável `AnoLetivoAcademiaFinalizado`.
+A academia autenticada finaliza um ano letivo no próprio escopo. O cliente não envia `academia_id`; o backend obtém a academia pelo token, normaliza `type`, valida `ano_letivo` no formato `YYYY_YYYY` com segundo ano igual ao primeiro + 1, valida a janela mensal de finalização pelo `periodo` configurado para o tipo e grava um evento auditável `AnoLetivoAcademiaFinalizado`. A janela mensal é inclusiva no mês final e exclusiva no mês inicial: o mês atual precisa ser maior ou igual ao mês de fim do período letivo e menor que o mês de início do período letivo. Exemplo: se `periodo=10_07`, a finalização é permitida somente em julho, agosto e setembro; em outubro o próximo período já começou, e de novembro a junho o período vigente ainda não chegou ao mês de encerramento.
 
 Request:
 
@@ -4108,7 +4108,7 @@ Response:
 }
 ```
 
-A operação é idempotente por `(academia_id, type, ano_letivo)`: se a academia reenviar a mesma finalização, a projeção permanece finalizada e atualiza os dados auditáveis do último evento processado.
+A operação é idempotente por `(academia_id, type, ano_letivo)`: se a academia reenviar a mesma finalização dentro da janela mensal permitida, a projeção permanece finalizada e atualiza os dados auditáveis do último evento processado. Fora dessa janela, o backend retorna `400` e não grava novo evento.
 
 #### GET `/academia/anos-letivos/finalizacoes`
 
