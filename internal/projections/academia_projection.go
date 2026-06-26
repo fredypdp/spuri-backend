@@ -45,6 +45,7 @@ func (p *AcademiaProjection) Handle(event db.Event) error {
 			"EmailVerificado":                           p.handleEmailVerificado,
 			"AcademiaSenhaAlterada":                     p.handleAcademiaSenhaAlterada,
 			"AnoLetivoAcademiaDefinido":                 p.handleAnoLetivoAcademiaDefinido,
+			"AnoLetivoAcademiaFinalizado":               p.handleAnoLetivoAcademiaFinalizado,
 			"AcademiaDocumentosObrigatoriosAtualizados": p.handleDocumentosObrigatoriosAtualizados,
 			// CategoriaNotaAdicionada é tratado pela CategoriasNotaProjection dedicada.
 		}
@@ -75,6 +76,7 @@ func (p *AcademiaProjection) HandleTx(tx *sql.Tx, event db.Event) error {
 			"EmailVerificado":                           p.handleEmailVerificadoTx,
 			"AcademiaSenhaAlterada":                     p.handleAcademiaSenhaAlteradaTx,
 			"AnoLetivoAcademiaDefinido":                 p.handleAnoLetivoAcademiaDefinidoTx,
+			"AnoLetivoAcademiaFinalizado":               p.handleAnoLetivoAcademiaFinalizadoTx,
 			"AcademiaDocumentosObrigatoriosAtualizados": p.handleDocumentosObrigatoriosAtualizadosTx,
 		}
 		if handler, ok := academiaHandlers[event.EventType]; ok {
@@ -146,6 +148,10 @@ func (p *AcademiaProjection) handleAcademiaSenhaAlteradaTx(tx *sql.Tx, event db.
 
 func (p *AcademiaProjection) handleAnoLetivoAcademiaDefinidoTx(tx *sql.Tx, event db.Event) error {
 	return p.handleAnoLetivoAcademiaDefinido(event)
+}
+
+func (p *AcademiaProjection) handleAnoLetivoAcademiaFinalizadoTx(tx *sql.Tx, event db.Event) error {
+	return p.handleAnoLetivoAcademiaFinalizado(event)
 }
 
 func (p *AcademiaProjection) handleDocumentosObrigatoriosAtualizadosTx(tx *sql.Tx, event db.Event) error {
@@ -676,6 +682,37 @@ func (p *AcademiaProjection) handleAnoLetivoAcademiaDefinido(event db.Event) err
 		WHERE id = $7
 	`, payload.AnoLetivo, payload.Tipo, payload.DefinidoEm,
 		anosLetivosListaJSON, event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
+
+func (p *AcademiaProjection) handleAnoLetivoAcademiaFinalizado(event db.Event) error {
+	var payload struct {
+		CodigoAcademia string    `json:"CodigoAcademia"`
+		AnoLetivo      string    `json:"AnoLetivo"`
+		Tipo           string    `json:"Tipo"`
+		FinalizadoPor  uuid.UUID `json:"FinalizadoPor"`
+		FinalizadoEm   time.Time `json:"FinalizadoEm"`
+		Observacao     string    `json:"Observacao"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("handleAnoLetivoAcademiaFinalizado: parse error: %w", err)
+	}
+	if payload.AnoLetivo == "" || payload.Tipo == "" {
+		return fmt.Errorf("handleAnoLetivoAcademiaFinalizado: AnoLetivo/Tipo ausentes no payload")
+	}
+	_, err := p.client.DB().Exec(`
+		INSERT INTO projection_anos_letivos_academia_finalizacoes (
+			academia_id, codigo_academia, type, ano_letivo,
+			finalizado, finalizado_por, finalizado_em, observacao
+		)
+		VALUES ($1, $2, $3, $4, TRUE, $5, $6, NULLIF($7, ''))
+		ON CONFLICT (academia_id, type, ano_letivo) DO UPDATE SET
+			finalizado = TRUE,
+			finalizado_por = EXCLUDED.finalizado_por,
+			finalizado_em = EXCLUDED.finalizado_em,
+			observacao = EXCLUDED.observacao
+	`, event.AggregateID, payload.CodigoAcademia, payload.Tipo, payload.AnoLetivo,
+		payload.FinalizadoPor, payload.FinalizadoEm, payload.Observacao)
 	return err
 }
 
