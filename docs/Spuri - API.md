@@ -3998,18 +3998,72 @@ O `periodo` usa o formato `MM_MM`, em que o primeiro mês pertence ao ano inicia
 
 Lista as configurações vigentes.
 
+Request: não possui body.
+
+Response:
+
+```json
+{
+  "configuracoes": [
+    {
+      "type": "escolar",
+      "periodo": "09_07",
+      "updated_at": "2026-06-26T10:30:00Z",
+      "updated_by": "uuid-do-admin-fpp"
+    },
+    {
+      "type": "superior",
+      "periodo": "10_07",
+      "updated_at": "2026-06-26T10:35:00Z",
+      "updated_by": "uuid-do-admin-fpp"
+    }
+  ]
+}
+```
+
 #### GET `/admin/sistema/anos-letivos/configuracoes`
 
-Lista as configurações vigentes para Admin FPP.
+Lista as configurações vigentes para Admin FPP. A estrutura do retorno é a mesma de `GET /anos-letivos/configuracoes`; a diferença é a exigência de autenticação como Admin FPP.
+
+Request: não possui body.
+
+Response:
+
+```json
+{
+  "configuracoes": [
+    {
+      "type": "escolar",
+      "periodo": "09_07",
+      "updated_at": "2026-06-26T10:30:00Z",
+      "updated_by": "uuid-do-admin-fpp"
+    },
+    {
+      "type": "superior",
+      "periodo": "10_07",
+      "updated_at": "2026-06-26T10:35:00Z",
+      "updated_by": "uuid-do-admin-fpp"
+    }
+  ]
+}
+```
 
 #### PUT `/admin/sistema/anos-letivos/configuracoes/:type`
 
-Apenas Admin FPP. Atualiza o período fixo do tipo informado.
+Apenas Admin FPP. Atualiza o período fixo do tipo informado. O parâmetro `:type` aceita `escolar`, `superior` e o alias legado `escola`, que é normalizado para `escolar`.
 
-Request:
+Request params:
+
+| Campo | Tipo | Obrigatório | Descrição |
+| --- | --- | --- | --- |
+| `type` | `string` | Sim | Tipo do ano letivo no path. Valores aceitos: `escolar`, `superior` ou `escola` como alias de entrada. |
+
+Request body:
 
 ```json
-{ "periodo": "09_07" }
+{
+  "periodo": "09_07"
+}
 ```
 
 Response:
@@ -4058,15 +4112,92 @@ A operação é idempotente por `(academia_id, type, ano_letivo)`: se a academia
 
 #### GET `/academia/anos-letivos/finalizacoes`
 
-Lista as finalizações da academia autenticada.
+Lista as finalizações da academia autenticada. O cliente não envia `academia_id`; o backend identifica a academia pelo token.
+
+Request: não possui body nem query params.
+
+Response:
+
+```json
+{
+  "finalizacoes": [
+    {
+      "type": "escolar",
+      "ano_letivo": "2025_2026",
+      "finalizado": true,
+      "finalizado_em": "2026-06-26T11:00:00Z",
+      "observacao": "Ano letivo encerrado após fechamento de notas e faltas."
+    },
+    {
+      "type": "superior",
+      "ano_letivo": "2025_2026",
+      "finalizado": true,
+      "finalizado_em": "2026-06-26T11:05:00Z",
+      "observacao": ""
+    }
+  ]
+}
+```
 
 #### GET `/admin/academias/anos-letivos/finalizacoes?type=escolar&ano_letivo=2025_2026`
 
 Apenas Admin FPP. Consulta finalizações por academia, com filtros opcionais.
 
+Request: não possui body.
+
+Query params opcionais:
+
+| Campo | Tipo | Obrigatório | Descrição |
+| --- | --- | --- | --- |
+| `type` | `string` | Não | Filtra pelo tipo. Valores aceitos: `escolar`, `superior` ou `escola` como alias de entrada. |
+| `ano_letivo` | `string` | Não | Filtra pelo ano letivo no formato `YYYY_YYYY`, com o segundo ano igual ao primeiro + 1. |
+
+Response:
+
+```json
+{
+  "finalizacoes": [
+    {
+      "academia_id": "uuid-da-academia",
+      "codigo_academia": "ACA1",
+      "type": "escolar",
+      "ano_letivo": "2025_2026",
+      "finalizado": true,
+      "finalizado_em": "2026-06-26T11:00:00Z",
+      "observacao": "Ano letivo encerrado após fechamento de notas e faltas."
+    }
+  ]
+}
+```
+
 #### GET `/admin/sistema/anos-letivos/finalizacao-limites`
 
 Apenas Admin FPP. Retorna, por tipo, o maior ano letivo finalizado por todas as academias ativas aplicáveis e o mínimo global permitido.
+
+Request: não possui body nem query params.
+
+Response:
+
+```json
+{
+  "limites": [
+    {
+      "type": "escolar",
+      "ano_letivo_finalizado_por_todas": "2025_2026",
+      "minimo_global_permitido": "2026_2027",
+      "academias_total": 12,
+      "academias_finalizadas": 12
+    },
+    {
+      "type": "superior",
+      "ano_letivo_finalizado_por_todas": "",
+      "minimo_global_permitido": "",
+      "academias_total": 8,
+      "academias_finalizadas": 0
+    }
+  ]
+}
+```
 
 ### Bloqueio de retrocesso global
 
