@@ -3980,8 +3980,6 @@ Quando a configuração do Google Drive ou da quota estiver incompleta ou invál
 
 ## 22. Anos letivos por tipo e finalização
 
-Versão 1.11.0.
-
 ### Configurações de período letivo
 
 O backend separa duas coisas que o cliente deve tratar como conceitos diferentes:
