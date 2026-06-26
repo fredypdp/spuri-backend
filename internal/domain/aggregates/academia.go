@@ -107,6 +107,8 @@ func (a *Academia) Apply(event DomainEvent) error {
 		return a.applyCategoriaNotaRemovida(event)
 	case "AnoLetivoAcademiaDefinido":
 		return a.applyAnoLetivoAcademiaDefinido(event)
+	case "AnoLetivoAcademiaFinalizado":
+		return a.applyAnoLetivoAcademiaFinalizado(event)
 	case "AcademiaDocumentosObrigatoriosAtualizados":
 		return a.applyDocumentosObrigatoriosAtualizados(event)
 	default:
@@ -375,6 +377,39 @@ func (a *Academia) DefinirAnoLetivo(anoLetivo string, tipo string, definidoPor u
 	return a.Apply(event)
 }
 
+// FinalizarAnoLetivo registra, de forma event-sourced e auditável, que a
+// academia declarou o encerramento de um ano letivo por tipo.
+func (a *Academia) FinalizarAnoLetivo(anoLetivo string, tipo string, finalizadoPor uuid.UUID, observacao string) error {
+	if !reAnoLetivo.MatchString(anoLetivo) {
+		return fmt.Errorf("formato inválido: use YYYY_YYYY (ex: 2025_2026)")
+	}
+	var anoInicio, anoFim int
+	fmt.Sscanf(anoLetivo[:4], "%d", &anoInicio)
+	fmt.Sscanf(anoLetivo[5:], "%d", &anoFim)
+	if anoFim != anoInicio+1 {
+		return fmt.Errorf("ano letivo deve ser de um ano para o seguinte (ex: 2025_2026)")
+	}
+	tipo = strings.TrimSpace(strings.ToLower(tipo))
+	if tipo == "escola" {
+		tipo = "escolar"
+	}
+	if tipo != "escolar" && tipo != "superior" {
+		return fmt.Errorf("tipo deve ser 'escolar' ou 'superior'")
+	}
+
+	event := &AnoLetivoAcademiaFinalizadoEvent{
+		BaseEvent:      BaseEvent{EventType: "AnoLetivoAcademiaFinalizado", AggregateID: a.ID},
+		CodigoAcademia: a.CodigoAcademia,
+		AnoLetivo:      anoLetivo,
+		Tipo:           tipo,
+		FinalizadoPor:  finalizadoPor,
+		FinalizadoEm:   time.Now(),
+		Observacao:     strings.TrimSpace(observacao),
+	}
+	a.RaiseEvent(event)
+	return a.Apply(event)
+}
+
 // ============================================================================
 // Apply handlers
 // NOTA: applyCategoriaNotaAdicionada está em academia_categorias_nota.go
@@ -545,6 +580,21 @@ func (a *Academia) applyAnoLetivoAcademiaDefinido(event DomainEvent) error {
 	a.AnoLetivoAtivadoEm = &agora
 	a.AnoLetivoAtivadoPor = &ev.DefinidoPor
 	a.AnosLetivoLista = ev.AnosLetivoLista
+	return nil
+}
+
+func (a *Academia) applyAnoLetivoAcademiaFinalizado(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyAnoLetivoAcademiaFinalizado: marshal error: %w", err)
+	}
+	var ev AnoLetivoAcademiaFinalizadoEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyAnoLetivoAcademiaFinalizado: unmarshal error: %w", err)
+	}
+	if ev.AnoLetivo == "" || ev.Tipo == "" {
+		return fmt.Errorf("applyAnoLetivoAcademiaFinalizado: AnoLetivo/Tipo ausentes no payload")
+	}
 	return nil
 }
 
@@ -734,6 +784,21 @@ type AnoLetivoAcademiaDefinidoEvent struct {
 
 func (e *AnoLetivoAcademiaDefinidoEvent) GetPayload() interface{} { return e }
 func (e *AnoLetivoAcademiaDefinidoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+// AnoLetivoAcademiaFinalizadoEvent registra a declaração de encerramento de um
+// ano letivo feita pela própria academia.
+type AnoLetivoAcademiaFinalizadoEvent struct {
+	BaseEvent
+	CodigoAcademia string
+	AnoLetivo      string
+	Tipo           string
+	FinalizadoPor  uuid.UUID
+	FinalizadoEm   time.Time
+	Observacao     string
+}
+
+func (e *AnoLetivoAcademiaFinalizadoEvent) GetPayload() interface{} { return e }
+func (e *AnoLetivoAcademiaFinalizadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 type DocumentosObrigatorios struct {
 	Declaracao                 []string `json:"declaracao"`

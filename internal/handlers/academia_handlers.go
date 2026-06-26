@@ -981,15 +981,22 @@ func FinalizarAnoLetivoAcademia(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
-	client := getDbClient(c)
-	if client == nil {
+	repository := getRepository(c)
+	agg, err := repository.Load(academiaDTO.ID, "Academia")
+	if err != nil {
+		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
-	_, err = client.DB().Exec(`INSERT INTO projection_anos_letivos_academia_finalizacoes
-		(academia_id, codigo_academia, type, ano_letivo, finalizado, finalizado_por, finalizado_em, observacao)
-		VALUES ($1,$2,$3,$4,TRUE,$5,NOW(),NULLIF($6,''))
-		ON CONFLICT (academia_id, type, ano_letivo) DO UPDATE SET finalizado=TRUE`, academiaDTO.ID, academiaDTO.CodigoAcademia, tipo, ano, userID, strings.TrimSpace(req.Observacao))
-	if err != nil {
+	academia, ok := agg.(*aggregates.Academia)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
+	if err := academia.FinalizarAnoLetivo(ano, tipo, userID, req.Observacao); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if err := repository.SaveWithAudit(academia, db.AuditContext{UserID: userID.String(), UserType: "academia", IP: c.ClientIP()}); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}

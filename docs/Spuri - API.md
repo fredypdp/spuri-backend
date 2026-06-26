@@ -1,8 +1,8 @@
 ---
-modificado: 22-06-2026 00:00
+modificado: 26-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 1.11.0
+Versão atual: 1.12.0
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -3984,12 +3984,17 @@ Versão 1.11.0.
 
 ### Configurações de período letivo
 
+O backend separa duas coisas que o cliente deve tratar como conceitos diferentes:
+
+1. **Ano letivo ativo** (`ano_letivo`, exemplo `2025_2026`) — valor evolutivo definido pelo Admin FPP no escopo global e pela academia no próprio escopo, sempre alinhado ao global.
+2. **Período fixo por tipo** (`periodo`, exemplo `09_07`) — configuração global estável mantida pelo Admin FPP para calcular o intervalo real de datas aceitas.
+
 Cada tipo canônico de ano letivo possui exatamente um período fixo global:
 
-- `escolar` — alias legado aceito em alguns fluxos: `escola`.
-- `superior`.
+- `escolar` — usado para fundamental e médio; o alias legado `escola` é aceito apenas na entrada e normalizado para `escolar`.
+- `superior` — usado para ensino superior.
 
-O `periodo` usa o formato `MM_MM`, em que o primeiro mês pertence ao ano inicial de `ano_letivo` e o segundo mês pertence ao ano final. Exemplo: `ano_letivo=2025_2026` com `periodo=10_07` permite datas de `2025-10-01` a `2026-07-31`.
+O `periodo` usa o formato `MM_MM`, em que o primeiro mês pertence ao ano inicial de `ano_letivo` e o segundo mês pertence ao ano final. Exemplo: `ano_letivo=2025_2026` com `periodo=10_07` permite datas de `2025-10-01` a `2026-07-31`. O cliente não precisa calcular esse intervalo para validar segurança; o backend recalcula e valida em operações sensíveis, especialmente faltas.
 
 #### GET `/anos-letivos/configuracoes`
 
@@ -4027,7 +4032,7 @@ O registro e a atualização de faltas validam a data no backend usando o tipo i
 
 #### POST `/academia/anos-letivos/finalizar`
 
-A academia autenticada finaliza um ano letivo no próprio escopo. O cliente não envia `academia_id`.
+A academia autenticada finaliza um ano letivo no próprio escopo. O cliente não envia `academia_id`; o backend obtém a academia pelo token, normaliza `type`, valida `ano_letivo` no formato `YYYY_YYYY` com segundo ano igual ao primeiro + 1 e grava um evento auditável `AnoLetivoAcademiaFinalizado`.
 
 Request:
 
@@ -4051,7 +4056,7 @@ Response:
 }
 ```
 
-A operação é idempotente por `(academia_id, type, ano_letivo)`.
+A operação é idempotente por `(academia_id, type, ano_letivo)`: se a academia reenviar a mesma finalização, a projeção permanece finalizada e atualiza os dados auditáveis do último evento processado.
 
 #### GET `/academia/anos-letivos/finalizacoes`
 
@@ -4068,3 +4073,11 @@ Apenas Admin FPP. Retorna, por tipo, o maior ano letivo finalizado por todas as 
 ### Bloqueio de retrocesso global
 
 Ao definir ou avançar o ano letivo global, o backend verifica se todas as academias ativas aplicáveis ao tipo já finalizaram algum ano letivo. Se sim, o novo ano global não pode ser igual ou anterior ao marco finalizado; deve ser o ano seguinte ou posterior.
+
+Para implementar o cliente de forma segura:
+
+1. Admin FPP consulta/ajusta `GET|PUT /admin/sistema/anos-letivos/configuracoes/:type` para confirmar o `periodo` por tipo.
+2. Admin FPP define inicialmente o ano global com `POST /admin/definir-ano-letivo-geral` e avança ciclos com `POST /definir-ano-letivo-seguinte`.
+3. Cada academia define o próprio ano letivo com `POST /academia/definir-ano-letivo` usando o ano global atual; depois avança também com `POST /definir-ano-letivo-seguinte`.
+4. Ao encerrar notas/faltas/avaliações de um ciclo, a academia chama `POST /academia/anos-letivos/finalizar` para o `type` e `ano_letivo` encerrados.
+5. Telas administrativas podem usar `GET /admin/sistema/anos-letivos/finalizacao-limites` para mostrar o marco finalizado por todas as academias e o mínimo global permitido antes de tentar avançar ou corrigir o global.
