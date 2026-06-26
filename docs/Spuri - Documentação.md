@@ -1247,8 +1247,6 @@ Os documentos de matrícula continuam sendo gravados em `{codigo_academia}/matri
 
 ## 12. Anos letivos escolar/superior
 
-Versão 1.10.0.
-
 O ano letivo global e o ano letivo da academia passam a separar o identificador evolutivo (`YYYY_YYYY`) das configurações estáveis por tipo:
 
 - `escolar`: fundamental e médio, com alias legado `escola` normalizado no backend.
