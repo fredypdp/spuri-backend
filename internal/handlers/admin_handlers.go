@@ -23,10 +23,11 @@ import (
 func DefinirAnoLetivoGlobalSistema(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	var req struct {
-		Type string `json:"type" binding:"required"`
+		Type      string `json:"type" binding:"required"`
+		AnoLetivo string `json:"ano_letivo" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("campo obrigatório: type"))
+		utils.RespondWithValidationError(c, fmt.Errorf("campos obrigatórios: type e ano_letivo"))
 		return
 	}
 	tipo, err := normalizarTipoAnoLetivo(req.Type)
@@ -34,7 +35,11 @@ func DefinirAnoLetivoGlobalSistema(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
-	anoLetivo := anoLetivoDoAnoAtual()
+	anoLetivo := strings.TrimSpace(req.AnoLetivo)
+	if _, err := parseAnoLetivo(anoLetivo); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 
 	client := getDbClient(c)
 	if client == nil {
@@ -171,11 +176,6 @@ func salvarAnoLetivoGlobal(c *gin.Context, tipo string, anoLetivo string, userID
 			definido_por = EXCLUDED.definido_por, updated_at = NOW(), version = COALESCE(projection_sistema_config.version, 0) + 1
 	`, anoLetivo, userID, chaveAnoLetivoGlobal(tipo), tipo)
 	return err
-}
-
-func anoLetivoDoAnoAtual() string {
-	inicio := time.Now().Year()
-	return fmt.Sprintf("%04d_%04d", inicio, inicio+1)
 }
 
 func proximoAnoLetivo(atual string) (string, error) {

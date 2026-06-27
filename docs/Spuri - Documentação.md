@@ -512,7 +512,7 @@ Permite que qualquer usuário (estudante, academia ou admin) registe números de
 
 **Quem faz**:
 
-- **Admin FPP** define o **ano letivo oficial global por tipo** via `POST /admin/definir-ano-letivo-geral`, informando `type=escolar` ou `type=superior`, apenas enquanto não houver academia ativa daquele tipo com ano letivo definido
+- **Admin FPP** define o **ano letivo oficial global por tipo** via `POST /admin/definir-ano-letivo-geral`, informando `type=escolar` ou `type=superior` e o `ano_letivo` desejado no formato `YYYY_YYYY`, apenas enquanto não houver academia ativa daquele tipo com ano letivo definido
 - **Academia** define o seu primeiro ano letivo ativo via `POST /academia/definir-ano-letivo`, sempre alinhado ao global do tipo inferido pelo próprio cadastro (`escola` → `escolar`, `superior` → `superior`); depois avança automaticamente ao finalizar o ano letivo
 
 Antes de registar qualquer nota, falta ou avaliação, a academia deve definir o ano letivo ativo.
