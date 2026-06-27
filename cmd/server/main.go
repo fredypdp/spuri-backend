@@ -299,7 +299,6 @@ func setupRouter() *gin.Engine {
 		protected.GET("/avaliacoes-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetAvaliacoesFinaisEstudante)
 		protected.GET("/turmas-estudante/:codigo", handlers.GetTurmasEstudante)
 		protected.POST("/adicionar-telefone-extra", handlers.AdicionarTelefoneExtra)
-		protected.POST("/definir-ano-letivo-seguinte", middleware.RequireAcademiaOuAdmin(), handlers.DefinirAnoLetivoSeguinte)
 	}
 
 	// ── Rotas exclusivas do estudante ─────────────────────────────────────

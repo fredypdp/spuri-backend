@@ -512,8 +512,8 @@ Permite que qualquer usuário (estudante, academia ou admin) registe números de
 
 **Quem faz**:
 
-- **Admin FPP** define diretamente uma única vez o **ano letivo oficial global do sistema** via `POST /admin/definir-ano-letivo-geral`; depois avança via `POST /definir-ano-letivo-seguinte`
-- **Academia** define diretamente uma única vez o seu ano letivo ativo via `POST /academia/definir-ano-letivo`, sempre alinhado ao global; depois avança via `POST /definir-ano-letivo-seguinte`
+- **Admin FPP** define o **ano letivo oficial global do sistema** via `POST /admin/definir-ano-letivo-geral`; quando já houver academias com ano letivo, o global deve ser maior que o maior ano letivo ativo dessas academias
+- **Academia** define diretamente o seu ano letivo ativo via `POST /academia/definir-ano-letivo` apenas se ainda não tiver ano letivo, sempre alinhado ao global; depois avança exclusivamente pela finalização em `POST /academia/anos-letivos/finalizar`
 
 Antes de registar qualquer nota, falta ou avaliação, a academia deve definir o ano letivo ativo.
 
@@ -525,7 +525,7 @@ Além do valor atual, o sistema mantém `anos_letivos_lista` em `projection_sist
 
 **Tipo**: `escolar` ou `superior`; `escola` não é aceito como alias para tipo de ano letivo.
 
-Pode ser chamado diretamente apenas uma vez. Depois disso, a evolução deve usar `POST /definir-ano-letivo-seguinte`, que calcula o próximo período a partir do ano final do anterior. O ano letivo ativo é resolvido automaticamente em todos os novos registos de nota, falta e avaliação.
+O Admin FPP define o global diretamente e não há mais uma rota de “ano letivo seguinte”. A evolução operacional é feita pelas academias: ao finalizar o ano letivo ativo, o backend calcula o próximo período a partir do ano final do anterior e atualiza o ano letivo da academia. Quando todas as academias ativas ficarem no mesmo ano letivo, o sistema sincroniza automaticamente esse ano como global. O ano letivo ativo é resolvido automaticamente em todos os novos registos de nota, falta e avaliação.
 
 O período real aceito para faltas não é salvo como datas fixas em cada ano. O Admin FPP mantém uma configuração global por tipo em `projection_anos_letivos_configuracoes` (`type` + `periodo`). O backend combina essa configuração com o `ano_letivo` ativo da academia para calcular o intervalo: com `ano_letivo=2025_2026` e `periodo=10_07`, o início é `2025-10-01` e o fim é `2026-07-31`.
 
@@ -890,8 +890,8 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 | Escola com nível fundamental/misto deve ter `anos_academicos` | Sem anos, o cadastro é rejeitado                       |
 | Escola com nível médio não deve ter `anos_academicos`         | Anos são do curso, não da academia                     |
 | Apenas academias ativas podem operar                          | Middleware valida status em cada request               |
-| Admin FPP define diretamente uma única vez o ano letivo oficial global via `POST /admin/definir-ano-letivo-geral`; depois avança via `POST /definir-ano-letivo-seguinte` | É a referência obrigatória para todo o sistema          |
-| Academia só pode definir diretamente uma vez e sempre igual ao oficial global; avanços usam `POST /definir-ano-letivo-seguinte` | Divergência é bloqueada com erro de negócio             |
+| Admin FPP define o ano letivo oficial global via `POST /admin/definir-ano-letivo-geral`; se existir ano letivo em academias, o novo global deve ser maior que o maior deles | É a referência obrigatória para academias sem ano letivo |
+| Academia só pode definir diretamente quando ainda não possui ano letivo e sempre igual ao oficial global; avanços usam `POST /academia/anos-letivos/finalizar` | Divergência é bloqueada com erro de negócio             |
 | Sem ano letivo na academia, notas/faltas/avaliações são bloqueadas | Pré-condição para registos académicos               |
 | Histórico `anos_letivos_lista` não duplica `ano_letivo`       | Atualizações repetidas do mesmo ano são ignoradas       |
 | Histórico global `anos_letivos_lista` (admin) não duplica `ano_letivo` | Lista global de anos letivos mantém unicidade por ano |
@@ -1254,4 +1254,4 @@ O ano letivo global e o ano letivo da academia passam a separar o identificador 
 
 Cada tipo possui um único `periodo` configurado por Admin FPP no formato `MM_MM`. Esse período não é recriado a cada virada de ano; ele é combinado com o `ano_letivo` ativo para calcular o intervalo real aceito nas operações de faltas.
 
-As academias podem declarar a finalização de um ano letivo por tipo. Essa ação é registrada no ledger por meio do evento `AnoLetivoAcademiaFinalizado` e projetada em `projection_anos_letivos_academia_finalizacoes`, mantendo a informação auditável por academia, tipo, ano, usuário, data e observação. A finalização e a definição do ano letivo seguinte só são aceitas na janela operacional entre o mês de fim do período letivo configurado para o tipo e o mês imediatamente anterior ao mês de início do próximo período: em termos de validação, o mês atual precisa ser `>=` ao mês final de `periodo` e `<` ao mês inicial de `periodo`. Exemplo: com `periodo=10_07`, a academia pode finalizar em julho, agosto ou setembro (meses 07, 08 e 09); de outubro a junho a operação é bloqueada, porque o ano letivo ainda está em curso ou o próximo período já começou. Quando todas as academias ativas aplicáveis a um tipo finalizam um ano, a plataforma bloqueia retrocessos globais para esse mesmo ano ou anos anteriores; o mínimo permitido passa a ser o próximo `YYYY_YYYY`.
+As academias podem declarar a finalização de um ano letivo por tipo. Essa ação é registrada no ledger por meio do evento `AnoLetivoAcademiaFinalizado` e projetada em `projection_anos_letivos_academia_finalizacoes`, mantendo a informação auditável por academia, tipo, ano, usuário, data e observação. A finalização com avanço automático para o ano letivo seguinte só é aceita na janela operacional entre o mês de fim do período letivo configurado para o tipo e o mês imediatamente anterior ao mês de início do próximo período: em termos de validação, o mês atual precisa ser `>=` ao mês final de `periodo` e `<` ao mês inicial de `periodo`. Exemplo: com `periodo=10_07`, a academia pode finalizar em julho, agosto ou setembro (meses 07, 08 e 09); de outubro a junho a operação é bloqueada, porque o ano letivo ainda está em curso ou o próximo período já começou. Quando todas as academias ativas passam a estar no mesmo ano letivo, a plataforma define automaticamente esse ano como global; definições administrativas diretas continuam bloqueadas se forem menores ou iguais ao maior ano letivo já ativo em alguma academia.

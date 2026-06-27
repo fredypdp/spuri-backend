@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"spuri/internal/db"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 type anoLetivoPartes struct{ Inicio, Fim int }
@@ -149,4 +152,79 @@ func inferirTipoLetivoMateria(materiaType string) (string, error) {
 		return "superior", nil
 	}
 	return "escolar", nil
+}
+
+func maiorAnoLetivoAcademiasAtivas(client *db.Client) (string, error) {
+	var maior sql.NullString
+	err := client.DB().QueryRow(`
+		SELECT MAX(ano_letivo)
+		FROM projection_academias
+		WHERE status = 'ativo'
+		  AND ano_letivo IS NOT NULL
+		  AND TRIM(ano_letivo) <> ''
+	`).Scan(&maior)
+	if err != nil {
+		return "", err
+	}
+	if !maior.Valid {
+		return "", nil
+	}
+	return strings.TrimSpace(maior.String), nil
+}
+
+func definirAnoLetivoGlobalSeTodasAcademiasNoMesmoAno(c *gin.Context, userID uuid.UUID) (string, bool, error) {
+	client := getDbClient(c)
+	if client == nil {
+		return "", false, fmt.Errorf("cliente de banco indisponível")
+	}
+
+	var totalAtivas, totalComAno int
+	if err := client.DB().QueryRow(`SELECT COUNT(*) FROM projection_academias WHERE status = 'ativo'`).Scan(&totalAtivas); err != nil {
+		return "", false, err
+	}
+	if totalAtivas == 0 {
+		return "", false, nil
+	}
+
+	rows, err := client.DB().Query(`
+		SELECT TRIM(ano_letivo), COUNT(*)
+		FROM projection_academias
+		WHERE status = 'ativo'
+		  AND ano_letivo IS NOT NULL
+		  AND TRIM(ano_letivo) <> ''
+		GROUP BY TRIM(ano_letivo)
+	`)
+	if err != nil {
+		return "", false, err
+	}
+	defer rows.Close()
+
+	anos := []string{}
+	for rows.Next() {
+		var ano string
+		var quantidade int
+		if err := rows.Scan(&ano, &quantidade); err != nil {
+			return "", false, err
+		}
+		anos = append(anos, ano)
+		totalComAno += quantidade
+	}
+	if err := rows.Err(); err != nil {
+		return "", false, err
+	}
+	if totalComAno != totalAtivas || len(anos) != 1 {
+		return "", false, nil
+	}
+
+	atual, err := buscarAnoLetivoGlobalAtual(client)
+	if err != nil {
+		return "", false, err
+	}
+	if atual == anos[0] {
+		return anos[0], false, nil
+	}
+	if err := salvarAnoLetivoGlobal(c, anos[0], userID); err != nil {
+		return "", false, err
+	}
+	return anos[0], true, nil
 }
