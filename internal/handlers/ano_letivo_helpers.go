@@ -14,9 +14,6 @@ type anoLetivoPartes struct{ Inicio, Fim int }
 
 func normalizarTipoAnoLetivo(tipo string) (string, error) {
 	t := strings.ToLower(strings.TrimSpace(tipo))
-	if t == "escola" {
-		t = "escolar"
-	}
 	if t != "escolar" && t != "superior" {
 		return "", fmt.Errorf("type deve ser 'escolar' ou 'superior'")
 	}

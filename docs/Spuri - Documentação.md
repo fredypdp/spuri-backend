@@ -523,7 +523,7 @@ Além do valor atual, o sistema mantém `anos_letivos_lista` em `projection_sist
 
 **Formato obrigatório**: `YYYY_YYYY` onde o segundo ano é exatamente o primeiro + 1 (ex: `2025_2026`)
 
-**Tipo**: `escolar` ou `superior`; `escola` é apenas alias legado de entrada e é normalizado para `escolar`.
+**Tipo**: `escolar` ou `superior`; `escola` não é aceito como alias para tipo de ano letivo.
 
 Pode ser chamado diretamente apenas uma vez. Depois disso, a evolução deve usar `POST /definir-ano-letivo-seguinte`, que calcula o próximo período a partir do ano final do anterior. O ano letivo ativo é resolvido automaticamente em todos os novos registos de nota, falta e avaliação.
 
@@ -1249,9 +1249,9 @@ Os documentos de matrícula continuam sendo gravados em `{codigo_academia}/matri
 
 O ano letivo global e o ano letivo da academia passam a separar o identificador evolutivo (`YYYY_YYYY`) das configurações estáveis por tipo:
 
-- `escolar`: fundamental e médio, com alias legado `escola` normalizado no backend.
+- `escolar`: fundamental e médio. O alias legado `escola` não é mais aceito para `type` de ano letivo.
 - `superior`: ensino superior.
 
 Cada tipo possui um único `periodo` configurado por Admin FPP no formato `MM_MM`. Esse período não é recriado a cada virada de ano; ele é combinado com o `ano_letivo` ativo para calcular o intervalo real aceito nas operações de faltas.
 
-As academias podem declarar a finalização de um ano letivo por tipo. Essa ação é registrada no ledger por meio do evento `AnoLetivoAcademiaFinalizado` e projetada em `projection_anos_letivos_academia_finalizacoes`, mantendo a informação auditável por academia, tipo, ano, usuário, data e observação. A finalização só é aceita na janela operacional entre o mês de fim do período letivo configurado para o tipo e o mês imediatamente anterior ao mês de início do próximo período: em termos de validação, o mês atual precisa ser `>=` ao mês final de `periodo` e `<` ao mês inicial de `periodo`. Exemplo: com `periodo=10_07`, a academia pode finalizar em julho, agosto ou setembro (meses 07, 08 e 09); de outubro a junho a operação é bloqueada, porque o ano letivo ainda está em curso ou o próximo período já começou. Quando todas as academias ativas aplicáveis a um tipo finalizam um ano, a plataforma bloqueia retrocessos globais para esse mesmo ano ou anos anteriores; o mínimo permitido passa a ser o próximo `YYYY_YYYY`.
+As academias podem declarar a finalização de um ano letivo por tipo. Essa ação é registrada no ledger por meio do evento `AnoLetivoAcademiaFinalizado` e projetada em `projection_anos_letivos_academia_finalizacoes`, mantendo a informação auditável por academia, tipo, ano, usuário, data e observação. A finalização e a definição do ano letivo seguinte só são aceitas na janela operacional entre o mês de fim do período letivo configurado para o tipo e o mês imediatamente anterior ao mês de início do próximo período: em termos de validação, o mês atual precisa ser `>=` ao mês final de `periodo` e `<` ao mês inicial de `periodo`. Exemplo: com `periodo=10_07`, a academia pode finalizar em julho, agosto ou setembro (meses 07, 08 e 09); de outubro a junho a operação é bloqueada, porque o ano letivo ainda está em curso ou o próximo período já começou. Quando todas as academias ativas aplicáveis a um tipo finalizam um ano, a plataforma bloqueia retrocessos globais para esse mesmo ano ou anos anteriores; o mínimo permitido passa a ser o próximo `YYYY_YYYY`.

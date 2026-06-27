@@ -678,7 +678,13 @@ func DefinirAnoLetivoAcademia(c *gin.Context) {
 		return
 	}
 
-	if err := academia.DefinirAnoLetivo(anoLetivoSolicitado, req.Tipo, userID); err != nil {
+	tipo, err := normalizarTipoAnoLetivo(req.Tipo)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if err := academia.DefinirAnoLetivo(anoLetivoSolicitado, tipo, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -699,7 +705,7 @@ func DefinirAnoLetivoAcademia(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "ano letivo definido com sucesso",
 		"ano_letivo": anoLetivoSolicitado,
-		"tipo":       req.Tipo,
+		"tipo":       tipo,
 	})
 }
 
@@ -735,6 +741,15 @@ func definirAnoLetivoAcademiaSeguinte(c *gin.Context, userID uuid.UUID) {
 	tipo := ""
 	if academiaDTO.TipoAnoLetivo != nil {
 		tipo = strings.TrimSpace(*academiaDTO.TipoAnoLetivo)
+	}
+	tipo, err = normalizarTipoAnoLetivo(tipo)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if err := validarMesAtualPermiteFinalizacaoAnoLetivo(getDbClient(c), tipo, time.Now()); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
 	}
 	repository := getRepository(c)
 	agg, err := repository.Load(academiaDTO.ID, "Academia")

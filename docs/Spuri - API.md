@@ -181,7 +181,7 @@ interface AcademiaDTO {
   motivo_desativacao?: string     // apenas para admin ver
   total_estudantes: number
   ano_letivo?: string             // ex: '2025_2026'
-  tipo_ano_letivo?: string        // 'escola' | 'superior'
+  tipo_ano_letivo?: string        // 'escolar' | 'superior'
   ano_letivo_ativado_em?: string  // RFC3339
   anos_letivos_lista: AnoLetivoItem[]
   created_at: string
@@ -191,7 +191,7 @@ interface AcademiaDTO {
 
 interface AnoLetivoItem {
   ano_letivo: string              // ex: '2025_2026'
-  tipo: 'escola' | 'superior'
+  tipo: 'escolar' | 'superior'
   definido_por: string            // UUID da academia
   definido_em: string             // RFC3339
 }
@@ -3989,10 +3989,10 @@ O backend separa duas coisas que o cliente deve tratar como conceitos diferentes
 
 Cada tipo canônico de ano letivo possui exatamente um período fixo global:
 
-- `escolar` — usado para fundamental e médio; o alias legado `escola` é aceito apenas na entrada e normalizado para `escolar`.
+- `escolar` — usado para fundamental e médio. O alias legado `escola` não é mais aceito para `type` de ano letivo.
 - `superior` — usado para ensino superior.
 
-O `periodo` usa o formato `MM_MM`, em que o primeiro mês pertence ao ano inicial de `ano_letivo` e o segundo mês pertence ao ano final. Exemplo: `ano_letivo=2025_2026` com `periodo=10_07` permite datas de `2025-10-01` a `2026-07-31`. O cliente não precisa calcular esse intervalo para validar segurança; o backend recalcula e valida em operações sensíveis, especialmente faltas.
+O `periodo` usa o formato `MM_MM`, em que o primeiro mês pertence ao ano inicial de `ano_letivo` e o segundo mês pertence ao ano final. Exemplo: `ano_letivo=2025_2026` com `periodo=10_07` permite datas de `2025-10-01` a `2026-07-31`. O cliente não precisa calcular esse intervalo para validar segurança; o backend recalcula e valida em operações sensíveis, especialmente faltas. A definição do ano letivo seguinte também respeita a mesma janela operacional da finalização: enquanto o mês atual ainda estiver dentro do ano letivo em curso delimitado pelo período, o avanço para o próximo ano letivo é bloqueado.
 
 #### GET `/anos-letivos/configuracoes`
 
@@ -4050,13 +4050,13 @@ Response:
 
 #### PUT `/admin/sistema/anos-letivos/configuracoes/:type`
 
-Apenas Admin FPP. Atualiza o período fixo do tipo informado. O parâmetro `:type` aceita `escolar`, `superior` e o alias legado `escola`, que é normalizado para `escolar`.
+Apenas Admin FPP. Atualiza o período fixo do tipo informado. O parâmetro `:type` aceita somente `escolar` ou `superior`.
 
 Request params:
 
 | Campo | Tipo | Obrigatório | Descrição |
 | --- | --- | --- | --- |
-| `type` | `string` | Sim | Tipo do ano letivo no path. Valores aceitos: `escolar`, `superior` ou `escola` como alias de entrada. |
+| `type` | `string` | Sim | Tipo do ano letivo no path. Valores aceitos: `escolar` ou `superior`. |
 
 Request body:
 
@@ -4149,7 +4149,7 @@ Query params opcionais:
 
 | Campo | Tipo | Obrigatório | Descrição |
 | --- | --- | --- | --- |
-| `type` | `string` | Não | Filtra pelo tipo. Valores aceitos: `escolar`, `superior` ou `escola` como alias de entrada. |
+| `type` | `string` | Não | Filtra pelo tipo. Valores aceitos: `escolar` ou `superior`. |
 | `ano_letivo` | `string` | Não | Filtra pelo ano letivo no formato `YYYY_YYYY`, com o segundo ano igual ao primeiro + 1. |
 
 Response:
