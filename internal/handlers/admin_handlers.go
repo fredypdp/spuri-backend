@@ -29,13 +29,8 @@ func DefinirAnoLetivoGlobalSistema(c *gin.Context) {
 		return
 	}
 
-	atual, err := buscarAnoLetivoGlobalAtual(client)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-	if atual != "" {
-		utils.RespondWithConflictError(c, "ano letivo global já foi definido diretamente; use POST /definir-ano-letivo-seguinte")
+	if err := validarDefinicaoGlobalPermitida(client); err != nil {
+		utils.RespondWithConflictError(c, err.Error())
 		return
 	}
 
@@ -44,7 +39,7 @@ func DefinirAnoLetivoGlobalSistema(c *gin.Context) {
 		return
 	}
 
-	_, err = client.DB().Exec(`
+	_, err := client.DB().Exec(`
 		INSERT INTO projection_sistema_config (
 			chave, valor, ano_letivo_atual, anos_letivos_lista, definido_por, updated_at, version
 		) VALUES (
@@ -96,52 +91,20 @@ func DefinirAnoLetivoGlobalSistema(c *gin.Context) {
 	})
 }
 
-func DefinirAnoLetivoSeguinte(c *gin.Context) {
-	userID, _ := middleware.GetUserID(c)
-	userType, _ := middleware.GetUserType(c)
-
-	switch userType {
-	case "admin":
-		definirAnoLetivoGlobalSeguinte(c, userID)
-	case "academia":
-		definirAnoLetivoAcademiaSeguinte(c, userID)
-	default:
-		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas academias e administradores"})
+func validarDefinicaoGlobalPermitida(client *db.Client) error {
+	var academiasAtivasComAno int
+	if err := client.DB().QueryRow(`
+		SELECT COUNT(*)
+		FROM projection_academias
+		WHERE status = 'ativo'
+		  AND COALESCE(NULLIF(TRIM(ano_letivo), ''), '') <> ''
+	`).Scan(&academiasAtivasComAno); err != nil {
+		return err
 	}
-}
-
-func definirAnoLetivoGlobalSeguinte(c *gin.Context, userID uuid.UUID) {
-	client := getDbClient(c)
-	if client == nil {
-		return
+	if academiasAtivasComAno > 0 {
+		return fmt.Errorf("ano letivo global só pode ser definido quando não há academias cadastradas ou nenhuma academia ativa tem ano letivo definido")
 	}
-	atual, err := buscarAnoLetivoGlobalAtual(client)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-	if atual == "" {
-		utils.RespondWithConflictError(c, "ano letivo global ainda não foi definido diretamente")
-		return
-	}
-	seguinte, err := proximoAnoLetivo(atual)
-	if err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-	if err := validarLimiteRetrocessoGlobal(client, "escolar", seguinte); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-	if err := validarMesAtualPermiteFinalizacaoAnoLetivo(client, "escolar", time.Now()); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-	if err := salvarAnoLetivoGlobal(c, seguinte, userID); err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"message": "ano letivo global seguinte definido com sucesso", "ano_letivo": seguinte})
+	return nil
 }
 
 func buscarAnoLetivoGlobalAtual(client *db.Client) (string, error) {

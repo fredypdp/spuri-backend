@@ -662,7 +662,7 @@ func DefinirAnoLetivoAcademia(c *gin.Context) {
 		return
 	}
 	if academiaDTO.AnoLetivo != nil && strings.TrimSpace(*academiaDTO.AnoLetivo) != "" {
-		utils.RespondWithConflictError(c, "ano letivo da academia já foi definido diretamente; use POST /definir-ano-letivo-seguinte")
+		utils.RespondWithConflictError(c, "ano letivo da academia já foi definido; finalize o ano letivo atual para avançar automaticamente para o seguinte")
 		return
 	}
 
@@ -707,70 +707,6 @@ func DefinirAnoLetivoAcademia(c *gin.Context) {
 		"ano_letivo": anoLetivoSolicitado,
 		"tipo":       tipo,
 	})
-}
-
-func definirAnoLetivoAcademiaSeguinte(c *gin.Context, userID uuid.UUID) {
-	academiaProj := getAcademiaProjection(c)
-	academiaDTO, err := academiaProj.GetByID(userID)
-	if err != nil || academiaDTO == nil {
-		utils.RespondWithNotFoundError(c, "academia")
-		return
-	}
-	if academiaDTO.AnoLetivo == nil || strings.TrimSpace(*academiaDTO.AnoLetivo) == "" {
-		utils.RespondWithConflictError(c, "ano letivo da academia ainda não foi definido diretamente")
-		return
-	}
-	seguinte, err := proximoAnoLetivo(strings.TrimSpace(*academiaDTO.AnoLetivo))
-	if err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-	anoLetivoGlobal, err := getAnoLetivoGlobalSistema(c)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-	if strings.TrimSpace(anoLetivoGlobal) == "" {
-		utils.RespondWithConflictError(c, "ano letivo global do sistema ainda não foi definido pelo admin fpp")
-		return
-	}
-	if seguinte != strings.TrimSpace(anoLetivoGlobal) {
-		utils.RespondWithValidationError(c, fmt.Errorf("o ano letivo seguinte da academia deve estar alinhado ao ano letivo global atual do sistema: %s", anoLetivoGlobal))
-		return
-	}
-	tipo := ""
-	if academiaDTO.TipoAnoLetivo != nil {
-		tipo = strings.TrimSpace(*academiaDTO.TipoAnoLetivo)
-	}
-	tipo, err = normalizarTipoAnoLetivo(tipo)
-	if err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-	if err := validarMesAtualPermiteFinalizacaoAnoLetivo(getDbClient(c), tipo, time.Now()); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-	repository := getRepository(c)
-	agg, err := repository.Load(academiaDTO.ID, "Academia")
-	if err != nil {
-		utils.RespondWithNotFoundError(c, "academia")
-		return
-	}
-	academia, ok := agg.(*aggregates.Academia)
-	if !ok {
-		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
-		return
-	}
-	if err := academia.DefinirAnoLetivo(seguinte, tipo, userID); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-	if err := repository.SaveWithAudit(academia, db.AuditContext{UserID: userID.String(), UserType: "academia", IP: c.ClientIP()}); err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"message": "ano letivo seguinte definido com sucesso", "ano_letivo": seguinte, "tipo": tipo})
 }
 
 func getAnoLetivoGlobalSistema(c *gin.Context) (string, error) {
@@ -988,13 +924,34 @@ func FinalizarAnoLetivoAcademia(c *gin.Context) {
 		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
-	ano := strings.TrimSpace(req.AnoLetivo)
-	if ano == "" && academiaDTO.AnoLetivo != nil {
-		ano = strings.TrimSpace(*academiaDTO.AnoLetivo)
+	if academiaDTO.AnoLetivo == nil || strings.TrimSpace(*academiaDTO.AnoLetivo) == "" {
+		utils.RespondWithConflictError(c, "ano letivo da academia ainda não foi definido; defina de acordo com o ano letivo global antes de finalizar")
+		return
+	}
+	ano := strings.TrimSpace(*academiaDTO.AnoLetivo)
+	if reqAno := strings.TrimSpace(req.AnoLetivo); reqAno != "" && reqAno != ano {
+		utils.RespondWithValidationError(c, fmt.Errorf("ano_letivo informado deve ser o ano letivo ativo da academia: %s", ano))
+		return
 	}
 	if _, err := parseAnoLetivo(ano); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
+	}
+	seguinte, err := proximoAnoLetivo(ano)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if academiaDTO.TipoAnoLetivo != nil && strings.TrimSpace(*academiaDTO.TipoAnoLetivo) != "" {
+		tipoAtual, err := normalizarTipoAnoLetivo(*academiaDTO.TipoAnoLetivo)
+		if err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+		if tipoAtual != tipo {
+			utils.RespondWithValidationError(c, fmt.Errorf("type deve corresponder ao tipo de ano letivo ativo da academia: %s", tipoAtual))
+			return
+		}
 	}
 	if err := validarMesAtualPermiteFinalizacaoAnoLetivo(getDbClient(c), tipo, time.Now()); err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -1015,11 +972,45 @@ func FinalizarAnoLetivoAcademia(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
+	if err := academia.DefinirAnoLetivo(seguinte, tipo, userID); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 	if err := repository.SaveWithAudit(academia, db.AuditContext{UserID: userID.String(), UserType: "academia", IP: c.ClientIP()}); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "ano letivo finalizado com sucesso", "academia_id": academiaDTO.ID, "type": tipo, "ano_letivo": ano, "finalizado": true})
+	globalAtualizado, err := sincronizarAnoLetivoGlobalSeAcademiasAlinhadas(c, seguinte, userID)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "ano letivo finalizado com sucesso; academia avançada para o ano letivo seguinte", "academia_id": academiaDTO.ID, "type": tipo, "ano_letivo_finalizado": ano, "ano_letivo": seguinte, "finalizado": true, "global_atualizado": globalAtualizado})
+}
+
+func sincronizarAnoLetivoGlobalSeAcademiasAlinhadas(c *gin.Context, anoLetivo string, userID uuid.UUID) (bool, error) {
+	client := getDbClient(c)
+	if client == nil {
+		return false, fmt.Errorf("cliente de banco indisponível")
+	}
+	var total, alinhadas int
+	if err := client.DB().QueryRow(`SELECT COUNT(*), COUNT(*) FILTER (WHERE ano_letivo=$1) FROM projection_academias WHERE status='ativo'`, anoLetivo).Scan(&total, &alinhadas); err != nil {
+		return false, err
+	}
+	if total == 0 || total != alinhadas {
+		return false, nil
+	}
+	atual, err := buscarAnoLetivoGlobalAtual(client)
+	if err != nil {
+		return false, err
+	}
+	if atual == anoLetivo {
+		return false, nil
+	}
+	if err := salvarAnoLetivoGlobal(c, anoLetivo, userID); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func ListarFinalizacoesAnoLetivoAcademia(c *gin.Context) {

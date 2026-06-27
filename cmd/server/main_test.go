@@ -44,7 +44,7 @@ func TestGlobalAnoLetivoReadRoutesRequireOnlyAuthentication(t *testing.T) {
 	}
 }
 
-func TestDefinirAnoLetivoSeguinteRouteIsRegistered(t *testing.T) {
+func TestDefinirAnoLetivoSeguinteRouteIsRemoved(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	router := setupRouter()
@@ -53,11 +53,8 @@ func TestDefinirAnoLetivoSeguinteRouteIsRegistered(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	if w.Code == http.StatusNotFound {
-		t.Fatalf("expected /definir-ano-letivo-seguinte to be registered, got 404")
-	}
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("expected registered route to require authentication with 401, got %d", w.Code)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected /definir-ano-letivo-seguinte to be removed with 404, got %d", w.Code)
 	}
 }
 
