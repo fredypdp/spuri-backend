@@ -1229,7 +1229,7 @@ Retorna detalhes de uma academia pelo código.
 
 ### POST /admin/definir-ano-letivo-geral
 
-Define diretamente o **ano letivo oficial global por tipo** (`escolar` ou `superior`). O backend ignora payload de ano letivo e calcula automaticamente pelo ano civil da data atual: se a data atual estiver em 2026, o ano letivo será `2026_2027`. O Admin FPP deve informar `type`, porque escolas e instituições superiores possuem calendários independentes. A definição administrativa só é permitida quando nenhuma academia ativa daquele tipo possui ano letivo definido; depois disso, a evolução global daquele tipo passa a ser automática quando todas as academias ativas do mesmo tipo estiverem alinhadas no mesmo ano letivo.
+Define diretamente o **ano letivo oficial global por tipo** (`escolar` ou `superior`). O Admin FPP deve informar `type` e o `ano_letivo` desejado no payload, no formato `YYYY_YYYY` com segundo ano igual ao primeiro + 1 (ex.: `2026_2027`). O backend não calcula automaticamente o ano letivo nesta rota; o valor informado pelo admin é persistido para o tipo escolhido. A definição administrativa só é permitida quando nenhuma academia ativa daquele tipo possui ano letivo definido; depois disso, a evolução global daquele tipo passa a ser automática quando todas as academias ativas do mesmo tipo estiverem alinhadas no mesmo ano letivo.
 
 Não há aliases de compatibilidade para esta operação.
 
@@ -1238,14 +1238,14 @@ Não há aliases de compatibilidade para esta operação.
 **Regras de negócio:**
 
 - Apenas `fpp` pode definir diretamente o ano letivo global.
-- O formato gerado é `YYYY_YYYY` com segundo ano = primeiro + 1.
+- O campo `ano_letivo` é obrigatório e deve usar `YYYY_YYYY` com segundo ano = primeiro + 1.
 - Esse valor torna-se referência obrigatória para a rota `POST /academia/definir-ano-letivo`.
 - A definição é bloqueada se existir qualquer academia ativa do tipo informado com `ano_letivo` já definido.
 
-**Request:** informe o tipo do calendário global; o ano letivo é calculado automaticamente a partir do ano atual.
+**Request:** informe o tipo do calendário global e o ano letivo que deve ser definido para esse tipo.
 
 ```json
-{ "type": "escolar" }
+{ "type": "escolar", "ano_letivo": "2026_2027" }
 ```
 
 **Response 200:**
@@ -1639,7 +1639,7 @@ Ao definir inicialmente o ano letivo global, o backend bloqueia a operação se 
 Para implementar o cliente de forma segura:
 
 1. Admin FPP consulta/ajusta `GET|PUT /admin/sistema/anos-letivos/configuracoes/:type` para confirmar o `periodo` por tipo.
-2. Admin FPP define inicialmente o ano global com `POST /admin/definir-ano-letivo-geral`, desde que não exista academia ativa com ano letivo definido.
+2. Admin FPP define inicialmente o ano global com `POST /admin/definir-ano-letivo-geral`, enviando `type` e `ano_letivo`, desde que não exista academia ativa com ano letivo definido.
 3. Cada academia sem ano letivo define o próprio ano letivo com `POST /academia/definir-ano-letivo` usando o ano global atual.
 4. Ao encerrar notas/faltas/avaliações de um ciclo, a academia chama `POST /academia/anos-letivos/finalizar`; essa chamada finaliza o ano ativo e já avança para o seguinte.
 5. Telas administrativas podem usar `GET /admin/sistema/anos-letivos/finalizacao-limites` para mostrar o marco finalizado por todas as academias e o mínimo global permitido antes de tentar avançar ou corrigir o global.
