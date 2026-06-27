@@ -8,24 +8,22 @@ Versão atual: 2.0.0
 1. [[#1. Convenções Globais]]
 2. [[#2. Estruturas de Dados]]
 3. [[#3. Autenticação]]
-4. [[#4. Email]]
-5. [[#5. Perfil e Conta]]
-6. [[#6. Academias — Gestão pelo Admin]]
-7. [[#7. Academia — Operações Próprias]]
+4. [[#4. Perfil e Conta]]
+5. [[#5. Email]]
+6. [[#6. Academias]]
+7. [[#7. Ano Letivo]]
 8. [[#8. Estudantes]]
-9. [[#9. Notas]]
-10. [[#10. Faltas]]
-11. [[#11. Avaliações Finais]]
-12. [[#12. Cursos]]
-13. [[#13. Matérias]]
-14. [[#14. Turmas]]
-15. [[#15. Admins]]
-16. [[#16. Consultas Gerais]]
+9. [[#9. Solicitação de Matrícula]]
+10. [[#10. Cursos]]
+11. [[#11. Matérias]]
+12. [[#12. Turmas]]
+13. [[#13. Notas]]
+14. [[#14. Faltas]]
+15. [[#15. Avaliações Finais]]
+16. [[#16. Admins]]
 17. [[#17. Jobs Assíncronos]]
-18. [[#18. Batch Assíncrono — Academia]]
-19. [[#19. Batch Assíncrono — Admin]]
-20. [[#20. Solicitação de Matrícula]]
-21. [[#21. Armazenamento]]
+18. [[#18. Batch Assíncrono]]
+19. [[#19. Armazenamento]]
 
 ---
 
@@ -620,7 +618,163 @@ Cria o primeiro admin FPP do sistema. Bloqueado após o primeiro uso (retorna 40
 
 ---
 
-## 4. Email
+---
+
+## 4. Perfil e Conta
+
+### GET /meu-perfil
+
+Retorna os dados do usuário autenticado. O formato da resposta varia por tipo.
+
+**Proteção**: autenticado (qualquer tipo)
+
+**Response 200 — Estudante:**
+
+```json
+{
+  "tipo": "estudante",
+  "estudante": {
+    "id": "uuid",
+    "nome": "string",
+    "codigo_estudante": "ABC1234",
+    "email": "string",
+    "telefone": "string",
+    "email_verificado": false,
+    "bilhete_identidade": "string",
+    "bilhete_identidade_responsavel": "string",
+    "genero": "masculino",
+    "data_nascimento": "2000-03-15",
+    "codigo_academia": "LDA20261",
+    "academia_info": {
+      "codigo": "LDA20261",
+      "nome": "string",
+      "nivel": "escola",
+      "type": "public"
+    },
+    "status": "ativo",
+    "status_escolar_fundamental": "em_andamento",
+    "status_escolar_medio": "inativo",
+    "status_superior": "inativo",
+    "ano_escolar_fundamental": "3_ano_fundamental",
+    "ano_escolar_medio": null,
+    "ano_superior": null,
+    "curso_medio": null,
+    "curso_superior": null
+  }
+}
+```
+
+**Response 200 — Academia:**
+
+```json
+{
+  "tipo": "academia",
+  "academia": {
+    "id": "uuid",
+    "nivel": "escola",
+    "type": "public",
+    "nome": "string",
+    "codigo_academia": "LDA20261",
+    "provincia": "LDA",
+    "endereco": "string",
+    "numero_telefone": "string",
+    "email": "string",
+    "nivel_escolar": "fundamental",
+    "anos_academicos": ["1_ano_fundamental", "9_ano_fundamental"],
+    "status": "ativo",
+    "cursos": [],
+    "email_verificado": true,
+    "created_at": "2025-01-01T00:00:00Z",
+    "total_estudantes": 120
+  }
+}
+```
+
+**Response 200 — Admin:**
+
+```json
+{
+  "tipo": "admin",
+  "admin": {
+    "id": "uuid",
+    "nome": "string",
+    "email": "string",
+    "role": "fpp",
+    "status": "ativo",
+    "email_verificado": true,
+    "created_at": "2025-01-01T00:00:00Z"
+  }
+}
+```
+
+---
+
+### PUT /alterar-senha
+
+Altera a senha do usuário autenticado.
+
+**Proteção**: autenticado (qualquer tipo)
+
+**Request:**
+
+```json
+{
+  "senha_atual": "string",
+  "nova_senha": "string"   // mínimo 6 caracteres
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "Senha alterada com sucesso!"
+}
+```
+
+**Erros:**
+
+- `400` — campos obrigatórios ausentes ou nova senha muito curta
+- `401` — senha atual incorreta
+
+---
+
+### POST /adicionar-telefone-extra
+
+Adiciona um número de telefone extra ao usuário autenticado.
+
+**Proteção**: autenticado (qualquer tipo)
+
+**Request:**
+
+```json
+{
+  "numero_telefone": "string"  // ex: '+244923000000' ou '923000000'
+}
+```
+
+**Response 201:**
+
+```json
+{
+  "message": "telefone extra adicionado com sucesso",
+  "id": "uuid",
+  "numero_telefone": "244923000000",  // normalizado
+  "verificado": false
+}
+```
+
+**Erros:**
+
+- `400` — formato inválido (deve ter 7-15 dígitos)
+- `409` — número já verificado por outro usuário
+- `409` — você já cadastrou este número
+
+---
+
+---
+
+## 5. Email
 
 Todos os endpoints de email têm rate limiting ativo.
 
@@ -785,159 +939,9 @@ Define nova senha usando o token de recuperação.
 
 ---
 
-## 5. Perfil e Conta
-
-### GET /meu-perfil
-
-Retorna os dados do usuário autenticado. O formato da resposta varia por tipo.
-
-**Proteção**: autenticado (qualquer tipo)
-
-**Response 200 — Estudante:**
-
-```json
-{
-  "tipo": "estudante",
-  "estudante": {
-    "id": "uuid",
-    "nome": "string",
-    "codigo_estudante": "ABC1234",
-    "email": "string",
-    "telefone": "string",
-    "email_verificado": false,
-    "bilhete_identidade": "string",
-    "bilhete_identidade_responsavel": "string",
-    "genero": "masculino",
-    "data_nascimento": "2000-03-15",
-    "codigo_academia": "LDA20261",
-    "academia_info": {
-      "codigo": "LDA20261",
-      "nome": "string",
-      "nivel": "escola",
-      "type": "public"
-    },
-    "status": "ativo",
-    "status_escolar_fundamental": "em_andamento",
-    "status_escolar_medio": "inativo",
-    "status_superior": "inativo",
-    "ano_escolar_fundamental": "3_ano_fundamental",
-    "ano_escolar_medio": null,
-    "ano_superior": null,
-    "curso_medio": null,
-    "curso_superior": null
-  }
-}
-```
-
-**Response 200 — Academia:**
-
-```json
-{
-  "tipo": "academia",
-  "academia": {
-    "id": "uuid",
-    "nivel": "escola",
-    "type": "public",
-    "nome": "string",
-    "codigo_academia": "LDA20261",
-    "provincia": "LDA",
-    "endereco": "string",
-    "numero_telefone": "string",
-    "email": "string",
-    "nivel_escolar": "fundamental",
-    "anos_academicos": ["1_ano_fundamental", "9_ano_fundamental"],
-    "status": "ativo",
-    "cursos": [],
-    "email_verificado": true,
-    "created_at": "2025-01-01T00:00:00Z",
-    "total_estudantes": 120
-  }
-}
-```
-
-**Response 200 — Admin:**
-
-```json
-{
-  "tipo": "admin",
-  "admin": {
-    "id": "uuid",
-    "nome": "string",
-    "email": "string",
-    "role": "fpp",
-    "status": "ativo",
-    "email_verificado": true,
-    "created_at": "2025-01-01T00:00:00Z"
-  }
-}
-```
-
 ---
 
-### PUT /alterar-senha
-
-Altera a senha do usuário autenticado.
-
-**Proteção**: autenticado (qualquer tipo)
-
-**Request:**
-
-```json
-{
-  "senha_atual": "string",
-  "nova_senha": "string"   // mínimo 6 caracteres
-}
-```
-
-**Response 200:**
-
-```json
-{
-  "message": "Senha alterada com sucesso!"
-}
-```
-
-**Erros:**
-
-- `400` — campos obrigatórios ausentes ou nova senha muito curta
-- `401` — senha atual incorreta
-
----
-
-### POST /adicionar-telefone-extra
-
-Adiciona um número de telefone extra ao usuário autenticado.
-
-**Proteção**: autenticado (qualquer tipo)
-
-**Request:**
-
-```json
-{
-  "numero_telefone": "string"  // ex: '+244923000000' ou '923000000'
-}
-```
-
-**Response 201:**
-
-```json
-{
-  "message": "telefone extra adicionado com sucesso",
-  "id": "uuid",
-  "numero_telefone": "244923000000",  // normalizado
-  "verificado": false
-}
-```
-
-**Erros:**
-
-- `400` — formato inválido (deve ter 7-15 dígitos)
-- `409` — número já verificado por outro usuário
-- `409` — você já cadastrou este número
-
----
-
-## 6. Academias — Gestão pelo Admin
+## 6. Academias
 
 ### POST /dominis/academia/register
 
@@ -1057,6 +1061,172 @@ Desativa uma academia ativa.
 
 ---
 
+### PUT /academia/dados
+
+Atualiza os dados cadastrais da academia autenticada.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:** (todos os campos opcionais, enviar apenas o que deseja alterar)
+
+```json
+{
+  "nome": "string",
+  "type": "private",
+  "provincia": "luanda",
+  "endereco": "string",
+  "numero_telefone": "string",
+  "email": "string",
+  "website": "string",
+  "nivel_escolar": "fundamental",
+  "anos_academicos": ["1_ano_fundamental"],
+  "cursos": ["Curso A"]
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "dados atualizados com sucesso"
+}
+```
+
+**Nota**: se o email for alterado, `email_verificado` volta para `false`.
+
+---
+
+### Regras automáticas de documentos de matrícula
+
+A obrigatoriedade dos documentos não é mais configurada por academia. O backend aplica automaticamente as regras abaixo no `POST /solicitacao-matricula`:
+
+- `bi_responsavel` e `bilhete_identidade_responsavel` são obrigatórios para academias escolares e de nível superior.
+- `bilhete_identidade` e `bilhete_identidade_responsavel`, quando ambos informados para o mesmo estudante, não podem ser iguais.
+- `cedula_estudante` é obrigatória quando `bi_estudante` não for enviado.
+- `certificado_6_ano_fundamental` é o certificado aplicável somente para `7_ano_fundamental`, `8_ano_fundamental` e `9_ano_fundamental`.
+- `certificado_9_ano_fundamental` é o certificado aplicável somente para anos do ensino médio.
+- `certificado_ensino_medio` é o certificado aplicável somente para anos do ensino superior.
+- `declaracao` é obrigatória quando o certificado aplicável não for enviado ou quando não existir certificado aplicável ao ano académico informado.
+
+
+---
+
+### GET /academias
+
+Lista todas as academias com paginação e filtro de status.
+
+**Proteção**: pública com autenticação opcional.
+
+- Sem `Authorization`, a rota retorna apenas dados públicos de cada academia.
+- Com `Authorization: Bearer <jwt_token>` válido, a rota mantém o contrato autenticado anterior.
+- Se um header `Authorization` for enviado, ele deve ser um Bearer token válido; tokens inválidos/expirados retornam `401`.
+
+**Query Params:**
+
+- `limit` — quantidade máxima (padrão sem limit: 1000, teto: 1000)
+- `offset` — deslocamento (padrão: 0)
+- `status` — `ativo` ou `inativo` (omitir = retorna ambos)
+
+**Response 200 — usuário não autenticado:**
+
+```json
+{
+  "academias": [
+    {
+      "nivel": "escola",
+      "type": "public",
+      "nome": "Escola Exemplo",
+      "codigo_academia": "LUA20261",
+      "provincia": "Luanda",
+      "endereco": "Rua Exemplo, 123",
+      "nivel_escolar": "fundamental",
+      "anos_academicos": ["1_ano_fundamental", "2_ano_fundamental"]
+    }
+  ],
+  "total": 1,
+  "limit": 1000,
+  "offset": 0
+}
+```
+
+**Campos públicos por academia:** `nivel`, `type`, `nome`, `codigo_academia`, `provincia`, `endereco`, `nivel_escolar`, `anos_academicos`. Para escolas fundamentais ou mistas, `anos_academicos` permite que usuários sem sessão recebam os anos acadêmicos ofertados.
+
+**Response 200 — usuário autenticado:**
+
+```json
+{
+  "academias": [AcademiaDTO],
+  "total": 25,
+  "limit": 1000,
+  "offset": 0
+}
+```
+
+**Nota**: usuários autenticados veem os campos operacionais do `AcademiaDTO`; admins veem campos extras (`email`, `total_estudantes`, `version`).
+
+---
+
+### GET /consultar-academia/:codigo
+
+Retorna detalhes de uma academia pelo código.
+
+**Proteção**: pública com autenticação opcional.
+
+- Sem `Authorization`, a rota retorna somente os mesmos campos públicos usados em `GET /academias`.
+- Com `Authorization: Bearer <jwt_token>` válido, a rota mantém o contrato autenticado anterior.
+- Se um header `Authorization` for enviado, ele deve ser um Bearer token válido; tokens inválidos/expirados retornam `401`.
+
+**Response 200 — usuário não autenticado:**
+
+```json
+{
+  "nivel": "escola",
+  "type": "public",
+  "nome": "Escola Exemplo",
+  "codigo_academia": "LDA20261",
+  "provincia": "LDA",
+  "endereco": "Rua Exemplo, 123",
+  "nivel_escolar": "fundamental",
+  "anos_academicos": ["1_ano_fundamental", "2_ano_fundamental"]
+}
+```
+
+**Response 200 — usuário autenticado:**
+
+```json
+{
+  "id": "uuid",
+  "nivel": "escola",
+  "type": "public",
+  "nome": "string",
+  "codigo_academia": "LDA20261",
+  "provincia": "LDA",
+  "endereco": "string",
+  "numero_telefone": "+244900000000",
+  "website": "https://exemplo.ao",
+  "nivel_escolar": "fundamental",
+  "anos_academicos": ["1_ano_fundamental"],
+  "status": "ativo",
+  "cursos": [],
+  "email_verificado": true,
+  "created_at": "2026-06-13T00:00:00Z",
+  "total_estudantes": 10,
+  "ano_letivo": "2026",
+  "tipo_ano_letivo": "anual",
+  "anos_letivos_lista": ["2026"]
+}
+```
+
+**Campos públicos para usuário não autenticado:** `nivel`, `type`, `nome`, `codigo_academia`, `provincia`, `endereco`, `nivel_escolar`, `anos_academicos`.
+
+**Nota**: admins veem também `email` e `motivo_desativacao`.
+
+---
+
+---
+
+## 7. Ano Letivo
+
 ### POST /admin/definir-ano-letivo-geral
 
 Define diretamente o **ano letivo oficial global do sistema**. O backend ignora payload de ano letivo e calcula automaticamente pelo ano civil da data atual: se a data atual estiver em 2026, o ano letivo será `2026_2027`. Essa definição administrativa só é permitida quando não há academias cadastradas ou quando nenhuma academia ativa possui ano letivo definido; depois disso, a evolução global passa a ser automática quando todas as academias ativas estiverem alinhadas no mesmo ano letivo.
@@ -1136,59 +1306,6 @@ Retorna a **lista histórica de anos letivos globais** já definidos pelo admin.
 ```
 
 **Regra da lista histórica (`anos_letivos_lista`)**: cada ano letivo global é adicionado apenas uma vez; tentativas repetidas do mesmo `ano_letivo` não duplicam itens.
-
----
-
-## 7. Academia — Operações Próprias
-
-### PUT /academia/dados
-
-Atualiza os dados cadastrais da academia autenticada.
-
-**Proteção**: autenticado + academia ativa
-
-**Request:** (todos os campos opcionais, enviar apenas o que deseja alterar)
-
-```json
-{
-  "nome": "string",
-  "type": "private",
-  "provincia": "luanda",
-  "endereco": "string",
-  "numero_telefone": "string",
-  "email": "string",
-  "website": "string",
-  "nivel_escolar": "fundamental",
-  "anos_academicos": ["1_ano_fundamental"],
-  "cursos": ["Curso A"]
-}
-```
-
-**Response 200:**
-
-```json
-{
-  "message": "dados atualizados com sucesso"
-}
-```
-
-**Nota**: se o email for alterado, `email_verificado` volta para `false`.
-
----
-
-
-### Regras automáticas de documentos de matrícula
-
-A obrigatoriedade dos documentos não é mais configurada por academia. O backend aplica automaticamente as regras abaixo no `POST /solicitacao-matricula`:
-
-- `bi_responsavel` e `bilhete_identidade_responsavel` são obrigatórios para academias escolares e de nível superior.
-- `bilhete_identidade` e `bilhete_identidade_responsavel`, quando ambos informados para o mesmo estudante, não podem ser iguais.
-- `cedula_estudante` é obrigatória quando `bi_estudante` não for enviado.
-- `certificado_6_ano_fundamental` é o certificado aplicável somente para `7_ano_fundamental`, `8_ano_fundamental` e `9_ano_fundamental`.
-- `certificado_9_ano_fundamental` é o certificado aplicável somente para anos do ensino médio.
-- `certificado_ensino_medio` é o certificado aplicável somente para anos do ensino superior.
-- `declaracao` é obrigatória quando o certificado aplicável não for enviado ou quando não existir certificado aplicável ao ano académico informado.
-
 
 ---
 
@@ -1290,103 +1407,238 @@ Retorna a lista histórica de anos letivos definidos pela academia alvo.
 
 ---
 
-### POST /academia/categorias-nota
+### Configurações de período letivo
 
-Cria ou configura uma categoria de nota para a academia. O mesmo endpoint é usado para categorias adicionais e para definir os anos acadêmicos das categorias fixas/obrigatórias (`nota_escola`, `nota_professor`, `nota_pp1`, `nota_pp2`, `nota_exame`).
+O backend separa duas coisas que o cliente deve tratar como conceitos diferentes:
 
-O campo `codigo` é normalizado antes de persistir: espaços antes/depois são descartados, somente espaços internos entre textos viram `_` (ex.: ` Prova profesor ` vira `prova_profesor`) e caracteres especiais diferentes de `_` são rejeitados. O código aceita letras minúsculas, números, espaços e `_`; letras maiúsculas são convertidas para minúsculas.
+1. **Ano letivo ativo** (`ano_letivo`, exemplo `2025_2026`) — valor evolutivo definido pelo Admin FPP no escopo global e pela academia no próprio escopo, sempre alinhado ao global.
+2. **Período fixo por tipo** (`periodo`, exemplo `09_07`) — configuração global estável mantida pelo Admin FPP para calcular o intervalo real de datas aceitas.
 
-**Proteção**: autenticado + academia ativa
+Cada tipo canônico de ano letivo possui exatamente um período fixo global:
 
-**Request:**
+- `escolar` — usado para fundamental e médio. O alias legado `escola` não é mais aceito para `type` de ano letivo.
+- `superior` — usado para ensino superior.
 
-```json
-{
-  "codigo": "prova_profesor",
-  "nome": "Prova do professor",
-  "descricao": "string",
-  "anos_academicos": ["3_ano_fundamental", "4_ano_fundamental"]
-}
-```
+O `periodo` usa o formato `MM_MM`, em que o primeiro mês pertence ao ano inicial de `ano_letivo` e o segundo mês pertence ao ano final. Exemplo: `ano_letivo=2025_2026` com `periodo=10_07` permite datas de `2025-10-01` a `2026-07-31`. O cliente não precisa calcular esse intervalo para validar segurança; o backend recalcula e valida em operações sensíveis, especialmente faltas. A definição do ano letivo seguinte também respeita a mesma janela operacional da finalização: enquanto o mês atual ainda estiver dentro do ano letivo em curso delimitado pelo período, o avanço para o próximo ano letivo é bloqueado.
 
-**Response 201:**
+#### GET `/anos-letivos/configuracoes`
 
-```json
-{
-  "message": "categoria criada com sucesso",
-  "categoria": "prova_profesor"
-}
-```
+Lista as configurações vigentes.
 
-**Erros:**
+Request: não possui body.
 
-- `400` — codigo, nome ou anos_academicos ausente/vazio, ou codigo com caracteres especiais inválidos
-- `409` — categoria já existe nesta academia
-
----
-
-### GET /academia/categorias-nota
-
-Lista todas as categorias de nota da academia alvo.
-
-**Proteção**: autenticado + (`academia` ativa **ou** `admin` **ou** `estudante`)
-
-**Query params (quando `admin`)**:
-
-- `codigo_academia` (obrigatório)
-
-**Response 200:**
+Response:
 
 ```json
 {
-  "categorias": [
+  "configuracoes": [
     {
-      "id": "uuid",
-      "codigo_academia": "ACAD20251",
-      "codigo": "prova_profesor",
-      "nome": "Prova do professor",
-      "descricao": "string",
-      "anos_academicos": ["3_ano_fundamental"],
-      "status": "ativo",
-      "created_at": "2026-06-13T00:00:00Z",
-      "version": 1
+      "type": "escolar",
+      "periodo": "09_07",
+      "updated_at": "2026-06-26T10:30:00Z",
+      "updated_by": "uuid-do-admin-fpp"
+    },
+    {
+      "type": "superior",
+      "periodo": "10_07",
+      "updated_at": "2026-06-26T10:35:00Z",
+      "updated_by": "uuid-do-admin-fpp"
     }
-  ],
-  "total": 2
+  ]
 }
 ```
 
-**Erros:**
+#### GET `/admin/sistema/anos-letivos/configuracoes`
 
-- `404` — academia não encontrada (incluindo admin sem `codigo_academia`)
+Lista as configurações vigentes para Admin FPP. A estrutura do retorno é a mesma de `GET /anos-letivos/configuracoes`; a diferença é a exigência de autenticação como Admin FPP.
 
----
+Request: não possui body.
 
-### DELETE /academia/categorias-nota/:codigo
-
-Inativa (remove logicamente) uma categoria de nota adicional da academia.
-
-**Proteção**: autenticado + academia ativa
-
-**Path Params:**
-
-- `codigo` — código da categoria adicional a remover
-
-**Request:** sem payload
-
-**Response 200:**
+Response:
 
 ```json
 {
-  "message": "categoria removida com sucesso",
-  "categoria": "prova_profesor"
+  "configuracoes": [
+    {
+      "type": "escolar",
+      "periodo": "09_07",
+      "updated_at": "2026-06-26T10:30:00Z",
+      "updated_by": "uuid-do-admin-fpp"
+    },
+    {
+      "type": "superior",
+      "periodo": "10_07",
+      "updated_at": "2026-06-26T10:35:00Z",
+      "updated_by": "uuid-do-admin-fpp"
+    }
+  ]
 }
 ```
 
-**Erros:**
+#### PUT `/admin/sistema/anos-letivos/configuracoes/:type`
 
-- `400` — codigo, nome ou anos_academicos ausente/vazio, ou codigo com caracteres especiais inválidos no path
-- `400` — categoria não existe nesta academia
+Apenas Admin FPP. Atualiza o período fixo do tipo informado. O parâmetro `:type` aceita somente `escolar` ou `superior`.
+
+Request params:
+
+| Campo | Tipo | Obrigatório | Descrição |
+| --- | --- | --- | --- |
+| `type` | `string` | Sim | Tipo do ano letivo no path. Valores aceitos: `escolar` ou `superior`. |
+
+Request body:
+
+```json
+{
+  "periodo": "09_07"
+}
+```
+
+Response:
+
+```json
+{
+  "message": "configuração de ano letivo atualizada com sucesso",
+  "type": "escolar",
+  "periodo": "09_07"
+}
+```
+
+### Validação de faltas pelo período letivo
+
+O registro e a atualização de faltas validam a data no backend usando o tipo inferido da matéria (`superior` ou `escolar` para fundamental/médio), o `ano_letivo` ativo da academia e o `periodo` configurado para o tipo. Datas fora do intervalo retornam `400` com mensagem indicando o intervalo permitido.
+
+### Finalização de ano letivo por academia
+
+#### POST `/academia/anos-letivos/finalizar`
+
+A academia autenticada finaliza o ano letivo ativo no próprio escopo e, na mesma operação, avança automaticamente para o ano letivo seguinte. O cliente não envia `academia_id`; o backend obtém a academia pelo token, normaliza `type`, valida que o `ano_letivo` informado, quando presente, corresponde ao ano letivo ativo da academia, valida o formato `YYYY_YYYY` com segundo ano igual ao primeiro + 1, valida a janela mensal de finalização pelo `periodo` configurado para o tipo e grava um evento auditável `AnoLetivoAcademiaFinalizado`. A janela mensal é inclusiva no mês final e exclusiva no mês inicial: o mês atual precisa ser maior ou igual ao mês de fim do período letivo e menor que o mês de início do período letivo. Exemplo: se `periodo=10_07`, a finalização é permitida somente em julho, agosto e setembro; em outubro o próximo período já começou, e de novembro a junho o período vigente ainda não chegou ao mês de encerramento.
+
+Request:
+
+```json
+{
+  "type": "escolar",
+  "ano_letivo": "2025_2026",
+  "observacao": "Ano letivo encerrado após fechamento de notas e faltas."
+}
+```
+
+Response:
+
+```json
+{
+  "message": "ano letivo finalizado com sucesso; academia avançada para o ano letivo seguinte",
+  "academia_id": "uuid-da-academia",
+  "type": "escolar",
+  "ano_letivo_finalizado": "2025_2026",
+  "ano_letivo": "2026_2027",
+  "finalizado": true,
+  "global_atualizado": false
+}
+```
+
+A operação é auditada por `(academia_id, type, ano_letivo_finalizado)` e avança a academia para o próximo `YYYY_YYYY`. Se, após esse avanço, todas as academias ativas estiverem no mesmo ano letivo, o backend atualiza automaticamente o ano letivo global para esse ano. Fora da janela mensal permitida, o backend retorna `400` e não grava novo evento.
+
+#### GET `/academia/anos-letivos/finalizacoes`
+
+Lista as finalizações da academia autenticada. O cliente não envia `academia_id`; o backend identifica a academia pelo token.
+
+Request: não possui body nem query params.
+
+Response:
+
+```json
+{
+  "finalizacoes": [
+    {
+      "type": "escolar",
+      "ano_letivo": "2025_2026",
+      "finalizado": true,
+      "finalizado_em": "2026-06-26T11:00:00Z",
+      "observacao": "Ano letivo encerrado após fechamento de notas e faltas."
+    },
+    {
+      "type": "superior",
+      "ano_letivo": "2025_2026",
+      "finalizado": true,
+      "finalizado_em": "2026-06-26T11:05:00Z",
+      "observacao": ""
+    }
+  ]
+}
+```
+
+#### GET `/admin/academias/anos-letivos/finalizacoes?type=escolar&ano_letivo=2025_2026`
+
+Apenas Admin FPP. Consulta finalizações por academia, com filtros opcionais.
+
+Request: não possui body.
+
+Query params opcionais:
+
+| Campo | Tipo | Obrigatório | Descrição |
+| --- | --- | --- | --- |
+| `type` | `string` | Não | Filtra pelo tipo. Valores aceitos: `escolar` ou `superior`. |
+| `ano_letivo` | `string` | Não | Filtra pelo ano letivo no formato `YYYY_YYYY`, com o segundo ano igual ao primeiro + 1. |
+
+Response:
+
+```json
+{
+  "finalizacoes": [
+    {
+      "academia_id": "uuid-da-academia",
+      "codigo_academia": "ACA1",
+      "type": "escolar",
+      "ano_letivo": "2025_2026",
+      "finalizado": true,
+      "finalizado_em": "2026-06-26T11:00:00Z",
+      "observacao": "Ano letivo encerrado após fechamento de notas e faltas."
+    }
+  ]
+}
+```
+
+#### GET `/admin/sistema/anos-letivos/finalizacao-limites`
+
+Apenas Admin FPP. Retorna, por tipo, o maior ano letivo finalizado por todas as academias ativas aplicáveis e o mínimo global permitido.
+
+Request: não possui body nem query params.
+
+Response:
+
+```json
+{
+  "limites": [
+    {
+      "type": "escolar",
+      "ano_letivo_finalizado_por_todas": "2025_2026",
+      "minimo_global_permitido": "2026_2027",
+      "academias_total": 12,
+      "academias_finalizadas": 12
+    },
+    {
+      "type": "superior",
+      "ano_letivo_finalizado_por_todas": "",
+      "minimo_global_permitido": "",
+      "academias_total": 8,
+      "academias_finalizadas": 0
+    }
+  ]
+}
+```
+
+### Bloqueio de retrocesso global
+
+Ao definir inicialmente o ano letivo global, o backend bloqueia a operação se alguma academia ativa já tiver ano letivo. Depois da definição inicial, o avanço global não é manual: ele acontece automaticamente quando todas as academias ativas passam a estar no mesmo ano letivo após suas finalizações.
+
+Para implementar o cliente de forma segura:
+
+1. Admin FPP consulta/ajusta `GET|PUT /admin/sistema/anos-letivos/configuracoes/:type` para confirmar o `periodo` por tipo.
+2. Admin FPP define inicialmente o ano global com `POST /admin/definir-ano-letivo-geral`, desde que não exista academia ativa com ano letivo definido.
+3. Cada academia sem ano letivo define o próprio ano letivo com `POST /academia/definir-ano-letivo` usando o ano global atual.
+4. Ao encerrar notas/faltas/avaliações de um ciclo, a academia chama `POST /academia/anos-letivos/finalizar`; essa chamada finaliza o ano ativo e já avança para o seguinte.
+5. Telas administrativas podem usar `GET /admin/sistema/anos-letivos/finalizacao-limites` para mostrar o marco finalizado por todas as academias e o mínimo global permitido antes de tentar avançar ou corrigir o global.
 
 ---
 
@@ -1467,8 +1719,8 @@ Lista estudantes. Retorna apenas os da academia (para academia) ou todos (para a
 - `com_turma` — booleano (`true`/`false`) para filtrar estudantes com ou sem turma.
 
 > Os filtros acima são **combináveis** entre si (AND), permitindo consultas compostas.
-> Exemplos:  
-> - `GET /estudantes?genero=feminino&idade_min=12&idade_max=15&turno=manha`  
+> Exemplos:
+> - `GET /estudantes?genero=feminino&idade_min=12&idade_max=15&turno=manha`
 > - `GET /estudantes?status_escolar_medio=em_andamento&codigo_turma=TURMA-10A&com_turma=true`
 > - `GET /estudantes?codigo_academia=LDA20261&semestre_atual=1,2&curso_id=550e8400-e29b-41d4-a716-446655440000`
 
@@ -1751,7 +2003,895 @@ Retorna as avaliações finais do estudante autenticado.
 
 ---
 
-## 9. Notas
+---
+
+## 9. Solicitação de Matrícula
+
+### POST /solicitacao-matricula
+
+Cria uma solicitação pública de matrícula via `multipart/form-data`. O backend gera `codigo_solicitacao`, valida dados e PDFs, envia documentos para o armazenamento no caminho `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/` e grava `SolicitacaoMatriculaCriada` no ledger. Para cada arquivo enviado, o evento e a projeção salvam `path`, `file_url` (URL de visualização/arquivo no Drive) e `download_url` (URL direta de download quando o Google Drive disponibilizar `webContentLink`).
+
+**Proteção**: pública
+
+**Campos**: `codigo_academia`, `nome`, `genero`, `data_nascimento`, `email`, `telefone`, `bilhete_identidade`, `bilhete_identidade_responsavel`, `ano_escolar_fundamental`, `ano_escolar_medio`, `curso_medio_id`, `ano_superior`, `curso_superior_id`. Quando `bilhete_identidade` e `bilhete_identidade_responsavel` forem enviados juntos, eles não podem ser iguais (comparação sem espaços nas extremidades e sem diferenciar maiúsculas/minúsculas).
+
+**Ficheiros PDF**: `bi_estudante`, `bi_responsavel`, `cedula_estudante`, `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`. Cada ficheiro deve ser PDF válido e ter no máximo 5MB. `bi_responsavel` é obrigatório. Se não houver `bi_estudante`, `cedula_estudante` é obrigatória. `declaracao` é obrigatória quando o certificado aplicável ao ano académico não for enviado.
+
+**Response 201:**
+
+```json
+{
+  "message": "solicitação de matrícula criada com sucesso",
+  "codigo_solicitacao": "A3F9K2BPQ7X",
+  "codigo_academia": "LDA20261",
+  "status": "pendente"
+}
+```
+
+### GET /academia/solicitacoes-matricula
+
+Lista solicitações da academia autenticada em ordem decrescente de criação.
+
+**Proteção**: autenticado + academia
+
+**Query params**:
+
+- `status`: filtro repetível por status (`pendente`, `aprovada`, `reprovada`). Ex.: `?status=pendente&status=reprovada`.
+- `limit`: quantidade máxima de registros. Padrão `50`, mínimo `1`, máximo `1000`.
+- `offset`: deslocamento de paginação. Padrão `0`.
+
+**Response 200:**
+
+```json
+{
+  "solicitacoes": [
+    {
+      "id": "0d0f5f7d-2f80-4e2d-9b48-b016f8d8f2ab",
+      "codigo_solicitacao": "A3F9K2BPQ7X",
+      "codigo_academia": "LDA20261",
+      "nome": "Maria da Silva",
+      "genero": "feminino",
+      "data_nascimento": "2010-05-12T00:00:00Z",
+      "status": "pendente",
+      "documentos": {
+        "bi_responsavel": {
+          "path": "LDA20261/matriculas/matricula_A3F9K2BPQ7X/bi_responsavel_A3F9K2BPQ7X.pdf",
+          "file_url": "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk",
+          "download_url": "https://drive.google.com/uc?id=FILE_ID&export=download"
+        }
+      },
+      "created_at": "2026-06-14T10:00:00Z",
+      "updated_at": "2026-06-14T10:00:00Z",
+      "version": 1
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+### GET /academia/solicitacao-matricula/:codigo
+
+Consulta uma solicitação da academia autenticada pelo `codigo_solicitacao`. Retorna `404` se não existir e `403` se pertencer a outra academia.
+
+**Proteção**: autenticado + academia dona
+
+**Response 200:**
+
+```json
+{
+  "solicitacao": {
+    "id": "0d0f5f7d-2f80-4e2d-9b48-b016f8d8f2ab",
+    "codigo_solicitacao": "A3F9K2BPQ7X",
+    "codigo_academia": "LDA20261",
+    "nome": "Maria da Silva",
+    "genero": "feminino",
+    "data_nascimento": "2010-05-12T00:00:00Z",
+    "status": "pendente",
+    "documentos": {
+      "declaracao": {
+        "path": "LDA20261/matriculas/matricula_A3F9K2BPQ7X/declaracao_A3F9K2BPQ7X.pdf",
+        "file_url": "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk",
+        "download_url": "https://drive.google.com/uc?id=FILE_ID&export=download"
+      }
+    },
+    "created_at": "2026-06-14T10:00:00Z",
+    "updated_at": "2026-06-14T10:00:00Z",
+    "version": 1
+  }
+}
+```
+
+### PUT /academia/solicitacao-matricula/:codigo/aprovar
+
+Aprova uma solicitação pendente e cria automaticamente o estudante com o aggregate `Estudante`.
+
+**Response 200:**
+
+```json
+{
+  "message": "solicitação aprovada e estudante registado com sucesso",
+  "codigo_solicitacao": "A3F9K2BPQ7X",
+  "codigo_estudante_gerado": "ABC1234"
+}
+```
+
+### PUT /academia/solicitacao-matricula/:codigo/reprovar
+
+Reprova uma solicitação pendente, grava `SolicitacaoMatriculaReprovada` e remove o diretório de documentos.
+
+**Request:**
+
+```json
+{ "motivo_reprovacao": "Documentos ilegíveis." }
+```
+
+### GET /solicitacoes-matricula
+
+Lista todas as solicitações do sistema para admin em ordem decrescente de criação. Retorna o mesmo formato de `GET /academia/solicitacoes-matricula`, incluindo `documentos.<campo>.path`, `documentos.<campo>.file_url` e `documentos.<campo>.download_url` para cada arquivo enviado.
+
+**Proteção**: autenticado + admin
+
+**Query params**: `status` repetível, `codigo_academia` repetível, `limit` e `offset`.
+
+---
+
+---
+
+## 10. Cursos
+
+### POST /academia/curso
+
+Cria um novo curso para a academia.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:**
+
+```json
+{
+  "nome": "Ciências e Tecnologia",
+  "type": "medio",
+  "anos_academicos": ["1_ano_medio", "2_ano_medio", "3_ano_medio"],
+  "periodos": []  // obrigatório para 'superior', vazio/ausente para 'medio'
+}
+```
+
+**Para superior:**
+
+```json
+{
+  "nome": "Engenharia Informática",
+  "type": "superior",
+  "anos_academicos": ["1_ano_superior", "2_ano_superior", "3_ano_superior", "4_ano_superior"],
+  "periodos": ["1_semestre", "2_semestre"]
+}
+```
+
+**Response 201:**
+
+```json
+{
+  "message": "curso criado com sucesso",
+  "data": {
+    "id": "uuid",
+    "nome": "string",
+    "type": "medio",
+    "periodos": []
+  }
+}
+```
+
+**Erros:**
+
+- `400` — tipo inválido, anos_academicos inválidos
+- `400` — periodos ausentes para tipo superior
+- `403` — academia do tipo escola não pode criar curso superior (e vice-versa)
+
+---
+
+### GET /academia/cursos
+
+Lista todos os cursos da academia, incluindo `anos_academicos` de cada curso.
+
+**Proteção**: pública com autenticação opcional.
+
+- Sem `Authorization`, permite consultar cursos de escolas do médio e academias do nível superior por `codigo_academia`.
+- Com `Authorization: Bearer <jwt_token>` válido, mantém o contrato anterior para academias e admins.
+- Tokens enviados em formato inválido, expirados ou pertencentes a contas inativas retornam `401`.
+
+**Query params:**
+
+- `codigo_academia` — obrigatório para usuários sem sessão e para admins; ignorado para academias autenticadas, que consultam os próprios cursos.
+
+**Response 200:**
+
+```json
+{
+  "cursos": [CursoDTO],
+  "total": 3
+}
+```
+
+---
+
+### GET /academia/curso/:id
+
+Retorna um curso específico, incluindo seus `anos_academicos`.
+
+**Proteção**: pública com autenticação opcional.
+
+- Sem `Authorization`, permite consultar os anos acadêmicos de cursos de escolas do médio e academias do nível superior pelo ID do curso.
+- Academias autenticadas só podem consultar os próprios cursos.
+- Admins autenticados podem consultar qualquer curso.
+
+**Response 200:** `CursoDTO`
+
+---
+
+### PUT /academia/curso/:id/ativar
+
+Ativa um curso inativo.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:**
+
+```json
+{
+  "message": "curso ativado com sucesso",
+  "nome": "string"
+}
+```
+
+---
+
+### PUT /academia/curso/:id/desativar
+
+Desativa um curso ativo.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:**
+
+```json
+{
+  "message": "curso desativado com sucesso",
+  "nome": "string"
+}
+```
+
+---
+
+### PUT /academia/curso/:id/dados
+
+Atualiza nome, anos_academicos ou periodos de um curso. O `type` é imutável.
+
+**Proteção**: autenticado + academia ativa
+
+**Validações de integridade:**
+
+- Ao enviar `anos_academicos`, a atualização é rejeitada se remover algum ano que ainda possua estudante ativo matriculado no curso.
+- Para cursos superiores, ao enviar `periodos`, a atualização é rejeitada se remover algum semestre que ainda possua estudante ativo com `semestre_atual` correspondente.
+
+**Request:** (todos opcionais)
+
+```json
+{
+  "nome": "string",
+  "anos_academicos": ["1_ano_medio"],
+  "periodos": ["1_semestre", "2_semestre"]
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "curso atualizado com sucesso",
+  "nome": "string",
+  "type": "medio",
+  "anos_academicos": [],
+  "periodos": []
+}
+```
+
+**Erros:**
+
+- `400` — tentativa de remover `anos_academicos` ou `periodos` ainda usados por estudantes ativos
+
+---
+
+### DELETE /academia/curso/:id
+
+Deleta um curso (soft delete com cascata).
+
+**Proteção**: autenticado + academia ativa
+
+**Request:** (opcional)
+
+```json
+{
+  "motivo": "string"
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "curso deletado com sucesso",
+  "curso_id": "uuid",
+  "nome": "string",
+  "materias_deletadas": ["Matemática", "Física"],
+  "turmas_deletadas": ["T1A"],
+  "auditavel": true
+}
+```
+
+**Erros:**
+
+- `400` — curso está ativo (desativar primeiro)
+- `400` — curso tem estudantes matriculados
+- `400` — curso tem matérias ativas (desativar todas primeiro)
+- `400` — curso tem turmas ativas (desativar todas primeiro)
+
+---
+
+---
+
+## 11. Matérias
+
+### POST /academia/materia
+
+Cria uma nova matéria disciplinar.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:**
+
+```json
+{
+  "nome": "Matemática",
+  "type": "fundamental",
+  "anos_academicos": ["3_ano_fundamental", "4_ano_fundamental"],
+  "curso_id": null
+}
+```
+
+**Para médio/superior:**
+
+```json
+{
+  "nome": "Álgebra Linear",
+  "type": "superior",
+  "anos_academicos": ["1_ano_superior"],
+  "curso_id": "uuid"  // obrigatório para medio e superior
+}
+```
+
+**Response 201:**
+
+```json
+{
+  "message": "materia criada com sucesso",
+  "data": {
+    "id": "uuid",
+    "nome": "string",
+    "type": "superior",
+    "status": "inativo",
+    "proximo_passo": "defina o periodo via PUT /academia/materias/uuid/periodo antes de ativar"
+  }
+}
+```
+
+**Notas:**
+
+- Matérias `superior` nascem **inativas** e exigem período antes de ativar
+- `curso_id` obrigatório para `medio` e `superior`
+- Para `fundamental`: `anos_academicos` com 1 a 9 itens no formato correto
+- Para `medio`/`superior`: exatamente 1 item no formato correto
+
+---
+
+### GET /academia/materias
+
+Lista todas as matérias da academia.
+
+**Proteção**: autenticado + (`academia` ativa **ou** `admin` **ou** `estudante`)
+
+**Query params (quando `admin`)**:
+
+- `codigo_academia` (obrigatório)
+
+**Response 200:**
+
+```json
+{
+  "materias": [MateriaDTO],
+  "total": 10
+}
+```
+
+---
+
+### GET /academia/materia/:id
+
+Retorna uma matéria específica.
+
+**Proteção**: autenticado + (`academia` ativa **ou** `admin` **ou** `estudante`)
+
+**Response 200:** `MateriaDTO`
+
+---
+
+### PUT /academia/materia/:id/ativar
+
+Ativa uma matéria inativa. Matérias superiores sem período definido não podem ser ativadas.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:**
+
+```json
+{
+  "message": "materia ativada com sucesso",
+  "nome": "string"
+}
+```
+
+---
+
+### PUT /academia/materia/:id/desativar
+
+Desativa uma matéria ativa.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:**
+
+```json
+{
+  "message": "materia desativada com sucesso",
+  "nome": "string"
+}
+```
+
+---
+
+### PUT /academia/materia/:id/periodo
+
+Define o período de uma matéria do tipo `superior`. Pré-requisito para ativar a matéria.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:**
+
+```json
+{
+  "periodo": "1_semestre"  // deve existir nos períodos do curso vinculado
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "periodo definido com sucesso",
+  "nome": "string",
+  "periodo": "1_semestre"
+}
+```
+
+**Erros:**
+
+- `400` — matéria não é do tipo superior
+- `400` — período não pertence ao curso vinculado
+
+---
+
+### PUT /academia/materia/:id/dados
+
+Atualiza o nome de uma matéria.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:**
+
+```json
+{
+  "nome": "string"
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "matéria atualizada com sucesso",
+  "nome": "string"
+}
+```
+
+---
+
+### DELETE /academia/materia/:id
+
+Deleta uma matéria (soft delete). Deve estar inativa.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:**
+
+```json
+{
+  "message": "materia deletada com sucesso",
+  "nome": "string"
+}
+```
+
+---
+
+---
+
+## 12. Turmas
+
+### POST /academia/turma
+
+Cria uma nova turma.
+
+O campo `codigo_turma` é normalizado antes de persistir e validar duplicidade: espaços antes/depois são descartados, somente espaços internos entre textos viram `_` (ex.: ` Turma 10 A ` vira `Turma_10_A`) e caracteres especiais diferentes de `_` são rejeitados. O código aceita letras, números, espaços e `_`.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:**
+
+```json
+{
+  "codigo_turma": "T1A",
+  "nivel": "3_ano_fundamental",
+  "turno": "manha",
+  "curso_id": null  // opcional, para turmas de médio/superior
+}
+```
+
+**Response 201:**
+
+```json
+{
+  "message": "turma criada com sucesso",
+  "id": "uuid",
+  "codigo_turma": "T1A"
+}
+```
+
+**Erros:**
+
+- `400` — turno inválido (deve ser `manha`, `tarde` ou `noite`) ou `codigo_turma` com caracteres especiais inválidos
+- `409` — código de turma já existe nesta academia
+
+---
+
+### GET /academia/turmas
+
+Lista todas as turmas da academia.
+
+**Proteção**: autenticado + (`academia` ativa **ou** `admin` **ou** `estudante`)
+
+**Query params (quando `admin`)**:
+
+- `codigo_academia` (obrigatório)
+
+**Response 200:**
+
+```json
+{
+  "turmas": [TurmaDTO]
+}
+```
+
+---
+
+### GET /academia/turma/:codigo
+
+Retorna uma turma pelo código.
+
+**Proteção**: autenticado + (`academia` ativa **ou** `admin` **ou** `estudante`)
+
+**Query params (quando `admin`)**:
+
+- `codigo_academia` (obrigatório, porque o código da turma é contextual por academia)
+
+**Response 200:** `TurmaDTO`
+
+---
+
+### PUT /academia/turma/:codigo/ativar
+
+Ativa uma turma inativa.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:**
+
+```json
+{
+  "message": "turma ativada com sucesso",
+  "codigo_turma": "T1A"
+}
+```
+
+---
+
+### PUT /academia/turma/:codigo/desativar
+
+Desativa uma turma ativa. Pré-requisito para deletar.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:**
+
+```json
+{
+  "message": "turma desativada com sucesso",
+  "codigo_turma": "T1A"
+}
+```
+
+---
+
+### PUT /academia/turma/:codigo/dados
+
+Atualiza dados de uma turma.
+
+**Proteção**: autenticado + academia ativa
+
+**Regra de compatibilidade (novo)**:
+- Ao alterar `nivel` e/ou `curso_id`, o backend valida todos os estudantes já vinculados.
+- Se pelo menos um estudante ficar incompatível com os novos dados, a atualização é bloqueada com `400`.
+
+**Request:** (todos opcionais)
+
+```json
+{
+  "nivel": "string",
+  "turno": "tarde",
+  "curso_id": "uuid"
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "turma atualizada com sucesso"
+}
+```
+
+**Erros comuns:**
+- `400` — estudante vinculado ficaria incompatível com o novo `nivel` e/ou `curso_id`
+
+---
+
+### DELETE /academia/turma/:codigo
+
+Deleta uma turma (soft delete). Deve estar inativa e sem estudantes.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:** (opcional)
+
+```json
+{
+  "motivo": "string"
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "turma deletada com sucesso",
+  "codigo_turma": "T1A",
+  "auditavel": true
+}
+```
+
+---
+
+### POST /academia/turma/:codigo/estudante
+
+Adiciona um estudante à turma.
+
+**Proteção**: autenticado + academia ativa
+
+**Path Params:**
+
+- `codigo` — código da turma
+
+**Request:**
+
+```json
+{
+  "codigo_estudante": "ABC1234"
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "estudante adicionado à turma com sucesso",
+  "codigo_turma": "T1A",
+  "codigo_estudante": "ABC1234"
+}
+```
+
+**Erros:**
+
+- `403` — estudante não pertence à academia
+- `404` — estudante ou turma não encontrados
+- `409` — estudante já está na turma
+
+---
+
+### DELETE /academia/turma/:codigo/estudantes/:codigoEstudante
+
+Remove um estudante da turma.
+
+**Proteção**: autenticado + academia ativa
+
+**Response 200:**
+
+```json
+{
+  "message": "estudante removido da turma com sucesso",
+  "codigo_turma": "T1A",
+  "codigo_estudante": "ABC1234"
+}
+```
+
+---
+
+### GET /turmas-estudante/:codigo
+
+Retorna as turmas de um estudante com autorização por perfil na mesma rota.
+
+**Proteção**: autenticado (qualquer tipo)
+
+**Path Params:**
+
+- `codigo` — código do estudante
+
+**Regras de autorização:**
+
+- `estudante`: só pode consultar as próprias turmas
+- `academia`: pode consultar qualquer estudante da sua academia
+- `admin`: pode consultar qualquer estudante
+
+**Response 200:**
+
+```json
+{
+  "codigo_estudante": "ABC1234",
+  "nome": "João Silva",
+  "turmas": [TurmaDTO],
+  "total": 2
+}
+```
+
+**Erros:**
+
+- `403` — estudante tentando consultar outro estudante
+- `403` — academia tentando consultar estudante de outra academia
+- `404` — estudante não encontrado
+
+---
+
+---
+
+## 13. Notas
+
+### POST /academia/categorias-nota
+
+Cria ou configura uma categoria de nota para a academia. O mesmo endpoint é usado para categorias adicionais e para definir os anos acadêmicos das categorias fixas/obrigatórias (`nota_escola`, `nota_professor`, `nota_pp1`, `nota_pp2`, `nota_exame`).
+
+O campo `codigo` é normalizado antes de persistir: espaços antes/depois são descartados, somente espaços internos entre textos viram `_` (ex.: ` Prova profesor ` vira `prova_profesor`) e caracteres especiais diferentes de `_` são rejeitados. O código aceita letras minúsculas, números, espaços e `_`; letras maiúsculas são convertidas para minúsculas.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:**
+
+```json
+{
+  "codigo": "prova_profesor",
+  "nome": "Prova do professor",
+  "descricao": "string",
+  "anos_academicos": ["3_ano_fundamental", "4_ano_fundamental"]
+}
+```
+
+**Response 201:**
+
+```json
+{
+  "message": "categoria criada com sucesso",
+  "categoria": "prova_profesor"
+}
+```
+
+**Erros:**
+
+- `400` — codigo, nome ou anos_academicos ausente/vazio, ou codigo com caracteres especiais inválidos
+- `409` — categoria já existe nesta academia
+
+---
+
+### GET /academia/categorias-nota
+
+Lista todas as categorias de nota da academia alvo.
+
+**Proteção**: autenticado + (`academia` ativa **ou** `admin` **ou** `estudante`)
+
+**Query params (quando `admin`)**:
+
+- `codigo_academia` (obrigatório)
+
+**Response 200:**
+
+```json
+{
+  "categorias": [
+    {
+      "id": "uuid",
+      "codigo_academia": "ACAD20251",
+      "codigo": "prova_profesor",
+      "nome": "Prova do professor",
+      "descricao": "string",
+      "anos_academicos": ["3_ano_fundamental"],
+      "status": "ativo",
+      "created_at": "2026-06-13T00:00:00Z",
+      "version": 1
+    }
+  ],
+  "total": 2
+}
+```
+
+**Erros:**
+
+- `404` — academia não encontrada (incluindo admin sem `codigo_academia`)
+
+---
+
+### DELETE /academia/categorias-nota/:codigo
+
+Inativa (remove logicamente) uma categoria de nota adicional da academia.
+
+**Proteção**: autenticado + academia ativa
+
+**Path Params:**
+
+- `codigo` — código da categoria adicional a remover
+
+**Request:** sem payload
+
+**Response 200:**
+
+```json
+{
+  "message": "categoria removida com sucesso",
+  "categoria": "prova_profesor"
+}
+```
+
+**Erros:**
+
+- `400` — codigo, nome ou anos_academicos ausente/vazio, ou codigo com caracteres especiais inválidos no path
+- `400` — categoria não existe nesta academia
+
+---
 
 ### POST /academia/notas-aluno
 
@@ -1913,7 +3053,60 @@ Retorna as notas de um estudante.
 
 ---
 
-## 10. Faltas
+### GET /notas
+
+Lista registros de notas com escopo por perfil.
+
+**Proteção**: autenticado (`admin` ou `academia`)
+
+**Regras de escopo:**
+
+- `admin`: lista todas as notas registradas no sistema
+- `academia`: lista apenas notas com `codigo_academia` da academia autenticada
+
+**Query Params:**
+
+- `limit` — padrão 50, máximo 1000
+- `offset` — padrão 0
+- `ano_letivo` — filtra por ano letivo (aceita múltiplos valores)
+- `ano_academico` — filtra por ano académico (aceita múltiplos valores)
+- `curso_id` — filtra por curso (nível médio ou superior) (aceita múltiplos valores)
+- `codigo_turma` — filtra por turma (requer `codigo_academia` em consultas admin) (aceita múltiplos valores)
+- `periodo` — filtra por período (`1_trimestre`, `2_trimestre`, `3_trimestre`, `1_semestre`, `2_semestre`) (aceita múltiplos valores)
+- `materia_disciplinar_id` — filtra por matéria disciplinar (aceita múltiplos valores)
+- `categoria` — filtra por categoria da nota (aceita múltiplos valores)
+- `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
+- `type` — filtra o tipo de avaliação final (`avaliacao_final`, `avaliacao_final_com_exame`, `avaliacao_final_com_recurso`, etc.) (aceita múltiplos valores)
+
+**Formato de múltiplos valores (todos os filtros acima):**
+
+- chave repetida: `?ano_letivo=2024_2025&ano_letivo=2025_2026`
+- CSV na mesma chave: `?ano_letivo=2024_2025,2025_2026`
+- também é possível combinar os dois formatos na mesma chamada
+
+**Response 200:**
+
+```json
+{
+  "notas": [NotaRegistroDTO],
+  "total": 30,
+  "total_geral": 5000,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+**Observação sobre paginação e tipo retornado:**
+
+- `total`: quantidade de itens retornados no array `notas` nesta página.
+- `total_geral`: quantidade total de registros no escopo do usuário (ignorando `limit/offset`).
+- os itens em `notas` seguem `NotaRegistroDTO` (seção 2.10).
+
+---
+
+---
+
+## 14. Faltas
 
 ### POST /academia/faltas-aluno
 
@@ -2074,8 +3267,59 @@ Retorna as faltas de um estudante.
 
 ---
 
-## 11. Avaliações Finais
+### GET /faltas
 
+Lista registros de faltas com escopo por perfil.
+
+**Proteção**: autenticado (`admin` ou `academia`)
+
+**Regras de escopo:**
+
+- `admin`: lista todas as faltas registradas no sistema
+- `academia`: lista apenas faltas com `codigo_academia` da academia autenticada
+
+**Query Params:**
+
+- `limit` — padrão 50, máximo 1000
+- `offset` — padrão 0
+- `ano_letivo` — filtra por ano letivo (aceita múltiplos valores)
+- `ano_academico` — filtra por ano académico (aceita múltiplos valores)
+- `curso_id` — filtra por curso (nível médio ou superior) (aceita múltiplos valores)
+- `codigo_turma` — filtra por turma (requer `codigo_academia` em consultas admin) (aceita múltiplos valores)
+- `periodo` — filtra por período da matéria (`1_trimestre`, `2_trimestre`, `3_trimestre`, `1_semestre`, `2_semestre`) (aceita múltiplos valores)
+- `materia_disciplinar_id` — filtra por matéria disciplinar (aceita múltiplos valores)
+- `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
+- `type` — filtra o tipo de avaliação final (`avaliacao_final`, `avaliacao_final_com_exame`, `avaliacao_final_com_recurso`, etc.) (aceita múltiplos valores)
+
+**Formato de múltiplos valores (todos os filtros acima):**
+
+- chave repetida: `?periodo=1_trimestre&periodo=2_trimestre`
+- CSV na mesma chave: `?periodo=1_trimestre,2_trimestre`
+- também é possível combinar os dois formatos na mesma chamada
+
+**Response 200:**
+
+```json
+{
+  "faltas": [FaltaRegistroDTO],
+  "total": 20,
+  "total_geral": 3000,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+**Observação sobre paginação e tipo retornado:**
+
+- `total`: quantidade de itens retornados no array `faltas` nesta página.
+- `total_geral`: quantidade total de registros no escopo do usuário (ignorando `limit/offset`).
+- os itens em `faltas` seguem `FaltaRegistroDTO` (seção 2.11).
+
+---
+
+---
+
+## 15. Avaliações Finais
 
 ### Progressão semestral do ensino superior na avaliação final
 
@@ -2411,618 +3655,9 @@ Retorna avaliações finais de um estudante específico.
 
 ---
 
-## 12. Cursos
-
-### POST /academia/curso
-
-Cria um novo curso para a academia.
-
-**Proteção**: autenticado + academia ativa
-
-**Request:**
-
-```json
-{
-  "nome": "Ciências e Tecnologia",
-  "type": "medio",
-  "anos_academicos": ["1_ano_medio", "2_ano_medio", "3_ano_medio"],
-  "periodos": []  // obrigatório para 'superior', vazio/ausente para 'medio'
-}
-```
-
-**Para superior:**
-
-```json
-{
-  "nome": "Engenharia Informática",
-  "type": "superior",
-  "anos_academicos": ["1_ano_superior", "2_ano_superior", "3_ano_superior", "4_ano_superior"],
-  "periodos": ["1_semestre", "2_semestre"]
-}
-```
-
-**Response 201:**
-
-```json
-{
-  "message": "curso criado com sucesso",
-  "data": {
-    "id": "uuid",
-    "nome": "string",
-    "type": "medio",
-    "periodos": []
-  }
-}
-```
-
-**Erros:**
-
-- `400` — tipo inválido, anos_academicos inválidos
-- `400` — periodos ausentes para tipo superior
-- `403` — academia do tipo escola não pode criar curso superior (e vice-versa)
-
 ---
 
-### GET /academia/cursos
-
-Lista todos os cursos da academia, incluindo `anos_academicos` de cada curso.
-
-**Proteção**: pública com autenticação opcional.
-
-- Sem `Authorization`, permite consultar cursos de escolas do médio e academias do nível superior por `codigo_academia`.
-- Com `Authorization: Bearer <jwt_token>` válido, mantém o contrato anterior para academias e admins.
-- Tokens enviados em formato inválido, expirados ou pertencentes a contas inativas retornam `401`.
-
-**Query params:**
-
-- `codigo_academia` — obrigatório para usuários sem sessão e para admins; ignorado para academias autenticadas, que consultam os próprios cursos.
-
-**Response 200:**
-
-```json
-{
-  "cursos": [CursoDTO],
-  "total": 3
-}
-```
-
----
-
-### GET /academia/curso/:id
-
-Retorna um curso específico, incluindo seus `anos_academicos`.
-
-**Proteção**: pública com autenticação opcional.
-
-- Sem `Authorization`, permite consultar os anos acadêmicos de cursos de escolas do médio e academias do nível superior pelo ID do curso.
-- Academias autenticadas só podem consultar os próprios cursos.
-- Admins autenticados podem consultar qualquer curso.
-
-**Response 200:** `CursoDTO`
-
----
-
-### PUT /academia/curso/:id/ativar
-
-Ativa um curso inativo.
-
-**Proteção**: autenticado + academia ativa
-
-**Response 200:**
-
-```json
-{
-  "message": "curso ativado com sucesso",
-  "nome": "string"
-}
-```
-
----
-
-### PUT /academia/curso/:id/desativar
-
-Desativa um curso ativo.
-
-**Proteção**: autenticado + academia ativa
-
-**Response 200:**
-
-```json
-{
-  "message": "curso desativado com sucesso",
-  "nome": "string"
-}
-```
-
----
-
-### PUT /academia/curso/:id/dados
-
-Atualiza nome, anos_academicos ou periodos de um curso. O `type` é imutável.
-
-**Proteção**: autenticado + academia ativa
-
-**Validações de integridade:**
-
-- Ao enviar `anos_academicos`, a atualização é rejeitada se remover algum ano que ainda possua estudante ativo matriculado no curso.
-- Para cursos superiores, ao enviar `periodos`, a atualização é rejeitada se remover algum semestre que ainda possua estudante ativo com `semestre_atual` correspondente.
-
-**Request:** (todos opcionais)
-
-```json
-{
-  "nome": "string",
-  "anos_academicos": ["1_ano_medio"],
-  "periodos": ["1_semestre", "2_semestre"]
-}
-```
-
-**Response 200:**
-
-```json
-{
-  "message": "curso atualizado com sucesso",
-  "nome": "string",
-  "type": "medio",
-  "anos_academicos": [],
-  "periodos": []
-}
-```
-
-**Erros:**
-
-- `400` — tentativa de remover `anos_academicos` ou `periodos` ainda usados por estudantes ativos
-
----
-
-### DELETE /academia/curso/:id
-
-Deleta um curso (soft delete com cascata).
-
-**Proteção**: autenticado + academia ativa
-
-**Request:** (opcional)
-
-```json
-{
-  "motivo": "string"
-}
-```
-
-**Response 200:**
-
-```json
-{
-  "message": "curso deletado com sucesso",
-  "curso_id": "uuid",
-  "nome": "string",
-  "materias_deletadas": ["Matemática", "Física"],
-  "turmas_deletadas": ["T1A"],
-  "auditavel": true
-}
-```
-
-**Erros:**
-
-- `400` — curso está ativo (desativar primeiro)
-- `400` — curso tem estudantes matriculados
-- `400` — curso tem matérias ativas (desativar todas primeiro)
-- `400` — curso tem turmas ativas (desativar todas primeiro)
-
----
-
-## 13. Matérias
-
-### POST /academia/materia
-
-Cria uma nova matéria disciplinar.
-
-**Proteção**: autenticado + academia ativa
-
-**Request:**
-
-```json
-{
-  "nome": "Matemática",
-  "type": "fundamental",
-  "anos_academicos": ["3_ano_fundamental", "4_ano_fundamental"],
-  "curso_id": null
-}
-```
-
-**Para médio/superior:**
-
-```json
-{
-  "nome": "Álgebra Linear",
-  "type": "superior",
-  "anos_academicos": ["1_ano_superior"],
-  "curso_id": "uuid"  // obrigatório para medio e superior
-}
-```
-
-**Response 201:**
-
-```json
-{
-  "message": "materia criada com sucesso",
-  "data": {
-    "id": "uuid",
-    "nome": "string",
-    "type": "superior",
-    "status": "inativo",
-    "proximo_passo": "defina o periodo via PUT /academia/materias/uuid/periodo antes de ativar"
-  }
-}
-```
-
-**Notas:**
-
-- Matérias `superior` nascem **inativas** e exigem período antes de ativar
-- `curso_id` obrigatório para `medio` e `superior`
-- Para `fundamental`: `anos_academicos` com 1 a 9 itens no formato correto
-- Para `medio`/`superior`: exatamente 1 item no formato correto
-
----
-
-### GET /academia/materias
-
-Lista todas as matérias da academia.
-
-**Proteção**: autenticado + (`academia` ativa **ou** `admin` **ou** `estudante`)
-
-**Query params (quando `admin`)**:
-
-- `codigo_academia` (obrigatório)
-
-**Response 200:**
-
-```json
-{
-  "materias": [MateriaDTO],
-  "total": 10
-}
-```
-
----
-
-### GET /academia/materia/:id
-
-Retorna uma matéria específica.
-
-**Proteção**: autenticado + (`academia` ativa **ou** `admin` **ou** `estudante`)
-
-**Response 200:** `MateriaDTO`
-
----
-
-### PUT /academia/materia/:id/ativar
-
-Ativa uma matéria inativa. Matérias superiores sem período definido não podem ser ativadas.
-
-**Proteção**: autenticado + academia ativa
-
-**Response 200:**
-
-```json
-{
-  "message": "materia ativada com sucesso",
-  "nome": "string"
-}
-```
-
----
-
-### PUT /academia/materia/:id/desativar
-
-Desativa uma matéria ativa.
-
-**Proteção**: autenticado + academia ativa
-
-**Response 200:**
-
-```json
-{
-  "message": "materia desativada com sucesso",
-  "nome": "string"
-}
-```
-
----
-
-### PUT /academia/materia/:id/periodo
-
-Define o período de uma matéria do tipo `superior`. Pré-requisito para ativar a matéria.
-
-**Proteção**: autenticado + academia ativa
-
-**Request:**
-
-```json
-{
-  "periodo": "1_semestre"  // deve existir nos períodos do curso vinculado
-}
-```
-
-**Response 200:**
-
-```json
-{
-  "message": "periodo definido com sucesso",
-  "nome": "string",
-  "periodo": "1_semestre"
-}
-```
-
-**Erros:**
-
-- `400` — matéria não é do tipo superior
-- `400` — período não pertence ao curso vinculado
-
----
-
-### PUT /academia/materia/:id/dados
-
-Atualiza o nome de uma matéria.
-
-**Proteção**: autenticado + academia ativa
-
-**Request:**
-
-```json
-{
-  "nome": "string"
-}
-```
-
-**Response 200:**
-
-```json
-{
-  "message": "matéria atualizada com sucesso",
-  "nome": "string"
-}
-```
-
----
-
-### DELETE /academia/materia/:id
-
-Deleta uma matéria (soft delete). Deve estar inativa.
-
-**Proteção**: autenticado + academia ativa
-
-**Response 200:**
-
-```json
-{
-  "message": "materia deletada com sucesso",
-  "nome": "string"
-}
-```
-
----
-
-## 14. Turmas
-
-### POST /academia/turma
-
-Cria uma nova turma.
-
-O campo `codigo_turma` é normalizado antes de persistir e validar duplicidade: espaços antes/depois são descartados, somente espaços internos entre textos viram `_` (ex.: ` Turma 10 A ` vira `Turma_10_A`) e caracteres especiais diferentes de `_` são rejeitados. O código aceita letras, números, espaços e `_`.
-
-**Proteção**: autenticado + academia ativa
-
-**Request:**
-
-```json
-{
-  "codigo_turma": "T1A",
-  "nivel": "3_ano_fundamental",
-  "turno": "manha",
-  "curso_id": null  // opcional, para turmas de médio/superior
-}
-```
-
-**Response 201:**
-
-```json
-{
-  "message": "turma criada com sucesso",
-  "id": "uuid",
-  "codigo_turma": "T1A"
-}
-```
-
-**Erros:**
-
-- `400` — turno inválido (deve ser `manha`, `tarde` ou `noite`) ou `codigo_turma` com caracteres especiais inválidos
-- `409` — código de turma já existe nesta academia
-
----
-
-### GET /academia/turmas
-
-Lista todas as turmas da academia.
-
-**Proteção**: autenticado + (`academia` ativa **ou** `admin` **ou** `estudante`)
-
-**Query params (quando `admin`)**:
-
-- `codigo_academia` (obrigatório)
-
-**Response 200:**
-
-```json
-{
-  "turmas": [TurmaDTO]
-}
-```
-
----
-
-### GET /academia/turma/:codigo
-
-Retorna uma turma pelo código.
-
-**Proteção**: autenticado + (`academia` ativa **ou** `admin` **ou** `estudante`)
-
-**Query params (quando `admin`)**:
-
-- `codigo_academia` (obrigatório, porque o código da turma é contextual por academia)
-
-**Response 200:** `TurmaDTO`
-
----
-
-### PUT /academia/turma/:codigo/ativar
-
-Ativa uma turma inativa.
-
-**Proteção**: autenticado + academia ativa
-
-**Response 200:**
-
-```json
-{
-  "message": "turma ativada com sucesso",
-  "codigo_turma": "T1A"
-}
-```
-
----
-
-### PUT /academia/turma/:codigo/desativar
-
-Desativa uma turma ativa. Pré-requisito para deletar.
-
-**Proteção**: autenticado + academia ativa
-
-**Response 200:**
-
-```json
-{
-  "message": "turma desativada com sucesso",
-  "codigo_turma": "T1A"
-}
-```
-
----
-
-### PUT /academia/turma/:codigo/dados
-
-Atualiza dados de uma turma.
-
-**Proteção**: autenticado + academia ativa
-
-**Regra de compatibilidade (novo)**:
-- Ao alterar `nivel` e/ou `curso_id`, o backend valida todos os estudantes já vinculados.
-- Se pelo menos um estudante ficar incompatível com os novos dados, a atualização é bloqueada com `400`.
-
-**Request:** (todos opcionais)
-
-```json
-{
-  "nivel": "string",
-  "turno": "tarde",
-  "curso_id": "uuid"
-}
-```
-
-**Response 200:**
-
-```json
-{
-  "message": "turma atualizada com sucesso"
-}
-```
-
-**Erros comuns:**
-- `400` — estudante vinculado ficaria incompatível com o novo `nivel` e/ou `curso_id`
-
----
-
-### DELETE /academia/turma/:codigo
-
-Deleta uma turma (soft delete). Deve estar inativa e sem estudantes.
-
-**Proteção**: autenticado + academia ativa
-
-**Request:** (opcional)
-
-```json
-{
-  "motivo": "string"
-}
-```
-
-**Response 200:**
-
-```json
-{
-  "message": "turma deletada com sucesso",
-  "codigo_turma": "T1A",
-  "auditavel": true
-}
-```
-
----
-
-### POST /academia/turma/:codigo/estudante
-
-Adiciona um estudante à turma.
-
-**Proteção**: autenticado + academia ativa
-
-**Path Params:**
-
-- `codigo` — código da turma
-
-**Request:**
-
-```json
-{
-  "codigo_estudante": "ABC1234"
-}
-```
-
-**Response 200:**
-
-```json
-{
-  "message": "estudante adicionado à turma com sucesso",
-  "codigo_turma": "T1A",
-  "codigo_estudante": "ABC1234"
-}
-```
-
-**Erros:**
-
-- `403` — estudante não pertence à academia
-- `404` — estudante ou turma não encontrados
-- `409` — estudante já está na turma
-
----
-
-### DELETE /academia/turma/:codigo/estudantes/:codigoEstudante
-
-Remove um estudante da turma.
-
-**Proteção**: autenticado + academia ativa
-
-**Response 200:**
-
-```json
-{
-  "message": "estudante removido da turma com sucesso",
-  "codigo_turma": "T1A",
-  "codigo_estudante": "ABC1234"
-}
-```
-
----
-
-## 15. Admins
+## 16. Admins
 
 ### POST /dominis/register
 
@@ -3276,254 +3911,6 @@ Use este endpoint quando o rebuild puder demorar vários minutos.
 
 ---
 
-## 16. Consultas Gerais
-
-### GET /academias
-
-Lista todas as academias com paginação e filtro de status.
-
-**Proteção**: pública com autenticação opcional.
-
-- Sem `Authorization`, a rota retorna apenas dados públicos de cada academia.
-- Com `Authorization: Bearer <jwt_token>` válido, a rota mantém o contrato autenticado anterior.
-- Se um header `Authorization` for enviado, ele deve ser um Bearer token válido; tokens inválidos/expirados retornam `401`.
-
-**Query Params:**
-
-- `limit` — quantidade máxima (padrão sem limit: 1000, teto: 1000)
-- `offset` — deslocamento (padrão: 0)
-- `status` — `ativo` ou `inativo` (omitir = retorna ambos)
-
-**Response 200 — usuário não autenticado:**
-
-```json
-{
-  "academias": [
-    {
-      "nivel": "escola",
-      "type": "public",
-      "nome": "Escola Exemplo",
-      "codigo_academia": "LUA20261",
-      "provincia": "Luanda",
-      "endereco": "Rua Exemplo, 123",
-      "nivel_escolar": "fundamental",
-      "anos_academicos": ["1_ano_fundamental", "2_ano_fundamental"]
-    }
-  ],
-  "total": 1,
-  "limit": 1000,
-  "offset": 0
-}
-```
-
-**Campos públicos por academia:** `nivel`, `type`, `nome`, `codigo_academia`, `provincia`, `endereco`, `nivel_escolar`, `anos_academicos`. Para escolas fundamentais ou mistas, `anos_academicos` permite que usuários sem sessão recebam os anos acadêmicos ofertados.
-
-**Response 200 — usuário autenticado:**
-
-```json
-{
-  "academias": [AcademiaDTO],
-  "total": 25,
-  "limit": 1000,
-  "offset": 0
-}
-```
-
-**Nota**: usuários autenticados veem os campos operacionais do `AcademiaDTO`; admins veem campos extras (`email`, `total_estudantes`, `version`).
-
----
-
-### GET /consultar-academia/:codigo
-
-Retorna detalhes de uma academia pelo código.
-
-**Proteção**: pública com autenticação opcional.
-
-- Sem `Authorization`, a rota retorna somente os mesmos campos públicos usados em `GET /academias`.
-- Com `Authorization: Bearer <jwt_token>` válido, a rota mantém o contrato autenticado anterior.
-- Se um header `Authorization` for enviado, ele deve ser um Bearer token válido; tokens inválidos/expirados retornam `401`.
-
-**Response 200 — usuário não autenticado:**
-
-```json
-{
-  "nivel": "escola",
-  "type": "public",
-  "nome": "Escola Exemplo",
-  "codigo_academia": "LDA20261",
-  "provincia": "LDA",
-  "endereco": "Rua Exemplo, 123",
-  "nivel_escolar": "fundamental",
-  "anos_academicos": ["1_ano_fundamental", "2_ano_fundamental"]
-}
-```
-
-**Response 200 — usuário autenticado:**
-
-```json
-{
-  "id": "uuid",
-  "nivel": "escola",
-  "type": "public",
-  "nome": "string",
-  "codigo_academia": "LDA20261",
-  "provincia": "LDA",
-  "endereco": "string",
-  "numero_telefone": "+244900000000",
-  "website": "https://exemplo.ao",
-  "nivel_escolar": "fundamental",
-  "anos_academicos": ["1_ano_fundamental"],
-  "status": "ativo",
-  "cursos": [],
-  "email_verificado": true,
-  "created_at": "2026-06-13T00:00:00Z",
-  "total_estudantes": 10,
-  "ano_letivo": "2026",
-  "tipo_ano_letivo": "anual",
-  "anos_letivos_lista": ["2026"]
-}
-```
-
-**Campos públicos para usuário não autenticado:** `nivel`, `type`, `nome`, `codigo_academia`, `provincia`, `endereco`, `nivel_escolar`, `anos_academicos`.
-
-**Nota**: admins veem também `email` e `motivo_desativacao`.
-
----
-
-### GET /turmas-estudante/:codigo
-
-Retorna as turmas de um estudante com autorização por perfil na mesma rota.
-
-**Proteção**: autenticado (qualquer tipo)
-
-**Path Params:**
-
-- `codigo` — código do estudante
-
-**Regras de autorização:**
-
-- `estudante`: só pode consultar as próprias turmas
-- `academia`: pode consultar qualquer estudante da sua academia
-- `admin`: pode consultar qualquer estudante
-
-**Response 200:**
-
-```json
-{
-  "codigo_estudante": "ABC1234",
-  "nome": "João Silva",
-  "turmas": [TurmaDTO],
-  "total": 2
-}
-```
-
-**Erros:**
-
-- `403` — estudante tentando consultar outro estudante
-- `403` — academia tentando consultar estudante de outra academia
-- `404` — estudante não encontrado
-
----
-
-### GET /notas
-
-Lista registros de notas com escopo por perfil.
-
-**Proteção**: autenticado (`admin` ou `academia`)
-
-**Regras de escopo:**
-
-- `admin`: lista todas as notas registradas no sistema
-- `academia`: lista apenas notas com `codigo_academia` da academia autenticada
-
-**Query Params:**
-
-- `limit` — padrão 50, máximo 1000
-- `offset` — padrão 0
-- `ano_letivo` — filtra por ano letivo (aceita múltiplos valores)
-- `ano_academico` — filtra por ano académico (aceita múltiplos valores)
-- `curso_id` — filtra por curso (nível médio ou superior) (aceita múltiplos valores)
-- `codigo_turma` — filtra por turma (requer `codigo_academia` em consultas admin) (aceita múltiplos valores)
-- `periodo` — filtra por período (`1_trimestre`, `2_trimestre`, `3_trimestre`, `1_semestre`, `2_semestre`) (aceita múltiplos valores)
-- `materia_disciplinar_id` — filtra por matéria disciplinar (aceita múltiplos valores)
-- `categoria` — filtra por categoria da nota (aceita múltiplos valores)
-- `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
-- `type` — filtra o tipo de avaliação final (`avaliacao_final`, `avaliacao_final_com_exame`, `avaliacao_final_com_recurso`, etc.) (aceita múltiplos valores)
-
-**Formato de múltiplos valores (todos os filtros acima):**
-
-- chave repetida: `?ano_letivo=2024_2025&ano_letivo=2025_2026`
-- CSV na mesma chave: `?ano_letivo=2024_2025,2025_2026`
-- também é possível combinar os dois formatos na mesma chamada
-
-**Response 200:**
-
-```json
-{
-  "notas": [NotaRegistroDTO],
-  "total": 30,
-  "total_geral": 5000,
-  "limit": 50,
-  "offset": 0
-}
-```
-
-**Observação sobre paginação e tipo retornado:**
-
-- `total`: quantidade de itens retornados no array `notas` nesta página.
-- `total_geral`: quantidade total de registros no escopo do usuário (ignorando `limit/offset`).
-- os itens em `notas` seguem `NotaRegistroDTO` (seção 2.10).
-
----
-
-### GET /faltas
-
-Lista registros de faltas com escopo por perfil.
-
-**Proteção**: autenticado (`admin` ou `academia`)
-
-**Regras de escopo:**
-
-- `admin`: lista todas as faltas registradas no sistema
-- `academia`: lista apenas faltas com `codigo_academia` da academia autenticada
-
-**Query Params:**
-
-- `limit` — padrão 50, máximo 1000
-- `offset` — padrão 0
-- `ano_letivo` — filtra por ano letivo (aceita múltiplos valores)
-- `ano_academico` — filtra por ano académico (aceita múltiplos valores)
-- `curso_id` — filtra por curso (nível médio ou superior) (aceita múltiplos valores)
-- `codigo_turma` — filtra por turma (requer `codigo_academia` em consultas admin) (aceita múltiplos valores)
-- `periodo` — filtra por período da matéria (`1_trimestre`, `2_trimestre`, `3_trimestre`, `1_semestre`, `2_semestre`) (aceita múltiplos valores)
-- `materia_disciplinar_id` — filtra por matéria disciplinar (aceita múltiplos valores)
-- `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
-- `type` — filtra o tipo de avaliação final (`avaliacao_final`, `avaliacao_final_com_exame`, `avaliacao_final_com_recurso`, etc.) (aceita múltiplos valores)
-
-**Formato de múltiplos valores (todos os filtros acima):**
-
-- chave repetida: `?periodo=1_trimestre&periodo=2_trimestre`
-- CSV na mesma chave: `?periodo=1_trimestre,2_trimestre`
-- também é possível combinar os dois formatos na mesma chamada
-
-**Response 200:**
-
-```json
-{
-  "faltas": [FaltaRegistroDTO],
-  "total": 20,
-  "total_geral": 3000,
-  "limit": 50,
-  "offset": 0
-}
-```
-
-**Observação sobre paginação e tipo retornado:**
-
-- `total`: quantidade de itens retornados no array `faltas` nesta página.
-- `total_geral`: quantidade total de registros no escopo do usuário (ignorando `limit/offset`).
-- os itens em `faltas` seguem `FaltaRegistroDTO` (seção 2.11).
-
 ---
 
 ## 17. Jobs Assíncronos
@@ -3649,7 +4036,9 @@ Cria um novo job de retry reaproveitando **somente os itens que falharam** no jo
 
 ---
 
-## 18. Batch Assíncrono — Academia
+---
+
+## 18. Batch Assíncrono
 
 Todos criam um job e retornam `202 Accepted` com URLs de acompanhamento por polling e por SSE.
 Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
@@ -3715,8 +4104,6 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 
 ---
 
-## 19. Batch Assíncrono — Admin
-
 **Formato de payload (todos os endpoints `/async`):**
 
 ```json
@@ -3749,139 +4136,9 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 
 ---
 
-## 20. Solicitação de Matrícula
-
-### POST /solicitacao-matricula
-
-Cria uma solicitação pública de matrícula via `multipart/form-data`. O backend gera `codigo_solicitacao`, valida dados e PDFs, envia documentos para o armazenamento no caminho `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/` e grava `SolicitacaoMatriculaCriada` no ledger. Para cada arquivo enviado, o evento e a projeção salvam `path`, `file_url` (URL de visualização/arquivo no Drive) e `download_url` (URL direta de download quando o Google Drive disponibilizar `webContentLink`).
-
-**Proteção**: pública
-
-**Campos**: `codigo_academia`, `nome`, `genero`, `data_nascimento`, `email`, `telefone`, `bilhete_identidade`, `bilhete_identidade_responsavel`, `ano_escolar_fundamental`, `ano_escolar_medio`, `curso_medio_id`, `ano_superior`, `curso_superior_id`. Quando `bilhete_identidade` e `bilhete_identidade_responsavel` forem enviados juntos, eles não podem ser iguais (comparação sem espaços nas extremidades e sem diferenciar maiúsculas/minúsculas).
-
-**Ficheiros PDF**: `bi_estudante`, `bi_responsavel`, `cedula_estudante`, `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`. Cada ficheiro deve ser PDF válido e ter no máximo 5MB. `bi_responsavel` é obrigatório. Se não houver `bi_estudante`, `cedula_estudante` é obrigatória. `declaracao` é obrigatória quando o certificado aplicável ao ano académico não for enviado.
-
-**Response 201:**
-
-```json
-{
-  "message": "solicitação de matrícula criada com sucesso",
-  "codigo_solicitacao": "A3F9K2BPQ7X",
-  "codigo_academia": "LDA20261",
-  "status": "pendente"
-}
-```
-
-### GET /academia/solicitacoes-matricula
-
-Lista solicitações da academia autenticada em ordem decrescente de criação.
-
-**Proteção**: autenticado + academia
-
-**Query params**:
-
-- `status`: filtro repetível por status (`pendente`, `aprovada`, `reprovada`). Ex.: `?status=pendente&status=reprovada`.
-- `limit`: quantidade máxima de registros. Padrão `50`, mínimo `1`, máximo `1000`.
-- `offset`: deslocamento de paginação. Padrão `0`.
-
-**Response 200:**
-
-```json
-{
-  "solicitacoes": [
-    {
-      "id": "0d0f5f7d-2f80-4e2d-9b48-b016f8d8f2ab",
-      "codigo_solicitacao": "A3F9K2BPQ7X",
-      "codigo_academia": "LDA20261",
-      "nome": "Maria da Silva",
-      "genero": "feminino",
-      "data_nascimento": "2010-05-12T00:00:00Z",
-      "status": "pendente",
-      "documentos": {
-        "bi_responsavel": {
-          "path": "LDA20261/matriculas/matricula_A3F9K2BPQ7X/bi_responsavel_A3F9K2BPQ7X.pdf",
-          "file_url": "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk",
-          "download_url": "https://drive.google.com/uc?id=FILE_ID&export=download"
-        }
-      },
-      "created_at": "2026-06-14T10:00:00Z",
-      "updated_at": "2026-06-14T10:00:00Z",
-      "version": 1
-    }
-  ],
-  "total": 1,
-  "limit": 50,
-  "offset": 0
-}
-```
-
-### GET /academia/solicitacao-matricula/:codigo
-
-Consulta uma solicitação da academia autenticada pelo `codigo_solicitacao`. Retorna `404` se não existir e `403` se pertencer a outra academia.
-
-**Proteção**: autenticado + academia dona
-
-**Response 200:**
-
-```json
-{
-  "solicitacao": {
-    "id": "0d0f5f7d-2f80-4e2d-9b48-b016f8d8f2ab",
-    "codigo_solicitacao": "A3F9K2BPQ7X",
-    "codigo_academia": "LDA20261",
-    "nome": "Maria da Silva",
-    "genero": "feminino",
-    "data_nascimento": "2010-05-12T00:00:00Z",
-    "status": "pendente",
-    "documentos": {
-      "declaracao": {
-        "path": "LDA20261/matriculas/matricula_A3F9K2BPQ7X/declaracao_A3F9K2BPQ7X.pdf",
-        "file_url": "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk",
-        "download_url": "https://drive.google.com/uc?id=FILE_ID&export=download"
-      }
-    },
-    "created_at": "2026-06-14T10:00:00Z",
-    "updated_at": "2026-06-14T10:00:00Z",
-    "version": 1
-  }
-}
-```
-
-### PUT /academia/solicitacao-matricula/:codigo/aprovar
-
-Aprova uma solicitação pendente e cria automaticamente o estudante com o aggregate `Estudante`.
-
-**Response 200:**
-
-```json
-{
-  "message": "solicitação aprovada e estudante registado com sucesso",
-  "codigo_solicitacao": "A3F9K2BPQ7X",
-  "codigo_estudante_gerado": "ABC1234"
-}
-```
-
-### PUT /academia/solicitacao-matricula/:codigo/reprovar
-
-Reprova uma solicitação pendente, grava `SolicitacaoMatriculaReprovada` e remove o diretório de documentos.
-
-**Request:**
-
-```json
-{ "motivo_reprovacao": "Documentos ilegíveis." }
-```
-
-### GET /solicitacoes-matricula
-
-Lista todas as solicitações do sistema para admin em ordem decrescente de criação. Retorna o mesmo formato de `GET /academia/solicitacoes-matricula`, incluindo `documentos.<campo>.path`, `documentos.<campo>.file_url` e `documentos.<campo>.download_url` para cada arquivo enviado.
-
-**Proteção**: autenticado + admin
-
-**Query params**: `status` repetível, `codigo_academia` repetível, `limit` e `offset`.
-
 ---
 
-## 21. Armazenamento
+## 19. Armazenamento
 
 ### GET /dominis/storage/quota
 
@@ -3945,238 +4202,3 @@ Quando a configuração do Google Drive ou da quota estiver incompleta ou invál
 ```
 
 ---
-
-## 22. Anos letivos por tipo e finalização
-
-### Configurações de período letivo
-
-O backend separa duas coisas que o cliente deve tratar como conceitos diferentes:
-
-1. **Ano letivo ativo** (`ano_letivo`, exemplo `2025_2026`) — valor evolutivo definido pelo Admin FPP no escopo global e pela academia no próprio escopo, sempre alinhado ao global.
-2. **Período fixo por tipo** (`periodo`, exemplo `09_07`) — configuração global estável mantida pelo Admin FPP para calcular o intervalo real de datas aceitas.
-
-Cada tipo canônico de ano letivo possui exatamente um período fixo global:
-
-- `escolar` — usado para fundamental e médio. O alias legado `escola` não é mais aceito para `type` de ano letivo.
-- `superior` — usado para ensino superior.
-
-O `periodo` usa o formato `MM_MM`, em que o primeiro mês pertence ao ano inicial de `ano_letivo` e o segundo mês pertence ao ano final. Exemplo: `ano_letivo=2025_2026` com `periodo=10_07` permite datas de `2025-10-01` a `2026-07-31`. O cliente não precisa calcular esse intervalo para validar segurança; o backend recalcula e valida em operações sensíveis, especialmente faltas. A definição do ano letivo seguinte também respeita a mesma janela operacional da finalização: enquanto o mês atual ainda estiver dentro do ano letivo em curso delimitado pelo período, o avanço para o próximo ano letivo é bloqueado.
-
-#### GET `/anos-letivos/configuracoes`
-
-Lista as configurações vigentes.
-
-Request: não possui body.
-
-Response:
-
-```json
-{
-  "configuracoes": [
-    {
-      "type": "escolar",
-      "periodo": "09_07",
-      "updated_at": "2026-06-26T10:30:00Z",
-      "updated_by": "uuid-do-admin-fpp"
-    },
-    {
-      "type": "superior",
-      "periodo": "10_07",
-      "updated_at": "2026-06-26T10:35:00Z",
-      "updated_by": "uuid-do-admin-fpp"
-    }
-  ]
-}
-```
-
-#### GET `/admin/sistema/anos-letivos/configuracoes`
-
-Lista as configurações vigentes para Admin FPP. A estrutura do retorno é a mesma de `GET /anos-letivos/configuracoes`; a diferença é a exigência de autenticação como Admin FPP.
-
-Request: não possui body.
-
-Response:
-
-```json
-{
-  "configuracoes": [
-    {
-      "type": "escolar",
-      "periodo": "09_07",
-      "updated_at": "2026-06-26T10:30:00Z",
-      "updated_by": "uuid-do-admin-fpp"
-    },
-    {
-      "type": "superior",
-      "periodo": "10_07",
-      "updated_at": "2026-06-26T10:35:00Z",
-      "updated_by": "uuid-do-admin-fpp"
-    }
-  ]
-}
-```
-
-#### PUT `/admin/sistema/anos-letivos/configuracoes/:type`
-
-Apenas Admin FPP. Atualiza o período fixo do tipo informado. O parâmetro `:type` aceita somente `escolar` ou `superior`.
-
-Request params:
-
-| Campo | Tipo | Obrigatório | Descrição |
-| --- | --- | --- | --- |
-| `type` | `string` | Sim | Tipo do ano letivo no path. Valores aceitos: `escolar` ou `superior`. |
-
-Request body:
-
-```json
-{
-  "periodo": "09_07"
-}
-```
-
-Response:
-
-```json
-{
-  "message": "configuração de ano letivo atualizada com sucesso",
-  "type": "escolar",
-  "periodo": "09_07"
-}
-```
-
-### Validação de faltas pelo período letivo
-
-O registro e a atualização de faltas validam a data no backend usando o tipo inferido da matéria (`superior` ou `escolar` para fundamental/médio), o `ano_letivo` ativo da academia e o `periodo` configurado para o tipo. Datas fora do intervalo retornam `400` com mensagem indicando o intervalo permitido.
-
-### Finalização de ano letivo por academia
-
-#### POST `/academia/anos-letivos/finalizar`
-
-A academia autenticada finaliza o ano letivo ativo no próprio escopo e, na mesma operação, avança automaticamente para o ano letivo seguinte. O cliente não envia `academia_id`; o backend obtém a academia pelo token, normaliza `type`, valida que o `ano_letivo` informado, quando presente, corresponde ao ano letivo ativo da academia, valida o formato `YYYY_YYYY` com segundo ano igual ao primeiro + 1, valida a janela mensal de finalização pelo `periodo` configurado para o tipo e grava um evento auditável `AnoLetivoAcademiaFinalizado`. A janela mensal é inclusiva no mês final e exclusiva no mês inicial: o mês atual precisa ser maior ou igual ao mês de fim do período letivo e menor que o mês de início do período letivo. Exemplo: se `periodo=10_07`, a finalização é permitida somente em julho, agosto e setembro; em outubro o próximo período já começou, e de novembro a junho o período vigente ainda não chegou ao mês de encerramento.
-
-Request:
-
-```json
-{
-  "type": "escolar",
-  "ano_letivo": "2025_2026",
-  "observacao": "Ano letivo encerrado após fechamento de notas e faltas."
-}
-```
-
-Response:
-
-```json
-{
-  "message": "ano letivo finalizado com sucesso; academia avançada para o ano letivo seguinte",
-  "academia_id": "uuid-da-academia",
-  "type": "escolar",
-  "ano_letivo_finalizado": "2025_2026",
-  "ano_letivo": "2026_2027",
-  "finalizado": true,
-  "global_atualizado": false
-}
-```
-
-A operação é auditada por `(academia_id, type, ano_letivo_finalizado)` e avança a academia para o próximo `YYYY_YYYY`. Se, após esse avanço, todas as academias ativas estiverem no mesmo ano letivo, o backend atualiza automaticamente o ano letivo global para esse ano. Fora da janela mensal permitida, o backend retorna `400` e não grava novo evento.
-
-#### GET `/academia/anos-letivos/finalizacoes`
-
-Lista as finalizações da academia autenticada. O cliente não envia `academia_id`; o backend identifica a academia pelo token.
-
-Request: não possui body nem query params.
-
-Response:
-
-```json
-{
-  "finalizacoes": [
-    {
-      "type": "escolar",
-      "ano_letivo": "2025_2026",
-      "finalizado": true,
-      "finalizado_em": "2026-06-26T11:00:00Z",
-      "observacao": "Ano letivo encerrado após fechamento de notas e faltas."
-    },
-    {
-      "type": "superior",
-      "ano_letivo": "2025_2026",
-      "finalizado": true,
-      "finalizado_em": "2026-06-26T11:05:00Z",
-      "observacao": ""
-    }
-  ]
-}
-```
-
-#### GET `/admin/academias/anos-letivos/finalizacoes?type=escolar&ano_letivo=2025_2026`
-
-Apenas Admin FPP. Consulta finalizações por academia, com filtros opcionais.
-
-Request: não possui body.
-
-Query params opcionais:
-
-| Campo | Tipo | Obrigatório | Descrição |
-| --- | --- | --- | --- |
-| `type` | `string` | Não | Filtra pelo tipo. Valores aceitos: `escolar` ou `superior`. |
-| `ano_letivo` | `string` | Não | Filtra pelo ano letivo no formato `YYYY_YYYY`, com o segundo ano igual ao primeiro + 1. |
-
-Response:
-
-```json
-{
-  "finalizacoes": [
-    {
-      "academia_id": "uuid-da-academia",
-      "codigo_academia": "ACA1",
-      "type": "escolar",
-      "ano_letivo": "2025_2026",
-      "finalizado": true,
-      "finalizado_em": "2026-06-26T11:00:00Z",
-      "observacao": "Ano letivo encerrado após fechamento de notas e faltas."
-    }
-  ]
-}
-```
-
-#### GET `/admin/sistema/anos-letivos/finalizacao-limites`
-
-Apenas Admin FPP. Retorna, por tipo, o maior ano letivo finalizado por todas as academias ativas aplicáveis e o mínimo global permitido.
-
-Request: não possui body nem query params.
-
-Response:
-
-```json
-{
-  "limites": [
-    {
-      "type": "escolar",
-      "ano_letivo_finalizado_por_todas": "2025_2026",
-      "minimo_global_permitido": "2026_2027",
-      "academias_total": 12,
-      "academias_finalizadas": 12
-    },
-    {
-      "type": "superior",
-      "ano_letivo_finalizado_por_todas": "",
-      "minimo_global_permitido": "",
-      "academias_total": 8,
-      "academias_finalizadas": 0
-    }
-  ]
-}
-```
-
-### Bloqueio de retrocesso global
-
-Ao definir inicialmente o ano letivo global, o backend bloqueia a operação se alguma academia ativa já tiver ano letivo. Depois da definição inicial, o avanço global não é manual: ele acontece automaticamente quando todas as academias ativas passam a estar no mesmo ano letivo após suas finalizações.
-
-Para implementar o cliente de forma segura:
-
-1. Admin FPP consulta/ajusta `GET|PUT /admin/sistema/anos-letivos/configuracoes/:type` para confirmar o `periodo` por tipo.
-2. Admin FPP define inicialmente o ano global com `POST /admin/definir-ano-letivo-geral`, desde que não exista academia ativa com ano letivo definido.
-3. Cada academia sem ano letivo define o próprio ano letivo com `POST /academia/definir-ano-letivo` usando o ano global atual.
-4. Ao encerrar notas/faltas/avaliações de um ciclo, a academia chama `POST /academia/anos-letivos/finalizar`; essa chamada finaliza o ano ativo e já avança para o seguinte.
-5. Telas administrativas podem usar `GET /admin/sistema/anos-letivos/finalizacao-limites` para mostrar o marco finalizado por todas as academias e o mínimo global permitido antes de tentar avançar ou corrigir o global.
