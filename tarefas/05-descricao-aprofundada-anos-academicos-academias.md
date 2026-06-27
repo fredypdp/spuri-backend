@@ -8,7 +8,7 @@ status: pronto_para_implementacao
 
 ## Prompt recomendado para executar a atualização
 
-Implemente no backend a capacidade de academias gerenciarem seus anos acadêmicos habilitados, permitindo adicionar e remover/desativar anos acadêmicos dentro do próprio escopo. A implementação deve aplicar validações de segurança avançadas para impedir que uma academia altere anos de outra, crie anos incompatíveis com seu nível/tipo, remova anos com dados dependentes ativos de forma destrutiva ou burle regras globais definidas pela plataforma. A remoção deve preferencialmente ser lógica/desativação, preservando histórico de estudantes, turmas, matérias, notas, faltas e eventos.
+Implemente no backend a capacidade de academias gerenciarem seus anos acadêmicos habilitados, permitindo adicionar, editar metadados e remover/desativar anos acadêmicos dentro do próprio escopo. A implementação deve cobrir explicitamente academias de ensino fundamental, ensino médio, ensino superior e academias mistas que oferecem fundamental + médio. Também deve aplicar validações de segurança avançadas para impedir que uma academia altere anos de outra, crie anos incompatíveis com seu nível/tipo, remova ou edite anos com dados dependentes ativos de forma destrutiva, burle regras globais definidas pela plataforma ou cause efeitos retroativos em ledger, histórico de estudantes, histórico acadêmico, turmas, matérias, notas, faltas, eventos e processos antigos. A remoção deve ser lógica/desativação, preservando histórico e bloqueando a operação quando houver estudantes ainda em atividade no ano acadêmico manipulado.
 
 ## Contexto do problema
 
@@ -35,15 +35,51 @@ Para superior, o modelo pode representar anos, períodos ou semestres conforme o
 }
 ```
 
+
+## Escopo por tipo de academia
+
+A implementação deve tratar os anos acadêmicos conforme o tipo/nível real da academia, sem assumir que todas usam a mesma escala.
+
+### Ensino fundamental
+
+- Representar anos do ensino fundamental conforme o domínio adotado pela plataforma, normalmente `1` a `9`.
+- Permitir que a academia habilite apenas anos compatíveis com sua configuração oficial e com regras globais do produto.
+- Impedir a adição de anos exclusivos do ensino médio ou superior em academias configuradas somente como fundamental.
+- Validar nomes/descrições como `1º ano`, `2º ano` etc. apenas como metadados; a regra de negócio deve depender do código/ano canônico.
+
+### Ensino médio
+
+- Representar séries/anos do ensino médio conforme o domínio adotado, normalmente `10` a `12` quando o sistema usa continuidade do 1º ao 12º ano, ou `1` a `3` quando existe um tipo separado para médio.
+- A escolha entre `10-12` e `1-3` deve seguir o padrão já existente no backend e ser documentada no helper de validação.
+- Impedir que uma academia configurada somente como médio habilite anos do fundamental, salvo se ela estiver marcada explicitamente como academia mista.
+
+### Ensino fundamental + médio (academia mista)
+
+- Suportar academias que oferecem os dois níveis no mesmo cadastro/configuração.
+- Permitir o conjunto combinado de anos do fundamental e do médio, respeitando a representação canônica do domínio. Exemplos possíveis:
+  - `1..12`, se o domínio usa sequência contínua;
+  - `fundamental: 1..9` e `medio: 1..3`, se o domínio separa o nível pelo campo `type`.
+- Exigir que o backend diferencie o nível do ano por campo canônico (`type`, `nivel`, faixa ou configuração global), e não apenas por descrição textual.
+- Impedir colisões ambíguas quando fundamental e médio usam números iguais. Por exemplo, se `1` pode significar `1º ano fundamental` ou `1º ano médio`, o registro deve carregar `type`/`nivel` obrigatório e a chave lógica deve considerar essa dimensão.
+- Garantir que desativar ou editar um ano do fundamental não afete o ano equivalente do médio, e vice-versa, quando o modelo usa numeração sobreposta.
+
+### Ensino superior
+
+- Representar anos, períodos, semestres ou módulos conforme o padrão já existente para cursos superiores.
+- Validar compatibilidade com a duração dos cursos ativos da academia e com as regras globais do produto.
+- Não permitir que alterações em anos/períodos superiores invalidem estudantes, matrículas, disciplinas, notas, faltas, histórico curricular, equivalências, pré-requisitos, mensalidades/ledger ou eventos acadêmicos já lançados.
+- Quando a duração variar por curso, a validação deve considerar curso, matriz curricular ou configuração equivalente antes de aceitar o ano/período.
+
 ## Objetivos funcionais
 
-### 1. Criar endpoints para adicionar e remover anos acadêmicos
+### 1. Criar endpoints para listar, adicionar, editar metadados e remover anos acadêmicos
 
 Sugestão de API:
 
 ```http
 GET /academia/anos-academicos
 POST /academia/anos-academicos
+PATCH /academia/anos-academicos/:ano_academico
 DELETE /academia/anos-academicos/:ano_academico
 ```
 
@@ -85,7 +121,7 @@ Resposta sugerida:
 
 ### 2. Usar remoção lógica em vez de exclusão destrutiva
 
-A remoção deve preferencialmente desativar o ano acadêmico para novos cadastros, mantendo dados históricos.
+A remoção deve desativar o ano acadêmico para novos cadastros, mantendo dados históricos. Não implementar exclusão física para dados que já participaram de qualquer processo acadêmico, financeiro, de ledger ou de auditoria.
 
 Regras:
 
@@ -94,8 +130,10 @@ Regras:
 - Marcar o ano como inativo/desabilitado na projeção/configuração da academia.
 - Impedir novos vínculos ao ano desativado.
 - Permitir consulta histórica de dados já existentes.
+- Não reprocessar, recalcular, apagar, substituir ou reescrever lançamentos de ledger associados a estudantes, turmas, mensalidades, propinas, cobranças ou pagamentos históricos.
+- Não alterar o histórico acadêmico dos estudantes que já passaram pelo ano, ainda que o ano seja desativado para novos cadastros.
 
-### 3. Validar compatibilidade com nível/tipo da academia
+### 3. Validar compatibilidade com nível/tipo da academia e modalidade mista
 
 O backend deve validar se o ano acadêmico solicitado faz sentido para a academia.
 
@@ -103,8 +141,9 @@ Sugestões de regras:
 
 - Ensino fundamental/escolar: aceitar apenas anos dentro do intervalo configurado pela plataforma ou pelo domínio escolar.
 - Ensino médio: aceitar anos correspondentes ao médio, se o projeto separar médio de fundamental.
+- Ensino fundamental + médio: aceitar o conjunto combinado apenas quando a academia estiver configurada como mista, mantendo distinção segura entre níveis quando houver numeração sobreposta.
 - Superior: aceitar anos/períodos conforme duração dos cursos ativos da academia.
-- Academia não pode criar ano acadêmico incompatível com seu `nivel`.
+- Academia não pode criar ano acadêmico incompatível com seu `nivel`, `type`, modalidade, cursos ou matriz curricular.
 - Academia não pode alterar valores globais da plataforma para outras academias.
 
 Se as regras exatas variarem, implementar helper configurável e documentar as premissas.
@@ -115,7 +154,7 @@ Antes de desativar um ano acadêmico, verificar dependências.
 
 Dependências prováveis:
 
-- estudantes atualmente matriculados no ano;
+- estudantes atualmente matriculados, ativos, transferidos em processamento ou com qualquer vínculo aberto no ano;
 - turmas ativas vinculadas ao ano;
 - matérias ativas obrigatórias para o ano;
 - cursos ativos que exigem o ano;
@@ -125,7 +164,8 @@ Dependências prováveis:
 Política recomendada:
 
 - Se houver dependências ativas no ano letivo corrente, bloquear com `409 Conflict` e mensagem clara.
-- Se houver apenas histórico antigo, permitir desativação preservando histórico.
+- Se houver qualquer estudante ainda em atividade no ano acadêmico manipulado, bloquear remoção/desativação e qualquer edição que torne o vínculo inválido.
+- Se houver processos antigos concluídos ou histórico consolidado, permitir apenas desativação prospectiva, preservando histórico sem reescrita.
 - Opcionalmente oferecer parâmetro `force=false` inicialmente, mas não implementar força destrutiva sem necessidade.
 
 Mensagem sugerida:
@@ -229,10 +269,11 @@ Preferir o padrão que melhor se encaixe no event sourcing e nos rebuilds existe
 ### Dependências
 
 - Bloquear desativação se existirem turmas ativas no ano.
-- Bloquear desativação se existirem estudantes ativos/matriculados no ano.
+- Bloquear desativação se existirem estudantes ativos/matriculados no ano, matrículas em andamento, transferências pendentes, rematrículas abertas ou qualquer vínculo estudantil não encerrado.
 - Bloquear desativação se existirem matérias ativas obrigatórias no ano.
 - Bloquear desativação se existirem regras/categorias ativas que tornariam operações inconsistentes.
 - Garantir que novos cadastros de estudantes, turmas, matérias, sumários e faltas não usem anos desativados.
+- Garantir que edições de metadados do ano acadêmico não quebrem referências históricas nem alterem semântica de registros já persistidos.
 
 ### Segurança contra manipulação
 
@@ -240,19 +281,24 @@ Preferir o padrão que melhor se encaixe no event sourcing e nos rebuilds existe
 - Evitar operações “replace all” que removam anos silenciosamente.
 - Registrar usuário, data e motivo/descrição quando disponível.
 - Garantir comportamento consistente em rebuild de projeções.
+- Não emitir eventos que reescrevam ou removam eventos antigos do ledger, de estudantes ou de processos acadêmicos já concluídos.
+- Tratar operações como comandos prospectivos: `add`, `update_metadata`, `disable` e, se necessário, `reactivate`, nunca como substituição destrutiva de estado global.
+- Rodar as validações de dependências dentro de transação/lock apropriado para evitar corrida entre desativação e criação de estudante/turma/matrícula.
+- Garantir idempotência dos comandos/eventos para evitar duplicidade ou inconsistência em retentativas.
 
 ## Estratégia de implementação sugerida
 
 1. Mapear como os anos acadêmicos da academia são armazenados hoje.
-2. Mapear todos os pontos que validam `ano_academico` em estudantes, cursos, matérias, turmas, notas, faltas, categorias e avaliações.
-3. Criar helpers para validar ano acadêmico por academia e nível.
+2. Mapear todos os pontos que validam `ano_academico` em estudantes, cursos, matérias, turmas, notas, faltas, categorias, avaliações, cobranças/ledger e processos acadêmicos antigos.
+3. Criar helpers para validar ano acadêmico por academia, nível, modalidade mista e curso/matriz curricular quando aplicável.
 4. Criar evento(s) e migration/projeção para adição/desativação.
 5. Implementar endpoint de listagem.
 6. Implementar endpoint de adição com validação de duplicidade e compatibilidade.
-7. Implementar endpoint de desativação com checagem de dependências ativas.
-8. Integrar a validação de “ano acadêmico ativo” nos fluxos de criação/atualização dependentes.
-9. Atualizar documentação da API.
-10. Adicionar testes de handlers, projection rebuild e dependências.
+7. Implementar endpoint de edição segura de metadados com validação de impacto em estudantes ativos e histórico.
+8. Implementar endpoint de desativação com checagem de dependências ativas, estudantes ainda em atividade e impactos em ledger/histórico.
+9. Integrar a validação de “ano acadêmico ativo” nos fluxos de criação/atualização dependentes.
+10. Atualizar documentação da API.
+11. Adicionar testes de handlers, projection rebuild e dependências.
 
 ## Cenários de teste mínimos
 
@@ -260,7 +306,11 @@ Preferir o padrão que melhor se encaixe no event sourcing e nos rebuilds existe
 
 - Academia adiciona ano acadêmico válido com sucesso.
 - Academia tenta adicionar ano duplicado ativo e recebe erro controlado.
-- Academia tenta adicionar ano incompatível com seu nível e recebe `400`.
+- Academia tenta adicionar ano incompatível com seu nível/modalidade e recebe `400`.
+- Academia mista adiciona ano de fundamental e ano de médio com sucesso, preservando a distinção entre níveis quando houver numeração sobreposta.
+- Academia somente fundamental tenta adicionar ano exclusivo do médio e recebe `400`.
+- Academia somente médio tenta adicionar ano exclusivo do fundamental e recebe `400`.
+- Academia superior tenta adicionar período incompatível com duração de curso/matriz ativa e recebe `400` ou `409`, conforme a causa.
 - Academia tenta enviar `academia_id` de outra academia e o backend ignora/rejeita.
 - Usuário não autorizado recebe `403`.
 
@@ -268,9 +318,11 @@ Preferir o padrão que melhor se encaixe no event sourcing e nos rebuilds existe
 
 - Desativar ano sem dependências ativas funciona.
 - Desativar ano com turmas ativas retorna `409` com detalhes.
-- Desativar ano com estudantes ativos retorna `409` com detalhes.
+- Desativar ano com estudantes ativos, matriculados ou com vínculo/processo aberto retorna `409` com detalhes.
 - Desativar ano com matérias/categorias ativas retorna `409`.
 - Dados históricos continuam consultáveis após desativação.
+- Desativação não altera lançamentos de ledger, notas, faltas, turmas antigas, matrículas encerradas ou histórico acadêmico consolidado.
+- Edição de descrição/type/nivel é bloqueada quando tornaria inválidos estudantes ativos ou registros históricos referenciados.
 
 ### Integração com outros fluxos
 
@@ -282,17 +334,17 @@ Preferir o padrão que melhor se encaixe no event sourcing e nos rebuilds existe
 
 ## Critérios de aceite
 
-- Academias conseguem listar, adicionar e desativar seus anos acadêmicos.
+- Academias conseguem listar, adicionar, editar metadados seguros e desativar seus anos acadêmicos.
 - Operações são autorizadas pelo contexto autenticado e não por campos enviados pelo cliente.
 - Remoção é lógica e preserva histórico.
-- Desativação com dependências ativas é bloqueada com erro claro.
-- Fluxos dependentes respeitam apenas anos acadêmicos ativos para novos dados.
+- Desativação ou edição incompatível com dependências ativas, estudantes ainda em atividade ou processos abertos é bloqueada com erro claro.
+- Fluxos dependentes respeitam apenas anos acadêmicos ativos para novos dados, sem afetar dados antigos já consolidados.
 - Eventos/projeções são compatíveis com rebuild.
 - Documentação e testes cobrem casos de sucesso, autorização e conflitos.
 
 ## Observações importantes
 
-- Esta tarefa é sensível porque anos acadêmicos são usados por várias entidades; evite mudanças destrutivas.
+- Esta tarefa é sensível porque anos acadêmicos são usados por várias entidades e por históricos financeiros/acadêmicos; evite mudanças destrutivas.
 - Prefira comandos pequenos (`add`, `disable`, `reactivate`) a substituição completa da lista.
 - Se já houver migrações recentes sobre anos acadêmicos, reutilize o padrão existente.
 - Considere dependência futura com sumários/aulas da Tarefa 4.
