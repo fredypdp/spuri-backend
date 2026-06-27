@@ -52,7 +52,7 @@ type Academia struct {
 	// AnoLetivo define o ano letivo ativo desta academia.
 	// nil = sem ano letivo configurado; qualquer registro é bloqueado neste estado.
 	AnoLetivo           *string
-	TipoAnoLetivo       *string // "escola" ou "superior"
+	TipoAnoLetivo       *string // "escolar" ou "superior"
 	AnoLetivoAtivadoEm  *time.Time
 	AnoLetivoAtivadoPor *uuid.UUID
 	AnosLetivoLista     []AnoLetivoHistoricoItem
@@ -344,9 +344,6 @@ func (a *Academia) DefinirAnoLetivo(anoLetivo string, tipo string, definidoPor u
 		return fmt.Errorf("ano letivo deve ser de um ano para o seguinte (ex: 2025_2026)")
 	}
 	tipo = strings.TrimSpace(strings.ToLower(tipo))
-	if tipo == "escola" {
-		tipo = "escolar"
-	}
 	if tipo != "escolar" && tipo != "superior" {
 		return fmt.Errorf("tipo deve ser 'escolar' ou 'superior'")
 	}
@@ -390,9 +387,6 @@ func (a *Academia) FinalizarAnoLetivo(anoLetivo string, tipo string, finalizadoP
 		return fmt.Errorf("ano letivo deve ser de um ano para o seguinte (ex: 2025_2026)")
 	}
 	tipo = strings.TrimSpace(strings.ToLower(tipo))
-	if tipo == "escola" {
-		tipo = "escolar"
-	}
 	if tipo != "escolar" && tipo != "superior" {
 		return fmt.Errorf("tipo deve ser 'escolar' ou 'superior'")
 	}
@@ -776,7 +770,7 @@ type AnoLetivoAcademiaDefinidoEvent struct {
 	BaseEvent
 	CodigoAcademia  string
 	AnoLetivo       string // ex: "2025_2026"
-	Tipo            string // "escola" ou "superior"
+	Tipo            string // "escolar" ou "superior"
 	DefinidoPor     uuid.UUID
 	DefinidoEm      time.Time
 	AnosLetivoLista []AnoLetivoHistoricoItem

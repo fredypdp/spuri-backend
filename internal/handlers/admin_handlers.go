@@ -133,6 +133,10 @@ func definirAnoLetivoGlobalSeguinte(c *gin.Context, userID uuid.UUID) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
+	if err := validarMesAtualPermiteFinalizacaoAnoLetivo(client, "escolar", time.Now()); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 	if err := salvarAnoLetivoGlobal(c, seguinte, userID); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
