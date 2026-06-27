@@ -87,9 +87,6 @@ var validEventTypes = map[string]bool{
 	"MateriaDadosAtualizados": true,
 	"MateriaPeriodoDefinido":  true,
 	"MateriaDeletada":         true,
-	// ── TelefoneExtra ──────────────────────────────────────────────────────────
-	"TelefoneExtraAdicionado": true,
-	"TelefoneExtraVerificado": true,
 	// ── Solicitação de Matrícula ───────────────────────────────────────────────
 	"SolicitacaoMatriculaCriada":    true,
 	"SolicitacaoMatriculaAprovada":  true,
@@ -104,7 +101,6 @@ var validAggregateTypes = map[string]bool{
 	"Curso":                true,
 	"MateriaDisciplinar":   true,
 	"Turma":                true,
-	"TelefoneExtra":        true,
 	"SolicitacaoMatricula": true,
 	"System":               true,
 }

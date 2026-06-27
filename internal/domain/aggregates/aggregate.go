@@ -134,8 +134,6 @@ func (f *DefaultAggregateFactory) Create(aggregateType string) (Aggregate, error
 		return NewMateriaDisciplinar(), nil
 	case "Turma":
 		return NewTurma(), nil
-	case "TelefoneExtra":
-		return NewTelefoneExtra(), nil
 	case "SolicitacaoMatricula":
 		return NewSolicitacaoMatricula(), nil
 	default:

@@ -147,11 +147,11 @@ func (m *Manager) processNewEvents() error {
 // checkpoint e impedia que qualquer evento subsequente fosse processado.
 //
 // Novo comportamento:
-// - Se um evento falha após os retries, o checkpoint PARA nesse evento (não avança).
-// - O próximo ciclo de polling (1s) voltará a tentar o mesmo evento.
-// - Isso é correto para erros TEMPORÁRIOS (ex: academia ainda não projetada).
-// - Para erros PERMANENTES (ex: payload corrompido), o evento ficará travado.
-//   Nesse caso, o operador deve intervir manualmente ou fazer rebuild.
+//   - Se um evento falha após os retries, o checkpoint PARA nesse evento (não avança).
+//   - O próximo ciclo de polling (1s) voltará a tentar o mesmo evento.
+//   - Isso é correto para erros TEMPORÁRIOS (ex: academia ainda não projetada).
+//   - Para erros PERMANENTES (ex: payload corrompido), o evento ficará travado.
+//     Nesse caso, o operador deve intervir manualmente ou fazer rebuild.
 //
 // A diferença com o comportamento anterior: antes, o erro também travava o checkpoint,
 // MAS o log dizia "falha permanente" sugerindo que era fatal. Agora é explícito
@@ -318,7 +318,6 @@ func (m *Manager) RebuildAllProjections() error {
 		"cursos",
 		"materias",
 		"categorias_nota",
-		"telefones_extra",
 		"estudantes",
 		"turmas",
 		"notas",

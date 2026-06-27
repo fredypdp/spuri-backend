@@ -146,6 +146,9 @@ CREATE TABLE IF NOT EXISTS projection_estudantes (
     senha_hash VARCHAR(255) NOT NULL,
     email VARCHAR(255),
     telefone VARCHAR(20),
+    telefone_verificado BOOLEAN DEFAULT FALSE,
+    telefone_responsavel VARCHAR(20),
+    telefone_responsavel_verificado BOOLEAN DEFAULT FALSE,
     email_verificado BOOLEAN DEFAULT FALSE,
     bilhete_identidade VARCHAR(50),
     bilhete_identidade_responsavel VARCHAR(50),
@@ -189,9 +192,10 @@ CREATE TABLE IF NOT EXISTS projection_academias (
     senha_hash VARCHAR(255) NOT NULL,
     provincia VARCHAR(3) NOT NULL,
     endereco TEXT NOT NULL,
-    numero_telefone VARCHAR(20),
+    telefone VARCHAR(20),
     email VARCHAR(100),
     email_verificado BOOLEAN DEFAULT FALSE,
+    telefone_verificado BOOLEAN DEFAULT FALSE,
     website VARCHAR(255),
     nivel_escolar VARCHAR(20) CHECK (nivel_escolar IN ('fundamental', 'medio', 'misto')),
     status VARCHAR(20) DEFAULT 'inativo' CHECK (status IN ('ativo', 'inativo')),
@@ -227,6 +231,8 @@ CREATE TABLE IF NOT EXISTS projection_admins (
     role VARCHAR(20) NOT NULL CHECK (role IN ('fpp', 'adm', 'gerente')),
     status VARCHAR(20) DEFAULT 'ativo' CHECK (status IN ('ativo', 'inativo')),
     email_verificado BOOLEAN DEFAULT FALSE,
+    telefone VARCHAR(20),
+    telefone_verificado BOOLEAN DEFAULT FALSE,
     created_by UUID REFERENCES projection_admins(id) ON DELETE SET NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -831,7 +837,7 @@ COMMENT ON TABLE admin_action_log IS 'Log de todas as ações administrativas';
 
 COMMENT ON COLUMN projection_estudantes.codigo_estudante IS 'Código único do estudante (formato: AAA1234)';
 COMMENT ON COLUMN projection_estudantes.email IS 'Email do estudante (opcional)';
-COMMENT ON COLUMN projection_estudantes.telefone IS 'Telefone do estudante (opcional)';
+COMMENT ON COLUMN projection_estudantes.telefone IS 'Telefone nativo do estudante, normalizado para 9 dígitos sem DDI';
 COMMENT ON COLUMN projection_estudantes.email_verificado IS 'Se o email do estudante foi verificado';
 COMMENT ON COLUMN projection_estudantes.codigo_academia IS 'Código da academia à qual o estudante pertence';
 COMMENT ON COLUMN projection_estudantes.status IS 'Status geral: inativo, ativo, arquivado';

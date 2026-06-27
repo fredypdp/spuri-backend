@@ -13,7 +13,7 @@ import (
 
 var (
 	emailRegexV   = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
-	phoneRegex    = regexp.MustCompile(`^\+?[0-9]{9,15}$`)
+	phoneRegex    = regexp.MustCompile(`^[0-9]{9}$`)
 	sqlCharsRegex = regexp.MustCompile(`[';-]|--`)
 )
 
@@ -23,6 +23,27 @@ func SafeDeref(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// NormalizePhone remove espaços, hifens e parênteses. Telefones nativos são
+// salvos como string local de 9 dígitos, sem DDI.
+func NormalizePhone(phone string) string {
+	phone = strings.TrimSpace(phone)
+	for _, old := range []string{" ", "-", "(", ")"} {
+		phone = strings.ReplaceAll(phone, old, "")
+	}
+	return phone
+}
+
+func NormalizePhonePtr(phone *string) *string {
+	if phone == nil {
+		return nil
+	}
+	normalized := NormalizePhone(*phone)
+	if normalized == "" {
+		return nil
+	}
+	return &normalized
 }
 
 // ValidatePhone valida um número de telefone (opcional — string vazia é aceita).
@@ -35,7 +56,7 @@ func ValidatePhone(phone string) error {
 	log.Printf("📱 [ValidatePhone] Validando telefone: %s", phone)
 
 	phone = strings.ReplaceAll(phone, " ", "")
-	phone = strings.ReplaceAll(phone, "-", "")
+	phone = NormalizePhone(phone)
 
 	if !phoneRegex.MatchString(phone) {
 		log.Printf("❌ [ValidatePhone] Formato inválido: %s", phone)

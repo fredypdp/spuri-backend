@@ -27,18 +27,19 @@ import (
 
 // CadastroEstudanteAcademiaRequest — genero e data_nascimento são obrigatórios.
 type CadastroEstudanteAcademiaRequest struct {
-	Nome               string    `json:"nome"            binding:"required"`
-	Genero             string    `json:"genero"          binding:"required"`
-	DataNascimento     time.Time `json:"data_nascimento" binding:"required"`
-	Email              string    `json:"email"`
-	Telefone           string    `json:"telefone"`
-	BilheteIdentidade  string    `json:"bilhete_identidade"`
-	BilheteResponsavel string    `json:"bilhete_identidade_responsavel"`
-	AnoEscolar         string    `json:"ano_escolar_fundamental"`
-	AnoEscolarMedio    string    `json:"ano_escolar_medio"`
-	AnoSuperior        string    `json:"ano_superior"`
-	CursoMedioID       string    `json:"curso_medio_id"`
-	CursoSuperiorID    string    `json:"curso_superior_id"`
+	Nome                string    `json:"nome"            binding:"required"`
+	Genero              string    `json:"genero"          binding:"required"`
+	DataNascimento      time.Time `json:"data_nascimento" binding:"required"`
+	Email               string    `json:"email"`
+	Telefone            string    `json:"telefone"`
+	TelefoneResponsavel string    `json:"telefone_responsavel"`
+	BilheteIdentidade   string    `json:"bilhete_identidade"`
+	BilheteResponsavel  string    `json:"bilhete_identidade_responsavel"`
+	AnoEscolar          string    `json:"ano_escolar_fundamental"`
+	AnoEscolarMedio     string    `json:"ano_escolar_medio"`
+	AnoSuperior         string    `json:"ano_superior"`
+	CursoMedioID        string    `json:"curso_medio_id"`
+	CursoSuperiorID     string    `json:"curso_superior_id"`
 }
 
 func RegisterEstudantePorAcademia(c *gin.Context) {
@@ -147,12 +148,23 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 	}
 
 	// Campos opcionais string → *string
-	var emailPtr, telefonePtr, bilhetePtr, bilheteRespPtr *string
+	var emailPtr, telefonePtr, telefoneRespPtr, bilhetePtr, bilheteRespPtr *string
 	if req.Email != "" {
 		emailPtr = &req.Email
 	}
 	if req.Telefone != "" {
-		telefonePtr = &req.Telefone
+		telefonePtr = utils.NormalizePhonePtr(&req.Telefone)
+	}
+	if req.TelefoneResponsavel != "" {
+		telefoneRespPtr = utils.NormalizePhonePtr(&req.TelefoneResponsavel)
+	}
+	if telefonePtr == nil && telefoneRespPtr == nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("telefone ou telefone_responsavel deve ser informado"))
+		return
+	}
+	if telefonePtr != nil && telefoneRespPtr != nil && *telefonePtr == *telefoneRespPtr {
+		utils.RespondWithValidationError(c, fmt.Errorf("telefone e telefone_responsavel não podem ser iguais"))
+		return
 	}
 	if req.BilheteIdentidade != "" {
 		bilhetePtr = &req.BilheteIdentidade
@@ -206,6 +218,7 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		string(hashedPassword),
 		emailPtr,
 		telefonePtr,
+		telefoneRespPtr,
 		bilhetePtr,
 		bilheteRespPtr,
 		req.Genero,
@@ -582,6 +595,7 @@ type AtualizarDadosPessoaisRequest struct {
 	Nome                  *string    `json:"nome"`
 	Email                 *string    `json:"email"`
 	Telefone              *string    `json:"telefone"`
+	TelefoneResponsavel   *string    `json:"telefone_responsavel"`
 	BilheteIdentidade     *string    `json:"bilhete_identidade"`
 	BilheteIdentidadeResp *string    `json:"bilhete_identidade_responsavel"`
 	DataNascimento        *time.Time `json:"data_nascimento"`
@@ -633,7 +647,7 @@ func AtualizarDadosPessoais(c *gin.Context) {
 	}
 
 	if err := estudante.AtualizarDadosPessoais(
-		req.Nome, req.Email, req.Telefone,
+		req.Nome, req.Email, utils.NormalizePhonePtr(req.Telefone), utils.NormalizePhonePtr(req.TelefoneResponsavel),
 		req.BilheteIdentidade, req.BilheteIdentidadeResp,
 		req.DataNascimento,
 	); err != nil {

@@ -15,7 +15,7 @@ type Academia struct {
 	SenhaHash      string    `json:"-" db:"senha_hash"`
 	Provincia      string    `json:"provincia" db:"provincia"`
 	Endereco       string    `json:"endereco" db:"endereco"`
-	NumeroTelefone *string   `json:"numero_telefone,omitempty" db:"numero_telefone"`
+	Telefone       *string   `json:"telefone,omitempty" db:"telefone"`
 	Email          *string   `json:"email,omitempty" db:"email"`
 	Website        *string   `json:"website,omitempty" db:"website"`
 	NivelEscolar   *string   `json:"nivel_escolar,omitempty" db:"nivel_escolar"`
@@ -99,17 +99,17 @@ type LoginResponse struct {
 }
 
 type RegisterAcademiaRequest struct {
-	Nivel          string   `json:"nivel" binding:"required"`
-	Type           string   `json:"type" binding:"required"`
-	Senha          string   `json:"senha" binding:"required"`
-	Nome           string   `json:"nome" binding:"required"`
-	Provincia      string   `json:"provincia" binding:"required"`
-	Endereco       string   `json:"endereco" binding:"required"`
-	NumeroTelefone *string  `json:"numero_telefone"`
-	Email          *string  `json:"email"`
-	Website        *string  `json:"website"`
-	NivelEscolar   *string  `json:"nivel_escolar"`
-	Cursos         []string `json:"cursos"`
+	Nivel        string   `json:"nivel" binding:"required"`
+	Type         string   `json:"type" binding:"required"`
+	Senha        string   `json:"senha" binding:"required"`
+	Nome         string   `json:"nome" binding:"required"`
+	Provincia    string   `json:"provincia" binding:"required"`
+	Endereco     string   `json:"endereco" binding:"required"`
+	Telefone     *string  `json:"telefone"`
+	Email        *string  `json:"email"`
+	Website      *string  `json:"website"`
+	NivelEscolar *string  `json:"nivel_escolar"`
+	Cursos       []string `json:"cursos"`
 }
 
 // RegisterEstudanteRequest — genero e data_nascimento são obrigatórios.

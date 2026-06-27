@@ -18,28 +18,31 @@ import (
 type Estudante struct {
 	BaseAggregate
 
-	Nome                     string
-	CodigoEstudante          string
-	SenhaHash                string
-	Email                    *string
-	Telefone                 *string
-	BilheteIdentidade        *string
-	BilheteIdentidadeResp    *string
-	Genero                   string    // obrigatório
-	DataNascimento           time.Time // obrigatório; valor zero indica aggregate não carregado
-	CodigoAcademia           *string
-	Status                   string
-	StatusEscolarFundamental string
-	StatusEscolarMedio       string
-	StatusSuperior           string
-	SemestreAtual            *int
-	AnoEscolar               *string
-	AnoEscolarMedio          *string
-	AnoSuperior              *string
-	CursoMedioID             *uuid.UUID
-	CursoSuperiorID          *uuid.UUID
-	CreatedAt                time.Time
-	EmailVerificado          bool
+	Nome                          string
+	CodigoEstudante               string
+	SenhaHash                     string
+	Email                         *string
+	Telefone                      *string
+	TelefoneVerificado            bool
+	TelefoneResponsavel           *string
+	TelefoneResponsavelVerificado bool
+	BilheteIdentidade             *string
+	BilheteIdentidadeResp         *string
+	Genero                        string    // obrigatório
+	DataNascimento                time.Time // obrigatório; valor zero indica aggregate não carregado
+	CodigoAcademia                *string
+	Status                        string
+	StatusEscolarFundamental      string
+	StatusEscolarMedio            string
+	StatusSuperior                string
+	SemestreAtual                 *int
+	AnoEscolar                    *string
+	AnoEscolarMedio               *string
+	AnoSuperior                   *string
+	CursoMedioID                  *uuid.UUID
+	CursoSuperiorID               *uuid.UUID
+	CreatedAt                     time.Time
+	EmailVerificado               bool
 
 	// AvaliacoesPorAno previne double-submit de avaliações finais.
 	// Chaves: "ano_letivo:<anoLectivo>" e "nivel:<escolar|superior>:<anoLectivo>:<anoAcademicoAtual>"
@@ -135,27 +138,30 @@ func (e *Estudante) Apply(event DomainEvent) error {
 // e gravados como valores não-nulos no ledger.
 type EstudanteCriadoComVinculoEvent struct {
 	BaseEvent
-	Nome                     string
-	CodigoEstudante          string
-	SenhaHash                string
-	Email                    *string
-	Telefone                 *string
-	BilheteIdentidade        *string
-	BilheteIdentidadeResp    *string
-	Genero                   string    // obrigatório
-	DataNascimento           time.Time // obrigatório
-	AnoEscolar               *string
-	AnoEscolarMedio          *string
-	AnoSuperior              *string
-	SemestreAtual            *int
-	CursoMedioID             *uuid.UUID
-	CursoSuperiorID          *uuid.UUID
-	StatusEscolarFundamental string
-	StatusEscolarMedio       string
-	StatusSuperior           string
-	CodigoAcademia           string
-	AcademiaID               *uuid.UUID
-	CreatedAt                time.Time
+	Nome                          string
+	CodigoEstudante               string
+	SenhaHash                     string
+	Email                         *string
+	Telefone                      *string
+	TelefoneVerificado            bool
+	TelefoneResponsavel           *string
+	TelefoneResponsavelVerificado bool
+	BilheteIdentidade             *string
+	BilheteIdentidadeResp         *string
+	Genero                        string    // obrigatório
+	DataNascimento                time.Time // obrigatório
+	AnoEscolar                    *string
+	AnoEscolarMedio               *string
+	AnoSuperior                   *string
+	SemestreAtual                 *int
+	CursoMedioID                  *uuid.UUID
+	CursoSuperiorID               *uuid.UUID
+	StatusEscolarFundamental      string
+	StatusEscolarMedio            string
+	StatusSuperior                string
+	CodigoAcademia                string
+	AcademiaID                    *uuid.UUID
+	CreatedAt                     time.Time
 }
 
 func (e *EstudanteCriadoComVinculoEvent) GetPayload() interface{} { return e }
@@ -262,6 +268,7 @@ type DadosPessoaisAtualizadosEvent struct {
 	Nome                  *string
 	Email                 *string
 	Telefone              *string
+	TelefoneResponsavel   *string
 	BilheteIdentidade     *string
 	BilheteIdentidadeResp *string
 	DataNascimento        *time.Time // ponteiro: nil = não alterar
@@ -354,6 +361,7 @@ func (e *Estudante) CriarComVinculo(
 	senhaHash string,
 	email *string,
 	telefone *string,
+	telefoneResponsavel *string,
 	bilhete *string,
 	bilheteResp *string,
 	genero string,
@@ -377,6 +385,22 @@ func (e *Estudante) CriarComVinculo(
 	}
 	if err := validarBilhetesDiferentes(bilhete, bilheteResp); err != nil {
 		return err
+	}
+	if telefone == nil && telefoneResponsavel == nil {
+		return fmt.Errorf("telefone ou telefone_responsavel deve ser informado")
+	}
+	if telefone != nil {
+		if err := utils.ValidatePhone(*telefone); err != nil {
+			return err
+		}
+	}
+	if telefoneResponsavel != nil {
+		if err := utils.ValidatePhone(*telefoneResponsavel); err != nil {
+			return err
+		}
+	}
+	if telefone != nil && telefoneResponsavel != nil && *telefone == *telefoneResponsavel {
+		return fmt.Errorf("telefone e telefone_responsavel não podem ser iguais")
 	}
 
 	if anoEscolar != nil && *anoEscolar != "" {
@@ -406,6 +430,7 @@ func (e *Estudante) CriarComVinculo(
 		SenhaHash:                senhaHash,
 		Email:                    email,
 		Telefone:                 telefone,
+		TelefoneResponsavel:      telefoneResponsavel,
 		BilheteIdentidade:        bilhete,
 		BilheteIdentidadeResp:    bilheteResp,
 		Genero:                   genero,
@@ -458,11 +483,12 @@ func (e *Estudante) AtualizarDadosPessoais(
 	nome *string,
 	email *string,
 	telefone *string,
+	telefoneResponsavel *string,
 	bilheteIdentidade *string,
 	bilheteIdentidadeResp *string,
 	dataNascimento *time.Time,
 ) error {
-	if nome == nil && email == nil && telefone == nil &&
+	if nome == nil && email == nil && telefone == nil && telefoneResponsavel == nil &&
 		bilheteIdentidade == nil && bilheteIdentidadeResp == nil && dataNascimento == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
@@ -482,6 +508,30 @@ func (e *Estudante) AtualizarDadosPessoais(
 	if err := validarBilhetesDiferentes(effectiveBilhete, effectiveBilheteResp); err != nil {
 		return err
 	}
+	effectiveTelefone := e.Telefone
+	if telefone != nil {
+		effectiveTelefone = telefone
+	}
+	effectiveTelefoneResp := e.TelefoneResponsavel
+	if telefoneResponsavel != nil {
+		effectiveTelefoneResp = telefoneResponsavel
+	}
+	if effectiveTelefone == nil && effectiveTelefoneResp == nil {
+		return fmt.Errorf("telefone ou telefone_responsavel deve ser informado")
+	}
+	if effectiveTelefone != nil {
+		if err := utils.ValidatePhone(*effectiveTelefone); err != nil {
+			return err
+		}
+	}
+	if effectiveTelefoneResp != nil {
+		if err := utils.ValidatePhone(*effectiveTelefoneResp); err != nil {
+			return err
+		}
+	}
+	if effectiveTelefone != nil && effectiveTelefoneResp != nil && *effectiveTelefone == *effectiveTelefoneResp {
+		return fmt.Errorf("telefone e telefone_responsavel não podem ser iguais")
+	}
 
 	emailAlterado := email != nil && (e.Email == nil || *e.Email != *email)
 	event := &DadosPessoaisAtualizadosEvent{
@@ -489,6 +539,7 @@ func (e *Estudante) AtualizarDadosPessoais(
 		Nome:                  nome,
 		Email:                 email,
 		Telefone:              telefone,
+		TelefoneResponsavel:   telefoneResponsavel,
 		BilheteIdentidade:     bilheteIdentidade,
 		BilheteIdentidadeResp: bilheteIdentidadeResp,
 		DataNascimento:        dataNascimento,
@@ -752,6 +803,7 @@ func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
 	e.SenhaHash = ev.SenhaHash
 	e.Email = ev.Email
 	e.Telefone = ev.Telefone
+	e.TelefoneResponsavel = ev.TelefoneResponsavel
 	e.BilheteIdentidade = ev.BilheteIdentidade
 	e.BilheteIdentidadeResp = ev.BilheteIdentidadeResp
 	e.Genero = ev.Genero
@@ -919,6 +971,9 @@ func (e *Estudante) applyDadosPessoaisAtualizados(event DomainEvent) error {
 	}
 	if ev.Telefone != nil {
 		e.Telefone = ev.Telefone
+	}
+	if ev.TelefoneResponsavel != nil {
+		e.TelefoneResponsavel = ev.TelefoneResponsavel
 	}
 	if ev.BilheteIdentidade != nil {
 		e.BilheteIdentidade = ev.BilheteIdentidade
