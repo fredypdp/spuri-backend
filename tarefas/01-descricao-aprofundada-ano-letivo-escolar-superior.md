@@ -170,7 +170,7 @@ Use esta lista como guia inicial; confirme no código antes de editar.
   - `internal/projections/faltas_projection.go`
   - arquivos de migração/schema em `migrations/` ou diretórios equivalentes.
 - Rotas:
-  - procurar onde `DefinirAnoLetivoGlobalSistema`, `DefinirAnoLetivoSeguinte`, `DefinirAnoLetivoAcademia`, `RegistrarFaltas` e `AtualizarFalta` são registrados.
+  - procurar onde `DefinirAnoLetivoGlobalSistema`, `DefinirAnoLetivoAcademia`, `FinalizarAnoLetivoAcademia`, `RegistrarFaltas` e `AtualizarFalta` são registrados.
 - Documentação:
   - `docs/Spuri - API.md`
 
@@ -257,7 +257,7 @@ A opção A é mais extensível, mas a opção B é mais simples. Preferir a op�
 3. Adicionar testes unitários desses helpers antes de integrar nos handlers.
 4. Adicionar persistência/projeção da configuração por tipo.
 5. Criar endpoints administrativos de escrita e leitura.
-6. Ajustar `DefinirAnoLetivoAcademia` e `DefinirAnoLetivoSeguinte` para usar `escolar`/`superior` e preservar compatibilidade com `escola` se necessário.
+6. Ajustar `DefinirAnoLetivoAcademia` e `FinalizarAnoLetivoAcademia` para usar `escolar`/`superior` e preservar compatibilidade com `escola` se necessário.
 7. Integrar a validação nos handlers de faltas e nos fluxos batch/async.
 8. Atualizar documentação da API.
 9. Rodar testes existentes e adicionar testes específicos da tarefa.
