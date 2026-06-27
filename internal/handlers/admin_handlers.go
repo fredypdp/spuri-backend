@@ -22,6 +22,18 @@ import (
 
 func DefinirAnoLetivoGlobalSistema(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
+	var req struct {
+		Type string `json:"type" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("campo obrigatório: type"))
+		return
+	}
+	tipo, err := normalizarTipoAnoLetivo(req.Type)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 	anoLetivo := anoLetivoDoAnoAtual()
 
 	client := getDbClient(c)
@@ -29,26 +41,27 @@ func DefinirAnoLetivoGlobalSistema(c *gin.Context) {
 		return
 	}
 
-	if err := validarDefinicaoGlobalPermitida(client); err != nil {
+	if err := validarDefinicaoGlobalPermitida(client, tipo); err != nil {
 		utils.RespondWithConflictError(c, err.Error())
 		return
 	}
 
-	if err := validarLimiteRetrocessoGlobal(client, "escolar", anoLetivo); err != nil {
+	if err := validarLimiteRetrocessoGlobal(client, tipo, anoLetivo); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
-	_, err := client.DB().Exec(`
+	_, err = client.DB().Exec(`
 		INSERT INTO projection_sistema_config (
 			chave, valor, ano_letivo_atual, anos_letivos_lista, definido_por, updated_at, version
 		) VALUES (
-			'ano_letivo_atual',
+			$3::text,
 			$1::text,
 			$1::varchar(20),
 			jsonb_build_array(
 				jsonb_build_object(
 					'ano_letivo', $1::text,
+					'type', $4::text,
 					'definido_em', NOW(),
 					'definido_por', $2::text
 				)
@@ -70,6 +83,7 @@ func DefinirAnoLetivoGlobalSistema(c *gin.Context) {
 				ELSE COALESCE(projection_sistema_config.anos_letivos_lista, '[]'::jsonb) || jsonb_build_array(
 					jsonb_build_object(
 						'ano_letivo', EXCLUDED.ano_letivo_atual,
+						'type', $4::text,
 						'definido_em', NOW(),
 						'definido_por', EXCLUDED.definido_por::text
 					)
@@ -78,38 +92,49 @@ func DefinirAnoLetivoGlobalSistema(c *gin.Context) {
 			definido_por = EXCLUDED.definido_por,
 			updated_at = NOW(),
 			version = COALESCE(projection_sistema_config.version, 0) + 1
-	`, anoLetivo, userID)
+	`, anoLetivo, userID, chaveAnoLetivoGlobal(tipo), tipo)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	log.Printf("✅ [DefinirAnoLetivoGlobalSistema] ano_letivo=%s definido por admin=%s", anoLetivo, userID.String())
+	log.Printf("✅ [DefinirAnoLetivoGlobalSistema] type=%s ano_letivo=%s definido por admin=%s", tipo, anoLetivo, userID.String())
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "ano letivo global definido com sucesso",
+		"type":       tipo,
 		"ano_letivo": anoLetivo,
 	})
 }
 
-func validarDefinicaoGlobalPermitida(client *db.Client) error {
+func validarDefinicaoGlobalPermitida(client *db.Client, tipo string) error {
 	var academiasAtivasComAno int
 	if err := client.DB().QueryRow(`
 		SELECT COUNT(*)
 		FROM projection_academias
 		WHERE status = 'ativo'
+		  AND nivel = $1
 		  AND COALESCE(NULLIF(TRIM(ano_letivo), ''), '') <> ''
-	`).Scan(&academiasAtivasComAno); err != nil {
+	`, nivelAcademiaPorTipoAnoLetivo(tipo)).Scan(&academiasAtivasComAno); err != nil {
 		return err
 	}
 	if academiasAtivasComAno > 0 {
-		return fmt.Errorf("ano letivo global só pode ser definido quando não há academias cadastradas ou nenhuma academia ativa tem ano letivo definido")
+		return fmt.Errorf("ano letivo global do tipo informado só pode ser definido quando nenhuma academia ativa desse tipo tem ano letivo definido")
 	}
 	return nil
 }
 
-func buscarAnoLetivoGlobalAtual(client *db.Client) (string, error) {
+func chaveAnoLetivoGlobal(tipo string) string { return "ano_letivo_atual_" + tipo }
+
+func nivelAcademiaPorTipoAnoLetivo(tipo string) string {
+	if tipo == "superior" {
+		return "superior"
+	}
+	return "escola"
+}
+
+func buscarAnoLetivoGlobalAtual(client *db.Client, tipo string) (string, error) {
 	var anoLetivo sql.NullString
-	err := client.DB().QueryRow(`SELECT ano_letivo_atual FROM projection_sistema_config WHERE chave = 'ano_letivo_atual'`).Scan(&anoLetivo)
+	err := client.DB().QueryRow(`SELECT ano_letivo_atual FROM projection_sistema_config WHERE chave = $1`, chaveAnoLetivoGlobal(tipo)).Scan(&anoLetivo)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
@@ -122,7 +147,7 @@ func buscarAnoLetivoGlobalAtual(client *db.Client) (string, error) {
 	return strings.TrimSpace(anoLetivo.String), nil
 }
 
-func salvarAnoLetivoGlobal(c *gin.Context, anoLetivo string, userID uuid.UUID) error {
+func salvarAnoLetivoGlobal(c *gin.Context, tipo string, anoLetivo string, userID uuid.UUID) error {
 	client := getDbClient(c)
 	if client == nil {
 		return fmt.Errorf("cliente de banco indisponível")
@@ -131,8 +156,8 @@ func salvarAnoLetivoGlobal(c *gin.Context, anoLetivo string, userID uuid.UUID) e
 		INSERT INTO projection_sistema_config (
 			chave, valor, ano_letivo_atual, anos_letivos_lista, definido_por, updated_at, version
 		) VALUES (
-			'ano_letivo_atual', $1::text, $1::varchar(20),
-			jsonb_build_array(jsonb_build_object('ano_letivo', $1::text, 'definido_em', NOW(), 'definido_por', $2::text)),
+			$3::text, $1::text, $1::varchar(20),
+			jsonb_build_array(jsonb_build_object('ano_letivo', $1::text, 'type', $4::text, 'definido_em', NOW(), 'definido_por', $2::text)),
 			$2::uuid, NOW(), 1
 		)
 		ON CONFLICT (chave) DO UPDATE SET
@@ -141,10 +166,10 @@ func salvarAnoLetivoGlobal(c *gin.Context, anoLetivo string, userID uuid.UUID) e
 			anos_letivos_lista = CASE
 				WHEN EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(projection_sistema_config.anos_letivos_lista, '[]'::jsonb)) elem WHERE elem->>'ano_letivo' = EXCLUDED.ano_letivo_atual)
 				THEN COALESCE(projection_sistema_config.anos_letivos_lista, '[]'::jsonb)
-				ELSE COALESCE(projection_sistema_config.anos_letivos_lista, '[]'::jsonb) || jsonb_build_array(jsonb_build_object('ano_letivo', EXCLUDED.ano_letivo_atual, 'definido_em', NOW(), 'definido_por', EXCLUDED.definido_por::text))
+				ELSE COALESCE(projection_sistema_config.anos_letivos_lista, '[]'::jsonb) || jsonb_build_array(jsonb_build_object('ano_letivo', EXCLUDED.ano_letivo_atual, 'type', $4::text, 'definido_em', NOW(), 'definido_por', EXCLUDED.definido_por::text))
 			END,
 			definido_por = EXCLUDED.definido_por, updated_at = NOW(), version = COALESCE(projection_sistema_config.version, 0) + 1
-	`, anoLetivo, userID)
+	`, anoLetivo, userID, chaveAnoLetivoGlobal(tipo), tipo)
 	return err
 }
 
@@ -158,17 +183,22 @@ func proximoAnoLetivo(atual string) (string, error) {
 }
 
 func GetAnoLetivoGlobalSistemaAtual(c *gin.Context) {
+	tipo, err := normalizarTipoAnoLetivo(c.Query("type"))
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 	client := getDbClient(c)
 	if client == nil {
 		return
 	}
 
 	var anoLetivo sql.NullString
-	err := client.DB().QueryRow(`
+	err = client.DB().QueryRow(`
 		SELECT ano_letivo_atual
 		FROM projection_sistema_config
-		WHERE chave = 'ano_letivo_atual'
-	`).Scan(&anoLetivo)
+		WHERE chave = $1
+	`, chaveAnoLetivoGlobal(tipo)).Scan(&anoLetivo)
 	if err != nil {
 		if err == sql.ErrNoRows || !anoLetivo.Valid || strings.TrimSpace(anoLetivo.String) == "" {
 			c.JSON(http.StatusNotFound, gin.H{"error": "ano letivo global não definido"})
@@ -179,22 +209,28 @@ func GetAnoLetivoGlobalSistemaAtual(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
+		"type":       tipo,
 		"ano_letivo": strings.TrimSpace(anoLetivo.String),
 	})
 }
 
 func GetAnosLetivosGlobaisLista(c *gin.Context) {
+	tipo, err := normalizarTipoAnoLetivo(c.Query("type"))
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 	client := getDbClient(c)
 	if client == nil {
 		return
 	}
 
 	var anosListaRaw []byte
-	err := client.DB().QueryRow(`
+	err = client.DB().QueryRow(`
 		SELECT COALESCE(anos_letivos_lista, '[]'::jsonb)::text
 		FROM projection_sistema_config
-		WHERE chave = 'ano_letivo_atual'
-	`).Scan(&anosListaRaw)
+		WHERE chave = $1
+	`, chaveAnoLetivoGlobal(tipo)).Scan(&anosListaRaw)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusOK, gin.H{"anos_letivos_lista": []interface{}{}})
@@ -211,6 +247,7 @@ func GetAnosLetivosGlobaisLista(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
+		"type":               tipo,
 		"anos_letivos_lista": anosLista,
 	})
 }

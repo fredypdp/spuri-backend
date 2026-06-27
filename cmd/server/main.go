@@ -336,7 +336,6 @@ func setupRouter() *gin.Engine {
 	academia.Use(middleware.ValidarStatusAcademia())
 	{
 		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
-		academia.POST("/ano-letivo", handlers.DefinirAnoLetivoAcademia)
 		academia.POST("/definir-ano-letivo", handlers.DefinirAnoLetivoAcademia)
 		academia.POST("/anos-letivos/finalizar", handlers.FinalizarAnoLetivoAcademia)
 		academia.PUT("/solicitacao-matricula/:codigo/aprovar", handlers.AprovarSolicitacaoMatricula)
@@ -453,7 +452,6 @@ func setupRouter() *gin.Engine {
 	adminSistema.Use(middleware.AuthMiddleware())
 	adminSistema.Use(middleware.RequireAdmin())
 	{
-		adminSistema.POST("/sistema/ano-letivo", middleware.RequireFPP(), handlers.DefinirAnoLetivoGlobalSistema)
 		adminSistema.POST("/definir-ano-letivo-geral", middleware.RequireFPP(), handlers.DefinirAnoLetivoGlobalSistema)
 		adminSistema.GET("/sistema/anos-letivos/configuracoes", middleware.RequireFPP(), handlers.ListarConfiguracoesAnosLetivos)
 		adminSistema.PUT("/sistema/anos-letivos/configuracoes/:type", middleware.RequireFPP(), handlers.AtualizarConfiguracaoAnoLetivo)

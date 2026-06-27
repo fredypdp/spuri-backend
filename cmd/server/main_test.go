@@ -74,6 +74,28 @@ func TestLegacyAdminSistemaAnoLetivoReadRoutesAreRemoved(t *testing.T) {
 	}
 }
 
+func TestLegacyAnoLetivoWriteAliasesAreRemoved(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := setupRouter()
+
+	for _, tc := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/admin/sistema/ano-letivo"},
+		{http.MethodPost, "/academia/ano-letivo"},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected legacy %s %s to be removed with 404, got %d", tc.method, tc.path, w.Code)
+		}
+	}
+}
+
 func TestLegacyDominisSistemaAnoLetivoRouteIsRemoved(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

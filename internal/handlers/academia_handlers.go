@@ -630,10 +630,9 @@ func DefinirAnoLetivoAcademia(c *gin.Context) {
 
 	var req struct {
 		AnoLetivo string `json:"ano_letivo"`
-		Tipo      string `json:"tipo" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("campo obrigatório: tipo"))
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
@@ -644,7 +643,8 @@ func DefinirAnoLetivoAcademia(c *gin.Context) {
 		return
 	}
 
-	anoLetivoGlobal, err := getAnoLetivoGlobalSistema(c)
+	tipo := tipoAnoLetivoDaAcademia(academiaDTO)
+	anoLetivoGlobal, err := getAnoLetivoGlobalSistema(c, tipo)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -678,12 +678,6 @@ func DefinirAnoLetivoAcademia(c *gin.Context) {
 		return
 	}
 
-	tipo, err := normalizarTipoAnoLetivo(req.Tipo)
-	if err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-
 	if err := academia.DefinirAnoLetivo(anoLetivoSolicitado, tipo, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -700,7 +694,7 @@ func DefinirAnoLetivoAcademia(c *gin.Context) {
 	}
 
 	log.Printf("✅ [DefinirAnoLetivoAcademia] %s/%s definido por academia %s",
-		anoLetivoSolicitado, req.Tipo, academiaDTO.CodigoAcademia)
+		anoLetivoSolicitado, tipo, academiaDTO.CodigoAcademia)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "ano letivo definido com sucesso",
@@ -709,7 +703,7 @@ func DefinirAnoLetivoAcademia(c *gin.Context) {
 	})
 }
 
-func getAnoLetivoGlobalSistema(c *gin.Context) (string, error) {
+func getAnoLetivoGlobalSistema(c *gin.Context, tipo string) (string, error) {
 	client := getDbClient(c)
 	if client == nil {
 		return "", fmt.Errorf("cliente de banco indisponível")
@@ -719,8 +713,8 @@ func getAnoLetivoGlobalSistema(c *gin.Context) (string, error) {
 	err := client.DB().QueryRow(`
 		SELECT ano_letivo_atual
 		FROM projection_sistema_config
-		WHERE chave = 'ano_letivo_atual'
-	`).Scan(&anoLetivo)
+		WHERE chave = $1
+	`, chaveAnoLetivoGlobal(tipo)).Scan(&anoLetivo)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return "", nil
@@ -792,6 +786,13 @@ func getAcademiaAnoLetivoTarget(c *gin.Context) (*projections.AcademiaDTO, error
 
 	userID, _ := middleware.GetUserID(c)
 	return academiaProj.GetByID(userID)
+}
+
+func tipoAnoLetivoDaAcademia(academia *projections.AcademiaDTO) string {
+	if academia != nil && academia.Nivel == "superior" {
+		return "superior"
+	}
+	return "escolar"
 }
 
 func resolverAnoLetivoAcademia(anoLetivo *string, codigoAcademia string) (string, error) {
@@ -980,7 +981,7 @@ func FinalizarAnoLetivoAcademia(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	globalAtualizado, err := sincronizarAnoLetivoGlobalSeAcademiasAlinhadas(c, seguinte, userID)
+	globalAtualizado, err := sincronizarAnoLetivoGlobalSeAcademiasAlinhadas(c, tipo, seguinte, userID)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -988,26 +989,26 @@ func FinalizarAnoLetivoAcademia(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "ano letivo finalizado com sucesso; academia avançada para o ano letivo seguinte", "academia_id": academiaDTO.ID, "type": tipo, "ano_letivo_finalizado": ano, "ano_letivo": seguinte, "finalizado": true, "global_atualizado": globalAtualizado})
 }
 
-func sincronizarAnoLetivoGlobalSeAcademiasAlinhadas(c *gin.Context, anoLetivo string, userID uuid.UUID) (bool, error) {
+func sincronizarAnoLetivoGlobalSeAcademiasAlinhadas(c *gin.Context, tipo string, anoLetivo string, userID uuid.UUID) (bool, error) {
 	client := getDbClient(c)
 	if client == nil {
 		return false, fmt.Errorf("cliente de banco indisponível")
 	}
 	var total, alinhadas int
-	if err := client.DB().QueryRow(`SELECT COUNT(*), COUNT(*) FILTER (WHERE ano_letivo=$1) FROM projection_academias WHERE status='ativo'`, anoLetivo).Scan(&total, &alinhadas); err != nil {
+	if err := client.DB().QueryRow(`SELECT COUNT(*), COUNT(*) FILTER (WHERE ano_letivo=$1) FROM projection_academias WHERE status='ativo' AND nivel=$2`, anoLetivo, nivelAcademiaPorTipoAnoLetivo(tipo)).Scan(&total, &alinhadas); err != nil {
 		return false, err
 	}
 	if total == 0 || total != alinhadas {
 		return false, nil
 	}
-	atual, err := buscarAnoLetivoGlobalAtual(client)
+	atual, err := buscarAnoLetivoGlobalAtual(client, tipo)
 	if err != nil {
 		return false, err
 	}
 	if atual == anoLetivo {
 		return false, nil
 	}
-	if err := salvarAnoLetivoGlobal(c, anoLetivo, userID); err != nil {
+	if err := salvarAnoLetivoGlobal(c, tipo, anoLetivo, userID); err != nil {
 		return false, err
 	}
 	return true, nil
