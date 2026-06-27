@@ -67,3 +67,15 @@ func TestAnoLetivoValidacaoComparacaoEProximo(t *testing.T) {
 		t.Fatalf("cmp=%d, want positive", cmp)
 	}
 }
+
+func TestMesPermiteFinalizacaoAnoLetivo(t *testing.T) {
+	mesFim := 7
+	mesInicio := 10
+	permitidos := map[int]bool{7: true, 8: true, 9: true}
+	for mes := 1; mes <= 12; mes++ {
+		got := mesPermiteFinalizacaoAnoLetivo(mes, mesFim, mesInicio)
+		if got != permitidos[mes] {
+			t.Fatalf("mes=%02d got=%v, want=%v", mes, got, permitidos[mes])
+		}
+	}
+}

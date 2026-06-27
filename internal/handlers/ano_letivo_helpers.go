@@ -74,14 +74,22 @@ func normalizarPeriodoLetivo(periodo string) (string, error) {
 	return fmt.Sprintf("%02d_%02d", ini, fim), nil
 }
 
+func mesesPeriodoLetivo(periodo string) (int, int, error) {
+	var mi, mf int
+	if _, err := fmt.Sscanf(periodo, "%d_%d", &mi, &mf); err != nil || mi < 1 || mi > 12 || mf < 1 || mf > 12 {
+		return 0, 0, fmt.Errorf("periodo inválido")
+	}
+	return mi, mf, nil
+}
+
 func intervaloAnoLetivo(anoLetivo, periodo string) (time.Time, time.Time, error) {
 	a, err := parseAnoLetivo(anoLetivo)
 	if err != nil {
 		return time.Time{}, time.Time{}, err
 	}
-	var mi, mf int
-	if _, err := fmt.Sscanf(periodo, "%d_%d", &mi, &mf); err != nil {
-		return time.Time{}, time.Time{}, fmt.Errorf("periodo inválido")
+	mi, mf, err := mesesPeriodoLetivo(periodo)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
 	}
 	inicio := time.Date(a.Inicio, time.Month(mi), 1, 0, 0, 0, 0, time.UTC)
 	fim := time.Date(a.Fim, time.Month(mf)+1, 0, 23, 59, 59, 0, time.UTC)
@@ -98,6 +106,29 @@ func periodoConfigurado(client *db.Client, tipo string) (string, error) {
 		return "", err
 	}
 	return p.String, nil
+}
+
+func mesPermiteFinalizacaoAnoLetivo(mesAtual, mesFim, mesInicio int) bool {
+	return mesAtual >= mesFim && mesAtual < mesInicio
+}
+
+func validarMesAtualPermiteFinalizacaoAnoLetivo(client *db.Client, tipo string, agora time.Time) error {
+	periodo, err := periodoConfigurado(client, tipo)
+	if err != nil {
+		return err
+	}
+	mesInicio, mesFim, err := mesesPeriodoLetivo(periodo)
+	if err != nil {
+		return err
+	}
+	mesAtual := int(agora.UTC().Month())
+	if mesPermiteFinalizacaoAnoLetivo(mesAtual, mesFim, mesInicio) {
+		return nil
+	}
+	return fmt.Errorf(
+		"ano letivo %s só pode ser finalizado entre o mês de fim do período letivo e o mês anterior ao início do próximo período (periodo=%s; mês atual=%02d; permitido: mês >= %02d e < %02d)",
+		tipo, periodo, mesAtual, mesFim, mesInicio,
+	)
 }
 
 func validarDataNoPeriodoLetivo(client *db.Client, tipo, anoLetivo string, data time.Time) error {
