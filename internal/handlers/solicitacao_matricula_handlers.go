@@ -263,7 +263,7 @@ func AprovarSolicitacaoMatricula(c *gin.Context) {
 		return
 	}
 	est := aggregates.NewEstudante()
-	if err := est.CriarComVinculo(agg.Nome, codigoEstudante, string(hash), agg.Email, agg.Telefone, agg.BilheteIdentidade, agg.BilheteIdentidadeResponsavel, agg.Genero, agg.DataNascimento, agg.AnoEscolarFundamental, agg.AnoEscolarMedio, agg.AnoSuperior, agg.CursoMedioID, agg.CursoSuperiorID, &academia.ID, academia.CodigoAcademia); err != nil {
+	if err := est.CriarComVinculo(agg.Nome, codigoEstudante, string(hash), agg.Email, utils.NormalizePhonePtr(agg.Telefone), nil, agg.BilheteIdentidade, agg.BilheteIdentidadeResponsavel, agg.Genero, agg.DataNascimento, agg.AnoEscolarFundamental, agg.AnoEscolarMedio, agg.AnoSuperior, agg.CursoMedioID, agg.CursoSuperiorID, &academia.ID, academia.CodigoAcademia); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}

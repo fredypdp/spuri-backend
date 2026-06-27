@@ -300,7 +300,7 @@ func getPerfilAcademia(c *gin.Context, userID interface{}) {
 			"codigo_academia":  academia.CodigoAcademia,
 			"provincia":        academia.Provincia,
 			"endereco":         academia.Endereco,
-			"numero_telefone":  academia.NumeroTelefone,
+			"telefone":         academia.Telefone,
 			"email":            academia.Email,
 			"website":          academia.Website,
 			"nivel_escolar":    academia.NivelEscolar,

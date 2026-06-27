@@ -1,8 +1,8 @@
 ---
-modificado: 26-06-2026 00:00
+modificado: 27-06-2026 23:30
 criado: 05-04-2026 13:01
 ---
-Versão atual: 2.0.0
+Versão atual: 2.1.0
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -24,6 +24,16 @@ Versão atual: 2.0.0
 17. [[#17. Jobs Assíncronos]]
 18. [[#18. Batch Assíncrono]]
 19. [[#19. Armazenamento]]
+
+---
+
+### Telefones nativos
+
+O conceito de telefone extra foi removido. Estudantes, academias e admins possuem campos nativos de telefone. Todos os telefones são normalizados removendo espaços, hifens e parênteses, e devem ser salvos como string local de exatamente 9 dígitos, sem DDI.
+
+A verificação de telefone ainda não está implementada: `telefone_verificado` e `telefone_responsavel_verificado` existem apenas para compatibilidade futura e nenhum endpoint de verificação deve ser consumido ou documentado. Um número já verificado por outro usuário não poderá ser reaproveitado; números não verificados podem coincidir entre entidades, exceto nas regras específicas de estudante.
+
+Para estudantes, pelo menos um entre `telefone` e `telefone_responsavel` deve ser informado. Os dois campos não podem ser iguais, e o `telefone` de um estudante não pode ser usado como `telefone_responsavel` de outro estudante. Para estudantes de ensino superior, `telefone_responsavel` é opcional desde que `telefone` esteja preenchido.
 
 ---
 
@@ -148,6 +158,8 @@ interface AdminDTO {
   role: AdminRole          // 'fpp' | 'adm' | 'gerente'
   status: string           // 'ativo' | 'inativo'
   email_verificado: boolean
+  telefone?: string
+  telefone_verificado: boolean  // reservado; verificação ainda não implementada
   created_by?: string      // UUID do admin criador (null para o primeiro FPP)
   total_acoes_realizadas?: number
   created_at: string       // RFC3339
@@ -168,7 +180,8 @@ interface AcademiaDTO {
   codigo_academia: string         // ex: 'LDA20261'
   provincia: string               // código de 3 letras, ex: 'LDA'
   endereco: string
-  numero_telefone?: string
+  telefone?: string              // 9 dígitos, sem DDI
+  telefone_verificado: boolean   // reservado; verificação ainda não implementada
   email?: string
   email_verificado: boolean
   website?: string
@@ -205,7 +218,10 @@ interface EstudanteDTO {
   nome: string
   codigo_estudante: string        // ex: 'ABC1234'
   email?: string
-  telefone?: string
+  telefone?: string              // 9 dígitos, sem DDI
+  telefone_verificado: boolean   // reservado; verificação ainda não implementada
+  telefone_responsavel?: string  // 9 dígitos, sem DDI
+  telefone_responsavel_verificado: boolean // reservado
   email_verificado: boolean
   bilhete_identidade?: string
   bilhete_identidade_responsavel?: string
@@ -677,7 +693,7 @@ Retorna os dados do usuário autenticado. O formato da resposta varia por tipo.
     "codigo_academia": "LDA20261",
     "provincia": "LDA",
     "endereco": "string",
-    "numero_telefone": "string",
+    "telefone": "string",
     "email": "string",
     "nivel_escolar": "fundamental",
     "anos_academicos": ["1_ano_fundamental", "9_ano_fundamental"],
@@ -738,37 +754,6 @@ Altera a senha do usuário autenticado.
 - `401` — senha atual incorreta
 
 ---
-
-### POST /adicionar-telefone-extra
-
-Adiciona um número de telefone extra ao usuário autenticado.
-
-**Proteção**: autenticado (qualquer tipo)
-
-**Request:**
-
-```json
-{
-  "numero_telefone": "string"  // ex: '+244923000000' ou '923000000'
-}
-```
-
-**Response 201:**
-
-```json
-{
-  "message": "telefone extra adicionado com sucesso",
-  "id": "uuid",
-  "numero_telefone": "244923000000",  // normalizado
-  "verificado": false
-}
-```
-
-**Erros:**
-
-- `400` — formato inválido (deve ter 7-15 dígitos)
-- `409` — número já verificado por outro usuário
-- `409` — você já cadastrou este número
 
 ---
 
@@ -958,7 +943,7 @@ Registra uma nova academia. Criada com status `inativo`.
   "nome": "Escola Primária Ngola Kiluanje",
   "provincia": "luanda",
   "endereco": "Rua Direita, 123",
-  "numero_telefone": "+244923000000",
+  "telefone": "+244923000000",
   "email": "escola@exemplo.ao",
   "website": "https://escola.ao",
   "nivel_escolar": "fundamental",
@@ -1075,7 +1060,7 @@ Atualiza os dados cadastrais da academia autenticada.
   "type": "private",
   "provincia": "luanda",
   "endereco": "string",
-  "numero_telefone": "string",
+  "telefone": "string",
   "email": "string",
   "website": "string",
   "nivel_escolar": "fundamental",
@@ -1202,7 +1187,7 @@ Retorna detalhes de uma academia pelo código.
   "codigo_academia": "LDA20261",
   "provincia": "LDA",
   "endereco": "string",
-  "numero_telefone": "+244900000000",
+  "telefone": "+244900000000",
   "website": "https://exemplo.ao",
   "nivel_escolar": "fundamental",
   "anos_academicos": ["1_ano_fundamental"],

@@ -8,6 +8,7 @@ import (
 
 func TestEstudanteCriarComVinculoRejeitaBilhetesIguais(t *testing.T) {
 	bi := " 001LA001 "
+	tel := "923000000"
 	biResp := "001la001"
 
 	estudante := NewEstudante()
@@ -16,6 +17,7 @@ func TestEstudanteCriarComVinculoRejeitaBilhetesIguais(t *testing.T) {
 		"ABC1234",
 		strings.Repeat("a", 60),
 		nil,
+		&tel,
 		nil,
 		&bi,
 		&biResp,
@@ -38,9 +40,11 @@ func TestEstudanteAtualizarDadosPessoaisRejeitaBilhetesEfetivosIguais(t *testing
 	bi := "001LA001"
 	estudante := NewEstudante()
 	estudante.BilheteIdentidade = &bi
+	tel := "923000000"
+	estudante.Telefone = &tel
 
 	biResp := " 001la001 "
-	err := estudante.AtualizarDadosPessoais(nil, nil, nil, nil, &biResp, nil)
+	err := estudante.AtualizarDadosPessoais(nil, nil, nil, nil, nil, &biResp, nil)
 	if err == nil || !strings.Contains(err.Error(), "não podem ser iguais") {
 		t.Fatalf("esperava erro de bilhetes iguais na atualização, recebeu %v", err)
 	}

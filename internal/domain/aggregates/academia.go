@@ -25,7 +25,7 @@ type Academia struct {
 	SenhaHash       string
 	Provincia       string
 	Endereco        string
-	NumeroTelefone  *string
+	Telefone        *string
 	Email           *string
 	EmailVerificado bool
 	Website         *string
@@ -135,7 +135,7 @@ func (a *Academia) Criar(
 	senhaHash string,
 	provincia string,
 	endereco string,
-	numeroTelefone *string,
+	telefone *string,
 	email *string,
 	website *string,
 	nivelEscolar *string,
@@ -160,6 +160,11 @@ func (a *Academia) Criar(
 	if senhaHash == "" {
 		return fmt.Errorf("senha_hash não pode ser vazio")
 	}
+	if telefone != nil {
+		if err := utils.ValidatePhone(*telefone); err != nil {
+			return err
+		}
+	}
 	if tipo == "escola" && nivelEscolar == nil {
 		return fmt.Errorf("nivel_escolar é obrigatório para escolas")
 	}
@@ -178,7 +183,7 @@ func (a *Academia) Criar(
 		SenhaHash:      senhaHash,
 		Provincia:      provincia,
 		Endereco:       endereco,
-		NumeroTelefone: numeroTelefone,
+		Telefone:       telefone,
 		Email:          email,
 		Website:        website,
 		NivelEscolar:   nivelEscolar,
@@ -267,7 +272,7 @@ func (a *Academia) AtualizarDados(
 	academiaType *string,
 	provincia *string,
 	endereco *string,
-	numeroTelefone *string,
+	telefone *string,
 	email *string,
 	website *string,
 	nivelEscolar *string,
@@ -275,9 +280,14 @@ func (a *Academia) AtualizarDados(
 	cursos []string,
 ) error {
 	if nome == nil && provincia == nil && endereco == nil &&
-		numeroTelefone == nil && email == nil && website == nil &&
+		telefone == nil && email == nil && website == nil &&
 		nivelEscolar == nil && anosAcademicos == nil && cursos == nil && academiaType == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
+	}
+	if telefone != nil {
+		if err := utils.ValidatePhone(*telefone); err != nil {
+			return err
+		}
 	}
 	if academiaType != nil {
 		t := strings.TrimSpace(strings.ToLower(*academiaType))
@@ -295,7 +305,7 @@ func (a *Academia) AtualizarDados(
 		Type:           academiaType,
 		Provincia:      provincia,
 		Endereco:       endereco,
-		NumeroTelefone: numeroTelefone,
+		Telefone:       telefone,
 		Email:          email,
 		Website:        website,
 		NivelEscolar:   nivelEscolar,
@@ -427,7 +437,7 @@ func (a *Academia) applyAcademiaCriada(event DomainEvent) error {
 	a.SenhaHash = ev.SenhaHash
 	a.Provincia = ev.Provincia
 	a.Endereco = ev.Endereco
-	a.NumeroTelefone = ev.NumeroTelefone
+	a.Telefone = ev.Telefone
 	a.Email = ev.Email
 	a.Website = ev.Website
 	a.NivelEscolar = ev.NivelEscolar
@@ -514,8 +524,8 @@ func (a *Academia) applyAcademiaDadosAtualizados(event DomainEvent) error {
 	if ev.Endereco != nil {
 		a.Endereco = *ev.Endereco
 	}
-	if ev.NumeroTelefone != nil {
-		a.NumeroTelefone = ev.NumeroTelefone
+	if ev.Telefone != nil {
+		a.Telefone = ev.Telefone
 	}
 	if ev.Email != nil {
 		a.Email = ev.Email
@@ -687,7 +697,7 @@ type AcademiaCriadaEvent struct {
 	SenhaHash      string
 	Provincia      string
 	Endereco       string
-	NumeroTelefone *string
+	Telefone       *string
 	Email          *string
 	Website        *string
 	NivelEscolar   *string
@@ -739,7 +749,7 @@ type AcademiaDadosAtualizadosEvent struct {
 	Type           *string
 	Provincia      *string
 	Endereco       *string
-	NumeroTelefone *string
+	Telefone       *string
 	Email          *string
 	Website        *string
 	NivelEscolar   *string

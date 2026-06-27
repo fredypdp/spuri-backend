@@ -1,8 +1,8 @@
 ---
-modificado: 26-06-2026 00:00
+modificado: 27-06-2026 23:30
 criado: 05-04-2026 13:01
 ---
-Versão atual: 2.0.0
+Versão atual: 2.1.0
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -143,7 +143,6 @@ Projeções são tabelas PostgreSQL otimizadas para leitura. São reconstruídas
 |`projection_faltas`|Faltas registadas|
 |`projection_avaliacao_final`|Avaliações finais de ano|
 |`projection_categorias_nota`|Categorias personalizadas de nota|
-|`projection_telefones_extra`|Telefones extras de qualquer usuário|
 
 Se uma projeção ficar corrompida ou inconsistente, basta executar um **Rebuild** que a reconstrói do zero a partir do ledger.
 
@@ -840,7 +839,7 @@ Esse endpoint retorna `202 Accepted` com `job_id`, `poll_url` e `sse_url`; o cli
 
 1. `admins`
 2. `academias`
-3. `cursos`, `materias`, `categorias_nota`, `telefones_extra`
+3. `cursos`, `materias`, `categorias_nota`
 4. `estudantes`, `turmas`
 5. `notas`, `faltas`
 6. `avaliacao_final`
@@ -879,6 +878,14 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 - Rebuild assíncrono de projeções usa o mesmo pipeline de integridade do rebuild síncrono, mas sem manter a conexão HTTP aberta por minutos.
 
 ---
+
+### Telefones nativos e remoção de telefone extra
+
+O modelo `projection_telefones_extra` e o endpoint de telefone extra foram removidos. O telefone passa a fazer parte das entidades principais: estudante (`telefone`, `telefone_verificado`, `telefone_responsavel`, `telefone_responsavel_verificado`), academia (`telefone`, `telefone_verificado`) e admin (`telefone`, `telefone_verificado`).
+
+A normalização remove espaços, hifens e parênteses; o valor persistido deve ser string com exatamente 9 dígitos numéricos, sem DDI. A verificação de telefone ainda não possui fluxo ativo: os campos `*_verificado` existem para evitar conflitos de schema no futuro e não devem ser expostos como processo operacional.
+
+Regras de estudante: ao menos um telefone deve existir; `telefone` e `telefone_responsavel` não podem ser iguais; e o telefone de um estudante não pode ser reaproveitado como telefone de responsável de outro estudante.
 
 ## 6. Regras de Negócio
 

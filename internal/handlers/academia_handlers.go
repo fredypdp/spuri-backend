@@ -27,16 +27,16 @@ import (
 // ============================================================================
 
 type RegisterAcademiaRequest struct {
-	Nivel          string   `json:"nivel"           binding:"required"`
-	Type           string   `json:"type"            binding:"required"`
-	Nome           string   `json:"nome"            binding:"required"`
-	Provincia      string   `json:"provincia"       binding:"required"`
-	Endereco       string   `json:"endereco"        binding:"required"`
-	NumeroTelefone *string  `json:"numero_telefone"`
-	Email          *string  `json:"email"`
-	Website        *string  `json:"website"`
-	NivelEscolar   *string  `json:"nivel_escolar"`
-	Cursos         []string `json:"cursos"`
+	Nivel        string   `json:"nivel"           binding:"required"`
+	Type         string   `json:"type"            binding:"required"`
+	Nome         string   `json:"nome"            binding:"required"`
+	Provincia    string   `json:"provincia"       binding:"required"`
+	Endereco     string   `json:"endereco"        binding:"required"`
+	Telefone     *string  `json:"telefone"`
+	Email        *string  `json:"email"`
+	Website      *string  `json:"website"`
+	NivelEscolar *string  `json:"nivel_escolar"`
+	Cursos       []string `json:"cursos"`
 	// AnosAcademicos — obrigatório para tipo="escola" com nivel_escolar "fundamental" ou "misto".
 	// Subconjunto de: 1_fundamental … nono_fundamental.
 	AnosAcademicos []string `json:"anos_academicos"`
@@ -136,7 +136,7 @@ func RegisterAcademia(c *gin.Context) {
 		string(hashedPassword),
 		codigoProvincia,
 		req.Endereco,
-		req.NumeroTelefone,
+		utils.NormalizePhonePtr(req.Telefone),
 		req.Email,
 		req.Website,
 		req.NivelEscolar,
@@ -185,7 +185,7 @@ func AtualizarDadosAcademia(c *gin.Context) {
 		Type           *string  `json:"type"`
 		Provincia      *string  `json:"provincia"`
 		Endereco       *string  `json:"endereco"`
-		NumeroTelefone *string  `json:"numero_telefone"`
+		Telefone       *string  `json:"telefone"`
 		Email          *string  `json:"email"`
 		Website        *string  `json:"website"`
 		NivelEscolar   *string  `json:"nivel_escolar"`
@@ -198,7 +198,7 @@ func AtualizarDadosAcademia(c *gin.Context) {
 	}
 
 	if req.Nome == nil && req.Provincia == nil && req.Endereco == nil &&
-		req.NumeroTelefone == nil && req.Email == nil && req.Website == nil &&
+		req.Telefone == nil && req.Email == nil && req.Website == nil &&
 		req.NivelEscolar == nil && req.Type == nil && len(req.AnosAcademicos) == 0 && len(req.Cursos) == 0 {
 		utils.RespondWithValidationError(c, fmt.Errorf("ao menos um campo deve ser fornecido para atualização"))
 		return
@@ -264,7 +264,7 @@ func AtualizarDadosAcademia(c *gin.Context) {
 		req.Type,
 		provCode,
 		req.Endereco,
-		req.NumeroTelefone,
+		utils.NormalizePhonePtr(req.Telefone),
 		req.Email,
 		req.Website,
 		req.NivelEscolar,
@@ -426,7 +426,7 @@ func ListarTodasAcademias(c *gin.Context) {
 
 	const baseSelect = `
 		SELECT pa.id, pa.nivel, pa.type, pa.nome, pa.codigo_academia, pa.provincia, pa.endereco,
-		       pa.numero_telefone, pa.email, pa.website, pa.nivel_escolar, pa.anos_academicos, pa.status,
+		       pa.telefone, pa.email, pa.website, pa.nivel_escolar, pa.anos_academicos, pa.status,
 		       pa.cursos, pa.email_verificado, pa.created_at, pa.updated_at,
 		       COALESCE(est_count.total_estudantes, 0) AS total_estudantes,
 		       pa.version
@@ -473,7 +473,7 @@ func ListarTodasAcademias(c *gin.Context) {
 			CodigoAcademia  string     `db:"codigo_academia"`
 			Provincia       string     `db:"provincia"`
 			Endereco        string     `db:"endereco"`
-			NumeroTelefone  *string    `db:"numero_telefone"`
+			Telefone        *string    `db:"telefone"`
 			Email           *string    `db:"email"`
 			Website         *string    `db:"website"`
 			NivelEscolar    *string    `db:"nivel_escolar"`
@@ -488,7 +488,7 @@ func ListarTodasAcademias(c *gin.Context) {
 		}
 		if err := rows.Scan(
 			&aca.ID, &aca.Nivel, &aca.Type, &aca.Nome, &aca.CodigoAcademia,
-			&aca.Provincia, &aca.Endereco, &aca.NumeroTelefone, &aca.Email,
+			&aca.Provincia, &aca.Endereco, &aca.Telefone, &aca.Email,
 			&aca.Website, &aca.NivelEscolar, &aca.AnosJSON, &aca.Status,
 			&aca.CursosJSON, &aca.EmailVerificado,
 			&aca.CreatedAt, &aca.UpdatedAt,
@@ -533,7 +533,7 @@ func ListarTodasAcademias(c *gin.Context) {
 
 		if userType != "" {
 			acadMap["id"] = aca.ID
-			acadMap["numero_telefone"] = aca.NumeroTelefone
+			acadMap["telefone"] = aca.Telefone
 			acadMap["website"] = aca.Website
 			acadMap["status"] = aca.Status
 			acadMap["cursos"] = cursos
@@ -601,7 +601,7 @@ func GetAcademiaPorCodigo(c *gin.Context) {
 
 	if userType != "" {
 		resp["id"] = academia.ID
-		resp["numero_telefone"] = academia.NumeroTelefone
+		resp["telefone"] = academia.Telefone
 		resp["website"] = academia.Website
 		resp["status"] = academia.Status
 		resp["cursos"] = academia.Cursos

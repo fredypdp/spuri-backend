@@ -312,6 +312,8 @@ type AdminDTO struct {
 	Role                 string     `json:"role"`
 	Status               string     `json:"status"`
 	EmailVerificado      bool       `json:"email_verificado"`
+	Telefone             *string    `json:"telefone,omitempty"`
+	TelefoneVerificado   bool       `json:"telefone_verificado"`
 	CreatedBy            *uuid.UUID `json:"created_by,omitempty"`
 	CreatedAt            time.Time  `json:"created_at"`
 	UpdatedAt            time.Time  `json:"updated_at"`
@@ -324,7 +326,7 @@ func (p *AdminProjection) GetByID(id uuid.UUID) (*AdminDTO, error) {
 		return nil, fmt.Errorf("UUID inválido")
 	}
 	row := p.client.DB().QueryRow(`
-		SELECT id, nome, email, senha_hash, role, status, email_verificado,
+		SELECT id, nome, email, senha_hash, role, status, email_verificado, telefone, telefone_verificado,
 			created_by, created_at, updated_at, version, total_acoes_realizadas
 		FROM projection_admins WHERE id = $1
 	`, id)
@@ -333,7 +335,7 @@ func (p *AdminProjection) GetByID(id uuid.UUID) (*AdminDTO, error) {
 
 func (p *AdminProjection) GetByEmail(email string) (*AdminDTO, error) {
 	row := p.client.DB().QueryRow(`
-		SELECT id, nome, email, senha_hash, role, status, email_verificado,
+		SELECT id, nome, email, senha_hash, role, status, email_verificado, telefone, telefone_verificado,
 			created_by, created_at, updated_at, version, total_acoes_realizadas
 		FROM projection_admins WHERE email = $1
 	`, email)
@@ -347,7 +349,7 @@ func (p *AdminProjection) GetByEmailForLogin(email string) (*AdminDTO, error) {
 
 func (p *AdminProjection) GetAll() ([]AdminDTO, error) {
 	rows, err := p.client.DB().Query(`
-		SELECT id, nome, email, senha_hash, role, status, email_verificado,
+		SELECT id, nome, email, senha_hash, role, status, email_verificado, telefone, telefone_verificado,
 			created_by, created_at, updated_at, version, total_acoes_realizadas
 		FROM projection_admins
 		ORDER BY created_at DESC
@@ -362,7 +364,7 @@ func (p *AdminProjection) GetAll() ([]AdminDTO, error) {
 		var createdBy sql.NullString
 		if err := rows.Scan(
 			&dto.ID, &dto.Nome, &dto.Email, &dto.SenhaHash, &dto.Role, &dto.Status,
-			&dto.EmailVerificado, &createdBy, &dto.CreatedAt, &dto.UpdatedAt,
+			&dto.EmailVerificado, &dto.Telefone, &dto.TelefoneVerificado, &createdBy, &dto.CreatedAt, &dto.UpdatedAt,
 			&dto.Version, &dto.TotalAcoesRealizadas,
 		); err != nil {
 			continue
@@ -381,7 +383,7 @@ func scanAdmin(row *sql.Row) (*AdminDTO, error) {
 	var createdBy sql.NullString
 	err := row.Scan(
 		&dto.ID, &dto.Nome, &dto.Email, &dto.SenhaHash, &dto.Role, &dto.Status,
-		&dto.EmailVerificado, &createdBy, &dto.CreatedAt, &dto.UpdatedAt,
+		&dto.EmailVerificado, &dto.Telefone, &dto.TelefoneVerificado, &createdBy, &dto.CreatedAt, &dto.UpdatedAt,
 		&dto.Version, &dto.TotalAcoesRealizadas,
 	)
 	if err == sql.ErrNoRows {
