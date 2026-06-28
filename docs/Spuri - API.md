@@ -1,5 +1,5 @@
 ---
-modificado: 27-06-2026 23:30
+modificado: 28-06-2026 00:00
 criado: 05-04-2026 13:01
 ---
 Versão atual: 2.0.2
@@ -644,6 +644,8 @@ Retorna os dados do usuário autenticado. O formato da resposta varia por tipo.
 
 **Proteção**: autenticado (qualquer tipo)
 
+
+**Request:** sem payload
 **Response 200 — Estudante:**
 
 ```json
@@ -773,6 +775,8 @@ Verifica o email usando o token recebido no email. Funciona para admin, academia
 
 - `token` — token de verificação (hex de 64 caracteres)
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -794,6 +798,8 @@ Envia email de verificação para o usuário autenticado (backend envia o email 
 
 **Proteção**: autenticado (qualquer tipo)
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -812,6 +818,8 @@ Gera e retorna o token de verificação ao frontend, que fica responsável por e
 
 **Proteção**: autenticado (qualquer tipo)
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -997,6 +1005,8 @@ Ativa uma academia inativa.
 
 - `codigo` — código da academia (ex: `LDA20261`)
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -1112,6 +1122,8 @@ Lista todas as academias com paginação e filtro de status.
 - `offset` — deslocamento (padrão: 0)
 - `status` — `ativo` ou `inativo` (omitir = retorna ambos)
 
+
+**Request:** sem payload
 **Response 200 — usuário não autenticado:**
 
 ```json
@@ -1161,6 +1173,8 @@ Retorna detalhes de uma academia pelo código.
 - Com `Authorization: Bearer <jwt_token>` válido, a rota mantém o contrato autenticado anterior.
 - Se um header `Authorization` for enviado, ele deve ser um Bearer token válido; tokens inválidos/expirados retornam `401`.
 
+
+**Request:** sem payload
 **Response 200 — usuário não autenticado:**
 
 ```json
@@ -1255,6 +1269,8 @@ Retorna o **ano letivo oficial global atual** da plataforma para o tipo informad
 
 **Proteção**: autenticado (qualquer usuário logado)
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -1275,6 +1291,8 @@ Retorna a **lista histórica de anos letivos globais** já definidos pelo admin.
 
 **Proteção**: autenticado (qualquer usuário logado)
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -1340,6 +1358,8 @@ Retorna o ano letivo ativo da academia autenticada.
   - Se o usuário for `academia`, o backend ignora o parâmetro e retorna o próprio ano letivo.
   - Se o usuário for `admin`, deve informar `?codigo_academia=...`.
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -1369,6 +1389,8 @@ Retorna a lista histórica de anos letivos definidos pela academia alvo.
   - Se o usuário for `academia`, o backend ignora o parâmetro e retorna a própria lista.
   - Se o usuário for `admin`, deve informar `?codigo_academia=...`.
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -1713,6 +1735,8 @@ Lista estudantes. Retorna apenas os da academia (para academia) ou todos (para a
 > - `GET /estudantes?status_escolar_medio=em_andamento&codigo_turma=TURMA-10A&com_turma=true`
 > - `GET /estudantes?codigo_academia=LDA20261&semestre_atual=1,2&curso_id=550e8400-e29b-41d4-a716-446655440000`
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -1745,6 +1769,8 @@ Consulta um estudante por código.
 
 - `codigo` — código do estudante (ex: `ABC1234`)
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -1822,6 +1848,15 @@ Efetiva matrícula no fundamental e muda `status_escolar_fundamental` para `em_a
 }
 ```
 
+
+**Response 200:**
+
+```json
+{
+  "message": "operação registrada com sucesso",
+  "codigo_estudante": "ABC1234"
+}
+```
 #### POST /academia/estudante/:codigo/matricula/medio
 
 Efetiva matrícula no médio e muda `status_escolar_medio` para `em_andamento`. Exige fundamental `finalizado`.
@@ -1835,6 +1870,15 @@ Efetiva matrícula no médio e muda `status_escolar_medio` para `em_andamento`. 
 }
 ```
 
+
+**Response 200:**
+
+```json
+{
+  "message": "operação registrada com sucesso",
+  "codigo_estudante": "ABC1234"
+}
+```
 #### POST /academia/estudante/:codigo/matricula/superior
 
 Efetiva matrícula no superior, muda `status_superior` para `em_andamento` e define `ano_superior = "1_ano_superior"` e `semestre_atual = 1`.
@@ -1847,43 +1891,96 @@ Efetiva matrícula no superior, muda `status_superior` para `em_andamento` e def
 }
 ```
 
+
+**Response 200:**
+
+```json
+{
+  "message": "operação registrada com sucesso",
+  "codigo_estudante": "ABC1234"
+}
+```
 #### POST /academia/estudante/:codigo/interrupcao/fundamental
 
 Registra interrupção do fundamental e muda `status_escolar_fundamental` para `inativo`.
+
+**Request:**
 
 ```json
 { "motivo": "mudança de residência" }
 ```
 
+
+**Response 200:**
+
+```json
+{
+  "message": "operação registrada com sucesso",
+  "codigo_estudante": "ABC1234"
+}
+```
 #### POST /academia/estudante/:codigo/interrupcao/medio
 
 Registra interrupção do médio e muda `status_escolar_medio` para `inativo`.
+
+**Request:**
 
 ```json
 { "motivo": "pausa solicitada" }
 ```
 
+
+**Response 200:**
+
+```json
+{
+  "message": "operação registrada com sucesso",
+  "codigo_estudante": "ABC1234"
+}
+```
 #### POST /academia/estudante/:codigo/trancamento/superior
 
 Registra trancamento do superior e muda `status_superior` para `inativo`.
+
+**Request:**
 
 ```json
 { "motivo": "trancamento formal" }
 ```
 
+
+**Response 200:**
+
+```json
+{
+  "message": "operação registrada com sucesso",
+  "codigo_estudante": "ABC1234"
+}
+```
 #### POST /academia/estudante/:codigo/desvincular
 
 Desvincula o estudante da academia preservando histórico e muda o status geral para `arquivado`. O evento registra `codigo_academia`, `codigo_estudante`, `motivo` e o nível acadêmico em que o estudante estava.
+
+**Request:**
 
 ```json
 { "motivo": "transferência para outra instituição" }
 ```
 
+
+**Response 200:**
+
+```json
+{
+  "message": "operação registrada com sucesso",
+  "codigo_estudante": "ABC1234"
+}
+```
 #### POST /academia/estudante/:codigo/revincular
 
 Reintegra estudante arquivado à academia e muda o status geral para `ativo`.
 
-Para reingresso no fundamental:
+**Request — reingresso no fundamental:**
 
 ```json
 {
@@ -1892,7 +1989,7 @@ Para reingresso no fundamental:
 }
 ```
 
-Para reingresso no médio:
+**Request — reingresso no médio:**
 
 ```json
 {
@@ -1902,7 +1999,7 @@ Para reingresso no médio:
 }
 ```
 
-Para reingresso no superior:
+**Request — reingresso no superior:**
 
 ```json
 {
@@ -1913,6 +2010,15 @@ Para reingresso no superior:
 
 No reingresso superior o sistema define `ano_superior = "1_ano_superior"` e `semestre_atual = 1`.
 
+
+**Response 200:**
+
+```json
+{
+  "message": "operação registrada com sucesso",
+  "codigo_estudante": "ABC1234"
+}
+```
 ### GET /eventos-estudante/:codigo
 
 Retorna todos os eventos do ledger de um estudante (trilha de auditoria completa).
@@ -1923,6 +2029,8 @@ Retorna todos os eventos do ledger de um estudante (trilha de auditoria completa
 
 - `codigo` — código do estudante
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -1962,6 +2070,8 @@ Verifica a integridade da hash chain do ledger para um estudante.
 - Academia: apenas estudantes da própria academia
 - Admin: qualquer estudante
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -1981,6 +2091,8 @@ Retorna as avaliações finais do estudante autenticado.
 
 **Proteção**: autenticado + estudante
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -2006,6 +2118,8 @@ Cria uma solicitação pública de matrícula via `multipart/form-data`. O backe
 
 **Ficheiros PDF**: `bi_estudante`, `bi_responsavel`, `cedula_estudante`, `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`. Cada ficheiro deve ser PDF válido e ter no máximo 5MB. `bi_responsavel` é obrigatório. Se não houver `bi_estudante`, `cedula_estudante` é obrigatória. `declaracao` é obrigatória quando o certificado aplicável ao ano académico não for enviado.
 
+**Request:** `multipart/form-data` com os campos e ficheiros listados acima.
+
 **Response 201:**
 
 ```json
@@ -2029,6 +2143,8 @@ Lista solicitações da academia autenticada em ordem decrescente de criação.
 - `limit`: quantidade máxima de registros. Padrão `50`, mínimo `1`, máximo `1000`.
 - `offset`: deslocamento de paginação. Padrão `0`.
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -2066,6 +2182,8 @@ Consulta uma solicitação da academia autenticada pelo `codigo_solicitacao`. Re
 
 **Proteção**: autenticado + academia dona
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -2096,6 +2214,8 @@ Consulta uma solicitação da academia autenticada pelo `codigo_solicitacao`. Re
 
 Aprova uma solicitação pendente e cria automaticamente o estudante com o aggregate `Estudante`.
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -2116,6 +2236,17 @@ Reprova uma solicitação pendente, grava `SolicitacaoMatriculaReprovada` e remo
 { "motivo_reprovacao": "Documentos ilegíveis." }
 ```
 
+
+**Response 200:**
+
+```json
+{
+  "message": "solicitação reprovada com sucesso",
+  "codigo_solicitacao": "A3F9K2BPQ7X",
+  "status": "reprovada"
+}
+```
+
 ### GET /solicitacoes-matricula
 
 Lista todas as solicitações do sistema para admin em ordem decrescente de criação. Retorna o mesmo formato de `GET /academia/solicitacoes-matricula`, incluindo `documentos.<campo>.path`, `documentos.<campo>.file_url` e `documentos.<campo>.download_url` para cada arquivo enviado.
@@ -2123,6 +2254,10 @@ Lista todas as solicitações do sistema para admin em ordem decrescente de cria
 **Proteção**: autenticado + admin
 
 **Query params**: `status` repetível, `codigo_academia` repetível, `limit` e `offset`.
+
+**Request:** sem payload
+
+**Response 200:** mesmo formato de `GET /academia/solicitacoes-matricula`.
 
 ---
 
@@ -2194,6 +2329,8 @@ Lista todos os cursos da academia, incluindo `anos_academicos` de cada curso.
 
 - `codigo_academia` — obrigatório para usuários sem sessão e para admins; ignorado para academias autenticadas, que consultam os próprios cursos.
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -2215,6 +2352,8 @@ Retorna um curso específico, incluindo seus `anos_academicos`.
 - Academias autenticadas só podem consultar os próprios cursos.
 - Admins autenticados podem consultar qualquer curso.
 
+
+**Request:** sem payload
 **Response 200:** `CursoDTO`
 
 ---
@@ -2225,6 +2364,8 @@ Ativa um curso inativo.
 
 **Proteção**: autenticado + academia ativa
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -2242,6 +2383,8 @@ Desativa um curso ativo.
 
 **Proteção**: autenticado + academia ativa
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -2394,6 +2537,8 @@ Lista todas as matérias da academia.
 
 - `codigo_academia` (obrigatório)
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -2411,6 +2556,8 @@ Retorna uma matéria específica.
 
 **Proteção**: autenticado + (`academia` ativa **ou** `admin` **ou** `estudante`)
 
+
+**Request:** sem payload
 **Response 200:** `MateriaDTO`
 
 ---
@@ -2421,6 +2568,8 @@ Ativa uma matéria inativa. Matérias superiores sem período definido não pode
 
 **Proteção**: autenticado + academia ativa
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -2438,6 +2587,8 @@ Desativa uma matéria ativa.
 
 **Proteção**: autenticado + academia ativa
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -2511,6 +2662,8 @@ Deleta uma matéria (soft delete). Deve estar inativa.
 
 **Proteção**: autenticado + academia ativa
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -2572,6 +2725,8 @@ Lista todas as turmas da academia.
 
 - `codigo_academia` (obrigatório)
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -2592,6 +2747,8 @@ Retorna uma turma pelo código.
 
 - `codigo_academia` (obrigatório, porque o código da turma é contextual por academia)
 
+
+**Request:** sem payload
 **Response 200:** `TurmaDTO`
 
 ---
@@ -2602,6 +2759,8 @@ Ativa uma turma inativa.
 
 **Proteção**: autenticado + academia ativa
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -2619,6 +2778,8 @@ Desativa uma turma ativa. Pré-requisito para deletar.
 
 **Proteção**: autenticado + academia ativa
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -2731,6 +2892,8 @@ Remove um estudante da turma.
 
 **Proteção**: autenticado + academia ativa
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -2759,6 +2922,8 @@ Retorna as turmas de um estudante com autorização por perfil na mesma rota.
 - `academia`: pode consultar qualquer estudante da sua academia
 - `admin`: pode consultar qualquer estudante
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -2827,6 +2992,8 @@ Lista todas as categorias de nota da academia alvo.
 
 - `codigo_academia` (obrigatório)
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -3029,6 +3196,8 @@ Retorna as notas de um estudante.
 - CSV na mesma chave: `?ano_letivo=2024_2025,2025_2026`
 - também é possível combinar os dois formatos na mesma chamada
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -3073,6 +3242,8 @@ Lista registros de notas com escopo por perfil.
 - CSV na mesma chave: `?ano_letivo=2024_2025,2025_2026`
 - também é possível combinar os dois formatos na mesma chamada
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -3105,6 +3276,8 @@ Os sumários representam a aula ou conteúdo ministrado por uma academia e podem
 
 Cria um sumário/aula.
 
+**Request:**
+
 ```json
 {
   "sumario_titulo": "Introdução às equações do 2º grau",
@@ -3125,24 +3298,89 @@ Regras principais:
 - Matérias escolares/médio aceitam períodos `N_trimestre`.
 - `ano_academico` deve existir em `anos_academicos` da matéria.
 
+**Response 201:**
+
+```json
+{
+  "message": "sumário criado com sucesso",
+  "sumario": {
+    "id": "uuid",
+    "sumario_titulo": "Introdução às equações do 2º grau",
+    "materia_id": "uuid-da-materia"
+  }
+}
+```
 ### GET /academia/sumarios
 
 Lista sumários da academia autenticada. Admin pode consultar para suporte informando `codigo_academia`. Filtros opcionais: `periodo`, `ano_academico`, `curso_id`, `materia_id`.
 
+
+**Request:** sem payload
+
+**Response 200:**
+
+```json
+{
+  "sumarios": [],
+  "total": 0
+}
+```
 ### GET /academia/sumarios/:id
 
 Retorna um sumário, desde que pertença à academia autenticada.
 
+
+**Request:** sem payload
+
+**Response 200:**
+
+```json
+{
+  "sumario": {
+    "id": "uuid",
+    "sumario_titulo": "Introdução às equações do 2º grau"
+  }
+}
+```
 ### PUT /academia/sumarios/:id
 
 Atualiza título, descrição ou contexto acadêmico do sumário. A atualização reexecuta as mesmas validações de escopo da criação.
 
+**Request:** (todos os campos opcionais; envie pelo menos um campo para alteração)
+
+```json
+{
+  "sumario_titulo": "Introdução às equações do 2º grau",
+  "descricao": "Conteúdo detalhado atualizado",
+  "periodo": "1_trimestre",
+  "ano_academico": 9,
+  "curso_id": "uuid-do-curso",
+  "materia_id": "uuid-da-materia"
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "sumário atualizado com sucesso"
+}
+```
 ### DELETE /academia/sumarios/:id
 
 Remove logicamente o sumário (`deleted_at`), preservando faltas já vinculadas e seus snapshots históricos.
 
-## 14. Faltas
+**Request:** sem payload
 
+**Response 200:**
+
+```json
+{
+  "message": "sumário deletado com sucesso"
+}
+```
+
+## 14. Faltas
 ### POST /academia/faltas-aluno
 
 Registra falta(s) para um estudante.
@@ -3292,6 +3530,8 @@ Retorna as faltas de um estudante.
 - CSV na mesma chave: `?periodo=1_trimestre,2_trimestre`
 - também é possível combinar os dois formatos na mesma chamada
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -3335,6 +3575,8 @@ Lista registros de faltas com escopo por perfil.
 - CSV na mesma chave: `?periodo=1_trimestre,2_trimestre`
 - também é possível combinar os dois formatos na mesma chamada
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -3421,6 +3663,8 @@ Cria uma regra ativa de avaliação final para a academia autenticada.
 
 **Proteção**: academia autenticada.
 
+**Request:**
+
 ```json
 {
   "type": "avaliacao_final",
@@ -3503,6 +3747,8 @@ Lista todas as regras de avaliação final da academia autenticada, ordenadas po
 
 **Proteção**: academia autenticada.
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -3536,6 +3782,8 @@ Lista todas as regras de avaliação final da academia autenticada, ordenadas po
 Edita uma regra ativa de avaliação final da academia autenticada. Por segurança, a edição é limitada aos campos que não mudam o desenho da cadeia: `nome`, `descricao`, `nota_minima_aprovacao` e `formula`. O backend recalcula `categorias_envolvidas` a partir da nova fórmula.
 
 **Proteção**: academia autenticada.
+
+**Request:**
 
 ```json
 {
@@ -3583,6 +3831,8 @@ Inativa uma regra ativa de avaliação final da academia autenticada. A deleçã
 - A operação não apaga avaliações finais já registradas em `projection_avaliacao_final`; elas continuam auditáveis.
 - Cada regra inativada recebe `version = version + 1` e `updated_at` novo.
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -3610,6 +3860,8 @@ Lista avaliações finais. Escopo varia por tipo de usuário.
 - `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
 - `type` — filtra o tipo de avaliação final (`avaliacao_final`, `avaliacao_final_com_exame`, `avaliacao_final_com_recurso`, etc.)
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -3636,6 +3888,8 @@ Lista apenas avaliações com `aprovado = true`.
 - `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
 - `type` — filtra o tipo de avaliação final (`avaliacao_final`, `avaliacao_final_com_exame`, `avaliacao_final_com_recurso`, etc.)
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -3662,6 +3916,8 @@ Lista apenas avaliações com `aprovado = false`.
 - `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
 - `type` — filtra o tipo de avaliação final (`avaliacao_final`, `avaliacao_final_com_exame`, `avaliacao_final_com_recurso`, etc.)
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -3680,6 +3936,8 @@ Retorna avaliações finais de um estudante específico.
 
 **Proteção**: autenticado + academia ou admin
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -3737,6 +3995,8 @@ Lista todos os admins.
 
 **Proteção**: autenticado + admin (qualquer role)
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -3754,6 +4014,8 @@ Busca um admin pelo email.
 
 **Proteção**: autenticado + admin role `adm` ou `fpp`
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -3770,6 +4032,8 @@ Ativa um admin inativo.
 
 **Proteção**: autenticado + admin role `adm` ou `fpp`
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -3863,6 +4127,8 @@ Retorna métricas do sistema (requisições, erros, latência por endpoint).
 
 **Proteção**: autenticado + admin (qualquer role)
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -3899,6 +4165,8 @@ Reconstrói uma projeção do zero a partir do ledger.
 
 - `name` — nome da projeção (ex: `estudantes`, `academias`, `notas`)
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -3928,6 +4196,8 @@ Use este endpoint quando o rebuild puder demorar vários minutos.
 
 - `name` — nome da projeção (ex: `admins`, `estudantes`, `notas`)
 
+
+**Request:** sem payload
 **Response 202:**
 
 ```json
@@ -3959,6 +4229,8 @@ Lista os jobs recentes do usuário autenticado.
 
 **Proteção**: autenticado (qualquer tipo)
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -3980,6 +4252,8 @@ Retorna o status de um job específico.
 
 - `results=true` — inclui resultados por item (payload maior)
 
+
+**Request:** sem payload
 **Response 200 (sem results):** `JobSummary`
 
 **Response 200 (com results=true):**
@@ -4027,6 +4301,10 @@ data: {"type":"job_progress","job_id":"uuid","job_type":"register_estudante_batc
 
 **Heartbeat:** o servidor envia `: ping` periodicamente para manter a conexão ativa.
 
+**Request:** sem payload
+
+**Response 200:** stream `text/event-stream` com eventos SSE `job_enqueued`, `job_progress`, `job_done` e `job_failed`.
+
 ---
 
 ### DELETE /jobs/:id/sse
@@ -4035,6 +4313,8 @@ Oculta um job do stream SSE da academia autenticada.
 
 **Proteção**: autenticado + academia (apenas o dono do job)
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
@@ -4058,6 +4338,8 @@ Cria um novo job de retry reaproveitando **somente os itens que falharam** no jo
 - O novo job mantém o mesmo `job_type` do original.
 - O payload do retry contém somente os `results[i].payload` com `sucesso = false`.
 
+
+**Request:** sem payload
 **Response 202:**
 
 ```json
@@ -4193,6 +4475,8 @@ Quando a configuração do Google Drive ou da quota estiver incompleta ou invál
 
 **Proteção**: autenticado + admin
 
+
+**Request:** sem payload
 **Response 200:**
 
 ```json
