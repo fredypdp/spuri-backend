@@ -147,10 +147,13 @@ func (e *CursoDeletadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 // Criar registra o evento de criação do curso.
 //
 // Para type="medio":    periodos deve ser nil ou vazio — fixos no sistema
-//                       (1_trimestre, 2_trimestre, 3_trimestre).
+//
+//	(1_trimestre, 2_trimestre, 3_trimestre).
+//
 // Para type="superior": periodos é OBRIGATÓRIO; formato [número]_semestre
-//                       (ex.: 1_semestre, 2_semestre); número inteiro ≥ 1;
-//                       sem duplicatas.
+//
+//	(ex.: 1_semestre, 2_semestre); número inteiro ≥ 1;
+//	sem duplicatas.
 func (c *Curso) Criar(
 	nome string,
 	tipo string,
@@ -410,9 +413,9 @@ func isSemestreValido(p string) bool {
 // validarPeriodosCurso valida os períodos de acordo com o tipo do curso.
 //
 //   - "medio":    não deve ter períodos — são fixos no sistema
-//                 (1_trimestre, 2_trimestre, 3_trimestre).
+//     (1_trimestre, 2_trimestre, 3_trimestre).
 //   - "superior": obrigatório; cada item deve seguir [número]_semestre;
-//                 sem duplicatas.
+//     sem duplicatas.
 func validarPeriodosCurso(tipo string, periodos []string, totalAnos int) error {
 	switch tipo {
 	case "superior":
@@ -428,7 +431,7 @@ func validarPeriodosCurso(tipo string, periodos []string, totalAnos int) error {
 			}
 		}
 		seen := make(map[string]bool, len(periodos))
-		for _, p := range periodos {
+		for i, p := range periodos {
 			if !isSemestreValido(p) {
 				return fmt.Errorf(
 					"período '%s' inválido para curso superior. "+
@@ -440,6 +443,14 @@ func validarPeriodosCurso(tipo string, periodos []string, totalAnos int) error {
 				return fmt.Errorf("período duplicado: '%s'", p)
 			}
 			seen[p] = true
+			esperado := fmt.Sprintf("%d_semestre", i+1)
+			if p != esperado {
+				return fmt.Errorf("periodos de curso superior devem ser sequenciais de 1_semestre até N_semestre")
+			}
+		}
+		totalAnosEsperado := (len(periodos) + 1) / 2
+		if totalAnos > 0 && totalAnos != totalAnosEsperado {
+			return fmt.Errorf("anos_academicos de curso superior devem ser derivados de periodos: esperado %d ano(s)", totalAnosEsperado)
 		}
 
 	case "medio":

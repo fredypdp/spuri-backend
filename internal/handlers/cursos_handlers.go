@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -17,6 +19,140 @@ import (
 	"spuri/internal/utils"
 )
 
+type cursoPayload struct {
+	Nome               string
+	NomeInformado      bool
+	Type               string
+	TypeInformado      bool
+	AnosAcademicos     []string
+	AnosInformado      bool
+	PeriodosQuantidade int
+	PeriodosInformado  bool
+}
+
+func bindCursoPayload(c *gin.Context, req *cursoPayload) error {
+	var raw map[string]json.RawMessage
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&raw); err != nil {
+		return fmt.Errorf("dados invalidos")
+	}
+	for campo := range raw {
+		switch campo {
+		case "nome", "type", "anos_academicos", "periodos":
+		default:
+			return fmt.Errorf("campo não suportado em curso: %s", campo)
+		}
+	}
+	if v, ok := raw["nome"]; ok {
+		req.NomeInformado = true
+		if err := json.Unmarshal(v, &req.Nome); err != nil {
+			return fmt.Errorf("nome deve ser string")
+		}
+	}
+	if v, ok := raw["type"]; ok {
+		req.TypeInformado = true
+		if err := json.Unmarshal(v, &req.Type); err != nil {
+			return fmt.Errorf("type deve ser string")
+		}
+	}
+	if v, ok := raw["anos_academicos"]; ok {
+		req.AnosInformado = true
+		if err := json.Unmarshal(v, &req.AnosAcademicos); err != nil {
+			return fmt.Errorf("anos_academicos deve ser uma lista de strings")
+		}
+	}
+	if v, ok := raw["periodos"]; ok {
+		req.PeriodosInformado = true
+		dec := json.NewDecoder(bytes.NewReader(v))
+		dec.DisallowUnknownFields()
+		var n int
+		if err := dec.Decode(&n); err != nil {
+			return fmt.Errorf("periodos deve ser um número inteiro positivo para curso superior")
+		}
+		req.PeriodosQuantidade = n
+	}
+	return nil
+}
+
+func prepararDadosCursoPorTipo(tipoCurso string, req cursoPayload, criacao bool) ([]string, []string, error) {
+	if req.TypeInformado && req.Type != tipoCurso {
+		return nil, nil, fmt.Errorf("type do payload não corresponde ao tipo de curso permitido para a academia")
+	}
+	if tipoCurso == "superior" {
+		if req.AnosInformado {
+			return nil, nil, fmt.Errorf("anos_academicos não deve ser enviado para curso superior; é calculado automaticamente a partir de periodos")
+		}
+		if !req.PeriodosInformado {
+			return nil, nil, fmt.Errorf("periodos é obrigatório para curso superior")
+		}
+		return derivarCursoSuperior(req.PeriodosQuantidade)
+	}
+	if req.PeriodosInformado {
+		return nil, nil, fmt.Errorf("periodos numérico é aceito apenas para curso superior")
+	}
+	if criacao && !req.AnosInformado {
+		return nil, nil, fmt.Errorf("anos_academicos é obrigatório")
+	}
+	return req.AnosAcademicos, nil, nil
+}
+
+func prepararAtualizacaoCursoPorTipo(tipoCurso string, req cursoPayload) ([]string, *[]string, error) {
+	if req.TypeInformado {
+		return nil, nil, fmt.Errorf("type é imutável e não deve ser enviado na edição")
+	}
+	if !req.NomeInformado && !req.AnosInformado && !req.PeriodosInformado {
+		return nil, nil, fmt.Errorf("nenhum campo para atualizar")
+	}
+	if tipoCurso == "superior" {
+		if req.AnosInformado {
+			return nil, nil, fmt.Errorf("anos_academicos não deve ser enviado para curso superior; é calculado automaticamente a partir de periodos")
+		}
+		if req.PeriodosInformado {
+			anos, periodos, err := derivarCursoSuperior(req.PeriodosQuantidade)
+			if err != nil {
+				return nil, nil, err
+			}
+			return anos, &periodos, nil
+		}
+		return nil, nil, nil
+	}
+	if req.AnosInformado {
+		if _, _, err := prepararDadosCursoPorTipo(tipoCurso, req, false); err != nil {
+			return nil, nil, err
+		}
+		return req.AnosAcademicos, nil, nil
+	}
+	if req.PeriodosInformado {
+		return nil, nil, fmt.Errorf("periodos numérico é aceito apenas para curso superior")
+	}
+	return nil, nil, nil
+}
+
+func nomeAtualizacao(req cursoPayload) *string {
+	if !req.NomeInformado {
+		return nil
+	}
+	nome := req.Nome
+	return &nome
+}
+
+func derivarCursoSuperior(totalPeriodos int) ([]string, []string, error) {
+	if totalPeriodos <= 0 {
+		return nil, nil, fmt.Errorf("periodos deve ser um número inteiro positivo")
+	}
+	periodos := make([]string, totalPeriodos)
+	for i := 1; i <= totalPeriodos; i++ {
+		periodos[i-1] = fmt.Sprintf("%d_semestre", i)
+	}
+	totalAnos := (totalPeriodos + 1) / 2
+	anos := make([]string, totalAnos)
+	for i := 1; i <= totalAnos; i++ {
+		anos[i-1] = fmt.Sprintf("%d_ano_superior", i)
+	}
+	return anos, periodos, nil
+}
+
 // ============================================================================
 // POST /academia/cursos
 // ============================================================================
@@ -24,14 +160,13 @@ import (
 func CriarCurso(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
-	var req struct {
-		Nome           string   `json:"nome"            binding:"required"`
-		AnosAcademicos []string `json:"anos_academicos" binding:"required"`
-		Periodos       []string `json:"periodos"`
+	var req cursoPayload
+	if err := bindCursoPayload(c, &req); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
 	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("campos obrigatórios: nome, anos_academicos"))
+	if strings.TrimSpace(req.Nome) == "" {
+		utils.RespondWithValidationError(c, fmt.Errorf("nome é obrigatório"))
 		return
 	}
 
@@ -52,19 +187,16 @@ func CriarCurso(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
-	if tipoCurso == "superior" && len(req.Periodos) == 0 {
-		utils.RespondWithValidationError(c, fmt.Errorf("curso superior exige ao menos um período"))
-		return
-	}
-	if tipoCurso == "medio" && len(req.Periodos) > 0 {
-		utils.RespondWithValidationError(c, fmt.Errorf("curso médio não deve ter períodos"))
+	anosAcademicos, periodos, err := prepararDadosCursoPorTipo(tipoCurso, req, true)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
 	repository := getRepository(c)
 	curso := aggregates.NewCurso()
 
-	if err := curso.Criar(req.Nome, tipoCurso, req.AnosAcademicos, req.Periodos, academiaDTO.CodigoAcademia); err != nil {
+	if err := curso.Criar(req.Nome, tipoCurso, anosAcademicos, periodos, academiaDTO.CodigoAcademia); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -165,14 +297,9 @@ func AtualizarDadosCurso(c *gin.Context) {
 	}
 
 	// Type não é aceito: o tipo do curso é imutável após a criação.
-	var req struct {
-		Nome           *string   `json:"nome"`
-		AnosAcademicos []string  `json:"anos_academicos"`
-		Periodos       *[]string `json:"periodos"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("dados invalidos"))
+	var req cursoPayload
+	if err := bindCursoPayload(c, &req); err != nil {
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
@@ -203,12 +330,18 @@ func AtualizarDadosCurso(c *gin.Context) {
 		return
 	}
 
-	if err := validarEdicaoCursoComEstudantesAtivos(c, cursoDTO, req.AnosAcademicos, req.Periodos); err != nil {
+	novosAnos, novosPeriodos, err := prepararAtualizacaoCursoPorTipo(cursoDTO.Type, req)
+	if err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
-	if err := curso.AtualizarDados(req.Nome, req.AnosAcademicos, req.Periodos, userID); err != nil {
+	if err := validarEdicaoCursoComEstudantesAtivos(c, cursoDTO, novosAnos, novosPeriodos); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if err := curso.AtualizarDados(nomeAtualizacao(req), novosAnos, novosPeriodos, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
