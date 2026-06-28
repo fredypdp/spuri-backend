@@ -724,11 +724,9 @@ func (e *Estudante) Reintegrar(codigoAcademia, tipoEnsino string, anoEscolar, an
 	event := &EstudanteReintegradoEvent{BaseEvent: BaseEvent{EventType: "EstudanteReintegrado", AggregateID: e.ID}, CodigoAcademia: codigoAcademia, CodigoEstudante: e.CodigoEstudante, TipoEnsino: tipoEnsino, ReintegradoPor: reintegradoPor, ReintegradoAt: time.Now()}
 	switch tipoEnsino {
 	case "fundamental":
+		anoEscolar = e.AnoEscolar
 		if anoEscolar == nil {
-			anoEscolar = e.AnoEscolar
-		}
-		if anoEscolar == nil {
-			return fmt.Errorf("ano_escolar_fundamental é obrigatório")
+			return fmt.Errorf("não foi possível determinar o ano_escolar_fundamental anterior do estudante para reingresso")
 		}
 		if err := utils.ValidateAnoFundamental(*anoEscolar); err != nil {
 			return fmt.Errorf("ano_escolar_fundamental inválido: %w", err)
@@ -740,8 +738,7 @@ func (e *Estudante) Reintegrar(codigoAcademia, tipoEnsino string, anoEscolar, an
 		}
 		if e.CursoMedioID != nil && *e.CursoMedioID == *cursoMedioID && e.AnoEscolarMedio != nil {
 			anoEscolarMedio = e.AnoEscolarMedio
-		}
-		if e.CursoMedioID != nil && *e.CursoMedioID != *cursoMedioID {
+		} else {
 			inicio := "1_ano_medio"
 			anoEscolarMedio = &inicio
 		}

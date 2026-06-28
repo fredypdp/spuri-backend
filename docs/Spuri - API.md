@@ -2326,8 +2326,7 @@ Reintegra estudante arquivado à academia e muda o status geral para `ativo`.
 
 ```json
 {
-  "tipo_ensino": "fundamental",
-  "ano_escolar_fundamental": "4_ano_fundamental"
+  "tipo_ensino": "fundamental"
 }
 ```
 
@@ -2336,7 +2335,6 @@ Reintegra estudante arquivado à academia e muda o status geral para `ativo`.
 ```json
 {
   "tipo_ensino": "medio",
-  "ano_escolar_medio": "2_ano_medio",
   "curso_medio_id": "uuid-do-curso-medio"
 }
 ```
@@ -2350,7 +2348,7 @@ Reintegra estudante arquivado à academia e muda o status geral para `ativo`.
 }
 ```
 
-No reingresso/revinculação o backend preserva a progressão acadêmica consolidada quando o curso informado é o mesmo já registrado no histórico do estudante. Assim, superior retorna ao mesmo `semestre_atual`/`ano_superior`, médio retorna ao mesmo `ano_escolar_medio` e fundamental reutiliza o `ano_escolar_fundamental` anterior quando ele não for reenviado. Apenas mudança real de curso reinicia o vínculo atual: no superior para `semestre_atual = 1` e `ano_superior = "1_ano_superior"`; no médio para `ano_escolar_medio = "1_ano_medio"`. Eventos de trancamento, interrupção, desvinculação e reativação não apagam notas, faltas, avaliações, turmas ou demais registros históricos.
+No reingresso/revinculação o cliente não informa ano nem semestre. O backend determina a progressão acadêmica consolidada a partir do histórico do estudante quando o curso informado é o mesmo já registrado. Assim, superior retorna ao mesmo `semestre_atual`/`ano_superior`, médio retorna ao mesmo `ano_escolar_medio` e fundamental reutiliza o `ano_escolar_fundamental` anterior. Apenas mudança real de curso reinicia o vínculo atual: no superior para `semestre_atual = 1` e `ano_superior = "1_ano_superior"`; no médio para `ano_escolar_medio = "1_ano_medio"`. Eventos de trancamento, interrupção, desvinculação e reativação não apagam notas, faltas, avaliações, turmas ou demais registros históricos.
 
 
 **Response 200:**
