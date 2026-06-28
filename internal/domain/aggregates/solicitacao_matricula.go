@@ -74,8 +74,8 @@ func (s *SolicitacaoMatricula) Criar(codigoSolicitacao, codigoAcademia, nome, ge
 	if !dataNascimento.Before(time.Now().UTC().Truncate(24 * time.Hour)) {
 		return fmt.Errorf("data_nascimento deve ser anterior à data atual")
 	}
-	if isNilOrBlank(bi) && isNilOrBlank(biResp) {
-		return fmt.Errorf("bilhete_identidade ou bilhete_identidade_responsavel é obrigatório")
+	if isNilOrBlank(biResp) {
+		return fmt.Errorf("bilhete_identidade_responsavel é obrigatório")
 	}
 	if bilhetesSolicitacaoIguais(bi, biResp) {
 		return fmt.Errorf("bilhete_identidade e bilhete_identidade_responsavel não podem ser iguais")
@@ -83,10 +83,15 @@ func (s *SolicitacaoMatricula) Criar(codigoSolicitacao, codigoAcademia, nome, ge
 	if documentos == nil || len(documentos) == 0 {
 		return fmt.Errorf("documentos são obrigatórios")
 	}
-	if _, ok := documentos["bi_estudante"]; !ok {
-		if _, okResp := documentos["bi_responsavel"]; !okResp {
-			return fmt.Errorf("documento bi_estudante ou bi_responsavel é obrigatório")
+	if _, ok := documentos["bi_responsavel"]; !ok {
+		return fmt.Errorf("documento bi_responsavel é obrigatório")
+	}
+	if !isNilOrBlank(bi) {
+		if _, ok := documentos["bi_estudante"]; !ok {
+			return fmt.Errorf("documento bi_estudante é obrigatório quando bilhete_identidade for informado")
 		}
+	} else if _, ok := documentos["cedula_estudante"]; !ok {
+		return fmt.Errorf("documento cedula_estudante é obrigatório quando bilhete_identidade não for informado")
 	}
 	now := time.Now().UTC()
 	ev := &SolicitacaoMatriculaCriadaEvent{BaseEvent: BaseEvent{EventType: "SolicitacaoMatriculaCriada", AggregateID: s.ID}, CodigoSolicitacao: codigoSolicitacao, CodigoAcademia: codigoAcademia, Nome: nome, Genero: genero, DataNascimento: dataNascimento, Email: email, Telefone: telefone, BilheteIdentidade: bi, BilheteIdentidadeResponsavel: biResp, AnoEscolarFundamental: anoFund, AnoEscolarMedio: anoMedio, CursoMedioID: cursoMedioID, AnoSuperior: anoSuperior, CursoSuperiorID: cursoSuperiorID, Status: StatusSolicitacaoPendente, Documentos: documentos, CreatedAt: now, UpdatedAt: now}

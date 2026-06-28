@@ -2,7 +2,10 @@
 modificado: 28-06-2026 01:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 2.0.3
+Versão atual: 2.0.4
+
+> Atualização 2.0.4: a regra escolar de identificação foi consolidada na camada de domínio/handlers. Todo caminho que cria ou aprova estudante escolar/fundamental/médio precisa ter BI textual e PDF do responsável, documento identificatório do estudante coerente com a presença ou ausência de BI próprio, documento acadêmico obrigatório e validação de conflito entre BI do responsável e BI principal de outro estudante escolar.
+
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -505,7 +508,7 @@ Permite que qualquer usuário (estudante, academia ou admin) registe números de
 - JSON puro não é aceito no cadastro direto; o fluxo deve usar `multipart/form-data` para impedir bypass documental
 - `bilhete_identidade_responsavel` e o PDF `bi_responsavel` são obrigatórios
 - `bilhete_identidade` e `bilhete_identidade_responsavel`, quando ambos informados, não podem ser iguais após normalização
-- `cedula_estudante` é obrigatória quando `bi_estudante` não for enviado
+- `bi_estudante` é obrigatório quando `bilhete_identidade` for informado; sem BI próprio, `cedula_estudante` é obrigatória
 - Certificado aplicável por ano/nível (`certificado_6_ano_fundamental`, `certificado_9_ano_fundamental` ou `certificado_ensino_medio`) pode ser substituído por `declaracao`; quando não houver certificado aplicável, `declaracao` é obrigatória
 - `ano_escolar_fundamental` deve seguir o formato canônico para o tipo de ensino
 - Se informar `curso_medio_id`, o curso deve existir, estar ativo, pertencer à academia e ser do tipo `medio`

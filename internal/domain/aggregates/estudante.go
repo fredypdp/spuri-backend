@@ -426,6 +426,33 @@ func (e *Estudante) CriarComVinculo(
 	if len(documentosOpt) > 0 && documentosOpt[0] != nil {
 		documentos = documentosOpt[0]
 	}
+	estudanteEscolar := (anoEscolar != nil && strings.TrimSpace(*anoEscolar) != "") ||
+		(anoEscolarMedio != nil && strings.TrimSpace(*anoEscolarMedio) != "") ||
+		anoSuperior == nil || strings.TrimSpace(*anoSuperior) == ""
+	if estudanteEscolar {
+		if bilheteResp == nil || strings.TrimSpace(*bilheteResp) == "" {
+			return fmt.Errorf("bilhete_identidade_responsavel é obrigatório para estudantes escolares")
+		}
+		if _, ok := documentos["bi_responsavel"]; !ok {
+			return fmt.Errorf("documento bi_responsavel é obrigatório para estudantes escolares")
+		}
+		if bilhete != nil && strings.TrimSpace(*bilhete) != "" {
+			if _, ok := documentos["bi_estudante"]; !ok {
+				return fmt.Errorf("documento bi_estudante é obrigatório quando bilhete_identidade for informado")
+			}
+		} else if _, ok := documentos["cedula_estudante"]; !ok {
+			return fmt.Errorf("documento cedula_estudante é obrigatório quando bilhete_identidade não for informado")
+		}
+		if _, ok := documentos["certificado_6_ano_fundamental"]; !ok {
+			if _, ok := documentos["certificado_9_ano_fundamental"]; !ok {
+				if _, ok := documentos["certificado_ensino_medio"]; !ok {
+					if _, ok := documentos["declaracao"]; !ok {
+						return fmt.Errorf("certificado aplicável ou declaração é obrigatório para estudantes escolares")
+					}
+				}
+			}
+		}
+	}
 
 	statusFund := "em_andamento"
 	statusMed := "inativo"

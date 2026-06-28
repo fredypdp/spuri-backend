@@ -1066,6 +1066,19 @@ func (p *EstudanteProjection) GetByBilheteIdentidadePrincipalExcludingID(bilhete
 	))
 }
 
+func (p *EstudanteProjection) GetEscolarByBilheteIdentidadePrincipalExcludingID(bilhete string, estudanteID *uuid.UUID) (*EstudanteDTO, error) {
+	query := `SELECT ` + estudanteCols + ` FROM projection_estudantes
+		 WHERE lower(btrim(bilhete_identidade)) = lower(btrim($1))
+		   AND (ano_escolar_fundamental IS NOT NULL OR ano_escolar_medio IS NOT NULL)
+		   AND ($2::uuid IS NULL OR id <> $2)
+		 LIMIT 1`
+	var exclude interface{}
+	if estudanteID != nil {
+		exclude = *estudanteID
+	}
+	return scanEstudante(p.client.DB().QueryRow(query, bilhete, exclude))
+}
+
 func (p *EstudanteProjection) CountByCurso(cursoID uuid.UUID) (int, error) {
 	var count int
 	err := p.client.DB().QueryRow(

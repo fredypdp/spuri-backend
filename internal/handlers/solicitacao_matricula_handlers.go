@@ -98,11 +98,14 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("envie o PDF do bilhete de identidade do responsável; este documento é obrigatório para concluir a solicitação de matrícula"))
 		return
 	}
-	if _, hasStudentBI := files["bi_estudante"]; !hasStudentBI {
-		if _, ok := files["cedula_estudante"]; !ok {
-			utils.RespondWithValidationError(c, fmt.Errorf("envie a cédula do estudante quando o bilhete de identidade do estudante não for informado"))
+	if bi != "" {
+		if _, hasStudentBI := files["bi_estudante"]; !hasStudentBI {
+			utils.RespondWithValidationError(c, fmt.Errorf("envie o PDF do bilhete de identidade do estudante quando bilhete_identidade for informado"))
 			return
 		}
+	} else if _, ok := files["cedula_estudante"]; !ok {
+		utils.RespondWithValidationError(c, fmt.Errorf("envie a cédula do estudante quando o bilhete de identidade do estudante não for informado"))
+		return
 	}
 	if requiredCertField == "" {
 		if _, ok := files["declaracao"]; !ok {
@@ -114,6 +117,11 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 			utils.RespondWithValidationError(c, fmt.Errorf("envie o %s ou, caso ainda não o tenha, envie a declaração escolar", documentLabel(requiredCertField)))
 			return
 		}
+	}
+
+	if err := validarConflitoBIResponsavelEscolar(c, biResp, nil); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
 	}
 
 	codigo, err := generateUniqueCodigoSolicitacao(getDbClient(c))
@@ -241,6 +249,16 @@ func AprovarSolicitacaoMatricula(c *gin.Context) {
 		utils.RespondWithError(c, http.StatusConflict, "solicitação já foi aprovada ou reprovada", nil)
 		return
 	}
+	if err := validarDocumentosEscolaresObrigatorios(agg.BilheteIdentidade, agg.BilheteIdentidadeResponsavel, agg.Documentos, agg.AnoEscolarFundamental, agg.AnoEscolarMedio, agg.AnoSuperior); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if agg.BilheteIdentidadeResponsavel != nil {
+		if err := validarConflitoBIResponsavelEscolar(c, *agg.BilheteIdentidadeResponsavel, nil); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+	}
 	if agg.BilheteIdentidade != nil && strings.TrimSpace(*agg.BilheteIdentidade) != "" {
 		existente, err := getEstudanteProjection(c).GetByBilheteIdentidadePrincipal(*agg.BilheteIdentidade)
 		if err != nil {
@@ -362,6 +380,35 @@ func currentAcademiaDTO(c *gin.Context) (*projections.AcademiaDTO, bool) {
 		return nil, false
 	}
 	return a, true
+}
+
+func validarDocumentosEscolaresObrigatorios(bi, biResp *string, documentos map[string]aggregates.DocumentoMatricula, anoFund, anoMedio, anoSup *string) error {
+	if !estudanteEscolarPorAnos(anoFund, anoMedio, anoSup) {
+		return nil
+	}
+	if biResp == nil || strings.TrimSpace(*biResp) == "" {
+		return fmt.Errorf("bilhete_identidade_responsavel é obrigatório para estudantes escolares")
+	}
+	if _, ok := documentos["bi_responsavel"]; !ok {
+		return fmt.Errorf("documento bi_responsavel é obrigatório para estudantes escolares")
+	}
+	if bi != nil && strings.TrimSpace(*bi) != "" {
+		if _, ok := documentos["bi_estudante"]; !ok {
+			return fmt.Errorf("documento bi_estudante é obrigatório quando bilhete_identidade for informado")
+		}
+	} else if _, ok := documentos["cedula_estudante"]; !ok {
+		return fmt.Errorf("documento cedula_estudante é obrigatório quando bilhete_identidade não for informado")
+	}
+	if _, ok := documentos["certificado_6_ano_fundamental"]; !ok {
+		if _, ok := documentos["certificado_9_ano_fundamental"]; !ok {
+			if _, ok := documentos["certificado_ensino_medio"]; !ok {
+				if _, ok := documentos["declaracao"]; !ok {
+					return fmt.Errorf("certificado aplicável ou declaração é obrigatório para estudantes escolares")
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func loadSolicitacaoByCodigo(c *gin.Context, codigo string) (*projections.SolicitacaoMatriculaDTO, *aggregates.SolicitacaoMatricula, bool) {

@@ -141,11 +141,14 @@ func registerEstudantePorAcademiaMultipart(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("envie o PDF do bilhete de identidade do responsável; este documento é obrigatório para concluir o cadastro"))
 		return
 	}
-	if _, ok := files["bi_estudante"]; !ok {
-		if _, ok := files["cedula_estudante"]; !ok {
-			utils.RespondWithValidationError(c, fmt.Errorf("envie a cédula do estudante quando o bilhete de identidade do estudante não for informado"))
+	if req.BilheteIdentidade != "" {
+		if _, ok := files["bi_estudante"]; !ok {
+			utils.RespondWithValidationError(c, fmt.Errorf("envie o PDF do bilhete de identidade do estudante quando bilhete_identidade for informado"))
 			return
 		}
+	} else if _, ok := files["cedula_estudante"]; !ok {
+		utils.RespondWithValidationError(c, fmt.Errorf("envie a cédula do estudante quando o bilhete de identidade do estudante não for informado"))
+		return
 	}
 	if requiredCertField == "" {
 		if _, ok := files["declaracao"]; !ok {
@@ -209,6 +212,11 @@ func registerEstudantePorAcademiaMultipart(c *gin.Context) {
 	if req.BilheteResponsavel != "" {
 		bilheteRespPtr = &req.BilheteResponsavel
 	}
+	if err := validarConflitoBIResponsavelEscolar(c, req.BilheteResponsavel, nil); err != nil {
+		_ = provider.Delete(dir)
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 	if bilhetePtr != nil {
 		existente, err := getEstudanteProjection(c).GetByBilheteIdentidadePrincipal(*bilhetePtr)
 		if err != nil {
@@ -262,6 +270,27 @@ func registerEstudantePorAcademiaMultipart(c *gin.Context) {
 	}
 	log.Printf("Estudante criado por academia %s: %s - %s", academia.CodigoAcademia, codigoEstudante, req.Nome)
 	c.JSON(http.StatusCreated, gin.H{"message": "estudante registrado com sucesso", "data": gin.H{"id": estudante.ID, "codigo_estudante": codigoEstudante, "codigo_academia": academia.CodigoAcademia, "documentos": documentos}})
+}
+
+func validarConflitoBIResponsavelEscolar(c *gin.Context, bilheteResponsavel string, estudanteID *uuid.UUID) error {
+	bilheteResponsavel = strings.TrimSpace(bilheteResponsavel)
+	if bilheteResponsavel == "" {
+		return fmt.Errorf("bilhete_identidade_responsavel é obrigatório para estudantes escolares")
+	}
+	existente, err := getEstudanteProjection(c).GetEscolarByBilheteIdentidadePrincipalExcludingID(bilheteResponsavel, estudanteID)
+	if err != nil {
+		return err
+	}
+	if existente != nil {
+		return fmt.Errorf("bilhete_identidade_responsavel não pode coincidir com o bilhete de identidade principal de outro estudante escolar")
+	}
+	return nil
+}
+
+func estudanteEscolarPorAnos(anoFund, anoMedio, anoSup *string) bool {
+	return (anoFund != nil && strings.TrimSpace(*anoFund) != "") ||
+		(anoMedio != nil && strings.TrimSpace(*anoMedio) != "") ||
+		anoSup == nil || strings.TrimSpace(*anoSup) == ""
 }
 
 // ============================================================================
@@ -651,6 +680,21 @@ func AtualizarDadosPessoais(c *gin.Context) {
 	if !ok {
 		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
 		return
+	}
+
+	responsavelEfetivo := estudante.BilheteIdentidadeResp
+	if req.BilheteIdentidadeResp != nil {
+		responsavelEfetivo = req.BilheteIdentidadeResp
+	}
+	if estudanteEscolarPorAnos(estudante.AnoEscolar, estudante.AnoEscolarMedio, estudante.AnoSuperior) {
+		if responsavelEfetivo == nil || strings.TrimSpace(*responsavelEfetivo) == "" {
+			utils.RespondWithValidationError(c, fmt.Errorf("bilhete_identidade_responsavel é obrigatório para estudantes escolares"))
+			return
+		}
+		if err := validarConflitoBIResponsavelEscolar(c, *responsavelEfetivo, &userID); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
 	}
 
 	if err := estudante.AtualizarDadosPessoais(
