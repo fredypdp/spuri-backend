@@ -194,3 +194,55 @@ func TestReplayEventosPreservaEstadoFinalDaReintegracao(t *testing.T) {
 		t.Fatalf("AnoSuperior replay = %v, want %v", replay.AnoSuperior, estudante.AnoSuperior)
 	}
 }
+
+func TestApplyEventosRetomadaPreservamHistoricoSemMudancaCurso(t *testing.T) {
+	cursoMedioID := uuid.New()
+	cursoSuperiorID := uuid.New()
+	anoFundamental := "5_ano_fundamental"
+	anoMedio := "2_ano_medio"
+	anoSuperior := "2_ano_superior"
+	semestre := 4
+
+	estudante := NewEstudante()
+	estudante.AnoEscolar = &anoFundamental
+	estudante.AnoEscolarMedio = &anoMedio
+	estudante.CursoMedioID = &cursoMedioID
+	estudante.AnoSuperior = &anoSuperior
+	estudante.SemestreAtual = &semestre
+	estudante.CursoSuperiorID = &cursoSuperiorID
+
+	if err := estudante.Apply(&MatriculaFundamentalEfetivadaEvent{
+		BaseEvent:  BaseEvent{EventType: "FundamentalRetomado", AggregateID: estudante.ID},
+		AnoEscolar: "1_ano_fundamental",
+	}); err != nil {
+		t.Fatalf("Apply(FundamentalRetomado) retornou erro: %v", err)
+	}
+	if err := estudante.Apply(&MatriculaMedioEfetivadaEvent{
+		BaseEvent:  BaseEvent{EventType: "MedioRetomado", AggregateID: estudante.ID},
+		CursoID:    cursoMedioID,
+		AnoEscolar: "1_ano_medio",
+	}); err != nil {
+		t.Fatalf("Apply(MedioRetomado) retornou erro: %v", err)
+	}
+	if err := estudante.Apply(&MatriculaSuperiorEfetivadaEvent{
+		BaseEvent:     BaseEvent{EventType: "MatriculaSuperiorReativada", AggregateID: estudante.ID},
+		CursoID:       cursoSuperiorID,
+		AnoSuperior:   "1_ano_superior",
+		SemestreAtual: 1,
+	}); err != nil {
+		t.Fatalf("Apply(MatriculaSuperiorReativada) retornou erro: %v", err)
+	}
+
+	if estudante.AnoEscolar == nil || *estudante.AnoEscolar != "5_ano_fundamental" {
+		t.Fatalf("AnoEscolar = %v, want 5_ano_fundamental", estudante.AnoEscolar)
+	}
+	if estudante.AnoEscolarMedio == nil || *estudante.AnoEscolarMedio != "2_ano_medio" {
+		t.Fatalf("AnoEscolarMedio = %v, want 2_ano_medio", estudante.AnoEscolarMedio)
+	}
+	if estudante.SemestreAtual == nil || *estudante.SemestreAtual != 4 {
+		t.Fatalf("SemestreAtual = %v, want 4", estudante.SemestreAtual)
+	}
+	if estudante.AnoSuperior == nil || *estudante.AnoSuperior != "2_ano_superior" {
+		t.Fatalf("AnoSuperior = %v, want 2_ano_superior", estudante.AnoSuperior)
+	}
+}
