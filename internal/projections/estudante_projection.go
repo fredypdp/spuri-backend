@@ -737,7 +737,12 @@ func (p *EstudanteProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) e
 	var col string
 	switch tipoEnsino {
 	case "fundamental":
-		col = "ano_escolar_fundamental"
+		_, err = p.client.DB().Exec(`
+			UPDATE projection_estudantes
+			SET ano_escolar_fundamental = $1, status_escolar_fundamental = 'em_andamento', version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
+			WHERE id = $4
+		`, payload.ProximoAnoAcademico, event.EventVersion, event.EventID, event.AggregateID)
+		return err
 	case "medio":
 		col = "ano_escolar_medio"
 	case "superior":

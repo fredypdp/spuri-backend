@@ -2,7 +2,7 @@
 modificado: 28-06-2026 17:10
 criado: 05-04-2026 13:01
 ---
-Versão atual: 2.0.7
+Versão atual: 2.0.8
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -3988,7 +3988,7 @@ Não existe rota pública/registrada para executar avaliação final manualmente
 - O backend evita duplicidade por `codigo_estudante`, `codigo_academia`, `ano_lectivo`, `tipo_ensino`, `ano_academico_atual` e `type`.
 - Se alguma nota exigida pela fórmula ainda estiver ausente, aquela regra é ignorada naquele momento e poderá ser calculada quando novas notas forem registradas.
 - Quando uma regra é executada, o backend calcula `nota_final`, define `aprovado = nota_final >= nota_minima_aprovacao`, calcula o próximo ano acadêmico e persiste o evento com snapshot da regra.
-- O registro de nota retorna o campo `avaliacoes_finais_automaticas` com os resultados automáticos disparados naquele request.
+- O registro de nota retorna o campo `avaliacoes_finais_automaticas` com os resultados automáticos disparados naquele request. Para fundamental aprovado com próximo ano global ainda não ofertado pela academia, o item inclui `motivo_progressao = "academia_sem_oferta_do_proximo_ano_academico_fundamental"` e `sem_oferta_do_proximo_ano_academico_na_academia = true`; o estudante permanece em andamento no próximo ano global e não recebe turma automática.
 
 **Exemplo de resposta parcial de `POST /academia/notas-aluno` quando uma avaliação é disparada:**
 
@@ -4007,7 +4007,9 @@ Não existe rota pública/registrada para executar avaliação final manualmente
       "nota_final": 12.5,
       "nota_minima_aprovacao": 10,
       "resultado": "aprovado → 4_ano_fundamental",
-      "turmas_removidas": ["T1A"]
+      "turmas_removidas": ["T1A"],
+      "motivo_progressao": "academia_sem_oferta_do_proximo_ano_academico_fundamental",
+      "sem_oferta_do_proximo_ano_academico_na_academia": true
     }
   ]
 }

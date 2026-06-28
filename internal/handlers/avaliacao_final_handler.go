@@ -174,9 +174,13 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 	var proximoAnoAcademico *string
 	var semestreAvaliado, proximoSemestre *int
 	var anoSuperiorAntes, anoSuperiorDepois *string
+	var motivoProgressao *string
 	switch tipoEnsino {
 	case "fundamental":
 		proximoAnoAcademico, err = calcularProximoAnoFundamental(req.AnoAcademicoAtual, aprovado)
+		if err == nil {
+			motivoProgressao = motivoProgressaoFundamentalSemOferta(aprovado, proximoAnoAcademico, academiaDTO.AnosAcademicos)
+		}
 	case "medio":
 		proximoAnoAcademico, err = calcularProximoAnoCurso(c, cursoMedioUUID, req.AnoAcademicoAtual, aprovado)
 	case "superior":
@@ -228,6 +232,7 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		&regra.ID,
 		regra.Formula,
 		regra.AplicaSeReprovadoEmType,
+		motivoProgressao,
 		aggregates.AvaliacaoFinalSuperiorProgressao{
 			SemestreAtualAvaliado: semestreAvaliado,
 			ProximoSemestreAtual:  proximoSemestre,
@@ -266,6 +271,10 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		"nota_minima_aprovacao": regra.NotaMinimaAprovacao,
 		"resultado":             resultado,
 		"turmas_removidas":      turmasAtuais,
+	}
+	if motivoProgressao != nil {
+		response["motivo_progressao"] = *motivoProgressao
+		response["sem_oferta_do_proximo_ano_academico_na_academia"] = true
 	}
 	c.JSON(http.StatusCreated, response)
 }
@@ -488,9 +497,18 @@ func executarRegraAvaliacaoFinalAutomatica(
 	var proximoAnoAcademico *string
 	var semestreAvaliado, proximoSemestre *int
 	var anoSuperiorAntes, anoSuperiorDepois *string
+	var motivoProgressao *string
 	switch tipoEnsino {
 	case "fundamental":
 		proximoAnoAcademico, err = calcularProximoAnoFundamental(anoAcademicoAtual, aprovado)
+		if err == nil {
+			academiaDTO, academiaErr := getAcademiaProjection(c).GetByCodigo(codigoAcademia)
+			if academiaErr != nil {
+				err = academiaErr
+			} else if academiaDTO != nil {
+				motivoProgressao = motivoProgressaoFundamentalSemOferta(aprovado, proximoAnoAcademico, academiaDTO.AnosAcademicos)
+			}
+		}
 	case "medio":
 		proximoAnoAcademico, err = calcularProximoAnoCurso(c, cursoMedioUUID, anoAcademicoAtual, aprovado)
 	case "superior":
@@ -525,6 +543,7 @@ func executarRegraAvaliacaoFinalAutomatica(
 		&regra.ID,
 		regra.Formula,
 		regra.AplicaSeReprovadoEmType,
+		motivoProgressao,
 		aggregates.AvaliacaoFinalSuperiorProgressao{
 			SemestreAtualAvaliado: semestreAvaliado,
 			ProximoSemestreAtual:  proximoSemestre,
@@ -538,13 +557,18 @@ func executarRegraAvaliacaoFinalAutomatica(
 		return nil, false, err
 	}
 
-	return gin.H{
+	resultado := gin.H{
 		"type":                  regra.Type,
 		"aprovado":              aprovado,
 		"nota_final":            notaFinal,
 		"nota_minima_aprovacao": regra.NotaMinimaAprovacao,
 		"proximo_ano_academico": proximoAnoAcademico,
-	}, true, nil
+	}
+	if motivoProgressao != nil {
+		resultado["motivo_progressao"] = *motivoProgressao
+		resultado["sem_oferta_do_proximo_ano_academico_na_academia"] = true
+	}
+	return resultado, true, nil
 }
 
 func inferirTipoEnsinoDoEstudante(estudante *projections.EstudanteDTO) string {
@@ -1076,6 +1100,21 @@ func calcularProximoAnoFundamental(
 }
 
 // calcularProximoAnoCurso calcula o próximo ano com base na sequência do curso (médio/superior).
+
+const motivoAcademiaSemOfertaProximoAnoFundamental = "academia_sem_oferta_do_proximo_ano_academico_fundamental"
+
+func motivoProgressaoFundamentalSemOferta(aprovado bool, proximoAnoAcademico *string, anosAcademicosAcademia []string) *string {
+	if !aprovado || proximoAnoAcademico == nil {
+		return nil
+	}
+	for _, ano := range anosAcademicosAcademia {
+		if strings.TrimSpace(ano) == *proximoAnoAcademico {
+			return nil
+		}
+	}
+	motivo := motivoAcademiaSemOfertaProximoAnoFundamental
+	return &motivo
+}
 
 func calcularProximoAnoCurso(
 	c *gin.Context,

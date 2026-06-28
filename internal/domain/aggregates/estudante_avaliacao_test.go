@@ -29,6 +29,7 @@ func TestRegistrarAvaliacaoFinalBloqueiaDuplicidadeNoMesmoAnoLetivo(t *testing.T
 		nil,
 		"",
 		nil,
+		nil,
 	); err != nil {
 		t.Fatalf("primeira avaliação final retornou erro: %v", err)
 	}
@@ -48,6 +49,7 @@ func TestRegistrarAvaliacaoFinalBloqueiaDuplicidadeNoMesmoAnoLetivo(t *testing.T
 		10,
 		nil,
 		"",
+		nil,
 		nil,
 	)
 	if err == nil {
@@ -82,6 +84,7 @@ func TestRegistrarAvaliacaoFinalBloqueiaDuplicidadeNoMesmoNivel(t *testing.T) {
 		nil,
 		"",
 		nil,
+		nil,
 	); err != nil {
 		t.Fatalf("primeira avaliação final retornou erro: %v", err)
 	}
@@ -102,11 +105,50 @@ func TestRegistrarAvaliacaoFinalBloqueiaDuplicidadeNoMesmoNivel(t *testing.T) {
 		nil,
 		"",
 		nil,
+		nil,
 	)
 	if err == nil {
 		t.Fatal("segunda avaliação final no mesmo nível deveria ser rejeitada")
 	}
 	if !strings.Contains(err.Error(), "nível") {
 		t.Fatalf("erro deveria mencionar duplicidade no nível, recebido: %v", err)
+	}
+}
+
+func TestAvaliacaoFinalFundamentalComProximoAnoMantemStatusEmAndamento(t *testing.T) {
+	codigoAcademia := "ACA_01"
+	proximoAno := "6_ano_fundamental"
+
+	estudante := NewEstudante()
+	estudante.CodigoEstudante = "EST1234"
+	estudante.CodigoAcademia = &codigoAcademia
+	estudante.StatusEscolarFundamental = "finalizado"
+
+	if err := estudante.RegistrarAvaliacaoFinal(
+		codigoAcademia,
+		"2025_2026",
+		"fundamental",
+		"5_ano_fundamental",
+		&proximoAno,
+		nil,
+		nil,
+		true,
+		nil,
+		"normal",
+		10,
+		10,
+		nil,
+		"",
+		nil,
+		nil,
+	); err != nil {
+		t.Fatalf("avaliação final retornou erro: %v", err)
+	}
+
+	if estudante.AnoEscolar == nil || *estudante.AnoEscolar != proximoAno {
+		t.Fatalf("AnoEscolar = %v, want %s", estudante.AnoEscolar, proximoAno)
+	}
+	if estudante.StatusEscolarFundamental != "em_andamento" {
+		t.Fatalf("StatusEscolarFundamental = %q, want em_andamento", estudante.StatusEscolarFundamental)
 	}
 }

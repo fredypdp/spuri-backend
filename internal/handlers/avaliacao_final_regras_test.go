@@ -69,3 +69,24 @@ func TestMesmosAnosAcademicosIgnoraOrdem(t *testing.T) {
 		t.Fatal("mesmosAnosAcademicos() should ignore order")
 	}
 }
+
+func TestMotivoProgressaoFundamentalSemOferta(t *testing.T) {
+	proximo := "6_ano_fundamental"
+	motivo := motivoProgressaoFundamentalSemOferta(true, &proximo, []string{"1_ano_fundamental", "5_ano_fundamental"})
+	if motivo == nil || *motivo != motivoAcademiaSemOfertaProximoAnoFundamental {
+		t.Fatalf("motivoProgressaoFundamentalSemOferta() = %v, want motivo sem oferta", motivo)
+	}
+}
+
+func TestMotivoProgressaoFundamentalSemOfertaIgnoraQuandoOfertadoOuFinalizado(t *testing.T) {
+	proximo := "6_ano_fundamental"
+	if motivo := motivoProgressaoFundamentalSemOferta(true, &proximo, []string{"6_ano_fundamental"}); motivo != nil {
+		t.Fatalf("motivo ofertado = %v, want nil", *motivo)
+	}
+	if motivo := motivoProgressaoFundamentalSemOferta(true, nil, []string{"9_ano_fundamental"}); motivo != nil {
+		t.Fatalf("motivo ciclo finalizado = %v, want nil", *motivo)
+	}
+	if motivo := motivoProgressaoFundamentalSemOferta(false, &proximo, nil); motivo != nil {
+		t.Fatalf("motivo reprovação = %v, want nil", *motivo)
+	}
+}

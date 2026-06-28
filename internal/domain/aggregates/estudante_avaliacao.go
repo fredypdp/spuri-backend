@@ -31,6 +31,7 @@ type AvaliacaoFinalBasePayload struct {
 	ProximoSemestreAtual    *int       `json:"proximo_semestre_atual,omitempty"`
 	AnoSuperiorAntes        *string    `json:"ano_superior_antes,omitempty"`
 	AnoSuperiorDepois       *string    `json:"ano_superior_depois,omitempty"`
+	MotivoProgressao        *string    `json:"motivo_progressao,omitempty"`
 	RegisteredAt            time.Time  `json:"registered_at"`
 }
 
@@ -81,6 +82,7 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 	regraAvaliacaoFinalID *uuid.UUID,
 	formulaSnapshot string,
 	aplicaSeReprovadoEmType *string,
+	motivoProgressao *string,
 	progressaoSuperior ...AvaliacaoFinalSuperiorProgressao,
 ) error {
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
@@ -137,6 +139,7 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 		ProximoSemestreAtual:    progressao.ProximoSemestreAtual,
 		AnoSuperiorAntes:        progressao.AnoSuperiorAntes,
 		AnoSuperiorDepois:       progressao.AnoSuperiorDepois,
+		MotivoProgressao:        motivoProgressao,
 		RegisteredAt:            time.Now(),
 	}
 	var event DomainEvent
@@ -198,6 +201,7 @@ func (e *Estudante) applyAvaliacaoFinalPayload(ev AvaliacaoFinalBasePayload) err
 		switch ev.TipoEnsino {
 		case "fundamental":
 			e.AnoEscolar = ev.ProximoAnoAcademico
+			e.StatusEscolarFundamental = "em_andamento"
 		case "medio":
 			e.AnoEscolarMedio = ev.ProximoAnoAcademico
 		case "superior":

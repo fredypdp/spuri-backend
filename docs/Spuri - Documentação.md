@@ -2,7 +2,7 @@
 modificado: 28-06-2026 17:10
 criado: 05-04-2026 13:01
 ---
-Versão atual: 2.0.7
+Versão atual: 2.0.8
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -716,9 +716,9 @@ Não há rota pública registrada para execução manual de avaliação final. A
 - `medio` usa a sequência `anos_academicos` do curso médio vinculado ao estudante; por isso o estudante precisa ter curso médio existente, ativo e com `anos_academicos` configurados.
 - O backend valida que `nivel_ano_academico_atual` é exatamente o nível atualmente armazenado no estudante (`ano_escolar` para fundamental ou `ano_escolar_medio` para médio). Se o payload indicar outro nível, a avaliação é bloqueada.
 - Se reprovado, `proximo_ano_academico` fica `null`, o estudante permanece no mesmo nível, os status de ciclo não mudam e ele não é removido das turmas atuais.
-- Se aprovado e ainda existe próximo nível, `proximo_ano_academico` recebe o próximo item da sequência e o aggregate atualiza `ano_escolar` ou `ano_escolar_medio`.
-- Se aprovado no último nível do ciclo, `proximo_ano_academico` fica `null` e o aggregate marca `status_escolar_fundamental` ou `status_escolar_medio` como `finalizado`.
-- Para eventos escolares aprovados com turmas removidas, a projeção de turmas remove o estudante das turmas atuais, registra histórico no ano letivo e tenta adicioná-lo a uma turma ativa do próximo nível.
+- Se aprovado e ainda existe próximo nível, `proximo_ano_academico` recebe o próximo item da sequência e o aggregate atualiza `ano_escolar` ou `ano_escolar_medio`. No fundamental, se a academia atual ainda não oferta o próximo ano global em `projection_academias.anos_academicos`, o evento mantém `proximo_ano_academico` preenchido, registra `motivo_progressao = "academia_sem_oferta_do_proximo_ano_academico_fundamental"`, deixa `status_escolar_fundamental = "em_andamento"` e não cria vínculo automático com turma/matéria/curso/período inexistente.
+- Se aprovado no último nível real do ciclo, `proximo_ano_academico` fica `null` e o aggregate marca `status_escolar_fundamental` ou `status_escolar_medio` como `finalizado`. A falta de oferta do próximo ano pela academia não é tratada como fim real do ciclo fundamental.
+- Para eventos escolares aprovados com turmas removidas, a projeção de turmas remove o estudante das turmas atuais, registra histórico no ano letivo e tenta adicioná-lo a uma turma ativa do próximo nível, exceto quando `motivo_progressao` indicar ausência de oferta do próximo ano fundamental pela academia; nesse caso, o estudante fica sem turma automática até a academia habilitar/ofertar o ano.
 - A seleção de turma destino prioriza compatibilidade com `turno` e `curso_id` da turma de origem; se não houver compatível, usa qualquer turma ativa do próximo nível na mesma academia.
 - Se não existir turma destino válida para aprovado com próximo nível, a projeção de turmas falha para impedir estado parcial.
 
@@ -1303,3 +1303,7 @@ Academias agora podem consultar, adicionar, substituir e desabilitar escopos aca
 - **Preservação histórica**: remoções são lógicas/prospectivas; eventos, ledger, histórico acadêmico, turmas, matérias, notas, faltas, avaliações finais e sumários já registrados não são apagados nem reprocessados.
 - **Contratos explícitos na API**: a documentação da API detalha `GET`, `POST`, `PATCH` e `DELETE /academia/anos-academicos` com funcionamento, permissões, payloads por `type`, respostas de sucesso e erros esperados.
 - **Leitura por admin**: admins usam `GET /academia/anos-academicos?codigo_academia=...`; as rotas de escrita permanecem exclusivas para academias autenticadas e ativas.
+
+## Atualização 2.0.8 — Progressão fundamental sem oferta do próximo ano
+
+A avaliação final do fundamental agora diferencia conclusão real do ciclo e ausência operacional de oferta na academia. Quando o estudante é aprovado em um ano anterior ao `9_ano_fundamental`, o backend calcula o próximo ano global canônico e verifica se ele existe em `projection_academias.anos_academicos` da academia atual. Se não existir, o estudante avança para esse próximo ano global, permanece com `status_escolar_fundamental = "em_andamento"`, continua vinculado à mesma academia, não recebe turma automática e o evento registra `motivo_progressao = "academia_sem_oferta_do_proximo_ano_academico_fundamental"`. A aprovação no `9_ano_fundamental` continua finalizando o fundamental normalmente.

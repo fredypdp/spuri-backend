@@ -53,15 +53,15 @@ func (p *TurmasProjection) UpdateCheckpoint(eventID int64) error {
 
 func (p *TurmasProjection) Handle(event db.Event) error {
 	handlers := map[string]func(db.Event) error{
-		"TurmaCriada":                p.handleTurmaCriada,
-		"TurmaAtivada":               p.handleTurmaAtivada,
-		"TurmaDesativada":            p.handleTurmaDesativada,
-		"EstudanteAdicionadoATurma":  p.handleEstudanteAdicionado,
-		"EstudanteRemovidoDaTurma":   p.handleEstudanteRemovido,
-		"AvaliacaoFinalEscolar":      p.handleAvaliacaoFinalAnoAcademico,
-		"AvaliacaoFinalSuperior":     p.handleAvaliacaoFinalAnoAcademico,
-		"TurmaDadosAtualizados":      p.handleTurmaAtualizada,
-		"TurmaDeletada":              p.handleTurmaDeletada,
+		"TurmaCriada":               p.handleTurmaCriada,
+		"TurmaAtivada":              p.handleTurmaAtivada,
+		"TurmaDesativada":           p.handleTurmaDesativada,
+		"EstudanteAdicionadoATurma": p.handleEstudanteAdicionado,
+		"EstudanteRemovidoDaTurma":  p.handleEstudanteRemovido,
+		"AvaliacaoFinalEscolar":     p.handleAvaliacaoFinalAnoAcademico,
+		"AvaliacaoFinalSuperior":    p.handleAvaliacaoFinalAnoAcademico,
+		"TurmaDadosAtualizados":     p.handleTurmaAtualizada,
+		"TurmaDeletada":             p.handleTurmaDeletada,
 	}
 	if handler, ok := handlers[event.EventType]; ok {
 		log.Printf("[DEBUG] [turmas] Processando %s: %s", event.EventType, event.EventID)
@@ -281,6 +281,7 @@ func (p *TurmasProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) erro
 		ProximoAnoAcademico    *string  `json:"proximo_ano_academico"`
 		CodigosTurmasRemovidas []string `json:"codigos_turmas_removidas"`
 		Aprovado               bool     `json:"aprovado"`
+		MotivoProgressao       *string  `json:"motivo_progressao"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("parse error AvaliacaoFinalAnoAcademico em turmas: %w", err)
@@ -341,8 +342,10 @@ func (p *TurmasProjection) handleAvaliacaoFinalAnoAcademico(event db.Event) erro
 		return err
 	}
 
-
 	if payload.ProximoAnoAcademico == nil || *payload.ProximoAnoAcademico == "" {
+		return tx.Commit()
+	}
+	if payload.MotivoProgressao != nil && *payload.MotivoProgressao == "academia_sem_oferta_do_proximo_ano_academico_fundamental" {
 		return tx.Commit()
 	}
 
