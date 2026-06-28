@@ -2,7 +2,7 @@
 criado: 2026-06-21 20:30
 origem: tarefas/Lista de tarefas.md#5
 status: pronto_para_implementacao
-modificado: 2026-06-28 03:10
+modificado: 2026-06-28 16:04
 ---
 
 # Permitir às academias adicionar/remover anos acadêmicos com validações avançadas
@@ -80,15 +80,13 @@ A implementação deve tratar os anos acadêmicos conforme o tipo/nível real da
 
 ### Ensino médio
 
-- Representar séries/anos do ensino médio conforme o domínio adotado, normalmente `10` a `12` quando o sistema usa continuidade do 1º ao 12º ano, ou `1` a `3` quando existe um tipo separado para médio.
-- A escolha entre `10-12` e `1-3` deve seguir o padrão já existente no backend e ser documentada no helper de validação.
+- Representar séries/anos do ensino médio conforme o domínio adotado
 - Impedir que uma academia configurada somente como médio habilite anos do fundamental, salvo se ela estiver marcada explicitamente como academia mista.
 
 ### Ensino fundamental + médio (academia mista)
 
 - Suportar academias que oferecem os dois níveis no mesmo cadastro/configuração.
-- Permitir o conjunto combinado de anos do fundamental e do médio, respeitando a representação canônica do domínio. Exemplos possíveis:
-  - `1..12`, se o domínio usa sequência contínua;
+- Permitir o conjunto combinado de anos do fundamental e do médio, respeitando a representação canônica do domínio.
   - `fundamental: 1..9` e `medio: 1..3`, se o domínio separa o nível pelo campo `type`.
 - Exigir que o backend diferencie o nível do ano por campo canônico (`type`, `nivel`, faixa ou configuração global), e não apenas por descrição textual.
 - Impedir colisões ambíguas quando fundamental e médio usam números iguais. Por exemplo, se `1` pode significar `1º ano fundamental` ou `1º ano médio`, o registro deve carregar `type`/`nivel` obrigatório e a chave lógica deve considerar essa dimensão.
@@ -113,22 +111,22 @@ Sugestão de API:
 ```http
 GET /academia/anos-academicos
 POST /academia/anos-academicos
-PATCH /academia/anos-academicos/:ano_academico
-DELETE /academia/anos-academicos/:ano_academico
+PATCH /academia/anos-academicos
+DELETE /academia/anos-academicos
 ```
 
 Body para adicionar/habilitar fundamental na academia:
 
 ```json
 {
-  "ano_academico": "4_ano_fundamental",
-  "descricao": "4º ano",
+  "anos_academicos": ["4_ano_fundamental"],
   "type": "fundamental"
 }
 ```
 
 Para médio/superior, exigir `curso_id` e direcionar para a configuração do curso. Médio altera `anos_academicos`; superior altera `periodos` numérico e deriva anos automaticamente:
 
+Para o superior:
 ```json
 {
   "curso_id": "uuid-do-curso-superior",
@@ -136,33 +134,43 @@ Para médio/superior, exigir `curso_id` e direcionar para a configuração do cu
   "type": "superior"
 }
 ```
+Para o médio:
+```json
+{
+  "curso_id": "uuid-do-curso-medio",
+  "anos_academicos": ["4_ano_medio"],
+  "type": "medio"
+}
+```
 
 Resposta sugerida:
 
+Para o superior:
 ```json
 {
-  "message": "ano acadêmico adicionado com sucesso",
-  "ano_academico": 10,
-  "ativo": true
+  "message": "Anos acadêmicos atualizados com sucesso",
+  "anos_academicos": ["1_ano_superior",..., "4_ano_superior"],
+  "periodos": 8
+}
+```
+Para o médio:
+```json
+{
+  "message": "Anos acadêmicos atualizados com sucesso",
+  "anos_academicos": ["4_ano_medio"]
 }
 ```
 
 Para remoção/desativação:
 
 ```http
-DELETE /academia/anos-academicos/10
+DELETE /academia/anos-academicos
 ```
 
-Resposta sugerida:
-
-```json
-{
-  "message": "ano acadêmico desativado com sucesso",
-  "ano_academico": 10,
-  "ativo": false
-}
-```
-
+Crie um request adequado para todos os cenários:
+- Ensino fundamental/misto
+- Curso do ensino médio
+- Curso do ensino superior (os anos acadêmicos são consequência dos períodos definidos)
 ### 2. Usar remoção lógica em vez de exclusão destrutiva
 
 A remoção deve desativar o ano acadêmico para novos cadastros, mantendo dados históricos. Não implementar exclusão física para dados que já participaram de qualquer processo acadêmico, financeiro, de ledger ou de auditoria.
@@ -215,7 +223,7 @@ Política recomendada:
 Mensagem sugerida:
 
 ```text
-não é possível desativar o ano acadêmico 10: existem 2 turmas ativas e 35 estudantes vinculados
+não é possível desativar o ano acadêmico [forma textual do ano]: existem 2 turmas ativas e 35 estudantes vinculados
 ```
 
 ### 5. Registrar alterações em eventos auditáveis
@@ -232,8 +240,7 @@ Payload sugerido:
 {
   "event_type": "AnoAcademicoAcademiaAdicionado",
   "academia_id": "uuid-da-academia",
-  "ano_academico": 10,
-  "descricao": "10º ano",
+  "anos_academicos": ["4_ano_fundamental"],
   "type": "medio",
   "alterado_por": "uuid-do-usuario",
   "alterado_em": "2026-06-21T20:30:00Z"
@@ -257,43 +264,6 @@ Use esta lista como guia inicial; confirme no código antes de editar.
 - Documentação:
   - `docs/Spuri - API.md`.
 
-## Modelo de dados sugerido
-
-### Projeção de anos acadêmicos por academia
-
-Se já existir estrutura similar, adaptar sem duplicar. Caso contrário:
-
-```sql
-CREATE TABLE projection_academia_anos_academicos (
-  academia_id UUID NOT NULL,
-  ano_academico INTEGER NOT NULL,
-  descricao TEXT,
-  type TEXT,
-  ativo BOOLEAN NOT NULL DEFAULT TRUE,
-  criado_por UUID,
-  criado_em TIMESTAMPTZ NOT NULL,
-  atualizado_por UUID,
-  atualizado_em TIMESTAMPTZ NOT NULL,
-  PRIMARY KEY (academia_id, ano_academico)
-);
-```
-
-Índices recomendados:
-
-```sql
-CREATE INDEX idx_academia_anos_academicos_ativos ON projection_academia_anos_academicos (academia_id, ativo);
-```
-
-### Compatibilidade com configuração existente
-
-Se a academia já possuir um campo/lista como `anos_academicos`, decidir entre:
-
-- migrar para tabela normalizada;
-- manter lista e adicionar metadados de ativo/inativo;
-- usar tabela nova apenas como projeção derivada.
-
-Preferir o padrão que melhor se encaixe no event sourcing e nos rebuilds existentes.
-
 ## Validações obrigatórias
 
 ### Autorização
@@ -301,15 +271,6 @@ Preferir o padrão que melhor se encaixe no event sourcing e nos rebuilds existe
 - A academia só pode alterar os próprios anos acadêmicos.
 - `academia_id` deve vir do token/sessão, nunca do payload.
 - Admin FPP pode consultar e eventualmente corrigir via endpoint administrativo separado, se já existir padrão para isso.
-
-### Entrada
-
-- `ano_academico` deve usar o formato canônico atual do domínio, não inteiro solto: `[1-9]_ano_fundamental`, `[n]_ano_medio` ou `[n]_ano_superior` apenas quando este último for campo derivado de leitura.
-- Para superior, entrada de escrita deve ser `periodos` como número inteiro positivo no curso; rejeitar `anos_academicos` no payload.
-- Não aceitar zero, negativo, texto livre, arrays antigos de `periodos` na API superior, valores fora do intervalo permitido ou sufixos incompatíveis com o tipo.
-- Não criar duplicado ativo.
-- Se existir inativo, permitir reativar ou retornar mensagem orientando endpoint de reativação; escolher comportamento e documentar.
-- `type`, quando informado, deve ser compatível com valores aceitos no domínio e com o dono do dado (`fundamental` na academia, `medio`/`superior` no curso).
 
 ### Dependências
 
