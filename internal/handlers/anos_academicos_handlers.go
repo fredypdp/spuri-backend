@@ -121,6 +121,9 @@ func alterarEscopoCurso(c *gin.Context, academiaDTO *projections.AcademiaDTO, re
 	if cursoDTO.CodigoAcademia != academiaDTO.CodigoAcademia {
 		return fmt.Errorf("curso nao pertence a esta academia")
 	}
+	if cursoDTO.Status != "ativo" {
+		return fmt.Errorf("curso deve estar ativo para gerenciar anos acadêmicos")
+	}
 	if cursoDTO.Type != req.Type {
 		return fmt.Errorf("type do payload não corresponde ao tipo do curso")
 	}
@@ -130,8 +133,14 @@ func alterarEscopoCurso(c *gin.Context, academiaDTO *projections.AcademiaDTO, re
 		if len(req.AnosAcademicos) == 0 {
 			return fmt.Errorf("anos_academicos é obrigatório para curso médio")
 		}
+		if err := utils.ValidateAnosCurso("medio", req.AnosAcademicos); err != nil {
+			return err
+		}
 		novosAnos = combinarAnos(cursoDTO.AnosAcademicos, req.AnosAcademicos, op)
 	} else {
+		if len(req.AnosAcademicos) > 0 {
+			return fmt.Errorf("anos_academicos não deve ser enviado para curso superior; é calculado automaticamente a partir de periodos")
+		}
 		if req.Periodos == nil {
 			return fmt.Errorf("periodos é obrigatório para curso superior")
 		}

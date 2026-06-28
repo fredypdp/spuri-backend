@@ -10,7 +10,7 @@ Versão atual: 2.0.7
 3. [[#3. Autenticação]]
 4. [[#4. Perfil e Conta]]
 5. [[#5. Email]]
-6. [[#6. Academias]]
+6. [[#6. Academia]]
 7. [[#7. Ano Letivo]]
 8. [[#8. Estudantes]]
 9. [[#9. Solicitação de Matrícula]]
@@ -934,7 +934,7 @@ Define nova senha usando o token de recuperação.
 
 ---
 
-## 6. Academias
+## 6. Academia
 
 ### POST /dominis/academia/register
 
@@ -1386,7 +1386,7 @@ Retorna uma visão unificada dos escopos acadêmicos habilitados da academia: an
       "codigo_academia": "ACA-001",
       "nome": "Ciências Económicas e Jurídicas",
       "type": "medio",
-      "anos_academicos": ["10_ano_medio", "11_ano_medio", "12_ano_medio"],
+      "anos_academicos": ["1_ano_medio", "2_ano_medio", "3_ano_medio"],
       "periodos": null,
       "status": "ativo"
     },
@@ -1451,7 +1451,7 @@ Adiciona/habilita novos escopos acadêmicos sem remover os escopos existentes. U
 {
   "type": "medio",
   "curso_id": "uuid-do-curso-medio",
-  "anos_academicos": ["13_ano_medio"]
+  "anos_academicos": ["4_ano_medio"]
 }
 ```
 
@@ -1462,7 +1462,7 @@ Adiciona/habilita novos escopos acadêmicos sem remover os escopos existentes. U
   "message": "anos acadêmicos atualizados com sucesso",
   "type": "medio",
   "curso_id": "uuid-do-curso-medio",
-  "anos_academicos": ["10_ano_medio", "11_ano_medio", "12_ano_medio", "13_ano_medio"]
+  "anos_academicos": ["1_ano_medio", "2_ano_medio", "3_ano_medio", "4_ano_medio"]
 }
 ```
 
@@ -1516,7 +1516,7 @@ Substitui completamente o conjunto habilitado do escopo informado. Use esta rota
 {
   "type": "medio",
   "curso_id": "uuid-do-curso-medio",
-  "anos_academicos": ["10_ano_medio", "11_ano_medio", "12_ano_medio"]
+  "anos_academicos": ["1_ano_medio", "2_ano_medio", "3_ano_medio"]
 }
 ```
 
@@ -1537,7 +1537,7 @@ Substitui completamente o conjunto habilitado do escopo informado. Use esta rota
   "message": "anos acadêmicos atualizados com sucesso",
   "type": "medio",
   "curso_id": "uuid-do-curso-medio",
-  "anos_academicos": ["10_ano_medio", "11_ano_medio", "12_ano_medio"]
+  "anos_academicos": ["1_ano_medio", "2_ano_medio", "3_ano_medio"]
 }
 ```
 
@@ -1581,7 +1581,7 @@ Desabilita/remover logicamente escopos acadêmicos da oferta futura, preservando
 {
   "type": "medio",
   "curso_id": "uuid-do-curso-medio",
-  "anos_academicos": ["13_ano_medio"]
+  "anos_academicos": ["4_ano_medio"]
 }
 ```
 
