@@ -1,5 +1,5 @@
 ---
-modificado: 2026-06-28 12:00
+modificado: 2026-06-28 12:12
 criado: 2026-06-15 18:06
 ---
 # Cadastro de estudante escolar: BI do responsável obrigatório
@@ -19,7 +19,7 @@ Mesmo assim, a regra de negócio precisa ficar explícita e verificável: **qual
 - solicitação pública/de matrícula;
 - aprovação de solicitação de matrícula;
 - cadastro direto realizado pela academia;
-- atualização cadastral que altere BI do estudante, BI do responsável, ano/nível escolar ou documentos.
+- atualização cadastral que altere BI do estudante, BI do responsável ou documentos.
 
 ## Estado atual observado
 
