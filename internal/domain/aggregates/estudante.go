@@ -734,7 +734,10 @@ func (e *Estudante) Reintegrar(codigoAcademia, tipoEnsino string, anoEscolar, an
 		event.AnoEscolar = anoEscolar
 	case "medio":
 		if cursoMedioID == nil {
-			return fmt.Errorf("curso_medio_id é obrigatório")
+			cursoMedioID = e.CursoMedioID
+		}
+		if cursoMedioID == nil {
+			return fmt.Errorf("não foi possível determinar o curso_medio_id anterior do estudante para reingresso")
 		}
 		if e.CursoMedioID != nil && *e.CursoMedioID == *cursoMedioID && e.AnoEscolarMedio != nil {
 			anoEscolarMedio = e.AnoEscolarMedio
@@ -752,7 +755,10 @@ func (e *Estudante) Reintegrar(codigoAcademia, tipoEnsino string, anoEscolar, an
 		event.CursoMedioID = cursoMedioID
 	case "superior":
 		if cursoSuperiorID == nil {
-			return fmt.Errorf("curso_superior_id é obrigatório")
+			cursoSuperiorID = e.CursoSuperiorID
+		}
+		if cursoSuperiorID == nil {
+			return fmt.Errorf("não foi possível determinar o curso_superior_id anterior do estudante para reingresso")
 		}
 		ano := "1_ano_superior"
 		semestre := 1
