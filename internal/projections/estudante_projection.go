@@ -632,22 +632,26 @@ func (p *EstudanteProjection) handleCursoAlterado(event db.Event) error {
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleCursoAlterado: parse error: %w", err)
 	}
-	var col string
 	switch payload.TipoEnsino {
 	case "medio":
-		col = "curso_medio_id"
+		_, err := p.client.DB().Exec(`
+			UPDATE projection_estudantes
+			SET curso_medio_id = $1, ano_escolar_medio = '1_ano_medio',
+				version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
+			WHERE id = $4
+		`, payload.CursoID.String(), event.EventVersion, event.EventID, event.AggregateID)
+		return err
 	case "superior":
-		col = "curso_superior_id"
+		_, err := p.client.DB().Exec(`
+			UPDATE projection_estudantes
+			SET curso_superior_id = $1, ano_superior = '1_ano_superior', semestre_atual = 1,
+				version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
+			WHERE id = $4
+		`, payload.CursoID.String(), event.EventVersion, event.EventID, event.AggregateID)
+		return err
 	default:
 		return fmt.Errorf("handleCursoAlterado: TipoEnsino inválido: %q", payload.TipoEnsino)
 	}
-	query := fmt.Sprintf(`
-		UPDATE projection_estudantes
-		SET %s = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
-		WHERE id = $4
-	`, col)
-	_, err := p.client.DB().Exec(query, payload.CursoID.String(), event.EventVersion, event.EventID, event.AggregateID)
-	return err
 }
 
 func (p *EstudanteProjection) handleSenhaAlterada(event db.Event) error {
