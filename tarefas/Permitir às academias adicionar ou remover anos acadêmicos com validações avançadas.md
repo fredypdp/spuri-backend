@@ -2,14 +2,14 @@
 criado: 2026-06-21 20:30
 origem: tarefas/Lista de tarefas.md#5
 status: pronto_para_implementacao
-modificado: 2026-06-28 2:02
+modificado: 2026-06-28 03:10
 ---
 
 # Permitir às academias adicionar/remover anos acadêmicos com validações avançadas
 
 ## Prompt recomendado para executar a atualização
 
-Implemente no backend a capacidade de academias gerenciarem seus anos acadêmicos habilitados, permitindo adicionar, editar metadados e remover/desativar anos acadêmicos dentro do próprio escopo. A implementação deve cobrir explicitamente academias de ensino fundamental, ensino médio, ensino superior e academias mistas que oferecem fundamental + médio. Também deve aplicar validações de segurança avançadas para impedir que uma academia altere anos de outra, crie anos incompatíveis com seu nível/tipo, remova ou edite anos com dados dependentes ativos de forma destrutiva, burle regras globais definidas pela plataforma ou cause efeitos retroativos em ledger, histórico de estudantes, histórico acadêmico, turmas, matérias, notas, faltas, eventos e processos antigos. A remoção deve ser lógica/desativação, preservando histórico e bloqueando a operação quando houver estudantes ainda em atividade (`status_escolar_fundamental/status_escolar_medio/status_superior` diferente de `em_andamento`) no ano acadêmico manipulado.
+Implemente no backend a capacidade de academias gerenciarem seus anos acadêmicos habilitados, permitindo adicionar, editar metadados e remover/desativar anos acadêmicos dentro do próprio escopo. A implementação deve cobrir explicitamente academias de ensino fundamental, ensino médio, ensino superior e academias mistas que oferecem fundamental + médio. Também deve aplicar validações de segurança avançadas para impedir que uma academia altere anos de outra, crie anos incompatíveis com seu nível/tipo, remova ou edite anos com dados dependentes ativos de forma destrutiva, burle regras globais definidas pela plataforma ou cause efeitos retroativos em ledger, histórico de estudantes, histórico acadêmico, turmas, matérias, notas, faltas, eventos e processos antigos. A remoção deve ser lógica/desativação, preservando histórico e bloqueando a operação quando houver estudantes ainda em atividade no ano/período manipulado (`status_escolar_fundamental`, `status_escolar_medio` ou `status_superior` igual a `em_andamento`, além de vínculos/processos abertos).
 
 ## Contexto do problema
 
@@ -26,16 +26,46 @@ Exemplo de configuração:
 }
 ```
 
-Para superior, o modelo pode representar anos, períodos ou semestres conforme o padrão existente:
+Para superior, **não usar o exemplo antigo acima como contrato de entrada**. Depois da tarefa `Curso superior - periodos numericos e anos academicos calculados`, curso superior recebe apenas `periodos` numérico na API de cursos e o backend deriva semestres e anos superiores. Portanto, a gestão segura em academias superiores deve operar sobre a duração/semestres dos cursos, não sobre uma lista manual de anos acadêmicos da academia:
 
 ```json
 {
-  "academia_id": "uuid-da-academia",
-  "anos_academicos": [1, 2, 3, 4],
-  "nivel": "superior"
+  "curso_id": "uuid-do-curso-superior",
+  "periodos": 8
 }
 ```
 
+Internamente o backend mantém compatibilidade com:
+
+```json
+{
+  "periodos": ["1_semestre", "2_semestre", "3_semestre", "4_semestre", "5_semestre", "6_semestre", "7_semestre", "8_semestre"],
+  "anos_academicos": ["1_ano_superior", "2_ano_superior", "3_ano_superior", "4_ano_superior"]
+}
+```
+
+
+## Estado atual observado no código
+
+A implementação deve partir destes contratos já presentes no backend, para evitar reintroduzir regras antigas:
+
+- Academia escolar `fundamental` ou `misto` possui `anos_academicos` no cadastro da própria academia, validados no formato canônico `[1-9]_ano_fundamental`; academia escolar `medio` não deve definir `anos_academicos` na academia; academia `superior` também não usa `anos_academicos` na academia.
+- Cursos só podem ser criados por academias de nível superior ou por escolas de nível escolar `medio`; escolas `fundamental`/`misto` não criam curso pelo fluxo atual de `/academia/cursos`.
+- Curso médio mantém `anos_academicos` manual no formato `[n]_ano_medio`, validado pelo aggregate de curso.
+- Curso superior não aceita `anos_academicos` no payload; recebe `periodos` como inteiro positivo, deriva `periodos` internos sequenciais (`1_semestre` até `N_semestre`) e deriva `anos_academicos` como `1_ano_superior` até `ceil(N/2)_ano_superior`.
+- Na edição de curso, o backend já bloqueia remoção de anos/períodos usados por estudantes ativos: médio por `ano_escolar_medio` e superior por `semestre_atual`. A nova gestão deve reutilizar/ampliar essa proteção em vez de criar regra paralela menos precisa.
+- No superior, `semestre_atual` é a fonte operacional de progressão e `ano_superior` é compatibilidade derivada; validações de desativação/redução devem olhar semestres removidos, não apenas anos superiores.
+- Existem configurações de **ano letivo** (`projection_anos_letivos_configuracoes` e `projection_anos_letivos_academia_finalizacoes`) que são conceito diferente de **ano acadêmico/período do curso**. Esta tarefa não deve misturar calendário letivo (`2026_2027`) com ano acadêmico (`1_ano_fundamental`, `1_ano_medio`, `1_ano_superior`) ou semestre (`1_semestre`).
+
+## Decisão de contrato atualizada
+
+Para tornar a implementação segura depois da mudança dos cursos superiores:
+
+1. **Fundamental/misto**: gerenciar anos acadêmicos ofertados pela academia em `projection_academias.anos_academicos`, sempre no formato canônico `[1-9]_ano_fundamental`.
+2. **Médio**: gerenciar anos acadêmicos no escopo do curso médio, não como lista global da academia, porque a academia de nível médio atualmente não define `anos_academicos` na própria academia.
+3. **Superior**: gerenciar semestres pelo campo `periodos` numérico do curso superior; `anos_academicos` superiores continuam derivados e não editáveis manualmente.
+4. **Misto**: continua sendo escola com fundamental + médio; apenas o fundamental fica na academia. O médio deve continuar dependente de cursos médios e seus anos, para evitar colisão entre `1_ano_fundamental` e `1_ano_medio`.
+5. A API nova pode expor uma visão unificada de “escopos acadêmicos habilitados”, mas internamente deve encaminhar comandos para o dono correto do dado: academia para fundamental, curso para médio/superior.
 
 ## Escopo por tipo de academia
 
@@ -66,10 +96,13 @@ A implementação deve tratar os anos acadêmicos conforme o tipo/nível real da
 
 ### Ensino superior
 
-- Representar anos, períodos, semestres ou módulos conforme o padrão já existente para cursos superiores.
+- Representar a gestão como alteração controlada da **quantidade de semestres (`periodos`) do curso superior**.
+- Não aceitar adição/remoção manual de `anos_academicos` superiores em endpoint de academia; anos superiores devem ser sempre derivados por `ceil(periodos / 2)`.
 - Validar compatibilidade com a duração dos cursos ativos da academia e com as regras globais do produto.
-- Não permitir que alterações em anos/períodos superiores invalidem estudantes, matrículas, disciplinas, notas, faltas, histórico curricular, equivalências, pré-requisitos, mensalidades/ledger ou eventos acadêmicos já lançados.
-- Quando a duração variar por curso, a validação deve considerar curso, matriz curricular ou configuração equivalente antes de aceitar o ano/período.
+- Não permitir que alterações em semestres superiores invalidem estudantes, matrículas, disciplinas, notas, faltas, histórico curricular, equivalências, pré-requisitos, mensalidades/ledger ou eventos acadêmicos já lançados.
+- Quando a duração variar por curso, a validação deve considerar `curso_id` obrigatório; não existe um único conjunto global seguro de períodos superiores por academia.
+- Em reduções, bloquear se algum estudante ativo estiver com `semestre_atual` em semestre que seria removido; também bloquear se matérias, regras de avaliação final, notas, faltas ou sumários ativos referenciam os semestres removidos.
+- Garantir que respostas e projeções preservem `ano_superior` apenas como campo derivado/compatibilidade, nunca como fonte manual de configuração.
 
 ## Objetivos funcionais
 
@@ -84,13 +117,23 @@ PATCH /academia/anos-academicos/:ano_academico
 DELETE /academia/anos-academicos/:ano_academico
 ```
 
-Body para adicionar:
+Body para adicionar/habilitar fundamental na academia:
 
 ```json
 {
-  "ano_academico": 10,
-  "descricao": "10º ano",
-  "type": "medio"
+  "ano_academico": "4_ano_fundamental",
+  "descricao": "4º ano",
+  "type": "fundamental"
+}
+```
+
+Para médio/superior, exigir `curso_id` e direcionar para a configuração do curso. Médio altera `anos_academicos`; superior altera `periodos` numérico e deriva anos automaticamente:
+
+```json
+{
+  "curso_id": "uuid-do-curso-superior",
+  "periodos": 8,
+  "type": "superior"
 }
 ```
 
@@ -261,11 +304,12 @@ Preferir o padrão que melhor se encaixe no event sourcing e nos rebuilds existe
 
 ### Entrada
 
-- `ano_academico` deve ser inteiro positivo.
-- Não aceitar zero, negativo, texto ou valor fora do intervalo permitido.
+- `ano_academico` deve usar o formato canônico atual do domínio, não inteiro solto: `[1-9]_ano_fundamental`, `[n]_ano_medio` ou `[n]_ano_superior` apenas quando este último for campo derivado de leitura.
+- Para superior, entrada de escrita deve ser `periodos` como número inteiro positivo no curso; rejeitar `anos_academicos` no payload.
+- Não aceitar zero, negativo, texto livre, arrays antigos de `periodos` na API superior, valores fora do intervalo permitido ou sufixos incompatíveis com o tipo.
 - Não criar duplicado ativo.
 - Se existir inativo, permitir reativar ou retornar mensagem orientando endpoint de reativação; escolher comportamento e documentar.
-- `type`, quando informado, deve ser compatível com valores aceitos no domínio.
+- `type`, quando informado, deve ser compatível com valores aceitos no domínio e com o dono do dado (`fundamental` na academia, `medio`/`superior` no curso).
 
 ### Dependências
 
@@ -291,7 +335,7 @@ Preferir o padrão que melhor se encaixe no event sourcing e nos rebuilds existe
 
 1. Mapear como os anos acadêmicos da academia são armazenados hoje.
 2. Mapear todos os pontos que validam `ano_academico` em estudantes, cursos, matérias, turmas, notas, faltas, categorias, avaliações, cobranças/ledger e processos acadêmicos antigos.
-3. Criar helpers para validar ano acadêmico por academia, nível, modalidade mista e curso/matriz curricular quando aplicável.
+3. Criar/reutilizar helpers para validar ano acadêmico por academia, nível, modalidade mista e curso/matriz curricular quando aplicável; para superior, reutilizar a derivação `periodos -> semestres -> anos` já existente em cursos.
 4. Criar evento(s) e migration/projeção para adição/desativação.
 5. Implementar endpoint de listagem.
 6. Implementar endpoint de adição com validação de duplicidade e compatibilidade.
@@ -299,7 +343,7 @@ Preferir o padrão que melhor se encaixe no event sourcing e nos rebuilds existe
 8. Implementar endpoint de desativação com checagem de dependências ativas, estudantes ainda em atividade e impactos em ledger/histórico.
 9. Integrar a validação de “ano acadêmico ativo” nos fluxos de criação/atualização dependentes.
 10. Atualizar documentação da API.
-11. Adicionar testes de handlers, projection rebuild e dependências.
+11. Adicionar testes de handlers, projection rebuild e dependências, incluindo regressões que garantam que curso superior continua rejeitando `anos_academicos` manual e `periodos` array.
 
 ## Cenários de teste mínimos
 
@@ -311,7 +355,9 @@ Preferir o padrão que melhor se encaixe no event sourcing e nos rebuilds existe
 - Academia mista adiciona ano de fundamental e ano de médio com sucesso, preservando a distinção entre níveis quando houver numeração sobreposta.
 - Academia somente fundamental tenta adicionar ano exclusivo do médio e recebe `400`.
 - Academia somente médio tenta adicionar ano exclusivo do fundamental e recebe `400`.
-- Academia superior tenta adicionar período incompatível com duração de curso/matriz ativa e recebe `400` ou `409`, conforme a causa.
+- Academia superior tenta enviar `anos_academicos` manual e recebe `400`.
+- Academia superior aumenta `periodos` numérico de curso e o backend deriva novos semestres/anos.
+- Academia superior tenta reduzir `periodos` removendo semestre usado por estudante ativo em `semestre_atual` e recebe `409`.
 - Academia tenta enviar `academia_id` de outra academia e o backend ignora/rejeita.
 - Usuário não autorizado recebe `403`.
 
@@ -330,7 +376,7 @@ Preferir o padrão que melhor se encaixe no event sourcing e nos rebuilds existe
 - Criar turma em ano desativado deve falhar.
 - Criar estudante/matrícula em ano desativado deve falhar.
 - Criar matéria/categoria de nota em ano desativado deve falhar.
-- Criar sumário/falta em ano desativado deve falhar quando aplicável.
+- Criar sumário/falta em ano/período desativado deve falhar quando aplicável; no superior, a validação deve comparar o período semestral da matéria/regra, não apenas `ano_superior`.
 - Rebuild de projeções preserva o estado ativo/inativo corretamente.
 
 ## Critérios de aceite
@@ -347,5 +393,5 @@ Preferir o padrão que melhor se encaixe no event sourcing e nos rebuilds existe
 
 - Esta tarefa é sensível porque anos acadêmicos são usados por várias entidades e por históricos financeiros/acadêmicos; evite mudanças destrutivas.
 - Prefira comandos pequenos (`add`, `disable`, `reactivate`) a substituição completa da lista.
-- Se já houver migrações recentes sobre anos acadêmicos, reutilize o padrão existente.
+- Se já houver migrações recentes sobre anos acadêmicos ou anos letivos, reutilize o padrão existente, mas não confunda ano letivo/calendário com ano acadêmico/período curricular.
 - Considere dependência futura com sumários/aulas da Tarefa 4.
