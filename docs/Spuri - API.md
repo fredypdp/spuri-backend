@@ -2339,6 +2339,8 @@ Reintegra estudante arquivado à academia e muda o status geral para `ativo`.
 }
 ```
 
+`curso_medio_id` é opcional no reingresso do médio. Quando omitido, o backend considera que o curso não foi alterado, usa o `curso_medio_id` anterior do estudante e mantém o mesmo nível/progressão em que ele estava.
+
 **Request — reingresso no superior:**
 
 ```json
@@ -2348,7 +2350,9 @@ Reintegra estudante arquivado à academia e muda o status geral para `ativo`.
 }
 ```
 
-No reingresso/revinculação o cliente não informa ano nem semestre. O backend determina a progressão acadêmica consolidada a partir do histórico do estudante quando o curso informado é o mesmo já registrado. Assim, superior retorna ao mesmo `semestre_atual`/`ano_superior`, médio retorna ao mesmo `ano_escolar_medio` e fundamental reutiliza o `ano_escolar_fundamental` anterior. Apenas mudança real de curso reinicia o vínculo atual: no superior para `semestre_atual = 1` e `ano_superior = "1_ano_superior"`; no médio para `ano_escolar_medio = "1_ano_medio"`. Eventos de trancamento, interrupção, desvinculação e reativação não apagam notas, faltas, avaliações, turmas ou demais registros históricos.
+`curso_superior_id` é opcional no reingresso do superior. Quando omitido, o backend considera que o curso não foi alterado, usa o `curso_superior_id` anterior do estudante e mantém o mesmo nível/progressão em que ele estava.
+
+No reingresso/revinculação o cliente não informa ano nem semestre. O backend determina a progressão acadêmica consolidada a partir do histórico do estudante quando o curso informado é o mesmo já registrado ou quando o curso do nível médio/superior é omitido. Assim, superior retorna ao mesmo `semestre_atual`/`ano_superior`, médio retorna ao mesmo `ano_escolar_medio` e fundamental reutiliza o `ano_escolar_fundamental` anterior. Apenas mudança real de curso reinicia o vínculo atual: no superior para `semestre_atual = 1` e `ano_superior = "1_ano_superior"`; no médio para `ano_escolar_medio = "1_ano_medio"`. Eventos de trancamento, interrupção, desvinculação e reativação não apagam notas, faltas, avaliações, turmas ou demais registros históricos.
 
 
 **Response 200:**
