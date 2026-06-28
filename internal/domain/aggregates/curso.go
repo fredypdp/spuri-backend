@@ -259,7 +259,11 @@ func (c *Curso) AtualizarDados(nome *string, anosAcademicos []string, periodos *
 	}
 
 	if periodos != nil {
-		if err := validarPeriodosCurso(c.Type, *periodos, len(c.AnosAcademicos)); err != nil {
+		totalAnos := len(c.AnosAcademicos)
+		if anosAcademicos != nil {
+			totalAnos = len(anosAcademicos)
+		}
+		if err := validarPeriodosCurso(c.Type, *periodos, totalAnos); err != nil {
 			return err
 		}
 		normalized := normalizarPeriodos(c.Type, *periodos)
