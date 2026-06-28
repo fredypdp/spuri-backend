@@ -676,6 +676,14 @@ func (e *Estudante) MatricularSuperior(cursoID uuid.UUID, efetuadoPor uuid.UUID)
 	}
 	ano := "1_ano_superior"
 	semestre := 1
+	if e.CursoSuperiorID != nil && *e.CursoSuperiorID == cursoID {
+		if e.AnoSuperior != nil {
+			ano = *e.AnoSuperior
+		}
+		if e.SemestreAtual != nil && *e.SemestreAtual > 0 {
+			semestre = *e.SemestreAtual
+		}
+	}
 	event := &MatriculaSuperiorEfetivadaEvent{BaseEvent: BaseEvent{EventType: "MatriculaSuperiorEfetivada", AggregateID: e.ID}, CursoID: cursoID, AnoSuperior: ano, SemestreAtual: semestre, EfetivadaPor: efetuadoPor, EfetivadaAt: time.Now()}
 	e.RaiseEvent(event)
 	return e.Apply(event)
@@ -716,16 +724,26 @@ func (e *Estudante) Reintegrar(codigoAcademia, tipoEnsino string, anoEscolar, an
 	event := &EstudanteReintegradoEvent{BaseEvent: BaseEvent{EventType: "EstudanteReintegrado", AggregateID: e.ID}, CodigoAcademia: codigoAcademia, CodigoEstudante: e.CodigoEstudante, TipoEnsino: tipoEnsino, ReintegradoPor: reintegradoPor, ReintegradoAt: time.Now()}
 	switch tipoEnsino {
 	case "fundamental":
+		anoEscolar = e.AnoEscolar
 		if anoEscolar == nil {
-			return fmt.Errorf("ano_escolar_fundamental é obrigatório")
+			return fmt.Errorf("não foi possível determinar o ano_escolar_fundamental anterior do estudante para reingresso")
 		}
 		if err := utils.ValidateAnoFundamental(*anoEscolar); err != nil {
 			return fmt.Errorf("ano_escolar_fundamental inválido: %w", err)
 		}
 		event.AnoEscolar = anoEscolar
 	case "medio":
-		if anoEscolarMedio == nil || cursoMedioID == nil {
-			return fmt.Errorf("ano_escolar_medio e curso_medio_id são obrigatórios")
+		if cursoMedioID == nil {
+			return fmt.Errorf("curso_medio_id é obrigatório")
+		}
+		if e.CursoMedioID != nil && *e.CursoMedioID == *cursoMedioID && e.AnoEscolarMedio != nil {
+			anoEscolarMedio = e.AnoEscolarMedio
+		} else {
+			inicio := "1_ano_medio"
+			anoEscolarMedio = &inicio
+		}
+		if anoEscolarMedio == nil {
+			return fmt.Errorf("ano_escolar_medio é obrigatório")
 		}
 		if err := utils.ValidateAnoMedio(*anoEscolarMedio); err != nil {
 			return fmt.Errorf("ano_escolar_medio inválido: %w", err)
@@ -738,6 +756,14 @@ func (e *Estudante) Reintegrar(codigoAcademia, tipoEnsino string, anoEscolar, an
 		}
 		ano := "1_ano_superior"
 		semestre := 1
+		if e.CursoSuperiorID != nil && *e.CursoSuperiorID == *cursoSuperiorID {
+			if e.AnoSuperior != nil {
+				ano = *e.AnoSuperior
+			}
+			if e.SemestreAtual != nil && *e.SemestreAtual > 0 {
+				semestre = *e.SemestreAtual
+			}
+		}
 		event.AnoSuperior = &ano
 		event.SemestreAtual = &semestre
 		event.CursoSuperiorID = cursoSuperiorID
@@ -787,9 +813,15 @@ func (e *Estudante) AlterarCurso(cursoID uuid.UUID, tipoEnsino string) error {
 		if e.StatusEscolarFundamental != "finalizado" {
 			return fmt.Errorf("só pode alterar curso médio se status_escolar_fundamental for 'finalizado'")
 		}
+		if e.CursoMedioID != nil && *e.CursoMedioID == cursoID {
+			return nil
+		}
 	} else {
 		if e.StatusSuperior != "em_andamento" {
 			return fmt.Errorf("só pode alterar curso superior se status_superior for 'em_andamento'")
+		}
+		if e.CursoSuperiorID != nil && *e.CursoSuperiorID == cursoID {
+			return nil
 		}
 	}
 	event := &CursoAlteradoEvent{
@@ -963,8 +995,14 @@ func (e *Estudante) applyCursoAlterado(event DomainEvent) error {
 	}
 	if ev.TipoEnsino == "medio" {
 		e.CursoMedioID = &ev.CursoID
+		inicio := "1_ano_medio"
+		e.AnoEscolarMedio = &inicio
 	} else {
 		e.CursoSuperiorID = &ev.CursoID
+		ano := "1_ano_superior"
+		semestre := 1
+		e.AnoSuperior = &ano
+		e.SemestreAtual = &semestre
 	}
 	return nil
 }

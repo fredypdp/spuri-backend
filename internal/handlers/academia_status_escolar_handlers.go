@@ -248,8 +248,6 @@ func DesvincularEstudanteHandler(c *gin.Context) {
 func ReintegrarEstudanteHandler(c *gin.Context) {
 	var req struct {
 		TipoEnsino      string `json:"tipo_ensino" binding:"required"`
-		AnoEscolar      string `json:"ano_escolar_fundamental"`
-		AnoEscolarMedio string `json:"ano_escolar_medio"`
 		CursoMedioID    string `json:"curso_medio_id"`
 		CursoSuperiorID string `json:"curso_superior_id"`
 	}
@@ -261,14 +259,7 @@ func ReintegrarEstudanteHandler(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var anoFund, anoMed *string
 	var cursoMed, cursoSup *uuid.UUID
-	if req.AnoEscolar != "" {
-		anoFund = &req.AnoEscolar
-	}
-	if req.AnoEscolarMedio != "" {
-		anoMed = &req.AnoEscolarMedio
-	}
 	if req.CursoMedioID != "" {
 		id, ok := parseCursoID(c, req.CursoMedioID, "medio")
 		if !ok {
@@ -283,7 +274,7 @@ func ReintegrarEstudanteHandler(c *gin.Context) {
 		}
 		cursoSup = &id
 	}
-	if err := ctx.Estudante.Reintegrar(ctx.CodigoAcademia, req.TipoEnsino, anoFund, anoMed, cursoMed, cursoSup, ctx.AcademiaID); err != nil {
+	if err := ctx.Estudante.Reintegrar(ctx.CodigoAcademia, req.TipoEnsino, nil, nil, cursoMed, cursoSup, ctx.AcademiaID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
