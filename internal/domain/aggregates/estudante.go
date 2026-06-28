@@ -887,6 +887,9 @@ func (e *Estudante) applyFundamentalEmAndamento(event DomainEvent) error {
 	var ev struct{ AnoEscolar string }
 	_ = json.Unmarshal(data, &ev)
 	e.StatusEscolarFundamental = "em_andamento"
+	if event.GetEventType() == "FundamentalRetomado" && e.AnoEscolar != nil {
+		return nil
+	}
 	if ev.AnoEscolar != "" {
 		e.AnoEscolar = &ev.AnoEscolar
 	}
@@ -910,6 +913,17 @@ func (e *Estudante) applyMedioEmAndamento(event DomainEvent) error {
 	}
 	_ = json.Unmarshal(data, &ev)
 	e.StatusEscolarMedio = "em_andamento"
+	if event.GetEventType() == "MedioRetomado" {
+		if ev.CursoID != uuid.Nil && e.CursoMedioID != nil && *e.CursoMedioID == ev.CursoID && e.AnoEscolarMedio != nil {
+			return nil
+		}
+		if ev.CursoID != uuid.Nil && (e.CursoMedioID == nil || *e.CursoMedioID != ev.CursoID) {
+			inicio := "1_ano_medio"
+			e.AnoEscolarMedio = &inicio
+			e.CursoMedioID = &ev.CursoID
+			return nil
+		}
+	}
 	if ev.AnoEscolar != "" {
 		e.AnoEscolarMedio = &ev.AnoEscolar
 	}
@@ -937,6 +951,19 @@ func (e *Estudante) applySuperiorEmAndamento(event DomainEvent) error {
 	}
 	_ = json.Unmarshal(data, &ev)
 	e.StatusSuperior = "em_andamento"
+	if event.GetEventType() == "MatriculaSuperiorReativada" {
+		if ev.CursoID != uuid.Nil && e.CursoSuperiorID != nil && *e.CursoSuperiorID == ev.CursoID {
+			return nil
+		}
+		if ev.CursoID != uuid.Nil {
+			ano := "1_ano_superior"
+			semestre := 1
+			e.CursoSuperiorID = &ev.CursoID
+			e.AnoSuperior = &ano
+			e.SemestreAtual = &semestre
+			return nil
+		}
+	}
 	if ev.CursoID != uuid.Nil {
 		e.CursoSuperiorID = &ev.CursoID
 	}

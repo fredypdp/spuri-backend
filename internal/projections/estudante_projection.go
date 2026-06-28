@@ -365,6 +365,16 @@ func (p *EstudanteProjection) handleMatriculaFundamentalEfetivada(event db.Event
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleMatriculaFundamentalEfetivada: parse error: %w", err)
 	}
+	if event.EventType == "FundamentalRetomado" {
+		_, err := p.client.DB().Exec(`
+			UPDATE projection_estudantes
+			SET status_escolar_fundamental = 'em_andamento',
+				ano_escolar_fundamental = COALESCE(ano_escolar_fundamental, NULLIF($1, '')),
+				version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
+			WHERE id = $4
+		`, payload.AnoEscolar, event.EventVersion, event.EventID, event.AggregateID)
+		return err
+	}
 	_, err := p.client.DB().Exec(`
 		UPDATE projection_estudantes
 		SET status_escolar_fundamental = 'em_andamento', ano_escolar_fundamental = $1,
@@ -391,6 +401,21 @@ func (p *EstudanteProjection) handleMatriculaMedioEfetivada(event db.Event) erro
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleMatriculaMedioEfetivada: parse error: %w", err)
+	}
+	if event.EventType == "MedioRetomado" {
+		_, err := p.client.DB().Exec(`
+			UPDATE projection_estudantes
+			SET status_escolar_medio = 'em_andamento',
+				ano_escolar_medio = CASE
+					WHEN curso_medio_id = $2 AND ano_escolar_medio IS NOT NULL THEN ano_escolar_medio
+					WHEN curso_medio_id IS DISTINCT FROM $2 THEN '1_ano_medio'
+					ELSE $1
+				END,
+				curso_medio_id = $2,
+				version = $3, updated_at = CURRENT_TIMESTAMP, last_event_id = $4
+			WHERE id = $5
+		`, payload.AnoEscolar, payload.CursoID, event.EventVersion, event.EventID, event.AggregateID)
+		return err
 	}
 	_, err := p.client.DB().Exec(`
 		UPDATE projection_estudantes
@@ -419,6 +444,26 @@ func (p *EstudanteProjection) handleMatriculaSuperiorEfetivada(event db.Event) e
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleMatriculaSuperiorEfetivada: parse error: %w", err)
+	}
+	if event.EventType == "MatriculaSuperiorReativada" {
+		_, err := p.client.DB().Exec(`
+			UPDATE projection_estudantes
+			SET status_superior = 'em_andamento',
+				curso_superior_id = $1,
+				ano_superior = CASE
+					WHEN curso_superior_id = $1 AND ano_superior IS NOT NULL THEN ano_superior
+					WHEN curso_superior_id IS DISTINCT FROM $1 THEN '1_ano_superior'
+					ELSE $2
+				END,
+				semestre_atual = CASE
+					WHEN curso_superior_id = $1 AND semestre_atual IS NOT NULL THEN semestre_atual
+					WHEN curso_superior_id IS DISTINCT FROM $1 THEN 1
+					ELSE $3
+				END,
+				version = $4, updated_at = CURRENT_TIMESTAMP, last_event_id = $5
+			WHERE id = $6
+		`, payload.CursoID, payload.AnoSuperior, payload.SemestreAtual, event.EventVersion, event.EventID, event.AggregateID)
+		return err
 	}
 	_, err := p.client.DB().Exec(`
 		UPDATE projection_estudantes
