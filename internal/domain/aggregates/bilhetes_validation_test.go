@@ -76,3 +76,75 @@ func TestSolicitacaoMatriculaCriarRejeitaBilhetesIguais(t *testing.T) {
 		t.Fatalf("esperava erro de bilhetes iguais na solicitação, recebeu %v", err)
 	}
 }
+
+func TestEstudanteCriarComVinculoRejeitaDocumentoEscolarSemReferencia(t *testing.T) {
+	bi := "001LA002"
+	biResp := "001LA003"
+	tel := "923000000"
+	anoFundamental := "1_ano_fundamental"
+
+	estudante := NewEstudante()
+	err := estudante.CriarComVinculo(
+		"Aluno Teste",
+		"ABC1235",
+		strings.Repeat("a", 60),
+		nil,
+		&tel,
+		nil,
+		&bi,
+		&biResp,
+		"masculino",
+		time.Now().AddDate(-10, 0, 0),
+		&anoFundamental,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		"ACA2026",
+		map[string]DocumentoMatricula{
+			"bi_responsavel":                {Path: "bi-responsavel.pdf"},
+			"bi_estudante":                  {Path: "bi-estudante.pdf"},
+			"certificado_6_ano_fundamental": {},
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "certificado aplicável ou declaracao") {
+		t.Fatalf("esperava erro de documento académico sem referência, recebeu %v", err)
+	}
+}
+
+func TestEstudanteCriarComVinculoAceitaDocumentoEscolarComDownloadURL(t *testing.T) {
+	bi := "001LA004"
+	biResp := "001LA005"
+	tel := "923000000"
+	anoFundamental := "1_ano_fundamental"
+
+	estudante := NewEstudante()
+	err := estudante.CriarComVinculo(
+		"Aluno Teste",
+		"ABC1236",
+		strings.Repeat("a", 60),
+		nil,
+		&tel,
+		nil,
+		&bi,
+		&biResp,
+		"feminino",
+		time.Now().AddDate(-10, 0, 0),
+		&anoFundamental,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		"ACA2026",
+		map[string]DocumentoMatricula{
+			"bi_responsavel": {DownloadURL: "https://example.com/bi-responsavel.pdf"},
+			"bi_estudante":   {FileURL: "https://example.com/bi-estudante.pdf"},
+			"declaracao":     {Path: "declaracao.pdf"},
+		},
+	)
+	if err != nil {
+		t.Fatalf("não esperava erro com documentos válidos, recebeu %v", err)
+	}
+}
