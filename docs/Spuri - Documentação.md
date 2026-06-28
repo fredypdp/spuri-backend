@@ -1,8 +1,8 @@
 ---
-modificado: 28-06-2026 01:00
+modificado: 28-06-2026 12:30
 criado: 05-04-2026 13:01
 ---
-Versão atual: 2.0.3
+Versão atual: 2.0.4
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -503,9 +503,11 @@ Permite que qualquer usuário (estudante, academia ou admin) registe números de
 - `genero` obrigatório: `masculino` ou `feminino`
 - `data_nascimento` obrigatório: deve ser anterior à data atual
 - JSON puro não é aceito no cadastro direto; o fluxo deve usar `multipart/form-data` para impedir bypass documental
-- `bilhete_identidade_responsavel` e o PDF `bi_responsavel` são obrigatórios
+- `bilhete_identidade_responsavel` e o PDF `bi_responsavel` são obrigatórios para estudantes escolares/fundamental/médio
 - `bilhete_identidade` e `bilhete_identidade_responsavel`, quando ambos informados, não podem ser iguais após normalização
-- `cedula_estudante` é obrigatória quando `bi_estudante` não for enviado
+- `bi_estudante` é obrigatório quando `bilhete_identidade` do estudante for informado
+- `cedula_estudante` é obrigatória quando o estudante não tiver BI próprio
+- o BI do responsável não pode coincidir com o BI principal de outro estudante escolar/fundamental/médio, mas pode repetir como BI de responsável de irmãos/outros estudantes
 - Certificado aplicável por ano/nível (`certificado_6_ano_fundamental`, `certificado_9_ano_fundamental` ou `certificado_ensino_medio`) pode ser substituído por `declaracao`; quando não houver certificado aplicável, `declaracao` é obrigatória
 - `ano_escolar_fundamental` deve seguir o formato canônico para o tipo de ensino
 - Se informar `curso_medio_id`, o curso deve existir, estar ativo, pertencer à academia e ser do tipo `medio`
@@ -1223,14 +1225,16 @@ Eventos do ledger:
 3. Os documentos são enviados ao storage em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`.
 4. Para cada PDF, o storage devolve o caminho interno, a URL do arquivo (`file_url`) e a URL de download (`download_url`); esses dados são gravados no evento de criação e na projeção.
 5. O aggregate `SolicitacaoMatricula` valida que `bilhete_identidade` e `bilhete_identidade_responsavel`, quando ambos informados, não sejam iguais.
-6. O aggregate `SolicitacaoMatricula` grava o evento de criação.
-7. A academia lista/consulta solicitações e aprova ou reprova.
-8. Na aprovação, o sistema reutiliza o aggregate `Estudante` e emite `EstudanteCriadoComVinculo`.
-9. Na reprovação, grava o evento de reprovação e remove o diretório dos documentos.
+6. Para estudantes escolares/fundamental/médio, o handler e o aggregate exigem `bilhete_identidade_responsavel`, `bi_responsavel`, `bi_estudante` quando houver BI próprio, `cedula_estudante` quando não houver BI próprio, e certificado aplicável ou `declaracao`.
+7. Antes de criar ou aprovar a solicitação escolar, o handler confirma que o BI do responsável não pertence como BI principal a outro estudante escolar/fundamental/médio já existente.
+8. O aggregate `SolicitacaoMatricula` grava o evento de criação.
+9. A academia lista/consulta solicitações e aprova ou reprova.
+10. Na aprovação, o sistema reutiliza o aggregate `Estudante`, revalida os documentos e conflitos atuais, e emite `EstudanteCriadoComVinculo`.
+11. Na reprovação, grava o evento de reprovação e remove o diretório dos documentos.
 
 ### Regras de negócio
 
-- O bilhete de identidade do responsável é obrigatório para toda academia escolar e de nível superior.
+- O bilhete de identidade do responsável é obrigatório para estudantes escolares/fundamental/médio.
 - A cédula do estudante é obrigatória quando o bilhete de identidade do estudante não for enviado.
 - Certificado do 6.º ano fundamental só é aplicável para matrículas do 7.º ao 9.º ano fundamental.
 - Certificado do 9.º ano fundamental só é aplicável para matrículas do ensino médio.

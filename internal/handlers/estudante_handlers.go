@@ -141,11 +141,14 @@ func registerEstudantePorAcademiaMultipart(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("envie o PDF do bilhete de identidade do responsável; este documento é obrigatório para concluir o cadastro"))
 		return
 	}
-	if _, ok := files["bi_estudante"]; !ok {
-		if _, ok := files["cedula_estudante"]; !ok {
-			utils.RespondWithValidationError(c, fmt.Errorf("envie a cédula do estudante quando o bilhete de identidade do estudante não for informado"))
+	if req.BilheteIdentidade != "" {
+		if _, ok := files["bi_estudante"]; !ok {
+			utils.RespondWithValidationError(c, fmt.Errorf("envie o PDF do bilhete de identidade do estudante quando o bilhete de identidade do estudante for informado"))
 			return
 		}
+	} else if _, ok := files["cedula_estudante"]; !ok {
+		utils.RespondWithValidationError(c, fmt.Errorf("envie a cédula do estudante quando o bilhete de identidade do estudante não for informado"))
+		return
 	}
 	if requiredCertField == "" {
 		if _, ok := files["declaracao"]; !ok {
@@ -157,6 +160,10 @@ func registerEstudantePorAcademiaMultipart(c *gin.Context) {
 			utils.RespondWithValidationError(c, fmt.Errorf("envie o %s ou, caso ainda não o tenha, envie a declaração escolar", documentLabel(requiredCertField)))
 			return
 		}
+	}
+	if err := validateBIResponsavelNaoConflitaComEscolar(c, &req.BilheteResponsavel, nil); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
 	}
 
 	client := getDbClient(c)
@@ -627,7 +634,7 @@ func AtualizarDadosPessoais(c *gin.Context) {
 		}
 	}
 
-	if req.BilheteIdentidade != nil && *req.BilheteIdentidade != "" {
+	if req.BilheteIdentidade != nil && strings.TrimSpace(*req.BilheteIdentidade) != "" {
 		estudanteProj := getEstudanteProjection(c)
 		existente, err := estudanteProj.GetByBilheteIdentidadePrincipalExcludingID(*req.BilheteIdentidade, userID)
 		if err != nil {
@@ -639,7 +646,6 @@ func AtualizarDadosPessoais(c *gin.Context) {
 			return
 		}
 	}
-
 	repository := getRepository(c)
 	estudanteAgg, err := repository.Load(userID, "Estudante")
 	if err != nil {
@@ -651,6 +657,12 @@ func AtualizarDadosPessoais(c *gin.Context) {
 	if !ok {
 		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
 		return
+	}
+	if req.BilheteIdentidadeResp != nil && isMatriculaEscolar(estudante.AnoEscolar, estudante.AnoEscolarMedio) {
+		if err := validateBIResponsavelNaoConflitaComEscolar(c, req.BilheteIdentidadeResp, &userID); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
 	}
 
 	if err := estudante.AtualizarDadosPessoais(

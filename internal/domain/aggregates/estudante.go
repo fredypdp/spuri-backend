@@ -426,6 +426,9 @@ func (e *Estudante) CriarComVinculo(
 	if len(documentosOpt) > 0 && documentosOpt[0] != nil {
 		documentos = documentosOpt[0]
 	}
+	if err := validarDocumentosEscolaresAggregate(bilhete, bilheteResp, anoEscolar, anoEscolarMedio, documentos); err != nil {
+		return err
+	}
 
 	statusFund := "em_andamento"
 	statusMed := "inativo"
@@ -516,6 +519,11 @@ func (e *Estudante) AtualizarDadosPessoais(
 	}
 	if err := validarBilhetesDiferentes(effectiveBilhete, effectiveBilheteResp); err != nil {
 		return err
+	}
+	if !isNilOrBlank(e.AnoEscolar) || !isNilOrBlank(e.AnoEscolarMedio) {
+		if isNilOrBlank(effectiveBilheteResp) {
+			return fmt.Errorf("bilhete_identidade_responsavel é obrigatório para estudante escolar")
+		}
 	}
 	effectiveTelefone := e.Telefone
 	if telefone != nil {
