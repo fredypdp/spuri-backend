@@ -90,3 +90,44 @@ func TestMotivoProgressaoFundamentalSemOfertaIgnoraQuandoOfertadoOuFinalizado(t 
 		t.Fatalf("motivo reprovação = %v, want nil", *motivo)
 	}
 }
+
+func TestCalcularProximoAnoFundamentalDiferenciaPromocaoFinalizacaoEReprovacao(t *testing.T) {
+	proximo, err := calcularProximoAnoFundamental("8_ano_fundamental", true)
+	if err != nil {
+		t.Fatalf("calcularProximoAnoFundamental() unexpected error = %v", err)
+	}
+	if proximo == nil || *proximo != "9_ano_fundamental" {
+		t.Fatalf("proximo 8º aprovado = %v, want 9_ano_fundamental", proximo)
+	}
+
+	finalizado, err := calcularProximoAnoFundamental("9_ano_fundamental", true)
+	if err != nil {
+		t.Fatalf("calcularProximoAnoFundamental() unexpected error = %v", err)
+	}
+	if finalizado != nil {
+		t.Fatalf("proximo 9º aprovado = %v, want nil para finalização real", *finalizado)
+	}
+
+	reprovado, err := calcularProximoAnoFundamental("5_ano_fundamental", false)
+	if err != nil {
+		t.Fatalf("calcularProximoAnoFundamental() unexpected error = %v", err)
+	}
+	if reprovado != nil {
+		t.Fatalf("proximo reprovado = %v, want nil", *reprovado)
+	}
+}
+
+func TestMotivoProgressaoFundamentalSemOfertaAcademiaMistaNaoUsaAnoMedio(t *testing.T) {
+	proximo := "6_ano_fundamental"
+	motivo := motivoProgressaoFundamentalSemOferta(true, &proximo, []string{
+		"1_ano_fundamental",
+		"2_ano_fundamental",
+		"3_ano_fundamental",
+		"4_ano_fundamental",
+		"5_ano_fundamental",
+		"1_ano_medio",
+	})
+	if motivo == nil || *motivo != motivoAcademiaSemOfertaProximoAnoFundamental {
+		t.Fatalf("motivo academia mista sem 6º fundamental = %v, want motivo sem oferta", motivo)
+	}
+}
