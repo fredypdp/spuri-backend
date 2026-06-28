@@ -83,10 +83,8 @@ func (s *SolicitacaoMatricula) Criar(codigoSolicitacao, codigoAcademia, nome, ge
 	if documentos == nil || len(documentos) == 0 {
 		return fmt.Errorf("documentos são obrigatórios")
 	}
-	if _, ok := documentos["bi_estudante"]; !ok {
-		if _, okResp := documentos["bi_responsavel"]; !okResp {
-			return fmt.Errorf("documento bi_estudante ou bi_responsavel é obrigatório")
-		}
+	if err := validarDocumentosEscolaresAggregate(bi, biResp, anoFund, anoMedio, documentos); err != nil {
+		return err
 	}
 	now := time.Now().UTC()
 	ev := &SolicitacaoMatriculaCriadaEvent{BaseEvent: BaseEvent{EventType: "SolicitacaoMatriculaCriada", AggregateID: s.ID}, CodigoSolicitacao: codigoSolicitacao, CodigoAcademia: codigoAcademia, Nome: nome, Genero: genero, DataNascimento: dataNascimento, Email: email, Telefone: telefone, BilheteIdentidade: bi, BilheteIdentidadeResponsavel: biResp, AnoEscolarFundamental: anoFund, AnoEscolarMedio: anoMedio, CursoMedioID: cursoMedioID, AnoSuperior: anoSuperior, CursoSuperiorID: cursoSuperiorID, Status: StatusSolicitacaoPendente, Documentos: documentos, CreatedAt: now, UpdatedAt: now}
@@ -147,6 +145,41 @@ func (d *DocumentoMatricula) UnmarshalJSON(data []byte) error {
 	}
 	*d = DocumentoMatricula(v)
 	return nil
+}
+
+func validarDocumentosEscolaresAggregate(bi, biResp *string, anoFund, anoMedio *string, documentos map[string]DocumentoMatricula) error {
+	if !(!isNilOrBlank(anoFund) || !isNilOrBlank(anoMedio)) {
+		return nil
+	}
+	if isNilOrBlank(biResp) {
+		return fmt.Errorf("bilhete_identidade_responsavel é obrigatório para estudante escolar")
+	}
+	if documentos == nil {
+		documentos = map[string]DocumentoMatricula{}
+	}
+	if _, ok := documentos["bi_responsavel"]; !ok {
+		return fmt.Errorf("bi_responsavel é obrigatório para estudante escolar")
+	}
+	if !isNilOrBlank(bi) {
+		if _, ok := documentos["bi_estudante"]; !ok {
+			return fmt.Errorf("bi_estudante é obrigatório quando bilhete_identidade do estudante é informado")
+		}
+	} else if _, ok := documentos["cedula_estudante"]; !ok {
+		return fmt.Errorf("cedula_estudante é obrigatória quando bilhete_identidade do estudante não é informado")
+	}
+	if _, ok := documentos["declaracao"]; ok {
+		return nil
+	}
+	if _, ok := documentos["certificado_6_ano_fundamental"]; ok {
+		return nil
+	}
+	if _, ok := documentos["certificado_9_ano_fundamental"]; ok {
+		return nil
+	}
+	if _, ok := documentos["certificado_ensino_medio"]; ok {
+		return nil
+	}
+	return fmt.Errorf("certificado aplicável ou declaracao é obrigatório para estudante escolar")
 }
 
 type SolicitacaoMatriculaCriadaEvent struct {

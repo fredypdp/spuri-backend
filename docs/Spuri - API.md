@@ -1,8 +1,8 @@
 ---
-modificado: 28-06-2026 01:00
+modificado: 28-06-2026 12:30
 criado: 05-04-2026 13:01
 ---
-Versão atual: 2.0.3
+Versão atual: 2.0.4
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -1095,9 +1095,10 @@ Atualiza os dados cadastrais da academia autenticada.
 
 A obrigatoriedade dos documentos não é mais configurada por academia. O backend aplica automaticamente as mesmas regras abaixo no `POST /solicitacao-matricula` e no cadastro direto `POST /academia/estudante/register`:
 
-- `bi_responsavel` e `bilhete_identidade_responsavel` são obrigatórios para academias escolares e de nível superior.
+- Para estudantes escolares/fundamental/médio, `bi_responsavel` e `bilhete_identidade_responsavel` são obrigatórios em todos os fluxos de criação e aprovação.
 - `bilhete_identidade` e `bilhete_identidade_responsavel`, quando ambos informados para o mesmo estudante, não podem ser iguais.
-- `cedula_estudante` é obrigatória quando `bi_estudante` não for enviado.
+- Para estudantes escolares/fundamental/médio, `bi_estudante` é obrigatório quando `bilhete_identidade` for informado; `cedula_estudante` é obrigatória quando o estudante não tiver BI próprio.
+- Para estudantes escolares/fundamental/médio, o BI do responsável não pode coincidir com o BI principal de outro estudante escolar/fundamental/médio; ele pode repetir como BI de responsável de outros estudantes.
 - `certificado_6_ano_fundamental` é o certificado aplicável somente para `7_ano_fundamental`, `8_ano_fundamental` e `9_ano_fundamental`.
 - `certificado_9_ano_fundamental` é o certificado aplicável somente para anos do ensino médio.
 - `certificado_ensino_medio` é o certificado aplicável somente para anos do ensino superior.
@@ -1657,7 +1658,7 @@ Para implementar o cliente de forma segura:
 
 ### POST /academia/estudante/register
 
-Cadastra um novo estudante vinculado à academia autenticada. A partir da versão 2.0.3, o cadastro direto usa `multipart/form-data` e exige a mesma matriz documental do `POST /solicitacao-matricula`; JSON puro não é mais aceito para evitar cadastro sem documentação obrigatória.
+Cadastra um novo estudante vinculado à academia autenticada. A partir da versão 2.0.4, o cadastro direto usa `multipart/form-data` e exige a mesma matriz documental do `POST /solicitacao-matricula`; JSON puro não é mais aceito para evitar cadastro sem documentação obrigatória. Para estudantes escolares/fundamental/médio, a criação valida também que o BI do responsável não coincide com o BI principal de outro estudante escolar.
 
 **Proteção**: autenticado + academia ativa
 
@@ -1674,7 +1675,7 @@ Cadastra um novo estudante vinculado à academia autenticada. A partir da versã
 | `telefone` | condicional | Pelo menos um entre `telefone` e `telefone_responsavel`; para superior, `telefone_responsavel` pode ficar ausente. |
 | `telefone_responsavel` | condicional | Não pode ser igual a `telefone`. |
 | `bilhete_identidade` | não | Quando informado, deve ser único entre estudantes. |
-| `bilhete_identidade_responsavel` | sim | Obrigatório no mesmo padrão da solicitação de matrícula; não pode ser igual ao BI do estudante após normalização. |
+| `bilhete_identidade_responsavel` | sim | Obrigatório para estudante escolar/fundamental/médio; não pode ser igual ao BI do estudante após normalização nem coincidir com o BI principal de outro estudante escolar/fundamental/médio. |
 | `ano_escolar_fundamental` | condicional | Ano fundamental canônico, quando aplicável. |
 | `ano_escolar_medio` | condicional | Ano médio canônico, quando aplicável. |
 | `curso_medio_id` | condicional | UUID de curso médio ativo da academia, quando o ano médio for informado. |
@@ -1686,8 +1687,8 @@ Cadastra um novo estudante vinculado à academia autenticada. A partir da versã
 | Campo de arquivo | Regra |
 | --- | --- |
 | `bi_responsavel` | Obrigatório. |
-| `bi_estudante` | Enviar quando o estudante tiver BI próprio. |
-| `cedula_estudante` | Obrigatória quando `bi_estudante` não for enviado. |
+| `bi_estudante` | Obrigatório quando `bilhete_identidade` do estudante for informado. |
+| `cedula_estudante` | Obrigatória quando `bilhete_identidade` do estudante não for informado. |
 | `declaracao` | Obrigatória quando o certificado aplicável não for enviado ou quando não existir certificado aplicável. |
 | `certificado_6_ano_fundamental` | Aplicável a `7_ano_fundamental`, `8_ano_fundamental` e `9_ano_fundamental`; pode ser substituído por `declaracao`. |
 | `certificado_9_ano_fundamental` | Aplicável ao ensino médio; pode ser substituído por `declaracao`. |
@@ -2158,7 +2159,7 @@ Cria uma solicitação pública de matrícula via `multipart/form-data`. O backe
 
 **Campos**: `codigo_academia`, `nome`, `genero`, `data_nascimento`, `email`, `telefone`, `bilhete_identidade`, `bilhete_identidade_responsavel`, `ano_escolar_fundamental`, `ano_escolar_medio`, `curso_medio_id`, `ano_superior`, `curso_superior_id`. Quando `bilhete_identidade` e `bilhete_identidade_responsavel` forem enviados juntos, eles não podem ser iguais (comparação sem espaços nas extremidades e sem diferenciar maiúsculas/minúsculas).
 
-**Ficheiros PDF**: `bi_estudante`, `bi_responsavel`, `cedula_estudante`, `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`. Cada ficheiro deve ser PDF válido e ter no máximo 5MB. `bi_responsavel` é obrigatório. Se não houver `bi_estudante`, `cedula_estudante` é obrigatória. `declaracao` é obrigatória quando o certificado aplicável ao ano académico não for enviado.
+**Ficheiros PDF**: `bi_estudante`, `bi_responsavel`, `cedula_estudante`, `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`. Cada ficheiro deve ser PDF válido e ter no máximo 5MB. Para estudantes escolares/fundamental/médio, `bi_responsavel` é obrigatório; `bi_estudante` é obrigatório quando `bilhete_identidade` for informado; `cedula_estudante` é obrigatória quando o estudante não tiver BI próprio; `declaracao` é obrigatória quando o certificado aplicável ao ano académico não for enviado.
 
 **Request:** `multipart/form-data` com os campos e ficheiros listados acima.
 
