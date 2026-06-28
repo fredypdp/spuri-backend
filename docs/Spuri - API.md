@@ -2,7 +2,7 @@
 modificado: 28-06-2026 12:30
 criado: 05-04-2026 13:01
 ---
-Versão atual: 2.0.4
+Versão atual: 2.0.5
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -2310,31 +2310,33 @@ Lista todas as solicitações do sistema para admin em ordem decrescente de cria
 
 ### POST /academia/curso
 
-Cria um novo curso para a academia.
+Cria um novo curso para a academia. O tipo efetivo do curso é inferido pelo backend a partir da academia autenticada (`medio` para escola do médio e `superior` para academia superior). O campo `type` pode ser enviado para explicitar a intenção, mas deve corresponder ao tipo permitido para a academia.
 
 **Proteção**: autenticado + academia ativa
 
-**Request:**
+**Request para curso médio:**
 
 ```json
 {
   "nome": "Ciências e Tecnologia",
   "type": "medio",
-  "anos_academicos": ["1_ano_medio", "2_ano_medio", "3_ano_medio"],
-  "periodos": []  // obrigatório para 'superior', vazio/ausente para 'medio'
+  "anos_academicos": ["1_ano_medio", "2_ano_medio", "3_ano_medio"]
 }
 ```
 
-**Para superior:**
+**Request para curso superior:**
 
 ```json
 {
   "nome": "Engenharia Informática",
   "type": "superior",
-  "anos_academicos": ["1_ano_superior", "2_ano_superior", "3_ano_superior", "4_ano_superior"],
-  "periodos": ["1_semestre", "2_semestre"]
+  "periodos": 8
 }
 ```
+
+Para cursos superiores, `periodos` é um **número inteiro positivo** que representa o total de semestres. O backend persiste internamente os semestres sequenciais (`1_semestre` até `N_semestre`) e calcula `anos_academicos` automaticamente com `ceil(periodos / 2)`. Ex.: `periodos = 3` gera `periodos = ["1_semestre", "2_semestre", "3_semestre"]` e `anos_academicos = ["1_ano_superior", "2_ano_superior"]`.
+
+Cursos superiores não aceitam `anos_academicos` no payload; cursos médios não aceitam `periodos` numérico.
 
 **Response 201:**
 
@@ -2344,17 +2346,18 @@ Cria um novo curso para a academia.
   "data": {
     "id": "uuid",
     "nome": "string",
-    "type": "medio",
-    "periodos": []
+    "type": "superior",
+    "periodos": ["1_semestre", "2_semestre", "3_semestre", "4_semestre"]
   }
 }
 ```
 
 **Erros:**
 
-- `400` — tipo inválido, anos_academicos inválidos
-- `400` — periodos ausentes para tipo superior
-- `403` — academia do tipo escola não pode criar curso superior (e vice-versa)
+- `400` — nome ausente, `type` incompatível com a academia ou anos_academicos inválidos para curso médio
+- `400` — curso superior sem `periodos`, com `periodos <= 0`, decimal, string, array, nulo ou com `anos_academicos` enviado
+- `400` — curso médio com `periodos` numérico enviado
+- `403` — academia inativa não pode criar cursos
 
 ---
 
@@ -2441,22 +2444,31 @@ Desativa um curso ativo.
 
 ### PUT /academia/curso/:id/dados
 
-Atualiza nome, anos_academicos ou periodos de um curso. O `type` é imutável.
+Atualiza dados de um curso. O `type` é imutável.
 
 **Proteção**: autenticado + academia ativa
 
 **Validações de integridade:**
 
-- Ao enviar `anos_academicos`, a atualização é rejeitada se remover algum ano que ainda possua estudante ativo matriculado no curso.
-- Para cursos superiores, ao enviar `periodos`, a atualização é rejeitada se remover algum semestre que ainda possua estudante ativo com `semestre_atual` correspondente.
+- Para cursos médios, `anos_academicos` pode ser enviado e a atualização é rejeitada se remover algum ano que ainda possua estudante ativo matriculado no curso.
+- Para cursos superiores, `anos_academicos` não pode ser enviado. Quando `periodos` numérico é enviado, o backend recalcula semestres e anos acadêmicos derivados; se houver redução, a atualização é rejeitada ao remover semestre usado por estudante ativo em `semestre_atual` ou ano superior ainda usado por estudante ativo.
+- `periodos` numérico é aceito apenas para cursos superiores e deve ser inteiro positivo.
 
-**Request:** (todos opcionais)
+**Request para curso médio:** (todos opcionais)
 
 ```json
 {
   "nome": "string",
-  "anos_academicos": ["1_ano_medio"],
-  "periodos": ["1_semestre", "2_semestre"]
+  "anos_academicos": ["1_ano_medio", "2_ano_medio"]
+}
+```
+
+**Request para curso superior:** (todos opcionais)
+
+```json
+{
+  "nome": "string",
+  "periodos": 10
 }
 ```
 
@@ -2466,15 +2478,18 @@ Atualiza nome, anos_academicos ou periodos de um curso. O `type` é imutável.
 {
   "message": "curso atualizado com sucesso",
   "nome": "string",
-  "type": "medio",
-  "anos_academicos": [],
-  "periodos": []
+  "type": "superior",
+  "anos_academicos": ["1_ano_superior", "2_ano_superior", "3_ano_superior", "4_ano_superior", "5_ano_superior"],
+  "periodos": ["1_semestre", "2_semestre", "3_semestre", "4_semestre", "5_semestre", "6_semestre", "7_semestre", "8_semestre", "9_semestre", "10_semestre"]
 }
 ```
 
 **Erros:**
 
+- `400` — nenhum campo para atualizar
 - `400` — tentativa de remover `anos_academicos` ou `periodos` ainda usados por estudantes ativos
+- `400` — curso superior com `anos_academicos` enviado ou `periodos` inválido
+- `400` — curso médio com `periodos` numérico enviado
 
 ---
 

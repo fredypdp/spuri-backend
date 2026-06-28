@@ -2,7 +2,7 @@
 modificado: 28-06-2026 12:30
 criado: 05-04-2026 13:01
 ---
-Versão atual: 2.0.4
+Versão atual: 2.0.5
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -368,9 +368,11 @@ Representa um curso oferecido por uma academia (médio ou superior). O **tipo é
 | Tipo       | Períodos                                        | Anos                       |
 | ---------- | ----------------------------------------------- | -------------------------- |
 | `medio`    | Trimestres fixos do sistema (não configuráveis) | Formato `[n]_ano_medio`    |
-| `superior` | Semestres configurados pela academia            | Formato `[n]_ano_superior` |
+| `superior` | Total de semestres informado como número na API; backend deriva `1_semestre` até `N_semestre` | Calculados pelo backend no formato `[n]_ano_superior` |
 
-**Formato dos semestres**: `[n]_semestre` onde n ≥ 1 (ex: `1_semestre`, `2_semestre`).
+Para cursos superiores, a criação/edição recebe `periodos` como número inteiro positivo (quantidade total de semestres) e não aceita `anos_academicos` no payload. O backend persiste os semestres sequenciais no formato `[n]_semestre` e calcula os anos acadêmicos com `ceil(periodos / 2)`. Ex.: `periodos = 3` deriva `periodos = ["1_semestre", "2_semestre", "3_semestre"]` e `anos_academicos = ["1_ano_superior", "2_ano_superior"]`.
+
+**Formato dos semestres persistidos**: `[n]_semestre` onde n ≥ 1 (ex: `1_semestre`, `2_semestre`).
 
 Os trimestres (`1_trimestre`, `2_trimestre`, `3_trimestre`) são **fixos do sistema** e nunca configurados no curso. São os períodos padrão para notas do tipo escolar.
 
