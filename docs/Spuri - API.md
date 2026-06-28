@@ -10,7 +10,7 @@ Versão atual: 2.0.7
 3. [[#3. Autenticação]]
 4. [[#4. Perfil e Conta]]
 5. [[#5. Email]]
-6. [[#6. Academia]]
+6. [[#6. Academias]]
 7. [[#7. Ano Letivo]]
 8. [[#8. Estudantes]]
 9. [[#9. Solicitação de Matrícula]]
@@ -934,7 +934,7 @@ Define nova senha usando o token de recuperação.
 
 ---
 
-## 6. Academia
+## 6. Academias
 
 ### POST /dominis/academia/register
 
@@ -1220,135 +1220,6 @@ Retorna detalhes de uma academia pelo código.
 **Campos públicos para usuário não autenticado:** `nivel`, `type`, `nome`, `codigo_academia`, `provincia`, `endereco`, `nivel_escolar`, `anos_academicos`.
 
 **Nota**: admins veem também `email` e `motivo_desativacao`.
-
----
-
----
-
-## 7. Ano Letivo
-
-### POST /admin/definir-ano-letivo-geral
-
-Define diretamente o **ano letivo oficial global por tipo** (`escolar` ou `superior`). O Admin FPP deve informar `type` e o `ano_letivo` desejado no payload, no formato `YYYY_YYYY` com segundo ano igual ao primeiro + 1 (ex.: `2026_2027`). O backend não calcula automaticamente o ano letivo nesta rota; o valor informado pelo admin é persistido para o tipo escolhido. A definição administrativa só é permitida quando nenhuma academia ativa daquele tipo possui ano letivo definido; depois disso, a evolução global daquele tipo passa a ser automática quando todas as academias ativas do mesmo tipo estiverem alinhadas no mesmo ano letivo.
-
-Não há aliases de compatibilidade para esta operação.
-
-**Proteção**: autenticado + admin role `fpp`
-
-**Regras de negócio:**
-
-- Apenas `fpp` pode definir diretamente o ano letivo global.
-- O campo `ano_letivo` é obrigatório e deve usar `YYYY_YYYY` com segundo ano = primeiro + 1.
-- Esse valor torna-se referência obrigatória para a rota `POST /academia/definir-ano-letivo`.
-- A definição é bloqueada se existir qualquer academia ativa do tipo informado com `ano_letivo` já definido.
-
-**Request:** informe o tipo do calendário global e o ano letivo que deve ser definido para esse tipo.
-
-```json
-{ "type": "escolar", "ano_letivo": "2026_2027" }
-```
-
-**Response 200:**
-
-```json
-{
-  "message": "ano letivo global definido com sucesso",
-  "ano_letivo": "2026_2027"
-}
-```
-
-**Erros:**
-
-- `409` — existe academia ativa com ano letivo já definido; a evolução global será automática quando todas estiverem alinhadas
-- `403` — usuário não é `fpp`
-
----
-
-### GET /ano-letivo
-
-Retorna o **ano letivo oficial global atual** da plataforma para o tipo informado em `?type=escolar` ou `?type=superior`.
-
-**Proteção**: autenticado (qualquer usuário logado)
-
-
-**Request:** sem payload
-**Response 200:**
-
-```json
-{
-  "ano_letivo": "2026_2027"
-}
-```
-
-**Erros:**
-
-- `404` — ano letivo global ainda não definido
-
----
-
-### GET /anos-letivos-lista
-
-Retorna a **lista histórica de anos letivos globais** já definidos pelo admin.
-
-**Proteção**: autenticado (qualquer usuário logado)
-
-
-**Request:** sem payload
-**Response 200:**
-
-```json
-{
-  "anos_letivos_lista": [
-    {
-      "ano_letivo": "2025_2026",
-      "definido_por": "11111111-1111-1111-1111-111111111111",
-      "definido_em": "2025-09-01T08:00:00Z"
-    },
-    {
-      "ano_letivo": "2026_2027",
-      "definido_por": "11111111-1111-1111-1111-111111111111",
-      "definido_em": "2026-09-01T08:00:00Z"
-    }
-  ]
-}
-```
-
-**Regra da lista histórica (`anos_letivos_lista`)**: cada ano letivo global é adicionado apenas uma vez; tentativas repetidas do mesmo `ano_letivo` não duplicam itens.
-
----
-
-### POST /academia/definir-ano-letivo
-
-Define o ano letivo ativo da academia apenas quando ela ainda não possui ano letivo, alinhado ao ano letivo global atual do tipo da própria academia. A academia não envia `type`: o backend infere `escolar` para academias `nivel=escola` e `superior` para academias `nivel=superior`. O campo `ano_letivo` é opcional; quando omitido, o backend usa o ano letivo global atual daquele tipo. A passagem para o ano seguinte não usa uma rota própria: acontece automaticamente ao finalizar o ano letivo.
-
-Não há aliases de compatibilidade para esta operação.
-
-**Request:**
-
-```json
-{
-  "tipo": "escola"
-}
-```
-
-**Response 200:**
-
-```json
-{
-  "message": "ano letivo definido com sucesso",
-  "ano_letivo": "2026_2027",
-  "tipo": "escola"
-}
-```
-
-**Erros principais:**
-
-- `409` — ano letivo global ainda não definido pelo admin.
-- `409` — ano letivo da academia já definido; finalize o ano letivo atual para avançar automaticamente.
-- `400` — ano letivo informado diferente do global atual.
-
-
----
 
 ### GET /academia/anos-academicos
 
@@ -1645,6 +1516,135 @@ Desabilita/remover logicamente escopos acadêmicos da oferta futura, preservando
 | `401` | Token ausente ou inválido. | `{ "error": "UNAUTHORIZED", "message": "..." }` |
 | `403` | Usuário não é academia ativa. | `{ "error": "FORBIDDEN", "message": "..." }` |
 | `404` | Academia autenticada não encontrada. | `{ "error": "NOT_FOUND", "message": "academia não encontrado" }` |
+
+---
+
+---
+
+## 7. Ano Letivo
+
+### POST /admin/definir-ano-letivo-geral
+
+Define diretamente o **ano letivo oficial global por tipo** (`escolar` ou `superior`). O Admin FPP deve informar `type` e o `ano_letivo` desejado no payload, no formato `YYYY_YYYY` com segundo ano igual ao primeiro + 1 (ex.: `2026_2027`). O backend não calcula automaticamente o ano letivo nesta rota; o valor informado pelo admin é persistido para o tipo escolhido. A definição administrativa só é permitida quando nenhuma academia ativa daquele tipo possui ano letivo definido; depois disso, a evolução global daquele tipo passa a ser automática quando todas as academias ativas do mesmo tipo estiverem alinhadas no mesmo ano letivo.
+
+Não há aliases de compatibilidade para esta operação.
+
+**Proteção**: autenticado + admin role `fpp`
+
+**Regras de negócio:**
+
+- Apenas `fpp` pode definir diretamente o ano letivo global.
+- O campo `ano_letivo` é obrigatório e deve usar `YYYY_YYYY` com segundo ano = primeiro + 1.
+- Esse valor torna-se referência obrigatória para a rota `POST /academia/definir-ano-letivo`.
+- A definição é bloqueada se existir qualquer academia ativa do tipo informado com `ano_letivo` já definido.
+
+**Request:** informe o tipo do calendário global e o ano letivo que deve ser definido para esse tipo.
+
+```json
+{ "type": "escolar", "ano_letivo": "2026_2027" }
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "ano letivo global definido com sucesso",
+  "ano_letivo": "2026_2027"
+}
+```
+
+**Erros:**
+
+- `409` — existe academia ativa com ano letivo já definido; a evolução global será automática quando todas estiverem alinhadas
+- `403` — usuário não é `fpp`
+
+---
+
+### GET /ano-letivo
+
+Retorna o **ano letivo oficial global atual** da plataforma para o tipo informado em `?type=escolar` ou `?type=superior`.
+
+**Proteção**: autenticado (qualquer usuário logado)
+
+
+**Request:** sem payload
+**Response 200:**
+
+```json
+{
+  "ano_letivo": "2026_2027"
+}
+```
+
+**Erros:**
+
+- `404` — ano letivo global ainda não definido
+
+---
+
+### GET /anos-letivos-lista
+
+Retorna a **lista histórica de anos letivos globais** já definidos pelo admin.
+
+**Proteção**: autenticado (qualquer usuário logado)
+
+
+**Request:** sem payload
+**Response 200:**
+
+```json
+{
+  "anos_letivos_lista": [
+    {
+      "ano_letivo": "2025_2026",
+      "definido_por": "11111111-1111-1111-1111-111111111111",
+      "definido_em": "2025-09-01T08:00:00Z"
+    },
+    {
+      "ano_letivo": "2026_2027",
+      "definido_por": "11111111-1111-1111-1111-111111111111",
+      "definido_em": "2026-09-01T08:00:00Z"
+    }
+  ]
+}
+```
+
+**Regra da lista histórica (`anos_letivos_lista`)**: cada ano letivo global é adicionado apenas uma vez; tentativas repetidas do mesmo `ano_letivo` não duplicam itens.
+
+---
+
+### POST /academia/definir-ano-letivo
+
+Define o ano letivo ativo da academia apenas quando ela ainda não possui ano letivo, alinhado ao ano letivo global atual do tipo da própria academia. A academia não envia `type`: o backend infere `escolar` para academias `nivel=escola` e `superior` para academias `nivel=superior`. O campo `ano_letivo` é opcional; quando omitido, o backend usa o ano letivo global atual daquele tipo. A passagem para o ano seguinte não usa uma rota própria: acontece automaticamente ao finalizar o ano letivo.
+
+Não há aliases de compatibilidade para esta operação.
+
+**Request:**
+
+```json
+{
+  "tipo": "escola"
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "ano letivo definido com sucesso",
+  "ano_letivo": "2026_2027",
+  "tipo": "escola"
+}
+```
+
+**Erros principais:**
+
+- `409` — ano letivo global ainda não definido pelo admin.
+- `409` — ano letivo da academia já definido; finalize o ano letivo atual para avançar automaticamente.
+- `400` — ano letivo informado diferente do global atual.
+
+
+---
 
 ### GET /academia/ano-letivo
 
