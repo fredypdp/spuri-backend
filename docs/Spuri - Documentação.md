@@ -1179,7 +1179,7 @@ GET  /jobs/:id?results=true       →  { ... resultados por item ... }
 
 ### 10.1 Arquivamento de Estudante
 
-O sistema possui o status geral `arquivado` para estudantes que saíram da academia, mas cujos registos históricos devem ser mantidos. A academia não define esse status diretamente: usa `POST /academia/estudante/:codigo/desvincular`, que registra `EstudanteDesvinculadoDaAcademia`. Para retorno do estudante, usa `POST /academia/estudante/:codigo/revincular`, que registra `EstudanteReintegrado` e reativa o vínculo.
+O sistema possui o status geral `arquivado` para estudantes que saíram da academia, mas cujos registos históricos devem ser mantidos. A academia não define esse status diretamente: usa `POST /academia/estudante/:codigo/desvincular`, que registra `EstudanteDesvinculadoDaAcademia`. Para retorno do estudante, usa `POST /academia/estudante/:codigo/revincular`, que registra `EstudanteReintegrado` e reativa o vínculo. A revinculação diferencia retorno ao mesmo curso de mudança real de curso: no mesmo curso o aggregate mantém a posição acadêmica anterior (`ano_escolar_fundamental`, `ano_escolar_medio`, `semestre_atual` e `ano_superior`); ao mudar de curso médio reinicia em `1_ano_medio`; ao mudar de curso superior reinicia em `1_semestre`/`1_ano_superior`. Trancamento, interrupção, desvinculação e reativação alteram vínculo/status operacional, mas não zeram progressão nem removem histórico acadêmico, financeiro ou de auditoria.
 
 ### 10.2 Validação de Data de Falta
 
