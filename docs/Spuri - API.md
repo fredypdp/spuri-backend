@@ -1,8 +1,8 @@
 ---
-modificado: 28-06-2026 12:30
+modificado: 28-06-2026 16:40
 criado: 05-04-2026 13:01
 ---
-Versão atual: 2.0.5
+Versão atual: 2.0.6
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -1346,6 +1346,85 @@ Não há aliases de compatibilidade para esta operação.
 - `409` — ano letivo global ainda não definido pelo admin.
 - `409` — ano letivo da academia já definido; finalize o ano letivo atual para avançar automaticamente.
 - `400` — ano letivo informado diferente do global atual.
+
+
+---
+
+### GET /academia/anos-academicos
+
+Retorna uma visão unificada dos escopos acadêmicos habilitados da academia autenticada: anos do fundamental na própria academia e anos/períodos de cada curso médio ou superior.
+
+**Proteção**: autenticado + academia ativa **ou** admin.
+
+**Response 200:**
+
+```json
+{
+  "academia": {
+    "nivel": "escolar",
+    "nivel_escolar": "misto",
+    "anos_academicos": ["1_ano_fundamental", "2_ano_fundamental"]
+  },
+  "cursos": [
+    {
+      "id": "uuid-do-curso",
+      "type": "superior",
+      "anos_academicos": ["1_ano_superior", "2_ano_superior"],
+      "periodos": ["1_semestre", "2_semestre", "3_semestre", "4_semestre"]
+    }
+  ]
+}
+```
+
+### POST /academia/anos-academicos
+
+Adiciona/habilita escopos acadêmicos sem remover os existentes. Para `fundamental`, altera `projection_academias.anos_academicos`; para `medio` e `superior`, exige `curso_id` e altera o curso.
+
+**Fundamental/misto:**
+
+```json
+{ "type": "fundamental", "anos_academicos": ["4_ano_fundamental"] }
+```
+
+**Médio:**
+
+```json
+{ "type": "medio", "curso_id": "uuid-do-curso-medio", "anos_academicos": ["4_ano_medio"] }
+```
+
+**Superior:**
+
+```json
+{ "type": "superior", "curso_id": "uuid-do-curso-superior", "periodos": 8 }
+```
+
+### PATCH /academia/anos-academicos
+
+Substitui o conjunto habilitado do escopo informado. Para curso superior, `periodos` é sempre a quantidade total de semestres; `anos_academicos` superiores são derivados automaticamente por `ceil(periodos/2)` e não são aceitos como fonte manual.
+
+**Response 200:**
+
+```json
+{
+  "message": "anos acadêmicos atualizados com sucesso",
+  "type": "superior",
+  "curso_id": "uuid-do-curso-superior",
+  "anos_academicos": ["1_ano_superior", "2_ano_superior", "3_ano_superior", "4_ano_superior"],
+  "periodos": ["1_semestre", "2_semestre", "3_semestre", "4_semestre", "5_semestre", "6_semestre", "7_semestre", "8_semestre"]
+}
+```
+
+### DELETE /academia/anos-academicos
+
+Desabilita/remover logicamente anos do fundamental ou médio do conjunto habilitado, preservando histórico. Para superior, informe `periodos` com a nova quantidade total de semestres do curso.
+
+**Validações avançadas:**
+
+- A academia só altera seu próprio escopo; `curso_id` precisa pertencer à academia autenticada.
+- Fundamental só é permitido para academias escolares `fundamental` ou `misto` e aceita apenas `[1-9]_ano_fundamental`.
+- Médio só altera cursos `type=medio`; superior só altera cursos `type=superior`.
+- Reduções são bloqueadas com `409 Conflict` quando existem estudantes ativos no ano/semestre removido (`status_escolar_fundamental`, `status_escolar_medio` ou `status_superior` em andamento conforme o escopo operacional).
+- O backend não apaga turmas, matérias, notas, faltas, avaliações, sumários, eventos ou ledger; a alteração é prospectiva para novos vínculos.
 
 ### GET /academia/ano-letivo
 

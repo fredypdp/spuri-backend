@@ -1104,11 +1104,14 @@ func (p *EstudanteProjection) CountActiveByCursoAndAnos(cursoID uuid.UUID, tipo 
 	}
 
 	var col string
+	var statusCol string
 	switch tipo {
 	case "medio":
 		col = "ano_escolar_medio"
+		statusCol = "status_escolar_medio"
 	case "superior":
 		col = "ano_superior"
+		statusCol = "status_superior"
 	default:
 		return 0, fmt.Errorf("tipo de curso inválido")
 	}
@@ -1117,8 +1120,9 @@ func (p *EstudanteProjection) CountActiveByCursoAndAnos(cursoID uuid.UUID, tipo 
 		SELECT COUNT(*) FROM projection_estudantes
 		 WHERE status = 'ativo'
 		   AND curso_%s_id = $1
+		   AND %s = 'em_andamento'
 		   AND %s = ANY($2)
-	`, tipo, col)
+	`, tipo, statusCol, col)
 
 	var count int
 	err := p.client.DB().QueryRow(query, cursoID.String(), pq.Array(anos)).Scan(&count)
@@ -1135,7 +1139,24 @@ func (p *EstudanteProjection) CountActiveByCursoSuperiorAndSemestres(cursoID uui
 		SELECT COUNT(*) FROM projection_estudantes
 		 WHERE status = 'ativo'
 		   AND curso_superior_id = $1
+		   AND status_superior = 'em_andamento'
 		   AND semestre_atual = ANY($2)
 	`, cursoID.String(), pq.Array(semestres)).Scan(&count)
+	return count, err
+}
+
+func (p *EstudanteProjection) CountActiveByFundamentalAnos(codigoAcademia string, anos []string) (int, error) {
+	if len(anos) == 0 {
+		return 0, nil
+	}
+
+	var count int
+	err := p.client.DB().QueryRow(`
+		SELECT COUNT(*) FROM projection_estudantes
+		 WHERE status = 'ativo'
+		   AND codigo_academia = $1
+		   AND status_escolar_fundamental = 'em_andamento'
+		   AND ano_escolar_fundamental = ANY($2)
+	`, codigoAcademia, pq.Array(anos)).Scan(&count)
 	return count, err
 }
