@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"database/sql"
 	"fmt"
 	"log"
@@ -18,6 +19,7 @@ import (
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
 	"spuri/internal/services"
+	"spuri/internal/storage"
 	"spuri/internal/utils"
 )
 
@@ -43,75 +45,48 @@ type CadastroEstudanteAcademiaRequest struct {
 }
 
 func RegisterEstudantePorAcademia(c *gin.Context) {
-	var req CadastroEstudanteAcademiaRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("campos obrigatórios: nome, genero, data_nascimento"))
+	if strings.HasPrefix(strings.ToLower(c.GetHeader("Content-Type")), "multipart/form-data") {
+		registerEstudantePorAcademiaMultipart(c)
 		return
+	}
+	utils.RespondWithValidationError(c, fmt.Errorf("cadastro direto de estudante agora exige multipart/form-data com documentos obrigatórios"))
+}
+
+func registerEstudantePorAcademiaMultipart(c *gin.Context) {
+	if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("multipart/form-data inválido"))
+		return
+	}
+	get := func(k string) string { return strings.TrimSpace(c.PostForm(k)) }
+	dataNascimento, err := time.Parse("2006-01-02", get("data_nascimento"))
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("data_nascimento deve ser YYYY-MM-DD anterior à data atual"))
+		return
+	}
+	req := CadastroEstudanteAcademiaRequest{
+		Nome: get("nome"), Genero: get("genero"), DataNascimento: dataNascimento,
+		Email: get("email"), Telefone: get("telefone"), TelefoneResponsavel: get("telefone_responsavel"),
+		BilheteIdentidade: get("bilhete_identidade"), BilheteResponsavel: get("bilhete_identidade_responsavel"),
+		AnoEscolar: get("ano_escolar_fundamental"), AnoEscolarMedio: get("ano_escolar_medio"), AnoSuperior: get("ano_superior"),
+		CursoMedioID: get("curso_medio_id"), CursoSuperiorID: get("curso_superior_id"),
 	}
 
 	if err := utils.ValidateNome(req.Nome); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
-
 	if req.Genero != "masculino" && req.Genero != "feminino" {
 		utils.RespondWithValidationError(c, fmt.Errorf("genero deve ser 'masculino' ou 'feminino'"))
 		return
 	}
-
-	// data_nascimento obrigatório e deve ser estritamente no passado
 	hoje := time.Now().UTC().Truncate(24 * time.Hour)
-	dataNasc := req.DataNascimento.UTC().Truncate(24 * time.Hour)
-	if !dataNasc.Before(hoje) {
+	if !req.DataNascimento.UTC().Truncate(24 * time.Hour).Before(hoje) {
 		utils.RespondWithValidationError(c, fmt.Errorf("data_nascimento deve ser anterior à data atual"))
 		return
 	}
-
 	if req.Email != "" {
 		if err := utils.ValidateEmail(req.Email); err != nil {
 			utils.RespondWithValidationError(c, err)
-			return
-		}
-	}
-
-	// Resolver curso médio
-	var cursoMedioUUID *uuid.UUID
-	if req.CursoMedioID != "" {
-		parsed, err := uuid.Parse(req.CursoMedioID)
-		if err != nil {
-			utils.RespondWithValidationError(c, fmt.Errorf("curso_medio_id inválido"))
-			return
-		}
-		cursoMedioUUID = &parsed
-		cursosProj := getCursosProjection(c)
-		curso, _ := cursosProj.GetByID(parsed)
-		if curso == nil {
-			utils.RespondWithValidationError(c, fmt.Errorf("curso_medio_id não encontrado"))
-			return
-		}
-		if curso.Type != "medio" {
-			utils.RespondWithValidationError(c, fmt.Errorf("curso_medio_id deve ser do tipo 'medio'"))
-			return
-		}
-	}
-
-	// Resolver curso superior
-	var cursoSuperiorUUID *uuid.UUID
-	if req.CursoSuperiorID != "" {
-		parsed, err := uuid.Parse(req.CursoSuperiorID)
-		if err != nil {
-			utils.RespondWithValidationError(c, fmt.Errorf("curso_superior_id inválido"))
-			return
-		}
-		cursoSuperiorUUID = &parsed
-		cursosProj := getCursosProjection(c)
-		curso, _ := cursosProj.GetByID(parsed)
-		if curso == nil {
-			utils.RespondWithValidationError(c, fmt.Errorf("curso_superior_id não encontrado"))
-			return
-		}
-		if curso.Type != "superior" {
-			utils.RespondWithValidationError(c, fmt.Errorf("curso_superior_id deve ser do tipo 'superior'"))
 			return
 		}
 	}
@@ -121,9 +96,7 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		utils.RespondWithUnauthorizedError(c)
 		return
 	}
-
-	academiaProj := getAcademiaProjection(c)
-	academia, err := academiaProj.GetByID(academiaID)
+	academia, err := getAcademiaProjection(c).GetByID(academiaID)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -133,21 +106,93 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		return
 	}
 
+	cursoMedioUUID, err := parseOptionalCurso(c, req.CursoMedioID, "medio", academia.CodigoAcademia)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	cursoSuperiorUUID, err := parseOptionalCurso(c, req.CursoSuperiorID, "superior", academia.CodigoAcademia)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	files := map[string]uploadedPDF{}
+	for _, field := range solicitacaoDocFields {
+		if fh, err := c.FormFile(field); err == nil {
+			pdf, err := readAndValidatePDF(field, fh)
+			if err != nil {
+				utils.RespondWithValidationError(c, err)
+				return
+			}
+			files[field] = pdf
+		}
+	}
+	requiredCertField, err := certificateFieldForMatricula(c, academia, firstNonEmpty(req.AnoEscolar, req.AnoEscolarMedio, req.AnoSuperior))
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if req.BilheteResponsavel == "" {
+		utils.RespondWithValidationError(c, fmt.Errorf("informe o bilhete de identidade do responsável; este documento é obrigatório para todas as academias"))
+		return
+	}
+	if _, ok := files["bi_responsavel"]; !ok {
+		utils.RespondWithValidationError(c, fmt.Errorf("envie o PDF do bilhete de identidade do responsável; este documento é obrigatório para concluir o cadastro"))
+		return
+	}
+	if _, ok := files["bi_estudante"]; !ok {
+		if _, ok := files["cedula_estudante"]; !ok {
+			utils.RespondWithValidationError(c, fmt.Errorf("envie a cédula do estudante quando o bilhete de identidade do estudante não for informado"))
+			return
+		}
+	}
+	if requiredCertField == "" {
+		if _, ok := files["declaracao"]; !ok {
+			utils.RespondWithValidationError(c, fmt.Errorf("envie a declaração escolar quando não houver certificado aplicável para o ano académico informado"))
+			return
+		}
+	} else if _, ok := files[requiredCertField]; !ok {
+		if _, hasDeclaration := files["declaracao"]; !hasDeclaration {
+			utils.RespondWithValidationError(c, fmt.Errorf("envie o %s ou, caso ainda não o tenha, envie a declaração escolar", documentLabel(requiredCertField)))
+			return
+		}
+	}
+
 	client := getDbClient(c)
 	codigoEstudante, err := utils.GenerateUniqueCodigoEstudante(client.DB())
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
+	provider := getStorageProvider(c)
+	if provider == nil {
+		p, _ := storage.NewDriveProvider()
+		provider = p
+	}
+	dir := fmt.Sprintf("%s/estudantes/%s/documentos", academia.CodigoAcademia, codigoEstudante)
+	if err := provider.EnsureDir(dir); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	documentos := map[string]aggregates.DocumentoMatricula{}
+	for field, f := range files {
+		stored, err := provider.Upload(fmt.Sprintf("%s/%s_%s.pdf", dir, field, codigoEstudante), bytes.NewReader(f.data), f.size)
+		if err != nil {
+			_ = provider.Delete(dir)
+			utils.RespondWithInternalError(c, fmt.Errorf("falha no upload dos documentos: %w", err))
+			return
+		}
+		documentos[field] = aggregates.DocumentoMatricula{Path: stored.Path, FileURL: stored.FileURL, DownloadURL: stored.DownloadURL}
+	}
 
 	defaultPassword := services.GetDefaultPassword("estudante", codigoEstudante)
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(defaultPassword), bcrypt.DefaultCost)
 	if err != nil {
+		_ = provider.Delete(dir)
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-
-	// Campos opcionais string → *string
 	var emailPtr, telefonePtr, telefoneRespPtr, bilhetePtr, bilheteRespPtr *string
 	if req.Email != "" {
 		emailPtr = &req.Email
@@ -158,37 +203,29 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 	if req.TelefoneResponsavel != "" {
 		telefoneRespPtr = utils.NormalizePhonePtr(&req.TelefoneResponsavel)
 	}
-	if telefonePtr == nil && telefoneRespPtr == nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("telefone ou telefone_responsavel deve ser informado"))
-		return
-	}
-	if telefonePtr != nil && telefoneRespPtr != nil && *telefonePtr == *telefoneRespPtr {
-		utils.RespondWithValidationError(c, fmt.Errorf("telefone e telefone_responsavel não podem ser iguais"))
-		return
-	}
 	if req.BilheteIdentidade != "" {
 		bilhetePtr = &req.BilheteIdentidade
 	}
 	if req.BilheteResponsavel != "" {
 		bilheteRespPtr = &req.BilheteResponsavel
 	}
-
 	if bilhetePtr != nil {
-		estudanteProj := getEstudanteProjection(c)
-		existente, err := estudanteProj.GetByBilheteIdentidadePrincipal(*bilhetePtr)
+		existente, err := getEstudanteProjection(c).GetByBilheteIdentidadePrincipal(*bilhetePtr)
 		if err != nil {
+			_ = provider.Delete(dir)
 			utils.RespondWithInternalError(c, err)
 			return
 		}
 		if existente != nil {
+			_ = provider.Delete(dir)
 			utils.RespondWithValidationError(c, fmt.Errorf("bilhete de identidade já cadastrado"))
 			return
 		}
 	}
-
 	var anoEscolarPtr, anoEscolarMedioPtr, anoSuperiorPtr *string
 	if req.AnoEscolar != "" {
 		if err := utils.ValidateAnoFundamental(req.AnoEscolar); err != nil {
+			_ = provider.Delete(dir)
 			utils.RespondWithValidationError(c, fmt.Errorf("ano_escolar_fundamental inválido: %w", err))
 			return
 		}
@@ -196,6 +233,7 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 	}
 	if req.AnoEscolarMedio != "" {
 		if err := utils.ValidateAnoMedio(req.AnoEscolarMedio); err != nil {
+			_ = provider.Delete(dir)
 			utils.RespondWithValidationError(c, fmt.Errorf("ano_escolar_medio inválido: %w", err))
 			return
 		}
@@ -203,58 +241,27 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 	}
 	if req.AnoSuperior != "" {
 		if err := utils.ValidateAnoSuperior(req.AnoSuperior); err != nil {
+			_ = provider.Delete(dir)
 			utils.RespondWithValidationError(c, fmt.Errorf("ano_superior inválido: %w", err))
 			return
 		}
 		anoSuperiorPtr = &req.AnoSuperior
 	}
 
-	repository := getRepository(c)
 	estudante := aggregates.NewEstudante()
-
-	if err := estudante.CriarComVinculo(
-		req.Nome,
-		codigoEstudante,
-		string(hashedPassword),
-		emailPtr,
-		telefonePtr,
-		telefoneRespPtr,
-		bilhetePtr,
-		bilheteRespPtr,
-		req.Genero,
-		req.DataNascimento,
-		anoEscolarPtr,
-		anoEscolarMedioPtr,
-		anoSuperiorPtr,
-		cursoMedioUUID,
-		cursoSuperiorUUID,
-		&academiaID,
-		academia.CodigoAcademia,
-	); err != nil {
+	if err := estudante.CriarComVinculo(req.Nome, codigoEstudante, string(hashedPassword), emailPtr, telefonePtr, telefoneRespPtr, bilhetePtr, bilheteRespPtr, req.Genero, req.DataNascimento, anoEscolarPtr, anoEscolarMedioPtr, anoSuperiorPtr, cursoMedioUUID, cursoSuperiorUUID, &academiaID, academia.CodigoAcademia, documentos); err != nil {
+		_ = provider.Delete(dir)
 		utils.RespondWithValidationError(c, err)
 		return
 	}
-
-	audit := db.AuditContext{
-		UserID:   academiaID.String(),
-		UserType: "academia",
-		IP:       c.ClientIP(),
-	}
-	if err := repository.SaveWithAudit(estudante, audit); err != nil {
+	audit := db.AuditContext{UserID: academiaID.String(), UserType: "academia", IP: c.ClientIP()}
+	if err := getRepository(c).SaveWithAudit(estudante, audit); err != nil {
+		_ = provider.Delete(dir)
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-
 	log.Printf("Estudante criado por academia %s: %s - %s", academia.CodigoAcademia, codigoEstudante, req.Nome)
-
-	c.JSON(http.StatusCreated, gin.H{
-		"message": "estudante registrado com sucesso",
-		"data": gin.H{
-			"id":               estudante.ID,
-			"codigo_estudante": codigoEstudante,
-			"codigo_academia":  academia.CodigoAcademia,
-		},
-	})
+	c.JSON(http.StatusCreated, gin.H{"message": "estudante registrado com sucesso", "data": gin.H{"id": estudante.ID, "codigo_estudante": codigoEstudante, "codigo_academia": academia.CodigoAcademia, "documentos": documentos}})
 }
 
 // ============================================================================
