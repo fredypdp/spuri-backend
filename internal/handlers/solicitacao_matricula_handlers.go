@@ -46,26 +46,22 @@ func validateDocumentosEscolares(bi *string, biResp *string, documentos map[stri
 	if documentos == nil {
 		documentos = map[string]aggregates.DocumentoMatricula{}
 	}
-	if _, ok := documentos["bi_responsavel"]; !ok {
+	if doc, ok := documentos["bi_responsavel"]; !ok || !doc.TemReferenciaArquivo() {
 		return fmt.Errorf("bi_responsavel é obrigatório para estudante escolar")
 	}
 	if bi != nil && strings.TrimSpace(*bi) != "" {
-		if _, ok := documentos["bi_estudante"]; !ok {
+		if doc, ok := documentos["bi_estudante"]; !ok || !doc.TemReferenciaArquivo() {
 			return fmt.Errorf("bi_estudante é obrigatório quando bilhete_identidade do estudante é informado")
 		}
-	} else if _, ok := documentos["cedula_estudante"]; !ok {
+	} else if doc, ok := documentos["cedula_estudante"]; !ok || !doc.TemReferenciaArquivo() {
 		return fmt.Errorf("cedula_estudante é obrigatória quando bilhete_identidade do estudante não é informado")
 	}
-	if _, hasDeclaration := documentos["declaracao"]; !hasDeclaration {
-		if _, has6 := documentos["certificado_6_ano_fundamental"]; !has6 {
-			if _, has9 := documentos["certificado_9_ano_fundamental"]; !has9 {
-				if _, hasMedio := documentos["certificado_ensino_medio"]; !hasMedio {
-					return fmt.Errorf("certificado aplicável ou declaracao é obrigatório para estudante escolar")
-				}
-			}
+	for _, field := range []string{"declaracao", "certificado_6_ano_fundamental", "certificado_9_ano_fundamental", "certificado_ensino_medio"} {
+		if doc, ok := documentos[field]; ok && doc.TemReferenciaArquivo() {
+			return nil
 		}
 	}
-	return nil
+	return fmt.Errorf("certificado aplicável ou declaracao é obrigatório para estudante escolar")
 }
 
 func validateBIResponsavelNaoConflitaComEscolar(c *gin.Context, biResp *string, excludeID *uuid.UUID) error {

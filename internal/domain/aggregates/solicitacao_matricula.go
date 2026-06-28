@@ -132,6 +132,10 @@ type DocumentoMatricula struct {
 	DownloadURL string `json:"download_url"`
 }
 
+func (d DocumentoMatricula) TemReferenciaArquivo() bool {
+	return strings.TrimSpace(d.Path) != "" || strings.TrimSpace(d.FileURL) != "" || strings.TrimSpace(d.DownloadURL) != ""
+}
+
 func (d *DocumentoMatricula) UnmarshalJSON(data []byte) error {
 	var legacyPath string
 	if err := json.Unmarshal(data, &legacyPath); err == nil {
@@ -157,26 +161,26 @@ func validarDocumentosEscolaresAggregate(bi, biResp *string, anoFund, anoMedio *
 	if documentos == nil {
 		documentos = map[string]DocumentoMatricula{}
 	}
-	if _, ok := documentos["bi_responsavel"]; !ok {
+	if doc, ok := documentos["bi_responsavel"]; !ok || !doc.TemReferenciaArquivo() {
 		return fmt.Errorf("bi_responsavel é obrigatório para estudante escolar")
 	}
 	if !isNilOrBlank(bi) {
-		if _, ok := documentos["bi_estudante"]; !ok {
+		if doc, ok := documentos["bi_estudante"]; !ok || !doc.TemReferenciaArquivo() {
 			return fmt.Errorf("bi_estudante é obrigatório quando bilhete_identidade do estudante é informado")
 		}
-	} else if _, ok := documentos["cedula_estudante"]; !ok {
+	} else if doc, ok := documentos["cedula_estudante"]; !ok || !doc.TemReferenciaArquivo() {
 		return fmt.Errorf("cedula_estudante é obrigatória quando bilhete_identidade do estudante não é informado")
 	}
-	if _, ok := documentos["declaracao"]; ok {
+	if doc, ok := documentos["declaracao"]; ok && doc.TemReferenciaArquivo() {
 		return nil
 	}
-	if _, ok := documentos["certificado_6_ano_fundamental"]; ok {
+	if doc, ok := documentos["certificado_6_ano_fundamental"]; ok && doc.TemReferenciaArquivo() {
 		return nil
 	}
-	if _, ok := documentos["certificado_9_ano_fundamental"]; ok {
+	if doc, ok := documentos["certificado_9_ano_fundamental"]; ok && doc.TemReferenciaArquivo() {
 		return nil
 	}
-	if _, ok := documentos["certificado_ensino_medio"]; ok {
+	if doc, ok := documentos["certificado_ensino_medio"]; ok && doc.TemReferenciaArquivo() {
 		return nil
 	}
 	return fmt.Errorf("certificado aplicável ou declaracao é obrigatório para estudante escolar")
