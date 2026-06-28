@@ -2,7 +2,7 @@
 modificado: 27-06-2026 23:30
 criado: 05-04-2026 13:01
 ---
-Versão atual: 2.0.1
+Versão atual: 2.1.0
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -938,6 +938,19 @@ Regras de estudante: ao menos um telefone deve existir; `telefone` e `telefone_r
 | Observação obrigatória na correção               | Justificativa da alteração em `PUT /academia/atualizar-falta`                           |
 | Motivo obrigatório na deleção                    | Para auditoria no ledger e na projeção                                                  |
 | Duplicata bloqueada                              | Mesma combinação `data + codigo_estudante + materia_disciplinar_id` é rejeitada         |
+| Sumário opcional                                  | Falta pode apontar para `sumario_id`; o backend valida escopo e grava `sumario_titulo` como snapshot histórico |
+
+### 6.4.1 Regras de Sumários/Aulas
+
+| Regra | Detalhe |
+| ----- | ------- |
+| Academia inferida | `academia_id`/`codigo_academia` vêm do token, nunca do payload |
+| Contexto protegido | `nivel` e `type` são inferidos da matéria/curso validado |
+| Matéria obrigatória | `materia_id` deve pertencer à academia e conter o `ano_academico` solicitado |
+| Curso obrigatório quando aplicável | Médio e superior exigem curso da mesma academia; se a matéria já tem curso, ele prevalece |
+| Período coerente | Superior usa `N_semestre`; escolar/médio usa `N_trimestre`; matéria superior com período definido deve coincidir |
+| Remoção lógica | `DELETE /academia/sumarios/:id` marca `deleted_at` para preservar vínculos históricos |
+| Snapshot em faltas | Faltas recebem apenas `sumario_id` no payload; `sumario_titulo` é copiado do sumário pelo backend no momento do vínculo |
 
 ### 6.5 Regras de Avaliação Final
 

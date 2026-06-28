@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,6 +30,7 @@ func RegistrarFaltas(c *gin.Context) {
 		MateriaDisciplinarID string     `json:"materia_disciplinar_id" binding:"required"`
 		Quantidade           int        `json:"quantidade"             binding:"required,min=1"`
 		Observacao           *string    `json:"observacao"`
+		SumarioID            *string    `json:"sumario_id"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -92,6 +94,28 @@ func RegistrarFaltas(c *gin.Context) {
 		return
 	}
 
+	var sumarioID *uuid.UUID
+	var sumarioTitulo *string
+	if req.SumarioID != nil && strings.TrimSpace(*req.SumarioID) != "" {
+		parsed, err := uuid.Parse(*req.SumarioID)
+		if err != nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("sumario_id inválido"))
+			return
+		}
+		sumarioDTO, err := getSumariosProjection(c).GetByID(parsed)
+		if err != nil || sumarioDTO == nil {
+			utils.RespondWithNotFoundError(c, "sumário")
+			return
+		}
+		if sumarioDTO.CodigoAcademia != academiaDTO.CodigoAcademia || sumarioDTO.MateriaID != materiaID || strconv.Itoa(sumarioDTO.AnoAcademico) != anoAcademico {
+			utils.RespondWithValidationError(c, fmt.Errorf("sumário incompatível com a falta"))
+			return
+		}
+		sumarioID = &parsed
+		t := sumarioDTO.SumarioTitulo
+		sumarioTitulo = &t
+	}
+
 	repository := getRepository(c)
 	estudanteAgg, err := repository.Load(estudanteDTO.ID, "Estudante")
 	if err != nil {
@@ -112,6 +136,8 @@ func RegistrarFaltas(c *gin.Context) {
 		materiaID,
 		req.Quantidade,
 		req.Observacao,
+		sumarioID,
+		sumarioTitulo,
 	)
 	if err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -153,15 +179,16 @@ func AtualizarFalta(c *gin.Context) {
 		MateriaDisciplinarID *string     `json:"materia_disciplinar_id"`
 		Quantidade           *int        `json:"quantidade"`
 		Observacao           *string     `json:"observacao"`
+		SumarioID            *string     `json:"sumario_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("campo obrigatório: id"))
 		return
 	}
 
-	if req.Data == nil && req.MateriaDisciplinarID == nil && req.Quantidade == nil && req.Observacao == nil {
+	if req.Data == nil && req.MateriaDisciplinarID == nil && req.Quantidade == nil && req.Observacao == nil && req.SumarioID == nil {
 		utils.RespondWithValidationError(c, fmt.Errorf(
-			"ao menos um campo deve ser fornecido: data, materia_disciplinar_id, quantidade ou observacao",
+			"ao menos um campo deve ser fornecido: data, materia_disciplinar_id, quantidade, observacao ou sumario_id",
 		))
 		return
 	}
@@ -266,6 +293,33 @@ func AtualizarFalta(c *gin.Context) {
 		return
 	}
 
+	var sumarioID *uuid.UUID
+	var sumarioTitulo *string
+	if req.SumarioID != nil && strings.TrimSpace(*req.SumarioID) != "" {
+		parsed, err := uuid.Parse(*req.SumarioID)
+		if err != nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("sumario_id inválido"))
+			return
+		}
+		sumarioDTO, err := getSumariosProjection(c).GetByID(parsed)
+		if err != nil || sumarioDTO == nil {
+			utils.RespondWithNotFoundError(c, "sumário")
+			return
+		}
+		anoAcademicoFinal, err := inferirAnoAcademicoFaltas(estudanteDTO.AnoEscolar, materiaFinalDTO.AnosAcademicos, materiaFinalDTO.Nome)
+		if err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+		if sumarioDTO.CodigoAcademia != academiaDTO.CodigoAcademia || sumarioDTO.MateriaID.String() != materiaIDFinal || strconv.Itoa(sumarioDTO.AnoAcademico) != anoAcademicoFinal {
+			utils.RespondWithValidationError(c, fmt.Errorf("sumário incompatível com a falta"))
+			return
+		}
+		sumarioID = &parsed
+		t := sumarioDTO.SumarioTitulo
+		sumarioTitulo = &t
+	}
+
 	// Bloquear duplicata por (data + codigo_estudante + materia_disciplinar_id).
 	dataFinal := faltaAtual.Data.Time
 	if dataPtr != nil {
@@ -310,6 +364,8 @@ func AtualizarFalta(c *gin.Context) {
 		materiaIDPtr,
 		req.Quantidade,
 		req.Observacao,
+		sumarioID,
+		sumarioTitulo,
 		userID,
 	); err != nil {
 		utils.RespondWithValidationError(c, err)
