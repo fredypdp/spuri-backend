@@ -1,8 +1,8 @@
 ---
-modificado: 28-06-2026 16:40
+modificado: 28-06-2026 17:10
 criado: 05-04-2026 13:01
 ---
-Versão atual: 2.0.6
+Versão atual: 2.0.7
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -1292,7 +1292,7 @@ As academias podem declarar a finalização de um ano letivo por tipo. Essa aç�
 
 ---
 
-## Atualização 2.0.6 — Gestão segura de anos acadêmicos por academias
+## Atualização 2.0.7 — Gestão segura de anos acadêmicos por academias
 
 Academias agora podem consultar, adicionar, substituir e desabilitar escopos acadêmicos habilitados via `/academia/anos-academicos`. O contrato mantém a separação entre **ano acadêmico/período** e **ano letivo/calendário**.
 
@@ -1301,3 +1301,5 @@ Academias agora podem consultar, adicionar, substituir e desabilitar escopos aca
 - **Superior**: a academia informa somente `periodos` numérico no curso superior; semestres (`[n]_semestre`) e anos superiores (`[n]_ano_superior`) seguem derivados pelo backend.
 - **Segurança**: cada alteração valida propriedade da academia, compatibilidade entre `type` e nível/curso, e bloqueia reduções que afetariam estudantes ativos no ano ou semestre removido.
 - **Preservação histórica**: remoções são lógicas/prospectivas; eventos, ledger, histórico acadêmico, turmas, matérias, notas, faltas, avaliações finais e sumários já registrados não são apagados nem reprocessados.
+- **Contratos explícitos na API**: a documentação da API detalha `GET`, `POST`, `PATCH` e `DELETE /academia/anos-academicos` com funcionamento, permissões, payloads por `type`, respostas de sucesso e erros esperados.
+- **Leitura por admin**: admins usam `GET /academia/anos-academicos?codigo_academia=...`; as rotas de escrita permanecem exclusivas para academias autenticadas e ativas.
