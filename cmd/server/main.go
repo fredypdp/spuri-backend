@@ -321,6 +321,7 @@ func setupRouter() *gin.Engine {
 		academiaRead.GET("/turmas", handlers.ListarTurmasAcademia)
 		academiaRead.GET("/turma/:codigo", handlers.GetTurma)
 		academiaRead.GET("/ano-letivo", handlers.GetAnoLetivoAcademia)
+		academiaRead.GET("/anos-academicos", handlers.ListarAnosAcademicos)
 		academiaRead.GET("/anos-letivos-lista", handlers.GetAnosLetivosListaAcademia)
 		academiaRead.GET("/anos-letivos/finalizacoes", handlers.ListarFinalizacoesAnoLetivoAcademia)
 		academiaRead.GET("/categorias-nota", handlers.ListarCategoriasNota)
@@ -338,6 +339,9 @@ func setupRouter() *gin.Engine {
 	{
 		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
 		academia.POST("/definir-ano-letivo", handlers.DefinirAnoLetivoAcademia)
+		academia.POST("/anos-academicos", handlers.AdicionarAnosAcademicos)
+		academia.PATCH("/anos-academicos", handlers.AtualizarAnosAcademicos)
+		academia.DELETE("/anos-academicos", handlers.RemoverAnosAcademicos)
 		academia.POST("/anos-letivos/finalizar", handlers.FinalizarAnoLetivoAcademia)
 		academia.PUT("/solicitacao-matricula/:codigo/aprovar", handlers.AprovarSolicitacaoMatricula)
 		academia.PUT("/solicitacao-matricula/:codigo/reprovar", handlers.ReprovarSolicitacaoMatricula)

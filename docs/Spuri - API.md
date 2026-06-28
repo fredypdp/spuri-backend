@@ -1,8 +1,8 @@
 ---
-modificado: 28-06-2026 12:30
+modificado: 28-06-2026 17:10
 criado: 05-04-2026 13:01
 ---
-Versão atual: 2.0.5
+Versão atual: 2.0.7
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -1346,6 +1346,305 @@ Não há aliases de compatibilidade para esta operação.
 - `409` — ano letivo global ainda não definido pelo admin.
 - `409` — ano letivo da academia já definido; finalize o ano letivo atual para avançar automaticamente.
 - `400` — ano letivo informado diferente do global atual.
+
+
+---
+
+### GET /academia/anos-academicos
+
+Retorna uma visão unificada dos escopos acadêmicos habilitados da academia: anos do fundamental armazenados na própria academia e anos/períodos dos cursos médio ou superior pertencentes a ela.
+
+**Proteção**: autenticado + academia ativa **ou** admin ativo.
+
+**Funcionamento:**
+
+- Quando o usuário autenticado é uma academia, a rota consulta automaticamente a academia do token.
+- Quando o usuário autenticado é admin, a rota exige `codigo_academia` na query string para indicar qual academia será consultada.
+- A resposta inclui todos os cursos da academia para que o cliente identifique quais escopos de médio/superior podem ser alterados nas rotas de escrita.
+- Esta rota é somente leitura; não altera anos acadêmicos, períodos, cursos, estudantes nem histórico.
+
+**Request:** sem payload.
+
+**Query params:**
+
+| Campo | Obrigatório | Quando usar | Descrição |
+| --- | --- | --- | --- |
+| `codigo_academia` | Sim para admin; não usado para academia | `GET /academia/anos-academicos?codigo_academia=ACA-001` | Código público da academia que o admin quer consultar. |
+
+**Response 200:**
+
+```json
+{
+  "academia": {
+    "nivel": "escolar",
+    "nivel_escolar": "misto",
+    "anos_academicos": ["1_ano_fundamental", "2_ano_fundamental"]
+  },
+  "cursos": [
+    {
+      "id": "uuid-do-curso-medio",
+      "codigo_academia": "ACA-001",
+      "nome": "Ciências Económicas e Jurídicas",
+      "type": "medio",
+      "anos_academicos": ["10_ano_medio", "11_ano_medio", "12_ano_medio"],
+      "periodos": null,
+      "status": "ativo"
+    },
+    {
+      "id": "uuid-do-curso-superior",
+      "codigo_academia": "ACA-001",
+      "nome": "Engenharia Informática",
+      "type": "superior",
+      "anos_academicos": ["1_ano_superior", "2_ano_superior"],
+      "periodos": ["1_semestre", "2_semestre", "3_semestre", "4_semestre"],
+      "status": "ativo"
+    }
+  ]
+}
+```
+
+**Erros esperados:**
+
+| Status | Quando ocorre | Response |
+| --- | --- | --- |
+| `400` | Admin não enviou `codigo_academia`. | `{ "error": "VALIDATION_ERROR", "message": "codigo_academia é obrigatório para admin" }` |
+| `401` | Token ausente ou inválido. | `{ "error": "UNAUTHORIZED", "message": "..." }` |
+| `403` | Usuário não é academia nem admin autorizado, ou academia está inativa. | `{ "error": "FORBIDDEN", "message": "..." }` |
+| `404` | Academia do token ou `codigo_academia` não encontrada. | `{ "error": "NOT_FOUND", "message": "academia não encontrado" }` |
+
+### POST /academia/anos-academicos
+
+Adiciona/habilita novos escopos acadêmicos sem remover os escopos existentes. Use esta rota para expandir a oferta da academia ou do curso.
+
+**Proteção**: autenticado + academia ativa. Admins não escrevem por esta rota.
+
+**Funcionamento por `type`:**
+
+| `type` | Onde altera | Campos aceitos | Campos obrigatórios | Resultado |
+| --- | --- | --- | --- | --- |
+| `fundamental` | Academia autenticada (`projection_academias.anos_academicos`) | `type`, `anos_academicos` | `type`, `anos_academicos` | Une os anos enviados com os anos fundamentais já ativos. |
+| `medio` | Curso médio da academia (`projection_cursos.anos_academicos`) | `type`, `curso_id`, `anos_academicos` | `type`, `curso_id`, `anos_academicos` | Une os anos enviados com os anos médios já ativos no curso. |
+| `superior` | Curso superior da academia (`projection_cursos.periodos` e anos derivados) | `type`, `curso_id`, `periodos` | `type`, `curso_id`, `periodos` | Define a quantidade total de semestres informada e deriva os anos superiores por `ceil(periodos/2)`. |
+
+**Request — fundamental/misto:**
+
+```json
+{
+  "type": "fundamental",
+  "anos_academicos": ["4_ano_fundamental"]
+}
+```
+
+**Response 200 — fundamental/misto:**
+
+```json
+{
+  "message": "anos acadêmicos atualizados com sucesso",
+  "type": "fundamental",
+  "anos_academicos": ["1_ano_fundamental", "2_ano_fundamental", "4_ano_fundamental"]
+}
+```
+
+**Request — médio:**
+
+```json
+{
+  "type": "medio",
+  "curso_id": "uuid-do-curso-medio",
+  "anos_academicos": ["13_ano_medio"]
+}
+```
+
+**Response 200 — médio:**
+
+```json
+{
+  "message": "anos acadêmicos atualizados com sucesso",
+  "type": "medio",
+  "curso_id": "uuid-do-curso-medio",
+  "anos_academicos": ["10_ano_medio", "11_ano_medio", "12_ano_medio", "13_ano_medio"]
+}
+```
+
+**Request — superior:**
+
+```json
+{
+  "type": "superior",
+  "curso_id": "uuid-do-curso-superior",
+  "periodos": 8
+}
+```
+
+**Response 200 — superior:**
+
+```json
+{
+  "message": "anos acadêmicos atualizados com sucesso",
+  "type": "superior",
+  "curso_id": "uuid-do-curso-superior",
+  "anos_academicos": ["1_ano_superior", "2_ano_superior", "3_ano_superior", "4_ano_superior"],
+  "periodos": ["1_semestre", "2_semestre", "3_semestre", "4_semestre", "5_semestre", "6_semestre", "7_semestre", "8_semestre"]
+}
+```
+
+### PATCH /academia/anos-academicos
+
+Substitui completamente o conjunto habilitado do escopo informado. Use esta rota quando a lista final desejada já é conhecida.
+
+**Proteção**: autenticado + academia ativa. Admins não escrevem por esta rota.
+
+**Funcionamento:**
+
+- Para `fundamental`, `anos_academicos` substitui a lista de anos fundamentais da academia.
+- Para `medio`, `anos_academicos` substitui a lista de anos acadêmicos do curso médio informado em `curso_id`.
+- Para `superior`, `periodos` substitui a quantidade total de semestres do curso superior; o backend recalcula `periodos` (`1_semestre` até `n_semestre`) e `anos_academicos` superiores automaticamente.
+- Qualquer ano/semestre que exista hoje e deixe de existir após a substituição é tratado como redução e passa pelas validações de estudantes ativos.
+
+**Request — fundamental/misto:**
+
+```json
+{
+  "type": "fundamental",
+  "anos_academicos": ["1_ano_fundamental", "2_ano_fundamental", "3_ano_fundamental"]
+}
+```
+
+**Request — médio:**
+
+```json
+{
+  "type": "medio",
+  "curso_id": "uuid-do-curso-medio",
+  "anos_academicos": ["10_ano_medio", "11_ano_medio", "12_ano_medio"]
+}
+```
+
+**Request — superior:**
+
+```json
+{
+  "type": "superior",
+  "curso_id": "uuid-do-curso-superior",
+  "periodos": 8
+}
+```
+
+**Response 200 — fundamental/médio:**
+
+```json
+{
+  "message": "anos acadêmicos atualizados com sucesso",
+  "type": "medio",
+  "curso_id": "uuid-do-curso-medio",
+  "anos_academicos": ["10_ano_medio", "11_ano_medio", "12_ano_medio"]
+}
+```
+
+**Response 200 — superior:**
+
+```json
+{
+  "message": "anos acadêmicos atualizados com sucesso",
+  "type": "superior",
+  "curso_id": "uuid-do-curso-superior",
+  "anos_academicos": ["1_ano_superior", "2_ano_superior", "3_ano_superior", "4_ano_superior"],
+  "periodos": ["1_semestre", "2_semestre", "3_semestre", "4_semestre", "5_semestre", "6_semestre", "7_semestre", "8_semestre"]
+}
+```
+
+### DELETE /academia/anos-academicos
+
+Desabilita/remover logicamente escopos acadêmicos da oferta futura, preservando histórico. Use esta rota para reduzir a oferta sem apagar dados já registrados.
+
+**Proteção**: autenticado + academia ativa. Admins não escrevem por esta rota.
+
+**Funcionamento por `type`:**
+
+- `fundamental`: remove do cadastro da academia somente os anos enviados em `anos_academicos`.
+- `medio`: remove do curso médio informado somente os anos enviados em `anos_academicos`.
+- `superior`: não recebe uma lista de semestres a remover; recebe `periodos` com a nova quantidade total de semestres que deve permanecer ativa no curso. Exemplo: se o curso tem 8 semestres e o payload envia `periodos: 6`, os semestres `7_semestre` e `8_semestre` deixam de estar disponíveis para novos vínculos.
+- A remoção é lógica/prospectiva: o backend não apaga eventos, ledger, estudantes, turmas, matérias, notas, faltas, avaliações finais ou sumários já registrados.
+
+**Request — fundamental/misto:**
+
+```json
+{
+  "type": "fundamental",
+  "anos_academicos": ["4_ano_fundamental"]
+}
+```
+
+**Request — médio:**
+
+```json
+{
+  "type": "medio",
+  "curso_id": "uuid-do-curso-medio",
+  "anos_academicos": ["13_ano_medio"]
+}
+```
+
+**Request — superior:**
+
+```json
+{
+  "type": "superior",
+  "curso_id": "uuid-do-curso-superior",
+  "periodos": 6
+}
+```
+
+**Response 200 — fundamental/médio:**
+
+```json
+{
+  "message": "anos acadêmicos atualizados com sucesso",
+  "type": "fundamental",
+  "anos_academicos": ["1_ano_fundamental", "2_ano_fundamental", "3_ano_fundamental"]
+}
+```
+
+**Response 200 — superior:**
+
+```json
+{
+  "message": "anos acadêmicos atualizados com sucesso",
+  "type": "superior",
+  "curso_id": "uuid-do-curso-superior",
+  "anos_academicos": ["1_ano_superior", "2_ano_superior", "3_ano_superior"],
+  "periodos": ["1_semestre", "2_semestre", "3_semestre", "4_semestre", "5_semestre", "6_semestre"]
+}
+```
+
+### Validações e erros de `POST`, `PATCH` e `DELETE /academia/anos-academicos`
+
+**Validações comuns:**
+
+- `type` é obrigatório e deve ser `fundamental`, `medio` ou `superior`.
+- A academia só altera o próprio escopo.
+- `curso_id` é obrigatório para `medio` e `superior` e precisa pertencer à academia autenticada.
+- O `type` do payload precisa corresponder ao `type` do curso informado.
+- `fundamental` só é permitido para academias escolares com `nivel_escolar` igual a `fundamental` ou `misto`.
+- `fundamental` aceita somente códigos canônicos `[1-9]_ano_fundamental`.
+- `medio` aceita somente anos médios compatíveis com o curso.
+- `superior` aceita somente `periodos` numérico; `anos_academicos` superiores enviados pelo cliente não são usados como fonte manual.
+- Academias fundamental/misto devem manter ao menos um ano acadêmico ativo após a operação.
+- Reduções em `PATCH` e `DELETE` são bloqueadas com `409 Conflict` quando existem estudantes ativos no ano/semestre removido (`status_escolar_fundamental`, `status_escolar_medio` ou `status_superior` em andamento conforme o escopo operacional).
+
+**Erros esperados:**
+
+| Status | Quando ocorre | Response |
+| --- | --- | --- |
+| `400` | Payload JSON inválido. | `{ "error": "VALIDATION_ERROR", "message": "payload inválido" }` |
+| `400` | `type` ausente ou diferente de `fundamental`, `medio` e `superior`. | `{ "error": "VALIDATION_ERROR", "message": "type deve ser fundamental, medio ou superior" }` |
+| `400` | `curso_id` ausente para médio/superior. | `{ "error": "VALIDATION_ERROR", "message": "curso_id é obrigatório para type medio" }` |
+| `400` | Curso inexistente, de outra academia ou com `type` incompatível. | `{ "error": "VALIDATION_ERROR", "message": "curso não encontrado" }` |
+| `400` | Academia não pode gerenciar o fundamental, ou lista final ficaria vazia. | `{ "error": "VALIDATION_ERROR", "message": "academia não pode gerenciar anos do fundamental" }` |
+| `409` | Redução afetaria estudantes ativos. | `{ "error": "CONFLICT", "message": "não é possível desativar anos_academicos [...]: existem N estudante(s) ativo(s) vinculados" }` |
+| `401` | Token ausente ou inválido. | `{ "error": "UNAUTHORIZED", "message": "..." }` |
+| `403` | Usuário não é academia ativa. | `{ "error": "FORBIDDEN", "message": "..." }` |
+| `404` | Academia autenticada não encontrada. | `{ "error": "NOT_FOUND", "message": "academia não encontrado" }` |
 
 ### GET /academia/ano-letivo
 
