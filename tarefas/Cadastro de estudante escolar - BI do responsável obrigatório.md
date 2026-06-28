@@ -8,8 +8,6 @@ criado: 2026-06-15 18:06
 
 Implementar e consolidar as regras de validação de Bilhete de Identidade (BI) para estudantes do nível escolar, garantindo que todo estudante escolar tenha BI do responsável informado e que não existam conflitos entre o BI do estudante, o BI do responsável e o BI de outros estudantes escolares.
 
-> Observação: a regra relacionada ao telefone do responsável não faz parte desta tarefa, pois já foi implementada.
-
 ## Estado atual observado
 
 Na solicitação de matrícula, o backend exige `bilhete_identidade_responsavel` textual e PDF `bi_responsavel`. Também exige `bi_estudante` em PDF ou `cedula_estudante` quando não houver BI do estudante. Na aprovação da solicitação, o estudante é criado a partir dos dados da solicitação.
@@ -18,20 +16,16 @@ A migração de unicidade do BI principal indica que `bilhete_identidade` do est
 
 ## Regra de negócio a implementar
 
+### Regra geral
+- `bilhete_identidade` é único, estudantes diferentes não podem ter o mesmo
 ### Para estudantes do nível escolar/fundamental/médio
 
 - `bilhete_identidade_responsavel` deve ser obrigatório.
 - O documento PDF `bi_responsavel` deve ser obrigatório quando o fluxo exigir anexos de documentação.
 - O BI do estudante, quando informado, não pode ser igual ao `bilhete_identidade_responsavel` do próprio estudante.
-- O BI do estudante não pode ser igual ao BI de outro estudante que também não esteja no ensino superior.
-- A validação de duplicidade deve considerar apenas estudantes não superiores para esta regra específica, ou seja, estudantes escolares/fundamental/médio.
+- O `bilhete_identidade_responsavel` do estudante não pode ser igual ao BI de outro estudante, a não ser que esse estudante definido como responsável esteja no ensino superior.
 - O BI do responsável pode repetir entre estudantes diferentes, por exemplo, no caso de irmãos com o mesmo responsável.
 - Não aceitar valores vazios ou compostos apenas por espaços após `trim`.
-
-### Para estudantes do ensino superior
-
-- Esta tarefa não altera as regras de BI de estudantes do ensino superior.
-- A restrição nova de “BI do estudante não pode ser igual ao BI de outro estudante” deve ser aplicada somente contra estudantes que não estejam no ensino superior, conforme a regra solicitada.
 
 ## Ajuste necessário
 
