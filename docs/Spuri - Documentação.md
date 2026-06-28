@@ -1,8 +1,8 @@
 ---
-modificado: 27-06-2026 23:30
+modificado: 28-06-2026 01:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 2.0.2
+Versão atual: 2.0.3
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -489,21 +489,29 @@ Permite que qualquer usuário (estudante, academia ou admin) registe números de
 
 **Quem faz**: Academia (status ativo)
 
-1. Academia envia os dados do estudante
-2. Sistema gera código único (`AAA1234`), verificando ledger e projeção
-3. Senha padrão = código do estudante (ex: `ABC1234`)
-4. Estudante criado com **status `ativo`** e vinculado à academia
-5. Dados académicos (ano escolar, status, curso) são configurados na criação
+1. Academia envia os dados do estudante e os PDFs obrigatórios em `multipart/form-data`.
+2. Sistema aplica a mesma matriz documental da solicitação de matrícula: BI do responsável, BI ou cédula do estudante, e certificado aplicável ou declaração.
+3. Sistema valida que todos os arquivos são PDF, respeitam o limite de 5MB e possuem assinatura `%PDF`.
+4. Sistema gera código único (`AAA1234`), verificando ledger e projeção.
+5. Documentos são enviados ao storage definitivo em `{codigo_academia}/estudantes/{codigo_estudante}/documentos/`.
+6. Senha padrão = código do estudante (ex: `ABC1234`).
+7. Estudante é criado com **status `ativo`**, vinculado à academia e com o mapa `documentos` gravado no evento `EstudanteCriadoComVinculo` e na projeção.
+8. Se qualquer validação ou persistência falhar após upload parcial, o diretório de documentos do estudante é removido para evitar ficheiros órfãos.
 
 **Regras de validação:**
 
 - `genero` obrigatório: `masculino` ou `feminino`
 - `data_nascimento` obrigatório: deve ser anterior à data atual
+- JSON puro não é aceito no cadastro direto; o fluxo deve usar `multipart/form-data` para impedir bypass documental
+- `bilhete_identidade_responsavel` e o PDF `bi_responsavel` são obrigatórios
+- `bilhete_identidade` e `bilhete_identidade_responsavel`, quando ambos informados, não podem ser iguais após normalização
+- `cedula_estudante` é obrigatória quando `bi_estudante` não for enviado
+- Certificado aplicável por ano/nível (`certificado_6_ano_fundamental`, `certificado_9_ano_fundamental` ou `certificado_ensino_medio`) pode ser substituído por `declaracao`; quando não houver certificado aplicável, `declaracao` é obrigatória
 - `ano_escolar_fundamental` deve seguir o formato canônico para o tipo de ensino
-- Se informar `curso_medio_id`, o curso deve existir e ser do tipo `medio`
-- Se informar `curso_superior_id`, o curso deve existir e ser do tipo `superior`
+- Se informar `curso_medio_id`, o curso deve existir, estar ativo, pertencer à academia e ser do tipo `medio`
+- Se informar `curso_superior_id`, o curso deve existir, estar ativo, pertencer à academia e ser do tipo `superior`
 - Status inicial padrão para fundamental: `em_andamento`
-- Status inicial padrão para médio e superior: `em_andamento`
+- Status inicial padrão para médio e superior: `inativo` até eventos específicos de matrícula/curso
 
 ---
 

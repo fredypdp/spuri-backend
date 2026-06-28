@@ -43,6 +43,7 @@ type Estudante struct {
 	CursoSuperiorID               *uuid.UUID
 	CreatedAt                     time.Time
 	EmailVerificado               bool
+	Documentos                    map[string]DocumentoMatricula
 
 	// AvaliacoesPorAno previne double-submit de avaliações finais.
 	// Chaves: "ano_letivo:<anoLectivo>" e "nivel:<escolar|superior>:<anoLectivo>:<anoAcademicoAtual>"
@@ -162,6 +163,7 @@ type EstudanteCriadoComVinculoEvent struct {
 	CodigoAcademia                string
 	AcademiaID                    *uuid.UUID
 	CreatedAt                     time.Time
+	Documentos                    map[string]DocumentoMatricula
 }
 
 func (e *EstudanteCriadoComVinculoEvent) GetPayload() interface{} { return e }
@@ -373,6 +375,7 @@ func (e *Estudante) CriarComVinculo(
 	cursoSuperiorID *uuid.UUID,
 	academiaID *uuid.UUID,
 	codigoAcademia string,
+	documentosOpt ...map[string]DocumentoMatricula,
 ) error {
 	if nome == "" || codigoEstudante == "" || senhaHash == "" || codigoAcademia == "" {
 		return fmt.Errorf("campos obrigatórios vazios")
@@ -419,6 +422,11 @@ func (e *Estudante) CriarComVinculo(
 		}
 	}
 
+	documentos := map[string]DocumentoMatricula{}
+	if len(documentosOpt) > 0 && documentosOpt[0] != nil {
+		documentos = documentosOpt[0]
+	}
+
 	statusFund := "em_andamento"
 	statusMed := "inativo"
 	statusSup := "inativo"
@@ -447,6 +455,7 @@ func (e *Estudante) CriarComVinculo(
 		CodigoAcademia:           codigoAcademia,
 		AcademiaID:               academiaID,
 		CreatedAt:                time.Now(),
+		Documentos:               documentos,
 	}
 	e.RaiseEvent(event)
 	return e.Apply(event)
@@ -820,6 +829,7 @@ func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
 	e.CodigoAcademia = &ev.CodigoAcademia
 	e.Status = "ativo"
 	e.CreatedAt = ev.CreatedAt
+	e.Documentos = ev.Documentos
 	if e.AvaliacoesPorAno == nil {
 		e.AvaliacoesPorAno = make(map[string]bool)
 	}

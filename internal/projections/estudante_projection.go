@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"spuri/internal/db"
+	"spuri/internal/domain/aggregates"
 	"strings"
 	"time"
 
@@ -156,27 +157,28 @@ func (p *EstudanteProjection) clear() error {
 
 func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) error {
 	var payload struct {
-		Nome                     string     `json:"Nome"`
-		CodigoEstudante          string     `json:"CodigoEstudante"`
-		SenhaHash                string     `json:"SenhaHash"`
-		Email                    *string    `json:"Email"`
-		Telefone                 *string    `json:"Telefone"`
-		TelefoneResponsavel      *string    `json:"TelefoneResponsavel"`
-		BilheteIdentidade        *string    `json:"BilheteIdentidade"`
-		BilheteIdentidadeResp    *string    `json:"BilheteIdentidadeResp"`
-		Genero                   string     `json:"Genero"`
-		DataNascimento           time.Time  `json:"DataNascimento"`
-		StatusEscolarFundamental string     `json:"StatusEscolarFundamental"`
-		StatusEscolarMedio       string     `json:"StatusEscolarMedio"`
-		StatusSuperior           string     `json:"StatusSuperior"`
-		AnoEscolar               *string    `json:"AnoEscolar"`
-		AnoEscolarMedio          *string    `json:"AnoEscolarMedio"`
-		AnoSuperior              *string    `json:"AnoSuperior"`
-		SemestreAtual            *int       `json:"SemestreAtual"`
-		CursoMedioID             *uuid.UUID `json:"CursoMedioID"`
-		CursoSuperiorID          *uuid.UUID `json:"CursoSuperiorID"`
-		CodigoAcademia           string     `json:"CodigoAcademia"`
-		CreatedAt                time.Time  `json:"CreatedAt"`
+		Nome                     string                                   `json:"Nome"`
+		CodigoEstudante          string                                   `json:"CodigoEstudante"`
+		SenhaHash                string                                   `json:"SenhaHash"`
+		Email                    *string                                  `json:"Email"`
+		Telefone                 *string                                  `json:"Telefone"`
+		TelefoneResponsavel      *string                                  `json:"TelefoneResponsavel"`
+		BilheteIdentidade        *string                                  `json:"BilheteIdentidade"`
+		BilheteIdentidadeResp    *string                                  `json:"BilheteIdentidadeResp"`
+		Genero                   string                                   `json:"Genero"`
+		DataNascimento           time.Time                                `json:"DataNascimento"`
+		StatusEscolarFundamental string                                   `json:"StatusEscolarFundamental"`
+		StatusEscolarMedio       string                                   `json:"StatusEscolarMedio"`
+		StatusSuperior           string                                   `json:"StatusSuperior"`
+		AnoEscolar               *string                                  `json:"AnoEscolar"`
+		AnoEscolarMedio          *string                                  `json:"AnoEscolarMedio"`
+		AnoSuperior              *string                                  `json:"AnoSuperior"`
+		SemestreAtual            *int                                     `json:"SemestreAtual"`
+		CursoMedioID             *uuid.UUID                               `json:"CursoMedioID"`
+		CursoSuperiorID          *uuid.UUID                               `json:"CursoSuperiorID"`
+		CodigoAcademia           string                                   `json:"CodigoAcademia"`
+		Documentos               map[string]aggregates.DocumentoMatricula `json:"Documentos"`
+		CreatedAt                time.Time                                `json:"CreatedAt"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleEstudanteCriadoComVinculo: parse error: %w", err)
@@ -249,14 +251,14 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 			data_nascimento,
 			status, status_escolar_fundamental, status_escolar_medio, status_superior,
 			ano_escolar_fundamental, ano_escolar_medio, ano_superior, semestre_atual, curso_medio_id, curso_superior_id,
-			codigo_academia, created_at, updated_at, version, last_event_id
+			codigo_academia, created_at, updated_at, version, last_event_id, documentos
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, FALSE,
 			$8, $9, $10,
 			$11,
 			'ativo', $12, $13, $14,
 			$15, $16, $17, $18, $19, $20,
-			$21, $22, CURRENT_TIMESTAMP, $23, $24
+			$21, $22, CURRENT_TIMESTAMP, $23, $24, $25
 		)
 		ON CONFLICT (id) DO UPDATE SET
 			nome                           = EXCLUDED.nome,
@@ -283,7 +285,8 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 			created_at                     = EXCLUDED.created_at,
 			updated_at                     = CURRENT_TIMESTAMP,
 			version                        = EXCLUDED.version,
-			last_event_id                  = EXCLUDED.last_event_id
+			last_event_id                  = EXCLUDED.last_event_id,
+			documentos                     = EXCLUDED.documentos
 	`,
 		event.AggregateID, payload.Nome, payload.CodigoEstudante, payload.SenhaHash,
 		payload.Email, payload.Telefone, payload.TelefoneResponsavel,
@@ -293,7 +296,7 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 		payload.AnoEscolar, payload.AnoEscolarMedio, payload.AnoSuperior, payload.SemestreAtual,
 		resolvedCursoMedio, resolvedCursoSuperior,
 		payload.CodigoAcademia,
-		payload.CreatedAt, event.EventVersion, event.EventID,
+		payload.CreatedAt, event.EventVersion, event.EventID, jsonbOrEmpty(payload.Documentos),
 	)
 	if err != nil {
 		return fmt.Errorf("handleEstudanteCriadoComVinculo: exec error (estudante=%s academia=%s): %w",
@@ -832,33 +835,34 @@ func (p *EstudanteProjection) handleVersionOnly(event db.Event) error {
 // ============================================================================
 
 type EstudanteDTO struct {
-	ID                            uuid.UUID `json:"id"`
-	Nome                          string    `json:"nome"`
-	CodigoEstudante               string    `json:"codigo_estudante"`
-	Email                         *string   `json:"email,omitempty"`
-	Telefone                      *string   `json:"telefone,omitempty"`
-	TelefoneVerificado            bool      `json:"telefone_verificado"`
-	TelefoneResponsavel           *string   `json:"telefone_responsavel,omitempty"`
-	TelefoneResponsavelVerificado bool      `json:"telefone_responsavel_verificado"`
-	EmailVerificado               bool      `json:"email_verificado"`
-	BilheteIdentidade             *string   `json:"bilhete_identidade,omitempty"`
-	BilheteIdentidadeResp         *string   `json:"bilhete_identidade_responsavel,omitempty"`
-	Genero                        string    `json:"genero"`
-	DataNascimento                time.Time `json:"data_nascimento"`
-	CodigoAcademia                *string   `json:"codigo_academia,omitempty"`
-	Status                        string    `json:"status"`
-	StatusEscolarFundamental      string    `json:"status_escolar_fundamental"`
-	StatusEscolarMedio            string    `json:"status_escolar_medio"`
-	StatusSuperior                string    `json:"status_superior"`
-	AnoEscolar                    *string   `json:"ano_escolar_fundamental,omitempty"`
-	AnoEscolarMedio               *string   `json:"ano_escolar_medio,omitempty"`
-	AnoSuperior                   *string   `json:"ano_superior,omitempty"`
-	SemestreAtual                 *int      `json:"semestre_atual,omitempty"`
-	CursoMedioID                  *string   `json:"curso_medio_id,omitempty"`
-	CursoSuperiorID               *string   `json:"curso_superior_id,omitempty"`
-	CreatedAt                     time.Time `json:"created_at"`
-	UpdatedAt                     time.Time `json:"updated_at"`
-	Version                       int       `json:"version"`
+	ID                            uuid.UUID                                `json:"id"`
+	Nome                          string                                   `json:"nome"`
+	CodigoEstudante               string                                   `json:"codigo_estudante"`
+	Email                         *string                                  `json:"email,omitempty"`
+	Telefone                      *string                                  `json:"telefone,omitempty"`
+	TelefoneVerificado            bool                                     `json:"telefone_verificado"`
+	TelefoneResponsavel           *string                                  `json:"telefone_responsavel,omitempty"`
+	TelefoneResponsavelVerificado bool                                     `json:"telefone_responsavel_verificado"`
+	EmailVerificado               bool                                     `json:"email_verificado"`
+	BilheteIdentidade             *string                                  `json:"bilhete_identidade,omitempty"`
+	BilheteIdentidadeResp         *string                                  `json:"bilhete_identidade_responsavel,omitempty"`
+	Genero                        string                                   `json:"genero"`
+	DataNascimento                time.Time                                `json:"data_nascimento"`
+	CodigoAcademia                *string                                  `json:"codigo_academia,omitempty"`
+	Status                        string                                   `json:"status"`
+	StatusEscolarFundamental      string                                   `json:"status_escolar_fundamental"`
+	StatusEscolarMedio            string                                   `json:"status_escolar_medio"`
+	StatusSuperior                string                                   `json:"status_superior"`
+	AnoEscolar                    *string                                  `json:"ano_escolar_fundamental,omitempty"`
+	AnoEscolarMedio               *string                                  `json:"ano_escolar_medio,omitempty"`
+	AnoSuperior                   *string                                  `json:"ano_superior,omitempty"`
+	SemestreAtual                 *int                                     `json:"semestre_atual,omitempty"`
+	CursoMedioID                  *string                                  `json:"curso_medio_id,omitempty"`
+	CursoSuperiorID               *string                                  `json:"curso_superior_id,omitempty"`
+	CreatedAt                     time.Time                                `json:"created_at"`
+	UpdatedAt                     time.Time                                `json:"updated_at"`
+	Version                       int                                      `json:"version"`
+	Documentos                    map[string]aggregates.DocumentoMatricula `json:"documentos,omitempty"`
 }
 
 const estudanteCols = `
@@ -867,18 +871,19 @@ const estudanteCols = `
 	data_nascimento,
 	codigo_academia, status, status_escolar_fundamental, status_escolar_medio, status_superior,
 	ano_escolar_fundamental, ano_escolar_medio, ano_superior, semestre_atual, curso_medio_id, curso_superior_id,
-	created_at, updated_at, version
+	created_at, updated_at, version, documentos
 `
 
 func scanEstudante(row *sql.Row) (*EstudanteDTO, error) {
 	var e EstudanteDTO
+	var documentosRaw []byte
 	err := row.Scan(
 		&e.ID, &e.Nome, &e.CodigoEstudante, &e.Email, &e.Telefone, &e.TelefoneVerificado, &e.TelefoneResponsavel, &e.TelefoneResponsavelVerificado, &e.EmailVerificado,
 		&e.BilheteIdentidade, &e.BilheteIdentidadeResp, &e.Genero,
 		&e.DataNascimento,
 		&e.CodigoAcademia, &e.Status, &e.StatusEscolarFundamental, &e.StatusEscolarMedio, &e.StatusSuperior,
 		&e.AnoEscolar, &e.AnoEscolarMedio, &e.AnoSuperior, &e.SemestreAtual, &e.CursoMedioID, &e.CursoSuperiorID,
-		&e.CreatedAt, &e.UpdatedAt, &e.Version,
+		&e.CreatedAt, &e.UpdatedAt, &e.Version, &documentosRaw,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -886,6 +891,7 @@ func scanEstudante(row *sql.Row) (*EstudanteDTO, error) {
 	if err != nil {
 		return nil, err
 	}
+	e.Documentos = decodeDocumentosEstudante(documentosRaw)
 	return &e, nil
 }
 
@@ -893,16 +899,18 @@ func scanEstudanteRows(rows *sql.Rows) ([]EstudanteDTO, error) {
 	var estudantes []EstudanteDTO
 	for rows.Next() {
 		var e EstudanteDTO
+		var documentosRaw []byte
 		if err := rows.Scan(
 			&e.ID, &e.Nome, &e.CodigoEstudante, &e.Email, &e.Telefone, &e.TelefoneVerificado, &e.TelefoneResponsavel, &e.TelefoneResponsavelVerificado, &e.EmailVerificado,
 			&e.BilheteIdentidade, &e.BilheteIdentidadeResp, &e.Genero,
 			&e.DataNascimento,
 			&e.CodigoAcademia, &e.Status, &e.StatusEscolarFundamental, &e.StatusEscolarMedio, &e.StatusSuperior,
 			&e.AnoEscolar, &e.AnoEscolarMedio, &e.AnoSuperior, &e.SemestreAtual, &e.CursoMedioID, &e.CursoSuperiorID,
-			&e.CreatedAt, &e.UpdatedAt, &e.Version,
+			&e.CreatedAt, &e.UpdatedAt, &e.Version, &documentosRaw,
 		); err != nil {
 			return nil, err
 		}
+		e.Documentos = decodeDocumentosEstudante(documentosRaw)
 		estudantes = append(estudantes, e)
 	}
 	return estudantes, rows.Err()
@@ -947,6 +955,25 @@ func (p *EstudanteProjection) GetByAcademia(codigoAcademia string) ([]EstudanteD
 	}
 	defer rows.Close()
 	return scanEstudanteRows(rows)
+}
+
+func jsonbOrEmpty(documentos map[string]aggregates.DocumentoMatricula) []byte {
+	if documentos == nil {
+		documentos = map[string]aggregates.DocumentoMatricula{}
+	}
+	b, _ := json.Marshal(documentos)
+	return b
+}
+
+func decodeDocumentosEstudante(raw []byte) map[string]aggregates.DocumentoMatricula {
+	if len(raw) == 0 {
+		return nil
+	}
+	var docs map[string]aggregates.DocumentoMatricula
+	if err := json.Unmarshal(raw, &docs); err != nil || len(docs) == 0 {
+		return nil
+	}
+	return docs
 }
 
 // ============================================================================

@@ -1,8 +1,8 @@
 ---
-modificado: 28-06-2026 00:00
+modificado: 28-06-2026 01:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 2.0.2
+Versão atual: 2.0.3
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -1093,7 +1093,7 @@ Atualiza os dados cadastrais da academia autenticada.
 
 ### Regras automáticas de documentos de matrícula
 
-A obrigatoriedade dos documentos não é mais configurada por academia. O backend aplica automaticamente as regras abaixo no `POST /solicitacao-matricula`:
+A obrigatoriedade dos documentos não é mais configurada por academia. O backend aplica automaticamente as mesmas regras abaixo no `POST /solicitacao-matricula` e no cadastro direto `POST /academia/estudante/register`:
 
 - `bi_responsavel` e `bilhete_identidade_responsavel` são obrigatórios para academias escolares e de nível superior.
 - `bilhete_identidade` e `bilhete_identidade_responsavel`, quando ambos informados para o mesmo estudante, não podem ser iguais.
@@ -1657,32 +1657,63 @@ Para implementar o cliente de forma segura:
 
 ### POST /academia/estudante/register
 
-Cadastra um novo estudante vinculado à academia autenticada.
+Cadastra um novo estudante vinculado à academia autenticada. A partir da versão 2.0.3, o cadastro direto usa `multipart/form-data` e exige a mesma matriz documental do `POST /solicitacao-matricula`; JSON puro não é mais aceito para evitar cadastro sem documentação obrigatória.
 
 **Proteção**: autenticado + academia ativa
 
-**Request:**
+**Content-Type:** `multipart/form-data`
 
-```json
-{
-  "nome": "João Silva",
-  "genero": "masculino",
-  "data_nascimento": "2010-05-20",
-  "email": "joao@exemplo.ao",
-  "telefone": "+244923000000",
-  "bilhete_identidade": "001234567LA089",
-  "bilhete_identidade_responsavel": "009876543LA089",
-  "ano_escolar_fundamental": "3_ano_fundamental",
-  "ano_escolar_medio": null,
-  "curso_medio_id": null,
-  "ano_superior": null,
-  "curso_superior_id": null
-}
+**Campos de texto:**
+
+| Campo | Obrigatório | Observações |
+| --- | --- | --- |
+| `nome` | sim | Nome completo válido. |
+| `genero` | sim | `masculino` ou `feminino`. |
+| `data_nascimento` | sim | Data simples `YYYY-MM-DD`, anterior à data atual. |
+| `email` | não | Validado quando informado. |
+| `telefone` | condicional | Pelo menos um entre `telefone` e `telefone_responsavel`; para superior, `telefone_responsavel` pode ficar ausente. |
+| `telefone_responsavel` | condicional | Não pode ser igual a `telefone`. |
+| `bilhete_identidade` | não | Quando informado, deve ser único entre estudantes. |
+| `bilhete_identidade_responsavel` | sim | Obrigatório no mesmo padrão da solicitação de matrícula; não pode ser igual ao BI do estudante após normalização. |
+| `ano_escolar_fundamental` | condicional | Ano fundamental canônico, quando aplicável. |
+| `ano_escolar_medio` | condicional | Ano médio canônico, quando aplicável. |
+| `curso_medio_id` | condicional | UUID de curso médio ativo da academia, quando o ano médio for informado. |
+| `ano_superior` | condicional | Ano superior canônico, quando aplicável. |
+| `curso_superior_id` | condicional | UUID de curso superior ativo da academia, quando o ano superior for informado. |
+
+**Ficheiros PDF aceitos:**
+
+| Campo de arquivo | Regra |
+| --- | --- |
+| `bi_responsavel` | Obrigatório. |
+| `bi_estudante` | Enviar quando o estudante tiver BI próprio. |
+| `cedula_estudante` | Obrigatória quando `bi_estudante` não for enviado. |
+| `declaracao` | Obrigatória quando o certificado aplicável não for enviado ou quando não existir certificado aplicável. |
+| `certificado_6_ano_fundamental` | Aplicável a `7_ano_fundamental`, `8_ano_fundamental` e `9_ano_fundamental`; pode ser substituído por `declaracao`. |
+| `certificado_9_ano_fundamental` | Aplicável ao ensino médio; pode ser substituído por `declaracao`. |
+| `certificado_ensino_medio` | Aplicável ao ensino superior; pode ser substituído por `declaracao`. |
+
+Todos os ficheiros devem ter `Content-Type: application/pdf`, extensão `.pdf`, assinatura `%PDF` e tamanho máximo de 5MB. Os documentos são armazenados em `{codigo_academia}/estudantes/{codigo_estudante}/documentos/` e gravados no evento `EstudanteCriadoComVinculo` e na projeção do estudante como `documentos.<campo>.path`, `documentos.<campo>.file_url` e `documentos.<campo>.download_url`. Se a criação falhar após upload parcial, o backend remove o diretório definitivo do estudante para evitar ficheiros órfãos.
+
+**Exemplo cURL:**
+
+```bash
+curl -X POST https://api.exemplo.ao/academia/estudante/register \
+  -H "Authorization: Bearer <jwt_academia>" \
+  -F "nome=João Silva" \
+  -F "genero=masculino" \
+  -F "data_nascimento=2010-05-20" \
+  -F "telefone=923000000" \
+  -F "telefone_responsavel=924000000" \
+  -F "bilhete_identidade=001234567LA089" \
+  -F "bilhete_identidade_responsavel=009876543LA089" \
+  -F "ano_escolar_fundamental=7_ano_fundamental" \
+  -F "bi_estudante=@./bi_estudante.pdf;type=application/pdf" \
+  -F "bi_responsavel=@./bi_responsavel.pdf;type=application/pdf" \
+  -F "certificado_6_ano_fundamental=@./certificado_6.pdf;type=application/pdf"
 ```
 
-**Campos obrigatórios:** `nome`, `genero`, `data_nascimento`
-
-**Status na criação:** o cadastro cria o vínculo ativo com a academia. Por padrão, `status = "ativo"`, `status_escolar_fundamental = "em_andamento"`, `status_escolar_medio = "inativo"` e `status_superior = "inativo"`. Depois do cadastro, alterações de status acontecem somente por endpoints de acontecimentos (matrícula, interrupção, trancamento, desvinculação, reintegração ou avaliação final).
+**Status na criação:** o cadastro cria o vínculo ativo com a academia. Por padrão, `status = "ativo"`, `status_escolar_fundamental = "em_andamento"`, `status_escolar_medio = "inativo"` e `status_superior = "inativo"`. Depois do cadastro, alterações de status acontecem somente por endpoints de acontecimentos.
 
 **Response 201:**
 
@@ -1692,17 +1723,28 @@ Cadastra um novo estudante vinculado à academia autenticada.
   "data": {
     "id": "uuid",
     "codigo_estudante": "ABC1234",
-    "codigo_academia": "LDA20261"
+    "codigo_academia": "LDA20261",
+    "documentos": {
+      "bi_responsavel": {
+        "path": "LDA20261/estudantes/ABC1234/documentos/bi_responsavel_ABC1234.pdf",
+        "file_url": "https://...",
+        "download_url": "https://..."
+      }
+    }
   }
 }
 ```
 
 **Erros:**
 
+- `400` — `Content-Type` diferente de `multipart/form-data`
 - `400` — genero inválido, data_nascimento inválida ou no futuro
-- `400` — ano_escolar_fundamental em formato incorreto
-- `400` — curso_medio_id não encontrado ou tipo errado
+- `400` — ano académico em formato incorreto ou incompatível com a academia/curso
+- `400` — `bi_responsavel` ausente, `cedula_estudante` ausente sem `bi_estudante`, ou certificado/declaração ausente
+- `400` — ficheiro não PDF, sem assinatura `%PDF`, com extensão diferente de `.pdf` ou acima de 5MB
+- `400` — BI do estudante igual ao BI do responsável, ou BI do estudante já cadastrado
 
+---
 ---
 
 ### GET /estudantes
