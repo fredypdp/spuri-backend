@@ -143,3 +143,37 @@ func TestAcademiaCursoPublicRouteAllowsMissingAuth(t *testing.T) {
 		t.Fatalf("expected public route to validate invalid curso ID with 400, got %d", w.Code)
 	}
 }
+
+func TestAcademiaAnosAcademicosRoutesExposeOnlyGetPostDelete(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := setupRouter()
+
+	for _, tc := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/academia/anos-academicos"},
+		{http.MethodPost, "/academia/anos-academicos"},
+		{http.MethodDelete, "/academia/anos-academicos"},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code == http.StatusNotFound {
+			t.Fatalf("expected %s %s to be registered, got 404", tc.method, tc.path)
+		}
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("expected registered %s %s to require authentication with 401, got %d", tc.method, tc.path, w.Code)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodPatch, "/academia/anos-academicos", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected PATCH /academia/anos-academicos to be removed with 404, got %d", w.Code)
+	}
+}

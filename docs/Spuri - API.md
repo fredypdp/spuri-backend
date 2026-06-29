@@ -1415,7 +1415,7 @@ Desabilita/remover logicamente escopos acadêmicos da oferta futura, preservando
 }
 ```
 
-### Validações e erros de `POST`, `PATCH` e `DELETE /academia/anos-academicos`
+### Validações e erros de `POST` e `DELETE /academia/anos-academicos`
 
 **Validações comuns:**
 
@@ -1426,9 +1426,9 @@ Desabilita/remover logicamente escopos acadêmicos da oferta futura, preservando
 - `fundamental` só é permitido para academias escolares com `nivel_escolar` igual a `fundamental` ou `misto`.
 - `fundamental` aceita somente códigos canônicos `[1-9]_ano_fundamental`.
 - `medio` aceita somente anos médios compatíveis com o curso.
-- `superior` aceita somente `periodos` numérico; `anos_academicos` superiores enviados pelo cliente não são usados como fonte manual.
+- `superior` não possui fluxo de escrita por `/academia/anos-academicos`; tentativas de adicionar/remover anos acadêmicos, períodos ou semestres retornam erro estruturado.
 - Academias fundamental/misto devem manter ao menos um ano acadêmico ativo após a operação.
-- Reduções em `PATCH` e `DELETE` são bloqueadas com `409 Conflict` quando existem estudantes ativos no ano/semestre removido (`status_escolar_fundamental`, `status_escolar_medio` ou `status_superior` em andamento conforme o escopo operacional).
+- Reduções em `DELETE` são bloqueadas com `409 Conflict` quando existem estudantes ativos no ano removido (`status_escolar_fundamental` ou `status_escolar_medio` em andamento conforme o escopo operacional).
 
 **Erros esperados:**
 
@@ -2764,31 +2764,22 @@ Desativa um curso ativo.
 
 ### PUT /academia/curso/:id/dados
 
-Atualiza dados de um curso. O `type` é imutável.
+Atualiza somente dados cadastrais de um curso. O `type` é imutável e esta rota não manipula anos acadêmicos, períodos ou semestres.
 
 **Proteção**: autenticado + academia ativa
 
 **Validações de integridade:**
 
-- Para cursos médios, `anos_academicos` pode ser enviado e a atualização é rejeitada se remover algum ano que ainda possua estudante ativo matriculado no curso.
-- Para cursos superiores, `anos_academicos` não pode ser enviado. Quando `periodos` numérico é enviado, o backend recalcula semestres e anos acadêmicos derivados; se houver redução, a atualização é rejeitada ao remover semestre usado por estudante ativo em `semestre_atual` ou ano superior ainda usado por estudante ativo.
-- `periodos` numérico é aceito apenas para cursos superiores e deve ser inteiro positivo.
+- O payload aceito para esta rota é cadastral; atualmente, use `nome` para renomear o curso.
+- Campos acadêmicos como `anos_academicos`, `anosAcademicos`, `periodos`, `semestres`, `quantidade_semestres` e `anos` são rejeitados com erro de validação, sem mutação parcial.
+- Para adicionar ou remover anos de curso médio, use `POST` ou `DELETE /academia/anos-academicos` com `type=medio` e `curso_id`.
+- Cursos superiores não aceitam adição/remoção direta de anos acadêmicos, períodos ou semestres por esta rota nem por `/academia/anos-academicos`; qualquer fluxo futuro de períodos deve ser explícito e separado dos dados cadastrais do curso.
 
-**Request para curso médio:** (todos opcionais)
-
-```json
-{
-  "nome": "string",
-  "anos_academicos": ["1_ano_medio", "2_ano_medio"]
-}
-```
-
-**Request para curso superior:** (todos opcionais)
+**Request:**
 
 ```json
 {
-  "nome": "string",
-  "periodos": 10
+  "nome": "string"
 }
 ```
 
@@ -2798,18 +2789,17 @@ Atualiza dados de um curso. O `type` é imutável.
 {
   "message": "curso atualizado com sucesso",
   "nome": "string",
-  "type": "superior",
-  "anos_academicos": ["1_ano_superior", "2_ano_superior", "3_ano_superior", "4_ano_superior", "5_ano_superior"],
-  "periodos": ["1_semestre", "2_semestre", "3_semestre", "4_semestre", "5_semestre", "6_semestre", "7_semestre", "8_semestre", "9_semestre", "10_semestre"]
+  "type": "medio",
+  "anos_academicos": ["1_ano_medio", "2_ano_medio"],
+  "periodos": null
 }
 ```
 
 **Erros:**
 
 - `400` — nenhum campo para atualizar
-- `400` — tentativa de remover `anos_academicos` ou `periodos` ainda usados por estudantes ativos
-- `400` — curso superior com `anos_academicos` enviado ou `periodos` inválido
-- `400` — curso médio com `periodos` numérico enviado
+- `400` — `type` enviado na edição, pois o tipo do curso é imutável
+- `400` — campo acadêmico enviado (`anos_academicos`, `anosAcademicos`, `periodos`, `semestres`, `quantidade_semestres`, `anos` ou equivalente)
 
 ---
 
