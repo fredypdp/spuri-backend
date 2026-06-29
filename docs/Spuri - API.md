@@ -1455,7 +1455,7 @@ Desabilita/remover logicamente escopos acadêmicos da oferta futura, preservando
 - `fundamental`: remove do cadastro da academia somente os anos enviados em `anos_academicos`.
 - `medio`: remove do curso médio informado somente os anos enviados em `anos_academicos`.
 - `superior`: não recebe uma lista de semestres a remover; recebe `periodos` com a nova quantidade total de semestres que deve permanecer ativa no curso. Exemplo: se o curso tem 8 semestres e o payload envia `periodos: 6`, os semestres `7_semestre` e `8_semestre` deixam de estar disponíveis para novos vínculos.
-- A remoção é lógica/prospectiva: o backend não apaga eventos, ledger, estudantes, turmas, matérias, notas, faltas, avaliações finais ou sumários já registrados.
+- A remoção é lógica/prospectiva: o backend não apaga eventos, ledger, estudantes, turmas, matérias, notas, faltas, avaliações finais já registrados.
 
 **Request — fundamental/misto:**
 
@@ -3741,115 +3741,7 @@ Lista registros de notas com escopo por perfil.
 
 ## 13.1 Sumários/Aulas
 
-Os sumários representam a aula ou conteúdo ministrado por uma academia e podem ser vinculados opcionalmente às faltas. O backend nunca confia em `academia_id`, `nivel` ou `type` enviados pelo cliente: a academia vem do token, enquanto `nivel` e `type` são inferidos a partir da matéria/curso validado.
-
-### POST /academia/sumarios
-
-Cria um sumário/aula.
-
-**Request:**
-
-```json
-{
-  "sumario_titulo": "Introdução às equações do 2º grau",
-  "descricao": "Conteúdo detalhado opcional",
-  "periodo": "1_trimestre",
-  "ano_academico": 9,
-  "curso_id": "uuid-do-curso",
-  "materia_id": "uuid-da-materia"
-}
-```
-
-Regras principais:
-
-- `sumario_titulo` é obrigatório e deve ter entre 3 e 200 caracteres.
-- `materia_id` é obrigatório e deve pertencer à academia autenticada.
-- `curso_id` é obrigatório para matérias de `type=medio` e `type=superior`; quando a matéria já possui curso, o backend usa esse curso como fonte de verdade.
-- Matérias superiores aceitam apenas períodos `N_semestre` e, se a matéria tiver `periodo` definido, ele deve coincidir com o período do sumário.
-- Matérias escolares/médio aceitam períodos `N_trimestre`.
-- `ano_academico` deve existir em `anos_academicos` da matéria.
-
-**Response 201:**
-
-```json
-{
-  "message": "sumário criado com sucesso",
-  "sumario": {
-    "id": "uuid",
-    "sumario_titulo": "Introdução às equações do 2º grau",
-    "materia_id": "uuid-da-materia"
-  }
-}
-```
-### GET /academia/sumarios
-
-Lista sumários da academia autenticada. Admin pode consultar para suporte informando `codigo_academia`. Filtros opcionais: `periodo`, `ano_academico`, `curso_id`, `materia_id`.
-
-
-**Request:** sem payload
-
-**Response 200:**
-
-```json
-{
-  "sumarios": [],
-  "total": 0
-}
-```
-### GET /academia/sumarios/:id
-
-Retorna um sumário, desde que pertença à academia autenticada.
-
-
-**Request:** sem payload
-
-**Response 200:**
-
-```json
-{
-  "sumario": {
-    "id": "uuid",
-    "sumario_titulo": "Introdução às equações do 2º grau"
-  }
-}
-```
-### PUT /academia/sumarios/:id
-
-Atualiza título, descrição ou contexto acadêmico do sumário. A atualização reexecuta as mesmas validações de escopo da criação.
-
-**Request:** (todos os campos opcionais; envie pelo menos um campo para alteração)
-
-```json
-{
-  "sumario_titulo": "Introdução às equações do 2º grau",
-  "descricao": "Conteúdo detalhado atualizado",
-  "periodo": "1_trimestre",
-  "ano_academico": 9,
-  "curso_id": "uuid-do-curso",
-  "materia_id": "uuid-da-materia"
-}
-```
-
-**Response 200:**
-
-```json
-{
-  "message": "sumário atualizado com sucesso"
-}
-```
-### DELETE /academia/sumarios/:id
-
-Remove logicamente o sumário (`deleted_at`), preservando faltas já vinculadas e seus snapshots históricos.
-
-**Request:** sem payload
-
-**Response 200:**
-
-```json
-{
-  "message": "sumário deletado com sucesso"
-}
-```
+O recurso de sumários/aulas foi removido do contrato público da API. Não há endpoints para criar, listar, consultar, atualizar ou remover sumários, e faltas não aceitam nem retornam vínculo com sumário.
 
 ## 14. Faltas
 ### POST /academia/faltas-aluno
@@ -3866,7 +3758,6 @@ Registra falta(s) para um estudante.
   "data": "2025-03-15",              // formato AAAA-MM-DD
   "materia_disciplinar_id": "uuid",
   "quantidade": 2,                    // mínimo 1 (sem teto máximo)
-  "sumario_id": "uuid",               // opcional; cliente não envia sumario_titulo
   "observacao": "string"              // opcional
 }
 ```
@@ -3877,7 +3768,7 @@ Registra falta(s) para um estudante.
 - `data` é tratada como **date-only** (sem hora), em formato `AAAA-MM-DD`
 - Se o estudante tiver `ano_escolar_fundamental`, esse ano deve existir em `anos_academicos` da matéria; caso contrário, o registro é bloqueado
 - Idempotência (duplicata bloqueada): combinação `data + codigo_estudante + materia_disciplinar_id`
-- `sumario_id` é opcional; quando informado, o backend busca o sumário, valida academia/matéria/ano acadêmico e grava `sumario_titulo` como snapshot histórico na falta
+- Payloads de falta não aceitam `sumario_id`, `sumario_titulo` ou campos equivalentes de sumário.
 - O endpoint `POST /academia/faltas-aluno/async` reaproveita exatamente as mesmas validações deste endpoint por item do lote
 
 **Response 201:**
@@ -3913,7 +3804,6 @@ Corrige uma falta registada.
   "data": "2025-03-16",                 // opcional
   "materia_disciplinar_id": "uuid",     // opcional
   "quantidade": 3,                      // opcional, mínimo 1
-  "sumario_id": "uuid",                 // opcional; troca o vínculo e atualiza o snapshot
   "observacao": "string"                // OBRIGATÓRIO (justificativa da correção)
 }
 ```

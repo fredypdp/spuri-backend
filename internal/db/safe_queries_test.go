@@ -78,9 +78,6 @@ func TestValidateEventTypeAcceptsEventsDiscoveredInCode(t *testing.T) {
 		"SolicitacaoMatriculaCriada",
 		"SolicitacaoMatriculaAprovada",
 		"SolicitacaoMatriculaReprovada",
-		"SumarioAulaCriado",
-		"SumarioAulaAtualizado",
-		"SumarioAulaDesativado",
 	}
 
 	for _, eventType := range eventTypes {
@@ -105,7 +102,6 @@ func TestValidateAggregateTypeAcceptsAggregatesDiscoveredInCode(t *testing.T) {
 		"MateriaDisciplinar",
 		"Turma",
 		"SolicitacaoMatricula",
-		"SumarioAula",
 		"System",
 	}
 

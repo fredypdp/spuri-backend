@@ -949,19 +949,11 @@ Regras de estudante: ao menos um telefone deve existir; `telefone` e `telefone_r
 | Observação obrigatória na correção               | Justificativa da alteração em `PUT /academia/atualizar-falta`                           |
 | Motivo obrigatório na deleção                    | Para auditoria no ledger e na projeção                                                  |
 | Duplicata bloqueada                              | Mesma combinação `data + codigo_estudante + materia_disciplinar_id` é rejeitada         |
-| Sumário opcional                                  | Falta pode apontar para `sumario_id`; o backend valida escopo e grava `sumario_titulo` como snapshot histórico |
+| Sem vínculo de sumário                           | Faltas são independentes e não aceitam `sumario_id` ou `sumario_titulo` |
 
-### 6.4.1 Regras de Sumários/Aulas
+### 6.4.1 Remoção de Sumários/Aulas
 
-| Regra | Detalhe |
-| ----- | ------- |
-| Academia inferida | `academia_id`/`codigo_academia` vêm do token, nunca do payload |
-| Contexto protegido | `nivel` e `type` são inferidos da matéria/curso validado |
-| Matéria obrigatória | `materia_id` deve pertencer à academia e conter o `ano_academico` solicitado |
-| Curso obrigatório quando aplicável | Médio e superior exigem curso da mesma academia; se a matéria já tem curso, ele prevalece |
-| Período coerente | Superior usa `N_semestre`; escolar/médio usa `N_trimestre`; matéria superior com período definido deve coincidir |
-| Remoção lógica | `DELETE /academia/sumarios/:id` marca `deleted_at` para preservar vínculos históricos |
-| Snapshot em faltas | Faltas recebem apenas `sumario_id` no payload; `sumario_titulo` é copiado do sumário pelo backend no momento do vínculo |
+O sistema não possui mais a entidade sumário/aula. As faltas devem ser lançadas e consultadas sem `sumario_id`, `sumario_titulo` ou qualquer vínculo equivalente.
 
 ### 6.5 Regras de Avaliação Final
 
@@ -1299,7 +1291,7 @@ Academias agora podem consultar, adicionar, substituir e desabilitar escopos aca
 - **Médio**: a lista ativa pertence ao curso médio (`projection_cursos.anos_academicos`) e requer `curso_id`, evitando colisão com anos do fundamental em escolas mistas.
 - **Superior**: a academia informa somente `periodos` numérico no curso superior; semestres (`[n]_semestre`) e anos superiores (`[n]_ano_superior`) seguem derivados pelo backend.
 - **Segurança**: cada alteração valida propriedade da academia, compatibilidade entre `type` e nível/curso, e bloqueia reduções que afetariam estudantes ativos no ano ou semestre removido.
-- **Preservação histórica**: remoções são lógicas/prospectivas; eventos, ledger, histórico acadêmico, turmas, matérias, notas, faltas, avaliações finais e sumários já registrados não são apagados nem reprocessados.
+- **Preservação histórica**: remoções são lógicas/prospectivas; eventos, ledger, histórico acadêmico, turmas, matérias, notas, faltas, avaliações finais já registrados não são apagados nem reprocessados.
 - **Contratos explícitos na API**: a documentação da API detalha `GET`, `POST`, `PATCH` e `DELETE /academia/anos-academicos` com funcionamento, permissões, payloads por `type`, respostas de sucesso e erros esperados.
 - **Leitura por admin**: admins usam `GET /academia/anos-academicos?codigo_academia=...`; as rotas de escrita permanecem exclusivas para academias autenticadas e ativas.
 - **Erros acionáveis**: as respostas de erro dessas rotas usam o envelope padrão com `details[]` contendo `field`, `code` e `message`, inclusive em conflitos `409` causados por estudantes ativos, para indicar exatamente o campo problemático, o motivo e a correção esperada.

@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,11 +19,35 @@ import (
 	"spuri/internal/utils"
 )
 
+func rejeitarCamposLegadosSumarioFaltas(c *gin.Context) bool {
+	body, err := c.GetRawData()
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("payload inválido"))
+		return true
+	}
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return false
+	}
+	for _, campo := range []string{"sumario_id", "sumario_titulo"} {
+		if _, ok := raw[campo]; ok {
+			utils.RespondWithValidationError(c, fmt.Errorf("campo não suportado em falta: %s", campo))
+			return true
+		}
+	}
+	return false
+}
+
 // ============================================================================
 // POST /academia/faltas-aluno
 // ============================================================================
 
 func RegistrarFaltas(c *gin.Context) {
+	if rejeitarCamposLegadosSumarioFaltas(c) {
+		return
+	}
 	userID, _ := middleware.GetUserID(c)
 
 	var req struct {
@@ -30,7 +56,6 @@ func RegistrarFaltas(c *gin.Context) {
 		MateriaDisciplinarID string     `json:"materia_disciplinar_id" binding:"required"`
 		Quantidade           int        `json:"quantidade"             binding:"required,min=1"`
 		Observacao           *string    `json:"observacao"`
-		SumarioID            *string    `json:"sumario_id"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -94,28 +119,6 @@ func RegistrarFaltas(c *gin.Context) {
 		return
 	}
 
-	var sumarioID *uuid.UUID
-	var sumarioTitulo *string
-	if req.SumarioID != nil && strings.TrimSpace(*req.SumarioID) != "" {
-		parsed, err := uuid.Parse(*req.SumarioID)
-		if err != nil {
-			utils.RespondWithValidationError(c, fmt.Errorf("sumario_id inválido"))
-			return
-		}
-		sumarioDTO, err := getSumariosProjection(c).GetByID(parsed)
-		if err != nil || sumarioDTO == nil {
-			utils.RespondWithNotFoundError(c, "sumário")
-			return
-		}
-		if sumarioDTO.CodigoAcademia != academiaDTO.CodigoAcademia || sumarioDTO.MateriaID != materiaID || strconv.Itoa(sumarioDTO.AnoAcademico) != anoAcademico {
-			utils.RespondWithValidationError(c, fmt.Errorf("sumário incompatível com a falta"))
-			return
-		}
-		sumarioID = &parsed
-		t := sumarioDTO.SumarioTitulo
-		sumarioTitulo = &t
-	}
-
 	repository := getRepository(c)
 	estudanteAgg, err := repository.Load(estudanteDTO.ID, "Estudante")
 	if err != nil {
@@ -136,8 +139,6 @@ func RegistrarFaltas(c *gin.Context) {
 		materiaID,
 		req.Quantidade,
 		req.Observacao,
-		sumarioID,
-		sumarioTitulo,
 	)
 	if err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -171,6 +172,9 @@ func RegistrarFaltas(c *gin.Context) {
 // ============================================================================
 
 func AtualizarFalta(c *gin.Context) {
+	if rejeitarCamposLegadosSumarioFaltas(c) {
+		return
+	}
 	userID, _ := middleware.GetUserID(c)
 
 	var req struct {
@@ -179,16 +183,15 @@ func AtualizarFalta(c *gin.Context) {
 		MateriaDisciplinarID *string     `json:"materia_disciplinar_id"`
 		Quantidade           *int        `json:"quantidade"`
 		Observacao           *string     `json:"observacao"`
-		SumarioID            *string     `json:"sumario_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("campo obrigatório: id"))
 		return
 	}
 
-	if req.Data == nil && req.MateriaDisciplinarID == nil && req.Quantidade == nil && req.Observacao == nil && req.SumarioID == nil {
+	if req.Data == nil && req.MateriaDisciplinarID == nil && req.Quantidade == nil && req.Observacao == nil {
 		utils.RespondWithValidationError(c, fmt.Errorf(
-			"ao menos um campo deve ser fornecido: data, materia_disciplinar_id, quantidade, observacao ou sumario_id",
+			"ao menos um campo deve ser fornecido: data, materia_disciplinar_id, quantidade ou observacao",
 		))
 		return
 	}
@@ -293,33 +296,6 @@ func AtualizarFalta(c *gin.Context) {
 		return
 	}
 
-	var sumarioID *uuid.UUID
-	var sumarioTitulo *string
-	if req.SumarioID != nil && strings.TrimSpace(*req.SumarioID) != "" {
-		parsed, err := uuid.Parse(*req.SumarioID)
-		if err != nil {
-			utils.RespondWithValidationError(c, fmt.Errorf("sumario_id inválido"))
-			return
-		}
-		sumarioDTO, err := getSumariosProjection(c).GetByID(parsed)
-		if err != nil || sumarioDTO == nil {
-			utils.RespondWithNotFoundError(c, "sumário")
-			return
-		}
-		anoAcademicoFinal, err := inferirAnoAcademicoFaltas(estudanteDTO.AnoEscolar, materiaFinalDTO.AnosAcademicos, materiaFinalDTO.Nome)
-		if err != nil {
-			utils.RespondWithValidationError(c, err)
-			return
-		}
-		if sumarioDTO.CodigoAcademia != academiaDTO.CodigoAcademia || sumarioDTO.MateriaID.String() != materiaIDFinal || strconv.Itoa(sumarioDTO.AnoAcademico) != anoAcademicoFinal {
-			utils.RespondWithValidationError(c, fmt.Errorf("sumário incompatível com a falta"))
-			return
-		}
-		sumarioID = &parsed
-		t := sumarioDTO.SumarioTitulo
-		sumarioTitulo = &t
-	}
-
 	// Bloquear duplicata por (data + codigo_estudante + materia_disciplinar_id).
 	dataFinal := faltaAtual.Data.Time
 	if dataPtr != nil {
@@ -364,8 +340,6 @@ func AtualizarFalta(c *gin.Context) {
 		materiaIDPtr,
 		req.Quantidade,
 		req.Observacao,
-		sumarioID,
-		sumarioTitulo,
 		userID,
 	); err != nil {
 		utils.RespondWithValidationError(c, err)
