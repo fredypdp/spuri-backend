@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -20,6 +23,31 @@ type anosAcademicosRequest struct {
 	CursoID        *uuid.UUID `json:"curso_id"`
 	AnosAcademicos []string   `json:"anos_academicos"`
 	Periodos       *int       `json:"periodos"`
+}
+
+func bindAnosAcademicosRequest(c *gin.Context, req *anosAcademicosRequest) error {
+	var raw map[string]json.RawMessage
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&raw); err != nil {
+		return newAnosValidationError("payload", "json_invalido", "O corpo da requisição deve ser um JSON válido. Verifique vírgulas, aspas, chaves e tipos dos campos antes de reenviar.")
+	}
+	for campo := range raw {
+		switch campo {
+		case "type", "curso_id", "anos_academicos", "periodos":
+		case "codigo_academia":
+			return newAnosValidationError(campo, "campo_nao_permitido", "Não envie 'codigo_academia' em escritas de anos acadêmicos. A academia alterada é sempre a academia autenticada.")
+		case "substituir", "replace", "patch", "set", "update":
+			return newAnosValidationError(campo, "campo_nao_permitido", "Payloads de substituição em massa não são suportados. Use POST para adicionar ou DELETE para remover anos acadêmicos.")
+		default:
+			return newAnosValidationError(campo, "campo_nao_permitido", fmt.Sprintf("Campo não suportado em anos acadêmicos: %s", campo))
+		}
+	}
+	data, _ := json.Marshal(raw)
+	if err := json.Unmarshal(data, req); err != nil {
+		return newAnosValidationError("payload", "json_invalido", "O corpo da requisição contém campos com tipos inválidos para anos acadêmicos.")
+	}
+	return nil
 }
 
 func ListarAnosAcademicos(c *gin.Context) {
@@ -39,7 +67,6 @@ func ListarAnosAcademicos(c *gin.Context) {
 }
 
 func AdicionarAnosAcademicos(c *gin.Context) { alterarAnosAcademicos(c, "add") }
-func AtualizarAnosAcademicos(c *gin.Context) { alterarAnosAcademicos(c, "set") }
 func RemoverAnosAcademicos(c *gin.Context)   { alterarAnosAcademicos(c, "remove") }
 
 func alterarAnosAcademicos(c *gin.Context, op string) {
@@ -48,8 +75,8 @@ func alterarAnosAcademicos(c *gin.Context, op string) {
 		return
 	}
 	var req anosAcademicosRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		responderErroAnosValidacao(c, "payload", "json_invalido", "O corpo da requisição deve ser um JSON válido. Verifique vírgulas, aspas, chaves e tipos dos campos antes de reenviar.")
+	if err := bindAnosAcademicosRequest(c, &req); err != nil {
+		responderErroAnos(c, err)
 		return
 	}
 	switch req.Type {
@@ -70,7 +97,7 @@ func alterarAnosAcademicos(c *gin.Context, op string) {
 }
 
 func alterarAnosFundamental(c *gin.Context, academiaDTO *projections.AcademiaDTO, req anosAcademicosRequest, op string) error {
-	if academiaDTO.Nivel != "escolar" || academiaDTO.NivelEscolar == nil || (*academiaDTO.NivelEscolar != "fundamental" && *academiaDTO.NivelEscolar != "misto") {
+	if academiaDTO.Nivel != "escola" || academiaDTO.NivelEscolar == nil || (*academiaDTO.NivelEscolar != "fundamental" && *academiaDTO.NivelEscolar != "misto") {
 		return newAnosValidationError("type", "nivel_incompativel", fmt.Sprintf("Esta academia não pode gerenciar anos do ensino fundamental porque o nível cadastrado é nivel='%s' e nivel_escolar='%s'. Somente academias escolares com nivel_escolar 'fundamental' ou 'misto' podem alterar anos fundamentais.", academiaDTO.Nivel, stringPtrValue(academiaDTO.NivelEscolar)))
 	}
 	if len(req.AnosAcademicos) == 0 {
@@ -111,6 +138,14 @@ func alterarAnosFundamental(c *gin.Context, academiaDTO *projections.AcademiaDTO
 }
 
 func alterarEscopoCurso(c *gin.Context, academiaDTO *projections.AcademiaDTO, req anosAcademicosRequest, op string) error {
+	if req.Type == "medio" {
+		if academiaDTO.Nivel != "escola" || academiaDTO.NivelEscolar == nil || (*academiaDTO.NivelEscolar != "medio" && *academiaDTO.NivelEscolar != "misto") {
+			return newAnosValidationError("type", "nivel_incompativel", fmt.Sprintf("Esta academia não pode gerenciar anos do ensino médio porque o nível cadastrado é nivel='%s' e nivel_escolar='%s'. Somente academias escolares com nivel_escolar 'medio' ou 'misto' podem alterar anos médios.", academiaDTO.Nivel, stringPtrValue(academiaDTO.NivelEscolar)))
+		}
+	}
+	if req.Type == "superior" && academiaDTO.Nivel != "superior" {
+		return newAnosValidationError("type", "nivel_incompativel", fmt.Sprintf("Esta academia não pode gerenciar períodos do ensino superior porque o nível cadastrado é nivel='%s' e nivel_escolar='%s'. Somente academias superiores podem gerenciar escopos superiores.", academiaDTO.Nivel, stringPtrValue(academiaDTO.NivelEscolar)))
+	}
 	if req.CursoID == nil {
 		return newAnosValidationError("curso_id", "campo_obrigatorio", fmt.Sprintf("O campo 'curso_id' é obrigatório quando type='%s', porque anos de médio/superior pertencem a um curso específico.", req.Type))
 	}
@@ -137,19 +172,14 @@ func alterarEscopoCurso(c *gin.Context, academiaDTO *projections.AcademiaDTO, re
 			return newAnosValidationError("anos_academicos", "formato_invalido", err.Error())
 		}
 		novosAnos = combinarAnos(cursoDTO.AnosAcademicos, req.AnosAcademicos, op)
+		if len(novosAnos) == 0 {
+			return newAnosValidationError("anos_academicos", "remocao_invalida", "A operação deixaria o curso médio sem anos acadêmicos. Cursos nunca podem ficar sem anos acadêmicos.")
+		}
+		if err := validarSequenciaAnosMedio(novosAnos); err != nil {
+			return newAnosValidationError("anos_academicos", "sequencia_invalida", err.Error())
+		}
 	} else {
-		if len(req.AnosAcademicos) > 0 {
-			return newAnosValidationError("anos_academicos", "campo_nao_permitido", "Não envie 'anos_academicos' para curso superior. Para superior, envie apenas 'periodos'; o sistema calcula os anos automaticamente. Exemplo: periodos=8 gera anos como ['1_ano_superior', '2_ano_superior', ...].")
-		}
-		if req.Periodos == nil {
-			return newAnosValidationError("periodos", "campo_obrigatorio", "O campo 'periodos' é obrigatório para curso superior, pois os anos acadêmicos são calculados pela quantidade de períodos do curso.")
-		}
-		anos, periodos, err := derivarCursoSuperior(*req.Periodos)
-		if err != nil {
-			return newAnosValidationError("periodos", "valor_invalido", fmt.Sprintf("%s. Informe um número inteiro positivo de períodos para o curso superior.", err.Error()))
-		}
-		novosAnos = anos
-		novosPeriodos = &periodos
+		return newAnosValidationError("type", "operacao_nao_suportada", "Cursos superiores não aceitam adição ou remoção direta de anos acadêmicos/períodos por /academia/anos-academicos. Use o fluxo específico de períodos, quando disponível.")
 	}
 	if err := validarEdicaoCursoComEstudantesAtivos(c, cursoDTO, novosAnos, novosPeriodos); err != nil {
 		return conflictErrorWithDetail("anos_academicos", "estudantes_ativos_vinculados", fmt.Sprintf("%s. Ajuste primeiro os estudantes ativos vinculados ao curso antes de alterar/remover anos ou períodos.", err.Error()))
@@ -220,6 +250,32 @@ func combinarAnos(atuais, entrada []string, op string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func validarSequenciaAnosMedio(anos []string) error {
+	if len(anos) == 0 {
+		return fmt.Errorf("curso médio deve ter pelo menos um ano acadêmico")
+	}
+	numeros := make([]int, 0, len(anos))
+	for _, ano := range anos {
+		numero, sufixo, ok := strings.Cut(ano, "_")
+		if !ok || sufixo != "ano_medio" {
+			return fmt.Errorf("ano '%s' inválido para curso médio", ano)
+		}
+		n, err := strconv.Atoi(numero)
+		if err != nil || n <= 0 {
+			return fmt.Errorf("ano '%s' inválido para curso médio", ano)
+		}
+		numeros = append(numeros, n)
+	}
+	sort.Ints(numeros)
+	for i, n := range numeros {
+		esperado := i + 1
+		if n != esperado {
+			return fmt.Errorf("anos do ensino médio devem ser uma sequência contínua começando em 1_ano_medio; esperado %d_ano_medio na posição %d", esperado, i+1)
+		}
+	}
+	return nil
 }
 
 type anosConflict string

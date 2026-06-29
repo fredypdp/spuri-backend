@@ -337,7 +337,6 @@ func setupRouter() *gin.Engine {
 		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
 		academia.POST("/definir-ano-letivo", handlers.DefinirAnoLetivoAcademia)
 		academia.POST("/anos-academicos", handlers.AdicionarAnosAcademicos)
-		academia.PATCH("/anos-academicos", handlers.AtualizarAnosAcademicos)
 		academia.DELETE("/anos-academicos", handlers.RemoverAnosAcademicos)
 		academia.POST("/anos-letivos/finalizar", handlers.FinalizarAnoLetivoAcademia)
 		academia.PUT("/solicitacao-matricula/:codigo/aprovar", handlers.AprovarSolicitacaoMatricula)

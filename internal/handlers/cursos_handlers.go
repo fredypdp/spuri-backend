@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
@@ -296,6 +297,11 @@ func AtualizarDadosCurso(c *gin.Context) {
 		return
 	}
 
+	if err := rejeitarCamposAcademicosEmAtualizacaoCurso(c); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
 	// Type não é aceito: o tipo do curso é imutável após a criação.
 	var req cursoPayload
 	if err := bindCursoPayload(c, &req); err != nil {
@@ -364,6 +370,25 @@ func AtualizarDadosCurso(c *gin.Context) {
 		"anos_academicos": curso.AnosAcademicos,
 		"periodos":        curso.Periodos,
 	})
+}
+
+func rejeitarCamposAcademicosEmAtualizacaoCurso(c *gin.Context) error {
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return fmt.Errorf("dados invalidos")
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil
+	}
+	for campo := range raw {
+		switch campo {
+		case "anos_academicos", "anosAcademicos", "periodos", "semestres", "quantidade_semestres", "anos":
+			return fmt.Errorf("campo não suportado em atualização de dados do curso: %s. Use a rota própria de anos acadêmicos para adicionar ou remover escopos permitidos; esta rota altera apenas dados cadastrais", campo)
+		}
+	}
+	return nil
 }
 
 func validarEdicaoCursoComEstudantesAtivos(c *gin.Context, curso *projections.CursoDTO, novosAnos []string, novosPeriodos *[]string) error {
