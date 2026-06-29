@@ -48,6 +48,7 @@ Além disso, a validação de anos fundamentais está rejeitando incorretamente 
 
 ### Segurança obrigatória
 
+- Cursos nunca devem ficar sem anos acadêmicos ou semestres após operações de escrita.
 - Nenhuma operação de escrita pode aceitar `codigo_academia` para alterar dados de outra academia.
 - Escritas devem usar exclusivamente a academia autenticada no token/sessão.
 - A academia precisa estar ativa antes de qualquer escrita.
@@ -86,6 +87,18 @@ Correção obrigatória do bug:
 
 ### Academia escolar médio
 
+#### Validação obrigatória de sequência dos anos do médio
+
+Os anos acadêmicos de um curso do ensino médio devem ser obrigatoriamente sequenciais, em ordem crescente, começando sempre por `1_ano_medio`. A lista válida deve representar um prefixo contínuo da sequência permitida, por exemplo:
+
+- válido: [`1_ano_medio`];
+- válido: [`1_ano_medio`, `2_ano_medio`, `3_ano_medio`];
+- inválido: [`1_ano_medio`, `3_ano_medio`, `4_ano_medio`], pois pula `2_ano_medio`;
+- inválido: [`2_ano_medio`, `3_ano_medio`], pois não começa por `1_ano_medio`;
+- inválido: lista vazia, pois cursos nunca devem ficar sem anos acadêmicos.
+
+`POST` e `DELETE` com `type='medio'` devem validar o estado final do curso após a operação. Nunca pode existir lacuna, salto, ano vazio entre anos configurados ou ordem fora da sequência crescente esperada.
+
 Condição cadastral esperada:
 
 - `nivel='escola'`
@@ -97,8 +110,8 @@ Comportamento obrigatório:
 - Não pode usar `POST` ou `DELETE` com `type='fundamental'`.
 - Não deve ter `anos_academicos` diretamente na academia para fundamental.
 - A gestão de anos do médio deve permanecer vinculada ao curso médio informado por `curso_id`, conforme a regra atual do sistema.
-- Pode usar `POST /academia/anos-academicos` com `type='medio'` apenas para adicionar anos acadêmicos válidos ao curso médio ativo e pertencente à academia.
-- Pode usar `DELETE /academia/anos-academicos` com `type='medio'` apenas para remover anos acadêmicos seguros do curso médio ativo e pertencente à academia.
+- Pode usar `POST /academia/anos-academicos` com `type='medio'` apenas para adicionar anos acadêmicos válidos ao curso médio ativo e pertencente à academia, preservando sequência crescente contínua iniciada em `1_ano_medio`.
+- Pode usar `DELETE /academia/anos-academicos` com `type='medio'` apenas para remover anos acadêmicos seguros do curso médio ativo e pertencente à academia, sem criar lacunas e sem deixar o curso sem anos acadêmicos.
 - Não pode gerenciar períodos/anos de ensino superior por essa rota.
 - Não pode usar `PATCH` para substituir a lista completa de anos do curso médio.
 
@@ -122,6 +135,10 @@ Comportamento obrigatório:
 
 ### Academia superior
 
+#### Validação obrigatória de semestres/períodos
+
+Cursos superiores nunca podem ficar sem anos acadêmicos, períodos ou semestres derivados. A adição e a remoção direta de anos acadêmicos em curso superior por `/academia/anos-academicos` deve ser bloqueada quando tentar alterar manualmente a lista derivada. Em curso superior, a fonte de verdade para essa configuração é o número de semestres em `periodos`; portanto, qualquer mudança na quantidade de anos acadêmicos/semestres deve ocorrer pela alteração de `periodos`, respeitando a regra existente do curso.
+
 Condição cadastral esperada:
 
 - `nivel='superior'`
@@ -132,8 +149,9 @@ Comportamento obrigatório:
 - Pode usar `GET /academia/anos-academicos` para consultar anos/períodos dos cursos superiores conforme o contrato atual.
 - Não pode usar `type='fundamental'`.
 - Não pode usar `type='medio'`.
-- Pode usar `POST /academia/anos-academicos` com `type='superior'` apenas para adicionar períodos/anos derivados permitidos a curso superior ativo e pertencente à academia, respeitando a regra atual de períodos do curso.
-- Pode usar `DELETE /academia/anos-academicos` com `type='superior'` apenas quando a remoção for segura e não quebrar estudantes, semestres, matérias, notas, faltas, avaliações finais ou outras dependências.
+- Não pode adicionar anos acadêmicos/semestres diretamente em curso superior por `POST /academia/anos-academicos`; a alteração deve ser feita pelo número de semestres em `periodos`.
+- Não pode remover anos acadêmicos/semestres diretamente em curso superior por `DELETE /academia/anos-academicos`; a alteração deve ser feita pelo número de semestres em `periodos` e somente quando segura.
+- Qualquer validação de curso superior deve garantir que o curso não fique sem períodos/semestres derivados.
 - Não pode usar `PATCH` para substituir todos os anos/períodos do curso superior.
 - Deve continuar respeitando a diferença entre ano acadêmico superior derivado e período/semestre quando a regra existente fizer essa distinção.
 
@@ -171,9 +189,15 @@ Revisar a validação de permissão por `nivel` e `nivel_escolar` para garantir 
 
 A correção deve tratar possíveis diferenças de representação como ponteiro, string vazia, espaços e capitalização somente se esse tipo de normalização já for padrão no projeto; não introduzir compatibilidade perigosa que aceite valores inválidos fora do domínio.
 
-### Dependências e bloqueios de remoção
+### Dependências, sequência e bloqueios de remoção
 
-Manter e reforçar as validações que impedem remoções inseguras. Antes de remover um ano/período, verificar uso ativo conforme as projeções existentes, incluindo no mínimo:
+Manter e reforçar as validações que impedem remoções inseguras. Antes de remover um ano/período, verificar uso ativo conforme as projeções existentes e validar o estado final da entidade afetada:
+
+- cursos nunca podem ficar com lista vazia de anos acadêmicos, períodos ou semestres;
+- cursos médios devem permanecer com anos sequenciais, em ordem crescente, começando em `1_ano_medio`, sem pular ou deixar vazio entre anos;
+- cursos superiores não devem aceitar adição/remoção direta de anos acadêmicos/semestres nessa rota, pois a quantidade deve ser derivada de `periodos`.
+
+Também deve ser verificado uso ativo, incluindo no mínimo:
 
 - estudantes;
 - turmas;
@@ -239,6 +263,9 @@ Clientes integrados devem migrar para o fluxo explícito de adicionar ou deletar
 - `POST /academia/anos-academicos` deve continuar registrado e funcional para combinações permitidas.
 - `DELETE /academia/anos-academicos` deve continuar registrado e funcional para combinações permitidas.
 - `PATCH /academia/anos-academicos` não deve estar registrado.
+- Cursos nunca devem ficar sem anos acadêmicos/semestres.
+- Curso médio deve manter anos sequenciais em ordem crescente iniciando sempre em `1_ano_medio`, sem lacunas como [`1_ano_medio`, `3_ano_medio`, `4_ano_medio`].
+- Curso superior deve bloquear adição/remoção direta de anos acadêmicos/semestres; alterações devem ocorrer pelo número de semestres em `periodos`.
 - Academia `nivel='escola'` e `nivel_escolar='fundamental'` deve conseguir adicionar ano fundamental válido.
 - Academia `nivel='escola'` e `nivel_escolar='fundamental'` deve conseguir deletar ano fundamental válido quando a remoção for segura.
 - Academia fundamental não deve receber erro de nível incompatível ao operar `type='fundamental'`.
@@ -257,11 +284,12 @@ Clientes integrados devem migrar para o fluxo explícito de adicionar ou deletar
 3. Revisar requests e validações compartilhadas para impedir aceitação acidental de payload de substituição.
 4. Corrigir a validação de `type='fundamental'` para aceitar academia `nivel='escola'` com `nivel_escolar='fundamental'` ou `nivel_escolar='misto'`.
 5. Revisar validações de `medio`, `misto` e `superior` para garantir que cada nível só gerencie seu próprio escopo.
-6. Garantir que `POST` não remove anos existentes e `DELETE` não adiciona anos novos.
-7. Reforçar bloqueios de remoção de anos/períodos em uso.
-8. Atualizar documentação removendo `PATCH` e explicando o fluxo seguro `GET`/`POST`/`DELETE`.
-9. Atualizar testes automatizados e fixtures para não dependerem de `PATCH`.
-10. Executar testes e verificação de rotas para confirmar que o contrato final está seguro.
+6. Implementar validação de estado final para impedir curso sem anos acadêmicos/semestres, impedir lacunas na sequência do médio e bloquear adição/remoção direta de anos acadêmicos/semestres de curso superior fora de `periodos`.
+7. Garantir que `POST` não remove anos existentes e `DELETE` não adiciona anos novos.
+8. Reforçar bloqueios de remoção de anos/períodos em uso.
+9. Atualizar documentação removendo `PATCH` e explicando o fluxo seguro `GET`/`POST`/`DELETE`.
+10. Atualizar testes automatizados e fixtures para não dependerem de `PATCH`.
+11. Executar testes e verificação de rotas para confirmar que o contrato final está seguro.
 
 ## Impactos esperados
 
@@ -284,7 +312,9 @@ Atualizar a documentação para refletir que:
 - academias fundamentais com `nivel='escola'` e `nivel_escolar='fundamental'` podem gerenciar `type='fundamental'`;
 - academias mistas podem gerenciar `type='fundamental'` e `type='medio'` nos seus respectivos escopos;
 - academias médio gerenciam apenas `type='medio'` por curso médio;
-- academias superiores gerenciam apenas `type='superior'` por curso superior.
+- academias superiores não adicionam nem removem diretamente anos acadêmicos/semestres por essa rota; alterações de quantidade devem ocorrer pelo número de semestres em `periodos`;
+- cursos nunca podem ficar sem anos acadêmicos/semestres;
+- cursos médios devem manter anos sequenciais crescentes começando em `1_ano_medio`, sem lacunas.
 
 ## Testes recomendados
 
@@ -305,8 +335,10 @@ Atualizar a documentação para refletir que:
 
 ### Médio
 
-- Academia `nivel='escola'`, `nivel_escolar='medio'`, `POST type='medio'` com `curso_id` ativo da academia: deve passar.
-- Academia `nivel='escola'`, `nivel_escolar='medio'`, `DELETE type='medio'` com `curso_id` ativo e ano sem uso: deve passar.
+- Academia `nivel='escola'`, `nivel_escolar='medio'`, `POST type='medio'` com `curso_id` ativo da academia e estado final sequencial desde `1_ano_medio`: deve passar.
+- Academia `nivel='escola'`, `nivel_escolar='medio'`, `DELETE type='medio'` com `curso_id` ativo, ano sem uso e estado final sem lacunas nem lista vazia: deve passar.
+- Academia `nivel='escola'`, `nivel_escolar='medio'`, `POST/DELETE type='medio'` que deixaria [`1_ano_medio`, `3_ano_medio`, `4_ano_medio`] ou qualquer sequência com lacuna: deve falhar.
+- Academia `nivel='escola'`, `nivel_escolar='medio'`, `DELETE type='medio'` removendo todos os anos do curso: deve falhar.
 - Academia `nivel='escola'`, `nivel_escolar='medio'`, `POST/DELETE type='fundamental'`: deve falhar.
 - Academia `nivel='escola'`, `nivel_escolar='medio'`, `POST/DELETE type='superior'`: deve falhar.
 - Academia `nivel='escola'`, `nivel_escolar='medio'`, `POST/DELETE type='medio'` com curso inativo ou de outra academia: deve falhar.
@@ -323,8 +355,9 @@ Atualizar a documentação para refletir que:
 
 ### Superior
 
-- Academia `nivel='superior'`, `nivel_escolar=null`, `POST type='superior'` com curso superior ativo da academia: deve passar conforme regra de períodos.
-- Academia `nivel='superior'`, `nivel_escolar=null`, `DELETE type='superior'` com período/ano sem uso: deve passar.
+- Academia `nivel='superior'`, `nivel_escolar=null`, `POST type='superior'` tentando adicionar ano acadêmico/semestre diretamente: deve falhar e orientar alteração via `periodos`.
+- Academia `nivel='superior'`, `nivel_escolar=null`, `DELETE type='superior'` tentando remover ano acadêmico/semestre diretamente: deve falhar e orientar alteração via `periodos`.
+- Alteração de `periodos` em curso superior deve manter pelo menos um período/semestre derivado e respeitar dependências existentes.
 - Academia `nivel='superior'`, `nivel_escolar=null`, `POST/DELETE type='fundamental'`: deve falhar.
 - Academia `nivel='superior'`, `nivel_escolar=null`, `POST/DELETE type='medio'`: deve falhar.
 - Academia `nivel='superior'`, `nivel_escolar` preenchido indevidamente: deve falhar ou ser tratada conforme validação cadastral existente, sem liberar escopo escolar.
