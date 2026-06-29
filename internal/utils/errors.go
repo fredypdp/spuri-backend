@@ -59,6 +59,32 @@ func RespondWithError(c *gin.Context, statusCode int, userMessage string, err er
 	})
 }
 
+func RespondWithDetailedError(c *gin.Context, statusCode int, userMessage string, err error, details []ValidationDetail) {
+	requestID := getOrCreateRequestID(c)
+	if len(details) == 0 {
+		details = extractValidationDetails(err)
+	}
+
+	log.Printf("⚠️ [RespondWithDetailedError] Status: %d - Message: %s - RequestID: %s",
+		statusCode, userMessage, requestID)
+
+	logError(LoggedError{
+		RequestID: requestID,
+		Path:      c.Request.URL.Path,
+		Method:    c.Request.Method,
+		IP:        c.ClientIP(),
+		UserID:    getUserIDFromContext(c),
+		Error:     err,
+	})
+
+	c.JSON(statusCode, ErrorResponse{
+		Error:     getErrorType(statusCode),
+		Message:   userMessage,
+		RequestID: requestID,
+		Details:   details,
+	})
+}
+
 func RespondWithValidationError(c *gin.Context, err error) {
 	message := SafeErrorMessage(err)
 	log.Printf("📋 [RespondWithValidationError] %s", message)
