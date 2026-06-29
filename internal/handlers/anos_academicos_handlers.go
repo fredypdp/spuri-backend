@@ -49,7 +49,7 @@ func alterarAnosAcademicos(c *gin.Context, op string) {
 	}
 	var req anosAcademicosRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("payload inválido"))
+		responderErroAnosValidacao(c, "payload", "json_invalido", "O corpo da requisição deve ser um JSON válido. Verifique vírgulas, aspas, chaves e tipos dos campos antes de reenviar.")
 		return
 	}
 	switch req.Type {
@@ -64,24 +64,24 @@ func alterarAnosAcademicos(c *gin.Context, op string) {
 			return
 		}
 	default:
-		utils.RespondWithValidationError(c, fmt.Errorf("type deve ser fundamental, medio ou superior"))
+		responderErroAnosValidacao(c, "type", "valor_invalido", fmt.Sprintf("O campo 'type' recebeu '%s', mas só aceita: 'fundamental', 'medio' ou 'superior'. Use 'fundamental' para anos do ensino fundamental, 'medio' para cursos médios e 'superior' para cursos superiores.", req.Type))
 		return
 	}
 }
 
 func alterarAnosFundamental(c *gin.Context, academiaDTO *projections.AcademiaDTO, req anosAcademicosRequest, op string) error {
 	if academiaDTO.Nivel != "escolar" || academiaDTO.NivelEscolar == nil || (*academiaDTO.NivelEscolar != "fundamental" && *academiaDTO.NivelEscolar != "misto") {
-		return fmt.Errorf("academia não pode gerenciar anos do fundamental")
+		return newAnosValidationError("type", "nivel_incompativel", fmt.Sprintf("Esta academia não pode gerenciar anos do ensino fundamental porque o nível cadastrado é nivel='%s' e nivel_escolar='%s'. Somente academias escolares com nivel_escolar 'fundamental' ou 'misto' podem alterar anos fundamentais.", academiaDTO.Nivel, stringPtrValue(academiaDTO.NivelEscolar)))
 	}
 	if len(req.AnosAcademicos) == 0 {
-		return fmt.Errorf("anos_academicos é obrigatório")
+		return newAnosValidationError("anos_academicos", "campo_obrigatorio", "Informe pelo menos um ano no campo 'anos_academicos'. Exemplo válido para fundamental: ['1_ano_fundamental', '2_ano_fundamental'].")
 	}
 	if err := utils.ValidateAnosFundamental(req.AnosAcademicos); err != nil {
-		return err
+		return newAnosValidationError("anos_academicos", "formato_invalido", err.Error())
 	}
 	novos := combinarAnos(academiaDTO.AnosAcademicos, req.AnosAcademicos, op)
 	if len(novos) == 0 {
-		return fmt.Errorf("academias fundamental/misto devem manter ao menos um ano acadêmico ativo")
+		return newAnosValidationError("anos_academicos", "remocao_invalida", "A operação removeria todos os anos acadêmicos. Academias fundamental/misto precisam manter pelo menos um ano ativo.")
 	}
 	removidos := valoresRemovidos(academiaDTO.AnosAcademicos, novos)
 	if len(removidos) > 0 {
@@ -90,7 +90,7 @@ func alterarAnosFundamental(c *gin.Context, academiaDTO *projections.AcademiaDTO
 			return err
 		}
 		if qtd > 0 {
-			return conflictError(fmt.Sprintf("não é possível desativar anos_academicos %v: existem %d estudante(s) ativo(s) vinculados", removidos, qtd))
+			return conflictErrorWithDetail("anos_academicos", "estudantes_ativos_vinculados", fmt.Sprintf("Não é possível desativar os anos %v porque existem %d estudante(s) ativo(s) vinculados a eles. Transfira, conclua ou inative esses estudantes antes de remover os anos.", removidos, qtd))
 		}
 	}
 	repository := getRepository(c)
@@ -112,47 +112,47 @@ func alterarAnosFundamental(c *gin.Context, academiaDTO *projections.AcademiaDTO
 
 func alterarEscopoCurso(c *gin.Context, academiaDTO *projections.AcademiaDTO, req anosAcademicosRequest, op string) error {
 	if req.CursoID == nil {
-		return fmt.Errorf("curso_id é obrigatório para type %s", req.Type)
+		return newAnosValidationError("curso_id", "campo_obrigatorio", fmt.Sprintf("O campo 'curso_id' é obrigatório quando type='%s', porque anos de médio/superior pertencem a um curso específico.", req.Type))
 	}
 	cursoDTO, err := getCursosProjection(c).GetByID(*req.CursoID)
 	if err != nil || cursoDTO == nil {
-		return fmt.Errorf("curso não encontrado")
+		return newAnosValidationError("curso_id", "nao_encontrado", fmt.Sprintf("Nenhum curso foi encontrado com curso_id='%s'. Confira se o ID foi copiado corretamente e se o curso existe.", req.CursoID.String()))
 	}
 	if cursoDTO.CodigoAcademia != academiaDTO.CodigoAcademia {
-		return fmt.Errorf("curso nao pertence a esta academia")
+		return newAnosValidationError("curso_id", "curso_de_outra_academia", fmt.Sprintf("O curso_id='%s' pertence à academia '%s', mas a requisição está autenticada para a academia '%s'. Use um curso da própria academia.", cursoDTO.ID, cursoDTO.CodigoAcademia, academiaDTO.CodigoAcademia))
 	}
 	if cursoDTO.Status != "ativo" {
-		return fmt.Errorf("curso deve estar ativo para gerenciar anos acadêmicos")
+		return newAnosValidationError("curso_id", "curso_inativo", fmt.Sprintf("O curso '%s' está com status '%s'. Só é possível gerenciar anos acadêmicos de cursos ativos.", cursoDTO.Nome, cursoDTO.Status))
 	}
 	if cursoDTO.Type != req.Type {
-		return fmt.Errorf("type do payload não corresponde ao tipo do curso")
+		return newAnosValidationError("type", "tipo_diferente_do_curso", fmt.Sprintf("O payload informou type='%s', mas o curso '%s' é do tipo '%s'. Envie o mesmo tipo do curso.", req.Type, cursoDTO.Nome, cursoDTO.Type))
 	}
 	var novosAnos []string
 	var novosPeriodos *[]string
 	if req.Type == "medio" {
 		if len(req.AnosAcademicos) == 0 {
-			return fmt.Errorf("anos_academicos é obrigatório para curso médio")
+			return newAnosValidationError("anos_academicos", "campo_obrigatorio", "Informe pelo menos um ano em 'anos_academicos' para curso médio. Exemplo: ['1_ano_medio', '2_ano_medio'].")
 		}
 		if err := utils.ValidateAnosCurso("medio", req.AnosAcademicos); err != nil {
-			return err
+			return newAnosValidationError("anos_academicos", "formato_invalido", err.Error())
 		}
 		novosAnos = combinarAnos(cursoDTO.AnosAcademicos, req.AnosAcademicos, op)
 	} else {
 		if len(req.AnosAcademicos) > 0 {
-			return fmt.Errorf("anos_academicos não deve ser enviado para curso superior; é calculado automaticamente a partir de periodos")
+			return newAnosValidationError("anos_academicos", "campo_nao_permitido", "Não envie 'anos_academicos' para curso superior. Para superior, envie apenas 'periodos'; o sistema calcula os anos automaticamente. Exemplo: periodos=8 gera anos como ['1_ano_superior', '2_ano_superior', ...].")
 		}
 		if req.Periodos == nil {
-			return fmt.Errorf("periodos é obrigatório para curso superior")
+			return newAnosValidationError("periodos", "campo_obrigatorio", "O campo 'periodos' é obrigatório para curso superior, pois os anos acadêmicos são calculados pela quantidade de períodos do curso.")
 		}
 		anos, periodos, err := derivarCursoSuperior(*req.Periodos)
 		if err != nil {
-			return err
+			return newAnosValidationError("periodos", "valor_invalido", fmt.Sprintf("%s. Informe um número inteiro positivo de períodos para o curso superior.", err.Error()))
 		}
 		novosAnos = anos
 		novosPeriodos = &periodos
 	}
 	if err := validarEdicaoCursoComEstudantesAtivos(c, cursoDTO, novosAnos, novosPeriodos); err != nil {
-		return conflictError(err.Error())
+		return conflictErrorWithDetail("anos_academicos", "estudantes_ativos_vinculados", fmt.Sprintf("%s. Ajuste primeiro os estudantes ativos vinculados ao curso antes de alterar/remover anos ou períodos.", err.Error()))
 	}
 	repository := getRepository(c)
 	agg, err := repository.Load(cursoDTO.ID, "Curso")
@@ -184,7 +184,7 @@ func academiaAutenticada(c *gin.Context) (*projections.AcademiaDTO, bool) {
 	if userType == "admin" {
 		codigoAcademia := c.Query("codigo_academia")
 		if codigoAcademia == "" {
-			utils.RespondWithValidationError(c, fmt.Errorf("codigo_academia é obrigatório para admin"))
+			responderErroAnosValidacao(c, "codigo_academia", "campo_obrigatorio", "Administradores precisam informar o parâmetro de consulta 'codigo_academia' para o sistema saber de qual academia deve listar/alterar os anos acadêmicos. Exemplo: ?codigo_academia=ACA001")
 			return nil, false
 		}
 		dto, err = getAcademiaProjection(c).GetByCodigo(codigoAcademia)
@@ -226,10 +226,42 @@ type anosConflict string
 
 func (e anosConflict) Error() string { return string(e) }
 func conflictError(msg string) error { return anosConflict(msg) }
+
+type anosValidationError struct{ detail utils.ValidationDetail }
+
+func (e anosValidationError) Error() string { return e.detail.Message }
+
+type anosConflictDetail struct{ detail utils.ValidationDetail }
+
+func (e anosConflictDetail) Error() string { return e.detail.Message }
+func newAnosValidationError(field, code, message string) error {
+	return anosValidationError{detail: utils.ValidationDetail{Field: field, Code: code, Message: message}}
+}
+func responderErroAnosValidacao(c *gin.Context, field, code, message string) {
+	responderErroAnos(c, newAnosValidationError(field, code, message))
+}
+func conflictErrorWithDetail(field, code, message string) error {
+	return anosConflictDetail{detail: utils.ValidationDetail{Field: field, Code: code, Message: message}}
+}
 func responderErroAnos(c *gin.Context, err error) {
-	if _, ok := err.(anosConflict); ok {
-		utils.RespondWithConflictError(c, err.Error())
+	if validationErr, ok := err.(anosValidationError); ok {
+		utils.RespondWithDetailedError(c, http.StatusBadRequest, validationErr.Error(), err, []utils.ValidationDetail{validationErr.detail})
+		return
+	}
+	if conflictDetail, ok := err.(anosConflictDetail); ok {
+		utils.RespondWithDetailedError(c, http.StatusConflict, conflictDetail.Error(), err, []utils.ValidationDetail{conflictDetail.detail})
+		return
+	}
+	if conflictErr, ok := err.(anosConflict); ok {
+		utils.RespondWithConflictError(c, conflictErr.Error())
 	} else {
 		utils.RespondWithValidationError(c, err)
 	}
+}
+
+func stringPtrValue(value *string) string {
+	if value == nil {
+		return "não informado"
+	}
+	return *value
 }
