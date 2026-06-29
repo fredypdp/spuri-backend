@@ -1314,7 +1314,7 @@ Adiciona/habilita novos escopos acadêmicos sem remover os escopos existentes. N
 | `type` | Onde altera | Campos aceitos | Campos obrigatórios | Resultado |
 | --- | --- | --- | --- | --- |
 | `fundamental` | Academia autenticada (`projection_academias.anos_academicos`) | `type`, `anos_academicos` | `type`, `anos_academicos` | Une os anos enviados com os anos fundamentais já ativos. |
-| `medio` | Curso médio da academia (`projection_cursos.anos_academicos`) | `type`, `curso_id`, `anos_academicos` | `type`, `curso_id`, `anos_academicos` | Une os anos enviados com os anos médios já ativos no curso, preservando sequência contínua iniciada em `1_ano_medio`. |
+| `medio` | Curso médio da academia (`projection_cursos.anos_academicos`) | `type`, `curso_id`, `anos_academicos` | `type`, `curso_id`, `anos_academicos` | Une os anos enviados com os anos médios já ativos no curso, preservando ordem sequencial crescente contínua iniciada em `1_ano_medio`. |
 | `superior` | Não altera por esta rota | nenhum fluxo de escrita permitido | n/a | Retorna erro estruturado. Cursos superiores não aceitam adição direta de anos/períodos por `/academia/anos-academicos`. |
 
 Payloads com `codigo_academia`, campos desconhecidos ou campos de substituição em massa como `substituir`, `replace`, `patch`, `set` e `update` são rejeitados.
@@ -1425,7 +1425,7 @@ Desabilita/remover logicamente escopos acadêmicos da oferta futura, preservando
 - O `type` do payload precisa corresponder ao `type` do curso informado.
 - `fundamental` só é permitido para academias escolares com `nivel_escolar` igual a `fundamental` ou `misto`.
 - `fundamental` aceita somente códigos canônicos `[1-9]_ano_fundamental`.
-- `medio` aceita somente anos médios compatíveis com o curso.
+- `medio` aceita somente anos médios compatíveis com o curso e mantém a lista final em ordem sequencial crescente contínua desde `1_ano_medio`.
 - `superior` não possui fluxo de escrita por `/academia/anos-academicos`; tentativas de adicionar/remover anos acadêmicos, períodos ou semestres retornam erro estruturado.
 - Academias fundamental/misto devem manter ao menos um ano acadêmico ativo após a operação.
 - Reduções em `DELETE` são bloqueadas com `409 Conflict` quando existem estudantes ativos no ano removido (`status_escolar_fundamental` ou `status_escolar_medio` em andamento conforme o escopo operacional).
@@ -2656,7 +2656,7 @@ Cria um novo curso para a academia. O tipo efetivo do curso é inferido pelo bac
 
 Para cursos superiores, `periodos` é um **número inteiro positivo** que representa o total de semestres. O backend persiste internamente os semestres sequenciais (`1_semestre` até `N_semestre`) e calcula `anos_academicos` automaticamente com `ceil(periodos / 2)`. Ex.: `periodos = 3` gera `periodos = ["1_semestre", "2_semestre", "3_semestre"]` e `anos_academicos = ["1_ano_superior", "2_ano_superior"]`.
 
-Cursos superiores não aceitam `anos_academicos` no payload; cursos médios não aceitam `periodos` numérico.
+Cursos superiores não aceitam `anos_academicos` no payload; cursos médios não aceitam `periodos` numérico. Para curso médio, `anos_academicos` deve ser uma sequência contínua e crescente iniciada em `1_ano_medio` (por exemplo, `["1_ano_medio", "2_ano_medio"]`); listas que comecem em `2_ano_medio`, pulem anos ou venham fora de ordem são rejeitadas.
 
 **Response 201:**
 
@@ -2674,7 +2674,7 @@ Cursos superiores não aceitam `anos_academicos` no payload; cursos médios não
 
 **Erros:**
 
-- `400` — nome ausente, `type` incompatível com a academia ou anos_academicos inválidos para curso médio
+- `400` — nome ausente, `type` incompatível com a academia ou anos_academicos inválidos, não sequenciais ou fora de ordem para curso médio
 - `400` — curso superior sem `periodos`, com `periodos <= 0`, decimal, string, array, nulo ou com `anos_academicos` enviado
 - `400` — curso médio com `periodos` numérico enviado
 - `403` — academia inativa não pode criar cursos

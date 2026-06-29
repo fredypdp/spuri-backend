@@ -256,8 +256,7 @@ func validarSequenciaAnosMedio(anos []string) error {
 	if len(anos) == 0 {
 		return fmt.Errorf("curso médio deve ter pelo menos um ano acadêmico")
 	}
-	numeros := make([]int, 0, len(anos))
-	for _, ano := range anos {
+	for i, ano := range anos {
 		numero, sufixo, ok := strings.Cut(ano, "_")
 		if !ok || sufixo != "ano_medio" {
 			return fmt.Errorf("ano '%s' inválido para curso médio", ano)
@@ -266,13 +265,9 @@ func validarSequenciaAnosMedio(anos []string) error {
 		if err != nil || n <= 0 {
 			return fmt.Errorf("ano '%s' inválido para curso médio", ano)
 		}
-		numeros = append(numeros, n)
-	}
-	sort.Ints(numeros)
-	for i, n := range numeros {
 		esperado := i + 1
 		if n != esperado {
-			return fmt.Errorf("anos do ensino médio devem ser uma sequência contínua começando em 1_ano_medio; esperado %d_ano_medio na posição %d", esperado, i+1)
+			return fmt.Errorf("anos do ensino médio devem estar em ordem sequencial crescente começando em 1_ano_medio; esperado %d_ano_medio na posição %d", esperado, i+1)
 		}
 	}
 	return nil

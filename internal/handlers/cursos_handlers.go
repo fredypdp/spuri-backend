@@ -95,6 +95,11 @@ func prepararDadosCursoPorTipo(tipoCurso string, req cursoPayload, criacao bool)
 	if criacao && !req.AnosInformado {
 		return nil, nil, fmt.Errorf("anos_academicos é obrigatório")
 	}
+	if req.AnosInformado {
+		if err := validarSequenciaAnosMedio(req.AnosAcademicos); err != nil {
+			return nil, nil, err
+		}
+	}
 	return req.AnosAcademicos, nil, nil
 }
 
