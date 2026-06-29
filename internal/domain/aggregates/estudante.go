@@ -377,6 +377,53 @@ func (e *Estudante) CriarComVinculo(
 	codigoAcademia string,
 	documentosOpt ...map[string]DocumentoMatricula,
 ) error {
+	return e.criarComVinculo(nome, codigoEstudante, senhaHash, email, telefone, telefoneResponsavel, bilhete, bilheteResp, genero, dataNascimento, anoEscolar, anoEscolarMedio, anoSuperior, cursoMedioID, cursoSuperiorID, academiaID, codigoAcademia, true, documentosOpt...)
+}
+
+func (e *Estudante) CriarComVinculoComDocumentosOpcionais(
+	nome string,
+	codigoEstudante string,
+	senhaHash string,
+	email *string,
+	telefone *string,
+	telefoneResponsavel *string,
+	bilhete *string,
+	bilheteResp *string,
+	genero string,
+	dataNascimento time.Time,
+	anoEscolar *string,
+	anoEscolarMedio *string,
+	anoSuperior *string,
+	cursoMedioID *uuid.UUID,
+	cursoSuperiorID *uuid.UUID,
+	academiaID *uuid.UUID,
+	codigoAcademia string,
+	documentosOpt ...map[string]DocumentoMatricula,
+) error {
+	return e.criarComVinculo(nome, codigoEstudante, senhaHash, email, telefone, telefoneResponsavel, bilhete, bilheteResp, genero, dataNascimento, anoEscolar, anoEscolarMedio, anoSuperior, cursoMedioID, cursoSuperiorID, academiaID, codigoAcademia, false, documentosOpt...)
+}
+
+func (e *Estudante) criarComVinculo(
+	nome string,
+	codigoEstudante string,
+	senhaHash string,
+	email *string,
+	telefone *string,
+	telefoneResponsavel *string,
+	bilhete *string,
+	bilheteResp *string,
+	genero string,
+	dataNascimento time.Time,
+	anoEscolar *string,
+	anoEscolarMedio *string,
+	anoSuperior *string,
+	cursoMedioID *uuid.UUID,
+	cursoSuperiorID *uuid.UUID,
+	academiaID *uuid.UUID,
+	codigoAcademia string,
+	exigirDocumentosEscolares bool,
+	documentosOpt ...map[string]DocumentoMatricula,
+) error {
 	if nome == "" || codigoEstudante == "" || senhaHash == "" || codigoAcademia == "" {
 		return fmt.Errorf("campos obrigatórios vazios")
 	}
@@ -426,8 +473,10 @@ func (e *Estudante) CriarComVinculo(
 	if len(documentosOpt) > 0 && documentosOpt[0] != nil {
 		documentos = documentosOpt[0]
 	}
-	if err := validarDocumentosEscolaresAggregate(bilhete, bilheteResp, anoEscolar, anoEscolarMedio, documentos); err != nil {
-		return err
+	if exigirDocumentosEscolares {
+		if err := validarDocumentosEscolaresAggregate(bilhete, bilheteResp, anoEscolar, anoEscolarMedio, documentos); err != nil {
+			return err
+		}
 	}
 
 	statusFund := "em_andamento"

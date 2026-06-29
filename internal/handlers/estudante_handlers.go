@@ -49,7 +49,7 @@ func RegisterEstudantePorAcademia(c *gin.Context) {
 		registerEstudantePorAcademiaMultipart(c)
 		return
 	}
-	utils.RespondWithValidationError(c, fmt.Errorf("cadastro direto de estudante agora exige multipart/form-data com documentos obrigatórios"))
+	utils.RespondWithValidationError(c, fmt.Errorf("cadastro direto de estudante exige multipart/form-data; documentos são opcionais"))
 }
 
 func registerEstudantePorAcademiaMultipart(c *gin.Context) {
@@ -128,38 +128,9 @@ func registerEstudantePorAcademiaMultipart(c *gin.Context) {
 			files[field] = pdf
 		}
 	}
-	requiredCertField, err := certificateFieldForMatricula(c, academia, firstNonEmpty(req.AnoEscolar, req.AnoEscolarMedio, req.AnoSuperior))
-	if err != nil {
-		utils.RespondWithValidationError(c, err)
+	if (req.AnoEscolar != "" || req.AnoEscolarMedio != "") && req.BilheteResponsavel == "" {
+		utils.RespondWithValidationError(c, fmt.Errorf("informe o bilhete de identidade do responsável; este dado é obrigatório para estudantes escolares"))
 		return
-	}
-	if req.BilheteResponsavel == "" {
-		utils.RespondWithValidationError(c, fmt.Errorf("informe o bilhete de identidade do responsável; este documento é obrigatório para todas as academias"))
-		return
-	}
-	if _, ok := files["bi_responsavel"]; !ok {
-		utils.RespondWithValidationError(c, fmt.Errorf("envie o PDF do bilhete de identidade do responsável; este documento é obrigatório para concluir o cadastro"))
-		return
-	}
-	if req.BilheteIdentidade != "" {
-		if _, ok := files["bi_estudante"]; !ok {
-			utils.RespondWithValidationError(c, fmt.Errorf("envie o PDF do bilhete de identidade do estudante quando o bilhete de identidade do estudante for informado"))
-			return
-		}
-	} else if _, ok := files["cedula_estudante"]; !ok {
-		utils.RespondWithValidationError(c, fmt.Errorf("envie a cédula do estudante quando o bilhete de identidade do estudante não for informado"))
-		return
-	}
-	if requiredCertField == "" {
-		if _, ok := files["declaracao"]; !ok {
-			utils.RespondWithValidationError(c, fmt.Errorf("envie a declaração escolar quando não houver certificado aplicável para o ano académico informado"))
-			return
-		}
-	} else if _, ok := files[requiredCertField]; !ok {
-		if _, hasDeclaration := files["declaracao"]; !hasDeclaration {
-			utils.RespondWithValidationError(c, fmt.Errorf("envie o %s ou, caso ainda não o tenha, envie a declaração escolar", documentLabel(requiredCertField)))
-			return
-		}
 	}
 	if err := validateBIResponsavelNaoConflitaComEscolar(c, &req.BilheteResponsavel, nil); err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -256,7 +227,7 @@ func registerEstudantePorAcademiaMultipart(c *gin.Context) {
 	}
 
 	estudante := aggregates.NewEstudante()
-	if err := estudante.CriarComVinculo(req.Nome, codigoEstudante, string(hashedPassword), emailPtr, telefonePtr, telefoneRespPtr, bilhetePtr, bilheteRespPtr, req.Genero, req.DataNascimento, anoEscolarPtr, anoEscolarMedioPtr, anoSuperiorPtr, cursoMedioUUID, cursoSuperiorUUID, &academiaID, academia.CodigoAcademia, documentos); err != nil {
+	if err := estudante.CriarComVinculoComDocumentosOpcionais(req.Nome, codigoEstudante, string(hashedPassword), emailPtr, telefonePtr, telefoneRespPtr, bilhetePtr, bilheteRespPtr, req.Genero, req.DataNascimento, anoEscolarPtr, anoEscolarMedioPtr, anoSuperiorPtr, cursoMedioUUID, cursoSuperiorUUID, &academiaID, academia.CodigoAcademia, documentos); err != nil {
 		_ = provider.Delete(dir)
 		utils.RespondWithValidationError(c, err)
 		return

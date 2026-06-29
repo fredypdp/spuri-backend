@@ -25,19 +25,21 @@ Este documento resume, em linguagem direta para o cliente, as principais mudanç
 - Quando uma falta é vinculada a um sumário, o sistema guarda também o título da aula como histórico, preservando a informação mesmo se o sumário for editado depois.
 - Foram adicionadas validações para impedir vínculo de faltas com sumários de outra academia ou incompatíveis com o contexto acadêmico informado.
 
-## 3. Cadastro direto de estudante pela academia com documentação completa
+## 3. Cadastro direto de estudante pela academia com documentação opcional
 
-- O cadastro direto de estudante pela academia foi alinhado ao fluxo de solicitação de matrícula.
-- O cadastro direto passou a exigir envio por `multipart/form-data` quando houver documentos obrigatórios.
-- Foram incluídas validações para documentos como BI do estudante, BI do responsável, cédula do estudante, declaração e certificados acadêmicos aplicáveis.
-- Os documentos enviados são armazenados e associados ao cadastro do estudante.
-- A criação direta do estudante só é concluída depois que as informações e documentos obrigatórios forem validados.
+- O cadastro direto de estudante pela academia continua usando `multipart/form-data`, mas os documentos deixaram de ser obrigatórios nesse fluxo.
+- A academia pode criar o estudante sem anexar `bi_estudante`, `bi_responsavel`, `cedula_estudante`, `declaracao` ou certificados acadêmicos.
+- Quando documentos forem enviados, o sistema continua validando se são PDFs válidos, dentro do limite de tamanho e em campos reconhecidos.
+- Os documentos enviados continuam sendo armazenados e associados ao cadastro do estudante.
+- As regras cadastrais e acadêmicas continuam obrigatórias, incluindo dados pessoais, vínculo acadêmico, telefones, cursos/anos e regras textuais de BI quando aplicáveis.
+- A solicitação pública de matrícula e a aprovação de solicitações mantêm suas próprias exigências documentais.
 
 ## 3.1. BI do responsável obrigatório para estudante escolar
 
 - Estudantes escolares/fundamental/médio agora precisam informar o `bilhete_identidade_responsavel` nos fluxos de criação e aprovação.
-- O PDF do BI do responsável também é obrigatório para estudantes escolares.
-- Quando o estudante possui BI próprio, o PDF do BI do estudante deve ser enviado; quando não possui, deve ser enviada a cédula do estudante conforme a regra aplicável.
+- Na solicitação pública de matrícula e na aprovação, o PDF do BI do responsável também é obrigatório para estudantes escolares.
+- Na solicitação pública de matrícula e na aprovação, quando o estudante possui BI próprio, o PDF do BI do estudante deve ser enviado; quando não possui, deve ser enviada a cédula do estudante conforme a regra aplicável.
+- No cadastro direto feito pela academia, esses PDFs são opcionais, embora o BI textual do responsável continue obrigatório para estudantes escolares.
 - O BI do estudante não pode ser igual ao BI do responsável do mesmo estudante.
 - O sistema impede conflitos entre o BI do responsável e o BI principal de outro estudante escolar/fundamental/médio.
 - A aprovação de solicitação de matrícula revalida essas regras antes de criar o estudante.

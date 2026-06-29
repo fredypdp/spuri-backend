@@ -1093,16 +1093,16 @@ Atualiza os dados cadastrais da academia autenticada.
 
 ### Regras automáticas de documentos de matrícula
 
-A obrigatoriedade dos documentos não é mais configurada por academia. O backend aplica automaticamente as mesmas regras abaixo no `POST /solicitacao-matricula` e no cadastro direto `POST /academia/estudante/register`:
+A obrigatoriedade dos documentos não é mais configurada por academia. O backend aplica automaticamente as regras abaixo no `POST /solicitacao-matricula` e na aprovação da solicitação. No cadastro direto `POST /academia/estudante/register`, os anexos são opcionais e somente os PDFs enviados são validados tecnicamente:
 
-- Para estudantes escolares/fundamental/médio, `bi_responsavel` e `bilhete_identidade_responsavel` são obrigatórios em todos os fluxos de criação e aprovação.
+- Para estudantes escolares/fundamental/médio, `bi_responsavel` e `bilhete_identidade_responsavel` são obrigatórios na solicitação pública e na aprovação; no cadastro direto, apenas o `bilhete_identidade_responsavel` textual permanece obrigatório.
 - `bilhete_identidade` e `bilhete_identidade_responsavel`, quando ambos informados para o mesmo estudante, não podem ser iguais.
-- Para estudantes escolares/fundamental/médio, `bi_estudante` é obrigatório quando `bilhete_identidade` for informado; `cedula_estudante` é obrigatória quando o estudante não tiver BI próprio.
+- Na solicitação pública, `bi_estudante` é obrigatório quando `bilhete_identidade` for informado; `cedula_estudante` é obrigatória quando o estudante não tiver BI próprio.
 - Para estudantes escolares/fundamental/médio, o BI do responsável não pode coincidir com o BI principal de outro estudante escolar/fundamental/médio; ele pode repetir como BI de responsável de outros estudantes.
 - `certificado_6_ano_fundamental` é o certificado aplicável somente para `7_ano_fundamental`, `8_ano_fundamental` e `9_ano_fundamental`.
 - `certificado_9_ano_fundamental` é o certificado aplicável somente para anos do ensino médio.
 - `certificado_ensino_medio` é o certificado aplicável somente para anos do ensino superior.
-- `declaracao` é obrigatória quando o certificado aplicável não for enviado ou quando não existir certificado aplicável ao ano académico informado.
+- Na solicitação pública, `declaracao` é obrigatória quando o certificado aplicável não for enviado ou quando não existir certificado aplicável ao ano académico informado.
 
 
 ---
@@ -1957,7 +1957,7 @@ Para implementar o cliente de forma segura:
 
 ### POST /academia/estudante/register
 
-Cadastra um novo estudante vinculado à academia autenticada. A partir da versão 2.0.4, o cadastro direto usa `multipart/form-data` e exige a mesma matriz documental do `POST /solicitacao-matricula`; JSON puro não é mais aceito para evitar cadastro sem documentação obrigatória. Para estudantes escolares/fundamental/médio, a criação valida também que o BI do responsável não coincide com o BI principal de outro estudante escolar.
+Cadastra um novo estudante vinculado à academia autenticada. O cadastro direto usa `multipart/form-data`, mas os anexos documentais são opcionais neste fluxo: a academia pode criar o estudante sem PDFs e anexá-los apenas quando estiverem disponíveis. JSON puro não é aceito. Para estudantes escolares/fundamental/médio, a criação mantém as validações cadastrais, incluindo BI textual do responsável e a regra de que esse BI não pode coincidir com o BI principal de outro estudante escolar.
 
 **Proteção**: autenticado + academia ativa
 
@@ -1985,17 +1985,32 @@ Cadastra um novo estudante vinculado à academia autenticada. A partir da versã
 
 | Campo de arquivo | Regra |
 | --- | --- |
-| `bi_responsavel` | Obrigatório. |
-| `bi_estudante` | Obrigatório quando `bilhete_identidade` do estudante for informado. |
-| `cedula_estudante` | Obrigatória quando `bilhete_identidade` do estudante não for informado. |
-| `declaracao` | Obrigatória quando o certificado aplicável não for enviado ou quando não existir certificado aplicável. |
-| `certificado_6_ano_fundamental` | Aplicável a `7_ano_fundamental`, `8_ano_fundamental` e `9_ano_fundamental`; pode ser substituído por `declaracao`. |
-| `certificado_9_ano_fundamental` | Aplicável ao ensino médio; pode ser substituído por `declaracao`. |
-| `certificado_ensino_medio` | Aplicável ao ensino superior; pode ser substituído por `declaracao`. |
+| `bi_responsavel` | Opcional; quando enviado, deve ser PDF válido. |
+| `bi_estudante` | Opcional; pode ser enviado quando `bilhete_identidade` do estudante for informado. |
+| `cedula_estudante` | Opcional; pode ser enviada quando o estudante ainda não tiver BI próprio. |
+| `declaracao` | Opcional; pode ser enviada como documento escolar provisório. |
+| `certificado_6_ano_fundamental` | Opcional; aplicável a `7_ano_fundamental`, `8_ano_fundamental` e `9_ano_fundamental`. |
+| `certificado_9_ano_fundamental` | Opcional; aplicável ao ensino médio. |
+| `certificado_ensino_medio` | Opcional; aplicável ao ensino superior. |
 
-Todos os ficheiros devem ter `Content-Type: application/pdf`, extensão `.pdf`, assinatura `%PDF` e tamanho máximo de 5MB. Os documentos são armazenados em `{codigo_academia}/estudantes/{codigo_estudante}/documentos/` e gravados no evento `EstudanteCriadoComVinculo` e na projeção do estudante como `documentos.<campo>.path`, `documentos.<campo>.file_url` e `documentos.<campo>.download_url`. Se a criação falhar após upload parcial, o backend remove o diretório definitivo do estudante para evitar ficheiros órfãos.
+Quando enviados, todos os ficheiros devem ter `Content-Type: application/pdf`, extensão `.pdf`, assinatura `%PDF` e tamanho máximo de 5MB. Os documentos são armazenados em `{codigo_academia}/estudantes/{codigo_estudante}/documentos/` e gravados no evento `EstudanteCriadoComVinculo` e na projeção do estudante como `documentos.<campo>.path`, `documentos.<campo>.file_url` e `documentos.<campo>.download_url`. Se a criação falhar após upload parcial, o backend remove o diretório definitivo do estudante para evitar ficheiros órfãos.
 
-**Exemplo cURL:**
+**Exemplo cURL sem documentos:**
+
+```bash
+curl -X POST https://api.exemplo.ao/academia/estudante/register \
+  -H "Authorization: Bearer <jwt_academia>" \
+  -F "nome=João Silva" \
+  -F "genero=masculino" \
+  -F "data_nascimento=2010-05-20" \
+  -F "telefone=923000000" \
+  -F "telefone_responsavel=924000000" \
+  -F "bilhete_identidade=001234567LA089" \
+  -F "bilhete_identidade_responsavel=009876543LA089" \
+  -F "ano_escolar_fundamental=7_ano_fundamental"
+```
+
+**Exemplo cURL com documentos opcionais:**
 
 ```bash
 curl -X POST https://api.exemplo.ao/academia/estudante/register \
@@ -2009,8 +2024,7 @@ curl -X POST https://api.exemplo.ao/academia/estudante/register \
   -F "bilhete_identidade_responsavel=009876543LA089" \
   -F "ano_escolar_fundamental=7_ano_fundamental" \
   -F "bi_estudante=@./bi_estudante.pdf;type=application/pdf" \
-  -F "bi_responsavel=@./bi_responsavel.pdf;type=application/pdf" \
-  -F "certificado_6_ano_fundamental=@./certificado_6.pdf;type=application/pdf"
+  -F "declaracao=@./declaracao.pdf;type=application/pdf"
 ```
 
 **Status na criação:** o cadastro cria o vínculo ativo com a academia. Por padrão, `status = "ativo"`, `status_escolar_fundamental = "em_andamento"`, `status_escolar_medio = "inativo"` e `status_superior = "inativo"`. Depois do cadastro, alterações de status acontecem somente por endpoints de acontecimentos.
@@ -2040,7 +2054,6 @@ curl -X POST https://api.exemplo.ao/academia/estudante/register \
 - `400` — `Content-Type` diferente de `multipart/form-data`
 - `400` — genero inválido, data_nascimento inválida ou no futuro
 - `400` — ano académico em formato incorreto ou incompatível com a academia/curso
-- `400` — `bi_responsavel` ausente, `cedula_estudante` ausente sem `bi_estudante`, ou certificado/declaração ausente
 - `400` — ficheiro não PDF, sem assinatura `%PDF`, com extensão diferente de `.pdf` ou acima de 5MB
 - `400` — BI do estudante igual ao BI do responsável, ou BI do estudante já cadastrado
 
