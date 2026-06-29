@@ -129,7 +129,6 @@ func initProjections() error {
 	// ── Tier 3 — dependem de estudantes e materias ───────────────────────
 	projManager.RegisterProjection("notas", projections.NewNotasProjection(dbClient))
 	projManager.RegisterProjection("faltas", projections.NewFaltasProjection(dbClient))
-	projManager.RegisterProjection("sumarios", projections.NewSumariosProjection(dbClient))
 
 	// ── Tier 4 — avaliação final ──────────────────────────────────────────
 	projManager.RegisterProjection("avaliacao_final", projections.NewAvaliacaoFinalProjection(dbClient))
@@ -327,8 +326,6 @@ func setupRouter() *gin.Engine {
 		academiaRead.GET("/categorias-nota", handlers.ListarCategoriasNota)
 		academiaRead.GET("/avaliacao-final/regras", handlers.ListarRegrasAvaliacaoFinal)
 		academiaRead.GET("/solicitacoes-matricula", handlers.ListarSolicitacoesMatriculaAcademia)
-		academiaRead.GET("/sumarios", handlers.ListarSumarios)
-		academiaRead.GET("/sumarios/:id", handlers.GetSumario)
 		academiaRead.GET("/solicitacao-matricula/:codigo", handlers.GetSolicitacaoMatriculaAcademia)
 	}
 
@@ -353,9 +350,6 @@ func setupRouter() *gin.Engine {
 		academia.POST("/faltas-aluno", handlers.RegistrarFaltas)
 		academia.PUT("/atualizar-falta", handlers.AtualizarFalta)
 		academia.DELETE("/falta/:id", handlers.DeletarFalta)
-		academia.POST("/sumarios", handlers.CriarSumario)
-		academia.PUT("/sumarios/:id", handlers.AtualizarSumario)
-		academia.DELETE("/sumarios/:id", handlers.DeletarSumario)
 		// Avaliação final é acionada automaticamente pelo registro de notas
 		academia.POST("/avaliacao-final/regras", handlers.CriarRegraAvaliacaoFinal)
 		academia.PUT("/avaliacao-final/regras/:id", handlers.EditarRegraAvaliacaoFinal)

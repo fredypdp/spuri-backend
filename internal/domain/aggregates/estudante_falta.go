@@ -25,8 +25,6 @@ type FaltasRegistradasEvent struct {
 	MateriaDisciplinarID uuid.UUID
 	Quantidade           int
 	Observacao           *string
-	SumarioID            *uuid.UUID
-	SumarioTitulo        *string
 	RegisteredAt         time.Time
 }
 
@@ -45,8 +43,6 @@ type FaltaAtualizadaEvent struct {
 	MateriaDisciplinarID *uuid.UUID
 	Quantidade           *int
 	Observacao           *string
-	SumarioID            *uuid.UUID
-	SumarioTitulo        *string
 	AtualizadoPor        uuid.UUID
 	UpdatedAt            time.Time
 }
@@ -95,8 +91,6 @@ func (e *Estudante) RegistrarFalta(
 	materiaDisciplinarID uuid.UUID,
 	quantidade int,
 	observacao *string,
-	sumarioID *uuid.UUID,
-	sumarioTitulo *string,
 ) error {
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
@@ -122,8 +116,6 @@ func (e *Estudante) RegistrarFalta(
 		MateriaDisciplinarID: materiaDisciplinarID,
 		Quantidade:           quantidade,
 		Observacao:           observacao,
-		SumarioID:            sumarioID,
-		SumarioTitulo:        sumarioTitulo,
 		RegisteredAt:         time.Now(),
 	}
 
@@ -146,14 +138,12 @@ func (e *Estudante) AtualizarFalta(
 	materiaDisciplinarID *uuid.UUID,
 	quantidade *int,
 	observacao *string,
-	sumarioID *uuid.UUID,
-	sumarioTitulo *string,
 	atualizadoPor uuid.UUID,
 ) error {
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
 	}
-	if data == nil && materiaDisciplinarID == nil && quantidade == nil && observacao == nil && sumarioID == nil {
+	if data == nil && materiaDisciplinarID == nil && quantidade == nil && observacao == nil {
 		return fmt.Errorf("ao menos um campo deve ser fornecido para atualização")
 	}
 	if observacao == nil || strings.TrimSpace(*observacao) == "" {
@@ -172,8 +162,6 @@ func (e *Estudante) AtualizarFalta(
 		MateriaDisciplinarID: materiaDisciplinarID,
 		Quantidade:           quantidade,
 		Observacao:           observacao,
-		SumarioID:            sumarioID,
-		SumarioTitulo:        sumarioTitulo,
 		AtualizadoPor:        atualizadoPor,
 		UpdatedAt:            time.Now(),
 	}
