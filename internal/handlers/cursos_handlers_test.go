@@ -67,6 +67,22 @@ func TestPrepararDadosCursoMedioRejeitaPeriodosNumerico(t *testing.T) {
 	}
 }
 
+func TestPrepararDadosCursoMedioRejeitaAnosForaDeSequencia(t *testing.T) {
+	for _, anos := range [][]string{
+		{"2_ano_medio", "3_ano_medio"},
+		{"1_ano_medio", "3_ano_medio"},
+		{"2_ano_medio", "1_ano_medio"},
+	} {
+		_, _, err := prepararDadosCursoPorTipo("medio", cursoPayload{
+			AnosInformado:  true,
+			AnosAcademicos: anos,
+		}, true)
+		if err == nil {
+			t.Fatalf("esperava erro para anos_academicos %v", anos)
+		}
+	}
+}
+
 func TestRejeitarCamposAcademicosEmAtualizacaoCurso(t *testing.T) {
 	for _, payload := range []string{
 		`{"anos_academicos":["1_ano_medio"]}`,
@@ -94,6 +110,7 @@ func TestValidarSequenciaAnosMedioExigePrefixoContinuo(t *testing.T) {
 	for _, anos := range [][]string{
 		{"2_ano_medio", "3_ano_medio"},
 		{"1_ano_medio", "3_ano_medio"},
+		{"2_ano_medio", "1_ano_medio"},
 		{},
 	} {
 		if err := validarSequenciaAnosMedio(anos); err == nil {
