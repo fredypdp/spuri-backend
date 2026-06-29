@@ -1285,14 +1285,14 @@ As academias podem declarar a finalização de um ano letivo por tipo. Essa aç�
 
 ## Atualização 2.0.7 — Gestão segura de anos acadêmicos por academias
 
-Academias agora podem consultar, adicionar, substituir e desabilitar escopos acadêmicos habilitados via `/academia/anos-academicos`. O contrato mantém a separação entre **ano acadêmico/período** e **ano letivo/calendário**.
+Academias agora podem consultar, adicionar e desabilitar escopos acadêmicos habilitados via `/academia/anos-academicos`, sem substituição em massa. O contrato mantém a separação entre **ano acadêmico/período** e **ano letivo/calendário**.
 
 - **Fundamental/misto**: a lista ativa continua na academia (`projection_academias.anos_academicos`) e aceita somente códigos canônicos `[1-9]_ano_fundamental`.
 - **Médio**: a lista ativa pertence ao curso médio (`projection_cursos.anos_academicos`) e requer `curso_id`, evitando colisão com anos do fundamental em escolas mistas.
 - **Superior**: a academia informa somente `periodos` numérico no curso superior; semestres (`[n]_semestre`) e anos superiores (`[n]_ano_superior`) seguem derivados pelo backend.
 - **Segurança**: cada alteração valida propriedade da academia, compatibilidade entre `type` e nível/curso, e bloqueia reduções que afetariam estudantes ativos no ano ou semestre removido.
 - **Preservação histórica**: remoções são lógicas/prospectivas; eventos, ledger, histórico acadêmico, turmas, matérias, notas, faltas, avaliações finais já registrados não são apagados nem reprocessados.
-- **Contratos explícitos na API**: a documentação da API detalha `GET`, `POST`, `PATCH` e `DELETE /academia/anos-academicos` com funcionamento, permissões, payloads por `type`, respostas de sucesso e erros esperados.
+- **Contratos explícitos na API**: a documentação da API detalha `GET`, `POST` e `DELETE /academia/anos-academicos` com funcionamento, permissões, payloads por `type`, respostas de sucesso e erros esperados.
 - **Leitura por admin**: admins usam `GET /academia/anos-academicos?codigo_academia=...`; as rotas de escrita permanecem exclusivas para academias autenticadas e ativas.
 - **Erros acionáveis**: as respostas de erro dessas rotas usam o envelope padrão com `details[]` contendo `field`, `code` e `message`, inclusive em conflitos `409` causados por estudantes ativos, para indicar exatamente o campo problemático, o motivo e a correção esperada.
 

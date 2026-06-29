@@ -1305,7 +1305,7 @@ Retorna uma visão unificada dos escopos acadêmicos habilitados da academia: an
 
 ### POST /academia/anos-academicos
 
-Adiciona/habilita novos escopos acadêmicos sem remover os escopos existentes. Use esta rota para expandir a oferta da academia ou do curso.
+Adiciona/habilita novos escopos acadêmicos sem remover os escopos existentes. Não existe mais operação de substituição em massa para anos acadêmicos.
 
 **Proteção**: autenticado + academia ativa. Admins não escrevem por esta rota.
 
@@ -1314,8 +1314,10 @@ Adiciona/habilita novos escopos acadêmicos sem remover os escopos existentes. U
 | `type` | Onde altera | Campos aceitos | Campos obrigatórios | Resultado |
 | --- | --- | --- | --- | --- |
 | `fundamental` | Academia autenticada (`projection_academias.anos_academicos`) | `type`, `anos_academicos` | `type`, `anos_academicos` | Une os anos enviados com os anos fundamentais já ativos. |
-| `medio` | Curso médio da academia (`projection_cursos.anos_academicos`) | `type`, `curso_id`, `anos_academicos` | `type`, `curso_id`, `anos_academicos` | Une os anos enviados com os anos médios já ativos no curso. |
-| `superior` | Curso superior da academia (`projection_cursos.periodos` e anos derivados) | `type`, `curso_id`, `periodos` | `type`, `curso_id`, `periodos` | Define a quantidade total de semestres informada e deriva os anos superiores por `ceil(periodos/2)`. |
+| `medio` | Curso médio da academia (`projection_cursos.anos_academicos`) | `type`, `curso_id`, `anos_academicos` | `type`, `curso_id`, `anos_academicos` | Une os anos enviados com os anos médios já ativos no curso, preservando sequência contínua iniciada em `1_ano_medio`. |
+| `superior` | Não altera por esta rota | nenhum fluxo de escrita permitido | n/a | Retorna erro estruturado. Cursos superiores não aceitam adição direta de anos/períodos por `/academia/anos-academicos`. |
+
+Payloads com `codigo_academia`, campos desconhecidos ou campos de substituição em massa como `substituir`, `replace`, `patch`, `set` e `update` são rejeitados.
 
 **Request — fundamental/misto:**
 
@@ -1357,92 +1359,7 @@ Adiciona/habilita novos escopos acadêmicos sem remover os escopos existentes. U
 }
 ```
 
-**Request — superior:**
-
-```json
-{
-  "type": "superior",
-  "curso_id": "uuid-do-curso-superior",
-  "periodos": 8
-}
-```
-
-**Response 200 — superior:**
-
-```json
-{
-  "message": "anos acadêmicos atualizados com sucesso",
-  "type": "superior",
-  "curso_id": "uuid-do-curso-superior",
-  "anos_academicos": ["1_ano_superior", "2_ano_superior", "3_ano_superior", "4_ano_superior"],
-  "periodos": ["1_semestre", "2_semestre", "3_semestre", "4_semestre", "5_semestre", "6_semestre", "7_semestre", "8_semestre"]
-}
-```
-
-### PATCH /academia/anos-academicos
-
-Substitui completamente o conjunto habilitado do escopo informado. Use esta rota quando a lista final desejada já é conhecida.
-
-**Proteção**: autenticado + academia ativa. Admins não escrevem por esta rota.
-
-**Funcionamento:**
-
-- Para `fundamental`, `anos_academicos` substitui a lista de anos fundamentais da academia.
-- Para `medio`, `anos_academicos` substitui a lista de anos acadêmicos do curso médio informado em `curso_id`.
-- Para `superior`, `periodos` substitui a quantidade total de semestres do curso superior; o backend recalcula `periodos` (`1_semestre` até `n_semestre`) e `anos_academicos` superiores automaticamente.
-- Qualquer ano/semestre que exista hoje e deixe de existir após a substituição é tratado como redução e passa pelas validações de estudantes ativos.
-
-**Request — fundamental/misto:**
-
-```json
-{
-  "type": "fundamental",
-  "anos_academicos": ["1_ano_fundamental", "2_ano_fundamental", "3_ano_fundamental"]
-}
-```
-
-**Request — médio:**
-
-```json
-{
-  "type": "medio",
-  "curso_id": "uuid-do-curso-medio",
-  "anos_academicos": ["1_ano_medio", "2_ano_medio", "3_ano_medio"]
-}
-```
-
-**Request — superior:**
-
-```json
-{
-  "type": "superior",
-  "curso_id": "uuid-do-curso-superior",
-  "periodos": 8
-}
-```
-
-**Response 200 — fundamental/médio:**
-
-```json
-{
-  "message": "anos acadêmicos atualizados com sucesso",
-  "type": "medio",
-  "curso_id": "uuid-do-curso-medio",
-  "anos_academicos": ["1_ano_medio", "2_ano_medio", "3_ano_medio"]
-}
-```
-
-**Response 200 — superior:**
-
-```json
-{
-  "message": "anos acadêmicos atualizados com sucesso",
-  "type": "superior",
-  "curso_id": "uuid-do-curso-superior",
-  "anos_academicos": ["1_ano_superior", "2_ano_superior", "3_ano_superior", "4_ano_superior"],
-  "periodos": ["1_semestre", "2_semestre", "3_semestre", "4_semestre", "5_semestre", "6_semestre", "7_semestre", "8_semestre"]
-}
-```
+**Importante:** `PATCH /academia/anos-academicos` foi removido do roteamento e do contrato público. Clientes devem usar `POST` para adicionar e `DELETE` para remover escopos específicos, sem fallback para substituição de lista.
 
 ### DELETE /academia/anos-academicos
 
@@ -1454,7 +1371,7 @@ Desabilita/remover logicamente escopos acadêmicos da oferta futura, preservando
 
 - `fundamental`: remove do cadastro da academia somente os anos enviados em `anos_academicos`.
 - `medio`: remove do curso médio informado somente os anos enviados em `anos_academicos`.
-- `superior`: não recebe uma lista de semestres a remover; recebe `periodos` com a nova quantidade total de semestres que deve permanecer ativa no curso. Exemplo: se o curso tem 8 semestres e o payload envia `periodos: 6`, os semestres `7_semestre` e `8_semestre` deixam de estar disponíveis para novos vínculos.
+- `superior`: não é permitido por esta rota. Cursos superiores não aceitam remoção direta de anos acadêmicos, períodos ou semestres por `/academia/anos-academicos`.
 - A remoção é lógica/prospectiva: o backend não apaga eventos, ledger, estudantes, turmas, matérias, notas, faltas, avaliações finais já registrados.
 
 **Request — fundamental/misto:**
@@ -1473,16 +1390,6 @@ Desabilita/remover logicamente escopos acadêmicos da oferta futura, preservando
   "type": "medio",
   "curso_id": "uuid-do-curso-medio",
   "anos_academicos": ["4_ano_medio"]
-}
-```
-
-**Request — superior:**
-
-```json
-{
-  "type": "superior",
-  "curso_id": "uuid-do-curso-superior",
-  "periodos": 6
 }
 ```
 
@@ -1537,8 +1444,8 @@ Desabilita/remover logicamente escopos acadêmicos da oferta futura, preservando
 | `400` | Academia não pode gerenciar fundamental. | Envelope detalhado com `field="type"` e `code="nivel_incompativel"`. |
 | `400` | `anos_academicos` ausente, vazio ou em formato inválido. | Envelope detalhado com `field="anos_academicos"` e `code="campo_obrigatorio"` ou `code="formato_invalido"`. |
 | `400` | A operação deixaria academia fundamental/misto sem nenhum ano ativo. | Envelope detalhado com `field="anos_academicos"` e `code="remocao_invalida"`. |
-| `400` | Curso superior recebeu `anos_academicos`. | Envelope detalhado com `field="anos_academicos"` e `code="campo_nao_permitido"`. |
-| `400` | Curso superior não recebeu `periodos` ou recebeu valor inválido. | Envelope detalhado com `field="periodos"` e `code="campo_obrigatorio"` ou `code="valor_invalido"`. |
+| `400` | Curso médio ficaria sem anos ou com sequência inválida. | Envelope detalhado com `field="anos_academicos"` e `code="remocao_invalida"` ou `code="sequencia_invalida"`. |
+| `400` | Tentativa de escrita direta em curso superior. | Envelope detalhado com `field="type"` e `code="operacao_nao_suportada"`. |
 | `409` | Redução afetaria estudantes ativos. | Envelope detalhado com `field="anos_academicos"` e `code="estudantes_ativos_vinculados"`. |
 | `401` | Token ausente ou inválido. | `{ "error": "UNAUTHORIZED", "message": "..." }` |
 | `403` | Usuário não é academia ativa. | `{ "error": "FORBIDDEN", "message": "..." }` |
@@ -1546,7 +1453,7 @@ Desabilita/remover logicamente escopos acadêmicos da oferta futura, preservando
 
 **Formato detalhado dos erros de anos acadêmicos:**
 
-As rotas `GET`, `POST`, `PATCH` e `DELETE /academia/anos-academicos`
+As rotas `GET`, `POST` e `DELETE /academia/anos-academicos`
 mantêm o envelope global de erro, mas agora retornam `details` com um único
 item apontando o campo exato que deve ser corrigido.
 
