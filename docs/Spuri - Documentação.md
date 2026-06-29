@@ -1302,6 +1302,7 @@ Academias agora podem consultar, adicionar, substituir e desabilitar escopos aca
 - **Preservação histórica**: remoções são lógicas/prospectivas; eventos, ledger, histórico acadêmico, turmas, matérias, notas, faltas, avaliações finais e sumários já registrados não são apagados nem reprocessados.
 - **Contratos explícitos na API**: a documentação da API detalha `GET`, `POST`, `PATCH` e `DELETE /academia/anos-academicos` com funcionamento, permissões, payloads por `type`, respostas de sucesso e erros esperados.
 - **Leitura por admin**: admins usam `GET /academia/anos-academicos?codigo_academia=...`; as rotas de escrita permanecem exclusivas para academias autenticadas e ativas.
+- **Erros acionáveis**: as respostas de erro dessas rotas usam o envelope padrão com `details[]` contendo `field`, `code` e `message`, inclusive em conflitos `409` causados por estudantes ativos, para indicar exatamente o campo problemático, o motivo e a correção esperada.
 
 ## Atualização 2.0.8 — Progressão fundamental sem oferta do próximo ano
 
