@@ -89,8 +89,11 @@ Todas as respostas de erro seguem o formato:
 }
 ```
 
-> `details` é opcional e normalmente aparece em `400` quando a validação de payload
-> falha no bind/validator. Campos sem erro podem omitir essa chave.
+> `details` é opcional. Ele aparece quando a rota consegue apontar exatamente
+> o campo, o código interno do problema e uma explicação acionável para o
+> cliente corrigir a requisição. Em `/academia/anos-academicos`, `details`
+> também pode aparecer em `409 Conflict` quando a alteração é bloqueada por
+> estudantes ativos vinculados ao ano/período removido.
 
 ### Códigos HTTP
 
@@ -1278,10 +1281,27 @@ Retorna uma visão unificada dos escopos acadêmicos habilitados da academia: an
 
 | Status | Quando ocorre | Response |
 | --- | --- | --- |
-| `400` | Admin não enviou `codigo_academia`. | `{ "error": "VALIDATION_ERROR", "message": "codigo_academia é obrigatório para admin" }` |
+| `400` | Admin não enviou `codigo_academia`. | Ver envelope detalhado abaixo com `field="codigo_academia"` e `code="campo_obrigatorio"`. |
 | `401` | Token ausente ou inválido. | `{ "error": "UNAUTHORIZED", "message": "..." }` |
 | `403` | Usuário não é academia nem admin autorizado, ou academia está inativa. | `{ "error": "FORBIDDEN", "message": "..." }` |
 | `404` | Academia do token ou `codigo_academia` não encontrada. | `{ "error": "NOT_FOUND", "message": "academia não encontrado" }` |
+
+**Exemplo 400 — admin sem `codigo_academia`:**
+
+```json
+{
+  "error": "VALIDATION_ERROR",
+  "message": "Administradores precisam informar o parâmetro de consulta 'codigo_academia' para o sistema saber de qual academia deve listar/alterar os anos acadêmicos. Exemplo: ?codigo_academia=ACA001",
+  "request_id": "uuid-da-requisicao",
+  "details": [
+    {
+      "field": "codigo_academia",
+      "code": "campo_obrigatorio",
+      "message": "Administradores precisam informar o parâmetro de consulta 'codigo_academia' para o sistema saber de qual academia deve listar/alterar os anos acadêmicos. Exemplo: ?codigo_academia=ACA001"
+    }
+  ]
+}
+```
 
 ### POST /academia/anos-academicos
 
@@ -1507,15 +1527,94 @@ Desabilita/remover logicamente escopos acadêmicos da oferta futura, preservando
 
 | Status | Quando ocorre | Response |
 | --- | --- | --- |
-| `400` | Payload JSON inválido. | `{ "error": "VALIDATION_ERROR", "message": "payload inválido" }` |
-| `400` | `type` ausente ou diferente de `fundamental`, `medio` e `superior`. | `{ "error": "VALIDATION_ERROR", "message": "type deve ser fundamental, medio ou superior" }` |
-| `400` | `curso_id` ausente para médio/superior. | `{ "error": "VALIDATION_ERROR", "message": "curso_id é obrigatório para type medio" }` |
-| `400` | Curso inexistente, de outra academia ou com `type` incompatível. | `{ "error": "VALIDATION_ERROR", "message": "curso não encontrado" }` |
-| `400` | Academia não pode gerenciar o fundamental, ou lista final ficaria vazia. | `{ "error": "VALIDATION_ERROR", "message": "academia não pode gerenciar anos do fundamental" }` |
-| `409` | Redução afetaria estudantes ativos. | `{ "error": "CONFLICT", "message": "não é possível desativar anos_academicos [...]: existem N estudante(s) ativo(s) vinculados" }` |
+| `400` | Payload JSON inválido. | Envelope detalhado com `field="payload"` e `code="json_invalido"`. |
+| `400` | `type` ausente ou diferente de `fundamental`, `medio` e `superior`. | Envelope detalhado com `field="type"` e `code="valor_invalido"`. |
+| `400` | `curso_id` ausente para médio/superior. | Envelope detalhado com `field="curso_id"` e `code="campo_obrigatorio"`. |
+| `400` | Curso inexistente. | Envelope detalhado com `field="curso_id"` e `code="nao_encontrado"`. |
+| `400` | Curso pertence a outra academia. | Envelope detalhado com `field="curso_id"` e `code="curso_de_outra_academia"`. |
+| `400` | Curso está inativo. | Envelope detalhado com `field="curso_id"` e `code="curso_inativo"`. |
+| `400` | `type` do payload não corresponde ao tipo do curso. | Envelope detalhado com `field="type"` e `code="tipo_diferente_do_curso"`. |
+| `400` | Academia não pode gerenciar fundamental. | Envelope detalhado com `field="type"` e `code="nivel_incompativel"`. |
+| `400` | `anos_academicos` ausente, vazio ou em formato inválido. | Envelope detalhado com `field="anos_academicos"` e `code="campo_obrigatorio"` ou `code="formato_invalido"`. |
+| `400` | A operação deixaria academia fundamental/misto sem nenhum ano ativo. | Envelope detalhado com `field="anos_academicos"` e `code="remocao_invalida"`. |
+| `400` | Curso superior recebeu `anos_academicos`. | Envelope detalhado com `field="anos_academicos"` e `code="campo_nao_permitido"`. |
+| `400` | Curso superior não recebeu `periodos` ou recebeu valor inválido. | Envelope detalhado com `field="periodos"` e `code="campo_obrigatorio"` ou `code="valor_invalido"`. |
+| `409` | Redução afetaria estudantes ativos. | Envelope detalhado com `field="anos_academicos"` e `code="estudantes_ativos_vinculados"`. |
 | `401` | Token ausente ou inválido. | `{ "error": "UNAUTHORIZED", "message": "..." }` |
 | `403` | Usuário não é academia ativa. | `{ "error": "FORBIDDEN", "message": "..." }` |
 | `404` | Academia autenticada não encontrada. | `{ "error": "NOT_FOUND", "message": "academia não encontrado" }` |
+
+**Formato detalhado dos erros de anos acadêmicos:**
+
+As rotas `GET`, `POST`, `PATCH` e `DELETE /academia/anos-academicos`
+mantêm o envelope global de erro, mas agora retornam `details` com um único
+item apontando o campo exato que deve ser corrigido.
+
+```json
+{
+  "error": "VALIDATION_ERROR",
+  "message": "O campo 'curso_id' é obrigatório quando type='medio', porque anos de médio/superior pertencem a um curso específico.",
+  "request_id": "uuid-da-requisicao",
+  "details": [
+    {
+      "field": "curso_id",
+      "code": "campo_obrigatorio",
+      "message": "O campo 'curso_id' é obrigatório quando type='medio', porque anos de médio/superior pertencem a um curso específico."
+    }
+  ]
+}
+```
+
+**Exemplo 400 — `type` inválido ou ausente:**
+
+```json
+{
+  "error": "VALIDATION_ERROR",
+  "message": "O campo 'type' recebeu '', mas só aceita: 'fundamental', 'medio' ou 'superior'. Use 'fundamental' para anos do ensino fundamental, 'medio' para cursos médios e 'superior' para cursos superiores.",
+  "request_id": "uuid-da-requisicao",
+  "details": [
+    {
+      "field": "type",
+      "code": "valor_invalido",
+      "message": "O campo 'type' recebeu '', mas só aceita: 'fundamental', 'medio' ou 'superior'. Use 'fundamental' para anos do ensino fundamental, 'medio' para cursos médios e 'superior' para cursos superiores."
+    }
+  ]
+}
+```
+
+**Exemplo 400 — curso superior com `anos_academicos`:**
+
+```json
+{
+  "error": "VALIDATION_ERROR",
+  "message": "Não envie 'anos_academicos' para curso superior. Para superior, envie apenas 'periodos'; o sistema calcula os anos automaticamente. Exemplo: periodos=8 gera anos como ['1_ano_superior', '2_ano_superior', ...].",
+  "request_id": "uuid-da-requisicao",
+  "details": [
+    {
+      "field": "anos_academicos",
+      "code": "campo_nao_permitido",
+      "message": "Não envie 'anos_academicos' para curso superior. Para superior, envie apenas 'periodos'; o sistema calcula os anos automaticamente. Exemplo: periodos=8 gera anos como ['1_ano_superior', '2_ano_superior', ...]."
+    }
+  ]
+}
+```
+
+**Exemplo 409 — estudantes ativos bloqueando remoção/redução:**
+
+```json
+{
+  "error": "CONFLICT",
+  "message": "Não é possível desativar os anos [4_ano_fundamental] porque existem 3 estudante(s) ativo(s) vinculados a eles. Transfira, conclua ou inative esses estudantes antes de remover os anos.",
+  "request_id": "uuid-da-requisicao",
+  "details": [
+    {
+      "field": "anos_academicos",
+      "code": "estudantes_ativos_vinculados",
+      "message": "Não é possível desativar os anos [4_ano_fundamental] porque existem 3 estudante(s) ativo(s) vinculados a eles. Transfira, conclua ou inative esses estudantes antes de remover os anos."
+    }
+  ]
+}
+```
 
 ---
 
