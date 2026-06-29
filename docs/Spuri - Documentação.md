@@ -370,7 +370,7 @@ Representa um curso oferecido por uma academia (médio ou superior). O **tipo é
 | `medio`    | Trimestres fixos do sistema (não configuráveis) | Formato `[n]_ano_medio`    |
 | `superior` | Total de semestres informado como número na API; backend deriva `1_semestre` até `N_semestre` | Calculados pelo backend no formato `[n]_ano_superior` |
 
-Para cursos superiores, a criação/edição recebe `periodos` como número inteiro positivo (quantidade total de semestres) e não aceita `anos_academicos` no payload. O backend persiste os semestres sequenciais no formato `[n]_semestre` e calcula os anos acadêmicos com `ceil(periodos / 2)`. Ex.: `periodos = 3` deriva `periodos = ["1_semestre", "2_semestre", "3_semestre"]` e `anos_academicos = ["1_ano_superior", "2_ano_superior"]`.
+Para cursos superiores, a criação recebe `periodos` como número inteiro positivo (quantidade total de semestres) e não aceita `anos_academicos` no payload. A rota cadastral de edição `PUT /academia/curso/:id/dados` não aceita manipular `periodos`, `semestres` nem `anos_academicos`; ela fica restrita a dados cadastrais. O backend persiste os semestres sequenciais no formato `[n]_semestre` e calcula os anos acadêmicos com `ceil(periodos / 2)`. Ex.: `periodos = 3` deriva `periodos = ["1_semestre", "2_semestre", "3_semestre"]` e `anos_academicos = ["1_ano_superior", "2_ano_superior"]`.
 
 **Formato dos semestres persistidos**: `[n]_semestre` onde n ≥ 1 (ex: `1_semestre`, `2_semestre`).
 

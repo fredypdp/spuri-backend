@@ -1,8 +1,12 @@
 package handlers
 
 import (
+	"bytes"
+	"net/http/httptest"
 	"reflect"
 	"testing"
+
+	"github.com/gin-gonic/gin"
 )
 
 func TestValoresRemovidos(t *testing.T) {
@@ -60,5 +64,40 @@ func TestPrepararDadosCursoMedioRejeitaPeriodosNumerico(t *testing.T) {
 	}, true)
 	if err == nil {
 		t.Fatalf("esperava erro ao enviar periodos numérico em curso médio")
+	}
+}
+
+func TestRejeitarCamposAcademicosEmAtualizacaoCurso(t *testing.T) {
+	for _, payload := range []string{
+		`{"anos_academicos":["1_ano_medio"]}`,
+		`{"anosAcademicos":["1_ano_medio"]}`,
+		`{"periodos":8}`,
+		`{"semestres":["1_semestre"]}`,
+		`{"quantidade_semestres":8}`,
+		`{"anos":["1_ano_medio"]}`,
+	} {
+		req := httptest.NewRequest("PUT", "/academia/curso/id/dados", bytes.NewBufferString(payload))
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = req
+
+		if err := rejeitarCamposAcademicosEmAtualizacaoCurso(c); err == nil {
+			t.Fatalf("esperava rejeição para payload %s", payload)
+		}
+	}
+}
+
+func TestValidarSequenciaAnosMedioExigePrefixoContinuo(t *testing.T) {
+	if err := validarSequenciaAnosMedio([]string{"1_ano_medio", "2_ano_medio", "3_ano_medio"}); err != nil {
+		t.Fatalf("sequência válida retornou erro: %v", err)
+	}
+	for _, anos := range [][]string{
+		{"2_ano_medio", "3_ano_medio"},
+		{"1_ano_medio", "3_ano_medio"},
+		{},
+	} {
+		if err := validarSequenciaAnosMedio(anos); err == nil {
+			t.Fatalf("esperava erro para sequência %v", anos)
+		}
 	}
 }
