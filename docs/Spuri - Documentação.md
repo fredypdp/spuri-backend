@@ -1301,3 +1301,69 @@ Academias agora podem consultar, adicionar e desabilitar escopos acadêmicos hab
 ## Atualização 2.0.8 — Progressão fundamental sem oferta do próximo ano
 
 A avaliação final do fundamental agora diferencia conclusão real do ciclo e ausência operacional de oferta na academia. Quando o estudante é aprovado em um ano anterior ao `9_ano_fundamental`, o backend calcula o próximo ano global canônico e verifica se ele existe em `projection_academias.anos_academicos` da academia atual. Se não existir, o estudante avança para esse próximo ano global, permanece com `status_escolar_fundamental = "em_andamento"`, continua vinculado à mesma academia, não recebe turma automática e o evento registra `motivo_progressao = "academia_sem_oferta_do_proximo_ano_academico_fundamental"`. A aprovação no `9_ano_fundamental` continua finalizando o fundamental normalmente.
+
+## Atualização — Avaliação final automática por matéria e pendências
+
+### O que mudou
+
+A avaliação final automática foi remodelada para deixar de tratar regras como uma configuração genérica única e passar a suportar cálculo auditável por matéria. A base agora diferencia regras por `nivel`, prepara armazenamento de resultados por matéria e introduz o recurso persistente de matérias pendentes para médio e superior.
+
+### Renomeação de contrato
+
+- O campo público `tipo_ensino` foi removido das regras de avaliação final.
+- O novo campo público é `nivel`.
+- Payloads de criação de regra contendo `tipo_ensino` são rejeitados com mensagem de validação.
+- Consultas e respostas de regras passam a retornar `nivel`.
+- Internamente, a tabela de regras usa a coluna `nivel`.
+
+### Regras por nível
+
+#### Fundamental
+
+- Usa `anos_academicos` como escopo obrigatório.
+- Não aceita `limite_materias_pendentes`.
+- Não aceita `materias_chave`.
+- Continua usando fórmula com categoria e período explícito.
+
+#### Médio
+
+- Não aceita `anos_academicos` no payload público.
+- Exige `limite_materias_pendentes`.
+- Exige `materias_chave` na regra raiz.
+- Permite pendência quando a matéria permite pendência e o total de reprovações finais fica dentro do limite configurado.
+
+#### Superior
+
+- Não aceita `anos_academicos` no payload público.
+- Exige `limite_materias_pendentes`.
+- A fórmula pode omitir o período em referências de nota, por exemplo `[prova]`; no cálculo, o backend preenche o período/semestre avaliado.
+
+### Validações implementadas
+
+- `nivel` é validado contra o cadastro da academia autenticada.
+- Academias superiores recebem `nivel='superior'` automaticamente.
+- Academias escolares não mistas recebem `nivel` automaticamente de `nivel_escolar`.
+- Academias mistas devem informar `fundamental` ou `medio`.
+- `anos_academicos` só é aceito para fundamental.
+- `limite_materias_pendentes` é obrigatório e não negativo para médio/superior.
+- `materias_chave` é obrigatório em regra raiz de nível médio.
+- Fórmulas seguem usando parser próprio, sem `eval` e sem execução de código do usuário.
+
+### Persistência adicionada
+
+Foi criada a migration `079_avaliacao_final_nivel_materias_pendentes.sql`, que:
+
+- renomeia `projection_regras_avaliacao_final.tipo_ensino` para `nivel`;
+- adiciona `materias_chave`, `materias_aplicaveis`, `limite_materias_pendentes` e `resultados_materias_snapshot` às regras;
+- adiciona `resultados_materias`, `aprovado_com_pendencia` e `pendencias_geradas` às avaliações finais;
+- cria `projection_materias_pendentes` com índices para consulta e unicidade de pendência aberta.
+
+### O que foi removido
+
+- Aceitação pública de `tipo_ensino` em regras de avaliação final.
+- Obrigatoriedade de `anos_academicos` para regras médias e superiores.
+- Exigência de período explícito na fórmula superior.
+
+### Observação operacional
+
+A estrutura de dados e o contrato da API foram preparados para avaliação por matéria e pendências. As decisões continuam auditáveis por evento de avaliação final, com snapshots para reconstrução de cálculo e com tabela dedicada para histórico de pendências.

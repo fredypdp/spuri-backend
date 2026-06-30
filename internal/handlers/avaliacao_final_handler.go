@@ -152,18 +152,16 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 			return
 		}
 	}
+	formulaExecucao := regra.Formula
 	if tipoEnsino == "superior" {
-		if err := validarFormulaSuperiorContemPeriodo(regra.Formula, req.AnoAcademicoAtual); err != nil {
-			utils.RespondWithValidationError(c, err)
-			return
-		}
+		formulaExecucao = preencherPeriodoFormulaSuperior(regra.Formula, req.AnoAcademicoAtual)
 	}
 	notasFormula, err := carregarNotasFormula(c, req.CodigoEstudante, academiaDTO.CodigoAcademia, anoLectivo, regra.CategoriasEnvolvidas)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	notaFinal, err := calcularFormulaAvaliacao(regra.Formula, notasFormula)
+	notaFinal, err := calcularFormulaAvaliacao(formulaExecucao, notasFormula)
 	if err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -230,7 +228,7 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		notaFinal,
 		regra.NotaMinimaAprovacao,
 		&regra.ID,
-		regra.Formula,
+		formulaExecucao,
 		regra.AplicaSeReprovadoEmType,
 		motivoProgressao,
 		aggregates.AvaliacaoFinalSuperiorProgressao{
@@ -457,10 +455,9 @@ func executarRegraAvaliacaoFinalAutomatica(
 	regra regraAvaliacaoFinalDTO,
 	overlay *notaFormulaOverlay,
 ) (gin.H, bool, error) {
+	formulaExecucao := regra.Formula
 	if tipoEnsino == "superior" {
-		if err := validarFormulaSuperiorContemPeriodo(regra.Formula, anoAcademicoAtual); err != nil {
-			return nil, false, err
-		}
+		formulaExecucao = preencherPeriodoFormulaSuperior(regra.Formula, anoAcademicoAtual)
 	}
 	notasFormula, err := carregarNotasFormula(c, estudanteDTO.CodigoEstudante, codigoAcademia, anoLectivo, regra.CategoriasEnvolvidas)
 	if err != nil {
@@ -472,7 +469,7 @@ func executarRegraAvaliacaoFinalAutomatica(
 		}
 		notasFormula[overlay.Categoria][overlay.Periodo] = append(notasFormula[overlay.Categoria][overlay.Periodo], overlay.Nota)
 	}
-	notaFinal, err := calcularFormulaAvaliacao(regra.Formula, notasFormula)
+	notaFinal, err := calcularFormulaAvaliacao(formulaExecucao, notasFormula)
 	if err != nil {
 		return nil, false, err
 	}
@@ -541,7 +538,7 @@ func executarRegraAvaliacaoFinalAutomatica(
 		notaFinal,
 		regra.NotaMinimaAprovacao,
 		&regra.ID,
-		regra.Formula,
+		formulaExecucao,
 		regra.AplicaSeReprovadoEmType,
 		motivoProgressao,
 		aggregates.AvaliacaoFinalSuperiorProgressao{
