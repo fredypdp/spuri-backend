@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -112,6 +113,13 @@ func CriarMateria(c *gin.Context) {
 			utils.RespondWithValidationError(c, fmt.Errorf("periodo é obrigatório para matérias do tipo superior"))
 			return
 		}
+		if len(periodosCurso) > 0 && !containsString(periodosCurso, *req.Periodo) {
+			utils.RespondWithValidationError(c, fmt.Errorf(
+				"periodo '%s' nao pertence ao curso vinculado. Periodos disponiveis: %v",
+				*req.Periodo, periodosCurso,
+			))
+			return
+		}
 		if err := materia.DefinirPeriodo(*req.Periodo, userID); err != nil {
 			utils.RespondWithValidationError(c, err)
 			return
@@ -138,13 +146,7 @@ func CriarMateria(c *gin.Context) {
 			"status":                    materia.Status,
 			"pendencia_permitida":       materia.PendenciaPermitida,
 			"pendencia_nivel_conclusao": materia.PendenciaNivelConclusao,
-			"proximo_passo": func() *string {
-				if materia.Type == "superior" {
-					s := "defina o periodo via PUT /academia/materias/" + materia.ID.String() + "/periodo antes de ativar"
-					return &s
-				}
-				return nil
-			}(),
+			"periodo":                   materia.Periodo,
 		},
 	})
 }
@@ -330,16 +332,20 @@ func AtualizarDadosMateria(c *gin.Context) {
 	}
 
 	var req struct {
-		Nome                    *string    `json:"nome"`
-		AnosAcademicos          *[]string  `json:"anos_academicos"`
-		CursoID                 *uuid.UUID `json:"curso_id"`
-		Periodo                 *string    `json:"periodo"`
-		PendenciaPermitida      *bool      `json:"pendencia_permitida"`
-		PendenciaNivelConclusao *string    `json:"pendencia_nivel_conclusao"`
+		Nome                    *string          `json:"nome"`
+		AnosAcademicos          *[]string        `json:"anos_academicos"`
+		CursoID                 *uuid.UUID       `json:"curso_id"`
+		Periodo                 *json.RawMessage `json:"periodo"`
+		PendenciaPermitida      *bool            `json:"pendencia_permitida"`
+		PendenciaNivelConclusao *string          `json:"pendencia_nivel_conclusao"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("dados inválidos"))
+		return
+	}
+	if req.Periodo != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("periodo não pode ser editado; defina-o no POST /academia/materia"))
 		return
 	}
 
@@ -397,13 +403,6 @@ func AtualizarDadosMateria(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
-	if req.Periodo != nil {
-		if err := materia.DefinirPeriodo(*req.Periodo, userID); err != nil {
-			utils.RespondWithValidationError(c, err)
-			return
-		}
-	}
-
 	audit := db.AuditContext{
 		UserID:   userID.String(),
 		UserType: "academia",
@@ -489,101 +488,6 @@ func containsString(values []string, expected string) bool {
 		}
 	}
 	return false
-}
-
-// ============================================================================
-// PUT /academia/materias/:id/periodo
-// ============================================================================
-
-// DefinirPeriodoMateria define o período de uma matéria do tipo 'superior'.
-// Após definir o período, a matéria pode ser ativada.
-func DefinirPeriodoMateria(c *gin.Context) {
-	userID, _ := middleware.GetUserID(c)
-
-	materiaID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("ID de materia invalido"))
-		return
-	}
-
-	var req struct {
-		Periodo string `json:"periodo" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("campo obrigatorio: periodo"))
-		return
-	}
-
-	materiasProj := getMateriasProjection(c)
-	materiaDTO, err := materiasProj.GetByID(materiaID)
-	if err != nil || materiaDTO == nil {
-		utils.RespondWithNotFoundError(c, "materia")
-		return
-	}
-
-	academiaProj := getAcademiaProjection(c)
-	academiaDTO, _ := academiaProj.GetByID(userID)
-	if academiaDTO == nil || academiaDTO.CodigoAcademia != materiaDTO.CodigoAcademia {
-		utils.RespondWithForbiddenError(c, "Materia nao pertence a esta academia")
-		return
-	}
-
-	// Validar que o período pertence ao curso vinculado
-	if materiaDTO.CursoID != nil {
-		cursosProj := getCursosProjection(c)
-		cursoDTO, err := cursosProj.GetByID(*materiaDTO.CursoID)
-		if err == nil && cursoDTO != nil && len(cursoDTO.Periodos) > 0 {
-			periodoValido := false
-			for _, p := range cursoDTO.Periodos {
-				if p == req.Periodo {
-					periodoValido = true
-					break
-				}
-			}
-			if !periodoValido {
-				utils.RespondWithValidationError(c, fmt.Errorf(
-					"periodo '%s' nao pertence ao curso '%s'. Periodos disponiveis: %v",
-					req.Periodo, cursoDTO.Nome, cursoDTO.Periodos,
-				))
-				return
-			}
-		}
-	}
-
-	repository := getRepository(c)
-	materiaAgg, err := repository.Load(materiaID, "MateriaDisciplinar")
-	if err != nil {
-		utils.RespondWithNotFoundError(c, "materia")
-		return
-	}
-
-	materia, ok := materiaAgg.(*aggregates.MateriaDisciplinar)
-	if !ok {
-		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
-		return
-	}
-
-	if err := materia.DefinirPeriodo(req.Periodo, userID); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-
-	audit := db.AuditContext{
-		UserID:   userID.String(),
-		UserType: "academia",
-		IP:       c.ClientIP(),
-	}
-	if err := repository.SaveWithAudit(materia, audit); err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	log.Printf("Periodo definido: %s → %s", materia.Nome, materia.Periodo)
-	c.JSON(http.StatusOK, gin.H{
-		"message": "periodo definido com sucesso",
-		"nome":    materia.Nome,
-		"periodo": materia.Periodo,
-	})
 }
 
 // ============================================================================

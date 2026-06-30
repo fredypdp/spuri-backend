@@ -253,18 +253,6 @@ func DesativarMateriaJobItem(c *gin.Context) {
 	DesativarMateria(c)
 }
 
-func DefinirPeriodoMateriaJobItem(c *gin.Context) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := bindJobItemWithoutLosingBody(c, &req); err != nil || req.ID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter ao menos {id}"})
-		return
-	}
-	c.Params = gin.Params{gin.Param{Key: "id", Value: req.ID}}
-	DefinirPeriodoMateria(c)
-}
-
 func AtualizarDadosMateriaJobItem(c *gin.Context) {
 	var req struct {
 		ID string `json:"id"`

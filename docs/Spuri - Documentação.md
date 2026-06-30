@@ -396,13 +396,13 @@ Representa uma disciplina vinculada a uma academia e tipo de ensino.
 |---|---|---|
 |`fundamental`|`ativo`|Ano(s) no formato `[1-9]_ano_fundamental`|
 |`medio`|`ativo`|Exatamente 1 ano no formato `[n]_ano_medio`; curso_id obrigatório|
-|`superior`|**`inativo`**|Exatamente 1 ano no formato `[n]_ano_superior`; curso_id obrigatório|
+|`superior`|**`inativo`**|Exatamente 1 ano no formato `[n]_ano_superior`; curso_id e periodo obrigatórios|
 
-**Matérias superiores nascem inativas**: exigem que um período seja definido antes de poder ser ativadas (`PUT /academia/materia/:id/periodo`).
+**Matérias superiores nascem inativas**: exigem que `periodo` seja enviado no `POST /academia/materia`, válido dentro dos períodos do curso vinculado. O período não pode mais ser editado depois da criação, e a rota `PUT /academia/materia/:id/periodo` foi removida.
 
 **Estados:** `ativo` / `inativo` / `deletado`
 
-**Eventos:** `MateriaCriada`, `MateriaAtivada`, `MateriaDesativada`, `MateriaDadosAtualizados`, `MateriaPeriodoDefinido`, `MateriaDeletada`
+**Eventos:** `MateriaCriada`, `MateriaAtivada`, `MateriaDesativada`, `MateriaDadosAtualizados`, `MateriaPeriodoDefinido`, `MateriaDeletada`. Para matérias superiores novas, `MateriaPeriodoDefinido` é emitido junto da criação para registrar o período inicial obrigatório.
 
 ---
 

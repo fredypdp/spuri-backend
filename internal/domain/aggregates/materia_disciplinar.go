@@ -193,6 +193,9 @@ func (m *MateriaDisciplinar) Ativar(ativadoPor uuid.UUID) error {
 	if m.Status == "ativo" {
 		return fmt.Errorf("matéria já está ativa")
 	}
+	if m.Type == "superior" && m.Periodo == "" {
+		return fmt.Errorf("matérias superiores exigem periodo definido na criação antes da ativação")
+	}
 	event := &MateriaAtivadaEvent{
 		BaseEvent:   BaseEvent{EventType: "MateriaAtivada", AggregateID: m.ID},
 		AtivadoPor:  ativadoPor,

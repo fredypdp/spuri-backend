@@ -253,10 +253,6 @@ func DesativarMateriaBatchAsync(c *gin.Context) {
 	enqueueAsyncBatch(c, jobs.JobTypeDesativarMateriaBatch, 1000)
 }
 
-func DefinirPeriodoMateriaBatchAsync(c *gin.Context) {
-	enqueueAsyncBatch(c, jobs.JobTypeDefinirPeriodoMateriaBatch, 1000)
-}
-
 func AtualizarDadosMateriaBatchAsync(c *gin.Context) {
 	enqueueAsyncBatch(c, jobs.JobTypeAtualizarDadosMateriaBatch, 1000)
 }
