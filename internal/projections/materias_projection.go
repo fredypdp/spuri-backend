@@ -16,18 +16,19 @@ import (
 
 // MateriaDTO — projeção lida do banco.
 type MateriaDTO struct {
-	ID                 uuid.UUID  `json:"id"`
-	Nome               string     `json:"nome"`
-	Type               string     `json:"type"`
-	AnosAcademicos     []string   `json:"anos_academicos,omitempty"`
-	Periodo            *string    `json:"periodo,omitempty"`
-	PendenciaPermitida bool       `json:"pendencia_permitida"`
-	CodigoAcademia     string     `json:"codigo_academia"`
-	CursoID            *uuid.UUID `json:"curso_id,omitempty"`
-	Status             string     `json:"status"`
-	CreatedAt          time.Time  `json:"created_at"`
-	UpdatedAt          time.Time  `json:"updated_at"`
-	Version            int        `json:"version"`
+	ID                      uuid.UUID  `json:"id"`
+	Nome                    string     `json:"nome"`
+	Type                    string     `json:"type"`
+	AnosAcademicos          []string   `json:"anos_academicos,omitempty"`
+	Periodo                 *string    `json:"periodo,omitempty"`
+	PendenciaPermitida      bool       `json:"pendencia_permitida"`
+	PendenciaNivelConclusao *string    `json:"pendencia_nivel_conclusao,omitempty"`
+	CodigoAcademia          string     `json:"codigo_academia"`
+	CursoID                 *uuid.UUID `json:"curso_id,omitempty"`
+	Status                  string     `json:"status"`
+	CreatedAt               time.Time  `json:"created_at"`
+	UpdatedAt               time.Time  `json:"updated_at"`
+	Version                 int        `json:"version"`
 }
 
 type MateriasProjection struct {
@@ -146,6 +147,7 @@ func (p *MateriasProjection) handleMateriaCriada(event db.Event) error {
 		AnosAcademicos             []string
 		CursoID                    *uuid.UUID
 		PendenciaPermitida         bool
+		PendenciaNivelConclusao    *string
 		CreatedAt                  time.Time
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
@@ -190,12 +192,12 @@ func (p *MateriasProjection) handleMateriaCriada(event db.Event) error {
 
 	_, err = p.client.DB().Exec(`
 		INSERT INTO projection_materias
-			(id, nome, type, anos_academicos, codigo_academia, curso_id, periodo, pendencia_permitida, status, created_at, updated_at, version, last_event_id)
-		VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, $9, CURRENT_TIMESTAMP, $10, $11)
+			(id, nome, type, anos_academicos, codigo_academia, curso_id, periodo, pendencia_permitida, pendencia_nivel_conclusao, status, created_at, updated_at, version, last_event_id)
+		VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, $9, $10, CURRENT_TIMESTAMP, $11, $12)
 		ON CONFLICT (id) DO NOTHING
 	`,
 		event.AggregateID, payload.Nome, payload.Type, anosJSON, payload.CodigoAcademia,
-		cursoID, payload.PendenciaPermitida, status, payload.CreatedAt, event.EventVersion, event.EventID,
+		cursoID, payload.PendenciaPermitida, payload.PendenciaNivelConclusao, status, payload.CreatedAt, event.EventVersion, event.EventID,
 	)
 	return err
 }
@@ -223,16 +225,17 @@ func (p *MateriasProjection) handleStatusChange(status string) func(db.Event) er
 
 func (p *MateriasProjection) handleMateriaDadosAtualizados(event db.Event) error {
 	var payload struct {
-		Nome               *string
-		AnosAcademicos     []string
-		CursoID            *uuid.UUID
-		PendenciaPermitida *bool
-		UpdatedAt          time.Time
+		Nome                    *string
+		AnosAcademicos          []string
+		CursoID                 *uuid.UUID
+		PendenciaPermitida      *bool
+		PendenciaNivelConclusao *string
+		UpdatedAt               time.Time
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return err
 	}
-	sets := []string{"updated_at = CURRENT_TIMESTAMP", fmt.Sprintf("version = %d", event.EventVersion), fmt.Sprintf("last_event_id = '%s'", event.EventID)}
+	sets := []string{"updated_at = CURRENT_TIMESTAMP"}
 	args := []interface{}{}
 	if payload.Nome != nil {
 		args = append(args, *payload.Nome)
@@ -255,6 +258,14 @@ func (p *MateriasProjection) handleMateriaDadosAtualizados(event db.Event) error
 		args = append(args, *payload.PendenciaPermitida)
 		sets = append(sets, fmt.Sprintf("pendencia_permitida = $%d", len(args)))
 	}
+	if payload.PendenciaNivelConclusao != nil {
+		args = append(args, *payload.PendenciaNivelConclusao)
+		sets = append(sets, fmt.Sprintf("pendencia_nivel_conclusao = $%d", len(args)))
+	}
+	args = append(args, event.EventVersion)
+	sets = append(sets, fmt.Sprintf("version = $%d", len(args)))
+	args = append(args, event.EventID)
+	sets = append(sets, fmt.Sprintf("last_event_id = $%d", len(args)))
 	args = append(args, event.AggregateID)
 	query := fmt.Sprintf("UPDATE projection_materias SET %s WHERE id = $%d", strings.Join(sets, ", "), len(args))
 	_, err := p.client.DB().Exec(query, args...)
@@ -303,7 +314,7 @@ func (p *MateriasProjection) GetByID(id uuid.UUID) (*MateriaDTO, error) {
 		return nil, fmt.Errorf("UUID inválido")
 	}
 	row := p.client.DB().QueryRow(`
-		SELECT id, nome, type, anos_academicos, periodo, pendencia_permitida, codigo_academia, curso_id, status, created_at, updated_at, version
+		SELECT id, nome, type, anos_academicos, periodo, pendencia_permitida, pendencia_nivel_conclusao, codigo_academia, curso_id, status, created_at, updated_at, version
 		FROM projection_materias WHERE id = $1
 	`, id)
 	return scanMateria(row)
@@ -311,7 +322,7 @@ func (p *MateriasProjection) GetByID(id uuid.UUID) (*MateriaDTO, error) {
 
 func (p *MateriasProjection) GetByAcademia(codigoAcademia string) ([]MateriaDTO, error) {
 	rows, err := p.client.DB().Query(`
-		SELECT id, nome, type, anos_academicos, periodo, pendencia_permitida, codigo_academia, curso_id, status, created_at, updated_at, version
+		SELECT id, nome, type, anos_academicos, periodo, pendencia_permitida, pendencia_nivel_conclusao, codigo_academia, curso_id, status, created_at, updated_at, version
 		FROM projection_materias
 		WHERE codigo_academia = $1
 			AND deleted_at IS NULL
@@ -328,7 +339,7 @@ func (p *MateriasProjection) GetByAcademia(codigoAcademia string) ([]MateriaDTO,
 
 func (p *MateriasProjection) GetByCurso(cursoID uuid.UUID) ([]MateriaDTO, error) {
 	rows, err := p.client.DB().Query(`
-		SELECT id, nome, type, anos_academicos, periodo, pendencia_permitida, codigo_academia, curso_id, status, created_at, updated_at, version
+		SELECT id, nome, type, anos_academicos, periodo, pendencia_permitida, pendencia_nivel_conclusao, codigo_academia, curso_id, status, created_at, updated_at, version
 		FROM projection_materias
 		WHERE curso_id = $1
 			AND deleted_at IS NULL
@@ -343,7 +354,7 @@ func (p *MateriasProjection) GetByCurso(cursoID uuid.UUID) ([]MateriaDTO, error)
 
 func (p *MateriasProjection) GetActiveByAcademia(codigoAcademia string) ([]MateriaDTO, error) {
 	rows, err := p.client.DB().Query(`
-		SELECT id, nome, type, anos_academicos, periodo, pendencia_permitida, codigo_academia, curso_id, status, created_at, updated_at, version
+		SELECT id, nome, type, anos_academicos, periodo, pendencia_permitida, pendencia_nivel_conclusao, codigo_academia, curso_id, status, created_at, updated_at, version
 		FROM projection_materias
 		WHERE codigo_academia = $1 AND status = 'ativo' AND deleted_at IS NULL
 		ORDER BY created_at DESC
@@ -360,8 +371,9 @@ func scanMateria(row *sql.Row) (*MateriaDTO, error) {
 	var anosJSON sql.NullString
 	var cursoID sql.NullString
 	var periodo sql.NullString
+	var pendenciaNivelConclusao sql.NullString
 	err := row.Scan(
-		&dto.ID, &dto.Nome, &dto.Type, &anosJSON, &periodo, &dto.PendenciaPermitida,
+		&dto.ID, &dto.Nome, &dto.Type, &anosJSON, &periodo, &dto.PendenciaPermitida, &pendenciaNivelConclusao,
 		&dto.CodigoAcademia, &cursoID, &dto.Status,
 		&dto.CreatedAt, &dto.UpdatedAt, &dto.Version,
 	)
@@ -381,6 +393,9 @@ func scanMateria(row *sql.Row) (*MateriaDTO, error) {
 	if periodo.Valid {
 		dto.Periodo = &periodo.String
 	}
+	if pendenciaNivelConclusao.Valid {
+		dto.PendenciaNivelConclusao = &pendenciaNivelConclusao.String
+	}
 	return &dto, nil
 }
 
@@ -391,8 +406,9 @@ func scanMaterias(rows *sql.Rows) ([]MateriaDTO, error) {
 		var anosJSON sql.NullString
 		var cursoID sql.NullString
 		var periodo sql.NullString
+		var pendenciaNivelConclusao sql.NullString
 		if err := rows.Scan(
-			&dto.ID, &dto.Nome, &dto.Type, &anosJSON, &periodo, &dto.PendenciaPermitida,
+			&dto.ID, &dto.Nome, &dto.Type, &anosJSON, &periodo, &dto.PendenciaPermitida, &pendenciaNivelConclusao,
 			&dto.CodigoAcademia, &cursoID, &dto.Status,
 			&dto.CreatedAt, &dto.UpdatedAt, &dto.Version,
 		); err != nil {
@@ -407,6 +423,9 @@ func scanMaterias(rows *sql.Rows) ([]MateriaDTO, error) {
 		}
 		if periodo.Valid {
 			dto.Periodo = &periodo.String
+		}
+		if pendenciaNivelConclusao.Valid {
+			dto.PendenciaNivelConclusao = &pendenciaNivelConclusao.String
 		}
 		result = append(result, dto)
 	}

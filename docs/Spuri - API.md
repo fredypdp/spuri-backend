@@ -318,6 +318,7 @@ interface MateriaDTO {
   anos_academicos?: string[]  // ex: ['2_ano_fundamental'] ou ['1_ano_medio']
   periodo?: string            // ex: '1_semestre' — obrigatório para superior
   pendencia_permitida: boolean // disponível apenas para medio/superior; define se pode ficar pendente
+  pendencia_nivel_conclusao?: string // ex: '3_ano_medio' ou '2_semestre'; limite máximo com pendência
   codigo_academia: string
   curso_id?: string           // UUID — obrigatório para medio e superior
   status: string              // 'ativo' | 'inativo' | 'deletado'
@@ -2791,7 +2792,8 @@ Atualiza somente dados cadastrais de um curso. O `type` é imutável e esta rota
 ```json
 {
   "nome": "string",
-  "pendencia_permitida": true
+  "pendencia_permitida": true,
+  "pendencia_nivel_conclusao": "3_ano_medio"
 }
 ```
 
@@ -2880,7 +2882,8 @@ Cria uma nova matéria disciplinar.
   "type": "superior",
   "anos_academicos": ["1_ano_superior"],
   "curso_id": "uuid",  // obrigatório para medio e superior
-  "pendencia_permitida": true
+  "pendencia_permitida": true,
+  "pendencia_nivel_conclusao": "2_semestre"
 }
 ```
 
@@ -2895,6 +2898,7 @@ Cria uma nova matéria disciplinar.
     "type": "superior",
     "status": "inativo",
     "pendencia_permitida": true,
+    "pendencia_nivel_conclusao": "2_semestre",
     "proximo_passo": "defina o periodo via PUT /academia/materias/uuid/periodo antes de ativar"
   }
 }
@@ -2904,6 +2908,7 @@ Cria uma nova matéria disciplinar.
 
 - Matérias `superior` nascem **inativas** e exigem período antes de ativar
 - `pendencia_permitida` é um booleano disponível apenas para matérias `medio` ou `superior`; quando `true`, indica que o estudante pode avançar com essa matéria pendente para aprovação futura antes de concluir o ciclo
+- `pendencia_nivel_conclusao` é uma string disponível apenas para matérias `medio` ou `superior`; deve ser um ano acadêmico médio (`N_ano_medio`) ou semestre superior (`N_semestre`) válido do curso e define o último nível em que o estudante poderá chegar com pendências desta matéria
 - `curso_id` obrigatório para `medio` e `superior`
 - Para `fundamental`: `anos_academicos` com 1 a 9 itens no formato correto
 - Para `medio`/`superior`: exatamente 1 item no formato correto
@@ -3016,7 +3021,7 @@ Define o período de uma matéria do tipo `superior`. Pré-requisito para ativar
 
 ### PUT /academia/materia/:id/dados
 
-Atualiza os dados de uma matéria, incluindo o campo `pendencia_permitida`.
+Atualiza os dados de uma matéria, incluindo os campos `pendencia_permitida` e `pendencia_nivel_conclusao`.
 
 **Proteção**: autenticado + academia ativa
 
@@ -3025,7 +3030,8 @@ Atualiza os dados de uma matéria, incluindo o campo `pendencia_permitida`.
 ```json
 {
   "nome": "string",
-  "pendencia_permitida": true
+  "pendencia_permitida": true,
+  "pendencia_nivel_conclusao": "3_ano_medio"
 }
 ```
 
@@ -3035,13 +3041,16 @@ Atualiza os dados de uma matéria, incluindo o campo `pendencia_permitida`.
 {
   "message": "matéria atualizada com sucesso",
   "nome": "string",
-  "pendencia_permitida": true
+  "pendencia_permitida": true,
+  "pendencia_nivel_conclusao": "3_ano_medio"
 }
 ```
 
 **Erros:**
 
 - `400` — `pendencia_permitida` informado para matéria do tipo `fundamental`
+- `400` — `pendencia_nivel_conclusao` informado para matéria do tipo `fundamental`
+- `400` — `pendencia_nivel_conclusao` não corresponde a um ano acadêmico médio (`N_ano_medio`) ou semestre superior (`N_semestre`) válido do curso
 
 ---
 

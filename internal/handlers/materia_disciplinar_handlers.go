@@ -23,12 +23,13 @@ func CriarMateria(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
 	var req struct {
-		Nome               string     `json:"nome"            binding:"required"`
-		Type               *string    `json:"type"`
-		AnosAcademicos     []string   `json:"anos_academicos"`
-		CursoID            *uuid.UUID `json:"curso_id"`
-		Periodo            *string    `json:"periodo"`
-		PendenciaPermitida *bool      `json:"pendencia_permitida"`
+		Nome                    string     `json:"nome"            binding:"required"`
+		Type                    *string    `json:"type"`
+		AnosAcademicos          []string   `json:"anos_academicos"`
+		CursoID                 *uuid.UUID `json:"curso_id"`
+		Periodo                 *string    `json:"periodo"`
+		PendenciaPermitida      *bool      `json:"pendencia_permitida"`
+		PendenciaNivelConclusao *string    `json:"pendencia_nivel_conclusao"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -54,6 +55,7 @@ func CriarMateria(c *gin.Context) {
 		return
 	}
 
+	var periodosCurso []string
 	if (tipoMateria == "medio" || tipoMateria == "superior") && req.CursoID != nil {
 		cursosProj := getCursosProjection(c)
 		cursoDTO, _ := cursosProj.GetByID(*req.CursoID)
@@ -72,6 +74,7 @@ func CriarMateria(c *gin.Context) {
 			utils.RespondWithForbiddenError(c, "Curso nao pertence a esta academia")
 			return
 		}
+		periodosCurso = cursoDTO.Periodos
 
 		// Para superior: garantir que o curso tem periodos definidos
 		if tipoMateria == "superior" && len(cursoDTO.Periodos) == 0 {
@@ -84,6 +87,11 @@ func CriarMateria(c *gin.Context) {
 		}
 	}
 
+	if err := validarPendenciaNivelConclusao(tipoMateria, req.PendenciaNivelConclusao, req.AnosAcademicos, periodosCurso); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
 	repository := getRepository(c)
 	materia := aggregates.NewMateriaDisciplinar()
 
@@ -91,7 +99,7 @@ func CriarMateria(c *gin.Context) {
 	if req.PendenciaPermitida != nil {
 		pendenciaPermitida = *req.PendenciaPermitida
 	}
-	if err := materia.Criar(req.Nome, tipoMateria, req.AnosAcademicos, academiaDTO.CodigoAcademia, req.CursoID, pendenciaPermitida, userID); err != nil {
+	if err := materia.Criar(req.Nome, tipoMateria, req.AnosAcademicos, academiaDTO.CodigoAcademia, req.CursoID, pendenciaPermitida, req.PendenciaNivelConclusao, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -124,11 +132,12 @@ func CriarMateria(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "materia criada com sucesso",
 		"data": gin.H{
-			"id":                  materia.ID,
-			"nome":                materia.Nome,
-			"type":                materia.Type,
-			"status":              materia.Status,
-			"pendencia_permitida": materia.PendenciaPermitida,
+			"id":                        materia.ID,
+			"nome":                      materia.Nome,
+			"type":                      materia.Type,
+			"status":                    materia.Status,
+			"pendencia_permitida":       materia.PendenciaPermitida,
+			"pendencia_nivel_conclusao": materia.PendenciaNivelConclusao,
 			"proximo_passo": func() *string {
 				if materia.Type == "superior" {
 					s := "defina o periodo via PUT /academia/materias/" + materia.ID.String() + "/periodo antes de ativar"
@@ -321,11 +330,12 @@ func AtualizarDadosMateria(c *gin.Context) {
 	}
 
 	var req struct {
-		Nome               *string    `json:"nome"`
-		AnosAcademicos     *[]string  `json:"anos_academicos"`
-		CursoID            *uuid.UUID `json:"curso_id"`
-		Periodo            *string    `json:"periodo"`
-		PendenciaPermitida *bool      `json:"pendencia_permitida"`
+		Nome                    *string    `json:"nome"`
+		AnosAcademicos          *[]string  `json:"anos_academicos"`
+		CursoID                 *uuid.UUID `json:"curso_id"`
+		Periodo                 *string    `json:"periodo"`
+		PendenciaPermitida      *bool      `json:"pendencia_permitida"`
+		PendenciaNivelConclusao *string    `json:"pendencia_nivel_conclusao"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -363,7 +373,27 @@ func AtualizarDadosMateria(c *gin.Context) {
 	if req.AnosAcademicos != nil {
 		anos = *req.AnosAcademicos
 	}
-	if err := materia.AtualizarDados(req.Nome, anos, req.CursoID, req.PendenciaPermitida, userID); err != nil {
+	anosParaValidacao := materia.AnosAcademicos
+	if req.AnosAcademicos != nil {
+		anosParaValidacao = *req.AnosAcademicos
+	}
+	var periodosCurso []string
+	cursoIDParaValidacao := materia.CursoID
+	if req.CursoID != nil {
+		cursoIDParaValidacao = req.CursoID
+	}
+	if materia.Type == "superior" && cursoIDParaValidacao != nil {
+		cursosProj := getCursosProjection(c)
+		cursoDTO, err := cursosProj.GetByID(*cursoIDParaValidacao)
+		if err == nil && cursoDTO != nil {
+			periodosCurso = cursoDTO.Periodos
+		}
+	}
+	if err := validarPendenciaNivelConclusao(materia.Type, req.PendenciaNivelConclusao, anosParaValidacao, periodosCurso); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if err := materia.AtualizarDados(req.Nome, anos, req.CursoID, req.PendenciaPermitida, req.PendenciaNivelConclusao, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -386,9 +416,10 @@ func AtualizarDadosMateria(c *gin.Context) {
 
 	log.Printf("Matéria atualizada: %s", materia.Nome)
 	c.JSON(http.StatusOK, gin.H{
-		"message":             "matéria atualizada com sucesso",
-		"nome":                materia.Nome,
-		"pendencia_permitida": materia.PendenciaPermitida,
+		"message":                   "matéria atualizada com sucesso",
+		"nome":                      materia.Nome,
+		"pendencia_permitida":       materia.PendenciaPermitida,
+		"pendencia_nivel_conclusao": materia.PendenciaNivelConclusao,
 	})
 }
 
@@ -417,6 +448,47 @@ func resolverTipoMateria(nivelAcademia string, nivelEscolar *string, tipoReq *st
 	default:
 		return "", fmt.Errorf("nivel_escolar inválido")
 	}
+}
+
+func validarPendenciaNivelConclusao(tipoMateria string, nivel *string, anosAcademicos []string, periodosCurso []string) error {
+	if nivel == nil {
+		return nil
+	}
+	valor := strings.TrimSpace(*nivel)
+	if valor == "" {
+		return fmt.Errorf("pendencia_nivel_conclusao não pode ser vazio")
+	}
+	if tipoMateria == "fundamental" {
+		return fmt.Errorf("pendencia_nivel_conclusao só está disponível para matérias do tipo 'medio' ou 'superior'")
+	}
+	if tipoMateria == "medio" {
+		if !strings.HasSuffix(valor, "_ano_medio") {
+			return fmt.Errorf("pendencia_nivel_conclusao deve ser um ano acadêmico médio válido, como '1_ano_medio'")
+		}
+		if len(anosAcademicos) > 0 && !containsString(anosAcademicos, valor) {
+			return fmt.Errorf("pendencia_nivel_conclusao deve existir em anos_academicos da matéria")
+		}
+		return nil
+	}
+	if tipoMateria == "superior" {
+		if !strings.HasSuffix(valor, "_semestre") {
+			return fmt.Errorf("pendencia_nivel_conclusao deve ser um semestre válido, como '1_semestre'")
+		}
+		if len(periodosCurso) > 0 && !containsString(periodosCurso, valor) {
+			return fmt.Errorf("pendencia_nivel_conclusao deve existir nos períodos do curso")
+		}
+		return nil
+	}
+	return fmt.Errorf("type inválido para pendencia_nivel_conclusao")
+}
+
+func containsString(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
 }
 
 // ============================================================================
