@@ -1367,3 +1367,18 @@ Foi criada a migration `079_avaliacao_final_nivel_materias_pendentes.sql`, que:
 ### Observação operacional
 
 A estrutura de dados e o contrato da API foram preparados para avaliação por matéria e pendências. As decisões continuam auditáveis por evento de avaliação final, com snapshots para reconstrução de cálculo e com tabela dedicada para histórico de pendências.
+
+## Atualização de debug — conclusão da avaliação final automática por matéria
+
+Durante o debug completo da tarefa de avaliação final por matéria e pendências, o fluxo automático foi completado para garantir que a decisão final não dependa mais de uma média global única do estudante.
+
+### Implementação finalizada
+
+- A execução automática agora monta a lista de matérias aplicáveis conforme o `nivel` da regra:
+  - fundamental: matérias ativas da academia no `ano_escolar_fundamental` do estudante;
+  - médio: matérias ativas do curso médio atual e do `ano_escolar_medio` avaliado, respeitando `materias_chave`/`materias_aplicaveis` quando configuradas;
+  - superior: matérias ativas do curso superior atual no período/semestre avaliado.
+- O carregamento de notas passou a filtrar por matéria, categoria, ano letivo e academia, evitando que notas de outra matéria contaminem o cálculo.
+- Cada matéria gera um item auditável em `resultados_materias` no evento e na projeção de avaliação final.
+- A decisão geral deriva do conjunto de matérias: reprovação em qualquer matéria reprova o estudante, exceto quando o nível permite pendências, o limite configurado é respeitado e todas as matérias reprovadas possuem `pendencia_permitida=true`.
+- Quando há aprovação com pendência, o evento registra `aprovado_com_pendencia=true` e `pendencias_geradas`; a projeção persiste essas pendências em `projection_materias_pendentes` usando `ON CONFLICT DO NOTHING` para manter idempotência.

@@ -1197,6 +1197,27 @@ func carregarNotasFormula(c *gin.Context, codigoEstudante, codigoAcademia, anoLe
 	}
 	return out, rows.Err()
 }
+
+func carregarNotasFormulaMateria(c *gin.Context, codigoEstudante, codigoAcademia, anoLectivo string, materiaID uuid.UUID, categorias []string) (map[string]map[string][]float64, error) {
+	rows, err := getDbClient(c).DB().Query(`SELECT categoria,periodo,nota FROM projection_notas WHERE codigo_estudante=$1 AND codigo_academia=$2 AND ano_lectivo=$3 AND materia_disciplinar_id=$4 AND categoria=ANY($5) AND deleted_at IS NULL`, codigoEstudante, codigoAcademia, anoLectivo, materiaID, pq.Array(categorias))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]map[string][]float64{}
+	for rows.Next() {
+		var cat, per string
+		var nota float64
+		if err := rows.Scan(&cat, &per, &nota); err != nil {
+			return nil, err
+		}
+		if out[cat] == nil {
+			out[cat] = map[string][]float64{}
+		}
+		out[cat][per] = append(out[cat][per], nota)
+	}
+	return out, rows.Err()
+}
 func _sqlNoRows(err error) bool { return err == sql.ErrNoRows }
 
 func validarFormulaSuperiorContemPeriodo(formula string, periodoAtual string) error {

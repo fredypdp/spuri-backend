@@ -30,6 +30,9 @@ func TestRegistrarAvaliacaoFinalBloqueiaDuplicidadeNoMesmoAnoLetivo(t *testing.T
 		"",
 		nil,
 		nil,
+		nil,
+		false,
+		nil,
 	); err != nil {
 		t.Fatalf("primeira avaliação final retornou erro: %v", err)
 	}
@@ -50,6 +53,9 @@ func TestRegistrarAvaliacaoFinalBloqueiaDuplicidadeNoMesmoAnoLetivo(t *testing.T
 		nil,
 		"",
 		nil,
+		nil,
+		nil,
+		false,
 		nil,
 	)
 	if err == nil {
@@ -85,6 +91,9 @@ func TestRegistrarAvaliacaoFinalBloqueiaDuplicidadeNoMesmoNivel(t *testing.T) {
 		"",
 		nil,
 		nil,
+		nil,
+		false,
+		nil,
 	); err != nil {
 		t.Fatalf("primeira avaliação final retornou erro: %v", err)
 	}
@@ -105,6 +114,9 @@ func TestRegistrarAvaliacaoFinalBloqueiaDuplicidadeNoMesmoNivel(t *testing.T) {
 		nil,
 		"",
 		nil,
+		nil,
+		nil,
+		false,
 		nil,
 	)
 	if err == nil {
@@ -140,6 +152,9 @@ func TestAvaliacaoFinalFundamentalComProximoAnoMantemStatusEmAndamento(t *testin
 		nil,
 		"",
 		nil,
+		nil,
+		nil,
+		false,
 		nil,
 	); err != nil {
 		t.Fatalf("avaliação final retornou erro: %v", err)

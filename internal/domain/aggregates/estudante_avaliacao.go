@@ -10,29 +10,49 @@ import (
 
 type AvaliacaoFinalBasePayload struct {
 	BaseEvent
-	ID                      uuid.UUID  `json:"id"`
-	CodigoEstudante         string     `json:"codigo_estudante"`
-	CodigoAcademia          string     `json:"codigo_academia"`
-	AnoLectivo              string     `json:"ano_lectivo"`
-	TipoEnsino              string     `json:"tipo_ensino"`
-	AnoAcademicoAtual       string     `json:"nivel_ano_academico_atual"`
-	ProximoAnoAcademico     *string    `json:"proximo_ano_academico,omitempty"`
-	CodigoTurma             *string    `json:"codigo_turma,omitempty"`
-	CodigosTurmasRemovidas  []string   `json:"codigos_turmas_removidas,omitempty"`
-	Aprovado                bool       `json:"aprovado"`
-	Observacao              *string    `json:"observacao,omitempty"`
-	Type                    string     `json:"type"`
-	NotaFinal               float64    `json:"nota_final"`
-	NotaMinimaAprovacao     float64    `json:"nota_minima_aprovacao"`
-	RegraAvaliacaoFinalID   *uuid.UUID `json:"regra_avaliacao_final_id,omitempty"`
-	FormulaSnapshot         string     `json:"formula_snapshot,omitempty"`
-	AplicaSeReprovadoEmType *string    `json:"aplica_se_reprovado_em_type,omitempty"`
-	SemestreAtualAvaliado   *int       `json:"semestre_atual,omitempty"`
-	ProximoSemestreAtual    *int       `json:"proximo_semestre_atual,omitempty"`
-	AnoSuperiorAntes        *string    `json:"ano_superior_antes,omitempty"`
-	AnoSuperiorDepois       *string    `json:"ano_superior_depois,omitempty"`
-	MotivoProgressao        *string    `json:"motivo_progressao,omitempty"`
-	RegisteredAt            time.Time  `json:"registered_at"`
+	ID                      uuid.UUID                        `json:"id"`
+	CodigoEstudante         string                           `json:"codigo_estudante"`
+	CodigoAcademia          string                           `json:"codigo_academia"`
+	AnoLectivo              string                           `json:"ano_lectivo"`
+	TipoEnsino              string                           `json:"tipo_ensino"`
+	AnoAcademicoAtual       string                           `json:"nivel_ano_academico_atual"`
+	ProximoAnoAcademico     *string                          `json:"proximo_ano_academico,omitempty"`
+	CodigoTurma             *string                          `json:"codigo_turma,omitempty"`
+	CodigosTurmasRemovidas  []string                         `json:"codigos_turmas_removidas,omitempty"`
+	Aprovado                bool                             `json:"aprovado"`
+	Observacao              *string                          `json:"observacao,omitempty"`
+	Type                    string                           `json:"type"`
+	NotaFinal               float64                          `json:"nota_final"`
+	NotaMinimaAprovacao     float64                          `json:"nota_minima_aprovacao"`
+	RegraAvaliacaoFinalID   *uuid.UUID                       `json:"regra_avaliacao_final_id,omitempty"`
+	FormulaSnapshot         string                           `json:"formula_snapshot,omitempty"`
+	AplicaSeReprovadoEmType *string                          `json:"aplica_se_reprovado_em_type,omitempty"`
+	SemestreAtualAvaliado   *int                             `json:"semestre_atual,omitempty"`
+	ProximoSemestreAtual    *int                             `json:"proximo_semestre_atual,omitempty"`
+	AnoSuperiorAntes        *string                          `json:"ano_superior_antes,omitempty"`
+	AnoSuperiorDepois       *string                          `json:"ano_superior_depois,omitempty"`
+	MotivoProgressao        *string                          `json:"motivo_progressao,omitempty"`
+	ResultadosMaterias      []ResultadoMateriaAvaliacaoFinal `json:"resultados_materias,omitempty"`
+	AprovadoComPendencia    bool                             `json:"aprovado_com_pendencia,omitempty"`
+	PendenciasGeradas       []MateriaPendenteGerada          `json:"pendencias_geradas,omitempty"`
+	RegisteredAt            time.Time                        `json:"registered_at"`
+}
+
+type ResultadoMateriaAvaliacaoFinal struct {
+	MateriaID             uuid.UUID  `json:"materia_id"`
+	NotaFinal             float64    `json:"nota_final"`
+	Aprovado              bool       `json:"aprovado"`
+	RegraAvaliacaoFinalID *uuid.UUID `json:"regra_avaliacao_final_id,omitempty"`
+	Type                  string     `json:"type"`
+	FormulaSnapshot       string     `json:"formula_snapshot"`
+	PendenciaPermitida    bool       `json:"pendencia_permitida"`
+}
+
+type MateriaPendenteGerada struct {
+	MateriaID uuid.UUID `json:"materia_id"`
+	CursoID   uuid.UUID `json:"curso_id"`
+	Nivel     string    `json:"nivel"`
+	Escopo    string    `json:"escopo"`
 }
 
 type AvaliacaoFinalSuperiorProgressao struct {
@@ -83,6 +103,9 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 	formulaSnapshot string,
 	aplicaSeReprovadoEmType *string,
 	motivoProgressao *string,
+	resultadosMaterias []ResultadoMateriaAvaliacaoFinal,
+	aprovadoComPendencia bool,
+	pendenciasGeradas []MateriaPendenteGerada,
 	progressaoSuperior ...AvaliacaoFinalSuperiorProgressao,
 ) error {
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
@@ -140,6 +163,9 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 		AnoSuperiorAntes:        progressao.AnoSuperiorAntes,
 		AnoSuperiorDepois:       progressao.AnoSuperiorDepois,
 		MotivoProgressao:        motivoProgressao,
+		ResultadosMaterias:      resultadosMaterias,
+		AprovadoComPendencia:    aprovadoComPendencia,
+		PendenciasGeradas:       pendenciasGeradas,
 		RegisteredAt:            time.Now(),
 	}
 	var event DomainEvent

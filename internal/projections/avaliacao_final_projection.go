@@ -67,6 +67,9 @@ func (p *AvaliacaoFinalProjection) Rebuild() error {
 	if _, err := p.client.DB().Exec(`DELETE FROM projection_avaliacao_final`); err != nil {
 		return fmt.Errorf("falha ao limpar projection_avaliacao_final: %w", err)
 	}
+	if _, err := p.client.DB().Exec(`DELETE FROM projection_materias_pendentes`); err != nil {
+		return fmt.Errorf("falha ao limpar projection_materias_pendentes: %w", err)
+	}
 	rows, err := p.client.DB().Query(`
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
@@ -121,6 +124,7 @@ func (p *AvaliacaoFinalProjection) handleAvaliacaoFinal(event db.Event) error {
 			aprovado, observacao, type, nota_final, nota_minima_aprovacao,
 			regra_avaliacao_final_id, formula_snapshot, aplica_se_reprovado_em_type,
 			semestre_atual, proximo_semestre_atual, ano_superior_antes, ano_superior_depois,
+			resultados_materias, aprovado_com_pendencia, pendencias_geradas,
 			registered_at, version
 		) VALUES (
 			uuid_generate_v4(), $1,
@@ -130,7 +134,8 @@ func (p *AvaliacaoFinalProjection) handleAvaliacaoFinal(event db.Event) error {
 			$8, $9, $10, $11, $12,
 			$13, $14, $15,
 			$16, $17, $18, $19,
-			CURRENT_TIMESTAMP, $20
+			$20, $21, $22,
+			CURRENT_TIMESTAMP, $23
 		)
 		ON CONFLICT (codigo_estudante, codigo_academia, ano_lectivo, tipo_ensino, ano_academico_atual, type)
 		DO NOTHING
@@ -142,13 +147,56 @@ func (p *AvaliacaoFinalProjection) handleAvaliacaoFinal(event db.Event) error {
 		payload.Aprovado, payload.Observacao, payload.Type, payload.NotaFinal, payload.NotaMinimaAprovacao,
 		payload.RegraAvaliacaoFinalID, payload.FormulaSnapshot, payload.AplicaSeReprovadoEmType,
 		payload.SemestreAtualAvaliado, payload.ProximoSemestreAtual, payload.AnoSuperiorAntes, payload.AnoSuperiorDepois,
+		toJSONRaw(payload.ResultadosMaterias), payload.AprovadoComPendencia, toJSONRaw(payload.PendenciasGeradas),
 		event.EventVersion,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert avaliacao_final: %w", err)
 	}
+	if payload.AprovadoComPendencia && len(payload.PendenciasGeradas) > 0 {
+		if err := p.registrarPendenciasGeradas(event.EventID, payload); err != nil {
+			return err
+		}
+	}
 	log.Printf("[avaliacao_final] Avaliação registrada — estudante=%s tipo=%s aprovado=%v",
 		payload.CodigoEstudante, payload.TipoEnsino, payload.Aprovado)
+	return nil
+}
+
+func (p *AvaliacaoFinalProjection) registrarPendenciasGeradas(eventID uuid.UUID, payload avaliacaoFinalPayload) error {
+	var pendencias []struct {
+		MateriaID uuid.UUID `json:"materia_id"`
+		CursoID   uuid.UUID `json:"curso_id"`
+		Nivel     string    `json:"nivel"`
+		Escopo    string    `json:"escopo"`
+	}
+	if err := json.Unmarshal(payload.PendenciasGeradas, &pendencias); err != nil {
+		return fmt.Errorf("parse pendencias_geradas: %w", err)
+	}
+	for _, pendencia := range pendencias {
+		var anoMedio, periodoSuperior *string
+		if pendencia.Nivel == "medio" {
+			anoMedio = &pendencia.Escopo
+		} else if pendencia.Nivel == "superior" {
+			periodoSuperior = &pendencia.Escopo
+		} else {
+			continue
+		}
+		_, err := p.client.DB().Exec(`
+			INSERT INTO projection_materias_pendentes (
+				codigo_estudante, materia_id, codigo_academia, curso_id, nivel,
+				ano_escolar_medio, periodo_superior, ano_lectivo,
+				regra_avaliacao_final_id, avaliacao_final_event_id, pendente,
+				dados_origem, criada_por_event_id
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,TRUE,$11,$10)
+			ON CONFLICT DO NOTHING`,
+			payload.CodigoEstudante, pendencia.MateriaID, payload.CodigoAcademia, pendencia.CursoID, pendencia.Nivel,
+			anoMedio, periodoSuperior, payload.AnoLectivo, payload.RegraAvaliacaoFinalID, eventID, payload.ResultadosMaterias,
+		)
+		if err != nil {
+			return fmt.Errorf("registrar matéria pendente: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -171,28 +219,34 @@ type avaliacaoFinalPayload struct {
 	ProximoSemestreAtual    *int
 	AnoSuperiorAntes        *string
 	AnoSuperiorDepois       *string
+	ResultadosMaterias      json.RawMessage
+	AprovadoComPendencia    bool
+	PendenciasGeradas       json.RawMessage
 }
 
 func parseAvaliacaoFinalPayload(raw json.RawMessage) (avaliacaoFinalPayload, error) {
 	var snake struct {
-		CodigoEstudante         string     `json:"codigo_estudante"`
-		CodigoAcademia          string     `json:"codigo_academia"`
-		AnoLectivo              string     `json:"ano_lectivo"`
-		TipoEnsino              string     `json:"tipo_ensino"`
-		AnoAcademicoAtual       string     `json:"nivel_ano_academico_atual"`
-		ProximoAnoAcademico     *string    `json:"proximo_ano_academico"`
-		Aprovado                bool       `json:"aprovado"`
-		Observacao              *string    `json:"observacao"`
-		Type                    string     `json:"type"`
-		NotaFinal               float64    `json:"nota_final"`
-		NotaMinimaAprovacao     float64    `json:"nota_minima_aprovacao"`
-		RegraAvaliacaoFinalID   *uuid.UUID `json:"regra_avaliacao_final_id"`
-		FormulaSnapshot         string     `json:"formula_snapshot"`
-		AplicaSeReprovadoEmType *string    `json:"aplica_se_reprovado_em_type"`
-		SemestreAtualAvaliado   *int       `json:"semestre_atual"`
-		ProximoSemestreAtual    *int       `json:"proximo_semestre_atual"`
-		AnoSuperiorAntes        *string    `json:"ano_superior_antes"`
-		AnoSuperiorDepois       *string    `json:"ano_superior_depois"`
+		CodigoEstudante         string          `json:"codigo_estudante"`
+		CodigoAcademia          string          `json:"codigo_academia"`
+		AnoLectivo              string          `json:"ano_lectivo"`
+		TipoEnsino              string          `json:"tipo_ensino"`
+		AnoAcademicoAtual       string          `json:"nivel_ano_academico_atual"`
+		ProximoAnoAcademico     *string         `json:"proximo_ano_academico"`
+		Aprovado                bool            `json:"aprovado"`
+		Observacao              *string         `json:"observacao"`
+		Type                    string          `json:"type"`
+		NotaFinal               float64         `json:"nota_final"`
+		NotaMinimaAprovacao     float64         `json:"nota_minima_aprovacao"`
+		RegraAvaliacaoFinalID   *uuid.UUID      `json:"regra_avaliacao_final_id"`
+		FormulaSnapshot         string          `json:"formula_snapshot"`
+		AplicaSeReprovadoEmType *string         `json:"aplica_se_reprovado_em_type"`
+		SemestreAtualAvaliado   *int            `json:"semestre_atual"`
+		ProximoSemestreAtual    *int            `json:"proximo_semestre_atual"`
+		AnoSuperiorAntes        *string         `json:"ano_superior_antes"`
+		AnoSuperiorDepois       *string         `json:"ano_superior_depois"`
+		ResultadosMaterias      json.RawMessage `json:"resultados_materias"`
+		AprovadoComPendencia    bool            `json:"aprovado_com_pendencia"`
+		PendenciasGeradas       json.RawMessage `json:"pendencias_geradas"`
 	}
 	if err := json.Unmarshal(raw, &snake); err != nil {
 		return avaliacaoFinalPayload{}, err
@@ -242,6 +296,9 @@ func parseAvaliacaoFinalPayload(raw json.RawMessage) (avaliacaoFinalPayload, err
 		ProximoSemestreAtual:    snake.ProximoSemestreAtual,
 		AnoSuperiorAntes:        snake.AnoSuperiorAntes,
 		AnoSuperiorDepois:       snake.AnoSuperiorDepois,
+		ResultadosMaterias:      snake.ResultadosMaterias,
+		AprovadoComPendencia:    snake.AprovadoComPendencia,
+		PendenciasGeradas:       snake.PendenciasGeradas,
 	}
 	if payload.ProximoAnoAcademico == nil {
 		payload.ProximoAnoAcademico = legacy.ProximoAnoAcademico
@@ -291,33 +348,47 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+func toJSONRaw(v any) json.RawMessage {
+	if v == nil {
+		return json.RawMessage(`[]`)
+	}
+	b, err := json.Marshal(v)
+	if err != nil || len(b) == 0 {
+		return json.RawMessage(`[]`)
+	}
+	return b
+}
+
 // ============================================================================
 // Queries de leitura
 // ============================================================================
 
 type AvaliacaoFinalDTO struct {
-	ID                      uuid.UUID  `json:"id"`
-	EventID                 uuid.UUID  `json:"event_id"`
-	CodigoEstudante         string     `json:"codigo_estudante"`
-	CodigoAcademia          string     `json:"codigo_academia"`
-	AnoLectivo              string     `json:"ano_lectivo"`
-	TipoEnsino              string     `json:"tipo_ensino"`
-	AnoAcademicoAtual       string     `json:"ano_academico_atual"`
-	ProximoAnoAcademico     *string    `json:"proximo_ano_academico,omitempty"`
-	Aprovado                bool       `json:"aprovado"`
-	Observacao              *string    `json:"observacao,omitempty"`
-	Type                    string     `json:"type"`
-	NotaFinal               *float64   `json:"nota_final,omitempty"`
-	NotaMinimaAprovacao     *float64   `json:"nota_minima_aprovacao,omitempty"`
-	RegraAvaliacaoFinalID   *uuid.UUID `json:"regra_avaliacao_final_id,omitempty"`
-	FormulaSnapshot         string     `json:"formula_snapshot,omitempty"`
-	AplicaSeReprovadoEmType *string    `json:"aplica_se_reprovado_em_type,omitempty"`
-	SemestreAtual           *int       `json:"semestre_atual,omitempty"`
-	ProximoSemestreAtual    *int       `json:"proximo_semestre_atual,omitempty"`
-	AnoSuperiorAntes        *string    `json:"ano_superior_antes,omitempty"`
-	AnoSuperiorDepois       *string    `json:"ano_superior_depois,omitempty"`
-	RegisteredAt            time.Time  `json:"registered_at"`
-	Version                 int        `json:"version"`
+	ID                      uuid.UUID       `json:"id"`
+	EventID                 uuid.UUID       `json:"event_id"`
+	CodigoEstudante         string          `json:"codigo_estudante"`
+	CodigoAcademia          string          `json:"codigo_academia"`
+	AnoLectivo              string          `json:"ano_lectivo"`
+	TipoEnsino              string          `json:"tipo_ensino"`
+	AnoAcademicoAtual       string          `json:"ano_academico_atual"`
+	ProximoAnoAcademico     *string         `json:"proximo_ano_academico,omitempty"`
+	Aprovado                bool            `json:"aprovado"`
+	Observacao              *string         `json:"observacao,omitempty"`
+	Type                    string          `json:"type"`
+	NotaFinal               *float64        `json:"nota_final,omitempty"`
+	NotaMinimaAprovacao     *float64        `json:"nota_minima_aprovacao,omitempty"`
+	RegraAvaliacaoFinalID   *uuid.UUID      `json:"regra_avaliacao_final_id,omitempty"`
+	FormulaSnapshot         string          `json:"formula_snapshot,omitempty"`
+	AplicaSeReprovadoEmType *string         `json:"aplica_se_reprovado_em_type,omitempty"`
+	SemestreAtual           *int            `json:"semestre_atual,omitempty"`
+	ProximoSemestreAtual    *int            `json:"proximo_semestre_atual,omitempty"`
+	AnoSuperiorAntes        *string         `json:"ano_superior_antes,omitempty"`
+	AnoSuperiorDepois       *string         `json:"ano_superior_depois,omitempty"`
+	ResultadosMaterias      json.RawMessage `json:"resultados_materias,omitempty"`
+	AprovadoComPendencia    bool            `json:"aprovado_com_pendencia"`
+	PendenciasGeradas       json.RawMessage `json:"pendencias_geradas,omitempty"`
+	RegisteredAt            time.Time       `json:"registered_at"`
+	Version                 int             `json:"version"`
 }
 
 type AvaliacaoFinalFilters struct {
@@ -331,7 +402,7 @@ type AvaliacaoFinalFilters struct {
 const avaliacaoFinalCols = `
 	id, event_id, codigo_estudante, codigo_academia,
 	ano_lectivo, tipo_ensino, ano_academico_atual, proximo_ano_academico,
-	aprovado, observacao, type, nota_final, nota_minima_aprovacao, regra_avaliacao_final_id, formula_snapshot, aplica_se_reprovado_em_type, semestre_atual, proximo_semestre_atual, ano_superior_antes, ano_superior_depois, registered_at, version
+	aprovado, observacao, type, nota_final, nota_minima_aprovacao, regra_avaliacao_final_id, formula_snapshot, aplica_se_reprovado_em_type, semestre_atual, proximo_semestre_atual, ano_superior_antes, ano_superior_depois, resultados_materias, aprovado_com_pendencia, pendencias_geradas, registered_at, version
 `
 
 func (p *AvaliacaoFinalProjection) ExistsByEstudanteAnoLetivoNivel(codigoEstudante, codigoAcademia, anoLectivo, tipoEnsino, anoAcademicoAtual string) (bool, error) {
@@ -547,7 +618,7 @@ func scanAvaliacoes(rows *sql.Rows) ([]AvaliacaoFinalDTO, error) {
 		if err := rows.Scan(
 			&dto.ID, &dto.EventID, &dto.CodigoEstudante, &dto.CodigoAcademia,
 			&dto.AnoLectivo, &dto.TipoEnsino, &dto.AnoAcademicoAtual, &dto.ProximoAnoAcademico,
-			&dto.Aprovado, &dto.Observacao, &dto.Type, &dto.NotaFinal, &dto.NotaMinimaAprovacao, &dto.RegraAvaliacaoFinalID, &dto.FormulaSnapshot, &dto.AplicaSeReprovadoEmType, &dto.SemestreAtual, &dto.ProximoSemestreAtual, &dto.AnoSuperiorAntes, &dto.AnoSuperiorDepois, &dto.RegisteredAt, &dto.Version,
+			&dto.Aprovado, &dto.Observacao, &dto.Type, &dto.NotaFinal, &dto.NotaMinimaAprovacao, &dto.RegraAvaliacaoFinalID, &dto.FormulaSnapshot, &dto.AplicaSeReprovadoEmType, &dto.SemestreAtual, &dto.ProximoSemestreAtual, &dto.AnoSuperiorAntes, &dto.AnoSuperiorDepois, &dto.ResultadosMaterias, &dto.AprovadoComPendencia, &dto.PendenciasGeradas, &dto.RegisteredAt, &dto.Version,
 		); err != nil {
 			continue
 		}
@@ -565,7 +636,7 @@ func (p *AvaliacaoFinalProjection) ExistsByEstudanteAnoLetivoNivelType(codigoEst
 func (p *AvaliacaoFinalProjection) GetResultadoByType(codigoEstudante, codigoAcademia, anoLectivo, tipoEnsino, anoAcademicoAtual, avaliacaoType string) (*AvaliacaoFinalDTO, error) {
 	row := p.client.DB().QueryRow(`SELECT `+avaliacaoFinalCols+` FROM projection_avaliacao_final WHERE codigo_estudante=$1 AND codigo_academia=$2 AND ano_lectivo=$3 AND tipo_ensino=$4 AND ano_academico_atual=$5 AND type=$6 ORDER BY registered_at DESC LIMIT 1`, codigoEstudante, codigoAcademia, anoLectivo, tipoEnsino, anoAcademicoAtual, avaliacaoType)
 	var dto AvaliacaoFinalDTO
-	if err := row.Scan(&dto.ID, &dto.EventID, &dto.CodigoEstudante, &dto.CodigoAcademia, &dto.AnoLectivo, &dto.TipoEnsino, &dto.AnoAcademicoAtual, &dto.ProximoAnoAcademico, &dto.Aprovado, &dto.Observacao, &dto.Type, &dto.NotaFinal, &dto.NotaMinimaAprovacao, &dto.RegraAvaliacaoFinalID, &dto.FormulaSnapshot, &dto.AplicaSeReprovadoEmType, &dto.RegisteredAt, &dto.Version); err != nil {
+	if err := row.Scan(&dto.ID, &dto.EventID, &dto.CodigoEstudante, &dto.CodigoAcademia, &dto.AnoLectivo, &dto.TipoEnsino, &dto.AnoAcademicoAtual, &dto.ProximoAnoAcademico, &dto.Aprovado, &dto.Observacao, &dto.Type, &dto.NotaFinal, &dto.NotaMinimaAprovacao, &dto.RegraAvaliacaoFinalID, &dto.FormulaSnapshot, &dto.AplicaSeReprovadoEmType, &dto.SemestreAtual, &dto.ProximoSemestreAtual, &dto.AnoSuperiorAntes, &dto.AnoSuperiorDepois, &dto.ResultadosMaterias, &dto.AprovadoComPendencia, &dto.PendenciasGeradas, &dto.RegisteredAt, &dto.Version); err != nil {
 		return nil, err
 	}
 	return &dto, nil

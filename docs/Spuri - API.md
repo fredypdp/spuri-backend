@@ -4881,3 +4881,15 @@ As respostas de regras expõem `nivel`, `materias_chave`, `materias_aplicaveis` 
 ### Matérias pendentes
 
 Foi introduzida a projeção persistente `projection_materias_pendentes` para armazenar pendências de nível médio e superior. Cada registro identifica estudante, matéria, academia, curso, nível, escopo letivo, regra/evento de origem, status `pendente` e metadados de auditoria. A tabela impede pendência aberta duplicada para o mesmo estudante, matéria, curso, nível, ano letivo e escopo acadêmico.
+
+## Atualização de debug — fechamento automático por matéria
+
+A revisão arquivo por arquivo do fluxo de avaliação final confirmou e completou a execução automática por matéria. Ao lançar uma nota, o backend agora resolve o escopo da regra ativa, carrega somente as matérias aplicáveis daquele estudante e calcula uma `nota_final` independente por `materia_id`.
+
+### Ajustes completados
+
+- O cálculo automático deixou de usar uma única massa de notas do estudante e passou a filtrar notas por `materia_disciplinar_id`.
+- O resultado da avaliação final inclui `resultados_materias`, com `materia_id`, `nota_final`, `aprovado`, `type`, `formula_snapshot`, `regra_avaliacao_final_id` e `pendencia_permitida`.
+- Em regras superiores, o período continua omitido no payload da fórmula e é preenchido por matéria usando o `periodo` cadastrado na própria matéria avaliada.
+- Para médio e superior, se todas as reprovações finais couberem em `limite_materias_pendentes` e todas as matérias reprovadas permitirem pendência, o evento é registrado como `aprovado=true` e `aprovado_com_pendencia=true`.
+- As pendências geradas no evento são projetadas em `projection_materias_pendentes` com proteção contra duplicidade aberta.
