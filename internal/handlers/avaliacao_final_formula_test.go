@@ -66,3 +66,22 @@ func TestFormulaSuperiorDeveConterPeriodoAtual(t *testing.T) {
 		t.Fatal("formula sem período atual deveria ser rejeitada")
 	}
 }
+
+func TestFormulaPorNivelSuperiorInferePeriodoENaoAceitaPeriodoExplicito(t *testing.T) {
+	formula := "([nota_pp1]+[nota_pp2])/2"
+	if _, _, err := validarFormulaAvaliacaoPorNivel("superior", formula, []string{"nota_pp1", "nota_pp2"}); err != nil {
+		t.Fatalf("formula superior sem período explícito deveria ser válida: %v", err)
+	}
+	if _, _, err := validarFormulaAvaliacaoPorNivel("superior", "[nota_pp1,1_semestre]", []string{"nota_pp1"}); err == nil || !strings.Contains(err.Error(), "periodo é inferido") {
+		t.Fatalf("formula superior com período explícito deveria ser rejeitada, err=%v", err)
+	}
+}
+
+func TestFormulaPorNivelFundamentalMedioExigePeriodoExplicito(t *testing.T) {
+	if _, _, err := validarFormulaAvaliacaoPorNivel("fundamental", "[nota_escola]", []string{"nota_escola"}); err == nil || !strings.Contains(err.Error(), "deve informar periodo") {
+		t.Fatalf("formula fundamental sem período deveria ser rejeitada, err=%v", err)
+	}
+	if _, _, err := validarFormulaAvaliacaoPorNivel("medio", "[nota_escola]", []string{"nota_escola"}); err == nil || !strings.Contains(err.Error(), "deve informar periodo") {
+		t.Fatalf("formula médio sem período deveria ser rejeitada, err=%v", err)
+	}
+}
