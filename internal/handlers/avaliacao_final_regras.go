@@ -111,7 +111,7 @@ func CriarRegraAvaliacaoFinal(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
-	formulaNormalizada, categoriasFormula, err := validarFormulaAvaliacao(req.Formula, req.CategoriasEnvolvidas)
+	formulaNormalizada, categoriasFormula, err := validarFormulaAvaliacaoPorNivel(req.Nivel, req.Formula, req.CategoriasEnvolvidas)
 	if err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -273,6 +273,16 @@ func EditarRegraAvaliacaoFinal(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("id inválido"))
 		return
 	}
+	body, _ := c.GetRawData()
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
+	if jsonCampoPresente(body, "tipo_ensino") {
+		utils.RespondWithValidationError(c, fmt.Errorf("campo legado tipo_ensino não é aceito; use nivel"))
+		return
+	}
+	if jsonCampoPresente(body, "nivel") || jsonCampoPresente(body, "anos_academicos") {
+		utils.RespondWithValidationError(c, fmt.Errorf("nivel e anos_academicos não podem ser alterados; crie uma nova regra para mudar o escopo"))
+		return
+	}
 	var req editarRegraAvaliacaoFinalDTO
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("campos obrigatórios: nome, nota_minima_aprovacao, formula"))
@@ -295,7 +305,7 @@ func EditarRegraAvaliacaoFinal(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("somente regras ativas podem ser editadas"))
 		return
 	}
-	formulaNormalizada, categoriasFormula, err := validarFormulaAvaliacao(req.Formula, req.CategoriasEnvolvidas)
+	formulaNormalizada, categoriasFormula, err := validarFormulaAvaliacaoPorNivel(regra.Nivel, req.Formula, req.CategoriasEnvolvidas)
 	if err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -784,9 +794,62 @@ func validarCategoriasRegraAvaliacaoFinal(c *gin.Context, codigoAcademia string,
 	return nil
 }
 
+func validarFormulaAvaliacaoPorNivel(nivel, formula string, categorias []string) (string, []string, error) {
+	ast, normalized, err := parseFormulaAvaliacao(formula)
+	if err != nil {
+		return "", nil, err
+	}
+	if err := validarPeriodosFormulaPorNivel(nivel, ast); err != nil {
+		return "", nil, err
+	}
+	extraidas := categoriasFormula(ast)
+	if len(categorias) == 0 {
+		allowed := map[string]bool{}
+		for _, c := range extraidas {
+			allowed[c] = true
+		}
+		if err := validarASTFormula(ast, allowed); err != nil {
+			return "", nil, err
+		}
+		return normalized, extraidas, nil
+	}
+	allowed := map[string]bool{}
+	for _, c := range categorias {
+		allowed[strings.TrimSpace(c)] = true
+	}
+	if err := validarASTFormula(ast, allowed); err != nil {
+		return "", nil, err
+	}
+	if !mesmasCategorias(categorias, extraidas) {
+		return "", nil, fmt.Errorf("categorias_envolvidas deve corresponder exatamente às categorias referenciadas na formula")
+	}
+	return normalized, extraidas, nil
+}
+
+func validarPeriodosFormulaPorNivel(nivel string, n *formulaAST) error {
+	if n == nil {
+		return nil
+	}
+	if n.Kind == formulaASTReference {
+		if nivel == "superior" && n.Periodo != "" {
+			return fmt.Errorf("formula de nivel superior deve referenciar apenas [categoria]; o periodo é inferido pela matéria avaliada")
+		}
+		if nivel != "superior" && n.Periodo == "" {
+			return fmt.Errorf("formula de nivel %s deve informar periodo em cada referência, no formato [categoria,periodo]", nivel)
+		}
+	}
+	if err := validarPeriodosFormulaPorNivel(nivel, n.Left); err != nil {
+		return err
+	}
+	return validarPeriodosFormulaPorNivel(nivel, n.Right)
+}
+
 func validarFormulaAvaliacao(formula string, categorias []string) (string, []string, error) {
 	ast, normalized, err := parseFormulaAvaliacao(formula)
 	if err != nil {
+		return "", nil, err
+	}
+	if err := validarPeriodosFormulaPorNivel("fundamental", ast); err != nil {
 		return "", nil, err
 	}
 	extraidas := categoriasFormula(ast)
