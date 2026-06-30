@@ -231,6 +231,9 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		formulaExecucao,
 		regra.AplicaSeReprovadoEmType,
 		motivoProgressao,
+		nil,
+		false,
+		nil,
 		aggregates.AvaliacaoFinalSuperiorProgressao{
 			SemestreAtualAvaliado: semestreAvaliado,
 			ProximoSemestreAtual:  proximoSemestre,
@@ -278,6 +281,7 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 }
 
 type notaFormulaOverlay struct {
+	MateriaID string
 	Categoria string
 	Periodo   string
 	Nota      float64
@@ -456,24 +460,19 @@ func executarRegraAvaliacaoFinalAutomatica(
 	overlay *notaFormulaOverlay,
 ) (gin.H, bool, error) {
 	formulaExecucao := regra.Formula
-	if tipoEnsino == "superior" {
-		formulaExecucao = preencherPeriodoFormulaSuperior(regra.Formula, anoAcademicoAtual)
-	}
-	notasFormula, err := carregarNotasFormula(c, estudanteDTO.CodigoEstudante, codigoAcademia, anoLectivo, regra.CategoriasEnvolvidas)
+	materiasAplicaveis, err := materiasAplicaveisAvaliacaoFinal(c, codigoAcademia, tipoEnsino, anoAcademicoAtual, regra, estudanteDTO)
 	if err != nil {
 		return nil, false, err
 	}
-	if overlay != nil {
-		if notasFormula[overlay.Categoria] == nil {
-			notasFormula[overlay.Categoria] = map[string][]float64{}
-		}
-		notasFormula[overlay.Categoria][overlay.Periodo] = append(notasFormula[overlay.Categoria][overlay.Periodo], overlay.Nota)
+	if len(materiasAplicaveis) == 0 {
+		return nil, false, fmt.Errorf("nenhuma matéria aplicável encontrada para avaliação final")
 	}
-	notaFinal, err := calcularFormulaAvaliacao(formulaExecucao, notasFormula)
+	resultadosMaterias, notaFinal, aprovado, aprovadoComPendencia, pendenciasGeradas, err := calcularResultadoMateriasAvaliacaoFinal(
+		c, estudanteDTO.CodigoEstudante, codigoAcademia, anoLectivo, tipoEnsino, anoAcademicoAtual, regra, materiasAplicaveis, overlay,
+	)
 	if err != nil {
 		return nil, false, err
 	}
-	aprovado := notaFinal >= regra.NotaMinimaAprovacao
 
 	var cursoMedioUUID, cursoSuperiorUUID *uuid.UUID
 	if estudanteDTO.CursoMedioID != nil {
@@ -541,6 +540,9 @@ func executarRegraAvaliacaoFinalAutomatica(
 		formulaExecucao,
 		regra.AplicaSeReprovadoEmType,
 		motivoProgressao,
+		resultadosMaterias,
+		aprovadoComPendencia,
+		pendenciasGeradas,
 		aggregates.AvaliacaoFinalSuperiorProgressao{
 			SemestreAtualAvaliado: semestreAvaliado,
 			ProximoSemestreAtual:  proximoSemestre,
@@ -555,17 +557,136 @@ func executarRegraAvaliacaoFinalAutomatica(
 	}
 
 	resultado := gin.H{
-		"type":                  regra.Type,
-		"aprovado":              aprovado,
-		"nota_final":            notaFinal,
-		"nota_minima_aprovacao": regra.NotaMinimaAprovacao,
-		"proximo_ano_academico": proximoAnoAcademico,
+		"type":                   regra.Type,
+		"aprovado":               aprovado,
+		"nota_final":             notaFinal,
+		"nota_minima_aprovacao":  regra.NotaMinimaAprovacao,
+		"proximo_ano_academico":  proximoAnoAcademico,
+		"resultados_materias":    resultadosMaterias,
+		"aprovado_com_pendencia": aprovadoComPendencia,
+		"pendencias_geradas":     pendenciasGeradas,
 	}
 	if motivoProgressao != nil {
 		resultado["motivo_progressao"] = *motivoProgressao
 		resultado["sem_oferta_do_proximo_ano_academico_na_academia"] = true
 	}
 	return resultado, true, nil
+}
+
+func materiasAplicaveisAvaliacaoFinal(c *gin.Context, codigoAcademia, tipoEnsino, anoAcademicoAtual string, regra regraAvaliacaoFinalDTO, estudanteDTO *projections.EstudanteDTO) ([]projections.MateriaDTO, error) {
+	todas, err := getMateriasProjection(c).GetByAcademia(codigoAcademia)
+	if err != nil {
+		return nil, err
+	}
+	idsFiltro := map[string]bool{}
+	for _, id := range regra.MateriasAplicaveis {
+		idsFiltro[id.String()] = true
+	}
+	if regra.Nivel == "medio" && regra.AplicaSeReprovadoEmType == nil {
+		for _, id := range regra.MateriasChave {
+			idsFiltro[id.String()] = true
+		}
+	}
+	var cursoID *string
+	if tipoEnsino == "medio" {
+		cursoID = estudanteDTO.CursoMedioID
+	} else if tipoEnsino == "superior" {
+		cursoID = estudanteDTO.CursoSuperiorID
+	}
+	out := []projections.MateriaDTO{}
+	for _, m := range todas {
+		if m.Status != "ativo" || m.Type != tipoEnsino {
+			continue
+		}
+		if len(idsFiltro) > 0 && !idsFiltro[m.ID.String()] {
+			continue
+		}
+		if tipoEnsino == "fundamental" {
+			if containsString(m.AnosAcademicos, anoAcademicoAtual) {
+				out = append(out, m)
+			}
+			continue
+		}
+		if cursoID == nil || m.CursoID == nil || m.CursoID.String() != *cursoID {
+			continue
+		}
+		if tipoEnsino == "medio" && containsString(m.AnosAcademicos, anoAcademicoAtual) {
+			out = append(out, m)
+		}
+		if tipoEnsino == "superior" && m.Periodo != nil && *m.Periodo == anoAcademicoAtual {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
+func calcularResultadoMateriasAvaliacaoFinal(
+	c *gin.Context,
+	codigoEstudante, codigoAcademia, anoLectivo, tipoEnsino, anoAcademicoAtual string,
+	regra regraAvaliacaoFinalDTO,
+	materias []projections.MateriaDTO,
+	overlay *notaFormulaOverlay,
+) ([]aggregates.ResultadoMateriaAvaliacaoFinal, float64, bool, bool, []aggregates.MateriaPendenteGerada, error) {
+	resultados := make([]aggregates.ResultadoMateriaAvaliacaoFinal, 0, len(materias))
+	var soma float64
+	reprovadasPendenciaveis := []projections.MateriaDTO{}
+	for _, materia := range materias {
+		formulaExecucao := regra.Formula
+		if tipoEnsino == "superior" {
+			if materia.Periodo == nil || *materia.Periodo == "" {
+				return nil, 0, false, false, nil, fmt.Errorf("matéria superior %s sem período definido", materia.ID)
+			}
+			formulaExecucao = preencherPeriodoFormulaSuperior(regra.Formula, *materia.Periodo)
+		}
+		notasFormula, err := carregarNotasFormulaMateria(c, codigoEstudante, codigoAcademia, anoLectivo, materia.ID, regra.CategoriasEnvolvidas)
+		if err != nil {
+			return nil, 0, false, false, nil, err
+		}
+		if overlay != nil && overlay.MateriaID == materia.ID.String() {
+			if notasFormula[overlay.Categoria] == nil {
+				notasFormula[overlay.Categoria] = map[string][]float64{}
+			}
+			notasFormula[overlay.Categoria][overlay.Periodo] = append(notasFormula[overlay.Categoria][overlay.Periodo], overlay.Nota)
+		}
+		nota, err := calcularFormulaAvaliacao(formulaExecucao, notasFormula)
+		if err != nil {
+			return nil, 0, false, false, nil, fmt.Errorf("matéria %s: %w", materia.ID, err)
+		}
+		aprovada := nota >= regra.NotaMinimaAprovacao
+		if !aprovada && materia.PendenciaPermitida {
+			reprovadasPendenciaveis = append(reprovadasPendenciaveis, materia)
+		}
+		soma += nota
+		resultados = append(resultados, aggregates.ResultadoMateriaAvaliacaoFinal{
+			MateriaID:             materia.ID,
+			NotaFinal:             nota,
+			Aprovado:              aprovada,
+			RegraAvaliacaoFinalID: &regra.ID,
+			Type:                  regra.Type,
+			FormulaSnapshot:       formulaExecucao,
+			PendenciaPermitida:    materia.PendenciaPermitida,
+		})
+	}
+	aprovado := true
+	reprovadas := 0
+	for _, r := range resultados {
+		if !r.Aprovado {
+			aprovado = false
+			reprovadas++
+		}
+	}
+	aprovadoComPendencia := false
+	pendencias := []aggregates.MateriaPendenteGerada{}
+	if !aprovado && tipoEnsino != "fundamental" && regra.LimiteMateriasPendentes != nil && reprovadas <= *regra.LimiteMateriasPendentes && reprovadas == len(reprovadasPendenciaveis) {
+		aprovado = true
+		aprovadoComPendencia = true
+		for _, m := range reprovadasPendenciaveis {
+			if m.CursoID != nil {
+				pendencias = append(pendencias, aggregates.MateriaPendenteGerada{MateriaID: m.ID, CursoID: *m.CursoID, Nivel: tipoEnsino, Escopo: anoAcademicoAtual})
+			}
+		}
+	}
+	return resultados, soma / float64(len(resultados)), aprovado, aprovadoComPendencia, pendencias, nil
 }
 
 func inferirTipoEnsinoDoEstudante(estudante *projections.EstudanteDTO) string {

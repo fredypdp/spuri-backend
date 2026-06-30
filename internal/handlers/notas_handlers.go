@@ -202,7 +202,7 @@ func RegistrarNota(c *gin.Context) {
 		tipoEnsino,
 		anoAcademico,
 		req.Categoria,
-		&notaFormulaOverlay{Categoria: req.Categoria, Periodo: req.Periodo, Nota: req.Nota},
+		&notaFormulaOverlay{MateriaID: materiaID.String(), Categoria: req.Categoria, Periodo: req.Periodo, Nota: req.Nota},
 	)
 	if err != nil {
 		utils.RespondWithInternalError(c, fmt.Errorf("erro ao avaliar automaticamente avaliação final: %w", err))
