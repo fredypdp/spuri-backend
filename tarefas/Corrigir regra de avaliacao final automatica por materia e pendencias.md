@@ -119,8 +119,8 @@ Como ainda não existem regras criadas em produção por academias, não deve ha
 
 ### `pendencia_permitida`
 
-- Matérias com `pendencia_permitida=true` podem gerar pendência quando o estudante não atinge a nota mínima após esgotar a cadeia de avaliação final.
-- Matérias com `pendencia_permitida=false` devem reprovar o estudante normalmente se a nota mínima não for atingida.
+- Matérias com `pendencia_permitida=true` podem gerar pendência quando o estudante não atinge a nota mínima após esgotar a cadeia de avaliação final, desde que o estudante ainda esteja dentro do `limite_materias_pendentes` da regra aplicável.
+- Matérias com `pendencia_permitida=false` devem reprovar o estudante normalmente se a nota mínima não for atingida e não devem gerar pendência.
 - O backend deve respeitar o campo da matéria no momento do cálculo e registrar o snapshot necessário no evento.
 
 ### `limite_materias_pendentes`
@@ -128,9 +128,9 @@ Como ainda não existem regras criadas em produção por academias, não deve ha
 - Toda regra de `nivel='medio'` ou `nivel='superior'` deve ter o campo inteiro `limite_materias_pendentes`.
 - `limite_materias_pendentes` representa o número máximo de matérias em que o estudante pode ficar abaixo da nota mínima e ainda assim ser aprovado/progredir com pendência.
 - O limite deve ser aplicado ao resultado final da última regra da cadeia aplicável.
-- Se o número de matérias abaixo da nota mínima for menor ou igual ao limite e todas permitirem pendência, o estudante pode aprovar com pendência.
-- Se o número de matérias abaixo da nota mínima for maior que o limite, o estudante deve reprovar, mas as pendências devem ser criadas para todas as matérias elegíveis conforme a regra de negócio.
-- O limite não deve contar matérias que não permitem pendência como elegíveis para aprovação com pendência.
+- Se o número de matérias abaixo da nota mínima for menor ou igual ao limite e todas permitirem pendência, o estudante pode aprovar com pendência, e somente nesse caso o sistema deve criar registros de matérias pendentes para essas matérias.
+- Se o número de matérias abaixo da nota mínima for maior que o limite, o estudante deve reprovar totalmente, sem aprovação com pendência e sem criação de registros de matérias pendentes para essa avaliação.
+- Matérias que não permitem pendência nunca são elegíveis para aprovação com pendência; se qualquer matéria abaixo da nota mínima tiver `pendencia_permitida=false`, o estudante deve reprovar totalmente, sem criação de pendências para essa avaliação.
 - Valores negativos devem ser rejeitados.
 - Ausência do campo em `nivel='medio'` ou `nivel='superior'` deve falhar na criação/edição da regra.
 
@@ -265,9 +265,9 @@ Atualizar a documentação do sistema e da API para explicar:
 - Regra superior calcula `nota_final` por matéria disciplinar do curso/período do estudante.
 - Evento de avaliação final registra todas as matérias avaliadas com `materia_id` e `nota_final`.
 - Regra descendente executa apenas para matérias reprovadas e configuradas no seu escopo.
-- Pendências são criadas apenas para médio/superior e apenas depois de esgotar a cadeia aplicável.
-- `limite_materias_pendentes` controla corretamente aprovação com pendência.
-- Matéria sem `pendencia_permitida` reprova o estudante quando fica abaixo da nota mínima.
+- Pendências são criadas apenas para médio/superior, apenas depois de esgotar a cadeia aplicável e apenas quando o estudante puder aprovar com pendência dentro do limite configurado.
+- `limite_materias_pendentes` controla corretamente aprovação com pendência e reprovação total quando o número de matérias abaixo da mínima ultrapassa o limite.
+- Matéria sem `pendencia_permitida` reprova totalmente o estudante quando fica abaixo da nota mínima e não gera pendência.
 - Pendência bloqueante por `pendencia_nivel_conclusao` impede progressão ou conclusão automática.
 - Avaliação de matéria pendente baixa `pendente` para `false` quando aprovada.
 - Quando não restam pendências abertas, o sistema retoma automaticamente a progressão ou conclusão adequada.
@@ -282,8 +282,8 @@ Atualizar a documentação do sistema e da API para explicar:
 - Testes de avaliação automática média com `materias_chave`.
 - Testes de avaliação automática superior com período inferido pela matéria.
 - Testes de cadeia descendente por matéria.
-- Testes de pendência permitida e não permitida.
-- Testes de `limite_materias_pendentes` com limite zero, dentro do limite e acima do limite.
+- Testes de pendência permitida e não permitida, garantindo que pendências só são criadas quando há aprovação com pendência.
+- Testes de `limite_materias_pendentes` com limite zero, dentro do limite e acima do limite, garantindo reprovação total sem criação de pendências quando o limite for ultrapassado.
 - Testes de bloqueio por `pendencia_nivel_conclusao`.
 - Testes de avaliação e baixa de matérias pendentes.
 - Testes de idempotência para avaliação final e pendências abertas.
