@@ -2882,6 +2882,7 @@ Cria uma nova matéria disciplinar.
   "type": "superior",
   "anos_academicos": ["1_ano_superior"],
   "curso_id": "uuid",  // obrigatório para medio e superior
+  "periodo": "1_semestre",  // obrigatório para superior e deve existir nos períodos do curso
   "pendencia_permitida": true,
   "pendencia_nivel_conclusao": "2_semestre"
 }
@@ -2899,19 +2900,20 @@ Cria uma nova matéria disciplinar.
     "status": "inativo",
     "pendencia_permitida": true,
     "pendencia_nivel_conclusao": "2_semestre",
-    "proximo_passo": "defina o periodo via PUT /academia/materias/uuid/periodo antes de ativar"
+    "periodo": "1_semestre"
   }
 }
 ```
 
 **Notas:**
 
-- Matérias `superior` nascem **inativas** e exigem período antes de ativar
+- Matérias `superior` nascem **inativas**, exigem `periodo` no `POST /academia/materia` e não permitem edição posterior do período
 - `pendencia_permitida` é um booleano disponível apenas para matérias `medio` ou `superior`; quando `true`, indica que o estudante pode avançar com essa matéria pendente para aprovação futura antes de concluir o ciclo
 - `pendencia_nivel_conclusao` é uma string disponível apenas para matérias `medio` ou `superior`; deve ser um ano acadêmico médio (`N_ano_medio`) ou semestre superior (`N_semestre`) válido do curso e define o último nível em que o estudante poderá chegar com pendências desta matéria
 - `curso_id` obrigatório para `medio` e `superior`
 - Para `fundamental`: `anos_academicos` com 1 a 9 itens no formato correto
 - Para `medio`/`superior`: exatamente 1 item no formato correto
+- `periodo` não é aceito em `PUT /academia/materia/:id/dados`; para matérias superiores ele deve ser escolhido somente na criação
 
 ---
 
@@ -2988,40 +2990,9 @@ Desativa uma matéria ativa.
 
 ---
 
-### PUT /academia/materia/:id/periodo
-
-Define o período de uma matéria do tipo `superior`. Pré-requisito para ativar a matéria.
-
-**Proteção**: autenticado + academia ativa
-
-**Request:**
-
-```json
-{
-  "periodo": "1_semestre"  // deve existir nos períodos do curso vinculado
-}
-```
-
-**Response 200:**
-
-```json
-{
-  "message": "periodo definido com sucesso",
-  "nome": "string",
-  "periodo": "1_semestre"
-}
-```
-
-**Erros:**
-
-- `400` — matéria não é do tipo superior
-- `400` — período não pertence ao curso vinculado
-
----
-
 ### PUT /academia/materia/:id/dados
 
-Atualiza os dados de uma matéria, incluindo os campos `pendencia_permitida` e `pendencia_nivel_conclusao`.
+Atualiza os dados cadastrais de uma matéria, incluindo os campos `pendencia_permitida` e `pendencia_nivel_conclusao`. O campo `periodo` não pode ser editado.
 
 **Proteção**: autenticado + academia ativa
 
@@ -3048,6 +3019,7 @@ Atualiza os dados de uma matéria, incluindo os campos `pendencia_permitida` e `
 
 **Erros:**
 
+- `400` — `periodo` informado na edição; o período só pode ser definido no `POST /academia/materia`
 - `400` — `pendencia_permitida` informado para matéria do tipo `fundamental`
 - `400` — `pendencia_nivel_conclusao` informado para matéria do tipo `fundamental`
 - `400` — `pendencia_nivel_conclusao` não corresponde a um ano acadêmico médio (`N_ano_medio`) ou semestre superior (`N_semestre`) válido do curso
@@ -4703,7 +4675,6 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 |`DELETE /academia/curso/async`|igual ao `DELETE /academia/curso/:id` (`id` vai no item)|`202` (job criado)|500|
 |`PUT /academia/materia/ativar/async`|igual ao `PUT /academia/materia/:id/ativar` (`id` vai no item)|`202` (job criado)|1000|
 |`PUT /academia/materia/desativar/async`|igual ao `PUT /academia/materia/:id/desativar` (`id` vai no item)|`202` (job criado)|1000|
-|`PUT /academia/materia/periodo/async`|igual ao `PUT /academia/materia/:id/periodo` (`id` vai no item)|`202` (job criado)|1000|
 |`PUT /academia/materia/dados/async`|igual ao `PUT /academia/materia/:id/dados` (`id` vai no item)|`202` (job criado)|1000|
 |`DELETE /academia/materia/async`|igual ao `DELETE /academia/materia/:id` (`id` vai no item)|`202` (job criado)|1000|
 |`PUT /academia/turma/ativar/async`|igual ao `PUT /academia/turma/:codigo/ativar` (`codigo_turma` vai no item)|`202` (job criado)|500|

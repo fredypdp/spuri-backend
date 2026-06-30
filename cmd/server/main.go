@@ -182,7 +182,6 @@ func initJobs(ctx context.Context) {
 	jobWorker.RegisterHandler(jobs.JobTypeDeletarCursoBatch, handlers.DeletarCursoJobItem)
 	jobWorker.RegisterHandler(jobs.JobTypeAtivarMateriaBatch, handlers.AtivarMateriaJobItem)
 	jobWorker.RegisterHandler(jobs.JobTypeDesativarMateriaBatch, handlers.DesativarMateriaJobItem)
-	jobWorker.RegisterHandler(jobs.JobTypeDefinirPeriodoMateriaBatch, handlers.DefinirPeriodoMateriaJobItem)
 	jobWorker.RegisterHandler(jobs.JobTypeAtualizarDadosMateriaBatch, handlers.AtualizarDadosMateriaJobItem)
 	jobWorker.RegisterHandler(jobs.JobTypeDeletarMateriaBatch, handlers.DeletarMateriaJobItem)
 	jobWorker.RegisterHandler(jobs.JobTypeAtivarTurmaBatch, handlers.AtivarTurmaJobItem)
@@ -375,7 +374,6 @@ func setupRouter() *gin.Engine {
 		academia.POST("/materia", handlers.CriarMateria)
 		academia.PUT("/materia/:id/ativar", handlers.AtivarMateria)
 		academia.PUT("/materia/:id/desativar", handlers.DesativarMateria)
-		academia.PUT("/materia/:id/periodo", handlers.DefinirPeriodoMateria)
 		academia.PUT("/materia/:id/dados", handlers.AtualizarDadosMateria)
 		academia.DELETE("/materia/:id", handlers.DeletarMateria)
 
@@ -409,7 +407,6 @@ func setupRouter() *gin.Engine {
 		academia.DELETE("/curso/async", handlers.DeletarCursoBatchAsync)
 		academia.PUT("/materia/ativar/async", handlers.AtivarMateriaBatchAsync)
 		academia.PUT("/materia/desativar/async", handlers.DesativarMateriaBatchAsync)
-		academia.PUT("/materia/periodo/async", handlers.DefinirPeriodoMateriaBatchAsync)
 		academia.PUT("/materia/dados/async", handlers.AtualizarDadosMateriaBatchAsync)
 		academia.DELETE("/materia/async", handlers.DeletarMateriaBatchAsync)
 		academia.PUT("/turma/ativar/async", handlers.AtivarTurmaBatchAsync)

@@ -45,7 +45,6 @@ const (
 	JobTypeDeletarCursoBatch            JobType = "deletar_curso_batch"
 	JobTypeAtivarMateriaBatch           JobType = "ativar_materia_batch"
 	JobTypeDesativarMateriaBatch        JobType = "desativar_materia_batch"
-	JobTypeDefinirPeriodoMateriaBatch   JobType = "definir_periodo_materia_batch"
 	JobTypeAtualizarDadosMateriaBatch   JobType = "atualizar_dados_materia_batch"
 	JobTypeDeletarMateriaBatch          JobType = "deletar_materia_batch"
 	JobTypeAtivarTurmaBatch             JobType = "ativar_turma_batch"
