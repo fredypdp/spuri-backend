@@ -266,7 +266,7 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 
 	response := gin.H{
 		"message":               "avaliação final registrada com sucesso",
-		"tipo_ensino":           tipoEnsino,
+		"nivel":                 tipoEnsino,
 		"type":                  req.Type,
 		"nota_final":            notaFinal,
 		"nota_minima_aprovacao": regra.NotaMinimaAprovacao,
@@ -582,11 +582,6 @@ func materiasAplicaveisAvaliacaoFinal(c *gin.Context, codigoAcademia, tipoEnsino
 	for _, id := range regra.MateriasAplicaveis {
 		idsFiltro[id.String()] = true
 	}
-	if regra.Nivel == "medio" && regra.AplicaSeReprovadoEmType == nil {
-		for _, id := range regra.MateriasChave {
-			idsFiltro[id.String()] = true
-		}
-	}
 	var cursoID *string
 	if tipoEnsino == "medio" {
 		cursoID = estudanteDTO.CursoMedioID
@@ -669,10 +664,18 @@ func calcularResultadoMateriasAvaliacaoFinal(
 	}
 	aprovado := true
 	reprovadas := 0
+	materiasChave := map[uuid.UUID]bool{}
+	if tipoEnsino == "medio" && regra.AplicaSeReprovadoEmType == nil {
+		for _, id := range regra.MateriasChave {
+			materiasChave[id] = true
+		}
+	}
 	for _, r := range resultados {
 		if !r.Aprovado {
-			aprovado = false
 			reprovadas++
+			if tipoEnsino != "medio" || regra.AplicaSeReprovadoEmType != nil || materiasChave[r.MateriaID] {
+				aprovado = false
+			}
 		}
 	}
 	aprovadoComPendencia := false
@@ -705,8 +708,8 @@ func inferirTipoEnsinoDoEstudante(estudante *projections.EstudanteDTO) string {
 // ============================================================================
 // GET /avaliacoes
 // Estudante → suas avaliações
-// Academia  → todas da academia (?tipo_ensino=fundamental|medio|superior)
-// Admin     → todas do sistema  (?tipo_ensino=...)
+// Academia  → todas da academia (?nivel=fundamental|medio|superior)
+// Admin     → todas do sistema  (?nivel=...)
 // ============================================================================
 
 func ListarAvaliacoes(c *gin.Context) {
@@ -944,7 +947,7 @@ func ListarReprovacoes(c *gin.Context) {
 }
 
 type filtrosAvaliacaoFinal struct {
-	TipoEnsino        *string
+	Nivel             *string
 	AnoLectivo        *string
 	AnoAcademicoAtual *string
 	CodigoTurma       *string
@@ -961,18 +964,21 @@ func parseFiltrosAvaliacaoFinal(c *gin.Context) (filtrosAvaliacaoFinal, error) {
 		return &value
 	}
 	f := filtrosAvaliacaoFinal{
-		TipoEnsino:        parse("tipo_ensino"),
+		Nivel:             parse("nivel"),
 		AnoLectivo:        parse("ano_letivo"),
 		AnoAcademicoAtual: parse("ano_academico_atual"),
 		CodigoTurma:       parse("codigo_turma"),
 		CodigoAcademia:    parse("codigo_academia"),
 		Type:              parse("type"),
 	}
-	if f.TipoEnsino != nil {
-		switch *f.TipoEnsino {
+	if parse("tipo_ensino") != nil {
+		return f, fmt.Errorf("campo legado tipo_ensino não é aceito; use nivel")
+	}
+	if f.Nivel != nil {
+		switch *f.Nivel {
 		case "fundamental", "medio", "superior":
 		default:
-			return f, fmt.Errorf("tipo_ensino deve ser: fundamental, medio ou superior")
+			return f, fmt.Errorf("nivel deve ser: fundamental, medio ou superior")
 		}
 	}
 	return f, nil
@@ -980,7 +986,7 @@ func parseFiltrosAvaliacaoFinal(c *gin.Context) (filtrosAvaliacaoFinal, error) {
 
 func (f filtrosAvaliacaoFinal) toProjectionFilters() projections.AvaliacaoFinalFilters {
 	return projections.AvaliacaoFinalFilters{
-		TipoEnsino:        f.TipoEnsino,
+		TipoEnsino:        f.Nivel,
 		AnoLectivo:        f.AnoLectivo,
 		AnoAcademicoAtual: f.AnoAcademicoAtual,
 		CodigoTurma:       f.CodigoTurma,
@@ -991,7 +997,7 @@ func (f filtrosAvaliacaoFinal) toProjectionFilters() projections.AvaliacaoFinalF
 func filtrarAvaliacoesMemoria(in []projections.AvaliacaoFinalDTO, f filtrosAvaliacaoFinal) []projections.AvaliacaoFinalDTO {
 	out := make([]projections.AvaliacaoFinalDTO, 0, len(in))
 	for _, a := range in {
-		if f.TipoEnsino != nil && a.TipoEnsino != *f.TipoEnsino {
+		if f.Nivel != nil && a.TipoEnsino != *f.Nivel {
 			continue
 		}
 		if f.AnoLectivo != nil && a.AnoLectivo != *f.AnoLectivo {

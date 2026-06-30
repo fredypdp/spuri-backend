@@ -10,7 +10,7 @@ func TestParseAvaliacaoFinalPayloadSnakeCase(t *testing.T) {
 		"codigo_estudante":"EST1234",
 		"codigo_academia":"ACA_01",
 		"ano_lectivo":"2025_2026",
-		"tipo_ensino":"fundamental",
+		"nivel":"fundamental",
 		"nivel_ano_academico_atual":"2_ano_fundamental",
 		"proximo_ano_academico":"3_ano_fundamental",
 		"aprovado":true,
