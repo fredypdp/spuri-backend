@@ -253,8 +253,8 @@ func combinarAnos(atuais, entrada []string, op string) []string {
 }
 
 func validarSequenciaAnosMedio(anos []string) error {
-	if len(anos) == 0 {
-		return fmt.Errorf("curso médio deve ter pelo menos um ano acadêmico")
+	if err := utils.ValidateAnosCurso("medio", anos); err != nil {
+		return err
 	}
 	for i, ano := range anos {
 		numero, sufixo, ok := strings.Cut(ano, "_")

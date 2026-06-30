@@ -72,6 +72,7 @@ func TestPrepararDadosCursoMedioRejeitaAnosForaDeSequencia(t *testing.T) {
 		{"2_ano_medio", "3_ano_medio"},
 		{"1_ano_medio", "3_ano_medio"},
 		{"2_ano_medio", "1_ano_medio"},
+		{"1_ano_medio", "1_ano_medio"},
 	} {
 		_, _, err := prepararDadosCursoPorTipo("medio", cursoPayload{
 			AnosInformado:  true,
@@ -111,6 +112,7 @@ func TestValidarSequenciaAnosMedioExigePrefixoContinuo(t *testing.T) {
 		{"2_ano_medio", "3_ano_medio"},
 		{"1_ano_medio", "3_ano_medio"},
 		{"2_ano_medio", "1_ano_medio"},
+		{"1_ano_medio", "1_ano_medio"},
 		{},
 	} {
 		if err := validarSequenciaAnosMedio(anos); err == nil {
