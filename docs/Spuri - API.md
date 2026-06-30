@@ -2003,6 +2003,34 @@ Cadastra um novo estudante vinculado à academia autenticada. O cadastro direto 
 
 Quando enviados, todos os ficheiros devem ter `Content-Type: application/pdf`, extensão `.pdf`, assinatura `%PDF` e tamanho máximo de 5MB. Os documentos são armazenados em `{codigo_academia}/estudantes/{codigo_estudante}/documentos/` e gravados no evento `EstudanteCriadoComVinculo` e na projeção do estudante como `documentos.<campo>.path`, `documentos.<campo>.file_url` e `documentos.<campo>.download_url`. Se a criação falhar após upload parcial, o backend remove o diretório definitivo do estudante para evitar ficheiros órfãos.
 
+**Request — multipart/form-data (sem documentos):**
+
+```text
+nome=João Silva
+genero=masculino
+data_nascimento=2010-05-20
+telefone=923000000
+telefone_responsavel=924000000
+bilhete_identidade=001234567LA089
+bilhete_identidade_responsavel=009876543LA089
+ano_escolar_fundamental=7_ano_fundamental
+```
+
+**Request — multipart/form-data (com documentos opcionais):**
+
+```text
+nome=João Silva
+genero=masculino
+data_nascimento=2010-05-20
+telefone=923000000
+telefone_responsavel=924000000
+bilhete_identidade=001234567LA089
+bilhete_identidade_responsavel=009876543LA089
+ano_escolar_fundamental=7_ano_fundamental
+bi_estudante=@./bi_estudante.pdf;type=application/pdf
+declaracao=@./declaracao.pdf;type=application/pdf
+```
+
 **Exemplo cURL sem documentos:**
 
 ```bash
