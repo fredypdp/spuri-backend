@@ -14,7 +14,7 @@ type AvaliacaoFinalBasePayload struct {
 	CodigoEstudante         string                           `json:"codigo_estudante"`
 	CodigoAcademia          string                           `json:"codigo_academia"`
 	AnoLectivo              string                           `json:"ano_lectivo"`
-	TipoEnsino              string                           `json:"tipo_ensino"`
+	TipoEnsino              string                           `json:"nivel"`
 	AnoAcademicoAtual       string                           `json:"nivel_ano_academico_atual"`
 	ProximoAnoAcademico     *string                          `json:"proximo_ano_academico,omitempty"`
 	CodigoTurma             *string                          `json:"codigo_turma,omitempty"`

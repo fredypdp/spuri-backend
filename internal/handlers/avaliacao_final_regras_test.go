@@ -1,6 +1,12 @@
 package handlers
 
-import "testing"
+import (
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+)
 
 func TestNormalizarTypeRegraAvaliacaoFinal(t *testing.T) {
 	tests := []struct {
@@ -129,5 +135,25 @@ func TestMotivoProgressaoFundamentalSemOfertaAcademiaMistaNaoUsaAnoMedio(t *test
 	})
 	if motivo == nil || *motivo != motivoAcademiaSemOfertaProximoAnoFundamental {
 		t.Fatalf("motivo academia mista sem 6º fundamental = %v, want motivo sem oferta", motivo)
+	}
+}
+
+func TestParseFiltrosAvaliacaoFinalUsaNivelERejeitaTipoEnsino(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest("GET", "/avaliacoes?nivel=medio", nil)
+	filtros, err := parseFiltrosAvaliacaoFinal(ctx)
+	if err != nil {
+		t.Fatalf("parseFiltrosAvaliacaoFinal() unexpected error = %v", err)
+	}
+	if filtros.Nivel == nil || *filtros.Nivel != "medio" {
+		t.Fatalf("nivel filter = %#v, want medio", filtros.Nivel)
+	}
+
+	ctx, _ = gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest("GET", "/avaliacoes?tipo_ensino=medio", nil)
+	if _, err := parseFiltrosAvaliacaoFinal(ctx); err == nil || !strings.Contains(err.Error(), "tipo_ensino") {
+		t.Fatalf("legacy tipo_ensino filter should be rejected, err=%v", err)
 	}
 }
