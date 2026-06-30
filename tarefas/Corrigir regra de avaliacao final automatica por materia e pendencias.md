@@ -144,7 +144,7 @@ Cada registro deve conter, no mínimo:
 - identificação do estudante;
 - identificação da matéria;
 - identificação da academia;
-- identificação do curso quando aplicável;
+- identificação do curso quando aplicável, obrigatória para pendências de `nivel='medio'` e `nivel='superior'`;
 - nível (`medio` ou `superior`);
 - ano escolar médio ou período/semestre superior relacionado;
 - ano letivo da avaliação que gerou a pendência;
@@ -157,16 +157,18 @@ Regras do recurso:
 - Não deve criar pendência duplicada aberta para o mesmo estudante, matéria, academia e escopo letivo.
 - Deve permitir consultar pendências abertas e históricas.
 - Deve permitir identificar rapidamente se o estudante ainda possui pendências antes de progressão, conclusão ou finalização de ciclo.
+- Consultas de bloqueio de progressão/conclusão devem comparar o curso atual do estudante com o curso salvo na pendência; pendências de curso anterior não devem bloquear o fluxo acadêmico do curso atual.
 - A criação e baixa da pendência devem ocorrer por eventos auditáveis, não por atualização silenciosa.
 
 ## Bloqueio por `pendencia_nivel_conclusao`
 
 - A matéria possui o campo `pendencia_nivel_conclusao`.
-- Esse campo impede que o estudante finalize o ciclo ou siga o processo normal quando possui pendência em etapa de conclusão.
+- Esse campo impede que o estudante finalize o ciclo ou siga o processo normal quando possui pendência em etapa de conclusão do mesmo curso atual do estudante.
 - Em `nivel='medio'`, se `pendencia_nivel_conclusao` for igual ao `ano_escolar_medio` atual do estudante, ele pode ser aprovado com pendência, mas deve ser impedido de seguir automaticamente para o próximo ano ou finalizar o médio.
 - Em `nivel='superior'`, se `pendencia_nivel_conclusao` for igual ao `semestre_atual` do estudante, ele pode ser aprovado com pendência, mas deve ser impedido de seguir automaticamente para o próximo semestre ou finalizar o superior.
-- Enquanto houver pendência bloqueante, o sistema deve deixar o estudante em estado que permita regularização, sem executar o fluxo normal de progressão/conclusão.
-- Quando todas as pendências bloqueantes forem baixadas, o sistema deve seguir automaticamente o processo normal adequado ao nível atual.
+- Enquanto houver pendência bloqueante do curso atual, o sistema deve deixar o estudante em estado que permita regularização, sem executar o fluxo normal de progressão/conclusão.
+- Pendências abertas de cursos anteriores devem permanecer registradas para histórico e auditoria, mas não devem ser consideradas bloqueantes quando o estudante já mudou para outro curso.
+- Quando todas as pendências bloqueantes do curso atual forem baixadas, ou quando as pendências abertas restantes pertencerem a cursos anteriores, o sistema deve seguir automaticamente o processo normal adequado ao nível atual.
 
 ## Avaliação de matérias pendentes
 
@@ -268,7 +270,8 @@ Atualizar a documentação do sistema e da API para explicar:
 - Pendências são criadas apenas para médio/superior, apenas depois de esgotar a cadeia aplicável e apenas quando o estudante puder aprovar com pendência dentro do limite configurado.
 - `limite_materias_pendentes` controla corretamente aprovação com pendência e reprovação total quando o número de matérias abaixo da mínima ultrapassa o limite.
 - Matéria sem `pendencia_permitida` reprova totalmente o estudante quando fica abaixo da nota mínima e não gera pendência.
-- Pendência bloqueante por `pendencia_nivel_conclusao` impede progressão ou conclusão automática.
+- Pendência bloqueante por `pendencia_nivel_conclusao` impede progressão ou conclusão automática apenas quando pertence ao curso atual do estudante.
+- Pendência aberta de curso anterior não bloqueia progressão, conclusão ou finalização de ciclo no novo curso do estudante.
 - Avaliação de matéria pendente baixa `pendente` para `false` quando aprovada.
 - Quando não restam pendências abertas, o sistema retoma automaticamente a progressão ou conclusão adequada.
 - Não há referência ativa ao contrato antigo `tipo_ensino` em regras de avaliação final, exceto em migrações históricas inevitáveis ou notas de remoção documentadas.
@@ -284,7 +287,7 @@ Atualizar a documentação do sistema e da API para explicar:
 - Testes de cadeia descendente por matéria.
 - Testes de pendência permitida e não permitida, garantindo que pendências só são criadas quando há aprovação com pendência.
 - Testes de `limite_materias_pendentes` com limite zero, dentro do limite e acima do limite, garantindo reprovação total sem criação de pendências quando o limite for ultrapassado.
-- Testes de bloqueio por `pendencia_nivel_conclusao`.
+- Testes de bloqueio por `pendencia_nivel_conclusao`, incluindo validação de que pendências de curso anterior não bloqueiam o curso atual.
 - Testes de avaliação e baixa de matérias pendentes.
 - Testes de idempotência para avaliação final e pendências abertas.
 - Testes de documentação/contrato para garantir que respostas públicas usam `nivel` e não `tipo_ensino`.
