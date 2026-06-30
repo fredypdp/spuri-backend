@@ -276,6 +276,7 @@ CREATE TABLE IF NOT EXISTS projection_materias (
     nivel JSONB,
     codigo_academia VARCHAR(50) NOT NULL,
     curso_id UUID,
+    pendencia_permitida BOOLEAN NOT NULL DEFAULT FALSE,
     status VARCHAR(20) DEFAULT 'ativo' CHECK (status IN ('ativo', 'inativo')),
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -292,6 +293,9 @@ CREATE TABLE IF NOT EXISTS projection_materias (
     CONSTRAINT check_fundamental_sem_curso CHECK (
         (type = 'fundamental' AND curso_id IS NULL) OR
         (type IN ('medio', 'superior') AND curso_id IS NOT NULL)
+    ),
+    CONSTRAINT chk_materia_pendencia_permitida_tipo CHECK (
+        type IN ('medio', 'superior') OR pendencia_permitida = FALSE
     )
 );
 
@@ -299,6 +303,7 @@ CREATE INDEX IF NOT EXISTS idx_materias_academia ON projection_materias(codigo_a
 CREATE INDEX IF NOT EXISTS idx_materias_curso ON projection_materias(curso_id);
 CREATE INDEX IF NOT EXISTS idx_materias_type ON projection_materias(type);
 CREATE INDEX IF NOT EXISTS idx_materias_status ON projection_materias(status);
+CREATE INDEX IF NOT EXISTS idx_materias_pendencia_permitida ON projection_materias(pendencia_permitida) WHERE pendencia_permitida = TRUE;
 
 -- ============================================
 -- 🔥 NOVA ESTRUTURA - NOTAS (v3.0)
@@ -851,6 +856,7 @@ COMMENT ON COLUMN projection_academias.cursos IS 'Array JSON com lista de nomes 
 
 COMMENT ON COLUMN projection_cursos.nivel IS 'Array JSON com anos do curso: ["primeiro_medio","segundo_medio","terceiro_medio"]';
 COMMENT ON COLUMN projection_materias.curso_id IS 'NULL para fundamental, FK para medio/superior';
+COMMENT ON COLUMN projection_materias.pendencia_permitida IS 'Indica se a matéria pode ficar como pendência para aprovação futura; disponível apenas para medio/superior';
 COMMENT ON COLUMN projection_materias.nivel IS 'Apenas para fundamental: ["1_fundamental","2_fundamental",...]';
 
 COMMENT ON COLUMN projection_notas.periodo IS 'Período: 1_trimestre, 2_trimestre, 3_trimestre, 1_semestre, 2_semestre';

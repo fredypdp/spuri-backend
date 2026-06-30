@@ -317,6 +317,7 @@ interface MateriaDTO {
   type: MateriaType          // preenchido automaticamente (exceto escola mista, que informa no create)
   anos_academicos?: string[]  // ex: ['2_ano_fundamental'] ou ['1_ano_medio']
   periodo?: string            // ex: '1_semestre' — obrigatório para superior
+  pendencia_permitida: boolean // disponível apenas para medio/superior; define se pode ficar pendente
   codigo_academia: string
   curso_id?: string           // UUID — obrigatório para medio e superior
   status: string              // 'ativo' | 'inativo' | 'deletado'
@@ -2789,7 +2790,8 @@ Atualiza somente dados cadastrais de um curso. O `type` é imutável e esta rota
 
 ```json
 {
-  "nome": "string"
+  "nome": "string",
+  "pendencia_permitida": true
 }
 ```
 
@@ -2877,7 +2879,8 @@ Cria uma nova matéria disciplinar.
   "nome": "Álgebra Linear",
   "type": "superior",
   "anos_academicos": ["1_ano_superior"],
-  "curso_id": "uuid"  // obrigatório para medio e superior
+  "curso_id": "uuid",  // obrigatório para medio e superior
+  "pendencia_permitida": true
 }
 ```
 
@@ -2891,6 +2894,7 @@ Cria uma nova matéria disciplinar.
     "nome": "string",
     "type": "superior",
     "status": "inativo",
+    "pendencia_permitida": true,
     "proximo_passo": "defina o periodo via PUT /academia/materias/uuid/periodo antes de ativar"
   }
 }
@@ -2899,6 +2903,7 @@ Cria uma nova matéria disciplinar.
 **Notas:**
 
 - Matérias `superior` nascem **inativas** e exigem período antes de ativar
+- `pendencia_permitida` é um booleano disponível apenas para matérias `medio` ou `superior`; quando `true`, indica que o estudante pode avançar com essa matéria pendente para aprovação futura antes de concluir o ciclo
 - `curso_id` obrigatório para `medio` e `superior`
 - Para `fundamental`: `anos_academicos` com 1 a 9 itens no formato correto
 - Para `medio`/`superior`: exatamente 1 item no formato correto
@@ -3011,7 +3016,7 @@ Define o período de uma matéria do tipo `superior`. Pré-requisito para ativar
 
 ### PUT /academia/materia/:id/dados
 
-Atualiza o nome de uma matéria.
+Atualiza os dados de uma matéria, incluindo o campo `pendencia_permitida`.
 
 **Proteção**: autenticado + academia ativa
 
@@ -3019,7 +3024,8 @@ Atualiza o nome de uma matéria.
 
 ```json
 {
-  "nome": "string"
+  "nome": "string",
+  "pendencia_permitida": true
 }
 ```
 
@@ -3028,9 +3034,14 @@ Atualiza o nome de uma matéria.
 ```json
 {
   "message": "matéria atualizada com sucesso",
-  "nome": "string"
+  "nome": "string",
+  "pendencia_permitida": true
 }
 ```
+
+**Erros:**
+
+- `400` — `pendencia_permitida` informado para matéria do tipo `fundamental`
 
 ---
 
