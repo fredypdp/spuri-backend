@@ -533,10 +533,10 @@ func condicaoReprovacaoDefinitiva() string {
 		SELECT 1
 		FROM projection_regras_avaliacao_final raf
 		WHERE raf.codigo_academia = avf.codigo_academia
-		  AND raf.tipo_ensino = avf.tipo_ensino
+		  AND raf.nivel = avf.tipo_ensino
 		  AND raf.status = 'ativo'
 		  AND raf.aplica_se_reprovado_em_type = avf.type
-		  AND raf.anos_academicos ? avf.ano_academico_atual
+		  AND (raf.nivel <> 'fundamental' OR raf.anos_academicos ? avf.ano_academico_atual)
 	)`
 }
 

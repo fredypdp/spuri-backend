@@ -4813,3 +4813,71 @@ Quando a configuração do Google Drive ou da quota estiver incompleta ou invál
 ```
 
 ---
+
+## Atualização — Avaliação final automática por matéria e pendências
+
+### Regras de avaliação final
+
+O contrato público de `POST /academia/avaliacao-final/regras` e `PUT /academia/avaliacao-final/regras/:id` passa a usar `nivel` como campo oficial da regra. O campo legado `tipo_ensino` não é aceito nos payloads de regra e retorna erro de validação claro orientando o uso de `nivel`.
+
+#### Campos principais
+
+- `nivel`: `fundamental`, `medio` ou `superior`.
+  - Academias superiores têm `nivel` preenchido automaticamente como `superior`.
+  - Academias escolares não mistas têm `nivel` preenchido automaticamente a partir de `nivel_escolar`.
+  - Academias mistas devem informar `fundamental` ou `medio`.
+- `anos_academicos`: aceito apenas para `nivel='fundamental'`.
+- `materias_chave`: obrigatório em regra raiz de `nivel='medio'`; lista IDs das matérias obrigatórias para aprovação direta.
+- `materias_aplicaveis`: lista opcional para regra descendente limitar quais matérias de recuperação serão recalculadas.
+- `limite_materias_pendentes`: obrigatório para `nivel='medio'` e `nivel='superior'`; deve ser inteiro maior ou igual a zero.
+- `formula`: continua declarativa e validada pelo parser do backend.
+  - Fundamental e médio usam referências como `[categoria,periodo]`.
+  - Superior pode usar `[categoria]`; o backend infere o período no momento da execução usando o período/semestre avaliado.
+
+#### Exemplo — regra fundamental
+
+```json
+{
+  "type": "normal",
+  "nome": "Avaliação final anual",
+  "nivel": "fundamental",
+  "anos_academicos": ["6_ano_fundamental"],
+  "nota_minima_aprovacao": 10,
+  "formula": "([prova,1_trimestre]+[prova,2_trimestre]+[prova,3_trimestre])/3"
+}
+```
+
+#### Exemplo — regra média com pendência
+
+```json
+{
+  "type": "normal",
+  "nome": "Fechamento anual do médio",
+  "nivel": "medio",
+  "materias_chave": ["b7f7b4d7-5d1e-4d1a-98ea-6a4a7b79b7c0"],
+  "limite_materias_pendentes": 2,
+  "nota_minima_aprovacao": 10,
+  "formula": "([prova,1_trimestre]+[prova,2_trimestre]+[prova,3_trimestre])/3"
+}
+```
+
+#### Exemplo — regra superior com período inferido
+
+```json
+{
+  "type": "normal",
+  "nome": "Fechamento semestral superior",
+  "nivel": "superior",
+  "limite_materias_pendentes": 1,
+  "nota_minima_aprovacao": 10,
+  "formula": "([prova]+[trabalho])/2"
+}
+```
+
+### Respostas e persistência
+
+As respostas de regras expõem `nivel`, `materias_chave`, `materias_aplicaveis` e `limite_materias_pendentes`. O backend armazena snapshots preparados para resultados por matéria, aprovação com pendência e pendências geradas.
+
+### Matérias pendentes
+
+Foi introduzida a projeção persistente `projection_materias_pendentes` para armazenar pendências de nível médio e superior. Cada registro identifica estudante, matéria, academia, curso, nível, escopo letivo, regra/evento de origem, status `pendente` e metadados de auditoria. A tabela impede pendência aberta duplicada para o mesmo estudante, matéria, curso, nível, ano letivo e escopo acadêmico.
