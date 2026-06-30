@@ -2656,7 +2656,17 @@ Cria um novo curso para a academia. O tipo efetivo do curso é inferido pelo bac
 
 Para cursos superiores, `periodos` é um **número inteiro positivo** que representa o total de semestres. O backend persiste internamente os semestres sequenciais (`1_semestre` até `N_semestre`) e calcula `anos_academicos` automaticamente com `ceil(periodos / 2)`. Ex.: `periodos = 3` gera `periodos = ["1_semestre", "2_semestre", "3_semestre"]` e `anos_academicos = ["1_ano_superior", "2_ano_superior"]`.
 
-Cursos superiores não aceitam `anos_academicos` no payload; cursos médios não aceitam `periodos` numérico. Para curso médio, `anos_academicos` deve ser uma sequência contínua e crescente iniciada em `1_ano_medio` (por exemplo, `["1_ano_medio", "2_ano_medio"]`); listas que comecem em `2_ano_medio`, pulem anos ou venham fora de ordem são rejeitadas.
+Cursos superiores não aceitam `anos_academicos` no payload; cursos médios não aceitam `periodos` numérico. Para curso médio, `anos_academicos` passa pela mesma proteção de sequência usada em `POST /academia/anos-academicos`: a lista precisa ser contínua, crescente e iniciada em `1_ano_medio` (por exemplo, `["1_ano_medio", "2_ano_medio"]`). Listas que comecem em `2_ano_medio`, pulem anos, repitam anos ou venham fora de ordem são rejeitadas antes da criação do curso.
+
+
+**Exemplo 400 — curso médio com anos fora de sequência:**
+
+```json
+{
+  "message": "anos do ensino médio devem estar em ordem sequencial crescente começando em 1_ano_medio; esperado 2_ano_medio na posição 2",
+  "error": "anos do ensino médio devem estar em ordem sequencial crescente começando em 1_ano_medio; esperado 2_ano_medio na posição 2"
+}
+```
 
 **Response 201:**
 

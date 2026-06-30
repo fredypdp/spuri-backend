@@ -372,6 +372,8 @@ Representa um curso oferecido por uma academia (médio ou superior). O **tipo é
 
 Para cursos superiores, a criação recebe `periodos` como número inteiro positivo (quantidade total de semestres) e não aceita `anos_academicos` no payload. A rota cadastral de edição `PUT /academia/curso/:id/dados` não aceita manipular `periodos`, `semestres` nem `anos_academicos`; ela fica restrita a dados cadastrais. O backend persiste os semestres sequenciais no formato `[n]_semestre` e calcula os anos acadêmicos com `ceil(periodos / 2)`. Ex.: `periodos = 3` deriva `periodos = ["1_semestre", "2_semestre", "3_semestre"]` e `anos_academicos = ["1_ano_superior", "2_ano_superior"]`.
 
+Na criação de cursos médios, `POST /academia/curso` aplica a mesma proteção de sequência de anos médios usada por `POST /academia/anos-academicos`: `anos_academicos` deve começar em `1_ano_medio`, seguir em ordem crescente, não pular posições e não repetir anos. Assim, cargas como `["2_ano_medio"]`, `["1_ano_medio", "3_ano_medio"]` ou `["2_ano_medio", "1_ano_medio"]` são rejeitadas antes da criação.
+
 **Formato dos semestres persistidos**: `[n]_semestre` onde n ≥ 1 (ex: `1_semestre`, `2_semestre`).
 
 Os trimestres (`1_trimestre`, `2_trimestre`, `3_trimestre`) são **fixos do sistema** e nunca configurados no curso. São os períodos padrão para notas do tipo escolar.
