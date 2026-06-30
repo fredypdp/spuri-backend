@@ -14,14 +14,15 @@ import (
 type MateriaDisciplinar struct {
 	BaseAggregate
 
-	Nome           string
-	Type           string
-	AnosAcademicos []string
-	Periodo        string // Preenchido apenas para type="superior"
-	CodigoAcademia string
-	CursoID        *uuid.UUID
-	Status         string
-	CreatedAt      time.Time
+	Nome               string
+	Type               string
+	AnosAcademicos     []string
+	Periodo            string // Preenchido apenas para type="superior"
+	PendenciaPermitida bool
+	CodigoAcademia     string
+	CursoID            *uuid.UUID
+	Status             string
+	CreatedAt          time.Time
 }
 
 func NewMateriaDisciplinar() *MateriaDisciplinar {
@@ -66,13 +67,14 @@ func (m *MateriaDisciplinar) Apply(event DomainEvent) error {
 
 type MateriaCriadaEvent struct {
 	BaseEvent
-	Nome           string
-	Type           string
-	AnosAcademicos []string
-	CodigoAcademia string
-	CursoID        *uuid.UUID
-	CriadoPor      uuid.UUID
-	CreatedAt      time.Time
+	Nome               string
+	Type               string
+	AnosAcademicos     []string
+	CodigoAcademia     string
+	CursoID            *uuid.UUID
+	PendenciaPermitida bool
+	CriadoPor          uuid.UUID
+	CreatedAt          time.Time
 }
 
 func (e *MateriaCriadaEvent) GetPayload() interface{} { return e }
@@ -101,11 +103,12 @@ func (e *MateriaDesativadaEvent) ToJSON() ([]byte, error) { return json.Marshal(
 // Campos são ponteiros/nil-safe para eventos legados sem esses campos.
 type MateriaDadosAtualizadosEvent struct {
 	BaseEvent
-	Nome           *string
-	AnosAcademicos []string   // nil = não alterar
-	CursoID        *uuid.UUID // nil = não alterar
-	UpdatedAt      time.Time
-	AtualizadoPor  uuid.UUID
+	Nome               *string
+	AnosAcademicos     []string   // nil = não alterar
+	CursoID            *uuid.UUID // nil = não alterar
+	PendenciaPermitida *bool      // nil = não alterar
+	UpdatedAt          time.Time
+	AtualizadoPor      uuid.UUID
 }
 
 func (e *MateriaDadosAtualizadosEvent) GetPayload() interface{} { return e }
@@ -141,6 +144,7 @@ func (m *MateriaDisciplinar) Criar(
 	anosAcademicos []string,
 	codigoAcademia string,
 	cursoID *uuid.UUID,
+	pendenciaPermitida bool,
 	criadoPor uuid.UUID,
 ) error {
 	log.Printf("[DEBUG] Criando matéria: nome=%s, tipo=%s, academia=%s", nome, tipo, codigoAcademia)
@@ -158,16 +162,20 @@ func (m *MateriaDisciplinar) Criar(
 	if tipo == "superior" && cursoID == nil {
 		return fmt.Errorf("curso_id é obrigatório para matérias do tipo 'superior'")
 	}
+	if tipo == "fundamental" && pendenciaPermitida {
+		return fmt.Errorf("pendencia_permitida só está disponível para matérias do tipo 'medio' ou 'superior'")
+	}
 
 	event := &MateriaCriadaEvent{
-		BaseEvent:      BaseEvent{EventType: "MateriaCriada", AggregateID: m.ID},
-		Nome:           nome,
-		Type:           tipo,
-		AnosAcademicos: anosAcademicos,
-		CodigoAcademia: codigoAcademia,
-		CursoID:        cursoID,
-		CriadoPor:      criadoPor,
-		CreatedAt:      time.Now(),
+		BaseEvent:          BaseEvent{EventType: "MateriaCriada", AggregateID: m.ID},
+		Nome:               nome,
+		Type:               tipo,
+		AnosAcademicos:     anosAcademicos,
+		CodigoAcademia:     codigoAcademia,
+		CursoID:            cursoID,
+		PendenciaPermitida: pendenciaPermitida,
+		CriadoPor:          criadoPor,
+		CreatedAt:          time.Now(),
 	}
 	m.RaiseEvent(event)
 	return m.Apply(event)
@@ -201,18 +209,22 @@ func (m *MateriaDisciplinar) Desativar(desativadoPor uuid.UUID) error {
 
 // AtualizarDados atualiza nome e/ou anos_academicos da matéria.
 // FIX M-02: aceita também CursoID e AtualizadoPor.
-func (m *MateriaDisciplinar) AtualizarDados(nome *string, anosAcademicos []string, cursoID *uuid.UUID, atualizadoPor uuid.UUID) error {
-	if nome == nil && anosAcademicos == nil && cursoID == nil {
+func (m *MateriaDisciplinar) AtualizarDados(nome *string, anosAcademicos []string, cursoID *uuid.UUID, pendenciaPermitida *bool, atualizadoPor uuid.UUID) error {
+	if nome == nil && anosAcademicos == nil && cursoID == nil && pendenciaPermitida == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
+	}
+	if pendenciaPermitida != nil && m.Type == "fundamental" {
+		return fmt.Errorf("pendencia_permitida só está disponível para matérias do tipo 'medio' ou 'superior'")
 	}
 
 	event := &MateriaDadosAtualizadosEvent{
-		BaseEvent:      BaseEvent{EventType: "MateriaDadosAtualizados", AggregateID: m.ID},
-		Nome:           nome,
-		AnosAcademicos: anosAcademicos,
-		CursoID:        cursoID,
-		UpdatedAt:      time.Now(),
-		AtualizadoPor:  atualizadoPor,
+		BaseEvent:          BaseEvent{EventType: "MateriaDadosAtualizados", AggregateID: m.ID},
+		Nome:               nome,
+		AnosAcademicos:     anosAcademicos,
+		CursoID:            cursoID,
+		PendenciaPermitida: pendenciaPermitida,
+		UpdatedAt:          time.Now(),
+		AtualizadoPor:      atualizadoPor,
 	}
 	m.RaiseEvent(event)
 	return m.Apply(event)
@@ -270,6 +282,7 @@ func (m *MateriaDisciplinar) applyMateriaCriada(event DomainEvent) error {
 	m.AnosAcademicos = ev.AnosAcademicos
 	m.CodigoAcademia = ev.CodigoAcademia
 	m.CursoID = ev.CursoID
+	m.PendenciaPermitida = ev.PendenciaPermitida
 	// Matérias superior nascem inativas (requerem DefinirPeriodo + Ativar).
 	// Fundamental e médio nascem ativas.
 	if ev.Type == "superior" {
@@ -308,6 +321,9 @@ func (m *MateriaDisciplinar) applyMateriaDadosAtualizados(event DomainEvent) err
 	}
 	if ev.CursoID != nil {
 		m.CursoID = ev.CursoID
+	}
+	if ev.PendenciaPermitida != nil {
+		m.PendenciaPermitida = *ev.PendenciaPermitida
 	}
 	return nil
 }

@@ -23,11 +23,12 @@ func CriarMateria(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
 	var req struct {
-		Nome           string     `json:"nome"            binding:"required"`
-		Type           *string    `json:"type"`
-		AnosAcademicos []string   `json:"anos_academicos"`
-		CursoID        *uuid.UUID `json:"curso_id"`
-		Periodo        *string    `json:"periodo"`
+		Nome               string     `json:"nome"            binding:"required"`
+		Type               *string    `json:"type"`
+		AnosAcademicos     []string   `json:"anos_academicos"`
+		CursoID            *uuid.UUID `json:"curso_id"`
+		Periodo            *string    `json:"periodo"`
+		PendenciaPermitida *bool      `json:"pendencia_permitida"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -86,7 +87,11 @@ func CriarMateria(c *gin.Context) {
 	repository := getRepository(c)
 	materia := aggregates.NewMateriaDisciplinar()
 
-	if err := materia.Criar(req.Nome, tipoMateria, req.AnosAcademicos, academiaDTO.CodigoAcademia, req.CursoID, userID); err != nil {
+	pendenciaPermitida := false
+	if req.PendenciaPermitida != nil {
+		pendenciaPermitida = *req.PendenciaPermitida
+	}
+	if err := materia.Criar(req.Nome, tipoMateria, req.AnosAcademicos, academiaDTO.CodigoAcademia, req.CursoID, pendenciaPermitida, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -119,10 +124,11 @@ func CriarMateria(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "materia criada com sucesso",
 		"data": gin.H{
-			"id":     materia.ID,
-			"nome":   materia.Nome,
-			"type":   materia.Type,
-			"status": materia.Status,
+			"id":                  materia.ID,
+			"nome":                materia.Nome,
+			"type":                materia.Type,
+			"status":              materia.Status,
+			"pendencia_permitida": materia.PendenciaPermitida,
 			"proximo_passo": func() *string {
 				if materia.Type == "superior" {
 					s := "defina o periodo via PUT /academia/materias/" + materia.ID.String() + "/periodo antes de ativar"
@@ -315,10 +321,11 @@ func AtualizarDadosMateria(c *gin.Context) {
 	}
 
 	var req struct {
-		Nome           *string    `json:"nome"`
-		AnosAcademicos *[]string  `json:"anos_academicos"`
-		CursoID        *uuid.UUID `json:"curso_id"`
-		Periodo        *string    `json:"periodo"`
+		Nome               *string    `json:"nome"`
+		AnosAcademicos     *[]string  `json:"anos_academicos"`
+		CursoID            *uuid.UUID `json:"curso_id"`
+		Periodo            *string    `json:"periodo"`
+		PendenciaPermitida *bool      `json:"pendencia_permitida"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -356,7 +363,7 @@ func AtualizarDadosMateria(c *gin.Context) {
 	if req.AnosAcademicos != nil {
 		anos = *req.AnosAcademicos
 	}
-	if err := materia.AtualizarDados(req.Nome, anos, req.CursoID, userID); err != nil {
+	if err := materia.AtualizarDados(req.Nome, anos, req.CursoID, req.PendenciaPermitida, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -379,8 +386,9 @@ func AtualizarDadosMateria(c *gin.Context) {
 
 	log.Printf("Matéria atualizada: %s", materia.Nome)
 	c.JSON(http.StatusOK, gin.H{
-		"message": "matéria atualizada com sucesso",
-		"nome":    materia.Nome,
+		"message":             "matéria atualizada com sucesso",
+		"nome":                materia.Nome,
+		"pendencia_permitida": materia.PendenciaPermitida,
 	})
 }
 
