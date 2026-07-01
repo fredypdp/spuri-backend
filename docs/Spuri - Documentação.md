@@ -374,6 +374,8 @@ Para cursos superiores, a criação recebe `periodos` como número inteiro posit
 
 Na criação de cursos médios, `POST /academia/curso` aplica a mesma proteção de sequência de anos médios usada por `POST /academia/anos-academicos`: `anos_academicos` deve começar em `1_ano_medio`, seguir em ordem crescente, não pular posições e não repetir anos. Assim, cargas como `["2_ano_medio"]`, `["1_ano_medio", "3_ano_medio"]` ou `["2_ano_medio", "1_ano_medio"]` são rejeitadas antes da criação.
 
+Cursos médios também possuem `materias_chave` persistente no próprio curso, por `ano_academico`. Cada ano listado em `anos_academicos` deve ter exatamente uma configuração em `materias_chave` com pelo menos uma matéria. As matérias informadas precisam existir, estar ativas, pertencer à mesma academia, ao mesmo curso médio, ao nível `medio` e ao ano acadêmico da configuração. Cursos superiores rejeitam `materias_chave`.
+
 **Formato dos semestres persistidos**: `[n]_semestre` onde n ≥ 1 (ex: `1_semestre`, `2_semestre`).
 
 Os trimestres (`1_trimestre`, `2_trimestre`, `3_trimestre`) são **fixos do sistema** e nunca configurados no curso. São os períodos padrão para notas do tipo escolar.
@@ -610,7 +612,7 @@ A avaliação final é automática, auditável e orientada por regras. Ela é di
 | Fórmula | Expressão textual declarativa validada por parser próprio. Calcula a nota final de uma matéria usando notas existentes. Não há `eval`, script, template executável nem código dinâmico. |
 | `nota_minima_aprovacao` | Nota mínima para aprovar cada matéria avaliada na etapa. |
 | Matérias avaliadas | Matérias ativas da academia que pertencem ao nível/curso/ano/período do estudante e, se houver, ao filtro `materias_aplicaveis` da regra. |
-| `materias_chave` | Lista obrigatória na regra raiz do Médio. Na implementação atual, reprovação em matéria não-chave na raiz não impede aprovação direta; reprovação em matéria-chave impede e pode acionar cadeia/pendência. |
+| `materias_chave` | Configuração curricular do curso médio, por `ano_academico`; não pertence à regra. Na raiz do Médio, o backend resolve a lista pelo `curso_medio_id` do estudante e pelo `ano_escolar_medio` atual. Reprovação em matéria não-chave na raiz não impede aprovação direta; reprovação em matéria-chave impede e pode acionar cadeia/pendência. |
 | `materias_aplicaveis` | Lista opcional de matérias que restringe a execução da regra. É especialmente útil em descendentes para recalcular apenas matérias de recuperação/exame/recurso. |
 | `limite_materias_pendentes` | Inteiro obrigatório e não negativo para Médio/Superior. Define quantas reprovações finais podem virar pendência. Não existe no Fundamental. |
 | `pendencia_permitida` | Campo da matéria de Médio/Superior. Somente matérias com esse campo verdadeiro podem gerar aprovação com pendência. |
@@ -638,7 +640,7 @@ A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras d
 |---|---:|---:|---:|
 | `nivel` | `fundamental` | `medio` | `superior` |
 | `anos_academicos` | Obrigatório e não vazio; deve conter anos fundamentais válidos | Rejeitado | Rejeitado |
-| `materias_chave` | Rejeitado | Obrigatório na regra raiz; opcional/dispensável em descendentes | Não é campo funcional obrigatório |
+| `materias_chave` | Rejeitado | Rejeitado na regra; obrigatório no curso médio, por ano acadêmico | Rejeitado |
 | `materias_aplicaveis` | Opcional para limitar matérias | Opcional para limitar matérias | Opcional para limitar matérias |
 | `limite_materias_pendentes` | Rejeitado | Obrigatório, `>= 0` | Obrigatório, `>= 0` |
 | `aplica_se_reprovado_em_type` | Ausente na raiz; presente em descendente | Ausente na raiz; presente em descendente | Ausente na raiz; presente em descendente |
@@ -652,7 +654,7 @@ A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras d
 - Deve haver no máximo uma raiz ativa por academia, `nivel` e escopo. Uma cadeia sem raiz ou com múltiplas raízes aplicáveis não é executável de forma determinística.
 - Descendentes devem apontar para regra ativa existente no mesmo `nivel`, não podem apontar para si mesmas, não podem criar ciclo e, no Fundamental, devem usar exatamente os mesmos `anos_academicos` da raiz.
 - Inativar uma regra inativa também suas dependentes diretas/indiretas para preservar a consistência da cadeia.
-- Na edição, não é permitido alterar `type`, `nivel`, `anos_academicos`, dependência, `materias_chave`, `materias_aplicaveis`, limite, status ou version; para mudar escopo/cadeia, cria-se nova regra.
+- Na edição, não é permitido alterar `type`, `nivel`, `anos_academicos`, dependência, `materias_chave`, `materias_aplicaveis`, limite, status ou version; para mudar escopo/cadeia, cria-se nova regra. Se `materias_chave` for enviado em criação ou edição de regra, o backend rejeita e orienta configurar as matérias-chave no curso médio, por `ano_academico`.
 
 **Exemplos funcionais de configuração:**
 
@@ -660,7 +662,7 @@ A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras d
 |---|---|
 | Raiz do Fundamental | `nivel=fundamental`, `anos_academicos=["6_ano_fundamental"]`, fórmula com trimestres explícitos, sem limite de pendência. |
 | Recuperação do Fundamental | `nivel=fundamental`, mesmo `anos_academicos` da raiz, `aplica_se_reprovado_em_type="avaliacao_final"`, fórmula da recuperação/exame. |
-| Raiz do Médio | `nivel=medio`, sem `anos_academicos`, `materias_chave` com matérias obrigatórias do curso/ano, `limite_materias_pendentes` definido. |
+| Raiz do Médio | `nivel=medio`, sem `anos_academicos`, sem `materias_chave` na regra, `limite_materias_pendentes` definido. As matérias-chave vêm do curso médio/ano do estudante. |
 | Descendente do Médio | `nivel=medio`, `aplica_se_reprovado_em_type` apontando para a raiz, `materias_aplicaveis` com as matérias que podem ser recalculadas no exame. |
 | Raiz do Superior | `nivel=superior`, sem `anos_academicos`, fórmula com referências `[categoria]`, `limite_materias_pendentes` definido. |
 | Superior com pendência | Mesma regra superior, matérias com `pendencia_permitida=true` e, quando aplicável, `pendencia_nivel_conclusao` indicando o semestre-limite. |
@@ -688,9 +690,10 @@ Se a fórmula exigir nota que ainda não existe para determinada matéria, categ
 5. A cadeia começa na raiz. Descendentes só são consideradas se a etapa anterior reprovou.
 6. Para cada regra executável, o backend resolve as matérias aplicáveis e calcula `nota_final` individual por matéria.
 7. O resultado de cada matéria compara `nota_final` com `nota_minima_aprovacao`.
-8. A decisão geral é derivada dos resultados por matéria e, no Médio/Superior, das condições de pendência.
-9. O evento grava snapshots: regra, `type`, fórmula usada, nota mínima, resultados por matéria, pendências geradas, turma atual/turmas removidas quando aplicável e dados de progressão.
-10. Se a avaliação já existir no escopo idempotente, o backend não duplica o registro.
+8. No Médio, antes da decisão geral, o backend carrega o curso médio do estudante e resolve `materias_chave` pela configuração do `ano_escolar_medio` atual. Se o curso não possuir configuração para esse ano, a avaliação falha com erro claro de configuração ausente.
+9. A decisão geral é derivada dos resultados por matéria, das matérias-chave resolvidas do curso/ano e, no Médio/Superior, das condições de pendência.
+10. O evento grava snapshots: regra, `type`, fórmula usada, nota mínima, curso usado, matérias-chave resolvidas, resultados por matéria, pendências geradas, turma atual/turmas removidas quando aplicável e dados de progressão.
+11. Se a avaliação já existir no escopo idempotente, o backend não duplica o registro.
 
 #### 5.6.5 Fundamental
 
@@ -706,8 +709,8 @@ Se a fórmula exigir nota que ainda não existe para determinada matéria, categ
 #### 5.6.6 Médio
 
 - O escopo é o `ano_escolar_medio` atual do estudante, validado contra o curso médio ativo vinculado.
-- O backend avalia matérias médias ativas do curso e ano atual; `materias_aplicaveis` restringe a lista quando informado.
-- A regra raiz de Médio exige `materias_chave`. Na implementação atual, na raiz, reprovação em matéria-chave impede aprovação direta; reprovação apenas em matéria não-chave não torna a decisão geral reprovada nessa etapa, embora o resultado por matéria continue registrado.
+- O backend avalia matérias médias ativas do curso e ano atual; `materias_aplicaveis` restringe a lista quando informado. O curso médio precisa ter `materias_chave` completa para todos os seus `anos_academicos`, com pelo menos uma matéria por ano.
+- A regra raiz de Médio não aceita `materias_chave`. A lista é obrigatória no curso médio, por ano acadêmico, e é resolvida pelo par `curso_medio_id` + `ano_escolar_medio` do estudante. Na raiz, reprovação em matéria-chave impede aprovação direta; reprovação apenas em matéria não-chave não torna a decisão geral reprovada nessa etapa, embora o resultado por matéria continue registrado.
 - Descendentes podem recalcular matérias reprovadas e/ou limitadas por `materias_aplicaveis`; se uma matéria reprovada não estiver na lista da descendente, ela não é recalculada por aquela regra.
 - Depois da última etapa aplicável, reprovações podem virar pendência somente se: o total de reprovações for menor ou igual a `limite_materias_pendentes` e todas as matérias reprovadas tiverem `pendencia_permitida=true`.
 - Se essas condições forem satisfeitas, o evento é aprovado com `aprovado_com_pendencia=true` e gera registros em `projection_materias_pendentes`.
@@ -783,8 +786,9 @@ Devem falhar com erro de validação ou bloqueio funcional:
 - Academia não mista criando regra de nível incompatível com sua configuração.
 - `anos_academicos` ausente em regra fundamental ou presente em Médio/Superior.
 - `limite_materias_pendentes` presente no Fundamental, ausente em Médio/Superior ou negativo.
-- `materias_chave` em Fundamental ou regra raiz de Médio sem `materias_chave`.
-- `materias_chave`/`materias_aplicaveis` fora do escopo do curso/ano/período aplicável devem ser tratadas como configuração inválida ou ineficaz operacionalmente; QA deve validar esse cenário contra a base de matérias da academia.
+- `materias_chave` enviado em qualquer regra de avaliação final; o campo pertence ao curso médio, não à regra.
+- Curso médio sem `materias_chave` para todo ano acadêmico do curso, ou com matérias-chave vazias, duplicadas, inativas, inexistentes, de outra academia, de outro curso, de outro nível ou fora do ano configurado.
+- `materias_aplicaveis` fora do escopo do curso/ano/período aplicável deve ser tratada como configuração inválida ou ineficaz operacionalmente; QA deve validar esse cenário contra a base de matérias da academia.
 - Descendente órfã, descendente que aponta para si mesma, ciclo de dependências ou escopo fundamental diferente da raiz.
 - Fórmula Fundamental/Médio sem período explícito (`[categoria]`).
 - Fórmula Superior com período explícito (`[categoria,periodo]`).
@@ -844,6 +848,8 @@ Para deletar um curso:
 3. Não pode ter matérias ativas (desativar todas primeiro)
 4. Matérias inativas são deletadas em cascata automaticamente
 5. Turmas inativas vinculadas são deletadas em cascata automaticamente
+
+Em cursos médios, `materias_chave` é parte da configuração curricular do curso. A criação/edição rejeita lacunas: todo `ano_academico` do curso deve possuir uma entrada em `materias_chave`, e cada entrada deve conter pelo menos uma matéria média ativa daquele mesmo curso, academia e ano. Essa regra garante que a avaliação final do Médio sempre consiga resolver as matérias-chave pelo curso/ano do estudante.
 
 **Ciclo de vida da matéria superior:**
 

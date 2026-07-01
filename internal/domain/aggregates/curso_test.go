@@ -55,6 +55,21 @@ func TestCursoSuperiorAtualizarPeriodosRejeitaAnosNaoDerivados(t *testing.T) {
 	}
 }
 
+func TestCursoMedioMateriasChaveObrigatoriaPorAno(t *testing.T) {
+	curso := NewCurso()
+	materiaID := uuid.New()
+	if err := curso.Criar(
+		"Curso Médio",
+		"medio",
+		[]string{"1_ano_medio", "2_ano_medio"},
+		nil,
+		[]MateriasChaveCursoAno{{AnoAcademico: "1_ano_medio", MateriasChave: []uuid.UUID{materiaID}}},
+		"ACA_01",
+	); err == nil {
+		t.Fatalf("esperava rejeição quando algum ano_academico não tem materias_chave")
+	}
+}
+
 func TestCursoMedioMateriasChaveValidaAnoEDuplicados(t *testing.T) {
 	curso := NewCurso()
 	materiaID := uuid.New()

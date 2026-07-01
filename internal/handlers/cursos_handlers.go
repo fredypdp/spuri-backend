@@ -951,6 +951,9 @@ func GetCurso(c *gin.Context) {
 
 func validarMateriasChaveCursoHandler(c *gin.Context, codigoAcademia, tipoCurso string, cursoID *uuid.UUID, anosAcademicos []string, materiasChave []aggregates.MateriasChaveCursoAno, informado bool) error {
 	if !informado {
+		if tipoCurso == "medio" {
+			return fmt.Errorf("materias_chave é obrigatório para cursos médios e deve conter pelo menos uma matéria por ano_academico")
+		}
 		return nil
 	}
 	if tipoCurso != "medio" {
@@ -969,7 +972,16 @@ func validarMateriasChaveCursoHandler(c *gin.Context, codigoAcademia, tipoCurso 
 		porID[m.ID] = m
 	}
 	anosVistos := map[string]struct{}{}
+	if len(materiasChave) == 0 {
+		return fmt.Errorf("materias_chave é obrigatório para cursos médios e deve conter pelo menos uma matéria por ano_academico")
+	}
 	for _, cfg := range materiasChave {
+		if strings.TrimSpace(cfg.AnoAcademico) == "" {
+			return fmt.Errorf("materias_chave: ano_academico é obrigatório")
+		}
+		if len(cfg.MateriasChave) == 0 {
+			return fmt.Errorf("materias_chave.%s: deve conter pelo menos uma matéria", cfg.AnoAcademico)
+		}
 		if _, ok := anosPermitidos[cfg.AnoAcademico]; !ok {
 			return fmt.Errorf("materias_chave.%s: ano_academico não pertence a anos_academicos do curso", cfg.AnoAcademico)
 		}
@@ -996,6 +1008,11 @@ func validarMateriasChaveCursoHandler(c *gin.Context, codigoAcademia, tipoCurso 
 			if !containsString(m.AnosAcademicos, cfg.AnoAcademico) {
 				return fmt.Errorf("materias_chave.%s: matéria %s não pertence ao ano acadêmico informado", cfg.AnoAcademico, id)
 			}
+		}
+	}
+	for _, ano := range anosAcademicos {
+		if _, ok := anosVistos[ano]; !ok {
+			return fmt.Errorf("materias_chave.%s: configuração obrigatória para todo ano acadêmico do curso médio", ano)
 		}
 	}
 	return nil
