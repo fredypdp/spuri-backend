@@ -27,16 +27,6 @@ Versão atual: 2.0.8
 
 ---
 
-### Telefones nativos
-
-O conceito de telefone extra foi removido. Estudantes, academias e admins possuem campos nativos de telefone. Todos os telefones são normalizados removendo espaços, hifens e parênteses, e devem ser salvos como string local de exatamente 9 dígitos, sem DDI.
-
-A verificação de telefone ainda não está implementada: `telefone_verificado` e `telefone_responsavel_verificado` existem apenas para compatibilidade futura e nenhum endpoint de verificação deve ser consumido ou documentado. Um número já verificado por outro usuário não poderá ser reaproveitado; números não verificados podem coincidir entre entidades, exceto nas regras específicas de estudante.
-
-Para estudantes, pelo menos um entre `telefone` e `telefone_responsavel` deve ser informado. Os dois campos não podem ser iguais, e o `telefone` de um estudante não pode ser usado como `telefone_responsavel` de outro estudante. Para estudantes de ensino superior, `telefone_responsavel` é opcional desde que `telefone` esteja preenchido.
-
----
-
 ## 1. Convenções Globais
 
 ### Autenticação
@@ -72,7 +62,7 @@ Content-Type: application/json
 
 ### Envelope de Erro
 
-Todas as respostas de erro seguem o formato:
+O formato padronizado usado pelas rotas que chamam `utils.RespondWithError`/`RespondWithDetailedError` é:
 
 ```json
 {
@@ -86,6 +76,14 @@ Todas as respostas de erro seguem o formato:
       "message": "o campo 'type' é obrigatório"
     }
   ]
+}
+```
+
+Alguns middlewares e handlers legados retornam erro simples, sem `message`, `request_id` ou `details`:
+
+```json
+{
+  "error": "mensagem do erro"
 }
 ```
 
@@ -166,7 +164,8 @@ interface AdminDTO {
   created_by?: string      // UUID do admin criador (null para o primeiro FPP)
   total_acoes_realizadas?: number
   created_at: string       // RFC3339
-  updated_at?: string      // RFC3339
+  updated_at: string       // RFC3339
+  version: number
 }
 ```
 
@@ -184,7 +183,6 @@ interface AcademiaDTO {
   provincia: string               // código de 3 letras, ex: 'LDA'
   endereco: string
   telefone?: string              // 9 dígitos, sem DDI
-  telefone_verificado: boolean   // reservado; verificação ainda não implementada
   email?: string
   email_verificado: boolean
   website?: string
@@ -243,6 +241,7 @@ interface EstudanteDTO {
   curso_superior_id?: string      // UUID
   total_notas?: number
   total_faltas?: number
+  documentos?: Record<string, SolicitacaoMatriculaDocumentoDTO>
   created_at: string
   updated_at: string
   version: number
@@ -3284,7 +3283,7 @@ Adiciona um estudante à turma.
 
 ---
 
-### DELETE /academia/turma/:codigo/estudantes/:codigoEstudante
+### DELETE /academia/turma/:codigo/estudantes/:codigo_estudante
 
 Remove um estudante da turma.
 
