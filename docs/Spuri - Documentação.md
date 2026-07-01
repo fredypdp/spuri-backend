@@ -1315,30 +1315,3 @@ O ano letivo global e o ano letivo da academia passam a separar o identificador 
 Cada tipo possui um único `periodo` configurado por Admin FPP no formato `MM_MM`. Esse período não é recriado a cada virada de ano; ele é combinado com o `ano_letivo` ativo para calcular o intervalo real aceito nas operações de faltas.
 
 As academias podem declarar a finalização de um ano letivo por tipo. Essa ação é registrada no ledger por meio do evento `AnoLetivoAcademiaFinalizado` e projetada em `projection_anos_letivos_academia_finalizacoes`, mantendo a informação auditável por academia, tipo, ano, usuário, data e observação. A finalização, que também define automaticamente o ano letivo seguinte da academia, só é aceita na janela operacional entre o mês de fim do período letivo configurado para o tipo e o mês imediatamente anterior ao mês de início do próximo período: em termos de validação, o mês atual precisa ser `>=` ao mês final de `periodo` e `<` ao mês inicial de `periodo`. Exemplo: com `periodo=10_07`, a academia pode finalizar em julho, agosto ou setembro (meses 07, 08 e 09); de outubro a junho a operação é bloqueada, porque o ano letivo ainda está em curso ou o próximo período já começou. Quando todas as academias ativas do mesmo tipo ficam alinhadas no mesmo ano letivo após esses avanços, a plataforma atualiza automaticamente esse valor como o ano letivo global daquele tipo. Escolas nunca bloqueiam nem avançam o calendário global do superior, e o superior nunca bloqueia nem avança o calendário global escolar.
-
----
-
-## Atualização 2.0.7 — Gestão segura de anos acadêmicos por academias
-
-Academias agora podem consultar, adicionar e desabilitar escopos acadêmicos habilitados via `/academia/anos-academicos`, sem substituição em massa. O contrato mantém a separação entre **ano acadêmico/período** e **ano letivo/calendário**.
-
-- **Fundamental/misto**: a lista ativa continua na academia (`projection_academias.anos_academicos`) e aceita somente códigos canônicos `[1-9]_ano_fundamental`.
-- **Médio**: a lista ativa pertence ao curso médio (`projection_cursos.anos_academicos`) e requer `curso_id`, evitando colisão com anos do fundamental em escolas mistas.
-- **Superior**: a academia informa somente `periodos` numérico no curso superior; semestres (`[n]_semestre`) e anos superiores (`[n]_ano_superior`) seguem derivados pelo backend.
-- **Segurança**: cada alteração valida propriedade da academia, compatibilidade entre `type` e nível/curso, e bloqueia reduções que afetariam estudantes ativos no ano ou semestre removido.
-- **Preservação histórica**: remoções são lógicas/prospectivas; eventos, ledger, histórico acadêmico, turmas, matérias, notas, faltas, avaliações finais já registrados não são apagados nem reprocessados.
-- **Contratos explícitos na API**: a documentação da API detalha `GET`, `POST` e `DELETE /academia/anos-academicos` com funcionamento, permissões, payloads por `type`, respostas de sucesso e erros esperados.
-- **Leitura por admin**: admins usam `GET /academia/anos-academicos?codigo_academia=...`; as rotas de escrita permanecem exclusivas para academias autenticadas e ativas.
-- **Erros acionáveis**: as respostas de erro dessas rotas usam o envelope padrão com `details[]` contendo `field`, `code` e `message`, inclusive em conflitos `409` causados por estudantes ativos, para indicar exatamente o campo problemático, o motivo e a correção esperada.
-
-## Atualização 2.0.8 — Progressão fundamental sem oferta do próximo ano
-
-A avaliação final do fundamental agora diferencia conclusão real do ciclo e ausência operacional de oferta na academia. Quando o estudante é aprovado em um ano anterior ao `9_ano_fundamental`, o backend calcula o próximo ano global canônico e verifica se ele existe em `projection_academias.anos_academicos` da academia atual. Se não existir, o estudante avança para esse próximo ano global, permanece com `status_escolar_fundamental = "em_andamento"`, continua vinculado à mesma academia, não recebe turma automática e o evento registra `motivo_progressao = "academia_sem_oferta_do_proximo_ano_academico_fundamental"`. A aprovação no `9_ano_fundamental` continua finalizando o fundamental normalmente.
-
-## Atualização — matérias-chave por ano em cursos médios
-
-A configuração de `materias_chave` do ensino médio pertence ao curso médio, agrupada por `ano_academico`, e não mais à regra de avaliação final. Cada curso `type="medio"` pode publicar uma lista de configurações no formato `[{"ano_academico":"1_ano_medio","materias_chave":["uuid-materia"]}]`. Cursos superiores rejeitam esse campo.
-
-Na avaliação final automática de estudantes do médio, o backend resolve `curso_medio_id` e `ano_escolar_medio` do estudante, carrega o curso médio e usa a entrada de `materias_chave` correspondente ao ano atual. Se a configuração estiver ausente ou vazia, a avaliação falha com erro claro de configuração do curso. A regra de avaliação final continua responsável apenas por fórmula, nota mínima, cadeia descendente e limites de pendências.
-
-Regras de avaliação final não aceitam mais `materias_chave` em criação ou edição. Payloads contendo esse campo devem ser corrigidos para configurar as matérias-chave diretamente no curso médio, por ano académico.
