@@ -467,8 +467,12 @@ func executarRegraAvaliacaoFinalAutomatica(
 	if len(materiasAplicaveis) == 0 {
 		return nil, false, fmt.Errorf("nenhuma matéria aplicável encontrada para avaliação final")
 	}
+	materiasChaveResolvidas, err := resolverMateriasChaveAvaliacaoFinalMedio(c, tipoEnsino, estudanteDTO, anoAcademicoAtual)
+	if err != nil {
+		return nil, false, err
+	}
 	resultadosMaterias, notaFinal, aprovado, aprovadoComPendencia, pendenciasGeradas, err := calcularResultadoMateriasAvaliacaoFinal(
-		c, estudanteDTO.CodigoEstudante, codigoAcademia, anoLectivo, tipoEnsino, anoAcademicoAtual, regra, materiasAplicaveis, overlay,
+		c, estudanteDTO.CodigoEstudante, codigoAcademia, anoLectivo, tipoEnsino, anoAcademicoAtual, regra, materiasAplicaveis, materiasChaveResolvidas, overlay,
 	)
 	if err != nil {
 		return nil, false, err
@@ -565,12 +569,42 @@ func executarRegraAvaliacaoFinalAutomatica(
 		"resultados_materias":    resultadosMaterias,
 		"aprovado_com_pendencia": aprovadoComPendencia,
 		"pendencias_geradas":     pendenciasGeradas,
+		"materias_chave":         uuidStrings(materiasChaveResolvidas),
 	}
 	if motivoProgressao != nil {
 		resultado["motivo_progressao"] = *motivoProgressao
 		resultado["sem_oferta_do_proximo_ano_academico_na_academia"] = true
 	}
 	return resultado, true, nil
+}
+
+func resolverMateriasChaveAvaliacaoFinalMedio(c *gin.Context, tipoEnsino string, estudanteDTO *projections.EstudanteDTO, anoAcademicoAtual string) ([]uuid.UUID, error) {
+	if tipoEnsino != "medio" {
+		return nil, nil
+	}
+	if estudanteDTO.CursoMedioID == nil || *estudanteDTO.CursoMedioID == "" {
+		return nil, fmt.Errorf("não foi possível resolver matérias-chave: estudante sem curso_medio_id")
+	}
+	cursoID, err := uuid.Parse(*estudanteDTO.CursoMedioID)
+	if err != nil {
+		return nil, fmt.Errorf("curso_medio_id inválido para resolver matérias-chave")
+	}
+	curso, err := getCursosProjection(c).GetByID(cursoID)
+	if err != nil {
+		return nil, err
+	}
+	if curso == nil || curso.Type != "medio" {
+		return nil, fmt.Errorf("curso médio não encontrado para resolver matérias-chave")
+	}
+	for _, cfg := range curso.MateriasChave {
+		if cfg.AnoAcademico == anoAcademicoAtual {
+			if len(cfg.MateriasChave) == 0 {
+				return nil, fmt.Errorf("curso médio %s não possui matérias-chave configuradas para o ano_academico %s", cursoID, anoAcademicoAtual)
+			}
+			return cfg.MateriasChave, nil
+		}
+	}
+	return nil, fmt.Errorf("curso médio %s não possui configuração de materias_chave para o ano_academico %s", cursoID, anoAcademicoAtual)
 }
 
 func materiasAplicaveisAvaliacaoFinal(c *gin.Context, codigoAcademia, tipoEnsino, anoAcademicoAtual string, regra regraAvaliacaoFinalDTO, estudanteDTO *projections.EstudanteDTO) ([]projections.MateriaDTO, error) {
@@ -620,6 +654,7 @@ func calcularResultadoMateriasAvaliacaoFinal(
 	codigoEstudante, codigoAcademia, anoLectivo, tipoEnsino, anoAcademicoAtual string,
 	regra regraAvaliacaoFinalDTO,
 	materias []projections.MateriaDTO,
+	materiasChaveResolvidas []uuid.UUID,
 	overlay *notaFormulaOverlay,
 ) ([]aggregates.ResultadoMateriaAvaliacaoFinal, float64, bool, bool, []aggregates.MateriaPendenteGerada, error) {
 	resultados := make([]aggregates.ResultadoMateriaAvaliacaoFinal, 0, len(materias))
@@ -666,7 +701,7 @@ func calcularResultadoMateriasAvaliacaoFinal(
 	reprovadas := 0
 	materiasChave := map[uuid.UUID]bool{}
 	if tipoEnsino == "medio" && regra.AplicaSeReprovadoEmType == nil {
-		for _, id := range regra.MateriasChave {
+		for _, id := range materiasChaveResolvidas {
 			materiasChave[id] = true
 		}
 	}
