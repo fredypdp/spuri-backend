@@ -190,7 +190,7 @@ func alterarEscopoCurso(c *gin.Context, academiaDTO *projections.AcademiaDTO, re
 		return err
 	}
 	curso := agg.(*aggregates.Curso)
-	if err := curso.AtualizarDados(nil, novosAnos, novosPeriodos, academiaDTO.ID); err != nil {
+	if err := curso.AtualizarDados(nil, novosAnos, novosPeriodos, nil, academiaDTO.ID); err != nil {
 		return err
 	}
 	if err := repository.SaveWithAudit(curso, db.AuditContext{UserID: academiaDTO.ID.String(), UserType: "academia", IP: c.ClientIP()}); err != nil {

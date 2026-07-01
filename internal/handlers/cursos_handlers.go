@@ -21,14 +21,16 @@ import (
 )
 
 type cursoPayload struct {
-	Nome               string
-	NomeInformado      bool
-	Type               string
-	TypeInformado      bool
-	AnosAcademicos     []string
-	AnosInformado      bool
-	PeriodosQuantidade int
-	PeriodosInformado  bool
+	Nome                   string
+	NomeInformado          bool
+	Type                   string
+	TypeInformado          bool
+	AnosAcademicos         []string
+	AnosInformado          bool
+	PeriodosQuantidade     int
+	PeriodosInformado      bool
+	MateriasChave          []aggregates.MateriasChaveCursoAno
+	MateriasChaveInformado bool
 }
 
 func bindCursoPayload(c *gin.Context, req *cursoPayload) error {
@@ -40,7 +42,7 @@ func bindCursoPayload(c *gin.Context, req *cursoPayload) error {
 	}
 	for campo := range raw {
 		switch campo {
-		case "nome", "type", "anos_academicos", "periodos":
+		case "nome", "type", "anos_academicos", "periodos", "materias_chave":
 		default:
 			return fmt.Errorf("campo não suportado em curso: %s", campo)
 		}
@@ -63,6 +65,12 @@ func bindCursoPayload(c *gin.Context, req *cursoPayload) error {
 			return fmt.Errorf("anos_academicos deve ser uma lista de strings")
 		}
 	}
+	if v, ok := raw["materias_chave"]; ok {
+		req.MateriasChaveInformado = true
+		if err := json.Unmarshal(v, &req.MateriasChave); err != nil {
+			return fmt.Errorf("materias_chave deve ser uma lista de configurações por ano_academico")
+		}
+	}
 	if v, ok := raw["periodos"]; ok {
 		req.PeriodosInformado = true
 		dec := json.NewDecoder(bytes.NewReader(v))
@@ -81,6 +89,9 @@ func prepararDadosCursoPorTipo(tipoCurso string, req cursoPayload, criacao bool)
 		return nil, nil, fmt.Errorf("type do payload não corresponde ao tipo de curso permitido para a academia")
 	}
 	if tipoCurso == "superior" {
+		if req.MateriasChaveInformado {
+			return nil, nil, fmt.Errorf("materias_chave é exclusivo para cursos médios")
+		}
 		if req.AnosInformado {
 			return nil, nil, fmt.Errorf("anos_academicos não deve ser enviado para curso superior; é calculado automaticamente a partir de periodos")
 		}
@@ -107,10 +118,13 @@ func prepararAtualizacaoCursoPorTipo(tipoCurso string, req cursoPayload) ([]stri
 	if req.TypeInformado {
 		return nil, nil, fmt.Errorf("type é imutável e não deve ser enviado na edição")
 	}
-	if !req.NomeInformado && !req.AnosInformado && !req.PeriodosInformado {
+	if !req.NomeInformado && !req.AnosInformado && !req.PeriodosInformado && !req.MateriasChaveInformado {
 		return nil, nil, fmt.Errorf("nenhum campo para atualizar")
 	}
 	if tipoCurso == "superior" {
+		if req.MateriasChaveInformado {
+			return nil, nil, fmt.Errorf("materias_chave é exclusivo para cursos médios")
+		}
 		if req.AnosInformado {
 			return nil, nil, fmt.Errorf("anos_academicos não deve ser enviado para curso superior; é calculado automaticamente a partir de periodos")
 		}
@@ -202,7 +216,12 @@ func CriarCurso(c *gin.Context) {
 	repository := getRepository(c)
 	curso := aggregates.NewCurso()
 
-	if err := curso.Criar(req.Nome, tipoCurso, anosAcademicos, periodos, academiaDTO.CodigoAcademia); err != nil {
+	if err := validarMateriasChaveCursoHandler(c, academiaDTO.CodigoAcademia, tipoCurso, &curso.ID, anosAcademicos, req.MateriasChave, req.MateriasChaveInformado); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if err := curso.Criar(req.Nome, tipoCurso, anosAcademicos, periodos, req.MateriasChave, academiaDTO.CodigoAcademia); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -222,10 +241,11 @@ func CriarCurso(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "curso criado com sucesso",
 		"data": gin.H{
-			"id":       curso.ID,
-			"nome":     curso.Nome,
-			"type":     curso.Type,
-			"periodos": curso.Periodos,
+			"id":             curso.ID,
+			"nome":           curso.Nome,
+			"type":           curso.Type,
+			"periodos":       curso.Periodos,
+			"materias_chave": curso.MateriasChave,
 		},
 	})
 }
@@ -352,7 +372,20 @@ func AtualizarDadosCurso(c *gin.Context) {
 		return
 	}
 
-	if err := curso.AtualizarDados(nomeAtualizacao(req), novosAnos, novosPeriodos, userID); err != nil {
+	var materiasChaveAtualizacao *[]aggregates.MateriasChaveCursoAno
+	if req.MateriasChaveInformado {
+		anosParaValidar := cursoDTO.AnosAcademicos
+		if novosAnos != nil {
+			anosParaValidar = novosAnos
+		}
+		if err := validarMateriasChaveCursoHandler(c, cursoDTO.CodigoAcademia, cursoDTO.Type, &cursoDTO.ID, anosParaValidar, req.MateriasChave, true); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+		materiasChaveAtualizacao = &req.MateriasChave
+	}
+
+	if err := curso.AtualizarDados(nomeAtualizacao(req), novosAnos, novosPeriodos, materiasChaveAtualizacao, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -374,6 +407,7 @@ func AtualizarDadosCurso(c *gin.Context) {
 		"type":            curso.Type,
 		"anos_academicos": curso.AnosAcademicos,
 		"periodos":        curso.Periodos,
+		"materias_chave":  curso.MateriasChave,
 	})
 }
 
@@ -913,4 +947,56 @@ func GetCurso(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, cursoDTO)
+}
+
+func validarMateriasChaveCursoHandler(c *gin.Context, codigoAcademia, tipoCurso string, cursoID *uuid.UUID, anosAcademicos []string, materiasChave []aggregates.MateriasChaveCursoAno, informado bool) error {
+	if !informado {
+		return nil
+	}
+	if tipoCurso != "medio" {
+		return fmt.Errorf("materias_chave é exclusivo para cursos médios")
+	}
+	anosPermitidos := map[string]struct{}{}
+	for _, ano := range anosAcademicos {
+		anosPermitidos[ano] = struct{}{}
+	}
+	materias, err := getMateriasProjection(c).GetActiveByAcademia(codigoAcademia)
+	if err != nil {
+		return err
+	}
+	porID := map[uuid.UUID]projections.MateriaDTO{}
+	for _, m := range materias {
+		porID[m.ID] = m
+	}
+	anosVistos := map[string]struct{}{}
+	for _, cfg := range materiasChave {
+		if _, ok := anosPermitidos[cfg.AnoAcademico]; !ok {
+			return fmt.Errorf("materias_chave.%s: ano_academico não pertence a anos_academicos do curso", cfg.AnoAcademico)
+		}
+		if _, ok := anosVistos[cfg.AnoAcademico]; ok {
+			return fmt.Errorf("materias_chave.%s: configuração duplicada para o ano acadêmico", cfg.AnoAcademico)
+		}
+		anosVistos[cfg.AnoAcademico] = struct{}{}
+		idsVistos := map[uuid.UUID]struct{}{}
+		for _, id := range cfg.MateriasChave {
+			if _, ok := idsVistos[id]; ok {
+				return fmt.Errorf("materias_chave.%s: matéria duplicada %s", cfg.AnoAcademico, id)
+			}
+			idsVistos[id] = struct{}{}
+			m, ok := porID[id]
+			if !ok {
+				return fmt.Errorf("materias_chave.%s: matéria %s inexistente, inativa, deletada ou de outra academia", cfg.AnoAcademico, id)
+			}
+			if m.Type != "medio" {
+				return fmt.Errorf("materias_chave.%s: matéria %s não é do ensino médio", cfg.AnoAcademico, id)
+			}
+			if m.CursoID == nil || cursoID == nil || *m.CursoID != *cursoID {
+				return fmt.Errorf("materias_chave.%s: matéria %s não pertence ao mesmo curso médio", cfg.AnoAcademico, id)
+			}
+			if !containsString(m.AnosAcademicos, cfg.AnoAcademico) {
+				return fmt.Errorf("materias_chave.%s: matéria %s não pertence ao ano acadêmico informado", cfg.AnoAcademico, id)
+			}
+		}
+	}
+	return nil
 }

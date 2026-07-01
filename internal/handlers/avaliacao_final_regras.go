@@ -53,6 +53,10 @@ func CriarRegraAvaliacaoFinal(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("campo legado tipo_ensino não é aceito; use nivel"))
 		return
 	}
+	if jsonCampoPresente(body, "materias_chave") {
+		utils.RespondWithValidationError(c, fmt.Errorf("materias_chave não é aceito em regras de avaliação final; configure matérias-chave no curso médio, por ano_academico"))
+		return
+	}
 	var req regraAvaliacaoFinalDTO
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("campos obrigatórios: type, nome, nivel, nota_minima_aprovacao, formula"))
@@ -175,9 +179,6 @@ func validarCamposPorNivelRegraAvaliacaoFinal(req regraAvaliacaoFinalDTO) error 
 		if req.LimiteMateriasPendentes != nil {
 			return fmt.Errorf("limite_materias_pendentes não é aceito para nivel fundamental")
 		}
-		if len(req.MateriasChave) > 0 {
-			return fmt.Errorf("materias_chave só é aceito para nivel medio")
-		}
 		return nil
 	}
 	if len(req.AnosAcademicos) > 0 {
@@ -188,9 +189,6 @@ func validarCamposPorNivelRegraAvaliacaoFinal(req regraAvaliacaoFinalDTO) error 
 	}
 	if *req.LimiteMateriasPendentes < 0 {
 		return fmt.Errorf("limite_materias_pendentes não pode ser negativo")
-	}
-	if req.Nivel == "medio" && req.AplicaSeReprovadoEmType == nil && len(req.MateriasChave) == 0 {
-		return fmt.Errorf("materias_chave é obrigatório para regra raiz de nivel medio")
 	}
 	return nil
 }
@@ -277,6 +275,10 @@ func EditarRegraAvaliacaoFinal(c *gin.Context) {
 	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
 	if jsonCampoPresente(body, "tipo_ensino") {
 		utils.RespondWithValidationError(c, fmt.Errorf("campo legado tipo_ensino não é aceito; use nivel"))
+		return
+	}
+	if jsonCampoPresente(body, "materias_chave") {
+		utils.RespondWithValidationError(c, fmt.Errorf("materias_chave não é aceito em regras de avaliação final; configure matérias-chave no curso médio, por ano_academico"))
 		return
 	}
 	if jsonCampoPresente(body, "nivel") || jsonCampoPresente(body, "anos_academicos") {
@@ -704,7 +706,7 @@ func scanRegra(rows rowScanner) (regraAvaliacaoFinalDTO, error) {
 	err := rows.Scan(&r.ID, &r.CodigoAcademia, &r.Type, &r.Nome, &r.Descricao, &r.Nivel, &anos, &r.NotaMinimaAprovacao, &cats, &formula, &r.AplicaSeReprovadoEmType, &materiasChave, &materiasAplicaveis, &limitePendentes, &r.Status, &r.Version)
 	_ = json.Unmarshal(anos, &r.AnosAcademicos)
 	_ = json.Unmarshal(cats, &r.CategoriasEnvolvidas)
-	r.MateriasChave = uuidListFromJSON(materiasChave)
+	r.MateriasChave = nil
 	r.MateriasAplicaveis = uuidListFromJSON(materiasAplicaveis)
 	if limitePendentes.Valid {
 		v := int(limitePendentes.Int64)

@@ -1334,3 +1334,11 @@ Academias agora podem consultar, adicionar e desabilitar escopos acadêmicos hab
 ## Atualização 2.0.8 — Progressão fundamental sem oferta do próximo ano
 
 A avaliação final do fundamental agora diferencia conclusão real do ciclo e ausência operacional de oferta na academia. Quando o estudante é aprovado em um ano anterior ao `9_ano_fundamental`, o backend calcula o próximo ano global canônico e verifica se ele existe em `projection_academias.anos_academicos` da academia atual. Se não existir, o estudante avança para esse próximo ano global, permanece com `status_escolar_fundamental = "em_andamento"`, continua vinculado à mesma academia, não recebe turma automática e o evento registra `motivo_progressao = "academia_sem_oferta_do_proximo_ano_academico_fundamental"`. A aprovação no `9_ano_fundamental` continua finalizando o fundamental normalmente.
+
+## Atualização — matérias-chave por ano em cursos médios
+
+A configuração de `materias_chave` do ensino médio pertence ao curso médio, agrupada por `ano_academico`, e não mais à regra de avaliação final. Cada curso `type="medio"` pode publicar uma lista de configurações no formato `[{"ano_academico":"1_ano_medio","materias_chave":["uuid-materia"]}]`. Cursos superiores rejeitam esse campo.
+
+Na avaliação final automática de estudantes do médio, o backend resolve `curso_medio_id` e `ano_escolar_medio` do estudante, carrega o curso médio e usa a entrada de `materias_chave` correspondente ao ano atual. Se a configuração estiver ausente ou vazia, a avaliação falha com erro claro de configuração do curso. A regra de avaliação final continua responsável apenas por fórmula, nota mínima, cadeia descendente e limites de pendências.
+
+Regras de avaliação final não aceitam mais `materias_chave` em criação ou edição. Payloads contendo esse campo devem ser corrigidos para configurar as matérias-chave diretamente no curso médio, por ano académico.

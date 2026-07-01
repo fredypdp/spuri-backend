@@ -120,3 +120,14 @@ func TestValidarSequenciaAnosMedioExigePrefixoContinuo(t *testing.T) {
 		}
 	}
 }
+
+func TestPrepararDadosCursoSuperiorRejeitaMateriasChave(t *testing.T) {
+	_, _, err := prepararDadosCursoPorTipo("superior", cursoPayload{
+		PeriodosInformado:      true,
+		PeriodosQuantidade:     2,
+		MateriasChaveInformado: true,
+	}, true)
+	if err == nil {
+		t.Fatalf("esperava erro ao enviar materias_chave em curso superior")
+	}
+}

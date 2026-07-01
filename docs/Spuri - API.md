@@ -4872,3 +4872,22 @@ Quando a configuração do Google Drive ou da quota estiver incompleta ou invál
 ```
 
 ---
+
+## Atualização — `materias_chave` nos cursos médios
+
+Cursos `type="medio"` aceitam e retornam `materias_chave` como configuração por ano académico:
+
+```json
+{
+  "nome": "Ciências Econômicas e Jurídicas",
+  "type": "medio",
+  "anos_academicos": ["1_ano_medio", "2_ano_medio", "3_ano_medio"],
+  "materias_chave": [
+    { "ano_academico": "1_ano_medio", "materias_chave": ["uuid-portugues", "uuid-matematica"] }
+  ]
+}
+```
+
+Validações: `ano_academico` precisa existir em `anos_academicos`; não pode haver configuração duplicada para o mesmo ano; IDs duplicados no mesmo ano são rejeitados; cada matéria precisa existir, estar ativa, ser `type="medio"`, pertencer à mesma academia, ao mesmo curso e ao ano informado. Cursos superiores com `materias_chave` são rejeitados.
+
+`POST /academia/avaliacao-final/regras` e `PUT /academia/avaliacao-final/regras/:id` rejeitam `materias_chave`. A mensagem orienta configurar matérias-chave no curso médio, por `ano_academico`. Respostas de regras não expõem `materias_chave`. Na avaliação final automática do médio, as matérias-chave são resolvidas por `curso_medio_id` + `ano_escolar_medio`; configuração ausente ou vazia impede a execução.
