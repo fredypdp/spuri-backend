@@ -1889,11 +1889,13 @@ Response:
 }
 ```
 
-#### GET `/admin/academias/anos-letivos/finalizacoes?type=escolar&ano_letivo=2025_2026`
+#### GET `/admin/academias/anos-letivos/finalizacoes`
 
-Apenas Admin FPP. Consulta finalizações por academia, com filtros opcionais.
+Apenas Admin FPP. Consulta finalizações por academia, com filtros opcionais via query string. A rota registrada no backend é somente `/admin/academias/anos-letivos/finalizacoes`; `type` e `ano_letivo` são parâmetros de consulta opcionais e não fazem parte do path.
 
 Request: não possui body.
+
+Exemplo com filtros: `GET /admin/academias/anos-letivos/finalizacoes?type=escolar&ano_letivo=2025_2026`
 
 Query params opcionais:
 
