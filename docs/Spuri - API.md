@@ -3893,7 +3893,7 @@ Lista registros de faltas com escopo por perfil.
 
 Para `tipo_ensino = "superior"`, a avaliação final automática usa `semestre_atual` como unidade de progressão. O backend converte o inteiro armazenado no estudante para o período `[n]_semestre` (por exemplo, `semestre_atual = 3` vira `3_semestre`) e esse período deve existir em `curso.periodos`.
 
-Regras superiores devem ser configuradas em `anos_academicos` com valores semestrais (`1_semestre`, `2_semestre`, ...). Fundamental e médio continuam usando anos acadêmicos (`[n]_ano_fundamental` e `[n]_ano_medio`). A unicidade da avaliação final superior considera estudante, academia, ano letivo, `tipo_ensino`, semestre avaliado e `type`, portanto uma avaliação de `1_semestre` não bloqueia a posterior avaliação de `2_semestre` no mesmo ano letivo.
+Regras superiores usam `nivel = "superior"` e não recebem `anos_academicos`; o backend infere o período semestral (`1_semestre`, `2_semestre`, ...) pela matéria/curso avaliado. Fundamental continua declarando `anos_academicos` com anos (`[n]_ano_fundamental`), enquanto médio usa `nivel = "medio"` sem `anos_academicos` e avalia as matérias do ano atual do estudante. A unicidade da avaliação final superior considera estudante, academia, ano letivo, `tipo_ensino`, semestre avaliado e `type`, portanto uma avaliação de `1_semestre` não bloqueia a posterior avaliação de `2_semestre` no mesmo ano letivo.
 
 Na aprovação superior, o backend incrementa `semestre_atual` quando ainda existe próximo semestre no curso e recalcula `ano_superior = ceil(semestre_atual / 2)`. Assim, `1_semestre → semestre_atual = 2` mantém `1_ano_superior`, enquanto `2_semestre → semestre_atual = 3` muda para `2_ano_superior`. Na aprovação no último semestre, `status_superior` passa para `finalizado`; na reprovação, `semestre_atual`, `ano_superior` e `status_superior` permanecem inalterados.
 
@@ -3960,7 +3960,7 @@ Cria uma regra ativa de avaliação final para a academia autenticada.
   "type": "avaliacao_final",
   "nome": "Avaliação final",
   "descricao": "Média dos três trimestres",
-  "tipo_ensino": "fundamental",
+  "nivel": "fundamental",
   "anos_academicos": ["3_ano_fundamental"],
   "nota_minima_aprovacao": 10,
   "formula": "([nota_escola,1_trimestre]+[nota_professor,1_trimestre]+[nota_escola,2_trimestre]+[nota_professor,2_trimestre]+[nota_escola,3_trimestre]+[nota_professor,3_trimestre])/3",
@@ -3973,8 +3973,11 @@ Cria uma regra ativa de avaliação final para a academia autenticada.
 - `type` — obrigatório. Identifica a etapa pública (`avaliacao_final`, `avaliacao_final_com_exame`, `avaliacao_final_com_recurso`, etc.). Aceita apenas letras, números, espaços e `_`; espaços são normalizados para `_` antes de persistir (ex.: `exame final` vira `exame_final`), e outros caracteres são rejeitados.
 - `nome` — obrigatório. Exemplos: `Avaliação final`, `Avaliação final (com exame)` ou `Avaliação final (com recurso)`.
 - `descricao` — opcional.
-- `tipo_ensino` — obrigatório; apenas `fundamental`, `medio` ou `superior`.
-- `anos_academicos` — obrigatório e não vazio; não pode conter string vazia.
+- `nivel` — campo oficial do escopo da regra; aceita `fundamental`, `medio` ou `superior`. Academias superiores podem omitir ou enviar apenas `superior`; academias escolares não mistas podem omitir ou enviar o mesmo valor de `nivel_escolar`; academias mistas devem informar `fundamental` ou `medio`. O campo legado `tipo_ensino` não é aceito e retorna erro de validação orientando o uso de `nivel`.
+- `anos_academicos` — obrigatório e não vazio apenas para `nivel="fundamental"`; não é aceito para `medio` ou `superior`.
+- `materias_chave` — obrigatório em regra raiz de `nivel="medio"`; lista IDs das matérias obrigatórias para aprovação direta. Só é aceito para médio.
+- `materias_aplicaveis` — opcional; em regras dependentes limita quais matérias de recuperação/recurso serão recalculadas.
+- `limite_materias_pendentes` — obrigatório para `nivel="medio"` ou `nivel="superior"`; inteiro maior ou igual a zero. Não é aceito para fundamental.
 - `nota_minima_aprovacao` — obrigatório e maior que zero.
 - `categorias_envolvidas` — opcional. O backend extrai automaticamente as categorias usadas em `formula`. Se enviado, deve corresponder exatamente às categorias extraídas da fórmula, sem duplicatas, sobras ou omissões, e todas precisam estar ativas/configuradas pela academia para os anos da regra.
 - `formula` — obrigatório; deve ser uma string textual no modelo `formula_textual_v1`. O formato JSON em árvore antigo foi removido e não é aceito.
@@ -3982,8 +3985,8 @@ Cria uma regra ativa de avaliação final para a academia autenticada.
 
 **Unicidade e cadeia:**
 
-- Não pode existir outra regra ativa com o mesmo `type`, `tipo_ensino` e ano acadêmico sobreposto para a mesma academia. Ao criar ou editar uma regra, é permitido definir um `type` igual ao de uma regra inativa; porém essa regra inativa não poderá ser reativada enquanto existir uma regra ativa com o mesmo `type`, `tipo_ensino` e ano acadêmico sobreposto.
-- Para cada academia, tipo de ensino e ano acadêmico, só pode haver uma regra raiz ativa. Regra raiz é a regra sem `aplica_se_reprovado_em_type`.
+- Não pode existir outra regra ativa com o mesmo `type`, `nivel` e, quando fundamental, ano acadêmico sobreposto para a mesma academia. Ao criar ou editar uma regra, é permitido definir um `type` igual ao de uma regra inativa; porém essa regra inativa não poderá ser reativada enquanto existir uma regra ativa com o mesmo `type`, `nivel` e escopo sobreposto.
+- Para cada academia, `nivel` e escopo acadêmico, só pode haver uma regra raiz ativa. Regra raiz é a regra sem `aplica_se_reprovado_em_type`.
 - Regras dependentes formam uma cadeia de novas chances; elas precisam ter os mesmos `anos_academicos` da raiz e só executam depois de reprovação no `type` apontado.
 - A regra é criada pelo backend com `status = "ativo"` e `version = 1`; esses campos não são enviados na criação.
 
@@ -3991,7 +3994,7 @@ Cria uma regra ativa de avaliação final para a academia autenticada.
 
 A fórmula é uma expressão declarativa interpretada por parser próprio do backend, sem `eval`, sem JavaScript e sem execução dinâmica. O resultado numérico da expressão vira `nota_final`.
 
-- Referência de nota: `[categoria,periodo]`, por exemplo `[nota_escola,1_trimestre]` ou `[nota_exame,2_semestre]`.
+- Referência de nota: `[categoria,periodo]`, por exemplo `[nota_escola,1_trimestre]` ou `[nota_exame,2_semestre]`. Em regras de `nivel="superior"`, a fórmula pode referenciar apenas `[categoria]` porque o período é inferido pela matéria avaliada.
 - Operadores permitidos: `+`, `-`, `*`, `/`.
 - Precedência: `*` e `/` são calculados antes de `+` e `-`. Use parênteses para deixar médias e pesos explícitos.
 - Constantes: números positivos ou zero com ponto decimal opcional, como `3`, `0.3` e `10.5`.
@@ -4050,12 +4053,15 @@ Lista todas as regras de avaliação final da academia autenticada, ordenadas po
       "type": "avaliacao_final",
       "nome": "Avaliação final",
       "descricao": "Média dos três trimestres",
-      "tipo_ensino": "fundamental",
+      "nivel": "fundamental",
       "anos_academicos": ["3_ano_fundamental"],
       "nota_minima_aprovacao": 10,
       "categorias_envolvidas": ["nota_escola"],
       "formula": "([nota_escola,1_trimestre]+[nota_escola,2_trimestre]+[nota_escola,3_trimestre])/3",
       "aplica_se_reprovado_em_type": null,
+      "materias_chave": [],
+      "materias_aplicaveis": [],
+      "limite_materias_pendentes": null,
       "status": "ativo",
       "version": 1
     }
@@ -4088,7 +4094,7 @@ Edita uma regra ativa de avaliação final da academia autenticada. Por seguran�
 
 - O `id` precisa ser UUID válido e pertencer à academia autenticada.
 - A regra precisa estar `ativo`; regras inativas não são editadas.
-- Não é permitido editar `type`, `tipo_ensino`, `anos_academicos`, `aplica_se_reprovado_em_type`, `status` nem `version` via payload, para não quebrar a cadeia já configurada. Caso uma versão futura permita editar `type`, a validação deve seguir a mesma regra da criação: o `type` pode coincidir com regra inativa, mas a regra inativa permanecerá bloqueada para ativação enquanto houver regra ativa conflitante.
+- Não é permitido editar `type`, `nivel`, `anos_academicos`, `aplica_se_reprovado_em_type`, `materias_chave`, `materias_aplicaveis`, `limite_materias_pendentes`, `status` nem `version` via payload, para não quebrar a cadeia já configurada. O campo legado `tipo_ensino` também é rejeitado. Caso uma versão futura permita editar `type`, a validação deve seguir a mesma regra da criação: o `type` pode coincidir com regra inativa, mas a regra inativa permanecerá bloqueada para ativação enquanto houver regra ativa conflitante.
 - `nome` é obrigatório e não pode ser vazio.
 - `nota_minima_aprovacao` precisa ser maior que zero.
 - `formula` passa pelo mesmo parser seguro da criação; categorias são extraídas da fórmula e precisam estar ativas/configuradas para os anos da regra.
@@ -4117,7 +4123,7 @@ Inativa uma regra ativa de avaliação final da academia autenticada. A deleçã
 - Se a regra tiver dependentes, o backend inativa também todas as dependentes diretas e indiretas.
 - Essa cascata evita deixar regras órfãs apontando para um `type` inativo.
 - Depois da inativação em cascata, uma regra dependente não pode ser ativada se a regra indicada em `aplica_se_reprovado_em_type` continuar inativa.
-- Regra inativa cujo `type` conflite com outra regra ativa no mesmo `tipo_ensino` e ano acadêmico sobreposto não pode ser ativada até que o conflito seja removido.
+- Regra inativa cujo `type` conflite com outra regra ativa no mesmo `nivel` e escopo acadêmico sobreposto não pode ser ativada até que o conflito seja removido.
 - A operação não apaga avaliações finais já registradas em `projection_avaliacao_final`; elas continuam auditáveis.
 - Cada regra inativada recebe `version = version + 1` e `updated_at` novo.
 
@@ -4130,6 +4136,55 @@ Inativa uma regra ativa de avaliação final da academia autenticada. A deleçã
   "message": "regra de avaliação final inativada com dependentes",
   "id": "7e5f0b8d-8c7a-4b1a-9f4c-1f4cfd0c2f11",
   "total_inativadas": 3
+}
+```
+
+---
+
+### Avaliação final por matéria e pendências
+
+A avaliação final automática calcula uma `nota_final` independente por matéria (`materia_id`) quando uma nota é lançada. O backend resolve o escopo da regra ativa, carrega somente as matérias aplicáveis ao estudante e filtra as notas por `materia_disciplinar_id`, em vez de usar uma massa única de notas do estudante.
+
+**Regras por nível:**
+
+- `nivel` é o campo oficial de escopo das regras (`fundamental`, `medio` ou `superior`).
+- `tipo_ensino` é legado e não é aceito nos payloads de criação/edição de regra.
+- `materias_chave` é obrigatório na regra raiz de médio e identifica matérias que precisam aprovar diretamente.
+- `materias_aplicaveis` pode restringir uma regra descendente às matérias de recuperação/recurso.
+- `limite_materias_pendentes` é obrigatório para médio e superior e define quantas reprovações finais podem virar pendência.
+
+**Fórmula e matérias:**
+
+- Fundamental e médio usam referências no formato `[categoria,periodo]`.
+- Superior pode usar `[categoria]`; o backend infere o período a partir da matéria avaliada.
+- O resultado automático inclui `resultados_materias`, com `materia_id`, `nota_final`, `aprovado`, `type`, `formula_snapshot`, `regra_avaliacao_final_id` e `pendencia_permitida`.
+- Para médio e superior, se todas as reprovações finais couberem em `limite_materias_pendentes` e todas as matérias reprovadas permitirem pendência, o evento é registrado com `aprovado=true` e `aprovado_com_pendencia=true`.
+- Pendências geradas são projetadas em `projection_materias_pendentes`, com proteção contra duplicidade aberta para o mesmo estudante, matéria, curso, nível, ano letivo e escopo acadêmico.
+
+**Exemplo de regra média com pendência:**
+
+```json
+{
+  "type": "normal",
+  "nome": "Fechamento anual do médio",
+  "nivel": "medio",
+  "materias_chave": ["b7f7b4d7-5d1e-4d1a-98ea-6a4a7b79b7c0"],
+  "limite_materias_pendentes": 2,
+  "nota_minima_aprovacao": 10,
+  "formula": "([prova,1_trimestre]+[prova,2_trimestre]+[prova,3_trimestre])/3"
+}
+```
+
+**Exemplo de regra superior com período inferido:**
+
+```json
+{
+  "type": "normal",
+  "nome": "Fechamento semestral superior",
+  "nivel": "superior",
+  "limite_materias_pendentes": 1,
+  "nota_minima_aprovacao": 10,
+  "formula": "([prova]+[trabalho])/2"
 }
 ```
 
@@ -4813,83 +4868,3 @@ Quando a configuração do Google Drive ou da quota estiver incompleta ou invál
 ```
 
 ---
-
-## Atualização — Avaliação final automática por matéria e pendências
-
-### Regras de avaliação final
-
-O contrato público de `POST /academia/avaliacao-final/regras` e `PUT /academia/avaliacao-final/regras/:id` passa a usar `nivel` como campo oficial da regra. O campo legado `tipo_ensino` não é aceito nos payloads de regra e retorna erro de validação claro orientando o uso de `nivel`.
-
-#### Campos principais
-
-- `nivel`: `fundamental`, `medio` ou `superior`.
-  - Academias superiores têm `nivel` preenchido automaticamente como `superior`.
-  - Academias escolares não mistas têm `nivel` preenchido automaticamente a partir de `nivel_escolar`.
-  - Academias mistas devem informar `fundamental` ou `medio`.
-- `anos_academicos`: aceito apenas para `nivel='fundamental'`.
-- `materias_chave`: obrigatório em regra raiz de `nivel='medio'`; lista IDs das matérias obrigatórias para aprovação direta.
-- `materias_aplicaveis`: lista opcional para regra descendente limitar quais matérias de recuperação serão recalculadas.
-- `limite_materias_pendentes`: obrigatório para `nivel='medio'` e `nivel='superior'`; deve ser inteiro maior ou igual a zero.
-- `formula`: continua declarativa e validada pelo parser do backend.
-  - Fundamental e médio usam referências como `[categoria,periodo]`.
-  - Superior pode usar `[categoria]`; o backend infere o período no momento da execução usando o período/semestre avaliado.
-
-#### Exemplo — regra fundamental
-
-```json
-{
-  "type": "normal",
-  "nome": "Avaliação final anual",
-  "nivel": "fundamental",
-  "anos_academicos": ["6_ano_fundamental"],
-  "nota_minima_aprovacao": 10,
-  "formula": "([prova,1_trimestre]+[prova,2_trimestre]+[prova,3_trimestre])/3"
-}
-```
-
-#### Exemplo — regra média com pendência
-
-```json
-{
-  "type": "normal",
-  "nome": "Fechamento anual do médio",
-  "nivel": "medio",
-  "materias_chave": ["b7f7b4d7-5d1e-4d1a-98ea-6a4a7b79b7c0"],
-  "limite_materias_pendentes": 2,
-  "nota_minima_aprovacao": 10,
-  "formula": "([prova,1_trimestre]+[prova,2_trimestre]+[prova,3_trimestre])/3"
-}
-```
-
-#### Exemplo — regra superior com período inferido
-
-```json
-{
-  "type": "normal",
-  "nome": "Fechamento semestral superior",
-  "nivel": "superior",
-  "limite_materias_pendentes": 1,
-  "nota_minima_aprovacao": 10,
-  "formula": "([prova]+[trabalho])/2"
-}
-```
-
-### Respostas e persistência
-
-As respostas de regras expõem `nivel`, `materias_chave`, `materias_aplicaveis` e `limite_materias_pendentes`. O backend armazena snapshots preparados para resultados por matéria, aprovação com pendência e pendências geradas.
-
-### Matérias pendentes
-
-Foi introduzida a projeção persistente `projection_materias_pendentes` para armazenar pendências de nível médio e superior. Cada registro identifica estudante, matéria, academia, curso, nível, escopo letivo, regra/evento de origem, status `pendente` e metadados de auditoria. A tabela impede pendência aberta duplicada para o mesmo estudante, matéria, curso, nível, ano letivo e escopo acadêmico.
-
-## Atualização de debug — fechamento automático por matéria
-
-A revisão arquivo por arquivo do fluxo de avaliação final confirmou e completou a execução automática por matéria. Ao lançar uma nota, o backend agora resolve o escopo da regra ativa, carrega somente as matérias aplicáveis daquele estudante e calcula uma `nota_final` independente por `materia_id`.
-
-### Ajustes completados
-
-- O cálculo automático deixou de usar uma única massa de notas do estudante e passou a filtrar notas por `materia_disciplinar_id`.
-- O resultado da avaliação final inclui `resultados_materias`, com `materia_id`, `nota_final`, `aprovado`, `type`, `formula_snapshot`, `regra_avaliacao_final_id` e `pendencia_permitida`.
-- Em regras superiores, o período continua omitido no payload da fórmula e é preenchido por matéria usando o `periodo` cadastrado na própria matéria avaliada.
-- Para médio e superior, se todas as reprovações finais couberem em `limite_materias_pendentes` e todas as matérias reprovadas permitirem pendência, o evento é registrado como `aprovado=true` e `aprovado_com_pendencia=true`.
-- As pendências geradas no evento são projetadas em `projection_materias_pendentes` com proteção contra duplicidade aberta.
