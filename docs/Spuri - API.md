@@ -292,12 +292,18 @@ interface SolicitacaoMatriculaDTO {
 ### 2.5 Curso
 
 ```typescript
+interface MateriasChaveCursoAnoDTO {
+  ano_academico: string      // deve pertencer a CursoDTO.anos_academicos
+  materias_chave: string[]   // UUIDs de matérias médias ativas do mesmo curso/ano
+}
+
 interface CursoDTO {
   id: string
   nome: string
   type: CursoType            // preenchido automaticamente pelo backend e imutável
   anos_academicos: string[]  // ex: ['1_ano_medio', '2_ano_medio', '3_ano_medio']
   periodos?: string[]        // ex: ['1_semestre', '2_semestre'] — apenas para superior
+  materias_chave?: MateriasChaveCursoAnoDTO[] // apenas médio; obrigatório um item não vazio por ano
   codigo_academia: string
   status: string             // 'ativo' | 'inativo' | 'deletado'
   created_at: string
@@ -2674,7 +2680,21 @@ Cria um novo curso para a academia. O tipo efetivo do curso é inferido pelo bac
 {
   "nome": "Ciências e Tecnologia",
   "type": "medio",
-  "anos_academicos": ["1_ano_medio", "2_ano_medio", "3_ano_medio"]
+  "anos_academicos": ["1_ano_medio", "2_ano_medio", "3_ano_medio"],
+  "materias_chave": [
+    {
+      "ano_academico": "1_ano_medio",
+      "materias_chave": ["uuid-materia-portugues", "uuid-materia-matematica"]
+    },
+    {
+      "ano_academico": "2_ano_medio",
+      "materias_chave": ["uuid-materia-fisica"]
+    },
+    {
+      "ano_academico": "3_ano_medio",
+      "materias_chave": ["uuid-materia-quimica"]
+    }
+  ]
 }
 ```
 
@@ -2690,7 +2710,9 @@ Cria um novo curso para a academia. O tipo efetivo do curso é inferido pelo bac
 
 Para cursos superiores, `periodos` é um **número inteiro positivo** que representa o total de semestres. O backend persiste internamente os semestres sequenciais (`1_semestre` até `N_semestre`) e calcula `anos_academicos` automaticamente com `ceil(periodos / 2)`. Ex.: `periodos = 3` gera `periodos = ["1_semestre", "2_semestre", "3_semestre"]` e `anos_academicos = ["1_ano_superior", "2_ano_superior"]`.
 
-Cursos superiores não aceitam `anos_academicos` no payload; cursos médios não aceitam `periodos` numérico. Para curso médio, `anos_academicos` passa pela mesma proteção de sequência usada em `POST /academia/anos-academicos`: a lista precisa ser contínua, crescente e iniciada em `1_ano_medio` (por exemplo, `["1_ano_medio", "2_ano_medio"]`). Listas que comecem em `2_ano_medio`, pulem anos, repitam anos ou venham fora de ordem são rejeitadas antes da criação do curso.
+Cursos superiores não aceitam `anos_academicos` nem `materias_chave` no payload; cursos médios não aceitam `periodos` numérico. Para curso médio, `anos_academicos` passa pela mesma proteção de sequência usada em `POST /academia/anos-academicos`: a lista precisa ser contínua, crescente e iniciada em `1_ano_medio` (por exemplo, `["1_ano_medio", "2_ano_medio"]`). Listas que comecem em `2_ano_medio`, pulem anos, repitam anos ou venham fora de ordem são rejeitadas antes da criação do curso.
+
+Para curso médio, `materias_chave` é obrigatório e deve conter uma entrada para cada item de `anos_academicos`. Cada entrada deve ter `ano_academico` pertencente ao curso e `materias_chave` com pelo menos um UUID de matéria. Cada matéria precisa existir, estar ativa, ser `type="medio"`, pertencer à mesma academia, ao mesmo `curso_id` e ao `ano_academico` informado; duplicidade de ano ou de matéria no mesmo ano é rejeitada.
 
 
 **Exemplo 400 — curso médio com anos fora de sequência:**
@@ -2710,16 +2732,22 @@ Cursos superiores não aceitam `anos_academicos` no payload; cursos médios não
   "data": {
     "id": "uuid",
     "nome": "string",
-    "type": "superior",
-    "periodos": ["1_semestre", "2_semestre", "3_semestre", "4_semestre"]
+    "type": "medio",
+    "periodos": [],
+    "materias_chave": [
+      {
+        "ano_academico": "1_ano_medio",
+        "materias_chave": ["uuid-materia-portugues"]
+      }
+    ]
   }
 }
 ```
 
 **Erros:**
 
-- `400` — nome ausente, `type` incompatível com a academia ou anos_academicos inválidos, não sequenciais ou fora de ordem para curso médio
-- `400` — curso superior sem `periodos`, com `periodos <= 0`, decimal, string, array, nulo ou com `anos_academicos` enviado
+- `400` — nome ausente, `type` incompatível com a academia, anos_academicos inválidos/não sequenciais/fora de ordem para curso médio, ou `materias_chave` ausente/incompleto/inválido para curso médio
+- `400` — curso superior sem `periodos`, com `periodos <= 0`, decimal, string, array, nulo, com `anos_academicos` enviado ou com `materias_chave` enviado
 - `400` — curso médio com `periodos` numérico enviado
 - `403` — academia inativa não pode criar cursos
 
@@ -2727,7 +2755,7 @@ Cursos superiores não aceitam `anos_academicos` no payload; cursos médios não
 
 ### GET /academia/cursos
 
-Lista todos os cursos da academia, incluindo `anos_academicos` de cada curso.
+Lista todos os cursos da academia, incluindo `anos_academicos` de cada curso e, quando o curso é médio, a configuração `materias_chave` por ano acadêmico.
 
 **Proteção**: pública com autenticação opcional.
 
@@ -2754,7 +2782,7 @@ Lista todos os cursos da academia, incluindo `anos_academicos` de cada curso.
 
 ### GET /academia/curso/:id
 
-Retorna um curso específico, incluindo seus `anos_academicos`.
+Retorna um curso específico, incluindo seus `anos_academicos` e, quando o curso é médio, `materias_chave` por ano acadêmico.
 
 **Proteção**: pública com autenticação opcional.
 
@@ -2808,24 +2836,32 @@ Desativa um curso ativo.
 
 ### PUT /academia/curso/:id/dados
 
-Atualiza somente dados cadastrais de um curso. O `type` é imutável e esta rota não manipula anos acadêmicos, períodos ou semestres.
+Atualiza dados cadastrais de um curso e, para curso médio, a configuração `materias_chave`. O `type` é imutável e esta rota não manipula anos acadêmicos, períodos ou semestres.
 
 **Proteção**: autenticado + academia ativa
 
 **Validações de integridade:**
 
-- O payload aceito para esta rota é cadastral; atualmente, use `nome` para renomear o curso.
+- O payload aceito para esta rota permite `nome` e, em cursos médios, `materias_chave`.
 - Campos acadêmicos como `anos_academicos`, `anosAcademicos`, `periodos`, `semestres`, `quantidade_semestres` e `anos` são rejeitados com erro de validação, sem mutação parcial.
-- Para adicionar ou remover anos de curso médio, use `POST` ou `DELETE /academia/anos-academicos` com `type=medio` e `curso_id`.
+- Para adicionar ou remover anos de curso médio, use `POST` ou `DELETE /academia/anos-academicos` com `type=medio` e `curso_id`. Depois da alteração, mantenha `materias_chave` coerente: todo ano acadêmico médio do curso precisa ter pelo menos uma matéria-chave.
 - Cursos superiores não aceitam adição/remoção direta de anos acadêmicos, períodos ou semestres por esta rota nem por `/academia/anos-academicos`; qualquer fluxo futuro de períodos deve ser explícito e separado dos dados cadastrais do curso.
 
 **Request:**
 
 ```json
 {
-  "nome": "string",
-  "pendencia_permitida": true,
-  "pendencia_nivel_conclusao": "3_ano_medio"
+  "nome": "Ciências e Tecnologia",
+  "materias_chave": [
+    {
+      "ano_academico": "1_ano_medio",
+      "materias_chave": ["uuid-materia-portugues"]
+    },
+    {
+      "ano_academico": "2_ano_medio",
+      "materias_chave": ["uuid-materia-fisica"]
+    }
+  ]
 }
 ```
 
@@ -2837,13 +2873,24 @@ Atualiza somente dados cadastrais de um curso. O `type` é imutável e esta rota
   "nome": "string",
   "type": "medio",
   "anos_academicos": ["1_ano_medio", "2_ano_medio"],
-  "periodos": null
+  "periodos": [],
+  "materias_chave": [
+    {
+      "ano_academico": "1_ano_medio",
+      "materias_chave": ["uuid-materia-portugues"]
+    },
+    {
+      "ano_academico": "2_ano_medio",
+      "materias_chave": ["uuid-materia-fisica"]
+    }
+  ]
 }
 ```
 
 **Erros:**
 
 - `400` — nenhum campo para atualizar
+- `400` — `materias_chave` enviado para curso superior, ausente/incompleto em curso médio quando alterado, com ano fora de `anos_academicos`, ano duplicado, matéria duplicada, inexistente, inativa, deletada, de outra academia, de outro curso, de outro nível ou fora do ano informado
 - `400` — `type` enviado na edição, pois o tipo do curso é imutável
 - `400` — campo acadêmico enviado (`anos_academicos`, `anosAcademicos`, `periodos`, `semestres`, `quantidade_semestres`, `anos` ou equivalente)
 
@@ -3979,7 +4026,7 @@ Cria uma regra ativa de avaliação final para a academia autenticada.
 - `descricao` — opcional.
 - `nivel` — campo oficial do escopo da regra; aceita `fundamental`, `medio` ou `superior`. Academias superiores podem omitir ou enviar apenas `superior`; academias escolares não mistas podem omitir ou enviar o mesmo valor de `nivel_escolar`; academias mistas devem informar `fundamental` ou `medio`. O campo legado `tipo_ensino` não é aceito e retorna erro de validação orientando o uso de `nivel`.
 - `anos_academicos` — obrigatório e não vazio apenas para `nivel="fundamental"`; não é aceito para `medio` ou `superior`.
-- `materias_chave` — obrigatório em regra raiz de `nivel="medio"`; lista IDs das matérias obrigatórias para aprovação direta. Só é aceito para médio.
+- `materias_chave` — não é aceito em regras de avaliação final. Para Médio, configure matérias-chave no curso médio, por `ano_academico`. Payloads de criação/edição de regra contendo esse campo retornam erro de validação.
 - `materias_aplicaveis` — opcional; em regras dependentes limita quais matérias de recuperação/recurso serão recalculadas.
 - `limite_materias_pendentes` — obrigatório para `nivel="medio"` ou `nivel="superior"`; inteiro maior ou igual a zero. Não é aceito para fundamental.
 - `nota_minima_aprovacao` — obrigatório e maior que zero.
@@ -4063,7 +4110,6 @@ Lista todas as regras de avaliação final da academia autenticada, ordenadas po
       "categorias_envolvidas": ["nota_escola"],
       "formula": "([nota_escola,1_trimestre]+[nota_escola,2_trimestre]+[nota_escola,3_trimestre])/3",
       "aplica_se_reprovado_em_type": null,
-      "materias_chave": [],
       "materias_aplicaveis": [],
       "limite_materias_pendentes": null,
       "status": "ativo",
@@ -4153,7 +4199,7 @@ A avaliação final automática calcula uma `nota_final` independente por matér
 
 - `nivel` é o campo oficial de escopo das regras (`fundamental`, `medio` ou `superior`).
 - `tipo_ensino` é legado e não é aceito nos payloads de criação/edição de regra.
-- `materias_chave` é obrigatório na regra raiz de médio e identifica matérias que precisam aprovar diretamente.
+- `materias_chave` não pertence à regra. No Médio, o backend resolve as matérias-chave a partir do curso médio do estudante (`curso_medio_id`) e do `ano_escolar_medio` atual; se a configuração do curso/ano estiver ausente, a avaliação falha com erro claro.
 - `materias_aplicaveis` pode restringir uma regra descendente às matérias de recuperação/recurso.
 - `limite_materias_pendentes` é obrigatório para médio e superior e define quantas reprovações finais podem virar pendência.
 
@@ -4172,12 +4218,27 @@ A avaliação final automática calcula uma `nota_final` independente por matér
   "type": "normal",
   "nome": "Fechamento anual do médio",
   "nivel": "medio",
+  "limite_materias_pendentes": 2,
+  "nota_minima_aprovacao": 10,
+  "formula": "([prova,1_trimestre]+[prova,2_trimestre]+[prova,3_trimestre])/3"
+}
+```
+
+**Exemplo inválido — `materias_chave` na regra:**
+
+```json
+{
+  "type": "normal",
+  "nome": "Fechamento anual do médio",
+  "nivel": "medio",
   "materias_chave": ["b7f7b4d7-5d1e-4d1a-98ea-6a4a7b79b7c0"],
   "limite_materias_pendentes": 2,
   "nota_minima_aprovacao": 10,
   "formula": "([prova,1_trimestre]+[prova,2_trimestre]+[prova,3_trimestre])/3"
 }
 ```
+
+Esse payload é rejeitado; configure `materias_chave` no curso médio, por `ano_academico`.
 
 **Exemplo de regra superior com período inferido:**
 
