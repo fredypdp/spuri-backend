@@ -426,7 +426,7 @@ func ListarTodasAcademias(c *gin.Context) {
 
 	const baseSelect = `
 		SELECT pa.id, pa.nivel, pa.type, pa.nome, pa.codigo_academia, pa.provincia, pa.endereco,
-		       pa.telefone, pa.email, pa.website, pa.nivel_escolar, pa.anos_academicos, pa.status,
+		       pa.telefone, pa.telefone_verificado, pa.email, pa.website, pa.nivel_escolar, pa.anos_academicos, pa.status,
 		       pa.cursos, pa.email_verificado, pa.created_at, pa.updated_at,
 		       COALESCE(est_count.total_estudantes, 0) AS total_estudantes,
 		       pa.version
@@ -466,29 +466,30 @@ func ListarTodasAcademias(c *gin.Context) {
 	var academias []map[string]interface{}
 	for rows.Next() {
 		var aca struct {
-			ID              uuid.UUID  `db:"id"`
-			Nivel           string     `db:"nivel"`
-			Type            string     `db:"type"`
-			Nome            string     `db:"nome"`
-			CodigoAcademia  string     `db:"codigo_academia"`
-			Provincia       string     `db:"provincia"`
-			Endereco        string     `db:"endereco"`
-			Telefone        *string    `db:"telefone"`
-			Email           *string    `db:"email"`
-			Website         *string    `db:"website"`
-			NivelEscolar    *string    `db:"nivel_escolar"`
-			AnosJSON        []byte     `db:"anos_academicos"`
-			Status          string     `db:"status"`
-			CursosJSON      []byte     `db:"cursos"`
-			EmailVerificado bool       `db:"email_verificado"`
-			CreatedAt       time.Time  `db:"created_at"`
-			UpdatedAt       *time.Time `db:"updated_at"`
-			TotalEstudantes int        `db:"total_estudantes"`
-			Version         int        `db:"version"`
+			ID                 uuid.UUID  `db:"id"`
+			Nivel              string     `db:"nivel"`
+			Type               string     `db:"type"`
+			Nome               string     `db:"nome"`
+			CodigoAcademia     string     `db:"codigo_academia"`
+			Provincia          string     `db:"provincia"`
+			Endereco           string     `db:"endereco"`
+			Telefone           *string    `db:"telefone"`
+			TelefoneVerificado bool       `db:"telefone_verificado"`
+			Email              *string    `db:"email"`
+			Website            *string    `db:"website"`
+			NivelEscolar       *string    `db:"nivel_escolar"`
+			AnosJSON           []byte     `db:"anos_academicos"`
+			Status             string     `db:"status"`
+			CursosJSON         []byte     `db:"cursos"`
+			EmailVerificado    bool       `db:"email_verificado"`
+			CreatedAt          time.Time  `db:"created_at"`
+			UpdatedAt          *time.Time `db:"updated_at"`
+			TotalEstudantes    int        `db:"total_estudantes"`
+			Version            int        `db:"version"`
 		}
 		if err := rows.Scan(
 			&aca.ID, &aca.Nivel, &aca.Type, &aca.Nome, &aca.CodigoAcademia,
-			&aca.Provincia, &aca.Endereco, &aca.Telefone, &aca.Email,
+			&aca.Provincia, &aca.Endereco, &aca.Telefone, &aca.TelefoneVerificado, &aca.Email,
 			&aca.Website, &aca.NivelEscolar, &aca.AnosJSON, &aca.Status,
 			&aca.CursosJSON, &aca.EmailVerificado,
 			&aca.CreatedAt, &aca.UpdatedAt,
@@ -534,6 +535,7 @@ func ListarTodasAcademias(c *gin.Context) {
 		if userType != "" {
 			acadMap["id"] = aca.ID
 			acadMap["telefone"] = aca.Telefone
+			acadMap["telefone_verificado"] = aca.TelefoneVerificado
 			acadMap["website"] = aca.Website
 			acadMap["status"] = aca.Status
 			acadMap["cursos"] = cursos
@@ -602,6 +604,7 @@ func GetAcademiaPorCodigo(c *gin.Context) {
 	if userType != "" {
 		resp["id"] = academia.ID
 		resp["telefone"] = academia.Telefone
+		resp["telefone_verificado"] = academia.TelefoneVerificado
 		resp["website"] = academia.Website
 		resp["status"] = academia.Status
 		resp["cursos"] = academia.Cursos

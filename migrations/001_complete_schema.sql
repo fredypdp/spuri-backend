@@ -855,6 +855,7 @@ COMMENT ON COLUMN projection_estudantes.status_escolar IS 'Status ensino escolar
 COMMENT ON COLUMN projection_estudantes.status_superior IS 'Status ensino superior: inativo, em_andamento, finalizado';
 
 COMMENT ON COLUMN projection_academias.email_verificado IS 'Se o email da academia foi verificado';
+COMMENT ON COLUMN projection_academias.telefone_verificado IS 'Se o telefone da academia foi verificado';
 COMMENT ON COLUMN projection_academias.nivel_escolar IS 'Nível escolar: fundamental, medio, misto (obrigatório para nivel=escola)';
 COMMENT ON COLUMN projection_academias.status IS 'Status da academia (ativo/inativo) - academias iniciam inativas';
 COMMENT ON COLUMN projection_academias.cursos IS 'Array JSON com lista de nomes de cursos oferecidos';
