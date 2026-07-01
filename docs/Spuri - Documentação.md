@@ -428,23 +428,6 @@ O código de turma deve ser **único dentro da academia**. Antes da validação 
 
 ---
 
-### 4.7 Telefone Extra
-
-Permite que qualquer usuário (estudante, academia ou admin) registe números de telefone adicionais.
-
-**Normalização**: o número é normalizado antes de salvar (remove espaços, hífens, parênteses; mantém `+` inicial).
-
-**Formato aceito após normalização**: `+?[0-9]{7,15}`
-
-**Estados de verificação**:
-
-- Não verificado: qualquer usuário pode cadastrar o mesmo número
-- Verificado: apenas um usuário pode ter aquele número verificado (índice único parcial)
-
-**Eventos:** `TelefoneExtraAdicionado`, `TelefoneExtraVerificado`
-
----
-
 ## 5. Processos de Negócio
 
 ### 5.1 Cadastro de Academia
@@ -902,14 +885,6 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 - Rebuild assíncrono de projeções usa o mesmo pipeline de integridade do rebuild síncrono, mas sem manter a conexão HTTP aberta por minutos.
 
 ---
-
-### Telefones nativos e remoção de telefone extra
-
-O modelo `projection_telefones_extra` e o endpoint de telefone extra foram removidos. O telefone passa a fazer parte das entidades principais: estudante (`telefone`, `telefone_verificado`, `telefone_responsavel`, `telefone_responsavel_verificado`), academia (`telefone`, `telefone_verificado`) e admin (`telefone`, `telefone_verificado`).
-
-A normalização remove espaços, hifens e parênteses; o valor persistido deve ser string com exatamente 9 dígitos numéricos, sem DDI. A verificação de telefone ainda não possui fluxo ativo: os campos `*_verificado` existem para evitar conflitos de schema no futuro e não devem ser expostos como processo operacional.
-
-Regras de estudante: ao menos um telefone deve existir; `telefone` e `telefone_responsavel` não podem ser iguais; e o telefone de um estudante não pode ser reaproveitado como telefone de responsável de outro estudante.
 
 ## 6. Regras de Negócio
 
