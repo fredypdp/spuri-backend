@@ -197,7 +197,7 @@ func (c *Curso) Criar(
 	if tipo == "superior" && len(materiasChave) > 0 {
 		return fmt.Errorf("materias_chave é exclusivo para cursos do tipo medio")
 	}
-	if err := validarMateriasChaveCurso(anosAcademicos, materiasChave); err != nil {
+	if err := validarMateriasChaveCurso(tipo, anosAcademicos, materiasChave); err != nil {
 		return err
 	}
 
@@ -283,7 +283,11 @@ func (c *Curso) AtualizarDados(nome *string, anosAcademicos []string, periodos *
 		if anosAcademicos != nil {
 			anosBase = anosAcademicos
 		}
-		if err := validarMateriasChaveCurso(anosBase, *materiasChave); err != nil {
+		if err := validarMateriasChaveCurso(c.Type, anosBase, *materiasChave); err != nil {
+			return err
+		}
+	} else if anosAcademicos != nil && c.Type == "medio" {
+		if err := validarMateriasChaveCurso(c.Type, anosAcademicos, c.MateriasChave); err != nil {
 			return err
 		}
 	}
@@ -512,13 +516,22 @@ func normalizarPeriodos(tipo string, periodos []string) []string {
 	return periodos
 }
 
-func validarMateriasChaveCurso(anosAcademicos []string, materias []MateriasChaveCursoAno) error {
+func validarMateriasChaveCurso(tipo string, anosAcademicos []string, materias []MateriasChaveCursoAno) error {
 	anos := map[string]struct{}{}
 	for _, ano := range anosAcademicos {
 		anos[ano] = struct{}{}
 	}
 	vistosAno := map[string]struct{}{}
+	if tipo == "medio" && len(materias) == 0 {
+		return fmt.Errorf("materias_chave é obrigatório para cursos médios e deve conter pelo menos uma matéria por ano_academico")
+	}
 	for _, item := range materias {
+		if strings.TrimSpace(item.AnoAcademico) == "" {
+			return fmt.Errorf("materias_chave possui ano_academico obrigatório")
+		}
+		if len(item.MateriasChave) == 0 {
+			return fmt.Errorf("materias_chave do ano_academico %s deve conter pelo menos uma matéria", item.AnoAcademico)
+		}
 		if _, ok := anos[item.AnoAcademico]; !ok {
 			return fmt.Errorf("materias_chave possui ano_academico fora de anos_academicos: %s", item.AnoAcademico)
 		}
@@ -535,6 +548,13 @@ func validarMateriasChaveCurso(anosAcademicos []string, materias []MateriasChave
 				return fmt.Errorf("materias_chave possui matéria duplicada no ano_academico %s", item.AnoAcademico)
 			}
 			vistosMateria[id] = struct{}{}
+		}
+	}
+	if tipo == "medio" {
+		for _, ano := range anosAcademicos {
+			if _, ok := vistosAno[ano]; !ok {
+				return fmt.Errorf("materias_chave é obrigatório para o ano_academico %s", ano)
+			}
 		}
 	}
 	return nil

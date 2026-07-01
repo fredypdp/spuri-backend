@@ -27,6 +27,8 @@ type AvaliacaoFinalBasePayload struct {
 	RegraAvaliacaoFinalID   *uuid.UUID                       `json:"regra_avaliacao_final_id,omitempty"`
 	FormulaSnapshot         string                           `json:"formula_snapshot,omitempty"`
 	AplicaSeReprovadoEmType *string                          `json:"aplica_se_reprovado_em_type,omitempty"`
+	CursoIDSnapshot         *uuid.UUID                       `json:"curso_id_snapshot,omitempty"`
+	MateriasChaveSnapshot   []uuid.UUID                      `json:"materias_chave_snapshot,omitempty"`
 	SemestreAtualAvaliado   *int                             `json:"semestre_atual,omitempty"`
 	ProximoSemestreAtual    *int                             `json:"proximo_semestre_atual,omitempty"`
 	AnoSuperiorAntes        *string                          `json:"ano_superior_antes,omitempty"`
@@ -102,6 +104,8 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 	regraAvaliacaoFinalID *uuid.UUID,
 	formulaSnapshot string,
 	aplicaSeReprovadoEmType *string,
+	cursoIDSnapshot *uuid.UUID,
+	materiasChaveSnapshot []uuid.UUID,
 	motivoProgressao *string,
 	resultadosMaterias []ResultadoMateriaAvaliacaoFinal,
 	aprovadoComPendencia bool,
@@ -158,6 +162,8 @@ func (e *Estudante) RegistrarAvaliacaoFinal(
 		RegraAvaliacaoFinalID:   regraAvaliacaoFinalID,
 		FormulaSnapshot:         formulaSnapshot,
 		AplicaSeReprovadoEmType: aplicaSeReprovadoEmType,
+		CursoIDSnapshot:         cursoIDSnapshot,
+		MateriasChaveSnapshot:   materiasChaveSnapshot,
 		SemestreAtualAvaliado:   progressao.SemestreAtualAvaliado,
 		ProximoSemestreAtual:    progressao.ProximoSemestreAtual,
 		AnoSuperiorAntes:        progressao.AnoSuperiorAntes,

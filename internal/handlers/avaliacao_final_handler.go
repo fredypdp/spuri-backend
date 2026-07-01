@@ -167,6 +167,11 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		return
 	}
 	aprovado := notaFinal >= regra.NotaMinimaAprovacao
+	materiasChaveResolvidas, err := resolverMateriasChaveAvaliacaoFinalMedio(c, tipoEnsino, estudanteDTO, req.AnoAcademicoAtual)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 
 	// ── Cálculo do próximo nível (backend) ────────────────────────────────────
 	var proximoAnoAcademico *string
@@ -230,6 +235,8 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		&regra.ID,
 		formulaExecucao,
 		regra.AplicaSeReprovadoEmType,
+		cursoSnapshotAvaliacaoFinal(tipoEnsino, cursoMedioUUID, cursoSuperiorUUID),
+		materiasChaveResolvidas,
 		motivoProgressao,
 		nil,
 		false,
@@ -543,6 +550,8 @@ func executarRegraAvaliacaoFinalAutomatica(
 		&regra.ID,
 		formulaExecucao,
 		regra.AplicaSeReprovadoEmType,
+		cursoSnapshotAvaliacaoFinal(tipoEnsino, cursoMedioUUID, cursoSuperiorUUID),
+		materiasChaveResolvidas,
 		motivoProgressao,
 		resultadosMaterias,
 		aprovadoComPendencia,
@@ -576,6 +585,16 @@ func executarRegraAvaliacaoFinalAutomatica(
 		resultado["sem_oferta_do_proximo_ano_academico_na_academia"] = true
 	}
 	return resultado, true, nil
+}
+
+func cursoSnapshotAvaliacaoFinal(tipoEnsino string, cursoMedioUUID, cursoSuperiorUUID *uuid.UUID) *uuid.UUID {
+	if tipoEnsino == "medio" {
+		return cursoMedioUUID
+	}
+	if tipoEnsino == "superior" {
+		return cursoSuperiorUUID
+	}
+	return nil
 }
 
 func resolverMateriasChaveAvaliacaoFinalMedio(c *gin.Context, tipoEnsino string, estudanteDTO *projections.EstudanteDTO, anoAcademicoAtual string) ([]uuid.UUID, error) {
