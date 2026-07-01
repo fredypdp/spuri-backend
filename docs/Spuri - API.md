@@ -183,6 +183,7 @@ interface AcademiaDTO {
   provincia: string               // código de 3 letras, ex: 'LDA'
   endereco: string
   telefone?: string              // 9 dígitos, sem DDI
+  telefone_verificado: boolean   // reservado; verificação ainda não implementada
   email?: string
   email_verificado: boolean
   website?: string
@@ -700,6 +701,7 @@ Retorna os dados do usuário autenticado. O formato da resposta varia por tipo.
     "provincia": "LDA",
     "endereco": "string",
     "telefone": "string",
+    "telefone_verificado": false,
     "email": "string",
     "nivel_escolar": "fundamental",
     "anos_academicos": ["1_ano_fundamental", "9_ano_fundamental"],
@@ -1091,7 +1093,7 @@ Atualiza os dados cadastrais da academia autenticada.
 }
 ```
 
-**Nota**: se o email for alterado, `email_verificado` volta para `false`.
+**Nota**: se o email for alterado, `email_verificado` volta para `false`; se o telefone for alterado, `telefone_verificado` volta para `false`.
 
 ---
 
@@ -1207,6 +1209,7 @@ Retorna detalhes de uma academia pelo código.
   "provincia": "LDA",
   "endereco": "string",
   "telefone": "+244900000000",
+  "telefone_verificado": false,
   "website": "https://exemplo.ao",
   "nivel_escolar": "fundamental",
   "anos_academicos": ["1_ano_fundamental"],

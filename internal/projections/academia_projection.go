@@ -306,13 +306,13 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_academias (
 			id, nivel, type, nome, codigo_academia, senha_hash,
-			provincia, endereco, telefone, email, website,
+			provincia, endereco, telefone, telefone_verificado, email, website,
 			nivel_escolar, anos_academicos, cursos, status, email_verificado,
 			total_estudantes,
 			created_at, updated_at, version, last_event_id
 		) VALUES (
 			$1, $2, $3, $4, $5, $6,
-			$7, $8, $9, $10, $11,
+			$7, $8, $9, FALSE, $10, $11,
 			$12, $13, $14, 'inativo', FALSE,
 			0,
 			$15, CURRENT_TIMESTAMP, $16, $17
@@ -325,7 +325,8 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 			senha_hash      = EXCLUDED.senha_hash,
 			provincia       = EXCLUDED.provincia,
 			endereco        = EXCLUDED.endereco,
-			telefone = EXCLUDED.telefone,
+			telefone        = EXCLUDED.telefone,
+			telefone_verificado = EXCLUDED.telefone_verificado,
 			email           = EXCLUDED.email,
 			website         = EXCLUDED.website,
 			nivel_escolar   = EXCLUDED.nivel_escolar,
@@ -559,6 +560,7 @@ func (p *AcademiaProjection) handleAcademiaDadosAtualizados(event db.Event) erro
 		setClauses = append(setClauses, fmt.Sprintf("telefone = $%d", argIdx))
 		args = append(args, *payload.Telefone)
 		argIdx++
+		setClauses = append(setClauses, "telefone_verificado = FALSE")
 	}
 	if payload.Email != nil {
 		setClauses = append(setClauses, fmt.Sprintf("email = $%d", argIdx))
@@ -757,6 +759,7 @@ type AcademiaDTO struct {
 	Provincia              string              `json:"provincia"`
 	Endereco               string              `json:"endereco"`
 	Telefone               *string             `json:"telefone,omitempty"`
+	TelefoneVerificado     bool                `json:"telefone_verificado"`
 	Email                  *string             `json:"email,omitempty"`
 	Website                *string             `json:"website,omitempty"`
 	NivelEscolar           *string             `json:"nivel_escolar,omitempty"`
@@ -785,7 +788,7 @@ func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
 	row := p.client.DB().QueryRow(`
 		SELECT id, nivel, nome, codigo_academia, senha_hash,
 			type,
-			provincia, endereco, telefone, email, website,
+			provincia, endereco, telefone, telefone_verificado, email, website,
 			nivel_escolar, anos_academicos, status, motivo_desativacao, cursos, email_verificado,
 			created_at, updated_at, total_estudantes, version,
 			ano_letivo, tipo_ano_letivo, ano_letivo_ativado_em, anos_letivos_lista, documentos_obrigatorios
@@ -799,7 +802,7 @@ func (p *AcademiaProjection) GetByCodigo(codigo string) (*AcademiaDTO, error) {
 	row := p.client.DB().QueryRow(`
 		SELECT id, nivel, nome, codigo_academia, senha_hash,
 			type,
-			provincia, endereco, telefone, email, website,
+			provincia, endereco, telefone, telefone_verificado, email, website,
 			nivel_escolar, anos_academicos, status, motivo_desativacao, cursos, email_verificado,
 			created_at, updated_at, total_estudantes, version,
 			ano_letivo, tipo_ano_letivo, ano_letivo_ativado_em, anos_letivos_lista, documentos_obrigatorios
@@ -813,7 +816,7 @@ func (p *AcademiaProjection) GetByEmail(email string) (*AcademiaDTO, error) {
 	row := p.client.DB().QueryRow(`
 		SELECT id, nivel, nome, codigo_academia, senha_hash,
 			type,
-			provincia, endereco, telefone, email, website,
+			provincia, endereco, telefone, telefone_verificado, email, website,
 			nivel_escolar, anos_academicos, status, motivo_desativacao, cursos, email_verificado,
 			created_at, updated_at, total_estudantes, version,
 			ano_letivo, tipo_ano_letivo, ano_letivo_ativado_em, anos_letivos_lista, documentos_obrigatorios
@@ -848,7 +851,7 @@ func scanAcademia(row interface{ Scan(...interface{}) error }) (*AcademiaDTO, er
 	err := row.Scan(
 		&a.ID, &a.Nivel, &a.Nome, &a.CodigoAcademia, &a.SenhaHash,
 		&a.Type,
-		&a.Provincia, &a.Endereco, &a.Telefone, &a.Email, &a.Website,
+		&a.Provincia, &a.Endereco, &a.Telefone, &a.TelefoneVerificado, &a.Email, &a.Website,
 		&a.NivelEscolar, &anosJSON, &a.Status, &motivoDesativacao, &cursosJSON, &a.EmailVerificado,
 		&a.CreatedAt, &a.UpdatedAt, &a.TotalEstudantes, &a.Version,
 		&anoLetivo, &tipoAnoLetivo, &anoLetivoAtivadoEm, &anosLetivosListaJSON, &documentosObrigatoriosJSON,
