@@ -95,3 +95,14 @@ func TestCursoMedioMateriasChaveValidaAnoEDuplicados(t *testing.T) {
 		t.Fatalf("esperava rejeição de matéria duplicada no mesmo ano")
 	}
 }
+
+func TestCursoMedioPodeSerCriadoSemMateriasChave(t *testing.T) {
+	curso := NewCurso()
+	err := curso.Criar("Ciências", "medio", []string{"1_ano_medio"}, nil, nil, "ACA001")
+	if err != nil {
+		t.Fatalf("curso médio sem materias_chave deveria ser criado: %v", err)
+	}
+	if len(curso.MateriasChave) != 0 {
+		t.Fatalf("materias_chave = %v, want empty", curso.MateriasChave)
+	}
+}

@@ -131,3 +131,14 @@ func TestPrepararDadosCursoSuperiorRejeitaMateriasChave(t *testing.T) {
 		t.Fatalf("esperava erro ao enviar materias_chave em curso superior")
 	}
 }
+
+func TestRejeitarCamposAcademicosEmAtualizacaoCursoRejeitaMateriasChave(t *testing.T) {
+	req := httptest.NewRequest("PUT", "/academia/curso/id/dados", bytes.NewBufferString(`{"materias_chave":[]}`))
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = req
+
+	if err := rejeitarCamposAcademicosEmAtualizacaoCurso(c); err == nil {
+		t.Fatalf("esperava rejeição para materias_chave na edição cadastral do curso")
+	}
+}

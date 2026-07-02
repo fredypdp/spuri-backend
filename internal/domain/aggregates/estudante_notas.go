@@ -21,17 +21,6 @@ const (
 // PeriodosEscolar são os períodos fixos para notas do tipo escolar.
 var PeriodosEscolar = []string{"1_trimestre", "2_trimestre", "3_trimestre"}
 
-var categoriasEscolarFixas = map[string]bool{
-	"nota_escola":    true,
-	"nota_professor": true,
-}
-
-var categoriasSuperiorFixas = map[string]bool{
-	"nota_pp1":   true,
-	"nota_pp2":   true,
-	"nota_exame": true,
-}
-
 // ============================================================================
 // Eventos
 // ============================================================================
@@ -123,11 +112,9 @@ func validarPeriodoComLista(periodo string, periodosValidos []string) error {
 // Regras:
 //   - A categoria deve estar configurada pela academia para o ano_academico
 //     inferido da nota. Categorias sem anos definidos não chegam aqui.
-//   - TipoEscolar rejeita categorias fixas de superior.
-//   - TipoSuperior rejeita categorias fixas de escolar.
 //
 // categoriasAdicionais contém os códigos das categorias configuradas para o
-// ano_academico da nota, incluindo categorias fixas/obrigatórias e adicionais.
+// ano_academico da nota.
 func validarCategoria(tipo string, categoria string, categoriasAdicionais []string) error {
 	if categoria == "" {
 		return fmt.Errorf("categoria não pode ser vazia")
@@ -145,15 +132,7 @@ func validarCategoria(tipo string, categoria string, categoriasAdicionais []stri
 	}
 
 	switch tipo {
-	case TipoEscolar:
-		if categoriasSuperiorFixas[categoria] {
-			return fmt.Errorf("categoria '%s' inválida para tipo 'escolar'", categoria)
-		}
-		return nil
-	case TipoSuperior:
-		if categoriasEscolarFixas[categoria] {
-			return fmt.Errorf("categoria '%s' inválida para tipo 'superior'", categoria)
-		}
+	case TipoEscolar, TipoSuperior:
 		return nil
 	default:
 		return fmt.Errorf("tipo '%s' inválido. Use 'escolar' ou 'superior'", tipo)
