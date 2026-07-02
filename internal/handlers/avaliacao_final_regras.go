@@ -31,7 +31,6 @@ type regraAvaliacaoFinalDTO struct {
 	NotaMinimaAprovacao     float64     `json:"nota_minima_aprovacao" binding:"required"`
 	CategoriasEnvolvidas    []string    `json:"categorias_envolvidas,omitempty"`
 	Formula                 string      `json:"formula" binding:"required"`
-	MateriasChave           []uuid.UUID `json:"materias_chave,omitempty"`
 	MateriasAplicaveis      []uuid.UUID `json:"materias_aplicaveis,omitempty"`
 	LimiteMateriasPendentes *int        `json:"limite_materias_pendentes,omitempty"`
 	AplicaSeReprovadoEmType *string     `json:"aplica_se_reprovado_em_type,omitempty"`
@@ -126,7 +125,7 @@ func CriarRegraAvaliacaoFinal(c *gin.Context) {
 		return
 	}
 	id := uuid.New()
-	_, err = getDbClient(c).DB().Exec(`INSERT INTO projection_regras_avaliacao_final (id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_chave,materias_aplicaveis,limite_materias_pendentes,status,version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'ativo',1)`, id, academiaDTO.CodigoAcademia, req.Type, req.Nome, req.Descricao, req.Nivel, toJSON(req.AnosAcademicos), req.NotaMinimaAprovacao, toJSON(req.CategoriasEnvolvidas), formulaNormalizada, req.AplicaSeReprovadoEmType, toJSON(uuidStrings(req.MateriasChave)), toJSON(uuidStrings(req.MateriasAplicaveis)), req.LimiteMateriasPendentes)
+	_, err = getDbClient(c).DB().Exec(`INSERT INTO projection_regras_avaliacao_final (id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,status,version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'ativo',1)`, id, academiaDTO.CodigoAcademia, req.Type, req.Nome, req.Descricao, req.Nivel, toJSON(req.AnosAcademicos), req.NotaMinimaAprovacao, toJSON(req.CategoriasEnvolvidas), formulaNormalizada, req.AplicaSeReprovadoEmType, toJSON(uuidStrings(req.MateriasAplicaveis)), req.LimiteMateriasPendentes)
 	if err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("erro ao criar regra de avaliação final: %w", err))
 		return
@@ -234,7 +233,7 @@ func ListarRegrasAvaliacaoFinal(c *gin.Context) {
 		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
-	rows, err := getDbClient(c).DB().Query(`SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_chave,materias_aplicaveis,limite_materias_pendentes,status,version FROM projection_regras_avaliacao_final WHERE codigo_academia=$1 ORDER BY created_at DESC`, academiaDTO.CodigoAcademia)
+	rows, err := getDbClient(c).DB().Query(`SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,status,version FROM projection_regras_avaliacao_final WHERE codigo_academia=$1 ORDER BY created_at DESC`, academiaDTO.CodigoAcademia)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -576,7 +575,7 @@ func getRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipoEnsino, anoAcade
 	if typ == "" {
 		typ = "normal"
 	}
-	rows, err := getDbClient(c).DB().Query(`SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_chave,materias_aplicaveis,limite_materias_pendentes,status,version FROM projection_regras_avaliacao_final WHERE codigo_academia=$1 AND nivel=$2 AND type=$3 AND status='ativo' AND ($2 <> 'fundamental' OR anos_academicos ? $4)`, codigoAcademia, tipoEnsino, typ, anoAcademico)
+	rows, err := getDbClient(c).DB().Query(`SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,status,version FROM projection_regras_avaliacao_final WHERE codigo_academia=$1 AND nivel=$2 AND type=$3 AND status='ativo' AND ($2 <> 'fundamental' OR anos_academicos ? $4)`, codigoAcademia, tipoEnsino, typ, anoAcademico)
 	if err != nil {
 		return nil, err
 	}
@@ -607,7 +606,7 @@ func uuidStrings(ids []uuid.UUID) []string {
 }
 
 func getRegraAvaliacaoFinalPorID(c *gin.Context, codigoAcademia string, id uuid.UUID) (*regraAvaliacaoFinalDTO, error) {
-	row := getDbClient(c).DB().QueryRow(`SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_chave,materias_aplicaveis,limite_materias_pendentes,status,version
+	row := getDbClient(c).DB().QueryRow(`SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,status,version
 		FROM projection_regras_avaliacao_final
 		WHERE id=$1 AND codigo_academia=$2`, id, codigoAcademia)
 	r, err := scanRegra(row)
@@ -621,7 +620,7 @@ func getRegraAvaliacaoFinalPorID(c *gin.Context, codigoAcademia string, id uuid.
 }
 
 func idsCadeiaDependenteRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipoEnsino, rootType string, rootAnos []string) ([]uuid.UUID, error) {
-	rows, err := getDbClient(c).DB().Query(`SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_chave,materias_aplicaveis,limite_materias_pendentes,status,version
+	rows, err := getDbClient(c).DB().Query(`SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,status,version
 		FROM projection_regras_avaliacao_final
 		WHERE codigo_academia=$1 AND nivel=$2 AND status='ativo'`, codigoAcademia, tipoEnsino)
 	if err != nil {
@@ -664,7 +663,7 @@ func idsCadeiaDependenteRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipo
 }
 
 func listarRegrasAvaliacaoFinalAplicaveis(c *gin.Context, codigoAcademia, tipoEnsino, anoAcademico string, categoria *string) ([]regraAvaliacaoFinalDTO, error) {
-	query := `SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_chave,materias_aplicaveis,limite_materias_pendentes,status,version
+	query := `SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,status,version
 		FROM projection_regras_avaliacao_final
 		WHERE codigo_academia=$1
 		  AND nivel=$2
@@ -700,13 +699,12 @@ type rowScanner interface {
 
 func scanRegra(rows rowScanner) (regraAvaliacaoFinalDTO, error) {
 	var r regraAvaliacaoFinalDTO
-	var anos, cats, materiasChave, materiasAplicaveis []byte
+	var anos, cats, materiasAplicaveis []byte
 	var limitePendentes sql.NullInt64
 	var formula string
-	err := rows.Scan(&r.ID, &r.CodigoAcademia, &r.Type, &r.Nome, &r.Descricao, &r.Nivel, &anos, &r.NotaMinimaAprovacao, &cats, &formula, &r.AplicaSeReprovadoEmType, &materiasChave, &materiasAplicaveis, &limitePendentes, &r.Status, &r.Version)
+	err := rows.Scan(&r.ID, &r.CodigoAcademia, &r.Type, &r.Nome, &r.Descricao, &r.Nivel, &anos, &r.NotaMinimaAprovacao, &cats, &formula, &r.AplicaSeReprovadoEmType, &materiasAplicaveis, &limitePendentes, &r.Status, &r.Version)
 	_ = json.Unmarshal(anos, &r.AnosAcademicos)
 	_ = json.Unmarshal(cats, &r.CategoriasEnvolvidas)
-	r.MateriasChave = nil
 	r.MateriasAplicaveis = uuidListFromJSON(materiasAplicaveis)
 	if limitePendentes.Valid {
 		v := int(limitePendentes.Int64)

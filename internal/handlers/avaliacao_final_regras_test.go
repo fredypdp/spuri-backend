@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -155,5 +156,15 @@ func TestParseFiltrosAvaliacaoFinalUsaNivelERejeitaTipoEnsino(t *testing.T) {
 	ctx.Request = httptest.NewRequest("GET", "/avaliacoes?tipo_ensino=medio", nil)
 	if _, err := parseFiltrosAvaliacaoFinal(ctx); err == nil || !strings.Contains(err.Error(), "tipo_ensino") {
 		t.Fatalf("legacy tipo_ensino filter should be rejected, err=%v", err)
+	}
+}
+
+func TestRegraAvaliacaoFinalDTONaoExpoeMateriasChave(t *testing.T) {
+	body, err := json.Marshal(regraAvaliacaoFinalDTO{Nivel: "medio", Type: "exame", Nome: "Exame", Formula: "[nota_exame]", NotaMinimaAprovacao: 10})
+	if err != nil {
+		t.Fatalf("json.Marshal() unexpected error = %v", err)
+	}
+	if strings.Contains(string(body), "materias_chave") {
+		t.Fatalf("regraAvaliacaoFinalDTO expôs materias_chave: %s", string(body))
 	}
 }
