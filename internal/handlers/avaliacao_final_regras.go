@@ -38,6 +38,64 @@ type regraAvaliacaoFinalDTO struct {
 	Version                 int         `json:"version"`
 }
 
+// UnmarshalJSON preserves the legacy public contract for fundamental rules
+// (anos_academicos as []string), while accepting the new medio contract
+// (items grouped by curso_id). Internally the medio scope is flattened as
+// "<curso_id>|<ano_academico>" so existing rule-chain and uniqueness helpers
+// can compare scopes deterministically until the projection is fully
+// decomposed into an auxiliary scope table.
+func (r *regraAvaliacaoFinalDTO) UnmarshalJSON(b []byte) error {
+	type alias regraAvaliacaoFinalDTO
+	var raw struct {
+		*alias
+		AnosAcademicos     json.RawMessage `json:"anos_academicos"`
+		MateriasAplicaveis json.RawMessage `json:"materias_aplicaveis"`
+	}
+	raw.alias = (*alias)(r)
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	if len(raw.AnosAcademicos) > 0 && string(raw.AnosAcademicos) != "null" {
+		var anos []string
+		if err := json.Unmarshal(raw.AnosAcademicos, &anos); err == nil {
+			r.AnosAcademicos = anos
+		} else {
+			var porCurso []struct {
+				CursoID        string   `json:"curso_id"`
+				AnosAcademicos []string `json:"anos_academicos"`
+			}
+			if err := json.Unmarshal(raw.AnosAcademicos, &porCurso); err != nil {
+				return fmt.Errorf("anos_academicos deve ser array de strings para fundamental ou array de objetos por curso para medio")
+			}
+			r.AnosAcademicos = r.AnosAcademicos[:0]
+			for _, item := range porCurso {
+				cursoID := strings.TrimSpace(item.CursoID)
+				for _, ano := range item.AnosAcademicos {
+					r.AnosAcademicos = append(r.AnosAcademicos, cursoID+"|"+strings.TrimSpace(ano))
+				}
+			}
+		}
+	}
+	if len(raw.MateriasAplicaveis) > 0 && string(raw.MateriasAplicaveis) != "null" {
+		var ids []uuid.UUID
+		if err := json.Unmarshal(raw.MateriasAplicaveis, &ids); err == nil {
+			r.MateriasAplicaveis = ids
+		} else {
+			var porEscopo []struct {
+				Materias []uuid.UUID `json:"materias"`
+			}
+			if err := json.Unmarshal(raw.MateriasAplicaveis, &porEscopo); err != nil {
+				return fmt.Errorf("materias_aplicaveis deve agrupar matérias por ano/curso")
+			}
+			r.MateriasAplicaveis = r.MateriasAplicaveis[:0]
+			for _, item := range porEscopo {
+				r.MateriasAplicaveis = append(r.MateriasAplicaveis, item.Materias...)
+			}
+		}
+	}
+	return nil
+}
+
 func CriarRegraAvaliacaoFinal(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 	academiaProj := getAcademiaProjection(c)
@@ -95,6 +153,10 @@ func CriarRegraAvaliacaoFinal(c *gin.Context) {
 		return
 	}
 	if err := validarEscopoRegraAvaliacaoFinal(req.Nivel, req.AnosAcademicos); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if err := validarCursosEscopoRegraAvaliacaoFinal(c, academiaDTO.CodigoAcademia, req.Nivel, req.AnosAcademicos); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -175,13 +237,27 @@ func validarCamposPorNivelRegraAvaliacaoFinal(req regraAvaliacaoFinalDTO) error 
 		if len(req.AnosAcademicos) == 0 {
 			return fmt.Errorf("anos_academicos é obrigatório para regras de nivel fundamental")
 		}
+		for _, ano := range req.AnosAcademicos {
+			if strings.Contains(ano, "|") {
+				return fmt.Errorf("anos_academicos de regra fundamental deve ser array simples de strings; não envie escopo por curso")
+			}
+		}
 		if req.LimiteMateriasPendentes != nil {
 			return fmt.Errorf("limite_materias_pendentes não é aceito para nivel fundamental")
 		}
 		return nil
 	}
-	if len(req.AnosAcademicos) > 0 {
-		return fmt.Errorf("anos_academicos só é aceito para nivel fundamental")
+	if req.Nivel == "medio" {
+		if len(req.AnosAcademicos) == 0 {
+			return fmt.Errorf("anos_academicos é obrigatório para regras de nivel medio e deve ser agrupado por curso")
+		}
+		for _, escopo := range req.AnosAcademicos {
+			if !strings.Contains(escopo, "|") {
+				return fmt.Errorf("anos_academicos de regra medio deve usar objetos com curso_id e anos_academicos; array simples legado não é aceito")
+			}
+		}
+	} else if len(req.AnosAcademicos) > 0 {
+		return fmt.Errorf("anos_academicos não é aceito para nivel superior")
 	}
 	if req.LimiteMateriasPendentes == nil {
 		return fmt.Errorf("limite_materias_pendentes é obrigatório para nivel medio ou superior")
@@ -375,24 +451,65 @@ func DeletarRegraAvaliacaoFinal(c *gin.Context) {
 }
 
 func validarEscopoRegraAvaliacaoFinal(tipoEnsino string, niveis []string) error {
+	vistos := map[string]bool{}
 	for _, nivel := range niveis {
 		nivel = strings.TrimSpace(nivel)
 		if nivel == "" {
 			return fmt.Errorf("anos_academicos não pode conter valores vazios")
 		}
+		if vistos[nivel] {
+			return fmt.Errorf("ano_academico duplicado no escopo da regra: %s", nivel)
+		}
+		vistos[nivel] = true
 		switch tipoEnsino {
 		case "fundamental":
 			if err := utils.ValidateAnoFundamental(nivel); err != nil {
 				return fmt.Errorf("anos_academicos inválido para fundamental: %w", err)
 			}
 		case "medio":
-			if err := utils.ValidateAnoMedio(nivel); err != nil {
+			partes := strings.Split(nivel, "|")
+			if len(partes) != 2 || strings.TrimSpace(partes[0]) == "" {
+				return fmt.Errorf("anos_academicos de médio deve informar curso_id e ano_academico")
+			}
+			if _, err := uuid.Parse(strings.TrimSpace(partes[0])); err != nil {
+				return fmt.Errorf("curso_id inválido em anos_academicos de médio")
+			}
+			if err := utils.ValidateAnoMedio(strings.TrimSpace(partes[1])); err != nil {
 				return fmt.Errorf("anos_academicos inválido para médio: %w", err)
 			}
 		case "superior":
-			if err := utils.ValidatePeriodo(nivel); err != nil || !strings.HasSuffix(nivel, "_semestre") {
-				return fmt.Errorf("anos_academicos de regra superior deve usar semestres no formato [n]_semestre")
-			}
+			return fmt.Errorf("anos_academicos não é aceito para nivel superior")
+		}
+	}
+	return nil
+}
+
+func validarCursosEscopoRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, nivel string, escopos []string) error {
+	if nivel != "medio" {
+		return nil
+	}
+	for _, escopo := range escopos {
+		partes := strings.Split(escopo, "|")
+		if len(partes) != 2 {
+			return fmt.Errorf("anos_academicos de médio deve informar curso_id e ano_academico")
+		}
+		cursoID := strings.TrimSpace(partes[0])
+		ano := strings.TrimSpace(partes[1])
+		var existe bool
+		if err := getDbClient(c).DB().QueryRow(`SELECT EXISTS (
+			SELECT 1
+			FROM projection_cursos
+			WHERE id=$1
+			  AND codigo_academia=$2
+			  AND type='medio'
+			  AND status='ativo'
+			  AND deleted_at IS NULL
+			  AND anos_academicos ? $3
+		)`, cursoID, codigoAcademia, ano).Scan(&existe); err != nil {
+			return err
+		}
+		if !existe {
+			return fmt.Errorf("curso_id/ano_academico inválido ou fora da academia para regra média: %s/%s", cursoID, ano)
 		}
 	}
 	return nil
@@ -414,7 +531,7 @@ func validarUnicidadeRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipoEns
 		var exists bool
 		if err := getDbClient(c).DB().QueryRow(`SELECT EXISTS (
 			SELECT 1 FROM projection_regras_avaliacao_final
-			WHERE codigo_academia=$1 AND nivel=$2 AND type=$3 AND status='ativo' AND ($2 <> 'fundamental' OR anos_academicos ? $4)
+			WHERE codigo_academia=$1 AND nivel=$2 AND type=$3 AND status='ativo' AND (($2 <> 'fundamental' AND $2 <> 'medio') OR ($2 = 'fundamental' AND anos_academicos ? $4) OR ($2 = 'medio' AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(anos_academicos) e(v) WHERE e.v = $4)))
 		)`, codigoAcademia, tipoEnsino, typ, ano).Scan(&exists); err != nil {
 			return err
 		}
@@ -438,7 +555,7 @@ func validarRaizUnicaRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipoEns
 			  AND nivel=$2
 			  AND status='ativo'
 			  AND aplica_se_reprovado_em_type IS NULL
-			  AND ($2 <> 'fundamental' OR anos_academicos ? $3)
+			  AND (($2 <> 'fundamental' AND $2 <> 'medio') OR ($2 = 'fundamental' AND anos_academicos ? $3) OR ($2 = 'medio' AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(anos_academicos) e(v) WHERE e.v = $3)))
 			LIMIT 1`, codigoAcademia, tipoEnsino, ano).Scan(&rootType)
 		if err == sql.ErrNoRows {
 			continue
@@ -575,7 +692,7 @@ func getRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipoEnsino, anoAcade
 	if typ == "" {
 		typ = "normal"
 	}
-	rows, err := getDbClient(c).DB().Query(`SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,status,version FROM projection_regras_avaliacao_final WHERE codigo_academia=$1 AND nivel=$2 AND type=$3 AND status='ativo' AND ($2 <> 'fundamental' OR anos_academicos ? $4)`, codigoAcademia, tipoEnsino, typ, anoAcademico)
+	rows, err := getDbClient(c).DB().Query(`SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,status,version FROM projection_regras_avaliacao_final WHERE codigo_academia=$1 AND nivel=$2 AND type=$3 AND status='ativo' AND (($2 <> 'fundamental' AND $2 <> 'medio') OR ($2 = 'fundamental' AND anos_academicos ? $4) OR ($2 = 'medio' AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(anos_academicos) e(v) WHERE split_part(e.v, '|', 2) = $4)))`, codigoAcademia, tipoEnsino, typ, anoAcademico)
 	if err != nil {
 		return nil, err
 	}
@@ -668,7 +785,7 @@ func listarRegrasAvaliacaoFinalAplicaveis(c *gin.Context, codigoAcademia, tipoEn
 		WHERE codigo_academia=$1
 		  AND nivel=$2
 		  AND status='ativo'
-		  AND ($2 <> 'fundamental' OR anos_academicos ? $3)`
+		  AND (($2 <> 'fundamental' AND $2 <> 'medio') OR ($2 = 'fundamental' AND anos_academicos ? $3) OR ($2 = 'medio' AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(anos_academicos) e(v) WHERE split_part(e.v, '|', 2) = $3)))`
 	args := []interface{}{codigoAcademia, tipoEnsino, anoAcademico}
 	if categoria != nil && strings.TrimSpace(*categoria) != "" {
 		args = append(args, strings.TrimSpace(*categoria))

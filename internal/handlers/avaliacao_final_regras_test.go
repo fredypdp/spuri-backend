@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 func TestNormalizarTypeRegraAvaliacaoFinal(t *testing.T) {
@@ -76,6 +77,61 @@ func TestMesmosAnosAcademicosIgnoraOrdem(t *testing.T) {
 		t.Fatal("mesmosAnosAcademicos() should ignore order")
 	}
 }
+
+func TestRegraAvaliacaoFinalDTOAceitaEscopoMedioPorCurso(t *testing.T) {
+	cursoID := uuid.New()
+	body := []byte(`{
+		"type":"avaliacao_final",
+		"nome":"Avaliação Final",
+		"nivel":"medio",
+		"nota_minima_aprovacao":10,
+		"formula":"[nota_exame]",
+		"limite_materias_pendentes":2,
+		"anos_academicos":[{"curso_id":"` + cursoID.String() + `","anos_academicos":["1_ano_medio","2_ano_medio"]}]
+	}`)
+	var req regraAvaliacaoFinalDTO
+	if err := json.Unmarshal(body, &req); err != nil {
+		t.Fatalf("json.Unmarshal() unexpected error = %v", err)
+	}
+	want := []string{cursoID.String() + "|1_ano_medio", cursoID.String() + "|2_ano_medio"}
+	if !mesmosAnosAcademicos(req.AnosAcademicos, want) {
+		t.Fatalf("AnosAcademicos = %v, want %v", req.AnosAcademicos, want)
+	}
+	if err := validarCamposPorNivelRegraAvaliacaoFinal(req); err != nil {
+		t.Fatalf("validarCamposPorNivelRegraAvaliacaoFinal() unexpected error = %v", err)
+	}
+	if err := validarEscopoRegraAvaliacaoFinal(req.Nivel, req.AnosAcademicos); err != nil {
+		t.Fatalf("validarEscopoRegraAvaliacaoFinal() unexpected error = %v", err)
+	}
+}
+
+func TestRegraAvaliacaoFinalRejeitaFormatosIncompativeisPorNivel(t *testing.T) {
+	cursoID := uuid.New()
+	fundamentalComCurso := regraAvaliacaoFinalDTO{Nivel: "fundamental", AnosAcademicos: []string{cursoID.String() + "|1_ano_fundamental"}}
+	if err := validarCamposPorNivelRegraAvaliacaoFinal(fundamentalComCurso); err == nil || !strings.Contains(err.Error(), "array simples") {
+		t.Fatalf("fundamental com curso deve falhar com erro de array simples, err=%v", err)
+	}
+
+	medioLegado := regraAvaliacaoFinalDTO{Nivel: "medio", AnosAcademicos: []string{"1_ano_medio"}, LimiteMateriasPendentes: ptrInt(1)}
+	if err := validarCamposPorNivelRegraAvaliacaoFinal(medioLegado); err == nil || !strings.Contains(err.Error(), "array simples legado") {
+		t.Fatalf("medio legado deve falhar, err=%v", err)
+	}
+
+	superiorComAnos := regraAvaliacaoFinalDTO{Nivel: "superior", AnosAcademicos: []string{"1_ano_superior"}, LimiteMateriasPendentes: ptrInt(1)}
+	if err := validarCamposPorNivelRegraAvaliacaoFinal(superiorComAnos); err == nil || !strings.Contains(err.Error(), "superior") {
+		t.Fatalf("superior com anos_academicos deve falhar, err=%v", err)
+	}
+}
+
+func TestValidarEscopoRegraAvaliacaoFinalRejeitaDuplicidadeMedio(t *testing.T) {
+	cursoID := uuid.New().String()
+	err := validarEscopoRegraAvaliacaoFinal("medio", []string{cursoID + "|1_ano_medio", cursoID + "|1_ano_medio"})
+	if err == nil || !strings.Contains(err.Error(), "duplicado") {
+		t.Fatalf("duplicidade de curso/ano deve falhar, err=%v", err)
+	}
+}
+
+func ptrInt(v int) *int { return &v }
 
 func TestMotivoProgressaoFundamentalSemOferta(t *testing.T) {
 	proximo := "6_ano_fundamental"
