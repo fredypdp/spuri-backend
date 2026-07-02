@@ -48,8 +48,6 @@ Essa rota deve validar, no mínimo:
 - não é possível configurar `materias_chave` antes de existirem matérias válidas para o curso;
 - a resposta da rota reflete o estado atualizado do curso.
 
-> Observação: a frase original da regra de negócio diz que “um curso só pode ser .”, mas está incompleta. Durante a implementação, confirmar com o responsável de produto qual é a restrição faltante antes de fechar a tarefa. Enquanto isso, não inventar uma regra nova; apenas garantir as validações explicitamente listadas acima.
-
 ## Auditoria obrigatória no código
 
 Antes de implementar correções, fazer uma depuração/auditoria completa do código para identificar todos os pontos impactados.
