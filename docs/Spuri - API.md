@@ -3944,7 +3944,7 @@ Lista registros de faltas com escopo por perfil.
 
 Para `tipo_ensino = "superior"`, a avaliação final automática usa `semestre_atual` como unidade de progressão. O backend converte o inteiro armazenado no estudante para o período `[n]_semestre` (por exemplo, `semestre_atual = 3` vira `3_semestre`) e esse período deve existir em `curso.periodos`.
 
-Regras superiores usam `nivel = "superior"` e não recebem `anos_academicos`; o backend infere o período semestral (`1_semestre`, `2_semestre`, ...) pela matéria/curso avaliado. Fundamental continua declarando `anos_academicos` com anos (`[n]_ano_fundamental`), enquanto médio usa `nivel = "medio"` sem `anos_academicos` e avalia as matérias do ano atual do estudante. A unicidade da avaliação final superior considera estudante, academia, ano letivo, `tipo_ensino`, semestre avaliado e `type`, portanto uma avaliação de `1_semestre` não bloqueia a posterior avaliação de `2_semestre` no mesmo ano letivo.
+Regras superiores usam `nivel = "superior"` e não recebem `anos_academicos`; o backend infere o período semestral (`1_semestre`, `2_semestre`, ...) pela matéria/curso avaliado. Fundamental continua declarando `anos_academicos` como array simples de anos (`[n]_ano_fundamental`), médio passa a declarar `anos_academicos` como lista de escopos por curso (`[{"curso_id":"...","anos_academicos":["1_ano_medio"]}]`) e superior continua sem aceitar `anos_academicos`. A unicidade da avaliação final superior considera estudante, academia, ano letivo, `tipo_ensino`, semestre avaliado e `type`, portanto uma avaliação de `1_semestre` não bloqueia a posterior avaliação de `2_semestre` no mesmo ano letivo.
 
 Na aprovação superior, o backend incrementa `semestre_atual` quando ainda existe próximo semestre no curso e recalcula `ano_superior = ceil(semestre_atual / 2)`. Assim, `1_semestre → semestre_atual = 2` mantém `1_ano_superior`, enquanto `2_semestre → semestre_atual = 3` muda para `2_ano_superior`. Na aprovação no último semestre, `status_superior` passa para `finalizado`; na reprovação, `semestre_atual`, `ano_superior` e `status_superior` permanecem inalterados.
 
@@ -4025,9 +4025,9 @@ Cria uma regra ativa de avaliação final para a academia autenticada.
 - `nome` — obrigatório. Exemplos: `Avaliação final`, `Avaliação final (com exame)` ou `Avaliação final (com recurso)`.
 - `descricao` — opcional.
 - `nivel` — campo oficial do escopo da regra; aceita `fundamental`, `medio` ou `superior`. Academias superiores podem omitir ou enviar apenas `superior`; academias escolares não mistas podem omitir ou enviar o mesmo valor de `nivel_escolar`; academias mistas devem informar `fundamental` ou `medio`. O campo legado `tipo_ensino` não é aceito e retorna erro de validação orientando o uso de `nivel`.
-- `anos_academicos` — obrigatório e não vazio apenas para `nivel="fundamental"`; não é aceito para `medio` ou `superior`.
+- `anos_academicos` — para `nivel="fundamental"`, obrigatório e não vazio como array simples de strings; para `nivel="medio"`, obrigatório como lista de objetos `{curso_id, anos_academicos}`; para `nivel="superior"`, rejeitado.
 - `materias_chave` — não é aceito em regras de avaliação final. Para Médio, configure matérias-chave no curso médio, por `ano_academico`. Payloads de criação/edição de regra contendo esse campo retornam erro de validação.
-- `materias_aplicaveis` — opcional; em regras dependentes limita quais matérias de recuperação/recurso serão recalculadas.
+- `materias_aplicaveis` — opcional; limita as matérias por escopo. Fundamental usa itens `{ano_academico, materias}`. Médio e Superior usam itens `{curso_id, ano_academico, materias}`. IDs duplicados no mesmo item e itens duplicados por ano/par curso+ano são inválidos.
 - `limite_materias_pendentes` — obrigatório para `nivel="medio"` ou `nivel="superior"`; inteiro maior ou igual a zero. Não é aceito para fundamental.
 - `nota_minima_aprovacao` — obrigatório e maior que zero.
 - `categorias_envolvidas` — opcional. O backend extrai automaticamente as categorias usadas em `formula`. Se enviado, deve corresponder exatamente às categorias extraídas da fórmula, sem duplicatas, sobras ou omissões, e todas precisam estar ativas/configuradas pela academia para os anos da regra.
@@ -4036,9 +4036,9 @@ Cria uma regra ativa de avaliação final para a academia autenticada.
 
 **Unicidade e cadeia:**
 
-- Não pode existir outra regra ativa com o mesmo `type`, `nivel` e, quando fundamental, ano acadêmico sobreposto para a mesma academia. Ao criar ou editar uma regra, é permitido definir um `type` igual ao de uma regra inativa; porém essa regra inativa não poderá ser reativada enquanto existir uma regra ativa com o mesmo `type`, `nivel` e escopo sobreposto.
+- Não pode existir outra regra ativa com o mesmo `type`, `nivel` e escopo sobreposto para a mesma academia: ano acadêmico no Fundamental e par `curso_id` + `ano_academico` no Médio. Ao criar ou editar uma regra, é permitido definir um `type` igual ao de uma regra inativa; porém essa regra inativa não poderá ser reativada enquanto existir uma regra ativa com o mesmo `type`, `nivel` e escopo sobreposto.
 - Para cada academia, `nivel` e escopo acadêmico, só pode haver uma regra raiz ativa. Regra raiz é a regra sem `aplica_se_reprovado_em_type`.
-- Regras dependentes formam uma cadeia de novas chances; elas precisam ter os mesmos `anos_academicos` da raiz e só executam depois de reprovação no `type` apontado.
+- Regras dependentes formam uma cadeia de novas chances; elas precisam ter exatamente o mesmo escopo da raiz (mesmos anos fundamentais ou mesmos pares curso/ano médio) e só executam depois de reprovação no `type` apontado.
 - A regra é criada pelo backend com `status = "ativo"` e `version = 1`; esses campos não são enviados na criação.
 
 **Fórmula textual (`formula_textual_v1`):**

@@ -639,9 +639,9 @@ A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras d
 | Campo | Fundamental | Médio | Superior |
 |---|---:|---:|---:|
 | `nivel` | `fundamental` | `medio` | `superior` |
-| `anos_academicos` | Obrigatório e não vazio; deve conter anos fundamentais válidos | Rejeitado | Rejeitado |
+| `anos_academicos` | Obrigatório e não vazio; array simples de anos fundamentais | Obrigatório; lista de objetos `{curso_id, anos_academicos}` por curso médio | Rejeitado |
 | `materias_chave` | Rejeitado | Rejeitado na regra; obrigatório no curso médio, por ano acadêmico | Rejeitado |
-| `materias_aplicaveis` | Opcional para limitar matérias | Opcional para limitar matérias | Opcional para limitar matérias |
+| `materias_aplicaveis` | Opcional; lista de itens `{ano_academico, materias}` | Opcional; lista de itens `{curso_id, ano_academico, materias}` | Opcional; lista de itens `{curso_id, ano_academico, materias}` com ano derivado dos semestres |
 | `limite_materias_pendentes` | Rejeitado | Obrigatório, `>= 0` | Obrigatório, `>= 0` |
 | `aplica_se_reprovado_em_type` | Ausente na raiz; presente em descendente | Ausente na raiz; presente em descendente | Ausente na raiz; presente em descendente |
 
@@ -650,9 +650,9 @@ A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras d
 - `type`, `nome`, `nivel`, `formula` e `nota_minima_aprovacao > 0` são obrigatórios na criação; `descricao` é opcional.
 - `type` aceita letras, números, espaços e `_`; espaços internos são normalizados para `_`.
 - `categorias_envolvidas` é extraído da `formula`; se enviado, deve bater exatamente com as categorias extraídas.
-- Não pode haver duas regras ativas com o mesmo `codigo_academia`, `nivel`, `type` e escopo fundamental sobreposto. Médio/Superior não usam `anos_academicos` na regra.
+- Não pode haver duas regras ativas com o mesmo `codigo_academia`, `nivel`, `type` e escopo sobreposto. No Fundamental a sobreposição é por `ano_academico`; no Médio é por par `curso_id` + `ano_academico`. Superior continua sem `anos_academicos` nesta mudança.
 - Deve haver no máximo uma raiz ativa por academia, `nivel` e escopo. Uma cadeia sem raiz ou com múltiplas raízes aplicáveis não é executável de forma determinística.
-- Descendentes devem apontar para regra ativa existente no mesmo `nivel`, não podem apontar para si mesmas, não podem criar ciclo e, no Fundamental, devem usar exatamente os mesmos `anos_academicos` da raiz.
+- Descendentes devem apontar para regra ativa existente no mesmo `nivel`, não podem apontar para si mesmas, não podem criar ciclo e devem usar exatamente o mesmo escopo da raiz da cadeia: mesmos anos no Fundamental e mesmos pares `curso_id` + `ano_academico` no Médio.
 - Inativar uma regra inativa também suas dependentes diretas/indiretas para preservar a consistência da cadeia.
 - Na edição, não é permitido alterar `type`, `nivel`, `anos_academicos`, dependência, `materias_chave`, `materias_aplicaveis`, limite, status ou version; para mudar escopo/cadeia, cria-se nova regra. Se `materias_chave` for enviado em criação ou edição de regra, o backend rejeita e orienta configurar as matérias-chave no curso médio, por `ano_academico`.
 
@@ -662,8 +662,8 @@ A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras d
 |---|---|
 | Raiz do Fundamental | `nivel=fundamental`, `anos_academicos=["6_ano_fundamental"]`, fórmula com trimestres explícitos, sem limite de pendência. |
 | Recuperação do Fundamental | `nivel=fundamental`, mesmo `anos_academicos` da raiz, `aplica_se_reprovado_em_type="avaliacao_final"`, fórmula da recuperação/exame. |
-| Raiz do Médio | `nivel=medio`, sem `anos_academicos`, sem `materias_chave` na regra, `limite_materias_pendentes` definido. As matérias-chave vêm do curso médio/ano do estudante. |
-| Descendente do Médio | `nivel=medio`, `aplica_se_reprovado_em_type` apontando para a raiz, `materias_aplicaveis` com as matérias que podem ser recalculadas no exame. |
+| Raiz do Médio | `nivel=medio`, `anos_academicos=[{curso_id, anos_academicos:["1_ano_medio"]}]`, sem `materias_chave` na regra, `limite_materias_pendentes` definido. As matérias-chave vêm do curso médio/ano do estudante. |
+| Descendente do Médio | `nivel=medio`, mesmo escopo por curso/ano da raiz, `aplica_se_reprovado_em_type` apontando para a raiz, `materias_aplicaveis=[{curso_id, ano_academico, materias:[...]}]` com as matérias que podem ser recalculadas no exame. |
 | Raiz do Superior | `nivel=superior`, sem `anos_academicos`, fórmula com referências `[categoria]`, `limite_materias_pendentes` definido. |
 | Superior com pendência | Mesma regra superior, matérias com `pendencia_permitida=true` e, quando aplicável, `pendencia_nivel_conclusao` indicando o semestre-limite. |
 
@@ -698,7 +698,7 @@ Se a fórmula exigir nota que ainda não existe para determinada matéria, categ
 #### 5.6.5 Fundamental
 
 - O escopo é `ano_escolar_fundamental` atual do estudante (`1_ano_fundamental` a `9_ano_fundamental`).
-- Regras fundamentais são as únicas que usam `anos_academicos`.
+- Regras fundamentais usam `anos_academicos` como array simples; regras médias usam `anos_academicos` por curso (`curso_id` + anos); regras superiores não aceitam `anos_academicos`.
 - O backend avalia cada matéria fundamental ativa aplicável ao ano do estudante, respeitando `materias_aplicaveis` se configurado.
 - Cada matéria recebe `nota_final` própria; aprovação direta exige que todas as matérias avaliadas atinjam a mínima.
 - Uma ou mais matérias abaixo da mínima reprovam a etapa e podem acionar regra descendente por matéria reprovada.
