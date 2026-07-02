@@ -216,12 +216,12 @@ func CriarCurso(c *gin.Context) {
 	repository := getRepository(c)
 	curso := aggregates.NewCurso()
 
-	if err := validarMateriasChaveCursoHandler(c, academiaDTO.CodigoAcademia, tipoCurso, &curso.ID, anosAcademicos, req.MateriasChave, req.MateriasChaveInformado); err != nil {
-		utils.RespondWithValidationError(c, err)
+	if req.MateriasChaveInformado {
+		utils.RespondWithValidationError(c, fmt.Errorf("materias_chave não é aceito na criação de curso; configure pela rota específica após criar as matérias do curso"))
 		return
 	}
 
-	if err := curso.Criar(req.Nome, tipoCurso, anosAcademicos, periodos, req.MateriasChave, academiaDTO.CodigoAcademia); err != nil {
+	if err := curso.Criar(req.Nome, tipoCurso, anosAcademicos, periodos, nil, academiaDTO.CodigoAcademia); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -372,20 +372,7 @@ func AtualizarDadosCurso(c *gin.Context) {
 		return
 	}
 
-	var materiasChaveAtualizacao *[]aggregates.MateriasChaveCursoAno
-	if req.MateriasChaveInformado {
-		anosParaValidar := cursoDTO.AnosAcademicos
-		if novosAnos != nil {
-			anosParaValidar = novosAnos
-		}
-		if err := validarMateriasChaveCursoHandler(c, cursoDTO.CodigoAcademia, cursoDTO.Type, &cursoDTO.ID, anosParaValidar, req.MateriasChave, true); err != nil {
-			utils.RespondWithValidationError(c, err)
-			return
-		}
-		materiasChaveAtualizacao = &req.MateriasChave
-	}
-
-	if err := curso.AtualizarDados(nomeAtualizacao(req), novosAnos, novosPeriodos, materiasChaveAtualizacao, userID); err != nil {
+	if err := curso.AtualizarDados(nomeAtualizacao(req), novosAnos, novosPeriodos, nil, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -423,7 +410,7 @@ func rejeitarCamposAcademicosEmAtualizacaoCurso(c *gin.Context) error {
 	}
 	for campo := range raw {
 		switch campo {
-		case "anos_academicos", "anosAcademicos", "periodos", "semestres", "quantidade_semestres", "anos":
+		case "anos_academicos", "anosAcademicos", "periodos", "semestres", "quantidade_semestres", "anos", "materias_chave", "materiasChave":
 			return fmt.Errorf("campo não suportado em atualização de dados do curso: %s. Use a rota própria de anos acadêmicos para adicionar ou remover escopos permitidos; esta rota altera apenas dados cadastrais", campo)
 		}
 	}
@@ -485,6 +472,85 @@ func semestresDosPeriodos(periodos []string) []int {
 		}
 	}
 	return semestres
+}
+
+// ============================================================================
+// PUT /academia/curso/:id/materias-chave
+// ============================================================================
+
+func ConfigurarMateriasChaveCurso(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+
+	cursoID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("ID de curso inválido"))
+		return
+	}
+
+	var req struct {
+		MateriasChave []aggregates.MateriasChaveCursoAno `json:"materias_chave"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("materias_chave deve ser uma lista de configurações por ano_academico"))
+		return
+	}
+
+	cursosProj := getCursosProjection(c)
+	cursoDTO, err := cursosProj.GetByID(cursoID)
+	if err != nil || cursoDTO == nil {
+		utils.RespondWithNotFoundError(c, "curso")
+		return
+	}
+	if cursoDTO.Status != "ativo" {
+		utils.RespondWithValidationError(c, fmt.Errorf("curso deve estar ativo para configurar materias_chave"))
+		return
+	}
+
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, _ := academiaProj.GetByID(userID)
+	if academiaDTO == nil || academiaDTO.CodigoAcademia != cursoDTO.CodigoAcademia {
+		utils.RespondWithForbiddenError(c, "curso nao pertence a esta academia")
+		return
+	}
+
+	if err := validarMateriasChaveCursoHandler(c, cursoDTO.CodigoAcademia, cursoDTO.Type, &cursoDTO.ID, cursoDTO.AnosAcademicos, req.MateriasChave, true); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	repository := getRepository(c)
+	cursoAgg, err := repository.Load(cursoID, "Curso")
+	if err != nil {
+		utils.RespondWithNotFoundError(c, "curso")
+		return
+	}
+	curso, ok := cursoAgg.(*aggregates.Curso)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
+
+	if err := curso.AtualizarDados(nil, nil, nil, &req.MateriasChave, userID); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	audit := db.AuditContext{UserID: userID.String(), UserType: "academia", IP: c.ClientIP()}
+	if err := repository.SaveWithAudit(curso, audit); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"message": "materias_chave configurado com sucesso",
+		"data": gin.H{
+			"id":              curso.ID,
+			"nome":            curso.Nome,
+			"type":            curso.Type,
+			"anos_academicos": curso.AnosAcademicos,
+			"periodos":        curso.Periodos,
+			"materias_chave":  curso.MateriasChave,
+			"status":          curso.Status,
+		},
+	})
 }
 
 // ============================================================================
@@ -951,9 +1017,6 @@ func GetCurso(c *gin.Context) {
 
 func validarMateriasChaveCursoHandler(c *gin.Context, codigoAcademia, tipoCurso string, cursoID *uuid.UUID, anosAcademicos []string, materiasChave []aggregates.MateriasChaveCursoAno, informado bool) error {
 	if !informado {
-		if tipoCurso == "medio" {
-			return fmt.Errorf("materias_chave é obrigatório para cursos médios e deve conter pelo menos uma matéria por ano_academico")
-		}
 		return nil
 	}
 	if tipoCurso != "medio" {

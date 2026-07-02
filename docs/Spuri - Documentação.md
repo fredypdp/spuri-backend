@@ -283,12 +283,8 @@ Representa uma instituição de ensino. Pode ser uma **escola** (ensino fundamen
 
 - `codigo`: identificador técnico único por academia (sem espaços). Exemplo de categoria personalizada: `prova_profesor`.
 - `nome`: rótulo descritivo exibido ao usuário (pode conter espaços). Exemplo de categoria personalizada: `Prova do professor`.
-- Códigos fixos e rótulos padrão:
-  - `nota_escola` -> `Nota da escola`
-  - `nota_professor` -> `Nota do professor`
-  - `nota_pp1` -> `Prova Parcelar 1`
-  - `nota_pp2` -> `Prova Parcelar 2`
-  - `nota_exame` -> `Exame Final`
+- Não existem códigos fixos, obrigatórios ou pré-definidos pelo backend. Toda categoria usada em notas, fórmulas ou regras deve ser cadastrada explicitamente pela academia.
+- Exemplos de códigos válidos, quando cadastrados pela própria academia: `prova_trimestral`, `exame_final`, `atividade_pratica`.
 
 ---
 
@@ -374,7 +370,7 @@ Para cursos superiores, a criação recebe `periodos` como número inteiro posit
 
 Na criação de cursos médios, `POST /academia/curso` aplica a mesma proteção de sequência de anos médios usada por `POST /academia/anos-academicos`: `anos_academicos` deve começar em `1_ano_medio`, seguir em ordem crescente, não pular posições e não repetir anos. Assim, cargas como `["2_ano_medio"]`, `["1_ano_medio", "3_ano_medio"]` ou `["2_ano_medio", "1_ano_medio"]` são rejeitadas antes da criação.
 
-Cursos médios também possuem `materias_chave` persistente no próprio curso, por `ano_academico`. Cada ano listado em `anos_academicos` deve ter exatamente uma configuração em `materias_chave` com pelo menos uma matéria. As matérias informadas precisam existir, estar ativas, pertencer à mesma academia, ao mesmo curso médio, ao nível `medio` e ao ano acadêmico da configuração. Cursos superiores rejeitam `materias_chave`.
+Cursos médios também possuem `materias_chave` persistente no próprio curso, por `ano_academico`, mas esse campo é configurado somente depois da criação do curso, pela rota específica `PUT /academia/curso/:id/materias-chave`. A criação do curso médio não aceita `materias_chave`, pois as matérias precisam existir e estar associadas ao curso antes da configuração. Cada ano configurado deve ter exatamente uma entrada com pelo menos uma matéria ativa da mesma academia, do mesmo curso médio, do nível `medio` e do ano acadêmico informado. Cursos superiores rejeitam `materias_chave`.
 
 **Formato dos semestres persistidos**: `[n]_semestre` onde n ≥ 1 (ex: `1_semestre`, `2_semestre`).
 
@@ -554,10 +550,10 @@ Sempre que o ano letivo for atualizado, ele é adicionado em `anos_letivos_lista
 
 |Tipo|Academia|Categorias fixas|Períodos|
 |---|---|---|---|
-|`escolar`|`escola`|`nota_escola`, `nota_professor`|`1_trimestre`, `2_trimestre`, `3_trimestre`|
-|`superior`|`superior`|`nota_pp1`, `nota_pp2`, `nota_exame`|Semestres do curso|
+|`escolar`|`escola`|Categorias cadastradas explicitamente pela academia|`1_trimestre`, `2_trimestre`, `3_trimestre`|
+|`superior`|`superior`|Categorias cadastradas explicitamente pela academia|Semestres do curso|
 
-Academias podem criar **categorias adicionais** personalizadas e também configurar as categorias fixas/obrigatórias. Toda categoria de nota possui `anos_academicos`; apenas os anos presentes nessa lista aceitam registros. Se a categoria não tiver anos definidos, nenhuma nota pode ser registrada nela. O `codigo` da categoria é normalizado antes de persistir: espaços antes/depois são descartados, somente espaços internos entre textos viram `_`, letras maiúsculas viram minúsculas e caracteres especiais diferentes de `_` são rejeitados.
+Academias criam explicitamente todas as categorias de nota que pretendem usar; não há categorias fixas, obrigatórias ou pré-definidas pelo backend. Toda categoria de nota possui `anos_academicos`; apenas os anos presentes nessa lista aceitam registros. Se a categoria não tiver anos definidos, nenhuma nota pode ser registrada nela. O `codigo` da categoria é normalizado antes de persistir: espaços antes/depois são descartados, somente espaços internos entre textos viram `_`, letras maiúsculas viram minúsculas e caracteres especiais diferentes de `_` são rejeitados.
 
 **Valor**: entre 0 ou mais (validado no aggregate)
 
@@ -640,7 +636,7 @@ A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras d
 |---|---:|---:|---:|
 | `nivel` | `fundamental` | `medio` | `superior` |
 | `anos_academicos` | Obrigatório e não vazio; array simples de anos fundamentais | Obrigatório; lista de objetos `{curso_id, anos_academicos}` por curso médio | Rejeitado |
-| `materias_chave` | Rejeitado | Rejeitado na regra; obrigatório no curso médio, por ano acadêmico | Rejeitado |
+| `materias_chave` | Rejeitado | Rejeitado na regra; configurado no curso médio por rota específica após a criação das matérias | Rejeitado |
 | `materias_aplicaveis` | Opcional; lista de itens `{ano_academico, materias}` | Opcional; lista de itens `{curso_id, ano_academico, materias}` | Opcional; lista de itens `{curso_id, ano_academico, materias}` com ano derivado dos semestres |
 | `limite_materias_pendentes` | Rejeitado | Obrigatório, `>= 0` | Obrigatório, `>= 0` |
 | `aplica_se_reprovado_em_type` | Ausente na raiz; presente em descendente | Ausente na raiz; presente em descendente | Ausente na raiz; presente em descendente |
@@ -673,9 +669,9 @@ A regra usa `formula` como texto declarativo. O parser valida referências, oper
 
 | Nível | Formato da referência | Exemplo válido | Exemplo inválido |
 |---|---|---|---|
-| Fundamental | `[categoria,periodo]` | `([nota_escola,1_trimestre]+[nota_escola,2_trimestre]+[nota_escola,3_trimestre])/3` | `[nota_escola]` |
-| Médio | `[categoria,periodo]` | `[nota_escola,1_trimestre]*0.4+[nota_exame,3_trimestre]*0.6` | `[nota_exame]` |
-| Superior | `[categoria]`; período inferido pela matéria/semestre avaliado | `([nota_pp1]+[nota_pp2])/2` | `[nota_pp1,1_semestre]` |
+| Fundamental | `[categoria,periodo]` | `([prova_trimestral,1_trimestre]+[prova_trimestral,2_trimestre]+[prova_trimestral,3_trimestre])/3` | `[prova_trimestral]` |
+| Médio | `[categoria,periodo]` | `[prova_trimestral,1_trimestre]*0.4+[exame_final,3_trimestre]*0.6` | `[exame_final]` |
+| Superior | `[categoria]`; período inferido pela matéria/semestre avaliado | `([prova_parcelar_1]+[prova_parcelar_2])/2` | `[prova_parcelar_1,1_semestre]` |
 
 No Superior, o backend preenche o período no momento do cálculo usando a matéria/escopo avaliado (`periodo` da matéria e `semestre_atual` do estudante). Assim, a mesma regra superior pode calcular as matérias do semestre atual sem expor período explícito no payload da regra.
 
@@ -849,7 +845,7 @@ Para deletar um curso:
 4. Matérias inativas são deletadas em cascata automaticamente
 5. Turmas inativas vinculadas são deletadas em cascata automaticamente
 
-Em cursos médios, `materias_chave` é parte da configuração curricular do curso. A criação/edição rejeita lacunas: todo `ano_academico` do curso deve possuir uma entrada em `materias_chave`, e cada entrada deve conter pelo menos uma matéria média ativa daquele mesmo curso, academia e ano. Essa regra garante que a avaliação final do Médio sempre consiga resolver as matérias-chave pelo curso/ano do estudante.
+Em cursos médios, `materias_chave` é parte da configuração curricular do curso e é mantido pela rota específica `PUT /academia/curso/:id/materias-chave`, após a criação das matérias do curso. A criação e a edição cadastral do curso não aceitam esse campo. Quando a avaliação final do Médio precisa de matérias-chave e a configuração do curso/ano ainda não existe, o backend retorna erro claro de configuração ausente.
 
 **Ciclo de vida da matéria superior:**
 

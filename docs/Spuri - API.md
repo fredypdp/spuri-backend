@@ -139,11 +139,11 @@ type SolicitacaoMatriculaStatus = 'pendente' | 'aprovada' | 'reprovada'
 - Escolar (fixos): `1_trimestre`, `2_trimestre`, `3_trimestre`
 - Superior (dinâmicos): `1_semestre`, `2_semestre`, ..., `N_semestre`
 
-**Categorias de nota fixas:**
+**Categorias de nota:**
 
-- Escolar: `nota_escola`, `nota_professor`
-- Superior: `nota_pp1`, `nota_pp2`, `nota_exame`
-- Adicionais: qualquer nome cadastrado pela academia
+- Não há categorias fixas, implícitas ou pré-definidas pelo backend.
+- Toda categoria usada para lançar nota, montar fórmula ou validar regra deve ser cadastrada explicitamente pela academia.
+- Exemplos como `prova_trimestral` ou `exame_final` são apenas ilustrativos e só funcionam após cadastro.
 
 **Formato do ano letivo:** `YYYY_YYYY` (ex: `2025_2026`)
 
@@ -303,7 +303,7 @@ interface CursoDTO {
   type: CursoType            // preenchido automaticamente pelo backend e imutável
   anos_academicos: string[]  // ex: ['1_ano_medio', '2_ano_medio', '3_ano_medio']
   periodos?: string[]        // ex: ['1_semestre', '2_semestre'] — apenas para superior
-  materias_chave?: MateriasChaveCursoAnoDTO[] // apenas médio; obrigatório um item não vazio por ano
+  materias_chave?: MateriasChaveCursoAnoDTO[] // apenas médio; estado configurado por rota própria após a criação
   codigo_academia: string
   status: string             // 'ativo' | 'inativo' | 'deletado'
   created_at: string
@@ -372,7 +372,7 @@ interface NotaDTO {
   materia_disciplinar_id: string // UUID
   materia_nome?: string
   tipo: TipoNota
-  categoria: string           // ex: 'nota_escola', 'nota_exame'
+  categoria: string           // código de categoria cadastrada pela academia
   nota: number                // >= 0
   observacao?: string
   registered_at: string
@@ -490,7 +490,6 @@ interface CategoriaNotaDTO {
   nome: string
   descricao?: string
   adicionado_por?: string  // UUID
-  status: string           // 'ativo' | 'inativo'
   created_at: string
   version: number
 }
@@ -2680,21 +2679,7 @@ Cria um novo curso para a academia. O tipo efetivo do curso é inferido pelo bac
 {
   "nome": "Ciências e Tecnologia",
   "type": "medio",
-  "anos_academicos": ["1_ano_medio", "2_ano_medio", "3_ano_medio"],
-  "materias_chave": [
-    {
-      "ano_academico": "1_ano_medio",
-      "materias_chave": ["uuid-materia-portugues", "uuid-materia-matematica"]
-    },
-    {
-      "ano_academico": "2_ano_medio",
-      "materias_chave": ["uuid-materia-fisica"]
-    },
-    {
-      "ano_academico": "3_ano_medio",
-      "materias_chave": ["uuid-materia-quimica"]
-    }
-  ]
+  "anos_academicos": ["1_ano_medio", "2_ano_medio", "3_ano_medio"]
 }
 ```
 
@@ -2710,9 +2695,7 @@ Cria um novo curso para a academia. O tipo efetivo do curso é inferido pelo bac
 
 Para cursos superiores, `periodos` é um **número inteiro positivo** que representa o total de semestres. O backend persiste internamente os semestres sequenciais (`1_semestre` até `N_semestre`) e calcula `anos_academicos` automaticamente com `ceil(periodos / 2)`. Ex.: `periodos = 3` gera `periodos = ["1_semestre", "2_semestre", "3_semestre"]` e `anos_academicos = ["1_ano_superior", "2_ano_superior"]`.
 
-Cursos superiores não aceitam `anos_academicos` nem `materias_chave` no payload; cursos médios não aceitam `periodos` numérico. Para curso médio, `anos_academicos` passa pela mesma proteção de sequência usada em `POST /academia/anos-academicos`: a lista precisa ser contínua, crescente e iniciada em `1_ano_medio` (por exemplo, `["1_ano_medio", "2_ano_medio"]`). Listas que comecem em `2_ano_medio`, pulem anos, repitam anos ou venham fora de ordem são rejeitadas antes da criação do curso.
-
-Para curso médio, `materias_chave` é obrigatório e deve conter uma entrada para cada item de `anos_academicos`. Cada entrada deve ter `ano_academico` pertencente ao curso e `materias_chave` com pelo menos um UUID de matéria. Cada matéria precisa existir, estar ativa, ser `type="medio"`, pertencer à mesma academia, ao mesmo `curso_id` e ao `ano_academico` informado; duplicidade de ano ou de matéria no mesmo ano é rejeitada.
+Cursos superiores não aceitam `anos_academicos` nem `materias_chave` no payload; cursos médios não aceitam `periodos` numérico nem `materias_chave` na criação. Para curso médio, `anos_academicos` passa pela mesma proteção de sequência usada em `POST /academia/anos-academicos`: a lista precisa ser contínua, crescente e iniciada em `1_ano_medio` (por exemplo, `["1_ano_medio", "2_ano_medio"]`). Listas que comecem em `2_ano_medio`, pulem anos, repitam anos ou venham fora de ordem são rejeitadas antes da criação do curso. Configure `materias_chave` depois de criar as matérias do curso, pela rota `PUT /academia/curso/:id/materias-chave`.
 
 
 **Exemplo 400 — curso médio com anos fora de sequência:**
@@ -2734,19 +2717,14 @@ Para curso médio, `materias_chave` é obrigatório e deve conter uma entrada pa
     "nome": "string",
     "type": "medio",
     "periodos": [],
-    "materias_chave": [
-      {
-        "ano_academico": "1_ano_medio",
-        "materias_chave": ["uuid-materia-portugues"]
-      }
-    ]
+    "materias_chave": []
   }
 }
 ```
 
 **Erros:**
 
-- `400` — nome ausente, `type` incompatível com a academia, anos_academicos inválidos/não sequenciais/fora de ordem para curso médio, ou `materias_chave` ausente/incompleto/inválido para curso médio
+- `400` — nome ausente, `type` incompatível com a academia, anos_academicos inválidos/não sequenciais/fora de ordem para curso médio, ou `materias_chave` enviado na criação
 - `400` — curso superior sem `periodos`, com `periodos <= 0`, decimal, string, array, nulo, com `anos_academicos` enviado ou com `materias_chave` enviado
 - `400` — curso médio com `periodos` numérico enviado
 - `403` — academia inativa não pode criar cursos
@@ -2836,32 +2814,22 @@ Desativa um curso ativo.
 
 ### PUT /academia/curso/:id/dados
 
-Atualiza dados cadastrais de um curso e, para curso médio, a configuração `materias_chave`. O `type` é imutável e esta rota não manipula anos acadêmicos, períodos ou semestres.
+Atualiza apenas dados cadastrais de um curso. O `type` é imutável e esta rota não manipula anos acadêmicos, períodos, semestres nem `materias_chave`.
 
 **Proteção**: autenticado + academia ativa
 
 **Validações de integridade:**
 
-- O payload aceito para esta rota permite `nome` e, em cursos médios, `materias_chave`.
+- O payload aceito para esta rota permite apenas dados cadastrais como `nome`; `materias_chave` deve ser configurado pela rota própria.
 - Campos acadêmicos como `anos_academicos`, `anosAcademicos`, `periodos`, `semestres`, `quantidade_semestres` e `anos` são rejeitados com erro de validação, sem mutação parcial.
-- Para adicionar ou remover anos de curso médio, use `POST` ou `DELETE /academia/anos-academicos` com `type=medio` e `curso_id`. Depois da alteração, mantenha `materias_chave` coerente: todo ano acadêmico médio do curso precisa ter pelo menos uma matéria-chave.
+- Para adicionar ou remover anos de curso médio, use `POST` ou `DELETE /academia/anos-academicos` com `type=medio` e `curso_id`. Depois da alteração, mantenha `materias_chave` coerente pela rota específica.
 - Cursos superiores não aceitam adição/remoção direta de anos acadêmicos, períodos ou semestres por esta rota nem por `/academia/anos-academicos`; qualquer fluxo futuro de períodos deve ser explícito e separado dos dados cadastrais do curso.
 
 **Request:**
 
 ```json
 {
-  "nome": "Ciências e Tecnologia",
-  "materias_chave": [
-    {
-      "ano_academico": "1_ano_medio",
-      "materias_chave": ["uuid-materia-portugues"]
-    },
-    {
-      "ano_academico": "2_ano_medio",
-      "materias_chave": ["uuid-materia-fisica"]
-    }
-  ]
+  "nome": "Ciências e Tecnologia"
 }
 ```
 
@@ -2890,9 +2858,38 @@ Atualiza dados cadastrais de um curso e, para curso médio, a configuração `ma
 **Erros:**
 
 - `400` — nenhum campo para atualizar
-- `400` — `materias_chave` enviado para curso superior, ausente/incompleto em curso médio quando alterado, com ano fora de `anos_academicos`, ano duplicado, matéria duplicada, inexistente, inativa, deletada, de outra academia, de outro curso, de outro nível ou fora do ano informado
+- `400` — `materias_chave` enviado nesta rota; use `PUT /academia/curso/:id/materias-chave`
 - `400` — `type` enviado na edição, pois o tipo do curso é imutável
 - `400` — campo acadêmico enviado (`anos_academicos`, `anosAcademicos`, `periodos`, `semestres`, `quantidade_semestres`, `anos` ou equivalente)
+
+---
+
+### PUT /academia/curso/:id/materias-chave
+
+Configura, substitui ou remove a configuração de `materias_chave` de um curso médio já criado. Use esta rota somente depois de criar as matérias médias vinculadas ao curso.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:**
+
+```json
+{
+  "materias_chave": [
+    {
+      "ano_academico": "1_ano_medio",
+      "materias_chave": ["uuid-materia-portugues"]
+    },
+    {
+      "ano_academico": "2_ano_medio",
+      "materias_chave": ["uuid-materia-fisica"]
+    }
+  ]
+}
+```
+
+**Validações:** curso existente, ativo e da academia autenticada; curso com `type="medio"`; matérias existentes, ativas, da mesma academia, do mesmo curso médio e do ano acadêmico informado; sem anos duplicados; sem IDs duplicados no mesmo ano; sem ano vazio; sem lista vazia; todos os anos do curso médio com configuração.
+
+**Response 200:** retorna o estado atualizado do curso.
 
 ---
 
@@ -3398,7 +3395,7 @@ Retorna as turmas de um estudante com autorização por perfil na mesma rota.
 
 ### POST /academia/categorias-nota
 
-Cria ou configura uma categoria de nota para a academia. O mesmo endpoint é usado para categorias adicionais e para definir os anos acadêmicos das categorias fixas/obrigatórias (`nota_escola`, `nota_professor`, `nota_pp1`, `nota_pp2`, `nota_exame`).
+Cria uma categoria de nota explícita para a academia. Não existem categorias fixas, obrigatórias ou pré-definidas pelo backend; qualquer categoria usada em notas ou fórmulas precisa existir nessa configuração da academia.
 
 O campo `codigo` é normalizado antes de persistir: espaços antes/depois são descartados, somente espaços internos entre textos viram `_` (ex.: ` Prova profesor ` vira `prova_profesor`) e caracteres especiais diferentes de `_` são rejeitados. O código aceita letras minúsculas, números, espaços e `_`; letras maiúsculas são convertidas para minúsculas.
 
@@ -3455,7 +3452,6 @@ Lista todas as categorias de nota da academia alvo.
       "nome": "Prova do professor",
       "descricao": "string",
       "anos_academicos": ["3_ano_fundamental"],
-      "status": "ativo",
       "created_at": "2026-06-13T00:00:00Z",
       "version": 1
     }

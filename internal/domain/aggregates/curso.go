@@ -197,8 +197,8 @@ func (c *Curso) Criar(
 	if tipo == "superior" && len(materiasChave) > 0 {
 		return fmt.Errorf("materias_chave é exclusivo para cursos do tipo medio")
 	}
-	if err := validarMateriasChaveCurso(tipo, anosAcademicos, materiasChave); err != nil {
-		return err
+	if len(materiasChave) > 0 {
+		return fmt.Errorf("materias_chave deve ser configurado após a criação do curso pela rota específica")
 	}
 
 	event := &CursoCriadoEvent{
@@ -522,9 +522,6 @@ func validarMateriasChaveCurso(tipo string, anosAcademicos []string, materias []
 		anos[ano] = struct{}{}
 	}
 	vistosAno := map[string]struct{}{}
-	if tipo == "medio" && len(materias) == 0 {
-		return fmt.Errorf("materias_chave é obrigatório para cursos médios e deve conter pelo menos uma matéria por ano_academico")
-	}
 	for _, item := range materias {
 		if strings.TrimSpace(item.AnoAcademico) == "" {
 			return fmt.Errorf("materias_chave possui ano_academico obrigatório")
@@ -548,13 +545,6 @@ func validarMateriasChaveCurso(tipo string, anosAcademicos []string, materias []
 				return fmt.Errorf("materias_chave possui matéria duplicada no ano_academico %s", item.AnoAcademico)
 			}
 			vistosMateria[id] = struct{}{}
-		}
-	}
-	if tipo == "medio" {
-		for _, ano := range anosAcademicos {
-			if _, ok := vistosAno[ano]; !ok {
-				return fmt.Errorf("materias_chave é obrigatório para o ano_academico %s", ano)
-			}
 		}
 	}
 	return nil

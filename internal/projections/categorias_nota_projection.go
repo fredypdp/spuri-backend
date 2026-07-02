@@ -147,7 +147,7 @@ type CategoriaNotaDTO struct {
 	Descricao      *string    `json:"descricao,omitempty"`
 	AnosAcademicos []string   `json:"anos_academicos"`
 	AdicionadoPor  *uuid.UUID `json:"adicionado_por,omitempty"`
-	Status         string     `json:"status"`
+	Status         string     `json:"-"`
 	CreatedAt      time.Time  `json:"created_at"`
 	Version        int        `json:"version"`
 }
