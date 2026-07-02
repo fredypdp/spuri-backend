@@ -20,22 +20,29 @@ import (
 	"spuri/internal/utils"
 )
 
+type materiaAplicavelEscopo struct {
+	CursoID      *string     `json:"curso_id,omitempty"`
+	AnoAcademico string      `json:"ano_academico"`
+	Materias     []uuid.UUID `json:"materias"`
+}
+
 type regraAvaliacaoFinalDTO struct {
-	ID                      uuid.UUID   `json:"id"`
-	CodigoAcademia          string      `json:"codigo_academia"`
-	Type                    string      `json:"type" binding:"required"`
-	Nome                    string      `json:"nome" binding:"required"`
-	Descricao               *string     `json:"descricao,omitempty"`
-	Nivel                   string      `json:"nivel,omitempty"`
-	AnosAcademicos          []string    `json:"anos_academicos,omitempty"`
-	NotaMinimaAprovacao     float64     `json:"nota_minima_aprovacao" binding:"required"`
-	CategoriasEnvolvidas    []string    `json:"categorias_envolvidas,omitempty"`
-	Formula                 string      `json:"formula" binding:"required"`
-	MateriasAplicaveis      []uuid.UUID `json:"materias_aplicaveis,omitempty"`
-	LimiteMateriasPendentes *int        `json:"limite_materias_pendentes,omitempty"`
-	AplicaSeReprovadoEmType *string     `json:"aplica_se_reprovado_em_type,omitempty"`
-	Status                  string      `json:"status"`
-	Version                 int         `json:"version"`
+	ID                       uuid.UUID                `json:"id"`
+	CodigoAcademia           string                   `json:"codigo_academia"`
+	Type                     string                   `json:"type" binding:"required"`
+	Nome                     string                   `json:"nome" binding:"required"`
+	Descricao                *string                  `json:"descricao,omitempty"`
+	Nivel                    string                   `json:"nivel,omitempty"`
+	AnosAcademicos           []string                 `json:"anos_academicos,omitempty"`
+	NotaMinimaAprovacao      float64                  `json:"nota_minima_aprovacao" binding:"required"`
+	CategoriasEnvolvidas     []string                 `json:"categorias_envolvidas,omitempty"`
+	Formula                  string                   `json:"formula" binding:"required"`
+	MateriasAplicaveis       []uuid.UUID              `json:"materias_aplicaveis,omitempty"`
+	MateriasAplicaveisEscopo []materiaAplicavelEscopo `json:"-"`
+	LimiteMateriasPendentes  *int                     `json:"limite_materias_pendentes,omitempty"`
+	AplicaSeReprovadoEmType  *string                  `json:"aplica_se_reprovado_em_type,omitempty"`
+	Status                   string                   `json:"status"`
+	Version                  int                      `json:"version"`
 }
 
 // UnmarshalJSON preserves the legacy public contract for fundamental rules
@@ -68,29 +75,40 @@ func (r *regraAvaliacaoFinalDTO) UnmarshalJSON(b []byte) error {
 				return fmt.Errorf("anos_academicos deve ser array de strings para fundamental ou array de objetos por curso para medio")
 			}
 			r.AnosAcademicos = r.AnosAcademicos[:0]
+			cursosVistos := map[string]bool{}
 			for _, item := range porCurso {
 				cursoID := strings.TrimSpace(item.CursoID)
+				if cursoID == "" {
+					return fmt.Errorf("anos_academicos de médio exige curso_id")
+				}
+				if cursosVistos[cursoID] {
+					return fmt.Errorf("anos_academicos de médio não aceita dois itens para o mesmo curso_id: %s", cursoID)
+				}
+				cursosVistos[cursoID] = true
+				anosVistos := map[string]bool{}
 				for _, ano := range item.AnosAcademicos {
-					r.AnosAcademicos = append(r.AnosAcademicos, cursoID+"|"+strings.TrimSpace(ano))
+					ano = strings.TrimSpace(ano)
+					if ano == "" {
+						return fmt.Errorf("anos_academicos de médio não pode conter ano vazio")
+					}
+					if anosVistos[ano] {
+						return fmt.Errorf("ano_academico duplicado em anos_academicos do curso_id %s: %s", cursoID, ano)
+					}
+					anosVistos[ano] = true
+					r.AnosAcademicos = append(r.AnosAcademicos, cursoID+"|"+ano)
 				}
 			}
 		}
 	}
 	if len(raw.MateriasAplicaveis) > 0 && string(raw.MateriasAplicaveis) != "null" {
-		var ids []uuid.UUID
-		if err := json.Unmarshal(raw.MateriasAplicaveis, &ids); err == nil {
-			r.MateriasAplicaveis = ids
-		} else {
-			var porEscopo []struct {
-				Materias []uuid.UUID `json:"materias"`
-			}
-			if err := json.Unmarshal(raw.MateriasAplicaveis, &porEscopo); err != nil {
-				return fmt.Errorf("materias_aplicaveis deve agrupar matérias por ano/curso")
-			}
-			r.MateriasAplicaveis = r.MateriasAplicaveis[:0]
-			for _, item := range porEscopo {
-				r.MateriasAplicaveis = append(r.MateriasAplicaveis, item.Materias...)
-			}
+		var porEscopo []materiaAplicavelEscopo
+		if err := json.Unmarshal(raw.MateriasAplicaveis, &porEscopo); err != nil {
+			return fmt.Errorf("materias_aplicaveis deve ser lista de objetos por escopo; lista simples global de IDs não é aceita")
+		}
+		r.MateriasAplicaveis = r.MateriasAplicaveis[:0]
+		r.MateriasAplicaveisEscopo = porEscopo
+		for _, item := range porEscopo {
+			r.MateriasAplicaveis = append(r.MateriasAplicaveis, item.Materias...)
 		}
 	}
 	return nil
@@ -156,7 +174,15 @@ func CriarRegraAvaliacaoFinal(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
+	if err := validarAnosOfertadosRegraAvaliacaoFinal(req.Nivel, req.AnosAcademicos, academiaDTO.AnosAcademicos); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 	if err := validarCursosEscopoRegraAvaliacaoFinal(c, academiaDTO.CodigoAcademia, req.Nivel, req.AnosAcademicos); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if err := validarMateriasAplicaveisRegraAvaliacaoFinal(c, academiaDTO.CodigoAcademia, req.Nivel, req.AnosAcademicos, req.MateriasAplicaveisEscopo); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -480,6 +506,99 @@ func validarEscopoRegraAvaliacaoFinal(tipoEnsino string, niveis []string) error 
 		case "superior":
 			return fmt.Errorf("anos_academicos não é aceito para nivel superior")
 		}
+	}
+	return nil
+}
+
+func validarAnosOfertadosRegraAvaliacaoFinal(nivel string, escopos, anosAcademia []string) error {
+	if nivel != "fundamental" {
+		return nil
+	}
+	ofertados := map[string]bool{}
+	for _, ano := range anosAcademia {
+		ofertados[strings.TrimSpace(ano)] = true
+	}
+	for _, ano := range escopos {
+		if len(ofertados) > 0 && !ofertados[strings.TrimSpace(ano)] {
+			return fmt.Errorf("ano_academico fundamental não ofertado pela academia: %s", ano)
+		}
+	}
+	return nil
+}
+
+func validarMateriasAplicaveisRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, nivel string, escopos []string, itens []materiaAplicavelEscopo) error {
+	if len(itens) == 0 {
+		return nil
+	}
+	escopoOK := map[string]bool{}
+	for _, e := range escopos {
+		escopoOK[strings.TrimSpace(e)] = true
+	}
+	vistosItens := map[string]bool{}
+	for _, item := range itens {
+		ano := strings.TrimSpace(item.AnoAcademico)
+		if ano == "" || len(item.Materias) == 0 {
+			return fmt.Errorf("materias_aplicaveis deve informar ano_academico e materias não vazio")
+		}
+		chave := ano
+		curso := ""
+		if item.CursoID != nil {
+			curso = strings.TrimSpace(*item.CursoID)
+		}
+		if nivel == "fundamental" {
+			if curso != "" {
+				return fmt.Errorf("materias_aplicaveis fundamental não aceita curso_id")
+			}
+			if !escopoOK[ano] {
+				return fmt.Errorf("materias_aplicaveis ano_academico fora dos anos_academicos da regra: %s", ano)
+			}
+		} else {
+			if curso == "" {
+				return fmt.Errorf("materias_aplicaveis de nivel %s exige curso_id", nivel)
+			}
+			if _, err := uuid.Parse(curso); err != nil {
+				return fmt.Errorf("curso_id inválido em materias_aplicaveis")
+			}
+			chave = curso + "|" + ano
+			if nivel == "medio" && !escopoOK[chave] {
+				return fmt.Errorf("materias_aplicaveis curso_id/ano_academico fora dos anos_academicos da regra: %s/%s", curso, ano)
+			}
+		}
+		if vistosItens[chave] {
+			return fmt.Errorf("item duplicado em materias_aplicaveis para escopo %s", chave)
+		}
+		vistosItens[chave] = true
+		vistosMaterias := map[uuid.UUID]bool{}
+		for _, materiaID := range item.Materias {
+			if vistosMaterias[materiaID] {
+				return fmt.Errorf("materia_id duplicado em materias_aplicaveis: %s", materiaID)
+			}
+			vistosMaterias[materiaID] = true
+			if err := validarMateriaAplicavelEscopo(c, codigoAcademia, nivel, curso, ano, materiaID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validarMateriaAplicavelEscopo(c *gin.Context, codigoAcademia, nivel, curso, ano string, materiaID uuid.UUID) error {
+	var existe bool
+	if nivel == "fundamental" {
+		if err := getDbClient(c).DB().QueryRow(`SELECT EXISTS (SELECT 1 FROM projection_materias WHERE id=$1 AND codigo_academia=$2 AND type='fundamental' AND status='ativo' AND deleted_at IS NULL AND anos_academicos ? $3)`, materiaID, codigoAcademia, ano).Scan(&existe); err != nil {
+			return err
+		}
+	} else if nivel == "medio" {
+		if err := getDbClient(c).DB().QueryRow(`SELECT EXISTS (SELECT 1 FROM projection_materias WHERE id=$1 AND codigo_academia=$2 AND type='medio' AND status='ativo' AND deleted_at IS NULL AND curso_id=$3 AND anos_academicos ? $4)`, materiaID, codigoAcademia, curso, ano).Scan(&existe); err != nil {
+			return err
+		}
+	} else {
+		if err := getDbClient(c).DB().QueryRow(`SELECT EXISTS (SELECT 1 FROM projection_materias WHERE id=$1 AND codigo_academia=$2 AND type='superior' AND status='ativo' AND deleted_at IS NULL AND curso_id=$3 AND periodo=$4)`, materiaID, codigoAcademia, curso, ano).Scan(&existe); err != nil {
+			return err
+		}
+	}
+	if !existe {
+		return fmt.Errorf("materia_id %s inválida ou fora do escopo %s/%s/%s", materiaID, nivel, curso, ano)
 	}
 	return nil
 }
