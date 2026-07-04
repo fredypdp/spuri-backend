@@ -43,6 +43,7 @@ type regraAvaliacaoFinalDTO struct {
 	AplicaSeReprovadoEmType  *string                  `json:"aplica_se_reprovado_em_type,omitempty"`
 	Status                   string                   `json:"status"`
 	Version                  int                      `json:"version"`
+	NotaDespertadora         *string                  `json:"nota_despertadora,omitempty"`
 }
 
 // UnmarshalJSON preserves the legacy public contract for fundamental rules
@@ -212,8 +213,12 @@ func CriarRegraAvaliacaoFinal(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
+	if err := validarNotaDespertadoraRegraAvaliacaoFinal(c, academiaDTO.CodigoAcademia, req.AnosAcademicos, req.AplicaSeReprovadoEmType, req.NotaDespertadora); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 	id := uuid.New()
-	_, err = getDbClient(c).DB().Exec(`INSERT INTO projection_regras_avaliacao_final (id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,status,version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'ativo',1)`, id, academiaDTO.CodigoAcademia, req.Type, req.Nome, req.Descricao, req.Nivel, toJSON(req.AnosAcademicos), req.NotaMinimaAprovacao, toJSON(req.CategoriasEnvolvidas), formulaNormalizada, req.AplicaSeReprovadoEmType, toJSON(uuidStrings(req.MateriasAplicaveis)), req.LimiteMateriasPendentes)
+	_, err = getDbClient(c).DB().Exec(`INSERT INTO projection_regras_avaliacao_final (id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,nota_despertadora,status,version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'ativo',1)`, id, academiaDTO.CodigoAcademia, req.Type, req.Nome, req.Descricao, req.Nivel, toJSON(req.AnosAcademicos), req.NotaMinimaAprovacao, toJSON(req.CategoriasEnvolvidas), formulaNormalizada, req.AplicaSeReprovadoEmType, toJSON(uuidStrings(req.MateriasAplicaveis)), req.LimiteMateriasPendentes, req.NotaDespertadora)
 	if err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("erro ao criar regra de avaliação final: %w", err))
 		return
@@ -335,7 +340,7 @@ func ListarRegrasAvaliacaoFinal(c *gin.Context) {
 		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
-	rows, err := getDbClient(c).DB().Query(`SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,status,version FROM projection_regras_avaliacao_final WHERE codigo_academia=$1 ORDER BY created_at DESC`, academiaDTO.CodigoAcademia)
+	rows, err := getDbClient(c).DB().Query(`SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,status,version,nota_despertadora FROM projection_regras_avaliacao_final WHERE codigo_academia=$1 ORDER BY created_at DESC`, academiaDTO.CodigoAcademia)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -357,6 +362,7 @@ type editarRegraAvaliacaoFinalDTO struct {
 	NotaMinimaAprovacao  float64  `json:"nota_minima_aprovacao" binding:"required"`
 	Formula              string   `json:"formula" binding:"required"`
 	CategoriasEnvolvidas []string `json:"categorias_envolvidas,omitempty"`
+	NotaDespertadora     *string  `json:"nota_despertadora,omitempty"`
 }
 
 func EditarRegraAvaliacaoFinal(c *gin.Context) {
@@ -417,10 +423,18 @@ func EditarRegraAvaliacaoFinal(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
+	if err := validarNotaDespertadoraRegraAvaliacaoFinal(c, academiaDTO.CodigoAcademia, regra.AnosAcademicos, regra.AplicaSeReprovadoEmType, req.NotaDespertadora); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	notaDespertadora := regra.NotaDespertadora
+	if req.NotaDespertadora != nil {
+		notaDespertadora = req.NotaDespertadora
+	}
 	res, err := getDbClient(c).DB().Exec(`UPDATE projection_regras_avaliacao_final
-		SET nome=$1, descricao=$2, nota_minima_aprovacao=$3, categorias_envolvidas=$4, formula=$5, updated_at=CURRENT_TIMESTAMP, version=version+1
-		WHERE id=$6 AND codigo_academia=$7 AND status='ativo'`,
-		strings.TrimSpace(req.Nome), req.Descricao, req.NotaMinimaAprovacao, toJSON(categoriasFormula), formulaNormalizada, id, academiaDTO.CodigoAcademia)
+		SET nome=$1, descricao=$2, nota_minima_aprovacao=$3, categorias_envolvidas=$4, formula=$5, nota_despertadora=$6, updated_at=CURRENT_TIMESTAMP, version=version+1
+		WHERE id=$7 AND codigo_academia=$8 AND status='ativo'`,
+		strings.TrimSpace(req.Nome), req.Descricao, req.NotaMinimaAprovacao, toJSON(categoriasFormula), formulaNormalizada, notaDespertadora, id, academiaDTO.CodigoAcademia)
 	if err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("erro ao editar regra de avaliação final: %w", err))
 		return
@@ -811,7 +825,7 @@ func getRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipoEnsino, anoAcade
 	if typ == "" {
 		typ = "normal"
 	}
-	rows, err := getDbClient(c).DB().Query(`SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,status,version FROM projection_regras_avaliacao_final WHERE codigo_academia=$1 AND nivel=$2 AND type=$3 AND status='ativo' AND (($2 <> 'fundamental' AND $2 <> 'medio') OR ($2 = 'fundamental' AND anos_academicos ? $4) OR ($2 = 'medio' AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(anos_academicos) e(v) WHERE split_part(e.v, '|', 2) = $4)))`, codigoAcademia, tipoEnsino, typ, anoAcademico)
+	rows, err := getDbClient(c).DB().Query(`SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,status,version,nota_despertadora FROM projection_regras_avaliacao_final WHERE codigo_academia=$1 AND nivel=$2 AND type=$3 AND status='ativo' AND (($2 <> 'fundamental' AND $2 <> 'medio') OR ($2 = 'fundamental' AND anos_academicos ? $4) OR ($2 = 'medio' AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(anos_academicos) e(v) WHERE split_part(e.v, '|', 2) = $4)))`, codigoAcademia, tipoEnsino, typ, anoAcademico)
 	if err != nil {
 		return nil, err
 	}
@@ -842,7 +856,7 @@ func uuidStrings(ids []uuid.UUID) []string {
 }
 
 func getRegraAvaliacaoFinalPorID(c *gin.Context, codigoAcademia string, id uuid.UUID) (*regraAvaliacaoFinalDTO, error) {
-	row := getDbClient(c).DB().QueryRow(`SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,status,version
+	row := getDbClient(c).DB().QueryRow(`SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,status,version,nota_despertadora
 		FROM projection_regras_avaliacao_final
 		WHERE id=$1 AND codigo_academia=$2`, id, codigoAcademia)
 	r, err := scanRegra(row)
@@ -856,7 +870,7 @@ func getRegraAvaliacaoFinalPorID(c *gin.Context, codigoAcademia string, id uuid.
 }
 
 func idsCadeiaDependenteRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipoEnsino, rootType string, rootAnos []string) ([]uuid.UUID, error) {
-	rows, err := getDbClient(c).DB().Query(`SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,status,version
+	rows, err := getDbClient(c).DB().Query(`SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,status,version,nota_despertadora
 		FROM projection_regras_avaliacao_final
 		WHERE codigo_academia=$1 AND nivel=$2 AND status='ativo'`, codigoAcademia, tipoEnsino)
 	if err != nil {
@@ -899,7 +913,7 @@ func idsCadeiaDependenteRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipo
 }
 
 func listarRegrasAvaliacaoFinalAplicaveis(c *gin.Context, codigoAcademia, tipoEnsino, anoAcademico string, categoria *string) ([]regraAvaliacaoFinalDTO, error) {
-	query := `SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,status,version
+	query := `SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,status,version,nota_despertadora
 		FROM projection_regras_avaliacao_final
 		WHERE codigo_academia=$1
 		  AND nivel=$2
@@ -938,7 +952,7 @@ func scanRegra(rows rowScanner) (regraAvaliacaoFinalDTO, error) {
 	var anos, cats, materiasAplicaveis []byte
 	var limitePendentes sql.NullInt64
 	var formula string
-	err := rows.Scan(&r.ID, &r.CodigoAcademia, &r.Type, &r.Nome, &r.Descricao, &r.Nivel, &anos, &r.NotaMinimaAprovacao, &cats, &formula, &r.AplicaSeReprovadoEmType, &materiasAplicaveis, &limitePendentes, &r.Status, &r.Version)
+	err := rows.Scan(&r.ID, &r.CodigoAcademia, &r.Type, &r.Nome, &r.Descricao, &r.Nivel, &anos, &r.NotaMinimaAprovacao, &cats, &formula, &r.AplicaSeReprovadoEmType, &materiasAplicaveis, &limitePendentes, &r.Status, &r.Version, &r.NotaDespertadora)
 	_ = json.Unmarshal(anos, &r.AnosAcademicos)
 	_ = json.Unmarshal(cats, &r.CategoriasEnvolvidas)
 	r.MateriasAplicaveis = uuidListFromJSON(materiasAplicaveis)
@@ -1028,6 +1042,23 @@ func validarCategoriasRegraAvaliacaoFinal(c *gin.Context, codigoAcademia string,
 		}
 	}
 	return nil
+}
+
+func validarNotaDespertadoraRegraAvaliacaoFinal(c *gin.Context, codigoAcademia string, anosAcademicos []string, aplicaSeReprovadoEmType *string, notaDespertadora *string) error {
+	if aplicaSeReprovadoEmType != nil && strings.TrimSpace(*aplicaSeReprovadoEmType) != "" {
+		if notaDespertadora != nil && strings.TrimSpace(*notaDespertadora) != "" {
+			return fmt.Errorf("nota_despertadora é permitida apenas em regras raízes; regras descendentes são acionadas por reprovação na ancestral")
+		}
+		return nil
+	}
+	if notaDespertadora == nil || strings.TrimSpace(*notaDespertadora) == "" {
+		return nil
+	}
+	codigo := strings.TrimSpace(*notaDespertadora)
+	if strings.ContainsAny(codigo, " \t\r\n") {
+		return fmt.Errorf("nota_despertadora deve ser o codigo exato de uma categoria de nota")
+	}
+	return validarCategoriasRegraAvaliacaoFinal(c, codigoAcademia, anosAcademicos, []string{codigo})
 }
 
 func validarFormulaAvaliacaoPorNivel(nivel, formula string, categorias []string) (string, []string, error) {
