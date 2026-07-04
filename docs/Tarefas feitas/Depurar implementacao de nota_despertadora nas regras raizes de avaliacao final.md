@@ -2,7 +2,7 @@
 modificado: 2026-07-04 00:00
 criado: 2026-07-04 00:00
 ---
-# Depurar implementação de `nota_despertadora` nas regras raízes de avaliação final
+# Depurar implementação de `nota_despertadora` nas regras raízes de avaliação final (feito)
 
 Tarefa: [[Documentar implementacao de nota_despertadora nas regras raizes de avaliacao final]]
 
