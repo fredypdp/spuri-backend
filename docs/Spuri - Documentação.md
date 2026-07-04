@@ -604,6 +604,7 @@ A avaliação final é automática, auditável e orientada por regras. Ela é di
 | Regra raiz | Regra ativa sem `aplica_se_reprovado_em_type`. É a primeira etapa da cadeia para uma academia, `nivel` e escopo. Deve existir no máximo uma raiz ativa por escopo aplicável. |
 | Regra descendente | Regra ativa com `aplica_se_reprovado_em_type`, executada somente depois de reprovação no `type` indicado. Modela recuperação, exame, recurso ou outra nova chance. |
 | `type` | Nome público da etapa (`avaliacao_final`, `avaliacao_final_com_exame`, `avaliacao_final_com_recurso`, etc.). É configurado na regra, não enviado para executar avaliação. |
+| `nota_despertadora` | Código da categoria de nota que desperta a execução automática da regra raiz. É exclusivo de regras raízes; descendentes não aceitam o campo e continuam sendo acionadas por reprovação ancestral. |
 | `nivel` | Campo público de escopo da regra: `fundamental`, `medio` ou `superior`. O contrato novo de regras não aceita `tipo_ensino`. |
 | Fórmula | Expressão textual declarativa validada por parser próprio. Calcula a nota final de uma matéria usando notas existentes. Não há `eval`, script, template executável nem código dinâmico. |
 | `nota_minima_aprovacao` | Nota mínima para aprovar cada matéria avaliada na etapa. |
@@ -640,6 +641,7 @@ A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras d
 | `materias_aplicaveis` | Opcional; lista de itens `{ano_academico, materias}` | Opcional; lista de itens `{curso_id, ano_academico, materias}` | Opcional; lista de itens `{curso_id, ano_academico, materias}` com ano derivado dos semestres |
 | `limite_materias_pendentes` | Rejeitado | Obrigatório, `>= 0` | Obrigatório, `>= 0` |
 | `aplica_se_reprovado_em_type` | Ausente na raiz; presente em descendente | Ausente na raiz; presente em descendente | Ausente na raiz; presente em descendente |
+| `nota_despertadora` | Opcional na raiz; rejeitado em descendente | Opcional na raiz; rejeitado em descendente | Opcional na raiz; rejeitado em descendente |
 
 **Regras de cadeia e unicidade:**
 
@@ -648,7 +650,8 @@ A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras d
 - `categorias_envolvidas` é extraído da `formula`; se enviado, deve bater exatamente com as categorias extraídas.
 - Não pode haver duas regras ativas com o mesmo `codigo_academia`, `nivel`, `type` e escopo sobreposto. No Fundamental a sobreposição é por `ano_academico`; no Médio é por par `curso_id` + `ano_academico`. Superior continua sem `anos_academicos` nesta mudança.
 - Deve haver no máximo uma raiz ativa por academia, `nivel` e escopo. Uma cadeia sem raiz ou com múltiplas raízes aplicáveis não é executável de forma determinística.
-- Descendentes devem apontar para regra ativa existente no mesmo `nivel`, não podem apontar para si mesmas, não podem criar ciclo e devem usar exatamente o mesmo escopo da raiz da cadeia: mesmos anos no Fundamental e mesmos pares `curso_id` + `ano_academico` no Médio.
+- `nota_despertadora` só pode ser configurado na regra raiz. O valor é o `codigo` de uma categoria de nota ativa da academia e compatível com os anos/escopo da regra quando a categoria possuir essa segmentação. Regra raiz antiga sem `nota_despertadora` continua válida para compatibilidade, mas não é despertada automaticamente por lançamento de nota.
+- Descendentes devem apontar para regra ativa existente no mesmo `nivel`, não podem apontar para si mesmas, não podem criar ciclo e devem usar exatamente o mesmo escopo da raiz da cadeia: mesmos anos no Fundamental e mesmos pares `curso_id` + `ano_academico` no Médio. Descendentes não expõem, aceitam nem persistem `nota_despertadora`; payload com esse campo falha porque descendentes são ativadas pela reprovação na ancestral.
 - Inativar uma regra inativa também suas dependentes diretas/indiretas para preservar a consistência da cadeia.
 - Na edição, não é permitido alterar `type`, `nivel`, `anos_academicos`, dependência, `materias_chave`, `materias_aplicaveis`, limite, status ou version; para mudar escopo/cadeia, cria-se nova regra. Se `materias_chave` for enviado em criação ou edição de regra, o backend rejeita e orienta configurar as matérias-chave no curso médio, por `ano_academico`.
 
@@ -683,13 +686,14 @@ Se a fórmula exigir nota que ainda não existe para determinada matéria, categ
 2. O backend infere o nível acadêmico do estudante para execução: Superior tem prioridade quando há vínculo/status superior; depois Médio; caso contrário Fundamental.
 3. Para Superior, o backend transforma `semestre_atual` em `[n]_semestre` e valida esse período contra o curso.
 4. O backend busca regras ativas aplicáveis à academia, ao `nivel` e ao escopo acadêmico atual.
-5. A cadeia começa na raiz. Descendentes só são consideradas se a etapa anterior reprovou.
-6. Para cada regra executável, o backend resolve as matérias aplicáveis e calcula `nota_final` individual por matéria.
-7. O resultado de cada matéria compara `nota_final` com `nota_minima_aprovacao`.
-8. No Médio, antes da decisão geral, o backend carrega o curso médio do estudante e resolve `materias_chave` pela configuração do `ano_escolar_medio` atual. Se o curso não possuir configuração para esse ano, a avaliação falha com erro claro de configuração ausente.
-9. A decisão geral é derivada dos resultados por matéria, das matérias-chave resolvidas do curso/ano e, no Médio/Superior, das condições de pendência.
-10. O evento grava snapshots: regra, `type`, fórmula usada, nota mínima, curso usado, matérias-chave resolvidas, resultados por matéria, pendências geradas, turma atual/turmas removidas quando aplicável e dados de progressão.
-11. Se a avaliação já existir no escopo idempotente, o backend não duplica o registro.
+5. A execução automática só continua se a cadeia tiver uma regra raiz com `nota_despertadora` e a categoria da nota registrada/atualizada for exatamente igual a esse código. Se a raiz não tiver `nota_despertadora`, regras legadas permanecem consultáveis e executáveis por fluxos administrativos existentes, mas não despertam automaticamente por nota.
+6. A cadeia começa na raiz. Descendentes só são consideradas se a etapa anterior reprovou; uma nota cuja categoria coincida com alguma etapa descendente nunca dispara diretamente essa descendente.
+7. Para cada regra executável, o backend resolve as matérias aplicáveis e calcula `nota_final` individual por matéria.
+8. O resultado de cada matéria compara `nota_final` com `nota_minima_aprovacao`.
+9. No Médio, antes da decisão geral, o backend carrega o curso médio do estudante e resolve `materias_chave` pela configuração do `ano_escolar_medio` atual. Se o curso não possuir configuração para esse ano, a avaliação falha com erro claro de configuração ausente.
+10. A decisão geral é derivada dos resultados por matéria, das matérias-chave resolvidas do curso/ano e, no Médio/Superior, das condições de pendência.
+11. O evento grava snapshots: regra, `type`, fórmula usada, nota mínima, curso usado, matérias-chave resolvidas, resultados por matéria, pendências geradas, turma atual/turmas removidas quando aplicável e dados de progressão.
+12. Se a avaliação já existir no escopo idempotente, o backend não duplica o registro.
 
 #### 5.6.5 Fundamental
 

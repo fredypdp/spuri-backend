@@ -338,6 +338,19 @@ func tentarAvaliacoesFinaisAutomaticas(
 	if err := validarCadeiaAvaliacaoFinalAplicavel(regras, codigoAcademia, tipoEnsino, anoAcademicoAtual); err != nil {
 		return nil, err
 	}
+	var raiz *regraAvaliacaoFinalDTO
+	for i := range regras {
+		if regras[i].AplicaSeReprovadoEmType == nil || strings.TrimSpace(*regras[i].AplicaSeReprovadoEmType) == "" {
+			raiz = &regras[i]
+			break
+		}
+	}
+	if raiz == nil || raiz.NotaDespertadora == nil || strings.TrimSpace(*raiz.NotaDespertadora) == "" {
+		return nil, nil
+	}
+	if strings.TrimSpace(categoriaAlterada) != strings.TrimSpace(*raiz.NotaDespertadora) {
+		return nil, nil
+	}
 
 	avaliacaoProj := getAvaliacaoFinalProjection(c)
 	resultados := make([]gin.H, 0, len(regras))

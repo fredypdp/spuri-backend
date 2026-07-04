@@ -224,3 +224,23 @@ func TestRegraAvaliacaoFinalDTONaoExpoeMateriasChave(t *testing.T) {
 		t.Fatalf("regraAvaliacaoFinalDTO expôs materias_chave: %s", string(body))
 	}
 }
+
+func TestRegraAvaliacaoFinalDTOExpoeNotaDespertadoraNaRaiz(t *testing.T) {
+	nota := "nota_exame"
+	body, err := json.Marshal(regraAvaliacaoFinalDTO{Nivel: "fundamental", Type: "exame", Nome: "Exame", Formula: "[nota_exame,3_trimestre]", NotaMinimaAprovacao: 10, NotaDespertadora: &nota})
+	if err != nil {
+		t.Fatalf("json.Marshal() unexpected error = %v", err)
+	}
+	if !strings.Contains(string(body), `"nota_despertadora":"nota_exame"`) {
+		t.Fatalf("regraAvaliacaoFinalDTO não expôs nota_despertadora da raiz: %s", string(body))
+	}
+}
+
+func TestValidarNotaDespertadoraRejeitaRegraDescendente(t *testing.T) {
+	dependeDe := "avaliacao_final"
+	nota := "nota_exame"
+	err := validarNotaDespertadoraRegraAvaliacaoFinal(nil, "ACA001", []string{"3_ano_fundamental"}, &dependeDe, &nota)
+	if err == nil || !strings.Contains(err.Error(), "apenas em regras raízes") {
+		t.Fatalf("descendente com nota_despertadora deve falhar, err=%v", err)
+	}
+}

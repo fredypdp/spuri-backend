@@ -365,6 +365,23 @@ func AtualizarNota(c *gin.Context) {
 		return
 	}
 
+	tipoEnsino := inferirTipoEnsinoDoEstudante(estudanteDTO)
+	avaliacoesAutomaticas, err := tentarAvaliacoesFinaisAutomaticas(
+		c,
+		estudante,
+		estudanteDTO,
+		academiaDTO.CodigoAcademia,
+		notaAtual.AnoLectivo,
+		tipoEnsino,
+		notaAtual.AnoAcademico,
+		notaAtual.Categoria,
+		&notaFormulaOverlay{MateriaID: notaAtual.MateriaDisciplinarID, Categoria: notaAtual.Categoria, Periodo: notaAtual.Periodo, Nota: *req.NotaNova},
+	)
+	if err != nil {
+		utils.RespondWithInternalError(c, fmt.Errorf("erro ao avaliar automaticamente avaliação final: %w", err))
+		return
+	}
+
 	audit := db.AuditContext{
 		UserID:   userID.String(),
 		UserType: "academia",
@@ -380,10 +397,11 @@ func AtualizarNota(c *gin.Context) {
 		notaAtual.Tipo, notaAtual.Categoria)
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":       "nota atualizada com sucesso",
-		"nota_anterior": notaAtual.Nota,
-		"nota_nova":     *req.NotaNova,
-		"observacao":    req.Observacao,
+		"message":                       "nota atualizada com sucesso",
+		"nota_anterior":                 notaAtual.Nota,
+		"nota_nova":                     *req.NotaNova,
+		"observacao":                    req.Observacao,
+		"avaliacoes_finais_automaticas": avaliacoesAutomaticas,
 	})
 }
 

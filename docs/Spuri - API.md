@@ -3954,7 +3954,9 @@ Não existe rota pública/registrada para executar avaliação final manualmente
 
 - O `type` da avaliação final executada (`avaliacao_final`, `avaliacao_final_com_exame`, `avaliacao_final_com_recurso`, etc.) vem da regra aplicável, não do payload de uma requisição manual.
 - Ao registrar/atualizar notas, o backend identifica o estudante, infere o `tipo_ensino`, descobre o ano acadêmico atual e busca todas as regras ativas aplicáveis àquele ano.
-- A cadeia precisa ter exatamente uma regra raiz, isto é, a regra sem `aplica_se_reprovado_em_type`. O processamento começa sempre nessa raiz.
+- A cadeia precisa ter exatamente uma regra raiz, isto é, a regra sem `aplica_se_reprovado_em_type`. A raiz pode declarar `nota_despertadora`, cujo valor é o `codigo` da categoria de nota que autoriza o disparo automático.
+- O processamento automático começa na raiz somente quando a categoria da nota registrada/atualizada é igual a `nota_despertadora`. Regras antigas sem esse campo não despertam automaticamente por nota.
+- `nota_despertadora` é exclusivo de regra raiz; regras dependentes/descendentes rejeitam esse campo e são alcançadas apenas por reprovação na etapa ancestral.
 - Cada regra dependente é alcançada pelo campo `aplica_se_reprovado_em_type`: por exemplo, `avaliacao_final_com_recurso` pode depender de reprovação em `avaliacao_final`, e `avaliacao_final_com_exame` pode depender de reprovação em `avaliacao_final_com_recurso`.
 - O backend só executa uma dependente quando encontra reprovação no `type` pré-requisito. Se o pré-requisito aprovou, a dependente é encerrada e não executa. Se o pré-requisito ainda não existe, a dependente aguarda.
 - Portanto, a ordem correta não é decidida pelo cliente nem pela categoria da nota recém-registrada; ela é calculada a partir da cadeia de regras configurada até a raiz.
@@ -3962,6 +3964,7 @@ Não existe rota pública/registrada para executar avaliação final manualmente
 **Regras de execução automática:**
 
 - Se não houver regra ativa aplicável, nenhuma avaliação final é registrada.
+- Se a regra raiz aplicável não tiver `nota_despertadora`, ou se a categoria da nota não corresponder ao código configurado, nenhuma avaliação final automática é registrada naquele lançamento.
 - Se a cadeia aplicável não tiver exatamente uma raiz, o backend retorna erro para evitar ambiguidade.
 - O backend evita duplicidade por `codigo_estudante`, `codigo_academia`, `ano_lectivo`, `tipo_ensino`, `ano_academico_atual` e `type`.
 - Se alguma nota exigida pela fórmula ainda estiver ausente, aquela regra é ignorada naquele momento e poderá ser calculada quando novas notas forem registradas.
@@ -4011,6 +4014,7 @@ Cria uma regra ativa de avaliação final para a academia autenticada.
   "anos_academicos": ["3_ano_fundamental"],
   "nota_minima_aprovacao": 10,
   "formula": "([nota_escola,1_trimestre]+[nota_professor,1_trimestre]+[nota_escola,2_trimestre]+[nota_professor,2_trimestre]+[nota_escola,3_trimestre]+[nota_professor,3_trimestre])/3",
+  "nota_despertadora": "nota_professor",
   "aplica_se_reprovado_em_type": null
 }
 ```
@@ -4028,7 +4032,17 @@ Cria uma regra ativa de avaliação final para a academia autenticada.
 - `nota_minima_aprovacao` — obrigatório e maior que zero.
 - `categorias_envolvidas` — opcional. O backend extrai automaticamente as categorias usadas em `formula`. Se enviado, deve corresponder exatamente às categorias extraídas da fórmula, sem duplicatas, sobras ou omissões, e todas precisam estar ativas/configuradas pela academia para os anos da regra.
 - `formula` — obrigatório; deve ser uma string textual no modelo `formula_textual_v1`. O formato JSON em árvore antigo foi removido e não é aceito.
-- `aplica_se_reprovado_em_type` — opcional para regra raiz; obrigatório para regras dependentes. Quando informado, passa pela mesma normalização de `type`, deve apontar para regra ativa existente na mesma academia/tipo de ensino, não pode ser igual ao próprio `type`, não pode criar ciclo e obriga a regra dependente a usar exatamente os mesmos `anos_academicos` da regra raiz da cadeia. Uma regra dependente inativa não pode ser ativada enquanto a regra da qual ela depende estiver inativa.
+- `nota_despertadora` — exclusivo de regra raiz. Quando informado, deve ser o `codigo` de uma categoria de nota ativa, não deletada, pertencente à academia autenticada e configurada para os anos/escopo da regra quando essa segmentação existir. O campo é opcional para compatibilidade: raiz sem `nota_despertadora` não dispara automaticamente por lançamento/atualização de nota.
+- `aplica_se_reprovado_em_type` — opcional para regra raiz; obrigatório para regras dependentes. Quando informado, passa pela mesma normalização de `type`, deve apontar para regra ativa existente na mesma academia/tipo de ensino, não pode ser igual ao próprio `type`, não pode criar ciclo e obriga a regra dependente a usar exatamente os mesmos `anos_academicos` da regra raiz da cadeia. Uma regra dependente inativa não pode ser ativada enquanto a regra da qual ela depende estiver inativa. Payload de dependente com `nota_despertadora` é rejeitado com erro de validação claro, pois dependentes são acionadas por reprovação ancestral.
+
+
+**Erro ao enviar `nota_despertadora` em regra descendente:**
+
+```json
+{
+  "error": "nota_despertadora é permitida apenas em regras raízes; regras descendentes são acionadas por reprovação na ancestral"
+}
+```
 
 **Unicidade e cadeia:**
 
@@ -4105,6 +4119,7 @@ Lista todas as regras de avaliação final da academia autenticada, ordenadas po
       "nota_minima_aprovacao": 10,
       "categorias_envolvidas": ["nota_escola"],
       "formula": "([nota_escola,1_trimestre]+[nota_escola,2_trimestre]+[nota_escola,3_trimestre])/3",
+      "nota_despertadora": "nota_escola",
       "aplica_se_reprovado_em_type": null,
       "materias_aplicaveis": [],
       "limite_materias_pendentes": null,
@@ -4121,7 +4136,7 @@ Lista todas as regras de avaliação final da academia autenticada, ordenadas po
 
 ### PUT /academia/avaliacao-final/regras/:id
 
-Edita uma regra ativa de avaliação final da academia autenticada. Por segurança, a edição é limitada aos campos que não mudam o desenho da cadeia: `nome`, `descricao`, `nota_minima_aprovacao` e `formula`. O backend recalcula `categorias_envolvidas` a partir da nova fórmula.
+Edita uma regra ativa de avaliação final da academia autenticada. Por segurança, a edição é limitada aos campos que não mudam o desenho da cadeia: `nome`, `descricao`, `nota_minima_aprovacao`, `formula` e, apenas em regra raiz, `nota_despertadora`. O backend recalcula `categorias_envolvidas` a partir da nova fórmula.
 
 **Proteção**: academia autenticada.
 
@@ -4132,7 +4147,8 @@ Edita uma regra ativa de avaliação final da academia autenticada. Por seguran�
   "nome": "Avaliação final atualizada",
   "descricao": "Média ponderada atualizada",
   "nota_minima_aprovacao": 10,
-  "formula": "([nota_escola,1_trimestre]*0.3)+([nota_escola,2_trimestre]*0.3)+([nota_exame,3_trimestre]*0.4)"
+  "formula": "([nota_escola,1_trimestre]*0.3)+([nota_escola,2_trimestre]*0.3)+([nota_exame,3_trimestre]*0.4)",
+  "nota_despertadora": "nota_exame"
 }
 ```
 
@@ -4145,6 +4161,7 @@ Edita uma regra ativa de avaliação final da academia autenticada. Por seguran�
 - `nota_minima_aprovacao` precisa ser maior que zero.
 - `formula` passa pelo mesmo parser seguro da criação; categorias são extraídas da fórmula e precisam estar ativas/configuradas para os anos da regra.
 - Se `categorias_envolvidas` for enviado por compatibilidade, deve bater exatamente com as categorias da fórmula.
+- `nota_despertadora`, quando enviado em edição de raiz, é revalidado contra categorias ativas da academia; em edição de descendente, o campo é rejeitado.
 - Ao editar, `version` aumenta em 1 e `updated_at` é atualizado. Avaliações finais já registradas continuam preservadas porque carregam `formula_snapshot` e `regra_avaliacao_final_id`.
 
 **Response 200:**
