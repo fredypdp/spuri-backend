@@ -912,7 +912,7 @@ func idsCadeiaDependenteRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipo
 	return ids, nil
 }
 
-func listarRegrasAvaliacaoFinalAplicaveis(c *gin.Context, codigoAcademia, tipoEnsino, anoAcademico string, categoria *string) ([]regraAvaliacaoFinalDTO, error) {
+func listarRegrasAvaliacaoFinalAplicaveis(c *gin.Context, codigoAcademia, tipoEnsino, anoAcademico string, categoria *string, cursoID *string) ([]regraAvaliacaoFinalDTO, error) {
 	query := `SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,status,version,nota_despertadora
 		FROM projection_regras_avaliacao_final
 		WHERE codigo_academia=$1
@@ -920,9 +920,13 @@ func listarRegrasAvaliacaoFinalAplicaveis(c *gin.Context, codigoAcademia, tipoEn
 		  AND status='ativo'
 		  AND (($2 <> 'fundamental' AND $2 <> 'medio') OR ($2 = 'fundamental' AND anos_academicos ? $3) OR ($2 = 'medio' AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(anos_academicos) e(v) WHERE split_part(e.v, '|', 2) = $3)))`
 	args := []interface{}{codigoAcademia, tipoEnsino, anoAcademico}
+	if tipoEnsino == "medio" && cursoID != nil && strings.TrimSpace(*cursoID) != "" {
+		args = append(args, strings.TrimSpace(*cursoID)+"|"+strings.TrimSpace(anoAcademico))
+		query += fmt.Sprintf(" AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(anos_academicos) e(v) WHERE e.v = $%d)", len(args))
+	}
 	if categoria != nil && strings.TrimSpace(*categoria) != "" {
 		args = append(args, strings.TrimSpace(*categoria))
-		query += fmt.Sprintf(" AND categorias_envolvidas ? $%d", len(args))
+		query += fmt.Sprintf(" AND ((aplica_se_reprovado_em_type IS NULL AND nota_despertadora = $%d) OR aplica_se_reprovado_em_type IS NOT NULL)", len(args))
 	}
 	query += ` ORDER BY CASE WHEN aplica_se_reprovado_em_type IS NULL THEN 0 ELSE 1 END, type`
 

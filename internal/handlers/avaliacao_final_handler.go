@@ -323,12 +323,12 @@ func tentarAvaliacoesFinaisAutomaticas(
 		anoAcademicoAtual = periodoAtual
 	}
 
-	// O gatilho não escolhe a avaliação pela categoria da nota. Ele olha para a
-	// cadeia completa aplicável ao estudante e começa pela única regra raiz — a
-	// regra sem aplica_se_reprovado_em_type. Assim, quando a última nota necessária
-	// de qualquer fórmula chega, o fluxo correto é descoberto pela configuração da
-	// academia e não pela ordem/rota usada pelo cliente.
-	regras, err := listarRegrasAvaliacaoFinalAplicaveis(c, codigoAcademia, tipoEnsino, anoAcademicoAtual, nil)
+	// O gatilho olha para a cadeia completa aplicável ao estudante e começa pela
+	// única regra raiz — a regra sem aplica_se_reprovado_em_type. A execução só
+	// segue quando a categoria da nota registrada/atualizada corresponde ao
+	// nota_despertadora da raiz; descendentes nunca são despertadas diretamente
+	// por categoria de nota.
+	regras, err := listarRegrasAvaliacaoFinalAplicaveis(c, codigoAcademia, tipoEnsino, anoAcademicoAtual, nil, cursoIDEstudantePorNivel(tipoEnsino, estudanteDTO))
 	if err != nil {
 		return nil, err
 	}
@@ -350,6 +350,15 @@ func tentarAvaliacoesFinaisAutomaticas(
 	}
 	if strings.TrimSpace(categoriaAlterada) != strings.TrimSpace(*raiz.NotaDespertadora) {
 		return nil, nil
+	}
+	if overlay != nil {
+		aplicavel, err := materiaAlteradaAplicavelARegra(c, codigoAcademia, tipoEnsino, anoAcademicoAtual, *raiz, estudanteDTO, overlay.MateriaID)
+		if err != nil {
+			return nil, err
+		}
+		if !aplicavel {
+			return nil, nil
+		}
 	}
 
 	avaliacaoProj := getAvaliacaoFinalProjection(c)
@@ -419,6 +428,36 @@ func tentarAvaliacoesFinaisAutomaticas(
 	}
 
 	return resultados, nil
+}
+
+func cursoIDEstudantePorNivel(tipoEnsino string, estudanteDTO *projections.EstudanteDTO) *string {
+	if estudanteDTO == nil {
+		return nil
+	}
+	if tipoEnsino == "medio" {
+		return estudanteDTO.CursoMedioID
+	}
+	if tipoEnsino == "superior" {
+		return estudanteDTO.CursoSuperiorID
+	}
+	return nil
+}
+
+func materiaAlteradaAplicavelARegra(c *gin.Context, codigoAcademia, tipoEnsino, anoAcademicoAtual string, regra regraAvaliacaoFinalDTO, estudanteDTO *projections.EstudanteDTO, materiaID string) (bool, error) {
+	materiaID = strings.TrimSpace(materiaID)
+	if materiaID == "" {
+		return false, nil
+	}
+	materias, err := materiasAplicaveisAvaliacaoFinal(c, codigoAcademia, tipoEnsino, anoAcademicoAtual, regra, estudanteDTO)
+	if err != nil {
+		return false, err
+	}
+	for _, materia := range materias {
+		if materia.ID.String() == materiaID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func regraPodeExecutarAutomaticamente(
@@ -592,6 +631,13 @@ func executarRegraAvaliacaoFinalAutomatica(
 		"aprovado_com_pendencia": aprovadoComPendencia,
 		"pendencias_geradas":     pendenciasGeradas,
 		"materias_chave":         uuidStrings(materiasChaveResolvidas),
+	}
+	if regra.NotaDespertadora != nil && strings.TrimSpace(*regra.NotaDespertadora) != "" {
+		resultado["nota_despertadora"] = strings.TrimSpace(*regra.NotaDespertadora)
+	}
+	if overlay != nil {
+		resultado["categoria_despertada"] = overlay.Categoria
+		resultado["materia_despertadora_id"] = overlay.MateriaID
 	}
 	if motivoProgressao != nil {
 		resultado["motivo_progressao"] = *motivoProgressao
