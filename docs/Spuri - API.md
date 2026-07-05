@@ -126,6 +126,7 @@ type StatusEscolar = 'inativo' | 'em_andamento' | 'finalizado'
 type TipoEnsino = 'fundamental' | 'medio' | 'superior'
 type Turno = 'manha' | 'tarde' | 'noite'
 type CursoType = 'medio' | 'superior'
+type ModeloCursoMedio = 'liceu' | 'tecnico'
 type MateriaType = 'fundamental' | 'medio' | 'superior'
 type Genero = 'masculino' | 'feminino'
 type TipoNota = 'escolar' | 'superior'
@@ -301,6 +302,7 @@ interface CursoDTO {
   id: string
   nome: string
   type: CursoType            // preenchido automaticamente pelo backend e imutável
+  modelo?: ModeloCursoMedio  // obrigatório e exposto apenas em cursos médios
   anos_academicos: string[]  // ex: ['1_ano_medio', '2_ano_medio', '3_ano_medio']
   periodos?: string[]        // ex: ['1_semestre', '2_semestre'] — apenas para superior
   materias_chave?: MateriasChaveCursoAnoDTO[] // apenas médio; estado configurado por rota própria após a criação
@@ -2680,6 +2682,7 @@ Cria um novo curso para a academia. O tipo efetivo do curso é inferido pelo bac
 {
   "nome": "Ciências e Tecnologia",
   "type": "medio",
+  "modelo": "liceu",
   "anos_academicos": ["1_ano_medio", "2_ano_medio", "3_ano_medio"]
 }
 ```
@@ -2696,7 +2699,7 @@ Cria um novo curso para a academia. O tipo efetivo do curso é inferido pelo bac
 
 Para cursos superiores, `periodos` é um **número inteiro positivo** que representa o total de semestres. O backend persiste internamente os semestres sequenciais (`1_semestre` até `N_semestre`) e calcula `anos_academicos` automaticamente com `ceil(periodos / 2)`. Ex.: `periodos = 3` gera `periodos = ["1_semestre", "2_semestre", "3_semestre"]` e `anos_academicos = ["1_ano_superior", "2_ano_superior"]`.
 
-Cursos superiores não aceitam `anos_academicos` nem `materias_chave` no payload; cursos médios não aceitam `periodos` numérico nem `materias_chave` na criação. Para curso médio, `anos_academicos` passa pela mesma proteção de sequência usada em `POST /academia/anos-academicos`: a lista precisa ser contínua, crescente e iniciada em `1_ano_medio` (por exemplo, `["1_ano_medio", "2_ano_medio"]`). Listas que comecem em `2_ano_medio`, pulem anos, repitam anos ou venham fora de ordem são rejeitadas antes da criação do curso. Configure `materias_chave` depois de criar as matérias do curso, pela rota `PUT /academia/curso/:id/materias-chave`.
+Cursos médios exigem `modelo` com valor exatamente `liceu` ou `tecnico`; cursos superiores não aceitam `modelo`, `anos_academicos` nem `materias_chave` no payload; cursos médios não aceitam `periodos` numérico nem `materias_chave` na criação. Para curso médio, `anos_academicos` passa pela mesma proteção de sequência usada em `POST /academia/anos-academicos`: a lista precisa ser contínua, crescente e iniciada em `1_ano_medio` (por exemplo, `["1_ano_medio", "2_ano_medio"]`). Listas que comecem em `2_ano_medio`, pulem anos, repitam anos ou venham fora de ordem são rejeitadas antes da criação do curso. Configure `materias_chave` depois de criar as matérias do curso, pela rota `PUT /academia/curso/:id/materias-chave`.
 
 
 **Exemplo 400 — curso médio com anos fora de sequência:**
@@ -2841,6 +2844,7 @@ Atualiza apenas dados cadastrais de um curso. O `type` é imutável e esta rota 
   "message": "curso atualizado com sucesso",
   "nome": "string",
   "type": "medio",
+  "modelo": "liceu",
   "anos_academicos": ["1_ano_medio", "2_ano_medio"],
   "periodos": [],
   "materias_chave": [

@@ -142,3 +142,51 @@ func TestRejeitarCamposAcademicosEmAtualizacaoCursoRejeitaMateriasChave(t *testi
 		t.Fatalf("esperava rejeição para materias_chave na edição cadastral do curso")
 	}
 }
+
+func TestPrepararDadosCursoMedioExigeModelo(t *testing.T) {
+	_, _, err := prepararDadosCursoPorTipo("medio", cursoPayload{
+		AnosInformado:  true,
+		AnosAcademicos: []string{"1_ano_medio"},
+	}, true)
+	if err == nil {
+		t.Fatalf("esperava erro ao criar curso médio sem modelo")
+	}
+}
+
+func TestPrepararDadosCursoMedioAceitaModelosValidos(t *testing.T) {
+	for _, modelo := range []string{"liceu", "tecnico"} {
+		_, _, err := prepararDadosCursoPorTipo("medio", cursoPayload{
+			ModeloInformado: true,
+			Modelo:          modelo,
+			AnosInformado:   true,
+			AnosAcademicos:  []string{"1_ano_medio"},
+		}, true)
+		if err != nil {
+			t.Fatalf("modelo %s deveria ser aceito: %v", modelo, err)
+		}
+	}
+}
+
+func TestPrepararDadosCursoMedioRejeitaModeloInvalido(t *testing.T) {
+	_, _, err := prepararDadosCursoPorTipo("medio", cursoPayload{
+		ModeloInformado: true,
+		Modelo:          "LICEU",
+		AnosInformado:   true,
+		AnosAcademicos:  []string{"1_ano_medio"},
+	}, true)
+	if err == nil {
+		t.Fatalf("esperava erro ao enviar modelo inválido")
+	}
+}
+
+func TestPrepararDadosCursoSuperiorRejeitaModelo(t *testing.T) {
+	_, _, err := prepararDadosCursoPorTipo("superior", cursoPayload{
+		ModeloInformado:    true,
+		Modelo:             "tecnico",
+		PeriodosInformado:  true,
+		PeriodosQuantidade: 2,
+	}, true)
+	if err == nil {
+		t.Fatalf("esperava erro ao enviar modelo em curso superior")
+	}
+}
