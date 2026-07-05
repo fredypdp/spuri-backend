@@ -21,6 +21,11 @@ import (
 //                       Formato obrigatório: [número]_semestre (ex.: 1_semestre, 2_semestre).
 //                       Número deve ser inteiro ≥ 1; sem duplicatas.
 
+const (
+	ModeloCursoMedioLiceu   = "liceu"
+	ModeloCursoMedioTecnico = "tecnico"
+)
+
 type MateriasChaveCursoAno struct {
 	AnoAcademico  string      `json:"ano_academico"`
 	MateriasChave []uuid.UUID `json:"materias_chave"`
@@ -31,6 +36,7 @@ type Curso struct {
 
 	Nome           string
 	Type           string   // "medio" ou "superior" — imutável após criação
+	Modelo         string   // exclusivo e obrigatório para type="medio": "liceu" ou "tecnico"
 	AnosAcademicos []string // Anos do curso definidos pela academia
 	// Periodos define os períodos letivos do curso.
 	// Obrigatório para type="superior"; vazio para "medio" (fixos no sistema).
@@ -94,6 +100,7 @@ type CursoCriadoEvent struct {
 	BaseEvent
 	Nome           string
 	Type           string
+	Modelo         string
 	AnosAcademicos []string
 	Periodos       []string
 	MateriasChave  []MateriasChaveCursoAno
@@ -131,6 +138,7 @@ type CursoDadosAtualizadosEvent struct {
 	AnosAcademicos []string
 	Periodos       *[]string
 	MateriasChave  *[]MateriasChaveCursoAno
+	Modelo         *string
 	UpdatedAt      time.Time
 	// FIX C-02: UUID do usuário que atualizou. uuid.Nil = legado/não preenchido.
 	AtualizadoPor uuid.UUID
@@ -166,13 +174,14 @@ func (e *CursoDeletadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 func (c *Curso) Criar(
 	nome string,
 	tipo string,
+	modelo string,
 	anosAcademicos []string,
 	periodos []string,
 	materiasChave []MateriasChaveCursoAno,
 	codigoAcademia string,
 ) error {
-	log.Printf("[DEBUG] Criando curso: nome=%s, tipo=%s, anosAcademicos=%v, periodos=%v, academia=%s",
-		nome, tipo, anosAcademicos, periodos, codigoAcademia)
+	log.Printf("[DEBUG] Criando curso: nome=%s, tipo=%s, modelo=%s, anosAcademicos=%v, periodos=%v, academia=%s",
+		nome, tipo, modelo, anosAcademicos, periodos, codigoAcademia)
 
 	if nome == "" {
 		return fmt.Errorf("nome é obrigatório")
@@ -188,6 +197,10 @@ func (c *Curso) Criar(
 	}
 
 	if err := utils.ValidateAnosCurso(tipo, anosAcademicos); err != nil {
+		return err
+	}
+
+	if err := validarModeloCurso(tipo, modelo, true); err != nil {
 		return err
 	}
 
@@ -208,6 +221,7 @@ func (c *Curso) Criar(
 		},
 		Nome:           nome,
 		Type:           tipo,
+		Modelo:         normalizarModeloCurso(tipo, modelo),
 		AnosAcademicos: anosAcademicos,
 		Periodos:       normalizarPeriodos(tipo, periodos),
 		MateriasChave:  materiasChave,
@@ -264,9 +278,17 @@ func (c *Curso) Desativar(desativadoPor uuid.UUID) error {
 // O tipo do curso é IMUTÁVEL após a criação.
 // Passe nil para não alterar os respectivos campos.
 // periodos=nil → não altera; periodos=&[]string{...} → atualiza.
-func (c *Curso) AtualizarDados(nome *string, anosAcademicos []string, periodos *[]string, materiasChave *[]MateriasChaveCursoAno, atualizadoPor uuid.UUID) error {
-	if nome == nil && anosAcademicos == nil && periodos == nil && materiasChave == nil {
+func (c *Curso) AtualizarDados(nome *string, anosAcademicos []string, periodos *[]string, materiasChave *[]MateriasChaveCursoAno, modelo *string, atualizadoPor uuid.UUID) error {
+	if nome == nil && anosAcademicos == nil && periodos == nil && materiasChave == nil && modelo == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
+	}
+
+	if modelo != nil {
+		if err := validarModeloCurso(c.Type, *modelo, false); err != nil {
+			return err
+		}
+		normalized := normalizarModeloCurso(c.Type, *modelo)
+		modelo = &normalized
 	}
 
 	if anosAcademicos != nil {
@@ -313,6 +335,7 @@ func (c *Curso) AtualizarDados(nome *string, anosAcademicos []string, periodos *
 		AnosAcademicos: anosAcademicos,
 		Periodos:       periodos,
 		MateriasChave:  materiasChave,
+		Modelo:         modelo,
 		UpdatedAt:      time.Now(),
 		AtualizadoPor:  atualizadoPor,
 	}
@@ -366,6 +389,7 @@ func (c *Curso) applyCursoCriado(event DomainEvent) error {
 
 	c.Nome = p.Nome
 	c.Type = p.Type
+	c.Modelo = normalizarModeloLegado(p.Type, p.Modelo)
 	c.AnosAcademicos = p.AnosAcademicos
 	c.Periodos = p.Periodos
 	c.MateriasChave = p.MateriasChave
@@ -413,6 +437,9 @@ func (c *Curso) applyCursoDadosAtualizados(event DomainEvent) error {
 	}
 	if p.MateriasChave != nil {
 		c.MateriasChave = *p.MateriasChave
+	}
+	if p.Modelo != nil {
+		c.Modelo = *p.Modelo
 	}
 
 	log.Printf("[DEBUG] applyCursoDadosAtualizados: curso=%s periodos=%v", c.Nome, c.Periodos)
@@ -548,4 +575,36 @@ func validarMateriasChaveCurso(tipo string, anosAcademicos []string, materias []
 		}
 	}
 	return nil
+}
+
+func validarModeloCurso(tipo, modelo string, criacao bool) error {
+	modelo = strings.TrimSpace(modelo)
+	switch tipo {
+	case "medio":
+		if modelo == "" {
+			return fmt.Errorf("modelo é obrigatório para cursos do tipo medio e deve ser 'liceu' ou 'tecnico'")
+		}
+		if modelo != ModeloCursoMedioLiceu && modelo != ModeloCursoMedioTecnico {
+			return fmt.Errorf("modelo inválido para curso médio: %q. Valores permitidos: 'liceu' ou 'tecnico'", modelo)
+		}
+	case "superior":
+		if modelo != "" {
+			return fmt.Errorf("modelo é exclusivo para cursos do tipo medio")
+		}
+	}
+	return nil
+}
+
+func normalizarModeloCurso(tipo, modelo string) string {
+	if tipo != "medio" {
+		return ""
+	}
+	return strings.TrimSpace(modelo)
+}
+
+func normalizarModeloLegado(tipo, modelo string) string {
+	if tipo == "medio" && strings.TrimSpace(modelo) == "" {
+		return ModeloCursoMedioLiceu
+	}
+	return normalizarModeloCurso(tipo, modelo)
 }

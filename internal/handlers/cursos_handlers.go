@@ -25,6 +25,8 @@ type cursoPayload struct {
 	NomeInformado          bool
 	Type                   string
 	TypeInformado          bool
+	Modelo                 string
+	ModeloInformado        bool
 	AnosAcademicos         []string
 	AnosInformado          bool
 	PeriodosQuantidade     int
@@ -42,7 +44,7 @@ func bindCursoPayload(c *gin.Context, req *cursoPayload) error {
 	}
 	for campo := range raw {
 		switch campo {
-		case "nome", "type", "anos_academicos", "periodos", "materias_chave":
+		case "nome", "type", "modelo", "anos_academicos", "periodos", "materias_chave":
 		default:
 			return fmt.Errorf("campo não suportado em curso: %s", campo)
 		}
@@ -57,6 +59,12 @@ func bindCursoPayload(c *gin.Context, req *cursoPayload) error {
 		req.TypeInformado = true
 		if err := json.Unmarshal(v, &req.Type); err != nil {
 			return fmt.Errorf("type deve ser string")
+		}
+	}
+	if v, ok := raw["modelo"]; ok {
+		req.ModeloInformado = true
+		if err := json.Unmarshal(v, &req.Modelo); err != nil {
+			return fmt.Errorf("modelo deve ser string")
 		}
 	}
 	if v, ok := raw["anos_academicos"]; ok {
@@ -89,6 +97,9 @@ func prepararDadosCursoPorTipo(tipoCurso string, req cursoPayload, criacao bool)
 		return nil, nil, fmt.Errorf("type do payload não corresponde ao tipo de curso permitido para a academia")
 	}
 	if tipoCurso == "superior" {
+		if req.ModeloInformado {
+			return nil, nil, fmt.Errorf("modelo é exclusivo para cursos médios")
+		}
 		if req.MateriasChaveInformado {
 			return nil, nil, fmt.Errorf("materias_chave é exclusivo para cursos médios")
 		}
@@ -99,6 +110,12 @@ func prepararDadosCursoPorTipo(tipoCurso string, req cursoPayload, criacao bool)
 			return nil, nil, fmt.Errorf("periodos é obrigatório para curso superior")
 		}
 		return derivarCursoSuperior(req.PeriodosQuantidade)
+	}
+	if !req.ModeloInformado || strings.TrimSpace(req.Modelo) == "" {
+		return nil, nil, fmt.Errorf("modelo é obrigatório para cursos médios e deve ser 'liceu' ou 'tecnico'")
+	}
+	if req.Modelo != aggregates.ModeloCursoMedioLiceu && req.Modelo != aggregates.ModeloCursoMedioTecnico {
+		return nil, nil, fmt.Errorf("modelo inválido para curso médio: %q. Valores permitidos: 'liceu' ou 'tecnico'", req.Modelo)
 	}
 	if req.PeriodosInformado {
 		return nil, nil, fmt.Errorf("periodos numérico é aceito apenas para curso superior")
@@ -118,10 +135,13 @@ func prepararAtualizacaoCursoPorTipo(tipoCurso string, req cursoPayload) ([]stri
 	if req.TypeInformado {
 		return nil, nil, fmt.Errorf("type é imutável e não deve ser enviado na edição")
 	}
-	if !req.NomeInformado && !req.AnosInformado && !req.PeriodosInformado && !req.MateriasChaveInformado {
+	if !req.NomeInformado && !req.ModeloInformado && !req.AnosInformado && !req.PeriodosInformado && !req.MateriasChaveInformado {
 		return nil, nil, fmt.Errorf("nenhum campo para atualizar")
 	}
 	if tipoCurso == "superior" {
+		if req.ModeloInformado {
+			return nil, nil, fmt.Errorf("modelo é exclusivo para cursos médios")
+		}
 		if req.MateriasChaveInformado {
 			return nil, nil, fmt.Errorf("materias_chave é exclusivo para cursos médios")
 		}
@@ -221,7 +241,7 @@ func CriarCurso(c *gin.Context) {
 		return
 	}
 
-	if err := curso.Criar(req.Nome, tipoCurso, anosAcademicos, periodos, nil, academiaDTO.CodigoAcademia); err != nil {
+	if err := curso.Criar(req.Nome, tipoCurso, req.Modelo, anosAcademicos, periodos, nil, academiaDTO.CodigoAcademia); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -238,15 +258,19 @@ func CriarCurso(c *gin.Context) {
 
 	log.Printf("Curso criado: %s - %s (periodos=%v)", req.Nome, curso.ID, curso.Periodos)
 
+	data := gin.H{
+		"id":             curso.ID,
+		"nome":           curso.Nome,
+		"type":           curso.Type,
+		"periodos":       curso.Periodos,
+		"materias_chave": curso.MateriasChave,
+	}
+	if curso.Type == "medio" {
+		data["modelo"] = curso.Modelo
+	}
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "curso criado com sucesso",
-		"data": gin.H{
-			"id":             curso.ID,
-			"nome":           curso.Nome,
-			"type":           curso.Type,
-			"periodos":       curso.Periodos,
-			"materias_chave": curso.MateriasChave,
-		},
+		"data":    data,
 	})
 }
 
@@ -372,7 +396,11 @@ func AtualizarDadosCurso(c *gin.Context) {
 		return
 	}
 
-	if err := curso.AtualizarDados(nomeAtualizacao(req), novosAnos, novosPeriodos, nil, userID); err != nil {
+	var modeloAtualizacao *string
+	if req.ModeloInformado {
+		modeloAtualizacao = &req.Modelo
+	}
+	if err := curso.AtualizarDados(nomeAtualizacao(req), novosAnos, novosPeriodos, nil, modeloAtualizacao, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -388,14 +416,18 @@ func AtualizarDadosCurso(c *gin.Context) {
 	}
 
 	log.Printf("Curso atualizado: %s (periodos=%v)", curso.Nome, curso.Periodos)
-	c.JSON(http.StatusOK, gin.H{
+	data := gin.H{
 		"message":         "curso atualizado com sucesso",
 		"nome":            curso.Nome,
 		"type":            curso.Type,
 		"anos_academicos": curso.AnosAcademicos,
 		"periodos":        curso.Periodos,
 		"materias_chave":  curso.MateriasChave,
-	})
+	}
+	if curso.Type == "medio" {
+		data["modelo"] = curso.Modelo
+	}
+	c.JSON(http.StatusOK, data)
 }
 
 func rejeitarCamposAcademicosEmAtualizacaoCurso(c *gin.Context) error {
@@ -530,7 +562,7 @@ func ConfigurarMateriasChaveCurso(c *gin.Context) {
 		return
 	}
 
-	if err := curso.AtualizarDados(nil, nil, nil, &req.MateriasChave, userID); err != nil {
+	if err := curso.AtualizarDados(nil, nil, nil, &req.MateriasChave, nil, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
