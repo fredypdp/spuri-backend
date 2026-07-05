@@ -489,6 +489,7 @@ interface CategoriaNotaDTO {
   codigo: string
   nome: string
   descricao?: string
+  anos_academicos: string[]
   adicionado_por?: string  // UUID
   created_at: string
   version: number
@@ -3489,7 +3490,7 @@ Inativa (remove logicamente) uma categoria de nota adicional da academia.
 
 **Erros:**
 
-- `400` — codigo, nome ou anos_academicos ausente/vazio, ou codigo com caracteres especiais inválidos no path
+- `400` — codigo ausente/vazio ou codigo com caracteres especiais inválidos no path
 - `400` — categoria não existe nesta academia
 
 ---
@@ -4829,7 +4830,7 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 |`POST /academia/turma/estudante/async`|igual ao `POST /academia/turma/:codigo/estudante`|`202` (job criado)|1000|
 |`PUT /academia/dados/async`|igual ao `PUT /academia/dados`|`202` (job criado)|200|
 |`POST /academia/categorias-nota/async`|igual ao `POST /academia/categorias-nota`|`202` (job criado)|500|
-|`DELETE /academia/categorias-nota/async`|igual ao `DELETE /academia/categorias-nota/:nome` (`nome` vai no item)|`202` (job criado)|500|
+|`DELETE /academia/categorias-nota/async`|igual ao `DELETE /academia/categorias-nota/:codigo` (`codigo` vai no item)|`202` (job criado)|500|
 |`PUT /academia/curso/ativar/async`|igual ao `PUT /academia/curso/:id/ativar` (`id` vai no item)|`202` (job criado)|500|
 |`PUT /academia/curso/desativar/async`|igual ao `PUT /academia/curso/:id/desativar` (`id` vai no item)|`202` (job criado)|500|
 |`PUT /academia/curso/dados/async`|igual ao `PUT /academia/curso/:id/dados` (`id` vai no item)|`202` (job criado)|500|

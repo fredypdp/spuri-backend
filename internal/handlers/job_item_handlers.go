@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -170,14 +171,24 @@ func CriarCategoriaNotaJobItem(c *gin.Context) {
 
 func DeletarCategoriaNotaJobItem(c *gin.Context) {
 	var req struct {
-		Nome string `json:"nome"`
+		Codigo string `json:"codigo"`
+		Nome   string `json:"nome"`
 	}
-	if err := bindJobItemWithoutLosingBody(c, &req); err != nil || req.Nome == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {nome}"})
+	if err := bindJobItemWithoutLosingBody(c, &req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo}"})
 		return
 	}
 
-	c.Params = gin.Params{gin.Param{Key: "nome", Value: req.Nome}}
+	codigo := strings.TrimSpace(req.Codigo)
+	if codigo == "" {
+		codigo = strings.TrimSpace(req.Nome)
+	}
+	if codigo == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo}"})
+		return
+	}
+
+	c.Params = gin.Params{gin.Param{Key: "codigo", Value: codigo}}
 	DeletarCategoriaNota(c)
 }
 
