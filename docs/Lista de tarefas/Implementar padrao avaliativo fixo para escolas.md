@@ -68,7 +68,7 @@ Categorias obrigatórias:
 | `nota_professor` | `Nota do professor/Avaliação contínua` |
 | `prova_trimestral` | `Prova trimestral` |
 
-#### 2.2. `6_ano_fundamental`, `9_ano_funamental` e `3_ano_medio`
+#### 2.2. `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio`
 
 Categorias obrigatórias:
 
@@ -79,7 +79,7 @@ Categorias obrigatórias:
 | `exame_final` | `Exame final` |
 | `exame_recurso` | `Exame de recurso` |
 
-> Observação: manter exatamente o código informado `9_ano_funamental` se ele já existir no domínio atual. Se houver correção ortográfica ou normalização para `9_ano_fundamental`, documentar compatibilidade/migração e garantir que dados antigos não quebrem.
+> Observação: usar o código correto `9_ano_fundamental` em toda a implementação e em dados/seeds novos.
 
 #### 2.3. `4_ano_medio` técnico
 
@@ -121,7 +121,7 @@ Regra:
 3. Para aprovar na matéria, `nota_final >= 10`.
 4. Se o estudante tiver uma matéria abaixo da mínima, deve ser considerado reprovado conforme a política escolar aplicável.
 
-#### 3.3. `6_ano_fundamental`, `9_ano_funamental` e `3_ano_medio`: `avaliacao_final` — `Avaliação final`
+#### 3.3. `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio`: `avaliacao_final` — `Avaliação final`
 
 Regra raiz:
 
@@ -133,12 +133,12 @@ Regra raiz:
    - `nota_final = (media_1_trimestre + media_2_trimestre + media_3_trimestre) / 3`
 3. Mínimos de aprovação:
    - `6_ano_fundamental`: `nota_final >= 5`;
-   - `9_ano_funamental`: `nota_final >= 10`;
+   - `9_ano_fundamental`: `nota_final >= 10`;
    - `3_ano_medio`: `nota_final >= 10`.
 
 > Observação de consistência: a descrição original menciona em um exemplo o uso de `prova_trimestral` no `3_trimestre`, mas a regra raiz define que o `3_trimestre` deve usar `exame_final`. Implementar a regra raiz com `exame_final` e, se necessário, registrar teste cobrindo esse comportamento.
 
-#### 3.4. `6_ano_fundamental`, `9_ano_funamental` e `3_ano_medio`: `exame_recurso` — `Exame de recurso`
+#### 3.4. `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio`: `exame_recurso` — `Exame de recurso`
 
 A regra `exame_recurso` depende de reprovação prévia em `avaliacao_final`.
 
@@ -148,7 +148,7 @@ Regras:
 2. `6_ano_fundamental`:
    - para cada matéria reprovada com `nota_final < 5`, quando a nota `exame_recurso` for lançada, ela deve ser `>= 5`;
    - se houver uma única matéria com `exame_recurso < 5`, o estudante reprova.
-3. `9_ano_funamental` e `3_ano_medio`:
+3. `9_ano_fundamental` e `3_ano_medio`:
    - para cada matéria reprovada com `nota_final < 10`, quando a nota `exame_recurso` for lançada, ela deve ser `>= 10`;
    - se houver uma única matéria com `exame_recurso < 10`, o estudante reprova.
 4. Não permitir `exame_recurso` para matéria já aprovada na `avaliacao_final`.
@@ -179,12 +179,12 @@ Gatilhos obrigatórios:
    - se ainda faltarem notas de outras matérias ou categorias obrigatórias, o sistema não deve reprovar/aprovar parcialmente de forma definitiva, apenas deve manter a avaliação pendente até que os dados necessários estejam completos.
 
 2. **Avaliação final regular com `exame_final`**
-   - para `6_ano_fundamental`, `9_ano_funamental` e `3_ano_medio`, o lançamento da nota `exame_final` deve despertar a tentativa de cálculo da `avaliacao_final`;
+   - para `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio`, o lançamento da nota `exame_final` deve despertar a tentativa de cálculo da `avaliacao_final`;
    - esse gatilho substitui o uso de `prova_trimestral` no `3_trimestre` para esses anos, porque a média do terceiro trimestre deve usar `nota_professor + exame_final`;
    - o backend deve validar que as notas dos trimestres anteriores e a `nota_professor` do `3_trimestre` estão disponíveis antes de consolidar a avaliação.
 
 3. **Avaliação por `exame_recurso`**
-   - para `6_ano_fundamental`, `9_ano_funamental` e `3_ano_medio`, o lançamento da nota `exame_recurso` deve despertar a tentativa de cálculo da regra `exame_recurso`;
+   - para `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio`, o lançamento da nota `exame_recurso` deve despertar a tentativa de cálculo da regra `exame_recurso`;
    - esse cálculo só pode ocorrer para matérias reprovadas na `avaliacao_final` anterior;
    - se o estudante tiver mais de uma matéria em recurso, a decisão final do recurso só deve ser consolidada quando todas as notas `exame_recurso` exigidas tiverem sido lançadas;
    - uma única matéria abaixo da mínima no recurso reprova o estudante.
@@ -268,7 +268,7 @@ Se as regras forem definidas em código, garantir que:
 - Categorias escolares padrão existem para todos os anos listados.
 - Regras escolares finais calculam aprovação/reprovação de forma automática e determinística.
 - `1-5_ano_fundamental` aprova com mínimo `5`.
-- `7-8_ano_fundamental`, `1-2_ano_medio`, `9_ano_funamental` e `3_ano_medio` aprovam com mínimo `10` quando aplicável.
+- `7-8_ano_fundamental`, `1-2_ano_medio`, `9_ano_fundamental` e `3_ano_medio` aprovam com mínimo `10` quando aplicável.
 - `6_ano_fundamental` usa escala `0-10` e aprova com mínimo `5`, inclusive no recurso.
 - `4_ano_medio` técnico usa somente `nota_pap >= 10`.
 - `exame_recurso` só é permitido após reprovação em `avaliacao_final` e apenas nas matérias reprovadas.
@@ -286,14 +286,14 @@ Se as regras forem definidas em código, garantir que:
 - Teste de cálculo para `1-5_ano_fundamental` com `nota_final = 5` aprovando e `4.99` reprovando.
 - Teste de cálculo para `7-8_ano_fundamental` e `1-2_ano_medio` com mínimo `10`.
 - Teste de cálculo para `6_ano_fundamental` usando `exame_final` no terceiro trimestre e mínimo `5`.
-- Teste de cálculo para `9_ano_funamental` e `3_ano_medio` usando `exame_final` no terceiro trimestre e mínimo `10`.
+- Teste de cálculo para `9_ano_fundamental` e `3_ano_medio` usando `exame_final` no terceiro trimestre e mínimo `10`.
 - Teste de `exame_recurso` aprovando quando todas as matérias reprovadas atingem a mínima.
 - Teste de `exame_recurso` reprovando quando uma matéria fica abaixo da mínima.
 - Teste bloqueando `exame_recurso` antes de reprovação em `avaliacao_final`.
 - Teste bloqueando `exame_recurso` para matéria aprovada.
 - Teste de `4_ano_medio` técnico aceitando apenas `nota_pap` e aprovando com `>= 10`.
 - Teste garantindo que `prova_trimestral` do `3_trimestre` desperta `avaliacao_final` nos anos que usam prova trimestral regular.
-- Teste garantindo que `exame_final` desperta `avaliacao_final` em `6_ano_fundamental`, `9_ano_funamental` e `3_ano_medio`.
+- Teste garantindo que `exame_final` desperta `avaliacao_final` em `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio`.
 - Teste garantindo que `exame_recurso` desperta apenas a regra de recurso, somente após reprovação anterior e com todas as notas de recurso obrigatórias lançadas.
 - Teste garantindo que notas que não são gatilhos não geram avaliação final nem efeitos colaterais.
 - Testes de escala `0-10` para `[1-6]_ano_fundamental`.
