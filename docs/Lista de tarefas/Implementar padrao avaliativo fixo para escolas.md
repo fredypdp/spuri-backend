@@ -136,8 +136,6 @@ Regra raiz:
    - `9_ano_fundamental`: `nota_final >= 10`;
    - `3_ano_medio`: `nota_final >= 10`.
 
-> Observação de consistência: a descrição original menciona em um exemplo o uso de `prova_trimestral` no `3_trimestre`, mas a regra raiz define que o `3_trimestre` deve usar `exame_final`. Implementar a regra raiz com `exame_final` e, se necessário, registrar teste cobrindo esse comportamento.
-
 #### 3.4. `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio`: `exame_recurso` — `Exame de recurso`
 
 A regra `exame_recurso` depende de reprovação prévia em `avaliacao_final`.
