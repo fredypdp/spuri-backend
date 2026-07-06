@@ -79,8 +79,6 @@ Categorias obrigatórias:
 | `exame_final` | `Exame final` |
 | `exame_recurso` | `Exame de recurso` |
 
-> Observação: usar o código correto `9_ano_fundamental` em toda a implementação e em dados/seeds novos.
-
 #### 2.3. `4_ano_medio` técnico
 
 Para o último ano de um curso do médio do modelo `tecnico`, criar apenas:
