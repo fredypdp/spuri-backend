@@ -139,7 +139,7 @@ POST /academia/curso
 
 ### 5.1 Curso médio
 
-Um curso médio deve informar seus anos acadêmicos de forma contínua, crescente e iniciada em `1_ano_medio`.
+Um curso médio deve informar `modelo` (`liceu` ou `tecnico`). O backend deriva automaticamente os anos acadêmicos: `liceu` gera 1º a 3º ano médio e `tecnico` gera 1º a 4º ano médio.
 
 Exemplo:
 
@@ -147,7 +147,7 @@ Exemplo:
 {
   "nome": "Ciências Físicas e Biológicas",
   "type": "medio",
-  "anos_academicos": ["1_ano_medio", "2_ano_medio", "3_ano_medio"]
+  "modelo": "liceu"
 }
 ```
 
@@ -176,35 +176,14 @@ Não envie `anos_academicos` nem `materias_chave` para cursos superiores.
 
 ---
 
-## 6. Passo 4 — Ajustar anos acadêmicos de cursos médios, se necessário
+## 6. Passo 4 — Conferir anos acadêmicos derivados dos cursos médios
 
-Se depois da criação for preciso adicionar anos a um curso médio, use:
+Não adicione nem remova anos de cursos médios manualmente. Os anos são fixos por `modelo`:
 
-```http
-POST /academia/anos-academicos
-```
+- `liceu`: `1_ano_medio`, `2_ano_medio`, `3_ano_medio`;
+- `tecnico`: `1_ano_medio`, `2_ano_medio`, `3_ano_medio`, `4_ano_medio`.
 
-com `type=medio` e `curso_id`.
-
-Exemplo:
-
-```json
-{
-  "type": "medio",
-  "curso_id": "uuid-do-curso-medio",
-  "anos_academicos": ["3_ano_medio"]
-}
-```
-
-Para remover anos ainda não utilizados:
-
-```http
-DELETE /academia/anos-academicos
-```
-
-Cursos superiores não aceitam escrita direta de anos acadêmicos por essa rota.
-
-**Atenção:** após alterar anos de curso médio, revise a configuração de matérias e matérias-chave para manter coerência curricular.
+A rota `/academia/anos-academicos` rejeita `type="medio"`.
 
 ---
 

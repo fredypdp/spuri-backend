@@ -1326,7 +1326,7 @@ Adiciona/habilita novos escopos acadêmicos sem remover os escopos existentes. N
 | `type` | Onde altera | Campos aceitos | Campos obrigatórios | Resultado |
 | --- | --- | --- | --- | --- |
 | `fundamental` | Academia autenticada (`projection_academias.anos_academicos`) | `type`, `anos_academicos` | `type`, `anos_academicos` | Une os anos enviados com os anos fundamentais já ativos. |
-| `medio` | Curso médio da academia (`projection_cursos.anos_academicos`) | `type`, `curso_id`, `anos_academicos` | `type`, `curso_id`, `anos_academicos` | Une os anos enviados com os anos médios já ativos no curso, preservando ordem sequencial crescente contínua iniciada em `1_ano_medio`. |
+| `medio` | Não altera por esta rota | nenhum fluxo de escrita permitido | n/a | Retorna erro estruturado. Cursos médios têm anos fixos derivados de `modelo`. |
 | `superior` | Não altera por esta rota | nenhum fluxo de escrita permitido | n/a | Retorna erro estruturado. Cursos superiores não aceitam adição direta de anos/períodos por `/academia/anos-academicos`. |
 
 Payloads com `codigo_academia`, campos desconhecidos ou campos de substituição em massa como `substituir`, `replace`, `patch`, `set` e `update` são rejeitados.
@@ -1350,26 +1350,7 @@ Payloads com `codigo_academia`, campos desconhecidos ou campos de substituição
 }
 ```
 
-**Request — médio:**
-
-```json
-{
-  "type": "medio",
-  "curso_id": "uuid-do-curso-medio",
-  "anos_academicos": ["4_ano_medio"]
-}
-```
-
-**Response 200 — médio:**
-
-```json
-{
-  "message": "anos acadêmicos atualizados com sucesso",
-  "type": "medio",
-  "curso_id": "uuid-do-curso-medio",
-  "anos_academicos": ["1_ano_medio", "2_ano_medio", "3_ano_medio", "4_ano_medio"]
-}
-```
+**Request — médio:** não suportado. Enviar `type="medio"` em `POST /academia/anos-academicos` retorna erro porque anos médios são fixos por modelo.
 
 **Importante:** `PATCH /academia/anos-academicos` foi removido do roteamento e do contrato público. Clientes devem usar `POST` para adicionar e `DELETE` para remover escopos específicos, sem fallback para substituição de lista.
 
@@ -1382,7 +1363,7 @@ Desabilita/remover logicamente escopos acadêmicos da oferta futura, preservando
 **Funcionamento por `type`:**
 
 - `fundamental`: remove do cadastro da academia somente os anos enviados em `anos_academicos`.
-- `medio`: remove do curso médio informado somente os anos enviados em `anos_academicos`.
+- `medio`: não é permitido por esta rota. Cursos médios têm anos fixos derivados de `modelo` e não aceitam remoção manual.
 - `superior`: não é permitido por esta rota. Cursos superiores não aceitam remoção direta de anos acadêmicos, períodos ou semestres por `/academia/anos-academicos`.
 - A remoção é lógica/prospectiva: o backend não apaga eventos, ledger, estudantes, turmas, matérias, notas, faltas, avaliações finais já registrados.
 
@@ -1395,15 +1376,7 @@ Desabilita/remover logicamente escopos acadêmicos da oferta futura, preservando
 }
 ```
 
-**Request — médio:**
-
-```json
-{
-  "type": "medio",
-  "curso_id": "uuid-do-curso-medio",
-  "anos_academicos": ["4_ano_medio"]
-}
-```
+**Request — médio:** não suportado. Enviar `type="medio"` em `DELETE /academia/anos-academicos` retorna erro porque anos médios são fixos por modelo.
 
 **Response 200 — fundamental/médio:**
 
@@ -2682,8 +2655,7 @@ Cria um novo curso para a academia. O tipo efetivo do curso é inferido pelo bac
 {
   "nome": "Ciências e Tecnologia",
   "type": "medio",
-  "modelo": "liceu",
-  "anos_academicos": ["1_ano_medio", "2_ano_medio", "3_ano_medio"]
+  "modelo": "liceu"
 }
 ```
 
@@ -2699,15 +2671,15 @@ Cria um novo curso para a academia. O tipo efetivo do curso é inferido pelo bac
 
 Para cursos superiores, `periodos` é um **número inteiro positivo** que representa o total de semestres. O backend persiste internamente os semestres sequenciais (`1_semestre` até `N_semestre`) e calcula `anos_academicos` automaticamente com `ceil(periodos / 2)`. Ex.: `periodos = 3` gera `periodos = ["1_semestre", "2_semestre", "3_semestre"]` e `anos_academicos = ["1_ano_superior", "2_ano_superior"]`.
 
-Cursos médios exigem `modelo` com valor exatamente `liceu` ou `tecnico`; cursos superiores não aceitam `modelo`, `anos_academicos` nem `materias_chave` no payload; cursos médios não aceitam `periodos` numérico nem `materias_chave` na criação. Para curso médio, `anos_academicos` passa pela mesma proteção de sequência usada em `POST /academia/anos-academicos`: a lista precisa ser contínua, crescente e iniciada em `1_ano_medio` (por exemplo, `["1_ano_medio", "2_ano_medio"]`). Listas que comecem em `2_ano_medio`, pulem anos, repitam anos ou venham fora de ordem são rejeitadas antes da criação do curso. Configure `materias_chave` depois de criar as matérias do curso, pela rota `PUT /academia/curso/:id/materias-chave`.
+Cursos médios exigem `modelo` com valor exatamente `liceu` ou `tecnico`; cursos superiores não aceitam `modelo`, `anos_academicos` nem `materias_chave` no payload; cursos médios não aceitam `anos_academicos`, `periodos` numérico nem `materias_chave` na criação. Para curso médio, o backend deriva `anos_academicos`: `liceu` gera `1_ano_medio` a `3_ano_medio`, e `tecnico` gera `1_ano_medio` a `4_ano_medio`. Configure `materias_chave` depois de criar as matérias do curso, pela rota `PUT /academia/curso/:id/materias-chave`.
 
 
-**Exemplo 400 — curso médio com anos fora de sequência:**
+**Exemplo 400 — curso médio com anos_academicos manual:**
 
 ```json
 {
-  "message": "anos do ensino médio devem estar em ordem sequencial crescente começando em 1_ano_medio; esperado 2_ano_medio na posição 2",
-  "error": "anos do ensino médio devem estar em ordem sequencial crescente começando em 1_ano_medio; esperado 2_ano_medio na posição 2"
+  "message": "anos_academicos não é aceito para cursos médios; os anos são fixos e derivados de modelo",
+  "error": "anos_academicos não é aceito para cursos médios; os anos são fixos e derivados de modelo"
 }
 ```
 
@@ -2728,7 +2700,7 @@ Cursos médios exigem `modelo` com valor exatamente `liceu` ou `tecnico`; cursos
 
 **Erros:**
 
-- `400` — nome ausente, `type` incompatível com a academia, anos_academicos inválidos/não sequenciais/fora de ordem para curso médio, ou `materias_chave` enviado na criação
+- `400` — nome ausente, `type` incompatível com a academia, `modelo` ausente/inválido para curso médio, `anos_academicos` enviado para curso médio, ou `materias_chave` enviado na criação
 - `400` — curso superior sem `periodos`, com `periodos <= 0`, decimal, string, array, nulo, com `anos_academicos` enviado ou com `materias_chave` enviado
 - `400` — curso médio com `periodos` numérico enviado
 - `403` — academia inativa não pode criar cursos
@@ -2826,7 +2798,7 @@ Atualiza apenas dados cadastrais de um curso. O `type` é imutável e esta rota 
 
 - O payload aceito para esta rota permite apenas dados cadastrais como `nome`; `materias_chave` deve ser configurado pela rota própria.
 - Campos acadêmicos como `anos_academicos`, `anosAcademicos`, `periodos`, `semestres`, `quantidade_semestres` e `anos` são rejeitados com erro de validação, sem mutação parcial.
-- Para adicionar ou remover anos de curso médio, use `POST` ou `DELETE /academia/anos-academicos` com `type=medio` e `curso_id`. Depois da alteração, mantenha `materias_chave` coerente pela rota específica.
+- Anos de curso médio não podem ser adicionados ou removidos manualmente; eles são derivados de `modelo`. Mantenha `materias_chave` coerente com os anos derivados pela rota específica.
 - Cursos superiores não aceitam adição/remoção direta de anos acadêmicos, períodos ou semestres por esta rota nem por `/academia/anos-academicos`; qualquer fluxo futuro de períodos deve ser explícito e separado dos dados cadastrais do curso.
 
 **Request:**

@@ -67,20 +67,15 @@ func TestPrepararDadosCursoMedioRejeitaPeriodosNumerico(t *testing.T) {
 	}
 }
 
-func TestPrepararDadosCursoMedioRejeitaAnosForaDeSequencia(t *testing.T) {
-	for _, anos := range [][]string{
-		{"2_ano_medio", "3_ano_medio"},
-		{"1_ano_medio", "3_ano_medio"},
-		{"2_ano_medio", "1_ano_medio"},
-		{"1_ano_medio", "1_ano_medio"},
-	} {
-		_, _, err := prepararDadosCursoPorTipo("medio", cursoPayload{
-			AnosInformado:  true,
-			AnosAcademicos: anos,
-		}, true)
-		if err == nil {
-			t.Fatalf("esperava erro para anos_academicos %v", anos)
-		}
+func TestPrepararDadosCursoMedioRejeitaAnosAcademicosManuais(t *testing.T) {
+	_, _, err := prepararDadosCursoPorTipo("medio", cursoPayload{
+		ModeloInformado: true,
+		Modelo:          "tecnico",
+		AnosInformado:   true,
+		AnosAcademicos:  []string{"1_ano_medio", "2_ano_medio", "3_ano_medio", "4_ano_medio"},
+	}, true)
+	if err == nil {
+		t.Fatalf("esperava erro ao enviar anos_academicos em curso médio")
 	}
 }
 
@@ -153,16 +148,24 @@ func TestPrepararDadosCursoMedioExigeModelo(t *testing.T) {
 	}
 }
 
-func TestPrepararDadosCursoMedioAceitaModelosValidos(t *testing.T) {
-	for _, modelo := range []string{"liceu", "tecnico"} {
-		_, _, err := prepararDadosCursoPorTipo("medio", cursoPayload{
+func TestPrepararDadosCursoMedioDerivaAnosPorModelo(t *testing.T) {
+	casos := map[string][]string{
+		"liceu":   {"1_ano_medio", "2_ano_medio", "3_ano_medio"},
+		"tecnico": {"1_ano_medio", "2_ano_medio", "3_ano_medio", "4_ano_medio"},
+	}
+	for modelo, esperado := range casos {
+		anos, periodos, err := prepararDadosCursoPorTipo("medio", cursoPayload{
 			ModeloInformado: true,
 			Modelo:          modelo,
-			AnosInformado:   true,
-			AnosAcademicos:  []string{"1_ano_medio"},
 		}, true)
 		if err != nil {
 			t.Fatalf("modelo %s deveria ser aceito: %v", modelo, err)
+		}
+		if !reflect.DeepEqual(anos, esperado) {
+			t.Fatalf("modelo %s derivou anos %v, want %v", modelo, anos, esperado)
+		}
+		if periodos != nil {
+			t.Fatalf("curso médio não deve derivar periodos, recebeu %v", periodos)
 		}
 	}
 }
@@ -171,8 +174,6 @@ func TestPrepararDadosCursoMedioRejeitaModeloInvalido(t *testing.T) {
 	_, _, err := prepararDadosCursoPorTipo("medio", cursoPayload{
 		ModeloInformado: true,
 		Modelo:          "LICEU",
-		AnosInformado:   true,
-		AnosAcademicos:  []string{"1_ano_medio"},
 	}, true)
 	if err == nil {
 		t.Fatalf("esperava erro ao enviar modelo inválido")

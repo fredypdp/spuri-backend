@@ -120,15 +120,14 @@ func prepararDadosCursoPorTipo(tipoCurso string, req cursoPayload, criacao bool)
 	if req.PeriodosInformado {
 		return nil, nil, fmt.Errorf("periodos numérico é aceito apenas para curso superior")
 	}
-	if criacao && !req.AnosInformado {
-		return nil, nil, fmt.Errorf("anos_academicos é obrigatório")
-	}
 	if req.AnosInformado {
-		if err := validarSequenciaAnosMedio(req.AnosAcademicos); err != nil {
-			return nil, nil, err
-		}
+		return nil, nil, fmt.Errorf("anos_academicos não é aceito para cursos médios; os anos são fixos e derivados de modelo")
 	}
-	return req.AnosAcademicos, nil, nil
+	anos, err := aggregates.DerivarAnosAcademicosCursoMedio(req.Modelo)
+	if err != nil {
+		return nil, nil, err
+	}
+	return anos, nil, nil
 }
 
 func prepararAtualizacaoCursoPorTipo(tipoCurso string, req cursoPayload) ([]string, *[]string, error) {
@@ -157,11 +156,11 @@ func prepararAtualizacaoCursoPorTipo(tipoCurso string, req cursoPayload) ([]stri
 		}
 		return nil, nil, nil
 	}
+	if req.ModeloInformado {
+		return nil, nil, fmt.Errorf("modelo de curso médio é imutável; crie outro curso para trocar a duração acadêmica")
+	}
 	if req.AnosInformado {
-		if _, _, err := prepararDadosCursoPorTipo(tipoCurso, req, false); err != nil {
-			return nil, nil, err
-		}
-		return req.AnosAcademicos, nil, nil
+		return nil, nil, fmt.Errorf("anos_academicos não é aceito para cursos médios; os anos são fixos e derivados de modelo")
 	}
 	if req.PeriodosInformado {
 		return nil, nil, fmt.Errorf("periodos numérico é aceito apenas para curso superior")
@@ -442,8 +441,8 @@ func rejeitarCamposAcademicosEmAtualizacaoCurso(c *gin.Context) error {
 	}
 	for campo := range raw {
 		switch campo {
-		case "anos_academicos", "anosAcademicos", "periodos", "semestres", "quantidade_semestres", "anos", "materias_chave", "materiasChave":
-			return fmt.Errorf("campo não suportado em atualização de dados do curso: %s. Use a rota própria de anos acadêmicos para adicionar ou remover escopos permitidos; esta rota altera apenas dados cadastrais", campo)
+		case "anos_academicos", "anosAcademicos", "periodos", "semestres", "quantidade_semestres", "anos", "materias_chave", "materiasChave", "modelo":
+			return fmt.Errorf("campo não suportado em atualização de dados do curso: %s. Anos acadêmicos de cursos médios são fixos por modelo e esta rota altera apenas dados cadastrais", campo)
 		}
 	}
 	return nil

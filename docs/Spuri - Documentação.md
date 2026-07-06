@@ -249,7 +249,7 @@ Representa uma instituição de ensino. Pode ser uma **escola** (ensino fundamen
 | Tipo       | Nível Escolar | Características                                                              |
 | ---------- | ------------- | ---------------------------------------------------------------------------- |
 | `escola`   | `fundamental` | Tem anos_academicos (1º a 9º ano)                                            |
-| `escola`   | `medio`       | Sem anos_academicos fixos, eles são definidos nos seus cursos                |
+| `escola`   | `medio`       | Sem anos_academicos na academia; nos cursos médios eles são derivados do modelo                |
 | `escola`   | `misto`       | Tem anos_academicos para fundamental                                         |
 | `superior` | —             | Sem nível escolar; tem cursos superiores, eles são definidos nos seus cursos |
 
@@ -368,9 +368,11 @@ Representa um curso oferecido por uma academia (médio ou superior). O **tipo é
 
 Para cursos superiores, a criação recebe `periodos` como número inteiro positivo (quantidade total de semestres) e não aceita `anos_academicos` no payload. A rota cadastral de edição `PUT /academia/curso/:id/dados` não aceita manipular `periodos`, `semestres` nem `anos_academicos`; ela fica restrita a dados cadastrais. O backend persiste os semestres sequenciais no formato `[n]_semestre` e calcula os anos acadêmicos com `ceil(periodos / 2)`. Ex.: `periodos = 3` deriva `periodos = ["1_semestre", "2_semestre", "3_semestre"]` e `anos_academicos = ["1_ano_superior", "2_ano_superior"]`.
 
-Na criação de cursos médios, `POST /academia/curso` aplica a mesma proteção de sequência de anos médios usada por `POST /academia/anos-academicos`: `anos_academicos` deve começar em `1_ano_medio`, seguir em ordem crescente, não pular posições e não repetir anos. Assim, cargas como `["2_ano_medio"]`, `["1_ano_medio", "3_ano_medio"]` ou `["2_ano_medio", "1_ano_medio"]` são rejeitadas antes da criação.
+Na criação de cursos médios, `POST /academia/curso` recebe `modelo` e não aceita `anos_academicos`. O backend deriva e projeta os anos acadêmicos exclusivamente a partir do modelo: `modelo="liceu"` gera `1_ano_medio`, `2_ano_medio` e `3_ano_medio`; `modelo="tecnico"` gera `1_ano_medio`, `2_ano_medio`, `3_ano_medio` e `4_ano_medio`. Payloads de escrita com `anos_academicos` para cursos médios são rejeitados em vez de ignorados.
 
-Cursos médios possuem `modelo` obrigatório e persistente, exclusivo do médio, com valores aceitos `liceu` ou `tecnico`; cursos superiores rejeitam e não expõem esse campo. Cursos médios também possuem `materias_chave` persistente no próprio curso, por `ano_academico`, mas esse campo é configurado somente depois da criação do curso, pela rota específica `PUT /academia/curso/:id/materias-chave`. A criação do curso médio não aceita `materias_chave`, pois as matérias precisam existir e estar associadas ao curso antes da configuração. Cada ano configurado deve ter exatamente uma entrada com pelo menos uma matéria ativa da mesma academia, do mesmo curso médio, do nível `medio` e do ano acadêmico informado. Cursos superiores rejeitam `materias_chave`.
+Cursos médios possuem `modelo` obrigatório, persistente e imutável, exclusivo do médio, com valores aceitos `liceu` ou `tecnico`; cursos superiores rejeitam e não expõem esse campo. Cursos médios também possuem `materias_chave` persistente no próprio curso, por `ano_academico`, mas esse campo é configurado somente depois da criação do curso, pela rota específica `PUT /academia/curso/:id/materias-chave`. A criação do curso médio não aceita `materias_chave`, pois as matérias precisam existir e estar associadas ao curso antes da configuração. Cada ano configurado deve ter exatamente uma entrada com pelo menos uma matéria ativa da mesma academia, do mesmo curso médio, do nível `medio` e do ano acadêmico informado. Cursos superiores rejeitam `materias_chave`.
+
+A rota `/academia/anos-academicos` continua válida para anos fundamentais da academia, mas rejeita `type="medio"`; anos de cursos médios não podem ser adicionados, removidos, reduzidos, expandidos ou reordenados manualmente.
 
 **Formato dos semestres persistidos**: `[n]_semestre` onde n ≥ 1 (ex: `1_semestre`, `2_semestre`).
 

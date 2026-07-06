@@ -85,7 +85,10 @@ func alterarAnosAcademicos(c *gin.Context, op string) {
 			responderErroAnos(c, err)
 			return
 		}
-	case "medio", "superior":
+	case "medio":
+		responderErroAnosValidacao(c, "type", "operacao_nao_suportada", "Cursos médios não aceitam gestão manual de anos acadêmicos; os anos são fixos e derivados do modelo do curso.")
+		return
+	case "superior":
 		if err := alterarEscopoCurso(c, academiaDTO, req, op); err != nil {
 			responderErroAnos(c, err)
 			return
