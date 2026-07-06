@@ -166,7 +166,45 @@ Regra especial para o último ano de curso médio do modelo `tecnico`:
 4. Se aprovado, o estudante finaliza o curso e o ensino médio.
 5. Não exigir notas trimestrais, `nota_professor`, `prova_trimestral`, `exame_final` ou `exame_recurso` nesse ano.
 
-### 4. Validar escala de notas por nível
+
+### 4. Definir gatilhos da avaliação final automática
+
+A avaliação final escolar não deve depender de uma rota manual para ser aplicada. O cálculo deve ser despertado automaticamente pelo lançamento das notas que encerram cada contexto avaliativo.
+
+Gatilhos obrigatórios:
+
+1. **Avaliação final regular com `prova_trimestral` no 3º trimestre**
+   - para `1-5_ano_fundamental`, `7-8_ano_fundamental` e `1-2_ano_medio`, o lançamento da nota `prova_trimestral` do `3_trimestre` deve despertar a tentativa de cálculo da `avaliacao_final`;
+   - o backend deve verificar se todas as notas obrigatórias da matéria/estudante/ano letivo já existem antes de calcular;
+   - se ainda faltarem notas de outras matérias ou categorias obrigatórias, o sistema não deve reprovar/aprovar parcialmente de forma definitiva, apenas deve manter a avaliação pendente até que os dados necessários estejam completos.
+
+2. **Avaliação final regular com `exame_final`**
+   - para `6_ano_fundamental`, `9_ano_funamental` e `3_ano_medio`, o lançamento da nota `exame_final` deve despertar a tentativa de cálculo da `avaliacao_final`;
+   - esse gatilho substitui o uso de `prova_trimestral` no `3_trimestre` para esses anos, porque a média do terceiro trimestre deve usar `nota_professor + exame_final`;
+   - o backend deve validar que as notas dos trimestres anteriores e a `nota_professor` do `3_trimestre` estão disponíveis antes de consolidar a avaliação.
+
+3. **Avaliação por `exame_recurso`**
+   - para `6_ano_fundamental`, `9_ano_funamental` e `3_ano_medio`, o lançamento da nota `exame_recurso` deve despertar a tentativa de cálculo da regra `exame_recurso`;
+   - esse cálculo só pode ocorrer para matérias reprovadas na `avaliacao_final` anterior;
+   - se o estudante tiver mais de uma matéria em recurso, a decisão final do recurso só deve ser consolidada quando todas as notas `exame_recurso` exigidas tiverem sido lançadas;
+   - uma única matéria abaixo da mínima no recurso reprova o estudante.
+
+4. **PAP do `4_ano_medio` técnico**
+   - para o `4_ano_medio` de cursos médios do modelo `tecnico`, o lançamento da nota `nota_pap` deve despertar a avaliação final especial do ano;
+   - a avaliação deve ser consolidada somente com base em `nota_pap >= 10`.
+
+Orientação de implementação:
+
+- centralizar a lógica em um serviço/handler idempotente chamado após persistir uma nota;
+- o handler deve receber o contexto da nota lançada (`estudante`, `academia`, `ano_letivo`, `ano_academico`, `materia`, `periodo`, `categoria`) e decidir se aquela categoria/período é um gatilho válido;
+- se a nota lançada não for um gatilho, o handler deve encerrar sem efeito colateral;
+- se for gatilho, o handler deve carregar a regra escolar fixa aplicável e verificar completude de todas as notas exigidas antes de emitir evento/projeção de avaliação final;
+- a operação precisa ser idempotente para evitar duplicidade quando uma nota for relançada, editada ou processada novamente por job/rebuild;
+- a unicidade da avaliação final deve considerar estudante, academia, ano letivo, ano acadêmico, tipo/regra de avaliação e, quando aplicável, matéria;
+- o cálculo deve salvar snapshot da regra/gatilho usado para auditoria;
+- erros de nota incompleta devem ser tratados como estado pendente, não como falha técnica.
+
+### 5. Validar escala de notas por nível
 
 Implementar proteção no sistema para impedir lançamento de notas fora da escala do ano acadêmico.
 
@@ -187,7 +225,7 @@ Requisitos:
 - cobrir limites inclusivos (`0`, `10`, `20`) em testes;
 - garantir que `6_ano_fundamental` use escala `0-10`, embora tenha regras com `exame_final` e `exame_recurso`.
 
-### 5. Remover matérias dependentes do ensino médio escolar
+### 6. Remover matérias dependentes do ensino médio escolar
 
 A partir desta implementação:
 
@@ -196,7 +234,7 @@ A partir desta implementação:
 - qualquer configuração, cálculo ou projeção que aplique dependência ao médio deve ser removida, desativada ou protegida por validação de tipo de ensino;
 - se existirem dados legados de dependência para médio, criar migração/backfill ou plano de compatibilidade para ignorá-los sem quebrar consultas.
 
-### 6. Ajustar APIs e permissões
+### 7. Ajustar APIs e permissões
 
 Revisar rotas/endpoints/comandos de categorias de nota e regras de avaliação final para garantir que:
 
@@ -207,7 +245,7 @@ Revisar rotas/endpoints/comandos de categorias de nota e regras de avaliação f
 5. admins não tenham bypass para editar/remover definições escolares;
 6. mensagens de erro sejam claras para frontend e integrações.
 
-### 7. Migrações, seeds e idempotência
+### 8. Migrações, seeds e idempotência
 
 Se o modelo fixo for persistido em banco/projeção, criar migrations/seeds idempotentes para:
 
@@ -239,7 +277,7 @@ Se as regras forem definidas em código, garantir que:
 - Matérias dependentes não são aplicadas ao ensino médio escolar.
 - Modelo configurável antigo fica restrito ao ensino superior.
 - Nenhum administrador consegue editar/remover categorias ou regras escolares fixas.
-- Testes automatizados cobrem categorias, regras, escalas, permissões e casos de reprovação/aprovação.
+- Testes automatizados cobrem categorias, regras, escalas, permissões, gatilhos automáticos e casos de reprovação/aprovação.
 
 ## Sugestões de testes
 
@@ -254,6 +292,10 @@ Se as regras forem definidas em código, garantir que:
 - Teste bloqueando `exame_recurso` antes de reprovação em `avaliacao_final`.
 - Teste bloqueando `exame_recurso` para matéria aprovada.
 - Teste de `4_ano_medio` técnico aceitando apenas `nota_pap` e aprovando com `>= 10`.
+- Teste garantindo que `prova_trimestral` do `3_trimestre` desperta `avaliacao_final` nos anos que usam prova trimestral regular.
+- Teste garantindo que `exame_final` desperta `avaliacao_final` em `6_ano_fundamental`, `9_ano_funamental` e `3_ano_medio`.
+- Teste garantindo que `exame_recurso` desperta apenas a regra de recurso, somente após reprovação anterior e com todas as notas de recurso obrigatórias lançadas.
+- Teste garantindo que notas que não são gatilhos não geram avaliação final nem efeitos colaterais.
 - Testes de escala `0-10` para `[1-6]_ano_fundamental`.
 - Testes de escala `0-20` para `[7-9]_ano_fundamental`, `[1-4]_ano_medio` e superior.
 - Testes de permissão garantindo que escola/admin não edita nem remove categorias/regras escolares.
