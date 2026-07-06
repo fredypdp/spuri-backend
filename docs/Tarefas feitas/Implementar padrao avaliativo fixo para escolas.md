@@ -1,4 +1,4 @@
-# Implementar padrão avaliativo fixo para escolas
+# Implementar padrão avaliativo fixo para escolas (feito)
 
 ## Contexto
 

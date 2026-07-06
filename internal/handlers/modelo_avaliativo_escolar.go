@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/projections"
@@ -17,6 +18,123 @@ const (
 type categoriaNotaEscolarFixa struct {
 	Codigo string `json:"codigo"`
 	Nome   string `json:"nome"`
+}
+
+func regrasAvaliacaoFinalEscolaresFixas(codigoAcademia, tipoEnsino, anoAcademico string, categoria *string, cursoID *string) []regraAvaliacaoFinalDTO {
+	if tipoEnsino != "fundamental" && tipoEnsino != "medio" {
+		return nil
+	}
+	var regras []regraAvaliacaoFinalDTO
+	if r := regraAvaliacaoFinalEscolarFixa(codigoAcademia, tipoEnsino, anoAcademico, "normal", cursoID); r != nil {
+		regras = append(regras, *r)
+	}
+	if r := regraAvaliacaoFinalEscolarFixa(codigoAcademia, tipoEnsino, anoAcademico, "exame_recurso", cursoID); r != nil {
+		regras = append(regras, *r)
+	}
+	if categoria != nil && strings.TrimSpace(*categoria) != "" && len(regras) > 0 {
+		if regras[0].NotaDespertadora == nil || strings.TrimSpace(*regras[0].NotaDespertadora) != strings.TrimSpace(*categoria) {
+			return nil
+		}
+	}
+	return regras
+}
+
+func regraAvaliacaoFinalEscolarFixa(codigoAcademia, tipoEnsino, anoAcademico, typ string, cursoID *string) *regraAvaliacaoFinalDTO {
+	typ = strings.TrimSpace(typ)
+	if typ == "" {
+		typ = "normal"
+	}
+	if tipoEnsino != "fundamental" && tipoEnsino != "medio" {
+		return nil
+	}
+	if tipoEnsino == "fundamental" && !isAnoFundamental(anoAcademico) {
+		return nil
+	}
+	if tipoEnsino == "medio" && !isAnoMedio(anoAcademico) {
+		return nil
+	}
+	anoEscopo := anoAcademico
+	if tipoEnsino == "medio" && cursoID != nil && strings.TrimSpace(*cursoID) != "" {
+		anoEscopo = strings.TrimSpace(*cursoID) + "|" + anoAcademico
+	}
+	base := regraAvaliacaoFinalDTO{
+		ID:                 uuid.NewSHA1(uuid.NameSpaceOID, []byte("spuri:regra-escolar:"+tipoEnsino+":"+anoAcademico+":"+typ)),
+		CodigoAcademia:     codigoAcademia,
+		Type:               typ,
+		Nivel:              tipoEnsino,
+		AnosAcademicos:     []string{anoEscopo},
+		Status:             "ativo",
+		Version:            1,
+		Source:             "system",
+		Fixed:              true,
+		Readonly:           true,
+		MateriasAplicaveis: nil,
+	}
+	regular := "(((([nota_professor,1_trimestre]+[prova_trimestral,1_trimestre])/2)+(([nota_professor,2_trimestre]+[prova_trimestral,2_trimestre])/2)+(([nota_professor,3_trimestre]+[prova_trimestral,3_trimestre])/2))/3)"
+	comExame := "(((([nota_professor,1_trimestre]+[prova_trimestral,1_trimestre])/2)+(([nota_professor,2_trimestre]+[prova_trimestral,2_trimestre])/2)+(([nota_professor,3_trimestre]+[exame_final,3_trimestre])/2))/3)"
+	switch anoAcademico {
+	case "1_ano_fundamental", "2_ano_fundamental", "3_ano_fundamental", "4_ano_fundamental", "5_ano_fundamental":
+		if typ != "normal" {
+			return nil
+		}
+		base.Nome = "Avaliação final"
+		base.NotaMinimaAprovacao = 5
+		base.CategoriasEnvolvidas = []string{"nota_professor", "prova_trimestral"}
+		base.Formula = regular
+		v := "prova_trimestral"
+		base.NotaDespertadora = &v
+	case "7_ano_fundamental", "8_ano_fundamental", "1_ano_medio", "2_ano_medio":
+		if typ != "normal" {
+			return nil
+		}
+		base.Nome = "Avaliação final"
+		base.NotaMinimaAprovacao = 10
+		base.CategoriasEnvolvidas = []string{"nota_professor", "prova_trimestral"}
+		base.Formula = regular
+		v := "prova_trimestral"
+		base.NotaDespertadora = &v
+	case "6_ano_fundamental", "9_ano_fundamental", "3_ano_medio":
+		if typ == "normal" {
+			base.Nome = "Avaliação final"
+			if anoAcademico == "6_ano_fundamental" {
+				base.NotaMinimaAprovacao = 5
+			} else {
+				base.NotaMinimaAprovacao = 10
+			}
+			base.CategoriasEnvolvidas = []string{"nota_professor", "prova_trimestral", "exame_final"}
+			base.Formula = comExame
+			v := "exame_final"
+			base.NotaDespertadora = &v
+		} else if typ == "exame_recurso" {
+			base.Nome = "Exame de recurso"
+			if anoAcademico == "6_ano_fundamental" {
+				base.NotaMinimaAprovacao = 5
+			} else {
+				base.NotaMinimaAprovacao = 10
+			}
+			base.CategoriasEnvolvidas = []string{"exame_recurso"}
+			base.Formula = "[exame_recurso,3_trimestre]"
+			dep := "normal"
+			base.AplicaSeReprovadoEmType = &dep
+			v := "exame_recurso"
+			base.NotaDespertadora = &v
+		} else {
+			return nil
+		}
+	case "4_ano_medio":
+		if tipoEnsino != "medio" || typ != "normal" {
+			return nil
+		}
+		base.Nome = "Prova de Aptidão Profissional"
+		base.NotaMinimaAprovacao = 10
+		base.CategoriasEnvolvidas = []string{categoriaNotaPAP}
+		base.Formula = "[nota_pap,3_trimestre]"
+		v := categoriaNotaPAP
+		base.NotaDespertadora = &v
+	default:
+		return nil
+	}
+	return &base
 }
 
 var categoriasEscolaresRegulares = []categoriaNotaEscolarFixa{
@@ -111,6 +229,20 @@ func anexarCategoriasEscolaresFixas(categorias []projections.CategoriaNotaDTO, a
 				"readonly":        true,
 				"status":          "ativo",
 			})
+		}
+		if ano == "4_ano_medio" {
+			for _, cat := range categoriasEscolaresPAP {
+				out = append(out, map[string]interface{}{
+					"codigo_academia": academia.CodigoAcademia,
+					"codigo":          cat.Codigo,
+					"nome":            cat.Nome,
+					"anos_academicos": []string{ano},
+					"source":          "system",
+					"fixed":           true,
+					"readonly":        true,
+					"status":          "ativo",
+				})
+			}
 		}
 	}
 	return out

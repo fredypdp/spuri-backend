@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"math"
@@ -167,10 +168,13 @@ func RegistrarAvaliacaoFinal(c *gin.Context) {
 		return
 	}
 	aprovado := notaFinal >= regra.NotaMinimaAprovacao
-	materiasChaveResolvidas, err := resolverMateriasChaveAvaliacaoFinalMedio(c, tipoEnsino, estudanteDTO, req.AnoAcademicoAtual)
-	if err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
+	var materiasChaveResolvidas []uuid.UUID
+	if !regra.Fixed {
+		materiasChaveResolvidas, err = resolverMateriasChaveAvaliacaoFinalMedio(c, tipoEnsino, estudanteDTO, req.AnoAcademicoAtual)
+		if err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
 	}
 
 	// ── Cálculo do próximo nível (backend) ────────────────────────────────────
@@ -526,9 +530,12 @@ func executarRegraAvaliacaoFinalAutomatica(
 	if len(materiasAplicaveis) == 0 {
 		return nil, false, fmt.Errorf("nenhuma matéria aplicável encontrada para avaliação final")
 	}
-	materiasChaveResolvidas, err := resolverMateriasChaveAvaliacaoFinalMedio(c, tipoEnsino, estudanteDTO, anoAcademicoAtual)
-	if err != nil {
-		return nil, false, err
+	var materiasChaveResolvidas []uuid.UUID
+	if !regra.Fixed {
+		materiasChaveResolvidas, err = resolverMateriasChaveAvaliacaoFinalMedio(c, tipoEnsino, estudanteDTO, anoAcademicoAtual)
+		if err != nil {
+			return nil, false, err
+		}
 	}
 	resultadosMaterias, notaFinal, aprovado, aprovadoComPendencia, pendenciasGeradas, err := calcularResultadoMateriasAvaliacaoFinal(
 		c, estudanteDTO.CodigoEstudante, codigoAcademia, anoLectivo, tipoEnsino, anoAcademicoAtual, regra, materiasAplicaveis, materiasChaveResolvidas, overlay,
@@ -735,6 +742,32 @@ func calcularResultadoMateriasAvaliacaoFinal(
 	materiasChaveResolvidas []uuid.UUID,
 	overlay *notaFormulaOverlay,
 ) ([]aggregates.ResultadoMateriaAvaliacaoFinal, float64, bool, bool, []aggregates.MateriaPendenteGerada, error) {
+	if regra.Fixed && regra.AplicaSeReprovadoEmType != nil {
+		prev, err := getAvaliacaoFinalProjection(c).GetResultadoByType(codigoEstudante, codigoAcademia, anoLectivo, tipoEnsino, anoAcademicoAtual, *regra.AplicaSeReprovadoEmType)
+		if err != nil || prev == nil {
+			return nil, 0, false, false, nil, fmt.Errorf("avaliação '%s' exige reprovação anterior em '%s'", regra.Type, *regra.AplicaSeReprovadoEmType)
+		}
+		var anteriores []aggregates.ResultadoMateriaAvaliacaoFinal
+		_ = json.Unmarshal(prev.ResultadosMaterias, &anteriores)
+		reprovadas := map[uuid.UUID]bool{}
+		for _, r := range anteriores {
+			if !r.Aprovado {
+				reprovadas[r.MateriaID] = true
+			}
+		}
+		filtradas := make([]projections.MateriaDTO, 0, len(materias))
+		for _, m := range materias {
+			if reprovadas[m.ID] {
+				filtradas = append(filtradas, m)
+			} else if overlay != nil && overlay.MateriaID == m.ID.String() {
+				return nil, 0, false, false, nil, fmt.Errorf("exame_recurso não é permitido para matéria aprovada na avaliação final")
+			}
+		}
+		materias = filtradas
+		if len(materias) == 0 {
+			return nil, 0, false, false, nil, fmt.Errorf("exame_recurso exige matéria reprovada na avaliação final anterior")
+		}
+	}
 	resultados := make([]aggregates.ResultadoMateriaAvaliacaoFinal, 0, len(materias))
 	var soma float64
 	reprovadasPendenciaveis := []projections.MateriaDTO{}
@@ -778,7 +811,7 @@ func calcularResultadoMateriasAvaliacaoFinal(
 	aprovado := true
 	reprovadas := 0
 	materiasChave := map[uuid.UUID]bool{}
-	if tipoEnsino == "medio" && regra.AplicaSeReprovadoEmType == nil {
+	if tipoEnsino == "medio" && regra.AplicaSeReprovadoEmType == nil && !regra.Fixed {
 		for _, id := range materiasChaveResolvidas {
 			materiasChave[id] = true
 		}

@@ -44,6 +44,9 @@ type regraAvaliacaoFinalDTO struct {
 	Status                   string                   `json:"status"`
 	Version                  int                      `json:"version"`
 	NotaDespertadora         *string                  `json:"nota_despertadora,omitempty"`
+	Source                   string                   `json:"source,omitempty"`
+	Fixed                    bool                     `json:"fixed,omitempty"`
+	Readonly                 bool                     `json:"readonly,omitempty"`
 }
 
 // UnmarshalJSON preserves the legacy public contract for fundamental rules
@@ -355,6 +358,15 @@ func ListarRegrasAvaliacaoFinal(c *gin.Context) {
 		r, err := scanRegra(rows)
 		if err == nil {
 			out = append(out, r)
+		}
+	}
+	if academiaDTO.Nivel == "escola" {
+		for _, ano := range academiaDTO.AnosAcademicos {
+			tipo := "fundamental"
+			if isAnoMedio(ano) {
+				tipo = "medio"
+			}
+			out = append(out, regrasAvaliacaoFinalEscolaresFixas(academiaDTO.CodigoAcademia, tipo, ano, nil, nil)...)
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"regras": out, "total": len(out)})
@@ -837,6 +849,9 @@ func getRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipoEnsino, anoAcade
 	if typ == "" {
 		typ = "normal"
 	}
+	if regra := regraAvaliacaoFinalEscolarFixa(codigoAcademia, tipoEnsino, anoAcademico, typ, nil); regra != nil {
+		return regra, nil
+	}
 	rows, err := getDbClient(c).DB().Query(`SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,status,version,nota_despertadora FROM projection_regras_avaliacao_final WHERE codigo_academia=$1 AND nivel=$2 AND type=$3 AND status='ativo' AND (($2 <> 'fundamental' AND $2 <> 'medio') OR ($2 = 'fundamental' AND anos_academicos ? $4) OR ($2 = 'medio' AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(anos_academicos) e(v) WHERE split_part(e.v, '|', 2) = $4)))`, codigoAcademia, tipoEnsino, typ, anoAcademico)
 	if err != nil {
 		return nil, err
@@ -925,6 +940,9 @@ func idsCadeiaDependenteRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipo
 }
 
 func listarRegrasAvaliacaoFinalAplicaveis(c *gin.Context, codigoAcademia, tipoEnsino, anoAcademico string, categoria *string, cursoID *string) ([]regraAvaliacaoFinalDTO, error) {
+	if regras := regrasAvaliacaoFinalEscolaresFixas(codigoAcademia, tipoEnsino, anoAcademico, categoria, cursoID); len(regras) > 0 {
+		return regras, nil
+	}
 	query := `SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,status,version,nota_despertadora
 		FROM projection_regras_avaliacao_final
 		WHERE codigo_academia=$1
