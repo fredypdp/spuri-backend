@@ -2,7 +2,7 @@
 modificado: 28-06-2026 17:10
 criado: 05-04-2026 13:01
 ---
-Versão atual: 2.0.9
+Versão atual: 2.1.0
 ## Índice
 
 1. [[#1. Convenções Globais]]
@@ -142,9 +142,11 @@ type SolicitacaoMatriculaStatus = 'pendente' | 'aprovada' | 'reprovada'
 
 **Categorias de nota:**
 
-- Não há categorias fixas, implícitas ou pré-definidas pelo backend.
-- Toda categoria usada para lançar nota, montar fórmula ou validar regra deve ser cadastrada explicitamente pela academia.
-- Exemplos como `prova_trimestral` ou `exame_final` são apenas ilustrativos e só funcionam após cadastro.
+- Escolas (`nivel="escola"`) usam categorias fixas do sistema por ano acadêmico. Elas são retornadas na listagem como `source="system"`, `fixed=true`, `readonly=true` e não podem ser criadas/removidas pela academia.
+- Categorias escolares regulares: `nota_professor` e `prova_trimestral`.
+- Anos com exame (`6_ano_fundamental`, `9_ano_fundamental`, `3_ano_medio`) também aceitam `exame_final` e `exame_recurso`.
+- O `4_ano_medio` de curso médio `tecnico` usa apenas `nota_pap` (`Prova de Aptidão Profissional`).
+- Academias superiores (`nivel="superior"`) continuam usando categorias configuráveis; toda categoria usada para lançar nota, montar fórmula ou validar regra superior deve ser cadastrada explicitamente pela academia.
 
 **Formato do ano letivo:** `YYYY_YYYY` (ex: `2025_2026`)
 
@@ -3372,11 +3374,11 @@ Retorna as turmas de um estudante com autorização por perfil na mesma rota.
 
 ### POST /academia/categorias-nota
 
-Cria uma categoria de nota explícita para a academia. Não existem categorias fixas, obrigatórias ou pré-definidas pelo backend; qualquer categoria usada em notas ou fórmulas precisa existir nessa configuração da academia.
+Cria uma categoria de nota explícita para a academia **somente quando a academia é de ensino superior**. Escolas não podem criar categorias: o padrão avaliativo escolar é fixo do sistema e é exposto apenas pela listagem.
 
 O campo `codigo` é normalizado antes de persistir: espaços antes/depois são descartados, somente espaços internos entre textos viram `_` (ex.: ` Prova profesor ` vira `prova_profesor`) e caracteres especiais diferentes de `_` são rejeitados. O código aceita letras minúsculas, números, espaços e `_`; letras maiúsculas são convertidas para minúsculas.
 
-**Proteção**: autenticado + academia ativa
+**Proteção**: autenticado + academia ativa + `nivel="superior"`
 
 **Request:**
 
@@ -3400,14 +3402,14 @@ O campo `codigo` é normalizado antes de persistir: espaços antes/depois são d
 
 **Erros:**
 
-- `400` — codigo, nome ou anos_academicos ausente/vazio, ou codigo com caracteres especiais inválidos
+- `400` — academia escolar tentando criar categoria, codigo/nome/anos_academicos ausente/vazio, ou codigo com caracteres especiais inválidos
 - `409` — categoria já existe nesta academia
 
 ---
 
 ### GET /academia/categorias-nota
 
-Lista todas as categorias de nota da academia alvo.
+Lista todas as categorias de nota da academia alvo. Para escolas, a resposta soma eventuais categorias legadas da projeção com as categorias escolares fixas do sistema marcadas como `source`, `fixed` e `readonly`; para superior, lista as categorias configuráveis da academia.
 
 **Proteção**: autenticado + (`academia` ativa **ou** `admin` **ou** `estudante`)
 
@@ -3431,6 +3433,16 @@ Lista todas as categorias de nota da academia alvo.
       "anos_academicos": ["3_ano_fundamental"],
       "created_at": "2026-06-13T00:00:00Z",
       "version": 1
+    },
+    {
+      "codigo_academia": "ACAD20251",
+      "codigo": "nota_professor",
+      "nome": "Nota do professor/Avaliação contínua",
+      "anos_academicos": ["3_ano_fundamental"],
+      "source": "system",
+      "fixed": true,
+      "readonly": true,
+      "status": "ativo"
     }
   ],
   "total": 2
@@ -3445,7 +3457,7 @@ Lista todas as categorias de nota da academia alvo.
 
 ### DELETE /academia/categorias-nota/:codigo
 
-Inativa (remove logicamente) uma categoria de nota adicional da academia.
+Inativa (remove logicamente) uma categoria de nota adicional da academia **somente no ensino superior**. Escolas não podem remover categorias porque o catálogo escolar é fixo do sistema.
 
 **Proteção**: autenticado + academia ativa
 
@@ -3466,7 +3478,7 @@ Inativa (remove logicamente) uma categoria de nota adicional da academia.
 
 **Erros:**
 
-- `400` — codigo ausente/vazio ou codigo com caracteres especiais inválidos no path
+- `400` — academia escolar tentando remover categoria, codigo ausente/vazio ou codigo com caracteres especiais inválidos no path
 - `400` — categoria não existe nesta academia
 
 ---
@@ -3485,8 +3497,8 @@ Registra uma nota para um estudante.
   "periodo": "1_trimestre",
   "materia_disciplinar_id": "uuid",
   "tipo": "escolar",
-  "categoria": "nota_escola",
-  "nota": 15.5,
+  "categoria": "nota_professor",
+  "nota": 8.5,
   "observacao": "string"  // opcional
 }
 ```
@@ -3495,11 +3507,12 @@ Registra uma nota para um estudante.
 
 - Academia `escola` só pode usar tipo `escolar`
 - Academia `superior` só pode usar tipo `superior`
-- `nota` deve ser maior ou igual a 0 (`>= 0`)
+- `nota` deve estar dentro da escala do ano acadêmico: `0–10` para `1_ano_fundamental` a `6_ano_fundamental`; `0–20` para `7_ano_fundamental`, `8_ano_fundamental`, `9_ano_fundamental`, todos os anos médios e superior
 - `periodo` deve ser válido para o tipo (`1_trimestre`/`2_trimestre`/`3_trimestre` para escolar; semestres do curso para superior)
 - Para `tipo=superior`, o `periodo` precisa coincidir com o `periodo` definido na matéria (além de existir na lista de períodos do curso)
 - Se o estudante tiver `ano_escolar_fundamental`, esse ano deve existir em `anos_academicos` da matéria; caso contrário, o registro é bloqueado
-- `categoria` deve estar configurada em `POST /academia/categorias-nota` com `anos_academicos` contendo o `ano_academico` inferido da nota; sem anos definidos ou sem correspondência com o ano, nenhuma nota pode ser registrada nessa categoria
+- Para escolas, `categoria` deve estar no catálogo fixo do ano acadêmico inferido: `nota_professor`/`prova_trimestral` nos anos regulares; + `exame_final`/`exame_recurso` em `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio`; apenas `nota_pap` no `4_ano_medio` técnico
+- Para superior, `categoria` deve estar configurada em `POST /academia/categorias-nota` com `anos_academicos` contendo o ano/período acadêmico aplicável; sem anos definidos ou sem correspondência, nenhuma nota pode ser registrada nessa categoria
 - O endpoint `POST /academia/notas-aluno/async` reaproveita exatamente as mesmas validações deste endpoint por item do lote
 
 **Response 201:**
@@ -3510,8 +3523,8 @@ Registra uma nota para um estudante.
   "estudante": "ABC1234",
   "materia": "Matemática",
   "tipo": "escolar",
-  "categoria": "nota_escola",
-  "nota": 15.5,
+  "categoria": "nota_professor",
+  "nota": 8.5,
   "ano_academico": "3_ano_fundamental",
   "periodo": "1_trimestre",
   "periodos_validos": ["1_trimestre", "2_trimestre", "3_trimestre"]
@@ -3520,7 +3533,7 @@ Registra uma nota para um estudante.
 
 **Erros:**
 
-- `400` — nota negativa, período inválido, categoria inválida/não configurada para o ano acadêmico, duplicata, ou incompatibilidade entre `ano_escolar_fundamental` do estudante e `anos_academicos` da matéria
+- `400` — nota fora da escala do ano acadêmico, período inválido, categoria inválida/não configurada para o ano acadêmico, duplicata, ou incompatibilidade entre `ano_escolar_fundamental` do estudante e `anos_academicos` da matéria
 - `403` — estudante ou matéria não pertencem à academia
 - `400` — academia sem ano letivo configurado
 
@@ -3976,22 +3989,22 @@ Não existe rota pública/registrada para executar avaliação final manualmente
 ---
 ### POST /academia/avaliacao-final/regras
 
-Cria uma regra ativa de avaliação final para a academia autenticada.
+Cria uma regra ativa de avaliação final para a academia autenticada **somente no ensino superior**. Regras escolares (`fundamental`/`medio`) são fixas do sistema na versão 2.1.0 e não são configuráveis pela academia.
 
-**Proteção**: academia autenticada.
+**Proteção**: academia autenticada + `nivel="superior"`.
 
 **Request:**
 
 ```json
 {
   "type": "avaliacao_final",
-  "nome": "Avaliação final",
-  "descricao": "Média dos três trimestres",
-  "nivel": "fundamental",
-  "anos_academicos": ["3_ano_fundamental"],
+  "nome": "Avaliação final superior",
+  "descricao": "Média das avaliações do semestre",
+  "nivel": "superior",
   "nota_minima_aprovacao": 10,
-  "formula": "([nota_escola,1_trimestre]+[nota_professor,1_trimestre]+[nota_escola,2_trimestre]+[nota_professor,2_trimestre]+[nota_escola,3_trimestre]+[nota_professor,3_trimestre])/3",
-  "nota_despertadora": "nota_professor",
+  "formula": "([prova_parcelar_1]+[prova_parcelar_2])/2",
+  "limite_materias_pendentes": 2,
+  "nota_despertadora": "prova_parcelar_2",
   "aplica_se_reprovado_em_type": null
 }
 ```
@@ -4001,11 +4014,11 @@ Cria uma regra ativa de avaliação final para a academia autenticada.
 - `type` — obrigatório. Identifica a etapa pública (`avaliacao_final`, `avaliacao_final_com_exame`, `avaliacao_final_com_recurso`, etc.). Aceita apenas letras, números, espaços e `_`; espaços são normalizados para `_` antes de persistir (ex.: `exame final` vira `exame_final`), e outros caracteres são rejeitados.
 - `nome` — obrigatório. Exemplos: `Avaliação final`, `Avaliação final (com exame)` ou `Avaliação final (com recurso)`.
 - `descricao` — opcional.
-- `nivel` — campo oficial do escopo da regra; aceita `fundamental`, `medio` ou `superior`. Academias superiores podem omitir ou enviar apenas `superior`; academias escolares não mistas podem omitir ou enviar o mesmo valor de `nivel_escolar`; academias mistas devem informar `fundamental` ou `medio`. O campo legado `tipo_ensino` não é aceito e retorna erro de validação orientando o uso de `nivel`.
-- `anos_academicos` — para `nivel="fundamental"`, obrigatório e não vazio como array simples de strings; para `nivel="medio"`, obrigatório como lista de objetos `{curso_id, anos_academicos}`; para `nivel="superior"`, rejeitado.
+- `nivel` — na versão 2.1.0, as rotas configuráveis aceitam apenas `superior`. Payloads com `fundamental` ou `medio` retornam erro porque regras escolares são fixas do sistema. O campo legado `tipo_ensino` não é aceito.
+- `anos_academicos` — rejeitado para `nivel="superior"`; escolas não configuram regras por esta rota.
 - `materias_chave` — não é aceito em regras de avaliação final. Para Médio, configure matérias-chave no curso médio, por `ano_academico`. Payloads de criação/edição de regra contendo esse campo retornam erro de validação.
-- `materias_aplicaveis` — opcional; limita as matérias por escopo. Fundamental usa itens `{ano_academico, materias}`. Médio e Superior usam itens `{curso_id, ano_academico, materias}`. IDs duplicados no mesmo item e itens duplicados por ano/par curso+ano são inválidos.
-- `limite_materias_pendentes` — obrigatório para `nivel="medio"` ou `nivel="superior"`; inteiro maior ou igual a zero. Não é aceito para fundamental.
+- `materias_aplicaveis` — opcional para Superior; usa itens `{curso_id, ano_academico, materias}`. IDs duplicados no mesmo item e itens duplicados por par curso+ano são inválidos. Escolas não configuram regras por esta rota.
+- `limite_materias_pendentes` — obrigatório para `nivel="superior"`; inteiro maior ou igual a zero.
 - `nota_minima_aprovacao` — obrigatório e maior que zero.
 - `categorias_envolvidas` — opcional. O backend extrai automaticamente as categorias usadas em `formula`. Se enviado, deve corresponder exatamente às categorias extraídas da fórmula, sem duplicatas, sobras ou omissões, e todas precisam estar ativas/configuradas pela academia para os anos da regra.
 - `formula` — obrigatório; deve ser uma string textual no modelo `formula_textual_v1`. O formato JSON em árvore antigo foi removido e não é aceito.
@@ -4025,7 +4038,7 @@ Cria uma regra ativa de avaliação final para a academia autenticada.
 
 - Não pode existir outra regra ativa com o mesmo `type`, `nivel` e escopo sobreposto para a mesma academia: ano acadêmico no Fundamental e par `curso_id` + `ano_academico` no Médio. Ao criar ou editar uma regra, é permitido definir um `type` igual ao de uma regra inativa; porém essa regra inativa não poderá ser reativada enquanto existir uma regra ativa com o mesmo `type`, `nivel` e escopo sobreposto.
 - Para cada academia, `nivel` e escopo acadêmico, só pode haver uma regra raiz ativa. Regra raiz é a regra sem `aplica_se_reprovado_em_type`.
-- Regras dependentes formam uma cadeia de novas chances; elas precisam ter exatamente o mesmo escopo da raiz (mesmos anos fundamentais ou mesmos pares curso/ano médio) e só executam depois de reprovação no `type` apontado.
+- Regras dependentes formam uma cadeia de novas chances no Superior; elas precisam manter o mesmo escopo superior da raiz e só executam depois de reprovação no `type` apontado.
 - A regra é criada pelo backend com `status = "ativo"` e `version = 1`; esses campos não são enviados na criação.
 
 **Fórmula textual (`formula_textual_v1`):**
@@ -4113,7 +4126,7 @@ Lista todas as regras de avaliação final da academia autenticada, ordenadas po
 
 ### PUT /academia/avaliacao-final/regras/:id
 
-Edita uma regra ativa de avaliação final da academia autenticada. Por segurança, a edição é limitada aos campos que não mudam o desenho da cadeia: `nome`, `descricao`, `nota_minima_aprovacao`, `formula` e, apenas em regra raiz, `nota_despertadora`. O backend recalcula `categorias_envolvidas` a partir da nova fórmula.
+Edita uma regra ativa de avaliação final da academia autenticada **somente no ensino superior**. Por segurança, a edição é limitada aos campos que não mudam o desenho da cadeia: `nome`, `descricao`, `nota_minima_aprovacao`, `formula` e, apenas em regra raiz, `nota_despertadora`. O backend recalcula `categorias_envolvidas` a partir da nova fórmula.
 
 **Proteção**: academia autenticada.
 
@@ -4154,7 +4167,7 @@ Edita uma regra ativa de avaliação final da academia autenticada. Por seguran�
 
 ### DELETE /academia/avaliacao-final/regras/:id
 
-Inativa uma regra ativa de avaliação final da academia autenticada. A deleção é **lógica** (`status = "inativo"`), não física, para preservar histórico, auditoria e snapshots de avaliações já calculadas.
+Inativa uma regra ativa de avaliação final da academia autenticada **somente no ensino superior**. A deleção é **lógica** (`status = "inativo"`), não física, para preservar histórico, auditoria e snapshots de avaliações já calculadas.
 
 **Proteção**: academia autenticada.
 
@@ -4191,14 +4204,14 @@ A avaliação final automática calcula uma `nota_final` independente por matér
 - `tipo_ensino` é legado e não é aceito nos payloads de criação/edição de regra.
 - `materias_chave` não pertence à regra. No Médio, o backend resolve as matérias-chave a partir do curso médio do estudante (`curso_medio_id`) e do `ano_escolar_medio` atual; se a configuração do curso/ano estiver ausente, a avaliação falha com erro claro.
 - `materias_aplicaveis` pode restringir uma regra descendente às matérias de recuperação/recurso.
-- `limite_materias_pendentes` é obrigatório para médio e superior e define quantas reprovações finais podem virar pendência.
+- `limite_materias_pendentes` é obrigatório para Superior configurável e define quantas reprovações finais podem virar pendência; escolas usam padrão fixo do sistema.
 
 **Fórmula e matérias:**
 
 - Fundamental e médio usam referências no formato `[categoria,periodo]`.
 - Superior pode usar `[categoria]`; o backend infere o período a partir da matéria avaliada.
 - O resultado automático inclui `resultados_materias`, com `materia_id`, `nota_final`, `aprovado`, `type`, `formula_snapshot`, `regra_avaliacao_final_id` e `pendencia_permitida`.
-- Para médio e superior, se todas as reprovações finais couberem em `limite_materias_pendentes` e todas as matérias reprovadas permitirem pendência, o evento é registrado com `aprovado=true` e `aprovado_com_pendencia=true`.
+- Para Superior, se todas as reprovações finais couberem em `limite_materias_pendentes` e todas as matérias reprovadas permitirem pendência, o evento é registrado com `aprovado=true` e `aprovado_com_pendencia=true`.
 - Pendências geradas são projetadas em `projection_materias_pendentes`, com proteção contra duplicidade aberta para o mesmo estudante, matéria, curso, nível, ano letivo e escopo acadêmico.
 
 **Exemplo de regra média com pendência:**
