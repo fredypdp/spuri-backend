@@ -1,6 +1,6 @@
 # Manual de Configuração Inicial da Academia
 
-Este manual orienta a academia recém-criada e ativada pelo Admin FPP a configurar o ambiente acadêmico em **ordem cronológica**, começando pelos domínios que não dependem de outros dados e avançando até os processos que dependem da configuração curricular completa.
+Este manual orienta a academia recém-criada e ativada a configurar o ambiente acadêmico em **ordem cronológica**, começando pelos domínios que não dependem de outros dados e avançando até os processos que dependem da configuração curricular completa.
 
 > Objetivo: ao final deste fluxo, a academia estará pronta para cadastrar estudantes, organizar turmas, lançar notas e faltas, e permitir que a avaliação final automática funcione com base nas regras configuradas.
 
@@ -10,31 +10,26 @@ Este manual orienta a academia recém-criada e ativada pelo Admin FPP a configur
 
 Siga esta sequência para evitar erros de dependência:
 
-1. **Conferir o cadastro e o status da academia**.
-2. **Garantir que o Admin FPP definiu o ano letivo global** do tipo correto.
-3. **Definir o primeiro ano letivo ativo da academia**.
-4. **Definir os anos acadêmicos fundamentais**, quando a academia for escola fundamental ou mista.
-5. **Criar cursos médios ou superiores**, quando aplicável.
-6. **Ajustar anos acadêmicos de cursos médios**, se necessário.
-7. **Criar matérias disciplinares**.
-8. **Ativar matérias superiores**, pois elas nascem inativas.
-9. **Configurar matérias-chave dos cursos médios**, quando aplicável.
-10. **Criar categorias de nota** para todos os anos acadêmicos que usarão lançamentos.
-11. **Criar regras de avaliação final**.
-12. **Cadastrar ou aprovar estudantes**.
-13. **Criar turmas**.
-14. **Adicionar estudantes às turmas**.
-15. **Iniciar a operação acadêmica**: lançar notas, faltas e acompanhar avaliações finais automáticas.
+1. **Identificar o tipo da academia ativada**.
+2. **Definir o primeiro ano letivo ativo da academia**.
+3. **Definir os anos acadêmicos fundamentais**, quando a academia for escola fundamental ou mista.
+4. **Criar cursos médios ou superiores**, quando aplicável.
+5. **Ajustar anos acadêmicos de cursos médios**, se necessário.
+6. **Criar matérias disciplinares**.
+7. **Ativar matérias superiores**, pois elas nascem inativas.
+8. **Configurar matérias-chave dos cursos médios**, quando aplicável.
+9. **Criar categorias de nota** para todos os anos acadêmicos que usarão lançamentos.
+10. **Cadastrar ou aprovar estudantes**.
+11. **Criar turmas**.
+12. **Adicionar estudantes às turmas**.
+13. **Criar regras de avaliação final**.
+14. **Iniciar a operação acadêmica**: usar normalmente as funcionalidades da plataforma.
 
 ---
 
-## 2. Pré-requisitos antes da academia operar
+## 2. Antes de começar
 
-### 2.1 Academia criada e ativada pelo Admin FPP
-
-A academia só deve iniciar a configuração depois de estar com status `ativo`. Academias inativas não devem operar cadastros acadêmicos como cursos, matérias, turmas, estudantes, notas ou faltas.
-
-Confira também o tipo da instituição, porque ele determina quais configurações serão permitidas:
+Este manual deve ser seguido depois que a academia já estiver criada e ativada. A partir desse ponto, confira o tipo da instituição, porque ele determina quais configurações serão permitidas:
 
 | Academia | Configurações curriculares esperadas |
 |---|---|
@@ -43,26 +38,11 @@ Confira também o tipo da instituição, porque ele determina quais configuraç�
 | Escola `misto` | Fundamental fica na academia; Médio fica nos cursos médios. |
 | `superior` | Semestres e anos são derivados dos cursos superiores. |
 
-### 2.2 Ano letivo global definido pelo Admin FPP
-
-Antes da academia definir seu próprio ano letivo, o Admin FPP precisa definir o ano letivo oficial global do tipo correto:
-
-- `type=escolar` para escolas fundamentais, médias ou mistas.
-- `type=superior` para instituições superiores.
-
-Rota administrativa:
-
-```http
-POST /admin/definir-ano-letivo-geral
-```
-
-O formato obrigatório é `YYYY_YYYY`, por exemplo `2025_2026`, sempre com o segundo ano igual ao primeiro + 1.
-
 ---
 
 ## 3. Passo 1 — Definir o ano letivo da academia
 
-Depois que o ano global existir, a academia define seu primeiro ano letivo ativo:
+A academia define seu primeiro ano letivo ativo:
 
 ```http
 POST /academia/definir-ano-letivo
@@ -70,7 +50,6 @@ POST /academia/definir-ano-letivo
 
 Regras principais:
 
-- O ano informado deve ser igual ao ano global do tipo da academia.
 - A academia só define diretamente o ano letivo uma vez.
 - Depois disso, o avanço acontece pela finalização do ano letivo.
 - Sem ano letivo ativo, o sistema bloqueia notas, faltas e avaliações finais.
@@ -355,82 +334,7 @@ Regras importantes:
 
 ---
 
-## 11. Passo 9 — Criar regras de avaliação final
-
-As regras de avaliação final dependem de quase toda a estrutura curricular:
-
-- ano letivo ativo;
-- anos acadêmicos;
-- cursos;
-- matérias;
-- categorias de nota;
-- matérias-chave, no caso do Médio.
-
-Crie primeiro a **regra raiz** de cada escopo e depois as regras descendentes, como exame, recurso ou recuperação.
-
-### 11.1 Fundamental
-
-Configuração típica:
-
-- `nivel="fundamental"`;
-- `anos_academicos` como lista simples;
-- fórmula com categoria e período trimestral;
-- sem `limite_materias_pendentes`.
-
-Exemplo de fórmula:
-
-```text
-([prova_trimestral,1_trimestre]+[prova_trimestral,2_trimestre]+[prova_trimestral,3_trimestre])/3
-```
-
-### 11.2 Médio
-
-Configuração típica:
-
-- `nivel="medio"`;
-- `anos_academicos` agrupado por curso;
-- `limite_materias_pendentes` obrigatório;
-- sem `materias_chave` na regra, porque elas ficam no curso.
-
-Exemplo de escopo:
-
-```json
-{
-  "nivel": "medio",
-  "anos_academicos": [
-    {
-      "curso_id": "uuid-do-curso-medio",
-      "anos_academicos": ["1_ano_medio"]
-    }
-  ],
-  "limite_materias_pendentes": 2
-}
-```
-
-### 11.3 Superior
-
-Configuração típica:
-
-- `nivel="superior"`;
-- sem `anos_academicos` na regra;
-- fórmula com referência apenas à categoria, pois o semestre é inferido pela matéria;
-- `limite_materias_pendentes` obrigatório.
-
-Exemplo de fórmula:
-
-```text
-([prova_parcelar_1]+[prova_parcelar_2])/2
-```
-
-### 11.4 Ordem dentro da cadeia
-
-1. Criar regra raiz, por exemplo `avaliacao_final`.
-2. Criar regra descendente que aponta para a raiz, por exemplo `avaliacao_final_com_exame` com `aplica_se_reprovado_em_type="avaliacao_final"`.
-3. Criar novas descendentes, se houver, sempre apontando para uma etapa anterior ativa e sem criar ciclos.
-
----
-
-## 12. Passo 10 — Cadastrar ou aprovar estudantes
+## 11. Passo 9 — Cadastrar ou aprovar estudantes
 
 Depois que a estrutura curricular básica estiver pronta, cadastre os estudantes pela academia ou aprove solicitações de matrícula.
 
@@ -454,7 +358,7 @@ Porque o cadastro acadêmico do estudante precisa apontar para anos e cursos exi
 
 ---
 
-## 13. Passo 11 — Criar turmas
+## 12. Passo 10 — Criar turmas
 
 Turmas dependem do nível e, para Médio/Superior, normalmente do curso.
 
@@ -489,7 +393,7 @@ O `codigo_turma` deve ser único dentro da academia.
 
 ---
 
-## 14. Passo 12 — Adicionar estudantes às turmas
+## 13. Passo 11 — Adicionar estudantes às turmas
 
 Depois que estudantes e turmas existirem, vincule estudantes às turmas:
 
@@ -513,43 +417,84 @@ Regras importantes:
 
 ---
 
+## 14. Passo 12 — Criar regras de avaliação final
+
+As regras de avaliação final dependem de quase toda a estrutura curricular:
+
+- ano letivo ativo;
+- anos acadêmicos;
+- cursos;
+- matérias;
+- categorias de nota;
+- matérias-chave, no caso do Médio.
+
+Crie primeiro a **regra raiz** de cada escopo e depois as regras descendentes, como exame, recurso ou recuperação.
+
+### 14.1 Fundamental
+
+Configuração típica:
+
+- `nivel="fundamental"`;
+- `anos_academicos` como lista simples;
+- fórmula com categoria e período trimestral;
+- sem `limite_materias_pendentes`.
+
+Exemplo de fórmula:
+
+```text
+([prova_trimestral,1_trimestre]+[prova_trimestral,2_trimestre]+[prova_trimestral,3_trimestre])/3
+```
+
+### 14.2 Médio
+
+Configuração típica:
+
+- `nivel="medio"`;
+- `anos_academicos` agrupado por curso;
+- `limite_materias_pendentes` obrigatório;
+- sem `materias_chave` na regra, porque elas ficam no curso.
+
+Exemplo de escopo:
+
+```json
+{
+  "nivel": "medio",
+  "anos_academicos": [
+    {
+      "curso_id": "uuid-do-curso-medio",
+      "anos_academicos": ["1_ano_medio"]
+    }
+  ],
+  "limite_materias_pendentes": 2
+}
+```
+
+### 14.3 Superior
+
+Configuração típica:
+
+- `nivel="superior"`;
+- sem `anos_academicos` na regra;
+- fórmula com referência apenas à categoria, pois o semestre é inferido pela matéria;
+- `limite_materias_pendentes` obrigatório.
+
+Exemplo de fórmula:
+
+```text
+([prova_parcelar_1]+[prova_parcelar_2])/2
+```
+
+### 14.4 Ordem dentro da cadeia
+
+1. Criar regra raiz, por exemplo `avaliacao_final`.
+2. Criar regra descendente que aponta para a raiz, por exemplo `avaliacao_final_com_exame` com `aplica_se_reprovado_em_type="avaliacao_final"`.
+3. Criar novas descendentes, se houver, sempre apontando para uma etapa anterior ativa e sem criar ciclos.
+
+---
+
 ## 15. Passo 13 — Iniciar lançamentos acadêmicos
 
-Com a configuração concluída, a academia pode começar os processos operacionais.
-
-### 15.1 Lançar notas
-
-```http
-POST /academia/notas-aluno
-```
-
-Antes de lançar, valide:
-
-- academia ativa;
-- ano letivo ativo;
-- estudante cadastrado e vinculado;
-- matéria ativa e compatível;
-- categoria de nota criada e habilitada para o ano acadêmico;
-- período correto: `1_trimestre`, `2_trimestre`, `3_trimestre` para escolar; semestre correto para superior.
-
-### 15.2 Lançar faltas
-
-```http
-POST /academia/faltas-aluno
-```
-
-Antes de lançar, valide:
-
-- academia ativa;
-- ano letivo ativo;
-- estudante vinculado;
-- matéria ativa e compatível;
-- data no formato `AAAA-MM-DD`;
-- quantidade maior ou igual a 1.
-
-### 15.3 Avaliação final automática
-
-A academia não deve calcular manualmente a nota final no payload. O backend tenta executar a avaliação final automaticamente quando notas suficientes são lançadas ou atualizadas, desde que existam regras ativas aplicáveis.
+Com a configuração concluída, a academia já pode usar normalmente todas as funcionalidades da plataforma. A partir deste ponto, a operação acadêmica pode seguir o fluxo regular de trabalho da instituição, incluindo gestão de estudantes, turmas, matérias, notas, faltas e acompanhamento das avaliações finais automáticas conforme as regras configuradas.
 
 ---
 
@@ -558,8 +503,7 @@ A academia não deve calcular manualmente a nota final no payload. O backend ten
 Use este checklist antes de iniciar os lançamentos em produção:
 
 - [ ] Academia está ativa.
-- [ ] Ano letivo global do tipo correto foi definido pelo Admin FPP.
-- [ ] Academia definiu seu ano letivo ativo alinhado ao global.
+- [ ] Academia definiu seu ano letivo ativo.
 - [ ] Anos fundamentais foram configurados, se a escola for fundamental ou mista.
 - [ ] Cursos médios/superiores foram criados, se aplicável.
 - [ ] Anos de cursos médios estão completos e sequenciais.
@@ -567,20 +511,17 @@ Use este checklist antes de iniciar os lançamentos em produção:
 - [ ] Matérias superiores foram ativadas.
 - [ ] Cursos médios possuem matérias-chave configuradas para todos os anos.
 - [ ] Categorias de nota foram criadas para todos os anos acadêmicos em uso.
-- [ ] Regras de avaliação final foram criadas por nível e escopo.
 - [ ] Estudantes foram cadastrados ou aprovados com vínculo acadêmico correto.
 - [ ] Turmas foram criadas.
 - [ ] Estudantes foram adicionados às turmas corretas.
-- [ ] Lançamentos de notas e faltas foram testados em um conjunto pequeno antes do uso massivo.
+- [ ] Regras de avaliação final foram criadas por nível e escopo.
 
 ---
 
 ## 17. Resumo visual das dependências
 
 ```text
-Admin ativa academia
-        ↓
-Admin define ano letivo global
+Academia ativada
         ↓
 Academia define ano letivo ativo
         ↓
@@ -598,17 +539,15 @@ Matérias-chave do Médio
         ↓
 Categorias de nota
         ↓
-Regras de avaliação final
-        ↓
 Estudantes
         ↓
 Turmas
         ↓
 Estudantes nas turmas
         ↓
-Notas e faltas
+Regras de avaliação final
         ↓
-Avaliação final automática
+Operação normal da plataforma
 ```
 
 ---
