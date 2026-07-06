@@ -88,6 +88,10 @@ func CriarMateria(c *gin.Context) {
 		}
 	}
 
+	if tipoMateria == "medio" && req.PendenciaPermitida != nil && *req.PendenciaPermitida {
+		utils.RespondWithValidationError(c, fmt.Errorf("matérias dependentes são exclusivas do ensino superior e não se aplicam ao ensino médio escolar"))
+		return
+	}
 	if err := validarPendenciaNivelConclusao(tipoMateria, req.PendenciaNivelConclusao, req.AnosAcademicos, periodosCurso); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -394,6 +398,10 @@ func AtualizarDadosMateria(c *gin.Context) {
 		if err == nil && cursoDTO != nil {
 			periodosCurso = cursoDTO.Periodos
 		}
+	}
+	if materia.Type == "medio" && req.PendenciaPermitida != nil && *req.PendenciaPermitida {
+		utils.RespondWithValidationError(c, fmt.Errorf("matérias dependentes são exclusivas do ensino superior e não se aplicam ao ensino médio escolar"))
+		return
 	}
 	if err := validarPendenciaNivelConclusao(materia.Type, req.PendenciaNivelConclusao, anosParaValidacao, periodosCurso); err != nil {
 		utils.RespondWithValidationError(c, err)

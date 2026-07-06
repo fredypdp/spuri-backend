@@ -2,7 +2,7 @@
 modificado: 28-06-2026 17:10
 criado: 05-04-2026 13:01
 ---
-Versão atual: 2.0.9
+Versão atual: 2.1.0
 ## Índice
 
 1. [[#1. Visão Geral]]
@@ -283,8 +283,10 @@ Representa uma instituição de ensino. Pode ser uma **escola** (ensino fundamen
 
 - `codigo`: identificador técnico único por academia (sem espaços). Exemplo de categoria personalizada: `prova_profesor`.
 - `nome`: rótulo descritivo exibido ao usuário (pode conter espaços). Exemplo de categoria personalizada: `Prova do professor`.
-- Não existem códigos fixos, obrigatórios ou pré-definidos pelo backend. Toda categoria usada em notas, fórmulas ou regras deve ser cadastrada explicitamente pela academia.
-- Exemplos de códigos válidos, quando cadastrados pela própria academia: `prova_trimestral`, `exame_final`, `atividade_pratica`.
+- Escolas usam um catálogo fixo por ano acadêmico, fornecido pelo backend e retornado na listagem como `source=system`, `fixed=true` e `readonly=true`.
+- Anos escolares regulares aceitam `nota_professor` e `prova_trimestral`; `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio` também aceitam `exame_final` e `exame_recurso`; `4_ano_medio` técnico aceita apenas `nota_pap`.
+- Categorias configuráveis são exclusivas do ensino superior. Toda categoria superior usada em notas, fórmulas ou regras deve ser cadastrada explicitamente pela academia superior.
+- Exemplos de códigos superiores válidos, quando cadastrados pela própria academia: `prova_trimestral`, `exame_final`, `atividade_pratica`.
 
 ---
 
@@ -552,12 +554,14 @@ Sempre que o ano letivo for atualizado, ele é adicionado em `anos_letivos_lista
 
 |Tipo|Academia|Categorias fixas|Períodos|
 |---|---|---|---|
-|`escolar`|`escola`|Categorias cadastradas explicitamente pela academia|`1_trimestre`, `2_trimestre`, `3_trimestre`|
+|`escolar`|`escola`|Categorias fixas do sistema por ano acadêmico|`1_trimestre`, `2_trimestre`, `3_trimestre`|
 |`superior`|`superior`|Categorias cadastradas explicitamente pela academia|Semestres do curso|
 
-Academias criam explicitamente todas as categorias de nota que pretendem usar; não há categorias fixas, obrigatórias ou pré-definidas pelo backend. Toda categoria de nota possui `anos_academicos`; apenas os anos presentes nessa lista aceitam registros. Se a categoria não tiver anos definidos, nenhuma nota pode ser registrada nela. O `codigo` da categoria é normalizado antes de persistir: espaços antes/depois são descartados, somente espaços internos entre textos viram `_`, letras maiúsculas viram minúsculas e caracteres especiais diferentes de `_` são rejeitados.
+No ensino superior, academias criam explicitamente todas as categorias de nota que pretendem usar. Toda categoria superior possui `anos_academicos`; apenas os anos presentes nessa lista aceitam registros. Se a categoria não tiver anos definidos, nenhuma nota pode ser registrada nela. O `codigo` da categoria é normalizado antes de persistir: espaços antes/depois são descartados, somente espaços internos entre textos viram `_`, letras maiúsculas viram minúsculas e caracteres especiais diferentes de `_` são rejeitados.
 
-**Valor**: entre 0 ou mais (validado no aggregate)
+Nas escolas, a academia não cria nem remove categorias. O backend seleciona automaticamente as categorias fixas pelo `ano_academico` inferido da nota e, no médio técnico, pelo `modelo` do curso. Isso garante um padrão avaliativo único entre escolas e evita divergência operacional entre academias.
+
+**Valor**: escala validada por ano acadêmico (`0–10` no 1.º ao 6.º fundamental; `0–20` no 7.º ao 9.º fundamental, médio e superior).
 
 **Correção de nota**: `observacao` é **obrigatória** (justificativa da correção)
 
@@ -613,7 +617,7 @@ A avaliação final é automática, auditável e orientada por regras. Ela é di
 | Matérias avaliadas | Matérias ativas da academia que pertencem ao nível/curso/ano/período do estudante e, se houver, ao filtro `materias_aplicaveis` da regra. |
 | `materias_chave` | Configuração curricular do curso médio, por `ano_academico`; não pertence à regra. Na raiz do Médio, o backend resolve a lista pelo `curso_medio_id` do estudante e pelo `ano_escolar_medio` atual. Reprovação em matéria não-chave na raiz não impede aprovação direta; reprovação em matéria-chave impede e pode acionar cadeia/pendência. |
 | `materias_aplicaveis` | Lista opcional de matérias que restringe a execução da regra. É especialmente útil em descendentes para recalcular apenas matérias de recuperação/exame/recurso. |
-| `limite_materias_pendentes` | Inteiro obrigatório e não negativo para Médio/Superior. Define quantas reprovações finais podem virar pendência. Não existe no Fundamental. |
+| `limite_materias_pendentes` | Campo configurável apenas no Superior. Em escolas, regras/limites finais são fixos do sistema e não são cadastrados pela academia. |
 | `pendencia_permitida` | Campo da matéria de Médio/Superior. Somente matérias com esse campo verdadeiro podem gerar aprovação com pendência. |
 | `pendencia_nivel_conclusao` | Campo da matéria de Médio/Superior que indica o nível/semestre de conclusão usado para bloqueio funcional de progressão/conclusão quando há pendência aberta. |
 | Matéria pendente | Registro persistente em `projection_materias_pendentes`, criado quando uma avaliação de Médio/Superior aprova com pendência. Mantém histórico aberto/baixado por estudante, matéria, curso, ano letivo e escopo. |
@@ -621,6 +625,8 @@ A avaliação final é automática, auditável e orientada por regras. Ela é di
 A avaliação registrada é idempotente no escopo suportado: o sistema evita gravar duas avaliações com o mesmo estudante, academia, ano letivo, nível interno da avaliação, ano/período acadêmico atual e `type`. Eventos e projeções preservam snapshots de fórmula, regra, matérias e pendências suficientes para auditoria.
 
 #### 5.6.2 Montagem e criação de regras de avaliação final
+
+Na versão 2.1.0, as regras configuráveis de avaliação final são exclusivas do ensino superior. Escolas não criam, editam nem removem regras por endpoint: o padrão avaliativo escolar é fixo do sistema, alinhado às categorias fixas e às etapas oficiais (`nota_professor`, `prova_trimestral`, exames quando aplicável e `nota_pap` no técnico).
 
 A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras descendentes. O endpoint de criação usa `nivel` como campo público; `tipo_ensino` é legado e é rejeitado em criação/edição de regras.
 
@@ -641,7 +647,7 @@ A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras d
 | `anos_academicos` | Obrigatório e não vazio; array simples de anos fundamentais | Obrigatório; lista de objetos `{curso_id, anos_academicos}` por curso médio | Rejeitado |
 | `materias_chave` | Rejeitado | Rejeitado na regra; configurado no curso médio por rota específica após a criação das matérias | Rejeitado |
 | `materias_aplicaveis` | Opcional; lista de itens `{ano_academico, materias}` | Opcional; lista de itens `{curso_id, ano_academico, materias}` | Opcional; lista de itens `{curso_id, ano_academico, materias}` com ano derivado dos semestres |
-| `limite_materias_pendentes` | Rejeitado | Obrigatório, `>= 0` | Obrigatório, `>= 0` |
+| `limite_materias_pendentes` | Regras fixas do sistema | Regras fixas do sistema | Obrigatório, `>= 0` |
 | `aplica_se_reprovado_em_type` | Ausente na raiz; presente em descendente | Ausente na raiz; presente em descendente | Ausente na raiz; presente em descendente |
 | `nota_despertadora` | Opcional na raiz; rejeitado em descendente | Opcional na raiz; rejeitado em descendente | Opcional na raiz; rejeitado em descendente |
 
@@ -663,7 +669,7 @@ A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras d
 |---|---|
 | Raiz do Fundamental | `nivel=fundamental`, `anos_academicos=["6_ano_fundamental"]`, fórmula com trimestres explícitos, sem limite de pendência. |
 | Recuperação do Fundamental | `nivel=fundamental`, mesmo `anos_academicos` da raiz, `aplica_se_reprovado_em_type="avaliacao_final"`, fórmula da recuperação/exame. |
-| Raiz do Médio | `nivel=medio`, `anos_academicos=[{curso_id, anos_academicos:["1_ano_medio"]}]`, sem `materias_chave` na regra, `limite_materias_pendentes` definido. As matérias-chave vêm do curso médio/ano do estudante. |
+| Raiz do Médio | Não configurável por endpoint na versão 2.1.0; o padrão escolar médio é fixo do sistema. Matérias-chave continuam sendo configuração curricular do curso médio/ano, não da regra. |
 | Descendente do Médio | `nivel=medio`, mesmo escopo por curso/ano da raiz, `aplica_se_reprovado_em_type` apontando para a raiz, `materias_aplicaveis=[{curso_id, ano_academico, materias:[...]}]` com as matérias que podem ser recalculadas no exame. |
 | Raiz do Superior | `nivel=superior`, sem `anos_academicos`, fórmula com referências `[categoria]`, `limite_materias_pendentes` definido. |
 | Superior com pendência | Mesma regra superior, matérias com `pendencia_permitida=true` e, quando aplicável, `pendencia_nivel_conclusao` indicando o semestre-limite. |
@@ -684,7 +690,7 @@ Se a fórmula exigir nota que ainda não existe para determinada matéria, categ
 
 #### 5.6.4 Execução automática por lançamento de notas
 
-1. A academia registra/atualiza nota; o backend valida ano letivo, estudante, matéria, categoria, período e pertencimento.
+1. A academia registra/atualiza nota; o backend valida ano letivo, estudante, matéria, categoria, período, escala numérica e pertencimento.
 2. O backend infere o nível acadêmico do estudante para execução: Superior tem prioridade quando há vínculo/status superior; depois Médio; caso contrário Fundamental.
 3. Para Superior, o backend transforma `semestre_atual` em `[n]_semestre` e valida esse período contra o curso.
 4. O backend busca regras ativas aplicáveis à academia, ao `nivel` e ao escopo acadêmico atual.
@@ -700,7 +706,7 @@ Se a fórmula exigir nota que ainda não existe para determinada matéria, categ
 #### 5.6.5 Fundamental
 
 - O escopo é `ano_escolar_fundamental` atual do estudante (`1_ano_fundamental` a `9_ano_fundamental`).
-- Regras fundamentais usam `anos_academicos` como array simples; regras médias usam `anos_academicos` por curso (`curso_id` + anos); regras superiores não aceitam `anos_academicos`.
+- O catálogo avaliativo fundamental é fixo do sistema; rotas configuráveis de regras não aceitam criação/edição/remoção para Fundamental. Regras superiores não aceitam `anos_academicos`.
 - O backend avalia cada matéria fundamental ativa aplicável ao ano do estudante, respeitando `materias_aplicaveis` se configurado.
 - Cada matéria recebe `nota_final` própria; aprovação direta exige que todas as matérias avaliadas atinjam a mínima.
 - Uma ou mais matérias abaixo da mínima reprovam a etapa e podem acionar regra descendente por matéria reprovada.
@@ -714,7 +720,7 @@ Se a fórmula exigir nota que ainda não existe para determinada matéria, categ
 - O backend avalia matérias médias ativas do curso e ano atual; `materias_aplicaveis` restringe a lista quando informado. O curso médio precisa ter `materias_chave` completa para todos os seus `anos_academicos`, com pelo menos uma matéria por ano.
 - A regra raiz de Médio não aceita `materias_chave`. A lista é obrigatória no curso médio, por ano acadêmico, e é resolvida pelo par `curso_medio_id` + `ano_escolar_medio` do estudante. Na raiz, reprovação em matéria-chave impede aprovação direta; reprovação apenas em matéria não-chave não torna a decisão geral reprovada nessa etapa, embora o resultado por matéria continue registrado.
 - Descendentes podem recalcular matérias reprovadas e/ou limitadas por `materias_aplicaveis`; se uma matéria reprovada não estiver na lista da descendente, ela não é recalculada por aquela regra.
-- Depois da última etapa aplicável, reprovações podem virar pendência somente se: o total de reprovações for menor ou igual a `limite_materias_pendentes` e todas as matérias reprovadas tiverem `pendencia_permitida=true`.
+- Depois da última etapa aplicável, no Superior, reprovações podem virar pendência somente se: o total de reprovações for menor ou igual a `limite_materias_pendentes` e todas as matérias reprovadas tiverem `pendencia_permitida=true`.
 - Se essas condições forem satisfeitas, o evento é aprovado com `aprovado_com_pendencia=true` e gera registros em `projection_materias_pendentes`.
 - Se o limite for ultrapassado, ou se alguma matéria reprovada não permitir pendência, o estudante reprova totalmente e nenhuma pendência nova é criada.
 - Pendências de curso anterior permanecem históricas e não devem bloquear o curso atual; o curso salvo na pendência faz parte da decisão funcional de bloqueio.
@@ -739,7 +745,7 @@ Cenários típicos do Médio:
 - Fórmulas superiores não declaram período; o período é preenchido automaticamente para cada matéria avaliada.
 - Aprovação direta exige todas as matérias avaliadas com nota final maior ou igual à mínima.
 - Reprovação em matéria aciona descendentes aplicáveis; descendentes também trabalham por matéria e podem ser restringidas por `materias_aplicaveis`.
-- Após esgotar a cadeia, o estudante pode aprovar com pendência se o total de reprovações couber em `limite_materias_pendentes` e todas as matérias reprovadas permitirem pendência.
+- Após esgotar a cadeia superior, o estudante pode aprovar com pendência se o total de reprovações couber em `limite_materias_pendentes` e todas as matérias reprovadas permitirem pendência.
 - Reprovação por limite excedido ou matéria sem pendência permitida mantém o estudante no mesmo `semestre_atual` e não altera o status superior.
 - Aprovação em semestre intermediário incrementa `semestre_atual` e recalcula `ano_superior`; aprovação no último semestre finaliza o ciclo superior.
 - Pendência de curso anterior permanece histórica e não bloqueia o curso atual.
@@ -787,7 +793,7 @@ Devem falhar com erro de validação ou bloqueio funcional:
 - Academia mista criando regra sem `nivel` ou tentando criar regra `superior`.
 - Academia não mista criando regra de nível incompatível com sua configuração.
 - `anos_academicos` ausente em regra fundamental ou presente em Médio/Superior.
-- `limite_materias_pendentes` presente no Fundamental, ausente em Médio/Superior ou negativo.
+- `limite_materias_pendentes` enviado em regra escolar, ausente em regra superior ou negativo.
 - `materias_chave` enviado em qualquer regra de avaliação final; o campo pertence ao curso médio, não à regra.
 - Curso médio sem `materias_chave` para todo ano acadêmico do curso, ou com matérias-chave vazias, duplicadas, inativas, inexistentes, de outra academia, de outro curso, de outro nível ou fora do ano configurado.
 - `materias_aplicaveis` fora do escopo do curso/ano/período aplicável deve ser tratada como configuração inválida ou ineficaz operacionalmente; QA deve validar esse cenário contra a base de matérias da academia.
@@ -974,8 +980,10 @@ Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que 
 
 | Regra                                       | Detalhe                                                       |
 | ------------------------------------------- | ------------------------------------------------------------- |
-| Nota deve ser 0 ou mais                     | Validação no aggregate, não apenas no handler                 |
+| Nota deve respeitar a escala do ano acadêmico | `0–10` para `1_ano_fundamental` a `6_ano_fundamental`; `0–20` para demais anos fundamentais, médio e superior |
 | Academia escola só registra notas `escolar` | Academia superior só registra `superior`                      |
+| Categorias escolares são fixas | Escolas usam apenas categorias do catálogo do ano: regulares, exames nos anos previstos e `nota_pap` no `4_ano_medio` técnico |
+| Categorias configuráveis são do superior | Criação/remoção de categorias é bloqueada para escolas |
 | Ano do estudante deve pertencer à matéria   | Se `ano_escolar_fundamental` não estiver em `anos_academicos`, bloqueia   |
 | Observação obrigatória na correção          | Justificativa da alteração                                    |
 | Motivo obrigatório na deleção               | Para auditoria                                                |
@@ -1002,7 +1010,9 @@ O sistema não possui mais a entidade sumário/aula. As faltas devem ser lançad
 
 | Regra                                       | Detalhe                                    |
 | ------------------------------------------- | ------------------------------------------ |
-| Aprovação exige notas presentes na fórmula | Cada referência `[categoria,periodo]` exige nota daquele par; se faltar, a avaliação aguarda novo lançamento |
+| Escolas usam avaliação fixa do sistema | Academias escolares não criam, editam nem removem regras configuráveis de avaliação final |
+| Superior usa regras configuráveis | Criação/edição/remoção de regra é permitida apenas para `nivel=superior` |
+| Aprovação exige notas presentes na fórmula | Cada referência `[categoria]` superior exige nota da categoria no período inferido; se faltar, a avaliação aguarda novo lançamento |
 | Observação não faz override de nota | `observacao` é apenas metadado; aprovação/reprovação vem de `nota_final >= nota_minima_aprovacao` |
 | Fundamental usa sequência fixa 1..9 | `1_ano_fundamental` até `9_ano_fundamental` |
 | Médio usa sequência do curso | Avança conforme `anos_academicos` do curso médio ativo vinculado |
@@ -1036,7 +1046,8 @@ O sistema não possui mais a entidade sumário/aula. As faltas devem ser lançad
 | Anos acadêmicos deve ser compatível aos anos acadêmicos da academia ou do curso                      | Ao criar ou editar anos_academicos ele deve ser compatível com os anos acadêmicos da academia (para matéria do tipo fundamental), ou com os anos acadêmicos do curso (matéria do tipo medio ou superior)                                                                                                                                                                                                                                                              |
 | Tipo compativel com o nivel da academia                                                              | - Quando a academia é do nível escola e `NivelEscolar` = "fundamental", o tipo será `fundamental`.<br>- Quando a academia é do nível escola e `NivelEscolar` = "medio", o tipo será `medio`.<br>- Quando a academia é do nível superior o tipo será `superior`.<br><br>MateriaType será preenchido automaticamente, apenas quando a academia é do nível escola e `NivelEscolar` = "misto", a academia terá que enviar o tipo definindo se é `fundamental` ou `medio`. |
 | Período só pode ser definido para matéria do tipo `superior`. E deve ser compatível com o seu curso. | Matérias `fundamental` e `medio` não aceitam definição de período. E o período da matéria do tipo superior deve ser compatível com um dos períodos do seu curso                                                                                                                                                                                                                                                                                                       |
-| Quando a matéria é do tipo `superior` período não pode ser vazio                                     |                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Quando a matéria é do tipo `superior` período não pode ser vazio                                     |
+| Matérias dependentes são exclusivas do superior                                                      | Configuração de dependências/pendências por matéria é bloqueada para o ensino médio escolar; médio escolar usa o padrão fixo escolar |                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Deleção exige inatividade                                                                            | Matéria com status `ativo` é rejeitada; é obrigatório desativar antes de deletar                                                                                                                                                                                                                                                                                                                                                                                      |
 
 ### 6.8 Regras de Curso
