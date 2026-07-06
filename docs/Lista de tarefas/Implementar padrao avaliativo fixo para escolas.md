@@ -79,6 +79,8 @@ Categorias obrigatórias:
 | `exame_final` | `Exame final` |
 | `exame_recurso` | `Exame de recurso` |
 
+> Observação: usar o código correto `9_ano_fundamental` em toda a implementação e em dados/seeds novos.
+
 #### 2.3. `4_ano_medio` técnico
 
 Para o último ano de um curso do médio do modelo `tecnico`, criar apenas:
@@ -215,10 +217,11 @@ Escalas obrigatórias:
 
 Requisitos:
 
+- aceitar notas inteiras e decimais dentro da escala permitida, por exemplo `8.5` em escala `0-10` e `15.5` em escala `0-20`;
 - validar no comando/rota de lançamento de nota;
 - validar também em qualquer importação, job, handler ou fluxo interno que grave notas;
 - retornar erro claro quando a nota estiver fora da escala;
-- cobrir limites inclusivos (`0`, `10`, `20`) em testes;
+- cobrir limites inclusivos (`0`, `10`, `20`) e valores decimais válidos em testes;
 - garantir que `6_ano_fundamental` use escala `0-10`, embora tenha regras com `exame_final` e `exame_recurso`.
 
 ### 6. Remover matérias dependentes do ensino médio escolar
@@ -292,7 +295,7 @@ Se as regras forem definidas em código, garantir que:
 - Teste garantindo que `exame_final` desperta `avaliacao_final` em `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio`.
 - Teste garantindo que `exame_recurso` desperta apenas a regra de recurso, somente após reprovação anterior e com todas as notas de recurso obrigatórias lançadas.
 - Teste garantindo que notas que não são gatilhos não geram avaliação final nem efeitos colaterais.
-- Testes de escala `0-10` para `[1-6]_ano_fundamental`.
-- Testes de escala `0-20` para `[7-9]_ano_fundamental`, `[1-4]_ano_medio` e superior.
+- Testes de escala `0-10` para `[1-6]_ano_fundamental`, incluindo decimal válido como `8.5`.
+- Testes de escala `0-20` para `[7-9]_ano_fundamental`, `[1-4]_ano_medio` e superior, incluindo decimal válido como `15.5`.
 - Testes de permissão garantindo que escola/admin não edita nem remove categorias/regras escolares.
 - Teste garantindo que configuração de regras/categorias customizadas só funciona para superior.
