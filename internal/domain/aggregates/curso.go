@@ -17,6 +17,7 @@ import (
 // Regras de períodos:
 //   - type="medio"    → períodos FIXOS no sistema: 1_trimestre, 2_trimestre, 3_trimestre.
 //                       A academia NÃO configura; o campo Periodos fica vazio no aggregate.
+//                       Anos acadêmicos são derivados exclusivamente do modelo do curso.
 //   - type="superior" → períodos DINÂMICOS definidos pela academia na criação.
 //                       Formato obrigatório: [número]_semestre (ex.: 1_semestre, 2_semestre).
 //                       Número deve ser inteiro ≥ 1; sem duplicatas.
@@ -37,7 +38,7 @@ type Curso struct {
 	Nome           string
 	Type           string   // "medio" ou "superior" — imutável após criação
 	Modelo         string   // exclusivo e obrigatório para type="medio": "liceu" ou "tecnico"
-	AnosAcademicos []string // Anos do curso definidos pela academia
+	AnosAcademicos []string // Anos do curso: derivados do modelo no médio; derivados dos períodos no superior
 	// Periodos define os períodos letivos do curso.
 	// Obrigatório para type="superior"; vazio para "medio" (fixos no sistema).
 	Periodos       []string
@@ -189,18 +190,24 @@ func (c *Curso) Criar(
 	if tipo != "medio" && tipo != "superior" {
 		return fmt.Errorf("tipo deve ser 'medio' ou 'superior'")
 	}
-	if len(anosAcademicos) == 0 {
-		return fmt.Errorf("anos_academicos é obrigatório")
-	}
 	if codigoAcademia == "" {
 		return fmt.Errorf("código da academia é obrigatório")
 	}
 
-	if err := utils.ValidateAnosCurso(tipo, anosAcademicos); err != nil {
+	if err := validarModeloCurso(tipo, modelo, true); err != nil {
 		return err
 	}
-
-	if err := validarModeloCurso(tipo, modelo, true); err != nil {
+	if tipo == "medio" {
+		var err error
+		anosAcademicos, err = DerivarAnosAcademicosCursoMedio(modelo)
+		if err != nil {
+			return err
+		}
+	}
+	if len(anosAcademicos) == 0 {
+		return fmt.Errorf("anos_academicos é obrigatório")
+	}
+	if err := utils.ValidateAnosCurso(tipo, anosAcademicos); err != nil {
 		return err
 	}
 
@@ -283,6 +290,9 @@ func (c *Curso) AtualizarDados(nome *string, anosAcademicos []string, periodos *
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
 
+	if modelo != nil && c.Type == "medio" {
+		return fmt.Errorf("modelo de curso médio é imutável; crie outro curso para trocar a duração acadêmica")
+	}
 	if modelo != nil {
 		if err := validarModeloCurso(c.Type, *modelo, false); err != nil {
 			return err
@@ -291,6 +301,9 @@ func (c *Curso) AtualizarDados(nome *string, anosAcademicos []string, periodos *
 		modelo = &normalized
 	}
 
+	if anosAcademicos != nil && c.Type == "medio" {
+		return fmt.Errorf("anos_academicos de cursos médios são fixos e derivados de modelo; não podem ser alterados manualmente")
+	}
 	if anosAcademicos != nil {
 		if err := utils.ValidateAnosCurso(c.Type, anosAcademicos); err != nil {
 			return err
@@ -575,6 +588,18 @@ func validarMateriasChaveCurso(tipo string, anosAcademicos []string, materias []
 		}
 	}
 	return nil
+}
+
+// DerivarAnosAcademicosCursoMedio retorna a duração acadêmica fixa de um curso médio.
+func DerivarAnosAcademicosCursoMedio(modelo string) ([]string, error) {
+	switch strings.TrimSpace(modelo) {
+	case ModeloCursoMedioLiceu:
+		return []string{"1_ano_medio", "2_ano_medio", "3_ano_medio"}, nil
+	case ModeloCursoMedioTecnico:
+		return []string{"1_ano_medio", "2_ano_medio", "3_ano_medio", "4_ano_medio"}, nil
+	default:
+		return nil, fmt.Errorf("modelo inválido para curso médio: %q. Valores permitidos: 'liceu' ou 'tecnico'", strings.TrimSpace(modelo))
+	}
 }
 
 func validarModeloCurso(tipo, modelo string, criacao bool) error {

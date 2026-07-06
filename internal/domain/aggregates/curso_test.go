@@ -121,6 +121,10 @@ func TestCursoMedioModeloObrigatorioEValido(t *testing.T) {
 		if curso.Modelo != modelo {
 			t.Fatalf("Modelo = %q, want %q", curso.Modelo, modelo)
 		}
+		esperado, _ := DerivarAnosAcademicosCursoMedio(modelo)
+		if !reflect.DeepEqual(curso.AnosAcademicos, esperado) {
+			t.Fatalf("modelo %s derivou anos %v, want %v", modelo, curso.AnosAcademicos, esperado)
+		}
 	}
 
 	for _, modelo := range []string{"", "profissional", "LICEU"} {
@@ -138,16 +142,13 @@ func TestCursoSuperiorRejeitaModelo(t *testing.T) {
 	}
 }
 
-func TestCursoMedioAtualizaModelo(t *testing.T) {
+func TestCursoMedioRejeitaAtualizacaoDeModelo(t *testing.T) {
 	curso := NewCurso()
 	if err := curso.Criar("Curso Médio", "medio", "liceu", []string{"1_ano_medio"}, nil, nil, "ACA_01"); err != nil {
 		t.Fatalf("Criar() erro inesperado: %v", err)
 	}
 	modelo := "tecnico"
-	if err := curso.AtualizarDados(nil, nil, nil, nil, &modelo, uuid.New()); err != nil {
-		t.Fatalf("AtualizarDados() deveria aceitar troca de modelo: %v", err)
-	}
-	if curso.Modelo != "tecnico" {
-		t.Fatalf("Modelo = %q, want tecnico", curso.Modelo)
+	if err := curso.AtualizarDados(nil, nil, nil, nil, &modelo, uuid.New()); err == nil {
+		t.Fatalf("AtualizarDados() deveria rejeitar troca de modelo de curso médio")
 	}
 }
