@@ -198,6 +198,9 @@ func (c *Curso) Criar(
 		return err
 	}
 	if tipo == "medio" {
+		if len(anosAcademicos) > 0 {
+			return fmt.Errorf("anos_academicos de cursos médios são fixos e derivados de modelo; não podem ser informados manualmente")
+		}
 		var err error
 		anosAcademicos, err = DerivarAnosAcademicosCursoMedio(modelo)
 		if err != nil {

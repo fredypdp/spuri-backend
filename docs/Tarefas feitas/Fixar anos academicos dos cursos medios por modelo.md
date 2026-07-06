@@ -3,7 +3,7 @@ criado: 2026-07-06 00:00
 status: pronto_para_implementacao
 ---
 
-# Fixar anos acadêmicos dos cursos médios por modelo
+# Fixar anos acadêmicos dos cursos médios por modelo (feito)
 
 ## Prompt recomendado para executar a atualização
 

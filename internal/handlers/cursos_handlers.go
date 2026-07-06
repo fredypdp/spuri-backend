@@ -240,7 +240,11 @@ func CriarCurso(c *gin.Context) {
 		return
 	}
 
-	if err := curso.Criar(req.Nome, tipoCurso, req.Modelo, anosAcademicos, periodos, nil, academiaDTO.CodigoAcademia); err != nil {
+	anosParaAggregate := anosAcademicos
+	if tipoCurso == "medio" {
+		anosParaAggregate = nil
+	}
+	if err := curso.Criar(req.Nome, tipoCurso, req.Modelo, anosParaAggregate, periodos, nil, academiaDTO.CodigoAcademia); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -258,11 +262,12 @@ func CriarCurso(c *gin.Context) {
 	log.Printf("Curso criado: %s - %s (periodos=%v)", req.Nome, curso.ID, curso.Periodos)
 
 	data := gin.H{
-		"id":             curso.ID,
-		"nome":           curso.Nome,
-		"type":           curso.Type,
-		"periodos":       curso.Periodos,
-		"materias_chave": curso.MateriasChave,
+		"id":              curso.ID,
+		"nome":            curso.Nome,
+		"type":            curso.Type,
+		"anos_academicos": curso.AnosAcademicos,
+		"periodos":        curso.Periodos,
+		"materias_chave":  curso.MateriasChave,
 	}
 	if curso.Type == "medio" {
 		data["modelo"] = curso.Modelo
