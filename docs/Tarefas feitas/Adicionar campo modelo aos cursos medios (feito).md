@@ -1,4 +1,4 @@
-# Adicionar campo `modelo` aos cursos médios
+# Adicionar campo `modelo` aos cursos médios (feito)
 
 ## Objetivo
 
