@@ -141,70 +141,10 @@ func alterarAnosFundamental(c *gin.Context, academiaDTO *projections.AcademiaDTO
 }
 
 func alterarEscopoCurso(c *gin.Context, academiaDTO *projections.AcademiaDTO, req anosAcademicosRequest, op string) error {
-	if req.Type == "medio" {
-		if academiaDTO.Nivel != "escola" || academiaDTO.NivelEscolar == nil || (*academiaDTO.NivelEscolar != "medio" && *academiaDTO.NivelEscolar != "misto") {
-			return newAnosValidationError("type", "nivel_incompativel", fmt.Sprintf("Esta academia não pode gerenciar anos do ensino médio porque o nível cadastrado é nivel='%s' e nivel_escolar='%s'. Somente academias escolares com nivel_escolar 'medio' ou 'misto' podem alterar anos médios.", academiaDTO.Nivel, stringPtrValue(academiaDTO.NivelEscolar)))
-		}
-	}
 	if req.Type == "superior" && academiaDTO.Nivel != "superior" {
 		return newAnosValidationError("type", "nivel_incompativel", fmt.Sprintf("Esta academia não pode gerenciar períodos do ensino superior porque o nível cadastrado é nivel='%s' e nivel_escolar='%s'. Somente academias superiores podem gerenciar escopos superiores.", academiaDTO.Nivel, stringPtrValue(academiaDTO.NivelEscolar)))
 	}
-	if req.CursoID == nil {
-		return newAnosValidationError("curso_id", "campo_obrigatorio", fmt.Sprintf("O campo 'curso_id' é obrigatório quando type='%s', porque anos de médio/superior pertencem a um curso específico.", req.Type))
-	}
-	cursoDTO, err := getCursosProjection(c).GetByID(*req.CursoID)
-	if err != nil || cursoDTO == nil {
-		return newAnosValidationError("curso_id", "nao_encontrado", fmt.Sprintf("Nenhum curso foi encontrado com curso_id='%s'. Confira se o ID foi copiado corretamente e se o curso existe.", req.CursoID.String()))
-	}
-	if cursoDTO.CodigoAcademia != academiaDTO.CodigoAcademia {
-		return newAnosValidationError("curso_id", "curso_de_outra_academia", fmt.Sprintf("O curso_id='%s' pertence à academia '%s', mas a requisição está autenticada para a academia '%s'. Use um curso da própria academia.", cursoDTO.ID, cursoDTO.CodigoAcademia, academiaDTO.CodigoAcademia))
-	}
-	if cursoDTO.Status != "ativo" {
-		return newAnosValidationError("curso_id", "curso_inativo", fmt.Sprintf("O curso '%s' está com status '%s'. Só é possível gerenciar anos acadêmicos de cursos ativos.", cursoDTO.Nome, cursoDTO.Status))
-	}
-	if cursoDTO.Type != req.Type {
-		return newAnosValidationError("type", "tipo_diferente_do_curso", fmt.Sprintf("O payload informou type='%s', mas o curso '%s' é do tipo '%s'. Envie o mesmo tipo do curso.", req.Type, cursoDTO.Nome, cursoDTO.Type))
-	}
-	var novosAnos []string
-	var novosPeriodos *[]string
-	if req.Type == "medio" {
-		if len(req.AnosAcademicos) == 0 {
-			return newAnosValidationError("anos_academicos", "campo_obrigatorio", "Informe pelo menos um ano em 'anos_academicos' para curso médio. Exemplo: ['1_ano_medio', '2_ano_medio'].")
-		}
-		if err := utils.ValidateAnosCurso("medio", req.AnosAcademicos); err != nil {
-			return newAnosValidationError("anos_academicos", "formato_invalido", err.Error())
-		}
-		novosAnos = combinarAnos(cursoDTO.AnosAcademicos, req.AnosAcademicos, op)
-		if len(novosAnos) == 0 {
-			return newAnosValidationError("anos_academicos", "remocao_invalida", "A operação deixaria o curso médio sem anos acadêmicos. Cursos nunca podem ficar sem anos acadêmicos.")
-		}
-		if err := validarSequenciaAnosMedio(novosAnos); err != nil {
-			return newAnosValidationError("anos_academicos", "sequencia_invalida", err.Error())
-		}
-	} else {
-		return newAnosValidationError("type", "operacao_nao_suportada", "Cursos superiores não aceitam adição ou remoção direta de anos acadêmicos/períodos por /academia/anos-academicos. Use o fluxo específico de períodos, quando disponível.")
-	}
-	if err := validarEdicaoCursoComEstudantesAtivos(c, cursoDTO, novosAnos, novosPeriodos); err != nil {
-		return conflictErrorWithDetail("anos_academicos", "estudantes_ativos_vinculados", fmt.Sprintf("%s. Ajuste primeiro os estudantes ativos vinculados ao curso antes de alterar/remover anos ou períodos.", err.Error()))
-	}
-	repository := getRepository(c)
-	agg, err := repository.Load(cursoDTO.ID, "Curso")
-	if err != nil {
-		return err
-	}
-	curso := agg.(*aggregates.Curso)
-	if err := curso.AtualizarDados(nil, novosAnos, novosPeriodos, nil, nil, academiaDTO.ID); err != nil {
-		return err
-	}
-	if err := repository.SaveWithAudit(curso, db.AuditContext{UserID: academiaDTO.ID.String(), UserType: "academia", IP: c.ClientIP()}); err != nil {
-		return err
-	}
-	resp := gin.H{"message": "anos acadêmicos atualizados com sucesso", "type": req.Type, "curso_id": cursoDTO.ID, "anos_academicos": curso.AnosAcademicos}
-	if req.Type == "superior" {
-		resp["periodos"] = curso.Periodos
-	}
-	c.JSON(http.StatusOK, resp)
-	return nil
+	return newAnosValidationError("type", "operacao_nao_suportada", "Cursos superiores não aceitam adição ou remoção direta de anos acadêmicos/períodos por /academia/anos-academicos. Use o fluxo específico de períodos, quando disponível.")
 }
 
 func academiaAutenticada(c *gin.Context) (*projections.AcademiaDTO, bool) {

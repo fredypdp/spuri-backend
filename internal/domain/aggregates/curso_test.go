@@ -103,7 +103,7 @@ func TestCursoMedioMateriasChaveValidaAnoEDuplicados(t *testing.T) {
 
 func TestCursoMedioPodeSerCriadoSemMateriasChave(t *testing.T) {
 	curso := NewCurso()
-	err := curso.Criar("Ciências", "medio", "liceu", []string{"1_ano_medio"}, nil, nil, "ACA001")
+	err := curso.Criar("Ciências", "medio", "liceu", nil, nil, nil, "ACA001")
 	if err != nil {
 		t.Fatalf("curso médio sem materias_chave deveria ser criado: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestCursoMedioPodeSerCriadoSemMateriasChave(t *testing.T) {
 func TestCursoMedioModeloObrigatorioEValido(t *testing.T) {
 	for _, modelo := range []string{"liceu", "tecnico"} {
 		curso := NewCurso()
-		if err := curso.Criar("Curso Médio", "medio", modelo, []string{"1_ano_medio"}, nil, nil, "ACA_01"); err != nil {
+		if err := curso.Criar("Curso Médio", "medio", modelo, nil, nil, nil, "ACA_01"); err != nil {
 			t.Fatalf("modelo %s deveria ser aceito: %v", modelo, err)
 		}
 		if curso.Modelo != modelo {
@@ -129,7 +129,7 @@ func TestCursoMedioModeloObrigatorioEValido(t *testing.T) {
 
 	for _, modelo := range []string{"", "profissional", "LICEU"} {
 		curso := NewCurso()
-		if err := curso.Criar("Curso Médio", "medio", modelo, []string{"1_ano_medio"}, nil, nil, "ACA_01"); err == nil {
+		if err := curso.Criar("Curso Médio", "medio", modelo, nil, nil, nil, "ACA_01"); err == nil {
 			t.Fatalf("modelo %q deveria ser rejeitado", modelo)
 		}
 	}
@@ -144,11 +144,18 @@ func TestCursoSuperiorRejeitaModelo(t *testing.T) {
 
 func TestCursoMedioRejeitaAtualizacaoDeModelo(t *testing.T) {
 	curso := NewCurso()
-	if err := curso.Criar("Curso Médio", "medio", "liceu", []string{"1_ano_medio"}, nil, nil, "ACA_01"); err != nil {
+	if err := curso.Criar("Curso Médio", "medio", "liceu", nil, nil, nil, "ACA_01"); err != nil {
 		t.Fatalf("Criar() erro inesperado: %v", err)
 	}
 	modelo := "tecnico"
 	if err := curso.AtualizarDados(nil, nil, nil, nil, &modelo, uuid.New()); err == nil {
 		t.Fatalf("AtualizarDados() deveria rejeitar troca de modelo de curso médio")
+	}
+}
+
+func TestCursoMedioRejeitaAnosAcademicosManuaisNoAggregate(t *testing.T) {
+	curso := NewCurso()
+	if err := curso.Criar("Curso Médio", "medio", "tecnico", []string{"1_ano_medio", "2_ano_medio", "3_ano_medio", "4_ano_medio"}, nil, nil, "ACA_01"); err == nil {
+		t.Fatalf("Criar() deveria rejeitar anos_academicos manuais em curso médio")
 	}
 }
