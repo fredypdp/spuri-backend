@@ -150,9 +150,17 @@ func RegistrarNota(c *gin.Context) {
 		return
 	}
 
-	// Categorias adicionais — sempre carregadas para qualquer tipo de nota,
-	// pois academias de todos os tipos podem cadastrar categorias extras.
+	// Categorias disponíveis para o ano: no fluxo escolar vêm do padrão fixo do sistema;
+	// no superior continuam sendo categorias configuráveis da academia.
+	modeloCursoMedio := modeloCursoMedioDaMateria(c, materiaDTO)
 	categoriasAdicionais := carregarCategoriasDisponiveisParaAno(c, academiaDTO.CodigoAcademia, anoAcademico)
+	if req.Tipo == aggregates.TipoEscolar {
+		categoriasAdicionais = codigosCategoriasEscolaresFixasParaAno(anoAcademico, modeloCursoMedio)
+	}
+	if err := validarEscalaNotaPorAnoAcademico(anoAcademico, req.Nota); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 
 	// Aggregate e comando
 	repository := getRepository(c)
@@ -297,6 +305,10 @@ func AtualizarNota(c *gin.Context) {
 	}
 
 	materiaID, _ := uuid.Parse(notaAtual.MateriaDisciplinarID)
+	if err := validarEscalaNotaPorAnoAcademico(notaAtual.AnoAcademico, *req.NotaNova); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 
 	materiasProj := getMateriasProjection(c)
 	materiaDTO, _ := materiasProj.GetByID(materiaID)
@@ -572,8 +584,8 @@ func GetNotasEstudante(c *gin.Context) {
 // POST /academia/categorias-nota
 // ============================================================================
 
-// CriarCategoriaNota cria uma categoria de nota adicional para a academia.
-// Disponível para academias de qualquer tipo (escola, universidade).
+// CriarCategoriaNota cria uma categoria de nota configurável para o ensino superior.
+// Escolas usam o padrão avaliativo fixo do sistema e não podem manipular categorias.
 func CriarCategoriaNota(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
@@ -592,6 +604,10 @@ func CriarCategoriaNota(c *gin.Context) {
 	academiaDTO, err := academiaProj.GetByID(userID)
 	if err != nil || academiaDTO == nil {
 		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+	if academiaDTO.Nivel != "superior" {
+		utils.RespondWithValidationError(c, fmt.Errorf("categorias de nota escolares são fixas do sistema; crie categorias apenas para ensino superior"))
 		return
 	}
 
@@ -640,7 +656,6 @@ func ListarCategoriasNota(c *gin.Context) {
 		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
-
 	categoriasProj := getCategoriasNotaProjection(c)
 	categorias, err := categoriasProj.ListarPorAcademia(academiaDTO.CodigoAcademia)
 	if err != nil {
@@ -648,9 +663,10 @@ func ListarCategoriasNota(c *gin.Context) {
 		return
 	}
 
+	categoriasResposta := anexarCategoriasEscolaresFixas(categorias, academiaDTO)
 	c.JSON(http.StatusOK, gin.H{
-		"categorias": categorias,
-		"total":      len(categorias),
+		"categorias": categoriasResposta,
+		"total":      len(categoriasResposta),
 	})
 }
 
@@ -693,6 +709,10 @@ func DeletarCategoriaNota(c *gin.Context) {
 	academiaDTO, err := academiaProj.GetByID(userID)
 	if err != nil || academiaDTO == nil {
 		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+	if academiaDTO.Nivel != "superior" {
+		utils.RespondWithValidationError(c, fmt.Errorf("categorias de nota escolares são fixas do sistema e não podem ser removidas"))
 		return
 	}
 

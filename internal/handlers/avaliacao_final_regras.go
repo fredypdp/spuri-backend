@@ -142,6 +142,10 @@ func CriarRegraAvaliacaoFinal(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
+	if req.Nivel != "superior" {
+		utils.RespondWithValidationError(c, fmt.Errorf("regras de avaliação final escolares são fixas do sistema; configure regras apenas para ensino superior"))
+		return
+	}
 	if strings.TrimSpace(req.Type) == "" || strings.TrimSpace(req.Nome) == "" || req.NotaMinimaAprovacao <= 0 || strings.TrimSpace(req.Formula) == "" {
 		utils.RespondWithValidationError(c, fmt.Errorf("regra de avaliação final incompleta"))
 		return
@@ -410,6 +414,10 @@ func EditarRegraAvaliacaoFinal(c *gin.Context) {
 		utils.RespondWithNotFoundError(c, "regra de avaliação final")
 		return
 	}
+	if regra.Nivel != "superior" {
+		utils.RespondWithValidationError(c, fmt.Errorf("regras de avaliação final escolares são fixas do sistema e não podem ser editadas"))
+		return
+	}
 	if regra.Status != "ativo" {
 		utils.RespondWithValidationError(c, fmt.Errorf("somente regras ativas podem ser editadas"))
 		return
@@ -466,6 +474,10 @@ func DeletarRegraAvaliacaoFinal(c *gin.Context) {
 	}
 	if regra == nil {
 		utils.RespondWithNotFoundError(c, "regra de avaliação final")
+		return
+	}
+	if regra.Nivel != "superior" {
+		utils.RespondWithValidationError(c, fmt.Errorf("regras de avaliação final escolares são fixas do sistema e não podem ser removidas"))
 		return
 	}
 	if regra.Status != "ativo" {
