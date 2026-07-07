@@ -133,7 +133,7 @@ func CriarRegraAvaliacaoFinal(c *gin.Context) {
 		return
 	}
 	if jsonCampoPresente(body, "materias_chave") {
-		utils.RespondWithValidationError(c, fmt.Errorf("materias_chave não é aceito em regras de avaliação final; configure matérias-chave no curso médio, por ano_academico"))
+		utils.RespondWithValidationError(c, fmt.Errorf("materias_chave não é aceito em regras de avaliação final; o conceito foi removido do modelo atual"))
 		return
 	}
 	var req regraAvaliacaoFinalDTO
@@ -412,7 +412,7 @@ func EditarRegraAvaliacaoFinal(c *gin.Context) {
 		return
 	}
 	if jsonCampoPresente(body, "materias_chave") {
-		utils.RespondWithValidationError(c, fmt.Errorf("materias_chave não é aceito em regras de avaliação final; configure matérias-chave no curso médio, por ano_academico"))
+		utils.RespondWithValidationError(c, fmt.Errorf("materias_chave não é aceito em regras de avaliação final; o conceito foi removido do modelo atual"))
 		return
 	}
 	if jsonCampoPresente(body, "nivel") || jsonCampoPresente(body, "anos_academicos") {

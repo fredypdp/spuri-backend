@@ -116,17 +116,6 @@ func TestValidarSequenciaAnosMedioExigePrefixoContinuo(t *testing.T) {
 	}
 }
 
-func TestPrepararDadosCursoSuperiorRejeitaMateriasChave(t *testing.T) {
-	_, _, err := prepararDadosCursoPorTipo("superior", cursoPayload{
-		PeriodosInformado:      true,
-		PeriodosQuantidade:     2,
-		MateriasChaveInformado: true,
-	}, true)
-	if err == nil {
-		t.Fatalf("esperava erro ao enviar materias_chave em curso superior")
-	}
-}
-
 func TestRejeitarCamposAcademicosEmAtualizacaoCursoRejeitaMateriasChave(t *testing.T) {
 	req := httptest.NewRequest("PUT", "/academia/curso/id/dados", bytes.NewBufferString(`{"materias_chave":[]}`))
 	w := httptest.NewRecorder()

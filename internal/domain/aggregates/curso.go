@@ -27,11 +27,6 @@ const (
 	ModeloCursoMedioTecnico = "tecnico"
 )
 
-type MateriasChaveCursoAno struct {
-	AnoAcademico  string      `json:"ano_academico"`
-	MateriasChave []uuid.UUID `json:"materias_chave"`
-}
-
 type Curso struct {
 	BaseAggregate
 
@@ -42,7 +37,6 @@ type Curso struct {
 	// Periodos define os períodos letivos do curso.
 	// Obrigatório para type="superior"; vazio para "medio" (fixos no sistema).
 	Periodos       []string
-	MateriasChave  []MateriasChaveCursoAno
 	CodigoAcademia string
 	Status         string
 	CreatedAt      time.Time
@@ -60,7 +54,6 @@ func NewCurso() *Curso {
 		Status:         "ativo",
 		AnosAcademicos: []string{},
 		Periodos:       []string{},
-		MateriasChave:  []MateriasChaveCursoAno{},
 	}
 }
 
@@ -104,7 +97,6 @@ type CursoCriadoEvent struct {
 	Modelo         string
 	AnosAcademicos []string
 	Periodos       []string
-	MateriasChave  []MateriasChaveCursoAno
 	CodigoAcademia string
 	CreatedAt      time.Time
 }
@@ -138,7 +130,6 @@ type CursoDadosAtualizadosEvent struct {
 	Nome           *string
 	AnosAcademicos []string
 	Periodos       *[]string
-	MateriasChave  *[]MateriasChaveCursoAno
 	Modelo         *string
 	UpdatedAt      time.Time
 	// FIX C-02: UUID do usuário que atualizou. uuid.Nil = legado/não preenchido.
@@ -178,7 +169,6 @@ func (c *Curso) Criar(
 	modelo string,
 	anosAcademicos []string,
 	periodos []string,
-	materiasChave []MateriasChaveCursoAno,
 	codigoAcademia string,
 ) error {
 	log.Printf("[DEBUG] Criando curso: nome=%s, tipo=%s, modelo=%s, anosAcademicos=%v, periodos=%v, academia=%s",
@@ -217,12 +207,6 @@ func (c *Curso) Criar(
 	if err := validarPeriodosCurso(tipo, periodos, len(anosAcademicos)); err != nil {
 		return err
 	}
-	if tipo == "superior" && len(materiasChave) > 0 {
-		return fmt.Errorf("materias_chave é exclusivo para cursos do tipo medio")
-	}
-	if len(materiasChave) > 0 {
-		return fmt.Errorf("materias_chave deve ser configurado após a criação do curso pela rota específica")
-	}
 
 	event := &CursoCriadoEvent{
 		BaseEvent: BaseEvent{
@@ -234,7 +218,6 @@ func (c *Curso) Criar(
 		Modelo:         normalizarModeloCurso(tipo, modelo),
 		AnosAcademicos: anosAcademicos,
 		Periodos:       normalizarPeriodos(tipo, periodos),
-		MateriasChave:  materiasChave,
 		CodigoAcademia: codigoAcademia,
 		CreatedAt:      time.Now(),
 	}
@@ -288,8 +271,8 @@ func (c *Curso) Desativar(desativadoPor uuid.UUID) error {
 // O tipo do curso é IMUTÁVEL após a criação.
 // Passe nil para não alterar os respectivos campos.
 // periodos=nil → não altera; periodos=&[]string{...} → atualiza.
-func (c *Curso) AtualizarDados(nome *string, anosAcademicos []string, periodos *[]string, materiasChave *[]MateriasChaveCursoAno, modelo *string, atualizadoPor uuid.UUID) error {
-	if nome == nil && anosAcademicos == nil && periodos == nil && materiasChave == nil && modelo == nil {
+func (c *Curso) AtualizarDados(nome *string, anosAcademicos []string, periodos *[]string, modelo *string, atualizadoPor uuid.UUID) error {
+	if nome == nil && anosAcademicos == nil && periodos == nil && modelo == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
 
@@ -309,23 +292,6 @@ func (c *Curso) AtualizarDados(nome *string, anosAcademicos []string, periodos *
 	}
 	if anosAcademicos != nil {
 		if err := utils.ValidateAnosCurso(c.Type, anosAcademicos); err != nil {
-			return err
-		}
-	}
-
-	if materiasChave != nil {
-		if c.Type == "superior" && len(*materiasChave) > 0 {
-			return fmt.Errorf("materias_chave é exclusivo para cursos do tipo medio")
-		}
-		anosBase := c.AnosAcademicos
-		if anosAcademicos != nil {
-			anosBase = anosAcademicos
-		}
-		if err := validarMateriasChaveCurso(c.Type, anosBase, *materiasChave); err != nil {
-			return err
-		}
-	} else if anosAcademicos != nil && c.Type == "medio" {
-		if err := validarMateriasChaveCurso(c.Type, anosAcademicos, c.MateriasChave); err != nil {
 			return err
 		}
 	}
@@ -350,7 +316,6 @@ func (c *Curso) AtualizarDados(nome *string, anosAcademicos []string, periodos *
 		Nome:           nome,
 		AnosAcademicos: anosAcademicos,
 		Periodos:       periodos,
-		MateriasChave:  materiasChave,
 		Modelo:         modelo,
 		UpdatedAt:      time.Now(),
 		AtualizadoPor:  atualizadoPor,
@@ -408,7 +373,6 @@ func (c *Curso) applyCursoCriado(event DomainEvent) error {
 	c.Modelo = normalizarModeloLegado(p.Type, p.Modelo)
 	c.AnosAcademicos = p.AnosAcademicos
 	c.Periodos = p.Periodos
-	c.MateriasChave = p.MateriasChave
 	c.CodigoAcademia = p.CodigoAcademia
 	c.Status = "ativo"
 	c.CreatedAt = p.CreatedAt
@@ -450,9 +414,6 @@ func (c *Curso) applyCursoDadosAtualizados(event DomainEvent) error {
 	}
 	if p.Periodos != nil {
 		c.Periodos = *p.Periodos
-	}
-	if p.MateriasChave != nil {
-		c.MateriasChave = *p.MateriasChave
 	}
 	if p.Modelo != nil {
 		c.Modelo = *p.Modelo
@@ -557,40 +518,6 @@ func normalizarPeriodos(tipo string, periodos []string) []string {
 		return []string{}
 	}
 	return periodos
-}
-
-func validarMateriasChaveCurso(tipo string, anosAcademicos []string, materias []MateriasChaveCursoAno) error {
-	anos := map[string]struct{}{}
-	for _, ano := range anosAcademicos {
-		anos[ano] = struct{}{}
-	}
-	vistosAno := map[string]struct{}{}
-	for _, item := range materias {
-		if strings.TrimSpace(item.AnoAcademico) == "" {
-			return fmt.Errorf("materias_chave possui ano_academico obrigatório")
-		}
-		if len(item.MateriasChave) == 0 {
-			return fmt.Errorf("materias_chave do ano_academico %s deve conter pelo menos uma matéria", item.AnoAcademico)
-		}
-		if _, ok := anos[item.AnoAcademico]; !ok {
-			return fmt.Errorf("materias_chave possui ano_academico fora de anos_academicos: %s", item.AnoAcademico)
-		}
-		if _, ok := vistosAno[item.AnoAcademico]; ok {
-			return fmt.Errorf("materias_chave possui configuração duplicada para ano_academico %s", item.AnoAcademico)
-		}
-		vistosAno[item.AnoAcademico] = struct{}{}
-		vistosMateria := map[uuid.UUID]struct{}{}
-		for _, id := range item.MateriasChave {
-			if id == uuid.Nil {
-				return fmt.Errorf("materias_chave possui ID de matéria inválido")
-			}
-			if _, ok := vistosMateria[id]; ok {
-				return fmt.Errorf("materias_chave possui matéria duplicada no ano_academico %s", item.AnoAcademico)
-			}
-			vistosMateria[id] = struct{}{}
-		}
-	}
-	return nil
 }
 
 // DerivarAnosAcademicosCursoMedio retorna a duração acadêmica fixa de um curso médio.

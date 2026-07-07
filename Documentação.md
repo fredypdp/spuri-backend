@@ -260,11 +260,6 @@ interface SolicitacaoMatriculaDTO {
 ### 2.5 Curso
 
 ```typescript
-interface MateriasChaveCursoAnoDTO {
-  ano_academico: string      // deve pertencer a CursoDTO.anos_academicos
-  materias_chave: string[]   // UUIDs de matérias médias ativas do mesmo curso/ano
-}
-
 interface CursoDTO {
   id: string
   nome: string
@@ -272,7 +267,6 @@ interface CursoDTO {
   modelo?: ModeloCursoMedio  // obrigatório e exposto apenas em cursos médios
   anos_academicos: string[]  // ex: ['1_ano_medio', '2_ano_medio', '3_ano_medio']
   periodos?: string[]        // ex: ['1_semestre', '2_semestre'] — apenas para superior
-  materias_chave?: MateriasChaveCursoAnoDTO[] // apenas médio; estado configurado por rota própria após a criação
   codigo_academia: string
   status: string             // 'ativo' | 'inativo' | 'deletado'
   created_at: string
@@ -2852,7 +2846,6 @@ Para deletar um curso:
 4. Matérias inativas são deletadas em cascata automaticamente
 5. Turmas inativas vinculadas são deletadas em cascata automaticamente
 
-Em cursos médios, `materias_chave` é parte da configuração curricular do curso e é mantido pela rota específica `PUT /academia/curso/:id/materias-chave`, após a criação das matérias do curso. A criação e a edição cadastral do curso não aceitam esse campo. Quando a avaliação final do Médio precisa de matérias-chave e a configuração do curso/ano ainda não existe, o backend retorna erro claro de configuração ausente.
 
 **Ciclo de vida da matéria superior:**
 
@@ -2910,7 +2903,6 @@ Cria um novo curso para a academia. O tipo efetivo do curso é inferido pelo bac
 
 Para cursos superiores, `periodos` é um **número inteiro positivo** que representa o total de semestres. O backend persiste internamente os semestres sequenciais (`1_semestre` até `N_semestre`) e calcula `anos_academicos` automaticamente com `ceil(periodos / 2)`. Ex.: `periodos = 3` gera `periodos = ["1_semestre", "2_semestre", "3_semestre"]` e `anos_academicos = ["1_ano_superior", "2_ano_superior"]`.
 
-Cursos médios exigem `modelo` com valor exatamente `liceu` ou `tecnico`; cursos superiores não aceitam `modelo`, `anos_academicos` nem `materias_chave` no payload; cursos médios não aceitam `anos_academicos`, `periodos` numérico nem `materias_chave` na criação. Para curso médio, o backend deriva `anos_academicos`: `liceu` gera `1_ano_medio` a `3_ano_medio`, e `tecnico` gera `1_ano_medio` a `4_ano_medio`. Configure `materias_chave` depois de criar as matérias do curso, pela rota `PUT /academia/curso/:id/materias-chave`.
 
 
 **Exemplo 400 — curso médio com anos_academicos manual:**
@@ -2932,15 +2924,12 @@ Cursos médios exigem `modelo` com valor exatamente `liceu` ou `tecnico`; cursos
     "nome": "string",
     "type": "medio",
     "periodos": [],
-    "materias_chave": []
   }
 }
 ```
 
 **Erros:**
 
-- `400` — nome ausente, `type` incompatível com a academia, `modelo` ausente/inválido para curso médio, `anos_academicos` enviado para curso médio, ou `materias_chave` enviado na criação
-- `400` — curso superior sem `periodos`, com `periodos <= 0`, decimal, string, array, nulo, com `anos_academicos` enviado ou com `materias_chave` enviado
 - `400` — curso médio com `periodos` numérico enviado
 - `403` — academia inativa não pode criar cursos
 
@@ -2948,7 +2937,6 @@ Cursos médios exigem `modelo` com valor exatamente `liceu` ou `tecnico`; cursos
 
 ### GET /academia/cursos
 
-Lista todos os cursos da academia, incluindo `anos_academicos` de cada curso e, quando o curso é médio, a configuração `materias_chave` por ano acadêmico.
 
 **Proteção**: pública com autenticação opcional.
 
@@ -2975,7 +2963,6 @@ Lista todos os cursos da academia, incluindo `anos_academicos` de cada curso e, 
 
 ### GET /academia/curso/:id
 
-Retorna um curso específico, incluindo seus `anos_academicos` e, quando o curso é médio, `materias_chave` por ano acadêmico.
 
 **Proteção**: pública com autenticação opcional.
 
@@ -3029,15 +3016,12 @@ Desativa um curso ativo.
 
 ### PUT /academia/curso/:id/dados
 
-Atualiza apenas dados cadastrais de um curso. O `type` é imutável e esta rota não manipula anos acadêmicos, períodos, semestres nem `materias_chave`.
 
 **Proteção**: autenticado + academia ativa
 
 **Validações de integridade:**
 
-- O payload aceito para esta rota permite apenas dados cadastrais como `nome`; `materias_chave` deve ser configurado pela rota própria.
 - Campos acadêmicos como `anos_academicos`, `anosAcademicos`, `periodos`, `semestres`, `quantidade_semestres` e `anos` são rejeitados com erro de validação, sem mutação parcial.
-- Anos de curso médio não podem ser adicionados ou removidos manualmente; eles são derivados de `modelo`. Mantenha `materias_chave` coerente com os anos derivados pela rota específica.
 - Cursos superiores não aceitam adição/remoção direta de anos acadêmicos, períodos ou semestres por esta rota nem por `/academia/anos-academicos`; qualquer fluxo futuro de períodos deve ser explícito e separado dos dados cadastrais do curso.
 
 **Request:**
@@ -3058,14 +3042,11 @@ Atualiza apenas dados cadastrais de um curso. O `type` é imutável e esta rota 
   "modelo": "liceu",
   "anos_academicos": ["1_ano_medio", "2_ano_medio"],
   "periodos": [],
-  "materias_chave": [
     {
       "ano_academico": "1_ano_medio",
-      "materias_chave": ["uuid-materia-portugues"]
     },
     {
       "ano_academico": "2_ano_medio",
-      "materias_chave": ["uuid-materia-fisica"]
     }
   ]
 }
@@ -3074,40 +3055,11 @@ Atualiza apenas dados cadastrais de um curso. O `type` é imutável e esta rota 
 **Erros:**
 
 - `400` — nenhum campo para atualizar
-- `400` — `materias_chave` enviado nesta rota; use `PUT /academia/curso/:id/materias-chave`
 - `400` — `type` enviado na edição, pois o tipo do curso é imutável
 - `400` — campo acadêmico enviado (`anos_academicos`, `anosAcademicos`, `periodos`, `semestres`, `quantidade_semestres`, `anos` ou equivalente)
 
 ---
 
-### PUT /academia/curso/:id/materias-chave
-
-Configura, substitui ou remove a configuração de `materias_chave` de um curso médio já criado. Use esta rota somente depois de criar as matérias médias vinculadas ao curso.
-
-**Proteção**: autenticado + academia ativa
-
-**Request:**
-
-```json
-{
-  "materias_chave": [
-    {
-      "ano_academico": "1_ano_medio",
-      "materias_chave": ["uuid-materia-portugues"]
-    },
-    {
-      "ano_academico": "2_ano_medio",
-      "materias_chave": ["uuid-materia-fisica"]
-    }
-  ]
-}
-```
-
-**Validações:** curso existente, ativo e da academia autenticada; curso com `type="medio"`; matérias existentes, ativas, da mesma academia, do mesmo curso médio e do ano acadêmico informado; sem anos duplicados; sem IDs duplicados no mesmo ano; sem ano vazio; sem lista vazia; todos os anos do curso médio com configuração.
-
-**Response 200:** retorna o estado atualizado do curso.
-
----
 
 ### DELETE /academia/curso/:id
 
@@ -3168,7 +3120,6 @@ Para deletar um curso:
 4. Matérias inativas são deletadas em cascata automaticamente
 5. Turmas inativas vinculadas são deletadas em cascata automaticamente
 
-Em cursos médios, `materias_chave` é parte da configuração curricular do curso e é mantido pela rota específica `PUT /academia/curso/:id/materias-chave`, após a criação das matérias do curso. A criação e a edição cadastral do curso não aceitam esse campo. Quando a avaliação final do Médio precisa de matérias-chave e a configuração do curso/ano ainda não existe, o backend retorna erro claro de configuração ausente.
 
 **Ciclo de vida da matéria superior:**
 
@@ -4363,7 +4314,6 @@ A avaliação final é automática, auditável e orientada por regras. Ela é di
 | Fórmula | Expressão textual declarativa validada por parser próprio. Calcula a nota final de uma matéria usando notas existentes. Não há `eval`, script, template executável nem código dinâmico. |
 | `nota_minima_aprovacao` | Nota mínima para aprovar cada matéria avaliada na etapa. |
 | Matérias avaliadas | Matérias ativas da academia que pertencem ao nível/curso/ano/período do estudante e, se houver, ao filtro `materias_aplicaveis` da regra. |
-| `materias_chave` | Configuração curricular do curso médio, por `ano_academico`; não pertence à regra. Na raiz do Médio, o backend resolve a lista pelo `curso_medio_id` do estudante e pelo `ano_escolar_medio` atual. Reprovação em matéria não-chave na raiz não impede aprovação direta; reprovação em matéria-chave impede e pode acionar cadeia/pendência. |
 | `materias_aplicaveis` | Lista opcional de matérias que restringe a execução da regra. É especialmente útil em descendentes para recalcular apenas matérias de recuperação/exame/recurso. |
 | `limite_materias_pendentes` | Campo configurável apenas no Superior. Em escolas, regras/limites finais são fixos do sistema e não são cadastrados pela academia. |
 | `pendencia_permitida` | Campo exclusivo de matéria do Superior. Somente matérias superiores com esse campo verdadeiro podem gerar aprovação com pendência. |
@@ -4391,7 +4341,6 @@ A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras d
 |---|---:|---:|---:|
 | `nivel` | `fundamental` | `medio` | `superior` |
 | `anos_academicos` | Obrigatório e não vazio; array simples de anos fundamentais | Obrigatório; lista de objetos `{curso_id, anos_academicos}` por curso médio | Rejeitado |
-| `materias_chave` | Rejeitado | Rejeitado na regra; configurado no curso médio por rota específica após a criação das matérias | Rejeitado |
 | `materias_aplicaveis` | Opcional; lista de itens `{ano_academico, materias}` | Opcional; lista de itens `{curso_id, ano_academico, materias}` | Opcional; lista de itens `{curso_id, ano_academico, materias}` com ano derivado dos semestres |
 | `limite_materias_pendentes` | Regras fixas do sistema | Regras fixas do sistema; sem pendências escolares | Obrigatório, `>= 0` |
 | `aplica_se_reprovado_em_type` | Ausente na raiz; presente em descendente | Ausente na raiz; presente em descendente | Ausente na raiz; presente em descendente |
@@ -4407,7 +4356,6 @@ A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras d
 - `nota_despertadora` só pode ser configurado na regra raiz superior. Nas regras escolares fixas, a raiz é despertada por `prova_trimestral`, `exame_final` ou `nota_pap`, e a descendente fixa `exame_recurso` é despertada diretamente por `exame_recurso` apenas quando existe reprovação anterior. Regra superior raiz antiga sem `nota_despertadora` continua válida para compatibilidade, mas não é despertada automaticamente por lançamento de nota.
 - Descendentes superiores devem apontar para regra ativa existente no mesmo `nivel`, não podem apontar para si mesmas, não podem criar ciclo e devem usar exatamente o mesmo escopo da raiz da cadeia: mesmos anos no Fundamental e mesmos pares `curso_id` + `ano_academico` no Médio. Descendentes não expõem, aceitam nem persistem `nota_despertadora`; payload com esse campo falha porque descendentes são ativadas pela reprovação na ancestral.
 - Inativar uma regra inativa também suas dependentes diretas/indiretas para preservar a consistência da cadeia.
-- Na edição, não é permitido alterar `type`, `nivel`, `anos_academicos`, dependência, `materias_chave`, `materias_aplicaveis`, limite, status ou version; para mudar escopo/cadeia, cria-se nova regra. Se `materias_chave` for enviado em criação ou edição de regra, o backend rejeita e orienta configurar as matérias-chave no curso médio, por `ano_academico`.
 
 **Exemplos funcionais de configuração:**
 
@@ -4415,7 +4363,7 @@ A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras d
 |---|---|
 | Raiz do Fundamental | Não configurável por endpoint na versão 2.1.0; o padrão escolar fundamental é fixo do sistema e exposto como regra `source="system"`, `fixed=true`, `readonly=true`. |
 | Recuperação do Fundamental | Não configurável por endpoint; o sistema fornece as etapas fixas com `exame_final` e `exame_recurso` para os anos oficiais. |
-| Raiz do Médio | Não configurável por endpoint na versão 2.1.0; o padrão escolar médio é fixo do sistema. Matérias-chave continuam sendo configuração curricular do curso médio/ano, não da regra. |
+| Raiz do Médio | Não configurável por endpoint na versão 2.1.0; o padrão escolar médio é fixo do sistema. Matérias removidas do modelo continuam sendo configuração curricular do curso médio/ano, não da regra. |
 | Descendente do Médio | Não configurável por endpoint; o sistema fornece `exame_recurso` fixo para `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio`, limitado às matérias reprovadas na avaliação final. |
 | Raiz do Superior | `nivel=superior`, sem `anos_academicos`, fórmula com referências `[categoria]`, `limite_materias_pendentes` definido. |
 | Superior com pendência | Mesma regra superior, matérias com `pendencia_permitida=true` e, quando aplicável, `pendencia_nivel_conclusao` indicando o semestre-limite. |
@@ -4444,9 +4392,7 @@ Se a fórmula exigir nota que ainda não existe para determinada matéria, categ
 6. Descendentes só são consideradas se a etapa anterior reprovou. A descendente escolar fixa `exame_recurso` também pode ser despertada diretamente por lançamento/atualização de `exame_recurso`, mas somente para matérias reprovadas na avaliação final anterior e quando todas as notas de recurso exigidas estiverem completas.
 7. Para cada regra executável, o backend resolve as matérias aplicáveis e calcula `nota_final` individual por matéria.
 8. O resultado de cada matéria compara `nota_final` com `nota_minima_aprovacao`.
-9. No modelo superior configurável legado não escolar, o backend pode resolver `materias_chave` do curso médio quando a regra não é fixa. No padrão escolar fixo atual, o Médio é decidido pelas regras oficiais por matéria e pelo `exame_recurso`, sem pendência escolar.
 10. A decisão geral é derivada dos resultados por matéria e, no Superior, das condições de pendência.
-11. O evento grava snapshots: regra, `type`, fórmula usada, nota mínima, curso usado, matérias-chave resolvidas, resultados por matéria, pendências geradas, turma atual/turmas removidas quando aplicável e dados de progressão.
 12. Se a avaliação já existir no escopo idempotente, o backend não duplica o registro.
 
 #### 5.6.5 Fundamental
@@ -4464,7 +4410,6 @@ Se a fórmula exigir nota que ainda não existe para determinada matéria, categ
 
 - O escopo é o `ano_escolar_medio` atual do estudante, validado contra o curso médio ativo vinculado.
 - O backend avalia matérias médias ativas do curso e ano atual conforme o padrão fixo escolar.
-- A regra escolar fixa de Médio não aceita `materias_chave`; essa configuração curricular do curso médio permanece disponível para outros fluxos/consultas, mas não substitui a decisão oficial por matéria do padrão avaliativo fixo.
 - O `exame_recurso` fixo recalcula apenas matérias reprovadas na `avaliacao_final` anterior; matéria aprovada não pode receber recurso.
 - Médio escolar não permite matérias dependentes nem aprovação com pendência: `pendencia_permitida` e `pendencia_nivel_conclusao` são exclusivos do Superior.
 - O `4_ano_medio` técnico usa apenas `nota_pap` (`Prova de Aptidão Profissional`) como avaliação final, com aprovação por `nota_pap >= 10`, sem trimestres, prova trimestral, exame final ou recurso.
@@ -4473,7 +4418,6 @@ Cenários típicos do Médio:
 
 | Cenário | Resultado funcional |
 |---|---|
-| Todas as matérias-chave aprovadas | Aprovação direta na raiz, com progressão ou conclusão conforme ano do curso. |
 | Matéria não-chave reprovada na raiz | Resultado por matéria fica reprovado, mas a decisão geral da raiz pode permanecer aprovada conforme comportamento atual. |
 | Matéria-chave reprovada e aprovada em descendente | A cadeia registra a nova etapa e a aprovação da descendente permite progressão/conclusão. |
 | Matéria reprovada sem descendente aplicável | Reprovação no ano/etapa escolar conforme padrão fixo. |
@@ -4535,8 +4479,6 @@ Devem falhar com erro de validação ou bloqueio funcional:
 - Academia não mista criando regra de nível incompatível com sua configuração.
 - `anos_academicos` ausente em regra fundamental ou presente em Médio/Superior.
 - `limite_materias_pendentes` enviado em regra escolar, ausente em regra superior ou negativo.
-- `materias_chave` enviado em qualquer regra de avaliação final; o campo pertence ao curso médio, não à regra.
-- Curso médio sem `materias_chave` para todo ano acadêmico do curso, ou com matérias-chave vazias, duplicadas, inativas, inexistentes, de outra academia, de outro curso, de outro nível ou fora do ano configurado.
 - `materias_aplicaveis` fora do escopo do curso/ano/período aplicável deve ser tratada como configuração inválida ou ineficaz operacionalmente; QA deve validar esse cenário contra a base de matérias da academia.
 - Descendente órfã, descendente que aponta para si mesma, ciclo de dependências ou escopo fundamental diferente da raiz.
 - Fórmula Fundamental/Médio sem período explícito (`[categoria]`).
@@ -4669,7 +4611,6 @@ Cria uma regra ativa de avaliação final para a academia autenticada **somente 
 - `descricao` — opcional.
 - `nivel` — na versão 2.1.0, as rotas configuráveis aceitam apenas `superior`. Payloads com `fundamental` ou `medio` retornam erro porque regras escolares são fixas do sistema. O campo legado `tipo_ensino` não é aceito.
 - `anos_academicos` — rejeitado para `nivel="superior"`; escolas não configuram regras por esta rota.
-- `materias_chave` — não é aceito em regras de avaliação final. Para Médio, configure matérias-chave no curso médio, por `ano_academico`. Payloads de criação/edição de regra contendo esse campo retornam erro de validação.
 - `materias_aplicaveis` — opcional para Superior; usa itens `{curso_id, ano_academico, materias}`. IDs duplicados no mesmo item e itens duplicados por par curso+ano são inválidos. Escolas não configuram regras por esta rota.
 - `limite_materias_pendentes` — obrigatório para `nivel="superior"`; inteiro maior ou igual a zero.
 - `nota_minima_aprovacao` — obrigatório e maior que zero.
@@ -4799,7 +4740,6 @@ Edita uma regra ativa de avaliação final da academia autenticada **somente no 
 
 - O `id` precisa ser UUID válido e pertencer à academia autenticada.
 - A regra precisa estar `ativo`; regras inativas não são editadas.
-- Não é permitido editar `type`, `nivel`, `anos_academicos`, `aplica_se_reprovado_em_type`, `materias_chave`, `materias_aplicaveis`, `limite_materias_pendentes`, `status` nem `version` via payload, para não quebrar a cadeia já configurada. O campo legado `tipo_ensino` também é rejeitado. Caso uma versão futura permita editar `type`, a validação deve seguir a mesma regra da criação: o `type` pode coincidir com regra inativa, mas a regra inativa permanecerá bloqueada para ativação enquanto houver regra ativa conflitante.
 - `nome` é obrigatório e não pode ser vazio.
 - `nota_minima_aprovacao` precisa ser maior que zero.
 - `formula` passa pelo mesmo parser seguro da criação; categorias são extraídas da fórmula e precisam estar ativas/configuradas para os anos da regra.
@@ -4855,7 +4795,6 @@ A avaliação final automática calcula uma `nota_final` independente por matér
 
 - `nivel` é o campo oficial de escopo das regras (`fundamental`, `medio` ou `superior`).
 - `tipo_ensino` é legado e não é aceito nos payloads de criação/edição de regra.
-- `materias_chave` não pertence à regra. No Médio, o backend resolve as matérias-chave a partir do curso médio do estudante (`curso_medio_id`) e do `ano_escolar_medio` atual; se a configuração do curso/ano estiver ausente, a avaliação falha com erro claro.
 - `materias_aplicaveis` pode restringir uma regra descendente às matérias de recuperação/recurso.
 - `limite_materias_pendentes` é obrigatório para Superior configurável e define quantas reprovações finais podem virar pendência; escolas usam padrão fixo do sistema.
 
@@ -4880,21 +4819,18 @@ A avaliação final automática calcula uma `nota_final` independente por matér
 }
 ```
 
-**Exemplo inválido — `materias_chave` na regra:**
 
 ```json
 {
   "type": "normal",
   "nome": "Fechamento anual do médio",
   "nivel": "medio",
-  "materias_chave": ["b7f7b4d7-5d1e-4d1a-98ea-6a4a7b79b7c0"],
   "limite_materias_pendentes": 2,
   "nota_minima_aprovacao": 10,
   "formula": "([prova,1_trimestre]+[prova,2_trimestre]+[prova,3_trimestre])/3"
 }
 ```
 
-Esse payload é rejeitado; configure `materias_chave` no curso médio, por `ano_academico`.
 
 **Exemplo de regra superior com período inferido:**
 

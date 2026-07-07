@@ -368,7 +368,6 @@ func setupRouter() *gin.Engine {
 		academia.PUT("/curso/:id/ativar", handlers.AtivarCurso)
 		academia.PUT("/curso/:id/desativar", handlers.DesativarCurso)
 		academia.PUT("/curso/:id/dados", handlers.AtualizarDadosCurso)
-		academia.PUT("/curso/:id/materias-chave", handlers.ConfigurarMateriasChaveCurso)
 		academia.DELETE("/curso/:id", handlers.DeletarCurso)
 
 		// ── Matérias ──────────────────────────────────────────────────────

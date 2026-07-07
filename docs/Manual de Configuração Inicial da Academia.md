@@ -17,7 +17,6 @@ Antes dos passos operacionais, confirme o tipo da academia ativada conforme a se
 5. **Conferir os anos/períodos derivados dos cursos**.
 6. **Criar matérias disciplinares**.
 7. **Ativar matérias superiores**, pois elas nascem inativas.
-8. **Configurar matérias-chave dos cursos médios**, quando aplicável.
 9. **Criar categorias de nota superiores**, somente quando a academia ofertar Superior; escolas usam catálogo fixo.
 10. **Criar regras de avaliação final superiores**, somente quando a academia ofertar Superior; escolas usam regras fixas.
 11. **Cadastrar estudantes ou aprovar solicitações de matrícula**.
@@ -174,7 +173,6 @@ Exemplo:
 }
 ```
 
-Não envie `anos_academicos`, `periodos` nem `materias_chave` na criação do curso médio. As matérias-chave só podem ser configuradas depois que as matérias disciplinares do curso existirem.
 
 ### 5.2 Curso superior
 
@@ -193,7 +191,7 @@ Exemplo:
 }
 ```
 
-Não envie `modelo`, `anos_academicos` nem `materias_chave` para cursos superiores.
+Não envie `modelo` nem `anos_academicos` para cursos superiores.
 
 **Dependências:** cursos devem existir antes de matérias médias/superiores, turmas médias/superiores, estudantes médios/superiores, categorias superiores e regras superiores. Cursos médios não exigem criação de regras finais pela academia.
 
@@ -216,7 +214,6 @@ Regras atuais:
 - Cursos médios não aceitam adição ou remoção manual de anos; os anos são fixos por `modelo`.
 - `POST` ou `DELETE /academia/anos-academicos` com `type="medio"` retorna erro, porque o Médio é derivado do curso.
 - Cursos superiores não aceitam adição/remoção direta de anos acadêmicos, períodos ou semestres por `/academia/anos-academicos` nem por `PUT /academia/curso/:id/dados`.
-- `PUT /academia/curso/:id/dados` atualiza apenas dados cadastrais, como `nome`; não altera tipo, anos, períodos, semestres ou matérias-chave.
 
 ---
 
@@ -299,58 +296,9 @@ Sem ativação, a matéria superior não será considerada ativa para os process
 
 ---
 
-## 9. Passo 7 — Configurar matérias-chave de cursos médios
+## 9. Passo 7 — Operar cursos sem configuração especial removida
 
-Este passo só se aplica a cursos médios.
-
-As matérias-chave pertencem ao curso médio, por ano acadêmico, como configuração curricular do curso. Elas não pertencem a regras de avaliação final e não tornam o padrão avaliativo escolar configurável pela academia.
-
-Pré-requisitos:
-
-1. Curso médio criado, ativo e pertencente à academia autenticada.
-2. Anos acadêmicos do curso médio definidos automaticamente pelo `modelo`.
-3. Matérias médias criadas, ativas, do mesmo curso e do mesmo ano acadêmico.
-
-Rota:
-
-```http
-PUT /academia/curso/:id/materias-chave
-```
-
-Exemplo:
-
-```json
-{
-  "materias_chave": [
-    {
-      "ano_academico": "1_ano_medio",
-      "materias_chave": ["uuid-materia-biologia", "uuid-materia-quimica"]
-    },
-    {
-      "ano_academico": "2_ano_medio",
-      "materias_chave": ["uuid-materia-fisica"]
-    },
-    {
-      "ano_academico": "3_ano_medio",
-      "materias_chave": ["uuid-materia-matematica"]
-    }
-  ]
-}
-```
-
-Regras importantes:
-
-- Todo ano do curso médio deve ter configuração.
-- Cada ano precisa ter pelo menos uma matéria-chave.
-- Não pode haver ano duplicado nem ID duplicado no mesmo ano.
-- As matérias precisam existir, estar ativas, pertencer à mesma academia, ao mesmo curso médio e ao ano acadêmico informado.
-- Use `PUT /academia/curso/:id/materias-chave`; `PUT /academia/curso/:id/dados` rejeita `materias_chave`.
-
-**Por que este passo vem antes das notas?**
-
-As matérias-chave são configuração curricular obrigatória do curso médio. No padrão avaliativo escolar fixo, escolas não criam categorias nem regras; o backend usa as categorias/regras oficiais do sistema e mantém as matérias-chave do curso disponíveis para validações, auditoria e fluxos curriculares do Médio.
-
----
+O modelo atual não possui etapa, rota ou payload para configurar listas especiais de disciplinas no curso. Depois de criar cursos e matérias disciplinares, siga diretamente para categorias/regras de avaliação, matrículas, notas e faltas.
 
 ## 10. Passo 8 — Categorias de nota
 
@@ -464,7 +412,6 @@ Regras importantes:
 
 - O formato antigo de fórmula em JSON foi removido; use somente fórmula textual.
 - O backend extrai `categorias_envolvidas` a partir da fórmula. Se o campo for enviado, precisa bater exatamente com as categorias extraídas.
-- `materias_chave` não é aceito em regras de avaliação final.
 - `materias_aplicaveis`, quando usado no Superior, segue itens `{curso_id, ano_academico, materias}`.
 - `PUT /academia/avaliacao-final/regras/:id` edita apenas campos seguros como `nome`, `descricao`, `nota_minima_aprovacao`, `formula` e, em raiz, `nota_despertadora`.
 - `DELETE /academia/avaliacao-final/regras/:id` é deleção lógica e inativa também descendentes da cadeia.
@@ -609,7 +556,6 @@ Use este checklist antes de iniciar os lançamentos em produção:
 - [ ] Anos de cursos médios e períodos/anos superiores foram conferidos nas rotas de consulta.
 - [ ] Matérias foram criadas para todos os anos, cursos e semestres necessários.
 - [ ] Matérias superiores foram ativadas.
-- [ ] Cursos médios possuem matérias-chave configuradas para todos os anos.
 - [ ] Categorias de nota foram criadas para todos os anos superiores em uso; para escolas, confirme que o catálogo fixo aparece em `GET /academia/categorias-nota`.
 - [ ] Regras de avaliação final superiores foram criadas, se a academia ofertar Superior; para escolas, nenhuma regra deve ser criada, e o padrão fixo deve aparecer em `GET /academia/avaliacao-final/regras`.
 - [ ] Estudantes foram cadastrados ou aprovados com vínculo acadêmico correto.
@@ -637,7 +583,7 @@ Matérias disciplinares ◄──────────┘
         ↓
 Ativar matérias superiores
         ↓
-Matérias-chave do Médio
+Matérias removidas do modelo do Médio
         ↓
 Categorias superiores / catálogo escolar fixo
         ↓
@@ -665,7 +611,6 @@ Operação normal da plataforma
 | Escopo superior rejeitado em `/academia/anos-academicos` | Cursos superiores não aceitam gestão direta de anos/períodos por essa rota. | Defina `periodos` na criação do curso superior. |
 | Matéria média rejeitada | Curso médio não existe, está inativo, é de outra academia ou ano não pertence ao curso. | Crie/consulte o curso antes da matéria e use um ano derivado do curso. |
 | Matéria superior não entra na avaliação | Matéria superior foi criada, mas continua inativa. | Ative com `PUT /academia/materia/:id/ativar`. |
-| Configuração curricular do Médio incompleta | Curso médio sem `materias_chave` para todos os anos do curso. | Configure `PUT /academia/curso/:id/materias-chave` para todos os anos do curso. |
 | Nota escolar rejeitada por categoria | Categoria enviada não pertence ao catálogo fixo do ano/curso, por exemplo `prova_trimestral` no `4_ano_medio` técnico. | Use somente as categorias fixas exibidas em `GET /academia/categorias-nota`. |
 | Nota superior rejeitada por categoria | Categoria superior não existe, está inativa/removida ou não contém o ano aplicável. | Crie categorias superiores antes dos lançamentos e inclua todos os anos necessários. |
 | Regra escolar rejeitada | Tentativa de criar, editar ou remover regra `fundamental`/`medio`. | Não configure regras escolares; use o padrão fixo do sistema. |
