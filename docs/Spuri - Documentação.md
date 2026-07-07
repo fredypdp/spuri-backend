@@ -601,7 +601,7 @@ Nas escolas, a academia não cria nem remove categorias. O backend seleciona aut
 
 **Quem faz**: Academia ativa, com ano letivo configurado, por meio da configuração de regras e do lançamento de notas. A academia **não envia manualmente** a nota final calculada nem decide aprovação/reprovação no payload de execução.
 
-A avaliação final é automática, auditável e orientada por regras. Ela é disparada pelo fluxo de lançamento de notas quando o backend identifica que existem regras ativas e notas suficientes para calcular a etapa aplicável. O modelo atual **não é uma média global única do estudante**: o backend calcula uma `nota_final` independente para cada matéria disciplinar aplicável, registra resultados por matéria e deriva a decisão geral do conjunto de resultados, da cadeia de regras e, apenas para Médio/Superior, das regras de pendência.
+A avaliação final é automática, auditável e orientada por regras. Ela é disparada pelo fluxo de lançamento de notas quando o backend identifica que existem regras ativas e notas suficientes para calcular a etapa aplicável. O modelo atual **não é uma média global única do estudante**: o backend calcula uma `nota_final` independente para cada matéria disciplinar aplicável, registra resultados por matéria e deriva a decisão geral do conjunto de resultados, da cadeia de regras e, apenas para Superior, das regras de pendência.
 
 #### 5.6.1 Conceitos funcionais
 
@@ -618,9 +618,9 @@ A avaliação final é automática, auditável e orientada por regras. Ela é di
 | `materias_chave` | Configuração curricular do curso médio, por `ano_academico`; não pertence à regra. Na raiz do Médio, o backend resolve a lista pelo `curso_medio_id` do estudante e pelo `ano_escolar_medio` atual. Reprovação em matéria não-chave na raiz não impede aprovação direta; reprovação em matéria-chave impede e pode acionar cadeia/pendência. |
 | `materias_aplicaveis` | Lista opcional de matérias que restringe a execução da regra. É especialmente útil em descendentes para recalcular apenas matérias de recuperação/exame/recurso. |
 | `limite_materias_pendentes` | Campo configurável apenas no Superior. Em escolas, regras/limites finais são fixos do sistema e não são cadastrados pela academia. |
-| `pendencia_permitida` | Campo da matéria de Médio/Superior. Somente matérias com esse campo verdadeiro podem gerar aprovação com pendência. |
-| `pendencia_nivel_conclusao` | Campo da matéria de Médio/Superior que indica o nível/semestre de conclusão usado para bloqueio funcional de progressão/conclusão quando há pendência aberta. |
-| Matéria pendente | Registro persistente em `projection_materias_pendentes`, criado quando uma avaliação de Médio/Superior aprova com pendência. Mantém histórico aberto/baixado por estudante, matéria, curso, ano letivo e escopo. |
+| `pendencia_permitida` | Campo exclusivo de matéria do Superior. Somente matérias superiores com esse campo verdadeiro podem gerar aprovação com pendência. |
+| `pendencia_nivel_conclusao` | Campo exclusivo de matéria do Superior que indica o semestre de conclusão usado para bloqueio funcional de progressão/conclusão quando há pendência aberta. |
+| Matéria pendente | Registro persistente em `projection_materias_pendentes`, criado quando uma avaliação do Superior aprova com pendência. Mantém histórico aberto/baixado por estudante, matéria, curso, ano letivo e escopo. |
 
 A avaliação registrada é idempotente no escopo suportado: o sistema evita gravar duas avaliações com o mesmo estudante, academia, ano letivo, nível interno da avaliação, ano/período acadêmico atual e `type`. Eventos e projeções preservam snapshots de fórmula, regra, matérias e pendências suficientes para auditoria.
 
@@ -635,9 +635,7 @@ A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras d
 | Academia autenticada | Comportamento |
 |---|---|
 | Superior | O backend força `nivel="superior"`. Se o payload informar outro nível, falha. |
-| Escola fundamental | O backend aceita omissão ou `nivel="fundamental"`; outro nível falha. |
-| Escola média | O backend aceita omissão ou `nivel="medio"`; outro nível falha. |
-| Escola mista | O payload deve informar explicitamente `fundamental` ou `medio`. Escola mista não cria regra `superior`. |
+| Escola fundamental/média/mista | Regras escolares são fixas do sistema; endpoints de criação/edição/remoção rejeitam `fundamental` e `medio`. |
 
 **Campos por nível:**
 
@@ -647,9 +645,9 @@ A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras d
 | `anos_academicos` | Obrigatório e não vazio; array simples de anos fundamentais | Obrigatório; lista de objetos `{curso_id, anos_academicos}` por curso médio | Rejeitado |
 | `materias_chave` | Rejeitado | Rejeitado na regra; configurado no curso médio por rota específica após a criação das matérias | Rejeitado |
 | `materias_aplicaveis` | Opcional; lista de itens `{ano_academico, materias}` | Opcional; lista de itens `{curso_id, ano_academico, materias}` | Opcional; lista de itens `{curso_id, ano_academico, materias}` com ano derivado dos semestres |
-| `limite_materias_pendentes` | Regras fixas do sistema | Regras fixas do sistema | Obrigatório, `>= 0` |
+| `limite_materias_pendentes` | Regras fixas do sistema | Regras fixas do sistema; sem pendências escolares | Obrigatório, `>= 0` |
 | `aplica_se_reprovado_em_type` | Ausente na raiz; presente em descendente | Ausente na raiz; presente em descendente | Ausente na raiz; presente em descendente |
-| `nota_despertadora` | Opcional na raiz; rejeitado em descendente | Opcional na raiz; rejeitado em descendente | Opcional na raiz; rejeitado em descendente |
+| `nota_despertadora` | Fixo do sistema | Fixo do sistema | Opcional na raiz; rejeitado em descendente |
 
 **Regras de cadeia e unicidade:**
 
@@ -658,8 +656,8 @@ A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras d
 - `categorias_envolvidas` é extraído da `formula`; se enviado, deve bater exatamente com as categorias extraídas.
 - Não pode haver duas regras ativas com o mesmo `codigo_academia`, `nivel`, `type` e escopo sobreposto. No Fundamental a sobreposição é por `ano_academico`; no Médio é por par `curso_id` + `ano_academico`. Superior continua sem `anos_academicos` nesta mudança.
 - Deve haver no máximo uma raiz ativa por academia, `nivel` e escopo. Uma cadeia sem raiz ou com múltiplas raízes aplicáveis não é executável de forma determinística.
-- `nota_despertadora` só pode ser configurado na regra raiz. O valor é o `codigo` de uma categoria de nota ativa da academia e compatível com os anos/escopo da regra quando a categoria possuir essa segmentação. Regra raiz antiga sem `nota_despertadora` continua válida para compatibilidade, mas não é despertada automaticamente por lançamento de nota.
-- Descendentes devem apontar para regra ativa existente no mesmo `nivel`, não podem apontar para si mesmas, não podem criar ciclo e devem usar exatamente o mesmo escopo da raiz da cadeia: mesmos anos no Fundamental e mesmos pares `curso_id` + `ano_academico` no Médio. Descendentes não expõem, aceitam nem persistem `nota_despertadora`; payload com esse campo falha porque descendentes são ativadas pela reprovação na ancestral.
+- `nota_despertadora` só pode ser configurado na regra raiz superior. Nas regras escolares fixas, a raiz é despertada por `prova_trimestral`, `exame_final` ou `nota_pap`, e a descendente fixa `exame_recurso` é despertada diretamente por `exame_recurso` apenas quando existe reprovação anterior. Regra superior raiz antiga sem `nota_despertadora` continua válida para compatibilidade, mas não é despertada automaticamente por lançamento de nota.
+- Descendentes superiores devem apontar para regra ativa existente no mesmo `nivel`, não podem apontar para si mesmas, não podem criar ciclo e devem usar exatamente o mesmo escopo da raiz da cadeia: mesmos anos no Fundamental e mesmos pares `curso_id` + `ano_academico` no Médio. Descendentes não expõem, aceitam nem persistem `nota_despertadora`; payload com esse campo falha porque descendentes são ativadas pela reprovação na ancestral.
 - Inativar uma regra inativa também suas dependentes diretas/indiretas para preservar a consistência da cadeia.
 - Na edição, não é permitido alterar `type`, `nivel`, `anos_academicos`, dependência, `materias_chave`, `materias_aplicaveis`, limite, status ou version; para mudar escopo/cadeia, cria-se nova regra. Se `materias_chave` for enviado em criação ou edição de regra, o backend rejeita e orienta configurar as matérias-chave no curso médio, por `ano_academico`.
 
@@ -670,7 +668,7 @@ A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras d
 | Raiz do Fundamental | `nivel=fundamental`, `anos_academicos=["6_ano_fundamental"]`, fórmula com trimestres explícitos, sem limite de pendência. |
 | Recuperação do Fundamental | `nivel=fundamental`, mesmo `anos_academicos` da raiz, `aplica_se_reprovado_em_type="avaliacao_final"`, fórmula da recuperação/exame. |
 | Raiz do Médio | Não configurável por endpoint na versão 2.1.0; o padrão escolar médio é fixo do sistema. Matérias-chave continuam sendo configuração curricular do curso médio/ano, não da regra. |
-| Descendente do Médio | `nivel=medio`, mesmo escopo por curso/ano da raiz, `aplica_se_reprovado_em_type` apontando para a raiz, `materias_aplicaveis=[{curso_id, ano_academico, materias:[...]}]` com as matérias que podem ser recalculadas no exame. |
+| Descendente do Médio | Não configurável por endpoint; o sistema fornece `exame_recurso` fixo para `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio`, limitado às matérias reprovadas na avaliação final. |
 | Raiz do Superior | `nivel=superior`, sem `anos_academicos`, fórmula com referências `[categoria]`, `limite_materias_pendentes` definido. |
 | Superior com pendência | Mesma regra superior, matérias com `pendencia_permitida=true` e, quando aplicável, `pendencia_nivel_conclusao` indicando o semestre-limite. |
 
@@ -694,12 +692,12 @@ Se a fórmula exigir nota que ainda não existe para determinada matéria, categ
 2. O backend infere o nível acadêmico do estudante para execução: Superior tem prioridade quando há vínculo/status superior; depois Médio; caso contrário Fundamental.
 3. Para Superior, o backend transforma `semestre_atual` em `[n]_semestre` e valida esse período contra o curso.
 4. O backend busca regras ativas aplicáveis à academia, ao `nivel` e ao escopo acadêmico atual.
-5. A execução automática só continua se a cadeia tiver uma regra raiz com `nota_despertadora` e a categoria da nota registrada/atualizada for exatamente igual a esse código. Se a raiz não tiver `nota_despertadora`, regras legadas permanecem consultáveis e executáveis por fluxos administrativos existentes, mas não despertam automaticamente por nota.
-6. A cadeia começa na raiz. Descendentes só são consideradas se a etapa anterior reprovou; uma nota cuja categoria coincida com alguma etapa descendente nunca dispara diretamente essa descendente.
+5. A execução automática da raiz continua quando a categoria da nota registrada/atualizada é a `nota_despertadora` da raiz. No padrão escolar fixo, isso significa `prova_trimestral` no 3º trimestre para anos regulares, `exame_final` para anos com exame e `nota_pap` no `4_ano_medio` técnico.
+6. Descendentes só são consideradas se a etapa anterior reprovou. A descendente escolar fixa `exame_recurso` também pode ser despertada diretamente por lançamento/atualização de `exame_recurso`, mas somente para matérias reprovadas na avaliação final anterior e quando todas as notas de recurso exigidas estiverem completas.
 7. Para cada regra executável, o backend resolve as matérias aplicáveis e calcula `nota_final` individual por matéria.
 8. O resultado de cada matéria compara `nota_final` com `nota_minima_aprovacao`.
-9. No Médio, antes da decisão geral, o backend carrega o curso médio do estudante e resolve `materias_chave` pela configuração do `ano_escolar_medio` atual. Se o curso não possuir configuração para esse ano, a avaliação falha com erro claro de configuração ausente.
-10. A decisão geral é derivada dos resultados por matéria, das matérias-chave resolvidas do curso/ano e, no Médio/Superior, das condições de pendência.
+9. No modelo superior configurável legado não escolar, o backend pode resolver `materias_chave` do curso médio quando a regra não é fixa. No padrão escolar fixo atual, o Médio é decidido pelas regras oficiais por matéria e pelo `exame_recurso`, sem pendência escolar.
+10. A decisão geral é derivada dos resultados por matéria e, no Superior, das condições de pendência.
 11. O evento grava snapshots: regra, `type`, fórmula usada, nota mínima, curso usado, matérias-chave resolvidas, resultados por matéria, pendências geradas, turma atual/turmas removidas quando aplicável e dados de progressão.
 12. Se a avaliação já existir no escopo idempotente, o backend não duplica o registro.
 
@@ -717,14 +715,11 @@ Se a fórmula exigir nota que ainda não existe para determinada matéria, categ
 #### 5.6.6 Médio
 
 - O escopo é o `ano_escolar_medio` atual do estudante, validado contra o curso médio ativo vinculado.
-- O backend avalia matérias médias ativas do curso e ano atual; `materias_aplicaveis` restringe a lista quando informado. O curso médio precisa ter `materias_chave` completa para todos os seus `anos_academicos`, com pelo menos uma matéria por ano.
-- A regra raiz de Médio não aceita `materias_chave`. A lista é obrigatória no curso médio, por ano acadêmico, e é resolvida pelo par `curso_medio_id` + `ano_escolar_medio` do estudante. Na raiz, reprovação em matéria-chave impede aprovação direta; reprovação apenas em matéria não-chave não torna a decisão geral reprovada nessa etapa, embora o resultado por matéria continue registrado.
-- Descendentes podem recalcular matérias reprovadas e/ou limitadas por `materias_aplicaveis`; se uma matéria reprovada não estiver na lista da descendente, ela não é recalculada por aquela regra.
-- Depois da última etapa aplicável, no Superior, reprovações podem virar pendência somente se: o total de reprovações for menor ou igual a `limite_materias_pendentes` e todas as matérias reprovadas tiverem `pendencia_permitida=true`.
-- Se essas condições forem satisfeitas, o evento é aprovado com `aprovado_com_pendencia=true` e gera registros em `projection_materias_pendentes`.
-- Se o limite for ultrapassado, ou se alguma matéria reprovada não permitir pendência, o estudante reprova totalmente e nenhuma pendência nova é criada.
-- Pendências de curso anterior permanecem históricas e não devem bloquear o curso atual; o curso salvo na pendência faz parte da decisão funcional de bloqueio.
-- `pendencia_nivel_conclusao` representa o ano-limite para bloquear conclusão/progressão quando há pendência aberta do curso atual.
+- O backend avalia matérias médias ativas do curso e ano atual conforme o padrão fixo escolar.
+- A regra escolar fixa de Médio não aceita `materias_chave`; essa configuração curricular do curso médio permanece disponível para outros fluxos/consultas, mas não substitui a decisão oficial por matéria do padrão avaliativo fixo.
+- O `exame_recurso` fixo recalcula apenas matérias reprovadas na `avaliacao_final` anterior; matéria aprovada não pode receber recurso.
+- Médio escolar não permite matérias dependentes nem aprovação com pendência: `pendencia_permitida` e `pendencia_nivel_conclusao` são exclusivos do Superior.
+- O `4_ano_medio` técnico usa apenas `nota_pap` (`Prova de Aptidão Profissional`) como avaliação final, com aprovação por `nota_pap >= 10`, sem trimestres, prova trimestral, exame final ou recurso.
 
 Cenários típicos do Médio:
 
@@ -733,10 +728,9 @@ Cenários típicos do Médio:
 | Todas as matérias-chave aprovadas | Aprovação direta na raiz, com progressão ou conclusão conforme ano do curso. |
 | Matéria não-chave reprovada na raiz | Resultado por matéria fica reprovado, mas a decisão geral da raiz pode permanecer aprovada conforme comportamento atual. |
 | Matéria-chave reprovada e aprovada em descendente | A cadeia registra a nova etapa e a aprovação da descendente permite progressão/conclusão. |
-| Matéria reprovada sem descendente aplicável | Decide reprovação total ou aprovação com pendência conforme limite e permissão da matéria. |
-| Uma pendência dentro do limite | Aprovação com pendência; pendência aberta é criada. |
-| Pendências acima do limite | Reprovação total; não cria pendências. |
-| Matéria com `pendencia_permitida=false` | Reprovação total, mesmo dentro do limite numérico. |
+| Matéria reprovada sem descendente aplicável | Reprovação no ano/etapa escolar conforme padrão fixo. |
+| `4_ano_medio` técnico com `nota_pap >= 10` | Aprovação e conclusão do médio técnico. |
+| `4_ano_medio` técnico com `nota_pap < 10` | Reprovação no ano final técnico. |
 
 #### 5.6.7 Superior
 
@@ -759,7 +753,7 @@ Pontos importantes:
 - A descendente não é uma média global do estudante; ela recalcula matérias no escopo da regra.
 - `materias_aplicaveis` funciona como filtro: matéria fora da lista não é recalculada naquela etapa.
 - A cadeia termina quando não há descendente ativa aplicável, quando a etapa anterior aprovou ou quando faltam notas para calcular a próxima etapa.
-- Ao final da última etapa reprovada, Médio/Superior avaliam se a reprovação vira pendência; Fundamental sempre permanece reprovado.
+- Ao final da última etapa reprovada, apenas o Superior avalia se a reprovação vira pendência; Fundamental e Médio escolar permanecem reprovados quando não atendem ao padrão fixo.
 - Exemplo: raiz `avaliacao_final` reprova Matemática e Física; descendente `avaliacao_final_com_exame` com `materias_aplicaveis=[Matemática]` recalcula somente Matemática. Física continua com o resultado anterior para a decisão final/pendência.
 
 #### 5.6.9 Resultados por matéria, eventos, projeções e auditoria
@@ -770,15 +764,14 @@ Eventos `AvaliacaoFinalEscolar` e `AvaliacaoFinalSuperior` preservam snapshots d
 
 #### 5.6.10 Pendências de matérias
 
-Pendências existem apenas para Médio e Superior. Elas são consideradas depois de reprovação na cadeia aplicável e só são criadas quando a decisão final é aprovação com pendência. Se o estudante reprova totalmente, nenhuma nova pendência é criada.
+Pendências existem apenas para o Superior. Elas são consideradas depois de reprovação na cadeia aplicável e só são criadas quando a decisão final superior é aprovação com pendência. Se o estudante reprova totalmente, nenhuma nova pendência é criada.
 
-A pendência carrega funcionalmente: estudante, matéria, academia, curso, `nivel`, ano letivo, escopo acadêmico (`ano_escolar_medio` ou `periodo_superior`), regra/evento de origem, status `pendente`, dados de origem/snapshot e timestamps. Há proteção contra duplicidade aberta no mesmo estudante, matéria, curso, nível, ano letivo e escopo. A estrutura também possui campos de baixa (`baixada_por_event_id`, `updated_at`) para histórico, mas a documentação funcional reconhece uma limitação atual: **não há rota pública consolidada de regularização/baixa de pendência exposta nesta documentação de API**. Portanto, o sistema já persiste e consulta a base de pendências abertas/históricas, mas a regularização operacional precisa ser implementada ou conduzida por fluxo administrativo/evento específico antes de ser tratada como rotina pública.
+A pendência carrega funcionalmente: estudante, matéria, academia, curso, `nivel`, ano letivo, escopo acadêmico (`periodo_superior`), regra/evento de origem, status `pendente`, dados de origem/snapshot e timestamps. Há proteção contra duplicidade aberta no mesmo estudante, matéria, curso, nível, ano letivo e escopo. A estrutura também possui campos de baixa (`baixada_por_event_id`, `updated_at`) para histórico, mas a documentação funcional reconhece uma limitação atual: **não há rota pública consolidada de regularização/baixa de pendência exposta nesta documentação de API**. Portanto, o sistema já persiste e consulta a base de pendências abertas/históricas, mas a regularização operacional precisa ser implementada ou conduzida por fluxo administrativo/evento específico antes de ser tratada como rotina pública.
 
 #### 5.6.11 Bloqueio por `pendencia_nivel_conclusao` e regularização
 
 `pendencia_nivel_conclusao` pertence à matéria e deve ser usado para identificar pendências bloqueantes do curso atual. Funcionalmente:
 
-- No Médio, pendência aberta cujo limite coincide com ano de conclusão bloqueia conclusão automática até baixa.
 - No Superior, pendência aberta cujo limite coincide com semestre/período conclusivo bloqueia conclusão automática até baixa.
 - Aprovação com pendência pode permitir progressão intermediária, mas não deve permitir conclusão com pendência bloqueante do curso atual.
 - Pendências não bloqueantes permitem progressão conforme regra de avaliação, desde que pertençam a escopo anterior e dentro do limite funcional definido.

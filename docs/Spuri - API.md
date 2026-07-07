@@ -327,8 +327,8 @@ interface MateriaDTO {
   type: MateriaType          // preenchido automaticamente (exceto escola mista, que informa no create)
   anos_academicos?: string[]  // ex: ['2_ano_fundamental'] ou ['1_ano_medio']
   periodo?: string            // ex: '1_semestre' — obrigatório para superior
-  pendencia_permitida: boolean // disponível apenas para medio/superior; define se pode ficar pendente
-  pendencia_nivel_conclusao?: string // ex: '3_ano_medio' ou '2_semestre'; limite máximo com pendência
+  pendencia_permitida: boolean // disponível apenas para superior; define se pode ficar pendente
+  pendencia_nivel_conclusao?: string // ex: '2_semestre'; limite máximo com pendência superior
   codigo_academia: string
   curso_id?: string           // UUID — obrigatório para medio e superior
   status: string              // 'ativo' | 'inativo' | 'deletado'
@@ -2938,8 +2938,8 @@ Cria uma nova matéria disciplinar.
   "anos_academicos": ["1_ano_superior"],
   "curso_id": "uuid",  // obrigatório para medio e superior
   "periodo": "1_semestre",  // obrigatório para superior e deve existir nos períodos do curso
-  "pendencia_permitida": true,
-  "pendencia_nivel_conclusao": "2_semestre"
+  "pendencia_permitida": true,  // apenas superior
+  "pendencia_nivel_conclusao": "2_semestre"  // apenas superior
 }
 ```
 
@@ -2963,8 +2963,8 @@ Cria uma nova matéria disciplinar.
 **Notas:**
 
 - Matérias `superior` nascem **inativas**, exigem `periodo` no `POST /academia/materia` e não permitem edição posterior do período
-- `pendencia_permitida` é um booleano disponível apenas para matérias `medio` ou `superior`; quando `true`, indica que o estudante pode avançar com essa matéria pendente para aprovação futura antes de concluir o ciclo
-- `pendencia_nivel_conclusao` é uma string disponível apenas para matérias `medio` ou `superior`; deve ser um ano acadêmico médio (`N_ano_medio`) ou semestre superior (`N_semestre`) válido do curso e define o último nível em que o estudante poderá chegar com pendências desta matéria
+- `pendencia_permitida` é um booleano disponível apenas para matérias `superior`; quando `true`, indica que o estudante pode avançar com essa matéria pendente para aprovação futura antes de concluir o ciclo
+- `pendencia_nivel_conclusao` é uma string disponível apenas para matérias `superior`; deve ser um semestre superior (`N_semestre`) válido do curso e define o último nível em que o estudante poderá chegar com pendências desta matéria
 - `curso_id` obrigatório para `medio` e `superior`
 - Para `fundamental`: `anos_academicos` com 1 a 9 itens no formato correto
 - Para `medio`/`superior`: exatamente 1 item no formato correto
@@ -3047,7 +3047,7 @@ Desativa uma matéria ativa.
 
 ### PUT /academia/materia/:id/dados
 
-Atualiza os dados cadastrais de uma matéria, incluindo os campos `pendencia_permitida` e `pendencia_nivel_conclusao`. O campo `periodo` não pode ser editado.
+Atualiza os dados cadastrais de uma matéria. Em matérias superiores, também pode atualizar `pendencia_permitida` e `pendencia_nivel_conclusao`. O campo `periodo` não pode ser editado.
 
 **Proteção**: autenticado + academia ativa
 
@@ -3057,7 +3057,7 @@ Atualiza os dados cadastrais de uma matéria, incluindo os campos `pendencia_per
 {
   "nome": "string",
   "pendencia_permitida": true,
-  "pendencia_nivel_conclusao": "3_ano_medio"
+  "pendencia_nivel_conclusao": "2_semestre"
 }
 ```
 
@@ -3068,16 +3068,16 @@ Atualiza os dados cadastrais de uma matéria, incluindo os campos `pendencia_per
   "message": "matéria atualizada com sucesso",
   "nome": "string",
   "pendencia_permitida": true,
-  "pendencia_nivel_conclusao": "3_ano_medio"
+  "pendencia_nivel_conclusao": "2_semestre"
 }
 ```
 
 **Erros:**
 
 - `400` — `periodo` informado na edição; o período só pode ser definido no `POST /academia/materia`
-- `400` — `pendencia_permitida` informado para matéria do tipo `fundamental`
-- `400` — `pendencia_nivel_conclusao` informado para matéria do tipo `fundamental`
-- `400` — `pendencia_nivel_conclusao` não corresponde a um ano acadêmico médio (`N_ano_medio`) ou semestre superior (`N_semestre`) válido do curso
+- `400` — `pendencia_permitida=true` informado para matéria do tipo `fundamental` ou `medio`
+- `400` — `pendencia_nivel_conclusao` informado para matéria do tipo `fundamental` ou `medio`
+- `400` — `pendencia_nivel_conclusao` não corresponde a um semestre superior (`N_semestre`) válido do curso
 
 ---
 
@@ -3946,15 +3946,15 @@ Não existe rota pública/registrada para executar avaliação final manualmente
 - Ao registrar/atualizar notas, o backend identifica o estudante, infere o `tipo_ensino`, descobre o ano acadêmico atual e busca todas as regras ativas aplicáveis àquele ano.
 - A cadeia precisa ter exatamente uma regra raiz, isto é, a regra sem `aplica_se_reprovado_em_type`. A raiz pode declarar `nota_despertadora`, cujo valor é o `codigo` da categoria de nota que autoriza o disparo automático.
 - O processamento automático começa na raiz somente quando a categoria da nota registrada/atualizada é igual a `nota_despertadora`. Regras antigas sem esse campo não despertam automaticamente por nota.
-- `nota_despertadora` é exclusivo de regra raiz; regras dependentes/descendentes rejeitam esse campo e são alcançadas apenas por reprovação na etapa ancestral.
+- `nota_despertadora` é configurável apenas em regra raiz superior; regras dependentes/descendentes superiores rejeitam esse campo. No padrão escolar fixo, a descendente `exame_recurso` é despertada diretamente por `exame_recurso` quando já existe reprovação anterior na `avaliacao_final`.
 - Cada regra dependente é alcançada pelo campo `aplica_se_reprovado_em_type`: por exemplo, `avaliacao_final_com_recurso` pode depender de reprovação em `avaliacao_final`, e `avaliacao_final_com_exame` pode depender de reprovação em `avaliacao_final_com_recurso`.
 - O backend só executa uma dependente quando encontra reprovação no `type` pré-requisito. Se o pré-requisito aprovou, a dependente é encerrada e não executa. Se o pré-requisito ainda não existe, a dependente aguarda.
-- Portanto, a ordem correta não é decidida pelo cliente nem pela categoria da nota recém-registrada; ela é calculada a partir da cadeia de regras configurada até a raiz.
+- Portanto, no Superior a ordem correta não é decidida pelo cliente nem pela categoria da nota recém-registrada; ela é calculada a partir da cadeia de regras configurada até a raiz. No escolar fixo, `prova_trimestral`, `exame_final`, `exame_recurso` e `nota_pap` seguem os gatilhos oficiais por ano acadêmico.
 
 **Regras de execução automática:**
 
 - Se não houver regra ativa aplicável, nenhuma avaliação final é registrada.
-- Se a regra raiz aplicável não tiver `nota_despertadora`, ou se a categoria da nota não corresponder ao código configurado, nenhuma avaliação final automática é registrada naquele lançamento.
+- Se a regra raiz aplicável não tiver `nota_despertadora`, ou se a categoria da nota não corresponder ao código configurado, nenhuma avaliação final automática de raiz é registrada naquele lançamento. Exceção escolar: `exame_recurso` pode despertar a etapa fixa de recurso quando houver reprovação anterior.
 - Se a cadeia aplicável não tiver exatamente uma raiz, o backend retorna erro para evitar ambiguidade.
 - O backend evita duplicidade por `codigo_estudante`, `codigo_academia`, `ano_lectivo`, `tipo_ensino`, `ano_academico_atual` e `type`.
 - Se alguma nota exigida pela fórmula ainda estiver ausente, aquela regra é ignorada naquele momento e poderá ser calculada quando novas notas forem registradas.

@@ -203,13 +203,11 @@ Exemplo:
   "nome": "Biologia",
   "type": "medio",
   "curso_id": "uuid-do-curso-medio",
-  "anos_academicos": ["1_ano_medio"],
-  "pendencia_permitida": true,
-  "pendencia_nivel_conclusao": "3_ano_medio"
+  "anos_academicos": ["1_ano_medio"]
 }
 ```
 
-Matérias médias nascem ativas.
+Matérias médias nascem ativas. Matérias dependentes/pendências não são permitidas no Médio escolar; `pendencia_permitida` e `pendencia_nivel_conclusao` são exclusivos do Superior.
 
 ### 7.3 Matéria superior
 
@@ -295,24 +293,17 @@ Porque a avaliação final do Médio falha quando precisa decidir o resultado de
 
 ---
 
-## 10. Passo 8 — Criar categorias de nota
+## 10. Passo 8 — Categorias de nota
 
-As categorias de nota precisam existir antes de qualquer lançamento de nota e antes da criação de fórmulas de avaliação final que as referenciem.
+As categorias de nota seguem dois modelos:
 
-Rota:
+- **Escolas (fundamental/médio):** não criam categorias por endpoint. O backend fornece automaticamente o catálogo fixo do sistema por ano acadêmico, marcado como `source="system"`, `fixed=true` e `readonly=true` na listagem.
+- **Superior:** cria categorias explicitamente antes de lançar notas e antes de configurar fórmulas de avaliação final.
+
+Rota de criação, exclusiva do Superior:
 
 ```http
 POST /academia/categorias-nota
-```
-
-Exemplo escolar:
-
-```json
-{
-  "codigo": "prova_trimestral",
-  "nome": "Prova Trimestral",
-  "anos_academicos": ["6_ano_fundamental", "1_ano_medio"]
-}
 ```
 
 Exemplo superior:
@@ -325,12 +316,20 @@ Exemplo superior:
 }
 ```
 
+Catálogo escolar fixo:
+
+| Anos acadêmicos | Categorias |
+|---|---|
+| `1_ano_fundamental` a `5_ano_fundamental`, `7_ano_fundamental`, `8_ano_fundamental`, `1_ano_medio`, `2_ano_medio` | `nota_professor`, `prova_trimestral` |
+| `6_ano_fundamental`, `9_ano_fundamental`, `3_ano_medio` | `nota_professor`, `prova_trimestral`, `exame_final`, `exame_recurso` |
+| `4_ano_medio` de curso técnico | `nota_pap` |
+
 Regras importantes:
 
-- Não existem categorias fixas no backend.
-- Toda categoria usada em notas ou fórmulas deve ser cadastrada pela academia.
-- A categoria precisa incluir os anos acadêmicos nos quais poderá receber notas.
-- Se a categoria não contiver o ano acadêmico inferido da nota, o lançamento será bloqueado.
+- Escolas não podem criar, editar ou remover categorias escolares; tentativas em `POST/DELETE /academia/categorias-nota` falham.
+- Superior continua usando categorias configuráveis pela academia.
+- A categoria superior precisa incluir os anos/períodos acadêmicos nos quais poderá receber notas.
+- O lançamento de nota valida a escala do ano: `0–10` para `1_ano_fundamental` a `6_ano_fundamental`; `0–20` para `7_ano_fundamental` a `9_ano_fundamental`, Médio e Superior.
 
 ---
 
@@ -417,66 +416,31 @@ Regras importantes:
 
 ---
 
-## 14. Passo 12 — Criar regras de avaliação final
+## 14. Passo 12 — Regras de avaliação final
 
-As regras de avaliação final dependem de quase toda a estrutura curricular:
+As regras de avaliação final também seguem dois modelos:
 
-- ano letivo ativo;
-- anos acadêmicos;
-- cursos;
-- matérias;
-- categorias de nota;
-- matérias-chave, no caso do Médio.
+- **Escolas (fundamental/médio):** regras fixas do sistema, não configuráveis pela academia.
+- **Superior:** regras configuráveis pela academia, com fórmulas e limites de pendência.
 
-Crie primeiro a **regra raiz** de cada escopo e depois as regras descendentes, como exame, recurso ou recuperação.
+### 14.1 Fundamental e Médio escolar
 
-### 14.1 Fundamental
+Não crie regras por endpoint para escolas. O backend aplica automaticamente o padrão fixo:
 
-Configuração típica:
+- anos regulares usam média dos três trimestres com `nota_professor` e `prova_trimestral`;
+- `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio` usam `exame_final` no 3º trimestre e permitem `exame_recurso` apenas para matérias reprovadas;
+- `4_ano_medio` técnico usa somente `nota_pap >= 10`;
+- matérias dependentes/pendências não existem no Médio escolar.
 
-- `nivel="fundamental"`;
-- `anos_academicos` como lista simples;
-- fórmula com categoria e período trimestral;
-- sem `limite_materias_pendentes`.
-
-Exemplo de fórmula:
-
-```text
-([prova_trimestral,1_trimestre]+[prova_trimestral,2_trimestre]+[prova_trimestral,3_trimestre])/3
-```
-
-### 14.2 Médio
-
-Configuração típica:
-
-- `nivel="medio"`;
-- `anos_academicos` agrupado por curso;
-- `limite_materias_pendentes` obrigatório;
-- sem `materias_chave` na regra, porque elas ficam no curso.
-
-Exemplo de escopo:
-
-```json
-{
-  "nivel": "medio",
-  "anos_academicos": [
-    {
-      "curso_id": "uuid-do-curso-medio",
-      "anos_academicos": ["1_ano_medio"]
-    }
-  ],
-  "limite_materias_pendentes": 2
-}
-```
-
-### 14.3 Superior
+### 14.2 Superior
 
 Configuração típica:
 
 - `nivel="superior"`;
 - sem `anos_academicos` na regra;
 - fórmula com referência apenas à categoria, pois o semestre é inferido pela matéria;
-- `limite_materias_pendentes` obrigatório.
+- `limite_materias_pendentes` obrigatório;
+- pendências (`pendencia_permitida` e `pendencia_nivel_conclusao`) são exclusivas de matérias superiores.
 
 Exemplo de fórmula:
 
@@ -484,7 +448,7 @@ Exemplo de fórmula:
 ([prova_parcelar_1]+[prova_parcelar_2])/2
 ```
 
-### 14.4 Ordem dentro da cadeia
+### 14.3 Ordem dentro da cadeia superior
 
 1. Criar regra raiz, por exemplo `avaliacao_final`.
 2. Criar regra descendente que aponta para a raiz, por exemplo `avaliacao_final_com_exame` com `aplica_se_reprovado_em_type="avaliacao_final"`.
