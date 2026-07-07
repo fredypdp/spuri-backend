@@ -297,7 +297,7 @@ Porque a avaliação final do Médio falha quando precisa decidir o resultado de
 
 As categorias de nota seguem dois modelos:
 
-- **Escolas (fundamental/médio):** não criam categorias por endpoint. O backend fornece automaticamente o catálogo fixo do sistema por ano acadêmico, marcado como `source="system"`, `fixed=true` e `readonly=true` na listagem.
+- **Escolas (fundamental/médio):** não criam categorias por endpoint. O backend fornece automaticamente o catálogo fixo do sistema por ano acadêmico, marcado como `source="system"`, `fixed=true` e `readonly=true` na listagem. Para Médio, a listagem deriva os anos dos cursos médios ativos; `academia.anos_academicos` continua sendo usado para Fundamental.
 - **Superior:** cria categorias explicitamente antes de lançar notas e antes de configurar fórmulas de avaliação final.
 
 Rota de criação, exclusiva do Superior:
@@ -322,7 +322,7 @@ Catálogo escolar fixo:
 |---|---|
 | `1_ano_fundamental` a `5_ano_fundamental`, `7_ano_fundamental`, `8_ano_fundamental`, `1_ano_medio`, `2_ano_medio` | `nota_professor`, `prova_trimestral` |
 | `6_ano_fundamental`, `9_ano_fundamental`, `3_ano_medio` | `nota_professor`, `prova_trimestral`, `exame_final`, `exame_recurso` |
-| `4_ano_medio` de curso técnico | `nota_pap` |
+| `4_ano_medio` de curso técnico (`modelo="tecnico"`) | `nota_pap` |
 
 Regras importantes:
 
@@ -474,7 +474,7 @@ Use este checklist antes de iniciar os lançamentos em produção:
 - [ ] Matérias foram criadas para todos os anos, cursos e semestres necessários.
 - [ ] Matérias superiores foram ativadas.
 - [ ] Cursos médios possuem matérias-chave configuradas para todos os anos.
-- [ ] Categorias de nota foram criadas para todos os anos acadêmicos em uso.
+- [ ] Categorias de nota foram criadas para todos os anos/períodos superiores em uso; para escolas, confirme que o catálogo fixo aparece em `GET /academia/categorias-nota`.
 - [ ] Estudantes foram cadastrados ou aprovados com vínculo acadêmico correto.
 - [ ] Turmas foram criadas.
 - [ ] Estudantes foram adicionados às turmas corretas.

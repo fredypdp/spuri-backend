@@ -40,3 +40,25 @@ func TestInferirAnoAcademicoParaNota_DeveInferirPeloAnoDaMateriaQuandoEstudanteN
 		t.Fatalf("ano esperado '1_ano_medio', recebido '%s'", ano)
 	}
 }
+
+func TestInferirAnoAcademicoParaNota_DeveBloquearMedioQuandoAnoDoEstudanteNaoPertenceAMateria(t *testing.T) {
+	anoMedio := "2_ano_medio"
+	_, err := inferirAnoAcademicoParaNota(nil, []string{"1_ano_medio"}, "Física", &anoMedio)
+	if err == nil {
+		t.Fatalf("esperava erro de incompatibilidade entre ano médio do estudante e da matéria")
+	}
+	if !strings.Contains(err.Error(), "ano acadêmico médio") || !strings.Contains(err.Error(), "não faz parte da matéria") {
+		t.Fatalf("mensagem inesperada: %v", err)
+	}
+}
+
+func TestInferirAnoAcademicoParaNota_DevePermitirMedioQuandoAnoDoEstudantePertenceAMateria(t *testing.T) {
+	anoMedio := "2_ano_medio"
+	ano, err := inferirAnoAcademicoParaNota(nil, []string{"1_ano_medio", "2_ano_medio"}, "Física", &anoMedio)
+	if err != nil {
+		t.Fatalf("não esperava erro, mas recebeu: %v", err)
+	}
+	if ano != "2_ano_medio" {
+		t.Fatalf("ano esperado '2_ano_medio', recebido '%s'", ano)
+	}
+}

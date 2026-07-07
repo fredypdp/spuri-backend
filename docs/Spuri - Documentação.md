@@ -284,7 +284,7 @@ Representa uma instituição de ensino. Pode ser uma **escola** (ensino fundamen
 - `codigo`: identificador técnico único por academia (sem espaços). Exemplo de categoria personalizada: `prova_profesor`.
 - `nome`: rótulo descritivo exibido ao usuário (pode conter espaços). Exemplo de categoria personalizada: `Prova do professor`.
 - Escolas usam um catálogo fixo por ano acadêmico, fornecido pelo backend e retornado na listagem como `source=system`, `fixed=true` e `readonly=true`.
-- Anos escolares regulares aceitam `nota_professor` e `prova_trimestral`; `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio` também aceitam `exame_final` e `exame_recurso`; `4_ano_medio` técnico aceita apenas `nota_pap`.
+- Anos escolares regulares aceitam `nota_professor` e `prova_trimestral`; `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio` também aceitam `exame_final` e `exame_recurso`; `4_ano_medio` técnico aceita apenas `nota_pap`. No Médio, as categorias/regras fixas expostas em listagens são derivadas dos cursos médios ativos e de seus modelos, não de `academia.anos_academicos`.
 - Categorias configuráveis são exclusivas do ensino superior. Toda categoria superior usada em notas, fórmulas ou regras deve ser cadastrada explicitamente pela academia superior.
 - Exemplos de códigos superiores válidos, quando cadastrados pela própria academia: `prova_trimestral`, `exame_final`, `atividade_pratica`.
 
@@ -688,7 +688,7 @@ Se a fórmula exigir nota que ainda não existe para determinada matéria, categ
 
 #### 5.6.4 Execução automática por lançamento de notas
 
-1. A academia registra/atualiza nota; o backend valida ano letivo, estudante, matéria, categoria, período, escala numérica e pertencimento.
+1. A academia registra/atualiza nota; o backend valida ano letivo, estudante, matéria, categoria, período, escala numérica e pertencimento ao `ano_escolar_fundamental` ou `ano_escolar_medio` atual do estudante.
 2. O backend infere o nível acadêmico do estudante para execução: Superior tem prioridade quando há vínculo/status superior; depois Médio; caso contrário Fundamental.
 3. Para Superior, o backend transforma `semestre_atual` em `[n]_semestre` e valida esse período contra o curso.
 4. O backend busca regras ativas aplicáveis à academia, ao `nivel` e ao escopo acadêmico atual.

@@ -244,3 +244,20 @@ func TestValidarNotaDespertadoraRejeitaRegraDescendente(t *testing.T) {
 		t.Fatalf("descendente com nota_despertadora deve falhar, err=%v", err)
 	}
 }
+
+func TestRegraAvaliacaoFinalEscolarFixaPAPExigeCursoTecnico(t *testing.T) {
+	cursoID := uuid.New().String()
+	if regra := regraAvaliacaoFinalEscolarFixa("ACA001", "medio", "4_ano_medio", "normal", &cursoID, "regular"); regra != nil {
+		t.Fatalf("4_ano_medio regular não deve expor regra PAP: %#v", regra)
+	}
+	regra := regraAvaliacaoFinalEscolarFixa("ACA001", "medio", "4_ano_medio", "normal", &cursoID, "tecnico")
+	if regra == nil {
+		t.Fatal("4_ano_medio técnico deve expor regra PAP")
+	}
+	if regra.NotaDespertadora == nil || *regra.NotaDespertadora != categoriaNotaPAP {
+		t.Fatalf("nota despertadora = %v, want %s", regra.NotaDespertadora, categoriaNotaPAP)
+	}
+	if regra.Formula != "[nota_pap,3_trimestre]" || regra.NotaMinimaAprovacao != 10 {
+		t.Fatalf("regra PAP inesperada: formula=%s minima=%.2f", regra.Formula, regra.NotaMinimaAprovacao)
+	}
+}

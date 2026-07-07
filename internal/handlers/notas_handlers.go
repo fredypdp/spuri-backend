@@ -144,7 +144,7 @@ func RegistrarNota(c *gin.Context) {
 	)
 
 	// Inferir AnoAcademico
-	anoAcademico, err := inferirAnoAcademicoParaNota(estudanteDTO.AnoEscolar, materiaDTO.AnosAcademicos, materiaDTO.Nome)
+	anoAcademico, err := inferirAnoAcademicoParaNota(estudanteDTO.AnoEscolar, materiaDTO.AnosAcademicos, materiaDTO.Nome, estudanteDTO.AnoEscolarMedio)
 	if err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -663,7 +663,7 @@ func ListarCategoriasNota(c *gin.Context) {
 		return
 	}
 
-	categoriasResposta := anexarCategoriasEscolaresFixas(categorias, academiaDTO)
+	categoriasResposta := append(anexarCategoriasEscolaresFixas(categorias, nil), categoriasEscolaresFixasDaAcademia(c, academiaDTO)...)
 	c.JSON(http.StatusOK, gin.H{
 		"categorias": categoriasResposta,
 		"total":      len(categoriasResposta),
@@ -797,6 +797,7 @@ func inferirAnoAcademicoParaNota(
 	anoEscolarEstudante *string,
 	nivelMateria []string,
 	nomeMateria string,
+	anoEscolarMedioEstudante ...*string,
 ) (string, error) {
 	if anoEscolarEstudante != nil && strings.TrimSpace(*anoEscolarEstudante) != "" {
 		anoEstudante := strings.TrimSpace(*anoEscolarEstudante)
@@ -811,6 +812,19 @@ func inferirAnoAcademicoParaNota(
 			anoEstudante,
 			nomeMateria,
 			nivelMateria,
+		)
+	}
+
+	if len(anoEscolarMedioEstudante) > 0 && anoEscolarMedioEstudante[0] != nil && strings.TrimSpace(*anoEscolarMedioEstudante[0]) != "" {
+		anoEstudante := strings.TrimSpace(*anoEscolarMedioEstudante[0])
+		for _, anoMateria := range nivelMateria {
+			if strings.TrimSpace(anoMateria) == anoEstudante {
+				return anoEstudante, nil
+			}
+		}
+		return "", fmt.Errorf(
+			"o estudante está no ano acadêmico médio '%s', que não faz parte da matéria '%s' (anos permitidos: %v)",
+			anoEstudante, nomeMateria, nivelMateria,
 		)
 	}
 
@@ -859,8 +873,9 @@ func inferirAnoAcademicoFaltas(
 	anoEscolarEstudante *string,
 	nivelMateria []string,
 	nomeMateria string,
+	anoEscolarMedioEstudante ...*string,
 ) (string, error) {
-	return inferirAnoAcademicoParaNota(anoEscolarEstudante, nivelMateria, nomeMateria)
+	return inferirAnoAcademicoParaNota(anoEscolarEstudante, nivelMateria, nomeMateria, anoEscolarMedioEstudante...)
 }
 
 // validarNota verifica se a nota é maior ou igual a 0.

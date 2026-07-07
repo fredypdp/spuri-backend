@@ -3409,7 +3409,7 @@ O campo `codigo` é normalizado antes de persistir: espaços antes/depois são d
 
 ### GET /academia/categorias-nota
 
-Lista todas as categorias de nota da academia alvo. Para escolas, a resposta soma eventuais categorias legadas da projeção com as categorias escolares fixas do sistema marcadas como `source`, `fixed` e `readonly`; para superior, lista as categorias configuráveis da academia.
+Lista todas as categorias de nota da academia alvo. Para escolas, a resposta soma eventuais categorias legadas da projeção com as categorias escolares fixas do sistema marcadas como `source`, `fixed` e `readonly`; no Médio, os anos vêm dos cursos médios ativos da academia, não de `academia.anos_academicos`, e o `4_ano_medio` só expõe `nota_pap` quando o curso médio é `modelo="tecnico"`. Para superior, lista as categorias configuráveis da academia.
 
 **Proteção**: autenticado + (`academia` ativa **ou** `admin` **ou** `estudante`)
 
@@ -3510,7 +3510,7 @@ Registra uma nota para um estudante.
 - `nota` deve estar dentro da escala do ano acadêmico: `0–10` para `1_ano_fundamental` a `6_ano_fundamental`; `0–20` para `7_ano_fundamental`, `8_ano_fundamental`, `9_ano_fundamental`, todos os anos médios e superior
 - `periodo` deve ser válido para o tipo (`1_trimestre`/`2_trimestre`/`3_trimestre` para escolar; semestres do curso para superior)
 - Para `tipo=superior`, o `periodo` precisa coincidir com o `periodo` definido na matéria (além de existir na lista de períodos do curso)
-- Se o estudante tiver `ano_escolar_fundamental`, esse ano deve existir em `anos_academicos` da matéria; caso contrário, o registro é bloqueado
+- Se o estudante tiver `ano_escolar_fundamental` ou `ano_escolar_medio`, esse ano deve existir em `anos_academicos` da matéria; caso contrário, o registro é bloqueado
 - Para escolas, `categoria` deve estar no catálogo fixo do ano acadêmico inferido: `nota_professor`/`prova_trimestral` nos anos regulares; + `exame_final`/`exame_recurso` em `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio`; apenas `nota_pap` no `4_ano_medio` técnico
 - Para superior, `categoria` deve estar configurada em `POST /academia/categorias-nota` com `anos_academicos` contendo o ano/período acadêmico aplicável; sem anos definidos ou sem correspondência, nenhuma nota pode ser registrada nessa categoria
 - O endpoint `POST /academia/notas-aluno/async` reaproveita exatamente as mesmas validações deste endpoint por item do lote
@@ -3533,7 +3533,7 @@ Registra uma nota para um estudante.
 
 **Erros:**
 
-- `400` — nota fora da escala do ano acadêmico, período inválido, categoria inválida/não configurada para o ano acadêmico, duplicata, ou incompatibilidade entre `ano_escolar_fundamental` do estudante e `anos_academicos` da matéria
+- `400` — nota fora da escala do ano acadêmico, período inválido, categoria inválida/não configurada para o ano acadêmico, duplicata, ou incompatibilidade entre `ano_escolar_fundamental`/`ano_escolar_medio` do estudante e `anos_academicos` da matéria
 - `403` — estudante ou matéria não pertencem à academia
 - `400` — academia sem ano letivo configurado
 
@@ -3730,7 +3730,7 @@ Registra falta(s) para um estudante.
 
 - `quantidade` deve ser maior ou igual a 1
 - `data` é tratada como **date-only** (sem hora), em formato `AAAA-MM-DD`
-- Se o estudante tiver `ano_escolar_fundamental`, esse ano deve existir em `anos_academicos` da matéria; caso contrário, o registro é bloqueado
+- Se o estudante tiver `ano_escolar_fundamental` ou `ano_escolar_medio`, esse ano deve existir em `anos_academicos` da matéria; caso contrário, o registro é bloqueado
 - Idempotência (duplicata bloqueada): combinação `data + codigo_estudante + materia_disciplinar_id`
 - Payloads de falta não aceitam `sumario_id`, `sumario_titulo` ou campos equivalentes de sumário.
 - O endpoint `POST /academia/faltas-aluno/async` reaproveita exatamente as mesmas validações deste endpoint por item do lote
