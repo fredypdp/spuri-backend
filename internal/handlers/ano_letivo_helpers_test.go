@@ -79,3 +79,74 @@ func TestMesPermiteFinalizacaoAnoLetivo(t *testing.T) {
 		}
 	}
 }
+
+func TestPeriodoFixoAnoLetivo(t *testing.T) {
+	tests := []struct {
+		tipo string
+		want string
+	}{
+		{tipo: "escolar", want: "09_07"},
+		{tipo: "superior", want: "10_07"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.tipo, func(t *testing.T) {
+			got, err := periodoFixoAnoLetivo(tt.tipo)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+	if _, err := periodoFixoAnoLetivo("pos-graduacao"); err == nil {
+		t.Fatal("expected error for unknown type")
+	}
+}
+
+func TestValidarPeriodoFixoAnoLetivo(t *testing.T) {
+	if got, err := validarPeriodoFixoAnoLetivo("escolar", "9_7"); err != nil || got != "09_07" {
+		t.Fatalf("escolar got=%q err=%v, want 09_07 nil", got, err)
+	}
+	if got, err := validarPeriodoFixoAnoLetivo("superior", "10_07"); err != nil || got != "10_07" {
+		t.Fatalf("superior got=%q err=%v, want 10_07 nil", got, err)
+	}
+	if _, err := validarPeriodoFixoAnoLetivo("escolar", "10_07"); err == nil {
+		t.Fatal("expected mismatch error for escolar using superior period")
+	}
+	if _, err := validarPeriodoFixoAnoLetivo("superior", "09_07"); err == nil {
+		t.Fatal("expected mismatch error for superior using escolar period")
+	}
+}
+
+func TestIntervaloAnoLetivoComPeriodosFixosPorTipo(t *testing.T) {
+	escolar, err := periodoFixoAnoLetivo("escolar")
+	if err != nil {
+		t.Fatalf("unexpected escolar period error: %v", err)
+	}
+	inicio, fim, err := intervaloAnoLetivo("2025_2026", escolar)
+	if err != nil {
+		t.Fatalf("unexpected escolar interval error: %v", err)
+	}
+	if got := inicio.Format("2006-01-02"); got != "2025-09-01" {
+		t.Fatalf("escolar inicio=%s, want 2025-09-01", got)
+	}
+	if got := fim.Format("2006-01-02"); got != "2026-07-31" {
+		t.Fatalf("escolar fim=%s, want 2026-07-31", got)
+	}
+
+	superior, err := periodoFixoAnoLetivo("superior")
+	if err != nil {
+		t.Fatalf("unexpected superior period error: %v", err)
+	}
+	inicio, fim, err = intervaloAnoLetivo("2025_2026", superior)
+	if err != nil {
+		t.Fatalf("unexpected superior interval error: %v", err)
+	}
+	if got := inicio.Format("2006-01-02"); got != "2025-10-01" {
+		t.Fatalf("superior inicio=%s, want 2025-10-01", got)
+	}
+	if got := fim.Format("2006-01-02"); got != "2026-07-31" {
+		t.Fatalf("superior fim=%s, want 2026-07-31", got)
+	}
+}

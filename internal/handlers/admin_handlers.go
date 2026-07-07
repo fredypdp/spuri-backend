@@ -768,16 +768,22 @@ func AtualizarConfiguracaoAnoLetivo(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Periodo string `json:"periodo" binding:"required"`
+		Periodo string `json:"periodo"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("campo obrigatório: periodo"))
+		utils.RespondWithValidationError(c, fmt.Errorf("payload inválido"))
 		return
 	}
-	periodo, err := normalizarPeriodoLetivo(req.Periodo)
+	periodo, err := periodoFixoAnoLetivo(tipo)
 	if err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
+	}
+	if strings.TrimSpace(req.Periodo) != "" {
+		if _, err := validarPeriodoFixoAnoLetivo(tipo, req.Periodo); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
 	}
 	client := getDbClient(c)
 	if client == nil {
@@ -789,7 +795,7 @@ func AtualizarConfiguracaoAnoLetivo(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "configuração de ano letivo atualizada com sucesso", "type": tipo, "periodo": periodo})
+	c.JSON(http.StatusOK, gin.H{"message": "período de ano letivo fixo confirmado", "type": tipo, "periodo": periodo})
 }
 
 func ListarConfiguracoesAnosLetivos(c *gin.Context) {
@@ -797,7 +803,7 @@ func ListarConfiguracoesAnosLetivos(c *gin.Context) {
 	if client == nil {
 		return
 	}
-	rows, err := client.DB().Query(`SELECT type, periodo, updated_at, updated_by FROM projection_anos_letivos_configuracoes ORDER BY type`)
+	rows, err := client.DB().Query(`SELECT type, updated_at, updated_by FROM projection_anos_letivos_configuracoes ORDER BY type`)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -805,10 +811,15 @@ func ListarConfiguracoesAnosLetivos(c *gin.Context) {
 	defer rows.Close()
 	items := []gin.H{}
 	for rows.Next() {
-		var tipo, periodo string
+		var tipo string
 		var updatedAt time.Time
 		var updatedBy sql.NullString
-		if err := rows.Scan(&tipo, &periodo, &updatedAt, &updatedBy); err != nil {
+		if err := rows.Scan(&tipo, &updatedAt, &updatedBy); err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		periodo, err := periodoFixoAnoLetivo(tipo)
+		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}

@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"database/sql"
 	"fmt"
 	"strconv"
 	"strings"
@@ -57,6 +56,36 @@ func compareAnoLetivo(a, b string) (int, error) {
 	return 0, nil
 }
 
+func periodoFixoAnoLetivo(tipo string) (string, error) {
+	t, err := normalizarTipoAnoLetivo(tipo)
+	if err != nil {
+		return "", err
+	}
+	switch t {
+	case "escolar":
+		return "09_07", nil
+	case "superior":
+		return "10_07", nil
+	default:
+		return "", fmt.Errorf("type deve ser 'escolar' ou 'superior'")
+	}
+}
+
+func validarPeriodoFixoAnoLetivo(tipo, periodo string) (string, error) {
+	esperado, err := periodoFixoAnoLetivo(tipo)
+	if err != nil {
+		return "", err
+	}
+	normalizado, err := normalizarPeriodoLetivo(periodo)
+	if err != nil {
+		return "", err
+	}
+	if normalizado != esperado {
+		return "", fmt.Errorf("periodo de ano letivo é fixo para type=%s: esperado %s", tipo, esperado)
+	}
+	return normalizado, nil
+}
+
 func normalizarPeriodoLetivo(periodo string) (string, error) {
 	periodo = strings.TrimSpace(periodo)
 	partes := strings.Split(periodo, "_")
@@ -94,15 +123,7 @@ func intervaloAnoLetivo(anoLetivo, periodo string) (time.Time, time.Time, error)
 }
 
 func periodoConfigurado(client *db.Client, tipo string) (string, error) {
-	var p sql.NullString
-	err := client.DB().QueryRow(`SELECT periodo FROM projection_anos_letivos_configuracoes WHERE type = $1`, tipo).Scan(&p)
-	if err == sql.ErrNoRows {
-		return "", fmt.Errorf("período letivo %s não configurado", tipo)
-	}
-	if err != nil {
-		return "", err
-	}
-	return p.String, nil
+	return periodoFixoAnoLetivo(tipo)
 }
 
 func mesPermiteFinalizacaoAnoLetivo(mesAtual, mesFim, mesInicio int) bool {

@@ -13,6 +13,9 @@ Implemente no backend a separação do ano letivo global/da academia em dois tip
 
 ## Contexto do problema
 
+> Atualização de contrato (2026-07-07): a implementação mais recente fixa os períodos por tipo no backend. `escolar` sempre usa `09_07` e `superior` sempre usa `10_07`; `periodo` não é mais uma configuração livre do admin FPP. A rota de configurações apenas confirma/sincroniza o valor fixo e rejeita payload incompatível.
+
+
 Hoje o sistema trata o ano letivo como um valor único, com `tipo` aceitando valores como `escola`/`superior` em alguns pontos. A tarefa pede uma modelagem mais explícita:
 
 - Deve existir uma configuração para cada tipo de ano letivo:
@@ -191,7 +194,7 @@ Adicionar uma estrutura em `projection_sistema_config` ou nova tabela/projeção
     },
     {
       "type": "superior",
-      "periodo": "02_12",
+      "periodo": "10_07",
       "updated_at": "2026-06-21T20:10:00Z",
       "updated_by": "uuid-admin-fpp"
     }
@@ -281,7 +284,7 @@ A opção A é mais extensível, mas a opção B é mais simples. Preferir a op�
 
 ### Faltas
 
-Com `ano_letivo = "2025_2026"` e `periodo escolar = "10_07"`:
+Com `ano_letivo = "2025_2026"` e `periodo superior = "10_07"`:
 
 - `2025-10-01` deve ser aceito.
 - `2026-07-31` deve ser aceito.
