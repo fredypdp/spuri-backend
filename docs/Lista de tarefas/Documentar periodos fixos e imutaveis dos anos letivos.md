@@ -91,7 +91,7 @@ Da mesma forma, não deve haver documentação permitindo transformar o superior
 
 Confirmar no repositório antes de editar, mas revisar pelo menos:
 
-- `docs/Spuri - API.md`;
+- `docs/Documentação.md`;
 - documentos em `docs/Tarefas feitas/` que descrevam separação de ano letivo escolar/superior;
 - documentos em `docs/Lista de tarefas/` ou `docs/Debbugs/` que ainda citem período configurável;
 - qualquer documentação de endpoints administrativos de ano letivo.
