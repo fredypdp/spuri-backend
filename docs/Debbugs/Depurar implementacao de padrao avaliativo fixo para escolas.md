@@ -27,7 +27,7 @@ A depuração confirmou que a implementação principal existe e cobre:
 - validação de escala de nota por ano acadêmico;
 - documentação funcional, documentação de API e manual de configuração inicial refletindo o novo padrão.
 
-Durante a auditoria foi encontrado e corrigido um problema na filtragem das regras escolares fixas por categoria despertadora: quando o filtro era `exame_recurso`, a função comparava apenas a regra raiz e retornava vazio, ocultando a regra descendente fixa. A correção agora filtra todas as regras fixas e retorna a regra cuja `nota_despertadora` corresponde à categoria informada.
+Durante a auditoria foi encontrado e corrigido um problema na filtragem das regras escolares fixas por categoria despertadora: quando o filtro era `exame_recurso`, a função comparava apenas a regra raiz e retornava vazio, ocultando a regra descendente fixa. A correção agora filtra todas as regras fixas e retorna a regra cuja `nota_despertadora` corresponde à categoria informada. Mas ainda garanta que isso realmente foi corrigido.
 
 Também foi reforçada a geração determinística do ID das regras escolares médias para incluir o escopo completo (`curso_id|ano_academico`) quando houver curso, evitando colisão entre regras fixas do mesmo ano médio em cursos distintos.
 
