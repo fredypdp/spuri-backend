@@ -29,36 +29,17 @@ Versão atual: 2.1.0
 
 ## 1. Convenções Globais
 
-### Autenticação
+### Atores do Sistema
 
-Todas as rotas protegidas exigem o header:
+| Ator              | Papel                                                              |
+| ----------------- | ------------------------------------------------------------------ |
+| **Admin FPP**     | Administrador máximo. Cria academias, outros admins, faz rebuilds. |
+| **Admin ADM**     | Ativa/desativa academias e admins de nível inferior.               |
+| **Admin Gerente** | Consultas e ações básicas administrativas.                         |
+| **Academia**      | Gere estudantes, notas, faltas, cursos, matérias e turmas.         |
+| **Estudante**     | Visualiza os próprios dados académicos.                            |
 
-```
-Authorization: Bearer <jwt_token>
-```
-
-### Content-Type
-
-```
-Content-Type: application/json
-```
-
-### Datas
-
-- Datas completas em UTC no formato RFC3339: `2025-03-15T10:30:00Z`
-- Datas simples: `2025-03-15` (formato ISO 8601)
-
-### Convenção de Payload e Resposta
-
-- Toda rota desta documentação declara explicitamente o formato de entrada e saída.
-- Quando uma rota não tiver corpo de entrada, ela trará `Request: sem payload` ou será um `GET` sem body.
-- Nos endpoints batch (`/async`), o payload é sempre um array JSON; cada item segue o contrato da rota síncrona equivalente.
-
-### Regras de Negócio por Rota
-
-- Cada rota documenta explicitamente: permissões, pré-condições, validações de domínio e bloqueios de negócio.
-- As regras de negócio vêm da documentação do sistema (`Spuri - Documentação.md`) e devem ser consideradas fonte principal.
-- Em caso de diferença entre exemplo de payload e regra de negócio, prevalece a regra de negócio.
+---
 
 ### Envelope de Erro
 
@@ -92,22 +73,6 @@ Alguns middlewares e handlers legados retornam erro simples, sem `message`, `req
 > cliente corrigir a requisição. Em `/academia/anos-academicos`, `details`
 > também pode aparecer em `409 Conflict` quando a alteração é bloqueada por
 > estudantes ativos vinculados ao ano/período removido.
-
-### Códigos HTTP
-
-|Código|Situação|
-|---|---|
-|`200`|Sucesso|
-|`201`|Criado com sucesso|
-|`202`|Aceito (job assíncrono criado)|
-|`204`|Sem conteúdo|
-|`400`|Erro de validação de entrada|
-|`401`|Token ausente, inválido ou expirado|
-|`403`|Sem permissão ou entidade inativa|
-|`404`|Recurso não encontrado|
-|`409`|Conflito (duplicidade ou estado incompatível)|
-|`422`|Lote inteiramente inválido|
-|`500`|Erro interno do servidor|
 
 ---
 
@@ -549,6 +514,53 @@ interface AsyncBatchAcceptedResponse {
 
 ## 3. Autenticação
 
+### Segurança e Autenticação
+
+### Consulta pública de academias
+
+As rotas `GET /academias` e `GET /consultar-academia/:codigo` são públicas com autenticação opcional. Usuários não autenticados podem consultar a lista de academias ou uma academia específica pelo código, mas a resposta expõe somente os campos públicos: `nivel`, `type`, `nome`, `codigo_academia`, `provincia`, `endereco`, `nivel_escolar` e `anos_academicos`. Para escolas fundamentais ou mistas, `anos_academicos` informa os anos acadêmicos ofertados sem exigir sessão.
+
+As rotas `GET /academia/cursos?codigo_academia=...` e `GET /academia/curso/:id` também são públicas com autenticação opcional para consulta dos cursos e dos anos desses cursos em escolas do médio e academias do nível superior. Academias autenticadas continuam consultando os próprios cursos sem informar `codigo_academia`; admins autenticados continuam informando `codigo_academia` na listagem.
+
+Quando a requisição envia `Authorization: Bearer <jwt_token>` válido, a API preserva o contrato autenticado anterior, retornando também campos operacionais para usuários autenticados e campos administrativos adicionais para admins. Tokens enviados em formato inválido, expirados ou pertencentes a contas inativas devem ser rejeitados com `401`.
+
+### 8.1 JWT
+
+- Algoritmo: HS256
+- Expiração configurável via `JWT_EXPIRY_HOURS` (padrão: 24h)
+- Secret configurável via `JWT_SECRET` (obrigatório em produção)
+- Payload: `user_id` (UUID) e `user_type` (string)
+
+### 8.2 Senhas
+
+- Algoritmo: bcrypt com custo padrão
+- Senhas de admins: geradas com `crypto/rand` (segurança criptográfica), nunca hardcoded
+- Senhas de academia/estudante: código da entidade como senha inicial
+- Todas as alterações de senha passam pelo ledger (evento)
+
+### 8.3 Hash Chain do Ledger
+
+Cada evento no ledger tem um hash SHA256 que inclui o hash do evento anterior:
+
+```
+hash(evento_N) = SHA256(conteúdo_N + hash(evento_N-1))
+```
+
+Qualquer adulteração de um evento invalida toda a cadeia a partir daquele ponto, tornando a adulteração detectável.
+
+### 8.4 Whitelist de Eventos
+
+Apenas eventos previamente autorizados podem ser gravados no ledger (`safe_queries.go`). Qualquer evento desconhecido é rejeitado antes de chegar ao banco.
+
+### 8.5 Segurança das Queries
+
+- Todas as queries SQL usam prepared statements com placeholders (`$1`, `$2`, ...)
+- Nomes de tabelas interpolados dinamicamente só ocorrem em um switch fechado com valores constantes (sem input do usuário)
+- Inputs validados e sanitizados antes de qualquer operação
+
+---
+
+
 ### POST /login
 
 Login unificado para todos os tipos de usuário. O tipo é inferido automaticamente.
@@ -951,6 +963,66 @@ Define nova senha usando o token de recuperação.
 ---
 
 ## 6. Academias
+
+### Processos de Negócio — Cadastro de Academia
+
+### 5.1 Cadastro de Academia
+
+**Quem faz**: Admin (FPP)
+
+1. Admin envia dados da academia (nivel, type, nome, província, endereço, nível escolar, etc.)
+2. Sistema gera o código único consultando o ledger (ex: `LDA20261`)
+3. Sistema gera a senha padrão = código da academia (ex: `LDA20261`)
+4. Academia é criada com **status `inativo`**
+5. Um admin com role `adm` ou `fpp` deve ativar manualmente
+
+**Regras de validação:**
+
+- `nivel` deve ser `escola` ou `superior`
+- `type` é obrigatório (campo textual) e deve ser `public` ou `private`
+- Para `nivel=escola` com nível escolar `fundamental` ou `misto`: `anos_academicos` é obrigatório (formato `[1-9]_ano_fundamental`)
+- Para `nivel=escola` com nível escolar `medio`: `anos_academicos` não deve ser informado
+- Província deve ser um código válido de Angola (21 províncias):
+	- `{ nome: 'BENGO', codigo: 'BGO' },
+	  { nome: 'BENGUELA', codigo: 'BGU' },
+	  { nome: 'BIE', codigo: 'BIE' },
+	  { nome: 'CABINDA', codigo: 'CAB' },
+	  { nome: 'CUANDO CUBANGO', codigo: 'CND' },
+	  { nome: 'CUANZA NORTE', codigo: 'CNO' },
+	  { nome: 'CUANZA SUL', codigo: 'CUS' },
+	  { nome: 'CUBANGO', codigo: 'CBG' },
+	  { nome: 'CUNENE', codigo: 'CNN' },
+	  { nome: 'HUAMBO', codigo: 'HUA' },
+	  { nome: 'HUILA', codigo: 'HUI' },
+	  { nome: 'ICOLO E BENGO',  codigo: 'IBG' },
+	  { nome: 'LUANDA', codigo: 'LUA' },
+	  { nome: 'LUNDA NORTE', codigo: 'LNO' },
+	  { nome: 'LUNDA SUL', codigo: 'LSU' },
+	  { nome: 'MALANJE', codigo: 'MAL' },
+	  { nome: 'MOXICO', codigo: 'MOX' },
+	  { nome: 'MOXICO LESTE', codigo: 'MXL' },
+	  { nome: 'NAMIBE', codigo: 'NAM' },
+	  { nome: 'UIGE', codigo: 'UIG' },
+	  { nome: 'ZAIRE', codigo: 'ZAI' },
+	];`
+### Regras de Negócio — Academia
+
+### 6.1 Regras de Academia
+
+| Regra                                                         | Detalhe                                                |
+| ------------------------------------------------------------- | ------------------------------------------------------ |
+| Academias nascem inativas                                     | Apenas um admin pode ativar                            |
+| Escola com nível fundamental/misto deve ter `anos_academicos` | Sem anos, o cadastro é rejeitado                       |
+| Escola com nível médio não deve ter `anos_academicos`         | Anos são do curso, não da academia                     |
+| Apenas academias ativas podem operar                          | Middleware valida status em cada request               |
+| Admin FPP define diretamente, por tipo, o ano letivo oficial global via `POST /admin/definir-ano-letivo-geral`; depois é atualizado automaticamente quando todas as academias ativas do mesmo tipo estiverem alinhadas | É a referência obrigatória para todo o sistema          |
+| Academia só pode definir diretamente uma vez e sempre igual ao oficial global; avanços acontecem pela finalização do ano letivo | Divergência é bloqueada com erro de negócio             |
+| Sem ano letivo na academia, notas/faltas/avaliações são bloqueadas | Pré-condição para registos académicos               |
+| Histórico `anos_letivos_lista` não duplica `ano_letivo`       | Atualizações repetidas do mesmo ano são ignoradas       |
+| Histórico global `anos_letivos_lista` (admin) não duplica `ano_letivo` | Lista global de anos letivos mantém unicidade por ano |
+| Senha padrão = código da academia                             | Deve ser alterada após o primeiro login                |
+| Desativação exige motivo                                      | Registado no ledger e na projeção para auditoria       |
+
 
 ### POST /dominis/academia/register
 
@@ -1516,6 +1588,34 @@ item apontando o campo exato que deve ser corrigido.
 
 ## 7. Ano Letivo
 
+### Processos de Negócio — Configuração do Ano Letivo
+
+### 5.3 Configuração do Ano Letivo
+
+**Quem faz**:
+
+- **Admin FPP** define o **ano letivo oficial global por tipo** via `POST /admin/definir-ano-letivo-geral`, informando `type=escolar` ou `type=superior` e o `ano_letivo` desejado no formato `YYYY_YYYY`, apenas enquanto não houver academia ativa daquele tipo com ano letivo definido
+- **Academia** define o seu primeiro ano letivo ativo via `POST /academia/definir-ano-letivo`, sempre alinhado ao global do tipo inferido pelo próprio cadastro (`escola` → `escolar`, `superior` → `superior`); depois avança automaticamente ao finalizar o ano letivo
+
+Antes de registar qualquer nota, falta ou avaliação, a academia deve definir o ano letivo ativo.
+
+Os anos letivos oficiais globais são persistidos em `projection_sistema_config` com as chaves `ano_letivo_atual_escolar` e `ano_letivo_atual_superior`; essa projeção deve existir antes da chamada administrativa.
+
+Além do valor atual, o sistema mantém `anos_letivos_lista` em `projection_sistema_config` como histórico global (sem duplicar `ano_letivo`). Esse histórico pode ser consultado por qualquer usuário autenticado na rota `GET /anos-letivos-lista?type=...` e o valor atual em `GET /ano-letivo?type=...`.
+
+**Formato obrigatório**: `YYYY_YYYY` onde o segundo ano é exatamente o primeiro + 1 (ex: `2025_2026`)
+
+**Tipo**: `escolar` ou `superior`; `escola` não é aceito como alias para tipo de ano letivo.
+
+A academia só pode definir diretamente quando ainda não possui ano letivo. Depois disso, a evolução acontece pela finalização realizada pelas academias, que calcula o próximo período a partir do ano final do anterior. O ano letivo ativo é resolvido automaticamente em todos os novos registos de nota, falta e avaliação.
+
+O período real aceito para faltas não é salvo como datas fixas em cada ano. O Admin FPP mantém uma configuração global por tipo em `projection_anos_letivos_configuracoes` (`type` + `periodo`). O backend combina essa configuração com o `ano_letivo` ativo da academia para calcular o intervalo: com `ano_letivo=2025_2026` e `periodo=10_07`, o início é `2025-10-01` e o fim é `2026-07-31`.
+
+**Regra de alinhamento obrigatório**: se a academia tentar definir um ano letivo diferente do ano oficial global do seu tipo definido pelo admin FPP, a operação deve ser rejeitada com erro de negócio.
+
+Sempre que o ano letivo for atualizado, ele é adicionado em `anos_letivos_lista` apenas se ainda não existir para aquela academia. Se já existir, o backend ignora a duplicação.
+
+
 ### POST /admin/definir-ano-letivo-geral
 
 Define diretamente o **ano letivo oficial global por tipo** (`escolar` ou `superior`). O Admin FPP deve informar `type` e o `ano_letivo` desejado no payload, no formato `YYYY_YYYY` com segundo ano igual ao primeiro + 1 (ex.: `2026_2027`). O backend não calcula automaticamente o ano letivo nesta rota; o valor informado pelo admin é persistido para o tipo escolhido. A definição administrativa só é permitida quando nenhuma academia ativa daquele tipo possui ano letivo definido; depois disso, a evolução global daquele tipo passa a ser automática quando todas as academias ativas do mesmo tipo estiverem alinhadas no mesmo ano letivo.
@@ -1949,6 +2049,50 @@ Para implementar o cliente de forma segura:
 ---
 
 ## 8. Estudantes
+
+### Processos de Negócio — Cadastro de Estudante
+
+### 5.2 Cadastro de Estudante
+
+**Quem faz**: Academia (status ativo)
+
+1. Academia envia os dados do estudante em `multipart/form-data`, com ou sem anexos.
+2. Sistema mantém obrigatórias as validações cadastrais e acadêmicas, mas não bloqueia o cadastro direto pela ausência de PDFs.
+3. Sistema valida que todos os arquivos enviados são PDF, respeitam o limite de 5MB e possuem assinatura `%PDF`.
+4. Sistema gera código único (`AAA1234`), verificando ledger e projeção.
+5. Quando enviados, os documentos são enviados ao storage definitivo em `{codigo_academia}/estudantes/{codigo_estudante}/documentos/`.
+6. Senha padrão = código do estudante (ex: `ABC1234`).
+7. Estudante é criado com **status `ativo`**, vinculado à academia e com o mapa `documentos` gravado no evento `EstudanteCriadoComVinculo` e na projeção.
+8. Se qualquer validação ou persistência falhar após upload parcial, o diretório de documentos do estudante é removido para evitar ficheiros órfãos.
+
+**Regras de validação:**
+
+- `genero` obrigatório: `masculino` ou `feminino`
+- `data_nascimento` obrigatório: deve ser anterior à data atual
+- JSON puro não é aceito no cadastro direto; o fluxo deve usar `multipart/form-data`, mesmo quando nenhum anexo for enviado
+- `bilhete_identidade_responsavel` continua obrigatório para estudantes escolares/fundamental/médio; o PDF `bi_responsavel` é opcional no cadastro direto
+- `bilhete_identidade` e `bilhete_identidade_responsavel`, quando ambos informados, não podem ser iguais após normalização
+- `bi_estudante` e `cedula_estudante` são opcionais no cadastro direto; quando enviados, precisam ser PDFs válidos
+- o BI do responsável não pode coincidir com o BI principal de outro estudante escolar/fundamental/médio, mas pode repetir como BI de responsável de irmãos/outros estudantes
+- Certificados acadêmicos e `declaracao` são opcionais no cadastro direto; quando enviados, precisam ser PDFs válidos
+- `ano_escolar_fundamental` deve seguir o formato canônico para o tipo de ensino
+- Se informar `curso_medio_id`, o curso deve existir, estar ativo, pertencer à academia e ser do tipo `medio`
+- Se informar `curso_superior_id`, o curso deve existir, estar ativo, pertencer à academia e ser do tipo `superior`
+- Status inicial padrão para fundamental: `em_andamento`
+- Status inicial padrão para médio e superior: `inativo` até eventos específicos de matrícula/curso
+### Regras de Negócio — Estudante
+
+### 6.2 Regras de Estudante
+
+| Regra                                                         | Detalhe                                 |
+| ------------------------------------------------------------- | --------------------------------------- |
+| Apenas academia pode cadastrar estudantes                     | Não existe auto-cadastro                |
+| `genero` e `data_nascimento` são obrigatórios                 | Não podem ser omitidos                  |
+| `data_nascimento` deve ser anterior a hoje                    | Validação no aggregate                  |
+| Senha padrão = código do estudante                            | Ex: `ABC1234` acede com senha `ABC1234` |
+| Status superior exige fundamntal e médio finalizados/inativos | Progressão lógica do ensino             |
+| Deleção de nota/falta exige motivo                            | Para auditoria                          |
+
 
 ### POST /academia/estudante/register
 
@@ -2488,6 +2632,46 @@ Retorna as avaliações finais do estudante autenticado.
 
 ## 9. Solicitação de Matrícula
 
+### Processos e Regras de Negócio — Solicitação de Matrícula
+
+### Entidade `SolicitacaoMatricula`
+
+A entidade representa o pedido feito pelo estudante para se matricular numa academia. Ela possui código único de 11 caracteres (`codigo_solicitacao`), dados pessoais/académicos, mapa de documentos enviados, status (`pendente`, `aprovada`, `reprovada`) e campos de decisão (`codigo_estudante_gerado`, `motivo_reprovacao`, `aprovada_por`, `reprovada_por`). Cada documento enviado é salvo como objeto com `path`, `file_url` e `download_url`, permitindo que as rotas GET retornem tanto o caminho interno quanto as URLs do arquivo e de download.
+
+Eventos do ledger:
+
+- `SolicitacaoMatriculaCriada`
+- `SolicitacaoMatriculaAprovada`
+- `SolicitacaoMatriculaReprovada`
+
+### Processo de negócio
+
+1. O estudante envia `POST /solicitacao-matricula` com formulário multipart e PDFs.
+2. O backend valida bilhete de identidade do responsável, cédula do estudante quando necessário, data de nascimento, academia ativa, assinatura/extensão PDF, limite máximo de 5MB por ficheiro e as regras automáticas de declaração/certificados.
+3. Os documentos são enviados ao storage em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`.
+4. Para cada PDF, o storage devolve o caminho interno, a URL do arquivo (`file_url`) e a URL de download (`download_url`); esses dados são gravados no evento de criação e na projeção.
+5. O aggregate `SolicitacaoMatricula` valida que `bilhete_identidade` e `bilhete_identidade_responsavel`, quando ambos informados, não sejam iguais.
+6. Para estudantes escolares/fundamental/médio, o handler e o aggregate exigem `bilhete_identidade_responsavel`, `bi_responsavel`, `bi_estudante` quando houver BI próprio, `cedula_estudante` quando não houver BI próprio, e certificado aplicável ou `declaracao`.
+7. Antes de criar ou aprovar a solicitação escolar, o handler confirma que o BI do responsável não pertence como BI principal a outro estudante escolar/fundamental/médio já existente.
+8. O aggregate `SolicitacaoMatricula` grava o evento de criação.
+9. A academia lista/consulta solicitações e aprova ou reprova.
+10. Na aprovação, o sistema reutiliza o aggregate `Estudante`, revalida os documentos e conflitos atuais, e emite `EstudanteCriadoComVinculo`.
+11. Na reprovação, grava o evento de reprovação e remove o diretório dos documentos.
+
+### Regras de negócio
+
+- O bilhete de identidade do responsável é obrigatório para estudantes escolares/fundamental/médio.
+- A cédula do estudante é obrigatória quando o bilhete de identidade do estudante não for enviado.
+- Certificado do 6.º ano fundamental só é aplicável para matrículas do 7.º ao 9.º ano fundamental.
+- Certificado do 9.º ano fundamental só é aplicável para matrículas do ensino médio.
+- Certificado do ensino médio só é aplicável para matrículas do ensino superior.
+- A declaração escolar é obrigatória quando o certificado aplicável não for enviado ou quando não houver certificado aplicável ao ano académico informado.
+- Arquivos devem ser PDFs (`Content-Type`, extensão e assinatura `%PDF`).
+- Apenas a academia dona pode aprovar/reprovar.
+- Solicitação decidida não volta para pendente.
+- Rebuild inclui `solicitacoes_matricula` após as projeções principais.
+
+
 ### POST /solicitacao-matricula
 
 Cria uma solicitação pública de matrícula via `multipart/form-data`. O backend gera `codigo_solicitacao`, valida dados e PDFs, envia documentos para o armazenamento no caminho `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/` e grava `SolicitacaoMatriculaCriada` no ledger. Para cada arquivo enviado, o evento e a projeção salvam `path`, `file_url` (URL de visualização/arquivo no Drive) e `download_url` (URL direta de download quando o Google Drive disponibilizar `webContentLink`).
@@ -2644,6 +2828,55 @@ Lista todas as solicitações do sistema para admin em ordem decrescente de cria
 ---
 
 ## 10. Cursos
+
+### Processos de Negócio — Gestão de Cursos
+
+### 5.8 Gestão de Cursos e Matérias
+
+**Ciclo de vida do curso:**
+
+```
+Criado → Ativado → Desativado → Deletado
+       ↑__________|
+```
+
+Para deletar um curso:
+
+1. Deve estar inativo
+2. Não pode ter estudantes matriculados
+3. Não pode ter matérias ativas (desativar todas primeiro)
+4. Matérias inativas são deletadas em cascata automaticamente
+5. Turmas inativas vinculadas são deletadas em cascata automaticamente
+
+Em cursos médios, `materias_chave` é parte da configuração curricular do curso e é mantido pela rota específica `PUT /academia/curso/:id/materias-chave`, após a criação das matérias do curso. A criação e a edição cadastral do curso não aceitam esse campo. Quando a avaliação final do Médio precisa de matérias-chave e a configuração do curso/ano ainda não existe, o backend retorna erro claro de configuração ausente.
+
+**Ciclo de vida da matéria superior:**
+
+```
+Criada (INATIVO) → Período Definido → Ativada (ATIVO) → Desativada → Deletada
+```
+
+Matérias fundamental e médio são criadas já **ativas**.
+
+**Validação de período**: o período da matéria deve existir na lista de períodos do curso vinculado.
+### Regras de Negócio — Curso
+
+### 6.8 Regras de Curso
+
+| Regra                                                           | Detalhe                                                                                                                                                                                    |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Tipo imutável após criação e compatível com o nível da academia | Preenchido automaticamente no back end. Quando a academia é do nível escola e `NivelEscolar` = "medio", o tipo será `medio`. Quando a academia é do nível superior o tipo será `superior`. |
+| Curso superior exige períodos                                   | Ao menos um semestre                                                                                                                                                                       |
+| Curso superior limita semestres por ano                         | `total_semestres >= total_anos` e `total_semestres <= total_anos * 2`                                                                                                                     |
+| Curso médio exige modelo                                     | `modelo` obrigatório e exatamente `liceu` ou `tecnico`; cursos superiores não aceitam `modelo`                                                                                          |
+| Curso médio não deve ter períodos                               | Trimestres são fixos do sistema                                                                                                                                                            |
+| Edição de anos acadêmicos bloqueia remoções em uso              | Não é permitido remover de `anos_academicos` um ano com estudantes ativos matriculados no curso                                                                                            |
+| Edição de períodos do superior bloqueia remoções em uso          | Não é permitido remover de `periodos` um semestre com estudantes ativos no curso superior usando o `semestre_atual` correspondente                                                         |
+| Deleção exige inatividade                                       | Desativar primeiro                                                                                                                                                                         |
+| Deleção exige sem estudantes matriculados                       | Verificação antes de deletar                                                                                                                                                               |
+| Matérias ativas bloqueiam deleção                               | Desativar todas as matérias antes                                                                                                                                                          |
+| Cascata na deleção                                              | Matérias e turmas inativas e sem estudantes são deletadas automaticamente                                                                                                                  |
+
 
 ### POST /academia/curso
 
@@ -2912,6 +3145,51 @@ Deleta um curso (soft delete com cascata).
 
 ## 11. Matérias
 
+### Processos de Negócio — Gestão de Matérias
+
+### 5.8 Gestão de Cursos e Matérias
+
+**Ciclo de vida do curso:**
+
+```
+Criado → Ativado → Desativado → Deletado
+       ↑__________|
+```
+
+Para deletar um curso:
+
+1. Deve estar inativo
+2. Não pode ter estudantes matriculados
+3. Não pode ter matérias ativas (desativar todas primeiro)
+4. Matérias inativas são deletadas em cascata automaticamente
+5. Turmas inativas vinculadas são deletadas em cascata automaticamente
+
+Em cursos médios, `materias_chave` é parte da configuração curricular do curso e é mantido pela rota específica `PUT /academia/curso/:id/materias-chave`, após a criação das matérias do curso. A criação e a edição cadastral do curso não aceitam esse campo. Quando a avaliação final do Médio precisa de matérias-chave e a configuração do curso/ano ainda não existe, o backend retorna erro claro de configuração ausente.
+
+**Ciclo de vida da matéria superior:**
+
+```
+Criada (INATIVO) → Período Definido → Ativada (ATIVO) → Desativada → Deletada
+```
+
+Matérias fundamental e médio são criadas já **ativas**.
+
+**Validação de período**: o período da matéria deve existir na lista de períodos do curso vinculado.
+### Regras de Negócio — Matéria Disciplinar
+
+### 6.7 Regras de Matéria Disciplinar
+
+| Regra                                                                                                | Detalhe                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Edição restrita à academia dona da matéria                                                           |                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Anos acadêmicos deve ser compatível aos anos acadêmicos da academia ou do curso                      | Ao criar ou editar anos_academicos ele deve ser compatível com os anos acadêmicos da academia (para matéria do tipo fundamental), ou com os anos acadêmicos do curso (matéria do tipo medio ou superior)                                                                                                                                                                                                                                                              |
+| Tipo compativel com o nivel da academia                                                              | - Quando a academia é do nível escola e `NivelEscolar` = "fundamental", o tipo será `fundamental`.<br>- Quando a academia é do nível escola e `NivelEscolar` = "medio", o tipo será `medio`.<br>- Quando a academia é do nível superior o tipo será `superior`.<br><br>MateriaType será preenchido automaticamente, apenas quando a academia é do nível escola e `NivelEscolar` = "misto", a academia terá que enviar o tipo definindo se é `fundamental` ou `medio`. |
+| Período só pode ser definido para matéria do tipo `superior`. E deve ser compatível com o seu curso. | Matérias `fundamental` e `medio` não aceitam definição de período. E o período da matéria do tipo superior deve ser compatível com um dos períodos do seu curso                                                                                                                                                                                                                                                                                                       |
+| Quando a matéria é do tipo `superior` período não pode ser vazio                                     |
+| Matérias dependentes são exclusivas do superior                                                      | Configuração de dependências/pendências por matéria é bloqueada para o ensino médio escolar; médio escolar usa o padrão fixo escolar |                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Deleção exige inatividade                                                                            | Matéria com status `ativo` é rejeitada; é obrigatório desativar antes de deletar                                                                                                                                                                                                                                                                                                                                                                                      |
+
+
 ### POST /academia/materia
 
 Cria uma nova matéria disciplinar.
@@ -3103,6 +3381,42 @@ Deleta uma matéria (soft delete). Deve estar inativa.
 ---
 
 ## 12. Turmas
+
+### Processos de Negócio — Gestão de Turmas
+
+### 5.7 Gestão de Turmas
+
+**Quem faz**: Academia
+
+**Ciclo de vida de uma turma:**
+
+```
+Criada (ativo) → Desativada (inativo) → Deletada (deletado)
+              ↑_________|
+         (pode ativar novamente)
+```
+
+**Para deletar**: a turma deve estar inativa e sem estudantes vinculados.
+
+**Adição de estudantes**: o estudante deve pertencer à academia. Apenas estudantes do superior podem estar em múltiplas turmas simultaneamente.
+
+**Remoção automática**: para avaliações finais escolares, removida. Agora há progressão de turma na aprovação e permanência na turma na reprovação.
+
+**Histórico por ano letivo**: cada turma mantém `historico_estudantes_ano_letivo` (mapa `ano_letivo -> [codigo_estudante]`) com os estudantes que já fizeram parte dela em cada ano letivo.
+### Regras de Negócio — Turma
+
+### 6.6 Regras de Turma
+
+| Regra                                                                        | Detalhe                                                                                                                                                                                                                                                                                    |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Código único por academia                                                    | Não pode repetir dentro da mesma academia                                                                                                                                                                                                                                                  |
+| Turno: `manha`, `tarde` ou `noite`                                           | Valores fixos                                                                                                                                                                                                                                                                              |
+| Edição restrita à academia dona da turma                                     |                                                                                                                                                                                                                                                                                            |
+| Edição aceita apenas `nivel`, `curso_id` e `turno`                           |                                                                                                                                                                                                                                                                                            |
+| Mudança de nível/curso enquanto a turma tem estudantes exige compatibilidade | Se a turma já tiver estudantes vinculados, qualquer alteração de `nivel` e/ou `curso_id` dispara revalidação de compatibilidade antes de persistir. Onde os estudantes devem ter o ano acadêmico igual à esse novo nível, ou o curso_medio_id ou curso_superior_id igual à esse novo curso |
+| Deleção exige inatividade                                                    | Desativar antes de deletar                                                                                                                                                                                                                                                                 |
+| Deleção exige sem estudantes                                                 | Remover todos os estudantes primeiro                                                                                                                                                                                                                                                       |
+
 
 ### POST /academia/turma
 
@@ -3371,6 +3685,61 @@ Retorna as turmas de um estudante com autorização por perfil na mesma rota.
 ---
 
 ## 13. Notas
+
+### Processos de Negócio — Registro de Notas
+
+### 5.4 Registro de Notas
+
+**Quem faz**: Academia (status ativo, com ano letivo configurado)
+
+**Processo:**
+
+1. Academia envia: código do estudante, período, matéria, tipo, categoria, valor
+2. Sistema valida o ano letivo ativo da academia
+3. Sistema verifica que estudante pertence à academia
+4. Sistema verifica que matéria pertence à academia
+5. Sistema infere o `ano_academico`:
+    - Se estudante tem `ano_escolar_fundamental` preenchido (fundamental) → usa esse valor **somente se** esse ano existir em `anos_academicos` da matéria
+    - Se não existir, o registro é bloqueado com erro de validação (incompatibilidade estudante × matéria)
+    - Caso contrário → usa `anos_academicos[0]` da matéria
+6. Sistema valida a `categoria`: em escolas, ela precisa pertencer ao catálogo fixo do `ano_academico` inferido e do modelo do curso médio; no Superior, ela precisa estar configurada na academia com `anos_academicos` contendo o ano/período inferido. Sem catálogo/correspondência, o registro é bloqueado
+7. Sistema verifica idempotência (chave: `codigoAcademia_anoLectivo_periodo_materiaID_tipo_categoria`)
+8. Se não for duplicata, emite `NotasRegistradas` no ledger do estudante
+
+**Tipos de nota:**
+
+|Tipo|Academia|Categorias fixas|Períodos|
+|---|---|---|---|
+|`escolar`|`escola`|Categorias fixas do sistema por ano acadêmico|`1_trimestre`, `2_trimestre`, `3_trimestre`|
+|`superior`|`superior`|Categorias cadastradas explicitamente pela academia|Semestres do curso|
+
+No ensino superior, academias criam explicitamente todas as categorias de nota que pretendem usar. Toda categoria superior possui `anos_academicos`; apenas os anos presentes nessa lista aceitam registros. Se a categoria não tiver anos definidos, nenhuma nota pode ser registrada nela. O `codigo` da categoria é normalizado antes de persistir: espaços antes/depois são descartados, somente espaços internos entre textos viram `_`, letras maiúsculas viram minúsculas e caracteres especiais diferentes de `_` são rejeitados.
+
+Nas escolas, a academia não cria nem remove categorias. O backend seleciona automaticamente as categorias fixas pelo `ano_academico` inferido da nota e, no médio técnico, pelo `modelo` do curso. Categorias escolares legadas ou configuráveis eventualmente presentes em projeções não substituem esse catálogo fixo para lançamento de notas nem para avaliação final. Isso garante um padrão avaliativo único entre escolas e evita divergência operacional entre academias.
+
+**Valor**: escala validada por ano acadêmico (`0–10` no 1.º ao 6.º fundamental; `0–20` no 7.º ao 9.º fundamental, médio e superior).
+
+**Correção de nota**: `observacao` é **obrigatória** (justificativa da correção)
+
+**Deleção de nota**: `motivo` é **obrigatório**; soft delete (permanece no ledger)
+
+**Proteção contra duplicatas**: o aggregate mantém um mapa em memória (`NotasRegistradasPorChave`). Se a mesma combinação de academia/ano/período/matéria/tipo/categoria já existir, o comando é rejeitado com erro de negócio claro antes de tocar o banco.
+### Regras de Negócio — Notas
+
+### 6.3 Regras de Notas
+
+| Regra                                       | Detalhe                                                       |
+| ------------------------------------------- | ------------------------------------------------------------- |
+| Nota deve respeitar a escala do ano acadêmico | `0–10` para `1_ano_fundamental` a `6_ano_fundamental`; `0–20` para demais anos fundamentais, médio e superior |
+| Academia escola só registra notas `escolar` | Academia superior só registra `superior`                      |
+| Categorias escolares são fixas | Escolas usam apenas categorias do catálogo do ano: regulares, exames nos anos previstos e `nota_pap` no `4_ano_medio` técnico |
+| Categorias configuráveis são do superior | Criação/remoção de categorias é bloqueada para escolas |
+| Ano do estudante deve pertencer à matéria   | Se `ano_escolar_fundamental` não estiver em `anos_academicos`, bloqueia   |
+| Observação obrigatória na correção          | Justificativa da alteração                                    |
+| Motivo obrigatório na deleção               | Para auditoria                                                |
+| Duplicata bloqueada no aggregate            | Mesma combinação ano/período/matéria/tipo/categoria rejeitada |
+| Nota deletada não pode ser re-registada     | Mapa de chaves não remove entradas deletadas                  |
+
 
 ### POST /academia/categorias-nota
 
@@ -3708,6 +4077,50 @@ Lista registros de notas com escopo por perfil.
 O recurso de sumários/aulas foi removido do contrato público da API. Não há endpoints para criar, listar, consultar, atualizar ou remover sumários, e faltas não aceitam nem retornam vínculo com sumário.
 
 ## 14. Faltas
+
+### Processos de Negócio — Registro de Faltas
+
+### 5.5 Registro de Faltas
+
+**Quem faz**: Academia (status ativo, com ano letivo configurado)
+
+**Processo:**
+
+1. Academia envia: código do estudante, data, matéria, quantidade
+2. Sistema valida ano letivo ativo
+3. Sistema verifica pertencimento do estudante e da matéria à academia
+4. Sistema infere o `ano_academico` (mesma lógica das notas)
+5. Sistema verifica idempotência (chave: `data+codigo_estudante+materia_disciplinar_id`; no aggregate ela é resolvida no contexto de academia + ano letivo)
+
+**Quantidade**: deve ser positiva (≥ 1)
+
+**Data**: formato `AAAA-MM-DD` (date-only, sem componente de hora)
+
+**Regra de registro**: faltas mantêm unicidade por combinação de `data + codigo_estudante + materia_disciplinar_id` (equivalente à unicidade técnica em projeção: estudante + academia + data + matéria).
+
+**Quantidade por registro**: não possui teto máximo (apenas deve ser `>= 1`).
+
+**Correção de falta**: `observacao` é **obrigatória** (justificativa da correção).
+
+**Deleção de falta**: `motivo` é **obrigatório**; soft delete
+### Regras de Negócio — Faltas
+
+### 6.4 Regras de Faltas
+
+| Regra                                            | Detalhe                                                                                 |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| Quantidade deve ser 1 ou mais                    | Validação no handler e no aggregate                                                     |
+| Data no formato date (`AAAA-MM-DD`)              | Campo date-only em faltas (sem hora)                                                    |
+| Ano do estudante deve pertencer à matéria        | Se `ano_escolar_fundamental` do estudante não existir em `anos_academicos` da matéria, bloqueia    |
+| Observação obrigatória na correção               | Justificativa da alteração em `PUT /academia/atualizar-falta`                           |
+| Motivo obrigatório na deleção                    | Para auditoria no ledger e na projeção                                                  |
+| Duplicata bloqueada                              | Mesma combinação `data + codigo_estudante + materia_disciplinar_id` é rejeitada         |
+| Sem vínculo de sumário                           | Faltas são independentes e não aceitam `sumario_id` ou `sumario_titulo` |
+
+### 6.4.1 Remoção de Sumários/Aulas
+
+O sistema não possui mais a entidade sumário/aula. As faltas devem ser lançadas e consultadas sem `sumario_id`, `sumario_titulo` ou qualquer vínculo equivalente.
+
 ### POST /academia/faltas-aluno
 
 Registra falta(s) para um estudante.
@@ -3925,6 +4338,242 @@ Lista registros de faltas com escopo por perfil.
 ---
 
 ## 15. Avaliações Finais
+
+### Processos de Negócio — Avaliação Final de Ano Académico
+
+### 5.6 Avaliação Final de Ano Académico
+
+**Quem faz**: Academia ativa, com ano letivo configurado, por meio da configuração de regras e do lançamento de notas. A academia **não envia manualmente** a nota final calculada nem decide aprovação/reprovação no payload de execução.
+
+A avaliação final é automática, auditável e orientada por regras. Ela é disparada pelo fluxo de lançamento de notas quando o backend identifica que existem regras ativas e notas suficientes para calcular a etapa aplicável. O modelo atual **não é uma média global única do estudante**: o backend calcula uma `nota_final` independente para cada matéria disciplinar aplicável, registra resultados por matéria e deriva a decisão geral do conjunto de resultados, da cadeia de regras e, apenas para Superior, das regras de pendência.
+
+#### 5.6.1 Conceitos funcionais
+
+| Conceito | Significado funcional |
+|---|---|
+| Regra raiz | Regra ativa sem `aplica_se_reprovado_em_type`. É a primeira etapa da cadeia para uma academia, `nivel` e escopo. Deve existir no máximo uma raiz ativa por escopo aplicável. |
+| Regra descendente | Regra ativa com `aplica_se_reprovado_em_type`, executada somente depois de reprovação no `type` indicado. Modela recuperação, exame, recurso ou outra nova chance. |
+| `type` | Nome público da etapa (`avaliacao_final`, `avaliacao_final_com_exame`, `avaliacao_final_com_recurso`, etc.). É configurado na regra, não enviado para executar avaliação. |
+| `nota_despertadora` | Código da categoria de nota que desperta a execução automática da regra raiz. É exclusivo de regras raízes; descendentes não aceitam o campo e continuam sendo acionadas por reprovação ancestral. |
+| `nivel` | Campo público de escopo da regra: `fundamental`, `medio` ou `superior`. O contrato novo de regras não aceita `tipo_ensino`. |
+| Fórmula | Expressão textual declarativa validada por parser próprio. Calcula a nota final de uma matéria usando notas existentes. Não há `eval`, script, template executável nem código dinâmico. |
+| `nota_minima_aprovacao` | Nota mínima para aprovar cada matéria avaliada na etapa. |
+| Matérias avaliadas | Matérias ativas da academia que pertencem ao nível/curso/ano/período do estudante e, se houver, ao filtro `materias_aplicaveis` da regra. |
+| `materias_chave` | Configuração curricular do curso médio, por `ano_academico`; não pertence à regra. Na raiz do Médio, o backend resolve a lista pelo `curso_medio_id` do estudante e pelo `ano_escolar_medio` atual. Reprovação em matéria não-chave na raiz não impede aprovação direta; reprovação em matéria-chave impede e pode acionar cadeia/pendência. |
+| `materias_aplicaveis` | Lista opcional de matérias que restringe a execução da regra. É especialmente útil em descendentes para recalcular apenas matérias de recuperação/exame/recurso. |
+| `limite_materias_pendentes` | Campo configurável apenas no Superior. Em escolas, regras/limites finais são fixos do sistema e não são cadastrados pela academia. |
+| `pendencia_permitida` | Campo exclusivo de matéria do Superior. Somente matérias superiores com esse campo verdadeiro podem gerar aprovação com pendência. |
+| `pendencia_nivel_conclusao` | Campo exclusivo de matéria do Superior que indica o semestre de conclusão usado para bloqueio funcional de progressão/conclusão quando há pendência aberta. |
+| Matéria pendente | Registro persistente em `projection_materias_pendentes`, criado quando uma avaliação do Superior aprova com pendência. Mantém histórico aberto/baixado por estudante, matéria, curso, ano letivo e escopo. |
+
+A avaliação registrada é idempotente no escopo suportado: o sistema evita gravar duas avaliações com o mesmo estudante, academia, ano letivo, nível interno da avaliação, ano/período acadêmico atual e `type`. Eventos e projeções preservam snapshots de fórmula, regra, matérias e pendências suficientes para auditoria.
+
+#### 5.6.2 Montagem e criação de regras de avaliação final
+
+Na versão 2.1.0, as regras configuráveis de avaliação final são exclusivas do ensino superior. Escolas não criam, editam nem removem regras por endpoint: o padrão avaliativo escolar é fixo do sistema, alinhado às categorias fixas e às etapas oficiais (`nota_professor`, `prova_trimestral`, exames quando aplicável e `nota_pap` no técnico). Na execução automática escolar, não há fallback para regras configuráveis ou legadas da projeção; uma categoria sem `nota_despertadora` fixa simplesmente não dispara avaliação final.
+
+A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras descendentes. O endpoint de criação usa `nivel` como campo público; `tipo_ensino` é legado e é rejeitado em criação/edição de regras.
+
+**Preenchimento/validação de `nivel` pela academia autenticada:**
+
+| Academia autenticada | Comportamento |
+|---|---|
+| Superior | O backend força `nivel="superior"`. Se o payload informar outro nível, falha. |
+| Escola fundamental/média/mista | Regras escolares são fixas do sistema; endpoints de criação/edição/remoção rejeitam `fundamental` e `medio`. |
+
+**Campos por nível:**
+
+| Campo | Fundamental | Médio | Superior |
+|---|---:|---:|---:|
+| `nivel` | `fundamental` | `medio` | `superior` |
+| `anos_academicos` | Obrigatório e não vazio; array simples de anos fundamentais | Obrigatório; lista de objetos `{curso_id, anos_academicos}` por curso médio | Rejeitado |
+| `materias_chave` | Rejeitado | Rejeitado na regra; configurado no curso médio por rota específica após a criação das matérias | Rejeitado |
+| `materias_aplicaveis` | Opcional; lista de itens `{ano_academico, materias}` | Opcional; lista de itens `{curso_id, ano_academico, materias}` | Opcional; lista de itens `{curso_id, ano_academico, materias}` com ano derivado dos semestres |
+| `limite_materias_pendentes` | Regras fixas do sistema | Regras fixas do sistema; sem pendências escolares | Obrigatório, `>= 0` |
+| `aplica_se_reprovado_em_type` | Ausente na raiz; presente em descendente | Ausente na raiz; presente em descendente | Ausente na raiz; presente em descendente |
+| `nota_despertadora` | Fixo do sistema | Fixo do sistema | Opcional na raiz; rejeitado em descendente |
+
+**Regras de cadeia e unicidade:**
+
+- `type`, `nome`, `nivel`, `formula` e `nota_minima_aprovacao > 0` são obrigatórios na criação; `descricao` é opcional.
+- `type` aceita letras, números, espaços e `_`; espaços internos são normalizados para `_`.
+- `categorias_envolvidas` é extraído da `formula`; se enviado, deve bater exatamente com as categorias extraídas.
+- Não pode haver duas regras ativas com o mesmo `codigo_academia`, `nivel`, `type` e escopo sobreposto. No Fundamental a sobreposição é por `ano_academico`; no Médio é por par `curso_id` + `ano_academico`. Superior continua sem `anos_academicos` nesta mudança.
+- Deve haver no máximo uma raiz ativa por academia, `nivel` e escopo. Uma cadeia sem raiz ou com múltiplas raízes aplicáveis não é executável de forma determinística.
+- `nota_despertadora` só pode ser configurado na regra raiz superior. Nas regras escolares fixas, a raiz é despertada por `prova_trimestral`, `exame_final` ou `nota_pap`, e a descendente fixa `exame_recurso` é despertada diretamente por `exame_recurso` apenas quando existe reprovação anterior. Regra superior raiz antiga sem `nota_despertadora` continua válida para compatibilidade, mas não é despertada automaticamente por lançamento de nota.
+- Descendentes superiores devem apontar para regra ativa existente no mesmo `nivel`, não podem apontar para si mesmas, não podem criar ciclo e devem usar exatamente o mesmo escopo da raiz da cadeia: mesmos anos no Fundamental e mesmos pares `curso_id` + `ano_academico` no Médio. Descendentes não expõem, aceitam nem persistem `nota_despertadora`; payload com esse campo falha porque descendentes são ativadas pela reprovação na ancestral.
+- Inativar uma regra inativa também suas dependentes diretas/indiretas para preservar a consistência da cadeia.
+- Na edição, não é permitido alterar `type`, `nivel`, `anos_academicos`, dependência, `materias_chave`, `materias_aplicaveis`, limite, status ou version; para mudar escopo/cadeia, cria-se nova regra. Se `materias_chave` for enviado em criação ou edição de regra, o backend rejeita e orienta configurar as matérias-chave no curso médio, por `ano_academico`.
+
+**Exemplos funcionais de configuração:**
+
+| Cenário | Configuração típica |
+|---|---|
+| Raiz do Fundamental | Não configurável por endpoint na versão 2.1.0; o padrão escolar fundamental é fixo do sistema e exposto como regra `source="system"`, `fixed=true`, `readonly=true`. |
+| Recuperação do Fundamental | Não configurável por endpoint; o sistema fornece as etapas fixas com `exame_final` e `exame_recurso` para os anos oficiais. |
+| Raiz do Médio | Não configurável por endpoint na versão 2.1.0; o padrão escolar médio é fixo do sistema. Matérias-chave continuam sendo configuração curricular do curso médio/ano, não da regra. |
+| Descendente do Médio | Não configurável por endpoint; o sistema fornece `exame_recurso` fixo para `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio`, limitado às matérias reprovadas na avaliação final. |
+| Raiz do Superior | `nivel=superior`, sem `anos_academicos`, fórmula com referências `[categoria]`, `limite_materias_pendentes` definido. |
+| Superior com pendência | Mesma regra superior, matérias com `pendencia_permitida=true` e, quando aplicável, `pendencia_nivel_conclusao` indicando o semestre-limite. |
+
+#### 5.6.3 Fórmulas por nível
+
+A regra usa `formula` como texto declarativo. O parser valida referências, operadores, parênteses, constantes, categorias e períodos antes de persistir ou calcular. Erro de fórmula é erro de validação, não falha operacional inesperada.
+
+| Nível | Formato da referência | Exemplo válido | Exemplo inválido |
+|---|---|---|---|
+| Fundamental | `[categoria,periodo]` | `([prova_trimestral,1_trimestre]+[prova_trimestral,2_trimestre]+[prova_trimestral,3_trimestre])/3` | `[prova_trimestral]` |
+| Médio | `[categoria,periodo]` | `[prova_trimestral,1_trimestre]*0.4+[exame_final,3_trimestre]*0.6` | `[exame_final]` |
+| Superior | `[categoria]`; período inferido pela matéria/semestre avaliado | `([prova_parcelar_1]+[prova_parcelar_2])/2` | `[prova_parcelar_1,1_semestre]` |
+
+No Superior, o backend preenche o período no momento do cálculo usando a matéria/escopo avaliado (`periodo` da matéria e `semestre_atual` do estudante). Assim, a mesma regra superior pode calcular as matérias do semestre atual sem expor período explícito no payload da regra.
+
+Se a fórmula exigir nota que ainda não existe para determinada matéria, categoria e período, aquela execução não fecha a avaliação naquele momento; o lançamento de novas notas tentará novamente. A fórmula sempre lê notas do ano letivo atual, da mesma academia, do mesmo estudante, da matéria avaliada e de categorias extraídas da própria fórmula.
+
+#### 5.6.4 Execução automática por lançamento de notas
+
+1. A academia registra/atualiza nota; o backend valida ano letivo, estudante, matéria, categoria, período, escala numérica e pertencimento ao `ano_escolar_fundamental` ou `ano_escolar_medio` atual do estudante.
+2. O backend infere o nível acadêmico do estudante para execução: Superior tem prioridade quando há vínculo/status superior; depois Médio; caso contrário Fundamental.
+3. Para Superior, o backend transforma `semestre_atual` em `[n]_semestre` e valida esse período contra o curso.
+4. O backend busca regras aplicáveis à academia, ao `nivel` e ao escopo acadêmico atual. Para `fundamental` e `medio`, essa busca é sempre resolvida pelo catálogo fixo do sistema; se a categoria lançada não despertar uma regra fixa, a execução termina sem consultar regras configuráveis/legadas. Para `superior`, a busca usa as regras configuráveis ativas da academia.
+5. A execução automática da raiz continua quando a categoria da nota registrada/atualizada é a `nota_despertadora` da raiz. No padrão escolar fixo, isso significa `prova_trimestral` no 3º trimestre para anos regulares, `exame_final` para anos com exame e `nota_pap` no `4_ano_medio` técnico.
+6. Descendentes só são consideradas se a etapa anterior reprovou. A descendente escolar fixa `exame_recurso` também pode ser despertada diretamente por lançamento/atualização de `exame_recurso`, mas somente para matérias reprovadas na avaliação final anterior e quando todas as notas de recurso exigidas estiverem completas.
+7. Para cada regra executável, o backend resolve as matérias aplicáveis e calcula `nota_final` individual por matéria.
+8. O resultado de cada matéria compara `nota_final` com `nota_minima_aprovacao`.
+9. No modelo superior configurável legado não escolar, o backend pode resolver `materias_chave` do curso médio quando a regra não é fixa. No padrão escolar fixo atual, o Médio é decidido pelas regras oficiais por matéria e pelo `exame_recurso`, sem pendência escolar.
+10. A decisão geral é derivada dos resultados por matéria e, no Superior, das condições de pendência.
+11. O evento grava snapshots: regra, `type`, fórmula usada, nota mínima, curso usado, matérias-chave resolvidas, resultados por matéria, pendências geradas, turma atual/turmas removidas quando aplicável e dados de progressão.
+12. Se a avaliação já existir no escopo idempotente, o backend não duplica o registro.
+
+#### 5.6.5 Fundamental
+
+- O escopo é `ano_escolar_fundamental` atual do estudante (`1_ano_fundamental` a `9_ano_fundamental`).
+- O catálogo avaliativo fundamental é fixo do sistema; rotas configuráveis de regras não aceitam criação/edição/remoção para Fundamental. Regras superiores não aceitam `anos_academicos`.
+- O backend avalia cada matéria fundamental ativa aplicável ao ano do estudante, respeitando `materias_aplicaveis` se configurado.
+- Cada matéria recebe `nota_final` própria; aprovação direta exige que todas as matérias avaliadas atinjam a mínima.
+- Uma ou mais matérias abaixo da mínima reprovam a etapa e podem acionar regra descendente por matéria reprovada.
+- Fundamental não permite aprovação com pendência: regra fundamental não tem `limite_materias_pendentes` e matérias fundamentais não aceitam `pendencia_permitida`/`pendencia_nivel_conclusao`.
+- Aprovado em ano intermediário progride para o próximo ano fundamental. Se a academia não oferta o próximo ano, o evento registra o motivo `academia_sem_oferta_do_proximo_ano_academico_fundamental`, mantém o ciclo em andamento e não adiciona turma automaticamente.
+- Aprovado no `9_ano_fundamental` finaliza o ciclo fundamental. Reprovado permanece no mesmo ano.
+
+#### 5.6.6 Médio
+
+- O escopo é o `ano_escolar_medio` atual do estudante, validado contra o curso médio ativo vinculado.
+- O backend avalia matérias médias ativas do curso e ano atual conforme o padrão fixo escolar.
+- A regra escolar fixa de Médio não aceita `materias_chave`; essa configuração curricular do curso médio permanece disponível para outros fluxos/consultas, mas não substitui a decisão oficial por matéria do padrão avaliativo fixo.
+- O `exame_recurso` fixo recalcula apenas matérias reprovadas na `avaliacao_final` anterior; matéria aprovada não pode receber recurso.
+- Médio escolar não permite matérias dependentes nem aprovação com pendência: `pendencia_permitida` e `pendencia_nivel_conclusao` são exclusivos do Superior.
+- O `4_ano_medio` técnico usa apenas `nota_pap` (`Prova de Aptidão Profissional`) como avaliação final, com aprovação por `nota_pap >= 10`, sem trimestres, prova trimestral, exame final ou recurso.
+
+Cenários típicos do Médio:
+
+| Cenário | Resultado funcional |
+|---|---|
+| Todas as matérias-chave aprovadas | Aprovação direta na raiz, com progressão ou conclusão conforme ano do curso. |
+| Matéria não-chave reprovada na raiz | Resultado por matéria fica reprovado, mas a decisão geral da raiz pode permanecer aprovada conforme comportamento atual. |
+| Matéria-chave reprovada e aprovada em descendente | A cadeia registra a nova etapa e a aprovação da descendente permite progressão/conclusão. |
+| Matéria reprovada sem descendente aplicável | Reprovação no ano/etapa escolar conforme padrão fixo. |
+| `4_ano_medio` técnico com `nota_pap >= 10` | Aprovação e conclusão do médio técnico. |
+| `4_ano_medio` técnico com `nota_pap < 10` | Reprovação no ano final técnico. |
+
+#### 5.6.7 Superior
+
+- O escopo é o curso superior ativo e o `semestre_atual` do estudante, convertido para `1_semestre`, `2_semestre`, etc.
+- O backend avalia matérias superiores ativas do curso cujo `periodo` corresponde ao semestre atual.
+- Fórmulas superiores não declaram período; o período é preenchido automaticamente para cada matéria avaliada.
+- Aprovação direta exige todas as matérias avaliadas com nota final maior ou igual à mínima.
+- Reprovação em matéria aciona descendentes aplicáveis; descendentes também trabalham por matéria e podem ser restringidas por `materias_aplicaveis`.
+- Após esgotar a cadeia superior, o estudante pode aprovar com pendência se o total de reprovações couber em `limite_materias_pendentes` e todas as matérias reprovadas permitirem pendência.
+- Reprovação por limite excedido ou matéria sem pendência permitida mantém o estudante no mesmo `semestre_atual` e não altera o status superior.
+- Aprovação em semestre intermediário incrementa `semestre_atual` e recalcula `ano_superior`; aprovação no último semestre finaliza o ciclo superior.
+- Pendência de curso anterior permanece histórica e não bloqueia o curso atual.
+
+#### 5.6.8 Regras descendentes por matéria
+
+Regra descendente é qualquer regra com `aplica_se_reprovado_em_type`. Ela representa uma etapa posterior da cadeia e só roda quando a etapa ascendente indicada reprovou. A descendente herda a lógica por matéria: calcula notas para matérias aplicáveis, compara cada resultado com a mínima e grava `type`/regra/fórmula usados naquela etapa.
+
+Pontos importantes:
+
+- A descendente não é uma média global do estudante; ela recalcula matérias no escopo da regra.
+- `materias_aplicaveis` funciona como filtro: matéria fora da lista não é recalculada naquela etapa.
+- A cadeia termina quando não há descendente ativa aplicável, quando a etapa anterior aprovou ou quando faltam notas para calcular a próxima etapa.
+- Ao final da última etapa reprovada, apenas o Superior avalia se a reprovação vira pendência; Fundamental e Médio escolar permanecem reprovados quando não atendem ao padrão fixo.
+- Exemplo: raiz `avaliacao_final` reprova Matemática e Física; descendente `avaliacao_final_com_exame` com `materias_aplicaveis=[Matemática]` recalcula somente Matemática. Física continua com o resultado anterior para a decisão final/pendência.
+
+#### 5.6.9 Resultados por matéria, eventos, projeções e auditoria
+
+Cada avaliação final gravada deve ser explicada pelos itens de `resultados_materias`, não por média global única. Cada item contém, no mínimo, `materia_id`, `nota_final`, `aprovado`, `type`, `formula_snapshot`, `regra_avaliacao_final_id` e `pendencia_permitida`. A projeção também mantém `nota_final` agregada como média dos itens calculados para compatibilidade/consulta resumida, mas a decisão funcional é por matéria.
+
+Eventos `AvaliacaoFinalEscolar` e `AvaliacaoFinalSuperior` preservam snapshots de regra, fórmula, notas calculadas, progressão e pendências geradas. Alterações posteriores de regra, matéria ou nota não reescrevem silenciosamente decisões já registradas; ajustes exigem fluxo operacional próprio/rebuild controlado.
+
+#### 5.6.10 Pendências de matérias
+
+Pendências existem apenas para o Superior. Elas são consideradas depois de reprovação na cadeia aplicável e só são criadas quando a decisão final superior é aprovação com pendência. Se o estudante reprova totalmente, nenhuma nova pendência é criada.
+
+A pendência carrega funcionalmente: estudante, matéria, academia, curso, `nivel`, ano letivo, escopo acadêmico (`periodo_superior`), regra/evento de origem, status `pendente`, dados de origem/snapshot e timestamps. Há proteção contra duplicidade aberta no mesmo estudante, matéria, curso, nível, ano letivo e escopo. A estrutura também possui campos de baixa (`baixada_por_event_id`, `updated_at`) para histórico, mas a documentação funcional reconhece uma limitação atual: **não há rota pública consolidada de regularização/baixa de pendência exposta nesta documentação de API**. Portanto, o sistema já persiste e consulta a base de pendências abertas/históricas, mas a regularização operacional precisa ser implementada ou conduzida por fluxo administrativo/evento específico antes de ser tratada como rotina pública.
+
+#### 5.6.11 Bloqueio por `pendencia_nivel_conclusao` e regularização
+
+`pendencia_nivel_conclusao` pertence à matéria e deve ser usado para identificar pendências bloqueantes do curso atual. Funcionalmente:
+
+- No Superior, pendência aberta cujo limite coincide com semestre/período conclusivo bloqueia conclusão automática até baixa.
+- Aprovação com pendência pode permitir progressão intermediária, mas não deve permitir conclusão com pendência bloqueante do curso atual.
+- Pendências não bloqueantes permitem progressão conforme regra de avaliação, desde que pertençam a escopo anterior e dentro do limite funcional definido.
+- Pendências de curso anterior são históricas e não bloqueiam o curso atual.
+- Regularização de pendência é diferente de avaliação final normal: deve avaliar a matéria pendente, registrar evento próprio auditável, baixar a pendência se aprovada e manter aberta se reprovada. Como limitação atual, esse fluxo ainda não está exposto como endpoint público completo; ao ser implementado, deve reutilizar os dados de origem da pendência e retomar progressão/conclusão quando não restarem pendências relevantes abertas.
+
+#### 5.6.12 Cenários de erro e validação
+
+Devem falhar com erro de validação ou bloqueio funcional:
+
+- Payload de regra com `tipo_ensino`; use `nivel`.
+- Academia mista criando regra sem `nivel` ou tentando criar regra `superior`.
+- Academia não mista criando regra de nível incompatível com sua configuração.
+- `anos_academicos` ausente em regra fundamental ou presente em Médio/Superior.
+- `limite_materias_pendentes` enviado em regra escolar, ausente em regra superior ou negativo.
+- `materias_chave` enviado em qualquer regra de avaliação final; o campo pertence ao curso médio, não à regra.
+- Curso médio sem `materias_chave` para todo ano acadêmico do curso, ou com matérias-chave vazias, duplicadas, inativas, inexistentes, de outra academia, de outro curso, de outro nível ou fora do ano configurado.
+- `materias_aplicaveis` fora do escopo do curso/ano/período aplicável deve ser tratada como configuração inválida ou ineficaz operacionalmente; QA deve validar esse cenário contra a base de matérias da academia.
+- Descendente órfã, descendente que aponta para si mesma, ciclo de dependências ou escopo fundamental diferente da raiz.
+- Fórmula Fundamental/Médio sem período explícito (`[categoria]`).
+- Fórmula Superior com período explícito (`[categoria,periodo]`).
+- Fórmula com categoria inexistente, período inválido, divisão por zero, caracteres fora da gramática ou categorias enviadas que não batem com a fórmula.
+- Tentativa de criar pendência em matéria fundamental.
+- Tentativa de criar duplicidade de pendência aberta no mesmo escopo.
+- Tentativa de concluir/progredir em desacordo com pendência bloqueante do curso atual.
+
+#### 5.6.13 Consultas
+
+- `GET /avaliacoes` → registros de avaliação final, com filtros por `nivel`, ano letivo, ano/período acadêmico atual, turma, academia e `type`. O filtro legado `tipo_ensino` é rejeitado no handler atual.
+- `GET /aprovacoes` → apenas aprovados (`aprovado = TRUE`) com os mesmos filtros.
+- `GET /reprovacoes` → reprovações definitivas; reprovações intermediárias com descendente ativa posterior não aparecem como definitivas até a cadeia terminar.
+- `GET /academia/avaliacao-final/regras` → lista regras da academia autenticada.
+- `PUT /academia/avaliacao-final/regras/:id` → edita apenas campos seguros de apresentação/cálculo (`nome`, `descricao`, `nota_minima_aprovacao`, `formula`).
+- `DELETE /academia/avaliacao-final/regras/:id` → inativa a regra e suas dependentes em cascata.
+
+**Escopo por academia:** usuário autenticado como academia só consulta/gerencia dados da própria academia. Admin pode consultar de forma ampla com filtros.
+### Regras de Negócio — Avaliação Final
+
+### 6.5 Regras de Avaliação Final
+
+| Regra                                       | Detalhe                                    |
+| ------------------------------------------- | ------------------------------------------ |
+| Escolas usam avaliação fixa do sistema | Academias escolares não criam, editam nem removem regras configuráveis de avaliação final |
+| Superior usa regras configuráveis | Criação/edição/remoção de regra é permitida apenas para `nivel=superior` |
+| Aprovação exige notas presentes na fórmula | Cada referência `[categoria]` superior exige nota da categoria no período inferido; se faltar, a avaliação aguarda novo lançamento |
+| Observação não faz override de nota | `observacao` é apenas metadado; aprovação/reprovação vem de `nota_final >= nota_minima_aprovacao` |
+| Fundamental usa sequência fixa 1..9 | `1_ano_fundamental` até `9_ano_fundamental` |
+| Médio usa sequência do curso | Avança conforme `anos_academicos` do curso médio ativo vinculado |
+| Tipo de ensino é inferido no backend | Não deve ser enviado no payload da avaliação final |
+| Superior progride por semestre | `semestre_atual` define o período avaliado (`[n]_semestre`), aprovações intermediárias incrementam o semestre e `ano_superior = ceil(semestre_atual / 2)` |
+| Reprovação não altera o ano/status | Mantém nível atual e não finaliza ciclo |
+| Aprovação no último nível finaliza ciclo | Define o status do ciclo correspondente como `finalizado` |
+| Uma avaliação por type/ano letivo/nível | Idempotência via aggregate e projeção |
+| Ativação de regra dependente | Uma regra dependente inativa só pode ser ativada se o `type` apontado em `aplica_se_reprovado_em_type` estiver ativo |
+| Reativação com `type` conflitante | Regra inativa não pode ser ativada enquanto houver regra ativa com o mesmo `type`, `nivel` e escopo acadêmico sobreposto |
+| Aprovação escolar move para turma do próximo ano; reprovação escolar mantém na turma | Automático na projeção de turmas para fundamental/médio |
+| Avaliação superior não altera turmas | Turmas do superior são geridas separadamente |
+
 
 ### Progressão semestral do ensino superior na avaliação final
 
@@ -4368,6 +5017,62 @@ Retorna avaliações finais de um estudante específico.
 
 ## 16. Admins
 
+### Processos de Negócio — Administração e Integridade
+
+### 5.9 Verificação de Integridade do Ledger
+
+O sistema suporta verificação da cadeia de hashes do ledger para qualquer estudante:
+
+```
+GET /verificar-integridade/:codigo
+```
+
+A função SQL `verify_hash_chain` verifica se todos os hashes encadeados são válidos. Se qualquer evento foi adulterado, a verificação retorna `integro = false` indicando a versão onde a cadeia foi quebrada.
+
+---
+
+### 5.10 Rebuild de Projeções
+
+Admins com role `fpp` podem reconstruir projeções:
+
+```
+POST /dominis/projections/rebuild/:name
+```
+
+Para evitar timeout em rebuilds longos (ex.: projeções com alto volume de eventos no ledger), use a versão assíncrona:
+
+```
+POST /dominis/projections/rebuild/:name/async
+```
+
+Esse endpoint retorna `202 Accepted` com `job_id`, `poll_url` e `sse_url`; o cliente pode acompanhar em `GET /jobs/:id` e/ou receber eventos em `GET /jobs/stream`.
+
+**Concorrência de rebuild**: o manager permite apenas **1 rebuild por vez** (lock global). Se outro rebuild já estiver em execução, o endpoint síncrono retorna `409 Conflict`.
+
+**Antes de reconstruir**, o sistema verifica a integridade completa do ledger. Se qualquer aggregate estiver com hash chain inválida, o rebuild é abortado.
+
+**Ordem de rebuild recomendada** (respeita dependências):
+
+1. `admins`
+2. `academias`
+3. `cursos`, `materias`, `categorias_nota`
+4. `estudantes`, `turmas`
+5. `notas`, `faltas`
+6. `avaliacao_final`
+### Regras de Negócio — Admin
+
+### 6.9 Regras de Admin
+
+| Regra                                    | Detalhe                                                                                            |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Hierarquia estrita                       | Só pode gerenciar roles estritamente inferiores                                                    |
+| Email verificado obrigatório para operar | Sem verificação, acesso ao painel é bloqueado                                                      |
+| Apenas FPP altera roles                  | Regra de negócio deliberada                                                                        |
+| Não pode desativar a si próprio          | Prevenção de bloqueio acidental                                                                    |
+| Bootstrap único                          | Primeiro FPP criado via endpoint especial com advisory lock                                        |
+| Senha gerada automaticamente             | Senha segura gerada com `crypto/rand` e enviada por email (apenas depois do e-mail ser verificado) |
+
+
 ### POST /dominis/register
 
 Cria um novo admin. A senha é gerada automaticamente e enviada por email.
@@ -4636,6 +5341,42 @@ Use este endpoint quando o rebuild puder demorar vários minutos.
 
 ## 17. Jobs Assíncronos
 
+### Processos de Negócio — Sistema de Jobs Assíncronos
+
+### 5.11 Sistema de Jobs Assíncronos
+
+Para operações em lote com muitos itens, o sistema oferece endpoints `/async` que criam um **job em background**:
+
+```
+POST /academia/notas-aluno/async  →  { "job_id": "uuid", "status": "pending", "poll_url": "/jobs/:id", "sse_url": "/jobs/stream" }
+GET  /jobs/:id                    →  { "status": "done", "progress": 100, ... }
+```
+
+**Pool de workers**: 4 goroutines paralelas processam itens em background.
+
+**Polling recomendado**: intervalo de 1.5s a 8s com backoff exponencial.
+
+**Status do job**: `pending` → `processing` → `done` / `failed`
+
+Se qualquer item falhar, o job fica como `failed` (não `done`), permitindo que o cliente identifique e retente apenas os itens com falha.
+
+**Persistência resiliente de payload e progresso**:
+
+- Cada item processado é persistido imediatamente em `async_jobs.results` (sem janela de 10 itens).
+- O `payload` bruto do job é preservado integralmente em `async_jobs.payload`.
+- Cada resultado individual inclui também o `payload` do item, permitindo replay exato dos itens que falharam.
+- Em reinício/crash, o worker varre jobs `pending`/`processing` e retoma do ponto salvo (`done_items + fail_items`), evitando perda silenciosa de itens.
+- O enqueue dos endpoints `/async` valida e conta itens no body bruto (sem dupla serialização do array), reduzindo consumo de CPU/memória e janelas de timeout em lotes grandes (ex.: notas/faltas).
+
+**Erro sempre explícito em jobs assíncronos**:
+
+- Jobs com falha parcial agora finalizam com `status=failed` e `error` contendo o motivo com amostras de itens.
+- Rebuild de projeções retorna o erro real no body HTTP, não apenas log interno.
+- Rebuild assíncrono de projeções usa o mesmo pipeline de integridade do rebuild síncrono, mas sem manter a conexão HTTP aberta por minutos.
+
+---
+
+
 ### GET /jobs
 
 Lista os jobs recentes do usuário autenticado.
@@ -4773,6 +5514,52 @@ Cria um novo job de retry reaproveitando **somente os itens que falharam** no jo
 
 ## 18. Batch Assíncrono
 
+### Processos de Negócio — Operações em Lote
+
+### 9.1 Batch Assíncrono
+
+Endpoints `/async` criam um job e retornam imediatamente. O processamento ocorre em background.
+
+**Limites:** até 1000-2000 itens (dependendo do endpoint).
+
+**Formato de payload:** array JSON (não objeto com `items`).
+
+```json
+[
+  {"...": "payload do endpoint síncrono equivalente"}
+]
+```
+
+**Fluxo:**
+
+```
+POST /academia/notas-aluno/async  →  202 Accepted + { job_id }
+(polling)
+GET  /jobs/:id                    →  { status, progress, done_items, fail_items }
+(quando status = "done" ou "failed")
+GET  /jobs/:id?results=true       →  { ... resultados por item ... }
+```
+
+**Gestão de stream SSE por academia:**
+
+- `DELETE /jobs/:id/sse`: remove/oculta um job específico do stream `GET /jobs/stream` da própria academia.
+
+**Retry parcial de falhas:**
+
+- `POST /jobs/:id/retry-failed`: cria um novo job com o mesmo tipo do original, reenviando apenas os itens com falha (`sucesso=false`).
+- Isso evita reprocessar itens que já deram certo.
+
+**Cobertura adicional em 1.0.9 (SSE padronizado em todas as respostas `/async` + novidades prévias):**
+- Academia: `PUT /academia/dados/async`, `POST /academia/categorias-nota/async`, `DELETE /academia/categorias-nota/async`.
+- Cursos: `PUT /academia/curso/ativar|desativar|dados/async`, `DELETE /academia/curso/async`.
+- Matérias: `PUT /academia/materia/ativar|desativar|periodo|dados/async`, `DELETE /academia/materia/async`.
+- Turmas: `PUT /academia/turma/ativar|desativar|dados/async`, `DELETE /academia/turma/async`, `DELETE /academia/turma/estudante/async`.
+- Admin: `PUT /dominis/admin/ativar/async`, `PUT /dominis/admin/desativar/async`.
+- Consulta única por papel: `GET /turmas-estudante/:codigo` (estudante: próprio, academia: da sua academia, admin: qualquer estudante).
+
+---
+
+
 Todos criam um job e retornam `202 Accepted` com URLs de acompanhamento por polling e por SSE.
 Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 
@@ -4871,6 +5658,40 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 ---
 
 ## 19. Armazenamento
+
+### Processos e Regras de Negócio — Armazenamento de Arquivos
+
+### Armazenamento de arquivos (Google Drive)
+
+O backend usa a biblioteca oficial `google.golang.org/api/drive/v3` integrada com `golang.org/x/oauth2/google` para autenticar-se como service account. A autenticação é feita a partir do ficheiro JSON da service account (`GOOGLE_DRIVE_CREDENTIALS_PATH` ou `GOOGLE_DRIVE_CREDENTIALS_JSON` em base64), com renovação automática de tokens OAuth — sem necessidade de gestão manual de tokens.
+
+Configuração de produção:
+
+- `GOOGLE_DRIVE_CREDENTIALS_PATH`: caminho para o ficheiro JSON da service account.
+- `GOOGLE_DRIVE_CREDENTIALS_JSON`: alternativa em base64 para ambientes sem disco persistente.
+- `GOOGLE_DRIVE_ROOT_FOLDER_ID`: ID da pasta raiz no Drive partilhada com a service account.
+
+Remover: `GOOGLE_DRIVE_ACCESS_TOKEN` (deixa de existir).
+
+Configuração local/teste:
+
+- `GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true`: habilita o provider local sem chamar Google Drive.
+- `GOOGLE_DRIVE_LOCAL_ROOT`: diretório local usado para simular o Drive (padrão `data/google_drive_storage`).
+
+Os documentos de matrícula continuam sendo gravados em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`. `EnsureDir` cria a hierarquia de pastas no Drive verificando cada nível antes de criá-lo, `Upload` envia PDFs para a pasta pai resolvida e retorna metadados do arquivo armazenado. No Google Drive, esses metadados vêm de `webViewLink` (`file_url`) e `webContentLink` (`download_url`), além do `path` interno; no provider local de teste, as URLs usam `file://`. `Delete` remove arquivos ou diretórios resolvendo o caminho dentro da pasta raiz configurada. `GetQuota` não tenta mais estimar consumo fora da pasta raiz compartilhada/gerenciada: ele lista recursivamente apenas essa pasta, define `total_bytes`/`used_bytes` como a soma real dos arquivos existentes nela, preenche `academias`/`managed_bytes` com arquivos dentro dos diretórios de academia e preenche `outside_academias_bytes` com arquivos que estão na raiz ou fora de diretórios de academia. `unmanaged_bytes` fica reservado para compatibilidade e não representa mais consumo externo à pasta raiz. Falhas de configuração retornam mensagens operacionais explícitas para ausência de credenciais, ausência de `GOOGLE_DRIVE_ROOT_FOLDER_ID`, credencial inválida e quota indisponível sem credenciais/estimativa local.
+### Permissões — Solicitação e Armazenamento
+
+### Permissões
+
+|Ação|Quem pode|
+|---|---|
+|Criar solicitação|Público|
+|Listar/consultar solicitações da academia|Academia dona|
+|Aprovar/reprovar|Academia dona|
+|Listar todas|Admin|
+|Configurar documentos obrigatórios|Academia dona|
+|Consultar quota de storage|Admin|
+
 
 ### GET /dominis/storage/quota
 
