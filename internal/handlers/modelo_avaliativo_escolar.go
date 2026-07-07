@@ -33,9 +33,14 @@ func regrasAvaliacaoFinalEscolaresFixas(c *gin.Context, codigoAcademia, tipoEnsi
 		regras = append(regras, *r)
 	}
 	if categoria != nil && strings.TrimSpace(*categoria) != "" && len(regras) > 0 {
-		if regras[0].NotaDespertadora == nil || strings.TrimSpace(*regras[0].NotaDespertadora) != strings.TrimSpace(*categoria) {
-			return nil
+		categoriaFiltro := strings.TrimSpace(*categoria)
+		filtradas := make([]regraAvaliacaoFinalDTO, 0, len(regras))
+		for _, regra := range regras {
+			if regra.NotaDespertadora != nil && strings.TrimSpace(*regra.NotaDespertadora) == categoriaFiltro {
+				filtradas = append(filtradas, regra)
+			}
 		}
+		return filtradas
 	}
 	return regras
 }
@@ -59,7 +64,7 @@ func regraAvaliacaoFinalEscolarFixa(codigoAcademia, tipoEnsino, anoAcademico, ty
 		anoEscopo = strings.TrimSpace(*cursoID) + "|" + anoAcademico
 	}
 	base := regraAvaliacaoFinalDTO{
-		ID:                 uuid.NewSHA1(uuid.NameSpaceOID, []byte("spuri:regra-escolar:"+tipoEnsino+":"+anoAcademico+":"+typ)),
+		ID:                 uuid.NewSHA1(uuid.NameSpaceOID, []byte("spuri:regra-escolar:"+tipoEnsino+":"+anoEscopo+":"+typ)),
 		CodigoAcademia:     codigoAcademia,
 		Type:               typ,
 		Nivel:              tipoEnsino,
