@@ -546,7 +546,7 @@ Sempre que o ano letivo for atualizado, ele é adicionado em `anos_letivos_lista
     - Se estudante tem `ano_escolar_fundamental` preenchido (fundamental) → usa esse valor **somente se** esse ano existir em `anos_academicos` da matéria
     - Se não existir, o registro é bloqueado com erro de validação (incompatibilidade estudante × matéria)
     - Caso contrário → usa `anos_academicos[0]` da matéria
-6. Sistema valida se a `categoria` está configurada na academia com `anos_academicos` contendo o `ano_academico` inferido; sem anos definidos ou sem correspondência, o registro é bloqueado
+6. Sistema valida a `categoria`: em escolas, ela precisa pertencer ao catálogo fixo do `ano_academico` inferido e do modelo do curso médio; no Superior, ela precisa estar configurada na academia com `anos_academicos` contendo o ano/período inferido. Sem catálogo/correspondência, o registro é bloqueado
 7. Sistema verifica idempotência (chave: `codigoAcademia_anoLectivo_periodo_materiaID_tipo_categoria`)
 8. Se não for duplicata, emite `NotasRegistradas` no ledger do estudante
 
@@ -559,7 +559,7 @@ Sempre que o ano letivo for atualizado, ele é adicionado em `anos_letivos_lista
 
 No ensino superior, academias criam explicitamente todas as categorias de nota que pretendem usar. Toda categoria superior possui `anos_academicos`; apenas os anos presentes nessa lista aceitam registros. Se a categoria não tiver anos definidos, nenhuma nota pode ser registrada nela. O `codigo` da categoria é normalizado antes de persistir: espaços antes/depois são descartados, somente espaços internos entre textos viram `_`, letras maiúsculas viram minúsculas e caracteres especiais diferentes de `_` são rejeitados.
 
-Nas escolas, a academia não cria nem remove categorias. O backend seleciona automaticamente as categorias fixas pelo `ano_academico` inferido da nota e, no médio técnico, pelo `modelo` do curso. Isso garante um padrão avaliativo único entre escolas e evita divergência operacional entre academias.
+Nas escolas, a academia não cria nem remove categorias. O backend seleciona automaticamente as categorias fixas pelo `ano_academico` inferido da nota e, no médio técnico, pelo `modelo` do curso. Categorias escolares legadas ou configuráveis eventualmente presentes em projeções não substituem esse catálogo fixo para lançamento de notas nem para avaliação final. Isso garante um padrão avaliativo único entre escolas e evita divergência operacional entre academias.
 
 **Valor**: escala validada por ano acadêmico (`0–10` no 1.º ao 6.º fundamental; `0–20` no 7.º ao 9.º fundamental, médio e superior).
 
@@ -626,7 +626,7 @@ A avaliação registrada é idempotente no escopo suportado: o sistema evita gra
 
 #### 5.6.2 Montagem e criação de regras de avaliação final
 
-Na versão 2.1.0, as regras configuráveis de avaliação final são exclusivas do ensino superior. Escolas não criam, editam nem removem regras por endpoint: o padrão avaliativo escolar é fixo do sistema, alinhado às categorias fixas e às etapas oficiais (`nota_professor`, `prova_trimestral`, exames quando aplicável e `nota_pap` no técnico).
+Na versão 2.1.0, as regras configuráveis de avaliação final são exclusivas do ensino superior. Escolas não criam, editam nem removem regras por endpoint: o padrão avaliativo escolar é fixo do sistema, alinhado às categorias fixas e às etapas oficiais (`nota_professor`, `prova_trimestral`, exames quando aplicável e `nota_pap` no técnico). Na execução automática escolar, não há fallback para regras configuráveis ou legadas da projeção; uma categoria sem `nota_despertadora` fixa simplesmente não dispara avaliação final.
 
 A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras descendentes. O endpoint de criação usa `nivel` como campo público; `tipo_ensino` é legado e é rejeitado em criação/edição de regras.
 
@@ -665,8 +665,8 @@ A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras d
 
 | Cenário | Configuração típica |
 |---|---|
-| Raiz do Fundamental | `nivel=fundamental`, `anos_academicos=["6_ano_fundamental"]`, fórmula com trimestres explícitos, sem limite de pendência. |
-| Recuperação do Fundamental | `nivel=fundamental`, mesmo `anos_academicos` da raiz, `aplica_se_reprovado_em_type="avaliacao_final"`, fórmula da recuperação/exame. |
+| Raiz do Fundamental | Não configurável por endpoint na versão 2.1.0; o padrão escolar fundamental é fixo do sistema e exposto como regra `source="system"`, `fixed=true`, `readonly=true`. |
+| Recuperação do Fundamental | Não configurável por endpoint; o sistema fornece as etapas fixas com `exame_final` e `exame_recurso` para os anos oficiais. |
 | Raiz do Médio | Não configurável por endpoint na versão 2.1.0; o padrão escolar médio é fixo do sistema. Matérias-chave continuam sendo configuração curricular do curso médio/ano, não da regra. |
 | Descendente do Médio | Não configurável por endpoint; o sistema fornece `exame_recurso` fixo para `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio`, limitado às matérias reprovadas na avaliação final. |
 | Raiz do Superior | `nivel=superior`, sem `anos_academicos`, fórmula com referências `[categoria]`, `limite_materias_pendentes` definido. |
@@ -691,7 +691,7 @@ Se a fórmula exigir nota que ainda não existe para determinada matéria, categ
 1. A academia registra/atualiza nota; o backend valida ano letivo, estudante, matéria, categoria, período, escala numérica e pertencimento ao `ano_escolar_fundamental` ou `ano_escolar_medio` atual do estudante.
 2. O backend infere o nível acadêmico do estudante para execução: Superior tem prioridade quando há vínculo/status superior; depois Médio; caso contrário Fundamental.
 3. Para Superior, o backend transforma `semestre_atual` em `[n]_semestre` e valida esse período contra o curso.
-4. O backend busca regras ativas aplicáveis à academia, ao `nivel` e ao escopo acadêmico atual.
+4. O backend busca regras aplicáveis à academia, ao `nivel` e ao escopo acadêmico atual. Para `fundamental` e `medio`, essa busca é sempre resolvida pelo catálogo fixo do sistema; se a categoria lançada não despertar uma regra fixa, a execução termina sem consultar regras configuráveis/legadas. Para `superior`, a busca usa as regras configuráveis ativas da academia.
 5. A execução automática da raiz continua quando a categoria da nota registrada/atualizada é a `nota_despertadora` da raiz. No padrão escolar fixo, isso significa `prova_trimestral` no 3º trimestre para anos regulares, `exame_final` para anos com exame e `nota_pap` no `4_ano_medio` técnico.
 6. Descendentes só são consideradas se a etapa anterior reprovou. A descendente escolar fixa `exame_recurso` também pode ser despertada diretamente por lançamento/atualização de `exame_recurso`, mas somente para matérias reprovadas na avaliação final anterior e quando todas as notas de recurso exigidas estiverem completas.
 7. Para cada regra executável, o backend resolve as matérias aplicáveis e calcula `nota_final` individual por matéria.

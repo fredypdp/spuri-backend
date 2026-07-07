@@ -2,28 +2,27 @@
 
 Este manual orienta a academia recém-criada e ativada a configurar o ambiente acadêmico em **ordem cronológica**, começando pelos domínios que não dependem de outros dados e avançando até os processos que dependem da configuração curricular completa.
 
-> Objetivo: ao final deste fluxo, a academia estará pronta para cadastrar estudantes, organizar turmas, lançar notas e faltas, e permitir que a avaliação final automática funcione com base nas regras configuradas.
+> Objetivo: ao final deste fluxo, a academia estará pronta para cadastrar estudantes, organizar turmas, lançar notas e faltas, e permitir que a avaliação final automática funcione corretamente: em escolas, pelo padrão fixo do sistema; no Superior, pelas categorias e regras configuradas pela academia.
 
 ---
 
 ## 1. Visão geral da ordem recomendada
 
-Siga esta sequência para evitar erros de dependência:
+Antes dos passos operacionais, identifique o tipo da academia ativada conforme a seção 2. Depois siga esta sequência para evitar erros de dependência:
 
-1. **Identificar o tipo da academia ativada**.
-2. **Definir o primeiro ano letivo ativo da academia**.
-3. **Definir os anos acadêmicos fundamentais**, quando a academia for escola fundamental ou mista.
-4. **Criar cursos médios ou superiores**, quando aplicável.
-5. **Ajustar anos acadêmicos de cursos médios**, se necessário.
-6. **Criar matérias disciplinares**.
-7. **Ativar matérias superiores**, pois elas nascem inativas.
-8. **Configurar matérias-chave dos cursos médios**, quando aplicável.
-9. **Criar categorias de nota** para todos os anos acadêmicos que usarão lançamentos.
+1. **Definir o primeiro ano letivo ativo da academia**.
+2. **Definir os anos acadêmicos fundamentais**, quando a academia for escola fundamental ou mista.
+3. **Criar cursos médios ou superiores**, quando aplicável.
+4. **Conferir anos acadêmicos de cursos médios**, derivados automaticamente pelo modelo do curso.
+5. **Criar matérias disciplinares**.
+6. **Ativar matérias superiores**, pois elas nascem inativas.
+7. **Configurar matérias-chave dos cursos médios**, quando aplicável.
+8. **Criar categorias de nota superiores**, somente quando a academia ofertar Superior; escolas usam catálogo fixo.
+9. **Criar regras de avaliação final superiores**, somente quando a academia ofertar Superior; escolas usam regras fixas.
 10. **Cadastrar ou aprovar estudantes**.
 11. **Criar turmas**.
 12. **Adicionar estudantes às turmas**.
-13. **Criar regras de avaliação final**.
-14. **Iniciar a operação acadêmica**: usar normalmente as funcionalidades da plataforma.
+13. **Iniciar a operação acadêmica**: usar normalmente as funcionalidades da plataforma.
 
 ---
 
@@ -98,7 +97,7 @@ Use somente anos no formato:
 
 com `n` de 1 a 9.
 
-**Dependências:** este passo não depende de cursos ou matérias. Ele deve vir antes da criação de matérias fundamentais, categorias de nota do fundamental, regras de avaliação final do fundamental e estudantes fundamentais.
+**Dependências:** este passo não depende de cursos ou matérias. Ele deve vir antes da criação de matérias fundamentais e estudantes fundamentais. Categorias e regras do Fundamental não são configuradas pela academia; o backend expõe o catálogo e as regras fixas automaticamente.
 
 ---
 
@@ -151,7 +150,7 @@ Exemplo:
 
 Não envie `anos_academicos` nem `materias_chave` para cursos superiores.
 
-**Dependências:** cursos devem existir antes de matérias médias/superiores, turmas médias/superiores, estudantes médios/superiores e regras de avaliação final médias/superiores.
+**Dependências:** cursos devem existir antes de matérias médias/superiores, turmas médias/superiores, estudantes médios/superiores, categorias superiores e regras superiores. Cursos médios não exigem criação de regras finais pela academia.
 
 ---
 
@@ -249,7 +248,7 @@ Sem ativação, a matéria superior não será considerada como matéria ativa p
 
 Este passo só se aplica a cursos médios.
 
-As matérias-chave pertencem ao curso médio, por ano acadêmico, e são usadas pela avaliação final do Médio para decidir aprovação direta, reprovação ou pendência.
+As matérias-chave pertencem ao curso médio, por ano acadêmico, como configuração curricular do curso. Elas não pertencem a regras de avaliação final e não tornam o Médio configurável pela academia.
 
 Pré-requisitos:
 
@@ -287,13 +286,15 @@ Regras importantes:
 - As matérias precisam estar ativas.
 - As matérias precisam pertencer ao mesmo curso médio e ao ano acadêmico informado.
 
-**Por que este passo vem antes das regras e das notas?**
+**Por que este passo vem antes das notas?**
 
-Porque a avaliação final do Médio falha quando precisa decidir o resultado de um estudante e o curso não possui matérias-chave configuradas para o ano atual.
+As matérias-chave continuam sendo uma configuração curricular obrigatória do curso médio, mas não são configuradas em regras de avaliação final. No padrão avaliativo escolar fixo, escolas não criam categorias nem regras; o backend usa as categorias/regras oficiais do sistema e mantém as matérias-chave do curso disponíveis para validações, auditoria e fluxos curriculares do Médio.
 
 ---
 
 ## 10. Passo 8 — Categorias de nota
+
+Este passo só exige ação de academias com oferta Superior. Escolas devem apenas consultar o catálogo fixo se quiserem validar a configuração exibida.
 
 As categorias de nota seguem dois modelos:
 
@@ -327,13 +328,52 @@ Catálogo escolar fixo:
 Regras importantes:
 
 - Escolas não podem criar, editar ou remover categorias escolares; tentativas em `POST/DELETE /academia/categorias-nota` falham.
+- Categorias escolares legadas eventualmente existentes na projeção não devem ser usadas para orientar lançamentos ou avaliação final: o backend valida notas escolares contra o catálogo fixo aplicável ao ano/curso.
 - Superior continua usando categorias configuráveis pela academia.
 - A categoria superior precisa incluir os anos/períodos acadêmicos nos quais poderá receber notas.
 - O lançamento de nota valida a escala do ano: `0–10` para `1_ano_fundamental` a `6_ano_fundamental`; `0–20` para `7_ano_fundamental` a `9_ano_fundamental`, Médio e Superior.
 
 ---
 
-## 11. Passo 9 — Cadastrar ou aprovar estudantes
+## 11. Passo 9 — Regras de avaliação final superior
+
+Este passo só exige ação de academias com oferta Superior. Escolas (`fundamental`/`medio`) não criam, editam ou removem regras de avaliação final; o backend fornece as regras fixas do sistema e bloqueia tentativas de configuração escolar por endpoint.
+
+### 11.1 Fundamental e Médio escolar
+
+Não crie regras por endpoint para escolas. `POST`, `PUT/PATCH` e `DELETE` de regras escolares são bloqueados; a listagem e a execução automática devem ser interpretadas como catálogo oficial do sistema. O backend aplica automaticamente o padrão fixo:
+
+- anos regulares usam média dos três trimestres com `nota_professor` e `prova_trimestral`;
+- `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio` usam `exame_final` no 3º trimestre e permitem `exame_recurso` apenas para matérias reprovadas;
+- `4_ano_medio` técnico usa somente `nota_pap >= 10`;
+- matérias dependentes/pendências não existem no Médio escolar;
+- se a categoria lançada não for gatilho oficial da etapa (`nota_professor`, por exemplo), nenhuma regra configurável/legada é usada como fallback.
+
+### 11.2 Superior
+
+Configuração típica:
+
+- `nivel="superior"`;
+- sem `anos_academicos` na regra;
+- fórmula com referência apenas à categoria, pois o semestre é inferido pela matéria;
+- `limite_materias_pendentes` obrigatório;
+- pendências (`pendencia_permitida` e `pendencia_nivel_conclusao`) são exclusivas de matérias superiores.
+
+Exemplo de fórmula:
+
+```text
+([prova_parcelar_1]+[prova_parcelar_2])/2
+```
+
+Ordem dentro da cadeia superior:
+
+1. Criar regra raiz, por exemplo `avaliacao_final`.
+2. Criar regra descendente que aponta para a raiz, por exemplo `avaliacao_final_com_exame` com `aplica_se_reprovado_em_type="avaliacao_final"`.
+3. Criar novas descendentes, se houver, sempre apontando para uma etapa anterior ativa e sem criar ciclos.
+
+---
+
+## 12. Passo 10 — Cadastrar ou aprovar estudantes
 
 Depois que a estrutura curricular básica estiver pronta, cadastre os estudantes pela academia ou aprove solicitações de matrícula.
 
@@ -357,7 +397,7 @@ Porque o cadastro acadêmico do estudante precisa apontar para anos e cursos exi
 
 ---
 
-## 12. Passo 10 — Criar turmas
+## 13. Passo 11 — Criar turmas
 
 Turmas dependem do nível e, para Médio/Superior, normalmente do curso.
 
@@ -377,7 +417,18 @@ Exemplo fundamental:
 }
 ```
 
-Exemplo médio ou superior:
+Exemplo médio:
+
+```json
+{
+  "codigo_turma": "BIO-1A",
+  "nivel": "medio",
+  "turno": "tarde",
+  "curso_id": "uuid-do-curso-medio"
+}
+```
+
+Exemplo superior:
 
 ```json
 {
@@ -392,7 +443,7 @@ O `codigo_turma` deve ser único dentro da academia.
 
 ---
 
-## 13. Passo 11 — Adicionar estudantes às turmas
+## 14. Passo 12 — Adicionar estudantes às turmas
 
 Depois que estudantes e turmas existirem, vincule estudantes às turmas:
 
@@ -416,49 +467,9 @@ Regras importantes:
 
 ---
 
-## 14. Passo 12 — Regras de avaliação final
-
-As regras de avaliação final também seguem dois modelos:
-
-- **Escolas (fundamental/médio):** regras fixas do sistema, não configuráveis pela academia.
-- **Superior:** regras configuráveis pela academia, com fórmulas e limites de pendência.
-
-### 14.1 Fundamental e Médio escolar
-
-Não crie regras por endpoint para escolas. O backend aplica automaticamente o padrão fixo:
-
-- anos regulares usam média dos três trimestres com `nota_professor` e `prova_trimestral`;
-- `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio` usam `exame_final` no 3º trimestre e permitem `exame_recurso` apenas para matérias reprovadas;
-- `4_ano_medio` técnico usa somente `nota_pap >= 10`;
-- matérias dependentes/pendências não existem no Médio escolar.
-
-### 14.2 Superior
-
-Configuração típica:
-
-- `nivel="superior"`;
-- sem `anos_academicos` na regra;
-- fórmula com referência apenas à categoria, pois o semestre é inferido pela matéria;
-- `limite_materias_pendentes` obrigatório;
-- pendências (`pendencia_permitida` e `pendencia_nivel_conclusao`) são exclusivas de matérias superiores.
-
-Exemplo de fórmula:
-
-```text
-([prova_parcelar_1]+[prova_parcelar_2])/2
-```
-
-### 14.3 Ordem dentro da cadeia superior
-
-1. Criar regra raiz, por exemplo `avaliacao_final`.
-2. Criar regra descendente que aponta para a raiz, por exemplo `avaliacao_final_com_exame` com `aplica_se_reprovado_em_type="avaliacao_final"`.
-3. Criar novas descendentes, se houver, sempre apontando para uma etapa anterior ativa e sem criar ciclos.
-
----
-
 ## 15. Passo 13 — Iniciar lançamentos acadêmicos
 
-Com a configuração concluída, a academia já pode usar normalmente todas as funcionalidades da plataforma. A partir deste ponto, a operação acadêmica pode seguir o fluxo regular de trabalho da instituição, incluindo gestão de estudantes, turmas, matérias, notas, faltas e acompanhamento das avaliações finais automáticas conforme as regras configuradas.
+Com a configuração concluída, a academia já pode usar normalmente todas as funcionalidades da plataforma. A partir deste ponto, a operação acadêmica pode seguir o fluxo regular de trabalho da instituição, incluindo gestão de estudantes, turmas, matérias, notas, faltas e acompanhamento das avaliações finais automáticas. Em escolas, essas avaliações seguem o padrão fixo do sistema; no Superior, seguem as regras configuradas pela academia.
 
 ---
 
@@ -478,7 +489,7 @@ Use este checklist antes de iniciar os lançamentos em produção:
 - [ ] Estudantes foram cadastrados ou aprovados com vínculo acadêmico correto.
 - [ ] Turmas foram criadas.
 - [ ] Estudantes foram adicionados às turmas corretas.
-- [ ] Regras de avaliação final foram criadas por nível e escopo.
+- [ ] Regras de avaliação final superiores foram criadas, se a academia ofertar Superior; para escolas, nenhuma regra deve ser criada, e o padrão fixo deve aparecer em `GET /academia/avaliacao-final/regras`.
 
 ---
 
@@ -501,15 +512,15 @@ Ativar matérias superiores
         ↓
 Matérias-chave do Médio
         ↓
-Categorias de nota
+Categorias superiores / catálogo escolar fixo
+        ↓
+Regras superiores / regras escolares fixas
         ↓
 Estudantes
         ↓
 Turmas
         ↓
 Estudantes nas turmas
-        ↓
-Regras de avaliação final
         ↓
 Operação normal da plataforma
 ```
@@ -523,7 +534,9 @@ Operação normal da plataforma
 | Nota bloqueada por ausência de ano letivo | Academia ainda não definiu o ano letivo ativo. | Execute `POST /academia/definir-ano-letivo` antes dos lançamentos. |
 | Matéria média rejeitada | Curso médio não existe, é de outra academia ou ano não pertence ao curso. | Crie/consulte o curso antes da matéria. |
 | Matéria superior não entra na avaliação | Matéria superior foi criada, mas continua inativa. | Ative com `PUT /academia/materia/:id/ativar`. |
-| Avaliação final do Médio falha | Curso médio sem `materias_chave` para o ano do estudante. | Configure `PUT /academia/curso/:id/materias-chave` para todos os anos do curso. |
-| Nota rejeitada por categoria | Categoria não existe ou não contém o ano acadêmico inferido. | Crie categorias antes dos lançamentos e inclua todos os anos necessários. |
-| Regra de avaliação final rejeitada | Escopo, fórmula ou categorias incompatíveis. | Crie categorias e matérias antes da regra; use o formato correto por nível. |
+| Configuração curricular do Médio incompleta | Curso médio sem `materias_chave` para todos os anos do curso. | Configure `PUT /academia/curso/:id/materias-chave` para todos os anos do curso. |
+| Nota escolar rejeitada por categoria | Categoria enviada não pertence ao catálogo fixo do ano/curso, por exemplo `prova_trimestral` no `4_ano_medio` técnico. | Use somente as categorias fixas exibidas em `GET /academia/categorias-nota`. |
+| Nota superior rejeitada por categoria | Categoria superior não existe, está inativa/removida ou não contém o ano/período inferido. | Crie categorias superiores antes dos lançamentos e inclua todos os anos/períodos necessários. |
+| Regra escolar rejeitada | Tentativa de criar, editar ou remover regra `fundamental`/`medio`. | Não configure regras escolares; use o padrão fixo do sistema. |
+| Regra superior rejeitada | Escopo, fórmula, categoria ou cadeia incompatível. | Crie categorias e matérias superiores antes da regra; use `nivel="superior"` e o formato correto. |
 | Estudante não pode entrar na turma | Nível ou curso do estudante incompatível com a turma. | Cadastre estudante e turma com o mesmo nível/curso. |
