@@ -287,9 +287,9 @@ Regras importantes:
 - As matérias precisam estar ativas.
 - As matérias precisam pertencer ao mesmo curso médio e ao ano acadêmico informado.
 
-**Por que este passo vem antes das regras e das notas?**
+**Por que este passo vem antes das notas?**
 
-Porque a avaliação final do Médio falha quando precisa decidir o resultado de um estudante e o curso não possui matérias-chave configuradas para o ano atual.
+As matérias-chave continuam sendo uma configuração curricular obrigatória do curso médio, mas não são configuradas em regras de avaliação final. No padrão avaliativo escolar fixo, escolas não criam regras; o backend usa as regras oficiais do sistema e mantém as matérias-chave do curso disponíveis para validações, auditoria e fluxos curriculares do Médio.
 
 ---
 
@@ -327,6 +327,7 @@ Catálogo escolar fixo:
 Regras importantes:
 
 - Escolas não podem criar, editar ou remover categorias escolares; tentativas em `POST/DELETE /academia/categorias-nota` falham.
+- Categorias escolares legadas eventualmente existentes na projeção não devem ser usadas para orientar lançamentos ou avaliação final: o backend valida notas escolares contra o catálogo fixo aplicável ao ano/curso.
 - Superior continua usando categorias configuráveis pela academia.
 - A categoria superior precisa incluir os anos/períodos acadêmicos nos quais poderá receber notas.
 - O lançamento de nota valida a escala do ano: `0–10` para `1_ano_fundamental` a `6_ano_fundamental`; `0–20` para `7_ano_fundamental` a `9_ano_fundamental`, Médio e Superior.
@@ -425,12 +426,13 @@ As regras de avaliação final também seguem dois modelos:
 
 ### 14.1 Fundamental e Médio escolar
 
-Não crie regras por endpoint para escolas. O backend aplica automaticamente o padrão fixo:
+Não crie regras por endpoint para escolas. `POST`, `PUT/PATCH` e `DELETE` de regras escolares são bloqueados; a listagem e a execução automática devem ser interpretadas como catálogo oficial do sistema. O backend aplica automaticamente o padrão fixo:
 
 - anos regulares usam média dos três trimestres com `nota_professor` e `prova_trimestral`;
 - `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio` usam `exame_final` no 3º trimestre e permitem `exame_recurso` apenas para matérias reprovadas;
 - `4_ano_medio` técnico usa somente `nota_pap >= 10`;
-- matérias dependentes/pendências não existem no Médio escolar.
+- matérias dependentes/pendências não existem no Médio escolar;
+- se a categoria lançada não for gatilho oficial da etapa (`nota_professor`, por exemplo), nenhuma regra configurável/legada é usada como fallback.
 
 ### 14.2 Superior
 
@@ -478,7 +480,7 @@ Use este checklist antes de iniciar os lançamentos em produção:
 - [ ] Estudantes foram cadastrados ou aprovados com vínculo acadêmico correto.
 - [ ] Turmas foram criadas.
 - [ ] Estudantes foram adicionados às turmas corretas.
-- [ ] Regras de avaliação final foram criadas por nível e escopo.
+- [ ] Regras de avaliação final superiores foram criadas, se a academia ofertar Superior; para escolas, nenhuma regra deve ser criada, e o padrão fixo deve aparecer em `GET /academia/avaliacao-final/regras`.
 
 ---
 

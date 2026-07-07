@@ -3949,11 +3949,11 @@ Não existe rota pública/registrada para executar avaliação final manualmente
 - `nota_despertadora` é configurável apenas em regra raiz superior; regras dependentes/descendentes superiores rejeitam esse campo. No padrão escolar fixo, a descendente `exame_recurso` é despertada diretamente por `exame_recurso` quando já existe reprovação anterior na `avaliacao_final`.
 - Cada regra dependente é alcançada pelo campo `aplica_se_reprovado_em_type`: por exemplo, `avaliacao_final_com_recurso` pode depender de reprovação em `avaliacao_final`, e `avaliacao_final_com_exame` pode depender de reprovação em `avaliacao_final_com_recurso`.
 - O backend só executa uma dependente quando encontra reprovação no `type` pré-requisito. Se o pré-requisito aprovou, a dependente é encerrada e não executa. Se o pré-requisito ainda não existe, a dependente aguarda.
-- Portanto, no Superior a ordem correta não é decidida pelo cliente nem pela categoria da nota recém-registrada; ela é calculada a partir da cadeia de regras configurada até a raiz. No escolar fixo, `prova_trimestral`, `exame_final`, `exame_recurso` e `nota_pap` seguem os gatilhos oficiais por ano acadêmico.
+- Portanto, no Superior a ordem correta não é decidida pelo cliente nem pela categoria da nota recém-registrada; ela é calculada a partir da cadeia de regras configurada até a raiz. No escolar fixo, `prova_trimestral`, `exame_final`, `exame_recurso` e `nota_pap` seguem os gatilhos oficiais por ano acadêmico. Se uma categoria escolar não corresponder a um gatilho fixo, o backend não consulta regras configuráveis/legadas como fallback.
 
 **Regras de execução automática:**
 
-- Se não houver regra ativa aplicável, nenhuma avaliação final é registrada.
+- Se não houver regra ativa aplicável no Superior, ou regra fixa despertada no escolar, nenhuma avaliação final é registrada.
 - Se a regra raiz aplicável não tiver `nota_despertadora`, ou se a categoria da nota não corresponder ao código configurado, nenhuma avaliação final automática de raiz é registrada naquele lançamento. Exceção escolar: `exame_recurso` pode despertar a etapa fixa de recurso quando houver reprovação anterior.
 - Se a cadeia aplicável não tiver exatamente uma raiz, o backend retorna erro para evitar ambiguidade.
 - O backend evita duplicidade por `codigo_estudante`, `codigo_academia`, `ano_lectivo`, `tipo_ensino`, `ano_academico_atual` e `type`.

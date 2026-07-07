@@ -74,6 +74,17 @@ func TestRegrasAvaliacaoFinalEscolaresFixasFiltraPorCategoriaDescendente(t *test
 	}
 }
 
+func TestListarRegrasAvaliacaoFinalAplicaveisEscolarNaoConsultaConfiguraveisQuandoCategoriaNaoDesperta(t *testing.T) {
+	categoria := "nota_professor"
+	regras, err := listarRegrasAvaliacaoFinalAplicaveis(nil, "ACA", "fundamental", "5_ano_fundamental", &categoria, nil)
+	if err != nil {
+		t.Fatalf("erro inesperado: %v", err)
+	}
+	if len(regras) != 0 {
+		t.Fatalf("nota_professor nao deve despertar avaliação final nem cair para regras configuráveis: %#v", regras)
+	}
+}
+
 func TestValidarEscalaNotaPorAnoAcademico(t *testing.T) {
 	validas := []struct {
 		ano  string
