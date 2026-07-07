@@ -951,8 +951,12 @@ func idsCadeiaDependenteRegraAvaliacaoFinal(c *gin.Context, codigoAcademia, tipo
 }
 
 func listarRegrasAvaliacaoFinalAplicaveis(c *gin.Context, codigoAcademia, tipoEnsino, anoAcademico string, categoria *string, cursoID *string) ([]regraAvaliacaoFinalDTO, error) {
-	if regras := regrasAvaliacaoFinalEscolaresFixas(c, codigoAcademia, tipoEnsino, anoAcademico, categoria, cursoID); len(regras) > 0 {
-		return regras, nil
+	if tipoEnsino == "fundamental" || tipoEnsino == "medio" {
+		// O modelo escolar é fixo do sistema. Mesmo quando a categoria informada não
+		// desperta uma regra fixa (por exemplo, nota_professor), não devemos cair
+		// para regras configuráveis/legadas da projeção, pois escolas não podem
+		// criar, editar, remover nem sobrescrever regras oficiais.
+		return regrasAvaliacaoFinalEscolaresFixas(c, codigoAcademia, tipoEnsino, anoAcademico, categoria, cursoID), nil
 	}
 	query := `SELECT id,codigo_academia,type,nome,descricao,nivel,anos_academicos,nota_minima_aprovacao,categorias_envolvidas,formula,aplica_se_reprovado_em_type,materias_aplicaveis,limite_materias_pendentes,status,version,nota_despertadora
 		FROM projection_regras_avaliacao_final
