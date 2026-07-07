@@ -1,28 +1,29 @@
 # Manual de Configuração Inicial da Academia
 
-Este manual orienta a academia recém-criada e ativada a configurar o ambiente acadêmico em **ordem cronológica**, começando pelos domínios que não dependem de outros dados e avançando até os processos que dependem da configuração curricular completa.
+Este manual orienta a academia recém-criada e ativada a configurar o ambiente acadêmico em **ordem cronológica**, do que tem menos dependências até os fluxos operacionais. Ele foi revisado contra as rotas registradas no backend e contra a documentação pública da API.
 
-> Objetivo: ao final deste fluxo, a academia estará pronta para cadastrar estudantes, organizar turmas, lançar notas e faltas, e permitir que a avaliação final automática funcione corretamente: em escolas, pelo padrão fixo do sistema; no Superior, pelas categorias e regras configuradas pela academia.
+> Objetivo: ao final deste fluxo, a academia estará pronta para cadastrar/aprovar estudantes, organizar turmas, lançar notas e faltas e deixar a avaliação final automática funcionar corretamente: em escolas, pelo padrão fixo do sistema; no Superior, pelas categorias e regras configuradas pela própria academia.
 
 ---
 
 ## 1. Visão geral da ordem recomendada
 
-Antes dos passos operacionais, identifique o tipo da academia ativada conforme a seção 2. Depois siga esta sequência para evitar erros de dependência:
+Antes dos passos operacionais, confirme o tipo da academia ativada conforme a seção 2. Depois siga esta sequência para evitar erros de dependência:
 
-1. **Definir o primeiro ano letivo ativo da academia**.
-2. **Definir os anos acadêmicos fundamentais**, quando a academia for escola fundamental ou mista.
-3. **Criar cursos médios ou superiores**, quando aplicável.
-4. **Conferir anos acadêmicos de cursos médios**, derivados automaticamente pelo modelo do curso.
-5. **Criar matérias disciplinares**.
-6. **Ativar matérias superiores**, pois elas nascem inativas.
-7. **Configurar matérias-chave dos cursos médios**, quando aplicável.
-8. **Criar categorias de nota superiores**, somente quando a academia ofertar Superior; escolas usam catálogo fixo.
-9. **Criar regras de avaliação final superiores**, somente quando a academia ofertar Superior; escolas usam regras fixas.
-10. **Cadastrar ou aprovar estudantes**.
-11. **Criar turmas**.
-12. **Adicionar estudantes às turmas**.
-13. **Iniciar a operação acadêmica**: usar normalmente as funcionalidades da plataforma.
+1. **Confirmar academia ativa e tipo institucional**.
+2. **Definir o primeiro ano letivo ativo da academia**.
+3. **Definir anos acadêmicos do Fundamental**, quando a academia for escola `fundamental` ou `misto`.
+4. **Criar cursos médios ou superiores**, quando aplicável.
+5. **Conferir os anos/períodos derivados dos cursos**.
+6. **Criar matérias disciplinares**.
+7. **Ativar matérias superiores**, pois elas nascem inativas.
+8. **Configurar matérias-chave dos cursos médios**, quando aplicável.
+9. **Criar categorias de nota superiores**, somente quando a academia ofertar Superior; escolas usam catálogo fixo.
+10. **Criar regras de avaliação final superiores**, somente quando a academia ofertar Superior; escolas usam regras fixas.
+11. **Cadastrar estudantes ou aprovar solicitações de matrícula**.
+12. **Criar turmas**.
+13. **Adicionar estudantes às turmas**.
+14. **Iniciar a operação acadêmica**: notas, faltas, acompanhamentos, finalização de ano letivo e demais funcionalidades.
 
 ---
 
@@ -32,16 +33,18 @@ Este manual deve ser seguido depois que a academia já estiver criada e ativada.
 
 | Academia | Configurações curriculares esperadas |
 |---|---|
-| Escola `fundamental` | Anos acadêmicos ficam na própria academia. |
-| Escola `medio` | Anos acadêmicos ficam nos cursos médios. |
+| Escola `fundamental` | Anos acadêmicos fundamentais ficam na própria academia. |
+| Escola `medio` | Anos acadêmicos médios ficam nos cursos médios e são derivados automaticamente do `modelo`. |
 | Escola `misto` | Fundamental fica na academia; Médio fica nos cursos médios. |
-| `superior` | Semestres e anos são derivados dos cursos superiores. |
+| `superior` | Semestres e anos superiores são derivados dos cursos superiores. |
+
+Todas as rotas operacionais de academia exigem autenticação de academia ativa. Algumas rotas de leitura também aceitam admin ou estudante autenticado, conforme o caso, mas a escrita inicial descrita neste manual é feita pela própria academia.
 
 ---
 
 ## 3. Passo 1 — Definir o ano letivo da academia
 
-A academia define seu primeiro ano letivo ativo:
+A academia define o seu primeiro ano letivo ativo pela rota:
 
 ```http
 POST /academia/definir-ano-letivo
@@ -49,9 +52,22 @@ POST /academia/definir-ano-letivo
 
 Regras principais:
 
-- A academia só define diretamente o ano letivo uma vez.
-- Depois disso, o avanço acontece pela finalização do ano letivo.
+- A academia só define diretamente o ano letivo quando ainda não tem ano letivo ativo.
+- O backend infere o tipo do ano letivo a partir da academia: `escolar` para academia de escola e `superior` para academia superior.
+- O campo `ano_letivo` é opcional; quando omitido, o backend usa o ano letivo global atual definido pelo admin para o tipo da academia.
+- Se `ano_letivo` for enviado, ele precisa ser igual ao ano letivo global atual.
+- Depois disso, a passagem para o próximo ano acontece pela finalização do ano letivo, não por redefinição manual.
 - Sem ano letivo ativo, o sistema bloqueia notas, faltas e avaliações finais.
+
+Exemplo conceitual:
+
+```json
+{
+  "ano_letivo": "2026_2027"
+}
+```
+
+Também é válido enviar `{}` quando a academia deve assumir o ano letivo global atual.
 
 **Por que este passo vem antes dos demais processos operacionais?**
 
@@ -61,7 +77,7 @@ Porque notas, faltas e avaliações finais sempre são registradas no contexto d
 
 ## 4. Passo 2 — Configurar anos acadêmicos do Fundamental, se aplicável
 
-Este passo se aplica apenas a escolas com nível escolar:
+Este passo se aplica apenas a escolas com `nivel_escolar`:
 
 - `fundamental`
 - `misto`
@@ -74,13 +90,20 @@ Escolas exclusivamente médias não configuram anos fundamentais na academia. In
 GET /academia/anos-academicos
 ```
 
+A resposta traz:
+
+- `academia.anos_academicos`: anos fundamentais armazenados na academia;
+- `cursos`: cursos médios/superiores da academia, com seus anos/períodos derivados.
+
+Quando o usuário autenticado for admin, a consulta exige `?codigo_academia=...`. Quando for a própria academia, o backend usa a academia do token.
+
 ### 4.2 Adicionar anos fundamentais
 
 ```http
 POST /academia/anos-academicos
 ```
 
-Exemplo conceitual:
+Exemplo:
 
 ```json
 {
@@ -89,7 +112,7 @@ Exemplo conceitual:
 }
 ```
 
-Use somente anos no formato:
+A operação **adiciona/une** os anos enviados aos já existentes; não existe substituição em massa. Use somente anos no formato:
 
 ```text
 [n]_ano_fundamental
@@ -97,7 +120,24 @@ Use somente anos no formato:
 
 com `n` de 1 a 9.
 
-**Dependências:** este passo não depende de cursos ou matérias. Ele deve vir antes da criação de matérias fundamentais e estudantes fundamentais. Categorias e regras do Fundamental não são configuradas pela academia; o backend expõe o catálogo e as regras fixas automaticamente.
+### 4.3 Remover anos fundamentais da oferta futura
+
+```http
+DELETE /academia/anos-academicos
+```
+
+Exemplo:
+
+```json
+{
+  "type": "fundamental",
+  "anos_academicos": ["4_ano_fundamental"]
+}
+```
+
+A remoção é lógica/prospectiva: o histórico já registrado não é apagado. A operação é bloqueada quando deixaria a academia sem nenhum ano fundamental ativo ou quando houver estudantes ativos vinculados ao ano que se pretende remover.
+
+**Importante:** `PATCH /academia/anos-academicos` não existe no contrato público. Também não envie `codigo_academia`, `substituir`, `replace`, `patch`, `set` ou `update` no payload.
 
 ---
 
@@ -115,9 +155,14 @@ Rota:
 POST /academia/curso
 ```
 
+O tipo efetivo do curso é inferido a partir da academia autenticada. O campo `type` pode ser enviado para explicitar a intenção, mas precisa corresponder ao tipo permitido para a academia.
+
 ### 5.1 Curso médio
 
-Um curso médio deve informar `modelo` (`liceu` ou `tecnico`). O backend deriva automaticamente os anos acadêmicos: `liceu` gera 1º a 3º ano médio e `tecnico` gera 1º a 4º ano médio.
+Um curso médio deve informar `modelo` com valor exatamente `liceu` ou `tecnico`. O backend deriva automaticamente os anos acadêmicos:
+
+- `liceu`: `1_ano_medio`, `2_ano_medio`, `3_ano_medio`;
+- `tecnico`: `1_ano_medio`, `2_ano_medio`, `3_ano_medio`, `4_ano_medio`.
 
 Exemplo:
 
@@ -129,14 +174,14 @@ Exemplo:
 }
 ```
 
-Não envie `materias_chave` na criação do curso médio. Essas matérias só podem ser configuradas depois que as matérias disciplinares existirem.
+Não envie `anos_academicos`, `periodos` nem `materias_chave` na criação do curso médio. As matérias-chave só podem ser configuradas depois que as matérias disciplinares do curso existirem.
 
 ### 5.2 Curso superior
 
-Um curso superior recebe a quantidade total de semestres em `periodos`. O backend deriva automaticamente:
+Um curso superior recebe a quantidade total de semestres em `periodos`, como número inteiro positivo. O backend deriva automaticamente:
 
-- os semestres: `1_semestre`, `2_semestre`, etc.;
-- os anos acadêmicos superiores: `1_ano_superior`, `2_ano_superior`, etc.
+- os semestres: `1_semestre`, `2_semestre`, ..., `N_semestre`;
+- os anos acadêmicos superiores: `1_ano_superior`, `2_ano_superior`, etc., calculados a partir dos semestres.
 
 Exemplo:
 
@@ -148,26 +193,36 @@ Exemplo:
 }
 ```
 
-Não envie `anos_academicos` nem `materias_chave` para cursos superiores.
+Não envie `modelo`, `anos_academicos` nem `materias_chave` para cursos superiores.
 
 **Dependências:** cursos devem existir antes de matérias médias/superiores, turmas médias/superiores, estudantes médios/superiores, categorias superiores e regras superiores. Cursos médios não exigem criação de regras finais pela academia.
 
 ---
 
-## 6. Passo 4 — Conferir anos acadêmicos derivados dos cursos médios
+## 6. Passo 4 — Conferir anos e períodos derivados dos cursos
 
-Não adicione nem remova anos de cursos médios manualmente. Os anos são fixos por `modelo`:
+Após criar os cursos, consulte:
 
-- `liceu`: `1_ano_medio`, `2_ano_medio`, `3_ano_medio`;
-- `tecnico`: `1_ano_medio`, `2_ano_medio`, `3_ano_medio`, `4_ano_medio`.
+```http
+GET /academia/anos-academicos
+GET /academia/cursos
+GET /academia/curso/:id
+```
 
-A rota `/academia/anos-academicos` rejeita `type="medio"`.
+Use essas respostas para confirmar os escopos disponíveis antes de criar matérias, turmas e estudantes.
+
+Regras atuais:
+
+- Cursos médios não aceitam adição ou remoção manual de anos; os anos são fixos por `modelo`.
+- `POST` ou `DELETE /academia/anos-academicos` com `type="medio"` retorna erro, porque o Médio é derivado do curso.
+- Cursos superiores não aceitam adição/remoção direta de anos acadêmicos, períodos ou semestres por `/academia/anos-academicos` nem por `PUT /academia/curso/:id/dados`.
+- `PUT /academia/curso/:id/dados` atualiza apenas dados cadastrais, como `nome`; não altera tipo, anos, períodos, semestres ou matérias-chave.
 
 ---
 
 ## 7. Passo 5 — Criar matérias disciplinares
 
-As matérias dependem dos anos acadêmicos e, em médio/superior, também dependem do curso.
+As matérias dependem dos anos acadêmicos e, em Médio/Superior, também dependem do curso.
 
 Rota:
 
@@ -189,7 +244,7 @@ Exemplo:
 }
 ```
 
-Matérias fundamentais nascem ativas.
+Matérias fundamentais nascem ativas. Para Fundamental, `anos_academicos` aceita de 1 a 9 itens válidos.
 
 ### 7.2 Matéria média
 
@@ -210,7 +265,7 @@ Matérias médias nascem ativas. Matérias dependentes/pendências não são per
 
 ### 7.3 Matéria superior
 
-Requer curso superior já criado, um ano acadêmico superior compatível e o semestre da matéria.
+Requer curso superior já criado, exatamente um ano acadêmico superior compatível e o semestre da matéria.
 
 Exemplo:
 
@@ -226,7 +281,7 @@ Exemplo:
 }
 ```
 
-Matérias superiores nascem inativas e precisam ser ativadas no próximo passo.
+Matérias superiores nascem inativas e precisam ser ativadas no próximo passo. O campo `periodo` é obrigatório na criação e não pode ser editado depois por `PUT /academia/materia/:id/dados`.
 
 ---
 
@@ -240,7 +295,7 @@ Depois de criar e revisar uma matéria superior, ative-a:
 PUT /academia/materia/:id/ativar
 ```
 
-Sem ativação, a matéria superior não será considerada como matéria ativa para os processos acadêmicos.
+Sem ativação, a matéria superior não será considerada ativa para os processos acadêmicos. Matérias superiores sem `periodo` definido não podem ser ativadas.
 
 ---
 
@@ -248,12 +303,12 @@ Sem ativação, a matéria superior não será considerada como matéria ativa p
 
 Este passo só se aplica a cursos médios.
 
-As matérias-chave pertencem ao curso médio, por ano acadêmico, como configuração curricular do curso. Elas não pertencem a regras de avaliação final e não tornam o Médio configurável pela academia.
+As matérias-chave pertencem ao curso médio, por ano acadêmico, como configuração curricular do curso. Elas não pertencem a regras de avaliação final e não tornam o padrão avaliativo escolar configurável pela academia.
 
 Pré-requisitos:
 
-1. Curso médio criado e ativo.
-2. Anos acadêmicos do curso médio definidos.
+1. Curso médio criado, ativo e pertencente à academia autenticada.
+2. Anos acadêmicos do curso médio definidos automaticamente pelo `modelo`.
 3. Matérias médias criadas, ativas, do mesmo curso e do mesmo ano acadêmico.
 
 Rota:
@@ -274,6 +329,10 @@ Exemplo:
     {
       "ano_academico": "2_ano_medio",
       "materias_chave": ["uuid-materia-fisica"]
+    },
+    {
+      "ano_academico": "3_ano_medio",
+      "materias_chave": ["uuid-materia-matematica"]
     }
   ]
 }
@@ -283,25 +342,28 @@ Regras importantes:
 
 - Todo ano do curso médio deve ter configuração.
 - Cada ano precisa ter pelo menos uma matéria-chave.
-- As matérias precisam estar ativas.
-- As matérias precisam pertencer ao mesmo curso médio e ao ano acadêmico informado.
+- Não pode haver ano duplicado nem ID duplicado no mesmo ano.
+- As matérias precisam existir, estar ativas, pertencer à mesma academia, ao mesmo curso médio e ao ano acadêmico informado.
+- Use `PUT /academia/curso/:id/materias-chave`; `PUT /academia/curso/:id/dados` rejeita `materias_chave`.
 
 **Por que este passo vem antes das notas?**
 
-As matérias-chave continuam sendo uma configuração curricular obrigatória do curso médio, mas não são configuradas em regras de avaliação final. No padrão avaliativo escolar fixo, escolas não criam categorias nem regras; o backend usa as categorias/regras oficiais do sistema e mantém as matérias-chave do curso disponíveis para validações, auditoria e fluxos curriculares do Médio.
+As matérias-chave são configuração curricular obrigatória do curso médio. No padrão avaliativo escolar fixo, escolas não criam categorias nem regras; o backend usa as categorias/regras oficiais do sistema e mantém as matérias-chave do curso disponíveis para validações, auditoria e fluxos curriculares do Médio.
 
 ---
 
 ## 10. Passo 8 — Categorias de nota
 
-Este passo só exige ação de academias com oferta Superior. Escolas devem apenas consultar o catálogo fixo se quiserem validar a configuração exibida.
+Este passo só exige ação de academias com oferta Superior. Escolas devem apenas consultar o catálogo fixo se quiserem validar o que será exibido e aceito nos lançamentos.
 
 As categorias de nota seguem dois modelos:
 
-- **Escolas (fundamental/médio):** não criam categorias por endpoint. O backend fornece automaticamente o catálogo fixo do sistema por ano acadêmico, marcado como `source="system"`, `fixed=true` e `readonly=true` na listagem. Para Médio, a listagem deriva os anos dos cursos médios ativos; `academia.anos_academicos` continua sendo usado para Fundamental.
+- **Escolas (Fundamental/Médio):** não criam categorias por endpoint. O backend fornece automaticamente o catálogo fixo do sistema, marcado na listagem com campos como `source="system"`, `fixed=true` e `readonly=true`. Para Médio, a listagem deriva os anos dos cursos médios ativos; `academia.anos_academicos` continua sendo usado para Fundamental.
 - **Superior:** cria categorias explicitamente antes de lançar notas e antes de configurar fórmulas de avaliação final.
 
-Rota de criação, exclusiva do Superior:
+### 10.1 Criar categorias superiores
+
+Rota exclusiva do Superior:
 
 ```http
 POST /academia/categorias-nota
@@ -313,8 +375,17 @@ Exemplo superior:
 {
   "codigo": "prova_parcelar_1",
   "nome": "Prova Parcelar 1",
+  "descricao": "Primeira prova parcelar",
   "anos_academicos": ["1_ano_superior", "2_ano_superior"]
 }
+```
+
+O `codigo` é normalizado: letras maiúsculas viram minúsculas, espaços internos viram `_`, e caracteres especiais diferentes de `_` são rejeitados.
+
+### 10.2 Consultar categorias
+
+```http
+GET /academia/categorias-nota
 ```
 
 Catálogo escolar fixo:
@@ -327,10 +398,10 @@ Catálogo escolar fixo:
 
 Regras importantes:
 
-- Escolas não podem criar, editar ou remover categorias escolares; tentativas em `POST/DELETE /academia/categorias-nota` falham.
-- Categorias escolares legadas eventualmente existentes na projeção não devem ser usadas para orientar lançamentos ou avaliação final: o backend valida notas escolares contra o catálogo fixo aplicável ao ano/curso.
+- Escolas não podem criar nem remover categorias escolares; tentativas em `POST /academia/categorias-nota` ou `DELETE /academia/categorias-nota/:codigo` falham.
+- Categorias escolares legadas eventualmente existentes na projeção não devem orientar lançamentos ou avaliação final: o backend valida notas escolares contra o catálogo fixo aplicável ao ano/curso.
 - Superior continua usando categorias configuráveis pela academia.
-- A categoria superior precisa incluir os anos/períodos acadêmicos nos quais poderá receber notas.
+- A categoria superior precisa incluir os anos acadêmicos nos quais poderá receber notas.
 - O lançamento de nota valida a escala do ano: `0–10` para `1_ano_fundamental` a `6_ano_fundamental`; `0–20` para `7_ano_fundamental` a `9_ano_fundamental`, Médio e Superior.
 
 ---
@@ -341,28 +412,46 @@ Este passo só exige ação de academias com oferta Superior. Escolas (`fundamen
 
 ### 11.1 Fundamental e Médio escolar
 
-Não crie regras por endpoint para escolas. `POST`, `PUT/PATCH` e `DELETE` de regras escolares são bloqueados; a listagem e a execução automática devem ser interpretadas como catálogo oficial do sistema. O backend aplica automaticamente o padrão fixo:
+Não crie regras por endpoint para escolas. `POST`, `PUT` e `DELETE` de regras escolares são bloqueados; a listagem e a execução automática devem ser interpretadas como catálogo oficial do sistema. O backend aplica automaticamente o padrão fixo:
 
 - anos regulares usam média dos três trimestres com `nota_professor` e `prova_trimestral`;
 - `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio` usam `exame_final` no 3º trimestre e permitem `exame_recurso` apenas para matérias reprovadas;
 - `4_ano_medio` técnico usa somente `nota_pap >= 10`;
 - matérias dependentes/pendências não existem no Médio escolar;
-- se a categoria lançada não for gatilho oficial da etapa (`nota_professor`, por exemplo), nenhuma regra configurável/legada é usada como fallback.
+- se a categoria lançada não for gatilho oficial da etapa, nenhuma regra configurável/legada é usada como fallback.
 
 ### 11.2 Superior
+
+Rota de criação:
+
+```http
+POST /academia/avaliacao-final/regras
+```
 
 Configuração típica:
 
 - `nivel="superior"`;
 - sem `anos_academicos` na regra;
-- fórmula com referência apenas à categoria, pois o semestre é inferido pela matéria;
+- fórmula textual no modelo atual, usando categorias entre colchetes;
+- em Superior, a fórmula pode referenciar apenas `[categoria]`, pois o semestre é inferido pela matéria avaliada;
 - `limite_materias_pendentes` obrigatório;
+- `nota_despertadora` opcional apenas em regra raiz; sem ela, a raiz não dispara automaticamente por lançamento/atualização de nota;
 - pendências (`pendencia_permitida` e `pendencia_nivel_conclusao`) são exclusivas de matérias superiores.
 
-Exemplo de fórmula:
+Exemplo:
 
-```text
-([prova_parcelar_1]+[prova_parcelar_2])/2
+```json
+{
+  "type": "avaliacao_final",
+  "nome": "Avaliação final superior",
+  "descricao": "Média das avaliações do semestre",
+  "nivel": "superior",
+  "nota_minima_aprovacao": 10,
+  "formula": "([prova_parcelar_1]+[prova_parcelar_2])/2",
+  "limite_materias_pendentes": 2,
+  "nota_despertadora": "prova_parcelar_2",
+  "aplica_se_reprovado_em_type": null
+}
 ```
 
 Ordem dentro da cadeia superior:
@@ -370,6 +459,15 @@ Ordem dentro da cadeia superior:
 1. Criar regra raiz, por exemplo `avaliacao_final`.
 2. Criar regra descendente que aponta para a raiz, por exemplo `avaliacao_final_com_exame` com `aplica_se_reprovado_em_type="avaliacao_final"`.
 3. Criar novas descendentes, se houver, sempre apontando para uma etapa anterior ativa e sem criar ciclos.
+
+Regras importantes:
+
+- O formato antigo de fórmula em JSON foi removido; use somente fórmula textual.
+- O backend extrai `categorias_envolvidas` a partir da fórmula. Se o campo for enviado, precisa bater exatamente com as categorias extraídas.
+- `materias_chave` não é aceito em regras de avaliação final.
+- `materias_aplicaveis`, quando usado no Superior, segue itens `{curso_id, ano_academico, materias}`.
+- `PUT /academia/avaliacao-final/regras/:id` edita apenas campos seguros como `nome`, `descricao`, `nota_minima_aprovacao`, `formula` e, em raiz, `nota_despertadora`.
+- `DELETE /academia/avaliacao-final/regras/:id` é deleção lógica e inativa também descendentes da cadeia.
 
 ---
 
@@ -383,13 +481,17 @@ Cadastro direto:
 POST /academia/estudante/register
 ```
 
+O cadastro direto usa `multipart/form-data`. Os documentos são opcionais; quando enviados, precisam ser PDFs válidos, com extensão `.pdf`, assinatura `%PDF` e tamanho máximo de 5MB.
+
 Ao cadastrar, informe os vínculos acadêmicos compatíveis com o tipo de estudante:
 
 | Estudante | Campos acadêmicos esperados |
 |---|---|
-| Fundamental | `ano_escolar_fundamental` compatível com os anos da academia. |
+| Fundamental | `ano_escolar_fundamental` compatível com os anos fundamentais da academia. |
 | Médio | `curso_medio_id` e `ano_escolar_medio` compatíveis com o curso médio. |
-| Superior | `curso_superior_id`, `ano_superior`/semestre inicial conforme contrato do cadastro. |
+| Superior | `curso_superior_id`; o backend inicia o vínculo superior no começo do curso conforme as regras do domínio. |
+
+Para estudantes escolares, o BI do responsável também é parte das validações de cadastro. Após a criação, o vínculo com a academia nasce ativo; alterações posteriores de status devem usar os endpoints específicos de matrícula, interrupção, trancamento, desvinculação ou revinculação.
 
 **Por que estudantes vêm depois da estrutura curricular?**
 
@@ -399,7 +501,7 @@ Porque o cadastro acadêmico do estudante precisa apontar para anos e cursos exi
 
 ## 13. Passo 11 — Criar turmas
 
-Turmas dependem do nível e, para Médio/Superior, normalmente do curso.
+Turmas dependem do nível acadêmico e, para Médio/Superior, normalmente do curso.
 
 Rota:
 
@@ -407,12 +509,14 @@ Rota:
 POST /academia/turma
 ```
 
+O campo `codigo_turma` é normalizado: espaços antes/depois são descartados, espaços internos viram `_`, e caracteres especiais diferentes de `_` são rejeitados.
+
 Exemplo fundamental:
 
 ```json
 {
   "codigo_turma": "6A",
-  "nivel": "fundamental",
+  "nivel": "6_ano_fundamental",
   "turno": "manha"
 }
 ```
@@ -421,8 +525,8 @@ Exemplo médio:
 
 ```json
 {
-  "codigo_turma": "BIO-1A",
-  "nivel": "medio",
+  "codigo_turma": "BIO_1A",
+  "nivel": "1_ano_medio",
   "turno": "tarde",
   "curso_id": "uuid-do-curso-medio"
 }
@@ -432,14 +536,19 @@ Exemplo superior:
 
 ```json
 {
-  "codigo_turma": "INF-1A",
-  "nivel": "superior",
+  "codigo_turma": "INF_1A",
+  "nivel": "1_ano_superior",
   "turno": "noite",
   "curso_id": "uuid-do-curso-superior"
 }
 ```
 
-O `codigo_turma` deve ser único dentro da academia.
+Regras importantes:
+
+- `turno` deve ser `manha`, `tarde` ou `noite`.
+- `codigo_turma` deve ser único dentro da academia.
+- Ao editar `nivel` ou `curso_id` de uma turma existente, o backend valida todos os estudantes já vinculados e bloqueia a alteração se algum ficar incompatível.
+- Para deletar uma turma, ela deve estar inativa e sem estudantes.
 
 ---
 
@@ -463,13 +572,28 @@ Regras importantes:
 
 - O estudante precisa pertencer à academia.
 - O estudante precisa ser compatível com o nível e curso da turma.
-- Apenas estudantes do superior podem estar em múltiplas turmas simultaneamente.
+- Apenas estudantes do Superior podem estar em múltiplas turmas simultaneamente.
+- Para remover vínculo de turma, use `DELETE /academia/turma/:codigo/estudantes/:codigo_estudante`.
 
 ---
 
 ## 15. Passo 13 — Iniciar lançamentos acadêmicos
 
-Com a configuração concluída, a academia já pode usar normalmente todas as funcionalidades da plataforma. A partir deste ponto, a operação acadêmica pode seguir o fluxo regular de trabalho da instituição, incluindo gestão de estudantes, turmas, matérias, notas, faltas e acompanhamento das avaliações finais automáticas. Em escolas, essas avaliações seguem o padrão fixo do sistema; no Superior, seguem as regras configuradas pela academia.
+Com a configuração concluída, a academia já pode usar normalmente todas as funcionalidades da plataforma, incluindo gestão de estudantes, turmas, matérias, notas, faltas e acompanhamento das avaliações finais automáticas.
+
+Em escolas, as avaliações seguem o padrão fixo do sistema. No Superior, seguem as categorias e regras configuradas pela academia. A avaliação final não possui rota pública de execução manual: ela é disparada automaticamente pelo backend quando uma nota é registrada/atualizada e encontra as condições da regra aplicável.
+
+Rotas operacionais comuns:
+
+```http
+POST /academia/notas-aluno
+PUT /academia/atualizar-nota
+DELETE /academia/nota/:id
+POST /academia/faltas-aluno
+PUT /academia/atualizar-falta
+DELETE /academia/falta/:id
+POST /academia/anos-letivos/finalizar
+```
 
 ---
 
@@ -478,25 +602,28 @@ Com a configuração concluída, a academia já pode usar normalmente todas as f
 Use este checklist antes de iniciar os lançamentos em produção:
 
 - [ ] Academia está ativa.
+- [ ] Admin já definiu o ano letivo global aplicável.
 - [ ] Academia definiu seu ano letivo ativo.
 - [ ] Anos fundamentais foram configurados, se a escola for fundamental ou mista.
 - [ ] Cursos médios/superiores foram criados, se aplicável.
-- [ ] Anos de cursos médios estão completos e sequenciais.
+- [ ] Anos de cursos médios e períodos/anos superiores foram conferidos nas rotas de consulta.
 - [ ] Matérias foram criadas para todos os anos, cursos e semestres necessários.
 - [ ] Matérias superiores foram ativadas.
 - [ ] Cursos médios possuem matérias-chave configuradas para todos os anos.
-- [ ] Categorias de nota foram criadas para todos os anos/períodos superiores em uso; para escolas, confirme que o catálogo fixo aparece em `GET /academia/categorias-nota`.
-- [ ] Estudantes foram cadastrados ou aprovados com vínculo acadêmico correto.
-- [ ] Turmas foram criadas.
-- [ ] Estudantes foram adicionados às turmas corretas.
+- [ ] Categorias de nota foram criadas para todos os anos superiores em uso; para escolas, confirme que o catálogo fixo aparece em `GET /academia/categorias-nota`.
 - [ ] Regras de avaliação final superiores foram criadas, se a academia ofertar Superior; para escolas, nenhuma regra deve ser criada, e o padrão fixo deve aparecer em `GET /academia/avaliacao-final/regras`.
+- [ ] Estudantes foram cadastrados ou aprovados com vínculo acadêmico correto.
+- [ ] Turmas foram criadas com `nivel`, `turno` e `curso_id` corretos.
+- [ ] Estudantes foram adicionados às turmas corretas.
 
 ---
 
 ## 17. Resumo visual das dependências
 
 ```text
-Academia ativada
+Academia criada e ativada
+        ↓
+Ano letivo global definido pelo admin
         ↓
 Academia define ano letivo ativo
         ↓
@@ -504,7 +631,7 @@ Anos fundamentais ───────────────┐
         ↓                         │
 Cursos médios/superiores          │
         ↓                         │
-Anos de curso médio               │
+Anos/períodos derivados           │
         ↓                         │
 Matérias disciplinares ◄──────────┘
         ↓
@@ -532,11 +659,15 @@ Operação normal da plataforma
 | Erro | Causa provável | Como evitar |
 |---|---|---|
 | Nota bloqueada por ausência de ano letivo | Academia ainda não definiu o ano letivo ativo. | Execute `POST /academia/definir-ano-letivo` antes dos lançamentos. |
-| Matéria média rejeitada | Curso médio não existe, é de outra academia ou ano não pertence ao curso. | Crie/consulte o curso antes da matéria. |
+| Definição de ano letivo rejeitada | Ano letivo global não existe, academia já tem ano letivo ou payload diverge do global. | Confirme o ano global e não tente redefinir academia que já iniciou o ciclo. |
+| `PATCH /academia/anos-academicos` retorna 404 | Rota removida do contrato público. | Use `POST` para adicionar e `DELETE` para remover anos fundamentais. |
+| Anos médios rejeitados em `/academia/anos-academicos` | Anos médios são derivados do `modelo` do curso. | Crie curso médio com `modelo="liceu"` ou `modelo="tecnico"`. |
+| Escopo superior rejeitado em `/academia/anos-academicos` | Cursos superiores não aceitam gestão direta de anos/períodos por essa rota. | Defina `periodos` na criação do curso superior. |
+| Matéria média rejeitada | Curso médio não existe, está inativo, é de outra academia ou ano não pertence ao curso. | Crie/consulte o curso antes da matéria e use um ano derivado do curso. |
 | Matéria superior não entra na avaliação | Matéria superior foi criada, mas continua inativa. | Ative com `PUT /academia/materia/:id/ativar`. |
 | Configuração curricular do Médio incompleta | Curso médio sem `materias_chave` para todos os anos do curso. | Configure `PUT /academia/curso/:id/materias-chave` para todos os anos do curso. |
 | Nota escolar rejeitada por categoria | Categoria enviada não pertence ao catálogo fixo do ano/curso, por exemplo `prova_trimestral` no `4_ano_medio` técnico. | Use somente as categorias fixas exibidas em `GET /academia/categorias-nota`. |
-| Nota superior rejeitada por categoria | Categoria superior não existe, está inativa/removida ou não contém o ano/período inferido. | Crie categorias superiores antes dos lançamentos e inclua todos os anos/períodos necessários. |
+| Nota superior rejeitada por categoria | Categoria superior não existe, está inativa/removida ou não contém o ano aplicável. | Crie categorias superiores antes dos lançamentos e inclua todos os anos necessários. |
 | Regra escolar rejeitada | Tentativa de criar, editar ou remover regra `fundamental`/`medio`. | Não configure regras escolares; use o padrão fixo do sistema. |
-| Regra superior rejeitada | Escopo, fórmula, categoria ou cadeia incompatível. | Crie categorias e matérias superiores antes da regra; use `nivel="superior"` e o formato correto. |
+| Regra superior rejeitada | Escopo, fórmula, categoria, `nota_despertadora` ou cadeia incompatível. | Crie categorias e matérias superiores antes da regra; use `nivel="superior"` e fórmula textual válida. |
 | Estudante não pode entrar na turma | Nível ou curso do estudante incompatível com a turma. | Cadastre estudante e turma com o mesmo nível/curso. |
