@@ -1609,7 +1609,7 @@ Além do valor atual, o sistema mantém `anos_letivos_lista` em `projection_sist
 
 A academia só pode definir diretamente quando ainda não possui ano letivo. Depois disso, a evolução acontece pela finalização realizada pelas academias, que calcula o próximo período a partir do ano final do anterior. O ano letivo ativo é resolvido automaticamente em todos os novos registos de nota, falta e avaliação.
 
-O período real aceito para faltas não é salvo como datas fixas em cada ano. O Admin FPP mantém uma configuração global por tipo em `projection_anos_letivos_configuracoes` (`type` + `periodo`). O backend combina essa configuração com o `ano_letivo` ativo da academia para calcular o intervalo: com `ano_letivo=2025_2026` e `periodo=10_07`, o início é `2025-10-01` e o fim é `2026-07-31`.
+O período real aceito para faltas não é salvo como datas fixas em cada ano e não é configurável por academia, admin ou payload. O backend deriva sempre o `periodo` pelo tipo do ano letivo: `escolar -> 09_07` e `superior -> 10_07`. Em seguida combina esse período fixo com o `ano_letivo` ativo da academia para calcular o intervalo: com `ano_letivo=2025_2026`, escolar permite `2025-09-01` a `2026-07-31`, e superior permite `2025-10-01` a `2026-07-31`.
 
 **Regra de alinhamento obrigatório**: se a academia tentar definir um ano letivo diferente do ano oficial global do seu tipo definido pelo admin FPP, a operação deve ser rejeitada com erro de negócio.
 
@@ -1816,18 +1816,18 @@ Retorna a lista histórica de anos letivos definidos pela academia alvo.
 O backend separa duas coisas que o cliente deve tratar como conceitos diferentes:
 
 1. **Ano letivo ativo** (`ano_letivo`, exemplo `2025_2026`) — valor evolutivo definido pelo Admin FPP no escopo global e pela academia no próprio escopo, sempre alinhado ao global.
-2. **Período fixo por tipo** (`periodo`, exemplo `09_07`) — configuração global estável mantida pelo Admin FPP para calcular o intervalo real de datas aceitas.
+2. **Período fixo por tipo** (`periodo`, exemplo `09_07`) — regra sistêmica imutável derivada exclusivamente do tipo de ensino para calcular o intervalo real de datas aceitas.
 
-Cada tipo canônico de ano letivo possui exatamente um período fixo global:
+Cada tipo canônico de ano letivo possui exatamente um período fixo, não configurável por academia ou Admin FPP:
 
-- `escolar` — usado para fundamental e médio. O alias legado `escola` não é mais aceito para `type` de ano letivo.
-- `superior` — usado para ensino superior.
+- `escolar` — usado para fundamental e médio, sempre com `periodo=09_07`. O alias legado `escola` não é mais aceito para `type` de ano letivo.
+- `superior` — usado para ensino superior, sempre com `periodo=10_07`.
 
-O `periodo` usa o formato `MM_MM`, em que o primeiro mês pertence ao ano inicial de `ano_letivo` e o segundo mês pertence ao ano final. Exemplo: `ano_letivo=2025_2026` com `periodo=10_07` permite datas de `2025-10-01` a `2026-07-31`. O cliente não precisa calcular esse intervalo para validar segurança; o backend recalcula e valida em operações sensíveis, especialmente faltas. A definição do ano letivo seguinte também respeita a mesma janela operacional da finalização: enquanto o mês atual ainda estiver dentro do ano letivo em curso delimitado pelo período, o avanço para o próximo ano letivo é bloqueado.
+O `periodo` usa o formato `MM_MM`, em que o primeiro mês pertence ao ano inicial de `ano_letivo` e o segundo mês pertence ao ano final. Exemplo: `ano_letivo=2025_2026` com `type=escolar` usa `09_07` e permite datas de `2025-09-01` a `2026-07-31`; com `type=superior` usa `10_07` e permite datas de `2025-10-01` a `2026-07-31`. O cliente não precisa calcular esse intervalo para validar segurança; o backend recalcula e valida em operações sensíveis, especialmente faltas. A definição do ano letivo seguinte também respeita a mesma janela operacional da finalização: enquanto o mês atual ainda estiver dentro do ano letivo em curso delimitado pelo período fixo do tipo, o avanço para o próximo ano letivo é bloqueado.
 
 #### GET `/anos-letivos/configuracoes`
 
-Lista as configurações vigentes.
+Lista os períodos fixos vigentes, derivados da regra sistêmica imutável.
 
 Request: não possui body.
 
@@ -1839,14 +1839,12 @@ Response:
     {
       "type": "escolar",
       "periodo": "09_07",
-      "updated_at": "2026-06-26T10:30:00Z",
-      "updated_by": "uuid-do-admin-fpp"
+      "imutavel": true
     },
     {
       "type": "superior",
       "periodo": "10_07",
-      "updated_at": "2026-06-26T10:35:00Z",
-      "updated_by": "uuid-do-admin-fpp"
+      "imutavel": true
     }
   ]
 }
@@ -1866,14 +1864,12 @@ Response:
     {
       "type": "escolar",
       "periodo": "09_07",
-      "updated_at": "2026-06-26T10:30:00Z",
-      "updated_by": "uuid-do-admin-fpp"
+      "imutavel": true
     },
     {
       "type": "superior",
       "periodo": "10_07",
-      "updated_at": "2026-06-26T10:35:00Z",
-      "updated_by": "uuid-do-admin-fpp"
+      "imutavel": true
     }
   ]
 }
@@ -1881,7 +1877,7 @@ Response:
 
 #### PUT `/admin/sistema/anos-letivos/configuracoes/:type`
 
-Apenas Admin FPP. Atualiza o período fixo do tipo informado. O parâmetro `:type` aceita somente `escolar` ou `superior`.
+Apenas Admin FPP. O período do tipo informado é fixo e imutável; este endpoint não transforma `escolar` em `10_07` nem `superior` em `09_07`. Para compatibilidade, payloads que repetem o valor fixo podem receber resposta de sucesso sem alterar a regra; payloads divergentes são rejeitados com erro de validação. O parâmetro `:type` aceita somente `escolar` ou `superior`.
 
 Request params:
 
@@ -1897,25 +1893,28 @@ Request body:
 }
 ```
 
-Response:
+Response para payload compatível com a regra fixa:
 
 ```json
 {
-  "message": "configuração de ano letivo atualizada com sucesso",
+  "message": "configuração de ano letivo mantida; periodo é fixo e imutável",
   "type": "escolar",
-  "periodo": "09_07"
+  "periodo": "09_07",
+  "updated_by": "uuid-do-admin-fpp"
 }
 ```
 
+Exemplo rejeitado: `PUT /admin/sistema/anos-letivos/configuracoes/superior` com `{ "periodo": "09_07" }`, pois superior sempre usa `10_07`.
+
 ### Validação de faltas pelo período letivo
 
-O registro e a atualização de faltas validam a data no backend usando o tipo inferido da matéria (`superior` ou `escolar` para fundamental/médio), o `ano_letivo` ativo da academia e o `periodo` configurado para o tipo. Datas fora do intervalo retornam `400` com mensagem indicando o intervalo permitido.
+O registro e a atualização de faltas validam a data no backend usando o tipo inferido da matéria (`superior` ou `escolar` para fundamental/médio), o `ano_letivo` ativo da academia e o `periodo` fixo derivado do tipo. Datas fora do intervalo retornam `400` com mensagem indicando o intervalo permitido.
 
 ### Finalização de ano letivo por academia
 
 #### POST `/academia/anos-letivos/finalizar`
 
-A academia autenticada finaliza o ano letivo ativo no próprio escopo e, na mesma operação, avança automaticamente para o ano letivo seguinte. O cliente não envia `academia_id`; o backend obtém a academia pelo token, normaliza `type`, valida que o `ano_letivo` informado, quando presente, corresponde ao ano letivo ativo da academia, valida o formato `YYYY_YYYY` com segundo ano igual ao primeiro + 1, valida a janela mensal de finalização pelo `periodo` configurado para o tipo e grava um evento auditável `AnoLetivoAcademiaFinalizado`. A janela mensal é inclusiva no mês final e exclusiva no mês inicial: o mês atual precisa ser maior ou igual ao mês de fim do período letivo e menor que o mês de início do período letivo. Exemplo: se `periodo=10_07`, a finalização é permitida somente em julho, agosto e setembro; em outubro o próximo período já começou, e de novembro a junho o período vigente ainda não chegou ao mês de encerramento.
+A academia autenticada finaliza o ano letivo ativo no próprio escopo e, na mesma operação, avança automaticamente para o ano letivo seguinte. O cliente não envia `academia_id`; o backend obtém a academia pelo token, normaliza `type`, valida que o `ano_letivo` informado, quando presente, corresponde ao ano letivo ativo da academia, valida o formato `YYYY_YYYY` com segundo ano igual ao primeiro + 1, valida a janela mensal de finalização pelo `periodo` fixo derivado do tipo e grava um evento auditável `AnoLetivoAcademiaFinalizado`. A janela mensal é inclusiva no mês final e exclusiva no mês inicial: o mês atual precisa ser maior ou igual ao mês de fim do período letivo e menor que o mês de início do período letivo. Exemplo: se `periodo=10_07`, a finalização é permitida somente em julho, agosto e setembro; em outubro o próximo período já começou, e de novembro a junho o período vigente ainda não chegou ao mês de encerramento.
 
 Request:
 
@@ -2040,7 +2039,7 @@ Ao definir inicialmente o ano letivo global, o backend bloqueia a operação se 
 
 Para implementar o cliente de forma segura:
 
-1. Admin FPP consulta/ajusta `GET|PUT /admin/sistema/anos-letivos/configuracoes/:type` para confirmar o `periodo` por tipo.
+1. Admin FPP consulta `GET /admin/sistema/anos-letivos/configuracoes` para confirmar o `periodo` fixo por tipo; o `PUT` legado não deve ser usado para alterar a regra, pois valores divergentes são rejeitados.
 2. Admin FPP define inicialmente o ano global com `POST /admin/definir-ano-letivo-geral`, enviando `type` e `ano_letivo`, desde que não exista academia ativa com ano letivo definido.
 3. Cada academia sem ano letivo define o próprio ano letivo com `POST /academia/definir-ano-letivo` usando o ano global atual.
 4. Ao encerrar notas/faltas/avaliações de um ciclo, a academia chama `POST /academia/anos-letivos/finalizar`; essa chamada finaliza o ano ativo e já avança para o seguinte.

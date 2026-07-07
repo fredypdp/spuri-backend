@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"database/sql"
 	"fmt"
 	"strconv"
 	"strings"
@@ -11,6 +10,26 @@ import (
 )
 
 type anoLetivoPartes struct{ Inicio, Fim int }
+
+const (
+	periodoLetivoEscolar  = "09_07"
+	periodoLetivoSuperior = "10_07"
+)
+
+func periodoFixoPorTipoAnoLetivo(tipo string) (string, error) {
+	t, err := normalizarTipoAnoLetivo(tipo)
+	if err != nil {
+		return "", err
+	}
+	switch t {
+	case "escolar":
+		return periodoLetivoEscolar, nil
+	case "superior":
+		return periodoLetivoSuperior, nil
+	default:
+		return "", fmt.Errorf("type deve ser 'escolar' ou 'superior'")
+	}
+}
 
 func normalizarTipoAnoLetivo(tipo string) (string, error) {
 	t := strings.ToLower(strings.TrimSpace(tipo))
@@ -57,6 +76,21 @@ func compareAnoLetivo(a, b string) (int, error) {
 	return 0, nil
 }
 
+func validarPeriodoLetivoFixoPayload(tipo, periodo string) (string, error) {
+	periodoRecebido, err := normalizarPeriodoLetivo(periodo)
+	if err != nil {
+		return "", err
+	}
+	periodoFixo, err := periodoFixoPorTipoAnoLetivo(tipo)
+	if err != nil {
+		return "", err
+	}
+	if periodoRecebido != periodoFixo {
+		return "", fmt.Errorf("periodo de ano letivo é fixo e imutável para type=%s: use %s", tipo, periodoFixo)
+	}
+	return periodoFixo, nil
+}
+
 func normalizarPeriodoLetivo(periodo string) (string, error) {
 	periodo = strings.TrimSpace(periodo)
 	partes := strings.Split(periodo, "_")
@@ -93,16 +127,8 @@ func intervaloAnoLetivo(anoLetivo, periodo string) (time.Time, time.Time, error)
 	return inicio, fim, nil
 }
 
-func periodoConfigurado(client *db.Client, tipo string) (string, error) {
-	var p sql.NullString
-	err := client.DB().QueryRow(`SELECT periodo FROM projection_anos_letivos_configuracoes WHERE type = $1`, tipo).Scan(&p)
-	if err == sql.ErrNoRows {
-		return "", fmt.Errorf("período letivo %s não configurado", tipo)
-	}
-	if err != nil {
-		return "", err
-	}
-	return p.String, nil
+func periodoConfigurado(_ *db.Client, tipo string) (string, error) {
+	return periodoFixoPorTipoAnoLetivo(tipo)
 }
 
 func mesPermiteFinalizacaoAnoLetivo(mesAtual, mesFim, mesInicio int) bool {
