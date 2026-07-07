@@ -4418,8 +4418,8 @@ Cenários típicos do Médio:
 
 | Cenário | Resultado funcional |
 |---|---|
-| Matéria não-chave reprovada na raiz | Resultado por matéria fica reprovado, mas a decisão geral da raiz pode permanecer aprovada conforme comportamento atual. |
-| Matéria-chave reprovada e aprovada em descendente | A cadeia registra a nova etapa e a aprovação da descendente permite progressão/conclusão. |
+| Matéria reprovada na avaliação final | Resultado por matéria fica reprovado e a decisão geral segue a regra escolar vigente, sem classificação curricular especial. |
+| Matéria reprovada e aprovada em etapa descendente aplicável | A cadeia registra a nova etapa e a aprovação da descendente permite progressão/conclusão conforme a regra escolar vigente. |
 | Matéria reprovada sem descendente aplicável | Reprovação no ano/etapa escolar conforme padrão fixo. |
 | `4_ano_medio` técnico com `nota_pap >= 10` | Aprovação e conclusão do médio técnico. |
 | `4_ano_medio` técnico com `nota_pap < 10` | Reprovação no ano final técnico. |

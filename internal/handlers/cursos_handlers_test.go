@@ -117,13 +117,18 @@ func TestValidarSequenciaAnosMedioExigePrefixoContinuo(t *testing.T) {
 }
 
 func TestRejeitarCamposAcademicosEmAtualizacaoCursoRejeitaMateriasChave(t *testing.T) {
-	req := httptest.NewRequest("PUT", "/academia/curso/id/dados", bytes.NewBufferString(`{"materias_chave":[]}`))
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = req
+	casos := []string{"materias_chave", "materiasChave", "MateriasChave"}
+	for _, campo := range casos {
+		t.Run(campo, func(t *testing.T) {
+			req := httptest.NewRequest("PUT", "/academia/curso/id/dados", bytes.NewBufferString(`{"`+campo+`":[]}`))
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = req
 
-	if err := rejeitarCamposAcademicosEmAtualizacaoCurso(c); err == nil {
-		t.Fatalf("esperava rejeição para materias_chave na edição cadastral do curso")
+			if err := rejeitarCamposAcademicosEmAtualizacaoCurso(c); err == nil {
+				t.Fatalf("esperava rejeição para %s na edição cadastral do curso", campo)
+			}
+		})
 	}
 }
 
