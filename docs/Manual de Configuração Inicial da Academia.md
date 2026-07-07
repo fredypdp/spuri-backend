@@ -54,7 +54,7 @@ Regras principais:
 
 - A academia só define diretamente o ano letivo quando ainda não tem ano letivo ativo.
 - O backend infere o tipo do ano letivo a partir da academia: `escolar` para academia de escola e `superior` para academia superior.
-- O campo `ano_letivo` é opcional; quando omitido, o backend usa o ano letivo global atual definido pelo admin para o tipo da academia.
+- O campo `ano_letivo` é opcional; quando omitido, o backend usa o ano letivo global atual definido pelo admin para o tipo da academia. Não envie `periodo`: ele é fixo, imutável e derivado pelo backend (`escolar -> 09_07`, `superior -> 10_07`).
 - Se `ano_letivo` for enviado, ele precisa ser igual ao ano letivo global atual.
 - Depois disso, a passagem para o próximo ano acontece pela finalização do ano letivo, não por redefinição manual.
 - Sem ano letivo ativo, o sistema bloqueia notas, faltas e avaliações finais.
@@ -67,7 +67,7 @@ Exemplo conceitual:
 }
 ```
 
-Também é válido enviar `{}` quando a academia deve assumir o ano letivo global atual.
+Também é válido enviar `{}` quando a academia deve assumir o ano letivo global atual. A resposta expõe `periodo` apenas como valor derivado/read-only; escolas retornam `09_07` e ensino superior retorna `10_07`.
 
 **Por que este passo vem antes dos demais processos operacionais?**
 

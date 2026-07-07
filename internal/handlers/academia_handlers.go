@@ -699,10 +699,17 @@ func DefinirAnoLetivoAcademia(c *gin.Context) {
 	log.Printf("✅ [DefinirAnoLetivoAcademia] %s/%s definido por academia %s",
 		anoLetivoSolicitado, tipo, academiaDTO.CodigoAcademia)
 
+	periodo, err := periodoFixoPorTipoAnoLetivo(tipo)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "ano letivo definido com sucesso",
 		"ano_letivo": anoLetivoSolicitado,
 		"tipo":       tipo,
+		"periodo":    periodo,
+		"imutavel":   true,
 	})
 }
 
