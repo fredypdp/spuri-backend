@@ -20,15 +20,16 @@ type categoriaNotaEscolarFixa struct {
 	Nome   string `json:"nome"`
 }
 
-func regrasAvaliacaoFinalEscolaresFixas(codigoAcademia, tipoEnsino, anoAcademico string, categoria *string, cursoID *string) []regraAvaliacaoFinalDTO {
+func regrasAvaliacaoFinalEscolaresFixas(c *gin.Context, codigoAcademia, tipoEnsino, anoAcademico string, categoria *string, cursoID *string) []regraAvaliacaoFinalDTO {
 	if tipoEnsino != "fundamental" && tipoEnsino != "medio" {
 		return nil
 	}
 	var regras []regraAvaliacaoFinalDTO
-	if r := regraAvaliacaoFinalEscolarFixa(codigoAcademia, tipoEnsino, anoAcademico, "normal", cursoID); r != nil {
+	modeloCursoMedio := modeloCursoMedioPorID(c, cursoID)
+	if r := regraAvaliacaoFinalEscolarFixa(codigoAcademia, tipoEnsino, anoAcademico, "normal", cursoID, modeloCursoMedio); r != nil {
 		regras = append(regras, *r)
 	}
-	if r := regraAvaliacaoFinalEscolarFixa(codigoAcademia, tipoEnsino, anoAcademico, "exame_recurso", cursoID); r != nil {
+	if r := regraAvaliacaoFinalEscolarFixa(codigoAcademia, tipoEnsino, anoAcademico, "exame_recurso", cursoID, modeloCursoMedio); r != nil {
 		regras = append(regras, *r)
 	}
 	if categoria != nil && strings.TrimSpace(*categoria) != "" && len(regras) > 0 {
@@ -39,7 +40,7 @@ func regrasAvaliacaoFinalEscolaresFixas(codigoAcademia, tipoEnsino, anoAcademico
 	return regras
 }
 
-func regraAvaliacaoFinalEscolarFixa(codigoAcademia, tipoEnsino, anoAcademico, typ string, cursoID *string) *regraAvaliacaoFinalDTO {
+func regraAvaliacaoFinalEscolarFixa(codigoAcademia, tipoEnsino, anoAcademico, typ string, cursoID *string, modeloCursoMedio string) *regraAvaliacaoFinalDTO {
 	typ = strings.TrimSpace(typ)
 	if typ == "" {
 		typ = "normal"
@@ -122,7 +123,7 @@ func regraAvaliacaoFinalEscolarFixa(codigoAcademia, tipoEnsino, anoAcademico, ty
 			return nil
 		}
 	case "4_ano_medio":
-		if tipoEnsino != "medio" || typ != "normal" {
+		if tipoEnsino != "medio" || typ != "normal" || strings.TrimSpace(modeloCursoMedio) != aggregates.ModeloCursoMedioTecnico {
 			return nil
 		}
 		base.Nome = "Prova de Aptidão Profissional"
@@ -202,6 +203,21 @@ func modeloCursoMedioDaMateria(c *gin.Context, materiaDTO *projections.MateriaDT
 		return ""
 	}
 	cursoDTO, err := getCursosProjection(c).GetByID(*materiaDTO.CursoID)
+	if err != nil || cursoDTO == nil || cursoDTO.Type != "medio" {
+		return ""
+	}
+	return cursoDTO.Modelo
+}
+
+func modeloCursoMedioPorID(c *gin.Context, cursoID *string) string {
+	if c == nil || cursoID == nil || strings.TrimSpace(*cursoID) == "" {
+		return ""
+	}
+	id, err := uuid.Parse(strings.TrimSpace(*cursoID))
+	if err != nil {
+		return ""
+	}
+	cursoDTO, err := getCursosProjection(c).GetByID(id)
 	if err != nil || cursoDTO == nil || cursoDTO.Type != "medio" {
 		return ""
 	}

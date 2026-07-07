@@ -296,10 +296,10 @@ CREATE TABLE IF NOT EXISTS projection_materias (
         (type IN ('medio', 'superior') AND curso_id IS NOT NULL)
     ),
     CONSTRAINT chk_materia_pendencia_permitida_tipo CHECK (
-        type IN ('medio', 'superior') OR pendencia_permitida = FALSE
+        type = 'superior' OR pendencia_permitida = FALSE
     ),
     CONSTRAINT chk_materia_pendencia_nivel_conclusao_tipo CHECK (
-        pendencia_nivel_conclusao IS NULL OR type IN ('medio', 'superior')
+        pendencia_nivel_conclusao IS NULL OR type = 'superior'
     )
 );
 
@@ -862,8 +862,8 @@ COMMENT ON COLUMN projection_academias.cursos IS 'Array JSON com lista de nomes 
 
 COMMENT ON COLUMN projection_cursos.nivel IS 'Array JSON com anos do curso: ["primeiro_medio","segundo_medio","terceiro_medio"]';
 COMMENT ON COLUMN projection_materias.curso_id IS 'NULL para fundamental, FK para medio/superior';
-COMMENT ON COLUMN projection_materias.pendencia_permitida IS 'Indica se a matéria pode ficar como pendência para aprovação futura; disponível apenas para medio/superior';
-COMMENT ON COLUMN projection_materias.pendencia_nivel_conclusao IS 'Ano acadêmico/semestre máximo em que o estudante pode chegar com pendências desta matéria; disponível apenas para medio/superior';
+COMMENT ON COLUMN projection_materias.pendencia_permitida IS 'Indica se a matéria pode ficar como pendência para aprovação futura; disponível apenas para superior';
+COMMENT ON COLUMN projection_materias.pendencia_nivel_conclusao IS 'Semestre máximo em que o estudante pode chegar com pendências desta matéria; disponível apenas para superior';
 COMMENT ON COLUMN projection_materias.nivel IS 'Apenas para fundamental: ["1_fundamental","2_fundamental",...]';
 
 COMMENT ON COLUMN projection_notas.periodo IS 'Período: 1_trimestre, 2_trimestre, 3_trimestre, 1_semestre, 2_semestre';

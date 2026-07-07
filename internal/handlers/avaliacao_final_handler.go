@@ -327,11 +327,10 @@ func tentarAvaliacoesFinaisAutomaticas(
 		anoAcademicoAtual = periodoAtual
 	}
 
-	// O gatilho olha para a cadeia completa aplicável ao estudante e começa pela
-	// única regra raiz — a regra sem aplica_se_reprovado_em_type. A execução só
-	// segue quando a categoria da nota registrada/atualizada corresponde ao
-	// nota_despertadora da raiz; descendentes nunca são despertadas diretamente
-	// por categoria de nota.
+	// O gatilho olha para a cadeia completa aplicável ao estudante. Regras raiz
+	// são despertadas pela nota_despertadora da própria raiz; regras descendentes
+	// fixas escolares (ex.: exame_recurso) também podem ser despertadas
+	// diretamente pela própria categoria, desde que exista reprovação anterior.
 	regras, err := listarRegrasAvaliacaoFinalAplicaveis(c, codigoAcademia, tipoEnsino, anoAcademicoAtual, nil, cursoIDEstudantePorNivel(tipoEnsino, estudanteDTO))
 	if err != nil {
 		return nil, err
@@ -349,14 +348,31 @@ func tentarAvaliacoesFinaisAutomaticas(
 			break
 		}
 	}
-	if raiz == nil || raiz.NotaDespertadora == nil || strings.TrimSpace(*raiz.NotaDespertadora) == "" {
-		return nil, nil
+	categoriaAlterada = strings.TrimSpace(categoriaAlterada)
+	tiposDisparados := map[string]bool{}
+	if raiz != nil && raiz.NotaDespertadora != nil && categoriaAlterada == strings.TrimSpace(*raiz.NotaDespertadora) {
+		for _, regra := range regras {
+			tiposDisparados[regra.Type] = true
+		}
+	} else {
+		for _, regra := range regras {
+			if regra.AplicaSeReprovadoEmType != nil && regra.NotaDespertadora != nil && categoriaAlterada == strings.TrimSpace(*regra.NotaDespertadora) {
+				tiposDisparados[regra.Type] = true
+			}
+		}
 	}
-	if strings.TrimSpace(categoriaAlterada) != strings.TrimSpace(*raiz.NotaDespertadora) {
+	if len(tiposDisparados) == 0 {
 		return nil, nil
 	}
 	if overlay != nil {
-		aplicavel, err := materiaAlteradaAplicavelARegra(c, codigoAcademia, tipoEnsino, anoAcademicoAtual, *raiz, estudanteDTO, overlay.MateriaID)
+		regraAplicavel := regraAvaliacaoFinalDTO{}
+		for _, regra := range regras {
+			if tiposDisparados[regra.Type] {
+				regraAplicavel = regra
+				break
+			}
+		}
+		aplicavel, err := materiaAlteradaAplicavelARegra(c, codigoAcademia, tipoEnsino, anoAcademicoAtual, regraAplicavel, estudanteDTO, overlay.MateriaID)
 		if err != nil {
 			return nil, err
 		}
@@ -374,6 +390,9 @@ func tentarAvaliacoesFinaisAutomaticas(
 		avancou := false
 		for _, regra := range regras {
 			if processadas[regra.Type] {
+				continue
+			}
+			if !tiposDisparados[regra.Type] {
 				continue
 			}
 			podeExecutar, encerrar, err := regraPodeExecutarAutomaticamente(

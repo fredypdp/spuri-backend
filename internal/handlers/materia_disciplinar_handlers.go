@@ -92,6 +92,10 @@ func CriarMateria(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("matérias dependentes são exclusivas do ensino superior e não se aplicam ao ensino médio escolar"))
 		return
 	}
+	if tipoMateria == "medio" && req.PendenciaNivelConclusao != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("pendencia_nivel_conclusao é exclusiva do ensino superior e não se aplica ao ensino médio escolar"))
+		return
+	}
 	if err := validarPendenciaNivelConclusao(tipoMateria, req.PendenciaNivelConclusao, req.AnosAcademicos, periodosCurso); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -403,6 +407,10 @@ func AtualizarDadosMateria(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("matérias dependentes são exclusivas do ensino superior e não se aplicam ao ensino médio escolar"))
 		return
 	}
+	if materia.Type == "medio" && req.PendenciaNivelConclusao != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("pendencia_nivel_conclusao é exclusiva do ensino superior e não se aplica ao ensino médio escolar"))
+		return
+	}
 	if err := validarPendenciaNivelConclusao(materia.Type, req.PendenciaNivelConclusao, anosParaValidacao, periodosCurso); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -465,17 +473,8 @@ func validarPendenciaNivelConclusao(tipoMateria string, nivel *string, anosAcade
 	if valor == "" {
 		return fmt.Errorf("pendencia_nivel_conclusao não pode ser vazio")
 	}
-	if tipoMateria == "fundamental" {
-		return fmt.Errorf("pendencia_nivel_conclusao só está disponível para matérias do tipo 'medio' ou 'superior'")
-	}
-	if tipoMateria == "medio" {
-		if !strings.HasSuffix(valor, "_ano_medio") {
-			return fmt.Errorf("pendencia_nivel_conclusao deve ser um ano acadêmico médio válido, como '1_ano_medio'")
-		}
-		if len(anosAcademicos) > 0 && !containsString(anosAcademicos, valor) {
-			return fmt.Errorf("pendencia_nivel_conclusao deve existir em anos_academicos da matéria")
-		}
-		return nil
+	if tipoMateria == "fundamental" || tipoMateria == "medio" {
+		return fmt.Errorf("pendencia_nivel_conclusao só está disponível para matérias do tipo 'superior'")
 	}
 	if tipoMateria == "superior" {
 		if !strings.HasSuffix(valor, "_semestre") {

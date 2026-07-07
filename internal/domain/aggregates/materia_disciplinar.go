@@ -166,11 +166,11 @@ func (m *MateriaDisciplinar) Criar(
 	if tipo == "superior" && cursoID == nil {
 		return fmt.Errorf("curso_id é obrigatório para matérias do tipo 'superior'")
 	}
-	if tipo == "fundamental" && pendenciaPermitida {
-		return fmt.Errorf("pendencia_permitida só está disponível para matérias do tipo 'medio' ou 'superior'")
+	if (tipo == "fundamental" || tipo == "medio") && pendenciaPermitida {
+		return fmt.Errorf("pendencia_permitida só está disponível para matérias do tipo 'superior'")
 	}
-	if tipo == "fundamental" && pendenciaNivelConclusao != nil {
-		return fmt.Errorf("pendencia_nivel_conclusao só está disponível para matérias do tipo 'medio' ou 'superior'")
+	if (tipo == "fundamental" || tipo == "medio") && pendenciaNivelConclusao != nil {
+		return fmt.Errorf("pendencia_nivel_conclusao só está disponível para matérias do tipo 'superior'")
 	}
 
 	event := &MateriaCriadaEvent{
@@ -224,11 +224,11 @@ func (m *MateriaDisciplinar) AtualizarDados(nome *string, anosAcademicos []strin
 	if nome == nil && anosAcademicos == nil && cursoID == nil && pendenciaPermitida == nil && pendenciaNivelConclusao == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
-	if pendenciaPermitida != nil && m.Type == "fundamental" {
-		return fmt.Errorf("pendencia_permitida só está disponível para matérias do tipo 'medio' ou 'superior'")
+	if pendenciaPermitida != nil && (m.Type == "fundamental" || m.Type == "medio") && *pendenciaPermitida {
+		return fmt.Errorf("pendencia_permitida só está disponível para matérias do tipo 'superior'")
 	}
-	if pendenciaNivelConclusao != nil && m.Type == "fundamental" {
-		return fmt.Errorf("pendencia_nivel_conclusao só está disponível para matérias do tipo 'medio' ou 'superior'")
+	if pendenciaNivelConclusao != nil && (m.Type == "fundamental" || m.Type == "medio") {
+		return fmt.Errorf("pendencia_nivel_conclusao só está disponível para matérias do tipo 'superior'")
 	}
 
 	event := &MateriaDadosAtualizadosEvent{
