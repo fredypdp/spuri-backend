@@ -24,6 +24,41 @@ Antes dos passos operacionais, confirme o tipo da academia ativada conforme a se
 12. **Adicionar estudantes às turmas**.
 13. **Iniciar a operação acadêmica**: notas, faltas, acompanhamentos, finalização de ano letivo e demais funcionalidades.
 
+
+### 1.1 Roteiro por tipo de academia
+
+Use este roteiro como mapa rápido antes de seguir as seções detalhadas. Ele mostra o que cada tipo de academia deve configurar e o que deve ignorar.
+
+- **Escola**
+  - **Ensino Fundamental (`nivel_escolar="fundamental"`)**
+    1. Defina o ano letivo ativo da academia.
+    2. Cadastre os anos fundamentais ofertados em `POST /academia/anos-academicos`.
+    3. Crie matérias fundamentais para os anos cadastrados.
+    4. Não crie cursos, categorias de nota nem regras de avaliação final: categorias e regras escolares são fixas do sistema.
+    5. Cadastre/aprove estudantes, crie turmas fundamentais e vincule os estudantes às turmas.
+  - **Ensino Médio (`nivel_escolar="medio"`)**
+    1. Defina o ano letivo ativo da academia.
+    2. Crie cada curso médio em `POST /academia/curso`, informando `modelo="liceu"` ou `modelo="tecnico"`.
+    3. Confira os anos médios derivados do modelo do curso.
+    4. Crie matérias médias vinculadas ao curso e ao ano médio correto.
+    5. Não use `/academia/anos-academicos` para Médio e não crie categorias/regras escolares por endpoint: o sistema usa catálogo e avaliação final fixos.
+    6. Cadastre/aprove estudantes, crie turmas médias com `curso_id` e vincule os estudantes às turmas.
+  - **Escola Mista (`nivel_escolar="misto"`)**
+    1. Defina o ano letivo ativo da academia.
+    2. Configure os anos fundamentais na academia.
+    3. Crie os cursos médios com `modelo` para gerar os anos médios.
+    4. Crie matérias fundamentais e médias nos escopos corretos.
+    5. Não crie categorias/regras escolares por endpoint; Fundamental e Médio usam o padrão fixo do sistema.
+    6. Cadastre/aprove estudantes, crie turmas fundamentais/médias e vincule cada estudante à turma compatível.
+- **Ensino Superior (`nivel="superior"`)**
+  1. Defina o ano letivo ativo da academia.
+  2. Crie cada curso superior em `POST /academia/curso`, informando `periodos` como quantidade total de semestres.
+  3. Confira semestres e anos superiores derivados do curso.
+  4. Crie matérias superiores com `curso_id`, ano superior e `periodo`; depois ative cada matéria superior.
+  5. Crie categorias de nota superiores.
+  6. Crie as regras de avaliação final superiores com fórmula textual e, quando quiser disparo automático da raiz, `nota_despertadora`.
+  7. Cadastre/aprove estudantes, crie turmas superiores com `curso_id` e vincule os estudantes às turmas.
+
 ---
 
 ## 2. Antes de começar
