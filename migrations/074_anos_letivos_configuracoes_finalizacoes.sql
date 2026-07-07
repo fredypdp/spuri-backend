@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS projection_anos_letivos_configuracoes (
 );
 
 INSERT INTO projection_anos_letivos_configuracoes (type, periodo)
-VALUES ('escolar','09_07'), ('superior','02_12')
+VALUES ('escolar','09_07'), ('superior','10_07')
 ON CONFLICT (type) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS projection_anos_letivos_academia_finalizacoes (

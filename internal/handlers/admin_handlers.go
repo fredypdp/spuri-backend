@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"strings"
-	"time"
 
 	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
@@ -774,45 +773,18 @@ func AtualizarConfiguracaoAnoLetivo(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("campo obrigatório: periodo"))
 		return
 	}
-	periodo, err := normalizarPeriodoLetivo(req.Periodo)
+	periodoFixo, err := validarPeriodoLetivoFixoPayload(tipo, req.Periodo)
 	if err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
-	client := getDbClient(c)
-	if client == nil {
-		return
-	}
-	_, err = client.DB().Exec(`INSERT INTO projection_anos_letivos_configuracoes (type, periodo, updated_by, updated_at)
-		VALUES ($1,$2,$3,NOW()) ON CONFLICT (type) DO UPDATE SET periodo=EXCLUDED.periodo, updated_by=EXCLUDED.updated_by, updated_at=NOW()`, tipo, periodo, userID)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"message": "configuração de ano letivo atualizada com sucesso", "type": tipo, "periodo": periodo})
+	c.JSON(http.StatusOK, gin.H{"message": "configuração de ano letivo mantida; periodo é fixo e imutável", "type": tipo, "periodo": periodoFixo, "updated_by": userID.String()})
 }
 
 func ListarConfiguracoesAnosLetivos(c *gin.Context) {
-	client := getDbClient(c)
-	if client == nil {
-		return
-	}
-	rows, err := client.DB().Query(`SELECT type, periodo, updated_at, updated_by FROM projection_anos_letivos_configuracoes ORDER BY type`)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-	defer rows.Close()
-	items := []gin.H{}
-	for rows.Next() {
-		var tipo, periodo string
-		var updatedAt time.Time
-		var updatedBy sql.NullString
-		if err := rows.Scan(&tipo, &periodo, &updatedAt, &updatedBy); err != nil {
-			utils.RespondWithInternalError(c, err)
-			return
-		}
-		items = append(items, gin.H{"type": tipo, "periodo": periodo, "updated_at": updatedAt, "updated_by": updatedBy.String})
+	items := []gin.H{
+		{"type": "escolar", "periodo": periodoLetivoEscolar, "imutavel": true},
+		{"type": "superior", "periodo": periodoLetivoSuperior, "imutavel": true},
 	}
 	c.JSON(http.StatusOK, gin.H{"configuracoes": items})
 }
