@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"spuri/internal/db"
-	"spuri/internal/domain/aggregates"
 	"time"
 
 	"github.com/google/uuid"
@@ -118,20 +117,18 @@ func (p *CursosProjection) Rebuild() error {
 
 func (p *CursosProjection) handleCursoCriado(event db.Event) error {
 	var payload struct {
-		Nome           string                             `json:"Nome"`
-		Type           string                             `json:"Type"`
-		Modelo         string                             `json:"Modelo"`
-		AnosAcademicos []string                           `json:"AnosAcademicos"`
-		Periodos       []string                           `json:"Periodos"`
-		MateriasChave  []aggregates.MateriasChaveCursoAno `json:"MateriasChave"`
-		CodigoAcademia string                             `json:"CodigoAcademia"`
+		Nome           string   `json:"Nome"`
+		Type           string   `json:"Type"`
+		Modelo         string   `json:"Modelo"`
+		AnosAcademicos []string `json:"AnosAcademicos"`
+		Periodos       []string `json:"Periodos"`
+		CodigoAcademia string   `json:"CodigoAcademia"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("parse error CursoCriado: %w", err)
 	}
 
 	anosJSON, _ := json.Marshal(payload.AnosAcademicos)
-	materiasChaveJSON, _ := json.Marshal(payload.MateriasChave)
 	var periodosJSON interface{}
 	if len(payload.Periodos) > 0 {
 		b, _ := json.Marshal(payload.Periodos)
@@ -139,11 +136,11 @@ func (p *CursosProjection) handleCursoCriado(event db.Event) error {
 	}
 
 	_, err := p.client.DB().Exec(`
-		INSERT INTO projection_cursos (id, nome, type, modelo, anos_academicos, periodos, materias_chave, codigo_academia, status, created_at, updated_at, version, last_event_id)
-		VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $8, 'ativo', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $9, $10)
+		INSERT INTO projection_cursos (id, nome, type, modelo, anos_academicos, periodos, codigo_academia, status, created_at, updated_at, version, last_event_id)
+		VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, 'ativo', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $8, $9)
 		ON CONFLICT (id) DO NOTHING
 	`,
-		event.AggregateID, payload.Nome, payload.Type, modeloCursoParaProjecao(payload.Type, payload.Modelo), string(anosJSON), periodosJSON, string(materiasChaveJSON),
+		event.AggregateID, payload.Nome, payload.Type, modeloCursoParaProjecao(payload.Type, payload.Modelo), string(anosJSON), periodosJSON,
 		payload.CodigoAcademia, event.EventVersion, event.EventID,
 	)
 	return err
@@ -151,12 +148,11 @@ func (p *CursosProjection) handleCursoCriado(event db.Event) error {
 
 func (p *CursosProjection) handleCursoDadosAtualizados(event db.Event) error {
 	var payload struct {
-		Nome           *string                             `json:"Nome"`
-		Type           *string                             `json:"Type"`
-		AnosAcademicos []string                            `json:"AnosAcademicos"`
-		Periodos       *[]string                           `json:"Periodos"`
-		MateriasChave  *[]aggregates.MateriasChaveCursoAno `json:"MateriasChave"`
-		Modelo         *string                             `json:"Modelo"`
+		Nome           *string   `json:"Nome"`
+		Type           *string   `json:"Type"`
+		AnosAcademicos []string  `json:"AnosAcademicos"`
+		Periodos       *[]string `json:"Periodos"`
+		Modelo         *string   `json:"Modelo"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("parse error CursoDadosAtualizados: %w", err)
@@ -184,12 +180,6 @@ func (p *CursosProjection) handleCursoDadosAtualizados(event db.Event) error {
 			`UPDATE projection_cursos SET anos_academicos = $1 WHERE id = $2`,
 			string(anosJSON), event.AggregateID,
 		); err != nil {
-			return err
-		}
-	}
-	if payload.MateriasChave != nil {
-		materiasChaveJSON, _ := json.Marshal(*payload.MateriasChave)
-		if _, err := p.client.DB().Exec(`UPDATE projection_cursos SET materias_chave = $1 WHERE id = $2`, string(materiasChaveJSON), event.AggregateID); err != nil {
 			return err
 		}
 	}
@@ -269,18 +259,17 @@ func (p *CursosProjection) handleCursoDesativado(event db.Event) error {
 // ============================================================================
 
 type CursoDTO struct {
-	ID             uuid.UUID                          `json:"id"`
-	Nome           string                             `json:"nome"`
-	Type           string                             `json:"type"`
-	Modelo         string                             `json:"modelo,omitempty"`
-	AnosAcademicos []string                           `json:"anos_academicos"`
-	Periodos       []string                           `json:"periodos"`
-	MateriasChave  []aggregates.MateriasChaveCursoAno `json:"materias_chave,omitempty"`
-	CodigoAcademia string                             `json:"codigo_academia"`
-	Status         string                             `json:"status"`
-	CreatedAt      time.Time                          `json:"created_at"`
-	UpdatedAt      time.Time                          `json:"updated_at"`
-	Version        int                                `json:"version"`
+	ID             uuid.UUID `json:"id"`
+	Nome           string    `json:"nome"`
+	Type           string    `json:"type"`
+	Modelo         string    `json:"modelo,omitempty"`
+	AnosAcademicos []string  `json:"anos_academicos"`
+	Periodos       []string  `json:"periodos"`
+	CodigoAcademia string    `json:"codigo_academia"`
+	Status         string    `json:"status"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	Version        int       `json:"version"`
 }
 
 func (p *CursosProjection) GetByID(id uuid.UUID) (*CursoDTO, error) {
@@ -290,12 +279,11 @@ func (p *CursosProjection) GetByID(id uuid.UUID) (*CursoDTO, error) {
 	var dto CursoDTO
 	var anosJSON []byte
 	var periodosJSON []byte
-	var materiasChaveJSON []byte
 	err := p.client.DB().QueryRow(`
-		SELECT id, nome, type, COALESCE(modelo, '') AS modelo, anos_academicos, periodos, materias_chave, codigo_academia, status, created_at, updated_at, version
+		SELECT id, nome, type, COALESCE(modelo, '') AS modelo, anos_academicos, periodos, codigo_academia, status, created_at, updated_at, version
 		FROM projection_cursos WHERE id = $1
 	`, id).Scan(
-		&dto.ID, &dto.Nome, &dto.Type, &dto.Modelo, &anosJSON, &periodosJSON, &materiasChaveJSON,
+		&dto.ID, &dto.Nome, &dto.Type, &dto.Modelo, &anosJSON, &periodosJSON,
 		&dto.CodigoAcademia, &dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version,
 	)
 	if err == sql.ErrNoRows {
@@ -311,16 +299,12 @@ func (p *CursosProjection) GetByID(id uuid.UUID) (*CursoDTO, error) {
 	if dto.Periodos == nil {
 		dto.Periodos = []string{}
 	}
-	json.Unmarshal(materiasChaveJSON, &dto.MateriasChave)
-	if dto.MateriasChave == nil {
-		dto.MateriasChave = []aggregates.MateriasChaveCursoAno{}
-	}
 	return &dto, nil
 }
 
 func (p *CursosProjection) GetByAcademia(codigoAcademia string) ([]CursoDTO, error) {
 	rows, err := p.client.DB().Query(`
-		SELECT id, nome, type, COALESCE(modelo, '') AS modelo, anos_academicos, periodos, materias_chave, codigo_academia, status, created_at, updated_at, version
+		SELECT id, nome, type, COALESCE(modelo, '') AS modelo, anos_academicos, periodos, codigo_academia, status, created_at, updated_at, version
 		FROM projection_cursos
 		WHERE codigo_academia = $1
 			AND deleted_at IS NULL
@@ -336,9 +320,8 @@ func (p *CursosProjection) GetByAcademia(codigoAcademia string) ([]CursoDTO, err
 		var dto CursoDTO
 		var anosJSON []byte
 		var periodosJSON []byte
-		var materiasChaveJSON []byte
 		if err := rows.Scan(
-			&dto.ID, &dto.Nome, &dto.Type, &dto.Modelo, &anosJSON, &periodosJSON, &materiasChaveJSON,
+			&dto.ID, &dto.Nome, &dto.Type, &dto.Modelo, &anosJSON, &periodosJSON,
 			&dto.CodigoAcademia, &dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version,
 		); err != nil {
 			continue
@@ -350,10 +333,6 @@ func (p *CursosProjection) GetByAcademia(codigoAcademia string) ([]CursoDTO, err
 		if dto.Periodos == nil {
 			dto.Periodos = []string{}
 		}
-		json.Unmarshal(materiasChaveJSON, &dto.MateriasChave)
-		if dto.MateriasChave == nil {
-			dto.MateriasChave = []aggregates.MateriasChaveCursoAno{}
-		}
 		cursos = append(cursos, dto)
 	}
 	log.Printf("[DEBUG] %d cursos encontrados para academia %s", len(cursos), codigoAcademia)
@@ -362,7 +341,7 @@ func (p *CursosProjection) GetByAcademia(codigoAcademia string) ([]CursoDTO, err
 
 func (p *CursosProjection) ListByCurso(cursoID uuid.UUID) ([]CursoDTO, error) {
 	rows, err := p.client.DB().Query(`
-		SELECT id, nome, type, COALESCE(modelo, '') AS modelo, anos_academicos, periodos, materias_chave, codigo_academia, status, created_at, updated_at, version
+		SELECT id, nome, type, COALESCE(modelo, '') AS modelo, anos_academicos, periodos, codigo_academia, status, created_at, updated_at, version
 		FROM projection_cursos
 		WHERE id = $1
 			AND (deleted_at IS NULL OR status != 'deletado')
@@ -375,9 +354,9 @@ func (p *CursosProjection) ListByCurso(cursoID uuid.UUID) ([]CursoDTO, error) {
 	var cursos []CursoDTO
 	for rows.Next() {
 		var dto CursoDTO
-		var anosJSON, periodosJSON, materiasChaveJSON []byte
+		var anosJSON, periodosJSON []byte
 		if err := rows.Scan(
-			&dto.ID, &dto.Nome, &dto.Type, &dto.Modelo, &anosJSON, &periodosJSON, &materiasChaveJSON,
+			&dto.ID, &dto.Nome, &dto.Type, &dto.Modelo, &anosJSON, &periodosJSON,
 			&dto.CodigoAcademia, &dto.Status, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version,
 		); err != nil {
 			continue
@@ -389,10 +368,6 @@ func (p *CursosProjection) ListByCurso(cursoID uuid.UUID) ([]CursoDTO, error) {
 		if dto.Periodos == nil {
 			dto.Periodos = []string{}
 		}
-		json.Unmarshal(materiasChaveJSON, &dto.MateriasChave)
-		if dto.MateriasChave == nil {
-			dto.MateriasChave = []aggregates.MateriasChaveCursoAno{}
-		}
 		cursos = append(cursos, dto)
 	}
 	return cursos, rows.Err()
@@ -400,7 +375,7 @@ func (p *CursosProjection) ListByCurso(cursoID uuid.UUID) ([]CursoDTO, error) {
 
 func modeloCursoParaProjecao(tipo, modelo string) string {
 	if tipo == "medio" && modelo == "" {
-		return aggregates.ModeloCursoMedioLiceu
+		return "liceu"
 	}
 	return modelo
 }
