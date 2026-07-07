@@ -425,7 +425,7 @@ func rejeitarCamposAcademicosEmAtualizacaoCurso(c *gin.Context) error {
 	}
 	for campo := range raw {
 		switch campo {
-		case "anos_academicos", "anosAcademicos", "periodos", "semestres", "quantidade_semestres", "anos", "materias_chave", "materiasChave", "modelo":
+		case "anos_academicos", "anosAcademicos", "periodos", "semestres", "quantidade_semestres", "anos", "materias_chave", "materiasChave", "MateriasChave", "modelo":
 			return fmt.Errorf("campo não suportado em atualização de dados do curso: %s. Anos acadêmicos de cursos médios são fixos por modelo e esta rota altera apenas dados cadastrais", campo)
 		}
 	}

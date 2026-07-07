@@ -132,8 +132,8 @@ func CriarRegraAvaliacaoFinal(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("campo legado tipo_ensino não é aceito; use nivel"))
 		return
 	}
-	if jsonCampoPresente(body, "materias_chave") {
-		utils.RespondWithValidationError(c, fmt.Errorf("materias_chave não é aceito em regras de avaliação final; o conceito foi removido do modelo atual"))
+	if jsonCampoPresente(body, "materias_chave") || jsonCampoPresente(body, "materiasChave") || jsonCampoPresente(body, "MateriasChave") {
+		utils.RespondWithValidationError(c, fmt.Errorf("materias_chave/materiasChave não é aceito em regras de avaliação final; o conceito foi removido do modelo atual"))
 		return
 	}
 	var req regraAvaliacaoFinalDTO
@@ -411,8 +411,8 @@ func EditarRegraAvaliacaoFinal(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("campo legado tipo_ensino não é aceito; use nivel"))
 		return
 	}
-	if jsonCampoPresente(body, "materias_chave") {
-		utils.RespondWithValidationError(c, fmt.Errorf("materias_chave não é aceito em regras de avaliação final; o conceito foi removido do modelo atual"))
+	if jsonCampoPresente(body, "materias_chave") || jsonCampoPresente(body, "materiasChave") || jsonCampoPresente(body, "MateriasChave") {
+		utils.RespondWithValidationError(c, fmt.Errorf("materias_chave/materiasChave não é aceito em regras de avaliação final; o conceito foi removido do modelo atual"))
 		return
 	}
 	if jsonCampoPresente(body, "nivel") || jsonCampoPresente(body, "anos_academicos") {

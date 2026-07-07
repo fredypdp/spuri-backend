@@ -1,4 +1,4 @@
-# Remover completamente o conceito de matérias-chave dos cursos
+# Remover completamente o conceito de matérias-chave dos cursos (feito)
 
 ## Contexto
 
