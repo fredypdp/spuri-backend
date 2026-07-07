@@ -103,10 +103,17 @@ func DefinirAnoLetivoGlobalSistema(c *gin.Context) {
 	}
 
 	log.Printf("✅ [DefinirAnoLetivoGlobalSistema] type=%s ano_letivo=%s definido por admin=%s", tipo, anoLetivo, userID.String())
+	periodo, err := periodoFixoPorTipoAnoLetivo(tipo)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "ano letivo global definido com sucesso",
 		"type":       tipo,
 		"ano_letivo": anoLetivo,
+		"periodo":    periodo,
+		"imutavel":   true,
 	})
 }
 

@@ -666,6 +666,16 @@ func (p *AcademiaProjection) handleAnoLetivoAcademiaDefinido(event db.Event) err
 	if payload.AnoLetivo == "" {
 		return fmt.Errorf("handleAnoLetivoAcademiaDefinido: AnoLetivo ausente no payload")
 	}
+	payload.Tipo = strings.ToLower(strings.TrimSpace(payload.Tipo))
+	if payload.Tipo != "escolar" && payload.Tipo != "superior" {
+		return fmt.Errorf("handleAnoLetivoAcademiaDefinido: Tipo inválido %q; esperado 'escolar' ou 'superior'", payload.Tipo)
+	}
+	for i := range payload.AnosLetivoLista {
+		payload.AnosLetivoLista[i].Tipo = strings.ToLower(strings.TrimSpace(payload.AnosLetivoLista[i].Tipo))
+		if payload.AnosLetivoLista[i].Tipo != "escolar" && payload.AnosLetivoLista[i].Tipo != "superior" {
+			return fmt.Errorf("handleAnoLetivoAcademiaDefinido: Tipo inválido no histórico %q; esperado 'escolar' ou 'superior'", payload.AnosLetivoLista[i].Tipo)
+		}
+	}
 
 	anosLetivosListaJSON, err := json.Marshal(payload.AnosLetivoLista)
 	if err != nil {

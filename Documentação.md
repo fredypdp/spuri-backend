@@ -1642,7 +1642,10 @@ Não há aliases de compatibilidade para esta operação.
 ```json
 {
   "message": "ano letivo global definido com sucesso",
-  "ano_letivo": "2026_2027"
+  "type": "escolar",
+  "ano_letivo": "2026_2027",
+  "periodo": "09_07",
+  "imutavel": true
 }
 ```
 
@@ -1712,11 +1715,11 @@ Define o ano letivo ativo da academia apenas quando ela ainda não possui ano le
 
 Não há aliases de compatibilidade para esta operação.
 
-**Request:**
+**Request:** opcionalmente informe `ano_letivo`; não envie `tipo` nem `periodo`, pois o tipo é inferido da academia e o período é fixo/read-only.
 
 ```json
 {
-  "tipo": "escola"
+  "ano_letivo": "2026_2027"
 }
 ```
 
@@ -1726,7 +1729,9 @@ Não há aliases de compatibilidade para esta operação.
 {
   "message": "ano letivo definido com sucesso",
   "ano_letivo": "2026_2027",
-  "tipo": "escola"
+  "tipo": "escolar",
+  "periodo": "09_07",
+  "imutavel": true
 }
 ```
 
@@ -1758,7 +1763,7 @@ Retorna o ano letivo ativo da academia autenticada.
 ```json
 {
   "ano_letivo": "2025_2026",
-  "tipo": "escola",
+  "tipo": "escolar",
   "ativado_em": "2025-01-15T08:00:00Z"
 }
 ```
@@ -1791,13 +1796,13 @@ Retorna a lista histórica de anos letivos definidos pela academia alvo.
   "anos_letivos_lista": [
     {
       "ano_letivo": "2024_2025",
-      "tipo": "escola",
+      "tipo": "escolar",
       "definido_por": "11111111-1111-1111-1111-111111111111",
       "definido_em": "2024-09-01T08:00:00Z"
     },
     {
       "ano_letivo": "2025_2026",
-      "tipo": "escola",
+      "tipo": "escolar",
       "definido_por": "11111111-1111-1111-1111-111111111111",
       "definido_em": "2025-09-01T08:00:00Z"
     }

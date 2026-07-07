@@ -1,4 +1,4 @@
-# Implementar períodos fixos e imutáveis dos anos letivos
+# Implementar períodos fixos e imutáveis dos anos letivos (feito)
 
 ## Contexto
 
