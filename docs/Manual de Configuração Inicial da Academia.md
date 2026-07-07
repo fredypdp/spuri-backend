@@ -17,12 +17,47 @@ Antes dos passos operacionais, confirme o tipo da academia ativada conforme a se
 5. **Conferir os anos/períodos derivados dos cursos**.
 6. **Criar matérias disciplinares**.
 7. **Ativar matérias superiores**, pois elas nascem inativas.
-9. **Criar categorias de nota superiores**, somente quando a academia ofertar Superior; escolas usam catálogo fixo.
-10. **Criar regras de avaliação final superiores**, somente quando a academia ofertar Superior; escolas usam regras fixas.
-11. **Cadastrar estudantes ou aprovar solicitações de matrícula**.
-12. **Criar turmas**.
-13. **Adicionar estudantes às turmas**.
-14. **Iniciar a operação acadêmica**: notas, faltas, acompanhamentos, finalização de ano letivo e demais funcionalidades.
+8. **Criar categorias de nota superiores**, somente quando a academia ofertar Superior; escolas usam catálogo fixo.
+9. **Criar regras de avaliação final superiores**, somente quando a academia ofertar Superior; escolas usam regras fixas.
+10. **Cadastrar estudantes ou aprovar solicitações de matrícula**.
+11. **Criar turmas**.
+12. **Adicionar estudantes às turmas**.
+13. **Iniciar a operação acadêmica**: notas, faltas, acompanhamentos, finalização de ano letivo e demais funcionalidades.
+
+
+### 1.1 Roteiro por tipo de academia
+
+Use este roteiro como mapa rápido antes de seguir as seções detalhadas. Ele mostra o que cada tipo de academia deve configurar e o que deve ignorar.
+
+- **Escola**
+  - **Ensino Fundamental (`nivel_escolar="fundamental"`)**
+    1. Defina o ano letivo ativo da academia.
+    2. Cadastre os anos fundamentais ofertados em `POST /academia/anos-academicos`.
+    3. Crie matérias fundamentais para os anos cadastrados.
+    4. Não crie cursos, categorias de nota nem regras de avaliação final: categorias e regras escolares são fixas do sistema.
+    5. Cadastre/aprove estudantes, crie turmas fundamentais e vincule os estudantes às turmas.
+  - **Ensino Médio (`nivel_escolar="medio"`)**
+    1. Defina o ano letivo ativo da academia.
+    2. Crie cada curso médio em `POST /academia/curso`, informando `modelo="liceu"` ou `modelo="tecnico"`.
+    3. Confira os anos médios derivados do modelo do curso.
+    4. Crie matérias médias vinculadas ao curso e ao ano médio correto.
+    5. Não use `/academia/anos-academicos` para Médio e não crie categorias/regras escolares por endpoint: o sistema usa catálogo e avaliação final fixos.
+    6. Cadastre/aprove estudantes, crie turmas médias com `curso_id` e vincule os estudantes às turmas.
+  - **Escola Mista (`nivel_escolar="misto"`)**
+    1. Defina o ano letivo ativo da academia.
+    2. Configure os anos fundamentais na academia.
+    3. Crie os cursos médios com `modelo` para gerar os anos médios.
+    4. Crie matérias fundamentais e médias nos escopos corretos.
+    5. Não crie categorias/regras escolares por endpoint; Fundamental e Médio usam o padrão fixo do sistema.
+    6. Cadastre/aprove estudantes, crie turmas fundamentais/médias e vincule cada estudante à turma compatível.
+- **Ensino Superior (`nivel="superior"`)**
+  1. Defina o ano letivo ativo da academia.
+  2. Crie cada curso superior em `POST /academia/curso`, informando `periodos` como quantidade total de semestres.
+  3. Confira semestres e anos superiores derivados do curso.
+  4. Crie matérias superiores com `curso_id`, ano superior e `periodo`; depois ative cada matéria superior.
+  5. Crie categorias de nota superiores.
+  6. Crie as regras de avaliação final superiores com fórmula textual e, quando quiser disparo automático da raiz, `nota_despertadora`.
+  7. Cadastre/aprove estudantes, crie turmas superiores com `curso_id` e vincule os estudantes às turmas.
 
 ---
 
@@ -148,11 +183,13 @@ Cursos são necessários para:
 - escolas mistas que ofertam médio;
 - instituições superiores.
 
-Rota:
+Rota de escrita registrada para criação:
 
 ```http
 POST /academia/curso
 ```
+
+> Atenção: a criação/edição/ativação/desativação/deleção usa o caminho singular `/academia/curso...`. Para consulta, o backend expõe `GET /academia/cursos` e `GET /academia/curso/:id`.
 
 O tipo efetivo do curso é inferido a partir da academia autenticada. O campo `type` pode ser enviado para explicitar a intenção, mas precisa corresponder ao tipo permitido para a academia.
 
@@ -191,7 +228,7 @@ Exemplo:
 }
 ```
 
-Não envie `modelo` nem `anos_academicos` para cursos superiores.
+Não envie `modelo` nem `anos_academicos` para cursos superiores. Cursos recém-criados nascem ativos; as rotas de ativação/desativação são usadas apenas em manutenção posterior.
 
 **Dependências:** cursos devem existir antes de matérias médias/superiores, turmas médias/superiores, estudantes médios/superiores, categorias superiores e regras superiores. Cursos médios não exigem criação de regras finais pela academia.
 
@@ -221,11 +258,13 @@ Regras atuais:
 
 As matérias dependem dos anos acadêmicos e, em Médio/Superior, também dependem do curso.
 
-Rota:
+Rota de escrita registrada para criação:
 
 ```http
 POST /academia/materia
 ```
+
+> Atenção: a criação/edição/ativação/desativação/deleção usa o caminho singular `/academia/materia...`. Para consulta, o backend expõe `GET /academia/materias` e `GET /academia/materia/:id`.
 
 ### 7.1 Matéria fundamental
 
@@ -296,9 +335,9 @@ Sem ativação, a matéria superior não será considerada ativa para os process
 
 ---
 
-## 9. Passo 7 — Operar cursos sem configuração especial removida
+## 9. Observação — Não existe configuração de matérias especiais no curso
 
-O modelo atual não possui etapa, rota ou payload para configurar listas especiais de disciplinas no curso. Depois de criar cursos e matérias disciplinares, siga diretamente para categorias/regras de avaliação, matrículas, notas e faltas.
+O modelo atual não possui etapa, rota ou payload para configurar listas especiais de disciplinas no curso. Em especial, não use campos como `materias_chave`, `disciplinas_chave`, `materias_aplicaveis` ou equivalentes ao criar/editar cursos médios: as disciplinas são cadastradas pela rota de matérias e a avaliação final escolar usa o catálogo fixo do sistema. Depois de criar cursos e matérias disciplinares, siga diretamente para categorias/regras de avaliação, matrículas, notas e faltas.
 
 ## 10. Passo 8 — Categorias de nota
 
@@ -450,11 +489,13 @@ Porque o cadastro acadêmico do estudante precisa apontar para anos e cursos exi
 
 Turmas dependem do nível acadêmico e, para Médio/Superior, normalmente do curso.
 
-Rota:
+Rota de escrita registrada para criação:
 
 ```http
 POST /academia/turma
 ```
+
+> Atenção: a criação/edição/ativação/desativação/deleção e vínculos de estudantes usam o caminho singular `/academia/turma...`. Para consulta, o backend expõe `GET /academia/turmas` e `GET /academia/turma/:codigo`.
 
 O campo `codigo_turma` é normalizado: espaços antes/depois são descartados, espaços internos viram `_`, e caracteres especiais diferentes de `_` são rejeitados.
 
@@ -583,7 +624,7 @@ Matérias disciplinares ◄──────────┘
         ↓
 Ativar matérias superiores
         ↓
-Matérias removidas do modelo do Médio
+Sem configuração extra de matérias especiais no curso
         ↓
 Categorias superiores / catálogo escolar fixo
         ↓
