@@ -368,6 +368,17 @@ func ListarRegrasAvaliacaoFinal(c *gin.Context) {
 			}
 			out = append(out, regrasAvaliacaoFinalEscolaresFixas(c, academiaDTO.CodigoAcademia, tipo, ano, nil, nil)...)
 		}
+		if cursos, err := getCursosProjection(c).GetByAcademia(academiaDTO.CodigoAcademia); err == nil {
+			for _, curso := range cursos {
+				if curso.Type != "medio" || curso.Status != "ativo" {
+					continue
+				}
+				cursoID := curso.ID.String()
+				for _, ano := range curso.AnosAcademicos {
+					out = append(out, regrasAvaliacaoFinalEscolaresFixas(c, academiaDTO.CodigoAcademia, "medio", ano, nil, &cursoID)...)
+				}
+			}
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"regras": out, "total": len(out)})
 }

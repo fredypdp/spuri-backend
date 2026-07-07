@@ -224,42 +224,62 @@ func modeloCursoMedioPorID(c *gin.Context, cursoID *string) string {
 	return cursoDTO.Modelo
 }
 
-func anexarCategoriasEscolaresFixas(categorias []projections.CategoriaNotaDTO, academia *projections.AcademiaDTO) []interface{} {
-	out := make([]interface{}, 0, len(categorias)+8)
-	for _, cat := range categorias {
-		out = append(out, cat)
-	}
+func categoriasEscolaresFixasDaAcademia(c *gin.Context, academia *projections.AcademiaDTO) []interface{} {
 	if academia == nil || academia.Nivel != "escola" {
-		return out
+		return nil
 	}
-	anos := academia.AnosAcademicos
-	for _, ano := range anos {
-		for _, cat := range categoriasEscolaresFixasParaAno(ano, "") {
+	type item struct{ ano, modelo string }
+	vistos := map[string]bool{}
+	itens := []item{}
+	add := func(ano, modelo string) {
+		ano = strings.TrimSpace(ano)
+		modelo = strings.TrimSpace(modelo)
+		if ano == "" {
+			return
+		}
+		key := ano + "|" + modelo
+		if !vistos[key] {
+			vistos[key] = true
+			itens = append(itens, item{ano: ano, modelo: modelo})
+		}
+	}
+	for _, ano := range academia.AnosAcademicos {
+		add(ano, "")
+	}
+	if c != nil {
+		if cursos, err := getCursosProjection(c).GetByAcademia(academia.CodigoAcademia); err == nil {
+			for _, curso := range cursos {
+				if curso.Type != "medio" || curso.Status != "ativo" {
+					continue
+				}
+				for _, ano := range curso.AnosAcademicos {
+					add(ano, curso.Modelo)
+				}
+			}
+		}
+	}
+	out := []interface{}{}
+	for _, it := range itens {
+		for _, cat := range categoriasEscolaresFixasParaAno(it.ano, it.modelo) {
 			out = append(out, map[string]interface{}{
 				"codigo_academia": academia.CodigoAcademia,
 				"codigo":          cat.Codigo,
 				"nome":            cat.Nome,
-				"anos_academicos": []string{ano},
+				"anos_academicos": []string{it.ano},
 				"source":          "system",
 				"fixed":           true,
 				"readonly":        true,
 				"status":          "ativo",
 			})
 		}
-		if ano == "4_ano_medio" {
-			for _, cat := range categoriasEscolaresPAP {
-				out = append(out, map[string]interface{}{
-					"codigo_academia": academia.CodigoAcademia,
-					"codigo":          cat.Codigo,
-					"nome":            cat.Nome,
-					"anos_academicos": []string{ano},
-					"source":          "system",
-					"fixed":           true,
-					"readonly":        true,
-					"status":          "ativo",
-				})
-			}
-		}
 	}
 	return out
+}
+
+func anexarCategoriasEscolaresFixas(categorias []projections.CategoriaNotaDTO, academia *projections.AcademiaDTO) []interface{} {
+	out := make([]interface{}, 0, len(categorias)+8)
+	for _, cat := range categorias {
+		out = append(out, cat)
+	}
+	return append(out, categoriasEscolaresFixasDaAcademia(nil, academia)...)
 }

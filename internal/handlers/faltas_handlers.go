@@ -113,7 +113,7 @@ func RegistrarFaltas(c *gin.Context) {
 	}
 
 	// Inferir anoAcademico com bloqueio de incompatibilidade estudante x matéria
-	anoAcademico, err := inferirAnoAcademicoFaltas(estudanteDTO.AnoEscolar, materiaDTO.AnosAcademicos, materiaDTO.Nome)
+	anoAcademico, err := inferirAnoAcademicoFaltas(estudanteDTO.AnoEscolar, materiaDTO.AnosAcademicos, materiaDTO.Nome, estudanteDTO.AnoEscolarMedio)
 	if err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -273,7 +273,7 @@ func AtualizarFalta(c *gin.Context) {
 		utils.RespondWithForbiddenError(c, "materia não pertence a esta academia")
 		return
 	}
-	if _, err := inferirAnoAcademicoFaltas(estudanteDTO.AnoEscolar, materiaFinalDTO.AnosAcademicos, materiaFinalDTO.Nome); err != nil {
+	if _, err := inferirAnoAcademicoFaltas(estudanteDTO.AnoEscolar, materiaFinalDTO.AnosAcademicos, materiaFinalDTO.Nome, estudanteDTO.AnoEscolarMedio); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
