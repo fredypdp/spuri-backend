@@ -35,7 +35,7 @@ Também fica estabelecido que todo PDF enviado pelo sistema deve ter limite máx
 
 ## Objetivo
 
-Garantir que toda academia possua um `nif` válido, persistido como string e validado como código de exatamente 10 dígitos.
+Garantir que toda academia possua um `nif` válido, único, persistido como string e validado como código de exatamente 10 dígitos.
 
 ## Regra de negócio
 
@@ -47,7 +47,8 @@ Ao criar ou atualizar uma academia, o backend deve:
 4. rejeitar valores enviados como número quando o contrato distinguir tipos;
 5. rejeitar strings com espaços, pontuação, letras, menos de 10 dígitos ou mais de 10 dígitos;
 6. persistir e retornar o valor exatamente como validado;
-7. incluir o campo nas consultas e respostas públicas/administrativas da academia conforme o contrato vigente.
+7. incluir o campo nas consultas e respostas públicas/administrativas da academia conforme o contrato vigente;
+8. garantir que o mesmo `nif` não possa estar cadastrado em mais de uma academia, independentemente de a academia estar ativa, inativa, desativada, arquivada ou em qualquer outro estado não ativo.
 
 ## Escopo obrigatório
 
@@ -63,9 +64,11 @@ Atualizar entidades, aggregates, migrations, repositories, projections e seriali
 
 A persistência deve usar tipo textual compatível com 10 caracteres e constraints ou validações que impeçam estados inválidos sempre que possível.
 
-### 1.3 Validar unicidade, se aplicável
+### 1.3 Validar unicidade obrigatória
 
-Avaliar com o domínio se duas academias podem compartilhar o mesmo `nif`. Se o NIF for identificador fiscal único, criar constraint de unicidade e testes específicos. Caso a decisão seja não aplicar unicidade nesta tarefa, justificar claramente no PR e na documentação técnica.
+O `nif` é identificador fiscal único e não pode ser compartilhado por academias diferentes. A implementação deve criar validação de domínio/aplicação e constraint de unicidade na persistência sempre que possível, impedindo que o mesmo `nif` seja cadastrado em mais de uma academia, inclusive quando a academia já existente estiver inativa, desativada, arquivada ou em qualquer outro estado não ativo.
+
+Não criar unicidade parcial filtrada apenas por academias ativas. O bloqueio deve considerar todo registro de academia existente que ainda represente uma academia cadastrada no sistema.
 
 ### 1.4 Atualizar testes
 
@@ -78,7 +81,9 @@ Adicionar ou ajustar testes cobrindo:
 5. rejeição de `nif` com mais de 10 dígitos;
 6. rejeição de `nif` com letras, espaços ou pontuação;
 7. resposta de consulta de academia retornando `nif` conforme contrato;
-8. migração/persistência impedindo estado inválido quando houver constraint aplicável.
+8. migração/persistência impedindo estado inválido por meio de constraint de unicidade do `nif`;
+9. rejeição de criação ou atualização de academia quando o `nif` já estiver cadastrado em outra academia ativa;
+10. rejeição de criação ou atualização de academia quando o `nif` já estiver cadastrado em outra academia inativa, desativada, arquivada ou em qualquer outro estado não ativo.
 
 ---
 
@@ -278,7 +283,8 @@ Atualizar, quando existirem:
 
 A documentação deve declarar explicitamente que:
 
-- `nif` é string obrigatória com exatamente 10 dígitos;
+- `nif` é string obrigatória, única, com exatamente 10 dígitos;
+- o mesmo `nif` não pode estar cadastrado em mais de uma academia, independentemente de status ativo ou não ativo;
 - `alvara` é documento obrigatório para cadastro de academia;
 - o `alvara` fica salvo em `{codigo_academia}/Documentação formal/`;
 - todo PDF enviado ao sistema possui limite máximo de 10MB;
@@ -291,6 +297,7 @@ A documentação deve declarar explicitamente que:
 
 - Tratar `nif` como número inteiro.
 - Aceitar `nif` com máscara, espaços, pontuação ou letras.
+- Permitir o mesmo `nif` em mais de uma academia, mesmo que uma delas esteja inativa, desativada, arquivada ou em qualquer outro estado não ativo.
 - Criar cadastro de academia sem `alvara` obrigatório.
 - Permitir exceções ao limite de 10MB para PDFs.
 - Manter respostas de erro no modelo legado.
@@ -305,6 +312,7 @@ A tarefa só deve ser considerada concluída quando:
 
 1. academia possuir campo `nif` obrigatório tratado como string;
 2. `nif` aceitar somente exatamente 10 dígitos e preservar zeros à esquerda;
+2.1. `nif` ser único em todo o cadastro de academias, sem permitir duplicidade em academias ativas ou não ativas;
 3. cadastro de academia exigir `alvara` obrigatório;
 4. `alvara` válido for salvo em `{codigo_academia}/Documentação formal/`;
 5. falha no upload do `alvara` não deixar academia cadastrada em estado inconsistente;
