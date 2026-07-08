@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"spuri/internal/utils"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -64,12 +65,12 @@ func AtivarAcademiaJobItem(c *gin.Context) {
 		CodigoAcademia string `json:"codigo_academia"`
 	}
 	if err := bindJobItemWithoutLosingBody(c, &req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter {codigo}", nil)
 		return
 	}
 	codigo := firstNonEmptyTrimmed(req.Codigo, req.CodigoAcademia)
 	if codigo == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter {codigo}", nil)
 		return
 	}
 	c.Params = gin.Params{gin.Param{Key: "codigo", Value: codigo}}
@@ -83,12 +84,12 @@ func DesativarAcademiaJobItem(c *gin.Context) {
 		Motivo         string `json:"motivo"`
 	}
 	if err := bindJobItemWithoutLosingBody(c, &req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo, motivo}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter {codigo, motivo}", nil)
 		return
 	}
 	codigo := firstNonEmptyTrimmed(req.Codigo, req.CodigoAcademia)
 	if codigo == "" || req.Motivo == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo, motivo}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter {codigo, motivo}", nil)
 		return
 	}
 	c.Params = gin.Params{gin.Param{Key: "codigo", Value: codigo}}
@@ -101,11 +102,11 @@ func AdicionarEstudanteATurmaJobItem(c *gin.Context) {
 		CodigoEstudante string `json:"codigo_estudante"`
 	}
 	if err := bindJobItemWithoutLosingBody(c, &req); err != nil || req.CodigoTurma == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo_turma, codigo_estudante}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter {codigo_turma, codigo_estudante}", nil)
 		return
 	}
 	if req.CodigoEstudante == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo_turma, codigo_estudante}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter {codigo_turma, codigo_estudante}", nil)
 		return
 	}
 
@@ -127,7 +128,7 @@ func DeletarCategoriaNotaJobItem(c *gin.Context) {
 		Nome   string `json:"nome"`
 	}
 	if err := bindJobItemWithoutLosingBody(c, &req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter {codigo}", nil)
 		return
 	}
 
@@ -136,7 +137,7 @@ func DeletarCategoriaNotaJobItem(c *gin.Context) {
 		codigo = strings.TrimSpace(req.Nome)
 	}
 	if codigo == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter {codigo}", nil)
 		return
 	}
 
@@ -149,7 +150,7 @@ func AtivarCursoJobItem(c *gin.Context) {
 		ID string `json:"id"`
 	}
 	if err := bindJobItemWithoutLosingBody(c, &req); err != nil || req.ID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter ao menos {id}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter ao menos {id}", nil)
 		return
 	}
 	c.Params = gin.Params{gin.Param{Key: "id", Value: req.ID}}
@@ -161,7 +162,7 @@ func DesativarCursoJobItem(c *gin.Context) {
 		ID string `json:"id"`
 	}
 	if err := bindJobItemWithoutLosingBody(c, &req); err != nil || req.ID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter ao menos {id}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter ao menos {id}", nil)
 		return
 	}
 	c.Params = gin.Params{gin.Param{Key: "id", Value: req.ID}}
@@ -173,7 +174,7 @@ func AtualizarDadosCursoJobItem(c *gin.Context) {
 		ID string `json:"id"`
 	}
 	if err := bindJobItemWithoutLosingBody(c, &req); err != nil || req.ID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter ao menos {id}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter ao menos {id}", nil)
 		return
 	}
 	c.Params = gin.Params{gin.Param{Key: "id", Value: req.ID}}
@@ -185,7 +186,7 @@ func DeletarCursoJobItem(c *gin.Context) {
 		ID string `json:"id"`
 	}
 	if err := bindJobItemWithoutLosingBody(c, &req); err != nil || req.ID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter ao menos {id}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter ao menos {id}", nil)
 		return
 	}
 	c.Params = gin.Params{gin.Param{Key: "id", Value: req.ID}}
@@ -197,7 +198,7 @@ func AtivarMateriaJobItem(c *gin.Context) {
 		ID string `json:"id"`
 	}
 	if err := bindJobItemWithoutLosingBody(c, &req); err != nil || req.ID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter ao menos {id}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter ao menos {id}", nil)
 		return
 	}
 	c.Params = gin.Params{gin.Param{Key: "id", Value: req.ID}}
@@ -209,7 +210,7 @@ func DesativarMateriaJobItem(c *gin.Context) {
 		ID string `json:"id"`
 	}
 	if err := bindJobItemWithoutLosingBody(c, &req); err != nil || req.ID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter ao menos {id}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter ao menos {id}", nil)
 		return
 	}
 	c.Params = gin.Params{gin.Param{Key: "id", Value: req.ID}}
@@ -221,7 +222,7 @@ func AtualizarDadosMateriaJobItem(c *gin.Context) {
 		ID string `json:"id"`
 	}
 	if err := bindJobItemWithoutLosingBody(c, &req); err != nil || req.ID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter ao menos {id}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter ao menos {id}", nil)
 		return
 	}
 	c.Params = gin.Params{gin.Param{Key: "id", Value: req.ID}}
@@ -233,7 +234,7 @@ func DeletarMateriaJobItem(c *gin.Context) {
 		ID string `json:"id"`
 	}
 	if err := bindJobItemWithoutLosingBody(c, &req); err != nil || req.ID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter ao menos {id}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter ao menos {id}", nil)
 		return
 	}
 	c.Params = gin.Params{gin.Param{Key: "id", Value: req.ID}}
@@ -246,12 +247,12 @@ func AtivarTurmaJobItem(c *gin.Context) {
 		CodigoTurma string `json:"codigo_turma"`
 	}
 	if err := bindJobItemWithoutLosingBody(c, &req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo_turma}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter {codigo_turma}", nil)
 		return
 	}
 	codigo := firstNonEmptyTrimmed(req.Codigo, req.CodigoTurma)
 	if codigo == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo_turma}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter {codigo_turma}", nil)
 		return
 	}
 	c.Params = gin.Params{gin.Param{Key: "codigo", Value: codigo}}
@@ -264,12 +265,12 @@ func DesativarTurmaJobItem(c *gin.Context) {
 		CodigoTurma string `json:"codigo_turma"`
 	}
 	if err := bindJobItemWithoutLosingBody(c, &req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo_turma}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter {codigo_turma}", nil)
 		return
 	}
 	codigo := firstNonEmptyTrimmed(req.Codigo, req.CodigoTurma)
 	if codigo == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo_turma}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter {codigo_turma}", nil)
 		return
 	}
 	c.Params = gin.Params{gin.Param{Key: "codigo", Value: codigo}}
@@ -282,12 +283,12 @@ func AtualizarDadosTurmaJobItem(c *gin.Context) {
 		CodigoTurma string `json:"codigo_turma"`
 	}
 	if err := bindJobItemWithoutLosingBody(c, &req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo_turma}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter {codigo_turma}", nil)
 		return
 	}
 	codigo := firstNonEmptyTrimmed(req.Codigo, req.CodigoTurma)
 	if codigo == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo_turma}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter {codigo_turma}", nil)
 		return
 	}
 	c.Params = gin.Params{gin.Param{Key: "codigo", Value: codigo}}
@@ -300,12 +301,12 @@ func DeletarTurmaJobItem(c *gin.Context) {
 		CodigoTurma string `json:"codigo_turma"`
 	}
 	if err := bindJobItemWithoutLosingBody(c, &req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo_turma}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter {codigo_turma}", nil)
 		return
 	}
 	codigo := firstNonEmptyTrimmed(req.Codigo, req.CodigoTurma)
 	if codigo == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo_turma}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter {codigo_turma}", nil)
 		return
 	}
 	c.Params = gin.Params{gin.Param{Key: "codigo", Value: codigo}}
@@ -318,7 +319,7 @@ func RemoverEstudanteTurmaJobItem(c *gin.Context) {
 		CodigoEstudante string `json:"codigo_estudante"`
 	}
 	if err := bindJobItemWithoutLosingBody(c, &req); err != nil || req.CodigoTurma == "" || req.CodigoEstudante == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter {codigo_turma, codigo_estudante}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter {codigo_turma, codigo_estudante}", nil)
 		return
 	}
 	c.Params = gin.Params{
@@ -333,7 +334,7 @@ func AtivarAdminJobItem(c *gin.Context) {
 		ID string `json:"id"`
 	}
 	if err := bindJobItemWithoutLosingBody(c, &req); err != nil || req.ID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter ao menos {id}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter ao menos {id}", nil)
 		return
 	}
 	c.Params = gin.Params{gin.Param{Key: "id", Value: req.ID}}
@@ -345,7 +346,7 @@ func DesativarAdminJobItem(c *gin.Context) {
 		ID string `json:"id"`
 	}
 	if err := bindJobItemWithoutLosingBody(c, &req); err != nil || req.ID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve conter ao menos {id}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter ao menos {id}", nil)
 		return
 	}
 	c.Params = gin.Params{gin.Param{Key: "id", Value: req.ID}}

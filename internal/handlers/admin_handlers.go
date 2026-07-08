@@ -207,7 +207,7 @@ func GetAnoLetivoGlobalSistemaAtual(c *gin.Context) {
 	`, chaveAnoLetivoGlobal(tipo)).Scan(&anoLetivo)
 	if err != nil {
 		if err == sql.ErrNoRows || !anoLetivo.Valid || strings.TrimSpace(anoLetivo.String) == "" {
-			c.JSON(http.StatusNotFound, gin.H{"error": "ano letivo global não definido"})
+			utils.RespondWithError(c, http.StatusNotFound, "ano letivo global não definido", nil)
 			return
 		}
 		utils.RespondWithInternalError(c, err)

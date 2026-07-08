@@ -21,6 +21,7 @@ type Academia struct {
 	Nivel           string
 	Type            string
 	Nome            string
+	NIF             string
 	CodigoAcademia  string
 	SenhaHash       string
 	Provincia       string
@@ -131,6 +132,7 @@ func (a *Academia) Criar(
 	tipo string,
 	academiaType string,
 	nome string,
+	nif string,
 	codigoAcademia string,
 	senhaHash string,
 	provincia string,
@@ -153,6 +155,9 @@ func (a *Academia) Criar(
 	academiaType = strings.TrimSpace(strings.ToLower(academiaType))
 	if academiaType != "public" && academiaType != "private" {
 		return fmt.Errorf("type deve ser 'public' ou 'private'")
+	}
+	if err := utils.ValidateNIF(nif); err != nil {
+		return err
 	}
 	if nome == "" || codigoAcademia == "" {
 		return fmt.Errorf("campos obrigatórios vazios")
@@ -179,6 +184,7 @@ func (a *Academia) Criar(
 		Nivel:          tipo,
 		Type:           academiaType,
 		Nome:           nome,
+		NIF:            nif,
 		CodigoAcademia: codigoAcademia,
 		SenhaHash:      senhaHash,
 		Provincia:      provincia,
@@ -433,6 +439,7 @@ func (a *Academia) applyAcademiaCriada(event DomainEvent) error {
 	a.Nivel = ev.Nivel
 	a.Type = ev.Type
 	a.Nome = ev.Nome
+	a.NIF = ev.NIF
 	a.CodigoAcademia = ev.CodigoAcademia
 	a.SenhaHash = ev.SenhaHash
 	a.Provincia = ev.Provincia
@@ -693,6 +700,7 @@ type AcademiaCriadaEvent struct {
 	Nivel          string
 	Type           string
 	Nome           string
+	NIF            string
 	CodigoAcademia string
 	SenhaHash      string
 	Provincia      string

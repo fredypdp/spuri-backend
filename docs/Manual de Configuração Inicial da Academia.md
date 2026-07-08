@@ -465,7 +465,7 @@ Cadastro direto:
 POST /academia/estudante/register
 ```
 
-O cadastro direto usa `multipart/form-data`. Os documentos são opcionais; quando enviados, precisam ser PDFs válidos, com extensão `.pdf`, assinatura `%PDF` e tamanho máximo de 5MB.
+O cadastro direto usa `multipart/form-data`. Os documentos são opcionais; quando enviados, precisam ser PDFs válidos, com extensão `.pdf`, assinatura `%PDF` e tamanho máximo de 10MB.
 
 Ao cadastrar, informe os vínculos acadêmicos compatíveis com o tipo de estudante:
 

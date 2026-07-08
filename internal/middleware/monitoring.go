@@ -14,7 +14,7 @@ func MonitoringMiddleware() gin.HandlerFunc {
 		start := time.Now()
 		path := c.Request.URL.Path
 		method := c.Request.Method
-		
+
 		log.Printf("📊 [Monitoring] Iniciando - %s %s - IP: %s", method, path, c.ClientIP())
 
 		// Processar requisição
@@ -41,7 +41,7 @@ func MonitoringMiddleware() gin.HandlerFunc {
 
 		// Log de erros HTTP
 		if hasError {
-			log.Printf("⚠️ [Monitoring] Erro HTTP - %s %s - Status: %d - Errors: %v", 
+			log.Printf("⚠️ [Monitoring] Erro HTTP - %s %s - Status: %d - Errors: %v",
 				method, path, statusCode, c.Errors)
 		}
 	}

@@ -25,7 +25,7 @@ import (
 	"spuri/internal/utils"
 )
 
-const maxSolicitacaoDocumentoBytes int64 = 5 << 20
+const MaxPDFUploadBytes int64 = 10 << 20
 
 var solicitacaoDocFields = []string{"bi_estudante", "bi_responsavel", "cedula_estudante", "declaracao", "certificado_6_ano_fundamental", "certificado_9_ano_fundamental", "certificado_ensino_medio"}
 
@@ -454,8 +454,8 @@ func loadSolicitacaoByCodigo(c *gin.Context, codigo string) (*projections.Solici
 }
 
 func readAndValidatePDF(field string, fh *multipart.FileHeader) (uploadedPDF, error) {
-	if fh.Size > maxSolicitacaoDocumentoBytes {
-		return uploadedPDF{}, fmt.Errorf("%s deve ter no máximo 5MB", field)
+	if fh.Size > MaxPDFUploadBytes {
+		return uploadedPDF{}, fmt.Errorf("%s deve ter no máximo 10MB", field)
 	}
 	if !strings.EqualFold(fh.Header.Get("Content-Type"), "application/pdf") {
 		return uploadedPDF{}, fmt.Errorf("%s deve ser PDF", field)
@@ -468,12 +468,12 @@ func readAndValidatePDF(field string, fh *multipart.FileHeader) (uploadedPDF, er
 		return uploadedPDF{}, err
 	}
 	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, maxSolicitacaoDocumentoBytes+1))
+	data, err := io.ReadAll(io.LimitReader(file, MaxPDFUploadBytes+1))
 	if err != nil {
 		return uploadedPDF{}, err
 	}
-	if int64(len(data)) > maxSolicitacaoDocumentoBytes {
-		return uploadedPDF{}, fmt.Errorf("%s deve ter no máximo 5MB", field)
+	if int64(len(data)) > MaxPDFUploadBytes {
+		return uploadedPDF{}, fmt.Errorf("%s deve ter no máximo 10MB", field)
 	}
 	if len(data) < 4 || string(data[:4]) != "%PDF" {
 		return uploadedPDF{}, fmt.Errorf("%s não possui assinatura PDF válida", field)

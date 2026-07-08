@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"spuri/internal/db"
+	"spuri/internal/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -17,7 +18,7 @@ func RequireAdmin() gin.HandlerFunc {
 		userType, exists := c.Get("user_type")
 		if !exists || userType != "admin" {
 			log.Printf("❌ [RequireAdmin] user_type ausente ou incorreto: %v", userType)
-			c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas administradores"})
+			utils.RespondWithError(c, http.StatusForbidden, "acesso negado: apenas administradores", nil)
 			c.Abort()
 			return
 		}
@@ -42,7 +43,7 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 		userID, exists := c.Get("user_id")
 		if !exists {
 			log.Printf("❌ [RequireAdminRole] user_id não encontrado")
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "não autenticado"})
+			utils.RespondWithError(c, http.StatusUnauthorized, "não autenticado", nil)
 			c.Abort()
 			return
 		}
@@ -50,7 +51,7 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 		clientRaw, exists := c.Get("dbClient")
 		if !exists {
 			log.Printf("❌ [RequireAdminRole] dbClient não encontrado no contexto")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao verificar permissões"})
+			utils.RespondWithError(c, http.StatusInternalServerError, "erro ao verificar permissões", nil)
 			c.Abort()
 			return
 		}
@@ -60,7 +61,7 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 		uid, ok := userID.(uuid.UUID)
 		if !ok {
 			log.Printf("❌ [RequireAdminRole] UserID não é UUID válido")
-			c.JSON(http.StatusForbidden, gin.H{"error": "administrador não encontrado"})
+			utils.RespondWithError(c, http.StatusForbidden, "administrador não encontrado", nil)
 			c.Abort()
 			return
 		}
@@ -75,7 +76,7 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 		).Scan(&role, &status, &emailVerificado)
 		if err != nil {
 			log.Printf("❌ [RequireAdminRole] Erro ao buscar admin: %v", err)
-			c.JSON(http.StatusForbidden, gin.H{"error": "administrador não encontrado"})
+			utils.RespondWithError(c, http.StatusForbidden, "administrador não encontrado", nil)
 			c.Abort()
 			return
 		}
@@ -85,7 +86,7 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 
 		if status != "ativo" {
 			log.Printf("❌ [RequireAdminRole] Admin inativo")
-			c.JSON(http.StatusForbidden, gin.H{"error": "administrador inativo"})
+			utils.RespondWithError(c, http.StatusForbidden, "administrador inativo", nil)
 			c.Abort()
 			return
 		}

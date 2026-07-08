@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"spuri/internal/db"
+	"spuri/internal/utils"
 )
 
 type Claims struct {
@@ -101,7 +102,7 @@ func AuthMiddleware() gin.HandlerFunc {
 
 		if authHeader == "" {
 			log.Printf("❌ [AuthMiddleware] Token não fornecido - IP: %s", c.ClientIP())
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "token não fornecido"})
+			utils.RespondWithError(c, http.StatusUnauthorized, "token não fornecido", nil)
 			c.Abort()
 			return
 		}
@@ -109,7 +110,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 		if tokenString == authHeader {
 			log.Printf("❌ [AuthMiddleware] Formato de token inválido (sem 'Bearer ')")
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "formato de token inválido"})
+			utils.RespondWithError(c, http.StatusUnauthorized, "formato de token inválido", nil)
 			c.Abort()
 			return
 		}
@@ -121,7 +122,7 @@ func AuthMiddleware() gin.HandlerFunc {
 
 		if err != nil || !token.Valid {
 			log.Printf("❌ [AuthMiddleware] Token inválido ou expirado: %v - IP: %s", err, c.ClientIP())
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "token inválido ou expirado"})
+			utils.RespondWithError(c, http.StatusUnauthorized, "token inválido ou expirado", nil)
 			c.Abort()
 			return
 		}
@@ -163,7 +164,7 @@ func OptionalAuthMiddleware() gin.HandlerFunc {
 		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 		if tokenString == authHeader {
 			log.Printf("❌ [OptionalAuthMiddleware] Formato de token inválido (sem 'Bearer ')")
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "formato de token inválido"})
+			utils.RespondWithError(c, http.StatusUnauthorized, "formato de token inválido", nil)
 			c.Abort()
 			return
 		}
@@ -175,7 +176,7 @@ func OptionalAuthMiddleware() gin.HandlerFunc {
 
 		if err != nil || !token.Valid {
 			log.Printf("❌ [OptionalAuthMiddleware] Token inválido ou expirado: %v - IP: %s", err, c.ClientIP())
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "token inválido ou expirado"})
+			utils.RespondWithError(c, http.StatusUnauthorized, "token inválido ou expirado", nil)
 			c.Abort()
 			return
 		}
@@ -289,7 +290,7 @@ func RequireAcademia() gin.HandlerFunc {
 		userType, exists := c.Get("user_type")
 		if !exists || userType != "academia" {
 			log.Printf("❌ [RequireAcademia] Acesso negado - UserType: %v", userType)
-			c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas academias"})
+			utils.RespondWithError(c, http.StatusForbidden, "acesso negado: apenas academias", nil)
 			c.Abort()
 			return
 		}
@@ -302,7 +303,7 @@ func RequireEstudante() gin.HandlerFunc {
 		userType, exists := c.Get("user_type")
 		if !exists || userType != "estudante" {
 			log.Printf("❌ [RequireEstudante] Acesso negado - UserType: %v", userType)
-			c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas estudantes"})
+			utils.RespondWithError(c, http.StatusForbidden, "acesso negado: apenas estudantes", nil)
 			c.Abort()
 			return
 		}
@@ -318,13 +319,13 @@ func RequireAcademiaOuAdmin() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userType, exists := c.Get("user_type")
 		if !exists {
-			c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado"})
+			utils.RespondWithError(c, http.StatusForbidden, "acesso negado", nil)
 			c.Abort()
 			return
 		}
 		ut, _ := userType.(string)
 		if ut != "academia" && ut != "admin" {
-			c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado: apenas academias e administradores"})
+			utils.RespondWithError(c, http.StatusForbidden, "acesso negado: apenas academias e administradores", nil)
 			c.Abort()
 			return
 		}
