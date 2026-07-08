@@ -54,8 +54,6 @@ func (p *NotasProjection) UpdateCheckpoint(eventID int64) error {
 func (p *NotasProjection) Handle(event db.Event) error {
 	handlers := map[string]func(db.Event) error{
 		"NotasRegistradas": p.handleNotasRegistradas,
-		"NotaAtualizada":   p.handleNotaAtualizada,
-		"NotaDeletada":     p.handleNotaDeletada,
 	}
 	if handler, ok := handlers[event.EventType]; ok {
 		log.Printf("[DEBUG] [notas] Processando %s: %s", event.EventType, event.EventID)
@@ -79,7 +77,7 @@ func (p *NotasProjection) Rebuild() error {
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger
-		WHERE event_type IN ('NotasRegistradas', 'NotaAtualizada', 'NotaDeletada')
+		WHERE event_type IN ('NotasRegistradas')
 		ORDER BY id ASC
 	`)
 	if err != nil {
@@ -180,106 +178,6 @@ func (p *NotasProjection) handleNotasRegistradas(event db.Event) error {
 	return nil
 }
 
-// handleNotaAtualizada processa o evento "NotaAtualizada".
-// Idempotente: se a nota não for encontrada (rebuild parcial ou ordem de eventos),
-// loga WARN mas não falha — o rebuild completo resolverá.
-func (p *NotasProjection) handleNotaAtualizada(event db.Event) error {
-	var payload struct {
-		CodigoEstudante      string    `json:"CodigoEstudante"`
-		CodigoAcademia       string    `json:"CodigoAcademia"`
-		AnoLectivo           string    `json:"AnoLectivo"`
-		Periodo              string    `json:"Periodo"`
-		MateriaDisciplinarID string    `json:"MateriaDisciplinarID"`
-		Tipo                 string    `json:"Tipo"`
-		Categoria            string    `json:"Categoria"`
-		NotaAnterior         float64   `json:"NotaAnterior"`
-		NotaNova             float64   `json:"NotaNova"`
-		Observacao           string    `json:"Observacao"`
-		UpdatedAt            time.Time `json:"UpdatedAt"`
-	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("handleNotaAtualizada: parse error: %w", err)
-	}
-
-	result, err := p.client.DB().Exec(`
-		UPDATE projection_notas
-		SET nota       = $1,
-		    observacao = $2,
-		    version    = $3,
-		    event_id   = $4
-		WHERE codigo_estudante       = $5
-		  AND codigo_academia        = $6
-		  AND ano_lectivo            = $7
-		  AND periodo                = $8
-		  AND materia_disciplinar_id = $9
-		  AND tipo                   = $10
-		  AND categoria              = $11
-		  AND deleted_at IS NULL
-	`,
-		payload.NotaNova, payload.Observacao, event.EventVersion, event.EventID,
-		payload.CodigoEstudante, payload.CodigoAcademia, payload.AnoLectivo, payload.Periodo,
-		payload.MateriaDisciplinarID, payload.Tipo, payload.Categoria,
-	)
-	if err != nil {
-		return fmt.Errorf("handleNotaAtualizada: exec error: %w", err)
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		log.Printf("[WARN] [notas] NotaAtualizada %s: nota não encontrada para estudante=%s periodo=%s tipo=%s categoria=%s — ignorado",
-			event.EventID, payload.CodigoEstudante, payload.Periodo, payload.Tipo, payload.Categoria)
-	}
-	return nil
-}
-
-// handleNotaDeletada processa o evento "NotaDeletada" — soft delete na projeção.
-// Idempotente: se a nota já estiver deletada (deleted_at IS NOT NULL), não falha.
-//
-// FIX PROJ-NOTA-01: DeletadoPor e Motivo lidos do payload e gravados em
-// deletado_por e motivo_exclusao — permite consulta direta de auditoria sem
-// inspecionar o spuri_ledger.
-//
-// FIX PROJ-NOTA-02: deleted_at usa payload.DeletedAt em vez de NOW(),
-// preservando o timestamp real da deleção em rebuilds.
-func (p *NotasProjection) handleNotaDeletada(event db.Event) error {
-	var payload struct {
-		NotaID      string    `json:"NotaID"`
-		DeletadoPor uuid.UUID `json:"DeletadoPor"`
-		Motivo      string    `json:"Motivo"`
-		DeletedAt   time.Time `json:"DeletedAt"`
-	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("handleNotaDeletada: parse error: %w", err)
-	}
-
-	// Fallback para OccurredAt em eventos antigos que não tenham DeletedAt preenchido.
-	deletedAt := payload.DeletedAt
-	if deletedAt.IsZero() {
-		deletedAt = event.OccurredAt
-	}
-
-	result, err := p.client.DB().Exec(`
-		UPDATE projection_notas
-		SET deleted_at      = $1,
-		    deletado_por    = $2,
-		    motivo_exclusao = $3,
-		    version         = $4,
-		    event_id        = $5
-		WHERE id = $6
-		  AND deleted_at IS NULL
-	`, deletedAt.UTC(), payload.DeletadoPor, payload.Motivo, event.EventVersion, event.EventID, payload.NotaID)
-	if err != nil {
-		return fmt.Errorf("handleNotaDeletada: exec error: %w", err)
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		log.Printf("[WARN] [notas] NotaDeletada %s: nota id=%s não encontrada ou já deletada — ignorado",
-			event.EventID, payload.NotaID)
-	}
-	return nil
-}
-
 // ============================================================================
 // Queries de leitura
 // ============================================================================
@@ -342,7 +240,6 @@ func (p *NotasProjection) GetByAcademia(codigoAcademia string) ([]NotaDTO, error
 
 // GetNotaByID busca uma nota específica pelo UUID.
 // Retorna nil sem erro quando a nota não existe ou foi soft-deleted.
-// Usado por AtualizarNota e DeletarNota para verificar ownership antes do comando.
 func (p *NotasProjection) GetNotaByID(id uuid.UUID) (*NotaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT n.id, n.codigo_estudante, n.codigo_academia, n.ano_lectivo, n.ano_academico,

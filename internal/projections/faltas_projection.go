@@ -8,8 +8,6 @@ import (
 	"spuri/internal/db"
 	"spuri/internal/utils"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 type FaltasProjection struct {
@@ -54,8 +52,6 @@ func (p *FaltasProjection) UpdateCheckpoint(eventID int64) error {
 func (p *FaltasProjection) Handle(event db.Event) error {
 	handlers := map[string]func(db.Event) error{
 		"FaltasRegistradas": p.handleFaltasRegistradas,
-		"FaltaAtualizada":   p.handleFaltaAtualizada,
-		"FaltaDeletada":     p.handleFaltaDeletada,
 	}
 	if handler, ok := handlers[event.EventType]; ok {
 		log.Printf("[DEBUG] [faltas] Processando %s: %s", event.EventType, event.EventID)
@@ -78,7 +74,7 @@ func (p *FaltasProjection) Rebuild() error {
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger
-		WHERE event_type IN ('FaltasRegistradas', 'FaltaAtualizada', 'FaltaDeletada')
+		WHERE event_type IN ('FaltasRegistradas')
 		ORDER BY id ASC
 	`)
 	if err != nil {
@@ -130,67 +126,6 @@ func (p *FaltasProjection) handleFaltasRegistradas(event db.Event) error {
 	return tx.Commit()
 }
 
-func (p *FaltasProjection) handleFaltaAtualizada(event db.Event) error {
-	tx, err := p.client.DB().Begin()
-	if err != nil {
-		return fmt.Errorf("handleFaltaAtualizada: begin tx: %w", err)
-	}
-	defer tx.Rollback()
-	if err := p.handleFaltaAtualizadaTx(tx, event); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-// handleFaltaDeletada processa o evento "FaltaDeletada" — soft delete na projeção.
-// Idempotente: se a falta já estiver deletada (deleted_at IS NOT NULL), não falha.
-//
-// FIX PROJ-FALTA-01: DeletadoPor e Motivo agora lidos do payload e gravados em
-// deletado_por e motivo_exclusao — permite consulta direta de auditoria sem
-// inspecionar o spuri_ledger.
-//
-// FIX PROJ-FALTA-02: deleted_at agora usa payload.DeletedAt em vez de NOW(),
-// preservando o timestamp real da deleção em rebuilds.
-func (p *FaltasProjection) handleFaltaDeletada(event db.Event) error {
-	var payload struct {
-		FaltaID     string    `json:"FaltaID"`
-		DeletadoPor uuid.UUID `json:"DeletadoPor"`
-		Motivo      string    `json:"Motivo"`
-		DeletedAt   time.Time `json:"DeletedAt"`
-	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("handleFaltaDeletada: parse error: %w", err)
-	}
-
-	// FIX PROJ-FALTA-02: usar DeletedAt do payload; fallback para OccurredAt
-	// em eventos antigos que não tenham o campo preenchido.
-	deletedAt := payload.DeletedAt
-	if deletedAt.IsZero() {
-		deletedAt = event.OccurredAt
-	}
-
-	result, err := p.client.DB().Exec(`
-		UPDATE projection_faltas
-		SET deleted_at      = $1,
-		    deletado_por    = $2,
-		    motivo_exclusao = $3,
-		    version         = $4,
-		    event_id        = $5
-		WHERE id = $6
-		  AND deleted_at IS NULL
-	`, deletedAt.UTC(), payload.DeletadoPor, payload.Motivo, event.EventVersion, event.EventID, payload.FaltaID)
-	if err != nil {
-		return fmt.Errorf("handleFaltaDeletada: exec error: %w", err)
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		log.Printf("[WARN] [faltas] FaltaDeletada %s: falta id=%s não encontrada ou já deletada — ignorado",
-			event.EventID, payload.FaltaID)
-	}
-	return nil
-}
-
 // ============================================================================
 // Handlers transacionais (usados no Rebuild e em handlers não-Tx)
 // ============================================================================
@@ -225,92 +160,6 @@ func (p *FaltasProjection) handleFaltasRegistradasTx(tx *sql.Tx, event db.Event)
 	)
 	if err != nil {
 		return fmt.Errorf("handleFaltasRegistradasTx: exec error: %w", err)
-	}
-	return nil
-}
-
-func (p *FaltasProjection) handleFaltaAtualizadaTx(tx *sql.Tx, event db.Event) error {
-	var payload struct {
-		FaltaID              string     `json:"FaltaID"`
-		Data                 *time.Time `json:"Data"`
-		MateriaDisciplinarID *string    `json:"MateriaDisciplinarID"`
-		Quantidade           *int       `json:"Quantidade"`
-		Observacao           *string    `json:"Observacao"`
-	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("parse error FaltaAtualizada: %w", err)
-	}
-	if payload.FaltaID == "" {
-		return fmt.Errorf("handleFaltaAtualizadaTx: FaltaID vazio no payload")
-	}
-
-	if payload.Data != nil {
-		if _, err := tx.Exec(`UPDATE projection_faltas SET data = $1, version = $2, event_id = $3 WHERE id = $4`,
-			payload.Data.Format("2006-01-02"), event.EventVersion, event.EventID, payload.FaltaID); err != nil {
-			return err
-		}
-	}
-	if payload.MateriaDisciplinarID != nil {
-		if _, err := tx.Exec(`UPDATE projection_faltas SET materia_disciplinar_id = $1, version = $2, event_id = $3 WHERE id = $4`,
-			*payload.MateriaDisciplinarID, event.EventVersion, event.EventID, payload.FaltaID); err != nil {
-			return err
-		}
-	}
-	if payload.Quantidade != nil {
-		if _, err := tx.Exec(`UPDATE projection_faltas SET quantidade = $1, version = $2, event_id = $3 WHERE id = $4`,
-			*payload.Quantidade, event.EventVersion, event.EventID, payload.FaltaID); err != nil {
-			return err
-		}
-	}
-	if payload.Observacao != nil {
-		if _, err := tx.Exec(`UPDATE projection_faltas SET observacao = $1, version = $2, event_id = $3 WHERE id = $4`,
-			*payload.Observacao, event.EventVersion, event.EventID, payload.FaltaID); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// handleFaltaDeletadaTx processa FaltaDeletada dentro de uma transação (Rebuild).
-//
-// FIX PROJ-FALTA-01: DeletadoPor e Motivo agora lidos do payload e gravados em
-// deletado_por e motivo_exclusao.
-//
-// FIX PROJ-FALTA-02: deleted_at usa payload.DeletedAt com fallback para OccurredAt.
-func (p *FaltasProjection) handleFaltaDeletadaTx(tx *sql.Tx, event db.Event) error {
-	var payload struct {
-		FaltaID     string    `json:"FaltaID"`
-		DeletadoPor uuid.UUID `json:"DeletadoPor"`
-		Motivo      string    `json:"Motivo"`
-		DeletedAt   time.Time `json:"DeletedAt"`
-	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("handleFaltaDeletadaTx: parse error: %w", err)
-	}
-
-	deletedAt := payload.DeletedAt
-	if deletedAt.IsZero() {
-		deletedAt = event.OccurredAt
-	}
-
-	result, err := tx.Exec(`
-		UPDATE projection_faltas
-		SET deleted_at      = $1,
-		    deletado_por    = $2,
-		    motivo_exclusao = $3,
-		    version         = $4,
-		    event_id        = $5
-		WHERE id = $6
-		  AND deleted_at IS NULL
-	`, deletedAt.UTC(), payload.DeletadoPor, payload.Motivo, event.EventVersion, event.EventID, payload.FaltaID)
-	if err != nil {
-		return fmt.Errorf("handleFaltaDeletadaTx: exec error: %w", err)
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		log.Printf("[WARN] [faltas] FaltaDeletadaTx %s: falta id=%s não encontrada ou já deletada — ignorado",
-			event.EventID, payload.FaltaID)
 	}
 	return nil
 }

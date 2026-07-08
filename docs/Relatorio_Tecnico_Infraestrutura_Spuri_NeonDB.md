@@ -103,7 +103,7 @@ Valores de `DefaultConfig()`:
 ### Eventos por operação típica
 
 - O EventStore grava cada evento com um `INSERT INTO spuri_ledger` em `EventStore.Append()`/`AppendTx()`.
-- Para notas/faltas, as projeções tratam eventos `NotasRegistradas`/`NotaAtualizada`/`NotaDeletada` e `FaltasRegistradas`/`FaltaAtualizada`/`FaltaDeletada`; isso indica pelo menos **1 evento por mutação simples**.
+- Para notas/faltas, as projeções tratam apenas os eventos de criação `NotasRegistradas` e `FaltasRegistradas`; os recursos não possuem fluxos funcionais de edição ou exclusão.
 - Operações que disparam avaliação final automática ou efeitos compostos não puderam ser contabilizadas com segurança apenas nesta varredura resumida; **NÃO DETERMINÁVEL PELO CÓDIGO sem mapear cada aggregate/handler de negócio individualmente e/ou medir em staging**.
 
 ### Índices relevantes

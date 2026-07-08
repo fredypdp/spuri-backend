@@ -3838,6 +3838,7 @@ Registra uma nota para um estudante.
 - Para escolas, `categoria` deve estar no catálogo fixo do ano acadêmico inferido: `nota_professor`/`prova_trimestral` nos anos regulares; + `exame_final`/`exame_recurso` em `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio`; apenas `nota_pap` no `4_ano_medio` técnico
 - Para superior, `categoria` deve estar configurada em `POST /academia/categorias-nota` com `anos_academicos` contendo o ano/período acadêmico aplicável; sem anos definidos ou sem correspondência, nenhuma nota pode ser registrada nessa categoria
 - O endpoint `POST /academia/notas-aluno/async` reaproveita exatamente as mesmas validações deste endpoint por item do lote
+- Notas são imutáveis após criação: não há endpoint público ou assíncrono para editar ou eliminar notas
 
 **Response 201:**
 
@@ -3860,70 +3861,6 @@ Registra uma nota para um estudante.
 - `400` — nota fora da escala do ano acadêmico, período inválido, categoria inválida/não configurada para o ano acadêmico, duplicata, ou incompatibilidade entre `ano_escolar_fundamental`/`ano_escolar_medio` do estudante e `anos_academicos` da matéria
 - `403` — estudante ou matéria não pertencem à academia
 - `400` — academia sem ano letivo configurado
-
----
-
-### PUT /academia/atualizar-nota
-
-Corrige uma nota já registada.
-
-**Proteção**: autenticado + academia ativa
-
-**Request:**
-
-```json
-{
-  "id": "uuid",               // ID da nota na projeção
-  "nota_nova": 16.0,          // obrigatório (usar 0.0 para zerar, não omitir)
-  "observacao": "string"      // OBRIGATÓRIO (justificativa da correção)
-}
-```
-
-**Response 200:**
-
-```json
-{
-  "message": "nota atualizada com sucesso",
-  "nota_anterior": 15.5,
-  "nota_nova": 16.0,
-  "observacao": "string"
-}
-```
-
-**Erros:**
-
-- `400` — nota_nova omitida ou negativa
-- `400` — observacao ausente
-- `403` — nota não pertence à academia
-- `404` — nota não encontrada
-
----
-
-### DELETE /academia/nota/:id
-
-Remove uma nota (soft delete — permanece no ledger para auditoria).
-
-**Proteção**: autenticado + academia ativa
-
-**Path Params:**
-
-- `id` — UUID da nota
-
-**Request:**
-
-```json
-{
-  "motivo": "string"  // OBRIGATÓRIO
-}
-```
-
-**Response 200:**
-
-```json
-{
-  "message": "nota deletada com sucesso"
-}
-```
 
 ---
 
@@ -4055,9 +3992,7 @@ O recurso de sumários/aulas foi removido do contrato público da API. Não há 
 
 **Quantidade por registro**: não possui teto máximo (apenas deve ser `>= 1`).
 
-**Correção de falta**: `observacao` é **obrigatória** (justificativa da correção).
-
-**Deleção de falta**: `motivo` é **obrigatório**; soft delete
+**Imutabilidade**: faltas são imutáveis após criação; não há endpoint público ou assíncrono para editar ou eliminar faltas.
 ### Regras de Negócio — Faltas
 
 ### 6.4 Regras de Faltas
@@ -4067,8 +4002,7 @@ O recurso de sumários/aulas foi removido do contrato público da API. Não há 
 | Quantidade deve ser 1 ou mais                    | Validação no handler e no aggregate                                                     |
 | Data no formato date (`AAAA-MM-DD`)              | Campo date-only em faltas (sem hora)                                                    |
 | Ano do estudante deve pertencer à matéria        | Se `ano_escolar_fundamental` do estudante não existir em `anos_academicos` da matéria, bloqueia    |
-| Observação obrigatória na correção               | Justificativa da alteração em `PUT /academia/atualizar-falta`                           |
-| Motivo obrigatório na deleção                    | Para auditoria no ledger e na projeção                                                  |
+| Data dentro do período letivo aplicável          | A matéria define o tipo letivo; faltas escolares usam a janela escolar fixa da academia e faltas superiores usam a janela superior fixa da academia |
 | Duplicata bloqueada                              | Mesma combinação `data + codigo_estudante + materia_disciplinar_id` é rejeitada         |
 | Sem vínculo de sumário                           | Faltas são independentes e não aceitam `sumario_id` ou `sumario_titulo` |
 
@@ -4101,7 +4035,9 @@ Registra falta(s) para um estudante.
 - Se o estudante tiver `ano_escolar_fundamental` ou `ano_escolar_medio`, esse ano deve existir em `anos_academicos` da matéria; caso contrário, o registro é bloqueado
 - Idempotência (duplicata bloqueada): combinação `data + codigo_estudante + materia_disciplinar_id`
 - Payloads de falta não aceitam `sumario_id`, `sumario_titulo` ou campos equivalentes de sumário.
+- A data da falta deve estar dentro do intervalo inclusivo do ano letivo aplicável: escolar para matérias escolares e superior para matérias superiores.
 - O endpoint `POST /academia/faltas-aluno/async` reaproveita exatamente as mesmas validações deste endpoint por item do lote
+- Faltas são imutáveis após criação: não há endpoint público ou assíncrono para editar ou eliminar faltas
 
 **Response 201:**
 
@@ -4117,80 +4053,8 @@ Registra falta(s) para um estudante.
 
 **Erros:**
 
-- `400` — quantidade inválida (deve ser ≥ 1), data inválida, ou incompatibilidade entre `ano_escolar_fundamental` do estudante e `anos_academicos` da matéria
+- `400` — quantidade inválida (deve ser ≥ 1), data inválida ou fora do período letivo aplicável, academia sem ano letivo configurado, ou incompatibilidade entre `ano_escolar_fundamental`/`ano_escolar_medio` do estudante e `anos_academicos` da matéria
 - `403` — estudante ou matéria não pertencem à academia
-
----
-
-### PUT /academia/atualizar-falta
-
-Corrige uma falta registada.
-
-**Proteção**: autenticado + academia ativa
-
-**Request:**
-
-```json
-{
-  "id": "uuid",                         // obrigatório
-  "data": "2025-03-16",                 // opcional
-  "materia_disciplinar_id": "uuid",     // opcional
-  "quantidade": 3,                      // opcional, mínimo 1
-  "observacao": "string"                // OBRIGATÓRIO (justificativa da correção)
-}
-```
-
-**Pelo menos um campo além do `id` deve ser informado.**
-
-**Restrições:**
-
-- `observacao` é obrigatória e não pode ser vazia
-- `quantidade`, quando enviada, deve ser `>= 1`
-- `data`, quando enviada, deve estar em `AAAA-MM-DD`
-- Se `materia_disciplinar_id` for alterada (ou mantida), continua valendo a regra de compatibilidade com `ano_escolar_fundamental` do estudante
-- A atualização também bloqueia duplicata pela combinação `data + codigo_estudante + materia_disciplinar_id`
-
-**Response 200:**
-
-```json
-{
-  "message": "falta atualizada com sucesso",
-  "id": "uuid",
-  "codigo_estudante": "ABC1234"
-}
-```
-
----
-
-### DELETE /academia/falta/:id
-
-Remove uma falta (soft delete).
-
-**Proteção**: autenticado + academia ativa
-
-**Path Params:**
-
-- `id` — UUID da falta
-
-**Request:**
-
-```json
-{
-  "motivo": "string"  // OBRIGATÓRIO
-}
-```
-
-**Response 200:**
-
-```json
-{
-  "message": "falta deletada com sucesso"
-}
-```
-
-**Restrições:**
-
-- `motivo` é obrigatório e não pode ser vazio
 
 ---
 
@@ -4388,8 +4252,8 @@ Se a fórmula exigir nota que ainda não existe para determinada matéria, categ
 2. O backend infere o nível acadêmico do estudante para execução: Superior tem prioridade quando há vínculo/status superior; depois Médio; caso contrário Fundamental.
 3. Para Superior, o backend transforma `semestre_atual` em `[n]_semestre` e valida esse período contra o curso.
 4. O backend busca regras aplicáveis à academia, ao `nivel` e ao escopo acadêmico atual. Para `fundamental` e `medio`, essa busca é sempre resolvida pelo catálogo fixo do sistema; se a categoria lançada não despertar uma regra fixa, a execução termina sem consultar regras configuráveis/legadas. Para `superior`, a busca usa as regras configuráveis ativas da academia.
-5. A execução automática da raiz continua quando a categoria da nota registrada/atualizada é a `nota_despertadora` da raiz. No padrão escolar fixo, isso significa `prova_trimestral` no 3º trimestre para anos regulares, `exame_final` para anos com exame e `nota_pap` no `4_ano_medio` técnico.
-6. Descendentes só são consideradas se a etapa anterior reprovou. A descendente escolar fixa `exame_recurso` também pode ser despertada diretamente por lançamento/atualização de `exame_recurso`, mas somente para matérias reprovadas na avaliação final anterior e quando todas as notas de recurso exigidas estiverem completas.
+5. A execução automática da raiz continua quando a categoria da nota registrada é a `nota_despertadora` da raiz. No padrão escolar fixo, isso significa `prova_trimestral` no 3º trimestre para anos regulares, `exame_final` para anos com exame e `nota_pap` no `4_ano_medio` técnico.
+6. Descendentes só são consideradas se a etapa anterior reprovou. A descendente escolar fixa `exame_recurso` também pode ser despertada diretamente por lançamento de `exame_recurso`, mas somente para matérias reprovadas na avaliação final anterior e quando todas as notas de recurso exigidas estiverem completas.
 7. Para cada regra executável, o backend resolve as matérias aplicáveis e calcula `nota_final` individual por matéria.
 8. O resultado de cada matéria compara `nota_final` com `nota_minima_aprovacao`.
 10. A decisão geral é derivada dos resultados por matéria e, no Superior, das condições de pendência.
@@ -4538,9 +4402,9 @@ Não existe rota pública/registrada para executar avaliação final manualmente
 **Por que o cliente não envia `type` para executar avaliação final:**
 
 - O `type` da avaliação final executada (`avaliacao_final`, `avaliacao_final_com_exame`, `avaliacao_final_com_recurso`, etc.) vem da regra aplicável, não do payload de uma requisição manual.
-- Ao registrar/atualizar notas, o backend identifica o estudante, infere o `tipo_ensino`, descobre o ano acadêmico atual e busca todas as regras ativas aplicáveis àquele ano.
+- Ao registrar notas, o backend identifica o estudante, infere o `tipo_ensino`, descobre o ano acadêmico atual e busca todas as regras ativas aplicáveis àquele ano.
 - A cadeia precisa ter exatamente uma regra raiz, isto é, a regra sem `aplica_se_reprovado_em_type`. A raiz pode declarar `nota_despertadora`, cujo valor é o `codigo` da categoria de nota que autoriza o disparo automático.
-- O processamento automático começa na raiz somente quando a categoria da nota registrada/atualizada é igual a `nota_despertadora`. Regras antigas sem esse campo não despertam automaticamente por nota.
+- O processamento automático começa na raiz somente quando a categoria da nota registrada é igual a `nota_despertadora`. Regras antigas sem esse campo não despertam automaticamente por nota.
 - `nota_despertadora` é configurável apenas em regra raiz superior; regras dependentes/descendentes superiores rejeitam esse campo. No padrão escolar fixo, a descendente `exame_recurso` é despertada diretamente por `exame_recurso` quando já existe reprovação anterior na `avaliacao_final`.
 - Cada regra dependente é alcançada pelo campo `aplica_se_reprovado_em_type`: por exemplo, `avaliacao_final_com_recurso` pode depender de reprovação em `avaliacao_final`, e `avaliacao_final_com_exame` pode depender de reprovação em `avaliacao_final_com_recurso`.
 - O backend só executa uma dependente quando encontra reprovação no `type` pré-requisito. Se o pré-requisito aprovou, a dependente é encerrada e não executa. Se o pré-requisito ainda não existe, a dependente aguarda.
@@ -4616,7 +4480,7 @@ Cria uma regra ativa de avaliação final para a academia autenticada **somente 
 - `nota_minima_aprovacao` — obrigatório e maior que zero.
 - `categorias_envolvidas` — opcional. O backend extrai automaticamente as categorias usadas em `formula`. Se enviado, deve corresponder exatamente às categorias extraídas da fórmula, sem duplicatas, sobras ou omissões, e todas precisam estar ativas/configuradas pela academia para os anos da regra.
 - `formula` — obrigatório; deve ser uma string textual no modelo `formula_textual_v1`. O formato JSON em árvore antigo foi removido e não é aceito.
-- `nota_despertadora` — exclusivo de regra raiz. Quando informado, deve ser o `codigo` de uma categoria de nota ativa, não deletada, pertencente à academia autenticada e configurada para os anos/escopo da regra quando essa segmentação existir. O campo é opcional para compatibilidade: raiz sem `nota_despertadora` não dispara automaticamente por lançamento/atualização de nota.
+- `nota_despertadora` — exclusivo de regra raiz. Quando informado, deve ser o `codigo` de uma categoria de nota ativa, não deletada, pertencente à academia autenticada e configurada para os anos/escopo da regra quando essa segmentação existir. O campo é opcional para compatibilidade: raiz sem `nota_despertadora` não dispara automaticamente por lançamento de nota.
 - `aplica_se_reprovado_em_type` — opcional para regra raiz; obrigatório para regras dependentes. Quando informado, passa pela mesma normalização de `type`, deve apontar para regra ativa existente na mesma academia/tipo de ensino, não pode ser igual ao próprio `type`, não pode criar ciclo e obriga a regra dependente a usar exatamente os mesmos `anos_academicos` da regra raiz da cadeia. Uma regra dependente inativa não pode ser ativada enquanto a regra da qual ela depende estiver inativa. Payload de dependente com `nota_despertadora` é rejeitado com erro de validação claro, pois dependentes são acionadas por reprovação ancestral.
 
 
@@ -5535,11 +5399,7 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 |---|---|---|---|
 |`POST /academia/estudante/register/async`|igual ao `POST /academia/estudante/register`|`202` (job criado)|1000|
 |`POST /academia/notas-aluno/async`|igual ao `POST /academia/notas-aluno`|`202` (job criado)|2000|
-|`PUT /academia/atualizar-nota/async`|igual ao `PUT /academia/atualizar-nota`|`202` (job criado)|2000|
-|`DELETE /academia/nota/async`|igual ao `DELETE /academia/nota/:id` (sem `:id`, enviado no item)|`202` (job criado)|2000|
 |`POST /academia/faltas-aluno/async`|igual ao `POST /academia/faltas-aluno`|`202` (job criado)|2000|
-|`PUT /academia/atualizar-falta/async`|igual ao `PUT /academia/atualizar-falta`|`202` (job criado)|2000|
-|`DELETE /academia/falta/async`|igual ao `DELETE /academia/falta/:id` (sem `:id`, enviado no item)|`202` (job criado)|2000|
 |`POST /academia/curso/async`|igual ao `POST /academia/curso`|`202` (job criado)|200|
 |`POST /academia/materia/async`|igual ao `POST /academia/materia`|`202` (job criado)|500|
 |`POST /academia/turma/async`|igual ao `POST /academia/turma`|`202` (job criado)|200|

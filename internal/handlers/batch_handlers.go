@@ -126,68 +126,6 @@ func RegistrarNotaBatch(c *gin.Context) {
 }
 
 // =============================================================================
-// PUT /academia/atualizar-nota/batch — limite 200
-// =============================================================================
-
-func AtualizarNotaBatch(c *gin.Context) {
-	type ReqAtualizar struct {
-		ID         string   `json:"id"`
-		NotaNova   *float64 `json:"nota_nova"`
-		Observacao string   `json:"observacao"`
-	}
-	var reqs []ReqAtualizar
-	if err := c.ShouldBindJSON(&reqs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve ser um array"})
-		return
-	}
-	if err := validarTamanhoBatch(len(reqs), 200); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	results := make([]BatchItemResult, 0, len(reqs))
-	for i, req := range reqs {
-		rc := newFakeContext(c)
-		setJSONBody(rc, req)
-		AtualizarNota(rc)
-		results = append(results, extractResult(rc, i))
-	}
-
-	c.JSON(batchHTTPStatus(results), newBatchResponse(results))
-}
-
-// =============================================================================
-// DELETE /academia/nota/batch — limite 200
-// =============================================================================
-
-func DeletarNotaBatch(c *gin.Context) {
-	type ReqDeletar struct {
-		ID     string `json:"id"`
-		Motivo string `json:"motivo"`
-	}
-	var reqs []ReqDeletar
-	if err := c.ShouldBindJSON(&reqs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve ser um array"})
-		return
-	}
-	if err := validarTamanhoBatch(len(reqs), 200); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	results := make([]BatchItemResult, 0, len(reqs))
-	for i, req := range reqs {
-		rc := newFakeContext(c)
-		rc.Params = gin.Params{gin.Param{Key: "id", Value: req.ID}}
-		setJSONBody(rc, gin.H{"motivo": req.Motivo})
-		DeletarNota(rc)
-		results = append(results, extractResult(rc, i))
-	}
-
-	c.JSON(batchHTTPStatus(results), newBatchResponse(results))
-}
-
-// =============================================================================
 // POST /academia/faltas-aluno/batch — limite 200
 // =============================================================================
 
@@ -214,70 +152,6 @@ func RegistrarFaltasBatch(c *gin.Context) {
 		rc := newFakeContext(c)
 		setJSONBody(rc, req)
 		RegistrarFaltas(rc)
-		results = append(results, extractResult(rc, i))
-	}
-
-	c.JSON(batchHTTPStatus(results), newBatchResponse(results))
-}
-
-// =============================================================================
-// PUT /academia/atualizar-falta/batch — limite 200
-// =============================================================================
-
-func AtualizarFaltaBatch(c *gin.Context) {
-	type ReqAtualizar struct {
-		ID                   string      `json:"id"`
-		Data                 *utils.Date `json:"data"`
-		MateriaDisciplinarID *string     `json:"materia_disciplinar_id"`
-		Quantidade           *int        `json:"quantidade"`
-		Observacao           *string     `json:"observacao"`
-	}
-	var reqs []ReqAtualizar
-	if err := c.ShouldBindJSON(&reqs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve ser um array"})
-		return
-	}
-	if err := validarTamanhoBatch(len(reqs), 200); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	results := make([]BatchItemResult, 0, len(reqs))
-	for i, req := range reqs {
-		rc := newFakeContext(c)
-		setJSONBody(rc, req)
-		AtualizarFalta(rc)
-		results = append(results, extractResult(rc, i))
-	}
-
-	c.JSON(batchHTTPStatus(results), newBatchResponse(results))
-}
-
-// =============================================================================
-// DELETE /academia/falta/batch — limite 200
-// =============================================================================
-
-func DeletarFaltaBatch(c *gin.Context) {
-	type ReqDeletar struct {
-		ID     string `json:"id"`
-		Motivo string `json:"motivo"`
-	}
-	var reqs []ReqDeletar
-	if err := c.ShouldBindJSON(&reqs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve ser um array"})
-		return
-	}
-	if err := validarTamanhoBatch(len(reqs), 200); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	results := make([]BatchItemResult, 0, len(reqs))
-	for i, req := range reqs {
-		rc := newFakeContext(c)
-		rc.Params = gin.Params{gin.Param{Key: "id", Value: req.ID}}
-		setJSONBody(rc, gin.H{"motivo": req.Motivo})
-		DeletarFalta(rc)
 		results = append(results, extractResult(rc, i))
 	}
 
