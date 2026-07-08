@@ -1,10 +1,10 @@
 ---
 criado: 2026-07-08 00:00
 origem: solicitação do usuário
-status: pronto_para_implementacao
+status: feito
 ---
 
-# Restringir pendências ao ensino superior e ativar matérias superiores por padrão
+# Restringir pendências ao ensino superior e ativar matérias superiores por padrão (feito)
 
 ## Prompt recomendado para executar a atualização
 

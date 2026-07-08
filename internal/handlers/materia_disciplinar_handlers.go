@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -33,8 +34,12 @@ func CriarMateria(c *gin.Context) {
 		PendenciaNivelConclusao *string    `json:"pendencia_nivel_conclusao"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatorios: nome e tipo"))
+	if err := decodeStrictJSON(c, &req); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if strings.TrimSpace(req.Nome) == "" {
+		utils.RespondWithValidationError(c, fmt.Errorf("nome é obrigatório"))
 		return
 	}
 
@@ -104,14 +109,7 @@ func CriarMateria(c *gin.Context) {
 	repository := getRepository(c)
 	materia := aggregates.NewMateriaDisciplinar()
 
-	pendenciaPermitida := false
-	if tipoMateria == "superior" {
-		pendenciaPermitida = true
-	}
-	if req.PendenciaPermitida != nil {
-		pendenciaPermitida = *req.PendenciaPermitida
-	}
-	if err := materia.Criar(req.Nome, tipoMateria, req.AnosAcademicos, academiaDTO.CodigoAcademia, req.CursoID, pendenciaPermitida, req.PendenciaNivelConclusao, userID); err != nil {
+	if err := materia.Criar(req.Nome, tipoMateria, req.AnosAcademicos, academiaDTO.CodigoAcademia, req.CursoID, req.PendenciaPermitida, req.PendenciaNivelConclusao, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -354,8 +352,8 @@ func AtualizarDadosMateria(c *gin.Context) {
 		PendenciaNivelConclusao *string          `json:"pendencia_nivel_conclusao"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("dados inválidos"))
+	if err := decodeStrictJSON(c, &req); err != nil {
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 	if req.Periodo != nil {
@@ -495,6 +493,18 @@ func validarPendenciaNivelConclusao(tipoMateria string, nivel *string, anosAcade
 		return nil
 	}
 	return fmt.Errorf("type inválido para pendencia_nivel_conclusao")
+}
+
+func decodeStrictJSON(c *gin.Context, dst interface{}) error {
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(dst); err != nil {
+		return fmt.Errorf("dados inválidos: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return fmt.Errorf("dados inválidos: JSON deve conter apenas um objeto")
+	}
+	return nil
 }
 
 func containsString(values []string, expected string) bool {
