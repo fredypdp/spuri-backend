@@ -138,10 +138,12 @@ func TestValidarDataNoPeriodoLetivoFaltasEscolarESuperior(t *testing.T) {
 		data    string
 		wantErr bool
 	}{
-		{name: "escolar dentro", tipo: "escolar", data: "2025-09-01"},
+		{name: "escolar primeiro dia", tipo: "escolar", data: "2025-09-01"},
+		{name: "escolar ultimo dia", tipo: "escolar", data: "2026-07-31"},
 		{name: "escolar antes", tipo: "escolar", data: "2025-08-31", wantErr: true},
 		{name: "escolar depois", tipo: "escolar", data: "2026-08-01", wantErr: true},
-		{name: "superior dentro", tipo: "superior", data: "2025-10-01"},
+		{name: "superior primeiro dia", tipo: "superior", data: "2025-10-01"},
+		{name: "superior ultimo dia", tipo: "superior", data: "2026-07-31"},
 		{name: "superior antes", tipo: "superior", data: "2025-09-30", wantErr: true},
 		{name: "superior depois", tipo: "superior", data: "2026-08-01", wantErr: true},
 	}

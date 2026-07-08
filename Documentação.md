@@ -2089,7 +2089,7 @@ Para implementar o cliente de forma segura:
 | `data_nascimento` deve ser anterior a hoje                    | Validação no aggregate                  |
 | Senha padrão = código do estudante                            | Ex: `ABC1234` acede com senha `ABC1234` |
 | Status superior exige fundamntal e médio finalizados/inativos | Progressão lógica do ensino             |
-| Deleção de nota/falta exige motivo                            | Para auditoria                          |
+| Notas e faltas são imutáveis após criação                     | Só podem ser criadas e consultadas      |
 
 
 ### POST /academia/estudante/register
@@ -3674,9 +3674,7 @@ Nas escolas, a academia não cria nem remove categorias. O backend seleciona aut
 
 **Valor**: escala validada por ano acadêmico (`0–10` no 1.º ao 6.º fundamental; `0–20` no 7.º ao 9.º fundamental, médio e superior).
 
-**Correção de nota**: `observacao` é **obrigatória** (justificativa da correção)
-
-**Deleção de nota**: `motivo` é **obrigatório**; soft delete (permanece no ledger)
+**Imutabilidade de nota**: notas só podem ser criadas e consultadas. Não existe endpoint público, administrativo, batch ou assíncrono para editar, eliminar, restaurar ou ocultar notas por soft delete.
 
 **Proteção contra duplicatas**: o aggregate mantém um mapa em memória (`NotasRegistradasPorChave`). Se a mesma combinação de academia/ano/período/matéria/tipo/categoria já existir, o comando é rejeitado com erro de negócio claro antes de tocar o banco.
 ### Regras de Negócio — Notas
@@ -3690,10 +3688,8 @@ Nas escolas, a academia não cria nem remove categorias. O backend seleciona aut
 | Categorias escolares são fixas | Escolas usam apenas categorias do catálogo do ano: regulares, exames nos anos previstos e `nota_pap` no `4_ano_medio` técnico |
 | Categorias configuráveis são do superior | Criação/remoção de categorias é bloqueada para escolas |
 | Ano do estudante deve pertencer à matéria   | Se `ano_escolar_fundamental` não estiver em `anos_academicos`, bloqueia   |
-| Observação obrigatória na correção          | Justificativa da alteração                                    |
-| Motivo obrigatório na deleção               | Para auditoria                                                |
+| Imutabilidade após criação                  | Notas só podem ser criadas e consultadas; não há edição, deleção, restauração ou soft delete operacional |
 | Duplicata bloqueada no aggregate            | Mesma combinação ano/período/matéria/tipo/categoria rejeitada |
-| Nota deletada não pode ser re-registada     | Mapa de chaves não remove entradas deletadas                  |
 
 
 ### POST /academia/categorias-nota

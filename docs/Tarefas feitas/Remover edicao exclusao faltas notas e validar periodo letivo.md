@@ -4,7 +4,7 @@ origem: solicitação do usuário
 status: pronto_para_implementacao
 ---
 
-# Remover edição/exclusão de faltas e notas e validar período letivo das faltas
+# Remover edição/exclusão de faltas e notas e validar período letivo das faltas (feito)
 
 ## Prompt recomendado para executar a atualização
 
