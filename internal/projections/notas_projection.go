@@ -209,7 +209,6 @@ func (p *NotasProjection) GetByEstudante(codigoEstudante string) ([]NotaDTO, err
 		FROM projection_notas n
 		LEFT JOIN projection_materias m ON m.id = n.materia_disciplinar_id::uuid
 		WHERE n.codigo_estudante = $1
-		  AND n.deleted_at IS NULL
 		ORDER BY n.ano_lectivo DESC, n.periodo ASC
 	`, codigoEstudante)
 	if err != nil {
@@ -228,7 +227,6 @@ func (p *NotasProjection) GetByAcademia(codigoAcademia string) ([]NotaDTO, error
 		FROM projection_notas n
 		LEFT JOIN projection_materias m ON m.id = n.materia_disciplinar_id::uuid
 		WHERE n.codigo_academia = $1
-		  AND n.deleted_at IS NULL
 		ORDER BY n.registered_at DESC
 	`, codigoAcademia)
 	if err != nil {
@@ -239,7 +237,7 @@ func (p *NotasProjection) GetByAcademia(codigoAcademia string) ([]NotaDTO, error
 }
 
 // GetNotaByID busca uma nota específica pelo UUID.
-// Retorna nil sem erro quando a nota não existe ou foi soft-deleted.
+// Retorna nil sem erro quando a nota não existe.
 func (p *NotasProjection) GetNotaByID(id uuid.UUID) (*NotaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT n.id, n.codigo_estudante, n.codigo_academia, n.ano_lectivo, n.ano_academico,
@@ -249,7 +247,6 @@ func (p *NotasProjection) GetNotaByID(id uuid.UUID) (*NotaDTO, error) {
 		FROM projection_notas n
 		LEFT JOIN projection_materias m ON m.id = n.materia_disciplinar_id::uuid
 		WHERE n.id = $1
-		  AND n.deleted_at IS NULL
 	`, id)
 	if err != nil {
 		return nil, err

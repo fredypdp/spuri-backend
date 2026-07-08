@@ -210,11 +210,17 @@ func TestNotasAndFaltasExposeOnlyCreateAndReadRoutes(t *testing.T) {
 		method string
 		path   string
 	}{
+		{http.MethodPut, "/academia/notas-aluno"},
+		{http.MethodPatch, "/academia/notas-aluno"},
+		{http.MethodDelete, "/academia/notas-aluno"},
 		{http.MethodPut, "/academia/atualizar-nota"},
 		{http.MethodPatch, "/academia/atualizar-nota"},
 		{http.MethodDelete, "/academia/nota/00000000-0000-0000-0000-000000000000"},
 		{http.MethodPut, "/academia/atualizar-nota/async"},
 		{http.MethodDelete, "/academia/nota/async"},
+		{http.MethodPut, "/academia/faltas-aluno"},
+		{http.MethodPatch, "/academia/faltas-aluno"},
+		{http.MethodDelete, "/academia/faltas-aluno"},
 		{http.MethodPut, "/academia/atualizar-falta"},
 		{http.MethodPatch, "/academia/atualizar-falta"},
 		{http.MethodDelete, "/academia/falta/00000000-0000-0000-0000-000000000000"},
