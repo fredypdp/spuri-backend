@@ -3,7 +3,6 @@ package aggregates
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,41 +29,6 @@ type FaltasRegistradasEvent struct {
 
 func (e *FaltasRegistradasEvent) GetPayload() interface{} { return e }
 func (e *FaltasRegistradasEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
-
-// FaltaAtualizadaEvent — emitido ao corrigir uma falta existente.
-// EventType: "FaltaAtualizada" (canônico).
-// Todos os campos alteráveis são ponteiros — nil = não alterar.
-type FaltaAtualizadaEvent struct {
-	BaseEvent
-	CodigoEstudante      string
-	CodigoAcademia       string
-	FaltaID              string
-	Data                 *time.Time
-	MateriaDisciplinarID *uuid.UUID
-	Quantidade           *int
-	Observacao           *string
-	AtualizadoPor        uuid.UUID
-	UpdatedAt            time.Time
-}
-
-func (e *FaltaAtualizadaEvent) GetPayload() interface{} { return e }
-func (e *FaltaAtualizadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
-
-// FaltaDeletadaEvent — emitido ao fazer soft delete de uma falta.
-// EventType: "FaltaDeletada" (canônico).
-// Motivo é OBRIGATÓRIO para auditoria self-contained no ledger.
-type FaltaDeletadaEvent struct {
-	BaseEvent
-	FaltaID         string
-	CodigoEstudante string
-	CodigoAcademia  string
-	Motivo          string
-	DeletadoPor     uuid.UUID
-	DeletedAt       time.Time
-}
-
-func (e *FaltaDeletadaEvent) GetPayload() interface{} { return e }
-func (e *FaltaDeletadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 // ============================================================================
 // Helpers internos
@@ -124,86 +88,6 @@ func (e *Estudante) RegistrarFalta(
 }
 
 // ============================================================================
-// Método de comando: AtualizarFalta
-// ============================================================================
-
-// AtualizarFalta corrige uma falta já registrada.
-// Permite alterar: Data, MateriaDisciplinarID, Quantidade e Observacao.
-// Todos os campos são ponteiros — nil = não alterar.
-// AtualizadoPor identifica o executor no payload do evento (self-contained).
-func (e *Estudante) AtualizarFalta(
-	codigoAcademia string,
-	faltaID string,
-	data *time.Time,
-	materiaDisciplinarID *uuid.UUID,
-	quantidade *int,
-	observacao *string,
-	atualizadoPor uuid.UUID,
-) error {
-	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
-		return fmt.Errorf("estudante não pertence a esta academia")
-	}
-	if data == nil && materiaDisciplinarID == nil && quantidade == nil && observacao == nil {
-		return fmt.Errorf("ao menos um campo deve ser fornecido para atualização")
-	}
-	if observacao == nil || strings.TrimSpace(*observacao) == "" {
-		return fmt.Errorf("observacao é obrigatória para atualizar uma falta")
-	}
-	if quantidade != nil && *quantidade <= 0 {
-		return fmt.Errorf("quantidade deve ser maior que zero")
-	}
-
-	event := &FaltaAtualizadaEvent{
-		BaseEvent:            BaseEvent{EventType: "FaltaAtualizada", AggregateID: e.ID},
-		CodigoEstudante:      e.CodigoEstudante,
-		CodigoAcademia:       codigoAcademia,
-		FaltaID:              faltaID,
-		Data:                 data,
-		MateriaDisciplinarID: materiaDisciplinarID,
-		Quantidade:           quantidade,
-		Observacao:           observacao,
-		AtualizadoPor:        atualizadoPor,
-		UpdatedAt:            time.Now(),
-	}
-
-	e.RaiseEvent(event)
-	return e.Apply(event)
-}
-
-// ============================================================================
-// Método de comando: DeletarFalta
-// ============================================================================
-
-// DeletarFalta faz soft delete de uma falta via event sourcing.
-// motivo é OBRIGATÓRIO para auditoria self-contained no ledger.
-func (e *Estudante) DeletarFalta(
-	codigoAcademia string,
-	faltaID string,
-	motivo string,
-	deletadoPor uuid.UUID,
-) error {
-	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
-		return fmt.Errorf("estudante não pertence a esta academia")
-	}
-	if strings.TrimSpace(motivo) == "" {
-		return fmt.Errorf("motivo é obrigatório para deletar uma falta")
-	}
-
-	event := &FaltaDeletadaEvent{
-		BaseEvent:       BaseEvent{EventType: "FaltaDeletada", AggregateID: e.ID},
-		FaltaID:         faltaID,
-		CodigoEstudante: e.CodigoEstudante,
-		CodigoAcademia:  codigoAcademia,
-		Motivo:          motivo,
-		DeletadoPor:     deletadoPor,
-		DeletedAt:       time.Now(),
-	}
-
-	e.RaiseEvent(event)
-	return e.Apply(event)
-}
-
-// ============================================================================
 // Apply handlers
 // ============================================================================
 
@@ -225,16 +109,5 @@ func (e *Estudante) applyFaltasRegistradas(event DomainEvent) error {
 	}
 	chave := chaveFalta(ev.CodigoEstudante, ev.CodigoAcademia, ev.AnoLectivo, ev.Data, ev.MateriaDisciplinarID)
 	e.FaltasRegistradasPorChave[chave] = true
-	return nil
-}
-
-// applyFaltaAtualizada — aggregate não mantém os valores da falta em estado;
-// estado de faltas é gerenciado exclusivamente pela projeção.
-func (e *Estudante) applyFaltaAtualizada(_ DomainEvent) error {
-	return nil
-}
-
-// applyFaltaDeletada — sem estado derivado adicional no aggregate.
-func (e *Estudante) applyFaltaDeletada(_ DomainEvent) error {
 	return nil
 }

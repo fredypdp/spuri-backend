@@ -422,7 +422,7 @@ Configuração típica:
 - fórmula textual no modelo atual, usando categorias entre colchetes;
 - em Superior, a fórmula pode referenciar apenas `[categoria]`, pois o semestre é inferido pela matéria avaliada;
 - `limite_materias_pendentes` obrigatório;
-- `nota_despertadora` opcional apenas em regra raiz; sem ela, a raiz não dispara automaticamente por lançamento/atualização de nota;
+- `nota_despertadora` opcional apenas em regra raiz; sem ela, a raiz não dispara automaticamente por lançamento de nota;
 - pendências (`pendencia_permitida` e `pendencia_nivel_conclusao`) são exclusivas de matérias superiores.
 
 Exemplo:
@@ -569,17 +569,13 @@ Regras importantes:
 
 Com a configuração concluída, a academia já pode usar normalmente todas as funcionalidades da plataforma, incluindo gestão de estudantes, turmas, matérias, notas, faltas e acompanhamento das avaliações finais automáticas.
 
-Em escolas, as avaliações seguem o padrão fixo do sistema. No Superior, seguem as categorias e regras configuradas pela academia. A avaliação final não possui rota pública de execução manual: ela é disparada automaticamente pelo backend quando uma nota é registrada/atualizada e encontra as condições da regra aplicável.
+Em escolas, as avaliações seguem o padrão fixo do sistema. No Superior, seguem as categorias e regras configuradas pela academia. A avaliação final não possui rota pública de execução manual: ela é disparada automaticamente pelo backend quando uma nota é registrada e encontra as condições da regra aplicável.
 
 Rotas operacionais comuns:
 
 ```http
 POST /academia/notas-aluno
-PUT /academia/atualizar-nota
-DELETE /academia/nota/:id
 POST /academia/faltas-aluno
-PUT /academia/atualizar-falta
-DELETE /academia/falta/:id
 POST /academia/anos-letivos/finalizar
 ```
 

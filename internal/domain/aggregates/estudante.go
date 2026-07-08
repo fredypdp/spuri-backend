@@ -82,16 +82,8 @@ func (e *Estudante) Apply(event DomainEvent) error {
 		return e.applyEstudanteCriadoComVinculo(event)
 	case "FaltasRegistradas":
 		return e.applyFaltasRegistradas(event)
-	case "FaltaAtualizada":
-		return e.applyFaltaAtualizada(event)
-	case "FaltaDeletada":
-		return e.applyFaltaDeletada(event)
 	case "NotasRegistradas":
 		return e.applyNotasRegistradas(event)
-	case "NotaAtualizada":
-		return e.applyNotaAtualizada(event)
-	case "NotaDeletada":
-		return e.applyNotaDeletada(event)
 	case "MatriculaFundamentalEfetivada", "FundamentalRetomado":
 		return e.applyFundamentalEmAndamento(event)
 	case "FundamentalInterrompido":

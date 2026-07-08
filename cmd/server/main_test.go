@@ -177,3 +177,57 @@ func TestAcademiaAnosAcademicosRoutesExposeOnlyGetPostDelete(t *testing.T) {
 		t.Fatalf("expected PATCH /academia/anos-academicos to be removed with 404, got %d", w.Code)
 	}
 }
+
+func TestNotasAndFaltasExposeOnlyCreateAndReadRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := setupRouter()
+
+	registered := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/academia/notas-aluno"},
+		{http.MethodPost, "/academia/notas-aluno/async"},
+		{http.MethodPost, "/academia/faltas-aluno"},
+		{http.MethodPost, "/academia/faltas-aluno/async"},
+		{http.MethodGet, "/notas"},
+		{http.MethodGet, "/faltas"},
+		{http.MethodGet, "/notas-estudante/ABC1234"},
+		{http.MethodGet, "/faltas-estudante/ABC1234"},
+	}
+	for _, tc := range registered {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code == http.StatusNotFound {
+			t.Fatalf("expected %s %s to be registered, got 404", tc.method, tc.path)
+		}
+	}
+
+	removed := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPut, "/academia/atualizar-nota"},
+		{http.MethodPatch, "/academia/atualizar-nota"},
+		{http.MethodDelete, "/academia/nota/00000000-0000-0000-0000-000000000000"},
+		{http.MethodPut, "/academia/atualizar-nota/async"},
+		{http.MethodDelete, "/academia/nota/async"},
+		{http.MethodPut, "/academia/atualizar-falta"},
+		{http.MethodPatch, "/academia/atualizar-falta"},
+		{http.MethodDelete, "/academia/falta/00000000-0000-0000-0000-000000000000"},
+		{http.MethodPut, "/academia/atualizar-falta/async"},
+		{http.MethodDelete, "/academia/falta/async"},
+	}
+	for _, tc := range removed {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected %s %s to be removed with 404, got %d", tc.method, tc.path, w.Code)
+		}
+	}
+}

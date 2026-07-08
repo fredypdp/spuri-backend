@@ -59,13 +59,9 @@ var validEventTypes = map[string]bool{
 	"AcaoAdminRegistrada":   true,
 	"AdminRoleAtualizado":   true,
 	// ── Notas e Faltas ────────────────────────────────────────────────────────
-	"NotaAtualizada":    true,
 	"NotasRegistradas":  true,
-	"NotaDeletada":      true,
 	"FaltasRegistradas": true,
 	"FaltaRegistrada":   true,
-	"FaltaAtualizada":   true,
-	"FaltaDeletada":     true,
 	// ── Turma ─────────────────────────────────────────────────────────────────
 	"TurmaCriada":               true,
 	"TurmaAtivada":              true,

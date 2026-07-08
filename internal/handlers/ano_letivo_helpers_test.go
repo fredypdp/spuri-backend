@@ -1,6 +1,9 @@
 package handlers
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestNormalizarPeriodoLetivo(t *testing.T) {
 	tests := []struct {
@@ -125,5 +128,36 @@ func TestMesPermiteFinalizacaoAnoLetivo(t *testing.T) {
 		if got != permitidos[mes] {
 			t.Fatalf("mes=%02d got=%v, want=%v", mes, got, permitidos[mes])
 		}
+	}
+}
+
+func TestValidarDataNoPeriodoLetivoFaltasEscolarESuperior(t *testing.T) {
+	cases := []struct {
+		name    string
+		tipo    string
+		data    string
+		wantErr bool
+	}{
+		{name: "escolar dentro", tipo: "escolar", data: "2025-09-01"},
+		{name: "escolar antes", tipo: "escolar", data: "2025-08-31", wantErr: true},
+		{name: "escolar depois", tipo: "escolar", data: "2026-08-01", wantErr: true},
+		{name: "superior dentro", tipo: "superior", data: "2025-10-01"},
+		{name: "superior antes", tipo: "superior", data: "2025-09-30", wantErr: true},
+		{name: "superior depois", tipo: "superior", data: "2026-08-01", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := time.Parse("2006-01-02", tc.data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = validarDataNoPeriodoLetivo(nil, tc.tipo, "2025_2026", data)
+			if tc.wantErr && err == nil {
+				t.Fatalf("expected error for %s %s", tc.tipo, tc.data)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected error for %s %s: %v", tc.tipo, tc.data, err)
+			}
+		})
 	}
 }

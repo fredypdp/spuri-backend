@@ -50,47 +50,6 @@ type NotasRegistradasEvent struct {
 func (e *NotasRegistradasEvent) GetPayload() interface{} { return e }
 func (e *NotasRegistradasEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
-// NotaAtualizadaEvent — emitido ao corrigir uma nota existente.
-// EventType: "NotaAtualizada" (canônico).
-// Observacao é OBRIGATÓRIA neste evento (justificativa da correção).
-//
-// FIX E-07: campo AtualizadoPor adicionado para auditoria self-contained.
-type NotaAtualizadaEvent struct {
-	BaseEvent
-	CodigoEstudante      string
-	CodigoAcademia       string
-	AnoLectivo           string
-	Periodo              string
-	MateriaDisciplinarID uuid.UUID
-	Tipo                 string
-	Categoria            string
-	NotaAnterior         float64
-	NotaNova             float64
-	Observacao           string // obrigatória — justificativa da correção
-	UpdatedAt            time.Time
-	// FIX E-07: UUID do usuário que corrigiu a nota. uuid.Nil = legado/não preenchido.
-	AtualizadoPor uuid.UUID
-}
-
-func (e *NotaAtualizadaEvent) GetPayload() interface{} { return e }
-func (e *NotaAtualizadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
-
-// NotaDeletadaEvent — emitido ao fazer soft delete de uma nota.
-// EventType: "NotaDeletada".
-// Motivo é OBRIGATÓRIO para auditoria self-contained no ledger.
-type NotaDeletadaEvent struct {
-	BaseEvent
-	NotaID          uuid.UUID
-	CodigoEstudante string
-	CodigoAcademia  string
-	Motivo          string
-	DeletadoPor     uuid.UUID
-	DeletedAt       time.Time
-}
-
-func (e *NotaDeletadaEvent) GetPayload() interface{} { return e }
-func (e *NotaDeletadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
-
 // ============================================================================
 // Validações internas
 // ============================================================================
@@ -227,93 +186,6 @@ func (e *Estudante) RegistrarNota(
 }
 
 // ============================================================================
-// Método de comando: AtualizarNota
-// ============================================================================
-
-// AtualizarNota corrige uma nota já registrada.
-// observacao é OBRIGATÓRIA — deve justificar a correção.
-// periodosValidos: mesmo critério que RegistrarNota.
-// A categoria não pode ser alterada numa atualização — é repassada da nota original.
-func (e *Estudante) AtualizarNota(
-	codigoAcademia string,
-	anoLectivo string,
-	periodo string,
-	materiaDisciplinarID uuid.UUID,
-	tipo string,
-	categoria string,
-	notaAnterior float64,
-	notaNova float64,
-	observacao string,
-	periodosValidos []string,
-	atualizadoPor uuid.UUID,
-) error {
-	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
-		return fmt.Errorf("estudante não pertence a esta academia")
-	}
-	if strings.TrimSpace(observacao) == "" {
-		return fmt.Errorf("observacao é obrigatória para atualizar uma nota")
-	}
-	if err := validarPeriodoComLista(periodo, periodosValidos); err != nil {
-		return err
-	}
-	if notaNova < 0 {
-		return fmt.Errorf("nota_nova deve ser maior ou igual a 0")
-	}
-
-	event := &NotaAtualizadaEvent{
-		BaseEvent:            BaseEvent{EventType: "NotaAtualizada", AggregateID: e.ID},
-		CodigoEstudante:      e.CodigoEstudante,
-		CodigoAcademia:       codigoAcademia,
-		AnoLectivo:           anoLectivo,
-		Periodo:              periodo,
-		MateriaDisciplinarID: materiaDisciplinarID,
-		Tipo:                 tipo,
-		Categoria:            categoria,
-		NotaAnterior:         notaAnterior,
-		NotaNova:             notaNova,
-		Observacao:           observacao,
-		UpdatedAt:            time.Now(),
-		AtualizadoPor:        atualizadoPor,
-	}
-
-	e.RaiseEvent(event)
-	return e.Apply(event)
-}
-
-// ============================================================================
-// Método de comando: DeletarNota
-// ============================================================================
-
-// DeletarNota faz soft delete de uma nota existente.
-// motivo é OBRIGATÓRIO para auditoria.
-func (e *Estudante) DeletarNota(
-	codigoAcademia string,
-	notaID uuid.UUID,
-	motivo string,
-	deletadoPor uuid.UUID,
-) error {
-	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
-		return fmt.Errorf("estudante não pertence a esta academia")
-	}
-	if strings.TrimSpace(motivo) == "" {
-		return fmt.Errorf("motivo é obrigatório para deletar uma nota")
-	}
-
-	event := &NotaDeletadaEvent{
-		BaseEvent:       BaseEvent{EventType: "NotaDeletada", AggregateID: e.ID},
-		NotaID:          notaID,
-		CodigoEstudante: e.CodigoEstudante,
-		CodigoAcademia:  codigoAcademia,
-		Motivo:          motivo,
-		DeletadoPor:     deletadoPor,
-		DeletedAt:       time.Now(),
-	}
-
-	e.RaiseEvent(event)
-	return e.Apply(event)
-}
-
-// ============================================================================
 // Apply handlers
 // ============================================================================
 
@@ -335,22 +207,5 @@ func (e *Estudante) applyNotasRegistradas(event DomainEvent) error {
 	}
 	chave := chaveNota(ev.CodigoAcademia, ev.AnoLectivo, ev.Periodo, ev.MateriaDisciplinarID, ev.Tipo, ev.Categoria)
 	e.NotasRegistradasPorChave[chave] = true
-	return nil
-}
-
-// applyNotaAtualizada — aggregate não mantém o valor da nota em estado;
-// estado de notas é gerenciado exclusivamente pela projeção.
-func (e *Estudante) applyNotaAtualizada(_ DomainEvent) error {
-	return nil
-}
-
-// applyNotaDeletada — remove a chave do mapa para permitir novo registro
-// caso a nota seja deletada e a academia queira registrá-la novamente.
-func (e *Estudante) applyNotaDeletada(event DomainEvent) error {
-	// Nota deletada: não removemos a chave do mapa intencionalmente.
-	// Uma nota deletada não deve ser re-registrada com a mesma combinação
-	// de chave — isso seria um erro de negócio. A projeção controla o soft delete.
-	// Se o comportamento de re-registro após deleção for necessário no futuro,
-	// adicionar aqui a remoção da chave com justificativa explícita.
 	return nil
 }

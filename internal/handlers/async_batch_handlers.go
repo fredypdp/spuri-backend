@@ -165,28 +165,12 @@ func RegistrarNotaBatchAsync(c *gin.Context) {
 	enqueueAsyncBatch(c, jobs.JobTypeRegistrarNotaBatch, 2000)
 }
 
-func AtualizarNotaBatchAsync(c *gin.Context) {
-	enqueueAsyncBatch(c, jobs.JobTypeAtualizarNotaBatch, 2000)
-}
-
-func DeletarNotaBatchAsync(c *gin.Context) {
-	enqueueAsyncBatch(c, jobs.JobTypeDeletarNotaBatch, 2000)
-}
-
 // ============================================================================
 // Academia — faltas
 // ============================================================================
 
 func RegistrarFaltasBatchAsync(c *gin.Context) {
 	enqueueAsyncBatch(c, jobs.JobTypeRegistrarFaltasBatch, 2000)
-}
-
-func AtualizarFaltaBatchAsync(c *gin.Context) {
-	enqueueAsyncBatch(c, jobs.JobTypeAtualizarFaltaBatch, 2000)
-}
-
-func DeletarFaltaBatchAsync(c *gin.Context) {
-	enqueueAsyncBatch(c, jobs.JobTypeDeletarFaltaBatch, 2000)
 }
 
 // ============================================================================
