@@ -274,6 +274,7 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 		Nivel          string    `json:"Nivel"`
 		Type           string    `json:"Type"`
 		Nome           string    `json:"Nome"`
+		NIF            string    `json:"NIF"`
 		CodigoAcademia string    `json:"CodigoAcademia"`
 		SenhaHash      string    `json:"SenhaHash"`
 		Provincia      string    `json:"Provincia"`
@@ -305,23 +306,24 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 
 	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_academias (
-			id, nivel, type, nome, codigo_academia, senha_hash,
+			id, nivel, type, nome, nif, codigo_academia, senha_hash,
 			provincia, endereco, telefone, telefone_verificado, email, website,
 			nivel_escolar, anos_academicos, cursos, status, email_verificado,
 			total_estudantes,
 			created_at, updated_at, version, last_event_id
 		) VALUES (
-			$1, $2, $3, $4, $5, $6,
-			$7, $8, $9, FALSE, $10, $11,
-			$12, $13, $14, 'inativo', FALSE,
+			$1, $2, $3, $4, $5, $6, $7,
+			$8, $9, $10, FALSE, $11, $12,
+			$13, $14, $15, 'inativo', FALSE,
 			0,
-			$15, CURRENT_TIMESTAMP, $16, $17
+			$16, CURRENT_TIMESTAMP, $17, $18
 		)
 		ON CONFLICT (codigo_academia) DO UPDATE SET
 			id              = EXCLUDED.id,
 			nivel           = EXCLUDED.nivel,
 			type            = EXCLUDED.type,
 			nome            = EXCLUDED.nome,
+			nif             = EXCLUDED.nif,
 			senha_hash      = EXCLUDED.senha_hash,
 			provincia       = EXCLUDED.provincia,
 			endereco        = EXCLUDED.endereco,
@@ -336,7 +338,7 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 			version         = EXCLUDED.version,
 			last_event_id   = EXCLUDED.last_event_id
 	`,
-		event.AggregateID, payload.Nivel, payload.Type, payload.Nome, payload.CodigoAcademia, payload.SenhaHash,
+		event.AggregateID, payload.Nivel, payload.Type, payload.Nome, payload.NIF, payload.CodigoAcademia, payload.SenhaHash,
 		payload.Provincia, payload.Endereco, payload.Telefone, payload.Email, payload.Website,
 		payload.NivelEscolar, anosValue, cursosJSON,
 		payload.CreatedAt, event.EventVersion, event.EventID,
@@ -765,6 +767,7 @@ type AcademiaDTO struct {
 	Type                   string              `json:"type"`
 	Nome                   string              `json:"nome"`
 	CodigoAcademia         string              `json:"codigo_academia"`
+	NIF                    string              `json:"nif"`
 	SenhaHash              string              `json:"-"`
 	Provincia              string              `json:"provincia"`
 	Endereco               string              `json:"endereco"`
@@ -796,7 +799,7 @@ type AcademiaDTO struct {
 
 func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
 	row := p.client.DB().QueryRow(`
-		SELECT id, nivel, nome, codigo_academia, senha_hash,
+		SELECT id, nivel, nome, nif, codigo_academia, senha_hash,
 			type,
 			provincia, endereco, telefone, telefone_verificado, email, website,
 			nivel_escolar, anos_academicos, status, motivo_desativacao, cursos, email_verificado,
@@ -810,7 +813,7 @@ func (p *AcademiaProjection) GetByID(id uuid.UUID) (*AcademiaDTO, error) {
 
 func (p *AcademiaProjection) GetByCodigo(codigo string) (*AcademiaDTO, error) {
 	row := p.client.DB().QueryRow(`
-		SELECT id, nivel, nome, codigo_academia, senha_hash,
+		SELECT id, nivel, nome, nif, codigo_academia, senha_hash,
 			type,
 			provincia, endereco, telefone, telefone_verificado, email, website,
 			nivel_escolar, anos_academicos, status, motivo_desativacao, cursos, email_verificado,
@@ -822,9 +825,23 @@ func (p *AcademiaProjection) GetByCodigo(codigo string) (*AcademiaDTO, error) {
 	return scanAcademia(row)
 }
 
+func (p *AcademiaProjection) GetByNIF(nif string) (*AcademiaDTO, error) {
+	row := p.client.DB().QueryRow(`
+		SELECT id, nivel, nome, nif, codigo_academia, senha_hash,
+			type,
+			provincia, endereco, telefone, telefone_verificado, email, website,
+			nivel_escolar, anos_academicos, status, motivo_desativacao, cursos, email_verificado,
+			created_at, updated_at, total_estudantes, version,
+			ano_letivo, tipo_ano_letivo, ano_letivo_ativado_em, anos_letivos_lista, documentos_obrigatorios
+		FROM projection_academias
+		WHERE nif = $1
+	`, nif)
+	return scanAcademia(row)
+}
+
 func (p *AcademiaProjection) GetByEmail(email string) (*AcademiaDTO, error) {
 	row := p.client.DB().QueryRow(`
-		SELECT id, nivel, nome, codigo_academia, senha_hash,
+		SELECT id, nivel, nome, nif, codigo_academia, senha_hash,
 			type,
 			provincia, endereco, telefone, telefone_verificado, email, website,
 			nivel_escolar, anos_academicos, status, motivo_desativacao, cursos, email_verificado,
@@ -859,7 +876,7 @@ func scanAcademia(row interface{ Scan(...interface{}) error }) (*AcademiaDTO, er
 	var anoLetivoAtivadoEm sql.NullTime
 
 	err := row.Scan(
-		&a.ID, &a.Nivel, &a.Nome, &a.CodigoAcademia, &a.SenhaHash,
+		&a.ID, &a.Nivel, &a.Nome, &a.NIF, &a.CodigoAcademia, &a.SenhaHash,
 		&a.Type,
 		&a.Provincia, &a.Endereco, &a.Telefone, &a.TelefoneVerificado, &a.Email, &a.Website,
 		&a.NivelEscolar, &anosJSON, &a.Status, &motivoDesativacao, &cursosJSON, &a.EmailVerificado,

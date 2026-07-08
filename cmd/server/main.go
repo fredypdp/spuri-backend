@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -20,6 +19,7 @@ import (
 	"spuri/internal/middleware"
 	"spuri/internal/projections"
 	"spuri/internal/storage"
+	"spuri/internal/utils"
 )
 
 var (
@@ -198,7 +198,7 @@ func setupRouter() *gin.Engine {
 
 	router.Use(gin.RecoveryWithWriter(gin.DefaultErrorWriter, func(c *gin.Context, recovered interface{}) {
 		log.Printf("[PANIC] Recuperado: %v — IP: %s — Path: %s", recovered, c.ClientIP(), c.Request.URL.Path)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro interno do servidor"})
+		utils.RespondWithInternalError(c, fmt.Errorf("panic recuperado"))
 	}))
 
 	router.Use(func(c *gin.Context) {

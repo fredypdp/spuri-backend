@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"strings"
 	"time"
@@ -19,6 +21,7 @@ import (
 	"spuri/internal/middleware"
 	"spuri/internal/projections"
 	"spuri/internal/services"
+	"spuri/internal/storage"
 	"spuri/internal/utils"
 )
 
@@ -30,6 +33,7 @@ type RegisterAcademiaRequest struct {
 	Nivel        string   `json:"nivel"           binding:"required"`
 	Type         string   `json:"type"            binding:"required"`
 	Nome         string   `json:"nome"            binding:"required"`
+	NIF          string   `json:"nif"             binding:"required"`
 	Provincia    string   `json:"provincia"       binding:"required"`
 	Endereco     string   `json:"endereco"        binding:"required"`
 	Telefone     *string  `json:"telefone"`
@@ -56,9 +60,8 @@ func RegisterAcademia(c *gin.Context) {
 		return
 	}
 
-	var req RegisterAcademiaRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: nivel, type, nome, provincia e endereco"))
+	req, alvara, ok := bindRegisterAcademiaRequest(c)
+	if !ok {
 		return
 	}
 
@@ -78,6 +81,19 @@ func RegisterAcademia(c *gin.Context) {
 	}
 
 	if err := utils.ValidateEndereco(req.Endereco); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if err := utils.ValidateNIF(req.NIF); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if alvara == nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("alvara é obrigatório"))
+		return
+	}
+	alvaraPDF, err := readAndValidatePDF("alvara", alvara)
+	if err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -114,6 +130,15 @@ func RegisterAcademia(c *gin.Context) {
 	}
 
 	client := getDbClient(c)
+	existing, err := getAcademiaProjection(c).GetByNIF(req.NIF)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if existing != nil {
+		utils.RespondWithConflictError(c, "nif já cadastrado em outra academia")
+		return
+	}
 	codigoAcademia, err := generateCodigoAcademia(codigoProvincia, client.DB())
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
@@ -132,6 +157,7 @@ func RegisterAcademia(c *gin.Context) {
 		req.Nivel,
 		req.Type,
 		req.Nome,
+		req.NIF,
 		codigoAcademia,
 		string(hashedPassword),
 		codigoProvincia,
@@ -154,7 +180,28 @@ func RegisterAcademia(c *gin.Context) {
 		UserType: "admin",
 		IP:       c.ClientIP(),
 	}
+	provider := getStorageProvider(c)
+	if provider == nil {
+		p, _ := storage.NewDriveProvider()
+		provider = p
+	}
+	dir := fmt.Sprintf("%s/Documentação formal", codigoAcademia)
+	if provider == nil {
+		utils.RespondWithInternalError(c, fmt.Errorf("storage indisponível"))
+		return
+	}
+	if err := provider.EnsureDir(dir); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if _, err := provider.Upload(fmt.Sprintf("%s/alvara_%s.pdf", dir, codigoAcademia), bytes.NewReader(alvaraPDF.data), alvaraPDF.size); err != nil {
+		_ = provider.Delete(dir)
+		utils.RespondWithInternalError(c, fmt.Errorf("falha no upload do alvara: %w", err))
+		return
+	}
+
 	if err := repository.SaveWithAudit(academia, audit); err != nil {
+		_ = provider.Delete(dir)
 		utils.RespondWithInternalError(c, err)
 		return
 	}
@@ -166,6 +213,7 @@ func RegisterAcademia(c *gin.Context) {
 		"data": gin.H{
 			"id":              academia.ID,
 			"nome":            req.Nome,
+			"nif":             req.NIF,
 			"type":            req.Type,
 			"provincia":       codigoProvincia,
 			"codigo_academia": codigoAcademia,
@@ -1145,4 +1193,41 @@ func calcularLimiteFinalizacao(client *db.Client, tipo, anoFiltro string) (strin
 		minimo, _ = proximoAnoLetivoValidado(marco)
 	}
 	return marco, minimo, total, fin, nil
+}
+
+func bindRegisterAcademiaRequest(c *gin.Context) (RegisterAcademiaRequest, *multipart.FileHeader, bool) {
+	var req RegisterAcademiaRequest
+	if strings.HasPrefix(strings.ToLower(c.GetHeader("Content-Type")), "multipart/form-data") {
+		if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("multipart/form-data inválido"))
+			return req, nil, false
+		}
+		get := func(k string) string { return strings.TrimSpace(c.PostForm(k)) }
+		req = RegisterAcademiaRequest{
+			Nivel: get("nivel"), Type: get("type"), Nome: get("nome"), NIF: get("nif"), Provincia: get("provincia"), Endereco: get("endereco"),
+			Cursos: c.PostFormArray("cursos"), AnosAcademicos: c.PostFormArray("anos_academicos"),
+		}
+		if v := get("telefone"); v != "" {
+			req.Telefone = &v
+		}
+		if v := get("email"); v != "" {
+			req.Email = &v
+		}
+		if v := get("website"); v != "" {
+			req.Website = &v
+		}
+		if v := get("nivel_escolar"); v != "" {
+			req.NivelEscolar = &v
+		}
+		fh, err := c.FormFile("alvara")
+		if err != nil {
+			return req, nil, true
+		}
+		return req, fh, true
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: nivel, type, nome, nif, provincia, endereco e alvara"))
+		return req, nil, false
+	}
+	return req, nil, true
 }

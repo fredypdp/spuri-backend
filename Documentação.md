@@ -43,7 +43,7 @@ Versão atual: 2.1.1
 
 ### Envelope de Erro
 
-O formato padronizado usado pelas rotas que chamam `utils.RespondWithError`/`RespondWithDetailedError` é:
+Todas as rotas retornam erros exclusivamente neste envelope padronizado (`utils.RespondWithError`/`RespondWithDetailedError`):
 
 ```json
 {
@@ -60,13 +60,7 @@ O formato padronizado usado pelas rotas que chamam `utils.RespondWithError`/`Res
 }
 ```
 
-Alguns middlewares e handlers legados retornam erro simples, sem `message`, `request_id` ou `details`:
-
-```json
-{
-  "error": "mensagem do erro"
-}
-```
+O formato legado de erro simples não é contrato suportado.
 
 > `details` é opcional. Ele aparece quando a rota consegue apontar exatamente
 > o campo, o código interno do problema e uma explicação acionável para o
@@ -1020,7 +1014,7 @@ Define nova senha usando o token de recuperação.
 
 ### POST /dominis/academia/register
 
-Registra uma nova academia. Criada com status `inativo`.
+Registra uma nova academia via `multipart/form-data`. Criada com status `inativo`. `nif` é obrigatório, string única de exatamente 10 dígitos, inclusive para academias inativas. `alvara` é arquivo obrigatório, deve ser PDF válido com até 10MB e é armazenado em `{codigo_academia}/Documentação formal/`.
 
 **Proteção**: autenticado + admin (qualquer role)
 
@@ -1031,6 +1025,8 @@ Registra uma nova academia. Criada com status `inativo`.
   "nivel": "escola",
   "type": "public",
   "nome": "Escola Primária Ngola Kiluanje",
+  "nif": "0012345678",
+  "alvara": "@./alvara.pdf;type=application/pdf",
   "provincia": "luanda",
   "endereco": "Rua Direita, 123",
   "telefone": "+244923000000",
@@ -1049,6 +1045,8 @@ Registra uma nova academia. Criada com status `inativo`.
   "nivel": "superior",
   "type": "private",
   "nome": "Universidade Agostinho Neto",
+  "nif": "0098765432",
+  "alvara": "@./alvara.pdf;type=application/pdf",
   "provincia": "luanda",
   "endereco": "Av. 4 de Fevereiro",
   "email": "uan@uan.ao"
@@ -1064,6 +1062,7 @@ Registra uma nova academia. Criada com status `inativo`.
   "data": {
     "id": "uuid",
     "nome": "string",
+    "nif": "0012345678",
     "provincia": "LDA",
     "codigo_academia": "LDA20261"
   }
@@ -1072,8 +1071,8 @@ Registra uma nova academia. Criada com status `inativo`.
 
 **Erros:**
 
-- `400` — `nivel` inválido, `type` inválido (`public`/`private`) ou ausente, campos obrigatórios ausentes, anos_academicos inválidos
-- `409` — academia já existe
+- `400` — `nivel` inválido, `type` inválido (`public`/`private`) ou ausente, `nif` ausente/inválido, `alvara` ausente/não PDF/acima de 10MB, campos obrigatórios ausentes ou anos_academicos inválidos
+- `409` — academia ou `nif` já existe
 
 ---
 
@@ -2056,7 +2055,7 @@ Para implementar o cliente de forma segura:
 
 1. Academia envia os dados do estudante em `multipart/form-data`, com ou sem anexos.
 2. Sistema mantém obrigatórias as validações cadastrais e acadêmicas, mas não bloqueia o cadastro direto pela ausência de PDFs.
-3. Sistema valida que todos os arquivos enviados são PDF, respeitam o limite de 5MB e possuem assinatura `%PDF`.
+3. Sistema valida que todos os arquivos enviados são PDF, respeitam o limite de 10MB e possuem assinatura `%PDF`.
 4. Sistema gera código único (`AAA1234`), verificando ledger e projeção.
 5. Quando enviados, os documentos são enviados ao storage definitivo em `{codigo_academia}/estudantes/{codigo_estudante}/documentos/`.
 6. Senha padrão = código do estudante (ex: `ABC1234`).
@@ -2130,7 +2129,7 @@ Cadastra um novo estudante vinculado à academia autenticada. O cadastro direto 
 | `certificado_9_ano_fundamental` | Opcional; aplicável ao ensino médio. |
 | `certificado_ensino_medio` | Opcional; aplicável ao ensino superior. |
 
-Quando enviados, todos os ficheiros devem ter `Content-Type: application/pdf`, extensão `.pdf`, assinatura `%PDF` e tamanho máximo de 5MB. Os documentos são armazenados em `{codigo_academia}/estudantes/{codigo_estudante}/documentos/` e gravados no evento `EstudanteCriadoComVinculo` e na projeção do estudante como `documentos.<campo>.path`, `documentos.<campo>.file_url` e `documentos.<campo>.download_url`. Se a criação falhar após upload parcial, o backend remove o diretório definitivo do estudante para evitar ficheiros órfãos.
+Quando enviados, todos os ficheiros devem ter `Content-Type: application/pdf`, extensão `.pdf`, assinatura `%PDF` e tamanho máximo de 10MB. Os documentos são armazenados em `{codigo_academia}/estudantes/{codigo_estudante}/documentos/` e gravados no evento `EstudanteCriadoComVinculo` e na projeção do estudante como `documentos.<campo>.path`, `documentos.<campo>.file_url` e `documentos.<campo>.download_url`. Se a criação falhar após upload parcial, o backend remove o diretório definitivo do estudante para evitar ficheiros órfãos.
 
 **Request — multipart/form-data (sem documentos):**
 
@@ -2219,7 +2218,7 @@ curl -X POST https://api.exemplo.ao/academia/estudante/register \
 - `400` — `Content-Type` diferente de `multipart/form-data`
 - `400` — genero inválido, data_nascimento inválida ou no futuro
 - `400` — ano académico em formato incorreto ou incompatível com a academia/curso
-- `400` — ficheiro não PDF, sem assinatura `%PDF`, com extensão diferente de `.pdf` ou acima de 5MB
+- `400` — ficheiro não PDF, sem assinatura `%PDF`, com extensão diferente de `.pdf` ou acima de 10MB
 - `400` — BI do estudante igual ao BI do responsável, ou BI do estudante já cadastrado
 
 ---
@@ -2791,7 +2790,7 @@ Eventos do ledger:
 ### Processo de negócio
 
 1. O estudante envia `POST /solicitacao-matricula` com formulário multipart e PDFs.
-2. O backend valida bilhete de identidade do responsável, cédula do estudante quando necessário, data de nascimento, academia ativa, assinatura/extensão PDF, limite máximo de 5MB por ficheiro e as regras automáticas de declaração/certificados.
+2. O backend valida bilhete de identidade do responsável, cédula do estudante quando necessário, data de nascimento, academia ativa, assinatura/extensão PDF, limite máximo de 10MB por ficheiro e as regras automáticas de declaração/certificados.
 3. Os documentos são enviados ao storage em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`.
 4. Para cada PDF, o storage devolve o caminho interno, a URL do arquivo (`file_url`) e a URL de download (`download_url`); esses dados são gravados no evento de criação e na projeção.
 5. O aggregate `SolicitacaoMatricula` valida que `bilhete_identidade` e `bilhete_identidade_responsavel`, quando ambos informados, não sejam iguais.
@@ -2824,7 +2823,7 @@ Cria uma solicitação pública de matrícula via `multipart/form-data`. O backe
 
 **Campos**: `codigo_academia`, `nome`, `genero`, `data_nascimento`, `email`, `telefone`, `bilhete_identidade`, `bilhete_identidade_responsavel`, `ano_escolar_fundamental`, `ano_escolar_medio`, `curso_medio_id`, `ano_superior`, `curso_superior_id`. Quando `bilhete_identidade` e `bilhete_identidade_responsavel` forem enviados juntos, eles não podem ser iguais (comparação sem espaços nas extremidades e sem diferenciar maiúsculas/minúsculas).
 
-**Ficheiros PDF**: `bi_estudante`, `bi_responsavel`, `cedula_estudante`, `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`. Cada ficheiro deve ser PDF válido e ter no máximo 5MB. Para estudantes escolares/fundamental/médio, `bi_responsavel` é obrigatório; `bi_estudante` é obrigatório quando `bilhete_identidade` for informado; `cedula_estudante` é obrigatória quando o estudante não tiver BI próprio; `declaracao` é obrigatória quando o certificado aplicável ao ano académico não for enviado.
+**Ficheiros PDF**: `bi_estudante`, `bi_responsavel`, `cedula_estudante`, `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`. Cada ficheiro deve ser PDF válido e ter no máximo 10MB. Para estudantes escolares/fundamental/médio, `bi_responsavel` é obrigatório; `bi_estudante` é obrigatório quando `bilhete_identidade` for informado; `cedula_estudante` é obrigatória quando o estudante não tiver BI próprio; `declaracao` é obrigatória quando o certificado aplicável ao ano académico não for enviado.
 
 **Request:** `multipart/form-data` com os campos e ficheiros listados acima.
 

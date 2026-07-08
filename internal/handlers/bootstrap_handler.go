@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
+	"spuri/internal/utils"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -56,7 +57,7 @@ func BootstrapAdminFPP(c *gin.Context) {
 	// Garante que apenas uma goroutine/instância executa o bootstrap por vez.
 	if _, err := dbConn.Exec(`SELECT pg_advisory_lock(hashtext('bootstrap_admin_fpp'))`); err != nil {
 		log.Printf("❌ [BOOTSTRAP] Erro ao adquirir advisory lock: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro interno ao iniciar bootstrap"})
+		utils.RespondWithError(c, http.StatusInternalServerError, "erro interno ao iniciar bootstrap", nil)
 		return
 	}
 
@@ -79,7 +80,7 @@ func BootstrapAdminFPP(c *gin.Context) {
 	admins, err := adminProj.GetAll()
 	if err != nil {
 		log.Printf("❌ [BOOTSTRAP] Erro ao verificar admins: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao verificar admins existentes"})
+		utils.RespondWithError(c, http.StatusInternalServerError, "erro ao verificar admins existentes", nil)
 		return
 	}
 
@@ -97,7 +98,7 @@ func BootstrapAdminFPP(c *gin.Context) {
 	existing, _ := adminProj.GetByEmail(req.Email)
 	if existing != nil {
 		log.Printf("❌ [BOOTSTRAP] Email %s já cadastrado", req.Email)
-		c.JSON(http.StatusConflict, gin.H{"error": "email já cadastrado"})
+		utils.RespondWithError(c, http.StatusConflict, "email já cadastrado", nil)
 		return
 	}
 
@@ -105,7 +106,7 @@ func BootstrapAdminFPP(c *gin.Context) {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Senha), bcrypt.DefaultCost)
 	if err != nil {
 		log.Printf("❌ [BOOTSTRAP] Erro ao gerar hash: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao processar senha"})
+		utils.RespondWithError(c, http.StatusInternalServerError, "erro ao processar senha", nil)
 		return
 	}
 
@@ -115,7 +116,7 @@ func BootstrapAdminFPP(c *gin.Context) {
 	log.Println("🗂️ [BOOTSTRAP] Criando agregado Admin...")
 	if err := newAdmin.Criar(req.Nome, req.Email, string(hashedPassword), "fpp", nil); err != nil {
 		log.Printf("❌ [BOOTSTRAP] Erro ao criar agregado: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 
@@ -128,7 +129,7 @@ func BootstrapAdminFPP(c *gin.Context) {
 	}
 	if err := repository.SaveWithAudit(newAdmin, audit); err != nil {
 		log.Printf("❌ [BOOTSTRAP] Erro ao salvar eventos: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "erro ao criar admin FPP"})
+		utils.RespondWithError(c, http.StatusInternalServerError, "erro ao criar admin FPP", nil)
 		return
 	}
 

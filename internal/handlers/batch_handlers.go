@@ -71,11 +71,11 @@ func batchErr(index int, err error) BatchItemResult {
 func RegisterEstudanteBatch(c *gin.Context) {
 	var reqs []CadastroEstudanteAcademiaRequest
 	if err := c.ShouldBindJSON(&reqs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve ser um array de estudantes"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve ser um array de estudantes", nil)
 		return
 	}
 	if err := validarTamanhoBatch(len(reqs), 100); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 
@@ -106,11 +106,11 @@ func RegistrarNotaBatch(c *gin.Context) {
 	}
 	var reqs []ReqNota
 	if err := c.ShouldBindJSON(&reqs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve ser um array de notas"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve ser um array de notas", nil)
 		return
 	}
 	if err := validarTamanhoBatch(len(reqs), 200); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 
@@ -139,11 +139,11 @@ func RegistrarFaltasBatch(c *gin.Context) {
 	}
 	var reqs []ReqFalta
 	if err := c.ShouldBindJSON(&reqs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve ser um array de faltas"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve ser um array de faltas", nil)
 		return
 	}
 	if err := validarTamanhoBatch(len(reqs), 200); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 
@@ -173,11 +173,11 @@ func RegistrarAvaliacaoFinalBatch(c *gin.Context) {
 	}
 	var reqs []ReqAvaliacao
 	if err := c.ShouldBindJSON(&reqs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve ser um array de avaliações"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve ser um array de avaliações", nil)
 		return
 	}
 	if err := validarTamanhoBatch(len(reqs), 100); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 
@@ -205,11 +205,11 @@ func CriarCursoBatch(c *gin.Context) {
 	}
 	var reqs []ReqCurso
 	if err := c.ShouldBindJSON(&reqs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve ser um array de cursos"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve ser um array de cursos", nil)
 		return
 	}
 	if err := validarTamanhoBatch(len(reqs), 50); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 
@@ -248,11 +248,11 @@ func DeletarCursoBatch(c *gin.Context) {
 	}
 	var reqs []ReqDeletar
 	if err := c.ShouldBindJSON(&reqs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve ser um array"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve ser um array", nil)
 		return
 	}
 	if err := validarTamanhoBatch(len(reqs), 50); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 
@@ -283,11 +283,11 @@ func CriarMateriaBatch(c *gin.Context) {
 	}
 	var reqs []ReqMateria
 	if err := c.ShouldBindJSON(&reqs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve ser um array de matérias"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve ser um array de matérias", nil)
 		return
 	}
 	if err := validarTamanhoBatch(len(reqs), 100); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 
@@ -333,11 +333,11 @@ func CriarTurmaBatch(c *gin.Context) {
 	}
 	var reqs []ReqTurma
 	if err := c.ShouldBindJSON(&reqs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve ser um array de turmas"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve ser um array de turmas", nil)
 		return
 	}
 	if err := validarTamanhoBatch(len(reqs), 50); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 
@@ -376,11 +376,11 @@ func DeletarTurmaBatch(c *gin.Context) {
 	}
 	var reqs []ReqDeletar
 	if err := c.ShouldBindJSON(&reqs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve ser um array"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve ser um array", nil)
 		return
 	}
 	if err := validarTamanhoBatch(len(reqs), 50); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 
@@ -409,11 +409,11 @@ func AdicionarEstudanteBatch(c *gin.Context) {
 	}
 	var reqs []ReqAdicionar
 	if err := c.ShouldBindJSON(&reqs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve ser um array"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve ser um array", nil)
 		return
 	}
 	if err := validarTamanhoBatch(len(reqs), 100); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 
@@ -445,11 +445,11 @@ func RemoverEstudanteBatch(c *gin.Context) {
 	}
 	var reqs []ReqRemover
 	if err := c.ShouldBindJSON(&reqs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve ser um array"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve ser um array", nil)
 		return
 	}
 	if err := validarTamanhoBatch(len(reqs), 100); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 
@@ -486,11 +486,11 @@ func RemoverEstudanteBatch(c *gin.Context) {
 func RegisterAcademiaBatch(c *gin.Context) {
 	var reqs []RegisterAcademiaRequest
 	if err := c.ShouldBindJSON(&reqs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve ser um array de academias"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve ser um array de academias", nil)
 		return
 	}
 	if err := validarTamanhoBatch(len(reqs), 50); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 
@@ -537,11 +537,11 @@ func DesativarAcademiaBatch(c *gin.Context) {
 	}
 	var reqs []ReqDesativar
 	if err := c.ShouldBindJSON(&reqs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve ser um array de {codigo, motivo}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve ser um array de {codigo, motivo}", nil)
 		return
 	}
 	if err := validarTamanhoBatch(len(reqs), 50); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 
@@ -589,11 +589,11 @@ func runIDParamBatch(c *gin.Context, max int, fn func(*gin.Context)) {
 	}
 	var reqs []ReqID
 	if err := c.ShouldBindJSON(&reqs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve ser um array de {id}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve ser um array de {id}", nil)
 		return
 	}
 	if err := validarTamanhoBatch(len(reqs), max); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 
@@ -617,11 +617,11 @@ func runCodigoParamBatch(c *gin.Context, max int, fn func(*gin.Context)) {
 	}
 	var reqs []ReqCodigo
 	if err := c.ShouldBindJSON(&reqs); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "body deve ser um array de {codigo}"})
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve ser um array de {codigo}", nil)
 		return
 	}
 	if err := validarTamanhoBatch(len(reqs), max); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 

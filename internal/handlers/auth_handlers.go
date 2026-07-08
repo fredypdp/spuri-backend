@@ -176,12 +176,12 @@ func Login(c *gin.Context) {
 	// nem qual tipo de usuário foi (ou não) encontrado.
 	if !userFound {
 		log.Printf("[INFO] [Login] Usuário não encontrado: %s", req.Usuario)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "usuário não encontrado"})
+		utils.RespondWithError(c, http.StatusUnauthorized, "usuário não encontrado", nil)
 		return
 	}
 	if bcryptErr != nil {
 		log.Printf("[INFO] [Login] Senha incorreta para usuário: %s", req.Usuario)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "senha incorreta"})
+		utils.RespondWithError(c, http.StatusUnauthorized, "senha incorreta", nil)
 		return
 	}
 
@@ -198,7 +198,7 @@ func Login(c *gin.Context) {
 		case "estudante":
 			msg = "conta inativa. Entre em contato com sua academia."
 		}
-		c.JSON(http.StatusUnauthorized, gin.H{"error": msg})
+		utils.RespondWithError(c, http.StatusUnauthorized, msg, nil)
 		return
 	}
 

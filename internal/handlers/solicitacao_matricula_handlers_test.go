@@ -10,27 +10,27 @@ import (
 	"testing"
 )
 
-func TestReadAndValidatePDFRejectsFilesLargerThanFiveMB(t *testing.T) {
-	fh := multipartFileHeader(t, "documento", "documento.pdf", "application/pdf", append([]byte("%PDF"), bytes.Repeat([]byte("a"), int(maxSolicitacaoDocumentoBytes))...))
+func TestReadAndValidatePDFRejectsFilesLargerThanTenMB(t *testing.T) {
+	fh := multipartFileHeader(t, "documento", "documento.pdf", "application/pdf", append([]byte("%PDF"), bytes.Repeat([]byte("a"), int(MaxPDFUploadBytes))...))
 
 	_, err := readAndValidatePDF("documento", fh)
 	if err == nil {
-		t.Fatalf("esperava erro para documento maior que 5MB")
+		t.Fatalf("esperava erro para documento maior que 10MB")
 	}
-	if !strings.Contains(err.Error(), "no máximo 5MB") {
+	if !strings.Contains(err.Error(), "no máximo 10MB") {
 		t.Fatalf("erro inesperado: %v", err)
 	}
 }
 
-func TestReadAndValidatePDFAcceptsFilesUpToFiveMB(t *testing.T) {
-	fh := multipartFileHeader(t, "documento", "documento.pdf", "application/pdf", append([]byte("%PDF"), bytes.Repeat([]byte("a"), int(maxSolicitacaoDocumentoBytes)-4)...))
+func TestReadAndValidatePDFAcceptsFilesUpToTenMB(t *testing.T) {
+	fh := multipartFileHeader(t, "documento", "documento.pdf", "application/pdf", append([]byte("%PDF"), bytes.Repeat([]byte("a"), int(MaxPDFUploadBytes)-4)...))
 
 	pdf, err := readAndValidatePDF("documento", fh)
 	if err != nil {
-		t.Fatalf("não esperava erro para documento com 5MB exatos: %v", err)
+		t.Fatalf("não esperava erro para documento com 10MB exatos: %v", err)
 	}
-	if pdf.size != maxSolicitacaoDocumentoBytes {
-		t.Fatalf("tamanho inesperado: recebido=%d esperado=%d", pdf.size, maxSolicitacaoDocumentoBytes)
+	if pdf.size != MaxPDFUploadBytes {
+		t.Fatalf("tamanho inesperado: recebido=%d esperado=%d", pdf.size, MaxPDFUploadBytes)
 	}
 }
 
@@ -58,7 +58,7 @@ func multipartFileHeader(t *testing.T, field, filename, contentType string, data
 		t.Fatalf("falha ao criar request: %v", err)
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-	if err := req.ParseMultipartForm(maxSolicitacaoDocumentoBytes + 1024); err != nil {
+	if err := req.ParseMultipartForm(MaxPDFUploadBytes + 1024); err != nil {
 		t.Fatalf("falha ao parsear multipart form: %v", err)
 	}
 	files := req.MultipartForm.File[field]
