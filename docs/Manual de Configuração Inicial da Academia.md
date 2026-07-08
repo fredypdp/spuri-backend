@@ -280,7 +280,7 @@ Exemplo:
 }
 ```
 
-Matérias fundamentais nascem ativas. Para Fundamental, `anos_academicos` aceita de 1 a 9 itens válidos.
+Matérias fundamentais nascem ativas. Para Fundamental, `anos_academicos` aceita de 1 a 9 itens válidos. Payloads escolares não aceitam `pendencia_permitida` nem `pendencia_nivel_conclusao`.
 
 ### 7.2 Matéria média
 
@@ -297,7 +297,7 @@ Exemplo:
 }
 ```
 
-Matérias médias nascem ativas. Matérias dependentes/pendências não são permitidas no Médio escolar; `pendencia_permitida` e `pendencia_nivel_conclusao` são exclusivos do Superior.
+Matérias médias nascem ativas. Matérias dependentes/pendências não são permitidas no Médio escolar; `pendencia_permitida` e `pendencia_nivel_conclusao` são exclusivos do Superior e são rejeitados em payloads escolares.
 
 ### 7.3 Matéria superior
 
@@ -317,15 +317,13 @@ Exemplo:
 }
 ```
 
-Matérias superiores nascem inativas e precisam ser ativadas no próximo passo. O campo `periodo` é obrigatório na criação e não pode ser editado depois por `PUT /academia/materia/:id/dados`.
+Matérias superiores nascem ativas por padrão. O campo `periodo` é obrigatório na criação e não pode ser editado depois por `PUT /academia/materia/:id/dados`. O request superior mantém `pendencia_permitida`; quando ele não for enviado, o backend infere e persiste `pendencia_permitida=true`. `pendencia_nivel_conclusao` também é exclusivo do Superior e deve apontar para um semestre válido do curso.
 
 ---
 
-## 8. Passo 6 — Ativar matérias superiores
+## 8. Passo 6 — Revisar status das matérias superiores
 
-Este passo só se aplica ao ensino superior.
-
-Depois de criar e revisar uma matéria superior, ative-a:
+Matérias superiores novas já são criadas ativas por padrão, portanto não existe etapa obrigatória de ativação após o cadastro. A rota abaixo permanece para reativar matérias superiores que tenham sido desativadas explicitamente:
 
 ```http
 PUT /academia/materia/:id/ativar
@@ -647,7 +645,7 @@ Operação normal da plataforma
 | Anos médios rejeitados em `/academia/anos-academicos` | Anos médios são derivados do `modelo` do curso. | Crie curso médio com `modelo="liceu"` ou `modelo="tecnico"`. |
 | Escopo superior rejeitado em `/academia/anos-academicos` | Cursos superiores não aceitam gestão direta de anos/períodos por essa rota. | Defina `periodos` na criação do curso superior. |
 | Matéria média rejeitada | Curso médio não existe, está inativo, é de outra academia ou ano não pertence ao curso. | Crie/consulte o curso antes da matéria e use um ano derivado do curso. |
-| Matéria superior não entra na avaliação | Matéria superior foi criada, mas continua inativa. | Ative com `PUT /academia/materia/:id/ativar`. |
+| Matéria superior não entra na avaliação | Matéria superior foi desativada explicitamente ou foi criada antes da regra atual de status padrão ativo. | Consulte o status e reative com `PUT /academia/materia/:id/ativar` se necessário. |
 | Nota escolar rejeitada por categoria | Categoria enviada não pertence ao catálogo fixo do ano/curso, por exemplo `prova_trimestral` no `4_ano_medio` técnico. | Use somente as categorias fixas exibidas em `GET /academia/categorias-nota`. |
 | Nota superior rejeitada por categoria | Categoria superior não existe, está inativa/removida ou não contém o ano aplicável. | Crie categorias superiores antes dos lançamentos e inclua todos os anos necessários. |
 | Regra escolar rejeitada | Tentativa de criar, editar ou remover regra `fundamental`/`medio`. | Não configure regras escolares; use o padrão fixo do sistema. |
