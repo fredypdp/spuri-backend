@@ -147,7 +147,7 @@ func (m *MateriaDisciplinar) Criar(
 	anosAcademicos []string,
 	codigoAcademia string,
 	cursoID *uuid.UUID,
-	pendenciaPermitida bool,
+	pendenciaPermitida *bool,
 	pendenciaNivelConclusao *string,
 	criadoPor uuid.UUID,
 ) error {
@@ -166,11 +166,18 @@ func (m *MateriaDisciplinar) Criar(
 	if tipo == "superior" && cursoID == nil {
 		return fmt.Errorf("curso_id é obrigatório para matérias do tipo 'superior'")
 	}
-	if (tipo == "fundamental" || tipo == "medio") && pendenciaPermitida {
+	if (tipo == "fundamental" || tipo == "medio") && pendenciaPermitida != nil {
 		return fmt.Errorf("pendencia_permitida só está disponível para matérias do tipo 'superior'")
 	}
 	if (tipo == "fundamental" || tipo == "medio") && pendenciaNivelConclusao != nil {
 		return fmt.Errorf("pendencia_nivel_conclusao só está disponível para matérias do tipo 'superior'")
+	}
+	pendenciaPermitidaEfetiva := false
+	if tipo == "superior" {
+		pendenciaPermitidaEfetiva = true
+	}
+	if pendenciaPermitida != nil {
+		pendenciaPermitidaEfetiva = *pendenciaPermitida
 	}
 
 	event := &MateriaCriadaEvent{
@@ -180,7 +187,7 @@ func (m *MateriaDisciplinar) Criar(
 		AnosAcademicos:          anosAcademicos,
 		CodigoAcademia:          codigoAcademia,
 		CursoID:                 cursoID,
-		PendenciaPermitida:      pendenciaPermitida,
+		PendenciaPermitida:      pendenciaPermitidaEfetiva,
 		PendenciaNivelConclusao: pendenciaNivelConclusao,
 		CriadoPor:               criadoPor,
 		CreatedAt:               time.Now(),

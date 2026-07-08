@@ -1,6 +1,12 @@
 package handlers
 
-import "testing"
+import (
+	"net/http"
+	"strings"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+)
 
 func TestResolverTipoMateriaMistoAceitaFundamentalEMedio(t *testing.T) {
 	for _, tipo := range []string{"fundamental", "medio", "  MEDIO  "} {
@@ -50,3 +56,24 @@ func TestValidarPendenciaNivelConclusaoSuperior(t *testing.T) {
 		t.Fatal("esperava erro para nível de conclusão inválido")
 	}
 }
+
+func TestDecodeStrictJSONRejeitaCamposDesconhecidos(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(nil)
+	c.Request = &http.Request{
+		Body: ioNopCloser{Reader: strings.NewReader(`{"nome":"Matemática","pendenciaPermitida":true}`)},
+	}
+	var req struct {
+		Nome string `json:"nome"`
+	}
+
+	if err := decodeStrictJSON(c, &req); err == nil {
+		t.Fatal("esperava erro para campo desconhecido/alias fora do contrato")
+	}
+}
+
+type ioNopCloser struct {
+	*strings.Reader
+}
+
+func (ioNopCloser) Close() error { return nil }

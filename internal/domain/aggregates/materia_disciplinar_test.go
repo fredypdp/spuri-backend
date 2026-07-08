@@ -10,7 +10,7 @@ func TestMateriaSuperiorCriadaComPendenciaPermitidaNasceAtiva(t *testing.T) {
 	materia := NewMateriaDisciplinar()
 	cursoID := uuid.New()
 
-	if err := materia.Criar("Cálculo I", "superior", []string{"1_semestre"}, "ACA001", &cursoID, true, nil, uuid.New()); err != nil {
+	if err := materia.Criar("Cálculo I", "superior", []string{"1_semestre"}, "ACA001", &cursoID, nil, nil, uuid.New()); err != nil {
 		t.Fatalf("erro inesperado ao criar matéria superior: %v", err)
 	}
 
@@ -24,12 +24,35 @@ func TestMateriaSuperiorCriadaComPendenciaPermitidaNasceAtiva(t *testing.T) {
 
 func TestMateriaEscolarNaoPermiteAtualizarPendenciaMesmoFalse(t *testing.T) {
 	materia := NewMateriaDisciplinar()
-	if err := materia.Criar("Matemática", "medio", []string{"10_classe"}, "ACA001", nil, false, nil, uuid.New()); err != nil {
+	if err := materia.Criar("Matemática", "medio", []string{"10_classe"}, "ACA001", nil, nil, nil, uuid.New()); err != nil {
 		t.Fatalf("erro inesperado ao criar matéria média: %v", err)
 	}
 
 	pendenciaPermitida := false
 	if err := materia.AtualizarDados(nil, nil, nil, &pendenciaPermitida, nil, uuid.New()); err == nil {
 		t.Fatal("esperava erro ao atualizar pendencia_permitida em matéria escolar")
+	}
+}
+
+func TestMateriaSuperiorMantemPendenciaPermitidaFalseExplicita(t *testing.T) {
+	materia := NewMateriaDisciplinar()
+	cursoID := uuid.New()
+	pendenciaPermitida := false
+
+	if err := materia.Criar("Cálculo II", "superior", []string{"2_semestre"}, "ACA001", &cursoID, &pendenciaPermitida, nil, uuid.New()); err != nil {
+		t.Fatalf("erro inesperado ao criar matéria superior: %v", err)
+	}
+
+	if materia.PendenciaPermitida {
+		t.Fatal("esperava manter pendencia_permitida=false explícito para matéria superior")
+	}
+}
+
+func TestMateriaEscolarNaoPermiteCriarPendenciaMesmoFalse(t *testing.T) {
+	materia := NewMateriaDisciplinar()
+	pendenciaPermitida := false
+
+	if err := materia.Criar("Matemática", "medio", []string{"10_classe"}, "ACA001", nil, &pendenciaPermitida, nil, uuid.New()); err == nil {
+		t.Fatal("esperava erro ao criar matéria escolar com pendencia_permitida explícita")
 	}
 }
