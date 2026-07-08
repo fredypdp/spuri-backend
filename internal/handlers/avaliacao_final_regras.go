@@ -1494,7 +1494,7 @@ func preencherPeriodoFormulaSuperior(formula, periodo string) string {
 }
 
 func carregarNotasFormula(c *gin.Context, codigoEstudante, codigoAcademia, anoLectivo string, categorias []string) (map[string]map[string][]float64, error) {
-	rows, err := getDbClient(c).DB().Query(`SELECT categoria,periodo,nota FROM projection_notas WHERE codigo_estudante=$1 AND codigo_academia=$2 AND ano_lectivo=$3 AND categoria=ANY($4) AND deleted_at IS NULL`, codigoEstudante, codigoAcademia, anoLectivo, pq.Array(categorias))
+	rows, err := getDbClient(c).DB().Query(`SELECT categoria,periodo,nota FROM projection_notas WHERE codigo_estudante=$1 AND codigo_academia=$2 AND ano_lectivo=$3 AND categoria=ANY($4)`, codigoEstudante, codigoAcademia, anoLectivo, pq.Array(categorias))
 	if err != nil {
 		return nil, err
 	}
@@ -1515,7 +1515,7 @@ func carregarNotasFormula(c *gin.Context, codigoEstudante, codigoAcademia, anoLe
 }
 
 func carregarNotasFormulaMateria(c *gin.Context, codigoEstudante, codigoAcademia, anoLectivo string, materiaID uuid.UUID, categorias []string) (map[string]map[string][]float64, error) {
-	rows, err := getDbClient(c).DB().Query(`SELECT categoria,periodo,nota FROM projection_notas WHERE codigo_estudante=$1 AND codigo_academia=$2 AND ano_lectivo=$3 AND materia_disciplinar_id=$4 AND categoria=ANY($5) AND deleted_at IS NULL`, codigoEstudante, codigoAcademia, anoLectivo, materiaID, pq.Array(categorias))
+	rows, err := getDbClient(c).DB().Query(`SELECT categoria,periodo,nota FROM projection_notas WHERE codigo_estudante=$1 AND codigo_academia=$2 AND ano_lectivo=$3 AND materia_disciplinar_id=$4 AND categoria=ANY($5)`, codigoEstudante, codigoAcademia, anoLectivo, materiaID, pq.Array(categorias))
 	if err != nil {
 		return nil, err
 	}

@@ -192,7 +192,6 @@ func (p *FaltasProjection) GetByID(id string) (*FaltaDTO, error) {
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
 		WHERE f.id = $1
-		  AND f.deleted_at IS NULL
 	`, id)
 	if err != nil {
 		return nil, err
@@ -213,7 +212,6 @@ func (p *FaltasProjection) GetByEstudante(codigoEstudante string) ([]FaltaDTO, e
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
 		WHERE f.codigo_estudante = $1
-		  AND f.deleted_at IS NULL
 		ORDER BY f.data DESC
 	`, codigoEstudante)
 	if err != nil {
@@ -231,7 +229,6 @@ func (p *FaltasProjection) GetByAcademia(codigoAcademia string) ([]FaltaDTO, err
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
 		WHERE f.codigo_academia = $1
-		  AND f.deleted_at IS NULL
 		ORDER BY f.data DESC
 	`, codigoAcademia)
 	if err != nil {
@@ -251,7 +248,6 @@ func (p *FaltasProjection) GetByPeriodo(codigoEstudante, anoLectivo string, data
 		WHERE f.codigo_estudante = $1
 			AND f.ano_lectivo = $2
 			AND f.data BETWEEN $3 AND $4
-			AND f.deleted_at IS NULL
 		ORDER BY f.data DESC
 	`, codigoEstudante, anoLectivo, dataInicio.Format("2006-01-02"), dataFim.Format("2006-01-02"))
 	if err != nil {
@@ -268,7 +264,6 @@ func (p *FaltasProjection) GetAll() ([]FaltaDTO, error) {
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
-		WHERE f.deleted_at IS NULL
 		ORDER BY f.data DESC
 	`)
 	if err != nil {
