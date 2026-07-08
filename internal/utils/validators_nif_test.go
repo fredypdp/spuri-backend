@@ -9,7 +9,7 @@ func TestValidateNIFAcceptsTenDigitsAndLeadingZeros(t *testing.T) {
 }
 
 func TestValidateNIFRejectsInvalidValues(t *testing.T) {
-	for _, nif := range []string{"123456789", "12345678901", "12345A7890", "12345 7890", "123.456789"} {
+	for _, nif := range []string{"123456789", "12345678901", "12345A7890", "12345 7890", "123.456789", " 1234567890", "1234567890 "} {
 		if err := ValidateNIF(nif); err == nil {
 			t.Fatalf("nif inválido aceito: %q", nif)
 		}

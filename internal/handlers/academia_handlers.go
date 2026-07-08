@@ -230,6 +230,7 @@ func AtualizarDadosAcademia(c *gin.Context) {
 
 	var req struct {
 		Nome           *string  `json:"nome"`
+		NIF            *string  `json:"nif"`
 		Type           *string  `json:"type"`
 		Provincia      *string  `json:"provincia"`
 		Endereco       *string  `json:"endereco"`
@@ -245,12 +246,28 @@ func AtualizarDadosAcademia(c *gin.Context) {
 		return
 	}
 
-	if req.Nome == nil && req.Provincia == nil && req.Endereco == nil &&
+	if req.Nome == nil && req.NIF == nil && req.Provincia == nil && req.Endereco == nil &&
 		req.Telefone == nil && req.Email == nil && req.Website == nil &&
 		req.NivelEscolar == nil && req.Type == nil && len(req.AnosAcademicos) == 0 && len(req.Cursos) == 0 {
 		utils.RespondWithValidationError(c, fmt.Errorf("ao menos um campo deve ser fornecido para atualização"))
 		return
 	}
+	if req.NIF != nil {
+		if err := utils.ValidateNIF(*req.NIF); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+		existing, err := getAcademiaProjection(c).GetByNIF(*req.NIF)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		if existing != nil && existing.ID != userID {
+			utils.RespondWithConflictError(c, "nif já cadastrado em outra academia")
+			return
+		}
+	}
+
 	if req.Type != nil && *req.Type != "public" && *req.Type != "private" {
 		t := strings.TrimSpace(strings.ToLower(*req.Type))
 		req.Type = &t
@@ -309,6 +326,7 @@ func AtualizarDadosAcademia(c *gin.Context) {
 
 	if err := academia.AtualizarDados(
 		req.Nome,
+		req.NIF,
 		req.Type,
 		provCode,
 		req.Endereco,
@@ -1203,8 +1221,9 @@ func bindRegisterAcademiaRequest(c *gin.Context) (RegisterAcademiaRequest, *mult
 			return req, nil, false
 		}
 		get := func(k string) string { return strings.TrimSpace(c.PostForm(k)) }
+		getRaw := func(k string) string { return c.PostForm(k) }
 		req = RegisterAcademiaRequest{
-			Nivel: get("nivel"), Type: get("type"), Nome: get("nome"), NIF: get("nif"), Provincia: get("provincia"), Endereco: get("endereco"),
+			Nivel: get("nivel"), Type: get("type"), Nome: get("nome"), NIF: getRaw("nif"), Provincia: get("provincia"), Endereco: get("endereco"),
 			Cursos: c.PostFormArray("cursos"), AnosAcademicos: c.PostFormArray("anos_academicos"),
 		}
 		if v := get("telefone"); v != "" {

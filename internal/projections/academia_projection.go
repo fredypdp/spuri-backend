@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"spuri/internal/db"
+	"spuri/internal/utils"
 	"strings"
 	"time"
 
@@ -510,6 +511,7 @@ func (p *AcademiaProjection) handleEstudanteCriadoComVinculo(event db.Event) err
 func (p *AcademiaProjection) handleAcademiaDadosAtualizados(event db.Event) error {
 	var payload struct {
 		Nome           *string  `json:"Nome"`
+		NIF            *string  `json:"NIF"`
 		Type           *string  `json:"Type"`
 		Provincia      *string  `json:"Provincia"`
 		Endereco       *string  `json:"Endereco"`
@@ -537,6 +539,14 @@ func (p *AcademiaProjection) handleAcademiaDadosAtualizados(event db.Event) erro
 	if payload.Nome != nil {
 		setClauses = append(setClauses, fmt.Sprintf("nome = $%d", argIdx))
 		args = append(args, *payload.Nome)
+		argIdx++
+	}
+	if payload.NIF != nil {
+		if err := utils.ValidateNIF(*payload.NIF); err != nil {
+			return fmt.Errorf("handleAcademiaDadosAtualizados: nif inválido no payload: %w", err)
+		}
+		setClauses = append(setClauses, fmt.Sprintf("nif = $%d", argIdx))
+		args = append(args, *payload.NIF)
 		argIdx++
 	}
 	if payload.Type != nil {

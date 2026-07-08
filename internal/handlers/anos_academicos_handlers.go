@@ -129,7 +129,7 @@ func alterarAnosFundamental(c *gin.Context, academiaDTO *projections.AcademiaDTO
 		return err
 	}
 	academia := agg.(*aggregates.Academia)
-	if err := academia.AtualizarDados(nil, nil, nil, nil, nil, nil, nil, nil, novos, nil); err != nil {
+	if err := academia.AtualizarDados(nil, nil, nil, nil, nil, nil, nil, nil, nil, novos, nil); err != nil {
 		return err
 	}
 	userID, _ := middleware.GetUserID(c)
