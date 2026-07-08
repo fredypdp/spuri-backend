@@ -2354,11 +2354,35 @@ Atualiza os dados pessoais do estudante autenticado.
 
 ### Endpoints de acontecimentos que alteram status do estudante
 
-Os status do estudante não são alterados diretamente. Eles mudam como consequência dos acontecimentos de domínio abaixo.
+Os status do estudante não devem ser editados diretamente por payloads genéricos. Nesta API, eles são derivados de acontecimentos reais do domínio acadêmico e gravados no ledger do estudante, preservando auditoria, hash chain e histórico acadêmico. Use estas rotas quando a academia precisar registrar um fato operacional que altera a situação do vínculo ou da etapa acadêmica do estudante.
+
+**Proteção de todas as rotas deste escopo:** autenticado + academia + academia ativa. O estudante informado em `:codigo` precisa existir e pertencer à academia autenticada; caso contrário, a API retorna erro de permissão ou de não encontrado.
+
+**Regras gerais do escopo:**
+
+- Cada operação registra um evento de domínio no ledger do estudante, com o usuário academia que executou a ação e o IP da requisição.
+- Trancamentos, interrupções, desvinculações e reintegrações não apagam notas, faltas, avaliações, turmas, documentos ou demais registros históricos.
+- `motivo` é obrigatório para interrupção, trancamento e desvinculação, e não pode ser vazio.
+- `curso_id`, `curso_medio_id` e `curso_superior_id`, quando enviados, precisam ser UUIDs válidos de cursos existentes e do tipo correto (`medio` ou `superior`).
+- Os anos escolares aceitos são validados pelo backend: fundamental usa `1_ano_fundamental` até `9_ano_fundamental`; médio usa o formato numérico `[n]_ano_medio`, como `1_ano_medio`.
 
 #### POST /academia/estudante/:codigo/matricula/fundamental
 
-Efetiva matrícula no fundamental e muda `status_escolar_fundamental` para `em_andamento`.
+Registra o acontecimento de matrícula ou retomada do estudante no ensino fundamental. Deve ser usado quando a academia confirma que o estudante vai cursar um ano específico do fundamental dentro da instituição.
+
+**Efeito no estudante:** grava o evento `MatriculaFundamentalEfetivada`, define `status_escolar_fundamental = "em_andamento"` e atualiza `ano_escolar_fundamental` com o ano informado.
+
+**Regras de negócio:**
+
+- O estudante não pode estar com `status = "arquivado"`; estudantes arquivados devem passar por revinculação antes de nova matrícula.
+- `ano_escolar_fundamental` é obrigatório e deve estar entre `1_ano_fundamental` e `9_ano_fundamental`.
+- A operação deve representar uma matrícula efetiva, não uma simples correção cadastral.
+
+**Processo de negócio recomendado:**
+
+1. Validar documentos e elegibilidade do estudante no processo interno da academia.
+2. Confirmar o ano fundamental que será cursado.
+3. Chamar esta rota para registrar a matrícula no ledger e ativar a etapa fundamental.
 
 **Request:**
 
@@ -2368,18 +2392,33 @@ Efetiva matrícula no fundamental e muda `status_escolar_fundamental` para `em_a
 }
 ```
 
-
 **Response 200:**
 
 ```json
 {
-  "message": "operação registrada com sucesso",
-  "codigo_estudante": "ABC1234"
+  "message": "matrícula fundamental efetivada",
+  "status_escolar_fundamental": "em_andamento"
 }
 ```
+
 #### POST /academia/estudante/:codigo/matricula/medio
 
-Efetiva matrícula no médio e muda `status_escolar_medio` para `em_andamento`. Exige fundamental `finalizado`.
+Registra o acontecimento de matrícula no ensino médio. Deve ser usado quando a academia confirma o ingresso do estudante no médio e precisa associá-lo a um curso médio da instituição.
+
+**Efeito no estudante:** grava o evento `MatriculaMedioEfetivada`, define `status_escolar_medio = "em_andamento"`, atualiza `ano_escolar_medio` e vincula `curso_medio_id`.
+
+**Regras de negócio:**
+
+- O ensino fundamental do estudante deve estar com `status_escolar_fundamental = "finalizado"`.
+- `ano_escolar_medio` é obrigatório e deve seguir o formato `[n]_ano_medio`, por exemplo `1_ano_medio`.
+- `curso_id` é obrigatório, precisa existir e precisa ser de um curso do tipo `medio`.
+- Use esta rota para efetivar matrícula no médio; alterações posteriores de curso devem seguir o fluxo próprio de alteração de curso, quando aplicável.
+
+**Processo de negócio recomendado:**
+
+1. Confirmar que o fundamental foi concluído ou reconhecido por equivalência no sistema.
+2. Selecionar o curso médio correto.
+3. Registrar a matrícula no ano médio aplicável.
 
 **Request:**
 
@@ -2390,18 +2429,33 @@ Efetiva matrícula no médio e muda `status_escolar_medio` para `em_andamento`. 
 }
 ```
 
-
 **Response 200:**
 
 ```json
 {
-  "message": "operação registrada com sucesso",
-  "codigo_estudante": "ABC1234"
+  "message": "matrícula no médio efetivada",
+  "status_escolar_medio": "em_andamento"
 }
 ```
+
 #### POST /academia/estudante/:codigo/matricula/superior
 
-Efetiva matrícula no superior, muda `status_superior` para `em_andamento` e define `ano_superior = "1_ano_superior"` e `semestre_atual = 1`.
+Registra o acontecimento de matrícula no ensino superior. Deve ser usado quando a academia confirma o ingresso ou retorno do estudante a um curso superior da instituição.
+
+**Efeito no estudante:** grava o evento `MatriculaSuperiorEfetivada`, define `status_superior = "em_andamento"` e vincula `curso_superior_id`. Quando o curso é novo ou diferente do curso superior já registrado, a progressão começa em `ano_superior = "1_ano_superior"` e `semestre_atual = 1`. Quando o curso informado é o mesmo já registrado, o backend preserva o `ano_superior` e o `semestre_atual` anteriores, se existirem.
+
+**Regras de negócio:**
+
+- `curso_id` é obrigatório, precisa existir e precisa ser de um curso do tipo `superior`.
+- O fundamental deve estar `finalizado` ou `inativo`.
+- O médio deve estar `finalizado` ou `inativo`.
+- A rota não recebe ano nem semestre; esses campos são calculados pelo backend conforme histórico e curso informado.
+
+**Processo de negócio recomendado:**
+
+1. Validar que o estudante atende aos critérios de ingresso no superior ou possui equivalência/dispensa registrada quando necessário.
+2. Selecionar o curso superior correto.
+3. Chamar a rota para registrar a matrícula e iniciar ou retomar a progressão superior.
 
 **Request:**
 
@@ -2411,18 +2465,34 @@ Efetiva matrícula no superior, muda `status_superior` para `em_andamento` e def
 }
 ```
 
-
 **Response 200:**
 
 ```json
 {
-  "message": "operação registrada com sucesso",
-  "codigo_estudante": "ABC1234"
+  "message": "matrícula superior efetivada",
+  "status_superior": "em_andamento",
+  "ano_superior": "1_ano_superior",
+  "semestre_atual": 1
 }
 ```
+
 #### POST /academia/estudante/:codigo/interrupcao/fundamental
 
-Registra interrupção do fundamental e muda `status_escolar_fundamental` para `inativo`.
+Registra a interrupção do percurso do estudante no ensino fundamental. Deve ser usado quando o estudante deixa temporariamente de cursar o fundamental na academia, sem remover seu histórico.
+
+**Efeito no estudante:** grava o evento `FundamentalInterrompido` e define `status_escolar_fundamental = "inativo"`.
+
+**Regras de negócio:**
+
+- Só é permitido interromper quando `status_escolar_fundamental = "em_andamento"`.
+- `motivo` é obrigatório e deve explicar o fato operacional, como mudança de residência, pausa familiar ou impedimento temporário.
+- A interrupção não finaliza o fundamental e não apaga histórico acadêmico.
+
+**Processo de negócio recomendado:**
+
+1. Receber a solicitação ou decisão administrativa de interrupção.
+2. Registrar o motivo de forma objetiva.
+3. Chamar esta rota para inativar a etapa fundamental mantendo a trilha de auditoria.
 
 **Request:**
 
@@ -2430,18 +2500,32 @@ Registra interrupção do fundamental e muda `status_escolar_fundamental` para `
 { "motivo": "mudança de residência" }
 ```
 
-
 **Response 200:**
 
 ```json
 {
-  "message": "operação registrada com sucesso",
-  "codigo_estudante": "ABC1234"
+  "message": "fundamental interrompido",
+  "status_escolar_fundamental": "inativo"
 }
 ```
+
 #### POST /academia/estudante/:codigo/interrupcao/medio
 
-Registra interrupção do médio e muda `status_escolar_medio` para `inativo`.
+Registra a interrupção do percurso do estudante no ensino médio. Deve ser usado quando o estudante deixa temporariamente de cursar o médio na academia, preservando curso, ano e histórico já lançados.
+
+**Efeito no estudante:** grava o evento `MedioInterrompido` e define `status_escolar_medio = "inativo"`.
+
+**Regras de negócio:**
+
+- Só é permitido interromper quando `status_escolar_medio = "em_andamento"`.
+- `motivo` é obrigatório e não pode ser vazio.
+- A interrupção não conclui o médio, não altera o curso médio e não remove notas, faltas ou avaliações.
+
+**Processo de negócio recomendado:**
+
+1. Confirmar a interrupção junto ao estudante/responsável ou setor acadêmico.
+2. Informar o motivo administrativo.
+3. Registrar o acontecimento para manter o histórico auditável.
 
 **Request:**
 
@@ -2449,18 +2533,32 @@ Registra interrupção do médio e muda `status_escolar_medio` para `inativo`.
 { "motivo": "pausa solicitada" }
 ```
 
-
 **Response 200:**
 
 ```json
 {
-  "message": "operação registrada com sucesso",
-  "codigo_estudante": "ABC1234"
+  "message": "médio interrompido",
+  "status_escolar_medio": "inativo"
 }
 ```
+
 #### POST /academia/estudante/:codigo/trancamento/superior
 
-Registra trancamento do superior e muda `status_superior` para `inativo`.
+Registra o trancamento do curso superior. Deve ser usado quando o estudante suspende formalmente o vínculo acadêmico no superior sem cancelar seu histórico ou sua progressão anterior.
+
+**Efeito no estudante:** grava o evento `SuperiorTrancado` e define `status_superior = "inativo"`.
+
+**Regras de negócio:**
+
+- Só é permitido trancar quando `status_superior = "em_andamento"`.
+- `motivo` é obrigatório e deve representar a justificativa do trancamento formal.
+- O trancamento preserva `curso_superior_id`, `ano_superior`, `semestre_atual` e todos os registros acadêmicos anteriores.
+
+**Processo de negócio recomendado:**
+
+1. Homologar o pedido de trancamento conforme regras internas da academia.
+2. Registrar o motivo do trancamento.
+3. Chamar a rota para inativar o superior mantendo a possibilidade de retorno posterior.
 
 **Request:**
 
@@ -2468,18 +2566,34 @@ Registra trancamento do superior e muda `status_superior` para `inativo`.
 { "motivo": "trancamento formal" }
 ```
 
-
 **Response 200:**
 
 ```json
 {
-  "message": "operação registrada com sucesso",
-  "codigo_estudante": "ABC1234"
+  "message": "superior trancado",
+  "status_superior": "inativo"
 }
 ```
+
 #### POST /academia/estudante/:codigo/desvincular
 
-Desvincula o estudante da academia preservando histórico e muda o status geral para `arquivado`. O evento registra `codigo_academia`, `codigo_estudante`, `motivo` e o nível acadêmico em que o estudante estava.
+Registra a saída do estudante da academia. Deve ser usado quando a academia encerra o vínculo institucional do estudante, por transferência, cancelamento, desligamento administrativo ou outro motivo formal, preservando todo o histórico para consulta e eventual retorno.
+
+**Efeito no estudante:** grava o evento `EstudanteDesvinculadoDaAcademia`, define `status = "arquivado"` e registra no evento `codigo_academia`, `codigo_estudante`, `motivo` e o nível acadêmico atual calculado pelo backend. O nível pode indicar a etapa em andamento, como `fundamental:1_ano_fundamental`, `medio:1_ano_medio`, `superior:1_ano_superior:semestre_1`, ou `sem_etapa_em_andamento`.
+
+**Regras de negócio:**
+
+- O estudante precisa pertencer à academia autenticada.
+- Apenas estudante com `status = "ativo"` pode ser desvinculado.
+- `motivo` é obrigatório e não pode ser vazio.
+- A desvinculação não remove o vínculo histórico nem apaga dados acadêmicos; ela arquiva o estudante para impedir operações de matrícula direta sem reintegração.
+
+**Processo de negócio recomendado:**
+
+1. Confirmar o encerramento do vínculo institucional.
+2. Registrar o motivo da saída.
+3. Chamar esta rota para arquivar o estudante e manter o histórico auditável.
+4. Em caso de retorno futuro, usar `/academia/estudante/:codigo/revincular`.
 
 **Request:**
 
@@ -2487,18 +2601,39 @@ Desvincula o estudante da academia preservando histórico e muda o status geral 
 { "motivo": "transferência para outra instituição" }
 ```
 
-
 **Response 200:**
 
 ```json
 {
-  "message": "operação registrada com sucesso",
-  "codigo_estudante": "ABC1234"
+  "message": "estudante desvinculado da academia",
+  "status": "arquivado"
 }
 ```
+
 #### POST /academia/estudante/:codigo/revincular
 
-Reintegra estudante arquivado à academia e muda o status geral para `ativo`.
+Registra a reintegração de um estudante arquivado à academia. Deve ser usado quando um estudante anteriormente desvinculado retorna para continuar ou reiniciar uma etapa acadêmica dentro da mesma academia.
+
+**Efeito no estudante:** grava o evento `EstudanteReintegrado`, define `status = "ativo"` e reativa a etapa indicada em `tipo_ensino` com `status_escolar_fundamental`, `status_escolar_medio` ou `status_superior` em `em_andamento`, conforme o caso. A progressão é calculada pelo backend a partir do histórico e do curso informado.
+
+**Regras de negócio:**
+
+- Apenas estudante com `status = "arquivado"` pode ser reintegrado.
+- `tipo_ensino` é obrigatório e deve ser `fundamental`, `medio` ou `superior`.
+- No reingresso no fundamental, o backend reutiliza o `ano_escolar_fundamental` anterior; se não conseguir determiná-lo, a operação é rejeitada.
+- No reingresso no médio, `curso_medio_id` é opcional. Quando omitido, o backend reutiliza o curso médio anterior; se não houver curso anterior, a operação é rejeitada.
+- Se o `curso_medio_id` informado for o mesmo curso já registrado, o backend preserva `ano_escolar_medio`; se for um curso diferente, reinicia em `1_ano_medio`.
+- No reingresso no superior, `curso_superior_id` é opcional. Quando omitido, o backend reutiliza o curso superior anterior; se não houver curso anterior, a operação é rejeitada.
+- Se o `curso_superior_id` informado for o mesmo curso já registrado, o backend preserva `ano_superior` e `semestre_atual`; se for um curso diferente, reinicia em `1_ano_superior` e semestre `1`.
+- Cursos informados precisam existir e ter o tipo compatível com a etapa (`medio` ou `superior`).
+- A reintegração não recebe ano nem semestre no payload; esses campos são derivados pelo backend.
+
+**Processo de negócio recomendado:**
+
+1. Confirmar que o estudante está arquivado por desvinculação anterior.
+2. Definir a etapa de retorno (`fundamental`, `medio` ou `superior`).
+3. Para médio ou superior, informar um novo curso somente quando houver mudança real de curso; omitir o curso para continuar no curso anterior.
+4. Chamar a rota para reativar o vínculo e registrar o retorno no ledger.
 
 **Request — reingresso no fundamental:**
 
@@ -2508,7 +2643,15 @@ Reintegra estudante arquivado à academia e muda o status geral para `ativo`.
 }
 ```
 
-**Request — reingresso no médio:**
+**Request — reingresso no médio mantendo curso anterior:**
+
+```json
+{
+  "tipo_ensino": "medio"
+}
+```
+
+**Request — reingresso no médio com mudança de curso:**
 
 ```json
 {
@@ -2517,9 +2660,15 @@ Reintegra estudante arquivado à academia e muda o status geral para `ativo`.
 }
 ```
 
-`curso_medio_id` é opcional no reingresso do médio. Quando omitido, o backend considera que o curso não foi alterado, usa o `curso_medio_id` anterior do estudante e mantém o mesmo nível/progressão em que ele estava.
+**Request — reingresso no superior mantendo curso anterior:**
 
-**Request — reingresso no superior:**
+```json
+{
+  "tipo_ensino": "superior"
+}
+```
+
+**Request — reingresso no superior com mudança de curso:**
 
 ```json
 {
@@ -2528,19 +2677,16 @@ Reintegra estudante arquivado à academia e muda o status geral para `ativo`.
 }
 ```
 
-`curso_superior_id` é opcional no reingresso do superior. Quando omitido, o backend considera que o curso não foi alterado, usa o `curso_superior_id` anterior do estudante e mantém o mesmo nível/progressão em que ele estava.
-
-No reingresso/revinculação o cliente não informa ano nem semestre. O backend determina a progressão acadêmica consolidada a partir do histórico do estudante quando o curso informado é o mesmo já registrado ou quando o curso do nível médio/superior é omitido. Assim, superior retorna ao mesmo `semestre_atual`/`ano_superior`, médio retorna ao mesmo `ano_escolar_medio` e fundamental reutiliza o `ano_escolar_fundamental` anterior. Apenas mudança real de curso reinicia o vínculo atual: no superior para `semestre_atual = 1` e `ano_superior = "1_ano_superior"`; no médio para `ano_escolar_medio = "1_ano_medio"`. Eventos de trancamento, interrupção, desvinculação e reativação não apagam notas, faltas, avaliações, turmas ou demais registros históricos.
-
-
 **Response 200:**
 
 ```json
 {
-  "message": "operação registrada com sucesso",
-  "codigo_estudante": "ABC1234"
+  "message": "estudante reintegrado",
+  "status": "ativo",
+  "tipo_ensino": "superior"
 }
 ```
+
 ### GET /eventos-estudante/:codigo
 
 Retorna todos os eventos do ledger de um estudante (trilha de auditoria completa).
