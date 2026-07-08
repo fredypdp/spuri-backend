@@ -1,10 +1,10 @@
 ---
 criado: 2026-07-08 00:00
 origem: solicitação do usuário
-status: pendente
+status: feito
 ---
 
-# Adicionar NIF, alvará obrigatório, limite PDF de 10MB e padronizar erros
+# Adicionar NIF, alvará obrigatório, limite PDF de 10MB e padronizar erros (feito)
 
 ## Prompt recomendado para executar a atualização
 
