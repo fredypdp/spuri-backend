@@ -275,6 +275,7 @@ func (a *Academia) AtualizarCursos(novosCursos []string) error {
 
 func (a *Academia) AtualizarDados(
 	nome *string,
+	nif *string,
 	academiaType *string,
 	provincia *string,
 	endereco *string,
@@ -285,10 +286,15 @@ func (a *Academia) AtualizarDados(
 	anosAcademicos []string,
 	cursos []string,
 ) error {
-	if nome == nil && provincia == nil && endereco == nil &&
+	if nome == nil && nif == nil && provincia == nil && endereco == nil &&
 		telefone == nil && email == nil && website == nil &&
 		nivelEscolar == nil && anosAcademicos == nil && cursos == nil && academiaType == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
+	}
+	if nif != nil {
+		if err := utils.ValidateNIF(*nif); err != nil {
+			return err
+		}
 	}
 	if telefone != nil {
 		if err := utils.ValidatePhone(*telefone); err != nil {
@@ -308,6 +314,7 @@ func (a *Academia) AtualizarDados(
 	event := &AcademiaDadosAtualizadosEvent{
 		BaseEvent:      BaseEvent{EventType: "AcademiaDadosAtualizados", AggregateID: a.ID},
 		Nome:           nome,
+		NIF:            nif,
 		Type:           academiaType,
 		Provincia:      provincia,
 		Endereco:       endereco,
@@ -521,6 +528,9 @@ func (a *Academia) applyAcademiaDadosAtualizados(event DomainEvent) error {
 
 	if ev.Nome != nil {
 		a.Nome = *ev.Nome
+	}
+	if ev.NIF != nil {
+		a.NIF = *ev.NIF
 	}
 	if ev.Type != nil {
 		a.Type = *ev.Type
@@ -754,6 +764,7 @@ func (e *CursosAtualizadosEvent) ToJSON() ([]byte, error) { return json.Marshal(
 type AcademiaDadosAtualizadosEvent struct {
 	BaseEvent
 	Nome           *string
+	NIF            *string
 	Type           *string
 	Provincia      *string
 	Endereco       *string

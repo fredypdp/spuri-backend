@@ -10,7 +10,7 @@ Tarefa: [[Adicionar nif alvara limite pdf e padronizar erros]]
 
 Fazer uma auditoria crítica, extremamente profunda, completa e arquivo por arquivo da implementação da tarefa:
 
-`docs/Lista de tarefas/Adicionar nif alvara limite pdf e padronizar erros.md`
+`docs/Tarefas feitas/Adicionar nif alvara limite pdf e padronizar erros.md`
 
 A auditoria deve confirmar se a implementação foi feita corretamente, completamente e **à risca**. Caso qualquer parte esteja incompleta, inconsistente, parcialmente implementada, sem validação, sem teste, sem documentação, com comportamento silencioso incorreto ou divergente do contrato esperado, esta tarefa exige **terminar a implementação e corrigir o que estiver errado**.
 
@@ -334,7 +334,7 @@ Também executar a suíte de testes relevante do projeto, testes de migration/in
 
 Somente depois de confirmar que implementação, testes e documentação estão corretos:
 
-1. abrir `docs/Lista de tarefas/Adicionar nif alvara limite pdf e padronizar erros.md`;
+1. abrir `docs/Tarefas feitas/Adicionar nif alvara limite pdf e padronizar erros.md`;
 2. alterar o título interno de Markdown para adicionar o sufixo `(feito)`, ficando:
 
 ```markdown
