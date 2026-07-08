@@ -8,7 +8,7 @@ status: pronto_para_implementacao
 
 ## Prompt recomendado para executar a atualização
 
-Implemente a atualização descrita neste documento garantindo que os campos `pendencia_permitida` e `pendencia_nivel_conclusao` sejam exclusivos de matérias do ensino superior. Matérias do ensino superior devem aceitar pendência por padrão e também devem ser criadas com status `ativada` por padrão. Ao final, atualize testes, documentação técnica, OpenAPI/Swagger e qualquer documentação afetada. Não criar suporte a código legado, aliases, wrappers de compatibilidade, fallbacks temporários ou regras paralelas que permitam configurar pendência em matérias escolares.
+Implemente a atualização descrita neste documento garantindo que os campos `pendencia_permitida` e `pendencia_nivel_conclusao` sejam exclusivos de matérias do ensino superior. O contrato de criação/atualização de matérias superiores deve manter `pendencia_permitida` no request, mas o backend já deve inferir o valor efetivo como `true` quando o campo não vier preenchido. Matérias do ensino superior também devem ser criadas com status `ativada` por padrão. Ao final, atualize testes, documentação técnica, OpenAPI/Swagger e qualquer documentação afetada. Não criar suporte a código legado, aliases, wrappers de compatibilidade, fallbacks temporários ou regras paralelas que permitam configurar pendência em matérias escolares.
 
 ## Contexto
 
@@ -16,7 +16,8 @@ A regra de produto mudou para separar de forma rígida o comportamento de pendê
 
 Além disso, a criação de matérias do ensino superior deve refletir o comportamento padrão esperado pela academia:
 
-- matérias superiores aceitam pendência por padrão;
+- matérias superiores mantêm `pendencia_permitida` no request;
+- matérias superiores aceitam pendência por padrão, com inferência backend para `true` quando o campo não vier preenchido;
 - matérias superiores são criadas com status `ativada` por padrão;
 - matérias escolares não devem aceitar, expor ou persistir configuração de pendência.
 
@@ -26,7 +27,8 @@ Além disso, a criação de matérias do ensino superior deve refletir o comport
 | --- | --- | --- |
 | `pendencia_permitida` | Exclusivo do ensino superior | Rejeitar/remover uso em matérias escolares |
 | `pendencia_nivel_conclusao` | Exclusivo do ensino superior | Rejeitar/remover uso em matérias escolares |
-| Matéria superior nova | Aceita pendência por padrão | Criar com `pendencia_permitida = true`, salvo regra explícita válida em contrário |
+| Request de matéria superior | Mantém `pendencia_permitida` | O campo deve fazer parte do request de matérias superiores |
+| Matéria superior nova | Aceita pendência por padrão | Backend infere `pendencia_permitida = true` quando o campo não vier preenchido, salvo regra explícita válida em contrário |
 | Status de matéria superior nova | Ativada por padrão | Criar matéria superior com status `ativada` quando o payload não informar status |
 | Documentação | Atualizar integralmente | Contratos e guias devem diferenciar claramente escolar e superior |
 | Legado | Proibido | Não manter aliases, compatibilidade temporária ou fallback que aceite pendência em matéria escolar |
@@ -73,6 +75,7 @@ Não criar flags, aliases, modo legado, bypass administrativo ou compatibilidade
 
 Atualizar OpenAPI/Swagger e serializers para deixar claro que:
 
+- `pendencia_permitida` deve fazer parte do request de matérias superiores;
 - campos de pendência pertencem ao contrato de matérias superiores;
 - contratos de matérias escolares não aceitam esses campos;
 - respostas escolares não devem sugerir que pendência é configurável;
@@ -104,14 +107,16 @@ Garantir que toda matéria superior criada sem configuração explícita de pend
 Ao criar uma matéria do ensino superior, o backend deve:
 
 1. identificar que a matéria pertence ao fluxo superior;
-2. aplicar `pendencia_permitida = true` quando o payload não informar valor explícito válido;
-3. validar `pendencia_nivel_conclusao` somente dentro das regras permitidas para ensino superior;
-4. persistir e retornar o valor efetivo aplicado;
-5. usar esse valor efetivo nas regras acadêmicas de progressão, pendência e conclusão.
+2. manter `pendencia_permitida` como campo do request de matérias superiores;
+3. inferir no backend `pendencia_permitida = true` quando o campo não vier preenchido;
+4. validar `pendencia_nivel_conclusao` somente dentro das regras permitidas para ensino superior;
+5. persistir e retornar o valor efetivo aplicado;
+6. usar esse valor efetivo nas regras acadêmicas de progressão, pendência e conclusão.
 
 ## Comportamento esperado
 
-- Matéria superior criada sem `pendencia_permitida` deve ficar com `pendencia_permitida = true`.
+- `pendencia_permitida` deve existir no request de criação/atualização de matéria superior.
+- Matéria superior criada sem valor preenchido para `pendencia_permitida` deve ficar com `pendencia_permitida = true`, inferido pelo backend.
 - Matéria superior criada com `pendencia_permitida = true` deve manter `true`.
 - Matéria superior criada com `pendencia_permitida = false`, se o contrato permitir desativação explícita, deve manter `false`.
 - `pendencia_nivel_conclusao` só deve ser aceito e validado para matérias superiores.
@@ -121,13 +126,14 @@ Ao criar uma matéria do ensino superior, o backend deve:
 
 Criar testes cobrindo:
 
-1. criação de matéria superior sem `pendencia_permitida` aplica `true` por padrão;
-2. criação de matéria superior com `pendencia_permitida = true` mantém `true`;
-3. criação de matéria superior com `pendencia_permitida = false`, se permitido, mantém `false`;
-4. criação de matéria superior com `pendencia_nivel_conclusao` válido persiste o valor;
-5. criação de matéria superior com `pendencia_nivel_conclusao` inválido é rejeitada;
-6. criação de matéria escolar não aplica pendência por padrão;
-7. regras de progressão superior usam o padrão efetivo de pendência da matéria.
+1. contrato de criação/atualização de matéria superior contém `pendencia_permitida` no request;
+2. criação de matéria superior sem valor preenchido para `pendencia_permitida` aplica `true` por inferência do backend;
+3. criação de matéria superior com `pendencia_permitida = true` mantém `true`;
+4. criação de matéria superior com `pendencia_permitida = false`, se permitido, mantém `false`;
+5. criação de matéria superior com `pendencia_nivel_conclusao` válido persiste o valor;
+6. criação de matéria superior com `pendencia_nivel_conclusao` inválido é rejeitada;
+7. criação de matéria escolar não aplica pendência por padrão;
+8. regras de progressão superior usam o padrão efetivo de pendência da matéria.
 
 ---
 
@@ -190,7 +196,7 @@ Atualizar, quando existirem:
 
 A documentação deve declarar explicitamente que `pendencia_permitida` e `pendencia_nivel_conclusao` são exclusivos do ensino superior. Não documentar esses campos como depreciados para matérias escolares; eles não devem fazer parte do contrato escolar vigente.
 
-Também documentar que matéria superior criada sem valores explícitos deve assumir:
+Também documentar que `pendencia_permitida` deve estar no request de matéria superior e que, quando vier sem valor preenchido, o backend deve inferir:
 
 - `pendencia_permitida = true`;
 - status `ativada`.
@@ -215,9 +221,10 @@ A tarefa só deve ser considerada concluída quando:
 1. `pendencia_permitida` for funcionalmente exclusivo de matérias superiores;
 2. `pendencia_nivel_conclusao` for funcionalmente exclusivo de matérias superiores;
 3. matéria escolar não aceitar campos de pendência em criação, atualização, importação ou fluxo administrativo;
-4. matéria superior criada sem `pendencia_permitida` ficar com `pendencia_permitida = true`;
-5. matéria superior criada sem status ficar com status `ativada`;
-6. respostas e documentação diferenciarem claramente contratos escolares e superiores;
-7. testes automatizados cobrirem exclusividade de pendência, padrão de pendência superior e status padrão superior;
-8. não houver aliases, shims, fallbacks, código morto ou compatibilidade temporária para pendência escolar;
-9. o PR explicar claramente que pendência é exclusiva do ensino superior e que matérias superiores agora nascem com pendência permitida e status ativado por padrão.
+4. `pendencia_permitida` estar presente no request de matérias superiores;
+5. matéria superior criada sem valor preenchido para `pendencia_permitida` ficar com `pendencia_permitida = true` por inferência do backend;
+6. matéria superior criada sem status ficar com status `ativada`;
+7. respostas e documentação diferenciarem claramente contratos escolares e superiores;
+8. testes automatizados cobrirem exclusividade de pendência, presença de `pendencia_permitida` no request superior, inferência backend para `true` e status padrão superior;
+9. não houver aliases, shims, fallbacks, código morto ou compatibilidade temporária para pendência escolar;
+10. o PR explicar claramente que pendência é exclusiva do ensino superior e que matérias superiores agora nascem com pendência permitida e status ativado por padrão.
