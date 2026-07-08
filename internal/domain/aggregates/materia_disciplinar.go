@@ -224,7 +224,7 @@ func (m *MateriaDisciplinar) AtualizarDados(nome *string, anosAcademicos []strin
 	if nome == nil && anosAcademicos == nil && cursoID == nil && pendenciaPermitida == nil && pendenciaNivelConclusao == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
-	if pendenciaPermitida != nil && (m.Type == "fundamental" || m.Type == "medio") && *pendenciaPermitida {
+	if pendenciaPermitida != nil && (m.Type == "fundamental" || m.Type == "medio") {
 		return fmt.Errorf("pendencia_permitida só está disponível para matérias do tipo 'superior'")
 	}
 	if pendenciaNivelConclusao != nil && (m.Type == "fundamental" || m.Type == "medio") {
@@ -299,13 +299,8 @@ func (m *MateriaDisciplinar) applyMateriaCriada(event DomainEvent) error {
 	m.CursoID = ev.CursoID
 	m.PendenciaPermitida = ev.PendenciaPermitida
 	m.PendenciaNivelConclusao = ev.PendenciaNivelConclusao
-	// Matérias superior nascem inativas (requerem DefinirPeriodo + Ativar).
-	// Fundamental e médio nascem ativas.
-	if ev.Type == "superior" {
-		m.Status = "inativo"
-	} else {
-		m.Status = "ativo"
-	}
+	// Matérias superiores, fundamentais e médias nascem ativas por padrão.
+	m.Status = "ativo"
 	m.CreatedAt = ev.CreatedAt
 	return nil
 }

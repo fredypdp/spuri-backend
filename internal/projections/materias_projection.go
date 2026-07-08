@@ -31,6 +31,30 @@ type MateriaDTO struct {
 	Version                 int        `json:"version"`
 }
 
+func (m MateriaDTO) MarshalJSON() ([]byte, error) {
+	type materiaDTOAlias MateriaDTO
+	if m.Type == "superior" {
+		return json.Marshal(materiaDTOAlias(m))
+	}
+	type materiaEscolarDTO struct {
+		ID             uuid.UUID  `json:"id"`
+		Nome           string     `json:"nome"`
+		Type           string     `json:"type"`
+		AnosAcademicos []string   `json:"anos_academicos,omitempty"`
+		Periodo        *string    `json:"periodo,omitempty"`
+		CodigoAcademia string     `json:"codigo_academia"`
+		CursoID        *uuid.UUID `json:"curso_id,omitempty"`
+		Status         string     `json:"status"`
+		CreatedAt      time.Time  `json:"created_at"`
+		UpdatedAt      time.Time  `json:"updated_at"`
+		Version        int        `json:"version"`
+	}
+	return json.Marshal(materiaEscolarDTO{
+		ID: m.ID, Nome: m.Nome, Type: m.Type, AnosAcademicos: m.AnosAcademicos, Periodo: m.Periodo,
+		CodigoAcademia: m.CodigoAcademia, CursoID: m.CursoID, Status: m.Status, CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt, Version: m.Version,
+	})
+}
+
 type MateriasProjection struct {
 	client *db.Client
 }
@@ -179,11 +203,8 @@ func (p *MateriasProjection) handleMateriaCriada(event db.Event) error {
 		anosJSON = string(b)
 	}
 
-	// Matérias superior nascem inativas; demais nascem ativas
+	// Matérias superiores, fundamentais e médias nascem ativas por padrão.
 	status := "ativo"
-	if payload.Type == "superior" {
-		status = "inativo"
-	}
 
 	var cursoID interface{}
 	if payload.CursoID != nil {

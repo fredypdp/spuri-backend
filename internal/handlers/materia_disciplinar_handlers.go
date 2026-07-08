@@ -88,12 +88,12 @@ func CriarMateria(c *gin.Context) {
 		}
 	}
 
-	if tipoMateria == "medio" && req.PendenciaPermitida != nil && *req.PendenciaPermitida {
-		utils.RespondWithValidationError(c, fmt.Errorf("matérias dependentes são exclusivas do ensino superior e não se aplicam ao ensino médio escolar"))
+	if tipoMateria != "superior" && req.PendenciaPermitida != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("pendencia_permitida é exclusiva do ensino superior e não se aplica a matérias escolares"))
 		return
 	}
-	if tipoMateria == "medio" && req.PendenciaNivelConclusao != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("pendencia_nivel_conclusao é exclusiva do ensino superior e não se aplica ao ensino médio escolar"))
+	if tipoMateria != "superior" && req.PendenciaNivelConclusao != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("pendencia_nivel_conclusao é exclusiva do ensino superior e não se aplica a matérias escolares"))
 		return
 	}
 	if err := validarPendenciaNivelConclusao(tipoMateria, req.PendenciaNivelConclusao, req.AnosAcademicos, periodosCurso); err != nil {
@@ -105,6 +105,9 @@ func CriarMateria(c *gin.Context) {
 	materia := aggregates.NewMateriaDisciplinar()
 
 	pendenciaPermitida := false
+	if tipoMateria == "superior" {
+		pendenciaPermitida = true
+	}
 	if req.PendenciaPermitida != nil {
 		pendenciaPermitida = *req.PendenciaPermitida
 	}
@@ -145,17 +148,20 @@ func CriarMateria(c *gin.Context) {
 	}
 
 	log.Printf("Materia criada: %s - %s", req.Nome, materia.ID)
+	data := gin.H{
+		"id":      materia.ID,
+		"nome":    materia.Nome,
+		"type":    materia.Type,
+		"status":  materia.Status,
+		"periodo": materia.Periodo,
+	}
+	if materia.Type == "superior" {
+		data["pendencia_permitida"] = materia.PendenciaPermitida
+		data["pendencia_nivel_conclusao"] = materia.PendenciaNivelConclusao
+	}
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "materia criada com sucesso",
-		"data": gin.H{
-			"id":                        materia.ID,
-			"nome":                      materia.Nome,
-			"type":                      materia.Type,
-			"status":                    materia.Status,
-			"pendencia_permitida":       materia.PendenciaPermitida,
-			"pendencia_nivel_conclusao": materia.PendenciaNivelConclusao,
-			"periodo":                   materia.Periodo,
-		},
+		"data":    data,
 	})
 }
 
@@ -403,12 +409,12 @@ func AtualizarDadosMateria(c *gin.Context) {
 			periodosCurso = cursoDTO.Periodos
 		}
 	}
-	if materia.Type == "medio" && req.PendenciaPermitida != nil && *req.PendenciaPermitida {
-		utils.RespondWithValidationError(c, fmt.Errorf("matérias dependentes são exclusivas do ensino superior e não se aplicam ao ensino médio escolar"))
+	if materia.Type != "superior" && req.PendenciaPermitida != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("pendencia_permitida é exclusiva do ensino superior e não se aplica a matérias escolares"))
 		return
 	}
-	if materia.Type == "medio" && req.PendenciaNivelConclusao != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("pendencia_nivel_conclusao é exclusiva do ensino superior e não se aplica ao ensino médio escolar"))
+	if materia.Type != "superior" && req.PendenciaNivelConclusao != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("pendencia_nivel_conclusao é exclusiva do ensino superior e não se aplica a matérias escolares"))
 		return
 	}
 	if err := validarPendenciaNivelConclusao(materia.Type, req.PendenciaNivelConclusao, anosParaValidacao, periodosCurso); err != nil {
@@ -430,12 +436,15 @@ func AtualizarDadosMateria(c *gin.Context) {
 	}
 
 	log.Printf("Matéria atualizada: %s", materia.Nome)
-	c.JSON(http.StatusOK, gin.H{
-		"message":                   "matéria atualizada com sucesso",
-		"nome":                      materia.Nome,
-		"pendencia_permitida":       materia.PendenciaPermitida,
-		"pendencia_nivel_conclusao": materia.PendenciaNivelConclusao,
-	})
+	response := gin.H{
+		"message": "matéria atualizada com sucesso",
+		"nome":    materia.Nome,
+	}
+	if materia.Type == "superior" {
+		response["pendencia_permitida"] = materia.PendenciaPermitida
+		response["pendencia_nivel_conclusao"] = materia.PendenciaNivelConclusao
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 func resolverTipoMateria(nivelAcademia string, nivelEscolar *string, tipoReq *string) (string, error) {
