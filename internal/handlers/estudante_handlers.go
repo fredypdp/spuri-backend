@@ -128,8 +128,20 @@ func registerEstudantePorAcademiaMultipart(c *gin.Context) {
 			files[field] = pdf
 		}
 	}
+	documentosParaValidacao := map[string]aggregates.DocumentoMatricula{}
+	for field := range files {
+		documentosParaValidacao[field] = aggregates.DocumentoMatricula{Path: field + ".pdf"}
+	}
+	if err := validateDocumentosMatricula(stringPtrIfNotBlank(req.BilheteIdentidade), stringPtrIfNotBlank(req.BilheteResponsavel), stringPtrIfNotBlank(req.AnoEscolar), stringPtrIfNotBlank(req.AnoEscolarMedio), stringPtrIfNotBlank(req.AnoSuperior), documentosParaValidacao, "cadastro direto do estudante"); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 	if (req.AnoEscolar != "" || req.AnoEscolarMedio != "") && req.BilheteResponsavel == "" {
 		utils.RespondWithValidationError(c, fmt.Errorf("informe o bilhete de identidade do responsável; este dado é obrigatório para estudantes escolares"))
+		return
+	}
+	if req.AnoSuperior != "" && req.BilheteIdentidade == "" {
+		utils.RespondWithValidationError(c, fmt.Errorf("informe o bilhete de identidade do estudante; este dado é obrigatório para estudantes do ensino superior"))
 		return
 	}
 	if err := validateBIResponsavelNaoConflitaComEscolar(c, &req.BilheteResponsavel, nil); err != nil {
@@ -227,7 +239,7 @@ func registerEstudantePorAcademiaMultipart(c *gin.Context) {
 	}
 
 	estudante := aggregates.NewEstudante()
-	if err := estudante.CriarComVinculoComDocumentosOpcionais(req.Nome, codigoEstudante, string(hashedPassword), emailPtr, telefonePtr, telefoneRespPtr, bilhetePtr, bilheteRespPtr, req.Genero, req.DataNascimento, anoEscolarPtr, anoEscolarMedioPtr, anoSuperiorPtr, cursoMedioUUID, cursoSuperiorUUID, &academiaID, academia.CodigoAcademia, documentos); err != nil {
+	if err := estudante.CriarComVinculo(req.Nome, codigoEstudante, string(hashedPassword), emailPtr, telefonePtr, telefoneRespPtr, bilhetePtr, bilheteRespPtr, req.Genero, req.DataNascimento, anoEscolarPtr, anoEscolarMedioPtr, anoSuperiorPtr, cursoMedioUUID, cursoSuperiorUUID, &academiaID, academia.CodigoAcademia, documentos); err != nil {
 		_ = provider.Delete(dir)
 		utils.RespondWithValidationError(c, err)
 		return

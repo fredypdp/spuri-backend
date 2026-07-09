@@ -77,7 +77,7 @@ func TestSolicitacaoMatriculaCriarRejeitaBilhetesIguais(t *testing.T) {
 	}
 }
 
-func TestEstudanteCriarComVinculoRejeitaDocumentoEscolarSemReferencia(t *testing.T) {
+func TestEstudanteCriarComVinculoAceitaPrimeiroFundamentalSemComprovativoAcademico(t *testing.T) {
 	bi := "001LA002"
 	biResp := "001LA003"
 	tel := "923000000"
@@ -108,8 +108,8 @@ func TestEstudanteCriarComVinculoRejeitaDocumentoEscolarSemReferencia(t *testing
 			"certificado_6_ano_fundamental": {},
 		},
 	)
-	if err == nil || !strings.Contains(err.Error(), "certificado aplicável ou declaracao") {
-		t.Fatalf("esperava erro de documento académico sem referência, recebeu %v", err)
+	if err != nil {
+		t.Fatalf("não esperava erro de comprovativo académico no 1_ano_fundamental, recebeu %v", err)
 	}
 }
 
@@ -146,5 +146,78 @@ func TestEstudanteCriarComVinculoAceitaDocumentoEscolarComDownloadURL(t *testing
 	)
 	if err != nil {
 		t.Fatalf("não esperava erro com documentos válidos, recebeu %v", err)
+	}
+}
+
+func TestValidarDocumentosMatriculaRegrasAcademicasPorAno(t *testing.T) {
+	bi := "001LA010"
+	biResp := "001LA011"
+	docsIdentificacao := map[string]DocumentoMatricula{
+		"bi_responsavel": {Path: "bi-responsavel.pdf"},
+		"bi_estudante":   {Path: "bi-estudante.pdf"},
+	}
+
+	anoPrimeiroFundamental := "1_ano_fundamental"
+	if err := ValidarDocumentosMatricula(&bi, &biResp, &anoPrimeiroFundamental, nil, nil, docsIdentificacao); err != nil {
+		t.Fatalf("1_ano_fundamental não deve exigir declaração/certificado: %v", err)
+	}
+
+	anoSetimo := "7_ano_fundamental"
+	if err := ValidarDocumentosMatricula(&bi, &biResp, &anoSetimo, nil, nil, docsIdentificacao); err == nil || !strings.Contains(err.Error(), "certificado do 6.º ano fundamental") {
+		t.Fatalf("7_ano_fundamental deve exigir certificado do 6.º ano ou declaração, recebeu %v", err)
+	}
+	docsSetimo := map[string]DocumentoMatricula{
+		"bi_responsavel":                {Path: "bi-responsavel.pdf"},
+		"bi_estudante":                  {Path: "bi-estudante.pdf"},
+		"certificado_6_ano_fundamental": {Path: "certificado.pdf"},
+	}
+	if err := ValidarDocumentosMatricula(&bi, &biResp, &anoSetimo, nil, nil, docsSetimo); err != nil {
+		t.Fatalf("7_ano_fundamental deve aceitar certificado do 6.º ano: %v", err)
+	}
+
+	anoMedio := "1_ano_medio"
+	docsDeclaracao := map[string]DocumentoMatricula{
+		"bi_responsavel": {Path: "bi-responsavel.pdf"},
+		"bi_estudante":   {Path: "bi-estudante.pdf"},
+		"declaracao":     {Path: "declaracao.pdf"},
+	}
+	if err := ValidarDocumentosMatricula(&bi, &biResp, nil, &anoMedio, nil, docsDeclaracao); err != nil {
+		t.Fatalf("1_ano_medio deve aceitar declaração alternativa: %v", err)
+	}
+}
+
+func TestValidarDocumentosMatriculaSuperiorExigeBIEstudanteENaoResponsavel(t *testing.T) {
+	bi := "001LA020"
+	anoSuperior := "1_ano_superior"
+	docs := map[string]DocumentoMatricula{
+		"bi_estudante":             {Path: "bi-estudante.pdf"},
+		"certificado_ensino_medio": {Path: "certificado-medio.pdf"},
+	}
+	if err := ValidarDocumentosMatricula(&bi, nil, nil, nil, &anoSuperior, docs); err != nil {
+		t.Fatalf("ensino superior deve aceitar BI do estudante sem BI do responsável: %v", err)
+	}
+	if err := ValidarDocumentosMatricula(nil, nil, nil, nil, &anoSuperior, docs); err == nil || !strings.Contains(err.Error(), "bilhete_identidade é obrigatório") {
+		t.Fatalf("ensino superior deve rejeitar ausência do campo BI do estudante, recebeu %v", err)
+	}
+	if err := ValidarDocumentosMatricula(&bi, nil, nil, nil, &anoSuperior, map[string]DocumentoMatricula{"certificado_ensino_medio": {Path: "certificado.pdf"}}); err == nil || !strings.Contains(err.Error(), "bi_estudante") {
+		t.Fatalf("ensino superior deve rejeitar ausência do documento BI do estudante, recebeu %v", err)
+	}
+}
+
+func TestValidarDocumentosMatriculaEscolarExigeResponsavelEIdentificacaoDoEstudante(t *testing.T) {
+	bi := "001LA030"
+	biResp := "001LA031"
+	ano := "1_ano_fundamental"
+	if err := ValidarDocumentosMatricula(&bi, nil, &ano, nil, nil, map[string]DocumentoMatricula{"bi_estudante": {Path: "bi.pdf"}}); err == nil || !strings.Contains(err.Error(), "bilhete_identidade_responsavel") {
+		t.Fatalf("escolar deve rejeitar ausência do campo BI do responsável, recebeu %v", err)
+	}
+	if err := ValidarDocumentosMatricula(&bi, &biResp, &ano, nil, nil, map[string]DocumentoMatricula{"bi_estudante": {Path: "bi.pdf"}}); err == nil || !strings.Contains(err.Error(), "bi_responsavel") {
+		t.Fatalf("escolar deve rejeitar ausência do documento BI do responsável, recebeu %v", err)
+	}
+	if err := ValidarDocumentosMatricula(nil, &biResp, &ano, nil, nil, map[string]DocumentoMatricula{"bi_responsavel": {Path: "resp.pdf"}, "cedula_estudante": {Path: "cedula.pdf"}}); err != nil {
+		t.Fatalf("escolar deve aceitar cédula válida sem BI próprio: %v", err)
+	}
+	if err := ValidarDocumentosMatricula(nil, &biResp, &ano, nil, nil, map[string]DocumentoMatricula{"bi_responsavel": {Path: "resp.pdf"}}); err == nil || !strings.Contains(err.Error(), "cedula_estudante") {
+		t.Fatalf("escolar deve rejeitar estudante sem BI próprio e sem cédula, recebeu %v", err)
 	}
 }

@@ -39,29 +39,16 @@ func isMatriculaEscolar(anoFund, anoMedio *string) bool {
 	return anoFund != nil && strings.TrimSpace(*anoFund) != "" || anoMedio != nil && strings.TrimSpace(*anoMedio) != ""
 }
 
-func validateDocumentosEscolares(bi *string, biResp *string, documentos map[string]aggregates.DocumentoMatricula, contexto string) error {
-	if biResp == nil || strings.TrimSpace(*biResp) == "" {
-		return fmt.Errorf("bilhete_identidade_responsavel é obrigatório para estudante escolar")
+func stringPtrIfNotBlank(v string) *string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return nil
 	}
-	if documentos == nil {
-		documentos = map[string]aggregates.DocumentoMatricula{}
-	}
-	if doc, ok := documentos["bi_responsavel"]; !ok || !doc.TemReferenciaArquivo() {
-		return fmt.Errorf("bi_responsavel é obrigatório para estudante escolar")
-	}
-	if bi != nil && strings.TrimSpace(*bi) != "" {
-		if doc, ok := documentos["bi_estudante"]; !ok || !doc.TemReferenciaArquivo() {
-			return fmt.Errorf("bi_estudante é obrigatório quando bilhete_identidade do estudante é informado")
-		}
-	} else if doc, ok := documentos["cedula_estudante"]; !ok || !doc.TemReferenciaArquivo() {
-		return fmt.Errorf("cedula_estudante é obrigatória quando bilhete_identidade do estudante não é informado")
-	}
-	for _, field := range []string{"declaracao", "certificado_6_ano_fundamental", "certificado_9_ano_fundamental", "certificado_ensino_medio"} {
-		if doc, ok := documentos[field]; ok && doc.TemReferenciaArquivo() {
-			return nil
-		}
-	}
-	return fmt.Errorf("certificado aplicável ou declaracao é obrigatório para estudante escolar")
+	return &v
+}
+
+func validateDocumentosMatricula(bi *string, biResp *string, anoFund, anoMedio, anoSuperior *string, documentos map[string]aggregates.DocumentoMatricula, contexto string) error {
+	return aggregates.ValidarDocumentosMatricula(bi, biResp, anoFund, anoMedio, anoSuperior, documentos)
 }
 
 func validateBIResponsavelNaoConflitaComEscolar(c *gin.Context, biResp *string, excludeID *uuid.UUID) error {
@@ -115,10 +102,6 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 	}
 
 	bi, biResp := get("bilhete_identidade"), get("bilhete_identidade_responsavel")
-	if biResp == "" {
-		utils.RespondWithValidationError(c, fmt.Errorf("informe o bilhete de identidade do responsável; este documento é obrigatório para todas as academias"))
-		return
-	}
 	if email := get("email"); email != "" {
 		if err := utils.ValidateEmail(email); err != nil {
 			utils.RespondWithValidationError(c, err)
@@ -127,7 +110,7 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 	}
 
 	year := firstNonEmpty(get("ano_escolar_fundamental"), get("ano_escolar_medio"), get("ano_superior"))
-	requiredCertField, err := certificateFieldForMatricula(c, academia, year)
+	_, err = certificateFieldForMatricula(c, academia, year)
 	if err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -143,33 +126,23 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 			files[field] = pdf
 		}
 	}
-	if _, ok := files["bi_responsavel"]; !ok {
-		utils.RespondWithValidationError(c, fmt.Errorf("envie o PDF do bilhete de identidade do responsável; este documento é obrigatório para concluir a solicitação de matrícula"))
-		return
+	documentosParaValidacao := map[string]aggregates.DocumentoMatricula{}
+	for field := range files {
+		documentosParaValidacao[field] = aggregates.DocumentoMatricula{Path: field + ".pdf"}
 	}
-	if bi != "" {
-		if _, ok := files["bi_estudante"]; !ok {
-			utils.RespondWithValidationError(c, fmt.Errorf("envie o PDF do bilhete de identidade do estudante quando o bilhete de identidade do estudante for informado"))
-			return
-		}
-	} else if _, ok := files["cedula_estudante"]; !ok {
-		utils.RespondWithValidationError(c, fmt.Errorf("envie a cédula do estudante quando o bilhete de identidade do estudante não for informado"))
-		return
-	}
-	if requiredCertField == "" {
-		if _, ok := files["declaracao"]; !ok {
-			utils.RespondWithValidationError(c, fmt.Errorf("envie a declaração escolar quando não houver certificado aplicável para o ano académico informado"))
-			return
-		}
-	} else if _, ok := files[requiredCertField]; !ok {
-		if _, hasDeclaration := files["declaracao"]; !hasDeclaration {
-			utils.RespondWithValidationError(c, fmt.Errorf("envie o %s ou, caso ainda não o tenha, envie a declaração escolar", documentLabel(requiredCertField)))
-			return
-		}
-	}
-	if err := validateBIResponsavelNaoConflitaComEscolar(c, &biResp, nil); err != nil {
+	biPtr, biRespPtr := stringPtrIfNotBlank(bi), stringPtrIfNotBlank(biResp)
+	anoFundPtr := stringPtrIfNotBlank(get("ano_escolar_fundamental"))
+	anoMedioPtr := stringPtrIfNotBlank(get("ano_escolar_medio"))
+	anoSupPtr := stringPtrIfNotBlank(get("ano_superior"))
+	if err := validateDocumentosMatricula(biPtr, biRespPtr, anoFundPtr, anoMedioPtr, anoSupPtr, documentosParaValidacao, "criação da solicitação"); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
+	}
+	if isMatriculaEscolar(anoFundPtr, anoMedioPtr) {
+		if err := validateBIResponsavelNaoConflitaComEscolar(c, biRespPtr, nil); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
 	}
 
 	codigo, err := generateUniqueCodigoSolicitacao(getDbClient(c))
@@ -199,20 +172,8 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 		documentos[field] = aggregates.DocumentoMatricula{Path: stored.Path, FileURL: stored.FileURL, DownloadURL: stored.DownloadURL}
 	}
 
-	var emailPtr, telPtr, biPtr, biRespPtr, anoFundPtr, anoMedioPtr, anoSupPtr *string
-	setPtr := func(v string) *string {
-		if v == "" {
-			return nil
-		}
-		return &v
-	}
-	emailPtr = setPtr(get("email"))
-	telPtr = setPtr(get("telefone"))
-	biPtr = setPtr(bi)
-	biRespPtr = setPtr(biResp)
-	anoFundPtr = setPtr(get("ano_escolar_fundamental"))
-	anoMedioPtr = setPtr(get("ano_escolar_medio"))
-	anoSupPtr = setPtr(get("ano_superior"))
+	emailPtr := stringPtrIfNotBlank(get("email"))
+	telPtr := stringPtrIfNotBlank(get("telefone"))
 	cursoMedioID, err := parseOptionalCurso(c, get("curso_medio_id"), "medio", codigoAcademia)
 	if err != nil {
 		_ = provider.Delete(dir)
@@ -297,8 +258,8 @@ func AprovarSolicitacaoMatricula(c *gin.Context) {
 		utils.RespondWithError(c, http.StatusConflict, "solicitação já foi aprovada ou reprovada", nil)
 		return
 	}
-	if isMatriculaEscolar(agg.AnoEscolarFundamental, agg.AnoEscolarMedio) {
-		if err := validateDocumentosEscolares(agg.BilheteIdentidade, agg.BilheteIdentidadeResponsavel, agg.Documentos, "aprovação da solicitação"); err != nil {
+	if isMatriculaEscolar(agg.AnoEscolarFundamental, agg.AnoEscolarMedio) || (agg.AnoSuperior != nil && strings.TrimSpace(*agg.AnoSuperior) != "") {
+		if err := validateDocumentosMatricula(agg.BilheteIdentidade, agg.BilheteIdentidadeResponsavel, agg.AnoEscolarFundamental, agg.AnoEscolarMedio, agg.AnoSuperior, agg.Documentos, "aprovação da solicitação"); err != nil {
 			utils.RespondWithValidationError(c, err)
 			return
 		}
@@ -552,7 +513,7 @@ func certificateFieldForMatricula(c *gin.Context, academia *projections.Academia
 		if academia.Nivel != "escola" {
 			return "", fmt.Errorf("o ano fundamental informado não pertence a uma academia de nível superior")
 		}
-		if strings.HasPrefix(year, "7_") || strings.HasPrefix(year, "8_") || strings.HasPrefix(year, "9_") {
+		if year == "7_ano_fundamental" {
 			return "certificado_6_ano_fundamental", nil
 		}
 		return "", nil
@@ -561,13 +522,19 @@ func certificateFieldForMatricula(c *gin.Context, academia *projections.Academia
 		if err := ensureActiveCourseYear(c, academia.CodigoAcademia, "medio", year); err != nil {
 			return "", err
 		}
-		return "certificado_9_ano_fundamental", nil
+		if year == "1_ano_medio" {
+			return "certificado_9_ano_fundamental", nil
+		}
+		return "", nil
 	}
 	if strings.HasSuffix(year, "_ano_superior") {
 		if err := ensureActiveCourseYear(c, academia.CodigoAcademia, "superior", year); err != nil {
 			return "", err
 		}
-		return "certificado_ensino_medio", nil
+		if year == "1_ano_superior" {
+			return "certificado_ensino_medio", nil
+		}
+		return "", nil
 	}
 	return "", fmt.Errorf("ano académico inválido para matrícula: %s", year)
 }
