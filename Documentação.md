@@ -4400,7 +4400,73 @@ Se a fórmula exigir nota que ainda não existe para determinada matéria, categ
 10. A decisão geral é derivada dos resultados por matéria e, no Superior, das condições de pendência.
 12. Se a avaliação já existir no escopo idempotente, o backend não duplica o registro.
 
-#### 5.6.5 Fundamental
+#### 5.6.5 Modelos escolares fixos de avaliação final por ano
+
+Para escolas (`fundamental` e `medio`), a avaliação final não é configurável pela academia. O backend monta regras fixas em `regraAvaliacaoFinalEscolarFixa`, calcula o resultado **por matéria** e grava a etapa pública indicada em `type`. Em todas as fórmulas abaixo, cada referência lê a nota daquela mesma matéria, no ano letivo atual, no estudante e academia avaliados.
+
+Convenções usadas nas fórmulas:
+
+- `NP1`, `NP2`, `NP3` = `[nota_professor,1_trimestre]`, `[nota_professor,2_trimestre]`, `[nota_professor,3_trimestre]`.
+- `PT1`, `PT2`, `PT3` = `[prova_trimestral,1_trimestre]`, `[prova_trimestral,2_trimestre]`, `[prova_trimestral,3_trimestre]`.
+- `EF3` = `[exame_final,3_trimestre]`.
+- `ER3` = `[exame_recurso,3_trimestre]`.
+- `PAP3` = `[nota_pap,3_trimestre]`.
+- A média trimestral regular é sempre `(nota_professor + prova_trimestral) / 2` em cada trimestre.
+- A avaliação com exame mantém o 1º e 2º trimestres regulares e substitui a prova trimestral do 3º trimestre pelo exame final, isto é, o 3º trimestre vira `(nota_professor_3 + exame_final_3) / 2`.
+- O `exame_recurso` não é uma média com notas anteriores: quando permitido, a nota final da etapa de recurso é exatamente a nota `exame_recurso` do 3º trimestre.
+
+Fórmulas textuais exatamente no formato usado pelo backend:
+
+```text
+Regular sem exame:
+(((([nota_professor,1_trimestre]+[prova_trimestral,1_trimestre])/2)+(([nota_professor,2_trimestre]+[prova_trimestral,2_trimestre])/2)+(([nota_professor,3_trimestre]+[prova_trimestral,3_trimestre])/2))/3)
+
+Com exame final:
+(((([nota_professor,1_trimestre]+[prova_trimestral,1_trimestre])/2)+(([nota_professor,2_trimestre]+[prova_trimestral,2_trimestre])/2)+(([nota_professor,3_trimestre]+[exame_final,3_trimestre])/2))/3)
+
+Com exame de recurso:
+[exame_recurso,3_trimestre]
+
+PAP do 4º ano médio técnico:
+[nota_pap,3_trimestre]
+```
+
+As mesmas fórmulas, em notação didática:
+
+```text
+Regular sem exame = (((NP1 + PT1) / 2) + ((NP2 + PT2) / 2) + ((NP3 + PT3) / 2)) / 3
+Com exame final   = (((NP1 + PT1) / 2) + ((NP2 + PT2) / 2) + ((NP3 + EF3) / 2)) / 3
+Com recurso       = ER3
+PAP técnico       = PAP3
+```
+
+Tabela completa dos modelos fixos por ano escolar:
+
+| Nível | Ano acadêmico | Categorias aceitas para notas | Etapa raiz (`type`) | Gatilho da etapa raiz | Fórmula da etapa raiz | Mínima | Recurso? | Fórmula do recurso | Gatilho do recurso | Mínima do recurso |
+|---|---|---|---|---|---|---:|---|---|---|---:|
+| Fundamental | `1_ano_fundamental` | `nota_professor`, `prova_trimestral` | `normal` | `prova_trimestral` | Regular sem exame | 5 | Não | — | — | — |
+| Fundamental | `2_ano_fundamental` | `nota_professor`, `prova_trimestral` | `normal` | `prova_trimestral` | Regular sem exame | 5 | Não | — | — | — |
+| Fundamental | `3_ano_fundamental` | `nota_professor`, `prova_trimestral` | `normal` | `prova_trimestral` | Regular sem exame | 5 | Não | — | — | — |
+| Fundamental | `4_ano_fundamental` | `nota_professor`, `prova_trimestral` | `normal` | `prova_trimestral` | Regular sem exame | 5 | Não | — | — | — |
+| Fundamental | `5_ano_fundamental` | `nota_professor`, `prova_trimestral` | `normal` | `prova_trimestral` | Regular sem exame | 5 | Não | — | — | — |
+| Fundamental | `6_ano_fundamental` | `nota_professor`, `prova_trimestral`, `exame_final`, `exame_recurso` | `normal` | `exame_final` | Com exame final | 5 | Sim, apenas para matérias reprovadas na etapa `normal` | `ER3` | `exame_recurso` | 5 |
+| Fundamental | `7_ano_fundamental` | `nota_professor`, `prova_trimestral` | `normal` | `prova_trimestral` | Regular sem exame | 10 | Não | — | — | — |
+| Fundamental | `8_ano_fundamental` | `nota_professor`, `prova_trimestral` | `normal` | `prova_trimestral` | Regular sem exame | 10 | Não | — | — | — |
+| Fundamental | `9_ano_fundamental` | `nota_professor`, `prova_trimestral`, `exame_final`, `exame_recurso` | `normal` | `exame_final` | Com exame final | 10 | Sim, apenas para matérias reprovadas na etapa `normal` | `ER3` | `exame_recurso` | 10 |
+| Médio | `1_ano_medio` | `nota_professor`, `prova_trimestral` | `normal` | `prova_trimestral` | Regular sem exame | 10 | Não | — | — | — |
+| Médio | `2_ano_medio` | `nota_professor`, `prova_trimestral` | `normal` | `prova_trimestral` | Regular sem exame | 10 | Não | — | — | — |
+| Médio | `3_ano_medio` | `nota_professor`, `prova_trimestral`, `exame_final`, `exame_recurso` | `normal` | `exame_final` | Com exame final | 10 | Sim, apenas para matérias reprovadas na etapa `normal` | `ER3` | `exame_recurso` | 10 |
+| Médio técnico | `4_ano_medio` | `nota_pap` | `normal` | `nota_pap` | `PAP3` | 10 | Não | — | — | — |
+
+Observações importantes que vêm diretamente do comportamento fixo do backend:
+
+- Nos anos sem exame, a avaliação final só fecha quando existirem as notas exigidas de professor e prova trimestral nos três trimestres de cada matéria avaliada.
+- Nos anos com exame (`6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio`), a etapa raiz usa `exame_final` no lugar da prova trimestral do 3º trimestre. A prova trimestral do 3º trimestre pode existir como categoria, mas não entra nessa fórmula com exame.
+- O recurso existe somente para `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio`, depende de reprovação anterior na etapa `normal` e recalcula somente as matérias reprovadas. Se a matéria já foi aprovada na etapa `normal`, lançar `exame_recurso` para ela é inválido.
+- O `4_ano_medio` só tem modelo fixo de avaliação final quando o curso médio é técnico; nessa situação a etapa final é a Prova de Aptidão Profissional (`nota_pap`) e não há avaliação regular por trimestres, exame final nem recurso.
+- A aprovação geral escolar exige aprovação em todas as matérias avaliadas pela etapa aplicável; escolas não usam aprovação com pendência.
+
+#### 5.6.6 Fundamental
 
 - O escopo é `ano_escolar_fundamental` atual do estudante (`1_ano_fundamental` a `9_ano_fundamental`).
 - O catálogo avaliativo fundamental é fixo do sistema; rotas configuráveis de regras não aceitam criação/edição/remoção para Fundamental. Regras superiores não aceitam `anos_academicos`.
@@ -4411,7 +4477,7 @@ Se a fórmula exigir nota que ainda não existe para determinada matéria, categ
 - Aprovado em ano intermediário progride para o próximo ano fundamental. Se a academia não oferta o próximo ano, o evento registra o motivo `academia_sem_oferta_do_proximo_ano_academico_fundamental`, mantém o ciclo em andamento e não adiciona turma automaticamente.
 - Aprovado no `9_ano_fundamental` finaliza o ciclo fundamental. Reprovado permanece no mesmo ano.
 
-#### 5.6.6 Médio
+#### 5.6.7 Médio
 
 - O escopo é o `ano_escolar_medio` atual do estudante, validado contra o curso médio ativo vinculado.
 - O backend avalia matérias médias ativas do curso e ano atual conforme o padrão fixo escolar.
@@ -4429,7 +4495,7 @@ Cenários típicos do Médio:
 | `4_ano_medio` técnico com `nota_pap >= 10` | Aprovação e conclusão do médio técnico. |
 | `4_ano_medio` técnico com `nota_pap < 10` | Reprovação no ano final técnico. |
 
-#### 5.6.7 Superior
+#### 5.6.8 Superior
 
 - O escopo é o curso superior ativo e o `semestre_atual` do estudante, convertido para `1_semestre`, `2_semestre`, etc.
 - O backend avalia matérias superiores ativas do curso cujo `periodo` corresponde ao semestre atual.
@@ -4441,7 +4507,7 @@ Cenários típicos do Médio:
 - Aprovação em semestre intermediário incrementa `semestre_atual` e recalcula `ano_superior`; aprovação no último semestre finaliza o ciclo superior.
 - Pendência de curso anterior permanece histórica e não bloqueia o curso atual.
 
-#### 5.6.8 Regras descendentes por matéria
+#### 5.6.9 Regras descendentes por matéria
 
 Regra descendente é qualquer regra com `aplica_se_reprovado_em_type`. Ela representa uma etapa posterior da cadeia e só roda quando a etapa ascendente indicada reprovou. A descendente herda a lógica por matéria: calcula notas para matérias aplicáveis, compara cada resultado com a mínima e grava `type`/regra/fórmula usados naquela etapa.
 
@@ -4453,19 +4519,19 @@ Pontos importantes:
 - Ao final da última etapa reprovada, apenas o Superior avalia se a reprovação vira pendência; Fundamental e Médio escolar permanecem reprovados quando não atendem ao padrão fixo.
 - Exemplo: raiz `avaliacao_final` reprova Matemática e Física; descendente `avaliacao_final_com_exame` com `materias_aplicaveis=[Matemática]` recalcula somente Matemática. Física continua com o resultado anterior para a decisão final/pendência.
 
-#### 5.6.9 Resultados por matéria, eventos, projeções e auditoria
+#### 5.6.10 Resultados por matéria, eventos, projeções e auditoria
 
 Cada avaliação final gravada deve ser explicada pelos itens de `resultados_materias`, não por média global única. Cada item contém, no mínimo, `materia_id`, `nota_final`, `aprovado`, `type`, `formula_snapshot`, `regra_avaliacao_final_id` e `pendencia_permitida`. A projeção também mantém `nota_final` agregada como média dos itens calculados para compatibilidade/consulta resumida, mas a decisão funcional é por matéria.
 
 Eventos `AvaliacaoFinalEscolar` e `AvaliacaoFinalSuperior` preservam snapshots de regra, fórmula, notas calculadas, progressão e pendências geradas. Alterações posteriores de regra, matéria ou nota não reescrevem silenciosamente decisões já registradas; ajustes exigem fluxo operacional próprio/rebuild controlado.
 
-#### 5.6.10 Pendências de matérias
+#### 5.6.11 Pendências de matérias
 
 Pendências existem apenas para o Superior. Elas são consideradas depois de reprovação na cadeia aplicável e só são criadas quando a decisão final superior é aprovação com pendência. Se o estudante reprova totalmente, nenhuma nova pendência é criada.
 
 A pendência carrega funcionalmente: estudante, matéria, academia, curso, `nivel`, ano letivo, escopo acadêmico (`periodo_superior`), regra/evento de origem, status `pendente`, dados de origem/snapshot e timestamps. Há proteção contra duplicidade aberta no mesmo estudante, matéria, curso, nível, ano letivo e escopo. A estrutura também possui campos de baixa (`baixada_por_event_id`, `updated_at`) para histórico, mas a documentação funcional reconhece uma limitação atual: **não há rota pública consolidada de regularização/baixa de pendência exposta nesta documentação de API**. Portanto, o sistema já persiste e consulta a base de pendências abertas/históricas, mas a regularização operacional precisa ser implementada ou conduzida por fluxo administrativo/evento específico antes de ser tratada como rotina pública.
 
-#### 5.6.11 Bloqueio por `pendencia_nivel_conclusao` e regularização
+#### 5.6.12 Bloqueio por `pendencia_nivel_conclusao` e regularização
 
 `pendencia_nivel_conclusao` pertence à matéria e deve ser usado para identificar pendências bloqueantes do curso atual. Funcionalmente:
 
@@ -4475,7 +4541,7 @@ A pendência carrega funcionalmente: estudante, matéria, academia, curso, `nive
 - Pendências de curso anterior são históricas e não bloqueiam o curso atual.
 - Regularização de pendência é diferente de avaliação final normal: deve avaliar a matéria pendente, registrar evento próprio auditável, baixar a pendência se aprovada e manter aberta se reprovada. Como limitação atual, esse fluxo ainda não está exposto como endpoint público completo; ao ser implementado, deve reutilizar os dados de origem da pendência e retomar progressão/conclusão quando não restarem pendências relevantes abertas.
 
-#### 5.6.12 Cenários de erro e validação
+#### 5.6.13 Cenários de erro e validação
 
 Devem falhar com erro de validação ou bloqueio funcional:
 
@@ -4493,7 +4559,7 @@ Devem falhar com erro de validação ou bloqueio funcional:
 - Tentativa de criar duplicidade de pendência aberta no mesmo escopo.
 - Tentativa de concluir/progredir em desacordo com pendência bloqueante do curso atual.
 
-#### 5.6.13 Consultas
+#### 5.6.14 Consultas
 
 - `GET /avaliacoes` → registros de avaliação final, com filtros por `nivel`, ano letivo, ano/período acadêmico atual, turma, academia e `type`. O filtro legado `tipo_ensino` é rejeitado no handler atual.
 - `GET /aprovacoes` → apenas aprovados (`aprovado = TRUE`) com os mesmos filtros.
