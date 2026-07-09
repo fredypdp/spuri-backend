@@ -4,7 +4,7 @@ origem: solicitação do usuário
 status: feito
 ---
 
-# Garantir validações de documentos obrigatórios no cadastro e matrícula de estudantes
+# Garantir validações de documentos obrigatórios no cadastro e matrícula de estudantes (feito)
 
 ## Prompt recomendado para executar a atualização
 
