@@ -466,7 +466,7 @@ func (e *Estudante) criarComVinculo(
 		documentos = documentosOpt[0]
 	}
 	if exigirDocumentosEscolares {
-		if err := validarDocumentosEscolaresAggregate(bilhete, bilheteResp, anoEscolar, anoEscolarMedio, documentos); err != nil {
+		if err := ValidarDocumentosMatricula(bilhete, bilheteResp, anoEscolar, anoEscolarMedio, anoSuperior, documentos); err != nil {
 			return err
 		}
 	}

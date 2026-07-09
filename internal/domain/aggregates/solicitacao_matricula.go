@@ -83,7 +83,7 @@ func (s *SolicitacaoMatricula) Criar(codigoSolicitacao, codigoAcademia, nome, ge
 	if documentos == nil || len(documentos) == 0 {
 		return fmt.Errorf("documentos são obrigatórios")
 	}
-	if err := validarDocumentosEscolaresAggregate(bi, biResp, anoFund, anoMedio, documentos); err != nil {
+	if err := ValidarDocumentosMatricula(bi, biResp, anoFund, anoMedio, anoSuperior, documentos); err != nil {
 		return err
 	}
 	now := time.Now().UTC()
@@ -151,15 +151,24 @@ func (d *DocumentoMatricula) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func validarDocumentosEscolaresAggregate(bi, biResp *string, anoFund, anoMedio *string, documentos map[string]DocumentoMatricula) error {
-	if !(!isNilOrBlank(anoFund) || !isNilOrBlank(anoMedio)) {
+func ValidarDocumentosMatricula(bi, biResp *string, anoFund, anoMedio, anoSuperior *string, documentos map[string]DocumentoMatricula) error {
+	if documentos == nil {
+		documentos = map[string]DocumentoMatricula{}
+	}
+	if !isNilOrBlank(anoSuperior) {
+		if isNilOrBlank(bi) {
+			return fmt.Errorf("bilhete_identidade é obrigatório para estudante do ensino superior")
+		}
+		if doc, ok := documentos["bi_estudante"]; !ok || !doc.TemReferenciaArquivo() {
+			return fmt.Errorf("bi_estudante é obrigatório para estudante do ensino superior")
+		}
+		return validarComprovativoAcademico(*anoSuperior, documentos)
+	}
+	if isNilOrBlank(anoFund) && isNilOrBlank(anoMedio) {
 		return nil
 	}
 	if isNilOrBlank(biResp) {
 		return fmt.Errorf("bilhete_identidade_responsavel é obrigatório para estudante escolar")
-	}
-	if documentos == nil {
-		documentos = map[string]DocumentoMatricula{}
 	}
 	if doc, ok := documentos["bi_responsavel"]; !ok || !doc.TemReferenciaArquivo() {
 		return fmt.Errorf("bi_responsavel é obrigatório para estudante escolar")
@@ -171,19 +180,38 @@ func validarDocumentosEscolaresAggregate(bi, biResp *string, anoFund, anoMedio *
 	} else if doc, ok := documentos["cedula_estudante"]; !ok || !doc.TemReferenciaArquivo() {
 		return fmt.Errorf("cedula_estudante é obrigatória quando bilhete_identidade do estudante não é informado")
 	}
+	ano := ""
+	if !isNilOrBlank(anoFund) {
+		ano = *anoFund
+	} else if !isNilOrBlank(anoMedio) {
+		ano = *anoMedio
+	}
+	return validarComprovativoAcademico(ano, documentos)
+}
+
+func validarComprovativoAcademico(ano string, documentos map[string]DocumentoMatricula) error {
+	requiredCert := ""
+	requiredLabel := ""
+	switch strings.TrimSpace(ano) {
+	case "7_ano_fundamental":
+		requiredCert = "certificado_6_ano_fundamental"
+		requiredLabel = "certificado do 6.º ano fundamental"
+	case "1_ano_medio":
+		requiredCert = "certificado_9_ano_fundamental"
+		requiredLabel = "certificado do 9.º ano fundamental"
+	case "1_ano_superior":
+		requiredCert = "certificado_ensino_medio"
+		requiredLabel = "certificado do ensino médio"
+	default:
+		return nil
+	}
+	if doc, ok := documentos[requiredCert]; ok && doc.TemReferenciaArquivo() {
+		return nil
+	}
 	if doc, ok := documentos["declaracao"]; ok && doc.TemReferenciaArquivo() {
 		return nil
 	}
-	if doc, ok := documentos["certificado_6_ano_fundamental"]; ok && doc.TemReferenciaArquivo() {
-		return nil
-	}
-	if doc, ok := documentos["certificado_9_ano_fundamental"]; ok && doc.TemReferenciaArquivo() {
-		return nil
-	}
-	if doc, ok := documentos["certificado_ensino_medio"]; ok && doc.TemReferenciaArquivo() {
-		return nil
-	}
-	return fmt.Errorf("certificado aplicável ou declaracao é obrigatório para estudante escolar")
+	return fmt.Errorf("%s ou declaracao compatível é obrigatório para %s", requiredLabel, ano)
 }
 
 type SolicitacaoMatriculaCriadaEvent struct {

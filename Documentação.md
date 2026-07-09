@@ -1175,16 +1175,18 @@ Atualiza os dados cadastrais da academia autenticada.
 
 ### Regras automáticas de documentos de matrícula
 
-A obrigatoriedade dos documentos não é mais configurada por academia. O backend aplica automaticamente as regras abaixo no `POST /solicitacao-matricula` e na aprovação da solicitação. No cadastro direto `POST /academia/estudante/register`, os anexos são opcionais e somente os PDFs enviados são validados tecnicamente:
+A obrigatoriedade dos documentos é aplicada por uma política única no `POST /solicitacao-matricula`, na aprovação da solicitação e no cadastro direto `POST /academia/estudante/register`. A validação considera simultaneamente os campos textuais do request e os PDFs anexados:
 
-- Para estudantes escolares/fundamental/médio, `bi_responsavel` e `bilhete_identidade_responsavel` são obrigatórios na solicitação pública e na aprovação; no cadastro direto, apenas o `bilhete_identidade_responsavel` textual permanece obrigatório.
+- `1_ano_fundamental` não exige `declaracao` nem certificado acadêmico anterior.
+- `7_ano_fundamental` exige `certificado_6_ano_fundamental` ou `declaracao`.
+- `1_ano_medio` exige `certificado_9_ano_fundamental` ou `declaracao`.
+- `1_ano_superior` exige `certificado_ensino_medio` ou `declaracao`.
+- Demais anos acadêmicos não cobram declaração/certificado fora dessas regras automáticas.
+- No ensino superior, `bilhete_identidade` do estudante e PDF `bi_estudante` são obrigatórios; `bilhete_identidade_responsavel` e PDF `bi_responsavel` são opcionais.
+- No nível escolar/fundamental/médio, `bilhete_identidade_responsavel` e PDF `bi_responsavel` são sempre obrigatórios.
+- No nível escolar/fundamental/médio, o estudante deve ter `bilhete_identidade` + PDF `bi_estudante`, ou PDF `cedula_estudante` quando não tiver BI próprio.
 - `bilhete_identidade` e `bilhete_identidade_responsavel`, quando ambos informados para o mesmo estudante, não podem ser iguais.
-- Na solicitação pública, `bi_estudante` é obrigatório quando `bilhete_identidade` for informado; `cedula_estudante` é obrigatória quando o estudante não tiver BI próprio.
 - Para estudantes escolares/fundamental/médio, o BI do responsável não pode coincidir com o BI principal de outro estudante escolar/fundamental/médio; ele pode repetir como BI de responsável de outros estudantes.
-- `certificado_6_ano_fundamental` é o certificado aplicável somente para `7_ano_fundamental`, `8_ano_fundamental` e `9_ano_fundamental`.
-- `certificado_9_ano_fundamental` é o certificado aplicável somente para anos do ensino médio.
-- `certificado_ensino_medio` é o certificado aplicável somente para anos do ensino superior.
-- Na solicitação pública, `declaracao` é obrigatória quando o certificado aplicável não for enviado ou quando não existir certificado aplicável ao ano académico informado.
 
 
 ---
@@ -2068,11 +2070,11 @@ Para implementar o cliente de forma segura:
 - `genero` obrigatório: `masculino` ou `feminino`
 - `data_nascimento` obrigatório: deve ser anterior à data atual
 - JSON puro não é aceito no cadastro direto; o fluxo deve usar `multipart/form-data`, mesmo quando nenhum anexo for enviado
-- `bilhete_identidade_responsavel` continua obrigatório para estudantes escolares/fundamental/médio; o PDF `bi_responsavel` é opcional no cadastro direto
+- `bilhete_identidade_responsavel` e PDF `bi_responsavel` são obrigatórios para estudantes escolares/fundamental/médio; no ensino superior, o responsável é opcional
 - `bilhete_identidade` e `bilhete_identidade_responsavel`, quando ambos informados, não podem ser iguais após normalização
-- `bi_estudante` e `cedula_estudante` são opcionais no cadastro direto; quando enviados, precisam ser PDFs válidos
+- `bi_estudante` é obrigatório no ensino superior e quando o estudante escolar informa BI próprio; sem BI próprio no escolar, `cedula_estudante` é obrigatória
 - o BI do responsável não pode coincidir com o BI principal de outro estudante escolar/fundamental/médio, mas pode repetir como BI de responsável de irmãos/outros estudantes
-- Certificados acadêmicos e `declaracao` são opcionais no cadastro direto; quando enviados, precisam ser PDFs válidos
+- `declaracao`/certificados seguem a matriz automática por ano acadêmico: sem cobrança no `1_ano_fundamental`; `7_ano_fundamental`, `1_ano_medio` e `1_ano_superior` exigem certificado específico ou declaração
 - `ano_escolar_fundamental` deve seguir o formato canônico para o tipo de ensino
 - Se informar `curso_medio_id`, o curso deve existir, estar ativo, pertencer à academia e ser do tipo `medio`
 - Se informar `curso_superior_id`, o curso deve existir, estar ativo, pertencer à academia e ser do tipo `superior`
@@ -2094,7 +2096,7 @@ Para implementar o cliente de forma segura:
 
 ### POST /academia/estudante/register
 
-Cadastra um novo estudante vinculado à academia autenticada. O cadastro direto usa `multipart/form-data`, mas os anexos documentais são opcionais neste fluxo: a academia pode criar o estudante sem PDFs e anexá-los apenas quando estiverem disponíveis. JSON puro não é aceito. Para estudantes escolares/fundamental/médio, a criação mantém as validações cadastrais, incluindo BI textual do responsável e a regra de que esse BI não pode coincidir com o BI principal de outro estudante escolar.
+Cadastra um novo estudante vinculado à academia autenticada. O cadastro direto usa `multipart/form-data` e aplica a mesma política documental da solicitação de matrícula para campos textuais e PDFs. JSON puro não é aceito. Para estudantes escolares/fundamental/médio, exige BI textual/PDF do responsável e BI textual/PDF do estudante ou cédula; para ensino superior, exige BI textual/PDF do estudante e mantém o responsável opcional.
 
 **Proteção**: autenticado + academia ativa
 
@@ -2110,8 +2112,8 @@ Cadastra um novo estudante vinculado à academia autenticada. O cadastro direto 
 | `email` | não | Validado quando informado. |
 | `telefone` | condicional | Pelo menos um entre `telefone` e `telefone_responsavel`; para superior, `telefone_responsavel` pode ficar ausente. |
 | `telefone_responsavel` | condicional | Não pode ser igual a `telefone`. |
-| `bilhete_identidade` | não | Quando informado, deve ser único entre estudantes. |
-| `bilhete_identidade_responsavel` | sim | Obrigatório para estudante escolar/fundamental/médio; não pode ser igual ao BI do estudante após normalização nem coincidir com o BI principal de outro estudante escolar/fundamental/médio. |
+| `bilhete_identidade` | condicional | Obrigatório no ensino superior; para escolar/fundamental/médio é obrigatório quando o estudante usa BI próprio em vez de cédula. Deve ser único entre estudantes. |
+| `bilhete_identidade_responsavel` | condicional | Obrigatório para estudante escolar/fundamental/médio; opcional no ensino superior. Não pode ser igual ao BI do estudante após normalização nem coincidir com o BI principal de outro estudante escolar/fundamental/médio. |
 | `ano_escolar_fundamental` | condicional | Ano fundamental canônico, quando aplicável. |
 | `ano_escolar_medio` | condicional | Ano médio canônico, quando aplicável. |
 | `curso_medio_id` | condicional | UUID de curso médio ativo da academia, quando o ano médio for informado. |
@@ -2122,13 +2124,13 @@ Cadastra um novo estudante vinculado à academia autenticada. O cadastro direto 
 
 | Campo de arquivo | Regra |
 | --- | --- |
-| `bi_responsavel` | Opcional; quando enviado, deve ser PDF válido. |
-| `bi_estudante` | Opcional; pode ser enviado quando `bilhete_identidade` do estudante for informado. |
-| `cedula_estudante` | Opcional; pode ser enviada quando o estudante ainda não tiver BI próprio. |
-| `declaracao` | Opcional; pode ser enviada como documento escolar provisório. |
-| `certificado_6_ano_fundamental` | Opcional; aplicável a `7_ano_fundamental`, `8_ano_fundamental` e `9_ano_fundamental`. |
-| `certificado_9_ano_fundamental` | Opcional; aplicável ao ensino médio. |
-| `certificado_ensino_medio` | Opcional; aplicável ao ensino superior. |
+| `bi_responsavel` | Obrigatório para escolar/fundamental/médio; opcional no ensino superior. |
+| `bi_estudante` | Obrigatório no ensino superior e obrigatório no escolar quando `bilhete_identidade` do estudante for informado. |
+| `cedula_estudante` | Obrigatória para estudante escolar/fundamental/médio sem BI próprio. |
+| `declaracao` | Alternativa aceita para `7_ano_fundamental`, `1_ano_medio` e `1_ano_superior`. |
+| `certificado_6_ano_fundamental` | Exigido como alternativa à declaração somente para `7_ano_fundamental`. |
+| `certificado_9_ano_fundamental` | Exigido como alternativa à declaração somente para `1_ano_medio`. |
+| `certificado_ensino_medio` | Exigido como alternativa à declaração somente para `1_ano_superior`. |
 
 Quando enviados, todos os ficheiros devem ter `Content-Type: application/pdf`, extensão `.pdf`, assinatura `%PDF` e tamanho máximo de 10MB. Os documentos são armazenados em `{codigo_academia}/estudantes/{codigo_estudante}/documentos/` e gravados no evento `EstudanteCriadoComVinculo` e na projeção do estudante como `documentos.<campo>.path`, `documentos.<campo>.file_url` e `documentos.<campo>.download_url`. Se a criação falhar após upload parcial, o backend remove o diretório definitivo do estudante para evitar ficheiros órfãos.
 
@@ -2795,7 +2797,7 @@ Eventos do ledger:
 3. Os documentos são enviados ao storage em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`.
 4. Para cada PDF, o storage devolve o caminho interno, a URL do arquivo (`file_url`) e a URL de download (`download_url`); esses dados são gravados no evento de criação e na projeção.
 5. O aggregate `SolicitacaoMatricula` valida que `bilhete_identidade` e `bilhete_identidade_responsavel`, quando ambos informados, não sejam iguais.
-6. Para estudantes escolares/fundamental/médio, o handler e o aggregate exigem `bilhete_identidade_responsavel`, `bi_responsavel`, `bi_estudante` quando houver BI próprio, `cedula_estudante` quando não houver BI próprio, e certificado aplicável ou `declaracao`.
+6. A política compartilhada exige, para escolar/fundamental/médio, `bilhete_identidade_responsavel`, `bi_responsavel` e BI do estudante com `bi_estudante` ou `cedula_estudante`; para superior, exige `bilhete_identidade` e `bi_estudante`, mantendo o responsável opcional.
 7. Antes de criar ou aprovar a solicitação escolar, o handler confirma que o BI do responsável não pertence como BI principal a outro estudante escolar/fundamental/médio já existente.
 8. O aggregate `SolicitacaoMatricula` grava o evento de criação.
 9. A academia lista/consulta solicitações e aprova ou reprova.
@@ -2804,12 +2806,13 @@ Eventos do ledger:
 
 ### Regras de negócio
 
-- O bilhete de identidade do responsável é obrigatório para estudantes escolares/fundamental/médio.
-- A cédula do estudante é obrigatória quando o bilhete de identidade do estudante não for enviado.
-- Certificado do 6.º ano fundamental só é aplicável para matrículas do 7.º ao 9.º ano fundamental.
-- Certificado do 9.º ano fundamental só é aplicável para matrículas do ensino médio.
-- Certificado do ensino médio só é aplicável para matrículas do ensino superior.
-- A declaração escolar é obrigatória quando o certificado aplicável não for enviado ou quando não houver certificado aplicável ao ano académico informado.
+- O bilhete de identidade do responsável e o PDF `bi_responsavel` são obrigatórios para estudantes escolares/fundamental/médio e opcionais para ensino superior.
+- O bilhete de identidade do estudante e o PDF `bi_estudante` são obrigatórios no ensino superior.
+- No escolar/fundamental/médio, a cédula do estudante é obrigatória quando o bilhete de identidade do estudante não for enviado; quando o BI do estudante for enviado, o PDF `bi_estudante` também é obrigatório.
+- `1_ano_fundamental` não exige declaração nem certificado.
+- `7_ano_fundamental` exige certificado do 6.º ano fundamental ou declaração.
+- `1_ano_medio` exige certificado do 9.º ano fundamental ou declaração.
+- `1_ano_superior` exige certificado do ensino médio ou declaração.
 - Arquivos devem ser PDFs (`Content-Type`, extensão e assinatura `%PDF`).
 - Apenas a academia dona pode aprovar/reprovar.
 - Solicitação decidida não volta para pendente.
@@ -2824,7 +2827,7 @@ Cria uma solicitação pública de matrícula via `multipart/form-data`. O backe
 
 **Campos**: `codigo_academia`, `nome`, `genero`, `data_nascimento`, `email`, `telefone`, `bilhete_identidade`, `bilhete_identidade_responsavel`, `ano_escolar_fundamental`, `ano_escolar_medio`, `curso_medio_id`, `ano_superior`, `curso_superior_id`. Quando `bilhete_identidade` e `bilhete_identidade_responsavel` forem enviados juntos, eles não podem ser iguais (comparação sem espaços nas extremidades e sem diferenciar maiúsculas/minúsculas).
 
-**Ficheiros PDF**: `bi_estudante`, `bi_responsavel`, `cedula_estudante`, `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`. Cada ficheiro deve ser PDF válido e ter no máximo 10MB. Para estudantes escolares/fundamental/médio, `bi_responsavel` é obrigatório; `bi_estudante` é obrigatório quando `bilhete_identidade` for informado; `cedula_estudante` é obrigatória quando o estudante não tiver BI próprio; `declaracao` é obrigatória quando o certificado aplicável ao ano académico não for enviado.
+**Ficheiros PDF**: `bi_estudante`, `bi_responsavel`, `cedula_estudante`, `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`. Cada ficheiro deve ser PDF válido e ter no máximo 10MB. Para estudantes escolares/fundamental/médio, `bi_responsavel` é obrigatório e o estudante deve enviar `bi_estudante` com `bilhete_identidade` ou `cedula_estudante` sem BI próprio. Para ensino superior, `bi_estudante` é obrigatório e `bi_responsavel` é opcional. `1_ano_fundamental` não exige comprovativo acadêmico; `7_ano_fundamental`, `1_ano_medio` e `1_ano_superior` exigem o certificado específico ou `declaracao`.
 
 **Request:** `multipart/form-data` com os campos e ficheiros listados acima.
 
