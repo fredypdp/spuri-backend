@@ -71,6 +71,21 @@ func registerEstudantePorAcademiaMultipart(c *gin.Context) {
 		CursoMedioID: get("curso_medio_id"), CursoSuperiorID: get("curso_superior_id"),
 	}
 
+	files := map[string]uploadedPDF{}
+	for _, field := range solicitacaoDocFields {
+		if fh, err := c.FormFile(field); err == nil {
+			pdf, err := readAndValidatePDF(field, fh)
+			if err != nil {
+				utils.RespondWithValidationError(c, err)
+				return
+			}
+			files[field] = pdf
+		}
+	}
+	registerEstudantePorAcademiaComRequest(c, req, files, get("declaracao_ano_academico"))
+}
+
+func registerEstudantePorAcademiaComRequest(c *gin.Context, req CadastroEstudanteAcademiaRequest, files map[string]uploadedPDF, declaracaoAnoAcademico string) {
 	if err := utils.ValidateNome(req.Nome); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -116,23 +131,11 @@ func registerEstudantePorAcademiaMultipart(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
-
-	files := map[string]uploadedPDF{}
-	for _, field := range solicitacaoDocFields {
-		if fh, err := c.FormFile(field); err == nil {
-			pdf, err := readAndValidatePDF(field, fh)
-			if err != nil {
-				utils.RespondWithValidationError(c, err)
-				return
-			}
-			files[field] = pdf
-		}
-	}
 	documentosParaValidacao := map[string]aggregates.DocumentoMatricula{}
 	for field := range files {
 		documentosParaValidacao[field] = aggregates.DocumentoMatricula{Path: field + ".pdf"}
 		if field == "declaracao" {
-			documentosParaValidacao[field] = aggregates.DocumentoMatricula{Path: field + ".pdf", AnoAcademico: get("declaracao_ano_academico")}
+			documentosParaValidacao[field] = aggregates.DocumentoMatricula{Path: field + ".pdf", AnoAcademico: declaracaoAnoAcademico}
 		}
 	}
 	if err := validateDocumentosMatricula(stringPtrIfNotBlank(req.BilheteIdentidade), stringPtrIfNotBlank(req.BilheteResponsavel), stringPtrIfNotBlank(req.AnoEscolar), stringPtrIfNotBlank(req.AnoEscolarMedio), stringPtrIfNotBlank(req.AnoSuperior), documentosParaValidacao, "cadastro direto do estudante"); err != nil {
@@ -179,7 +182,7 @@ func registerEstudantePorAcademiaMultipart(c *gin.Context) {
 		documentos[field] = aggregates.DocumentoMatricula{Path: stored.Path, FileURL: stored.FileURL, DownloadURL: stored.DownloadURL}
 		if field == "declaracao" {
 			doc := documentos[field]
-			doc.AnoAcademico = get("declaracao_ano_academico")
+			doc.AnoAcademico = declaracaoAnoAcademico
 			documentos[field] = doc
 		}
 	}

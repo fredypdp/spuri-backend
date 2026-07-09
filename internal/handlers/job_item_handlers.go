@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"spuri/internal/utils"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -57,6 +58,65 @@ func bindJobItemWithoutLosingBody(c *gin.Context, target interface{}) error {
 	// ShouldBindJSON consome o stream; restaura novamente para o handler principal.
 	restoreBody(c, rawBody)
 	return nil
+}
+
+func parseCadastroEstudanteAsyncDate(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, fmt.Errorf("data_nascimento deve ser YYYY-MM-DD anterior à data atual")
+	}
+	parsed, err := time.Parse("2006-01-02", value)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("data_nascimento deve ser YYYY-MM-DD anterior à data atual")
+	}
+	return parsed, nil
+}
+
+func RegisterEstudantePorAcademiaJobItem(c *gin.Context) {
+	var item struct {
+		Nome                   string `json:"nome"`
+		Genero                 string `json:"genero"`
+		DataNascimento         string `json:"data_nascimento"`
+		Email                  string `json:"email"`
+		Telefone               string `json:"telefone"`
+		TelefoneResponsavel    string `json:"telefone_responsavel"`
+		BilheteIdentidade      string `json:"bilhete_identidade"`
+		BilheteResponsavel     string `json:"bilhete_identidade_responsavel"`
+		AnoEscolar             string `json:"ano_escolar_fundamental"`
+		AnoEscolarMedio        string `json:"ano_escolar_medio"`
+		AnoSuperior            string `json:"ano_superior"`
+		CursoMedioID           string `json:"curso_medio_id"`
+		CursoSuperiorID        string `json:"curso_superior_id"`
+		DeclaracaoAnoAcademico string `json:"declaracao_ano_academico"`
+	}
+	if err := bindJobItemWithoutLosingBody(c, &item); err != nil {
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter os mesmos campos textuais do cadastro de estudante", nil)
+		return
+	}
+
+	dataNascimento, err := parseCadastroEstudanteAsyncDate(item.DataNascimento)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	req := CadastroEstudanteAcademiaRequest{
+		Nome:                strings.TrimSpace(item.Nome),
+		Genero:              strings.TrimSpace(item.Genero),
+		DataNascimento:      dataNascimento,
+		Email:               strings.TrimSpace(item.Email),
+		Telefone:            strings.TrimSpace(item.Telefone),
+		TelefoneResponsavel: strings.TrimSpace(item.TelefoneResponsavel),
+		BilheteIdentidade:   strings.TrimSpace(item.BilheteIdentidade),
+		BilheteResponsavel:  strings.TrimSpace(item.BilheteResponsavel),
+		AnoEscolar:          strings.TrimSpace(item.AnoEscolar),
+		AnoEscolarMedio:     strings.TrimSpace(item.AnoEscolarMedio),
+		AnoSuperior:         strings.TrimSpace(item.AnoSuperior),
+		CursoMedioID:        strings.TrimSpace(item.CursoMedioID),
+		CursoSuperiorID:     strings.TrimSpace(item.CursoSuperiorID),
+	}
+
+	registerEstudantePorAcademiaComRequest(c, req, map[string]uploadedPDF{}, strings.TrimSpace(item.DeclaracaoAnoAcademico))
 }
 
 func AtivarAcademiaJobItem(c *gin.Context) {

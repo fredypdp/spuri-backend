@@ -162,7 +162,7 @@ func initJobs(ctx context.Context) {
 	jobWorker.RegisterHandler(jobs.JobTypeRegisterAcademiaBatch, handlers.RegisterAcademia)
 	jobWorker.RegisterHandler(jobs.JobTypeAtivarAcademiaBatch, handlers.AtivarAcademiaJobItem)
 	jobWorker.RegisterHandler(jobs.JobTypeDesativarAcademiaBatch, handlers.DesativarAcademiaJobItem)
-	jobWorker.RegisterHandler(jobs.JobTypeRegisterEstudanteBatch, handlers.RegisterEstudantePorAcademia)
+	jobWorker.RegisterHandler(jobs.JobTypeRegisterEstudanteBatch, handlers.RegisterEstudantePorAcademiaJobItem)
 	jobWorker.RegisterHandler(jobs.JobTypeRegistrarNotaBatch, handlers.RegistrarNota)
 	jobWorker.RegisterHandler(jobs.JobTypeRegistrarFaltasBatch, handlers.RegistrarFaltas)
 	jobWorker.RegisterHandler(jobs.JobTypeCriarCursoBatch, handlers.CriarCurso)
