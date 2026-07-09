@@ -18,12 +18,13 @@ Versão atual: 2.1.1
 11. [[#11. Matérias]]
 12. [[#12. Turmas]]
 13. [[#13. Notas]]
-14. [[#14. Faltas]]
-15. [[#15. Avaliações Finais]]
-16. [[#16. Admins]]
-17. [[#17. Jobs Assíncronos]]
-18. [[#18. Batch Assíncrono]]
-19. [[#19. Armazenamento]]
+14. [[#14. Sumários/Aulas]]
+15. [[#15. Faltas]]
+16. [[#16. Avaliações Finais]]
+17. [[#17. Admins]]
+18. [[#18. Jobs Assíncronos]]
+19. [[#19. Batch Assíncrono]]
+20. [[#20. Armazenamento]]
 
 ---
 
@@ -214,7 +215,7 @@ interface EstudanteDTO {
 ---
 
 
-### 2.x SolicitacaoMatricula
+### 2.5 SolicitacaoMatricula
 
 ```typescript
 interface SolicitacaoMatriculaDocumentoDTO {
@@ -251,7 +252,7 @@ interface SolicitacaoMatriculaDTO {
 }
 ```
 
-### 2.5 Curso
+### 2.6 Curso
 
 ```typescript
 interface CursoDTO {
@@ -271,7 +272,7 @@ interface CursoDTO {
 
 ---
 
-### 2.6 Matéria
+### 2.7 Matéria
 
 ```typescript
 interface MateriaDTO {
@@ -293,7 +294,7 @@ interface MateriaDTO {
 
 ---
 
-### 2.7 Turma
+### 2.8 Turma
 
 ```typescript
 interface TurmaDTO {
@@ -316,7 +317,7 @@ interface TurmaDTO {
 
 ---
 
-### 2.8 Nota
+### 2.9 Nota
 
 ```typescript
 interface NotaDTO {
@@ -340,7 +341,7 @@ interface NotaDTO {
 
 ---
 
-### 2.9 Falta
+### 2.10 Falta
 
 ```typescript
 interface FaltaDTO {
@@ -362,7 +363,7 @@ interface FaltaDTO {
 
 ---
 
-### 2.10 Registro de Nota (consulta global)
+### 2.11 Registro de Nota (consulta global)
 
 ```typescript
 interface NotaRegistroDTO {
@@ -390,7 +391,7 @@ Usado em: `GET /notas`
 
 ---
 
-### 2.11 Registro de Falta (consulta global)
+### 2.12 Registro de Falta (consulta global)
 
 ```typescript
 interface FaltaRegistroDTO {
@@ -416,7 +417,7 @@ Usado em: `GET /faltas`
 
 ---
 
-### 2.12 Avaliação Final
+### 2.13 Avaliação Final
 
 ```typescript
 interface AvaliacaoFinalDTO {
@@ -437,7 +438,7 @@ interface AvaliacaoFinalDTO {
 
 ---
 
-### 2.13 Categoria de Nota
+### 2.14 Categoria de Nota
 
 ```typescript
 interface CategoriaNotaDTO {
@@ -455,7 +456,7 @@ interface CategoriaNotaDTO {
 
 ---
 
-### 2.14 Job
+### 2.15 Job
 
 ```typescript
 interface JobSummary {
@@ -486,7 +487,7 @@ interface JobItemResult {
 
 ---
 
-### 2.15 Resposta de Criação de Job Batch Assíncrono
+### 2.16 Resposta de Criação de Job Batch Assíncrono
 
 ```typescript
 interface AsyncBatchAcceptedResponse {
@@ -512,21 +513,21 @@ As rotas `GET /academia/cursos?codigo_academia=...` e `GET /academia/curso/:id` 
 
 Quando a requisição envia `Authorization: Bearer <jwt_token>` válido, a API preserva o contrato autenticado anterior, retornando também campos operacionais para usuários autenticados e campos administrativos adicionais para admins. Tokens enviados em formato inválido, expirados ou pertencentes a contas inativas devem ser rejeitados com `401`.
 
-### 8.1 JWT
+### 3.1 JWT
 
 - Algoritmo: HS256
 - Expiração configurável via `JWT_EXPIRY_HOURS` (padrão: 24h)
 - Secret configurável via `JWT_SECRET` (obrigatório em produção)
 - Payload: `user_id` (UUID) e `user_type` (string)
 
-### 8.2 Senhas
+### 3.2 Senhas
 
 - Algoritmo: bcrypt com custo padrão
 - Senhas de admins: geradas com `crypto/rand` (segurança criptográfica), nunca hardcoded
 - Senhas de academia/estudante: código da entidade como senha inicial
 - Todas as alterações de senha passam pelo ledger (evento)
 
-### 8.3 Hash Chain do Ledger
+### 3.3 Hash Chain do Ledger
 
 Cada evento no ledger tem um hash SHA256 que inclui o hash do evento anterior:
 
@@ -536,11 +537,11 @@ hash(evento_N) = SHA256(conteúdo_N + hash(evento_N-1))
 
 Qualquer adulteração de um evento invalida toda a cadeia a partir daquele ponto, tornando a adulteração detectável.
 
-### 8.4 Whitelist de Eventos
+### 3.4 Whitelist de Eventos
 
 Apenas eventos previamente autorizados podem ser gravados no ledger (`safe_queries.go`). Qualquer evento desconhecido é rejeitado antes de chegar ao banco.
 
-### 8.5 Segurança das Queries
+### 3.5 Segurança das Queries
 
 - Todas as queries SQL usam prepared statements com placeholders (`$1`, `$2`, ...)
 - Nomes de tabelas interpolados dinamicamente só ocorrem em um switch fechado com valores constantes (sem input do usuário)
@@ -954,7 +955,7 @@ Define nova senha usando o token de recuperação.
 
 ### Processos de Negócio — Cadastro de Academia
 
-### 5.1 Cadastro de Academia
+### 6.1 Cadastro de Academia
 
 **Quem faz**: Admin (FPP)
 
@@ -995,7 +996,7 @@ Define nova senha usando o token de recuperação.
 	];`
 ### Regras de Negócio — Academia
 
-### 6.1 Regras de Academia
+### 6.2 Regras de Academia
 
 | Regra                                                         | Detalhe                                                |
 | ------------------------------------------------------------- | ------------------------------------------------------ |
@@ -1583,7 +1584,7 @@ item apontando o campo exato que deve ser corrigido.
 
 ### Processos de Negócio — Configuração do Ano Letivo
 
-### 5.3 Configuração do Ano Letivo
+### 7.1 Configuração do Ano Letivo
 
 **Quem faz**:
 
@@ -2049,7 +2050,7 @@ Para implementar o cliente de forma segura:
 
 ### Processos de Negócio — Cadastro de Estudante
 
-### 5.2 Cadastro de Estudante
+### 8.1 Cadastro de Estudante
 
 **Quem faz**: Academia (status ativo)
 
@@ -2079,7 +2080,7 @@ Para implementar o cliente de forma segura:
 - Status inicial padrão para médio e superior: `inativo` até eventos específicos de matrícula/curso
 ### Regras de Negócio — Estudante
 
-### 6.2 Regras de Estudante
+### 8.2 Regras de Estudante
 
 | Regra                                                         | Detalhe                                 |
 | ------------------------------------------------------------- | --------------------------------------- |
@@ -2974,7 +2975,7 @@ Lista todas as solicitações do sistema para admin em ordem decrescente de cria
 
 ### Processos de Negócio — Gestão de Cursos
 
-### 5.8 Gestão de Cursos e Matérias
+### 10.1 Gestão de Cursos e Matérias
 
 **Ciclo de vida do curso:**
 
@@ -3003,7 +3004,7 @@ Matérias fundamental e médio são criadas já **ativas**.
 **Validação de período**: o período da matéria deve existir na lista de períodos do curso vinculado.
 ### Regras de Negócio — Curso
 
-### 6.8 Regras de Curso
+### 10.2 Regras de Curso
 
 | Regra                                                           | Detalhe                                                                                                                                                                                    |
 | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -3248,7 +3249,7 @@ Deleta um curso (soft delete com cascata).
 
 ### Processos de Negócio — Gestão de Matérias
 
-### 5.8 Gestão de Cursos e Matérias
+### 11.1 Gestão de Cursos e Matérias
 
 **Ciclo de vida do curso:**
 
@@ -3277,7 +3278,7 @@ Matérias fundamental e médio são criadas já **ativas**.
 **Validação de período**: o período da matéria deve existir na lista de períodos do curso vinculado.
 ### Regras de Negócio — Matéria Disciplinar
 
-### 6.7 Regras de Matéria Disciplinar
+### 11.2 Regras de Matéria Disciplinar
 
 | Regra                                                                                                | Detalhe                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -3484,7 +3485,7 @@ Deleta uma matéria (soft delete). Deve estar inativa.
 
 ### Processos de Negócio — Gestão de Turmas
 
-### 5.7 Gestão de Turmas
+### 12.1 Gestão de Turmas
 
 **Quem faz**: Academia
 
@@ -3505,7 +3506,7 @@ Criada (ativo) → Desativada (inativo) → Deletada (deletado)
 **Histórico por ano letivo**: cada turma mantém `historico_estudantes_ano_letivo` (mapa `ano_letivo -> [codigo_estudante]`) com os estudantes que já fizeram parte dela em cada ano letivo.
 ### Regras de Negócio — Turma
 
-### 6.6 Regras de Turma
+### 12.2 Regras de Turma
 
 | Regra                                                                        | Detalhe                                                                                                                                                                                                                                                                                    |
 | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -3788,7 +3789,7 @@ Retorna as turmas de um estudante com autorização por perfil na mesma rota.
 
 ### Processos de Negócio — Registro de Notas
 
-### 5.4 Registro de Notas
+### 13.1 Registro de Notas
 
 **Quem faz**: Academia (status ativo, com ano letivo configurado)
 
@@ -3824,7 +3825,7 @@ Nas escolas, a academia não cria nem remove categorias. O backend seleciona aut
 **Proteção contra duplicatas**: o aggregate mantém um mapa em memória (`NotasRegistradasPorChave`). Se a mesma combinação de academia/ano/período/matéria/tipo/categoria já existir, o comando é rejeitado com erro de negócio claro antes de tocar o banco.
 ### Regras de Negócio — Notas
 
-### 6.3 Regras de Notas
+### 13.2 Regras de Notas
 
 | Regra                                       | Detalhe                                                       |
 | ------------------------------------------- | ------------------------------------------------------------- |
@@ -4105,15 +4106,15 @@ Lista registros de notas com escopo por perfil.
 
 ---
 
-## 13.1 Sumários/Aulas
+## 14. Sumários/Aulas
 
 O recurso de sumários/aulas foi removido do contrato público da API. Não há endpoints para criar, listar, consultar, atualizar ou remover sumários, e faltas não aceitam nem retornam vínculo com sumário.
 
-## 14. Faltas
+## 15. Faltas
 
 ### Processos de Negócio — Registro de Faltas
 
-### 5.5 Registro de Faltas
+### 15.1 Registro de Faltas
 
 **Quem faz**: Academia (status ativo, com ano letivo configurado)
 
@@ -4136,7 +4137,7 @@ O recurso de sumários/aulas foi removido do contrato público da API. Não há 
 **Imutabilidade**: faltas são imutáveis após criação; não há endpoint público ou assíncrono para editar ou eliminar faltas.
 ### Regras de Negócio — Faltas
 
-### 6.4 Regras de Faltas
+### 15.2 Regras de Faltas
 
 | Regra                                            | Detalhe                                                                                 |
 | ------------------------------------------------ | --------------------------------------------------------------------------------------- |
@@ -4147,7 +4148,7 @@ O recurso de sumários/aulas foi removido do contrato público da API. Não há 
 | Duplicata bloqueada                              | Mesma combinação `data + codigo_estudante + materia_disciplinar_id` é rejeitada         |
 | Sem vínculo de sumário                           | Faltas são independentes e não aceitam `sumario_id` ou `sumario_titulo` |
 
-### 6.4.1 Remoção de Sumários/Aulas
+### 15.3 Remoção de Sumários/Aulas
 
 O sistema não possui mais a entidade sumário/aula. As faltas devem ser lançadas e consultadas sem `sumario_id`, `sumario_titulo` ou qualquer vínculo equivalente.
 
@@ -4297,17 +4298,17 @@ Lista registros de faltas com escopo por perfil.
 
 ---
 
-## 15. Avaliações Finais
+## 16. Avaliações Finais
 
 ### Processos de Negócio — Avaliação Final de Ano Académico
 
-### 5.6 Avaliação Final de Ano Académico
+### 16.1 Avaliação Final de Ano Académico
 
 **Quem faz**: Academia ativa, com ano letivo configurado, por meio da configuração de regras e do lançamento de notas. A academia **não envia manualmente** a nota final calculada nem decide aprovação/reprovação no payload de execução.
 
 A avaliação final é automática, auditável e orientada por regras. Ela é disparada pelo fluxo de lançamento de notas quando o backend identifica que existem regras ativas e notas suficientes para calcular a etapa aplicável. O modelo atual **não é uma média global única do estudante**: o backend calcula uma `nota_final` independente para cada matéria disciplinar aplicável, registra resultados por matéria e deriva a decisão geral do conjunto de resultados, da cadeia de regras e, apenas para Superior, das regras de pendência.
 
-#### 5.6.1 Conceitos funcionais
+#### 16.1.1 Conceitos funcionais
 
 | Conceito | Significado funcional |
 |---|---|
@@ -4327,7 +4328,7 @@ A avaliação final é automática, auditável e orientada por regras. Ela é di
 
 A avaliação registrada é idempotente no escopo suportado: o sistema evita gravar duas avaliações com o mesmo estudante, academia, ano letivo, nível interno da avaliação, ano/período acadêmico atual e `type`. Eventos e projeções preservam snapshots de fórmula, regra, matérias e pendências suficientes para auditoria.
 
-#### 5.6.2 Montagem e criação de regras de avaliação final
+#### 16.1.2 Montagem e criação de regras de avaliação final
 
 Na versão 2.1.0, as regras configuráveis de avaliação final são exclusivas do ensino superior. Escolas não criam, editam nem removem regras por endpoint: o padrão avaliativo escolar é fixo do sistema, alinhado às categorias fixas e às etapas oficiais (`nota_professor`, `prova_trimestral`, exames quando aplicável e `nota_pap` no técnico). Na execução automática escolar, não há fallback para regras configuráveis ou legadas da projeção; uma categoria sem `nota_despertadora` fixa simplesmente não dispara avaliação final.
 
@@ -4373,7 +4374,7 @@ A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras d
 | Raiz do Superior | `nivel=superior`, sem `anos_academicos`, fórmula com referências `[categoria]`, `limite_materias_pendentes` definido. |
 | Superior com pendência | Mesma regra superior, matérias com `pendencia_permitida=true` e, quando aplicável, `pendencia_nivel_conclusao` indicando o semestre-limite. |
 
-#### 5.6.3 Fórmulas por nível
+#### 16.1.3 Fórmulas por nível
 
 A regra usa `formula` como texto declarativo. O parser valida referências, operadores, parênteses, constantes, categorias e períodos antes de persistir ou calcular. Erro de fórmula é erro de validação, não falha operacional inesperada.
 
@@ -4387,7 +4388,7 @@ No Superior, o backend preenche o período no momento do cálculo usando a maté
 
 Se a fórmula exigir nota que ainda não existe para determinada matéria, categoria e período, aquela execução não fecha a avaliação naquele momento; o lançamento de novas notas tentará novamente. A fórmula sempre lê notas do ano letivo atual, da mesma academia, do mesmo estudante, da matéria avaliada e de categorias extraídas da própria fórmula.
 
-#### 5.6.4 Execução automática por lançamento de notas
+#### 16.1.4 Execução automática por lançamento de notas
 
 1. A academia registra/atualiza nota; o backend valida ano letivo, estudante, matéria, categoria, período, escala numérica e pertencimento ao `ano_escolar_fundamental` ou `ano_escolar_medio` atual do estudante.
 2. O backend infere o nível acadêmico do estudante para execução: Superior tem prioridade quando há vínculo/status superior; depois Médio; caso contrário Fundamental.
@@ -4400,7 +4401,7 @@ Se a fórmula exigir nota que ainda não existe para determinada matéria, categ
 10. A decisão geral é derivada dos resultados por matéria e, no Superior, das condições de pendência.
 12. Se a avaliação já existir no escopo idempotente, o backend não duplica o registro.
 
-#### 5.6.5 Modelos escolares fixos de avaliação final por ano
+#### 16.1.5 Modelos escolares fixos de avaliação final por ano
 
 Para escolas (`fundamental` e `medio`), a avaliação final não é configurável pela academia. O backend monta regras fixas em `regraAvaliacaoFinalEscolarFixa`, calcula o resultado **por matéria** e grava a etapa pública indicada em `type`. Em todas as fórmulas abaixo, cada referência lê a nota daquela mesma matéria, no ano letivo atual, no estudante e academia avaliados.
 
@@ -4466,7 +4467,7 @@ Observações importantes que vêm diretamente do comportamento fixo do backend:
 - O `4_ano_medio` só tem modelo fixo de avaliação final quando o curso médio é técnico; nessa situação a etapa final é a Prova de Aptidão Profissional (`nota_pap`) e não há avaliação regular por trimestres, exame final nem recurso.
 - A aprovação geral escolar exige aprovação em todas as matérias avaliadas pela etapa aplicável; escolas não usam aprovação com pendência.
 
-#### 5.6.6 Fundamental
+#### 16.1.6 Fundamental
 
 - O escopo é `ano_escolar_fundamental` atual do estudante (`1_ano_fundamental` a `9_ano_fundamental`).
 - O catálogo avaliativo fundamental é fixo do sistema; rotas configuráveis de regras não aceitam criação/edição/remoção para Fundamental. Regras superiores não aceitam `anos_academicos`.
@@ -4477,7 +4478,7 @@ Observações importantes que vêm diretamente do comportamento fixo do backend:
 - Aprovado em ano intermediário progride para o próximo ano fundamental. Se a academia não oferta o próximo ano, o evento registra o motivo `academia_sem_oferta_do_proximo_ano_academico_fundamental`, mantém o ciclo em andamento e não adiciona turma automaticamente.
 - Aprovado no `9_ano_fundamental` finaliza o ciclo fundamental. Reprovado permanece no mesmo ano.
 
-#### 5.6.7 Médio
+#### 16.1.7 Médio
 
 - O escopo é o `ano_escolar_medio` atual do estudante, validado contra o curso médio ativo vinculado.
 - O backend avalia matérias médias ativas do curso e ano atual conforme o padrão fixo escolar.
@@ -4495,7 +4496,7 @@ Cenários típicos do Médio:
 | `4_ano_medio` técnico com `nota_pap >= 10` | Aprovação e conclusão do médio técnico. |
 | `4_ano_medio` técnico com `nota_pap < 10` | Reprovação no ano final técnico. |
 
-#### 5.6.8 Superior
+#### 16.1.8 Superior
 
 - O escopo é o curso superior ativo e o `semestre_atual` do estudante, convertido para `1_semestre`, `2_semestre`, etc.
 - O backend avalia matérias superiores ativas do curso cujo `periodo` corresponde ao semestre atual.
@@ -4507,7 +4508,7 @@ Cenários típicos do Médio:
 - Aprovação em semestre intermediário incrementa `semestre_atual` e recalcula `ano_superior`; aprovação no último semestre finaliza o ciclo superior.
 - Pendência de curso anterior permanece histórica e não bloqueia o curso atual.
 
-#### 5.6.9 Regras descendentes por matéria
+#### 16.1.9 Regras descendentes por matéria
 
 Regra descendente é qualquer regra com `aplica_se_reprovado_em_type`. Ela representa uma etapa posterior da cadeia e só roda quando a etapa ascendente indicada reprovou. A descendente herda a lógica por matéria: calcula notas para matérias aplicáveis, compara cada resultado com a mínima e grava `type`/regra/fórmula usados naquela etapa.
 
@@ -4519,19 +4520,19 @@ Pontos importantes:
 - Ao final da última etapa reprovada, apenas o Superior avalia se a reprovação vira pendência; Fundamental e Médio escolar permanecem reprovados quando não atendem ao padrão fixo.
 - Exemplo: raiz `avaliacao_final` reprova Matemática e Física; descendente `avaliacao_final_com_exame` com `materias_aplicaveis=[Matemática]` recalcula somente Matemática. Física continua com o resultado anterior para a decisão final/pendência.
 
-#### 5.6.10 Resultados por matéria, eventos, projeções e auditoria
+#### 16.1.10 Resultados por matéria, eventos, projeções e auditoria
 
 Cada avaliação final gravada deve ser explicada pelos itens de `resultados_materias`, não por média global única. Cada item contém, no mínimo, `materia_id`, `nota_final`, `aprovado`, `type`, `formula_snapshot`, `regra_avaliacao_final_id` e `pendencia_permitida`. A projeção também mantém `nota_final` agregada como média dos itens calculados para compatibilidade/consulta resumida, mas a decisão funcional é por matéria.
 
 Eventos `AvaliacaoFinalEscolar` e `AvaliacaoFinalSuperior` preservam snapshots de regra, fórmula, notas calculadas, progressão e pendências geradas. Alterações posteriores de regra, matéria ou nota não reescrevem silenciosamente decisões já registradas; ajustes exigem fluxo operacional próprio/rebuild controlado.
 
-#### 5.6.11 Pendências de matérias
+#### 16.1.11 Pendências de matérias
 
 Pendências existem apenas para o Superior. Elas são consideradas depois de reprovação na cadeia aplicável e só são criadas quando a decisão final superior é aprovação com pendência. Se o estudante reprova totalmente, nenhuma nova pendência é criada.
 
 A pendência carrega funcionalmente: estudante, matéria, academia, curso, `nivel`, ano letivo, escopo acadêmico (`periodo_superior`), regra/evento de origem, status `pendente`, dados de origem/snapshot e timestamps. Há proteção contra duplicidade aberta no mesmo estudante, matéria, curso, nível, ano letivo e escopo. A estrutura também possui campos de baixa (`baixada_por_event_id`, `updated_at`) para histórico, mas a documentação funcional reconhece uma limitação atual: **não há rota pública consolidada de regularização/baixa de pendência exposta nesta documentação de API**. Portanto, o sistema já persiste e consulta a base de pendências abertas/históricas, mas a regularização operacional precisa ser implementada ou conduzida por fluxo administrativo/evento específico antes de ser tratada como rotina pública.
 
-#### 5.6.12 Bloqueio por `pendencia_nivel_conclusao` e regularização
+#### 16.1.12 Bloqueio por `pendencia_nivel_conclusao` e regularização
 
 `pendencia_nivel_conclusao` pertence à matéria e deve ser usado para identificar pendências bloqueantes do curso atual. Funcionalmente:
 
@@ -4541,7 +4542,7 @@ A pendência carrega funcionalmente: estudante, matéria, academia, curso, `nive
 - Pendências de curso anterior são históricas e não bloqueiam o curso atual.
 - Regularização de pendência é diferente de avaliação final normal: deve avaliar a matéria pendente, registrar evento próprio auditável, baixar a pendência se aprovada e manter aberta se reprovada. Como limitação atual, esse fluxo ainda não está exposto como endpoint público completo; ao ser implementado, deve reutilizar os dados de origem da pendência e retomar progressão/conclusão quando não restarem pendências relevantes abertas.
 
-#### 5.6.13 Cenários de erro e validação
+#### 16.1.13 Cenários de erro e validação
 
 Devem falhar com erro de validação ou bloqueio funcional:
 
@@ -4559,7 +4560,7 @@ Devem falhar com erro de validação ou bloqueio funcional:
 - Tentativa de criar duplicidade de pendência aberta no mesmo escopo.
 - Tentativa de concluir/progredir em desacordo com pendência bloqueante do curso atual.
 
-#### 5.6.14 Consultas
+#### 16.1.14 Consultas
 
 - `GET /avaliacoes` → registros de avaliação final, com filtros por `nivel`, ano letivo, ano/período acadêmico atual, turma, academia e `type`. O filtro legado `tipo_ensino` é rejeitado no handler atual.
 - `GET /aprovacoes` → apenas aprovados (`aprovado = TRUE`) com os mesmos filtros.
@@ -4571,7 +4572,7 @@ Devem falhar com erro de validação ou bloqueio funcional:
 **Escopo por academia:** usuário autenticado como academia só consulta/gerencia dados da própria academia. Admin pode consultar de forma ampla com filtros.
 ### Regras de Negócio — Avaliação Final
 
-### 6.5 Regras de Avaliação Final
+### 16.2 Regras de Avaliação Final
 
 | Regra                                       | Detalhe                                    |
 | ------------------------------------------- | ------------------------------------------ |
@@ -5026,11 +5027,11 @@ Retorna avaliações finais de um estudante específico.
 
 ---
 
-## 16. Admins
+## 17. Admins
 
 ### Processos de Negócio — Administração e Integridade
 
-### 5.9 Verificação de Integridade do Ledger
+### 17.1 Verificação de Integridade do Ledger
 
 O sistema suporta verificação da cadeia de hashes do ledger para qualquer estudante:
 
@@ -5042,7 +5043,7 @@ A função SQL `verify_hash_chain` verifica se todos os hashes encadeados são v
 
 ---
 
-### 5.10 Rebuild de Projeções
+### 17.2 Rebuild de Projeções
 
 Admins com role `fpp` podem reconstruir projeções:
 
@@ -5072,7 +5073,7 @@ Esse endpoint retorna `202 Accepted` com `job_id`, `poll_url` e `sse_url`; o cli
 6. `avaliacao_final`
 ### Regras de Negócio — Admin
 
-### 6.9 Regras de Admin
+### 17.3 Regras de Admin
 
 | Regra                                    | Detalhe                                                                                            |
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------- |
@@ -5350,11 +5351,11 @@ Use este endpoint quando o rebuild puder demorar vários minutos.
 
 ---
 
-## 17. Jobs Assíncronos
+## 18. Jobs Assíncronos
 
 ### Processos de Negócio — Sistema de Jobs Assíncronos
 
-### 5.11 Sistema de Jobs Assíncronos
+### 18.1 Sistema de Jobs Assíncronos
 
 Para operações em lote com muitos itens, o sistema oferece endpoints `/async` que criam um **job em background**:
 
@@ -5523,11 +5524,11 @@ Cria um novo job de retry reaproveitando **somente os itens que falharam** no jo
 
 ---
 
-## 18. Batch Assíncrono
+## 19. Batch Assíncrono
 
 ### Processos de Negócio — Operações em Lote
 
-### 9.1 Batch Assíncrono
+### 19.1 Batch Assíncrono
 
 Endpoints `/async` criam um job e retornam imediatamente. O processamento ocorre em background.
 
@@ -5664,7 +5665,7 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 
 ---
 
-## 19. Armazenamento
+## 20. Armazenamento
 
 ### Processos e Regras de Negócio — Armazenamento de Arquivos
 
