@@ -190,9 +190,19 @@ func ValidarDocumentosMatricula(bi, biResp *string, anoFund, anoMedio, anoSuperi
 }
 
 func validarComprovativoAcademico(ano string, documentos map[string]DocumentoMatricula) error {
+	ano = strings.TrimSpace(ano)
+	if ano == "1_ano_fundamental" {
+		return nil
+	}
+
+	previousAno, hasPreviousAno := anoAcademicoAnterior(ano)
+	if !hasPreviousAno {
+		return nil
+	}
+
 	requiredCert := ""
 	requiredLabel := ""
-	switch strings.TrimSpace(ano) {
+	switch ano {
 	case "7_ano_fundamental":
 		requiredCert = "certificado_6_ano_fundamental"
 		requiredLabel = "certificado do 6.º ano fundamental"
@@ -202,16 +212,46 @@ func validarComprovativoAcademico(ano string, documentos map[string]DocumentoMat
 	case "1_ano_superior":
 		requiredCert = "certificado_ensino_medio"
 		requiredLabel = "certificado do ensino médio"
-	default:
-		return nil
 	}
-	if doc, ok := documentos[requiredCert]; ok && doc.TemReferenciaArquivo() {
-		return nil
+
+	if requiredCert != "" {
+		if doc, ok := documentos[requiredCert]; ok && doc.TemReferenciaArquivo() {
+			return nil
+		}
+		if doc, ok := documentos["declaracao"]; ok && doc.TemReferenciaArquivo() {
+			return nil
+		}
+		return fmt.Errorf("%s ou declaracao do ano académico anterior (%s) é obrigatório para %s", requiredLabel, previousAno, ano)
 	}
+
 	if doc, ok := documentos["declaracao"]; ok && doc.TemReferenciaArquivo() {
 		return nil
 	}
-	return fmt.Errorf("%s ou declaracao compatível é obrigatório para %s", requiredLabel, ano)
+	return fmt.Errorf("declaracao do ano académico anterior (%s) é obrigatória para %s", previousAno, ano)
+}
+
+func anoAcademicoAnterior(ano string) (string, bool) {
+	var numero int
+	if _, err := fmt.Sscanf(ano, "%d_ano_fundamental", &numero); err == nil && numero >= 2 && numero <= 9 {
+		return fmt.Sprintf("%d_ano_fundamental", numero-1), true
+	}
+	if _, err := fmt.Sscanf(ano, "%d_ano_medio", &numero); err == nil {
+		if numero == 1 {
+			return "9_ano_fundamental", true
+		}
+		if numero > 1 {
+			return fmt.Sprintf("%d_ano_medio", numero-1), true
+		}
+	}
+	if _, err := fmt.Sscanf(ano, "%d_ano_superior", &numero); err == nil {
+		if numero == 1 {
+			return "ensino_medio", true
+		}
+		if numero > 1 {
+			return fmt.Sprintf("%d_ano_superior", numero-1), true
+		}
+	}
+	return "", false
 }
 
 type SolicitacaoMatriculaCriadaEvent struct {
