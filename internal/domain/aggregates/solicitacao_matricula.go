@@ -127,9 +127,10 @@ func bilhetesSolicitacaoIguais(bi, biResp *string) bool {
 }
 
 type DocumentoMatricula struct {
-	Path        string `json:"path"`
-	FileURL     string `json:"file_url"`
-	DownloadURL string `json:"download_url"`
+	Path         string `json:"path"`
+	FileURL      string `json:"file_url"`
+	DownloadURL  string `json:"download_url"`
+	AnoAcademico string `json:"ano_academico,omitempty"`
 }
 
 func (d DocumentoMatricula) TemReferenciaArquivo() bool {
@@ -190,28 +191,76 @@ func ValidarDocumentosMatricula(bi, biResp *string, anoFund, anoMedio, anoSuperi
 }
 
 func validarComprovativoAcademico(ano string, documentos map[string]DocumentoMatricula) error {
-	requiredCert := ""
-	requiredLabel := ""
-	switch strings.TrimSpace(ano) {
+	ano = strings.TrimSpace(ano)
+	if ano == "1_ano_fundamental" {
+		return nil
+	}
+	esperado, ok := anoAcademicoAnterior(ano)
+	if !ok {
+		return nil
+	}
+	if requiredCert, requiredLabel := certificadoObrigatorioParaAno(ano); requiredCert != "" {
+		if doc, ok := documentos[requiredCert]; ok && doc.TemReferenciaArquivo() {
+			return nil
+		}
+		if err := validarDeclaracaoAnoAnterior(documentos, esperado); err == nil {
+			return nil
+		} else if hasDocumentoComArquivo(documentos, "declaracao") {
+			return err
+		}
+		return fmt.Errorf("%s ou declaracao do ano académico anterior (%s) é obrigatório para %s", requiredLabel, esperado, ano)
+	}
+	return validarDeclaracaoAnoAnterior(documentos, esperado)
+}
+
+func hasDocumentoComArquivo(documentos map[string]DocumentoMatricula, campo string) bool {
+	doc, ok := documentos[campo]
+	return ok && doc.TemReferenciaArquivo()
+}
+
+func validarDeclaracaoAnoAnterior(documentos map[string]DocumentoMatricula, esperado string) error {
+	doc, ok := documentos["declaracao"]
+	if !ok || !doc.TemReferenciaArquivo() {
+		return fmt.Errorf("declaracao do ano académico anterior (%s) é obrigatória", esperado)
+	}
+	anoDeclaracao := strings.TrimSpace(doc.AnoAcademico)
+	if anoDeclaracao == "" {
+		return fmt.Errorf("declaracao deve informar ano_academico esperado %s", esperado)
+	}
+	if anoDeclaracao != esperado {
+		return fmt.Errorf("declaracao deve ser do ano académico anterior %s; recebido %s", esperado, anoDeclaracao)
+	}
+	return nil
+}
+
+func certificadoObrigatorioParaAno(ano string) (string, string) {
+	switch ano {
 	case "7_ano_fundamental":
-		requiredCert = "certificado_6_ano_fundamental"
-		requiredLabel = "certificado do 6.º ano fundamental"
+		return "certificado_6_ano_fundamental", "certificado do 6.º ano fundamental"
 	case "1_ano_medio":
-		requiredCert = "certificado_9_ano_fundamental"
-		requiredLabel = "certificado do 9.º ano fundamental"
+		return "certificado_9_ano_fundamental", "certificado do 9.º ano fundamental"
 	case "1_ano_superior":
-		requiredCert = "certificado_ensino_medio"
-		requiredLabel = "certificado do ensino médio"
+		return "certificado_ensino_medio", "certificado do ensino médio"
 	default:
-		return nil
+		return "", ""
 	}
-	if doc, ok := documentos[requiredCert]; ok && doc.TemReferenciaArquivo() {
-		return nil
+}
+
+func anoAcademicoAnterior(ano string) (string, bool) {
+	ordem := []string{
+		"1_ano_fundamental", "2_ano_fundamental", "3_ano_fundamental", "4_ano_fundamental", "5_ano_fundamental", "6_ano_fundamental", "7_ano_fundamental", "8_ano_fundamental", "9_ano_fundamental",
+		"1_ano_medio", "2_ano_medio", "3_ano_medio",
+		"1_ano_superior",
 	}
-	if doc, ok := documentos["declaracao"]; ok && doc.TemReferenciaArquivo() {
-		return nil
+	for i, atual := range ordem {
+		if atual == ano {
+			if i == 0 {
+				return "", false
+			}
+			return ordem[i-1], true
+		}
 	}
-	return fmt.Errorf("%s ou declaracao compatível é obrigatório para %s", requiredLabel, ano)
+	return "", false
 }
 
 type SolicitacaoMatriculaCriadaEvent struct {
