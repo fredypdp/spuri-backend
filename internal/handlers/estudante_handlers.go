@@ -131,6 +131,9 @@ func registerEstudantePorAcademiaMultipart(c *gin.Context) {
 	documentosParaValidacao := map[string]aggregates.DocumentoMatricula{}
 	for field := range files {
 		documentosParaValidacao[field] = aggregates.DocumentoMatricula{Path: field + ".pdf"}
+		if field == "declaracao" {
+			documentosParaValidacao[field] = aggregates.DocumentoMatricula{Path: field + ".pdf", AnoAcademico: get("declaracao_ano_academico")}
+		}
 	}
 	if err := validateDocumentosMatricula(stringPtrIfNotBlank(req.BilheteIdentidade), stringPtrIfNotBlank(req.BilheteResponsavel), stringPtrIfNotBlank(req.AnoEscolar), stringPtrIfNotBlank(req.AnoEscolarMedio), stringPtrIfNotBlank(req.AnoSuperior), documentosParaValidacao, "cadastro direto do estudante"); err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -174,6 +177,11 @@ func registerEstudantePorAcademiaMultipart(c *gin.Context) {
 			return
 		}
 		documentos[field] = aggregates.DocumentoMatricula{Path: stored.Path, FileURL: stored.FileURL, DownloadURL: stored.DownloadURL}
+		if field == "declaracao" {
+			doc := documentos[field]
+			doc.AnoAcademico = get("declaracao_ano_academico")
+			documentos[field] = doc
+		}
 	}
 
 	defaultPassword := services.GetDefaultPassword("estudante", codigoEstudante)

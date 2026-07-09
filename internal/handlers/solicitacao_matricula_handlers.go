@@ -129,6 +129,9 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 	documentosParaValidacao := map[string]aggregates.DocumentoMatricula{}
 	for field := range files {
 		documentosParaValidacao[field] = aggregates.DocumentoMatricula{Path: field + ".pdf"}
+		if field == "declaracao" {
+			documentosParaValidacao[field] = aggregates.DocumentoMatricula{Path: field + ".pdf", AnoAcademico: get("declaracao_ano_academico")}
+		}
 	}
 	biPtr, biRespPtr := stringPtrIfNotBlank(bi), stringPtrIfNotBlank(biResp)
 	anoFundPtr := stringPtrIfNotBlank(get("ano_escolar_fundamental"))
@@ -170,6 +173,11 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 			return
 		}
 		documentos[field] = aggregates.DocumentoMatricula{Path: stored.Path, FileURL: stored.FileURL, DownloadURL: stored.DownloadURL}
+		if field == "declaracao" {
+			doc := documentos[field]
+			doc.AnoAcademico = get("declaracao_ano_academico")
+			documentos[field] = doc
+		}
 	}
 
 	emailPtr := stringPtrIfNotBlank(get("email"))
