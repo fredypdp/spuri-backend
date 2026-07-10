@@ -44,6 +44,28 @@ func TestGlobalAnoLetivoReadRoutesRequireOnlyAuthentication(t *testing.T) {
 	}
 }
 
+func TestDocumentoDownloadRoutesRequireAuthentication(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := setupRouter()
+	for _, path := range []string{
+		"/documentos/academias/ACA001/alvara/download",
+		"/documentos/estudantes/EST001/bi_estudante/download",
+		"/documentos/solicitacoes-matricula/SOL001/bi_estudante/download",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code == http.StatusNotFound {
+			t.Fatalf("expected %s to be registered, got 404", path)
+		}
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("expected %s to require authentication with 401, got %d", path, w.Code)
+		}
+	}
+}
+
 func TestDefinirAnoLetivoSeguinteRouteIsRemoved(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

@@ -1015,7 +1015,7 @@ Define nova senha usando o token de recuperação.
 
 ### POST /dominis/academia/register
 
-Registra uma nova academia via `multipart/form-data`. Criada com status `inativo`. `nif` é obrigatório, string única de exatamente 10 dígitos, inclusive para academias inativas. `alvara` é arquivo obrigatório, deve ser PDF válido com até 10MB e é armazenado em `{codigo_academia}/Documentação formal/`.
+Registra uma nova academia via `multipart/form-data`. Criada com status `inativo`. `nif` é obrigatório, string única de exatamente 10 dígitos, inclusive para academias inativas. `alvara` é arquivo obrigatório, deve ser PDF válido com até 10MB e é armazenado em `{codigo_academia}/Documentação formal/`. O front end pode ler esse documento pela rota autenticada `GET /documentos/academias/{codigo_academia}/alvara/download`.
 
 **Proteção**: autenticado + admin (qualquer role)
 
@@ -2826,7 +2826,7 @@ Eventos do ledger:
 
 ### POST /solicitacao-matricula
 
-Cria uma solicitação pública de matrícula via `multipart/form-data`. O backend gera `codigo_solicitacao`, valida dados e PDFs, envia documentos para o armazenamento no caminho `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/` e grava `SolicitacaoMatriculaCriada` no ledger. Para cada arquivo enviado, o evento e a projeção salvam `path`, `file_url` (URL de visualização/arquivo no Drive) e `download_url` (URL direta de download quando o Google Drive disponibilizar `webContentLink`).
+Cria uma solicitação pública de matrícula via `multipart/form-data`. O backend gera `codigo_solicitacao`, valida dados e PDFs, envia documentos para o armazenamento no caminho `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/` e grava `SolicitacaoMatriculaCriada` no ledger. Para cada arquivo enviado, o evento e a projeção salvam `path`, `file_url` e `download_url` como metadados compatíveis; o download para leitura deve ser feito pelas rotas autenticadas do backend, sem expor credenciais ou IDs internos do Mega.
 
 **Proteção**: pública
 
@@ -5677,24 +5677,28 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 
 ### Processos e Regras de Negócio — Armazenamento de Arquivos
 
-### Armazenamento de arquivos (Google Drive)
+### Armazenamento de arquivos (Mega)
 
-O backend usa a biblioteca oficial `google.golang.org/api/drive/v3` integrada com `golang.org/x/oauth2/google` para autenticar-se como service account. A autenticação é feita a partir do ficheiro JSON da service account (`GOOGLE_DRIVE_CREDENTIALS_PATH` ou `GOOGLE_DRIVE_CREDENTIALS_JSON` em base64), com renovação automática de tokens OAuth — sem necessidade de gestão manual de tokens.
+O backend usa a interface `storage.StorageProvider` para isolar handlers, domínio, projeções e contratos públicos dos detalhes do provedor externo. O provedor principal configurável é o Mega (`STORAGE_PROVIDER=mega`), implementado por `internal/storage` via MEGAcmd (`mega-login`, `mega-mkdir`, `mega-put`, `mega-ls`, `mega-get`, `mega-rm`, `mega-mv`). Essa escolha permite autenticação por e-mail e senha, criação/listagem de pastas, upload, leitura/download, deleção, movimentação e renomeação sem expor tipos ou IDs internos do Mega nas APIs.
 
 Configuração de produção:
 
-- `GOOGLE_DRIVE_CREDENTIALS_PATH`: caminho para o ficheiro JSON da service account.
-- `GOOGLE_DRIVE_CREDENTIALS_JSON`: alternativa em base64 para ambientes sem disco persistente.
-- `GOOGLE_DRIVE_ROOT_FOLDER_ID`: ID da pasta raiz no Drive partilhada com a service account.
-
-Remover: `GOOGLE_DRIVE_ACCESS_TOKEN` (deixa de existir).
+- `STORAGE_PROVIDER=mega`: seleciona o adapter Mega; quando a variável não é definida, o padrão também é `mega`.
+- `MEGA_EMAIL`: e-mail da conta Mega, fornecido por segredo/variável de ambiente.
+- `MEGA_PASSWORD`: senha da conta Mega, fornecida por segredo/variável de ambiente e sanitizada em erros.
+- `MEGA_ROOT_FOLDER`: pasta raiz lógica no Mega usada pelo Spuri (ex.: `spuri`).
 
 Configuração local/teste:
 
-- `GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true`: habilita o provider local sem chamar Google Drive.
-- `GOOGLE_DRIVE_LOCAL_ROOT`: diretório local usado para simular o Drive (padrão `data/google_drive_storage`).
+- `STORAGE_PROVIDER=local`: seleciona o provider local compatível com a mesma interface, sem conexão externa.
+- `MEGA_LOCAL_ROOT`: diretório local usado pelo provider local (padrão `data/mega_storage`).
+- `ENV=test`: permite usar o provider local nos testes automatizados.
 
-Os documentos de matrícula continuam sendo gravados em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`. `EnsureDir` cria a hierarquia de pastas no Drive verificando cada nível antes de criá-lo, `Upload` envia PDFs para a pasta pai resolvida e retorna metadados do arquivo armazenado. No Google Drive, esses metadados vêm de `webViewLink` (`file_url`) e `webContentLink` (`download_url`), além do `path` interno; no provider local de teste, as URLs usam `file://`. `Delete` remove arquivos ou diretórios resolvendo o caminho dentro da pasta raiz configurada. `GetQuota` não tenta mais estimar consumo fora da pasta raiz compartilhada/gerenciada: ele lista recursivamente apenas essa pasta, define `total_bytes`/`used_bytes` como a soma real dos arquivos existentes nela, preenche `academias`/`managed_bytes` com arquivos dentro dos diretórios de academia e preenche `outside_academias_bytes` com arquivos que estão na raiz ou fora de diretórios de academia. `unmanaged_bytes` fica reservado para compatibilidade e não representa mais consumo externo à pasta raiz. Falhas de configuração retornam mensagens operacionais explícitas para ausência de credenciais, ausência de `GOOGLE_DRIVE_ROOT_FOLDER_ID`, credencial inválida e quota indisponível sem credenciais/estimativa local.
+Os documentos de matrícula continuam sendo gravados em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`; documentos formais seguem `{codigo_academia}/Documentação formal/`; documentos de estudantes seguem `{codigo_academia}/Estudantes/{codigo_estudante}/`. `EnsureDir` cria a hierarquia de pastas de forma idempotente, `Upload` envia o conteúdo para o caminho lógico solicitado e retorna metadados internos do projeto (`path`, `file_url`, `download_url`). O front end deve baixar documentos pelas rotas autenticadas de download do backend (`/documentos/academias/{codigo_academia}/alvara/download`, `/documentos/estudantes/{codigo_estudante}/{campo}/download` e `/documentos/solicitacoes-matricula/{codigo_solicitacao}/{campo}/download`), e não por credenciais, links privados ou IDs internos do Mega. `Read` faz o download para arquivo temporário e entrega um stream fechado pelo handler; `Delete`, `Move` e `Rename` normalizam paths e erros externos. `GetQuota` é suportado no provider local; no Mega real, limitações do MEGAcmd para quota detalhada por diretório são expostas como operação não suportada em vez de simular sucesso.
+
+Não há migração automática de arquivos do Google Drive para o Mega porque não existem arquivos remotos atuais a copiar. Referências antigas, se encontradas, devem ser tratadas como metadados legados; novos uploads, leituras/downloads, deleções, movimentações e renomeações usam Mega ou o fake local em testes.
+
+Falhas de configuração retornam mensagens operacionais explícitas, sem vazar senha/token: credenciais Mega ausentes, MEGAcmd indisponível, caminho remoto inválido, arquivo/pasta inexistente, quota excedida, permissão/autenticação negada, timeout/rede e operação não suportada são convertidos para erros normalizados do pacote de storage.
 ### Permissões — Solicitação e Armazenamento
 
 ### Permissões
@@ -5709,18 +5713,92 @@ Os documentos de matrícula continuam sendo gravados em `{codigo_academia}/matri
 |Consultar quota de storage|Admin|
 
 
+### GET /documentos/academias/{codigo_academia}/alvara/download
+
+Faz stream inline do alvará/documento formal da academia pelo backend, sem expor credenciais, links privados ou IDs internos do Mega.
+
+**Escopo da rota**: global autenticado (`protected`), fora dos prefixos `/academia`, `/estudante` e `/dominis`, para permitir uso uniforme pelo front end a partir de qualquer tela autorizada.
+
+**Proteção**: autenticado. Permitido para admin ou para a própria academia dona do `codigo_academia`. Estudantes e academias de outro código recebem `403 Forbidden`.
+
+**Parâmetros de path:**
+
+|Campo|Tipo|Obrigatório|Descrição|
+|---|---|---|---|
+|`codigo_academia`|string|Sim|Código público da academia dona do documento.|
+
+**Response 200:** `application/pdf`, com `Content-Disposition: inline; filename="alvara.pdf"`.
+
+**Erros:**
+
+|Status|Quando ocorre|
+|---|---|
+|`401`|Token ausente ou inválido.|
+|`403`|Usuário autenticado não tem permissão para a academia informada.|
+|`404`|Academia ou documento não encontrado.|
+|`503`|Storage indisponível ou falha de leitura no provider configurado.|
+
+### GET /documentos/estudantes/{codigo_estudante}/{campo}/download
+
+Faz stream inline de um documento persistido em `documentos.<campo>` da projeção do estudante. O campo corresponde às chaves de documentos já usadas pelo contrato de matrícula/estudante, como `bi_estudante`, `bi_responsavel`, `cedula_estudante`, `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental` ou `certificado_ensino_medio`, conforme aplicável ao estudante.
+
+**Escopo da rota**: global autenticado (`protected`), fora dos prefixos de perfil, para que a mesma URL salva em `download_url` funcione para admin, academia autorizada e estudante dono.
+
+**Proteção**: autenticado. Permitido para admin, para o próprio estudante e para a academia dona do estudante. Outros perfis/escopos recebem `403 Forbidden`.
+
+**Parâmetros de path:**
+
+|Campo|Tipo|Obrigatório|Descrição|
+|---|---|---|---|
+|`codigo_estudante`|string|Sim|Código público do estudante.|
+|`campo`|string|Sim|Chave do documento dentro do mapa `documentos` do estudante.|
+
+**Response 200:** `application/pdf`, com `Content-Disposition: inline; filename="{campo}.pdf"`.
+
+**Erros:**
+
+|Status|Quando ocorre|
+|---|---|
+|`401`|Token ausente ou inválido.|
+|`403`|Usuário autenticado não tem permissão para o estudante informado.|
+|`404`|Estudante, campo de documento ou arquivo remoto não encontrado.|
+|`503`|Storage indisponível ou falha de leitura no provider configurado.|
+
+### GET /documentos/solicitacoes-matricula/{codigo_solicitacao}/{campo}/download
+
+Faz stream inline de um documento persistido em `documentos.<campo>` da projeção da solicitação de matrícula. O campo corresponde às chaves de documentos enviadas no formulário público de matrícula.
+
+**Escopo da rota**: global autenticado (`protected`), fora dos prefixos `/academia` e `/dominis`, para que a URL salva em `download_url` seja consumida pelo front end em telas administrativas e de academia sem depender do provider externo.
+
+**Proteção**: autenticado. Permitido para admin e para a academia dona da solicitação. Estudantes, usuários públicos e academias de outro código recebem `403 Forbidden`.
+
+**Parâmetros de path:**
+
+|Campo|Tipo|Obrigatório|Descrição|
+|---|---|---|---|
+|`codigo_solicitacao`|string|Sim|Código público da solicitação de matrícula.|
+|`campo`|string|Sim|Chave do documento dentro do mapa `documentos` da solicitação.|
+
+**Response 200:** `application/pdf`, com `Content-Disposition: inline; filename="{campo}.pdf"`.
+
+**Erros:**
+
+|Status|Quando ocorre|
+|---|---|
+|`401`|Token ausente ou inválido.|
+|`403`|Usuário autenticado não tem permissão para a solicitação informada.|
+|`404`|Solicitação, campo de documento ou arquivo remoto não encontrado.|
+|`503`|Storage indisponível ou falha de leitura no provider configurado.|
+
 ### GET /dominis/storage/quota
 
-Retorna a distribuição dos arquivos existentes dentro da pasta raiz compartilhada/gerenciada pelo Spuri no Google Drive. Em produção, o backend deve estar configurado com `GOOGLE_DRIVE_CREDENTIALS_PATH` ou `GOOGLE_DRIVE_CREDENTIALS_JSON`, além de `GOOGLE_DRIVE_ROOT_FOLDER_ID`; nessa configuração, o backend lista recursivamente apenas a pasta raiz configurada. `total_bytes` e `used_bytes` são a soma dos arquivos existentes nessa pasta raiz, `managed_bytes` e `academias` detalham arquivos dentro dos diretórios de academia, e `outside_academias_bytes` detalha arquivos da raiz que não estão dentro de diretórios de academia. O backend não consulta nem estima consumo de arquivos fora da pasta raiz compartilhada; `unmanaged_bytes` permanece apenas por compatibilidade e não representa mais uso externo da conta.
+Retorna a distribuição conhecida dos arquivos gerenciados pelo provider ativo. Com `STORAGE_PROVIDER=local`, o backend contabiliza os arquivos dentro de `MEGA_LOCAL_ROOT` (padrão `data/mega_storage`) usando a mesma regra dos caminhos lógicos de academia. Com `STORAGE_PROVIDER=mega`, a implementação não simula quota detalhada quando o MEGAcmd não oferece dados suficientes por diretório; nesse caso, a operação retorna erro normalizado de operação não suportada/indisponível em vez de informar números incorretos.
 
-Sem credenciais de produção, o backend só permite estimativa local quando `GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true`, contabilizando apenas os arquivos dentro de `GOOGLE_DRIVE_LOCAL_ROOT` (padrão `data/google_drive_storage`) com a mesma regra relativa à pasta raiz.
+Quando a configuração do Mega ou da quota estiver incompleta ou inválida, a rota retorna `503 Service Unavailable` com mensagem sanitizada. Exemplos de mensagens:
 
-Quando a configuração do Google Drive ou da quota estiver incompleta ou inválida, a rota retorna `503 Service Unavailable` com a mensagem operacional gerada pelo storage. Exemplos de mensagens:
-
-- `configuração Google Drive incompleta: GOOGLE_DRIVE_ROOT_FOLDER_ID é obrigatório`
-- `configuração Google Drive incompleta: nenhuma credencial configurada (defina GOOGLE_DRIVE_CREDENTIALS_PATH ou GOOGLE_DRIVE_CREDENTIALS_JSON)`
-- `credencial Google Drive inválida: JSON malformado ou não é uma service account`
-- `quota do Google Drive indisponível: configure credenciais e GOOGLE_DRIVE_ROOT_FOLDER_ID; para ambiente local, defina GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true`
+- `configuração de storage inválida: MEGA_EMAIL e MEGA_PASSWORD são obrigatórios quando STORAGE_PROVIDER=mega`
+- `configuração de storage inválida: MEGAcmd não encontrado no PATH`
+- `operação de storage não suportada`
 
 **Proteção**: autenticado + admin
 
@@ -5730,7 +5808,7 @@ Quando a configuração do Google Drive ou da quota estiver incompleta ou invál
 
 ```json
 {
-  "provider": "google_drive",
+  "provider": "mega",
   "total_bytes": 108003328,
   "used_bytes": 108003328,
   "available_bytes": 0,
@@ -5767,7 +5845,7 @@ Quando a configuração do Google Drive ou da quota estiver incompleta ou invál
 ```json
 {
   "error": "SERVICE_UNAVAILABLE",
-  "message": "quota do Google Drive indisponível: configure credenciais e GOOGLE_DRIVE_ROOT_FOLDER_ID; para ambiente local, defina GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true",
+  "message": "operação de storage não suportada",
   "request_id": "8c7e6a5d-9b9f-4fd2-a2d0-3a989a8c2d8b"
 }
 ```

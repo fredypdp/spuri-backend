@@ -23,6 +23,10 @@ func solicitacaoDocumentoDownloadURL(codigoSolicitacao, campo string) string {
 	return fmt.Sprintf("/documentos/solicitacoes-matricula/%s/%s/download", codigoSolicitacao, campo)
 }
 
+func academiaDocumentoDownloadURL(codigoAcademia, campo string) string {
+	return fmt.Sprintf("/documentos/academias/%s/%s/download", codigoAcademia, campo)
+}
+
 // DownloadDocumentoEstudante streams a student document from the configured
 // storage provider. The route is intentionally backend-owned so the front end
 // does not need direct Mega credentials, links, or internal node IDs.
@@ -78,6 +82,38 @@ func DownloadDocumentoSolicitacaoMatricula(c *gin.Context) {
 	streamDocumento(c, campo, doc)
 }
 
+// DownloadDocumentoAcademia streams formal academy documents, such as the
+// alvará uploaded at registration, through the backend-owned storage boundary.
+func DownloadDocumentoAcademia(c *gin.Context) {
+	codigoAcademia := strings.TrimSpace(c.Param("codigo"))
+	campo := strings.TrimSpace(c.Param("campo"))
+	if strings.ToLower(campo) != "alvara" {
+		utils.RespondWithNotFoundError(c, "documento")
+		return
+	}
+
+	academia, err := getAcademiaProjection(c).GetByCodigo(codigoAcademia)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if academia == nil {
+		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+	if !canAccessAcademiaDocument(c, academia.CodigoAcademia) {
+		utils.RespondWithForbiddenError(c, "sem permissão para baixar documento desta academia")
+		return
+	}
+
+	path := fmt.Sprintf("%s/Documentação formal/alvara_%s.pdf", academia.CodigoAcademia, academia.CodigoAcademia)
+	streamDocumento(c, campo, aggregates.DocumentoMatricula{
+		Path:        path,
+		FileURL:     path,
+		DownloadURL: academiaDocumentoDownloadURL(academia.CodigoAcademia, campo),
+	})
+}
+
 func canAccessEstudanteDocument(c *gin.Context, estudanteID string, codigoAcademia *string) bool {
 	userType, _ := middleware.GetUserType(c)
 	userID, _ := middleware.GetUserID(c)
@@ -95,6 +131,19 @@ func canAccessEstudanteDocument(c *gin.Context, estudanteID string, codigoAcadem
 	default:
 		return false
 	}
+}
+
+func canAccessAcademiaDocument(c *gin.Context, codigoAcademia string) bool {
+	userType, _ := middleware.GetUserType(c)
+	if userType == "admin" {
+		return true
+	}
+	if userType != "academia" {
+		return false
+	}
+	userID, _ := middleware.GetUserID(c)
+	academia, _ := getAcademiaProjection(c).GetByID(userID)
+	return academia != nil && academia.CodigoAcademia == codigoAcademia
 }
 
 func canAccessSolicitacaoDocument(c *gin.Context, codigoAcademia string) bool {
