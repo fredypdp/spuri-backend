@@ -113,14 +113,27 @@ func TestGetQuotaLocalEstimateCountsOnlyLocalRoot(t *testing.T) {
 	}
 }
 
+func writeMegaCmdStubs(t *testing.T, bin string, scripts map[string]string) {
+	t.Helper()
+	for _, name := range megaCmds {
+		script := scripts[name]
+		if script == "" {
+			script = "#!/bin/sh\nexit 0\n"
+		}
+		if err := os.WriteFile(bin+"/"+name, []byte(script), 0o700); err != nil {
+			t.Fatalf("WriteFile %s error = %v", name, err)
+		}
+	}
+}
+
 func TestNewMegaProviderLogsOutBeforeLoginToAvoidStaleSession(t *testing.T) {
 	bin := t.TempDir()
 	logFile := bin + "/calls.log"
+	writeMegaCmdStubs(t, bin, map[string]string{
+		"mega-login": "#!/bin/sh\necho login:$1:$2 >> \"$MEGA_TEST_LOG\"\nexit 0\n",
+	})
 	if err := os.WriteFile(bin+"/mega-logout", []byte("#!/bin/sh\necho logout >> \"$MEGA_TEST_LOG\"\nexit 0\n"), 0o700); err != nil {
 		t.Fatalf("WriteFile mega-logout error = %v", err)
-	}
-	if err := os.WriteFile(bin+"/mega-login", []byte("#!/bin/sh\necho login:$1:$2 >> \"$MEGA_TEST_LOG\"\nexit 0\n"), 0o700); err != nil {
-		t.Fatalf("WriteFile mega-login error = %v", err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("MEGA_TEST_LOG", logFile)
@@ -144,11 +157,11 @@ func TestNewMegaProviderLogsOutBeforeLoginToAvoidStaleSession(t *testing.T) {
 
 func TestNewMegaProviderRejectsInvalidPasswordAfterLogout(t *testing.T) {
 	bin := t.TempDir()
+	writeMegaCmdStubs(t, bin, map[string]string{
+		"mega-login": "#!/bin/sh\necho login failed for $1\nexit 1\n",
+	})
 	if err := os.WriteFile(bin+"/mega-logout", []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
 		t.Fatalf("WriteFile mega-logout error = %v", err)
-	}
-	if err := os.WriteFile(bin+"/mega-login", []byte("#!/bin/sh\necho login failed for $1\nexit 1\n"), 0o700); err != nil {
-		t.Fatalf("WriteFile mega-login error = %v", err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("STORAGE_PROVIDER", "mega")

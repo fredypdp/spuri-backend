@@ -71,6 +71,8 @@ type MegaProvider struct {
 	local      bool
 }
 
+var megaCmds = []string{"mega-login", "mega-mkdir", "mega-put", "mega-ls", "mega-get", "mega-rm", "mega-mv"}
+
 type tempFileReadCloser struct {
 	*os.File
 	name string
@@ -112,7 +114,7 @@ func NewMegaProvider() (StorageProvider, error) {
 	if strings.TrimSpace(os.Getenv("MEGA_EMAIL")) == "" || strings.TrimSpace(os.Getenv("MEGA_PASSWORD")) == "" {
 		return nil, fmt.Errorf("%w: MEGA_EMAIL e MEGA_PASSWORD são obrigatórios quando STORAGE_PROVIDER=mega", ErrInvalidConfiguration)
 	}
-	if err := ensureMegaCmdAvailable("mega-login"); err != nil {
+	if err := ensureMegaCmdAvailable(megaCmds...); err != nil {
 		return nil, err
 	}
 	p := &MegaProvider{root: root, rootFolder: rootFolder}
@@ -175,9 +177,11 @@ func (m *MegaProvider) megaPath(remotePath string) (string, error) {
 	return "/" + strings.Join(parts, "/"), nil
 }
 
-func ensureMegaCmdAvailable(name string) error {
-	if _, err := exec.LookPath(name); err != nil {
-		return fmt.Errorf("%w: MEGAcmd não encontrado no PATH (%s)", ErrInvalidConfiguration, name)
+func ensureMegaCmdAvailable(names ...string) error {
+	for _, name := range names {
+		if _, err := exec.LookPath(name); err != nil {
+			return fmt.Errorf("%w: MEGAcmd não encontrado no PATH (%s)", ErrInvalidConfiguration, name)
+		}
 	}
 	return nil
 }
