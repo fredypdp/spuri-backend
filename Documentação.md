@@ -5713,6 +5713,83 @@ Falhas de configuração retornam mensagens operacionais explícitas, sem vazar 
 |Consultar quota de storage|Admin|
 
 
+### GET /documentos/academias/{codigo_academia}/alvara/download
+
+Faz stream inline do alvará/documento formal da academia pelo backend, sem expor credenciais, links privados ou IDs internos do Mega.
+
+**Escopo da rota**: global autenticado (`protected`), fora dos prefixos `/academia`, `/estudante` e `/dominis`, para permitir uso uniforme pelo front end a partir de qualquer tela autorizada.
+
+**Proteção**: autenticado. Permitido para admin ou para a própria academia dona do `codigo_academia`. Estudantes e academias de outro código recebem `403 Forbidden`.
+
+**Parâmetros de path:**
+
+|Campo|Tipo|Obrigatório|Descrição|
+|---|---|---|---|
+|`codigo_academia`|string|Sim|Código público da academia dona do documento.|
+
+**Response 200:** `application/pdf`, com `Content-Disposition: inline; filename="alvara.pdf"`.
+
+**Erros:**
+
+|Status|Quando ocorre|
+|---|---|
+|`401`|Token ausente ou inválido.|
+|`403`|Usuário autenticado não tem permissão para a academia informada.|
+|`404`|Academia ou documento não encontrado.|
+|`503`|Storage indisponível ou falha de leitura no provider configurado.|
+
+### GET /documentos/estudantes/{codigo_estudante}/{campo}/download
+
+Faz stream inline de um documento persistido em `documentos.<campo>` da projeção do estudante. O campo corresponde às chaves de documentos já usadas pelo contrato de matrícula/estudante, como `bi_estudante`, `bi_responsavel`, `cedula_estudante`, `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental` ou `certificado_ensino_medio`, conforme aplicável ao estudante.
+
+**Escopo da rota**: global autenticado (`protected`), fora dos prefixos de perfil, para que a mesma URL salva em `download_url` funcione para admin, academia autorizada e estudante dono.
+
+**Proteção**: autenticado. Permitido para admin, para o próprio estudante e para a academia dona do estudante. Outros perfis/escopos recebem `403 Forbidden`.
+
+**Parâmetros de path:**
+
+|Campo|Tipo|Obrigatório|Descrição|
+|---|---|---|---|
+|`codigo_estudante`|string|Sim|Código público do estudante.|
+|`campo`|string|Sim|Chave do documento dentro do mapa `documentos` do estudante.|
+
+**Response 200:** `application/pdf`, com `Content-Disposition: inline; filename="{campo}.pdf"`.
+
+**Erros:**
+
+|Status|Quando ocorre|
+|---|---|
+|`401`|Token ausente ou inválido.|
+|`403`|Usuário autenticado não tem permissão para o estudante informado.|
+|`404`|Estudante, campo de documento ou arquivo remoto não encontrado.|
+|`503`|Storage indisponível ou falha de leitura no provider configurado.|
+
+### GET /documentos/solicitacoes-matricula/{codigo_solicitacao}/{campo}/download
+
+Faz stream inline de um documento persistido em `documentos.<campo>` da projeção da solicitação de matrícula. O campo corresponde às chaves de documentos enviadas no formulário público de matrícula.
+
+**Escopo da rota**: global autenticado (`protected`), fora dos prefixos `/academia` e `/dominis`, para que a URL salva em `download_url` seja consumida pelo front end em telas administrativas e de academia sem depender do provider externo.
+
+**Proteção**: autenticado. Permitido para admin e para a academia dona da solicitação. Estudantes, usuários públicos e academias de outro código recebem `403 Forbidden`.
+
+**Parâmetros de path:**
+
+|Campo|Tipo|Obrigatório|Descrição|
+|---|---|---|---|
+|`codigo_solicitacao`|string|Sim|Código público da solicitação de matrícula.|
+|`campo`|string|Sim|Chave do documento dentro do mapa `documentos` da solicitação.|
+
+**Response 200:** `application/pdf`, com `Content-Disposition: inline; filename="{campo}.pdf"`.
+
+**Erros:**
+
+|Status|Quando ocorre|
+|---|---|
+|`401`|Token ausente ou inválido.|
+|`403`|Usuário autenticado não tem permissão para a solicitação informada.|
+|`404`|Solicitação, campo de documento ou arquivo remoto não encontrado.|
+|`503`|Storage indisponível ou falha de leitura no provider configurado.|
+
 ### GET /dominis/storage/quota
 
 Retorna a distribuição conhecida dos arquivos gerenciados pelo provider ativo. Com `STORAGE_PROVIDER=local`, o backend contabiliza os arquivos dentro de `MEGA_LOCAL_ROOT` (padrão `data/mega_storage`) usando a mesma regra dos caminhos lógicos de academia. Com `STORAGE_PROVIDER=mega`, a implementação não simula quota detalhada quando o MEGAcmd não oferece dados suficientes por diretório; nesse caso, a operação retorna erro normalizado de operação não suportada/indisponível em vez de informar números incorretos.
