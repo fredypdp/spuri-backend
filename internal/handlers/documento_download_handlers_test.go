@@ -16,3 +16,11 @@ func TestSafeDocumentFilename(t *testing.T) {
 		}
 	}
 }
+
+func TestAcademiaDocumentoDownloadURL(t *testing.T) {
+	got := academiaDocumentoDownloadURL("ACA001", "alvara")
+	want := "/documentos/academias/ACA001/alvara/download"
+	if got != want {
+		t.Fatalf("academiaDocumentoDownloadURL() = %q, want %q", got, want)
+	}
+}
