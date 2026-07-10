@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -231,6 +232,9 @@ func setupRouter() *gin.Engine {
 	})
 
 	// ── Rotas públicas ─────────────────────────────────────────────────────
+	router.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
 	router.POST("/login", middleware.LoginRateLimit(), handlers.Login)
 	router.POST("/bootstrap", middleware.LoginRateLimit(), handlers.BootstrapAdminFPP)
 	router.POST("/solicitacao-matricula", handlers.CriarSolicitacaoMatricula)
