@@ -103,18 +103,40 @@ func (m *Manager) RegisterProjection(name string, projection Projection) {
 
 func (m *Manager) StartProcessing() {
 	log.Println("[DEBUG] Iniciando processamento de projeções")
-	ticker := time.NewTicker(m.pollInterval)
-	defer ticker.Stop()
+
+	currentInterval := m.pollInterval
+	maxInterval := 30 * time.Second
 
 	for {
 		select {
 		case <-m.ctx.Done():
 			log.Println("[DEBUG] Parando processamento")
 			return
-		case <-ticker.C:
-			if err := m.processNewEvents(); err != nil {
-				log.Printf("[ERROR] Erro ao processar eventos: %v", err)
-			}
+		default:
+		}
+
+		processed, err := m.processNewEvents()
+		if err != nil {
+			log.Printf("[ERROR] Erro ao processar eventos: %v", err)
+		}
+
+		previousInterval := currentInterval
+		if processed {
+			currentInterval = m.pollInterval
+		} else {
+			currentInterval = projectionBackoff(currentInterval, maxInterval)
+		}
+		if currentInterval != previousInterval {
+			log.Printf("[DEBUG] Projection Manager backoff: processados=%t próximo_intervalo=%s", processed, currentInterval)
+		}
+
+		timer := time.NewTimer(currentInterval)
+		select {
+		case <-m.ctx.Done():
+			timer.Stop()
+			log.Println("[DEBUG] Parando processamento")
+			return
+		case <-timer.C:
 		}
 	}
 }
@@ -124,7 +146,7 @@ func (m *Manager) Stop() {
 	m.cancel()
 }
 
-func (m *Manager) processNewEvents() error {
+func (m *Manager) processNewEvents() (bool, error) {
 	m.mu.Lock()
 	snapshot := make(map[string]Projection, len(m.projections))
 	for name, p := range m.projections {
@@ -132,12 +154,21 @@ func (m *Manager) processNewEvents() error {
 	}
 	m.mu.Unlock()
 
+	processedAny := false
+	var firstErr error
 	for name, projection := range snapshot {
-		if err := m.processProjection(name, projection); err != nil {
+		processed, err := m.processProjection(name, projection)
+		if err != nil {
 			log.Printf("[ERROR] Erro ao processar projeção %s: %v", name, err)
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+		if processed {
+			processedAny = true
 		}
 	}
-	return nil
+	return processedAny, firstErr
 }
 
 // processProjection processa novos eventos para uma projeção.
@@ -156,19 +187,19 @@ func (m *Manager) processNewEvents() error {
 // A diferença com o comportamento anterior: antes, o erro também travava o checkpoint,
 // MAS o log dizia "falha permanente" sugerindo que era fatal. Agora é explícito
 // que é retry automático, e o log ajuda a distinguir o tipo de erro.
-func (m *Manager) processProjection(name string, projection Projection) error {
+func (m *Manager) processProjection(name string, projection Projection) (bool, error) {
 	lastID, err := projection.GetLastProcessedEventID()
 	if err != nil {
-		return fmt.Errorf("erro ao obter checkpoint de %s: %w", name, err)
+		return false, fmt.Errorf("erro ao obter checkpoint de %s: %w", name, err)
 	}
 
 	events, err := m.getNewEvents(lastID)
 	if err != nil {
-		return fmt.Errorf("erro ao buscar eventos para %s: %w", name, err)
+		return false, fmt.Errorf("erro ao buscar eventos para %s: %w", name, err)
 	}
 
 	if len(events) == 0 {
-		return nil
+		return false, nil
 	}
 
 	txProjection, isTransactional := projection.(TransactionalProjection)
@@ -183,7 +214,7 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 				// Parar aqui — o checkpoint não avançou para este evento,
 				// então o próximo ciclo de polling vai retentar a partir deste ponto.
 				// Importante: não retornar erro para não afetar outras projeções.
-				return nil
+				return true, nil
 			}
 		} else {
 			if err := m.processEventWithRetry(name, projection, event); err != nil {
@@ -193,7 +224,7 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 					name, event.ID, err)
 				m.logProjectionError(name, err.Error())
 				// Checkpoint NÃO avança — o mesmo evento será retentado na próxima rodada.
-				return nil
+				return true, nil
 			}
 			// Só avança checkpoint se o evento foi processado com sucesso.
 			if err := m.commitCheckpoint(projection, event.ID); err != nil {
@@ -202,7 +233,15 @@ func (m *Manager) processProjection(name string, projection Projection) error {
 		}
 	}
 
-	return nil
+	return true, nil
+}
+
+func projectionBackoff(current, max time.Duration) time.Duration {
+	next := current * 2
+	if next > max {
+		return max
+	}
+	return next
 }
 
 func (m *Manager) processEventTransactional(name string, projection TransactionalProjection, event db.Event) error {

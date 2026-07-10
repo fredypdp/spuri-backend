@@ -104,26 +104,49 @@ func (w *Worker) loop(ctx context.Context) {
 }
 
 func (w *Worker) sweepPending(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
+	minInterval := 30 * time.Second
+	maxInterval := 5 * time.Minute
+	currentInterval := minInterval
+
 	for {
+		timer := time.NewTimer(currentInterval)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
 		case <-w.stopCh:
+			timer.Stop()
 			return
-		case <-ticker.C:
-			active, err := w.store.ListActive(500)
-			if err != nil {
-				log.Printf("[worker] WARN: erro na varredura de jobs ativos: %v", err)
-				continue
-			}
-			for _, j := range active {
-				w.Enqueue(j)
-			}
-			log.Printf("[worker] varredura de jobs ativos — ativos=%d fila=%d", len(active), len(w.queue))
+		case <-timer.C:
 		}
+
+		active, err := w.store.ListActive(500)
+		if err != nil {
+			log.Printf("[worker] WARN: erro na varredura de jobs ativos: %v", err)
+			currentInterval = nextBackoff(currentInterval, maxInterval)
+			continue
+		}
+
+		for _, j := range active {
+			w.Enqueue(j)
+		}
+
+		if len(active) > 0 {
+			currentInterval = minInterval
+		} else {
+			currentInterval = nextBackoff(currentInterval, maxInterval)
+		}
+
+		log.Printf("[worker] varredura de jobs ativos — ativos=%d fila=%d próximo_intervalo=%s", len(active), len(w.queue), currentInterval)
 	}
+}
+
+func nextBackoff(current, max time.Duration) time.Duration {
+	next := current * 2
+	if next > max {
+		return max
+	}
+	return next
 }
 
 func (w *Worker) cleanupLoop(ctx context.Context) {
