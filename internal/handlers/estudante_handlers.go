@@ -163,7 +163,7 @@ func registerEstudantePorAcademiaComRequest(c *gin.Context, req CadastroEstudant
 	}
 	provider := getStorageProvider(c)
 	if provider == nil {
-		p, _ := storage.NewDriveProvider()
+		p, _ := storage.NewStorageProvider()
 		provider = p
 	}
 	dir := fmt.Sprintf("%s/estudantes/%s/documentos", academia.CodigoAcademia, codigoEstudante)

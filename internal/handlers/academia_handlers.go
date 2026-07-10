@@ -182,7 +182,7 @@ func RegisterAcademia(c *gin.Context) {
 	}
 	provider := getStorageProvider(c)
 	if provider == nil {
-		p, _ := storage.NewDriveProvider()
+		p, _ := storage.NewStorageProvider()
 		provider = p
 	}
 	dir := fmt.Sprintf("%s/Documentação formal", codigoAcademia)

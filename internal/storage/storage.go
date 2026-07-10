@@ -1,21 +1,17 @@
 package storage
 
 import (
+	"bytes"
 	"context"
-	"encoding/base64"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
-
-	"golang.org/x/oauth2/google"
-	"google.golang.org/api/drive/v3"
-	"google.golang.org/api/googleapi"
-	"google.golang.org/api/option"
 )
 
 type StorageProvider interface {
@@ -23,6 +19,11 @@ type StorageProvider interface {
 	Delete(remotePath string) error
 	GetQuota() (QuotaInfo, error)
 	EnsureDir(remotePath string) error
+	List(remotePath string) ([]StoredFile, error)
+	Read(remotePath string) (io.ReadCloser, error)
+	Move(fromPath string, toPath string) error
+	Rename(remotePath string, newName string) (StoredFile, error)
+	ProviderName() string
 }
 
 type StoredFile struct {
@@ -54,110 +55,174 @@ type AccountFileUsage struct {
 	Managed   bool
 }
 
-// DriveProvider implements StorageProvider for Google Drive.
-//
-// In production it uses the official Google Drive API client authenticated with
-// service account credentials. Local/test environments may opt into a
-// filesystem-backed estimate by setting GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true;
-// files are stored under GOOGLE_DRIVE_LOCAL_ROOT (default data/google_drive_storage).
-type DriveProvider struct {
-	root         string
-	rootFolderID string
-	service      *drive.Service
+var (
+	ErrNotFound             = errors.New("arquivo ou pasta não encontrado")
+	ErrInvalidPath          = errors.New("caminho remoto inválido")
+	ErrInvalidConfiguration = errors.New("configuração de storage inválida")
+	ErrOperationUnsupported = errors.New("operação de storage não suportada")
+)
+
+// MegaProvider implements StorageProvider for Mega. In production it delegates
+// remote operations to MEGAcmd (mega-login/mega-put/mega-get/etc.) authenticated
+// with MEGA_EMAIL and MEGA_PASSWORD. Tests and local development can use the
+// filesystem-backed mode with STORAGE_PROVIDER=local, MEGA_LOCAL_ROOT, or ENV=test.
+type MegaProvider struct {
+	root       string
+	rootFolder string
+	local      bool
 }
 
-func NewDriveProvider() (StorageProvider, error) {
-	root := strings.TrimSpace(os.Getenv("GOOGLE_DRIVE_LOCAL_ROOT"))
+func NewStorageProvider() (StorageProvider, error) {
+	provider := strings.ToLower(strings.TrimSpace(os.Getenv("STORAGE_PROVIDER")))
+	if provider == "" {
+		provider = "mega"
+	}
+	switch provider {
+	case "mega":
+		return NewMegaProvider()
+	case "local":
+		return NewLocalProvider(), nil
+	default:
+		return nil, fmt.Errorf("%w: STORAGE_PROVIDER %q não suportado", ErrInvalidConfiguration, provider)
+	}
+}
+
+func NewMegaProvider() (StorageProvider, error) {
+	root := strings.TrimSpace(os.Getenv("MEGA_LOCAL_ROOT"))
 	if root == "" {
-		root = "data/google_drive_storage"
+		root = "data/mega_storage"
 	}
-	rootFolderID := strings.TrimSpace(os.Getenv("GOOGLE_DRIVE_ROOT_FOLDER_ID"))
-
-	if useLocalDriveFallback() {
-		return &DriveProvider{root: root, rootFolderID: rootFolderID}, nil
+	rootFolder := strings.Trim(strings.TrimSpace(os.Getenv("MEGA_ROOT_FOLDER")), "/")
+	if useLocalMegaFallback() {
+		return &MegaProvider{root: root, rootFolder: rootFolder, local: true}, nil
 	}
-
-	credBytes, err := googleDriveCredentialBytes()
-	if err != nil {
+	if strings.TrimSpace(os.Getenv("MEGA_EMAIL")) == "" || strings.TrimSpace(os.Getenv("MEGA_PASSWORD")) == "" {
+		return nil, fmt.Errorf("%w: MEGA_EMAIL e MEGA_PASSWORD são obrigatórios quando STORAGE_PROVIDER=mega", ErrInvalidConfiguration)
+	}
+	if _, err := exec.LookPath("mega-login"); err != nil {
+		return nil, fmt.Errorf("%w: MEGAcmd não encontrado no PATH", ErrInvalidConfiguration)
+	}
+	p := &MegaProvider{root: root, rootFolder: rootFolder}
+	if err := p.login(); err != nil {
 		return nil, err
 	}
-	if !isGoogleDriveServiceAccountJSON(credBytes) {
-		return nil, fmt.Errorf("credencial Google Drive inválida: JSON malformado ou não é uma service account")
-	}
-	if rootFolderID == "" {
-		return nil, fmt.Errorf("configuração Google Drive incompleta: GOOGLE_DRIVE_ROOT_FOLDER_ID é obrigatório")
-	}
-
-	ctx := context.Background()
-	creds, err := google.CredentialsFromJSON(ctx, credBytes, drive.DriveScope)
-	if err != nil {
-		return nil, fmt.Errorf("credencial Google Drive inválida: JSON malformado ou não é uma service account")
-	}
-	svc, err := drive.NewService(ctx, option.WithCredentials(creds))
-	if err != nil {
-		return nil, fmt.Errorf("falha ao criar Drive client: %w", err)
-	}
-
-	return &DriveProvider{root: root, rootFolderID: rootFolderID, service: svc}, nil
-}
-
-func googleDriveCredentialBytes() ([]byte, error) {
-	if path := strings.TrimSpace(os.Getenv("GOOGLE_DRIVE_CREDENTIALS_PATH")); path != "" {
-		credBytes, err := os.ReadFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("falha ao ler credencial Google Drive: %w", err)
+	if rootFolder != "" {
+		if err := p.EnsureDir(""); err != nil {
+			return nil, err
 		}
-		return credBytes, nil
 	}
-	if b64 := strings.TrimSpace(os.Getenv("GOOGLE_DRIVE_CREDENTIALS_JSON")); b64 != "" {
-		credBytes, err := base64.StdEncoding.DecodeString(b64)
-		if err != nil {
-			return nil, fmt.Errorf("credencial Google Drive inválida: JSON malformado ou não é uma service account")
-		}
-		return credBytes, nil
-	}
-	return nil, fmt.Errorf("configuração Google Drive incompleta: nenhuma credencial configurada (defina GOOGLE_DRIVE_CREDENTIALS_PATH ou GOOGLE_DRIVE_CREDENTIALS_JSON)")
+	return p, nil
 }
 
-func isGoogleDriveServiceAccountJSON(credBytes []byte) bool {
-	var payload struct {
-		Type string `json:"type"`
+func NewLocalProvider() StorageProvider {
+	root := strings.TrimSpace(os.Getenv("MEGA_LOCAL_ROOT"))
+	if root == "" {
+		root = "data/mega_storage"
 	}
-	return json.Unmarshal(credBytes, &payload) == nil && payload.Type == "service_account"
+	return &MegaProvider{root: root, rootFolder: strings.Trim(strings.TrimSpace(os.Getenv("MEGA_ROOT_FOLDER")), "/"), local: true}
 }
 
-func useLocalDriveFallback() bool {
-	if strings.TrimSpace(os.Getenv("GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE")) == "true" {
-		return true
-	}
-	return os.Getenv("ENV") == "test"
+func useLocalMegaFallback() bool {
+	return os.Getenv("ENV") == "test" || strings.ToLower(strings.TrimSpace(os.Getenv("STORAGE_PROVIDER"))) == "local" || strings.TrimSpace(os.Getenv("MEGA_LOCAL_ROOT")) != ""
 }
 
-func (d *DriveProvider) isLocal() bool { return d.service == nil }
+func (m *MegaProvider) ProviderName() string { return "mega" }
 
-func (d *DriveProvider) path(remotePath string) (string, error) {
-	clean := filepath.Clean(strings.TrimPrefix(remotePath, "/"))
-	if clean == "." || strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
-		return "", fmt.Errorf("caminho remoto inválido")
+func (m *MegaProvider) clean(remotePath string) (string, error) {
+	clean := filepath.ToSlash(filepath.Clean(strings.TrimPrefix(remotePath, "/")))
+	if clean == "." {
+		clean = ""
 	}
-	return filepath.Join(d.root, clean), nil
+	if clean == ".." || strings.HasPrefix(clean, "../") || filepath.IsAbs(clean) {
+		return "", ErrInvalidPath
+	}
+	return clean, nil
 }
 
-func (d *DriveProvider) EnsureDir(remotePath string) error {
-	if d.isLocal() {
-		p, err := d.path(remotePath)
+func (m *MegaProvider) path(remotePath string) (string, error) {
+	clean, err := m.clean(remotePath)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(m.root, filepath.FromSlash(clean)), nil
+}
+
+func (m *MegaProvider) megaPath(remotePath string) (string, error) {
+	clean, err := m.clean(remotePath)
+	if err != nil {
+		return "", err
+	}
+	parts := []string{}
+	if m.rootFolder != "" {
+		parts = append(parts, m.rootFolder)
+	}
+	if clean != "" {
+		parts = append(parts, clean)
+	}
+	return "/" + strings.Join(parts, "/"), nil
+}
+
+func (m *MegaProvider) login() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "mega-login", os.Getenv("MEGA_EMAIL"), os.Getenv("MEGA_PASSWORD"))
+	out, err := cmd.CombinedOutput()
+	if err != nil && !strings.Contains(strings.ToLower(string(out)), "already logged") {
+		return fmt.Errorf("falha ao autenticar no Mega: %w", sanitizeMegaError(out, err))
+	}
+	return nil
+}
+
+func (m *MegaProvider) runMega(timeout time.Duration, name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+	if err != nil {
+		return out, sanitizeMegaError(out, err)
+	}
+	return out, nil
+}
+
+func sanitizeMegaError(out []byte, err error) error {
+	msg := string(out)
+	msg = strings.ReplaceAll(msg, os.Getenv("MEGA_PASSWORD"), "[redacted]")
+	msg = strings.ReplaceAll(msg, os.Getenv("MEGA_EMAIL"), "[redacted]")
+	low := strings.ToLower(msg)
+	switch {
+	case strings.Contains(low, "not found") || strings.Contains(low, "enoent"):
+		return fmt.Errorf("%w: %s", ErrNotFound, strings.TrimSpace(msg))
+	case strings.Contains(low, "quota"):
+		return fmt.Errorf("quota Mega excedida: %s", strings.TrimSpace(msg))
+	case strings.Contains(low, "access") || strings.Contains(low, "permission") || strings.Contains(low, "login"):
+		return fmt.Errorf("falha de autenticação/permissão no Mega: %s", strings.TrimSpace(msg))
+	default:
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(msg))
+	}
+}
+
+func (m *MegaProvider) EnsureDir(remotePath string) error {
+	if m.local {
+		p, err := m.path(remotePath)
 		if err != nil {
 			return err
 		}
 		return os.MkdirAll(p, 0o700)
 	}
-	_, err := d.ensureDriveFolderPath(remotePath)
+	p, err := m.megaPath(remotePath)
+	if err != nil {
+		return err
+	}
+	_, err = m.runMega(30*time.Second, "mega-mkdir", "-p", p)
 	return err
 }
 
-func (d *DriveProvider) Upload(remotePath string, content io.Reader, sizeBytes int64) (StoredFile, error) {
-	if d.isLocal() {
-		p, err := d.path(remotePath)
+func (m *MegaProvider) Upload(remotePath string, content io.Reader, sizeBytes int64) (StoredFile, error) {
+	clean, err := m.clean(remotePath)
+	if err != nil {
+		return StoredFile{}, err
+	}
+	if m.local {
+		p, err := m.path(clean)
 		if err != nil {
 			return StoredFile{}, err
 		}
@@ -172,254 +237,226 @@ func (d *DriveProvider) Upload(remotePath string, content io.Reader, sizeBytes i
 		if _, err = io.Copy(f, content); err != nil {
 			return StoredFile{}, err
 		}
-		abs, err := filepath.Abs(p)
-		if err != nil {
-			abs = p
-		}
+		abs, _ := filepath.Abs(p)
 		url := "file://" + filepath.ToSlash(abs)
-		return StoredFile{Path: filepath.ToSlash(filepath.Clean(strings.TrimPrefix(remotePath, "/"))), FileURL: url, DownloadURL: url}, nil
+		return StoredFile{Path: clean, FileURL: url, DownloadURL: url}, nil
 	}
-	parent, name, err := d.driveParentAndName(remotePath)
+	tmp, err := os.CreateTemp("", "spuri-mega-upload-*")
 	if err != nil {
 		return StoredFile{}, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	existing, err := d.findDriveChild(ctx, parent, name, false)
+	defer os.Remove(tmp.Name())
+	defer tmp.Close()
+	if _, err := io.Copy(tmp, content); err != nil {
+		return StoredFile{}, err
+	}
+	dir, file := filepath.ToSlash(filepath.Dir(clean)), filepath.Base(clean)
+	if dir == "." {
+		dir = ""
+	}
+	if err := m.EnsureDir(dir); err != nil {
+		return StoredFile{}, err
+	}
+	dest, err := m.megaPath(dir)
 	if err != nil {
 		return StoredFile{}, err
 	}
-	created, err := d.service.Files.Create(&drive.File{Name: name, Parents: []string{parent}}).Media(content).Fields("id,webViewLink,webContentLink").SupportsAllDrives(true).Context(ctx).Do()
+	_, err = m.runMega(2*time.Minute, "mega-put", "-c", tmp.Name(), dest+"/"+file)
 	if err != nil {
-		return StoredFile{}, fmt.Errorf("falha no upload para Google Drive: %w", explainDriveUploadError(err))
+		return StoredFile{}, err
 	}
-	if existing != nil {
-		_ = d.service.Files.Delete(existing.Id).SupportsAllDrives(true).Context(ctx).Do()
-	}
-	return StoredFile{Path: filepath.ToSlash(filepath.Clean(strings.TrimPrefix(remotePath, "/"))), FileURL: created.WebViewLink, DownloadURL: created.WebContentLink}, nil
+	return StoredFile{Path: clean, FileURL: clean, DownloadURL: clean}, nil
 }
 
-func (d *DriveProvider) Delete(remotePath string) error {
-	if d.isLocal() {
-		p, err := d.path(remotePath)
+func (m *MegaProvider) Delete(remotePath string) error {
+	if m.local {
+		p, err := m.path(remotePath)
 		if err != nil {
 			return err
 		}
 		return os.RemoveAll(p)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	id, err := d.resolveDrivePath(ctx, remotePath)
+	p, err := m.megaPath(remotePath)
 	if err != nil {
 		return err
 	}
-	if id == "" {
+	_, err = m.runMega(30*time.Second, "mega-rm", "-r", p)
+	if errors.Is(err, ErrNotFound) {
 		return nil
-	}
-	return d.service.Files.Delete(id).SupportsAllDrives(true).Context(ctx).Do()
-}
-
-func (d *DriveProvider) GetQuota() (QuotaInfo, error) {
-	if d.isLocal() {
-		if strings.TrimSpace(os.Getenv("GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE")) != "true" && os.Getenv("ENV") != "test" {
-			return QuotaInfo{}, fmt.Errorf("quota do Google Drive indisponível: configure credenciais e GOOGLE_DRIVE_ROOT_FOLDER_ID; para ambiente local, defina GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true")
-		}
-		return d.getLocalQuota()
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	academias, accountFiles, managed, outsideAcademias, err := d.getDriveAccountUsage(ctx)
-	if err != nil {
-		return QuotaInfo{}, err
-	}
-	total := managed + outsideAcademias
-	return QuotaInfo{TotalBytes: total, UsedBytes: total, ManagedBytes: managed, OutsideAcademiasBytes: outsideAcademias, Academias: academias, AccountFiles: accountFiles}, nil
-}
-
-func (d *DriveProvider) getLocalQuota() (QuotaInfo, error) {
-	var used uint64
-	var outsideAcademias uint64
-	academias := map[string]uint64{}
-	accountFiles := []AccountFileUsage{}
-	_ = filepath.WalkDir(d.root, func(path string, de os.DirEntry, err error) error {
-		if err == nil && !de.IsDir() {
-			if info, e := de.Info(); e == nil {
-				size := uint64(info.Size())
-				used += size
-				rel, relErr := filepath.Rel(d.root, path)
-				if relErr == nil {
-					path := filepath.ToSlash(rel)
-					parts := strings.Split(path, "/")
-					managed := len(parts) > 1 && parts[0] != "."
-					if managed {
-						academias[parts[0]] += size
-					} else {
-						outsideAcademias += size
-					}
-					accountFiles = append(accountFiles, AccountFileUsage{Path: path, Name: filepath.Base(path), SizeBytes: size, Managed: managed})
-				}
-			}
-		}
-		return nil
-	})
-	sort.Slice(accountFiles, func(i, j int) bool { return accountFiles[i].Path < accountFiles[j].Path })
-	return QuotaInfo{TotalBytes: used, UsedBytes: used, ManagedBytes: used - outsideAcademias, OutsideAcademiasBytes: outsideAcademias, Academias: sortedAcademiaUsage(academias), AccountFiles: accountFiles}, nil
-}
-
-func (d *DriveProvider) driveParentAndName(remotePath string) (string, string, error) {
-	clean := filepath.ToSlash(filepath.Clean(strings.TrimPrefix(remotePath, "/")))
-	if clean == "." || strings.HasPrefix(clean, "../") || clean == ".." {
-		return "", "", fmt.Errorf("caminho remoto inválido")
-	}
-	parentPath, name := filepath.ToSlash(filepath.Dir(clean)), filepath.Base(clean)
-	if parentPath == "." {
-		return d.rootFolderID, name, nil
-	}
-	parent, err := d.ensureDriveFolderPath(parentPath)
-	return parent, name, err
-}
-
-func (d *DriveProvider) ensureDriveFolderPath(remotePath string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	parent := d.rootFolderID
-	clean := filepath.ToSlash(filepath.Clean(strings.TrimPrefix(remotePath, "/")))
-	if clean == "." || clean == "" {
-		return parent, nil
-	}
-	for _, part := range strings.Split(clean, "/") {
-		if part == "" || part == "." || part == ".." {
-			return "", fmt.Errorf("caminho remoto inválido")
-		}
-		folder, err := d.findDriveChild(ctx, parent, part, true)
-		if err != nil {
-			return "", err
-		}
-		if folder == nil {
-			folder, err = d.service.Files.Create(&drive.File{Name: part, MimeType: "application/vnd.google-apps.folder", Parents: []string{parent}}).Fields("id,name,mimeType").SupportsAllDrives(true).Context(ctx).Do()
-			if err != nil {
-				return "", fmt.Errorf("falha ao criar diretório no Google Drive: %w", err)
-			}
-		}
-		parent = folder.Id
-	}
-	return parent, nil
-}
-
-func (d *DriveProvider) findDriveChild(ctx context.Context, parentID, name string, folder bool) (*drive.File, error) {
-	mimeOp := "!="
-	if folder {
-		mimeOp = "="
-	}
-	q := fmt.Sprintf("%s in parents and name = %s and mimeType %s 'application/vnd.google-apps.folder' and trashed = false", quoteDriveQueryString(parentID), quoteDriveQueryString(name), mimeOp)
-	resp, err := d.service.Files.List().Q(q).PageSize(1).Fields("files(id,name,mimeType,size,parents)").SupportsAllDrives(true).IncludeItemsFromAllDrives(true).Context(ctx).Do()
-	if err != nil {
-		return nil, err
-	}
-	if len(resp.Files) == 0 {
-		return nil, nil
-	}
-	return resp.Files[0], nil
-}
-
-func (d *DriveProvider) resolveDrivePath(ctx context.Context, remotePath string) (string, error) {
-	clean := filepath.ToSlash(filepath.Clean(strings.TrimPrefix(remotePath, "/")))
-	if clean == "." || clean == "" {
-		return d.rootFolderID, nil
-	}
-	parent := d.rootFolderID
-	parts := strings.Split(clean, "/")
-	for i, part := range parts {
-		folder := i < len(parts)-1
-		child, err := d.findDriveChild(ctx, parent, part, folder)
-		if err != nil || child == nil {
-			return "", err
-		}
-		parent = child.Id
-	}
-	return parent, nil
-}
-
-func (d *DriveProvider) getDriveAccountUsage(ctx context.Context) ([]AcademiaUsage, []AccountFileUsage, uint64, uint64, error) {
-	usage := map[string]uint64{}
-	files := []AccountFileUsage{}
-	parents := map[string]string{d.rootFolderID: ""}
-	queue := []string{d.rootFolderID}
-	var managed uint64
-	var outsideAcademias uint64
-	for len(queue) > 0 {
-		parent := queue[0]
-		queue = queue[1:]
-		pageToken := ""
-		for {
-			q := fmt.Sprintf("%s in parents and trashed = false", quoteDriveQueryString(parent))
-			resp, err := d.service.Files.List().Q(q).PageSize(1000).PageToken(pageToken).Fields("nextPageToken,files(id,name,mimeType,size,parents)").SupportsAllDrives(true).IncludeItemsFromAllDrives(true).Context(ctx).Do()
-			if err != nil {
-				return nil, nil, 0, 0, fmt.Errorf("falha ao listar arquivos do Google Drive: %w", err)
-			}
-			for _, f := range resp.Files {
-				base := parents[parent]
-				path := f.Name
-				if base != "" {
-					path = base + "/" + f.Name
-				}
-				if f.MimeType == "application/vnd.google-apps.folder" {
-					parents[f.Id] = path
-					queue = append(queue, f.Id)
-					continue
-				}
-				size := uint64FromDriveInt64(f.Size)
-				parts := strings.Split(path, "/")
-				isManaged := len(parts) > 1 && parts[0] != ""
-				if isManaged {
-					usage[parts[0]] += size
-					managed += size
-				} else {
-					outsideAcademias += size
-				}
-				files = append(files, AccountFileUsage{Path: path, Name: f.Name, SizeBytes: size, Managed: isManaged})
-			}
-			if resp.NextPageToken == "" {
-				break
-			}
-			pageToken = resp.NextPageToken
-		}
-	}
-	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
-	return sortedAcademiaUsage(usage), files, managed, outsideAcademias, nil
-}
-
-func uint64FromDriveInt64(v int64) uint64 {
-	if v < 0 {
-		return 0
-	}
-	return uint64(v)
-}
-
-func quoteDriveQueryString(v string) string {
-	return "'" + strings.ReplaceAll(strings.ReplaceAll(v, `\`, `\\`), `'`, `\'`) + "'"
-}
-
-func explainDriveUploadError(err error) error {
-	if err == nil {
-		return nil
-	}
-	if gerr, ok := err.(*googleapi.Error); ok && isDriveStorageQuotaExceeded(gerr) {
-		return fmt.Errorf("%w (quota indisponível para service account: configure GOOGLE_DRIVE_ROOT_FOLDER_ID com uma pasta dentro de um Shared Drive compartilhado com a service account, ou use delegação OAuth; pastas em My Drive compartilhadas com service accounts continuam usando quota da service account)", err)
 	}
 	return err
 }
 
-func isDriveStorageQuotaExceeded(gerr *googleapi.Error) bool {
-	if gerr.Code != 403 {
-		return false
+func (m *MegaProvider) List(remotePath string) ([]StoredFile, error) {
+	if m.local {
+		return m.listLocal(remotePath)
 	}
-	for _, item := range gerr.Errors {
-		if strings.EqualFold(item.Reason, "storageQuotaExceeded") {
-			return true
+	p, err := m.megaPath(remotePath)
+	if err != nil {
+		return nil, err
+	}
+	out, err := m.runMega(30*time.Second, "mega-ls", p)
+	if err != nil {
+		return nil, err
+	}
+	base, _ := m.clean(remotePath)
+	var files []StoredFile
+	for _, line := range strings.Split(string(out), "\n") {
+		name := strings.TrimSpace(line)
+		if name == "" {
+			continue
 		}
+		path := strings.Trim(strings.Trim(base+"/"+name, "/"), "/")
+		files = append(files, StoredFile{Path: path, FileURL: path, DownloadURL: path})
 	}
-	return strings.Contains(strings.ToLower(gerr.Message), "storage quota")
+	return files, nil
+}
+
+func (m *MegaProvider) listLocal(remotePath string) ([]StoredFile, error) {
+	p, err := m.path(remotePath)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	base, _ := m.clean(remotePath)
+	files := []StoredFile{}
+	for _, e := range entries {
+		path := strings.Trim(strings.Trim(base+"/"+e.Name(), "/"), "/")
+		files = append(files, StoredFile{Path: path, FileURL: "file://" + filepath.ToSlash(filepath.Join(p, e.Name())), DownloadURL: "file://" + filepath.ToSlash(filepath.Join(p, e.Name()))})
+	}
+	return files, nil
+}
+
+func (m *MegaProvider) Read(remotePath string) (io.ReadCloser, error) {
+	if m.local {
+		p, err := m.path(remotePath)
+		if err != nil {
+			return nil, err
+		}
+		return os.Open(p)
+	}
+	p, err := m.megaPath(remotePath)
+	if err != nil {
+		return nil, err
+	}
+	tmp, err := os.CreateTemp("", "spuri-mega-download-*")
+	if err != nil {
+		return nil, err
+	}
+	tmp.Close()
+	_, err = m.runMega(2*time.Minute, "mega-get", p, tmp.Name())
+	if err != nil {
+		os.Remove(tmp.Name())
+		return nil, err
+	}
+	b, err := os.ReadFile(tmp.Name())
+	os.Remove(tmp.Name())
+	if err != nil {
+		return nil, err
+	}
+	return io.NopCloser(bytes.NewReader(b)), nil
+}
+
+func (m *MegaProvider) Move(fromPath string, toPath string) error {
+	if m.local {
+		from, err := m.path(fromPath)
+		if err != nil {
+			return err
+		}
+		to, err := m.path(toPath)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(to), 0o700); err != nil {
+			return err
+		}
+		return os.Rename(from, to)
+	}
+	dir := filepath.ToSlash(filepath.Dir(strings.TrimPrefix(toPath, "/")))
+	if dir == "." {
+		dir = ""
+	}
+	if err := m.EnsureDir(dir); err != nil {
+		return err
+	}
+	from, err := m.megaPath(fromPath)
+	if err != nil {
+		return err
+	}
+	to, err := m.megaPath(toPath)
+	if err != nil {
+		return err
+	}
+	_, err = m.runMega(30*time.Second, "mega-mv", from, to)
+	return err
+}
+
+func (m *MegaProvider) Rename(remotePath string, newName string) (StoredFile, error) {
+	if strings.TrimSpace(newName) == "" || strings.Contains(newName, "/") {
+		return StoredFile{}, ErrInvalidPath
+	}
+	clean, err := m.clean(remotePath)
+	if err != nil {
+		return StoredFile{}, err
+	}
+	dir := filepath.ToSlash(filepath.Dir(clean))
+	if dir == "." {
+		dir = ""
+	}
+	to := strings.Trim(strings.Trim(dir+"/"+newName, "/"), "/")
+	if err := m.Move(clean, to); err != nil {
+		return StoredFile{}, err
+	}
+	return StoredFile{Path: to, FileURL: to, DownloadURL: to}, nil
+}
+
+func (m *MegaProvider) GetQuota() (QuotaInfo, error) {
+	if m.local {
+		return m.getLocalQuota()
+	}
+	academias, files, managed, outside, err := m.getMegaAccountUsage()
+	if err != nil {
+		return QuotaInfo{}, err
+	}
+	total := managed + outside
+	return QuotaInfo{TotalBytes: total, UsedBytes: total, ManagedBytes: managed, OutsideAcademiasBytes: outside, Academias: academias, AccountFiles: files}, nil
+}
+
+func (m *MegaProvider) getMegaAccountUsage() ([]AcademiaUsage, []AccountFileUsage, uint64, uint64, error) {
+	return nil, nil, 0, 0, ErrOperationUnsupported
+}
+
+func (m *MegaProvider) getLocalQuota() (QuotaInfo, error) {
+	var used, outside uint64
+	academias := map[string]uint64{}
+	files := []AccountFileUsage{}
+	_ = filepath.WalkDir(m.root, func(path string, de os.DirEntry, err error) error {
+		if err == nil && !de.IsDir() {
+			if info, e := de.Info(); e == nil {
+				size := uint64(info.Size())
+				used += size
+				rel, _ := filepath.Rel(m.root, path)
+				rp := filepath.ToSlash(rel)
+				parts := strings.Split(rp, "/")
+				managed := len(parts) > 1 && parts[0] != "."
+				if managed {
+					academias[parts[0]] += size
+				} else {
+					outside += size
+				}
+				files = append(files, AccountFileUsage{Path: rp, Name: filepath.Base(path), SizeBytes: size, Managed: managed})
+			}
+		}
+		return nil
+	})
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	return QuotaInfo{TotalBytes: used, UsedBytes: used, ManagedBytes: used - outside, OutsideAcademiasBytes: outside, Academias: sortedAcademiaUsage(academias), AccountFiles: files}, nil
 }
 
 func sortedAcademiaUsage(usage map[string]uint64) []AcademiaUsage {
@@ -427,9 +464,7 @@ func sortedAcademiaUsage(usage map[string]uint64) []AcademiaUsage {
 	for codigo, used := range usage {
 		out = append(out, AcademiaUsage{CodigoAcademia: codigo, UsedBytes: used})
 	}
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].CodigoAcademia < out[j].CodigoAcademia
-	})
+	sort.Slice(out, func(i, j int) bool { return out[i].CodigoAcademia < out[j].CodigoAcademia })
 	return out
 }
 
