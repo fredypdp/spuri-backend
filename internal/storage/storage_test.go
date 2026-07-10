@@ -174,12 +174,8 @@ func TestMegaProviderRejectsInvalidPasswordAfterLogout(t *testing.T) {
 	t.Setenv("MEGA_ROOT_FOLDER", "")
 	t.Setenv("ENV", "")
 
-	provider, err := NewStorageProvider()
-	if err != nil {
-		t.Fatalf("NewStorageProvider() error = %v", err)
-	}
-	err = provider.EnsureDir("documentos")
+	_, err := NewStorageProvider()
 	if err == nil || !strings.Contains(err.Error(), "falha ao autenticar no Mega") {
-		t.Fatalf("EnsureDir() error = %v, want Mega authentication failure", err)
+		t.Fatalf("NewStorageProvider() error = %v, want Mega authentication failure", err)
 	}
 }

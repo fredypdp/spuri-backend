@@ -120,7 +120,12 @@ func NewMegaProvider() (StorageProvider, error) {
 	if err := ensureMegaCmdAvailable(megaCmds...); err != nil {
 		return nil, err
 	}
-	return &MegaProvider{root: root, rootFolder: rootFolder}, nil
+	provider := &MegaProvider{root: root, rootFolder: rootFolder}
+	if err := provider.login(); err != nil {
+		return nil, err
+	}
+	provider.authenticated = true
+	return provider, nil
 }
 
 func NewLocalProvider() StorageProvider {
