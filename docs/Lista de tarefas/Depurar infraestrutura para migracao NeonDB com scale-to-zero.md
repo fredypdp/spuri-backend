@@ -381,25 +381,27 @@ Esses pontos podem virar tarefas futuras, mas este debug deve permanecer focado 
 
 ## Critérios de aceite
 
-A tarefa só deve ser considerada concluída quando todos os itens abaixo forem verdadeiros:
+A tarefa só deve ser considerada concluída quando todos os itens abaixo forem verdadeiros.
 
-- [ ] `internal/db/client.go` não contém `startHealthCheck`.
-- [ ] `internal/db/client.go` não contém `healthTicker`.
-- [ ] `internal/db/client.go` não contém `stopHealthCheck`.
-- [ ] `internal/db/client.go` mantém `Health() error` sob demanda.
-- [ ] `internal/db/client.go` não contém `QueryWithRetry`, `QueryRowWithRetry` ou `ExecWithRetry`.
-- [ ] `internal/db/client.go` não contém `isConnectionError` nem `containsIgnoreCase`.
-- [ ] `DefaultConfig()` usa `MaxConnections: 10` no caminho com `DATABASE_URL`.
-- [ ] `StartProcessing()` não usa ticker fixo de 1 segundo para sempre.
-- [ ] `processNewEvents()` retorna se houve eventos.
-- [ ] `processProjection()` retorna se havia eventos para aquela projeção.
-- [ ] O Projection Manager usa backoff até 30 segundos quando não há eventos.
-- [ ] O Projection Manager volta para 1 segundo quando encontra eventos.
-- [ ] `sweepPending()` não usa ticker fixo de 30 segundos para sempre.
-- [ ] `sweepPending()` usa backoff até 5 minutos quando não há jobs ativos.
-- [ ] `sweepPending()` volta para 30 segundos quando encontra jobs ativos.
-- [ ] `cleanupLoop()` permanece inalterado, salvo ajuste de formatação inevitável.
-- [ ] `go test ./...` passa ou qualquer falha é documentada com causa não relacionada.
+Status da depuração em 2026-07-10: implementação validada no código e testes automatizados executados com sucesso.
+
+- [x] `internal/db/client.go` não contém `startHealthCheck`.
+- [x] `internal/db/client.go` não contém `healthTicker`.
+- [x] `internal/db/client.go` não contém `stopHealthCheck`.
+- [x] `internal/db/client.go` mantém `Health() error` sob demanda.
+- [x] `internal/db/client.go` não contém `QueryWithRetry`, `QueryRowWithRetry` ou `ExecWithRetry`.
+- [x] `internal/db/client.go` não contém `isConnectionError` nem `containsIgnoreCase`.
+- [x] `DefaultConfig()` usa `MaxConnections: 10` no caminho com `DATABASE_URL`.
+- [x] `StartProcessing()` não usa ticker fixo de 1 segundo para sempre.
+- [x] `processNewEvents()` retorna se houve eventos.
+- [x] `processProjection()` retorna se havia eventos para aquela projeção.
+- [x] O Projection Manager usa backoff até 30 segundos quando não há eventos.
+- [x] O Projection Manager volta para 1 segundo quando encontra eventos.
+- [x] `sweepPending()` não usa ticker fixo de 30 segundos para sempre.
+- [x] `sweepPending()` usa backoff até 5 minutos quando não há jobs ativos.
+- [x] `sweepPending()` volta para 30 segundos quando encontra jobs ativos.
+- [x] `cleanupLoop()` permanece inalterado, salvo ajuste de formatação inevitável.
+- [x] `go test ./...` passa ou qualquer falha é documentada com causa não relacionada.
 
 ## Checks manuais recomendados após deploy em staging
 
