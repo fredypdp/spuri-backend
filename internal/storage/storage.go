@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 )
 
@@ -190,7 +191,7 @@ func (d *DriveProvider) Upload(remotePath string, content io.Reader, sizeBytes i
 	}
 	created, err := d.service.Files.Create(&drive.File{Name: name, Parents: []string{parent}}).Media(content).Fields("id,webViewLink,webContentLink").SupportsAllDrives(true).Context(ctx).Do()
 	if err != nil {
-		return StoredFile{}, fmt.Errorf("falha no upload para Google Drive: %w", err)
+		return StoredFile{}, fmt.Errorf("falha no upload para Google Drive: %w", explainDriveUploadError(err))
 	}
 	if existing != nil {
 		_ = d.service.Files.Delete(existing.Id).SupportsAllDrives(true).Context(ctx).Do()
@@ -397,6 +398,28 @@ func uint64FromDriveInt64(v int64) uint64 {
 
 func quoteDriveQueryString(v string) string {
 	return "'" + strings.ReplaceAll(strings.ReplaceAll(v, `\`, `\\`), `'`, `\'`) + "'"
+}
+
+func explainDriveUploadError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if gerr, ok := err.(*googleapi.Error); ok && isDriveStorageQuotaExceeded(gerr) {
+		return fmt.Errorf("%w (quota indisponível para service account: configure GOOGLE_DRIVE_ROOT_FOLDER_ID com uma pasta dentro de um Shared Drive compartilhado com a service account, ou use delegação OAuth; pastas em My Drive compartilhadas com service accounts continuam usando quota da service account)", err)
+	}
+	return err
+}
+
+func isDriveStorageQuotaExceeded(gerr *googleapi.Error) bool {
+	if gerr.Code != 403 {
+		return false
+	}
+	for _, item := range gerr.Errors {
+		if strings.EqualFold(item.Reason, "storageQuotaExceeded") {
+			return true
+		}
+	}
+	return strings.Contains(strings.ToLower(gerr.Message), "storage quota")
 }
 
 func sortedAcademiaUsage(usage map[string]uint64) []AcademiaUsage {

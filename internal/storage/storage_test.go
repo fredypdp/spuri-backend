@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"google.golang.org/api/googleapi"
 )
 
 func TestGetQuotaRequiresExplicitLocalEstimate(t *testing.T) {
@@ -46,5 +48,18 @@ func TestGetQuotaLocalEstimateCountsOnlyLocalRoot(t *testing.T) {
 	}
 	if len(quota.Academias) != 1 || quota.Academias[0].CodigoAcademia != "ACA001" || quota.Academias[0].UsedBytes != 5 {
 		t.Fatalf("GetQuota().Academias = %+v, want ACA001 with 5 bytes", quota.Academias)
+	}
+}
+
+func TestExplainDriveUploadErrorForServiceAccountQuota(t *testing.T) {
+	err := explainDriveUploadError(&googleapi.Error{Code: 403, Errors: []googleapi.ErrorItem{{Reason: "storageQuotaExceeded", Message: "Service Accounts do not have storage quota"}}})
+	if err == nil {
+		t.Fatal("explainDriveUploadError() error = nil, want actionable error")
+	}
+	msg := err.Error()
+	for _, want := range []string{"Shared Drive", "GOOGLE_DRIVE_ROOT_FOLDER_ID", "service account"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("explainDriveUploadError() = %q, want %q", msg, want)
+		}
 	}
 }
