@@ -8,7 +8,7 @@ status: pendente
 
 ## Prompt recomendado para executar a atualização
 
-Implemente a substituição do Google Drive pelo Mega no gerenciamento de arquivos do backend, escolhendo uma biblioteca que permita autenticação por e-mail e senha da conta Mega e suporte, no mínimo, leitura/listagem, criação e organização de pastas, upload, deleção, movimentação/renomeação e, quando disponível, download de arquivos. A mudança não deve alterar a grande estrutura do sistema nem os contratos de negócio já existentes: concentre a alteração na camada responsável por armazenamento/gerenciamento de arquivos e adote uma arquitetura de provider/adapter que permita trocar o provedor de armazenamento de forma rápida, simples, segura e eficiente no futuro.
+Implemente a substituição do Google Drive pelo Mega no gerenciamento de arquivos do backend, escolhendo uma biblioteca que permita autenticação por e-mail e senha da conta Mega e suporte, no mínimo, leitura/listagem, criação e organização de pastas, upload, deleção, movimentação/renomeação e download ou fluxo de leitura de arquivos. O download deve atender o cliente/front end, permitindo que a aplicação cliente baixe os arquivos para leitura dos documentos. A mudança não deve alterar a grande estrutura do sistema nem os contratos de negócio já existentes: concentre a alteração na camada responsável por armazenamento/gerenciamento de arquivos e adote uma arquitetura de provider/adapter que permita trocar o provedor de armazenamento de forma rápida, simples, segura e eficiente no futuro.
 
 ## Contexto
 
@@ -22,7 +22,7 @@ A atualização deve preservar a lógica de negócio existente sobre diretórios
 | --- | --- | --- |
 | Provedor de arquivos | Substituir Google Drive por Mega | Todos os uploads, leituras, movimentações e deleções passam a usar Mega |
 | Autenticação | E-mail e senha da conta Mega | Configuração simples via variáveis de ambiente/segredos |
-| Biblioteca | Escolher lib com operações essenciais | Suportar leitura/listagem, upload, deleção, pastas, movimentação e idealmente download |
+| Biblioteca | Escolher lib com operações essenciais | Suportar leitura/listagem, upload, deleção, pastas, movimentação e download/fluxo de leitura para o front end |
 | Arquitetura | Criar interface/adapter de storage | Domínio e handlers não dependem diretamente de Mega ou Google Drive |
 | Estrutura do sistema | Preservar contratos e fluxos principais | Não reescrever módulos de negócio desnecessariamente |
 | Migração futura | Facilitar troca de provedor | Provider configurável e implementação isolada |
@@ -47,7 +47,7 @@ A biblioteca escolhida deve permitir, obrigatoriamente ou com composição simpl
 5. deleção de arquivos e pastas;
 6. movimentação de arquivos entre diretórios;
 7. renomeação ou atualização de localização quando necessário;
-8. download ou geração de fluxo de leitura quando suportado pela lib, ainda que download não seja a prioridade inicial;
+8. download ou geração de fluxo de leitura para atender endpoints consumidos pelo front end, permitindo que o cliente baixe arquivos para leitura dos documentos;
 9. tratamento explícito de erros de autenticação, permissão, inexistência de arquivo/pasta, limite de quota, rate limit e falha de rede.
 
 ## Escopo obrigatório
@@ -253,7 +253,7 @@ Revisar todos os fluxos que manipulam arquivos, incluindo quando existirem:
 - documentos de estudantes;
 - solicitação de matrícula;
 - aprovação/reprovação com deleção de documentos;
-- downloads administrativos;
+- downloads administrativos e downloads consumidos pelo front end para leitura de documentos;
 - jobs assíncronos com anexos;
 - importações/exportações;
 - qualquer validação de PDF acoplada ao provedor.
@@ -293,7 +293,7 @@ Adicionar ou ajustar testes cobrindo:
 2. erro de configuração quando credenciais Mega estiverem ausentes;
 3. upload usando a interface comum;
 4. criação idempotente de diretório;
-5. listagem/leitura de arquivos;
+5. listagem/leitura e download de arquivos para o front end;
 6. deleção de arquivo existente;
 7. deleção de arquivo inexistente retornando erro normalizado;
 8. movimentação de arquivo entre diretórios;
@@ -331,10 +331,11 @@ Atualizar, quando aplicável:
 1. README e documentação de ambiente;
 2. documentação de configuração de storage;
 3. guias de deploy;
-4. OpenAPI/Swagger se houver endpoints de download/listagem impactados;
+4. OpenAPI/Swagger se houver endpoints de download/listagem impactados, incluindo endpoints usados pelo front end para baixar documentos;
 5. exemplos de `.env`;
 6. documentação técnica sobre diretórios remotos;
-7. runbook de problemas comuns de storage.
+7. documentação de ausência de migração de arquivos existentes, deixando explícito que não há arquivos no Google Drive a migrar;
+8. runbook de problemas comuns de storage.
 
 A documentação deve explicar:
 
@@ -354,7 +355,7 @@ A atualização será considerada concluída quando:
 1. nenhum fluxo principal de arquivo depender operacionalmente do Google Drive;
 2. o Mega estiver configurado como provider principal de storage;
 3. a autenticação Mega funcionar com e-mail e senha;
-4. o sistema conseguir criar/localizar pastas, fazer upload, listar/ler, deletar e mover arquivos;
+4. o sistema conseguir criar/localizar pastas, fazer upload, listar/ler, disponibilizar download ao front end, deletar e mover arquivos;
 5. a camada de domínio/handlers depender apenas da interface comum de storage;
 6. as referências internas de arquivos continuarem estáveis e coerentes;
 7. a mudança de provider no futuro exigir troca/criação de adapter, não refatoração ampla do sistema;
