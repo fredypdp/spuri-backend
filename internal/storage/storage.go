@@ -112,8 +112,8 @@ func NewMegaProvider() (StorageProvider, error) {
 	if strings.TrimSpace(os.Getenv("MEGA_EMAIL")) == "" || strings.TrimSpace(os.Getenv("MEGA_PASSWORD")) == "" {
 		return nil, fmt.Errorf("%w: MEGA_EMAIL e MEGA_PASSWORD são obrigatórios quando STORAGE_PROVIDER=mega", ErrInvalidConfiguration)
 	}
-	if _, err := exec.LookPath("mega-login"); err != nil {
-		return nil, fmt.Errorf("%w: MEGAcmd não encontrado no PATH", ErrInvalidConfiguration)
+	if err := ensureMegaCmdAvailable("mega-login"); err != nil {
+		return nil, err
 	}
 	p := &MegaProvider{root: root, rootFolder: rootFolder}
 	if err := p.login(); err != nil {
@@ -175,12 +175,28 @@ func (m *MegaProvider) megaPath(remotePath string) (string, error) {
 	return "/" + strings.Join(parts, "/"), nil
 }
 
+func ensureMegaCmdAvailable(name string) error {
+	if _, err := exec.LookPath(name); err != nil {
+		return fmt.Errorf("%w: MEGAcmd não encontrado no PATH (%s)", ErrInvalidConfiguration, name)
+	}
+	return nil
+}
+
 func (m *MegaProvider) login() error {
+	// MEGAcmd keeps a persistent local session. Always close it before logging in
+	// with the configured credentials so stale sessions cannot mask an outdated
+	// MEGA_PASSWORD or upload files to a different account than MEGA_EMAIL.
+	if logoutPath, err := exec.LookPath("mega-logout"); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		_, _ = exec.CommandContext(ctx, logoutPath).CombinedOutput()
+		cancel()
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "mega-login", os.Getenv("MEGA_EMAIL"), os.Getenv("MEGA_PASSWORD"))
 	out, err := cmd.CombinedOutput()
-	if err != nil && !strings.Contains(strings.ToLower(string(out)), "already logged") {
+	if err != nil {
 		return fmt.Errorf("falha ao autenticar no Mega: %w", sanitizeMegaError(out, err))
 	}
 	return nil

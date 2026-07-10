@@ -259,3 +259,14 @@ func TestNotasAndFaltasExposeOnlyCreateAndReadRoutes(t *testing.T) {
 		}
 	}
 }
+
+func TestInitStorageDoesNotFallbackToLocalWhenMegaConfigurationFails(t *testing.T) {
+	t.Setenv("STORAGE_PROVIDER", "mega")
+	t.Setenv("MEGA_EMAIL", "")
+	t.Setenv("MEGA_PASSWORD", "")
+	t.Setenv("ENV", "development")
+
+	if err := initStorage(); err == nil {
+		t.Fatal("initStorage() error = nil, want Mega configuration error instead of local fallback")
+	}
+}
