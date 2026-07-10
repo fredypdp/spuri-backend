@@ -334,8 +334,7 @@ Atualizar, quando aplicável:
 4. OpenAPI/Swagger se houver endpoints de download/listagem impactados;
 5. exemplos de `.env`;
 6. documentação técnica sobre diretórios remotos;
-7. documentação de ausência de migração de arquivos existentes, deixando explícito que não há arquivos no Google Drive a migrar;
-8. runbook de problemas comuns de storage.
+7. runbook de problemas comuns de storage.
 
 A documentação deve explicar:
 
