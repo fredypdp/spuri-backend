@@ -260,13 +260,9 @@ Revisar todos os fluxos que manipulam arquivos, incluindo quando existirem:
 
 ### 4.2 Compatibilizar referências persistidas
 
-Se o sistema já possui caminhos do Google Drive persistidos, definir estratégia clara para registros existentes:
+Não há necessidade de migração de arquivos do Google Drive para o Mega, pois não existe conteúdo armazenado no Google Drive atualmente. Portanto, a atualização deve tratar o Google Drive apenas como dependência operacional a ser removida/inativada, sem planejar cópia, sincronização, leitura legado ou migração automática de arquivos.
 
-1. migrar caminhos/arquivos para Mega;
-2. manter leitura legado somente para dados antigos por tempo definido; ou
-3. exigir migração operacional antes do deploy.
-
-A estratégia escolhida deve ser documentada e testável. Para novos dados, o provedor deve ser Mega.
+Se, durante a implementação, forem encontrados caminhos ou referências persistidas ao Google Drive, eles devem ser avaliados como metadados legados sem arquivo remoto correspondente e tratados conforme o padrão de compatibilidade do projeto, sem criar uma etapa de migração de arquivos. Para novos dados, o provedor deve ser Mega.
 
 ### 4.3 Atualizar erros padronizados
 
@@ -338,7 +334,7 @@ Atualizar, quando aplicável:
 4. OpenAPI/Swagger se houver endpoints de download/listagem impactados;
 5. exemplos de `.env`;
 6. documentação técnica sobre diretórios remotos;
-7. documentação de migração de arquivos existentes;
+7. documentação de ausência de migração de arquivos existentes, deixando explícito que não há arquivos no Google Drive a migrar;
 8. runbook de problemas comuns de storage.
 
 A documentação deve explicar:
@@ -348,7 +344,7 @@ A documentação deve explicar:
 - como escolher provider por configuração;
 - como rodar testes unitários e integração;
 - limitações conhecidas da biblioteca escolhida;
-- estratégia para arquivos já existentes no Google Drive.
+- ausência de necessidade de migração, pois não há arquivos armazenados no Google Drive atualmente.
 
 ---
 
@@ -376,6 +372,6 @@ Esta tarefa não exige:
 - criar UI administrativa para navegar arquivos;
 - alterar regras de obrigatoriedade de documentos;
 - alterar limite de tamanho/MIME type de PDFs, salvo se houver acoplamento com o provider antigo;
-- migrar automaticamente todos os arquivos antigos sem decisão operacional explícita;
+- migrar arquivos antigos do Google Drive para o Mega, pois não há arquivos armazenados no Google Drive atualmente;
 - expor IDs internos do Mega para clientes externos;
 - reestruturar módulos de negócio que apenas consomem storage.
