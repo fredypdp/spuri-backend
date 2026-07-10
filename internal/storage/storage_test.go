@@ -1,29 +1,72 @@
 package storage
 
 import (
+	"io"
 	"os"
 	"strings"
 	"testing"
-
-	"google.golang.org/api/googleapi"
 )
 
-func TestGetQuotaRequiresExplicitLocalEstimate(t *testing.T) {
-	t.Setenv("GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE", "")
-
-	provider := &DriveProvider{root: t.TempDir()}
-	_, err := provider.GetQuota()
-	if err == nil {
-		t.Fatal("GetQuota() error = nil, want quota unavailable error")
+func TestNewStorageProviderRequiresMegaCredentials(t *testing.T) {
+	t.Setenv("STORAGE_PROVIDER", "mega")
+	t.Setenv("MEGA_EMAIL", "")
+	t.Setenv("MEGA_PASSWORD", "")
+	t.Setenv("ENV", "")
+	_, err := NewStorageProvider()
+	if err == nil || !strings.Contains(err.Error(), "MEGA_EMAIL") || !strings.Contains(err.Error(), "MEGA_PASSWORD") {
+		t.Fatalf("NewStorageProvider() error = %v, want missing Mega credentials", err)
 	}
-	if !strings.Contains(err.Error(), "quota do Google Drive indisponível") || !strings.Contains(err.Error(), "GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE=true") {
-		t.Fatalf("GetQuota() error = %q, want message explaining Google Drive quota configuration", err.Error())
+}
+
+func TestLocalProviderUploadReadListMoveRenameDelete(t *testing.T) {
+	t.Setenv("STORAGE_PROVIDER", "local")
+	t.Setenv("MEGA_LOCAL_ROOT", t.TempDir())
+	provider, err := NewStorageProvider()
+	if err != nil {
+		t.Fatalf("NewStorageProvider() error = %v", err)
+	}
+	if provider.ProviderName() != "mega" {
+		t.Fatalf("ProviderName() = %q, want mega", provider.ProviderName())
+	}
+	if err := provider.EnsureDir("ACA001/Documentação formal"); err != nil {
+		t.Fatalf("EnsureDir() error = %v", err)
+	}
+	stored, err := provider.Upload("ACA001/Documentação formal/alvara.pdf", strings.NewReader("pdf"), 3)
+	if err != nil {
+		t.Fatalf("Upload() error = %v", err)
+	}
+	if stored.Path != "ACA001/Documentação formal/alvara.pdf" {
+		t.Fatalf("Upload().Path = %q", stored.Path)
+	}
+	files, err := provider.List("ACA001/Documentação formal")
+	if err != nil || len(files) != 1 {
+		t.Fatalf("List() = %+v, %v; want one file", files, err)
+	}
+	r, err := provider.Read(stored.Path)
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	b, _ := io.ReadAll(r)
+	r.Close()
+	if string(b) != "pdf" {
+		t.Fatalf("Read() = %q", b)
+	}
+	if err := provider.Move(stored.Path, "ACA001/Estudantes/EST001/alvara.pdf"); err != nil {
+		t.Fatalf("Move() error = %v", err)
+	}
+	renamed, err := provider.Rename("ACA001/Estudantes/EST001/alvara.pdf", "documento.pdf")
+	if err != nil {
+		t.Fatalf("Rename() error = %v", err)
+	}
+	if renamed.Path != "ACA001/Estudantes/EST001/documento.pdf" {
+		t.Fatalf("Rename().Path = %q", renamed.Path)
+	}
+	if err := provider.Delete("ACA001"); err != nil {
+		t.Fatalf("Delete() error = %v", err)
 	}
 }
 
 func TestGetQuotaLocalEstimateCountsOnlyLocalRoot(t *testing.T) {
-	t.Setenv("GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE", "true")
-
 	root := t.TempDir()
 	if err := os.MkdirAll(root+"/ACA001", 0o700); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
@@ -34,8 +77,7 @@ func TestGetQuotaLocalEstimateCountsOnlyLocalRoot(t *testing.T) {
 	if err := os.WriteFile(root+"/avulso.pdf", []byte("123"), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-
-	provider := &DriveProvider{root: root}
+	provider := &MegaProvider{root: root, local: true}
 	quota, err := provider.GetQuota()
 	if err != nil {
 		t.Fatalf("GetQuota() error = %v", err)
@@ -48,18 +90,5 @@ func TestGetQuotaLocalEstimateCountsOnlyLocalRoot(t *testing.T) {
 	}
 	if len(quota.Academias) != 1 || quota.Academias[0].CodigoAcademia != "ACA001" || quota.Academias[0].UsedBytes != 5 {
 		t.Fatalf("GetQuota().Academias = %+v, want ACA001 with 5 bytes", quota.Academias)
-	}
-}
-
-func TestExplainDriveUploadErrorForServiceAccountQuota(t *testing.T) {
-	err := explainDriveUploadError(&googleapi.Error{Code: 403, Errors: []googleapi.ErrorItem{{Reason: "storageQuotaExceeded", Message: "Service Accounts do not have storage quota"}}})
-	if err == nil {
-		t.Fatal("explainDriveUploadError() error = nil, want actionable error")
-	}
-	msg := err.Error()
-	for _, want := range []string{"Shared Drive", "GOOGLE_DRIVE_ROOT_FOLDER_ID", "service account"} {
-		if !strings.Contains(msg, want) {
-			t.Fatalf("explainDriveUploadError() = %q, want %q", msg, want)
-		}
 	}
 }

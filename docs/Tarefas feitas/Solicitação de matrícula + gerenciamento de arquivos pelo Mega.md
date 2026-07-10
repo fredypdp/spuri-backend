@@ -53,7 +53,7 @@ Esta funcionalidade é inteiramente nova e deve seguir o padrão **Event Sourcin
 
 #### 1.2.2 Estrutura de Documentos
 
-O campo `documentos` armazena os caminhos remotos dos ficheiros enviados no armazenamento externo (Mega ou Google Drive). Os ficheiros válidos são PDFs.
+O campo `documentos` armazena os caminhos remotos dos ficheiros enviados no armazenamento externo (Mega via provider de storage). Os ficheiros válidos são PDFs.
 
 ```json
 {
