@@ -29,16 +29,3 @@ Não há migração automática de arquivos do Google Drive porque não existem 
 ## Testes
 
 Os testes unitários usam o provider local e não dependem de conta Mega. Testes de integração reais devem ser opt-in, com credenciais explícitas e pasta temporária isolada.
-
-## Download para o front end
-
-O front end não baixa documentos diretamente do Mega e não recebe credenciais do provedor. Ele deve usar os `download_url` persistidos nos metadados dos documentos ou montar as rotas autenticadas abaixo:
-
-```text
-GET /documentos/estudantes/{codigo_estudante}/{campo}/download
-GET /documentos/solicitacoes-matricula/{codigo_solicitacao}/{campo}/download
-```
-
-As rotas exigem autenticação. Admins podem baixar documentos de qualquer academia; academias só podem baixar documentos da sua própria academia; estudantes só podem baixar seus próprios documentos no endpoint de estudante. A resposta é `application/pdf` com `Content-Disposition: inline`, adequada para abrir o PDF no navegador/leitor do front end.
-
-Campos comuns de documento: `bi_estudante`, `bi_responsavel`, `cedula_estudante`, `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`.
