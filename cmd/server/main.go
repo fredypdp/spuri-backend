@@ -99,15 +99,7 @@ func initDB() error {
 func initStorage() error {
 	provider, err := storage.NewStorageProvider()
 	if err != nil {
-		if os.Getenv("ENV") == "production" {
-			return err
-		}
-		log.Printf("[WARN] armazenamento Mega não configurado, usando provider local: %v", err)
-		os.Setenv("STORAGE_PROVIDER", "local")
-		provider, err = storage.NewStorageProvider()
-		if err != nil {
-			return err
-		}
+		return err
 	}
 	storageProvider = provider
 	return nil

@@ -112,3 +112,66 @@ func TestGetQuotaLocalEstimateCountsOnlyLocalRoot(t *testing.T) {
 		t.Fatalf("GetQuota().Academias = %+v, want ACA001 with 5 bytes", quota.Academias)
 	}
 }
+
+func writeMegaCmdStubs(t *testing.T, bin string, scripts map[string]string) {
+	t.Helper()
+	for _, name := range megaCmds {
+		script := scripts[name]
+		if script == "" {
+			script = "#!/bin/sh\nexit 0\n"
+		}
+		if err := os.WriteFile(bin+"/"+name, []byte(script), 0o700); err != nil {
+			t.Fatalf("WriteFile %s error = %v", name, err)
+		}
+	}
+}
+
+func TestNewMegaProviderLogsOutBeforeLoginToAvoidStaleSession(t *testing.T) {
+	bin := t.TempDir()
+	logFile := bin + "/calls.log"
+	writeMegaCmdStubs(t, bin, map[string]string{
+		"mega-login": "#!/bin/sh\necho login:$1:$2 >> \"$MEGA_TEST_LOG\"\nexit 0\n",
+	})
+	if err := os.WriteFile(bin+"/mega-logout", []byte("#!/bin/sh\necho logout >> \"$MEGA_TEST_LOG\"\nexit 0\n"), 0o700); err != nil {
+		t.Fatalf("WriteFile mega-logout error = %v", err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("MEGA_TEST_LOG", logFile)
+	t.Setenv("STORAGE_PROVIDER", "mega")
+	t.Setenv("MEGA_EMAIL", "conta@example.com")
+	t.Setenv("MEGA_PASSWORD", "senha-nova")
+	t.Setenv("MEGA_ROOT_FOLDER", "")
+	t.Setenv("ENV", "")
+
+	if _, err := NewStorageProvider(); err != nil {
+		t.Fatalf("NewStorageProvider() error = %v", err)
+	}
+	calls, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("ReadFile calls log error = %v", err)
+	}
+	if string(calls) != "logout\nlogin:conta@example.com:senha-nova\n" {
+		t.Fatalf("calls = %q, want logout before login with configured credentials", calls)
+	}
+}
+
+func TestNewMegaProviderRejectsInvalidPasswordAfterLogout(t *testing.T) {
+	bin := t.TempDir()
+	writeMegaCmdStubs(t, bin, map[string]string{
+		"mega-login": "#!/bin/sh\necho login failed for $1\nexit 1\n",
+	})
+	if err := os.WriteFile(bin+"/mega-logout", []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatalf("WriteFile mega-logout error = %v", err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("STORAGE_PROVIDER", "mega")
+	t.Setenv("MEGA_EMAIL", "conta@example.com")
+	t.Setenv("MEGA_PASSWORD", "senha-antiga")
+	t.Setenv("MEGA_ROOT_FOLDER", "")
+	t.Setenv("ENV", "")
+
+	_, err := NewStorageProvider()
+	if err == nil || !strings.Contains(err.Error(), "falha ao autenticar no Mega") {
+		t.Fatalf("NewStorageProvider() error = %v, want Mega authentication failure", err)
+	}
+}

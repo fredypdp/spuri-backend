@@ -24,6 +24,7 @@ FROM alpine:latest
 RUN apk --no-cache add \
     ca-certificates \
     tzdata \
+    megacmd \
     && rm -rf /var/cache/apk/*
 
 RUN addgroup -g 1000 spuri && \
