@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -72,6 +71,20 @@ type MegaProvider struct {
 	local      bool
 }
 
+type tempFileReadCloser struct {
+	*os.File
+	name string
+}
+
+func (t *tempFileReadCloser) Close() error {
+	err := t.File.Close()
+	removeErr := os.Remove(t.name)
+	if err != nil {
+		return err
+	}
+	return removeErr
+}
+
 func NewStorageProvider() (StorageProvider, error) {
 	provider := strings.ToLower(strings.TrimSpace(os.Getenv("STORAGE_PROVIDER")))
 	if provider == "" {
@@ -123,7 +136,7 @@ func NewLocalProvider() StorageProvider {
 }
 
 func useLocalMegaFallback() bool {
-	return os.Getenv("ENV") == "test" || strings.ToLower(strings.TrimSpace(os.Getenv("STORAGE_PROVIDER"))) == "local" || strings.TrimSpace(os.Getenv("MEGA_LOCAL_ROOT")) != ""
+	return os.Getenv("ENV") == "test" || strings.ToLower(strings.TrimSpace(os.Getenv("STORAGE_PROVIDER"))) == "local"
 }
 
 func (m *MegaProvider) ProviderName() string { return "mega" }
@@ -274,6 +287,12 @@ func (m *MegaProvider) Delete(remotePath string) error {
 		if err != nil {
 			return err
 		}
+		if _, err := os.Stat(p); err != nil {
+			if os.IsNotExist(err) {
+				return ErrNotFound
+			}
+			return err
+		}
 		return os.RemoveAll(p)
 	}
 	p, err := m.megaPath(remotePath)
@@ -282,7 +301,7 @@ func (m *MegaProvider) Delete(remotePath string) error {
 	}
 	_, err = m.runMega(30*time.Second, "mega-rm", "-r", p)
 	if errors.Is(err, ErrNotFound) {
-		return nil
+		return ErrNotFound
 	}
 	return err
 }
@@ -355,12 +374,12 @@ func (m *MegaProvider) Read(remotePath string) (io.ReadCloser, error) {
 		os.Remove(tmp.Name())
 		return nil, err
 	}
-	b, err := os.ReadFile(tmp.Name())
-	os.Remove(tmp.Name())
+	f, err := os.Open(tmp.Name())
 	if err != nil {
+		os.Remove(tmp.Name())
 		return nil, err
 	}
-	return io.NopCloser(bytes.NewReader(b)), nil
+	return &tempFileReadCloser{File: f, name: tmp.Name()}, nil
 }
 
 func (m *MegaProvider) Move(fromPath string, toPath string) error {
