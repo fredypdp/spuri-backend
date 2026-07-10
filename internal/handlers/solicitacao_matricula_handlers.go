@@ -172,7 +172,7 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 			utils.RespondWithInternalError(c, fmt.Errorf("falha no upload dos documentos: %w", err))
 			return
 		}
-		documentos[field] = aggregates.DocumentoMatricula{Path: stored.Path, FileURL: stored.FileURL, DownloadURL: stored.DownloadURL}
+		documentos[field] = aggregates.DocumentoMatricula{Path: stored.Path, FileURL: stored.FileURL, DownloadURL: solicitacaoDocumentoDownloadURL(codigo, field)}
 		if field == "declaracao" {
 			doc := documentos[field]
 			doc.AnoAcademico = get("declaracao_ano_academico")
