@@ -196,7 +196,7 @@ afeta infraestrutura/custo).
 - O sistema já implementa algum mecanismo de "wake-up" deliberado do banco (ex.: warm-up
   antes de horário de pico esperado)? Isso afetaria diretamente o billing de compute.
 - Existe replicação de leitura, banco secundário, ou qualquer estratégia multi-banco hoje?
-- O upload de documentos de matrícula (Google Drive) tem algum acoplamento com o Postgres
+- O upload de documentos de matrícula (storage Mega via provider) tem algum acoplamento com o Postgres
   além de salvar `path`/`file_url`/`download_url` na projeção? (Confirmar que uploads de
   arquivo não geram carga adicional no Postgres além do registro de metadados.)
 

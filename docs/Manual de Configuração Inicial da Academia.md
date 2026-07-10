@@ -467,6 +467,8 @@ POST /academia/estudante/register
 
 O cadastro direto usa `multipart/form-data`. Os documentos são opcionais; quando enviados, precisam ser PDFs válidos, com extensão `.pdf`, assinatura `%PDF` e tamanho máximo de 10MB.
 
+Quando documentos forem retornados nos metadados do estudante ou da solicitação de matrícula, o front end deve usar o campo `download_url` para leitura do PDF. O backend expõe rotas autenticadas de download inline (`GET /documentos/estudantes/{codigo_estudante}/{campo}/download` e `GET /documentos/solicitacoes-matricula/{codigo_solicitacao}/{campo}/download`), sem expor credenciais ou IDs internos do Mega.
+
 Ao cadastrar, informe os vínculos acadêmicos compatíveis com o tipo de estudante:
 
 | Estudante | Campos acadêmicos esperados |

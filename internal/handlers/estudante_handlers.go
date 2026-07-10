@@ -163,7 +163,7 @@ func registerEstudantePorAcademiaComRequest(c *gin.Context, req CadastroEstudant
 	}
 	provider := getStorageProvider(c)
 	if provider == nil {
-		p, _ := storage.NewDriveProvider()
+		p, _ := storage.NewStorageProvider()
 		provider = p
 	}
 	dir := fmt.Sprintf("%s/estudantes/%s/documentos", academia.CodigoAcademia, codigoEstudante)
@@ -179,7 +179,7 @@ func registerEstudantePorAcademiaComRequest(c *gin.Context, req CadastroEstudant
 			utils.RespondWithInternalError(c, fmt.Errorf("falha no upload dos documentos: %w", err))
 			return
 		}
-		documentos[field] = aggregates.DocumentoMatricula{Path: stored.Path, FileURL: stored.FileURL, DownloadURL: stored.DownloadURL}
+		documentos[field] = aggregates.DocumentoMatricula{Path: stored.Path, FileURL: stored.FileURL, DownloadURL: estudanteDocumentoDownloadURL(codigoEstudante, field)}
 		if field == "declaracao" {
 			doc := documentos[field]
 			doc.AnoAcademico = declaracaoAnoAcademico

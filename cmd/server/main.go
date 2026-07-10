@@ -96,14 +96,14 @@ func initDB() error {
 }
 
 func initStorage() error {
-	provider, err := storage.NewDriveProvider()
+	provider, err := storage.NewStorageProvider()
 	if err != nil {
 		if os.Getenv("ENV") == "production" {
 			return err
 		}
-		log.Printf("[WARN] armazenamento Google Drive não configurado, usando provider local: %v", err)
-		os.Setenv("GOOGLE_DRIVE_QUOTA_LOCAL_ESTIMATE", "true")
-		provider, err = storage.NewDriveProvider()
+		log.Printf("[WARN] armazenamento Mega não configurado, usando provider local: %v", err)
+		os.Setenv("STORAGE_PROVIDER", "local")
+		provider, err = storage.NewStorageProvider()
 		if err != nil {
 			return err
 		}
@@ -290,6 +290,8 @@ func setupRouter() *gin.Engine {
 		protected.GET("/anos-letivos-lista", handlers.GetAnosLetivosGlobaisLista)
 		protected.GET("/anos-letivos/configuracoes", handlers.ListarConfiguracoesAnosLetivos)
 		protected.GET("/solicitacoes-matricula", middleware.RequireAdmin(), handlers.ListarSolicitacoesMatriculaAdmin)
+		protected.GET("/documentos/estudantes/:codigo/:campo/download", handlers.DownloadDocumentoEstudante)
+		protected.GET("/documentos/solicitacoes-matricula/:codigo/:campo/download", handlers.DownloadDocumentoSolicitacaoMatricula)
 		protected.GET("/avaliacoes-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetAvaliacoesFinaisEstudante)
 		protected.GET("/turmas-estudante/:codigo", handlers.GetTurmasEstudante)
 	}
