@@ -1,4 +1,4 @@
-# Depurar infraestrutura para migração NeonDB com scale-to-zero
+# Depurar infraestrutura para migração NeonDB com scale-to-zero (feito)
 
 ## Contexto
 
