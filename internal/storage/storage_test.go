@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"io"
 	"os"
 	"strings"
@@ -15,6 +16,22 @@ func TestNewStorageProviderRequiresMegaCredentials(t *testing.T) {
 	_, err := NewStorageProvider()
 	if err == nil || !strings.Contains(err.Error(), "MEGA_EMAIL") || !strings.Contains(err.Error(), "MEGA_PASSWORD") {
 		t.Fatalf("NewStorageProvider() error = %v, want missing Mega credentials", err)
+	}
+}
+
+func TestNewStorageProviderMegaDoesNotSilentlyUseLocalRoot(t *testing.T) {
+	t.Setenv("STORAGE_PROVIDER", "mega")
+	t.Setenv("MEGA_EMAIL", "conta@example.com")
+	t.Setenv("MEGA_PASSWORD", "segredo")
+	t.Setenv("MEGA_LOCAL_ROOT", t.TempDir())
+	t.Setenv("ENV", "")
+
+	_, err := NewStorageProvider()
+	if err == nil || !errors.Is(err, ErrInvalidConfiguration) {
+		t.Fatalf("NewStorageProvider() error = %v, want invalid configuration without MEGAcmd fallback", err)
+	}
+	if !strings.Contains(err.Error(), "MEGAcmd") {
+		t.Fatalf("NewStorageProvider() error = %v, want MEGAcmd validation", err)
 	}
 }
 
@@ -63,6 +80,9 @@ func TestLocalProviderUploadReadListMoveRenameDelete(t *testing.T) {
 	}
 	if err := provider.Delete("ACA001"); err != nil {
 		t.Fatalf("Delete() error = %v", err)
+	}
+	if err := provider.Delete("ACA001"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Delete() error = %v, want ErrNotFound", err)
 	}
 }
 
