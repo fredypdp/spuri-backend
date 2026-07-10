@@ -126,7 +126,7 @@ func writeMegaCmdStubs(t *testing.T, bin string, scripts map[string]string) {
 	}
 }
 
-func TestNewMegaProviderLogsOutBeforeLoginToAvoidStaleSession(t *testing.T) {
+func TestMegaProviderLogsOutBeforeLoginToAvoidStaleSession(t *testing.T) {
 	bin := t.TempDir()
 	logFile := bin + "/calls.log"
 	writeMegaCmdStubs(t, bin, map[string]string{
@@ -143,8 +143,12 @@ func TestNewMegaProviderLogsOutBeforeLoginToAvoidStaleSession(t *testing.T) {
 	t.Setenv("MEGA_ROOT_FOLDER", "")
 	t.Setenv("ENV", "")
 
-	if _, err := NewStorageProvider(); err != nil {
+	provider, err := NewStorageProvider()
+	if err != nil {
 		t.Fatalf("NewStorageProvider() error = %v", err)
+	}
+	if err := provider.EnsureDir("documentos"); err != nil {
+		t.Fatalf("EnsureDir() error = %v", err)
 	}
 	calls, err := os.ReadFile(logFile)
 	if err != nil {
@@ -155,7 +159,7 @@ func TestNewMegaProviderLogsOutBeforeLoginToAvoidStaleSession(t *testing.T) {
 	}
 }
 
-func TestNewMegaProviderRejectsInvalidPasswordAfterLogout(t *testing.T) {
+func TestMegaProviderRejectsInvalidPasswordAfterLogout(t *testing.T) {
 	bin := t.TempDir()
 	writeMegaCmdStubs(t, bin, map[string]string{
 		"mega-login": "#!/bin/sh\necho login failed for $1\nexit 1\n",
@@ -170,8 +174,12 @@ func TestNewMegaProviderRejectsInvalidPasswordAfterLogout(t *testing.T) {
 	t.Setenv("MEGA_ROOT_FOLDER", "")
 	t.Setenv("ENV", "")
 
-	_, err := NewStorageProvider()
+	provider, err := NewStorageProvider()
+	if err != nil {
+		t.Fatalf("NewStorageProvider() error = %v", err)
+	}
+	err = provider.EnsureDir("documentos")
 	if err == nil || !strings.Contains(err.Error(), "falha ao autenticar no Mega") {
-		t.Fatalf("NewStorageProvider() error = %v, want Mega authentication failure", err)
+		t.Fatalf("EnsureDir() error = %v, want Mega authentication failure", err)
 	}
 }

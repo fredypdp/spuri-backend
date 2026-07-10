@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -66,9 +67,11 @@ var (
 // with MEGA_EMAIL and MEGA_PASSWORD. Tests and local development can use the
 // filesystem-backed mode with STORAGE_PROVIDER=local, MEGA_LOCAL_ROOT, or ENV=test.
 type MegaProvider struct {
-	root       string
-	rootFolder string
-	local      bool
+	root          string
+	rootFolder    string
+	local         bool
+	authMu        sync.Mutex
+	authenticated bool
 }
 
 var megaCmds = []string{"mega-login", "mega-mkdir", "mega-put", "mega-ls", "mega-get", "mega-rm", "mega-mv"}
@@ -117,16 +120,7 @@ func NewMegaProvider() (StorageProvider, error) {
 	if err := ensureMegaCmdAvailable(megaCmds...); err != nil {
 		return nil, err
 	}
-	p := &MegaProvider{root: root, rootFolder: rootFolder}
-	if err := p.login(); err != nil {
-		return nil, err
-	}
-	if rootFolder != "" {
-		if err := p.EnsureDir(""); err != nil {
-			return nil, err
-		}
-	}
-	return p, nil
+	return &MegaProvider{root: root, rootFolder: rootFolder}, nil
 }
 
 func NewLocalProvider() StorageProvider {
@@ -206,7 +200,26 @@ func (m *MegaProvider) login() error {
 	return nil
 }
 
+func (m *MegaProvider) ensureAuthenticated() error {
+	if m.local {
+		return nil
+	}
+	m.authMu.Lock()
+	defer m.authMu.Unlock()
+	if m.authenticated {
+		return nil
+	}
+	if err := m.login(); err != nil {
+		return err
+	}
+	m.authenticated = true
+	return nil
+}
+
 func (m *MegaProvider) runMega(timeout time.Duration, name string, args ...string) ([]byte, error) {
+	if err := m.ensureAuthenticated(); err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
