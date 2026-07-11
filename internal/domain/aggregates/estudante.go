@@ -319,7 +319,7 @@ func (e *EmailVerificadoEstudanteEvent) ToJSON() ([]byte, error) { return json.M
 // de hoje); comparação feita apenas por data, sem componente de hora.
 // ============================================================================
 
-func validarBilhetesDiferentes(bilhete, bilheteResp *string) error {
+func ValidarBilhetesMatricula(bilhete, bilheteResp *string) error {
 	if bilhete == nil || bilheteResp == nil {
 		return nil
 	}
@@ -425,24 +425,11 @@ func (e *Estudante) criarComVinculo(
 	if err := validarDataNascimento(dataNascimento); err != nil {
 		return err
 	}
-	if err := validarBilhetesDiferentes(bilhete, bilheteResp); err != nil {
+	if err := ValidarBilhetesMatricula(bilhete, bilheteResp); err != nil {
 		return err
 	}
-	if telefone == nil && telefoneResponsavel == nil {
-		return fmt.Errorf("telefone ou telefone_responsavel deve ser informado")
-	}
-	if telefone != nil {
-		if err := utils.ValidatePhone(*telefone); err != nil {
-			return err
-		}
-	}
-	if telefoneResponsavel != nil {
-		if err := utils.ValidatePhone(*telefoneResponsavel); err != nil {
-			return err
-		}
-	}
-	if telefone != nil && telefoneResponsavel != nil && *telefone == *telefoneResponsavel {
-		return fmt.Errorf("telefone e telefone_responsavel não podem ser iguais")
+	if err := validarTelefonesMatricula(telefone, telefoneResponsavel, anoEscolar, anoEscolarMedio, anoSuperior); err != nil {
+		return err
 	}
 
 	if anoEscolar != nil && *anoEscolar != "" {
@@ -558,7 +545,7 @@ func (e *Estudante) AtualizarDadosPessoais(
 	if bilheteIdentidadeResp != nil {
 		effectiveBilheteResp = bilheteIdentidadeResp
 	}
-	if err := validarBilhetesDiferentes(effectiveBilhete, effectiveBilheteResp); err != nil {
+	if err := ValidarBilhetesMatricula(effectiveBilhete, effectiveBilheteResp); err != nil {
 		return err
 	}
 	if !isNilOrBlank(e.AnoEscolar) || !isNilOrBlank(e.AnoEscolarMedio) {

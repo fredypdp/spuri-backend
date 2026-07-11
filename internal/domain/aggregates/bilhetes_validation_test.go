@@ -63,6 +63,7 @@ func TestSolicitacaoMatriculaCriarRejeitaBilhetesIguais(t *testing.T) {
 		time.Now().AddDate(-8, 0, 0),
 		nil,
 		nil,
+		nil,
 		&bi,
 		&biResp,
 		nil,
@@ -81,6 +82,7 @@ func TestEstudanteCriarComVinculoAceitaPrimeiroFundamentalSemComprovativoAcademi
 	bi := "001LA002"
 	biResp := "001LA003"
 	tel := "923000000"
+	telResp := "924000000"
 	anoFundamental := "1_ano_fundamental"
 
 	estudante := NewEstudante()
@@ -90,7 +92,7 @@ func TestEstudanteCriarComVinculoAceitaPrimeiroFundamentalSemComprovativoAcademi
 		strings.Repeat("a", 60),
 		nil,
 		&tel,
-		nil,
+		&telResp,
 		&bi,
 		&biResp,
 		"masculino",
@@ -117,6 +119,7 @@ func TestEstudanteCriarComVinculoAceitaDocumentoEscolarComDownloadURL(t *testing
 	bi := "001LA004"
 	biResp := "001LA005"
 	tel := "923000000"
+	telResp := "924000000"
 	anoFundamental := "1_ano_fundamental"
 
 	estudante := NewEstudante()
@@ -126,7 +129,7 @@ func TestEstudanteCriarComVinculoAceitaDocumentoEscolarComDownloadURL(t *testing
 		strings.Repeat("a", 60),
 		nil,
 		&tel,
-		nil,
+		&telResp,
 		&bi,
 		&biResp,
 		"feminino",

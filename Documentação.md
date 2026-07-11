@@ -1175,7 +1175,7 @@ Atualiza os dados cadastrais da academia autenticada.
 
 ### Regras automáticas de documentos de matrícula
 
-A obrigatoriedade dos documentos é aplicada por uma política única no `POST /solicitacao-matricula`, na aprovação da solicitação e no cadastro direto `POST /academia/estudante/register`. A validação considera simultaneamente os campos textuais do request e os PDFs anexados:
+A obrigatoriedade dos documentos e as validações cadastrais comuns são aplicadas por uma política única compartilhada por `POST /solicitacao-matricula`, pela aprovação da solicitação e pelo cadastro direto `POST /academia/estudante/register`. As duas rotas normalizam os mesmos campos de estudante, responsável, nível de ensino, telefones, bilhetes e documentos antes de qualquer gravação no ledger. A validação considera simultaneamente os campos textuais do request e os PDFs anexados:
 
 - `1_ano_fundamental` não exige `declaracao` nem certificado acadêmico anterior.
 - Todo ano escolar sequencial com ano anterior exige `declaracao` acompanhada do campo textual `declaracao_ano_academico`, e esse valor deve ser exatamente o ano acadêmico imediatamente anterior ao ano pretendido.
@@ -1189,6 +1189,18 @@ A obrigatoriedade dos documentos é aplicada por uma política única no `POST /
 - `bilhete_identidade` e `bilhete_identidade_responsavel`, quando ambos informados para o mesmo estudante, não podem ser iguais.
 - Para estudantes escolares/fundamental/médio, o BI do responsável não pode coincidir com o BI principal de outro estudante escolar/fundamental/médio; ele pode repetir como BI de responsável de outros estudantes.
 
+**Telefone por nível de ensino:**
+
+- No nível escolar/fundamental/médio, `telefone_responsavel` é obrigatório; `telefone` do estudante é opcional e não substitui o telefone do responsável.
+- No ensino superior, `telefone` do estudante é obrigatório; `telefone_responsavel` é opcional.
+- Quando `telefone` e `telefone_responsavel` forem enviados, ambos devem ter formato válido de 9 dígitos locais e não podem ser iguais.
+
+**Ordem operacional e atomicidade documental:**
+
+- As duas rotas validam dados cadastrais comuns, regras de telefone por nível, presença documental, tipo, extensão, assinatura PDF e tamanho máximo antes de gravar eventos no ledger.
+- Os uploads obrigatórios são concluídos antes da criação de `SolicitacaoMatriculaCriada` ou `EstudanteCriadoComVinculo`.
+- Se validação ou upload falhar, nenhuma solicitação, estudante, matrícula, vínculo ou evento correlato é gravado no ledger.
+- Se uma falha posterior ocorrer depois de upload parcial, o backend tenta remover o diretório de destino no storage e retorna o erro principal ao cliente.
 
 ---
 
@@ -2111,8 +2123,8 @@ Cadastra um novo estudante vinculado à academia autenticada. O cadastro direto 
 | `genero` | sim | `masculino` ou `feminino`. |
 | `data_nascimento` | sim | Data simples `YYYY-MM-DD`, anterior à data atual. |
 | `email` | não | Validado quando informado. |
-| `telefone` | condicional | Pelo menos um entre `telefone` e `telefone_responsavel`; para superior, `telefone_responsavel` pode ficar ausente. |
-| `telefone_responsavel` | condicional | Não pode ser igual a `telefone`. |
+| `telefone` | condicional | Obrigatório no ensino superior. Opcional para escolar/fundamental/médio. Quando enviado, deve ter 9 dígitos locais e não pode ser igual a `telefone_responsavel`. |
+| `telefone_responsavel` | condicional | Obrigatório para escolar/fundamental/médio. Opcional no ensino superior. Quando enviado, deve ter 9 dígitos locais e não pode ser igual a `telefone`. |
 | `bilhete_identidade` | condicional | Obrigatório no ensino superior; para escolar/fundamental/médio é obrigatório quando o estudante usa BI próprio em vez de cédula. Deve ser único entre estudantes. |
 | `bilhete_identidade_responsavel` | condicional | Obrigatório para estudante escolar/fundamental/médio; opcional no ensino superior. Não pode ser igual ao BI do estudante após normalização nem coincidir com o BI principal de outro estudante escolar/fundamental/médio. |
 | `ano_escolar_fundamental` | condicional | Ano fundamental canônico, quando aplicável. |
@@ -2134,9 +2146,9 @@ Cadastra um novo estudante vinculado à academia autenticada. O cadastro direto 
 | `certificado_9_ano_fundamental` | Exigido como alternativa à declaração somente para `1_ano_medio`. |
 | `certificado_ensino_medio` | Exigido como alternativa à declaração somente para `1_ano_superior`. |
 
-Quando enviados, todos os ficheiros devem ter `Content-Type: application/pdf`, extensão `.pdf`, assinatura `%PDF` e tamanho máximo de 10MB. Os documentos são armazenados em `{codigo_academia}/estudantes/{codigo_estudante}/documentos/` e gravados no evento `EstudanteCriadoComVinculo` e na projeção do estudante como `documentos.<campo>.path`, `documentos.<campo>.file_url` e `documentos.<campo>.download_url`. Se a criação falhar após upload parcial, o backend remove o diretório definitivo do estudante para evitar ficheiros órfãos.
+Quando enviados, todos os ficheiros devem ter `Content-Type: application/pdf`, extensão `.pdf`, assinatura `%PDF` e tamanho máximo de 10MB. O cadastro direto usa a mesma validação compartilhada de matrícula aplicada por `POST /solicitacao-matricula` para dados comuns e documentos. Os documentos obrigatórios são validados e enviados para `{codigo_academia}/estudantes/{codigo_estudante}/documentos/` antes de qualquer gravação no ledger; somente após sucesso total dos uploads o evento `EstudanteCriadoComVinculo` é persistido com `documentos.<campo>.path`, `documentos.<campo>.file_url` e `documentos.<campo>.download_url`. Se validação/upload falhar, nenhum estudante/vínculo é gravado; se a criação falhar após upload parcial, o backend remove o diretório definitivo do estudante para evitar ficheiros órfãos.
 
-**Request — multipart/form-data (sem documentos):**
+**Request — campos de texto principais (exemplo escolar; requer anexar os PDFs obrigatórios do quadro acima):**
 
 ```text
 nome=João Silva
@@ -2149,7 +2161,7 @@ bilhete_identidade_responsavel=009876543LA089
 ano_escolar_fundamental=7_ano_fundamental
 ```
 
-**Request — multipart/form-data (com documentos opcionais):**
+**Request — multipart/form-data com documentos obrigatórios:**
 
 ```text
 nome=João Silva
@@ -2161,6 +2173,7 @@ bilhete_identidade=001234567LA089
 bilhete_identidade_responsavel=009876543LA089
 ano_escolar_fundamental=7_ano_fundamental
 bi_estudante=@./bi_estudante.pdf;type=application/pdf
+bi_responsavel=@./bi_responsavel.pdf;type=application/pdf
 declaracao=@./declaracao.pdf;type=application/pdf
 declaracao_ano_academico=6_ano_fundamental
 ```
@@ -2797,19 +2810,21 @@ Eventos do ledger:
 ### Processo de negócio
 
 1. O estudante envia `POST /solicitacao-matricula` com formulário multipart e PDFs.
-2. O backend valida bilhete de identidade do responsável, cédula do estudante quando necessário, data de nascimento, academia ativa, assinatura/extensão PDF, limite máximo de 10MB por ficheiro e as regras automáticas de declaração/certificados.
-3. Os documentos são enviados ao storage em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`.
-4. Para cada PDF, o storage devolve o caminho interno, a URL do arquivo (`file_url`) e a URL de download (`download_url`); esses dados são gravados no evento de criação e na projeção.
-5. O aggregate `SolicitacaoMatricula` valida que `bilhete_identidade` e `bilhete_identidade_responsavel`, quando ambos informados, não sejam iguais.
-6. A política compartilhada exige, para escolar/fundamental/médio, `bilhete_identidade_responsavel`, `bi_responsavel` e BI do estudante com `bi_estudante` ou `cedula_estudante`; para superior, exige `bilhete_identidade` e `bi_estudante`, mantendo o responsável opcional.
-7. Antes de criar ou aprovar a solicitação escolar, o handler confirma que o BI do responsável não pertence como BI principal a outro estudante escolar/fundamental/médio já existente.
-8. O aggregate `SolicitacaoMatricula` grava o evento de criação.
+2. O backend usa a mesma validação compartilhada do cadastro direto para validar dados comuns, nível de ensino, telefones, bilhetes, academia ativa, assinatura/extensão PDF, limite máximo de 10MB por ficheiro e as regras automáticas de declaração/certificados.
+3. A política compartilhada exige, para escolar/fundamental/médio, `telefone_responsavel`, `bilhete_identidade_responsavel`, `bi_responsavel` e BI do estudante com `bi_estudante` ou `cedula_estudante`; para superior, exige `telefone`, `bilhete_identidade` e `bi_estudante`, mantendo dados do responsável opcionais.
+4. Antes de criar ou aprovar a solicitação escolar, o handler confirma que o BI do responsável não pertence como BI principal a outro estudante escolar/fundamental/médio já existente.
+5. Os documentos são enviados ao storage em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`.
+6. Para cada PDF, o storage devolve o caminho interno, a URL do arquivo (`file_url`) e a URL de download (`download_url`).
+7. Somente após todos os uploads obrigatórios concluírem com sucesso, o aggregate `SolicitacaoMatricula` grava o evento de criação no ledger com os metadados documentais.
+8. Se validação ou upload falhar, nenhum evento `SolicitacaoMatriculaCriada` é gravado; se ocorrer falha posterior após upload parcial, o backend tenta remover o diretório da solicitação.
 9. A academia lista/consulta solicitações e aprova ou reprova.
 10. Na aprovação, o sistema reutiliza o aggregate `Estudante`, revalida os documentos e conflitos atuais, e emite `EstudanteCriadoComVinculo`.
 11. Na reprovação, grava o evento de reprovação e remove o diretório dos documentos.
 
 ### Regras de negócio
 
+- `telefone_responsavel` é obrigatório para estudantes escolares/fundamental/médio; `telefone` do estudante é opcional nesse nível e não substitui o responsável.
+- `telefone` do estudante é obrigatório no ensino superior; `telefone_responsavel` é opcional nesse nível.
 - O bilhete de identidade do responsável e o PDF `bi_responsavel` são obrigatórios para estudantes escolares/fundamental/médio e opcionais para ensino superior.
 - O bilhete de identidade do estudante e o PDF `bi_estudante` são obrigatórios no ensino superior.
 - No escolar/fundamental/médio, a cédula do estudante é obrigatória quando o bilhete de identidade do estudante não for enviado; quando o BI do estudante for enviado, o PDF `bi_estudante` também é obrigatório.
@@ -2826,13 +2841,13 @@ Eventos do ledger:
 
 ### POST /solicitacao-matricula
 
-Cria uma solicitação pública de matrícula via `multipart/form-data`. O backend gera `codigo_solicitacao`, valida dados e PDFs, envia documentos para o armazenamento no caminho `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/` e grava `SolicitacaoMatriculaCriada` no ledger. Para cada arquivo enviado, o evento e a projeção salvam `path`, `file_url` e `download_url` como metadados compatíveis; o download para leitura deve ser feito pelas rotas autenticadas do backend, sem expor credenciais ou IDs internos do Mega.
+Cria uma solicitação pública de matrícula via `multipart/form-data`. O backend gera `codigo_solicitacao`, valida dados e PDFs pelo mesmo validador compartilhado usado no cadastro direto, envia documentos para o armazenamento no caminho `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/` e só então grava `SolicitacaoMatriculaCriada` no ledger. Para cada arquivo enviado, o evento e a projeção salvam `path`, `file_url` e `download_url` como metadados compatíveis; o download para leitura deve ser feito pelas rotas autenticadas do backend, sem expor credenciais ou IDs internos do Mega.
 
 **Proteção**: pública
 
-**Campos**: `codigo_academia`, `nome`, `genero`, `data_nascimento`, `email`, `telefone`, `bilhete_identidade`, `bilhete_identidade_responsavel`, `ano_escolar_fundamental`, `ano_escolar_medio`, `curso_medio_id`, `ano_superior`, `curso_superior_id`. Quando `bilhete_identidade` e `bilhete_identidade_responsavel` forem enviados juntos, eles não podem ser iguais (comparação sem espaços nas extremidades e sem diferenciar maiúsculas/minúsculas).
+**Campos**: `codigo_academia`, `nome`, `genero`, `data_nascimento`, `email`, `telefone`, `telefone_responsavel`, `bilhete_identidade`, `bilhete_identidade_responsavel`, `ano_escolar_fundamental`, `ano_escolar_medio`, `curso_medio_id`, `ano_superior`, `curso_superior_id`. `telefone_responsavel` é obrigatório para escolar/fundamental/médio; `telefone` é obrigatório para ensino superior. Quando `bilhete_identidade` e `bilhete_identidade_responsavel` forem enviados juntos, eles não podem ser iguais (comparação sem espaços nas extremidades e sem diferenciar maiúsculas/minúsculas).
 
-**Ficheiros PDF**: `bi_estudante`, `bi_responsavel`, `cedula_estudante`, `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`. Cada ficheiro deve ser PDF válido e ter no máximo 10MB. Para estudantes escolares/fundamental/médio, `bi_responsavel` é obrigatório e o estudante deve enviar `bi_estudante` com `bilhete_identidade` ou `cedula_estudante` sem BI próprio. Para ensino superior, `bi_estudante` é obrigatório e `bi_responsavel` é opcional. `1_ano_fundamental` não exige comprovativo acadêmico; os demais anos escolares exigem `declaracao` do ano imediatamente anterior informada por `declaracao_ano_academico`, salvo quando um certificado específico válido substituir a declaração em `7_ano_fundamental`, `1_ano_medio` ou `1_ano_superior`.
+**Ficheiros PDF**: `bi_estudante`, `bi_responsavel`, `cedula_estudante`, `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`. Todos os documentos obrigatórios são validados e enviados ao storage antes da gravação no ledger; falha de upload impede a criação da solicitação. Cada ficheiro deve ser PDF válido e ter no máximo 10MB. Para estudantes escolares/fundamental/médio, `bi_responsavel` é obrigatório e o estudante deve enviar `bi_estudante` com `bilhete_identidade` ou `cedula_estudante` sem BI próprio. Para ensino superior, `bi_estudante` é obrigatório e `bi_responsavel` é opcional. `1_ano_fundamental` não exige comprovativo acadêmico; os demais anos escolares exigem `declaracao` do ano imediatamente anterior informada por `declaracao_ano_academico`, salvo quando um certificado específico válido substituir a declaração em `7_ano_fundamental`, `1_ano_medio` ou `1_ano_superior`.
 
 **Request:** `multipart/form-data` com os campos e ficheiros listados acima.
 
