@@ -226,6 +226,23 @@ func (p *SolicitacaoMatriculaProjection) List(status []string, codigosAcademia [
 	}
 	return &SolicitacaoListResult{Solicitacoes: out, Total: total}, rows.Err()
 }
+
+func (p *SolicitacaoMatriculaProjection) CountPendingByFundamentalAnos(codigoAcademia string, anos []string) (int, error) {
+	if len(anos) == 0 {
+		return 0, nil
+	}
+
+	var count int
+	err := p.client.DB().QueryRow(`
+		SELECT COUNT(*)
+		  FROM projection_solicitacoes_matricula
+		 WHERE codigo_academia = $1
+		   AND status = $2
+		   AND ano_escolar_fundamental = ANY($3)
+	`, codigoAcademia, aggregates.StatusSolicitacaoPendente, pq.Array(anos)).Scan(&count)
+	return count, err
+}
+
 func (p *SolicitacaoMatriculaProjection) query(where string, args ...interface{}) (*sql.Rows, error) {
 	return p.client.DB().Query(`SELECT id, codigo_solicitacao, codigo_academia, nome, genero, data_nascimento, email, telefone, bilhete_identidade, bilhete_identidade_responsavel, ano_escolar_fundamental, ano_escolar_medio, curso_medio_id, ano_superior, curso_superior_id, status, motivo_reprovacao, documentos, codigo_estudante_gerado, aprovada_por, reprovada_por, created_at, updated_at, version FROM projection_solicitacoes_matricula `+where, args...)
 }
