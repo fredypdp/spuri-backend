@@ -4,7 +4,7 @@ origem: solicitação do usuário
 status: pendente
 ---
 
-# Unificar validação de cadastro direto e solicitação de matrícula
+# Unificar validação de cadastro direto e solicitação de matrícula (feito)
 
 ## Prompt recomendado para executar a atualização
 
