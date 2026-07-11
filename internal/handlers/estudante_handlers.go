@@ -86,26 +86,6 @@ func registerEstudantePorAcademiaMultipart(c *gin.Context) {
 }
 
 func registerEstudantePorAcademiaComRequest(c *gin.Context, req CadastroEstudanteAcademiaRequest, files map[string]uploadedPDF, declaracaoAnoAcademico string) {
-	if err := utils.ValidateNome(req.Nome); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-	if req.Genero != "masculino" && req.Genero != "feminino" {
-		utils.RespondWithValidationError(c, fmt.Errorf("genero deve ser 'masculino' ou 'feminino'"))
-		return
-	}
-	hoje := time.Now().UTC().Truncate(24 * time.Hour)
-	if !req.DataNascimento.UTC().Truncate(24 * time.Hour).Before(hoje) {
-		utils.RespondWithValidationError(c, fmt.Errorf("data_nascimento deve ser anterior à data atual"))
-		return
-	}
-	if req.Email != "" {
-		if err := utils.ValidateEmail(req.Email); err != nil {
-			utils.RespondWithValidationError(c, err)
-			return
-		}
-	}
-
 	academiaID, ok := middleware.GetUserID(c)
 	if !ok {
 		utils.RespondWithUnauthorizedError(c)
@@ -138,16 +118,16 @@ func registerEstudantePorAcademiaComRequest(c *gin.Context, req CadastroEstudant
 			documentosParaValidacao[field] = aggregates.DocumentoMatricula{Path: field + ".pdf", AnoAcademico: declaracaoAnoAcademico}
 		}
 	}
-	if err := validateDocumentosMatricula(stringPtrIfNotBlank(req.BilheteIdentidade), stringPtrIfNotBlank(req.BilheteResponsavel), stringPtrIfNotBlank(req.AnoEscolar), stringPtrIfNotBlank(req.AnoEscolarMedio), stringPtrIfNotBlank(req.AnoSuperior), documentosParaValidacao, "cadastro direto do estudante"); err != nil {
+	validado, err := services.ValidateMatriculaCommon(services.MatriculaCommonInput{
+		Contexto: services.MatriculaContextCadastroDireto,
+		Nome:     req.Nome, Genero: req.Genero, DataNascimento: req.DataNascimento,
+		Email: stringPtrIfNotBlank(req.Email), TelefoneEstudante: stringPtrIfNotBlank(req.Telefone), TelefoneResponsavel: stringPtrIfNotBlank(req.TelefoneResponsavel),
+		BilheteIdentidade: stringPtrIfNotBlank(req.BilheteIdentidade), BilheteIdentidadeResponsavel: stringPtrIfNotBlank(req.BilheteResponsavel),
+		AnoEscolarFundamental: stringPtrIfNotBlank(req.AnoEscolar), AnoEscolarMedio: stringPtrIfNotBlank(req.AnoEscolarMedio), AnoSuperior: stringPtrIfNotBlank(req.AnoSuperior),
+		Documentos: documentosParaValidacao,
+	})
+	if err != nil {
 		utils.RespondWithValidationError(c, err)
-		return
-	}
-	if (req.AnoEscolar != "" || req.AnoEscolarMedio != "") && req.BilheteResponsavel == "" {
-		utils.RespondWithValidationError(c, fmt.Errorf("informe o bilhete de identidade do responsável; este dado é obrigatório para estudantes escolares"))
-		return
-	}
-	if req.AnoSuperior != "" && req.BilheteIdentidade == "" {
-		utils.RespondWithValidationError(c, fmt.Errorf("informe o bilhete de identidade do estudante; este dado é obrigatório para estudantes do ensino superior"))
 		return
 	}
 	if err := validateBIResponsavelNaoConflitaComEscolar(c, &req.BilheteResponsavel, nil); err != nil {
@@ -194,22 +174,11 @@ func registerEstudantePorAcademiaComRequest(c *gin.Context, req CadastroEstudant
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	var emailPtr, telefonePtr, telefoneRespPtr, bilhetePtr, bilheteRespPtr *string
-	if req.Email != "" {
-		emailPtr = &req.Email
-	}
-	if req.Telefone != "" {
-		telefonePtr = utils.NormalizePhonePtr(&req.Telefone)
-	}
-	if req.TelefoneResponsavel != "" {
-		telefoneRespPtr = utils.NormalizePhonePtr(&req.TelefoneResponsavel)
-	}
-	if req.BilheteIdentidade != "" {
-		bilhetePtr = &req.BilheteIdentidade
-	}
-	if req.BilheteResponsavel != "" {
-		bilheteRespPtr = &req.BilheteResponsavel
-	}
+	emailPtr := validado.Email
+	telefonePtr := validado.TelefoneEstudante
+	telefoneRespPtr := validado.TelefoneResponsavel
+	bilhetePtr := validado.BilheteIdentidade
+	bilheteRespPtr := validado.BilheteIdentidadeResponsavel
 	if bilhetePtr != nil {
 		existente, err := getEstudanteProjection(c).GetByBilheteIdentidadePrincipal(*bilhetePtr)
 		if err != nil {
@@ -223,31 +192,9 @@ func registerEstudantePorAcademiaComRequest(c *gin.Context, req CadastroEstudant
 			return
 		}
 	}
-	var anoEscolarPtr, anoEscolarMedioPtr, anoSuperiorPtr *string
-	if req.AnoEscolar != "" {
-		if err := utils.ValidateAnoFundamental(req.AnoEscolar); err != nil {
-			_ = provider.Delete(dir)
-			utils.RespondWithValidationError(c, fmt.Errorf("ano_escolar_fundamental inválido: %w", err))
-			return
-		}
-		anoEscolarPtr = &req.AnoEscolar
-	}
-	if req.AnoEscolarMedio != "" {
-		if err := utils.ValidateAnoMedio(req.AnoEscolarMedio); err != nil {
-			_ = provider.Delete(dir)
-			utils.RespondWithValidationError(c, fmt.Errorf("ano_escolar_medio inválido: %w", err))
-			return
-		}
-		anoEscolarMedioPtr = &req.AnoEscolarMedio
-	}
-	if req.AnoSuperior != "" {
-		if err := utils.ValidateAnoSuperior(req.AnoSuperior); err != nil {
-			_ = provider.Delete(dir)
-			utils.RespondWithValidationError(c, fmt.Errorf("ano_superior inválido: %w", err))
-			return
-		}
-		anoSuperiorPtr = &req.AnoSuperior
-	}
+	anoEscolarPtr := validado.AnoEscolarFundamental
+	anoEscolarMedioPtr := validado.AnoEscolarMedio
+	anoSuperiorPtr := validado.AnoSuperior
 
 	estudante := aggregates.NewEstudante()
 	if err := estudante.CriarComVinculo(req.Nome, codigoEstudante, string(hashedPassword), emailPtr, telefonePtr, telefoneRespPtr, bilhetePtr, bilheteRespPtr, req.Genero, req.DataNascimento, anoEscolarPtr, anoEscolarMedioPtr, anoSuperiorPtr, cursoMedioUUID, cursoSuperiorUUID, &academiaID, academia.CodigoAcademia, documentos); err != nil {
