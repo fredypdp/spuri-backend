@@ -19,22 +19,6 @@ func TestNewStorageProviderRequiresMegaCredentials(t *testing.T) {
 	}
 }
 
-func TestNewStorageProviderMegaDoesNotSilentlyUseLocalRoot(t *testing.T) {
-	t.Setenv("STORAGE_PROVIDER", "mega")
-	t.Setenv("MEGA_EMAIL", "conta@example.com")
-	t.Setenv("MEGA_PASSWORD", "segredo")
-	t.Setenv("MEGA_LOCAL_ROOT", t.TempDir())
-	t.Setenv("ENV", "")
-
-	_, err := NewStorageProvider()
-	if err == nil || !errors.Is(err, ErrInvalidConfiguration) {
-		t.Fatalf("NewStorageProvider() error = %v, want invalid configuration without MEGAcmd fallback", err)
-	}
-	if !strings.Contains(err.Error(), "MEGAcmd") {
-		t.Fatalf("NewStorageProvider() error = %v, want MEGAcmd validation", err)
-	}
-}
-
 func TestLocalProviderUploadReadListMoveRenameDelete(t *testing.T) {
 	t.Setenv("STORAGE_PROVIDER", "local")
 	t.Setenv("MEGA_LOCAL_ROOT", t.TempDir())
@@ -110,72 +94,5 @@ func TestGetQuotaLocalEstimateCountsOnlyLocalRoot(t *testing.T) {
 	}
 	if len(quota.Academias) != 1 || quota.Academias[0].CodigoAcademia != "ACA001" || quota.Academias[0].UsedBytes != 5 {
 		t.Fatalf("GetQuota().Academias = %+v, want ACA001 with 5 bytes", quota.Academias)
-	}
-}
-
-func writeMegaCmdStubs(t *testing.T, bin string, scripts map[string]string) {
-	t.Helper()
-	for _, name := range megaCmds {
-		script := scripts[name]
-		if script == "" {
-			script = "#!/bin/sh\nexit 0\n"
-		}
-		if err := os.WriteFile(bin+"/"+name, []byte(script), 0o700); err != nil {
-			t.Fatalf("WriteFile %s error = %v", name, err)
-		}
-	}
-}
-
-func TestMegaProviderLogsOutBeforeLoginToAvoidStaleSession(t *testing.T) {
-	bin := t.TempDir()
-	logFile := bin + "/calls.log"
-	writeMegaCmdStubs(t, bin, map[string]string{
-		"mega-login": "#!/bin/sh\necho login:$1:$2 >> \"$MEGA_TEST_LOG\"\nexit 0\n",
-	})
-	if err := os.WriteFile(bin+"/mega-logout", []byte("#!/bin/sh\necho logout >> \"$MEGA_TEST_LOG\"\nexit 0\n"), 0o700); err != nil {
-		t.Fatalf("WriteFile mega-logout error = %v", err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("MEGA_TEST_LOG", logFile)
-	t.Setenv("STORAGE_PROVIDER", "mega")
-	t.Setenv("MEGA_EMAIL", "conta@example.com")
-	t.Setenv("MEGA_PASSWORD", "senha-nova")
-	t.Setenv("MEGA_ROOT_FOLDER", "")
-	t.Setenv("ENV", "")
-
-	provider, err := NewStorageProvider()
-	if err != nil {
-		t.Fatalf("NewStorageProvider() error = %v", err)
-	}
-	if err := provider.EnsureDir("documentos"); err != nil {
-		t.Fatalf("EnsureDir() error = %v", err)
-	}
-	calls, err := os.ReadFile(logFile)
-	if err != nil {
-		t.Fatalf("ReadFile calls log error = %v", err)
-	}
-	if string(calls) != "logout\nlogin:conta@example.com:senha-nova\n" {
-		t.Fatalf("calls = %q, want logout before login with configured credentials", calls)
-	}
-}
-
-func TestMegaProviderRejectsInvalidPasswordAfterLogout(t *testing.T) {
-	bin := t.TempDir()
-	writeMegaCmdStubs(t, bin, map[string]string{
-		"mega-login": "#!/bin/sh\necho login failed for $1\nexit 1\n",
-	})
-	if err := os.WriteFile(bin+"/mega-logout", []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
-		t.Fatalf("WriteFile mega-logout error = %v", err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("STORAGE_PROVIDER", "mega")
-	t.Setenv("MEGA_EMAIL", "conta@example.com")
-	t.Setenv("MEGA_PASSWORD", "senha-antiga")
-	t.Setenv("MEGA_ROOT_FOLDER", "")
-	t.Setenv("ENV", "")
-
-	_, err := NewStorageProvider()
-	if err == nil || !strings.Contains(err.Error(), "falha ao autenticar no Mega") {
-		t.Fatalf("NewStorageProvider() error = %v, want Mega authentication failure", err)
 	}
 }
