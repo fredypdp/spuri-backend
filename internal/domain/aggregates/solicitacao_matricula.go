@@ -83,7 +83,7 @@ func (s *SolicitacaoMatricula) Criar(codigoSolicitacao, codigoAcademia, nome, ge
 	if bilhetesSolicitacaoIguais(bi, biResp) {
 		return fmt.Errorf("bilhete_identidade e bilhete_identidade_responsavel não podem ser iguais")
 	}
-	if err := validarTelefonesMatricula(telefone, telefoneResponsavel, anoFund, anoMedio, anoSuperior); err != nil {
+	if err := ValidarTelefonesMatricula(telefone, telefoneResponsavel, anoFund, anoMedio, anoSuperior); err != nil {
 		return err
 	}
 	if documentos == nil || len(documentos) == 0 {
@@ -123,7 +123,7 @@ func (s *SolicitacaoMatricula) Reprovar(reprovadaPor uuid.UUID, motivo string) e
 	return nil
 }
 
-func validarTelefonesMatricula(telefone, telefoneResponsavel, anoEscolar, anoEscolarMedio, anoSuperior *string) error {
+func ValidarTelefonesMatricula(telefone, telefoneResponsavel, anoEscolar, anoEscolarMedio, anoSuperior *string) error {
 	escolar := !isNilOrBlank(anoEscolar) || !isNilOrBlank(anoEscolarMedio)
 	superior := !isNilOrBlank(anoSuperior)
 	if escolar && isNilOrBlank(telefoneResponsavel) {

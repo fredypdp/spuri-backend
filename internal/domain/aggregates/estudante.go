@@ -428,7 +428,7 @@ func (e *Estudante) criarComVinculo(
 	if err := ValidarBilhetesMatricula(bilhete, bilheteResp); err != nil {
 		return err
 	}
-	if err := validarTelefonesMatricula(telefone, telefoneResponsavel, anoEscolar, anoEscolarMedio, anoSuperior); err != nil {
+	if err := ValidarTelefonesMatricula(telefone, telefoneResponsavel, anoEscolar, anoEscolarMedio, anoSuperior); err != nil {
 		return err
 	}
 
