@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	mega "github.com/t3rm1n4l/go-mega"
 )
 
 type StorageProvider interface {
@@ -63,18 +64,17 @@ var (
 )
 
 // MegaProvider implements StorageProvider for Mega. In production it delegates
-// remote operations to MEGAcmd (mega-login/mega-put/mega-get/etc.) authenticated
-// with MEGA_EMAIL and MEGA_PASSWORD. Tests and local development can use the
-// filesystem-backed mode with STORAGE_PROVIDER=local, MEGA_LOCAL_ROOT, or ENV=test.
+// remote operations to the go-mega API client authenticated with MEGA_EMAIL and
+// MEGA_PASSWORD. Tests and local development can use the filesystem-backed mode
+// with STORAGE_PROVIDER=local, MEGA_LOCAL_ROOT, or ENV=test.
 type MegaProvider struct {
-	root          string
-	rootFolder    string
-	local         bool
-	authMu        sync.Mutex
-	authenticated bool
+	root       string
+	rootFolder string
+	local      bool
+	authMu     sync.Mutex
+	client     *mega.Mega
+	remoteRoot *mega.Node
 }
-
-var megaCmds = []string{"mega-login", "mega-mkdir", "mega-put", "mega-ls", "mega-get", "mega-rm", "mega-mv"}
 
 type tempFileReadCloser struct {
 	*os.File
@@ -117,10 +117,11 @@ func NewMegaProvider() (StorageProvider, error) {
 	if strings.TrimSpace(os.Getenv("MEGA_EMAIL")) == "" || strings.TrimSpace(os.Getenv("MEGA_PASSWORD")) == "" {
 		return nil, fmt.Errorf("%w: MEGA_EMAIL e MEGA_PASSWORD são obrigatórios quando STORAGE_PROVIDER=mega", ErrInvalidConfiguration)
 	}
-	if err := ensureMegaCmdAvailable(megaCmds...); err != nil {
+	provider := &MegaProvider{root: root, rootFolder: rootFolder}
+	if err := provider.login(); err != nil {
 		return nil, err
 	}
-	return &MegaProvider{root: root, rootFolder: rootFolder}, nil
+	return provider, nil
 }
 
 func NewLocalProvider() StorageProvider {
@@ -156,46 +157,24 @@ func (m *MegaProvider) path(remotePath string) (string, error) {
 	return filepath.Join(m.root, filepath.FromSlash(clean)), nil
 }
 
-func (m *MegaProvider) megaPath(remotePath string) (string, error) {
-	clean, err := m.clean(remotePath)
-	if err != nil {
-		return "", err
-	}
-	parts := []string{}
-	if m.rootFolder != "" {
-		parts = append(parts, m.rootFolder)
-	}
-	if clean != "" {
-		parts = append(parts, clean)
-	}
-	return "/" + strings.Join(parts, "/"), nil
-}
-
-func ensureMegaCmdAvailable(names ...string) error {
-	for _, name := range names {
-		if _, err := exec.LookPath(name); err != nil {
-			return fmt.Errorf("%w: MEGAcmd não encontrado no PATH (%s)", ErrInvalidConfiguration, name)
-		}
-	}
-	return nil
-}
-
 func (m *MegaProvider) login() error {
-	// MEGAcmd keeps a persistent local session. Always close it before logging in
-	// with the configured credentials so stale sessions cannot mask an outdated
-	// MEGA_PASSWORD or upload files to a different account than MEGA_EMAIL.
-	if logoutPath, err := exec.LookPath("mega-logout"); err == nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		_, _ = exec.CommandContext(ctx, logoutPath).CombinedOutput()
-		cancel()
-	}
+	m.authMu.Lock()
+	defer m.authMu.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "mega-login", os.Getenv("MEGA_EMAIL"), os.Getenv("MEGA_PASSWORD"))
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("falha ao autenticar no Mega: %w", sanitizeMegaError(out, err))
+	client := mega.New()
+	client.SetTimeOut(15 * time.Second)
+	client.SetRetries(2)
+	if err := client.Login(os.Getenv("MEGA_EMAIL"), os.Getenv("MEGA_PASSWORD")); err != nil {
+		return fmt.Errorf("falha ao autenticar no Mega: %w", sanitizeMegaError(err))
+	}
+	m.client = client
+	m.remoteRoot = client.FS.GetRoot()
+	if m.rootFolder != "" {
+		node, err := m.ensureMegaDirLocked(m.rootFolder)
+		if err != nil {
+			return err
+		}
+		m.remoteRoot = node
 	}
 	return nil
 }
@@ -205,45 +184,104 @@ func (m *MegaProvider) ensureAuthenticated() error {
 		return nil
 	}
 	m.authMu.Lock()
-	defer m.authMu.Unlock()
-	if m.authenticated {
+	hasClient := m.client != nil && m.remoteRoot != nil
+	m.authMu.Unlock()
+	if hasClient {
 		return nil
 	}
-	if err := m.login(); err != nil {
-		return err
-	}
-	m.authenticated = true
-	return nil
+	return m.login()
 }
 
-func (m *MegaProvider) runMega(timeout time.Duration, name string, args ...string) ([]byte, error) {
+func (m *MegaProvider) withMega(timeout time.Duration, fn func(*mega.Mega) error) error {
 	if err := m.ensureAuthenticated(); err != nil {
-		return nil, err
+		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
-	if err != nil {
-		return out, sanitizeMegaError(out, err)
+	done := make(chan error, 1)
+	go func() {
+		m.authMu.Lock()
+		defer m.authMu.Unlock()
+		done <- fn(m.client)
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			return sanitizeMegaError(err)
+		}
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("operação Mega excedeu o tempo limite de %s: %w", timeout, ctx.Err())
 	}
-	return out, nil
 }
 
-func sanitizeMegaError(out []byte, err error) error {
-	msg := string(out)
+func sanitizeMegaError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
 	msg = strings.ReplaceAll(msg, os.Getenv("MEGA_PASSWORD"), "[redacted]")
 	msg = strings.ReplaceAll(msg, os.Getenv("MEGA_EMAIL"), "[redacted]")
 	low := strings.ToLower(msg)
 	switch {
-	case strings.Contains(low, "not found") || strings.Contains(low, "enoent"):
+	case errors.Is(err, mega.ENOENT) || strings.Contains(low, "not found") || strings.Contains(low, "enoent"):
 		return fmt.Errorf("%w: %s", ErrNotFound, strings.TrimSpace(msg))
-	case strings.Contains(low, "quota"):
+	case errors.Is(err, mega.EOVERQUOTA) || errors.Is(err, mega.EGOINGOVERQUOTA) || strings.Contains(low, "quota"):
 		return fmt.Errorf("quota Mega excedida: %s", strings.TrimSpace(msg))
-	case strings.Contains(low, "access") || strings.Contains(low, "permission") || strings.Contains(low, "login"):
+	case errors.Is(err, mega.EACCESS) || errors.Is(err, mega.ESID) || errors.Is(err, mega.EMFAREQUIRED) || strings.Contains(low, "access") || strings.Contains(low, "login"):
 		return fmt.Errorf("falha de autenticação/permissão no Mega: %s", strings.TrimSpace(msg))
 	default:
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(msg))
+		return fmt.Errorf("erro Mega: %s", strings.TrimSpace(msg))
 	}
+}
+
+func (m *MegaProvider) splitMegaPath(remotePath string) ([]string, error) {
+	clean, err := m.clean(remotePath)
+	if err != nil {
+		return nil, err
+	}
+	if clean == "" {
+		return nil, nil
+	}
+	return strings.Split(clean, "/"), nil
+}
+
+func (m *MegaProvider) lookupMegaNodeLocked(remotePath string) (*mega.Node, error) {
+	parts, err := m.splitMegaPath(remotePath)
+	if err != nil {
+		return nil, err
+	}
+	if len(parts) == 0 {
+		return m.remoteRoot, nil
+	}
+	nodes, err := m.client.FS.PathLookup(m.remoteRoot, parts)
+	if err != nil {
+		return nil, err
+	}
+	if len(nodes) != len(parts) {
+		return nil, ErrNotFound
+	}
+	return nodes[len(nodes)-1], nil
+}
+
+func (m *MegaProvider) ensureMegaDirLocked(remotePath string) (*mega.Node, error) {
+	parts, err := m.splitMegaPath(remotePath)
+	if err != nil {
+		return nil, err
+	}
+	parent := m.remoteRoot
+	for i, part := range parts {
+		nodes, err := m.client.FS.PathLookup(parent, []string{part})
+		if err == nil && len(nodes) == 1 {
+			parent = nodes[0]
+			continue
+		}
+		parent, err = m.client.CreateDir(part, parent)
+		if err != nil {
+			return nil, fmt.Errorf("criar pasta Mega %q: %w", strings.Join(parts[:i+1], "/"), err)
+		}
+	}
+	return parent, nil
 }
 
 func (m *MegaProvider) EnsureDir(remotePath string) error {
@@ -254,12 +292,10 @@ func (m *MegaProvider) EnsureDir(remotePath string) error {
 		}
 		return os.MkdirAll(p, 0o700)
 	}
-	p, err := m.megaPath(remotePath)
-	if err != nil {
+	return m.withMega(30*time.Second, func(_ *mega.Mega) error {
+		_, err := m.ensureMegaDirLocked(remotePath)
 		return err
-	}
-	_, err = m.runMega(30*time.Second, "mega-mkdir", "-p", p)
-	return err
+	})
 }
 
 func (m *MegaProvider) Upload(remotePath string, content io.Reader, sizeBytes int64) (StoredFile, error) {
@@ -303,11 +339,14 @@ func (m *MegaProvider) Upload(remotePath string, content io.Reader, sizeBytes in
 	if err := m.EnsureDir(dir); err != nil {
 		return StoredFile{}, err
 	}
-	dest, err := m.megaPath(dir)
-	if err != nil {
-		return StoredFile{}, err
-	}
-	_, err = m.runMega(2*time.Minute, "mega-put", "-c", tmp.Name(), dest+"/"+file)
+	err = m.withMega(2*time.Minute, func(client *mega.Mega) error {
+		parent, err := m.ensureMegaDirLocked(dir)
+		if err != nil {
+			return err
+		}
+		_, err = client.UploadFile(tmp.Name(), parent, file, nil)
+		return err
+	})
 	if err != nil {
 		return StoredFile{}, err
 	}
@@ -328,11 +367,13 @@ func (m *MegaProvider) Delete(remotePath string) error {
 		}
 		return os.RemoveAll(p)
 	}
-	p, err := m.megaPath(remotePath)
-	if err != nil {
-		return err
-	}
-	_, err = m.runMega(30*time.Second, "mega-rm", "-r", p)
+	err := m.withMega(30*time.Second, func(client *mega.Mega) error {
+		node, err := m.lookupMegaNodeLocked(remotePath)
+		if err != nil {
+			return err
+		}
+		return client.Delete(node, true)
+	})
 	if errors.Is(err, ErrNotFound) {
 		return ErrNotFound
 	}
@@ -343,23 +384,25 @@ func (m *MegaProvider) List(remotePath string) ([]StoredFile, error) {
 	if m.local {
 		return m.listLocal(remotePath)
 	}
-	p, err := m.megaPath(remotePath)
-	if err != nil {
-		return nil, err
-	}
-	out, err := m.runMega(30*time.Second, "mega-ls", p)
-	if err != nil {
-		return nil, err
-	}
 	base, _ := m.clean(remotePath)
 	var files []StoredFile
-	for _, line := range strings.Split(string(out), "\n") {
-		name := strings.TrimSpace(line)
-		if name == "" {
-			continue
+	err := m.withMega(30*time.Second, func(client *mega.Mega) error {
+		node, err := m.lookupMegaNodeLocked(remotePath)
+		if err != nil {
+			return err
 		}
-		path := strings.Trim(strings.Trim(base+"/"+name, "/"), "/")
-		files = append(files, StoredFile{Path: path, FileURL: path, DownloadURL: path})
+		children, err := client.FS.GetChildren(node)
+		if err != nil {
+			return err
+		}
+		for _, child := range children {
+			path := strings.Trim(strings.Trim(base+"/"+child.GetName(), "/"), "/")
+			files = append(files, StoredFile{Path: path, FileURL: path, DownloadURL: path})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return files, nil
 }
@@ -393,16 +436,18 @@ func (m *MegaProvider) Read(remotePath string) (io.ReadCloser, error) {
 		}
 		return os.Open(p)
 	}
-	p, err := m.megaPath(remotePath)
-	if err != nil {
-		return nil, err
-	}
 	tmp, err := os.CreateTemp("", "spuri-mega-download-*")
 	if err != nil {
 		return nil, err
 	}
 	tmp.Close()
-	_, err = m.runMega(2*time.Minute, "mega-get", p, tmp.Name())
+	err = m.withMega(2*time.Minute, func(client *mega.Mega) error {
+		node, err := m.lookupMegaNodeLocked(remotePath)
+		if err != nil {
+			return err
+		}
+		return client.DownloadFile(node, tmp.Name(), nil)
+	})
 	if err != nil {
 		os.Remove(tmp.Name())
 		return nil, err
@@ -437,16 +482,24 @@ func (m *MegaProvider) Move(fromPath string, toPath string) error {
 	if err := m.EnsureDir(dir); err != nil {
 		return err
 	}
-	from, err := m.megaPath(fromPath)
-	if err != nil {
-		return err
-	}
-	to, err := m.megaPath(toPath)
-	if err != nil {
-		return err
-	}
-	_, err = m.runMega(30*time.Second, "mega-mv", from, to)
-	return err
+	return m.withMega(30*time.Second, func(client *mega.Mega) error {
+		from, err := m.lookupMegaNodeLocked(fromPath)
+		if err != nil {
+			return err
+		}
+		parent, err := m.ensureMegaDirLocked(dir)
+		if err != nil {
+			return err
+		}
+		if err := client.Move(from, parent); err != nil {
+			return err
+		}
+		newName := filepath.Base(toPath)
+		if newName != from.GetName() {
+			return client.Rename(from, newName)
+		}
+		return nil
+	})
 }
 
 func (m *MegaProvider) Rename(remotePath string, newName string) (StoredFile, error) {
@@ -472,16 +525,23 @@ func (m *MegaProvider) GetQuota() (QuotaInfo, error) {
 	if m.local {
 		return m.getLocalQuota()
 	}
-	academias, files, managed, outside, err := m.getMegaAccountUsage()
+	var remoteQuota mega.QuotaResp
+	err := m.withMega(30*time.Second, func(client *mega.Mega) error {
+		quota, err := client.GetQuota()
+		if err != nil {
+			return err
+		}
+		remoteQuota = quota
+		return nil
+	})
 	if err != nil {
 		return QuotaInfo{}, err
 	}
-	total := managed + outside
-	return QuotaInfo{TotalBytes: total, UsedBytes: total, ManagedBytes: managed, OutsideAcademiasBytes: outside, Academias: academias, AccountFiles: files}, nil
-}
-
-func (m *MegaProvider) getMegaAccountUsage() ([]AcademiaUsage, []AccountFileUsage, uint64, uint64, error) {
-	return nil, nil, 0, 0, ErrOperationUnsupported
+	available := uint64(0)
+	if remoteQuota.Mstrg > remoteQuota.Cstrg {
+		available = remoteQuota.Mstrg - remoteQuota.Cstrg
+	}
+	return QuotaInfo{TotalBytes: remoteQuota.Mstrg, UsedBytes: remoteQuota.Cstrg, AvailableBytes: available}, nil
 }
 
 func (m *MegaProvider) getLocalQuota() (QuotaInfo, error) {

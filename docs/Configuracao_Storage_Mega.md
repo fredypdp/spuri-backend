@@ -20,7 +20,7 @@ MEGA_LOCAL_ROOT=data/mega_storage
 
 ## Adapter escolhido
 
-A integração operacional usa MEGAcmd instalado no ambiente (`mega-login`, `mega-mkdir`, `mega-put`, `mega-ls`, `mega-get`, `mega-rm`, `mega-mv`) encapsulado pelo `MegaProvider`. A escolha preserva autenticação por e-mail/senha e cobre criação/listagem/leitura, upload, deleção, movimentação e renomeação sem vazar detalhes do Mega para handlers ou domínio.
+A integração operacional usa a biblioteca Go `github.com/t3rm1n4l/go-mega` encapsulada pelo `MegaProvider`, sem exigir binários MEGAcmd no ambiente de deploy. A escolha preserva autenticação por e-mail/senha e cobre criação/listagem/leitura, upload, deleção, movimentação, renomeação e quota sem vazar detalhes do Mega para handlers ou domínio.
 
 ## Migração
 
