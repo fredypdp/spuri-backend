@@ -84,7 +84,7 @@ func ValidateMatriculaCommon(in MatriculaCommonInput) (MatriculaCommonValidated,
 			return out, fmt.Errorf("ano_superior inválido: %w", err)
 		}
 	}
-	if err := ValidateMatriculaPhones(out.TelefoneEstudante, out.TelefoneResponsavel, out.AnoEscolarFundamental, out.AnoEscolarMedio, out.AnoSuperior); err != nil {
+	if err := aggregates.ValidarTelefonesMatricula(out.TelefoneEstudante, out.TelefoneResponsavel, out.AnoEscolarFundamental, out.AnoEscolarMedio, out.AnoSuperior); err != nil {
 		return out, err
 	}
 	if err := aggregates.ValidarBilhetesMatricula(out.BilheteIdentidade, out.BilheteIdentidadeResponsavel); err != nil {
@@ -94,34 +94,6 @@ func ValidateMatriculaCommon(in MatriculaCommonInput) (MatriculaCommonValidated,
 		return out, err
 	}
 	return out, nil
-}
-
-func ValidateMatriculaPhones(tel, telResp, anoFund, anoMedio, anoSuperior *string) error {
-	escolar := ptrNotBlank(anoFund) || ptrNotBlank(anoMedio)
-	superior := ptrNotBlank(anoSuperior)
-	if escolar && telResp == nil {
-		return fmt.Errorf("telefone_responsavel é obrigatório para estudante escolar")
-	}
-	if superior && tel == nil {
-		return fmt.Errorf("telefone é obrigatório para estudante do ensino superior")
-	}
-	if !escolar && !superior && tel == nil && telResp == nil {
-		return fmt.Errorf("telefone ou telefone_responsavel deve ser informado")
-	}
-	if tel != nil {
-		if err := utils.ValidatePhone(*tel); err != nil {
-			return err
-		}
-	}
-	if telResp != nil {
-		if err := utils.ValidatePhone(*telResp); err != nil {
-			return err
-		}
-	}
-	if tel != nil && telResp != nil && *tel == *telResp {
-		return fmt.Errorf("telefone e telefone_responsavel não podem ser iguais")
-	}
-	return nil
 }
 
 func trimPtr(v *string) *string {
@@ -141,4 +113,3 @@ func normalizePhonePtr(v *string) *string {
 	}
 	return utils.NormalizePhonePtr(v)
 }
-func ptrNotBlank(v *string) bool { return v != nil && strings.TrimSpace(*v) != "" }

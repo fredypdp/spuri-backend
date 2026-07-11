@@ -83,7 +83,7 @@ func (s *SolicitacaoMatricula) Criar(codigoSolicitacao, codigoAcademia, nome, ge
 	if bilhetesSolicitacaoIguais(bi, biResp) {
 		return fmt.Errorf("bilhete_identidade e bilhete_identidade_responsavel não podem ser iguais")
 	}
-	if err := validarTelefonesMatricula(telefone, telefoneResponsavel, anoFund, anoMedio, anoSuperior); err != nil {
+	if err := ValidarTelefonesMatricula(telefone, telefoneResponsavel, anoFund, anoMedio, anoSuperior); err != nil {
 		return err
 	}
 	if documentos == nil || len(documentos) == 0 {
@@ -123,7 +123,7 @@ func (s *SolicitacaoMatricula) Reprovar(reprovadaPor uuid.UUID, motivo string) e
 	return nil
 }
 
-func validarTelefonesMatricula(telefone, telefoneResponsavel, anoEscolar, anoEscolarMedio, anoSuperior *string) error {
+func ValidarTelefonesMatricula(telefone, telefoneResponsavel, anoEscolar, anoEscolarMedio, anoSuperior *string) error {
 	escolar := !isNilOrBlank(anoEscolar) || !isNilOrBlank(anoEscolarMedio)
 	superior := !isNilOrBlank(anoSuperior)
 	if escolar && isNilOrBlank(telefoneResponsavel) {
@@ -190,13 +190,16 @@ func ValidarDocumentosMatricula(bi, biResp *string, anoFund, anoMedio, anoSuperi
 	if documentos == nil {
 		documentos = map[string]DocumentoMatricula{}
 	}
+	if !isNilOrBlank(anoSuperior) && isNilOrBlank(bi) {
+		return fmt.Errorf("bilhete_identidade é obrigatório para estudante do ensino superior")
+	}
+	if !isNilOrBlank(bi) && !hasDocumentoComArquivo(documentos, "bi_estudante") {
+		return fmt.Errorf("bi_estudante é obrigatório quando bilhete_identidade do estudante é informado")
+	}
+	if !isNilOrBlank(biResp) && !hasDocumentoComArquivo(documentos, "bi_responsavel") {
+		return fmt.Errorf("bi_responsavel é obrigatório quando bilhete_identidade_responsavel é informado")
+	}
 	if !isNilOrBlank(anoSuperior) {
-		if isNilOrBlank(bi) {
-			return fmt.Errorf("bilhete_identidade é obrigatório para estudante do ensino superior")
-		}
-		if doc, ok := documentos["bi_estudante"]; !ok || !doc.TemReferenciaArquivo() {
-			return fmt.Errorf("bi_estudante é obrigatório para estudante do ensino superior")
-		}
 		return validarComprovativoAcademico(*anoSuperior, documentos)
 	}
 	if isNilOrBlank(anoFund) && isNilOrBlank(anoMedio) {
@@ -205,15 +208,10 @@ func ValidarDocumentosMatricula(bi, biResp *string, anoFund, anoMedio, anoSuperi
 	if isNilOrBlank(biResp) {
 		return fmt.Errorf("bilhete_identidade_responsavel é obrigatório para estudante escolar")
 	}
-	if doc, ok := documentos["bi_responsavel"]; !ok || !doc.TemReferenciaArquivo() {
-		return fmt.Errorf("bi_responsavel é obrigatório para estudante escolar")
-	}
-	if !isNilOrBlank(bi) {
-		if doc, ok := documentos["bi_estudante"]; !ok || !doc.TemReferenciaArquivo() {
-			return fmt.Errorf("bi_estudante é obrigatório quando bilhete_identidade do estudante é informado")
+	if isNilOrBlank(bi) {
+		if doc, ok := documentos["cedula_estudante"]; !ok || !doc.TemReferenciaArquivo() {
+			return fmt.Errorf("cedula_estudante é obrigatória quando bilhete_identidade do estudante não é informado")
 		}
-	} else if doc, ok := documentos["cedula_estudante"]; !ok || !doc.TemReferenciaArquivo() {
-		return fmt.Errorf("cedula_estudante é obrigatória quando bilhete_identidade do estudante não é informado")
 	}
 	ano := ""
 	if !isNilOrBlank(anoFund) {
