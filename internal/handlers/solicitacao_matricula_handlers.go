@@ -29,6 +29,14 @@ const MaxPDFUploadBytes int64 = 10 << 20
 
 var solicitacaoDocFields = []string{"bi_estudante", "bi_responsavel", "cedula_estudante", "declaracao", "certificado_6_ano_fundamental", "certificado_9_ano_fundamental", "certificado_ensino_medio"}
 
+var solicitacaoDocFieldSet = func() map[string]struct{} {
+	set := make(map[string]struct{}, len(solicitacaoDocFields))
+	for _, field := range solicitacaoDocFields {
+		set[field] = struct{}{}
+	}
+	return set
+}()
+
 type uploadedPDF struct {
 	field string
 	data  []byte
@@ -76,6 +84,10 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("multipart/form-data inválido"))
 		return
 	}
+	if err := validarCamposArquivoMatricula(c.Request.MultipartForm); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 	get := func(k string) string { return strings.TrimSpace(c.PostForm(k)) }
 	codigoAcademia, nome, genero, dataNascRaw := get("codigo_academia"), get("nome"), get("genero"), get("data_nascimento")
 	if codigoAcademia == "" || nome == "" || genero == "" || dataNascRaw == "" {
@@ -94,6 +106,12 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 	}
 	if academia == nil || academia.Status != "ativo" {
 		utils.RespondWithError(c, http.StatusForbidden, "academia inativa ou não encontrada", nil)
+		return
+	}
+
+	cursoMedioID, cursoSuperiorID, err := validarCursosMatriculaCommon(c, codigoAcademia, get("curso_medio_id"), get("curso_superior_id"))
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
@@ -116,13 +134,7 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 			files[field] = pdf
 		}
 	}
-	documentosParaValidacao := map[string]aggregates.DocumentoMatricula{}
-	for field := range files {
-		documentosParaValidacao[field] = aggregates.DocumentoMatricula{Path: field + ".pdf"}
-		if field == "declaracao" {
-			documentosParaValidacao[field] = aggregates.DocumentoMatricula{Path: field + ".pdf", AnoAcademico: get("declaracao_ano_academico")}
-		}
-	}
+	documentosParaValidacao := documentosMatriculaParaValidacao(files, get("declaracao_ano_academico"))
 	biPtr, biRespPtr := stringPtrIfNotBlank(bi), stringPtrIfNotBlank(biResp)
 	anoFundPtr := stringPtrIfNotBlank(get("ano_escolar_fundamental"))
 	anoMedioPtr := stringPtrIfNotBlank(get("ano_escolar_medio"))
@@ -182,18 +194,6 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 
 	emailPtr := validado.Email
 	telPtr := validado.TelefoneEstudante
-	cursoMedioID, err := parseOptionalCurso(c, get("curso_medio_id"), "medio", codigoAcademia)
-	if err != nil {
-		_ = provider.Delete(dir)
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-	cursoSuperiorID, err := parseOptionalCurso(c, get("curso_superior_id"), "superior", codigoAcademia)
-	if err != nil {
-		_ = provider.Delete(dir)
-		utils.RespondWithValidationError(c, err)
-		return
-	}
 	sol := aggregates.NewSolicitacaoMatricula()
 	if err := sol.Criar(codigo, codigoAcademia, nome, genero, dataNasc, emailPtr, telPtr, validado.TelefoneResponsavel, biPtr, biRespPtr, anoFundPtr, anoMedioPtr, cursoMedioID, anoSupPtr, cursoSuperiorID, documentos); err != nil {
 		_ = provider.Delete(dir)
@@ -491,6 +491,42 @@ func parseOptionalCurso(c *gin.Context, raw, tipo, codigoAcademia string) (*uuid
 		return nil, fmt.Errorf("curso_%s_id inválido para a academia", tipo)
 	}
 	return &id, nil
+}
+
+func validarCursosMatriculaCommon(c *gin.Context, codigoAcademia, cursoMedioIDRaw, cursoSuperiorIDRaw string) (*uuid.UUID, *uuid.UUID, error) {
+	cursoMedioID, err := parseOptionalCurso(c, cursoMedioIDRaw, "medio", codigoAcademia)
+	if err != nil {
+		return nil, nil, err
+	}
+	cursoSuperiorID, err := parseOptionalCurso(c, cursoSuperiorIDRaw, "superior", codigoAcademia)
+	if err != nil {
+		return nil, nil, err
+	}
+	return cursoMedioID, cursoSuperiorID, nil
+}
+
+func validarCamposArquivoMatricula(form *multipart.Form) error {
+	if form == nil {
+		return nil
+	}
+	for field := range form.File {
+		if _, ok := solicitacaoDocFieldSet[field]; !ok {
+			return fmt.Errorf("campo de arquivo não suportado para matrícula: %s", field)
+		}
+	}
+	return nil
+}
+
+func documentosMatriculaParaValidacao(files map[string]uploadedPDF, declaracaoAnoAcademico string) map[string]aggregates.DocumentoMatricula {
+	documentos := map[string]aggregates.DocumentoMatricula{}
+	for field := range files {
+		documento := aggregates.DocumentoMatricula{Path: field + ".pdf"}
+		if field == "declaracao" {
+			documento.AnoAcademico = declaracaoAnoAcademico
+		}
+		documentos[field] = documento
+	}
+	return documentos
 }
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {

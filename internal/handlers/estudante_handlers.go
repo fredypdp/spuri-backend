@@ -57,6 +57,10 @@ func registerEstudantePorAcademiaMultipart(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("multipart/form-data inválido"))
 		return
 	}
+	if err := validarCamposArquivoMatricula(c.Request.MultipartForm); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 	get := func(k string) string { return strings.TrimSpace(c.PostForm(k)) }
 	dataNascimento, err := time.Parse("2006-01-02", get("data_nascimento"))
 	if err != nil {
@@ -101,23 +105,12 @@ func registerEstudantePorAcademiaComRequest(c *gin.Context, req CadastroEstudant
 		return
 	}
 
-	cursoMedioUUID, err := parseOptionalCurso(c, req.CursoMedioID, "medio", academia.CodigoAcademia)
+	cursoMedioUUID, cursoSuperiorUUID, err := validarCursosMatriculaCommon(c, academia.CodigoAcademia, req.CursoMedioID, req.CursoSuperiorID)
 	if err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
-	cursoSuperiorUUID, err := parseOptionalCurso(c, req.CursoSuperiorID, "superior", academia.CodigoAcademia)
-	if err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-	documentosParaValidacao := map[string]aggregates.DocumentoMatricula{}
-	for field := range files {
-		documentosParaValidacao[field] = aggregates.DocumentoMatricula{Path: field + ".pdf"}
-		if field == "declaracao" {
-			documentosParaValidacao[field] = aggregates.DocumentoMatricula{Path: field + ".pdf", AnoAcademico: declaracaoAnoAcademico}
-		}
-	}
+	documentosParaValidacao := documentosMatriculaParaValidacao(files, declaracaoAnoAcademico)
 	validado, err := services.ValidateMatriculaCommon(services.MatriculaCommonInput{
 		Contexto: services.MatriculaContextCadastroDireto,
 		Nome:     req.Nome, Genero: req.Genero, DataNascimento: req.DataNascimento,
