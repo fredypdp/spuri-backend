@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 
 	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
@@ -115,12 +116,8 @@ func alterarAnosFundamental(c *gin.Context, academiaDTO *projections.AcademiaDTO
 	}
 	removidos := valoresRemovidos(academiaDTO.AnosAcademicos, novos)
 	if len(removidos) > 0 {
-		qtd, err := getEstudanteProjection(c).CountActiveByFundamentalAnos(academiaDTO.CodigoAcademia, removidos)
-		if err != nil {
+		if err := validarRemocaoAnosFundamentalSemDependenciasAtivas(c, academiaDTO.CodigoAcademia, removidos); err != nil {
 			return err
-		}
-		if qtd > 0 {
-			return conflictErrorWithDetail("anos_academicos", "estudantes_ativos_vinculados", fmt.Sprintf("Não é possível desativar os anos %v porque existem %d estudante(s) ativo(s) vinculados a eles. Transfira, conclua ou inative esses estudantes antes de remover os anos.", removidos, qtd))
 		}
 	}
 	repository := getRepository(c)
@@ -138,6 +135,100 @@ func alterarAnosFundamental(c *gin.Context, academiaDTO *projections.AcademiaDTO
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "anos acadêmicos atualizados com sucesso", "type": "fundamental", "anos_academicos": novos})
 	return nil
+}
+
+type dependenciasAnoFundamental struct {
+	EstudantesAtivos               int
+	SolicitacoesMatriculaPendentes int
+	MateriasAtivas                 int
+	CategoriasNotaAtivas           int
+	RegrasAvaliacaoFinalAtivas     int
+}
+
+func (d dependenciasAnoFundamental) total() int {
+	return d.EstudantesAtivos + d.SolicitacoesMatriculaPendentes + d.MateriasAtivas + d.CategoriasNotaAtivas + d.RegrasAvaliacaoFinalAtivas
+}
+
+func (d dependenciasAnoFundamental) resumo() string {
+	partes := []string{}
+	if d.EstudantesAtivos > 0 {
+		partes = append(partes, fmt.Sprintf("%d estudante(s) ativo(s)", d.EstudantesAtivos))
+	}
+	if d.SolicitacoesMatriculaPendentes > 0 {
+		partes = append(partes, fmt.Sprintf("%d solicitação(ões) de matrícula pendente(s)", d.SolicitacoesMatriculaPendentes))
+	}
+	if d.MateriasAtivas > 0 {
+		partes = append(partes, fmt.Sprintf("%d matéria(s) ativa(s)", d.MateriasAtivas))
+	}
+	if d.CategoriasNotaAtivas > 0 {
+		partes = append(partes, fmt.Sprintf("%d categoria(s) de nota ativa(s)", d.CategoriasNotaAtivas))
+	}
+	if d.RegrasAvaliacaoFinalAtivas > 0 {
+		partes = append(partes, fmt.Sprintf("%d regra(s) de avaliação final ativa(s)", d.RegrasAvaliacaoFinalAtivas))
+	}
+	return strings.Join(partes, ", ")
+}
+
+func validarRemocaoAnosFundamentalSemDependenciasAtivas(c *gin.Context, codigoAcademia string, anos []string) error {
+	deps, err := contarDependenciasAtivasAnosFundamental(c, codigoAcademia, anos)
+	if err != nil {
+		return err
+	}
+	if deps.total() == 0 {
+		return nil
+	}
+
+	return conflictErrorWithDetail(
+		"anos_academicos",
+		"dependencias_ativas_vinculadas",
+		fmt.Sprintf("Não é possível desativar os anos %v porque existem dependências ativas vinculadas a eles: %s. Resolva essas dependências antes de remover os anos acadêmicos.", anos, deps.resumo()),
+	)
+}
+
+func contarDependenciasAtivasAnosFundamental(c *gin.Context, codigoAcademia string, anos []string) (dependenciasAnoFundamental, error) {
+	deps := dependenciasAnoFundamental{}
+	var err error
+	deps.EstudantesAtivos, err = getEstudanteProjection(c).CountActiveByFundamentalAnos(codigoAcademia, anos)
+	if err != nil {
+		return deps, err
+	}
+	deps.SolicitacoesMatriculaPendentes, err = getSolicitacaoMatriculaProjection(c).CountPendingByFundamentalAnos(codigoAcademia, anos)
+	if err != nil {
+		return deps, err
+	}
+
+	db := getDbClient(c).DB()
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		  FROM projection_materias
+		 WHERE codigo_academia = $1
+		   AND type = 'fundamental'
+		   AND status = 'ativo'
+		   AND deleted_at IS NULL
+		   AND EXISTS (SELECT 1 FROM unnest($2::text[]) AS ano WHERE anos_academicos ? ano)
+	`, codigoAcademia, pq.Array(anos)).Scan(&deps.MateriasAtivas); err != nil {
+		return deps, err
+	}
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		  FROM projection_categorias_nota
+		 WHERE codigo_academia = $1
+		   AND status = 'ativo'
+		   AND EXISTS (SELECT 1 FROM unnest($2::text[]) AS ano WHERE anos_academicos ? ano)
+	`, codigoAcademia, pq.Array(anos)).Scan(&deps.CategoriasNotaAtivas); err != nil {
+		return deps, err
+	}
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		  FROM projection_regras_avaliacao_final
+		 WHERE codigo_academia = $1
+		   AND nivel = 'fundamental'
+		   AND status = 'ativo'
+		   AND EXISTS (SELECT 1 FROM unnest($2::text[]) AS ano WHERE anos_academicos ? ano)
+	`, codigoAcademia, pq.Array(anos)).Scan(&deps.RegrasAvaliacaoFinalAtivas); err != nil {
+		return deps, err
+	}
+	return deps, nil
 }
 
 func alterarEscopoCurso(c *gin.Context, academiaDTO *projections.AcademiaDTO, req anosAcademicosRequest, op string) error {
