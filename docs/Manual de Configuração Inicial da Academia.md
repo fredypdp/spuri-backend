@@ -465,7 +465,7 @@ Cadastro direto:
 POST /academia/estudante/register
 ```
 
-O cadastro direto usa `multipart/form-data`. Os documentos são opcionais; quando enviados, precisam ser PDFs válidos, com extensão `.pdf`, assinatura `%PDF` e tamanho máximo de 10MB.
+O cadastro direto usa `multipart/form-data` e compartilha a mesma validação cadastral/documental do `POST /solicitacao-matricula` para dados comuns. No nível escolar/fundamental/médio, `telefone_responsavel` é obrigatório e `telefone` do estudante é opcional; no ensino superior, `telefone` do estudante é obrigatório e `telefone_responsavel` é opcional. Documentos obrigatórios são validados e enviados ao storage antes de qualquer gravação no ledger; falha de validação ou upload impede a criação do estudante.
 
 Quando documentos forem retornados nos metadados do estudante ou da solicitação de matrícula, o front end deve usar o campo `download_url` para leitura do PDF. O backend expõe rotas autenticadas de download inline (`GET /documentos/estudantes/{codigo_estudante}/{campo}/download` e `GET /documentos/solicitacoes-matricula/{codigo_solicitacao}/{campo}/download`), sem expor credenciais ou IDs internos do Mega.
 
