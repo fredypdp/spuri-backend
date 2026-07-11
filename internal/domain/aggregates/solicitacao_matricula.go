@@ -190,13 +190,16 @@ func ValidarDocumentosMatricula(bi, biResp *string, anoFund, anoMedio, anoSuperi
 	if documentos == nil {
 		documentos = map[string]DocumentoMatricula{}
 	}
+	if !isNilOrBlank(anoSuperior) && isNilOrBlank(bi) {
+		return fmt.Errorf("bilhete_identidade é obrigatório para estudante do ensino superior")
+	}
+	if !isNilOrBlank(bi) && !hasDocumentoComArquivo(documentos, "bi_estudante") {
+		return fmt.Errorf("bi_estudante é obrigatório quando bilhete_identidade do estudante é informado")
+	}
+	if !isNilOrBlank(biResp) && !hasDocumentoComArquivo(documentos, "bi_responsavel") {
+		return fmt.Errorf("bi_responsavel é obrigatório quando bilhete_identidade_responsavel é informado")
+	}
 	if !isNilOrBlank(anoSuperior) {
-		if isNilOrBlank(bi) {
-			return fmt.Errorf("bilhete_identidade é obrigatório para estudante do ensino superior")
-		}
-		if doc, ok := documentos["bi_estudante"]; !ok || !doc.TemReferenciaArquivo() {
-			return fmt.Errorf("bi_estudante é obrigatório para estudante do ensino superior")
-		}
 		return validarComprovativoAcademico(*anoSuperior, documentos)
 	}
 	if isNilOrBlank(anoFund) && isNilOrBlank(anoMedio) {
@@ -205,15 +208,10 @@ func ValidarDocumentosMatricula(bi, biResp *string, anoFund, anoMedio, anoSuperi
 	if isNilOrBlank(biResp) {
 		return fmt.Errorf("bilhete_identidade_responsavel é obrigatório para estudante escolar")
 	}
-	if doc, ok := documentos["bi_responsavel"]; !ok || !doc.TemReferenciaArquivo() {
-		return fmt.Errorf("bi_responsavel é obrigatório para estudante escolar")
-	}
-	if !isNilOrBlank(bi) {
-		if doc, ok := documentos["bi_estudante"]; !ok || !doc.TemReferenciaArquivo() {
-			return fmt.Errorf("bi_estudante é obrigatório quando bilhete_identidade do estudante é informado")
+	if isNilOrBlank(bi) {
+		if doc, ok := documentos["cedula_estudante"]; !ok || !doc.TemReferenciaArquivo() {
+			return fmt.Errorf("cedula_estudante é obrigatória quando bilhete_identidade do estudante não é informado")
 		}
-	} else if doc, ok := documentos["cedula_estudante"]; !ok || !doc.TemReferenciaArquivo() {
-		return fmt.Errorf("cedula_estudante é obrigatória quando bilhete_identidade do estudante não é informado")
 	}
 	ano := ""
 	if !isNilOrBlank(anoFund) {

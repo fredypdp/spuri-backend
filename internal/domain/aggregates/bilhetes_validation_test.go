@@ -265,6 +265,18 @@ func TestValidarDocumentosMatriculaSuperiorExigeBIEstudanteENaoResponsavel(t *te
 	if err := ValidarDocumentosMatricula(&bi, nil, nil, nil, &anoSuperior, map[string]DocumentoMatricula{"certificado_ensino_medio": {Path: "certificado.pdf"}}); err == nil || !strings.Contains(err.Error(), "bi_estudante") {
 		t.Fatalf("ensino superior deve rejeitar ausência do documento BI do estudante, recebeu %v", err)
 	}
+	biResp := "001LA021"
+	if err := ValidarDocumentosMatricula(&bi, &biResp, nil, nil, &anoSuperior, docs); err == nil || !strings.Contains(err.Error(), "bi_responsavel") {
+		t.Fatalf("ensino superior deve rejeitar BI do responsável textual sem documento correspondente, recebeu %v", err)
+	}
+	docsComResponsavel := map[string]DocumentoMatricula{
+		"bi_estudante":             {Path: "bi-estudante.pdf"},
+		"bi_responsavel":           {Path: "bi-responsavel.pdf"},
+		"certificado_ensino_medio": {Path: "certificado-medio.pdf"},
+	}
+	if err := ValidarDocumentosMatricula(&bi, &biResp, nil, nil, &anoSuperior, docsComResponsavel); err != nil {
+		t.Fatalf("ensino superior deve aceitar BI do responsável quando documento correspondente é anexado: %v", err)
+	}
 }
 
 func TestValidarDocumentosMatriculaEscolarExigeResponsavelEIdentificacaoDoEstudante(t *testing.T) {
