@@ -42,6 +42,7 @@ type QuotaInfo struct {
 	OutsideAcademiasBytes uint64
 	Academias             []AcademiaUsage
 	AccountFiles          []AccountFileUsage
+	AccountFolders        []AccountFolderUsage
 }
 
 type AcademiaUsage struct {
@@ -50,6 +51,13 @@ type AcademiaUsage struct {
 }
 
 type AccountFileUsage struct {
+	Path      string
+	Name      string
+	SizeBytes uint64
+	Managed   bool
+}
+
+type AccountFolderUsage struct {
 	Path      string
 	Name      string
 	SizeBytes uint64
@@ -525,28 +533,81 @@ func (m *MegaProvider) GetQuota() (QuotaInfo, error) {
 	if m.local {
 		return m.getLocalQuota()
 	}
-	var remoteQuota mega.QuotaResp
+	var quotaInfo QuotaInfo
 	err := m.withMega(30*time.Second, func(client *mega.Mega) error {
-		quota, err := client.GetQuota()
+		remoteQuota, err := client.GetQuota()
 		if err != nil {
 			return err
 		}
-		remoteQuota = quota
+		quotaInfo.TotalBytes = remoteQuota.Mstrg
+		quotaInfo.UsedBytes = remoteQuota.Cstrg
+		if remoteQuota.Mstrg > remoteQuota.Cstrg {
+			quotaInfo.AvailableBytes = remoteQuota.Mstrg - remoteQuota.Cstrg
+		}
+
+		managedByAcademia := map[string]uint64{}
+		files := []AccountFileUsage{}
+		folders := []AccountFolderUsage{}
+		accounted, outside, err := m.collectRemoteUsageLocked(client, m.remoteRoot, "", managedByAcademia, &files, &folders)
+		if err != nil {
+			return err
+		}
+		quotaInfo.ManagedBytes = accounted - outside
+		quotaInfo.OutsideAcademiasBytes = outside
+		if quotaInfo.UsedBytes > accounted {
+			quotaInfo.UnmanagedBytes = quotaInfo.UsedBytes - accounted
+		}
+		quotaInfo.Academias = sortedAcademiaUsage(managedByAcademia)
+		quotaInfo.AccountFiles = files
+		quotaInfo.AccountFolders = folders
 		return nil
 	})
 	if err != nil {
 		return QuotaInfo{}, err
 	}
-	available := uint64(0)
-	if remoteQuota.Mstrg > remoteQuota.Cstrg {
-		available = remoteQuota.Mstrg - remoteQuota.Cstrg
+	sort.Slice(quotaInfo.AccountFiles, func(i, j int) bool { return quotaInfo.AccountFiles[i].Path < quotaInfo.AccountFiles[j].Path })
+	sort.Slice(quotaInfo.AccountFolders, func(i, j int) bool { return quotaInfo.AccountFolders[i].Path < quotaInfo.AccountFolders[j].Path })
+	return quotaInfo, nil
+}
+
+func (m *MegaProvider) collectRemoteUsageLocked(client *mega.Mega, node *mega.Node, basePath string, academias map[string]uint64, files *[]AccountFileUsage, folders *[]AccountFolderUsage) (uint64, uint64, error) {
+	children, err := client.FS.GetChildren(node)
+	if err != nil {
+		return 0, 0, err
 	}
-	return QuotaInfo{TotalBytes: remoteQuota.Mstrg, UsedBytes: remoteQuota.Cstrg, AvailableBytes: available}, nil
+	var used, outside uint64
+	for _, child := range children {
+		name := child.GetName()
+		path := strings.Trim(strings.Trim(basePath+"/"+name, "/"), "/")
+		switch child.GetType() {
+		case mega.FILE:
+			size := uint64(0)
+			if child.GetSize() > 0 {
+				size = uint64(child.GetSize())
+			}
+			used += size
+			fileOutside := accountManagedUsage(path, size, academias)
+			outside += fileOutside
+			*files = append(*files, AccountFileUsage{Path: path, Name: name, SizeBytes: size, Managed: fileOutside == 0})
+		case mega.FOLDER, mega.ROOT, mega.INBOX:
+			childUsed, childOutside, err := m.collectRemoteUsageLocked(client, child, path, academias, files, folders)
+			if err != nil {
+				return 0, 0, err
+			}
+			used += childUsed
+			outside += childOutside
+			if path != "" {
+				*folders = append(*folders, AccountFolderUsage{Path: path, Name: name, SizeBytes: childUsed, Managed: childOutside == 0})
+			}
+		}
+	}
+	return used, outside, nil
 }
 
 func (m *MegaProvider) getLocalQuota() (QuotaInfo, error) {
 	var used, outside uint64
 	academias := map[string]uint64{}
+	folderSizes := map[string]uint64{}
 	files := []AccountFileUsage{}
 	_ = filepath.WalkDir(m.root, func(path string, de os.DirEntry, err error) error {
 		if err == nil && !de.IsDir() {
@@ -555,20 +616,48 @@ func (m *MegaProvider) getLocalQuota() (QuotaInfo, error) {
 				used += size
 				rel, _ := filepath.Rel(m.root, path)
 				rp := filepath.ToSlash(rel)
-				parts := strings.Split(rp, "/")
-				managed := len(parts) > 1 && parts[0] != "."
-				if managed {
-					academias[parts[0]] += size
-				} else {
-					outside += size
-				}
-				files = append(files, AccountFileUsage{Path: rp, Name: filepath.Base(path), SizeBytes: size, Managed: managed})
+				fileOutside := accountManagedUsage(rp, size, academias)
+				outside += fileOutside
+				addFolderUsage(rp, size, folderSizes)
+				files = append(files, AccountFileUsage{Path: rp, Name: filepath.Base(path), SizeBytes: size, Managed: fileOutside == 0})
 			}
 		}
 		return nil
 	})
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
-	return QuotaInfo{TotalBytes: used, UsedBytes: used, ManagedBytes: used - outside, OutsideAcademiasBytes: outside, Academias: sortedAcademiaUsage(academias), AccountFiles: files}, nil
+	folders := sortedFolderUsage(folderSizes)
+	return QuotaInfo{TotalBytes: used, UsedBytes: used, ManagedBytes: used - outside, OutsideAcademiasBytes: outside, Academias: sortedAcademiaUsage(academias), AccountFiles: files, AccountFolders: folders}, nil
+}
+
+func addFolderUsage(remotePath string, size uint64, folders map[string]uint64) {
+	dir := filepath.ToSlash(filepath.Dir(remotePath))
+	for dir != "." && dir != "/" && dir != "" {
+		folders[dir] += size
+		next := filepath.ToSlash(filepath.Dir(dir))
+		if next == dir {
+			break
+		}
+		dir = next
+	}
+}
+
+func sortedFolderUsage(usage map[string]uint64) []AccountFolderUsage {
+	out := make([]AccountFolderUsage, 0, len(usage))
+	for path, used := range usage {
+		outside := accountManagedUsage(path+"/.folder", 0, map[string]uint64{})
+		out = append(out, AccountFolderUsage{Path: path, Name: filepath.Base(path), SizeBytes: used, Managed: outside == 0})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
+}
+
+func accountManagedUsage(remotePath string, size uint64, academias map[string]uint64) uint64 {
+	parts := strings.Split(remotePath, "/")
+	if len(parts) > 1 && parts[0] != "." && strings.TrimSpace(parts[0]) != "" {
+		academias[parts[0]] += size
+		return 0
+	}
+	return size
 }
 
 func sortedAcademiaUsage(usage map[string]uint64) []AcademiaUsage {
