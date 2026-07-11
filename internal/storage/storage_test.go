@@ -95,4 +95,23 @@ func TestGetQuotaLocalEstimateCountsOnlyLocalRoot(t *testing.T) {
 	if len(quota.Academias) != 1 || quota.Academias[0].CodigoAcademia != "ACA001" || quota.Academias[0].UsedBytes != 5 {
 		t.Fatalf("GetQuota().Academias = %+v, want ACA001 with 5 bytes", quota.Academias)
 	}
+	if len(quota.AccountFolders) != 1 || quota.AccountFolders[0].Path != "ACA001" || quota.AccountFolders[0].SizeBytes != 5 {
+		t.Fatalf("GetQuota().AccountFolders = %+v, want ACA001 with 5 bytes", quota.AccountFolders)
+	}
+}
+
+func TestAccountManagedUsageClassifiesAcademiaPaths(t *testing.T) {
+	academias := map[string]uint64{}
+	if outside := accountManagedUsage("ACA001/matriculas/doc.pdf", 10, academias); outside != 0 {
+		t.Fatalf("accountManagedUsage() outside = %d, want 0", outside)
+	}
+	if academias["ACA001"] != 10 {
+		t.Fatalf("accountManagedUsage() academias[ACA001] = %d, want 10", academias["ACA001"])
+	}
+	if outside := accountManagedUsage("avulso.pdf", 3, academias); outside != 3 {
+		t.Fatalf("accountManagedUsage() outside = %d, want 3", outside)
+	}
+	if outside := accountManagedUsage("/sem-codigo.pdf", 5, academias); outside != 5 {
+		t.Fatalf("accountManagedUsage() outside = %d, want 5", outside)
+	}
 }
