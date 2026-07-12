@@ -16,8 +16,41 @@ ALTER TABLE projection_estudantes
         telefone IS NULL OR telefone_responsavel IS NULL OR telefone <> telefone_responsavel
     );
 
-ALTER TABLE projection_academias
-    RENAME COLUMN numero_telefone TO telefone;
+-- Em bases novas (ex.: Aiven criado do zero), a migration 001 já cria
+-- projection_academias.telefone. Em bases antigas, ainda pode existir
+-- numero_telefone. Normaliza os dois cenários sem falhar por coluna ausente.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'projection_academias'
+          AND column_name = 'numero_telefone'
+    ) THEN
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'projection_academias'
+              AND column_name = 'telefone'
+        ) THEN
+            ALTER TABLE projection_academias
+                RENAME COLUMN numero_telefone TO telefone;
+        ELSE
+            UPDATE projection_academias
+            SET telefone = COALESCE(telefone, numero_telefone)
+            WHERE telefone IS NULL AND numero_telefone IS NOT NULL;
+
+            ALTER TABLE projection_academias
+                DROP COLUMN numero_telefone;
+        END IF;
+    ELSE
+        ALTER TABLE projection_academias
+            ADD COLUMN IF NOT EXISTS telefone VARCHAR(20);
+    END IF;
+END $$;
+
 ALTER TABLE projection_academias
     ADD COLUMN IF NOT EXISTS telefone_verificado BOOLEAN NOT NULL DEFAULT FALSE;
 
