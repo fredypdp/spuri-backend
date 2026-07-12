@@ -152,6 +152,10 @@ func (a *Academia) Criar(
 	if tipo != "escolar" && tipo != "superior" {
 		return fmt.Errorf("tipo deve ser 'escolar' ou 'superior'")
 	}
+	if nivelEscolar != nil {
+		n := strings.TrimSpace(strings.ToLower(*nivelEscolar))
+		nivelEscolar = &n
+	}
 	academiaType = strings.TrimSpace(strings.ToLower(academiaType))
 	if academiaType != "public" && academiaType != "private" {
 		return fmt.Errorf("type deve ser 'public' ou 'private'")
@@ -170,7 +174,7 @@ func (a *Academia) Criar(
 			return err
 		}
 	}
-	if tipo == "escola" && nivelEscolar == nil {
+	if tipo == "escolar" && nivelEscolar == nil {
 		return fmt.Errorf("nivel_escolar é obrigatório para escolas")
 	}
 
