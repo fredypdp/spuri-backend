@@ -2,7 +2,7 @@
 
 ## Contexto
 
-Os endpoints de listagem que podem crescer para centenas de milhares de registros não devem permitir páginas grandes nem comportamento sem paginação efetiva. Consultas sem teto rígido podem varrer tabelas grandes no banco de dados e consumir CUs desnecessários.
+Os endpoints de listagem que podem crescer para centenas de milhares de registros não devem permitir páginas grandes nem comportamento sem paginação efetiva. Consultas sem teto rígido podem varrer tabelas grandes no Neon e consumir CUs desnecessários.
 
 ## Regra implementada
 
@@ -27,6 +27,11 @@ Os endpoints de listagem que podem crescer para centenas de milhares de registro
 ## Outras rotas GET impactadas pelo teto global
 
 Toda rota que usa `getPaginationParams` em conjunto com `db.ValidateLimit` passa a respeitar o teto de 100. Isso inclui listagens administrativas de registros e demais handlers que adotam o helper global de paginação.
+
+## Documentação pública atualizada
+
+- `Documentação.md` reflete o contrato atual de paginação para `GET /academias`, `GET /estudantes`, `GET /notas` e `GET /faltas`: padrão 50, teto fixo 100 e uso de `offset`.
+- Os exemplos de resposta dessas rotas não devem mostrar páginas acima de 100 itens.
 
 ## Observação para novas rotas
 

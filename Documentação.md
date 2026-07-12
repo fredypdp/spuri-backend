@@ -1216,7 +1216,7 @@ Lista todas as academias com paginação e filtro de status.
 
 **Query Params:**
 
-- `limit` — quantidade máxima (padrão sem limit: 1000, teto: 1000)
+- `limit` — quantidade máxima por página (padrão sem `limit`: 50, teto fixo: 100)
 - `offset` — deslocamento (padrão: 0)
 - `status` — `ativo` ou `inativo` (omitir = retorna ambos)
 
@@ -1239,7 +1239,7 @@ Lista todas as academias com paginação e filtro de status.
     }
   ],
   "total": 1,
-  "limit": 1000,
+  "limit": 50,
   "offset": 0
 }
 ```
@@ -1252,12 +1252,12 @@ Lista todas as academias com paginação e filtro de status.
 {
   "academias": [AcademiaDTO],
   "total": 25,
-  "limit": 1000,
+  "limit": 50,
   "offset": 0
 }
 ```
 
-**Nota**: usuários autenticados veem os campos operacionais do `AcademiaDTO`; admins veem campos extras (`email`, `total_estudantes`, `version`).
+**Nota**: usuários autenticados veem os campos operacionais do `AcademiaDTO`; admins veem campos extras (`email`, `total_estudantes`, `version`). O backend nunca retorna mais de 100 academias por página, mesmo que o cliente envie `limit` maior.
 
 ---
 
@@ -2267,6 +2267,8 @@ Lista estudantes. Retorna apenas os da academia (para academia) ou todos (para a
 - `turno` — filtro por turno da turma (`manha`, `tarde`, `noite`; aceita múltiplos).
 - `codigo_turma` — filtra estudantes de turma(s) específica(s) via código da turma (aceita múltiplos).
 - `com_turma` — booleano (`true`/`false`) para filtrar estudantes com ou sem turma.
+- `limit` — quantidade máxima por página (padrão: 50, teto fixo: 100).
+- `offset` — deslocamento de paginação (padrão: 0).
 
 > Os filtros acima são **combináveis** entre si (AND), permitindo consultas compostas.
 > Exemplos:
@@ -2281,10 +2283,12 @@ Lista estudantes. Retorna apenas os da academia (para academia) ou todos (para a
 ```json
 {
   "estudantes": [EstudanteDTO],
-  "total": 120,
+  "total": 50,
   "tipo_usuario": "academia",
   "codigo_academia": "LDA20261",
-  "nome_academia": "string"
+  "nome_academia": "string",
+  "limit": 50,
+  "offset": 0
 }
 ```
 
@@ -4085,8 +4089,8 @@ Lista registros de notas com escopo por perfil.
 
 **Query Params:**
 
-- `limit` — padrão 50, máximo 1000
-- `offset` — padrão 0
+- `limit` — quantidade máxima por página (padrão: 50, teto fixo: 100)
+- `offset` — deslocamento de paginação (padrão: 0)
 - `ano_letivo` — filtra por ano letivo (aceita múltiplos valores)
 - `ano_academico` — filtra por ano académico (aceita múltiplos valores)
 - `curso_id` — filtra por curso (nível médio ou superior) (aceita múltiplos valores)
@@ -4122,6 +4126,7 @@ Lista registros de notas com escopo por perfil.
 - `total`: quantidade de itens retornados no array `notas` nesta página.
 - `total_geral`: quantidade total de registros no escopo do usuário (ignorando `limit/offset`).
 - os itens em `notas` seguem `NotaRegistroDTO` (seção 2.10).
+- o backend nunca retorna mais de 100 notas por página, mesmo que o cliente envie `limit` maior.
 
 ---
 
@@ -4280,8 +4285,8 @@ Lista registros de faltas com escopo por perfil.
 
 **Query Params:**
 
-- `limit` — padrão 50, máximo 1000
-- `offset` — padrão 0
+- `limit` — quantidade máxima por página (padrão: 50, teto fixo: 100)
+- `offset` — deslocamento de paginação (padrão: 0)
 - `ano_letivo` — filtra por ano letivo (aceita múltiplos valores)
 - `ano_academico` — filtra por ano académico (aceita múltiplos valores)
 - `curso_id` — filtra por curso (nível médio ou superior) (aceita múltiplos valores)
@@ -4316,6 +4321,7 @@ Lista registros de faltas com escopo por perfil.
 - `total`: quantidade de itens retornados no array `faltas` nesta página.
 - `total_geral`: quantidade total de registros no escopo do usuário (ignorando `limit/offset`).
 - os itens em `faltas` seguem `FaltaRegistroDTO` (seção 2.11).
+- o backend nunca retorna mais de 100 faltas por página, mesmo que o cliente envie `limit` maior.
 
 ---
 
