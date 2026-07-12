@@ -2,7 +2,7 @@
 
 ## Contexto
 
-Os endpoints de listagem que podem crescer para centenas de milhares de registros não devem permitir páginas grandes nem comportamento sem paginação efetiva. Consultas sem teto rígido podem varrer tabelas grandes no Neon e consumir CUs desnecessários.
+Os endpoints de listagem que podem crescer para centenas de milhares de registros não devem permitir páginas grandes nem comportamento sem paginação efetiva. Consultas sem teto rígido podem varrer tabelas grandes no banco de dados e consumir CUs desnecessários.
 
 ## Regra implementada
 
