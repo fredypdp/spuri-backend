@@ -1,10 +1,10 @@
 ---
 criado: 2026-07-12 00:00
 origem: docs/ajustes-criticos-postgres-aiven.md
-status: pendente
+status: feito
 ---
 
-# Implementar ajustes críticos PostgreSQL Aiven
+# Implementar ajustes críticos PostgreSQL Aiven (feito)
 
 ## Prompt recomendado para executar a atualização
 

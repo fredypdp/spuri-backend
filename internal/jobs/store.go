@@ -156,6 +156,10 @@ func (s *Store) AppendResult(id uuid.UUID, item ItemResult) error {
 		return fmt.Errorf("store.AppendResult: job %s não encontrado no cache", id)
 	}
 
+	previousResults := append([]ItemResult(nil), j.Results...)
+	previousDone := j.DoneItems
+	previousFail := j.FailItems
+
 	j.Results = append(j.Results, item)
 	if item.Sucesso {
 		j.DoneItems++
@@ -163,9 +167,15 @@ func (s *Store) AppendResult(id uuid.UUID, item ItemResult) error {
 		j.FailItems++
 	}
 
-	// Persistir todo item para retomada resiliente após restart/crash.
+	// Persistir todo item para retomada resiliente após restart/crash. Se a
+	// persistência falhar, revertemos o cache para não avançar além do progresso
+	// durável em banco.
 	if err := s.persist(j); err != nil {
+		j.Results = previousResults
+		j.DoneItems = previousDone
+		j.FailItems = previousFail
 		log.Printf("[jobs] WARN: persist parcial falhou para %s: %v", id, err)
+		return err
 	}
 	return nil
 }
