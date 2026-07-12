@@ -147,7 +147,7 @@ func ValidateOffset(offset int) int {
 // ValidateLimit valida e sanitiza um limit para paginação.
 func ValidateLimit(limit int) int {
 	const defaultLimit = 50
-	const maxLimit = 1000
+	const maxLimit = 100
 	if limit <= 0 {
 		return defaultLimit
 	}

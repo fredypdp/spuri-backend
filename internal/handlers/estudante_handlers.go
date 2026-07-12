@@ -214,6 +214,9 @@ func ListarEstudantes(c *gin.Context) {
 	userType, _ := middleware.GetUserType(c)
 
 	client := getDbClient(c)
+	limit, offset := getPaginationParams(c)
+	limit = db.ValidateLimit(limit)
+	offset = db.ValidateOffset(offset)
 
 	// data_nascimento é NOT NULL após a migration — scan direto como time.Time.
 	const selectCols = `
@@ -337,7 +340,11 @@ func ListarEstudantes(c *gin.Context) {
 		argsAcademia = append(argsAcademia, academiaDTO.CodigoAcademia)
 		where := append([]string{}, conditions...)
 		where = append(where, fmt.Sprintf("e.codigo_academia = $%d", len(argsAcademia)))
-		rows, err = client.DB().Query(baseQuery+` WHERE `+strings.Join(where, " AND ")+` ORDER BY e.created_at DESC`, argsAcademia...)
+		argsAcademia = append(argsAcademia, limit, offset)
+		rows, err = client.DB().Query(
+			baseQuery+` WHERE `+strings.Join(where, " AND ")+fmt.Sprintf(` ORDER BY e.created_at DESC LIMIT $%d OFFSET $%d`, len(argsAcademia)-1, len(argsAcademia)),
+			argsAcademia...,
+		)
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
@@ -350,6 +357,8 @@ func ListarEstudantes(c *gin.Context) {
 			"tipo_usuario":    "academia",
 			"codigo_academia": academiaDTO.CodigoAcademia,
 			"nome_academia":   academiaDTO.Nome,
+			"limit":           limit,
+			"offset":          offset,
 		})
 		return
 	}
@@ -364,7 +373,8 @@ func ListarEstudantes(c *gin.Context) {
 		if len(conditions) > 0 {
 			query += ` WHERE ` + strings.Join(conditions, " AND ")
 		}
-		query += ` ORDER BY e.created_at DESC`
+		args = append(args, limit, offset)
+		query += fmt.Sprintf(` ORDER BY e.created_at DESC LIMIT $%d OFFSET $%d`, len(args)-1, len(args))
 		rows, err = client.DB().Query(query, args...)
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
@@ -376,6 +386,8 @@ func ListarEstudantes(c *gin.Context) {
 			"estudantes":   estudantes,
 			"total":        len(estudantes),
 			"tipo_usuario": "admin",
+			"limit":        limit,
+			"offset":       offset,
 		})
 		return
 	}
