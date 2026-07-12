@@ -2782,6 +2782,10 @@ Retorna as avaliações finais do estudante autenticado.
 
 **Proteção**: autenticado + estudante
 
+**Query Params:**
+
+- `limit` — quantidade máxima de itens retornados (padrão: 50; máximo: 100)
+- `offset` — deslocamento inicial para paginação (padrão: 0)
 
 **Request:** sem payload
 **Response 200:**
@@ -2789,7 +2793,9 @@ Retorna as avaliações finais do estudante autenticado.
 ```json
 {
   "avaliacoes": [AvaliacaoFinalDTO],
-  "total": 2
+  "total": 2,
+  "limit": 50,
+  "offset": 0
 }
 ```
 
@@ -4099,7 +4105,6 @@ Lista registros de notas com escopo por perfil.
 - `materia_disciplinar_id` — filtra por matéria disciplinar (aceita múltiplos valores)
 - `categoria` — filtra por categoria da nota (aceita múltiplos valores)
 - `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
-- `type` — filtra o tipo de avaliação final (`avaliacao_final`, `avaliacao_final_com_exame`, `avaliacao_final_com_recurso`, etc.) (aceita múltiplos valores)
 
 **Formato de múltiplos valores (todos os filtros acima):**
 
@@ -4294,7 +4299,6 @@ Lista registros de faltas com escopo por perfil.
 - `periodo` — filtra por período da matéria (`1_trimestre`, `2_trimestre`, `3_trimestre`, `1_semestre`, `2_semestre`) (aceita múltiplos valores)
 - `materia_disciplinar_id` — filtra por matéria disciplinar (aceita múltiplos valores)
 - `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
-- `type` — filtra o tipo de avaliação final (`avaliacao_final`, `avaliacao_final_com_exame`, `avaliacao_final_com_recurso`, etc.) (aceita múltiplos valores)
 
 **Formato de múltiplos valores (todos os filtros acima):**
 
@@ -4962,6 +4966,8 @@ Lista avaliações finais. Escopo varia por tipo de usuário.
 - `codigo_turma` — filtra por turma (requer `codigo_academia` em consultas admin)
 - `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
 - `type` — filtra o tipo de avaliação final (`avaliacao_final`, `avaliacao_final_com_exame`, `avaliacao_final_com_recurso`, etc.)
+- `limit` — quantidade máxima de itens retornados (padrão: 50; máximo: 100)
+- `offset` — deslocamento inicial para paginação (padrão: 0)
 
 
 **Request:** sem payload
@@ -4970,7 +4976,9 @@ Lista avaliações finais. Escopo varia por tipo de usuário.
 ```json
 {
   "avaliacoes": [AvaliacaoFinalDTO],
-  "total": 50
+  "total": 50,
+  "limit": 50,
+  "offset": 0
 }
 ```
 
@@ -4990,6 +4998,8 @@ Lista apenas avaliações com `aprovado = true`.
 - `codigo_turma` — filtra por turma (requer `codigo_academia` em consultas admin)
 - `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
 - `type` — filtra o tipo de avaliação final (`avaliacao_final`, `avaliacao_final_com_exame`, `avaliacao_final_com_recurso`, etc.)
+- `limit` — quantidade máxima de itens retornados (padrão: 50; máximo: 100)
+- `offset` — deslocamento inicial para paginação (padrão: 0)
 
 
 **Request:** sem payload
@@ -4998,7 +5008,9 @@ Lista apenas avaliações com `aprovado = true`.
 ```json
 {
   "aprovacoes": [AvaliacaoFinalDTO],
-  "total": 35
+  "total": 35,
+  "limit": 50,
+  "offset": 0
 }
 ```
 
@@ -5018,6 +5030,8 @@ Lista apenas avaliações com `aprovado = false`.
 - `codigo_turma` — filtra por turma (requer `codigo_academia` em consultas admin)
 - `codigo_academia` — filtro de academia (admin); para academia autenticada, este filtro é sempre forçado ao seu próprio código
 - `type` — filtra o tipo de avaliação final (`avaliacao_final`, `avaliacao_final_com_exame`, `avaliacao_final_com_recurso`, etc.)
+- `limit` — quantidade máxima de itens retornados (padrão: 50; máximo: 100)
+- `offset` — deslocamento inicial para paginação (padrão: 0)
 
 
 **Request:** sem payload
@@ -5026,7 +5040,9 @@ Lista apenas avaliações com `aprovado = false`.
 ```json
 {
   "reprovacoes": [AvaliacaoFinalDTO],
-  "total": 15
+  "total": 15,
+  "limit": 50,
+  "offset": 0
 }
 ```
 
@@ -5039,6 +5055,10 @@ Retorna avaliações finais de um estudante específico.
 
 **Proteção**: autenticado + academia ou admin
 
+**Query Params:**
+
+- `limit` — quantidade máxima de itens retornados (padrão: 50; máximo: 100)
+- `offset` — deslocamento inicial para paginação (padrão: 0)
 
 **Request:** sem payload
 **Response 200:**
@@ -5048,7 +5068,9 @@ Retorna avaliações finais de um estudante específico.
   "codigo_estudante": "ABC1234",
   "nome": "string",
   "avaliacoes": [AvaliacaoFinalDTO],
-  "total": 3
+  "total": 3,
+  "limit": 50,
+  "offset": 0
 }
 ```
 
