@@ -85,3 +85,23 @@ func TestIsTransientConnectionError(t *testing.T) {
 func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
+
+func TestValidateLimitCapsLargePagesAtOneHundred(t *testing.T) {
+	cases := []struct {
+		name  string
+		limit int
+		want  int
+	}{
+		{name: "default for zero", limit: 0, want: 50},
+		{name: "keeps valid value", limit: 75, want: 75},
+		{name: "caps over max", limit: 1000, want: 100},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ValidateLimit(tc.limit); got != tc.want {
+				t.Fatalf("ValidateLimit(%d) = %d, want %d", tc.limit, got, tc.want)
+			}
+		})
+	}
+}
