@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"math"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -28,6 +31,8 @@ type Config struct {
 	MaxConnections  int
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
+	ConnMaxIdleTime time.Duration
+	HealthTimeout   time.Duration
 	DatabaseURL     string
 }
 
@@ -39,7 +44,7 @@ func NewClient(config *Config) (*Client, error) {
 	var connStr string
 
 	if config.DatabaseURL != "" {
-		connStr = config.DatabaseURL + "?client_encoding=UTF8"
+		connStr = withClientEncoding(config.DatabaseURL)
 		log.Printf("🔗 Usando DATABASE_URL (UTF-8)")
 	} else {
 		connStr = fmt.Sprintf(
@@ -56,15 +61,10 @@ func NewClient(config *Config) (*Client, error) {
 
 	db := sqlx.NewDb(sqlDB, "postgres")
 
-	// 🔥 CONFIGURAÇÕES OTIMIZADAS PARA CONEXÕES DE LONGA DURAÇÃO
-	db.SetMaxOpenConns(config.MaxConnections)
-	db.SetMaxIdleConns(config.MaxIdleConns)
-	db.SetConnMaxLifetime(config.ConnMaxLifetime)
+	applyPoolLimits(db, config)
 
-	// ✅ NOVO: Define idle timeout para fechar conexões inativas
-	db.SetConnMaxIdleTime(30 * time.Second)
-
-	if err := db.Ping(); err != nil {
+	if err := pingWithRetry(context.Background(), db, config.HealthTimeout); err != nil {
+		_ = db.Close()
 		return nil, fmt.Errorf("erro ao pingar BD: %w", err)
 	}
 
@@ -101,27 +101,31 @@ func (c *Client) setUTF8Encoding() error {
 func DefaultConfig() *Config {
 	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
 		log.Println("📊 Detectado DATABASE_URL")
-		return &Config{
+		return normalizeConfig(&Config{
 			DatabaseURL:     dbURL,
 			SSLMode:         "require",
-			MaxConnections:  10,
-			MaxIdleConns:    5,
-			ConnMaxLifetime: 5 * time.Minute,
-		}
+			MaxConnections:  getEnvInt("DB_MAX_OPEN_CONNS", 15),
+			MaxIdleConns:    getEnvInt("DB_MAX_IDLE_CONNS", 5),
+			ConnMaxLifetime: getEnvDurationSeconds("DB_CONN_MAX_LIFETIME_SECONDS", 5*time.Minute),
+			ConnMaxIdleTime: getEnvDurationSeconds("DB_CONN_MAX_IDLE_TIME_SECONDS", 2*time.Minute),
+			HealthTimeout:   getEnvDurationSeconds("DB_HEALTH_TIMEOUT_SECONDS", 3*time.Second),
+		})
 	}
 
 	log.Println("📊 Usando variáveis individuais")
-	return &Config{
+	return normalizeConfig(&Config{
 		Host:            getEnv("DB_HOST", "localhost"),
 		Port:            getEnv("DB_PORT", "5432"),
 		User:            getEnv("DB_USER", "fredy"),
 		Password:        getEnv("DB_PASSWORD", "fredy123"),
 		DBName:          getEnv("DB_NAME", "spuri_db"),
 		SSLMode:         getEnv("DB_SSLMODE", "disable"),
-		MaxConnections:  25,
-		MaxIdleConns:    5,
-		ConnMaxLifetime: 5 * time.Minute,
-	}
+		MaxConnections:  getEnvInt("DB_MAX_OPEN_CONNS", 15),
+		MaxIdleConns:    getEnvInt("DB_MAX_IDLE_CONNS", 5),
+		ConnMaxLifetime: getEnvDurationSeconds("DB_CONN_MAX_LIFETIME_SECONDS", 5*time.Minute),
+		ConnMaxIdleTime: getEnvDurationSeconds("DB_CONN_MAX_IDLE_TIME_SECONDS", 2*time.Minute),
+		HealthTimeout:   getEnvDurationSeconds("DB_HEALTH_TIMEOUT_SECONDS", 3*time.Second),
+	})
 }
 
 func (c *Client) Close() error {
@@ -144,7 +148,7 @@ func (c *Client) Config() *Config {
 }
 
 func (c *Client) Health() error {
-	ctx, cancel := context.WithTimeout(c.ctx, 2*time.Second)
+	ctx, cancel := context.WithTimeout(c.ctx, c.config.HealthTimeout)
 	defer cancel()
 
 	return c.db.PingContext(ctx)
@@ -180,4 +184,77 @@ func (c *Client) LogStats() {
 		stats.InUse,
 		stats.Idle,
 	)
+}
+
+func normalizeConfig(config *Config) *Config {
+	if config.MaxConnections <= 0 || config.MaxConnections > 15 {
+		config.MaxConnections = 15
+	}
+	if config.MaxIdleConns <= 0 || config.MaxIdleConns > 5 {
+		config.MaxIdleConns = 5
+	}
+	if config.MaxIdleConns > config.MaxConnections {
+		config.MaxIdleConns = config.MaxConnections
+	}
+	if config.ConnMaxLifetime <= 0 {
+		config.ConnMaxLifetime = 5 * time.Minute
+	}
+	if config.ConnMaxIdleTime <= 0 {
+		config.ConnMaxIdleTime = 2 * time.Minute
+	}
+	if config.HealthTimeout <= 0 {
+		config.HealthTimeout = 3 * time.Second
+	}
+	return config
+}
+
+func applyPoolLimits(db *sqlx.DB, config *Config) {
+	config = normalizeConfig(config)
+	db.SetMaxOpenConns(config.MaxConnections)
+	db.SetMaxIdleConns(config.MaxIdleConns)
+	db.SetConnMaxLifetime(config.ConnMaxLifetime)
+	db.SetConnMaxIdleTime(config.ConnMaxIdleTime)
+}
+
+func pingWithRetry(ctx context.Context, db *sqlx.DB, timeout time.Duration) error {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		pingCtx, cancel := context.WithTimeout(ctx, timeout)
+		lastErr = db.PingContext(pingCtx)
+		cancel()
+		if lastErr == nil {
+			return nil
+		}
+		if !IsTransientConnectionError(lastErr) {
+			return lastErr
+		}
+		time.Sleep(time.Duration(math.Pow(2, float64(attempt))) * 100 * time.Millisecond)
+	}
+	return lastErr
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		log.Printf("⚠️ valor inválido para %s, usando padrão seguro: %v", key, err)
+		return defaultValue
+	}
+	return parsed
+}
+
+func getEnvDurationSeconds(key string, defaultValue time.Duration) time.Duration {
+	seconds := getEnvInt(key, int(defaultValue.Seconds()))
+	return time.Duration(seconds) * time.Second
+}
+
+func withClientEncoding(databaseURL string) string {
+	separator := "?"
+	if strings.Contains(databaseURL, "?") {
+		separator = "&"
+	}
+	return databaseURL + separator + "client_encoding=UTF8"
 }

@@ -225,6 +225,10 @@ func setupRouter() *gin.Engine {
 
 	// ── Rotas públicas ─────────────────────────────────────────────────────
 	router.GET("/health", func(c *gin.Context) {
+		if err := dbClient.Health(); err != nil {
+			utils.RespondWithServiceUnavailable(c, err)
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 	router.POST("/login", middleware.LoginRateLimit(), handlers.Login)

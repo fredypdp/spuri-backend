@@ -15,6 +15,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+
+	"spuri/internal/db"
 )
 
 // HandlerFunc é a assinatura de um handler Gin usado pelo worker.
@@ -209,6 +211,10 @@ func (w *Worker) process(j *Job) {
 		result := w.processItem(h, j, idx, rawItem)
 		if err := w.store.AppendResult(j.ID, result); err != nil {
 			log.Printf("[worker] WARN: AppendResult idx=%d job=%s: %v", idx, j.ID, err)
+			if db.IsTransientConnectionError(err) {
+				log.Printf("[worker] WARN: job %s pausado por indisponibilidade transitória do banco; progresso persistido será retomado", j.ID)
+				return
+			}
 		}
 		if latest, err := w.store.Get(j.ID); err == nil && latest != nil {
 			j = latest

@@ -1,9 +1,11 @@
 package utils
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"unicode"
@@ -92,9 +94,19 @@ func RespondWithValidationError(c *gin.Context, err error) {
 }
 
 func RespondWithInternalError(c *gin.Context, err error) {
+	if IsTransientDatabaseError(err) {
+		RespondWithServiceUnavailable(c, err)
+		return
+	}
 	log.Printf("💥 [RespondWithInternalError] Erro interno: %v", err)
 	RespondWithError(c, http.StatusInternalServerError,
 		"Erro interno do servidor. Tente novamente mais tarde.", err)
+}
+
+func RespondWithServiceUnavailable(c *gin.Context, err error) {
+	log.Printf("⏳ [RespondWithServiceUnavailable] Banco de dados temporariamente indisponível: %v", err)
+	RespondWithError(c, http.StatusServiceUnavailable,
+		"Serviço temporariamente indisponível. Tente novamente em instantes.", err)
 }
 
 func RespondWithNotFoundError(c *gin.Context, resource string) {
@@ -297,4 +309,33 @@ func SafeErrorMessage(err error) string {
 	}
 
 	return err.Error()
+}
+
+// IsTransientDatabaseError classifica falhas transitórias de conexão com banco
+// para que handlers devolvam 503 no envelope padrão em vez de 500 genérico.
+func IsTransientDatabaseError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && (netErr.Timeout() || netErr.Temporary()) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	patterns := []string{
+		"connection refused", "connection reset", "connection closed", "broken pipe",
+		"server closed the connection", "terminating connection", "database system is starting up",
+		"database system is shutting down", "could not connect", "connection timed out",
+		"timeout", "temporary failure in name resolution", "no such host", "network is unreachable",
+		"i/o timeout", "sql: database is closed", "bad connection",
+	}
+	for _, p := range patterns {
+		if strings.Contains(msg, p) {
+			return true
+		}
+	}
+	return false
 }
