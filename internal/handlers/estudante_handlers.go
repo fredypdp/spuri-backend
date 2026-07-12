@@ -655,9 +655,12 @@ func GetMinhasAvaliacoes(c *gin.Context) {
 		return
 	}
 
+	avaliacoes, total, limit, offset := paginarAvaliacoesFinais(c, avaliacoes)
 	c.JSON(http.StatusOK, gin.H{
 		"avaliacoes": avaliacoes,
-		"total":      len(avaliacoes),
+		"total":      total,
+		"limit":      limit,
+		"offset":     offset,
 	})
 }
 
