@@ -2,6 +2,7 @@ package monitoring
 
 import (
 	"context"
+	"strconv"
 	"sync"
 	"time"
 
@@ -67,7 +68,7 @@ func (hc *HealthChecker) CheckAll() *SystemHealth {
 
 // checkDatabase verifica conexão e performance do banco
 func (hc *HealthChecker) checkDatabase() {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	start := time.Now()
@@ -100,10 +101,10 @@ func (hc *HealthChecker) checkDatabase() {
 	stats := hc.db.Stats()
 	details := map[string]string{
 		"latency":          latency.String(),
-		"open_connections": string(rune(stats.OpenConnections)),
-		"in_use":           string(rune(stats.InUse)),
-		"idle":             string(rune(stats.Idle)),
-		"wait_count":       string(rune(stats.WaitCount)),
+		"open_connections": strconv.Itoa(stats.OpenConnections),
+		"in_use":           strconv.Itoa(stats.InUse),
+		"idle":             strconv.Itoa(stats.Idle),
+		"wait_count":       strconv.FormatInt(stats.WaitCount, 10),
 	}
 
 	// Alertar se pool saturado

@@ -1,8 +1,13 @@
 package utils
 
 import (
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	"github.com/gin-gonic/gin"
 )
 
 func TestSafeErrorMessage_NotaDuplicadaNaoViraPeriodoInvalido(t *testing.T) {
@@ -25,3 +30,23 @@ func TestSafeErrorMessage_PeriodoInvalido(t *testing.T) {
 	}
 }
 
+func TestRespondWithInternalErrorMapsTransientDatabaseErrorTo503(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	c.Request = req
+
+	RespondWithInternalError(c, errors.New("dial tcp 127.0.0.1:5432: connect: connection refused"))
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+	var body ErrorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if body.Error != "SERVICE_UNAVAILABLE" {
+		t.Fatalf("error = %q, want SERVICE_UNAVAILABLE", body.Error)
+	}
+}

@@ -15,6 +15,9 @@ import (
 	mega "github.com/t3rm1n4l/go-mega"
 )
 
+// AVISO: o gerenciamento de arquivos via Mega está validado e em produção.
+// Não alterar dependências, provider ou fluxo de arquivos sem solicitação
+// explícita de produto/arquitetura para essa área.
 type StorageProvider interface {
 	Upload(remotePath string, content io.Reader, sizeBytes int64) (StoredFile, error)
 	Delete(remotePath string) error
