@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"spuri/internal/db"
 	"spuri/internal/middleware"
 	"spuri/internal/utils"
 )
@@ -20,8 +21,8 @@ func getPaginationParams(c *gin.Context) (limit, offset int) {
 	offset = 0
 
 	if limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 200 {
-			limit = l
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = db.ValidateLimit(l)
 		}
 	}
 
