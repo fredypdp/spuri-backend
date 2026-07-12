@@ -248,6 +248,14 @@ func (p *AcademiaProjection) UpdateCheckpoint(eventID int64) error {
 	return err
 }
 
+func normalizeAcademiaNivelForProjection(nivel string) string {
+	nivel = strings.TrimSpace(strings.ToLower(nivel))
+	if nivel == "escolar" {
+		return "escola"
+	}
+	return nivel
+}
+
 // ============================================================================
 // Handlers de evento
 // ============================================================================
@@ -291,6 +299,7 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleAcademiaCriada: parse error: %w", err)
 	}
+	payload.Nivel = normalizeAcademiaNivelForProjection(payload.Nivel)
 	payload.Type = strings.TrimSpace(strings.ToLower(payload.Type))
 	if payload.Type != "public" && payload.Type != "private" {
 		return fmt.Errorf("handleAcademiaCriada: type inválido no payload: %q", payload.Type)
