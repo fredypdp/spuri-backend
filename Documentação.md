@@ -160,6 +160,7 @@ interface AcademiaDTO {
   tipo_ano_letivo?: string        // 'escolar' | 'superior'
   ano_letivo_ativado_em?: string  // RFC3339
   anos_letivos_lista: AnoLetivoItem[]
+  documentos?: Record<string, SolicitacaoMatriculaDocumentoDTO> // inclui alvara para usuários autenticados
   created_at: string
   updated_at?: string
   version: number
@@ -221,6 +222,7 @@ interface EstudanteDTO {
 interface SolicitacaoMatriculaDocumentoDTO {
   path: string
   file_url: string
+  // Rota autenticada do backend para download inline do PDF no escopo da consulta.
   download_url: string
 }
 
@@ -507,7 +509,7 @@ interface AsyncBatchAcceptedResponse {
 
 ### Consulta pública de academias
 
-As rotas `GET /academias` e `GET /consultar-academia/:codigo` são públicas com autenticação opcional. Usuários não autenticados podem consultar a lista de academias ou uma academia específica pelo código, mas a resposta expõe somente os campos públicos: `nivel`, `type`, `nome`, `codigo_academia`, `provincia`, `endereco`, `nivel_escolar` e `anos_academicos`. Para escolas fundamentais ou mistas, `anos_academicos` informa os anos acadêmicos ofertados sem exigir sessão.
+As rotas `GET /academias` e `GET /consultar-academia/:codigo` são públicas com autenticação opcional. Usuários não autenticados podem consultar a lista de academias ou uma academia específica pelo código, mas a resposta expõe somente os campos públicos: `nivel`, `type`, `nome`, `codigo_academia`, `provincia`, `endereco`, `nivel_escolar` e `anos_academicos`. Para escolas fundamentais ou mistas, `anos_academicos` informa os anos acadêmicos ofertados sem exigir sessão. Usuários autenticados recebem também `documentos.alvara.download_url` apontando para `/documentos/academias/{codigo_academia}/alvara/download`, permitindo download do alvará pelo backend sem expor links diretos do storage.
 
 As rotas `GET /academia/cursos?codigo_academia=...` e `GET /academia/curso/:id` também são públicas com autenticação opcional para consulta dos cursos e dos anos desses cursos em escolas do médio e academias do nível superior. Academias autenticadas continuam consultando os próprios cursos sem informar `codigo_academia`; admins autenticados continuam informando `codigo_academia` na listagem.
 
@@ -693,7 +695,14 @@ Retorna os dados do usuário autenticado. O formato da resposta varia por tipo.
     "ano_escolar_medio": null,
     "ano_superior": null,
     "curso_medio": null,
-    "curso_superior": null
+    "curso_superior": null,
+    "documentos": {
+      "bi_estudante": {
+        "path": "LDA20261/estudantes/ABC1234/documentos/bi_estudante_ABC1234.pdf",
+        "file_url": "LDA20261/estudantes/ABC1234/documentos/bi_estudante_ABC1234.pdf",
+        "download_url": "/documentos/estudantes/ABC1234/bi_estudante/download"
+      }
+    }
   }
 }
 ```
@@ -1250,14 +1259,25 @@ Lista todas as academias com paginação e filtro de status.
 
 ```json
 {
-  "academias": [AcademiaDTO],
+  "academias": [
+    {
+      ... (AcademiaDTO) ...,
+      "documentos": {
+        "alvara": {
+          "path": "LDA20261/Documentação formal/alvara_LDA20261.pdf",
+          "file_url": "LDA20261/Documentação formal/alvara_LDA20261.pdf",
+          "download_url": "/documentos/academias/LDA20261/alvara/download"
+        }
+      }
+    }
+  ],
   "total": 25,
   "limit": 50,
   "offset": 0
 }
 ```
 
-**Nota**: usuários autenticados veem os campos operacionais do `AcademiaDTO`; admins veem campos extras (`email`, `total_estudantes`, `version`). O backend nunca retorna mais de 100 academias por página, mesmo que o cliente envie `limit` maior.
+**Nota**: usuários autenticados veem os campos operacionais do `AcademiaDTO`, incluindo `documentos.alvara.download_url`; admins veem campos extras (`email`, `total_estudantes`, `version`). O backend nunca retorna mais de 100 academias por página, mesmo que o cliente envie `limit` maior.
 
 ---
 
@@ -1311,13 +1331,20 @@ Retorna detalhes de uma academia pelo código.
   "total_estudantes": 10,
   "ano_letivo": "2026",
   "tipo_ano_letivo": "anual",
-  "anos_letivos_lista": ["2026"]
+  "anos_letivos_lista": ["2026"],
+  "documentos": {
+    "alvara": {
+      "path": "LDA20261/Documentação formal/alvara_LDA20261.pdf",
+      "file_url": "LDA20261/Documentação formal/alvara_LDA20261.pdf",
+      "download_url": "/documentos/academias/LDA20261/alvara/download"
+    }
+  }
 }
 ```
 
 **Campos públicos para usuário não autenticado:** `nivel`, `type`, `nome`, `codigo_academia`, `provincia`, `endereco`, `nivel_escolar`, `anos_academicos`.
 
-**Nota**: admins veem também `email` e `motivo_desativacao`.
+**Nota**: usuários autenticados veem também `documentos.alvara.download_url`; admins veem também `email` e `motivo_desativacao`.
 
 ### GET /academia/anos-academicos
 
@@ -2366,7 +2393,7 @@ Lista estudantes. Retorna apenas os da academia (para academia) ou todos (para a
 
 ### GET /consultar-estudante/:codigo
 
-Consulta um estudante por código.
+Consulta um estudante por código. Quando o estudante possui documentos, a resposta inclui `documentos` com `path`, `file_url` e `download_url`; o `download_url` é sempre uma rota autenticada do backend (`/documentos/estudantes/{codigo_estudante}/{campo}/download`) para permitir que o cliente baixe o PDF sem depender de links diretos do storage.
 
 **Proteção**: autenticado + academia (apenas próprios) ou admin
 
@@ -2394,7 +2421,14 @@ Consulta um estudante por código.
       "type": "medio",
       "status": "ativo"
     },
-    "curso_superior": null
+    "curso_superior": null,
+    "documentos": {
+      "bi_estudante": {
+        "path": "LDA20261/estudantes/ABC1234/documentos/bi_estudante_ABC1234.pdf",
+        "file_url": "LDA20261/estudantes/ABC1234/documentos/bi_estudante_ABC1234.pdf",
+        "download_url": "/documentos/estudantes/ABC1234/bi_estudante/download"
+      }
+    }
   }
 }
 ```
@@ -2936,7 +2970,7 @@ Cria uma solicitação pública de matrícula via `multipart/form-data`. O backe
 
 ### GET /academia/solicitacoes-matricula
 
-Lista solicitações da academia autenticada em ordem decrescente de criação.
+Lista solicitações da academia autenticada em ordem decrescente de criação. Para cada documento retornado, `download_url` aponta para a rota autenticada do backend no escopo global (`/documentos/solicitacoes-matricula/{codigo_solicitacao}/{campo}/download`), garantindo download do PDF pelo cliente sem expor credenciais ou IDs internos do storage.
 
 **Proteção**: autenticado + academia
 
@@ -2964,8 +2998,8 @@ Lista solicitações da academia autenticada em ordem decrescente de criação.
       "documentos": {
         "bi_responsavel": {
           "path": "LDA20261/matriculas/matricula_A3F9K2BPQ7X/bi_responsavel_A3F9K2BPQ7X.pdf",
-          "file_url": "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk",
-          "download_url": "https://drive.google.com/uc?id=FILE_ID&export=download"
+          "file_url": "LDA20261/matriculas/matricula_A3F9K2BPQ7X/bi_responsavel_A3F9K2BPQ7X.pdf",
+          "download_url": "/documentos/solicitacoes-matricula/A3F9K2BPQ7X/bi_responsavel/download"
         }
       },
       "created_at": "2026-06-14T10:00:00Z",
@@ -2981,7 +3015,7 @@ Lista solicitações da academia autenticada em ordem decrescente de criação.
 
 ### GET /academia/solicitacao-matricula/:codigo
 
-Consulta uma solicitação da academia autenticada pelo `codigo_solicitacao`. Retorna `404` se não existir e `403` se pertencer a outra academia.
+Consulta uma solicitação da academia autenticada pelo `codigo_solicitacao`. Retorna `404` se não existir e `403` se pertencer a outra academia. Os documentos retornados também recebem `download_url` de rota autenticada do backend para download do PDF.
 
 **Proteção**: autenticado + academia dona
 
@@ -3002,8 +3036,8 @@ Consulta uma solicitação da academia autenticada pelo `codigo_solicitacao`. Re
     "documentos": {
       "declaracao": {
         "path": "LDA20261/matriculas/matricula_A3F9K2BPQ7X/declaracao_A3F9K2BPQ7X.pdf",
-        "file_url": "https://drive.google.com/file/d/FILE_ID/view?usp=drivesdk",
-        "download_url": "https://drive.google.com/uc?id=FILE_ID&export=download"
+        "file_url": "LDA20261/matriculas/matricula_A3F9K2BPQ7X/declaracao_A3F9K2BPQ7X.pdf",
+        "download_url": "/documentos/solicitacoes-matricula/A3F9K2BPQ7X/declaracao/download"
       }
     },
     "created_at": "2026-06-14T10:00:00Z",
@@ -5801,7 +5835,7 @@ Configuração local/teste:
 - `MEGA_LOCAL_ROOT`: diretório local usado pelo provider local (padrão `data/mega_storage`).
 - `ENV=test`: permite usar o provider local nos testes automatizados.
 
-Os documentos de matrícula continuam sendo gravados em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`; documentos formais seguem `{codigo_academia}/Documentação formal/`; documentos de estudantes seguem `{codigo_academia}/Estudantes/{codigo_estudante}/`. `EnsureDir` cria a hierarquia de pastas de forma idempotente, `Upload` envia o conteúdo para o caminho lógico solicitado e retorna metadados internos do projeto (`path`, `file_url`, `download_url`). O front end deve baixar documentos pelas rotas autenticadas de download do backend (`/documentos/academias/{codigo_academia}/alvara/download`, `/documentos/estudantes/{codigo_estudante}/{campo}/download` e `/documentos/solicitacoes-matricula/{codigo_solicitacao}/{campo}/download`), e não por credenciais, links privados ou IDs internos do Mega. `Read` faz o download para arquivo temporário e entrega um stream fechado pelo handler; `Delete`, `Move` e `Rename` normalizam paths e erros externos. `GetQuota` é suportado no provider local; no Mega real, limitações do MEGAcmd para quota detalhada por diretório são expostas como operação não suportada em vez de simular sucesso.
+Os documentos de matrícula continuam sendo gravados em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`; documentos formais seguem `{codigo_academia}/Documentação formal/`; documentos de estudantes seguem `{codigo_academia}/Estudantes/{codigo_estudante}/`. `EnsureDir` cria a hierarquia de pastas de forma idempotente, `Upload` envia o conteúdo para o caminho lógico solicitado e retorna metadados internos do projeto (`path`, `file_url`, `download_url`). Nas respostas de consulta, o backend normaliza `download_url` para uma rota autenticada própria do escopo consultado, mesmo quando o metadado persistido contém link legado do storage. O front end deve baixar documentos pelas rotas autenticadas de download do backend (`/documentos/academias/{codigo_academia}/alvara/download`, `/documentos/estudantes/{codigo_estudante}/{campo}/download`, `/documentos/solicitacoes-matricula/{codigo_solicitacao}/{campo}/download`, `/estudante/documentos/{campo}/download` ou `/academia/documentos/...`), e não por credenciais, links privados ou IDs internos do Mega. `Read` faz o download para arquivo temporário e entrega um stream fechado pelo handler; `Delete`, `Move` e `Rename` normalizam paths e erros externos. `GetQuota` é suportado no provider local; no Mega real, limitações do MEGAcmd para quota detalhada por diretório são expostas como operação não suportada em vez de simular sucesso.
 
 Não há migração automática de arquivos do Google Drive para o Mega porque não existem arquivos remotos atuais a copiar. Referências antigas, se encontradas, devem ser tratadas como metadados legados; novos uploads, leituras/downloads, deleções, movimentações e renomeações usam Mega ou o fake local em testes.
 
@@ -5822,7 +5856,7 @@ Falhas de configuração retornam mensagens operacionais explícitas, sem vazar 
 
 ### GET /documentos/academias/{codigo_academia}/alvara/download
 
-Faz stream inline do alvará/documento formal da academia pelo backend, sem expor credenciais, links privados ou IDs internos do Mega.
+Faz stream inline do alvará/documento formal da academia pelo backend, sem expor credenciais, links privados ou IDs internos do Mega. As consultas autenticadas de academia (`GET /academias`, `GET /consultar-academia/:codigo` e o inventário `GET /academia/documentos`) retornam esse endereço em `documentos.alvara.download_url`.
 
 **Escopo da rota**: global autenticado (`protected`), fora dos prefixos `/academia`, `/estudante` e `/dominis`, para permitir uso uniforme pelo front end a partir de qualquer tela autorizada.
 

@@ -146,13 +146,7 @@ func ListarDocumentosAcademia(c *gin.Context) {
 			"academia": gin.H{
 				"codigo_academia": academia.CodigoAcademia,
 				"nome":            academia.Nome,
-				"documentos": gin.H{
-					"alvara": aggregates.DocumentoMatricula{
-						Path:        fmt.Sprintf("%s/Documentação formal/alvara_%s.pdf", academia.CodigoAcademia, academia.CodigoAcademia),
-						FileURL:     fmt.Sprintf("%s/Documentação formal/alvara_%s.pdf", academia.CodigoAcademia, academia.CodigoAcademia),
-						DownloadURL: academiaDocumentoProprioDownloadURL("alvara"),
-					},
-				},
+				"documentos":      documentosComDownloadAcademiaPropria(academia.CodigoAcademia),
 			},
 			"estudantes":             estudantesDocs,
 			"solicitacoes_matricula": solicitacoesDocs,
@@ -393,15 +387,32 @@ func safeDocumentFilename(campo string) string {
 	return campo
 }
 
+func documentosComDownloadAcademia(codigoAcademia string) map[string]aggregates.DocumentoMatricula {
+	return documentosComDownloadAcademiaComURL(codigoAcademia, func(campo string) string {
+		return academiaDocumentoDownloadURL(codigoAcademia, campo)
+	})
+}
+
+func documentosComDownloadAcademiaPropria(codigoAcademia string) map[string]aggregates.DocumentoMatricula {
+	return documentosComDownloadAcademiaComURL(codigoAcademia, func(campo string) string {
+		return academiaDocumentoProprioDownloadURL(campo)
+	})
+}
+
+func documentosComDownloadAcademiaComURL(codigoAcademia string, downloadURL func(string) string) map[string]aggregates.DocumentoMatricula {
+	path := fmt.Sprintf("%s/Documentação formal/alvara_%s.pdf", codigoAcademia, codigoAcademia)
+	return documentosComDownload(map[string]aggregates.DocumentoMatricula{
+		"alvara": {
+			Path:    path,
+			FileURL: path,
+		},
+	}, downloadURL)
+}
+
 func documentosComDownloadEstudante(codigoEstudante string, documentos map[string]aggregates.DocumentoMatricula) map[string]aggregates.DocumentoMatricula {
-	out := make(map[string]aggregates.DocumentoMatricula, len(documentos))
-	for campo, doc := range documentos {
-		if strings.TrimSpace(doc.DownloadURL) == "" {
-			doc.DownloadURL = estudanteDocumentoDownloadURL(codigoEstudante, campo)
-		}
-		out[campo] = doc
-	}
-	return out
+	return documentosComDownload(documentos, func(campo string) string {
+		return estudanteDocumentoDownloadURL(codigoEstudante, campo)
+	})
 }
 
 func documentosComDownloadEstudanteProprio(documentos map[string]aggregates.DocumentoMatricula) map[string]aggregates.DocumentoMatricula {
@@ -417,14 +428,9 @@ func documentosComDownloadEstudanteAcademia(codigoEstudante string, documentos m
 }
 
 func documentosComDownloadSolicitacao(codigoSolicitacao string, documentos map[string]aggregates.DocumentoMatricula) map[string]aggregates.DocumentoMatricula {
-	out := make(map[string]aggregates.DocumentoMatricula, len(documentos))
-	for campo, doc := range documentos {
-		if strings.TrimSpace(doc.DownloadURL) == "" {
-			doc.DownloadURL = solicitacaoDocumentoDownloadURL(codigoSolicitacao, campo)
-		}
-		out[campo] = doc
-	}
-	return out
+	return documentosComDownload(documentos, func(campo string) string {
+		return solicitacaoDocumentoDownloadURL(codigoSolicitacao, campo)
+	})
 }
 
 func documentosComDownloadSolicitacaoAcademia(codigoSolicitacao string, documentos map[string]aggregates.DocumentoMatricula) map[string]aggregates.DocumentoMatricula {

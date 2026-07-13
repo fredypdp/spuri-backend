@@ -603,6 +603,7 @@ func ListarTodasAcademias(c *gin.Context) {
 			acadMap["email_verificado"] = aca.EmailVerificado
 			acadMap["created_at"] = aca.CreatedAt
 			acadMap["updated_at"] = aca.UpdatedAt
+			acadMap["documentos"] = documentosComDownloadAcademia(aca.CodigoAcademia)
 		}
 
 		if userType == "admin" {
@@ -675,6 +676,7 @@ func GetAcademiaPorCodigo(c *gin.Context) {
 		resp["ano_letivo"] = academia.AnoLetivo
 		resp["tipo_ano_letivo"] = academia.TipoAnoLetivo
 		resp["anos_letivos_lista"] = academia.AnosLetivosLista
+		resp["documentos"] = documentosComDownloadAcademia(academia.CodigoAcademia)
 	}
 
 	if userType == "admin" {

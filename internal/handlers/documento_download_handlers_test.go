@@ -1,6 +1,10 @@
 package handlers
 
-import "testing"
+import (
+	"testing"
+
+	"spuri/internal/domain/aggregates"
+)
 
 func TestSafeDocumentFilename(t *testing.T) {
 	cases := map[string]string{
@@ -27,14 +31,53 @@ func TestAcademiaDocumentoDownloadURL(t *testing.T) {
 
 func TestScopedDocumentoDownloadURLs(t *testing.T) {
 	cases := map[string]string{
-		estudanteDocumentoProprioDownloadURL("bi_estudante"):              "/estudante/documentos/bi_estudante/download",
-		academiaDocumentoProprioDownloadURL("alvara"):                     "/academia/documentos/academia/alvara/download",
-		academiaEstudanteDocumentoDownloadURL("EST001", "bi_estudante"):   "/academia/documentos/estudantes/EST001/bi_estudante/download",
-		academiaSolicitacaoDocumentoDownloadURL("SOL001", "bi_estudante"): "/academia/documentos/solicitacoes-matricula/SOL001/bi_estudante/download",
+		estudanteDocumentoProprioDownloadURL("bi_estudante"):                 "/estudante/documentos/bi_estudante/download",
+		academiaDocumentoProprioDownloadURL("alvara"):                        "/academia/documentos/academia/alvara/download",
+		documentosComDownloadAcademia("ACA001")["alvara"].DownloadURL:        "/documentos/academias/ACA001/alvara/download",
+		documentosComDownloadAcademiaPropria("ACA001")["alvara"].DownloadURL: "/academia/documentos/academia/alvara/download",
+		academiaEstudanteDocumentoDownloadURL("EST001", "bi_estudante"):      "/academia/documentos/estudantes/EST001/bi_estudante/download",
+		academiaSolicitacaoDocumentoDownloadURL("SOL001", "bi_estudante"):    "/academia/documentos/solicitacoes-matricula/SOL001/bi_estudante/download",
 	}
 	for got, want := range cases {
 		if got != want {
 			t.Fatalf("download URL = %q, want %q", got, want)
+		}
+	}
+}
+
+func TestDocumentoConsultaHelpersSemprePreenchemDownloadURLDaRota(t *testing.T) {
+	documentos := map[string]aggregates.DocumentoMatricula{
+		"bi_estudante": {Path: "old/path.pdf", DownloadURL: "https://storage.example/old.pdf"},
+	}
+
+	cases := map[string]map[string]aggregates.DocumentoMatricula{
+		"consulta global da academia":      documentosComDownloadAcademia("ACA001"),
+		"consulta própria da academia":     documentosComDownloadAcademiaPropria("ACA001"),
+		"consulta global do estudante":     documentosComDownloadEstudante("EST001", documentos),
+		"consulta própria do estudante":    documentosComDownloadEstudanteProprio(documentos),
+		"consulta da academia/estudante":   documentosComDownloadEstudanteAcademia("EST001", documentos),
+		"consulta global de solicitação":   documentosComDownloadSolicitacao("SOL001", documentos),
+		"consulta da academia/solicitação": documentosComDownloadSolicitacaoAcademia("SOL001", documentos),
+	}
+
+	wants := map[string]string{
+		"consulta global da academia":      "/documentos/academias/ACA001/alvara/download",
+		"consulta própria da academia":     "/academia/documentos/academia/alvara/download",
+		"consulta global do estudante":     "/documentos/estudantes/EST001/bi_estudante/download",
+		"consulta própria do estudante":    "/estudante/documentos/bi_estudante/download",
+		"consulta da academia/estudante":   "/academia/documentos/estudantes/EST001/bi_estudante/download",
+		"consulta global de solicitação":   "/documentos/solicitacoes-matricula/SOL001/bi_estudante/download",
+		"consulta da academia/solicitação": "/academia/documentos/solicitacoes-matricula/SOL001/bi_estudante/download",
+	}
+
+	for name, gotDocs := range cases {
+		campo := "bi_estudante"
+		if name == "consulta global da academia" || name == "consulta própria da academia" {
+			campo = "alvara"
+		}
+		got := gotDocs[campo].DownloadURL
+		if got != wants[name] {
+			t.Fatalf("%s: download_url = %q, want %q", name, got, wants[name])
 		}
 	}
 }
