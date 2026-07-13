@@ -69,21 +69,25 @@ func batchErr(index int, err error) BatchItemResult {
 // =============================================================================
 
 func RegisterEstudanteBatch(c *gin.Context) {
-	var reqs []CadastroEstudanteAcademiaRequest
-	if err := c.ShouldBindJSON(&reqs); err != nil {
+	var items []cadastroEstudanteJSONItem
+	if err := c.ShouldBindJSON(&items); err != nil {
 		utils.RespondWithError(c, http.StatusBadRequest, "body deve ser um array de estudantes", nil)
 		return
 	}
-	if err := validarTamanhoBatch(len(reqs), 100); err != nil {
+	if err := validarTamanhoBatch(len(items), 100); err != nil {
 		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
 
-	results := make([]BatchItemResult, 0, len(reqs))
-	for i, req := range reqs {
+	results := make([]BatchItemResult, 0, len(items))
+	for i, item := range items {
+		req, declaracaoAnoAcademico, err := item.toCadastroRequest()
+		if err != nil {
+			results = append(results, batchErr(i, err))
+			continue
+		}
 		rc := newFakeContext(c)
-		setJSONBody(rc, req)
-		RegisterEstudantePorAcademia(rc)
+		registerEstudantePorAcademiaComRequest(rc, req, map[string]uploadedPDF{}, declaracaoAnoAcademico)
 		results = append(results, extractResult(rc, i))
 	}
 

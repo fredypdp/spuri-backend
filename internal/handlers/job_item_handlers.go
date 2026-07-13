@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"spuri/internal/domain/aggregates"
 	"spuri/internal/utils"
 	"strings"
 	"time"
@@ -72,35 +73,30 @@ func parseCadastroEstudanteAsyncDate(value string) (time.Time, error) {
 	return parsed, nil
 }
 
-func RegisterEstudantePorAcademiaJobItem(c *gin.Context) {
-	var item struct {
-		Nome                   string `json:"nome"`
-		Genero                 string `json:"genero"`
-		DataNascimento         string `json:"data_nascimento"`
-		Email                  string `json:"email"`
-		Telefone               string `json:"telefone"`
-		TelefoneResponsavel    string `json:"telefone_responsavel"`
-		BilheteIdentidade      string `json:"bilhete_identidade"`
-		BilheteResponsavel     string `json:"bilhete_identidade_responsavel"`
-		AnoEscolar             string `json:"ano_escolar_fundamental"`
-		AnoEscolarMedio        string `json:"ano_escolar_medio"`
-		AnoSuperior            string `json:"ano_superior"`
-		CursoMedioID           string `json:"curso_medio_id"`
-		CursoSuperiorID        string `json:"curso_superior_id"`
-		DeclaracaoAnoAcademico string `json:"declaracao_ano_academico"`
-	}
-	if err := bindJobItemWithoutLosingBody(c, &item); err != nil {
-		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter os mesmos campos textuais do cadastro de estudante", nil)
-		return
-	}
+type cadastroEstudanteJSONItem struct {
+	Nome                   string                                   `json:"nome"`
+	Genero                 string                                   `json:"genero"`
+	DataNascimento         string                                   `json:"data_nascimento"`
+	Email                  string                                   `json:"email"`
+	Telefone               string                                   `json:"telefone"`
+	TelefoneResponsavel    string                                   `json:"telefone_responsavel"`
+	BilheteIdentidade      string                                   `json:"bilhete_identidade"`
+	BilheteResponsavel     string                                   `json:"bilhete_identidade_responsavel"`
+	AnoEscolar             string                                   `json:"ano_escolar_fundamental"`
+	AnoEscolarMedio        string                                   `json:"ano_escolar_medio"`
+	AnoSuperior            string                                   `json:"ano_superior"`
+	CursoMedioID           string                                   `json:"curso_medio_id"`
+	CursoSuperiorID        string                                   `json:"curso_superior_id"`
+	DeclaracaoAnoAcademico string                                   `json:"declaracao_ano_academico"`
+	Documentos             map[string]aggregates.DocumentoMatricula `json:"documentos"`
+}
 
+func (item cadastroEstudanteJSONItem) toCadastroRequest() (CadastroEstudanteAcademiaRequest, string, error) {
 	dataNascimento, err := parseCadastroEstudanteAsyncDate(item.DataNascimento)
 	if err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
+		return CadastroEstudanteAcademiaRequest{}, "", err
 	}
-
-	req := CadastroEstudanteAcademiaRequest{
+	return CadastroEstudanteAcademiaRequest{
 		Nome:                strings.TrimSpace(item.Nome),
 		Genero:              strings.TrimSpace(item.Genero),
 		DataNascimento:      dataNascimento,
@@ -114,9 +110,24 @@ func RegisterEstudantePorAcademiaJobItem(c *gin.Context) {
 		AnoSuperior:         strings.TrimSpace(item.AnoSuperior),
 		CursoMedioID:        strings.TrimSpace(item.CursoMedioID),
 		CursoSuperiorID:     strings.TrimSpace(item.CursoSuperiorID),
+		Documentos:          item.Documentos,
+	}, strings.TrimSpace(item.DeclaracaoAnoAcademico), nil
+}
+
+func RegisterEstudantePorAcademiaJobItem(c *gin.Context) {
+	var item cadastroEstudanteJSONItem
+	if err := bindJobItemWithoutLosingBody(c, &item); err != nil {
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter os mesmos campos textuais do cadastro de estudante", nil)
+		return
 	}
 
-	registerEstudantePorAcademiaComRequest(c, req, map[string]uploadedPDF{}, strings.TrimSpace(item.DeclaracaoAnoAcademico))
+	req, declaracaoAnoAcademico, err := item.toCadastroRequest()
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	registerEstudantePorAcademiaComRequest(c, req, map[string]uploadedPDF{}, declaracaoAnoAcademico)
 }
 
 func AtivarAcademiaJobItem(c *gin.Context) {
