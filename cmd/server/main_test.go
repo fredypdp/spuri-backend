@@ -44,7 +44,7 @@ func TestGlobalAnoLetivoReadRoutesRequireOnlyAuthentication(t *testing.T) {
 	}
 }
 
-func TestDocumentoDownloadRoutesRequireAuthentication(t *testing.T) {
+func TestDocumentoRoutesRequireAuthentication(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	router := setupRouter()
@@ -52,6 +52,8 @@ func TestDocumentoDownloadRoutesRequireAuthentication(t *testing.T) {
 		"/documentos/academias/ACA001/alvara/download",
 		"/documentos/estudantes/EST001/bi_estudante/download",
 		"/documentos/solicitacoes-matricula/SOL001/bi_estudante/download",
+		"/estudante/documentos",
+		"/academia/documentos",
 	} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		w := httptest.NewRecorder()

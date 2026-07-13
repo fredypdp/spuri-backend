@@ -27,6 +27,127 @@ func academiaDocumentoDownloadURL(codigoAcademia, campo string) string {
 	return fmt.Sprintf("/documentos/academias/%s/%s/download", codigoAcademia, campo)
 }
 
+// ListarMeusDocumentosEstudante returns the authenticated student's own
+// document metadata without requiring the student to know/use the generic
+// administrative lookup routes.
+func ListarMeusDocumentosEstudante(c *gin.Context) {
+	userID, ok := middleware.GetUserID(c)
+	if !ok {
+		utils.RespondWithForbiddenError(c, "estudante não autenticado")
+		return
+	}
+
+	estudante, err := getEstudanteProjection(c).GetByID(userID)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if estudante == nil {
+		utils.RespondWithNotFoundError(c, "estudante")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"codigo_estudante": estudante.CodigoEstudante,
+		"documentos":       documentosComDownloadEstudante(estudante.CodigoEstudante, estudante.Documentos),
+	})
+}
+
+// ListarDocumentosAcademia returns the authenticated academy's document
+// inventory: its own formal document, documents of students linked to it, and
+// documents attached to its enrollment requests.
+func ListarDocumentosAcademia(c *gin.Context) {
+	userType, _ := middleware.GetUserType(c)
+	if userType != "academia" && userType != "admin" {
+		utils.RespondWithForbiddenError(c, "apenas academias e administradores podem consultar documentos da academia")
+		return
+	}
+
+	codigoAcademia := strings.TrimSpace(c.Query("codigo_academia"))
+	if userType == "academia" {
+		userID, _ := middleware.GetUserID(c)
+		academia, err := getAcademiaProjection(c).GetByID(userID)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		if academia == nil {
+			utils.RespondWithNotFoundError(c, "academia")
+			return
+		}
+		codigoAcademia = academia.CodigoAcademia
+	} else if codigoAcademia == "" {
+		utils.RespondWithValidationError(c, fmt.Errorf("codigo_academia é obrigatório para administradores"))
+		return
+	}
+
+	academia, err := getAcademiaProjection(c).GetByCodigo(codigoAcademia)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if academia == nil {
+		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+
+	estudantes, err := getEstudanteProjection(c).GetByAcademia(codigoAcademia)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	limit := parseBoundedInt(c.Query("limit"), 1000, 1, 1000)
+	offset := parseBoundedInt(c.Query("offset"), 0, 0, 1_000_000)
+	solicitacoes, err := getSolicitacaoMatriculaProjection(c).List(nil, []string{codigoAcademia}, limit, offset)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	estudantesDocs := make([]gin.H, 0, len(estudantes))
+	for _, estudante := range estudantes {
+		estudantesDocs = append(estudantesDocs, gin.H{
+			"codigo_estudante": estudante.CodigoEstudante,
+			"nome":             estudante.Nome,
+			"status":           estudante.Status,
+			"documentos":       documentosComDownloadEstudante(estudante.CodigoEstudante, estudante.Documentos),
+		})
+	}
+
+	solicitacoesDocs := make([]gin.H, 0, len(solicitacoes.Solicitacoes))
+	for _, sol := range solicitacoes.Solicitacoes {
+		solicitacoesDocs = append(solicitacoesDocs, gin.H{
+			"codigo_solicitacao": sol.CodigoSolicitacao,
+			"nome":               sol.Nome,
+			"status":             sol.Status,
+			"documentos":         documentosComDownloadSolicitacao(sol.CodigoSolicitacao, sol.Documentos),
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"codigo_academia": academia.CodigoAcademia,
+		"documentos": gin.H{
+			"academia": gin.H{
+				"codigo_academia": academia.CodigoAcademia,
+				"nome":            academia.Nome,
+				"documentos": gin.H{
+					"alvara": aggregates.DocumentoMatricula{
+						Path:        fmt.Sprintf("%s/Documentação formal/alvara_%s.pdf", academia.CodigoAcademia, academia.CodigoAcademia),
+						FileURL:     fmt.Sprintf("%s/Documentação formal/alvara_%s.pdf", academia.CodigoAcademia, academia.CodigoAcademia),
+						DownloadURL: academiaDocumentoDownloadURL(academia.CodigoAcademia, "alvara"),
+					},
+				},
+			},
+			"estudantes":             estudantesDocs,
+			"solicitacoes_matricula": solicitacoesDocs,
+			"total_estudantes":       len(estudantesDocs),
+			"total_solicitacoes":     solicitacoes.Total,
+			"limit_solicitacoes":     limit,
+			"offset_solicitacoes":    offset,
+		},
+	})
+}
+
 // DownloadDocumentoEstudante streams a student document from the configured
 // storage provider. The route is intentionally backend-owned so the front end
 // does not need direct Mega credentials, links, or internal node IDs.
@@ -198,4 +319,26 @@ func safeDocumentFilename(campo string) string {
 		campo += ".pdf"
 	}
 	return campo
+}
+
+func documentosComDownloadEstudante(codigoEstudante string, documentos map[string]aggregates.DocumentoMatricula) map[string]aggregates.DocumentoMatricula {
+	out := make(map[string]aggregates.DocumentoMatricula, len(documentos))
+	for campo, doc := range documentos {
+		if strings.TrimSpace(doc.DownloadURL) == "" {
+			doc.DownloadURL = estudanteDocumentoDownloadURL(codigoEstudante, campo)
+		}
+		out[campo] = doc
+	}
+	return out
+}
+
+func documentosComDownloadSolicitacao(codigoSolicitacao string, documentos map[string]aggregates.DocumentoMatricula) map[string]aggregates.DocumentoMatricula {
+	out := make(map[string]aggregates.DocumentoMatricula, len(documentos))
+	for campo, doc := range documentos {
+		if strings.TrimSpace(doc.DownloadURL) == "" {
+			doc.DownloadURL = solicitacaoDocumentoDownloadURL(codigoSolicitacao, campo)
+		}
+		out[campo] = doc
+	}
+	return out
 }

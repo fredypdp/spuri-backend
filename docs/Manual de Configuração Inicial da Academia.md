@@ -467,7 +467,14 @@ POST /academia/estudante/register
 
 O cadastro direto usa `multipart/form-data` e compartilha a mesma validação cadastral/documental do `POST /solicitacao-matricula` para dados comuns. No nível escolar/fundamental/médio, `telefone_responsavel` é obrigatório e `telefone` do estudante é opcional; no ensino superior, `telefone` do estudante é obrigatório e `telefone_responsavel` é opcional. Documentos obrigatórios são validados e enviados ao storage antes de qualquer gravação no ledger; falha de validação ou upload impede a criação do estudante.
 
-Quando documentos forem retornados nos metadados do estudante ou da solicitação de matrícula, o front end deve usar o campo `download_url` para leitura do PDF. O backend expõe rotas autenticadas de download inline (`GET /documentos/estudantes/{codigo_estudante}/{campo}/download` e `GET /documentos/solicitacoes-matricula/{codigo_solicitacao}/{campo}/download`), sem expor credenciais ou IDs internos do Mega.
+Quando documentos forem retornados nos metadados do estudante ou da solicitação de matrícula, o front end deve usar o campo `download_url` para leitura do PDF. O backend expõe rotas autenticadas de download inline (`GET /documentos/estudantes/{codigo_estudante}/{campo}/download`, `GET /documentos/solicitacoes-matricula/{codigo_solicitacao}/{campo}/download` e `GET /documentos/academias/{codigo_academia}/alvara/download`), sem expor credenciais ou IDs internos do Mega.
+
+Também existem rotas próprias para consulta dos documentos por perfil, evitando que o estudante ou a academia dependam de listagens administrativas genéricas:
+
+- `GET /estudante/documentos` — rota exclusiva do estudante autenticado. Retorna `codigo_estudante` e o mapa `documentos` do próprio estudante, com `download_url` preenchido para cada campo documental.
+- `GET /academia/documentos` — rota da academia autenticada. Retorna o inventário documental relacionado à academia: documento formal da própria academia (`alvara`), documentos dos estudantes vinculados e documentos das solicitações de matrícula da academia. Administradores podem usar a mesma rota informando `?codigo_academia={codigo}`. A secção de solicitações aceita paginação com `limit` e `offset` (limite máximo 1000).
+
+As permissões de download continuam sendo aplicadas no backend: estudantes só baixam documentos do seu próprio cadastro; academias só baixam documentos da própria academia, de seus estudantes e de suas solicitações; administradores mantêm acesso global.
 
 Ao cadastrar, informe os vínculos acadêmicos compatíveis com o tipo de estudante:
 
