@@ -394,14 +394,9 @@ func safeDocumentFilename(campo string) string {
 }
 
 func documentosComDownloadEstudante(codigoEstudante string, documentos map[string]aggregates.DocumentoMatricula) map[string]aggregates.DocumentoMatricula {
-	out := make(map[string]aggregates.DocumentoMatricula, len(documentos))
-	for campo, doc := range documentos {
-		if strings.TrimSpace(doc.DownloadURL) == "" {
-			doc.DownloadURL = estudanteDocumentoDownloadURL(codigoEstudante, campo)
-		}
-		out[campo] = doc
-	}
-	return out
+	return documentosComDownload(documentos, func(campo string) string {
+		return estudanteDocumentoDownloadURL(codigoEstudante, campo)
+	})
 }
 
 func documentosComDownloadEstudanteProprio(documentos map[string]aggregates.DocumentoMatricula) map[string]aggregates.DocumentoMatricula {
@@ -417,14 +412,9 @@ func documentosComDownloadEstudanteAcademia(codigoEstudante string, documentos m
 }
 
 func documentosComDownloadSolicitacao(codigoSolicitacao string, documentos map[string]aggregates.DocumentoMatricula) map[string]aggregates.DocumentoMatricula {
-	out := make(map[string]aggregates.DocumentoMatricula, len(documentos))
-	for campo, doc := range documentos {
-		if strings.TrimSpace(doc.DownloadURL) == "" {
-			doc.DownloadURL = solicitacaoDocumentoDownloadURL(codigoSolicitacao, campo)
-		}
-		out[campo] = doc
-	}
-	return out
+	return documentosComDownload(documentos, func(campo string) string {
+		return solicitacaoDocumentoDownloadURL(codigoSolicitacao, campo)
+	})
 }
 
 func documentosComDownloadSolicitacaoAcademia(codigoSolicitacao string, documentos map[string]aggregates.DocumentoMatricula) map[string]aggregates.DocumentoMatricula {

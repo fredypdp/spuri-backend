@@ -792,6 +792,7 @@ func GetEstudantePorCodigo(c *gin.Context) {
 			"curso_superior":                 cursoSuperiorInfo,
 			"created_at":                     estudante.CreatedAt,
 			"updated_at":                     estudante.UpdatedAt,
+			"documentos":                     documentosComDownloadEstudante(estudante.CodigoEstudante, estudante.Documentos),
 			"version":                        estudante.Version,
 		},
 	})
