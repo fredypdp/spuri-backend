@@ -21,6 +21,12 @@ A rota de lote não deve mais presumir que sempre receberá apenas uma requisiç
 
 Quando a importação for feita sem arquivos, o estudante não pode ficar ativo imediatamente. Ele deve ser criado em um status específico que represente pendência de arquivamento/carregamento de documentos, mantendo o cadastro rastreável e impedindo ativação indevida antes da conclusão documental.
 
+## Premissa obrigatória: seguir regras já existentes
+
+Esta atualização não deve inventar novas regras de cadastro, validação documental, armazenamento, nomenclatura de arquivos, status, permissões ou resposta de erro quando já houver comportamento implementado no backend. A implementação deve seguir e reutilizar as regras já existentes nas rotas singulares, especialmente `POST /academia/estudante/register` e o fluxo de solicitação de matrícula.
+
+Sempre que o cadastro em massa/lote precisar validar campos textuais, documentos, obrigatoriedades condicionais, tipos de arquivo, limites, storage, auditoria, permissões ou transições de status, a regra fonte deve ser a regra existente no sistema. Caso alguma regra existente esteja centralizada em validator, service, use case, helper, policy, middleware ou schema, ela deve ser reutilizada diretamente ou extraída para uso compartilhado, evitando duplicação e evitando criar interpretações paralelas para o lote.
+
 ## Resumo executivo
 
 | Item | Decisão | Resultado esperado |
@@ -122,7 +128,7 @@ Quando `com_arquivo` for `true`, a rota de lote deve:
 
 ### 2.1 Reusar validações existentes
 
-A implementação deve reaproveitar validadores, helpers, serviços, policies ou casos de uso já utilizados nas rotas singulares, evitando cópia divergente de regras.
+A implementação deve reaproveitar validadores, helpers, serviços, policies ou casos de uso já utilizados nas rotas singulares, evitando cópia divergente de regras. Não criar novos critérios de validação para o lote quando uma regra equivalente já existir no cadastro singular ou na solicitação de matrícula.
 
 Se houver diferenças históricas entre cadastro singular de estudante e solicitação de matrícula, a tarefa deve primeiro mapear essas diferenças e consolidar o comportamento esperado para o lote com arquivos, priorizando a regra mais restritiva quando necessário para manter segurança documental.
 
@@ -175,7 +181,7 @@ Quando `com_arquivo` for `false`, a rota de lote deve:
 
 ### 3.1 Reusar regras JSON do cadastro singular
 
-O lote sem arquivos deve seguir a mesma regra de validação JSON do cadastro singular `POST /academia/estudante/register`, incluindo validações de:
+O lote sem arquivos deve seguir a mesma regra de validação JSON já existente no cadastro singular `POST /academia/estudante/register`, sem reinterpretar ou flexibilizar campos, obrigatoriedades e mensagens, incluindo validações de:
 
 - dados pessoais do estudante;
 - dados acadêmicos;
@@ -227,7 +233,7 @@ A nova rota deve:
 
 1. receber os documentos de um estudante previamente cadastrado em lote sem arquivos;
 2. aceitar apenas estudantes em status de pendência documental;
-3. validar documentos com as mesmas regras de `POST /academia/estudante/register`;
+3. validar documentos com as mesmas regras já existentes de `POST /academia/estudante/register`;
 4. armazenar documentos no mesmo padrão do cadastro singular;
 5. ativar ou liberar o estudante somente após todos os documentos obrigatórios serem enviados, validados e arquivados;
 6. impedir upload para estudante inexistente, de outra academia, já ativo, inativo, arquivado ou em status incompatível;
@@ -313,9 +319,9 @@ A documentação deve declarar explicitamente que:
 
 - a rota de cadastro em massa/lote suporta JSON e upload de arquivos;
 - `com_arquivo` é obrigatório e define o modo da requisição;
-- `com_arquivo: true` exige `multipart/form-data` e aplica as validações documentais das rotas singulares;
+- `com_arquivo: true` exige `multipart/form-data` e aplica as validações documentais já existentes das rotas singulares;
 - `com_arquivo: false` aceita apenas campos textuais em JSON;
-- o lote sem arquivos segue as validações JSON de `POST /academia/estudante/register`;
+- o lote sem arquivos segue as validações JSON já existentes de `POST /academia/estudante/register`;
 - estudante cadastrado sem arquivos não fica ativo;
 - existe status específico de pendência documental;
 - existe rota específica para carregar documentos de estudantes pendentes;
@@ -347,9 +353,9 @@ A tarefa só deve ser considerada concluída quando:
 3. `com_arquivo: true` exigir e processar arquivos por `multipart/form-data`;
 4. cada arquivo enviado for associado inequivocamente ao estudante correto;
 5. arquivos órfãos, ausentes, duplicados ou ambíguos forem rejeitados;
-6. lote com arquivos usar as mesmas validações das rotas singulares de cadastro de estudante e solicitação de matrícula;
+6. lote com arquivos usar as mesmas validações já existentes das rotas singulares de cadastro de estudante e solicitação de matrícula;
 7. `com_arquivo: false` aceitar e validar apenas campos textuais;
-8. lote sem arquivos seguir as validações JSON de `POST /academia/estudante/register`;
+8. lote sem arquivos seguir as validações JSON já existentes de `POST /academia/estudante/register`;
 9. estudante cadastrado sem arquivos ficar em status específico de pendência documental, não ativo;
 10. existir rota específica para carregar documentos de estudantes pendentes;
 11. a rota posterior validar, armazenar e auditar documentos com as mesmas regras de `POST /academia/estudante/register`;
