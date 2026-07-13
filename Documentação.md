@@ -2244,7 +2244,7 @@ curl -X POST https://api.exemplo.ao/academia/estudante/register \
 ---
 
 
-### POST /academia/estudante/register/batch
+### POST /academia/estudante/register/async
 
 Cadastra estudantes em lote. O campo `com_arquivo` é obrigatório e define o contrato da requisição. O endpoint não aceita formatos legados: JSON usa `com_arquivo: false`; `multipart/form-data` usa `com_arquivo=true`.
 
@@ -2277,7 +2277,7 @@ Campos:
 - arquivos nomeados como `<codigo_temporario>.<campo_documental>`, por exemplo `tmp-1.bi_estudante` e `tmp-1.bi_responsavel`.
 
 ```bash
-curl -X POST https://api.exemplo.ao/academia/estudante/register/batch \
+curl -X POST https://api.exemplo.ao/academia/estudante/register/async \
   -H "Authorization: Bearer <jwt_academia>" \
   -F 'com_arquivo=true' \
   -F 'estudantes=[{"codigo_temporario":"tmp-1","nome":"João Silva","genero":"masculino","data_nascimento":"2010-05-20","telefone_responsavel":"924000000","bilhete_identidade_responsavel":"009876543LA089","ano_escolar_fundamental":"1_ano_fundamental"}]' \
@@ -5703,7 +5703,9 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 - O limite máximo de itens por requisição depende do endpoint (tabela abaixo).
 - O servidor valida e conta itens diretamente no payload bruto do request (sem dupla serialização), reduzindo risco de timeout no enqueue de lotes grandes.
 
-**Response 202 (igual para todos):**
+> Exceção: `POST /academia/estudante/register/async` usa o contrato específico de cadastro em massa com `com_arquivo` descrito na seção da rota, retorna resposta de lote e não cria job de background.
+
+**Response 202 (para endpoints que criam job):**
 
 ```json
 {
@@ -5718,7 +5720,7 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 
 |Endpoint|Payload por item|Resposta|Limite|
 |---|---|---|---|
-|`POST /academia/estudante/register/async`|igual ao `POST /academia/estudante/register`|`202` (job criado)|1000|
+|`POST /academia/estudante/register/async`|`{com_arquivo:false, estudantes:[...]}` ou `multipart/form-data` com `com_arquivo=true`|resposta de lote (`200`/`207`)|100|
 |`POST /academia/notas-aluno/async`|igual ao `POST /academia/notas-aluno`|`202` (job criado)|2000|
 |`POST /academia/faltas-aluno/async`|igual ao `POST /academia/faltas-aluno`|`202` (job criado)|2000|
 |`POST /academia/curso/async`|igual ao `POST /academia/curso`|`202` (job criado)|200|

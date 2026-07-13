@@ -66,7 +66,7 @@ func batchErr(index int, err error) BatchItemResult {
 }
 
 // =============================================================================
-// POST /academia/estudante/register/batch — limite 100
+// POST /academia/estudante/register/async — limite 100
 // =============================================================================
 
 func RegisterEstudanteBatch(c *gin.Context) {

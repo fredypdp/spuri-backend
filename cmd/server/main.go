@@ -341,7 +341,6 @@ func setupRouter() *gin.Engine {
 		academia.PUT("/solicitacao-matricula/:codigo/reprovar", handlers.ReprovarSolicitacaoMatricula)
 
 		academia.POST("/estudante/register", handlers.RegisterEstudantePorAcademia)
-		academia.POST("/estudante/register/batch", handlers.RegisterEstudanteBatch)
 		academia.POST("/estudante/:codigo/documentos", handlers.CompletarDocumentosEstudantePendente)
 		academia.POST("/notas-aluno", handlers.RegistrarNota)
 		academia.POST("/faltas-aluno", handlers.RegistrarFaltas)
@@ -383,8 +382,8 @@ func setupRouter() *gin.Engine {
 		academia.POST("/turma/:codigo/estudante", handlers.AdicionarEstudanteATurma)
 		academia.DELETE("/turma/:codigo/estudantes/:codigo_estudante", handlers.RemoverEstudanteDaTurma)
 
-		// ── Batch assíncronos (submissão de jobs de longa duração) ────────
-		academia.POST("/estudante/register/async", handlers.RegisterEstudanteBatchAsync)
+		// ── Batch/async: estudantes usam resposta de lote; demais criam jobs ──
+		academia.POST("/estudante/register/async", handlers.RegisterEstudanteBatch)
 		academia.POST("/notas-aluno/async", handlers.RegistrarNotaBatchAsync)
 		academia.POST("/faltas-aluno/async", handlers.RegistrarFaltasBatchAsync)
 		academia.POST("/curso/async", handlers.CriarCursoBatchAsync)

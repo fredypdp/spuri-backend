@@ -149,15 +149,6 @@ func DesativarAdminBatchAsync(c *gin.Context) {
 }
 
 // ============================================================================
-// Academia — estudantes
-// ============================================================================
-
-// RegisterEstudanteBatchAsync enfileira o cadastro de até 1000 estudantes.
-func RegisterEstudanteBatchAsync(c *gin.Context) {
-	enqueueAsyncBatch(c, jobs.JobTypeRegisterEstudanteBatch, 1000)
-}
-
-// ============================================================================
 // Academia — notas
 // ============================================================================
 
