@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"spuri/internal/utils"
@@ -69,16 +70,100 @@ func batchErr(index int, err error) BatchItemResult {
 // =============================================================================
 
 func RegisterEstudanteBatch(c *gin.Context) {
-	var items []cadastroEstudanteJSONItem
-	if err := c.ShouldBindJSON(&items); err != nil {
-		utils.RespondWithError(c, http.StatusBadRequest, "body deve ser um array de estudantes", nil)
+	if strings.HasPrefix(strings.ToLower(c.GetHeader("Content-Type")), "multipart/form-data") {
+		registerEstudanteBatchMultipart(c)
 		return
 	}
+	var payload struct {
+		ComArquivo *bool                       `json:"com_arquivo"`
+		Estudantes []cadastroEstudanteJSONItem `json:"estudantes"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		utils.RespondWithError(c, http.StatusBadRequest, "body deve conter {com_arquivo:boolean, estudantes:[...]}", nil)
+		return
+	}
+	if payload.ComArquivo == nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("com_arquivo é obrigatório"))
+		return
+	}
+	if *payload.ComArquivo {
+		utils.RespondWithValidationError(c, fmt.Errorf("com_arquivo true exige multipart/form-data"))
+		return
+	}
+	processarCadastroEstudanteBatch(c, payload.Estudantes, nil, true)
+}
+
+func registerEstudanteBatchMultipart(c *gin.Context) {
+	if err := c.Request.ParseMultipartForm(64 << 20); err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("multipart/form-data inválido"))
+		return
+	}
+	if strings.TrimSpace(c.PostForm("com_arquivo")) != "true" {
+		utils.RespondWithValidationError(c, fmt.Errorf("com_arquivo true é obrigatório para multipart/form-data"))
+		return
+	}
+	var items []cadastroEstudanteJSONItem
+	if err := json.Unmarshal([]byte(c.PostForm("estudantes")), &items); err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("campo estudantes deve ser JSON válido"))
+		return
+	}
+	filesByCodigo := map[string]map[string]uploadedPDF{}
+	knownFields := map[string]bool{}
+	for _, f := range solicitacaoDocFields {
+		knownFields[f] = true
+	}
+	for field, fhs := range c.Request.MultipartForm.File {
+		parts := strings.SplitN(field, ".", 2)
+		if len(parts) != 2 || !knownFields[parts[1]] {
+			utils.RespondWithValidationError(c, fmt.Errorf("campo de arquivo de lote inválido: %s", field))
+			return
+		}
+		if len(fhs) != 1 {
+			utils.RespondWithValidationError(c, fmt.Errorf("arquivo duplicado: %s", field))
+			return
+		}
+		pdf, err := readAndValidatePDF(parts[1], fhs[0])
+		if err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+		if filesByCodigo[parts[0]] == nil {
+			filesByCodigo[parts[0]] = map[string]uploadedPDF{}
+		}
+		if _, exists := filesByCodigo[parts[0]][parts[1]]; exists {
+			utils.RespondWithValidationError(c, fmt.Errorf("arquivo duplicado: %s", field))
+			return
+		}
+		filesByCodigo[parts[0]][parts[1]] = pdf
+	}
+	processarCadastroEstudanteBatch(c, items, filesByCodigo, false)
+}
+
+func processarCadastroEstudanteBatch(c *gin.Context, items []cadastroEstudanteJSONItem, filesByCodigo map[string]map[string]uploadedPDF, pendenteDocumentos bool) {
 	if err := validarTamanhoBatch(len(items), 100); err != nil {
 		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-
+	seen := map[string]bool{}
+	if filesByCodigo != nil {
+		for _, item := range items {
+			if item.CodigoTemporario == "" {
+				utils.RespondWithValidationError(c, fmt.Errorf("codigo_temporario é obrigatório no lote com arquivos"))
+				return
+			}
+			if seen[item.CodigoTemporario] {
+				utils.RespondWithValidationError(c, fmt.Errorf("codigo_temporario duplicado: %s", item.CodigoTemporario))
+				return
+			}
+			seen[item.CodigoTemporario] = true
+		}
+		for codigo := range filesByCodigo {
+			if !seen[codigo] {
+				utils.RespondWithValidationError(c, fmt.Errorf("arquivo órfão para codigo_temporario: %s", codigo))
+				return
+			}
+		}
+	}
 	results := make([]BatchItemResult, 0, len(items))
 	for i, item := range items {
 		req, declaracaoAnoAcademico, err := item.toCadastroRequest()
@@ -86,11 +171,14 @@ func RegisterEstudanteBatch(c *gin.Context) {
 			results = append(results, batchErr(i, err))
 			continue
 		}
+		files := map[string]uploadedPDF{}
+		if filesByCodigo != nil {
+			files = filesByCodigo[item.CodigoTemporario]
+		}
 		rc := newFakeContext(c)
-		registerEstudantePorAcademiaComRequest(rc, req, map[string]uploadedPDF{}, declaracaoAnoAcademico)
+		registerEstudantePorAcademiaComRequestModo(rc, req, files, declaracaoAnoAcademico, pendenteDocumentos)
 		results = append(results, extractResult(rc, i))
 	}
-
 	c.JSON(batchHTTPStatus(results), newBatchResponse(results))
 }
 

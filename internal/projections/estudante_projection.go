@@ -61,6 +61,8 @@ func (p *EstudanteProjection) Handle(event db.Event) error {
 	switch event.EventType {
 	case "EstudanteCriadoComVinculo":
 		return p.handleEstudanteCriadoComVinculo(event)
+	case "EstudanteDocumentosCompletados":
+		return p.handleEstudanteDocumentosCompletados(event)
 	case "MatriculaFundamentalEfetivada", "FundamentalRetomado":
 		return p.handleMatriculaFundamentalEfetivada(event)
 	case "FundamentalInterrompido":
@@ -179,9 +181,14 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 		CodigoAcademia           string                                   `json:"CodigoAcademia"`
 		Documentos               map[string]aggregates.DocumentoMatricula `json:"Documentos"`
 		CreatedAt                time.Time                                `json:"CreatedAt"`
+		StatusGeral              string                                   `json:"StatusGeral"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleEstudanteCriadoComVinculo: parse error: %w", err)
+	}
+
+	if payload.StatusGeral == "" {
+		payload.StatusGeral = "ativo"
 	}
 
 	// FIX BUG #1: as variáveis cursoMedioIDStr e cursoSuperiorIDStr são *string
@@ -256,7 +263,7 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 			$1, $2, $3, $4, $5, $6, $7, FALSE,
 			$8, $9, $10,
 			$11,
-			'ativo', $12, $13, $14,
+			$26, $12, $13, $14,
 			$15, $16, $17, $18, $19, $20,
 			$21, $22, CURRENT_TIMESTAMP, $23, $24, $25
 		)
@@ -296,7 +303,7 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 		payload.AnoEscolar, payload.AnoEscolarMedio, payload.AnoSuperior, payload.SemestreAtual,
 		resolvedCursoMedio, resolvedCursoSuperior,
 		payload.CodigoAcademia,
-		payload.CreatedAt, event.EventVersion, event.EventID, jsonbOrEmpty(payload.Documentos),
+		payload.CreatedAt, event.EventVersion, event.EventID, jsonbOrEmpty(payload.Documentos), payload.StatusGeral,
 	)
 	if err != nil {
 		return fmt.Errorf("handleEstudanteCriadoComVinculo: exec error (estudante=%s academia=%s): %w",
@@ -356,6 +363,26 @@ func (p *EstudanteProjection) cursoExists(cursoID string) (bool, error) {
 		SELECT EXISTS (SELECT 1 FROM projection_cursos WHERE id = $1)
 	`, cursoID).Scan(&exists)
 	return exists, err
+}
+
+func (p *EstudanteProjection) handleEstudanteDocumentosCompletados(event db.Event) error {
+	var payload struct {
+		CodigoEstudante string                                   `json:"CodigoEstudante"`
+		CodigoAcademia  string                                   `json:"CodigoAcademia"`
+		Documentos      map[string]aggregates.DocumentoMatricula `json:"Documentos"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("handleEstudanteDocumentosCompletados: parse error: %w", err)
+	}
+	_, err := p.client.DB().Exec(`
+		UPDATE projection_estudantes
+		SET status = 'ativo', documentos = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
+		WHERE id = $4 AND codigo_estudante = $5 AND codigo_academia = $6`,
+		jsonbOrEmpty(payload.Documentos), event.EventVersion, event.EventID, event.AggregateID, payload.CodigoEstudante, payload.CodigoAcademia)
+	if err != nil {
+		return fmt.Errorf("handleEstudanteDocumentosCompletados: exec error: %w", err)
+	}
+	return nil
 }
 
 func (p *EstudanteProjection) handleMatriculaFundamentalEfetivada(event db.Event) error {

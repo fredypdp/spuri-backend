@@ -81,7 +81,7 @@ type AdminRole  = 'fpp' | 'adm' | 'gerente'
 type AcademiaNivel = 'escola' | 'superior'
 type AcademiaType = 'public' | 'private'
 type NivelEscolar = 'fundamental' | 'medio' | 'misto'
-type StatusGeralEstudante = 'inativo' | 'ativo' | 'arquivado'
+type StatusGeralEstudante = 'inativo' | 'ativo' | 'arquivado' | 'pendente_documentos'
 type StatusEscolar = 'inativo' | 'em_andamento' | 'finalizado'
 type TipoEnsino = 'fundamental' | 'medio' | 'superior'
 type Turno = 'manha' | 'tarde' | 'noite'
@@ -2242,6 +2242,68 @@ curl -X POST https://api.exemplo.ao/academia/estudante/register \
 - `400` — BI do estudante igual ao BI do responsável, ou BI do estudante já cadastrado
 
 ---
+
+
+### POST /academia/estudante/register/batch
+
+Cadastra estudantes em lote. O campo `com_arquivo` é obrigatório e define o contrato da requisição. O endpoint não aceita formatos legados: JSON usa `com_arquivo: false`; `multipart/form-data` usa `com_arquivo=true`.
+
+**Modo JSON sem arquivos (`application/json`)**
+
+```json
+{
+  "com_arquivo": false,
+  "estudantes": [
+    {
+      "nome": "João Silva",
+      "genero": "masculino",
+      "data_nascimento": "2010-05-20",
+      "telefone_responsavel": "924000000",
+      "bilhete_identidade_responsavel": "009876543LA089",
+      "ano_escolar_fundamental": "1_ano_fundamental"
+    }
+  ]
+}
+```
+
+Neste modo são validados somente os campos textuais pelas mesmas regras de `POST /academia/estudante/register`, sem cobrança de PDFs. Cada estudante é criado com `status = "pendente_documentos"` e não deve ser tratado como ativo até concluir a documentação pela rota posterior. Envio de arquivos com `com_arquivo: false` ou `com_arquivo` ausente/inválido é rejeitado.
+
+**Modo com arquivos (`multipart/form-data`)**
+
+Campos:
+
+- `com_arquivo=true`;
+- `estudantes`: JSON array com os mesmos campos textuais e um `codigo_temporario` único por estudante;
+- arquivos nomeados como `<codigo_temporario>.<campo_documental>`, por exemplo `tmp-1.bi_estudante` e `tmp-1.bi_responsavel`.
+
+```bash
+curl -X POST https://api.exemplo.ao/academia/estudante/register/batch \
+  -H "Authorization: Bearer <jwt_academia>" \
+  -F 'com_arquivo=true' \
+  -F 'estudantes=[{"codigo_temporario":"tmp-1","nome":"João Silva","genero":"masculino","data_nascimento":"2010-05-20","telefone_responsavel":"924000000","bilhete_identidade_responsavel":"009876543LA089","ano_escolar_fundamental":"1_ano_fundamental"}]' \
+  -F 'tmp-1.bi_responsavel=@./bi_responsavel.pdf;type=application/pdf' \
+  -F 'tmp-1.cedula_estudante=@./cedula.pdf;type=application/pdf'
+```
+
+Arquivos órfãos, `codigo_temporario` duplicado, campos documentais desconhecidos, documentos ausentes obrigatórios e PDFs inválidos seguem as mesmas validações documentais do cadastro singular/solicitação de matrícula.
+
+**Response:** segue o envelope de lote `{total, sucesso, falhas, items[]}`.
+
+### POST /academia/estudante/{codigo_estudante}/documentos
+
+Carrega posteriormente os documentos de estudante cadastrado em lote JSON com `status = "pendente_documentos"`. Aceita apenas `multipart/form-data` com os mesmos campos de arquivo de `POST /academia/estudante/register`. A rota valida documentos com a política compartilhada de matrícula/cadastro direto, armazena em `{codigo_academia}/estudantes/{codigo_estudante}/documentos/` e só grava o evento de conclusão quando todos os documentos obrigatórios estiverem válidos.
+
+A cobrança de Bilhete de Identidade respeita os dados textuais já cadastrados: se houver somente BI textual do responsável, exige somente `bi_responsavel`; se houver somente BI textual do estudante, exige somente `bi_estudante`; se ambos existirem, exige ambos; outras obrigatoriedades condicionais existentes continuam aplicáveis. Estudantes ativos, arquivados, inexistentes ou de outra academia são rejeitados.
+
+```bash
+curl -X POST https://api.exemplo.ao/academia/estudante/ABC1234/documentos \
+  -H "Authorization: Bearer <jwt_academia>" \
+  -F 'bi_responsavel=@./bi_responsavel.pdf;type=application/pdf' \
+  -F 'cedula_estudante=@./cedula.pdf;type=application/pdf'
+```
+
+**Response 200:** retorna `codigo_estudante`, `status: "ativo"` e o mapa `documentos`.
+
 ---
 
 ### GET /estudantes

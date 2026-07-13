@@ -74,6 +74,7 @@ func parseCadastroEstudanteAsyncDate(value string) (time.Time, error) {
 }
 
 type cadastroEstudanteJSONItem struct {
+	CodigoTemporario       string                                   `json:"codigo_temporario"`
 	Nome                   string                                   `json:"nome"`
 	Genero                 string                                   `json:"genero"`
 	DataNascimento         string                                   `json:"data_nascimento"`
