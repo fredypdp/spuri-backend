@@ -226,6 +226,9 @@ func listSolicitacoes(c *gin.Context, codigos []string) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
+	for i := range res.Solicitacoes {
+		res.Solicitacoes[i].Documentos = documentosComDownloadSolicitacao(res.Solicitacoes[i].CodigoSolicitacao, res.Solicitacoes[i].Documentos)
+	}
 	c.JSON(http.StatusOK, gin.H{"solicitacoes": res.Solicitacoes, "total": res.Total, "limit": limit, "offset": offset})
 }
 func GetSolicitacaoMatriculaAcademia(c *gin.Context) {
@@ -246,6 +249,7 @@ func GetSolicitacaoMatriculaAcademia(c *gin.Context) {
 		utils.RespondWithError(c, http.StatusForbidden, "solicitação não pertence à academia autenticada", nil)
 		return
 	}
+	sol.Documentos = documentosComDownloadSolicitacao(sol.CodigoSolicitacao, sol.Documentos)
 	c.JSON(http.StatusOK, gin.H{"solicitacao": sol})
 }
 
