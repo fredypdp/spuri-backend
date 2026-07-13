@@ -222,6 +222,7 @@ interface SolicitacaoMatriculaDocumentoDTO {
   path: string
   file_url: string
   download_url: string
+  ano_academico?: string // usado em declaracao para validar o ano académico anterior
 }
 
 interface SolicitacaoMatriculaDTO {
@@ -2070,10 +2071,10 @@ Para implementar o cliente de forma segura:
 **Quem faz**: Academia (status ativo)
 
 1. Academia envia os dados do estudante em `multipart/form-data`, com ou sem anexos.
-2. Sistema mantém obrigatórias as validações cadastrais e acadêmicas, mas não bloqueia o cadastro direto pela ausência de PDFs.
+2. Sistema aplica as mesmas validações cadastrais, acadêmicas, de telefones, BI, cursos e documentos usadas pelo fluxo compartilhado de matrícula.
 3. Sistema valida que todos os arquivos enviados são PDF, respeitam o limite de 10MB e possuem assinatura `%PDF`.
 4. Sistema gera código único (`AAA1234`), verificando ledger e projeção.
-5. Quando enviados, os documentos são enviados ao storage definitivo em `{codigo_academia}/estudantes/{codigo_estudante}/documentos/`.
+5. Quando enviados por multipart, os documentos são enviados ao storage definitivo em `{codigo_academia}/estudantes/{codigo_estudante}/documentos/`.
 6. Senha padrão = código do estudante (ex: `ABC1234`).
 7. Estudante é criado com **status `ativo`**, vinculado à academia e com o mapa `documentos` gravado no evento `EstudanteCriadoComVinculo` e na projeção.
 8. Se qualquer validação ou persistência falhar após upload parcial, o diretório de documentos do estudante é removido para evitar ficheiros órfãos.
@@ -2082,7 +2083,7 @@ Para implementar o cliente de forma segura:
 
 - `genero` obrigatório: `masculino` ou `feminino`
 - `data_nascimento` obrigatório: deve ser anterior à data atual
-- JSON puro não é aceito no cadastro direto; o fluxo deve usar `multipart/form-data`, mesmo quando nenhum anexo for enviado
+- JSON puro não é aceito no cadastro direto singular; o fluxo singular deve usar `multipart/form-data`, mesmo quando nenhum anexo for enviado
 - `bilhete_identidade_responsavel` e PDF `bi_responsavel` são obrigatórios para estudantes escolares/fundamental/médio; no ensino superior, o responsável é opcional
 - `bilhete_identidade` e `bilhete_identidade_responsavel`, quando ambos informados, não podem ser iguais após normalização
 - `bi_estudante` é obrigatório no ensino superior e quando o estudante escolar informa BI próprio; sem BI próprio no escolar, `cedula_estudante` é obrigatória
@@ -2147,6 +2148,8 @@ Cadastra um novo estudante vinculado à academia autenticada. O cadastro direto 
 | `certificado_ensino_medio` | Exigido como alternativa à declaração somente para `1_ano_superior`. |
 
 Quando enviados, todos os ficheiros devem ter `Content-Type: application/pdf`, extensão `.pdf`, assinatura `%PDF` e tamanho máximo de 10MB. O cadastro direto usa a mesma validação compartilhada de matrícula aplicada por `POST /solicitacao-matricula` para dados comuns e documentos. Os documentos obrigatórios são validados e enviados para `{codigo_academia}/estudantes/{codigo_estudante}/documentos/` antes de qualquer gravação no ledger; somente após sucesso total dos uploads o evento `EstudanteCriadoComVinculo` é persistido com `documentos.<campo>.path`, `documentos.<campo>.file_url` e `documentos.<campo>.download_url`. Se validação/upload falhar, nenhum estudante/vínculo é gravado; se a criação falhar após upload parcial, o backend remove o diretório definitivo do estudante para evitar ficheiros órfãos.
+
+As rotas em lote/assíncronas de cadastro de estudante não recebem multipart por item. Elas recebem JSON e reaproveitam o mesmo núcleo de criação/validação do cadastro singular. Para cumprir validações documentais no JSON, cada item pode enviar `documentos` como mapa de metadados já existentes no formato `documentos.<campo>.path`, `file_url`, `download_url` e, para `declaracao`, `ano_academico`. Também é aceito o atalho textual `declaracao_ano_academico`, aplicado à declaração quando `documentos.declaracao.ano_academico` não estiver preenchido. Esses metadados são persistidos como recebidos; a rota async/batch não faz upload de PDFs.
 
 **Request — campos de texto principais (exemplo escolar; requer anexar os PDFs obrigatórios do quadro acima):**
 
@@ -5656,7 +5659,7 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 
 |Endpoint|Payload por item|Resposta|Limite|
 |---|---|---|---|
-|`POST /academia/estudante/register/async`|igual ao `POST /academia/estudante/register`|`202` (job criado)|1000|
+|`POST /academia/estudante/register/async`|JSON com os mesmos campos textuais de `POST /academia/estudante/register`; documentos devem ir em `documentos` como metadados (`path`, `file_url`, `download_url`, `ano_academico` para declaração), pois o async não recebe multipart nem faz upload de PDFs|`202` (job criado)|1000|
 |`POST /academia/notas-aluno/async`|igual ao `POST /academia/notas-aluno`|`202` (job criado)|2000|
 |`POST /academia/faltas-aluno/async`|igual ao `POST /academia/faltas-aluno`|`202` (job criado)|2000|
 |`POST /academia/curso/async`|igual ao `POST /academia/curso`|`202` (job criado)|200|
@@ -5679,6 +5682,41 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 |`PUT /academia/turma/dados/async`|igual ao `PUT /academia/turma/:codigo/dados` (`codigo_turma` vai no item)|`202` (job criado)|500|
 |`DELETE /academia/turma/async`|igual ao `DELETE /academia/turma/:codigo` (`codigo_turma` vai no item)|`202` (job criado)|500|
 |`DELETE /academia/turma/estudante/async`|igual ao `DELETE /academia/turma/:codigo/estudantes/:codigo_estudante` (`codigo_turma` + `codigo_estudante` no item)|`202` (job criado)|1000|
+
+#### Payload JSON para `/academia/estudante/register/async`
+
+O cadastro assíncrono de estudantes é um array JSON. Cada item é convertido para o mesmo request interno usado pelo cadastro singular e executado pelo mesmo núcleo de validação/criação. O formato de data é sempre `YYYY-MM-DD`.
+
+```json
+[
+  {
+    "nome": "João Silva",
+    "genero": "masculino",
+    "data_nascimento": "2010-05-20",
+    "telefone": "923000000",
+    "telefone_responsavel": "924000000",
+    "bilhete_identidade": "001234567LA089",
+    "bilhete_identidade_responsavel": "009876543LA089",
+    "ano_escolar_fundamental": "7_ano_fundamental",
+    "declaracao_ano_academico": "6_ano_fundamental",
+    "documentos": {
+      "bi_estudante": {"path": "imports/bi_estudante.pdf"},
+      "bi_responsavel": {"path": "imports/bi_responsavel.pdf"},
+      "declaracao": {
+        "path": "imports/declaracao.pdf",
+        "ano_academico": "6_ano_fundamental"
+      }
+    }
+  }
+]
+```
+
+Observações específicas do cadastro async/batch de estudantes:
+
+- `documentos` é opcional no JSON, mas quando uma regra documental exigir arquivo, o item só passa na validação se o respectivo documento tiver pelo menos uma referência não vazia em `path`, `file_url` ou `download_url`.
+- `declaracao_ano_academico` é mantido para compatibilidade com o formulário singular; se `documentos.declaracao.ano_academico` já vier preenchido, esse valor do documento prevalece.
+- O job retorna `202` apenas para criação da fila. O resultado individual de cada estudante deve ser acompanhado em `GET /jobs/:id` ou `GET /jobs/stream`; cada item bem-sucedido usa a mesma resposta de sucesso do cadastro singular.
+
 
 ---
 

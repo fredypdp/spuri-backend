@@ -89,3 +89,43 @@ func TestReadAndValidateJSONArrayBody(t *testing.T) {
 		})
 	}
 }
+
+func TestCadastroEstudanteJSONItemToCadastroRequest(t *testing.T) {
+	t.Parallel()
+
+	item := cadastroEstudanteJSONItem{
+		Nome:                   "  Ana Maria  ",
+		Genero:                 "feminino",
+		DataNascimento:         "2005-04-03",
+		Email:                  " ana@example.com ",
+		Telefone:               " 923 000 111 ",
+		TelefoneResponsavel:    " 924 000 111 ",
+		BilheteIdentidade:      " 001LA000000 ",
+		BilheteResponsavel:     " 002LA000000 ",
+		AnoEscolar:             " 1_ano_fundamental ",
+		DeclaracaoAnoAcademico: " 1_ano_fundamental ",
+	}
+
+	req, declaracaoAnoAcademico, err := item.toCadastroRequest()
+	if err != nil {
+		t.Fatalf("não esperava erro: %v", err)
+	}
+	if req.Nome != "Ana Maria" || req.Email != "ana@example.com" || req.AnoEscolar != "1_ano_fundamental" {
+		t.Fatalf("campos textuais não foram normalizados: %+v", req)
+	}
+	if declaracaoAnoAcademico != "1_ano_fundamental" {
+		t.Fatalf("declaracaoAnoAcademico inesperado: %q", declaracaoAnoAcademico)
+	}
+	if got := req.DataNascimento.Format("2006-01-02"); got != "2005-04-03" {
+		t.Fatalf("data_nascimento inesperada: %s", got)
+	}
+}
+
+func TestCadastroEstudanteJSONItemToCadastroRequestRejectsInvalidDate(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := (cadastroEstudanteJSONItem{DataNascimento: "03/04/2005"}).toCadastroRequest()
+	if err == nil || !strings.Contains(err.Error(), "data_nascimento deve ser YYYY-MM-DD") {
+		t.Fatalf("erro esperado de data inválida, obtido: %v", err)
+	}
+}

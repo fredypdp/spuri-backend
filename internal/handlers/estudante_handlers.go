@@ -29,19 +29,20 @@ import (
 
 // CadastroEstudanteAcademiaRequest — genero e data_nascimento são obrigatórios.
 type CadastroEstudanteAcademiaRequest struct {
-	Nome                string    `json:"nome"            binding:"required"`
-	Genero              string    `json:"genero"          binding:"required"`
-	DataNascimento      time.Time `json:"data_nascimento" binding:"required"`
-	Email               string    `json:"email"`
-	Telefone            string    `json:"telefone"`
-	TelefoneResponsavel string    `json:"telefone_responsavel"`
-	BilheteIdentidade   string    `json:"bilhete_identidade"`
-	BilheteResponsavel  string    `json:"bilhete_identidade_responsavel"`
-	AnoEscolar          string    `json:"ano_escolar_fundamental"`
-	AnoEscolarMedio     string    `json:"ano_escolar_medio"`
-	AnoSuperior         string    `json:"ano_superior"`
-	CursoMedioID        string    `json:"curso_medio_id"`
-	CursoSuperiorID     string    `json:"curso_superior_id"`
+	Nome                string                                   `json:"nome"            binding:"required"`
+	Genero              string                                   `json:"genero"          binding:"required"`
+	DataNascimento      time.Time                                `json:"data_nascimento" binding:"required"`
+	Email               string                                   `json:"email"`
+	Telefone            string                                   `json:"telefone"`
+	TelefoneResponsavel string                                   `json:"telefone_responsavel"`
+	BilheteIdentidade   string                                   `json:"bilhete_identidade"`
+	BilheteResponsavel  string                                   `json:"bilhete_identidade_responsavel"`
+	AnoEscolar          string                                   `json:"ano_escolar_fundamental"`
+	AnoEscolarMedio     string                                   `json:"ano_escolar_medio"`
+	AnoSuperior         string                                   `json:"ano_superior"`
+	CursoMedioID        string                                   `json:"curso_medio_id"`
+	CursoSuperiorID     string                                   `json:"curso_superior_id"`
+	Documentos          map[string]aggregates.DocumentoMatricula `json:"documentos,omitempty"`
 }
 
 func RegisterEstudantePorAcademia(c *gin.Context) {
@@ -111,6 +112,12 @@ func registerEstudantePorAcademiaComRequest(c *gin.Context, req CadastroEstudant
 		return
 	}
 	documentosParaValidacao := documentosMatriculaParaValidacao(files, declaracaoAnoAcademico)
+	for campo, documento := range req.Documentos {
+		if strings.TrimSpace(documento.AnoAcademico) == "" && campo == "declaracao" {
+			documento.AnoAcademico = declaracaoAnoAcademico
+		}
+		documentosParaValidacao[campo] = documento
+	}
 	validado, err := services.ValidateMatriculaCommon(services.MatriculaCommonInput{
 		Contexto: services.MatriculaContextCadastroDireto,
 		Nome:     req.Nome, Genero: req.Genero, DataNascimento: req.DataNascimento,
@@ -145,6 +152,12 @@ func registerEstudantePorAcademiaComRequest(c *gin.Context, req CadastroEstudant
 		return
 	}
 	documentos := map[string]aggregates.DocumentoMatricula{}
+	for campo, documento := range req.Documentos {
+		if strings.TrimSpace(documento.AnoAcademico) == "" && campo == "declaracao" {
+			documento.AnoAcademico = declaracaoAnoAcademico
+		}
+		documentos[campo] = documento
+	}
 	for field, f := range files {
 		stored, err := provider.Upload(fmt.Sprintf("%s/%s_%s.pdf", dir, field, codigoEstudante), bytes.NewReader(f.data), f.size)
 		if err != nil {

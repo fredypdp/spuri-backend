@@ -465,7 +465,9 @@ Cadastro direto:
 POST /academia/estudante/register
 ```
 
-O cadastro direto usa `multipart/form-data` e compartilha a mesma validação cadastral/documental do `POST /solicitacao-matricula` para dados comuns. No nível escolar/fundamental/médio, `telefone_responsavel` é obrigatório e `telefone` do estudante é opcional; no ensino superior, `telefone` do estudante é obrigatório e `telefone_responsavel` é opcional. Documentos obrigatórios são validados e enviados ao storage antes de qualquer gravação no ledger; falha de validação ou upload impede a criação do estudante.
+O cadastro direto singular usa `multipart/form-data` e compartilha a mesma validação cadastral/documental do `POST /solicitacao-matricula` para dados comuns. No nível escolar/fundamental/médio, `telefone_responsavel` é obrigatório e `telefone` do estudante é opcional; no ensino superior, `telefone` do estudante é obrigatório e `telefone_responsavel` é opcional. Documentos obrigatórios são validados e enviados ao storage antes de qualquer gravação no ledger; falha de validação ou upload impede a criação do estudante.
+
+Para importação em lote/assíncrona, use `POST /academia/estudante/register/async` com um array JSON. Cada item usa os mesmos campos textuais do cadastro singular e é processado pelo mesmo núcleo de validação/criação. Como o endpoint async não recebe multipart nem faz upload de PDF por item, documentos já existentes devem ser informados no mapa `documentos` com metadados (`path`, `file_url` ou `download_url`; em `declaracao`, também `ano_academico` ou o campo textual `declaracao_ano_academico`).
 
 Quando documentos forem retornados nos metadados do estudante ou da solicitação de matrícula, o front end deve usar o campo `download_url` para leitura do PDF. O backend expõe rotas autenticadas de download inline (`GET /documentos/estudantes/{codigo_estudante}/{campo}/download` e `GET /documentos/solicitacoes-matricula/{codigo_solicitacao}/{campo}/download`), sem expor credenciais ou IDs internos do Mega.
 
