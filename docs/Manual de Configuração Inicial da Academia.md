@@ -467,14 +467,41 @@ POST /academia/estudante/register
 
 O cadastro direto usa `multipart/form-data` e compartilha a mesma validação cadastral/documental do `POST /solicitacao-matricula` para dados comuns. No nível escolar/fundamental/médio, `telefone_responsavel` é obrigatório e `telefone` do estudante é opcional; no ensino superior, `telefone` do estudante é obrigatório e `telefone_responsavel` é opcional. Documentos obrigatórios são validados e enviados ao storage antes de qualquer gravação no ledger; falha de validação ou upload impede a criação do estudante.
 
-Quando documentos forem retornados nos metadados do estudante ou da solicitação de matrícula, o front end deve usar o campo `download_url` para leitura do PDF. O backend expõe rotas autenticadas de download inline (`GET /documentos/estudantes/{codigo_estudante}/{campo}/download`, `GET /documentos/solicitacoes-matricula/{codigo_solicitacao}/{campo}/download` e `GET /documentos/academias/{codigo_academia}/alvara/download`), sem expor credenciais ou IDs internos do Mega.
+Quando documentos forem retornados nos metadados do estudante, da academia ou da solicitação de matrícula, o front end deve usar o campo `download_url` para leitura do PDF. O backend expõe rotas autenticadas de download inline sem expor credenciais ou IDs internos do Mega.
 
-Também existem rotas próprias para consulta dos documentos por perfil, evitando que o estudante ou a academia dependam de listagens administrativas genéricas:
+### Endpoints de documentos por escopo
 
-- `GET /estudante/documentos` — rota exclusiva do estudante autenticado. Retorna `codigo_estudante` e o mapa `documentos` do próprio estudante, com `download_url` preenchido para cada campo documental.
-- `GET /academia/documentos` — rota da academia autenticada. Retorna o inventário documental relacionado à academia: documento formal da própria academia (`alvara`), documentos dos estudantes vinculados e documentos das solicitações de matrícula da academia. Administradores podem usar a mesma rota informando `?codigo_academia={codigo}`. A secção de solicitações aceita paginação com `limit` e `offset` (limite máximo 1000).
+#### Escopo do estudante
 
-As permissões de download continuam sendo aplicadas no backend: estudantes só baixam documentos do seu próprio cadastro; academias só baixam documentos da própria academia, de seus estudantes e de suas solicitações; administradores mantêm acesso global.
+| Método | Rota | Quem acede | Descrição |
+|---|---|---|---|
+| `GET` | `/estudante/documentos` | Estudante autenticado | Lista os documentos do próprio estudante autenticado, retornando `codigo_estudante` e o mapa `documentos`. |
+| `GET` | `/estudante/documentos/{campo}/download` | Estudante autenticado | Baixa o PDF do campo documental do próprio estudante. |
+
+O `download_url` retornado neste escopo aponta para `/estudante/documentos/{campo}/download`, para que o estudante não precise conhecer nem informar o seu `codigo_estudante`.
+
+#### Escopo da academia
+
+| Método | Rota | Quem acede | Descrição |
+|---|---|---|---|
+| `GET` | `/academia/documentos` | Academia autenticada / Admin | Lista o inventário documental relacionado à academia: alvará da própria academia, documentos dos estudantes vinculados e documentos das solicitações de matrícula. Administradores devem informar `?codigo_academia={codigo}`. A secção de solicitações aceita `limit` e `offset` com limite máximo 1000. |
+| `GET` | `/academia/documentos/academia/{campo}/download` | Academia autenticada / Admin | Baixa documento formal da própria academia; atualmente o campo suportado é `alvara`. Administradores devem informar `?codigo_academia={codigo}`. |
+| `GET` | `/academia/documentos/estudantes/{codigo_estudante}/{campo}/download` | Academia autenticada / Admin | Baixa documento de estudante vinculado à academia. |
+| `GET` | `/academia/documentos/solicitacoes-matricula/{codigo_solicitacao}/{campo}/download` | Academia autenticada / Admin | Baixa documento de solicitação de matrícula pertencente à academia. |
+
+O `download_url` retornado neste escopo aponta sempre para rotas `/academia/documentos/...`, mantendo a autorização e a semântica de academia no próprio caminho.
+
+#### Endpoints genéricos protegidos
+
+As rotas genéricas protegidas continuam disponíveis para compatibilidade e uso administrativo amplo:
+
+| Método | Rota | Quem acede |
+|---|---|---|
+| `GET` | `/documentos/estudantes/{codigo_estudante}/{campo}/download` | Estudante dono, academia vinculada ou admin |
+| `GET` | `/documentos/solicitacoes-matricula/{codigo_solicitacao}/{campo}/download` | Academia vinculada ou admin |
+| `GET` | `/documentos/academias/{codigo_academia}/alvara/download` | Academia dona ou admin |
+
+As permissões de download são sempre aplicadas no backend: estudantes só baixam documentos do seu próprio cadastro; academias só baixam documentos da própria academia, de seus estudantes e de suas solicitações; administradores mantêm acesso global.
 
 Ao cadastrar, informe os vínculos acadêmicos compatíveis com o tipo de estudante:
 

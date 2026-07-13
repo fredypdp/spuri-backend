@@ -24,3 +24,17 @@ func TestAcademiaDocumentoDownloadURL(t *testing.T) {
 		t.Fatalf("academiaDocumentoDownloadURL() = %q, want %q", got, want)
 	}
 }
+
+func TestScopedDocumentoDownloadURLs(t *testing.T) {
+	cases := map[string]string{
+		estudanteDocumentoProprioDownloadURL("bi_estudante"):              "/estudante/documentos/bi_estudante/download",
+		academiaDocumentoProprioDownloadURL("alvara"):                     "/academia/documentos/academia/alvara/download",
+		academiaEstudanteDocumentoDownloadURL("EST001", "bi_estudante"):   "/academia/documentos/estudantes/EST001/bi_estudante/download",
+		academiaSolicitacaoDocumentoDownloadURL("SOL001", "bi_estudante"): "/academia/documentos/solicitacoes-matricula/SOL001/bi_estudante/download",
+	}
+	for got, want := range cases {
+		if got != want {
+			t.Fatalf("download URL = %q, want %q", got, want)
+		}
+	}
+}
