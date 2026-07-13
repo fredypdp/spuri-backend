@@ -241,10 +241,10 @@ A nova rota deve:
 Criar e documentar uma rota específica para completar documentos de estudantes pendentes, por exemplo:
 
 ```text
-POST /academia/estudante/{id}/documentos
+POST /academia/estudante/{codigo_estudante}/documentos
 ```
 
-O nome final da rota deve seguir as convenções reais do projeto, mas precisa ser exclusivo para o carregamento documental posterior desses estudantes.
+O nome final da rota deve seguir as convenções reais do projeto, mas precisa ser exclusivo para o carregamento documental posterior desses estudantes e usar o código do estudante como referência do recurso, não um identificador genérico.
 
 ### 4.2 Cobrar BI conforme campos textuais preenchidos
 
