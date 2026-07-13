@@ -80,6 +80,8 @@ func (e *Estudante) Apply(event DomainEvent) error {
 	switch event.GetEventType() {
 	case "EstudanteCriadoComVinculo":
 		return e.applyEstudanteCriadoComVinculo(event)
+	case "EstudanteDocumentosCompletados":
+		return e.applyEstudanteDocumentosCompletados(event)
 	case "FaltasRegistradas":
 		return e.applyFaltasRegistradas(event)
 	case "NotasRegistradas":
@@ -156,10 +158,22 @@ type EstudanteCriadoComVinculoEvent struct {
 	AcademiaID                    *uuid.UUID
 	CreatedAt                     time.Time
 	Documentos                    map[string]DocumentoMatricula
+	StatusGeral                   string
 }
 
 func (e *EstudanteCriadoComVinculoEvent) GetPayload() interface{} { return e }
 func (e *EstudanteCriadoComVinculoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+type EstudanteDocumentosCompletadosEvent struct {
+	BaseEvent
+	CodigoEstudante string
+	CodigoAcademia  string
+	Documentos      map[string]DocumentoMatricula
+	CompletedAt     time.Time
+}
+
+func (e *EstudanteDocumentosCompletadosEvent) GetPayload() interface{} { return e }
+func (e *EstudanteDocumentosCompletadosEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 type MatriculaFundamentalEfetivadaEvent struct {
 	BaseEvent
@@ -369,7 +383,7 @@ func (e *Estudante) CriarComVinculo(
 	codigoAcademia string,
 	documentosOpt ...map[string]DocumentoMatricula,
 ) error {
-	return e.criarComVinculo(nome, codigoEstudante, senhaHash, email, telefone, telefoneResponsavel, bilhete, bilheteResp, genero, dataNascimento, anoEscolar, anoEscolarMedio, anoSuperior, cursoMedioID, cursoSuperiorID, academiaID, codigoAcademia, true, documentosOpt...)
+	return e.criarComVinculoComStatus(nome, codigoEstudante, senhaHash, email, telefone, telefoneResponsavel, bilhete, bilheteResp, genero, dataNascimento, anoEscolar, anoEscolarMedio, anoSuperior, cursoMedioID, cursoSuperiorID, academiaID, codigoAcademia, true, "ativo", documentosOpt...)
 }
 
 func (e *Estudante) CriarComVinculoComDocumentosOpcionais(
@@ -392,10 +406,16 @@ func (e *Estudante) CriarComVinculoComDocumentosOpcionais(
 	codigoAcademia string,
 	documentosOpt ...map[string]DocumentoMatricula,
 ) error {
-	return e.criarComVinculo(nome, codigoEstudante, senhaHash, email, telefone, telefoneResponsavel, bilhete, bilheteResp, genero, dataNascimento, anoEscolar, anoEscolarMedio, anoSuperior, cursoMedioID, cursoSuperiorID, academiaID, codigoAcademia, false, documentosOpt...)
+	return e.criarComVinculoComStatus(nome, codigoEstudante, senhaHash, email, telefone, telefoneResponsavel, bilhete, bilheteResp, genero, dataNascimento, anoEscolar, anoEscolarMedio, anoSuperior, cursoMedioID, cursoSuperiorID, academiaID, codigoAcademia, false, "ativo", documentosOpt...)
 }
 
-func (e *Estudante) criarComVinculo(
+func (e *Estudante) CriarComVinculoPendenteDocumentos(
+	nome string, codigoEstudante string, senhaHash string, email *string, telefone *string, telefoneResponsavel *string, bilhete *string, bilheteResp *string, genero string, dataNascimento time.Time, anoEscolar *string, anoEscolarMedio *string, anoSuperior *string, cursoMedioID *uuid.UUID, cursoSuperiorID *uuid.UUID, academiaID *uuid.UUID, codigoAcademia string, documentosOpt ...map[string]DocumentoMatricula,
+) error {
+	return e.criarComVinculoComStatus(nome, codigoEstudante, senhaHash, email, telefone, telefoneResponsavel, bilhete, bilheteResp, genero, dataNascimento, anoEscolar, anoEscolarMedio, anoSuperior, cursoMedioID, cursoSuperiorID, academiaID, codigoAcademia, false, "pendente_documentos", documentosOpt...)
+}
+
+func (e *Estudante) criarComVinculoComStatus(
 	nome string,
 	codigoEstudante string,
 	senhaHash string,
@@ -414,6 +434,7 @@ func (e *Estudante) criarComVinculo(
 	academiaID *uuid.UUID,
 	codigoAcademia string,
 	exigirDocumentosEscolares bool,
+	statusGeral string,
 	documentosOpt ...map[string]DocumentoMatricula,
 ) error {
 	if nome == "" || codigoEstudante == "" || senhaHash == "" || codigoAcademia == "" {
@@ -487,6 +508,7 @@ func (e *Estudante) criarComVinculo(
 		AcademiaID:               academiaID,
 		CreatedAt:                time.Now(),
 		Documentos:               documentos,
+		StatusGeral:              statusGeral,
 	}
 	e.RaiseEvent(event)
 	return e.Apply(event)
@@ -901,7 +923,11 @@ func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
 	e.StatusEscolarMedio = ev.StatusEscolarMedio
 	e.StatusSuperior = ev.StatusSuperior
 	e.CodigoAcademia = &ev.CodigoAcademia
-	e.Status = "ativo"
+	if ev.StatusGeral != "" {
+		e.Status = ev.StatusGeral
+	} else {
+		e.Status = "ativo"
+	}
 	e.CreatedAt = ev.CreatedAt
 	e.Documentos = ev.Documentos
 	if e.AvaliacoesPorAno == nil {
@@ -1149,5 +1175,31 @@ func (e *Estudante) applySenhaAlterada(event DomainEvent) error {
 
 func (e *Estudante) applyEmailVerificado(_ DomainEvent) error {
 	e.EmailVerificado = true
+	return nil
+}
+
+func (e *Estudante) CompletarDocumentosPendentes(documentos map[string]DocumentoMatricula, efetuadoPor uuid.UUID) error {
+	if e.Status != "pendente_documentos" {
+		return fmt.Errorf("estudante não está pendente de documentos")
+	}
+	if e.CodigoAcademia == nil || e.CodigoEstudante == "" {
+		return fmt.Errorf("estudante inválido")
+	}
+	event := &EstudanteDocumentosCompletadosEvent{BaseEvent: BaseEvent{EventType: "EstudanteDocumentosCompletados", AggregateID: e.ID}, CodigoEstudante: e.CodigoEstudante, CodigoAcademia: *e.CodigoAcademia, Documentos: documentos, CompletedAt: time.Now()}
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
+func (e *Estudante) applyEstudanteDocumentosCompletados(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return err
+	}
+	var ev EstudanteDocumentosCompletadosEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+	e.Documentos = ev.Documentos
+	e.Status = "ativo"
 	return nil
 }

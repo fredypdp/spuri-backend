@@ -341,6 +341,8 @@ func setupRouter() *gin.Engine {
 		academia.PUT("/solicitacao-matricula/:codigo/reprovar", handlers.ReprovarSolicitacaoMatricula)
 
 		academia.POST("/estudante/register", handlers.RegisterEstudantePorAcademia)
+		academia.POST("/estudante/register/batch", handlers.RegisterEstudanteBatch)
+		academia.POST("/estudante/:codigo/documentos", handlers.CompletarDocumentosEstudantePendente)
 		academia.POST("/notas-aluno", handlers.RegistrarNota)
 		academia.POST("/faltas-aluno", handlers.RegistrarFaltas)
 		// Avaliação final é acionada automaticamente pelo registro de notas

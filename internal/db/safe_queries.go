@@ -9,11 +9,12 @@ import (
 var validEventTypes = map[string]bool{
 	"SchemaCreated": true,
 	// ── Estudante ────────────────────────────────────────────────────────────
-	"EstudanteCriadoComVinculo":  true,
-	"DadosPessoaisAtualizados":   true,
-	"DadosAcademicosAtualizados": true,
-	"SenhaAlterada":              true,
-	"CursoAlterado":              true,
+	"EstudanteCriadoComVinculo":      true,
+	"EstudanteDocumentosCompletados": true,
+	"DadosPessoaisAtualizados":       true,
+	"DadosAcademicosAtualizados":     true,
+	"SenhaAlterada":                  true,
+	"CursoAlterado":                  true,
 	// ── Acontecimentos de vínculo e trajetória escolar ───────────────────────
 	"MatriculaFundamentalEfetivada":             true,
 	"FundamentalRetomado":                       true,

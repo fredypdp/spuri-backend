@@ -30,6 +30,7 @@ type MatriculaCommonInput struct {
 	AnoEscolarMedio              *string
 	AnoSuperior                  *string
 	Documentos                   map[string]aggregates.DocumentoMatricula
+	PularValidacaoDocumentos     bool
 }
 
 type MatriculaCommonValidated struct {
@@ -90,8 +91,10 @@ func ValidateMatriculaCommon(in MatriculaCommonInput) (MatriculaCommonValidated,
 	if err := aggregates.ValidarBilhetesMatricula(out.BilheteIdentidade, out.BilheteIdentidadeResponsavel); err != nil {
 		return out, err
 	}
-	if err := aggregates.ValidarDocumentosMatricula(out.BilheteIdentidade, out.BilheteIdentidadeResponsavel, out.AnoEscolarFundamental, out.AnoEscolarMedio, out.AnoSuperior, in.Documentos); err != nil {
-		return out, err
+	if !in.PularValidacaoDocumentos {
+		if err := aggregates.ValidarDocumentosMatricula(out.BilheteIdentidade, out.BilheteIdentidadeResponsavel, out.AnoEscolarFundamental, out.AnoEscolarMedio, out.AnoSuperior, in.Documentos); err != nil {
+			return out, err
+		}
 	}
 	return out, nil
 }

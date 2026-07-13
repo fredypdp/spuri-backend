@@ -91,6 +91,10 @@ func registerEstudantePorAcademiaMultipart(c *gin.Context) {
 }
 
 func registerEstudantePorAcademiaComRequest(c *gin.Context, req CadastroEstudanteAcademiaRequest, files map[string]uploadedPDF, declaracaoAnoAcademico string) {
+	registerEstudantePorAcademiaComRequestModo(c, req, files, declaracaoAnoAcademico, false)
+}
+
+func registerEstudantePorAcademiaComRequestModo(c *gin.Context, req CadastroEstudanteAcademiaRequest, files map[string]uploadedPDF, declaracaoAnoAcademico string, pendenteDocumentos bool) {
 	academiaID, ok := middleware.GetUserID(c)
 	if !ok {
 		utils.RespondWithUnauthorizedError(c)
@@ -124,7 +128,8 @@ func registerEstudantePorAcademiaComRequest(c *gin.Context, req CadastroEstudant
 		Email: stringPtrIfNotBlank(req.Email), TelefoneEstudante: stringPtrIfNotBlank(req.Telefone), TelefoneResponsavel: stringPtrIfNotBlank(req.TelefoneResponsavel),
 		BilheteIdentidade: stringPtrIfNotBlank(req.BilheteIdentidade), BilheteIdentidadeResponsavel: stringPtrIfNotBlank(req.BilheteResponsavel),
 		AnoEscolarFundamental: stringPtrIfNotBlank(req.AnoEscolar), AnoEscolarMedio: stringPtrIfNotBlank(req.AnoEscolarMedio), AnoSuperior: stringPtrIfNotBlank(req.AnoSuperior),
-		Documentos: documentosParaValidacao,
+		Documentos:               documentosParaValidacao,
+		PularValidacaoDocumentos: pendenteDocumentos,
 	})
 	if err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -147,9 +152,11 @@ func registerEstudantePorAcademiaComRequest(c *gin.Context, req CadastroEstudant
 		provider = p
 	}
 	dir := fmt.Sprintf("%s/estudantes/%s/documentos", academia.CodigoAcademia, codigoEstudante)
-	if err := provider.EnsureDir(dir); err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
+	if len(files) > 0 {
+		if err := provider.EnsureDir(dir); err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
 	}
 	documentos := map[string]aggregates.DocumentoMatricula{}
 	for campo, documento := range req.Documentos {
@@ -203,9 +210,15 @@ func registerEstudantePorAcademiaComRequest(c *gin.Context, req CadastroEstudant
 	anoSuperiorPtr := validado.AnoSuperior
 
 	estudante := aggregates.NewEstudante()
-	if err := estudante.CriarComVinculo(req.Nome, codigoEstudante, string(hashedPassword), emailPtr, telefonePtr, telefoneRespPtr, bilhetePtr, bilheteRespPtr, req.Genero, req.DataNascimento, anoEscolarPtr, anoEscolarMedioPtr, anoSuperiorPtr, cursoMedioUUID, cursoSuperiorUUID, &academiaID, academia.CodigoAcademia, documentos); err != nil {
+	var criarErr error
+	if pendenteDocumentos {
+		criarErr = estudante.CriarComVinculoPendenteDocumentos(req.Nome, codigoEstudante, string(hashedPassword), emailPtr, telefonePtr, telefoneRespPtr, bilhetePtr, bilheteRespPtr, req.Genero, req.DataNascimento, anoEscolarPtr, anoEscolarMedioPtr, anoSuperiorPtr, cursoMedioUUID, cursoSuperiorUUID, &academiaID, academia.CodigoAcademia, documentos)
+	} else {
+		criarErr = estudante.CriarComVinculo(req.Nome, codigoEstudante, string(hashedPassword), emailPtr, telefonePtr, telefoneRespPtr, bilhetePtr, bilheteRespPtr, req.Genero, req.DataNascimento, anoEscolarPtr, anoEscolarMedioPtr, anoSuperiorPtr, cursoMedioUUID, cursoSuperiorUUID, &academiaID, academia.CodigoAcademia, documentos)
+	}
+	if criarErr != nil {
 		_ = provider.Delete(dir)
-		utils.RespondWithValidationError(c, err)
+		utils.RespondWithValidationError(c, criarErr)
 		return
 	}
 	audit := db.AuditContext{UserID: academiaID.String(), UserType: "academia", IP: c.ClientIP()}
@@ -215,7 +228,7 @@ func registerEstudantePorAcademiaComRequest(c *gin.Context, req CadastroEstudant
 		return
 	}
 	log.Printf("Estudante criado por academia %s: %s - %s", academia.CodigoAcademia, codigoEstudante, req.Nome)
-	c.JSON(http.StatusCreated, gin.H{"message": "estudante registrado com sucesso", "data": gin.H{"id": estudante.ID, "codigo_estudante": codigoEstudante, "codigo_academia": academia.CodigoAcademia, "documentos": documentos}})
+	c.JSON(http.StatusCreated, gin.H{"message": "estudante registrado com sucesso", "data": gin.H{"id": estudante.ID, "codigo_estudante": codigoEstudante, "codigo_academia": academia.CodigoAcademia, "documentos": documentos, "status": estudante.Status}})
 }
 
 // ============================================================================
@@ -782,4 +795,93 @@ func GetEstudantePorCodigo(c *gin.Context) {
 			"version":                        estudante.Version,
 		},
 	})
+}
+
+func CompletarDocumentosEstudantePendente(c *gin.Context) {
+	if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("multipart/form-data inválido"))
+		return
+	}
+	if err := validarCamposArquivoMatricula(c.Request.MultipartForm); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	codigo := strings.TrimSpace(c.Param("codigo"))
+	academiaID, ok := middleware.GetUserID(c)
+	if !ok {
+		utils.RespondWithUnauthorizedError(c)
+		return
+	}
+	academia, err := getAcademiaProjection(c).GetByID(academiaID)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	proj, err := getEstudanteProjection(c).GetByCodigo(codigo)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if academia == nil || proj == nil || proj.CodigoAcademia == nil || *proj.CodigoAcademia != academia.CodigoAcademia {
+		utils.RespondWithError(c, http.StatusNotFound, "estudante pendente não encontrado", nil)
+		return
+	}
+	if proj.Status != "pendente_documentos" {
+		utils.RespondWithValidationError(c, fmt.Errorf("estudante não está pendente de documentos"))
+		return
+	}
+	files := map[string]uploadedPDF{}
+	for _, field := range solicitacaoDocFields {
+		if fh, err := c.FormFile(field); err == nil {
+			pdf, err := readAndValidatePDF(field, fh)
+			if err != nil {
+				utils.RespondWithValidationError(c, err)
+				return
+			}
+			files[field] = pdf
+		}
+	}
+	docsVal := documentosMatriculaParaValidacao(files, strings.TrimSpace(c.PostForm("declaracao_ano_academico")))
+	if _, err := services.ValidateMatriculaCommon(services.MatriculaCommonInput{Contexto: services.MatriculaContextCadastroDireto, Nome: proj.Nome, Genero: proj.Genero, DataNascimento: proj.DataNascimento, Email: proj.Email, TelefoneEstudante: proj.Telefone, TelefoneResponsavel: proj.TelefoneResponsavel, BilheteIdentidade: proj.BilheteIdentidade, BilheteIdentidadeResponsavel: proj.BilheteIdentidadeResp, AnoEscolarFundamental: proj.AnoEscolar, AnoEscolarMedio: proj.AnoEscolarMedio, AnoSuperior: proj.AnoSuperior, Documentos: docsVal}); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	provider := getStorageProvider(c)
+	if provider == nil {
+		provider, _ = storage.NewStorageProvider()
+	}
+	dir := fmt.Sprintf("%s/estudantes/%s/documentos", academia.CodigoAcademia, codigo)
+	if err := provider.EnsureDir(dir); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	documentos := map[string]aggregates.DocumentoMatricula{}
+	for field, f := range files {
+		stored, err := provider.Upload(fmt.Sprintf("%s/%s_%s.pdf", dir, field, codigo), bytes.NewReader(f.data), f.size)
+		if err != nil {
+			_ = provider.Delete(dir)
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		documentos[field] = aggregates.DocumentoMatricula{Path: stored.Path, FileURL: stored.FileURL, DownloadURL: estudanteDocumentoDownloadURL(codigo, field)}
+	}
+	agg := aggregates.NewEstudante()
+	loaded, err := getRepository(c).Load(proj.ID, "Estudante")
+	if err != nil {
+		_ = provider.Delete(dir)
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	agg = loaded.(*aggregates.Estudante)
+	if err := agg.CompletarDocumentosPendentes(documentos, academiaID); err != nil {
+		_ = provider.Delete(dir)
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if err := getRepository(c).SaveWithAudit(agg, db.AuditContext{UserID: academiaID.String(), UserType: "academia", IP: c.ClientIP()}); err != nil {
+		_ = provider.Delete(dir)
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "documentos carregados com sucesso", "data": gin.H{"codigo_estudante": codigo, "status": "ativo", "documentos": documentos}})
 }
