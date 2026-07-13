@@ -160,6 +160,7 @@ interface AcademiaDTO {
   tipo_ano_letivo?: string        // 'escolar' | 'superior'
   ano_letivo_ativado_em?: string  // RFC3339
   anos_letivos_lista: AnoLetivoItem[]
+  documentos?: Record<string, SolicitacaoMatriculaDocumentoDTO> // inclui alvara para usuários autenticados
   created_at: string
   updated_at?: string
   version: number
@@ -508,7 +509,7 @@ interface AsyncBatchAcceptedResponse {
 
 ### Consulta pública de academias
 
-As rotas `GET /academias` e `GET /consultar-academia/:codigo` são públicas com autenticação opcional. Usuários não autenticados podem consultar a lista de academias ou uma academia específica pelo código, mas a resposta expõe somente os campos públicos: `nivel`, `type`, `nome`, `codigo_academia`, `provincia`, `endereco`, `nivel_escolar` e `anos_academicos`. Para escolas fundamentais ou mistas, `anos_academicos` informa os anos acadêmicos ofertados sem exigir sessão.
+As rotas `GET /academias` e `GET /consultar-academia/:codigo` são públicas com autenticação opcional. Usuários não autenticados podem consultar a lista de academias ou uma academia específica pelo código, mas a resposta expõe somente os campos públicos: `nivel`, `type`, `nome`, `codigo_academia`, `provincia`, `endereco`, `nivel_escolar` e `anos_academicos`. Para escolas fundamentais ou mistas, `anos_academicos` informa os anos acadêmicos ofertados sem exigir sessão. Usuários autenticados recebem também `documentos.alvara.download_url` apontando para `/documentos/academias/{codigo_academia}/alvara/download`, permitindo download do alvará pelo backend sem expor links diretos do storage.
 
 As rotas `GET /academia/cursos?codigo_academia=...` e `GET /academia/curso/:id` também são públicas com autenticação opcional para consulta dos cursos e dos anos desses cursos em escolas do médio e academias do nível superior. Academias autenticadas continuam consultando os próprios cursos sem informar `codigo_academia`; admins autenticados continuam informando `codigo_academia` na listagem.
 
@@ -1258,14 +1259,25 @@ Lista todas as academias com paginação e filtro de status.
 
 ```json
 {
-  "academias": [AcademiaDTO],
+  "academias": [
+    {
+      ... (AcademiaDTO) ...,
+      "documentos": {
+        "alvara": {
+          "path": "LDA20261/Documentação formal/alvara_LDA20261.pdf",
+          "file_url": "LDA20261/Documentação formal/alvara_LDA20261.pdf",
+          "download_url": "/documentos/academias/LDA20261/alvara/download"
+        }
+      }
+    }
+  ],
   "total": 25,
   "limit": 50,
   "offset": 0
 }
 ```
 
-**Nota**: usuários autenticados veem os campos operacionais do `AcademiaDTO`; admins veem campos extras (`email`, `total_estudantes`, `version`). O backend nunca retorna mais de 100 academias por página, mesmo que o cliente envie `limit` maior.
+**Nota**: usuários autenticados veem os campos operacionais do `AcademiaDTO`, incluindo `documentos.alvara.download_url`; admins veem campos extras (`email`, `total_estudantes`, `version`). O backend nunca retorna mais de 100 academias por página, mesmo que o cliente envie `limit` maior.
 
 ---
 
@@ -1319,13 +1331,20 @@ Retorna detalhes de uma academia pelo código.
   "total_estudantes": 10,
   "ano_letivo": "2026",
   "tipo_ano_letivo": "anual",
-  "anos_letivos_lista": ["2026"]
+  "anos_letivos_lista": ["2026"],
+  "documentos": {
+    "alvara": {
+      "path": "LDA20261/Documentação formal/alvara_LDA20261.pdf",
+      "file_url": "LDA20261/Documentação formal/alvara_LDA20261.pdf",
+      "download_url": "/documentos/academias/LDA20261/alvara/download"
+    }
+  }
 }
 ```
 
 **Campos públicos para usuário não autenticado:** `nivel`, `type`, `nome`, `codigo_academia`, `provincia`, `endereco`, `nivel_escolar`, `anos_academicos`.
 
-**Nota**: admins veem também `email` e `motivo_desativacao`.
+**Nota**: usuários autenticados veem também `documentos.alvara.download_url`; admins veem também `email` e `motivo_desativacao`.
 
 ### GET /academia/anos-academicos
 
@@ -5837,7 +5856,7 @@ Falhas de configuração retornam mensagens operacionais explícitas, sem vazar 
 
 ### GET /documentos/academias/{codigo_academia}/alvara/download
 
-Faz stream inline do alvará/documento formal da academia pelo backend, sem expor credenciais, links privados ou IDs internos do Mega.
+Faz stream inline do alvará/documento formal da academia pelo backend, sem expor credenciais, links privados ou IDs internos do Mega. As consultas autenticadas de academia (`GET /academias`, `GET /consultar-academia/:codigo` e o inventário `GET /academia/documentos`) retornam esse endereço em `documentos.alvara.download_url`.
 
 **Escopo da rota**: global autenticado (`protected`), fora dos prefixos `/academia`, `/estudante` e `/dominis`, para permitir uso uniforme pelo front end a partir de qualquer tela autorizada.
 

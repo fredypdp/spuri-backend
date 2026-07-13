@@ -31,10 +31,12 @@ func TestAcademiaDocumentoDownloadURL(t *testing.T) {
 
 func TestScopedDocumentoDownloadURLs(t *testing.T) {
 	cases := map[string]string{
-		estudanteDocumentoProprioDownloadURL("bi_estudante"):              "/estudante/documentos/bi_estudante/download",
-		academiaDocumentoProprioDownloadURL("alvara"):                     "/academia/documentos/academia/alvara/download",
-		academiaEstudanteDocumentoDownloadURL("EST001", "bi_estudante"):   "/academia/documentos/estudantes/EST001/bi_estudante/download",
-		academiaSolicitacaoDocumentoDownloadURL("SOL001", "bi_estudante"): "/academia/documentos/solicitacoes-matricula/SOL001/bi_estudante/download",
+		estudanteDocumentoProprioDownloadURL("bi_estudante"):                 "/estudante/documentos/bi_estudante/download",
+		academiaDocumentoProprioDownloadURL("alvara"):                        "/academia/documentos/academia/alvara/download",
+		documentosComDownloadAcademia("ACA001")["alvara"].DownloadURL:        "/documentos/academias/ACA001/alvara/download",
+		documentosComDownloadAcademiaPropria("ACA001")["alvara"].DownloadURL: "/academia/documentos/academia/alvara/download",
+		academiaEstudanteDocumentoDownloadURL("EST001", "bi_estudante"):      "/academia/documentos/estudantes/EST001/bi_estudante/download",
+		academiaSolicitacaoDocumentoDownloadURL("SOL001", "bi_estudante"):    "/academia/documentos/solicitacoes-matricula/SOL001/bi_estudante/download",
 	}
 	for got, want := range cases {
 		if got != want {
@@ -49,6 +51,8 @@ func TestDocumentoConsultaHelpersSemprePreenchemDownloadURLDaRota(t *testing.T) 
 	}
 
 	cases := map[string]map[string]aggregates.DocumentoMatricula{
+		"consulta global da academia":      documentosComDownloadAcademia("ACA001"),
+		"consulta própria da academia":     documentosComDownloadAcademiaPropria("ACA001"),
 		"consulta global do estudante":     documentosComDownloadEstudante("EST001", documentos),
 		"consulta própria do estudante":    documentosComDownloadEstudanteProprio(documentos),
 		"consulta da academia/estudante":   documentosComDownloadEstudanteAcademia("EST001", documentos),
@@ -57,6 +61,8 @@ func TestDocumentoConsultaHelpersSemprePreenchemDownloadURLDaRota(t *testing.T) 
 	}
 
 	wants := map[string]string{
+		"consulta global da academia":      "/documentos/academias/ACA001/alvara/download",
+		"consulta própria da academia":     "/academia/documentos/academia/alvara/download",
 		"consulta global do estudante":     "/documentos/estudantes/EST001/bi_estudante/download",
 		"consulta própria do estudante":    "/estudante/documentos/bi_estudante/download",
 		"consulta da academia/estudante":   "/academia/documentos/estudantes/EST001/bi_estudante/download",
@@ -65,7 +71,11 @@ func TestDocumentoConsultaHelpersSemprePreenchemDownloadURLDaRota(t *testing.T) 
 	}
 
 	for name, gotDocs := range cases {
-		got := gotDocs["bi_estudante"].DownloadURL
+		campo := "bi_estudante"
+		if name == "consulta global da academia" || name == "consulta própria da academia" {
+			campo = "alvara"
+		}
+		got := gotDocs[campo].DownloadURL
 		if got != wants[name] {
 			t.Fatalf("%s: download_url = %q, want %q", name, got, wants[name])
 		}

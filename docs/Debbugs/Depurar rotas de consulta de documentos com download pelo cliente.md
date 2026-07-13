@@ -10,17 +10,19 @@ Garantir que todas as rotas de consulta de documentos retornem `download_url` ut
 
 ## Escopo verificado
 
-1. Consulta global de estudante: `GET /consultar-estudante/:codigo`.
-2. Consulta própria do estudante: `GET /estudante/documentos`.
-3. Inventário documental da academia: `GET /academia/documentos`.
-4. Listagem de solicitações da academia: `GET /academia/solicitacoes-matricula`.
-5. Consulta detalhada de solicitação da academia: `GET /academia/solicitacao-matricula/:codigo`.
-6. Listagem administrativa de solicitações: `GET /solicitacoes-matricula`.
-7. Rotas diretas de download protegidas para academia, estudantes e solicitações.
+1. Consulta/listagem de academias autenticada: `GET /academias` e `GET /consultar-academia/:codigo`.
+2. Consulta global de estudante: `GET /consultar-estudante/:codigo`.
+3. Consulta própria do estudante: `GET /estudante/documentos`.
+4. Inventário documental da academia: `GET /academia/documentos`.
+5. Listagem de solicitações da academia: `GET /academia/solicitacoes-matricula`.
+6. Consulta detalhada de solicitação da academia: `GET /academia/solicitacao-matricula/:codigo`.
+7. Listagem administrativa de solicitações: `GET /solicitacoes-matricula`.
+8. Rotas diretas de download protegidas para academia, estudantes e solicitações.
 
 ## Correções aplicadas
 
 - Os helpers de serialização documental passam a sobrescrever `download_url` com a rota autenticada correta do backend para o escopo da resposta.
+- As consultas autenticadas de academias passam a expor `documentos.alvara.download_url` com a rota global `/documentos/academias/{codigo_academia}/alvara/download`.
 - A consulta de estudante por código passa a retornar o mapa `documentos` com URLs de download.
 - As consultas de solicitações de matrícula passam a normalizar `documentos` antes de serializar as respostas.
 - Foi adicionado teste de regressão cobrindo os escopos de consulta documental para impedir retorno de link legado no campo `download_url`.
@@ -29,6 +31,7 @@ Garantir que todas as rotas de consulta de documentos retornem `download_url` ut
 ## Critérios de aceite
 
 - [x] Todo documento retornado por helpers de consulta contém `download_url` de rota backend.
+- [x] Consultas autenticadas de academia expõem `alvara` com rota de download do backend.
 - [x] Consultas de estudante expõem documentos quando existirem.
 - [x] Consultas de solicitação de matrícula expõem documentos com `download_url` normalizado.
 - [x] Inventários documentais por perfil preservam URLs específicas de `/estudante/documentos/...` e `/academia/documentos/...`.
