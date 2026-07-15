@@ -8,7 +8,7 @@ status: pendente
 
 ## Prompt recomendado para executar a atualização
 
-Implemente a atualização descrita neste documento garantindo que declarações e certificados do estudante nunca se substituam quando pertencerem a anos acadêmicos, níveis ou cursos diferentes. O backend deve armazenar os arquivos em caminhos únicos por escopo acadêmico e persistir os metadados em estrutura normalizada, versionável e consultável por tipo documental, nível, ano acadêmico e curso quando aplicável. Ao final, atualize testes, documentação técnica, OpenAPI/Swagger e qualquer documentação afetada. Não criar suporte a código legado, aliases, wrappers de compatibilidade, fallbacks temporários ou respostas/documentos duplicados em chaves ambíguas.
+Implemente a atualização descrita neste documento garantindo que declarações e certificados do estudante nunca se substituam quando pertencerem a anos acadêmicos, níveis ou cursos diferentes. A regra deve valer em todas as rotas que manipulam documentos de estudante, incluindo cadastro pela academia, solicitação de matrícula, aprovação de solicitação que cria estudante, carregamento posterior de documentos pendentes, batch/importação e qualquer reenvio/correção documental. O backend deve armazenar os arquivos em caminhos únicos por escopo acadêmico e persistir os metadados em estrutura por nível e ano, versionável e consultável por tipo documental, nível, ano acadêmico e curso quando aplicável. Ao final, atualize testes, documentação técnica, OpenAPI/Swagger e qualquer documentação afetada. Não criar suporte a código legado, aliases, wrappers de compatibilidade, fallbacks temporários ou respostas/documentos duplicados em chaves ambíguas.
 
 ## Contexto da auditoria
 
@@ -30,7 +30,7 @@ Portanto, quando um estudante acumular declarações/certificados de anos ou ní
 
 | Item | Situação atual | Resultado esperado |
 | --- | --- | --- |
-| Estrutura em ledger/projeção | `map[string]DocumentoMatricula` por campo simples | Coleção normalizada por tipo, nível, ano acadêmico, curso e versão |
+| Estrutura em ledger/projeção | `map[string]DocumentoMatricula` por campo simples | `documentos` organizado por nível e ano acadêmico, preservando tipos documentais dentro do escopo |
 | Storage | Caminho `{field}_{codigo_estudante}.pdf` | Caminho único por escopo acadêmico e versão |
 | Declarações | Uma chave `declaracao` com `ano_academico` interno | Várias declarações coexistindo por ano acadêmico/nível |
 | Certificados | Chaves fixas por tipo de certificado | Certificados coexistindo por nível, conclusão, curso/ano quando aplicável |
@@ -48,12 +48,44 @@ Garantir que cada documento acadêmico do estudante seja identificado por uma ch
 
 ## Regra de negócio
 
+A estrutura pública e persistida do campo `documentos` do estudante deve ser organizada por nível e ano acadêmico. O formato desejado deve seguir aproximadamente este desenho, abrangendo todos os níveis vigentes:
+
+```json
+{
+  "documentos": {
+    "fundamental": {
+      "1_ano_fundamental": {
+        "bi_estudante": { "path": "...", "file_url": "...", "download_url": "..." },
+        "bi_responsavel": { "path": "...", "file_url": "...", "download_url": "..." },
+        "declaracao": { "path": "...", "file_url": "...", "download_url": "..." }
+      },
+      "2_ano_fundamental": {
+        "declaracao": { "path": "...", "file_url": "...", "download_url": "..." }
+      }
+    },
+    "medio": {
+      "1_ano_medio": {
+        "certificado_9_ano_fundamental": { "path": "...", "file_url": "...", "download_url": "..." },
+        "declaracao": { "path": "...", "file_url": "...", "download_url": "..." }
+      }
+    },
+    "superior": {
+      "1_ano_superior": {
+        "certificado_ensino_medio": { "path": "...", "file_url": "...", "download_url": "..." }
+      }
+    }
+  }
+}
+```
+
+A implementação pode acrescentar metadados internos, identificadores e versões, mas não pode voltar ao formato ambíguo em que `declaracao` ou `certificado_*` ficam no topo do mapa sem escopo acadêmico.
+
 Cada documento acadêmico de estudante deve possuir, no mínimo:
 
 1. `id` ou `documento_id` estável;
 2. `tipo` (`declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`, ou outro tipo vigente);
-3. `nivel` (`fundamental`, `medio`, `superior`, ou enum equivalente vigente);
-4. `ano_academico` quando aplicável;
+3. `nivel` (`fundamental`, `medio`, `superior`, ou enum equivalente vigente), usado como primeira camada dentro de `documentos`;
+4. `ano_academico`, usado como segunda camada dentro de cada nível quando aplicável;
 5. `curso_id` quando aplicável para médio/superior;
 6. `ano_letivo` quando necessário para rastreabilidade;
 7. `versao` ou `sequencia` para permitir reenvio sem sobrescrever histórico;
@@ -70,11 +102,11 @@ O evento de novo documento deve acrescentar ou registrar documento por escopo. N
 
 ### 1.2 Ajustar projeção
 
-Atualizar `projection_estudantes.documentos` para armazenar estrutura que permita múltiplos documentos do mesmo tipo com escopos diferentes.
+Atualizar `projection_estudantes.documentos` para armazenar a estrutura por nível e ano acadêmico, permitindo múltiplos documentos do mesmo tipo em escopos diferentes sem colisão.
 
 A estrutura deve permitir consultas como:
 
-- todas as declarações do estudante;
+- todas as declarações do estudante, percorrendo todos os níveis e anos;
 - declaração de um ano acadêmico específico;
 - certificados por nível;
 - certificados por curso quando aplicável;
@@ -115,14 +147,15 @@ Não usar apenas `{field}_{codigo_estudante}.pdf` para declarações/certificado
 
 ### 2.1 Ajustar handlers de upload
 
-Atualizar todos os fluxos que aceitam documentos de estudante:
+Atualizar todos os fluxos e rotas que aceitam, movem, completam, aprovam, consultam ou baixam documentos de estudante. A regra de separação por nível e ano deve ser aplicada de forma uniforme em:
 
 1. cadastro direto por academia;
 2. completar documentos pendentes;
 3. solicitação de matrícula;
 4. aprovação de solicitação que cria estudante;
 5. batch/importação que encaminhe documentos;
-6. qualquer endpoint futuro ou existente de reenvio/correção documental.
+6. endpoints de listagem e download que retornam documentos do estudante;
+7. qualquer endpoint futuro ou existente de reenvio/correção documental.
 
 ### 2.2 Garantir atomicidade
 
@@ -140,7 +173,7 @@ Permitir que clientes consultem e baixem documentos sem ambiguidade quando houve
 
 ## Regra de negócio
 
-As respostas de estudante, inventário documental e solicitações devem expor documentos com identificador único e escopo acadêmico.
+As respostas de estudante, inventário documental e solicitações devem expor documentos no formato por nível e ano acadêmico, com identificador único e escopo acadêmico em cada entrada documental.
 
 Downloads não devem depender apenas de `{campo}` quando existir mais de um documento do mesmo tipo. Usar `documento_id` ou rota/query inequívoca.
 
@@ -154,7 +187,8 @@ Atualizar as respostas de:
 2. consulta de estudante pela academia/admin;
 3. inventário documental da academia;
 4. consulta de solicitações de matrícula;
-5. qualquer endpoint usado pelo front end para listar documentos.
+5. consulta/listagem de documentos pendentes;
+6. qualquer endpoint usado pelo front end para listar documentos.
 
 ### 3.2 Ajustar rotas de download
 
@@ -189,13 +223,14 @@ Adicionar ou ajustar testes cobrindo obrigatoriamente:
 1. duas declarações de anos acadêmicos diferentes coexistem na projeção;
 2. duas declarações de anos acadêmicos diferentes geram paths diferentes no storage;
 3. certificado antigo não é sobrescrito ao adicionar certificado de outro nível;
-4. completar documentos pendentes não substitui documentos já existentes fora do escopo completado;
+4. completar documentos pendentes não substitui documentos já existentes fora do nível/ano completado;
 5. aprovação de solicitação preserva documentos da solicitação com escopo normalizado;
 6. download por identificador retorna o documento correto entre múltiplos do mesmo tipo;
 7. validação rejeita declaração de ano diferente do esperado mesmo havendo outra declaração válida para outro contexto;
 8. rollback de upload remove apenas arquivos recém-criados;
 9. migration preserva documentos legados;
-10. serialização/deserialização do ledger preserva múltiplos documentos por tipo.
+10. serialização/deserialização do ledger preserva múltiplos documentos por tipo;
+11. todas as rotas manipuladoras de documentos de estudante retornam e persistem a mesma estrutura por nível e ano.
 
 ---
 
@@ -203,9 +238,10 @@ Adicionar ou ajustar testes cobrindo obrigatoriamente:
 
 Atualizar documentação técnica, documentação de API, OpenAPI/Swagger, exemplos de payload e manuais do front end para refletir:
 
-1. nova estrutura documental normalizada;
+1. nova estrutura documental por nível e ano acadêmico no campo `documentos`;
 2. paths de storage por escopo;
 3. rotas de download por documento inequívoco;
 4. regras de validação por nível/ano/curso;
 5. comportamento esperado para histórico e reenvio documental;
-6. inexistência de substituição automática entre documentos de anos/níveis diferentes.
+6. inexistência de substituição automática entre documentos de anos/níveis diferentes;
+7. exemplos completos para `fundamental`, `medio` e `superior`, incluindo a estrutura aproximada esperada em `documentos`.
