@@ -849,7 +849,7 @@ func CompletarDocumentosEstudantePendente(c *gin.Context) {
 	}
 	if _, err := services.ValidateMatriculaCommon(services.MatriculaCommonInput{Contexto: services.MatriculaContextCadastroDireto, Nome: proj.Nome, Genero: proj.Genero, DataNascimento: proj.DataNascimento, Email: proj.Email, TelefoneEstudante: proj.Telefone, TelefoneResponsavel: proj.TelefoneResponsavel, BilheteIdentidade: proj.BilheteIdentidade, BilheteIdentidadeResponsavel: proj.BilheteIdentidadeResp, AnoEscolarFundamental: proj.AnoEscolar, AnoEscolarMedio: proj.AnoEscolarMedio, AnoSuperior: proj.AnoSuperior, Documentos: docsCompletosVal}); err != nil {
 		faltantes := aggregates.DocumentosMatriculaFaltantes(proj.BilheteIdentidade, proj.BilheteIdentidadeResp, proj.AnoEscolar, proj.AnoEscolarMedio, proj.AnoSuperior, docsCompletosVal)
-		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), gin.H{"documentos_faltantes": faltantes})
+		utils.RespondWithErrorData(c, http.StatusBadRequest, err.Error(), err, gin.H{"documentos_faltantes": faltantes})
 		return
 	}
 	provider := getStorageProvider(c)
