@@ -1199,7 +1199,12 @@ func (e *Estudante) applyEstudanteDocumentosCompletados(event DomainEvent) error
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return err
 	}
-	e.Documentos = ev.Documentos
+	if e.Documentos == nil {
+		e.Documentos = map[string]DocumentoMatricula{}
+	}
+	for k, v := range ev.Documentos {
+		e.Documentos[k] = v
+	}
 	e.Status = "ativo"
 	return nil
 }

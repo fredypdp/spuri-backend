@@ -376,7 +376,7 @@ func (p *EstudanteProjection) handleEstudanteDocumentosCompletados(event db.Even
 	}
 	_, err := p.client.DB().Exec(`
 		UPDATE projection_estudantes
-		SET status = 'ativo', documentos = $1, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
+		SET status = 'ativo', documentos = COALESCE(documentos, '{}'::jsonb) || $1::jsonb, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
 		WHERE id = $4 AND codigo_estudante = $5 AND codigo_academia = $6`,
 		jsonbOrEmpty(payload.Documentos), event.EventVersion, event.EventID, event.AggregateID, payload.CodigoEstudante, payload.CodigoAcademia)
 	if err != nil {

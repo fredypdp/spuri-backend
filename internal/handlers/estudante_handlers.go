@@ -166,18 +166,15 @@ func registerEstudantePorAcademiaComRequestModo(c *gin.Context, req CadastroEstu
 		documentos[campo] = documento
 	}
 	for field, f := range files {
-		stored, err := provider.Upload(fmt.Sprintf("%s/%s_%s.pdf", dir, field, codigoEstudante), bytes.NewReader(f.data), f.size)
+		storageTipo, storagePath := storagePathDocumentoEstudante(dir, field, codigoEstudante, declaracaoAnoAcademico)
+		stored, err := provider.Upload(storagePath, bytes.NewReader(f.data), f.size)
 		if err != nil {
 			_ = provider.Delete(dir)
 			utils.RespondWithInternalError(c, fmt.Errorf("falha no upload dos documentos: %w", err))
 			return
 		}
-		documentos[field] = aggregates.DocumentoMatricula{Path: stored.Path, FileURL: stored.FileURL, DownloadURL: estudanteDocumentoDownloadURL(codigoEstudante, field)}
-		if field == "declaracao" {
-			doc := documentos[field]
-			doc.AnoAcademico = declaracaoAnoAcademico
-			documentos[field] = doc
-		}
+		key, doc := documentoMatriculaNormalizado(field, declaracaoAnoAcademico, estudanteDocumentoDownloadURL(codigoEstudante, storageTipo), stored.Path, stored.FileURL)
+		documentos[key] = doc
 	}
 
 	defaultPassword := services.GetDefaultPassword("estudante", codigoEstudante)
@@ -858,13 +855,15 @@ func CompletarDocumentosEstudantePendente(c *gin.Context) {
 	}
 	documentos := map[string]aggregates.DocumentoMatricula{}
 	for field, f := range files {
-		stored, err := provider.Upload(fmt.Sprintf("%s/%s_%s.pdf", dir, field, codigo), bytes.NewReader(f.data), f.size)
+		storageTipo, storagePath := storagePathDocumentoEstudante(dir, field, codigo, strings.TrimSpace(c.PostForm("declaracao_ano_academico")))
+		stored, err := provider.Upload(storagePath, bytes.NewReader(f.data), f.size)
 		if err != nil {
 			_ = provider.Delete(dir)
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-		documentos[field] = aggregates.DocumentoMatricula{Path: stored.Path, FileURL: stored.FileURL, DownloadURL: estudanteDocumentoDownloadURL(codigo, field)}
+		key, doc := documentoMatriculaNormalizado(field, strings.TrimSpace(c.PostForm("declaracao_ano_academico")), estudanteDocumentoDownloadURL(codigo, storageTipo), stored.Path, stored.FileURL)
+		documentos[key] = doc
 	}
 	agg := aggregates.NewEstudante()
 	loaded, err := getRepository(c).Load(proj.ID, "Estudante")

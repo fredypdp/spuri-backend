@@ -177,19 +177,15 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 	}
 	documentos := map[string]aggregates.DocumentoMatricula{}
 	for field, f := range files {
-		remote := fmt.Sprintf("%s/%s_%s.pdf", dir, field, codigo)
-		stored, err := provider.Upload(remote, bytes.NewReader(f.data), f.size)
+		storageTipo, storagePath := storagePathDocumentoEstudante(dir, field, codigo, get("declaracao_ano_academico"))
+		stored, err := provider.Upload(storagePath, bytes.NewReader(f.data), f.size)
 		if err != nil {
 			_ = provider.Delete(dir)
 			utils.RespondWithInternalError(c, fmt.Errorf("falha no upload dos documentos: %w", err))
 			return
 		}
-		documentos[field] = aggregates.DocumentoMatricula{Path: stored.Path, FileURL: stored.FileURL, DownloadURL: solicitacaoDocumentoDownloadURL(codigo, field)}
-		if field == "declaracao" {
-			doc := documentos[field]
-			doc.AnoAcademico = get("declaracao_ano_academico")
-			documentos[field] = doc
-		}
+		key, doc := documentoMatriculaNormalizado(field, get("declaracao_ano_academico"), solicitacaoDocumentoDownloadURL(codigo, storageTipo), stored.Path, stored.FileURL)
+		documentos[key] = doc
 	}
 
 	emailPtr := validado.Email
@@ -528,7 +524,8 @@ func documentosMatriculaParaValidacao(files map[string]uploadedPDF, declaracaoAn
 		if field == "declaracao" {
 			documento.AnoAcademico = declaracaoAnoAcademico
 		}
-		documentos[field] = documento
+		key, doc := documentoMatriculaNormalizado(field, declaracaoAnoAcademico, "", documento.Path, "")
+		documentos[key] = doc
 	}
 	return documentos
 }
@@ -623,4 +620,39 @@ func documentLabel(field string) string {
 	default:
 		return field
 	}
+}
+
+func documentoMatriculaNormalizado(field, declaracaoAnoAcademico, downloadURL, path, fileURL string) (string, aggregates.DocumentoMatricula) {
+	tipo := strings.TrimSpace(field)
+	ano := ""
+	nivel := "identificacao"
+	if field == "declaracao" {
+		ano = strings.TrimSpace(declaracaoAnoAcademico)
+		tipo = aggregates.TipoDeclaracaoParaAno(ano)
+		nivel = aggregates.NivelDoAnoAcademico(ano)
+	} else if strings.HasPrefix(field, "certificado_6_ano_fundamental") {
+		ano, nivel = "6_ano_fundamental", "fundamental"
+	} else if strings.HasPrefix(field, "certificado_9_ano_fundamental") {
+		ano, nivel = "9_ano_fundamental", "fundamental"
+	} else if field == "certificado_ensino_medio" {
+		ano, nivel = "3_ano_medio", "medio"
+	}
+	if tipo == "" {
+		tipo = field
+	}
+	docID := uuid.NewString()
+	doc := aggregates.DocumentoMatricula{DocumentoID: docID, Tipo: tipo, Nivel: nivel, AnoAcademico: ano, Versao: 1, Path: path, FileURL: fileURL, DownloadURL: downloadURL}
+	if nivel == "identificacao" || nivel == "escopo_desconhecido" {
+		return tipo, doc
+	}
+	return nivel + "." + ano + "." + tipo, doc
+}
+
+func storagePathDocumentoEstudante(baseDir, field, codigoEstudante, declaracaoAnoAcademico string) (string, string) {
+	key, doc := documentoMatriculaNormalizado(field, declaracaoAnoAcademico, "", "", "")
+	_ = key
+	if doc.Nivel == "identificacao" || doc.Nivel == "escopo_desconhecido" {
+		return doc.Tipo, fmt.Sprintf("%s/identificacao/%s/%s.pdf", baseDir, doc.Tipo, doc.DocumentoID)
+	}
+	return doc.Tipo, fmt.Sprintf("%s/%s/%s/%s/%s.pdf", baseDir, doc.Nivel, doc.AnoAcademico, doc.Tipo, doc.DocumentoID)
 }
