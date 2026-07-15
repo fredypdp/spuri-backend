@@ -467,6 +467,8 @@ POST /academia/estudante/register
 
 O cadastro direto usa `multipart/form-data` e compartilha a mesma validação cadastral/documental do `POST /solicitacao-matricula` para dados comuns. No nível escolar/fundamental/médio, `telefone_responsavel` é obrigatório e `telefone` do estudante é opcional; no ensino superior, `telefone` do estudante é obrigatório e `telefone_responsavel` é opcional. Documentos obrigatórios são validados e enviados ao storage antes de qualquer gravação no ledger; falha de validação ou upload impede a criação do estudante.
 
+Quando a academia usar um fluxo de cadastro direto que permite criar o estudante sem todos os arquivos, o estudante permanece com `status="pendente_documentos"`. Nessa resposta, o campo `documentos_faltantes` informa quais documentos ainda precisam ser carregados conforme o nível/ano atual do estudante e as regras de obrigatoriedade documental. Ao completar documentos pendentes, o backend valida o conjunto completo — documentos já salvos mais novos uploads — e só muda o estudante para `ativo` quando não houver pendências; em caso contrário, a resposta de erro também retorna `documentos_faltantes`.
+
 Quando documentos forem retornados nos metadados do estudante, da academia ou da solicitação de matrícula, o front end deve usar o campo `download_url` para leitura do PDF. O backend expõe rotas autenticadas de download inline sem expor credenciais ou IDs internos do Mega.
 
 ### Endpoints de documentos por escopo
