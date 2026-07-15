@@ -85,7 +85,7 @@ A implementação pode acrescentar metadados internos, identificadores e versõe
 
 1. `bi_estudante` e `bi_responsavel` são documentos gerais de identificação e **não** devem ficar dentro dos escopos acadêmicos `fundamental`, `medio` ou `superior`. Eles devem permanecer em escopo geral, como `identificacao`, ou estrutura equivalente sem associação a nível/ano acadêmico.
 2. `1_ano_fundamental` não possui ano acadêmico anterior exigível; portanto, não deve ter declaração de entrada, declaração anterior ou qualquer comprovativo acadêmico obrigatório. O escopo pode existir vazio ou conter apenas metadados não documentais, mas não deve exigir `declaracao_*` nem certificado.
-3. Não existe o tipo documental `declaracao_ensino_medio`. A declaração válida para comprovar conclusão/ano anterior ao ingresso no superior deve usar a nomenclatura explícita `declaracao_3_ano_medio`, acompanhando a regra atual de validação que compara a declaração com o ano acadêmico anterior (`3_ano_medio`) ao `1_ano_superior`.
+3. Não existe o tipo documental `declaracao_ensino_medio`. Para ingresso no ensino superior, há duas alternativas válidas de comprovativo acadêmico: `declaracao_3_ano_medio` ou `certificado_ensino_medio`. A declaração, quando usada como alternativa ao certificado, deve usar a nomenclatura explícita `declaracao_3_ano_medio`, acompanhando a regra atual de validação que compara a declaração com o ano acadêmico anterior (`3_ano_medio`) ao `1_ano_superior`.
 4. A implementação deve remover qualquer uso novo de `declaracao_ensino_medio` em contratos, validações, handlers, DTOs, exemplos, OpenAPI/Swagger e documentação. Se o debug encontrar uso existente dessa nomenclatura em código executável, a própria tarefa deve incluir a correção para `declaracao_3_ano_medio`, sem alias ou fallback legado.
 
 Cada documento acadêmico de estudante deve possuir, no mínimo:
@@ -104,7 +104,7 @@ Cada documento acadêmico de estudante deve possuir, no mínimo:
 
 Foi verificado que a nomenclatura `declaracao_ensino_medio` não aparece em código executável, migrations, validações ou handlers antes desta tarefa; a busca apontou apenas o próprio documento de tarefa que estava sendo ajustado. A implementação desta tarefa ainda deve manter uma verificação final em `internal/`, `migrations/`, documentação técnica e OpenAPI/Swagger para garantir que nenhum novo uso de `declaracao_ensino_medio` seja introduzido.
 
-Com base na validação atual de ano acadêmico anterior, o ingresso em `1_ano_superior` tem como ano anterior `3_ano_medio`; por isso, a chave explícita correta da declaração é `declaracao_3_ano_medio`.
+Com base na validação atual de ano acadêmico anterior, o ingresso em `1_ano_superior` tem como ano anterior `3_ano_medio`; por isso, quando o estudante apresentar declaração em vez do certificado, a chave explícita correta é `declaracao_3_ano_medio`. O `certificado_ensino_medio` continua sendo a outra alternativa válida para o ensino superior.
 
 ## Escopo obrigatório
 
@@ -223,7 +223,7 @@ A validação deve localizar documentos por tipo e escopo, por exemplo:
 1. declaração do ano acadêmico anterior esperado usando tipo explícito, por exemplo `declaracao_9_ano_fundamental` ou `declaracao_3_ano_medio`;
 2. certificado do 6.º ano fundamental para ingresso no 7.º ano fundamental;
 3. certificado do 9.º ano fundamental para ingresso no 1.º ano médio;
-4. certificado do ensino médio para ingresso no 1.º ano superior;
+4. para ingresso no 1.º ano superior, aceitar `certificado_ensino_medio` **ou** `declaracao_3_ano_medio`, sem exigir os dois simultaneamente;
 5. documento correspondente ao curso quando o nível exigir curso.
 
 A existência de documento de outro ano, nível ou curso não deve satisfazer a regra do escopo atual.
