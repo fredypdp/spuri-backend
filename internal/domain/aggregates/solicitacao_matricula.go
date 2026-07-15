@@ -161,10 +161,16 @@ func bilhetesSolicitacaoIguais(bi, biResp *string) bool {
 }
 
 type DocumentoMatricula struct {
+	DocumentoID  string `json:"documento_id,omitempty"`
+	Tipo         string `json:"tipo,omitempty"`
+	Nivel        string `json:"nivel,omitempty"`
+	AnoAcademico string `json:"ano_academico,omitempty"`
+	CursoID      string `json:"curso_id,omitempty"`
+	AnoLetivo    string `json:"ano_letivo,omitempty"`
+	Versao       int    `json:"versao,omitempty"`
 	Path         string `json:"path"`
 	FileURL      string `json:"file_url"`
 	DownloadURL  string `json:"download_url"`
-	AnoAcademico string `json:"ano_academico,omitempty"`
 }
 
 func (d DocumentoMatricula) TemReferenciaArquivo() bool {
@@ -232,7 +238,7 @@ func validarComprovativoAcademico(ano string, documentos map[string]DocumentoMat
 		return nil
 	}
 	if requiredCert, requiredLabel := certificadoObrigatorioParaAno(ano); requiredCert != "" {
-		if doc, ok := documentos[requiredCert]; ok && doc.TemReferenciaArquivo() {
+		if doc, ok := documentoPorTipo(documentos, requiredCert); ok && doc.TemReferenciaArquivo() {
 			return nil
 		}
 		if err := validarDeclaracaoAnoAnterior(documentos, esperado); err == nil {
@@ -245,22 +251,59 @@ func validarComprovativoAcademico(ano string, documentos map[string]DocumentoMat
 	return validarDeclaracaoAnoAnterior(documentos, esperado)
 }
 
+func TipoDeclaracaoParaAno(ano string) string {
+	ano = strings.TrimSpace(ano)
+	if ano == "" {
+		return ""
+	}
+	return "declaracao_" + ano
+}
+
+func NivelDoAnoAcademico(ano string) string {
+	switch {
+	case strings.HasSuffix(ano, "_ano_fundamental"):
+		return "fundamental"
+	case strings.HasSuffix(ano, "_ano_medio"):
+		return "medio"
+	case strings.HasSuffix(ano, "_ano_superior"):
+		return "superior"
+	default:
+		return "escopo_desconhecido"
+	}
+}
+
+func documentoPorTipo(documentos map[string]DocumentoMatricula, tipo string) (DocumentoMatricula, bool) {
+	if doc, ok := documentos[tipo]; ok {
+		return doc, true
+	}
+	for campo, doc := range documentos {
+		if doc.Tipo == tipo {
+			return doc, true
+		}
+		if strings.HasPrefix(tipo, "declaracao_") && (campo == "declaracao" || doc.Tipo == "declaracao") && doc.AnoAcademico != "" && tipo == TipoDeclaracaoParaAno(doc.AnoAcademico) {
+			return doc, true
+		}
+	}
+	return DocumentoMatricula{}, false
+}
+
 func hasDocumentoComArquivo(documentos map[string]DocumentoMatricula, campo string) bool {
-	doc, ok := documentos[campo]
+	doc, ok := documentoPorTipo(documentos, campo)
 	return ok && doc.TemReferenciaArquivo()
 }
 
 func validarDeclaracaoAnoAnterior(documentos map[string]DocumentoMatricula, esperado string) error {
-	doc, ok := documentos["declaracao"]
+	tipo := TipoDeclaracaoParaAno(esperado)
+	doc, ok := documentoPorTipo(documentos, tipo)
 	if !ok || !doc.TemReferenciaArquivo() {
 		return fmt.Errorf("declaracao do ano académico anterior (%s) é obrigatória", esperado)
 	}
 	anoDeclaracao := strings.TrimSpace(doc.AnoAcademico)
 	if anoDeclaracao == "" {
-		return fmt.Errorf("declaracao deve informar ano_academico esperado %s", esperado)
+		return fmt.Errorf("%s deve informar ano_academico esperado %s", tipo, esperado)
 	}
 	if anoDeclaracao != esperado {
-		return fmt.Errorf("declaracao deve ser do ano académico anterior %s; recebido %s", esperado, anoDeclaracao)
+		return fmt.Errorf("%s deve ser do ano académico anterior %s; recebido %s", tipo, esperado, anoDeclaracao)
 	}
 	return nil
 }
