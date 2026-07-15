@@ -81,3 +81,53 @@ func TestDocumentoConsultaHelpersSemprePreenchemDownloadURLDaRota(t *testing.T) 
 		}
 	}
 }
+
+func TestDocumentoEstudantePorCampoEscopoResolveChaveAcademicaNormalizada(t *testing.T) {
+	documentos := map[string]aggregates.DocumentoMatricula{
+		"medio.2_ano_medio.declaracao_2_ano_medio": {
+			Tipo:         "declaracao_2_ano_medio",
+			Nivel:        "medio",
+			AnoAcademico: "2_ano_medio",
+			Path:         "docs/medio/2.pdf",
+		},
+		"medio.3_ano_medio.declaracao_3_ano_medio": {
+			Tipo:         "declaracao_3_ano_medio",
+			Nivel:        "medio",
+			AnoAcademico: "3_ano_medio",
+			Path:         "docs/medio/3.pdf",
+		},
+	}
+
+	doc, ok := documentoEstudantePorCampoEscopo(documentos, "declaracao_3_ano_medio", "medio", "3_ano_medio")
+	if !ok {
+		t.Fatalf("documento acadêmico normalizado não encontrado por tipo+escopo")
+	}
+	if doc.Path != "docs/medio/3.pdf" {
+		t.Fatalf("path = %q, want docs/medio/3.pdf", doc.Path)
+	}
+}
+
+func TestDocumentoEstudantePorCampoEscopoNaoConfundeAnos(t *testing.T) {
+	documentos := map[string]aggregates.DocumentoMatricula{
+		"medio.2_ano_medio.declaracao": {
+			Tipo:         "declaracao",
+			Nivel:        "medio",
+			AnoAcademico: "2_ano_medio",
+			Path:         "docs/medio/2.pdf",
+		},
+		"medio.3_ano_medio.declaracao": {
+			Tipo:         "declaracao",
+			Nivel:        "medio",
+			AnoAcademico: "3_ano_medio",
+			Path:         "docs/medio/3.pdf",
+		},
+	}
+
+	doc, ok := documentoEstudantePorCampoEscopo(documentos, "declaracao", "medio", "3_ano_medio")
+	if !ok {
+		t.Fatalf("documento acadêmico não encontrado pelo escopo")
+	}
+	if doc.Path != "docs/medio/3.pdf" {
+		t.Fatalf("path = %q, want docs/medio/3.pdf", doc.Path)
+	}
+}

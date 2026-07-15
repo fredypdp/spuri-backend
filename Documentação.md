@@ -5883,7 +5883,7 @@ Faz stream inline do alvará/documento formal da academia pelo backend, sem expo
 
 ### GET /documentos/estudantes/{codigo_estudante}/{campo}/download
 
-Faz stream inline de um documento persistido em `documentos.<campo>` da projeção do estudante. O campo corresponde às chaves de documentos já usadas pelo contrato de matrícula/estudante, como `bi_estudante`, `bi_responsavel`, `cedula_estudante`, `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental` ou `certificado_ensino_medio`, conforme aplicável ao estudante.
+Faz stream inline de um documento persistido no mapa `documentos` da projeção do estudante. Para documentos acadêmicos normalizados, o backend procura primeiro pela chave exata `nivel.ano_academico.tipo` e também aceita localizar por `campo`/`tipo` quando os query params `nivel` e `ano_academico` forem enviados. Exemplos de chaves atuais: `bi_estudante`, `bi_responsavel`, `cedula_estudante`, `medio.3_ano_medio.declaracao_3_ano_medio`, `fundamental.9_ano_fundamental.certificado_9_ano_fundamental` ou `medio.3_ano_medio.certificado_ensino_medio`.
 
 **Escopo da rota**: global autenticado (`protected`), fora dos prefixos de perfil, para que a mesma URL salva em `download_url` funcione para admin, academia autorizada e estudante dono.
 
@@ -5894,7 +5894,14 @@ Faz stream inline de um documento persistido em `documentos.<campo>` da projeç�
 |Campo|Tipo|Obrigatório|Descrição|
 |---|---|---|---|
 |`codigo_estudante`|string|Sim|Código público do estudante.|
-|`campo`|string|Sim|Chave do documento dentro do mapa `documentos` do estudante.|
+|`campo`|string|Sim|Chave exata do documento dentro do mapa `documentos` do estudante ou tipo do documento quando combinado com `nivel` e `ano_academico`.|
+
+**Query params opcionais para documentos acadêmicos:**
+
+|Campo|Tipo|Obrigatório|Descrição|
+|---|---|---|---|
+|`nivel`|string|Não|Escopo acadêmico do documento (`fundamental`, `medio`, `superior` ou `escopo_desconhecido`).|
+|`ano_academico`|string|Não|Ano acadêmico esperado, por exemplo `3_ano_medio`. Quando informado, evita que uma rota com `campo=declaracao` baixe a declaração de outro ano.|
 
 **Response 200:** `application/pdf`, com `Content-Disposition: inline; filename="{campo}.pdf"`.
 
@@ -5909,7 +5916,7 @@ Faz stream inline de um documento persistido em `documentos.<campo>` da projeç�
 
 ### GET /documentos/solicitacoes-matricula/{codigo_solicitacao}/{campo}/download
 
-Faz stream inline de um documento persistido em `documentos.<campo>` da projeção da solicitação de matrícula. O campo corresponde às chaves de documentos enviadas no formulário público de matrícula.
+Faz stream inline de um documento persistido no mapa `documentos` da projeção da solicitação de matrícula. Assim como nos documentos de estudante, documentos acadêmicos normalizados podem ser baixados pela chave exata `nivel.ano_academico.tipo` ou por `campo`/`tipo` com os query params opcionais `nivel` e `ano_academico`.
 
 **Escopo da rota**: global autenticado (`protected`), fora dos prefixos `/academia` e `/dominis`, para que a URL salva em `download_url` seja consumida pelo front end em telas administrativas e de academia sem depender do provider externo.
 
