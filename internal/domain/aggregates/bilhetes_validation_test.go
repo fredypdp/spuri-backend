@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func TestEstudanteCriarComVinculoRejeitaBilhetesIguais(t *testing.T) {
@@ -294,5 +296,45 @@ func TestValidarDocumentosMatriculaEscolarExigeResponsavelEIdentificacaoDoEstuda
 	}
 	if err := ValidarDocumentosMatricula(nil, &biResp, &ano, nil, nil, map[string]DocumentoMatricula{"bi_responsavel": {Path: "resp.pdf"}}); err == nil || !strings.Contains(err.Error(), "cedula_estudante") {
 		t.Fatalf("escolar deve rejeitar estudante sem BI próprio e sem cédula, recebeu %v", err)
+	}
+}
+
+func TestDocumentosMatriculaFaltantesSegueNivelEAnoAtual(t *testing.T) {
+	bi := "001LA060"
+	biResp := "001LA061"
+	anoSetimo := "7_ano_fundamental"
+
+	faltantes := DocumentosMatriculaFaltantes(&bi, &biResp, &anoSetimo, nil, nil, map[string]DocumentoMatricula{})
+	esperados := []string{"bi_estudante", "bi_responsavel", "certificado_6_ano_fundamental ou declaracao_6_ano_fundamental"}
+	if len(faltantes) != len(esperados) {
+		t.Fatalf("faltantes = %v, esperados %v", faltantes, esperados)
+	}
+	for i := range esperados {
+		if faltantes[i] != esperados[i] {
+			t.Fatalf("faltantes = %v, esperados %v", faltantes, esperados)
+		}
+	}
+}
+
+func TestCompletarDocumentosPendentesNaoAtivaComDocumentosIncompletos(t *testing.T) {
+	bi := "001LA070"
+	biResp := "001LA071"
+	anoSegundo := "2_ano_fundamental"
+	academiaID := uuid.New()
+	telefoneResp := "923000000"
+	estudante := NewEstudante()
+	if err := estudante.CriarComVinculoPendenteDocumentos("Aluno", "EST070", "hash", nil, nil, &telefoneResp, &bi, &biResp, "masculino", time.Now().AddDate(-10, 0, 0), &anoSegundo, nil, nil, nil, nil, &academiaID, "ACA", map[string]DocumentoMatricula{}); err != nil {
+		t.Fatalf("criar pendente: %v", err)
+	}
+
+	err := estudante.CompletarDocumentosPendentes(map[string]DocumentoMatricula{
+		"bi_estudante":   {Path: "bi.pdf"},
+		"bi_responsavel": {Path: "resp.pdf"},
+	}, academiaID)
+	if err == nil || !strings.Contains(err.Error(), "declaracao_1_ano_fundamental") {
+		t.Fatalf("esperava erro com documento faltante do ano anterior, recebeu %v", err)
+	}
+	if estudante.Status != "pendente_documentos" {
+		t.Fatalf("status deve permanecer pendente_documentos, recebeu %s", estudante.Status)
 	}
 }

@@ -192,6 +192,57 @@ func (d *DocumentoMatricula) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func DocumentosMatriculaFaltantes(bi, biResp *string, anoFund, anoMedio, anoSuperior *string, documentos map[string]DocumentoMatricula) []string {
+	if documentos == nil {
+		documentos = map[string]DocumentoMatricula{}
+	}
+	faltantes := []string{}
+	add := func(campo string) {
+		for _, existente := range faltantes {
+			if existente == campo {
+				return
+			}
+		}
+		faltantes = append(faltantes, campo)
+	}
+	if !isNilOrBlank(bi) && !hasDocumentoComArquivo(documentos, "bi_estudante") {
+		add("bi_estudante")
+	}
+	if !isNilOrBlank(biResp) && !hasDocumentoComArquivo(documentos, "bi_responsavel") {
+		add("bi_responsavel")
+	}
+	if isNilOrBlank(anoSuperior) && (!isNilOrBlank(anoFund) || !isNilOrBlank(anoMedio)) && isNilOrBlank(bi) {
+		if doc, ok := documentos["cedula_estudante"]; !ok || !doc.TemReferenciaArquivo() {
+			add("cedula_estudante")
+		}
+	}
+	ano := ""
+	if !isNilOrBlank(anoSuperior) {
+		ano = *anoSuperior
+	} else if !isNilOrBlank(anoFund) {
+		ano = *anoFund
+	} else if !isNilOrBlank(anoMedio) {
+		ano = *anoMedio
+	}
+	if ano != "" && ano != "1_ano_fundamental" {
+		esperado, ok := anoAcademicoAnterior(ano)
+		if ok {
+			if requiredCert, _ := certificadoObrigatorioParaAno(ano); requiredCert != "" {
+				if doc, ok := documentoPorTipo(documentos, requiredCert); ok && doc.TemReferenciaArquivo() {
+					return faltantes
+				}
+				if err := validarDeclaracaoAnoAnterior(documentos, esperado); err == nil {
+					return faltantes
+				}
+				add(requiredCert + " ou " + TipoDeclaracaoParaAno(esperado))
+			} else if err := validarDeclaracaoAnoAnterior(documentos, esperado); err != nil {
+				add(TipoDeclaracaoParaAno(esperado))
+			}
+		}
+	}
+	return faltantes
+}
+
 func ValidarDocumentosMatricula(bi, biResp *string, anoFund, anoMedio, anoSuperior *string, documentos map[string]DocumentoMatricula) error {
 	if documentos == nil {
 		documentos = map[string]DocumentoMatricula{}
