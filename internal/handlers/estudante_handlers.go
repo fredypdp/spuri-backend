@@ -221,7 +221,11 @@ func registerEstudantePorAcademiaComRequestModo(c *gin.Context, req CadastroEstu
 		return
 	}
 	log.Printf("Estudante criado por academia %s: %s - %s", academia.CodigoAcademia, codigoEstudante, req.Nome)
-	c.JSON(http.StatusCreated, gin.H{"message": "estudante registrado com sucesso", "data": gin.H{"id": estudante.ID, "codigo_estudante": codigoEstudante, "codigo_academia": academia.CodigoAcademia, "documentos": documentos, "status": estudante.Status}})
+	data := gin.H{"id": estudante.ID, "codigo_estudante": codigoEstudante, "codigo_academia": academia.CodigoAcademia, "documentos": documentos, "status": estudante.Status}
+	if estudante.Status == "pendente_documentos" {
+		data["documentos_faltantes"] = aggregates.DocumentosMatriculaFaltantes(bilhetePtr, bilheteRespPtr, anoEscolarPtr, anoEscolarMedioPtr, anoSuperiorPtr, documentos)
+	}
+	c.JSON(http.StatusCreated, gin.H{"message": "estudante registrado com sucesso", "data": data})
 }
 
 // ============================================================================
@@ -836,8 +840,16 @@ func CompletarDocumentosEstudantePendente(c *gin.Context) {
 		}
 	}
 	docsVal := documentosMatriculaParaValidacao(files, strings.TrimSpace(c.PostForm("declaracao_ano_academico")))
-	if _, err := services.ValidateMatriculaCommon(services.MatriculaCommonInput{Contexto: services.MatriculaContextCadastroDireto, Nome: proj.Nome, Genero: proj.Genero, DataNascimento: proj.DataNascimento, Email: proj.Email, TelefoneEstudante: proj.Telefone, TelefoneResponsavel: proj.TelefoneResponsavel, BilheteIdentidade: proj.BilheteIdentidade, BilheteIdentidadeResponsavel: proj.BilheteIdentidadeResp, AnoEscolarFundamental: proj.AnoEscolar, AnoEscolarMedio: proj.AnoEscolarMedio, AnoSuperior: proj.AnoSuperior, Documentos: docsVal}); err != nil {
-		utils.RespondWithValidationError(c, err)
+	docsCompletosVal := map[string]aggregates.DocumentoMatricula{}
+	for k, v := range proj.Documentos {
+		docsCompletosVal[k] = v
+	}
+	for k, v := range docsVal {
+		docsCompletosVal[k] = v
+	}
+	if _, err := services.ValidateMatriculaCommon(services.MatriculaCommonInput{Contexto: services.MatriculaContextCadastroDireto, Nome: proj.Nome, Genero: proj.Genero, DataNascimento: proj.DataNascimento, Email: proj.Email, TelefoneEstudante: proj.Telefone, TelefoneResponsavel: proj.TelefoneResponsavel, BilheteIdentidade: proj.BilheteIdentidade, BilheteIdentidadeResponsavel: proj.BilheteIdentidadeResp, AnoEscolarFundamental: proj.AnoEscolar, AnoEscolarMedio: proj.AnoEscolarMedio, AnoSuperior: proj.AnoSuperior, Documentos: docsCompletosVal}); err != nil {
+		faltantes := aggregates.DocumentosMatriculaFaltantes(proj.BilheteIdentidade, proj.BilheteIdentidadeResp, proj.AnoEscolar, proj.AnoEscolarMedio, proj.AnoSuperior, docsCompletosVal)
+		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), gin.H{"documentos_faltantes": faltantes})
 		return
 	}
 	provider := getStorageProvider(c)
