@@ -53,12 +53,12 @@ A estrutura pública e persistida do campo `documentos` do estudante deve ser or
 ```json
 {
   "documentos": {
+    "identificacao": {
+      "bi_estudante": { "path": "...", "file_url": "...", "download_url": "..." },
+      "bi_responsavel": { "path": "...", "file_url": "...", "download_url": "..." }
+    },
     "fundamental": {
-      "1_ano_fundamental": {
-        "bi_estudante": { "path": "...", "file_url": "...", "download_url": "..." },
-        "bi_responsavel": { "path": "...", "file_url": "...", "download_url": "..." },
-        "declaracao_entrada_fundamental": { "path": "...", "file_url": "...", "download_url": "..." }
-      },
+      "1_ano_fundamental": {},
       "2_ano_fundamental": {
         "declaracao_1_ano_fundamental": { "path": "...", "file_url": "...", "download_url": "..." }
       }
@@ -72,19 +72,26 @@ A estrutura pública e persistida do campo `documentos` do estudante deve ser or
     "superior": {
       "1_ano_superior": {
         "certificado_ensino_medio": { "path": "...", "file_url": "...", "download_url": "..." },
-        "declaracao_ensino_medio": { "path": "...", "file_url": "...", "download_url": "..." }
+        "declaracao_3_ano_medio": { "path": "...", "file_url": "...", "download_url": "..." }
       }
     }
   }
 }
 ```
 
-A implementação pode acrescentar metadados internos, identificadores e versões, mas não pode voltar ao formato ambíguo em que `declaracao` genérico ou `certificado_*` ficam no topo do mapa sem escopo acadêmico. Declarações devem ter chave explícita do nível/ano comprovado, como `declaracao_9_ano_fundamental`, `declaracao_ensino_medio` ou `declaracao_1_ano_fundamental`, e não uma chave vaga `declaracao`.
+A implementação pode acrescentar metadados internos, identificadores e versões, mas não pode voltar ao formato ambíguo em que `declaracao` genérico ou `certificado_*` ficam no topo do mapa sem escopo acadêmico. Declarações devem ter chave explícita do nível/ano comprovado, como `declaracao_9_ano_fundamental`, `declaracao_3_ano_medio` ou `declaracao_1_ano_fundamental`, e não uma chave vaga `declaracao`.
+
+### Regras explícitas de escopo e nomenclatura
+
+1. `bi_estudante` e `bi_responsavel` são documentos gerais de identificação e **não** devem ficar dentro dos escopos acadêmicos `fundamental`, `medio` ou `superior`. Eles devem permanecer em escopo geral, como `identificacao`, ou estrutura equivalente sem associação a nível/ano acadêmico.
+2. `1_ano_fundamental` não possui ano acadêmico anterior exigível; portanto, não deve ter declaração de entrada, declaração anterior ou qualquer comprovativo acadêmico obrigatório. O escopo pode existir vazio ou conter apenas metadados não documentais, mas não deve exigir `declaracao_*` nem certificado.
+3. Não existe o tipo documental `declaracao_ensino_medio`. A declaração válida para comprovar conclusão/ano anterior ao ingresso no superior deve usar a nomenclatura explícita `declaracao_3_ano_medio`, acompanhando a regra atual de validação que compara a declaração com o ano acadêmico anterior (`3_ano_medio`) ao `1_ano_superior`.
+4. A implementação deve remover qualquer uso novo de `declaracao_ensino_medio` em contratos, validações, handlers, DTOs, exemplos, OpenAPI/Swagger e documentação. Se o debug encontrar uso existente dessa nomenclatura em código executável, a própria tarefa deve incluir a correção para `declaracao_3_ano_medio`, sem alias ou fallback legado.
 
 Cada documento acadêmico de estudante deve possuir, no mínimo:
 
 1. `id` ou `documento_id` estável;
-2. `tipo` com escopo explícito para declarações e certificados (`declaracao_1_ano_fundamental`, `declaracao_9_ano_fundamental`, `declaracao_ensino_medio`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`, ou outro tipo vigente), proibindo o tipo genérico `declaracao` nos novos contratos;
+2. `tipo` com escopo explícito para declarações e certificados (`declaracao_1_ano_fundamental`, `declaracao_9_ano_fundamental`, `declaracao_3_ano_medio`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`, ou outro tipo vigente), proibindo o tipo genérico `declaracao` nos novos contratos;
 3. `nivel` (`fundamental`, `medio`, `superior`, ou enum equivalente vigente), usado como primeira camada dentro de `documentos`;
 4. `ano_academico`, usado como segunda camada dentro de cada nível quando aplicável;
 5. `curso_id` quando aplicável para médio/superior;
@@ -92,6 +99,12 @@ Cada documento acadêmico de estudante deve possuir, no mínimo:
 7. `versao` ou `sequencia` para permitir reenvio sem sobrescrever histórico;
 8. `path`, `file_url`, `download_url` e metadados técnicos do arquivo;
 9. timestamps e usuário/origem responsável pelo upload quando o padrão do projeto permitir.
+
+## Debug de nomenclatura executado
+
+Foi verificado que a nomenclatura `declaracao_ensino_medio` não aparece em código executável, migrations, validações ou handlers antes desta tarefa; a busca apontou apenas o próprio documento de tarefa que estava sendo ajustado. A implementação desta tarefa ainda deve manter uma verificação final em `internal/`, `migrations/`, documentação técnica e OpenAPI/Swagger para garantir que nenhum novo uso de `declaracao_ensino_medio` seja introduzido.
+
+Com base na validação atual de ano acadêmico anterior, o ingresso em `1_ano_superior` tem como ano anterior `3_ano_medio`; por isso, a chave explícita correta da declaração é `declaracao_3_ano_medio`.
 
 ## Escopo obrigatório
 
@@ -207,7 +220,7 @@ Manter as regras atuais de obrigatoriedade de documentos acadêmicos usando a no
 
 A validação deve localizar documentos por tipo e escopo, por exemplo:
 
-1. declaração do ano acadêmico anterior esperado usando tipo explícito, por exemplo `declaracao_9_ano_fundamental` ou `declaracao_ensino_medio`;
+1. declaração do ano acadêmico anterior esperado usando tipo explícito, por exemplo `declaracao_9_ano_fundamental` ou `declaracao_3_ano_medio`;
 2. certificado do 6.º ano fundamental para ingresso no 7.º ano fundamental;
 3. certificado do 9.º ano fundamental para ingresso no 1.º ano médio;
 4. certificado do ensino médio para ingresso no 1.º ano superior;
