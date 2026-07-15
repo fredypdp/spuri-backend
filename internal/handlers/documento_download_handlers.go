@@ -231,7 +231,7 @@ func streamDocumentoEstudante(c *gin.Context, codigoEstudante, campo string) {
 		utils.RespondWithForbiddenError(c, "sem permissão para baixar documento deste estudante")
 		return
 	}
-	doc, ok := estudante.Documentos[campo]
+	doc, ok := documentoEstudantePorCampoEscopo(estudante.Documentos, campo, strings.TrimSpace(c.Query("nivel")), strings.TrimSpace(c.Query("ano_academico")))
 	if !ok || strings.TrimSpace(doc.Path) == "" {
 		utils.RespondWithNotFoundError(c, "documento")
 		return
@@ -259,7 +259,7 @@ func streamDocumentoSolicitacaoMatricula(c *gin.Context, codigoSolicitacao, camp
 		utils.RespondWithForbiddenError(c, "sem permissão para baixar documento desta solicitação")
 		return
 	}
-	doc, ok := sol.Documentos[campo]
+	doc, ok := documentoEstudantePorCampoEscopo(sol.Documentos, campo, strings.TrimSpace(c.Query("nivel")), strings.TrimSpace(c.Query("ano_academico")))
 	if !ok || strings.TrimSpace(doc.Path) == "" {
 		utils.RespondWithNotFoundError(c, "documento")
 		return
@@ -344,6 +344,43 @@ func canAccessSolicitacaoDocument(c *gin.Context, codigoAcademia string) bool {
 	userID, _ := middleware.GetUserID(c)
 	academia, _ := getAcademiaProjection(c).GetByID(userID)
 	return academia != nil && academia.CodigoAcademia == codigoAcademia
+}
+
+func documentoEstudantePorCampoEscopo(documentos map[string]aggregates.DocumentoMatricula, campo, nivel, anoAcademico string) (aggregates.DocumentoMatricula, bool) {
+	campo = strings.TrimSpace(campo)
+	nivel = strings.TrimSpace(nivel)
+	anoAcademico = strings.TrimSpace(anoAcademico)
+	if campo == "" {
+		return aggregates.DocumentoMatricula{}, false
+	}
+	if doc, ok := documentos[campo]; ok && documentoCorrespondeEscopo(doc, nivel, anoAcademico) {
+		return doc, true
+	}
+	if nivel != "" && anoAcademico != "" {
+		chaveEscopo := nivel + "." + anoAcademico + "." + campo
+		if doc, ok := documentos[chaveEscopo]; ok {
+			return doc, true
+		}
+	}
+	for chave, doc := range documentos {
+		if !documentoCorrespondeEscopo(doc, nivel, anoAcademico) {
+			continue
+		}
+		if doc.Tipo == campo || strings.HasSuffix(chave, "."+campo) {
+			return doc, true
+		}
+	}
+	return aggregates.DocumentoMatricula{}, false
+}
+
+func documentoCorrespondeEscopo(doc aggregates.DocumentoMatricula, nivel, anoAcademico string) bool {
+	if nivel != "" && doc.Nivel != nivel {
+		return false
+	}
+	if anoAcademico != "" && doc.AnoAcademico != anoAcademico {
+		return false
+	}
+	return true
 }
 
 func streamDocumento(c *gin.Context, campo string, doc aggregates.DocumentoMatricula) {

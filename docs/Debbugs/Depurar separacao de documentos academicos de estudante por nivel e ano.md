@@ -28,3 +28,10 @@ status: depurado
 ## Resultado
 
 A implementação ficou alinhada ao objetivo de separar documentos acadêmicos por nível e ano, incluindo documentos enviados manualmente no cadastro direto.
+
+## Depuração complementar das rotas de consulta/download (2026-07-15)
+
+- As rotas de download de documentos de estudante e de solicitação foram atualizadas para resolver documentos acadêmicos pelo novo escopo normalizado.
+- O lookup agora preserva a busca por chave exata (`nivel.ano_academico.tipo`) e também aceita `campo` como `tipo` quando combinado com `?nivel={nivel}&ano_academico={ano}`.
+- Essa resolução impede que uma chave genérica, como `declaracao`, baixe o documento de outro ano acadêmico quando existem múltiplas declarações no mapa.
+- A documentação das rotas foi atualizada para explicar o uso das chaves compostas e dos query params opcionais de escopo.

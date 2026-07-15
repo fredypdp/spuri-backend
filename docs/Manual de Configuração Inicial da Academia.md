@@ -480,7 +480,7 @@ Quando documentos forem retornados nos metadados do estudante, da academia ou da
 | `GET` | `/estudante/documentos` | Estudante autenticado | Lista os documentos do próprio estudante autenticado, retornando `codigo_estudante` e o mapa `documentos`. |
 | `GET` | `/estudante/documentos/{campo}/download` | Estudante autenticado | Baixa o PDF do campo documental do próprio estudante. |
 
-O `download_url` retornado neste escopo aponta para `/estudante/documentos/{campo}/download`, para que o estudante não precise conhecer nem informar o seu `codigo_estudante`.
+O `download_url` retornado neste escopo aponta para `/estudante/documentos/{campo}/download`, para que o estudante não precise conhecer nem informar o seu `codigo_estudante`. Para documentos acadêmicos separados por nível e ano, `{campo}` pode ser a chave composta retornada no mapa (`nivel.ano_academico.tipo`), por exemplo `medio.3_ano_medio.declaracao_3_ano_medio`; alternativamente, o download aceita `?nivel={nivel}&ano_academico={ano}` junto do tipo para evitar ambiguidades entre anos.
 
 #### Escopo da academia
 
@@ -491,7 +491,7 @@ O `download_url` retornado neste escopo aponta para `/estudante/documentos/{camp
 | `GET` | `/academia/documentos/estudantes/{codigo_estudante}/{campo}/download` | Academia autenticada / Admin | Baixa documento de estudante vinculado à academia. |
 | `GET` | `/academia/documentos/solicitacoes-matricula/{codigo_solicitacao}/{campo}/download` | Academia autenticada / Admin | Baixa documento de solicitação de matrícula pertencente à academia. |
 
-O `download_url` retornado neste escopo aponta sempre para rotas `/academia/documentos/...`, mantendo a autorização e a semântica de academia no próprio caminho.
+O `download_url` retornado neste escopo aponta sempre para rotas `/academia/documentos/...`, mantendo a autorização e a semântica de academia no próprio caminho. Documentos acadêmicos de estudantes e solicitações preservam as chaves compostas `nivel.ano_academico.tipo`, e os downloads também aceitam `?nivel={nivel}&ano_academico={ano}` quando o cliente preferir enviar apenas o tipo em `{campo}`.
 
 #### Endpoints genéricos protegidos
 
