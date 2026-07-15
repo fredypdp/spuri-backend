@@ -57,33 +57,34 @@ A estrutura pública e persistida do campo `documentos` do estudante deve ser or
       "1_ano_fundamental": {
         "bi_estudante": { "path": "...", "file_url": "...", "download_url": "..." },
         "bi_responsavel": { "path": "...", "file_url": "...", "download_url": "..." },
-        "declaracao": { "path": "...", "file_url": "...", "download_url": "..." }
+        "declaracao_entrada_fundamental": { "path": "...", "file_url": "...", "download_url": "..." }
       },
       "2_ano_fundamental": {
-        "declaracao": { "path": "...", "file_url": "...", "download_url": "..." }
+        "declaracao_1_ano_fundamental": { "path": "...", "file_url": "...", "download_url": "..." }
       }
     },
     "medio": {
       "1_ano_medio": {
         "certificado_9_ano_fundamental": { "path": "...", "file_url": "...", "download_url": "..." },
-        "declaracao": { "path": "...", "file_url": "...", "download_url": "..." }
+        "declaracao_9_ano_fundamental": { "path": "...", "file_url": "...", "download_url": "..." }
       }
     },
     "superior": {
       "1_ano_superior": {
-        "certificado_ensino_medio": { "path": "...", "file_url": "...", "download_url": "..." }
+        "certificado_ensino_medio": { "path": "...", "file_url": "...", "download_url": "..." },
+        "declaracao_ensino_medio": { "path": "...", "file_url": "...", "download_url": "..." }
       }
     }
   }
 }
 ```
 
-A implementação pode acrescentar metadados internos, identificadores e versões, mas não pode voltar ao formato ambíguo em que `declaracao` ou `certificado_*` ficam no topo do mapa sem escopo acadêmico.
+A implementação pode acrescentar metadados internos, identificadores e versões, mas não pode voltar ao formato ambíguo em que `declaracao` genérico ou `certificado_*` ficam no topo do mapa sem escopo acadêmico. Declarações devem ter chave explícita do nível/ano comprovado, como `declaracao_9_ano_fundamental`, `declaracao_ensino_medio` ou `declaracao_1_ano_fundamental`, e não uma chave vaga `declaracao`.
 
 Cada documento acadêmico de estudante deve possuir, no mínimo:
 
 1. `id` ou `documento_id` estável;
-2. `tipo` (`declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`, ou outro tipo vigente);
+2. `tipo` com escopo explícito para declarações e certificados (`declaracao_1_ano_fundamental`, `declaracao_9_ano_fundamental`, `declaracao_ensino_medio`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`, ou outro tipo vigente), proibindo o tipo genérico `declaracao` nos novos contratos;
 3. `nivel` (`fundamental`, `medio`, `superior`, ou enum equivalente vigente), usado como primeira camada dentro de `documentos`;
 4. `ano_academico`, usado como segunda camada dentro de cada nível quando aplicável;
 5. `curso_id` quando aplicável para médio/superior;
@@ -106,7 +107,7 @@ Atualizar `projection_estudantes.documentos` para armazenar a estrutura por nív
 
 A estrutura deve permitir consultas como:
 
-- todas as declarações do estudante, percorrendo todos os níveis e anos;
+- todas as declarações do estudante, percorrendo todos os níveis e anos e preservando a chave explícita do nível comprovado;
 - declaração de um ano acadêmico específico;
 - certificados por nível;
 - certificados por curso quando aplicável;
@@ -206,7 +207,7 @@ Manter as regras atuais de obrigatoriedade de documentos acadêmicos usando a no
 
 A validação deve localizar documentos por tipo e escopo, por exemplo:
 
-1. declaração do ano acadêmico anterior esperado;
+1. declaração do ano acadêmico anterior esperado usando tipo explícito, por exemplo `declaracao_9_ano_fundamental` ou `declaracao_ensino_medio`;
 2. certificado do 6.º ano fundamental para ingresso no 7.º ano fundamental;
 3. certificado do 9.º ano fundamental para ingresso no 1.º ano médio;
 4. certificado do ensino médio para ingresso no 1.º ano superior;
@@ -220,13 +221,13 @@ A existência de documento de outro ano, nível ou curso não deve satisfazer a 
 
 Adicionar ou ajustar testes cobrindo obrigatoriamente:
 
-1. duas declarações de anos acadêmicos diferentes coexistem na projeção;
+1. duas declarações de anos acadêmicos diferentes coexistem na projeção com chaves explícitas, sem usar `declaracao` genérico;
 2. duas declarações de anos acadêmicos diferentes geram paths diferentes no storage;
 3. certificado antigo não é sobrescrito ao adicionar certificado de outro nível;
 4. completar documentos pendentes não substitui documentos já existentes fora do nível/ano completado;
 5. aprovação de solicitação preserva documentos da solicitação com escopo normalizado;
 6. download por identificador retorna o documento correto entre múltiplos do mesmo tipo;
-7. validação rejeita declaração de ano diferente do esperado mesmo havendo outra declaração válida para outro contexto;
+7. validação rejeita declaração de nível/ano diferente do esperado mesmo havendo outra declaração válida para outro contexto;
 8. rollback de upload remove apenas arquivos recém-criados;
 9. migration preserva documentos legados;
 10. serialização/deserialização do ledger preserva múltiplos documentos por tipo;
@@ -244,4 +245,4 @@ Atualizar documentação técnica, documentação de API, OpenAPI/Swagger, exemp
 4. regras de validação por nível/ano/curso;
 5. comportamento esperado para histórico e reenvio documental;
 6. inexistência de substituição automática entre documentos de anos/níveis diferentes;
-7. exemplos completos para `fundamental`, `medio` e `superior`, incluindo a estrutura aproximada esperada em `documentos`.
+7. exemplos completos para `fundamental`, `medio` e `superior`, incluindo a estrutura aproximada esperada em `documentos` e declarações com nomes explícitos por nível/ano, nunca apenas `declaracao`.
