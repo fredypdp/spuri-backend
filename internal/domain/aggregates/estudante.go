@@ -1185,6 +1185,20 @@ func (e *Estudante) CompletarDocumentosPendentes(documentos map[string]Documento
 	if e.CodigoAcademia == nil || e.CodigoEstudante == "" {
 		return fmt.Errorf("estudante inválido")
 	}
+	documentosCompletos := map[string]DocumentoMatricula{}
+	for k, v := range e.Documentos {
+		documentosCompletos[k] = v
+	}
+	for k, v := range documentos {
+		documentosCompletos[k] = v
+	}
+	if err := ValidarDocumentosMatricula(e.BilheteIdentidade, e.BilheteIdentidadeResp, e.AnoEscolar, e.AnoEscolarMedio, e.AnoSuperior, documentosCompletos); err != nil {
+		faltantes := DocumentosMatriculaFaltantes(e.BilheteIdentidade, e.BilheteIdentidadeResp, e.AnoEscolar, e.AnoEscolarMedio, e.AnoSuperior, documentosCompletos)
+		if len(faltantes) > 0 {
+			return fmt.Errorf("documentos pendentes incompletos: %s (%w)", strings.Join(faltantes, ", "), err)
+		}
+		return err
+	}
 	event := &EstudanteDocumentosCompletadosEvent{BaseEvent: BaseEvent{EventType: "EstudanteDocumentosCompletados", AggregateID: e.ID}, CodigoEstudante: e.CodigoEstudante, CodigoAcademia: *e.CodigoAcademia, Documentos: documentos, CompletedAt: time.Now()}
 	e.RaiseEvent(event)
 	return e.Apply(event)
