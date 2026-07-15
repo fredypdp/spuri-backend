@@ -521,10 +521,7 @@ func documentosMatriculaParaValidacao(files map[string]uploadedPDF, declaracaoAn
 	documentos := map[string]aggregates.DocumentoMatricula{}
 	for field := range files {
 		documento := aggregates.DocumentoMatricula{Path: field + ".pdf"}
-		if field == "declaracao" {
-			documento.AnoAcademico = declaracaoAnoAcademico
-		}
-		key, doc := documentoMatriculaNormalizado(field, declaracaoAnoAcademico, "", documento.Path, "")
+		key, doc := documentoMatriculaNormalizadoComBase(field, declaracaoAnoAcademico, "", documento)
 		documentos[key] = doc
 	}
 	return documentos
@@ -623,13 +620,27 @@ func documentLabel(field string) string {
 }
 
 func documentoMatriculaNormalizado(field, declaracaoAnoAcademico, downloadURL, path, fileURL string) (string, aggregates.DocumentoMatricula) {
-	tipo := strings.TrimSpace(field)
-	ano := ""
-	nivel := "identificacao"
-	if field == "declaracao" {
-		ano = strings.TrimSpace(declaracaoAnoAcademico)
-		tipo = aggregates.TipoDeclaracaoParaAno(ano)
-		nivel = aggregates.NivelDoAnoAcademico(ano)
+	return documentoMatriculaNormalizadoComBase(field, declaracaoAnoAcademico, downloadURL, aggregates.DocumentoMatricula{Path: path, FileURL: fileURL})
+}
+
+func documentoMatriculaNormalizadoComBase(field, declaracaoAnoAcademico, downloadURL string, base aggregates.DocumentoMatricula) (string, aggregates.DocumentoMatricula) {
+	tipo := strings.TrimSpace(firstNonEmpty(base.Tipo, field))
+	ano := strings.TrimSpace(base.AnoAcademico)
+	nivel := strings.TrimSpace(base.Nivel)
+	if nivel == "" {
+		nivel = "identificacao"
+	}
+	if field == "declaracao" || strings.HasPrefix(tipo, "declaracao_") {
+		if ano == "" {
+			ano = strings.TrimSpace(declaracaoAnoAcademico)
+		}
+		if ano != "" {
+			tipo = aggregates.TipoDeclaracaoParaAno(ano)
+			nivel = aggregates.NivelDoAnoAcademico(ano)
+		} else {
+			tipo = "declaracao"
+			nivel = "escopo_desconhecido"
+		}
 	} else if strings.HasPrefix(field, "certificado_6_ano_fundamental") {
 		ano, nivel = "6_ano_fundamental", "fundamental"
 	} else if strings.HasPrefix(field, "certificado_9_ano_fundamental") {
@@ -640,10 +651,28 @@ func documentoMatriculaNormalizado(field, declaracaoAnoAcademico, downloadURL, p
 	if tipo == "" {
 		tipo = field
 	}
-	docID := uuid.NewString()
-	doc := aggregates.DocumentoMatricula{DocumentoID: docID, Tipo: tipo, Nivel: nivel, AnoAcademico: ano, Versao: 1, Path: path, FileURL: fileURL, DownloadURL: downloadURL}
-	if nivel == "identificacao" || nivel == "escopo_desconhecido" {
+	docID := strings.TrimSpace(base.DocumentoID)
+	if docID == "" {
+		docID = uuid.NewString()
+	}
+	versao := base.Versao
+	if versao == 0 {
+		versao = 1
+	}
+	doc := base
+	doc.DocumentoID = docID
+	doc.Tipo = tipo
+	doc.Nivel = nivel
+	doc.AnoAcademico = ano
+	doc.Versao = versao
+	if downloadURL != "" {
+		doc.DownloadURL = downloadURL
+	}
+	if nivel == "identificacao" {
 		return tipo, doc
+	}
+	if nivel == "escopo_desconhecido" || ano == "" {
+		return "escopo_desconhecido." + tipo, doc
 	}
 	return nivel + "." + ano + "." + tipo, doc
 }

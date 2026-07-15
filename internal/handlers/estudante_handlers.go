@@ -117,10 +117,8 @@ func registerEstudantePorAcademiaComRequestModo(c *gin.Context, req CadastroEstu
 	}
 	documentosParaValidacao := documentosMatriculaParaValidacao(files, declaracaoAnoAcademico)
 	for campo, documento := range req.Documentos {
-		if strings.TrimSpace(documento.AnoAcademico) == "" && campo == "declaracao" {
-			documento.AnoAcademico = declaracaoAnoAcademico
-		}
-		documentosParaValidacao[campo] = documento
+		key, doc := documentoMatriculaNormalizadoComBase(campo, declaracaoAnoAcademico, "", documento)
+		documentosParaValidacao[key] = doc
 	}
 	validado, err := services.ValidateMatriculaCommon(services.MatriculaCommonInput{
 		Contexto: services.MatriculaContextCadastroDireto,
@@ -160,10 +158,8 @@ func registerEstudantePorAcademiaComRequestModo(c *gin.Context, req CadastroEstu
 	}
 	documentos := map[string]aggregates.DocumentoMatricula{}
 	for campo, documento := range req.Documentos {
-		if strings.TrimSpace(documento.AnoAcademico) == "" && campo == "declaracao" {
-			documento.AnoAcademico = declaracaoAnoAcademico
-		}
-		documentos[campo] = documento
+		key, doc := documentoMatriculaNormalizadoComBase(campo, declaracaoAnoAcademico, "", documento)
+		documentos[key] = doc
 	}
 	for field, f := range files {
 		storageTipo, storagePath := storagePathDocumentoEstudante(dir, field, codigoEstudante, declaracaoAnoAcademico)
