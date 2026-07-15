@@ -20,6 +20,11 @@ status: depurado
 - Declarações sem ano acadêmico deixam de ser gravadas como chave raiz `declaracao` e são isoladas em `escopo_desconhecido.declaracao`.
 - Adicionei testes unitários para validar chave normalizada, metadados, path acadêmico e ausência da nomenclatura legada indesejada no código de handlers.
 
+## Documentação atualizada
+
+- Atualizei a documentação técnica principal com o contrato de chaves e metadados normalizados dos documentos.
+- Atualizei a tarefa concluída com o comportamento de documentos enviados por JSON, chaves acadêmicas compostas e `escopo_desconhecido`.
+
 ## Resultado
 
 A implementação ficou alinhada ao objetivo de separar documentos acadêmicos por nível e ano, incluindo documentos enviados manualmente no cadastro direto.
