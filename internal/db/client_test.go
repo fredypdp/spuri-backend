@@ -66,6 +66,51 @@ func TestDefaultConfigReadsSafePoolEnv(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigReadsDatabaseAuthFromEnv(t *testing.T) {
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("DB_HOST", "db.example.com")
+	t.Setenv("DB_PORT", "6543")
+	t.Setenv("DB_USER", "app_user")
+	t.Setenv("DB_PASSWORD", "secret")
+	t.Setenv("DB_NAME", "app_db")
+	t.Setenv("DB_SSLMODE", "require")
+
+	cfg := DefaultConfig()
+
+	if cfg.Host != "db.example.com" {
+		t.Fatalf("Host = %q, want db.example.com", cfg.Host)
+	}
+	if cfg.Port != "6543" {
+		t.Fatalf("Port = %q, want 6543", cfg.Port)
+	}
+	if cfg.User != "app_user" {
+		t.Fatalf("User = %q, want app_user", cfg.User)
+	}
+	if cfg.Password != "secret" {
+		t.Fatalf("Password = %q, want secret", cfg.Password)
+	}
+	if cfg.DBName != "app_db" {
+		t.Fatalf("DBName = %q, want app_db", cfg.DBName)
+	}
+	if cfg.SSLMode != "require" {
+		t.Fatalf("SSLMode = %q, want require", cfg.SSLMode)
+	}
+}
+
+func TestNormalizeConfigDoesNotHardcodeDatabaseAuthDefaults(t *testing.T) {
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("DB_HOST", "")
+	t.Setenv("DB_USER", "")
+	t.Setenv("DB_PASSWORD", "")
+	t.Setenv("DB_NAME", "")
+
+	cfg := normalizeConfig(&Config{})
+
+	if cfg.Host != "" || cfg.User != "" || cfg.Password != "" || cfg.DBName != "" {
+		t.Fatalf("database auth config = host %q user %q password %q dbname %q, want empty values from unset env", cfg.Host, cfg.User, cfg.Password, cfg.DBName)
+	}
+}
+
 func TestIsTransientConnectionError(t *testing.T) {
 	cases := []error{
 		errors.New("dial tcp 10.0.0.1:5432: connect: connection refused"),

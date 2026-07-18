@@ -114,12 +114,6 @@ func DefaultConfig() *Config {
 
 	log.Println("📊 Usando variáveis individuais")
 	return normalizeConfig(&Config{
-		Host:            getEnv("DB_HOST", "localhost"),
-		Port:            getEnv("DB_PORT", "5432"),
-		User:            getEnv("DB_USER", "fredy"),
-		Password:        getEnv("DB_PASSWORD", "fredy123"),
-		DBName:          getEnv("DB_NAME", "spuri_db"),
-		SSLMode:         getEnv("DB_SSLMODE", "disable"),
 		MaxConnections:  getEnvInt("DB_MAX_OPEN_CONNS", 15),
 		MaxIdleConns:    getEnvInt("DB_MAX_IDLE_CONNS", 5),
 		ConnMaxLifetime: getEnvDurationSeconds("DB_CONN_MAX_LIFETIME_SECONDS", 5*time.Minute),
@@ -187,6 +181,26 @@ func (c *Client) LogStats() {
 }
 
 func normalizeConfig(config *Config) *Config {
+	if config.DatabaseURL == "" {
+		if config.Host == "" {
+			config.Host = os.Getenv("DB_HOST")
+		}
+		if config.Port == "" {
+			config.Port = getEnv("DB_PORT", "5432")
+		}
+		if config.User == "" {
+			config.User = os.Getenv("DB_USER")
+		}
+		if config.Password == "" {
+			config.Password = os.Getenv("DB_PASSWORD")
+		}
+		if config.DBName == "" {
+			config.DBName = os.Getenv("DB_NAME")
+		}
+		if config.SSLMode == "" {
+			config.SSLMode = getEnv("DB_SSLMODE", "disable")
+		}
+	}
 	if config.MaxConnections <= 0 || config.MaxConnections > 15 {
 		config.MaxConnections = 15
 	}
