@@ -1,10 +1,10 @@
 ---
 criado: 2026-07-18 00:00
 origem: Lista de tarefas.md
-status: pendente
+status: feito
 ---
 
-# Validar e reforçar a integridade do event sourcing e dos rebuilds (pendente)
+# Validar e reforçar a integridade do event sourcing e dos rebuilds (feito)
 
 ## Prompt recomendado para executar a atualização
 
@@ -208,3 +208,14 @@ Ao finalizar a implementação:
 1. atualizar o título interno desta tarefa para `# Validar e reforçar a integridade do event sourcing e dos rebuilds (feito)`;
 2. alterar o front matter para `status: feito`;
 3. mover este arquivo para `docs/Tarefas feitas/`.
+
+
+## Relatório de auditoria executada
+
+- **Role de runtime**: a aplicação conecta usando `DATABASE_URL` quando presente; caso contrário, usa `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT` e `DB_NAME` definidos em `internal/db/client.go`. Como o mesmo cliente também executa migrations neste projeto, não há separação explícita entre role administrativa e role de runtime no código atual.
+- **GRANTs e prevenção**: por não haver separação garantida de roles, a correção adotou triggers `BEFORE UPDATE`, `BEFORE DELETE` e `BEFORE TRUNCATE` em `spuri_ledger`. Essa escolha impede adulteração DML no próprio banco mesmo quando a role conectada mantém privilégios amplos. Superusers ou donos com permissão para desabilitar triggers continuam fora do modelo de ameaça coberto por esta aplicação.
+- **Cadeia de hashes**: `verify_hash_chain` foi reforçada para validar versões contíguas, primeiro evento com `previous_hash NULL`, ponteiro `previous_hash` para o evento imediatamente anterior e recálculo do hash armazenado.
+- **Limitação documentada**: `metadata` não participa do cálculo histórico de `ledger_hash`; alterações em metadata não são detectadas pela cadeia de hashes. O payload, o tipo do evento, o aggregate, o event id e o previous hash continuam protegidos.
+- **Whitelist de eventos**: todos os caminhos de escrita do ledger passam por `AppendTx` ou pelo append interno do pacote `db`, ambos chamando `ValidateAggregateType` e `ValidateEventType` antes do `INSERT`. Testes cobrem variações de burla por evento desconhecido, caixa, espaço e prefixo/sufixo.
+- **Rebuilds**: o manager mantém lock global de rebuild, valida a integridade completa do ledger antes de reconstruções e só marca o rebuild como concluído após `projection.Rebuild()` retornar sucesso. Falhas resetam o marcador `is_rebuilding`, e o lock em memória é liberado via `defer`.
+- **SQL dinâmico**: a auditoria encontrou usos de `fmt.Sprintf` para montar cláusulas com placeholders ou colunas escolhidas em mapas/switches internos. O parâmetro de rebuild é resolvido contra o mapa fechado de projeções registradas no manager; nomes não registrados retornam erro controlado antes de qualquer SQL dinâmico.
