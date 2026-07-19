@@ -49,7 +49,7 @@ BEGIN
             nivel := 'fundamental'; ano := '9_ano_fundamental';
         ELSIF tipo = 'certificado_ensino_medio' THEN
             nivel := 'medio'; ano := '3_ano_medio';
-        ELSIF campo NOT IN ('bi_estudante', 'bi_responsavel', 'cedula_estudante') THEN
+        ELSIF campo NOT IN ('bi_estudante', 'bi_encarregado', 'cedula_estudante') THEN
             nivel := 'escopo_desconhecido';
         END IF;
 

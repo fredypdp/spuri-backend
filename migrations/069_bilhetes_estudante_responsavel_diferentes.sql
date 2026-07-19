@@ -1,4 +1,4 @@
--- MIGRATION 069 - Impede BI do estudante igual ao BI do responsável
+-- MIGRATION 069 - Impede BI do estudante igual ao BI do encarregado
 -- A regra vale para cadastro direto de estudante e solicitações públicas de matrícula.
 -- NOT VALID preserva dados legados; PostgreSQL passa a validar novos INSERT/UPDATE.
 
@@ -13,10 +13,10 @@ BEGIN
             ADD CONSTRAINT projection_estudantes_bilhetes_diferentes_check
             CHECK (
                 bilhete_identidade IS NULL
-                OR bilhete_identidade_responsavel IS NULL
+                OR bilhete_identidade_encarregado IS NULL
                 OR btrim(bilhete_identidade) = ''
-                OR btrim(bilhete_identidade_responsavel) = ''
-                OR lower(btrim(bilhete_identidade)) <> lower(btrim(bilhete_identidade_responsavel))
+                OR btrim(bilhete_identidade_encarregado) = ''
+                OR lower(btrim(bilhete_identidade)) <> lower(btrim(bilhete_identidade_encarregado))
             ) NOT VALID;
     END IF;
 END $$;
@@ -32,15 +32,15 @@ BEGIN
             ADD CONSTRAINT projection_solicitacoes_matricula_bilhetes_diferentes_check
             CHECK (
                 bilhete_identidade IS NULL
-                OR bilhete_identidade_responsavel IS NULL
+                OR bilhete_identidade_encarregado IS NULL
                 OR btrim(bilhete_identidade) = ''
-                OR btrim(bilhete_identidade_responsavel) = ''
-                OR lower(btrim(bilhete_identidade)) <> lower(btrim(bilhete_identidade_responsavel))
+                OR btrim(bilhete_identidade_encarregado) = ''
+                OR lower(btrim(bilhete_identidade)) <> lower(btrim(bilhete_identidade_encarregado))
             ) NOT VALID;
     END IF;
 END $$;
 
 COMMENT ON CONSTRAINT projection_estudantes_bilhetes_diferentes_check ON projection_estudantes IS
-    'Impede que bilhete_identidade e bilhete_identidade_responsavel do mesmo estudante sejam iguais.';
+    'Impede que bilhete_identidade e bilhete_identidade_encarregado do mesmo estudante sejam iguais.';
 COMMENT ON CONSTRAINT projection_solicitacoes_matricula_bilhetes_diferentes_check ON projection_solicitacoes_matricula IS
-    'Impede que bilhete_identidade e bilhete_identidade_responsavel da mesma solicitação sejam iguais.';
+    'Impede que bilhete_identidade e bilhete_identidade_encarregado da mesma solicitação sejam iguais.';

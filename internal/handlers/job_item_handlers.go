@@ -80,9 +80,9 @@ type cadastroEstudanteJSONItem struct {
 	DataNascimento         string                                   `json:"data_nascimento"`
 	Email                  string                                   `json:"email"`
 	Telefone               string                                   `json:"telefone"`
-	TelefoneResponsavel    string                                   `json:"telefone_responsavel"`
+	TelefoneEncarregado    string                                   `json:"telefone_encarregado"`
 	BilheteIdentidade      string                                   `json:"bilhete_identidade"`
-	BilheteResponsavel     string                                   `json:"bilhete_identidade_responsavel"`
+	BilheteEncarregado     string                                   `json:"bilhete_identidade_encarregado"`
 	AnoEscolar             string                                   `json:"ano_escolar_fundamental"`
 	AnoEscolarMedio        string                                   `json:"ano_escolar_medio"`
 	AnoSuperior            string                                   `json:"ano_superior"`
@@ -103,9 +103,9 @@ func (item cadastroEstudanteJSONItem) toCadastroRequest() (CadastroEstudanteAcad
 		DataNascimento:      dataNascimento,
 		Email:               strings.TrimSpace(item.Email),
 		Telefone:            strings.TrimSpace(item.Telefone),
-		TelefoneResponsavel: strings.TrimSpace(item.TelefoneResponsavel),
+		TelefoneEncarregado: strings.TrimSpace(item.TelefoneEncarregado),
 		BilheteIdentidade:   strings.TrimSpace(item.BilheteIdentidade),
-		BilheteResponsavel:  strings.TrimSpace(item.BilheteResponsavel),
+		BilheteEncarregado:  strings.TrimSpace(item.BilheteEncarregado),
 		AnoEscolar:          strings.TrimSpace(item.AnoEscolar),
 		AnoEscolarMedio:     strings.TrimSpace(item.AnoEscolarMedio),
 		AnoSuperior:         strings.TrimSpace(item.AnoSuperior),

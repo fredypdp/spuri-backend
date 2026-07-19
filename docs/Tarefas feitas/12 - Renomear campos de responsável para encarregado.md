@@ -1,20 +1,20 @@
 ---
 criado: 2026-07-19 00:00
 origem: solicitação do usuário
-status: pendente
+status: feito
 ---
 
-# Renomear campos de "responsável" para "encarregado" (pendente)
+# Renomear campos de "responsável" para "encarregado" (feito)
 
 ## Prompt recomendado para executar a atualização
 
-Implemente a atualização descrita neste documento substituindo, em todo o sistema, o termo "responsável" por "encarregado" — nos campos `bilhete_identidade_responsavel`, `telefone_responsavel`, `telefone_responsavel_verificado` e no campo de arquivo `bi_responsavel` (incluindo a chave equivalente no mapa `documentos`), e em todo texto relacionado a esses campos (mensagens de erro, mensagens de sucesso, documentação técnica, comentários de código). Os nomes antigos devem deixar de ser aceitos em qualquer requisição e deixar de aparecer em qualquer resposta. Ao final, atualize testes, documentação técnica, OpenAPI/Swagger e qualquer documentação afetada. Não criar suporte a código legado, aliases, wrappers de compatibilidade, fallbacks temporários ou período de transição para os nomes antigos.
+Implemente a atualização descrita neste documento substituindo, em todo o sistema, o termo "encarregado" por "encarregado" — nos campos `bilhete_identidade_encarregado`, `telefone_encarregado`, `telefone_encarregado_verificado` e no campo de arquivo `bi_encarregado` (incluindo a chave equivalente no mapa `documentos`), e em todo texto relacionado a esses campos (mensagens de erro, mensagens de sucesso, documentação técnica, comentários de código). Os nomes antigos devem deixar de ser aceitos em qualquer requisição e deixar de aparecer em qualquer resposta. Ao final, atualize testes, documentação técnica, OpenAPI/Swagger e qualquer documentação afetada. Não criar suporte a código legado, aliases, wrappers de compatibilidade, fallbacks temporários ou período de transição para os nomes antigos.
 
 ## Contexto
 
-O sistema usa hoje, em `Estudante` e em `SolicitacaoMatricula`, os campos `bilhete_identidade_responsavel`, `telefone_responsavel` e `telefone_responsavel_verificado`, além do campo de upload `bi_responsavel` (e da chave `bi_responsavel` no mapa `documentos`), para representar o Bilhete de Identidade e o telefone da pessoa legalmente responsável pelo estudante. A decisão de produto agora é adotar o termo "encarregado" no lugar de "responsável" em todo o sistema — campos, mensagens de erro, documentação e comentários — de forma definitiva, sem manter os nomes antigos em paralelo.
+O sistema usa hoje, em `Estudante` e em `SolicitacaoMatricula`, os campos `bilhete_identidade_encarregado`, `telefone_encarregado` e `telefone_encarregado_verificado`, além do campo de upload `bi_encarregado` (e da chave `bi_encarregado` no mapa `documentos`), para representar o Bilhete de Identidade e o telefone da pessoa legalmente encarregado pelo estudante. A decisão de produto agora é adotar o termo "encarregado" no lugar de "encarregado" em todo o sistema — campos, mensagens de erro, documentação e comentários — de forma definitiva, sem manter os nomes antigos em paralelo.
 
-Todas as ocorrências de "responsavel"/"responsável" no sistema se referem exclusivamente a esse papel (a pessoa responsável legal pelo estudante); não há nenhum outro uso do termo em outro sentido de negócio (campos como `aprovada_por`, `reprovada_por`, `definido_por`, `alterado_por` não usam a palavra "responsavel" e não são afetados por esta tarefa). Isso torna a substituição direta e sem ambiguidade, mas o volume de ocorrências é grande: o termo aparece em `EstudanteDTO`, `SolicitacaoMatriculaDTO`, nos campos de texto e de arquivo de `POST /academia/estudante/register`, `POST /academia/estudante/register/async`, `POST /academia/estudante/{codigo_estudante}/documentos`, `PUT /estudante/dados-pessoais`, `POST /solicitacao-matricula`, nas regras automáticas de documentos de matrícula, nas mensagens de erro de BI e nos exemplos de payload em `Documentação.md`.
+Todas as ocorrências de "encarregado"/"encarregado" no sistema se referem exclusivamente a esse papel (a pessoa encarregado legal pelo estudante); não há nenhum outro uso do termo em outro sentido de negócio (campos como `aprovada_por`, `reprovada_por`, `definido_por`, `alterado_por` não usam a palavra "encarregado" e não são afetados por esta tarefa). Isso torna a substituição direta e sem ambiguidade, mas o volume de ocorrências é grande: o termo aparece em `EstudanteDTO`, `SolicitacaoMatriculaDTO`, nos campos de texto e de arquivo de `POST /academia/estudante/register`, `POST /academia/estudante/register/async`, `POST /academia/estudante/{codigo_estudante}/documentos`, `PUT /estudante/dados-pessoais`, `POST /solicitacao-matricula`, nas regras automáticas de documentos de matrícula, nas mensagens de erro de BI e nos exemplos de payload em `Documentação.md`.
 
 > **Nota técnica sobre event sourcing — isto não é suporte legado.** Eventos já gravados no `spuri_ledger` antes desta mudança guardam, no `payload` histórico, os nomes antigos dos campos, e esses eventos são imutáveis: reescrevê-los quebraria a cadeia de hashes (o mesmo mecanismo de integridade auditado na tarefa "Validar e reforçar a integridade do event sourcing e dos rebuilds" deste conjunto). Por isso, o código de aplicação de eventos usado internamente pelo rebuild de projeções precisa continuar capaz de interpretar corretamente o payload desses eventos antigos — isso é uma exigência técnica inevitável de um sistema de Event Sourcing com ledger imutável, e não uma forma de suporte legado de API. Nenhum endpoint, DTO, mensagem de erro, OpenAPI/Swagger ou documentação deve aceitar, expor, mencionar ou testar os nomes antigos como opção válida de uso pelo cliente.
 
@@ -22,12 +22,12 @@ Todas as ocorrências de "responsavel"/"responsável" no sistema se referem excl
 
 | Item | Decisão | Resultado esperado |
 | --- | --- | --- |
-| Nomenclatura de campos | `bilhete_identidade_responsavel` → `bilhete_identidade_encarregado`; `telefone_responsavel` → `telefone_encarregado`; `telefone_responsavel_verificado` → `telefone_encarregado_verificado`; `bi_responsavel` → `bi_encarregado` | "Encarregado" passa a ser o único nome aceito e exposto em todo o sistema |
+| Nomenclatura de campos | `bilhete_identidade_encarregado` → `bilhete_identidade_encarregado`; `telefone_encarregado` → `telefone_encarregado`; `telefone_encarregado_verificado` → `telefone_encarregado_verificado`; `bi_encarregado` → `bi_encarregado` | "Encarregado" passa a ser o único nome aceito e exposto em todo o sistema |
 | Entrada (requests) | Aceitar exclusivamente o nome novo; rejeitar o nome antigo | Nenhum caminho de burla ou aceitação silenciosa do nome antigo |
 | Saída (responses) | Expor exclusivamente o nome novo | Nenhuma duplicidade de campo, nenhum alias em nenhuma resposta |
 | Persistência/projeções | Migrar colunas e metadados de documentos já existentes para o nome novo | Nenhuma coluna, chave ou registro ativo com o nome antigo |
 | Eventos históricos no ledger | Preservados como estão (imutáveis); interpretados corretamente apenas internamente pelo rebuild | Rebuild continua correto sem reintroduzir o nome antigo no contrato público |
-| Textos (erro, sucesso, documentação, comentários) | Atualizar integralmente para "encarregado" | Nenhuma menção ativa a "responsável" fora do histórico imutável do ledger |
+| Textos (erro, sucesso, documentação, comentários) | Atualizar integralmente para "encarregado" | Nenhuma menção ativa a "encarregado" fora do histórico imutável do ledger |
 
 ---
 
@@ -35,18 +35,18 @@ Todas as ocorrências de "responsavel"/"responsável" no sistema se referem excl
 
 ## Objetivo
 
-Mapear, de forma exaustiva, todas as ocorrências de "responsavel"/"responsável" no código e na documentação, e fixar a nomenclatura oficial de substituição antes de qualquer alteração.
+Mapear, de forma exaustiva, todas as ocorrências de "encarregado"/"encarregado" no código e na documentação, e fixar a nomenclatura oficial de substituição antes de qualquer alteração.
 
 ## Regra de negócio
 
 | Nome atual (a remover) | Nome novo (único aceito) | Onde aparece |
 | --- | --- | --- |
-| `bilhete_identidade_responsavel` | `bilhete_identidade_encarregado` | `EstudanteDTO`, `SolicitacaoMatriculaDTO`, campos de texto de `POST /academia/estudante/register` (e `/async`), `PUT /estudante/dados-pessoais`, `POST /solicitacao-matricula` |
-| `telefone_responsavel` | `telefone_encarregado` | `EstudanteDTO`, campos de `POST /academia/estudante/register` (e `/async`), `POST /solicitacao-matricula` |
-| `telefone_responsavel_verificado` | `telefone_encarregado_verificado` | `EstudanteDTO` |
-| `bi_responsavel` (campo de arquivo) | `bi_encarregado` | `POST /academia/estudante/register`, `POST /academia/estudante/register/async` (inclusive no padrão `<codigo_temporario>.bi_responsavel`), `POST /academia/estudante/{codigo_estudante}/documentos`, `POST /solicitacao-matricula` |
-| `documentos.bi_responsavel` (chave no mapa de documentos) | `documentos.bi_encarregado` | Respostas de estudante e de solicitação de matrícula, rotas de download de documento |
-| "BI do responsável", "telefone do responsável", "responsável" em prosa | "BI do encarregado", "telefone do encarregado", "encarregado" | Mensagens de erro, `Documentação.md`, comentários de código |
+| `bilhete_identidade_encarregado` | `bilhete_identidade_encarregado` | `EstudanteDTO`, `SolicitacaoMatriculaDTO`, campos de texto de `POST /academia/estudante/register` (e `/async`), `PUT /estudante/dados-pessoais`, `POST /solicitacao-matricula` |
+| `telefone_encarregado` | `telefone_encarregado` | `EstudanteDTO`, campos de `POST /academia/estudante/register` (e `/async`), `POST /solicitacao-matricula` |
+| `telefone_encarregado_verificado` | `telefone_encarregado_verificado` | `EstudanteDTO` |
+| `bi_encarregado` (campo de arquivo) | `bi_encarregado` | `POST /academia/estudante/register`, `POST /academia/estudante/register/async` (inclusive no padrão `<codigo_temporario>.bi_encarregado`), `POST /academia/estudante/{codigo_estudante}/documentos`, `POST /solicitacao-matricula` |
+| `documentos.bi_encarregado` (chave no mapa de documentos) | `documentos.bi_encarregado` | Respostas de estudante e de solicitação de matrícula, rotas de download de documento |
+| "BI do encarregado", "telefone do encarregado", "encarregado" em prosa | "BI do encarregado", "telefone do encarregado", "encarregado" | Mensagens de erro, `Documentação.md`, comentários de código |
 
 ## Escopo obrigatório
 
@@ -55,14 +55,14 @@ Mapear, de forma exaustiva, todas as ocorrências de "responsavel"/"responsável
 Antes de alterar qualquer código, executar busca ampla e classificar cada ocorrência:
 
 ```bash
-rg -n -i "responsavel|responsável" .
+rg -n -i "encarregado|encarregado" .
 ```
 
 Cada ocorrência deve ser classificada como: campo/texto ativo a renomear sem deixar resquício, evento histórico do ledger (dado imutável, não deve ser alterado), documentação de tarefa já concluída em `docs/Tarefas feitas/` (registro histórico, não deve ser reescrita), ou falso positivo.
 
 ### 1.2 Não reescrever documentação histórica nem eventos do ledger
 
-Arquivos já existentes em `docs/Tarefas feitas/` (incluindo `Cadastro de estudante escolar - BI do responsável obrigatório.md`) são registros históricos de tarefas concluídas e **não devem ser reescritos**. Eventos já gravados no ledger também não devem ser alterados, por serem imutáveis (ver nota técnica no Contexto). Apenas `Documentação.md` (documentação viva), o código-fonte ativo e os dados de projeção (que são reconstruíveis, ao contrário do ledger) devem refletir a nova nomenclatura.
+Arquivos já existentes em `docs/Tarefas feitas/` (incluindo `Cadastro de estudante escolar - BI do encarregado obrigatório.md`) são registros históricos de tarefas concluídas e **não devem ser reescritos**. Eventos já gravados no ledger também não devem ser alterados, por serem imutáveis (ver nota técnica no Contexto). Apenas `Documentação.md` (documentação viva), o código-fonte ativo e os dados de projeção (que são reconstruíveis, ao contrário do ledger) devem refletir a nova nomenclatura.
 
 ---
 
@@ -70,11 +70,11 @@ Arquivos já existentes em `docs/Tarefas feitas/` (incluindo `Cadastro de estuda
 
 ## Objetivo
 
-Garantir que todo endpoint que hoje aceita `bilhete_identidade_responsavel`, `telefone_responsavel` ou o arquivo `bi_responsavel` passe a aceitar **exclusivamente** os nomes novos, rejeitando os nomes antigos.
+Garantir que todo endpoint que hoje aceita `bilhete_identidade_encarregado`, `telefone_encarregado` ou o arquivo `bi_encarregado` passe a aceitar **exclusivamente** os nomes novos, rejeitando os nomes antigos.
 
 ## Regra de negócio
 
-1. os endpoints afetados devem deixar de reconhecer `bilhete_identidade_responsavel`, `telefone_responsavel` e o arquivo `bi_responsavel` como nomes de campo válidos;
+1. os endpoints afetados devem deixar de reconhecer `bilhete_identidade_encarregado`, `telefone_encarregado` e o arquivo `bi_encarregado` como nomes de campo válidos;
 2. qualquer payload contendo esses nomes antigos deve ser rejeitado com `400` e mensagem clara indicando o nome correto a ser usado;
 3. não deve existir nenhuma forma de aceitação silenciosa, tradução automática, mapeamento implícito, alias, header opcional ou flag de compatibilidade que reative o nome antigo — o cliente precisa migrar para o nome novo.
 
@@ -84,11 +84,11 @@ Garantir que todo endpoint que hoje aceita `bilhete_identidade_responsavel`, `te
 
 Aplicar a regra desta seção em, no mínimo:
 
-- `POST /academia/estudante/register` (campo de texto `bilhete_identidade_responsavel`, `telefone_responsavel`, arquivo `bi_responsavel`);
-- `POST /academia/estudante/register/async`, nos dois modos: JSON (`com_arquivo=false`, campos por estudante do lote) e multipart (`com_arquivo=true`, incluindo o padrão de arquivo `<codigo_temporario>.bi_responsavel`);
+- `POST /academia/estudante/register` (campo de texto `bilhete_identidade_encarregado`, `telefone_encarregado`, arquivo `bi_encarregado`);
+- `POST /academia/estudante/register/async`, nos dois modos: JSON (`com_arquivo=false`, campos por estudante do lote) e multipart (`com_arquivo=true`, incluindo o padrão de arquivo `<codigo_temporario>.bi_encarregado`);
 - `POST /academia/estudante/{codigo_estudante}/documentos` (upload posterior de documentos pendentes);
-- `PUT /estudante/dados-pessoais` (JSON, campo `bilhete_identidade_responsavel`);
-- `POST /solicitacao-matricula` (campos de texto `bilhete_identidade_responsavel`, `telefone_responsavel`, arquivo `bi_responsavel`).
+- `PUT /estudante/dados-pessoais` (JSON, campo `bilhete_identidade_encarregado`);
+- `POST /solicitacao-matricula` (campos de texto `bilhete_identidade_encarregado`, `telefone_encarregado`, arquivo `bi_encarregado`).
 
 ### 2.2 Rejeição explícita, não apenas ignorar
 
@@ -99,23 +99,23 @@ Um payload contendo o nome antigo deve ser **rejeitado** com `400`, e não apena
 ```json
 {
   "error": "VALIDATION_ERROR",
-  "message": "o campo 'bilhete_identidade_responsavel' não existe mais neste contrato; use 'bilhete_identidade_encarregado'",
+  "message": "o campo 'bilhete_identidade_encarregado' não existe mais neste contrato; use 'bilhete_identidade_encarregado'",
   "details": [
     {
-      "field": "bilhete_identidade_responsavel",
+      "field": "bilhete_identidade_encarregado",
       "code": "campo_removido",
-      "message": "o campo 'bilhete_identidade_responsavel' não existe mais neste contrato; use 'bilhete_identidade_encarregado'"
+      "message": "o campo 'bilhete_identidade_encarregado' não existe mais neste contrato; use 'bilhete_identidade_encarregado'"
     }
   ]
 }
 ```
 
-O mesmo padrão de mensagem deve ser aplicado para `telefone_responsavel` → `telefone_encarregado` e para o arquivo `bi_responsavel` → `bi_encarregado`.
+O mesmo padrão de mensagem deve ser aplicado para `telefone_encarregado` → `telefone_encarregado` e para o arquivo `bi_encarregado` → `bi_encarregado`.
 
 ### 2.4 Testes obrigatórios
 
 1. envio do nome novo (`bilhete_identidade_encarregado`, `telefone_encarregado`, `bi_encarregado`): aceito normalmente, com o mesmo resultado de negócio já existente;
-2. envio do nome antigo (`bilhete_identidade_responsavel`, `telefone_responsavel`, `bi_responsavel`): rejeitado com `400`, orientando o nome novo;
+2. envio do nome antigo (`bilhete_identidade_encarregado`, `telefone_encarregado`, `bi_encarregado`): rejeitado com `400`, orientando o nome novo;
 3. envio simultâneo do nome novo e do nome antigo no mesmo payload: rejeitado (o nome antigo, por si só, já é motivo de rejeição, independentemente de o nome novo também estar presente);
 4. os cenários acima cobertos para todos os endpoints listados na seção 2.1, incluindo os dois modos de `POST /academia/estudante/register/async`.
 
@@ -131,10 +131,10 @@ Garantir que nenhuma resposta do sistema exponha os nomes antigos, em nenhuma ci
 
 Toda resposta de `EstudanteDTO` e `SolicitacaoMatriculaDTO` (e qualquer resposta derivada, como `GET /consultar-estudante/:codigo`, `GET /meu-perfil`, `GET /estudantes`, `GET /academia/solicitacoes-matricula`, `GET /academia/solicitacao-matricula/:codigo`, `GET /solicitacoes-matricula`) deve conter apenas:
 
-- `bilhete_identidade_encarregado` (nunca `bilhete_identidade_responsavel`);
-- `telefone_encarregado` (nunca `telefone_responsavel`);
-- `telefone_encarregado_verificado` (nunca `telefone_responsavel_verificado`);
-- no mapa `documentos`, apenas a chave `bi_encarregado` (nunca `bi_responsavel`).
+- `bilhete_identidade_encarregado` (nunca `bilhete_identidade_encarregado`);
+- `telefone_encarregado` (nunca `telefone_encarregado`);
+- `telefone_encarregado_verificado` (nunca `telefone_encarregado_verificado`);
+- no mapa `documentos`, apenas a chave `bi_encarregado` (nunca `bi_encarregado`).
 
 ## Escopo obrigatório
 
@@ -144,13 +144,13 @@ O modelo interno (aggregate, projeção) deve armazenar o valor sob um único no
 
 ### 3.2 Rotas de download de documento
 
-As rotas de download já existentes (`/documentos/estudantes/{codigo_estudante}/{campo}/download`, `/documentos/solicitacoes-matricula/{codigo_solicitacao}/{campo}/download`) devem passar a aceitar apenas `bi_encarregado` como valor de `{campo}`. Uma tentativa de download usando `bi_responsavel` como `{campo}` deve retornar `404`, com o mesmo tratamento que qualquer chave de documento inexistente já recebe hoje.
+As rotas de download já existentes (`/documentos/estudantes/{codigo_estudante}/{campo}/download`, `/documentos/solicitacoes-matricula/{codigo_solicitacao}/{campo}/download`) devem passar a aceitar apenas `bi_encarregado` como valor de `{campo}`. Uma tentativa de download usando `bi_encarregado` como `{campo}` deve retornar `404`, com o mesmo tratamento que qualquer chave de documento inexistente já recebe hoje.
 
 ### 3.3 Testes obrigatórios
 
-1. resposta de estudante criado/consultado nunca contém `bilhete_identidade_responsavel`, `telefone_responsavel` nem `telefone_responsavel_verificado`;
-2. mapa `documentos` de estudante e de solicitação de matrícula nunca contém a chave `bi_responsavel`;
-3. tentativa de download usando `bi_responsavel` como `{campo}` retorna `404`;
+1. resposta de estudante criado/consultado nunca contém `bilhete_identidade_encarregado`, `telefone_encarregado` nem `telefone_encarregado_verificado`;
+2. mapa `documentos` de estudante e de solicitação de matrícula nunca contém a chave `bi_encarregado`;
+3. tentativa de download usando `bi_encarregado` como `{campo}` retorna `404`;
 4. resposta de `SolicitacaoMatriculaDTO` segue o mesmo padrão, sem nenhum campo antigo remanescente.
 
 ---
@@ -173,7 +173,7 @@ Migrar a persistência para o nome novo, garantindo que o rebuild de projeções
 
 ### 4.1 Migração de colunas de projeção
 
-Criar migration renomeando as colunas equivalentes a `bilhete_identidade_responsavel`, `telefone_responsavel` e `telefone_responsavel_verificado` para seus nomes novos, seguindo o padrão de migrations idempotentes já usado no projeto.
+Criar migration renomeando as colunas equivalentes a `bilhete_identidade_encarregado`, `telefone_encarregado` e `telefone_encarregado_verificado` para seus nomes novos, seguindo o padrão de migrations idempotentes já usado no projeto.
 
 ### 4.2 Interpretação isolada de eventos históricos durante o rebuild
 
@@ -193,13 +193,13 @@ Ajustar os event handlers de `Estudante` e `SolicitacaoMatricula` para, ao ler o
 
 ## Objetivo
 
-Garantir que documentos já enviados antes desta mudança, cujo metadado usa a chave `bi_responsavel`, passem a ser identificados exclusivamente pela chave `bi_encarregado`, sem exigir novo upload por parte do estudante/academia.
+Garantir que documentos já enviados antes desta mudança, cujo metadado usa a chave `bi_encarregado`, passem a ser identificados exclusivamente pela chave `bi_encarregado`, sem exigir novo upload por parte do estudante/academia.
 
 ## Regra de negócio
 
 1. novos uploads devem ser registrados no mapa `documentos` exclusivamente com a chave `bi_encarregado`;
-2. os metadados de documentos já existentes (a entrada no mapa `documentos` da projeção — não o arquivo físico em si, que pode permanecer com o nome já usado no storage) devem ser migrados de `bi_responsavel` para `bi_encarregado` por meio de migration/rotina de backfill sobre a projeção;
-3. depois da migração, nenhum registro ativo deve referenciar `bi_responsavel` como chave de consulta pública.
+2. os metadados de documentos já existentes (a entrada no mapa `documentos` da projeção — não o arquivo físico em si, que pode permanecer com o nome já usado no storage) devem ser migrados de `bi_encarregado` para `bi_encarregado` por meio de migration/rotina de backfill sobre a projeção;
+3. depois da migração, nenhum registro ativo deve referenciar `bi_encarregado` como chave de consulta pública.
 
 ## Escopo obrigatório
 
@@ -210,7 +210,7 @@ Criar migration/rotina que percorra os registros existentes com metadado sob a c
 ### 5.2 Testes obrigatórios
 
 1. documento enviado antes da migração, após a migração, é consultável e baixável exclusivamente pela chave `bi_encarregado`;
-2. nenhuma consulta, após a migração, expõe a chave `bi_responsavel`;
+2. nenhuma consulta, após a migração, expõe a chave `bi_encarregado`;
 3. rebuild completo da projeção (cenário da seção 4.3) também produz diretamente a chave `bi_encarregado` para documentos originados de eventos antigos, sem depender exclusivamente da migration de backfill.
 
 ---
@@ -219,13 +219,13 @@ Criar migration/rotina que percorra os registros existentes com metadado sob a c
 
 ## Objetivo
 
-Atualizar todo texto voltado ao usuário e todo comentário de código para usar exclusivamente "encarregado" no lugar de "responsável".
+Atualizar todo texto voltado ao usuário e todo comentário de código para usar exclusivamente "encarregado" no lugar de "encarregado".
 
 ## Escopo obrigatório
 
 ### 6.1 Mensagens de erro e de sucesso
 
-Toda mensagem de validação, erro de negócio ou mensagem de sucesso que hoje menciona "responsável" (ex.: BI do responsável obrigatório, BI do responsável duplicado, telefone do responsável obrigatório) deve passar a mencionar "encarregado". As únicas mensagens que ainda citam o nome antigo são as de rejeição definidas na seção 2.3, cujo propósito é justamente informar que aquele nome não é mais aceito.
+Toda mensagem de validação, erro de negócio ou mensagem de sucesso que hoje menciona "encarregado" (ex.: BI do encarregado obrigatório, BI do encarregado duplicado, telefone do encarregado obrigatório) deve passar a mencionar "encarregado". As únicas mensagens que ainda citam o nome antigo são as de rejeição definidas na seção 2.3, cujo propósito é justamente informar que aquele nome não é mais aceito.
 
 ### 6.2 `Documentação.md`
 
@@ -237,11 +237,11 @@ Se existir especificação OpenAPI/Swagger, remover completamente os campos com 
 
 ### 6.4 Comentários de código
 
-Atualizar comentários inline que mencionem "responsavel"/"responsável" para "encarregado", com exceção do comentário isolado descrito na seção 4.2, que deve permanecer explicando exclusivamente a interpretação de eventos históricos.
+Atualizar comentários inline que mencionem "encarregado"/"encarregado" para "encarregado", com exceção do comentário isolado descrito na seção 4.2, que deve permanecer explicando exclusivamente a interpretação de eventos históricos.
 
 ### 6.5 Testes obrigatórios
 
-1. busca textual confirma que nenhuma mensagem de erro/sucesso ativa usa "responsável", exceto as mensagens de rejeição do nome antigo;
+1. busca textual confirma que nenhuma mensagem de erro/sucesso ativa usa "encarregado", exceto as mensagens de rejeição do nome antigo;
 2. `Documentação.md` não contém nenhuma instrução sugerindo que o nome antigo ainda é aceito ou retornado;
 3. revisão cruzada confirma que nenhuma seção de `Documentação.md` ficou contraditória entre a nomenclatura antiga e a nova.
 
@@ -249,13 +249,13 @@ Atualizar comentários inline que mencionem "responsavel"/"responsável" para "e
 
 # Fora de escopo
 
-- Manter, em qualquer forma, aceitação ou exposição dos nomes antigos (`bilhete_identidade_responsavel`, `telefone_responsavel`, `telefone_responsavel_verificado`, `bi_responsavel`) no contrato público de requests/responses.
+- Manter, em qualquer forma, aceitação ou exposição dos nomes antigos (`bilhete_identidade_encarregado`, `telefone_encarregado`, `telefone_encarregado_verificado`, `bi_encarregado`) no contrato público de requests/responses.
 - Criar aliases, wrappers de compatibilidade, parâmetros opcionais, headers de versão, flags de configuração ou qualquer outro mecanismo que reative o nome antigo.
 - Definir período de transição ou depreciação gradual para o nome antigo.
 - Alterar as regras de negócio de obrigatoriedade do BI/telefone do encarregado por nível de ensino (essas regras continuam exatamente as mesmas; apenas o nome dos campos muda).
 - Reescrever documentos já concluídos em `docs/Tarefas feitas/`.
 - Reescrever, apagar ou substituir eventos já gravados no ledger — isso violaria a integridade da cadeia de hashes.
-- Alterar qualquer campo que não contenha literalmente "responsavel"/"responsável" (ex.: `aprovada_por`, `reprovada_por`, `definido_por`, `alterado_por` permanecem inalterados).
+- Alterar qualquer campo que não contenha literalmente "encarregado"/"encarregado" (ex.: `aprovada_por`, `reprovada_por`, `definido_por`, `alterado_por` permanecem inalterados).
 
 # Critérios de aceite
 
@@ -275,6 +275,6 @@ A tarefa só deve ser considerada concluída quando:
 
 Ao finalizar a implementação:
 
-1. atualizar o título interno desta tarefa para `# Renomear campos de "responsável" para "encarregado" (feito)`;
+1. atualizar o título interno desta tarefa para `# Renomear campos de "encarregado" para "encarregado" (feito)`;
 2. alterar o front matter para `status: feito`;
 3. mover este arquivo para `docs/Tarefas feitas/`.

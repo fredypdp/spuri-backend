@@ -8,7 +8,7 @@ Preciso que você faça uma auditoria crítica, completa e arquivo por arquivo d
 
 Essa funcionalidade é crítica para o sistema, porque a avaliação final automática deve calcular e registrar a `nota_final` por matéria disciplinar aplicável, e não como uma nota única/global do estudante. A tarefa também exige regras específicas por nível de ensino, execução de regras descendentes, criação e baixa de matérias pendentes, bloqueio de progressão/conclusão e remoção total do contrato antigo `tipo_ensino` em favor de `nivel`.
 
-Quero que você atue como engenheiro sênior responsável por validação final de uma feature crítica, fazendo uma investigação profunda do código inteiro relacionado a avaliação final, regras de avaliação, notas, matérias, estudantes, progressão acadêmica, eventos, projeções, DTOs, validações, migrações, testes e documentação.
+Quero que você atue como engenheiro sênior encarregado por validação final de uma feature crítica, fazendo uma investigação profunda do código inteiro relacionado a avaliação final, regras de avaliação, notas, matérias, estudantes, progressão acadêmica, eventos, projeções, DTOs, validações, migrações, testes e documentação.
 
 ## Objetivo da auditoria
 

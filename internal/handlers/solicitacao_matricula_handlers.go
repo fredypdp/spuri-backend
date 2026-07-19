@@ -27,7 +27,7 @@ import (
 
 const MaxPDFUploadBytes int64 = 10 << 20
 
-var solicitacaoDocFields = []string{"bi_estudante", "bi_responsavel", "cedula_estudante", "declaracao", "certificado_6_ano_fundamental", "certificado_9_ano_fundamental", "certificado_ensino_medio"}
+var solicitacaoDocFields = []string{"bi_estudante", "bi_encarregado", "cedula_estudante", "declaracao", "certificado_6_ano_fundamental", "certificado_9_ano_fundamental", "certificado_ensino_medio"}
 
 var solicitacaoDocFieldSet = func() map[string]struct{} {
 	set := make(map[string]struct{}, len(solicitacaoDocFields))
@@ -59,7 +59,7 @@ func validateDocumentosMatricula(bi *string, biResp *string, anoFund, anoMedio, 
 	return aggregates.ValidarDocumentosMatricula(bi, biResp, anoFund, anoMedio, anoSuperior, documentos)
 }
 
-func validateBIResponsavelNaoConflitaComEscolar(c *gin.Context, biResp *string, excludeID *uuid.UUID) error {
+func validateBIEncarregadoNaoConflitaComEscolar(c *gin.Context, biResp *string, excludeID *uuid.UUID) error {
 	if biResp == nil || strings.TrimSpace(*biResp) == "" {
 		return nil
 	}
@@ -74,7 +74,7 @@ func validateBIResponsavelNaoConflitaComEscolar(c *gin.Context, biResp *string, 
 		return err
 	}
 	if existente != nil {
-		return fmt.Errorf("bilhete_identidade_responsavel não pode coincidir com o bilhete_identidade principal de outro estudante escolar")
+		return fmt.Errorf("bilhete_identidade_encarregado não pode coincidir com o bilhete_identidade principal de outro estudante escolar")
 	}
 	return nil
 }
@@ -82,6 +82,9 @@ func validateBIResponsavelNaoConflitaComEscolar(c *gin.Context, biResp *string, 
 func CriarSolicitacaoMatricula(c *gin.Context) {
 	if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("multipart/form-data inválido"))
+		return
+	}
+	if rejectRemovedMultipartFields(c) {
 		return
 	}
 	if err := validarCamposArquivoMatricula(c.Request.MultipartForm); err != nil {
@@ -115,7 +118,7 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 		return
 	}
 
-	bi, biResp := get("bilhete_identidade"), get("bilhete_identidade_responsavel")
+	bi, biResp := get("bilhete_identidade"), get("bilhete_identidade_encarregado")
 
 	year := firstNonEmpty(get("ano_escolar_fundamental"), get("ano_escolar_medio"), get("ano_superior"))
 	_, err = certificateFieldForMatricula(c, academia, year)
@@ -142,8 +145,8 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 	validado, err := services.ValidateMatriculaCommon(services.MatriculaCommonInput{
 		Contexto: services.MatriculaContextSolicitacao,
 		Nome:     nome, Genero: genero, DataNascimento: dataNasc,
-		Email: stringPtrIfNotBlank(get("email")), TelefoneEstudante: stringPtrIfNotBlank(get("telefone")), TelefoneResponsavel: stringPtrIfNotBlank(get("telefone_responsavel")),
-		BilheteIdentidade: biPtr, BilheteIdentidadeResponsavel: biRespPtr,
+		Email: stringPtrIfNotBlank(get("email")), TelefoneEstudante: stringPtrIfNotBlank(get("telefone")), TelefoneEncarregado: stringPtrIfNotBlank(get("telefone_encarregado")),
+		BilheteIdentidade: biPtr, BilheteIdentidadeEncarregado: biRespPtr,
 		AnoEscolarFundamental: anoFundPtr, AnoEscolarMedio: anoMedioPtr, AnoSuperior: anoSupPtr,
 		Documentos: documentosParaValidacao,
 	})
@@ -151,10 +154,10 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
-	biPtr, biRespPtr = validado.BilheteIdentidade, validado.BilheteIdentidadeResponsavel
+	biPtr, biRespPtr = validado.BilheteIdentidade, validado.BilheteIdentidadeEncarregado
 	anoFundPtr, anoMedioPtr, anoSupPtr = validado.AnoEscolarFundamental, validado.AnoEscolarMedio, validado.AnoSuperior
 	if isMatriculaEscolar(anoFundPtr, anoMedioPtr) {
-		if err := validateBIResponsavelNaoConflitaComEscolar(c, biRespPtr, nil); err != nil {
+		if err := validateBIEncarregadoNaoConflitaComEscolar(c, biRespPtr, nil); err != nil {
 			utils.RespondWithValidationError(c, err)
 			return
 		}
@@ -197,7 +200,7 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	if err := sol.Criar(codigo, codigoAcademia, nome, genero, dataNasc, emailPtr, telPtr, validado.TelefoneResponsavel, biPtr, biRespPtr, anoFundPtr, anoMedioPtr, cursoMedioID, anoSupPtr, cursoSuperiorID, documentos, semelhantes); err != nil {
+	if err := sol.Criar(codigo, codigoAcademia, nome, genero, dataNasc, emailPtr, telPtr, validado.TelefoneEncarregado, biPtr, biRespPtr, anoFundPtr, anoMedioPtr, cursoMedioID, anoSupPtr, cursoSuperiorID, documentos, semelhantes); err != nil {
 		_ = provider.Delete(dir)
 		utils.RespondWithValidationError(c, err)
 		return
@@ -273,11 +276,11 @@ func AprovarSolicitacaoMatricula(c *gin.Context) {
 		return
 	}
 	if isMatriculaEscolar(agg.AnoEscolarFundamental, agg.AnoEscolarMedio) || (agg.AnoSuperior != nil && strings.TrimSpace(*agg.AnoSuperior) != "") {
-		if err := validateDocumentosMatricula(agg.BilheteIdentidade, agg.BilheteIdentidadeResponsavel, agg.AnoEscolarFundamental, agg.AnoEscolarMedio, agg.AnoSuperior, agg.Documentos, "aprovação da solicitação"); err != nil {
+		if err := validateDocumentosMatricula(agg.BilheteIdentidade, agg.BilheteIdentidadeEncarregado, agg.AnoEscolarFundamental, agg.AnoEscolarMedio, agg.AnoSuperior, agg.Documentos, "aprovação da solicitação"); err != nil {
 			utils.RespondWithValidationError(c, err)
 			return
 		}
-		if err := validateBIResponsavelNaoConflitaComEscolar(c, agg.BilheteIdentidadeResponsavel, nil); err != nil {
+		if err := validateBIEncarregadoNaoConflitaComEscolar(c, agg.BilheteIdentidadeEncarregado, nil); err != nil {
 			utils.RespondWithValidationError(c, err)
 			return
 		}
@@ -304,7 +307,7 @@ func AprovarSolicitacaoMatricula(c *gin.Context) {
 		return
 	}
 	est := aggregates.NewEstudante()
-	if err := est.CriarComVinculo(agg.Nome, codigoEstudante, string(hash), agg.Email, utils.NormalizePhonePtr(agg.Telefone), utils.NormalizePhonePtr(agg.TelefoneResponsavel), agg.BilheteIdentidade, agg.BilheteIdentidadeResponsavel, agg.Genero, agg.DataNascimento, agg.AnoEscolarFundamental, agg.AnoEscolarMedio, agg.AnoSuperior, agg.CursoMedioID, agg.CursoSuperiorID, &academia.ID, academia.CodigoAcademia, agg.Documentos); err != nil {
+	if err := est.CriarComVinculo(agg.Nome, codigoEstudante, string(hash), agg.Email, utils.NormalizePhonePtr(agg.Telefone), utils.NormalizePhonePtr(agg.TelefoneEncarregado), agg.BilheteIdentidade, agg.BilheteIdentidadeEncarregado, agg.Genero, agg.DataNascimento, agg.AnoEscolarFundamental, agg.AnoEscolarMedio, agg.AnoSuperior, agg.CursoMedioID, agg.CursoSuperiorID, &academia.ID, academia.CodigoAcademia, agg.Documentos); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}

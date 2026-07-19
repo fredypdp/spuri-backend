@@ -86,8 +86,9 @@ func (p *SolicitacaoMatriculaProjection) handleCriada(event db.Event) error {
 		DataNascimento               time.Time                                `json:"DataNascimento"`
 		Email                        *string                                  `json:"Email"`
 		Telefone                     *string                                  `json:"Telefone"`
+		TelefoneEncarregado          *string                                  `json:"TelefoneEncarregado"`
 		BilheteIdentidade            *string                                  `json:"BilheteIdentidade"`
-		BilheteIdentidadeResponsavel *string                                  `json:"BilheteIdentidadeResponsavel"`
+		BilheteIdentidadeEncarregado *string                                  `json:"BilheteIdentidadeEncarregado"`
 		AnoEscolarFundamental        *string                                  `json:"AnoEscolarFundamental"`
 		AnoEscolarMedio              *string                                  `json:"AnoEscolarMedio"`
 		CursoMedioID                 *uuid.UUID                               `json:"CursoMedioID"`
@@ -102,25 +103,26 @@ func (p *SolicitacaoMatriculaProjection) handleCriada(event db.Event) error {
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return err
 	}
+	applySolicitacaoPayloadHistoricalNames(event.Payload, &payload.TelefoneEncarregado, &payload.BilheteIdentidadeEncarregado, &payload.Documentos)
 	docs, _ := json.Marshal(payload.Documentos)
 	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_solicitacoes_matricula (
 			id, codigo_solicitacao, codigo_academia, nome, genero, data_nascimento,
-			email, telefone, bilhete_identidade, bilhete_identidade_responsavel,
+			email, telefone, telefone_encarregado, bilhete_identidade, bilhete_identidade_encarregado,
 			ano_escolar_fundamental, ano_escolar_medio, curso_medio_id, ano_superior, curso_superior_id,
 			status, solicitacoes_semelhantes, documentos, created_at, updated_at, version, last_event_id
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
 		ON CONFLICT (id) DO UPDATE SET
 			codigo_solicitacao=EXCLUDED.codigo_solicitacao, codigo_academia=EXCLUDED.codigo_academia,
 			nome=EXCLUDED.nome, genero=EXCLUDED.genero, data_nascimento=EXCLUDED.data_nascimento,
-			email=EXCLUDED.email, telefone=EXCLUDED.telefone, bilhete_identidade=EXCLUDED.bilhete_identidade,
-			bilhete_identidade_responsavel=EXCLUDED.bilhete_identidade_responsavel,
+			email=EXCLUDED.email, telefone=EXCLUDED.telefone, telefone_encarregado=EXCLUDED.telefone_encarregado, bilhete_identidade=EXCLUDED.bilhete_identidade,
+			bilhete_identidade_encarregado=EXCLUDED.bilhete_identidade_encarregado,
 			ano_escolar_fundamental=EXCLUDED.ano_escolar_fundamental, ano_escolar_medio=EXCLUDED.ano_escolar_medio,
 			curso_medio_id=EXCLUDED.curso_medio_id, ano_superior=EXCLUDED.ano_superior, curso_superior_id=EXCLUDED.curso_superior_id,
 			status=EXCLUDED.status, solicitacoes_semelhantes=EXCLUDED.solicitacoes_semelhantes, documentos=EXCLUDED.documentos, updated_at=EXCLUDED.updated_at,
 			version=EXCLUDED.version, last_event_id=EXCLUDED.last_event_id
 	`, event.AggregateID, payload.CodigoSolicitacao, payload.CodigoAcademia, payload.Nome, payload.Genero, payload.DataNascimento,
-		payload.Email, payload.Telefone, payload.BilheteIdentidade, payload.BilheteIdentidadeResponsavel,
+		payload.Email, payload.Telefone, payload.TelefoneEncarregado, payload.BilheteIdentidade, payload.BilheteIdentidadeEncarregado,
 		payload.AnoEscolarFundamental, payload.AnoEscolarMedio, nullOrUUID(payload.CursoMedioID), payload.AnoSuperior, nullOrUUID(payload.CursoSuperiorID),
 		payload.Status, pq.Array(payload.SolicitacoesSemelhantes), docs, payload.CreatedAt, payload.UpdatedAt, event.EventVersion, event.EventID)
 	return err
@@ -170,8 +172,9 @@ type SolicitacaoMatriculaDTO struct {
 	DataNascimento               time.Time                                `json:"data_nascimento"`
 	Email                        *string                                  `json:"email,omitempty"`
 	Telefone                     *string                                  `json:"telefone,omitempty"`
+	TelefoneEncarregado          *string                                  `json:"telefone_encarregado,omitempty"`
 	BilheteIdentidade            *string                                  `json:"bilhete_identidade,omitempty"`
-	BilheteIdentidadeResponsavel *string                                  `json:"bilhete_identidade_responsavel,omitempty"`
+	BilheteIdentidadeEncarregado *string                                  `json:"bilhete_identidade_encarregado,omitempty"`
 	AnoEscolarFundamental        *string                                  `json:"ano_escolar_fundamental,omitempty"`
 	AnoEscolarMedio              *string                                  `json:"ano_escolar_medio,omitempty"`
 	CursoMedioID                 *uuid.UUID                               `json:"curso_medio_id,omitempty"`
@@ -224,7 +227,7 @@ func (p *SolicitacaoMatriculaProjection) List(status []string, codigosAcademia [
 	if err := p.client.DB().QueryRow("SELECT COUNT(*) FROM projection_solicitacoes_matricula "+where, args...).Scan(&total); err != nil {
 		return nil, err
 	}
-	q := fmt.Sprintf(`SELECT id, codigo_solicitacao, codigo_academia, nome, genero, data_nascimento, email, telefone, bilhete_identidade, bilhete_identidade_responsavel, ano_escolar_fundamental, ano_escolar_medio, curso_medio_id, ano_superior, curso_superior_id, status, motivo_reprovacao, solicitacoes_semelhantes, documentos, codigo_estudante_gerado, aprovada_por, reprovada_por, created_at, updated_at, version FROM projection_solicitacoes_matricula %s ORDER BY created_at DESC LIMIT $%d OFFSET $%d`, where, i, i+1)
+	q := fmt.Sprintf(`SELECT id, codigo_solicitacao, codigo_academia, nome, genero, data_nascimento, email, telefone, telefone_encarregado, bilhete_identidade, bilhete_identidade_encarregado, ano_escolar_fundamental, ano_escolar_medio, curso_medio_id, ano_superior, curso_superior_id, status, motivo_reprovacao, solicitacoes_semelhantes, documentos, codigo_estudante_gerado, aprovada_por, reprovada_por, created_at, updated_at, version FROM projection_solicitacoes_matricula %s ORDER BY created_at DESC LIMIT $%d OFFSET $%d`, where, i, i+1)
 	args = append(args, limit, offset)
 	rows, err := p.client.DB().Query(q, args...)
 	if err != nil {
@@ -259,16 +262,16 @@ func (p *SolicitacaoMatriculaProjection) CountPendingByFundamentalAnos(codigoAca
 }
 
 func (p *SolicitacaoMatriculaProjection) query(where string, args ...interface{}) (*sql.Rows, error) {
-	return p.client.DB().Query(`SELECT id, codigo_solicitacao, codigo_academia, nome, genero, data_nascimento, email, telefone, bilhete_identidade, bilhete_identidade_responsavel, ano_escolar_fundamental, ano_escolar_medio, curso_medio_id, ano_superior, curso_superior_id, status, motivo_reprovacao, solicitacoes_semelhantes, documentos, codigo_estudante_gerado, aprovada_por, reprovada_por, created_at, updated_at, version FROM projection_solicitacoes_matricula `+where, args...)
+	return p.client.DB().Query(`SELECT id, codigo_solicitacao, codigo_academia, nome, genero, data_nascimento, email, telefone, telefone_encarregado, bilhete_identidade, bilhete_identidade_encarregado, ano_escolar_fundamental, ano_escolar_medio, curso_medio_id, ano_superior, curso_superior_id, status, motivo_reprovacao, solicitacoes_semelhantes, documentos, codigo_estudante_gerado, aprovada_por, reprovada_por, created_at, updated_at, version FROM projection_solicitacoes_matricula `+where, args...)
 }
 
 func scanSolicitacao(row interface{ Scan(...interface{}) error }) (*SolicitacaoMatriculaDTO, error) {
 	var dto SolicitacaoMatriculaDTO
 	var docs []byte
 	var semelhantes []string
-	var email, telefone, bi, biResp, anoFund, anoMedio, anoSup, motivo, codEst sql.NullString
+	var email, telefone, telefoneEncarregado, bi, biResp, anoFund, anoMedio, anoSup, motivo, codEst sql.NullString
 	var cursoMedio, cursoSuperior, aprovadaPor, reprovadaPor uuid.NullUUID
-	err := row.Scan(&dto.ID, &dto.CodigoSolicitacao, &dto.CodigoAcademia, &dto.Nome, &dto.Genero, &dto.DataNascimento, &email, &telefone, &bi, &biResp, &anoFund, &anoMedio, &cursoMedio, &anoSup, &cursoSuperior, &dto.Status, &motivo, pq.Array(&semelhantes), &docs, &codEst, &aprovadaPor, &reprovadaPor, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version)
+	err := row.Scan(&dto.ID, &dto.CodigoSolicitacao, &dto.CodigoAcademia, &dto.Nome, &dto.Genero, &dto.DataNascimento, &email, &telefone, &telefoneEncarregado, &bi, &biResp, &anoFund, &anoMedio, &cursoMedio, &anoSup, &cursoSuperior, &dto.Status, &motivo, pq.Array(&semelhantes), &docs, &codEst, &aprovadaPor, &reprovadaPor, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version)
 	if err != nil {
 		return nil, err
 	}
@@ -278,11 +281,14 @@ func scanSolicitacao(row interface{ Scan(...interface{}) error }) (*SolicitacaoM
 	if telefone.Valid {
 		dto.Telefone = &telefone.String
 	}
+	if telefoneEncarregado.Valid {
+		dto.TelefoneEncarregado = &telefoneEncarregado.String
+	}
 	if bi.Valid {
 		dto.BilheteIdentidade = &bi.String
 	}
 	if biResp.Valid {
-		dto.BilheteIdentidadeResponsavel = &biResp.String
+		dto.BilheteIdentidadeEncarregado = &biResp.String
 	}
 	if anoFund.Valid {
 		dto.AnoEscolarFundamental = &anoFund.String
@@ -326,7 +332,7 @@ func (p *SolicitacaoMatriculaProjection) FindSemelhantesPendentes(codigoAcademia
 		WHERE codigo_academia=$1 AND status=$2 AND (
 			(lower(btrim(nome)) = lower(btrim($3)) AND data_nascimento=$4 AND genero=$5)
 			OR ($6::text IS NOT NULL AND btrim($6) <> '' AND lower(btrim(bilhete_identidade)) = lower(btrim($6)))
-			OR ($7::text IS NOT NULL AND btrim($7) <> '' AND lower(btrim(bilhete_identidade_responsavel)) = lower(btrim($7)))
+			OR ($7::text IS NOT NULL AND btrim($7) <> '' AND lower(btrim(bilhete_identidade_encarregado)) = lower(btrim($7)))
 		) ORDER BY created_at ASC`, codigoAcademia, aggregates.StatusSolicitacaoPendente, nome, dataNascimento, genero, bi, biResp)
 	if err != nil {
 		return nil, err
@@ -362,4 +368,22 @@ func (p *SolicitacaoMatriculaProjection) FindConcorrentesPendentesPorBI(bi, excl
 
 func whereConcorrentesPendentesPorBI() string {
 	return `WHERE status = $1 AND codigo_solicitacao <> $2 AND lower(btrim(bilhete_identidade)) = lower(btrim($3))`
+}
+
+func applySolicitacaoPayloadHistoricalNames(payloadBytes []byte, telefoneEncarregado **string, bilheteEncarregado **string, documentos *map[string]aggregates.DocumentoMatricula) {
+	// Interpreta exclusivamente eventos históricos imutáveis anteriores à mudança de nomenclatura.
+	var historical struct {
+		TelefoneResponsavel          *string `json:"TelefoneResponsavel"`
+		BilheteIdentidadeResponsavel *string `json:"BilheteIdentidadeResponsavel"`
+	}
+	_ = json.Unmarshal(payloadBytes, &historical)
+	if telefoneEncarregado != nil && *telefoneEncarregado == nil && historical.TelefoneResponsavel != nil {
+		*telefoneEncarregado = historical.TelefoneResponsavel
+	}
+	if bilheteEncarregado != nil && *bilheteEncarregado == nil && historical.BilheteIdentidadeResponsavel != nil {
+		*bilheteEncarregado = historical.BilheteIdentidadeResponsavel
+	}
+	if documentos != nil {
+		*documentos = normalizeDocumentoEncarregadoKey(*documentos)
+	}
 }

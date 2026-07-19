@@ -195,7 +195,7 @@ Auditar explicitamente uploads de:
 - `alvara` de academia;
 - documentos formais de academia;
 - documentos de estudante;
-- documentos de responsável;
+- documentos de encarregado;
 - solicitações de matrícula;
 - anexos administrativos;
 - importações ou PDFs de batch;

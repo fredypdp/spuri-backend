@@ -27,9 +27,9 @@ type SolicitacaoMatricula struct {
 	DataNascimento               time.Time
 	Email                        *string
 	Telefone                     *string
-	TelefoneResponsavel          *string
+	TelefoneEncarregado          *string
 	BilheteIdentidade            *string
-	BilheteIdentidadeResponsavel *string
+	BilheteIdentidadeEncarregado *string
 	AnoEscolarFundamental        *string
 	AnoEscolarMedio              *string
 	CursoMedioID                 *uuid.UUID
@@ -72,7 +72,7 @@ func (s *SolicitacaoMatricula) Apply(event DomainEvent) error {
 	}
 }
 
-func (s *SolicitacaoMatricula) Criar(codigoSolicitacao, codigoAcademia, nome, genero string, dataNascimento time.Time, email, telefone, telefoneResponsavel, bi, biResp, anoFund, anoMedio *string, cursoMedioID *uuid.UUID, anoSuperior *string, cursoSuperiorID *uuid.UUID, documentos map[string]DocumentoMatricula, solicitacoesSemelhantes []string) error {
+func (s *SolicitacaoMatricula) Criar(codigoSolicitacao, codigoAcademia, nome, genero string, dataNascimento time.Time, email, telefone, telefoneEncarregado, bi, biResp, anoFund, anoMedio *string, cursoMedioID *uuid.UUID, anoSuperior *string, cursoSuperiorID *uuid.UUID, documentos map[string]DocumentoMatricula, solicitacoesSemelhantes []string) error {
 	if strings.TrimSpace(codigoSolicitacao) == "" || strings.TrimSpace(codigoAcademia) == "" || strings.TrimSpace(nome) == "" {
 		return fmt.Errorf("codigo_solicitacao, codigo_academia e nome são obrigatórios")
 	}
@@ -83,12 +83,12 @@ func (s *SolicitacaoMatricula) Criar(codigoSolicitacao, codigoAcademia, nome, ge
 		return fmt.Errorf("data_nascimento deve ser anterior à data atual")
 	}
 	if isNilOrBlank(bi) && isNilOrBlank(biResp) {
-		return fmt.Errorf("bilhete_identidade ou bilhete_identidade_responsavel é obrigatório")
+		return fmt.Errorf("bilhete_identidade ou bilhete_identidade_encarregado é obrigatório")
 	}
 	if bilhetesSolicitacaoIguais(bi, biResp) {
-		return fmt.Errorf("bilhete_identidade e bilhete_identidade_responsavel não podem ser iguais")
+		return fmt.Errorf("bilhete_identidade e bilhete_identidade_encarregado não podem ser iguais")
 	}
-	if err := ValidarTelefonesMatricula(telefone, telefoneResponsavel, anoFund, anoMedio, anoSuperior); err != nil {
+	if err := ValidarTelefonesMatricula(telefone, telefoneEncarregado, anoFund, anoMedio, anoSuperior); err != nil {
 		return err
 	}
 	if documentos == nil || len(documentos) == 0 {
@@ -98,7 +98,7 @@ func (s *SolicitacaoMatricula) Criar(codigoSolicitacao, codigoAcademia, nome, ge
 		return err
 	}
 	now := time.Now().UTC()
-	ev := &SolicitacaoMatriculaCriadaEvent{BaseEvent: BaseEvent{EventType: "SolicitacaoMatriculaCriada", AggregateID: s.ID}, CodigoSolicitacao: codigoSolicitacao, CodigoAcademia: codigoAcademia, Nome: nome, Genero: genero, DataNascimento: dataNascimento, Email: email, Telefone: telefone, TelefoneResponsavel: telefoneResponsavel, BilheteIdentidade: bi, BilheteIdentidadeResponsavel: biResp, AnoEscolarFundamental: anoFund, AnoEscolarMedio: anoMedio, CursoMedioID: cursoMedioID, AnoSuperior: anoSuperior, CursoSuperiorID: cursoSuperiorID, Status: StatusSolicitacaoPendente, Documentos: documentos, SolicitacoesSemelhantes: solicitacoesSemelhantes, CreatedAt: now, UpdatedAt: now}
+	ev := &SolicitacaoMatriculaCriadaEvent{BaseEvent: BaseEvent{EventType: "SolicitacaoMatriculaCriada", AggregateID: s.ID}, CodigoSolicitacao: codigoSolicitacao, CodigoAcademia: codigoAcademia, Nome: nome, Genero: genero, DataNascimento: dataNascimento, Email: email, Telefone: telefone, TelefoneEncarregado: telefoneEncarregado, BilheteIdentidade: bi, BilheteIdentidadeEncarregado: biResp, AnoEscolarFundamental: anoFund, AnoEscolarMedio: anoMedio, CursoMedioID: cursoMedioID, AnoSuperior: anoSuperior, CursoSuperiorID: cursoSuperiorID, Status: StatusSolicitacaoPendente, Documentos: documentos, SolicitacoesSemelhantes: solicitacoesSemelhantes, CreatedAt: now, UpdatedAt: now}
 	s.RaiseEvent(ev)
 	return nil
 }
@@ -141,30 +141,30 @@ func (s *SolicitacaoMatricula) Reprovar(reprovadaPor uuid.UUID, motivo string) e
 	return nil
 }
 
-func ValidarTelefonesMatricula(telefone, telefoneResponsavel, anoEscolar, anoEscolarMedio, anoSuperior *string) error {
+func ValidarTelefonesMatricula(telefone, telefoneEncarregado, anoEscolar, anoEscolarMedio, anoSuperior *string) error {
 	escolar := !isNilOrBlank(anoEscolar) || !isNilOrBlank(anoEscolarMedio)
 	superior := !isNilOrBlank(anoSuperior)
-	if escolar && isNilOrBlank(telefoneResponsavel) {
-		return fmt.Errorf("telefone_responsavel é obrigatório para estudante escolar")
+	if escolar && isNilOrBlank(telefoneEncarregado) {
+		return fmt.Errorf("telefone_encarregado é obrigatório para estudante escolar")
 	}
 	if superior && isNilOrBlank(telefone) {
 		return fmt.Errorf("telefone é obrigatório para estudante do ensino superior")
 	}
-	if !escolar && !superior && isNilOrBlank(telefone) && isNilOrBlank(telefoneResponsavel) {
-		return fmt.Errorf("telefone ou telefone_responsavel deve ser informado")
+	if !escolar && !superior && isNilOrBlank(telefone) && isNilOrBlank(telefoneEncarregado) {
+		return fmt.Errorf("telefone ou telefone_encarregado deve ser informado")
 	}
 	if !isNilOrBlank(telefone) {
 		if err := utils.ValidatePhone(*telefone); err != nil {
 			return err
 		}
 	}
-	if !isNilOrBlank(telefoneResponsavel) {
-		if err := utils.ValidatePhone(*telefoneResponsavel); err != nil {
+	if !isNilOrBlank(telefoneEncarregado) {
+		if err := utils.ValidatePhone(*telefoneEncarregado); err != nil {
 			return err
 		}
 	}
-	if !isNilOrBlank(telefone) && !isNilOrBlank(telefoneResponsavel) && *telefone == *telefoneResponsavel {
-		return fmt.Errorf("telefone e telefone_responsavel não podem ser iguais")
+	if !isNilOrBlank(telefone) && !isNilOrBlank(telefoneEncarregado) && *telefone == *telefoneEncarregado {
+		return fmt.Errorf("telefone e telefone_encarregado não podem ser iguais")
 	}
 	return nil
 }
@@ -226,8 +226,8 @@ func DocumentosMatriculaFaltantes(bi, biResp *string, anoFund, anoMedio, anoSupe
 	if !isNilOrBlank(bi) && !hasDocumentoComArquivo(documentos, "bi_estudante") {
 		add("bi_estudante")
 	}
-	if !isNilOrBlank(biResp) && !hasDocumentoComArquivo(documentos, "bi_responsavel") {
-		add("bi_responsavel")
+	if !isNilOrBlank(biResp) && !hasDocumentoComArquivo(documentos, "bi_encarregado") {
+		add("bi_encarregado")
 	}
 	if isNilOrBlank(anoSuperior) && (!isNilOrBlank(anoFund) || !isNilOrBlank(anoMedio)) && isNilOrBlank(bi) {
 		if doc, ok := documentos["cedula_estudante"]; !ok || !doc.TemReferenciaArquivo() {
@@ -271,8 +271,8 @@ func ValidarDocumentosMatricula(bi, biResp *string, anoFund, anoMedio, anoSuperi
 	if !isNilOrBlank(bi) && !hasDocumentoComArquivo(documentos, "bi_estudante") {
 		return fmt.Errorf("bi_estudante é obrigatório quando bilhete_identidade do estudante é informado")
 	}
-	if !isNilOrBlank(biResp) && !hasDocumentoComArquivo(documentos, "bi_responsavel") {
-		return fmt.Errorf("bi_responsavel é obrigatório quando bilhete_identidade_responsavel é informado")
+	if !isNilOrBlank(biResp) && !hasDocumentoComArquivo(documentos, "bi_encarregado") {
+		return fmt.Errorf("bi_encarregado é obrigatório quando bilhete_identidade_encarregado é informado")
 	}
 	if !isNilOrBlank(anoSuperior) {
 		return validarComprovativoAcademico(*anoSuperior, documentos)
@@ -281,7 +281,7 @@ func ValidarDocumentosMatricula(bi, biResp *string, anoFund, anoMedio, anoSuperi
 		return nil
 	}
 	if isNilOrBlank(biResp) {
-		return fmt.Errorf("bilhete_identidade_responsavel é obrigatório para estudante escolar")
+		return fmt.Errorf("bilhete_identidade_encarregado é obrigatório para estudante escolar")
 	}
 	if isNilOrBlank(bi) {
 		if doc, ok := documentos["cedula_estudante"]; !ok || !doc.TemReferenciaArquivo() {
@@ -416,9 +416,9 @@ type SolicitacaoMatriculaCriadaEvent struct {
 	DataNascimento               time.Time
 	Email                        *string
 	Telefone                     *string
-	TelefoneResponsavel          *string
+	TelefoneEncarregado          *string
 	BilheteIdentidade            *string
-	BilheteIdentidadeResponsavel *string
+	BilheteIdentidadeEncarregado *string
 	AnoEscolarFundamental        *string
 	AnoEscolarMedio              *string
 	CursoMedioID                 *uuid.UUID
@@ -484,9 +484,9 @@ func (s *SolicitacaoMatricula) applyCriada(event DomainEvent) error {
 	s.DataNascimento = ev.DataNascimento
 	s.Email = ev.Email
 	s.Telefone = ev.Telefone
-	s.TelefoneResponsavel = ev.TelefoneResponsavel
+	s.TelefoneEncarregado = ev.TelefoneEncarregado
 	s.BilheteIdentidade = ev.BilheteIdentidade
-	s.BilheteIdentidadeResponsavel = ev.BilheteIdentidadeResponsavel
+	s.BilheteIdentidadeEncarregado = ev.BilheteIdentidadeEncarregado
 	s.AnoEscolarFundamental = ev.AnoEscolarFundamental
 	s.AnoEscolarMedio = ev.AnoEscolarMedio
 	s.CursoMedioID = ev.CursoMedioID

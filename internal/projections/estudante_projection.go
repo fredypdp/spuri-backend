@@ -164,7 +164,7 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 		SenhaHash                string                                   `json:"SenhaHash"`
 		Email                    *string                                  `json:"Email"`
 		Telefone                 *string                                  `json:"Telefone"`
-		TelefoneResponsavel      *string                                  `json:"TelefoneResponsavel"`
+		TelefoneEncarregado      *string                                  `json:"TelefoneEncarregado"`
 		BilheteIdentidade        *string                                  `json:"BilheteIdentidade"`
 		BilheteIdentidadeResp    *string                                  `json:"BilheteIdentidadeResp"`
 		Genero                   string                                   `json:"Genero"`
@@ -186,6 +186,7 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleEstudanteCriadoComVinculo: parse error: %w", err)
 	}
+	applyEstudantePayloadHistoricalNames(event.Payload, &payload.TelefoneEncarregado, &payload.BilheteIdentidadeResp, &payload.Documentos)
 
 	if payload.StatusGeral == "" {
 		payload.StatusGeral = "ativo"
@@ -253,8 +254,8 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 	// Adicionamos log detalhado para diagnóstico futuro.
 	_, err = p.client.DB().Exec(`
 		INSERT INTO projection_estudantes (
-			id, nome, codigo_estudante, senha_hash, email, telefone, telefone_responsavel, email_verificado,
-			bilhete_identidade, bilhete_identidade_responsavel, genero,
+			id, nome, codigo_estudante, senha_hash, email, telefone, telefone_encarregado, email_verificado,
+			bilhete_identidade, bilhete_identidade_encarregado, genero,
 			data_nascimento,
 			status, status_escolar_fundamental, status_escolar_medio, status_superior,
 			ano_escolar_fundamental, ano_escolar_medio, ano_superior, semestre_atual, curso_medio_id, curso_superior_id,
@@ -273,9 +274,9 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 			senha_hash                     = EXCLUDED.senha_hash,
 			email                          = EXCLUDED.email,
 			telefone                       = EXCLUDED.telefone,
-			telefone_responsavel            = EXCLUDED.telefone_responsavel,
+			telefone_encarregado            = EXCLUDED.telefone_encarregado,
 			bilhete_identidade             = EXCLUDED.bilhete_identidade,
-			bilhete_identidade_responsavel = EXCLUDED.bilhete_identidade_responsavel,
+			bilhete_identidade_encarregado = EXCLUDED.bilhete_identidade_encarregado,
 			genero                         = EXCLUDED.genero,
 			data_nascimento                = EXCLUDED.data_nascimento,
 			status                         = EXCLUDED.status,
@@ -296,7 +297,7 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 			documentos                     = EXCLUDED.documentos
 	`,
 		event.AggregateID, payload.Nome, payload.CodigoEstudante, payload.SenhaHash,
-		payload.Email, payload.Telefone, payload.TelefoneResponsavel,
+		payload.Email, payload.Telefone, payload.TelefoneEncarregado,
 		payload.BilheteIdentidade, payload.BilheteIdentidadeResp, payload.Genero,
 		payload.DataNascimento,
 		payload.StatusEscolarFundamental, payload.StatusEscolarMedio, payload.StatusSuperior,
@@ -374,6 +375,7 @@ func (p *EstudanteProjection) handleEstudanteDocumentosCompletados(event db.Even
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleEstudanteDocumentosCompletados: parse error: %w", err)
 	}
+	payload.Documentos = normalizeDocumentoEncarregadoKey(payload.Documentos)
 	_, err := p.client.DB().Exec(`
 		UPDATE projection_estudantes
 		SET status = 'ativo', documentos = COALESCE(documentos, '{}'::jsonb) || $1::jsonb, version = $2, updated_at = CURRENT_TIMESTAMP, last_event_id = $3
@@ -549,7 +551,7 @@ func (p *EstudanteProjection) handleDadosPessoaisAtualizados(event db.Event) err
 		Nome                  *string    `json:"Nome"`
 		Email                 *string    `json:"Email"`
 		Telefone              *string    `json:"Telefone"`
-		TelefoneResponsavel   *string    `json:"TelefoneResponsavel"`
+		TelefoneEncarregado   *string    `json:"TelefoneEncarregado"`
 		BilheteIdentidade     *string    `json:"BilheteIdentidade"`
 		BilheteIdentidadeResp *string    `json:"BilheteIdentidadeResp"`
 		DataNascimento        *time.Time `json:"DataNascimento"`
@@ -581,9 +583,9 @@ func (p *EstudanteProjection) handleDadosPessoaisAtualizados(event db.Event) err
 		args = append(args, *payload.Telefone)
 		idx++
 	}
-	if payload.TelefoneResponsavel != nil {
-		setClauses = append(setClauses, fmt.Sprintf("telefone_responsavel = $%d", idx))
-		args = append(args, *payload.TelefoneResponsavel)
+	if payload.TelefoneEncarregado != nil {
+		setClauses = append(setClauses, fmt.Sprintf("telefone_encarregado = $%d", idx))
+		args = append(args, *payload.TelefoneEncarregado)
 		idx++
 	}
 	if payload.BilheteIdentidade != nil {
@@ -592,7 +594,7 @@ func (p *EstudanteProjection) handleDadosPessoaisAtualizados(event db.Event) err
 		idx++
 	}
 	if payload.BilheteIdentidadeResp != nil {
-		setClauses = append(setClauses, fmt.Sprintf("bilhete_identidade_responsavel = $%d", idx))
+		setClauses = append(setClauses, fmt.Sprintf("bilhete_identidade_encarregado = $%d", idx))
 		args = append(args, *payload.BilheteIdentidadeResp)
 		idx++
 	}
@@ -922,11 +924,11 @@ type EstudanteDTO struct {
 	Email                         *string                                  `json:"email,omitempty"`
 	Telefone                      *string                                  `json:"telefone,omitempty"`
 	TelefoneVerificado            bool                                     `json:"telefone_verificado"`
-	TelefoneResponsavel           *string                                  `json:"telefone_responsavel,omitempty"`
-	TelefoneResponsavelVerificado bool                                     `json:"telefone_responsavel_verificado"`
+	TelefoneEncarregado           *string                                  `json:"telefone_encarregado,omitempty"`
+	TelefoneEncarregadoVerificado bool                                     `json:"telefone_encarregado_verificado"`
 	EmailVerificado               bool                                     `json:"email_verificado"`
 	BilheteIdentidade             *string                                  `json:"bilhete_identidade,omitempty"`
-	BilheteIdentidadeResp         *string                                  `json:"bilhete_identidade_responsavel,omitempty"`
+	BilheteIdentidadeResp         *string                                  `json:"bilhete_identidade_encarregado,omitempty"`
 	Genero                        string                                   `json:"genero"`
 	DataNascimento                time.Time                                `json:"data_nascimento"`
 	CodigoAcademia                *string                                  `json:"codigo_academia,omitempty"`
@@ -947,8 +949,8 @@ type EstudanteDTO struct {
 }
 
 const estudanteCols = `
-	id, nome, codigo_estudante, email, telefone, telefone_verificado, telefone_responsavel, telefone_responsavel_verificado, email_verificado,
-	bilhete_identidade, bilhete_identidade_responsavel, genero,
+	id, nome, codigo_estudante, email, telefone, telefone_verificado, telefone_encarregado, telefone_encarregado_verificado, email_verificado,
+	bilhete_identidade, bilhete_identidade_encarregado, genero,
 	data_nascimento,
 	codigo_academia, status, status_escolar_fundamental, status_escolar_medio, status_superior,
 	ano_escolar_fundamental, ano_escolar_medio, ano_superior, semestre_atual, curso_medio_id, curso_superior_id,
@@ -959,7 +961,7 @@ func scanEstudante(row *sql.Row) (*EstudanteDTO, error) {
 	var e EstudanteDTO
 	var documentosRaw []byte
 	err := row.Scan(
-		&e.ID, &e.Nome, &e.CodigoEstudante, &e.Email, &e.Telefone, &e.TelefoneVerificado, &e.TelefoneResponsavel, &e.TelefoneResponsavelVerificado, &e.EmailVerificado,
+		&e.ID, &e.Nome, &e.CodigoEstudante, &e.Email, &e.Telefone, &e.TelefoneVerificado, &e.TelefoneEncarregado, &e.TelefoneEncarregadoVerificado, &e.EmailVerificado,
 		&e.BilheteIdentidade, &e.BilheteIdentidadeResp, &e.Genero,
 		&e.DataNascimento,
 		&e.CodigoAcademia, &e.Status, &e.StatusEscolarFundamental, &e.StatusEscolarMedio, &e.StatusSuperior,
@@ -982,7 +984,7 @@ func scanEstudanteRows(rows *sql.Rows) ([]EstudanteDTO, error) {
 		var e EstudanteDTO
 		var documentosRaw []byte
 		if err := rows.Scan(
-			&e.ID, &e.Nome, &e.CodigoEstudante, &e.Email, &e.Telefone, &e.TelefoneVerificado, &e.TelefoneResponsavel, &e.TelefoneResponsavelVerificado, &e.EmailVerificado,
+			&e.ID, &e.Nome, &e.CodigoEstudante, &e.Email, &e.Telefone, &e.TelefoneVerificado, &e.TelefoneEncarregado, &e.TelefoneEncarregadoVerificado, &e.EmailVerificado,
 			&e.BilheteIdentidade, &e.BilheteIdentidadeResp, &e.Genero,
 			&e.DataNascimento,
 			&e.CodigoAcademia, &e.Status, &e.StatusEscolarFundamental, &e.StatusEscolarMedio, &e.StatusSuperior,
@@ -1039,6 +1041,7 @@ func (p *EstudanteProjection) GetByAcademia(codigoAcademia string) ([]EstudanteD
 }
 
 func jsonbOrEmpty(documentos map[string]aggregates.DocumentoMatricula) []byte {
+	documentos = normalizeDocumentoEncarregadoKey(documentos)
 	if documentos == nil {
 		documentos = map[string]aggregates.DocumentoMatricula{}
 	}
@@ -1054,7 +1057,38 @@ func decodeDocumentosEstudante(raw []byte) map[string]aggregates.DocumentoMatric
 	if err := json.Unmarshal(raw, &docs); err != nil || len(docs) == 0 {
 		return nil
 	}
-	return docs
+	return normalizeDocumentoEncarregadoKey(docs)
+}
+
+func normalizeDocumentoEncarregadoKey(documentos map[string]aggregates.DocumentoMatricula) map[string]aggregates.DocumentoMatricula {
+	if documentos == nil {
+		return nil
+	}
+	if doc, ok := documentos["bi_responsavel"]; ok {
+		if _, exists := documentos["bi_encarregado"]; !exists {
+			documentos["bi_encarregado"] = doc
+		}
+		delete(documentos, "bi_responsavel")
+	}
+	return documentos
+}
+
+func applyEstudantePayloadHistoricalNames(payloadBytes []byte, telefoneEncarregado **string, bilheteEncarregado **string, documentos *map[string]aggregates.DocumentoMatricula) {
+	// Interpreta exclusivamente eventos históricos imutáveis anteriores à mudança de nomenclatura.
+	var historical struct {
+		TelefoneResponsavel          *string `json:"TelefoneResponsavel"`
+		BilheteIdentidadeResponsavel *string `json:"BilheteIdentidadeResponsavel"`
+	}
+	_ = json.Unmarshal(payloadBytes, &historical)
+	if telefoneEncarregado != nil && *telefoneEncarregado == nil && historical.TelefoneResponsavel != nil {
+		*telefoneEncarregado = historical.TelefoneResponsavel
+	}
+	if bilheteEncarregado != nil && *bilheteEncarregado == nil && historical.BilheteIdentidadeResponsavel != nil {
+		*bilheteEncarregado = historical.BilheteIdentidadeResponsavel
+	}
+	if documentos != nil {
+		*documentos = normalizeDocumentoEncarregadoKey(*documentos)
+	}
 }
 
 // ============================================================================

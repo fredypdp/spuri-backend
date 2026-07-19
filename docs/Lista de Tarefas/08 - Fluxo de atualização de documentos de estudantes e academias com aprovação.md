@@ -12,7 +12,7 @@ Implemente a atualização descrita neste documento criando uma nova entidade `S
 
 ## Contexto
 
-Hoje, depois do cadastro inicial, não existe nenhum caminho para o estudante atualizar um documento de identificação (`bi_estudante`, `bi_responsavel`, `cedula_estudante`, declaração, certificado) nem para a academia atualizar seu documento formal (`alvara`). `PUT /estudante/dados-pessoais` só altera campos de texto; não há upload de arquivo. O mesmo vale para `PUT /academia/dados`.
+Hoje, depois do cadastro inicial, não existe nenhum caminho para o estudante atualizar um documento de identificação (`bi_estudante`, `bi_encarregado`, `cedula_estudante`, declaração, certificado) nem para a academia atualizar seu documento formal (`alvara`). `PUT /estudante/dados-pessoais` só altera campos de texto; não há upload de arquivo. O mesmo vale para `PUT /academia/dados`.
 
 Isso é uma lacuna real: documentos vencem, são substituídos por versões mais recentes, ou foram enviados com erro no cadastro inicial e precisam ser corrigidos sem exigir um novo cadastro completo. `Lista de tarefas.md` propõe um fluxo com aprovação, para que a substituição de um documento oficial (BI, alvará, etc.) não aconteça sem revisão humana: o arquivo enviado fica num diretório temporário e só é promovido ao diretório definitivo (substituindo o anterior) depois de aprovado por quem tem autoridade sobre aquele tipo de documento — a academia, no caso de documentos de estudante; um Admin, no caso de documentos de academia.
 
@@ -48,7 +48,7 @@ Modelar o pedido de atualização de documento como uma entidade própria, com c
 | `codigo_solicitacao` | string | Sim (gerado) | Código curto único, no mesmo padrão alfanumérico já usado por `SolicitacaoMatricula` |
 | `tipo_entidade` | enum | Sim | `estudante` ou `academia` |
 | `codigo_referencia` | string | Sim | `codigo_estudante` ou `codigo_academia`, conforme `tipo_entidade` |
-| `campo_documento` | string | Sim | Chave do documento a ser substituído (ex.: `bi_estudante`, `bi_responsavel`, `cedula_estudante`, `alvara`) |
+| `campo_documento` | string | Sim | Chave do documento a ser substituído (ex.: `bi_estudante`, `bi_encarregado`, `cedula_estudante`, `alvara`) |
 | `path_temporario` | string | Sim (gerado) | Caminho do arquivo enviado, no diretório temporário |
 | `status` | enum | Sim (gerado) | `pendente` \| `aprovada` \| `reprovada` |
 | `motivo_reprovacao` | string | Não | Preenchido apenas ao reprovar |

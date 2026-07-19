@@ -99,9 +99,9 @@ func TestCadastroEstudanteJSONItemToCadastroRequest(t *testing.T) {
 		DataNascimento:         "2005-04-03",
 		Email:                  " ana@example.com ",
 		Telefone:               " 923 000 111 ",
-		TelefoneResponsavel:    " 924 000 111 ",
+		TelefoneEncarregado:    " 924 000 111 ",
 		BilheteIdentidade:      " 001LA000000 ",
-		BilheteResponsavel:     " 002LA000000 ",
+		BilheteEncarregado:     " 002LA000000 ",
 		AnoEscolar:             " 1_ano_fundamental ",
 		DeclaracaoAnoAcademico: " 1_ano_fundamental ",
 	}

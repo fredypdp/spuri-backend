@@ -65,7 +65,7 @@ Antes de concluir a auditoria, investigar no mínimo:
 
 ### 1. Regra centralizada de período
 
-Confirmar e, se necessário, implementar uma função/constante única responsável por resolver o período fixo por tipo.
+Confirmar e, se necessário, implementar uma função/constante única encarregado por resolver o período fixo por tipo.
 
 Validar que:
 

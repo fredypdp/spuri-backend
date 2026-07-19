@@ -12,7 +12,7 @@ Fazer uma auditoria crítica, completa, extremamente profunda e arquivo por arqu
 
 `docs/Lista de tarefas/Remover completamente materias chave dos cursos.md`
 
-Esta é uma tarefa de **depuração orientada**, não um relatório de execução. Ao executá-la futuramente, a pessoa ou agente responsável deve investigar o código real, confirmar se a tarefa original foi implementada corretamente e, caso qualquer parte esteja incompleta, inconsistente, parcial, sem teste, sem migration, sem validação, sem documentação ou com compatibilidade silenciosa, deve **terminar a implementação e corrigir o que estiver errado** no mesmo ciclo.
+Esta é uma tarefa de **depuração orientada**, não um relatório de execução. Ao executá-la futuramente, a pessoa ou agente encarregado deve investigar o código real, confirmar se a tarefa original foi implementada corretamente e, caso qualquer parte esteja incompleta, inconsistente, parcial, sem teste, sem migration, sem validação, sem documentação ou com compatibilidade silenciosa, deve **terminar a implementação e corrigir o que estiver errado** no mesmo ciclo.
 
 A depuração só pode ser considerada concluída quando estiver comprovado que o conceito de matérias-chave de curso foi removido do domínio ativo. A remoção deve ser real, e não apenas ocultação de UI, omissão em documentação, compatibilidade temporária, alias legado, campo ignorado silenciosamente ou rota mantida sem efeito.
 

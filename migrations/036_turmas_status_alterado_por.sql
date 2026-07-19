@@ -10,7 +10,7 @@
 -- O QUE ESTA MIGRATION FAZ:
 --   1. Adiciona status_alterado_por UUID (quem ativou/desativou)
 --   2. Adiciona status_alterado_em TIMESTAMP (quando ocorreu)
---   3. Cria índice para auditoria por responsável
+--   3. Cria índice para auditoria por encarregado
 --
 -- AÇÃO REQUERIDA APÓS ESTA MIGRATION:
 --   Execute um rebuild da projeção "turmas" via:
