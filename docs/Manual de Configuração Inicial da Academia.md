@@ -615,6 +615,8 @@ POST /academia/faltas-aluno
 POST /academia/anos-letivos/finalizar
 ```
 
+A finalização do ano letivo pela academia é permitida somente para o `ano_letivo` ativo da própria academia. Se o payload enviar `ano_letivo`, ele deve coincidir com esse valor ativo. Além disso, o ano civil atual precisa ser o ano final do período (`2025_2026` só pode ser finalizado em 2026) e o mês atual precisa estar dentro da janela fixa do tipo: para `superior` (`periodo=10_07`), julho, agosto ou setembro do ano final; para `escolar` (`periodo=09_07`), julho ou agosto do ano final.
+
 ---
 
 ## 16. Checklist final de prontidão
