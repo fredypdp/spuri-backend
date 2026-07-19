@@ -147,3 +147,39 @@ func TestSubstituirNotasAusentesPorZeroSuperiorComPeriodoInferido(t *testing.T) 
 		t.Fatalf("nota final superior = %v, want 7", nota)
 	}
 }
+
+func TestTiposAvaliacaoFinalDespertadosPorCategoriaRaizNaoDisparaDescendente(t *testing.T) {
+	notaRaiz := "exame_final"
+	notaRecurso := "exame_recurso"
+	dep := "normal"
+	regras := []regraAvaliacaoFinalDTO{
+		{Type: "normal", NotaDespertadora: &notaRaiz},
+		{Type: "exame_recurso", AplicaSeReprovadoEmType: &dep, NotaDespertadora: &notaRecurso},
+	}
+
+	disparados := tiposAvaliacaoFinalDespertadosPorCategoria(regras, &regras[0], "exame_final")
+	if !disparados["normal"] {
+		t.Fatalf("gatilho da raiz deveria disparar a raiz: %v", disparados)
+	}
+	if disparados["exame_recurso"] {
+		t.Fatalf("gatilho da raiz não deve disparar descendente antes da própria nota de recurso: %v", disparados)
+	}
+}
+
+func TestTiposAvaliacaoFinalDespertadosPorCategoriaDescendenteDisparaApenasDescendente(t *testing.T) {
+	notaRaiz := "exame_final"
+	notaRecurso := "exame_recurso"
+	dep := "normal"
+	regras := []regraAvaliacaoFinalDTO{
+		{Type: "normal", NotaDespertadora: &notaRaiz},
+		{Type: "exame_recurso", AplicaSeReprovadoEmType: &dep, NotaDespertadora: &notaRecurso},
+	}
+
+	disparados := tiposAvaliacaoFinalDespertadosPorCategoria(regras, &regras[0], "exame_recurso")
+	if disparados["normal"] {
+		t.Fatalf("gatilho de descendente não deve recalcular raiz: %v", disparados)
+	}
+	if !disparados["exame_recurso"] {
+		t.Fatalf("gatilho de descendente deveria disparar descendente: %v", disparados)
+	}
+}
