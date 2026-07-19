@@ -4762,7 +4762,8 @@ Não existe rota pública/registrada para executar avaliação final manualmente
 - Se a regra raiz aplicável não tiver `nota_despertadora`, ou se a categoria da nota não corresponder ao código configurado, nenhuma avaliação final automática de raiz é registrada naquele lançamento. Exceção escolar: `exame_recurso` pode despertar a etapa fixa de recurso quando houver reprovação anterior.
 - Se a cadeia aplicável não tiver exatamente uma raiz, o backend retorna erro para evitar ambiguidade.
 - O backend evita duplicidade por `codigo_estudante`, `codigo_academia`, `ano_lectivo`, `tipo_ensino`, `ano_academico_atual` e `type`.
-- Se alguma nota exigida pela fórmula ainda estiver ausente, aquela regra é ignorada naquele momento e poderá ser calculada quando novas notas forem registradas.
+- Quando a categoria lançada é o gatilho da regra executada, notas exigidas pela fórmula e ausentes para a mesma matéria são substituídas por `0`, registradas em `resultados_materias.notas_substituidas_zero` e a avaliação não fica pendente indefinidamente.
+- O gatilho da raiz executa somente a raiz; regras descendentes aguardam o próprio gatilho aplicável (por exemplo, `exame_recurso` no escolar fixo) e só executam se a etapa anterior já registrou reprovação para a matéria.
 - Quando uma regra é executada, o backend calcula `nota_final`, define `aprovado = nota_final >= nota_minima_aprovacao`, calcula o próximo ano acadêmico e persiste o evento com snapshot da regra.
 - O registro de nota retorna o campo `avaliacoes_finais_automaticas` com os resultados automáticos disparados naquele request. Para fundamental aprovado com próximo ano global ainda não ofertado pela academia, o item inclui `motivo_progressao = "academia_sem_oferta_do_proximo_ano_academico_fundamental"` e `sem_oferta_do_proximo_ano_academico_na_academia = true`; o estudante permanece em andamento no próximo ano global e não recebe turma automática.
 

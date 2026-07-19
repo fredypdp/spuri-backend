@@ -340,18 +340,7 @@ func tentarAvaliacoesFinaisAutomaticas(
 		}
 	}
 	categoriaAlterada = strings.TrimSpace(categoriaAlterada)
-	tiposDisparados := map[string]bool{}
-	if raiz != nil && raiz.NotaDespertadora != nil && categoriaAlterada == strings.TrimSpace(*raiz.NotaDespertadora) {
-		for _, regra := range regras {
-			tiposDisparados[regra.Type] = true
-		}
-	} else {
-		for _, regra := range regras {
-			if regra.AplicaSeReprovadoEmType != nil && regra.NotaDespertadora != nil && categoriaAlterada == strings.TrimSpace(*regra.NotaDespertadora) {
-				tiposDisparados[regra.Type] = true
-			}
-		}
-	}
+	tiposDisparados := tiposAvaliacaoFinalDespertadosPorCategoria(regras, raiz, categoriaAlterada)
 	if len(tiposDisparados) == 0 {
 		return nil, nil
 	}
@@ -442,6 +431,21 @@ func tentarAvaliacoesFinaisAutomaticas(
 	}
 
 	return resultados, nil
+}
+
+func tiposAvaliacaoFinalDespertadosPorCategoria(regras []regraAvaliacaoFinalDTO, raiz *regraAvaliacaoFinalDTO, categoriaAlterada string) map[string]bool {
+	categoriaAlterada = strings.TrimSpace(categoriaAlterada)
+	tiposDisparados := map[string]bool{}
+	if raiz != nil && raiz.NotaDespertadora != nil && categoriaAlterada == strings.TrimSpace(*raiz.NotaDespertadora) {
+		tiposDisparados[raiz.Type] = true
+		return tiposDisparados
+	}
+	for _, regra := range regras {
+		if regra.AplicaSeReprovadoEmType != nil && regra.NotaDespertadora != nil && categoriaAlterada == strings.TrimSpace(*regra.NotaDespertadora) {
+			tiposDisparados[regra.Type] = true
+		}
+	}
+	return tiposDisparados
 }
 
 func cursoIDEstudantePorNivel(tipoEnsino string, estudanteDTO *projections.EstudanteDTO) *string {
