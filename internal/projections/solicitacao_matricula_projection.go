@@ -344,7 +344,7 @@ func (p *SolicitacaoMatriculaProjection) FindSemelhantesPendentes(codigoAcademia
 }
 
 func (p *SolicitacaoMatriculaProjection) FindConcorrentesPendentesPorBI(bi, excluirCodigo, excluirAcademia string) ([]SolicitacaoMatriculaDTO, error) {
-	rows, err := p.query(`WHERE status = $1 AND codigo_solicitacao <> $2 AND codigo_academia <> $3 AND lower(btrim(bilhete_identidade)) = lower(btrim($4))`, aggregates.StatusSolicitacaoPendente, excluirCodigo, excluirAcademia, bi)
+	rows, err := p.query(whereConcorrentesPendentesPorBI(), aggregates.StatusSolicitacaoPendente, excluirCodigo, bi)
 	if err != nil {
 		return nil, err
 	}
@@ -358,4 +358,8 @@ func (p *SolicitacaoMatriculaProjection) FindConcorrentesPendentesPorBI(bi, excl
 		out = append(out, *dto)
 	}
 	return out, rows.Err()
+}
+
+func whereConcorrentesPendentesPorBI() string {
+	return `WHERE status = $1 AND codigo_solicitacao <> $2 AND lower(btrim(bilhete_identidade)) = lower(btrim($3))`
 }
