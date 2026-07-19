@@ -743,6 +743,9 @@ func calcularResultadoMateriasAvaliacaoFinal(
 	var soma float64
 	reprovadasPendenciaveis := []projections.MateriaDTO{}
 	for _, materia := range materias {
+		if overlay != nil && overlay.MateriaID != "" && overlay.MateriaID != materia.ID.String() {
+			continue
+		}
 		formulaExecucao := regra.Formula
 		if tipoEnsino == "superior" {
 			if materia.Periodo == nil || *materia.Periodo == "" {
@@ -759,6 +762,14 @@ func calcularResultadoMateriasAvaliacaoFinal(
 				notasFormula[overlay.Categoria] = map[string][]float64{}
 			}
 			notasFormula[overlay.Categoria][overlay.Periodo] = append(notasFormula[overlay.Categoria][overlay.Periodo], overlay.Nota)
+		}
+		notasSubstituidasZero := []aggregates.NotaReferenciaAvaliacaoFinal{}
+		if overlay != nil && overlay.MateriaID == materia.ID.String() {
+			var err error
+			notasSubstituidasZero, err = substituirNotasAusentesPorZero(formulaExecucao, notasFormula)
+			if err != nil {
+				return nil, 0, false, false, nil, fmt.Errorf("matéria %s: %w", materia.ID, err)
+			}
 		}
 		nota, err := calcularFormulaAvaliacao(formulaExecucao, notasFormula)
 		if err != nil {
@@ -777,6 +788,7 @@ func calcularResultadoMateriasAvaliacaoFinal(
 			Type:                  regra.Type,
 			FormulaSnapshot:       formulaExecucao,
 			PendenciaPermitida:    materia.PendenciaPermitida,
+			NotasSubstituidasZero: notasSubstituidasZero,
 		})
 	}
 	aprovado := true
@@ -798,7 +810,56 @@ func calcularResultadoMateriasAvaliacaoFinal(
 			}
 		}
 	}
+	if len(resultados) == 0 {
+		return nil, 0, false, false, nil, fmt.Errorf("nenhuma matéria aplicável recebeu nota-gatilho para avaliação final")
+	}
 	return resultados, soma / float64(len(resultados)), aprovado, aprovadoComPendencia, pendencias, nil
+}
+
+func referenciasFormulaAvaliacao(formula string) ([]aggregates.NotaReferenciaAvaliacaoFinal, error) {
+	ast, _, err := parseFormulaAvaliacao(formula)
+	if err != nil {
+		return nil, err
+	}
+	refs := []aggregates.NotaReferenciaAvaliacaoFinal{}
+	seen := map[string]bool{}
+	var walk func(*formulaAST)
+	walk = func(n *formulaAST) {
+		if n == nil {
+			return
+		}
+		if n.Kind == formulaASTReference {
+			key := n.Categoria + "\x00" + n.Periodo
+			if !seen[key] {
+				seen[key] = true
+				refs = append(refs, aggregates.NotaReferenciaAvaliacaoFinal{Categoria: n.Categoria, Periodo: n.Periodo})
+			}
+			return
+		}
+		walk(n.Left)
+		walk(n.Right)
+	}
+	walk(ast)
+	return refs, nil
+}
+
+func substituirNotasAusentesPorZero(formula string, notas map[string]map[string][]float64) ([]aggregates.NotaReferenciaAvaliacaoFinal, error) {
+	refs, err := referenciasFormulaAvaliacao(formula)
+	if err != nil {
+		return nil, err
+	}
+	faltantes := []aggregates.NotaReferenciaAvaliacaoFinal{}
+	for _, ref := range refs {
+		if len(notas[ref.Categoria][ref.Periodo]) > 0 {
+			continue
+		}
+		if notas[ref.Categoria] == nil {
+			notas[ref.Categoria] = map[string][]float64{}
+		}
+		notas[ref.Categoria][ref.Periodo] = []float64{0}
+		faltantes = append(faltantes, ref)
+	}
+	return faltantes, nil
 }
 
 func inferirTipoEnsinoDoEstudante(estudante *projections.EstudanteDTO) string {

@@ -85,3 +85,65 @@ func TestFormulaPorNivelFundamentalMedioExigePeriodoExplicito(t *testing.T) {
 		t.Fatalf("formula médio sem período deveria ser rejeitada, err=%v", err)
 	}
 }
+
+func TestSubstituirNotasAusentesPorZero(t *testing.T) {
+	notas := map[string]map[string][]float64{
+		"nota_professor": {"1_trimestre": {12}},
+	}
+	faltantes, err := substituirNotasAusentesPorZero("([nota_professor,1_trimestre]+[prova_trimestral,1_trimestre]+[prova_trimestral,2_trimestre])/3", notas)
+	if err != nil {
+		t.Fatalf("substituição deveria funcionar: %v", err)
+	}
+	if len(faltantes) != 2 {
+		t.Fatalf("faltantes = %v, want 2", faltantes)
+	}
+	nota, err := calcularFormulaAvaliacao("([nota_professor,1_trimestre]+[prova_trimestral,1_trimestre]+[prova_trimestral,2_trimestre])/3", notas)
+	if err != nil {
+		t.Fatalf("cálculo com zeros deveria funcionar: %v", err)
+	}
+	if nota != 4 {
+		t.Fatalf("nota final com zeros = %v, want 4", nota)
+	}
+}
+
+func TestSubstituirNotasAusentesPorZeroMantemComportamentoComNotasPresentes(t *testing.T) {
+	notas := map[string]map[string][]float64{
+		"nota_professor":   {"1_trimestre": {10}},
+		"prova_trimestral": {"1_trimestre": {8}},
+	}
+	faltantes, err := substituirNotasAusentesPorZero("([nota_professor,1_trimestre]+[prova_trimestral,1_trimestre])/2", notas)
+	if err != nil {
+		t.Fatalf("substituição deveria funcionar: %v", err)
+	}
+	if len(faltantes) != 0 {
+		t.Fatalf("não deveria substituir notas presentes: %v", faltantes)
+	}
+	nota, err := calcularFormulaAvaliacao("([nota_professor,1_trimestre]+[prova_trimestral,1_trimestre])/2", notas)
+	if err != nil {
+		t.Fatalf("cálculo deveria funcionar: %v", err)
+	}
+	if nota != 9 {
+		t.Fatalf("nota final = %v, want 9", nota)
+	}
+}
+
+func TestSubstituirNotasAusentesPorZeroSuperiorComPeriodoInferido(t *testing.T) {
+	formula := preencherPeriodoFormulaSuperior("([prova_parcelar_1]+[prova_parcelar_2])/2", "1_semestre")
+	notas := map[string]map[string][]float64{
+		"prova_parcelar_2": {"1_semestre": {14}},
+	}
+	faltantes, err := substituirNotasAusentesPorZero(formula, notas)
+	if err != nil {
+		t.Fatalf("substituição superior deveria funcionar: %v", err)
+	}
+	if len(faltantes) != 1 || faltantes[0].Categoria != "prova_parcelar_1" || faltantes[0].Periodo != "1_semestre" {
+		t.Fatalf("faltante superior inesperado: %v", faltantes)
+	}
+	nota, err := calcularFormulaAvaliacao(formula, notas)
+	if err != nil {
+		t.Fatalf("cálculo superior com zero deveria funcionar: %v", err)
+	}
+	if nota != 7 {
+		t.Fatalf("nota final superior = %v, want 7", nota)
+	}
+}
