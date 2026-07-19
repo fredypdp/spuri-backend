@@ -1,5 +1,5 @@
 -- Garante unicidade do bilhete de identidade principal entre estudantes.
--- bilhete_identidade_responsavel continua podendo repetir.
+-- bilhete_identidade_encarregado continua podendo repetir.
 
 BEGIN;
 

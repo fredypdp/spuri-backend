@@ -12,7 +12,7 @@ Fazer uma auditoria crítica, completa, extremamente profunda e arquivo por arqu
 
 `docs/Lista de tarefas/Remover edicao exclusao faltas notas e validar periodo letivo.md`
 
-Esta é uma tarefa de **depuração orientada**, não um relatório de execução. Ao executá-la futuramente, a pessoa ou agente responsável deve investigar o código real, confirmar se a tarefa original foi implementada corretamente e, caso qualquer parte esteja incompleta, inconsistente, parcial, sem teste, sem migration, sem validação, sem documentação ou com compatibilidade silenciosa, deve **terminar a implementação e corrigir o que estiver errado** no mesmo ciclo.
+Esta é uma tarefa de **depuração orientada**, não um relatório de execução. Ao executá-la futuramente, a pessoa ou agente encarregado deve investigar o código real, confirmar se a tarefa original foi implementada corretamente e, caso qualquer parte esteja incompleta, inconsistente, parcial, sem teste, sem migration, sem validação, sem documentação ou com compatibilidade silenciosa, deve **terminar a implementação e corrigir o que estiver errado** no mesmo ciclo.
 
 A depuração só pode ser considerada concluída quando estiver comprovado que faltas e notas são recursos de criação e leitura, sem qualquer capacidade ativa de edição, exclusão, restauração, alias legado, shim, fallback ou rota equivalente, e quando toda criação de falta validar a data contra o período letivo aplicável da academia antes de qualquer persistência, evento ou projeção.
 

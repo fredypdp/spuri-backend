@@ -260,7 +260,7 @@ func getPerfilEstudante(c *gin.Context, userID interface{}) {
 			"telefone":                       estudante.Telefone,
 			"email_verificado":               estudante.EmailVerificado,
 			"bilhete_identidade":             estudante.BilheteIdentidade,
-			"bilhete_identidade_responsavel": estudante.BilheteIdentidadeResp,
+			"bilhete_identidade_encarregado": estudante.BilheteIdentidadeResp,
 			"genero":                         estudante.Genero,
 			"data_nascimento":                estudante.DataNascimento.Format("2006-01-02"),
 			"codigo_academia":                estudante.CodigoAcademia,

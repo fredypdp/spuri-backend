@@ -12,7 +12,7 @@ Fazer uma auditoria crítica, completa, extremamente profunda e arquivo por arqu
 
 `docs/Lista de tarefas/Restringir pendencias ao ensino superior e ativar materias superiores por padrao.md`
 
-Esta é uma tarefa de **depuração orientada**, não um relatório de execução. Ao executá-la futuramente, a pessoa ou agente responsável deve investigar o código real, confirmar se a tarefa original foi implementada corretamente e, caso qualquer parte esteja incompleta, inconsistente, parcial, sem teste, sem migration, sem validação, sem documentação, com contrato ambíguo ou com compatibilidade silenciosa indevida, deve **terminar a implementação e corrigir o que estiver errado** no mesmo ciclo.
+Esta é uma tarefa de **depuração orientada**, não um relatório de execução. Ao executá-la futuramente, a pessoa ou agente encarregado deve investigar o código real, confirmar se a tarefa original foi implementada corretamente e, caso qualquer parte esteja incompleta, inconsistente, parcial, sem teste, sem migration, sem validação, sem documentação, com contrato ambíguo ou com compatibilidade silenciosa indevida, deve **terminar a implementação e corrigir o que estiver errado** no mesmo ciclo.
 
 A depuração só pode ser considerada concluída quando estiver comprovado que pendência acadêmica é um recurso funcionalmente exclusivo de matérias do ensino superior, que matérias escolares não aceitam nem expõem configuração de pendência, que matérias superiores novas nascem com pendência permitida e status `ativada` por padrão, e que toda documentação vigente está coerente com a nova versão do código.
 

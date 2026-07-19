@@ -24,8 +24,8 @@ type Estudante struct {
 	Email                         *string
 	Telefone                      *string
 	TelefoneVerificado            bool
-	TelefoneResponsavel           *string
-	TelefoneResponsavelVerificado bool
+	TelefoneEncarregado           *string
+	TelefoneEncarregadoVerificado bool
 	BilheteIdentidade             *string
 	BilheteIdentidadeResp         *string
 	Genero                        string    // obrigatório
@@ -139,8 +139,8 @@ type EstudanteCriadoComVinculoEvent struct {
 	Email                         *string
 	Telefone                      *string
 	TelefoneVerificado            bool
-	TelefoneResponsavel           *string
-	TelefoneResponsavelVerificado bool
+	TelefoneEncarregado           *string
+	TelefoneEncarregadoVerificado bool
 	BilheteIdentidade             *string
 	BilheteIdentidadeResp         *string
 	Genero                        string    // obrigatório
@@ -276,7 +276,7 @@ type DadosPessoaisAtualizadosEvent struct {
 	Nome                  *string
 	Email                 *string
 	Telefone              *string
-	TelefoneResponsavel   *string
+	TelefoneEncarregado   *string
 	BilheteIdentidade     *string
 	BilheteIdentidadeResp *string
 	DataNascimento        *time.Time // ponteiro: nil = não alterar
@@ -343,7 +343,7 @@ func ValidarBilhetesMatricula(bilhete, bilheteResp *string) error {
 		return nil
 	}
 	if strings.EqualFold(bi, biResp) {
-		return fmt.Errorf("bilhete_identidade e bilhete_identidade_responsavel não podem ser iguais")
+		return fmt.Errorf("bilhete_identidade e bilhete_identidade_encarregado não podem ser iguais")
 	}
 	return nil
 }
@@ -369,7 +369,7 @@ func (e *Estudante) CriarComVinculo(
 	senhaHash string,
 	email *string,
 	telefone *string,
-	telefoneResponsavel *string,
+	telefoneEncarregado *string,
 	bilhete *string,
 	bilheteResp *string,
 	genero string,
@@ -383,7 +383,7 @@ func (e *Estudante) CriarComVinculo(
 	codigoAcademia string,
 	documentosOpt ...map[string]DocumentoMatricula,
 ) error {
-	return e.criarComVinculoComStatus(nome, codigoEstudante, senhaHash, email, telefone, telefoneResponsavel, bilhete, bilheteResp, genero, dataNascimento, anoEscolar, anoEscolarMedio, anoSuperior, cursoMedioID, cursoSuperiorID, academiaID, codigoAcademia, true, "ativo", documentosOpt...)
+	return e.criarComVinculoComStatus(nome, codigoEstudante, senhaHash, email, telefone, telefoneEncarregado, bilhete, bilheteResp, genero, dataNascimento, anoEscolar, anoEscolarMedio, anoSuperior, cursoMedioID, cursoSuperiorID, academiaID, codigoAcademia, true, "ativo", documentosOpt...)
 }
 
 func (e *Estudante) CriarComVinculoComDocumentosOpcionais(
@@ -392,7 +392,7 @@ func (e *Estudante) CriarComVinculoComDocumentosOpcionais(
 	senhaHash string,
 	email *string,
 	telefone *string,
-	telefoneResponsavel *string,
+	telefoneEncarregado *string,
 	bilhete *string,
 	bilheteResp *string,
 	genero string,
@@ -406,13 +406,13 @@ func (e *Estudante) CriarComVinculoComDocumentosOpcionais(
 	codigoAcademia string,
 	documentosOpt ...map[string]DocumentoMatricula,
 ) error {
-	return e.criarComVinculoComStatus(nome, codigoEstudante, senhaHash, email, telefone, telefoneResponsavel, bilhete, bilheteResp, genero, dataNascimento, anoEscolar, anoEscolarMedio, anoSuperior, cursoMedioID, cursoSuperiorID, academiaID, codigoAcademia, false, "ativo", documentosOpt...)
+	return e.criarComVinculoComStatus(nome, codigoEstudante, senhaHash, email, telefone, telefoneEncarregado, bilhete, bilheteResp, genero, dataNascimento, anoEscolar, anoEscolarMedio, anoSuperior, cursoMedioID, cursoSuperiorID, academiaID, codigoAcademia, false, "ativo", documentosOpt...)
 }
 
 func (e *Estudante) CriarComVinculoPendenteDocumentos(
-	nome string, codigoEstudante string, senhaHash string, email *string, telefone *string, telefoneResponsavel *string, bilhete *string, bilheteResp *string, genero string, dataNascimento time.Time, anoEscolar *string, anoEscolarMedio *string, anoSuperior *string, cursoMedioID *uuid.UUID, cursoSuperiorID *uuid.UUID, academiaID *uuid.UUID, codigoAcademia string, documentosOpt ...map[string]DocumentoMatricula,
+	nome string, codigoEstudante string, senhaHash string, email *string, telefone *string, telefoneEncarregado *string, bilhete *string, bilheteResp *string, genero string, dataNascimento time.Time, anoEscolar *string, anoEscolarMedio *string, anoSuperior *string, cursoMedioID *uuid.UUID, cursoSuperiorID *uuid.UUID, academiaID *uuid.UUID, codigoAcademia string, documentosOpt ...map[string]DocumentoMatricula,
 ) error {
-	return e.criarComVinculoComStatus(nome, codigoEstudante, senhaHash, email, telefone, telefoneResponsavel, bilhete, bilheteResp, genero, dataNascimento, anoEscolar, anoEscolarMedio, anoSuperior, cursoMedioID, cursoSuperiorID, academiaID, codigoAcademia, false, "pendente_documentos", documentosOpt...)
+	return e.criarComVinculoComStatus(nome, codigoEstudante, senhaHash, email, telefone, telefoneEncarregado, bilhete, bilheteResp, genero, dataNascimento, anoEscolar, anoEscolarMedio, anoSuperior, cursoMedioID, cursoSuperiorID, academiaID, codigoAcademia, false, "pendente_documentos", documentosOpt...)
 }
 
 func (e *Estudante) criarComVinculoComStatus(
@@ -421,7 +421,7 @@ func (e *Estudante) criarComVinculoComStatus(
 	senhaHash string,
 	email *string,
 	telefone *string,
-	telefoneResponsavel *string,
+	telefoneEncarregado *string,
 	bilhete *string,
 	bilheteResp *string,
 	genero string,
@@ -449,7 +449,7 @@ func (e *Estudante) criarComVinculoComStatus(
 	if err := ValidarBilhetesMatricula(bilhete, bilheteResp); err != nil {
 		return err
 	}
-	if err := ValidarTelefonesMatricula(telefone, telefoneResponsavel, anoEscolar, anoEscolarMedio, anoSuperior); err != nil {
+	if err := ValidarTelefonesMatricula(telefone, telefoneEncarregado, anoEscolar, anoEscolarMedio, anoSuperior); err != nil {
 		return err
 	}
 
@@ -490,7 +490,7 @@ func (e *Estudante) criarComVinculoComStatus(
 		SenhaHash:                senhaHash,
 		Email:                    email,
 		Telefone:                 telefone,
-		TelefoneResponsavel:      telefoneResponsavel,
+		TelefoneEncarregado:      telefoneEncarregado,
 		BilheteIdentidade:        bilhete,
 		BilheteIdentidadeResp:    bilheteResp,
 		Genero:                   genero,
@@ -545,12 +545,12 @@ func (e *Estudante) AtualizarDadosPessoais(
 	nome *string,
 	email *string,
 	telefone *string,
-	telefoneResponsavel *string,
+	telefoneEncarregado *string,
 	bilheteIdentidade *string,
 	bilheteIdentidadeResp *string,
 	dataNascimento *time.Time,
 ) error {
-	if nome == nil && email == nil && telefone == nil && telefoneResponsavel == nil &&
+	if nome == nil && email == nil && telefone == nil && telefoneEncarregado == nil &&
 		bilheteIdentidade == nil && bilheteIdentidadeResp == nil && dataNascimento == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
@@ -572,19 +572,19 @@ func (e *Estudante) AtualizarDadosPessoais(
 	}
 	if !isNilOrBlank(e.AnoEscolar) || !isNilOrBlank(e.AnoEscolarMedio) {
 		if isNilOrBlank(effectiveBilheteResp) {
-			return fmt.Errorf("bilhete_identidade_responsavel é obrigatório para estudante escolar")
+			return fmt.Errorf("bilhete_identidade_encarregado é obrigatório para estudante escolar")
 		}
 	}
 	effectiveTelefone := e.Telefone
 	if telefone != nil {
 		effectiveTelefone = telefone
 	}
-	effectiveTelefoneResp := e.TelefoneResponsavel
-	if telefoneResponsavel != nil {
-		effectiveTelefoneResp = telefoneResponsavel
+	effectiveTelefoneResp := e.TelefoneEncarregado
+	if telefoneEncarregado != nil {
+		effectiveTelefoneResp = telefoneEncarregado
 	}
 	if effectiveTelefone == nil && effectiveTelefoneResp == nil {
-		return fmt.Errorf("telefone ou telefone_responsavel deve ser informado")
+		return fmt.Errorf("telefone ou telefone_encarregado deve ser informado")
 	}
 	if effectiveTelefone != nil {
 		if err := utils.ValidatePhone(*effectiveTelefone); err != nil {
@@ -597,7 +597,7 @@ func (e *Estudante) AtualizarDadosPessoais(
 		}
 	}
 	if effectiveTelefone != nil && effectiveTelefoneResp != nil && *effectiveTelefone == *effectiveTelefoneResp {
-		return fmt.Errorf("telefone e telefone_responsavel não podem ser iguais")
+		return fmt.Errorf("telefone e telefone_encarregado não podem ser iguais")
 	}
 
 	emailAlterado := email != nil && (e.Email == nil || *e.Email != *email)
@@ -606,7 +606,7 @@ func (e *Estudante) AtualizarDadosPessoais(
 		Nome:                  nome,
 		Email:                 email,
 		Telefone:              telefone,
-		TelefoneResponsavel:   telefoneResponsavel,
+		TelefoneEncarregado:   telefoneEncarregado,
 		BilheteIdentidade:     bilheteIdentidade,
 		BilheteIdentidadeResp: bilheteIdentidadeResp,
 		DataNascimento:        dataNascimento,
@@ -908,7 +908,7 @@ func (e *Estudante) applyEstudanteCriadoComVinculo(event DomainEvent) error {
 	e.SenhaHash = ev.SenhaHash
 	e.Email = ev.Email
 	e.Telefone = ev.Telefone
-	e.TelefoneResponsavel = ev.TelefoneResponsavel
+	e.TelefoneEncarregado = ev.TelefoneEncarregado
 	e.BilheteIdentidade = ev.BilheteIdentidade
 	e.BilheteIdentidadeResp = ev.BilheteIdentidadeResp
 	e.Genero = ev.Genero
@@ -1115,8 +1115,8 @@ func (e *Estudante) applyDadosPessoaisAtualizados(event DomainEvent) error {
 	if ev.Telefone != nil {
 		e.Telefone = ev.Telefone
 	}
-	if ev.TelefoneResponsavel != nil {
-		e.TelefoneResponsavel = ev.TelefoneResponsavel
+	if ev.TelefoneEncarregado != nil {
+		e.TelefoneEncarregado = ev.TelefoneEncarregado
 	}
 	if ev.BilheteIdentidade != nil {
 		e.BilheteIdentidade = ev.BilheteIdentidade

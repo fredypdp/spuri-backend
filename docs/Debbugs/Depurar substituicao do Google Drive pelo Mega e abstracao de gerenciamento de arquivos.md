@@ -14,7 +14,7 @@ Fazer uma auditoria crítica, extremamente profunda, completa e arquivo por arqu
 
 A auditoria deve confirmar se a implementação foi feita corretamente, completamente e **à risca**. Caso qualquer parte esteja incompleta, inconsistente, parcialmente implementada, sem validação, sem teste, sem documentação, com comportamento silencioso incorreto ou divergente do contrato esperado, esta tarefa exige **terminar a implementação e corrigir o que estiver errado**.
 
-Esta funcionalidade é crítica porque altera o provedor externo responsável por todos os arquivos do backend, incluindo documentos formais, documentos de estudantes, solicitações de matrícula, downloads consumidos pelo front end, deleções e movimentações. O sistema não pode continuar dependendo operacionalmente do Google Drive nos fluxos principais, não pode espalhar detalhes do Mega pelo domínio/handlers e não pode quebrar contratos públicos ou referências internas existentes.
+Esta funcionalidade é crítica porque altera o provedor externo encarregado por todos os arquivos do backend, incluindo documentos formais, documentos de estudantes, solicitações de matrícula, downloads consumidos pelo front end, deleções e movimentações. O sistema não pode continuar dependendo operacionalmente do Google Drive nos fluxos principais, não pode espalhar detalhes do Mega pelo domínio/handlers e não pode quebrar contratos públicos ou referências internas existentes.
 
 ## Resultado esperado da depuração
 

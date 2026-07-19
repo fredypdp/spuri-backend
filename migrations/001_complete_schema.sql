@@ -147,17 +147,17 @@ CREATE TABLE IF NOT EXISTS projection_estudantes (
     email VARCHAR(255),
     telefone VARCHAR(20),
     telefone_verificado BOOLEAN DEFAULT FALSE,
-    telefone_responsavel VARCHAR(20),
-    telefone_responsavel_verificado BOOLEAN DEFAULT FALSE,
+    telefone_encarregado VARCHAR(20),
+    telefone_encarregado_verificado BOOLEAN DEFAULT FALSE,
     email_verificado BOOLEAN DEFAULT FALSE,
     bilhete_identidade VARCHAR(50),
-    bilhete_identidade_responsavel VARCHAR(50),
+    bilhete_identidade_encarregado VARCHAR(50),
     CONSTRAINT projection_estudantes_bilhetes_diferentes_check CHECK (
         bilhete_identidade IS NULL
-        OR bilhete_identidade_responsavel IS NULL
+        OR bilhete_identidade_encarregado IS NULL
         OR btrim(bilhete_identidade) = ''
-        OR btrim(bilhete_identidade_responsavel) = ''
-        OR lower(btrim(bilhete_identidade)) <> lower(btrim(bilhete_identidade_responsavel))
+        OR btrim(bilhete_identidade_encarregado) = ''
+        OR lower(btrim(bilhete_identidade)) <> lower(btrim(bilhete_identidade_encarregado))
     ),
     codigo_academia VARCHAR(50),
     status VARCHAR(20) DEFAULT 'inativo' CHECK (status IN ('inativo', 'ativo', 'arquivado', 'pendente_documentos')),
@@ -180,7 +180,7 @@ CREATE INDEX IF NOT EXISTS idx_proj_estudante_codigo ON projection_estudantes(co
 CREATE INDEX IF NOT EXISTS idx_proj_estudante_email ON projection_estudantes(email);
 CREATE INDEX IF NOT EXISTS idx_proj_estudante_codigo_academia ON projection_estudantes(codigo_academia);
 CREATE INDEX IF NOT EXISTS idx_proj_estudante_bilhete ON projection_estudantes(bilhete_identidade);
-CREATE INDEX IF NOT EXISTS idx_proj_estudante_bilhete_resp ON projection_estudantes(bilhete_identidade_responsavel);
+CREATE INDEX IF NOT EXISTS idx_proj_estudante_bilhete_resp ON projection_estudantes(bilhete_identidade_encarregado);
 CREATE INDEX IF NOT EXISTS idx_proj_estudante_status ON projection_estudantes(status);
 
 -- Projeção: Academias

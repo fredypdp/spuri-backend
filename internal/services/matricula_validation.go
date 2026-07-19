@@ -23,9 +23,9 @@ type MatriculaCommonInput struct {
 	DataNascimento               time.Time
 	Email                        *string
 	TelefoneEstudante            *string
-	TelefoneResponsavel          *string
+	TelefoneEncarregado          *string
 	BilheteIdentidade            *string
-	BilheteIdentidadeResponsavel *string
+	BilheteIdentidadeEncarregado *string
 	AnoEscolarFundamental        *string
 	AnoEscolarMedio              *string
 	AnoSuperior                  *string
@@ -36,9 +36,9 @@ type MatriculaCommonInput struct {
 type MatriculaCommonValidated struct {
 	Email                        *string
 	TelefoneEstudante            *string
-	TelefoneResponsavel          *string
+	TelefoneEncarregado          *string
 	BilheteIdentidade            *string
-	BilheteIdentidadeResponsavel *string
+	BilheteIdentidadeEncarregado *string
 	AnoEscolarFundamental        *string
 	AnoEscolarMedio              *string
 	AnoSuperior                  *string
@@ -48,9 +48,9 @@ func ValidateMatriculaCommon(in MatriculaCommonInput) (MatriculaCommonValidated,
 	out := MatriculaCommonValidated{
 		Email:                        trimPtr(in.Email),
 		TelefoneEstudante:            normalizePhonePtr(in.TelefoneEstudante),
-		TelefoneResponsavel:          normalizePhonePtr(in.TelefoneResponsavel),
+		TelefoneEncarregado:          normalizePhonePtr(in.TelefoneEncarregado),
 		BilheteIdentidade:            trimPtr(in.BilheteIdentidade),
-		BilheteIdentidadeResponsavel: trimPtr(in.BilheteIdentidadeResponsavel),
+		BilheteIdentidadeEncarregado: trimPtr(in.BilheteIdentidadeEncarregado),
 		AnoEscolarFundamental:        trimPtr(in.AnoEscolarFundamental),
 		AnoEscolarMedio:              trimPtr(in.AnoEscolarMedio),
 		AnoSuperior:                  trimPtr(in.AnoSuperior),
@@ -85,14 +85,14 @@ func ValidateMatriculaCommon(in MatriculaCommonInput) (MatriculaCommonValidated,
 			return out, fmt.Errorf("ano_superior inválido: %w", err)
 		}
 	}
-	if err := aggregates.ValidarTelefonesMatricula(out.TelefoneEstudante, out.TelefoneResponsavel, out.AnoEscolarFundamental, out.AnoEscolarMedio, out.AnoSuperior); err != nil {
+	if err := aggregates.ValidarTelefonesMatricula(out.TelefoneEstudante, out.TelefoneEncarregado, out.AnoEscolarFundamental, out.AnoEscolarMedio, out.AnoSuperior); err != nil {
 		return out, err
 	}
-	if err := aggregates.ValidarBilhetesMatricula(out.BilheteIdentidade, out.BilheteIdentidadeResponsavel); err != nil {
+	if err := aggregates.ValidarBilhetesMatricula(out.BilheteIdentidade, out.BilheteIdentidadeEncarregado); err != nil {
 		return out, err
 	}
 	if !in.PularValidacaoDocumentos {
-		if err := aggregates.ValidarDocumentosMatricula(out.BilheteIdentidade, out.BilheteIdentidadeResponsavel, out.AnoEscolarFundamental, out.AnoEscolarMedio, out.AnoSuperior, in.Documentos); err != nil {
+		if err := aggregates.ValidarDocumentosMatricula(out.BilheteIdentidade, out.BilheteIdentidadeEncarregado, out.AnoEscolarFundamental, out.AnoEscolarMedio, out.AnoSuperior, in.Documentos); err != nil {
 			return out, err
 		}
 	}

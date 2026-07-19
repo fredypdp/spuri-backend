@@ -148,7 +148,7 @@ Atualizar `Documentação.md`, seção 6 (Academias), incluindo:
 - Permitir mudança do campo `nivel` (`AcademiaNivel`: `'escola'|'superior'`) — trocar entre escola e ensino superior não está no escopo desta tarefa, pois envolve modelos de dados incompatíveis entre si (cursos, matérias, avaliação final e progressão são completamente diferentes entre os dois `nivel`).
 - Migrar dados de estudantes/cursos entre `nivel_escolar` diferentes (a mudança só é permitida quando não há dado ativo incompatível; não há migração automática de dados incompatíveis).
 - Reabrir a alteração de `type`/`nivel_escolar` por `PUT /academia/dados`.
-- Criar fluxo de aprovação por Admin para esta mudança (diferente da tarefa 08, que trata de aprovação de documentos; esta tarefa assume que a própria academia é responsável pela mudança, mediante documento comprobativo, sem aprovação externa adicional, salvo decisão explícita em contrário).
+- Criar fluxo de aprovação por Admin para esta mudança (diferente da tarefa 08, que trata de aprovação de documentos; esta tarefa assume que a própria academia é encarregado pela mudança, mediante documento comprobativo, sem aprovação externa adicional, salvo decisão explícita em contrário).
 
 # Critérios de aceite
 

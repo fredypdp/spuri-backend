@@ -182,7 +182,7 @@ func VerificarEmail(c *gin.Context) {
 // ============================================================================
 
 // GerarTokenVerificacao gera o token de verificação e o RETORNA ao frontend.
-// O frontend (Next.js) é responsável por enviar o email com o token.
+// O frontend (Next.js) é encarregado por enviar o email com o token.
 // Rota: POST /email/gerar-token/verificacao  (requer AuthMiddleware)
 func GerarTokenVerificacao(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
@@ -241,7 +241,7 @@ func GerarTokenVerificacao(c *gin.Context) {
 }
 
 // GerarTokenRecuperacao gera o token de recuperação e o RETORNA ao frontend.
-// O frontend (Next.js) é responsável por enviar o email com o token.
+// O frontend (Next.js) é encarregado por enviar o email com o token.
 // Rota: POST /email/gerar-token/recuperacao  (pública — usa identificador no body)
 func GerarTokenRecuperacao(c *gin.Context) {
 	var req struct {

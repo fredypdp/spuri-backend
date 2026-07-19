@@ -75,7 +75,7 @@ Para campos cujo significado só faz sentido em relação a outro campo da mesma
 
 ### 1.3 Campos reservados/não funcionais
 
-Campos já marcados como reservados para funcionalidade ainda não ativa (ex.: `telefone_verificado`, `telefone_responsavel_verificado`) devem ter isso reafirmado na coluna de significado, reaproveitando a mesma ressalva já usada em `docs/Tarefas feitas/Remoção do número de telefone extra.md`: "reservado; verificação ainda não implementada."
+Campos já marcados como reservados para funcionalidade ainda não ativa (ex.: `telefone_verificado`, `telefone_encarregado_verificado`) devem ter isso reafirmado na coluna de significado, reaproveitando a mesma ressalva já usada em `docs/Tarefas feitas/Remoção do número de telefone extra.md`: "reservado; verificação ainda não implementada."
 
 ### 1.4 Revisão cruzada com as seções de processo de negócio
 

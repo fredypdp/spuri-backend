@@ -2,18 +2,18 @@
 
 ALTER TABLE projection_estudantes
     ADD COLUMN IF NOT EXISTS telefone_verificado BOOLEAN NOT NULL DEFAULT FALSE,
-    ADD COLUMN IF NOT EXISTS telefone_responsavel VARCHAR(20),
-    ADD COLUMN IF NOT EXISTS telefone_responsavel_verificado BOOLEAN NOT NULL DEFAULT FALSE;
+    ADD COLUMN IF NOT EXISTS telefone_encarregado VARCHAR(20),
+    ADD COLUMN IF NOT EXISTS telefone_encarregado_verificado BOOLEAN NOT NULL DEFAULT FALSE;
 
 ALTER TABLE projection_estudantes
     ADD CONSTRAINT projection_estudantes_telefone_minimo_check CHECK (
         NULLIF(btrim(COALESCE(telefone, '')), '') IS NOT NULL
-        OR NULLIF(btrim(COALESCE(telefone_responsavel, '')), '') IS NOT NULL
+        OR NULLIF(btrim(COALESCE(telefone_encarregado, '')), '') IS NOT NULL
     );
 
 ALTER TABLE projection_estudantes
     ADD CONSTRAINT projection_estudantes_telefones_diferentes_check CHECK (
-        telefone IS NULL OR telefone_responsavel IS NULL OR telefone <> telefone_responsavel
+        telefone IS NULL OR telefone_encarregado IS NULL OR telefone <> telefone_encarregado
     );
 
 -- Em bases novas (ex.: Aiven criado do zero), a migration 001 já cria
@@ -64,11 +64,11 @@ DELETE FROM projection_checkpoints WHERE projection_name = 'telefones_extra';
 CREATE UNIQUE INDEX IF NOT EXISTS idx_telefone_verificado_estudante
     ON projection_estudantes (telefone) WHERE telefone_verificado = TRUE AND telefone IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_telefone_resp_verificado_estudante
-    ON projection_estudantes (telefone_responsavel) WHERE telefone_responsavel_verificado = TRUE AND telefone_responsavel IS NOT NULL;
+    ON projection_estudantes (telefone_encarregado) WHERE telefone_encarregado_verificado = TRUE AND telefone_encarregado IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_telefone_verificado_academia
     ON projection_academias (telefone) WHERE telefone_verificado = TRUE AND telefone IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_telefone_verificado_admin
     ON projection_admins (telefone) WHERE telefone_verificado = TRUE AND telefone IS NOT NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_estudante_telefone_responsavel_unico
-    ON projection_estudantes (telefone_responsavel) WHERE telefone_responsavel IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_estudante_telefone_encarregado_unico
+    ON projection_estudantes (telefone_encarregado) WHERE telefone_encarregado IS NOT NULL;

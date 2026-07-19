@@ -34,9 +34,9 @@ type CadastroEstudanteAcademiaRequest struct {
 	DataNascimento      time.Time                                `json:"data_nascimento" binding:"required"`
 	Email               string                                   `json:"email"`
 	Telefone            string                                   `json:"telefone"`
-	TelefoneResponsavel string                                   `json:"telefone_responsavel"`
+	TelefoneEncarregado string                                   `json:"telefone_encarregado"`
 	BilheteIdentidade   string                                   `json:"bilhete_identidade"`
-	BilheteResponsavel  string                                   `json:"bilhete_identidade_responsavel"`
+	BilheteEncarregado  string                                   `json:"bilhete_identidade_encarregado"`
 	AnoEscolar          string                                   `json:"ano_escolar_fundamental"`
 	AnoEscolarMedio     string                                   `json:"ano_escolar_medio"`
 	AnoSuperior         string                                   `json:"ano_superior"`
@@ -58,6 +58,9 @@ func registerEstudantePorAcademiaMultipart(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("multipart/form-data inválido"))
 		return
 	}
+	if rejectRemovedMultipartFields(c) {
+		return
+	}
 	if err := validarCamposArquivoMatricula(c.Request.MultipartForm); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -70,8 +73,8 @@ func registerEstudantePorAcademiaMultipart(c *gin.Context) {
 	}
 	req := CadastroEstudanteAcademiaRequest{
 		Nome: get("nome"), Genero: get("genero"), DataNascimento: dataNascimento,
-		Email: get("email"), Telefone: get("telefone"), TelefoneResponsavel: get("telefone_responsavel"),
-		BilheteIdentidade: get("bilhete_identidade"), BilheteResponsavel: get("bilhete_identidade_responsavel"),
+		Email: get("email"), Telefone: get("telefone"), TelefoneEncarregado: get("telefone_encarregado"),
+		BilheteIdentidade: get("bilhete_identidade"), BilheteEncarregado: get("bilhete_identidade_encarregado"),
 		AnoEscolar: get("ano_escolar_fundamental"), AnoEscolarMedio: get("ano_escolar_medio"), AnoSuperior: get("ano_superior"),
 		CursoMedioID: get("curso_medio_id"), CursoSuperiorID: get("curso_superior_id"),
 	}
@@ -123,8 +126,8 @@ func registerEstudantePorAcademiaComRequestModo(c *gin.Context, req CadastroEstu
 	validado, err := services.ValidateMatriculaCommon(services.MatriculaCommonInput{
 		Contexto: services.MatriculaContextCadastroDireto,
 		Nome:     req.Nome, Genero: req.Genero, DataNascimento: req.DataNascimento,
-		Email: stringPtrIfNotBlank(req.Email), TelefoneEstudante: stringPtrIfNotBlank(req.Telefone), TelefoneResponsavel: stringPtrIfNotBlank(req.TelefoneResponsavel),
-		BilheteIdentidade: stringPtrIfNotBlank(req.BilheteIdentidade), BilheteIdentidadeResponsavel: stringPtrIfNotBlank(req.BilheteResponsavel),
+		Email: stringPtrIfNotBlank(req.Email), TelefoneEstudante: stringPtrIfNotBlank(req.Telefone), TelefoneEncarregado: stringPtrIfNotBlank(req.TelefoneEncarregado),
+		BilheteIdentidade: stringPtrIfNotBlank(req.BilheteIdentidade), BilheteIdentidadeEncarregado: stringPtrIfNotBlank(req.BilheteEncarregado),
 		AnoEscolarFundamental: stringPtrIfNotBlank(req.AnoEscolar), AnoEscolarMedio: stringPtrIfNotBlank(req.AnoEscolarMedio), AnoSuperior: stringPtrIfNotBlank(req.AnoSuperior),
 		Documentos:               documentosParaValidacao,
 		PularValidacaoDocumentos: pendenteDocumentos,
@@ -133,7 +136,7 @@ func registerEstudantePorAcademiaComRequestModo(c *gin.Context, req CadastroEstu
 		utils.RespondWithValidationError(c, err)
 		return
 	}
-	if err := validateBIResponsavelNaoConflitaComEscolar(c, &req.BilheteResponsavel, nil); err != nil {
+	if err := validateBIEncarregadoNaoConflitaComEscolar(c, &req.BilheteEncarregado, nil); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -182,9 +185,9 @@ func registerEstudantePorAcademiaComRequestModo(c *gin.Context, req CadastroEstu
 	}
 	emailPtr := validado.Email
 	telefonePtr := validado.TelefoneEstudante
-	telefoneRespPtr := validado.TelefoneResponsavel
+	telefoneRespPtr := validado.TelefoneEncarregado
 	bilhetePtr := validado.BilheteIdentidade
-	bilheteRespPtr := validado.BilheteIdentidadeResponsavel
+	bilheteRespPtr := validado.BilheteIdentidadeEncarregado
 	if bilhetePtr != nil {
 		existente, err := getEstudanteProjection(c).GetByBilheteIdentidadePrincipal(*bilhetePtr)
 		if err != nil {
@@ -244,7 +247,7 @@ func ListarEstudantes(c *gin.Context) {
 	// data_nascimento é NOT NULL após a migration — scan direto como time.Time.
 	const selectCols = `
 		SELECT e.id, e.nome, e.codigo_estudante, e.email, e.telefone, e.email_verificado,
-			e.bilhete_identidade, e.bilhete_identidade_responsavel, e.codigo_academia,
+			e.bilhete_identidade, e.bilhete_identidade_encarregado, e.codigo_academia,
 			e.status, e.status_escolar_fundamental, e.status_escolar_medio, e.status_superior,
 			e.ano_escolar_fundamental, e.ano_escolar_medio, e.ano_superior, e.semestre_atual,
 			e.curso_medio_id, e.curso_superior_id,
@@ -454,7 +457,7 @@ func scanEstudantesRows(rows *sql.Rows) []map[string]interface{} {
 			"telefone":                       getNullString(telefone),
 			"email_verificado":               emailVerif,
 			"bilhete_identidade":             getNullString(bilhete),
-			"bilhete_identidade_responsavel": getNullString(bilheteResp),
+			"bilhete_identidade_encarregado": getNullString(bilheteResp),
 			"codigo_academia":                getNullString(codigoAcad),
 			"status":                         getNullString(status),
 			"status_escolar_fundamental":     getNullString(statusFund),
@@ -578,15 +581,18 @@ type AtualizarDadosPessoaisRequest struct {
 	Nome                  *string    `json:"nome"`
 	Email                 *string    `json:"email"`
 	Telefone              *string    `json:"telefone"`
-	TelefoneResponsavel   *string    `json:"telefone_responsavel"`
+	TelefoneEncarregado   *string    `json:"telefone_encarregado"`
 	BilheteIdentidade     *string    `json:"bilhete_identidade"`
-	BilheteIdentidadeResp *string    `json:"bilhete_identidade_responsavel"`
+	BilheteIdentidadeResp *string    `json:"bilhete_identidade_encarregado"`
 	DataNascimento        *time.Time `json:"data_nascimento"`
 }
 
 func AtualizarDadosPessoais(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
+	if rejectRemovedJSONFields(c) {
+		return
+	}
 	var req AtualizarDadosPessoaisRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -628,14 +634,14 @@ func AtualizarDadosPessoais(c *gin.Context) {
 		return
 	}
 	if req.BilheteIdentidadeResp != nil && isMatriculaEscolar(estudante.AnoEscolar, estudante.AnoEscolarMedio) {
-		if err := validateBIResponsavelNaoConflitaComEscolar(c, req.BilheteIdentidadeResp, &userID); err != nil {
+		if err := validateBIEncarregadoNaoConflitaComEscolar(c, req.BilheteIdentidadeResp, &userID); err != nil {
 			utils.RespondWithValidationError(c, err)
 			return
 		}
 	}
 
 	if err := estudante.AtualizarDadosPessoais(
-		req.Nome, req.Email, utils.NormalizePhonePtr(req.Telefone), utils.NormalizePhonePtr(req.TelefoneResponsavel),
+		req.Nome, req.Email, utils.NormalizePhonePtr(req.Telefone), utils.NormalizePhonePtr(req.TelefoneEncarregado),
 		req.BilheteIdentidade, req.BilheteIdentidadeResp,
 		req.DataNascimento,
 	); err != nil {
@@ -773,7 +779,7 @@ func GetEstudantePorCodigo(c *gin.Context) {
 			"telefone":                       estudante.Telefone,
 			"email_verificado":               estudante.EmailVerificado,
 			"bilhete_identidade":             estudante.BilheteIdentidade,
-			"bilhete_identidade_responsavel": estudante.BilheteIdentidadeResp,
+			"bilhete_identidade_encarregado": estudante.BilheteIdentidadeResp,
 			"genero":                         estudante.Genero,
 			"data_nascimento":                estudante.DataNascimento.Format("2006-01-02"),
 			"codigo_academia":                estudante.CodigoAcademia,
@@ -847,7 +853,7 @@ func CompletarDocumentosEstudantePendente(c *gin.Context) {
 	for k, v := range docsVal {
 		docsCompletosVal[k] = v
 	}
-	if _, err := services.ValidateMatriculaCommon(services.MatriculaCommonInput{Contexto: services.MatriculaContextCadastroDireto, Nome: proj.Nome, Genero: proj.Genero, DataNascimento: proj.DataNascimento, Email: proj.Email, TelefoneEstudante: proj.Telefone, TelefoneResponsavel: proj.TelefoneResponsavel, BilheteIdentidade: proj.BilheteIdentidade, BilheteIdentidadeResponsavel: proj.BilheteIdentidadeResp, AnoEscolarFundamental: proj.AnoEscolar, AnoEscolarMedio: proj.AnoEscolarMedio, AnoSuperior: proj.AnoSuperior, Documentos: docsCompletosVal}); err != nil {
+	if _, err := services.ValidateMatriculaCommon(services.MatriculaCommonInput{Contexto: services.MatriculaContextCadastroDireto, Nome: proj.Nome, Genero: proj.Genero, DataNascimento: proj.DataNascimento, Email: proj.Email, TelefoneEstudante: proj.Telefone, TelefoneEncarregado: proj.TelefoneEncarregado, BilheteIdentidade: proj.BilheteIdentidade, BilheteIdentidadeEncarregado: proj.BilheteIdentidadeResp, AnoEscolarFundamental: proj.AnoEscolar, AnoEscolarMedio: proj.AnoEscolarMedio, AnoSuperior: proj.AnoSuperior, Documentos: docsCompletosVal}); err != nil {
 		faltantes := aggregates.DocumentosMatriculaFaltantes(proj.BilheteIdentidade, proj.BilheteIdentidadeResp, proj.AnoEscolar, proj.AnoEscolarMedio, proj.AnoSuperior, docsCompletosVal)
 		utils.RespondWithErrorData(c, http.StatusBadRequest, err.Error(), err, gin.H{"documentos_faltantes": faltantes})
 		return

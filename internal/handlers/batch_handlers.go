@@ -98,6 +98,9 @@ func registerEstudanteBatchMultipart(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("multipart/form-data inválido"))
 		return
 	}
+	if rejectRemovedMultipartFields(c) {
+		return
+	}
 	if strings.TrimSpace(c.PostForm("com_arquivo")) != "true" {
 		utils.RespondWithValidationError(c, fmt.Errorf("com_arquivo true é obrigatório para multipart/form-data"))
 		return
