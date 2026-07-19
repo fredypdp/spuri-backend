@@ -35,6 +35,10 @@ Sim. A substituição de nota ausente por `0` é avaliada por matéria, não par
 
 Se essa prova trimestral for o gatilho aplicável da avaliação final escolar, o backend calcula a avaliação final de Matemática imediatamente. A referência ausente `nota_professor` do `1_trimestre` entra como `0` apenas no cálculo de Matemática, a `nota_final` é calculada com esse zero, e o snapshot da matéria registra essa referência em `notas_substituidas_zero`. Nenhuma outra matéria é calculada ou penalizada por esse lançamento de Matemática.
 
+### 3. O zero é colocado apenas na nota que estiver em falta?
+
+Sim. O backend não sobrescreve notas já lançadas. Ele percorre as referências exigidas pela fórmula da matéria disparada e só injeta `0` nas combinações de `categoria` e `periodo` que não tiverem nenhuma nota registrada. Se houver mais de uma referência faltante nessa mesma matéria, cada referência faltante recebe `0` individualmente e é listada no snapshot; referências já preenchidas continuam usando a nota real lançada pelo professor.
+
 ## Evidências técnicas
 
 ### 1. Substituição por zero no ponto comum de cálculo
