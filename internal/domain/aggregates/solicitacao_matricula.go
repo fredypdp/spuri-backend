@@ -15,6 +15,7 @@ const (
 	StatusSolicitacaoPendente  = "pendente"
 	StatusSolicitacaoAprovada  = "aprovada"
 	StatusSolicitacaoReprovada = "reprovada"
+	StatusSolicitacaoCancelada = "cancelada"
 )
 
 type SolicitacaoMatricula struct {
@@ -35,6 +36,7 @@ type SolicitacaoMatricula struct {
 	AnoSuperior                  *string
 	CursoSuperiorID              *uuid.UUID
 	Status                       string
+	SolicitacoesSemelhantes      []string
 	MotivoReprovacao             *string
 	Documentos                   map[string]DocumentoMatricula
 	CodigoEstudanteGerado        *string
@@ -46,9 +48,10 @@ type SolicitacaoMatricula struct {
 
 func NewSolicitacaoMatricula() *SolicitacaoMatricula {
 	return &SolicitacaoMatricula{
-		BaseAggregate: BaseAggregate{ID: uuid.New(), Version: 0, UncommittedEvents: []DomainEvent{}},
-		Status:        StatusSolicitacaoPendente,
-		Documentos:    map[string]DocumentoMatricula{},
+		BaseAggregate:           BaseAggregate{ID: uuid.New(), Version: 0, UncommittedEvents: []DomainEvent{}},
+		Status:                  StatusSolicitacaoPendente,
+		Documentos:              map[string]DocumentoMatricula{},
+		SolicitacoesSemelhantes: []string{},
 	}
 }
 
@@ -62,12 +65,14 @@ func (s *SolicitacaoMatricula) Apply(event DomainEvent) error {
 		return s.applyAprovada(event)
 	case "SolicitacaoMatriculaReprovada":
 		return s.applyReprovada(event)
+	case "SolicitacaoMatriculaCancelada":
+		return s.applyCancelada(event)
 	default:
 		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
 	}
 }
 
-func (s *SolicitacaoMatricula) Criar(codigoSolicitacao, codigoAcademia, nome, genero string, dataNascimento time.Time, email, telefone, telefoneResponsavel, bi, biResp, anoFund, anoMedio *string, cursoMedioID *uuid.UUID, anoSuperior *string, cursoSuperiorID *uuid.UUID, documentos map[string]DocumentoMatricula) error {
+func (s *SolicitacaoMatricula) Criar(codigoSolicitacao, codigoAcademia, nome, genero string, dataNascimento time.Time, email, telefone, telefoneResponsavel, bi, biResp, anoFund, anoMedio *string, cursoMedioID *uuid.UUID, anoSuperior *string, cursoSuperiorID *uuid.UUID, documentos map[string]DocumentoMatricula, solicitacoesSemelhantes []string) error {
 	if strings.TrimSpace(codigoSolicitacao) == "" || strings.TrimSpace(codigoAcademia) == "" || strings.TrimSpace(nome) == "" {
 		return fmt.Errorf("codigo_solicitacao, codigo_academia e nome são obrigatórios")
 	}
@@ -93,14 +98,14 @@ func (s *SolicitacaoMatricula) Criar(codigoSolicitacao, codigoAcademia, nome, ge
 		return err
 	}
 	now := time.Now().UTC()
-	ev := &SolicitacaoMatriculaCriadaEvent{BaseEvent: BaseEvent{EventType: "SolicitacaoMatriculaCriada", AggregateID: s.ID}, CodigoSolicitacao: codigoSolicitacao, CodigoAcademia: codigoAcademia, Nome: nome, Genero: genero, DataNascimento: dataNascimento, Email: email, Telefone: telefone, TelefoneResponsavel: telefoneResponsavel, BilheteIdentidade: bi, BilheteIdentidadeResponsavel: biResp, AnoEscolarFundamental: anoFund, AnoEscolarMedio: anoMedio, CursoMedioID: cursoMedioID, AnoSuperior: anoSuperior, CursoSuperiorID: cursoSuperiorID, Status: StatusSolicitacaoPendente, Documentos: documentos, CreatedAt: now, UpdatedAt: now}
+	ev := &SolicitacaoMatriculaCriadaEvent{BaseEvent: BaseEvent{EventType: "SolicitacaoMatriculaCriada", AggregateID: s.ID}, CodigoSolicitacao: codigoSolicitacao, CodigoAcademia: codigoAcademia, Nome: nome, Genero: genero, DataNascimento: dataNascimento, Email: email, Telefone: telefone, TelefoneResponsavel: telefoneResponsavel, BilheteIdentidade: bi, BilheteIdentidadeResponsavel: biResp, AnoEscolarFundamental: anoFund, AnoEscolarMedio: anoMedio, CursoMedioID: cursoMedioID, AnoSuperior: anoSuperior, CursoSuperiorID: cursoSuperiorID, Status: StatusSolicitacaoPendente, Documentos: documentos, SolicitacoesSemelhantes: solicitacoesSemelhantes, CreatedAt: now, UpdatedAt: now}
 	s.RaiseEvent(ev)
 	return nil
 }
 
 func (s *SolicitacaoMatricula) Aprovar(aprovadaPor uuid.UUID, codigoEstudanteGerado string) error {
 	if s.Status != StatusSolicitacaoPendente {
-		return fmt.Errorf("solicitação já foi aprovada ou reprovada")
+		return fmt.Errorf("solicitação não está pendente")
 	}
 	if aprovadaPor == uuid.Nil || strings.TrimSpace(codigoEstudanteGerado) == "" {
 		return fmt.Errorf("aprovada_por e codigo_estudante_gerado são obrigatórios")
@@ -110,9 +115,22 @@ func (s *SolicitacaoMatricula) Aprovar(aprovadaPor uuid.UUID, codigoEstudanteGer
 	return nil
 }
 
+func (s *SolicitacaoMatricula) Cancelar(motivo, solicitacaoAprovadaRelacionada, codigoEstudanteGerado string) error {
+	if s.Status != StatusSolicitacaoPendente {
+		return fmt.Errorf("solicitação não está pendente")
+	}
+	motivo = strings.TrimSpace(motivo)
+	if motivo == "" || strings.TrimSpace(solicitacaoAprovadaRelacionada) == "" || strings.TrimSpace(codigoEstudanteGerado) == "" {
+		return fmt.Errorf("motivo, solicitacao_aprovada_relacionada e codigo_estudante_gerado são obrigatórios")
+	}
+	ev := &SolicitacaoMatriculaCanceladaEvent{BaseEvent: BaseEvent{EventType: "SolicitacaoMatriculaCancelada", AggregateID: s.ID}, CodigoSolicitacao: s.CodigoSolicitacao, CodigoAcademia: s.CodigoAcademia, Motivo: motivo, SolicitacaoAprovadaRelacionada: solicitacaoAprovadaRelacionada, CodigoEstudanteGerado: codigoEstudanteGerado, CancelledAt: time.Now().UTC()}
+	s.RaiseEvent(ev)
+	return nil
+}
+
 func (s *SolicitacaoMatricula) Reprovar(reprovadaPor uuid.UUID, motivo string) error {
 	if s.Status != StatusSolicitacaoPendente {
-		return fmt.Errorf("solicitação já foi aprovada ou reprovada")
+		return fmt.Errorf("solicitação não está pendente")
 	}
 	motivo = strings.TrimSpace(motivo)
 	if reprovadaPor == uuid.Nil || motivo == "" {
@@ -408,6 +426,7 @@ type SolicitacaoMatriculaCriadaEvent struct {
 	CursoSuperiorID              *uuid.UUID
 	Status                       string
 	Documentos                   map[string]DocumentoMatricula
+	SolicitacoesSemelhantes      []string
 	CreatedAt                    time.Time
 	UpdatedAt                    time.Time
 }
@@ -436,6 +455,19 @@ type SolicitacaoMatriculaReprovadaEvent struct {
 	RejectedAt        time.Time
 }
 
+type SolicitacaoMatriculaCanceladaEvent struct {
+	BaseEvent
+	CodigoSolicitacao              string
+	CodigoAcademia                 string
+	Motivo                         string
+	SolicitacaoAprovadaRelacionada string
+	CodigoEstudanteGerado          string
+	CancelledAt                    time.Time
+}
+
+func (e *SolicitacaoMatriculaCanceladaEvent) GetPayload() interface{} { return e }
+func (e *SolicitacaoMatriculaCanceladaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
 func (e *SolicitacaoMatriculaReprovadaEvent) GetPayload() interface{} { return e }
 func (e *SolicitacaoMatriculaReprovadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
@@ -461,6 +493,10 @@ func (s *SolicitacaoMatricula) applyCriada(event DomainEvent) error {
 	s.AnoSuperior = ev.AnoSuperior
 	s.CursoSuperiorID = ev.CursoSuperiorID
 	s.Status = ev.Status
+	s.SolicitacoesSemelhantes = ev.SolicitacoesSemelhantes
+	if s.SolicitacoesSemelhantes == nil {
+		s.SolicitacoesSemelhantes = []string{}
+	}
 	s.Documentos = ev.Documentos
 	s.CreatedAt = ev.CreatedAt
 	s.UpdatedAt = ev.UpdatedAt
@@ -488,5 +524,17 @@ func (s *SolicitacaoMatricula) applyReprovada(event DomainEvent) error {
 	s.ReprovadaPor = &ev.ReprovadaPor
 	s.MotivoReprovacao = &ev.MotivoReprovacao
 	s.UpdatedAt = ev.RejectedAt
+	return nil
+}
+
+func (s *SolicitacaoMatricula) applyCancelada(event DomainEvent) error {
+	data, _ := json.Marshal(event.GetPayload())
+	var ev SolicitacaoMatriculaCanceladaEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+	s.Status = StatusSolicitacaoCancelada
+	s.MotivoReprovacao = &ev.Motivo
+	s.UpdatedAt = ev.CancelledAt
 	return nil
 }

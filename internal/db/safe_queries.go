@@ -89,6 +89,7 @@ var validEventTypes = map[string]bool{
 	"SolicitacaoMatriculaCriada":    true,
 	"SolicitacaoMatriculaAprovada":  true,
 	"SolicitacaoMatriculaReprovada": true,
+	"SolicitacaoMatriculaCancelada": true,
 }
 
 // validAggregateTypes é o mapa canônico de aggregate types permitidos no ledger.
