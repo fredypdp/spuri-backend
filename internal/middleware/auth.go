@@ -134,9 +134,8 @@ func AuthMiddleware() gin.HandlerFunc {
 		if err := verificarStatusUsuario(c, claims.UserID, claims.UserType); err != nil {
 			log.Printf("❌ [AuthMiddleware] Usuário inativo ou não encontrado - UserID: %s, Type: %s: %v",
 				claims.UserID, claims.UserType, err)
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": "conta inativa ou não encontrada. Entre em contato com o suporte.",
-			})
+			utils.RespondWithError(c, http.StatusUnauthorized,
+				"conta inativa ou não encontrada. Entre em contato com o suporte.", err)
 			c.Abort()
 			return
 		}
@@ -184,9 +183,8 @@ func OptionalAuthMiddleware() gin.HandlerFunc {
 		if err := verificarStatusUsuario(c, claims.UserID, claims.UserType); err != nil {
 			log.Printf("❌ [OptionalAuthMiddleware] Usuário inativo ou não encontrado - UserID: %s, Type: %s: %v",
 				claims.UserID, claims.UserType, err)
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": "conta inativa ou não encontrada. Entre em contato com o suporte.",
-			})
+			utils.RespondWithError(c, http.StatusUnauthorized,
+				"conta inativa ou não encontrada. Entre em contato com o suporte.", err)
 			c.Abort()
 			return
 		}

@@ -20,6 +20,9 @@ Garantir que a rota administrativa `POST /dominis/academia/register` não regrid
 ## Debug executado
 
 - A rota foi verificada no roteador principal para confirmar que permanece registrada dentro do grupo `/dominis` e protegida por autenticação/admin/FPP.
+- O middleware administrativo `RequireAdminRole` foi corrigido no fluxo de e-mail não verificado para usar `utils.RespondWithError`, retornando `error=FORBIDDEN`, `message` e `request_id` em vez do JSON legado com apenas `error` textual.
+- O fluxo de permissão insuficiente do mesmo middleware passou a usar `utils.RespondWithErrorData`, mantendo `required_role` e `your_role` como dados adicionais sem quebrar o envelope padrão.
+- Os fluxos de conta inativa/não encontrada em `AuthMiddleware` e `OptionalAuthMiddleware` também foram ajustados para `utils.RespondWithError`, evitando que rotas protegidas entrem no formato legado antes de chegar ao handler.
 - Os fluxos iniciais de falha foram cobertos com testes de regressão:
   - requisição sem `Authorization`, validando `UNAUTHORIZED`, `message` e `request_id`;
   - corpo JSON inválido no binder do cadastro de academia, validando `VALIDATION_ERROR`, `message` e `request_id`;
@@ -27,7 +30,7 @@ Garantir que a rota administrativa `POST /dominis/academia/register` não regrid
 
 ## Resultado
 
-O debug adicionou testes automatizados para garantir que os erros da rota e do parser específico do cadastro de academia sigam o padrão global de `utils.RespondWithError`/`utils.RespondWithValidationError`, em vez de respostas legadas contendo apenas `error` textual.
+O debug adicionou testes automatizados para garantir que os erros da rota e do parser específico do cadastro de academia sigam o padrão global de `utils.RespondWithError`/`utils.RespondWithValidationError`, e corrigiu os middlewares que ainda conseguiam retornar respostas legadas contendo apenas `error` textual antes da execução do handler.
 
 ## Observação de execução
 

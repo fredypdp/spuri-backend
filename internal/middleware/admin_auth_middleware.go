@@ -96,9 +96,8 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 		// mas não pode executar nenhuma ação administrativa.
 		if !emailVerificado {
 			log.Printf("❌ [RequireAdminRole] Admin sem e-mail verificado: %s", uid)
-			c.JSON(http.StatusForbidden, gin.H{
-				"error": "e-mail não verificado. Verifique sua caixa de entrada e confirme seu e-mail para acessar o painel administrativo.",
-			})
+			utils.RespondWithError(c, http.StatusForbidden,
+				"e-mail não verificado. Verifique sua caixa de entrada e confirme seu e-mail para acessar o painel administrativo.", nil)
 			c.Abort()
 			return
 		}
@@ -117,8 +116,7 @@ func RequireAdminRole(minRole string) gin.HandlerFunc {
 
 		if currentLevel < requiredLevel {
 			log.Printf("❌ [RequireAdminRole] Permissão insuficiente")
-			c.JSON(http.StatusForbidden, gin.H{
-				"error":         "permissão negada",
+			utils.RespondWithErrorData(c, http.StatusForbidden, "permissão negada", nil, gin.H{
 				"required_role": minRole,
 				"your_role":     role,
 			})
