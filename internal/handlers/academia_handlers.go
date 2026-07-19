@@ -1027,7 +1027,7 @@ func FinalizarAnoLetivoAcademia(c *gin.Context) {
 			return
 		}
 	}
-	if err := validarMesAtualPermiteFinalizacaoAnoLetivo(getDbClient(c), tipo, time.Now()); err != nil {
+	if err := validarDataAtualPermiteFinalizacaoAnoLetivo(getDbClient(c), tipo, ano, time.Now()); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}

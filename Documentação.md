@@ -1957,7 +1957,7 @@ O registro e a atualização de faltas validam a data no backend usando o tipo i
 
 #### POST `/academia/anos-letivos/finalizar`
 
-A academia autenticada finaliza o ano letivo ativo no próprio escopo e, na mesma operação, avança automaticamente para o ano letivo seguinte. O cliente não envia `academia_id`; o backend obtém a academia pelo token, normaliza `type`, valida que o `ano_letivo` informado, quando presente, corresponde ao ano letivo ativo da academia, valida o formato `YYYY_YYYY` com segundo ano igual ao primeiro + 1, valida a janela mensal de finalização pelo `periodo` fixo derivado do tipo e grava um evento auditável `AnoLetivoAcademiaFinalizado`. A janela mensal é inclusiva no mês final e exclusiva no mês inicial: o mês atual precisa ser maior ou igual ao mês de fim do período letivo e menor que o mês de início do período letivo. Exemplo: se `periodo=10_07`, a finalização é permitida somente em julho, agosto e setembro; em outubro o próximo período já começou, e de novembro a junho o período vigente ainda não chegou ao mês de encerramento.
+A academia autenticada finaliza o ano letivo ativo no próprio escopo e, na mesma operação, avança automaticamente para o ano letivo seguinte. O cliente não envia `academia_id`; o backend obtém a academia pelo token, normaliza `type`, valida que o `ano_letivo` informado, quando presente, corresponde ao ano letivo ativo da academia, valida o formato `YYYY_YYYY` com segundo ano igual ao primeiro + 1, valida que o ano atual é exatamente o ano final desse `ano_letivo`, valida a janela mensal de finalização pelo `periodo` fixo derivado do tipo e grava um evento auditável `AnoLetivoAcademiaFinalizado`. As duas condições temporais precisam passar simultaneamente: para `ano_letivo=2025_2026`, a finalização só é aceita em 2026 e dentro da janela mensal do tipo. A janela mensal é inclusiva no mês final e exclusiva no mês inicial: o mês atual precisa ser maior ou igual ao mês de fim do período letivo e menor que o mês de início do período letivo. Exemplo: se `periodo=10_07`, a finalização de `2025_2026` é permitida somente em julho, agosto e setembro de 2026; em outubro o próximo período já começou, e de novembro a junho o período vigente ainda não chegou ao mês de encerramento.
 
 Request:
 
@@ -1983,7 +1983,7 @@ Response:
 }
 ```
 
-A operação é auditada por `(academia_id, type, ano_letivo_finalizado)` e avança a academia para o próximo `YYYY_YYYY`. Se, após esse avanço, todas as academias ativas do mesmo tipo estiverem no mesmo ano letivo, o backend atualiza automaticamente o ano letivo global daquele tipo para esse ano. Fora da janela mensal permitida, o backend retorna `400` e não grava novo evento.
+A operação é auditada por `(academia_id, type, ano_letivo_finalizado)` e avança a academia para o próximo `YYYY_YYYY`. Se, após esse avanço, todas as academias ativas do mesmo tipo estiverem no mesmo ano letivo, o backend atualiza automaticamente o ano letivo global daquele tipo para esse ano. Se o ano atual for diferente do ano final do `ano_letivo` ou se o mês estiver fora da janela mensal permitida, o backend retorna `400` com mensagem específica para a condição que falhou e não grava novo evento.
 
 #### GET `/academia/anos-letivos/finalizacoes`
 

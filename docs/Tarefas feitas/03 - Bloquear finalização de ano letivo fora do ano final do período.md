@@ -1,10 +1,10 @@
 ---
 criado: 2026-07-18 00:00
 origem: Lista de tarefas.md
-status: pendente
+status: feito
 ---
 
-# Bloquear finalização de ano letivo fora do ano final do período (pendente)
+# Bloquear finalização de ano letivo fora do ano final do período (feito)
 
 ## Prompt recomendado para executar a atualização
 
