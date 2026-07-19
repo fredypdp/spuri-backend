@@ -187,6 +187,9 @@ func processarCadastroEstudanteBatch(c *gin.Context, items []cadastroEstudanteJS
 			files = filesByCodigo[item.CodigoTemporario]
 		}
 		rc := newFakeContext(c)
+		if filesByCodigo != nil {
+			rc.Set("permitir_pendencia_documentos_em_falha_storage", true)
+		}
 		registerEstudantePorAcademiaComRequestModo(rc, req, files, declaracaoAnoAcademico, pendenteDocumentos)
 		results = append(results, extractResult(rc, i))
 	}
