@@ -1,10 +1,10 @@
 ---
 criado: 2026-07-18 00:00
 origem: Lista de tarefas.md
-status: pendente
+status: feito
 ---
 
-# Prevenir e sinalizar matrícula duplicada em múltiplas instituições (pendente)
+# Prevenir e sinalizar matrícula duplicada em múltiplas instituições (feito)
 
 ## Prompt recomendado para executar a atualização
 

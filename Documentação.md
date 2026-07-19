@@ -92,7 +92,7 @@ type Genero = 'masculino' | 'feminino'
 type TipoNota = 'escolar' | 'superior'
 type JobStatus = 'pending' | 'processing' | 'done' | 'failed'
 type JobEventType = 'job_enqueued' | 'job_progress' | 'job_done' | 'job_failed'
-type SolicitacaoMatriculaStatus = 'pendente' | 'aprovada' | 'reprovada'
+type SolicitacaoMatriculaStatus = 'pendente' | 'aprovada' | 'reprovada' | 'cancelada'
 ```
 
 **Períodos de nota:**
@@ -243,6 +243,7 @@ interface SolicitacaoMatriculaDTO {
   ano_superior?: string
   curso_superior_id?: string
   status: SolicitacaoMatriculaStatus
+  solicitacoes_semelhantes: string[] // calculado pelo backend; somente leitura
   motivo_reprovacao?: string
   documentos: Record<string, SolicitacaoMatriculaDocumentoDTO>
   codigo_estudante_gerado?: string
@@ -2907,13 +2908,14 @@ Retorna as avaliações finais do estudante autenticado.
 
 ### Entidade `SolicitacaoMatricula`
 
-A entidade representa o pedido feito pelo estudante para se matricular numa academia. Ela possui código único de 11 caracteres (`codigo_solicitacao`), dados pessoais/académicos, mapa de documentos enviados, status (`pendente`, `aprovada`, `reprovada`) e campos de decisão (`codigo_estudante_gerado`, `motivo_reprovacao`, `aprovada_por`, `reprovada_por`). Cada documento enviado é salvo como objeto com `path`, `file_url` e `download_url`, permitindo que as rotas GET retornem tanto o caminho interno quanto as URLs do arquivo e de download.
+A entidade representa o pedido feito pelo estudante para se matricular numa academia. Ela possui código único de 11 caracteres (`codigo_solicitacao`), dados pessoais/académicos, mapa de documentos enviados, status (`pendente`, `aprovada`, `reprovada`, `cancelada`) e campos de decisão (`codigo_estudante_gerado`, `motivo_reprovacao`, `aprovada_por`, `reprovada_por`). Cada documento enviado é salvo como objeto com `path`, `file_url` e `download_url`, permitindo que as rotas GET retornem tanto o caminho interno quanto as URLs do arquivo e de download.
 
 Eventos do ledger:
 
 - `SolicitacaoMatriculaCriada`
 - `SolicitacaoMatriculaAprovada`
 - `SolicitacaoMatriculaReprovada`
+- `SolicitacaoMatriculaCancelada`
 
 ### Processo de negócio
 
@@ -2923,8 +2925,9 @@ Eventos do ledger:
 4. Antes de criar ou aprovar a solicitação escolar, o handler confirma que o BI do responsável não pertence como BI principal a outro estudante escolar/fundamental/médio já existente.
 5. Os documentos são enviados ao storage em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`.
 6. Para cada PDF, o storage devolve o caminho interno, a URL do arquivo (`file_url`) e a URL de download (`download_url`).
-7. Somente após todos os uploads obrigatórios concluírem com sucesso, o aggregate `SolicitacaoMatricula` grava o evento de criação no ledger com os metadados documentais.
-8. Se validação ou upload falhar, nenhum evento `SolicitacaoMatriculaCriada` é gravado; se ocorrer falha posterior após upload parcial, o backend tenta remover o diretório da solicitação.
+7. Antes de gravar o evento, o backend busca solicitações `pendente` da mesma academia e calcula `solicitacoes_semelhantes` por melhor esforço: nome normalizado + data de nascimento + gênero, ou BI do estudante normalizado, ou BI do responsável normalizado. O campo é somente leitura, nunca é aceito no payload público e não bloqueia a criação.
+8. Somente após todos os uploads obrigatórios concluírem com sucesso, o aggregate `SolicitacaoMatricula` grava o evento de criação no ledger com os metadados documentais e `solicitacoes_semelhantes`.
+9. Se validação ou upload falhar, nenhum evento `SolicitacaoMatriculaCriada` é gravado; se ocorrer falha posterior após upload parcial, o backend tenta remover o diretório da solicitação.
 9. A academia lista/consulta solicitações e aprova ou reprova.
 10. Na aprovação, o sistema reutiliza o aggregate `Estudante`, revalida os documentos e conflitos atuais, e emite `EstudanteCriadoComVinculo`.
 11. Na reprovação, grava o evento de reprovação e remove o diretório dos documentos.
@@ -2966,7 +2969,8 @@ Cria uma solicitação pública de matrícula via `multipart/form-data`. O backe
   "message": "solicitação de matrícula criada com sucesso",
   "codigo_solicitacao": "A3F9K2BPQ7X",
   "codigo_academia": "LDA20261",
-  "status": "pendente"
+  "status": "pendente",
+  "solicitacoes_semelhantes": []
 }
 ```
 
@@ -2978,7 +2982,7 @@ Lista solicitações da academia autenticada em ordem decrescente de criação. 
 
 **Query params**:
 
-- `status`: filtro repetível por status (`pendente`, `aprovada`, `reprovada`). Ex.: `?status=pendente&status=reprovada`.
+- `status`: filtro repetível por status (`pendente`, `aprovada`, `reprovada`, `cancelada`). Ex.: `?status=pendente&status=reprovada`.
 - `limit`: quantidade máxima de registros. Padrão `50`, mínimo `1`, máximo `1000`.
 - `offset`: deslocamento de paginação. Padrão `0`.
 
@@ -3066,6 +3070,8 @@ Aprova uma solicitação pendente e cria automaticamente o estudante com o aggre
 ```
 
 ### PUT /academia/solicitacao-matricula/:codigo/reprovar
+
+`cancelada` é terminal e distinta de `reprovada`: indica cancelamento automático por matrícula aprovada em outra instituição, não rejeição documental. Ao aprovar uma solicitação com `bilhete_identidade` do próprio estudante preenchido, o backend cancela em cascata as demais solicitações `pendente` com o mesmo BI em qualquer academia, gravando `SolicitacaoMatriculaCancelada` com motivo `matricula aprovada em outra instituicao`; sem BI do estudante, não há cancelamento automático. Falhas parciais no cancelamento em cascata são logadas e não revertem a aprovação nem a criação do estudante. O mecanismo é de melhor esforço e não substitui um sistema de identidade única de estudantes.
 
 Reprova uma solicitação pendente, grava `SolicitacaoMatriculaReprovada` e remove o diretório de documentos.
 

@@ -74,6 +74,7 @@ func TestSolicitacaoMatriculaCriarRejeitaBilhetesIguais(t *testing.T) {
 		nil,
 		nil,
 		map[string]DocumentoMatricula{"bi_responsavel": {Path: "bi.pdf"}},
+		nil,
 	)
 	if err == nil || !strings.Contains(err.Error(), "não podem ser iguais") {
 		t.Fatalf("esperava erro de bilhetes iguais na solicitação, recebeu %v", err)
@@ -338,3 +339,28 @@ func TestCompletarDocumentosPendentesNaoAtivaComDocumentosIncompletos(t *testing
 		t.Fatalf("status deve permanecer pendente_documentos, recebeu %s", estudante.Status)
 	}
 }
+
+func TestSolicitacaoMatriculaCanceladaNaoPodeSerAprovadaOuReprovada(t *testing.T) {
+	bi := "002LA001"
+	biResp := "002LA002"
+	doc := map[string]DocumentoMatricula{"bi_estudante": {Path: "bi.pdf"}, "bi_responsavel": {Path: "bi_resp.pdf"}}
+	solicitacao := NewSolicitacaoMatricula()
+	if err := solicitacao.Criar("SOL2026002", "ACA2026", "Aluno Teste", "masculino", time.Now().AddDate(-18, 0, 0), nil, nil, stringPtr("923456789"), &bi, &biResp, stringPtr("1_classe"), nil, nil, nil, nil, doc, []string{"SOL2026001"}); err != nil {
+		t.Fatalf("erro inesperado ao criar solicitação: %v", err)
+	}
+	if err := solicitacao.Cancelar("matricula aprovada em outra instituicao", "SOL2026003", "EST0001"); err != nil {
+		t.Fatalf("erro inesperado ao cancelar solicitação: %v", err)
+	}
+	events := solicitacao.GetUncommittedEvents()
+	if err := solicitacao.Apply(events[len(events)-1]); err != nil {
+		t.Fatalf("erro inesperado ao aplicar cancelamento: %v", err)
+	}
+	if err := solicitacao.Aprovar(uuid.New(), "EST0002"); err == nil {
+		t.Fatalf("solicitação cancelada não deveria ser aprovada")
+	}
+	if err := solicitacao.Reprovar(uuid.New(), "documento inválido"); err == nil {
+		t.Fatalf("solicitação cancelada não deveria ser reprovada")
+	}
+}
+
+func stringPtr(v string) *string { return &v }

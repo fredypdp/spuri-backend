@@ -191,7 +191,13 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 	emailPtr := validado.Email
 	telPtr := validado.TelefoneEstudante
 	sol := aggregates.NewSolicitacaoMatricula()
-	if err := sol.Criar(codigo, codigoAcademia, nome, genero, dataNasc, emailPtr, telPtr, validado.TelefoneResponsavel, biPtr, biRespPtr, anoFundPtr, anoMedioPtr, cursoMedioID, anoSupPtr, cursoSuperiorID, documentos); err != nil {
+	semelhantes, err := getSolicitacaoMatriculaProjection(c).FindSemelhantesPendentes(codigoAcademia, nome, genero, dataNasc, biPtr, biRespPtr)
+	if err != nil {
+		_ = provider.Delete(dir)
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if err := sol.Criar(codigo, codigoAcademia, nome, genero, dataNasc, emailPtr, telPtr, validado.TelefoneResponsavel, biPtr, biRespPtr, anoFundPtr, anoMedioPtr, cursoMedioID, anoSupPtr, cursoSuperiorID, documentos, semelhantes); err != nil {
 		_ = provider.Delete(dir)
 		utils.RespondWithValidationError(c, err)
 		return
@@ -201,7 +207,7 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"message": "solicitação de matrícula criada com sucesso", "codigo_solicitacao": codigo, "codigo_academia": codigoAcademia, "status": "pendente"})
+	c.JSON(http.StatusCreated, gin.H{"message": "solicitação de matrícula criada com sucesso", "codigo_solicitacao": codigo, "codigo_academia": codigoAcademia, "status": "pendente", "solicitacoes_semelhantes": semelhantes})
 }
 
 func ListarSolicitacoesMatriculaAcademia(c *gin.Context) {
@@ -316,6 +322,7 @@ func AprovarSolicitacaoMatricula(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
+	cancelarSolicitacoesConcorrentes(c, repo, audit, agg, codigoEstudante)
 	c.JSON(http.StatusOK, gin.H{"message": "solicitação aprovada e estudante registado com sucesso", "codigo_solicitacao": agg.CodigoSolicitacao, "codigo_estudante_gerado": codigoEstudante})
 }
 
@@ -684,4 +691,40 @@ func storagePathDocumentoEstudante(baseDir, field, codigoEstudante, declaracaoAn
 		return doc.Tipo, fmt.Sprintf("%s/identificacao/%s/%s.pdf", baseDir, doc.Tipo, doc.DocumentoID)
 	}
 	return doc.Tipo, fmt.Sprintf("%s/%s/%s/%s/%s.pdf", baseDir, doc.Nivel, doc.AnoAcademico, doc.Tipo, doc.DocumentoID)
+}
+
+func cancelarSolicitacoesConcorrentes(c *gin.Context, repo *db.AggregateRepository, audit db.AuditContext, aprovada *aggregates.SolicitacaoMatricula, codigoEstudante string) {
+	if aprovada.BilheteIdentidade == nil || strings.TrimSpace(*aprovada.BilheteIdentidade) == "" {
+		return
+	}
+	concorrentes, err := getSolicitacaoMatriculaProjection(c).FindConcorrentesPendentesPorBI(*aprovada.BilheteIdentidade, aprovada.CodigoSolicitacao, aprovada.CodigoAcademia)
+	if err != nil {
+		log.Printf("[WARN] falha ao buscar solicitações concorrentes para %s: %v", aprovada.CodigoSolicitacao, err)
+		return
+	}
+	for _, concorrente := range concorrentes {
+		loaded, err := repo.Load(concorrente.ID, "SolicitacaoMatricula")
+		if err != nil {
+			log.Printf("[WARN] falha ao carregar solicitação concorrente %s: %v", concorrente.CodigoSolicitacao, err)
+			continue
+		}
+		agg, ok := loaded.(*aggregates.SolicitacaoMatricula)
+		if !ok {
+			log.Printf("[WARN] aggregate inválido ao cancelar solicitação concorrente %s", concorrente.CodigoSolicitacao)
+			continue
+		}
+		if err := agg.Cancelar("matricula aprovada em outra instituicao", aprovada.CodigoSolicitacao, codigoEstudante); err != nil {
+			log.Printf("[WARN] falha ao cancelar solicitação concorrente %s: %v", concorrente.CodigoSolicitacao, err)
+			continue
+		}
+		if err := repo.SaveWithAudit(agg, audit); err != nil {
+			log.Printf("[WARN] falha ao salvar cancelamento da solicitação concorrente %s: %v", concorrente.CodigoSolicitacao, err)
+			continue
+		}
+		if p := getStorageProvider(c); p != nil {
+			if err := p.Delete(fmt.Sprintf("%s/matriculas/matricula_%s", agg.CodigoAcademia, agg.CodigoSolicitacao)); err != nil {
+				log.Printf("[WARN] falha ao deletar documentos da solicitação cancelada %s: %v", agg.CodigoSolicitacao, err)
+			}
+		}
+	}
 }
