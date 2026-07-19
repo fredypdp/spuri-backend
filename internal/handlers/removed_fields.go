@@ -71,6 +71,14 @@ func findRemovedJSONField(v any) (string, string, bool) {
 	return "", "", false
 }
 
+func findRemovedJSONFieldString(raw string) (string, string, bool) {
+	var decoded any
+	if json.Unmarshal([]byte(raw), &decoded) != nil {
+		return "", "", false
+	}
+	return findRemovedJSONField(decoded)
+}
+
 func rejectRemovedMultipartFields(c *gin.Context) bool {
 	form := c.Request.MultipartForm
 	if form == nil {

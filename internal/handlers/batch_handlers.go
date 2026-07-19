@@ -70,6 +70,9 @@ func batchErr(index int, err error) BatchItemResult {
 // =============================================================================
 
 func RegisterEstudanteBatch(c *gin.Context) {
+	if rejectRemovedJSONFields(c) {
+		return
+	}
 	if strings.HasPrefix(strings.ToLower(c.GetHeader("Content-Type")), "multipart/form-data") {
 		registerEstudanteBatchMultipart(c)
 		return
@@ -105,8 +108,13 @@ func registerEstudanteBatchMultipart(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("com_arquivo true é obrigatório para multipart/form-data"))
 		return
 	}
+	estudantesRaw := c.PostForm("estudantes")
+	if old, newf, ok := findRemovedJSONFieldString(estudantesRaw); ok {
+		respondRemovedField(c, old, newf)
+		return
+	}
 	var items []cadastroEstudanteJSONItem
-	if err := json.Unmarshal([]byte(c.PostForm("estudantes")), &items); err != nil {
+	if err := json.Unmarshal([]byte(estudantesRaw), &items); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("campo estudantes deve ser JSON válido"))
 		return
 	}
