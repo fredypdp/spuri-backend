@@ -24,6 +24,17 @@ A implementação está correta para a regra principal: quando uma avaliação a
 
 Não foi necessário alterar código de produção nesta depuração. A tarefa já estava implementada de forma compatível com os critérios de aceite.
 
+
+## Respostas às dúvidas de negócio
+
+### 1. Essa regra vale por cada matéria individualmente?
+
+Sim. A substituição de nota ausente por `0` é avaliada por matéria, não para o estudante inteiro. O gatilho de uma matéria só libera o cálculo daquela própria matéria; outras matérias do mesmo estudante continuam aguardando seus próprios lançamentos/gatilhos e não recebem zeros por consequência indireta.
+
+### 2. Se a prova trimestral de Matemática do 3º trimestre for lançada, mas faltar a nota do professor do 1º trimestre, o que acontece?
+
+Se essa prova trimestral for o gatilho aplicável da avaliação final escolar, o backend calcula a avaliação final de Matemática imediatamente. A referência ausente `nota_professor` do `1_trimestre` entra como `0` apenas no cálculo de Matemática, a `nota_final` é calculada com esse zero, e o snapshot da matéria registra essa referência em `notas_substituidas_zero`. Nenhuma outra matéria é calculada ou penalizada por esse lançamento de Matemática.
+
 ## Evidências técnicas
 
 ### 1. Substituição por zero no ponto comum de cálculo
