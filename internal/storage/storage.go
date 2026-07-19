@@ -204,26 +204,67 @@ func (m *MegaProvider) ensureAuthenticated() error {
 }
 
 func (m *MegaProvider) withMega(timeout time.Duration, fn func(*mega.Mega) error) error {
-	if err := m.ensureAuthenticated(); err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	done := make(chan error, 1)
-	go func() {
-		m.authMu.Lock()
-		defer m.authMu.Unlock()
-		done <- fn(m.client)
-	}()
-	select {
-	case err := <-done:
-		if err != nil {
-			return sanitizeMegaError(err)
+	const maxAttempts = 3
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err := m.ensureAuthenticated(); err != nil {
+			return err
 		}
-		return nil
-	case <-ctx.Done():
-		return fmt.Errorf("operação Mega excedeu o tempo limite de %s: %w", timeout, ctx.Err())
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		done := make(chan error, 1)
+		go func() {
+			m.authMu.Lock()
+			defer m.authMu.Unlock()
+			done <- fn(m.client)
+		}()
+		select {
+		case err := <-done:
+			cancel()
+			if err == nil {
+				return nil
+			}
+			lastErr = sanitizeMegaError(err)
+			if attempt == maxAttempts || !isTransientMegaError(err) {
+				return lastErr
+			}
+			m.resetMegaSession()
+			time.Sleep(time.Duration(attempt) * 300 * time.Millisecond)
+		case <-ctx.Done():
+			cancel()
+			return fmt.Errorf("operação Mega excedeu o tempo limite de %s: %w", timeout, ctx.Err())
+		}
 	}
+	return lastErr
+}
+
+func (m *MegaProvider) resetMegaSession() {
+	m.authMu.Lock()
+	defer m.authMu.Unlock()
+	m.client = nil
+	m.remoteRoot = nil
+}
+
+func isTransientMegaError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	transientFragments := []string{
+		"unexpected end of json input",
+		"unexpected eof",
+		"eof",
+		"connection reset",
+		"connection refused",
+		"temporary",
+		"timeout",
+		"i/o timeout",
+	}
+	for _, fragment := range transientFragments {
+		if strings.Contains(msg, fragment) {
+			return true
+		}
+	}
+	return false
 }
 
 func sanitizeMegaError(err error) error {
