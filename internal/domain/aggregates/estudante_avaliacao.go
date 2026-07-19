@@ -39,14 +39,20 @@ type AvaliacaoFinalBasePayload struct {
 	RegisteredAt            time.Time                        `json:"registered_at"`
 }
 
+type NotaReferenciaAvaliacaoFinal struct {
+	Categoria string `json:"categoria"`
+	Periodo   string `json:"periodo,omitempty"`
+}
+
 type ResultadoMateriaAvaliacaoFinal struct {
-	MateriaID             uuid.UUID  `json:"materia_id"`
-	NotaFinal             float64    `json:"nota_final"`
-	Aprovado              bool       `json:"aprovado"`
-	RegraAvaliacaoFinalID *uuid.UUID `json:"regra_avaliacao_final_id,omitempty"`
-	Type                  string     `json:"type"`
-	FormulaSnapshot       string     `json:"formula_snapshot"`
-	PendenciaPermitida    bool       `json:"pendencia_permitida"`
+	MateriaID             uuid.UUID                      `json:"materia_id"`
+	NotaFinal             float64                        `json:"nota_final"`
+	Aprovado              bool                           `json:"aprovado"`
+	RegraAvaliacaoFinalID *uuid.UUID                     `json:"regra_avaliacao_final_id,omitempty"`
+	Type                  string                         `json:"type"`
+	FormulaSnapshot       string                         `json:"formula_snapshot"`
+	PendenciaPermitida    bool                           `json:"pendencia_permitida"`
+	NotasSubstituidasZero []NotaReferenciaAvaliacaoFinal `json:"notas_substituidas_zero,omitempty"`
 }
 
 type MateriaPendenteGerada struct {

@@ -4517,7 +4517,7 @@ A regra usa `formula` como texto declarativo. O parser valida referências, oper
 
 No Superior, o backend preenche o período no momento do cálculo usando a matéria/escopo avaliado (`periodo` da matéria e `semestre_atual` do estudante). Assim, a mesma regra superior pode calcular as matérias do semestre atual sem expor período explícito no payload da regra.
 
-Se a fórmula exigir nota que ainda não existe para determinada matéria, categoria e período, aquela execução não fecha a avaliação naquele momento; o lançamento de novas notas tentará novamente. A fórmula sempre lê notas do ano letivo atual, da mesma academia, do mesmo estudante, da matéria avaliada e de categorias extraídas da própria fórmula.
+Quando a nota recém-lançada dispara a avaliação final para uma matéria, qualquer referência da fórmula dessa mesma matéria que ainda não tenha nota registrada é calculada como `0` naquele momento. A substituição por zero fica restrita à matéria que recebeu a nota-gatilho (`nota_despertadora` no Superior ou o gatilho escolar fixo equivalente) e é registrada no snapshot de `resultados_materias.notas_substituidas_zero`; matérias que ainda não receberam o próprio gatilho não são forçadas a avaliar. A fórmula sempre lê notas do ano letivo atual, da mesma academia, do mesmo estudante, da matéria avaliada e de categorias extraídas da própria fórmula.
 
 #### 16.1.4 Execução automática por lançamento de notas
 
@@ -4526,7 +4526,7 @@ Se a fórmula exigir nota que ainda não existe para determinada matéria, categ
 3. Para Superior, o backend transforma `semestre_atual` em `[n]_semestre` e valida esse período contra o curso.
 4. O backend busca regras aplicáveis à academia, ao `nivel` e ao escopo acadêmico atual. Para `fundamental` e `medio`, essa busca é sempre resolvida pelo catálogo fixo do sistema; se a categoria lançada não despertar uma regra fixa, a execução termina sem consultar regras configuráveis/legadas. Para `superior`, a busca usa as regras configuráveis ativas da academia.
 5. A execução automática da raiz continua quando a categoria da nota registrada é a `nota_despertadora` da raiz. No padrão escolar fixo, isso significa `prova_trimestral` no 3º trimestre para anos regulares, `exame_final` para anos com exame e `nota_pap` no `4_ano_medio` técnico.
-6. Descendentes só são consideradas se a etapa anterior reprovou. A descendente escolar fixa `exame_recurso` também pode ser despertada diretamente por lançamento de `exame_recurso`, mas somente para matérias reprovadas na avaliação final anterior e quando todas as notas de recurso exigidas estiverem completas.
+6. Descendentes só são consideradas se a etapa anterior reprovou. A descendente escolar fixa `exame_recurso` também pode ser despertada diretamente por lançamento de `exame_recurso`, mas somente para matérias reprovadas na avaliação final anterior; notas ausentes exigidas pela fórmula dessa etapa e dessa matéria também são substituídas por zero no snapshot da avaliação.
 7. Para cada regra executável, o backend resolve as matérias aplicáveis e calcula `nota_final` individual por matéria.
 8. O resultado de cada matéria compara `nota_final` com `nota_minima_aprovacao`.
 10. A decisão geral é derivada dos resultados por matéria e, no Superior, das condições de pendência.
@@ -4592,7 +4592,7 @@ Tabela completa dos modelos fixos por ano escolar:
 
 Observações importantes que vêm diretamente do comportamento fixo do backend:
 
-- Nos anos sem exame, a avaliação final só fecha quando existirem as notas exigidas de professor e prova trimestral nos três trimestres de cada matéria avaliada.
+- Nos anos sem exame, a `prova_trimestral` do 3º trimestre dispara a avaliação da matéria; se notas exigidas de professor ou prova trimestral de trimestres anteriores estiverem ausentes para essa mesma matéria, elas entram como `0` e são listadas em `notas_substituidas_zero`.
 - Nos anos com exame (`6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio`), a etapa raiz usa `exame_final` no lugar da prova trimestral do 3º trimestre. A prova trimestral do 3º trimestre pode existir como categoria, mas não entra nessa fórmula com exame.
 - O recurso existe somente para `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio`, depende de reprovação anterior na etapa `normal` e recalcula somente as matérias reprovadas. Se a matéria já foi aprovada na etapa `normal`, lançar `exame_recurso` para ela é inválido.
 - O `4_ano_medio` só tem modelo fixo de avaliação final quando o curso médio é técnico; nessa situação a etapa final é a Prova de Aptidão Profissional (`nota_pap`) e não há avaliação regular por trimestres, exame final nem recurso.
@@ -4653,7 +4653,7 @@ Pontos importantes:
 
 #### 16.1.10 Resultados por matéria, eventos, projeções e auditoria
 
-Cada avaliação final gravada deve ser explicada pelos itens de `resultados_materias`, não por média global única. Cada item contém, no mínimo, `materia_id`, `nota_final`, `aprovado`, `type`, `formula_snapshot`, `regra_avaliacao_final_id` e `pendencia_permitida`. A projeção também mantém `nota_final` agregada como média dos itens calculados para compatibilidade/consulta resumida, mas a decisão funcional é por matéria.
+Cada avaliação final gravada deve ser explicada pelos itens de `resultados_materias`, não por média global única. Cada item contém, no mínimo, `materia_id`, `nota_final`, `aprovado`, `type`, `formula_snapshot`, `regra_avaliacao_final_id`, `pendencia_permitida` e, quando aplicável, `notas_substituidas_zero` com as referências calculadas como zero por ausência de lançamento no momento do gatilho. A projeção também mantém `nota_final` agregada como média dos itens calculados para compatibilidade/consulta resumida, mas a decisão funcional é por matéria.
 
 Eventos `AvaliacaoFinalEscolar` e `AvaliacaoFinalSuperior` preservam snapshots de regra, fórmula, notas calculadas, progressão e pendências geradas. Alterações posteriores de regra, matéria ou nota não reescrevem silenciosamente decisões já registradas; ajustes exigem fluxo operacional próprio/rebuild controlado.
 
@@ -4702,6 +4702,13 @@ Devem falhar com erro de validação ou bloqueio funcional:
 
 **Escopo por academia:** usuário autenticado como academia só consulta/gerencia dados da própria academia. Admin pode consultar de forma ampla com filtros.
 ### Regras de Negócio — Avaliação Final
+
+
+#### 16.1.15 Decisão futura para correção de notas após avaliação final
+
+Na versão atual do sistema, notas permanecem imutáveis: elas podem ser criadas e consultadas, mas não há endpoint público, administrativo, batch ou assíncrono para editar, eliminar, restaurar ou substituir notas já registradas. Portanto, esta seção é uma decisão de produto para uma funcionalidade futura de correção de notas; ela não descreve um comportamento já implementado.
+
+Quando uma funcionalidade de correção/edição de notas for especificada no futuro, ela deve verificar se o ano letivo ativo da academia ainda é o mesmo ano letivo da nota corrigida e da avaliação final já registrada para aquele estudante, matéria e escopo. Se for o mesmo ano letivo, a avaliação daquela matéria deve ser recalculada com a nota corrigida, e o resultado deve ser persistido como um novo evento auditável de reavaliação, distinto do evento original de avaliação final. O evento original deve permanecer preservado para auditoria. Se o ano letivo ativo já tiver avançado, a reavaliação automática não deve ocorrer; esse cenário deve ser definido junto com a própria funcionalidade de edição de notas. Qualquer implementação futura de edição/correção de notas deve reutilizar esta regra em vez de introduzir comportamento divergente sem revisão de produto.
 
 ### 16.2 Regras de Avaliação Final
 
