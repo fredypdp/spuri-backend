@@ -806,6 +806,9 @@ func CompletarDocumentosEstudantePendente(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("multipart/form-data inválido"))
 		return
 	}
+	if rejectRemovedMultipartFields(c) {
+		return
+	}
 	if err := validarCamposArquivoMatricula(c.Request.MultipartForm); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
