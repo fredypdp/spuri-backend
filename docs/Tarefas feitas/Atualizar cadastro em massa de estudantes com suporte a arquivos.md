@@ -122,7 +122,8 @@ Quando `com_arquivo` for `true`, a rota de lote deve:
 4. aceitar somente tipos, formatos, tamanhos, nomes de campo e combinações documentais permitidos nos fluxos singulares;
 5. rejeitar qualquer exceção criada apenas para o lote;
 6. armazenar documentos com o mesmo padrão de diretórios, metadados, auditoria e vínculos das rotas singulares;
-7. retornar erros padronizados e equivalentes aos fluxos singulares para as mesmas violações.
+7. quando os dados e documentos forem válidos, mas o storage externo falhar durante o upload, remover arquivos/pastas parciais e salvar o estudante como `pendente_documentos`, retornando `codigo_estudante`, `status` e `documentos_faltantes` para permitir repescagem pela rota posterior de documentos;
+8. retornar erros padronizados e equivalentes aos fluxos singulares para as mesmas violações que não sejam falhas recuperáveis de storage.
 
 ## Escopo obrigatório
 
