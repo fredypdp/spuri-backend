@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -159,6 +160,47 @@ func TestValidarDataNoPeriodoLetivoFaltasEscolarESuperior(t *testing.T) {
 			}
 			if !tc.wantErr && err != nil {
 				t.Fatalf("unexpected error for %s %s: %v", tc.tipo, tc.data, err)
+			}
+		})
+	}
+}
+
+func TestValidarDataAtualPermiteFinalizacaoAnoLetivoAnoEJanelaMensal(t *testing.T) {
+	cases := []struct {
+		name       string
+		tipo       string
+		data       string
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{name: "superior julho ano final", tipo: "superior", data: "2026-07-01"},
+		{name: "superior agosto ano final", tipo: "superior", data: "2026-08-15"},
+		{name: "superior setembro ano final", tipo: "superior", data: "2026-09-30"},
+		{name: "superior julho ano anterior", tipo: "superior", data: "2025-07-01", wantErr: true, wantErrMsg: "ano atual (2025) não é o ano final"},
+		{name: "superior agosto ano posterior", tipo: "superior", data: "2027-08-15", wantErr: true, wantErrMsg: "ano atual (2027) não é o ano final"},
+		{name: "superior fora da janela no ano correto", tipo: "superior", data: "2026-10-01", wantErr: true, wantErrMsg: "fora da janela mensal de finalização; permitido apenas em julho, agosto e setembro de 2026"},
+		{name: "escolar julho ano final", tipo: "escolar", data: "2026-07-01"},
+		{name: "escolar agosto ano final", tipo: "escolar", data: "2026-08-15"},
+		{name: "escolar setembro fora da janela", tipo: "escolar", data: "2026-09-30", wantErr: true, wantErrMsg: "permitido apenas em julho e agosto de 2026"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			agora, err := time.Parse("2006-01-02", tc.data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = validarDataAtualPermiteFinalizacaoAnoLetivo(nil, tc.tipo, "2025_2026", agora)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error")
+				}
+				if tc.wantErrMsg != "" && !strings.Contains(err.Error(), tc.wantErrMsg) {
+					t.Fatalf("error %q does not contain %q", err.Error(), tc.wantErrMsg)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
 			}
 		})
 	}
