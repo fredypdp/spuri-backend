@@ -97,6 +97,14 @@ func registerEstudantePorAcademiaComRequest(c *gin.Context, req CadastroEstudant
 	registerEstudantePorAcademiaComRequestModo(c, req, files, declaracaoAnoAcademico, false)
 }
 
+func permitirPendenciaDocumentosEmFalhaStorage(c *gin.Context, pendenteDocumentos bool) bool {
+	if pendenteDocumentos {
+		return false
+	}
+	permitir, ok := c.Get("permitir_pendencia_documentos_em_falha_storage")
+	return ok && permitir == true
+}
+
 func registerEstudantePorAcademiaComRequestModo(c *gin.Context, req CadastroEstudanteAcademiaRequest, files map[string]uploadedPDF, declaracaoAnoAcademico string, pendenteDocumentos bool) {
 	academiaID, ok := middleware.GetUserID(c)
 	if !ok {
@@ -169,6 +177,11 @@ func registerEstudantePorAcademiaComRequestModo(c *gin.Context, req CadastroEstu
 		stored, err := provider.Upload(storagePath, bytes.NewReader(f.data), f.size)
 		if err != nil {
 			_ = provider.Delete(dir)
+			if permitirPendenciaDocumentosEmFalhaStorage(c, pendenteDocumentos) {
+				log.Printf("[WARN] falha no upload dos documentos; cadastrando estudante %s em pendência documental para repescagem: %v", req.Nome, err)
+				registerEstudantePorAcademiaComRequestModo(c, req, nil, declaracaoAnoAcademico, true)
+				return
+			}
 			utils.RespondWithInternalError(c, fmt.Errorf("falha no upload dos documentos: %w", err))
 			return
 		}

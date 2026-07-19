@@ -19,6 +19,15 @@ func TestNewStorageProviderRequiresMegaCredentials(t *testing.T) {
 	}
 }
 
+func TestIsTransientMegaErrorDetectsIncompleteJSONResponses(t *testing.T) {
+	if !isTransientMegaError(errors.New("unexpected end of JSON input")) {
+		t.Fatal("isTransientMegaError() = false, want true for incomplete Mega JSON response")
+	}
+	if isTransientMegaError(errors.New("falha de autenticação/permissão no Mega: login failed")) {
+		t.Fatal("isTransientMegaError() = true, want false for authentication errors")
+	}
+}
+
 func TestLocalProviderUploadReadListMoveRenameDelete(t *testing.T) {
 	t.Setenv("STORAGE_PROVIDER", "local")
 	t.Setenv("MEGA_LOCAL_ROOT", t.TempDir())
