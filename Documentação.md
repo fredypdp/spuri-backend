@@ -2317,7 +2317,9 @@ curl -X POST https://api.exemplo.ao/academia/estudante/register/async \
 
 Arquivos órfãos, `codigo_temporario` duplicado, campos documentais desconhecidos, documentos ausentes obrigatórios e PDFs inválidos seguem as mesmas validações documentais do cadastro singular/solicitação de matrícula.
 
-**Response:** segue o envelope de lote `{total, sucesso, falhas, items[]}`.
+Se os dados textuais e os PDFs forem válidos, mas o armazenamento externo falhar durante o upload dos documentos (por exemplo erro transitório do Mega, timeout ou resposta JSON incompleta), o item do lote não é perdido. O backend remove a pasta parcial do estudante, conclui o cadastro textual com `status = "pendente_documentos"` e retorna o `codigo_estudante` no item correspondente para permitir repescagem. Nesse caso, a academia deve reenviar os documentos pela rota `POST /academia/estudante/{codigo_estudante}/documentos`; o estudante não deve ser tratado como ativo até a documentação ser concluída.
+
+**Response:** segue o envelope de lote `{total, sucesso, falhas, items[]}`. Itens salvos por fallback de falha de storage contam como sucesso de cadastro, mas aparecem com `status = "pendente_documentos"` e `documentos_faltantes` na resposta do item.
 
 ### POST /academia/estudante/{codigo_estudante}/documentos
 
