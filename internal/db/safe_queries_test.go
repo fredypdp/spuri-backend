@@ -109,3 +109,24 @@ func TestValidateAggregateTypeAcceptsAggregatesDiscoveredInCode(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateEventTypeRejectsRemovedStudentProgressionEvents(t *testing.T) {
+	t.Parallel()
+
+	removed := []string{
+		"MatriculaFundamentalEfetivada",
+		"MatriculaMedioEfetivada",
+		"MatriculaSuperiorEfetivada",
+		"SuperiorTrancado",
+	}
+
+	for _, eventType := range removed {
+		eventType := eventType
+		t.Run(eventType, func(t *testing.T) {
+			t.Parallel()
+			if err := ValidateEventType(eventType); err == nil {
+				t.Fatalf("ValidateEventType(%q) retornou nil, want erro", eventType)
+			}
+		})
+	}
+}
