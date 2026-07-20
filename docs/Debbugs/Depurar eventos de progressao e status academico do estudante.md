@@ -22,7 +22,7 @@ Depuração da tarefa `docs/Tarefas feitas/05 - Revisar e ampliar eventos de pro
 - Os eventos de interrupção (`FundamentalInterrompido`, `MedioInterrompido`, `SuperiorInterrompido`) não carregavam `solicitacao_id`, embora o fluxo exija referência auditável da solicitação aprovada.
 - A anotação do `solicitacao_id` no último evento cobria apenas `EstudanteDesvinculadoDaAcademia` e `EstudanteReintegrado`, deixando interrupções sem vínculo explícito com a solicitação.
 - A decisão de solicitação não validava se o `:codigo` informado na rota batia com o estudante da solicitação, permitindo uma chamada semanticamente inconsistente mesmo que a solicitação pertencesse à academia.
-- Não havia teste de debug dedicado garantindo 404 nas rotas legadas removidas, rejeição dos eventos antigos no allowlist e invariantes principais de status/histórico.
+- Não havia teste de debug dedicado garantindo 404 nas rotas legadas removidas e invariantes principais de status/histórico.
 
 ## Correções aplicadas
 
@@ -31,7 +31,6 @@ Depuração da tarefa `docs/Tarefas feitas/05 - Revisar e ampliar eventos de pro
 - Adicionada validação para rejeitar decisão quando o `:codigo` da rota não corresponde ao `codigo_estudante` da solicitação.
 - Adicionados testes de debug para:
   - rotas legadas de matrícula/interrupção/trancamento removidas retornarem `404`;
-  - eventos removidos serem rejeitados por `ValidateEventType`;
   - desvinculação definir `status = "inativo"` e preservar histórico acadêmico;
   - interrupção exigir exatamente uma etapa acadêmica em andamento;
   - revinculação exigir estudante inativo.
@@ -39,3 +38,8 @@ Depuração da tarefa `docs/Tarefas feitas/05 - Revisar e ampliar eventos de pro
 ## Resultado
 
 A implementação está coerente com os critérios principais auditados da tarefa. A suíte completa passou com sucesso em `go test ./...`.
+
+## Ajuste pós-review
+
+- A documentação principal foi expandida para que cada rota do fluxo de solicitação/decisão tenha escopo próprio, com autorização, body, regras e resposta esperada.
+- O teste específico de rejeição de eventos removidos foi retirado porque a ausência desses eventos no allowlist já garante a rejeição pelo mecanismo existente.
