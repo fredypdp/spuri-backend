@@ -207,6 +207,7 @@ type FundamentalInterrompidoEvent struct {
 	Motivo          string
 	InterrompidoPor uuid.UUID
 	InterrompidoAt  time.Time
+	SolicitacaoID   string
 }
 
 func (e *FundamentalInterrompidoEvent) GetPayload() interface{} { return e }
@@ -217,6 +218,7 @@ type MedioInterrompidoEvent struct {
 	Motivo          string
 	InterrompidoPor uuid.UUID
 	InterrompidoAt  time.Time
+	SolicitacaoID   string
 }
 
 func (e *MedioInterrompidoEvent) GetPayload() interface{} { return e }
@@ -227,6 +229,7 @@ type SuperiorInterrompidoEvent struct {
 	Motivo          string
 	InterrompidoPor uuid.UUID
 	InterrompidoAt  time.Time
+	SolicitacaoID   string
 }
 
 func (e *SuperiorInterrompidoEvent) GetPayload() interface{} { return e }

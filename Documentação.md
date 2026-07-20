@@ -2499,32 +2499,328 @@ Os status do estudante não devem ser editados diretamente por payloads genéric
 
 As operações sensíveis de status acadêmico exigem participação explícita do estudante. O estudante cria uma solicitação autenticada e a academia apenas decide uma solicitação pendente válida; a aprovação é o único momento em que eventos de alteração de status são gravados. Não há suporte legado para as rotas de matrícula de etapa, interrupção por nível ou trancamento superior porque o banco está vazio.
 
-**Solicitação pelo estudante**
+##### `POST /estudante/solicitacoes-status/interrupcao`
 
-- `POST /estudante/solicitacoes-status/interrupcao` — cria pedido de interrupção do percurso acadêmico atual. Body: `{ "motivo": "..." }`.
-- `POST /estudante/solicitacoes-status/desvinculacao` — cria pedido de desvinculação da academia atual. Body: `{ "motivo": "..." }`.
-- `POST /estudante/solicitacoes-status/revinculacao/:codigo_academia` — cria pedido de revinculação para a academia indicada. Body: `{ "motivo": "...", "tipo_ensino": "fundamental|medio|superior", "curso_medio_id": "...", "curso_superior_id": "..." }`.
+Cria uma solicitação para interromper o percurso acadêmico atualmente em andamento do estudante autenticado na academia à qual ele está vinculado.
 
-`motivo` é obrigatório e não pode ficar vazio após `trim`. Só pode existir uma solicitação pendente por estudante, academia e tipo (`interrupcao`, `desvinculacao` ou `revinculacao`).
+**Autorização:** estudante autenticado.
 
-**Consulta pela academia**
+**Body:**
 
-- `GET /academia/solicitacoes-status-academico` lista solicitações de status acadêmico da academia, incluindo `codigo_solicitacao`, `codigo_estudante`, `tipo`, `status`, `motivo`, `tipo_ensino`, `created_at` e `updated_at`.
+```json
+{
+  "motivo": "mudança temporária de cidade"
+}
+```
 
-**Aprovação/reprovação pela academia**
+**Regras:**
 
-- `POST /academia/estudante/:codigo/interromper/percurso-academico` aprova interrupção pendente. Body: `{ "solicitacao_id": "SSA...", "observacao_academia": "opcional" }`.
-- `POST /academia/estudante/:codigo/interromper/percurso-academico/reprovar` reprova interrupção pendente. Body: `{ "solicitacao_id": "SSA...", "motivo_reprovacao": "..." }`.
-- `POST /academia/estudante/:codigo/desvincular` aprova desvinculação pendente; sem `solicitacao_id` pendente válida, a operação é rejeitada.
-- `POST /academia/estudante/:codigo/desvincular/reprovar` reprova desvinculação pendente.
-- `POST /academia/estudante/:codigo/revincular` aprova revinculação pendente; sem `solicitacao_id` pendente válida, a operação é rejeitada.
-- `POST /academia/estudante/:codigo/revincular/reprovar` reprova revinculação pendente.
+- `motivo` é obrigatório e não pode ficar vazio após `trim`.
+- A academia da solicitação é a academia atual do estudante.
+- Só pode existir uma solicitação pendente de `interrupcao` para o mesmo estudante na mesma academia.
+- A solicitação não altera status acadêmico por si só; o evento de interrupção só é emitido quando a academia aprova.
 
-Na interrupção aprovada, o backend identifica a única etapa em andamento e grava `FundamentalInterrompido`, `MedioInterrompido` ou `SuperiorInterrompido`, definindo o status da etapa como `inativo`. A solicitação reprovada não altera nenhum status.
+**Response 201:**
 
-Na desvinculação aprovada, `EstudanteDesvinculadoDaAcademia` preserva histórico e define `status = "inativo"`, registrando o nível acadêmico calculado no momento da saída.
+```json
+{
+  "message": "solicitação criada com sucesso",
+  "codigo_solicitacao": "SSA12345678",
+  "status": "pendente"
+}
+```
 
-Na revinculação aprovada, `EstudanteReintegrado` define `status = "ativo"` e reativa a etapa indicada, reutilizando a posição acadêmica registrada naquela academia. Para fundamental, a aprovação deve ser bloqueada se houver evidência de progressão posterior em outra academia; o estudante só pode retornar ao mesmo ano fundamental registrado no momento da desvinculação. Para médio e superior, cursos informados precisam existir, estar ativos, pertencer à academia e ter o tipo compatível; se omitidos, o backend reutiliza o curso anterior válido daquela academia.
+##### `POST /estudante/solicitacoes-status/desvinculacao`
+
+Cria uma solicitação para desvincular o estudante autenticado da academia atual.
+
+**Autorização:** estudante autenticado.
+
+**Body:**
+
+```json
+{
+  "motivo": "transferência solicitada pelo estudante"
+}
+```
+
+**Regras:**
+
+- `motivo` é obrigatório e não pode ficar vazio após `trim`.
+- A academia da solicitação é a academia atual do estudante.
+- Só pode existir uma solicitação pendente de `desvinculacao` para o mesmo estudante na mesma academia.
+- A solicitação não desvincula o estudante; `EstudanteDesvinculadoDaAcademia` só é gravado na aprovação pela academia.
+
+**Response 201:**
+
+```json
+{
+  "message": "solicitação criada com sucesso",
+  "codigo_solicitacao": "SSA12345678",
+  "status": "pendente"
+}
+```
+
+##### `POST /estudante/solicitacoes-status/revinculacao/:codigo_academia`
+
+Cria uma solicitação para revincular o estudante autenticado à academia indicada em `:codigo_academia`.
+
+**Autorização:** estudante autenticado.
+
+**Path params:**
+
+| Campo | Tipo | Obrigatório | Descrição |
+|---|---:|:---:|---|
+| `codigo_academia` | string | sim | Código público da academia que deverá decidir o pedido de retorno. |
+
+**Body:**
+
+```json
+{
+  "motivo": "retorno à instituição anterior",
+  "tipo_ensino": "fundamental",
+  "curso_medio_id": null,
+  "curso_superior_id": null
+}
+```
+
+**Regras:**
+
+- `motivo` é obrigatório e não pode ficar vazio após `trim`.
+- `tipo_ensino`, quando necessário para a retomada, deve ser `fundamental`, `medio` ou `superior`.
+- Para médio, `curso_medio_id` pode indicar novo curso pretendido; se omitido, a aprovação deve reutilizar o curso médio anterior válido naquela academia.
+- Para superior, `curso_superior_id` pode indicar novo curso pretendido; se omitido, a aprovação deve reutilizar o curso superior anterior válido naquela academia.
+- Só pode existir uma solicitação pendente de `revinculacao` para o mesmo estudante na mesma academia.
+- A solicitação não reativa o estudante; `EstudanteReintegrado` só é gravado na aprovação pela academia.
+
+**Response 201:**
+
+```json
+{
+  "message": "solicitação criada com sucesso",
+  "codigo_solicitacao": "SSA12345678",
+  "status": "pendente"
+}
+```
+
+##### `GET /academia/solicitacoes-status-academico`
+
+Lista solicitações de status acadêmico recebidas pela academia autenticada.
+
+**Autorização:** academia autenticada e ativa.
+
+**Response 200:**
+
+```json
+{
+  "solicitacoes": [
+    {
+      "codigo_solicitacao": "SSA12345678",
+      "codigo_estudante": "EST12345678",
+      "tipo": "interrupcao",
+      "status": "pendente",
+      "motivo": "mudança temporária de cidade",
+      "tipo_ensino": "fundamental",
+      "created_at": "2026-07-20T00:00:00Z",
+      "updated_at": "2026-07-20T00:00:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+##### `POST /academia/estudante/:codigo/interromper/percurso-academico`
+
+Aprova uma solicitação pendente de interrupção de percurso acadêmico do estudante indicado em `:codigo`.
+
+**Autorização:** academia autenticada e ativa.
+
+**Path params:**
+
+| Campo | Tipo | Obrigatório | Descrição |
+|---|---:|:---:|---|
+| `codigo` | string | sim | Código do estudante vinculado à academia e dono da solicitação. |
+
+**Body:**
+
+```json
+{
+  "solicitacao_id": "SSA12345678",
+  "observacao_academia": "documentação conferida"
+}
+```
+
+**Regras:**
+
+- `solicitacao_id` é obrigatório e deve apontar para uma solicitação `interrupcao` pendente.
+- A solicitação deve pertencer à academia autenticada e ao estudante informado na rota.
+- Deve existir exatamente uma etapa acadêmica em andamento.
+- A academia não altera o `motivo` original do estudante; `observacao_academia` é campo separado.
+- Na aprovação, o backend identifica a etapa em andamento e emite `FundamentalInterrompido`, `MedioInterrompido` ou `SuperiorInterrompido`, incluindo referência da solicitação aprovada.
+
+**Response 200:**
+
+```json
+{
+  "message": "solicitação aprovada",
+  "codigo_solicitacao": "SSA12345678"
+}
+```
+
+##### `POST /academia/estudante/:codigo/interromper/percurso-academico/reprovar`
+
+Reprova uma solicitação pendente de interrupção sem alterar o status acadêmico do estudante.
+
+**Autorização:** academia autenticada e ativa.
+
+**Body:**
+
+```json
+{
+  "solicitacao_id": "SSA12345678",
+  "motivo_reprovacao": "documentação insuficiente"
+}
+```
+
+**Regras:**
+
+- `solicitacao_id` e `motivo_reprovacao` são obrigatórios.
+- A solicitação deve estar `pendente`, pertencer à academia autenticada e ao estudante informado na rota.
+- A reprovação é terminal e não grava evento de alteração de status acadêmico.
+
+**Response 200:**
+
+```json
+{
+  "message": "solicitação reprovada"
+}
+```
+
+##### `POST /academia/estudante/:codigo/desvincular`
+
+Aprova uma solicitação pendente de desvinculação do estudante indicado em `:codigo`.
+
+**Autorização:** academia autenticada e ativa.
+
+**Body:**
+
+```json
+{
+  "solicitacao_id": "SSA12345678",
+  "observacao_academia": "pedido validado"
+}
+```
+
+**Regras:**
+
+- `solicitacao_id` é obrigatório e deve apontar para uma solicitação `desvinculacao` pendente.
+- A solicitação deve pertencer à academia autenticada e ao estudante informado na rota.
+- A academia não consegue desvincular sem solicitação pendente válida.
+- A aprovação grava `EstudanteDesvinculadoDaAcademia`, preserva histórico acadêmico e define `status = "inativo"`.
+- O evento registra o nível acadêmico calculado no momento da saída e a referência da solicitação aprovada.
+
+**Response 200:**
+
+```json
+{
+  "message": "solicitação aprovada",
+  "codigo_solicitacao": "SSA12345678"
+}
+```
+
+##### `POST /academia/estudante/:codigo/desvincular/reprovar`
+
+Reprova uma solicitação pendente de desvinculação sem alterar vínculo ou status geral do estudante.
+
+**Autorização:** academia autenticada e ativa.
+
+**Body:**
+
+```json
+{
+  "solicitacao_id": "SSA12345678",
+  "motivo_reprovacao": "pedido não atende às regras internas"
+}
+```
+
+**Regras:**
+
+- `solicitacao_id` e `motivo_reprovacao` são obrigatórios.
+- A solicitação deve estar `pendente`, pertencer à academia autenticada e ao estudante informado na rota.
+- A reprovação é terminal e não grava `EstudanteDesvinculadoDaAcademia`.
+
+**Response 200:**
+
+```json
+{
+  "message": "solicitação reprovada"
+}
+```
+
+##### `POST /academia/estudante/:codigo/revincular`
+
+Aprova uma solicitação pendente de revinculação do estudante indicado em `:codigo`.
+
+**Autorização:** academia autenticada e ativa.
+
+**Body:**
+
+```json
+{
+  "solicitacao_id": "SSA12345678",
+  "observacao_academia": "retorno autorizado"
+}
+```
+
+**Regras:**
+
+- `solicitacao_id` é obrigatório e deve apontar para uma solicitação `revinculacao` pendente.
+- A solicitação deve pertencer à academia autenticada e ao estudante informado na rota.
+- A academia não consegue revincular sem solicitação pendente válida.
+- Apenas estudante `inativo` por desvinculação pode ser revinculado.
+- A aprovação grava `EstudanteReintegrado`, define `status = "ativo"` e reativa a etapa indicada/derivada.
+- A retomada deve usar a última posição acadêmica do estudante naquela mesma academia: nível, ano fundamental, ano médio, curso médio, ano superior, semestre atual e curso superior conforme aplicável.
+- No fundamental, a aprovação é bloqueada quando houver progressão posterior em outra academia; o retorno só é permitido no mesmo ano fundamental da desvinculação.
+- No médio e no superior, cursos informados precisam existir, estar ativos, pertencer à academia e ter tipo compatível; se omitidos, a aprovação reutiliza o curso anterior válido daquela academia.
+- O evento final inclui referência da solicitação aprovada e snapshot da posição acadêmica retomada.
+
+**Response 200:**
+
+```json
+{
+  "message": "solicitação aprovada",
+  "codigo_solicitacao": "SSA12345678"
+}
+```
+
+##### `POST /academia/estudante/:codigo/revincular/reprovar`
+
+Reprova uma solicitação pendente de revinculação sem reativar o estudante.
+
+**Autorização:** academia autenticada e ativa.
+
+**Body:**
+
+```json
+{
+  "solicitacao_id": "SSA12345678",
+  "motivo_reprovacao": "retorno não autorizado neste período"
+}
+```
+
+**Regras:**
+
+- `solicitacao_id` e `motivo_reprovacao` são obrigatórios.
+- A solicitação deve estar `pendente`, pertencer à academia autenticada e ao estudante informado na rota.
+- A reprovação é terminal e não grava `EstudanteReintegrado`.
+
+**Response 200:**
+
+```json
+{
+  "message": "solicitação reprovada"
+}
+```
 
 
 #### 16.1.1 Conceitos funcionais
