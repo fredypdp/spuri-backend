@@ -32,7 +32,7 @@ rg -n "RegisterHandler|JobTypeRegisterEstudanteBatch|RegisterEstudantePorAcademi
 1. O modo JSON sem arquivos de `POST /academia/estudante/register/async` agora valida `com_arquivo:false`, tamanho máximo e lote vazio no enqueue, cria um job `register_estudante_batch` e retorna `202 Accepted` com `job_id`, `poll_url` e `sse_url`.
 2. O helper comum de resposta de job foi extraído para reaproveitar exatamente o envelope de monitoramento dos demais endpoints `/async`.
 3. O worker de cadastro de estudante agora processa cada item em modo `pendente_documentos`, preservando a regra funcional do JSON sem arquivos: valida campos textuais e não cobra PDFs no primeiro passo.
-4. A documentação foi atualizada para deixar claro que o modo JSON sem arquivos cria job de background, enquanto o modo multipart com arquivos continua como lote imediato por causa dos uploads.
+4. A documentação foi atualizada novamente na auditoria seguinte para deixar claro que tanto JSON sem arquivos quanto multipart com arquivos criam job de background.
 
 ## Validação
 

@@ -160,7 +160,53 @@ func registerEstudanteBatchMultipart(c *gin.Context) {
 		}
 		filesByCodigo[parts[0]][parts[1]] = pdf
 	}
-	processarCadastroEstudanteBatch(c, items, filesByCodigo, false)
+	if validarArquivosCadastroEstudanteBatch(c, items, filesByCodigo) {
+		return
+	}
+	for i := range items {
+		if filesByCodigo[items[i].CodigoTemporario] == nil {
+			continue
+		}
+		items[i].Arquivos = map[string]asyncUploadedPDF{}
+		for field, pdf := range filesByCodigo[items[i].CodigoTemporario] {
+			items[i].Arquivos[field] = newAsyncUploadedPDF(pdf)
+		}
+	}
+	enqueueCadastroEstudanteComArquivos(c, items)
+}
+
+func validarArquivosCadastroEstudanteBatch(c *gin.Context, items []cadastroEstudanteJSONItem, filesByCodigo map[string]map[string]uploadedPDF) bool {
+	seen := map[string]bool{}
+	for _, item := range items {
+		if item.CodigoTemporario == "" {
+			utils.RespondWithValidationError(c, fmt.Errorf("codigo_temporario é obrigatório no lote com arquivos"))
+			return true
+		}
+		if seen[item.CodigoTemporario] {
+			utils.RespondWithValidationError(c, fmt.Errorf("codigo_temporario duplicado: %s", item.CodigoTemporario))
+			return true
+		}
+		seen[item.CodigoTemporario] = true
+	}
+	for codigo := range filesByCodigo {
+		if !seen[codigo] {
+			utils.RespondWithValidationError(c, fmt.Errorf("arquivo órfão para codigo_temporario: %s", codigo))
+			return true
+		}
+	}
+	return false
+}
+
+func enqueueCadastroEstudanteComArquivos(c *gin.Context, items []cadastroEstudanteJSONItem) {
+	if err := validarTamanhoBatch(len(items), 100); err != nil {
+		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	if len(items) == 0 {
+		utils.RespondWithValidationError(c, fmt.Errorf("array não pode ser vazio"))
+		return
+	}
+	enqueueAsyncBatchPayload(c, jobs.JobTypeRegisterEstudanteBatch, items, len(items))
 }
 
 func processarCadastroEstudanteBatch(c *gin.Context, items []cadastroEstudanteJSONItem, filesByCodigo map[string]map[string]uploadedPDF, pendenteDocumentos bool) {

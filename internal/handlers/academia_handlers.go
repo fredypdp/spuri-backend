@@ -910,12 +910,12 @@ func validarProvincia(provincia string) (string, error) {
 // generateCodigoAcademia gera o código único da academia no formato
 // {PROVINCIA}{ANO}{SEQUENCIAL}, ex: LDA20261, LDA20262, BGU20261.
 //
-// CORREÇÃO (migration 045): o caminho principal agora delega para a função SQL
-// corrigida que consulta o spuri_ledger (não a projection_academias).
+// CORREÇÕES (migrations 045 e 093): o caminho principal delega para a função
+// SQL que consulta o spuri_ledger e reserva o código antes de retorná-lo.
 //
-// O fallback em Go também foi corrigido para consultar o ledger via
-// payload->>'CodigoAcademia', eliminando a race condition que ocorria
-// quando a projeção ainda não havia materializado o evento anterior.
+// O fallback em Go também consulta o ledger via payload->>'CodigoAcademia' e
+// grava em codigo_academia_reservas antes de devolver o código, fechando a
+// janela de concorrência até a persistência do evento.
 //
 // A race condition era: cadastro rápido de 2+ academias da mesma província
 // no mesmo segundo → ambas veem COUNT=0 na projeção → mesmo código gerado
@@ -945,35 +945,43 @@ func generateCodigoAcademia(codigoProvincia string, sqlDB *sqlx.DB) (string, err
 		   AND payload->>'CodigoAcademia' LIKE $1`,
 		prefix+"%",
 	).Scan(&count); countErr != nil {
-		// Se o ledger não estiver acessível, usar nanosegundo como último recurso.
-		seq := (time.Now().UnixNano() % 9999) + 1
-		codigo = fmt.Sprintf("%s%d", prefix, seq)
-		log.Printf("[WARN] generateCodigoAcademia: falha ao consultar ledger (%v) — emergência: %s", countErr, codigo)
-		return codigo, nil
+		return "", fmt.Errorf("erro ao contar códigos de academia no ledger: %w", countErr)
 	}
 
 	seq := count + 1
 	codigo = fmt.Sprintf("%s%d", prefix, seq)
 
-	// Loop de verificação de unicidade no ledger (até 100 tentativas).
+	// Loop de verificação e reserva (até 100 tentativas).
 	for i := 0; i < 100; i++ {
-		var exists bool
+		var reserved bool
 		if checkErr := sqlDB.QueryRow(
-			`SELECT EXISTS(
-				SELECT 1 FROM spuri_ledger
-				WHERE event_type = 'AcademiaCriada'
-				  AND payload->>'CodigoAcademia' = $1
-			)`,
+			`WITH codigo_livre AS (
+				SELECT NOT EXISTS (
+					SELECT 1 FROM spuri_ledger
+					WHERE event_type = 'AcademiaCriada'
+					  AND payload->>'CodigoAcademia' = $1
+					UNION ALL
+					SELECT 1 FROM codigo_academia_reservas WHERE codigo_academia = $1
+				) AS livre
+			), reserva AS (
+				INSERT INTO codigo_academia_reservas (codigo_academia)
+				SELECT $1 FROM codigo_livre WHERE livre
+				ON CONFLICT DO NOTHING
+				RETURNING codigo_academia
+			)
+			SELECT EXISTS (SELECT 1 FROM reserva)`,
 			codigo,
-		).Scan(&exists); checkErr != nil || !exists {
-			break
+		).Scan(&reserved); checkErr != nil {
+			return "", fmt.Errorf("erro ao reservar código de academia: %w", checkErr)
+		} else if reserved {
+			log.Printf("[WARN] generateCodigoAcademia: código gerado e reservado pelo fallback Go (ledger): %s", codigo)
+			return codigo, nil
 		}
 		seq++
 		codigo = fmt.Sprintf("%s%d", prefix, seq)
 	}
 
-	log.Printf("[WARN] generateCodigoAcademia: código gerado pelo fallback Go (ledger): %s", codigo)
-	return codigo, nil
+	return "", fmt.Errorf("não foi possível reservar código único de academia após 100 tentativas")
 }
 
 func FinalizarAnoLetivoAcademia(c *gin.Context) {

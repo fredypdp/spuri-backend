@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -127,5 +128,36 @@ func TestCadastroEstudanteJSONItemToCadastroRequestRejectsInvalidDate(t *testing
 	_, _, err := (cadastroEstudanteJSONItem{DataNascimento: "03/04/2005"}).toCadastroRequest()
 	if err == nil || !strings.Contains(err.Error(), "data_nascimento deve ser YYYY-MM-DD") {
 		t.Fatalf("erro esperado de data inválida, obtido: %v", err)
+	}
+}
+
+func TestCadastroEstudanteAsyncUploadedPDFRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	original := uploadedPDF{field: "bi_estudante", data: []byte("%PDF fake"), size: 9}
+	item := cadastroEstudanteJSONItem{
+		CodigoTemporario: "tmp-1",
+		DataNascimento:   "2005-04-03",
+		Arquivos: map[string]asyncUploadedPDF{
+			"bi_estudante": newAsyncUploadedPDF(original),
+		},
+	}
+
+	encoded, err := json.Marshal([]cadastroEstudanteJSONItem{item})
+	if err != nil {
+		t.Fatalf("não esperava erro ao serializar item de job: %v", err)
+	}
+
+	var decoded []cadastroEstudanteJSONItem
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("não esperava erro ao desserializar item de job: %v", err)
+	}
+	if len(decoded) != 1 {
+		t.Fatalf("esperava 1 item, obtido %d", len(decoded))
+	}
+
+	got := decoded[0].Arquivos["bi_estudante"].toUploadedPDF("bi_estudante")
+	if got.field != original.field || string(got.data) != string(original.data) || got.size != original.size {
+		t.Fatalf("PDF restaurado diferente do original: %+v", got)
 	}
 }
