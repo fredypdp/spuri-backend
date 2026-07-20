@@ -128,7 +128,7 @@ func RegisterEstudantePorAcademiaJobItem(c *gin.Context) {
 		return
 	}
 
-	registerEstudantePorAcademiaComRequest(c, req, map[string]uploadedPDF{}, declaracaoAnoAcademico)
+	registerEstudantePorAcademiaComRequestModo(c, req, map[string]uploadedPDF{}, declaracaoAnoAcademico, true)
 }
 
 func AtivarAcademiaJobItem(c *gin.Context) {
