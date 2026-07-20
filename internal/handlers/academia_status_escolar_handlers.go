@@ -190,6 +190,10 @@ func decidirSolicitacaoStatus(c *gin.Context, tipo string, aprovar bool) {
 		utils.RespondWithForbiddenError(c, "solicitação não pertence a esta academia")
 		return
 	}
+	if codigoParam := strings.TrimSpace(c.Param("codigo")); codigoParam != "" && codigoParam != codigoEst {
+		utils.RespondWithValidationError(c, fmt.Errorf("solicitacao_id não pertence ao estudante informado na rota"))
+		return
+	}
 	if status != "pendente" {
 		utils.RespondWithValidationError(c, fmt.Errorf("solicitação já decidida"))
 		return
@@ -242,6 +246,12 @@ func anotarSolicitacaoNoUltimoEvento(estudante *aggregates.Estudante, solicitaca
 		return
 	}
 	switch ev := estudante.UncommittedEvents[len(estudante.UncommittedEvents)-1].(type) {
+	case *aggregates.FundamentalInterrompidoEvent:
+		ev.SolicitacaoID = solicitacaoID
+	case *aggregates.MedioInterrompidoEvent:
+		ev.SolicitacaoID = solicitacaoID
+	case *aggregates.SuperiorInterrompidoEvent:
+		ev.SolicitacaoID = solicitacaoID
 	case *aggregates.EstudanteDesvinculadoDaAcademiaEvent:
 		ev.SolicitacaoID = solicitacaoID
 	case *aggregates.EstudanteReintegradoEvent:
