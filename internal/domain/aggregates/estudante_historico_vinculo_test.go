@@ -22,8 +22,8 @@ func TestReintegrarSuperiorMesmoCursoPreservaSemestreAtual(t *testing.T) {
 	estudante.AnoSuperior = &ano
 	estudante.SemestreAtual = &semestre
 
-	if err := estudante.TrancarSuperior("trancamento", atorID); err != nil {
-		t.Fatalf("TrancarSuperior retornou erro: %v", err)
+	if err := estudante.InterromperSuperior("interrupção", atorID); err != nil {
+		t.Fatalf("InterromperSuperior retornou erro: %v", err)
 	}
 	if err := estudante.DesvincularDaAcademia(codigoAcademia, "transferência", atorID); err != nil {
 		t.Fatalf("DesvincularDaAcademia retornou erro: %v", err)
@@ -51,7 +51,7 @@ func TestReintegrarSuperiorCursoDiferenteReiniciaNovoCurso(t *testing.T) {
 	estudante := NewEstudante()
 	estudante.CodigoEstudante = "EST1234"
 	estudante.CodigoAcademia = &codigoAcademia
-	estudante.Status = "arquivado"
+	estudante.Status = "inativo"
 	estudante.StatusSuperior = "inativo"
 	estudante.CursoSuperiorID = &cursoAntigoID
 	estudante.AnoSuperior = &ano
@@ -109,7 +109,7 @@ func TestReintegrarMedioCursoDiferenteReiniciaNovoCurso(t *testing.T) {
 	estudante := NewEstudante()
 	estudante.CodigoEstudante = "EST1234"
 	estudante.CodigoAcademia = &codigoAcademia
-	estudante.Status = "arquivado"
+	estudante.Status = "inativo"
 	estudante.StatusEscolarMedio = "inativo"
 	estudante.CursoMedioID = &cursoAntigoID
 	estudante.AnoEscolarMedio = &ano
@@ -131,7 +131,7 @@ func TestReintegrarFundamentalSemAnoPreservaAnoAnterior(t *testing.T) {
 	estudante := NewEstudante()
 	estudante.CodigoEstudante = "EST1234"
 	estudante.CodigoAcademia = &codigoAcademia
-	estudante.Status = "arquivado"
+	estudante.Status = "inativo"
 	estudante.StatusEscolarFundamental = "inativo"
 	estudante.AnoEscolar = &ano
 
@@ -160,8 +160,8 @@ func TestReplayEventosPreservaEstadoFinalDaReintegracao(t *testing.T) {
 	estudante.AnoSuperior = &ano
 	estudante.SemestreAtual = &semestre
 
-	if err := estudante.TrancarSuperior("trancamento", atorID); err != nil {
-		t.Fatalf("TrancarSuperior retornou erro: %v", err)
+	if err := estudante.InterromperSuperior("interrupção", atorID); err != nil {
+		t.Fatalf("InterromperSuperior retornou erro: %v", err)
 	}
 	if err := estudante.DesvincularDaAcademia(codigoAcademia, "transferência", atorID); err != nil {
 		t.Fatalf("DesvincularDaAcademia retornou erro: %v", err)
@@ -211,20 +211,20 @@ func TestApplyEventosRetomadaPreservamHistoricoSemMudancaCurso(t *testing.T) {
 	estudante.SemestreAtual = &semestre
 	estudante.CursoSuperiorID = &cursoSuperiorID
 
-	if err := estudante.Apply(&MatriculaFundamentalEfetivadaEvent{
+	if err := estudante.Apply(&FundamentalRetomadoEvent{
 		BaseEvent:  BaseEvent{EventType: "FundamentalRetomado", AggregateID: estudante.ID},
 		AnoEscolar: "1_ano_fundamental",
 	}); err != nil {
 		t.Fatalf("Apply(FundamentalRetomado) retornou erro: %v", err)
 	}
-	if err := estudante.Apply(&MatriculaMedioEfetivadaEvent{
+	if err := estudante.Apply(&MedioRetomadoEvent{
 		BaseEvent:  BaseEvent{EventType: "MedioRetomado", AggregateID: estudante.ID},
 		CursoID:    cursoMedioID,
 		AnoEscolar: "1_ano_medio",
 	}); err != nil {
 		t.Fatalf("Apply(MedioRetomado) retornou erro: %v", err)
 	}
-	if err := estudante.Apply(&MatriculaSuperiorEfetivadaEvent{
+	if err := estudante.Apply(&MatriculaSuperiorReativadaEvent{
 		BaseEvent:     BaseEvent{EventType: "MatriculaSuperiorReativada", AggregateID: estudante.ID},
 		CursoID:       cursoSuperiorID,
 		AnoSuperior:   "1_ano_superior",
@@ -256,7 +256,7 @@ func TestReintegrarMedioSemCursoInformadoPreservaCursoEAnoAnterior(t *testing.T)
 	estudante := NewEstudante()
 	estudante.CodigoEstudante = "EST1234"
 	estudante.CodigoAcademia = &codigoAcademia
-	estudante.Status = "arquivado"
+	estudante.Status = "inativo"
 	estudante.StatusEscolarMedio = "inativo"
 	estudante.CursoMedioID = &cursoID
 	estudante.AnoEscolarMedio = &ano
@@ -283,7 +283,7 @@ func TestReintegrarSuperiorSemCursoInformadoPreservaCursoSemestreEAnoAnterior(t 
 	estudante := NewEstudante()
 	estudante.CodigoEstudante = "EST1234"
 	estudante.CodigoAcademia = &codigoAcademia
-	estudante.Status = "arquivado"
+	estudante.Status = "inativo"
 	estudante.StatusSuperior = "inativo"
 	estudante.CursoSuperiorID = &cursoID
 	estudante.AnoSuperior = &ano

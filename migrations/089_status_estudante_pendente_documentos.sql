@@ -23,9 +23,9 @@ END $$;
 
 ALTER TABLE projection_estudantes
     ADD CONSTRAINT projection_estudantes_status_check
-        CHECK (status IN ('inativo', 'ativo', 'arquivado', 'pendente_documentos'));
+        CHECK (status IN ('inativo', 'ativo', 'pendente_documentos'));
 
 COMMENT ON COLUMN projection_estudantes.status IS
-    'Status geral do estudante: inativo | ativo | arquivado | pendente_documentos. O valor pendente_documentos representa cadastro sem arquivos aguardando conclusão documental.';
+    'Status geral do estudante: inativo | ativo | pendente_documentos. O valor pendente_documentos representa cadastro sem arquivos aguardando conclusão documental.';
 
 COMMIT;

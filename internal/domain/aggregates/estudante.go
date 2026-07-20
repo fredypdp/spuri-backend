@@ -86,21 +86,21 @@ func (e *Estudante) Apply(event DomainEvent) error {
 		return e.applyFaltasRegistradas(event)
 	case "NotasRegistradas":
 		return e.applyNotasRegistradas(event)
-	case "MatriculaFundamentalEfetivada", "FundamentalRetomado":
+	case "FundamentalRetomado":
 		return e.applyFundamentalEmAndamento(event)
 	case "FundamentalInterrompido":
 		return e.applyFundamentalInativo(event)
 	case "EquivalenciaFundamentalReconhecida":
 		return e.applyFundamentalFinalizado(event)
-	case "MatriculaMedioEfetivada", "MedioRetomado":
+	case "MedioRetomado":
 		return e.applyMedioEmAndamento(event)
 	case "MedioInterrompido":
 		return e.applyMedioInativo(event)
 	case "EquivalenciaMedioReconhecida":
 		return e.applyMedioFinalizado(event)
-	case "MatriculaSuperiorEfetivada", "MatriculaSuperiorReativada", "IngressoSuperiorPorEquivalenciaRegistrado":
+	case "MatriculaSuperiorReativada", "IngressoSuperiorPorEquivalenciaRegistrado":
 		return e.applySuperiorEmAndamento(event)
-	case "SuperiorTrancado", "SuperiorAbandonado":
+	case "SuperiorInterrompido", "SuperiorAbandonado":
 		return e.applySuperiorInativo(event)
 	case "EstudanteDesvinculadoDaAcademia":
 		return e.applyEstudanteDesvinculadoDaAcademia(event)
@@ -175,15 +175,32 @@ type EstudanteDocumentosCompletadosEvent struct {
 func (e *EstudanteDocumentosCompletadosEvent) GetPayload() interface{} { return e }
 func (e *EstudanteDocumentosCompletadosEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
-type MatriculaFundamentalEfetivadaEvent struct {
+type FundamentalRetomadoEvent struct {
 	BaseEvent
-	AnoEscolar   string
-	EfetivadaPor uuid.UUID
-	EfetivadaAt  time.Time
+	AnoEscolar string
 }
 
-func (e *MatriculaFundamentalEfetivadaEvent) GetPayload() interface{} { return e }
-func (e *MatriculaFundamentalEfetivadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+func (e *FundamentalRetomadoEvent) GetPayload() interface{} { return e }
+func (e *FundamentalRetomadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+type MedioRetomadoEvent struct {
+	BaseEvent
+	AnoEscolar string
+	CursoID    uuid.UUID
+}
+
+func (e *MedioRetomadoEvent) GetPayload() interface{} { return e }
+func (e *MedioRetomadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+type MatriculaSuperiorReativadaEvent struct {
+	BaseEvent
+	CursoID       uuid.UUID
+	AnoSuperior   string
+	SemestreAtual int
+}
+
+func (e *MatriculaSuperiorReativadaEvent) GetPayload() interface{} { return e }
+func (e *MatriculaSuperiorReativadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 type FundamentalInterrompidoEvent struct {
 	BaseEvent
@@ -195,17 +212,6 @@ type FundamentalInterrompidoEvent struct {
 func (e *FundamentalInterrompidoEvent) GetPayload() interface{} { return e }
 func (e *FundamentalInterrompidoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
-type MatriculaMedioEfetivadaEvent struct {
-	BaseEvent
-	AnoEscolar   string
-	CursoID      uuid.UUID
-	EfetivadaPor uuid.UUID
-	EfetivadaAt  time.Time
-}
-
-func (e *MatriculaMedioEfetivadaEvent) GetPayload() interface{} { return e }
-func (e *MatriculaMedioEfetivadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
-
 type MedioInterrompidoEvent struct {
 	BaseEvent
 	Motivo          string
@@ -216,27 +222,15 @@ type MedioInterrompidoEvent struct {
 func (e *MedioInterrompidoEvent) GetPayload() interface{} { return e }
 func (e *MedioInterrompidoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
-type MatriculaSuperiorEfetivadaEvent struct {
+type SuperiorInterrompidoEvent struct {
 	BaseEvent
-	CursoID       uuid.UUID
-	AnoSuperior   string
-	SemestreAtual int
-	EfetivadaPor  uuid.UUID
-	EfetivadaAt   time.Time
+	Motivo          string
+	InterrompidoPor uuid.UUID
+	InterrompidoAt  time.Time
 }
 
-func (e *MatriculaSuperiorEfetivadaEvent) GetPayload() interface{} { return e }
-func (e *MatriculaSuperiorEfetivadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
-
-type SuperiorTrancadoEvent struct {
-	BaseEvent
-	Motivo      string
-	TrancadoPor uuid.UUID
-	TrancadoAt  time.Time
-}
-
-func (e *SuperiorTrancadoEvent) GetPayload() interface{} { return e }
-func (e *SuperiorTrancadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+func (e *SuperiorInterrompidoEvent) GetPayload() interface{} { return e }
+func (e *SuperiorInterrompidoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 type EstudanteDesvinculadoDaAcademiaEvent struct {
 	BaseEvent
@@ -246,6 +240,7 @@ type EstudanteDesvinculadoDaAcademiaEvent struct {
 	Nivel           string
 	DesvinculadoPor uuid.UUID
 	DesvinculadoAt  time.Time
+	SolicitacaoID   string
 }
 
 func (e *EstudanteDesvinculadoDaAcademiaEvent) GetPayload() interface{} { return e }
@@ -264,6 +259,7 @@ type EstudanteReintegradoEvent struct {
 	CursoSuperiorID *uuid.UUID
 	ReintegradoPor  uuid.UUID
 	ReintegradoAt   time.Time
+	SolicitacaoID   string
 }
 
 func (e *EstudanteReintegradoEvent) GetPayload() interface{} { return e }
@@ -658,23 +654,6 @@ func (e *Estudante) AtualizarDadosAcademicos(
 	return e.Apply(event)
 }
 
-func (e *Estudante) MatricularFundamental(anoEscolar string, efetuadoPor uuid.UUID) error {
-	if err := utils.ValidateAnoFundamental(anoEscolar); err != nil {
-		return fmt.Errorf("ano_escolar_fundamental inválido: %w", err)
-	}
-	if e.Status == "arquivado" {
-		return fmt.Errorf("estudante arquivado deve ser reintegrado antes de receber matrícula")
-	}
-	event := &MatriculaFundamentalEfetivadaEvent{
-		BaseEvent:    BaseEvent{EventType: "MatriculaFundamentalEfetivada", AggregateID: e.ID},
-		AnoEscolar:   anoEscolar,
-		EfetivadaPor: efetuadoPor,
-		EfetivadaAt:  time.Now(),
-	}
-	e.RaiseEvent(event)
-	return e.Apply(event)
-}
-
 func (e *Estudante) InterromperFundamental(motivo string, interrompidoPor uuid.UUID) error {
 	if strings.TrimSpace(motivo) == "" {
 		return fmt.Errorf("motivo é obrigatório")
@@ -683,21 +662,6 @@ func (e *Estudante) InterromperFundamental(motivo string, interrompidoPor uuid.U
 		return fmt.Errorf("só pode interromper fundamental em andamento")
 	}
 	event := &FundamentalInterrompidoEvent{BaseEvent: BaseEvent{EventType: "FundamentalInterrompido", AggregateID: e.ID}, Motivo: motivo, InterrompidoPor: interrompidoPor, InterrompidoAt: time.Now()}
-	e.RaiseEvent(event)
-	return e.Apply(event)
-}
-
-func (e *Estudante) MatricularMedio(anoEscolar string, cursoID uuid.UUID, efetuadoPor uuid.UUID) error {
-	if err := utils.ValidateAnoMedio(anoEscolar); err != nil {
-		return fmt.Errorf("ano_escolar_medio inválido: %w", err)
-	}
-	if cursoID == uuid.Nil {
-		return fmt.Errorf("curso_id é obrigatório")
-	}
-	if e.StatusEscolarFundamental != "finalizado" {
-		return fmt.Errorf("matrícula no médio exige status_escolar_fundamental finalizado")
-	}
-	event := &MatriculaMedioEfetivadaEvent{BaseEvent: BaseEvent{EventType: "MatriculaMedioEfetivada", AggregateID: e.ID}, AnoEscolar: anoEscolar, CursoID: cursoID, EfetivadaPor: efetuadoPor, EfetivadaAt: time.Now()}
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
@@ -714,41 +678,37 @@ func (e *Estudante) InterromperMedio(motivo string, interrompidoPor uuid.UUID) e
 	return e.Apply(event)
 }
 
-func (e *Estudante) MatricularSuperior(cursoID uuid.UUID, efetuadoPor uuid.UUID) error {
-	if cursoID == uuid.Nil {
-		return fmt.Errorf("curso_id é obrigatório")
-	}
-	if e.StatusEscolarFundamental != "finalizado" && e.StatusEscolarFundamental != "inativo" {
-		return fmt.Errorf("matrícula superior exige fundamental finalizado ou inativo")
-	}
-	if e.StatusEscolarMedio != "finalizado" && e.StatusEscolarMedio != "inativo" {
-		return fmt.Errorf("matrícula superior exige médio finalizado ou inativo")
-	}
-	ano := "1_ano_superior"
-	semestre := 1
-	if e.CursoSuperiorID != nil && *e.CursoSuperiorID == cursoID {
-		if e.AnoSuperior != nil {
-			ano = *e.AnoSuperior
-		}
-		if e.SemestreAtual != nil && *e.SemestreAtual > 0 {
-			semestre = *e.SemestreAtual
-		}
-	}
-	event := &MatriculaSuperiorEfetivadaEvent{BaseEvent: BaseEvent{EventType: "MatriculaSuperiorEfetivada", AggregateID: e.ID}, CursoID: cursoID, AnoSuperior: ano, SemestreAtual: semestre, EfetivadaPor: efetuadoPor, EfetivadaAt: time.Now()}
-	e.RaiseEvent(event)
-	return e.Apply(event)
-}
-
-func (e *Estudante) TrancarSuperior(motivo string, trancadoPor uuid.UUID) error {
+func (e *Estudante) InterromperSuperior(motivo string, interrompidoPor uuid.UUID) error {
 	if strings.TrimSpace(motivo) == "" {
 		return fmt.Errorf("motivo é obrigatório")
 	}
 	if e.StatusSuperior != "em_andamento" {
-		return fmt.Errorf("só pode trancar superior em andamento")
+		return fmt.Errorf("só pode interromper superior em andamento")
 	}
-	event := &SuperiorTrancadoEvent{BaseEvent: BaseEvent{EventType: "SuperiorTrancado", AggregateID: e.ID}, Motivo: motivo, TrancadoPor: trancadoPor, TrancadoAt: time.Now()}
+	event := &SuperiorInterrompidoEvent{BaseEvent: BaseEvent{EventType: "SuperiorInterrompido", AggregateID: e.ID}, Motivo: motivo, InterrompidoPor: interrompidoPor, InterrompidoAt: time.Now()}
 	e.RaiseEvent(event)
 	return e.Apply(event)
+}
+
+func (e *Estudante) InterromperPercursoAcademico(motivo string, aprovadoPor uuid.UUID) error {
+	etapas := 0
+	var exec func() error
+	if e.StatusEscolarFundamental == "em_andamento" {
+		etapas++
+		exec = func() error { return e.InterromperFundamental(motivo, aprovadoPor) }
+	}
+	if e.StatusEscolarMedio == "em_andamento" {
+		etapas++
+		exec = func() error { return e.InterromperMedio(motivo, aprovadoPor) }
+	}
+	if e.StatusSuperior == "em_andamento" {
+		etapas++
+		exec = func() error { return e.InterromperSuperior(motivo, aprovadoPor) }
+	}
+	if etapas != 1 {
+		return fmt.Errorf("deve existir exatamente uma etapa acadêmica em andamento para interrupção")
+	}
+	return exec()
 }
 
 func (e *Estudante) DesvincularDaAcademia(codigoAcademia, motivo string, desvinculadoPor uuid.UUID) error {
@@ -768,8 +728,8 @@ func (e *Estudante) DesvincularDaAcademia(codigoAcademia, motivo string, desvinc
 }
 
 func (e *Estudante) Reintegrar(codigoAcademia, tipoEnsino string, anoEscolar, anoEscolarMedio *string, cursoMedioID, cursoSuperiorID *uuid.UUID, reintegradoPor uuid.UUID) error {
-	if e.Status != "arquivado" {
-		return fmt.Errorf("apenas estudante arquivado pode ser reintegrado")
+	if e.Status != "inativo" {
+		return fmt.Errorf("apenas estudante inativo pode ser reintegrado")
 	}
 	event := &EstudanteReintegradoEvent{BaseEvent: BaseEvent{EventType: "EstudanteReintegrado", AggregateID: e.ID}, CodigoAcademia: codigoAcademia, CodigoEstudante: e.CodigoEstudante, TipoEnsino: tipoEnsino, ReintegradoPor: reintegradoPor, ReintegradoAt: time.Now()}
 	switch tipoEnsino {
@@ -1039,7 +999,7 @@ func (e *Estudante) applySuperiorEmAndamento(event DomainEvent) error {
 func (e *Estudante) applySuperiorInativo(DomainEvent) error { e.StatusSuperior = "inativo"; return nil }
 
 func (e *Estudante) applyEstudanteDesvinculadoDaAcademia(DomainEvent) error {
-	e.Status = "arquivado"
+	e.Status = "inativo"
 	return nil
 }
 
