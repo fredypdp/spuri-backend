@@ -63,21 +63,21 @@ func (p *EstudanteProjection) Handle(event db.Event) error {
 		return p.handleEstudanteCriadoComVinculo(event)
 	case "EstudanteDocumentosCompletados":
 		return p.handleEstudanteDocumentosCompletados(event)
-	case "MatriculaFundamentalEfetivada", "FundamentalRetomado":
-		return p.handleMatriculaFundamentalEfetivada(event)
+	case "FundamentalRetomado":
+		return p.handleFundamentalRetomado(event)
 	case "FundamentalInterrompido":
 		return p.handleStatusEscolarFundamentalInativo(event)
 	case "EquivalenciaFundamentalReconhecida":
 		return p.handleStatusEscolarFundamentalFinalizado(event)
-	case "MatriculaMedioEfetivada", "MedioRetomado":
-		return p.handleMatriculaMedioEfetivada(event)
+	case "MedioRetomado":
+		return p.handleMedioRetomado(event)
 	case "MedioInterrompido":
 		return p.handleStatusEscolarMedioInativo(event)
 	case "EquivalenciaMedioReconhecida":
 		return p.handleStatusEscolarMedioFinalizado(event)
-	case "MatriculaSuperiorEfetivada", "MatriculaSuperiorReativada", "IngressoSuperiorPorEquivalenciaRegistrado":
-		return p.handleMatriculaSuperiorEfetivada(event)
-	case "SuperiorTrancado", "SuperiorAbandonado":
+	case "MatriculaSuperiorReativada", "IngressoSuperiorPorEquivalenciaRegistrado":
+		return p.handleSuperiorEmAndamento(event)
+	case "SuperiorInterrompido", "SuperiorAbandonado":
 		return p.handleStatusSuperiorInativo(event)
 	case "EstudanteDesvinculadoDaAcademia":
 		return p.handleEstudanteDesvinculadoDaAcademia(event)
@@ -387,12 +387,12 @@ func (p *EstudanteProjection) handleEstudanteDocumentosCompletados(event db.Even
 	return nil
 }
 
-func (p *EstudanteProjection) handleMatriculaFundamentalEfetivada(event db.Event) error {
+func (p *EstudanteProjection) handleFundamentalRetomado(event db.Event) error {
 	var payload struct {
 		AnoEscolar string `json:"AnoEscolar"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("handleMatriculaFundamentalEfetivada: parse error: %w", err)
+		return fmt.Errorf("handleFundamentalRetomado: parse error: %w", err)
 	}
 	if event.EventType == "FundamentalRetomado" {
 		_, err := p.client.DB().Exec(`
@@ -423,13 +423,13 @@ func (p *EstudanteProjection) handleStatusEscolarFundamentalFinalizado(event db.
 	return err
 }
 
-func (p *EstudanteProjection) handleMatriculaMedioEfetivada(event db.Event) error {
+func (p *EstudanteProjection) handleMedioRetomado(event db.Event) error {
 	var payload struct {
 		AnoEscolar string    `json:"AnoEscolar"`
 		CursoID    uuid.UUID `json:"CursoID"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("handleMatriculaMedioEfetivada: parse error: %w", err)
+		return fmt.Errorf("handleMedioRetomado: parse error: %w", err)
 	}
 	if event.EventType == "MedioRetomado" {
 		_, err := p.client.DB().Exec(`
@@ -465,14 +465,14 @@ func (p *EstudanteProjection) handleStatusEscolarMedioFinalizado(event db.Event)
 	return err
 }
 
-func (p *EstudanteProjection) handleMatriculaSuperiorEfetivada(event db.Event) error {
+func (p *EstudanteProjection) handleSuperiorEmAndamento(event db.Event) error {
 	var payload struct {
 		CursoID       uuid.UUID `json:"CursoID"`
 		AnoSuperior   string    `json:"AnoSuperior"`
 		SemestreAtual int       `json:"SemestreAtual"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return fmt.Errorf("handleMatriculaSuperiorEfetivada: parse error: %w", err)
+		return fmt.Errorf("handleSuperiorEmAndamento: parse error: %w", err)
 	}
 	if event.EventType == "MatriculaSuperiorReativada" {
 		_, err := p.client.DB().Exec(`
@@ -509,7 +509,7 @@ func (p *EstudanteProjection) handleStatusSuperiorInativo(event db.Event) error 
 }
 
 func (p *EstudanteProjection) handleEstudanteDesvinculadoDaAcademia(event db.Event) error {
-	_, err := p.client.DB().Exec(`UPDATE projection_estudantes SET status = 'arquivado', version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2 WHERE id = $3`, event.EventVersion, event.EventID, event.AggregateID)
+	_, err := p.client.DB().Exec(`UPDATE projection_estudantes SET status = 'inativo', version = $1, updated_at = CURRENT_TIMESTAMP, last_event_id = $2 WHERE id = $3`, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 

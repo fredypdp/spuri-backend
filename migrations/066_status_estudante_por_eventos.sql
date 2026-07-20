@@ -1,11 +1,11 @@
 -- MIGRATION 066 - Status do estudante controlados por acontecimentos de domínio
 -- Remove o valor legado 'finalizado' do status geral do estudante e adiciona
--- 'arquivado' para preservar histórico após desvinculação da academia.
+-- 'inativo' para preservar histórico após desvinculação da academia.
 
 BEGIN;
 
 UPDATE projection_estudantes
-SET status = 'arquivado'
+SET status = 'inativo'
 WHERE status = 'finalizado';
 
 DO $$
@@ -27,9 +27,9 @@ END $$;
 
 ALTER TABLE projection_estudantes
     ADD CONSTRAINT projection_estudantes_status_check
-        CHECK (status IN ('inativo', 'ativo', 'arquivado'));
+        CHECK (status IN ('inativo', 'ativo'));
 
 COMMENT ON COLUMN projection_estudantes.status IS
-    'Status geral do estudante: inativo | ativo | arquivado. O valor finalizado pertence apenas aos status escolares.';
+    'Status geral do estudante: inativo | ativo. O valor finalizado pertence apenas aos status escolares.';
 
 COMMIT;

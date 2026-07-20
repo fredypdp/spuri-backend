@@ -307,6 +307,9 @@ func setupRouter() *gin.Engine {
 		estudante.GET("/documentos", handlers.ListarMeusDocumentosEstudante)
 		estudante.GET("/documentos/:campo/download", handlers.DownloadMeuDocumentoEstudante)
 		estudante.GET("/categorias-nota", handlers.ListarCategoriasNota)
+		estudante.POST("/solicitacoes-status/interrupcao", handlers.CriarSolicitacaoStatusAcademicoHandler("interrupcao"))
+		estudante.POST("/solicitacoes-status/desvinculacao", handlers.CriarSolicitacaoStatusAcademicoHandler("desvinculacao"))
+		estudante.POST("/solicitacoes-status/revinculacao/:codigo_academia", handlers.CriarSolicitacaoStatusAcademicoHandler("revinculacao"))
 	}
 
 	// ── Rotas de academia ─────────────────────────────────────────────────
@@ -327,6 +330,7 @@ func setupRouter() *gin.Engine {
 		academiaRead.GET("/avaliacao-final/regras", handlers.ListarRegrasAvaliacaoFinal)
 		academiaRead.GET("/solicitacoes-matricula", handlers.ListarSolicitacoesMatriculaAcademia)
 		academiaRead.GET("/solicitacao-matricula/:codigo", handlers.GetSolicitacaoMatriculaAcademia)
+		academiaRead.GET("/solicitacoes-status-academico", handlers.ListarSolicitacoesStatusAcademicoHandler)
 		academiaRead.GET("/documentos", handlers.ListarDocumentosAcademia)
 		academiaRead.GET("/documentos/academia/:campo/download", handlers.DownloadDocumentoAcademiaPropria)
 		academiaRead.GET("/documentos/estudantes/:codigo/:campo/download", handlers.DownloadDocumentoEstudanteAcademia)
@@ -356,14 +360,12 @@ func setupRouter() *gin.Engine {
 		academia.DELETE("/avaliacao-final/regras/:id", handlers.DeletarRegraAvaliacaoFinal)
 		academia.POST("/categorias-nota", handlers.CriarCategoriaNota)
 		academia.DELETE("/categorias-nota/:codigo", handlers.DeletarCategoriaNota)
-		academia.POST("/estudante/:codigo/matricula/fundamental", handlers.MatricularFundamentalHandler)
-		academia.POST("/estudante/:codigo/matricula/medio", handlers.MatricularMedioHandler)
-		academia.POST("/estudante/:codigo/matricula/superior", handlers.MatricularSuperiorHandler)
-		academia.POST("/estudante/:codigo/interrupcao/fundamental", handlers.InterromperFundamentalHandler)
-		academia.POST("/estudante/:codigo/interrupcao/medio", handlers.InterromperMedioHandler)
-		academia.POST("/estudante/:codigo/trancamento/superior", handlers.TrancarSuperiorHandler)
-		academia.POST("/estudante/:codigo/desvincular", handlers.DesvincularEstudanteHandler)
-		academia.POST("/estudante/:codigo/revincular", handlers.ReintegrarEstudanteHandler)
+		academia.POST("/estudante/:codigo/interromper/percurso-academico", handlers.AprovarSolicitacaoStatusAcademicoHandler("interrupcao"))
+		academia.POST("/estudante/:codigo/interromper/percurso-academico/reprovar", handlers.ReprovarSolicitacaoStatusAcademicoHandler("interrupcao"))
+		academia.POST("/estudante/:codigo/desvincular", handlers.AprovarSolicitacaoStatusAcademicoHandler("desvinculacao"))
+		academia.POST("/estudante/:codigo/desvincular/reprovar", handlers.ReprovarSolicitacaoStatusAcademicoHandler("desvinculacao"))
+		academia.POST("/estudante/:codigo/revincular", handlers.AprovarSolicitacaoStatusAcademicoHandler("revinculacao"))
+		academia.POST("/estudante/:codigo/revincular/reprovar", handlers.ReprovarSolicitacaoStatusAcademicoHandler("revinculacao"))
 
 		// ── Cursos ────────────────────────────────────────────────────────
 		academia.POST("/curso", handlers.CriarCurso)

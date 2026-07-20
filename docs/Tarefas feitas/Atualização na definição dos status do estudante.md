@@ -19,8 +19,8 @@ Não deixe nenhum resquício do código legado, porque o sistema ainda não tá 
 
 | Acontecimento proposto                                           | Novo Evento                       | Mudança sugerida    |
 | ---------------------------------------------------------------- | --------------------------------- | ------------------- |
-| Estudante saiu da academia, mas o histórico deve ser preservado  | `EstudanteDesvinculadoDaAcademia` | `ativo → arquivado` |
-| Estudante voltou para a academia após arquivamento/desvinculação | `EstudanteReintegrado`            | `arquivado → ativo` |
+| Estudante saiu da academia, mas o histórico deve ser preservado  | `EstudanteDesvinculadoDaAcademia` | `ativo → inativo` |
+| Estudante voltou para a academia após inativação por desvinculação/desvinculação | `EstudanteReintegrado`            | `inativo → ativo` |
 
 ### Observação importante
 
@@ -52,7 +52,7 @@ Esse tipo é definido como `StatusEscolar = 'inativo' | 'em_andamento' | 'final
 
 | Acontecimento proposto                                         | Evento sugerido                                                                                                      | Mudança sugerida                    |
 | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| Estudante inicia o fundamental naquela academia                | `MatriculaFundamentalEfetivada`                                                                                      | `inativo → em_andamento`            |
+| Estudante inicia o fundamental naquela academia                | `FundamentalRetomado`                                                                                      | `inativo → em_andamento`            |
 | Estudante retoma o fundamental depois de interrupção           | `FundamentalRetomado`                                                                                                | `inativo → em_andamento`            |
 | Estudante conclui o último ano do fundamental                  | Já existe via `AvaliacaoFinalEscolar`, mas poderia ser explicitado como `FundamentalConcluido` derivado da avaliação | `em_andamento → finalizado`         |
 | Estudante tem equivalência/dispensa do fundamental reconhecida | `EquivalenciaFundamentalReconhecida`                                                                                 | `inativo/em_andamento → finalizado` |
@@ -85,8 +85,8 @@ O DTO do estudante possui `status_escolar_medio: StatusEscolar`. {line_range_s
 
 | Acontecimento proposto                                               | Evento sugerido                                                                                             | Mudança sugerida                                                                                                       |
 | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Estudante concluiu fundamental e foi matriculado no médio            | `MatriculaMedioEfetivada`                                                                                   | `status_escolar_medio: inativo → em_andamento`; normalmente `status_escolar_fundamental` já deveria estar `finalizado` |
-| Estudante entra diretamente no médio por equivalência do fundamental | `EquivalenciaFundamentalReconhecida` + `MatriculaMedioEfetivada`                                            | fundamental `finalizado`; médio `em_andamento`                                                                         |
+| Estudante concluiu fundamental e foi matriculado no médio            | `MedioRetomado`                                                                                   | `status_escolar_medio: inativo → em_andamento`; normalmente `status_escolar_fundamental` já deveria estar `finalizado` |
+| Estudante entra diretamente no médio por equivalência do fundamental | `EquivalenciaFundamentalReconhecida` + `MedioRetomado`                                            | fundamental `finalizado`; médio `em_andamento`                                                                         |
 | Estudante troca de curso médio durante o médio                       | Já existe `CursoAlterado`, mas hoje ele **não muda status**; apenas exige que o médio esteja `em_andamento` | Sem mudança de status; manter `em_andamento`                                                                           |
 | Estudante conclui o último ano do médio                              | Já existe via `AvaliacaoFinalEscolar`, mas poderia gerar/ser tratado como `MedioConcluido`                  | `em_andamento → finalizado`                                                                                            |
 | Estudante abandona/interrompe o médio                                | `MedioInterrompido`                                                                                         | `em_andamento → inativo`                                                                                               |
@@ -95,7 +95,7 @@ O DTO do estudante possui `status_escolar_medio: StatusEscolar`. {line_range_s
 
 ### Observação sobre curso médio
 
-Hoje `AlterarCurso` só permite alterar curso médio se `status_escolar_medio == "em_andamento"`.  Isso reforça que o evento de alteração de curso **não deveria ativar o médio por si só**; antes disso deveria existir um acontecimento como `MatriculaMedioEfetivada`. Mas o que eu gostaria é que para o estudante alterar o curso ele só precisa já ter o fundamental finalizado + estar numa academia do nível médio, isso porque talvez tenha interrompido/suspenso o médio e queira retomar mas em outro curso, então depender do status "em_andamento" não seria uma boa ideia"
+Hoje `AlterarCurso` só permite alterar curso médio se `status_escolar_medio == "em_andamento"`.  Isso reforça que o evento de alteração de curso **não deveria ativar o médio por si só**; antes disso deveria existir um acontecimento como `MedioRetomado`. Mas o que eu gostaria é que para o estudante alterar o curso ele só precisa já ter o fundamental finalizado + estar numa academia do nível médio, isso porque talvez tenha interrompido/suspenso o médio e queira retomar mas em outro curso, então depender do status "em_andamento" não seria uma boa ideia"
 
 ---
 
@@ -122,17 +122,17 @@ O DTO do estudante possui `status_superior: StatusEscolar`. {line_range_start=
 
 | Acontecimento proposto                                                 | Evento sugerido                                                                                | Mudança sugerida                             |
 | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| Estudante concluiu médio e foi matriculado no superior                 | `MatriculaSuperiorEfetivada`                                                                   | `status_superior: inativo → em_andamento`    |
+| Estudante concluiu médio e foi matriculado no superior                 | `MatriculaSuperiorReativada`                                                                   | `status_superior: inativo → em_andamento`    |
 | Estudante ingressou no superior por equivalência/transferência externa | `IngressoSuperiorPorEquivalenciaRegistrado`                                                    | `inativo → em_andamento`                     |
 | Estudante alterou curso superior                                       | Já existe `CursoAlterado`, mas hoje exige `status_superior = em_andamento` e não muda status   | Sem mudança de status; manter `em_andamento` |
 | Estudante conclui o último semestre/ano superior                       | Já existe via `AvaliacaoFinalSuperior`, mas poderia gerar/ser tratado como `SuperiorConcluido` | `em_andamento → finalizado`                  |
-| Estudante tranca curso superior                                        | `SuperiorTrancado`                                                                             | `em_andamento → inativo`                     |
+| Estudante tranca curso superior                                        | `SuperiorInterrompido`                                                                             | `em_andamento → inativo`                     |
 | Estudante reabre matrícula após trancamento                            | `MatriculaSuperiorReativada`                                                                   | `inativo → em_andamento`                     |
 | Estudante abandona o superior                                          | `SuperiorAbandonado`                                                                           | `em_andamento → inativo`                     |
 
 ### Regra já existente para avanço do superior
 
-O método direto atual `AtualizarStatusSuperior` já possui uma regra: o superior só pode avançar para `em_andamento` ou `finalizado` se fundamental e médio estiverem `finalizado` ou `inativo`.  Na nova modelagem, essa regra deveria sair do “set status superior” e ir para o acontecimento real, por exemplo `MatriculaSuperiorEfetivada`.
+O método direto atual `AtualizarStatusSuperior` já possui uma regra: o superior só pode avançar para `em_andamento` ou `finalizado` se fundamental e médio estiverem `finalizado` ou `inativo`.  Na nova modelagem, essa regra deveria sair do “set status superior” e ir para o acontecimento real, por exemplo `MatriculaSuperiorReativada`.
 
 ---
 
@@ -169,12 +169,12 @@ Na nova regra, esses endpoints deveriam ser substituídos por endpoints de acont
 
 | Endpoint novo sugerido                                     | Evento gerado                   |
 | ---------------------------------------------------------- | ------------------------------- |
-| `POST /academia/estudante/:codigo/matricula/fundamental`   | `MatriculaFundamentalEfetivada` |
-| `POST /academia/estudante/:codigo/matricula/medio`         | `MatriculaMedioEfetivada`       |
-| `POST /academia/estudante/:codigo/matricula/superior`      | `MatriculaSuperiorEfetivada`    |
-| `POST /academia/estudante/:codigo/interrupcao/fundamental` | `FundamentalInterrompido`       |
-| `POST /academia/estudante/:codigo/interrupcao/medio`       | `MedioInterrompido`             |
-| `POST /academia/estudante/:codigo/trancamento/superior`    | `SuperiorTrancado`              |
+| `POST /academia/estudante/:codigo/interromper/percurso-academico`   | `FundamentalRetomado` |
+| `POST /academia/estudante/:codigo/interromper/percurso-academico`         | `MedioRetomado`       |
+| `POST /academia/estudante/:codigo/interromper/percurso-academico`      | `MatriculaSuperiorReativada`    |
+| `POST /academia/estudante/:codigo/interromper/percurso-academico` | `FundamentalInterrompido`       |
+| `POST /academia/estudante/:codigo/interromper/percurso-academico`       | `MedioInterrompido`             |
+| `POST /academia/estudante/:codigo/interromper/percurso-academico`    | `SuperiorInterrompido`              |
 | `POST /academia/estudante/:codigo/arquivar`                | `EstudanteArquivado`            |
 | `POST /academia/estudante/:codigo/reativar`                | `EstudanteReativado`            |
 Para os novos eventos do status geral:

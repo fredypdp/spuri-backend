@@ -1,10 +1,10 @@
 ---
 criado: 2026-07-20 00:00
 origem: Lista de tarefas.md
-status: pendente
+status: feito
 ---
 
-# Revisar e ampliar eventos de progressão e status acadêmico do estudante (pendente)
+# Revisar e ampliar eventos de progressão e status acadêmico do estudante (feito)
 
 ## Prompt recomendado para executar a atualização
 
