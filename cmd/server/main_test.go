@@ -311,3 +311,26 @@ func TestInitStorageDoesNotFallbackToLocalWhenMegaConfigurationFails(t *testing.
 		t.Fatal("initStorage() error = nil, want Mega configuration error instead of local fallback")
 	}
 }
+
+func TestLegacyStudentProgressionAndInterruptionRoutesAreRemoved(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := setupRouter()
+
+	for _, path := range []string{
+		"/academia/estudante/EST001/matricula/fundamental",
+		"/academia/estudante/EST001/matricula/medio",
+		"/academia/estudante/EST001/matricula/superior",
+		"/academia/estudante/EST001/interrupcao/fundamental",
+		"/academia/estudante/EST001/interrupcao/medio",
+		"/academia/estudante/EST001/trancamento/superior",
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected legacy POST %s to be removed with 404, got %d", path, w.Code)
+		}
+	}
+}
