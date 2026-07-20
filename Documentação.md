@@ -1251,6 +1251,7 @@ Lista todas as academias com paginação e filtro de status.
     }
   ],
   "total": 1,
+  "total_geral": 25,
   "limit": 50,
   "offset": 0
 }
@@ -1275,12 +1276,13 @@ Lista todas as academias com paginação e filtro de status.
     }
   ],
   "total": 25,
+  "total_geral": 25,
   "limit": 50,
   "offset": 0
 }
 ```
 
-**Nota**: usuários autenticados veem os campos operacionais do `AcademiaDTO`, incluindo `documentos.alvara.download_url`; admins veem campos extras (`email`, `total_estudantes`, `version`). O backend nunca retorna mais de 100 academias por página, mesmo que o cliente envie `limit` maior.
+**Nota**: usuários autenticados veem os campos operacionais do `AcademiaDTO`, incluindo `documentos.alvara.download_url`; admins veem campos extras (`email`, `total_estudantes`, `version`). O backend nunca retorna mais de 100 academias por página, mesmo que o cliente envie `limit` maior. Em listagens paginadas, `total` indica a quantidade de itens retornados na página atual, enquanto `total_geral` indica a quantidade total de itens no escopo da consulta depois dos filtros e antes de aplicar `limit`/`offset`.
 
 ---
 
@@ -2378,6 +2380,7 @@ Lista estudantes. Retorna apenas os da academia (para academia) ou todos (para a
 {
   "estudantes": [EstudanteDTO],
   "total": 50,
+  "total_geral": 375,
   "tipo_usuario": "academia",
   "codigo_academia": "LDA20261",
   "nome_academia": "string",
@@ -2385,6 +2388,8 @@ Lista estudantes. Retorna apenas os da academia (para academia) ou todos (para a
   "offset": 0
 }
 ```
+
+`total` é a quantidade de estudantes retornados na página atual. `total_geral` é a contagem total de estudantes no escopo do usuário e filtros aplicados, ignorando `limit`/`offset`.
 
 **Erros de validação (400):**
 
@@ -2895,10 +2900,13 @@ Retorna as avaliações finais do estudante autenticado.
 {
   "avaliacoes": [AvaliacaoFinalDTO],
   "total": 2,
+  "total_geral": 12,
   "limit": 50,
   "offset": 0
 }
 ```
+
+`total` é a quantidade de avaliações retornadas na página atual. `total_geral` é a contagem total de avaliações do estudante autenticado, ignorando `limit`/`offset`.
 
 ---
 
@@ -3016,10 +3024,13 @@ Lista solicitações da academia autenticada em ordem decrescente de criação. 
     }
   ],
   "total": 1,
+  "total_geral": 42,
   "limit": 50,
   "offset": 0
 }
 ```
+
+`total` é a quantidade de solicitações retornadas na página atual. `total_geral` é a contagem total de solicitações no escopo e filtros aplicados, ignorando `limit`/`offset`. A rota admin `GET /solicitacoes-matricula` usa o mesmo contrato.
 
 ### GET /academia/solicitacao-matricula/:codigo
 
@@ -5091,10 +5102,13 @@ Lista avaliações finais. Escopo varia por tipo de usuário.
 {
   "avaliacoes": [AvaliacaoFinalDTO],
   "total": 50,
+  "total_geral": 240,
   "limit": 50,
   "offset": 0
 }
 ```
+
+`total` é a quantidade de avaliações retornadas na página atual. `total_geral` é a contagem total de avaliações no escopo e filtros aplicados, ignorando `limit`/`offset`.
 
 ---
 
@@ -5123,10 +5137,13 @@ Lista apenas avaliações com `aprovado = true`.
 {
   "aprovacoes": [AvaliacaoFinalDTO],
   "total": 35,
+  "total_geral": 180,
   "limit": 50,
   "offset": 0
 }
 ```
+
+`total` é a quantidade de aprovações retornadas na página atual. `total_geral` é a contagem total de aprovações no escopo e filtros aplicados, ignorando `limit`/`offset`.
 
 ---
 
@@ -5155,10 +5172,13 @@ Lista apenas avaliações com `aprovado = false`.
 {
   "reprovacoes": [AvaliacaoFinalDTO],
   "total": 15,
+  "total_geral": 60,
   "limit": 50,
   "offset": 0
 }
 ```
+
+`total` é a quantidade de reprovações retornadas na página atual. `total_geral` é a contagem total de reprovações no escopo e filtros aplicados, ignorando `limit`/`offset`.
 
 ---
 
@@ -5183,10 +5203,13 @@ Retorna avaliações finais de um estudante específico.
   "nome": "string",
   "avaliacoes": [AvaliacaoFinalDTO],
   "total": 3,
+  "total_geral": 9,
   "limit": 50,
   "offset": 0
 }
 ```
+
+`total` é a quantidade de avaliações retornadas na página atual. `total_geral` é a contagem total de avaliações desse estudante no escopo permitido ao usuário, ignorando `limit`/`offset`.
 
 ---
 
