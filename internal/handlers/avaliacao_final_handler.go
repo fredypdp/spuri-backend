@@ -926,8 +926,8 @@ func ListarAvaliacoes(c *gin.Context) {
 			return
 		}
 		avaliacoes = filtrarAvaliacoesMemoria(avaliacoes, filtros)
-		avaliacoes, total, limit, offset := paginarAvaliacoesFinais(c, avaliacoes)
-		c.JSON(http.StatusOK, gin.H{"avaliacoes": avaliacoes, "total": total, "limit": limit, "offset": offset})
+		avaliacoes, totalGeral, limit, offset := paginarAvaliacoesFinais(c, avaliacoes)
+		c.JSON(http.StatusOK, gin.H{"avaliacoes": avaliacoes, "total": len(avaliacoes), "total_geral": totalGeral, "limit": limit, "offset": offset})
 
 	case "academia":
 		academiaProj := getAcademiaProjection(c)
@@ -946,8 +946,8 @@ func ListarAvaliacoes(c *gin.Context) {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-		avaliacoes, total, limit, offset := paginarAvaliacoesFinais(c, avaliacoes)
-		c.JSON(http.StatusOK, gin.H{"avaliacoes": avaliacoes, "total": total, "limit": limit, "offset": offset})
+		avaliacoes, totalGeral, limit, offset := paginarAvaliacoesFinais(c, avaliacoes)
+		c.JSON(http.StatusOK, gin.H{"avaliacoes": avaliacoes, "total": len(avaliacoes), "total_geral": totalGeral, "limit": limit, "offset": offset})
 
 	default: // admin
 		if filtros.CodigoTurma != nil && filtros.CodigoAcademia == nil {
@@ -959,8 +959,8 @@ func ListarAvaliacoes(c *gin.Context) {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-		avaliacoes, total, limit, offset := paginarAvaliacoesFinais(c, avaliacoes)
-		c.JSON(http.StatusOK, gin.H{"avaliacoes": avaliacoes, "total": total, "limit": limit, "offset": offset})
+		avaliacoes, totalGeral, limit, offset := paginarAvaliacoesFinais(c, avaliacoes)
+		c.JSON(http.StatusOK, gin.H{"avaliacoes": avaliacoes, "total": len(avaliacoes), "total_geral": totalGeral, "limit": limit, "offset": offset})
 	}
 }
 
@@ -1000,12 +1000,13 @@ func GetAvaliacoesFinaisEstudante(c *gin.Context) {
 		return
 	}
 
-	avaliacoes, total, limit, offset := paginarAvaliacoesFinais(c, avaliacoes)
+	avaliacoes, totalGeral, limit, offset := paginarAvaliacoesFinais(c, avaliacoes)
 	c.JSON(http.StatusOK, gin.H{
 		"codigo_estudante": codigoEstudante,
 		"nome":             estudante.Nome,
 		"avaliacoes":       avaliacoes,
-		"total":            total,
+		"total":            len(avaliacoes),
+		"total_geral":      totalGeral,
 		"limit":            limit,
 		"offset":           offset,
 	})
@@ -1043,8 +1044,8 @@ func ListarAprovacoes(c *gin.Context) {
 			return
 		}
 		aprovacoes = filtrarAvaliacoesMemoria(aprovacoes, filtros)
-		aprovacoes, total, limit, offset := paginarAvaliacoesFinais(c, aprovacoes)
-		c.JSON(http.StatusOK, gin.H{"aprovacoes": aprovacoes, "total": total, "limit": limit, "offset": offset})
+		aprovacoes, totalGeral, limit, offset := paginarAvaliacoesFinais(c, aprovacoes)
+		c.JSON(http.StatusOK, gin.H{"aprovacoes": aprovacoes, "total": len(aprovacoes), "total_geral": totalGeral, "limit": limit, "offset": offset})
 
 	case "academia":
 		academiaProj := getAcademiaProjection(c)
@@ -1063,8 +1064,8 @@ func ListarAprovacoes(c *gin.Context) {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-		aprovacoes, total, limit, offset := paginarAvaliacoesFinais(c, aprovacoes)
-		c.JSON(http.StatusOK, gin.H{"aprovacoes": aprovacoes, "total": total, "limit": limit, "offset": offset})
+		aprovacoes, totalGeral, limit, offset := paginarAvaliacoesFinais(c, aprovacoes)
+		c.JSON(http.StatusOK, gin.H{"aprovacoes": aprovacoes, "total": len(aprovacoes), "total_geral": totalGeral, "limit": limit, "offset": offset})
 
 	default: // admin
 		if filtros.CodigoTurma != nil && filtros.CodigoAcademia == nil {
@@ -1076,8 +1077,8 @@ func ListarAprovacoes(c *gin.Context) {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-		aprovacoes, total, limit, offset := paginarAvaliacoesFinais(c, aprovacoes)
-		c.JSON(http.StatusOK, gin.H{"aprovacoes": aprovacoes, "total": total, "limit": limit, "offset": offset})
+		aprovacoes, totalGeral, limit, offset := paginarAvaliacoesFinais(c, aprovacoes)
+		c.JSON(http.StatusOK, gin.H{"aprovacoes": aprovacoes, "total": len(aprovacoes), "total_geral": totalGeral, "limit": limit, "offset": offset})
 	}
 }
 
@@ -1110,8 +1111,8 @@ func ListarReprovacoes(c *gin.Context) {
 			return
 		}
 		reprovacoes = filtrarAvaliacoesMemoria(reprovacoes, filtros)
-		reprovacoes, total, limit, offset := paginarAvaliacoesFinais(c, reprovacoes)
-		c.JSON(http.StatusOK, gin.H{"reprovacoes": reprovacoes, "total": total, "limit": limit, "offset": offset})
+		reprovacoes, totalGeral, limit, offset := paginarAvaliacoesFinais(c, reprovacoes)
+		c.JSON(http.StatusOK, gin.H{"reprovacoes": reprovacoes, "total": len(reprovacoes), "total_geral": totalGeral, "limit": limit, "offset": offset})
 
 	case "academia":
 		academiaProj := getAcademiaProjection(c)
@@ -1130,8 +1131,8 @@ func ListarReprovacoes(c *gin.Context) {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-		reprovacoes, total, limit, offset := paginarAvaliacoesFinais(c, reprovacoes)
-		c.JSON(http.StatusOK, gin.H{"reprovacoes": reprovacoes, "total": total, "limit": limit, "offset": offset})
+		reprovacoes, totalGeral, limit, offset := paginarAvaliacoesFinais(c, reprovacoes)
+		c.JSON(http.StatusOK, gin.H{"reprovacoes": reprovacoes, "total": len(reprovacoes), "total_geral": totalGeral, "limit": limit, "offset": offset})
 
 	default: // admin
 		if filtros.CodigoTurma != nil && filtros.CodigoAcademia == nil {
@@ -1143,8 +1144,8 @@ func ListarReprovacoes(c *gin.Context) {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
-		reprovacoes, total, limit, offset := paginarAvaliacoesFinais(c, reprovacoes)
-		c.JSON(http.StatusOK, gin.H{"reprovacoes": reprovacoes, "total": total, "limit": limit, "offset": offset})
+		reprovacoes, totalGeral, limit, offset := paginarAvaliacoesFinais(c, reprovacoes)
+		c.JSON(http.StatusOK, gin.H{"reprovacoes": reprovacoes, "total": len(reprovacoes), "total_geral": totalGeral, "limit": limit, "offset": offset})
 	}
 }
 

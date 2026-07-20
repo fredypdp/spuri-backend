@@ -499,18 +499,29 @@ func ListarTodasAcademias(c *gin.Context) {
 		) est_count ON est_count.codigo_academia = pa.codigo_academia`
 
 	var (
-		rows *sql.Rows
-		err  error
+		rows       *sql.Rows
+		err        error
+		totalGeral int
 	)
 
 	statusFilter := c.Query("status")
 	switch statusFilter {
 	case "ativo", "inativo":
+		if err = client.DB().QueryRow(`SELECT COUNT(*) FROM projection_academias WHERE status = $1`, statusFilter).Scan(&totalGeral); err != nil {
+			log.Printf("[ERROR] ListarTodasAcademias: erro ao contar academias: %v", err)
+			utils.RespondWithInternalError(c, err)
+			return
+		}
 		rows, err = client.DB().Query(
 			baseSelect+` WHERE pa.status = $1 ORDER BY pa.nome ASC LIMIT $2 OFFSET $3`,
 			statusFilter, limit, offset,
 		)
 	default:
+		if err = client.DB().QueryRow(`SELECT COUNT(*) FROM projection_academias`).Scan(&totalGeral); err != nil {
+			log.Printf("[ERROR] ListarTodasAcademias: erro ao contar academias: %v", err)
+			utils.RespondWithInternalError(c, err)
+			return
+		}
 		rows, err = client.DB().Query(
 			baseSelect+` ORDER BY pa.nome ASC LIMIT $1 OFFSET $2`,
 			limit, offset,
@@ -626,10 +637,11 @@ func ListarTodasAcademias(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"academias": academias,
-		"total":     len(academias),
-		"limit":     limit,
-		"offset":    offset,
+		"academias":   academias,
+		"total":       len(academias),
+		"total_geral": totalGeral,
+		"limit":       limit,
+		"offset":      offset,
 	})
 }
 

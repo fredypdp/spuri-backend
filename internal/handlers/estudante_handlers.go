@@ -379,9 +379,15 @@ func ListarEstudantes(c *gin.Context) {
 		argsAcademia = append(argsAcademia, academiaDTO.CodigoAcademia)
 		where := append([]string{}, conditions...)
 		where = append(where, fmt.Sprintf("e.codigo_academia = $%d", len(argsAcademia)))
+		whereSQL := ` WHERE ` + strings.Join(where, " AND ")
+		var totalGeral int
+		if err = client.DB().QueryRow(`SELECT COUNT(DISTINCT e.id) FROM projection_estudantes e LEFT JOIN projection_turmas t ON t.codigo_academia = e.codigo_academia AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(t.estudantes, '[]'::jsonb)) AS cod(codigo) WHERE cod.codigo = e.codigo_estudante)`+whereSQL, argsAcademia...).Scan(&totalGeral); err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
 		argsAcademia = append(argsAcademia, limit, offset)
 		rows, err = client.DB().Query(
-			baseQuery+` WHERE `+strings.Join(where, " AND ")+fmt.Sprintf(` ORDER BY e.created_at DESC LIMIT $%d OFFSET $%d`, len(argsAcademia)-1, len(argsAcademia)),
+			baseQuery+whereSQL+fmt.Sprintf(` ORDER BY e.created_at DESC LIMIT $%d OFFSET $%d`, len(argsAcademia)-1, len(argsAcademia)),
 			argsAcademia...,
 		)
 		if err != nil {
@@ -393,6 +399,7 @@ func ListarEstudantes(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"estudantes":      estudantes,
 			"total":           len(estudantes),
+			"total_geral":     totalGeral,
 			"tipo_usuario":    "academia",
 			"codigo_academia": academiaDTO.CodigoAcademia,
 			"nome_academia":   academiaDTO.Nome,
@@ -409,8 +416,15 @@ func ListarEstudantes(c *gin.Context) {
 		}
 
 		query := baseQuery
+		whereSQL := ""
 		if len(conditions) > 0 {
-			query += ` WHERE ` + strings.Join(conditions, " AND ")
+			whereSQL = ` WHERE ` + strings.Join(conditions, " AND ")
+			query += whereSQL
+		}
+		var totalGeral int
+		if err = client.DB().QueryRow(`SELECT COUNT(DISTINCT e.id) FROM projection_estudantes e LEFT JOIN projection_turmas t ON t.codigo_academia = e.codigo_academia AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(t.estudantes, '[]'::jsonb)) AS cod(codigo) WHERE cod.codigo = e.codigo_estudante)`+whereSQL, args...).Scan(&totalGeral); err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
 		}
 		args = append(args, limit, offset)
 		query += fmt.Sprintf(` ORDER BY e.created_at DESC LIMIT $%d OFFSET $%d`, len(args)-1, len(args))
@@ -424,6 +438,7 @@ func ListarEstudantes(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"estudantes":   estudantes,
 			"total":        len(estudantes),
+			"total_geral":  totalGeral,
 			"tipo_usuario": "admin",
 			"limit":        limit,
 			"offset":       offset,
@@ -697,12 +712,13 @@ func GetMinhasAvaliacoes(c *gin.Context) {
 		return
 	}
 
-	avaliacoes, total, limit, offset := paginarAvaliacoesFinais(c, avaliacoes)
+	avaliacoes, totalGeral, limit, offset := paginarAvaliacoesFinais(c, avaliacoes)
 	c.JSON(http.StatusOK, gin.H{
-		"avaliacoes": avaliacoes,
-		"total":      total,
-		"limit":      limit,
-		"offset":     offset,
+		"avaliacoes":  avaliacoes,
+		"total":       len(avaliacoes),
+		"total_geral": totalGeral,
+		"limit":       limit,
+		"offset":      offset,
 	})
 }
 
