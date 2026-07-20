@@ -73,6 +73,24 @@ func parseCadastroEstudanteAsyncDate(value string) (time.Time, error) {
 	return parsed, nil
 }
 
+type asyncUploadedPDF struct {
+	Field string `json:"field"`
+	Data  []byte `json:"data"`
+	Size  int64  `json:"size"`
+}
+
+func newAsyncUploadedPDF(pdf uploadedPDF) asyncUploadedPDF {
+	return asyncUploadedPDF{Field: pdf.field, Data: pdf.data, Size: pdf.size}
+}
+
+func (pdf asyncUploadedPDF) toUploadedPDF(fallbackField string) uploadedPDF {
+	field := strings.TrimSpace(pdf.Field)
+	if field == "" {
+		field = fallbackField
+	}
+	return uploadedPDF{field: field, data: pdf.Data, size: pdf.Size}
+}
+
 type cadastroEstudanteJSONItem struct {
 	CodigoTemporario       string                                   `json:"codigo_temporario"`
 	Nome                   string                                   `json:"nome"`
@@ -90,6 +108,7 @@ type cadastroEstudanteJSONItem struct {
 	CursoSuperiorID        string                                   `json:"curso_superior_id"`
 	DeclaracaoAnoAcademico string                                   `json:"declaracao_ano_academico"`
 	Documentos             map[string]aggregates.DocumentoMatricula `json:"documentos"`
+	Arquivos               map[string]asyncUploadedPDF              `json:"arquivos,omitempty"`
 }
 
 func (item cadastroEstudanteJSONItem) toCadastroRequest() (CadastroEstudanteAcademiaRequest, string, error) {
@@ -128,7 +147,15 @@ func RegisterEstudantePorAcademiaJobItem(c *gin.Context) {
 		return
 	}
 
-	registerEstudantePorAcademiaComRequest(c, req, map[string]uploadedPDF{}, declaracaoAnoAcademico)
+	files := map[string]uploadedPDF{}
+	for field, pdf := range item.Arquivos {
+		files[field] = pdf.toUploadedPDF(field)
+	}
+	if len(files) > 0 {
+		c.Set("permitir_pendencia_documentos_em_falha_storage", true)
+	}
+
+	registerEstudantePorAcademiaComRequestModo(c, req, files, declaracaoAnoAcademico, len(files) == 0)
 }
 
 func AtivarAcademiaJobItem(c *gin.Context) {

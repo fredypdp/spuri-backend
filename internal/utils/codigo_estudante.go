@@ -30,9 +30,8 @@ func GenerateCodigoEstudante() string {
 // ⚠️  IMPORTANTE PARA O CALLER: esta função reduz a chance de colisão, mas a
 // janela entre o SELECT EXISTS aqui e o INSERT no caller ainda existe em
 // cenários de altíssima concorrência. O UNIQUE constraint em
-// projection_estudantes.codigo_estudante é a guarda definitiva — se o INSERT
-// falhar com violação de unique, o caller deve retentar chamando esta função
-// novamente.
+// projection_estudantes.codigo_estudante é a guarda definitiva depois do evento,
+// e codigo_estudante_reservas fecha a janela de concorrência antes do INSERT.
 func GenerateUniqueCodigoEstudante(db *sqlx.DB) (string, error) {
 	log.Printf("🔄 [GenerateUniqueCodigoEstudante] Iniciando geração de código único")
 
@@ -48,35 +47,46 @@ func GenerateUniqueCodigoEstudante(db *sqlx.DB) (string, error) {
 			continue
 		}
 
-		// Verifica unicidade tanto na projeção quanto no ledger de eventos.
-		// Isso evita colisões quando a projeção está defasada/atrasada.
+		// Verifica unicidade na projeção, no ledger de eventos e na tabela de
+		// reservas. A reserva é gravada antes do retorno para fechar a janela de
+		// corrida entre geração do código e persistência do evento pelo caller.
 		const query = `
-			SELECT EXISTS (
-				SELECT 1 FROM projection_estudantes WHERE codigo_estudante = $1
-				UNION ALL
-				SELECT 1 FROM spuri_ledger
-				WHERE aggregate_type = 'Estudante'
-				  AND event_type = 'EstudanteCriadoComVinculo'
-				  AND payload->>'CodigoEstudante' = $1
+			WITH codigo_livre AS (
+				SELECT NOT EXISTS (
+					SELECT 1 FROM projection_estudantes WHERE codigo_estudante = $1
+					UNION ALL
+					SELECT 1 FROM spuri_ledger
+					WHERE aggregate_type = 'Estudante'
+					  AND event_type = 'EstudanteCriadoComVinculo'
+					  AND payload->>'CodigoEstudante' = $1
+					UNION ALL
+					SELECT 1 FROM codigo_estudante_reservas WHERE codigo_estudante = $1
+				) AS livre
+			), reserva AS (
+				INSERT INTO codigo_estudante_reservas (codigo_estudante)
+				SELECT $1 FROM codigo_livre WHERE livre
+				ON CONFLICT DO NOTHING
+				RETURNING codigo_estudante
 			)
+			SELECT EXISTS (SELECT 1 FROM reserva)
 		`
 
-		var exists bool
-		err := db.QueryRow(query, codigo).Scan(&exists)
+		var reserved bool
+		err := db.QueryRow(query, codigo).Scan(&reserved)
 
 		if err != nil {
-			log.Printf("❌ [GenerateUniqueCodigoEstudante] Erro ao verificar código: %v", err)
-			return "", fmt.Errorf("erro ao verificar código: %w", err)
+			log.Printf("❌ [GenerateUniqueCodigoEstudante] Erro ao reservar código: %v", err)
+			return "", fmt.Errorf("erro ao reservar código: %w", err)
 		}
 
-		log.Printf("🔎 [GenerateUniqueCodigoEstudante] Código %s - Existe: %v", codigo, exists)
+		log.Printf("🔎 [GenerateUniqueCodigoEstudante] Código %s - Reservado: %v", codigo, reserved)
 
-		if !exists {
-			log.Printf("✅ [GenerateUniqueCodigoEstudante] Código único gerado com sucesso: %s", codigo)
+		if reserved {
+			log.Printf("✅ [GenerateUniqueCodigoEstudante] Código único reservado com sucesso: %s", codigo)
 			return codigo, nil
 		}
 
-		log.Printf("🔁 [GenerateUniqueCodigoEstudante] Código %s já existe, tentando novamente...", codigo)
+		log.Printf("🔁 [GenerateUniqueCodigoEstudante] Código %s já existe ou já está reservado, tentando novamente...", codigo)
 	}
 
 	log.Printf("❌ [GenerateUniqueCodigoEstudante] Falha após %d tentativas", maxAttempts)

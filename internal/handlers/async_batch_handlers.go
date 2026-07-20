@@ -11,6 +11,7 @@ import (
 	"spuri/internal/utils"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // enqueueAsyncBatch é o helper central para todos os endpoints batch assíncronos.
@@ -44,7 +45,37 @@ func enqueueAsyncBatch(c *gin.Context, jobType jobs.JobType, maxItems int) {
 		return
 	}
 
-	// Enfileirar no worker (não bloqueante)
+	publishAndReturnEnqueuedJob(c, j, userID)
+}
+
+func enqueueAsyncBatchPayload(c *gin.Context, jobType jobs.JobType, payload interface{}, totalItems int) {
+	if totalItems == 0 {
+		utils.RespondWithValidationError(c, fmt.Errorf("array não pode ser vazio"))
+		return
+	}
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	store := getJobStore(c)
+	if store == nil {
+		return
+	}
+
+	userID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
+	j, err := store.Enqueue(jobType, userID, userType, json.RawMessage(payloadBytes), totalItems)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	publishAndReturnEnqueuedJob(c, j, userID)
+}
+
+func publishAndReturnEnqueuedJob(c *gin.Context, j *jobs.Job, userID uuid.UUID) {
 	if w := getJobWorker(c); w != nil {
 		w.Enqueue(j)
 	}

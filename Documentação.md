@@ -2296,7 +2296,7 @@ Cadastra estudantes em lote. O campo `com_arquivo` é obrigatório e define o co
 }
 ```
 
-Neste modo são validados somente os campos textuais pelas mesmas regras de `POST /academia/estudante/register`, sem cobrança de PDFs. Cada estudante é criado com `status = "pendente_documentos"` e não deve ser tratado como ativo até concluir a documentação pela rota posterior. Envio de arquivos com `com_arquivo: false` ou `com_arquivo` ausente/inválido é rejeitado.
+Neste modo a requisição retorna imediatamente `202 Accepted` e cria um job de background, igual aos demais endpoints `/async` em lote. Use `poll_url` (`GET /jobs/:id`) ou `sse_url` (`GET /jobs/stream`) para acompanhar progresso, desempenho e resultados item a item. Durante o processamento são validados somente os campos textuais pelas mesmas regras de `POST /academia/estudante/register`, sem cobrança de PDFs. Cada estudante criado fica com `status = "pendente_documentos"` e não deve ser tratado como ativo até concluir a documentação pela rota posterior. Envio de arquivos com `com_arquivo: false` ou `com_arquivo` ausente/inválido é rejeitado.
 
 **Modo com arquivos (`multipart/form-data`)**
 
@@ -2319,7 +2319,7 @@ Arquivos órfãos, `codigo_temporario` duplicado, campos documentais desconhecid
 
 Se os dados textuais e os PDFs forem válidos, mas o armazenamento externo falhar durante o upload dos documentos (por exemplo erro transitório do Mega, timeout ou resposta JSON incompleta), o item do lote não é perdido. O backend remove a pasta parcial do estudante, conclui o cadastro textual com `status = "pendente_documentos"` e retorna o `codigo_estudante` no item correspondente para permitir repescagem. Nesse caso, a academia deve reenviar os documentos pela rota `POST /academia/estudante/{codigo_estudante}/documentos`; o estudante não deve ser tratado como ativo até a documentação ser concluída.
 
-**Response:** segue o envelope de lote `{total, sucesso, falhas, items[]}`. Itens salvos por fallback de falha de storage contam como sucesso de cadastro, mas aparecem com `status = "pendente_documentos"` e `documentos_faltantes` na resposta do item.
+**Response:** nos modos JSON sem arquivos e multipart com arquivos retorna `202 Accepted` com `{job_id, total_items, status, poll_url, sse_url}`. Os resultados de cada estudante ficam disponíveis no acompanhamento do job. Itens salvos por fallback de falha de storage contam como sucesso de cadastro, mas aparecem com `status = "pendente_documentos"` e `documentos_faltantes` no resultado do item.
 
 ### POST /academia/estudante/{codigo_estudante}/documentos
 
@@ -5755,7 +5755,7 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 - O limite máximo de itens por requisição depende do endpoint (tabela abaixo).
 - O servidor valida e conta itens diretamente no payload bruto do request (sem dupla serialização), reduzindo risco de timeout no enqueue de lotes grandes.
 
-> Exceção: `POST /academia/estudante/register/async` usa o contrato específico de cadastro em massa com `com_arquivo` descrito na seção da rota, retorna resposta de lote e não cria job de background.
+> Exceção de formato: `POST /academia/estudante/register/async` mantém o contrato específico de cadastro em massa com `com_arquivo` descrito na seção da rota. Tanto JSON sem arquivos (`com_arquivo:false`) quanto multipart com arquivos (`com_arquivo=true`) criam job de background e retornam `202`.
 
 **Response 202 (para endpoints que criam job):**
 
@@ -5772,7 +5772,7 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 
 |Endpoint|Payload por item|Resposta|Limite|
 |---|---|---|---|
-|`POST /academia/estudante/register/async`|`{com_arquivo:false, estudantes:[...]}` ou `multipart/form-data` com `com_arquivo=true`|resposta de lote (`200`/`207`)|100|
+|`POST /academia/estudante/register/async`|`{com_arquivo:false, estudantes:[...]}` ou `multipart/form-data` com `com_arquivo=true`|`202` (job criado)|100|
 |`POST /academia/notas-aluno/async`|igual ao `POST /academia/notas-aluno`|`202` (job criado)|2000|
 |`POST /academia/faltas-aluno/async`|igual ao `POST /academia/faltas-aluno`|`202` (job criado)|2000|
 |`POST /academia/curso/async`|igual ao `POST /academia/curso`|`202` (job criado)|200|
