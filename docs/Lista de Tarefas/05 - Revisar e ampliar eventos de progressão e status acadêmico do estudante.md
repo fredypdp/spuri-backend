@@ -318,19 +318,23 @@ Criar mecanismo de solicitação -> decisão para revinculação:
 5. somente a aprovação emite `EstudanteReintegrado` ou o evento equivalente de revinculação;
 6. aprovação define `status = "ativo"` e reativa a etapa indicada/derivada como `em_andamento`, respeitando as regras de negócio mantidas.
 
+Na aprovação da revinculação, o backend deve recuperar a posição acadêmica que o estudante tinha **na academia que está aprovando a revinculação**, e não uma posição genérica/global do estudante. Isso significa buscar, no histórico daquela academia específica, o último nível, ano acadêmico, curso e semestre em que o estudante estava quando foi desvinculado, usando esses dados como base da retomada e das validações.
+
 A rota `POST /academia/estudante/:codigo/revincular` pode ser mantida como rota de aprovação/execução **apenas se** exigir referência a uma solicitação pendente válida do estudante. Ela não pode reintegrar sem solicitação prévia.
 
 ## Regras mantidas/adaptadas
 
 1. Apenas estudante com `status = "inativo"` por desvinculação pode solicitar/ser revinculado.
 2. `tipo_ensino` continua restrito a `fundamental`, `medio` ou `superior` quando precisar ser enviado.
-3. No médio, curso informado precisa existir, estar ativo, pertencer à academia e ser do tipo `medio`.
-4. No superior, curso informado precisa existir, estar ativo, pertencer à academia e ser do tipo `superior`.
-5. Se curso médio/superior for omitido, o backend reutiliza o curso anterior quando isso for válido; se não houver curso anterior, rejeita.
-6. Se curso informado for diferente do anterior, aplicar a regra de reinício/progressão definida para o domínio, desde que isso não contradiga histórico acadêmico já consolidado.
-7. Revinculação não apaga histórico.
-8. Solicitação decidida é terminal.
-9. Não pode existir mais de uma solicitação pendente de revinculação para o mesmo estudante na mesma academia.
+3. A posição de retomada deve ser resolvida a partir do histórico do estudante **na mesma academia que está aprovando a revinculação**.
+4. O backend deve recuperar, para aquela academia, o último `tipo_ensino`, `ano_escolar_fundamental`, `ano_escolar_medio`, `curso_medio_id`, `ano_superior`, `semestre_atual` e `curso_superior_id` aplicáveis no momento da desvinculação.
+5. No médio, curso informado precisa existir, estar ativo, pertencer à academia e ser do tipo `medio`.
+6. No superior, curso informado precisa existir, estar ativo, pertencer à academia e ser do tipo `superior`.
+7. Se curso médio/superior for omitido, o backend reutiliza o curso anterior daquela academia quando isso for válido; se não houver curso anterior naquela academia, rejeita.
+8. Se curso informado for diferente do curso anterior daquela academia, aplicar a regra de reinício/progressão definida para o domínio, desde que isso não contradiga histórico acadêmico já consolidado.
+9. Revinculação não apaga histórico.
+10. Solicitação decidida é terminal.
+11. Não pode existir mais de uma solicitação pendente de revinculação para o mesmo estudante na mesma academia.
 
 ## Regra especial para fundamental
 
@@ -338,15 +342,18 @@ Para `tipo_ensino = "fundamental"`, a revinculação só pode ser aprovada se o 
 
 O sistema deve conseguir identificar se, após a desvinculação, o estudante continuou em outra academia e progrediu de ano. Se houver evidência de progressão externa no Spuri, a revinculação fundamental para o ano antigo deve ser bloqueada.
 
+Mesmo quando houver histórico do estudante em outras academias, a base da revinculação fundamental é sempre o último ano fundamental registrado **na academia que está aprovando o retorno**. O histórico posterior em outras academias serve para validar se esse retorno ainda é permitido ou se ficou defasado por progressão posterior.
+
 ### Dados mínimos para validar a regra
 
 A implementação deve preservar/consultar informação suficiente para comparar:
 
 1. ano fundamental no momento da desvinculação;
 2. academia de origem da desvinculação;
-3. histórico posterior do estudante em outras academias;
-4. ano fundamental atual/mais recente do estudante no sistema;
-5. eventos de avaliação final/progressão que tenham ocorrido após a desvinculação.
+3. último nível/ano/curso/semestre do estudante naquela academia no momento da desvinculação;
+4. histórico posterior do estudante em outras academias;
+5. ano fundamental atual/mais recente do estudante no sistema;
+6. eventos de avaliação final/progressão que tenham ocorrido após a desvinculação.
 
 ### Resultado esperado
 
@@ -361,11 +368,13 @@ A implementação deve preservar/consultar informação suficiente para comparar
 4. reprovação não altera status;
 5. revinculação fundamental no mesmo ano da desvinculação: sucesso;
 6. revinculação fundamental após progressão em outra academia: rejeitada;
-7. revinculação médio reutilizando curso anterior válido: sucesso;
-8. revinculação médio com curso incompatível/inexistente: rejeitada;
-9. revinculação superior reutilizando curso anterior válido: sucesso;
-10. revinculação superior com curso incompatível/inexistente: rejeitada;
-11. evento final contém referência da solicitação aprovada.
+7. revinculação médio reutilizando curso anterior válido daquela mesma academia: sucesso;
+8. revinculação médio sem curso anterior naquela academia e sem novo curso informado: rejeitada;
+9. revinculação médio com curso incompatível/inexistente: rejeitada;
+10. revinculação superior reutilizando curso anterior válido daquela mesma academia: sucesso;
+11. revinculação superior sem curso anterior naquela academia e sem novo curso informado: rejeitada;
+12. revinculação superior com curso incompatível/inexistente: rejeitada;
+13. evento final contém referência da solicitação aprovada e snapshot da posição acadêmica retomada naquela academia.
 
 ---
 
@@ -445,11 +454,12 @@ A tarefa só deve ser considerada concluída quando:
 13. desvinculação exigir solicitação do estudante e aprovação da academia;
 14. revinculação exigir solicitação do estudante e aprovação da academia;
 15. academia não conseguir executar interrupção, desvinculação ou revinculação sozinha;
-16. revinculação fundamental ser bloqueada quando o estudante tiver progredido de ano em outra academia após a desvinculação;
-17. regras de negócio mantidas das rotas atualizadas continuarem válidas, adaptadas ao novo fluxo de solicitação -> aprovação;
-18. `Documentação.md` e documentação técnica refletirem integralmente o novo contrato;
-19. testes automatizados cobrirem os cenários obrigatórios desta tarefa;
-20. o PR explicar explicitamente que não há suporte legado porque o banco está vazio.
+16. revinculação recuperar a posição acadêmica do estudante na academia que está aprovando o retorno, incluindo nível, ano, curso e semestre aplicáveis;
+17. revinculação fundamental ser bloqueada quando o estudante tiver progredido de ano em outra academia após a desvinculação;
+18. regras de negócio mantidas das rotas atualizadas continuarem válidas, adaptadas ao novo fluxo de solicitação -> aprovação;
+19. `Documentação.md` e documentação técnica refletirem integralmente o novo contrato;
+20. testes automatizados cobrirem os cenários obrigatórios desta tarefa;
+21. o PR explicar explicitamente que não há suporte legado porque o banco está vazio.
 
 ## Procedimento de conclusão
 
