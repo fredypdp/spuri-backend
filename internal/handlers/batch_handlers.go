@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"spuri/internal/jobs"
 	"spuri/internal/utils"
 	"strings"
 
@@ -93,7 +94,19 @@ func RegisterEstudanteBatch(c *gin.Context) {
 		utils.RespondWithValidationError(c, fmt.Errorf("com_arquivo true exige multipart/form-data"))
 		return
 	}
-	processarCadastroEstudanteBatch(c, payload.Estudantes, nil, true)
+	enqueueCadastroEstudanteJSONSemArquivos(c, payload.Estudantes)
+}
+
+func enqueueCadastroEstudanteJSONSemArquivos(c *gin.Context, items []cadastroEstudanteJSONItem) {
+	if err := validarTamanhoBatch(len(items), 100); err != nil {
+		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	if len(items) == 0 {
+		utils.RespondWithValidationError(c, fmt.Errorf("array não pode ser vazio"))
+		return
+	}
+	enqueueAsyncBatchPayload(c, jobs.JobTypeRegisterEstudanteBatch, items, len(items))
 }
 
 func registerEstudanteBatchMultipart(c *gin.Context) {
