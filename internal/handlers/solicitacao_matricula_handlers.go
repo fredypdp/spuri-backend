@@ -234,7 +234,7 @@ func listSolicitacoes(c *gin.Context, codigos []string) {
 	for i := range res.Solicitacoes {
 		res.Solicitacoes[i].Documentos = documentosComDownloadSolicitacao(res.Solicitacoes[i].CodigoSolicitacao, res.Solicitacoes[i].Documentos)
 	}
-	c.JSON(http.StatusOK, gin.H{"solicitacoes": res.Solicitacoes, "total": res.Total, "limit": limit, "offset": offset})
+	c.JSON(http.StatusOK, gin.H{"solicitacoes": res.Solicitacoes, "total": len(res.Solicitacoes), "total_geral": res.Total, "limit": limit, "offset": offset})
 }
 func GetSolicitacaoMatriculaAcademia(c *gin.Context) {
 	academia, ok := currentAcademiaDTO(c)
