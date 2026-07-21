@@ -1,5 +1,5 @@
 ---
-modificado: 28-06-2026 17:10
+modificado: 21-07-2026 00:00
 criado: 05-04-2026 13:01
 ---
 Versão atual: 2.2.0
@@ -18,13 +18,12 @@ Versão atual: 2.2.0
 11. [[#11. Matérias]]
 12. [[#12. Turmas]]
 13. [[#13. Notas]]
-14. [[#14. Sumários/Aulas]]
-15. [[#15. Faltas]]
-16. [[#16. Avaliações Finais]]
-17. [[#17. Admins]]
-18. [[#18. Jobs Assíncronos]]
-19. [[#19. Batch Assíncrono]]
-20. [[#20. Armazenamento]]
+14. [[#14. Faltas]]
+15. [[#15. Avaliações Finais]]
+16. [[#16. Admins]]
+17. [[#17. Jobs Assíncronos]]
+18. [[#18. Batch Assíncrono]]
+19. [[#19. Armazenamento]]
 
 ---
 
@@ -1538,8 +1537,6 @@ Payloads com `codigo_academia`, campos desconhecidos ou campos de substituição
 ```
 
 **Request — médio:** não suportado. Enviar `type="medio"` em `POST /academia/anos-academicos` retorna erro porque anos médios são fixos por modelo.
-
-**Importante:** `PATCH /academia/anos-academicos` foi removido do roteamento e do contrato público. Clientes devem usar `POST` para adicionar e `DELETE` para remover escopos específicos, sem fallback para substituição de lista.
 
 ### DELETE /academia/anos-academicos
 
@@ -3109,25 +3106,224 @@ Turmas organizam estudantes por `nivel`, `turno` e, para médio/superior, por `c
 
 ## 13. Notas
 
-As rotas de notas são `POST /academia/notas-aluno`, `POST /academia/notas-aluno/async`, `GET /notas`, `GET /notas-estudante/:codigo`, `GET /estudante/minhas-avaliacoes`, `GET /estudante/categorias-nota`, `GET /academia/categorias-nota`, `POST /academia/categorias-nota`, `DELETE /academia/categorias-nota/:codigo`, `POST /academia/categorias-nota/async` e `DELETE /academia/categorias-nota/async`. As consultas e regras de categoria superior estão detalhadas nas seções de categorias, avaliação final e batch assíncrono.
+### Processos de negócio — Notas
+
+Notas são registros acadêmicos imutáveis vinculados a estudante, academia, ano letivo ativo, ano acadêmico inferido pelo vínculo do estudante e matéria disciplinar. A academia autenticada registra notas apenas para estudantes da própria instituição e apenas em matérias compatíveis com o nível, curso, ano acadêmico e tipo de ensino. Para academias escolares, `tipo` deve ser `escolar`; para academias superiores, `tipo` deve ser `superior`. O campo `periodo` identifica o período avaliativo aceito para o lançamento.
+
+O lançamento de nota pode acionar avaliações finais automáticas quando a categoria registrada é configurada como `nota_despertadora` de uma regra ativa. Consultas globais são restritas a admin e academia; consultas por estudante aplicam autorização por papel.
+
+### Rotas documentadas neste escopo
+
+| Método | Rota | Proteção | Finalidade |
+| --- | --- | --- | --- |
+| `POST` | `/academia/notas-aluno` | Academia ativa | Registra uma nota individual para estudante da própria academia. |
+| `POST` | `/academia/notas-aluno/async` | Academia ativa | Agenda registro de notas em lote via job assíncrono. |
+| `GET` | `/notas` | Admin ou academia ativa | Lista notas com paginação e filtros; academia consulta somente os próprios dados. |
+| `GET` | `/notas-estudante/:codigo` | Autenticado | Lista notas de um estudante com autorização por papel. |
+
+### `POST /academia/notas-aluno`
+
+**Request:**
+
+```json
+{
+  "codigo_estudante": "EST-2026-0001",
+  "periodo": "1_trimestre",
+  "materia_disciplinar_id": "uuid-da-materia",
+  "tipo": "escolar",
+  "categoria": "mac",
+  "nota": 15.5,
+  "observacao": "Bom desempenho"
+}
+```
+
+**Campos obrigatórios:** `codigo_estudante`, `periodo`, `materia_disciplinar_id`, `tipo`, `categoria` e `nota`. `observacao` é opcional.
+
+**Response 201:**
+
+```json
+{
+  "message": "nota registrada com sucesso",
+  "estudante": "EST-2026-0001",
+  "materia": "Matemática",
+  "tipo": "escolar",
+  "categoria": "mac",
+  "nota": 15.5,
+  "ano_academico": "10_ano_medio",
+  "periodo": "1_trimestre",
+  "periodos_validos": ["1_trimestre", "2_trimestre", "3_trimestre"],
+  "avaliacoes_finais_automaticas": []
+}
+```
+
+### `GET /notas`
+
+Lista notas a partir da projeção global. Admins podem consultar todas as academias e filtrar por `codigo_academia`; academias recebem escopo obrigatório da própria instituição, mesmo que não enviem filtro. A resposta é paginada e ordenada por `registered_at` decrescente.
+
+**Query params aceitos:** `limit`, `offset`, `ano_letivo`, `ano_academico`, `curso_id`, `codigo_turma`, `periodo`, `materia_disciplinar_id`, `codigo_academia` e `categoria`. Parâmetros multi-valor aceitam repetição (`?categoria=mac&categoria=npp`) ou lista separada por vírgulas (`?categoria=mac,npp`). Para admin, `codigo_turma` exige `codigo_academia`.
+
+**Response 200:**
+
+```json
+{
+  "notas": [
+    {
+      "id": "uuid",
+      "codigo_estudante": "EST-2026-0001",
+      "estudante_nome": "Maria Silva",
+      "codigo_academia": "ACAD001",
+      "academia_nome": "Academia Exemplo",
+      "ano_lectivo": "2025_2026",
+      "ano_academico": "10_ano_medio",
+      "periodo": "1_trimestre",
+      "materia_disciplinar_id": "uuid-da-materia",
+      "materia_nome": "Matemática",
+      "tipo": "escolar",
+      "categoria": "mac",
+      "nota": 15.5,
+      "observacao": "Bom desempenho",
+      "registered_at": "2026-07-21T10:30:00Z",
+      "event_id": "event-uuid",
+      "version": 1
+    }
+  ],
+  "total": 1,
+  "total_geral": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+### `GET /notas-estudante/:codigo`
+
+Retorna as notas de um estudante específico. Estudante só consulta o próprio código; academia só consulta estudantes vinculados à própria instituição; admin pode consultar qualquer estudante.
+
+**Query params aceitos:** `ano_letivo`, `ano_academico`, `curso_id`, `periodo`, `materia_disciplinar_id`, `codigo_academia` e `categoria`.
+
+**Response 200:**
+
+```json
+{
+  "codigo_estudante": "EST-2026-0001",
+  "nome": "Maria Silva",
+  "notas": [],
+  "total": 0
+}
+```
+
+### `POST /academia/notas-aluno/async`
+
+Agenda o mesmo contrato de criação de notas em lote pelo sistema de jobs assíncronos. A resposta segue o envelope de criação de job descrito em Batch Assíncrono; cada item do lote usa os campos do lançamento individual.
 
 ---
 
-## 14. Sumários/Aulas
+## 14. Faltas
 
-Sumários/aulas foram removidos do contrato público atual. A aplicação não registra rotas ativas de sumários/aulas no roteador.
+### Processos de negócio — Faltas
+
+Faltas são registros acadêmicos imutáveis vinculados a estudante, academia, ano letivo ativo, ano acadêmico inferido e matéria disciplinar. A academia autenticada registra faltas apenas para estudantes da própria instituição e matérias compatíveis. A data do lançamento é validada pelo intervalo do ano letivo ativo calculado a partir do tipo da academia e da matéria.
+
+Consultas globais são restritas a admin e academia; consultas por estudante aplicam autorização por papel.
+
+### Rotas documentadas neste escopo
+
+| Método | Rota | Proteção | Finalidade |
+| --- | --- | --- | --- |
+| `POST` | `/academia/faltas-aluno` | Academia ativa | Registra faltas individuais para estudante da própria academia. |
+| `POST` | `/academia/faltas-aluno/async` | Academia ativa | Agenda registro de faltas em lote via job assíncrono. |
+| `GET` | `/faltas` | Admin ou academia ativa | Lista faltas com paginação e filtros; academia consulta somente os próprios dados. |
+| `GET` | `/faltas-estudante/:codigo` | Autenticado | Lista faltas de um estudante com autorização por papel. |
+
+### `POST /academia/faltas-aluno`
+
+**Request:**
+
+```json
+{
+  "codigo_estudante": "EST-2026-0001",
+  "data": "2026-03-15",
+  "materia_disciplinar_id": "uuid-da-materia",
+  "quantidade": 2,
+  "observacao": "Ausência justificada posteriormente"
+}
+```
+
+**Campos obrigatórios:** `codigo_estudante`, `data`, `materia_disciplinar_id` e `quantidade`. `quantidade` deve ser maior que zero. `observacao` é opcional.
+
+**Response 201:**
+
+```json
+{
+  "message": "faltas registradas com sucesso",
+  "estudante": "EST-2026-0001",
+  "materia": "Matemática",
+  "quantidade": 2,
+  "ano_academico": "10_ano_medio"
+}
+```
+
+### `GET /faltas`
+
+Lista faltas a partir da projeção global. Admins podem consultar todas as academias e filtrar por `codigo_academia`; academias recebem escopo obrigatório da própria instituição, mesmo que não enviem filtro. A resposta é paginada e ordenada por `registered_at` decrescente.
+
+**Query params aceitos:** `limit`, `offset`, `ano_letivo`, `ano_academico`, `curso_id`, `codigo_turma`, `periodo`, `materia_disciplinar_id` e `codigo_academia`. Em faltas, `periodo` filtra o período da matéria disciplinar. Para admin, `codigo_turma` exige `codigo_academia`.
+
+**Response 200:**
+
+```json
+{
+  "faltas": [
+    {
+      "id": "uuid",
+      "codigo_estudante": "EST-2026-0001",
+      "estudante_nome": "Maria Silva",
+      "codigo_academia": "ACAD001",
+      "academia_nome": "Academia Exemplo",
+      "ano_lectivo": "2025_2026",
+      "ano_academico": "10_ano_medio",
+      "data": "2026-03-15",
+      "materia_disciplinar_id": "uuid-da-materia",
+      "materia_nome": "Matemática",
+      "quantidade": 2,
+      "observacao": "Ausência justificada posteriormente",
+      "registered_at": "2026-07-21T10:30:00Z",
+      "event_id": "event-uuid",
+      "version": 1
+    }
+  ],
+  "total": 1,
+  "total_geral": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+### `GET /faltas-estudante/:codigo`
+
+Retorna as faltas de um estudante específico. Estudante só consulta o próprio código; academia só consulta estudantes vinculados à própria instituição; admin pode consultar qualquer estudante.
+
+**Query params aceitos:** `ano_letivo`, `ano_academico`, `curso_id`, `periodo`, `materia_disciplinar_id` e `codigo_academia`.
+
+**Response 200:**
+
+```json
+{
+  "codigo_estudante": "EST-2026-0001",
+  "nome": "Maria Silva",
+  "faltas": [],
+  "total": 0
+}
+```
+
+### `POST /academia/faltas-aluno/async`
+
+Agenda o mesmo contrato de criação de faltas em lote pelo sistema de jobs assíncronos. A resposta segue o envelope de criação de job descrito em Batch Assíncrono; cada item do lote usa os campos do lançamento individual.
 
 ---
 
-## 15. Faltas
+## 15. Avaliações Finais
 
-As rotas de faltas são `POST /academia/faltas-aluno`, `POST /academia/faltas-aluno/async`, `GET /faltas` e `GET /faltas-estudante/:codigo`. Edição e exclusão de faltas foram removidas; apenas criação e consulta permanecem no contrato.
-
----
-
-## 16. Avaliações Finais
-
-#### 16.1.1 Conceitos funcionais
+#### 15.1.1 Conceitos funcionais
 
 | Conceito | Significado funcional |
 |---|---|
@@ -3147,7 +3343,7 @@ As rotas de faltas são `POST /academia/faltas-aluno`, `POST /academia/faltas-al
 
 A avaliação registrada é idempotente no escopo suportado: o sistema evita gravar duas avaliações com o mesmo estudante, academia, ano letivo, nível interno da avaliação, ano/período acadêmico atual e `type`. Eventos e projeções preservam snapshots de fórmula, regra, matérias e pendências suficientes para auditoria.
 
-#### 16.1.2 Montagem e criação de regras de avaliação final
+#### 15.1.2 Montagem e criação de regras de avaliação final
 
 Na versão 2.1.0, as regras configuráveis de avaliação final são exclusivas do ensino superior. Escolas não criam, editam nem removem regras por endpoint: o padrão avaliativo escolar é fixo do sistema, alinhado às categorias fixas e às etapas oficiais (`nota_professor`, `prova_trimestral`, exames quando aplicável e `nota_pap` no técnico). Na execução automática escolar, não há fallback para regras configuráveis ou legadas da projeção; uma categoria sem `nota_despertadora` fixa simplesmente não dispara avaliação final.
 
@@ -3193,7 +3389,7 @@ A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras d
 | Raiz do Superior | `nivel=superior`, sem `anos_academicos`, fórmula com referências `[categoria]`, `limite_materias_pendentes` definido. |
 | Superior com pendência | Mesma regra superior, matérias com `pendencia_permitida=true` e, quando aplicável, `pendencia_nivel_conclusao` indicando o semestre-limite. |
 
-#### 16.1.3 Fórmulas por nível
+#### 15.1.3 Fórmulas por nível
 
 A regra usa `formula` como texto declarativo. O parser valida referências, operadores, parênteses, constantes, categorias e períodos antes de persistir ou calcular. Erro de fórmula é erro de validação, não falha operacional inesperada.
 
@@ -3207,7 +3403,7 @@ No Superior, o backend preenche o período no momento do cálculo usando a maté
 
 Quando a nota recém-lançada dispara a avaliação final para uma matéria, qualquer referência da fórmula dessa mesma matéria que ainda não tenha nota registrada é calculada como `0` naquele momento. A substituição por zero fica restrita à matéria que recebeu a nota-gatilho (`nota_despertadora` no Superior ou o gatilho escolar fixo equivalente) e é registrada no snapshot de `resultados_materias.notas_substituidas_zero`; matérias que ainda não receberam o próprio gatilho não são forçadas a avaliar. A fórmula sempre lê notas do ano letivo atual, da mesma academia, do mesmo estudante, da matéria avaliada e de categorias extraídas da própria fórmula.
 
-#### 16.1.4 Execução automática por lançamento de notas
+#### 15.1.4 Execução automática por lançamento de notas
 
 1. A academia registra/atualiza nota; o backend valida ano letivo, estudante, matéria, categoria, período, escala numérica e pertencimento ao `ano_escolar_fundamental` ou `ano_escolar_medio` atual do estudante.
 2. O backend infere o nível acadêmico do estudante para execução: Superior tem prioridade quando há vínculo/status superior; depois Médio; caso contrário Fundamental.
@@ -3220,7 +3416,7 @@ Quando a nota recém-lançada dispara a avaliação final para uma matéria, qua
 10. A decisão geral é derivada dos resultados por matéria e, no Superior, das condições de pendência.
 12. Se a avaliação já existir no escopo idempotente, o backend não duplica o registro.
 
-#### 16.1.5 Modelos escolares fixos de avaliação final por ano
+#### 15.1.5 Modelos escolares fixos de avaliação final por ano
 
 Para escolas (`fundamental` e `medio`), a avaliação final não é configurável pela academia. O backend monta regras fixas em `regraAvaliacaoFinalEscolarFixa`, calcula o resultado **por matéria** e grava a etapa pública indicada em `type`. Em todas as fórmulas abaixo, cada referência lê a nota daquela mesma matéria, no ano letivo atual, no estudante e academia avaliados.
 
@@ -3286,7 +3482,7 @@ Observações importantes que vêm diretamente do comportamento fixo do backend:
 - O `4_ano_medio` só tem modelo fixo de avaliação final quando o curso médio é técnico; nessa situação a etapa final é a Prova de Aptidão Profissional (`nota_pap`) e não há avaliação regular por trimestres, exame final nem recurso.
 - A aprovação geral escolar exige aprovação em todas as matérias avaliadas pela etapa aplicável; escolas não usam aprovação com pendência.
 
-#### 16.1.6 Fundamental
+#### 15.1.6 Fundamental
 
 - O escopo é `ano_escolar_fundamental` atual do estudante (`1_ano_fundamental` a `9_ano_fundamental`).
 - O catálogo avaliativo fundamental é fixo do sistema; rotas configuráveis de regras não aceitam criação/edição/remoção para Fundamental. Regras superiores não aceitam `anos_academicos`.
@@ -3297,7 +3493,7 @@ Observações importantes que vêm diretamente do comportamento fixo do backend:
 - Aprovado em ano intermediário progride para o próximo ano fundamental. Se a academia não oferta o próximo ano, o evento registra o motivo `academia_sem_oferta_do_proximo_ano_academico_fundamental`, mantém o ciclo em andamento e não adiciona turma automaticamente.
 - Aprovado no `9_ano_fundamental` finaliza o ciclo fundamental. Reprovado permanece no mesmo ano.
 
-#### 16.1.7 Médio
+#### 15.1.7 Médio
 
 - O escopo é o `ano_escolar_medio` atual do estudante, validado contra o curso médio ativo vinculado.
 - O backend avalia matérias médias ativas do curso e ano atual conforme o padrão fixo escolar.
@@ -3315,7 +3511,7 @@ Cenários típicos do Médio:
 | `4_ano_medio` técnico com `nota_pap >= 10` | Aprovação e conclusão do médio técnico. |
 | `4_ano_medio` técnico com `nota_pap < 10` | Reprovação no ano final técnico. |
 
-#### 16.1.8 Superior
+#### 15.1.8 Superior
 
 - O escopo é o curso superior ativo e o `semestre_atual` do estudante, convertido para `1_semestre`, `2_semestre`, etc.
 - O backend avalia matérias superiores ativas do curso cujo `periodo` corresponde ao semestre atual.
@@ -3327,7 +3523,7 @@ Cenários típicos do Médio:
 - Aprovação em semestre intermediário incrementa `semestre_atual` e recalcula `ano_superior`; aprovação no último semestre finaliza o ciclo superior.
 - Pendência de curso anterior permanece histórica e não bloqueia o curso atual.
 
-#### 16.1.9 Regras descendentes por matéria
+#### 15.1.9 Regras descendentes por matéria
 
 Regra descendente é qualquer regra com `aplica_se_reprovado_em_type`. Ela representa uma etapa posterior da cadeia e só roda quando a etapa ascendente indicada reprovou. A descendente herda a lógica por matéria: calcula notas para matérias aplicáveis, compara cada resultado com a mínima e grava `type`/regra/fórmula usados naquela etapa.
 
@@ -3339,19 +3535,19 @@ Pontos importantes:
 - Ao final da última etapa reprovada, apenas o Superior avalia se a reprovação vira pendência; Fundamental e Médio escolar permanecem reprovados quando não atendem ao padrão fixo.
 - Exemplo: raiz `avaliacao_final` reprova Matemática e Física; descendente `avaliacao_final_com_exame` com `materias_aplicaveis=[Matemática]` recalcula somente Matemática. Física continua com o resultado anterior para a decisão final/pendência.
 
-#### 16.1.10 Resultados por matéria, eventos, projeções e auditoria
+#### 15.1.10 Resultados por matéria, eventos, projeções e auditoria
 
 Cada avaliação final gravada deve ser explicada pelos itens de `resultados_materias`, não por média global única. Cada item contém, no mínimo, `materia_id`, `nota_final`, `aprovado`, `type`, `formula_snapshot`, `regra_avaliacao_final_id`, `pendencia_permitida` e, quando aplicável, `notas_substituidas_zero` com as referências calculadas como zero por ausência de lançamento no momento do gatilho. A projeção também mantém `nota_final` agregada como média dos itens calculados para compatibilidade/consulta resumida, mas a decisão funcional é por matéria.
 
 Eventos `AvaliacaoFinalEscolar` e `AvaliacaoFinalSuperior` preservam snapshots de regra, fórmula, notas calculadas, progressão e pendências geradas. Alterações posteriores de regra, matéria ou nota não reescrevem silenciosamente decisões já registradas; ajustes exigem fluxo operacional próprio/rebuild controlado.
 
-#### 16.1.11 Pendências de matérias
+#### 15.1.11 Pendências de matérias
 
 Pendências existem apenas para o Superior. Elas são consideradas depois de reprovação na cadeia aplicável e só são criadas quando a decisão final superior é aprovação com pendência. Se o estudante reprova totalmente, nenhuma nova pendência é criada.
 
 A pendência carrega funcionalmente: estudante, matéria, academia, curso, `nivel`, ano letivo, escopo acadêmico (`periodo_superior`), regra/evento de origem, status `pendente`, dados de origem/snapshot e timestamps. Há proteção contra duplicidade aberta no mesmo estudante, matéria, curso, nível, ano letivo e escopo. A estrutura também possui campos de baixa (`baixada_por_event_id`, `updated_at`) para histórico, mas a documentação funcional reconhece uma limitação atual: **não há rota pública consolidada de regularização/baixa de pendência exposta nesta documentação de API**. Portanto, o sistema já persiste e consulta a base de pendências abertas/históricas, mas a regularização operacional precisa ser implementada ou conduzida por fluxo administrativo/evento específico antes de ser tratada como rotina pública.
 
-#### 16.1.12 Bloqueio por `pendencia_nivel_conclusao` e regularização
+#### 15.1.12 Bloqueio por `pendencia_nivel_conclusao` e regularização
 
 `pendencia_nivel_conclusao` pertence à matéria e deve ser usado para identificar pendências bloqueantes do curso atual. Funcionalmente:
 
@@ -3361,7 +3557,7 @@ A pendência carrega funcionalmente: estudante, matéria, academia, curso, `nive
 - Pendências de curso anterior são históricas e não bloqueiam o curso atual.
 - Regularização de pendência é diferente de avaliação final normal: deve avaliar a matéria pendente, registrar evento próprio auditável, baixar a pendência se aprovada e manter aberta se reprovada. Como limitação atual, esse fluxo ainda não está exposto como endpoint público completo; ao ser implementado, deve reutilizar os dados de origem da pendência e retomar progressão/conclusão quando não restarem pendências relevantes abertas.
 
-#### 16.1.13 Cenários de erro e validação
+#### 15.1.13 Cenários de erro e validação
 
 Devem falhar com erro de validação ou bloqueio funcional:
 
@@ -3379,7 +3575,7 @@ Devem falhar com erro de validação ou bloqueio funcional:
 - Tentativa de criar duplicidade de pendência aberta no mesmo escopo.
 - Tentativa de concluir/progredir em desacordo com pendência bloqueante do curso atual.
 
-#### 16.1.14 Consultas
+#### 15.1.14 Consultas
 
 - `GET /avaliacoes` → registros de avaliação final, com filtros por `nivel`, ano letivo, ano/período acadêmico atual, turma, academia e `type`. O filtro legado `tipo_ensino` é rejeitado no handler atual.
 - `GET /aprovacoes` → apenas aprovados (`aprovado = TRUE`) com os mesmos filtros.
@@ -3392,13 +3588,13 @@ Devem falhar com erro de validação ou bloqueio funcional:
 ### Regras de Negócio — Avaliação Final
 
 
-#### 16.1.15 Decisão futura para correção de notas após avaliação final
+#### 15.1.15 Decisão futura para correção de notas após avaliação final
 
 Na versão atual do sistema, notas permanecem imutáveis: elas podem ser criadas e consultadas, mas não há endpoint público, administrativo, batch ou assíncrono para editar, eliminar, restaurar ou substituir notas já registradas. Portanto, esta seção é uma decisão de produto para uma funcionalidade futura de correção de notas; ela não descreve um comportamento já implementado.
 
 Quando uma funcionalidade de correção/edição de notas for especificada no futuro, ela deve verificar se o ano letivo ativo da academia ainda é o mesmo ano letivo da nota corrigida e da avaliação final já registrada para aquele estudante, matéria e escopo. Se for o mesmo ano letivo, a avaliação daquela matéria deve ser recalculada com a nota corrigida, e o resultado deve ser persistido como um novo evento auditável de reavaliação, distinto do evento original de avaliação final. O evento original deve permanecer preservado para auditoria. Se o ano letivo ativo já tiver avançado, a reavaliação automática não deve ocorrer; esse cenário deve ser definido junto com a própria funcionalidade de edição de notas. Qualquer implementação futura de edição/correção de notas deve reutilizar esta regra em vez de introduzir comportamento divergente sem revisão de produto.
 
-### 16.2 Regras de Avaliação Final
+### 15.2 Regras de Avaliação Final
 
 | Regra                                       | Detalhe                                    |
 | ------------------------------------------- | ------------------------------------------ |
@@ -3884,11 +4080,11 @@ Retorna avaliações finais de um estudante específico.
 
 ---
 
-## 17. Admins
+## 16. Admins
 
 ### Processos de Negócio — Administração e Integridade
 
-### 17.1 Verificação de Integridade do Ledger
+### 16.1 Verificação de Integridade do Ledger
 
 O sistema suporta verificação da cadeia de hashes do ledger para qualquer estudante:
 
@@ -3900,7 +4096,7 @@ A função SQL `verify_hash_chain` verifica se todos os hashes encadeados são v
 
 ---
 
-### 17.2 Rebuild de Projeções
+### 16.2 Rebuild de Projeções
 
 Admins com role `fpp` podem reconstruir projeções:
 
@@ -3930,7 +4126,7 @@ Esse endpoint retorna `202 Accepted` com `job_id`, `poll_url` e `sse_url`; o cli
 6. `avaliacao_final`
 ### Regras de Negócio — Admin
 
-### 17.3 Regras de Admin
+### 16.3 Regras de Admin
 
 | Regra                                    | Detalhe                                                                                            |
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------- |
@@ -4208,11 +4404,11 @@ Use este endpoint quando o rebuild puder demorar vários minutos.
 
 ---
 
-## 18. Jobs Assíncronos
+## 17. Jobs Assíncronos
 
 ### Processos de Negócio — Sistema de Jobs Assíncronos
 
-### 18.1 Sistema de Jobs Assíncronos
+### 17.1 Sistema de Jobs Assíncronos
 
 Para operações em lote com muitos itens, o sistema oferece endpoints `/async` que criam um **job em background**:
 
@@ -4381,11 +4577,11 @@ Cria um novo job de retry reaproveitando **somente os itens que falharam** no jo
 
 ---
 
-## 19. Batch Assíncrono
+## 18. Batch Assíncrono
 
 ### Processos de Negócio — Operações em Lote
 
-### 19.1 Batch Assíncrono
+### 18.1 Batch Assíncrono
 
 Endpoints `/async` criam um job e retornam imediatamente. O processamento ocorre em background.
 
@@ -4531,7 +4727,7 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 A documentação cobre todas as rotas registradas em `cmd/server/main.go`: públicas (`/health`, `/login`, `/bootstrap`, `/solicitacao-matricula`, `/email/*`, `/academias`, `/academia/cursos`, `/academia/curso/:id`, `/consultar-academia/:codigo`), jobs (`/jobs`, `/jobs/:id`, `/jobs/stream`, `/jobs/:id/sse`, `/jobs/:id/retry-failed`), autenticadas globais (`/logout`, `/alterar-senha`, `/meu-perfil`, `/eventos-estudante/:codigo`, `/verificar-integridade/:codigo`, `/consultar-estudante/:codigo`, `/estudantes`, `/avaliacoes`, `/aprovacoes`, `/reprovacoes`, `/notas`, `/faltas`, `/notas-estudante/:codigo`, `/faltas-estudante/:codigo`, `/ano-letivo`, `/anos-letivos-lista`, `/anos-letivos/configuracoes`, `/solicitacoes-matricula`, `/documentos/*`, `/avaliacoes-estudante/:codigo`, `/turmas-estudante/:codigo`), estudante (`/estudante/*`), academia (`/academia/*`), dominis/admin (`/dominis/*`, `/admin/*`) e todos os endpoints `/async`.
 
 
-## 20. Armazenamento
+## 19. Armazenamento
 
 ### Processos e Regras de Negócio — Armazenamento de Arquivos
 
