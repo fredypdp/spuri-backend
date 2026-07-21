@@ -186,8 +186,15 @@ func Login(c *gin.Context) {
 	}
 
 	// ── Verificação de status ANTES de emitir o JWT ────────────────────────
-	if userStatus != "ativo" {
-		log.Printf("[INFO] [Login] Conta inativa — type: %s, identifier: %s, status: %s",
+	// Estudantes podem autenticar com qualquer status diferente de "inativo"
+	// (ex.: finalizado/regularização), enquanto admins e academias continuam
+	// exigindo status exatamente "ativo".
+	statusBloqueado := userStatus != "ativo"
+	if userType == "estudante" {
+		statusBloqueado = userStatus == "inativo"
+	}
+	if statusBloqueado {
+		log.Printf("[INFO] [Login] Conta bloqueada por status — type: %s, identifier: %s, status: %s",
 			userType, identifier, userStatus)
 		var msg string
 		switch userType {
