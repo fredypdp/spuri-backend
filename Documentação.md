@@ -102,7 +102,7 @@ type SolicitacaoMatriculaStatus = 'pendente' | 'aprovada' | 'reprovada' | 'cance
 
 **Categorias de nota:**
 
-- Escolas (`nivel="escola"`) usam categorias fixas do sistema por ano acadêmico. Elas são retornadas na listagem como `source="system"`, `fixed=true`, `readonly=true` e não podem ser criadas/removidas pela academia.
+- Escolas (`nivel="escola"`) usam categorias fixas do sistema por ano acadêmico e não podem criar/remover nem consultar categorias configuráveis por `GET /academia/categorias-nota`.
 - Categorias escolares regulares: `nota_professor` e `prova_trimestral`.
 - Anos com exame (`6_ano_fundamental`, `9_ano_fundamental`, `3_ano_medio`) também aceitam `exame_final` e `exame_recurso`.
 - O `4_ano_medio` de curso médio `tecnico` usa apenas `nota_pap` (`Prova de Aptidão Profissional`).
@@ -344,7 +344,28 @@ interface NotaDTO {
 
 ---
 
-### 2.10 Falta
+### 2.10 Categoria de Nota (ensino superior)
+
+```typescript
+interface CategoriaNotaDTO {
+  id: string
+  codigo_academia: string
+  codigo: string
+  nome: string
+  descricao?: string
+  anos_academicos?: string[]
+  status: 'ativo' | 'inativo'
+  created_at: string
+  updated_at: string
+  version: number
+}
+```
+
+Usado em: `GET /academia/categorias-nota`.
+
+---
+
+### 2.11 Falta
 
 ```typescript
 interface FaltaDTO {
@@ -366,7 +387,7 @@ interface FaltaDTO {
 
 ---
 
-### 2.11 Registro de Nota (consulta global)
+### 2.12 Registro de Nota (consulta global)
 
 ```typescript
 interface NotaRegistroDTO {
@@ -394,7 +415,7 @@ Usado em: `GET /notas`
 
 ---
 
-### 2.12 Registro de Falta (consulta global)
+### 2.13 Registro de Falta (consulta global)
 
 ```typescript
 interface FaltaRegistroDTO {
@@ -1350,6 +1371,55 @@ Retorna detalhes de uma academia pelo código.
 **Campos públicos para usuário não autenticado:** `nivel`, `type`, `nome`, `codigo_academia`, `provincia`, `endereco`, `nivel_escolar`, `anos_academicos`.
 
 **Nota**: usuários autenticados veem também `documentos.alvara.download_url`; admins veem também `email` e `motivo_desativacao`.
+
+
+### GET /academia/categorias-nota
+
+Lista as categorias de nota configuráveis de uma academia do ensino superior. A rota é válida apenas para academias com `nivel="superior"`; escolas usam o modelo avaliativo fixo do sistema e recebem erro de validação nesta rota.
+
+**Proteção**: autenticado.
+
+**Autorização por tipo de usuário:**
+
+- Academia autenticada: consulta automaticamente as categorias da própria academia, desde que seja do ensino superior e esteja ativa.
+- Estudante autenticado: consulta as categorias da academia à qual pertence ou já pertenceu. No contrato atual, o backend usa o vínculo acadêmico do estudante projetado para resolver a academia.
+- Admin autenticado: deve informar `codigo_academia` na query string para escolher a academia consultada.
+
+**Request:** sem payload.
+
+**Query params:**
+
+| Campo | Obrigatório | Quando usar | Descrição |
+| --- | --- | --- | --- |
+| `codigo_academia` | Sim para admin; não usado para academia/estudante | `GET /academia/categorias-nota?codigo_academia=ACA-001` | Código público da academia superior que será consultada. |
+
+**Response 200:**
+
+```json
+{
+  "categorias": [
+    {
+      "id": "uuid",
+      "codigo_academia": "ACA-001",
+      "codigo": "prova_parcelar_1",
+      "nome": "Prova Parcelar 1",
+      "descricao": "Primeira prova parcelar",
+      "anos_academicos": ["1_ano_superior", "2_ano_superior"],
+      "status": "ativo",
+      "created_at": "2026-07-21T00:00:00Z",
+      "updated_at": "2026-07-21T00:00:00Z",
+      "version": 1
+    }
+  ],
+  "total": 1
+}
+```
+
+**Erros comuns:**
+
+- `400` se a academia resolvida não for do ensino superior.
+- `404` se a academia não existir ou se o estudante autenticado não tiver academia associada.
+- `403` se a academia autenticada estiver inativa.
 
 ### GET /academia/anos-academicos
 
