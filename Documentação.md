@@ -3027,17 +3027,49 @@ Matérias pertencem sempre a uma academia. Em academias escolares, o tipo é inf
 
 **Response 201:** retorna `message` e `data` com `id`, `nome`, `type`, `status`, `periodo` e, para superior, os campos de pendência.
 
-### `GET /academia/materias` e `GET /academia/materia/:id`
+### `GET /academia/materias`
 
-Academias consultam automaticamente a própria instituição. Admins devem enviar `codigo_academia` nas listagens. A resposta de listagem usa `{ "materias": [...], "total": n }`; a consulta individual retorna o DTO da matéria.
+Lista matérias da academia autenticada. Admins devem enviar `codigo_academia` para definir a academia consultada. A resposta usa `{ "materias": [...], "total": n }` e inclui os campos operacionais da matéria, como `id`, `nome`, `type`, `status`, `anos_academicos`, `curso_id`, `periodo` e campos de pendência quando aplicável.
+
+### `GET /academia/materia/:id`
+
+Consulta uma matéria específica por UUID. Academias só consultam matérias da própria instituição; admins informam `codigo_academia` quando necessário para validar o escopo. A resposta retorna o DTO completo da matéria.
+
+### `PUT /academia/materia/:id/ativar`
+
+Ativa uma matéria da própria academia autenticada. A matéria deve existir, pertencer à academia e estar apta ao uso no escopo acadêmico configurado.
+
+### `PUT /academia/materia/:id/desativar`
+
+Desativa uma matéria da própria academia autenticada para novos lançamentos e vínculos, preservando histórico acadêmico e projeções já existentes.
 
 ### `PUT /academia/materia/:id/dados`
 
 Aceita `nome`, `anos_academicos`, `curso_id`, `pendencia_permitida` e `pendencia_nivel_conclusao`. O campo `periodo` é rejeitado nesta rota; para mudar período, a matéria deve ser recriada no escopo correto.
 
-### Ativação, desativação e remoção
+### `DELETE /academia/materia/:id`
 
-`PUT /academia/materia/:id/ativar`, `PUT /academia/materia/:id/desativar` e `DELETE /academia/materia/:id` só podem operar matérias da própria academia autenticada. Remoção é lógica/event-sourced e preserva o histórico de notas, faltas e avaliações já associadas.
+Remove logicamente uma matéria da própria academia autenticada. A remoção preserva o histórico de notas, faltas e avaliações já associadas.
+
+### `POST /academia/materia/async`
+
+Agenda criação de matérias em lote pelo sistema de jobs assíncronos. O payload é um array; cada item segue o contrato de `POST /academia/materia`.
+
+### `PUT /academia/materia/ativar/async`
+
+Agenda ativação de matérias em lote. Cada item do array informa `id` da matéria a ativar.
+
+### `PUT /academia/materia/desativar/async`
+
+Agenda desativação de matérias em lote. Cada item do array informa `id` da matéria a desativar.
+
+### `PUT /academia/materia/dados/async`
+
+Agenda atualização de dados de matérias em lote. Cada item do array informa `id` e os mesmos campos editáveis aceitos por `PUT /academia/materia/:id/dados`.
+
+### `DELETE /academia/materia/async`
+
+Agenda remoção lógica de matérias em lote. Cada item do array informa `id`; o processamento mantém a mesma preservação histórica da rota síncrona.
 
 ---
 
@@ -3094,13 +3126,69 @@ Turmas organizam estudantes por `nivel`, `turno` e, para médio/superior, por `c
 }
 ```
 
-### Consultas
+### `GET /academia/turmas`
 
-`GET /academia/turmas` retorna `{ "turmas": [...] }`. `GET /academia/turma/:codigo` retorna o DTO da turma. Em ambas, admin precisa informar `codigo_academia`. `GET /turmas-estudante/:codigo` aplica autorização por papel: estudante só consulta o próprio código, academia só consulta estudante da própria instituição, e admin pode consultar qualquer estudante.
+Lista turmas da academia autenticada e retorna `{ "turmas": [...] }`. Admins devem informar `codigo_academia` para consultar turmas de uma academia específica.
 
-### Vincular e remover estudante
+### `GET /academia/turma/:codigo`
 
-`POST /academia/turma/:codigo/estudante` recebe o código do estudante no payload e valida nível/curso antes de vincular. `DELETE /academia/turma/:codigo/estudantes/:codigo_estudante` remove o vínculo atual e preserva o histórico.
+Consulta uma turma pelo `codigo_turma`. Academias só consultam turmas da própria instituição; admins informam `codigo_academia` quando necessário para validar o escopo.
+
+### `GET /turmas-estudante/:codigo`
+
+Lista turmas de um estudante com autorização por papel: estudante só consulta o próprio código, academia só consulta estudante da própria instituição, e admin pode consultar qualquer estudante.
+
+### `PUT /academia/turma/:codigo/ativar`
+
+Ativa uma turma da própria academia autenticada, permitindo novas operações compatíveis com o nível, curso e turno configurados.
+
+### `PUT /academia/turma/:codigo/desativar`
+
+Desativa uma turma da própria academia autenticada para novas operações, preservando vínculos e histórico acadêmico já registrados.
+
+### `PUT /academia/turma/:codigo/dados`
+
+Atualiza `nivel`, `curso_id` e `turno` da turma. O backend valida os estudantes já vinculados para impedir mudança incompatível com ano acadêmico ou curso.
+
+### `DELETE /academia/turma/:codigo`
+
+Remove logicamente uma turma da própria academia autenticada, mantendo o histórico por ano letivo e os eventos já gravados.
+
+### `POST /academia/turma/:codigo/estudante`
+
+Adiciona um estudante compatível à turma. O payload informa o código do estudante; o backend valida vínculo com a academia, nível acadêmico e curso antes de registrar o vínculo.
+
+### `DELETE /academia/turma/:codigo/estudantes/:codigo_estudante`
+
+Remove o vínculo atual do estudante com a turma e preserva o histórico do vínculo nos anos letivos correspondentes.
+
+### `POST /academia/turma/async`
+
+Agenda criação de turmas em lote pelo sistema de jobs assíncronos. O payload é um array; cada item segue o contrato de `POST /academia/turma`.
+
+### `POST /academia/turma/estudante/async`
+
+Agenda adição de estudantes a turmas em lote. Cada item informa a turma e o estudante a vincular, aplicando as mesmas validações da rota síncrona.
+
+### `PUT /academia/turma/ativar/async`
+
+Agenda ativação de turmas em lote. Cada item do array informa `codigo_turma`.
+
+### `PUT /academia/turma/desativar/async`
+
+Agenda desativação de turmas em lote. Cada item do array informa `codigo_turma`.
+
+### `PUT /academia/turma/dados/async`
+
+Agenda atualização de turmas em lote. Cada item informa `codigo_turma` e os mesmos campos aceitos por `PUT /academia/turma/:codigo/dados`.
+
+### `DELETE /academia/turma/async`
+
+Agenda remoção lógica de turmas em lote. Cada item do array informa `codigo_turma`.
+
+### `DELETE /academia/turma/estudante/async`
+
+Agenda remoção de estudantes de turmas em lote. Cada item informa `codigo_turma` e `codigo_estudante`, preservando histórico como na rota síncrona.
 
 ---
 
