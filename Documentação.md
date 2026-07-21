@@ -2935,6 +2935,198 @@ Reprova uma solicitação pendente de revinculação sem reativar o estudante.
 ```
 
 
+
+---
+
+## 9. Solicitação de Matrícula
+
+### Rotas documentadas neste escopo
+
+| Método | Rota | Proteção | Finalidade |
+| --- | --- | --- | --- |
+| `POST` | `/solicitacao-matricula` | Pública | Cria uma solicitação de matrícula para análise da academia. |
+| `GET` | `/solicitacoes-matricula` | Admin autenticado | Lista solicitações de matrícula em escopo administrativo. |
+| `GET` | `/academia/solicitacoes-matricula` | Academia ativa ou admin | Lista solicitações de matrícula da academia resolvida. |
+| `GET` | `/academia/solicitacao-matricula/:codigo` | Academia ativa ou admin | Consulta uma solicitação específica da academia. |
+| `PUT` | `/academia/solicitacao-matricula/:codigo/aprovar` | Academia ativa | Aprova a solicitação e efetiva o estudante conforme os dados enviados. |
+| `PUT` | `/academia/solicitacao-matricula/:codigo/reprovar` | Academia ativa | Reprova a solicitação com motivo. |
+| `GET` | `/documentos/solicitacoes-matricula/:codigo/:campo/download` | Autenticado | Download administrativo do documento da solicitação. |
+| `GET` | `/academia/documentos/solicitacoes-matricula/:codigo/:campo/download` | Academia ativa ou admin | Download do documento da solicitação no escopo da academia. |
+
+As regras de payload, documentos obrigatórios, aprovação/reprovação e download de anexos seguem as seções de estudantes, armazenamento e documentos de matrícula deste documento.
+
+---
+
+## 10. Cursos
+
+### Rotas documentadas neste escopo
+
+| Método | Rota | Proteção | Finalidade |
+| --- | --- | --- | --- |
+| `GET` | `/academia/cursos` | Pública com autenticação opcional | Lista cursos ativos/publicáveis; usuários autenticados podem receber campos operacionais adicionais conforme papel. |
+| `GET` | `/academia/curso/:id` | Pública com autenticação opcional | Consulta um curso por UUID. |
+| `POST` | `/academia/curso` | Academia ativa | Cria curso médio ou superior. |
+| `PUT` | `/academia/curso/:id/ativar` | Academia ativa | Ativa curso inativo da própria academia. |
+| `PUT` | `/academia/curso/:id/desativar` | Academia ativa | Desativa curso da própria academia. |
+| `PUT` | `/academia/curso/:id/dados` | Academia ativa | Atualiza dados editáveis do curso. |
+| `DELETE` | `/academia/curso/:id` | Academia ativa | Remove logicamente curso inativo, preservando histórico. |
+| `POST` | `/academia/curso/async` | Academia ativa | Cria cursos em lote via job. |
+| `PUT` | `/academia/curso/ativar/async` | Academia ativa | Ativa cursos em lote. |
+| `PUT` | `/academia/curso/desativar/async` | Academia ativa | Desativa cursos em lote. |
+| `PUT` | `/academia/curso/dados/async` | Academia ativa | Atualiza cursos em lote. |
+| `DELETE` | `/academia/curso/async` | Academia ativa | Remove cursos em lote. |
+
+Cursos médios usam `modelo` (`liceu` ou `tecnico`) para fixar anos acadêmicos. Cursos superiores usam `periodos` para derivar anos acadêmicos e semestres.
+
+---
+
+## 11. Matérias
+
+### Processos de negócio — Matérias
+
+Matérias pertencem sempre a uma academia. Em academias escolares, o tipo é inferido pelo `nivel_escolar`; academias mistas devem informar `type` como `fundamental` ou `medio`. Em academias superiores, a matéria é sempre `superior`, deve estar vinculada a um curso superior e deve informar `periodo` no cadastro. Campos de pendência (`pendencia_permitida` e `pendencia_nivel_conclusao`) são exclusivos de matérias superiores.
+
+### Rotas documentadas neste escopo
+
+| Método | Rota | Proteção | Finalidade |
+| --- | --- | --- | --- |
+| `GET` | `/academia/materias` | Academia ativa ou admin | Lista matérias da academia. Admin deve informar `codigo_academia`. |
+| `GET` | `/academia/materia/:id` | Academia ativa ou admin | Consulta matéria por UUID. |
+| `POST` | `/academia/materia` | Academia ativa | Cria matéria disciplinar. |
+| `PUT` | `/academia/materia/:id/ativar` | Academia ativa | Ativa matéria da própria academia. |
+| `PUT` | `/academia/materia/:id/desativar` | Academia ativa | Desativa matéria da própria academia. |
+| `PUT` | `/academia/materia/:id/dados` | Academia ativa | Atualiza nome, anos acadêmicos, curso e campos de pendência; `periodo` não é editável. |
+| `DELETE` | `/academia/materia/:id` | Academia ativa | Remove logicamente matéria; o histórico permanece no ledger. |
+| `POST` | `/academia/materia/async` | Academia ativa | Cria matérias em lote via job. |
+| `PUT` | `/academia/materia/ativar/async` | Academia ativa | Ativa matérias em lote; cada item envia `id`. |
+| `PUT` | `/academia/materia/desativar/async` | Academia ativa | Desativa matérias em lote; cada item envia `id`. |
+| `PUT` | `/academia/materia/dados/async` | Academia ativa | Atualiza matérias em lote; cada item envia `id` e campos editáveis. |
+| `DELETE` | `/academia/materia/async` | Academia ativa | Remove matérias em lote; cada item envia `id`. |
+
+### `POST /academia/materia`
+
+**Request — escola mista/fundamental/médio:**
+
+```json
+{
+  "nome": "Matemática",
+  "type": "fundamental",
+  "anos_academicos": ["5_ano_fundamental"]
+}
+```
+
+**Request — superior:**
+
+```json
+{
+  "nome": "Algoritmos",
+  "curso_id": "uuid-do-curso",
+  "anos_academicos": ["1_ano_superior"],
+  "periodo": "1_semestre",
+  "pendencia_permitida": true,
+  "pendencia_nivel_conclusao": "2_semestre"
+}
+```
+
+**Response 201:** retorna `message` e `data` com `id`, `nome`, `type`, `status`, `periodo` e, para superior, os campos de pendência.
+
+### `GET /academia/materias` e `GET /academia/materia/:id`
+
+Academias consultam automaticamente a própria instituição. Admins devem enviar `codigo_academia` nas listagens. A resposta de listagem usa `{ "materias": [...], "total": n }`; a consulta individual retorna o DTO da matéria.
+
+### `PUT /academia/materia/:id/dados`
+
+Aceita `nome`, `anos_academicos`, `curso_id`, `pendencia_permitida` e `pendencia_nivel_conclusao`. O campo `periodo` é rejeitado nesta rota; para mudar período, a matéria deve ser recriada no escopo correto.
+
+### Ativação, desativação e remoção
+
+`PUT /academia/materia/:id/ativar`, `PUT /academia/materia/:id/desativar` e `DELETE /academia/materia/:id` só podem operar matérias da própria academia autenticada. Remoção é lógica/event-sourced e preserva o histórico de notas, faltas e avaliações já associadas.
+
+---
+
+## 12. Turmas
+
+### Processos de negócio — Turmas
+
+Turmas organizam estudantes por `nivel`, `turno` e, para médio/superior, por `curso_id`. Um estudante só pode ficar em turma compatível com seu ano acadêmico e curso. A projeção mantém estudantes atuais e histórico por ano letivo.
+
+### Rotas documentadas neste escopo
+
+| Método | Rota | Proteção | Finalidade |
+| --- | --- | --- | --- |
+| `GET` | `/academia/turmas` | Academia ativa ou admin | Lista turmas da academia. Admin deve informar `codigo_academia`. |
+| `GET` | `/academia/turma/:codigo` | Academia ativa ou admin | Consulta turma pelo código. Admin deve informar `codigo_academia`. |
+| `GET` | `/turmas-estudante/:codigo` | Autenticado | Lista turmas do estudante com autorização por papel. |
+| `POST` | `/academia/turma` | Academia ativa | Cria turma. |
+| `PUT` | `/academia/turma/:codigo/ativar` | Academia ativa | Ativa turma da própria academia. |
+| `PUT` | `/academia/turma/:codigo/desativar` | Academia ativa | Desativa turma da própria academia. |
+| `PUT` | `/academia/turma/:codigo/dados` | Academia ativa | Atualiza nível, curso e turno com validação dos estudantes já vinculados. |
+| `DELETE` | `/academia/turma/:codigo` | Academia ativa | Remove logicamente turma. |
+| `POST` | `/academia/turma/:codigo/estudante` | Academia ativa | Adiciona estudante compatível à turma. |
+| `DELETE` | `/academia/turma/:codigo/estudantes/:codigo_estudante` | Academia ativa | Remove estudante da turma. |
+| `POST` | `/academia/turma/async` | Academia ativa | Cria turmas em lote via job. |
+| `POST` | `/academia/turma/estudante/async` | Academia ativa | Adiciona estudantes a turmas em lote. |
+| `PUT` | `/academia/turma/ativar/async` | Academia ativa | Ativa turmas em lote. |
+| `PUT` | `/academia/turma/desativar/async` | Academia ativa | Desativa turmas em lote. |
+| `PUT` | `/academia/turma/dados/async` | Academia ativa | Atualiza turmas em lote. |
+| `DELETE` | `/academia/turma/async` | Academia ativa | Remove turmas em lote. |
+| `DELETE` | `/academia/turma/estudante/async` | Academia ativa | Remove estudantes de turmas em lote. |
+
+### `POST /academia/turma`
+
+**Request:**
+
+```json
+{
+  "codigo_turma": "10A",
+  "nivel": "1_ano_medio",
+  "curso_id": "uuid-do-curso-medio-ou-superior",
+  "turno": "manha"
+}
+```
+
+`curso_id` é obrigatório para turmas de médio e superior e ausente para fundamental. `codigo_turma` é normalizado pelo backend e deve ser único dentro da academia.
+
+**Response 201:**
+
+```json
+{
+  "message": "turma criada com sucesso",
+  "id": "uuid",
+  "codigo_turma": "10A"
+}
+```
+
+### Consultas
+
+`GET /academia/turmas` retorna `{ "turmas": [...] }`. `GET /academia/turma/:codigo` retorna o DTO da turma. Em ambas, admin precisa informar `codigo_academia`. `GET /turmas-estudante/:codigo` aplica autorização por papel: estudante só consulta o próprio código, academia só consulta estudante da própria instituição, e admin pode consultar qualquer estudante.
+
+### Vincular e remover estudante
+
+`POST /academia/turma/:codigo/estudante` recebe o código do estudante no payload e valida nível/curso antes de vincular. `DELETE /academia/turma/:codigo/estudantes/:codigo_estudante` remove o vínculo atual e preserva o histórico.
+
+---
+
+## 13. Notas
+
+As rotas de notas são `POST /academia/notas-aluno`, `POST /academia/notas-aluno/async`, `GET /notas`, `GET /notas-estudante/:codigo`, `GET /estudante/minhas-avaliacoes`, `GET /estudante/categorias-nota`, `GET /academia/categorias-nota`, `POST /academia/categorias-nota`, `DELETE /academia/categorias-nota/:codigo`, `POST /academia/categorias-nota/async` e `DELETE /academia/categorias-nota/async`. As consultas e regras de categoria superior estão detalhadas nas seções de categorias, avaliação final e batch assíncrono.
+
+---
+
+## 14. Sumários/Aulas
+
+Sumários/aulas foram removidos do contrato público atual. A aplicação não registra rotas ativas de sumários/aulas no roteador.
+
+---
+
+## 15. Faltas
+
+As rotas de faltas são `POST /academia/faltas-aluno`, `POST /academia/faltas-aluno/async`, `GET /faltas` e `GET /faltas-estudante/:codigo`. Edição e exclusão de faltas foram removidas; apenas criação e consulta permanecem no contrato.
+
+---
+
+## 16. Avaliações Finais
+
 #### 16.1.1 Conceitos funcionais
 
 | Conceito | Significado funcional |
@@ -4331,6 +4523,13 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 ---
 
 ---
+
+---
+
+### Inventário de cobertura das rotas ativas
+
+A documentação cobre todas as rotas registradas em `cmd/server/main.go`: públicas (`/health`, `/login`, `/bootstrap`, `/solicitacao-matricula`, `/email/*`, `/academias`, `/academia/cursos`, `/academia/curso/:id`, `/consultar-academia/:codigo`), jobs (`/jobs`, `/jobs/:id`, `/jobs/stream`, `/jobs/:id/sse`, `/jobs/:id/retry-failed`), autenticadas globais (`/logout`, `/alterar-senha`, `/meu-perfil`, `/eventos-estudante/:codigo`, `/verificar-integridade/:codigo`, `/consultar-estudante/:codigo`, `/estudantes`, `/avaliacoes`, `/aprovacoes`, `/reprovacoes`, `/notas`, `/faltas`, `/notas-estudante/:codigo`, `/faltas-estudante/:codigo`, `/ano-letivo`, `/anos-letivos-lista`, `/anos-letivos/configuracoes`, `/solicitacoes-matricula`, `/documentos/*`, `/avaliacoes-estudante/:codigo`, `/turmas-estudante/:codigo`), estudante (`/estudante/*`), academia (`/academia/*`), dominis/admin (`/dominis/*`, `/admin/*`) e todos os endpoints `/async`.
+
 
 ## 20. Armazenamento
 
