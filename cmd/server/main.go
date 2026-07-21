@@ -313,6 +313,14 @@ func setupRouter() *gin.Engine {
 		estudante.POST("/solicitacoes-status/revinculacao/:codigo_academia", handlers.CriarSolicitacaoStatusAcademicoHandler("revinculacao"))
 	}
 
+	// ── Rotas de leitura compartilhadas de academia ────────────────────────
+	academiaShared := router.Group("/academia")
+	academiaShared.Use(middleware.AuthMiddleware())
+	academiaShared.Use(middleware.ValidarStatusAcademia())
+	{
+		academiaShared.GET("/categorias-nota", handlers.ListarCategoriasNota)
+	}
+
 	// ── Rotas de academia ─────────────────────────────────────────────────
 	academiaRead := router.Group("/academia")
 	academiaRead.Use(middleware.AuthMiddleware())
@@ -327,7 +335,6 @@ func setupRouter() *gin.Engine {
 		academiaRead.GET("/anos-academicos", handlers.ListarAnosAcademicos)
 		academiaRead.GET("/anos-letivos-lista", handlers.GetAnosLetivosListaAcademia)
 		academiaRead.GET("/anos-letivos/finalizacoes", handlers.ListarFinalizacoesAnoLetivoAcademia)
-		academiaRead.GET("/categorias-nota", handlers.ListarCategoriasNota)
 		academiaRead.GET("/avaliacao-final/regras", handlers.ListarRegrasAvaliacaoFinal)
 		academiaRead.GET("/solicitacoes-matricula", handlers.ListarSolicitacoesMatriculaAcademia)
 		academiaRead.GET("/solicitacao-matricula/:codigo", handlers.GetSolicitacaoMatriculaAcademia)
