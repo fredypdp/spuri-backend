@@ -1382,7 +1382,7 @@ Lista as categorias de nota configuráveis de uma academia do ensino superior. A
 **Autorização por tipo de usuário:**
 
 - Academia autenticada: consulta automaticamente as categorias da própria academia, desde que seja do ensino superior e esteja ativa.
-- Estudante autenticado: consulta as categorias da academia à qual pertence ou já pertenceu. No contrato atual, o backend usa o vínculo acadêmico do estudante projetado para resolver a academia.
+- Estudante autenticado: consulta as categorias da academia à qual pertence ou já pertenceu. Para consultar uma academia diferente da atual, deve informar `codigo_academia`; o backend autoriza a consulta se existir vínculo atual na projeção ou vínculo histórico no ledger de eventos do estudante.
 - Admin autenticado: deve informar `codigo_academia` na query string para escolher a academia consultada.
 
 **Request:** sem payload.
@@ -1391,7 +1391,7 @@ Lista as categorias de nota configuráveis de uma academia do ensino superior. A
 
 | Campo | Obrigatório | Quando usar | Descrição |
 | --- | --- | --- | --- |
-| `codigo_academia` | Sim para admin; não usado para academia/estudante | `GET /academia/categorias-nota?codigo_academia=ACA-001` | Código público da academia superior que será consultada. |
+| `codigo_academia` | Sim para admin; opcional para estudante; não usado para academia | `GET /academia/categorias-nota?codigo_academia=ACA-001` | Código público da academia superior que será consultada. Para estudante, omitir usa a academia atual; informar permite consultar uma academia à qual já esteve vinculado. |
 
 **Response 200:**
 
@@ -1418,7 +1418,9 @@ Lista as categorias de nota configuráveis de uma academia do ensino superior. A
 **Erros comuns:**
 
 - `400` se a academia resolvida não for do ensino superior.
-- `404` se a academia não existir ou se o estudante autenticado não tiver academia associada.
+- `403` se o estudante informar uma academia à qual nunca esteve vinculado.
+- `404` se a academia não existir.
+- `400` se o estudante omitir `codigo_academia` e não tiver academia atual associada.
 - `403` se a academia autenticada estiver inativa.
 
 ### GET /academia/anos-academicos

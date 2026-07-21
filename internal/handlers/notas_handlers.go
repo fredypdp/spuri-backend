@@ -395,7 +395,24 @@ func CriarCategoriaNota(c *gin.Context) {
 // Disponível para academias, admins (informando codigo_academia) e estudantes vinculados à academia.
 func ListarCategoriasNota(c *gin.Context) {
 	academiaDTO, err := getAcademiaCategoriasNotaTarget(c)
-	if err != nil || academiaDTO == nil {
+	if err != nil {
+		msg := strings.ToLower(err.Error())
+		if strings.Contains(msg, "nunca esteve vinculado") {
+			utils.RespondWithForbiddenError(c, err.Error())
+			return
+		}
+		if strings.Contains(msg, "deve informar") || strings.Contains(msg, "sem academia associada") {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+		if strings.Contains(msg, "estudante não encontrado") {
+			utils.RespondWithNotFoundError(c, "estudante")
+			return
+		}
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if academiaDTO == nil {
 		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
@@ -431,14 +448,58 @@ func getAcademiaCategoriasNotaTarget(c *gin.Context) (*projections.AcademiaDTO, 
 		userID, _ := middleware.GetUserID(c)
 		estudanteProj := getEstudanteProjection(c)
 		estudanteDTO, err := estudanteProj.GetByID(userID)
-		if err != nil || estudanteDTO == nil || estudanteDTO.CodigoAcademia == nil {
+		if err != nil || estudanteDTO == nil {
+			return nil, fmt.Errorf("estudante não encontrado")
+		}
+
+		codigoAcademia := strings.TrimSpace(c.Query("codigo_academia"))
+		if codigoAcademia == "" && estudanteDTO.CodigoAcademia != nil {
+			codigoAcademia = *estudanteDTO.CodigoAcademia
+		}
+		if codigoAcademia == "" {
 			return nil, fmt.Errorf("estudante sem academia associada")
 		}
-		return academiaProj.GetByCodigo(*estudanteDTO.CodigoAcademia)
+
+		teveVinculo, err := estudanteTeveVinculoComAcademia(c, userID, estudanteDTO, codigoAcademia)
+		if err != nil {
+			return nil, err
+		}
+		if !teveVinculo {
+			return nil, fmt.Errorf("estudante nunca esteve vinculado a esta academia")
+		}
+		return academiaProj.GetByCodigo(codigoAcademia)
 	}
 
 	userID, _ := middleware.GetUserID(c)
 	return academiaProj.GetByID(userID)
+}
+
+func estudanteTeveVinculoComAcademia(c *gin.Context, estudanteID uuid.UUID, estudanteDTO *projections.EstudanteDTO, codigoAcademia string) (bool, error) {
+	codigoAcademia = strings.TrimSpace(codigoAcademia)
+	if codigoAcademia == "" {
+		return false, nil
+	}
+	if estudanteDTO != nil && estudanteDTO.CodigoAcademia != nil && *estudanteDTO.CodigoAcademia == codigoAcademia {
+		return true, nil
+	}
+
+	dbClient := getDbClient(c)
+	if dbClient == nil {
+		return false, fmt.Errorf("cliente de banco indisponível")
+	}
+
+	var exists bool
+	err := dbClient.DB().QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM spuri_ledger
+			WHERE aggregate_id = $1
+			  AND aggregate_type = 'Estudante'
+			  AND event_type IN ('EstudanteCriadoComVinculo', 'EstudanteReintegrado', 'EstudanteDesvinculadoDaAcademia')
+			  AND payload->>'CodigoAcademia' = $2
+		)
+	`, estudanteID, codigoAcademia).Scan(&exists)
+	return exists, err
 }
 
 // DeletarCategoriaNota remove (inativa) uma categoria de nota adicional da academia.
