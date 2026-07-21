@@ -2981,34 +2981,76 @@ Cursos médios usam `modelo` (`liceu` ou `tecnico`) para fixar anos acadêmicos.
 
 ### Processos de negócio — Matérias
 
-Matérias pertencem sempre a uma academia. Em academias escolares, o tipo é inferido pelo `nivel_escolar`; academias mistas devem informar `type` como `fundamental` ou `medio`. Em academias superiores, a matéria é sempre `superior`, deve estar vinculada a um curso superior e deve informar `periodo` no cadastro. Campos de pendência (`pendencia_permitida` e `pendencia_nivel_conclusao`) são exclusivos de matérias superiores.
+Matérias pertencem sempre a uma academia e são a base para notas, faltas, turmas e avaliações finais. Em academias escolares, o tipo é inferido pelo `nivel_escolar`; academias mistas devem informar `type` como `fundamental` ou `medio`; academias superiores criam apenas matérias `superior`, vinculadas a curso superior e a um `periodo` acadêmico. Campos de pendência (`pendencia_permitida` e `pendencia_nivel_conclusao`) são exclusivos do superior.
 
-### Rotas documentadas neste escopo
+Todas as escritas exigem autenticação de academia ativa. Consultas de academia usam a própria instituição; admins podem consultar uma academia específica quando a rota aceitar `codigo_academia`. IDs de matéria são UUIDs.
 
-| Método | Rota | Proteção | Finalidade |
-| --- | --- | --- | --- |
-| `GET` | `/academia/materias` | Academia ativa ou admin | Lista matérias da academia. Admin deve informar `codigo_academia`. |
-| `GET` | `/academia/materia/:id` | Academia ativa ou admin | Consulta matéria por UUID. |
-| `POST` | `/academia/materia` | Academia ativa | Cria matéria disciplinar. |
-| `PUT` | `/academia/materia/:id/ativar` | Academia ativa | Ativa matéria da própria academia. |
-| `PUT` | `/academia/materia/:id/desativar` | Academia ativa | Desativa matéria da própria academia. |
-| `PUT` | `/academia/materia/:id/dados` | Academia ativa | Atualiza nome, anos acadêmicos, curso e campos de pendência; `periodo` não é editável. |
-| `DELETE` | `/academia/materia/:id` | Academia ativa | Remove logicamente matéria; o histórico permanece no ledger. |
-| `POST` | `/academia/materia/async` | Academia ativa | Cria matérias em lote via job. |
-| `PUT` | `/academia/materia/ativar/async` | Academia ativa | Ativa matérias em lote; cada item envia `id`. |
-| `PUT` | `/academia/materia/desativar/async` | Academia ativa | Desativa matérias em lote; cada item envia `id`. |
-| `PUT` | `/academia/materia/dados/async` | Academia ativa | Atualiza matérias em lote; cada item envia `id` e campos editáveis. |
-| `DELETE` | `/academia/materia/async` | Academia ativa | Remove matérias em lote; cada item envia `id`. |
+### `GET /academia/materias`
+
+Lista as matérias da academia alvo.
+
+**Proteção:** academia ativa ou admin autenticado.
+
+**Query params:**
+
+- `codigo_academia` — obrigatório para admin; ignorado/derivado da sessão para academia.
+
+**Response 200:**
+
+```json
+{
+  "materias": [
+    {
+      "id": "uuid-da-materia",
+      "nome": "Matemática",
+      "type": "medio",
+      "status": "ativa",
+      "codigo_academia": "ACAD001",
+      "anos_academicos": ["10_ano_medio"],
+      "curso_id": "uuid-do-curso",
+      "periodo": null,
+      "pendencia_permitida": null,
+      "pendencia_nivel_conclusao": null
+    }
+  ],
+  "total": 1
+}
+```
+
+**Erros comuns:** `400` quando admin não informa `codigo_academia`; `403` quando a academia tenta consultar dados fora do próprio escopo; `500` para falha de projeção.
+
+### `GET /academia/materia/:id`
+
+Consulta uma matéria específica pelo UUID.
+
+**Proteção:** academia ativa ou admin autenticado.
+
+**Path params:**
+
+- `id` — UUID da matéria.
+
+**Query params:**
+
+- `codigo_academia` — usado por admin para delimitar o escopo quando necessário.
+
+**Response 200:** retorna o DTO completo da matéria, com os mesmos campos da listagem.
+
+**Erros comuns:** `400` para UUID inválido; `404` quando a matéria não existe; `403` quando a matéria não pertence à academia autenticada.
 
 ### `POST /academia/materia`
 
-**Request — escola mista/fundamental/médio:**
+Cria uma matéria disciplinar no escopo da academia autenticada.
+
+**Proteção:** academia ativa.
+
+**Request — fundamental/médio:**
 
 ```json
 {
   "nome": "Matemática",
-  "type": "fundamental",
-  "anos_academicos": ["5_ano_fundamental"]
+  "type": "medio",
+  "anos_academicos": ["10_ano_medio"],
+  "curso_id": "uuid-do-curso-medio"
 }
 ```
 
@@ -3017,7 +3059,7 @@ Matérias pertencem sempre a uma academia. Em academias escolares, o tipo é inf
 ```json
 {
   "nome": "Algoritmos",
-  "curso_id": "uuid-do-curso",
+  "curso_id": "uuid-do-curso-superior",
   "anos_academicos": ["1_ano_superior"],
   "periodo": "1_semestre",
   "pendencia_permitida": true,
@@ -3025,51 +3067,216 @@ Matérias pertencem sempre a uma academia. Em academias escolares, o tipo é inf
 }
 ```
 
-**Response 201:** retorna `message` e `data` com `id`, `nome`, `type`, `status`, `periodo` e, para superior, os campos de pendência.
+**Regras de validação:**
 
-### `GET /academia/materias`
+- `nome` e `anos_academicos` são obrigatórios.
+- Em academia mista, `type` é obrigatório e deve ser `fundamental` ou `medio`.
+- Em ensino superior, `curso_id` e `periodo` são obrigatórios.
+- Campos de pendência só são aceitos para matérias superiores.
+- A matéria nasce ativa quando as validações de tipo, curso, período e anos acadêmicos passam.
 
-Lista matérias da academia autenticada. Admins devem enviar `codigo_academia` para definir a academia consultada. A resposta usa `{ "materias": [...], "total": n }` e inclui os campos operacionais da matéria, como `id`, `nome`, `type`, `status`, `anos_academicos`, `curso_id`, `periodo` e campos de pendência quando aplicável.
+**Response 201:**
 
-### `GET /academia/materia/:id`
-
-Consulta uma matéria específica por UUID. Academias só consultam matérias da própria instituição; admins informam `codigo_academia` quando necessário para validar o escopo. A resposta retorna o DTO completo da matéria.
+```json
+{
+  "message": "matéria criada com sucesso",
+  "data": {
+    "id": "uuid-da-materia",
+    "nome": "Algoritmos",
+    "type": "superior",
+    "status": "ativa",
+    "periodo": "1_semestre",
+    "pendencia_permitida": true,
+    "pendencia_nivel_conclusao": "2_semestre"
+  }
+}
+```
 
 ### `PUT /academia/materia/:id/ativar`
 
-Ativa uma matéria da própria academia autenticada. A matéria deve existir, pertencer à academia e estar apta ao uso no escopo acadêmico configurado.
+Ativa uma matéria da própria academia para novas operações acadêmicas.
+
+**Proteção:** academia ativa.
+
+**Path params:** `id` — UUID da matéria.
+
+**Request:** sem payload.
+
+**Response 200:**
+
+```json
+{
+  "message": "matéria ativada com sucesso",
+  "id": "uuid-da-materia"
+}
+```
+
+**Erros comuns:** `400` para UUID inválido ou matéria incompatível com regras atuais; `404` quando não encontrada; `403` quando pertence a outra academia.
 
 ### `PUT /academia/materia/:id/desativar`
 
-Desativa uma matéria da própria academia autenticada para novos lançamentos e vínculos, preservando histórico acadêmico e projeções já existentes.
+Desativa uma matéria da própria academia para impedir novos lançamentos, mantendo histórico de notas, faltas e avaliações.
+
+**Proteção:** academia ativa.
+
+**Path params:** `id` — UUID da matéria.
+
+**Request:** sem payload.
+
+**Response 200:**
+
+```json
+{
+  "message": "matéria desativada com sucesso",
+  "id": "uuid-da-materia"
+}
+```
 
 ### `PUT /academia/materia/:id/dados`
 
-Aceita `nome`, `anos_academicos`, `curso_id`, `pendencia_permitida` e `pendencia_nivel_conclusao`. O campo `periodo` é rejeitado nesta rota; para mudar período, a matéria deve ser recriada no escopo correto.
+Atualiza dados editáveis da matéria.
+
+**Proteção:** academia ativa.
+
+**Path params:** `id` — UUID da matéria.
+
+**Request:** pelo menos um campo editável deve ser enviado.
+
+```json
+{
+  "nome": "Matemática Aplicada",
+  "anos_academicos": ["10_ano_medio", "11_ano_medio"],
+  "curso_id": "uuid-do-curso",
+  "pendencia_permitida": false,
+  "pendencia_nivel_conclusao": null
+}
+```
+
+**Regras de validação:**
+
+- `periodo` não é editável nesta rota.
+- `curso_id` deve apontar para curso compatível com a academia e o tipo da matéria.
+- Pendência continua exclusiva de matérias superiores.
+- A atualização preserva o mesmo ID e grava evento de alteração no ledger.
+
+**Response 200:**
+
+```json
+{
+  "message": "dados da matéria atualizados com sucesso",
+  "id": "uuid-da-materia"
+}
+```
 
 ### `DELETE /academia/materia/:id`
 
-Remove logicamente uma matéria da própria academia autenticada. A remoção preserva o histórico de notas, faltas e avaliações já associadas.
+Remove logicamente uma matéria da própria academia.
+
+**Proteção:** academia ativa.
+
+**Path params:** `id` — UUID da matéria.
+
+**Request:** sem payload.
+
+**Response 200:**
+
+```json
+{
+  "message": "matéria removida com sucesso",
+  "id": "uuid-da-materia"
+}
+```
+
+A operação preserva o ledger e registros acadêmicos associados.
 
 ### `POST /academia/materia/async`
 
-Agenda criação de matérias em lote pelo sistema de jobs assíncronos. O payload é um array; cada item segue o contrato de `POST /academia/materia`.
+Cria matérias em lote por job assíncrono.
+
+**Proteção:** academia ativa.
+
+**Request:** array de itens com o mesmo contrato de `POST /academia/materia`.
+
+```json
+[
+  {
+    "nome": "Algoritmos",
+    "curso_id": "uuid-do-curso-superior",
+    "anos_academicos": ["1_ano_superior"],
+    "periodo": "1_semestre"
+  }
+]
+```
+
+**Response 202:** retorna `job_id`, `status`, `total_items`, `poll_url` e `sse_url`. Resultados individuais ficam disponíveis em `GET /jobs/:id?results=true`.
 
 ### `PUT /academia/materia/ativar/async`
 
-Agenda ativação de matérias em lote. Cada item do array informa `id` da matéria a ativar.
+Ativa matérias em lote.
+
+**Proteção:** academia ativa.
+
+**Request:**
+
+```json
+[
+  { "id": "uuid-da-materia" }
+]
+```
+
+**Response 202:** job assíncrono com acompanhamento por polling ou SSE.
 
 ### `PUT /academia/materia/desativar/async`
 
-Agenda desativação de matérias em lote. Cada item do array informa `id` da matéria a desativar.
+Desativa matérias em lote.
+
+**Proteção:** academia ativa.
+
+**Request:**
+
+```json
+[
+  { "id": "uuid-da-materia" }
+]
+```
+
+**Response 202:** job assíncrono com resultados por item.
 
 ### `PUT /academia/materia/dados/async`
 
-Agenda atualização de dados de matérias em lote. Cada item do array informa `id` e os mesmos campos editáveis aceitos por `PUT /academia/materia/:id/dados`.
+Atualiza dados de matérias em lote.
+
+**Proteção:** academia ativa.
+
+**Request:** array de itens com `id` e campos aceitos por `PUT /academia/materia/:id/dados`.
+
+```json
+[
+  {
+    "id": "uuid-da-materia",
+    "nome": "Matemática Aplicada",
+    "anos_academicos": ["10_ano_medio"]
+  }
+]
+```
+
+**Response 202:** job assíncrono com resultados por item.
 
 ### `DELETE /academia/materia/async`
 
-Agenda remoção lógica de matérias em lote. Cada item do array informa `id`; o processamento mantém a mesma preservação histórica da rota síncrona.
+Remove logicamente matérias em lote.
+
+**Proteção:** academia ativa.
+
+**Request:**
+
+```json
+[
+  { "id": "uuid-da-materia" }
+]
+```
+
+**Response 202:** job assíncrono com preservação histórica igual à rota síncrona.
 
 ---
 
@@ -3077,118 +3284,388 @@ Agenda remoção lógica de matérias em lote. Cada item do array informa `id`; 
 
 ### Processos de negócio — Turmas
 
-Turmas organizam estudantes por `nivel`, `turno` e, para médio/superior, por `curso_id`. Um estudante só pode ficar em turma compatível com seu ano acadêmico e curso. A projeção mantém estudantes atuais e histórico por ano letivo.
+Turmas organizam estudantes por `nivel`, `turno` e, quando aplicável, `curso_id`. O backend normaliza `codigo_turma`, valida compatibilidade de nível/curso e mantém histórico por ano letivo. Escritas exigem academia ativa; consultas são escopadas por academia ou por autorização do estudante.
 
-### Rotas documentadas neste escopo
+### `GET /academia/turmas`
 
-| Método | Rota | Proteção | Finalidade |
-| --- | --- | --- | --- |
-| `GET` | `/academia/turmas` | Academia ativa ou admin | Lista turmas da academia. Admin deve informar `codigo_academia`. |
-| `GET` | `/academia/turma/:codigo` | Academia ativa ou admin | Consulta turma pelo código. Admin deve informar `codigo_academia`. |
-| `GET` | `/turmas-estudante/:codigo` | Autenticado | Lista turmas do estudante com autorização por papel. |
-| `POST` | `/academia/turma` | Academia ativa | Cria turma. |
-| `PUT` | `/academia/turma/:codigo/ativar` | Academia ativa | Ativa turma da própria academia. |
-| `PUT` | `/academia/turma/:codigo/desativar` | Academia ativa | Desativa turma da própria academia. |
-| `PUT` | `/academia/turma/:codigo/dados` | Academia ativa | Atualiza nível, curso e turno com validação dos estudantes já vinculados. |
-| `DELETE` | `/academia/turma/:codigo` | Academia ativa | Remove logicamente turma. |
-| `POST` | `/academia/turma/:codigo/estudante` | Academia ativa | Adiciona estudante compatível à turma. |
-| `DELETE` | `/academia/turma/:codigo/estudantes/:codigo_estudante` | Academia ativa | Remove estudante da turma. |
-| `POST` | `/academia/turma/async` | Academia ativa | Cria turmas em lote via job. |
-| `POST` | `/academia/turma/estudante/async` | Academia ativa | Adiciona estudantes a turmas em lote. |
-| `PUT` | `/academia/turma/ativar/async` | Academia ativa | Ativa turmas em lote. |
-| `PUT` | `/academia/turma/desativar/async` | Academia ativa | Desativa turmas em lote. |
-| `PUT` | `/academia/turma/dados/async` | Academia ativa | Atualiza turmas em lote. |
-| `DELETE` | `/academia/turma/async` | Academia ativa | Remove turmas em lote. |
-| `DELETE` | `/academia/turma/estudante/async` | Academia ativa | Remove estudantes de turmas em lote. |
+Lista turmas da academia alvo.
+
+**Proteção:** academia ativa ou admin autenticado.
+
+**Query params:**
+
+- `codigo_academia` — obrigatório para admin; derivado da sessão para academia.
+
+**Response 200:**
+
+```json
+{
+  "turmas": [
+    {
+      "id": "uuid-da-turma",
+      "codigo_turma": "10A",
+      "codigo_academia": "ACAD001",
+      "nivel": "10_ano_medio",
+      "curso_id": "uuid-do-curso",
+      "turno": "manha",
+      "status": "ativa",
+      "estudantes": ["EST-2026-0001"],
+      "historico_estudantes_ano_letivo": {
+        "2025_2026": ["EST-2026-0001"]
+      }
+    }
+  ]
+}
+```
+
+### `GET /academia/turma/:codigo`
+
+Consulta uma turma pelo código normalizado.
+
+**Proteção:** academia ativa ou admin autenticado.
+
+**Path params:** `codigo` — código da turma.
+
+**Query params:** `codigo_academia` para admin.
+
+**Response 200:** retorna o DTO da turma.
+
+**Erros comuns:** `404` para turma inexistente; `403` quando academia tenta acessar turma de outra instituição.
+
+### `GET /turmas-estudante/:codigo`
+
+Lista turmas de um estudante.
+
+**Proteção:** autenticado.
+
+**Path params:** `codigo` — código do estudante.
+
+**Autorização:** estudante consulta apenas o próprio código; academia consulta apenas estudantes da própria instituição; admin consulta qualquer estudante.
+
+**Response 200:**
+
+```json
+{
+  "codigo_estudante": "EST-2026-0001",
+  "turmas": [
+    {
+      "codigo_turma": "10A",
+      "nivel": "10_ano_medio",
+      "curso_id": "uuid-do-curso",
+      "turno": "manha",
+      "ano_letivo": "2025_2026"
+    }
+  ],
+  "total": 1
+}
+```
 
 ### `POST /academia/turma`
+
+Cria uma turma na academia autenticada.
+
+**Proteção:** academia ativa.
 
 **Request:**
 
 ```json
 {
   "codigo_turma": "10A",
-  "nivel": "1_ano_medio",
+  "nivel": "10_ano_medio",
   "curso_id": "uuid-do-curso-medio-ou-superior",
   "turno": "manha"
 }
 ```
 
-`curso_id` é obrigatório para turmas de médio e superior e ausente para fundamental. `codigo_turma` é normalizado pelo backend e deve ser único dentro da academia.
+**Regras de validação:**
+
+- `codigo_turma`, `nivel` e `turno` são obrigatórios.
+- `curso_id` é obrigatório para médio e superior.
+- Turmas fundamentais não usam `curso_id`.
+- O código é normalizado e deve ser único dentro da academia.
 
 **Response 201:**
 
 ```json
 {
   "message": "turma criada com sucesso",
-  "id": "uuid",
+  "id": "uuid-da-turma",
   "codigo_turma": "10A"
 }
 ```
 
-### `GET /academia/turmas`
-
-Lista turmas da academia autenticada e retorna `{ "turmas": [...] }`. Admins devem informar `codigo_academia` para consultar turmas de uma academia específica.
-
-### `GET /academia/turma/:codigo`
-
-Consulta uma turma pelo `codigo_turma`. Academias só consultam turmas da própria instituição; admins informam `codigo_academia` quando necessário para validar o escopo.
-
-### `GET /turmas-estudante/:codigo`
-
-Lista turmas de um estudante com autorização por papel: estudante só consulta o próprio código, academia só consulta estudante da própria instituição, e admin pode consultar qualquer estudante.
-
 ### `PUT /academia/turma/:codigo/ativar`
 
-Ativa uma turma da própria academia autenticada, permitindo novas operações compatíveis com o nível, curso e turno configurados.
+Ativa uma turma da própria academia.
+
+**Proteção:** academia ativa.
+
+**Path params:** `codigo` — código da turma.
+
+**Request:** sem payload.
+
+**Response 200:**
+
+```json
+{
+  "message": "turma ativada com sucesso",
+  "codigo_turma": "10A"
+}
+```
 
 ### `PUT /academia/turma/:codigo/desativar`
 
-Desativa uma turma da própria academia autenticada para novas operações, preservando vínculos e histórico acadêmico já registrados.
+Desativa uma turma da própria academia para novas operações.
+
+**Proteção:** academia ativa.
+
+**Path params:** `codigo` — código da turma.
+
+**Request:** sem payload.
+
+**Response 200:**
+
+```json
+{
+  "message": "turma desativada com sucesso",
+  "codigo_turma": "10A"
+}
+```
 
 ### `PUT /academia/turma/:codigo/dados`
 
-Atualiza `nivel`, `curso_id` e `turno` da turma. O backend valida os estudantes já vinculados para impedir mudança incompatível com ano acadêmico ou curso.
+Atualiza dados operacionais da turma.
+
+**Proteção:** academia ativa.
+
+**Path params:** `codigo` — código da turma.
+
+**Request:**
+
+```json
+{
+  "nivel": "11_ano_medio",
+  "curso_id": "uuid-do-curso",
+  "turno": "tarde"
+}
+```
+
+**Regras de validação:**
+
+- Pelo menos um campo deve ser enviado.
+- Estudantes já vinculados precisam continuar compatíveis com o novo `nivel` e `curso_id`.
+- `curso_id` é obrigatório para médio/superior e não deve ser usado no fundamental.
+
+**Response 200:**
+
+```json
+{
+  "message": "dados da turma atualizados com sucesso",
+  "codigo_turma": "10A"
+}
+```
 
 ### `DELETE /academia/turma/:codigo`
 
-Remove logicamente uma turma da própria academia autenticada, mantendo o histórico por ano letivo e os eventos já gravados.
+Remove logicamente uma turma da própria academia.
+
+**Proteção:** academia ativa.
+
+**Path params:** `codigo` — código da turma.
+
+**Request:** sem payload.
+
+**Response 200:**
+
+```json
+{
+  "message": "turma removida com sucesso",
+  "codigo_turma": "10A"
+}
+```
+
+Histórico por ano letivo e eventos permanecem disponíveis para auditoria.
 
 ### `POST /academia/turma/:codigo/estudante`
 
-Adiciona um estudante compatível à turma. O payload informa o código do estudante; o backend valida vínculo com a academia, nível acadêmico e curso antes de registrar o vínculo.
+Adiciona estudante à turma.
+
+**Proteção:** academia ativa.
+
+**Path params:** `codigo` — código da turma.
+
+**Request:**
+
+```json
+{
+  "codigo_estudante": "EST-2026-0001"
+}
+```
+
+**Regras de validação:**
+
+- Estudante deve existir e pertencer à academia autenticada.
+- Turma deve existir, estar no escopo da academia e ser compatível com ano acadêmico e curso do estudante.
+- O vínculo é registrado no ano letivo ativo da academia.
+
+**Response 200:**
+
+```json
+{
+  "message": "estudante adicionado à turma com sucesso",
+  "codigo_turma": "10A",
+  "codigo_estudante": "EST-2026-0001"
+}
+```
 
 ### `DELETE /academia/turma/:codigo/estudantes/:codigo_estudante`
 
-Remove o vínculo atual do estudante com a turma e preserva o histórico do vínculo nos anos letivos correspondentes.
+Remove estudante da turma.
+
+**Proteção:** academia ativa.
+
+**Path params:**
+
+- `codigo` — código da turma.
+- `codigo_estudante` — código do estudante.
+
+**Request:** sem payload.
+
+**Response 200:**
+
+```json
+{
+  "message": "estudante removido da turma com sucesso",
+  "codigo_turma": "10A",
+  "codigo_estudante": "EST-2026-0001"
+}
+```
 
 ### `POST /academia/turma/async`
 
-Agenda criação de turmas em lote pelo sistema de jobs assíncronos. O payload é um array; cada item segue o contrato de `POST /academia/turma`.
+Cria turmas em lote por job assíncrono.
+
+**Proteção:** academia ativa.
+
+**Request:** array de itens com o contrato de `POST /academia/turma`.
+
+```json
+[
+  {
+    "codigo_turma": "10A",
+    "nivel": "10_ano_medio",
+    "curso_id": "uuid-do-curso",
+    "turno": "manha"
+  }
+]
+```
+
+**Response 202:** job assíncrono com `job_id`, `status`, `total_items`, `poll_url` e `sse_url`.
 
 ### `POST /academia/turma/estudante/async`
 
-Agenda adição de estudantes a turmas em lote. Cada item informa a turma e o estudante a vincular, aplicando as mesmas validações da rota síncrona.
+Adiciona estudantes a turmas em lote.
+
+**Proteção:** academia ativa.
+
+**Request:**
+
+```json
+[
+  {
+    "codigo_turma": "10A",
+    "codigo_estudante": "EST-2026-0001"
+  }
+]
+```
+
+**Response 202:** job assíncrono; cada item aplica as mesmas validações da rota síncrona.
 
 ### `PUT /academia/turma/ativar/async`
 
-Agenda ativação de turmas em lote. Cada item do array informa `codigo_turma`.
+Ativa turmas em lote.
+
+**Proteção:** academia ativa.
+
+**Request:**
+
+```json
+[
+  { "codigo_turma": "10A" }
+]
+```
+
+**Response 202:** job assíncrono.
 
 ### `PUT /academia/turma/desativar/async`
 
-Agenda desativação de turmas em lote. Cada item do array informa `codigo_turma`.
+Desativa turmas em lote.
+
+**Proteção:** academia ativa.
+
+**Request:**
+
+```json
+[
+  { "codigo_turma": "10A" }
+]
+```
+
+**Response 202:** job assíncrono.
 
 ### `PUT /academia/turma/dados/async`
 
-Agenda atualização de turmas em lote. Cada item informa `codigo_turma` e os mesmos campos aceitos por `PUT /academia/turma/:codigo/dados`.
+Atualiza dados de turmas em lote.
+
+**Proteção:** academia ativa.
+
+**Request:** array de itens com `codigo_turma` e campos aceitos por `PUT /academia/turma/:codigo/dados`.
+
+```json
+[
+  {
+    "codigo_turma": "10A",
+    "turno": "tarde"
+  }
+]
+```
+
+**Response 202:** job assíncrono com resultados por item.
 
 ### `DELETE /academia/turma/async`
 
-Agenda remoção lógica de turmas em lote. Cada item do array informa `codigo_turma`.
+Remove logicamente turmas em lote.
+
+**Proteção:** academia ativa.
+
+**Request:**
+
+```json
+[
+  { "codigo_turma": "10A" }
+]
+```
+
+**Response 202:** job assíncrono.
 
 ### `DELETE /academia/turma/estudante/async`
 
-Agenda remoção de estudantes de turmas em lote. Cada item informa `codigo_turma` e `codigo_estudante`, preservando histórico como na rota síncrona.
+Remove estudantes de turmas em lote.
+
+**Proteção:** academia ativa.
+
+**Request:**
+
+```json
+[
+  {
+    "codigo_turma": "10A",
+    "codigo_estudante": "EST-2026-0001"
+  }
+]
+```
+
+**Response 202:** job assíncrono; histórico por ano letivo é preservado.
 
 ---
 
@@ -3196,20 +3673,13 @@ Agenda remoção de estudantes de turmas em lote. Cada item informa `codigo_turm
 
 ### Processos de negócio — Notas
 
-Notas são registros acadêmicos imutáveis vinculados a estudante, academia, ano letivo ativo, ano acadêmico inferido pelo vínculo do estudante e matéria disciplinar. A academia autenticada registra notas apenas para estudantes da própria instituição e apenas em matérias compatíveis com o nível, curso, ano acadêmico e tipo de ensino. Para academias escolares, `tipo` deve ser `escolar`; para academias superiores, `tipo` deve ser `superior`. O campo `periodo` identifica o período avaliativo aceito para o lançamento.
-
-O lançamento de nota pode acionar avaliações finais automáticas quando a categoria registrada é configurada como `nota_despertadora` de uma regra ativa. Consultas globais são restritas a admin e academia; consultas por estudante aplicam autorização por papel.
-
-### Rotas documentadas neste escopo
-
-| Método | Rota | Proteção | Finalidade |
-| --- | --- | --- | --- |
-| `POST` | `/academia/notas-aluno` | Academia ativa | Registra uma nota individual para estudante da própria academia. |
-| `POST` | `/academia/notas-aluno/async` | Academia ativa | Agenda registro de notas em lote via job assíncrono. |
-| `GET` | `/notas` | Admin ou academia ativa | Lista notas com paginação e filtros; academia consulta somente os próprios dados. |
-| `GET` | `/notas-estudante/:codigo` | Autenticado | Lista notas de um estudante com autorização por papel. |
+Notas são registros acadêmicos imutáveis vinculados a estudante, academia, ano letivo ativo, ano acadêmico inferido pelo vínculo do estudante e matéria disciplinar. A academia autenticada registra notas apenas para estudantes da própria instituição e apenas em matérias compatíveis com o nível, curso, ano acadêmico e tipo de ensino. Para academias escolares, `tipo` deve ser `escolar`; para academias superiores, `tipo` deve ser `superior`. O lançamento pode acionar avaliações finais automáticas quando a categoria registrada é configurada como `nota_despertadora` de regra ativa.
 
 ### `POST /academia/notas-aluno`
+
+Registra uma nota individual.
+
+**Proteção:** academia ativa.
 
 **Request:**
 
@@ -3225,7 +3695,15 @@ O lançamento de nota pode acionar avaliações finais automáticas quando a cat
 }
 ```
 
-**Campos obrigatórios:** `codigo_estudante`, `periodo`, `materia_disciplinar_id`, `tipo`, `categoria` e `nota`. `observacao` é opcional.
+**Campos obrigatórios:** `codigo_estudante`, `periodo`, `materia_disciplinar_id`, `tipo`, `categoria` e `nota`.
+
+**Regras de validação:**
+
+- A academia precisa ter ano letivo ativo.
+- O estudante precisa pertencer à academia autenticada.
+- A matéria precisa existir, pertencer à academia e ser compatível com o estudante.
+- `tipo` deve ser `escolar` para escola e `superior` para academia superior.
+- A nota é registrada no ano letivo ativo da academia e no ano acadêmico inferido do estudante/matéria.
 
 **Response 201:**
 
@@ -3246,9 +3724,16 @@ O lançamento de nota pode acionar avaliações finais automáticas quando a cat
 
 ### `GET /notas`
 
-Lista notas a partir da projeção global. Admins podem consultar todas as academias e filtrar por `codigo_academia`; academias recebem escopo obrigatório da própria instituição, mesmo que não enviem filtro. A resposta é paginada e ordenada por `registered_at` decrescente.
+Lista notas a partir da projeção global.
 
-**Query params aceitos:** `limit`, `offset`, `ano_letivo`, `ano_academico`, `curso_id`, `codigo_turma`, `periodo`, `materia_disciplinar_id`, `codigo_academia` e `categoria`. Parâmetros multi-valor aceitam repetição (`?categoria=mac&categoria=npp`) ou lista separada por vírgulas (`?categoria=mac,npp`). Para admin, `codigo_turma` exige `codigo_academia`.
+**Proteção:** admin ou academia ativa.
+
+**Query params:**
+
+- `limit`, `offset` — paginação.
+- `ano_letivo`, `ano_academico`, `curso_id`, `codigo_turma`, `periodo`, `materia_disciplinar_id`, `codigo_academia`, `categoria` — filtros; aceitam repetição ou valores separados por vírgula.
+- Para admin, `codigo_turma` exige `codigo_academia`.
+- Para academia, `codigo_academia` é sempre forçado para a própria instituição.
 
 **Response 200:**
 
@@ -3284,9 +3769,15 @@ Lista notas a partir da projeção global. Admins podem consultar todas as acade
 
 ### `GET /notas-estudante/:codigo`
 
-Retorna as notas de um estudante específico. Estudante só consulta o próprio código; academia só consulta estudantes vinculados à própria instituição; admin pode consultar qualquer estudante.
+Retorna as notas de um estudante específico.
 
-**Query params aceitos:** `ano_letivo`, `ano_academico`, `curso_id`, `periodo`, `materia_disciplinar_id`, `codigo_academia` e `categoria`.
+**Proteção:** autenticado.
+
+**Path params:** `codigo` — código do estudante.
+
+**Autorização:** estudante só consulta o próprio código; academia só consulta estudante da própria instituição; admin pode consultar qualquer estudante.
+
+**Query params:** `ano_letivo`, `ano_academico`, `curso_id`, `periodo`, `materia_disciplinar_id`, `codigo_academia` e `categoria`.
 
 **Response 200:**
 
@@ -3301,7 +3792,26 @@ Retorna as notas de um estudante específico. Estudante só consulta o próprio 
 
 ### `POST /academia/notas-aluno/async`
 
-Agenda o mesmo contrato de criação de notas em lote pelo sistema de jobs assíncronos. A resposta segue o envelope de criação de job descrito em Batch Assíncrono; cada item do lote usa os campos do lançamento individual.
+Registra notas em lote por job assíncrono.
+
+**Proteção:** academia ativa.
+
+**Request:** array de itens com o contrato de `POST /academia/notas-aluno`.
+
+```json
+[
+  {
+    "codigo_estudante": "EST-2026-0001",
+    "periodo": "1_trimestre",
+    "materia_disciplinar_id": "uuid-da-materia",
+    "tipo": "escolar",
+    "categoria": "mac",
+    "nota": 15.5
+  }
+]
+```
+
+**Response 202:** job assíncrono com acompanhamento em `GET /jobs/:id` e `GET /jobs/stream`.
 
 ---
 
@@ -3309,20 +3819,13 @@ Agenda o mesmo contrato de criação de notas em lote pelo sistema de jobs assí
 
 ### Processos de negócio — Faltas
 
-Faltas são registros acadêmicos imutáveis vinculados a estudante, academia, ano letivo ativo, ano acadêmico inferido e matéria disciplinar. A academia autenticada registra faltas apenas para estudantes da própria instituição e matérias compatíveis. A data do lançamento é validada pelo intervalo do ano letivo ativo calculado a partir do tipo da academia e da matéria.
-
-Consultas globais são restritas a admin e academia; consultas por estudante aplicam autorização por papel.
-
-### Rotas documentadas neste escopo
-
-| Método | Rota | Proteção | Finalidade |
-| --- | --- | --- | --- |
-| `POST` | `/academia/faltas-aluno` | Academia ativa | Registra faltas individuais para estudante da própria academia. |
-| `POST` | `/academia/faltas-aluno/async` | Academia ativa | Agenda registro de faltas em lote via job assíncrono. |
-| `GET` | `/faltas` | Admin ou academia ativa | Lista faltas com paginação e filtros; academia consulta somente os próprios dados. |
-| `GET` | `/faltas-estudante/:codigo` | Autenticado | Lista faltas de um estudante com autorização por papel. |
+Faltas são registros acadêmicos imutáveis vinculados a estudante, academia, ano letivo ativo, ano acadêmico inferido e matéria disciplinar. A academia autenticada registra faltas apenas para estudantes da própria instituição e matérias compatíveis. A data do lançamento é validada no intervalo do ano letivo ativo calculado a partir do tipo da academia e da matéria.
 
 ### `POST /academia/faltas-aluno`
+
+Registra faltas individuais.
+
+**Proteção:** academia ativa.
 
 **Request:**
 
@@ -3336,7 +3839,15 @@ Consultas globais são restritas a admin e academia; consultas por estudante apl
 }
 ```
 
-**Campos obrigatórios:** `codigo_estudante`, `data`, `materia_disciplinar_id` e `quantidade`. `quantidade` deve ser maior que zero. `observacao` é opcional.
+**Campos obrigatórios:** `codigo_estudante`, `data`, `materia_disciplinar_id` e `quantidade`.
+
+**Regras de validação:**
+
+- `quantidade` deve ser maior que zero.
+- A academia precisa ter ano letivo ativo.
+- O estudante precisa pertencer à academia autenticada.
+- A matéria precisa pertencer à academia e ser compatível com o estudante.
+- `data` deve estar dentro do intervalo permitido para o ano letivo ativo.
 
 **Response 201:**
 
@@ -3352,9 +3863,17 @@ Consultas globais são restritas a admin e academia; consultas por estudante apl
 
 ### `GET /faltas`
 
-Lista faltas a partir da projeção global. Admins podem consultar todas as academias e filtrar por `codigo_academia`; academias recebem escopo obrigatório da própria instituição, mesmo que não enviem filtro. A resposta é paginada e ordenada por `registered_at` decrescente.
+Lista faltas a partir da projeção global.
 
-**Query params aceitos:** `limit`, `offset`, `ano_letivo`, `ano_academico`, `curso_id`, `codigo_turma`, `periodo`, `materia_disciplinar_id` e `codigo_academia`. Em faltas, `periodo` filtra o período da matéria disciplinar. Para admin, `codigo_turma` exige `codigo_academia`.
+**Proteção:** admin ou academia ativa.
+
+**Query params:**
+
+- `limit`, `offset` — paginação.
+- `ano_letivo`, `ano_academico`, `curso_id`, `codigo_turma`, `periodo`, `materia_disciplinar_id`, `codigo_academia` — filtros; aceitam repetição ou valores separados por vírgula.
+- Em faltas, `periodo` filtra o período da matéria disciplinar.
+- Para admin, `codigo_turma` exige `codigo_academia`.
+- Para academia, `codigo_academia` é sempre forçado para a própria instituição.
 
 **Response 200:**
 
@@ -3388,9 +3907,15 @@ Lista faltas a partir da projeção global. Admins podem consultar todas as acad
 
 ### `GET /faltas-estudante/:codigo`
 
-Retorna as faltas de um estudante específico. Estudante só consulta o próprio código; academia só consulta estudantes vinculados à própria instituição; admin pode consultar qualquer estudante.
+Retorna as faltas de um estudante específico.
 
-**Query params aceitos:** `ano_letivo`, `ano_academico`, `curso_id`, `periodo`, `materia_disciplinar_id` e `codigo_academia`.
+**Proteção:** autenticado.
+
+**Path params:** `codigo` — código do estudante.
+
+**Autorização:** estudante só consulta o próprio código; academia só consulta estudante da própria instituição; admin pode consultar qualquer estudante.
+
+**Query params:** `ano_letivo`, `ano_academico`, `curso_id`, `periodo`, `materia_disciplinar_id` e `codigo_academia`.
 
 **Response 200:**
 
@@ -3405,7 +3930,24 @@ Retorna as faltas de um estudante específico. Estudante só consulta o próprio
 
 ### `POST /academia/faltas-aluno/async`
 
-Agenda o mesmo contrato de criação de faltas em lote pelo sistema de jobs assíncronos. A resposta segue o envelope de criação de job descrito em Batch Assíncrono; cada item do lote usa os campos do lançamento individual.
+Registra faltas em lote por job assíncrono.
+
+**Proteção:** academia ativa.
+
+**Request:** array de itens com o contrato de `POST /academia/faltas-aluno`.
+
+```json
+[
+  {
+    "codigo_estudante": "EST-2026-0001",
+    "data": "2026-03-15",
+    "materia_disciplinar_id": "uuid-da-materia",
+    "quantidade": 2
+  }
+]
+```
+
+**Response 202:** job assíncrono com acompanhamento em `GET /jobs/:id` e `GET /jobs/stream`.
 
 ---
 
