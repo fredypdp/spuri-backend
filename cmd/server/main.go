@@ -322,6 +322,14 @@ func setupRouter() *gin.Engine {
 	}
 
 	// ── Rotas de academia ─────────────────────────────────────────────────
+	academiaAnoLetivoRead := router.Group("/academia")
+	academiaAnoLetivoRead.Use(middleware.AuthMiddleware())
+	academiaAnoLetivoRead.Use(middleware.ValidarStatusAcademia())
+	{
+		academiaAnoLetivoRead.GET("/ano-letivo", handlers.GetAnoLetivoAcademia)
+		academiaAnoLetivoRead.GET("/anos-letivos-lista", handlers.GetAnosLetivosListaAcademia)
+	}
+
 	academiaRead := router.Group("/academia")
 	academiaRead.Use(middleware.AuthMiddleware())
 	academiaRead.Use(middleware.RequireAcademiaOuAdmin())
@@ -331,9 +339,7 @@ func setupRouter() *gin.Engine {
 		academiaRead.GET("/materia/:id", handlers.GetMateria)
 		academiaRead.GET("/turmas", handlers.ListarTurmasAcademia)
 		academiaRead.GET("/turma/:codigo", handlers.GetTurma)
-		academiaRead.GET("/ano-letivo", handlers.GetAnoLetivoAcademia)
 		academiaRead.GET("/anos-academicos", handlers.ListarAnosAcademicos)
-		academiaRead.GET("/anos-letivos-lista", handlers.GetAnosLetivosListaAcademia)
 		academiaRead.GET("/anos-letivos/finalizacoes", handlers.ListarFinalizacoesAnoLetivoAcademia)
 		academiaRead.GET("/avaliacao-final/regras", handlers.ListarRegrasAvaliacaoFinal)
 		academiaRead.GET("/solicitacoes-matricula", handlers.ListarSolicitacoesMatriculaAcademia)

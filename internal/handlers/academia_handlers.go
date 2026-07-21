@@ -861,10 +861,10 @@ func getAcademiaAnoLetivoTarget(c *gin.Context) (*projections.AcademiaDTO, error
 	userType, _ := middleware.GetUserType(c)
 	academiaProj := getAcademiaProjection(c)
 
-	if userType == "admin" {
+	if userType == "admin" || userType == "estudante" {
 		codigoAcademia := strings.TrimSpace(c.Query("codigo_academia"))
 		if codigoAcademia == "" {
-			return nil, fmt.Errorf("admin deve informar ?codigo_academia=CODIGO")
+			return nil, fmt.Errorf("%s deve informar ?codigo_academia=CODIGO", userType)
 		}
 		return academiaProj.GetByCodigo(codigoAcademia)
 	}

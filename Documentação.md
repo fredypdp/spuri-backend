@@ -1859,15 +1859,15 @@ Não há aliases de compatibilidade para esta operação.
 
 ### GET /academia/ano-letivo
 
-Retorna o ano letivo ativo da academia autenticada.
+Retorna o ano letivo ativo da academia alvo. Academias continuam consultando o próprio ano letivo; admins e estudantes podem consultar qualquer academia informando o código da academia.
 
-**Proteção**: autenticado + academia ativa **ou** admin
+**Proteção**: autenticado. Se o usuário autenticado for uma academia, ela também precisa estar ativa.
 
 **Query params:**
 
-- `codigo_academia` (opcional para academia, obrigatório para admin): código da academia alvo.
+- `codigo_academia` (opcional para academia, obrigatório para admin e estudante): código da academia alvo.
   - Se o usuário for `academia`, o backend ignora o parâmetro e retorna o próprio ano letivo.
-  - Se o usuário for `admin`, deve informar `?codigo_academia=...`.
+  - Se o usuário for `admin` ou `estudante`, deve informar `?codigo_academia=...`.
 
 
 **Request:** sem payload
@@ -1884,21 +1884,21 @@ Retorna o ano letivo ativo da academia autenticada.
 **Erros:**
 
 - `404` — ano letivo não configurado
-- `404` — academia não encontrada (incluindo admin sem `codigo_academia`)
+- `404` — academia não encontrada (incluindo admin ou estudante sem `codigo_academia`)
 
 ---
 
 ### GET /academia/anos-letivos-lista
 
-Retorna a lista histórica de anos letivos definidos pela academia alvo.
+Retorna a lista histórica de anos letivos definidos pela academia alvo. Academias continuam consultando a própria lista; admins e estudantes podem consultar a lista de qualquer academia informando o código da academia.
 
-**Proteção**: autenticado + academia ativa **ou** admin
+**Proteção**: autenticado. Se o usuário autenticado for uma academia, ela também precisa estar ativa.
 
 **Query params:**
 
-- `codigo_academia` (opcional para academia, obrigatório para admin): código da academia alvo.
+- `codigo_academia` (opcional para academia, obrigatório para admin e estudante): código da academia alvo.
   - Se o usuário for `academia`, o backend ignora o parâmetro e retorna a própria lista.
-  - Se o usuário for `admin`, deve informar `?codigo_academia=...`.
+  - Se o usuário for `admin` ou `estudante`, deve informar `?codigo_academia=...`.
 
 
 **Request:** sem payload
@@ -1925,7 +1925,7 @@ Retorna a lista histórica de anos letivos definidos pela academia alvo.
 
 **Erros:**
 
-- `404` — academia não encontrada (incluindo admin sem `codigo_academia`)
+- `404` — academia não encontrada (incluindo admin ou estudante sem `codigo_academia`)
 
 ---
 
