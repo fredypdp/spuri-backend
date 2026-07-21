@@ -307,7 +307,7 @@ func setupRouter() *gin.Engine {
 		estudante.GET("/documentos", handlers.ListarMeusDocumentosEstudante)
 		estudante.GET("/documentos/:campo/download", handlers.DownloadMeuDocumentoEstudante)
 		estudante.GET("/categorias-nota", handlers.ListarCategoriasNota)
-		estudante.GET("/solicitacoes-status", handlers.ListarMinhasSolicitacoesStatusAcademicoHandler)
+		estudante.GET("/solicitacoes", handlers.ListarMinhasSolicitacoesStatusAcademicoHandler)
 		estudante.POST("/solicitacoes-status/interrupcao", handlers.CriarSolicitacaoStatusAcademicoHandler("interrupcao"))
 		estudante.POST("/solicitacoes-status/desvinculacao", handlers.CriarSolicitacaoStatusAcademicoHandler("desvinculacao"))
 		estudante.POST("/solicitacoes-status/revinculacao/:codigo_academia", handlers.CriarSolicitacaoStatusAcademicoHandler("revinculacao"))

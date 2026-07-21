@@ -2499,7 +2499,7 @@ Os status do estudante não devem ser editados diretamente por payloads genéric
 
 As operações sensíveis de status acadêmico exigem participação explícita do estudante. O estudante cria uma solicitação autenticada e a academia apenas decide uma solicitação pendente válida; a aprovação é o único momento em que eventos de alteração de status são gravados. Não há suporte legado para as rotas de matrícula de etapa, interrupção por nível ou trancamento superior porque o banco está vazio.
 
-##### `GET /estudante/solicitacoes-status`
+##### `GET /estudante/solicitacoes`
 
 Lista as solicitações de status acadêmico criadas pelo estudante autenticado, permitindo acompanhar pedidos pendentes, aprovados ou reprovados.
 
