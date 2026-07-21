@@ -2499,6 +2499,36 @@ Os status do estudante não devem ser editados diretamente por payloads genéric
 
 As operações sensíveis de status acadêmico exigem participação explícita do estudante. O estudante cria uma solicitação autenticada e a academia apenas decide uma solicitação pendente válida; a aprovação é o único momento em que eventos de alteração de status são gravados. Não há suporte legado para as rotas de matrícula de etapa, interrupção por nível ou trancamento superior porque o banco está vazio.
 
+##### `GET /estudante/solicitacoes-status`
+
+Lista as solicitações de status acadêmico criadas pelo estudante autenticado, permitindo acompanhar pedidos pendentes, aprovados ou reprovados.
+
+**Autorização:** estudante autenticado.
+
+**Response 200:**
+
+```json
+{
+  "solicitacoes": [
+    {
+      "codigo_solicitacao": "SSA12345678",
+      "codigo_estudante": "EST12345678",
+      "codigo_academia": "ACA12345678",
+      "tipo": "interrupcao",
+      "status": "pendente",
+      "motivo": "mudança temporária de cidade",
+      "tipo_ensino": "fundamental",
+      "motivo_reprovacao": null,
+      "observacao_academia": null,
+      "created_at": "2026-07-20T00:00:00Z",
+      "updated_at": "2026-07-20T00:00:00Z",
+      "decidida_at": null
+    }
+  ],
+  "total": 1
+}
+```
+
 ##### `POST /estudante/solicitacoes-status/interrupcao`
 
 Cria uma solicitação para interromper o percurso acadêmico atualmente em andamento do estudante autenticado na academia à qual ele está vinculado.
@@ -2603,11 +2633,17 @@ Cria uma solicitação para revincular o estudante autenticado à academia indic
 }
 ```
 
-##### `GET /academia/solicitacoes-status-academico`
+##### `GET /academia/solicitacoes`
 
-Lista solicitações de status acadêmico recebidas pela academia autenticada.
+Lista solicitações de status acadêmico recebidas pela academia autenticada. Administradores também podem consultar as solicitações de uma academia informando `codigo_academia` na query string.
 
-**Autorização:** academia autenticada e ativa.
+**Autorização:** academia autenticada e ativa, ou administrador autenticado.
+
+**Query params:**
+
+| Campo | Tipo | Obrigatório | Descrição |
+|---|---:|:---:|---|
+| `codigo_academia` | string | somente admin | Código público da academia consultada pelo administrador. Academias autenticadas ignoram este parâmetro e sempre consultam a própria academia. |
 
 **Response 200:**
 
@@ -2617,12 +2653,16 @@ Lista solicitações de status acadêmico recebidas pela academia autenticada.
     {
       "codigo_solicitacao": "SSA12345678",
       "codigo_estudante": "EST12345678",
+      "codigo_academia": "ACA12345678",
       "tipo": "interrupcao",
       "status": "pendente",
       "motivo": "mudança temporária de cidade",
       "tipo_ensino": "fundamental",
+      "motivo_reprovacao": null,
+      "observacao_academia": null,
       "created_at": "2026-07-20T00:00:00Z",
-      "updated_at": "2026-07-20T00:00:00Z"
+      "updated_at": "2026-07-20T00:00:00Z",
+      "decidida_at": null
     }
   ],
   "total": 1
