@@ -137,14 +137,40 @@ func nullableUUID(raw string) interface{} {
 	return id
 }
 
+func ListarMinhasSolicitacoesStatusAcademicoHandler(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	estudanteDTO, err := getEstudanteProjection(c).GetByID(userID)
+	if err != nil || estudanteDTO == nil {
+		utils.RespondWithNotFoundError(c, "estudante")
+		return
+	}
+	listarSolicitacoesStatusAcademico(c, "codigo_estudante=$1", estudanteDTO.CodigoEstudante)
+}
+
 func ListarSolicitacoesStatusAcademicoHandler(c *gin.Context) {
+	userType, _ := c.Get("user_type")
+	if userType == "admin" {
+		codigoAcademia := strings.TrimSpace(c.Query("codigo_academia"))
+		if codigoAcademia == "" {
+			utils.RespondWithValidationError(c, fmt.Errorf("codigo_academia é obrigatório para administradores"))
+			return
+		}
+		listarSolicitacoesStatusAcademico(c, "codigo_academia=$1", codigoAcademia)
+		return
+	}
+
 	academiaID, _ := middleware.GetUserID(c)
 	academia, _ := getAcademiaProjection(c).GetByID(academiaID)
 	if academia == nil {
 		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
-	rows, err := getDbClient(c).DB().Query(`SELECT codigo_solicitacao,codigo_estudante,tipo,status,motivo,tipo_ensino,created_at,updated_at FROM projection_solicitacoes_status_academico WHERE codigo_academia=$1 ORDER BY created_at DESC`, academia.CodigoAcademia)
+	listarSolicitacoesStatusAcademico(c, "codigo_academia=$1", academia.CodigoAcademia)
+}
+
+func listarSolicitacoesStatusAcademico(c *gin.Context, where string, arg interface{}) {
+	query := fmt.Sprintf(`SELECT codigo_solicitacao,codigo_estudante,codigo_academia,tipo,status,motivo,tipo_ensino,motivo_reprovacao,observacao_academia,created_at,updated_at,decidida_at FROM projection_solicitacoes_status_academico WHERE %s ORDER BY created_at DESC`, where)
+	rows, err := getDbClient(c).DB().Query(query, arg)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -152,11 +178,19 @@ func ListarSolicitacoesStatusAcademicoHandler(c *gin.Context) {
 	defer rows.Close()
 	out := []gin.H{}
 	for rows.Next() {
-		var cod, est, tipo, status, motivo string
-		var te *string
+		var cod, est, acad, tipo, status, motivo string
+		var te, motivoReprovacao, observacaoAcademia *string
 		var cr, up time.Time
-		_ = rows.Scan(&cod, &est, &tipo, &status, &motivo, &te, &cr, &up)
-		out = append(out, gin.H{"codigo_solicitacao": cod, "codigo_estudante": est, "tipo": tipo, "status": status, "motivo": motivo, "tipo_ensino": te, "created_at": cr, "updated_at": up})
+		var decididaAt *time.Time
+		if err := rows.Scan(&cod, &est, &acad, &tipo, &status, &motivo, &te, &motivoReprovacao, &observacaoAcademia, &cr, &up, &decididaAt); err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		out = append(out, gin.H{"codigo_solicitacao": cod, "codigo_estudante": est, "codigo_academia": acad, "tipo": tipo, "status": status, "motivo": motivo, "tipo_ensino": te, "motivo_reprovacao": motivoReprovacao, "observacao_academia": observacaoAcademia, "created_at": cr, "updated_at": up, "decidida_at": decididaAt})
+	}
+	if err := rows.Err(); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
 	}
 	c.JSON(http.StatusOK, gin.H{"solicitacoes": out, "total": len(out)})
 }
