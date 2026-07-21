@@ -78,12 +78,14 @@ func GenerateToken(userID uuid.UUID, userType string) (string, error) {
 	return tokenString, nil
 }
 
-// AuthMiddleware valida o JWT e verifica que o usuário ainda está ativo no banco.
+// AuthMiddleware valida o JWT e verifica se o status do usuário permite acesso.
 //
 // FIX AUTH-01 (E4-AA-02): além de validar assinatura e expiração, este middleware
 // consulta a projeção de leitura correspondente ao userType e rejeita tokens de
-// usuários com status diferente de "ativo". Isso garante que a desativação de um
-// usuário tem efeito imediato — sem esperar a expiração natural do token.
+// usuários cujo status não permite acesso. Para estudantes, apenas "inativo"
+// bloqueia; para os demais tipos, o status deve ser "ativo". Isso garante que a
+// desativação de um usuário tem efeito imediato — sem esperar a expiração natural
+// do token.
 //
 // Anteriormente admins eram verificados apenas por RequireAdmin/RequireAdminRole,
 // o que deixava rotas do grupo "protected" (GET /meu-perfil, PUT /alterar-senha,
@@ -94,7 +96,7 @@ func GenerateToken(userID uuid.UUID, userType string) (string, error) {
 //  1. Extrair e validar JWT (assinatura + expiração)
 //  2. Obter dbClient do contexto (injetado pelo setupRouter)
 //  3. Consultar status do usuário na projeção correspondente (todos os tipos)
-//  4. Rejeitar com 401 se status != "ativo"
+//  4. Rejeitar com 401 se status não permitir acesso
 //  5. Injetar user_id e user_type no contexto Gin
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -198,7 +200,7 @@ func OptionalAuthMiddleware() gin.HandlerFunc {
 }
 
 // verificarStatusUsuario consulta a projeção correspondente ao userType e
-// retorna erro se o usuário não existir ou não estiver ativo.
+// retorna erro se o usuário não existir ou estiver com status bloqueado.
 //
 // FIX AUTH-01 (E4-AA-02): adicionado suporte ao userType "admin", antes ignorado
 // com comentário "delegado ao RequireAdmin". O RequireAdmin só cobre rotas
@@ -267,7 +269,11 @@ func verificarStatusUsuario(c *gin.Context, userID uuid.UUID, userType string) e
 		return nil
 	}
 
-	if status != "ativo" {
+	statusBloqueado := status != "ativo"
+	if userType == "estudante" {
+		statusBloqueado = status == "inativo"
+	}
+	if statusBloqueado {
 		return &statusInativoError{userType: userType, status: status}
 	}
 	return nil
