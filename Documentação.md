@@ -193,7 +193,7 @@ interface EstudanteDTO {
   genero: Genero
   data_nascimento: string         // 'YYYY-MM-DD'
   codigo_academia?: string
-  status: string                  // 'ativo' | 'inativo'
+  status: StatusGeralEstudante    // 'ativo' | 'inativo' | 'pendente_documentos'
   status_escolar_fundamental: StatusEscolar
   status_escolar_medio: StatusEscolar
   status_superior: StatusEscolar
@@ -211,6 +211,12 @@ interface EstudanteDTO {
   version: number
 }
 ```
+
+**Valores de `EstudanteDTO.status` (`StatusGeralEstudante`):**
+
+- `ativo` — estudante com vínculo geral ativo e documentação completa.
+- `inativo` — estudante desvinculado/inativo no vínculo geral.
+- `pendente_documentos` — estudante criado textualmente por fluxo em lote/fallback, mas ainda bloqueado até concluir o envio dos documentos obrigatórios.
 
 ---
 
@@ -2418,6 +2424,7 @@ Lista estudantes. Retorna apenas os da academia (para academia) ou todos (para a
 **Query Params:**
 
 - `genero` — filtro por gênero (`masculino`, `feminino`). Aceita múltiplos valores (`?genero=masculino,feminino` ou repetindo o parâmetro).
+- `status` — filtro pelo status geral do estudante (`ativo`, `inativo`, `pendente_documentos`; aceita múltiplos). Corresponde ao campo `EstudanteDTO.status`.
 - `idade_min` — idade mínima (inteiro >= 0).
 - `idade_max` — idade máxima (inteiro >= 0).
 - `ano_escolar_fundamental` — filtro por ano do fundamental (aceita múltiplos).
@@ -2437,7 +2444,7 @@ Lista estudantes. Retorna apenas os da academia (para academia) ou todos (para a
 
 > Os filtros acima são **combináveis** entre si (AND), permitindo consultas compostas.
 > Exemplos:
-> - `GET /estudantes?genero=feminino&idade_min=12&idade_max=15&turno=manha`
+> - `GET /estudantes?status=ativo,pendente_documentos&genero=feminino&idade_min=12&idade_max=15&turno=manha`
 > - `GET /estudantes?status_escolar_medio=em_andamento&codigo_turma=TURMA-10A&com_turma=true`
 > - `GET /estudantes?codigo_academia=LDA20261&semestre_atual=1,2&curso_id=550e8400-e29b-41d4-a716-446655440000`
 
@@ -2464,6 +2471,7 @@ Lista estudantes. Retorna apenas os da academia (para academia) ou todos (para a
 
 - `com_turma` inválido (deve ser `true` ou `false`).
 - `semestre_atual` inválido (deve ser inteiro >= 1).
+- `status` inválido (deve ser `ativo`, `inativo` ou `pendente_documentos`).
 - `curso_id` inválido (deve ser UUID).
 - `idade_min` inválida.
 - `idade_max` inválida.
