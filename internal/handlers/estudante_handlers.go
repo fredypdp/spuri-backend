@@ -279,6 +279,18 @@ func ListarEstudantes(c *gin.Context) {
 		args = append(args, pq.Array(generos))
 		conditions = append(conditions, fmt.Sprintf("e.genero = ANY($%d)", len(args)))
 	}
+	if status := parseMultiValueQueryParam(c, "status"); len(status) > 0 {
+		for _, value := range status {
+			switch value {
+			case "ativo", "inativo", "pendente_documentos":
+			default:
+				utils.RespondWithValidationError(c, fmt.Errorf("status inválido: valores aceitos são ativo, inativo ou pendente_documentos"))
+				return
+			}
+		}
+		args = append(args, pq.Array(status))
+		conditions = append(conditions, fmt.Sprintf("e.status = ANY($%d)", len(args)))
+	}
 	if anosFund := parseMultiValueQueryParam(c, "ano_escolar_fundamental"); len(anosFund) > 0 {
 		args = append(args, pq.Array(anosFund))
 		conditions = append(conditions, fmt.Sprintf("e.ano_escolar_fundamental = ANY($%d)", len(args)))
