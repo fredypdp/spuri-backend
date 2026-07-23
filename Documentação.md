@@ -4724,16 +4724,16 @@ Retorna avaliações finais de um estudante específico.
 
 O escopo administrativo é dividido em dois prefixos reais do backend:
 
-- `/dominis` — painel operacional: criação e gestão de admins, criação/ativação/desativação de academias, métricas, solicitações de matrícula e rebuild de projeções.
-- `/admin` — configurações globais do sistema, atualmente focadas em anos letivos por tipo (`escolar` e `superior`).
+- `/dominis` — painel operacional; nesta seção ficam apenas as rotas administrativas que não pertencem a escopos funcionais próprios (gestão de admins, métricas e rebuild de projeções).
+- `/admin` — configurações globais do sistema; as rotas de anos letivos permanecem documentadas no escopo próprio de anos letivos.
 
 Todas as rotas abaixo exigem `Authorization: Bearer <token>` de um usuário com `user_type=admin`. Algumas rotas adicionam guards de role:
 
 | Guard | Roles aceitas | Uso real |
 | --- | --- | --- |
 | `RequireAdmin()` | qualquer admin ativo e com e-mail verificado | Base dos grupos `/dominis` e `/admin` |
-| `RequireAdm()` / permissão mínima `adm` | `adm` e `fpp` | Ativar/desativar admins e academias; consultar admins |
-| `RequireFPP()` | somente `fpp` | Criar admins/academias, alterar roles, rebuilds e configurações globais |
+| `RequireAdm()` / permissão mínima `adm` | `adm` e `fpp` | Ativar/desativar admins; consultar admins |
+| `RequireFPP()` | somente `fpp` | Criar admins, alterar roles e executar rebuilds |
 
 ### 16.1 Verificação de Integridade do Ledger
 
@@ -4905,7 +4905,7 @@ Cria um novo admin. A senha temporária é gerada automaticamente, persistida ap
 
 #### GET /dominis/admin-lista
 
-#### GET /dominis/admin-lista
+Lista todos os admins.
 
 **Proteção real**: autenticado + admin; o handler exige permissão mínima `adm` (`adm` ou `fpp`).
 
@@ -5090,7 +5090,7 @@ Atualiza nome e/ou email de um admin.
 
 ---
 
-### 16.5 Métricas e solicitações administrativas
+### 16.5 Métricas administrativas
 
 #### GET /dominis/metrics
 
@@ -5123,245 +5123,6 @@ Retorna métricas do sistema (requisições, erros, autenticação e latência p
   }
 }
 ```
-
-#### GET /dominis/solicitacoes-matricula
-
-Lista solicitações de matrícula em escopo administrativo.
-
-**Proteção real**: autenticado + admin (qualquer role).
-
-> Esta rota existe também como `GET /solicitacoes-matricula` com `RequireAdmin()`. Ambas chamam o mesmo handler administrativo.
-
-Consulte o escopo de solicitações de matrícula para filtros e formato completo da resposta.
-
----
-
-### 16.6 Operações administrativas sobre academias
-
-As rotas de academia abaixo ficam no grupo `/dominis` porque são executadas por administradores. Os detalhes completos dos payloads e respostas aparecem na seção de academias; este escopo registra a proteção real e a finalidade administrativa.
-
-#### POST /dominis/academia/register
-
-Cria uma academia.
-
-**Proteção real**: autenticado + admin role `fpp`.
-
-**Request/Response:** iguais ao cadastro administrativo de academia documentado na seção de academias.
-
-#### PUT /dominis/academia/:codigo/ativar
-
-Ativa uma academia.
-
-**Proteção real**: autenticado + admin role `adm` ou `fpp`.
-
-**Path Params:**
-
-- `codigo` — código da academia.
-
-#### PUT /dominis/academia/:codigo/desativar
-
-Desativa uma academia.
-
-**Proteção real**: autenticado + admin role `adm` ou `fpp`.
-
-**Path Params:**
-
-- `codigo` — código da academia.
-
----
-
-### 16.7 Operações administrativas assíncronas em lote
-
-Todas as rotas abaixo usam o mesmo envelope de jobs assíncronos descrito na seção 17. O body é um array de itens compatíveis com a operação síncrona correspondente. O limite real usado pelo enqueue é **500 itens** para estas operações administrativas.
-
-#### POST /dominis/academia/register/async
-
-Enfileira cadastro em lote de academias.
-
-**Proteção real**: autenticado + admin role `fpp`.
-
-**Request:** array de payloads de cadastro de academia.
-
-**Response 202:** `AsyncBatchAcceptedResponse`
-
-#### PUT /dominis/academia/ativar/async
-
-Enfileira ativação em lote de academias.
-
-**Proteção real**: autenticado + admin role `adm` ou `fpp`.
-
-**Request:** array de itens com os dados necessários para identificar cada academia, conforme handler de job.
-
-**Response 202:** `AsyncBatchAcceptedResponse`
-
-#### PUT /dominis/academia/desativar/async
-
-Enfileira desativação em lote de academias.
-
-**Proteção real**: autenticado + admin role `adm` ou `fpp`.
-
-**Request:** array de itens com os dados necessários para identificar cada academia e motivo, conforme handler de job.
-
-**Response 202:** `AsyncBatchAcceptedResponse`
-
-#### PUT /dominis/admin/ativar/async
-
-Enfileira ativação em lote de admins.
-
-**Proteção real**: autenticado + admin role `adm` ou `fpp`.
-
-**Request:** array de itens com o `id` do admin alvo, conforme handler de job.
-
-**Response 202:** `AsyncBatchAcceptedResponse`
-
-#### PUT /dominis/admin/desativar/async
-
-Enfileira desativação em lote de admins.
-
-**Proteção real**: autenticado + admin role `adm` ou `fpp`.
-
-**Request:** array de itens com o `id` do admin alvo e `motivo`, conforme handler de job.
-
-**Response 202:** `AsyncBatchAcceptedResponse`
-
----
-
-### 16.8 Configurações globais de anos letivos (`/admin`)
-
-Estas rotas estão registradas sob o prefixo `/admin` e exigem `RequireFPP()` além de autenticação administrativa.
-
-#### POST /admin/definir-ano-letivo-geral
-
-Define diretamente o **ano letivo oficial global por tipo** (`escolar` ou `superior`). O backend não calcula automaticamente o ano letivo nesta rota: o valor informado pelo admin é validado e persistido.
-
-**Proteção real**: autenticado + admin role `fpp`.
-
-**Request:**
-
-```json
-{
-  "type": "escolar",
-  "ano_letivo": "2026_2027"
-}
-```
-
-**Validações reais:**
-
-- `type` e `ano_letivo` são obrigatórios.
-- `type` aceita somente `escolar` ou `superior`.
-- `ano_letivo` deve estar no formato `YYYY_YYYY`, com segundo ano igual ao primeiro + 1.
-- A definição só é permitida quando nenhuma academia ativa do mesmo tipo tem ano letivo definido.
-- O ano não pode retroceder abaixo do mínimo permitido pelas finalizações já concluídas.
-
-**Response 200:**
-
-```json
-{
-  "message": "ano letivo global definido com sucesso",
-  "type": "escolar",
-  "ano_letivo": "2026_2027",
-  "periodo": "10_07",
-  "imutavel": true
-}
-```
-
-#### GET /admin/sistema/anos-letivos/configuracoes
-
-Lista as configurações fixas de período por tipo.
-
-**Proteção real**: autenticado + admin role `fpp`.
-
-**Response 200:**
-
-```json
-{
-  "configuracoes": [
-    {
-      "type": "escolar",
-      "periodo": "10_07",
-      "imutavel": true
-    },
-    {
-      "type": "superior",
-      "periodo": "09_07",
-      "imutavel": true
-    }
-  ]
-}
-```
-
-#### PUT /admin/sistema/anos-letivos/configuracoes/:type
-
-Endpoint legado de compatibilidade. O período é fixo e imutável; a rota apenas valida se o payload repete o período fixo esperado.
-
-**Proteção real**: autenticado + admin role `fpp`.
-
-**Path Params:**
-
-- `type` — `escolar` ou `superior`.
-
-**Request:**
-
-```json
-{
-  "periodo": "10_07"
-}
-```
-
-**Response 200:**
-
-```json
-{
-  "message": "configuração de ano letivo mantida; periodo é fixo e imutável",
-  "type": "escolar",
-  "periodo": "10_07",
-  "updated_by": "uuid"
-}
-```
-
-#### GET /admin/sistema/anos-letivos/finalizacao-limites
-
-Retorna, por tipo, o maior ano letivo já finalizado por todas as academias ativas aplicáveis e o mínimo global permitido.
-
-**Proteção real**: autenticado + admin role `fpp`.
-
-**Response 200:**
-
-```json
-{
-  "limites": [
-    {
-      "type": "escolar",
-      "ano_letivo_finalizado_por_todas": "2025_2026",
-      "minimo_global_permitido": "2026_2027",
-      "academias_total": 12,
-      "academias_finalizadas": 12
-    },
-    {
-      "type": "superior",
-      "ano_letivo_finalizado_por_todas": "",
-      "minimo_global_permitido": "",
-      "academias_total": 4,
-      "academias_finalizadas": 0
-    }
-  ]
-}
-```
-
-#### GET /admin/academias/anos-letivos/finalizacoes
-
-Lista finalizações de ano letivo por academia, com filtros opcionais via query string.
-
-**Proteção real**: autenticado + admin role `fpp`.
-
-**Query Params opcionais:**
-
-- `type` — filtra por `escolar` ou `superior`.
-- `ano_letivo` — filtra por ano letivo no formato `YYYY_YYYY`.
-
-> A rota registrada é somente `/admin/academias/anos-letivos/finalizacoes`; `type` e `ano_letivo` são query params, não segmentos do path.
-
----
 
 ## 17. Jobs Assíncronos
 
