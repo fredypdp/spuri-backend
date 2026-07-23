@@ -4724,7 +4724,7 @@ Retorna avaliações finais de um estudante específico.
 
 O escopo administrativo é dividido em dois prefixos reais do backend:
 
-- `/dominis` — painel operacional: criação e gestão de admins, criação/ativação/desativação de academias, métricas, quota de storage, solicitações de matrícula e rebuild de projeções.
+- `/dominis` — painel operacional: criação e gestão de admins, criação/ativação/desativação de academias, métricas, solicitações de matrícula e rebuild de projeções.
 - `/admin` — configurações globais do sistema, atualmente focadas em anos letivos por tipo (`escolar` e `superior`).
 
 Todas as rotas abaixo exigem `Authorization: Bearer <token>` de um usuário com `user_type=admin`. Algumas rotas adicionam guards de role:
@@ -4858,7 +4858,6 @@ Enfileira o rebuild de uma projeção para execução em background. Use quando 
 | `PUT` | `/dominis/admin/:id/desativar` | `adm`/`fpp` | `DesativarAdmin` | Desativa admin inferior na hierarquia, com motivo. |
 | `GET` | `/dominis/admin-lista` | `adm`/`fpp` no handler | `ListarTodosAdmins` | Lista admins; apesar da rota aceitar qualquer admin no middleware do grupo, o handler exige permissão mínima `adm`. |
 | `GET` | `/dominis/metrics` | qualquer admin | `GetSystemMetrics` | Retorna snapshot de métricas do processo. |
-| `GET` | `/dominis/storage/quota` | qualquer admin | `GetStorageQuota` | Consulta quota e uso do storage configurado. |
 | `GET` | `/dominis/solicitacoes-matricula` | qualquer admin | `ListarSolicitacoesMatriculaAdmin` | Lista solicitações de matrícula em escopo administrativo. |
 | `POST` | `/dominis/projections/rebuild/:name` | `fpp` | `RebuildProjection` | Reconstrói projeção de forma síncrona. |
 | `POST` | `/dominis/projections/rebuild/:name/async` | `fpp` | `RebuildProjectionAsync` | Enfileira rebuild de projeção. |
@@ -5122,7 +5121,7 @@ Atualiza nome e/ou email de um admin.
 
 ---
 
-### 16.6 Métricas, storage e solicitações administrativas
+### 16.6 Métricas e solicitações administrativas
 
 #### GET /dominis/metrics
 
@@ -5155,63 +5154,6 @@ Retorna métricas do sistema (requisições, erros, autenticação e latência p
   }
 }
 ```
-
-#### GET /dominis/storage/quota
-
-Consulta quota e uso do provider de armazenamento configurado.
-
-**Proteção real**: autenticado + admin (qualquer role).
-
-**Request:** sem payload
-
-**Response 200:**
-
-```json
-{
-  "provider": "mega",
-  "total_bytes": 107374182400,
-  "used_bytes": 1048576,
-  "available_bytes": 107373133824,
-  "managed_bytes": 524288,
-  "outside_academias_bytes": 524288,
-  "unmanaged_bytes": 524288,
-  "total_human": "100.0 GB",
-  "used_human": "1.0 MB",
-  "available_human": "100.0 GB",
-  "managed_human": "512.0 KB",
-  "outside_academias_human": "512.0 KB",
-  "unmanaged_human": "512.0 KB",
-  "academias": [
-    {
-      "codigo_academia": "ACA001",
-      "used_bytes": 524288,
-      "used_human": "512.0 KB"
-    }
-  ],
-  "account_files": [
-    {
-      "path": "/arquivo.pdf",
-      "name": "arquivo.pdf",
-      "size_bytes": 1024,
-      "size_human": "1.0 KB",
-      "managed": false
-    }
-  ],
-  "account_folders": [
-    {
-      "path": "/ACA001",
-      "name": "ACA001",
-      "size_bytes": 524288,
-      "size_human": "512.0 KB",
-      "managed": true
-    }
-  ]
-}
-```
-
-**Erros principais:**
-
-- `503` — provider de storage indisponível ou falha ao obter quota.
 
 #### GET /dominis/solicitacoes-matricula
 
