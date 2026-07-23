@@ -4905,7 +4905,7 @@ Cria um novo admin. A senha temporária é gerada automaticamente, persistida ap
 
 #### GET /dominis/admin-lista
 
-Lista todos os admins.
+#### GET /dominis/admin-lista
 
 **Proteção real**: autenticado + admin; o handler exige permissão mínima `adm` (`adm` ou `fpp`).
 
