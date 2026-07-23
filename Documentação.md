@@ -4846,38 +4846,7 @@ Enfileira o rebuild de uma projeção para execução em background. Use quando 
 
 ---
 
-### 16.4 Índice real das rotas administrativas
-
-| Método | Rota | Role mínima real | Handler | Finalidade |
-| --- | --- | --- | --- | --- |
-| `POST` | `/dominis/register` | `fpp` | `RegisterAdmin` | Cria admin com senha temporária enviada por email. |
-| `POST` | `/dominis/academia/register` | `fpp` | `RegisterAcademia` | Cria uma academia. Detalhes completos no escopo de academias. |
-| `PUT` | `/dominis/academia/:codigo/ativar` | `adm`/`fpp` | `AtivarAcademia` | Ativa uma academia. |
-| `PUT` | `/dominis/academia/:codigo/desativar` | `adm`/`fpp` | `DesativarAcademia` | Desativa uma academia. |
-| `PUT` | `/dominis/admin/:id/ativar` | `adm`/`fpp` | `AtivarAdmin` | Ativa admin inferior na hierarquia. |
-| `PUT` | `/dominis/admin/:id/desativar` | `adm`/`fpp` | `DesativarAdmin` | Desativa admin inferior na hierarquia, com motivo. |
-| `GET` | `/dominis/admin-lista` | `adm`/`fpp` no handler | `ListarTodosAdmins` | Lista admins; apesar da rota aceitar qualquer admin no middleware do grupo, o handler exige permissão mínima `adm`. |
-| `GET` | `/dominis/metrics` | qualquer admin | `GetSystemMetrics` | Retorna snapshot de métricas do processo. |
-| `GET` | `/dominis/solicitacoes-matricula` | qualquer admin | `ListarSolicitacoesMatriculaAdmin` | Lista solicitações de matrícula em escopo administrativo. |
-| `POST` | `/dominis/projections/rebuild/:name` | `fpp` | `RebuildProjection` | Reconstrói projeção de forma síncrona. |
-| `POST` | `/dominis/projections/rebuild/:name/async` | `fpp` | `RebuildProjectionAsync` | Enfileira rebuild de projeção. |
-| `GET` | `/dominis/consultar-admin/:email` | `adm`/`fpp` no handler | `GetAdminPorEmail` | Consulta admin por email; FPP recebe campos extras. |
-| `PUT` | `/dominis/admin/:id/role` | `fpp` | `AtualizarRoleAdmin` | Altera role de admin, sem permitir alterar a própria role. |
-| `PUT` | `/dominis/admin/:id/dados` | qualquer admin | `AtualizarDadosAdmin` | Atualiza nome e/ou email de um admin. |
-| `POST` | `/dominis/academia/register/async` | `fpp` | `RegisterAcademiaBatchAsync` | Enfileira cadastro em lote de academias, até 500 itens. |
-| `PUT` | `/dominis/academia/ativar/async` | `adm`/`fpp` | `AtivarAcademiaBatchAsync` | Enfileira ativação em lote de academias, até 500 itens. |
-| `PUT` | `/dominis/academia/desativar/async` | `adm`/`fpp` | `DesativarAcademiaBatchAsync` | Enfileira desativação em lote de academias, até 500 itens. |
-| `PUT` | `/dominis/admin/ativar/async` | `adm`/`fpp` | `AtivarAdminBatchAsync` | Enfileira ativação em lote de admins, até 500 itens. |
-| `PUT` | `/dominis/admin/desativar/async` | `adm`/`fpp` | `DesativarAdminBatchAsync` | Enfileira desativação em lote de admins, até 500 itens. |
-| `POST` | `/admin/definir-ano-letivo-geral` | `fpp` | `DefinirAnoLetivoGlobalSistema` | Define ano letivo global por tipo. |
-| `GET` | `/admin/sistema/anos-letivos/configuracoes` | `fpp` | `ListarConfiguracoesAnosLetivos` | Lista períodos fixos por tipo. |
-| `PUT` | `/admin/sistema/anos-letivos/configuracoes/:type` | `fpp` | `AtualizarConfiguracaoAnoLetivo` | Endpoint legado: valida que o período enviado é o fixo e não altera a regra. |
-| `GET` | `/admin/sistema/anos-letivos/finalizacao-limites` | `fpp` | `GetLimitesFinalizacaoAnosLetivos` | Retorna limites de avanço global por finalizações. |
-| `GET` | `/admin/academias/anos-letivos/finalizacoes` | `fpp` | `ListarFinalizacoesAnoLetivoAdmin` | Lista finalizações de ano letivo por academia. |
-
----
-
-### 16.5 Gestão de administradores
+### 16.4 Gestão de administradores
 
 #### POST /dominis/register
 
@@ -4936,7 +4905,7 @@ Cria um novo admin. A senha temporária é gerada automaticamente, persistida ap
 
 #### GET /dominis/admin-lista
 
-Lista todos os admins.
+#### GET /dominis/admin-lista
 
 **Proteção real**: autenticado + admin; o handler exige permissão mínima `adm` (`adm` ou `fpp`).
 
@@ -5121,7 +5090,7 @@ Atualiza nome e/ou email de um admin.
 
 ---
 
-### 16.6 Métricas e solicitações administrativas
+### 16.5 Métricas e solicitações administrativas
 
 #### GET /dominis/metrics
 
@@ -5167,7 +5136,7 @@ Consulte o escopo de solicitações de matrícula para filtros e formato complet
 
 ---
 
-### 16.7 Operações administrativas sobre academias
+### 16.6 Operações administrativas sobre academias
 
 As rotas de academia abaixo ficam no grupo `/dominis` porque são executadas por administradores. Os detalhes completos dos payloads e respostas aparecem na seção de academias; este escopo registra a proteção real e a finalidade administrativa.
 
@@ -5201,7 +5170,7 @@ Desativa uma academia.
 
 ---
 
-### 16.8 Operações administrativas assíncronas em lote
+### 16.7 Operações administrativas assíncronas em lote
 
 Todas as rotas abaixo usam o mesmo envelope de jobs assíncronos descrito na seção 17. O body é um array de itens compatíveis com a operação síncrona correspondente. O limite real usado pelo enqueue é **500 itens** para estas operações administrativas.
 
@@ -5257,7 +5226,7 @@ Enfileira desativação em lote de admins.
 
 ---
 
-### 16.9 Configurações globais de anos letivos (`/admin`)
+### 16.8 Configurações globais de anos letivos (`/admin`)
 
 Estas rotas estão registradas sob o prefixo `/admin` e exigem `RequireFPP()` além de autenticação administrativa.
 
