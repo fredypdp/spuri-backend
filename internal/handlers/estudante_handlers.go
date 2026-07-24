@@ -615,10 +615,9 @@ func GetEventosEstudante(c *gin.Context) {
 // PUT /estudante/dados-pessoais
 // ============================================================================
 
-// AtualizarDadosPessoaisRequest — nome, genero, bilhetes de identidade e data_nascimento não podem ser alterados após o cadastro inicial.
-type AtualizarDadosPessoaisRequest struct {
-	TelefoneEncarregado *string `json:"telefone_encarregado"`
-}
+// AtualizarDadosPessoaisRequest não expõe campos editáveis sensíveis ou de contato;
+// os validadores anteriores rejeitam esses payloads antes de qualquer mutação.
+type AtualizarDadosPessoaisRequest struct{}
 
 func AtualizarDadosPessoais(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
@@ -652,7 +651,7 @@ func AtualizarDadosPessoais(c *gin.Context) {
 	}
 
 	if err := estudante.AtualizarDadosPessoais(
-		nil, nil, nil, utils.NormalizePhonePtr(req.TelefoneEncarregado),
+		nil, nil, nil, nil,
 		nil, nil, nil,
 	); err != nil {
 		utils.RespondWithValidationError(c, err)

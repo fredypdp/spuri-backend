@@ -2574,19 +2574,17 @@ Consulta um estudante por código. Quando o estudante possui documentos, a respo
 
 ### PUT /estudante/dados-pessoais
 
-Atualiza os dados pessoais do estudante autenticado.
+Rota mantida apenas para campos cadastrais não sensíveis do estudante autenticado. No estado atual da API, os campos editáveis foram separados em rotas dedicadas, portanto esta rota não aceita alterações de identificação civil nem contatos.
 
 **Proteção**: autenticado + estudante
 
-**Request:** (todos os campos opcionais)
+**Request:** JSON sem campos restritos. Payloads com campos restritos são rejeitados antes de qualquer mutação.
 
 ```json
-{
-  "telefone_encarregado": "924000000"
-}
+{}
 ```
 
-**Nota**: `nome`, `genero`, `bilhete_identidade`, `bilhete_identidade_encarregado` e `data_nascimento` não podem ser alterados após o cadastro do estudante. Enviar qualquer um desses campos nesta rota retorna `400` com `code = campo_imutavel`. `email` e `telefone` não são aceitos nesta rota; use `PUT /me/email` e `PUT /me/telefone`. Quando `telefone_encarregado` muda de fato, `telefone_encarregado_verificado` volta para `false`; reenviar o mesmo valor não altera a flag.
+**Nota**: `nome`, `bilhete_identidade`, `bilhete_identidade_encarregado` e `data_nascimento` exigem solicitação documentada por `POST /estudante/solicitacoes-edicao/{campo}` e decisão posterior da academia. `telefone_encarregado` não é aceito nesta rota e retorna `400` com `code = campo_nao_permitido`; use `PUT /estudante/encarregado/telefone`. `email` e `telefone` também não são aceitos nesta rota; use `PUT /me/email` e `PUT /me/telefone`.
 
 **Response 200:**
 
