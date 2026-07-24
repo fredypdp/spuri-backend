@@ -615,14 +615,12 @@ func GetEventosEstudante(c *gin.Context) {
 // PUT /estudante/dados-pessoais
 // ============================================================================
 
-// AtualizarDadosPessoaisRequest — DataNascimento é ponteiro (nil = não alterar).
-// Genero não pode ser alterado após o cadastro inicial.
+// AtualizarDadosPessoaisRequest — genero e data_nascimento não podem ser alterados após o cadastro inicial.
 type AtualizarDadosPessoaisRequest struct {
-	Nome                  *string    `json:"nome"`
-	TelefoneEncarregado   *string    `json:"telefone_encarregado"`
-	BilheteIdentidade     *string    `json:"bilhete_identidade"`
-	BilheteIdentidadeResp *string    `json:"bilhete_identidade_encarregado"`
-	DataNascimento        *time.Time `json:"data_nascimento"`
+	Nome                  *string `json:"nome"`
+	TelefoneEncarregado   *string `json:"telefone_encarregado"`
+	BilheteIdentidade     *string `json:"bilhete_identidade"`
+	BilheteIdentidadeResp *string `json:"bilhete_identidade_encarregado"`
 }
 
 func AtualizarDadosPessoais(c *gin.Context) {
@@ -634,20 +632,13 @@ func AtualizarDadosPessoais(c *gin.Context) {
 	if rejectDedicatedContactFields(c) {
 		return
 	}
+	if rejectStudentPersonalImmutableFields(c) {
+		return
+	}
 	var req AtualizarDadosPessoaisRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
-	}
-
-	// Validar data_nascimento apenas se fornecida
-	if req.DataNascimento != nil {
-		hoje := time.Now().UTC().Truncate(24 * time.Hour)
-		dataNasc := req.DataNascimento.UTC().Truncate(24 * time.Hour)
-		if !dataNasc.Before(hoje) {
-			utils.RespondWithValidationError(c, fmt.Errorf("data_nascimento deve ser anterior à data atual"))
-			return
-		}
 	}
 
 	if req.BilheteIdentidade != nil && strings.TrimSpace(*req.BilheteIdentidade) != "" {
@@ -684,7 +675,7 @@ func AtualizarDadosPessoais(c *gin.Context) {
 	if err := estudante.AtualizarDadosPessoais(
 		req.Nome, nil, nil, utils.NormalizePhonePtr(req.TelefoneEncarregado),
 		req.BilheteIdentidade, req.BilheteIdentidadeResp,
-		req.DataNascimento,
+		nil,
 	); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
