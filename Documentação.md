@@ -4915,12 +4915,27 @@ Lista todos os admins.
 
 ```json
 {
-  "admins": [AdminDTO],
-  "total": 5
+  "admins": [
+    {
+      "id": "uuid",
+      "nome": "string",
+      "email": "admin.exemplo@dominio.com",
+      "email_verificado": true,
+      "role": "adm",
+      "status": "ativo",
+      "telefone": "+244900000000",
+      "telefone_verificado": false,
+      "created_at": "2026-01-01T10:00:00Z",
+      "updated_at": "2026-01-02T10:00:00Z",
+      "created_by": "uuid",
+      "total_acoes_realizadas": 12
+    }
+  ],
+  "total": 1
 }
 ```
 
-> A serialização remove defensivamente `senha_hash`, embora o DTO já não exponha esse campo.
+> Cada item usa o `AdminDTO`, portanto inclui `email_verificado` para indicar se o e-mail do administrador foi confirmado. A serialização remove defensivamente `senha_hash`, embora o DTO já não exponha esse campo.
 
 #### GET /dominis/consultar-admin/:email
 
@@ -5079,6 +5094,7 @@ Atualiza nome e/ou email de um admin.
 - Body JSON deve ser válido.
 - Pelo menos `nome` ou `email` deve ser fornecido.
 - Se `email` for informado, não pode pertencer a outro admin.
+- Se o email for alterado, `email_verificado` volta para `false` até nova confirmação do endereço.
 
 **Response 200:**
 
@@ -5123,6 +5139,65 @@ Retorna métricas do sistema (requisições, erros, autenticação e latência p
   }
 }
 ```
+
+#### GET /dominis/storage/quota
+
+Retorna o uso de armazenamento da conta configurada no provider ativo, discriminando totais, uso gerenciado pela aplicação, uso fora das pastas de academias e arquivos/pastas encontrados na conta.
+
+**Proteção real**: autenticado + admin (qualquer role).
+
+**Request:** sem payload
+
+**Response 200:**
+
+```json
+{
+  "provider": "mega",
+  "total_bytes": 53687091200,
+  "used_bytes": 10737418240,
+  "available_bytes": 42949672960,
+  "managed_bytes": 8589934592,
+  "outside_academias_bytes": 2147483648,
+  "unmanaged_bytes": 2147483648,
+  "total_human": "50.0 GB",
+  "used_human": "10.0 GB",
+  "available_human": "40.0 GB",
+  "managed_human": "8.0 GB",
+  "outside_academias_human": "2.0 GB",
+  "unmanaged_human": "2.0 GB",
+  "academias": [
+    {
+      "codigo_academia": "ACA-001",
+      "used_bytes": 1048576,
+      "used_human": "1.0 MB"
+    }
+  ],
+  "account_files": [
+    {
+      "path": "/academias/ACA-001/documento.pdf",
+      "name": "documento.pdf",
+      "size_bytes": 1048576,
+      "size_human": "1.0 MB",
+      "managed": true
+    }
+  ],
+  "account_folders": [
+    {
+      "path": "/academias/ACA-001",
+      "name": "ACA-001",
+      "size_bytes": 1048576,
+      "size_human": "1.0 MB",
+      "managed": true
+    }
+  ]
+}
+```
+
+**Erros principais:**
+
+| Status | Quando ocorre |
+| --- | --- |
+| `503` | provider de armazenamento indisponível ou falha ao obter quota |
 
 ## 17. Jobs Assíncronos
 
