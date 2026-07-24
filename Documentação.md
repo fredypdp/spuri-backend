@@ -5748,3 +5748,49 @@ Quando a configuração do Mega ou da quota estiver incompleta ou inválida, a r
   "request_id": "8c7e6a5d-9b9f-4fd2-a2d0-3a989a8c2d8b"
 }
 ```
+
+## Solicitações de edição de dados sensíveis do estudante
+
+Dados civis sensíveis do estudante não são aceitos em `PUT /estudante/dados-pessoais`. Os campos `nome`, `bilhete_identidade`, `bilhete_identidade_encarregado`, `data_nascimento` e `telefone_encarregado` retornam `400` com `campo_nao_permitido`/validação equivalente quando enviados pela rota genérica. O telefone do encarregado deve ser alterado somente em `PUT /estudante/encarregado/telefone`.
+
+### Entidade e eventos
+
+A entidade `SolicitacaoEdicaoDadoEstudante` registra `codigo_solicitacao`, `codigo_estudante`, `codigo_academia`, `campo`, `valor_atual`, `valor_solicitado`, `documento_temporario_path`, URL opcional, `status`, motivo de reprovação, autor, decisor, timestamps e versão. Existe no máximo uma solicitação `pendente` por estudante e campo.
+
+Eventos adicionados ao ledger seguro:
+
+- `SolicitacaoEdicaoDadoEstudanteCriada`
+- `SolicitacaoEdicaoDadoEstudanteAprovada`
+- `SolicitacaoEdicaoDadoEstudanteReprovada`
+- `NomeEstudanteAlteradoPorSolicitacao`
+- `BilheteIdentidadeEstudanteAlteradoPorSolicitacao`
+- `BilheteIdentidadeEncarregadoAlteradoPorSolicitacao`
+- `DataNascimentoEstudanteAlteradaPorSolicitacao`
+- `TelefoneEncarregadoAlterado`
+
+### Rotas do estudante
+
+Todas exigem autenticação de estudante. As solicitações usam `multipart/form-data` com `novo_valor` e `documento` PDF obrigatório (`application/pdf`, extensão `.pdf`, assinatura `%PDF`, até 10MB). O arquivo é salvo temporariamente em `{codigo_academia}/estudantes/{codigo_estudante}/edicoes_dados_pendentes/{campo}_{codigo_solicitacao}.pdf` e removido após aprovação ou reprovação.
+
+- `POST /estudante/solicitacoes-edicao/nome`
+- `POST /estudante/solicitacoes-edicao/bilhete-identidade`
+- `POST /estudante/solicitacoes-edicao/bilhete-identidade-encarregado`
+- `POST /estudante/solicitacoes-edicao/data-nascimento`
+- `GET /estudante/solicitacoes-edicao?status=&campo=&limit=&offset=` lista apenas solicitações do estudante autenticado, com `limit` padrão 50 e teto 100.
+- `PUT /estudante/encarregado/telefone` altera somente `telefone_encarregado` com telefone nacional estrito de 9 dígitos e reseta `telefone_encarregado_verificado` quando houver mudança.
+
+### Rotas da academia
+
+Todas exigem academia ativa autenticada e só decidem solicitações de estudantes vinculados à própria academia. A rota valida que o campo da URL corresponde ao campo da solicitação; não há endpoint genérico por campo arbitrário.
+
+- `GET /academia/solicitacoes-edicao-estudante?status=&campo=&codigo_estudante=&limit=&offset=`
+- `PUT /academia/solicitacoes-edicao-estudante/nome/:codigo/aprovar`
+- `PUT /academia/solicitacoes-edicao-estudante/nome/:codigo/reprovar`
+- `PUT /academia/solicitacoes-edicao-estudante/bilhete-identidade/:codigo/aprovar`
+- `PUT /academia/solicitacoes-edicao-estudante/bilhete-identidade/:codigo/reprovar`
+- `PUT /academia/solicitacoes-edicao-estudante/bilhete-identidade-encarregado/:codigo/aprovar`
+- `PUT /academia/solicitacoes-edicao-estudante/bilhete-identidade-encarregado/:codigo/reprovar`
+- `PUT /academia/solicitacoes-edicao-estudante/data-nascimento/:codigo/aprovar`
+- `PUT /academia/solicitacoes-edicao-estudante/data-nascimento/:codigo/reprovar`
+
+A aprovação revalida o valor solicitado contra o estado atual, grava o evento dedicado no agregado do estudante e marca a solicitação como `aprovada`. A reprovação exige `motivo_reprovacao` e preserva o dado vigente. Solicitações decididas são terminais e retornam conflito em nova decisão. Falhas de deleção do PDF temporário são registradas em log operacional para reprocessamento seguro sem desfazer a decisão já gravada.

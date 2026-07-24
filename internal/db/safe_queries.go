@@ -83,22 +83,31 @@ var validEventTypes = map[string]bool{
 	"MateriaPeriodoDefinido":  true,
 	"MateriaDeletada":         true,
 	// ── Solicitação de Matrícula ───────────────────────────────────────────────
-	"SolicitacaoMatriculaCriada":    true,
-	"SolicitacaoMatriculaAprovada":  true,
-	"SolicitacaoMatriculaReprovada": true,
-	"SolicitacaoMatriculaCancelada": true,
+	"SolicitacaoMatriculaCriada":                         true,
+	"SolicitacaoMatriculaAprovada":                       true,
+	"SolicitacaoMatriculaReprovada":                      true,
+	"SolicitacaoMatriculaCancelada":                      true,
+	"SolicitacaoEdicaoDadoEstudanteCriada":               true,
+	"SolicitacaoEdicaoDadoEstudanteAprovada":             true,
+	"SolicitacaoEdicaoDadoEstudanteReprovada":            true,
+	"NomeEstudanteAlteradoPorSolicitacao":                true,
+	"BilheteIdentidadeEstudanteAlteradoPorSolicitacao":   true,
+	"BilheteIdentidadeEncarregadoAlteradoPorSolicitacao": true,
+	"DataNascimentoEstudanteAlteradaPorSolicitacao":      true,
+	"TelefoneEncarregadoAlterado":                        true,
 }
 
 // validAggregateTypes é o mapa canônico de aggregate types permitidos no ledger.
 var validAggregateTypes = map[string]bool{
-	"Estudante":            true,
-	"Academia":             true,
-	"Admin":                true,
-	"Curso":                true,
-	"MateriaDisciplinar":   true,
-	"Turma":                true,
-	"SolicitacaoMatricula": true,
-	"System":               true,
+	"Estudante":                      true,
+	"Academia":                       true,
+	"Admin":                          true,
+	"Curso":                          true,
+	"MateriaDisciplinar":             true,
+	"Turma":                          true,
+	"SolicitacaoMatricula":           true,
+	"SolicitacaoEdicaoDadoEstudante": true,
+	"System":                         true,
 }
 
 // ValidateEventType verifica se o tipo de evento é permitido.

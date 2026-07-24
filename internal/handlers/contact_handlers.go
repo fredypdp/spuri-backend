@@ -21,6 +21,11 @@ func rejectDedicatedContactFields(c *gin.Context) bool {
 		utils.RespondWithValidationError(c, fmt.Errorf("body inválido"))
 		return true
 	}
+	if _, ok := raw["telefone_encarregado"]; ok {
+		msg := "O campo 'telefone_encarregado' não é aceito nesta rota. Use PUT /estudante/encarregado/telefone."
+		c.JSON(http.StatusBadRequest, gin.H{"error": "VALIDATION_ERROR", "message": msg, "details": []gin.H{{"field": "telefone_encarregado", "code": "campo_nao_permitido", "message": msg}}})
+		return true
+	}
 	for _, field := range []string{"email", "telefone"} {
 		if _, ok := raw[field]; ok {
 			rota := "/me/email"

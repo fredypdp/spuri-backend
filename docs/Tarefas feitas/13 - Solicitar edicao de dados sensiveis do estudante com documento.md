@@ -1,10 +1,10 @@
 ---
 criado: 2026-07-24 00:00
 origem: solicitação direta
-status: pendente
+status: concluida
 ---
 
-# Criar solicitações documentadas para edição de dados sensíveis do estudante (pendente)
+# Criar solicitações documentadas para edição de dados sensíveis do estudante
 
 ## Prompt recomendado para executar a atualização
 
@@ -328,3 +328,8 @@ A tarefa só deve ser considerada concluída quando:
 ## Procedimento de conclusão
 
 Ao implementar esta tarefa, mover este arquivo para `docs/Tarefas feitas/`, remover o sufixo `(pendente)` do título, atualizar o frontmatter para `status: concluida`, registrar os testes executados e criar um documento de debug em `docs/Debbugs/` caso alguma lacuna seja encontrada durante a auditoria final.
+
+
+## Testes executados
+
+- `go test ./...`
