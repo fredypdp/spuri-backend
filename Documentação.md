@@ -1236,13 +1236,9 @@ Atualiza os dados cadastrais da academia autenticada.
 ```json
 {
   "nome": "string",
-  "type": "private",
   "provincia": "luanda",
   "endereco": "string",
-  "website": "string",
-  "nivel_escolar": "fundamental",
-  "anos_academicos": ["1_ano_fundamental"],
-  "cursos": ["Curso A"]
+  "website": "string"
 }
 ```
 
@@ -1254,7 +1250,7 @@ Atualiza os dados cadastrais da academia autenticada.
 }
 ```
 
-**Nota**: `email` e `telefone` não são aceitos nesta rota. Use `PUT /me/email` e `PUT /me/telefone`. Se qualquer um desses campos aparecer no payload, a requisição falha inteira com `400` e nenhum campo é alterado.
+**Nota**: `telefone`, `email`, `anos_academicos`, `cursos`, `type`, `nivel_escolar` e `nif` não são aceitos nesta rota. Use `PUT /me/email` e `PUT /me/telefone` para contatos, `POST/DELETE /academia/anos-academicos` para anos acadêmicos e as rotas `/academia/curso` para cursos. Alterações de `type` e `nivel_escolar` exigem documento comprobativo pelo fluxo dedicado da tarefa 07 e ficam indisponíveis por este caminho. Se qualquer campo não permitido aparecer no payload, a requisição falha inteira com `400` e nenhum campo é alterado.
 
 ---
 
@@ -2593,7 +2589,7 @@ Atualiza os dados pessoais do estudante autenticado.
 }
 ```
 
-**Nota**: `genero` não pode ser alterado. `data_nascimento` deve ser anterior à data atual. `email` e `telefone` não são aceitos nesta rota; use `PUT /me/email` e `PUT /me/telefone`.
+**Nota**: `genero` não pode ser alterado. `data_nascimento` deve ser anterior à data atual. `email` e `telefone` não são aceitos nesta rota; use `PUT /me/email` e `PUT /me/telefone`. Quando `telefone_encarregado` muda de fato, `telefone_encarregado_verificado` volta para `false`; reenviar o mesmo valor não altera a flag.
 
 **Response 200:**
 
@@ -5125,7 +5121,7 @@ Altera o role de um admin.
 
 Atualiza somente o nome de um admin. Email e telefone do próprio usuário autenticado usam rotas dedicadas.
 
-**Proteção real**: autenticado + admin (qualquer role).
+**Proteção real**: autenticado + admin. Para editar outro admin, o executor deve ter role estritamente superior ao alvo; autoedição do próprio `nome` é permitida.
 
 **Path Params:**
 
@@ -5143,7 +5139,8 @@ Atualiza somente o nome de um admin. Email e telefone do próprio usuário auten
 
 - Body JSON deve ser válido.
 - `nome` deve ser fornecido.
-- `email` e `telefone` são rejeitados nesta rota; use `PUT /me/email` e `PUT /me/telefone` para o contato do admin autenticado.
+- `email` e `telefone` são rejeitados nesta rota; use `PUT /me/email` e `PUT /me/telefone` para o contato do admin autenticado. Nessas rotas dedicadas, mudanças efetivas resetam `email_verificado`/`telefone_verificado` para `false`; reenviar o mesmo valor não altera a flag.
+- Ao editar outro admin, aplica-se a hierarquia estrita (`fpp` > `adm` > `gerente`); roles iguais ou superiores ao executor retornam `403`.
 
 **Response 200:**
 
@@ -5161,7 +5158,7 @@ Atualiza somente o nome de um admin. Email e telefone do próprio usuário auten
 
 Retorna métricas do sistema (requisições, erros, autenticação e latência por endpoint).
 
-**Proteção real**: autenticado + admin (qualquer role).
+**Proteção real**: autenticado + admin. Para editar outro admin, o executor deve ter role estritamente superior ao alvo; autoedição do próprio `nome` é permitida.
 
 **Request:** sem payload
 
@@ -5193,7 +5190,7 @@ Retorna métricas do sistema (requisições, erros, autenticação e latência p
 
 Retorna o uso de armazenamento da conta configurada no provider ativo, discriminando totais, uso gerenciado pela aplicação, uso fora das pastas de academias e arquivos/pastas encontrados na conta.
 
-**Proteção real**: autenticado + admin (qualquer role).
+**Proteção real**: autenticado + admin. Para editar outro admin, o executor deve ter role estritamente superior ao alvo; autoedição do próprio `nome` é permitida.
 
 **Request:** sem payload
 

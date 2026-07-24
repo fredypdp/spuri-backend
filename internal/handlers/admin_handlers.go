@@ -752,6 +752,23 @@ func AtualizarDadosAdmin(c *gin.Context) {
 		return
 	}
 
+	if adminID != userID {
+		executorAgg, err := repository.Load(userID, "Admin")
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		executor, ok := executorAgg.(*aggregates.Admin)
+		if !ok {
+			utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado para executor"))
+			return
+		}
+		if err := executor.ValidatePermission(admin.Role); err != nil {
+			utils.RespondWithForbiddenError(c, fmt.Sprintf("permissão negada para editar admin com role '%s': %s", admin.Role, err.Error()))
+			return
+		}
+	}
+
 	if err := admin.AtualizarDados(req.Nome, nil, nil, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
