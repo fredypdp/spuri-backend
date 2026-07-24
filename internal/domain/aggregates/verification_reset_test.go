@@ -98,3 +98,30 @@ func TestEstudanteAtualizarDadosPessoaisRejeitaDataNascimento(t *testing.T) {
 		t.Fatalf("esperava rejeição da edição de data_nascimento")
 	}
 }
+
+func TestEstudanteAtualizarDadosPessoaisRejeitaCamposImutaveis(t *testing.T) {
+	estudante := NewEstudante()
+	estudante.Status = "ativo"
+	estudante.Telefone = strPtr("923456789")
+
+	nome := "Aluno Novo"
+	bi := "001LA001"
+	biResp := "002LA002"
+	dataNascimento := estudante.DataNascimento.AddDate(-20, 0, 0)
+
+	cases := []struct {
+		name string
+		err  error
+	}{
+		{name: "nome", err: estudante.AtualizarDadosPessoais(&nome, nil, nil, nil, nil, nil, nil)},
+		{name: "bilhete_identidade", err: estudante.AtualizarDadosPessoais(nil, nil, nil, nil, &bi, nil, nil)},
+		{name: "bilhete_identidade_encarregado", err: estudante.AtualizarDadosPessoais(nil, nil, nil, nil, nil, &biResp, nil)},
+		{name: "data_nascimento", err: estudante.AtualizarDadosPessoais(nil, nil, nil, nil, nil, nil, &dataNascimento)},
+	}
+
+	for _, tc := range cases {
+		if tc.err == nil {
+			t.Fatalf("esperava rejeição da edição de %s", tc.name)
+		}
+	}
+}

@@ -38,7 +38,7 @@ func TestEstudanteCriarComVinculoRejeitaBilhetesIguais(t *testing.T) {
 	}
 }
 
-func TestEstudanteAtualizarDadosPessoaisRejeitaBilhetesEfetivosIguais(t *testing.T) {
+func TestEstudanteAtualizarDadosPessoaisRejeitaEdicaoDeBilheteEncarregado(t *testing.T) {
 	bi := "001LA001"
 	estudante := NewEstudante()
 	estudante.BilheteIdentidade = &bi
@@ -47,8 +47,8 @@ func TestEstudanteAtualizarDadosPessoaisRejeitaBilhetesEfetivosIguais(t *testing
 
 	biResp := " 001la001 "
 	err := estudante.AtualizarDadosPessoais(nil, nil, nil, nil, nil, &biResp, nil)
-	if err == nil || !strings.Contains(err.Error(), "não podem ser iguais") {
-		t.Fatalf("esperava erro de bilhetes iguais na atualização, recebeu %v", err)
+	if err == nil || !strings.Contains(err.Error(), "bilhete_identidade_encarregado não pode ser alterado") {
+		t.Fatalf("esperava erro de campo imutável na atualização, recebeu %v", err)
 	}
 }
 

@@ -540,7 +540,7 @@ func (e *Estudante) AlterarSenha(novaSenhaHash string) error {
 	return e.Apply(event)
 }
 
-// AtualizarDadosPessoais — genero e data_nascimento não podem ser alterados após o cadastro.
+// AtualizarDadosPessoais — nome, genero, bilhetes de identidade e data_nascimento não podem ser alterados após o cadastro.
 func (e *Estudante) AtualizarDadosPessoais(
 	nome *string,
 	email *string,
@@ -554,8 +554,17 @@ func (e *Estudante) AtualizarDadosPessoais(
 		bilheteIdentidade == nil && bilheteIdentidadeResp == nil && dataNascimento == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
+	if nome != nil {
+		return fmt.Errorf("nome não pode ser alterado após o cadastro do estudante")
+	}
+	if bilheteIdentidade != nil {
+		return fmt.Errorf("bilhete_identidade não pode ser alterado após o cadastro do estudante")
+	}
+	if bilheteIdentidadeResp != nil {
+		return fmt.Errorf("bilhete_identidade_encarregado não pode ser alterado após o cadastro do estudante")
+	}
 	if dataNascimento != nil {
-		return fmt.Errorf("data_nascimento não pode ser alterada após o cadastro do estudante")
+		return fmt.Errorf("data_nascimento não pode ser alterado após o cadastro do estudante")
 	}
 	effectiveBilhete := e.BilheteIdentidade
 	if bilheteIdentidade != nil {

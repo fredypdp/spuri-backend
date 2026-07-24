@@ -79,6 +79,13 @@ func findRemovedJSONFieldString(raw string) (string, string, bool) {
 	return findRemovedJSONField(decoded)
 }
 
+var immutableStudentPersonalFields = map[string]struct{}{
+	"nome":                           {},
+	"bilhete_identidade":             {},
+	"bilhete_identidade_encarregado": {},
+	"data_nascimento":                {},
+}
+
 func rejectStudentPersonalImmutableFields(c *gin.Context) bool {
 	if c.Request == nil || c.Request.Body == nil || !strings.Contains(strings.ToLower(c.GetHeader("Content-Type")), "json") {
 		return false
@@ -92,10 +99,12 @@ func rejectStudentPersonalImmutableFields(c *gin.Context) bool {
 	if json.Unmarshal(body, &raw) != nil {
 		return false
 	}
-	if _, ok := raw["data_nascimento"]; ok {
-		msg := "data_nascimento não pode ser alterada após o cadastro do estudante"
-		c.JSON(http.StatusBadRequest, gin.H{"error": "VALIDATION_ERROR", "message": msg, "details": []gin.H{{"field": "data_nascimento", "code": "campo_imutavel", "message": msg}}})
-		return true
+	for field := range immutableStudentPersonalFields {
+		if _, ok := raw[field]; ok {
+			msg := fmt.Sprintf("%s não pode ser alterado após o cadastro do estudante", field)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "VALIDATION_ERROR", "message": msg, "details": []gin.H{{"field": field, "code": "campo_imutavel", "message": msg}}})
+			return true
+		}
 	}
 	c.Request.Body = io.NopCloser(bytes.NewReader(body))
 	return false
