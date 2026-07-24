@@ -305,7 +305,6 @@ func setupRouter() *gin.Engine {
 	estudante.Use(middleware.AuthMiddleware())
 	estudante.Use(middleware.RequireEstudante())
 	{
-		estudante.PUT("/dados-pessoais", handlers.AtualizarDadosPessoais)
 		estudante.PUT("/encarregado/telefone", handlers.AtualizarTelefoneEncarregado)
 		estudante.GET("/solicitacoes-edicao", handlers.ListarSolicitacoesEdicaoEstudante)
 		estudante.POST("/solicitacoes-edicao/nome", handlers.CriarSolicitacaoEdicaoDadoEstudanteHandler("nome"))
