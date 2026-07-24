@@ -187,9 +187,11 @@ func (p *AdminProjection) handleAcaoAdminRegistrada(event db.Event) error {
 // ficará marcado como falha permanente.
 func (p *AdminProjection) handleAdminDadosAtualizados(event db.Event) error {
 	var payload struct {
-		Nome          *string
-		Email         *string
-		EmailAlterado bool
+		Nome             *string
+		Email            *string
+		EmailAlterado    bool
+		Telefone         *string
+		TelefoneAlterado bool
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return err
@@ -240,6 +242,17 @@ func (p *AdminProjection) handleAdminDadosAtualizados(event db.Event) error {
 				event.AggregateID,
 			); err != nil {
 				return fmt.Errorf("erro ao resetar email_verificado: %w", err)
+			}
+		}
+	}
+
+	if payload.Telefone != nil {
+		if _, err := tx.Exec(`UPDATE projection_admins SET telefone = $1 WHERE id = $2`, *payload.Telefone, event.AggregateID); err != nil {
+			return fmt.Errorf("erro ao atualizar telefone: %w", err)
+		}
+		if payload.TelefoneAlterado {
+			if _, err := tx.Exec(`UPDATE projection_admins SET telefone_verificado = FALSE WHERE id = $1`, event.AggregateID); err != nil {
+				return fmt.Errorf("erro ao resetar telefone_verificado: %w", err)
 			}
 		}
 	}

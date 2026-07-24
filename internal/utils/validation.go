@@ -47,6 +47,16 @@ func NormalizePhonePtr(phone *string) *string {
 }
 
 // ValidatePhone valida um número de telefone (opcional — string vazia é aceita).
+func ValidatePhoneStrictNational(phone string) error {
+	if strings.TrimSpace(phone) == "" {
+		return fmt.Errorf("telefone deve conter apenas dígitos do número nacional, sem DDI")
+	}
+	if !phoneRegex.MatchString(phone) {
+		return fmt.Errorf("telefone deve conter apenas dígitos do número nacional, sem DDI")
+	}
+	return nil
+}
+
 func ValidatePhone(phone string) error {
 	if phone == "" {
 		log.Printf("⏭️ [ValidatePhone] Telefone vazio (opcional)")

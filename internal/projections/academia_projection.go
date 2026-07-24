@@ -519,18 +519,19 @@ func (p *AcademiaProjection) handleEstudanteCriadoComVinculo(event db.Event) err
 // handleAcademiaDadosAtualizados atualiza campos opcionais da academia.
 func (p *AcademiaProjection) handleAcademiaDadosAtualizados(event db.Event) error {
 	var payload struct {
-		Nome           *string  `json:"Nome"`
-		NIF            *string  `json:"NIF"`
-		Type           *string  `json:"Type"`
-		Provincia      *string  `json:"Provincia"`
-		Endereco       *string  `json:"Endereco"`
-		Telefone       *string  `json:"Telefone"`
-		Email          *string  `json:"Email"`
-		Website        *string  `json:"Website"`
-		NivelEscolar   *string  `json:"NivelEscolar"`
-		AnosAcademicos []string `json:"AnosAcademicos"`
-		Cursos         []string `json:"Cursos"`
-		EmailAlterado  bool     `json:"EmailAlterado"`
+		Nome             *string  `json:"Nome"`
+		NIF              *string  `json:"NIF"`
+		Type             *string  `json:"Type"`
+		Provincia        *string  `json:"Provincia"`
+		Endereco         *string  `json:"Endereco"`
+		Telefone         *string  `json:"Telefone"`
+		Email            *string  `json:"Email"`
+		Website          *string  `json:"Website"`
+		NivelEscolar     *string  `json:"NivelEscolar"`
+		AnosAcademicos   []string `json:"AnosAcademicos"`
+		Cursos           []string `json:"Cursos"`
+		EmailAlterado    bool     `json:"EmailAlterado"`
+		TelefoneAlterado bool     `json:"TelefoneAlterado"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleAcademiaDadosAtualizados: parse error: %w", err)
@@ -581,6 +582,8 @@ func (p *AcademiaProjection) handleAcademiaDadosAtualizados(event db.Event) erro
 		setClauses = append(setClauses, fmt.Sprintf("telefone = $%d", argIdx))
 		args = append(args, *payload.Telefone)
 		argIdx++
+	}
+	if payload.TelefoneAlterado {
 		setClauses = append(setClauses, "telefone_verificado = FALSE")
 	}
 	if payload.Email != nil {

@@ -556,6 +556,7 @@ func (p *EstudanteProjection) handleDadosPessoaisAtualizados(event db.Event) err
 		BilheteIdentidadeResp *string    `json:"BilheteIdentidadeResp"`
 		DataNascimento        *time.Time `json:"DataNascimento"`
 		EmailAlterado         bool       `json:"EmailAlterado"`
+		TelefoneAlterado      bool       `json:"TelefoneAlterado"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleDadosPessoaisAtualizados: parse error: %w", err)
@@ -582,6 +583,9 @@ func (p *EstudanteProjection) handleDadosPessoaisAtualizados(event db.Event) err
 		setClauses = append(setClauses, fmt.Sprintf("telefone = $%d", idx))
 		args = append(args, *payload.Telefone)
 		idx++
+	}
+	if payload.TelefoneAlterado {
+		setClauses = append(setClauses, "telefone_verificado = FALSE")
 	}
 	if payload.TelefoneEncarregado != nil {
 		setClauses = append(setClauses, fmt.Sprintf("telefone_encarregado = $%d", idx))

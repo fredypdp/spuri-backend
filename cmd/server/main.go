@@ -275,6 +275,8 @@ func setupRouter() *gin.Engine {
 		protected.POST("/logout", handlers.Logout)
 		protected.PUT("/alterar-senha", handlers.AlterarSenha)
 		protected.GET("/meu-perfil", handlers.GetMeuPerfil)
+		protected.PUT("/me/email", handlers.AtualizarMeuEmail)
+		protected.PUT("/me/telefone", handlers.AtualizarMeuTelefone)
 		protected.GET("/eventos-estudante/:codigo", handlers.GetEventosEstudante)
 		protected.GET("/verificar-integridade/:codigo", handlers.VerificarIntegridade)
 		protected.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)

@@ -1,10 +1,10 @@
 ---
 criado: 2026-07-24 00:00
 origem: solicitação direta
-status: pendente
+status: feito
 ---
 
-# Separar edição de email e telefone em rotas dedicadas (pendente)
+# Separar edição de email e telefone em rotas dedicadas (feito)
 
 ## Prompt recomendado para executar a atualização
 
