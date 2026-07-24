@@ -228,54 +228,23 @@ func RegisterAcademia(c *gin.Context) {
 func AtualizarDadosAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
-	if rejectDedicatedContactFields(c) {
+	if rejectAcademiaDadosRestrictedFields(c) {
 		return
 	}
 
 	var req struct {
-		Nome           *string  `json:"nome"`
-		NIF            *string  `json:"nif"`
-		Type           *string  `json:"type"`
-		Provincia      *string  `json:"provincia"`
-		Endereco       *string  `json:"endereco"`
-		Website        *string  `json:"website"`
-		NivelEscolar   *string  `json:"nivel_escolar"`
-		AnosAcademicos []string `json:"anos_academicos"`
-		Cursos         []string `json:"cursos"`
+		Nome      *string `json:"nome"`
+		Provincia *string `json:"provincia"`
+		Endereco  *string `json:"endereco"`
+		Website   *string `json:"website"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("body inválido"))
 		return
 	}
 
-	if req.Nome == nil && req.NIF == nil && req.Provincia == nil && req.Endereco == nil &&
-		req.Website == nil &&
-		req.NivelEscolar == nil && req.Type == nil && len(req.AnosAcademicos) == 0 && len(req.Cursos) == 0 {
+	if req.Nome == nil && req.Provincia == nil && req.Endereco == nil && req.Website == nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("ao menos um campo deve ser fornecido para atualização"))
-		return
-	}
-	if req.NIF != nil {
-		if err := utils.ValidateNIF(*req.NIF); err != nil {
-			utils.RespondWithValidationError(c, err)
-			return
-		}
-		existing, err := getAcademiaProjection(c).GetByNIF(*req.NIF)
-		if err != nil {
-			utils.RespondWithInternalError(c, err)
-			return
-		}
-		if existing != nil && existing.ID != userID {
-			utils.RespondWithConflictError(c, "nif já cadastrado em outra academia")
-			return
-		}
-	}
-
-	if req.Type != nil && *req.Type != "public" && *req.Type != "private" {
-		t := strings.TrimSpace(strings.ToLower(*req.Type))
-		req.Type = &t
-	}
-	if req.Type != nil && *req.Type != "public" && *req.Type != "private" {
-		utils.RespondWithValidationError(c, fmt.Errorf("type deve ser 'public' ou 'private'"))
 		return
 	}
 
@@ -287,30 +256,6 @@ func AtualizarDadosAcademia(c *gin.Context) {
 			return
 		}
 		provCode = &code
-	}
-
-	if req.NivelEscolar != nil {
-		nivel := *req.NivelEscolar
-		if nivel == "medio" && len(req.AnosAcademicos) > 0 {
-			utils.RespondWithValidationError(c, fmt.Errorf(
-				"escolas de nivel_escolar 'medio' não devem definir anos_academicos",
-			))
-			return
-		}
-		if nivel == "fundamental" || nivel == "misto" {
-			if len(req.AnosAcademicos) == 0 {
-				utils.RespondWithValidationError(c, fmt.Errorf(
-					"escolas de nivel_escolar '%s' devem definir anos_academicos "+
-						"(ex: 1_ano_fundamental, 2_ano_fundamental, ...)",
-					nivel,
-				))
-				return
-			}
-			if err := utils.ValidateAnosFundamental(req.AnosAcademicos); err != nil {
-				utils.RespondWithValidationError(c, err)
-				return
-			}
-		}
 	}
 
 	repository := getRepository(c)
@@ -328,16 +273,16 @@ func AtualizarDadosAcademia(c *gin.Context) {
 
 	if err := academia.AtualizarDados(
 		req.Nome,
-		req.NIF,
-		req.Type,
+		nil,
+		nil,
 		provCode,
 		req.Endereco,
 		nil,
 		nil,
 		req.Website,
-		req.NivelEscolar,
-		req.AnosAcademicos,
-		req.Cursos,
+		nil,
+		nil,
+		nil,
 	); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return

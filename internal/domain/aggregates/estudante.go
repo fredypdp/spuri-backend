@@ -281,6 +281,7 @@ type DadosPessoaisAtualizadosEvent struct {
 	DataNascimento        *time.Time // ponteiro: nil = não alterar
 	EmailAlterado         bool
 	TelefoneAlterado      bool
+	TelefoneEncAlterado   bool
 	UpdatedAt             time.Time
 }
 
@@ -602,6 +603,7 @@ func (e *Estudante) AtualizarDadosPessoais(
 
 	emailAlterado := email != nil && (e.Email == nil || *e.Email != *email)
 	telefoneAlterado := telefone != nil && (e.Telefone == nil || *e.Telefone != *telefone)
+	telefoneEncAlterado := telefoneEncarregado != nil && (e.TelefoneEncarregado == nil || *e.TelefoneEncarregado != *telefoneEncarregado)
 	event := &DadosPessoaisAtualizadosEvent{
 		BaseEvent:             BaseEvent{EventType: "DadosPessoaisAtualizados", AggregateID: e.ID},
 		Nome:                  nome,
@@ -613,6 +615,7 @@ func (e *Estudante) AtualizarDadosPessoais(
 		DataNascimento:        dataNascimento,
 		EmailAlterado:         emailAlterado,
 		TelefoneAlterado:      telefoneAlterado,
+		TelefoneEncAlterado:   telefoneEncAlterado,
 		UpdatedAt:             time.Now(),
 	}
 	e.RaiseEvent(event)
@@ -1086,6 +1089,9 @@ func (e *Estudante) applyDadosPessoaisAtualizados(event DomainEvent) error {
 	}
 	if ev.TelefoneEncarregado != nil {
 		e.TelefoneEncarregado = ev.TelefoneEncarregado
+		if ev.TelefoneEncAlterado {
+			e.TelefoneEncarregadoVerificado = false
+		}
 	}
 	if ev.BilheteIdentidade != nil {
 		e.BilheteIdentidade = ev.BilheteIdentidade

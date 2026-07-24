@@ -1,10 +1,10 @@
 ---
 criado: 2026-07-18 00:00
 origem: Lista de tarefas.md
-status: pendente
+status: feito
 ---
 
-# Reforçar validações na edição de dados cadastrais dos usuários (pendente)
+# Reforçar validações na edição de dados cadastrais dos usuários (feito)
 
 ## Prompt recomendado para executar a atualização
 
