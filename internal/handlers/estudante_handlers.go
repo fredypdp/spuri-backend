@@ -612,68 +612,6 @@ func GetEventosEstudante(c *gin.Context) {
 }
 
 // ============================================================================
-// PUT /estudante/dados-pessoais
-// ============================================================================
-
-// AtualizarDadosPessoaisRequest — nome, genero, bilhetes de identidade e data_nascimento não podem ser alterados após o cadastro inicial.
-type AtualizarDadosPessoaisRequest struct {
-	TelefoneEncarregado *string `json:"telefone_encarregado"`
-}
-
-func AtualizarDadosPessoais(c *gin.Context) {
-	userID, _ := middleware.GetUserID(c)
-
-	if rejectRemovedJSONFields(c) {
-		return
-	}
-	if rejectDedicatedContactFields(c) {
-		return
-	}
-	if rejectStudentPersonalImmutableFields(c) {
-		return
-	}
-	var req AtualizarDadosPessoaisRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-
-	repository := getRepository(c)
-	estudanteAgg, err := repository.Load(userID, "Estudante")
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	estudante, ok := estudanteAgg.(*aggregates.Estudante)
-	if !ok {
-		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
-		return
-	}
-
-	if err := estudante.AtualizarDadosPessoais(
-		nil, nil, nil, utils.NormalizePhonePtr(req.TelefoneEncarregado),
-		nil, nil, nil,
-	); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-
-	audit := db.AuditContext{
-		UserID:   userID.String(),
-		UserType: "estudante",
-		IP:       c.ClientIP(),
-	}
-	if err := repository.SaveWithAudit(estudante, audit); err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	log.Printf("Dados pessoais atualizados: %s", estudante.CodigoEstudante)
-	c.JSON(http.StatusOK, gin.H{"message": "dados pessoais atualizados com sucesso"})
-}
-
-// ============================================================================
 // GET /estudante/minhas-avaliacoes
 // ============================================================================
 

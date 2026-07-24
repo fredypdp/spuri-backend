@@ -1254,6 +1254,225 @@ Atualiza os dados cadastrais da academia autenticada.
 
 ---
 
+### Solicitações de edição de dados sensíveis de estudantes
+
+Subsecção de operações da academia para consultar, aprovar ou reprovar solicitações documentadas feitas por estudantes vinculados. Cada rota de decisão é específica para um campo, valida o campo da URL contra a solicitação e não existe endpoint genérico com `campo` arbitrário.
+
+#### GET /academia/solicitacoes-edicao-estudante
+
+Lista solicitações documentadas de edição de dados sensíveis dos estudantes vinculados à academia autenticada.
+
+**Proteção**: autenticado + academia ativa
+
+**Query Params:**
+
+- `status` — filtro opcional por `pendente`, `aprovada` ou `reprovada`
+- `campo` — filtro opcional por `nome`, `bilhete_identidade`, `bilhete_identidade_encarregado` ou `data_nascimento`
+- `codigo_estudante` — restringe a listagem a um estudante da própria academia
+- `limit` — quantidade máxima por página (padrão 50, teto 100)
+- `offset` — deslocamento da paginação (padrão 0)
+
+**Request:** sem payload
+
+**Response 200:**
+
+```json
+{
+  "solicitacoes": [
+    {
+      "codigo_solicitacao": "SED12345678",
+      "codigo_estudante": "EST12345678",
+      "codigo_academia": "ACA12345678",
+      "campo": "nome",
+      "valor_atual": "Nome Atual",
+      "valor_solicitado": "Nome Corrigido",
+      "documento_temporario_path": "ACA12345678/estudantes/EST12345678/edicoes_dados_pendentes/nome_SED12345678.pdf",
+      "documento_temporario_url": "string",
+      "status": "pendente",
+      "motivo_reprovacao": null,
+      "solicitado_por": "EST12345678",
+      "decidido_por": null,
+      "created_at": "2026-07-24T00:00:00Z",
+      "updated_at": "2026-07-24T00:00:00Z",
+      "version": 1
+    }
+  ],
+  "limit": 50,
+  "offset": 0,
+  "total": 1
+}
+```
+
+**Regras de negócio:** a academia só enxerga solicitações de estudantes vinculados a ela; admin não decide solicitações por estas rotas.
+
+---
+
+#### PUT /academia/solicitacoes-edicao-estudante/nome/:codigo/aprovar
+
+Aprova uma solicitação pendente de alteração de `nome`.
+
+**Proteção**: autenticado + academia ativa
+
+**Path Params:**
+
+- `codigo` — `codigo_solicitacao` da solicitação de edição de nome
+
+**Request:** sem payload
+
+**Response 200:**
+
+```json
+{
+  "message": "solicitação decidida com sucesso",
+  "codigo_solicitacao": "SED12345678",
+  "status": "aprovada"
+}
+```
+
+**Regras de negócio:** a solicitação precisa pertencer à academia autenticada, estar `pendente` e ter `campo = nome`. O valor solicitado é revalidado contra o estado atual antes da alteração. A aprovação grava `NomeEstudanteAlteradoPorSolicitacao`, marca a solicitação como `aprovada` e remove o PDF temporário.
+
+**Erros:** `400` campo da rota incompatível ou valor inválido; `403` academia alheia; `404` solicitação inexistente; `409` solicitação já decidida.
+
+---
+
+#### PUT /academia/solicitacoes-edicao-estudante/nome/:codigo/reprovar
+
+Reprova uma solicitação pendente de alteração de `nome`.
+
+**Proteção**: autenticado + academia ativa
+
+**Path Params:**
+
+- `codigo` — `codigo_solicitacao` da solicitação de edição de nome
+
+**Request:**
+
+```json
+{
+  "motivo_reprovacao": "Documento não comprova a alteração solicitada"
+}
+```
+
+**Response 200:** igual ao endpoint de aprovação, com `status = "reprovada"`.
+
+**Regras de negócio:** exige `motivo_reprovacao` não vazio, preserva o nome vigente, grava `SolicitacaoEdicaoDadoEstudanteReprovada` e remove o PDF temporário.
+
+---
+
+#### PUT /academia/solicitacoes-edicao-estudante/bilhete-identidade/:codigo/aprovar
+
+Aprova uma solicitação pendente de alteração de `bilhete_identidade`.
+
+**Proteção**: autenticado + academia ativa
+
+**Path Params:** `codigo` — `codigo_solicitacao` da solicitação de BI do estudante.
+
+**Request:** sem payload
+
+**Response 200:** igual ao endpoint de aprovação, com `status = "aprovada"`.
+
+**Regras de negócio:** exige solicitação `pendente`, da própria academia e com `campo = bilhete_identidade`; revalida formato e duplicidade atual; grava `BilheteIdentidadeEstudanteAlteradoPorSolicitacao`; remove o PDF temporário.
+
+---
+
+#### PUT /academia/solicitacoes-edicao-estudante/bilhete-identidade/:codigo/reprovar
+
+Reprova uma solicitação pendente de alteração de `bilhete_identidade`.
+
+**Proteção**: autenticado + academia ativa
+
+**Path Params:** `codigo` — `codigo_solicitacao` da solicitação de BI do estudante.
+
+**Request:**
+
+```json
+{
+  "motivo_reprovacao": "BI informado não confere com o PDF"
+}
+```
+
+**Response 200:** igual ao endpoint de aprovação, com `status = "reprovada"`.
+
+**Regras de negócio:** preserva o BI vigente, grava a reprovação terminal e remove o PDF temporário; decisões repetidas retornam `409`.
+
+---
+
+#### PUT /academia/solicitacoes-edicao-estudante/bilhete-identidade-encarregado/:codigo/aprovar
+
+Aprova uma solicitação pendente de alteração de `bilhete_identidade_encarregado`.
+
+**Proteção**: autenticado + academia ativa
+
+**Path Params:** `codigo` — `codigo_solicitacao` da solicitação de BI do encarregado.
+
+**Request:** sem payload
+
+**Response 200:** igual ao endpoint de aprovação, com `status = "aprovada"`.
+
+**Regras de negócio:** exige solicitação `pendente`, da própria academia e com `campo = bilhete_identidade_encarregado`; revalida o valor solicitado; grava `BilheteIdentidadeEncarregadoAlteradoPorSolicitacao`; remove o PDF temporário.
+
+---
+
+#### PUT /academia/solicitacoes-edicao-estudante/bilhete-identidade-encarregado/:codigo/reprovar
+
+Reprova uma solicitação pendente de alteração de `bilhete_identidade_encarregado`.
+
+**Proteção**: autenticado + academia ativa
+
+**Path Params:** `codigo` — `codigo_solicitacao` da solicitação de BI do encarregado.
+
+**Request:**
+
+```json
+{
+  "motivo_reprovacao": "Documento insuficiente para comprovar o BI do encarregado"
+}
+```
+
+**Response 200:** igual ao endpoint de aprovação, com `status = "reprovada"`.
+
+**Regras de negócio:** preserva o BI vigente do encarregado, grava a reprovação terminal e remove o PDF temporário; decisões repetidas retornam `409`.
+
+---
+
+#### PUT /academia/solicitacoes-edicao-estudante/data-nascimento/:codigo/aprovar
+
+Aprova uma solicitação pendente de alteração de `data_nascimento`.
+
+**Proteção**: autenticado + academia ativa
+
+**Path Params:** `codigo` — `codigo_solicitacao` da solicitação de data de nascimento.
+
+**Request:** sem payload
+
+**Response 200:** igual ao endpoint de aprovação, com `status = "aprovada"`.
+
+**Regras de negócio:** exige solicitação `pendente`, da própria academia e com `campo = data_nascimento`; revalida formato, idade e coerência temporal; grava `DataNascimentoEstudanteAlteradaPorSolicitacao`; remove o PDF temporário.
+
+---
+
+#### PUT /academia/solicitacoes-edicao-estudante/data-nascimento/:codigo/reprovar
+
+Reprova uma solicitação pendente de alteração de `data_nascimento`.
+
+**Proteção**: autenticado + academia ativa
+
+**Path Params:** `codigo` — `codigo_solicitacao` da solicitação de data de nascimento.
+
+**Request:**
+
+```json
+{
+  "motivo_reprovacao": "Certidão anexada não corresponde ao estudante"
+}
+```
+
+**Response 200:** igual ao endpoint de aprovação, com `status = "reprovada"`.
+
+**Regras de negócio:** preserva a data vigente, grava a reprovação terminal e remove o PDF temporário; decisões repetidas retornam `409`. Falhas de remoção do PDF temporário são registradas como log operacional sem desfazer a decisão já gravada.
+
+---
+
 ### Regras automáticas de documentos de matrícula
 
 A obrigatoriedade dos documentos e as validações cadastrais comuns são aplicadas por uma política única compartilhada por `POST /solicitacao-matricula`, pela aprovação da solicitação e pelo cadastro direto `POST /academia/estudante/register`. As duas rotas normalizam os mesmos campos de estudante, encarregado, nível de ensino, telefones, bilhetes e documentos antes de qualquer gravação no ledger. A validação considera simultaneamente os campos textuais do request e os PDFs anexados:
@@ -2572,29 +2791,185 @@ Consulta um estudante por código. Quando o estudante possui documentos, a respo
 
 ---
 
-### PUT /estudante/dados-pessoais
+### Solicitações de edição de dados sensíveis
 
-Atualiza os dados pessoais do estudante autenticado.
+A rota genérica `PUT /estudante/dados-pessoais` foi removida. Dados civis sensíveis do estudante não possuem endpoint genérico de edição: `nome`, `bilhete_identidade`, `bilhete_identidade_encarregado` e `data_nascimento` só podem ser solicitados pelas rotas dedicadas abaixo e aplicados pela academia vinculada após aprovação documentada.
+
+A entidade `SolicitacaoEdicaoDadoEstudante` registra `codigo_solicitacao`, `codigo_estudante`, `codigo_academia`, `campo`, `valor_atual`, `valor_solicitado`, `documento_temporario_path`, `documento_temporario_url`, `status`, `motivo_reprovacao`, `solicitado_por`, `decidido_por`, `created_at`, `updated_at` e `version`. Existe no máximo uma solicitação `pendente` por estudante e campo.
+
+Eventos gravados no ledger seguro para este fluxo:
+
+- `SolicitacaoEdicaoDadoEstudanteCriada`
+- `SolicitacaoEdicaoDadoEstudanteAprovada`
+- `SolicitacaoEdicaoDadoEstudanteReprovada`
+- `NomeEstudanteAlteradoPorSolicitacao`
+- `BilheteIdentidadeEstudanteAlteradoPorSolicitacao`
+- `BilheteIdentidadeEncarregadoAlteradoPorSolicitacao`
+- `DataNascimentoEstudanteAlteradaPorSolicitacao`
+- `TelefoneEncarregadoAlterado`
+
+**Regras documentais comuns às solicitações:** o campo `documento` é obrigatório, deve ser PDF (`Content-Type: application/pdf`, extensão `.pdf`, assinatura `%PDF`) e ter no máximo 10MB. O arquivo é salvo temporariamente em `{codigo_academia}/estudantes/{codigo_estudante}/edicoes_dados_pendentes/{campo}_{codigo_solicitacao}.pdf` e é removido depois de aprovação ou reprovação. Não há aliases, wrappers ou endpoint genérico que aceite `campo` arbitrário.
+
+---
+
+#### PUT /estudante/encarregado/telefone
+
+Atualiza exclusivamente o telefone do encarregado do estudante autenticado.
 
 **Proteção**: autenticado + estudante
 
-**Request:** (todos os campos opcionais)
+**Request:**
 
 ```json
 {
-  "telefone_encarregado": "924000000"
+  "telefone_encarregado": "923456789"
 }
 ```
 
-**Nota**: `nome`, `genero`, `bilhete_identidade`, `bilhete_identidade_encarregado` e `data_nascimento` não podem ser alterados após o cadastro do estudante. Enviar qualquer um desses campos nesta rota retorna `400` com `code = campo_imutavel`. `email` e `telefone` não são aceitos nesta rota; use `PUT /me/email` e `PUT /me/telefone`. Quando `telefone_encarregado` muda de fato, `telefone_encarregado_verificado` volta para `false`; reenviar o mesmo valor não altera a flag.
+**Regras de negócio:**
+
+- O estudante é identificado exclusivamente pelo token; o payload não aceita `codigo_estudante`, `academia_id`, `codigo_academia` nem seletores de alvo.
+- `telefone_encarregado` é obrigatório e deve conter exatamente 9 dígitos nacionais, sem DDI, espaços, hífens, parênteses ou letras.
+- A rota altera apenas `telefone_encarregado`. Quando o valor muda de fato, `telefone_encarregado_verificado` volta para `false`.
+- Qualquer campo extra no JSON retorna `400` e nenhuma mutação é gravada.
 
 **Response 200:**
 
 ```json
 {
-  "message": "dados pessoais atualizados com sucesso"
+  "message": "telefone do encarregado atualizado com sucesso"
 }
 ```
+
+**Erros:**
+
+- `400` — telefone vazio/inválido ou campo extra no payload
+- `401/403` — token ausente, inválido ou usuário não estudante
+
+---
+
+#### GET /estudante/solicitacoes-edicao
+
+Lista as solicitações de edição de dados sensíveis criadas pelo estudante autenticado.
+
+**Proteção**: autenticado + estudante
+
+**Query Params:**
+
+- `status` — filtro opcional por `pendente`, `aprovada` ou `reprovada`
+- `campo` — filtro opcional por `nome`, `bilhete_identidade`, `bilhete_identidade_encarregado` ou `data_nascimento`
+- `limit` — quantidade máxima por página (padrão 50, teto 100)
+- `offset` — deslocamento da paginação (padrão 0)
+
+**Request:** sem payload
+
+**Response 200:**
+
+```json
+{
+  "solicitacoes": [
+    {
+      "codigo_solicitacao": "SED12345678",
+      "codigo_estudante": "EST12345678",
+      "codigo_academia": "ACA12345678",
+      "campo": "nome",
+      "valor_atual": "Nome Atual",
+      "valor_solicitado": "Nome Corrigido",
+      "documento_temporario_path": "ACA12345678/estudantes/EST12345678/edicoes_dados_pendentes/nome_SED12345678.pdf",
+      "documento_temporario_url": "string",
+      "status": "pendente",
+      "motivo_reprovacao": null,
+      "solicitado_por": "EST12345678",
+      "decidido_por": null,
+      "created_at": "2026-07-24T00:00:00Z",
+      "updated_at": "2026-07-24T00:00:00Z",
+      "version": 1
+    }
+  ],
+  "limit": 50,
+  "offset": 0,
+  "total": 1
+}
+```
+
+**Regras de negócio:** a listagem nunca aceita seletor de outro estudante; o escopo é sempre o estudante autenticado.
+
+---
+
+#### POST /estudante/solicitacoes-edicao/nome
+
+Cria solicitação documentada para alterar o nome do estudante autenticado.
+
+**Proteção**: autenticado + estudante
+
+**Request:** `multipart/form-data`
+
+- `novo_valor` — nome pretendido, obrigatório, com trim e tamanho compatível com o padrão de nomes do sistema
+- `documento` — PDF comprovativo obrigatório
+
+**Response 201:**
+
+```json
+{
+  "message": "solicitação criada com sucesso",
+  "codigo_solicitacao": "SED12345678",
+  "campo": "nome",
+  "status": "pendente"
+}
+```
+
+**Regras de negócio:** rejeita estudante sem academia vinculada, valor igual ao vigente e segunda solicitação pendente para `nome` com `409`. O payload não pode escolher estudante, academia ou campo diferente da rota.
+
+---
+
+#### POST /estudante/solicitacoes-edicao/bilhete-identidade
+
+Cria solicitação documentada para alterar o bilhete de identidade do estudante autenticado.
+
+**Proteção**: autenticado + estudante
+
+**Request:** `multipart/form-data`
+
+- `novo_valor` — novo `bilhete_identidade`, obrigatório e validado pelo validador atual de BI/NIF/identificadores aplicável ao estudante
+- `documento` — PDF comprovativo obrigatório
+
+**Response 201:** igual ao de criação, com `campo = "bilhete_identidade"`.
+
+**Regras de negócio:** rejeita valor igual ao vigente, BI já usado por outro estudante, estudante sem academia vinculada, documento inválido e segunda solicitação pendente para o campo com `409`.
+
+---
+
+#### POST /estudante/solicitacoes-edicao/bilhete-identidade-encarregado
+
+Cria solicitação documentada para alterar o bilhete de identidade do encarregado.
+
+**Proteção**: autenticado + estudante
+
+**Request:** `multipart/form-data`
+
+- `novo_valor` — novo `bilhete_identidade_encarregado`, obrigatório e validado pelo padrão atual de BI
+- `documento` — PDF comprovativo obrigatório
+
+**Response 201:** igual ao de criação, com `campo = "bilhete_identidade_encarregado"`.
+
+**Regras de negócio:** rejeita valor igual ao vigente, estudante sem academia vinculada, documento inválido e segunda solicitação pendente para o campo com `409`.
+
+---
+
+#### POST /estudante/solicitacoes-edicao/data-nascimento
+
+Cria solicitação documentada para alterar a data de nascimento do estudante autenticado.
+
+**Proteção**: autenticado + estudante
+
+**Request:** `multipart/form-data`
+
+- `novo_valor` — nova data no formato `YYYY-MM-DD`, obrigatória e validada pelas regras atuais de idade/coerência temporal
+- `documento` — PDF comprovativo obrigatório
+
+**Response 201:** igual ao de criação, com `campo = "data_nascimento"`.
+
+**Regras de negócio:** rejeita data igual à vigente, formato inválido, estudante sem academia vinculada, documento inválido e segunda solicitação pendente para o campo com `409`.
 
 ---
 
@@ -5748,49 +6123,3 @@ Quando a configuração do Mega ou da quota estiver incompleta ou inválida, a r
   "request_id": "8c7e6a5d-9b9f-4fd2-a2d0-3a989a8c2d8b"
 }
 ```
-
-## Solicitações de edição de dados sensíveis do estudante
-
-Dados civis sensíveis do estudante não são aceitos em `PUT /estudante/dados-pessoais`. Os campos `nome`, `bilhete_identidade`, `bilhete_identidade_encarregado`, `data_nascimento` e `telefone_encarregado` retornam `400` com `campo_nao_permitido`/validação equivalente quando enviados pela rota genérica. O telefone do encarregado deve ser alterado somente em `PUT /estudante/encarregado/telefone`.
-
-### Entidade e eventos
-
-A entidade `SolicitacaoEdicaoDadoEstudante` registra `codigo_solicitacao`, `codigo_estudante`, `codigo_academia`, `campo`, `valor_atual`, `valor_solicitado`, `documento_temporario_path`, URL opcional, `status`, motivo de reprovação, autor, decisor, timestamps e versão. Existe no máximo uma solicitação `pendente` por estudante e campo.
-
-Eventos adicionados ao ledger seguro:
-
-- `SolicitacaoEdicaoDadoEstudanteCriada`
-- `SolicitacaoEdicaoDadoEstudanteAprovada`
-- `SolicitacaoEdicaoDadoEstudanteReprovada`
-- `NomeEstudanteAlteradoPorSolicitacao`
-- `BilheteIdentidadeEstudanteAlteradoPorSolicitacao`
-- `BilheteIdentidadeEncarregadoAlteradoPorSolicitacao`
-- `DataNascimentoEstudanteAlteradaPorSolicitacao`
-- `TelefoneEncarregadoAlterado`
-
-### Rotas do estudante
-
-Todas exigem autenticação de estudante. As solicitações usam `multipart/form-data` com `novo_valor` e `documento` PDF obrigatório (`application/pdf`, extensão `.pdf`, assinatura `%PDF`, até 10MB). O arquivo é salvo temporariamente em `{codigo_academia}/estudantes/{codigo_estudante}/edicoes_dados_pendentes/{campo}_{codigo_solicitacao}.pdf` e removido após aprovação ou reprovação.
-
-- `POST /estudante/solicitacoes-edicao/nome`
-- `POST /estudante/solicitacoes-edicao/bilhete-identidade`
-- `POST /estudante/solicitacoes-edicao/bilhete-identidade-encarregado`
-- `POST /estudante/solicitacoes-edicao/data-nascimento`
-- `GET /estudante/solicitacoes-edicao?status=&campo=&limit=&offset=` lista apenas solicitações do estudante autenticado, com `limit` padrão 50 e teto 100.
-- `PUT /estudante/encarregado/telefone` altera somente `telefone_encarregado` com telefone nacional estrito de 9 dígitos e reseta `telefone_encarregado_verificado` quando houver mudança.
-
-### Rotas da academia
-
-Todas exigem academia ativa autenticada e só decidem solicitações de estudantes vinculados à própria academia. A rota valida que o campo da URL corresponde ao campo da solicitação; não há endpoint genérico por campo arbitrário.
-
-- `GET /academia/solicitacoes-edicao-estudante?status=&campo=&codigo_estudante=&limit=&offset=`
-- `PUT /academia/solicitacoes-edicao-estudante/nome/:codigo/aprovar`
-- `PUT /academia/solicitacoes-edicao-estudante/nome/:codigo/reprovar`
-- `PUT /academia/solicitacoes-edicao-estudante/bilhete-identidade/:codigo/aprovar`
-- `PUT /academia/solicitacoes-edicao-estudante/bilhete-identidade/:codigo/reprovar`
-- `PUT /academia/solicitacoes-edicao-estudante/bilhete-identidade-encarregado/:codigo/aprovar`
-- `PUT /academia/solicitacoes-edicao-estudante/bilhete-identidade-encarregado/:codigo/reprovar`
-- `PUT /academia/solicitacoes-edicao-estudante/data-nascimento/:codigo/aprovar`
-- `PUT /academia/solicitacoes-edicao-estudante/data-nascimento/:codigo/reprovar`
-
-A aprovação revalida o valor solicitado contra o estado atual, grava o evento dedicado no agregado do estudante e marca a solicitação como `aprovada`. A reprovação exige `motivo_reprovacao` e preserva o dado vigente. Solicitações decididas são terminais e retornam conflito em nova decisão. Falhas de deleção do PDF temporário são registradas em log operacional para reprocessamento seguro sem desfazer a decisão já gravada.
