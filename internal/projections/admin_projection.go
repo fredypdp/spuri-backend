@@ -124,6 +124,7 @@ func (p *AdminProjection) handleAdminCriado(event db.Event) error {
 	var payload struct {
 		Nome      string
 		Email     string
+		Telefone  *string
 		SenhaHash string
 		Role      string
 		CreatedBy *uuid.UUID
@@ -140,12 +141,12 @@ func (p *AdminProjection) handleAdminCriado(event db.Event) error {
 
 	_, err := p.client.DB().Exec(`
 		INSERT INTO projection_admins
-			(id, nome, email, senha_hash, role, status, email_verificado,
+			(id, nome, email, telefone, senha_hash, role, status, email_verificado,
 			 created_by, created_at, updated_at, version, last_event_id)
-		VALUES ($1, $2, $3, $4, $5, 'ativo', FALSE, $6, $7, CURRENT_TIMESTAMP, $8, $9)
+		VALUES ($1, $2, $3, $4, $5, $6, 'ativo', FALSE, $7, $8, CURRENT_TIMESTAMP, $9, $10)
 		ON CONFLICT (id) DO NOTHING
 	`,
-		event.AggregateID, payload.Nome, payload.Email, payload.SenhaHash, payload.Role,
+		event.AggregateID, payload.Nome, payload.Email, payload.Telefone, payload.SenhaHash, payload.Role,
 		createdBy, payload.CreatedAt, event.EventVersion, event.EventID,
 	)
 	return err

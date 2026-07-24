@@ -271,12 +271,20 @@ func RegisterAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
 	var req struct {
-		Nome  string `json:"nome"  binding:"required"`
-		Email string `json:"email" binding:"required"`
-		Role  string `json:"role"  binding:"required"`
+		Nome     string `json:"nome" binding:"required"`
+		Email    string `json:"email" binding:"required"`
+		Telefone string `json:"telefone" binding:"required"`
+		Role     string `json:"role" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: nome, email e role"))
+		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: nome, email, telefone e role"))
+		return
+	}
+
+	req.Telefone = utils.NormalizePhone(req.Telefone)
+
+	if err := utils.ValidatePhone(req.Telefone); err != nil {
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
@@ -336,7 +344,7 @@ func RegisterAdmin(c *gin.Context) {
 	}
 
 	newAdmin := aggregates.NewAdmin()
-	if err := newAdmin.Criar(req.Nome, req.Email, string(hashedPassword), req.Role, &userID); err != nil {
+	if err := newAdmin.Criar(req.Nome, req.Email, &req.Telefone, string(hashedPassword), req.Role, &userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -357,6 +365,7 @@ func RegisterAdmin(c *gin.Context) {
 		"novo_admin_id": newAdmin.ID.String(),
 		"role":          req.Role,
 		"email":         req.Email,
+		"telefone":      req.Telefone,
 	}); err != nil {
 		log.Printf("[WARN] RegisterAdmin: falha ao preparar ação do criador: %v", err)
 	} else if err := repository.SaveWithAudit(creator, audit); err != nil {
@@ -371,10 +380,11 @@ func RegisterAdmin(c *gin.Context) {
 		c.JSON(http.StatusCreated, gin.H{
 			"message": "administrador criado com sucesso. ATENÇÃO: falha ao enviar email — solicite reset de senha via /recuperar-senha/solicitar.",
 			"data": gin.H{
-				"id":    newAdmin.ID,
-				"nome":  newAdmin.Nome,
-				"email": req.Email,
-				"role":  newAdmin.Role,
+				"id":       newAdmin.ID,
+				"nome":     newAdmin.Nome,
+				"email":    req.Email,
+				"telefone": req.Telefone,
+				"role":     newAdmin.Role,
 			},
 			"aviso": "email_nao_enviado",
 		})
@@ -385,10 +395,11 @@ func RegisterAdmin(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "administrador criado com sucesso. A senha temporária foi enviada por email.",
 		"data": gin.H{
-			"id":    newAdmin.ID,
-			"nome":  newAdmin.Nome,
-			"email": req.Email,
-			"role":  newAdmin.Role,
+			"id":       newAdmin.ID,
+			"nome":     newAdmin.Nome,
+			"email":    req.Email,
+			"telefone": req.Telefone,
+			"role":     newAdmin.Role,
 		},
 	})
 }

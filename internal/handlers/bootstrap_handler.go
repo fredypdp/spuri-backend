@@ -34,15 +34,16 @@ func BootstrapAdminFPP(c *gin.Context) {
 
 	// Body obrigatório — sem fallback hardcoded.
 	var req struct {
-		Nome  string `json:"nome"  binding:"required"`
-		Email string `json:"email" binding:"required"`
-		Senha string `json:"senha" binding:"required"`
+		Nome     string `json:"nome" binding:"required"`
+		Email    string `json:"email" binding:"required"`
+		Telefone string `json:"telefone" binding:"required"`
+		Senha    string `json:"senha" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		log.Printf("❌ [BOOTSTRAP] Body inválido: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "nome, email e senha são obrigatórios",
-			"example": gin.H{"nome": "Admin FPP", "email": "admin@dominio.com", "senha": "SenhaForte@123"},
+			"error":   "nome, email, telefone e senha são obrigatórios",
+			"example": gin.H{"nome": "Admin FPP", "email": "admin@dominio.com", "telefone": "923456789", "senha": "SenhaForte@123"},
 		})
 		return
 	}
@@ -94,6 +95,12 @@ func BootstrapAdminFPP(c *gin.Context) {
 		return
 	}
 
+	req.Telefone = utils.NormalizePhone(req.Telefone)
+	if err := utils.ValidatePhone(req.Telefone); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
 	// Verificar se email já existe (redundante mas defensivo)
 	existing, _ := adminProj.GetByEmail(req.Email)
 	if existing != nil {
@@ -114,7 +121,7 @@ func BootstrapAdminFPP(c *gin.Context) {
 	newAdmin := aggregates.NewAdmin()
 
 	log.Println("🗂️ [BOOTSTRAP] Criando agregado Admin...")
-	if err := newAdmin.Criar(req.Nome, req.Email, string(hashedPassword), "fpp", nil); err != nil {
+	if err := newAdmin.Criar(req.Nome, req.Email, &req.Telefone, string(hashedPassword), "fpp", nil); err != nil {
 		log.Printf("❌ [BOOTSTRAP] Erro ao criar agregado: %v", err)
 		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), nil)
 		return
@@ -169,10 +176,11 @@ func BootstrapAdminFPP(c *gin.Context) {
 			"success": true,
 			"message": "✅ Admin FPP criado com sucesso! A projeção ainda está sendo processada.",
 			"data": gin.H{
-				"id":    newAdmin.ID,
-				"nome":  newAdmin.Nome,
-				"email": req.Email,
-				"role":  "fpp",
+				"id":       newAdmin.ID,
+				"nome":     newAdmin.Nome,
+				"email":    req.Email,
+				"telefone": req.Telefone,
+				"role":     "fpp",
 			},
 			"aviso":      "aguarde alguns segundos antes de fazer login",
 			"next_steps": []string{"1. Aguarde 5-10 segundos", "2. Faça login em POST /admin/login", "3. Altere a senha após o primeiro acesso"},
@@ -187,10 +195,11 @@ func BootstrapAdminFPP(c *gin.Context) {
 		"success": true,
 		"message": "✅ Admin FPP criado com sucesso!",
 		"data": gin.H{
-			"id":    newAdmin.ID,
-			"nome":  newAdmin.Nome,
-			"email": req.Email,
-			"role":  "fpp",
+			"id":       newAdmin.ID,
+			"nome":     newAdmin.Nome,
+			"email":    req.Email,
+			"telefone": req.Telefone,
+			"role":     "fpp",
 		},
 		"next_steps": []string{
 			"1. Faça login em POST /admin/login",

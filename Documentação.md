@@ -651,6 +651,7 @@ Cria o primeiro admin FPP do sistema. Bloqueado após o primeiro uso (retorna 40
 {
   "nome": "string",
   "email": "string",
+  "telefone": "923456789",
   "senha": "string"
 }
 ```
@@ -665,6 +666,7 @@ Cria o primeiro admin FPP do sistema. Bloqueado após o primeiro uso (retorna 40
     "id": "uuid",
     "nome": "string",
     "email": "string",
+    "telefone": "923456789",
     "role": "fpp"
   },
   "next_steps": ["string"]
@@ -4860,13 +4862,15 @@ Cria um novo admin. A senha temporária é gerada automaticamente, persistida ap
 {
   "nome": "string",
   "email": "admin.exemplo@dominio.com",
+  "telefone": "923456789",
   "role": "gerente"
 }
 ```
 
 **Validações e regras reais:**
 
-- `nome`, `email` e `role` são obrigatórios.
+- `nome`, `email`, `telefone` e `role` são obrigatórios.
+- `telefone` deve ser informado para qualquer role (`fpp`, `adm` ou `gerente`) e seguir o formato nativo de 9 dígitos, sem DDI.
 - `role` deve ser `fpp`, `adm` ou `gerente`.
 - O criador deve existir como admin e ter role `fpp`.
 - O aggregate também valida hierarquia via `ValidatePermission(role)`.
@@ -4883,6 +4887,7 @@ Cria um novo admin. A senha temporária é gerada automaticamente, persistida ap
     "id": "uuid",
     "nome": "string",
     "email": "admin.exemplo@dominio.com",
+    "telefone": "923456789",
     "role": "gerente"
   }
 }
@@ -4897,6 +4902,7 @@ Cria um novo admin. A senha temporária é gerada automaticamente, persistida ap
     "id": "uuid",
     "nome": "string",
     "email": "admin.exemplo@dominio.com",
+    "telefone": "923456789",
     "role": "gerente"
   },
   "aviso": "email_nao_enviado"

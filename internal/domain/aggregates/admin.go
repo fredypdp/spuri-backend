@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"time"
 
+	"spuri/internal/utils"
+
 	"github.com/google/uuid"
 )
 
@@ -26,6 +28,7 @@ type Admin struct {
 
 	Nome            string
 	Email           string
+	Telefone        *string
 	SenhaHash       string
 	Role            string
 	Status          string
@@ -88,8 +91,8 @@ func (a *Admin) Apply(event DomainEvent) error {
 
 // Criar registra o evento de criação do admin.
 // senhaHash deve ter pelo menos 60 caracteres (comprimento mínimo de bcrypt).
-func (a *Admin) Criar(nome, email, senhaHash, role string, createdBy *uuid.UUID) error {
-	if nome == "" || email == "" || senhaHash == "" {
+func (a *Admin) Criar(nome, email string, telefone *string, senhaHash, role string, createdBy *uuid.UUID) error {
+	if nome == "" || email == "" || telefone == nil || *telefone == "" || senhaHash == "" {
 		return fmt.Errorf("campos obrigatórios vazios")
 	}
 
@@ -101,6 +104,10 @@ func (a *Admin) Criar(nome, email, senhaHash, role string, createdBy *uuid.UUID)
 		return fmt.Errorf("formato de email inválido")
 	}
 
+	if err := utils.ValidatePhone(*telefone); err != nil {
+		return err
+	}
+
 	validRoles := map[string]bool{"fpp": true, "adm": true, "gerente": true}
 	if !validRoles[role] {
 		return fmt.Errorf("role deve ser 'fpp', 'adm' ou 'gerente'")
@@ -110,6 +117,7 @@ func (a *Admin) Criar(nome, email, senhaHash, role string, createdBy *uuid.UUID)
 		BaseEvent: BaseEvent{EventType: "AdminCriado", AggregateID: a.ID},
 		Nome:      nome,
 		Email:     email,
+		Telefone:  telefone,
 		SenhaHash: senhaHash,
 		Role:      role,
 		CreatedBy: createdBy,
@@ -303,6 +311,7 @@ func (a *Admin) applyAdminCriado(event DomainEvent) error {
 	a.ID = event.GetAggregateID()
 	a.Nome = ev.Nome
 	a.Email = ev.Email
+	a.Telefone = ev.Telefone
 	a.SenhaHash = ev.SenhaHash
 	a.Role = ev.Role
 	a.Status = "ativo"
@@ -425,6 +434,7 @@ type AdminCriadoEvent struct {
 	BaseEvent
 	Nome      string
 	Email     string
+	Telefone  *string
 	SenhaHash string
 	Role      string
 	CreatedBy *uuid.UUID
