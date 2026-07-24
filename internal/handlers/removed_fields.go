@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 
@@ -101,6 +102,7 @@ func rejectStudentPersonalImmutableFields(c *gin.Context) bool {
 	}
 	for field := range immutableStudentPersonalFields {
 		if _, ok := raw[field]; ok {
+			log.Printf("[estudante-dados-debug] tentativa bloqueada de editar campo pessoal imutável: field=%s route=%s method=%s", field, c.FullPath(), c.Request.Method)
 			msg := fmt.Sprintf("%s não pode ser alterado após o cadastro do estudante", field)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "VALIDATION_ERROR", "message": msg, "details": []gin.H{{"field": field, "code": "campo_imutavel", "message": msg}}})
 			return true
