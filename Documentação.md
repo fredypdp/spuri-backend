@@ -820,6 +820,55 @@ Altera a senha do usuário autenticado.
 
 Todos os endpoints de email têm rate limiting ativo.
 
+
+### PUT /me/email
+
+Atualiza o email do usuário autenticado (estudante, academia ou admin), identificado exclusivamente pelo token. Não envie identificadores ou tipo de usuário no body.
+
+**Proteção**: autenticado.
+
+**Request:**
+
+```json
+{
+  "email": "novo.email@exemplo.com"
+}
+```
+
+**Regras:** email válido e único no sistema. Se o valor mudar de fato, `email_verificado` volta para `false`; reenviar o mesmo email não altera a flag.
+
+**Response 200:**
+
+```json
+{
+  "message": "email atualizado com sucesso"
+}
+```
+
+### PUT /me/telefone
+
+Atualiza o telefone do usuário autenticado (estudante, academia ou admin), identificado exclusivamente pelo token.
+
+**Proteção**: autenticado.
+
+**Request:**
+
+```json
+{
+  "telefone": "923456789"
+}
+```
+
+**Regras:** telefone deve ser uma string com exatamente 9 dígitos do número nacional, sem DDI, sem `+`, sem espaços, sem hífens, sem parênteses e sem letras. Valores como `+244923456789`, `244923456789`, `923 456 789`, `923-456-789`, `(923)456789`, `923abc789` e número JSON sem aspas são rejeitados. Se o valor mudar de fato, `telefone_verificado` volta para `false`; reenviar o mesmo telefone não altera a flag.
+
+**Response 200:**
+
+```json
+{
+  "message": "telefone atualizado com sucesso"
+}
+```
+
 ### POST /email/verificar-email/:token
 
 Verifica o email usando o token recebido no email. Funciona para admin, academia e estudante.
@@ -1190,8 +1239,6 @@ Atualiza os dados cadastrais da academia autenticada.
   "type": "private",
   "provincia": "luanda",
   "endereco": "string",
-  "telefone": "string",
-  "email": "string",
   "website": "string",
   "nivel_escolar": "fundamental",
   "anos_academicos": ["1_ano_fundamental"],
@@ -1207,7 +1254,7 @@ Atualiza os dados cadastrais da academia autenticada.
 }
 ```
 
-**Nota**: se o email for alterado, `email_verificado` volta para `false`; se o telefone for alterado, `telefone_verificado` volta para `false`.
+**Nota**: `email` e `telefone` não são aceitos nesta rota. Use `PUT /me/email` e `PUT /me/telefone`. Se qualquer um desses campos aparecer no payload, a requisição falha inteira com `400` e nenhum campo é alterado.
 
 ---
 
@@ -2540,15 +2587,13 @@ Atualiza os dados pessoais do estudante autenticado.
 ```json
 {
   "nome": "string",
-  "email": "string",
-  "telefone": "string",
   "bilhete_identidade": "string",
   "bilhete_identidade_encarregado": "string",
   "data_nascimento": "2010-05-20"
 }
 ```
 
-**Nota**: `genero` não pode ser alterado. `data_nascimento` deve ser anterior à data atual.
+**Nota**: `genero` não pode ser alterado. `data_nascimento` deve ser anterior à data atual. `email` e `telefone` não são aceitos nesta rota; use `PUT /me/email` e `PUT /me/telefone`.
 
 **Response 200:**
 
@@ -5078,7 +5123,7 @@ Altera o role de um admin.
 
 #### PUT /dominis/admin/:id/dados
 
-Atualiza nome e/ou email de um admin.
+Atualiza somente o nome de um admin. Email e telefone do próprio usuário autenticado usam rotas dedicadas.
 
 **Proteção real**: autenticado + admin (qualquer role).
 
@@ -5090,17 +5135,15 @@ Atualiza nome e/ou email de um admin.
 
 ```json
 {
-  "nome": "Novo Nome",
-  "email": "novo.email@dominio.com"
+  "nome": "Novo Nome"
 }
 ```
 
 **Validações reais:**
 
 - Body JSON deve ser válido.
-- Pelo menos `nome` ou `email` deve ser fornecido.
-- Se `email` for informado, não pode pertencer a outro admin.
-- Se o email for alterado, `email_verificado` volta para `false` até nova confirmação do endereço.
+- `nome` deve ser fornecido.
+- `email` e `telefone` são rejeitados nesta rota; use `PUT /me/email` e `PUT /me/telefone` para o contato do admin autenticado.
 
 **Response 200:**
 

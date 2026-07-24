@@ -18,19 +18,20 @@ import (
 type Academia struct {
 	BaseAggregate
 
-	Nivel           string
-	Type            string
-	Nome            string
-	NIF             string
-	CodigoAcademia  string
-	SenhaHash       string
-	Provincia       string
-	Endereco        string
-	Telefone        *string
-	Email           *string
-	EmailVerificado bool
-	Website         *string
-	NivelEscolar    *string
+	Nivel              string
+	Type               string
+	Nome               string
+	NIF                string
+	CodigoAcademia     string
+	SenhaHash          string
+	Provincia          string
+	Endereco           string
+	Telefone           *string
+	TelefoneVerificado bool
+	Email              *string
+	EmailVerificado    bool
+	Website            *string
+	NivelEscolar       *string
 	// AnosAcademicos define os anos do ensino fundamental que esta academia oferece.
 	AnosAcademicos []string
 	Status         string
@@ -313,23 +314,25 @@ func (a *Academia) AtualizarDados(
 		}
 	}
 
-	emailAlterado := email != nil && a.Email != nil && *a.Email != *email
+	emailAlterado := email != nil && (a.Email == nil || *a.Email != *email)
+	telefoneAlterado := telefone != nil && (a.Telefone == nil || *a.Telefone != *telefone)
 
 	event := &AcademiaDadosAtualizadosEvent{
-		BaseEvent:      BaseEvent{EventType: "AcademiaDadosAtualizados", AggregateID: a.ID},
-		Nome:           nome,
-		NIF:            nif,
-		Type:           academiaType,
-		Provincia:      provincia,
-		Endereco:       endereco,
-		Telefone:       telefone,
-		Email:          email,
-		Website:        website,
-		NivelEscolar:   nivelEscolar,
-		AnosAcademicos: anosAcademicos,
-		Cursos:         cursos,
-		EmailAlterado:  emailAlterado,
-		UpdatedAt:      time.Now(),
+		BaseEvent:        BaseEvent{EventType: "AcademiaDadosAtualizados", AggregateID: a.ID},
+		Nome:             nome,
+		NIF:              nif,
+		Type:             academiaType,
+		Provincia:        provincia,
+		Endereco:         endereco,
+		Telefone:         telefone,
+		Email:            email,
+		Website:          website,
+		NivelEscolar:     nivelEscolar,
+		AnosAcademicos:   anosAcademicos,
+		Cursos:           cursos,
+		EmailAlterado:    emailAlterado,
+		TelefoneAlterado: telefoneAlterado,
+		UpdatedAt:        time.Now(),
 	}
 
 	a.RaiseEvent(event)
@@ -547,6 +550,9 @@ func (a *Academia) applyAcademiaDadosAtualizados(event DomainEvent) error {
 	}
 	if ev.Telefone != nil {
 		a.Telefone = ev.Telefone
+		if ev.TelefoneAlterado {
+			a.TelefoneVerificado = false
+		}
 	}
 	if ev.Email != nil {
 		a.Email = ev.Email
@@ -767,19 +773,20 @@ func (e *CursosAtualizadosEvent) ToJSON() ([]byte, error) { return json.Marshal(
 
 type AcademiaDadosAtualizadosEvent struct {
 	BaseEvent
-	Nome           *string
-	NIF            *string
-	Type           *string
-	Provincia      *string
-	Endereco       *string
-	Telefone       *string
-	Email          *string
-	Website        *string
-	NivelEscolar   *string
-	AnosAcademicos []string
-	Cursos         []string
-	EmailAlterado  bool
-	UpdatedAt      time.Time
+	Nome             *string
+	NIF              *string
+	Type             *string
+	Provincia        *string
+	Endereco         *string
+	Telefone         *string
+	Email            *string
+	Website          *string
+	NivelEscolar     *string
+	AnosAcademicos   []string
+	Cursos           []string
+	EmailAlterado    bool
+	TelefoneAlterado bool
+	UpdatedAt        time.Time
 }
 
 func (e *AcademiaDadosAtualizadosEvent) GetPayload() interface{} { return e }

@@ -26,15 +26,16 @@ var adminHierarchy = map[string]int{
 type Admin struct {
 	BaseAggregate
 
-	Nome            string
-	Email           string
-	Telefone        *string
-	SenhaHash       string
-	Role            string
-	Status          string
-	EmailVerificado bool
-	CreatedBy       *uuid.UUID
-	CreatedAt       time.Time
+	Nome               string
+	Email              string
+	Telefone           *string
+	TelefoneVerificado bool
+	SenhaHash          string
+	Role               string
+	Status             string
+	EmailVerificado    bool
+	CreatedBy          *uuid.UUID
+	CreatedAt          time.Time
 
 	// FIX AD-02: campos de auditoria de ativação/desativação adicionados ao
 	// estado do aggregate para rastreabilidade no ciclo de vida em memória.
@@ -189,28 +190,36 @@ func (a *Admin) RegistrarAcao(acao string, detalhes map[string]interface{}) erro
 	return a.Apply(event)
 }
 
-func (a *Admin) AtualizarDados(nome *string, email *string, updatedBy uuid.UUID) error {
+func (a *Admin) AtualizarDados(nome *string, email *string, telefone *string, updatedBy uuid.UUID) error {
 	if a.Status != "ativo" {
 		return fmt.Errorf("administrador está inativo")
 	}
 
-	if nome == nil && email == nil {
+	if nome == nil && email == nil && telefone == nil {
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
 
 	if email != nil && !emailRegex.MatchString(*email) {
 		return fmt.Errorf("formato de email inválido")
 	}
+	if telefone != nil {
+		if err := utils.ValidatePhone(*telefone); err != nil {
+			return err
+		}
+	}
 
 	emailAlterado := email != nil && a.Email != *email
+	telefoneAlterado := telefone != nil && (a.Telefone == nil || *a.Telefone != *telefone)
 
 	event := &AdminDadosAtualizadosEvent{
-		BaseEvent:     BaseEvent{EventType: "AdminDadosAtualizados", AggregateID: a.ID},
-		Nome:          nome,
-		Email:         email,
-		EmailAlterado: emailAlterado,
-		UpdatedBy:     updatedBy,
-		UpdatedAt:     time.Now(),
+		BaseEvent:        BaseEvent{EventType: "AdminDadosAtualizados", AggregateID: a.ID},
+		Nome:             nome,
+		Email:            email,
+		Telefone:         telefone,
+		EmailAlterado:    emailAlterado,
+		TelefoneAlterado: telefoneAlterado,
+		UpdatedBy:        updatedBy,
+		UpdatedAt:        time.Now(),
 	}
 
 	a.RaiseEvent(event)
@@ -394,6 +403,12 @@ func (a *Admin) applyAdminDadosAtualizados(event DomainEvent) error {
 			a.EmailVerificado = false
 		}
 	}
+	if ev.Telefone != nil {
+		a.Telefone = ev.Telefone
+		if ev.TelefoneAlterado {
+			a.TelefoneVerificado = false
+		}
+	}
 	return nil
 }
 
@@ -475,11 +490,13 @@ func (e *AcaoAdminRegistradaEvent) ToJSON() ([]byte, error) { return json.Marsha
 
 type AdminDadosAtualizadosEvent struct {
 	BaseEvent
-	Nome          *string
-	Email         *string
-	EmailAlterado bool
-	UpdatedBy     uuid.UUID
-	UpdatedAt     time.Time
+	Nome             *string
+	Email            *string
+	EmailAlterado    bool
+	Telefone         *string
+	TelefoneAlterado bool
+	UpdatedBy        uuid.UUID
+	UpdatedAt        time.Time
 }
 
 func (e *AdminDadosAtualizadosEvent) GetPayload() interface{} { return e }

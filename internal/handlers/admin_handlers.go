@@ -722,28 +722,21 @@ func AtualizarDadosAdmin(c *gin.Context) {
 		return
 	}
 
+	if rejectDedicatedContactFields(c) {
+		return
+	}
+
 	var req struct {
-		Nome  *string `json:"nome"`
-		Email *string `json:"email"`
+		Nome *string `json:"nome"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("body inválido"))
 		return
 	}
 
-	if req.Nome == nil && req.Email == nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("ao menos um campo deve ser fornecido: nome ou email"))
+	if req.Nome == nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("ao menos um campo deve ser fornecido: nome"))
 		return
-	}
-
-	adminProj := getAdminProjection(c)
-
-	if req.Email != nil {
-		existing, _ := adminProj.GetByEmail(*req.Email)
-		if existing != nil && existing.ID != adminID {
-			utils.RespondWithConflictError(c, "email já cadastrado no sistema")
-			return
-		}
 	}
 
 	repository := getRepository(c)
@@ -759,7 +752,7 @@ func AtualizarDadosAdmin(c *gin.Context) {
 		return
 	}
 
-	if err := admin.AtualizarDados(req.Nome, req.Email, userID); err != nil {
+	if err := admin.AtualizarDados(req.Nome, nil, nil, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}

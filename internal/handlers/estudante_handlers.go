@@ -619,8 +619,6 @@ func GetEventosEstudante(c *gin.Context) {
 // Genero não pode ser alterado após o cadastro inicial.
 type AtualizarDadosPessoaisRequest struct {
 	Nome                  *string    `json:"nome"`
-	Email                 *string    `json:"email"`
-	Telefone              *string    `json:"telefone"`
 	TelefoneEncarregado   *string    `json:"telefone_encarregado"`
 	BilheteIdentidade     *string    `json:"bilhete_identidade"`
 	BilheteIdentidadeResp *string    `json:"bilhete_identidade_encarregado"`
@@ -631,6 +629,9 @@ func AtualizarDadosPessoais(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
 	if rejectRemovedJSONFields(c) {
+		return
+	}
+	if rejectDedicatedContactFields(c) {
 		return
 	}
 	var req AtualizarDadosPessoaisRequest
@@ -681,7 +682,7 @@ func AtualizarDadosPessoais(c *gin.Context) {
 	}
 
 	if err := estudante.AtualizarDadosPessoais(
-		req.Nome, req.Email, utils.NormalizePhonePtr(req.Telefone), utils.NormalizePhonePtr(req.TelefoneEncarregado),
+		req.Nome, nil, nil, utils.NormalizePhonePtr(req.TelefoneEncarregado),
 		req.BilheteIdentidade, req.BilheteIdentidadeResp,
 		req.DataNascimento,
 	); err != nil {

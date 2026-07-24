@@ -162,8 +162,8 @@ func RegisterAcademia(c *gin.Context) {
 		string(hashedPassword),
 		codigoProvincia,
 		req.Endereco,
-		utils.NormalizePhonePtr(req.Telefone),
-		req.Email,
+		nil,
+		nil,
 		req.Website,
 		req.NivelEscolar,
 		req.Cursos,
@@ -228,14 +228,16 @@ func RegisterAcademia(c *gin.Context) {
 func AtualizarDadosAcademia(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 
+	if rejectDedicatedContactFields(c) {
+		return
+	}
+
 	var req struct {
 		Nome           *string  `json:"nome"`
 		NIF            *string  `json:"nif"`
 		Type           *string  `json:"type"`
 		Provincia      *string  `json:"provincia"`
 		Endereco       *string  `json:"endereco"`
-		Telefone       *string  `json:"telefone"`
-		Email          *string  `json:"email"`
 		Website        *string  `json:"website"`
 		NivelEscolar   *string  `json:"nivel_escolar"`
 		AnosAcademicos []string `json:"anos_academicos"`
@@ -247,7 +249,7 @@ func AtualizarDadosAcademia(c *gin.Context) {
 	}
 
 	if req.Nome == nil && req.NIF == nil && req.Provincia == nil && req.Endereco == nil &&
-		req.Telefone == nil && req.Email == nil && req.Website == nil &&
+		req.Website == nil &&
 		req.NivelEscolar == nil && req.Type == nil && len(req.AnosAcademicos) == 0 && len(req.Cursos) == 0 {
 		utils.RespondWithValidationError(c, fmt.Errorf("ao menos um campo deve ser fornecido para atualização"))
 		return
@@ -330,8 +332,8 @@ func AtualizarDadosAcademia(c *gin.Context) {
 		req.Type,
 		provCode,
 		req.Endereco,
-		utils.NormalizePhonePtr(req.Telefone),
-		req.Email,
+		nil,
+		nil,
 		req.Website,
 		req.NivelEscolar,
 		req.AnosAcademicos,
