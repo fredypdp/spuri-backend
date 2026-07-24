@@ -79,6 +79,28 @@ func findRemovedJSONFieldString(raw string) (string, string, bool) {
 	return findRemovedJSONField(decoded)
 }
 
+func rejectStudentPersonalImmutableFields(c *gin.Context) bool {
+	if c.Request == nil || c.Request.Body == nil || !strings.Contains(strings.ToLower(c.GetHeader("Content-Type")), "json") {
+		return false
+	}
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return false
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+	var raw map[string]any
+	if json.Unmarshal(body, &raw) != nil {
+		return false
+	}
+	if _, ok := raw["data_nascimento"]; ok {
+		msg := "data_nascimento não pode ser alterada após o cadastro do estudante"
+		c.JSON(http.StatusBadRequest, gin.H{"error": "VALIDATION_ERROR", "message": msg, "details": []gin.H{{"field": "data_nascimento", "code": "campo_imutavel", "message": msg}}})
+		return true
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+	return false
+}
+
 func rejectRemovedMultipartFields(c *gin.Context) bool {
 	form := c.Request.MultipartForm
 	if form == nil {

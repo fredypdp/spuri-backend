@@ -540,8 +540,7 @@ func (e *Estudante) AlterarSenha(novaSenhaHash string) error {
 	return e.Apply(event)
 }
 
-// AtualizarDadosPessoais — dataNascimento é ponteiro (nil = não alterar).
-// Genero não pode ser alterado após o cadastro.
+// AtualizarDadosPessoais — genero e data_nascimento não podem ser alterados após o cadastro.
 func (e *Estudante) AtualizarDadosPessoais(
 	nome *string,
 	email *string,
@@ -556,9 +555,7 @@ func (e *Estudante) AtualizarDadosPessoais(
 		return fmt.Errorf("nenhum campo para atualizar")
 	}
 	if dataNascimento != nil {
-		if err := validarDataNascimento(*dataNascimento); err != nil {
-			return err
-		}
+		return fmt.Errorf("data_nascimento não pode ser alterada após o cadastro do estudante")
 	}
 	effectiveBilhete := e.BilheteIdentidade
 	if bilheteIdentidade != nil {

@@ -2584,12 +2584,11 @@ Atualiza os dados pessoais do estudante autenticado.
 {
   "nome": "string",
   "bilhete_identidade": "string",
-  "bilhete_identidade_encarregado": "string",
-  "data_nascimento": "2010-05-20"
+  "bilhete_identidade_encarregado": "string"
 }
 ```
 
-**Nota**: `genero` não pode ser alterado. `data_nascimento` deve ser anterior à data atual. `email` e `telefone` não são aceitos nesta rota; use `PUT /me/email` e `PUT /me/telefone`. Quando `telefone_encarregado` muda de fato, `telefone_encarregado_verificado` volta para `false`; reenviar o mesmo valor não altera a flag.
+**Nota**: `genero` e `data_nascimento` não podem ser alterados após o cadastro do estudante. Enviar `data_nascimento` nesta rota retorna `400` com `code = campo_imutavel`. `email` e `telefone` não são aceitos nesta rota; use `PUT /me/email` e `PUT /me/telefone`. Quando `telefone_encarregado` muda de fato, `telefone_encarregado_verificado` volta para `false`; reenviar o mesmo valor não altera a flag.
 
 **Response 200:**
 

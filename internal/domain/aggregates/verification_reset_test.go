@@ -87,3 +87,14 @@ func TestAdminValidatePermissionAplicaHierarquiaEstrita(t *testing.T) {
 		t.Fatalf("gerente não deve gerir outro gerente pela hierarquia estrita")
 	}
 }
+
+func TestEstudanteAtualizarDadosPessoaisRejeitaDataNascimento(t *testing.T) {
+	estudante := NewEstudante()
+	estudante.Status = "ativo"
+	estudante.Telefone = strPtr("923456789")
+
+	dataNascimento := estudante.DataNascimento.AddDate(-20, 0, 0)
+	if err := estudante.AtualizarDadosPessoais(nil, nil, nil, nil, nil, nil, &dataNascimento); err == nil {
+		t.Fatalf("esperava rejeição da edição de data_nascimento")
+	}
+}

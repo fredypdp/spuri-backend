@@ -63,3 +63,25 @@ func TestRejectRemovedMultipartFieldsFindsCompletionUploadField(t *testing.T) {
 		t.Fatalf("resposta não orienta troca do arquivo removido: %s", body)
 	}
 }
+
+func TestRejectStudentPersonalImmutableFieldsRejectsDataNascimento(t *testing.T) {
+	t.Parallel()
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPut, "/estudante/dados-pessoais", strings.NewReader(`{"nome":"Aluno Novo","data_nascimento":"2010-05-20"}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	if !rejectStudentPersonalImmutableFields(c) {
+		t.Fatalf("esperava rejeição de data_nascimento em dados pessoais")
+	}
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status esperado 400, obtido %d", w.Code)
+	}
+	body := w.Body.String()
+	for _, expected := range []string{"data_nascimento", "campo_imutavel", "não pode ser alterada"} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("resposta não contém %q: %s", expected, body)
+		}
+	}
+}
