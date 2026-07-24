@@ -8,28 +8,30 @@ status: pendente
 
 ## Prompt recomendado para executar a atualização
 
-Implemente a atualização descrita neste documento auditando `PUT /academia/dados`, `PUT /estudante/dados-pessoais` e `PUT /dominis/admin/:id/dados`, corrigindo a inconsistência de reset de `email_verificado`/`telefone_verificado` entre elas e, principalmente, removendo de `PUT /academia/dados` a possibilidade de alterar `anos_academicos`, `cursos`, `type` e `nivel_escolar` sem passar pelas validações já existentes em rotas dedicadas. Ao final, atualize testes, documentação técnica e qualquer documentação afetada. Não criar suporte a regras antigas, aliases, wrappers de compatibilidade ou caminhos alternativos que permitam contornar as validações das rotas dedicadas.
+Implemente a atualização descrita neste documento auditando `PUT /academia/dados`, `PUT /estudante/dados-pessoais` e `PUT /dominis/admin/:id/dados`, corrigindo a inconsistência de reset de `email_verificado`/`telefone_verificado` entre elas e, principalmente, removendo de `PUT /academia/dados` a possibilidade de alterar `telefone`, `email`, `anos_academicos`, `cursos`, `type` e `nivel_escolar` sem passar pelas validações já existentes em rotas dedicadas. Ao final, atualize testes, documentação técnica e qualquer documentação afetada. Não criar suporte a regras antigas, aliases, wrappers de compatibilidade ou caminhos alternativos que permitam contornar as validações das rotas dedicadas.
 
 ## Contexto
 
 O sistema já possui três rotas de edição de dados cadastrais próprios: `PUT /academia/dados` (academia), `PUT /estudante/dados-pessoais` (estudante) e `PUT /dominis/admin/:id/dados` (admin). Duas lacunas concretas foram identificadas na comparação entre elas e o restante do sistema já documentado:
 
-**Primeira lacuna — reconstrução de campos que já têm rota dedicada.** `Documentação.md` mostra `PUT /academia/dados` aceitando, no mesmo payload de texto livre, os campos `anos_academicos` e `cursos`. Isso é inconsistente com o resto do sistema:
+**Primeira lacuna — reconstrução de campos que já têm rota dedicada.** `Documentação.md` mostra `PUT /academia/dados` aceitando, no mesmo payload de texto livre, os campos `telefone`, `email`, `anos_academicos` e `cursos`. Isso é inconsistente com o resto do sistema:
 
+- `telefone` e `email` da academia já possuem rotas dedicadas para mudança desses contatos e, por isso, não devem permanecer editáveis no endpoint genérico de dados cadastrais. Essas alterações precisam passar somente pelos fluxos próprios, para concentrar normalização, validação de unicidade, efeitos de verificação e eventuais notificações em um único caminho.
 - `anos_academicos` da academia já possui rotas dedicadas e cuidadosamente validadas — `POST /academia/anos-academicos` e `DELETE /academia/anos-academicos` — implementadas justamente para impedir "operações 'replace all' que removam anos silenciosamente" e para bloquear remoção com `409 Conflict` quando há estudantes ativos vinculados ao ano (ver `docs/Tarefas feitas/Permitir às academias adicionar ou remover anos acadêmicos com validações avançadas.md`). Se `PUT /academia/dados` ainda aceitar `anos_academicos` como substituição direta de lista, ele reabre exatamente a brecha que aquela tarefa fechou deliberadamente.
 - Cursos já são geridos por `POST /academia/curso`, `PUT /academia/curso/:id/dados`, `PUT /academia/curso/:id/ativar`/`desativar` e `DELETE /academia/curso/:id`, com todas as regras de ciclo de vida documentadas na seção 10. O campo `cursos: string[]` em `PUT /academia/dados` é apenas uma lista de nomes e não deve ser tratado como fonte de verdade paralela ao cadastro real de cursos.
 - `type` (`AcademiaType`: `'public'|'private'`) e `nivel_escolar` (`NivelEscolar`: `'fundamental'|'medio'|'misto'`) também aparecem no payload de `PUT /academia/dados` sem exigência de documento comprobativo nem validação de impacto em dados dependentes (estudantes, cursos e `anos_academicos` já vinculados ao `nivel_escolar` atual). A tarefa "Permitir academia alterar type e nível escolar mediante documento" (arquivo `07`) cria o fluxo correto e seguro para essas duas mudanças; esta tarefa (`06`) é encarregado por **remover** a possibilidade de alterá-las pelo caminho genérico e inseguro enquanto o fluxo dedicado não existir.
 
-**Segunda lacuna — inconsistência de reset de verificação.** `Documentação.md` afirma, especificamente na seção de `PUT /academia/dados`: "se o email for alterado, `email_verificado` volta para `false`; se o telefone for alterado, `telefone_verificado` volta para `false`." A mesma garantia não está documentada para `PUT /estudante/dados-pessoais`, que também permite alterar `email` e `telefone`. Sem essa auditoria, um estudante poderia alterar seu email/telefone sem que o sistema volte a exigir nova verificação, criando uma inconsistência de segurança entre os dois fluxos.
+**Segunda lacuna — inconsistência de reset de verificação.** `Documentação.md` afirma, especificamente na seção de `PUT /academia/dados`: "se o email for alterado, `email_verificado` volta para `false`; se o telefone for alterado, `telefone_verificado` volta para `false`." A mesma garantia deve ser auditada para `PUT /estudante/dados-pessoais` e para `PUT /dominis/admin/:id/dados`, considerando também o usuário administrador sempre que a rota/modelo permitir alteração de `email`, `telefone` ou flags equivalentes de verificação. Sem essa auditoria, um estudante ou administrador poderia alterar seu email/telefone sem que o sistema volte a exigir nova verificação, criando uma inconsistência de segurança entre fluxos cadastrais.
 
 ## Resumo executivo
 
 | Item | Decisão | Resultado esperado |
 | --- | --- | --- |
+| `telefone` e `email` em `PUT /academia/dados` | Remover; direcionar para as rotas dedicadas de atualização de telefone/e-mail | Nenhuma alteração de contato passa fora dos fluxos dedicados de validação e reset de verificação |
 | `anos_academicos` em `PUT /academia/dados` | Remover; direcionar para `/academia/anos-academicos` | Nenhuma alteração de anos acadêmicos passa fora das validações dedicadas |
 | `cursos` em `PUT /academia/dados` | Remover; direcionar para `/academia/curso` | Nenhuma alteração de curso passa fora do ciclo de vida já documentado |
 | `type` e `nivel_escolar` em `PUT /academia/dados` | Remover temporariamente até a tarefa 07 existir | Fecha a brecha de mudança sem documento comprobativo nem validação de impacto |
-| Reset de verificação | Padronizar entre `PUT /academia/dados` e `PUT /estudante/dados-pessoais` | Alterar email/telefone sempre reseta o respectivo `*_verificado` para `false`, nos dois fluxos |
+| Reset de verificação | Padronizar nos fluxos dedicados da academia, em `PUT /estudante/dados-pessoais` e em `PUT /dominis/admin/:id/dados` | Alterar email/telefone sempre reseta o respectivo `*_verificado` para `false`, incluindo o usuário administrador quando aplicável |
 | Hierarquia de edição de admin | Auditar `PUT /dominis/admin/:id/dados` contra a regra de hierarquia estrita já documentada | Confirmar (ou corrigir) que só é possível editar admin de role estritamente inferior |
 
 ---
@@ -38,11 +40,11 @@ O sistema já possui três rotas de edição de dados cadastrais próprios: `PUT
 
 ## Objetivo
 
-Impedir que `PUT /academia/dados` altere `anos_academicos`, `cursos`, `type` e `nivel_escolar`, reservando essas mudanças para as rotas já validadas para esse fim (`/academia/anos-academicos`, `/academia/curso`) ou para o fluxo dedicado ainda a ser criado (tarefa 07, para `type`/`nivel_escolar`).
+Impedir que `PUT /academia/dados` altere `telefone`, `email`, `anos_academicos`, `cursos`, `type` e `nivel_escolar`, reservando essas mudanças para as rotas já validadas para esse fim (rotas dedicadas de atualização de telefone/e-mail, `/academia/anos-academicos`, `/academia/curso`) ou para o fluxo dedicado ainda a ser criado (tarefa 07, para `type`/`nivel_escolar`).
 
 ## Regra de negócio
 
-`PUT /academia/dados` deve continuar aceitando apenas: `nome`, `provincia`, `endereco`, `telefone`, `email`, `website`. Qualquer payload contendo `anos_academicos`, `cursos`, `type` ou `nivel_escolar` deve ser rejeitado com erro de validação claro, orientando a rota correta para cada campo, sem mutação parcial.
+`PUT /academia/dados` deve continuar aceitando apenas: `nome`, `provincia`, `endereco`, `website`. Qualquer payload contendo `telefone`, `email`, `anos_academicos`, `cursos`, `type` ou `nivel_escolar` deve ser rejeitado com erro de validação claro, orientando a rota correta para cada campo, sem mutação parcial.
 
 ## Escopo obrigatório
 
@@ -60,16 +62,18 @@ Seguindo o padrão já adotado em outras rotas do sistema (ex.: `PUT /academia/c
 }
 ```
 
-O mesmo padrão deve ser aplicado para `cursos`, `type` e `nivel_escolar`, cada um apontando para a rota/tarefa correta (`/academia/curso` para `cursos`; para `type`/`nivel_escolar`, a mensagem deve indicar que a alteração exige documento comprobativo pelo fluxo dedicado — ver tarefa 07 — enquanto esse fluxo não existir, a mensagem deve deixar claro que a alteração está temporariamente indisponível por este caminho).
+O mesmo padrão deve ser aplicado para `telefone`, `email`, `cursos`, `type` e `nivel_escolar`, cada um apontando para a rota/tarefa correta (rotas dedicadas de atualização de telefone/e-mail para `telefone`/`email`; `/academia/curso` para `cursos`; para `type`/`nivel_escolar`, a mensagem deve indicar que a alteração exige documento comprobativo pelo fluxo dedicado — ver tarefa 07 — enquanto esse fluxo não existir, a mensagem deve deixar claro que a alteração está temporariamente indisponível por este caminho).
 
 ### 1.3 Testes obrigatórios
 
-1. `PUT /academia/dados` com `nome`/`provincia`/`endereco`/`telefone`/`email`/`website`: sucesso, sem regressão;
-2. `PUT /academia/dados` com `anos_academicos`: rejeitado com `400`, sem alterar nenhum outro campo do payload;
-3. `PUT /academia/dados` com `cursos`: rejeitado com `400`;
-4. `PUT /academia/dados` com `type`: rejeitado com `400`;
-5. `PUT /academia/dados` com `nivel_escolar`: rejeitado com `400`;
-6. `PUT /academia/dados` com combinação de campo permitido e campo rejeitado no mesmo payload: nenhum campo é alterado (sem mutação parcial).
+1. `PUT /academia/dados` com `nome`/`provincia`/`endereco`/`website`: sucesso, sem regressão;
+2. `PUT /academia/dados` com `telefone`: rejeitado com `400`, orientando para a rota dedicada de atualização de telefone, sem alterar nenhum outro campo do payload;
+3. `PUT /academia/dados` com `email`: rejeitado com `400`, orientando para a rota dedicada de atualização de e-mail, sem alterar nenhum outro campo do payload;
+4. `PUT /academia/dados` com `anos_academicos`: rejeitado com `400`, sem alterar nenhum outro campo do payload;
+5. `PUT /academia/dados` com `cursos`: rejeitado com `400`;
+6. `PUT /academia/dados` com `type`: rejeitado com `400`;
+7. `PUT /academia/dados` com `nivel_escolar`: rejeitado com `400`;
+8. `PUT /academia/dados` com combinação de campo permitido e campo rejeitado no mesmo payload: nenhum campo é alterado (sem mutação parcial).
 
 ---
 
@@ -77,17 +81,17 @@ O mesmo padrão deve ser aplicado para `cursos`, `type` e `nivel_escolar`, cada 
 
 ## Objetivo
 
-Garantir que alterar `email` ou `telefone` reseta o respectivo `email_verificado`/`telefone_verificado` para `false` de forma idêntica em `PUT /academia/dados` e `PUT /estudante/dados-pessoais`.
+Garantir que alterar `email` ou `telefone` reseta o respectivo `email_verificado`/`telefone_verificado` para `false` de forma idêntica nos fluxos dedicados da academia, em `PUT /estudante/dados-pessoais` e em `PUT /dominis/admin/:id/dados`.
 
 ## Regra de negócio
 
-Em qualquer rota de edição de dados cadastrais que permita alterar `email` ou `telefone`/`telefone_encarregado`, uma mudança efetiva de valor (o novo valor é diferente do anterior, após normalização) deve resetar automaticamente a respectiva flag de verificação para `false`, exigindo nova verificação.
+Em qualquer rota de edição de dados cadastrais que permita alterar `email` ou `telefone`/`telefone_encarregado`, incluindo o usuário administrador, uma mudança efetiva de valor (o novo valor é diferente do anterior, após normalização) deve resetar automaticamente a respectiva flag de verificação para `false`, exigindo nova verificação.
 
 ## Escopo obrigatório
 
-### 2.1 Auditar `PUT /estudante/dados-pessoais`
+### 2.1 Auditar `PUT /estudante/dados-pessoais` e `PUT /dominis/admin/:id/dados`
 
-Confirmar, com teste, se hoje alterar `email` reseta `email_verificado` e se alterar `telefone` reseta `telefone_verificado`. Se a auditoria confirmar que isso **não** acontece, corrigir para reproduzir exatamente o comportamento já documentado para `PUT /academia/dados`.
+Confirmar, com teste, se hoje alterar `email` reseta `email_verificado` e se alterar `telefone` reseta `telefone_verificado` para estudante e administrador (quando o modelo/rota de admin possuir essas flags ou campos equivalentes). Se a auditoria confirmar que isso **não** acontece, corrigir para reproduzir exatamente o comportamento já documentado para `PUT /academia/dados`.
 
 ### 2.2 Considerar `telefone_encarregado`
 
@@ -95,11 +99,14 @@ Avaliar se alterar `telefone_encarregado` do estudante deve resetar `telefone_en
 
 ### 2.3 Testes obrigatórios
 
-1. estudante altera `email` para um valor diferente: `email_verificado` volta para `false`;
-2. estudante reenvia o mesmo `email` já cadastrado (sem mudança real): `email_verificado` não é alterado;
-3. estudante altera `telefone`: `telefone_verificado` volta para `false`;
-4. estudante altera `telefone_encarregado`: `telefone_encarregado_verificado` volta para `false`;
-5. academia altera `email`/`telefone`: comportamento já documentado continua funcionando sem regressão.
+1. administrador altera `email` para um valor diferente: `email_verificado` volta para `false` quando essa flag existir para admin;
+2. administrador altera `telefone` para um valor diferente: `telefone_verificado` volta para `false` quando essa flag existir para admin;
+3. administrador reenvia o mesmo `email`/`telefone` já cadastrado (sem mudança real): as flags de verificação não são alteradas;
+4. estudante altera `email` para um valor diferente: `email_verificado` volta para `false`;
+5. estudante reenvia o mesmo `email` já cadastrado (sem mudança real): `email_verificado` não é alterado;
+6. estudante altera `telefone`: `telefone_verificado` volta para `false`;
+7. estudante altera `telefone_encarregado`: `telefone_encarregado_verificado` volta para `false`;
+8. academia altera `email`/`telefone` pelas rotas dedicadas: comportamento já documentado continua funcionando sem regressão.
 
 ---
 
@@ -139,9 +146,9 @@ Se a auditoria confirmar que `PUT /dominis/admin/:id/dados` não aplica a mesma 
 
 A tarefa só deve ser considerada concluída quando:
 
-1. `PUT /academia/dados` rejeitar `anos_academicos`, `cursos`, `type` e `nivel_escolar` com erro claro, sem mutação parcial;
-2. `PUT /academia/dados` continuar aceitando normalmente `nome`, `provincia`, `endereco`, `telefone`, `email`, `website`;
-3. `PUT /estudante/dados-pessoais` resetar `email_verificado`/`telefone_verificado`/`telefone_encarregado_verificado` de forma consistente com `PUT /academia/dados`;
+1. `PUT /academia/dados` rejeitar `telefone`, `email`, `anos_academicos`, `cursos`, `type` e `nivel_escolar` com erro claro, sem mutação parcial;
+2. `PUT /academia/dados` continuar aceitando normalmente `nome`, `provincia`, `endereco`, `website`;
+3. `PUT /estudante/dados-pessoais` e `PUT /dominis/admin/:id/dados` resetarem `email_verificado`/`telefone_verificado`/`telefone_encarregado_verificado` de forma consistente com `PUT /academia/dados`;
 4. a hierarquia de `PUT /dominis/admin/:id/dados` estar auditada e, se necessário, corrigida para respeitar a regra já documentada;
 5. `Documentação.md` refletir o novo contrato de `PUT /academia/dados` e o comportamento auditado das demais rotas;
 6. testes automatizados cobrirem os cenários das seções 1.3, 2.3 e 3.3;
