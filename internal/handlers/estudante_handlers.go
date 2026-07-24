@@ -615,14 +615,9 @@ func GetEventosEstudante(c *gin.Context) {
 // PUT /estudante/dados-pessoais
 // ============================================================================
 
-// AtualizarDadosPessoaisRequest — DataNascimento é ponteiro (nil = não alterar).
-// Genero não pode ser alterado após o cadastro inicial.
+// AtualizarDadosPessoaisRequest — nome, genero, bilhetes de identidade e data_nascimento não podem ser alterados após o cadastro inicial.
 type AtualizarDadosPessoaisRequest struct {
-	Nome                  *string    `json:"nome"`
-	TelefoneEncarregado   *string    `json:"telefone_encarregado"`
-	BilheteIdentidade     *string    `json:"bilhete_identidade"`
-	BilheteIdentidadeResp *string    `json:"bilhete_identidade_encarregado"`
-	DataNascimento        *time.Time `json:"data_nascimento"`
+	TelefoneEncarregado *string `json:"telefone_encarregado"`
 }
 
 func AtualizarDadosPessoais(c *gin.Context) {
@@ -634,34 +629,15 @@ func AtualizarDadosPessoais(c *gin.Context) {
 	if rejectDedicatedContactFields(c) {
 		return
 	}
+	if rejectStudentPersonalImmutableFields(c) {
+		return
+	}
 	var req AtualizarDadosPessoaisRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
 
-	// Validar data_nascimento apenas se fornecida
-	if req.DataNascimento != nil {
-		hoje := time.Now().UTC().Truncate(24 * time.Hour)
-		dataNasc := req.DataNascimento.UTC().Truncate(24 * time.Hour)
-		if !dataNasc.Before(hoje) {
-			utils.RespondWithValidationError(c, fmt.Errorf("data_nascimento deve ser anterior à data atual"))
-			return
-		}
-	}
-
-	if req.BilheteIdentidade != nil && strings.TrimSpace(*req.BilheteIdentidade) != "" {
-		estudanteProj := getEstudanteProjection(c)
-		existente, err := estudanteProj.GetByBilheteIdentidadePrincipalExcludingID(*req.BilheteIdentidade, userID)
-		if err != nil {
-			utils.RespondWithInternalError(c, err)
-			return
-		}
-		if existente != nil {
-			utils.RespondWithValidationError(c, fmt.Errorf("bilhete de identidade já cadastrado"))
-			return
-		}
-	}
 	repository := getRepository(c)
 	estudanteAgg, err := repository.Load(userID, "Estudante")
 	if err != nil {
@@ -674,17 +650,10 @@ func AtualizarDadosPessoais(c *gin.Context) {
 		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
 		return
 	}
-	if req.BilheteIdentidadeResp != nil && isMatriculaEscolar(estudante.AnoEscolar, estudante.AnoEscolarMedio) {
-		if err := validateBIEncarregadoNaoConflitaComEscolar(c, req.BilheteIdentidadeResp, &userID); err != nil {
-			utils.RespondWithValidationError(c, err)
-			return
-		}
-	}
 
 	if err := estudante.AtualizarDadosPessoais(
-		req.Nome, nil, nil, utils.NormalizePhonePtr(req.TelefoneEncarregado),
-		req.BilheteIdentidade, req.BilheteIdentidadeResp,
-		req.DataNascimento,
+		nil, nil, nil, utils.NormalizePhonePtr(req.TelefoneEncarregado),
+		nil, nil, nil,
 	); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
