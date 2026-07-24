@@ -1254,7 +1254,11 @@ Atualiza os dados cadastrais da academia autenticada.
 
 ---
 
-### GET /academia/solicitacoes-edicao-estudante
+### Solicitações de edição de dados sensíveis de estudantes
+
+Subsecção de operações da academia para consultar, aprovar ou reprovar solicitações documentadas feitas por estudantes vinculados. Cada rota de decisão é específica para um campo, valida o campo da URL contra a solicitação e não existe endpoint genérico com `campo` arbitrário.
+
+#### GET /academia/solicitacoes-edicao-estudante
 
 Lista solicitações documentadas de edição de dados sensíveis dos estudantes vinculados à academia autenticada.
 
@@ -1303,7 +1307,7 @@ Lista solicitações documentadas de edição de dados sensíveis dos estudantes
 
 ---
 
-### PUT /academia/solicitacoes-edicao-estudante/nome/:codigo/aprovar
+#### PUT /academia/solicitacoes-edicao-estudante/nome/:codigo/aprovar
 
 Aprova uma solicitação pendente de alteração de `nome`.
 
@@ -1331,7 +1335,7 @@ Aprova uma solicitação pendente de alteração de `nome`.
 
 ---
 
-### PUT /academia/solicitacoes-edicao-estudante/nome/:codigo/reprovar
+#### PUT /academia/solicitacoes-edicao-estudante/nome/:codigo/reprovar
 
 Reprova uma solicitação pendente de alteração de `nome`.
 
@@ -1355,7 +1359,7 @@ Reprova uma solicitação pendente de alteração de `nome`.
 
 ---
 
-### PUT /academia/solicitacoes-edicao-estudante/bilhete-identidade/:codigo/aprovar
+#### PUT /academia/solicitacoes-edicao-estudante/bilhete-identidade/:codigo/aprovar
 
 Aprova uma solicitação pendente de alteração de `bilhete_identidade`.
 
@@ -1371,7 +1375,7 @@ Aprova uma solicitação pendente de alteração de `bilhete_identidade`.
 
 ---
 
-### PUT /academia/solicitacoes-edicao-estudante/bilhete-identidade/:codigo/reprovar
+#### PUT /academia/solicitacoes-edicao-estudante/bilhete-identidade/:codigo/reprovar
 
 Reprova uma solicitação pendente de alteração de `bilhete_identidade`.
 
@@ -1393,7 +1397,7 @@ Reprova uma solicitação pendente de alteração de `bilhete_identidade`.
 
 ---
 
-### PUT /academia/solicitacoes-edicao-estudante/bilhete-identidade-encarregado/:codigo/aprovar
+#### PUT /academia/solicitacoes-edicao-estudante/bilhete-identidade-encarregado/:codigo/aprovar
 
 Aprova uma solicitação pendente de alteração de `bilhete_identidade_encarregado`.
 
@@ -1409,7 +1413,7 @@ Aprova uma solicitação pendente de alteração de `bilhete_identidade_encarreg
 
 ---
 
-### PUT /academia/solicitacoes-edicao-estudante/bilhete-identidade-encarregado/:codigo/reprovar
+#### PUT /academia/solicitacoes-edicao-estudante/bilhete-identidade-encarregado/:codigo/reprovar
 
 Reprova uma solicitação pendente de alteração de `bilhete_identidade_encarregado`.
 
@@ -1431,7 +1435,7 @@ Reprova uma solicitação pendente de alteração de `bilhete_identidade_encarre
 
 ---
 
-### PUT /academia/solicitacoes-edicao-estudante/data-nascimento/:codigo/aprovar
+#### PUT /academia/solicitacoes-edicao-estudante/data-nascimento/:codigo/aprovar
 
 Aprova uma solicitação pendente de alteração de `data_nascimento`.
 
@@ -1447,7 +1451,7 @@ Aprova uma solicitação pendente de alteração de `data_nascimento`.
 
 ---
 
-### PUT /academia/solicitacoes-edicao-estudante/data-nascimento/:codigo/reprovar
+#### PUT /academia/solicitacoes-edicao-estudante/data-nascimento/:codigo/reprovar
 
 Reprova uma solicitação pendente de alteração de `data_nascimento`.
 
@@ -2787,7 +2791,7 @@ Consulta um estudante por código. Quando o estudante possui documentos, a respo
 
 ---
 
-### Dados sensíveis do estudante e entidade de solicitação
+### Solicitações de edição de dados sensíveis
 
 A rota genérica `PUT /estudante/dados-pessoais` foi removida. Dados civis sensíveis do estudante não possuem endpoint genérico de edição: `nome`, `bilhete_identidade`, `bilhete_identidade_encarregado` e `data_nascimento` só podem ser solicitados pelas rotas dedicadas abaixo e aplicados pela academia vinculada após aprovação documentada.
 
@@ -2808,7 +2812,7 @@ Eventos gravados no ledger seguro para este fluxo:
 
 ---
 
-### PUT /estudante/encarregado/telefone
+#### PUT /estudante/encarregado/telefone
 
 Atualiza exclusivamente o telefone do encarregado do estudante autenticado.
 
@@ -2844,7 +2848,7 @@ Atualiza exclusivamente o telefone do encarregado do estudante autenticado.
 
 ---
 
-### GET /estudante/solicitacoes-edicao
+#### GET /estudante/solicitacoes-edicao
 
 Lista as solicitações de edição de dados sensíveis criadas pelo estudante autenticado.
 
@@ -2892,7 +2896,7 @@ Lista as solicitações de edição de dados sensíveis criadas pelo estudante a
 
 ---
 
-### POST /estudante/solicitacoes-edicao/nome
+#### POST /estudante/solicitacoes-edicao/nome
 
 Cria solicitação documentada para alterar o nome do estudante autenticado.
 
@@ -2918,7 +2922,7 @@ Cria solicitação documentada para alterar o nome do estudante autenticado.
 
 ---
 
-### POST /estudante/solicitacoes-edicao/bilhete-identidade
+#### POST /estudante/solicitacoes-edicao/bilhete-identidade
 
 Cria solicitação documentada para alterar o bilhete de identidade do estudante autenticado.
 
@@ -2935,7 +2939,7 @@ Cria solicitação documentada para alterar o bilhete de identidade do estudante
 
 ---
 
-### POST /estudante/solicitacoes-edicao/bilhete-identidade-encarregado
+#### POST /estudante/solicitacoes-edicao/bilhete-identidade-encarregado
 
 Cria solicitação documentada para alterar o bilhete de identidade do encarregado.
 
@@ -2952,7 +2956,7 @@ Cria solicitação documentada para alterar o bilhete de identidade do encarrega
 
 ---
 
-### POST /estudante/solicitacoes-edicao/data-nascimento
+#### POST /estudante/solicitacoes-edicao/data-nascimento
 
 Cria solicitação documentada para alterar a data de nascimento do estudante autenticado.
 
