@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -29,6 +30,14 @@ func solicitacaoDocumentoDownloadURL(codigoSolicitacao, campo string) string {
 
 func academiaSolicitacaoDocumentoDownloadURL(codigoSolicitacao, campo string) string {
 	return fmt.Sprintf("/academia/documentos/solicitacoes-matricula/%s/%s/download", codigoSolicitacao, campo)
+}
+
+func solicitacaoEdicaoDocumentoDownloadURL(codigoSolicitacao string) string {
+	return fmt.Sprintf("/estudante/solicitacoes-edicao/%s/documento/download", codigoSolicitacao)
+}
+
+func academiaSolicitacaoEdicaoDocumentoDownloadURL(codigoSolicitacao string) string {
+	return fmt.Sprintf("/academia/documentos/solicitacoes-edicao-estudante/%s/documento/download", codigoSolicitacao)
 }
 
 func academiaDocumentoDownloadURL(codigoAcademia, campo string) string {
@@ -210,6 +219,14 @@ func DownloadDocumentoSolicitacaoMatriculaAcademia(c *gin.Context) {
 	streamDocumentoSolicitacaoMatricula(c, strings.TrimSpace(c.Param("codigo")), strings.TrimSpace(c.Param("campo")))
 }
 
+func DownloadDocumentoSolicitacaoEdicaoEstudante(c *gin.Context) {
+	streamDocumentoSolicitacaoEdicao(c, strings.TrimSpace(c.Param("codigo")), false)
+}
+
+func DownloadDocumentoSolicitacaoEdicaoAcademia(c *gin.Context) {
+	streamDocumentoSolicitacaoEdicao(c, strings.TrimSpace(c.Param("codigo")), true)
+}
+
 // DownloadDocumentoEstudante streams a student document from the configured
 // storage provider. The route is intentionally backend-owned so the front end
 // does not need direct Mega credentials, links, or internal node IDs.
@@ -265,6 +282,28 @@ func streamDocumentoSolicitacaoMatricula(c *gin.Context, codigoSolicitacao, camp
 		return
 	}
 	streamDocumento(c, campo, doc)
+}
+
+func streamDocumentoSolicitacaoEdicao(c *gin.Context, codigoSolicitacao string, academiaURL bool) {
+	sol, err := getSolicitacaoEdicaoDadoEstudanteProjection(c).GetByCodigo(codigoSolicitacao)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if err != nil || sol == nil {
+		utils.RespondWithNotFoundError(c, "solicitação")
+		return
+	}
+	if !canAccessSolicitacaoEdicaoDocument(c, sol.CodigoEstudante, sol.CodigoAcademia) {
+		utils.RespondWithForbiddenError(c, "sem permissão para baixar documento desta solicitação")
+		return
+	}
+	doc := documentoSolicitacaoEdicao(sol, academiaURL)
+	if strings.TrimSpace(doc.Path) == "" {
+		utils.RespondWithNotFoundError(c, "documento")
+		return
+	}
+	streamDocumento(c, "documento_"+sol.Campo, doc)
 }
 
 // DownloadDocumentoAcademia streams formal academy documents, such as the
@@ -331,6 +370,23 @@ func canAccessAcademiaDocument(c *gin.Context, codigoAcademia string) bool {
 	userID, _ := middleware.GetUserID(c)
 	academia, _ := getAcademiaProjection(c).GetByID(userID)
 	return academia != nil && academia.CodigoAcademia == codigoAcademia
+}
+
+func canAccessSolicitacaoEdicaoDocument(c *gin.Context, codigoEstudante, codigoAcademia string) bool {
+	userType, _ := middleware.GetUserType(c)
+	userID, _ := middleware.GetUserID(c)
+	switch userType {
+	case "admin":
+		return true
+	case "estudante":
+		estudante, _ := getEstudanteProjection(c).GetByID(userID)
+		return estudante != nil && estudante.CodigoEstudante == codigoEstudante
+	case "academia":
+		academia, _ := getAcademiaProjection(c).GetByID(userID)
+		return academia != nil && academia.CodigoAcademia == codigoAcademia
+	default:
+		return false
+	}
 }
 
 func canAccessSolicitacaoDocument(c *gin.Context, codigoAcademia string) bool {
@@ -474,6 +530,23 @@ func documentosComDownloadSolicitacaoAcademia(codigoSolicitacao string, document
 	return documentosComDownload(documentos, func(campo string) string {
 		return academiaSolicitacaoDocumentoDownloadURL(codigoSolicitacao, campo)
 	})
+}
+
+func documentoSolicitacaoEdicao(sol interface {
+	GetCodigoSolicitacao() string
+	GetDocumentoTemporarioPath() string
+	GetDocumentoTemporarioURL() string
+}, academiaURL bool) aggregates.DocumentoMatricula {
+	downloadURL := solicitacaoEdicaoDocumentoDownloadURL(sol.GetCodigoSolicitacao())
+	if academiaURL {
+		downloadURL = academiaSolicitacaoEdicaoDocumentoDownloadURL(sol.GetCodigoSolicitacao())
+	}
+	return aggregates.DocumentoMatricula{
+		Tipo:        "documento",
+		Path:        sol.GetDocumentoTemporarioPath(),
+		FileURL:     sol.GetDocumentoTemporarioURL(),
+		DownloadURL: downloadURL,
+	}
 }
 
 func documentosComDownload(documentos map[string]aggregates.DocumentoMatricula, downloadURL func(string) string) map[string]aggregates.DocumentoMatricula {

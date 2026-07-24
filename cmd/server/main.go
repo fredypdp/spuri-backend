@@ -307,6 +307,7 @@ func setupRouter() *gin.Engine {
 	{
 		estudante.PUT("/encarregado/telefone", handlers.AtualizarTelefoneEncarregado)
 		estudante.GET("/solicitacoes-edicao", handlers.ListarSolicitacoesEdicaoEstudante)
+		estudante.GET("/solicitacoes-edicao/:codigo/documento/download", handlers.DownloadDocumentoSolicitacaoEdicaoEstudante)
 		estudante.POST("/solicitacoes-edicao/nome", handlers.CriarSolicitacaoEdicaoDadoEstudanteHandler("nome"))
 		estudante.POST("/solicitacoes-edicao/bilhete-identidade", handlers.CriarSolicitacaoEdicaoDadoEstudanteHandler("bilhete_identidade"))
 		estudante.POST("/solicitacoes-edicao/bilhete-identidade-encarregado", handlers.CriarSolicitacaoEdicaoDadoEstudanteHandler("bilhete_identidade_encarregado"))
@@ -358,6 +359,7 @@ func setupRouter() *gin.Engine {
 		academiaRead.GET("/documentos/academia/:campo/download", handlers.DownloadDocumentoAcademiaPropria)
 		academiaRead.GET("/documentos/estudantes/:codigo/:campo/download", handlers.DownloadDocumentoEstudanteAcademia)
 		academiaRead.GET("/documentos/solicitacoes-matricula/:codigo/:campo/download", handlers.DownloadDocumentoSolicitacaoMatriculaAcademia)
+		academiaRead.GET("/documentos/solicitacoes-edicao-estudante/:codigo/documento/download", handlers.DownloadDocumentoSolicitacaoEdicaoAcademia)
 	}
 
 	academia := router.Group("/academia")
