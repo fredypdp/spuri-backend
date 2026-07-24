@@ -55,6 +55,7 @@ Dentro de cada nível, a ordem numérica indica a sequência sugerida. A ordem *
 | 9 | Implementar reprovação por falta com limite percentual configurável | `09 - Reprovação por falta com limite percentual configurável.md` | Depende da funcionalidade de sumários/aulas, que já possui tarefa própria fora deste índice (ver observação abaixo). Fica pronta para implementação assim que o pré-requisito existir. |
 | 10 | Implementar gabarito de prova com digitalização e correção automática | `10 - Gabarito de prova com digitalização e correção automática.md` | Nova funcionalidade de correção automática de provas objetivas, dividida em fase de modelo de dados/comparação e fase de digitalização/OCR. |
 | 11 | Enriquecer a documentação da API com o significado de cada campo | `11 - Enriquecer documentação da API com significado de cada campo.md` | Trabalho de documentação pura, sem impacto funcional; pode ser feito a qualquer momento sem risco. |
+| 12 | Separar edição de email e telefone em rotas dedicadas | `12 - Separar edicao de email e telefone em rotas dedicadas.md` | Cria rotas próprias para alteração de email e telefone do usuário autenticado, remove esses campos das rotas genéricas e exige telefone nacional somente com dígitos, sem DDI. |
 
 ## Item intencionalmente não transformado em tarefa
 
