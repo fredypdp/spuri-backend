@@ -112,7 +112,7 @@ func (e *Estudante) Apply(event DomainEvent) error {
 		return e.applyAvaliacaoFinalEscolar(event)
 	case "AvaliacaoFinalSuperior":
 		return e.applyAvaliacaoFinalSuperior(event)
-	case "DadosPessoaisAtualizados":
+	case "DadosPessoaisAtualizados", "NomeEstudanteAlteradoPorSolicitacao", "BilheteIdentidadeEstudanteAlteradoPorSolicitacao", "BilheteIdentidadeEncarregadoAlteradoPorSolicitacao", "DataNascimentoEstudanteAlteradaPorSolicitacao", "TelefoneEncarregadoAlterado":
 		return e.applyDadosPessoaisAtualizados(event)
 	case "DadosAcademicosAtualizados":
 		return e.applyDadosAcademicosAtualizados(event)
@@ -1203,3 +1203,107 @@ func (e *Estudante) applyEstudanteDocumentosCompletados(event DomainEvent) error
 	e.Status = "ativo"
 	return nil
 }
+
+func (e *Estudante) AlterarNomePorSolicitacao(novo, codigoSolicitacao, decididoPor string) error {
+	v := strings.TrimSpace(novo)
+	if v == "" {
+		return fmt.Errorf("nome é obrigatório")
+	}
+	ev := &NomeEstudanteAlteradoPorSolicitacaoEvent{BaseEvent: BaseEvent{EventType: "NomeEstudanteAlteradoPorSolicitacao", AggregateID: e.ID}, Nome: &v, CodigoSolicitacao: codigoSolicitacao, DecididoPor: decididoPor, UpdatedAt: time.Now()}
+	e.RaiseEvent(ev)
+	return e.Apply(ev)
+}
+func (e *Estudante) AlterarBilheteIdentidadePorSolicitacao(novo, codigoSolicitacao, decididoPor string) error {
+	v := strings.TrimSpace(novo)
+	if v == "" {
+		return fmt.Errorf("bilhete_identidade é obrigatório")
+	}
+	ev := &BilheteIdentidadeEstudanteAlteradoPorSolicitacaoEvent{BaseEvent: BaseEvent{EventType: "BilheteIdentidadeEstudanteAlteradoPorSolicitacao", AggregateID: e.ID}, BilheteIdentidade: &v, CodigoSolicitacao: codigoSolicitacao, DecididoPor: decididoPor, UpdatedAt: time.Now()}
+	e.RaiseEvent(ev)
+	return e.Apply(ev)
+}
+func (e *Estudante) AlterarBilheteIdentidadeEncarregadoPorSolicitacao(novo, codigoSolicitacao, decididoPor string) error {
+	v := strings.TrimSpace(novo)
+	if v == "" {
+		return fmt.Errorf("bilhete_identidade_encarregado é obrigatório")
+	}
+	ev := &BilheteIdentidadeEncarregadoAlteradoPorSolicitacaoEvent{BaseEvent: BaseEvent{EventType: "BilheteIdentidadeEncarregadoAlteradoPorSolicitacao", AggregateID: e.ID}, BilheteIdentidadeResp: &v, CodigoSolicitacao: codigoSolicitacao, DecididoPor: decididoPor, UpdatedAt: time.Now()}
+	e.RaiseEvent(ev)
+	return e.Apply(ev)
+}
+func (e *Estudante) AlterarDataNascimentoPorSolicitacao(nova time.Time, codigoSolicitacao, decididoPor string) error {
+	if err := validarDataNascimento(nova); err != nil {
+		return err
+	}
+	ev := &DataNascimentoEstudanteAlteradaPorSolicitacaoEvent{BaseEvent: BaseEvent{EventType: "DataNascimentoEstudanteAlteradaPorSolicitacao", AggregateID: e.ID}, DataNascimento: &nova, CodigoSolicitacao: codigoSolicitacao, DecididoPor: decididoPor, UpdatedAt: time.Now()}
+	e.RaiseEvent(ev)
+	return e.Apply(ev)
+}
+func (e *Estudante) AlterarTelefoneEncarregado(telefone string) error {
+	v := strings.TrimSpace(telefone)
+	if err := utils.ValidatePhone(v); err != nil {
+		return err
+	}
+	alterado := e.TelefoneEncarregado == nil || *e.TelefoneEncarregado != v
+	ev := &TelefoneEncarregadoAlteradoEvent{BaseEvent: BaseEvent{EventType: "TelefoneEncarregadoAlterado", AggregateID: e.ID}, TelefoneEncarregado: &v, TelefoneEncAlterado: alterado, UpdatedAt: time.Now()}
+	e.RaiseEvent(ev)
+	return e.Apply(ev)
+}
+
+type NomeEstudanteAlteradoPorSolicitacaoEvent struct {
+	BaseEvent
+	Nome                           *string
+	CodigoSolicitacao, DecididoPor string
+	UpdatedAt                      time.Time
+}
+
+func (e *NomeEstudanteAlteradoPorSolicitacaoEvent) GetPayload() interface{} { return e }
+func (e *NomeEstudanteAlteradoPorSolicitacaoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+type BilheteIdentidadeEstudanteAlteradoPorSolicitacaoEvent struct {
+	BaseEvent
+	BilheteIdentidade              *string
+	CodigoSolicitacao, DecididoPor string
+	UpdatedAt                      time.Time
+}
+
+func (e *BilheteIdentidadeEstudanteAlteradoPorSolicitacaoEvent) GetPayload() interface{} { return e }
+func (e *BilheteIdentidadeEstudanteAlteradoPorSolicitacaoEvent) ToJSON() ([]byte, error) {
+	return json.Marshal(e)
+}
+
+type BilheteIdentidadeEncarregadoAlteradoPorSolicitacaoEvent struct {
+	BaseEvent
+	BilheteIdentidadeResp          *string
+	CodigoSolicitacao, DecididoPor string
+	UpdatedAt                      time.Time
+}
+
+func (e *BilheteIdentidadeEncarregadoAlteradoPorSolicitacaoEvent) GetPayload() interface{} { return e }
+func (e *BilheteIdentidadeEncarregadoAlteradoPorSolicitacaoEvent) ToJSON() ([]byte, error) {
+	return json.Marshal(e)
+}
+
+type DataNascimentoEstudanteAlteradaPorSolicitacaoEvent struct {
+	BaseEvent
+	DataNascimento                 *time.Time
+	CodigoSolicitacao, DecididoPor string
+	UpdatedAt                      time.Time
+}
+
+func (e *DataNascimentoEstudanteAlteradaPorSolicitacaoEvent) GetPayload() interface{} { return e }
+func (e *DataNascimentoEstudanteAlteradaPorSolicitacaoEvent) ToJSON() ([]byte, error) {
+	return json.Marshal(e)
+}
+
+type TelefoneEncarregadoAlteradoEvent struct {
+	BaseEvent
+	TelefoneEncarregado *string
+	TelefoneEncAlterado bool
+	UpdatedAt           time.Time
+}
+
+func (e *TelefoneEncarregadoAlteradoEvent) GetPayload() interface{} { return e }
+func (e *TelefoneEncarregadoAlteradoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+func ValidarDataNascimentoPublic(data time.Time) error { return validarDataNascimento(data) }

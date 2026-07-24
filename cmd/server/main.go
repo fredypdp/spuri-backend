@@ -126,6 +126,7 @@ func initProjections() error {
 	// ── Tier 4 — avaliação final ──────────────────────────────────────────
 	projManager.RegisterProjection("avaliacao_final", projections.NewAvaliacaoFinalProjection(dbClient))
 	projManager.RegisterProjection("solicitacoes_matricula", projections.NewSolicitacaoMatriculaProjection(dbClient))
+	projManager.RegisterProjection("solicitacoes_edicao_dados_estudante", projections.NewSolicitacaoEdicaoDadoEstudanteProjection(dbClient))
 
 	go projManager.StartProcessing()
 	return nil
@@ -305,6 +306,12 @@ func setupRouter() *gin.Engine {
 	estudante.Use(middleware.RequireEstudante())
 	{
 		estudante.PUT("/dados-pessoais", handlers.AtualizarDadosPessoais)
+		estudante.PUT("/encarregado/telefone", handlers.AtualizarTelefoneEncarregado)
+		estudante.GET("/solicitacoes-edicao", handlers.ListarSolicitacoesEdicaoEstudante)
+		estudante.POST("/solicitacoes-edicao/nome", handlers.CriarSolicitacaoEdicaoDadoEstudanteHandler("nome"))
+		estudante.POST("/solicitacoes-edicao/bilhete-identidade", handlers.CriarSolicitacaoEdicaoDadoEstudanteHandler("bilhete_identidade"))
+		estudante.POST("/solicitacoes-edicao/bilhete-identidade-encarregado", handlers.CriarSolicitacaoEdicaoDadoEstudanteHandler("bilhete_identidade_encarregado"))
+		estudante.POST("/solicitacoes-edicao/data-nascimento", handlers.CriarSolicitacaoEdicaoDadoEstudanteHandler("data_nascimento"))
 		estudante.GET("/minhas-avaliacoes", handlers.GetMinhasAvaliacoes)
 		estudante.GET("/documentos", handlers.ListarMeusDocumentosEstudante)
 		estudante.GET("/documentos/:campo/download", handlers.DownloadMeuDocumentoEstudante)
@@ -347,6 +354,7 @@ func setupRouter() *gin.Engine {
 		academiaRead.GET("/solicitacoes-matricula", handlers.ListarSolicitacoesMatriculaAcademia)
 		academiaRead.GET("/solicitacao-matricula/:codigo", handlers.GetSolicitacaoMatriculaAcademia)
 		academiaRead.GET("/solicitacoes", handlers.ListarSolicitacoesStatusAcademicoHandler)
+		academiaRead.GET("/solicitacoes-edicao-estudante", handlers.ListarSolicitacoesEdicaoAcademia)
 		academiaRead.GET("/documentos", handlers.ListarDocumentosAcademia)
 		academiaRead.GET("/documentos/academia/:campo/download", handlers.DownloadDocumentoAcademiaPropria)
 		academiaRead.GET("/documentos/estudantes/:codigo/:campo/download", handlers.DownloadDocumentoEstudanteAcademia)
@@ -365,6 +373,14 @@ func setupRouter() *gin.Engine {
 		academia.POST("/anos-letivos/finalizar", handlers.FinalizarAnoLetivoAcademia)
 		academia.PUT("/solicitacao-matricula/:codigo/aprovar", handlers.AprovarSolicitacaoMatricula)
 		academia.PUT("/solicitacao-matricula/:codigo/reprovar", handlers.ReprovarSolicitacaoMatricula)
+		academia.PUT("/solicitacoes-edicao-estudante/nome/:codigo/aprovar", handlers.DecidirSolicitacaoEdicaoDadoEstudanteHandler("nome", true))
+		academia.PUT("/solicitacoes-edicao-estudante/nome/:codigo/reprovar", handlers.DecidirSolicitacaoEdicaoDadoEstudanteHandler("nome", false))
+		academia.PUT("/solicitacoes-edicao-estudante/bilhete-identidade/:codigo/aprovar", handlers.DecidirSolicitacaoEdicaoDadoEstudanteHandler("bilhete_identidade", true))
+		academia.PUT("/solicitacoes-edicao-estudante/bilhete-identidade/:codigo/reprovar", handlers.DecidirSolicitacaoEdicaoDadoEstudanteHandler("bilhete_identidade", false))
+		academia.PUT("/solicitacoes-edicao-estudante/bilhete-identidade-encarregado/:codigo/aprovar", handlers.DecidirSolicitacaoEdicaoDadoEstudanteHandler("bilhete_identidade_encarregado", true))
+		academia.PUT("/solicitacoes-edicao-estudante/bilhete-identidade-encarregado/:codigo/reprovar", handlers.DecidirSolicitacaoEdicaoDadoEstudanteHandler("bilhete_identidade_encarregado", false))
+		academia.PUT("/solicitacoes-edicao-estudante/data-nascimento/:codigo/aprovar", handlers.DecidirSolicitacaoEdicaoDadoEstudanteHandler("data_nascimento", true))
+		academia.PUT("/solicitacoes-edicao-estudante/data-nascimento/:codigo/reprovar", handlers.DecidirSolicitacaoEdicaoDadoEstudanteHandler("data_nascimento", false))
 
 		academia.POST("/estudante/register", handlers.RegisterEstudantePorAcademia)
 		academia.POST("/estudante/:codigo/documentos", handlers.CompletarDocumentosEstudantePendente)

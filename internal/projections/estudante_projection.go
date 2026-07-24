@@ -83,7 +83,7 @@ func (p *EstudanteProjection) Handle(event db.Event) error {
 		return p.handleEstudanteDesvinculadoDaAcademia(event)
 	case "EstudanteReintegrado":
 		return p.handleEstudanteReintegrado(event)
-	case "DadosPessoaisAtualizados":
+	case "DadosPessoaisAtualizados", "NomeEstudanteAlteradoPorSolicitacao", "BilheteIdentidadeEstudanteAlteradoPorSolicitacao", "BilheteIdentidadeEncarregadoAlteradoPorSolicitacao", "DataNascimentoEstudanteAlteradaPorSolicitacao", "TelefoneEncarregadoAlterado":
 		return p.handleDadosPessoaisAtualizados(event)
 	case "DadosAcademicosAtualizados":
 		return p.handleDadosAcademicosAtualizados(event)
@@ -1282,4 +1282,10 @@ func (p *EstudanteProjection) CountActiveByFundamentalAnos(codigoAcademia string
 		   AND ano_escolar_fundamental = ANY($2)
 	`, codigoAcademia, pq.Array(anos)).Scan(&count)
 	return count, err
+}
+
+func (p *EstudanteProjection) BilheteIdentidadeExists(bilhete, excluirCodigoEstudante string) (bool, error) {
+	var exists bool
+	err := p.client.DB().QueryRow(`SELECT EXISTS(SELECT 1 FROM projection_estudantes WHERE lower(btrim(bilhete_identidade)) = lower(btrim($1)) AND codigo_estudante <> $2)`, bilhete, excluirCodigoEstudante).Scan(&exists)
+	return exists, err
 }
