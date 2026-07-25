@@ -269,6 +269,10 @@ func listarSolicitacoesEdicao(c *gin.Context, codigoAcademia, codigoEstudanteFor
 		utils.RespondWithInternalError(c, err)
 		return
 	}
+	academiaURL := codigoAcademia != ""
+	for i := range itens {
+		itens[i].Documento = documentoSolicitacaoEdicao(itens[i], academiaURL)
+	}
 	c.JSON(http.StatusOK, gin.H{"solicitacoes": itens, "limit": limit, "offset": offset, "total": len(itens)})
 }
 

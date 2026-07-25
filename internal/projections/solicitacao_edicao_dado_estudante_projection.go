@@ -74,22 +74,35 @@ func (p *SolicitacaoEdicaoDadoEstudanteProjection) Handle(event db.Event) error 
 }
 
 type SolicitacaoEdicaoDadoEstudanteDTO struct {
-	ID                      uuid.UUID `json:"id"`
-	CodigoSolicitacao       string    `json:"codigo_solicitacao"`
-	CodigoEstudante         string    `json:"codigo_estudante"`
-	CodigoAcademia          string    `json:"codigo_academia"`
-	Campo                   string    `json:"campo"`
-	ValorAtual              string    `json:"valor_atual"`
-	ValorSolicitado         string    `json:"valor_solicitado"`
-	DocumentoTemporarioPath string    `json:"documento_temporario_path"`
-	DocumentoTemporarioURL  string    `json:"documento_temporario_url,omitempty"`
-	Status                  string    `json:"status"`
-	MotivoReprovacao        *string   `json:"motivo_reprovacao,omitempty"`
-	SolicitadoPor           string    `json:"solicitado_por"`
-	DecididoPor             *string   `json:"decidido_por,omitempty"`
-	CreatedAt               time.Time `json:"created_at"`
-	UpdatedAt               time.Time `json:"updated_at"`
-	Version                 int       `json:"version"`
+	ID                      uuid.UUID                     `json:"id"`
+	CodigoSolicitacao       string                        `json:"codigo_solicitacao"`
+	CodigoEstudante         string                        `json:"codigo_estudante"`
+	CodigoAcademia          string                        `json:"codigo_academia"`
+	Campo                   string                        `json:"campo"`
+	ValorAtual              string                        `json:"valor_atual"`
+	ValorSolicitado         string                        `json:"valor_solicitado"`
+	DocumentoTemporarioPath string                        `json:"documento_temporario_path"`
+	DocumentoTemporarioURL  string                        `json:"documento_temporario_url,omitempty"`
+	Documento               aggregates.DocumentoMatricula `json:"documento,omitempty"`
+	Status                  string                        `json:"status"`
+	MotivoReprovacao        *string                       `json:"motivo_reprovacao,omitempty"`
+	SolicitadoPor           string                        `json:"solicitado_por"`
+	DecididoPor             *string                       `json:"decidido_por,omitempty"`
+	CreatedAt               time.Time                     `json:"created_at"`
+	UpdatedAt               time.Time                     `json:"updated_at"`
+	Version                 int                           `json:"version"`
+}
+
+func (d SolicitacaoEdicaoDadoEstudanteDTO) GetCodigoSolicitacao() string {
+	return d.CodigoSolicitacao
+}
+
+func (d SolicitacaoEdicaoDadoEstudanteDTO) GetDocumentoTemporarioPath() string {
+	return d.DocumentoTemporarioPath
+}
+
+func (d SolicitacaoEdicaoDadoEstudanteDTO) GetDocumentoTemporarioURL() string {
+	return d.DocumentoTemporarioURL
 }
 
 func (p *SolicitacaoEdicaoDadoEstudanteProjection) handleCriada(event db.Event) error {

@@ -271,9 +271,11 @@ Permitir acompanhamento operacional das solicitações pendentes, aprovadas e re
 Criar:
 
 - `GET /estudante/solicitacoes-edicao` — estudante lista suas próprias solicitações, com filtro opcional por `status` e `campo`;
-- `GET /academia/solicitacoes-edicao-estudante` — academia lista solicitações de estudantes vinculados, com filtro opcional por `status`, `campo` e `codigo_estudante`.
+- `GET /academia/solicitacoes-edicao-estudante` — academia lista solicitações de estudantes vinculados, com filtro opcional por `status`, `campo` e `codigo_estudante`;
+- `GET /estudante/solicitacoes-edicao/:codigo/documento/download` — estudante lê/baixa o PDF comprovativo da própria solicitação de edição;
+- `GET /academia/documentos/solicitacoes-edicao-estudante/:codigo/documento/download` — academia ou admin lê/baixa o PDF comprovativo da solicitação de edição no escopo da academia.
 
-Ambas devem seguir paginação `limit`/`offset`, padrão 50 e teto 100.
+As duas listagens devem seguir paginação `limit`/`offset`, padrão 50 e teto 100, e cada item retornado deve incluir também o objeto `documento` com `path`, `file_url` e `download_url`, no mesmo padrão usado pelas solicitações de matrícula. O PDF enviado continua obrigatório, deve ter formato PDF válido e tamanho máximo de 10MB por arquivo.
 
 ## Testes obrigatórios
 
