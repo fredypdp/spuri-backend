@@ -315,8 +315,7 @@ func validarValorSolicitadoEdicao(c *gin.Context, est *projections.EstudanteDTO,
 	switch campo {
 	case aggregates.CampoEdicaoNome:
 		atual = est.Nome
-		if len([]rune(novo)) < 2 || len([]rune(novo)) > 150 {
-			err := fmt.Errorf("nome inválido")
+		if err := utils.ValidateNomeEstudante(novo); err != nil {
 			utils.RespondWithValidationError(c, err)
 			return "", "", err
 		}

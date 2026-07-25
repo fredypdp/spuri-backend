@@ -55,7 +55,7 @@ func ValidateMatriculaCommon(in MatriculaCommonInput) (MatriculaCommonValidated,
 		AnoEscolarMedio:              trimPtr(in.AnoEscolarMedio),
 		AnoSuperior:                  trimPtr(in.AnoSuperior),
 	}
-	if err := utils.ValidateNome(strings.TrimSpace(in.Nome)); err != nil {
+	if err := utils.ValidateNomeEstudante(strings.TrimSpace(in.Nome)); err != nil {
 		return out, err
 	}
 	if in.Genero != "masculino" && in.Genero != "feminino" {

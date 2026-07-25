@@ -219,6 +219,26 @@ func ValidateNome(nome string) error {
 	return ValidateString(nome, "nome", 2, 255, true)
 }
 
+func ValidateNomeEstudante(nome string) error {
+	log.Printf("👤 [ValidateNomeEstudante] Validando nome de estudante: %s", nome)
+	if err := ValidateString(nome, "nome", 2, 255, true); err != nil {
+		return err
+	}
+	for _, r := range strings.TrimSpace(nome) {
+		switch {
+		case unicode.IsLetter(r), unicode.IsMark(r), unicode.IsSpace(r):
+			continue
+		case r == '\'' || r == '’' || r == 'ʻ':
+			continue
+		default:
+			log.Printf("❌ [ValidateNomeEstudante] Caractere inválido no nome: %q", r)
+			return fmt.Errorf("nome deve conter apenas letras, acentos, espaços e apóstrofos")
+		}
+	}
+	log.Printf("✅ [ValidateNomeEstudante] Nome de estudante válido")
+	return nil
+}
+
 func ValidateEndereco(endereco string) error {
 	log.Printf("🏠 [ValidateEndereco] Validando endereço")
 	return ValidateString(endereco, "endereco", 5, 500, true)

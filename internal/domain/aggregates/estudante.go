@@ -1206,8 +1206,8 @@ func (e *Estudante) applyEstudanteDocumentosCompletados(event DomainEvent) error
 
 func (e *Estudante) AlterarNomePorSolicitacao(novo, codigoSolicitacao, decididoPor string) error {
 	v := strings.TrimSpace(novo)
-	if v == "" {
-		return fmt.Errorf("nome é obrigatório")
+	if err := utils.ValidateNomeEstudante(v); err != nil {
+		return err
 	}
 	ev := &NomeEstudanteAlteradoPorSolicitacaoEvent{BaseEvent: BaseEvent{EventType: "NomeEstudanteAlteradoPorSolicitacao", AggregateID: e.ID}, Nome: &v, CodigoSolicitacao: codigoSolicitacao, DecididoPor: decididoPor, UpdatedAt: time.Now()}
 	e.RaiseEvent(ev)
