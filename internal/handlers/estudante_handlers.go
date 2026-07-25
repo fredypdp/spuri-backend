@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -201,7 +202,31 @@ func registerEstudantePorAcademiaComRequestModo(c *gin.Context, req CadastroEstu
 	telefoneRespPtr := validado.TelefoneEncarregado
 	bilhetePtr := validado.BilheteIdentidade
 	bilheteRespPtr := validado.BilheteIdentidadeEncarregado
+	var biGuard *db.UniqueGuardReservation
+	biGuardConsumed := false
 	if bilhetePtr != nil {
+		guardKey := db.CanonicalGuardKey(*bilhetePtr)
+		biGuard, err = db.NewUniqueOperationGuard(getDbClient(c)).WithContext(c.Request.Context()).Reserve(
+			"estudante:bilhete_identidade",
+			guardKey,
+			db.UniqueGuardOptions{UserID: academiaID.String(), UserType: "academia"},
+		)
+		if errors.Is(err, db.ErrUniqueOperationInProgress) {
+			_ = provider.Delete(dir)
+			utils.RespondWithConflictError(c, "bilhete de identidade já está em uso ou em cadastro")
+			return
+		}
+		if err != nil {
+			_ = provider.Delete(dir)
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		defer func() {
+			if biGuard != nil && !biGuardConsumed {
+				_ = biGuard.Release()
+			}
+		}()
+
 		existente, err := getEstudanteProjection(c).GetByBilheteIdentidadePrincipal(*bilhetePtr)
 		if err != nil {
 			_ = provider.Delete(dir)
@@ -235,6 +260,14 @@ func registerEstudantePorAcademiaComRequestModo(c *gin.Context, req CadastroEstu
 		_ = provider.Delete(dir)
 		utils.RespondWithInternalError(c, err)
 		return
+	}
+	if biGuard != nil {
+		if err := biGuard.Consume(estudante.GetID()); err != nil {
+			_ = provider.Delete(dir)
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		biGuardConsumed = true
 	}
 	log.Printf("Estudante criado por academia %s: %s - %s", academia.CodigoAcademia, codigoEstudante, req.Nome)
 	data := gin.H{"id": estudante.ID, "codigo_estudante": codigoEstudante, "codigo_academia": academia.CodigoAcademia, "documentos": documentos, "status": estudante.Status}

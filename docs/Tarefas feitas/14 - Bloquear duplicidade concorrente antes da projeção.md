@@ -1,10 +1,10 @@
 ---
 criado: 2026-07-25 00:00
 origem: Solicitação operacional sobre requisições simultâneas aceitas antes da projeção/ledger ficar consultável
-status: pendente
+status: feito
 ---
 
-# Bloquear duplicidade concorrente antes da projeção ficar consultável (pendente)
+# Bloquear duplicidade concorrente antes da projeção ficar consultável (feito)
 
 ## Prompt recomendado para executar a atualização
 
