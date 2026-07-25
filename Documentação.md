@@ -5204,8 +5204,11 @@ Admins com role `fpp` podem reconstruir projeções a partir do ledger.
 2. `academias`
 3. `cursos`, `materias`, `categorias_nota`
 4. `estudantes`, `turmas`
-5. `notas`, `faltas`
-6. `avaliacao_final`
+5. `solicitacoes_matricula`, `solicitacoes_edicao_dados_estudante`
+6. `notas`, `faltas`
+7. `avaliacao_final`
+
+A ordem acima reflete a lista explícita usada por `RebuildAllProjections`; novas projeções registradas devem ser incluídas nessa lista para evitar reconstrução apenas pelo fallback alfabético.
 
 #### POST /dominis/projections/rebuild/:name
 
