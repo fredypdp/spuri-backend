@@ -57,6 +57,7 @@ Dentro de cada nível, a ordem numérica indica a sequência sugerida. A ordem *
 | 11 | Enriquecer a documentação da API com o significado de cada campo | `11 - Enriquecer documentação da API com significado de cada campo.md` | Trabalho de documentação pura, sem impacto funcional; pode ser feito a qualquer momento sem risco. |
 | 12 | Separar edição de email e telefone em rotas dedicadas | `12 - Separar edicao de email e telefone em rotas dedicadas.md` | Cria rotas próprias para alteração de email e telefone do usuário autenticado, remove esses campos das rotas genéricas e exige telefone nacional somente com dígitos, sem DDI. |
 | 13 | Criar solicitações documentadas para edição de dados sensíveis do estudante | `13 - Solicitar edicao de dados sensiveis do estudante com documento.md` | Cria fluxos por campo para o estudante solicitar, com PDF temporário e decisão da academia, alterações de nome, BI do estudante, BI do encarregado e data de nascimento; também separa telefone do encarregado em rota dedicada. |
+| 14 | Bloquear duplicidade concorrente antes da projeção ficar consultável | `14 - Bloquear duplicidade concorrente antes da projeção.md` | Cria guarda transacional de unicidade em progresso para rotas `POST`/`PUT` com dados únicos, fechando a janela em que duas requisições simultâneas passam antes da projeção/ledger refletir a primeira. |
 
 ## Item intencionalmente não transformado em tarefa
 
