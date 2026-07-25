@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -44,6 +45,28 @@ func CriarSolicitacaoEdicaoDadoEstudanteHandler(campo string) gin.HandlerFunc {
 		if err != nil {
 			return
 		}
+		guardKey := db.CanonicalGuardKey(est.CodigoEstudante, campo)
+		guard, err := db.NewUniqueOperationGuard(getDbClient(c)).WithContext(c.Request.Context()).Reserve(
+			"solicitacao_edicao_dado_estudante:pendente",
+			guardKey,
+			db.UniqueGuardOptions{UserID: userID.String(), UserType: "estudante", Metadata: map[string]interface{}{"campo": campo}},
+		)
+		if errors.Is(err, db.ErrUniqueOperationInProgress) {
+			log.Printf("⚠️ [UniqueGuard] conflito scope=solicitacao_edicao_dado_estudante:pendente key_hash=%s user=%s", db.MaskGuardKey(guardKey), userID.String())
+			utils.RespondWithConflictError(c, "já existe solicitação pendente ou em criação para este campo")
+			return
+		}
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		guardConsumed := false
+		defer func() {
+			if !guardConsumed {
+				_ = guard.Release()
+			}
+		}()
+
 		pend, err := getSolicitacaoEdicaoDadoEstudanteProjection(c).ExistePendente(est.CodigoEstudante, campo)
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
@@ -91,6 +114,11 @@ func CriarSolicitacaoEdicaoDadoEstudanteHandler(campo string) gin.HandlerFunc {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
+		if err := guard.Consume(agg.GetID()); err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		guardConsumed = true
 		c.JSON(http.StatusCreated, gin.H{"message": "solicitação criada com sucesso", "codigo_solicitacao": codigo, "campo": campo, "status": aggregates.StatusSolicitacaoPendente})
 	}
 }
@@ -151,6 +179,7 @@ func DecidirSolicitacaoEdicaoDadoEstudanteHandler(campo string, aprovar bool) gi
 			utils.RespondWithInternalError(c, err)
 			return
 		}
+		_ = db.NewUniqueOperationGuard(getDbClient(c)).WithContext(c.Request.Context()).ReleaseKey("solicitacao_edicao_dado_estudante:pendente", db.CanonicalGuardKey(sol.CodigoEstudante, sol.Campo))
 		if p := getStorageProvider(c); p != nil {
 			if err := p.Delete(sol.DocumentoTemporarioPath); err != nil {
 				log.Printf("[WARN] falha ao deletar documento temporário da solicitação %s: %v", sol.CodigoSolicitacao, err)

@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -285,7 +286,30 @@ func AprovarSolicitacaoMatricula(c *gin.Context) {
 			return
 		}
 	}
+	var err error
+	var biGuard *db.UniqueGuardReservation
+	biGuardConsumed := false
 	if agg.BilheteIdentidade != nil && strings.TrimSpace(*agg.BilheteIdentidade) != "" {
+		guardKey := db.CanonicalGuardKey(*agg.BilheteIdentidade)
+		biGuard, err = db.NewUniqueOperationGuard(getDbClient(c)).WithContext(c.Request.Context()).Reserve(
+			"estudante:bilhete_identidade",
+			guardKey,
+			db.UniqueGuardOptions{UserID: academia.ID.String(), UserType: "academia", Metadata: map[string]interface{}{"origem": "aprovacao_matricula"}},
+		)
+		if errors.Is(err, db.ErrUniqueOperationInProgress) {
+			utils.RespondWithConflictError(c, "bilhete de identidade já está em uso ou em cadastro")
+			return
+		}
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		defer func() {
+			if biGuard != nil && !biGuardConsumed {
+				_ = biGuard.Release()
+			}
+		}()
+
 		existente, err := getEstudanteProjection(c).GetByBilheteIdentidadePrincipal(*agg.BilheteIdentidade)
 		if err != nil {
 			utils.RespondWithInternalError(c, err)
@@ -316,6 +340,13 @@ func AprovarSolicitacaoMatricula(c *gin.Context) {
 	if err := repo.SaveWithAudit(est, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
+	}
+	if biGuard != nil {
+		if err := biGuard.Consume(est.GetID()); err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		biGuardConsumed = true
 	}
 	if err := agg.Aprovar(academia.ID, codigoEstudante); err != nil {
 		utils.RespondWithError(c, http.StatusConflict, err.Error(), nil)
