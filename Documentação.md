@@ -1262,6 +1262,8 @@ Subsecção de operações da academia para consultar, aprovar ou reprovar solic
 
 Lista solicitações documentadas de edição de dados sensíveis dos estudantes vinculados à academia autenticada.
 
+Cada item retornado inclui `documento`, no mesmo formato dos documentos de matrícula, com `path`, `file_url` e `download_url` para que o cliente possa abrir/baixar o PDF pelo backend. No escopo da academia, o `download_url` aponta para `/academia/documentos/solicitacoes-edicao-estudante/{codigo_solicitacao}/documento/download`.
+
 **Proteção**: autenticado + academia ativa
 
 **Query Params:**
@@ -1288,6 +1290,12 @@ Lista solicitações documentadas de edição de dados sensíveis dos estudantes
       "valor_solicitado": "Nome Corrigido",
       "documento_temporario_path": "ACA12345678/estudantes/EST12345678/edicoes_dados_pendentes/nome_SED12345678.pdf",
       "documento_temporario_url": "string",
+      "documento": {
+        "tipo": "documento",
+        "path": "ACA12345678/estudantes/EST12345678/edicoes_dados_pendentes/nome_SED12345678.pdf",
+        "file_url": "string",
+        "download_url": "/academia/documentos/solicitacoes-edicao-estudante/SED12345678/documento/download"
+      },
       "status": "pendente",
       "motivo_reprovacao": null,
       "solicitado_por": "EST12345678",
@@ -2795,7 +2803,7 @@ Consulta um estudante por código. Quando o estudante possui documentos, a respo
 
 A rota genérica `PUT /estudante/dados-pessoais` foi removida. Dados civis sensíveis do estudante não possuem endpoint genérico de edição: `nome`, `bilhete_identidade`, `bilhete_identidade_encarregado` e `data_nascimento` só podem ser solicitados pelas rotas dedicadas abaixo e aplicados pela academia vinculada após aprovação documentada.
 
-A entidade `SolicitacaoEdicaoDadoEstudante` registra `codigo_solicitacao`, `codigo_estudante`, `codigo_academia`, `campo`, `valor_atual`, `valor_solicitado`, `documento_temporario_path`, `documento_temporario_url`, `status`, `motivo_reprovacao`, `solicitado_por`, `decidido_por`, `created_at`, `updated_at` e `version`. Existe no máximo uma solicitação `pendente` por estudante e campo.
+A entidade `SolicitacaoEdicaoDadoEstudante` registra `codigo_solicitacao`, `codigo_estudante`, `codigo_academia`, `campo`, `valor_atual`, `valor_solicitado`, `documento_temporario_path`, `documento_temporario_url`, `status`, `motivo_reprovacao`, `solicitado_por`, `decidido_por`, `created_at`, `updated_at` e `version`. Nas respostas GET, o backend também monta o objeto derivado `documento`, com metadados e rota autenticada de download, para o cliente ler/baixar o PDF sem usar links diretos do storage. Existe no máximo uma solicitação `pendente` por estudante e campo.
 
 Eventos gravados no ledger seguro para este fluxo:
 
@@ -2808,7 +2816,7 @@ Eventos gravados no ledger seguro para este fluxo:
 - `DataNascimentoEstudanteAlteradaPorSolicitacao`
 - `TelefoneEncarregadoAlterado`
 
-**Regras documentais comuns às solicitações:** o campo `documento` é obrigatório, deve ser PDF (`Content-Type: application/pdf`, extensão `.pdf`, assinatura `%PDF`) e ter no máximo 10MB. O arquivo é salvo temporariamente em `{codigo_academia}/estudantes/{codigo_estudante}/edicoes_dados_pendentes/{campo}_{codigo_solicitacao}.pdf` e é removido depois de aprovação ou reprovação. Não há aliases, wrappers ou endpoint genérico que aceite `campo` arbitrário.
+**Regras documentais comuns às solicitações:** o campo `documento` é obrigatório, deve ser PDF (`Content-Type: application/pdf`, extensão `.pdf`, assinatura `%PDF`) e ter no máximo 10MB por arquivo. O arquivo é salvo temporariamente em `{codigo_academia}/estudantes/{codigo_estudante}/edicoes_dados_pendentes/{campo}_{codigo_solicitacao}.pdf` e é removido depois de aprovação ou reprovação. Não há aliases, wrappers ou endpoint genérico que aceite `campo` arbitrário.
 
 ---
 
@@ -2852,6 +2860,8 @@ Atualiza exclusivamente o telefone do encarregado do estudante autenticado.
 
 Lista as solicitações de edição de dados sensíveis criadas pelo estudante autenticado.
 
+Cada item retornado inclui `documento`, no mesmo formato dos documentos de matrícula, com `path`, `file_url` e `download_url` para que o estudante possa abrir/baixar o PDF pelo backend. No escopo do estudante, o `download_url` aponta para `/estudante/solicitacoes-edicao/{codigo_solicitacao}/documento/download`.
+
 **Proteção**: autenticado + estudante
 
 **Query Params:**
@@ -2877,6 +2887,12 @@ Lista as solicitações de edição de dados sensíveis criadas pelo estudante a
       "valor_solicitado": "Nome Corrigido",
       "documento_temporario_path": "ACA12345678/estudantes/EST12345678/edicoes_dados_pendentes/nome_SED12345678.pdf",
       "documento_temporario_url": "string",
+      "documento": {
+        "tipo": "documento",
+        "path": "ACA12345678/estudantes/EST12345678/edicoes_dados_pendentes/nome_SED12345678.pdf",
+        "file_url": "string",
+        "download_url": "/estudante/solicitacoes-edicao/SED12345678/documento/download"
+      },
       "status": "pendente",
       "motivo_reprovacao": null,
       "solicitado_por": "EST12345678",
@@ -3372,6 +3388,8 @@ Reprova uma solicitação pendente de revinculação sem reativar o estudante.
 | `PUT` | `/academia/solicitacao-matricula/:codigo/reprovar` | Academia ativa | Reprova a solicitação com motivo. |
 | `GET` | `/documentos/solicitacoes-matricula/:codigo/:campo/download` | Autenticado | Download administrativo do documento da solicitação. |
 | `GET` | `/academia/documentos/solicitacoes-matricula/:codigo/:campo/download` | Academia ativa ou admin | Download do documento da solicitação no escopo da academia. |
+| `GET` | `/estudante/solicitacoes-edicao/:codigo/documento/download` | Estudante autenticado | Download do documento da própria solicitação de edição. |
+| `GET` | `/academia/documentos/solicitacoes-edicao-estudante/:codigo/documento/download` | Academia ativa ou admin | Download do documento da solicitação de edição no escopo da academia. |
 
 As regras de payload, documentos obrigatórios, aprovação/reprovação e download de anexos seguem as seções de estudantes, armazenamento e documentos de matrícula deste documento.
 
@@ -5961,7 +5979,7 @@ Configuração local/teste:
 - `MEGA_LOCAL_ROOT`: diretório local usado pelo provider local (padrão `data/mega_storage`).
 - `ENV=test`: permite usar o provider local nos testes automatizados.
 
-Os documentos de matrícula continuam sendo gravados em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`; documentos formais seguem `{codigo_academia}/Documentação formal/`; documentos de estudantes seguem `{codigo_academia}/Estudantes/{codigo_estudante}/`. `EnsureDir` cria a hierarquia de pastas de forma idempotente, `Upload` envia o conteúdo para o caminho lógico solicitado e retorna metadados internos do projeto (`path`, `file_url`, `download_url`). Nas respostas de consulta, o backend normaliza `download_url` para uma rota autenticada própria do escopo consultado, mesmo quando o metadado persistido contém link legado do storage. O front end deve baixar documentos pelas rotas autenticadas de download do backend (`/documentos/academias/{codigo_academia}/alvara/download`, `/documentos/estudantes/{codigo_estudante}/{campo}/download`, `/documentos/solicitacoes-matricula/{codigo_solicitacao}/{campo}/download`, `/estudante/documentos/{campo}/download` ou `/academia/documentos/...`), e não por credenciais, links privados ou IDs internos do Mega. `Read` faz o download para arquivo temporário e entrega um stream fechado pelo handler; `Delete`, `Move` e `Rename` normalizam paths e erros externos. `GetQuota` é suportado no provider local; no Mega real, limitações do MEGAcmd para quota detalhada por diretório são expostas como operação não suportada em vez de simular sucesso.
+Os documentos de matrícula continuam sendo gravados em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`; documentos formais seguem `{codigo_academia}/Documentação formal/`; documentos de estudantes seguem `{codigo_academia}/Estudantes/{codigo_estudante}/`. `EnsureDir` cria a hierarquia de pastas de forma idempotente, `Upload` envia o conteúdo para o caminho lógico solicitado e retorna metadados internos do projeto (`path`, `file_url`, `download_url`). Nas respostas de consulta, o backend normaliza `download_url` para uma rota autenticada própria do escopo consultado, mesmo quando o metadado persistido contém link legado do storage. O front end deve baixar documentos pelas rotas autenticadas de download do backend (`/documentos/academias/{codigo_academia}/alvara/download`, `/documentos/estudantes/{codigo_estudante}/{campo}/download`, `/documentos/solicitacoes-matricula/{codigo_solicitacao}/{campo}/download`, `/estudante/solicitacoes-edicao/{codigo_solicitacao}/documento/download`, `/academia/documentos/solicitacoes-edicao-estudante/{codigo_solicitacao}/documento/download`, `/estudante/documentos/{campo}/download` ou `/academia/documentos/...`), e não por credenciais, links privados ou IDs internos do Mega. `Read` faz o download para arquivo temporário e entrega um stream fechado pelo handler; `Delete`, `Move` e `Rename` normalizam paths e erros externos. `GetQuota` é suportado no provider local; no Mega real, limitações do MEGAcmd para quota detalhada por diretório são expostas como operação não suportada em vez de simular sucesso.
 
 Não há migração automática de arquivos do Google Drive para o Mega porque não existem arquivos remotos atuais a copiar. Referências antigas, se encontradas, devem ser tratadas como metadados legados; novos uploads, leituras/downloads, deleções, movimentações e renomeações usam Mega ou o fake local em testes.
 
@@ -6062,6 +6080,52 @@ Faz stream inline de um documento persistido no mapa `documentos` da projeção 
 |`401`|Token ausente ou inválido.|
 |`403`|Usuário autenticado não tem permissão para a solicitação informada.|
 |`404`|Solicitação, campo de documento ou arquivo remoto não encontrado.|
+|`503`|Storage indisponível ou falha de leitura no provider configurado.|
+
+### GET /estudante/solicitacoes-edicao/{codigo_solicitacao}/documento/download
+
+Faz stream inline do PDF comprovativo anexado a uma solicitação de edição de dados sensíveis do estudante autenticado. Esse endpoint é o valor de `documento.download_url` retornado por `GET /estudante/solicitacoes-edicao`.
+
+**Proteção**: autenticado + estudante. O estudante só pode baixar documentos de solicitações associadas ao seu próprio `codigo_estudante`.
+
+**Parâmetros de path:**
+
+|Campo|Tipo|Obrigatório|Descrição|
+|---|---|---|---|
+|`codigo_solicitacao`|string|Sim|Código público da solicitação de edição.|
+
+**Response 200:** `application/pdf`, com `Content-Disposition: inline; filename="documento_{campo}.pdf"`.
+
+**Erros:**
+
+|Status|Quando ocorre|
+|---|---|
+|`401`|Token ausente ou inválido.|
+|`403`|Usuário autenticado não é o estudante dono da solicitação.|
+|`404`|Solicitação, metadado de documento ou arquivo remoto não encontrado.|
+|`503`|Storage indisponível ou falha de leitura no provider configurado.|
+
+### GET /academia/documentos/solicitacoes-edicao-estudante/{codigo_solicitacao}/documento/download
+
+Faz stream inline do PDF comprovativo anexado a uma solicitação de edição de dados sensíveis em escopo de academia. Esse endpoint é o valor de `documento.download_url` retornado por `GET /academia/solicitacoes-edicao-estudante`.
+
+**Proteção**: academia ativa ou admin. Academias só podem baixar documentos de solicitações vinculadas ao próprio `codigo_academia`; admins podem baixar qualquer solicitação.
+
+**Parâmetros de path:**
+
+|Campo|Tipo|Obrigatório|Descrição|
+|---|---|---|---|
+|`codigo_solicitacao`|string|Sim|Código público da solicitação de edição.|
+
+**Response 200:** `application/pdf`, com `Content-Disposition: inline; filename="documento_{campo}.pdf"`.
+
+**Erros:**
+
+|Status|Quando ocorre|
+|---|---|
+|`401`|Token ausente ou inválido.|
+|`403`|Academia autenticada não é dona da solicitação informada.|
+|`404`|Solicitação, metadado de documento ou arquivo remoto não encontrado.|
 |`503`|Storage indisponível ou falha de leitura no provider configurado.|
 
 ### GET /dominis/storage/quota
