@@ -29,6 +29,7 @@ O desenho desta tarefa reaproveita deliberadamente o padrão já estabelecido po
 | Aprovação | Move arquivo do diretório temporário para o definitivo, substituindo o anterior | Documento antigo é substituído apenas na aprovação |
 | Reprovação | Remove diretório/arquivo temporário | Nenhuma mudança no documento vigente |
 | Visibilidade | Nova consulta de solicitações pendentes | Academia e Admin sabem da existência da solicitação sem precisar procurar manualmente |
+| Concorrência | Usar guarda transacional `unique_operation_guards` antes do upload | Segunda solicitação simultânea para o mesmo documento retorna `409` mesmo antes da projeção ficar consultável |
 
 ---
 
@@ -97,9 +98,19 @@ O backend deve:
 
 ## Escopo obrigatório
 
-### 2.1 Um pedido pendente por campo
+### 2.1 Um pedido pendente por campo com guarda transacional
 
 Não permitir mais de uma solicitação `pendente` para o mesmo `codigo_estudante` + `campo_documento` simultaneamente. Uma nova tentativa enquanto já existir uma pendente deve ser rejeitada com `409 Conflict`, orientando o estudante a aguardar a decisão da anterior.
+
+Além da consulta à projeção, reservar uma chave na guarda transacional compartilhada `unique_operation_guards` antes do upload do PDF e antes de gravar `SolicitacaoAtualizacaoDocumentoCriada`, para fechar a janela em que a primeira solicitação ainda não está projetada. Não usar `sync.Mutex`, mapa em memória, sleep/retry cego ou qualquer solução dependente de uma única instância da API.
+
+Chave canônica obrigatória para documentos de estudante:
+
+```text
+solicitacao_atualizacao_documento:pendente:estudante:{codigo_estudante}:{campo_documento}
+```
+
+Se a reserva já existir/estiver ativa, retornar `409 Conflict` com código/mensagem de operação única em andamento. A reserva deve ser liberada se validação, upload ou gravação do evento falhar; deve ser consumida quando `SolicitacaoAtualizacaoDocumentoCriada` for persistido; e deve ser liberada/finalizada quando a solicitação for aprovada ou reprovada. Logs devem usar `scope` e hash/chave mascarada, sem expor BI, NIF, email ou telefone completos.
 
 ### 2.2 Testes obrigatórios
 
@@ -107,7 +118,9 @@ Não permitir mais de uma solicitação `pendente` para o mesmo `codigo_estudant
 2. estudante sem academia vinculada tenta enviar: rejeitado;
 3. arquivo inválido (não PDF, acima de 10MB): rejeitado, nenhuma solicitação criada;
 4. segunda tentativa de atualização do mesmo `campo_documento` enquanto a primeira está pendente: rejeitado com `409`;
-5. falha simulada de upload: nenhuma solicitação é criada e nenhum arquivo órfão permanece.
+5. falha simulada de upload: nenhuma solicitação é criada, nenhum arquivo órfão permanece e a guarda é liberada;
+6. duas requisições simultâneas para o mesmo `codigo_estudante + campo_documento`: uma cria a solicitação e a outra retorna `409`;
+7. duas requisições simultâneas para campos diferentes do mesmo estudante podem prosseguir, respeitando a regra de uma pendente por campo.
 
 ---
 
@@ -124,6 +137,14 @@ Criar `POST /academia/documentos/atualizar`, protegido por autenticação de aca
 ## Escopo obrigatório
 
 Aplicar as mesmas regras de unicidade de pedido pendente (seção 2.1) e os mesmos testes obrigatórios (seção 2.2), adaptados para academia.
+
+Chave canônica obrigatória para documentos de academia:
+
+```text
+solicitacao_atualizacao_documento:pendente:academia:{codigo_academia}:{campo_documento}
+```
+
+A reserva deve acontecer antes do upload para `{codigo_academia}/Documentação formal/pendentes/` e deve seguir as mesmas regras de liberação em falha, consumo após persistência do evento e liberação/finalização na aprovação ou reprovação.
 
 ---
 
@@ -176,7 +197,8 @@ Uma solicitação `aprovada` ou `reprovada` não pode ser decidida novamente. Te
 5. Admin reprova solicitação de academia: arquivo temporário removido, documento vigente inalterado;
 6. reprovação sem `motivo_reprovacao`: rejeitado;
 7. tentativa de decidir uma solicitação já decidida: rejeitado com `409`;
-8. falha simulada na movimentação do arquivo na aprovação: solicitação permanece `pendente`, nenhum evento de aprovação é gravado.
+8. falha simulada na movimentação do arquivo na aprovação: solicitação permanece `pendente`, nenhum evento de aprovação é gravado e a guarda de pendência continua bloqueando nova solicitação para o mesmo documento;
+9. após aprovação ou reprovação, uma nova solicitação para o mesmo documento pode ser submetida, pois a guarda da pendência anterior foi liberada/finalizada.
 
 ---
 
@@ -213,7 +235,8 @@ Atualizar `Documentação.md` com:
 - a nova entidade `SolicitacaoAtualizacaoDocumento`, seus campos, eventos e ciclo de vida;
 - os seis novos endpoints (submissão por estudante e academia, aprovação/reprovação por academia e Admin, consultas de listagem);
 - a estrutura de diretórios temporários usada;
-- a atualização do mapa `documentos` do estudante/academia após aprovação, incluindo o campo `versao`.
+- a atualização do mapa `documentos` do estudante/academia após aprovação, incluindo o campo `versao`;
+- o `409 Conflict` por operação única em andamento (`unique_operation_in_progress` ou código equivalente) nas submissões de atualização do mesmo documento.
 
 ---
 
@@ -235,8 +258,8 @@ A tarefa só deve ser considerada concluída quando:
 5. reprovação remover o arquivo temporário sem alterar o documento vigente;
 6. existir consulta de solicitações pendentes para academia e para Admin;
 7. `Documentação.md` estar atualizada com a nova entidade e os novos endpoints;
-8. testes automatizados cobrirem os cenários das seções 2.2, 3, 4.5 e 5.1;
-9. o PR explicar claramente o novo fluxo e sua relação com `SolicitacaoMatricula`.
+8. testes automatizados cobrirem os cenários das seções 2.2, 3, 4.5 e 5.1, incluindo concorrência real com goroutines/requisições simultâneas;
+9. o PR explicar claramente o novo fluxo, sua relação com `SolicitacaoMatricula` e as chaves de guarda implementadas para estudante e academia.
 
 ## Procedimento de conclusão
 

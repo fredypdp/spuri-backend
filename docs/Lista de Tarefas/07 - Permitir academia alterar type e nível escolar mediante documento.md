@@ -25,6 +25,7 @@ Mudar `nivel_escolar` depois que a academia já tem estudantes, cursos e `anos_a
 | Armazenamento | `{codigo_academia}/Documentação formal/` | Mesmo padrão de diretório já usado para `alvara` |
 | Validação de impacto | Bloquear mudança que deixaria dados ativos incompatíveis | Reaproveita a lógica de dependência já usada em `/academia/anos-academicos` |
 | Auditoria | Novo evento no ledger da academia | Rastreabilidade completa de quando e por que a mudança ocorreu |
+| Concorrência | Usar guarda transacional `unique_operation_guards` antes do upload | Duas alterações estruturais concorrentes da mesma academia não podem ser aceitas antes da projeção/evento ficar consultável |
 
 ---
 
@@ -70,7 +71,19 @@ Antes de aplicar a mudança de `nivel_escolar`, validar:
 
 Alterar `type` (`public`/`private`) tem impacto estrutural bem menor. Ainda assim, exigir documento comprobativo e registrar evento auditável, sem validação adicional de dependências além da já feita para os campos comuns de `PUT /academia/dados`.
 
-### 1.5 Evento auditável
+### 1.5 Guarda de unicidade em progresso
+
+Antes de salvar o PDF temporário e antes de gravar `AcademiaTipoNivelEscolarAlterado`, reservar uma chave na guarda transacional compartilhada `unique_operation_guards`. Não usar `sync.Mutex`, mapas em memória, sleeps ou validação dependente de uma única instância da API.
+
+Chave canônica obrigatória:
+
+```text
+academia_tipo_nivel_escolar:alteracao_em_andamento:{codigo_academia}
+```
+
+Enquanto existir outra alteração estrutural da mesma academia reservada/ativa, a rota deve retornar `409 Conflict` com mensagem clara de operação em andamento. A reserva deve ser liberada se qualquer etapa falhar antes da gravação do evento; após o evento ser persistido, a reserva deve ser consumida/finalizada de forma que uma nova alteração futura só seja bloqueada pela regra de negócio, não por resíduo da requisição anterior. Logs devem registrar `scope` e hash/chave mascarada, sem expor NIF, email, telefone ou outro dado sensível.
+
+### 1.6 Evento auditável
 
 Emitir um evento `AcademiaTipoNivelEscolarAlterado` no ledger da academia, contendo, no mínimo:
 
@@ -90,7 +103,7 @@ Emitir um evento `AcademiaTipoNivelEscolarAlterado` no ledger da academia, conte
 
 Apenas os campos efetivamente alterados precisam ser diferentes de nulo/vazio entre "anterior" e "novo"; se só `type` for alterado, os campos de `nivel_escolar` no evento devem refletir o mesmo valor antes/depois (sem mudança).
 
-### 1.6 Resposta
+### 1.7 Resposta
 
 ```json
 {
@@ -100,7 +113,7 @@ Apenas os campos efetivamente alterados precisam ser diferentes de nulo/vazio en
 }
 ```
 
-### 1.7 Testes obrigatórios
+### 1.8 Testes obrigatórios
 
 1. alteração de `type` isolada, com documento válido: sucesso, evento auditável gravado;
 2. alteração de `nivel_escolar` de `fundamental` para `misto`, sem estudantes conflitantes: sucesso;
@@ -110,7 +123,9 @@ Apenas os campos efetivamente alterados precisam ser diferentes de nulo/vazio en
 6. alteração sem `motivo` ou com `motivo` vazio: rejeitado com `400`;
 7. documento não-PDF ou acima de 10MB: rejeitado com `400`;
 8. payload sem `type` nem `nivel_escolar`: rejeitado com `400`;
-9. `nivel_escolar` enviado para academia com `nivel="superior"`: rejeitado com `400`.
+9. `nivel_escolar` enviado para academia com `nivel="superior"`: rejeitado com `400`;
+10. duas requisições simultâneas para `POST /academia/tipo-nivel-escolar` da mesma academia: no máximo uma grava evento e a outra retorna `409`;
+11. falha simulada antes da gravação do evento libera a guarda e permite nova tentativa válida.
 
 ---
 
@@ -139,7 +154,8 @@ Atualizar `Documentação.md`, seção 6 (Academias), incluindo:
 - o novo endpoint `POST /academia/tipo-nivel-escolar`, contrato completo, exemplos e erros;
 - a remoção de `type`/`nivel_escolar` de `PUT /academia/dados` (coordenado com a tarefa 06);
 - a lista de validações de impacto por transição de `nivel_escolar`;
-- o novo evento `AcademiaTipoNivelEscolarAlterado`.
+- o novo evento `AcademiaTipoNivelEscolarAlterado`;
+- o possível `409 Conflict` por `unique_operation_in_progress`/operação estrutural em andamento para a mesma academia.
 
 ---
 
@@ -160,8 +176,8 @@ A tarefa só deve ser considerada concluída quando:
 4. o evento `AcademiaTipoNivelEscolarAlterado` estar gravado no ledger e auditável;
 5. `PUT /academia/dados` não aceitar mais `type` nem `nivel_escolar` (coordenado com a tarefa 06);
 6. `Documentação.md` estar atualizada com o novo endpoint e evento;
-7. testes automatizados cobrirem os cenários da seção 1.7;
-8. o PR explicar claramente a relação desta tarefa com a tarefa 06.
+7. testes automatizados cobrirem os cenários da seção 1.8, incluindo concorrência real com goroutines/requisições simultâneas;
+8. o PR explicar claramente a relação desta tarefa com a tarefa 06 e listar a chave de guarda `academia_tipo_nivel_escolar:alteracao_em_andamento:{codigo_academia}`.
 
 ## Procedimento de conclusão
 

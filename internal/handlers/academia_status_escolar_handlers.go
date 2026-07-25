@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"spuri/internal/db"
@@ -108,13 +109,34 @@ func CriarSolicitacaoStatusAcademicoHandler(tipo string) gin.HandlerFunc {
 		if client == nil {
 			return
 		}
+		guardKey := db.CanonicalGuardKey(estudanteDTO.CodigoEstudante, academiaCodigo, tipo)
+		guard, err := db.NewUniqueOperationGuard(client).WithContext(c.Request.Context()).Reserve(
+			"solicitacao_status_academico:pendente",
+			guardKey,
+			db.UniqueGuardOptions{UserID: userID.String(), UserType: "estudante", Metadata: map[string]interface{}{"tipo": tipo}},
+		)
+		if errors.Is(err, db.ErrUniqueOperationInProgress) {
+			utils.RespondWithConflictError(c, "já existe solicitação pendente ou em criação para este estudante nesta academia")
+			return
+		}
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		guardConsumed := false
+		defer func() {
+			if !guardConsumed {
+				_ = guard.Release()
+			}
+		}()
+
 		var exists bool
 		if err := client.DB().QueryRow(`SELECT EXISTS(SELECT 1 FROM projection_solicitacoes_status_academico WHERE codigo_estudante=$1 AND codigo_academia=$2 AND tipo=$3 AND status='pendente')`, estudanteDTO.CodigoEstudante, academiaCodigo, tipo).Scan(&exists); err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
 		if exists {
-			utils.RespondWithValidationError(c, fmt.Errorf("já existe solicitação pendente para este estudante nesta academia"))
+			utils.RespondWithConflictError(c, "já existe solicitação pendente para este estudante nesta academia")
 			return
 		}
 		id := "SSA" + strings.ReplaceAll(uuid.NewString(), "-", "")[:8]
@@ -123,6 +145,11 @@ func CriarSolicitacaoStatusAcademicoHandler(tipo string) gin.HandlerFunc {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
+		if err := guard.Consume(uuid.Nil); err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		guardConsumed = true
 		c.JSON(http.StatusCreated, gin.H{"message": "solicitação criada com sucesso", "codigo_solicitacao": id, "status": "pendente"})
 	}
 }
@@ -242,6 +269,7 @@ func decidirSolicitacaoStatus(c *gin.Context, tipo string, aprovar bool) {
 			utils.RespondWithInternalError(c, err)
 			return
 		}
+		_ = db.NewUniqueOperationGuard(getDbClient(c)).WithContext(c.Request.Context()).ReleaseKey("solicitacao_status_academico:pendente", db.CanonicalGuardKey(codigoEst, codigoAcademia, tipo))
 		c.JSON(http.StatusOK, gin.H{"message": "solicitação reprovada"})
 		return
 	}
@@ -272,6 +300,7 @@ func decidirSolicitacaoStatus(c *gin.Context, tipo string, aprovar bool) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
+	_ = db.NewUniqueOperationGuard(getDbClient(c)).WithContext(c.Request.Context()).ReleaseKey("solicitacao_status_academico:pendente", db.CanonicalGuardKey(codigoEst, codigoAcademia, tipo))
 	c.JSON(http.StatusOK, gin.H{"message": "solicitação aprovada", "codigo_solicitacao": req.SolicitacaoID})
 }
 

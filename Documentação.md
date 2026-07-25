@@ -70,6 +70,14 @@ O formato legado de erro simples não é contrato suportado.
 
 ---
 
+### 1.1.1 Conflito por operação única em andamento
+
+Rotas que criam ou alteram dados com unicidade funcional usam uma guarda transacional no PostgreSQL antes de uploads, validações caras e gravação de eventos. Quando outra requisição equivalente ainda está em andamento, a API retorna `409 Conflict` com mensagem de operação pendente/em criação, mesmo antes de a projeção ficar consultável.
+
+A proteção cobre explicitamente `POST /estudante/solicitacoes-edicao/nome`, `POST /estudante/solicitacoes-edicao/bilhete-identidade`, `POST /estudante/solicitacoes-edicao/bilhete-identidade-encarregado` e `POST /estudante/solicitacoes-edicao/data-nascimento` pela chave canônica `codigo_estudante + campo`; cobre solicitações de status acadêmico pendentes por `codigo_estudante + codigo_academia + tipo`; e cobre a criação efetiva de estudante por BI principal normalizado nos fluxos de cadastro direto e aprovação de matrícula. Reservas são liberadas em falhas antes da persistência e finalizadas/liberadas quando o fato único deixa de estar pendente.
+
+---
+
 ## 2. Estruturas de Dados
 
 ### 2.1 Tipos Base
@@ -2934,7 +2942,7 @@ Cria solicitação documentada para alterar o nome do estudante autenticado.
 }
 ```
 
-**Regras de negócio:** rejeita estudante sem academia vinculada, valor igual ao vigente e segunda solicitação pendente para `nome` com `409`. O payload não pode escolher estudante, academia ou campo diferente da rota.
+**Regras de negócio:** rejeita estudante sem academia vinculada, valor igual ao vigente e segunda solicitação pendente ou concorrente para `nome` com `409`. O payload não pode escolher estudante, academia ou campo diferente da rota.
 
 ---
 
@@ -2951,7 +2959,7 @@ Cria solicitação documentada para alterar o bilhete de identidade do estudante
 
 **Response 201:** igual ao de criação, com `campo = "bilhete_identidade"`.
 
-**Regras de negócio:** rejeita valor igual ao vigente, BI já usado por outro estudante, estudante sem academia vinculada, documento inválido e segunda solicitação pendente para o campo com `409`.
+**Regras de negócio:** rejeita valor igual ao vigente, BI já usado por outro estudante, estudante sem academia vinculada, documento inválido e segunda solicitação pendente ou concorrente para o campo com `409`.
 
 ---
 
@@ -2968,7 +2976,7 @@ Cria solicitação documentada para alterar o bilhete de identidade do encarrega
 
 **Response 201:** igual ao de criação, com `campo = "bilhete_identidade_encarregado"`.
 
-**Regras de negócio:** rejeita valor igual ao vigente, estudante sem academia vinculada, documento inválido e segunda solicitação pendente para o campo com `409`.
+**Regras de negócio:** rejeita valor igual ao vigente, estudante sem academia vinculada, documento inválido e segunda solicitação pendente ou concorrente para o campo com `409`.
 
 ---
 
@@ -2985,7 +2993,7 @@ Cria solicitação documentada para alterar a data de nascimento do estudante au
 
 **Response 201:** igual ao de criação, com `campo = "data_nascimento"`.
 
-**Regras de negócio:** rejeita data igual à vigente, formato inválido, estudante sem academia vinculada, documento inválido e segunda solicitação pendente para o campo com `409`.
+**Regras de negócio:** rejeita data igual à vigente, formato inválido, estudante sem academia vinculada, documento inválido e segunda solicitação pendente ou concorrente para o campo com `409`.
 
 ---
 
