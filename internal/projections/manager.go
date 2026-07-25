@@ -313,6 +313,49 @@ func (m *Manager) commitCheckpoint(projection Projection, eventID int64) error {
 // Rebuild
 // ============================================================================
 
+// defaultRebuildOrder lista todas as projeções reconstruíveis conhecidas em
+// ordem explícita de dependência. Manter esta lista completa evita que novas
+// projeções registradas caiam silenciosamente no fallback alfabético do rebuild
+// geral, onde poderiam executar antes das projeções das quais dependem.
+var defaultRebuildOrder = []string{
+	"admins",
+	"academias",
+	"cursos",
+	"materias",
+	"categorias_nota",
+	"estudantes",
+	"turmas",
+	"solicitacoes_matricula",
+	"solicitacoes_edicao_dados_estudante",
+	"notas",
+	"faltas",
+	"avaliacao_final",
+}
+
+func orderedRebuildProjectionNames(projections map[string]Projection) []string {
+	ordered := make([]string, 0, len(projections))
+	seen := make(map[string]bool, len(projections))
+
+	for _, name := range defaultRebuildOrder {
+		if _, ok := projections[name]; !ok {
+			continue
+		}
+		ordered = append(ordered, name)
+		seen[name] = true
+	}
+
+	remaining := make([]string, 0)
+	for name := range projections {
+		if !seen[name] {
+			remaining = append(remaining, name)
+		}
+	}
+	sort.Strings(remaining)
+	ordered = append(ordered, remaining...)
+
+	return ordered
+}
+
 func (m *Manager) RebuildProjection(name string) error {
 	if err := m.beginRebuild("projection:" + name); err != nil {
 		return err
@@ -351,45 +394,9 @@ func (m *Manager) RebuildAllProjections() error {
 	}
 	log.Printf("[SECURITY] RebuildAll: ledger íntegro — iniciando reconstrução")
 
-	rebuildOrder := []string{
-		"admins",
-		"academias",
-		"cursos",
-		"materias",
-		"categorias_nota",
-		"estudantes",
-		"turmas",
-		"notas",
-		"faltas",
-		"avaliacao_final",
-	}
-
-	processed := make(map[string]bool)
-
-	for _, name := range rebuildOrder {
-		projection, ok := snapshot[name]
-		if !ok {
-			log.Printf("[DEBUG] RebuildAll: projeção %q não registrada, pulando", name)
-			continue
-		}
-		log.Printf("[DEBUG] RebuildAll: reconstruindo %s (tier ordenado)", name)
-		if err := m.executeRebuild(name, projection, false); err != nil {
-			return fmt.Errorf("falha ao reconstruir %s: %w", name, err)
-		}
-		processed[name] = true
-	}
-
-	remaining := make([]string, 0)
-	for name := range snapshot {
-		if !processed[name] {
-			remaining = append(remaining, name)
-		}
-	}
-	sort.Strings(remaining)
-
-	for _, name := range remaining {
+	for _, name := range orderedRebuildProjectionNames(snapshot) {
 		projection := snapshot[name]
-		log.Printf("[DEBUG] RebuildAll: reconstruindo %s (ordem alfabética)", name)
+		log.Printf("[DEBUG] RebuildAll: reconstruindo %s", name)
 		if err := m.executeRebuild(name, projection, false); err != nil {
 			return fmt.Errorf("falha ao reconstruir %s: %w", name, err)
 		}
