@@ -2,6 +2,7 @@ package finance
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -152,5 +153,64 @@ func TestAutorObrigatorioParaEventosFinanceiros(t *testing.T) {
 	}
 	if _, err := s.ReconciliarFinanceiroBase(context.Background(), ""); err == nil {
 		t.Fatal("reconciliação sem autor deveria falhar")
+	}
+}
+
+type memoriaLedger struct{ events []LedgerEvent }
+
+func (m *memoriaLedger) AppendFinanceEvent(ctx context.Context, event LedgerEvent, autorID, autorTipo, origem string) (int, error) {
+	m.events = append(m.events, event)
+	return len(m.events), nil
+}
+func (m *memoriaLedger) LoadFinanceEvents(ctx context.Context) ([]LedgerEvent, error) {
+	return append([]LedgerEvent(nil), m.events...), nil
+}
+
+func TestCredencialGravaLedgerSemSegredoClaro(t *testing.T) {
+	l := &memoriaLedger{}
+	s := NewServiceWithDBAndLedger(nil, nil, l)
+	out, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(l.events) != 1 || l.events[0].EventType != "CredenciaisAppyPayCadastradas" {
+		t.Fatalf("eventos=%v", l.events)
+	}
+	raw := strings.ToLower(func() string { b, _ := json.Marshal(l.events[0].Payload); return string(b) }())
+	for _, secret := range []string{"super-secret", "hook-secret", "api-secret-key"} {
+		if strings.Contains(raw, secret) {
+			t.Fatalf("segredo %q vazou no ledger: %s", secret, raw)
+		}
+	}
+	if out.ClientSecretEncrypted != "" || out.WebhookSecretEncrypted != "" {
+		t.Fatal("ciphertext vazou na resposta")
+	}
+}
+
+func TestReplayReconstróiModalidadeEIdempotencia(t *testing.T) {
+	l := &memoriaLedger{}
+	s := NewServiceWithDBAndLedger(nil, nil, l)
+	sp, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AlterarStatusCredencial(sp.ID, StatusAtivo, "u", "admin", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AlterarModalidade("spuri", "", true, "u", "admin", ""); err != nil {
+		t.Fatal(err)
+	}
+	in := GerarCobrancaInput{ContextoTipo: ContextoSpuri, PagadorTipo: "academia", PagadorID: "ACA", Valor: 10, MetodoPagamento: "REF", ReferenciaExterna: "idem"}
+	ch, err := s.GerarCobrancaFinanceiraBase(context.Background(), in, "u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rebuilt := NewServiceWithDBAndLedger(nil, nil, l)
+	got, err := rebuilt.GerarCobrancaFinanceiraBase(context.Background(), in, "u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != ch.ID {
+		t.Fatalf("replay não reconstruiu índice idempotente: %s != %s", got.ID, ch.ID)
 	}
 }
