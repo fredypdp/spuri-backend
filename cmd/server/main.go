@@ -129,6 +129,7 @@ func initProjections() error {
 	projManager.RegisterProjection("avaliacao_final", projections.NewAvaliacaoFinalProjection(dbClient))
 	projManager.RegisterProjection("solicitacoes_matricula", projections.NewSolicitacaoMatriculaProjection(dbClient))
 	projManager.RegisterProjection("solicitacoes_edicao_dados_estudante", projections.NewSolicitacaoEdicaoDadoEstudanteProjection(dbClient))
+	projManager.RegisterProjection("financeiro", projections.NewFinanceiroProjection(dbClient))
 
 	go projManager.StartProcessing()
 	return nil
