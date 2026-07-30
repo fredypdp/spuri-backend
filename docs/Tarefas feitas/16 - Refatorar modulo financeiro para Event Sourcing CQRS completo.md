@@ -1,10 +1,10 @@
 ---
 criado: 2026-07-30 00:00
 origem: Revisão arquitetural do módulo financeiro AppyPay
-status: pendente
+status: feito
 ---
 
-# Refatorar módulo financeiro para Event Sourcing/CQRS completo (pendente)
+# Refatorar módulo financeiro para Event Sourcing/CQRS completo (feito)
 
 ## Prompt recomendado para executar a atualização
 
