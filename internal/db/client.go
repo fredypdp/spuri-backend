@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -45,7 +46,7 @@ func NewClient(config *Config) (*Client, error) {
 
 	if config.DatabaseURL != "" {
 		connStr = withClientEncoding(config.DatabaseURL)
-		log.Printf("🔗 Usando DATABASE_URL (UTF-8)")
+		log.Printf("🔗 Usando DATABASE_URL")
 	} else {
 		connStr = fmt.Sprintf(
 			"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s client_encoding=UTF8",
@@ -181,6 +182,22 @@ func (c *Client) LogStats() {
 }
 
 func normalizeConfig(config *Config) *Config {
+	if shouldUseSingleConnection(config.DatabaseURL) {
+		// O Neon usa hosts com sufixo "-pooler" para connection pooling. Esses
+		// endpoints operam como PgBouncer em transaction pooling e não são seguros
+		// para o protocolo estendido usado pelo lib/pq sob várias conexões físicas.
+		// Os sintomas são exatamente os vistos nos logs: status lido da coluna errada,
+		// "unnamed prepared statement does not exist" e erros de bind/result formats.
+		// Por padrão, mantemos uma conexão por instância nesses endpoints. Ambientes
+		// Neon com conexão direta/session pooling podem sobrescrever via DB_MAX_*.
+		if os.Getenv("DB_MAX_OPEN_CONNS") == "" {
+			config.MaxConnections = 1
+		}
+		if os.Getenv("DB_MAX_IDLE_CONNS") == "" {
+			config.MaxIdleConns = 1
+		}
+	}
+
 	if config.DatabaseURL == "" {
 		if config.Host == "" {
 			config.Host = os.Getenv("DB_HOST")
@@ -266,9 +283,40 @@ func getEnvDurationSeconds(key string, defaultValue time.Duration) time.Duration
 }
 
 func withClientEncoding(databaseURL string) string {
+	// Neon pooled connections/PgBouncer reject unsupported startup parameters.
+	// client_encoding is still set after connect in setUTF8Encoding(), so avoid
+	// appending it to pooled DATABASE_URL values.
+	if isPooledDatabaseURL(databaseURL) {
+		return databaseURL
+	}
 	separator := "?"
 	if strings.Contains(databaseURL, "?") {
 		separator = "&"
 	}
 	return databaseURL + separator + "client_encoding=UTF8"
+}
+
+func shouldUseSingleConnection(databaseURL string) bool {
+	if databaseURL == "" {
+		return false
+	}
+	if strings.EqualFold(os.Getenv("DB_FORCE_SINGLE_CONN"), "true") || os.Getenv("DB_FORCE_SINGLE_CONN") == "1" {
+		return true
+	}
+
+	return isPooledDatabaseURL(databaseURL)
+}
+
+func isPooledDatabaseURL(databaseURL string) bool {
+	parsed, err := url.Parse(databaseURL)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	port := parsed.Port()
+
+	return strings.Contains(host, "-pooler") ||
+		strings.Contains(host, "pooler") ||
+		strings.Contains(host, "pgbouncer") ||
+		port == "6543" || port == "6432"
 }

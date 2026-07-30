@@ -66,6 +66,69 @@ func TestDefaultConfigReadsSafePoolEnv(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigUsesSingleConnectionForNeonPooler(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@ep-cool-name-123456-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require")
+	t.Setenv("DB_MAX_OPEN_CONNS", "")
+	t.Setenv("DB_MAX_IDLE_CONNS", "")
+	t.Setenv("DB_FORCE_SINGLE_CONN", "")
+
+	cfg := DefaultConfig()
+
+	if cfg.MaxConnections != 1 {
+		t.Fatalf("MaxConnections = %d, want 1 for Neon pooled connection", cfg.MaxConnections)
+	}
+	if cfg.MaxIdleConns != 1 {
+		t.Fatalf("MaxIdleConns = %d, want 1 for Neon pooled connection", cfg.MaxIdleConns)
+	}
+}
+
+func TestDefaultConfigAllowsNeonPoolerOverride(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@ep-cool-name-123456-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require")
+	t.Setenv("DB_MAX_OPEN_CONNS", "7")
+	t.Setenv("DB_MAX_IDLE_CONNS", "3")
+	t.Setenv("DB_FORCE_SINGLE_CONN", "")
+
+	cfg := DefaultConfig()
+
+	if cfg.MaxConnections != 7 || cfg.MaxIdleConns != 3 {
+		t.Fatalf("pool limits = open %d idle %d, want explicit 7/3", cfg.MaxConnections, cfg.MaxIdleConns)
+	}
+}
+
+func TestDefaultConfigCanForceSingleConnection(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@db.example.com:5432/app")
+	t.Setenv("DB_MAX_OPEN_CONNS", "")
+	t.Setenv("DB_MAX_IDLE_CONNS", "")
+	t.Setenv("DB_FORCE_SINGLE_CONN", "true")
+
+	cfg := DefaultConfig()
+
+	if cfg.MaxConnections != 1 || cfg.MaxIdleConns != 1 {
+		t.Fatalf("pool limits = open %d idle %d, want forced 1/1", cfg.MaxConnections, cfg.MaxIdleConns)
+	}
+}
+
+func TestWithClientEncodingDoesNotAppendStartupParamForNeonPooler(t *testing.T) {
+	databaseURL := "postgres://user:pass@ep-cool-name-123456-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require"
+
+	got := withClientEncoding(databaseURL)
+
+	if got != databaseURL {
+		t.Fatalf("withClientEncoding() = %q, want original pooled URL", got)
+	}
+}
+
+func TestWithClientEncodingAppendsStartupParamForDirectConnection(t *testing.T) {
+	databaseURL := "postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/neondb?sslmode=require"
+
+	got := withClientEncoding(databaseURL)
+	want := databaseURL + "&client_encoding=UTF8"
+
+	if got != want {
+		t.Fatalf("withClientEncoding() = %q, want %q", got, want)
+	}
+}
+
 func TestDefaultConfigReadsDatabaseAuthFromEnv(t *testing.T) {
 	t.Setenv("DATABASE_URL", "")
 	t.Setenv("DB_HOST", "db.example.com")
