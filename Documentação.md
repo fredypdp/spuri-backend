@@ -6198,3 +6198,51 @@ Quando a configuração do Mega ou da quota estiver incompleta ou inválida, a r
   "request_id": "8c7e6a5d-9b9f-4fd2-a2d0-3a989a8c2d8b"
 }
 ```
+
+## 20. Módulo financeiro base AppyPay
+
+O backend expõe um módulo financeiro genérico para a AppyPay com dois contextos independentes: `spuri`, usado pela plataforma para cobrar academias, e `academia`, usado por cada instituição para cobrar estudantes vinculados. O módulo não implementa propina, matrícula, mensalidade, certificado, assinatura ou outra regra específica de negócio; esses fluxos futuros devem criar suas próprias regras de domínio e chamar apenas as cobranças genéricas de `/financeiro/cobrancas`.
+
+### 20.1 Entidades, histórico e segurança
+
+As projeções/tabelas financeiras criadas são `financeiro_configuracoes`, `financeiro_appypay_credenciais`, `financeiro_cobrancas`, `financeiro_transacoes`, `financeiro_reembolsos`, `financeiro_reversoes`, `financeiro_webhooks_recebidos` e `financeiro_reconciliacoes`. Alterações relevantes também gravam eventos imutáveis no `spuri_ledger` com `aggregate_type="Financeiro"`, incluindo credenciais, ativação, criação/status de cobrança, cancelamento, reembolso, reversão, webhook e reconciliação.
+
+Segredos AppyPay (`client_secret`, API keys, tokens e segredos de webhook) são criptografados em repouso ou mascarados nas estruturas públicas. Respostas de credenciais exibem apenas metadados e valores mascarados (`****1234` ou `****`), e payloads auditáveis não persistem segredos em claro. A variável `FINANCEIRO_ENCRYPTION_KEY` define a chave operacional de criptografia; ambientes produtivos devem configurá-la fora do repositório e rotacioná-la junto com as credenciais no provedor.
+
+### 20.2 Matriz de permissões
+
+| Operação | FPP/ADMIN | Academia |
+| --- | --- | --- |
+| Criar credenciais `spuri` | Sim | Não |
+| Criar credenciais de academia | Sim | Não nesta versão base |
+| Listar/consultar credenciais | Todas sem segredos | Apenas próprias, sem segredos |
+| Testar/ativar/desativar credenciais | Sim | Apenas quando política operacional permitir extensão futura |
+| Alterar modalidade global/academia | Sim | Não |
+| Criar cobrança `spuri` | Sim | Não |
+| Criar cobrança `academia` | Sim, por suporte operacional | Sim, apenas própria academia e estudante vinculado |
+| Consultar/sincronizar/cancelar/reembolsar/reverter | Conforme escopo autenticado | Apenas próprio contexto |
+
+### 20.3 Endpoints
+
+- `POST /financeiro/appypay/credenciais`: cadastra credenciais AppyPay de contexto `spuri` ou `academia`, com `ambiente`, `auth_base_url`, `api_base_url`, `webapi_base_url`, `client_id`, `client_secret`, `resource`, `applications` e `webhook_secret`.
+- `PUT /financeiro/appypay/credenciais/:id`: atualiza ou rotaciona metadados/segredos, incrementando `version`.
+- `GET /financeiro/appypay/credenciais` e `GET /financeiro/appypay/credenciais/:id`: retornam somente metadados e aplicações mascaradas.
+- `POST /financeiro/appypay/credenciais/:id/testar`: valida a configuração e registra `CredenciaisAppyPayValidadas` sem criar cobrança real.
+- `POST /financeiro/appypay/credenciais/:id/ativar` e `POST /financeiro/appypay/credenciais/:id/desativar`: alternam `status` e registram evento auditável.
+- `POST /financeiro/modalidade-pagamento`: altera ativação `global` ou por `academia`, com motivo e autor. O contexto `spuri` usa controle separado das cobranças próprias das academias.
+- `POST /financeiro/cobrancas`: cria cobrança genérica com `contexto_tipo`, `codigo_academia`, `pagador_tipo`, `pagador_id`, `valor`, `moeda`, `metodo_pagamento`, `descricao`, `referencia_externa` e `metadata`.
+- `GET /financeiro/cobrancas/:id`: consulta status normalizado, status bruto AppyPay, identificadores internos/externos e metadados.
+- `POST /financeiro/cobrancas/:id/sincronizar`: consulta/sincroniza estado de forma idempotente e grava evento de status.
+- `POST /financeiro/cobrancas/:id/cancelar`: cancela quando o estado permite e preserva o histórico.
+- `POST /financeiro/cobrancas/:id/reembolsos`: solicita reembolso total/parcial, bloqueando valor acumulado acima do valor da cobrança.
+- `POST /financeiro/cobrancas/:id/reversoes`: solicita reversão separada de reembolso para métodos que suportam a semântica AppyPay.
+- `POST /financeiro/appypay/webhooks/:contexto`: recebe webhook AppyPay, aplica idempotência por `provider_event_id` e contexto, e não deve considerar uma liquidação definitiva sem confirmação ativa por consulta ao provider quando aplicável.
+- `POST /financeiro/reconciliacoes`: cria processo administrativo de reconciliação com correlation id e registro auditável.
+
+### 20.4 Estados e idempotência
+
+Cobranças usam estados normalizados como `criada`, `pendente`, `cancelada`, `liquidada`, `falhada` e mantêm `response_status` bruto da AppyPay. Reembolsos usam `solicitado`, `aceite`, `falhado`, `concluido`; reversões usam `solicitada`, `aceite`, `falhada`, `concluida`. A criação de cobranças é idempotente por `(contexto_tipo, codigo_academia, referencia_externa)` e gera `merchant_transaction_id` único por contexto. Webhooks são idempotentes por `(contexto_tipo, codigo_academia, provider_event_id)`.
+
+### 20.5 Mapeamento AppyPay e observabilidade
+
+O módulo prepara a integração para OAuth2 Client Credentials da AppyPay (`auth_base_url`, `client_id`, `client_secret`, `resource`) e para operações base de `POST /charges`, `GET /charges/{id}`, `GET /charges`, `POST /refunds/{id}`, `POST /reverses/{id}` e webhooks. Logs e eventos devem conter correlation id, contexto financeiro, academia, `merchantTransactionId` e identificadores externos, nunca segredos.

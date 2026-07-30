@@ -95,6 +95,25 @@ var validEventTypes = map[string]bool{
 	"BilheteIdentidadeEncarregadoAlteradoPorSolicitacao": true,
 	"DataNascimentoEstudanteAlteradaPorSolicitacao":      true,
 	"TelefoneEncarregadoAlterado":                        true,
+	"DivergenciaFinanceiraReconciliada":                  true,
+	"DivergenciaFinanceiraDetectada":                     true,
+	"WebhookFinanceiroIgnoradoComoDuplicado":             true,
+	"WebhookFinanceiroRecebido":                          true,
+	"ReversaoFinanceiraStatusAtualizado":                 true,
+	"ReversaoFinanceiraSolicitada":                       true,
+	"ReembolsoFinanceiroStatusAtualizado":                true,
+	"ReembolsoFinanceiroSolicitado":                      true,
+	"CobrancaFinanceiraCancelada":                        true,
+	"CobrancaFinanceiraStatusAtualizado":                 true,
+	"CobrancaFinanceiraEnviadaAoProvider":                true,
+	"CobrancaFinanceiraCriada":                           true,
+	"ModalidadePagamentoAcademiaAlterada":                true,
+	"ModalidadePagamentoGlobalAlterada":                  true,
+	"CredenciaisAppyPayDesativadas":                      true,
+	"CredenciaisAppyPayAtivadas":                         true,
+	"CredenciaisAppyPayValidadas":                        true,
+	"CredenciaisAppyPayAtualizadas":                      true,
+	"CredenciaisAppyPayCadastradas":                      true,
 }
 
 // validAggregateTypes é o mapa canônico de aggregate types permitidos no ledger.
@@ -108,6 +127,7 @@ var validAggregateTypes = map[string]bool{
 	"SolicitacaoMatricula":           true,
 	"SolicitacaoEdicaoDadoEstudante": true,
 	"System":                         true,
+	"Financeiro":                     true,
 }
 
 // ValidateEventType verifica se o tipo de evento é permitido.

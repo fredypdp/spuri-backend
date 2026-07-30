@@ -449,6 +449,28 @@ func setupRouter() *gin.Engine {
 		academia.DELETE("/turma/estudante/async", handlers.RemoverEstudanteTurmaBatchAsync)
 	}
 
+	// ── Rotas financeiras base AppyPay ─────────────────────────────────────
+	financeiro := router.Group("/financeiro")
+	financeiro.Use(middleware.AuthMiddleware())
+	{
+		financeiro.POST("/appypay/credenciais", handlers.CriarCredencialAppyPay)
+		financeiro.PUT("/appypay/credenciais/:id", handlers.AtualizarCredencialAppyPay)
+		financeiro.GET("/appypay/credenciais", handlers.ListarCredenciaisAppyPay)
+		financeiro.GET("/appypay/credenciais/:id", handlers.GetCredencialAppyPay)
+		financeiro.POST("/appypay/credenciais/:id/testar", handlers.TestarCredencialAppyPay)
+		financeiro.POST("/appypay/credenciais/:id/ativar", handlers.AtivarCredencialAppyPay)
+		financeiro.POST("/appypay/credenciais/:id/desativar", handlers.DesativarCredencialAppyPay)
+		financeiro.POST("/modalidade-pagamento", middleware.RequireAdmin(), handlers.AlterarModalidadePagamento)
+		financeiro.POST("/cobrancas", handlers.CriarCobrancaFinanceira)
+		financeiro.GET("/cobrancas/:id", handlers.GetCobrancaFinanceira)
+		financeiro.POST("/cobrancas/:id/sincronizar", handlers.SincronizarCobrancaFinanceira)
+		financeiro.POST("/cobrancas/:id/cancelar", handlers.CancelarCobrancaFinanceira)
+		financeiro.POST("/cobrancas/:id/reembolsos", handlers.CriarReembolsoFinanceiro)
+		financeiro.POST("/cobrancas/:id/reversoes", handlers.CriarReversaoFinanceira)
+		financeiro.POST("/reconciliacoes", middleware.RequireAdmin(), handlers.ExecutarReconciliacaoFinanceira)
+	}
+	router.POST("/financeiro/appypay/webhooks/:contexto", handlers.ReceberWebhookAppyPay)
+
 	// ── Rotas de admin ────────────────────────────────────────────────────
 	admin := router.Group("/dominis")
 	admin.Use(middleware.AuthMiddleware())

@@ -1,10 +1,10 @@
 ---
 criado: 2026-07-26 00:00
 origem: docs/Parceiros e integrações/AppyPay - Análise de Integração para o Serviço de Gestão Financeira do Spuri.md
-status: pendente
+status: feito
 ---
 
-# Implementar módulo base de gestão financeira com AppyPay para Spuri e academias (pendente)
+# Implementar módulo base de gestão financeira com AppyPay para Spuri e academias (feito)
 
 ## Prompt recomendado para executar a atualização
 
