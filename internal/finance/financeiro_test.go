@@ -6,12 +6,14 @@ import (
 	"testing"
 )
 
-func cred(cod string, ctx ContextoTipo) CredencialInput {
-	return CredencialInput{ContextoTipo: ctx, CodigoAcademia: cod, Ambiente: AmbienteTeste, AuthBaseURL: "https://login", APIBaseURL: "https://api", ClientID: "client", ClientSecret: "super-secret", Resource: "res", WebhookSecret: "hook-secret", Applications: []ApplicationInput{{PaymentMethod: "REF", ApplicationID: "app", APIKey: "api-secret-key"}}}
+func cred(t *testing.T, cod string, ctx ContextoTipo) CredencialInput {
+	t.Helper()
+	t.Setenv(AppyPayAPIBaseURLEnv, "https://api")
+	return CredencialInput{ContextoTipo: ctx, CodigoAcademia: cod, Ambiente: AmbienteTeste, AuthBaseURL: "https://login", ClientID: "client", ClientSecret: "super-secret", Resource: "res", WebhookSecret: "hook-secret", Applications: []ApplicationInput{{PaymentMethod: "REF", ApplicationID: "app", APIKey: "api-secret-key"}}}
 }
 func TestCredenciaisCriptografadasEMascaradas(t *testing.T) {
 	s := NewService(nil)
-	c, err := s.CriarCredencial(context.Background(), cred("", ContextoSpuri), "u", "admin")
+	c, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "admin")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,8 +33,8 @@ func TestCredenciaisCriptografadasEMascaradas(t *testing.T) {
 }
 func TestIsolamentoAcademiasEIdempotencia(t *testing.T) {
 	s := NewService(nil)
-	ca, _ := s.CriarCredencial(context.Background(), cred("ACA", ContextoAcademia), "u", "admin")
-	cb, _ := s.CriarCredencial(context.Background(), cred("ACB", ContextoAcademia), "u", "admin")
+	ca, _ := s.CriarCredencial(context.Background(), cred(t, "ACA", ContextoAcademia), "u", "admin")
+	cb, _ := s.CriarCredencial(context.Background(), cred(t, "ACB", ContextoAcademia), "u", "admin")
 	s.AlterarStatusCredencial(ca.ID, StatusAtivo, "u", "admin", "", "")
 	s.AlterarStatusCredencial(cb.ID, StatusAtivo, "u", "admin", "", "")
 	s.AlterarModalidade("academia", "ACA", true, "u", "admin", "")
@@ -59,8 +61,8 @@ func TestIsolamentoAcademiasEIdempotencia(t *testing.T) {
 }
 func TestModalidadeDesativadaImpedeAcademiaMasNaoSpuri(t *testing.T) {
 	s := NewService(nil)
-	ac, _ := s.CriarCredencial(context.Background(), cred("ACA", ContextoAcademia), "u", "admin")
-	sp, _ := s.CriarCredencial(context.Background(), cred("", ContextoSpuri), "u", "admin")
+	ac, _ := s.CriarCredencial(context.Background(), cred(t, "ACA", ContextoAcademia), "u", "admin")
+	sp, _ := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "admin")
 	s.AlterarStatusCredencial(ac.ID, StatusAtivo, "u", "admin", "", "")
 	s.AlterarStatusCredencial(sp.ID, StatusAtivo, "u", "admin", "", "")
 	s.AlterarModalidade("academia", "ACA", true, "u", "admin", "")
@@ -76,7 +78,7 @@ func TestModalidadeDesativadaImpedeAcademiaMasNaoSpuri(t *testing.T) {
 }
 func TestWebhookDupENaoLiquidaSemConsulta(t *testing.T) {
 	s := NewService(nil)
-	sp, _ := s.CriarCredencial(context.Background(), cred("", ContextoSpuri), "u", "admin")
+	sp, _ := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "admin")
 	s.AlterarStatusCredencial(sp.ID, StatusAtivo, "u", "admin", "", "")
 	ch, _ := s.GerarCobrancaFinanceiraBase(context.Background(), GerarCobrancaInput{ContextoTipo: ContextoSpuri, CodigoAcademia: "ACA", PagadorTipo: "academia", PagadorID: "ACA", Valor: 1, MetodoPagamento: "REF", ReferenciaExterna: "w"}, "u")
 	ok, err := s.ProcessarWebhookFinanceiroBase(context.Background(), "evt1", ch.ID)
