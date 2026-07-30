@@ -8208,3 +8208,9 @@ number<double> or null
 Baseline transaction amount mapping out financial values bound directly against standard tax calculations that are blocked from dynamic deductions.
 
 ---
+
+## Persistência financeira no Spuri
+
+A integração AppyPay do Spuri segue Event Sourcing/CQRS: `spuri_ledger` é a fonte de verdade para mudanças financeiras (`aggregate_type = "Financeiro"`) e as tabelas `financeiro_*` são projeções/read models ou armazenamento operacional cifrado. Payloads de eventos e respostas públicas nunca incluem `client_secret`, `webhook_secret`, `apiKey`, tokens ou ciphertexts; apenas máscaras e metadados não sensíveis são auditados.
+
+Para reconstrução, execute o rebuild das projeções financeiras pelo serviço (`Service.RebuildProjections(ctx)`), que reaplica os eventos financeiros em ordem determinística sem apagar o ledger. Credenciais antigas sem autoria devem ser migradas com autor técnico `system:migracao_financeiro_event_sourcing`.
