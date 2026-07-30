@@ -6561,7 +6561,7 @@ Resposta interna esperada:
 
 ### Mapeamento AppyPay
 
-A base prepara o uso de OAuth2 Client Credentials contra `auth_base_url`/`resource`, chamadas de cobrança em `POST /charges`, consulta em `GET /charges/{id}` ou `GET /charges`, reembolsos via `/refunds/{id}` e reversões via `/reverses/{id}` quando o método suportar. SDD permanece configurável por application e deve ser mantido desativável por causa da limitação operacional documentada como ALPHA.
+A base prepara o domínio, auditoria, credenciais e pontos de extensão para OAuth2 Client Credentials contra `auth_base_url`/`resource`, chamadas de cobrança em `POST /charges`, consulta em `GET /charges/{id}` ou `GET /charges`, reembolsos via `/refunds/{id}` e reversões via `/reverses/{id}` quando o método suportar. A implementação atual ainda usa `FakeProvider` e não executa chamadas HTTP reais contra a AppyPay; o `decrypt()` já existe como pré-requisito operacional para um provider real recuperar segredos cifrados do cofre quando essa integração for implementada. SDD permanece configurável por application e deve ser mantido desativável por causa da limitação operacional documentada como ALPHA.
 
 ### Segurança e auditoria
 

@@ -60,20 +60,29 @@ const (
 )
 
 type Application struct {
-	PaymentMethod, ApplicationID, APIKey, APIKeyEncrypted, APIKeyMask, WebhookURL string
-	Metadata                                                                      map[string]string
+	PaymentMethod   string
+	ApplicationID   string
+	APIKey          string `json:"-"`
+	APIKeyEncrypted string `json:"-"`
+	APIKeyMask      string
+	WebhookURL      string
+	Metadata        map[string]string
 }
 type CredencialAppyPay struct {
-	ID                                                                                                                                             uuid.UUID
-	ContextoTipo                                                                                                                                   ContextoTipo
-	CodigoAcademia                                                                                                                                 string
-	Ambiente                                                                                                                                       Ambiente
-	AuthBaseURL, APIBaseURL, WebAPIBaseURL, ClientID, ClientSecretEncrypted, ClientSecretMask, Resource, WebhookSecretEncrypted, WebhookSecretMask string
-	Applications                                                                                                                                   []Application
-	Status                                                                                                                                         StatusCredencial
-	Historico                                                                                                                                      []EventoFinanceiro
-	CreatedAt, UpdatedAt                                                                                                                           time.Time
-	Version                                                                                                                                        int
+	ID                                               uuid.UUID
+	ContextoTipo                                     ContextoTipo
+	CodigoAcademia                                   string
+	Ambiente                                         Ambiente
+	AuthBaseURL, APIBaseURL, WebAPIBaseURL, ClientID string
+	ClientSecretEncrypted                            string `json:"-"`
+	ClientSecretMask, Resource                       string
+	WebhookSecretEncrypted                           string `json:"-"`
+	WebhookSecretMask                                string
+	Applications                                     []Application
+	Status                                           StatusCredencial
+	Historico                                        []EventoFinanceiro
+	CreatedAt, UpdatedAt                             time.Time
+	Version                                          int
 }
 type CredencialInput struct {
 	ContextoTipo   ContextoTipo       `json:"contexto_tipo"`
@@ -298,8 +307,11 @@ func sanitizeMap(in map[string]any) map[string]any {
 
 func (s *Service) record(ctx context.Context, aggregateID uuid.UUID, eventType string, payload map[string]any, autorID, autorTipo, origem string) (EventoFinanceiro, error) {
 	e := EventoFinanceiro{Tipo: eventType, AutorID: autorID, AutorTipo: autorTipo, At: time.Now().UTC()}
+	if motivo, ok := payload["motivo"].(string); ok {
+		e.Motivo = motivo
+	}
 	if s.ledger != nil {
-		if _, err := s.ledger.AppendFinanceEvent(ctx, LedgerEvent{AggregateID: aggregateID, EventType: eventType, Payload: payload, OccurredAt: e.At}, autorID, autorTipo, origem); err != nil {
+		if _, err := s.ledger.AppendFinanceEvent(ctx, LedgerEvent{AggregateID: aggregateID, EventType: eventType, Payload: payload, Metadata: map[string]any{"motivo": e.Motivo}, OccurredAt: e.At}, autorID, autorTipo, origem); err != nil {
 			return e, err
 		}
 	}
@@ -320,8 +332,15 @@ func safeApps(apps []Application) []map[string]any {
 	}
 	return out
 }
+func payloadWithMotivo(payload map[string]any, motivo string) map[string]any {
+	if motivo != "" {
+		payload["motivo"] = motivo
+	}
+	return payload
+}
+
 func chargePayload(c CobrancaFinanceira) map[string]any {
-	return map[string]any{"cobranca_id": c.ID.String(), "contexto_tipo": string(c.ContextoTipo), "codigo_academia": c.CodigoAcademia, "pagador_tipo": c.PagadorTipo, "pagador_id": c.PagadorID, "valor": c.Valor, "moeda": c.Moeda, "metodo_pagamento": c.MetodoPagamento, "referencia_externa": c.ReferenciaExterna, "merchant_transaction_id": c.MerchantTransactionID, "provider_charge_id": c.ProviderChargeID, "status": string(c.Status), "provider_status": c.StatusProviderBruto}
+	return map[string]any{"cobranca_id": c.ID.String(), "contexto_tipo": string(c.ContextoTipo), "codigo_academia": c.CodigoAcademia, "pagador_tipo": c.PagadorTipo, "pagador_id": c.PagadorID, "valor": c.Valor, "moeda": c.Moeda, "metodo_pagamento": c.MetodoPagamento, "descricao": c.Descricao, "metadata": c.Metadata, "referencia_externa": c.ReferenciaExterna, "merchant_transaction_id": c.MerchantTransactionID, "provider_charge_id": c.ProviderChargeID, "status": string(c.Status), "provider_status": c.StatusProviderBruto}
 }
 
 func (s *Service) loadPersisted(ctx context.Context) error {
@@ -337,6 +356,9 @@ func (s *Service) loadPersisted(ctx context.Context) error {
 		}
 		var c CredencialAppyPay
 		if err := json.Unmarshal(raw, &c); err != nil {
+			return err
+		}
+		if err := s.loadCredencialSegredos(ctx, &c); err != nil {
 			return err
 		}
 		s.creds[c.ID] = c
@@ -378,6 +400,41 @@ func (s *Service) loadPersisted(ctx context.Context) error {
 	return nil
 }
 
+func (s *Service) loadCredencialSegredos(ctx context.Context, c *CredencialAppyPay) error {
+	if s.db == nil || c == nil {
+		return nil
+	}
+	rows, err := s.db.QueryxContext(ctx, `
+		SELECT DISTINCT ON (secret_type, COALESCE(application_id, '')) secret_type, COALESCE(application_id, ''), ciphertext
+		FROM financeiro_segredos_appypay
+		WHERE credential_id=$1 AND revoked_at IS NULL
+		ORDER BY secret_type, COALESCE(application_id, ''), secret_version DESC
+	`, c.ID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var typ, appID, ciphertext string
+		if err := rows.Scan(&typ, &appID, &ciphertext); err != nil {
+			return err
+		}
+		switch typ {
+		case "client_secret":
+			c.ClientSecretEncrypted = ciphertext
+		case "webhook_secret":
+			c.WebhookSecretEncrypted = ciphertext
+		case "api_key":
+			for i := range c.Applications {
+				if c.Applications[i].ApplicationID == appID {
+					c.Applications[i].APIKeyEncrypted = ciphertext
+				}
+			}
+		}
+	}
+	return rows.Err()
+}
+
 func (s *Service) projectCredencial(ctx context.Context, c CredencialAppyPay) error {
 	if s.db == nil {
 		return nil
@@ -387,7 +444,37 @@ func (s *Service) projectCredencial(ctx context.Context, c CredencialAppyPay) er
 		return err
 	}
 	_, err = s.db.ExecContext(ctx, `INSERT INTO financeiro_credenciais_appypay (id, payload, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (id) DO UPDATE SET payload=EXCLUDED.payload, updated_at=CURRENT_TIMESTAMP`, c.ID, raw)
-	return err
+	if err != nil {
+		return err
+	}
+	return s.projectCredencialSegredos(ctx, c)
+}
+
+func (s *Service) projectCredencialSegredos(ctx context.Context, c CredencialAppyPay) error {
+	if s.db == nil {
+		return nil
+	}
+	secrets := []struct {
+		typ, appID, value string
+	}{
+		{typ: "client_secret", value: c.ClientSecretEncrypted},
+		{typ: "webhook_secret", value: c.WebhookSecretEncrypted},
+	}
+	for _, app := range c.Applications {
+		secrets = append(secrets, struct {
+			typ, appID, value string
+		}{typ: "api_key", appID: app.ApplicationID, value: app.APIKeyEncrypted})
+	}
+	for _, secret := range secrets {
+		if secret.value == "" {
+			continue
+		}
+		_, err := s.db.ExecContext(ctx, `INSERT INTO financeiro_segredos_appypay (credential_id, secret_version, secret_type, application_id, ciphertext) VALUES ($1, $2, $3, NULLIF($4, ''), $5) ON CONFLICT (credential_id, secret_type, COALESCE(application_id, ''), secret_version) DO UPDATE SET ciphertext=EXCLUDED.ciphertext, rotated_at=CURRENT_TIMESTAMP`, c.ID, c.Version, secret.typ, secret.appID, secret.value)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Service) projectCobranca(ctx context.Context, key string, c CobrancaFinanceira) error {
@@ -491,7 +578,7 @@ func (s *Service) ListarCredenciais(autorTipo, codAcad string) []CredencialAppyP
 	defer s.mu.Unlock()
 	out := []CredencialAppyPay{}
 	for _, c := range s.creds {
-		if autorTipo == "academia" && (c.ContextoTipo != ContextoAcademia || c.CodigoAcademia != codAcad) {
+		if !podeAcessarCredencial(autorTipo, codAcad, c) {
 			continue
 		}
 		out = append(out, maskCred(c))
@@ -505,7 +592,7 @@ func (s *Service) ObterCredencial(id uuid.UUID, autorTipo, codAcad string) (Cred
 	if !ok {
 		return c, errors.New("credencial não encontrada")
 	}
-	if autorTipo == "academia" && (c.ContextoTipo != ContextoAcademia || c.CodigoAcademia != codAcad) {
+	if !podeAcessarCredencial(autorTipo, codAcad, c) {
 		return c, errors.New("sem permissão")
 	}
 	return maskCred(c), nil
@@ -520,7 +607,7 @@ func (s *Service) TestarCredencial(ctx context.Context, id uuid.UUID, autorID, a
 	if !ok {
 		return errors.New("credencial não encontrada")
 	}
-	if autorTipo == "academia" && (c.ContextoTipo != ContextoAcademia || c.CodigoAcademia != codAcad) {
+	if !podeAcessarCredencial(autorTipo, codAcad, c) {
 		return errors.New("sem permissão")
 	}
 	if err := s.provider.TestarCredencial(ctx, c); err != nil {
@@ -541,6 +628,10 @@ func (s *Service) TestarCredencial(ctx context.Context, id uuid.UUID, autorID, a
 	s.creds[id] = c
 	return nil
 }
+func podeAcessarCredencial(autorTipo, codAcad string, c CredencialAppyPay) bool {
+	return autorTipo == "fpp" || autorTipo == "admin" || (autorTipo == "academia" && c.ContextoTipo == ContextoAcademia && c.CodigoAcademia == codAcad)
+}
+
 func (s *Service) AlterarStatusCredencial(id uuid.UUID, status StatusCredencial, autorID, autorTipo, codAcad, motivo string) (CredencialAppyPay, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -561,7 +652,7 @@ func (s *Service) AlterarStatusCredencial(id uuid.UUID, status StatusCredencial,
 	if status == StatusAtivo {
 		eventoTipo = "CredenciaisAppyPayAtivadas"
 	}
-	ev, err := s.record(context.Background(), c.ID, eventoTipo, credentialPayload(c), autorID, autorTipo, "http")
+	ev, err := s.record(context.Background(), c.ID, eventoTipo, payloadWithMotivo(credentialPayload(c), motivo), autorID, autorTipo, "http")
 	if err != nil {
 		return CredencialAppyPay{}, err
 	}
@@ -597,7 +688,7 @@ func (s *Service) AlterarModalidade(escopo, codigo string, ativa bool, autorID, 
 	} else if escopo == "academia" {
 		eventType = "ModalidadePagamentoAcademiaAlterada"
 	}
-	ev, err := s.record(context.Background(), modalidadeAggregateID(), eventType, map[string]any{"escopo": escopo, "codigo_academia": codigo, "ativa": ativa}, autorID, autorTipo, "http")
+	ev, err := s.record(context.Background(), modalidadeAggregateID(), eventType, map[string]any{"escopo": escopo, "codigo_academia": codigo, "ativa": ativa, "motivo": motivo}, autorID, autorTipo, "http")
 	if err != nil {
 		return err
 	}
@@ -722,7 +813,7 @@ func (s *Service) CancelarCobrancaFinanceiraBase(id uuid.UUID, autor, motivo str
 		return c, errors.New("cobrança liquidada não pode ser cancelada")
 	}
 	c.Status = CobrancaCancelada
-	ev, err := s.record(context.Background(), c.ID, "CobrancaFinanceiraCancelada", chargePayload(c), autor, "sistema", "http")
+	ev, err := s.record(context.Background(), c.ID, "CobrancaFinanceiraCancelada", payloadWithMotivo(chargePayload(c), motivo), autor, "sistema", "http")
 	if err != nil {
 		return CobrancaFinanceira{}, err
 	}
@@ -752,7 +843,7 @@ func (s *Service) ReembolsarCobrancaFinanceiraBase(id uuid.UUID, valor int64, au
 	if valor <= 0 || valor > c.Valor {
 		return EventoFinanceiro{}, errors.New("valor de reembolso inválido")
 	}
-	e, err := s.record(context.Background(), id, "ReembolsoFinanceiroSolicitado", map[string]any{"cobranca_id": id.String(), "valor": valor}, autor, "sistema", "http")
+	e, err := s.record(context.Background(), id, "ReembolsoFinanceiroSolicitado", map[string]any{"cobranca_id": id.String(), "valor": valor, "motivo": motivo}, autor, "sistema", "http")
 	if err != nil {
 		return EventoFinanceiro{}, err
 	}
@@ -781,7 +872,7 @@ func (s *Service) ReverterCobrancaFinanceiraBase(id uuid.UUID, autor, motivo str
 	if c.MetodoPagamento != "UMM" {
 		return EventoFinanceiro{}, errors.New("reversão disponível apenas para método suportado")
 	}
-	e, err := s.record(context.Background(), id, "ReversaoFinanceiraSolicitada", map[string]any{"cobranca_id": id.String()}, autor, "sistema", "http")
+	e, err := s.record(context.Background(), id, "ReversaoFinanceiraSolicitada", map[string]any{"cobranca_id": id.String(), "motivo": motivo}, autor, "sistema", "http")
 	if err != nil {
 		return EventoFinanceiro{}, err
 	}
@@ -884,6 +975,37 @@ func MaskSecret(s string) string {
 	}
 	return "****" + s[len(s)-4:]
 }
+func decrypt(v string) (string, error) {
+	if v == "" {
+		return "", nil
+	}
+	keyMaterial := os.Getenv("FINANCE_ENCRYPTION_KEY")
+	if keyMaterial == "" && strings.EqualFold(os.Getenv("GO_ENV"), "production") {
+		return "", errors.New("FINANCE_ENCRYPTION_KEY obrigatório em produção")
+	}
+	h := sha256.Sum256([]byte(keyMaterial + "spuri-finance-default-key"))
+	block, err := aes.NewCipher(h[:])
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	data, err := base64.StdEncoding.DecodeString(v)
+	if err != nil {
+		return "", err
+	}
+	if len(data) < gcm.NonceSize() {
+		return "", errors.New("ciphertext inválido")
+	}
+	plain, err := gcm.Open(nil, data[:gcm.NonceSize()], data[gcm.NonceSize():], nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plain), nil
+}
+
 func encrypt(v string) (string, error) {
 	if v == "" {
 		return "", nil
@@ -939,6 +1061,25 @@ func (s *Service) RebuildProjections(ctx context.Context) error {
 	return nil
 }
 
+func eventoFromLedger(e LedgerEvent, escopo, codigo string) EventoFinanceiro {
+	ev := EventoFinanceiro{Tipo: e.EventType, At: e.OccurredAt, Escopo: escopo, CodigoAcademia: codigo, Metadata: e.Payload}
+	if v, ok := e.Metadata["user_id"].(string); ok {
+		ev.AutorID = v
+	}
+	if v, ok := e.Metadata["user_type"].(string); ok {
+		ev.AutorTipo = v
+	}
+	if v, ok := e.Payload["motivo"].(string); ok {
+		ev.Motivo = v
+	} else if v, ok := e.Metadata["motivo"].(string); ok {
+		ev.Motivo = v
+	}
+	if v, ok := e.Payload["contexto_tipo"].(string); ok {
+		ev.ContextoTipo = v
+	}
+	return ev
+}
+
 func (s *Service) applyLedgerProjection(ctx context.Context, e LedgerEvent) error {
 	switch e.EventType {
 	case "CredenciaisAppyPayCadastradas", "CredenciaisAppyPayAtualizadas", "CredenciaisAppyPayValidadas", "CredenciaisAppyPayAtivadas", "CredenciaisAppyPayDesativadas":
@@ -983,6 +1124,7 @@ func (s *Service) applyLedgerProjection(ctx context.Context, e LedgerEvent) erro
 			c.CreatedAt = e.OccurredAt
 		}
 		c.Version++
+		c.Historico = append(c.Historico, eventoFromLedger(e, "", c.CodigoAcademia))
 		s.creds[e.AggregateID] = c
 		return s.projectCredencial(ctx, c)
 	case "ModalidadePagamentoGlobalAlterada", "ModalidadePagamentoSpuriAlterada", "ModalidadePagamentoAcademiaAlterada":
@@ -996,6 +1138,7 @@ func (s *Service) applyLedgerProjection(ctx context.Context, e LedgerEvent) erro
 		} else if escopo == "academia" {
 			s.modalidade.Academias[codigo] = ativa
 		}
+		s.modalidade.Historico = append(s.modalidade.Historico, eventoFromLedger(e, escopo, codigo))
 		return s.projectModalidade(ctx)
 	case "CobrancaFinanceiraCriada", "CobrancaFinanceiraEnviadaAoProvider", "CobrancaFinanceiraStatusAtualizado", "CobrancaFinanceiraCancelada":
 		c := s.charges[e.AggregateID]
@@ -1006,8 +1149,38 @@ func (s *Service) applyLedgerProjection(ctx context.Context, e LedgerEvent) erro
 		if v, ok := e.Payload["codigo_academia"].(string); ok {
 			c.CodigoAcademia = v
 		}
+		if v, ok := e.Payload["pagador_tipo"].(string); ok {
+			c.PagadorTipo = v
+		}
+		if v, ok := e.Payload["pagador_id"].(string); ok {
+			c.PagadorID = v
+		}
+		if v, ok := e.Payload["valor"].(float64); ok {
+			c.Valor = int64(v)
+		}
+		if v, ok := e.Payload["moeda"].(string); ok {
+			c.Moeda = v
+		}
+		if c.Moeda == "" {
+			c.Moeda = "AOA"
+		}
+		if v, ok := e.Payload["metodo_pagamento"].(string); ok {
+			c.MetodoPagamento = v
+		}
+		if v, ok := e.Payload["descricao"].(string); ok {
+			c.Descricao = v
+		}
 		if v, ok := e.Payload["referencia_externa"].(string); ok {
 			c.ReferenciaExterna = v
+		}
+		if v, ok := e.Payload["merchant_transaction_id"].(string); ok {
+			c.MerchantTransactionID = v
+		}
+		if v, ok := e.Payload["provider_charge_id"].(string); ok {
+			c.ProviderChargeID = v
+		}
+		if v, ok := e.Payload["provider_status"].(string); ok {
+			c.StatusProviderBruto = v
 		}
 		if v, ok := e.Payload["status"].(string); ok {
 			c.Status = StatusCobranca(v)
@@ -1017,6 +1190,7 @@ func (s *Service) applyLedgerProjection(ctx context.Context, e LedgerEvent) erro
 			c.CreatedAt = e.OccurredAt
 		}
 		c.Version++
+		c.Historico = append(c.Historico, eventoFromLedger(e, "", c.CodigoAcademia))
 		key := string(c.ContextoTipo) + ":" + c.CodigoAcademia + ":" + c.ReferenciaExterna
 		s.charges[e.AggregateID] = c
 		s.idem[key] = e.AggregateID

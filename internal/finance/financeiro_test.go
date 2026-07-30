@@ -214,3 +214,58 @@ func TestReplayReconstróiModalidadeEIdempotencia(t *testing.T) {
 		t.Fatalf("replay não reconstruiu índice idempotente: %s != %s", got.ID, ch.ID)
 	}
 }
+
+func TestEstudanteNaoAcessaCredenciaisFinanceiras(t *testing.T) {
+	s := NewService(nil)
+	ca, err := s.CriarCredencial(context.Background(), cred(t, "ACA", ContextoAcademia), "u", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sp, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.ListarCredenciais("estudante", "ACA"); len(got) != 0 {
+		t.Fatalf("estudante listou credenciais: %d", len(got))
+	}
+	if _, err := s.ObterCredencial(ca.ID, "estudante", "ACA"); err == nil {
+		t.Fatal("estudante obteve credencial de academia")
+	}
+	if err := s.TestarCredencial(context.Background(), sp.ID, "est", "estudante", "ACA"); err == nil {
+		t.Fatal("estudante testou credencial financeira")
+	}
+}
+
+func TestReplayPreservaHistoricoEMotivo(t *testing.T) {
+	l := &memoriaLedger{}
+	s := NewServiceWithDBAndLedger(nil, nil, l)
+	sp, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AlterarStatusCredencial(sp.ID, StatusAtivo, "u", "admin", "", "ativação operacional"); err != nil {
+		t.Fatal(err)
+	}
+	rebuilt := NewServiceWithDBAndLedger(nil, nil, l)
+	got, err := rebuilt.ObterCredencial(sp.ID, "admin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Historico) != 2 || got.Historico[1].Motivo != "ativação operacional" {
+		t.Fatalf("histórico/motivo não preservado no replay: %#v", got.Historico)
+	}
+}
+
+func TestEncryptDecryptSegredoFinanceiro(t *testing.T) {
+	ciphertext, err := encrypt("super-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plaintext, err := decrypt(ciphertext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plaintext != "super-secret" {
+		t.Fatalf("decrypt retornou %q", plaintext)
+	}
+}

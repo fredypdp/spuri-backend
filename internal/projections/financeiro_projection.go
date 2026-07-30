@@ -89,11 +89,33 @@ func (p *FinanceiroProjection) projectCredencial(event db.Event) error {
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return err
 	}
-	c := finance.CredencialAppyPay{ID: event.AggregateID, ContextoTipo: finance.ContextoTipo(str(payload, "contexto_tipo")), CodigoAcademia: str(payload, "codigo_academia"), Ambiente: finance.Ambiente(str(payload, "ambiente")), AuthBaseURL: str(payload, "auth_base_url"), APIBaseURL: str(payload, "api_base_url"), WebAPIBaseURL: str(payload, "webapi_base_url"), ClientID: str(payload, "client_id"), Resource: str(payload, "resource"), ClientSecretMask: str(payload, "client_secret_mask"), WebhookSecretMask: str(payload, "webhook_secret_mask"), Status: finance.StatusCredencial(str(payload, "status")), CreatedAt: event.OccurredAt, UpdatedAt: event.OccurredAt, Version: event.EventVersion}
+	c := finance.CredencialAppyPay{}
+	var existing []byte
+	if err := p.client.DB().QueryRow(`SELECT payload FROM financeiro_credenciais_appypay WHERE id=$1`, event.AggregateID).Scan(&existing); err == nil {
+		_ = json.Unmarshal(existing, &c)
+	}
+	c.ID = event.AggregateID
+	if c.CreatedAt.IsZero() {
+		c.CreatedAt = event.OccurredAt
+	}
+	c.UpdatedAt = event.OccurredAt
+	c.Version = event.EventVersion
+	c.ContextoTipo = finance.ContextoTipo(str(payload, "contexto_tipo"))
+	c.CodigoAcademia = str(payload, "codigo_academia")
+	c.Ambiente = finance.Ambiente(str(payload, "ambiente"))
+	c.AuthBaseURL = str(payload, "auth_base_url")
+	c.APIBaseURL = str(payload, "api_base_url")
+	c.WebAPIBaseURL = str(payload, "webapi_base_url")
+	c.ClientID = str(payload, "client_id")
+	c.Resource = str(payload, "resource")
+	c.ClientSecretMask = str(payload, "client_secret_mask")
+	c.WebhookSecretMask = str(payload, "webhook_secret_mask")
+	c.Status = finance.StatusCredencial(str(payload, "status"))
 	if c.Status == "" {
 		c.Status = finance.StatusPendenteValidacao
 	}
 	c.Applications = projectionApps(payload["applications"])
+	c.Historico = append(c.Historico, eventoFinanceiro(event, payload, "", c.CodigoAcademia))
 	raw, err := json.Marshal(c)
 	if err != nil {
 		return err
@@ -107,13 +129,36 @@ func (p *FinanceiroProjection) projectCobranca(event db.Event) error {
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return err
 	}
-	c := finance.CobrancaFinanceira{ID: event.AggregateID, ContextoTipo: finance.ContextoTipo(str(payload, "contexto_tipo")), CodigoAcademia: str(payload, "codigo_academia"), PagadorTipo: str(payload, "pagador_tipo"), PagadorID: str(payload, "pagador_id"), Moeda: str(payload, "moeda"), MetodoPagamento: str(payload, "metodo_pagamento"), ReferenciaExterna: str(payload, "referencia_externa"), MerchantTransactionID: str(payload, "merchant_transaction_id"), ProviderChargeID: str(payload, "provider_charge_id"), StatusProviderBruto: str(payload, "provider_status"), Status: finance.StatusCobranca(str(payload, "status")), CreatedAt: event.OccurredAt, UpdatedAt: event.OccurredAt, Version: event.EventVersion}
+	c := finance.CobrancaFinanceira{}
+	var existing []byte
+	if err := p.client.DB().QueryRow(`SELECT payload FROM financeiro_cobrancas WHERE id=$1`, event.AggregateID).Scan(&existing); err == nil {
+		_ = json.Unmarshal(existing, &c)
+	}
+	c.ID = event.AggregateID
+	if c.CreatedAt.IsZero() {
+		c.CreatedAt = event.OccurredAt
+	}
+	c.UpdatedAt = event.OccurredAt
+	c.Version = event.EventVersion
+	c.ContextoTipo = finance.ContextoTipo(str(payload, "contexto_tipo"))
+	c.CodigoAcademia = str(payload, "codigo_academia")
+	c.PagadorTipo = str(payload, "pagador_tipo")
+	c.PagadorID = str(payload, "pagador_id")
+	c.Moeda = str(payload, "moeda")
+	c.MetodoPagamento = str(payload, "metodo_pagamento")
+	c.Descricao = str(payload, "descricao")
+	c.ReferenciaExterna = str(payload, "referencia_externa")
+	c.MerchantTransactionID = str(payload, "merchant_transaction_id")
+	c.ProviderChargeID = str(payload, "provider_charge_id")
+	c.StatusProviderBruto = str(payload, "provider_status")
+	c.Status = finance.StatusCobranca(str(payload, "status"))
 	if v, ok := payload["valor"].(float64); ok {
 		c.Valor = int64(v)
 	}
 	if c.Moeda == "" {
 		c.Moeda = "AOA"
 	}
+	c.Historico = append(c.Historico, eventoFinanceiro(event, payload, "", c.CodigoAcademia))
 	key := string(c.ContextoTipo) + ":" + c.CodigoAcademia + ":" + c.ReferenciaExterna
 	raw, err := json.Marshal(c)
 	if err != nil {
@@ -146,7 +191,7 @@ func (p *FinanceiroProjection) projectModalidade(event db.Event) error {
 	} else if escopo == "academia" {
 		current.Academias[codigo] = ativa
 	}
-	current.Historico = append(current.Historico, finance.EventoFinanceiro{Tipo: event.EventType, At: event.OccurredAt, Escopo: escopo, CodigoAcademia: codigo})
+	current.Historico = append(current.Historico, eventoFinanceiro(event, payload, escopo, codigo))
 	out, err := json.Marshal(current)
 	if err != nil {
 		return err
@@ -199,4 +244,21 @@ func stringMap(v any) map[string]string {
 		out[k] = fmt.Sprint(val)
 	}
 	return out
+}
+
+func eventoFinanceiro(event db.Event, payload map[string]any, escopo, codigo string) finance.EventoFinanceiro {
+	metadata := map[string]any{}
+	_ = json.Unmarshal(event.Metadata, &metadata)
+	e := finance.EventoFinanceiro{Tipo: event.EventType, At: event.OccurredAt, Escopo: escopo, CodigoAcademia: codigo, Metadata: payload}
+	e.AutorID = str(metadata, "user_id")
+	e.AutorTipo = str(metadata, "user_type")
+	e.Motivo = str(payload, "motivo")
+	if e.Motivo == "" {
+		e.Motivo = str(metadata, "motivo")
+	}
+	e.ContextoTipo = str(payload, "contexto_tipo")
+	if e.ContextoTipo == "" && codigo != "" {
+		e.ContextoTipo = string(finance.ContextoAcademia)
+	}
+	return e
 }
