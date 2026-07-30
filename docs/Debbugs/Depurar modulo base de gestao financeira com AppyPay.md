@@ -39,6 +39,7 @@ Também foi adicionado teste automatizado garantindo que uma cobrança solicitad
 - [x] Webhook duplicado é ignorado.
 - [x] Liquidação por webhook depende de sincronização/consulta ao provider.
 - [x] Moeda financeira é sempre `AOA` e não muda por payload interno.
+- [x] Todos os eventos emitidos pelo módulo financeiro carregam `AutorID`, e operações eventadas rejeitam autor vazio.
 
 ## Comandos de validação
 
