@@ -2,15 +2,21 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/jmoiron/sqlx"
 )
 
-const migrationsDir = "migrations"
+const (
+	migrationsDir                   = "migrations"
+	migrationsAdvisoryLockKey int64 = 20260730011743
+)
 
 // loadMigrations lê o diretório de migrations e retorna os caminhos
 // ordenados por nome de arquivo (ordem numérica 001_, 002_, ...).
@@ -41,7 +47,14 @@ func loadMigrations(dir string) ([]string, error) {
 func (c *Client) RunMigrations() error {
 	log.Println("🔍 Verificando migrations...")
 
-	if err := c.ensureMigrationsTable(); err != nil {
+	ctx := context.Background()
+	conn, unlock, err := c.acquireMigrationsLock(ctx)
+	if err != nil {
+		return fmt.Errorf("erro ao obter lock de migrations: %w", err)
+	}
+	defer unlock()
+
+	if err := c.ensureMigrationsTable(ctx, conn); err != nil {
 		return fmt.Errorf("erro ao criar tabela schema_migrations: %w", err)
 	}
 
@@ -61,7 +74,7 @@ func (c *Client) RunMigrations() error {
 	for _, path := range migrations {
 		name := filepath.Base(path)
 
-		done, err := c.isMigrationApplied(name)
+		done, err := c.isMigrationApplied(ctx, conn, name)
 		if err != nil {
 			return fmt.Errorf("erro ao verificar %s: %w", name, err)
 		}
@@ -71,11 +84,11 @@ func (c *Client) RunMigrations() error {
 		}
 
 		log.Printf("📄 Aplicando: %s", name)
-		if err := c.runMigrationFile(path); err != nil {
+		if err := c.runMigrationFile(ctx, conn, path); err != nil {
 			return fmt.Errorf("erro na migration %s: %w", name, err)
 		}
 
-		if err := c.markMigrationApplied(name); err != nil {
+		if err := c.markMigrationApplied(ctx, conn, name); err != nil {
 			return fmt.Errorf("erro ao registrar %s: %w", name, err)
 		}
 
@@ -94,8 +107,8 @@ func (c *Client) RunMigrations() error {
 }
 
 // ensureMigrationsTable cria a tabela de controle se não existir.
-func (c *Client) ensureMigrationsTable() error {
-	_, err := c.db.Exec(`
+func (c *Client) ensureMigrationsTable(ctx context.Context, conn *sqlx.Conn) error {
+	_, err := conn.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			filename   VARCHAR(255) PRIMARY KEY,
 			applied_at TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -104,16 +117,43 @@ func (c *Client) ensureMigrationsTable() error {
 	return err
 }
 
-func (c *Client) isMigrationApplied(filename string) (bool, error) {
-	var count int
-	err := c.db.QueryRow(
-		`SELECT COUNT(*) FROM schema_migrations WHERE filename = $1`, filename,
-	).Scan(&count)
-	return count > 0, err
+func (c *Client) acquireMigrationsLock(ctx context.Context) (*sqlx.Conn, func(), error) {
+	conn, err := c.db.Connx(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock($1)`, migrationsAdvisoryLockKey); err != nil {
+		_ = conn.Close()
+		return nil, nil, err
+	}
+
+	log.Println("🔒 Lock de migrations obtido")
+	return conn, func() {
+		if _, err := conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, migrationsAdvisoryLockKey); err != nil {
+			log.Printf("⚠️ Erro ao liberar lock de migrations: %v", err)
+		}
+		if err := conn.Close(); err != nil {
+			log.Printf("⚠️ Erro ao fechar conexão do lock de migrations: %v", err)
+		}
+	}, nil
 }
 
-func (c *Client) markMigrationApplied(filename string) error {
-	_, err := c.db.Exec(
+func (c *Client) isMigrationApplied(ctx context.Context, conn *sqlx.Conn, filename string) (bool, error) {
+	var exists bool
+	err := conn.QueryRowxContext(
+		ctx,
+		`SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE filename = $1)`, filename,
+	).Scan(&exists)
+	if err == sql.ErrNoRows {
+		log.Printf("⚠️ Consulta de migration %s não retornou linha; tratando como não aplicada", filename)
+		return false, nil
+	}
+	return exists, err
+}
+
+func (c *Client) markMigrationApplied(ctx context.Context, conn *sqlx.Conn, filename string) error {
+	_, err := conn.ExecContext(ctx,
 		`INSERT INTO schema_migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING`, filename,
 	)
 	return err
@@ -124,14 +164,13 @@ func (c *Client) markMigrationApplied(filename string) error {
 // FIX DB-12: migrations sem BEGIN/COMMIT explícito são envolvidas em transação
 // automática. Arquivos que já têm BEGIN/COMMIT próprio são executados sem
 // interferência.
-func (c *Client) runMigrationFile(filename string) error {
+func (c *Client) runMigrationFile(ctx context.Context, conn *sqlx.Conn, filename string) error {
 	content, err := os.ReadFile(filename)
 	if err != nil {
 		return fmt.Errorf("erro ao ler arquivo: %w", err)
 	}
 
 	sql := string(content)
-	ctx := context.Background()
 
 	if migrationNeedsWrapper(sql) {
 		log.Printf("[DEBUG] %s: sem BEGIN/COMMIT explícito — envolvendo em transação automática",
@@ -139,7 +178,7 @@ func (c *Client) runMigrationFile(filename string) error {
 		sql = "BEGIN;\n" + sql + "\nCOMMIT;\n"
 	}
 
-	_, err = c.db.ExecContext(ctx, sql)
+	_, err = conn.ExecContext(ctx, sql)
 	return err
 }
 
