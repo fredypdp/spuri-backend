@@ -6218,7 +6218,7 @@ Regras importantes:
 - Uma cobrança do contexto `spuri` usa credenciais do contexto `spuri` e não depende da modalidade específica de academia.
 - Uma academia não pode consultar credenciais de outra academia.
 - Para pagador do tipo `estudante`, quando `metadata.codigo_academia_estudante` for informado, ele deve coincidir com `codigo_academia` da cobrança.
-- A moeda padrão é `AOA` quando o chamador interno não informa `moeda`.
+- A moeda do módulo financeiro é sempre `AOA`; qualquer valor informado por chamadores internos é normalizado para `AOA` e não deve ser usado para mudar a moeda.
 
 ### Configuração por variável de ambiente
 
@@ -6277,7 +6277,7 @@ Representa uma intenção/cobrança genérica:
 - `contexto_tipo` e `codigo_academia`: definem o isolamento da cobrança.
 - `pagador_tipo` e `pagador_id`: identificam o pagador de forma genérica.
 - `valor`: valor em unidade mínima da moeda.
-- `moeda`: padrão `AOA`.
+- `moeda`: sempre `AOA`, normalizada pelo serviço financeiro mesmo quando o chamador informa outro valor.
 - `metodo_pagamento`: deve existir em uma application ativa da credencial selecionada.
 - `descricao`: texto livre para o provider e auditoria.
 - `referencia_externa`: referência idempotente do domínio chamador.
