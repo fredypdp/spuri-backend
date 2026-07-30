@@ -6233,6 +6233,15 @@ Variáveis relacionadas:
 
 ### Entidades e estados
 
+### Persistência
+
+As configurações e credenciais financeiras são persistidas em tabelas próprias do módulo financeiro, criadas pela migration `097_financeiro_base_persistencia.sql`. O serviço carrega esses registros no bootstrap via `finance.NewServiceWithDB` e mantém o cache em memória apenas como acelerador/runtime; a fonte persistente fica no PostgreSQL.
+
+- `financeiro_credenciais_appypay`: armazena o payload da credencial AppyPay, incluindo segredos já cifrados e histórico auditável.
+- `financeiro_modalidade_pagamento`: armazena a configuração singleton da modalidade global, por academia e do contexto Spuri.
+- `financeiro_cobrancas`: armazena cobranças financeiras genéricas por chave idempotente.
+- `financeiro_webhooks_recebidos`: armazena IDs de webhook já processados para idempotência após restart.
+
 #### `CredencialAppyPay`
 
 Representa uma configuração AppyPay por contexto e ambiente. Campos principais:

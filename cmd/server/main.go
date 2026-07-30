@@ -15,6 +15,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"spuri/internal/db"
+	"spuri/internal/finance"
 	"spuri/internal/handlers"
 	"spuri/internal/jobs"
 	"spuri/internal/middleware"
@@ -92,6 +93,7 @@ func initDB() error {
 	if err := dbClient.RunMigrations(); err != nil {
 		return fmt.Errorf("erro ao rodar migrations: %w", err)
 	}
+	handlers.FinanceiroService = finance.NewServiceWithDB(dbClient.DB(), nil)
 	log.Println("[INFO] Banco de dados inicializado com Event Sourcing")
 	return nil
 }

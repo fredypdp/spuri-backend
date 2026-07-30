@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 )
 
 const AppyPayAPIBaseURLEnv = "APPYPAY_API_BASE_URL"
@@ -144,14 +146,122 @@ type Service struct {
 	webhooks   map[string]bool
 	modalidade ModalidadePagamento
 	provider   Provider
+	db         *sqlx.DB
 }
 
 func NewService(p Provider) *Service {
+	return NewServiceWithDB(nil, p)
+}
+
+func NewServiceWithDB(db *sqlx.DB, p Provider) *Service {
 	if p == nil {
 		p = FakeProvider{}
 	}
-	return &Service{creds: map[uuid.UUID]CredencialAppyPay{}, charges: map[uuid.UUID]CobrancaFinanceira{}, idem: map[string]uuid.UUID{}, webhooks: map[string]bool{}, modalidade: ModalidadePagamento{GlobalAcademiasAtiva: true, SpuriAtiva: true, Academias: map[string]bool{}}, provider: p}
+	s := &Service{creds: map[uuid.UUID]CredencialAppyPay{}, charges: map[uuid.UUID]CobrancaFinanceira{}, idem: map[string]uuid.UUID{}, webhooks: map[string]bool{}, modalidade: ModalidadePagamento{GlobalAcademiasAtiva: true, SpuriAtiva: true, Academias: map[string]bool{}}, provider: p, db: db}
+	if db != nil {
+		_ = s.loadPersisted(context.Background())
+	}
+	return s
 }
+
+func (s *Service) loadPersisted(ctx context.Context) error {
+	rows, err := s.db.QueryxContext(ctx, `SELECT payload FROM financeiro_credenciais_appypay`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return err
+		}
+		var c CredencialAppyPay
+		if err := json.Unmarshal(raw, &c); err != nil {
+			return err
+		}
+		s.creds[c.ID] = c
+	}
+	rows, err = s.db.QueryxContext(ctx, `SELECT idempotency_key, payload FROM financeiro_cobrancas`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key string
+		var raw []byte
+		if err := rows.Scan(&key, &raw); err != nil {
+			return err
+		}
+		var c CobrancaFinanceira
+		if err := json.Unmarshal(raw, &c); err != nil {
+			return err
+		}
+		s.charges[c.ID] = c
+		s.idem[key] = c.ID
+	}
+	rows, err = s.db.QueryxContext(ctx, `SELECT event_id FROM financeiro_webhooks_recebidos`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var eventID string
+		if err := rows.Scan(&eventID); err != nil {
+			return err
+		}
+		s.webhooks[eventID] = true
+	}
+	var raw []byte
+	if err := s.db.QueryRowxContext(ctx, `SELECT payload FROM financeiro_modalidade_pagamento WHERE id='default'`).Scan(&raw); err == nil {
+		_ = json.Unmarshal(raw, &s.modalidade)
+	}
+	return nil
+}
+
+func (s *Service) persistCredencial(ctx context.Context, c CredencialAppyPay) error {
+	if s.db == nil {
+		return nil
+	}
+	raw, err := json.Marshal(c)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO financeiro_credenciais_appypay (id, payload, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (id) DO UPDATE SET payload=EXCLUDED.payload, updated_at=CURRENT_TIMESTAMP`, c.ID, raw)
+	return err
+}
+
+func (s *Service) persistCobranca(ctx context.Context, key string, c CobrancaFinanceira) error {
+	if s.db == nil {
+		return nil
+	}
+	raw, err := json.Marshal(c)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO financeiro_cobrancas (id, idempotency_key, payload, updated_at) VALUES ($1, $2, $3, CURRENT_TIMESTAMP) ON CONFLICT (id) DO UPDATE SET idempotency_key=EXCLUDED.idempotency_key, payload=EXCLUDED.payload, updated_at=CURRENT_TIMESTAMP`, c.ID, key, raw)
+	return err
+}
+
+func (s *Service) persistModalidade(ctx context.Context) error {
+	if s.db == nil {
+		return nil
+	}
+	raw, err := json.Marshal(s.modalidade)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO financeiro_modalidade_pagamento (id, payload, updated_at) VALUES ('default', $1, CURRENT_TIMESTAMP) ON CONFLICT (id) DO UPDATE SET payload=EXCLUDED.payload, updated_at=CURRENT_TIMESTAMP`, raw)
+	return err
+}
+
+func (s *Service) persistWebhook(ctx context.Context, eventID string) error {
+	if s.db == nil {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO financeiro_webhooks_recebidos (event_id) VALUES ($1) ON CONFLICT (event_id) DO NOTHING`, eventID)
+	return err
+}
+
 func validarAutorID(autorID string) error {
 	if strings.TrimSpace(autorID) == "" {
 		return errors.New("autor_id obrigatório para auditoria financeira")
@@ -173,6 +283,9 @@ func (s *Service) CriarCredencial(ctx context.Context, in CredencialInput, autor
 		return c, err
 	}
 	c.Historico = append(c.Historico, EventoFinanceiro{Tipo: "CredenciaisAppyPayCadastradas", AutorID: autorID, AutorTipo: autorTipo, ContextoTipo: string(c.ContextoTipo), CodigoAcademia: c.CodigoAcademia, At: c.CreatedAt})
+	if err := s.persistCredencial(ctx, c); err != nil {
+		return CredencialAppyPay{}, err
+	}
 	s.creds[c.ID] = c
 	return maskCred(c), nil
 }
@@ -197,6 +310,9 @@ func (s *Service) AtualizarCredencial(ctx context.Context, id uuid.UUID, in Cred
 	c.CreatedAt = old.CreatedAt
 	c.Version = old.Version + 1
 	c.Historico = append(old.Historico, EventoFinanceiro{Tipo: "CredenciaisAppyPayAtualizadas", AutorID: autorID, AutorTipo: autorTipo, ContextoTipo: string(c.ContextoTipo), CodigoAcademia: c.CodigoAcademia, At: c.UpdatedAt})
+	if err := s.persistCredencial(ctx, c); err != nil {
+		return CredencialAppyPay{}, err
+	}
 	s.creds[id] = c
 	return maskCred(c), nil
 }
@@ -244,6 +360,9 @@ func (s *Service) TestarCredencial(ctx context.Context, id uuid.UUID, autorID, a
 	defer s.mu.Unlock()
 	c = s.creds[id]
 	c.Historico = append(c.Historico, EventoFinanceiro{Tipo: "CredenciaisAppyPayValidadas", AutorID: autorID, AutorTipo: autorTipo, ContextoTipo: string(c.ContextoTipo), CodigoAcademia: c.CodigoAcademia, At: time.Now().UTC()})
+	if err := s.persistCredencial(ctx, c); err != nil {
+		return err
+	}
 	s.creds[id] = c
 	return nil
 }
@@ -268,6 +387,9 @@ func (s *Service) AlterarStatusCredencial(id uuid.UUID, status StatusCredencial,
 		eventoTipo = "CredenciaisAppyPayAtivadas"
 	}
 	c.Historico = append(c.Historico, EventoFinanceiro{Tipo: eventoTipo, AutorID: autorID, AutorTipo: autorTipo, Motivo: motivo, ContextoTipo: string(c.ContextoTipo), CodigoAcademia: c.CodigoAcademia, At: c.UpdatedAt})
+	if err := s.persistCredencial(context.Background(), c); err != nil {
+		return CredencialAppyPay{}, err
+	}
 	s.creds[id] = c
 	return maskCred(c), nil
 }
@@ -290,7 +412,7 @@ func (s *Service) AlterarModalidade(escopo, codigo string, ativa bool, autorID, 
 		return errors.New("escopo inválido")
 	}
 	s.modalidade.Historico = append(s.modalidade.Historico, EventoFinanceiro{Tipo: "ModalidadePagamentoAlterada", AutorID: autorID, AutorTipo: autorTipo, Motivo: motivo, Escopo: escopo, CodigoAcademia: codigo, At: time.Now().UTC()})
-	return nil
+	return s.persistModalidade(context.Background())
 }
 func (s *Service) GerarCobrancaFinanceiraBase(ctx context.Context, in GerarCobrancaInput, autorID string) (CobrancaFinanceira, error) {
 	s.mu.Lock()
@@ -332,6 +454,9 @@ func (s *Service) GerarCobrancaFinanceiraBase(ctx context.Context, in GerarCobra
 		ch.StatusProviderBruto = pstatus
 	}
 	ch.Historico = append(ch.Historico, EventoFinanceiro{Tipo: "CobrancaFinanceiraEnviadaAoProvider", AutorID: autorID, At: time.Now().UTC(), Metadata: map[string]any{"provider_status": pstatus}})
+	if persistErr := s.persistCobranca(ctx, key, ch); persistErr != nil {
+		return CobrancaFinanceira{}, persistErr
+	}
 	s.charges[ch.ID] = ch
 	s.idem[key] = ch.ID
 	return ch, err
@@ -374,6 +499,10 @@ func (s *Service) SincronizarStatusCobrancaFinanceiraBase(ctx context.Context, i
 	c.Version++
 	c.UpdatedAt = time.Now().UTC()
 	c.Historico = append(c.Historico, EventoFinanceiro{Tipo: "CobrancaFinanceiraStatusAtualizado", AutorID: autorID, At: c.UpdatedAt, Metadata: map[string]any{"provider_status": st}})
+	key := string(c.ContextoTipo) + ":" + c.CodigoAcademia + ":" + c.ReferenciaExterna
+	if err := s.persistCobranca(ctx, key, c); err != nil {
+		return CobrancaFinanceira{}, err
+	}
 	s.charges[id] = c
 	return c, nil
 }
@@ -389,6 +518,10 @@ func (s *Service) CancelarCobrancaFinanceiraBase(id uuid.UUID, autor, motivo str
 	}
 	c.Status = CobrancaCancelada
 	c.Historico = append(c.Historico, EventoFinanceiro{Tipo: "CobrancaFinanceiraCancelada", AutorID: autor, Motivo: motivo, At: time.Now().UTC()})
+	key := string(c.ContextoTipo) + ":" + c.CodigoAcademia + ":" + c.ReferenciaExterna
+	if err := s.persistCobranca(context.Background(), key, c); err != nil {
+		return CobrancaFinanceira{}, err
+	}
 	s.charges[id] = c
 	return c, nil
 }
@@ -412,6 +545,10 @@ func (s *Service) ReembolsarCobrancaFinanceiraBase(id uuid.UUID, valor int64, au
 	e := EventoFinanceiro{Tipo: "ReembolsoFinanceiroSolicitado", AutorID: autor, Motivo: motivo, At: time.Now().UTC(), Metadata: map[string]any{"cobranca_id": id.String(), "valor": valor}}
 	c.Historico = append(c.Historico, e)
 	c.Version++
+	key := string(c.ContextoTipo) + ":" + c.CodigoAcademia + ":" + c.ReferenciaExterna
+	if err := s.persistCobranca(context.Background(), key, c); err != nil {
+		return EventoFinanceiro{}, err
+	}
 	s.charges[id] = c
 	return e, nil
 }
@@ -432,6 +569,10 @@ func (s *Service) ReverterCobrancaFinanceiraBase(id uuid.UUID, autor, motivo str
 	e := EventoFinanceiro{Tipo: "ReversaoFinanceiraSolicitada", AutorID: autor, Motivo: motivo, At: time.Now().UTC(), Metadata: map[string]any{"cobranca_id": id.String()}}
 	c.Historico = append(c.Historico, e)
 	c.Version++
+	key := string(c.ContextoTipo) + ":" + c.CodigoAcademia + ":" + c.ReferenciaExterna
+	if err := s.persistCobranca(context.Background(), key, c); err != nil {
+		return EventoFinanceiro{}, err
+	}
 	s.charges[id] = c
 	return e, nil
 }
@@ -444,6 +585,10 @@ func (s *Service) ProcessarWebhookFinanceiroBase(ctx context.Context, eventID st
 	if s.webhooks[eventID] {
 		s.mu.Unlock()
 		return false, nil
+	}
+	if err := s.persistWebhook(ctx, eventID); err != nil {
+		s.mu.Unlock()
+		return false, err
 	}
 	s.webhooks[eventID] = true
 	s.mu.Unlock()

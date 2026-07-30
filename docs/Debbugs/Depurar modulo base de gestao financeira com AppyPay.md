@@ -40,6 +40,7 @@ Também foi adicionado teste automatizado garantindo que uma cobrança solicitad
 - [x] Liquidação por webhook depende de sincronização/consulta ao provider.
 - [x] Moeda financeira é sempre `AOA` e não muda por payload interno.
 - [x] Todos os eventos emitidos pelo módulo financeiro carregam `AutorID`, e operações eventadas rejeitam autor vazio.
+- [x] Configurações, credenciais, cobranças e webhooks do módulo financeiro são persistidos em PostgreSQL por tabelas próprias, com cache em memória apenas em runtime.
 
 ## Comandos de validação
 
