@@ -6198,3 +6198,37 @@ Quando a configuração do Mega ou da quota estiver incompleta ou inválida, a r
   "request_id": "8c7e6a5d-9b9f-4fd2-a2d0-3a989a8c2d8b"
 }
 ```
+
+## Módulo financeiro base com AppyPay
+
+O backend possui um módulo financeiro base (`internal/finance`) para dois contextos isolados: `spuri`, em que a plataforma cobra academias, e `academia`, em que uma academia cobra pagadores próprios usando credenciais AppyPay da própria instituição. A base evita criar regras específicas como propina, matrícula, mensalidade, certificado ou assinatura; essas camadas futuras devem chamar as funções genéricas do serviço financeiro.
+
+### Entidades e estados
+
+- `CredencialAppyPay`: metadados por contexto, ambiente (`test`/`prod`), URLs AppyPay, `client_id`, `resource`, applications por método (`REF`, `GPO`, `UMM`, `SDD` etc.) e segredos cifrados. Estados: `pendente_validacao`, `ativo`, `inativo`, `erro_validacao`.
+- `ModalidadePagamento`: controla cobrança própria de academias em nível global e específico por academia, separada da chave operacional do contexto `spuri`.
+- `CobrancaFinanceira`: intenção/cobrança genérica com `merchantTransactionId`, referência externa idempotente, pagador genérico, status normalizado e status bruto do provider. Estados: `pendente`, `enviada_provider`, `liquidada`, `cancelada`, `falhada`.
+- Eventos financeiros previstos incluem credenciais cadastradas/atualizadas/validadas/ativadas/desativadas, modalidade alterada, cobrança criada/enviada/status atualizado/cancelada, webhook recebido/duplicado e divergências de reconciliação.
+
+### Endpoints de configuração e controlo
+
+Rotas autenticadas disponíveis:
+
+- `POST /financeiro/appypay/credenciais`
+- `PUT /financeiro/appypay/credenciais/:id`
+- `GET /financeiro/appypay/credenciais`
+- `GET /financeiro/appypay/credenciais/:id`
+- `POST /financeiro/appypay/credenciais/:id/testar`
+- `POST /financeiro/appypay/credenciais/:id/ativar`
+- `POST /financeiro/appypay/credenciais/:id/desativar`
+- `POST /financeiro/modalidade-pagamento`
+
+Não há endpoints HTTP transacionais nesta entrega. Geração, consulta, sincronização, cancelamento, webhook e reconciliação existem como funções internas reutilizáveis (`GerarCobrancaFinanceiraBase`, `ConsultarCobrancaFinanceiraBase`, `SincronizarStatusCobrancaFinanceiraBase`, `CancelarCobrancaFinanceiraBase`, `ReembolsarCobrancaFinanceiraBase`, `ReverterCobrancaFinanceiraBase`, `ProcessarWebhookFinanceiroBase`, `ReconciliarFinanceiroBase`).
+
+### Segurança, permissões e idempotência
+
+FPP/ADMIN criam, ativam, desativam e bloqueiam credenciais ou modalidades. Academias só consultam/atualizam credenciais do próprio contexto quando autorizado e nunca recebem `client_secret`, `apiKey`, tokens ou webhook secrets em claro. Segredos são cifrados em repouso e expostos apenas mascarados. A chave idempotente de cobrança é `contexto_tipo:codigo_academia:referencia_externa`; webhooks usam o identificador do evento recebido para ignorar duplicados. Uma cobrança só é marcada como `liquidada` após sincronização/consulta segura ao provider, não apenas pelo payload do webhook.
+
+### Mapeamento AppyPay
+
+A implementação base prepara o uso de OAuth2 Client Credentials contra `auth_base_url`/`resource`, chamadas de cobrança em `POST /charges`, consulta em `GET /charges/{id}` ou `GET /charges`, reembolsos via `/refunds/{id}` e reversões via `/reverses/{id}` quando o método suportar. SDD permanece configurável por application e deve ser mantido desativável por causa da limitação operacional documentada como ALPHA.
