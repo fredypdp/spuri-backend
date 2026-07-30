@@ -123,14 +123,14 @@ func (c *Client) acquireMigrationsLock(ctx context.Context) (*sqlx.Conn, func(),
 		return nil, nil, err
 	}
 
-	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock($1)`, migrationsAdvisoryLockKey); err != nil {
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf(`SELECT pg_advisory_lock(%d)`, migrationsAdvisoryLockKey)); err != nil {
 		_ = conn.Close()
 		return nil, nil, err
 	}
 
 	log.Println("🔒 Lock de migrations obtido")
 	return conn, func() {
-		if _, err := conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, migrationsAdvisoryLockKey); err != nil {
+		if _, err := conn.ExecContext(context.Background(), fmt.Sprintf(`SELECT pg_advisory_unlock(%d)`, migrationsAdvisoryLockKey)); err != nil {
 			log.Printf("⚠️ Erro ao liberar lock de migrations: %v", err)
 		}
 		if err := conn.Close(); err != nil {
@@ -143,7 +143,7 @@ func (c *Client) isMigrationApplied(ctx context.Context, conn *sqlx.Conn, filena
 	var exists bool
 	err := conn.QueryRowxContext(
 		ctx,
-		`SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE filename = $1)`, filename,
+		fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE filename = %s)`, quoteSQLLiteral(filename)),
 	).Scan(&exists)
 	if err == sql.ErrNoRows {
 		log.Printf("⚠️ Consulta de migration %s não retornou linha; tratando como não aplicada", filename)
@@ -152,10 +152,17 @@ func (c *Client) isMigrationApplied(ctx context.Context, conn *sqlx.Conn, filena
 	return exists, err
 }
 
+// quoteSQLLiteral evita placeholders no runner de migrations, porque alguns
+// poolers PostgreSQL em produção invalidam prepared statements entre operações.
+func quoteSQLLiteral(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
 func (c *Client) markMigrationApplied(ctx context.Context, conn *sqlx.Conn, filename string) error {
-	_, err := conn.ExecContext(ctx,
-		`INSERT INTO schema_migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING`, filename,
-	)
+	_, err := conn.ExecContext(ctx, fmt.Sprintf(
+		`INSERT INTO schema_migrations (filename) VALUES (%s) ON CONFLICT DO NOTHING`,
+		quoteSQLLiteral(filename),
+	))
 	return err
 }
 
