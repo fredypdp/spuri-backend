@@ -18,10 +18,18 @@ type EventoFinanceiroLedger struct {
 }
 
 func NewFinanceiro() *Financeiro {
-	return &Financeiro{BaseAggregate: &BaseAggregate{ID: uuid.New(), UncommittedEvents: []DomainEvent{}}}
+	return NewFinanceiroWithID(uuid.New())
+}
+
+func NewFinanceiroWithID(id uuid.UUID) *Financeiro {
+	return &Financeiro{BaseAggregate: &BaseAggregate{ID: id, UncommittedEvents: []DomainEvent{}}}
 }
 
 func (f *Financeiro) GetType() string { return "Financeiro" }
+
+func (f *Financeiro) RegistrarEvento(eventType string, payload map[string]any) {
+	f.RaiseEvent(&EventoFinanceiroLedger{BaseEvent: BaseEvent{EventType: eventType, AggregateID: f.ID, Payload: payload}})
+}
 
 func (f *Financeiro) Apply(event DomainEvent) error {
 	if event.GetAggregateID() == uuid.Nil {

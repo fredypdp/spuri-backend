@@ -19,6 +19,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+
+	"spuri/internal/db"
+	"spuri/internal/domain/aggregates"
 )
 
 const AppyPayAPIBaseURLEnv = "APPYPAY_API_BASE_URL"
@@ -171,6 +174,13 @@ func NewServiceWithDB(db *sqlx.DB, p Provider) *Service {
 	return NewServiceWithDBAndLedger(db, p, nil)
 }
 
+func NewServiceWithClient(client *db.Client, p Provider) *Service {
+	if client == nil {
+		return NewService(p)
+	}
+	return NewServiceWithDBAndLedger(client.DB(), p, NewRepositoryLedger(client))
+}
+
 func NewServiceWithDBAndLedger(db *sqlx.DB, p Provider, ledger LedgerWriter) *Service {
 	if p == nil {
 		p = FakeProvider{}
@@ -180,15 +190,36 @@ func NewServiceWithDBAndLedger(db *sqlx.DB, p Provider, ledger LedgerWriter) *Se
 		ledger = SQLLedger{db: db}
 	}
 	s.ledger = ledger
-	if ledger != nil {
-		_ = s.RebuildProjections(context.Background())
-	} else if db != nil {
+	if db != nil {
 		_ = s.loadPersisted(context.Background())
+	}
+	if ledger != nil && db == nil {
+		_ = s.RebuildProjections(context.Background())
 	}
 	return s
 }
 
 func (SQLLedger) aggregateType() string { return "Financeiro" }
+
+type RepositoryLedger struct{ repo *db.AggregateRepository }
+
+func NewRepositoryLedger(client *db.Client) RepositoryLedger {
+	return RepositoryLedger{repo: db.NewAggregateRepository(client)}
+}
+
+func (l RepositoryLedger) AppendFinanceEvent(ctx context.Context, event LedgerEvent, autorID, autorTipo, origem string) (int, error) {
+	if l.repo == nil {
+		return 0, nil
+	}
+	agg := aggregates.NewFinanceiroWithID(event.AggregateID)
+	agg.RegistrarEvento(event.EventType, sanitizeMap(event.Payload))
+	err := l.repo.WithContext(ctx).SaveWithAudit(agg, db.AuditContext{UserID: autorID, UserType: autorTipo, IP: origem})
+	return agg.GetVersion(), err
+}
+
+func (l RepositoryLedger) LoadFinanceEvents(ctx context.Context) ([]LedgerEvent, error) {
+	return nil, errors.New("RepositoryLedger não expõe replay; use FinanceiroProjection para rebuild canônico")
+}
 
 type SQLLedger struct{ db *sqlx.DB }
 

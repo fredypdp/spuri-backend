@@ -6229,18 +6229,18 @@ Variáveis relacionadas:
 | Variável | Obrigatória | Descrição |
 | --- | --- | --- |
 | `APPYPAY_API_BASE_URL` | Sim | URL base usada para chamadas transacionais da AppyPay, por exemplo criação e consulta de cobranças. |
-| `FINANCE_ENCRYPTION_KEY` | Recomendado em produção | Chave usada como parte da derivação AES-GCM dos segredos financeiros em repouso. Se ausente, o backend ainda cifra, mas com chave padrão de desenvolvimento. |
+| `FINANCE_ENCRYPTION_KEY` | Sim em produção | Chave usada como parte da derivação AES-GCM dos segredos financeiros em repouso. Em `GO_ENV=production`, a ausência da variável falha a configuração de credenciais. |
 
 ### Entidades e estados
 
 ### Persistência
 
-As configurações e credenciais financeiras são persistidas em tabelas próprias do módulo financeiro, criadas pela migration `097_financeiro_base_persistencia.sql`. O serviço carrega esses registros no bootstrap via `finance.NewServiceWithDB` e mantém o cache em memória apenas como acelerador/runtime; a fonte persistente fica no PostgreSQL.
+As mudanças financeiras são persistidas primeiro no `spuri_ledger` com `aggregate_type = "Financeiro"`. As tabelas próprias do módulo financeiro, criadas pelas migrations `097_financeiro_base_persistencia.sql` e `098_financeiro_event_sourcing.sql`, são read models/projeções reconstruíveis pelo `FinanceiroProjection` registrado no `Projection Manager`; o cache em memória é apenas acelerador/runtime.
 
-- `financeiro_credenciais_appypay`: armazena o payload da credencial AppyPay, incluindo segredos já cifrados e histórico auditável.
-- `financeiro_modalidade_pagamento`: armazena a configuração singleton da modalidade global, por academia e do contexto Spuri.
-- `financeiro_cobrancas`: armazena cobranças financeiras genéricas por chave idempotente.
-- `financeiro_webhooks_recebidos`: armazena IDs de webhook já processados para idempotência após restart.
+- `financeiro_credenciais_appypay`: projeção do estado atual da credencial AppyPay, contendo metadados e máscaras; segredos/ciphertexts pertencem ao armazenamento operacional controlado.
+- `financeiro_modalidade_pagamento`: projeção singleton da configuração global, por academia e do contexto Spuri.
+- `financeiro_cobrancas`: projeção de cobranças financeiras genéricas e chave idempotente reconstruível por replay.
+- `financeiro_webhooks_recebidos`: projeção/índice de IDs de webhook já processados para idempotência após restart.
 
 #### `CredencialAppyPay`
 

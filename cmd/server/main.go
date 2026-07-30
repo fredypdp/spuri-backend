@@ -93,7 +93,7 @@ func initDB() error {
 	if err := dbClient.RunMigrations(); err != nil {
 		return fmt.Errorf("erro ao rodar migrations: %w", err)
 	}
-	handlers.FinanceiroService = finance.NewServiceWithDB(dbClient.DB(), nil)
+	handlers.FinanceiroService = finance.NewServiceWithClient(dbClient, nil)
 	log.Println("[INFO] Banco de dados inicializado com Event Sourcing")
 	return nil
 }
