@@ -76,6 +76,23 @@ func TestModalidadeDesativadaImpedeAcademiaMasNaoSpuri(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestMoedaSempreAOA(t *testing.T) {
+	s := NewService(nil)
+	sp, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.AlterarStatusCredencial(sp.ID, StatusAtivo, "u", "admin", "", "")
+	ch, err := s.GerarCobrancaFinanceiraBase(context.Background(), GerarCobrancaInput{ContextoTipo: ContextoSpuri, CodigoAcademia: "ACA", PagadorTipo: "academia", PagadorID: "ACA", Valor: 1, Moeda: "USD", MetodoPagamento: "REF", ReferenciaExterna: "moeda"}, "u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch.Moeda != "AOA" {
+		t.Fatalf("moeda deve permanecer AOA, obtida %q", ch.Moeda)
+	}
+}
+
 func TestWebhookDupENaoLiquidaSemConsulta(t *testing.T) {
 	s := NewService(nil)
 	sp, _ := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "admin")

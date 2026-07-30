@@ -257,9 +257,7 @@ func (s *Service) AlterarModalidade(escopo, codigo string, ativa bool, autorID, 
 func (s *Service) GerarCobrancaFinanceiraBase(ctx context.Context, in GerarCobrancaInput, autorID string) (CobrancaFinanceira, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if in.Moeda == "" {
-		in.Moeda = "AOA"
-	}
+	in.Moeda = "AOA"
 	if in.Valor <= 0 || in.ReferenciaExterna == "" {
 		return CobrancaFinanceira{}, errors.New("valor e referencia_externa são obrigatórios")
 	}
