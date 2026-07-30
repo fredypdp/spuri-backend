@@ -129,6 +129,29 @@ func TestWithClientEncodingAppendsStartupParamForDirectConnection(t *testing.T) 
 	}
 }
 
+func TestConnectionStringForDriverRewritesNeonPoolerToDirectHost(t *testing.T) {
+	t.Setenv("DB_ALLOW_POOLER", "")
+	databaseURL := "postgres://user:pass@ep-cool-name-123456-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require"
+
+	got := connectionStringForDriver(databaseURL)
+	want := "postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/neondb?sslmode=require&client_encoding=UTF8"
+
+	if got != want {
+		t.Fatalf("connectionStringForDriver() = %q, want %q", got, want)
+	}
+}
+
+func TestConnectionStringForDriverCanKeepExplicitlyAllowedPooler(t *testing.T) {
+	t.Setenv("DB_ALLOW_POOLER", "true")
+	databaseURL := "postgres://user:pass@ep-cool-name-123456-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require"
+
+	got := connectionStringForDriver(databaseURL)
+
+	if got != databaseURL {
+		t.Fatalf("connectionStringForDriver() = %q, want original pooled URL", got)
+	}
+}
+
 func TestDefaultConfigReadsDatabaseAuthFromEnv(t *testing.T) {
 	t.Setenv("DATABASE_URL", "")
 	t.Setenv("DB_HOST", "db.example.com")

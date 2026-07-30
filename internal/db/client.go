@@ -45,7 +45,7 @@ func NewClient(config *Config) (*Client, error) {
 	var connStr string
 
 	if config.DatabaseURL != "" {
-		connStr = withClientEncoding(config.DatabaseURL)
+		connStr = connectionStringForDriver(config.DatabaseURL)
 		log.Printf("🔗 Usando DATABASE_URL")
 	} else {
 		connStr = fmt.Sprintf(
@@ -280,6 +280,42 @@ func getEnvInt(key string, defaultValue int) int {
 func getEnvDurationSeconds(key string, defaultValue time.Duration) time.Duration {
 	seconds := getEnvInt(key, int(defaultValue.Seconds()))
 	return time.Duration(seconds) * time.Second
+}
+
+func connectionStringForDriver(databaseURL string) string {
+	return withClientEncoding(withDirectNeonHost(databaseURL))
+}
+
+func withDirectNeonHost(databaseURL string) string {
+	if databaseURL == "" || !isPooledDatabaseURL(databaseURL) || allowPooledDatabaseURL() {
+		return databaseURL
+	}
+
+	parsed, err := url.Parse(databaseURL)
+	if err != nil {
+		return databaseURL
+	}
+
+	host := parsed.Hostname()
+	lowerHost := strings.ToLower(host)
+	if !strings.Contains(lowerHost, "-pooler") || !strings.Contains(lowerHost, ".neon.tech") {
+		return databaseURL
+	}
+
+	port := parsed.Port()
+	directHost := strings.Replace(host, "-pooler", "", 1)
+	parsed.Host = directHost
+	if port != "" && port != "5432" {
+		parsed.Host += ":5432"
+	}
+
+	log.Printf("⚠️ Detectado Neon pooler; usando host direto para evitar prepared statements incompatíveis com PgBouncer transaction pooling")
+	return parsed.String()
+}
+
+func allowPooledDatabaseURL() bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv("DB_ALLOW_POOLER")))
+	return value == "1" || value == "true" || value == "yes"
 }
 
 func withClientEncoding(databaseURL string) string {
