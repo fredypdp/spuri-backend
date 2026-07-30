@@ -66,6 +66,7 @@ type CredencialAppyPay struct {
 	AuthBaseURL, APIBaseURL, WebAPIBaseURL, ClientID, ClientSecretEncrypted, ClientSecretMask, Resource, WebhookSecretEncrypted, WebhookSecretMask string
 	Applications                                                                                                                                   []Application
 	Status                                                                                                                                         StatusCredencial
+	Historico                                                                                                                                      []EventoFinanceiro
 	CreatedAt, UpdatedAt                                                                                                                           time.Time
 	Version                                                                                                                                        int
 }
@@ -151,9 +152,19 @@ func NewService(p Provider) *Service {
 	}
 	return &Service{creds: map[uuid.UUID]CredencialAppyPay{}, charges: map[uuid.UUID]CobrancaFinanceira{}, idem: map[string]uuid.UUID{}, webhooks: map[string]bool{}, modalidade: ModalidadePagamento{GlobalAcademiasAtiva: true, SpuriAtiva: true, Academias: map[string]bool{}}, provider: p}
 }
+func validarAutorID(autorID string) error {
+	if strings.TrimSpace(autorID) == "" {
+		return errors.New("autor_id obrigatório para auditoria financeira")
+	}
+	return nil
+}
+
 func (s *Service) CriarCredencial(ctx context.Context, in CredencialInput, autorID, autorTipo string) (CredencialAppyPay, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := validarAutorID(autorID); err != nil {
+		return CredencialAppyPay{}, err
+	}
 	if autorTipo != "fpp" && autorTipo != "admin" {
 		return CredencialAppyPay{}, errors.New("apenas FPP/ADMIN podem criar credenciais")
 	}
@@ -161,12 +172,16 @@ func (s *Service) CriarCredencial(ctx context.Context, in CredencialInput, autor
 	if err != nil {
 		return c, err
 	}
+	c.Historico = append(c.Historico, EventoFinanceiro{Tipo: "CredenciaisAppyPayCadastradas", AutorID: autorID, AutorTipo: autorTipo, ContextoTipo: string(c.ContextoTipo), CodigoAcademia: c.CodigoAcademia, At: c.CreatedAt})
 	s.creds[c.ID] = c
 	return maskCred(c), nil
 }
 func (s *Service) AtualizarCredencial(ctx context.Context, id uuid.UUID, in CredencialInput, autorID, autorTipo, codAcad string) (CredencialAppyPay, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := validarAutorID(autorID); err != nil {
+		return CredencialAppyPay{}, err
+	}
 	old, ok := s.creds[id]
 	if !ok {
 		return old, errors.New("credencial não encontrada")
@@ -181,6 +196,7 @@ func (s *Service) AtualizarCredencial(ctx context.Context, id uuid.UUID, in Cred
 	c.ID = id
 	c.CreatedAt = old.CreatedAt
 	c.Version = old.Version + 1
+	c.Historico = append(old.Historico, EventoFinanceiro{Tipo: "CredenciaisAppyPayAtualizadas", AutorID: autorID, AutorTipo: autorTipo, ContextoTipo: string(c.ContextoTipo), CodigoAcademia: c.CodigoAcademia, At: c.UpdatedAt})
 	s.creds[id] = c
 	return maskCred(c), nil
 }
@@ -208,7 +224,10 @@ func (s *Service) ObterCredencial(id uuid.UUID, autorTipo, codAcad string) (Cred
 	}
 	return maskCred(c), nil
 }
-func (s *Service) TestarCredencial(ctx context.Context, id uuid.UUID, autorTipo, codAcad string) error {
+func (s *Service) TestarCredencial(ctx context.Context, id uuid.UUID, autorID, autorTipo, codAcad string) error {
+	if err := validarAutorID(autorID); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	c, ok := s.creds[id]
 	s.mu.Unlock()
@@ -218,11 +237,22 @@ func (s *Service) TestarCredencial(ctx context.Context, id uuid.UUID, autorTipo,
 	if autorTipo == "academia" && (c.ContextoTipo != ContextoAcademia || c.CodigoAcademia != codAcad) {
 		return errors.New("sem permissão")
 	}
-	return s.provider.TestarCredencial(ctx, c)
+	if err := s.provider.TestarCredencial(ctx, c); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c = s.creds[id]
+	c.Historico = append(c.Historico, EventoFinanceiro{Tipo: "CredenciaisAppyPayValidadas", AutorID: autorID, AutorTipo: autorTipo, ContextoTipo: string(c.ContextoTipo), CodigoAcademia: c.CodigoAcademia, At: time.Now().UTC()})
+	s.creds[id] = c
+	return nil
 }
 func (s *Service) AlterarStatusCredencial(id uuid.UUID, status StatusCredencial, autorID, autorTipo, codAcad, motivo string) (CredencialAppyPay, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := validarAutorID(autorID); err != nil {
+		return CredencialAppyPay{}, err
+	}
 	c, ok := s.creds[id]
 	if !ok {
 		return c, errors.New("credencial não encontrada")
@@ -233,12 +263,20 @@ func (s *Service) AlterarStatusCredencial(id uuid.UUID, status StatusCredencial,
 	c.Status = status
 	c.UpdatedAt = time.Now().UTC()
 	c.Version++
+	eventoTipo := "CredenciaisAppyPayDesativadas"
+	if status == StatusAtivo {
+		eventoTipo = "CredenciaisAppyPayAtivadas"
+	}
+	c.Historico = append(c.Historico, EventoFinanceiro{Tipo: eventoTipo, AutorID: autorID, AutorTipo: autorTipo, Motivo: motivo, ContextoTipo: string(c.ContextoTipo), CodigoAcademia: c.CodigoAcademia, At: c.UpdatedAt})
 	s.creds[id] = c
 	return maskCred(c), nil
 }
 func (s *Service) AlterarModalidade(escopo, codigo string, ativa bool, autorID, autorTipo, motivo string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := validarAutorID(autorID); err != nil {
+		return err
+	}
 	if autorTipo != "fpp" && autorTipo != "admin" {
 		return errors.New("apenas FPP/ADMIN")
 	}
@@ -257,9 +295,10 @@ func (s *Service) AlterarModalidade(escopo, codigo string, ativa bool, autorID, 
 func (s *Service) GerarCobrancaFinanceiraBase(ctx context.Context, in GerarCobrancaInput, autorID string) (CobrancaFinanceira, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if in.Moeda == "" {
-		in.Moeda = "AOA"
+	if err := validarAutorID(autorID); err != nil {
+		return CobrancaFinanceira{}, err
 	}
+	in.Moeda = "AOA"
 	if in.Valor <= 0 || in.ReferenciaExterna == "" {
 		return CobrancaFinanceira{}, errors.New("valor e referencia_externa são obrigatórios")
 	}
@@ -292,7 +331,7 @@ func (s *Service) GerarCobrancaFinanceiraBase(ctx context.Context, in GerarCobra
 		ch.Status = CobrancaEnviada
 		ch.StatusProviderBruto = pstatus
 	}
-	ch.Historico = append(ch.Historico, EventoFinanceiro{Tipo: "CobrancaFinanceiraEnviadaAoProvider", At: time.Now().UTC(), Metadata: map[string]any{"provider_status": pstatus}})
+	ch.Historico = append(ch.Historico, EventoFinanceiro{Tipo: "CobrancaFinanceiraEnviadaAoProvider", AutorID: autorID, At: time.Now().UTC(), Metadata: map[string]any{"provider_status": pstatus}})
 	s.charges[ch.ID] = ch
 	s.idem[key] = ch.ID
 	return ch, err
@@ -306,7 +345,10 @@ func (s *Service) ConsultarCobrancaFinanceiraBase(id uuid.UUID) (CobrancaFinance
 	}
 	return c, nil
 }
-func (s *Service) SincronizarStatusCobrancaFinanceiraBase(ctx context.Context, id uuid.UUID) (CobrancaFinanceira, error) {
+func (s *Service) SincronizarStatusCobrancaFinanceiraBase(ctx context.Context, id uuid.UUID, autorID string) (CobrancaFinanceira, error) {
+	if err := validarAutorID(autorID); err != nil {
+		return CobrancaFinanceira{}, err
+	}
 	s.mu.Lock()
 	c, ok := s.charges[id]
 	if !ok {
@@ -331,13 +373,16 @@ func (s *Service) SincronizarStatusCobrancaFinanceiraBase(ctx context.Context, i
 	}
 	c.Version++
 	c.UpdatedAt = time.Now().UTC()
-	c.Historico = append(c.Historico, EventoFinanceiro{Tipo: "CobrancaFinanceiraStatusAtualizado", At: c.UpdatedAt, Metadata: map[string]any{"provider_status": st}})
+	c.Historico = append(c.Historico, EventoFinanceiro{Tipo: "CobrancaFinanceiraStatusAtualizado", AutorID: autorID, At: c.UpdatedAt, Metadata: map[string]any{"provider_status": st}})
 	s.charges[id] = c
 	return c, nil
 }
 func (s *Service) CancelarCobrancaFinanceiraBase(id uuid.UUID, autor, motivo string) (CobrancaFinanceira, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := validarAutorID(autor); err != nil {
+		return CobrancaFinanceira{}, err
+	}
 	c := s.charges[id]
 	if c.Status == CobrancaLiquidada {
 		return c, errors.New("cobrança liquidada não pode ser cancelada")
@@ -351,6 +396,9 @@ func (s *Service) CancelarCobrancaFinanceiraBase(id uuid.UUID, autor, motivo str
 func (s *Service) ReembolsarCobrancaFinanceiraBase(id uuid.UUID, valor int64, autor, motivo string) (EventoFinanceiro, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := validarAutorID(autor); err != nil {
+		return EventoFinanceiro{}, err
+	}
 	c, ok := s.charges[id]
 	if !ok {
 		return EventoFinanceiro{}, errors.New("cobrança não encontrada")
@@ -371,6 +419,9 @@ func (s *Service) ReembolsarCobrancaFinanceiraBase(id uuid.UUID, valor int64, au
 func (s *Service) ReverterCobrancaFinanceiraBase(id uuid.UUID, autor, motivo string) (EventoFinanceiro, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := validarAutorID(autor); err != nil {
+		return EventoFinanceiro{}, err
+	}
 	c, ok := s.charges[id]
 	if !ok {
 		return EventoFinanceiro{}, errors.New("cobrança não encontrada")
@@ -385,7 +436,10 @@ func (s *Service) ReverterCobrancaFinanceiraBase(id uuid.UUID, autor, motivo str
 	return e, nil
 }
 
-func (s *Service) ProcessarWebhookFinanceiroBase(ctx context.Context, eventID string, chargeID uuid.UUID) (bool, error) {
+func (s *Service) ProcessarWebhookFinanceiroBase(ctx context.Context, eventID string, chargeID uuid.UUID, autorID string) (bool, error) {
+	if err := validarAutorID(autorID); err != nil {
+		return false, err
+	}
 	s.mu.Lock()
 	if s.webhooks[eventID] {
 		s.mu.Unlock()
@@ -393,11 +447,14 @@ func (s *Service) ProcessarWebhookFinanceiroBase(ctx context.Context, eventID st
 	}
 	s.webhooks[eventID] = true
 	s.mu.Unlock()
-	_, err := s.SincronizarStatusCobrancaFinanceiraBase(ctx, chargeID)
+	_, err := s.SincronizarStatusCobrancaFinanceiraBase(ctx, chargeID, autorID)
 	return true, err
 }
-func (s *Service) ReconciliarFinanceiroBase(ctx context.Context) []EventoFinanceiro {
-	return []EventoFinanceiro{{Tipo: "ReconciliacaoFinanceiraExecutada", At: time.Now().UTC()}}
+func (s *Service) ReconciliarFinanceiroBase(ctx context.Context, autorID string) ([]EventoFinanceiro, error) {
+	if err := validarAutorID(autorID); err != nil {
+		return nil, err
+	}
+	return []EventoFinanceiro{{Tipo: "ReconciliacaoFinanceiraExecutada", AutorID: autorID, At: time.Now().UTC()}}, nil
 }
 func (s *Service) activeCred(ct ContextoTipo, cod, method string) (CredencialAppyPay, Application, error) {
 	for _, c := range s.creds {

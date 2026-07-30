@@ -88,8 +88,8 @@ func TestarCredencialAppyPay(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "id inválido"})
 		return
 	}
-	_, ut, cod := user(c)
-	if err := FinanceiroService.TestarCredencial(c.Request.Context(), id, ut, cod); err != nil {
+	uid, ut, cod := user(c)
+	if err := FinanceiroService.TestarCredencial(c.Request.Context(), id, uid, ut, cod); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}

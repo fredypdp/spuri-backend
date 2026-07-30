@@ -6218,7 +6218,7 @@ Regras importantes:
 - Uma cobrança do contexto `spuri` usa credenciais do contexto `spuri` e não depende da modalidade específica de academia.
 - Uma academia não pode consultar credenciais de outra academia.
 - Para pagador do tipo `estudante`, quando `metadata.codigo_academia_estudante` for informado, ele deve coincidir com `codigo_academia` da cobrança.
-- A moeda padrão é `AOA` quando o chamador interno não informa `moeda`.
+- A moeda do módulo financeiro é sempre `AOA`; qualquer valor informado por chamadores internos é normalizado para `AOA` e não deve ser usado para mudar a moeda.
 
 ### Configuração por variável de ambiente
 
@@ -6277,7 +6277,7 @@ Representa uma intenção/cobrança genérica:
 - `contexto_tipo` e `codigo_academia`: definem o isolamento da cobrança.
 - `pagador_tipo` e `pagador_id`: identificam o pagador de forma genérica.
 - `valor`: valor em unidade mínima da moeda.
-- `moeda`: padrão `AOA`.
+- `moeda`: sempre `AOA`, normalizada pelo serviço financeiro mesmo quando o chamador informa outro valor.
 - `metodo_pagamento`: deve existir em uma application ativa da credencial selecionada.
 - `descricao`: texto livre para o provider e auditoria.
 - `referencia_externa`: referência idempotente do domínio chamador.
@@ -6514,12 +6514,12 @@ Não há endpoints HTTP transacionais nesta entrega. Os domínios do produto dev
 | --- | --- |
 | `GerarCobrancaFinanceiraBase` | Cria cobrança idempotente, seleciona credencial/application ativa e envia ao provider. |
 | `ConsultarCobrancaFinanceiraBase` | Consulta a cobrança no estado interno. |
-| `SincronizarStatusCobrancaFinanceiraBase` | Consulta o provider e atualiza status normalizado. |
+| `SincronizarStatusCobrancaFinanceiraBase` | Consulta o provider e atualiza status normalizado, exigindo `autor_id` para auditar o usuário que disparou a sincronização. |
 | `CancelarCobrancaFinanceiraBase` | Cancela cobrança ainda não liquidada. |
 | `ReembolsarCobrancaFinanceiraBase` | Registra solicitação de reembolso para cobrança liquidada. |
 | `ReverterCobrancaFinanceiraBase` | Registra solicitação de reversão para método suportado. |
-| `ProcessarWebhookFinanceiroBase` | Ignora eventos duplicados e sincroniza cobrança afetada. |
-| `ReconciliarFinanceiroBase` | Ponto base para rotinas periódicas de reconciliação. |
+| `ProcessarWebhookFinanceiroBase` | Ignora eventos duplicados e sincroniza cobrança afetada, propagando `autor_id` ao evento de status. |
+| `ReconciliarFinanceiroBase` | Ponto base para rotinas periódicas de reconciliação, exigindo `autor_id` para eventos auditáveis. |
 
 Exemplo de entrada interna para criação de cobrança:
 
@@ -6559,5 +6559,5 @@ A base prepara o uso de OAuth2 Client Credentials contra `auth_base_url`/`resour
 - Segredos são cifrados em repouso com AES-GCM.
 - Respostas HTTP e objetos mascarados removem segredos cifrados e valores em claro.
 - O utilitário `ContainsSensitive` identifica nomes de campos sensíveis como `client_secret`, `apiKey`, `api_key`, `token` e `webhook_secret` para uso em validações/logs.
-- Eventos financeiros registram alterações de modalidade, criação/envio/status/cancelamento de cobrança, webhooks e reconciliação.
+- Eventos financeiros registram alterações de credenciais, modalidade, criação/envio/status/cancelamento de cobrança, webhooks e reconciliação. Toda função que emite evento financeiro exige `autor_id` não vazio para manter auditabilidade pelo ID do usuário responsável.
 - Logs e metadados não devem conter chaves, tokens, `client_secret`, `apiKey` ou `webhook_secret`.

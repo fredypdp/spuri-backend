@@ -31,6 +31,27 @@ func TestCredenciaisCriptografadasEMascaradas(t *testing.T) {
 		t.Fatal("apiKey não foi mascarada")
 	}
 }
+
+func TestEventosCredenciaisAuditaveisComAutor(t *testing.T) {
+	s := NewService(nil)
+	c, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "user-1", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.TestarCredencial(context.Background(), c.ID, "user-2", "admin", ""); err != nil {
+		t.Fatal(err)
+	}
+	c, err = s.AlterarStatusCredencial(c.ID, StatusAtivo, "user-3", "admin", "", "ativar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range c.Historico {
+		if e.AutorID == "" {
+			t.Fatalf("evento %s sem autor", e.Tipo)
+		}
+	}
+}
+
 func TestIsolamentoAcademiasEIdempotencia(t *testing.T) {
 	s := NewService(nil)
 	ca, _ := s.CriarCredencial(context.Background(), cred(t, "ACA", ContextoAcademia), "u", "admin")
@@ -76,21 +97,60 @@ func TestModalidadeDesativadaImpedeAcademiaMasNaoSpuri(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestMoedaSempreAOA(t *testing.T) {
+	s := NewService(nil)
+	sp, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.AlterarStatusCredencial(sp.ID, StatusAtivo, "u", "admin", "", "")
+	ch, err := s.GerarCobrancaFinanceiraBase(context.Background(), GerarCobrancaInput{ContextoTipo: ContextoSpuri, CodigoAcademia: "ACA", PagadorTipo: "academia", PagadorID: "ACA", Valor: 1, Moeda: "USD", MetodoPagamento: "REF", ReferenciaExterna: "moeda"}, "u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch.Moeda != "AOA" {
+		t.Fatalf("moeda deve permanecer AOA, obtida %q", ch.Moeda)
+	}
+}
+
 func TestWebhookDupENaoLiquidaSemConsulta(t *testing.T) {
 	s := NewService(nil)
 	sp, _ := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "admin")
 	s.AlterarStatusCredencial(sp.ID, StatusAtivo, "u", "admin", "", "")
 	ch, _ := s.GerarCobrancaFinanceiraBase(context.Background(), GerarCobrancaInput{ContextoTipo: ContextoSpuri, CodigoAcademia: "ACA", PagadorTipo: "academia", PagadorID: "ACA", Valor: 1, MetodoPagamento: "REF", ReferenciaExterna: "w"}, "u")
-	ok, err := s.ProcessarWebhookFinanceiroBase(context.Background(), "evt1", ch.ID)
+	ok, err := s.ProcessarWebhookFinanceiroBase(context.Background(), "evt1", ch.ID, "u")
 	if err != nil || !ok {
 		t.Fatalf("webhook err=%v ok=%v", err, ok)
 	}
-	ok, err = s.ProcessarWebhookFinanceiroBase(context.Background(), "evt1", ch.ID)
+	ok, err = s.ProcessarWebhookFinanceiroBase(context.Background(), "evt1", ch.ID, "u")
 	if err != nil || ok {
 		t.Fatalf("duplicado não ignorado")
 	}
 	got, _ := s.ConsultarCobrancaFinanceiraBase(ch.ID)
+	for _, e := range got.Historico {
+		if e.AutorID == "" {
+			t.Fatalf("evento %s sem autor", e.Tipo)
+		}
+	}
 	if got.Status != CobrancaLiquidada {
 		t.Fatalf("status=%s", got.Status)
+	}
+}
+
+func TestAutorObrigatorioParaEventosFinanceiros(t *testing.T) {
+	s := NewService(nil)
+	if _, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "", "admin"); err == nil {
+		t.Fatal("criação de credencial sem autor deveria falhar")
+	}
+	c, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AlterarStatusCredencial(c.ID, StatusAtivo, "", "admin", "", ""); err == nil {
+		t.Fatal("alteração de status sem autor deveria falhar")
+	}
+	if _, err := s.ReconciliarFinanceiroBase(context.Background(), ""); err == nil {
+		t.Fatal("reconciliação sem autor deveria falhar")
 	}
 }
