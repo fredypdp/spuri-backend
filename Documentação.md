@@ -6201,34 +6201,363 @@ Quando a configuração do Mega ou da quota estiver incompleta ou inválida, a r
 
 ## Módulo financeiro base com AppyPay
 
-O backend possui um módulo financeiro base (`internal/finance`) para dois contextos isolados: `spuri`, em que a plataforma cobra academias, e `academia`, em que uma academia cobra pagadores próprios usando credenciais AppyPay da própria instituição. A base evita criar regras específicas como propina, matrícula, mensalidade, certificado ou assinatura; essas camadas futuras devem chamar as funções genéricas do serviço financeiro.
+O backend possui um módulo financeiro base (`internal/finance`) para centralizar integrações de pagamento sem acoplar regras específicas de domínio, como propina, matrícula, mensalidade, certificado ou assinatura. Essas regras futuras devem chamar as funções genéricas do serviço financeiro e informar contexto, pagador, valor, método e referência externa.
+
+### Contextos financeiros
+
+Existem dois contextos isolados:
+
+| Contexto | Quem recebe | Quem configura | Uso esperado |
+| --- | --- | --- | --- |
+| `spuri` | A plataforma Spuri | FPP/ADMIN | Cobranças da plataforma para academias, como planos, assinaturas ou serviços Spuri. |
+| `academia` | A própria academia | FPP/ADMIN cria; a academia pode consultar e atualizar somente as próprias credenciais quando autorizada | Cobranças feitas pela academia a estudantes, responsáveis ou outros pagadores próprios. |
+
+Regras importantes:
+
+- Uma cobrança do contexto `academia` só usa credenciais da mesma `codigo_academia`.
+- Uma cobrança do contexto `spuri` usa credenciais do contexto `spuri` e não depende da modalidade específica de academia.
+- Uma academia não pode consultar credenciais de outra academia.
+- Para pagador do tipo `estudante`, quando `metadata.codigo_academia_estudante` for informado, ele deve coincidir com `codigo_academia` da cobrança.
+- A moeda padrão é `AOA` quando o chamador interno não informa `moeda`.
+
+### Configuração por variável de ambiente
+
+A URL base da API transacional da AppyPay é definida pela variável de ambiente `APPYPAY_API_BASE_URL`. O campo `api_base_url` não deve ser usado como fonte de verdade do cliente HTTP: ao criar ou atualizar credenciais, o backend grava o valor vindo do ambiente para evitar que usuários alterem a URL da API por payload.
+
+Variáveis relacionadas:
+
+| Variável | Obrigatória | Descrição |
+| --- | --- | --- |
+| `APPYPAY_API_BASE_URL` | Sim | URL base usada para chamadas transacionais da AppyPay, por exemplo criação e consulta de cobranças. |
+| `FINANCE_ENCRYPTION_KEY` | Recomendado em produção | Chave usada como parte da derivação AES-GCM dos segredos financeiros em repouso. Se ausente, o backend ainda cifra, mas com chave padrão de desenvolvimento. |
 
 ### Entidades e estados
 
-- `CredencialAppyPay`: metadados por contexto, ambiente (`test`/`prod`), URLs AppyPay, `client_id`, `resource`, applications por método (`REF`, `GPO`, `UMM`, `SDD` etc.) e segredos cifrados. Estados: `pendente_validacao`, `ativo`, `inativo`, `erro_validacao`.
-- `ModalidadePagamento`: controla cobrança própria de academias em nível global e específico por academia, separada da chave operacional do contexto `spuri`.
-- `CobrancaFinanceira`: intenção/cobrança genérica com `merchantTransactionId`, referência externa idempotente, pagador genérico, status normalizado e status bruto do provider. Estados: `pendente`, `enviada_provider`, `liquidada`, `cancelada`, `falhada`.
-- Eventos financeiros previstos incluem credenciais cadastradas/atualizadas/validadas/ativadas/desativadas, modalidade alterada, cobrança criada/enviada/status atualizado/cancelada, webhook recebido/duplicado e divergências de reconciliação.
+#### `CredencialAppyPay`
 
-### Endpoints de configuração e controlo
+Representa uma configuração AppyPay por contexto e ambiente. Campos principais:
 
-Rotas autenticadas disponíveis:
+- `id`: identificador UUID da credencial.
+- `contexto_tipo`: `spuri` ou `academia`.
+- `codigo_academia`: obrigatório para `contexto_tipo=academia`; vazio para `spuri`.
+- `ambiente`: `test` ou `prod`.
+- `auth_base_url`: URL de autenticação/OAuth2 da AppyPay.
+- `api_base_url`: preenchida a partir de `APPYPAY_API_BASE_URL`.
+- `webapi_base_url`: URL auxiliar/web AppyPay, quando aplicável.
+- `client_id`, `resource`: parâmetros da integração AppyPay.
+- `client_secret`, `webhook_secret` e `applications[].apiKey`: recebidos em claro apenas no cadastro/atualização, cifrados em repouso e nunca devolvidos em claro.
+- `applications`: lista de aplicações por método de pagamento (`REF`, `GPO`, `UMM`, `SDD` etc.).
+- `status`: `pendente_validacao`, `ativo`, `inativo` ou `erro_validacao`.
+- `version`, `created_at`, `updated_at`: controle de versão e auditoria técnica.
 
-- `POST /financeiro/appypay/credenciais`
-- `PUT /financeiro/appypay/credenciais/:id`
-- `GET /financeiro/appypay/credenciais`
-- `GET /financeiro/appypay/credenciais/:id`
-- `POST /financeiro/appypay/credenciais/:id/testar`
-- `POST /financeiro/appypay/credenciais/:id/ativar`
-- `POST /financeiro/appypay/credenciais/:id/desativar`
-- `POST /financeiro/modalidade-pagamento`
+Estados:
 
-Não há endpoints HTTP transacionais nesta entrega. Geração, consulta, sincronização, cancelamento, webhook e reconciliação existem como funções internas reutilizáveis (`GerarCobrancaFinanceiraBase`, `ConsultarCobrancaFinanceiraBase`, `SincronizarStatusCobrancaFinanceiraBase`, `CancelarCobrancaFinanceiraBase`, `ReembolsarCobrancaFinanceiraBase`, `ReverterCobrancaFinanceiraBase`, `ProcessarWebhookFinanceiroBase`, `ReconciliarFinanceiroBase`).
+| Estado | Significado |
+| --- | --- |
+| `pendente_validacao` | Credencial cadastrada/atualizada, aguardando teste e ativação operacional. |
+| `ativo` | Pode ser selecionada para criar cobranças. |
+| `inativo` | Guardada no sistema, mas não pode gerar novas cobranças. |
+| `erro_validacao` | Reservado para falhas de validação com a AppyPay. |
 
-### Segurança, permissões e idempotência
+#### `ModalidadePagamento`
 
-FPP/ADMIN criam, ativam, desativam e bloqueiam credenciais ou modalidades. Academias só consultam/atualizam credenciais do próprio contexto quando autorizado e nunca recebem `client_secret`, `apiKey`, tokens ou webhook secrets em claro. Segredos são cifrados em repouso e expostos apenas mascarados. A chave idempotente de cobrança é `contexto_tipo:codigo_academia:referencia_externa`; webhooks usam o identificador do evento recebido para ignorar duplicados. Uma cobrança só é marcada como `liquidada` após sincronização/consulta segura ao provider, não apenas pelo payload do webhook.
+Controla se cobranças próprias de academias e cobranças do contexto Spuri estão habilitadas:
+
+- `global_academias`: liga/desliga a capacidade de todas as academias cobrarem com AppyPay.
+- `academia`: liga/desliga uma academia específica por `codigo_academia`.
+- `spuri`: liga/desliga cobranças da plataforma Spuri.
+
+Para uma cobrança `academia` ser permitida, tanto `global_academias` quanto a academia específica devem estar ativos. Para uma cobrança `spuri`, somente o escopo `spuri` precisa estar ativo.
+
+#### `CobrancaFinanceira`
+
+Representa uma intenção/cobrança genérica:
+
+- `id`: UUID interno.
+- `contexto_tipo` e `codigo_academia`: definem o isolamento da cobrança.
+- `pagador_tipo` e `pagador_id`: identificam o pagador de forma genérica.
+- `valor`: valor em unidade mínima da moeda.
+- `moeda`: padrão `AOA`.
+- `metodo_pagamento`: deve existir em uma application ativa da credencial selecionada.
+- `descricao`: texto livre para o provider e auditoria.
+- `referencia_externa`: referência idempotente do domínio chamador.
+- `merchantTransactionId`: gerado deterministicamente a partir de contexto, academia e referência externa.
+- `providerChargeID`: identificador retornado pela AppyPay/provider.
+- `status_provider_bruto`: último status bruto retornado pelo provider.
+- `metadata`: dados auxiliares não sensíveis.
+- `status`: `pendente`, `enviada_provider`, `liquidada`, `cancelada` ou `falhada`.
+- `historico`: eventos de auditoria da cobrança.
+
+### Regras de negócio
+
+- Somente credenciais `ativo` podem ser usadas para gerar cobrança.
+- A application escolhida é a primeira ativa que tenha `paymentMethod` igual ao `metodo_pagamento` solicitado.
+- `valor` deve ser maior que zero.
+- `referencia_externa` é obrigatória e compõe a chave idempotente `contexto_tipo:codigo_academia:referencia_externa`.
+- Repetir uma criação com a mesma chave idempotente retorna a cobrança existente.
+- Falha ao criar cobrança no provider marca a cobrança como `falhada`.
+- Webhook duplicado é ignorado pelo `eventID`.
+- Webhook não liquida sozinho: ele dispara sincronização/consulta segura ao provider; o status só vira `liquidada` quando a consulta retorna `PAID`.
+- Cobrança `liquidada` não pode ser cancelada.
+- Reembolso só é permitido para cobrança `liquidada` e valor maior que zero até o valor total.
+- Reversão está disponível apenas para método suportado pela base (`UMM`).
+- Dados sensíveis não devem ser enviados em `metadata`, logs ou respostas.
+
+### Como configurar como administrador/FPP
+
+1. Definir `APPYPAY_API_BASE_URL` no ambiente do backend.
+2. Definir `FINANCE_ENCRYPTION_KEY` em produção.
+3. Cadastrar uma credencial AppyPay no contexto desejado (`spuri` ou `academia`).
+4. Testar a credencial.
+5. Ativar a credencial.
+6. Ativar a modalidade de pagamento necessária:
+   - `spuri` para cobranças da plataforma; ou
+   - `global_academias` e depois `academia` para cobrança própria de uma academia.
+
+### Como configurar como academia
+
+A academia deve receber autorização operacional para gerir sua própria credencial. Depois disso:
+
+1. Consulta as credenciais visíveis em `GET /financeiro/appypay/credenciais`.
+2. Atualiza somente a própria credencial em `PUT /financeiro/appypay/credenciais/:id`, informando dados AppyPay e applications por método.
+3. Solicita a validação/teste da credencial.
+4. Aguarda ativação da credencial e da modalidade por FPP/ADMIN, quando a política operacional exigir aprovação central.
+
+A academia nunca recebe `client_secret`, `apiKey` nem `webhook_secret` em claro; as respostas trazem apenas máscaras como `****cret`.
+
+### Rotas HTTP de configuração e controlo
+
+Todas as rotas abaixo exigem autenticação. Códigos de erro comuns:
+
+- `400`: UUID inválido ou payload inválido.
+- `403`: usuário sem permissão ou regra de negócio bloqueou a operação.
+- `404`: credencial não encontrada ou não visível para o usuário.
+
+#### `POST /financeiro/appypay/credenciais`
+
+Cria uma credencial AppyPay. Permitido para `fpp` e `admin`.
+
+Request:
+
+```json
+{
+  "contexto_tipo": "academia",
+  "codigo_academia": "ACA001",
+  "ambiente": "test",
+  "auth_base_url": "https://login.appypay.example/oauth2/token",
+  "webapi_base_url": "https://web.appypay.example",
+  "client_id": "client-id",
+  "client_secret": "client-secret",
+  "resource": "appy-pay-resource",
+  "webhook_secret": "webhook-secret",
+  "applications": [
+    {
+      "paymentMethod": "REF",
+      "applicationId": "app-ref",
+      "apiKey": "api-key-ref",
+      "webhook": "https://api.spuri.example/webhooks/appypay/ACA001",
+      "metadata": {"canal": "referencia"}
+    }
+  ]
+}
+```
+
+Observação: `api_base_url` não é necessário no request porque o backend usa `APPYPAY_API_BASE_URL`.
+
+Response `201`:
+
+```json
+{
+  "ID": "5e1a5d83-5c5e-4d9f-88d5-3caef2fbe77d",
+  "ContextoTipo": "academia",
+  "CodigoAcademia": "ACA001",
+  "Ambiente": "test",
+  "AuthBaseURL": "https://login.appypay.example/oauth2/token",
+  "APIBaseURL": "https://api.appypay.example",
+  "WebAPIBaseURL": "https://web.appypay.example",
+  "ClientID": "client-id",
+  "ClientSecretMask": "****cret",
+  "Resource": "appy-pay-resource",
+  "WebhookSecretMask": "****cret",
+  "Applications": [
+    {
+      "PaymentMethod": "REF",
+      "ApplicationID": "app-ref",
+      "APIKeyMask": "****-ref",
+      "WebhookURL": "https://api.spuri.example/webhooks/appypay/ACA001",
+      "Metadata": {"canal": "referencia"}
+    }
+  ],
+  "Status": "pendente_validacao",
+  "Version": 1
+}
+```
+
+#### `PUT /financeiro/appypay/credenciais/:id`
+
+Atualiza a credencial inteira e incrementa `version`. Permitido para `fpp`, `admin` ou academia dona da credencial.
+
+Request: mesmo formato do `POST`.
+
+Response `200`: credencial mascarada atualizada, com `Status` voltando para `pendente_validacao` e `Version` incrementada.
+
+#### `GET /financeiro/appypay/credenciais`
+
+Lista credenciais visíveis ao usuário autenticado.
+
+Response `200`:
+
+```json
+[
+  {
+    "ID": "5e1a5d83-5c5e-4d9f-88d5-3caef2fbe77d",
+    "ContextoTipo": "academia",
+    "CodigoAcademia": "ACA001",
+    "Ambiente": "test",
+    "APIBaseURL": "https://api.appypay.example",
+    "ClientID": "client-id",
+    "ClientSecretMask": "****cret",
+    "Applications": [{"PaymentMethod": "REF", "ApplicationID": "app-ref", "APIKeyMask": "****-ref"}],
+    "Status": "ativo"
+  }
+]
+```
+
+#### `GET /financeiro/appypay/credenciais/:id`
+
+Obtém uma credencial específica visível ao usuário.
+
+Response `200`: objeto mascarado da credencial.
+
+#### `POST /financeiro/appypay/credenciais/:id/testar`
+
+Executa validação da credencial no provider configurado.
+
+Request: sem corpo.
+
+Response `200`:
+
+```json
+{"status": "validada"}
+```
+
+#### `POST /financeiro/appypay/credenciais/:id/ativar`
+
+Ativa uma credencial para uso em cobranças. Permitido para `fpp` e `admin`.
+
+Request:
+
+```json
+{"motivo": "Credencial validada e aprovada para produção"}
+```
+
+Response `200`: credencial mascarada com `Status` igual a `ativo`.
+
+#### `POST /financeiro/appypay/credenciais/:id/desativar`
+
+Desativa uma credencial. Permitido para `fpp` e `admin`.
+
+Request:
+
+```json
+{"motivo": "Rotação de chaves AppyPay"}
+```
+
+Response `200`: credencial mascarada com `Status` igual a `inativo`.
+
+#### `POST /financeiro/modalidade-pagamento`
+
+Altera a disponibilidade da modalidade de pagamento. Permitido para `fpp` e `admin`.
+
+Request para todas as academias:
+
+```json
+{
+  "escopo": "global_academias",
+  "ativa": true,
+  "motivo": "Habilitar cobranças próprias das academias"
+}
+```
+
+Request para uma academia específica:
+
+```json
+{
+  "escopo": "academia",
+  "codigo_academia": "ACA001",
+  "ativa": true,
+  "motivo": "Academia homologada na AppyPay"
+}
+```
+
+Request para o contexto Spuri:
+
+```json
+{
+  "escopo": "spuri",
+  "ativa": true,
+  "motivo": "Cobranças da plataforma habilitadas"
+}
+```
+
+Response `200`:
+
+```json
+{"status": "alterada"}
+```
+
+### Funções internas transacionais
+
+Não há endpoints HTTP transacionais nesta entrega. Os domínios do produto devem chamar as funções internas:
+
+| Função | Objetivo |
+| --- | --- |
+| `GerarCobrancaFinanceiraBase` | Cria cobrança idempotente, seleciona credencial/application ativa e envia ao provider. |
+| `ConsultarCobrancaFinanceiraBase` | Consulta a cobrança no estado interno. |
+| `SincronizarStatusCobrancaFinanceiraBase` | Consulta o provider e atualiza status normalizado. |
+| `CancelarCobrancaFinanceiraBase` | Cancela cobrança ainda não liquidada. |
+| `ReembolsarCobrancaFinanceiraBase` | Registra solicitação de reembolso para cobrança liquidada. |
+| `ReverterCobrancaFinanceiraBase` | Registra solicitação de reversão para método suportado. |
+| `ProcessarWebhookFinanceiroBase` | Ignora eventos duplicados e sincroniza cobrança afetada. |
+| `ReconciliarFinanceiroBase` | Ponto base para rotinas periódicas de reconciliação. |
+
+Exemplo de entrada interna para criação de cobrança:
+
+```json
+{
+  "ContextoTipo": "academia",
+  "CodigoAcademia": "ACA001",
+  "PagadorTipo": "estudante",
+  "PagadorID": "EST123",
+  "Valor": 150000,
+  "Moeda": "AOA",
+  "MetodoPagamento": "REF",
+  "Descricao": "Propina de Julho/2026",
+  "ReferenciaExterna": "propina:ACA001:EST123:2026-07",
+  "Metadata": {"codigo_academia_estudante": "ACA001"}
+}
+```
+
+Resposta interna esperada:
+
+```json
+{
+  "ID": "7ff8c329-7d30-48f3-90e2-f5a021f9ce2a",
+  "Status": "enviada_provider",
+  "ProviderChargeID": "appy_123",
+  "StatusProviderBruto": "PENDING",
+  "MerchantTransactionID": "spuri_0f4a2c4d2a9b4c1d8e6f7a8b9c0d1e2f"
+}
+```
 
 ### Mapeamento AppyPay
 
-A implementação base prepara o uso de OAuth2 Client Credentials contra `auth_base_url`/`resource`, chamadas de cobrança em `POST /charges`, consulta em `GET /charges/{id}` ou `GET /charges`, reembolsos via `/refunds/{id}` e reversões via `/reverses/{id}` quando o método suportar. SDD permanece configurável por application e deve ser mantido desativável por causa da limitação operacional documentada como ALPHA.
+A base prepara o uso de OAuth2 Client Credentials contra `auth_base_url`/`resource`, chamadas de cobrança em `POST /charges`, consulta em `GET /charges/{id}` ou `GET /charges`, reembolsos via `/refunds/{id}` e reversões via `/reverses/{id}` quando o método suportar. SDD permanece configurável por application e deve ser mantido desativável por causa da limitação operacional documentada como ALPHA.
+
+### Segurança e auditoria
+
+- Segredos são cifrados em repouso com AES-GCM.
+- Respostas HTTP e objetos mascarados removem segredos cifrados e valores em claro.
+- O utilitário `ContainsSensitive` identifica nomes de campos sensíveis como `client_secret`, `apiKey`, `api_key`, `token` e `webhook_secret` para uso em validações/logs.
+- Eventos financeiros registram alterações de modalidade, criação/envio/status/cancelamento de cobrança, webhooks e reconciliação.
+- Logs e metadados não devem conter chaves, tokens, `client_secret`, `apiKey` ou `webhook_secret`.

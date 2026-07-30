@@ -19,6 +19,8 @@ import (
 	"github.com/google/uuid"
 )
 
+const AppyPayAPIBaseURLEnv = "APPYPAY_API_BASE_URL"
+
 type ContextoTipo string
 
 const (
@@ -416,7 +418,11 @@ func buildCredential(in CredencialInput) (CredencialAppyPay, error) {
 	if in.ContextoTipo == ContextoAcademia && in.CodigoAcademia == "" {
 		return CredencialAppyPay{}, errors.New("codigo_academia obrigatório")
 	}
-	if in.AuthBaseURL == "" || in.APIBaseURL == "" || in.ClientID == "" || in.ClientSecret == "" || in.Resource == "" || len(in.Applications) == 0 {
+	apiBaseURL := strings.TrimSpace(os.Getenv(AppyPayAPIBaseURLEnv))
+	if apiBaseURL == "" {
+		return CredencialAppyPay{}, fmt.Errorf("%s obrigatório", AppyPayAPIBaseURLEnv)
+	}
+	if in.AuthBaseURL == "" || in.ClientID == "" || in.ClientSecret == "" || in.Resource == "" || len(in.Applications) == 0 {
 		return CredencialAppyPay{}, errors.New("campos obrigatórios ausentes")
 	}
 	now := time.Now().UTC()
@@ -427,7 +433,7 @@ func buildCredential(in CredencialInput) (CredencialAppyPay, error) {
 		ek, _ := encrypt(a.APIKey)
 		apps = append(apps, Application{PaymentMethod: a.PaymentMethod, ApplicationID: a.ApplicationID, APIKeyEncrypted: ek, APIKeyMask: MaskSecret(a.APIKey), WebhookURL: a.WebhookURL, Metadata: a.Metadata})
 	}
-	return CredencialAppyPay{ID: uuid.New(), ContextoTipo: in.ContextoTipo, CodigoAcademia: in.CodigoAcademia, Ambiente: in.Ambiente, AuthBaseURL: in.AuthBaseURL, APIBaseURL: in.APIBaseURL, WebAPIBaseURL: in.WebAPIBaseURL, ClientID: in.ClientID, ClientSecretEncrypted: cs, ClientSecretMask: MaskSecret(in.ClientSecret), Resource: in.Resource, WebhookSecretEncrypted: wh, WebhookSecretMask: MaskSecret(in.WebhookSecret), Applications: apps, Status: StatusPendenteValidacao, CreatedAt: now, UpdatedAt: now, Version: 1}, nil
+	return CredencialAppyPay{ID: uuid.New(), ContextoTipo: in.ContextoTipo, CodigoAcademia: in.CodigoAcademia, Ambiente: in.Ambiente, AuthBaseURL: in.AuthBaseURL, APIBaseURL: apiBaseURL, WebAPIBaseURL: in.WebAPIBaseURL, ClientID: in.ClientID, ClientSecretEncrypted: cs, ClientSecretMask: MaskSecret(in.ClientSecret), Resource: in.Resource, WebhookSecretEncrypted: wh, WebhookSecretMask: MaskSecret(in.WebhookSecret), Applications: apps, Status: StatusPendenteValidacao, CreatedAt: now, UpdatedAt: now, Version: 1}, nil
 }
 func maskCred(c CredencialAppyPay) CredencialAppyPay {
 	c.ClientSecretEncrypted = ""
