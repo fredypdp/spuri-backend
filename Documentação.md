@@ -6229,18 +6229,18 @@ Variáveis relacionadas:
 | Variável | Obrigatória | Descrição |
 | --- | --- | --- |
 | `APPYPAY_API_BASE_URL` | Sim | URL base usada para chamadas transacionais da AppyPay, por exemplo criação e consulta de cobranças. |
-| `FINANCE_ENCRYPTION_KEY` | Recomendado em produção | Chave usada como parte da derivação AES-GCM dos segredos financeiros em repouso. Se ausente, o backend ainda cifra, mas com chave padrão de desenvolvimento. |
+| `FINANCE_ENCRYPTION_KEY` | Sim em produção | Chave usada como parte da derivação AES-GCM dos segredos financeiros em repouso. Em `GO_ENV=production`, a ausência da variável falha a configuração de credenciais. |
 
 ### Entidades e estados
 
 ### Persistência
 
-As configurações e credenciais financeiras são persistidas em tabelas próprias do módulo financeiro, criadas pela migration `097_financeiro_base_persistencia.sql`. O serviço carrega esses registros no bootstrap via `finance.NewServiceWithDB` e mantém o cache em memória apenas como acelerador/runtime; a fonte persistente fica no PostgreSQL.
+As mudanças financeiras são persistidas primeiro no `spuri_ledger` com `aggregate_type = "Financeiro"`. As tabelas próprias do módulo financeiro, criadas pelas migrations `097_financeiro_base_persistencia.sql` e `098_financeiro_event_sourcing.sql`, são read models/projeções reconstruíveis pelo `FinanceiroProjection` registrado no `Projection Manager`; o cache em memória é apenas acelerador/runtime.
 
-- `financeiro_credenciais_appypay`: armazena o payload da credencial AppyPay, incluindo segredos já cifrados e histórico auditável.
-- `financeiro_modalidade_pagamento`: armazena a configuração singleton da modalidade global, por academia e do contexto Spuri.
-- `financeiro_cobrancas`: armazena cobranças financeiras genéricas por chave idempotente.
-- `financeiro_webhooks_recebidos`: armazena IDs de webhook já processados para idempotência após restart.
+- `financeiro_credenciais_appypay`: projeção do estado atual da credencial AppyPay, contendo metadados e máscaras; segredos/ciphertexts pertencem ao armazenamento operacional controlado.
+- `financeiro_modalidade_pagamento`: projeção singleton da configuração global, por academia e do contexto Spuri.
+- `financeiro_cobrancas`: projeção de cobranças financeiras genéricas e chave idempotente reconstruível por replay.
+- `financeiro_webhooks_recebidos`: projeção/índice de IDs de webhook já processados para idempotência após restart.
 
 #### `CredencialAppyPay`
 
@@ -6570,3 +6570,29 @@ A base prepara o uso de OAuth2 Client Credentials contra `auth_base_url`/`resour
 - O utilitário `ContainsSensitive` identifica nomes de campos sensíveis como `client_secret`, `apiKey`, `api_key`, `token` e `webhook_secret` para uso em validações/logs.
 - Eventos financeiros registram alterações de credenciais, modalidade, criação/envio/status/cancelamento de cobrança, webhooks e reconciliação. Toda função que emite evento financeiro exige `autor_id` não vazio para manter auditabilidade pelo ID do usuário responsável.
 - Logs e metadados não devem conter chaves, tokens, `client_secret`, `apiKey` ou `webhook_secret`.
+
+## Módulo financeiro — Event Sourcing/CQRS
+
+O módulo financeiro (`internal/finance`) usa `spuri_ledger` como fonte de verdade auditável e imutável para credenciais AppyPay, modalidade de pagamento, cobranças, webhooks, reconciliações, reembolsos e reversões. Todos os eventos financeiros são gravados com `aggregate_type = "Financeiro"`; as tabelas `financeiro_credenciais_appypay`, `financeiro_modalidade_pagamento`, `financeiro_cobrancas` e `financeiro_webhooks_recebidos` são projeções/read models reconstruíveis por replay.
+
+### Decisão de aggregate
+
+Credenciais e cobranças usam o UUID da própria entidade como `aggregate_id`, preservando consulta, idempotência e auditoria por entidade operacional. A modalidade usa um UUID determinístico derivado de `spuri:financeiro:modalidade`, pois é uma configuração singleton. Essa escolha evita UUIDs aleatórios desconectados do domínio e simplifica rebuild.
+
+### Eventos e payload seguro
+
+Eventos de credencial registram apenas metadados não sensíveis: `credential_id`, contexto, academia, ambiente, URLs públicas, `client_id`, `resource`, máscaras de segredos e aplicações com `apiKey_mask`. `client_secret`, `webhook_secret`, `apiKey`, tokens e ciphertexts não são gravados em payload público do ledger, respostas de API ou projeções públicas.
+
+Eventos de cobrança registram intenção, envio ao provider, status, cancelamento, reembolso, reversão, webhook e reconciliação com contexto financeiro, referência externa, moeda normalizada para `AOA`, status e identificadores operacionais. Webhooks duplicados podem gerar `WebhookFinanceiroIgnoradoComoDuplicado` sem reaplicar status.
+
+### Segredos cifrados
+
+Segredos AppyPay são material operacional cifrado com AES-GCM e nonce aleatório. Em produção, `FINANCE_ENCRYPTION_KEY` deve ser configurada por ambiente seguro. A migration `098_financeiro_event_sourcing.sql` adiciona `financeiro_segredos_appypay` para suportar cofre operacional com `credential_id`, versão do segredo, tipo, `ciphertext`, `key_id` e algoritmo. O ledger registra máscaras/referências, nunca segredo em claro.
+
+### Rebuild
+
+`Service.RebuildProjections(ctx)` limpa somente as projeções em memória do serviço financeiro e reaplica eventos `Financeiro` em ordem de ledger. Quando há banco configurado, as projeções `financeiro_*` são atualizadas pelos aplicadores; o ledger nunca é apagado. Eventos financeiros desconhecidos falham de forma controlada para evitar reconstrução silenciosamente incorreta.
+
+### Migração operacional
+
+Registros legados em `financeiro_*` devem ser convertidos para eventos `Financeiro` por rotina controlada e idempotente, usando `system:migracao_financeiro_event_sourcing` como autor técnico quando não houver autoria histórica. A rotina deve preservar IDs existentes, registrar apenas máscaras/metadados seguros no ledger e manter ciphertexts somente no armazenamento operacional de segredos.

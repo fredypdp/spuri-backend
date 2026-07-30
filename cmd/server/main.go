@@ -93,7 +93,7 @@ func initDB() error {
 	if err := dbClient.RunMigrations(); err != nil {
 		return fmt.Errorf("erro ao rodar migrations: %w", err)
 	}
-	handlers.FinanceiroService = finance.NewServiceWithDB(dbClient.DB(), nil)
+	handlers.FinanceiroService = finance.NewServiceWithClient(dbClient, nil)
 	log.Println("[INFO] Banco de dados inicializado com Event Sourcing")
 	return nil
 }
@@ -129,6 +129,7 @@ func initProjections() error {
 	projManager.RegisterProjection("avaliacao_final", projections.NewAvaliacaoFinalProjection(dbClient))
 	projManager.RegisterProjection("solicitacoes_matricula", projections.NewSolicitacaoMatriculaProjection(dbClient))
 	projManager.RegisterProjection("solicitacoes_edicao_dados_estudante", projections.NewSolicitacaoEdicaoDadoEstudanteProjection(dbClient))
+	projManager.RegisterProjection("financeiro", projections.NewFinanceiroProjection(dbClient))
 
 	go projManager.StartProcessing()
 	return nil

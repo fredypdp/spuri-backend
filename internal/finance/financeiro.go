@@ -19,6 +19,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+
+	"spuri/internal/db"
+	"spuri/internal/domain/aggregates"
 )
 
 const AppyPayAPIBaseURLEnv = "APPYPAY_API_BASE_URL"
@@ -138,6 +141,19 @@ func (FakeProvider) ConsultarCobranca(context.Context, CredencialAppyPay, Cobran
 	return "PAID", nil
 }
 
+type LedgerEvent struct {
+	AggregateID uuid.UUID
+	EventType   string
+	Payload     map[string]any
+	Metadata    map[string]any
+	OccurredAt  time.Time
+}
+
+type LedgerWriter interface {
+	AppendFinanceEvent(ctx context.Context, event LedgerEvent, autorID, autorTipo, origem string) (int, error)
+	LoadFinanceEvents(ctx context.Context) ([]LedgerEvent, error)
+}
+
 type Service struct {
 	mu         sync.Mutex
 	creds      map[uuid.UUID]CredencialAppyPay
@@ -147,6 +163,7 @@ type Service struct {
 	modalidade ModalidadePagamento
 	provider   Provider
 	db         *sqlx.DB
+	ledger     LedgerWriter
 }
 
 func NewService(p Provider) *Service {
@@ -154,14 +171,157 @@ func NewService(p Provider) *Service {
 }
 
 func NewServiceWithDB(db *sqlx.DB, p Provider) *Service {
+	return NewServiceWithDBAndLedger(db, p, nil)
+}
+
+func NewServiceWithClient(client *db.Client, p Provider) *Service {
+	if client == nil {
+		return NewService(p)
+	}
+	return NewServiceWithDBAndLedger(client.DB(), p, NewRepositoryLedger(client))
+}
+
+func NewServiceWithDBAndLedger(db *sqlx.DB, p Provider, ledger LedgerWriter) *Service {
 	if p == nil {
 		p = FakeProvider{}
 	}
 	s := &Service{creds: map[uuid.UUID]CredencialAppyPay{}, charges: map[uuid.UUID]CobrancaFinanceira{}, idem: map[string]uuid.UUID{}, webhooks: map[string]bool{}, modalidade: ModalidadePagamento{GlobalAcademiasAtiva: true, SpuriAtiva: true, Academias: map[string]bool{}}, provider: p, db: db}
+	if ledger == nil && db != nil {
+		ledger = SQLLedger{db: db}
+	}
+	s.ledger = ledger
 	if db != nil {
 		_ = s.loadPersisted(context.Background())
 	}
+	if ledger != nil && db == nil {
+		_ = s.RebuildProjections(context.Background())
+	}
 	return s
+}
+
+func (SQLLedger) aggregateType() string { return "Financeiro" }
+
+type RepositoryLedger struct{ repo *db.AggregateRepository }
+
+func NewRepositoryLedger(client *db.Client) RepositoryLedger {
+	return RepositoryLedger{repo: db.NewAggregateRepository(client)}
+}
+
+func (l RepositoryLedger) AppendFinanceEvent(ctx context.Context, event LedgerEvent, autorID, autorTipo, origem string) (int, error) {
+	if l.repo == nil {
+		return 0, nil
+	}
+	agg := aggregates.NewFinanceiroWithID(event.AggregateID)
+	agg.RegistrarEvento(event.EventType, sanitizeMap(event.Payload))
+	err := l.repo.WithContext(ctx).SaveWithAudit(agg, db.AuditContext{UserID: autorID, UserType: autorTipo, IP: origem})
+	return agg.GetVersion(), err
+}
+
+func (l RepositoryLedger) LoadFinanceEvents(ctx context.Context) ([]LedgerEvent, error) {
+	return nil, errors.New("RepositoryLedger não expõe replay; use FinanceiroProjection para rebuild canônico")
+}
+
+type SQLLedger struct{ db *sqlx.DB }
+
+func (l SQLLedger) AppendFinanceEvent(ctx context.Context, event LedgerEvent, autorID, autorTipo, origem string) (int, error) {
+	if l.db == nil {
+		return 0, nil
+	}
+	if event.AggregateID == uuid.Nil {
+		return 0, errors.New("aggregate_id financeiro inválido")
+	}
+	if event.OccurredAt.IsZero() {
+		event.OccurredAt = time.Now().UTC()
+	}
+	payload, err := json.Marshal(sanitizeMap(event.Payload))
+	if err != nil {
+		return 0, err
+	}
+	md := map[string]any{"user_id": autorID, "user_type": autorTipo, "origem": origem}
+	for k, v := range event.Metadata {
+		md[k] = v
+	}
+	metadata, err := json.Marshal(sanitizeMap(md))
+	if err != nil {
+		return 0, err
+	}
+	tx, err := l.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	var version int
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(event_version), 0)+1 FROM spuri_ledger WHERE aggregate_id=$1`, event.AggregateID).Scan(&version); err != nil {
+		return 0, err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO spuri_ledger (event_id, aggregate_id, aggregate_type, event_type, event_version, payload, metadata, occurred_at) VALUES ($1,$2,'Financeiro',$3,$4,$5,$6,$7)`, uuid.New(), event.AggregateID, event.EventType, version, payload, metadata, event.OccurredAt)
+	if err != nil {
+		return 0, err
+	}
+	return version, tx.Commit()
+}
+
+func (l SQLLedger) LoadFinanceEvents(ctx context.Context) ([]LedgerEvent, error) {
+	if l.db == nil {
+		return nil, nil
+	}
+	rows, err := l.db.QueryxContext(ctx, `SELECT aggregate_id, event_type, payload, metadata, occurred_at FROM spuri_ledger WHERE aggregate_type='Financeiro' ORDER BY id ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []LedgerEvent
+	for rows.Next() {
+		var e LedgerEvent
+		var p, m []byte
+		if err := rows.Scan(&e.AggregateID, &e.EventType, &p, &m, &e.OccurredAt); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(p, &e.Payload)
+		_ = json.Unmarshal(m, &e.Metadata)
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+func sanitizeMap(in map[string]any) map[string]any {
+	out := map[string]any{}
+	for k, v := range in {
+		if ContainsSensitive(k) {
+			out[k+"_redacted"] = "***"
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}
+
+func (s *Service) record(ctx context.Context, aggregateID uuid.UUID, eventType string, payload map[string]any, autorID, autorTipo, origem string) (EventoFinanceiro, error) {
+	e := EventoFinanceiro{Tipo: eventType, AutorID: autorID, AutorTipo: autorTipo, At: time.Now().UTC()}
+	if s.ledger != nil {
+		if _, err := s.ledger.AppendFinanceEvent(ctx, LedgerEvent{AggregateID: aggregateID, EventType: eventType, Payload: payload, OccurredAt: e.At}, autorID, autorTipo, origem); err != nil {
+			return e, err
+		}
+	}
+	return e, nil
+}
+
+func modalidadeAggregateID() uuid.UUID {
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("spuri:financeiro:modalidade"))
+}
+
+func credentialPayload(c CredencialAppyPay) map[string]any {
+	return map[string]any{"credential_id": c.ID.String(), "contexto_tipo": string(c.ContextoTipo), "codigo_academia": c.CodigoAcademia, "ambiente": string(c.Ambiente), "auth_base_url": c.AuthBaseURL, "api_base_url": c.APIBaseURL, "webapi_base_url": c.WebAPIBaseURL, "client_id": c.ClientID, "resource": c.Resource, "client_secret_mask": c.ClientSecretMask, "webhook_secret_mask": c.WebhookSecretMask, "applications": safeApps(c.Applications), "status": string(c.Status)}
+}
+func safeApps(apps []Application) []map[string]any {
+	out := []map[string]any{}
+	for _, a := range apps {
+		out = append(out, map[string]any{"paymentMethod": a.PaymentMethod, "applicationId": a.ApplicationID, "apiKey_mask": a.APIKeyMask, "webhook": a.WebhookURL, "metadata": a.Metadata})
+	}
+	return out
+}
+func chargePayload(c CobrancaFinanceira) map[string]any {
+	return map[string]any{"cobranca_id": c.ID.String(), "contexto_tipo": string(c.ContextoTipo), "codigo_academia": c.CodigoAcademia, "pagador_tipo": c.PagadorTipo, "pagador_id": c.PagadorID, "valor": c.Valor, "moeda": c.Moeda, "metodo_pagamento": c.MetodoPagamento, "referencia_externa": c.ReferenciaExterna, "merchant_transaction_id": c.MerchantTransactionID, "provider_charge_id": c.ProviderChargeID, "status": string(c.Status), "provider_status": c.StatusProviderBruto}
 }
 
 func (s *Service) loadPersisted(ctx context.Context) error {
@@ -218,7 +378,7 @@ func (s *Service) loadPersisted(ctx context.Context) error {
 	return nil
 }
 
-func (s *Service) persistCredencial(ctx context.Context, c CredencialAppyPay) error {
+func (s *Service) projectCredencial(ctx context.Context, c CredencialAppyPay) error {
 	if s.db == nil {
 		return nil
 	}
@@ -230,7 +390,7 @@ func (s *Service) persistCredencial(ctx context.Context, c CredencialAppyPay) er
 	return err
 }
 
-func (s *Service) persistCobranca(ctx context.Context, key string, c CobrancaFinanceira) error {
+func (s *Service) projectCobranca(ctx context.Context, key string, c CobrancaFinanceira) error {
 	if s.db == nil {
 		return nil
 	}
@@ -242,7 +402,7 @@ func (s *Service) persistCobranca(ctx context.Context, key string, c CobrancaFin
 	return err
 }
 
-func (s *Service) persistModalidade(ctx context.Context) error {
+func (s *Service) projectModalidade(ctx context.Context) error {
 	if s.db == nil {
 		return nil
 	}
@@ -254,7 +414,7 @@ func (s *Service) persistModalidade(ctx context.Context) error {
 	return err
 }
 
-func (s *Service) persistWebhook(ctx context.Context, eventID string) error {
+func (s *Service) projectWebhook(ctx context.Context, eventID string) error {
 	if s.db == nil {
 		return nil
 	}
@@ -282,8 +442,13 @@ func (s *Service) CriarCredencial(ctx context.Context, in CredencialInput, autor
 	if err != nil {
 		return c, err
 	}
-	c.Historico = append(c.Historico, EventoFinanceiro{Tipo: "CredenciaisAppyPayCadastradas", AutorID: autorID, AutorTipo: autorTipo, ContextoTipo: string(c.ContextoTipo), CodigoAcademia: c.CodigoAcademia, At: c.CreatedAt})
-	if err := s.persistCredencial(ctx, c); err != nil {
+	ev, err := s.record(ctx, c.ID, "CredenciaisAppyPayCadastradas", credentialPayload(c), autorID, autorTipo, "http")
+	if err != nil {
+		return CredencialAppyPay{}, err
+	}
+	ev.ContextoTipo, ev.CodigoAcademia = string(c.ContextoTipo), c.CodigoAcademia
+	c.Historico = append(c.Historico, ev)
+	if err := s.projectCredencial(ctx, c); err != nil {
 		return CredencialAppyPay{}, err
 	}
 	s.creds[c.ID] = c
@@ -309,8 +474,13 @@ func (s *Service) AtualizarCredencial(ctx context.Context, id uuid.UUID, in Cred
 	c.ID = id
 	c.CreatedAt = old.CreatedAt
 	c.Version = old.Version + 1
-	c.Historico = append(old.Historico, EventoFinanceiro{Tipo: "CredenciaisAppyPayAtualizadas", AutorID: autorID, AutorTipo: autorTipo, ContextoTipo: string(c.ContextoTipo), CodigoAcademia: c.CodigoAcademia, At: c.UpdatedAt})
-	if err := s.persistCredencial(ctx, c); err != nil {
+	ev, err := s.record(ctx, c.ID, "CredenciaisAppyPayAtualizadas", credentialPayload(c), autorID, autorTipo, "http")
+	if err != nil {
+		return CredencialAppyPay{}, err
+	}
+	ev.ContextoTipo, ev.CodigoAcademia = string(c.ContextoTipo), c.CodigoAcademia
+	c.Historico = append(old.Historico, ev)
+	if err := s.projectCredencial(ctx, c); err != nil {
 		return CredencialAppyPay{}, err
 	}
 	s.creds[id] = c
@@ -359,8 +529,13 @@ func (s *Service) TestarCredencial(ctx context.Context, id uuid.UUID, autorID, a
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c = s.creds[id]
-	c.Historico = append(c.Historico, EventoFinanceiro{Tipo: "CredenciaisAppyPayValidadas", AutorID: autorID, AutorTipo: autorTipo, ContextoTipo: string(c.ContextoTipo), CodigoAcademia: c.CodigoAcademia, At: time.Now().UTC()})
-	if err := s.persistCredencial(ctx, c); err != nil {
+	ev, err := s.record(ctx, c.ID, "CredenciaisAppyPayValidadas", credentialPayload(c), autorID, autorTipo, "http")
+	if err != nil {
+		return err
+	}
+	ev.ContextoTipo, ev.CodigoAcademia = string(c.ContextoTipo), c.CodigoAcademia
+	c.Historico = append(c.Historico, ev)
+	if err := s.projectCredencial(ctx, c); err != nil {
 		return err
 	}
 	s.creds[id] = c
@@ -386,8 +561,13 @@ func (s *Service) AlterarStatusCredencial(id uuid.UUID, status StatusCredencial,
 	if status == StatusAtivo {
 		eventoTipo = "CredenciaisAppyPayAtivadas"
 	}
-	c.Historico = append(c.Historico, EventoFinanceiro{Tipo: eventoTipo, AutorID: autorID, AutorTipo: autorTipo, Motivo: motivo, ContextoTipo: string(c.ContextoTipo), CodigoAcademia: c.CodigoAcademia, At: c.UpdatedAt})
-	if err := s.persistCredencial(context.Background(), c); err != nil {
+	ev, err := s.record(context.Background(), c.ID, eventoTipo, credentialPayload(c), autorID, autorTipo, "http")
+	if err != nil {
+		return CredencialAppyPay{}, err
+	}
+	ev.Motivo, ev.ContextoTipo, ev.CodigoAcademia = motivo, string(c.ContextoTipo), c.CodigoAcademia
+	c.Historico = append(c.Historico, ev)
+	if err := s.projectCredencial(context.Background(), c); err != nil {
 		return CredencialAppyPay{}, err
 	}
 	s.creds[id] = c
@@ -411,8 +591,19 @@ func (s *Service) AlterarModalidade(escopo, codigo string, ativa bool, autorID, 
 	} else {
 		return errors.New("escopo inválido")
 	}
-	s.modalidade.Historico = append(s.modalidade.Historico, EventoFinanceiro{Tipo: "ModalidadePagamentoAlterada", AutorID: autorID, AutorTipo: autorTipo, Motivo: motivo, Escopo: escopo, CodigoAcademia: codigo, At: time.Now().UTC()})
-	return s.persistModalidade(context.Background())
+	eventType := "ModalidadePagamentoGlobalAlterada"
+	if escopo == "spuri" {
+		eventType = "ModalidadePagamentoSpuriAlterada"
+	} else if escopo == "academia" {
+		eventType = "ModalidadePagamentoAcademiaAlterada"
+	}
+	ev, err := s.record(context.Background(), modalidadeAggregateID(), eventType, map[string]any{"escopo": escopo, "codigo_academia": codigo, "ativa": ativa}, autorID, autorTipo, "http")
+	if err != nil {
+		return err
+	}
+	ev.Motivo, ev.Escopo, ev.CodigoAcademia = motivo, escopo, codigo
+	s.modalidade.Historico = append(s.modalidade.Historico, ev)
+	return s.projectModalidade(context.Background())
 }
 func (s *Service) GerarCobrancaFinanceiraBase(ctx context.Context, in GerarCobrancaInput, autorID string) (CobrancaFinanceira, error) {
 	s.mu.Lock()
@@ -444,7 +635,11 @@ func (s *Service) GerarCobrancaFinanceiraBase(ctx context.Context, in GerarCobra
 	}
 	now := time.Now().UTC()
 	ch := CobrancaFinanceira{ID: uuid.New(), ContextoTipo: in.ContextoTipo, CodigoAcademia: in.CodigoAcademia, PagadorTipo: in.PagadorTipo, PagadorID: in.PagadorID, Valor: in.Valor, Moeda: in.Moeda, MetodoPagamento: in.MetodoPagamento, Descricao: in.Descricao, ReferenciaExterna: in.ReferenciaExterna, MerchantTransactionID: merchantID(in), Metadata: in.Metadata, Status: CobrancaPendente, CreatedAt: now, UpdatedAt: now, Version: 1}
-	ch.Historico = append(ch.Historico, EventoFinanceiro{Tipo: "CobrancaFinanceiraCriada", AutorID: autorID, At: now})
+	ev, err := s.record(ctx, ch.ID, "CobrancaFinanceiraCriada", chargePayload(ch), autorID, "sistema", "http")
+	if err != nil {
+		return CobrancaFinanceira{}, err
+	}
+	ch.Historico = append(ch.Historico, ev)
 	pid, pstatus, err := s.provider.CriarCobranca(ctx, cred, ch, app)
 	if err != nil {
 		ch.Status = CobrancaFalhada
@@ -453,8 +648,13 @@ func (s *Service) GerarCobrancaFinanceiraBase(ctx context.Context, in GerarCobra
 		ch.Status = CobrancaEnviada
 		ch.StatusProviderBruto = pstatus
 	}
-	ch.Historico = append(ch.Historico, EventoFinanceiro{Tipo: "CobrancaFinanceiraEnviadaAoProvider", AutorID: autorID, At: time.Now().UTC(), Metadata: map[string]any{"provider_status": pstatus}})
-	if persistErr := s.persistCobranca(ctx, key, ch); persistErr != nil {
+	ev, recErr := s.record(ctx, ch.ID, "CobrancaFinanceiraEnviadaAoProvider", chargePayload(ch), autorID, "sistema", "provider")
+	if recErr != nil {
+		return CobrancaFinanceira{}, recErr
+	}
+	ev.Metadata = map[string]any{"provider_status": pstatus}
+	ch.Historico = append(ch.Historico, ev)
+	if persistErr := s.projectCobranca(ctx, key, ch); persistErr != nil {
 		return CobrancaFinanceira{}, persistErr
 	}
 	s.charges[ch.ID] = ch
@@ -498,9 +698,14 @@ func (s *Service) SincronizarStatusCobrancaFinanceiraBase(ctx context.Context, i
 	}
 	c.Version++
 	c.UpdatedAt = time.Now().UTC()
-	c.Historico = append(c.Historico, EventoFinanceiro{Tipo: "CobrancaFinanceiraStatusAtualizado", AutorID: autorID, At: c.UpdatedAt, Metadata: map[string]any{"provider_status": st}})
+	ev, err := s.record(ctx, c.ID, "CobrancaFinanceiraStatusAtualizado", chargePayload(c), autorID, "sistema", "reconciliation")
+	if err != nil {
+		return CobrancaFinanceira{}, err
+	}
+	ev.Metadata = map[string]any{"provider_status": st}
+	c.Historico = append(c.Historico, ev)
 	key := string(c.ContextoTipo) + ":" + c.CodigoAcademia + ":" + c.ReferenciaExterna
-	if err := s.persistCobranca(ctx, key, c); err != nil {
+	if err := s.projectCobranca(ctx, key, c); err != nil {
 		return CobrancaFinanceira{}, err
 	}
 	s.charges[id] = c
@@ -517,9 +722,14 @@ func (s *Service) CancelarCobrancaFinanceiraBase(id uuid.UUID, autor, motivo str
 		return c, errors.New("cobrança liquidada não pode ser cancelada")
 	}
 	c.Status = CobrancaCancelada
-	c.Historico = append(c.Historico, EventoFinanceiro{Tipo: "CobrancaFinanceiraCancelada", AutorID: autor, Motivo: motivo, At: time.Now().UTC()})
+	ev, err := s.record(context.Background(), c.ID, "CobrancaFinanceiraCancelada", chargePayload(c), autor, "sistema", "http")
+	if err != nil {
+		return CobrancaFinanceira{}, err
+	}
+	ev.Motivo = motivo
+	c.Historico = append(c.Historico, ev)
 	key := string(c.ContextoTipo) + ":" + c.CodigoAcademia + ":" + c.ReferenciaExterna
-	if err := s.persistCobranca(context.Background(), key, c); err != nil {
+	if err := s.projectCobranca(context.Background(), key, c); err != nil {
 		return CobrancaFinanceira{}, err
 	}
 	s.charges[id] = c
@@ -542,11 +752,16 @@ func (s *Service) ReembolsarCobrancaFinanceiraBase(id uuid.UUID, valor int64, au
 	if valor <= 0 || valor > c.Valor {
 		return EventoFinanceiro{}, errors.New("valor de reembolso inválido")
 	}
-	e := EventoFinanceiro{Tipo: "ReembolsoFinanceiroSolicitado", AutorID: autor, Motivo: motivo, At: time.Now().UTC(), Metadata: map[string]any{"cobranca_id": id.String(), "valor": valor}}
+	e, err := s.record(context.Background(), id, "ReembolsoFinanceiroSolicitado", map[string]any{"cobranca_id": id.String(), "valor": valor}, autor, "sistema", "http")
+	if err != nil {
+		return EventoFinanceiro{}, err
+	}
+	e.Motivo = motivo
+	e.Metadata = map[string]any{"cobranca_id": id.String(), "valor": valor}
 	c.Historico = append(c.Historico, e)
 	c.Version++
 	key := string(c.ContextoTipo) + ":" + c.CodigoAcademia + ":" + c.ReferenciaExterna
-	if err := s.persistCobranca(context.Background(), key, c); err != nil {
+	if err := s.projectCobranca(context.Background(), key, c); err != nil {
 		return EventoFinanceiro{}, err
 	}
 	s.charges[id] = c
@@ -566,11 +781,16 @@ func (s *Service) ReverterCobrancaFinanceiraBase(id uuid.UUID, autor, motivo str
 	if c.MetodoPagamento != "UMM" {
 		return EventoFinanceiro{}, errors.New("reversão disponível apenas para método suportado")
 	}
-	e := EventoFinanceiro{Tipo: "ReversaoFinanceiraSolicitada", AutorID: autor, Motivo: motivo, At: time.Now().UTC(), Metadata: map[string]any{"cobranca_id": id.String()}}
+	e, err := s.record(context.Background(), id, "ReversaoFinanceiraSolicitada", map[string]any{"cobranca_id": id.String()}, autor, "sistema", "http")
+	if err != nil {
+		return EventoFinanceiro{}, err
+	}
+	e.Motivo = motivo
+	e.Metadata = map[string]any{"cobranca_id": id.String()}
 	c.Historico = append(c.Historico, e)
 	c.Version++
 	key := string(c.ContextoTipo) + ":" + c.CodigoAcademia + ":" + c.ReferenciaExterna
-	if err := s.persistCobranca(context.Background(), key, c); err != nil {
+	if err := s.projectCobranca(context.Background(), key, c); err != nil {
 		return EventoFinanceiro{}, err
 	}
 	s.charges[id] = c
@@ -583,10 +803,15 @@ func (s *Service) ProcessarWebhookFinanceiroBase(ctx context.Context, eventID st
 	}
 	s.mu.Lock()
 	if s.webhooks[eventID] {
+		_, _ = s.record(ctx, chargeID, "WebhookFinanceiroIgnoradoComoDuplicado", map[string]any{"event_id": eventID, "cobranca_id": chargeID.String()}, autorID, "sistema", "webhook")
 		s.mu.Unlock()
 		return false, nil
 	}
-	if err := s.persistWebhook(ctx, eventID); err != nil {
+	if _, err := s.record(ctx, chargeID, "WebhookFinanceiroRecebido", map[string]any{"event_id": eventID, "cobranca_id": chargeID.String()}, autorID, "sistema", "webhook"); err != nil {
+		s.mu.Unlock()
+		return false, err
+	}
+	if err := s.projectWebhook(ctx, eventID); err != nil {
 		s.mu.Unlock()
 		return false, err
 	}
@@ -599,7 +824,11 @@ func (s *Service) ReconciliarFinanceiroBase(ctx context.Context, autorID string)
 	if err := validarAutorID(autorID); err != nil {
 		return nil, err
 	}
-	return []EventoFinanceiro{{Tipo: "ReconciliacaoFinanceiraExecutada", AutorID: autorID, At: time.Now().UTC()}}, nil
+	ev, err := s.record(ctx, modalidadeAggregateID(), "ReconciliacaoFinanceiraExecutada", map[string]any{"resultado": "executada"}, autorID, "sistema", "reconciliation")
+	if err != nil {
+		return nil, err
+	}
+	return []EventoFinanceiro{ev}, nil
 }
 func (s *Service) activeCred(ct ContextoTipo, cod, method string) (CredencialAppyPay, Application, error) {
 	for _, c := range s.creds {
@@ -659,7 +888,11 @@ func encrypt(v string) (string, error) {
 	if v == "" {
 		return "", nil
 	}
-	h := sha256.Sum256([]byte(os.Getenv("FINANCE_ENCRYPTION_KEY") + "spuri-finance-default-key"))
+	keyMaterial := os.Getenv("FINANCE_ENCRYPTION_KEY")
+	if keyMaterial == "" && strings.EqualFold(os.Getenv("GO_ENV"), "production") {
+		return "", errors.New("FINANCE_ENCRYPTION_KEY obrigatório em produção")
+	}
+	h := sha256.Sum256([]byte(keyMaterial + "spuri-finance-default-key"))
 	block, err := aes.NewCipher(h[:])
 	if err != nil {
 		return "", err
@@ -681,4 +914,122 @@ func merchantID(in GerarCobrancaInput) string {
 func ContainsSensitive(s string) bool {
 	l := strings.ToLower(s)
 	return strings.Contains(l, "client_secret") || strings.Contains(l, "apikey") || strings.Contains(l, "api_key") || strings.Contains(l, "token") || strings.Contains(l, "webhook_secret")
+}
+
+func (s *Service) RebuildProjections(ctx context.Context) error {
+	if s.ledger == nil {
+		return nil
+	}
+	events, err := s.ledger.LoadFinanceEvents(ctx)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.creds = map[uuid.UUID]CredencialAppyPay{}
+	s.charges = map[uuid.UUID]CobrancaFinanceira{}
+	s.idem = map[string]uuid.UUID{}
+	s.webhooks = map[string]bool{}
+	s.modalidade = ModalidadePagamento{GlobalAcademiasAtiva: true, SpuriAtiva: true, Academias: map[string]bool{}}
+	for _, e := range events {
+		if err := s.applyLedgerProjection(ctx, e); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) applyLedgerProjection(ctx context.Context, e LedgerEvent) error {
+	switch e.EventType {
+	case "CredenciaisAppyPayCadastradas", "CredenciaisAppyPayAtualizadas", "CredenciaisAppyPayValidadas", "CredenciaisAppyPayAtivadas", "CredenciaisAppyPayDesativadas":
+		// Segredos cifrados são armazenamento operacional; replay público mantém metadados/máscaras.
+		c := s.creds[e.AggregateID]
+		c.ID = e.AggregateID
+		if v, ok := e.Payload["contexto_tipo"].(string); ok {
+			c.ContextoTipo = ContextoTipo(v)
+		}
+		if v, ok := e.Payload["codigo_academia"].(string); ok {
+			c.CodigoAcademia = v
+		}
+		if v, ok := e.Payload["ambiente"].(string); ok {
+			c.Ambiente = Ambiente(v)
+		}
+		if v, ok := e.Payload["auth_base_url"].(string); ok {
+			c.AuthBaseURL = v
+		}
+		if v, ok := e.Payload["api_base_url"].(string); ok {
+			c.APIBaseURL = v
+		}
+		if v, ok := e.Payload["webapi_base_url"].(string); ok {
+			c.WebAPIBaseURL = v
+		}
+		if v, ok := e.Payload["client_id"].(string); ok {
+			c.ClientID = v
+		}
+		if v, ok := e.Payload["resource"].(string); ok {
+			c.Resource = v
+		}
+		if v, ok := e.Payload["client_secret_mask"].(string); ok {
+			c.ClientSecretMask = v
+		}
+		if v, ok := e.Payload["webhook_secret_mask"].(string); ok {
+			c.WebhookSecretMask = v
+		}
+		if v, ok := e.Payload["status"].(string); ok {
+			c.Status = StatusCredencial(v)
+		}
+		c.UpdatedAt = e.OccurredAt
+		if c.CreatedAt.IsZero() {
+			c.CreatedAt = e.OccurredAt
+		}
+		c.Version++
+		s.creds[e.AggregateID] = c
+		return s.projectCredencial(ctx, c)
+	case "ModalidadePagamentoGlobalAlterada", "ModalidadePagamentoSpuriAlterada", "ModalidadePagamentoAcademiaAlterada":
+		ativa, _ := e.Payload["ativa"].(bool)
+		escopo, _ := e.Payload["escopo"].(string)
+		codigo, _ := e.Payload["codigo_academia"].(string)
+		if escopo == "global_academias" {
+			s.modalidade.GlobalAcademiasAtiva = ativa
+		} else if escopo == "spuri" {
+			s.modalidade.SpuriAtiva = ativa
+		} else if escopo == "academia" {
+			s.modalidade.Academias[codigo] = ativa
+		}
+		return s.projectModalidade(ctx)
+	case "CobrancaFinanceiraCriada", "CobrancaFinanceiraEnviadaAoProvider", "CobrancaFinanceiraStatusAtualizado", "CobrancaFinanceiraCancelada":
+		c := s.charges[e.AggregateID]
+		c.ID = e.AggregateID
+		if v, ok := e.Payload["contexto_tipo"].(string); ok {
+			c.ContextoTipo = ContextoTipo(v)
+		}
+		if v, ok := e.Payload["codigo_academia"].(string); ok {
+			c.CodigoAcademia = v
+		}
+		if v, ok := e.Payload["referencia_externa"].(string); ok {
+			c.ReferenciaExterna = v
+		}
+		if v, ok := e.Payload["status"].(string); ok {
+			c.Status = StatusCobranca(v)
+		}
+		c.UpdatedAt = e.OccurredAt
+		if c.CreatedAt.IsZero() {
+			c.CreatedAt = e.OccurredAt
+		}
+		c.Version++
+		key := string(c.ContextoTipo) + ":" + c.CodigoAcademia + ":" + c.ReferenciaExterna
+		s.charges[e.AggregateID] = c
+		s.idem[key] = e.AggregateID
+		return s.projectCobranca(ctx, key, c)
+	case "WebhookFinanceiroRecebido", "WebhookFinanceiroIgnoradoComoDuplicado":
+		if id, ok := e.Payload["event_id"].(string); ok {
+			s.webhooks[id] = true
+			return s.projectWebhook(ctx, id)
+		}
+		return nil
+	case "ReembolsoFinanceiroSolicitado", "ReembolsoFinanceiroStatusAtualizado", "ReversaoFinanceiraSolicitada", "ReversaoFinanceiraStatusAtualizado", "DivergenciaFinanceiraDetectada", "DivergenciaFinanceiraReconciliada", "ReconciliacaoFinanceiraExecutada":
+		return nil
+	default:
+		return fmt.Errorf("evento financeiro desconhecido no replay: %s", e.EventType)
+	}
 }
