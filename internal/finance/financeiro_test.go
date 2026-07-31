@@ -13,6 +13,7 @@ import (
 func cred(t *testing.T, cod string, ctx ContextoTipo) CredencialInput {
 	t.Helper()
 	t.Setenv(AppyPayAPIBaseURLEnv, "https://api")
+	t.Setenv("FINANCE_ENCRYPTION_KEY", "chave-de-teste")
 	return CredencialInput{ContextoTipo: ctx, CodigoAcademia: cod, Ambiente: AmbienteTeste, AuthBaseURL: "https://login", ClientID: "client", ClientSecret: "super-secret", Resource: "res", WebhookSecret: "hook-secret", Applications: []ApplicationInput{{PaymentMethod: "REF", ApplicationID: "app", APIKey: "api-secret-key"}}}
 }
 func TestCredenciaisCriptografadasEMascaradas(t *testing.T) {
@@ -344,6 +345,7 @@ func TestReplayPreservaHistoricoEMotivo(t *testing.T) {
 }
 
 func TestEncryptDecryptSegredoFinanceiro(t *testing.T) {
+	t.Setenv("FINANCE_ENCRYPTION_KEY", "chave-de-teste")
 	ciphertext, err := encrypt("super-secret")
 	if err != nil {
 		t.Fatal(err)
@@ -357,12 +359,11 @@ func TestEncryptDecryptSegredoFinanceiro(t *testing.T) {
 	}
 }
 
-func TestValidateEncryptionConfigUsaENVProduction(t *testing.T) {
-	t.Setenv("ENV", "production")
-	t.Setenv("GO_ENV", "")
+func TestValidateEncryptionConfigExigeChaveEmQualquerAmbiente(t *testing.T) {
+	t.Setenv("ENV", "development")
 	t.Setenv("FINANCE_ENCRYPTION_KEY", "")
 	if err := ValidateEncryptionConfig(); err == nil {
-		t.Fatalf("esperava erro sem FINANCE_ENCRYPTION_KEY quando ENV=production")
+		t.Fatalf("esperava erro sem FINANCE_ENCRYPTION_KEY")
 	}
 
 	t.Setenv("FINANCE_ENCRYPTION_KEY", "chave-de-teste")
