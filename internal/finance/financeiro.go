@@ -984,9 +984,9 @@ func MaskSecret(s string) string {
 	return "****" + s[len(s)-4:]
 }
 func financeEncryptionKeyMaterial() (string, error) {
-	keyMaterial := os.Getenv("FINANCE_ENCRYPTION_KEY")
-	if keyMaterial == "" && strings.EqualFold(os.Getenv("ENV"), "production") {
-		return "", errors.New("FINANCE_ENCRYPTION_KEY obrigatório em produção")
+	keyMaterial := strings.TrimSpace(os.Getenv("FINANCE_ENCRYPTION_KEY"))
+	if keyMaterial == "" {
+		return "", errors.New("FINANCE_ENCRYPTION_KEY obrigatório")
 	}
 	return keyMaterial, nil
 }
