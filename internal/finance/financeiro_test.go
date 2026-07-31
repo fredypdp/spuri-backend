@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func cred(t *testing.T, cod string, ctx ContextoTipo) CredencialInput {
@@ -81,6 +84,90 @@ func TestIsolamentoAcademiasEIdempotencia(t *testing.T) {
 		t.Fatal("cobrou estudante de outra academia")
 	}
 }
+
+func TestGerarCobrancaConcorrenteReservaIdempotenciaAntesDoProvider(t *testing.T) {
+	provider := &slowProvider{delay: 50 * time.Millisecond}
+	s := NewService(provider)
+	sp, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AlterarStatusCredencial(sp.ID, StatusAtivo, "u", "admin", "", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	in := GerarCobrancaInput{ContextoTipo: ContextoSpuri, PagadorTipo: "academia", PagadorID: "ACA", Valor: 1000, MetodoPagamento: "REF", ReferenciaExterna: "concorrente-1"}
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	results := make(chan CobrancaFinanceira, 2)
+	errs := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			ch, err := s.GerarCobrancaFinanceiraBase(context.Background(), in, "u")
+			results <- ch
+			errs <- err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var ids []string
+	for ch := range results {
+		ids = append(ids, ch.ID.String())
+	}
+	if len(ids) != 2 || ids[0] != ids[1] {
+		t.Fatalf("cobranças concorrentes não foram idempotentes: %v", ids)
+	}
+	if got := provider.calls.Load(); got != 1 {
+		t.Fatalf("provider chamado %d vezes; esperado 1", got)
+	}
+}
+
+func TestAcademiaNaoReatribuiContextoAoAtualizarCredencial(t *testing.T) {
+	s := NewService(nil)
+	ca, err := s.CriarCredencial(context.Background(), cred(t, "ACA", ContextoAcademia), "u", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := cred(t, "ACB", ContextoAcademia)
+	in.ClientID = "client-atualizado"
+	got, err := s.AtualizarCredencial(context.Background(), ca.ID, in, "acad", "academia", "ACA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ContextoTipo != ContextoAcademia || got.CodigoAcademia != "ACA" {
+		t.Fatalf("academia reatribuiu credencial para contexto=%q codigo=%q", got.ContextoTipo, got.CodigoAcademia)
+	}
+	stored := s.creds[ca.ID]
+	if stored.ContextoTipo != ContextoAcademia || stored.CodigoAcademia != "ACA" {
+		t.Fatalf("credencial armazenada foi reatribuída para contexto=%q codigo=%q", stored.ContextoTipo, stored.CodigoAcademia)
+	}
+}
+
+type slowProvider struct {
+	delay time.Duration
+	calls atomic.Int64
+}
+
+func (p *slowProvider) TestarCredencial(context.Context, CredencialAppyPay) error { return nil }
+func (p *slowProvider) CriarCobranca(context.Context, CredencialAppyPay, CobrancaFinanceira, Application) (string, string, error) {
+	p.calls.Add(1)
+	time.Sleep(p.delay)
+	return "appy_slow", "PENDING", nil
+}
+func (p *slowProvider) ConsultarCobranca(context.Context, CredencialAppyPay, CobrancaFinanceira) (string, error) {
+	return "PAID", nil
+}
+
 func TestModalidadeDesativadaImpedeAcademiaMasNaoSpuri(t *testing.T) {
 	s := NewService(nil)
 	ac, _ := s.CriarCredencial(context.Background(), cred(t, "ACA", ContextoAcademia), "u", "admin")

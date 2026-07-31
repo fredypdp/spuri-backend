@@ -558,6 +558,10 @@ func (s *Service) AtualizarCredencial(ctx context.Context, id uuid.UUID, in Cred
 	if err != nil {
 		return c, err
 	}
+	if autorTipo == "academia" {
+		c.ContextoTipo = old.ContextoTipo
+		c.CodigoAcademia = old.CodigoAcademia
+	}
 	c.ID = id
 	c.CreatedAt = old.CreatedAt
 	c.Version = old.Version + 1
@@ -738,6 +742,8 @@ func (s *Service) GerarCobrancaFinanceiraBase(ctx context.Context, in GerarCobra
 		return CobrancaFinanceira{}, err
 	}
 	ch.Historico = append(ch.Historico, ev)
+	s.charges[ch.ID] = ch
+	s.idem[key] = ch.ID
 	s.mu.Unlock()
 
 	pid, pstatus, providerErr := s.provider.CriarCobranca(ctx, cred, ch, app)
