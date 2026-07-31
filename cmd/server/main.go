@@ -80,6 +80,9 @@ func main() {
 }
 
 func initDB() error {
+	if err := finance.ValidateEncryptionConfig(); err != nil {
+		return err
+	}
 	config := db.DefaultConfig()
 	var err error
 	dbClient, err = db.NewClient(config)
