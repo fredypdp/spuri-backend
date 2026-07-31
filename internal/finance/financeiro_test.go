@@ -269,3 +269,17 @@ func TestEncryptDecryptSegredoFinanceiro(t *testing.T) {
 		t.Fatalf("decrypt retornou %q", plaintext)
 	}
 }
+
+func TestValidateEncryptionConfigUsaENVProduction(t *testing.T) {
+	t.Setenv("ENV", "production")
+	t.Setenv("GO_ENV", "")
+	t.Setenv("FINANCE_ENCRYPTION_KEY", "")
+	if err := ValidateEncryptionConfig(); err == nil {
+		t.Fatalf("esperava erro sem FINANCE_ENCRYPTION_KEY quando ENV=production")
+	}
+
+	t.Setenv("FINANCE_ENCRYPTION_KEY", "chave-de-teste")
+	if err := ValidateEncryptionConfig(); err != nil {
+		t.Fatalf("não esperava erro com FINANCE_ENCRYPTION_KEY configurada: %v", err)
+	}
+}

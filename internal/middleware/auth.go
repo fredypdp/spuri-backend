@@ -256,12 +256,25 @@ func verificarStatusUsuario(c *gin.Context, userID uuid.UUID, userType string) e
 	query := `SELECT status FROM ` + table + ` WHERE id::text = $1`
 
 	var status string
+	var codigoAcademia sql.NullString
+	if userType == "academia" {
+		query = `SELECT status, codigo_academia FROM projection_academias WHERE id::text = $1`
+		err := client.DB().QueryRow(query, userID.String()).Scan(&status, &codigoAcademia)
+		if codigoAcademia.Valid {
+			c.Set("codigo_academia", codigoAcademia.String)
+		}
+		return finalizarVerificacaoStatusUsuario(userType, status, err)
+	}
 	err := client.DB().QueryRow(query, userID.String()).Scan(&status)
+	return finalizarVerificacaoStatusUsuario(userType, status, err)
+}
+
+func finalizarVerificacaoStatusUsuario(userType, status string, err error) error {
 	if err == sql.ErrNoRows {
 		return sql.ErrNoRows
 	}
 	if err != nil {
-		log.Printf("⚠️ [AuthMiddleware] Erro ao verificar status do usuário %s: %v", userID, err)
+		log.Printf("⚠️ [AuthMiddleware] Erro ao verificar status do usuário tipo %s: %v", userType, err)
 		// FIX E4-CI-03: em caso de erro de banco (ex: timeout), permitimos a passagem
 		// com aviso para não derrubar o serviço inteiro por instabilidade pontual do BD.
 		// Trade-off: durante degradação, usuários desativados podem passar — logado para

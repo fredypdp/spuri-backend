@@ -535,7 +535,7 @@ func (s *Service) CriarCredencial(ctx context.Context, in CredencialInput, autor
 	}
 	ev.ContextoTipo, ev.CodigoAcademia = string(c.ContextoTipo), c.CodigoAcademia
 	c.Historico = append(c.Historico, ev)
-	if err := s.projectCredencial(ctx, c); err != nil {
+	if err := s.projectCredencialSegredos(ctx, c); err != nil {
 		return CredencialAppyPay{}, err
 	}
 	s.creds[c.ID] = c
@@ -567,7 +567,7 @@ func (s *Service) AtualizarCredencial(ctx context.Context, id uuid.UUID, in Cred
 	}
 	ev.ContextoTipo, ev.CodigoAcademia = string(c.ContextoTipo), c.CodigoAcademia
 	c.Historico = append(old.Historico, ev)
-	if err := s.projectCredencial(ctx, c); err != nil {
+	if err := s.projectCredencialSegredos(ctx, c); err != nil {
 		return CredencialAppyPay{}, err
 	}
 	s.creds[id] = c
@@ -622,7 +622,7 @@ func (s *Service) TestarCredencial(ctx context.Context, id uuid.UUID, autorID, a
 	}
 	ev.ContextoTipo, ev.CodigoAcademia = string(c.ContextoTipo), c.CodigoAcademia
 	c.Historico = append(c.Historico, ev)
-	if err := s.projectCredencial(ctx, c); err != nil {
+	if err := s.projectCredencialSegredos(ctx, c); err != nil {
 		return err
 	}
 	s.creds[id] = c
@@ -658,7 +658,7 @@ func (s *Service) AlterarStatusCredencial(id uuid.UUID, status StatusCredencial,
 	}
 	ev.Motivo, ev.ContextoTipo, ev.CodigoAcademia = motivo, string(c.ContextoTipo), c.CodigoAcademia
 	c.Historico = append(c.Historico, ev)
-	if err := s.projectCredencial(context.Background(), c); err != nil {
+	if err := s.projectCredencialSegredos(context.Background(), c); err != nil {
 		return CredencialAppyPay{}, err
 	}
 	s.creds[id] = c
@@ -694,11 +694,9 @@ func (s *Service) AlterarModalidade(escopo, codigo string, ativa bool, autorID, 
 	}
 	ev.Motivo, ev.Escopo, ev.CodigoAcademia = motivo, escopo, codigo
 	s.modalidade.Historico = append(s.modalidade.Historico, ev)
-	return s.projectModalidade(context.Background())
+	return nil
 }
 func (s *Service) GerarCobrancaFinanceiraBase(ctx context.Context, in GerarCobrancaInput, autorID string) (CobrancaFinanceira, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if err := validarAutorID(autorID); err != nil {
 		return CobrancaFinanceira{}, err
 	}
@@ -706,33 +704,47 @@ func (s *Service) GerarCobrancaFinanceiraBase(ctx context.Context, in GerarCobra
 	if in.Valor <= 0 || in.ReferenciaExterna == "" {
 		return CobrancaFinanceira{}, errors.New("valor e referencia_externa são obrigatórios")
 	}
+
+	s.mu.Lock()
 	if in.ContextoTipo == ContextoAcademia {
 		if !s.modalidade.GlobalAcademiasAtiva || !s.modalidade.Academias[in.CodigoAcademia] {
+			s.mu.Unlock()
 			return CobrancaFinanceira{}, errors.New("modalidade da academia inativa")
 		}
 		if in.PagadorTipo == "estudante" && in.Metadata["codigo_academia_estudante"] != "" && in.Metadata["codigo_academia_estudante"] != in.CodigoAcademia {
+			s.mu.Unlock()
 			return CobrancaFinanceira{}, errors.New("estudante não pertence à academia")
 		}
 	} else if !s.modalidade.SpuriAtiva {
+		s.mu.Unlock()
 		return CobrancaFinanceira{}, errors.New("modalidade spuri inativa")
 	}
 	key := string(in.ContextoTipo) + ":" + in.CodigoAcademia + ":" + in.ReferenciaExterna
 	if id, ok := s.idem[key]; ok {
-		return s.charges[id], nil
+		ch := s.charges[id]
+		s.mu.Unlock()
+		return ch, nil
 	}
 	cred, app, err := s.activeCred(in.ContextoTipo, in.CodigoAcademia, in.MetodoPagamento)
 	if err != nil {
+		s.mu.Unlock()
 		return CobrancaFinanceira{}, err
 	}
 	now := time.Now().UTC()
 	ch := CobrancaFinanceira{ID: uuid.New(), ContextoTipo: in.ContextoTipo, CodigoAcademia: in.CodigoAcademia, PagadorTipo: in.PagadorTipo, PagadorID: in.PagadorID, Valor: in.Valor, Moeda: in.Moeda, MetodoPagamento: in.MetodoPagamento, Descricao: in.Descricao, ReferenciaExterna: in.ReferenciaExterna, MerchantTransactionID: merchantID(in), Metadata: in.Metadata, Status: CobrancaPendente, CreatedAt: now, UpdatedAt: now, Version: 1}
 	ev, err := s.record(ctx, ch.ID, "CobrancaFinanceiraCriada", chargePayload(ch), autorID, "sistema", "http")
 	if err != nil {
+		s.mu.Unlock()
 		return CobrancaFinanceira{}, err
 	}
 	ch.Historico = append(ch.Historico, ev)
-	pid, pstatus, err := s.provider.CriarCobranca(ctx, cred, ch, app)
-	if err != nil {
+	s.mu.Unlock()
+
+	pid, pstatus, providerErr := s.provider.CriarCobranca(ctx, cred, ch, app)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if providerErr != nil {
 		ch.Status = CobrancaFalhada
 	} else {
 		ch.ProviderChargeID = pid
@@ -745,12 +757,9 @@ func (s *Service) GerarCobrancaFinanceiraBase(ctx context.Context, in GerarCobra
 	}
 	ev.Metadata = map[string]any{"provider_status": pstatus}
 	ch.Historico = append(ch.Historico, ev)
-	if persistErr := s.projectCobranca(ctx, key, ch); persistErr != nil {
-		return CobrancaFinanceira{}, persistErr
-	}
 	s.charges[ch.ID] = ch
 	s.idem[key] = ch.ID
-	return ch, err
+	return ch, providerErr
 }
 func (s *Service) ConsultarCobrancaFinanceiraBase(id uuid.UUID) (CobrancaFinanceira, error) {
 	s.mu.Lock()
@@ -795,10 +804,6 @@ func (s *Service) SincronizarStatusCobrancaFinanceiraBase(ctx context.Context, i
 	}
 	ev.Metadata = map[string]any{"provider_status": st}
 	c.Historico = append(c.Historico, ev)
-	key := string(c.ContextoTipo) + ":" + c.CodigoAcademia + ":" + c.ReferenciaExterna
-	if err := s.projectCobranca(ctx, key, c); err != nil {
-		return CobrancaFinanceira{}, err
-	}
 	s.charges[id] = c
 	return c, nil
 }
@@ -819,10 +824,6 @@ func (s *Service) CancelarCobrancaFinanceiraBase(id uuid.UUID, autor, motivo str
 	}
 	ev.Motivo = motivo
 	c.Historico = append(c.Historico, ev)
-	key := string(c.ContextoTipo) + ":" + c.CodigoAcademia + ":" + c.ReferenciaExterna
-	if err := s.projectCobranca(context.Background(), key, c); err != nil {
-		return CobrancaFinanceira{}, err
-	}
 	s.charges[id] = c
 	return c, nil
 }
@@ -851,10 +852,6 @@ func (s *Service) ReembolsarCobrancaFinanceiraBase(id uuid.UUID, valor int64, au
 	e.Metadata = map[string]any{"cobranca_id": id.String(), "valor": valor}
 	c.Historico = append(c.Historico, e)
 	c.Version++
-	key := string(c.ContextoTipo) + ":" + c.CodigoAcademia + ":" + c.ReferenciaExterna
-	if err := s.projectCobranca(context.Background(), key, c); err != nil {
-		return EventoFinanceiro{}, err
-	}
 	s.charges[id] = c
 	return e, nil
 }
@@ -880,10 +877,6 @@ func (s *Service) ReverterCobrancaFinanceiraBase(id uuid.UUID, autor, motivo str
 	e.Metadata = map[string]any{"cobranca_id": id.String()}
 	c.Historico = append(c.Historico, e)
 	c.Version++
-	key := string(c.ContextoTipo) + ":" + c.CodigoAcademia + ":" + c.ReferenciaExterna
-	if err := s.projectCobranca(context.Background(), key, c); err != nil {
-		return EventoFinanceiro{}, err
-	}
 	s.charges[id] = c
 	return e, nil
 }
@@ -948,11 +941,20 @@ func buildCredential(in CredencialInput) (CredencialAppyPay, error) {
 		return CredencialAppyPay{}, errors.New("campos obrigatórios ausentes")
 	}
 	now := time.Now().UTC()
-	cs, _ := encrypt(in.ClientSecret)
-	wh, _ := encrypt(in.WebhookSecret)
+	cs, err := encrypt(in.ClientSecret)
+	if err != nil {
+		return CredencialAppyPay{}, err
+	}
+	wh, err := encrypt(in.WebhookSecret)
+	if err != nil {
+		return CredencialAppyPay{}, err
+	}
 	apps := []Application{}
 	for _, a := range in.Applications {
-		ek, _ := encrypt(a.APIKey)
+		ek, err := encrypt(a.APIKey)
+		if err != nil {
+			return CredencialAppyPay{}, err
+		}
 		apps = append(apps, Application{PaymentMethod: a.PaymentMethod, ApplicationID: a.ApplicationID, APIKeyEncrypted: ek, APIKeyMask: MaskSecret(a.APIKey), WebhookURL: a.WebhookURL, Metadata: a.Metadata})
 	}
 	return CredencialAppyPay{ID: uuid.New(), ContextoTipo: in.ContextoTipo, CodigoAcademia: in.CodigoAcademia, Ambiente: in.Ambiente, AuthBaseURL: in.AuthBaseURL, APIBaseURL: apiBaseURL, WebAPIBaseURL: in.WebAPIBaseURL, ClientID: in.ClientID, ClientSecretEncrypted: cs, ClientSecretMask: MaskSecret(in.ClientSecret), Resource: in.Resource, WebhookSecretEncrypted: wh, WebhookSecretMask: MaskSecret(in.WebhookSecret), Applications: apps, Status: StatusPendenteValidacao, CreatedAt: now, UpdatedAt: now, Version: 1}, nil
@@ -975,13 +977,26 @@ func MaskSecret(s string) string {
 	}
 	return "****" + s[len(s)-4:]
 }
+func financeEncryptionKeyMaterial() (string, error) {
+	keyMaterial := os.Getenv("FINANCE_ENCRYPTION_KEY")
+	if keyMaterial == "" && strings.EqualFold(os.Getenv("ENV"), "production") {
+		return "", errors.New("FINANCE_ENCRYPTION_KEY obrigatório em produção")
+	}
+	return keyMaterial, nil
+}
+
+func ValidateEncryptionConfig() error {
+	_, err := financeEncryptionKeyMaterial()
+	return err
+}
+
 func decrypt(v string) (string, error) {
 	if v == "" {
 		return "", nil
 	}
-	keyMaterial := os.Getenv("FINANCE_ENCRYPTION_KEY")
-	if keyMaterial == "" && strings.EqualFold(os.Getenv("GO_ENV"), "production") {
-		return "", errors.New("FINANCE_ENCRYPTION_KEY obrigatório em produção")
+	keyMaterial, err := financeEncryptionKeyMaterial()
+	if err != nil {
+		return "", err
 	}
 	h := sha256.Sum256([]byte(keyMaterial + "spuri-finance-default-key"))
 	block, err := aes.NewCipher(h[:])
@@ -1010,9 +1025,9 @@ func encrypt(v string) (string, error) {
 	if v == "" {
 		return "", nil
 	}
-	keyMaterial := os.Getenv("FINANCE_ENCRYPTION_KEY")
-	if keyMaterial == "" && strings.EqualFold(os.Getenv("GO_ENV"), "production") {
-		return "", errors.New("FINANCE_ENCRYPTION_KEY obrigatório em produção")
+	keyMaterial, err := financeEncryptionKeyMaterial()
+	if err != nil {
+		return "", err
 	}
 	h := sha256.Sum256([]byte(keyMaterial + "spuri-finance-default-key"))
 	block, err := aes.NewCipher(h[:])
