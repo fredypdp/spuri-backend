@@ -2,7 +2,7 @@
 modificado: 2026-07-30 23:11
 criado: 2026-07-30 23:11
 ---
-# Depuração — Módulo base de gestão financeira com AppyPay
+# Depuração — Módulo base de gestão financeira com AppyPay 2
 
 ## Objetivo da auditoria
 
