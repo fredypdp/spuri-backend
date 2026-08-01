@@ -239,6 +239,12 @@ func (l SQLLedger) AppendFinanceEvent(ctx context.Context, event LedgerEvent, au
 	if event.AggregateID == uuid.Nil {
 		return 0, errors.New("aggregate_id financeiro inválido")
 	}
+	if err := db.ValidateAggregateType("Financeiro"); err != nil {
+		return 0, err
+	}
+	if err := db.ValidateEventType(event.EventType); err != nil {
+		return 0, err
+	}
 	if event.OccurredAt.IsZero() {
 		event.OccurredAt = time.Now().UTC()
 	}
@@ -300,9 +306,40 @@ func sanitizeMap(in map[string]any) map[string]any {
 			out[k+"_redacted"] = "***"
 			continue
 		}
-		out[k] = v
+		out[k] = sanitizeValue(v)
 	}
 	return out
+}
+
+func sanitizeValue(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		return sanitizeMap(x)
+	case map[string]string:
+		out := map[string]string{}
+		for k, v := range x {
+			if ContainsSensitive(k) {
+				out[k+"_redacted"] = "***"
+				continue
+			}
+			out[k] = v
+		}
+		return out
+	case []map[string]any:
+		out := make([]map[string]any, 0, len(x))
+		for _, item := range x {
+			out = append(out, sanitizeMap(item))
+		}
+		return out
+	case []any:
+		out := make([]any, 0, len(x))
+		for _, item := range x {
+			out = append(out, sanitizeValue(item))
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 func (s *Service) record(ctx context.Context, aggregateID uuid.UUID, eventType string, payload map[string]any, autorID, autorTipo, origem string) (EventoFinanceiro, error) {
@@ -522,8 +559,8 @@ func (s *Service) CriarCredencial(ctx context.Context, in CredencialInput, autor
 	if err := validarAutorID(autorID); err != nil {
 		return CredencialAppyPay{}, err
 	}
-	if autorTipo != "fpp" && autorTipo != "admin" {
-		return CredencialAppyPay{}, errors.New("apenas FPP/ADMIN podem criar credenciais")
+	if autorTipo != "fpp" {
+		return CredencialAppyPay{}, errors.New("apenas FPP pode criar credenciais")
 	}
 	c, err := buildCredential(in)
 	if err != nil {
@@ -551,7 +588,7 @@ func (s *Service) AtualizarCredencial(ctx context.Context, id uuid.UUID, in Cred
 	if !ok {
 		return old, errors.New("credencial não encontrada")
 	}
-	if autorTipo != "fpp" && autorTipo != "admin" && !(autorTipo == "academia" && old.ContextoTipo == ContextoAcademia && old.CodigoAcademia == codAcad) {
+	if autorTipo != "fpp" && !(autorTipo == "academia" && old.ContextoTipo == ContextoAcademia && old.CodigoAcademia == codAcad) {
 		return old, errors.New("sem permissão")
 	}
 	c, err := buildCredential(in)
@@ -633,7 +670,7 @@ func (s *Service) TestarCredencial(ctx context.Context, id uuid.UUID, autorID, a
 	return nil
 }
 func podeAcessarCredencial(autorTipo, codAcad string, c CredencialAppyPay) bool {
-	return autorTipo == "fpp" || autorTipo == "admin" || (autorTipo == "academia" && c.ContextoTipo == ContextoAcademia && c.CodigoAcademia == codAcad)
+	return autorTipo == "fpp" || autorTipo == "adm" || autorTipo == "gerente" || (autorTipo == "academia" && c.ContextoTipo == ContextoAcademia && c.CodigoAcademia == codAcad)
 }
 
 func (s *Service) AlterarStatusCredencial(id uuid.UUID, status StatusCredencial, autorID, autorTipo, codAcad, motivo string) (CredencialAppyPay, error) {
@@ -646,8 +683,8 @@ func (s *Service) AlterarStatusCredencial(id uuid.UUID, status StatusCredencial,
 	if !ok {
 		return c, errors.New("credencial não encontrada")
 	}
-	if autorTipo != "fpp" && autorTipo != "admin" {
-		return c, errors.New("apenas FPP/ADMIN")
+	if autorTipo != "fpp" {
+		return c, errors.New("apenas FPP")
 	}
 	c.Status = status
 	c.UpdatedAt = time.Now().UTC()
@@ -674,8 +711,8 @@ func (s *Service) AlterarModalidade(escopo, codigo string, ativa bool, autorID, 
 	if err := validarAutorID(autorID); err != nil {
 		return err
 	}
-	if autorTipo != "fpp" && autorTipo != "admin" {
-		return errors.New("apenas FPP/ADMIN")
+	if autorTipo != "fpp" {
+		return errors.New("apenas FPP")
 	}
 	if escopo == "global_academias" {
 		s.modalidade.GlobalAcademiasAtiva = ativa
@@ -757,14 +794,15 @@ func (s *Service) GerarCobrancaFinanceiraBase(ctx context.Context, in GerarCobra
 		ch.Status = CobrancaEnviada
 		ch.StatusProviderBruto = pstatus
 	}
+	s.charges[ch.ID] = ch
+	s.idem[key] = ch.ID
 	ev, recErr := s.record(ctx, ch.ID, "CobrancaFinanceiraEnviadaAoProvider", chargePayload(ch), autorID, "sistema", "provider")
 	if recErr != nil {
-		return CobrancaFinanceira{}, recErr
+		return ch, recErr
 	}
 	ev.Metadata = map[string]any{"provider_status": pstatus}
 	ch.Historico = append(ch.Historico, ev)
 	s.charges[ch.ID] = ch
-	s.idem[key] = ch.ID
 	return ch, providerErr
 }
 func (s *Service) ConsultarCobrancaFinanceiraBase(id uuid.UUID) (CobrancaFinanceira, error) {

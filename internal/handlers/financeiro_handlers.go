@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"spuri/internal/finance"
+	"spuri/internal/utils"
 )
 
 var FinanceiroService = finance.NewService(nil)
@@ -13,6 +14,11 @@ var FinanceiroService = finance.NewService(nil)
 func user(c *gin.Context) (string, string, string) {
 	id, _ := c.Get("user_id")
 	t, _ := c.Get("user_type")
+	if toS(t) == "admin" {
+		if role := c.GetString("admin_role"); role != "" {
+			t = role
+		}
+	}
 	cod := c.GetString("codigo_academia")
 	return toS(id), toS(t), cod
 }
@@ -34,13 +40,13 @@ func toS(v any) string {
 func CriarCredencialAppyPay(c *gin.Context) {
 	var in finance.CredencialInput
 	if err := c.ShouldBindJSON(&in); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "payload inválido"})
+		utils.RespondWithError(c, http.StatusBadRequest, "payload inválido", err)
 		return
 	}
 	uid, ut, _ := user(c)
 	out, err := FinanceiroService.CriarCredencial(c.Request.Context(), in, uid, ut)
 	if err != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		utils.RespondWithError(c, http.StatusForbidden, "operação financeira não permitida", err)
 		return
 	}
 	c.JSON(http.StatusCreated, out)
@@ -48,18 +54,18 @@ func CriarCredencialAppyPay(c *gin.Context) {
 func AtualizarCredencialAppyPay(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(400, gin.H{"error": "id inválido"})
+		utils.RespondWithError(c, http.StatusBadRequest, "id inválido", err)
 		return
 	}
 	var in finance.CredencialInput
 	if err := c.ShouldBindJSON(&in); err != nil {
-		c.JSON(400, gin.H{"error": "payload inválido"})
+		utils.RespondWithError(c, http.StatusBadRequest, "payload inválido", err)
 		return
 	}
 	uid, ut, cod := user(c)
 	out, err := FinanceiroService.AtualizarCredencial(c.Request.Context(), id, in, uid, ut, cod)
 	if err != nil {
-		c.JSON(403, gin.H{"error": err.Error()})
+		utils.RespondWithError(c, http.StatusForbidden, "operação financeira não permitida", err)
 		return
 	}
 	c.JSON(200, out)
@@ -71,13 +77,13 @@ func ListarCredenciaisAppyPay(c *gin.Context) {
 func ObterCredencialAppyPay(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(400, gin.H{"error": "id inválido"})
+		utils.RespondWithError(c, http.StatusBadRequest, "id inválido", err)
 		return
 	}
 	_, ut, cod := user(c)
 	out, err := FinanceiroService.ObterCredencial(id, ut, cod)
 	if err != nil {
-		c.JSON(404, gin.H{"error": err.Error()})
+		utils.RespondWithError(c, http.StatusNotFound, "recurso financeiro não encontrado", err)
 		return
 	}
 	c.JSON(200, out)
@@ -85,12 +91,12 @@ func ObterCredencialAppyPay(c *gin.Context) {
 func TestarCredencialAppyPay(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(400, gin.H{"error": "id inválido"})
+		utils.RespondWithError(c, http.StatusBadRequest, "id inválido", err)
 		return
 	}
 	uid, ut, cod := user(c)
 	if err := FinanceiroService.TestarCredencial(c.Request.Context(), id, uid, ut, cod); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		utils.RespondWithError(c, http.StatusBadRequest, "operação financeira inválida", err)
 		return
 	}
 	c.JSON(200, gin.H{"status": "validada"})
@@ -100,7 +106,7 @@ func DesativarCredencialAppyPay(c *gin.Context) { alterarStatusCred(c, finance.S
 func alterarStatusCred(c *gin.Context, st finance.StatusCredencial) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
-		c.JSON(400, gin.H{"error": "id inválido"})
+		utils.RespondWithError(c, http.StatusBadRequest, "id inválido", err)
 		return
 	}
 	var body struct {
@@ -110,7 +116,7 @@ func alterarStatusCred(c *gin.Context, st finance.StatusCredencial) {
 	uid, ut, cod := user(c)
 	out, err := FinanceiroService.AlterarStatusCredencial(id, st, uid, ut, cod, body.Motivo)
 	if err != nil {
-		c.JSON(403, gin.H{"error": err.Error()})
+		utils.RespondWithError(c, http.StatusForbidden, "operação financeira não permitida", err)
 		return
 	}
 	c.JSON(200, out)
@@ -123,12 +129,12 @@ func AlterarModalidadePagamento(c *gin.Context) {
 		Motivo         string `json:"motivo"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(400, gin.H{"error": "payload inválido"})
+		utils.RespondWithError(c, http.StatusBadRequest, "payload inválido", err)
 		return
 	}
 	uid, ut, _ := user(c)
 	if err := FinanceiroService.AlterarModalidade(body.Escopo, body.CodigoAcademia, body.Ativa, uid, ut, body.Motivo); err != nil {
-		c.JSON(403, gin.H{"error": err.Error()})
+		utils.RespondWithError(c, http.StatusForbidden, "operação financeira não permitida", err)
 		return
 	}
 	c.JSON(200, gin.H{"status": "alterada"})

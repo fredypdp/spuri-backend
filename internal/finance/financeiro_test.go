@@ -18,7 +18,7 @@ func cred(t *testing.T, cod string, ctx ContextoTipo) CredencialInput {
 }
 func TestCredenciaisCriptografadasEMascaradas(t *testing.T) {
 	s := NewService(nil)
-	c, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "admin")
+	c, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "fpp")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,14 +39,14 @@ func TestCredenciaisCriptografadasEMascaradas(t *testing.T) {
 
 func TestEventosCredenciaisAuditaveisComAutor(t *testing.T) {
 	s := NewService(nil)
-	c, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "user-1", "admin")
+	c, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "user-1", "fpp")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.TestarCredencial(context.Background(), c.ID, "user-2", "admin", ""); err != nil {
+	if err := s.TestarCredencial(context.Background(), c.ID, "user-2", "fpp", ""); err != nil {
 		t.Fatal(err)
 	}
-	c, err = s.AlterarStatusCredencial(c.ID, StatusAtivo, "user-3", "admin", "", "ativar")
+	c, err = s.AlterarStatusCredencial(c.ID, StatusAtivo, "user-3", "fpp", "", "ativar")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,11 +59,11 @@ func TestEventosCredenciaisAuditaveisComAutor(t *testing.T) {
 
 func TestIsolamentoAcademiasEIdempotencia(t *testing.T) {
 	s := NewService(nil)
-	ca, _ := s.CriarCredencial(context.Background(), cred(t, "ACA", ContextoAcademia), "u", "admin")
-	cb, _ := s.CriarCredencial(context.Background(), cred(t, "ACB", ContextoAcademia), "u", "admin")
-	s.AlterarStatusCredencial(ca.ID, StatusAtivo, "u", "admin", "", "")
-	s.AlterarStatusCredencial(cb.ID, StatusAtivo, "u", "admin", "", "")
-	s.AlterarModalidade("academia", "ACA", true, "u", "admin", "")
+	ca, _ := s.CriarCredencial(context.Background(), cred(t, "ACA", ContextoAcademia), "u", "fpp")
+	cb, _ := s.CriarCredencial(context.Background(), cred(t, "ACB", ContextoAcademia), "u", "fpp")
+	s.AlterarStatusCredencial(ca.ID, StatusAtivo, "u", "fpp", "", "")
+	s.AlterarStatusCredencial(cb.ID, StatusAtivo, "u", "fpp", "", "")
+	s.AlterarModalidade("academia", "ACA", true, "u", "fpp", "")
 	if _, err := s.ObterCredencial(cb.ID, "academia", "ACA"); err == nil {
 		t.Fatal("academia A consultou credencial B")
 	}
@@ -89,11 +89,11 @@ func TestIsolamentoAcademiasEIdempotencia(t *testing.T) {
 func TestGerarCobrancaConcorrenteReservaIdempotenciaAntesDoProvider(t *testing.T) {
 	provider := &slowProvider{delay: 50 * time.Millisecond}
 	s := NewService(provider)
-	sp, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "admin")
+	sp, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "fpp")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AlterarStatusCredencial(sp.ID, StatusAtivo, "u", "admin", "", ""); err != nil {
+	if _, err := s.AlterarStatusCredencial(sp.ID, StatusAtivo, "u", "fpp", "", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -135,7 +135,7 @@ func TestGerarCobrancaConcorrenteReservaIdempotenciaAntesDoProvider(t *testing.T
 
 func TestAcademiaNaoReatribuiContextoAoAtualizarCredencial(t *testing.T) {
 	s := NewService(nil)
-	ca, err := s.CriarCredencial(context.Background(), cred(t, "ACA", ContextoAcademia), "u", "admin")
+	ca, err := s.CriarCredencial(context.Background(), cred(t, "ACA", ContextoAcademia), "u", "fpp")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,12 +171,12 @@ func (p *slowProvider) ConsultarCobranca(context.Context, CredencialAppyPay, Cob
 
 func TestModalidadeDesativadaImpedeAcademiaMasNaoSpuri(t *testing.T) {
 	s := NewService(nil)
-	ac, _ := s.CriarCredencial(context.Background(), cred(t, "ACA", ContextoAcademia), "u", "admin")
-	sp, _ := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "admin")
-	s.AlterarStatusCredencial(ac.ID, StatusAtivo, "u", "admin", "", "")
-	s.AlterarStatusCredencial(sp.ID, StatusAtivo, "u", "admin", "", "")
-	s.AlterarModalidade("academia", "ACA", true, "u", "admin", "")
-	s.AlterarModalidade("global_academias", "", false, "u", "admin", "")
+	ac, _ := s.CriarCredencial(context.Background(), cred(t, "ACA", ContextoAcademia), "u", "fpp")
+	sp, _ := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "fpp")
+	s.AlterarStatusCredencial(ac.ID, StatusAtivo, "u", "fpp", "", "")
+	s.AlterarStatusCredencial(sp.ID, StatusAtivo, "u", "fpp", "", "")
+	s.AlterarModalidade("academia", "ACA", true, "u", "fpp", "")
+	s.AlterarModalidade("global_academias", "", false, "u", "fpp", "")
 	_, err := s.GerarCobrancaFinanceiraBase(context.Background(), GerarCobrancaInput{ContextoTipo: ContextoAcademia, CodigoAcademia: "ACA", PagadorTipo: "estudante", PagadorID: "E", Valor: 1, MetodoPagamento: "REF", ReferenciaExterna: "a"}, "u")
 	if err == nil {
 		t.Fatal("modalidade global inativa permitiu cobrança")
@@ -189,11 +189,11 @@ func TestModalidadeDesativadaImpedeAcademiaMasNaoSpuri(t *testing.T) {
 
 func TestMoedaSempreAOA(t *testing.T) {
 	s := NewService(nil)
-	sp, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "admin")
+	sp, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "fpp")
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.AlterarStatusCredencial(sp.ID, StatusAtivo, "u", "admin", "", "")
+	s.AlterarStatusCredencial(sp.ID, StatusAtivo, "u", "fpp", "", "")
 	ch, err := s.GerarCobrancaFinanceiraBase(context.Background(), GerarCobrancaInput{ContextoTipo: ContextoSpuri, CodigoAcademia: "ACA", PagadorTipo: "academia", PagadorID: "ACA", Valor: 1, Moeda: "USD", MetodoPagamento: "REF", ReferenciaExterna: "moeda"}, "u")
 	if err != nil {
 		t.Fatal(err)
@@ -205,8 +205,8 @@ func TestMoedaSempreAOA(t *testing.T) {
 
 func TestWebhookDupENaoLiquidaSemConsulta(t *testing.T) {
 	s := NewService(nil)
-	sp, _ := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "admin")
-	s.AlterarStatusCredencial(sp.ID, StatusAtivo, "u", "admin", "", "")
+	sp, _ := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "fpp")
+	s.AlterarStatusCredencial(sp.ID, StatusAtivo, "u", "fpp", "", "")
 	ch, _ := s.GerarCobrancaFinanceiraBase(context.Background(), GerarCobrancaInput{ContextoTipo: ContextoSpuri, CodigoAcademia: "ACA", PagadorTipo: "academia", PagadorID: "ACA", Valor: 1, MetodoPagamento: "REF", ReferenciaExterna: "w"}, "u")
 	ok, err := s.ProcessarWebhookFinanceiroBase(context.Background(), "evt1", ch.ID, "u")
 	if err != nil || !ok {
@@ -229,14 +229,14 @@ func TestWebhookDupENaoLiquidaSemConsulta(t *testing.T) {
 
 func TestAutorObrigatorioParaEventosFinanceiros(t *testing.T) {
 	s := NewService(nil)
-	if _, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "", "admin"); err == nil {
+	if _, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "", "fpp"); err == nil {
 		t.Fatal("criação de credencial sem autor deveria falhar")
 	}
-	c, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "admin")
+	c, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "fpp")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AlterarStatusCredencial(c.ID, StatusAtivo, "", "admin", "", ""); err == nil {
+	if _, err := s.AlterarStatusCredencial(c.ID, StatusAtivo, "", "fpp", "", ""); err == nil {
 		t.Fatal("alteração de status sem autor deveria falhar")
 	}
 	if _, err := s.ReconciliarFinanceiroBase(context.Background(), ""); err == nil {
@@ -257,7 +257,7 @@ func (m *memoriaLedger) LoadFinanceEvents(ctx context.Context) ([]LedgerEvent, e
 func TestCredencialGravaLedgerSemSegredoClaro(t *testing.T) {
 	l := &memoriaLedger{}
 	s := NewServiceWithDBAndLedger(nil, nil, l)
-	out, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "admin")
+	out, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "fpp")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,14 +278,14 @@ func TestCredencialGravaLedgerSemSegredoClaro(t *testing.T) {
 func TestReplayReconstróiModalidadeEIdempotencia(t *testing.T) {
 	l := &memoriaLedger{}
 	s := NewServiceWithDBAndLedger(nil, nil, l)
-	sp, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "admin")
+	sp, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "fpp")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AlterarStatusCredencial(sp.ID, StatusAtivo, "u", "admin", "", ""); err != nil {
+	if _, err := s.AlterarStatusCredencial(sp.ID, StatusAtivo, "u", "fpp", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AlterarModalidade("spuri", "", true, "u", "admin", ""); err != nil {
+	if err := s.AlterarModalidade("spuri", "", true, "u", "fpp", ""); err != nil {
 		t.Fatal(err)
 	}
 	in := GerarCobrancaInput{ContextoTipo: ContextoSpuri, PagadorTipo: "academia", PagadorID: "ACA", Valor: 10, MetodoPagamento: "REF", ReferenciaExterna: "idem"}
@@ -305,11 +305,11 @@ func TestReplayReconstróiModalidadeEIdempotencia(t *testing.T) {
 
 func TestEstudanteNaoAcessaCredenciaisFinanceiras(t *testing.T) {
 	s := NewService(nil)
-	ca, err := s.CriarCredencial(context.Background(), cred(t, "ACA", ContextoAcademia), "u", "admin")
+	ca, err := s.CriarCredencial(context.Background(), cred(t, "ACA", ContextoAcademia), "u", "fpp")
 	if err != nil {
 		t.Fatal(err)
 	}
-	sp, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "admin")
+	sp, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "fpp")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,15 +327,15 @@ func TestEstudanteNaoAcessaCredenciaisFinanceiras(t *testing.T) {
 func TestReplayPreservaHistoricoEMotivo(t *testing.T) {
 	l := &memoriaLedger{}
 	s := NewServiceWithDBAndLedger(nil, nil, l)
-	sp, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "admin")
+	sp, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "fpp")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AlterarStatusCredencial(sp.ID, StatusAtivo, "u", "admin", "", "ativação operacional"); err != nil {
+	if _, err := s.AlterarStatusCredencial(sp.ID, StatusAtivo, "u", "fpp", "", "ativação operacional"); err != nil {
 		t.Fatal(err)
 	}
 	rebuilt := NewServiceWithDBAndLedger(nil, nil, l)
-	got, err := rebuilt.ObterCredencial(sp.ID, "admin", "")
+	got, err := rebuilt.ObterCredencial(sp.ID, "fpp", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,6 +356,38 @@ func TestEncryptDecryptSegredoFinanceiro(t *testing.T) {
 	}
 	if plaintext != "super-secret" {
 		t.Fatalf("decrypt retornou %q", plaintext)
+	}
+}
+
+func TestOperacoesSensiveisExigemFPP(t *testing.T) {
+	s := NewService(nil)
+	if _, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "gerente"); err == nil {
+		t.Fatal("gerente criou credencial financeira sensível")
+	}
+	c, err := s.CriarCredencial(context.Background(), cred(t, "", ContextoSpuri), "u", "fpp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AlterarStatusCredencial(c.ID, StatusAtivo, "u", "adm", "", ""); err == nil {
+		t.Fatal("adm ativou credencial financeira sensível")
+	}
+	if err := s.AlterarModalidade("spuri", "", false, "u", "gerente", ""); err == nil {
+		t.Fatal("gerente alterou kill-switch financeiro")
+	}
+}
+
+func TestSanitizeMapRemoveSegredosAninhados(t *testing.T) {
+	got := sanitizeMap(map[string]any{
+		"metadata": map[string]string{"token": "abc", "referencia": "ok"},
+		"items":    []any{map[string]any{"api_key": "secret", "nome": "item"}},
+	})
+	metadata := got["metadata"].(map[string]string)
+	if metadata["token"] != "" || metadata["token_redacted"] != "***" || metadata["referencia"] != "ok" {
+		t.Fatalf("metadata não foi sanitizada: %#v", metadata)
+	}
+	item := got["items"].([]any)[0].(map[string]any)
+	if item["api_key"] != nil || item["api_key_redacted"] != "***" || item["nome"] != "item" {
+		t.Fatalf("slice aninhado não foi sanitizado: %#v", item)
 	}
 }
 
