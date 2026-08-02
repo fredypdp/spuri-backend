@@ -334,3 +334,48 @@ func TestLegacyStudentProgressionAndInterruptionRoutesAreRemoved(t *testing.T) {
 		}
 	}
 }
+
+// TestFinanceiroAppyPayRoutesRequireAuthentication cobre o item 2 do critério de
+// saída da auditoria do módulo financeiro (RBAC): confirma que todas as rotas do
+// grupo /financeiro continuam registadas depois da adição de
+// middleware.PopulateAdminRole() ao grupo, e que nenhuma delas ficou acessível
+// sem autenticação.
+//
+// NOTA: este teste não substitui um teste HTTP fim-a-fim com banco real que
+// valide os papéis granulares (fpp/adm/gerente) e a distinção academia/admin —
+// isso exige projection_admins populada e tokens reais por role, o que precisa
+// de uma base de dados de teste (ver internal/db/event_store_integrity_test.go
+// para o padrão de teste guardado atrás de env var usado neste projeto).
+func TestFinanceiroAppyPayRoutesRequireAuthentication(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := setupRouter()
+
+	const idPlaceholder = "00000000-0000-0000-0000-000000000000"
+
+	registered := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/financeiro/appypay/credenciais"},
+		{http.MethodPut, "/financeiro/appypay/credenciais/" + idPlaceholder},
+		{http.MethodGet, "/financeiro/appypay/credenciais"},
+		{http.MethodGet, "/financeiro/appypay/credenciais/" + idPlaceholder},
+		{http.MethodPost, "/financeiro/appypay/credenciais/" + idPlaceholder + "/testar"},
+		{http.MethodPost, "/financeiro/appypay/credenciais/" + idPlaceholder + "/ativar"},
+		{http.MethodPost, "/financeiro/appypay/credenciais/" + idPlaceholder + "/desativar"},
+		{http.MethodPost, "/financeiro/modalidade-pagamento"},
+	}
+	for _, tc := range registered {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		if w.Code == http.StatusNotFound {
+			t.Fatalf("expected %s %s to be registered, got 404", tc.method, tc.path)
+		}
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("expected %s %s to require authentication with 401 without a token, got %d", tc.method, tc.path, w.Code)
+		}
+	}
+}

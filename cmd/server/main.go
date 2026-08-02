@@ -300,6 +300,13 @@ func setupRouter() *gin.Engine {
 		protected.GET("/anos-letivos/configuracoes", handlers.ListarConfiguracoesAnosLetivos)
 		financeiro := protected.Group("/financeiro")
 		financeiro.Use(middleware.RequireAcademiaOuAdmin())
+		// FIX FIN-RBAC-01: PopulateAdminRole resolve o role granular (fpp/adm/gerente)
+		// do admin autenticado sem bloquear academias — necessário porque este grupo
+		// aceita tanto academia quanto admin (RequireAcademiaOuAdmin não preenche
+		// "admin_role"). Sem isso, GET/POST de leitura e teste de credenciais, e o PUT
+		// de atualização, enxergavam sempre "admin" genérico em vez do role real,
+		// bloqueando inclusive administradores FPP legítimos.
+		financeiro.Use(middleware.PopulateAdminRole())
 		financeiro.POST("/appypay/credenciais", middleware.RequireFPP(), handlers.CriarCredencialAppyPay)
 		financeiro.PUT("/appypay/credenciais/:id", handlers.AtualizarCredencialAppyPay)
 		financeiro.GET("/appypay/credenciais", handlers.ListarCredenciaisAppyPay)
