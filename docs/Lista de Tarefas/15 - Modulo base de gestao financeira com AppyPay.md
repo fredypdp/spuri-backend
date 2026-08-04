@@ -1,9 +1,3 @@
----
-
-⚠️ **Nota desta revisão:** esta versão foi reescrita a partir de: (1) contacto directo com o suporte comercial da AppyPay (email trocado pelo Fredy, CEO do Spuri, em 04/08/2026), (2) a documentação oficial consolidada em `docs/Parceiros e integrações/AppyPay Documentação.md` (secção nova "Escopo do Módulo Financeiro Base — Spuri × AppyPay (Fase 1)"), e (3) instruções directas do Fredy sobre o que incluir/excluir. **Não tive acesso ao conteúdo da versão anterior desta tarefa**, nem a `docs/Debbugs/Depuração — Rollback total do módulo financeiro AppyPay.md` nem a `docs/Tarefas feitas/17 - Remover completamente o modulo financeiro AppyPay (rollback total).md` — ambos vieram vazios neste ambiente. Antes de iniciar a implementação, **quem for executar esta tarefa deve ler primeiro esses dois documentos**, se disponíveis, para não repetir a causa-raiz do rollback anterior. Se este documento contradisser algo aprendido nesse rollback, a lição aprendida do rollback prevalece e este documento deve ser ajustado.
-
----
-
 # 15 — Módulo base de gestão financeira com AppyPay
 
 ## 1. Objectivo
