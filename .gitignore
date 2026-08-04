@@ -1,43 +1,30 @@
-# Binaries
-spuri
-*.exe
-*.dll
-*.so
-*.dylib
-
-# Test binary
-*.test
-
-# Output of the go coverage tool
+```
+# Go-specific ignores
+*.o
+*.a
 *.out
+*.test
+*.prof
+*.syso
 
-# Dependency directories
+# Dependencies and build artifacts
 vendor/
+bin/
 
-# Go workspace file
-go.work
-
-# Environment variables
+# Environment and config
 .env
 .env.local
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
+.env.*
 
 # Logs
 *.log
 
-# Database
-*.db
-*.sqlite
+# Backup files
+*~
+*.bak
+*.swp
 
-# Mega session credentials
-data/mega_session.json
+# OS generated files
+.DS_Store
+Thumbs.db
+```

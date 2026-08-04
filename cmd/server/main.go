@@ -15,7 +15,6 @@ import (
 	"github.com/joho/godotenv"
 
 	"spuri/internal/db"
-	"spuri/internal/finance"
 	"spuri/internal/handlers"
 	"spuri/internal/jobs"
 	"spuri/internal/middleware"
@@ -80,9 +79,6 @@ func main() {
 }
 
 func initDB() error {
-	if err := finance.ValidateEncryptionConfig(); err != nil {
-		return err
-	}
 	config := db.DefaultConfig()
 	var err error
 	dbClient, err = db.NewClient(config)
@@ -96,7 +92,6 @@ func initDB() error {
 	if err := dbClient.RunMigrations(); err != nil {
 		return fmt.Errorf("erro ao rodar migrations: %w", err)
 	}
-	handlers.FinanceiroService = finance.NewServiceWithClient(dbClient, nil)
 	log.Println("[INFO] Banco de dados inicializado com Event Sourcing")
 	return nil
 }
@@ -132,7 +127,6 @@ func initProjections() error {
 	projManager.RegisterProjection("avaliacao_final", projections.NewAvaliacaoFinalProjection(dbClient))
 	projManager.RegisterProjection("solicitacoes_matricula", projections.NewSolicitacaoMatriculaProjection(dbClient))
 	projManager.RegisterProjection("solicitacoes_edicao_dados_estudante", projections.NewSolicitacaoEdicaoDadoEstudanteProjection(dbClient))
-	projManager.RegisterProjection("financeiro", projections.NewFinanceiroProjection(dbClient))
 
 	go projManager.StartProcessing()
 	return nil
@@ -298,23 +292,6 @@ func setupRouter() *gin.Engine {
 		protected.GET("/ano-letivo", handlers.GetAnoLetivoGlobalSistemaAtual)
 		protected.GET("/anos-letivos-lista", handlers.GetAnosLetivosGlobaisLista)
 		protected.GET("/anos-letivos/configuracoes", handlers.ListarConfiguracoesAnosLetivos)
-		financeiro := protected.Group("/financeiro")
-		financeiro.Use(middleware.RequireAcademiaOuAdmin())
-		// FIX FIN-RBAC-01: PopulateAdminRole resolve o role granular (fpp/adm/gerente)
-		// do admin autenticado sem bloquear academias — necessário porque este grupo
-		// aceita tanto academia quanto admin (RequireAcademiaOuAdmin não preenche
-		// "admin_role"). Sem isso, GET/POST de leitura e teste de credenciais, e o PUT
-		// de atualização, enxergavam sempre "admin" genérico em vez do role real,
-		// bloqueando inclusive administradores FPP legítimos.
-		financeiro.Use(middleware.PopulateAdminRole())
-		financeiro.POST("/appypay/credenciais", middleware.RequireFPP(), handlers.CriarCredencialAppyPay)
-		financeiro.PUT("/appypay/credenciais/:id", handlers.AtualizarCredencialAppyPay)
-		financeiro.GET("/appypay/credenciais", handlers.ListarCredenciaisAppyPay)
-		financeiro.GET("/appypay/credenciais/:id", handlers.ObterCredencialAppyPay)
-		financeiro.POST("/appypay/credenciais/:id/testar", handlers.TestarCredencialAppyPay)
-		financeiro.POST("/appypay/credenciais/:id/ativar", middleware.RequireFPP(), handlers.AtivarCredencialAppyPay)
-		financeiro.POST("/appypay/credenciais/:id/desativar", middleware.RequireFPP(), handlers.DesativarCredencialAppyPay)
-		financeiro.POST("/modalidade-pagamento", middleware.RequireFPP(), handlers.AlterarModalidadePagamento)
 		protected.GET("/solicitacoes-matricula", middleware.RequireAdmin(), handlers.ListarSolicitacoesMatriculaAdmin)
 		protected.GET("/documentos/academias/:codigo/:campo/download", handlers.DownloadDocumentoAcademia)
 		protected.GET("/documentos/estudantes/:codigo/:campo/download", handlers.DownloadDocumentoEstudante)
