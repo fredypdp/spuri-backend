@@ -1,10 +1,23 @@
 ---
 criado: 2026-07-26 00:00
 origem: docs/Parceiros e integrações/AppyPay - Análise de Integração para o Serviço de Gestão Financeira do Spuri.md
-status: feito
+status: pendente
 ---
+> **Nota de reabertura:** esta tarefa foi implementada, auditada em três
+> rondas e depois revertida por completo (rollback total — ver
+> `docs/Lista de Tarefas/17 - Remover completamente o modulo financeiro
+> AppyPay (rollback total).md` e os três relatórios em `docs/Debbugs/`
+> referenciados nesse ficheiro). Antes de reimplementar, leia os três
+> relatórios de auditoria: eles documentam falhas críticas específicas
+> (chave de cifra previsível, condição de corrida na idempotência de
+> cobranças, reatribuição de tenant numa credencial alheia, duplicação do
+> histórico auditável) que a reimplementação deve evitar desde o primeiro
+> commit — com testes de concorrência (`-race`), testes de replay contra
+> Postgres real e testes de isolamento por papel (`estudante` incluído)
+> desde o início, em vez de corrigidos ronda a ronda.
 
-# Implementar módulo base de gestão financeira com AppyPay para Spuri e academias (feito)
+
+# Implementar módulo base de gestão financeira com AppyPay para Spuri e academias
 
 ## Prompt recomendado para executar a atualização
 
@@ -340,6 +353,6 @@ Atualizar `Documentação.md` e documentação técnica relacionada com:
 
 Ao finalizar esta tarefa:
 
-1. atualizar o título interno para `# Implementar módulo base de gestão financeira com AppyPay para Spuri e academias (feito)`;
+1. atualizar o título interno para `# Implementar módulo base de gestão financeira com AppyPay para Spuri e academias`;
 2. alterar o front matter para `status: feito`;
 3. mover este arquivo para `docs/Tarefas feitas/`.

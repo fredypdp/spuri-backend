@@ -2,6 +2,13 @@
 modificado: 2026-07-25 17:05
 criado: 2026-07-14 19:07
 ---
+> **Nota de arquivo (rollback):** o módulo financeiro/AppyPay descrito e auditado
+> neste relatório foi removido por completo do código em `2026-08-03`
+> (ver `docs/Lista de Tarefas/17 - Remover completamente o modulo financeiro
+> AppyPay (rollback total).md`). Este documento é mantido apenas como
+> referência histórica das vulnerabilidades encontradas, para orientar uma
+> futura reimplementação mais robusta a partir da tarefa 15.
+
 # Análise de Integração AppyPay para o Serviço de Gestão Financeira do Spuri
 
 ## 0. Objetivo deste documento

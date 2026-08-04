@@ -2,6 +2,13 @@
 modificado: 2026-07-30 23:11
 criado: 2026-07-30 23:11
 ---
+> **Nota de arquivo (rollback):** o módulo financeiro/AppyPay descrito e auditado
+> neste relatório foi removido por completo do código em `2026-08-03`
+> (ver `docs/Lista de Tarefas/17 - Remover completamente o modulo financeiro
+> AppyPay (rollback total).md`). Este documento é mantido apenas como
+> referência histórica das vulnerabilidades encontradas, para orientar uma
+> futura reimplementação mais robusta a partir da tarefa 15.
+
 # Depuração — Módulo base de gestão financeira com AppyPay 1
 
 ## Objetivo da auditoria

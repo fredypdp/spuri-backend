@@ -1,7 +1,7 @@
 ---
 criado: 2026-08-03 00:00
 origem: docs/Debbugs/Depuração — Módulo base de gestão financeira com AppyPay 1.md; docs/Debbugs/Depuração — Verificação das correções do módulo financeiro AppyPay 1.md; docs/Debbugs/Depuração — Verificação das correções 'AppyPay 1'.md
-status: pendente
+status: feito
 ---
 
 # Remover por completo o módulo financeiro/pagamento AppyPay (rollback total)

@@ -130,3 +130,49 @@ func TestValidateEventTypeRejectsRemovedStudentProgressionEvents(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateEventTypeRejectsRemovedPaymentEvents(t *testing.T) {
+	t.Parallel()
+
+	removed := []string{
+		"Credenciais" + "Appy" + "PayCadastradas",
+		"Credenciais" + "Appy" + "PayAtualizadas",
+		"Credenciais" + "Appy" + "PayValidadas",
+		"Credenciais" + "Appy" + "PayAtivadas",
+		"Credenciais" + "Appy" + "PayDesativadas",
+		"ModalidadePagamentoGlobalAlterada",
+		"ModalidadePagamentoSpuriAlterada",
+		"ModalidadePagamentoAcademiaAlterada",
+		"CobrancaFinanceiraCriada",
+		"CobrancaFinanceiraEnviadaAoProvider",
+		"CobrancaFinanceiraStatusAtualizado",
+		"CobrancaFinanceiraCancelada",
+		"ReembolsoFinanceiroSolicitado",
+		"ReembolsoFinanceiroStatusAtualizado",
+		"ReversaoFinanceiraSolicitada",
+		"ReversaoFinanceiraStatusAtualizado",
+		"WebhookFinanceiroRecebido",
+		"WebhookFinanceiroIgnoradoComoDuplicado",
+		"DivergenciaFinanceiraDetectada",
+		"DivergenciaFinanceiraReconciliada",
+		"ReconciliacaoFinanceiraExecutada",
+	}
+
+	for _, eventType := range removed {
+		eventType := eventType
+		t.Run(eventType, func(t *testing.T) {
+			t.Parallel()
+			if err := ValidateEventType(eventType); err == nil {
+				t.Fatalf("ValidateEventType(%q) retornou nil, want erro", eventType)
+			}
+		})
+	}
+}
+
+func TestValidateAggregateTypeRejectsRemovedPaymentAggregate(t *testing.T) {
+	t.Parallel()
+
+	if err := ValidateAggregateType("Finance" + "iro"); err == nil {
+		t.Fatal("ValidateAggregateType(\"Finance\" + \"iro\") retornou nil, want erro")
+	}
+}
