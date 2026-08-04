@@ -1,358 +1,155 @@
 ---
-criado: 2026-07-26 00:00
-origem: docs/Parceiros e integrações/AppyPay - Análise de Integração para o Serviço de Gestão Financeira do Spuri.md
-status: pendente
----
-> **Nota de reabertura:** esta tarefa foi implementada, auditada em três
-> rondas e depois revertida por completo (rollback total — ver
-> `docs/Lista de Tarefas/17 - Remover completamente o modulo financeiro
-> AppyPay (rollback total).md` e os três relatórios em `docs/Debbugs/`
-> referenciados nesse ficheiro). Antes de reimplementar, leia os três
-> relatórios de auditoria: eles documentam falhas críticas específicas
-> (chave de cifra previsível, condição de corrida na idempotência de
-> cobranças, reatribuição de tenant numa credencial alheia, duplicação do
-> histórico auditável) que a reimplementação deve evitar desde o primeiro
-> commit — com testes de concorrência (`-race`), testes de replay contra
-> Postgres real e testes de isolamento por papel (`estudante` incluído)
-> desde o início, em vez de corrigidos ronda a ronda.
 
-
-# Implementar módulo base de gestão financeira com AppyPay para Spuri e academias
-
-## Prompt recomendado para executar a atualização
-
-Implemente a atualização descrita neste documento criando um **módulo base de gestão financeira** integrado à AppyPay, capaz de atender dois contextos financeiros independentes: (1) o **Spuri** cobrando instituições integradas/academias pelo uso da plataforma; e (2) cada **academia** cobrando os seus próprios estudantes em seu contexto institucional. O módulo deve cadastrar, validar, armazenar com criptografia e usar credenciais AppyPay por contexto financeiro, expor endpoints apenas para configuração e controlo do sistema financeiro, mantendo cobrança/consulta/cancelamento/reembolso/webhook/reconciliação como funções/handlers Model internos genéricos e reutilizáveis, e garantir auditabilidade, idempotência, rastreabilidade, imutabilidade do histórico financeiro, atomicidade, consistência, controlo de concorrência, autorização adequada, isolamento por instituição e observabilidade. Ao final, atualize testes, documentação técnica, `Documentação.md`, OpenAPI/Swagger quando existir e qualquer documentação afetada. Não criar funcionalidades específicas de negócio como cobrar propina, matrícula, mensalidade ou assinatura por nome específico; essas regras devem ser tarefas futuras que reutilizam as funções base deste módulo.
-
-## Contexto
-
-O documento de análise da integração AppyPay descreve inicialmente o caso em que o Spuri é o **merchant** que cobra escolas/academias, usando OAuth2 Client Credentials, `POST /charges`, consultas por `GET /charges/{id}`/`GET /charges`, reembolsos, reversões, mandatos SDD, referências, documentos fiscais, payouts e webhooks. A mesma base técnica deve ser expandida para permitir que cada academia também seja um contexto financeiro próprio e possa cobrar seus estudantes por meio das suas próprias credenciais AppyPay.
-
-Neste desenho, a plataforma passa a gerir dois níveis de cobrança:
-
-1. **Contexto Spuri** — credenciais e aplicações AppyPay controladas pela plataforma, usadas para cobrar academias integradas.
-2. **Contexto Academia** — credenciais e aplicações AppyPay cadastradas por cada academia, usadas apenas para cobranças daquela academia contra seus estudantes.
-
-A palavra `AppPay` usada em alguns requisitos deve ser tratada como referência à **AppyPay**, mantendo a nomenclatura oficial da documentação técnica.
-
-O módulo deve ser construído como infraestrutura financeira genérica. Cobranças específicas de negócio — por exemplo propina, matrícula, mensalidade escolar, certificado, taxa administrativa ou assinatura do Spuri — devem ser implementadas depois como camadas de domínio que chamam as funções base aqui definidas.
-
-## Resumo executivo
-
-| Item | Decisão | Resultado esperado |
-| --- | --- | --- |
-| Integração | AppyPay como provider inicial do módulo financeiro | Base preparada com Models/handlers internos para cobrança, consulta, cancelamento, reembolso, webhook e reconciliação, sem endpoints transacionais nesta tarefa |
-| Contextos financeiros | `spuri` e `academia` | Spuri cobra academias; academias cobram estudantes usando credenciais próprias |
-| Credenciais de academia | Cadastro e gestão segura por academia | Cada academia usa seu próprio `client_id`, `client_secret`, `resource`, `apiKey`/applications e webhooks |
-| Ativação de pagamentos | Controle global e por academia | FPP/ADMIN podem ativar/desativar a modalidade de pagamento de forma geral ou específica |
-| Escopo funcional | Endpoints de configuração/controlo + funções Model base genéricas | Nenhum endpoint transacional ou cobrança específica de negócio é implementado nesta tarefa |
-| Segurança | Criptografia, RBAC, webhooks seguros, idempotência e isolamento | Dados sensíveis protegidos e transações rastreáveis sem mistura entre instituições |
-| Histórico financeiro | Event sourcing/ledger imutável + projeções consultáveis | Auditoria completa e reconstrução segura do estado financeiro |
+⚠️ **Nota desta revisão:** esta versão foi reescrita a partir de: (1) contacto directo com o suporte comercial da AppyPay (email trocado pelo Fredy, CEO do Spuri, em 04/08/2026), (2) a documentação oficial consolidada em `docs/Parceiros e integrações/AppyPay Documentação.md` (secção nova "Escopo do Módulo Financeiro Base — Spuri × AppyPay (Fase 1)"), e (3) instruções directas do Fredy sobre o que incluir/excluir. **Não tive acesso ao conteúdo da versão anterior desta tarefa**, nem a `docs/Debbugs/Depuração — Rollback total do módulo financeiro AppyPay.md` nem a `docs/Tarefas feitas/17 - Remover completamente o modulo financeiro AppyPay (rollback total).md` — ambos vieram vazios neste ambiente. Antes de iniciar a implementação, **quem for executar esta tarefa deve ler primeiro esses dois documentos**, se disponíveis, para não repetir a causa-raiz do rollback anterior. Se este documento contradisser algo aprendido nesse rollback, a lição aprendida do rollback prevalece e este documento deve ser ajustado.
 
 ---
 
-# 1. Objetivo
+# 15 — Módulo base de gestão financeira com AppyPay
 
-Criar o módulo financeiro base do Spuri com suporte à AppyPay para:
+## 1. Objectivo
 
-1. permitir que o **Spuri** gere e acompanhe cobranças contra academias/instituições integradas;
-2. permitir que **academias** cadastrem suas credenciais AppyPay e gerem cobranças contra estudantes no seu próprio contexto;
-3. expor por HTTP apenas operações de configuração e controlo do sistema financeiro, mantendo operações financeiras transacionais como funções/handlers Model genéricos e reutilizáveis, sem acoplar a implementação a tipos específicos de cobrança;
-4. preservar histórico financeiro imutável, auditável, idempotente e isolado por instituição;
-5. permitir que FPP/ADMIN controlem se pagamentos estão ativos globalmente e/ou para uma academia específica.
+Construir a camada **base** de integração do Spuri com o gateway de pagamentos AppyPay: autenticação, criação/consulta de cobranças, e recepção de webhooks. Esta camada é a **única** parte do sistema que fala directamente com a API da AppyPay.
 
-# 2. Modelo de contextos financeiros
+Casos de uso concretos de cobrança (ex.: cobrança de propina, cobrança de matrícula, etc.) **não fazem parte desta tarefa**. Serão implementados em tarefas futuras como módulos finos que apenas preenchem os parâmetros de negócio (valor, descrição, método escolhido, dados do pagador) e chamam a função base descrita aqui. Por isso a função base de criação de cobrança tem de ser **genérica e suportar todos os parâmetros possíveis de uma cobrança AppyPay**, não apenas os que um caso de uso específico usa hoje.
 
-## 2.1 Contexto `spuri`
+## 2. Escopo (o que construir nesta tarefa)
 
-O contexto `spuri` representa a plataforma como recebedora. Ele deve suportar cobranças feitas pelo Spuri contra academias integradas, usando credenciais AppyPay administradas pela plataforma.
+1. **Autenticação AppyPay** (client credentials grant), com renovação/cache de token, para dois níveis de credenciais:
+   - Credenciais da **Academia** (cada instituição de ensino integrada ao Spuri tem a sua própria conta/credenciais na AppyPay).
+   - Credenciais do **Spuri** (conta própria da plataforma, para cobranças que não pertencem a uma academia específica, caso existam).
+2. **Armazenamento de credenciais no banco de dados**, cifradas, por academia e para o Spuri (ver secção 6).
+3. **Função base de criação de cobrança** (`POST /charges` e `POST /qr-codes`), robusta o suficiente para suportar qualquer combinação válida dos parâmetros documentados pela AppyPay (não apenas os campos usados pelos métodos abaixo).
+4. **Função base de consulta de cobrança** (`GET /charges/{id}`).
+5. **Base de recepção de Webhooks** (endpoint HTTP exposto pelo Spuri, autenticação do lado do Spuri, idempotência, persistência do evento recebido).
+6. **Selecção automática de ambiente** (TEST/PROD) da API AppyPay a partir da variável de ambiente que já indica o ambiente de execução do Spuri.
 
-Regras obrigatórias:
+### Métodos de pagamento suportados nesta fase
 
-1. somente FPP/ADMIN podem criar, atualizar, ativar, desativar ou testar credenciais do contexto `spuri`;
-2. cobranças do contexto `spuri` devem identificar a academia devedora, mas nunca usar credenciais da academia;
-3. todos os eventos e projeções devem deixar claro que o beneficiário financeiro é a plataforma.
+Apenas: **GPO** (cobrança directa MCX App), **GPO QR Code**, **REF** (referência, gerada pelo comerciante ou pelo gateway).
 
-## 2.2 Contexto `academia`
+### Explicitamente fora de escopo nesta tarefa
 
-O contexto `academia` representa uma academia como recebedora. Ele deve suportar cobranças feitas por uma academia contra estudantes vinculados à própria academia, usando credenciais AppyPay cadastradas por essa academia ou por um administrador autorizado.
+- UMM, FTBAI, eTPA, SDD (mandatos de débito directo) — não implementar.
+- Documentos fiscais (Fiscal Documents) — não implementar.
+- Funds-Transfers — não implementar.
+- **5.5 Reembolsar cobrança** (`Post a charge refund`) — **removido do escopo**. Não implementar reembolsos nesta fase.
+- **5.6 Reverter cobrança** (`Post a charge reverse`) — **removido do escopo**. Não implementar reversões nesta fase.
+- **5.8 Reconciliação e observabilidade** (dashboards, relatórios de conciliação, jobs de reconciliação em lote) — **removido do escopo**. A única "reconciliação" desta fase é a dupla verificação pontual via `GET /charges/{id}` já descrita na função base de consulta (secção 5.3), não um subsistema de observabilidade.
+- Widget de checkout embutido (frontend) — mencionado na documentação oficial mas não é necessário para esta tarefa, que é backend. Pode ser avaliado em tarefa futura separada.
+- Qualquer cobrança de caso de uso específico (propinas, matrículas, etc.) — fica para tarefas futuras que consumirão esta base.
 
-Regras obrigatórias:
+## 3. Onde consultar a documentação da AppyPay
 
-1. cada academia só pode consultar e usar suas próprias credenciais e transações;
-2. uma cobrança de estudante deve validar que o estudante pertence à academia do contexto autenticado;
-3. nenhuma credencial de uma academia pode ser usada para cobrar estudante de outra academia;
-4. FPP/ADMIN podem gerir ou bloquear a configuração de uma academia para suporte operacional e compliance.
+Todo o trabalho técnico de integração deve ser validado contra `docs/Parceiros e integrações/AppyPay Documentação.md`. Secções relevantes dentro desse ficheiro:
 
-# 3. Credenciais AppyPay
-
-## 3.1 Dados suportados
-
-Implementar entidade/configuração de credenciais AppyPay por contexto financeiro, contemplando pelo menos:
-
-| Campo | Obrigatório | Descrição |
-| --- | --- | --- |
-| `id` | Sim | Identificador interno da configuração |
-| `contexto_tipo` | Sim | `spuri` ou `academia` |
-| `codigo_academia` | Condicional | Obrigatório quando `contexto_tipo=academia` |
-| `ambiente` | Sim | `test` ou `prod` |
-| `auth_base_url` | Sim | URL base de autenticação AppyPay/Azure AD |
-| `api_base_url` | Sim | URL base da AppyPay-API |
-| `webapi_base_url` | Não | URL base da AppyPay-Web-API quando houver uso de payouts/backoffice |
-| `client_id` | Sim | Credencial OAuth2 Client Credentials |
-| `client_secret` | Sim | Segredo OAuth2, sempre criptografado em repouso |
-| `resource` | Sim | Resource GUID usado para emissão de token |
-| `applications` | Sim | Lista de métodos/aplicações AppyPay configuradas, com `paymentMethod`, `applicationId`, `apiKey`, webhook e metadados necessários |
-| `webhook_secret`/`webhook_token` | Não | Segredo local para validação adicional de webhook, quando aplicável |
-| `status` | Sim | `ativo`, `inativo`, `pendente_validacao`, `erro_validacao` |
-| `created_at`/`updated_at`/`version` | Sim | Metadados de auditoria e controlo de concorrência |
-
-Se a AppyPay exigir outros dados de autenticação ou uso da API além dos listados, a implementação deve incluí-los como campos explícitos, documentados e protegidos como dados sensíveis quando aplicável.
-
-## 3.2 Segurança das credenciais
-
-1. `client_secret`, API keys sensíveis, tokens, segredos de webhook e qualquer material equivalente devem ser criptografados em repouso.
-2. Respostas de API nunca devem expor segredos em claro; usar mascaramento (`****1234`) ou apenas metadados.
-3. Logs, métricas, eventos de domínio e mensagens de erro não podem conter segredos.
-4. Atualizações de credenciais devem gravar evento auditável sem persistir valores sensíveis em claro no payload público do evento.
-5. Deve existir rotação de credenciais por substituição controlada, mantendo histórico auditável de quem alterou e quando, mas sem permitir recuperar segredos antigos em claro.
-
-## 3.3 Endpoints de gestão de credenciais
-
-Criar endpoints equivalentes, respeitando RBAC e isolamento:
-
-1. `POST /financeiro/appypay/credenciais` — criar credenciais do contexto `spuri` ou de uma academia, permitido apenas para FPP/ADMIN;
-2. `PUT /financeiro/appypay/credenciais/:id` — atualizar/rotacionar credenciais, permitido para FPP/ADMIN e, no contexto `academia`, para administrador autenticado da própria academia quando a política permitir;
-3. `GET /financeiro/appypay/credenciais` — listar metadados sem segredos, filtrados por contexto e permissões;
-4. `GET /financeiro/appypay/credenciais/:id` — consultar metadados sem segredos;
-5. `POST /financeiro/appypay/credenciais/:id/testar` — validar autenticação, token e applications configuradas sem criar cobrança real;
-6. `POST /financeiro/appypay/credenciais/:id/ativar` e `POST /financeiro/appypay/credenciais/:id/desativar` — alterar status com evento auditável.
-
-# 4. Ativação/desativação da modalidade de pagamento
-
-A modalidade de pagamento das academias deve poder ser ativada ou desativada em dois níveis:
-
-1. **Global** — controla se academias, de modo geral, podem usar pagamentos próprios na plataforma. Apenas FPP/ADMIN podem alterar.
-2. **Específico por academia** — controla se uma academia específica pode usar seu contexto financeiro próprio. Apenas FPP/ADMIN podem alterar; a academia pode consultar o seu estado, mas não pode forçar ativação se estiver bloqueada pela plataforma.
-
-Regras obrigatórias:
-
-1. se a modalidade global estiver desativada, nenhuma academia pode gerar cobranças próprias, mesmo que sua configuração específica esteja ativa;
-2. se a modalidade global estiver ativa, uma academia só pode gerar cobranças próprias se sua modalidade específica e suas credenciais estiverem ativas e válidas;
-3. o contexto `spuri` para cobrar academias deve ter chave de ativação separada, para não ser bloqueado acidentalmente pela desativação da modalidade de cobrança das academias;
-4. toda alteração de ativação/desativação deve registrar motivo, autor, data/hora e escopo (`global` ou `academia`).
-
-# 5. Funções base do módulo financeiro
-
-Implementar e documentar apenas funções/handlers Model genéricos/base para as capacidades transacionais abaixo. Nesta tarefa, **não criar endpoints HTTP transacionais** para cobrança, consulta de cobrança, sincronização de status, cancelamento, reembolso, reversão, webhooks transacionais ou reconciliação operacional. Os endpoints permitidos nesta tarefa são apenas os de configuração e controlo do próprio sistema de gestão financeira, como credenciais, ativação/desativação, validação de configuração, estado operacional e parâmetros administrativos. As funções Model devem ser suficientemente versáteis para serem reutilizadas futuramente por handlers específicos de domínio, por exemplo geração de cobrança de propina, matrícula, mensalidade, certificado ou assinatura, sem duplicar integração AppyPay nem regras de idempotência/auditoria.
-
-## 5.1 Gerar cobrança
-
-Criar função/handler Model base para gerar cobrança, sem endpoint HTTP direto nesta tarefa. Exemplo conceitual de assinatura interna: `gerarCobrancaFinanceiraBase(...)`, aceitando:
-
-| Campo | Descrição |
+| O que implementar | Secção a consultar |
 | --- | --- |
-| `contexto_tipo` | `spuri` ou `academia` |
-| `codigo_academia` | Academia do contexto, obrigatória para contexto `academia`; academia devedora para contexto `spuri` quando aplicável |
-| `pagador_tipo` | `academia`, `estudante` ou outro tipo genérico futuro |
-| `pagador_id` | Identificador interno do pagador |
-| `valor` | Valor monetário em AOA |
-| `moeda` | Inicialmente `AOA` |
-| `metodo_pagamento` | Método AppyPay base: `REF`, `GPO`, `UMM`, `SDD` etc., conforme credenciais/applications ativas |
-| `descricao` | Descrição genérica da cobrança, sem criar tipo específico de negócio |
-| `referencia_externa` | Referência idempotente do chamador/domínio que originou a cobrança |
-| `metadata` | Metadados não sensíveis para rastreabilidade |
+| Visão geral de autenticação | `Authentication and Authorization` |
+| Obter token (endpoint, grant, expiração) | `Get a token`, `AppyPay-Authentication` (URLs TEST/PROD) |
+| URL base da API de charges/qr-codes | `AppyPay-API` (URLs TEST/PROD) |
+| Criar cobrança GPO/REF | `Post a Charge`, `Charges` |
+| Criar QR Code GPO | `Post a GPO QR Code` |
+| Consultar cobrança | `Get a charge` |
+| Métodos de pagamento suportados e limites (valor mínimo, tempo de aprovação, etc.) | `Supported Payment Methods` |
+| Webhooks recebidos do lado do Spuri | `Merchant Webhooks` |
+| Códigos de erro e como reagir | `Errors` |
+| **Resumo específico do Spuri (comece por aqui)** | `Escopo do Módulo Financeiro Base — Spuri × AppyPay (Fase 1)` (secção adicionada ao final do documento) |
 
-Regras obrigatórias:
+A secção "Escopo do Módulo Financeiro Base — Spuri × AppyPay (Fase 1)" já traz as URLs de TEST/PROD confirmadas, exemplos reais de corpo de pedido para GPO/REF (incluindo os números de telefone de simulação de cenários de teste do GPO) e as regras de segurança de credenciais — usar como referência rápida em vez de procurar pelo documento inteiro.
 
-1. gerar `merchantTransactionId` único e idempotente por contexto financeiro;
-2. mapear `metodo_pagamento` para a `application`/`apiKey` correta, formando o `paymentMethod` esperado pela AppyPay;
-3. persistir primeiro uma intenção/evento interno de cobrança antes de chamar a AppyPay, ou usar estratégia transacional equivalente que permita reconciliação se houver falha após a chamada externa;
-4. tratar `200` e `202` conforme o fluxo síncrono/assíncrono da AppyPay;
-5. nunca marcar cobrança como definitivamente paga apenas pela criação da cobrança; confirmação final deve vir de consulta segura, webhook validado ou reconciliação.
+## 4. Arquitectura — como isto encaixa no padrão existente do Spuri
 
-## 5.2 Consultar cobrança
+O Spuri usa Event Sourcing/CQRS em todo o sistema (ver `internal/db/event_store.go`, `internal/domain/aggregates/`, `internal/projections/`). O módulo financeiro deve seguir o mesmo padrão:
 
-Criar função/handler Model base para consultar cobrança interna e, quando necessário, sincronizar com `GET /charges/{id}` ou `GET /charges` da AppyPay, sem endpoint HTTP direto nesta tarefa.
+- **Eventos** de mudanças financeiras (ex.: credenciais configuradas, cobrança criada, resultado de cobrança recebido via webhook/consulta) são gravados no `spuri_ledger` com `aggregate_type = "Financeiro"`, tal como qualquer outro agregado do sistema.
+- **Projeções** (`financeiro_*`) são read models reconstruíveis a partir do ledger, seguindo o mesmo mecanismo de rebuild já usado pelos outros módulos (`internal/projections/manager.go`).
+- **Nunca** incluir segredos (`client_secret`, tokens de acesso, `webhook_secret`, API keys) nos payloads de eventos nem em respostas públicas da API — apenas metadados não sensíveis e máscaras (ex.: últimos 4 caracteres). Os segredos em si vivem cifrados numa tabela operacional, não no ledger de eventos.
+- Antes de desenhar as tabelas/eventos, procurar no repositório se ainda existem vestígios do módulo financeiro anterior (migrações, agregados, projeções) que não tenham sido completamente removidos no rollback (tarefa 17) — reaproveitar nomes/convenções onde fizer sentido, mas não assumir que o schema anterior ainda é válido sem o revalidar.
 
-A consulta deve retornar:
+## 5. Funcionalidades a implementar
 
-1. status interno normalizado;
-2. status bruto AppyPay (`responseStatus`) preservado para auditoria;
-3. identificadores internos e externos (`id`, `merchantTransactionId`, provider charge id);
-4. histórico de mudanças de estado;
-5. contexto financeiro e pagador, respeitando permissões.
+### 5.1 Autenticação e gestão de credenciais (Spuri + Academia)
 
-## 5.3 Consultar estado/status de transação
+- Fluxo **OAuth2 client credentials grant** contra o endpoint de token da AppyPay.
+- Parâmetros do pedido de token: `grant_type=client_credentials`, `client_id`, `client_secret`, `resource` (UUID fornecido pela AppyPay — confirmar se é o mesmo valor para todas as contas ou específico por conta antes de assumir um valor fixo).
+- Cache do token em memória/processo com expiração (token válido por 1 hora); renovar antes de expirar em vez de pedir um token novo a cada chamada.
+- Estrutura de credenciais a armazenar, por entidade (Academia ou Spuri):
+  - `client_id`, `client_secret` (cifrado em repouso).
+  - `resource` (UUID da AppyPay).
+  - Identificadores de método de pagamento contratados por essa conta (ex.: `GPO_{uuid}`, `REF_{uuid}` — o UUID é gerado no portal AppyPay dessa conta específica).
+  - Ambiente ao qual essas credenciais pertencem (TEST/PROD) — uma academia pode ter credenciais de teste e, mais tarde, credenciais de produção distintas.
+- Endpoint(s) administrativo(s) para uma academia (ou o Spuri, no caso das suas próprias credenciais) configurar/actualizar estas credenciais. Apenas quem administra a academia deve poder ver/editar — nunca expor `client_secret` de volta numa resposta de leitura (mostrar mascarado).
 
-Criar função/handler Model explícito de atualização de status, por exemplo `sincronizarStatusCobrancaFinanceiraBase(...)`, para consultar a AppyPay e gravar evento interno quando houver mudança, sem endpoint HTTP direto nesta tarefa.
+### 5.2 Selecção de ambiente (TEST/PROD)
 
-Regras obrigatórias:
+- Ler a variável de ambiente que já indica se o Spuri está a correr em desenvolvimento/teste ou produção.
+- Se desenvolvimento/teste → usar as URLs TEST (token e API base) descritas na secção "Escopo..." do documento AppyPay.
+- Se produção → usar as URLs PROD.
+- Centralizar esta escolha numa única função/config (não espalhar `if` de ambiente pelo código) para que o resto do módulo apenas peça "a URL de token" / "a URL base da API" sem saber qual ambiente está activo.
 
-1. operação idempotente;
-2. controlo de concorrência para evitar duas sincronizações simultâneas gravando estados conflitantes;
-3. preservação do histórico anterior; status financeiro não deve ser sobrescrito sem evento.
+### 5.3 Função base de criação de cobrança
 
-## 5.4 Cancelar cobrança
+- Uma função/serviço genérico (ex.: `CriarCobranca`) que aceite **todos** os campos documentados no corpo de `POST /charges`: `amount`, `currency`, `description`, `merchantTransactionId`, `paymentMethod`, `paymentInfo` (objecto livre — o conteúdo varia por método), `options` (até 2 chaves customizadas), `notify` (`name`, `telephone`, `email`, `smsNotification`, `emailNotification`).
+- Deve receber também qual academia (ou o Spuri) está a efectuar a cobrança, para escolher as credenciais/token correctos.
+- Deve suportar explicitamente os três métodos em escopo, validando o mínimo necessário por método antes de chamar a AppyPay (ex.: GPO exige `phoneNumber` em `paymentInfo`; REF aceita `paymentInfo` opcional — se omitido, o gateway gera a referência).
+- Não deve conter nenhuma lógica de negócio específica (ex.: "isto é uma propina") — quem chama esta função é que decide o que preencher. Esta função apenas conhece o vocabulário da AppyPay.
+- Suportar tanto o modo síncrono (`Accept: application/json`, resposta imediata) como o assíncrono (`Accept: application/vnd.appypay.asyncapi+json`, resposta 202 + resultado por webhook) — decidir o modo por parâmetro de chamada, não fixo.
+- `merchantTransactionId` deve ser gerado de forma a ser único e respeitar o padrão exigido pela AppyPay (alfanumérico, até 15 caracteres).
+- Gravar evento de "cobrança criada/solicitada" no ledger antes/depois da chamada (conforme o padrão de garantias de atomicidade já usado no resto do sistema), guardando a resposta da AppyPay (id da transacção, estado inicial).
 
-Criar função/handler Model base para cancelar cobrança quando o método/provider suportar cancelamento ou quando o cancelamento for apenas interno antes de envio/processamento, sem endpoint HTTP direto nesta tarefa.
+### 5.4 Geração de QR Code GPO
 
-Regras obrigatórias:
+- Função dedicada para `POST /qr-codes`, reaproveitando a mesma autenticação/credenciais da secção 5.1.
+- Suportar `qrCodeType` `SINGLE` (por defeito) e `MULTIPLE` (exige `minAmount`, `maxTransactions`, `startDate`, `endDate`).
+- A resposta inclui a imagem do QR Code em base64 (`qrCodeArr`) — decidir e documentar como/onde esta imagem é entregue ao chamador (não é preciso desenhar a UI de apresentação nesta tarefa, apenas devolver o dado de forma utilizável).
 
-1. validar se o status atual permite cancelamento;
-2. registrar motivo e autor;
-3. quando houver chamada externa, persistir resposta bruta e status normalizado;
-4. não apagar cobrança cancelada.
+### 5.5 ~~Reembolsar cobrança~~ — removido do escopo
 
-## 5.5 Reembolsar cobrança
+Não implementar nesta fase. Ver secção 2.
 
-Criar função/handler Model base para reembolso, usando `POST /refunds/{id}` quando aplicável, sem endpoint HTTP direto nesta tarefa.
+### 5.6 ~~Reverter cobrança~~ — removido do escopo
 
-Regras obrigatórias:
+Não implementar nesta fase. Ver secção 2.
 
-1. validar suporte do método AppyPay (ex.: GPO, UMM e SDD conforme documentação);
-2. suportar reembolso total ou parcial quando o provider permitir;
-3. impedir reembolso acima do valor liquidado líquido;
-4. registrar evento financeiro próprio para solicitação, aceite, falha e conclusão do reembolso;
-5. manter vínculo entre cobrança original e reembolso.
+### 5.7 Função base de consulta de cobrança
 
-## 5.6 Reverter cobrança, quando aplicável
+- Função/serviço genérico (ex.: `ConsultarCobranca`) que chama `GET /charges/{id}` (ou por `merchantTransactionId`), usando as credenciais/token da mesma academia/Spuri que criou a cobrança.
+- Deve ser utilizável tanto por uma rotina de dupla verificação pontual (chamada manual ou pelo próprio webhook antes de aplicar efeitos) como, futuramente, por consumidores que só têm o `merchantTransactionId`.
+- Actualizar a projecção financeira com o estado retornado.
 
-Criar função base para reversão quando o método suportar, como UMM via `POST /reverses/{id}`.
+### 5.8 ~~Reconciliação e observabilidade~~ — removido do escopo
 
-A reversão deve ser modelada separadamente de reembolso, pois possui semântica e disponibilidade diferentes no provider.
+Não implementar dashboards, relatórios de conciliação ou jobs de reconciliação em lote nesta fase. A única verificação de consistência prevista aqui é a chamada pontual a `GET /charges/{id}` já coberta na secção 5.7.
 
-## 5.7 Webhooks transacionais e não transacionais
+### 5.9 Base de Webhooks
 
-Criar handlers Model/serviços internos para processar payloads de webhook AppyPay de cobranças, mandatos, documentos fiscais e outros eventos aplicáveis. Nesta tarefa, não expor endpoints públicos de webhook transacional; a rota pública, quando criada futuramente, deverá ser apenas um adaptador fino que valida a entrada e chama estes handlers base.
+- Expor um endpoint HTTP público (`POST`) dedicado a receber notificações transaccionais da AppyPay.
+- Autenticação do lado do Spuri conforme suportado pela AppyPay: Basic Auth ou API Key (decidir e documentar qual será usado; guardar o segredo correspondente cifrado, associado à academia/Spuri dono do webhook).
+- Responder **HTTP 200** assim que o payload for aceite/enfileirado — não fazer processamento pesado de forma síncrona dentro do handler do webhook.
+- **Idempotência obrigatória:** o mesmo `id`/`merchantTransactionId` pode chegar mais de uma vez (reenvios por falha de comunicação; para REF, uma notificação por tentativa de comunicação com o provedor). Processar de forma que reaplicar o mesmo evento não duplique efeitos.
+- Persistir o payload recebido como evento no ledger (sem segredos, se algum vier embutido) antes/como parte da actualização de estado da cobrança correspondente.
+- Esta tarefa cobre apenas a **recepção, autenticação, idempotência e persistência** do webhook. Reagir ao resultado de uma cobrança específica de negócio (ex.: marcar uma propina como paga) é responsabilidade das tarefas futuras que criaram essa cobrança, não desta base.
 
-Regras obrigatórias:
+## 6. Persistência e segurança
 
-1. validar origem/autenticidade com os mecanismos disponíveis e com segredo local quando configurado;
-2. processar de forma idempotente, pois a AppyPay pode reenviar o mesmo evento;
-3. gravar payload bruto de forma segura para auditoria, removendo/mascarando dados sensíveis quando necessário;
-4. confirmar transações críticas com `GET /charges/{id}` antes de marcar como liquidadas definitivamente;
-5. isolar o webhook por contexto financeiro, identificando corretamente se o evento pertence ao Spuri ou a uma academia.
+- Seguir Event Sourcing/CQRS (secção 4): eventos no `spuri_ledger` com `aggregate_type = "Financeiro"`; tabelas `financeiro_*` como projeções/read models e armazenamento operacional cifrado das credenciais.
+- **Nunca** persistir ou expor em respostas públicas: `client_secret`, `webhook_secret`/API key do webhook, tokens de acesso (access token, mesmo que de curta duração), ou o conteúdo bruto de credenciais. Nos eventos e em qualquer log/auditoria, usar apenas máscaras (ex.: últimos 4 caracteres) e metadados não sensíveis (quem alterou, quando).
+- Cifragem em repouso das credenciais na tabela operacional correspondente; decidir o mecanismo de cifragem seguindo o que já existe no projecto (verificar se já há um padrão de cifragem usado noutro lugar do sistema antes de introduzir um novo).
+- Rebuild de projeções financeiras deve seguir o mesmo mecanismo dos outros módulos (`internal/projections/manager.go`), reaplicando os eventos financeiros em ordem determinística sem apagar o ledger.
 
-## 5.8 Reconciliação e observabilidade
+## 7. Critérios de aceitação
 
-Implementar função/handler Model ou processo interno de reconciliação que consulte cobranças, referências, analytics e payouts disponíveis na AppyPay para detectar divergências entre provider e estado interno. Nesta tarefa, qualquer endpoint HTTP para disparar reconciliação fica fora de escopo; se houver controlo administrativo, deve limitar-se a configuração/estado operacional.
+1. É possível configurar credenciais AppyPay (client_id/client_secret/resource/UUIDs de método) para uma academia e, separadamente, para o Spuri, cifradas em repouso, nunca devolvidas em texto puro numa leitura.
+2. O sistema obtém e reutiliza um token válido, escolhendo automaticamente a URL de token TEST ou PROD conforme o ambiente de execução, sem valores fixos no código.
+3. Existe uma função base de criação de cobrança que aceita todos os parâmetros documentados pela AppyPay e consegue criar, com sucesso em ambiente de teste, uma cobrança GPO e uma cobrança REF (com e sem `paymentInfo`, cobrindo referência gerada pelo comerciante e pelo gateway), usando os exemplos e números de simulação confirmados na secção "Escopo..." do documento AppyPay.
+4. Existe uma função base para gerar um QR Code GPO em ambiente de teste.
+5. Existe uma função base de consulta de cobrança por id/`merchantTransactionId`.
+6. Existe um endpoint de webhook público, protegido (Basic Auth ou API Key), que responde 200, é idempotente a reenvios do mesmo evento, e persiste o payload recebido como evento financeiro.
+7. Nenhum segredo (client_secret, tokens, api key/segredo de webhook) aparece em payload de evento, log ou resposta de API.
+8. Reembolso, reversão, e qualquer subsistema de reconciliação/observabilidade **não** foram implementados nesta tarefa.
 
-Regras obrigatórias:
+## 8. Notas para quem for executar (qwen/codex)
 
-1. gerar alertas/métricas para cobranças presas em `pendente`, webhooks duplicados, webhooks inválidos, divergência de valor/status e falhas de autenticação;
-2. registrar eventos de reconciliação sem alterar histórico passado;
-3. permitir reprocessamento seguro sem duplicar efeitos financeiros;
-4. expor logs estruturados com correlation id, contexto financeiro, academia e identificadores externos, sem segredos.
-
-# 6. Modelo de dados e eventos esperados
-
-A implementação deve seguir o padrão de event sourcing/projeções já usado no backend, evitando atualização direta e silenciosa de estado financeiro.
-
-Entidades/projeções mínimas esperadas:
-
-1. `ConfiguracaoFinanceira` ou equivalente para ativação global/específica;
-2. `CredencialAppyPay` ou equivalente para metadados e segredos criptografados;
-3. `CobrancaFinanceira` para cobranças genéricas;
-4. `TransacaoFinanceira` ou histórico de estados externos;
-5. `ReembolsoFinanceiro` e `ReversaoFinanceira`, se aplicável;
-6. `WebhookFinanceiroRecebido` para idempotência e auditoria;
-7. `ReconciliacaoFinanceira` para divergências e ajustes controlados.
-
-Eventos mínimos esperados:
-
-1. `CredenciaisAppyPayCadastradas`;
-2. `CredenciaisAppyPayAtualizadas`;
-3. `CredenciaisAppyPayValidadas`;
-4. `CredenciaisAppyPayAtivadas`/`CredenciaisAppyPayDesativadas`;
-5. `ModalidadePagamentoGlobalAlterada`;
-6. `ModalidadePagamentoAcademiaAlterada`;
-7. `CobrancaFinanceiraCriada`;
-8. `CobrancaFinanceiraEnviadaAoProvider`;
-9. `CobrancaFinanceiraStatusAtualizado`;
-10. `CobrancaFinanceiraCancelada`;
-11. `ReembolsoFinanceiroSolicitado`/`ReembolsoFinanceiroStatusAtualizado`;
-12. `ReversaoFinanceiraSolicitada`/`ReversaoFinanceiraStatusAtualizado`;
-13. `WebhookFinanceiroRecebido`/`WebhookFinanceiroIgnoradoComoDuplicado`;
-14. `DivergenciaFinanceiraDetectada`/`DivergenciaFinanceiraReconciliada`.
-
-# 7. Requisitos de qualidade e segurança
-
-A tarefa só deve ser implementada se contemplar explicitamente:
-
-1. **auditabilidade** — toda alteração financeira relevante deve ter evento, autor, contexto, motivo quando aplicável e timestamp;
-2. **idempotência** — criação de cobranças, processamento de webhooks, reembolsos, reversões e reconciliação não podem duplicar efeitos;
-3. **rastreabilidade** — cada cobrança deve ligar domínio interno, pagador, contexto financeiro, `merchantTransactionId` e identificadores AppyPay;
-4. **imutabilidade do histórico financeiro** — eventos financeiros não podem ser apagados ou reescritos para “corrigir” estado;
-5. **atomicidade e consistência** — falhas entre gravação interna e chamada externa devem ser recuperáveis por reconciliação;
-6. **controlo de concorrência** — evitar cobranças duplicadas e atualizações concorrentes de status/reembolso;
-7. **autenticação e autorização** — FPP/ADMIN controlam ativação e credenciais sensíveis; academias só atuam no próprio contexto;
-8. **criptografia de dados sensíveis** — segredos sempre criptografados em repouso e mascarados em saída/logs;
-9. **webhooks seguros** — validação, idempotência, confirmação ativa no provider para liquidação e armazenamento seguro;
-10. **isolamento por instituição** — consultas, cobranças e credenciais de uma academia nunca vazam para outra;
-11. **observabilidade** — métricas, logs estruturados, alertas e correlation ids;
-12. **reconciliação** — jobs ou rotas administrativas para comparar estado interno e AppyPay.
-
-# 8. Testes obrigatórios
-
-Criar testes automatizados cobrindo pelo menos:
-
-1. FPP/ADMIN cadastram credenciais AppyPay do contexto `spuri` com segredos criptografados;
-2. academia cadastrando/atualizando suas credenciais quando permitido não consegue ver segredos em claro na resposta;
-3. academia A não consegue listar, consultar ou usar credenciais/cobranças da academia B;
-4. modalidade global desativada impede cobranças próprias das academias;
-5. modalidade específica desativada impede cobranças da academia bloqueada;
-6. contexto `spuri` consegue gerar cobrança contra academia sem usar credenciais da academia;
-7. contexto `academia` consegue gerar cobrança genérica contra estudante vinculado;
-8. tentativa de cobrar estudante não vinculado à academia é rejeitada;
-9. criação idempotente com a mesma `referencia_externa` não duplica cobrança;
-10. webhook duplicado não duplica evento de liquidação;
-11. webhook que indica sucesso só marca cobrança como liquidada após confirmação segura por consulta ao provider, usando mock/fake do provider nos testes;
-12. reembolso respeita valor máximo e suporte do método;
-13. atualização concorrente de status não gera histórico inconsistente;
-14. logs/respostas de erro não contêm `client_secret`, `apiKey` sensível, token ou segredo de webhook.
-
-# 9. Atualização obrigatória da documentação
-
-Atualizar `Documentação.md` e documentação técnica relacionada com:
-
-1. entidades/configurações financeiras criadas;
-2. endpoints de credenciais e ativação/controlo permitidos, e funções/handlers Model internos para cobranças, consulta, sincronização, cancelamento, reembolso, reversão, webhooks e reconciliação;
-3. estados normalizados de cobrança, reembolso e reversão;
-4. matriz de permissões FPP/ADMIN/academia;
-5. política de criptografia, mascaramento e rotação de credenciais;
-6. garantias de idempotência e chaves idempotentes usadas;
-7. mapeamento básico dos endpoints AppyPay usados;
-8. aviso explícito de que propina, matrícula, mensalidade e outras cobranças específicas de negócio ficam fora desta tarefa.
-
-# Fora de escopo
-
-- Implementar cobranças específicas como `cobrar propina`, `cobrar matrícula`, `cobrar mensalidade`, `cobrar certificado`, `cobrar assinatura` ou qualquer outro tipo de negócio nomeado.
-- Criar endpoints HTTP transacionais de cobrança, consulta de cobrança, sincronização de status, cancelamento, reembolso, reversão, webhook público transacional ou reconciliação manual; nesta tarefa esses fluxos devem existir apenas como funções/handlers Model internos reutilizáveis.
-- Criar planos comerciais, contratos, tabelas de preços, descontos, multas, juros ou calendários financeiros específicos.
-- Criar UI/frontend de gestão financeira.
-- Implementar outro provider de pagamento além da AppyPay nesta tarefa.
-- Automatizar faturação fiscal completa como requisito obrigatório; documentos fiscais podem ser preparados como integração base/opcional, mas fluxos fiscais específicos devem ter tarefa própria se necessário.
-- Resolver a maturidade produtiva do SDD listado como ALPHA; se SDD for usado, documentar a limitação e permitir desativação por configuração.
-
-# Critérios de aceite
-
-1. existe um módulo financeiro base com contextos `spuri` e `academia` claramente separados;
-2. credenciais AppyPay podem ser cadastradas, validadas, ativadas, desativadas e rotacionadas com criptografia e sem exposição de segredos;
-3. FPP/ADMIN conseguem ativar/desativar a modalidade de pagamento globalmente e por academia;
-4. academias só conseguem usar cobranças próprias quando a modalidade global, modalidade específica e credenciais estiverem ativas;
-5. o Spuri consegue criar cobranças genéricas contra academias usando o contexto financeiro da plataforma;
-6. academias conseguem criar cobranças genéricas contra estudantes vinculados usando seu próprio contexto financeiro;
-7. funções/handlers Model base de gerar cobrança, consultar cobrança, consultar/sincronizar status, cancelar, reembolsar, reverter, processar webhook e reconciliar quando aplicável estão implementadas e documentadas sem endpoints HTTP transacionais diretos;
-8. webhooks são idempotentes, seguros e não marcam liquidação definitiva sem confirmação quando exigido;
-9. histórico financeiro é imutável e auditável via eventos/projeções;
-10. testes obrigatórios da seção 8 passam;
-11. `Documentação.md` e documentação técnica afetada estão atualizadas;
-12. o PR explica como as funções específicas futuras de propina, matrícula e mensalidade deverão reutilizar as funções base sem duplicar integração AppyPay.
-
-## Procedimento de conclusão
-
-Ao finalizar esta tarefa:
-
-1. atualizar o título interno para `# Implementar módulo base de gestão financeira com AppyPay para Spuri e academias`;
-2. alterar o front matter para `status: feito`;
-3. mover este arquivo para `docs/Tarefas feitas/`.
+- Este documento é orientação de requisitos, não uma especificação de código linha-a-linha. Seguir os padrões e nomes já usados no resto do repositório (agregados em `internal/domain/aggregates/`, projeções em `internal/projections/`, handlers em `internal/handlers/`, migrações numeradas sequencialmente em `migrations/`) em vez de inventar uma convenção nova.
+- Validar cada endpoint contra a documentação oficial (`docs/Parceiros e integrações/AppyPay Documentação.md`) antes de dar a funcionalidade por concluída — os exemplos de corpo de pedido/resposta citados nas secções acima vieram directamente do suporte da AppyPay e devem bater certo com o que for implementado.
+- Se `docs/Debbugs/Depuração — Rollback total do módulo financeiro AppyPay.md` ou `docs/Tarefas feitas/17 - Remover completamente o modulo financeiro AppyPay (rollback total).md` estiverem disponíveis no repositório, leia-os **antes** de desenhar o schema/eventos — eles explicam por que a tentativa anterior deste mesmo módulo foi completamente revertida (migração 099), e essa causa-raiz não está reflectida neste documento.
