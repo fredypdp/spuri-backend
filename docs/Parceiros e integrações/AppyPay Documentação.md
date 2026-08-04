@@ -8214,3 +8214,174 @@ Baseline transaction amount mapping out financial values bound directly against 
 A integração AppyPay do Spuri segue Event Sourcing/CQRS: `spuri_ledger` é a fonte de verdade para mudanças financeiras (`aggregate_type = "Financeiro"`) e as tabelas `financeiro_*` são projeções/read models ou armazenamento operacional cifrado. Payloads de eventos e respostas públicas nunca incluem `client_secret`, `webhook_secret`, `apiKey`, tokens ou ciphertexts; apenas máscaras e metadados não sensíveis são auditados.
 
 Para reconstrução, execute o rebuild das projeções financeiras pelo serviço (`Service.RebuildProjections(ctx)`), que reaplica os eventos financeiros em ordem determinística sem apagar o ledger. Credenciais antigas sem autoria devem ser migradas com autor técnico `system:migracao_financeiro_event_sourcing`.
+
+---
+
+## Escopo do Módulo Financeiro Base — Spuri × AppyPay (Fase 1)
+
+**Contexto:** esta secção não faz parte da documentação oficial da AppyPay (acima). Foi adicionada pela equipa do Spuri para resumir, a partir de um contacto directo com o suporte comercial da AppyPay (Fredy Luís, Fundador/CEO do Spuri), exactamente o que este projecto vai implementar na "Fase 1" do módulo financeiro, e para servir de referência rápida em vez de percorrer o documento inteiro (~8200 linhas). A tarefa `docs/Lista de Tarefas/15 - Modulo base de gestao financeira com AppyPay.md` usa esta secção como guia de implementação.
+
+### Métodos de pagamento em escopo (Fase 1)
+
+Apenas estes três, confirmados com a AppyPay:
+
+- **GPO** (Gateway de Pagamentos Online / Multicaixa Express) — cobrança directa por número de telefone, autorizada pelo cliente na app MCX.
+- **GPO QR Code** — variante do GPO em que se gera um QR Code (em vez de cobrar directamente um número de telefone) para o cliente escanear e pagar na app MCX.
+- **REF** (Pagamento por Referência) — referência de pagamento, gerada pelo comerciante (Spuri passa `referenceNumber`, `dueDate`, `nib`) ou gerada pelo gateway (Spuri omite `paymentInfo` e a AppyPay devolve a referência).
+
+**Fora de escopo nesta fase** (não implementar, mesmo que apareçam na documentação oficial acima): UMM (Unitel Mobile Money), FTBAI (transferências interbancárias), eTPA, SDD (débito directo/mandatos), Fiscal Documents (documentos fiscais), Funds-Transfers, Post a charge refund (reembolso), Post a charge reverse (reversão), e qualquer reconciliação/observabilidade avançada além do essencial (ver "Fora de escopo" na tarefa 15).
+
+### Autenticação
+
+Fluxo **OAuth2 client credentials grant** (ver secções "Authentication and Authorization" e "Get a token" acima). Um token expira em **1 hora** — deve ser cacheado e renovado, não pedido a cada chamada.
+
+URLs confirmadas pela AppyPay (já constam também nas secções "AppyPay-API" e "AppyPay-Authentication" acima, repetidas aqui para referência rápida):
+
+| Finalidade | Ambiente | URL |
+| --- | --- | --- |
+| Obter token | Teste | `https://login.microsoftonline.com/appypaydev.onmicrosoft.com/oauth2/token` |
+| Obter token | Produção | `https://login.microsoftonline.com/auth.appypay.co.ao/oauth2/token` |
+| Base da API (charges, qr-codes, etc.) | Teste | `https://gwy-api-tst.appypay.co.ao/{version}` |
+| Base da API (charges, qr-codes, etc.) | Produção | `https://gwy-api.appypay.co.ao/{version}` |
+
+A escolha entre TEST e PROD **não deve ser um valor fixo no código**: deve ser derivada da variável de ambiente que já indica o ambiente de execução do Spuri (desenvolvimento/teste → TEST; produção → PROD).
+
+Corpo do pedido de token (`application/x-www-form-urlencoded`): `grant_type=client_credentials`, `client_id`, `client_secret`, `resource` (UUID fornecido pela AppyPay). **`client_id`, `client_secret` e `resource` são credenciais por conta AppyPay** — cada academia integrada ao Spuri tem (ou terá) a sua própria conta/credenciais junto à AppyPay, e o próprio Spuri poderá ter uma conta própria. Ambos os escopos de credenciais (Spuri e academia) devem poder ser gravados no banco de dados (cifrados — ver nota de segurança abaixo).
+
+### Criar cobrança (Post a Charge)
+
+Endpoint único para os três métodos em escopo: `POST {base}/{version}/charges`. O que muda entre GPO, GPO QR Code (que na verdade usa o endpoint próprio `POST {base}/{version}/qr-codes`) e REF é apenas `paymentMethod` e o conteúdo de `paymentInfo`.
+
+Corpo genérico (todos os campos que a função base deve suportar, mesmo que uma cobrança específica não use todos):
+
+```json
+{
+  "amount": 123,
+  "currency": "AOA",
+  "description": "POSTMAN_Test",
+  "merchantTransactionId": "TR00000180320",
+  "paymentMethod": "paymentMethod_53c70da3-1c88-4391-8b60-ab4757fbb044",
+  "paymentInfo": {
+    "PaymentInfo1": "string"
+  },
+  "options": {
+    "Option1": "string",
+    "Option2": "string"
+  },
+  "notify": {
+    "name": "Customer A",
+    "telephone": "923111111",
+    "email": "customera@mail.com",
+    "smsNotification": true,
+    "emailNotification": true
+  }
+}
+```
+
+Exemplos reais confirmados pela AppyPay para cada método em escopo:
+
+**GPO** — `paymentInfo.phoneNumber` é o número a debitar:
+
+```json
+{
+  "amount": 123,
+  "currency": "AOA",
+  "description": "POSTMAN_Test",
+  "merchantTransactionId": "TR00000180320",
+  "paymentMethod": "GPO_53c70da3-1c88-4391-8b60-ab4757fbb044",
+  "paymentInfo": {
+    "phoneNumber": "900000000"
+  },
+  "options": {
+    "MerchantOrigin": "Merchant_Origin"
+  }
+}
+```
+
+**REF — referência gerada pelo comerciante** (Spuri define `referenceNumber`, `dueDate`, `nib` em `paymentInfo`):
+
+```json
+{
+  "amount": 200,
+  "currency": "AOA",
+  "description": "POSTMAN_Test",
+  "merchantTransactionId": "TR00000180320",
+  "paymentMethod": "REF_53c70da3-1c88-4391-8b60-ab4757fbb044",
+  "paymentInfo": {
+    "referenceNumber": "123456789",
+    "dueDate": "2022-01-01T15:00:00",
+    "nib": "2384301028348312312"
+  },
+  "options": {
+    "SmartcardNumber": "Smart_card_Number",
+    "MerchantOrigin": "Merchant_Origin"
+  },
+  "notify": {
+    "name": "Customer A",
+    "telephone": "923111111",
+    "email": "customera@mail.com",
+    "smsNotification": true,
+    "emailNotification": true
+  }
+}
+```
+
+**REF — referência gerada pelo gateway** (Spuri omite `paymentInfo`; a AppyPay devolve a referência gerada na resposta):
+
+```json
+{
+  "amount": 250,
+  "currency": "AOA",
+  "description": "POSTMAN_Test",
+  "merchantTransactionId": "TR00000180320",
+  "paymentMethod": "REF_53c70da3-1c88-4391-8b60-ab4757fbb044",
+  "options": {
+    "SmartcardNumber": "Smart_card_Number",
+    "MerchantOrigin": "Merchant_Origin"
+  },
+  "notify": {
+    "name": "Customer A",
+    "telephone": "923111111",
+    "email": "customera@mail.com",
+    "smsNotification": true,
+    "emailNotification": true
+  }
+}
+```
+
+> **Nota sobre `paymentMethod`:** o identificador tem o formato `{METODO}_{uuid}` (ex.: `GPO_53c70da3-...`, `REF_53c70da3-...`). O UUID é específico da conta/aplicação de cada academia na AppyPay (gerado no portal AppyPay dessa academia) — faz parte das credenciais a armazenar por academia, não é um valor fixo do Spuri.
+
+### GPO — números de telefone de simulação (ambiente de teste)
+
+Confirmados directamente pela AppyPay para testar cenários sem gastar saldo real. Usam o mesmo corpo do exemplo GPO acima, variando apenas `paymentInfo.phoneNumber`:
+
+| Cenário | `phoneNumber` |
+| --- | --- |
+| Sucesso | `900000000` |
+| Saldo insuficiente / Timeout | `900000002` |
+| Rejeitado pelo cliente | `900000003` |
+
+> A AppyPay enviou o mesmo número (`900000002`) tanto para "Insuficiente" como para "TimeOut" — confirmar com a AppyPay se são cenários realmente idênticos ou se há um número distinto para timeout antes de codificar testes automatizados que dependam da distinção.
+
+### GPO QR Code (`POST {base}/{version}/qr-codes`)
+
+Mesmos princípios de autenticação. Corpo próprio (ver secção "Post a GPO QR Code" acima) — campos principais: `amount`, `currency`, `merchantTransactionId`, `paymentMethod` (identificador `GPO_...`), `description`, `qrCodeType` (`SINGLE` por defeito ou `MULTIPLE`, que exige `minAmount`, `maxTransactions`, `startDate`, `endDate`). Resposta inclui `qrCodeArr` (imagem do QR code em base64) para apresentar ao pagador.
+
+### Consultar cobrança (Get a Charge)
+
+`GET {base}/{version}/charges/{id}` (ou filtrando por `merchantTransactionId` via query param). Deve ser usado para dupla validação do estado de uma cobrança, mesmo com Webhook configurado.
+
+### Webhooks (transacional)
+
+Obrigatório para **REF** (sempre) e recomendado/obrigatório para **GPO** quando o pedido é assíncrono (`Accept: application/vnd.appypay.asyncapi+json`). Requisitos do endpoint que o Spuri deve expor:
+
+- Público, acessível por HTTP/HTTPS, aceitando `POST` com corpo JSON.
+- Responder **HTTP 200** para confirmar recepção — qualquer outro código é interpretado pela AppyPay como falha de entrega.
+- Suportar autenticação do lado do Spuri via **Basic Auth** ou **API Key** (configurável, conforme suportado pela AppyPay).
+- **Idempotente:** o mesmo `id`/`merchantTransactionId` pode ser recebido mais de uma vez (ex.: problemas de comunicação, ou no caso de REF, uma notificação por cada tentativa de comunicação com o provedor). O processamento não pode duplicar efeitos (ex.: marcar uma propina como paga duas vezes).
+- Ao receber, é recomendado confirmar o estado com um `GET /charges/{id}` antes de aplicar efeitos de negócio irreversíveis.
+
+### Nota de segurança e persistência (reforça a secção "Persistência financeira no Spuri" abaixo)
+
+- `client_id`, `client_secret`, `resource` e quaisquer chaves de API/Webhook (por Spuri e por academia) são gravados cifrados no banco de dados — nunca em texto plano, nunca em payloads de eventos ou em respostas públicas da API do Spuri.
+- Segue-se o mesmo padrão de Event Sourcing/CQRS já usado no resto do sistema (ver `internal/db/event_store.go`, `internal/projections`): mudanças financeiras são eventos no `spuri_ledger` (`aggregate_type = "Financeiro"`); tabelas de leitura são projeções reconstruíveis.
