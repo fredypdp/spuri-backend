@@ -315,7 +315,7 @@ interface MateriaDTO {
   id: string
   nome: string
   type: MateriaType          // preenchido automaticamente (exceto escola mista, que informa no create)
-  anos_academicos?: string[]  // ex: ['2_ano_fundamental'] ou ['1_ano_medio']
+  anos_academicos?: string[]  // ex: ['2_ano_fundamental'] ou ['1_ano_medio', '2_ano_medio']; médio aceita múltiplos anos, exceto 4_ano_medio
   periodo?: string            // ex: '1_semestre' — obrigatório para superior
   pendencia_permitida: boolean // disponível apenas para superior; define se pode ficar pendente
   pendencia_nivel_conclusao?: string // ex: '2_semestre'; limite máximo com pendência superior
@@ -4089,7 +4089,7 @@ Remove cursos em lote por job assíncrono.
 
 ### Processos de negócio — Matérias
 
-Matérias pertencem sempre a uma academia e são a base para notas, faltas, turmas e avaliações finais. Em academias escolares, o tipo é inferido pelo `nivel_escolar`; academias mistas devem informar `type` como `fundamental` ou `medio`; academias superiores criam apenas matérias `superior`, vinculadas a curso superior e a um `periodo` acadêmico. Campos de pendência (`pendencia_permitida` e `pendencia_nivel_conclusao`) são exclusivos do superior.
+Matérias pertencem sempre a uma academia e são a base para notas, faltas, turmas e avaliações finais. Em academias escolares, o tipo é inferido pelo `nivel_escolar`; academias mistas devem informar `type` como `fundamental` ou `medio`; academias superiores criam apenas matérias `superior`, vinculadas a curso superior e a um `periodo` acadêmico. Uma matéria do médio pode declarar mais de um ano acadêmico em `anos_academicos`, mas o backend bloqueia `4_ano_medio` para matérias convencionais do médio. Campos de pendência (`pendencia_permitida` e `pendencia_nivel_conclusao`) são exclusivos do superior.
 
 Todas as escritas exigem autenticação de academia ativa. Consultas de academia usam a própria instituição; admins podem consultar uma academia específica quando a rota aceitar `codigo_academia`. IDs de matéria são UUIDs.
 
@@ -4114,7 +4114,7 @@ Lista as matérias da academia alvo.
       "type": "medio",
       "status": "ativa",
       "codigo_academia": "ACAD001",
-      "anos_academicos": ["10_ano_medio"],
+      "anos_academicos": ["1_ano_medio", "2_ano_medio"],
       "curso_id": "uuid-do-curso",
       "periodo": null,
       "pendencia_permitida": null,
@@ -4157,7 +4157,7 @@ Cria uma matéria disciplinar no escopo da academia autenticada.
 {
   "nome": "Matemática",
   "type": "medio",
-  "anos_academicos": ["10_ano_medio"],
+  "anos_academicos": ["1_ano_medio", "2_ano_medio"],
   "curso_id": "uuid-do-curso-medio"
 }
 ```
@@ -4178,6 +4178,7 @@ Cria uma matéria disciplinar no escopo da academia autenticada.
 **Regras de validação:**
 
 - `nome` e `anos_academicos` são obrigatórios.
+- Matérias do médio podem informar múltiplos anos acadêmicos no mesmo array, desde que nenhum item seja `4_ano_medio`.
 - Em academia mista, `type` é obrigatório e deve ser `fundamental` ou `medio`.
 - Em ensino superior, `curso_id` e `periodo` são obrigatórios.
 - Campos de pendência só são aceitos para matérias superiores.
@@ -4253,7 +4254,7 @@ Atualiza dados editáveis da matéria.
 ```json
 {
   "nome": "Matemática Aplicada",
-  "anos_academicos": ["10_ano_medio", "11_ano_medio"],
+  "anos_academicos": ["1_ano_medio", "2_ano_medio"],
   "curso_id": "uuid-do-curso",
   "pendencia_permitida": false,
   "pendencia_nivel_conclusao": null
@@ -4264,6 +4265,7 @@ Atualiza dados editáveis da matéria.
 
 - `periodo` não é editável nesta rota.
 - `curso_id` deve apontar para curso compatível com a academia e o tipo da matéria.
+- Matérias do médio continuam podendo ter múltiplos anos acadêmicos, mas atualizações com `4_ano_medio` são rejeitadas.
 - Pendência continua exclusiva de matérias superiores.
 - A atualização preserva o mesmo ID e grava evento de alteração no ledger.
 

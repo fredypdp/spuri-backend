@@ -599,7 +599,9 @@ func resolverPeriodosValidos(c *gin.Context, tipo string, cursoID *uuid.UUID) ([
 
 // inferirAnoAcademicoParaNota determina o ano_academico correto para o registro de nota.
 //   - anoEscolarEstudante != nil e nao vazio -> fundamental -> retorna anoEscolarEstudante
-//   - caso contrario (medio ou superior) -> retorna nivelMateria[0]
+//   - caso contrario (medio ou superior) -> retorna o primeiro ano da matéria;
+//     matérias do médio podem ter mais de um ano e, quando o estudante possui
+//     ano médio preenchido, a função valida pertencimento antes de retornar.
 func inferirAnoAcademicoParaNota(
 	anoEscolarEstudante *string,
 	nivelMateria []string,
@@ -641,15 +643,7 @@ func inferirAnoAcademicoParaNota(
 			nomeMateria,
 		)
 	}
-	if len(nivelMateria) != 1 {
-		return "", fmt.Errorf(
-			"materias de medio/superior devem ter exatamente 1 ano academico, "+
-				"mas a materia '%s' possui %d",
-			nomeMateria, len(nivelMateria),
-		)
-	}
-
-	return nivelMateria[0], nil
+	return strings.TrimSpace(nivelMateria[0]), nil
 }
 
 // carregarCategoriasDisponiveisParaAno retorna os códigos das categorias de nota

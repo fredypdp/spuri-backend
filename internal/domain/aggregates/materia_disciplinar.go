@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -163,6 +164,9 @@ func (m *MateriaDisciplinar) Criar(
 	if codigoAcademia == "" {
 		return fmt.Errorf("codigo_academia é obrigatório")
 	}
+	if err := validarAnosAcademicosMateriaDisciplinar(tipo, anosAcademicos); err != nil {
+		return err
+	}
 	if tipo == "superior" && cursoID == nil {
 		return fmt.Errorf("curso_id é obrigatório para matérias do tipo 'superior'")
 	}
@@ -194,6 +198,20 @@ func (m *MateriaDisciplinar) Criar(
 	}
 	m.RaiseEvent(event)
 	return m.Apply(event)
+}
+
+func validarAnosAcademicosMateriaDisciplinar(tipo string, anosAcademicos []string) error {
+	if len(anosAcademicos) == 0 {
+		return fmt.Errorf("anos_academicos é obrigatório para matérias")
+	}
+	if tipo == "medio" {
+		for _, ano := range anosAcademicos {
+			if strings.TrimSpace(ano) == "4_ano_medio" {
+				return fmt.Errorf("não é permitido criar ou atualizar matérias para o 4º ano do ensino médio")
+			}
+		}
+	}
+	return nil
 }
 
 func (m *MateriaDisciplinar) Ativar(ativadoPor uuid.UUID) error {
@@ -236,6 +254,11 @@ func (m *MateriaDisciplinar) AtualizarDados(nome *string, anosAcademicos []strin
 	}
 	if pendenciaNivelConclusao != nil && (m.Type == "fundamental" || m.Type == "medio") {
 		return fmt.Errorf("pendencia_nivel_conclusao só está disponível para matérias do tipo 'superior'")
+	}
+	if anosAcademicos != nil {
+		if err := validarAnosAcademicosMateriaDisciplinar(m.Type, anosAcademicos); err != nil {
+			return err
+		}
 	}
 
 	event := &MateriaDadosAtualizadosEvent{

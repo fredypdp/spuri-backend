@@ -105,6 +105,10 @@ func CriarMateria(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
+	if err := validarAnosAcademicosMateria(tipoMateria, req.AnosAcademicos); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 
 	repository := getRepository(c)
 	materia := aggregates.NewMateriaDisciplinar()
@@ -419,6 +423,12 @@ func AtualizarDadosMateria(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
+	if req.AnosAcademicos != nil {
+		if err := validarAnosAcademicosMateria(materia.Type, *req.AnosAcademicos); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+	}
 	if err := materia.AtualizarDados(req.Nome, anos, req.CursoID, req.PendenciaPermitida, req.PendenciaNivelConclusao, userID); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -470,6 +480,20 @@ func resolverTipoMateria(nivelAcademia string, nivelEscolar *string, tipoReq *st
 	default:
 		return "", fmt.Errorf("nivel_escolar inválido")
 	}
+}
+
+func validarAnosAcademicosMateria(tipoMateria string, anosAcademicos []string) error {
+	if len(anosAcademicos) == 0 {
+		return fmt.Errorf("anos_academicos é obrigatório para matérias")
+	}
+	if tipoMateria == "medio" {
+		for _, ano := range anosAcademicos {
+			if strings.TrimSpace(ano) == "4_ano_medio" {
+				return fmt.Errorf("não é permitido criar ou atualizar matérias para o 4º ano do ensino médio")
+			}
+		}
+	}
+	return nil
 }
 
 func validarPendenciaNivelConclusao(tipoMateria string, nivel *string, anosAcademicos []string, periodosCurso []string) error {

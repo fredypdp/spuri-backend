@@ -864,7 +864,7 @@ COMMENT ON COLUMN projection_cursos.nivel IS 'Array JSON com anos do curso: ["pr
 COMMENT ON COLUMN projection_materias.curso_id IS 'NULL para fundamental, FK para medio/superior';
 COMMENT ON COLUMN projection_materias.pendencia_permitida IS 'Indica se a matéria pode ficar como pendência para aprovação futura; disponível apenas para superior';
 COMMENT ON COLUMN projection_materias.pendencia_nivel_conclusao IS 'Semestre máximo em que o estudante pode chegar com pendências desta matéria; disponível apenas para superior';
-COMMENT ON COLUMN projection_materias.nivel IS 'Apenas para fundamental: ["1_fundamental","2_fundamental",...]';
+COMMENT ON COLUMN projection_materias.nivel IS 'AnosAcademicos da matéria. Médio aceita múltiplos anos do 1º ao 3º ano e bloqueia 4_ano_medio no domínio.';
 
 COMMENT ON COLUMN projection_notas.periodo IS 'Período: 1_trimestre, 2_trimestre, 3_trimestre, 1_semestre, 2_semestre';
 COMMENT ON COLUMN projection_notas.nota IS 'Nota de 0 a 20';

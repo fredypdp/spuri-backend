@@ -25,7 +25,7 @@ BEGIN;
 COMMENT ON COLUMN projection_materias.nivel IS
     'AnosAcademicos da matéria disciplinar. '
     'fundamental: 1–9 itens (1_fundamental…nono_fundamental). '
-    'medio/superior: exatamente 1 item — ano do curso ao qual a matéria pertence. '
+    'medio: um ou mais anos do 1º ao 3º ano, nunca 4_ano_medio; superior: ano/período do curso ao qual a matéria pertence. '
     'Armazenado como JSONB array de strings.';
 
 -- 2. Verificar se existem matérias de medio/superior com nivel com mais de 1 item

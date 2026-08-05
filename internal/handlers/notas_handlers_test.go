@@ -62,3 +62,13 @@ func TestInferirAnoAcademicoParaNota_DevePermitirMedioQuandoAnoDoEstudantePerten
 		t.Fatalf("ano esperado '2_ano_medio', recebido '%s'", ano)
 	}
 }
+
+func TestInferirAnoAcademicoParaNota_DevePermitirMateriaMedioMultiAnoSemAnoEstudante(t *testing.T) {
+	ano, err := inferirAnoAcademicoParaNota(nil, []string{"1_ano_medio", "2_ano_medio"}, "Física")
+	if err != nil {
+		t.Fatalf("não esperava erro para matéria média multi-ano: %v", err)
+	}
+	if ano != "1_ano_medio" {
+		t.Fatalf("ano esperado '1_ano_medio', recebido '%s'", ano)
+	}
+}

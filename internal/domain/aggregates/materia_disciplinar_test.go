@@ -56,3 +56,25 @@ func TestMateriaEscolarNaoPermiteCriarPendenciaMesmoFalse(t *testing.T) {
 		t.Fatal("esperava erro ao criar matéria escolar com pendencia_permitida explícita")
 	}
 }
+
+func TestMateriaMedioPermiteMaisDeUmAnoAcademico(t *testing.T) {
+	materia := NewMateriaDisciplinar()
+
+	err := materia.Criar("Ciências", "medio", []string{"1_ano_medio", "2_ano_medio"}, "ACA001", nil, nil, nil, uuid.New())
+	if err != nil {
+		t.Fatalf("não esperava erro ao criar matéria média com múltiplos anos acadêmicos: %v", err)
+	}
+
+	if len(materia.AnosAcademicos) != 2 {
+		t.Fatalf("esperava 2 anos acadêmicos, recebeu %d", len(materia.AnosAcademicos))
+	}
+}
+
+func TestMateriaMedioBloqueiaQuartoAno(t *testing.T) {
+	materia := NewMateriaDisciplinar()
+
+	err := materia.Criar("PAP", "medio", []string{"4_ano_medio"}, "ACA001", nil, nil, nil, uuid.New())
+	if err == nil {
+		t.Fatal("esperava erro ao criar matéria média para o 4º ano")
+	}
+}
