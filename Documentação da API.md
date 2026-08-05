@@ -5,25 +5,45 @@ criado: 05-04-2026 13:01
 Versão atual: 2.2.0
 ## Índice
 
-1. [[#1. Convenções Globais]]
-2. [[#2. Estruturas de Dados]]
-3. [[#3. Autenticação]]
-4. [[#4. Perfil e Conta]]
-5. [[#5. Email]]
-6. [[#6. Academias]]
-7. [[#7. Ano Letivo]]
-8. [[#8. Estudantes]]
-9. [[#9. Solicitação de Matrícula]]
-10. [[#10. Cursos]]
-11. [[#11. Matérias]]
-12. [[#12. Turmas]]
-13. [[#13. Notas]]
-14. [[#14. Faltas]]
-15. [[#15. Avaliações Finais]]
-16. [[#16. Admins]]
-17. [[#17. Jobs Assíncronos]]
-18. [[#18. Batch Assíncrono]]
-19. [[#19. Armazenamento]]
+1. [Convenções Globais](#1-convenções-globais)
+2. [Estruturas de Dados](#2-estruturas-de-dados)
+3. [Autenticação](#3-autenticação)
+4. [Perfil e Conta](#4-perfil-e-conta)
+5. [Email](#5-email)
+6. [Academias](#6-academias)
+7. [Ano Letivo](#7-ano-letivo)
+8. [Estudantes](#8-estudantes)
+9. [Solicitação de Matrícula](#9-solicitação-de-matrícula)
+   - [9.1 `POST /solicitacao-matricula`](#91-post-solicitacao-matricula)
+   - [9.2 `GET /solicitacoes-matricula`](#92-get-solicitacoes-matricula)
+   - [9.3 `GET /academia/solicitacoes-matricula`](#93-get-academiasolicitacoes-matricula)
+   - [9.4 `GET /academia/solicitacao-matricula/:codigo`](#94-get-academiasolicitacao-matriculacodigo)
+   - [9.5 `PUT /academia/solicitacao-matricula/:codigo/aprovar`](#95-put-academiasolicitacao-matriculacodigoaprovar)
+   - [9.6 `PUT /academia/solicitacao-matricula/:codigo/reprovar`](#96-put-academiasolicitacao-matriculacodigoreprovar)
+   - [9.7 `GET /documentos/solicitacoes-matricula/:codigo/:campo/download`](#97-get-documentossolicitacoes-matriculacodigocampodownload)
+   - [9.8 `GET /academia/documentos/solicitacoes-matricula/:codigo/:campo/download`](#98-get-academiadocumentossolicitacoes-matriculacodigocampodownload)
+10. [Cursos](#10-cursos)
+    - [10.1 `GET /academia/cursos`](#101-get-academiacursos)
+    - [10.2 `GET /academia/curso/:id`](#102-get-academiacursoid)
+    - [10.3 `POST /academia/curso`](#103-post-academiacurso)
+    - [10.4 `PUT /academia/curso/:id/ativar`](#104-put-academiacursoidativar)
+    - [10.5 `PUT /academia/curso/:id/desativar`](#105-put-academiacursoiddesativar)
+    - [10.6 `PUT /academia/curso/:id/dados`](#106-put-academiacursoiddados)
+    - [10.7 `DELETE /academia/curso/:id`](#107-delete-academiacursoid)
+    - [10.8 `POST /academia/curso/async`](#108-post-academiacursoasync)
+    - [10.9 `PUT /academia/curso/ativar/async`](#109-put-academiacursoativarasync)
+    - [10.10 `PUT /academia/curso/desativar/async`](#1010-put-academiacursodesativarasync)
+    - [10.11 `PUT /academia/curso/dados/async`](#1011-put-academiacursodadosasync)
+    - [10.12 `DELETE /academia/curso/async`](#1012-delete-academiacursoasync)
+11. [Matérias](#11-matérias)
+12. [Turmas](#12-turmas)
+13. [Notas](#13-notas)
+14. [Faltas](#14-faltas)
+15. [Avaliações Finais](#15-avaliações-finais)
+16. [Admins](#16-admins)
+17. [Jobs Assíncronos](#17-jobs-assíncronos)
+18. [Batch Assíncrono](#18-batch-assíncrono)
+19. [Armazenamento](#19-armazenamento)
 
 ---
 
@@ -3396,16 +3416,43 @@ Cria uma solicitação pública de matrícula para a academia informada.
 
 **Request fields:**
 
-- `codigo_academia` — obrigatório; academia destino, que deve existir e estar `ativo`.
-- `nome` — obrigatório.
-- `genero` — obrigatório; validado pelas regras comuns de matrícula.
-- `data_nascimento` — obrigatório, formato `YYYY-MM-DD`, anterior à data atual.
-- `email`, `telefone`, `telefone_encarregado`, `bilhete_identidade`, `bilhete_identidade_encarregado` — opcionais, normalizados/validados quando enviados.
-- `ano_escolar_fundamental`, `ano_escolar_medio` ou `ano_superior` — exatamente o ano/percurso pretendido conforme as regras de matrícula; pelo menos um deve definir o ano académico.
-- `curso_medio_id` — opcional; UUID de curso `medio`, `ativo` e da mesma academia.
-- `curso_superior_id` — opcional; UUID de curso `superior`, `ativo` e da mesma academia.
-- `declaracao_ano_academico` — usado para classificar a declaração quando enviada.
-- Arquivos PDF aceites: `bi_estudante`, `bi_encarregado`, `cedula_estudante`, `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio`.
+| Campo | Tipo/envio | Obrigatório | Observações |
+| --- | --- | --- | --- |
+| `codigo_academia` | texto | sim | Academia destino, que deve existir e estar `ativo`. |
+| `nome` | texto | sim | Nome completo do candidato. |
+| `genero` | texto | sim | Validado pelas regras comuns de matrícula. |
+| `data_nascimento` | texto `YYYY-MM-DD` | sim | Deve ser anterior à data atual. |
+| `email` | texto | não | Normalizado/validado quando enviado. |
+| `telefone` | texto | não | Telefone do candidato; normalizado/validado quando enviado. |
+| `telefone_encarregado` | texto | não | Telefone do encarregado; normalizado/validado quando enviado. |
+| `bilhete_identidade` | texto | não | BI do candidato; normalizado/validado quando enviado. |
+| `bilhete_identidade_encarregado` | texto | não | BI do encarregado; normalizado/validado quando enviado. |
+| `ano_escolar_fundamental` | texto | condicional | Use quando a solicitação for para ensino fundamental. |
+| `ano_escolar_medio` | texto | condicional | Use quando a solicitação for para ensino médio. |
+| `ano_superior` | texto | condicional | Use quando a solicitação for para ensino superior. |
+| `curso_medio_id` | UUID | condicional | Curso `medio`, `ativo` e da mesma academia; usado com `ano_escolar_medio`. |
+| `curso_superior_id` | UUID | condicional | Curso `superior`, `ativo` e da mesma academia; usado com `ano_superior`. |
+| `declaracao_ano_academico` | texto | não | Classifica o PDF `declaracao` quando enviado. |
+| `bi_estudante`, `bi_encarregado`, `cedula_estudante`, `declaracao`, `certificado_6_ano_fundamental`, `certificado_9_ano_fundamental`, `certificado_ensino_medio` | arquivo PDF | condicional | Únicos campos de arquivo aceites; a obrigatoriedade depende do percurso de matrícula. |
+
+**Exemplo de request — ensino médio:**
+
+```bash
+curl -X POST "$BASE_URL/solicitacao-matricula" \
+  -F codigo_academia=ACAD001 \
+  -F nome="Ana Manuel" \
+  -F genero=feminino \
+  -F data_nascimento=2008-04-15 \
+  -F telefone=+244923000000 \
+  -F telefone_encarregado=+244922000000 \
+  -F bilhete_identidade=000000000LA000 \
+  -F bilhete_identidade_encarregado=111111111LA111 \
+  -F ano_escolar_medio=1_ano_medio \
+  -F curso_medio_id=7f2f4d0e-6e2a-4c39-b7dd-12b63d9d5d55 \
+  -F bi_estudante=@./bi-estudante.pdf \
+  -F bi_encarregado=@./bi-encarregado.pdf \
+  -F certificado_9_ano_fundamental=@./certificado-9-ano.pdf
+```
 
 **Regras de negócio:**
 
@@ -3440,10 +3487,19 @@ Lista solicitações em escopo administrativo.
 
 **Query params:**
 
-- `codigo_academia` — opcional e repetível; restringe a uma ou mais academias.
-- `status` — opcional e repetível; filtra por `pendente`, `aprovada`, `reprovada` ou `cancelada`.
-- `limit` — opcional; padrão `50`, mínimo `1`, máximo `1000`.
-- `offset` — opcional; padrão `0`, mínimo `0`, máximo `1000000`.
+| Parâmetro | Tipo | Obrigatório | Observações |
+| --- | --- | --- | --- |
+| `codigo_academia` | string repetível | não | Restringe a uma ou mais academias, por exemplo `?codigo_academia=ACAD001&codigo_academia=ACAD002`. |
+| `status` | enum repetível | não | Filtra por `pendente`, `aprovada`, `reprovada` ou `cancelada`; aceita múltiplos valores. |
+| `limit` | inteiro | não | Padrão `50`, mínimo `1`, máximo `1000`. |
+| `offset` | inteiro | não | Padrão `0`, mínimo `0`, máximo `1000000`. |
+
+**Exemplo de request:**
+
+```http
+GET /solicitacoes-matricula?codigo_academia=ACAD001&status=pendente&limit=50&offset=0 HTTP/1.1
+Authorization: Bearer <token>
+```
 
 **Response 200:**
 
@@ -3467,6 +3523,13 @@ Lista solicitações da academia autenticada/resolvida.
 
 **Query params:** mesmos de `GET /solicitacoes-matricula`, exceto que `codigo_academia` é derivado da sessão/escopo e não deve ser usado para escapar da academia.
 
+**Exemplo de request:**
+
+```http
+GET /academia/solicitacoes-matricula?status=pendente&limit=50&offset=0 HTTP/1.1
+Authorization: Bearer <token>
+```
+
 **Response 200:** mesmo envelope de listagem de `9.2`.
 
 **Regras de negócio:** a listagem é sempre restrita à academia corrente. Documentos recebem URLs de download no escopo de solicitação de matrícula.
@@ -3479,7 +3542,16 @@ Consulta uma solicitação específica da academia.
 
 **Path params:**
 
-- `codigo` — código único da solicitação.
+| Parâmetro | Tipo | Obrigatório | Observações |
+| --- | --- | --- | --- |
+| `codigo` | string | sim | Código único da solicitação. |
+
+**Exemplo de request:**
+
+```http
+GET /academia/solicitacao-matricula/AB12CD34EF5 HTTP/1.1
+Authorization: Bearer <token>
+```
 
 **Response 200:**
 
@@ -3497,7 +3569,14 @@ Aprova a solicitação e cria o estudante vinculado à academia.
 
 **Proteção:** academia ativa.
 
-**Request body:** não requer campos; o backend usa os dados já guardados na solicitação.
+**Request body:** vazio; não envie campos. O backend usa os dados já guardados na solicitação.
+
+**Exemplo de request:**
+
+```http
+PUT /academia/solicitacao-matricula/AB12CD34EF5/aprovar HTTP/1.1
+Authorization: Bearer <token>
+```
 
 **Regras de negócio:**
 
@@ -3528,7 +3607,23 @@ Reprova uma solicitação pendente com motivo obrigatório.
 
 **Request body:**
 
+| Campo | Tipo | Obrigatório | Observações |
+| --- | --- | --- | --- |
+| `motivo_reprovacao` | string | sim | Motivo legível para auditoria; não pode ser vazio após trim. |
+
 ```json
+{
+  "motivo_reprovacao": "documentação ilegível"
+}
+```
+
+**Exemplo de request:**
+
+```http
+PUT /academia/solicitacao-matricula/AB12CD34EF5/reprovar HTTP/1.1
+Authorization: Bearer <token>
+Content-Type: application/json
+
 {
   "motivo_reprovacao": "documentação ilegível"
 }
@@ -3555,7 +3650,19 @@ Faz download administrativo de um documento anexado a uma solicitação de matr�
 
 **Proteção:** usuário autenticado.
 
-**Path params:** `codigo` da solicitação e `campo` do documento normalizado.
+**Path params:**
+
+| Parâmetro | Tipo | Obrigatório | Observações |
+| --- | --- | --- | --- |
+| `codigo` | string | sim | Código único da solicitação. |
+| `campo` | string | sim | Chave normalizada do documento, como `bi_estudante`, `bi_encarregado` ou `medio.1_ano_medio.declaracao`. |
+
+**Exemplo de request:**
+
+```http
+GET /documentos/solicitacoes-matricula/AB12CD34EF5/bi_estudante/download HTTP/1.1
+Authorization: Bearer <token>
+```
 
 **Regras de negócio:** o backend resolve o documento pela projeção da solicitação e serve o arquivo pelo storage; links diretos externos não são fonte de verdade para o cliente.
 
@@ -3566,6 +3673,15 @@ Faz download administrativo de um documento anexado a uma solicitação de matr�
 Faz download de documento de solicitação no escopo da academia.
 
 **Proteção:** academia ativa ou admin no grupo de leitura de academia.
+
+**Path params:** mesmos de `9.7`.
+
+**Exemplo de request:**
+
+```http
+GET /academia/documentos/solicitacoes-matricula/AB12CD34EF5/bi_estudante/download HTTP/1.1
+Authorization: Bearer <token>
+```
 
 **Regras de negócio:** além das validações de `9.7`, a solicitação deve pertencer à academia resolvida; caso contrário retorna `403`.
 
@@ -3585,7 +3701,15 @@ Lista cursos de uma academia.
 
 **Query params:**
 
-- `codigo_academia` — obrigatório para chamadas públicas e admins; ignorado para academia autenticada, que sempre usa a própria academia.
+| Parâmetro | Tipo | Obrigatório | Observações |
+| --- | --- | --- | --- |
+| `codigo_academia` | string | sim para público/admin; não para academia autenticada | Ignorado para academia autenticada, que sempre usa a própria academia. |
+
+**Exemplo de request:**
+
+```http
+GET /academia/cursos?codigo_academia=ACAD001 HTTP/1.1
+```
 
 **Response 200:**
 
@@ -3604,7 +3728,17 @@ Consulta um curso pelo UUID.
 
 **Proteção:** pública com autenticação opcional.
 
-**Path params:** `id` — UUID do curso.
+**Path params:**
+
+| Parâmetro | Tipo | Obrigatório | Observações |
+| --- | --- | --- | --- |
+| `id` | UUID | sim | Identificador do curso. |
+
+**Exemplo de request:**
+
+```http
+GET /academia/curso/7f2f4d0e-6e2a-4c39-b7dd-12b63d9d5d55 HTTP/1.1
+```
 
 **Response 200:** `CursoDTO`.
 
@@ -3615,6 +3749,14 @@ Consulta um curso pelo UUID.
 Cria um curso da academia autenticada.
 
 **Proteção:** academia ativa.
+
+**Request body:**
+
+| Campo | Tipo | Obrigatório | Observações |
+| --- | --- | --- | --- |
+| `nome` | string | sim | Nome cadastral do curso. |
+| `modelo` | enum | sim apenas para escola `medio` | Aceita `liceu` ou `tecnico`; proibido em academia `superior`. |
+| `quantidade_semestres` | inteiro | sim apenas para academia `superior` | Define os períodos/semestres derivados; proibido em curso `medio`. |
 
 **Request body — curso médio:**
 
@@ -3628,6 +3770,19 @@ Cria um curso da academia autenticada.
 **Request body — curso superior:**
 
 ```json
+{
+  "nome": "Engenharia Informática",
+  "quantidade_semestres": 8
+}
+```
+
+**Exemplo de request — curso superior:**
+
+```http
+POST /academia/curso HTTP/1.1
+Authorization: Bearer <token>
+Content-Type: application/json
+
 {
   "nome": "Engenharia Informática",
   "quantidade_semestres": 8
@@ -3664,7 +3819,14 @@ Ativa curso inativo da própria academia.
 
 **Proteção:** academia ativa.
 
-**Request body:** vazio.
+**Request body:** vazio; não envie campos.
+
+**Exemplo de request:**
+
+```http
+PUT /academia/curso/7f2f4d0e-6e2a-4c39-b7dd-12b63d9d5d55/ativar HTTP/1.1
+Authorization: Bearer <token>
+```
 
 **Regras de negócio:** o `id` deve ser UUID válido, o curso deve existir e pertencer à academia autenticada. A transição é delegada ao aggregate `Curso`, que rejeita estados incompatíveis e grava `CursoAtivado`.
 
@@ -3683,7 +3845,14 @@ Desativa curso da própria academia.
 
 **Proteção:** academia ativa.
 
-**Request body:** vazio.
+**Request body:** vazio; não envie campos.
+
+**Exemplo de request:**
+
+```http
+PUT /academia/curso/7f2f4d0e-6e2a-4c39-b7dd-12b63d9d5d55/desativar HTTP/1.1
+Authorization: Bearer <token>
+```
 
 **Regras de negócio:** o curso deve existir, pertencer à academia e estar em estado compatível. A transição grava `CursoDesativado`; validações adicionais do aggregate impedem operações inválidas.
 
@@ -3704,7 +3873,23 @@ Atualiza dados cadastrais editáveis de um curso.
 
 **Request body:**
 
+| Campo | Tipo | Obrigatório | Observações |
+| --- | --- | --- | --- |
+| `nome` | string | sim | Novo nome cadastral do curso. |
+
 ```json
+{
+  "nome": "Engenharia Informática e Computadores"
+}
+```
+
+**Exemplo de request:**
+
+```http
+PUT /academia/curso/7f2f4d0e-6e2a-4c39-b7dd-12b63d9d5d55/dados HTTP/1.1
+Authorization: Bearer <token>
+Content-Type: application/json
+
 {
   "nome": "Engenharia Informática e Computadores"
 }
@@ -3738,7 +3923,23 @@ Remove logicamente um curso.
 
 **Request body:**
 
+| Campo | Tipo | Obrigatório | Observações |
+| --- | --- | --- | --- |
+| `motivo` | string | não | Justificativa de auditoria para a deleção lógica. |
+
 ```json
+{
+  "motivo": "curso substituído por nova matriz curricular"
+}
+```
+
+**Exemplo de request:**
+
+```http
+DELETE /academia/curso/7f2f4d0e-6e2a-4c39-b7dd-12b63d9d5d55 HTTP/1.1
+Authorization: Bearer <token>
+Content-Type: application/json
+
 {
   "motivo": "curso substituído por nova matriz curricular"
 }
@@ -3772,7 +3973,20 @@ Cria cursos em lote por job assíncrono.
 
 **Proteção:** academia ativa.
 
-**Request body:** array JSON com até `200` itens, cada item com o mesmo payload aceito por `POST /academia/curso`.
+**Request body:** array JSON não vazio com até `200` itens, cada item com o mesmo payload aceito por `POST /academia/curso`.
+
+```json
+[
+  {
+    "nome": "Engenharia Informática",
+    "quantidade_semestres": 8
+  },
+  {
+    "nome": "Gestão",
+    "quantidade_semestres": 6
+  }
+]
+```
 
 **Response 202:**
 
@@ -3795,7 +4009,14 @@ Ativa cursos em lote.
 
 **Proteção:** academia ativa.
 
-**Request body:** array JSON com até `500` itens; cada item deve identificar o curso por `id`.
+**Request body:** array JSON não vazio com até `500` itens; cada item deve identificar o curso por `id`.
+
+```json
+[
+  { "id": "7f2f4d0e-6e2a-4c39-b7dd-12b63d9d5d55" },
+  { "id": "219d26c0-14b2-46a0-8f4f-ea4e07da2e36" }
+]
+```
 
 **Response 202:** envelope assíncrono de `10.8`.
 
@@ -3807,7 +4028,14 @@ Desativa cursos em lote.
 
 **Proteção:** academia ativa.
 
-**Request body:** array JSON com até `500` itens; cada item deve identificar o curso por `id`.
+**Request body:** array JSON não vazio com até `500` itens; cada item deve identificar o curso por `id`.
+
+```json
+[
+  { "id": "7f2f4d0e-6e2a-4c39-b7dd-12b63d9d5d55" },
+  { "id": "219d26c0-14b2-46a0-8f4f-ea4e07da2e36" }
+]
+```
 
 **Response 202:** envelope assíncrono de `10.8`.
 
@@ -3819,7 +4047,16 @@ Atualiza dados cadastrais de cursos em lote.
 
 **Proteção:** academia ativa.
 
-**Request body:** array JSON com até `500` itens; cada item deve identificar o curso e os campos de dados aceitos pela rota unitária.
+**Request body:** array JSON não vazio com até `500` itens; cada item deve identificar o curso e os campos de dados aceitos pela rota unitária.
+
+```json
+[
+  {
+    "id": "7f2f4d0e-6e2a-4c39-b7dd-12b63d9d5d55",
+    "nome": "Engenharia Informática e Computadores"
+  }
+]
+```
 
 **Response 202:** envelope assíncrono de `10.8`.
 
@@ -3831,7 +4068,16 @@ Remove cursos em lote por job assíncrono.
 
 **Proteção:** academia ativa.
 
-**Request body:** array JSON com até `500` itens; cada item deve identificar o curso por `id` e pode informar `motivo`.
+**Request body:** array JSON não vazio com até `500` itens; cada item deve identificar o curso por `id` e pode informar `motivo`.
+
+```json
+[
+  {
+    "id": "7f2f4d0e-6e2a-4c39-b7dd-12b63d9d5d55",
+    "motivo": "curso substituído por nova matriz curricular"
+  }
+]
+```
 
 **Response 202:** envelope assíncrono de `10.8`.
 
