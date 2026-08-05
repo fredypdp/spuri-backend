@@ -43,6 +43,57 @@ func TestDerivarCursoSuperior(t *testing.T) {
 	}
 }
 
+func TestResolverTipoCurso(t *testing.T) {
+	medio := "medio"
+	misto := "misto"
+	fundamental := "fundamental"
+
+	casos := []struct {
+		nome          string
+		nivelAcademia string
+		nivelEscolar  *string
+		tipoEsperado  string
+		deveFalhar    bool
+	}{
+		{
+			nome:          "escola de nivel medio",
+			nivelAcademia: "escola",
+			nivelEscolar:  &medio,
+			tipoEsperado:  "medio",
+		},
+		{
+			nome:          "escola de nivel misto",
+			nivelAcademia: "escola",
+			nivelEscolar:  &misto,
+			tipoEsperado:  "medio",
+		},
+		{
+			nome:          "escola de nivel fundamental",
+			nivelAcademia: "escola",
+			nivelEscolar:  &fundamental,
+			deveFalhar:    true,
+		},
+	}
+
+	for _, tt := range casos {
+		t.Run(tt.nome, func(t *testing.T) {
+			tipo, err := resolverTipoCurso(tt.nivelAcademia, tt.nivelEscolar)
+			if tt.deveFalhar {
+				if err == nil {
+					t.Fatal("esperava erro")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolverTipoCurso retornou erro: %v", err)
+			}
+			if tipo != tt.tipoEsperado {
+				t.Fatalf("tipo = %q, want %q", tipo, tt.tipoEsperado)
+			}
+		})
+	}
+}
+
 func TestPrepararDadosCursoSuperiorRejeitaAnosAcademicos(t *testing.T) {
 	_, _, err := prepararDadosCursoPorTipo("superior", cursoPayload{
 		AnosInformado:      true,

@@ -566,7 +566,7 @@ interface AsyncBatchAcceptedResponse {
 
 As rotas `GET /academias` e `GET /consultar-academia/:codigo` são públicas com autenticação opcional. Usuários não autenticados podem consultar a lista de academias ou uma academia específica pelo código, mas a resposta expõe somente os campos públicos: `nivel`, `type`, `nome`, `codigo_academia`, `provincia`, `endereco`, `nivel_escolar` e `anos_academicos`. Para escolas fundamentais ou mistas, `anos_academicos` informa os anos acadêmicos ofertados sem exigir sessão. Usuários autenticados recebem também `documentos.alvara.download_url` apontando para `/documentos/academias/{codigo_academia}/alvara/download`, permitindo download do alvará pelo backend sem expor links diretos do storage.
 
-As rotas `GET /academia/cursos?codigo_academia=...` e `GET /academia/curso/:id` também são públicas com autenticação opcional para consulta dos cursos e dos anos desses cursos em escolas do médio e academias do nível superior. Academias autenticadas continuam consultando os próprios cursos sem informar `codigo_academia`; admins autenticados continuam informando `codigo_academia` na listagem.
+As rotas `GET /academia/cursos?codigo_academia=...` e `GET /academia/curso/:id` também são públicas com autenticação opcional para consulta dos cursos e dos anos desses cursos em escolas de nível `medio` ou `misto` e academias do nível superior. Academias autenticadas continuam consultando os próprios cursos sem informar `codigo_academia`; admins autenticados continuam informando `codigo_academia` na listagem.
 
 Quando a requisição envia `Authorization: Bearer <jwt_token>` válido, a API preserva o contrato autenticado anterior, retornando também campos operacionais para usuários autenticados e campos administrativos adicionais para admins. Tokens enviados em formato inválido, expirados ou pertencentes a contas inativas devem ser rejeitados com `401`.
 
@@ -3691,7 +3691,7 @@ Authorization: Bearer <token>
 
 ## 10. Cursos
 
-Cursos são cadastros próprios da academia e são a fonte de verdade para vínculo de estudantes, matérias, turmas e regras acadêmicas. Cursos médios existem apenas para escolas de nível `medio`; cursos superiores existem apenas para academias de nível `superior`. IDs são UUIDs e o tipo do curso é imutável.
+Cursos são cadastros próprios da academia e são a fonte de verdade para vínculo de estudantes, matérias, turmas e regras acadêmicas. Cursos médios existem para escolas de nível `medio` ou `misto`; em escolas mistas, eles representam o domínio do ensino médio, enquanto os anos do fundamental permanecem configurados na própria academia. Cursos superiores existem apenas para academias de nível `superior`. IDs são UUIDs e o tipo do curso é imutável.
 
 ### 10.1 `GET /academia/cursos`
 
@@ -3755,7 +3755,7 @@ Cria um curso da academia autenticada.
 | Campo | Tipo | Obrigatório | Observações |
 | --- | --- | --- | --- |
 | `nome` | string | sim | Nome cadastral do curso. |
-| `modelo` | enum | sim apenas para escola `medio` | Aceita `liceu` ou `tecnico`; proibido em academia `superior`. |
+| `modelo` | enum | sim apenas para escola `medio` ou `misto` | Aceita `liceu` ou `tecnico`; proibido em academia `superior`. |
 | `quantidade_semestres` | inteiro | sim apenas para academia `superior` | Define os períodos/semestres derivados; proibido em curso `medio`. |
 
 **Request body — curso médio:**
@@ -3792,7 +3792,7 @@ Content-Type: application/json
 **Regras de negócio:**
 
 - `nome` é obrigatório.
-- O tipo é inferido da academia: escola `medio` cria curso `medio`; academia `superior` cria curso `superior`; outros níveis não criam cursos.
+- O tipo é inferido da academia: escola `medio` ou `misto` cria curso `medio`; academia `superior` cria curso `superior`; outros níveis não criam cursos. Em uma escola `misto`, o curso médio não substitui os anos acadêmicos fundamentais configurados na academia.
 - Curso médio exige `modelo` (`liceu` ou `tecnico`), rejeita `anos_academicos` e deriva anos fixos do modelo.
 - Curso superior exige quantidade/períodos válidos, rejeita `modelo` e deriva `anos_academicos` a partir dos semestres/períodos.
 - A academia deve estar `ativo`.

@@ -908,8 +908,8 @@ func resolverTipoCurso(nivelAcademia string, nivelEscolar *string) (string, erro
 		return "superior", nil
 	}
 	if nivelAcademia == "escola" {
-		if nivelEscolar == nil || *nivelEscolar != "medio" {
-			return "", fmt.Errorf("apenas academias escolares de nível médio podem criar cursos")
+		if nivelEscolar == nil || (*nivelEscolar != "medio" && *nivelEscolar != "misto") {
+			return "", fmt.Errorf("apenas academias escolares de nível médio ou misto podem criar cursos")
 		}
 		return "medio", nil
 	}
