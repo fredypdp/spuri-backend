@@ -77,3 +77,17 @@ type ioNopCloser struct {
 }
 
 func (ioNopCloser) Close() error { return nil }
+
+func TestValidarAnosAcademicosMateriaMedioPermiteMultiplosAnos(t *testing.T) {
+	err := validarAnosAcademicosMateria("medio", []string{"1_ano_medio", "2_ano_medio", "3_ano_medio"})
+	if err != nil {
+		t.Fatalf("não esperava erro para matéria média multi-ano: %v", err)
+	}
+}
+
+func TestValidarAnosAcademicosMateriaMedioBloqueiaQuartoAno(t *testing.T) {
+	err := validarAnosAcademicosMateria("medio", []string{"3_ano_medio", "4_ano_medio"})
+	if err == nil {
+		t.Fatal("esperava erro para matéria média com 4_ano_medio")
+	}
+}
