@@ -2,6 +2,7 @@
 título: Correção — status acadêmico incorreto no cadastro de estudante
 tarefa: 18
 criticidade: crítica
+status: feito
 autor: Claude (orquestrador)
 executor: OpenAI Codex (free tier)
 ---

@@ -349,6 +349,23 @@ func ValidarBilhetesMatricula(bilhete, bilheteResp *string) error {
 	return nil
 }
 
+// deriveStatusPorAnoAcademico determina o status_escolar_fundamental,
+// status_escolar_medio e status_superior a partir de qual ano acadêmico foi
+// informado no cadastro. Exatamente um nível fica "em_andamento"; os níveis
+// anteriores ficam "finalizado" e os posteriores ficam "inativo".
+func deriveStatusPorAnoAcademico(anoEscolar, anoEscolarMedio, anoSuperior *string) (fund, medio, sup string) {
+	switch {
+	case anoSuperior != nil && strings.TrimSpace(*anoSuperior) != "":
+		return "finalizado", "finalizado", "em_andamento"
+	case anoEscolarMedio != nil && strings.TrimSpace(*anoEscolarMedio) != "":
+		return "finalizado", "em_andamento", "inativo"
+	case anoEscolar != nil && strings.TrimSpace(*anoEscolar) != "":
+		return "em_andamento", "inativo", "inativo"
+	default:
+		return "inativo", "inativo", "inativo"
+	}
+}
+
 func validarDataNascimento(data time.Time) error {
 	hoje := time.Now().UTC().Truncate(24 * time.Hour)
 	dataNasc := data.UTC().Truncate(24 * time.Hour)
@@ -454,6 +471,20 @@ func (e *Estudante) criarComVinculoComStatus(
 		return err
 	}
 
+	niveisInformados := 0
+	if !isNilOrBlank(anoEscolar) {
+		niveisInformados++
+	}
+	if !isNilOrBlank(anoEscolarMedio) {
+		niveisInformados++
+	}
+	if !isNilOrBlank(anoSuperior) {
+		niveisInformados++
+	}
+	if niveisInformados > 1 {
+		return fmt.Errorf("apenas um nível acadêmico pode ser informado no cadastro: ano_escolar_fundamental, ano_escolar_medio ou ano_superior")
+	}
+
 	if anoEscolar != nil && *anoEscolar != "" {
 		if err := utils.ValidateAnoFundamental(*anoEscolar); err != nil {
 			return fmt.Errorf("ano_escolar_fundamental inválido: %w", err)
@@ -480,9 +511,7 @@ func (e *Estudante) criarComVinculoComStatus(
 		}
 	}
 
-	statusFund := "em_andamento"
-	statusMed := "inativo"
-	statusSup := "inativo"
+	statusFund, statusMed, statusSup := deriveStatusPorAnoAcademico(anoEscolar, anoEscolarMedio, anoSuperior)
 
 	event := &EstudanteCriadoComVinculoEvent{
 		BaseEvent:                BaseEvent{EventType: "EstudanteCriadoComVinculo", AggregateID: e.ID},
