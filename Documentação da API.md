@@ -386,15 +386,14 @@ interface CategoriaNotaDTO {
   codigo: string
   nome: string
   descricao?: string
-  anos_academicos?: string[]
-  status: 'ativo' | 'inativo'
+  anos_academicos: string[]
+  adicionado_por?: string  // UUID
   created_at: string
-  updated_at: string
   version: number
 }
 ```
 
-Usado em: `GET /academia/categorias-nota`.
+Usado em: `GET /academia/categorias-nota`. O `status` é interno da projeção e não é exposto no DTO público; a rota lista apenas categorias ativas.
 
 ---
 
@@ -494,22 +493,6 @@ interface AvaliacaoFinalDTO {
 ```
 
 ---
-
-### 2.14 Categoria de Nota
-
-```typescript
-interface CategoriaNotaDTO {
-  id: string
-  codigo_academia: string
-  codigo: string
-  nome: string
-  descricao?: string
-  anos_academicos: string[]
-  adicionado_por?: string  // UUID
-  created_at: string
-  version: number
-}
-```
 
 ---
 
@@ -1678,25 +1661,40 @@ Retorna detalhes de uma academia pelo código.
 **Nota**: usuários autenticados veem também `documentos.alvara.download_url`; admins veem também `email` e `motivo_desativacao`.
 
 
-### GET /academia/categorias-nota
+### 6.3 Categorias de Nota
 
-Lista as categorias de nota configuráveis de uma academia do ensino superior. A rota é válida apenas para academias com `nivel="superior"`; escolas usam o modelo avaliativo fixo do sistema e recebem erro de validação nesta rota.
+As rotas desta secção gerem as categorias de nota configuráveis usadas por academias do ensino superior para lançar notas, compor fórmulas de avaliação final e validar `nota_despertadora` em regras raízes. Escolas (`nivel="escola"`) não usam estas rotas para configurar categorias: elas seguem o modelo avaliativo fixo do sistema, por ano acadêmico.
 
-**Proteção**: autenticado.
+**Escopo funcional da secção:**
+
+- Categoria de nota configurável pertence sempre a uma única academia superior.
+- O identificador público da categoria é `codigo`; ele é o valor usado no campo `categoria` de notas e nas fórmulas/regras de avaliação final.
+- Categorias removidas deixam de aparecer nas consultas e deixam de poder ser usadas em novos lançamentos/configurações.
+- Cada rota abaixo possui escopo próprio de request, response, autorização, regras de negócio e erros.
+
+---
+
+#### GET /academia/categorias-nota
+
+Lista as categorias de nota configuráveis de uma academia do ensino superior.
+
+**Proteção:** autenticado.
+
+**Escopo da rota:** leitura das categorias ativas de uma academia superior. Não cria, altera ou remove categorias.
 
 **Autorização por tipo de usuário:**
 
-- Academia autenticada: consulta automaticamente as categorias da própria academia, desde que seja do ensino superior e esteja ativa.
-- Estudante autenticado: consulta as categorias da academia à qual pertence ou já pertenceu. Para consultar uma academia diferente da atual, deve informar `codigo_academia`; o backend autoriza a consulta se existir vínculo atual na projeção ou vínculo histórico no ledger de eventos do estudante.
-- Admin autenticado: deve informar `codigo_academia` na query string para escolher a academia consultada.
+- **Academia autenticada:** consulta automaticamente as categorias da própria academia, desde que seja do ensino superior e esteja ativa.
+- **Estudante autenticado:** consulta as categorias da academia à qual pertence ou já pertenceu. Para consultar uma academia diferente da atual, deve informar `codigo_academia`; o backend autoriza a consulta se existir vínculo atual na projeção ou vínculo histórico no ledger de eventos do estudante.
+- **Admin autenticado:** deve informar `codigo_academia` na query string para escolher a academia consultada.
 
 **Request:** sem payload.
 
 **Query params:**
 
-| Campo | Obrigatório | Quando usar | Descrição |
+| Campo | Obrigatório | Exemplo | Descrição |
 | --- | --- | --- | --- |
-| `codigo_academia` | Sim para admin; opcional para estudante; não usado para academia | `GET /academia/categorias-nota?codigo_academia=ACA-001` | Código público da academia superior que será consultada. Para estudante, omitir usa a academia atual; informar permite consultar uma academia à qual já esteve vinculado. |
+| `codigo_academia` | Sim para admin; opcional para estudante; não usado para academia | `GET /academia/categorias-nota?codigo_academia=ACA-001` | Código público da academia superior consultada. Para estudante, omitir usa a academia atual; informar permite consultar uma academia à qual já esteve vinculado. |
 
 **Response 200:**
 
@@ -1710,9 +1708,8 @@ Lista as categorias de nota configuráveis de uma academia do ensino superior. A
       "nome": "Prova Parcelar 1",
       "descricao": "Primeira prova parcelar",
       "anos_academicos": ["1_ano_superior", "2_ano_superior"],
-      "status": "ativo",
+      "adicionado_por": "uuid",
       "created_at": "2026-07-21T00:00:00Z",
-      "updated_at": "2026-07-21T00:00:00Z",
       "version": 1
     }
   ],
@@ -1720,13 +1717,212 @@ Lista as categorias de nota configuráveis de uma academia do ensino superior. A
 }
 ```
 
+**Regras de negócio:**
+
+- Retorna apenas categorias ativas da academia superior resolvida.
+- A resposta não expõe `status`; a filtragem por ativo/inativo é interna da projeção.
+- Para estudante, a consulta pode usar vínculo atual ou vínculo histórico auditado no ledger.
+- Escolas não consultam categorias configuráveis por esta rota.
+
 **Erros comuns:**
 
 - `400` se a academia resolvida não for do ensino superior.
-- `403` se o estudante informar uma academia à qual nunca esteve vinculado.
-- `404` se a academia não existir.
+- `400` se o admin não informar `codigo_academia`.
 - `400` se o estudante omitir `codigo_academia` e não tiver academia atual associada.
+- `403` se o estudante informar uma academia à qual nunca esteve vinculado.
 - `403` se a academia autenticada estiver inativa.
+- `404` se a academia ou estudante necessários para resolver o escopo não existirem.
+
+---
+
+#### POST /academia/categorias-nota
+
+Cria uma categoria de nota configurável para a academia superior autenticada.
+
+**Proteção:** autenticado + academia ativa.
+
+**Escopo da rota:** escrita síncrona de uma categoria de nota em uma academia superior. A rota é exclusiva para o usuário da própria academia; admin e estudante não criam categorias por este endpoint.
+
+**Request body:**
+
+```json
+{
+  "codigo": "prova_parcelar_1",
+  "nome": "Prova Parcelar 1",
+  "descricao": "Primeira prova parcelar do semestre",
+  "anos_academicos": ["1_ano_superior", "2_ano_superior"]
+}
+```
+
+**Campos do request:**
+
+| Campo | Obrigatório | Tipo | Descrição |
+| --- | --- | --- | --- |
+| `codigo` | Sim | string | Código público da categoria. É normalizado para minúsculas; espaços viram `_`; são aceitos apenas letras minúsculas, números, espaços e `_`. |
+| `nome` | Sim | string | Nome/rótulo exibível da categoria. Não pode ser vazio após trim. |
+| `descricao` | Não | string | Descrição operacional da categoria. |
+| `anos_academicos` | Sim | string[] | Lista de anos acadêmicos nos quais a categoria pode ser usada. Não pode ser vazia nem conter valores vazios. |
+
+**Response 201:**
+
+```json
+{
+  "message": "categoria criada com sucesso",
+  "categoria": "prova_parcelar_1"
+}
+```
+
+**Regras de negócio:**
+
+- Apenas academias com `nivel="superior"` podem criar categorias configuráveis.
+- Escolas usam categorias fixas do modelo avaliativo do sistema e recebem erro de validação nesta rota.
+- O `codigo` deve ser único entre as categorias ativas da academia; duplicidade é verificada no estado do aggregate e na projeção.
+- `anos_academicos` é obrigatório para limitar onde a categoria pode ser usada em lançamentos de nota e regras de avaliação final.
+- A criação emite evento `CategoriaNotaAdicionada` e a projeção `categorias_nota` passa a disponibilizar a categoria após processamento do evento.
+- O usuário autenticado da academia é registrado como `adicionado_por` para auditoria.
+
+**Erros comuns:**
+
+- `400` se faltar `codigo`, `nome` ou `anos_academicos`.
+- `400` se `codigo` tiver caracteres inválidos ou resultar vazio após normalização.
+- `400` se `nome` estiver vazio após trim.
+- `400` se `anos_academicos` estiver vazio ou contiver valores vazios.
+- `400` se a categoria já existir nesta academia.
+- `400` se a academia autenticada não for do ensino superior.
+- `403` se a academia autenticada estiver inativa.
+- `404` se a academia autenticada não existir na projeção.
+
+---
+
+#### DELETE /academia/categorias-nota/:codigo
+
+Remove uma categoria de nota configurável da academia superior autenticada.
+
+**Proteção:** autenticado + academia ativa.
+
+**Escopo da rota:** remoção/inativação síncrona de uma categoria de nota da própria academia superior autenticada. A rota não remove categorias escolares fixas e não permite apagar categorias de outra academia.
+
+**Path params:**
+
+| Campo | Obrigatório | Exemplo | Descrição |
+| --- | --- | --- | --- |
+| `codigo` | Sim | `DELETE /academia/categorias-nota/prova_parcelar_1` | Código da categoria a remover. O backend aplica a mesma normalização do cadastro. |
+
+**Request:** sem payload.
+
+**Response 200:**
+
+```json
+{
+  "message": "categoria removida com sucesso",
+  "categoria": "prova_parcelar_1"
+}
+```
+
+**Regras de negócio:**
+
+- Apenas academias com `nivel="superior"` podem remover categorias configuráveis.
+- Escolas não removem categorias por esta rota porque suas categorias são fixas do sistema.
+- A categoria deve existir como ativa no estado do aggregate ou na projeção da academia.
+- A remoção emite evento `CategoriaNotaRemovida`; a projeção deixa de listar a categoria em consultas ativas.
+- O código removido deixa de estar disponível para novos lançamentos de nota e novas regras que validem categorias ativas.
+
+**Erros comuns:**
+
+- `400` se `codigo` estiver vazio ou inválido.
+- `400` se a categoria não existir nesta academia.
+- `400` se a academia autenticada não for do ensino superior.
+- `403` se a academia autenticada estiver inativa.
+- `404` se a academia autenticada não existir na projeção.
+
+---
+
+#### POST /academia/categorias-nota/async
+
+Cria categorias de nota em lote por job assíncrono, usando o mesmo contrato de cada item de `POST /academia/categorias-nota`.
+
+**Proteção:** autenticado + academia ativa.
+
+**Escopo da rota:** enqueue de múltiplas criações de categoria para processamento em background. Cada item é validado com as mesmas regras da criação síncrona.
+
+**Request body:** array obrigatório com 1 a 500 itens.
+
+```json
+[
+  {
+    "codigo": "prova_parcelar_1",
+    "nome": "Prova Parcelar 1",
+    "descricao": "Primeira prova parcelar do semestre",
+    "anos_academicos": ["1_ano_superior"]
+  }
+]
+```
+
+**Response 202:**
+
+```json
+{
+  "message": "job criado com sucesso — use GET /jobs/:id ou GET /jobs/stream para acompanhar o progresso",
+  "job_id": "uuid",
+  "total_items": 1,
+  "status": "pending",
+  "poll_url": "/jobs/uuid",
+  "sse_url": "/jobs/stream"
+}
+```
+
+**Regras de negócio:**
+
+- O payload deve ser um array bruto; não use dupla serialização.
+- Cada item segue exatamente os campos e validações de `POST /academia/categorias-nota`.
+- O processamento individual reaproveita o handler síncrono; erros de um item ficam registrados no resultado do job.
+- O limite máximo é 500 itens por requisição.
+
+---
+
+#### DELETE /academia/categorias-nota/async
+
+Remove categorias de nota em lote por job assíncrono.
+
+**Proteção:** autenticado + academia ativa.
+
+**Escopo da rota:** enqueue de múltiplas remoções de categoria para processamento em background. Cada item é validado com as mesmas regras da remoção síncrona.
+
+**Request body:** array obrigatório com 1 a 500 itens.
+
+```json
+[
+  { "codigo": "prova_parcelar_1" }
+]
+```
+
+**Campos por item:**
+
+| Campo | Obrigatório | Descrição |
+| --- | --- | --- |
+| `codigo` | Sim | Código da categoria a remover. |
+| `nome` | Não | Compatibilidade: se `codigo` vier vazio, o worker usa `nome` como fallback para o código. |
+
+**Response 202:**
+
+```json
+{
+  "message": "job criado com sucesso — use GET /jobs/:id ou GET /jobs/stream para acompanhar o progresso",
+  "job_id": "uuid",
+  "total_items": 1,
+  "status": "pending",
+  "poll_url": "/jobs/uuid",
+  "sse_url": "/jobs/stream"
+}
+```
+
+**Regras de negócio:**
+
+- O payload deve ser um array bruto; não use dupla serialização.
+- Cada item resolve `codigo` e chama a mesma regra de `DELETE /academia/categorias-nota/:codigo`.
+- O processamento individual reaproveita o handler síncrono; erros de um item ficam registrados no resultado do job.
+- O limite máximo é 500 itens por requisição.
+
 
 ### GET /academia/anos-academicos
 
