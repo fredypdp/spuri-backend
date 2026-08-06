@@ -130,10 +130,24 @@ type SolicitacaoMatriculaStatus = 'pendente' | 'aprovada' | 'reprovada' | 'cance
 **Categorias de nota:**
 
 - Escolas (`nivel="escola"`) usam categorias fixas do sistema por ano acadêmico; podem consultá-las por `GET /academia/categorias-nota`, mas não podem criar/remover categorias.
-- Categorias escolares regulares: `nota_professor` e `prova_trimestral`.
-- Anos com exame (`6_ano_fundamental`, `9_ano_fundamental`, `3_ano_medio`) também aceitam `exame_final` e `exame_recurso`.
-- O `4_ano_medio` de curso médio `tecnico` usa apenas `nota_pap` (`Prova de Aptidão Profissional`).
 - Academias superiores (`nivel="superior"`) continuam usando categorias configuráveis; toda categoria usada para lançar nota, montar fórmula ou validar regra superior deve ser cadastrada explicitamente pela academia.
+
+```typescript
+type CategoriaNotaEscolarFixaCodigo =
+  | 'nota_professor'
+  | 'prova_trimestral'
+  | 'exame_final'
+  | 'exame_recurso'
+  | 'nota_pap'
+```
+
+| Código fixo | Rótulo | Aplicação escolar |
+| --- | --- | --- |
+| `nota_professor` | Nota do professor/Avaliação contínua | Anos regulares do fundamental e médio; também aparece nos anos com exame. |
+| `prova_trimestral` | Prova trimestral | Anos regulares do fundamental e médio; também aparece nos anos com exame. |
+| `exame_final` | Exame final | Apenas `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio`. |
+| `exame_recurso` | Exame de recurso | Apenas `6_ano_fundamental`, `9_ano_fundamental` e `3_ano_medio`. |
+| `nota_pap` | Prova de Aptidão Profissional | Apenas `4_ano_medio` de curso médio com `modelo="tecnico"`. |
 
 **Formato do ano letivo:** `YYYY_YYYY` (ex: `2025_2026`)
 
