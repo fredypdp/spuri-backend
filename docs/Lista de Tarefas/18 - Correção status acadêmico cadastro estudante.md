@@ -6,7 +6,9 @@ autor: Claude (orquestrador)
 executor: OpenAI Codex (free tier)
 ---
 
-# Recomendação de prompt para o Codex
+# Correção — status acadêmico incorreto no cadastro de estudante
+
+## Recomendação de prompt para o Codex
 
 > Leia este documento por completo antes de alterar qualquer arquivo. Siga a
 > ordem das seções. Depois de cada alteração, rode `go build ./...` e
