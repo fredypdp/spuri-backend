@@ -129,7 +129,7 @@ type SolicitacaoMatriculaStatus = 'pendente' | 'aprovada' | 'reprovada' | 'cance
 
 **Categorias de nota:**
 
-- Escolas (`nivel="escola"`) usam categorias fixas do sistema por ano acadêmico e não podem criar/remover nem consultar categorias configuráveis por `GET /academia/categorias-nota`.
+- Escolas (`nivel="escola"`) usam categorias fixas do sistema por ano acadêmico; podem consultá-las por `GET /academia/categorias-nota`, mas não podem criar/remover categorias.
 - Categorias escolares regulares: `nota_professor` e `prova_trimestral`.
 - Anos com exame (`6_ano_fundamental`, `9_ano_fundamental`, `3_ano_medio`) também aceitam `exame_final` e `exame_recurso`.
 - O `4_ano_medio` de curso médio `tecnico` usa apenas `nota_pap` (`Prova de Aptidão Profissional`).
@@ -1663,11 +1663,11 @@ Retorna detalhes de uma academia pelo código.
 
 ### 6.3 Categorias de Nota
 
-As rotas desta secção gerem as categorias de nota configuráveis usadas por academias do ensino superior para lançar notas, compor fórmulas de avaliação final e validar `nota_despertadora` em regras raízes. Escolas (`nivel="escola"`) não usam estas rotas para configurar categorias: elas seguem o modelo avaliativo fixo do sistema, por ano acadêmico.
+As rotas desta secção gerem as categorias de nota usadas no lançamento de notas. Academias superiores usam categorias configuráveis para lançar notas, compor fórmulas de avaliação final e validar `nota_despertadora` em regras raízes. Escolas (`nivel="escola"`) usam categorias fixas do sistema, por ano acadêmico, e podem consultá-las por `GET /academia/categorias-nota`, mas não podem configurá-las por endpoint.
 
 **Escopo funcional da secção:**
 
-- Categoria de nota configurável pertence sempre a uma única academia superior.
+- Categoria de nota configurável pertence sempre a uma única academia superior; categoria escolar fixa pertence ao modelo do sistema e é exposta no escopo da escola consultada.
 - O identificador público da categoria é `codigo`; ele é o valor usado no campo `categoria` de notas e nas fórmulas/regras de avaliação final.
 - Categorias removidas deixam de aparecer nas consultas e deixam de poder ser usadas em novos lançamentos/configurações.
 - Cada rota abaixo possui escopo próprio de request, response, autorização, regras de negócio e erros.
@@ -1676,15 +1676,15 @@ As rotas desta secção gerem as categorias de nota configuráveis usadas por ac
 
 #### GET /academia/categorias-nota
 
-Lista as categorias de nota configuráveis de uma academia do ensino superior.
+Lista as categorias de nota da academia resolvida: configuráveis no ensino superior e fixas do sistema em escolas.
 
 **Proteção:** autenticado.
 
-**Escopo da rota:** leitura das categorias ativas de uma academia superior. Não cria, altera ou remove categorias.
+**Escopo da rota:** leitura das categorias disponíveis para lançamento de notas na academia resolvida. Para `nivel="superior"`, lê categorias ativas configuradas pela academia. Para `nivel="escola"`, lê categorias fixas do sistema aplicáveis aos anos acadêmicos/cursos ativos da escola. Não cria, altera ou remove categorias.
 
 **Autorização por tipo de usuário:**
 
-- **Academia autenticada:** consulta automaticamente as categorias da própria academia, desde que seja do ensino superior e esteja ativa.
+- **Academia autenticada:** consulta automaticamente as categorias da própria academia, desde que esteja ativa. Se for escola, recebe categorias fixas; se for superior, recebe categorias configuráveis ativas.
 - **Estudante autenticado:** consulta as categorias da academia à qual pertence ou já pertenceu. Para consultar uma academia diferente da atual, deve informar `codigo_academia`; o backend autoriza a consulta se existir vínculo atual na projeção ou vínculo histórico no ledger de eventos do estudante.
 - **Admin autenticado:** deve informar `codigo_academia` na query string para escolher a academia consultada.
 
@@ -1694,7 +1694,7 @@ Lista as categorias de nota configuráveis de uma academia do ensino superior.
 
 | Campo | Obrigatório | Exemplo | Descrição |
 | --- | --- | --- | --- |
-| `codigo_academia` | Sim para admin; opcional para estudante; não usado para academia | `GET /academia/categorias-nota?codigo_academia=ACA-001` | Código público da academia superior consultada. Para estudante, omitir usa a academia atual; informar permite consultar uma academia à qual já esteve vinculado. |
+| `codigo_academia` | Sim para admin; opcional para estudante; não usado para academia | `GET /academia/categorias-nota?codigo_academia=ACA-001` | Código público da academia consultada. Para estudante, omitir usa a academia atual; informar permite consultar uma academia à qual já esteve vinculado. |
 
 **Response 200:**
 
@@ -1717,16 +1717,35 @@ Lista as categorias de nota configuráveis de uma academia do ensino superior.
 }
 ```
 
+Para escolas, a resposta usa o mesmo envelope e retorna categorias fixas com metadados de leitura:
+
+```json
+{
+  "categorias": [
+    {
+      "codigo_academia": "ESC-001",
+      "codigo": "nota_professor",
+      "nome": "Nota do professor/Avaliação contínua",
+      "anos_academicos": ["1_ano_fundamental"],
+      "source": "system",
+      "fixed": true,
+      "readonly": true,
+      "status": "ativo"
+    }
+  ],
+  "total": 1
+}
+```
+
 **Regras de negócio:**
 
-- Retorna apenas categorias ativas da academia superior resolvida.
-- A resposta não expõe `status`; a filtragem por ativo/inativo é interna da projeção.
+- Para academias superiores, retorna apenas categorias configuráveis ativas da academia resolvida.
+- Para escolas, retorna categorias fixas do sistema aplicáveis aos anos acadêmicos cadastrados na escola e aos cursos médios ativos quando houver diferenciação por modelo.
+- A resposta de categorias configuráveis não expõe `status`; a filtragem por ativo/inativo é interna da projeção.
 - Para estudante, a consulta pode usar vínculo atual ou vínculo histórico auditado no ledger.
-- Escolas não consultam categorias configuráveis por esta rota.
+- Escolas não criam, editam nem removem categorias por endpoint; a rota GET é somente leitura.
 
 **Erros comuns:**
-
-- `400` se a academia resolvida não for do ensino superior.
 - `400` se o admin não informar `codigo_academia`.
 - `400` se o estudante omitir `codigo_academia` e não tiver academia atual associada.
 - `403` se o estudante informar uma academia à qual nunca esteve vinculado.
