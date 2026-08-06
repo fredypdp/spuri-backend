@@ -416,6 +416,27 @@ func (e *Estudante) CriarComVinculoPendenteDocumentos(
 	return e.criarComVinculoComStatus(nome, codigoEstudante, senhaHash, email, telefone, telefoneEncarregado, bilhete, bilheteResp, genero, dataNascimento, anoEscolar, anoEscolarMedio, anoSuperior, cursoMedioID, cursoSuperiorID, academiaID, codigoAcademia, false, "pendente_documentos", documentosOpt...)
 }
 
+// deriveStatusPorAnoAcademico determina o status_escolar_fundamental,
+// status_escolar_medio e status_superior a partir de qual ano acadêmico foi
+// informado no cadastro. Exatamente um nível fica "em_andamento"; os níveis
+// anteriores ficam "finalizado" (o estudante já os concluiu para estar
+// matriculado no nível informado); os níveis posteriores ficam "inativo"
+// (ainda não alcançados).
+func deriveStatusPorAnoAcademico(anoEscolar, anoEscolarMedio, anoSuperior *string) (fund, medio, sup string) {
+	switch {
+	case anoSuperior != nil && strings.TrimSpace(*anoSuperior) != "":
+		return "finalizado", "finalizado", "em_andamento"
+	case anoEscolarMedio != nil && strings.TrimSpace(*anoEscolarMedio) != "":
+		return "finalizado", "em_andamento", "inativo"
+	case anoEscolar != nil && strings.TrimSpace(*anoEscolar) != "":
+		return "em_andamento", "inativo", "inativo"
+	default:
+		return "inativo", "inativo", "inativo"
+	}
+}
+
+func isNilOrBlank(v *string) bool { return v == nil || strings.TrimSpace(*v) == "" }
+
 func (e *Estudante) criarComVinculoComStatus(
 	nome string,
 	codigoEstudante string,
@@ -454,6 +475,21 @@ func (e *Estudante) criarComVinculoComStatus(
 		return err
 	}
 
+	// Validação de exclusividade: apenas um nível acadêmico pode ser informado
+	niveisInformados := 0
+	if !isNilOrBlank(anoEscolar) {
+		niveisInformados++
+	}
+	if !isNilOrBlank(anoEscolarMedio) {
+		niveisInformados++
+	}
+	if !isNilOrBlank(anoSuperior) {
+		niveisInformados++
+	}
+	if niveisInformados > 1 {
+		return fmt.Errorf("apenas um nível acadêmico pode ser informado no cadastro: ano_escolar_fundamental, ano_escolar_medio ou ano_superior")
+	}
+
 	if anoEscolar != nil && *anoEscolar != "" {
 		if err := utils.ValidateAnoFundamental(*anoEscolar); err != nil {
 			return fmt.Errorf("ano_escolar_fundamental inválido: %w", err)
@@ -480,9 +516,7 @@ func (e *Estudante) criarComVinculoComStatus(
 		}
 	}
 
-	statusFund := "em_andamento"
-	statusMed := "inativo"
-	statusSup := "inativo"
+	statusFund, statusMed, statusSup := deriveStatusPorAnoAcademico(anoEscolar, anoEscolarMedio, anoSuperior)
 
 	event := &EstudanteCriadoComVinculoEvent{
 		BaseEvent:                BaseEvent{EventType: "EstudanteCriadoComVinculo", AggregateID: e.ID},
