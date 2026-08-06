@@ -391,7 +391,8 @@ func CriarCategoriaNota(c *gin.Context) {
 // GET /academia/categorias-nota
 // ============================================================================
 
-// ListarCategoriasNota retorna as categorias de nota de uma academia superior.
+// ListarCategoriasNota retorna as categorias de nota da academia resolvida.
+// Para escolas, retorna as categorias fixas do sistema; para superior, retorna as configuráveis.
 // Disponível para academias, admins (informando codigo_academia) e estudantes vinculados à academia.
 func ListarCategoriasNota(c *gin.Context) {
 	academiaDTO, err := getAcademiaCategoriasNotaTarget(c)
@@ -416,8 +417,16 @@ func ListarCategoriasNota(c *gin.Context) {
 		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
+	if academiaDTO.Nivel == "escola" {
+		categorias := categoriasEscolaresFixasDaAcademia(c, academiaDTO)
+		c.JSON(http.StatusOK, gin.H{
+			"categorias": categorias,
+			"total":      len(categorias),
+		})
+		return
+	}
 	if academiaDTO.Nivel != "superior" {
-		utils.RespondWithValidationError(c, fmt.Errorf("categorias de nota configuráveis estão disponíveis apenas para academias do ensino superior"))
+		utils.RespondWithValidationError(c, fmt.Errorf("nivel da academia inválido para consulta de categorias de nota"))
 		return
 	}
 	categoriasProj := getCategoriasNotaProjection(c)

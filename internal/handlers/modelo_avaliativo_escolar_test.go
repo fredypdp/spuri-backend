@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"spuri/internal/domain/aggregates"
+	"spuri/internal/projections"
 )
 
 func TestCategoriasEscolaresFixasPorAno(t *testing.T) {
@@ -114,5 +115,26 @@ func TestValidarEscalaNotaPorAnoAcademico(t *testing.T) {
 		if err := validarEscalaNotaPorAnoAcademico(tt.ano, tt.nota); err == nil {
 			t.Fatalf("%s %.2f deveria ser invalido", tt.ano, tt.nota)
 		}
+	}
+}
+
+func TestCategoriasEscolaresFixasDaAcademiaExpõeEscopoLeitura(t *testing.T) {
+	academia := &projections.AcademiaDTO{
+		CodigoAcademia: "ESC-001",
+		Nivel:          "escola",
+		AnosAcademicos: []string{"1_ano_fundamental", "6_ano_fundamental"},
+	}
+
+	categorias := categoriasEscolaresFixasDaAcademia(nil, academia)
+	if len(categorias) != 6 {
+		t.Fatalf("len=%d want 6: %#v", len(categorias), categorias)
+	}
+
+	primeira, ok := categorias[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("categoria deveria ser map[string]interface{}: %#v", categorias[0])
+	}
+	if primeira["codigo_academia"] != "ESC-001" || primeira["source"] != "system" || primeira["fixed"] != true || primeira["readonly"] != true {
+		t.Fatalf("metadados de categoria fixa inesperados: %#v", primeira)
 	}
 }
