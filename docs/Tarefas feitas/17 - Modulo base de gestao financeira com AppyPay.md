@@ -58,7 +58,7 @@ O Spuri usa Event Sourcing/CQRS em todo o sistema (ver `internal/db/event_store.
 - **Eventos** de mudanças financeiras (ex.: credenciais configuradas, cobrança criada, resultado de cobrança recebido via webhook/consulta) são gravados no `spuri_ledger` com `aggregate_type = "Financeiro"`, tal como qualquer outro agregado do sistema.
 - **Projeções** (`financeiro_*`) são read models reconstruíveis a partir do ledger, seguindo o mesmo mecanismo de rebuild já usado pelos outros módulos (`internal/projections/manager.go`).
 - **Nunca** incluir segredos (`client_secret`, tokens de acesso, `webhook_secret`, API keys) nos payloads de eventos nem em respostas públicas da API — apenas metadados não sensíveis e máscaras (ex.: últimos 4 caracteres). Os segredos em si vivem cifrados numa tabela operacional, não no ledger de eventos.
-- Antes de desenhar as tabelas/eventos, procurar no repositório se ainda existem vestígios do módulo financeiro anterior (migrações, agregados, projeções) que não tenham sido completamente removidos no rollback (tarefa 17) — reaproveitar nomes/convenções onde fizer sentido, mas não assumir que o schema anterior ainda é válido sem o revalidar.
+- Antes de desenhar as tabelas/eventos, procurar no repositório se ainda existem vestígios do módulo financeiro anterior (migrações, agregados, projeções) que não tenham sido completamente removidos no rollback (tarefa 15) — reaproveitar nomes/convenções onde fizer sentido, mas não assumir que o schema anterior ainda é válido sem o revalidar.
 
 ## 5. Funcionalidades a implementar
 
