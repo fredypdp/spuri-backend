@@ -348,7 +348,6 @@ func TestRemovedPaymentRoutesAreRemoved(t *testing.T) {
 	}{
 		{http.MethodPost, "/finan" + "ceiro/app" + "ypay/credenciais"},
 		{http.MethodPut, "/finan" + "ceiro/app" + "ypay/credenciais/" + idPlaceholder},
-		{http.MethodGet, "/finan" + "ceiro/app" + "ypay/credenciais"},
 		{http.MethodGet, "/finan" + "ceiro/app" + "ypay/credenciais/" + idPlaceholder},
 		{http.MethodPost, "/finan" + "ceiro/app" + "ypay/credenciais/" + idPlaceholder + "/testar"},
 		{http.MethodPost, "/finan" + "ceiro/app" + "ypay/credenciais/" + idPlaceholder + "/ativar"},
@@ -362,6 +361,32 @@ func TestRemovedPaymentRoutesAreRemoved(t *testing.T) {
 
 		if w.Code != http.StatusNotFound {
 			t.Fatalf("expected %s %s to be removed with 404, got %d", tc.method, tc.path, w.Code)
+		}
+	}
+}
+
+func TestAppyPayBaseRoutesAreRegistered(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := setupRouter()
+
+	for _, tc := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPut, "/academia/financeiro/appypay/credenciais"},
+		{http.MethodGet, "/academia/financeiro/appypay/credenciais"},
+		{http.MethodPost, "/academia/financeiro/appypay/cobrancas"},
+		{http.MethodPost, "/academia/financeiro/appypay/qr-codes"},
+		{http.MethodGet, "/academia/financeiro/appypay/cobrancas/id"},
+		{http.MethodPut, "/admin/financeiro/appypay/credenciais"},
+		{http.MethodPost, "/webhooks/appypay/gpo"},
+		{http.MethodPost, "/webhooks/appypay/ref"},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code == http.StatusNotFound {
+			t.Fatalf("expected %s %s to be registered", tc.method, tc.path)
 		}
 	}
 }

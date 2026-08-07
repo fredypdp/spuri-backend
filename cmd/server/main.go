@@ -127,6 +127,7 @@ func initProjections() error {
 	projManager.RegisterProjection("avaliacao_final", projections.NewAvaliacaoFinalProjection(dbClient))
 	projManager.RegisterProjection("solicitacoes_matricula", projections.NewSolicitacaoMatriculaProjection(dbClient))
 	projManager.RegisterProjection("solicitacoes_edicao_dados_estudante", projections.NewSolicitacaoEdicaoDadoEstudanteProjection(dbClient))
+	projManager.RegisterProjection("financeiro", projections.NewFinanceiroProjection(dbClient))
 
 	go projManager.StartProcessing()
 	return nil
@@ -235,6 +236,8 @@ func setupRouter() *gin.Engine {
 	router.POST("/login", middleware.LoginRateLimit(), handlers.Login)
 	router.POST("/bootstrap", middleware.LoginRateLimit(), handlers.BootstrapAdminFPP)
 	router.POST("/solicitacao-matricula", handlers.CriarSolicitacaoMatricula)
+	router.POST("/webhooks/appypay/gpo", handlers.WebhookAppyPayGPO)
+	router.POST("/webhooks/appypay/ref", handlers.WebhookAppyPayREF)
 
 	emailGroup := router.Group("/email")
 	emailGroup.Use(middleware.EmailRateLimit())
@@ -422,6 +425,11 @@ func setupRouter() *gin.Engine {
 		academia.DELETE("/turma/:codigo", handlers.DeletarTurma)
 		academia.POST("/turma/:codigo/estudante", handlers.AdicionarEstudanteATurma)
 		academia.DELETE("/turma/:codigo/estudantes/:codigo_estudante", handlers.RemoverEstudanteDaTurma)
+		academia.PUT("/financeiro/appypay/credenciais", handlers.ConfigurarCredenciaisAppyPayAcademia)
+		academia.GET("/financeiro/appypay/credenciais", handlers.ConsultarCredenciaisAppyPayAcademia)
+		academia.POST("/financeiro/appypay/cobrancas", handlers.CriarCobrancaAppyPayAcademia)
+		academia.POST("/financeiro/appypay/qr-codes", handlers.CriarQRCodeAppyPayAcademia)
+		academia.GET("/financeiro/appypay/cobrancas/:id", handlers.ConsultarCobrancaAppyPayAcademia)
 
 		// ── Batch/async: estudantes usam resposta de lote; demais criam jobs ──
 		academia.POST("/estudante/register/async", handlers.RegisterEstudanteBatch)
@@ -488,6 +496,11 @@ func setupRouter() *gin.Engine {
 		adminSistema.PUT("/sistema/anos-letivos/configuracoes/:type", middleware.RequireFPP(), handlers.AtualizarConfiguracaoAnoLetivo)
 		adminSistema.GET("/sistema/anos-letivos/finalizacao-limites", middleware.RequireFPP(), handlers.GetLimitesFinalizacaoAnosLetivos)
 		adminSistema.GET("/academias/anos-letivos/finalizacoes", middleware.RequireFPP(), handlers.ListarFinalizacoesAnoLetivoAdmin)
+		adminSistema.PUT("/financeiro/appypay/credenciais", middleware.RequireFPP(), handlers.ConfigurarCredenciaisAppyPaySpuri)
+		adminSistema.GET("/financeiro/appypay/credenciais", middleware.RequireFPP(), handlers.ConsultarCredenciaisAppyPaySpuri)
+		adminSistema.POST("/financeiro/appypay/cobrancas", middleware.RequireFPP(), handlers.CriarCobrancaAppyPaySpuri)
+		adminSistema.POST("/financeiro/appypay/qr-codes", middleware.RequireFPP(), handlers.CriarQRCodeAppyPaySpuri)
+		adminSistema.GET("/financeiro/appypay/cobrancas/:id", middleware.RequireFPP(), handlers.ConsultarCobrancaAppyPaySpuri)
 	}
 
 	return router

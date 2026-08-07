@@ -7088,3 +7088,31 @@ Quando a configuração do Mega ou da quota estiver incompleta ou inválida, a r
   "request_id": "8c7e6a5d-9b9f-4fd2-a2d0-3a989a8c2d8b"
 }
 ```
+
+---
+
+## Financeiro — AppyPay (Fase 1)
+
+O módulo financeiro é uma base genérica: não cria propinas, matrículas ou outros casos de negócio. Credenciais são armazenadas cifradas; as respostas abaixo exibem somente máscaras. O ambiente AppyPay é seleccionado automaticamente por `ENV` (`development`/`test` → TEST; `production` → PROD).
+
+### Credenciais
+
+- `PUT /academia/financeiro/appypay/credenciais` e `GET /academia/financeiro/appypay/credenciais` — academia autenticada.
+- `PUT /admin/financeiro/appypay/credenciais` e `GET /admin/financeiro/appypay/credenciais` — conta Spuri, admin FPP.
+
+O `PUT` recebe `client_id`, `client_secret`, `resource`, `gpo_payment_method` (`GPO_{uuid}`), `ref_payment_method` (`REF_{uuid}`) e, opcionalmente, `webhook_auth_type` (`basic` ou `api_key`), `webhook_username` e `webhook_secret`. Nunca é devolvido `client_secret`, token ou segredo de webhook.
+
+### Cobranças e QR Code
+
+- `POST /academia/financeiro/appypay/cobrancas` e `POST /admin/financeiro/appypay/cobrancas`
+- `GET /academia/financeiro/appypay/cobrancas/{id}` e `GET /admin/financeiro/appypay/cobrancas/{id}`
+- `POST /academia/financeiro/appypay/qr-codes` e `POST /admin/financeiro/appypay/qr-codes`
+
+O corpo de cobrança aceita `amount`, `currency`, `description`, `merchantTransactionId`, `paymentMethod`, `paymentInfo`, `options`, `notify` e `async`. São aceites apenas `GPO_...` e `REF_...`; o identificador configurado para a conta é aplicado pelo servidor. GPO exige `paymentInfo.phoneNumber`; REF pode omitir `paymentInfo`. Em QR Code, `qrCodeType` é `SINGLE` (padrão) ou `MULTIPLE`; o segundo exige `minAmount`, `maxTransactions`, `startDate` e `endDate`. A resposta devolve a resposta original do gateway em `data`, incluindo `data.qrCodeArr` (base64), pronta para ser apresentada pelo consumidor.
+
+### Webhooks públicos
+
+- `POST /webhooks/appypay/gpo`
+- `POST /webhooks/appypay/ref`
+
+Os endpoints exigem a autenticação configurada para a credencial (Basic Auth ou `X-API-Key`), persistem somente payload sanitizado e devolvem `200` após aceitar o evento. Reenvios com o mesmo `id` ou `merchantTransactionId` são idempotentes.
