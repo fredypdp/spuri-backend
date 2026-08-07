@@ -1,4 +1,4 @@
-# 17 — Módulo base de gestão financeira com AppyPay (feito)
+# 17 — Módulo base de gestão financeira com AppyPay
 
 ## 1. Objectivo
 
