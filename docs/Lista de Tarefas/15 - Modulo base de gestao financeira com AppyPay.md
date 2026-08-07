@@ -68,11 +68,16 @@ O Spuri usa Event Sourcing/CQRS em todo o sistema (ver `internal/db/event_store.
 - Parâmetros do pedido de token: `grant_type=client_credentials`, `client_id`, `client_secret`, `resource` (UUID fornecido pela AppyPay — confirmar se é o mesmo valor para todas as contas ou específico por conta antes de assumir um valor fixo).
 - Cache do token em memória/processo com expiração (token válido por 1 hora); renovar antes de expirar em vez de pedir um token novo a cada chamada.
 - Estrutura de credenciais a armazenar, por entidade (Academia ou Spuri):
-  - `client_id`, `client_secret` (cifrado em repouso).
+  - `client_id` (obrigatório).
+  - `client_secret` (obrigatório — este é o valor da **API Key** da AppyPay, cifrado em repouso).
   - `resource` (UUID da AppyPay).
-  - Identificadores de método de pagamento contratados por essa conta (ex.: `GPO_{uuid}`, `REF_{uuid}` — o UUID é gerado no portal AppyPay dessa conta específica).
+  - Identificadores de método de pagamento contratados por essa conta (**obrigatórios**): 
+    - `GPO_{uuid}` — chave do gateway de pagamento online (pagamento directo MCX App).
+    - `REF_{uuid}` — chave do gateway de pagamento por referência.
+    - O `{uuid}` é gerado no portal AppyPay dessa conta específica e deve ser armazenado para cada método.
   - Ambiente ao qual essas credenciais pertencem (TEST/PROD) — uma academia pode ter credenciais de teste e, mais tarde, credenciais de produção distintas.
 - Endpoint(s) administrativo(s) para uma academia (ou o Spuri, no caso das suas próprias credenciais) configurar/actualizar estas credenciais. Apenas quem administra a academia deve poder ver/editar — nunca expor `client_secret` de volta numa resposta de leitura (mostrar mascarado).
+- **Dados obrigatórios mínimos** a serem gravados para cada academia e para o Spuri: `client_id`, `client_secret` (API Key), `ID do método GPO` (`GPO_{uuid}`), `ID do método REF` (`REF_{uuid}`).
 
 ### 5.2 Selecção de ambiente (TEST/PROD)
 
@@ -117,7 +122,9 @@ Não implementar dashboards, relatórios de conciliação ou jobs de reconcilia�
 
 ### 5.9 Base de Webhooks
 
-- Expor um endpoint HTTP público (`POST`) dedicado a receber notificações transaccionais da AppyPay.
+- Expor **dois endpoints HTTP públicos** dedicados a receber notificações transaccionais da AppyPay, um para cada método de pagamento:
+  - `POST /webhooks/appypay/gpo` — webhook exclusivo para notificações do método **GPO** (pagamento online).
+  - `POST /webhooks/appypay/ref` — webhook exclusivo para notificações do método **REF** (pagamento por referência).
 - Autenticação do lado do Spuri conforme suportado pela AppyPay: Basic Auth ou API Key (decidir e documentar qual será usado; guardar o segredo correspondente cifrado, associado à academia/Spuri dono do webhook).
 - Responder **HTTP 200** assim que o payload for aceite/enfileirado — não fazer processamento pesado de forma síncrona dentro do handler do webhook.
 - **Idempotência obrigatória:** o mesmo `id`/`merchantTransactionId` pode chegar mais de uma vez (reenvios por falha de comunicação; para REF, uma notificação por tentativa de comunicação com o provedor). Processar de forma que reaplicar o mesmo evento não duplique efeitos.
@@ -133,12 +140,12 @@ Não implementar dashboards, relatórios de conciliação ou jobs de reconcilia�
 
 ## 7. Critérios de aceitação
 
-1. É possível configurar credenciais AppyPay (client_id/client_secret/resource/UUIDs de método) para uma academia e, separadamente, para o Spuri, cifradas em repouso, nunca devolvidas em texto puro numa leitura.
+1. É possível configurar credenciais AppyPay (client_id/client_secret/resource/UUIDs de método) para uma academia e, separadamente, para o Spuri, cifradas em repouso, nunca devolvidas em texto puro numa leitura. **Dados obrigatórios:** `client_id`, `client_secret` (API Key), `GPO_{uuid}`, `REF_{uuid}`.
 2. O sistema obtém e reutiliza um token válido, escolhendo automaticamente a URL de token TEST ou PROD conforme o ambiente de execução, sem valores fixos no código.
 3. Existe uma função base de criação de cobrança que aceita todos os parâmetros documentados pela AppyPay e consegue criar, com sucesso em ambiente de teste, uma cobrança GPO e uma cobrança REF (com e sem `paymentInfo`, cobrindo referência gerada pelo comerciante e pelo gateway), usando os exemplos e números de simulação confirmados na secção "Escopo..." do documento AppyPay.
 4. Existe uma função base para gerar um QR Code GPO em ambiente de teste.
 5. Existe uma função base de consulta de cobrança por id/`merchantTransactionId`.
-6. Existe um endpoint de webhook público, protegido (Basic Auth ou API Key), que responde 200, é idempotente a reenvios do mesmo evento, e persiste o payload recebido como evento financeiro.
+6. Existe **dois endpoints de webhook públicos** (`POST /webhooks/appypay/gpo` e `POST /webhooks/appypay/ref`), protegidos (Basic Auth ou API Key), que respondem 200, são idempotentes a reenvios do mesmo evento, e persistem o payload recebido como evento financeiro.
 7. Nenhum segredo (client_secret, tokens, api key/segredo de webhook) aparece em payload de evento, log ou resposta de API.
 8. Reembolso, reversão, e qualquer subsistema de reconciliação/observabilidade **não** foram implementados nesta tarefa.
 
