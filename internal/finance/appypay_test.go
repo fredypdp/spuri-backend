@@ -4,6 +4,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
+	"spuri/internal/db"
 )
 
 func TestEncryptionRoundTripAndNoFallbackKey(t *testing.T) {
@@ -43,6 +46,27 @@ func TestCredentialMethodMatchesConfiguredIDWithoutCaseSensitivity(t *testing.T)
 	}
 	if got, err := credentials.method("ref"); err != nil || got != credentials.REF {
 		t.Fatalf("atalho REF não foi reconhecido: %q, %v", got, err)
+	}
+}
+
+func TestQRCodeIdempotencyPayloadAndPersistedResult(t *testing.T) {
+	in := QRCodeRequest{ContextoTipo: ContextoAcademia, CodigoAcademia: "ACA1", Amount: 10, Currency: "AOA", Description: "Teste", MerchantTransactionID: "QRTEST00000001"}
+	payload := qrCodePayload(uuid.New(), in, "SINGLE", "provider-1", "criada", map[string]any{"qrCodeArr": "base64-qr"})
+	if payload["merchant_transaction_id"] != in.MerchantTransactionID || payload["status"] != "criada" {
+		t.Fatalf("payload idempotente inválido: %#v", payload)
+	}
+	row := chargeRow{ID: uuid.New(), ProviderID: "provider-1", Merchant: in.MerchantTransactionID, Contexto: ContextoAcademia, Academia: "ACA1", Status: "criada", Payload: payload}
+	result, err := qrCodeResultFromRow(row, ContextoAcademia, "ACA1")
+	if err != nil || result.QRCodeArr != "base64-qr" || result.MerchantTransactionID != in.MerchantTransactionID {
+		t.Fatalf("resultado persistido de QR inválido: %#v, %v", result, err)
+	}
+	if _, err := qrCodeResultFromRow(row, ContextoAcademia, "ACA2"); err != ErrConflict {
+		t.Fatalf("QR de outra academia foi exposto: %v", err)
+	}
+	for _, event := range []string{"QRCodeAppyPaySolicitado", "QRCodeAppyPayGerado", "QRCodeAppyPayFalhou"} {
+		if err := db.ValidateEventType(event); err != nil {
+			t.Fatalf("evento QR não foi autorizado no ledger: %s: %v", event, err)
+		}
 	}
 }
 

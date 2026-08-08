@@ -325,6 +325,20 @@ func (s *Service) CreateGPOQRCode(ctx context.Context, in QRCodeRequest, actorID
 		return QRCodeResult{}, err
 	}
 	id := uuid.New()
+	reserved, err := s.reserveCharge(ctx, in.MerchantTransactionID, id)
+	if err != nil {
+		return QRCodeResult{}, err
+	}
+	if !reserved {
+		result, err := s.existingQRCodeResult(ctx, in.MerchantTransactionID, in.ContextoTipo, in.CodigoAcademia)
+		if err == nil {
+			return result, nil
+		}
+		if errors.Is(err, ErrNotFound) {
+			return QRCodeResult{}, ErrConflict
+		}
+		return QRCodeResult{}, err
+	}
 	body := map[string]any{"amount": in.Amount, "currency": in.Currency, "description": in.Description, "merchantTransactionId": in.MerchantTransactionID, "paymentMethod": cred.GPO, "qrCodeType": typ}
 	if typ == "MULTIPLE" {
 		body["minAmount"] = *in.MinAmount
@@ -332,8 +346,13 @@ func (s *Service) CreateGPOQRCode(ctx context.Context, in QRCodeRequest, actorID
 		body["startDate"] = in.StartDate
 		body["endDate"] = in.EndDate
 	}
+	if err = s.record(ctx, id, "QRCodeAppyPaySolicitado", qrCodePayload(id, in, typ, "", "solicitada", nil), actorID, actorType, ip); err != nil {
+		_ = s.releaseChargeReservation(ctx, in.MerchantTransactionID, id)
+		return QRCodeResult{}, err
+	}
 	response, err := s.callJSON(ctx, cred, http.MethodPost, "/qr-codes", body, false)
 	if err != nil {
+		_ = s.record(ctx, id, "QRCodeAppyPayFalhou", qrCodePayload(id, in, typ, "", "falhada", map[string]any{"error": "provider_request_failed"}), actorID, actorType, ip)
 		return QRCodeResult{}, err
 	}
 	providerID := responseID(response)
@@ -341,7 +360,7 @@ func (s *Service) CreateGPOQRCode(ctx context.Context, in QRCodeRequest, actorID
 	if status == "" {
 		status = "criada"
 	}
-	payload := map[string]any{"charge_id": id.String(), "contexto_tipo": in.ContextoTipo, "codigo_academia": in.CodigoAcademia, "merchant_transaction_id": in.MerchantTransactionID, "provider_charge_id": providerID, "status": status, "payment_method": "GPO", "qr_code_type": typ, "response": sanitize(response)}
+	payload := qrCodePayload(id, in, typ, providerID, status, response)
 	if err = s.record(ctx, id, "QRCodeAppyPayGerado", payload, actorID, actorType, ip); err != nil {
 		return QRCodeResult{}, err
 	}
@@ -690,6 +709,26 @@ func (s *Service) existingChargeResult(ctx context.Context, merchant, contexto, 
 	return ChargeResult{ID: row.ID, ProviderChargeID: row.ProviderID, MerchantTransactionID: row.Merchant, Status: row.Status, Response: response}, nil
 }
 
+func (s *Service) existingQRCodeResult(ctx context.Context, merchant, contexto, academia string) (QRCodeResult, error) {
+	row, err := s.loadCharge(ctx, merchant)
+	if err != nil {
+		return QRCodeResult{}, err
+	}
+	return qrCodeResultFromRow(row, contexto, academia)
+}
+
+func qrCodeResultFromRow(row chargeRow, contexto, academia string) (QRCodeResult, error) {
+	if row.Contexto != contexto || row.Academia != academia {
+		return QRCodeResult{}, ErrConflict
+	}
+	if _, ok := row.Payload["qr_code_type"].(string); !ok {
+		return QRCodeResult{}, ErrConflict
+	}
+	response, _ := row.Payload["response"].(map[string]any)
+	qr, _ := response["qrCodeArr"].(string)
+	return QRCodeResult{ChargeResult: ChargeResult{ID: row.ID, ProviderChargeID: row.ProviderID, MerchantTransactionID: row.Merchant, Status: row.Status, Response: response}, QRCodeArr: qr}, nil
+}
+
 func sameJSON(a, b any) bool {
 	left, leftErr := json.Marshal(a)
 	right, rightErr := json.Marshal(b)
@@ -750,6 +789,9 @@ func validMerchantID(value string) bool {
 }
 func chargePayload(id uuid.UUID, in ChargeRequest, providerID, status string, response map[string]any) map[string]any {
 	return map[string]any{"charge_id": id.String(), "contexto_tipo": in.ContextoTipo, "codigo_academia": in.CodigoAcademia, "amount": in.Amount, "currency": in.Currency, "description": in.Description, "merchant_transaction_id": in.MerchantTransactionID, "payment_method": in.PaymentMethod, "payment_info": in.PaymentInfo, "options": in.Options, "notify": in.Notify, "async": in.Async, "provider_charge_id": providerID, "status": status, "response": sanitize(response)}
+}
+func qrCodePayload(id uuid.UUID, in QRCodeRequest, typ, providerID, status string, response map[string]any) map[string]any {
+	return map[string]any{"charge_id": id.String(), "contexto_tipo": in.ContextoTipo, "codigo_academia": in.CodigoAcademia, "amount": in.Amount, "currency": in.Currency, "description": in.Description, "merchant_transaction_id": in.MerchantTransactionID, "provider_charge_id": providerID, "status": status, "payment_method": "GPO", "qr_code_type": typ, "min_amount": in.MinAmount, "max_transactions": in.MaxTransactions, "start_date": in.StartDate, "end_date": in.EndDate, "response": sanitize(response)}
 }
 func responseID(v map[string]any) string {
 	for _, k := range []string{"id", "chargeId", "charge_id"} {

@@ -7017,7 +7017,7 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 {
   "id": "4d2bbf53-c8c0-4c9a-a3f4-5a0f0cf988d1",
   "provider_charge_id": "APPYPAY-987654",
-  "merchant_transaction_id": "PROP-2026-08-LDA20261-0001",
+  "merchant_transaction_id": "P2608LDA000001",
   "status": "pendente",
   "response": {
     "status": "Accepted"
@@ -7059,7 +7059,7 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 {
   "id": "76f2971c-4a7d-48f7-92c2-f8d3b28e9a2d",
   "provider_charge_id": "APPYPAY-QR-123",
-  "merchant_transaction_id": "QR-2026-08-LDA20261-0001",
+  "merchant_transaction_id": "Q2608LDA000001",
   "status": "pendente",
   "qrCodeArr": "iVBORw0KGgoAAAANSUhEUgAA...",
   "response": {
@@ -7072,6 +7072,7 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 
 - Usa o método GPO configurado na credencial do contexto.
 - `qrCodeType` aceita `SINGLE` (padrão) ou `MULTIPLE`; o segundo exige `minAmount`, `maxTransactions`, `startDate` e `endDate`.
+- O mesmo `merchantTransactionId` devolve o QR Code já persistido e não faz uma segunda chamada ao gateway. Enquanto a primeira requisição estiver sendo processada, a repetição recebe `409` e pode ser tentada novamente.
 - `qrCodeArr`, quando presente, vem em base64 e deve ser tratado pelo cliente como imagem/representação do QR Code.
 - Datas e limites (`minAmount`, `maxTransactions`) são repassados ao gateway conforme suporte da AppyPay.
 - O QR Code também gera histórico financeiro no ledger.
@@ -7095,7 +7096,7 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 {
   "id": "4d2bbf53-c8c0-4c9a-a3f4-5a0f0cf988d1",
   "provider_charge_id": "APPYPAY-987654",
-  "merchant_transaction_id": "PROP-2026-08-LDA20261-0001",
+  "merchant_transaction_id": "P2608LDA000001",
   "status": "paga",
   "response": {
     "status": "Paid",
