@@ -43,8 +43,8 @@ Versão atual: 2.2.0
 16. [Admins](#16-admins)
 17. [Jobs Assíncronos](#17-jobs-assíncronos)
 18. [Batch Assíncrono](#18-batch-assíncrono)
-19. [Armazenamento](#19-armazenamento)
-20. [Financeiro / AppyPay](#financeiro--appypay)
+19. [Financeiro / AppyPay](#19-financeiro--appypay)
+20. [Armazenamento](#20-armazenamento)
 
 ---
 
@@ -80,32 +80,6 @@ Todas as rotas retornam erros exclusivamente neste envelope padronizado (`utils.
   ]
 }
 ```
-
----
-
-## Financeiro / AppyPay
-
-Todas as rotas abaixo exigem autenticação e aceitam apenas academia (restrita ao
-seu próprio `codigo_academia`) ou administrador FPP. Segredos nunca são
-devolvidos; a configuração persiste somente máscaras. `ENV=development`/`test`
-usa automaticamente o gateway TEST e `ENV=production`, o gateway PROD.
-
-| Método | Rota | Finalidade |
-|---|---|---|
-| POST | `/financeiro/appypay/credenciais` | Configura credenciais cifradas para `spuri` ou `academia`. |
-| PUT | `/financeiro/appypay/credenciais/:id` | Atualiza uma configuração. |
-| GET | `/financeiro/appypay/credenciais` | Lista configurações mascaradas. |
-| POST | `/financeiro/appypay/cobrancas` | Cria cobrança GPO ou REF genérica. |
-| POST | `/financeiro/appypay/qr-codes` | Gera QR Code GPO; a resposta inclui `qrCodeArr` em base64. |
-| GET | `/financeiro/appypay/cobrancas/:id` | Consulta uma cobrança por id AppyPay ou `merchantTransactionId`. |
-
-Os webhooks públicos são `POST /webhooks/appypay/gpo` e
-`POST /webhooks/appypay/ref`. Cada conta escolhe `basic` ou `api_key` durante a
-configuração; a API Key deve ser enviada em `X-API-Key`. Ambos respondem `200`
-para evento aceite ou duplicado e são idempotentes por `id` ou
-`merchantTransactionId`.
-
-O formato legado de erro simples não é contrato suportado.
 
 > `details` é opcional. Ele aparece quando a rota consegue apontar exatamente
 > o campo, o código interno do problema e uma explicação acionável para o
@@ -6884,7 +6858,326 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 A documentação cobre todas as rotas registradas em `cmd/server/main.go`: públicas (`/health`, `/login`, `/bootstrap`, `/solicitacao-matricula`, `/email/*`, `/academias`, `/academia/cursos`, `/academia/curso/:id`, `/consultar-academia/:codigo`), jobs (`/jobs`, `/jobs/:id`, `/jobs/stream`, `/jobs/:id/sse`, `/jobs/:id/retry-failed`), autenticadas globais (`/logout`, `/alterar-senha`, `/meu-perfil`, `/eventos-estudante/:codigo`, `/verificar-integridade/:codigo`, `/consultar-estudante/:codigo`, `/estudantes`, `/avaliacoes`, `/aprovacoes`, `/reprovacoes`, `/notas`, `/faltas`, `/notas-estudante/:codigo`, `/faltas-estudante/:codigo`, `/ano-letivo`, `/anos-letivos-lista`, `/anos-letivos/configuracoes`, `/solicitacoes-matricula`, `/documentos/*`, `/avaliacoes-estudante/:codigo`, `/turmas-estudante/:codigo`), estudante (`/estudante/*`), academia (`/academia/*`), dominis/admin (`/dominis/*`, `/admin/*`) e todos os endpoints `/async`.
 
 
-## 19. Armazenamento
+
+## 19. Financeiro / AppyPay
+
+### Processos e Regras de Negócio — Financeiro / AppyPay
+
+O módulo financeiro integra o backend com a AppyPay para gerir credenciais, criar cobranças GPO/REF, gerar QR Codes GPO, consultar cobranças e receber webhooks do gateway. As operações financeiras são auditadas no ledger com aggregate `Financeiro`; as tabelas `financeiro_*` funcionam como projeções/read models e índices operacionais de consulta e idempotência.
+
+**Regras gerais do escopo financeiro:**
+
+- Todas as rotas `/financeiro/*` exigem autenticação e aceitam somente usuários do tipo `academia` ou `admin` FPP.
+- Academia autenticada opera apenas no próprio contexto: o backend força `contexto_tipo="academia"` e `codigo_academia` igual ao código do token, mesmo que esses campos venham vazios no request.
+- Admin FPP pode operar o contexto global `spuri` e contextos de academias específicas; admins `adm` e `gerente`, estudantes e usuários anônimos não administram o módulo financeiro.
+- Segredos AppyPay (`client_secret`, credenciais de webhook, métodos de pagamento sensíveis) nunca são devolvidos em resposta; a API retorna apenas máscaras e metadados.
+- `ENV=development` ou `ENV=test` usa o gateway TEST; `ENV=production` usa o gateway PROD. O ambiente persistido em credenciais e cobranças segue essa resolução do backend.
+- Cada cobrança ou QR Code exige credenciais ativas para o contexto resolvido antes de chamar a AppyPay.
+- Os webhooks são públicos por necessidade do gateway, mas autenticados por Basic Auth ou API Key cadastrada na credencial do contexto. Eventos aceitos ou duplicados respondem `200` e são tratados de forma idempotente pelo identificador do evento.
+- Erros das rotas autenticadas seguem o envelope global `{error, message, request_id, details?}`. Webhooks públicos retornam apenas status HTTP para reduzir acoplamento com o gateway.
+
+| Método | Rota | Escopo resumido |
+|---|---|---|
+| `POST` | `/financeiro/appypay/credenciais` | Cria/configura credenciais cifradas para `spuri` ou `academia`. |
+| `PUT` | `/financeiro/appypay/credenciais/:id` | Substitui a configuração de uma credencial existente pelo `id`. |
+| `GET` | `/financeiro/appypay/credenciais` | Lista credenciais mascaradas por contexto autorizado. |
+| `POST` | `/financeiro/appypay/cobrancas` | Cria cobrança AppyPay GPO ou REF genérica. |
+| `POST` | `/financeiro/appypay/qr-codes` | Gera QR Code GPO e devolve `qrCodeArr` em base64 quando enviado pela AppyPay. |
+| `GET` | `/financeiro/appypay/cobrancas/:id` | Consulta cobrança por id AppyPay ou `merchantTransactionId`. |
+| `POST` | `/webhooks/appypay/gpo` | Recebe webhook público AppyPay para eventos GPO. |
+| `POST` | `/webhooks/appypay/ref` | Recebe webhook público AppyPay para eventos REF. |
+
+#### 19.1 POST /financeiro/appypay/credenciais
+
+**Escopo da rota:** configuração inicial de credenciais AppyPay de um contexto financeiro. Use para cadastrar o contexto global `spuri` ou a credencial de uma academia. Não consulta saldos, não cria cobrança e não retorna segredos em claro.
+
+**Proteção:** autenticado + academia dona do próprio contexto ou admin FPP. Para academia, `contexto_tipo` e `codigo_academia` são resolvidos pelo token. Para admin FPP, `contexto_tipo` deve ser `spuri` ou `academia`; quando for `academia`, `codigo_academia` identifica a instituição.
+
+**Request JSON:**
+
+```json
+{
+  "contexto_tipo": "academia",
+  "codigo_academia": "LDA20261",
+  "client_id": "appy-client-id",
+  "client_secret": "appy-client-secret",
+  "resource": "https://gwy-api-tst.appypay.co.ao/v2.0",
+  "gpo_payment_method": "GPO_METHOD_ID",
+  "ref_payment_method": "REF_METHOD_ID",
+  "webhook_auth_type": "api_key",
+  "webhook_secret": "segredo-do-webhook"
+}
+```
+
+**Response 201:**
+
+```json
+{
+  "id": "2f0f8d8f-27a1-4b2d-9a70-8e26d208f7e4",
+  "contexto_tipo": "academia",
+  "codigo_academia": "LDA20261",
+  "ambiente": "test",
+  "client_id_mask": "appy**********id",
+  "resource_mask": "http**********2.0",
+  "gpo_payment_method_mask": "GPO_**********_ID",
+  "ref_payment_method_mask": "REF_**********_ID",
+  "webhook_auth_type": "api_key",
+  "updated_at": "2026-08-08T12:00:00Z"
+}
+```
+
+**Regras de negócio:**
+
+- `client_id`, `client_secret`, `resource`, `gpo_payment_method` e `ref_payment_method` são obrigatórios.
+- `webhook_auth_type="basic"` exige `webhook_username` e `webhook_secret`; `webhook_auth_type="api_key"` exige `webhook_secret` e o gateway deve enviar esse segredo em `X-API-Key`.
+- Uma academia não pode criar credenciais para `spuri` nem para outra academia.
+- O backend cifra segredos em armazenamento próprio e grava no ledger apenas metadados/máscaras.
+
+#### 19.2 PUT /financeiro/appypay/credenciais/:id
+
+**Escopo da rota:** atualização/substituição completa da credencial identificada por `:id`. Use para rotação de `client_secret`, troca de métodos GPO/REF ou alteração do modo de autenticação de webhook.
+
+**Proteção:** autenticado + academia dona do próprio contexto ou admin FPP. O `id` precisa ser UUID válido.
+
+**Request JSON:** igual ao `POST /financeiro/appypay/credenciais`.
+
+**Response 200:** igual ao `POST /financeiro/appypay/credenciais`, com o mesmo `id` informado na URL e `updated_at` atualizado.
+
+**Regras de negócio:**
+
+- A atualização revalida todas as regras do cadastro de credenciais; envie o conjunto completo de campos obrigatórios.
+- A rota não expõe o valor antigo nem o novo valor dos segredos.
+- Academia só pode manter o escopo no próprio contexto; mudança para `spuri` ou outra academia é bloqueada por autorização.
+
+#### 19.3 GET /financeiro/appypay/credenciais
+
+**Escopo da rota:** leitura de credenciais mascaradas para telas administrativas/operacionais. Não testa credenciais, não devolve segredos e não cria cobrança.
+
+**Proteção:** autenticado + academia ou admin FPP.
+
+**Query params:**
+
+| Campo | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `contexto_tipo` | string | Não | `spuri` ou `academia`. Para academia autenticada é forçado para `academia`. |
+| `codigo_academia` | string | Não | Código da academia. Para academia autenticada é forçado para o código do token. |
+
+**Response 200:**
+
+```json
+[
+  {
+    "id": "2f0f8d8f-27a1-4b2d-9a70-8e26d208f7e4",
+    "contexto_tipo": "academia",
+    "codigo_academia": "LDA20261",
+    "ambiente": "test",
+    "client_id_mask": "appy**********id",
+    "resource_mask": "http**********2.0",
+    "gpo_payment_method_mask": "GPO_**********_ID",
+    "ref_payment_method_mask": "REF_**********_ID",
+    "webhook_auth_type": "api_key",
+    "updated_at": "2026-08-08T12:00:00Z"
+  }
+]
+```
+
+**Regras de negócio:**
+
+- Academias sempre recebem somente a própria credencial.
+- Admin FPP pode filtrar por contexto; sem filtro, recebe as credenciais autorizadas pela consulta.
+- Máscaras não devem ser usadas como segredos pelo cliente; qualquer rotação exige `PUT` com os segredos reais.
+
+#### 19.4 POST /financeiro/appypay/cobrancas
+
+**Escopo da rota:** criação de uma cobrança AppyPay genérica para pagamento GPO ou REF no contexto autorizado.
+
+**Proteção:** autenticado + academia do próprio contexto ou admin FPP.
+
+**Request JSON:**
+
+```json
+{
+  "contexto_tipo": "academia",
+  "codigo_academia": "LDA20261",
+  "amount": 12500,
+  "currency": "AOA",
+  "description": "Propina de agosto de 2026",
+  "merchantTransactionId": "PROP-2026-08-LDA20261-0001",
+  "paymentMethod": "REF",
+  "paymentInfo": {
+    "phoneNumber": "923000000"
+  },
+  "notify": {
+    "email": "encarregado@example.com"
+  },
+  "async": false
+}
+```
+
+**Response 201:**
+
+```json
+{
+  "id": "4d2bbf53-c8c0-4c9a-a3f4-5a0f0cf988d1",
+  "provider_charge_id": "APPYPAY-987654",
+  "merchant_transaction_id": "PROP-2026-08-LDA20261-0001",
+  "status": "pendente",
+  "response": {
+    "status": "Accepted"
+  }
+}
+```
+
+**Regras de negócio:**
+
+- Exige credenciais AppyPay configuradas para o contexto resolvido.
+- `amount` deve ser positivo; `currency`, `description` e `paymentMethod` devem ser coerentes com o método configurado na credencial.
+- `merchantTransactionId` é a referência externa recomendada para idempotência e posterior consulta.
+- A cobrança é registrada no ledger como solicitação e, conforme resposta da AppyPay, como criada ou falhada.
+
+#### 19.5 POST /financeiro/appypay/qr-codes
+
+**Escopo da rota:** criação de cobrança GPO com QR Code. Use quando o cliente precisa exibir um QR Code de pagamento gerado pelo gateway.
+
+**Proteção:** autenticado + academia do próprio contexto ou admin FPP.
+
+**Request JSON:**
+
+```json
+{
+  "contexto_tipo": "academia",
+  "codigo_academia": "LDA20261",
+  "amount": 12500,
+  "currency": "AOA",
+  "description": "Pagamento com QR Code",
+  "merchantTransactionId": "QR-2026-08-LDA20261-0001",
+  "qrCodeType": "dynamic",
+  "minAmount": 12500,
+  "maxTransactions": 1,
+  "startDate": "2026-08-08T00:00:00Z",
+  "endDate": "2026-08-09T00:00:00Z"
+}
+```
+
+**Response 201:**
+
+```json
+{
+  "id": "76f2971c-4a7d-48f7-92c2-f8d3b28e9a2d",
+  "provider_charge_id": "APPYPAY-QR-123",
+  "merchant_transaction_id": "QR-2026-08-LDA20261-0001",
+  "status": "pendente",
+  "qrCodeArr": "iVBORw0KGgoAAAANSUhEUgAA...",
+  "response": {
+    "status": "Accepted"
+  }
+}
+```
+
+**Regras de negócio:**
+
+- Usa o método GPO configurado na credencial do contexto.
+- `qrCodeArr`, quando presente, vem em base64 e deve ser tratado pelo cliente como imagem/representação do QR Code.
+- Datas e limites (`minAmount`, `maxTransactions`) são repassados ao gateway conforme suporte da AppyPay.
+- O QR Code também gera histórico financeiro no ledger.
+
+#### 19.6 GET /financeiro/appypay/cobrancas/:id
+
+**Escopo da rota:** consulta uma cobrança financeira já criada, por `provider_charge_id` da AppyPay ou por `merchantTransactionId`.
+
+**Proteção:** autenticado + academia do próprio contexto ou admin FPP.
+
+**Query params:**
+
+| Campo | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `contexto_tipo` | string | Não | Contexto financeiro consultado. Para academia autenticada é forçado para `academia`. |
+| `codigo_academia` | string | Não | Academia dona da cobrança. Para academia autenticada é forçado para o código do token. |
+
+**Response 200:**
+
+```json
+{
+  "id": "4d2bbf53-c8c0-4c9a-a3f4-5a0f0cf988d1",
+  "provider_charge_id": "APPYPAY-987654",
+  "merchant_transaction_id": "PROP-2026-08-LDA20261-0001",
+  "status": "paga",
+  "response": {
+    "status": "Paid",
+    "paidAt": "2026-08-08T12:30:00Z"
+  }
+}
+```
+
+**Regras de negócio:**
+
+- A consulta respeita isolamento por contexto: academia não consulta cobrança de outra academia nem do `spuri`.
+- O `:id` pode ser o identificador retornado pelo provider ou o `merchantTransactionId` informado na criação.
+- A consulta grava evento financeiro de auditoria quando o serviço consulta/atualiza o estado.
+
+#### 19.7 POST /webhooks/appypay/gpo
+
+**Escopo da rota:** entrada pública para notificações AppyPay do método GPO.
+
+**Proteção:** pública no roteamento HTTP, autenticada por credencial AppyPay cadastrada. Use `Authorization: Basic ...` quando `webhook_auth_type="basic"` ou `X-API-Key` quando `webhook_auth_type="api_key"`.
+
+**Request JSON:**
+
+```json
+{
+  "id": "evt-gpo-0001",
+  "merchantTransactionId": "QR-2026-08-LDA20261-0001",
+  "status": "Paid",
+  "paidAt": "2026-08-08T12:30:00Z"
+}
+```
+
+**Response 200:** corpo vazio.
+
+**Regras de negócio:**
+
+- O payload precisa conter `id`, `merchantTransactionId` ou `merchant_transaction_id`; o primeiro valor encontrado é usado como chave idempotente.
+- Webhook sem autenticação válida retorna `401`; JSON inválido ou sem identificador retorna `400`.
+- Evento já recebido responde `200` novamente e não duplica o processamento.
+
+#### 19.8 POST /webhooks/appypay/ref
+
+**Escopo da rota:** entrada pública para notificações AppyPay do método REF.
+
+**Proteção:** igual ao webhook GPO: autenticação por Basic Auth ou `X-API-Key` conforme a credencial dona do webhook.
+
+**Request JSON:**
+
+```json
+{
+  "id": "evt-ref-0001",
+  "merchantTransactionId": "PROP-2026-08-LDA20261-0001",
+  "status": "Paid",
+  "reference": "123456789"
+}
+```
+
+**Response 200:** corpo vazio.
+
+**Regras de negócio:**
+
+- Aplica as mesmas regras de autenticação, validação mínima e idempotência do webhook GPO.
+- O método registrado internamente é `REF`, permitindo separar auditoria e reconciliação por canal AppyPay.
+
+**Erros comuns das rotas autenticadas:**
+
+| Status | Quando ocorre |
+|---|---|
+| `400` | Payload inválido, UUID inválido, contexto financeiro inválido ou credenciais incompletas. |
+| `401` | Token ausente/inválido nas rotas `/financeiro/*` ou autenticação inválida nos webhooks. |
+| `403` | Usuário autenticado tenta operar contexto sem permissão. |
+| `404` | Credencial/cobrança inexistente ou não encontrada no contexto permitido. |
+| `409` | Conflito/idempotência quando o backend identifica operação equivalente em andamento ou já registrada. |
+| `500` | Falha interna, indisponibilidade inesperada do serviço financeiro ou erro não tratado do provider. |
+
+---
+
+## 20. Armazenamento
 
 ### Processos e Regras de Negócio — Armazenamento de Arquivos
 
