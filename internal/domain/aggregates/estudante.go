@@ -84,8 +84,12 @@ func (e *Estudante) Apply(event DomainEvent) error {
 		return e.applyEstudanteDocumentosCompletados(event)
 	case "FaltasRegistradas":
 		return e.applyFaltasRegistradas(event)
+	case "FaltaCorrigida":
+		return e.applyFaltaCorrigida(event)
 	case "NotasRegistradas":
 		return e.applyNotasRegistradas(event)
+	case "NotaCorrigida":
+		return e.applyNotaCorrigida(event)
 	case "FundamentalRetomado":
 		return e.applyFundamentalEmAndamento(event)
 	case "FundamentalInterrompido":

@@ -458,4 +458,10 @@ func (r *AggregateRepository) convertToDomainEvents(dbEvents []Event) ([]aggrega
 	}
 	return domainEvents, nil
 }
+
+// GetEventByID exposes a single ledger event for authorized audit handlers.
+func (r *AggregateRepository) GetEventByID(eventID uuid.UUID) (*Event, error) {
+	return r.eventStore.GetEventByID(r.ctx, eventID)
+}
+
 // placeholder - wrong file, ignore

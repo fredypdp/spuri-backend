@@ -190,6 +190,14 @@ func codigosCategoriasEscolaresFixasParaAno(anoAcademico, modeloCursoMedio strin
 }
 
 func validarEscalaNotaPorAnoAcademico(anoAcademico string, nota float64) error {
+	max := limiteNotaPorAnoAcademico(anoAcademico)
+	if nota < 0 || nota > max {
+		return fmt.Errorf("nota %.2f fora da escala permitida para %s: use valores entre 0 e %.0f", nota, anoAcademico, max)
+	}
+	return nil
+}
+
+func limiteNotaPorAnoAcademico(anoAcademico string) float64 {
 	max := 20.0
 	if strings.Contains(anoAcademico, "_ano_fundamental") {
 		switch anoAcademico {
@@ -197,10 +205,7 @@ func validarEscalaNotaPorAnoAcademico(anoAcademico string, nota float64) error {
 			max = 10
 		}
 	}
-	if nota < 0 || nota > max {
-		return fmt.Errorf("nota %.2f fora da escala permitida para %s: use valores entre 0 e %.0f", nota, anoAcademico, max)
-	}
-	return nil
+	return max
 }
 
 func modeloCursoMedioDaMateria(c *gin.Context, materiaDTO *projections.MateriaDTO) string {

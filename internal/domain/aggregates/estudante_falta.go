@@ -3,6 +3,7 @@ package aggregates
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,10 +26,28 @@ type FaltasRegistradasEvent struct {
 	Quantidade           int
 	Observacao           *string
 	RegisteredAt         time.Time
+	RegistradoPor        uuid.UUID
 }
 
 func (e *FaltasRegistradasEvent) GetPayload() interface{} { return e }
 func (e *FaltasRegistradasEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+type FaltaCorrigidaEvent struct {
+	BaseEvent
+	FaltaAnteriorID      uuid.UUID
+	CodigoAcademia       string
+	AnoLectivo           string
+	Data                 time.Time
+	MateriaDisciplinarID uuid.UUID
+	NovaQuantidade       int
+	NovaObservacao       *string
+	Motivo               string
+	CorrigidoPor         uuid.UUID
+	CorrigidoEm          time.Time
+}
+
+func (e *FaltaCorrigidaEvent) GetPayload() interface{} { return e }
+func (e *FaltaCorrigidaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 // ============================================================================
 // Helpers internos
@@ -55,6 +74,7 @@ func (e *Estudante) RegistrarFalta(
 	materiaDisciplinarID uuid.UUID,
 	quantidade int,
 	observacao *string,
+	registradoPor uuid.UUID,
 ) error {
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
@@ -81,8 +101,31 @@ func (e *Estudante) RegistrarFalta(
 		Quantidade:           quantidade,
 		Observacao:           observacao,
 		RegisteredAt:         time.Now(),
+		RegistradoPor:        registradoPor,
 	}
 
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
+func (e *Estudante) CorrigirFalta(faltaAnteriorID uuid.UUID, codigoAcademia, anoLectivo string, data time.Time, materiaID uuid.UUID, novaQuantidade int, novaObservacao *string, motivo string, corrigidoPor uuid.UUID) error {
+	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
+		return fmt.Errorf("estudante não pertence a esta academia")
+	}
+	if faltaAnteriorID == uuid.Nil {
+		return fmt.Errorf("id da falta original inválido")
+	}
+	if strings.TrimSpace(motivo) == "" {
+		return fmt.Errorf("motivo da correção é obrigatório")
+	}
+	if novaQuantidade <= 0 {
+		return fmt.Errorf("quantidade deve ser maior que zero")
+	}
+	chave := chaveFalta(e.CodigoEstudante, codigoAcademia, anoLectivo, data, materiaID)
+	if e.FaltasRegistradasPorChave == nil || !e.FaltasRegistradasPorChave[chave] {
+		return fmt.Errorf("falta original não encontrada para correção")
+	}
+	event := &FaltaCorrigidaEvent{BaseEvent: BaseEvent{EventType: "FaltaCorrigida", AggregateID: e.ID}, FaltaAnteriorID: faltaAnteriorID, CodigoAcademia: codigoAcademia, AnoLectivo: anoLectivo, Data: data, MateriaDisciplinarID: materiaID, NovaQuantidade: novaQuantidade, NovaObservacao: novaObservacao, Motivo: strings.TrimSpace(motivo), CorrigidoPor: corrigidoPor, CorrigidoEm: time.Now()}
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
@@ -111,3 +154,5 @@ func (e *Estudante) applyFaltasRegistradas(event DomainEvent) error {
 	e.FaltasRegistradasPorChave[chave] = true
 	return nil
 }
+
+func (e *Estudante) applyFaltaCorrigida(event DomainEvent) error { return nil }

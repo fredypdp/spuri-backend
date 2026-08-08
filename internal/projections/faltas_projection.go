@@ -52,6 +52,7 @@ func (p *FaltasProjection) UpdateCheckpoint(eventID int64) error {
 func (p *FaltasProjection) Handle(event db.Event) error {
 	handlers := map[string]func(db.Event) error{
 		"FaltasRegistradas": p.handleFaltasRegistradas,
+		"FaltaCorrigida":    p.handleFaltaCorrigida,
 	}
 	if handler, ok := handlers[event.EventType]; ok {
 		log.Printf("[DEBUG] [faltas] Processando %s: %s", event.EventType, event.EventID)
@@ -74,7 +75,7 @@ func (p *FaltasProjection) Rebuild() error {
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger
-		WHERE event_type IN ('FaltasRegistradas')
+		WHERE event_type IN ('FaltasRegistradas', 'FaltaCorrigida')
 		ORDER BY id ASC
 	`)
 	if err != nil {
@@ -141,6 +142,7 @@ func (p *FaltasProjection) handleFaltasRegistradasTx(tx *sql.Tx, event db.Event)
 		Quantidade           int       `json:"Quantidade"`
 		Observacao           *string   `json:"Observacao"`
 		RegisteredAt         time.Time `json:"RegisteredAt"`
+		RegistradoPor        string    `json:"RegistradoPor"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("parse error FaltasRegistradas: %w", err)
@@ -150,16 +152,38 @@ func (p *FaltasProjection) handleFaltasRegistradasTx(tx *sql.Tx, event db.Event)
 		INSERT INTO projection_faltas (
 			codigo_estudante, codigo_academia, ano_lectivo, ano_academico,
 			data, materia_disciplinar_id, quantidade, observacao,
-			registered_at, event_id, version
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-		ON CONFLICT DO NOTHING
+			registered_at, registrado_por, event_id, version
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		ON CONFLICT ON CONSTRAINT uq_falta_unica DO NOTHING
 	`,
 		payload.CodigoEstudante, payload.CodigoAcademia, payload.AnoLectivo, payload.AnoAcademico,
 		payload.Data.UTC(), payload.MateriaDisciplinarID, payload.Quantidade, payload.Observacao,
-		payload.RegisteredAt.UTC(), event.EventID, event.EventVersion,
+		payload.RegisteredAt.UTC(), payload.RegistradoPor, event.EventID, event.EventVersion,
 	)
 	if err != nil {
 		return fmt.Errorf("handleFaltasRegistradasTx: exec error: %w", err)
+	}
+	return nil
+}
+
+func (p *FaltasProjection) handleFaltaCorrigida(event db.Event) error {
+	var payload struct {
+		FaltaAnteriorID string    `json:"FaltaAnteriorID"`
+		NovaQuantidade  int       `json:"NovaQuantidade"`
+		NovaObservacao  *string   `json:"NovaObservacao"`
+		Motivo          string    `json:"Motivo"`
+		CorrigidoPor    string    `json:"CorrigidoPor"`
+		CorrigidoEm     time.Time `json:"CorrigidoEm"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("handleFaltaCorrigida: parse error: %w", err)
+	}
+	result, err := p.client.DB().Exec(`UPDATE projection_faltas SET quantidade=$2, observacao=$3, valor_anterior=quantidade, motivo_correcao=$4, corrigido_por=$5, corrigido_em=$6, event_id=$7, version=$8 WHERE id=$1`, payload.FaltaAnteriorID, payload.NovaQuantidade, payload.NovaObservacao, payload.Motivo, payload.CorrigidoPor, payload.CorrigidoEm, event.EventID, event.EventVersion)
+	if err != nil {
+		return fmt.Errorf("handleFaltaCorrigida: exec error: %w", err)
+	}
+	if rows, _ := result.RowsAffected(); rows != 1 {
+		return fmt.Errorf("handleFaltaCorrigida: falta original %s não encontrada", payload.FaltaAnteriorID)
 	}
 	return nil
 }
@@ -179,6 +203,11 @@ type FaltaDTO struct {
 	MateriaNome          *string    `json:"materia_nome,omitempty"`
 	Quantidade           int        `json:"quantidade"`
 	Observacao           *string    `json:"observacao,omitempty"`
+	RegistradoPor        *string    `json:"registrado_por,omitempty"`
+	ValorAnterior        *int       `json:"valor_anterior,omitempty"`
+	MotivoCorrecao       *string    `json:"motivo_correcao,omitempty"`
+	CorrigidoPor         *string    `json:"corrigido_por,omitempty"`
+	CorrigidoEm          *time.Time `json:"corrigido_em,omitempty"`
 	RegisteredAt         string     `json:"registered_at"`
 	EventID              string     `json:"event_id"`
 	Version              int        `json:"version"`
@@ -187,7 +216,7 @@ type FaltaDTO struct {
 func (p *FaltasProjection) GetByID(id string) (*FaltaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
-			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao,
+			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
@@ -207,7 +236,7 @@ func (p *FaltasProjection) GetByID(id string) (*FaltaDTO, error) {
 func (p *FaltasProjection) GetByEstudante(codigoEstudante string) ([]FaltaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
-			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao,
+			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
@@ -224,7 +253,7 @@ func (p *FaltasProjection) GetByEstudante(codigoEstudante string) ([]FaltaDTO, e
 func (p *FaltasProjection) GetByAcademia(codigoAcademia string) ([]FaltaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
-			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao,
+			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
@@ -241,7 +270,7 @@ func (p *FaltasProjection) GetByAcademia(codigoAcademia string) ([]FaltaDTO, err
 func (p *FaltasProjection) GetByPeriodo(codigoEstudante, anoLectivo string, dataInicio, dataFim time.Time) ([]FaltaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
-			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao,
+			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
@@ -260,7 +289,7 @@ func (p *FaltasProjection) GetByPeriodo(codigoEstudante, anoLectivo string, data
 func (p *FaltasProjection) GetAll() ([]FaltaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
-			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao,
+			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
@@ -279,7 +308,7 @@ func scanFaltas(rows *sql.Rows) ([]FaltaDTO, error) {
 		var f FaltaDTO
 		if err := rows.Scan(
 			&f.ID, &f.CodigoEstudante, &f.CodigoAcademia, &f.AnoLectivo, &f.AnoAcademico,
-			&f.Data, &f.MateriaDisciplinarID, &f.MateriaNome, &f.Quantidade, &f.Observacao,
+			&f.Data, &f.MateriaDisciplinarID, &f.MateriaNome, &f.Quantidade, &f.Observacao, &f.RegistradoPor, &f.ValorAnterior, &f.MotivoCorrecao, &f.CorrigidoPor, &f.CorrigidoEm,
 			&f.RegisteredAt, &f.EventID, &f.Version,
 		); err != nil {
 			continue

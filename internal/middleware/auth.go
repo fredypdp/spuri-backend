@@ -1,7 +1,9 @@
 package middleware
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -27,17 +29,29 @@ var jwtSecret []byte
 
 func init() {
 	secret := os.Getenv("JWT_SECRET")
-	env := os.Getenv("ENV")
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("ENV")))
 
 	if secret == "" {
-		if env == "production" {
-			log.Fatalf("[FATAL] JWT_SECRET não configurado em produção. Configure a variável de ambiente JWT_SECRET.")
+		secretBytes := make([]byte, 32)
+		if _, err := rand.Read(secretBytes); err != nil {
+			log.Fatalf("[FATAL] não foi possível gerar JWT_SECRET efêmero: %v", err)
 		}
-		secret = "seu_segredo_muito_secreto_aqui_mude_em_producao"
-		log.Printf("⚠️  [JWT] Usando secret padrão — NÃO USE EM PRODUÇÃO. Configure JWT_SECRET.")
+		jwtSecret = secretBytes
+		log.Printf("[WARN] JWT_SECRET ausente; usando segredo efêmero até a validação de inicialização (%s)", env)
+		return
 	}
 	jwtSecret = []byte(secret)
 	log.Printf("✅ [JWT] Secret configurado (%d bytes)", len(jwtSecret))
+}
+
+// ValidateJWTConfig must be called by the executable after loading its
+// environment. Package initialization cannot terminate unit-test processes.
+func ValidateJWTConfig() error {
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("ENV")))
+	if strings.TrimSpace(os.Getenv("JWT_SECRET")) == "" && env != "development" && env != "test" {
+		return fmt.Errorf("JWT_SECRET não configurado")
+	}
+	return nil
 }
 
 // getJWTExpiryHours retorna o número de horas de validade do token.

@@ -54,6 +54,7 @@ func (p *NotasProjection) UpdateCheckpoint(eventID int64) error {
 func (p *NotasProjection) Handle(event db.Event) error {
 	handlers := map[string]func(db.Event) error{
 		"NotasRegistradas": p.handleNotasRegistradas,
+		"NotaCorrigida":    p.handleNotaCorrigida,
 	}
 	if handler, ok := handlers[event.EventType]; ok {
 		log.Printf("[DEBUG] [notas] Processando %s: %s", event.EventType, event.EventID)
@@ -77,7 +78,7 @@ func (p *NotasProjection) Rebuild() error {
 			event_version, payload, metadata, occurred_at, recorded_at,
 			ledger_hash, previous_hash
 		FROM spuri_ledger
-		WHERE event_type IN ('NotasRegistradas')
+		WHERE event_type IN ('NotasRegistradas', 'NotaCorrigida')
 		ORDER BY id ASC
 	`)
 	if err != nil {
@@ -142,6 +143,7 @@ func (p *NotasProjection) handleNotasRegistradas(event db.Event) error {
 		Nota                 float64   `json:"Nota"`
 		Observacao           *string   `json:"Observacao"`
 		RegisteredAt         time.Time `json:"RegisteredAt"`
+		RegistradoPor        uuid.UUID `json:"RegistradoPor"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleNotasRegistradas: parse error: %w", err)
@@ -151,20 +153,21 @@ func (p *NotasProjection) handleNotasRegistradas(event db.Event) error {
 		INSERT INTO projection_notas (
 			codigo_estudante, codigo_academia, ano_lectivo, ano_academico,
 			periodo, materia_disciplinar_id, tipo, categoria, nota, observacao,
-			registered_at, event_id, version
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+			registered_at, registrado_por, event_id, version
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 		ON CONFLICT (codigo_estudante, codigo_academia, ano_lectivo, periodo, materia_disciplinar_id, tipo, categoria)
 		DO UPDATE SET
 			nota          = EXCLUDED.nota,
 			observacao    = EXCLUDED.observacao,
 			event_id      = EXCLUDED.event_id,
 			version       = EXCLUDED.version,
-			registered_at = EXCLUDED.registered_at
+			registered_at = EXCLUDED.registered_at,
+			registrado_por = EXCLUDED.registrado_por
 	`,
 		payload.CodigoEstudante, payload.CodigoAcademia, payload.AnoLectivo, payload.AnoAcademico,
 		payload.Periodo, payload.MateriaDisciplinarID, payload.Tipo, payload.Categoria,
 		payload.Nota, payload.Observacao,
-		payload.RegisteredAt, event.EventID, event.EventVersion,
+		payload.RegisteredAt, payload.RegistradoPor, event.EventID, event.EventVersion,
 	)
 	if err != nil {
 		return fmt.Errorf("handleNotasRegistradas: exec error: %w", err)
@@ -178,33 +181,60 @@ func (p *NotasProjection) handleNotasRegistradas(event db.Event) error {
 	return nil
 }
 
+func (p *NotasProjection) handleNotaCorrigida(event db.Event) error {
+	var payload struct {
+		NotaAnteriorID uuid.UUID `json:"NotaAnteriorID"`
+		NovaNota       float64   `json:"NovaNota"`
+		NovaObservacao *string   `json:"NovaObservacao"`
+		Motivo         string    `json:"Motivo"`
+		CorrigidoPor   uuid.UUID `json:"CorrigidoPor"`
+		CorrigidoEm    time.Time `json:"CorrigidoEm"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("handleNotaCorrigida: parse error: %w", err)
+	}
+	result, err := p.client.DB().Exec(`UPDATE projection_notas SET nota=$2, observacao=$3, valor_anterior=nota, motivo_correcao=$4, corrigido_por=$5, corrigido_em=$6, event_id=$7, version=$8 WHERE id=$1`, payload.NotaAnteriorID, payload.NovaNota, payload.NovaObservacao, payload.Motivo, payload.CorrigidoPor, payload.CorrigidoEm, event.EventID, event.EventVersion)
+	if err != nil {
+		return fmt.Errorf("handleNotaCorrigida: exec error: %w", err)
+	}
+	if rows, _ := result.RowsAffected(); rows != 1 {
+		return fmt.Errorf("handleNotaCorrigida: nota original %s não encontrada", payload.NotaAnteriorID)
+	}
+	return nil
+}
+
 // ============================================================================
 // Queries de leitura
 // ============================================================================
 
 type NotaDTO struct {
-	ID                   uuid.UUID `json:"id"`
-	CodigoEstudante      string    `json:"codigo_estudante"`
-	CodigoAcademia       string    `json:"codigo_academia"`
-	AnoLectivo           string    `json:"ano_lectivo"`
-	AnoAcademico         string    `json:"ano_academico"`
-	Periodo              string    `json:"periodo"`
-	MateriaDisciplinarID string    `json:"materia_disciplinar_id"`
-	MateriaNome          *string   `json:"materia_nome,omitempty"`
-	Tipo                 string    `json:"tipo"`
-	Categoria            string    `json:"categoria"`
-	Nota                 float64   `json:"nota"`
-	Observacao           *string   `json:"observacao,omitempty"`
-	RegisteredAt         time.Time `json:"registered_at"`
-	EventID              uuid.UUID `json:"event_id"`
-	Version              int       `json:"version"`
+	ID                   uuid.UUID  `json:"id"`
+	CodigoEstudante      string     `json:"codigo_estudante"`
+	CodigoAcademia       string     `json:"codigo_academia"`
+	AnoLectivo           string     `json:"ano_lectivo"`
+	AnoAcademico         string     `json:"ano_academico"`
+	Periodo              string     `json:"periodo"`
+	MateriaDisciplinarID string     `json:"materia_disciplinar_id"`
+	MateriaNome          *string    `json:"materia_nome,omitempty"`
+	Tipo                 string     `json:"tipo"`
+	Categoria            string     `json:"categoria"`
+	Nota                 float64    `json:"nota"`
+	Observacao           *string    `json:"observacao,omitempty"`
+	RegistradoPor        uuid.UUID  `json:"registrado_por"`
+	ValorAnterior        *float64   `json:"valor_anterior,omitempty"`
+	MotivoCorrecao       *string    `json:"motivo_correcao,omitempty"`
+	CorrigidoPor         *uuid.UUID `json:"corrigido_por,omitempty"`
+	CorrigidoEm          *time.Time `json:"corrigido_em,omitempty"`
+	RegisteredAt         time.Time  `json:"registered_at"`
+	EventID              uuid.UUID  `json:"event_id"`
+	Version              int        `json:"version"`
 }
 
 func (p *NotasProjection) GetByEstudante(codigoEstudante string) ([]NotaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT n.id, n.codigo_estudante, n.codigo_academia, n.ano_lectivo, n.ano_academico,
 			n.periodo, n.materia_disciplinar_id, m.nome,
-			n.tipo, n.categoria, n.nota, n.observacao,
+			n.tipo, n.categoria, n.nota, n.observacao, n.registrado_por, n.valor_anterior, n.motivo_correcao, n.corrigido_por, n.corrigido_em,
 			n.registered_at, n.event_id, n.version
 		FROM projection_notas n
 		LEFT JOIN projection_materias m ON m.id = n.materia_disciplinar_id::uuid
@@ -222,7 +252,7 @@ func (p *NotasProjection) GetByAcademia(codigoAcademia string) ([]NotaDTO, error
 	rows, err := p.client.DB().Query(`
 		SELECT n.id, n.codigo_estudante, n.codigo_academia, n.ano_lectivo, n.ano_academico,
 			n.periodo, n.materia_disciplinar_id, m.nome,
-			n.tipo, n.categoria, n.nota, n.observacao,
+			n.tipo, n.categoria, n.nota, n.observacao, n.registrado_por, n.valor_anterior, n.motivo_correcao, n.corrigido_por, n.corrigido_em,
 			n.registered_at, n.event_id, n.version
 		FROM projection_notas n
 		LEFT JOIN projection_materias m ON m.id = n.materia_disciplinar_id::uuid
@@ -242,7 +272,7 @@ func (p *NotasProjection) GetNotaByID(id uuid.UUID) (*NotaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT n.id, n.codigo_estudante, n.codigo_academia, n.ano_lectivo, n.ano_academico,
 			n.periodo, n.materia_disciplinar_id, m.nome,
-			n.tipo, n.categoria, n.nota, n.observacao,
+			n.tipo, n.categoria, n.nota, n.observacao, n.registrado_por, n.valor_anterior, n.motivo_correcao, n.corrigido_por, n.corrigido_em,
 			n.registered_at, n.event_id, n.version
 		FROM projection_notas n
 		LEFT JOIN projection_materias m ON m.id = n.materia_disciplinar_id::uuid
@@ -267,7 +297,7 @@ func scanNotas(rows *sql.Rows) ([]NotaDTO, error) {
 		if err := rows.Scan(
 			&n.ID, &n.CodigoEstudante, &n.CodigoAcademia, &n.AnoLectivo, &n.AnoAcademico,
 			&n.Periodo, &n.MateriaDisciplinarID, &n.MateriaNome,
-			&n.Tipo, &n.Categoria, &n.Nota, &n.Observacao,
+			&n.Tipo, &n.Categoria, &n.Nota, &n.Observacao, &n.RegistradoPor, &n.ValorAnterior, &n.MotivoCorrecao, &n.CorrigidoPor, &n.CorrigidoEm,
 			&n.RegisteredAt, &n.EventID, &n.Version,
 		); err != nil {
 			return nil, err

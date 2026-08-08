@@ -33,7 +33,7 @@ func RegistrarNota(c *gin.Context) {
 		Observacao           *string `json:"observacao"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := decodeStrictJSON(c, &req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf(
 			"campos obrigatorios: codigo_estudante, periodo, "+
 				"materia_disciplinar_id, tipo, categoria, nota",
@@ -88,6 +88,14 @@ func RegistrarNota(c *gin.Context) {
 	}
 	if estudanteDTO.CodigoAcademia == nil || *estudanteDTO.CodigoAcademia != academiaDTO.CodigoAcademia {
 		utils.RespondWithForbiddenError(c, "estudante nao pertence a esta academia")
+		return
+	}
+	if err := validarMatriculaEmAndamento(estudanteDTO); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if err := validarObservacao(req.Observacao); err != nil {
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 
@@ -188,6 +196,7 @@ func RegistrarNota(c *gin.Context) {
 		categoriasAdicionais,
 		periodosValidos,
 		userID,
+		limiteNotaPorAnoAcademico(anoAcademico),
 	)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "periodo") || strings.Contains(strings.ToLower(err.Error()), "período") {
@@ -242,6 +251,101 @@ func RegistrarNota(c *gin.Context) {
 		"periodos_validos":              periodosValidos,
 		"avaliacoes_finais_automaticas": avaliacoesAutomaticas,
 	})
+}
+
+// CorrigirNota emits a compensating event; it never mutates the original ledger record.
+func CorrigirNota(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	notaID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("id da nota inválido"))
+		return
+	}
+	var req struct {
+		Nota       float64 `json:"nota"`
+		Observacao *string `json:"observacao"`
+		Motivo     string  `json:"motivo" binding:"required"`
+	}
+	if err := decodeStrictJSON(c, &req); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if strings.TrimSpace(req.Motivo) == "" {
+		utils.RespondWithValidationError(c, fmt.Errorf("motivo da correção é obrigatório"))
+		return
+	}
+	if err := validarObservacao(req.Observacao); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	academia, err := getAcademiaProjection(c).GetByID(userID)
+	if err != nil || academia == nil {
+		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+	nota, err := getNotasProjection(c).GetNotaByID(notaID)
+	if err != nil || nota == nil {
+		utils.RespondWithNotFoundError(c, "nota")
+		return
+	}
+	if nota.CodigoAcademia != academia.CodigoAcademia {
+		utils.RespondWithForbiddenError(c, "nota não pertence a esta academia")
+		return
+	}
+	estudanteDTO, err := getEstudanteProjection(c).GetByCodigo(nota.CodigoEstudante)
+	if err != nil || estudanteDTO == nil {
+		utils.RespondWithNotFoundError(c, "estudante")
+		return
+	}
+	agg, err := getRepository(c).Load(estudanteDTO.ID, "Estudante")
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	estudante, ok := agg.(*aggregates.Estudante)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
+	materiaID, err := uuid.Parse(nota.MateriaDisciplinarID)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if err := estudante.CorrigirNota(notaID, academia.CodigoAcademia, nota.AnoLectivo, nota.Periodo, materiaID, nota.Tipo, nota.Categoria, req.Nota, req.Observacao, req.Motivo, userID, limiteNotaPorAnoAcademico(nota.AnoAcademico)); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if err := getRepository(c).SaveWithAudit(estudante, db.AuditContext{UserID: userID.String(), UserType: "academia", IP: c.ClientIP()}); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "nota corrigida com sucesso", "id": notaID})
+}
+
+func validarObservacao(observacao *string) error {
+	if observacao != nil && len([]rune(*observacao)) > 2000 {
+		return fmt.Errorf("observacao deve ter no máximo 2000 caracteres")
+	}
+	return nil
+}
+
+func validarMatriculaEmAndamento(estudante *projections.EstudanteDTO) error {
+	switch inferirTipoEnsinoDoEstudante(estudante) {
+	case "superior":
+		if estudante.StatusSuperior != "em_andamento" {
+			return fmt.Errorf("matrícula superior do estudante não está em andamento")
+		}
+	case "medio":
+		if estudante.StatusEscolarMedio != "em_andamento" {
+			return fmt.Errorf("matrícula no ensino médio do estudante não está em andamento")
+		}
+	default:
+		if estudante.StatusEscolarFundamental != "em_andamento" {
+			return fmt.Errorf("matrícula no ensino fundamental do estudante não está em andamento")
+		}
+	}
+	return nil
 }
 
 // ============================================================================

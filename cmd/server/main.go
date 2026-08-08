@@ -40,10 +40,14 @@ var requestIDPattern = regexp.MustCompile(`^[a-zA-Z0-9\-]{1,64}$`)
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 
-	if os.Getenv("ENV") != "production" {
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("ENV")))
+	if env != "production" {
 		if err := godotenv.Load(); err != nil {
 			log.Println("[WARN] Arquivo .env não encontrado")
 		}
+	}
+	if err := middleware.ValidateJWTConfig(); err != nil {
+		log.Fatalf("[FATAL] configuração JWT inválida: %v", err)
 	}
 
 	if err := initDB(); err != nil {
@@ -63,7 +67,7 @@ func main() {
 	defer ctxCancel()
 	initJobs(ctx)
 
-	if os.Getenv("ENV") == "production" {
+	if env == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
@@ -410,6 +414,8 @@ func setupRouter() *gin.Engine {
 		academia.POST("/estudante/:codigo/documentos", handlers.CompletarDocumentosEstudantePendente)
 		academia.POST("/notas-aluno", handlers.RegistrarNota)
 		academia.POST("/faltas-aluno", handlers.RegistrarFaltas)
+		academia.PATCH("/notas-aluno/:id", handlers.CorrigirNota)
+		academia.PATCH("/faltas-aluno/:id", handlers.CorrigirFalta)
 		// Avaliação final é acionada automaticamente pelo registro de notas
 		academia.POST("/avaliacao-final/regras", handlers.CriarRegraAvaliacaoFinal)
 		academia.PUT("/avaliacao-final/regras/:id", handlers.EditarRegraAvaliacaoFinal)
@@ -485,6 +491,7 @@ func setupRouter() *gin.Engine {
 		admin.PUT("/admin/:id/desativar", middleware.RequireAdm(), handlers.DesativarAdmin)
 		admin.GET("/admin-lista", handlers.ListarTodosAdmins)
 		admin.GET("/metrics", handlers.GetSystemMetrics)
+		admin.GET("/eventos/:event_id", handlers.GetEventoAuditoria)
 		admin.GET("/storage/quota", handlers.GetStorageQuota)
 		admin.GET("/solicitacoes-matricula", handlers.ListarSolicitacoesMatriculaAdmin)
 		admin.POST("/projections/rebuild/:name", middleware.RequireFPP(), handlers.RebuildProjection)

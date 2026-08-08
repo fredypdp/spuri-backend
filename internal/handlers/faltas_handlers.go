@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -56,7 +57,7 @@ func RegistrarFaltas(c *gin.Context) {
 		Observacao           *string    `json:"observacao"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := decodeStrictJSON(c, &req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf(
 			"dados obrigatórios: codigo_estudante, data, materia_disciplinar_id e quantidade",
 		))
@@ -85,6 +86,18 @@ func RegistrarFaltas(c *gin.Context) {
 	}
 	if estudanteDTO.CodigoAcademia == nil || *estudanteDTO.CodigoAcademia != academiaDTO.CodigoAcademia {
 		utils.RespondWithForbiddenError(c, "estudante não pertence a esta academia")
+		return
+	}
+	if err := validarMatriculaEmAndamento(estudanteDTO); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if err := validarObservacao(req.Observacao); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if req.Quantidade > 100 {
+		utils.RespondWithValidationError(c, fmt.Errorf("quantidade de faltas deve ser no máximo 100"))
 		return
 	}
 
@@ -137,6 +150,7 @@ func RegistrarFaltas(c *gin.Context) {
 		materiaID,
 		req.Quantidade,
 		req.Observacao,
+		userID,
 	)
 	if err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -163,6 +177,75 @@ func RegistrarFaltas(c *gin.Context) {
 		"quantidade":    req.Quantidade,
 		"ano_academico": anoAcademico,
 	})
+}
+
+func CorrigirFalta(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	faltaID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("id da falta inválido"))
+		return
+	}
+	var req struct {
+		Quantidade int     `json:"quantidade" binding:"required,min=1"`
+		Observacao *string `json:"observacao"`
+		Motivo     string  `json:"motivo" binding:"required"`
+	}
+	if err := decodeStrictJSON(c, &req); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if req.Quantidade > 100 || strings.TrimSpace(req.Motivo) == "" {
+		utils.RespondWithValidationError(c, fmt.Errorf("quantidade inválida ou motivo da correção ausente"))
+		return
+	}
+	if err := validarObservacao(req.Observacao); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	academia, err := getAcademiaProjection(c).GetByID(userID)
+	if err != nil || academia == nil {
+		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+	falta, err := getFaltasProjection(c).GetByID(faltaID.String())
+	if err != nil || falta == nil {
+		utils.RespondWithNotFoundError(c, "falta")
+		return
+	}
+	if falta.CodigoAcademia != academia.CodigoAcademia {
+		utils.RespondWithForbiddenError(c, "falta não pertence a esta academia")
+		return
+	}
+	estudanteDTO, err := getEstudanteProjection(c).GetByCodigo(falta.CodigoEstudante)
+	if err != nil || estudanteDTO == nil {
+		utils.RespondWithNotFoundError(c, "estudante")
+		return
+	}
+	agg, err := getRepository(c).Load(estudanteDTO.ID, "Estudante")
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	estudante, ok := agg.(*aggregates.Estudante)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
+	materiaID, err := uuid.Parse(falta.MateriaDisciplinarID)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if err := estudante.CorrigirFalta(faltaID, academia.CodigoAcademia, falta.AnoLectivo, falta.Data.Time, materiaID, req.Quantidade, req.Observacao, req.Motivo, userID); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if err := getRepository(c).SaveWithAudit(estudante, db.AuditContext{UserID: userID.String(), UserType: "academia", IP: c.ClientIP()}); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "falta corrigida com sucesso", "id": faltaID})
 }
 
 // ============================================================================

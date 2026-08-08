@@ -644,6 +644,25 @@ func GetEventosEstudante(c *gin.Context) {
 	})
 }
 
+// GetEventoAuditoria returns the immutable ledger event for an administrator.
+func GetEventoAuditoria(c *gin.Context) {
+	eventID, err := uuid.Parse(c.Param("event_id"))
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("event_id inválido"))
+		return
+	}
+	evento, err := getRepository(c).GetEventByID(eventID)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if evento == nil {
+		utils.RespondWithNotFoundError(c, "evento")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"evento": evento})
+}
+
 // ============================================================================
 // GET /estudante/minhas-avaliacoes
 // ============================================================================

@@ -50,6 +50,27 @@ type NotasRegistradasEvent struct {
 func (e *NotasRegistradasEvent) GetPayload() interface{} { return e }
 func (e *NotasRegistradasEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
+// NotaCorrigidaEvent preserves the original ledger record and carries the
+// audited replacement displayed by the read projection.
+type NotaCorrigidaEvent struct {
+	BaseEvent
+	NotaAnteriorID       uuid.UUID
+	CodigoAcademia       string
+	AnoLectivo           string
+	Periodo              string
+	MateriaDisciplinarID uuid.UUID
+	Tipo                 string
+	Categoria            string
+	NovaNota             float64
+	NovaObservacao       *string
+	Motivo               string
+	CorrigidoPor         uuid.UUID
+	CorrigidoEm          time.Time
+}
+
+func (e *NotaCorrigidaEvent) GetPayload() interface{} { return e }
+func (e *NotaCorrigidaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
 // ============================================================================
 // Validações internas
 // ============================================================================
@@ -138,6 +159,7 @@ func (e *Estudante) RegistrarNota(
 	categoriasAdicionais []string,
 	periodosValidos []string,
 	registradoPor uuid.UUID,
+	maxNota float64,
 ) error {
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
@@ -151,8 +173,8 @@ func (e *Estudante) RegistrarNota(
 	if err := validarCategoria(tipo, categoria, categoriasAdicionais); err != nil {
 		return err
 	}
-	if nota < 0 {
-		return fmt.Errorf("nota deve ser maior ou igual a 0")
+	if nota < 0 || nota > maxNota {
+		return fmt.Errorf("nota deve estar entre 0 e %.0f", maxNota)
 	}
 
 	// FIX NOTA-AGG-01: detectar duplicata via estado do aggregate.
@@ -185,6 +207,28 @@ func (e *Estudante) RegistrarNota(
 	return e.Apply(event)
 }
 
+func (e *Estudante) CorrigirNota(notaAnteriorID uuid.UUID, codigoAcademia, anoLectivo, periodo string, materiaID uuid.UUID, tipo, categoria string, novaNota float64, novaObservacao *string, motivo string, corrigidoPor uuid.UUID, maxNota float64) error {
+	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
+		return fmt.Errorf("estudante não pertence a esta academia")
+	}
+	if notaAnteriorID == uuid.Nil {
+		return fmt.Errorf("id da nota original inválido")
+	}
+	if strings.TrimSpace(motivo) == "" {
+		return fmt.Errorf("motivo da correção é obrigatório")
+	}
+	if novaNota < 0 || novaNota > maxNota {
+		return fmt.Errorf("nota deve estar entre 0 e %.0f", maxNota)
+	}
+	chave := chaveNota(codigoAcademia, anoLectivo, periodo, materiaID, tipo, categoria)
+	if e.NotasRegistradasPorChave == nil || !e.NotasRegistradasPorChave[chave] {
+		return fmt.Errorf("nota original não encontrada para correção")
+	}
+	event := &NotaCorrigidaEvent{BaseEvent: BaseEvent{EventType: "NotaCorrigida", AggregateID: e.ID}, NotaAnteriorID: notaAnteriorID, CodigoAcademia: codigoAcademia, AnoLectivo: anoLectivo, Periodo: periodo, MateriaDisciplinarID: materiaID, Tipo: tipo, Categoria: categoria, NovaNota: novaNota, NovaObservacao: novaObservacao, Motivo: strings.TrimSpace(motivo), CorrigidoPor: corrigidoPor, CorrigidoEm: time.Now()}
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
 // ============================================================================
 // Apply handlers
 // ============================================================================
@@ -209,3 +253,5 @@ func (e *Estudante) applyNotasRegistradas(event DomainEvent) error {
 	e.NotasRegistradasPorChave[chave] = true
 	return nil
 }
+
+func (e *Estudante) applyNotaCorrigida(event DomainEvent) error { return nil }
