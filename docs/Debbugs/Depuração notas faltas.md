@@ -194,7 +194,7 @@ O mesmo vale para faltas: uma falta lançada com `quantidade` errada, matéria e
 
 **Problema:** não há teto máximo para `quantidade` (ex. nada impede `quantidade: 999999`), nem limite de tamanho para o campo de texto livre `observacao` em nota ou falta.
 
-**Correção recomendada:** adicionar `max` razoável em `quantidade` (ex. `binding:"required,min=1,max=20"`, ajustável conforme o maior número plausível de aulas de uma mesma matéria em um único dia) e um limite de tamanho para `observacao` (ex. 1000–2000 caracteres), validado no handler antes de chegar ao aggregate.
+**Correção recomendada:** adicionar `max_quantidade_faltas` às matérias disciplinares, para que a academia possa definir qual é o limite de faltas que aquela matéria pode ter, e definir globalmente no sistema um mínimo de quantidade de faltas `1`. E um limite de tamanho para `observacao` (ex. 1000–2000 caracteres), validado no handler antes de chegar ao aggregate.
 
 ---
 
