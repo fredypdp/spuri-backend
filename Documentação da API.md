@@ -44,6 +44,7 @@ Versão atual: 2.2.0
 17. [Jobs Assíncronos](#17-jobs-assíncronos)
 18. [Batch Assíncrono](#18-batch-assíncrono)
 19. [Armazenamento](#19-armazenamento)
+20. [Financeiro / AppyPay](#financeiro--appypay)
 
 ---
 
@@ -79,6 +80,30 @@ Todas as rotas retornam erros exclusivamente neste envelope padronizado (`utils.
   ]
 }
 ```
+
+---
+
+## Financeiro / AppyPay
+
+Todas as rotas abaixo exigem autenticação e aceitam apenas academia (restrita ao
+seu próprio `codigo_academia`) ou administrador FPP. Segredos nunca são
+devolvidos; a configuração persiste somente máscaras. `ENV=development`/`test`
+usa automaticamente o gateway TEST e `ENV=production`, o gateway PROD.
+
+| Método | Rota | Finalidade |
+|---|---|---|
+| POST | `/financeiro/appypay/credenciais` | Configura credenciais cifradas para `spuri` ou `academia`. |
+| PUT | `/financeiro/appypay/credenciais/:id` | Atualiza uma configuração. |
+| GET | `/financeiro/appypay/credenciais` | Lista configurações mascaradas. |
+| POST | `/financeiro/appypay/cobrancas` | Cria cobrança GPO ou REF genérica. |
+| POST | `/financeiro/appypay/qr-codes` | Gera QR Code GPO; a resposta inclui `qrCodeArr` em base64. |
+| GET | `/financeiro/appypay/cobrancas/:id` | Consulta uma cobrança por id AppyPay ou `merchantTransactionId`. |
+
+Os webhooks públicos são `POST /webhooks/appypay/gpo` e
+`POST /webhooks/appypay/ref`. Cada conta escolhe `basic` ou `api_key` durante a
+configuração; a API Key deve ser enviada em `X-API-Key`. Ambos respondem `200`
+para evento aceite ou duplicado e são idempotentes por `id` ou
+`merchantTransactionId`.
 
 O formato legado de erro simples não é contrato suportado.
 

@@ -169,10 +169,10 @@ func TestValidateEventTypeRejectsRemovedPaymentEvents(t *testing.T) {
 	}
 }
 
-func TestValidateAggregateTypeRejectsRemovedPaymentAggregate(t *testing.T) {
+func TestValidateAggregateTypeAcceptsFinanceiro(t *testing.T) {
 	t.Parallel()
 
-	if err := ValidateAggregateType("Finance" + "iro"); err == nil {
-		t.Fatal("ValidateAggregateType(\"Finance\" + \"iro\") retornou nil, want erro")
+	if err := ValidateAggregateType("Finance" + "iro"); err != nil {
+		t.Fatalf("ValidateAggregateType(\"Finance\" + \"iro\") retornou %v, want nil", err)
 	}
 }

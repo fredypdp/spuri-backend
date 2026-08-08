@@ -15,6 +15,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"spuri/internal/db"
+	"spuri/internal/finance"
 	"spuri/internal/handlers"
 	"spuri/internal/jobs"
 	"spuri/internal/middleware"
@@ -86,6 +87,7 @@ func initDB() error {
 		return err
 	}
 	repository = db.NewAggregateRepository(dbClient)
+	handlers.FinanceiroService = finance.NewService(dbClient)
 	if err := dbClient.Health(); err != nil {
 		return err
 	}
@@ -127,6 +129,7 @@ func initProjections() error {
 	projManager.RegisterProjection("avaliacao_final", projections.NewAvaliacaoFinalProjection(dbClient))
 	projManager.RegisterProjection("solicitacoes_matricula", projections.NewSolicitacaoMatriculaProjection(dbClient))
 	projManager.RegisterProjection("solicitacoes_edicao_dados_estudante", projections.NewSolicitacaoEdicaoDadoEstudanteProjection(dbClient))
+	projManager.RegisterProjection("financeiro", projections.NewFinanceiroProjection(dbClient))
 
 	go projManager.StartProcessing()
 	return nil
@@ -235,6 +238,10 @@ func setupRouter() *gin.Engine {
 	router.POST("/login", middleware.LoginRateLimit(), handlers.Login)
 	router.POST("/bootstrap", middleware.LoginRateLimit(), handlers.BootstrapAdminFPP)
 	router.POST("/solicitacao-matricula", handlers.CriarSolicitacaoMatricula)
+	// Webhooks são públicos por necessidade do gateway, mas autenticados pelo
+	// próprio módulo antes de qualquer evento ser aceite.
+	router.POST("/webhooks/appypay/gpo", handlers.ReceberWebhookAppyPay("GPO"))
+	router.POST("/webhooks/appypay/ref", handlers.ReceberWebhookAppyPay("REF"))
 
 	emailGroup := router.Group("/email")
 	emailGroup.Use(middleware.EmailRateLimit())
@@ -298,6 +305,17 @@ func setupRouter() *gin.Engine {
 		protected.GET("/documentos/solicitacoes-matricula/:codigo/:campo/download", handlers.DownloadDocumentoSolicitacaoMatricula)
 		protected.GET("/avaliacoes-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetAvaliacoesFinaisEstudante)
 		protected.GET("/turmas-estudante/:codigo", handlers.GetTurmasEstudante)
+
+		financeiro := protected.Group("/financeiro")
+		financeiro.Use(middleware.RequireAcademiaOuAdmin())
+		{
+			financeiro.POST("/appypay/credenciais", handlers.ConfigurarCredencialAppyPay)
+			financeiro.PUT("/appypay/credenciais/:id", handlers.AtualizarCredencialAppyPay)
+			financeiro.GET("/appypay/credenciais", handlers.ListarCredenciaisAppyPay)
+			financeiro.POST("/appypay/cobrancas", handlers.CriarCobrancaAppyPay)
+			financeiro.POST("/appypay/qr-codes", handlers.GerarQRCodeAppyPay)
+			financeiro.GET("/appypay/cobrancas/:id", handlers.ConsultarCobrancaAppyPay)
+		}
 	}
 
 	// ── Rotas exclusivas do estudante ─────────────────────────────────────

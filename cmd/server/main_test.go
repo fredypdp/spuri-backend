@@ -335,7 +335,7 @@ func TestLegacyStudentProgressionAndInterruptionRoutesAreRemoved(t *testing.T) {
 	}
 }
 
-func TestRemovedPaymentRoutesAreRemoved(t *testing.T) {
+func TestLegacyPaymentRoutesAreRemoved(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	router := setupRouter()
@@ -346,9 +346,6 @@ func TestRemovedPaymentRoutesAreRemoved(t *testing.T) {
 		method string
 		path   string
 	}{
-		{http.MethodPost, "/finan" + "ceiro/app" + "ypay/credenciais"},
-		{http.MethodPut, "/finan" + "ceiro/app" + "ypay/credenciais/" + idPlaceholder},
-		{http.MethodGet, "/finan" + "ceiro/app" + "ypay/credenciais"},
 		{http.MethodGet, "/finan" + "ceiro/app" + "ypay/credenciais/" + idPlaceholder},
 		{http.MethodPost, "/finan" + "ceiro/app" + "ypay/credenciais/" + idPlaceholder + "/testar"},
 		{http.MethodPost, "/finan" + "ceiro/app" + "ypay/credenciais/" + idPlaceholder + "/ativar"},
@@ -362,6 +359,21 @@ func TestRemovedPaymentRoutesAreRemoved(t *testing.T) {
 
 		if w.Code != http.StatusNotFound {
 			t.Fatalf("expected %s %s to be removed with 404, got %d", tc.method, tc.path, w.Code)
+		}
+	}
+
+	// The base module deliberately restores only its documented configuration
+	// collection routes; authentication must protect them before validation.
+	for _, tc := range []struct{ method, path string }{
+		{http.MethodPost, "/financeiro/appypay/credenciais"},
+		{http.MethodPut, "/financeiro/appypay/credenciais/" + idPlaceholder},
+		{http.MethodGet, "/financeiro/appypay/credenciais"},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("expected protected %s %s to return 401 without a token, got %d", tc.method, tc.path, w.Code)
 		}
 	}
 }
