@@ -500,7 +500,13 @@ func (s *Service) saveSecrets(ctx context.Context, id uuid.UUID, plain map[strin
 		if err != nil {
 			return err
 		}
-		if _, err = s.client.DB().ExecContext(ctx, `INSERT INTO financeiro_segredos_appypay (credential_id,secret_type,ciphertext) VALUES ($1,$2,$3) ON CONFLICT (credential_id,secret_type) DO UPDATE SET ciphertext=EXCLUDED.ciphertext,created_at=CURRENT_TIMESTAMP`, id, typ, ciphertext); err != nil {
+		// The first AppyPay schema used a versioned secret table without a
+		// two-column unique key. Delete+insert keeps this path compatible with
+		// both schemas while the ledger remains the audit source for metadata.
+		if _, err = s.client.DB().ExecContext(ctx, `DELETE FROM financeiro_segredos_appypay WHERE credential_id=$1 AND secret_type=$2`, id, typ); err != nil {
+			return err
+		}
+		if _, err = s.client.DB().ExecContext(ctx, `INSERT INTO financeiro_segredos_appypay (credential_id,secret_type,ciphertext) VALUES ($1,$2,$3)`, id, typ, ciphertext); err != nil {
 			return err
 		}
 	}
