@@ -322,7 +322,7 @@ _, err := tx.Exec(`
 
 **Problema:** o event store já tem toda a capacidade necessária (inclusive `GetEventByID`, que devolveria `metadata` com `user_id`/`user_type`/`ip` de quem gravou), mas **nada disso é acessível via API**. `ListarNotas`/`ListarFaltas` retornam apenas o estado atual da projeção, com `event_id` — mas não há rota `GET /admin/eventos/:event_id` (ou equivalente) para transformar esse `event_id` em "quem, quando, de que IP".
 
-**Correção recomendada:** adicionar uma rota restrita a `admin` (ex. `GET /admin/eventos/:event_id`) que usa `AggregateRepository.GetEventHistory`/`eventStore.GetEventByID` já existentes para devolver o evento completo (payload + metadata) dado um `event_id` — a mesma rota serve tanto para notas quanto para faltas quanto para qualquer outro módulo, já que o event store é genérico. É o complemento natural de `TRACE-01`/`TRACE-02`: mesmo sem esperar a correção completa desses dois itens, essa rota já destravaria auditoria manual via `metadata.user_id` hoje mesmo.
+**Correção recomendada:** adicionar uma rota para que estudantes, academias possam auditar os eventos envolvendo eles, e para administradores poderem auditar os eventos de todos (ex. `GET /eventos/:event_id`) que usa `AggregateRepository.GetEventHistory`/`eventStore.GetEventByID` já existentes para devolver o evento completo (payload + metadata) dado um `event_id` — a mesma rota serve tanto para notas quanto para faltas quanto para qualquer outro módulo, já que o event store é genérico. É o complemento natural de `TRACE-01`/`TRACE-02`: mesmo sem esperar a correção completa desses dois itens, essa rota já destravaria auditoria manual via `metadata.user_id` hoje mesmo.
 
 ---
 
