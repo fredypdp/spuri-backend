@@ -178,14 +178,20 @@ func (c *Client) runMigrationFile(ctx context.Context, conn *sqlx.Conn, filename
 	}
 
 	sql := string(content)
+	wrapped := migrationNeedsWrapper(sql)
 
-	if migrationNeedsWrapper(sql) {
+	if wrapped {
 		log.Printf("[DEBUG] %s: sem BEGIN/COMMIT explícito — envolvendo em transação automática",
 			filepath.Base(filename))
 		sql = "BEGIN;\n" + sql + "\nCOMMIT;\n"
 	}
 
 	_, err = conn.ExecContext(ctx, sql)
+	if err != nil && wrapped {
+		if _, rollbackErr := conn.ExecContext(context.Background(), "ROLLBACK"); rollbackErr != nil {
+			log.Printf("⚠️ Erro ao reverter migration após falha: %v", rollbackErr)
+		}
+	}
 	return err
 }
 
