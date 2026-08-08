@@ -6989,11 +6989,27 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 
 #### 19.4 POST /financeiro/appypay/cobrancas
 
-**Escopo da rota:** criação de uma cobrança AppyPay genérica para pagamento GPO ou REF no contexto autorizado.
+**Escopo da rota:** cria uma cobrança AppyPay genérica para pagamento GPO ou REF no contexto autorizado. A rota encaminha ao gateway os campos de cobrança e persiste o resultado para idempotência e consulta posterior.
 
 **Proteção:** autenticado + academia do próprio contexto ou admin FPP.
 
-**Request JSON:**
+**Campos do request:**
+
+| Campo | Tipo | Obrigatório | Descrição e regras |
+|---|---|---|---|
+| `contexto_tipo` | string | Sim para admin FPP; não efetivo para academia | Contexto financeiro: `spuri` ou `academia`. Para um usuário de academia, omita o campo ou envie `academia`; qualquer outro valor é recusado e o backend fixa o contexto como `academia`. |
+| `codigo_academia` | string | Sim quando o contexto final for `academia` e o chamador for admin FPP | Código da academia dona da cobrança. Para usuário de academia, omita o campo ou envie o código presente no token; outro código é recusado e o backend usa o valor do token. Não se aplica ao contexto `spuri`. |
+| `amount` | número | Sim | Valor da cobrança, estritamente maior que zero. |
+| `currency` | string | Não | Moeda da cobrança. Aceita somente `AOA`; se omitida, o backend usa `AOA`. |
+| `description` | string | Sim | Descrição não vazia da cobrança, por exemplo a mensalidade ou o serviço cobrado. |
+| `merchantTransactionId` | string | Não | Identificador externo da transação. Deve ser alfanumérico, sem espaços ou símbolos, com no máximo 15 caracteres. Se omitido, é gerado pelo backend. Reutilize o mesmo valor ao repetir uma tentativa: ele é a chave de idempotência global e também pode ser usado no `GET /financeiro/appypay/cobrancas/:id`. |
+| `paymentMethod` | string | Sim | Método a usar: `GPO`, `REF`, ou o identificador configurado na credencial que comece por `GPO_` ou `REF_`. O backend resolve `GPO`/`REF` para o método efetivamente cadastrado nas credenciais do contexto. |
+| `paymentInfo` | objeto | Condicional | Dados específicos do método. Para GPO, `paymentInfo.phoneNumber` é obrigatório e não pode estar vazio. Para REF, ele pode ser omitido ou vazio; se tiver qualquer campo, deve conter os três campos string não vazios: `referenceNumber`, `dueDate` e `nib`. O objeto é enviado ao gateway. |
+| `options` | objeto | Não | Opções adicionais encaminhadas à AppyPay. Aceita no máximo duas chaves; os nomes e valores devem seguir o contrato do método AppyPay configurado. |
+| `notify` | objeto | Não | Dados/instruções de notificação encaminhados à AppyPay. A API não impõe uma estrutura própria; use o formato aceito pelo gateway para o método configurado, por exemplo `{ "email": "..." }`. |
+| `async` | booleano | Não | Define se a chamada ao gateway pode ser assíncrona. Quando omitido, vale `false`. |
+
+**Exemplo — GPO com telefone e notificação:**
 
 ```json
 {
@@ -7003,13 +7019,55 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
   "currency": "AOA",
   "description": "Propina de agosto de 2026",
   "merchantTransactionId": "P2608LDA000001",
-  "paymentMethod": "REF",
+  "paymentMethod": "GPO",
+  "paymentInfo": {
+    "phoneNumber": "+244923000000"
+  },
   "notify": {
     "email": "encarregado@example.com"
   },
   "async": false
 }
 ```
+
+**Exemplo — REF simples, sem `paymentInfo`:**
+
+```json
+{
+  "contexto_tipo": "academia",
+  "codigo_academia": "LDA20261",
+  "amount": 12500,
+  "description": "Propina de agosto de 2026",
+  "merchantTransactionId": "P2608LDA000002",
+  "paymentMethod": "REF"
+}
+```
+
+Neste caso, `currency` assume `AOA` e a AppyPay gera os dados de referência segundo a configuração da credencial.
+
+**Exemplo — REF com dados de referência e opções do gateway:**
+
+```json
+{
+  "contexto_tipo": "spuri",
+  "amount": 3500,
+  "currency": "AOA",
+  "description": "Taxa de inscrição",
+  "merchantTransactionId": "TXINSCR260801",
+  "paymentMethod": "REF",
+  "paymentInfo": {
+    "referenceNumber": "202608010001",
+    "dueDate": "2026-08-31",
+    "nib": "000400000000000000001"
+  },
+  "options": {
+    "expiresIn": 86400
+  },
+  "async": true
+}
+```
+
+`contexto_tipo: "spuri"` é destinado a admin FPP. Os nomes de `options` ilustram o encaminhamento ao gateway; confirme os campos aceitos pela configuração AppyPay em uso.
 
 **Response 201:**
 
@@ -7025,6 +7083,14 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 }
 ```
 
+| Campo da resposta | Descrição |
+|---|---|
+| `id` | UUID interno da cobrança no Spuri. |
+| `provider_charge_id` | Identificador retornado pela AppyPay, quando o gateway o fornece. |
+| `merchant_transaction_id` | Identificador enviado ou gerado para a cobrança. |
+| `status` | Estado retornado pela AppyPay; se ela não retornar um estado, a API informa `criada`. |
+| `response` | Resposta bruta sanitizada da AppyPay. Seus campos podem variar por método e versão do gateway. |
+
 **Regras de negócio:**
 
 - Exige credenciais AppyPay configuradas para o contexto resolvido.
@@ -7035,11 +7101,27 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 
 #### 19.5 POST /financeiro/appypay/qr-codes
 
-**Escopo da rota:** criação de cobrança GPO com QR Code. Use quando o cliente precisa exibir um QR Code de pagamento gerado pelo gateway.
+**Escopo da rota:** cria uma cobrança GPO com QR Code. Use quando o cliente precisa exibir um QR Code de pagamento gerado pelo gateway. O método GPO é obtido exclusivamente das credenciais do contexto, portanto esta rota não aceita `paymentMethod` nem `paymentInfo`.
 
 **Proteção:** autenticado + academia do próprio contexto ou admin FPP.
 
-**Request JSON:**
+**Campos do request:**
+
+| Campo | Tipo | Obrigatório | Descrição e regras |
+|---|---|---|---|
+| `contexto_tipo` | string | Sim para admin FPP; não efetivo para academia | Contexto financeiro: `spuri` ou `academia`. Para uma academia autenticada, omita o campo ou envie `academia`; outro valor é recusado e o backend fixa o contexto como `academia`. |
+| `codigo_academia` | string | Sim quando o contexto final for `academia` e o chamador for admin FPP | Academia dona do QR Code. Para uma academia autenticada, omita o campo ou envie o código do token; outro código é recusado e o backend usa o valor do token. Não se aplica a `spuri`. |
+| `amount` | número | Sim | Valor do QR Code, estritamente maior que zero. |
+| `currency` | string | Não | Moeda do QR Code. Se omitida, o backend usa `AOA`. |
+| `description` | string | Sim | Descrição não vazia do pagamento. |
+| `merchantTransactionId` | string | Não | Referência externa e chave de idempotência. Deve ser alfanumérica e ter no máximo 15 caracteres. Se omitida, é gerada pelo backend. |
+| `qrCodeType` | string | Não | Tipo do QR Code: `SINGLE` (padrão) para uma utilização ou `MULTIPLE` para múltiplas utilizações dentro dos limites informados. O valor é normalizado para maiúsculas. |
+| `minAmount` | número | Sim para `MULTIPLE` | Valor mínimo aceito em cada pagamento do QR Code múltiplo. Não é usado no tipo `SINGLE`. |
+| `maxTransactions` | inteiro | Sim para `MULTIPLE` | Quantidade máxima de pagamentos permitidos pelo QR Code múltiplo. Não é usado no tipo `SINGLE`. |
+| `startDate` | string | Sim para `MULTIPLE` | Início da validade do QR Code múltiplo, no formato esperado pela AppyPay. Não é usado no tipo `SINGLE`. |
+| `endDate` | string | Sim para `MULTIPLE` | Fim da validade do QR Code múltiplo, no formato esperado pela AppyPay. Não é usado no tipo `SINGLE`. |
+
+**Exemplo — QR Code `SINGLE`:**
 
 ```json
 {
@@ -7052,6 +7134,28 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
   "qrCodeType": "SINGLE"
 }
 ```
+
+Neste caso, `currency` foi informada explicitamente; ela poderia ser omitida e assumiria `AOA`.
+
+**Exemplo — QR Code `MULTIPLE`:**
+
+```json
+{
+  "contexto_tipo": "academia",
+  "codigo_academia": "LDA20261",
+  "amount": 5000,
+  "currency": "AOA",
+  "description": "QR Code para pagamentos parciais da propina",
+  "merchantTransactionId": "Q2608LDA000002",
+  "qrCodeType": "MULTIPLE",
+  "minAmount": 1000,
+  "maxTransactions": 5,
+  "startDate": "2026-08-08T00:00:00Z",
+  "endDate": "2026-08-31T23:59:59Z"
+}
+```
+
+Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e formato são encaminhados à AppyPay; use os limites e o formato de datas aceitos pelo gateway configurado.
 
 **Response 201:**
 
@@ -7067,6 +7171,15 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
   }
 }
 ```
+
+| Campo da resposta | Descrição |
+|---|---|
+| `id` | UUID interno do QR Code/cobrança no Spuri. |
+| `provider_charge_id` | Identificador retornado pela AppyPay, quando disponível. |
+| `merchant_transaction_id` | Referência enviada ou gerada pela API. |
+| `status` | Estado retornado pela AppyPay; quando ausente, a API usa `criada`. |
+| `qrCodeArr` | Representação do QR Code retornada pela AppyPay, normalmente em base64. O cliente deve decodificá-la/interpretá-la conforme o formato retornado pelo gateway antes de exibir. |
+| `response` | Resposta bruta sanitizada da AppyPay, que pode conter campos adicionais próprios do gateway. |
 
 **Regras de negócio:**
 
