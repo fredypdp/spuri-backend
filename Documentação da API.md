@@ -44,6 +44,7 @@ Versão atual: 2.2.0
 17. [Jobs Assíncronos](#17-jobs-assíncronos)
 18. [Batch Assíncrono](#18-batch-assíncrono)
 19. [Armazenamento](#19-armazenamento)
+20. [Financeiro — AppyPay (Fase 1)](#20-financeiro--appypay-fase-1)
 
 ---
 
@@ -7091,28 +7092,442 @@ Quando a configuração do Mega ou da quota estiver incompleta ou inválida, a r
 
 ---
 
-## Financeiro — AppyPay (Fase 1)
+## 20. Financeiro — AppyPay (Fase 1)
 
-O módulo financeiro é uma base genérica: não cria propinas, matrículas ou outros casos de negócio. Credenciais são armazenadas cifradas; as respostas abaixo exibem somente máscaras. O ambiente AppyPay é seleccionado automaticamente por `ENV` (`development`/`test` → TEST; `production` → PROD).
+O módulo financeiro é a camada base e genérica de integração com a AppyPay. Ele não cria propinas, matrículas, mensalidades ou outros casos de negócio finais; esses fluxos devem apenas consumir esta camada, preenchendo valor, descrição, método e dados do pagador. O ambiente AppyPay é selecionado automaticamente por `ENV` (`development`/`test` → `TEST`; `production` → `PROD`) e a versão da API vem de `APPYPAY_API_VERSION` (padrão `v2.0`).
 
-### Credenciais
+### 20.1 Regras de negócio — Financeiro/AppyPay
 
-- `PUT /academia/financeiro/appypay/credenciais` e `GET /academia/financeiro/appypay/credenciais` — academia autenticada.
-- `PUT /admin/financeiro/appypay/credenciais` e `GET /admin/financeiro/appypay/credenciais` — conta Spuri, admin FPP.
+1. **Separação de escopos:** operações de academia usam sempre o escopo da academia autenticada; operações administrativas usam o escopo `spuri` e exigem admin FPP.
+2. **Credenciais por escopo e ambiente:** cada combinação de escopo (`spuri` ou `academia`), `codigo_academia` e ambiente (`TEST`/`PROD`) possui uma configuração própria de credenciais.
+3. **Segredos cifrados:** `client_secret`, dados completos de métodos de pagamento e segredo de webhook são armazenados cifrados; respostas HTTP retornam apenas valores mascarados.
+4. **Métodos suportados na fase 1:** apenas GPO (`GPO_{uuid}`) e REF (`REF_{uuid}`) são aceitos para cobranças; QR Code usa o método GPO configurado no escopo.
+5. **Gateway como fonte operacional:** criação, consulta e QR Code chamam a AppyPay usando OAuth2 client credentials; falhas do gateway são normalizadas como erro `APPYPAY_ERROR`.
+6. **Identificador transacional:** `merchantTransactionId` pode ser enviado pelo consumidor ou gerado pelo backend; quando enviado, deve ser alfanumérico e ter no máximo 15 caracteres.
+7. **Moeda padrão:** `currency` é opcional e assume `AOA` quando omitida.
+8. **Auditoria e projeções:** operações financeiras gravam eventos no ledger e atualizam projeções de credenciais, cobranças e webhooks conforme aplicável.
+9. **Idempotência de webhook:** eventos recebidos da AppyPay são deduplicados por método (`GPO`/`REF`) e `id` ou `merchantTransactionId` do payload.
+10. **Payload sanitizado:** payloads recebidos por webhook são persistidos sem segredos sensíveis conhecidos, como `client_secret`, `access_token`, `authorization`, `api_key`, `password` ou `secret`.
 
-O `PUT` recebe `client_id`, `client_secret`, `resource`, `gpo_payment_method` (`GPO_{uuid}`), `ref_payment_method` (`REF_{uuid}`) e, opcionalmente, `webhook_auth_type` (`basic` ou `api_key`), `webhook_username` e `webhook_secret`. Nunca é devolvido `client_secret`, token ou segredo de webhook.
+### 20.2 `PUT /academia/financeiro/appypay/credenciais`
 
-### Cobranças e QR Code
+Configura ou substitui as credenciais AppyPay da academia autenticada para o ambiente atual.
 
-- `POST /academia/financeiro/appypay/cobrancas` e `POST /admin/financeiro/appypay/cobrancas`
-- `GET /academia/financeiro/appypay/cobrancas/{id}` e `GET /admin/financeiro/appypay/cobrancas/{id}`
-- `POST /academia/financeiro/appypay/qr-codes` e `POST /admin/financeiro/appypay/qr-codes`
+**Proteção:** academia autenticada e ativa.
 
-O corpo de cobrança aceita `amount`, `currency`, `description`, `merchantTransactionId`, `paymentMethod`, `paymentInfo`, `options`, `notify` e `async`. São aceites apenas `GPO_...` e `REF_...`; o identificador configurado para a conta é aplicado pelo servidor. GPO exige `paymentInfo.phoneNumber`; REF pode omitir `paymentInfo`. Em QR Code, `qrCodeType` é `SINGLE` (padrão) ou `MULTIPLE`; o segundo exige `minAmount`, `maxTransactions`, `startDate` e `endDate`. A resposta devolve a resposta original do gateway em `data`, incluindo `data.qrCodeArr` (base64), pronta para ser apresentada pelo consumidor.
+**Request:**
 
-### Webhooks públicos
+```json
+{
+  "client_id": "00000000-0000-0000-0000-000000000000",
+  "client_secret": "appy-secret",
+  "resource": "00000000-0000-0000-0000-000000000000",
+  "gpo_payment_method": "GPO_53c70da3-0000-0000-0000-000000000000",
+  "ref_payment_method": "REF_53c70da3-0000-0000-0000-000000000000",
+  "webhook_auth_type": "basic",
+  "webhook_username": "academia-webhook",
+  "webhook_secret": "webhook-secret"
+}
+```
 
-- `POST /webhooks/appypay/gpo`
-- `POST /webhooks/appypay/ref`
+**Response 200:**
 
-Os endpoints exigem a autenticação configurada para a credencial (Basic Auth ou `X-API-Key`), persistem somente payload sanitizado e devolvem `200` após aceitar o evento. Reenvios com o mesmo `id` ou `merchantTransactionId` são idempotentes.
+```json
+{
+  "id": "9e56d7c8-7461-4ac5-8ee4-0d030aa68f52",
+  "scope": {
+    "type": "academia",
+    "academia_code": "ACA001"
+  },
+  "environment": "TEST",
+  "client_id": "0000...0000",
+  "resource": "0000...0000",
+  "gpo_payment_method": "GPO_...0000",
+  "ref_payment_method": "REF_...0000",
+  "webhook_auth_type": "basic",
+  "webhook_username": "acad...hook",
+  "webhook_secret": "webh...cret",
+  "updated_at": "2026-08-07T10:00:00Z"
+}
+```
+
+**Regras de negócio da rota:**
+
+- `client_id`, `client_secret`, `resource`, `gpo_payment_method` e `ref_payment_method` são obrigatórios.
+- `gpo_payment_method` deve começar com `GPO_`; `ref_payment_method` deve começar com `REF_`.
+- `webhook_auth_type`, quando informado, deve ser `basic` ou `api_key`.
+- Webhook `basic` exige `webhook_username` e `webhook_secret`; webhook `api_key` exige `webhook_secret`.
+- Ao atualizar credenciais, tokens AppyPay em cache para a credencial anterior são invalidados.
+- A resposta nunca devolve `client_secret`, token OAuth2 ou segredo de webhook em texto puro.
+
+**Erros:**
+
+|Status|Quando ocorre|
+|---|---|
+|`400`|Payload inválido, campos obrigatórios ausentes, método com prefixo incorreto ou configuração de webhook incompleta.|
+|`401`|Token ausente ou inválido.|
+|`403`|Usuário não é academia ativa.|
+|`500`|Falha inesperada ao cifrar segredos, gravar evento ou persistir projeções.|
+
+### 20.3 `GET /academia/financeiro/appypay/credenciais`
+
+Consulta as credenciais AppyPay mascaradas da academia autenticada no ambiente atual.
+
+**Proteção:** academia autenticada e ativa.
+
+**Request:** sem payload.
+
+**Response 200:** mesmo formato do `PUT /academia/financeiro/appypay/credenciais`, sempre com valores sensíveis mascarados.
+
+**Regras de negócio da rota:**
+
+- A academia só consulta credenciais do próprio escopo.
+- A consulta é feita para o ambiente selecionado automaticamente por `ENV`.
+- Segredos cifrados não são lidos/devolvidos para montar a resposta pública; apenas máscaras persistidas são retornadas.
+
+**Erros:**
+
+|Status|Quando ocorre|
+|---|---|
+|`401`|Token ausente ou inválido.|
+|`403`|Usuário não é academia ativa.|
+|`404`|Credenciais AppyPay não configuradas para a academia e ambiente atuais.|
+|`500`|Falha inesperada ao consultar a projeção.|
+
+### 20.4 `PUT /admin/financeiro/appypay/credenciais`
+
+Configura ou substitui as credenciais AppyPay do escopo Spuri para o ambiente atual.
+
+**Proteção:** autenticado + admin FPP.
+
+**Request:** mesmo corpo de `PUT /academia/financeiro/appypay/credenciais`.
+
+**Response 200:** mesmo formato do `PUT /academia/financeiro/appypay/credenciais`, com `scope.type` igual a `spuri` e sem `academia_code`.
+
+**Regras de negócio da rota:**
+
+- Usa o escopo financeiro global `spuri`, separado das credenciais de qualquer academia.
+- Obedece às mesmas validações, cifragem, mascaramento e invalidação de cache da rota de configuração de credenciais de academia.
+- Só admins FPP podem configurar credenciais do escopo Spuri.
+
+**Erros:** mesmos erros de `PUT /academia/financeiro/appypay/credenciais`, incluindo `403` quando o admin autenticado não é FPP.
+
+### 20.5 `GET /admin/financeiro/appypay/credenciais`
+
+Consulta as credenciais AppyPay mascaradas do escopo Spuri no ambiente atual.
+
+**Proteção:** autenticado + admin FPP.
+
+**Request:** sem payload.
+
+**Response 200:** mesmo formato do `GET /academia/financeiro/appypay/credenciais`, com `scope.type` igual a `spuri`.
+
+**Regras de negócio da rota:**
+
+- Retorna somente a credencial global do Spuri para o ambiente atual.
+- Não lista credenciais de academias.
+- Nunca devolve segredos em texto puro.
+
+**Erros:** mesmos erros de `GET /academia/financeiro/appypay/credenciais`, incluindo `403` quando o admin autenticado não é FPP.
+
+### 20.6 `POST /academia/financeiro/appypay/cobrancas`
+
+Cria uma cobrança AppyPay no escopo da academia autenticada.
+
+**Proteção:** academia autenticada e ativa.
+
+**Request:**
+
+```json
+{
+  "amount": 15000,
+  "currency": "AOA",
+  "description": "Pagamento académico",
+  "merchantTransactionId": "ACA001PAG001",
+  "paymentMethod": "GPO_qualquer-identificador-do-consumidor",
+  "paymentInfo": {
+    "phoneNumber": "900000001"
+  },
+  "options": {
+    "key1": "value1"
+  },
+  "notify": {
+    "email": "encarregado@example.com"
+  },
+  "async": false
+}
+```
+
+**Response 201:**
+
+```json
+{
+  "id": "appy-charge-id",
+  "merchantTransactionId": "ACA001PAG001",
+  "status": "SUCCESS",
+  "data": {
+    "id": "appy-charge-id",
+    "merchantTransactionId": "ACA001PAG001",
+    "status": "SUCCESS"
+  }
+}
+```
+
+**Regras de negócio da rota:**
+
+- Exige credenciais AppyPay previamente configuradas para a academia e ambiente atuais.
+- `amount` deve ser maior que zero.
+- `currency` assume `AOA` quando omitida.
+- `paymentMethod` deve começar com `GPO_` ou `REF_`; o backend ignora o identificador enviado e substitui pelo método configurado na credencial do escopo.
+- Para GPO, `paymentInfo.phoneNumber` é obrigatório.
+- Para REF, `paymentInfo` é opcional; a AppyPay pode gerar a referência quando ela for omitida.
+- `options` aceita no máximo 2 chaves.
+- `async=true` troca o cabeçalho `Accept` para `application/vnd.appypay.asyncapi+json`; caso contrário usa `application/json`.
+- A solicitação e a resposta da AppyPay são gravadas em evento/projeção de cobrança; se a AppyPay falhar, a cobrança é marcada como `erro`.
+
+**Erros:**
+
+|Status|Quando ocorre|
+|---|---|
+|`400`|JSON inválido ou campos incompatíveis com o schema.|
+|`401`|Token ausente ou inválido.|
+|`403`|Usuário não é academia ativa.|
+|`502`|Credenciais ausentes/incompletas, falha de validação de regra de cobrança, erro de token ou resposta não 2xx da AppyPay.|
+|`500`|Falha inesperada ao gravar auditoria/projeção.|
+
+### 20.7 `POST /admin/financeiro/appypay/cobrancas`
+
+Cria uma cobrança AppyPay no escopo global Spuri.
+
+**Proteção:** autenticado + admin FPP.
+
+**Request:** mesmo corpo de `POST /academia/financeiro/appypay/cobrancas`.
+
+**Response 201:** mesmo formato de `POST /academia/financeiro/appypay/cobrancas`.
+
+**Regras de negócio da rota:**
+
+- Usa apenas as credenciais AppyPay do escopo `spuri` e do ambiente atual.
+- Obedece às mesmas regras de validação, substituição do método configurado, auditoria, persistência e tratamento de erro da criação de cobrança de academia.
+- Só admins FPP podem criar cobranças no escopo Spuri.
+
+**Erros:** mesmos erros de `POST /academia/financeiro/appypay/cobrancas`, incluindo `403` quando o admin autenticado não é FPP.
+
+### 20.8 `GET /academia/financeiro/appypay/cobrancas/{id}`
+
+Consulta uma cobrança AppyPay associada ao escopo da academia autenticada.
+
+**Proteção:** academia autenticada e ativa.
+
+**Parâmetros de path:**
+
+|Campo|Tipo|Obrigatório|Descrição|
+|---|---|---|---|
+|`id`|string|Sim|Identificador AppyPay da cobrança ou `merchantTransactionId` conhecido pelo Spuri.|
+
+**Request:** sem payload.
+
+**Response 200:**
+
+```json
+{
+  "id": "appy-charge-id",
+  "merchantTransactionId": "ACA001PAG001",
+  "status": "SUCCESS",
+  "data": {
+    "id": "appy-charge-id",
+    "merchantTransactionId": "ACA001PAG001",
+    "status": "SUCCESS"
+  }
+}
+```
+
+**Regras de negócio da rota:**
+
+- Exige credenciais AppyPay configuradas para a academia e ambiente atuais.
+- Se `{id}` corresponder a um `merchantTransactionId` já persistido sem `appypay_charge_id`, o backend consulta a AppyPay com filtro `merchantTransactionId`.
+- Se `{id}` corresponder a uma cobrança persistida com `appypay_charge_id`, o backend consulta pelo identificador AppyPay.
+- Quando a cobrança local é encontrada, a consulta atualiza o status/projeção com a resposta mais recente da AppyPay.
+
+**Erros:**
+
+|Status|Quando ocorre|
+|---|---|
+|`401`|Token ausente ou inválido.|
+|`403`|Usuário não é academia ativa.|
+|`502`|`id` vazio, credenciais ausentes/incompletas, erro de token ou resposta não 2xx da AppyPay.|
+|`500`|Falha inesperada ao atualizar auditoria/projeção.|
+
+### 20.9 `GET /admin/financeiro/appypay/cobrancas/{id}`
+
+Consulta uma cobrança AppyPay associada ao escopo Spuri.
+
+**Proteção:** autenticado + admin FPP.
+
+**Parâmetros de path:** mesmos de `GET /academia/financeiro/appypay/cobrancas/{id}`.
+
+**Request:** sem payload.
+
+**Response 200:** mesmo formato de `GET /academia/financeiro/appypay/cobrancas/{id}`.
+
+**Regras de negócio da rota:**
+
+- Usa apenas credenciais do escopo `spuri` no ambiente atual.
+- Obedece às mesmas regras de resolução por `id`/`merchantTransactionId` e atualização de status da consulta de cobrança de academia.
+- Só admins FPP podem consultar cobranças do escopo Spuri.
+
+**Erros:** mesmos erros de `GET /academia/financeiro/appypay/cobrancas/{id}`, incluindo `403` quando o admin autenticado não é FPP.
+
+### 20.10 `POST /academia/financeiro/appypay/qr-codes`
+
+Gera um QR Code GPO AppyPay no escopo da academia autenticada.
+
+**Proteção:** academia autenticada e ativa.
+
+**Request:**
+
+```json
+{
+  "amount": 15000,
+  "currency": "AOA",
+  "description": "Pagamento por QR Code",
+  "merchantTransactionId": "ACA001QR001",
+  "qrCodeType": "SINGLE"
+}
+```
+
+**Response 201:**
+
+```json
+{
+  "id": "appy-qr-code-id",
+  "merchantTransactionId": "ACA001QR001",
+  "status": "SUCCESS",
+  "data": {
+    "id": "appy-qr-code-id",
+    "merchantTransactionId": "ACA001QR001",
+    "status": "SUCCESS",
+    "qrCodeArr": "base64-do-qr-code"
+  }
+}
+```
+
+**Regras de negócio da rota:**
+
+- Exige credenciais AppyPay configuradas para a academia e ambiente atuais.
+- Usa sempre o método GPO configurado na credencial do escopo; o consumidor não envia `paymentMethod`.
+- `amount` deve ser maior que zero.
+- `currency` assume `AOA` quando omitida.
+- `merchantTransactionId`, quando enviado, deve ser alfanumérico e ter no máximo 15 caracteres; quando omitido, é gerado pelo backend.
+- `qrCodeType` assume `SINGLE` quando omitido e só aceita `SINGLE` ou `MULTIPLE`.
+- `qrCodeType=MULTIPLE` exige `minAmount`, `maxTransactions`, `startDate` e `endDate`.
+- `startDate` e `endDate` são enviados à AppyPay em UTC/RFC3339.
+- A resposta original da AppyPay fica em `data`; `data.qrCodeArr` contém o QR Code em base64, pronto para apresentação pelo consumidor.
+
+**Erros:**
+
+|Status|Quando ocorre|
+|---|---|
+|`400`|JSON inválido ou campos incompatíveis com o schema.|
+|`401`|Token ausente ou inválido.|
+|`403`|Usuário não é academia ativa.|
+|`502`|Credenciais ausentes/incompletas, erro de validação da regra de QR Code, erro de token ou resposta não 2xx da AppyPay.|
+|`500`|Falha inesperada ao gravar evento de QR Code.|
+
+### 20.11 `POST /admin/financeiro/appypay/qr-codes`
+
+Gera um QR Code GPO AppyPay no escopo Spuri.
+
+**Proteção:** autenticado + admin FPP.
+
+**Request:** mesmo corpo de `POST /academia/financeiro/appypay/qr-codes`.
+
+**Response 201:** mesmo formato de `POST /academia/financeiro/appypay/qr-codes`.
+
+**Regras de negócio da rota:**
+
+- Usa apenas o método GPO configurado nas credenciais do escopo `spuri`.
+- Obedece às mesmas regras de validação, geração de identificador, chamada à AppyPay e auditoria da geração de QR Code de academia.
+- Só admins FPP podem gerar QR Codes no escopo Spuri.
+
+**Erros:** mesmos erros de `POST /academia/financeiro/appypay/qr-codes`, incluindo `403` quando o admin autenticado não é FPP.
+
+### 20.12 `POST /webhooks/appypay/gpo`
+
+Recebe notificações públicas da AppyPay para eventos do método GPO.
+
+**Proteção:** Basic Auth ou header `X-API-Key`/`Api-Key`, conforme `webhook_auth_type` configurado em alguma credencial AppyPay do ambiente atual.
+
+**Request:** payload JSON enviado pela AppyPay. Exemplo:
+
+```json
+{
+  "id": "appy-charge-id",
+  "merchantTransactionId": "ACA001PAG001",
+  "status": "SUCCESS",
+  "amount": 15000,
+  "currency": "AOA"
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "accepted": true,
+  "duplicate": false
+}
+```
+
+**Regras de negócio da rota:**
+
+- O método registado para deduplicação é sempre `GPO`.
+- A credencial é resolvida comparando a autenticação recebida com as credenciais de webhook configuradas no ambiente atual.
+- O payload deve conter `id` ou `merchantTransactionId`; esse valor compõe a chave idempotente `GPO:{valor}`.
+- Um reenvio com a mesma chave idempotente retorna `200` com `duplicate: true` e grava evento de duplicado ignorado.
+- Quando a cobrança local é encontrada por `id` ou `merchantTransactionId` e o payload possui `status`, a projeção da cobrança é atualizada.
+- O payload persistido é sanitizado antes de ser guardado.
+
+**Erros:**
+
+|Status|Quando ocorre|
+|---|---|
+|`400`|JSON inválido.|
+|`401`|Autenticação de webhook ausente/inválida, método inválido ou payload sem `id` e sem `merchantTransactionId`.|
+|`500`|Falha inesperada ao persistir webhook/evento.|
+
+### 20.13 `POST /webhooks/appypay/ref`
+
+Recebe notificações públicas da AppyPay para eventos do método REF.
+
+**Proteção:** Basic Auth ou header `X-API-Key`/`Api-Key`, conforme `webhook_auth_type` configurado em alguma credencial AppyPay do ambiente atual.
+
+**Request:** payload JSON enviado pela AppyPay. Exemplo:
+
+```json
+{
+  "id": "appy-charge-id",
+  "merchantTransactionId": "ACA001REF001",
+  "status": "SUCCESS",
+  "reference": "100000000",
+  "amount": 15000,
+  "currency": "AOA"
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "accepted": true,
+  "duplicate": false
+}
+```
+
+**Regras de negócio da rota:**
+
+- O método registado para deduplicação é sempre `REF`.
+- A autenticação, sanitização, persistência, idempotência e atualização de cobrança seguem as mesmas regras do webhook GPO.
+- A rota é separada da rota GPO para permitir configurar callbacks distintos na AppyPay e manter a auditoria por método.
+
+**Erros:** mesmos erros de `POST /webhooks/appypay/gpo`.
