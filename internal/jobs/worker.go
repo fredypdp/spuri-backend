@@ -107,7 +107,7 @@ func (w *Worker) loop(ctx context.Context) {
 
 func (w *Worker) sweepPending(ctx context.Context) {
 	minInterval := 30 * time.Second
-	maxInterval := 5 * time.Minute
+	maxInterval := 30 * time.Minute
 	currentInterval := minInterval
 
 	for {

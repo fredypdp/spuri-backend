@@ -165,6 +165,7 @@ func (r *AggregateRepository) Save(aggregate aggregates.Aggregate) error {
 	}
 
 	aggregate.ClearUncommittedEvents()
+	notifyLedgerWritten()
 	return nil
 }
 
@@ -205,6 +206,7 @@ func (r *AggregateRepository) SaveWithAudit(aggregate aggregates.Aggregate, audi
 	}
 
 	aggregate.ClearUncommittedEvents()
+	notifyLedgerWritten()
 	return nil
 }
 

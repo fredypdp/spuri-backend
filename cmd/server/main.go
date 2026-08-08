@@ -134,6 +134,8 @@ func initProjections() error {
 	projManager.RegisterProjection("solicitacoes_edicao_dados_estudante", projections.NewSolicitacaoEdicaoDadoEstudanteProjection(dbClient))
 	projManager.RegisterProjection("financeiro", projections.NewFinanceiroProjection(dbClient))
 
+	db.SetLedgerWriteHook(projManager.Wake)
+
 	go projManager.StartProcessing()
 	return nil
 }

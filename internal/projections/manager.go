@@ -79,6 +79,7 @@ type Manager struct {
 	mu           sync.Mutex
 	rebuildMu    sync.Mutex
 	rebuilding   string
+	wakeCh       chan struct{}
 }
 
 func NewManager(client *db.Client) *Manager {
@@ -91,6 +92,7 @@ func NewManager(client *db.Client) *Manager {
 		cancel:       cancel,
 		pollInterval: 1 * time.Second,
 		batchSize:    100,
+		wakeCh:       make(chan struct{}, 1),
 	}
 }
 
@@ -101,11 +103,30 @@ func (m *Manager) RegisterProjection(name string, projection Projection) {
 	log.Printf("[DEBUG] Projeção registrada: %s", name)
 }
 
+// Wake sinaliza ao Manager que há uma escrita nova no ledger para processar
+// imediatamente, sem esperar o próximo ciclo de backoff. É seguro chamar de
+// qualquer goroutine. Se já houver um sinal pendente (Manager ainda não
+// consumiu o anterior), a chamada é descartada — não há necessidade de
+// empilhar sinais, pois o próximo ciclo já processa tudo que estiver pendente
+// no ledger, não apenas o evento que motivou a chamada.
+func (m *Manager) Wake() {
+	select {
+	case m.wakeCh <- struct{}{}:
+	default:
+	}
+}
+
 func (m *Manager) StartProcessing() {
 	log.Println("[DEBUG] Iniciando processamento de projeções")
 
 	currentInterval := m.pollInterval
-	maxInterval := 30 * time.Second
+	// maxInterval agora é uma rede de segurança, não o mecanismo principal de
+	// detecção de eventos novos — isso é papel do wakeCh, acionado por
+	// db.SetLedgerWriteHook após cada escrita confirmada no ledger. O NeonDB
+	// free tier suspende o compute após 5 minutos fixos de inatividade (não
+	// configurável nesse plano); 20 minutos dá margem de 4× para garantir uma
+	// janela real e completa de inatividade entre um ciclo e outro.
+	maxInterval := 20 * time.Minute
 
 	for {
 		select {
@@ -137,6 +158,10 @@ func (m *Manager) StartProcessing() {
 			log.Println("[DEBUG] Parando processamento")
 			return
 		case <-timer.C:
+		case <-m.wakeCh:
+			timer.Stop()
+			currentInterval = m.pollInterval
+			log.Println("[DEBUG] Projection Manager acordado por escrita no ledger")
 		}
 	}
 }
