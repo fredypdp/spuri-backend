@@ -7,7 +7,7 @@ import (
 )
 
 func TestEncryptionRoundTripAndNoFallbackKey(t *testing.T) {
-	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material")
+	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
 	ciphertext, err := encrypt("segredo AppyPay")
 	if err != nil {
 		t.Fatal(err)
@@ -22,6 +22,27 @@ func TestEncryptionRoundTripAndNoFallbackKey(t *testing.T) {
 	os.Unsetenv("FINANCE_ENCRYPTION_KEY")
 	if _, err := encrypt("x"); err == nil {
 		t.Fatal("esperava falha sem FINANCE_ENCRYPTION_KEY")
+	}
+}
+
+func TestEncryptionKeyRequiresStrongMaterial(t *testing.T) {
+	t.Setenv("FINANCE_ENCRYPTION_KEY", "123")
+	if err := ValidateEncryptionConfig(); err == nil {
+		t.Fatal("chave curta foi aceite")
+	}
+	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	if err := ValidateEncryptionConfig(); err != nil {
+		t.Fatalf("chave válida foi rejeitada: %v", err)
+	}
+}
+
+func TestCredentialMethodMatchesConfiguredIDWithoutCaseSensitivity(t *testing.T) {
+	credentials := credentialSecrets{GPO: "GPO_53c70da3-1c88", REF: "REF_42ef"}
+	if got, err := credentials.method("gpo_53C70DA3-1C88"); err != nil || got != credentials.GPO {
+		t.Fatalf("método GPO configurado não foi reconhecido: %q, %v", got, err)
+	}
+	if got, err := credentials.method("ref"); err != nil || got != credentials.REF {
+		t.Fatalf("atalho REF não foi reconhecido: %q, %v", got, err)
 	}
 }
 

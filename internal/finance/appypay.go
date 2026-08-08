@@ -36,6 +36,17 @@ const (
 	asyncAccept      = "application/vnd.appypay.asyncapi+json"
 )
 
+var (
+	// ErrNotFound is returned when an AppyPay resource does not exist in the
+	// authorised financial context.
+	ErrNotFound = errors.New("recurso financeiro não encontrado")
+	// ErrUpstream means AppyPay could not be reached or returned an invalid
+	// response. It is deliberately distinct from request validation errors.
+	ErrUpstream = errors.New("serviço AppyPay indisponível")
+	// ErrConflict denotes an idempotency key that is currently being processed.
+	ErrConflict = errors.New("operação financeira equivalente em processamento")
+)
+
 type Endpoints struct{ TokenURL, APIBaseURL string }
 
 func AmbienteAtual() string {
@@ -181,6 +192,9 @@ func (s *Service) ConfigureCredential(ctx context.Context, id *uuid.UUID, in Cre
 	credentialID := uuid.New()
 	if id != nil {
 		credentialID = *id
+		if err := s.credentialBelongsToScope(ctx, credentialID, in.ContextoTipo, in.CodigoAcademia, in.Ambiente); err != nil {
+			return CredentialView{}, err
+		}
 	} else if found, err := s.findCredentialID(ctx, in.ContextoTipo, in.CodigoAcademia, in.Ambiente); err == nil {
 		credentialID = found
 	}
@@ -248,8 +262,23 @@ func (s *Service) CreateCharge(ctx context.Context, in ChargeRequest, actorID, a
 		return ChargeResult{}, errors.New("merchantTransactionId deve ser alfanumérico e ter no máximo 15 caracteres")
 	}
 	id := uuid.New()
+	reserved, err := s.reserveCharge(ctx, in.MerchantTransactionID, id)
+	if err != nil {
+		return ChargeResult{}, err
+	}
+	if !reserved {
+		result, err := s.existingChargeResult(ctx, in.MerchantTransactionID, in.ContextoTipo, in.CodigoAcademia)
+		if err == nil {
+			return result, nil
+		}
+		if errors.Is(err, ErrNotFound) {
+			return ChargeResult{}, ErrConflict
+		}
+		return ChargeResult{}, err
+	}
 	payload := chargePayload(id, in, "", "solicitada", nil)
 	if err = s.record(ctx, id, "CobrancaAppyPaySolicitada", payload, actorID, actorType, ip); err != nil {
+		_ = s.releaseChargeReservation(ctx, in.MerchantTransactionID, id)
 		return ChargeResult{}, err
 	}
 	providerBody := map[string]any{"amount": in.Amount, "currency": in.Currency, "description": in.Description, "merchantTransactionId": in.MerchantTransactionID, "paymentMethod": method, "paymentInfo": in.PaymentInfo, "options": in.Options, "notify": in.Notify}
@@ -328,7 +357,7 @@ func (s *Service) ConsultCharge(ctx context.Context, contexto, academia, identif
 		return ChargeResult{}, err
 	}
 	if row.Contexto != contexto || row.Academia != academia {
-		return ChargeResult{}, errors.New("cobrança não pertence ao contexto")
+		return ChargeResult{}, fmt.Errorf("%w: cobrança não encontrada no contexto", ErrNotFound)
 	}
 	cred, err := s.loadCredential(ctx, contexto, academia)
 	if err != nil {
@@ -346,14 +375,21 @@ func (s *Service) ConsultCharge(ctx context.Context, contexto, academia, identif
 	if status == "" {
 		status = row.Status
 	}
-	payload := row.Payload
+	previousResponse := row.Payload["response"]
+	payload := make(map[string]any, len(row.Payload)+3)
+	for key, value := range row.Payload {
+		payload[key] = value
+	}
 	payload["provider_charge_id"] = first(responseID(response), row.ProviderID)
 	payload["status"] = status
 	payload["response"] = sanitize(response)
-	if err = s.record(ctx, row.ID, "CobrancaAppyPayConsultada", payload, actorID, actorType, ip); err != nil {
-		return ChargeResult{}, err
+	providerID := first(responseID(response), row.ProviderID)
+	if status != row.Status || providerID != row.ProviderID || !sameJSON(payload["response"], previousResponse) {
+		if err = s.record(ctx, row.ID, "CobrancaAppyPayConsultada", payload, actorID, actorType, ip); err != nil {
+			return ChargeResult{}, err
+		}
 	}
-	return ChargeResult{ID: row.ID, ProviderChargeID: first(responseID(response), row.ProviderID), MerchantTransactionID: row.Merchant, Status: status, Response: response}, nil
+	return ChargeResult{ID: row.ID, ProviderChargeID: providerID, MerchantTransactionID: row.Merchant, Status: status, Response: response}, nil
 }
 
 type credentialSecrets struct {
@@ -362,11 +398,11 @@ type credentialSecrets struct {
 }
 
 func (c credentialSecrets) method(requested string) (string, error) {
-	requested = strings.ToUpper(strings.TrimSpace(requested))
-	if requested == "GPO" || requested == c.GPO {
+	requested = strings.TrimSpace(requested)
+	if strings.EqualFold(requested, "GPO") || strings.EqualFold(requested, c.GPO) {
 		return c.GPO, nil
 	}
-	if requested == "REF" || requested == c.REF {
+	if strings.EqualFold(requested, "REF") || strings.EqualFold(requested, c.REF) {
 		return c.REF, nil
 	}
 	return "", errors.New("paymentMethod não contratado para esta conta")
@@ -378,7 +414,7 @@ func (s *Service) loadCredential(ctx context.Context, contexto, academia string)
 	var id uuid.UUID
 	err := s.client.DB().QueryRowContext(ctx, `SELECT id FROM financeiro_credenciais_appypay WHERE contexto_tipo=$1 AND codigo_academia IS NOT DISTINCT FROM NULLIF($2,'') AND ambiente=$3`, contexto, academia, AmbienteAtual()).Scan(&id)
 	if err != nil {
-		return credentialSecrets{}, errors.New("credenciais AppyPay não configuradas para este contexto")
+		return credentialSecrets{}, fmt.Errorf("%w: credenciais AppyPay não configuradas para este contexto", ErrNotFound)
 	}
 	values, err := s.loadSecrets(ctx, id)
 	if err != nil {
@@ -390,6 +426,15 @@ func (s *Service) findCredentialID(ctx context.Context, contexto, academia, ambi
 	var id uuid.UUID
 	err := s.client.DB().QueryRowContext(ctx, `SELECT id FROM financeiro_credenciais_appypay WHERE contexto_tipo=$1 AND codigo_academia IS NOT DISTINCT FROM NULLIF($2,'') AND ambiente=$3`, contexto, academia, ambiente).Scan(&id)
 	return id, err
+}
+
+func (s *Service) credentialBelongsToScope(ctx context.Context, id uuid.UUID, contexto, academia, ambiente string) error {
+	var found uuid.UUID
+	err := s.client.DB().QueryRowContext(ctx, `SELECT id FROM financeiro_credenciais_appypay WHERE id=$1 AND contexto_tipo=$2 AND codigo_academia IS NOT DISTINCT FROM NULLIF($3,'') AND ambiente=$4`, id, contexto, academia, ambiente).Scan(&found)
+	if err != nil {
+		return fmt.Errorf("%w: credencial AppyPay não encontrada no contexto", ErrNotFound)
+	}
+	return nil
 }
 
 func (s *Service) callJSON(ctx context.Context, cred credentialSecrets, method, path string, body any, async bool) (map[string]any, error) {
@@ -419,21 +464,21 @@ func (s *Service) callJSON(ctx context.Context, cred credentialSecrets, method, 
 	}
 	res, err := s.httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrUpstream, err)
 	}
 	defer res.Body.Close()
 	limited := io.LimitReader(res.Body, 2<<20)
 	raw, err := io.ReadAll(limited)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: não foi possível ler a resposta AppyPay: %v", ErrUpstream, err)
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return nil, fmt.Errorf("AppyPay respondeu HTTP %d", res.StatusCode)
+		return nil, fmt.Errorf("%w: AppyPay respondeu HTTP %d", ErrUpstream, res.StatusCode)
 	}
 	out := map[string]any{}
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &out); err != nil {
-			return nil, fmt.Errorf("resposta AppyPay inválida: %w", err)
+			return nil, fmt.Errorf("%w: resposta AppyPay inválida: %v", ErrUpstream, err)
 		}
 	}
 	return out, nil
@@ -453,22 +498,22 @@ func (s *Service) token(ctx context.Context, cred credentialSecrets) (string, er
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	res, err := s.httpClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %v", ErrUpstream, err)
 	}
 	defer res.Body.Close()
 	raw, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: não foi possível ler a resposta de token: %v", ErrUpstream, err)
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return "", fmt.Errorf("token AppyPay recusado: HTTP %d", res.StatusCode)
+		return "", fmt.Errorf("%w: token AppyPay recusado: HTTP %d", ErrUpstream, res.StatusCode)
 	}
 	var out struct {
 		AccessToken string `json:"access_token"`
 		ExpiresIn   int    `json:"expires_in"`
 	}
 	if err = json.Unmarshal(raw, &out); err != nil || out.AccessToken == "" {
-		return "", errors.New("resposta de token AppyPay inválida")
+		return "", fmt.Errorf("%w: resposta de token AppyPay inválida", ErrUpstream)
 	}
 	if out.ExpiresIn <= 0 {
 		out.ExpiresIn = 3600
@@ -608,13 +653,47 @@ func (s *Service) loadCharge(ctx context.Context, identifier string) (chargeRow,
 	var raw []byte
 	err := s.client.DB().QueryRowContext(ctx, `SELECT id,COALESCE(provider_charge_id,''),merchant_transaction_id,contexto_tipo,COALESCE(codigo_academia,''),payload FROM financeiro_cobrancas WHERE provider_charge_id=$1 OR merchant_transaction_id=$1`, identifier).Scan(&r.ID, &r.ProviderID, &r.Merchant, &r.Contexto, &r.Academia, &raw)
 	if err != nil {
-		return r, errors.New("cobrança não encontrada")
+		return r, fmt.Errorf("%w: cobrança não encontrada", ErrNotFound)
 	}
 	if err = json.Unmarshal(raw, &r.Payload); err != nil {
 		return r, err
 	}
 	r.Status, _ = r.Payload["status"].(string)
 	return r, nil
+}
+
+func (s *Service) reserveCharge(ctx context.Context, merchant string, chargeID uuid.UUID) (bool, error) {
+	res, err := s.client.DB().ExecContext(ctx, `INSERT INTO financeiro_cobrancas_reservas (merchant_transaction_id,charge_id) VALUES ($1,$2) ON CONFLICT (merchant_transaction_id) DO NOTHING`, merchant, chargeID)
+	if err != nil {
+		return false, err
+	}
+	affected, err := res.RowsAffected()
+	return affected > 0, err
+}
+
+func (s *Service) releaseChargeReservation(ctx context.Context, merchant string, chargeID uuid.UUID) error {
+	_, err := s.client.DB().ExecContext(ctx, `DELETE FROM financeiro_cobrancas_reservas WHERE merchant_transaction_id=$1 AND charge_id=$2`, merchant, chargeID)
+	return err
+}
+
+func (s *Service) existingChargeResult(ctx context.Context, merchant, contexto, academia string) (ChargeResult, error) {
+	row, err := s.loadCharge(ctx, merchant)
+	if err != nil {
+		return ChargeResult{}, err
+	}
+	if row.Contexto != contexto || row.Academia != academia {
+		// merchantTransactionId is globally reserved, but its original result
+		// must never be disclosed outside its financial context.
+		return ChargeResult{}, ErrConflict
+	}
+	response, _ := row.Payload["response"].(map[string]any)
+	return ChargeResult{ID: row.ID, ProviderChargeID: row.ProviderID, MerchantTransactionID: row.Merchant, Status: row.Status, Response: response}, nil
+}
+
+func sameJSON(a, b any) bool {
+	left, leftErr := json.Marshal(a)
+	right, rightErr := json.Marshal(b)
+	return leftErr == nil && rightErr == nil && bytes.Equal(left, right)
 }
 func validateCharge(in *ChargeRequest) error {
 	if err := validContext(in.ContextoTipo, in.CodigoAcademia); err != nil {
@@ -724,8 +803,18 @@ func key() ([]byte, error) {
 	if decoded, err := base64.StdEncoding.DecodeString(v); err == nil && len(decoded) == 32 {
 		return decoded, nil
 	}
+	if len(v) < 32 {
+		return nil, errors.New("FINANCE_ENCRYPTION_KEY deve ter pelo menos 32 caracteres ou ser Base64 de 32 bytes")
+	}
 	sum := sha256.Sum256([]byte(v))
 	return sum[:], nil
+}
+
+// ValidateEncryptionConfig validates the mandatory financial-secret key at
+// startup, before a request can attempt to persist any credentials.
+func ValidateEncryptionConfig() error {
+	_, err := key()
+	return err
 }
 func encrypt(v string) (string, error) {
 	k, err := key()

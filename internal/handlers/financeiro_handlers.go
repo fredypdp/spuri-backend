@@ -51,7 +51,18 @@ func authorizeFinanceScope(c *gin.Context, context *string, academy *string) boo
 	}
 	return t == "admin" && financeAdminAllowed(c)
 }
-func financeError(c *gin.Context, err error) { utils.RespondWithValidationError(c, err) }
+func financeError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, finance.ErrNotFound):
+		utils.RespondWithNotFoundError(c, "recurso financeiro")
+	case errors.Is(err, finance.ErrConflict):
+		utils.RespondWithConflictError(c, "operação financeira equivalente em processamento")
+	case errors.Is(err, finance.ErrUpstream):
+		utils.RespondWithServiceUnavailable(c, err)
+	default:
+		utils.RespondWithValidationError(c, err)
+	}
+}
 
 func ConfigurarCredencialAppyPay(c *gin.Context) {
 	var in finance.CredentialInput
@@ -133,7 +144,7 @@ func CriarCobrancaAppyPay(c *gin.Context) {
 	}
 	out, err := FinanceiroService.CreateCharge(c.Request.Context(), in, id.String(), t, c.ClientIP())
 	if err != nil {
-		utils.RespondWithValidationError(c, err)
+		financeError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, out)
@@ -155,7 +166,7 @@ func GerarQRCodeAppyPay(c *gin.Context) {
 	}
 	out, err := FinanceiroService.CreateGPOQRCode(c.Request.Context(), in, id.String(), t, c.ClientIP())
 	if err != nil {
-		utils.RespondWithValidationError(c, err)
+		financeError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, out)
@@ -174,7 +185,7 @@ func ConsultarCobrancaAppyPay(c *gin.Context) {
 	}
 	out, err := FinanceiroService.ConsultCharge(c.Request.Context(), contexto, academia, c.Param("id"), id.String(), t, c.ClientIP())
 	if err != nil {
-		utils.RespondWithValidationError(c, err)
+		financeError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, out)

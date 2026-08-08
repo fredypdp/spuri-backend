@@ -6901,7 +6901,7 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
   "codigo_academia": "LDA20261",
   "client_id": "appy-client-id",
   "client_secret": "appy-client-secret",
-  "resource": "https://gwy-api-tst.appypay.co.ao/v2.0",
+  "resource": "2aed7612-de64-46b5-9e59-1f48f8902d14",
   "gpo_payment_method": "GPO_METHOD_ID",
   "ref_payment_method": "REF_METHOD_ID",
   "webhook_auth_type": "api_key",
@@ -7002,11 +7002,8 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
   "amount": 12500,
   "currency": "AOA",
   "description": "Propina de agosto de 2026",
-  "merchantTransactionId": "PROP-2026-08-LDA20261-0001",
+  "merchantTransactionId": "P2608LDA000001",
   "paymentMethod": "REF",
-  "paymentInfo": {
-    "phoneNumber": "923000000"
-  },
   "notify": {
     "email": "encarregado@example.com"
   },
@@ -7033,6 +7030,7 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 - Exige credenciais AppyPay configuradas para o contexto resolvido.
 - `amount` deve ser positivo; `currency`, `description` e `paymentMethod` devem ser coerentes com o método configurado na credencial.
 - `merchantTransactionId` é a referência externa recomendada para idempotência e posterior consulta.
+- O mesmo `merchantTransactionId` devolve o resultado já persistido e não cria uma nova cobrança. Enquanto a primeira requisição ainda estiver sendo processada, a repetição recebe `409` e pode ser tentada novamente.
 - A cobrança é registrada no ledger como solicitação e, conforme resposta da AppyPay, como criada ou falhada.
 
 #### 19.5 POST /financeiro/appypay/qr-codes
@@ -7050,12 +7048,8 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
   "amount": 12500,
   "currency": "AOA",
   "description": "Pagamento com QR Code",
-  "merchantTransactionId": "QR-2026-08-LDA20261-0001",
-  "qrCodeType": "dynamic",
-  "minAmount": 12500,
-  "maxTransactions": 1,
-  "startDate": "2026-08-08T00:00:00Z",
-  "endDate": "2026-08-09T00:00:00Z"
+  "merchantTransactionId": "Q2608LDA000001",
+  "qrCodeType": "SINGLE"
 }
 ```
 
@@ -7077,6 +7071,7 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 **Regras de negócio:**
 
 - Usa o método GPO configurado na credencial do contexto.
+- `qrCodeType` aceita `SINGLE` (padrão) ou `MULTIPLE`; o segundo exige `minAmount`, `maxTransactions`, `startDate` e `endDate`.
 - `qrCodeArr`, quando presente, vem em base64 e deve ser tratado pelo cliente como imagem/representação do QR Code.
 - Datas e limites (`minAmount`, `maxTransactions`) são repassados ao gateway conforme suporte da AppyPay.
 - O QR Code também gera histórico financeiro no ledger.
@@ -7113,7 +7108,7 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 
 - A consulta respeita isolamento por contexto: academia não consulta cobrança de outra academia nem do `spuri`.
 - O `:id` pode ser o identificador retornado pelo provider ou o `merchantTransactionId` informado na criação.
-- A consulta grava evento financeiro de auditoria quando o serviço consulta/atualiza o estado.
+- A consulta grava evento financeiro apenas quando o estado, identificador do provider ou resposta relevante mudar; consultas sem mudança não poluem o ledger.
 
 #### 19.7 POST /webhooks/appypay/gpo
 
@@ -7172,8 +7167,9 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 | `401` | Token ausente/inválido nas rotas `/financeiro/*` ou autenticação inválida nos webhooks. |
 | `403` | Usuário autenticado tenta operar contexto sem permissão. |
 | `404` | Credencial/cobrança inexistente ou não encontrada no contexto permitido. |
-| `409` | Conflito/idempotência quando o backend identifica operação equivalente em andamento ou já registrada. |
-| `500` | Falha interna, indisponibilidade inesperada do serviço financeiro ou erro não tratado do provider. |
+| `409` | Uma cobrança com o mesmo `merchantTransactionId` ainda está sendo processada. |
+| `503` | Falha de comunicação, autenticação ou resposta inválida da AppyPay; tente novamente mais tarde. |
+| `500` | Falha interna não tratada do serviço financeiro. |
 
 ---
 
