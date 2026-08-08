@@ -204,7 +204,7 @@ O mesmo vale para faltas: uma falta lançada com `quantidade` errada, matéria e
 
 **Impacto:** nenhum, funcionalmente (código morto, inacessível). Risco é de manutenção: um desenvolvedor (humano ou IA) pode presumir que essa rota existe e está em produção, ou pode gastar tempo "corrigindo" um caminho de código que nunca executa.
 
-**Correção recomendada:** remover as duas funções (ou, se o objetivo for reativar um endpoint síncrono de lote com limite menor além do assíncrono, registrar a rota explicitamente e documentar).
+**Correção recomendada:** remover as duas funções.
 
 ---
 
