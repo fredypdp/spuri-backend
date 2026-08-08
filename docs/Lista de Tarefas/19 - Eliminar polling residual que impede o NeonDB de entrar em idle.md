@@ -1,10 +1,10 @@
 ---
 criado: 2026-08-08 00:00
 origem: Depuração de logs de produção (Render) + code review em github.com/fredypdp/spuri-backend — conversa com Claude
-status: pendente
+status: feito
 ---
 
-# 19 — Eliminar polling residual que impede o NeonDB de entrar em idle (pendente)
+# 19 — Eliminar polling residual que impede o NeonDB de entrar em idle (feito)
 
 ## Prompt recomendado para executar a atualização
 
