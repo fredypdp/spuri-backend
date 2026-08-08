@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"spuri/internal/db"
 	"spuri/internal/utils"
 	"time"
@@ -55,7 +54,7 @@ func (p *FaltasProjection) Handle(event db.Event) error {
 		"FaltaCorrigida":    p.handleFaltaCorrigida,
 	}
 	if handler, ok := handlers[event.EventType]; ok {
-		log.Printf("[DEBUG] [faltas] Processando %s: %s", event.EventType, event.EventID)
+		utils.Debugf("[DEBUG] [faltas] Processando %s: %s", event.EventType, event.EventID)
 		return handler(event)
 	}
 	return nil
@@ -66,7 +65,7 @@ func (p *FaltasProjection) Handle(event db.Event) error {
 // ============================================================================
 
 func (p *FaltasProjection) Rebuild() error {
-	log.Printf("[DEBUG] [faltas] Rebuild iniciado")
+	utils.Debugf("[DEBUG] [faltas] Rebuild iniciado")
 	if err := p.clear(); err != nil {
 		return fmt.Errorf("falha ao limpar: %w", err)
 	}
@@ -102,7 +101,7 @@ func (p *FaltasProjection) Rebuild() error {
 		}
 		count++
 	}
-	log.Printf("[DEBUG] [faltas] Rebuild concluído: %d eventos", count)
+	utils.Debugf("[DEBUG] [faltas] Rebuild concluído: %d eventos", count)
 	return rows.Err()
 }
 

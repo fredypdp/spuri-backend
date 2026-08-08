@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 type ErrorResponse struct {
@@ -369,4 +370,18 @@ func IsTransientDatabaseError(err error) bool {
 		}
 	}
 	return false
+}
+
+// IsSerializationFailure identifies PostgreSQL errors that are safe to retry
+// only after rebuilding the aggregate from the latest event stream.
+func IsSerializationFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		return string(pqErr.Code) == "40001" || string(pqErr.Code) == "40P01"
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "sqlstate 40001") || strings.Contains(msg, "serialization_failure") || strings.Contains(msg, "sqlstate 40p01") || strings.Contains(msg, "deadlock detected")
 }

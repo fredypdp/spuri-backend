@@ -259,69 +259,9 @@ func processarCadastroEstudanteBatch(c *gin.Context, items []cadastroEstudanteJS
 // POST /academia/notas-aluno/batch — limite 200
 // =============================================================================
 
-func RegistrarNotaBatch(c *gin.Context) {
-	type ReqNota struct {
-		CodigoEstudante      string  `json:"codigo_estudante"`
-		Periodo              string  `json:"periodo"`
-		MateriaDisciplinarID string  `json:"materia_disciplinar_id"`
-		Tipo                 string  `json:"tipo"`
-		Categoria            string  `json:"categoria"`
-		Nota                 float64 `json:"nota"`
-		Observacao           *string `json:"observacao"`
-	}
-	var reqs []ReqNota
-	if err := c.ShouldBindJSON(&reqs); err != nil {
-		utils.RespondWithError(c, http.StatusBadRequest, "body deve ser um array de notas", nil)
-		return
-	}
-	if err := validarTamanhoBatch(len(reqs), 200); err != nil {
-		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), nil)
-		return
-	}
-
-	results := make([]BatchItemResult, 0, len(reqs))
-	for i, req := range reqs {
-		rc := newFakeContext(c)
-		setJSONBody(rc, req)
-		RegistrarNota(rc)
-		results = append(results, extractResult(rc, i))
-	}
-
-	c.JSON(batchHTTPStatus(results), newBatchResponse(results))
-}
-
 // =============================================================================
 // POST /academia/faltas-aluno/batch — limite 200
 // =============================================================================
-
-func RegistrarFaltasBatch(c *gin.Context) {
-	type ReqFalta struct {
-		CodigoEstudante      string     `json:"codigo_estudante"`
-		Data                 utils.Date `json:"data"`
-		MateriaDisciplinarID string     `json:"materia_disciplinar_id"`
-		Quantidade           int        `json:"quantidade"`
-		Observacao           *string    `json:"observacao"`
-	}
-	var reqs []ReqFalta
-	if err := c.ShouldBindJSON(&reqs); err != nil {
-		utils.RespondWithError(c, http.StatusBadRequest, "body deve ser um array de faltas", nil)
-		return
-	}
-	if err := validarTamanhoBatch(len(reqs), 200); err != nil {
-		utils.RespondWithError(c, http.StatusBadRequest, err.Error(), nil)
-		return
-	}
-
-	results := make([]BatchItemResult, 0, len(reqs))
-	for i, req := range reqs {
-		rc := newFakeContext(c)
-		setJSONBody(rc, req)
-		RegistrarFaltas(rc)
-		results = append(results, extractResult(rc, i))
-	}
-
-	c.JSON(batchHTTPStatus(results), newBatchResponse(results))
-}
 
 // =============================================================================
 // POST /academia/avaliacao-final/batch — limite 100

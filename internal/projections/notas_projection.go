@@ -4,12 +4,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/google/uuid"
 
 	"spuri/internal/db"
+	"spuri/internal/utils"
 )
 
 type NotasProjection struct {
@@ -57,7 +57,7 @@ func (p *NotasProjection) Handle(event db.Event) error {
 		"NotaCorrigida":    p.handleNotaCorrigida,
 	}
 	if handler, ok := handlers[event.EventType]; ok {
-		log.Printf("[DEBUG] [notas] Processando %s: %s", event.EventType, event.EventID)
+		utils.Debugf("[DEBUG] [notas] Processando %s: %s", event.EventType, event.EventID)
 		return handler(event)
 	}
 	return nil
@@ -68,7 +68,7 @@ func (p *NotasProjection) Handle(event db.Event) error {
 // ============================================================================
 
 func (p *NotasProjection) Rebuild() error {
-	log.Printf("[DEBUG] [notas] Rebuild iniciado")
+	utils.Debugf("[DEBUG] [notas] Rebuild iniciado")
 	if err := p.clear(); err != nil {
 		return fmt.Errorf("falha ao limpar: %w", err)
 	}
@@ -106,7 +106,7 @@ func (p *NotasProjection) Rebuild() error {
 		count++
 	}
 
-	log.Printf("[DEBUG] [notas] Rebuild concluído: %d eventos", count)
+	utils.Debugf("[DEBUG] [notas] Rebuild concluído: %d eventos", count)
 	return rows.Err()
 }
 
@@ -156,13 +156,7 @@ func (p *NotasProjection) handleNotasRegistradas(event db.Event) error {
 			registered_at, registrado_por, event_id, version
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 		ON CONFLICT (codigo_estudante, codigo_academia, ano_lectivo, periodo, materia_disciplinar_id, tipo, categoria)
-		DO UPDATE SET
-			nota          = EXCLUDED.nota,
-			observacao    = EXCLUDED.observacao,
-			event_id      = EXCLUDED.event_id,
-			version       = EXCLUDED.version,
-			registered_at = EXCLUDED.registered_at,
-			registrado_por = EXCLUDED.registrado_por
+		DO NOTHING
 	`,
 		payload.CodigoEstudante, payload.CodigoAcademia, payload.AnoLectivo, payload.AnoAcademico,
 		payload.Periodo, payload.MateriaDisciplinarID, payload.Tipo, payload.Categoria,
@@ -174,8 +168,7 @@ func (p *NotasProjection) handleNotasRegistradas(event db.Event) error {
 	}
 
 	if rows, _ := result.RowsAffected(); rows == 0 {
-		log.Printf("[WARN] [notas] NotasRegistradas %s: nota já existia para estudante=%s periodo=%s tipo=%s categoria=%s — atualizada via UPSERT",
-			event.EventID, payload.CodigoEstudante, payload.Periodo, payload.Tipo, payload.Categoria)
+		utils.Debugf("[notas] evento duplicado ignorado: %s", event.EventID)
 	}
 
 	return nil

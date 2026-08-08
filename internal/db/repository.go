@@ -11,6 +11,7 @@ import (
 	"github.com/jmoiron/sqlx"
 
 	"spuri/internal/domain/aggregates"
+	"spuri/internal/utils"
 )
 
 type AggregateRepository struct {
@@ -174,6 +175,20 @@ func (r *AggregateRepository) Save(aggregate aggregates.Aggregate) error {
 // FIX DB-02: versão lida dentro da tx Serializable via getAggregateVersionTx.
 // FIX DB-03: branch ErrNoRows (dead code) removido.
 func (r *AggregateRepository) SaveWithAudit(aggregate aggregates.Aggregate, audit AuditContext) error {
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		err = r.saveWithAuditOnce(aggregate, audit)
+		if err == nil || !utils.IsSerializationFailure(err) {
+			return err
+		}
+		// The serializable transaction was rolled back and no event was cleared,
+		// so persistence can safely be retried with a short bounded backoff.
+		time.Sleep(time.Duration(20*(attempt+1)) * time.Millisecond)
+	}
+	return err
+}
+
+func (r *AggregateRepository) saveWithAuditOnce(aggregate aggregates.Aggregate, audit AuditContext) error {
 	uncommittedEvents := aggregate.GetUncommittedEvents()
 	if len(uncommittedEvents) == 0 {
 		return nil

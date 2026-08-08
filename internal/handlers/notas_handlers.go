@@ -40,11 +40,12 @@ func RegistrarNota(c *gin.Context) {
 		))
 		return
 	}
+	if strings.TrimSpace(req.CodigoEstudante) == "" || strings.TrimSpace(req.Periodo) == "" || strings.TrimSpace(req.MateriaDisciplinarID) == "" || strings.TrimSpace(req.Tipo) == "" || strings.TrimSpace(req.Categoria) == "" {
+		utils.RespondWithValidationError(c, fmt.Errorf("campos obrigatorios: codigo_estudante, periodo, materia_disciplinar_id, tipo e categoria"))
+		return
+	}
 
-	log.Printf(
-		"[nota-debug] payload recebido: estudante=%s materia_id=%s tipo=%s categoria=%s periodo=%q nota=%.2f",
-		req.CodigoEstudante, req.MateriaDisciplinarID, req.Tipo, req.Categoria, req.Periodo, req.Nota,
-	)
+	utils.Debugf("[nota-debug] payload recebido: estudante=%s materia_id=%s tipo=%s categoria=%s periodo=%q", req.CodigoEstudante, req.MateriaDisciplinarID, req.Tipo, req.Categoria, req.Periodo)
 
 	// Academia autenticada
 	academiaProj := getAcademiaProjection(c)
@@ -68,7 +69,7 @@ func RegistrarNota(c *gin.Context) {
 	}[academiaDTO.Nivel]
 
 	if req.Tipo != tipoEsperado {
-		log.Printf(
+		utils.Debugf(
 			"[nota-debug] tipo incompatível com academia: academia_tipo=%s tipo_esperado=%s tipo_recebido=%s estudante=%s periodo=%q",
 			academiaDTO.Nivel, tipoEsperado, req.Tipo, req.CodigoEstudante, req.Periodo,
 		)
@@ -113,7 +114,7 @@ func RegistrarNota(c *gin.Context) {
 	}
 
 	if req.Tipo == aggregates.TipoSuperior {
-		log.Printf(
+		utils.Debugf(
 			"[nota-debug] validando regras de superior: materia=%s materia_status=%s materia_periodo=%v periodo_recebido=%q",
 			materiaDTO.Nome, materiaDTO.Status, materiaDTO.Periodo, req.Periodo,
 		)
@@ -146,7 +147,7 @@ func RegistrarNota(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
-	log.Printf(
+	utils.Debugf(
 		"[nota-debug] periodos válidos resolvidos: tipo=%s curso_id=%v materia=%s periodo_recebido=%q periodos_validos=%v",
 		req.Tipo, materiaDTO.CursoID, materiaDTO.Nome, req.Periodo, periodosValidos,
 	)
@@ -200,7 +201,7 @@ func RegistrarNota(c *gin.Context) {
 	)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "periodo") || strings.Contains(strings.ToLower(err.Error()), "período") {
-			log.Printf(
+			utils.Debugf(
 				"[nota-debug] falha de validação de período no aggregate: estudante=%s materia_id=%s tipo=%s categoria=%s periodo=%q periodos_validos=%v erro=%v",
 				req.CodigoEstudante, materiaID, req.Tipo, req.Categoria, req.Periodo, periodosValidos, err,
 			)
@@ -236,8 +237,7 @@ func RegistrarNota(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Nota registrada: %s - %.2f [%s/%s] em %s (ano_academico=%s, periodo=%s)",
-		req.CodigoEstudante, req.Nota, req.Tipo, req.Categoria, materiaDTO.Nome, anoAcademico, req.Periodo)
+	log.Printf("Nota registrada: estudante=%s tipo=%s categoria=%s materia=%s", req.CodigoEstudante, req.Tipo, req.Categoria, materiaDTO.Nome)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message":                       "nota registrada com sucesso",
@@ -314,6 +314,10 @@ func CorrigirNota(c *gin.Context) {
 	}
 	if err := estudante.CorrigirNota(notaID, academia.CodigoAcademia, nota.AnoLectivo, nota.Periodo, materiaID, nota.Tipo, nota.Categoria, req.Nota, req.Observacao, req.Motivo, userID, limiteNotaPorAnoAcademico(nota.AnoAcademico)); err != nil {
 		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if _, err := tentarAvaliacoesFinaisAutomaticas(c, estudante, estudanteDTO, academia.CodigoAcademia, nota.AnoLectivo, inferirTipoEnsinoDoEstudante(estudanteDTO), nota.AnoAcademico, nota.Categoria, &notaFormulaOverlay{MateriaID: materiaID.String(), Categoria: nota.Categoria, Periodo: nota.Periodo, Nota: req.Nota}); err != nil {
+		utils.RespondWithInternalError(c, fmt.Errorf("erro ao recalcular avaliação final: %w", err))
 		return
 	}
 	if err := getRepository(c).SaveWithAudit(estudante, db.AuditContext{UserID: userID.String(), UserType: "academia", IP: c.ClientIP()}); err != nil {
@@ -676,10 +680,10 @@ func DeletarCategoriaNota(c *gin.Context) {
 //   - tipo="escolar"  -> 3 trimestres fixos
 //   - tipo="superior" -> periodos do curso ao qual a materia pertence
 func resolverPeriodosValidos(c *gin.Context, tipo string, cursoID *uuid.UUID) ([]string, error) {
-	log.Printf("[nota-debug] resolverPeriodosValidos: tipo=%s curso_id=%v", tipo, cursoID)
+	utils.Debugf("[nota-debug] resolverPeriodosValidos: tipo=%s curso_id=%v", tipo, cursoID)
 	switch tipo {
 	case aggregates.TipoEscolar:
-		log.Printf("[nota-debug] tipo escolar: usando períodos fixos %v", aggregates.PeriodosEscolar)
+		utils.Debugf("[nota-debug] tipo escolar: usando períodos fixos %v", aggregates.PeriodosEscolar)
 		return aggregates.PeriodosEscolar, nil
 
 	case aggregates.TipoSuperior:
@@ -701,11 +705,11 @@ func resolverPeriodosValidos(c *gin.Context, tipo string, cursoID *uuid.UUID) ([
 				cursoDTO.Nome,
 			)
 		}
-		log.Printf("[nota-debug] tipo superior: períodos do curso '%s' -> %v", cursoDTO.Nome, cursoDTO.Periodos)
+		utils.Debugf("[nota-debug] tipo superior: períodos do curso '%s' -> %v", cursoDTO.Nome, cursoDTO.Periodos)
 		return cursoDTO.Periodos, nil
 
 	default:
-		log.Printf("[nota-debug] tipo de nota inválido ao resolver períodos: tipo=%s", tipo)
+		utils.Debugf("[nota-debug] tipo de nota inválido ao resolver períodos: tipo=%s", tipo)
 		return nil, fmt.Errorf("tipo de nota invalido: '%s'. Use 'escolar' ou 'superior'", tipo)
 	}
 }

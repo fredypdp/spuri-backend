@@ -144,7 +144,7 @@ func NewLocalProvider() StorageProvider {
 }
 
 func useLocalMegaFallback() bool {
-	return os.Getenv("ENV") == "test" || strings.ToLower(strings.TrimSpace(os.Getenv("STORAGE_PROVIDER"))) == "local"
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("ENV")), "test") || strings.ToLower(strings.TrimSpace(os.Getenv("STORAGE_PROVIDER"))) == "local"
 }
 
 func (m *MegaProvider) ProviderName() string { return "mega" }

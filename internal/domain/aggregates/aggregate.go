@@ -6,6 +6,8 @@ import (
 	"log"
 
 	"github.com/google/uuid"
+
+	"spuri/internal/utils"
 )
 
 // Aggregate interface base para todos os agregados
@@ -46,15 +48,15 @@ func (a *BaseAggregate) GetUncommittedEvents() []DomainEvent {
 }
 
 func (a *BaseAggregate) ClearUncommittedEvents() {
-	log.Printf("[DEBUG] Limpando %d eventos não commitados", len(a.UncommittedEvents))
+	utils.Debugf("[DEBUG] Limpando %d eventos não commitados", len(a.UncommittedEvents))
 	a.UncommittedEvents = []DomainEvent{}
 }
 
 func (a *BaseAggregate) RaiseEvent(event DomainEvent) {
-	log.Printf("[DEBUG] Levantando evento: %s para agregado: %s", event.GetEventType(), a.ID)
+	utils.Debugf("[DEBUG] Levantando evento: %s para agregado: %s", event.GetEventType(), a.ID)
 	a.UncommittedEvents = append(a.UncommittedEvents, event)
 	a.Version++
-	log.Printf("[DEBUG] Versão do agregado incrementada para: %d", a.Version)
+	utils.Debugf("[DEBUG] Versão do agregado incrementada para: %d", a.Version)
 }
 
 // SetID permite setar o ID do agregado após a criação pela factory.
@@ -103,7 +105,7 @@ func (e *BaseEvent) GetPayload() interface{} {
 // AggregateID + Payload), não apenas e.Payload.
 // Eventos concretos sobrescrevem este método com json.Marshal(e) no tipo concreto.
 func (e *BaseEvent) ToJSON() ([]byte, error) {
-	log.Printf("[DEBUG] Convertendo evento %s para JSON (BaseEvent.ToJSON)", e.EventType)
+	utils.Debugf("[DEBUG] Convertendo evento %s para JSON (BaseEvent.ToJSON)", e.EventType)
 	return json.Marshal(e)
 }
 
@@ -119,7 +121,7 @@ type DefaultAggregateFactory struct{}
 // NOTA B-02: SistemaConfig é criado com uuid.Nil intencionalmente — o ID real
 // é injetado via BuildFromEvents.SetID() antes da aplicação dos eventos.
 func (f *DefaultAggregateFactory) Create(aggregateType string) (Aggregate, error) {
-	log.Printf("[DEBUG] Criando agregado do tipo: %s", aggregateType)
+	utils.Debugf("[DEBUG] Criando agregado do tipo: %s", aggregateType)
 
 	switch aggregateType {
 	case "Estudante":
@@ -160,7 +162,7 @@ type EventApplier struct {
 
 // NewEventApplier cria um novo EventApplier
 func NewEventApplier(factory AggregateFactory) *EventApplier {
-	log.Printf("[DEBUG] Criando novo EventApplier")
+	utils.Debugf("[DEBUG] Criando novo EventApplier")
 	return &EventApplier{
 		factory: factory,
 	}
@@ -181,7 +183,7 @@ func (ea *EventApplier) BuildFromEvents(
 	aggregateType string,
 	events []DomainEvent,
 ) (Aggregate, error) {
-	log.Printf("[DEBUG] Reconstruindo agregado %s a partir de %d eventos", aggregateType, len(events))
+	utils.Debugf("[DEBUG] Reconstruindo agregado %s a partir de %d eventos", aggregateType, len(events))
 
 	if len(events) == 0 {
 		log.Printf("[ERROR] Nenhum evento fornecido para reconstruir agregado")
@@ -200,13 +202,13 @@ func (ea *EventApplier) BuildFromEvents(
 	if aggregate.GetID() == uuid.Nil {
 		if setter, ok := aggregate.(idSetter); ok {
 			setter.SetID(events[0].GetAggregateID())
-			log.Printf("[DEBUG] ID do agregado %s injetado via SetID: %s",
+			utils.Debugf("[DEBUG] ID do agregado %s injetado via SetID: %s",
 				aggregateType, events[0].GetAggregateID())
 		}
 	}
 
 	for i, event := range events {
-		log.Printf("[DEBUG] Aplicando evento %d/%d: %s", i+1, len(events), event.GetEventType())
+		utils.Debugf("[DEBUG] Aplicando evento %d/%d: %s", i+1, len(events), event.GetEventType())
 		if err := aggregate.Apply(event); err != nil {
 			log.Printf("[ERROR] Erro ao aplicar evento %s: %v", event.GetEventType(), err)
 			return nil, fmt.Errorf("erro ao aplicar evento %s: %w",
@@ -214,7 +216,7 @@ func (ea *EventApplier) BuildFromEvents(
 		}
 	}
 
-	log.Printf("[DEBUG] Agregado %s reconstruído com sucesso. Versão: %d",
+	utils.Debugf("[DEBUG] Agregado %s reconstruído com sucesso. Versão: %d",
 		aggregateType, aggregate.GetVersion())
 	return aggregate, nil
 }

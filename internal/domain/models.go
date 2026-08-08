@@ -53,38 +53,6 @@ type Curso struct {
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }
 
-type RegistroNotas struct {
-	ID              uuid.UUID  `json:"id" db:"id"`
-	CodigoEstudante string     `json:"codigo_estudante" db:"codigo_estudante"`
-	CodigoAcademia  string     `json:"codigo_academia" db:"codigo_academia"`
-	AnoLectivo      string     `json:"ano_lectivo" db:"ano_lectivo"`
-	Periodo         string     `json:"periodo" db:"periodo"`
-	Materias        []Materia  `json:"materias" db:"materias"`
-	CreatedAt       time.Time  `json:"created_at" db:"created_at"`
-	EventID         *uuid.UUID `json:"event_id,omitempty" db:"event_id"`
-}
-
-type RegistroFaltas struct {
-	ID              uuid.UUID       `json:"id" db:"id"`
-	CodigoEstudante string          `json:"codigo_estudante" db:"codigo_estudante"`
-	CodigoAcademia  string          `json:"codigo_academia" db:"codigo_academia"`
-	AnoLectivo      string          `json:"ano_lectivo" db:"ano_lectivo"`
-	Periodo         string          `json:"periodo" db:"periodo"`
-	Materias        []MateriaFaltas `json:"materias" db:"materias"`
-	CreatedAt       time.Time       `json:"created_at" db:"created_at"`
-	EventID         *uuid.UUID      `json:"event_id,omitempty" db:"event_id"`
-}
-
-type Materia struct {
-	Nome string  `json:"nome"`
-	Nota float64 `json:"nota"`
-}
-
-type MateriaFaltas struct {
-	Nome   string `json:"nome"`
-	Faltas int    `json:"faltas"`
-}
-
 type LoginRequest struct {
 	Usuario string `json:"usuario" binding:"required"`
 	Senha   string `json:"senha" binding:"required"`
@@ -125,20 +93,6 @@ type RegisterEstudanteRequest struct {
 	AnoSuperior           *string    `json:"ano_superior"`
 	CursoMedioID          *uuid.UUID `json:"curso_medio_id"`
 	CursoSuperiorID       *uuid.UUID `json:"curso_superior_id"`
-}
-
-type RegistrarNotasRequest struct {
-	CodigoEstudante string    `json:"codigo_estudante" binding:"required"`
-	AnoLectivo      string    `json:"ano_lectivo"      binding:"required"`
-	Periodo         string    `json:"periodo"          binding:"required"`
-	Materias        []Materia `json:"materias"         binding:"required"`
-}
-
-type RegistrarFaltasRequest struct {
-	CodigoEstudante string          `json:"codigo_estudante" binding:"required"`
-	AnoLectivo      string          `json:"ano_lectivo"      binding:"required"`
-	Periodo         string          `json:"periodo"          binding:"required"`
-	Materias        []MateriaFaltas `json:"materias"         binding:"required"`
 }
 
 type ErrorResponse struct {

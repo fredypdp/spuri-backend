@@ -213,7 +213,7 @@ func setupRouter() *gin.Engine {
 		c.Header("X-XSS-Protection", "1; mode=block")
 		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
 		c.Header("Content-Security-Policy", "default-src 'none'")
-		if os.Getenv("ENV") == "production" {
+		if strings.EqualFold(strings.TrimSpace(os.Getenv("ENV")), "production") {
 			c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}
 		c.Next()

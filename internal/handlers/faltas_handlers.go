@@ -63,6 +63,10 @@ func RegistrarFaltas(c *gin.Context) {
 		))
 		return
 	}
+	if strings.TrimSpace(req.CodigoEstudante) == "" || strings.TrimSpace(req.MateriaDisciplinarID) == "" || req.Quantidade <= 0 {
+		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatorios: codigo_estudante, data, materia_disciplinar_id e quantidade"))
+		return
+	}
 
 	academiaProj := getAcademiaProjection(c)
 	academiaDTO, err := academiaProj.GetByID(userID)
