@@ -241,7 +241,7 @@ func TestAcademiaAnosAcademicosRoutesExposeOnlyGetPostDelete(t *testing.T) {
 	}
 }
 
-func TestNotasAndFaltasExposeOnlyCreateAndReadRoutes(t *testing.T) {
+func TestNotasAndFaltasExposeApenasRotasSuportadas(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	router := setupRouter()
@@ -254,6 +254,8 @@ func TestNotasAndFaltasExposeOnlyCreateAndReadRoutes(t *testing.T) {
 		{http.MethodPost, "/academia/notas-aluno/async"},
 		{http.MethodPost, "/academia/faltas-aluno"},
 		{http.MethodPost, "/academia/faltas-aluno/async"},
+		{http.MethodPatch, "/academia/notas-aluno/00000000-0000-0000-0000-000000000000"},
+		{http.MethodPatch, "/academia/faltas-aluno/00000000-0000-0000-0000-000000000000"},
 		{http.MethodGet, "/notas"},
 		{http.MethodGet, "/faltas"},
 		{http.MethodGet, "/notas-estudante/ABC1234"},

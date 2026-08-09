@@ -37,3 +37,15 @@ func TestPodeAuditarEstudantePermiteAdmin(t *testing.T) {
 		t.Fatal("admin deve auditar qualquer aggregate de estudante")
 	}
 }
+
+func TestPodeAuditarEstudantePermiteAcademiaDoMesmoCodigo(t *testing.T) {
+	codigoAcademia := "ACA-TESTE"
+	estudante := &projections.EstudanteDTO{CodigoAcademia: &codigoAcademia}
+
+	if !estudantePertenceAAcademia(estudante, codigoAcademia) {
+		t.Fatal("academia deve poder auditar estudante do mesmo codigo")
+	}
+	if estudantePertenceAAcademia(estudante, "ACA-OUTRA") {
+		t.Fatal("academia nao deve poder auditar estudante de outro codigo")
+	}
+}

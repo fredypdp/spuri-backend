@@ -687,10 +687,14 @@ func podeAuditarEstudante(c *gin.Context, estudante *projections.EstudanteDTO) b
 		return userID == estudante.ID
 	case "academia":
 		academia, err := getAcademiaProjection(c).GetByID(userID)
-		return err == nil && academia != nil && estudante.CodigoAcademia != nil && *estudante.CodigoAcademia == academia.CodigoAcademia
+		return err == nil && academia != nil && estudantePertenceAAcademia(estudante, academia.CodigoAcademia)
 	default:
 		return false
 	}
+}
+
+func estudantePertenceAAcademia(estudante *projections.EstudanteDTO, codigoAcademia string) bool {
+	return estudante != nil && estudante.CodigoAcademia != nil && *estudante.CodigoAcademia == codigoAcademia
 }
 
 // ============================================================================
