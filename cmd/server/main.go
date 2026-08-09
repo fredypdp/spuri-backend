@@ -492,7 +492,6 @@ func setupRouter() *gin.Engine {
 		admin.PUT("/admin/:id/desativar", middleware.RequireAdm(), handlers.DesativarAdmin)
 		admin.GET("/admin-lista", handlers.ListarTodosAdmins)
 		admin.GET("/metrics", handlers.GetSystemMetrics)
-		admin.GET("/eventos/:event_id", handlers.GetEventoAuditoria)
 		admin.GET("/storage/quota", handlers.GetStorageQuota)
 		admin.GET("/solicitacoes-matricula", handlers.ListarSolicitacoesMatriculaAdmin)
 		admin.POST("/projections/rebuild/:name", middleware.RequireFPP(), handlers.RebuildProjection)

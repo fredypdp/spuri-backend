@@ -5007,11 +5007,63 @@ Remove estudantes de turmas em lote.
 
 ---
 
+### `GET /eventos-estudante/:codigo`
+
+Lista o histórico imutável de eventos de um estudante.
+
+**Proteção:** autenticado.
+
+**Autorização:** admin consulta qualquer estudante; estudante consulta apenas o próprio código; academia consulta apenas estudantes vinculados à sua instituição.
+
+**Path params:** `codigo` — código do estudante.
+
+**Response 200:**
+
+```json
+{
+  "codigo_estudante": "EST-2026-0001",
+  "eventos": [
+    {
+      "event_id": "uuid-do-evento",
+      "aggregate_id": "uuid-do-estudante",
+      "event_type": "NotaCorrigida",
+      "payload": { "NovaNota": 15.5, "Motivo": "Erro de digitacao" },
+      "metadata": { "user_id": "uuid-da-academia", "user_type": "academia", "ip": "127.0.0.1" }
+    }
+  ],
+  "total": 1
+}
+```
+
+### `GET /eventos/:event_id`
+
+Consulta um evento imutável específico do ledger, incluindo payload e metadados de auditoria.
+
+**Proteção:** autenticado.
+
+**Autorização:** admin consulta qualquer evento; estudante e academia só consultam eventos associados a estudante próprio/da própria instituição. Sem posse, a resposta é `404` para não revelar a existência do evento.
+
+**Path params:** `event_id` — UUID do evento.
+
+**Response 200:**
+
+```json
+{
+  "evento": {
+    "event_id": "uuid-do-evento",
+    "aggregate_id": "uuid-do-estudante",
+    "event_type": "FaltaCorrigida",
+    "payload": { "NovaQuantidade": 2, "Motivo": "Quantidade confirmada" },
+    "metadata": { "user_id": "uuid-da-academia", "user_type": "academia", "ip": "127.0.0.1" }
+  }
+}
+```
+
 ## 13. Notas
 
 ### Processos de negócio — Notas
 
-Notas são registros acadêmicos imutáveis vinculados a estudante, academia, ano letivo ativo, ano acadêmico inferido pelo vínculo do estudante e matéria disciplinar. A academia autenticada registra notas apenas para estudantes da própria instituição e apenas em matérias compatíveis com o nível, curso, ano acadêmico e tipo de ensino. Para academias escolares, `tipo` deve ser `escolar`; para academias superiores, `tipo` deve ser `superior`. O lançamento pode acionar avaliações finais automáticas quando a categoria registrada é configurada como `nota_despertadora` de regra ativa.
+Notas são registros acadêmicos imutáveis vinculados a estudante, academia, ano letivo ativo, ano acadêmico inferido pelo vínculo do estudante e matéria disciplinar. A correção é permitida exclusivamente por evento compensatório auditado, sem apagar o lançamento original. A academia autenticada registra notas apenas para estudantes da própria instituição e apenas em matérias compatíveis com o nível, curso, ano acadêmico e tipo de ensino. Para academias escolares, `tipo` deve ser `escolar`; para academias superiores, `tipo` deve ser `superior`. O lançamento ou a correção pode acionar avaliações finais automáticas quando a categoria registrada é configurada como `nota_despertadora` de regra ativa.
 
 ### `POST /academia/notas-aluno`
 
@@ -5060,6 +5112,34 @@ Registra uma nota individual.
 }
 ```
 
+### `PATCH /academia/notas-aluno/:id`
+
+Corrige uma nota por evento compensatório; o lançamento original permanece intacto no ledger. Uma correção pode disparar o recálculo de avaliação final.
+
+**Proteção:** academia ativa e dona da nota.
+
+**Path params:** `id` — UUID da nota retornado nas listagens.
+
+**Request:**
+
+```json
+{
+  "nota": 15.5,
+  "observacao": "Valor confirmado após revisão",
+  "motivo": "Erro de digitacao no lançamento original"
+}
+```
+
+**Regras:** `motivo` é obrigatório; `nota` respeita a escala do ano acadêmico; `observacao` aceita no máximo 2000 caracteres. A chave acadêmica da nota é derivada do registro existente, nunca do corpo enviado.
+
+**Response 200:**
+
+```json
+{ "message": "nota corrigida com sucesso", "id": "uuid-da-nota" }
+```
+
+**Erros:** `400` para motivo ausente, JSON inválido ou nota fora da escala; `403` quando a nota pertence a outra academia; `404` quando o ID não existe.
+
 ### `GET /notas`
 
 Lista notas a partir da projeção global.
@@ -5071,6 +5151,7 @@ Lista notas a partir da projeção global.
 - `limit`, `offset` — paginação.
 - `ano_letivo`, `ano_academico`, `curso_id`, `codigo_turma`, `periodo`, `materia_disciplinar_id`, `codigo_academia`, `categoria` — filtros; aceitam repetição ou valores separados por vírgula.
 - Para admin, `codigo_turma` exige `codigo_academia`.
+- `corrigido=true|false` filtra registros que já receberam (ou não receberam) evento compensatório de correção.
 - Para academia, `codigo_academia` é sempre forçado para a própria instituição.
 
 **Response 200:**
@@ -5093,6 +5174,11 @@ Lista notas a partir da projeção global.
       "categoria": "mac",
       "nota": 15.5,
       "observacao": "Bom desempenho",
+      "registrado_por": "uuid-da-academia",
+      "valor_anterior": 12.0,
+      "motivo_correcao": "Erro de digitacao no lançamento original",
+      "corrigido_por": "uuid-da-academia",
+      "corrigido_em": "2026-07-22T11:00:00Z",
       "registered_at": "2026-07-21T10:30:00Z",
       "event_id": "event-uuid",
       "version": 1
@@ -5123,7 +5209,17 @@ Retorna as notas de um estudante específico.
 {
   "codigo_estudante": "EST-2026-0001",
   "nome": "Maria Silva",
-  "notas": [],
+  "notas": [
+    {
+      "id": "uuid",
+      "nota": 15.5,
+      "registrado_por": "uuid-da-academia",
+      "valor_anterior": 12.0,
+      "motivo_correcao": "Erro de digitacao no lançamento original",
+      "corrigido_por": "uuid-da-academia",
+      "corrigido_em": "2026-07-22T11:00:00Z"
+    }
+  ],
   "total": 0
 }
 ```
@@ -5157,7 +5253,7 @@ Registra notas em lote por job assíncrono.
 
 ### Processos de negócio — Faltas
 
-Faltas são registros acadêmicos imutáveis vinculados a estudante, academia, ano letivo ativo, ano acadêmico inferido e matéria disciplinar. A academia autenticada registra faltas apenas para estudantes da própria instituição e matérias compatíveis. A data do lançamento é validada no intervalo do ano letivo ativo calculado a partir do tipo da academia e da matéria.
+Faltas são registros acadêmicos imutáveis vinculados a estudante, academia, ano letivo ativo, ano acadêmico inferido e matéria disciplinar. A correção é permitida exclusivamente por evento compensatório auditado, sem apagar o lançamento original. A academia autenticada registra faltas apenas para estudantes da própria instituição e matérias compatíveis. A data do lançamento é validada no intervalo do ano letivo ativo calculado a partir do tipo da academia e da matéria.
 
 ### `POST /academia/faltas-aluno`
 
@@ -5199,6 +5295,34 @@ Registra faltas individuais.
 }
 ```
 
+### `PATCH /academia/faltas-aluno/:id`
+
+Corrige uma falta por evento compensatório; o lançamento original permanece intacto no ledger.
+
+**Proteção:** academia ativa e dona da falta.
+
+**Path params:** `id` — UUID da falta retornado nas listagens.
+
+**Request:**
+
+```json
+{
+  "quantidade": 2,
+  "observacao": "Quantidade confirmada após revisão",
+  "motivo": "Erro de digitacao no lançamento original"
+}
+```
+
+**Regras:** `motivo` é obrigatório; `quantidade` deve estar entre 1 e 100; `observacao` aceita no máximo 2000 caracteres. A data e a matéria são derivadas do registro existente.
+
+**Response 200:**
+
+```json
+{ "message": "falta corrigida com sucesso", "id": "uuid-da-falta" }
+```
+
+**Erros:** `400` para motivo ausente, JSON inválido ou quantidade fora da escala; `403` quando a falta pertence a outra academia; `404` quando o ID não existe.
+
 ### `GET /faltas`
 
 Lista faltas a partir da projeção global.
@@ -5211,6 +5335,7 @@ Lista faltas a partir da projeção global.
 - `ano_letivo`, `ano_academico`, `curso_id`, `codigo_turma`, `periodo`, `materia_disciplinar_id`, `codigo_academia` — filtros; aceitam repetição ou valores separados por vírgula.
 - Em faltas, `periodo` filtra o período da matéria disciplinar.
 - Para admin, `codigo_turma` exige `codigo_academia`.
+- `corrigido=true|false` filtra registros que já receberam (ou não receberam) evento compensatório de correção.
 - Para academia, `codigo_academia` é sempre forçado para a própria instituição.
 
 **Response 200:**
@@ -5231,6 +5356,11 @@ Lista faltas a partir da projeção global.
       "materia_nome": "Matemática",
       "quantidade": 2,
       "observacao": "Ausência justificada posteriormente",
+      "registrado_por": "uuid-da-academia",
+      "valor_anterior": 1,
+      "motivo_correcao": "Quantidade corrigida após conferencia",
+      "corrigido_por": "uuid-da-academia",
+      "corrigido_em": "2026-07-22T11:00:00Z",
       "registered_at": "2026-07-21T10:30:00Z",
       "event_id": "event-uuid",
       "version": 1
@@ -5261,7 +5391,17 @@ Retorna as faltas de um estudante específico.
 {
   "codigo_estudante": "EST-2026-0001",
   "nome": "Maria Silva",
-  "faltas": [],
+  "faltas": [
+    {
+      "id": "uuid",
+      "quantidade": 2,
+      "registrado_por": "uuid-da-academia",
+      "valor_anterior": 1,
+      "motivo_correcao": "Quantidade corrigida após conferencia",
+      "corrigido_por": "uuid-da-academia",
+      "corrigido_em": "2026-07-22T11:00:00Z"
+    }
+  ],
   "total": 0
 }
 ```
