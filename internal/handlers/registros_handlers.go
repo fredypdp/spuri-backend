@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"spuri/internal/db"
 	"spuri/internal/middleware"
@@ -16,23 +18,28 @@ import (
 )
 
 type NotaRegistroResponse struct {
-	ID                   string  `json:"id"`
-	CodigoEstudante      string  `json:"codigo_estudante"`
-	EstudanteNome        string  `json:"estudante_nome"`
-	CodigoAcademia       string  `json:"codigo_academia"`
-	AcademiaNome         string  `json:"academia_nome"`
-	AnoLectivo           string  `json:"ano_lectivo"`
-	AnoAcademico         string  `json:"ano_academico"`
-	Periodo              string  `json:"periodo"`
-	MateriaDisciplinarID string  `json:"materia_disciplinar_id"`
-	MateriaNome          string  `json:"materia_nome"`
-	Tipo                 string  `json:"tipo"`
-	Categoria            string  `json:"categoria"`
-	Nota                 float64 `json:"nota"`
-	Observacao           *string `json:"observacao,omitempty"`
-	RegisteredAt         string  `json:"registered_at"`
-	EventID              string  `json:"event_id"`
-	Version              int     `json:"version"`
+	ID                   string     `json:"id"`
+	CodigoEstudante      string     `json:"codigo_estudante"`
+	EstudanteNome        string     `json:"estudante_nome"`
+	CodigoAcademia       string     `json:"codigo_academia"`
+	AcademiaNome         string     `json:"academia_nome"`
+	AnoLectivo           string     `json:"ano_lectivo"`
+	AnoAcademico         string     `json:"ano_academico"`
+	Periodo              string     `json:"periodo"`
+	MateriaDisciplinarID string     `json:"materia_disciplinar_id"`
+	MateriaNome          string     `json:"materia_nome"`
+	Tipo                 string     `json:"tipo"`
+	Categoria            string     `json:"categoria"`
+	Nota                 float64    `json:"nota"`
+	Observacao           *string    `json:"observacao,omitempty"`
+	RegistradoPor        *uuid.UUID `json:"registrado_por,omitempty"`
+	ValorAnterior        *float64   `json:"valor_anterior,omitempty"`
+	MotivoCorrecao       *string    `json:"motivo_correcao,omitempty"`
+	CorrigidoPor         *uuid.UUID `json:"corrigido_por,omitempty"`
+	CorrigidoEm          *time.Time `json:"corrigido_em,omitempty"`
+	RegisteredAt         string     `json:"registered_at"`
+	EventID              string     `json:"event_id"`
+	Version              int        `json:"version"`
 }
 
 type FaltaRegistroResponse struct {
@@ -48,6 +55,11 @@ type FaltaRegistroResponse struct {
 	MateriaNome          string     `json:"materia_nome"`
 	Quantidade           int        `json:"quantidade"`
 	Observacao           *string    `json:"observacao,omitempty"`
+	RegistradoPor        *uuid.UUID `json:"registrado_por,omitempty"`
+	ValorAnterior        *int       `json:"valor_anterior,omitempty"`
+	MotivoCorrecao       *string    `json:"motivo_correcao,omitempty"`
+	CorrigidoPor         *uuid.UUID `json:"corrigido_por,omitempty"`
+	CorrigidoEm          *time.Time `json:"corrigido_em,omitempty"`
 	RegisteredAt         string     `json:"registered_at"`
 	EventID              string     `json:"event_id"`
 	Version              int        `json:"version"`
@@ -103,7 +115,8 @@ func ListarNotas(c *gin.Context) {
 			n.id, n.codigo_estudante, e.nome as estudante_nome,
 			n.codigo_academia, a.nome as academia_nome, n.ano_lectivo, n.ano_academico, n.periodo,
 			n.materia_disciplinar_id, COALESCE(m.nome, '') as materia_nome,
-			n.tipo, n.categoria, n.nota, n.observacao, n.registered_at, n.event_id, n.version
+			n.tipo, n.categoria, n.nota, n.observacao, n.registrado_por, n.valor_anterior,
+			n.motivo_correcao, n.corrigido_por, n.corrigido_em, n.registered_at, n.event_id, n.version
 		FROM projection_notas n
 		LEFT JOIN projection_estudantes e ON n.codigo_estudante = e.codigo_estudante
 		LEFT JOIN projection_academias a ON n.codigo_academia = a.codigo_academia
@@ -141,7 +154,8 @@ func ListarNotas(c *gin.Context) {
 			&nota.ID, &nota.CodigoEstudante, &nota.EstudanteNome,
 			&nota.CodigoAcademia, &nota.AcademiaNome, &nota.AnoLectivo, &nota.AnoAcademico, &nota.Periodo,
 			&nota.MateriaDisciplinarID, &nota.MateriaNome,
-			&nota.Tipo, &nota.Categoria, &nota.Nota, &nota.Observacao, &nota.RegisteredAt, &nota.EventID, &nota.Version,
+			&nota.Tipo, &nota.Categoria, &nota.Nota, &nota.Observacao, &nota.RegistradoPor, &nota.ValorAnterior,
+			&nota.MotivoCorrecao, &nota.CorrigidoPor, &nota.CorrigidoEm, &nota.RegisteredAt, &nota.EventID, &nota.Version,
 		); err != nil {
 			log.Printf("[WARN] ListarNotas: erro ao ler linha: %v", err)
 			continue
@@ -202,7 +216,8 @@ func ListarFaltas(c *gin.Context) {
 			f.id, f.codigo_estudante, e.nome as estudante_nome,
 			f.codigo_academia, a.nome as academia_nome, f.ano_lectivo, f.ano_academico,
 			f.data, f.materia_disciplinar_id, COALESCE(m.nome, '') as materia_nome,
-			f.quantidade, f.observacao, f.registered_at, f.event_id, f.version
+			f.quantidade, f.observacao, f.registrado_por, f.valor_anterior,
+			f.motivo_correcao, f.corrigido_por, f.corrigido_em, f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_estudantes e ON f.codigo_estudante = e.codigo_estudante
 		LEFT JOIN projection_academias a ON f.codigo_academia = a.codigo_academia
@@ -238,7 +253,8 @@ func ListarFaltas(c *gin.Context) {
 			&falta.ID, &falta.CodigoEstudante, &falta.EstudanteNome,
 			&falta.CodigoAcademia, &falta.AcademiaNome, &falta.AnoLectivo, &falta.AnoAcademico,
 			&falta.Data, &falta.MateriaDisciplinarID, &falta.MateriaNome,
-			&falta.Quantidade, &falta.Observacao, &falta.RegisteredAt, &falta.EventID, &falta.Version,
+			&falta.Quantidade, &falta.Observacao, &falta.RegistradoPor, &falta.ValorAnterior,
+			&falta.MotivoCorrecao, &falta.CorrigidoPor, &falta.CorrigidoEm, &falta.RegisteredAt, &falta.EventID, &falta.Version,
 		); err != nil {
 			log.Printf("[WARN] ListarFaltas: erro ao ler linha: %v", err)
 			continue
@@ -279,6 +295,7 @@ type filtrosRegistros struct {
 	materiasDisciplinares []string
 	codigosAcademia       []string
 	categorias            []string
+	corrigido             *bool
 	forbidden             bool
 }
 
@@ -292,6 +309,13 @@ func parseFiltrosRegistros(c *gin.Context, userType, codigoAcademiaEscopo string
 		materiasDisciplinares: parseMultiValueQueryParam(c, "materia_disciplinar_id"),
 		codigosAcademia:       parseMultiValueQueryParam(c, "codigo_academia"),
 		categorias:            parseMultiValueQueryParam(c, "categoria"),
+	}
+	if raw := strings.TrimSpace(c.Query("corrigido")); raw != "" {
+		value, err := strconv.ParseBool(raw)
+		if err != nil {
+			return f, fmt.Errorf("corrigido deve ser true ou false")
+		}
+		f.corrigido = &value
 	}
 
 	if len(f.codigosTurma) > 0 && userType == "admin" && len(f.codigosAcademia) == 0 {
@@ -380,6 +404,13 @@ func (f filtrosRegistros) buildWhereSQL(alias string, includePeriodoRegistro boo
 	}
 	if includePeriodoRegistro && len(f.categorias) > 0 {
 		add(alias+".categoria = ANY($%d)", pq.Array(f.categorias))
+	}
+	if f.corrigido != nil {
+		if *f.corrigido {
+			conditions = append(conditions, alias+".corrigido_em IS NOT NULL")
+		} else {
+			conditions = append(conditions, alias+".corrigido_em IS NULL")
+		}
 	}
 	if len(f.codigosTurma) > 0 {
 		args = append(args, pq.Array(f.codigosTurma))

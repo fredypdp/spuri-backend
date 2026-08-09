@@ -54,6 +54,21 @@ func TestBuildWhereSQL_NotasComCategoriaEMultiplosValores(t *testing.T) {
 	}
 }
 
+func TestParseFiltrosRegistros_FiltraCorrigidos(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest("GET", "/notas?corrigido=true", nil)
+
+	filtros, err := parseFiltrosRegistros(ctx, "admin", "")
+	if err != nil || filtros.corrigido == nil || !*filtros.corrigido {
+		t.Fatalf("filtro corrigido=true invalido: filtros=%+v err=%v", filtros, err)
+	}
+	where, _ := filtros.buildWhereSQL("n", true)
+	if !strings.Contains(where, "n.corrigido_em IS NOT NULL") {
+		t.Fatalf("esperava filtro por registros corrigidos. where=%s", where)
+	}
+}
+
 func TestParseFiltrosRegistrosEstudante_DeveIgnorarCategoriaQuandoNaoSuportado(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())

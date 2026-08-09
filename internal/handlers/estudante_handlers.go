@@ -19,6 +19,7 @@ import (
 	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/middleware"
+	"spuri/internal/projections"
 	"spuri/internal/services"
 	"spuri/internal/storage"
 	"spuri/internal/utils"
@@ -617,16 +618,14 @@ func formatNullRFC3339(nt sql.NullTime) interface{} {
 func GetEventosEstudante(c *gin.Context) {
 	codigoEstudante := c.Param("codigo")
 
-	userType, _ := middleware.GetUserType(c)
-	if userType != "admin" {
-		utils.RespondWithForbiddenError(c, "Apenas administradores podem consultar eventos.")
-		return
-	}
-
 	estudanteProj := getEstudanteProjection(c)
 	estudante, err := estudanteProj.GetByCodigo(codigoEstudante)
 	if err != nil || estudante == nil {
 		utils.RespondWithNotFoundError(c, "estudante")
+		return
+	}
+	if !podeAuditarEstudante(c, estudante) {
+		utils.RespondWithForbiddenError(c, "acesso negado aos eventos deste estudante")
 		return
 	}
 
@@ -644,7 +643,9 @@ func GetEventosEstudante(c *gin.Context) {
 	})
 }
 
-// GetEventoAuditoria returns the immutable ledger event for an administrator.
+// GetEventoAuditoria returns a ledger event only to an owner of the associated
+// student aggregate (or to an administrator). Unauthorized lookups are 404 to
+// avoid revealing event existence.
 func GetEventoAuditoria(c *gin.Context) {
 	eventID, err := uuid.Parse(c.Param("event_id"))
 	if err != nil {
@@ -660,7 +661,36 @@ func GetEventoAuditoria(c *gin.Context) {
 		utils.RespondWithNotFoundError(c, "evento")
 		return
 	}
+	userType, _ := middleware.GetUserType(c)
+	if userType == "admin" {
+		c.JSON(http.StatusOK, gin.H{"evento": evento})
+		return
+	}
+	estudante, err := getEstudanteProjection(c).GetByID(evento.AggregateID)
+	if err != nil || estudante == nil || !podeAuditarEstudante(c, estudante) {
+		utils.RespondWithNotFoundError(c, "evento")
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"evento": evento})
+}
+
+func podeAuditarEstudante(c *gin.Context, estudante *projections.EstudanteDTO) bool {
+	if estudante == nil {
+		return false
+	}
+	userID, _ := middleware.GetUserID(c)
+	userType, _ := middleware.GetUserType(c)
+	switch userType {
+	case "admin":
+		return true
+	case "estudante":
+		return userID == estudante.ID
+	case "academia":
+		academia, err := getAcademiaProjection(c).GetByID(userID)
+		return err == nil && academia != nil && estudante.CodigoAcademia != nil && *estudante.CodigoAcademia == academia.CodigoAcademia
+	default:
+		return false
+	}
 }
 
 // ============================================================================

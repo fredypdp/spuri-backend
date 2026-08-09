@@ -295,6 +295,7 @@ func setupRouter() *gin.Engine {
 		protected.PUT("/me/email", handlers.AtualizarMeuEmail)
 		protected.PUT("/me/telefone", handlers.AtualizarMeuTelefone)
 		protected.GET("/eventos-estudante/:codigo", handlers.GetEventosEstudante)
+		protected.GET("/eventos/:event_id", handlers.GetEventoAuditoria)
 		protected.GET("/verificar-integridade/:codigo", handlers.VerificarIntegridade)
 		protected.GET("/consultar-estudante/:codigo", handlers.GetEstudantePorCodigo)
 		protected.GET("/estudantes", middleware.RequireAcademiaOuAdmin(), handlers.ListarEstudantes)

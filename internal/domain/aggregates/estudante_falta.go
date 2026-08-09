@@ -13,6 +13,8 @@ import (
 // Eventos
 // ============================================================================
 
+const MaxQuantidadeFaltasPadrao = 100
+
 // FaltasRegistradasEvent — emitido ao registrar uma falta.
 // EventType: "FaltasRegistradas" (canônico).
 type FaltasRegistradasEvent struct {
@@ -75,12 +77,13 @@ func (e *Estudante) RegistrarFalta(
 	quantidade int,
 	observacao *string,
 	registradoPor uuid.UUID,
+	maxQuantidade int,
 ) error {
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
 	}
-	if quantidade <= 0 {
-		return fmt.Errorf("quantidade deve ser maior que zero")
+	if quantidade <= 0 || quantidade > maxQuantidade {
+		return fmt.Errorf("quantidade deve estar entre 1 e %d", maxQuantidade)
 	}
 	chave := chaveFalta(e.CodigoEstudante, codigoAcademia, anoLectivo, data, materiaDisciplinarID)
 	if e.FaltasRegistradasPorChave != nil && e.FaltasRegistradasPorChave[chave] {
@@ -108,7 +111,7 @@ func (e *Estudante) RegistrarFalta(
 	return e.Apply(event)
 }
 
-func (e *Estudante) CorrigirFalta(faltaAnteriorID uuid.UUID, codigoAcademia, anoLectivo string, data time.Time, materiaID uuid.UUID, novaQuantidade int, novaObservacao *string, motivo string, corrigidoPor uuid.UUID) error {
+func (e *Estudante) CorrigirFalta(faltaAnteriorID uuid.UUID, codigoAcademia, anoLectivo string, data time.Time, materiaID uuid.UUID, novaQuantidade int, novaObservacao *string, motivo string, corrigidoPor uuid.UUID, maxQuantidade int) error {
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
 	}
@@ -118,8 +121,8 @@ func (e *Estudante) CorrigirFalta(faltaAnteriorID uuid.UUID, codigoAcademia, ano
 	if strings.TrimSpace(motivo) == "" {
 		return fmt.Errorf("motivo da correção é obrigatório")
 	}
-	if novaQuantidade <= 0 {
-		return fmt.Errorf("quantidade deve ser maior que zero")
+	if novaQuantidade <= 0 || novaQuantidade > maxQuantidade {
+		return fmt.Errorf("quantidade deve estar entre 1 e %d", maxQuantidade)
 	}
 	chave := chaveFalta(e.CodigoEstudante, codigoAcademia, anoLectivo, data, materiaID)
 	if e.FaltasRegistradasPorChave == nil || !e.FaltasRegistradasPorChave[chave] {
@@ -134,8 +137,10 @@ func (e *Estudante) CorrigirFalta(faltaAnteriorID uuid.UUID, codigoAcademia, ano
 // Apply handlers
 // ============================================================================
 
-// applyFaltasRegistradas — aggregate não mantém estado derivado para faltas.
-// A projeção persiste cada registro sem restrição de unicidade por data/matéria.
+// applyFaltasRegistradas mantém e.FaltasRegistradasPorChave para que
+// RegistrarFalta detecte duplicatas por estudante, academia, ano letivo, data
+// e matéria antes de emitir o evento. A projeção reforça a mesma unicidade pela
+// constraint uq_falta_unica; ver migration 053_restaurar_unicidade_faltas.sql.
 func (e *Estudante) applyFaltasRegistradas(event DomainEvent) error {
 	data, err := json.Marshal(event.GetPayload())
 	if err != nil {

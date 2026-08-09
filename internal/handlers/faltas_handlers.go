@@ -155,6 +155,7 @@ func RegistrarFaltas(c *gin.Context) {
 		req.Quantidade,
 		req.Observacao,
 		userID,
+		aggregates.MaxQuantidadeFaltasPadrao,
 	)
 	if err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -241,7 +242,7 @@ func CorrigirFalta(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	if err := estudante.CorrigirFalta(faltaID, academia.CodigoAcademia, falta.AnoLectivo, falta.Data.Time, materiaID, req.Quantidade, req.Observacao, req.Motivo, userID); err != nil {
+	if err := estudante.CorrigirFalta(faltaID, academia.CodigoAcademia, falta.AnoLectivo, falta.Data.Time, materiaID, req.Quantidade, req.Observacao, req.Motivo, userID, aggregates.MaxQuantidadeFaltasPadrao); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
