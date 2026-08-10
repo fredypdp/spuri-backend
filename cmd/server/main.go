@@ -285,6 +285,14 @@ func setupRouter() *gin.Engine {
 		jobRoutes.GET("/:id", handlers.GetJob)
 	}
 
+	// ── Rota isolada de integração Ziett (teste de SMS) ──────────────────
+	integracoes := router.Group("/integracoes")
+	integracoes.Use(middleware.AuthMiddleware())
+	integracoes.Use(middleware.RequireFPP())
+	{
+		integracoes.POST("/ziett/mensagens/teste", handlers.EnviarMensagemTesteZiettSMS)
+	}
+
 	// ── Rotas autenticadas (qualquer tipo) ────────────────────────────────
 	protected := router.Group("/")
 	protected.Use(middleware.AuthMiddleware())

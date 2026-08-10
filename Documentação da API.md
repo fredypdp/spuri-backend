@@ -45,6 +45,7 @@ Versão atual: 2.3.0
 18. [Batch Assíncrono](#18-batch-assíncrono)
 19. [Financeiro / AppyPay](#19-financeiro--appypay)
 20. [Armazenamento](#20-armazenamento)
+21. [Integrações Externas / Ziett (Teste)](#21-integrações-externas--ziett-teste)
 
 ---
 
@@ -7654,5 +7655,75 @@ Quando a configuração do Mega ou da quota estiver incompleta ou inválida, a r
   "error": "SERVICE_UNAVAILABLE",
   "message": "operação de storage não suportada",
   "request_id": "8c7e6a5d-9b9f-4fd2-a2d0-3a989a8c2d8b"
+}
+```
+
+
+---
+
+## 21. Integrações Externas / Ziett (Teste)
+
+Esta seção documenta a rota isolada para validar conectividade com a API externa da Ziett por envio de SMS. A rota não grava eventos, não alimenta projeções, não usa `spuri_ledger` e não participa de fluxos de matrícula, estudante, academia ou financeiro.
+
+### 21.1 `POST /integracoes/ziett/mensagens/teste`
+
+Envia uma mensagem de teste através do endpoint `POST /messages` da Ziett, com `channel_type` sempre fixo em `SMS` no backend. Dependendo da API Key configurada, o disparo pode ser simulado (`zk_test_`) ou real e com custo (`zk_live_`).
+
+**Proteção**: `Authorization: Bearer <token>` de admin FPP. Requisições sem token retornam `401`; tokens autenticados sem nível FPP retornam `403`.
+
+**Variável obrigatória**: `ZIETT_API_KEY`. Se ausente ou vazia, a API retorna `503 Service Unavailable` sem contactar a Ziett.
+
+**Request JSON:**
+
+```json
+{
+  "remitter_id": "550e8400-e29b-41d4-a716-446655440000",
+  "target_e164": "923456789",
+  "content": "Mensagem de teste Spuri via Ziett"
+}
+```
+
+| Campo | Tipo | Obrigatório | Validação |
+| --- | --- | --- | --- |
+| `remitter_id` | string | Sim | UUID válido do Sender ID cadastrado na Ziett. |
+| `target_e164` | string | Sim | Número móvel angolano nacional com 9 dígitos, iniciado por `9`, sem `0` inicial e sem `+244`. O backend aceita defensivamente `0`, `244` ou `+244` recebidos por engano e envia à Ziett no formato `+244XXXXXXXXX`. |
+| `content` | string | Sim | Não vazio; máximo de 1600 caracteres. |
+
+> `channel_type` não é aceito no payload de entrada. O backend sempre envia `SMS` para a Ziett.
+
+**Response 202:**
+
+```json
+{
+  "message": "mensagem de teste enviada à Ziett com sucesso",
+  "message_id": "msg_123",
+  "target_e164": "+244923456789",
+  "channel_type": "SMS"
+}
+```
+
+**Erros:**
+
+| Status | Quando ocorre | Observações |
+| --- | --- | --- |
+| `400` | JSON malformado, `remitter_id` ausente/não UUID, `target_e164` inválido, `content` vazio ou acima de 1600 caracteres. | Usa o envelope global `{error, message, request_id, details?}`. |
+| `401` | Token ausente, inválido ou expirado. | Exige autenticação. |
+| `403` | Usuário autenticado não é admin FPP. | A rota pode disparar SMS real com custo. |
+| `503` | `ZIETT_API_KEY` não configurada. | A Ziett não é contactada. |
+| `401`, `402`, `422`, `429` ou outro status da Ziett | A própria Ziett rejeitou o envio. | O envelope inclui `ziett_code`, `ziett_trace_id`, `ziett_status`, `ziett_message`, `ziett_service` e, quando enviado pela Ziett, `ziett_fields`. |
+| `500` | Falha de rede/timeout ao contactar a Ziett. | Mensagem sanitizada, sem vazar detalhes internos de rede nem API Key. |
+
+**Exemplo de erro repassado da Ziett:**
+
+```json
+{
+  "error": "UNAUTHORIZED",
+  "message": "A Ziett rejeitou o envio da mensagem de teste.",
+  "request_id": "8c7e6a5d-9b9f-4fd2-a2d0-3a989a8c2d8b",
+  "ziett_code": "AUTH_INVALID_API_KEY",
+  "ziett_trace_id": "trace-1",
+  "ziett_status": 401,
+  "ziett_message": "The provided API key is invalid or has been revoked.",
+  "ziett_service": "core"
 }
 ```

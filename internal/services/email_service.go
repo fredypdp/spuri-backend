@@ -97,7 +97,7 @@ func GenerateSecurePassword() (string, error) {
 	const (
 		upper   = "ABCDEFGHJKLMNPQRSTUVWXYZ" // sem I, O para evitar confusão visual
 		lower   = "abcdefghjkmnpqrstuvwxyz"  // sem i, l, o
-		digits  = "23456789"                  // sem 0, 1
+		digits  = "23456789"                 // sem 0, 1
 		symbols = "@#$%&*!"
 		all     = upper + lower + digits + symbols
 		length  = 14
