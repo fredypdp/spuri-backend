@@ -124,8 +124,13 @@ func (w *Worker) sweepPending(ctx context.Context) {
 
 		active, err := w.store.ListActive(500)
 		if err != nil {
+			// Erro na varredura em si não é motivo para reagir depressa: o
+			// despacho real de jobs criados em operação normal já acontece
+			// via Enqueue() direto, não depende deste loop. Pular para o
+			// teto evita insistir no banco em caso de instabilidade
+			// transitória.
 			log.Printf("[worker] WARN: erro na varredura de jobs ativos: %v", err)
-			currentInterval = nextBackoff(currentInterval, maxInterval)
+			currentInterval = maxInterval
 			continue
 		}
 
@@ -134,25 +139,24 @@ func (w *Worker) sweepPending(ctx context.Context) {
 		}
 
 		if len(active) > 0 {
+			// Ainda há jobs pending/processing — manter o piso rápido para
+			// recuperar rapidamente um backlog real (ex.: muitos jobs após
+			// reinício do servidor).
 			currentInterval = minInterval
 		} else {
-			currentInterval = nextBackoff(currentInterval, maxInterval)
+			// Nenhum job ativo: pular direto para o teto em vez de uma
+			// rampa gradual. Jobs criados em operação normal continuam
+			// imediatos via Enqueue() direto nos handlers — este loop é
+			// só a rede de segurança para reinício/fila cheia.
+			currentInterval = maxInterval
 		}
 
 		log.Printf("[worker] varredura de jobs ativos — ativos=%d fila=%d próximo_intervalo=%s", len(active), len(w.queue), currentInterval)
 	}
 }
 
-func nextBackoff(current, max time.Duration) time.Duration {
-	next := current * 2
-	if next > max {
-		return max
-	}
-	return next
-}
-
 func (w *Worker) cleanupLoop(ctx context.Context) {
-	ticker := time.NewTicker(1 * time.Hour)
+	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
 	for {
 		select {

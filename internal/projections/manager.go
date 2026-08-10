@@ -143,9 +143,20 @@ func (m *Manager) StartProcessing() {
 
 		previousInterval := currentInterval
 		if processed {
+			// Ainda há trabalho sendo drenado (ex.: backlog maior que
+			// batchSize) — manter o piso rápido para não atrasar o
+			// processamento de eventos reais em volume.
 			currentInterval = m.pollInterval
 		} else {
-			currentInterval = projectionBackoff(currentInterval, maxInterval)
+			// Não há mais nada novo para processar. Pular diretamente para
+			// o teto em vez de uma rampa gradual: a responsividade a uma
+			// PRÓXIMA escrita real continua garantida por wakeCh (ver
+			// Manager.Wake, acionado por db.SetLedgerWriteHook), que não é
+			// afetado por este valor. Este poll por timer é só a rede de
+			// segurança para o caso (hoje sem ocorrência conhecida) de uma
+			// escrita não passar por esse caminho — não precisa de uma
+			// rampa gradual para cumprir esse papel.
+			currentInterval = maxInterval
 		}
 		if currentInterval != previousInterval {
 			log.Printf("[DEBUG] Projection Manager backoff: processados=%t próximo_intervalo=%s", processed, currentInterval)
@@ -259,14 +270,6 @@ func (m *Manager) processProjection(name string, projection Projection) (bool, e
 	}
 
 	return true, nil
-}
-
-func projectionBackoff(current, max time.Duration) time.Duration {
-	next := current * 2
-	if next > max {
-		return max
-	}
-	return next
 }
 
 func (m *Manager) processEventTransactional(name string, projection TransactionalProjection, event db.Event) error {
