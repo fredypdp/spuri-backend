@@ -1,10 +1,10 @@
 ---
 criado: 2026-08-10 00:00
 origem: solicitação do usuário
-status: pendente
+status: feito
 ---
 
-# Criar rota isolada de teste de envio de mensagem via Ziett (SMS) (pendente)
+# Criar rota isolada de teste de envio de mensagem via Ziett (SMS) (feito)
 
 ## Prompt recomendado para executar a atualização
 
