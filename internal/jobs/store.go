@@ -112,7 +112,16 @@ func (s *Store) ListActive(limit int) ([]*Job, error) {
 
 	s.mu.Lock()
 	for _, j := range jobList {
-		s.cache[j.ID] = j
+		// Não sobrescrever uma entrada já existente: se o job já está no
+		// cache, alguma goroutine pode estar processando-o ativamente com
+		// progresso em memória mais atual que o último checkpoint no banco
+		// (ver Tarefa 23). Sobrescrever aqui descartaria esse progresso.
+		// ListActive só deve preencher o cache para jobs realmente
+		// desconhecidos (ex.: reinício do servidor, fila cheia) — o cenário
+		// para o qual esta função foi originalmente escrita.
+		if _, exists := s.cache[j.ID]; !exists {
+			s.cache[j.ID] = j
+		}
 	}
 	s.mu.Unlock()
 	return jobList, nil
