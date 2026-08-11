@@ -69,6 +69,7 @@ func TestIntegrationWebhookAuthConfigurableHeaderAndResourceFreeCredentials(t *t
 	ctx := context.Background()
 	t.Setenv("ENV", "test")
 	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	suffix := uuid.NewString()[:8]
 
 	customAcademy := "INT" + uuid.NewString()[:8]
 	custom, err := service.ConfigureCredential(ctx, nil, CredentialInput{
@@ -79,7 +80,7 @@ func TestIntegrationWebhookAuthConfigurableHeaderAndResourceFreeCredentials(t *t
 		GPOPaymentMethod:  "GPO_CUSTOM",
 		REFPaymentMethod:  "REF_CUSTOM",
 		WebhookAuthType:   "api_key",
-		WebhookSecret:     "custom-webhook-secret",
+		WebhookSecret:     "custom-webhook-secret-" + suffix,
 		WebhookHeaderName: "X-Spuri-Webhook-Secret",
 	}, "integration-test", "sistema", "127.0.0.1")
 	if err != nil {
@@ -91,11 +92,15 @@ func TestIntegrationWebhookAuthConfigurableHeaderAndResourceFreeCredentials(t *t
 	if _, err = service.loadCredential(ctx, ContextoAcademia, customAcademy); err != nil {
 		t.Fatalf("credencial sem resource no cofre não recarregou: %v", err)
 	}
-	owner, err := service.AuthenticateWebhook(ctx, "", "", http.Header{"X-Spuri-Webhook-Secret": []string{"custom-webhook-secret"}})
+	customHeaders := http.Header{}
+	customHeaders.Set("X-Spuri-Webhook-Secret", "custom-webhook-secret-"+suffix)
+	owner, err := service.AuthenticateWebhook(ctx, "", "", customHeaders)
 	if err != nil || owner.CredentialID != custom.ID {
 		t.Fatalf("cabeçalho customizado não autenticou: owner=%#v err=%v", owner, err)
 	}
-	if _, err = service.AuthenticateWebhook(ctx, "", "", http.Header{"X-API-Key": []string{"custom-webhook-secret"}}); err == nil {
+	wrongHeaders := http.Header{}
+	wrongHeaders.Set("X-API-Key", "custom-webhook-secret-"+suffix)
+	if _, err = service.AuthenticateWebhook(ctx, "", "", wrongHeaders); err == nil {
 		t.Fatal("X-API-Key autenticou credencial configurada para cabeçalho customizado")
 	}
 
@@ -114,10 +119,12 @@ func TestIntegrationWebhookAuthConfigurableHeaderAndResourceFreeCredentials(t *t
 	if _, err = client.DB().ExecContext(ctx, `INSERT INTO financeiro_credenciais_appypay (id,contexto_tipo,codigo_academia,ambiente,payload) VALUES ($1,$2,$3,$4,$5::jsonb)`, legacyID, ContextoAcademia, legacyAcademy, AmbienteTeste, legacyPayload); err != nil {
 		t.Fatal(err)
 	}
-	if err = service.saveSecrets(ctx, legacyID, map[string]string{"client_id": "legacy-client", "client_secret": "legacy-secret", "gpo_method": "GPO_LEGACY", "ref_method": "REF_LEGACY", "webhook_secret": "legacy-webhook-secret"}); err != nil {
+	if err = service.saveSecrets(ctx, legacyID, map[string]string{"client_id": "legacy-client", "client_secret": "legacy-secret", "gpo_method": "GPO_LEGACY", "ref_method": "REF_LEGACY", "webhook_secret": "legacy-webhook-secret-" + suffix}); err != nil {
 		t.Fatal(err)
 	}
-	owner, err = service.AuthenticateWebhook(ctx, "", "", http.Header{"X-API-Key": []string{"legacy-webhook-secret"}})
+	legacyHeaders := http.Header{}
+	legacyHeaders.Set("X-API-Key", "legacy-webhook-secret-"+suffix)
+	owner, err = service.AuthenticateWebhook(ctx, "", "", legacyHeaders)
 	if err != nil || owner.CredentialID != legacyID {
 		t.Fatalf("fallback X-API-Key para credencial legada falhou: owner=%#v err=%v", owner, err)
 	}
@@ -131,13 +138,13 @@ func TestIntegrationWebhookAuthConfigurableHeaderAndResourceFreeCredentials(t *t
 		GPOPaymentMethod: "GPO_BASIC",
 		REFPaymentMethod: "REF_BASIC",
 		WebhookAuthType:  "basic",
-		WebhookUsername:  "basic-user",
-		WebhookSecret:    "basic-secret",
+		WebhookUsername:  "basic-user-" + suffix,
+		WebhookSecret:    "basic-secret-" + suffix,
 	}, "integration-test", "sistema", "127.0.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, err = service.AuthenticateWebhook(ctx, "basic-user", "basic-secret", http.Header{})
+	owner, err = service.AuthenticateWebhook(ctx, "basic-user-"+suffix, "basic-secret-"+suffix, http.Header{})
 	if err != nil || owner.CredentialID != basic.ID {
 		t.Fatalf("Basic Auth deixou de autenticar: owner=%#v err=%v", owner, err)
 	}
