@@ -146,19 +146,18 @@ func (s *Store) UpdateStatus(id uuid.UUID, status Status, errMsg string) error {
 	return s.persist(j)
 }
 
-// AppendResult adiciona o resultado de um item e atualiza contadores (thread-safe).
-func (s *Store) AppendResult(id uuid.UUID, item ItemResult) error {
+// AppendResultInMemory adiciona o resultado de um item ao estado em memória
+// do job (contadores DoneItems/FailItems e o array Results), sem persistir no
+// banco. Usado pelo worker para acumular vários itens entre checkpoints — ver
+// FlushResults. Thread-safe.
+func (s *Store) AppendResultInMemory(id uuid.UUID, item ItemResult) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	j, ok := s.cache[id]
 	if !ok {
-		return fmt.Errorf("store.AppendResult: job %s não encontrado no cache", id)
+		return fmt.Errorf("store.AppendResultInMemory: job %s não encontrado no cache", id)
 	}
-
-	previousResults := append([]ItemResult(nil), j.Results...)
-	previousDone := j.DoneItems
-	previousFail := j.FailItems
 
 	j.Results = append(j.Results, item)
 	if item.Sucesso {
@@ -166,18 +165,22 @@ func (s *Store) AppendResult(id uuid.UUID, item ItemResult) error {
 	} else {
 		j.FailItems++
 	}
-
-	// Persistir todo item para retomada resiliente após restart/crash. Se a
-	// persistência falhar, revertemos o cache para não avançar além do progresso
-	// durável em banco.
-	if err := s.persist(j); err != nil {
-		j.Results = previousResults
-		j.DoneItems = previousDone
-		j.FailItems = previousFail
-		log.Printf("[jobs] WARN: persist parcial falhou para %s: %v", id, err)
-		return err
-	}
 	return nil
+}
+
+// FlushResults persiste no banco o estado atual (em memória) do job — usado
+// como checkpoint periódico durante o processamento de um lote, e sempre no
+// último item (sucesso ou falha), para garantir que o resultado final de um
+// job nunca fique só em memória. Thread-safe.
+func (s *Store) FlushResults(id uuid.UUID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	j, ok := s.cache[id]
+	if !ok {
+		return fmt.Errorf("store.FlushResults: job %s não encontrado no cache", id)
+	}
+	return s.persist(j)
 }
 
 // persist grava o job no banco (deve ser chamado com o lock já adquirido quando necessário).

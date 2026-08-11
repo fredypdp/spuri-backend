@@ -26,6 +26,19 @@ type HandlerFunc func(c *gin.Context)
 // sintético antes de executar um handler. O caller (main.go) fornece esta função.
 type ContextSetupFunc func(c *gin.Context, userID uuid.UUID, userType string)
 
+const (
+	// resultsFlushBatchSize: quantos itens processar antes de persistir o
+	// progresso no banco. Mantido pequeno de propósito — ver "Riscos e
+	// mitigação" no documento da Tarefa 23 sobre a janela de reprocessamento
+	// em caso de crash entre checkpoints.
+	resultsFlushBatchSize = 10
+	// resultsFlushInterval: teto de tempo entre persistências, mesmo que
+	// resultsFlushBatchSize ainda não tenha sido atingido — evita que um lote
+	// pequeno ou um item individualmente lento demore demais para ter
+	// qualquer progresso durável.
+	resultsFlushInterval = 5 * time.Second
+)
+
 // Worker processa jobs de uma fila em background.
 type Worker struct {
 	store        *Store
@@ -208,17 +221,34 @@ func (w *Worker) process(j *Job) {
 		return
 	}
 
+	lastFlush := time.Now()
+	itemsSinceFlush := 0
+
 	for idx, rawItem := range rawItems {
 		if idx < (j.DoneItems + j.FailItems) {
 			continue // retoma do ponto salvo
 		}
 		result := w.processItem(h, j, idx, rawItem)
-		if err := w.store.AppendResult(j.ID, result); err != nil {
-			log.Printf("[worker] WARN: AppendResult idx=%d job=%s: %v", idx, j.ID, err)
-			if db.IsTransientConnectionError(err) {
-				log.Printf("[worker] WARN: job %s pausado por indisponibilidade transitória do banco; progresso persistido será retomado", j.ID)
-				return
+		if err := w.store.AppendResultInMemory(j.ID, result); err != nil {
+			log.Printf("[worker] WARN: AppendResultInMemory idx=%d job=%s: %v", idx, j.ID, err)
+		}
+		itemsSinceFlush++
+
+		isLastItem := idx == len(rawItems)-1
+		shouldFlush := itemsSinceFlush >= resultsFlushBatchSize ||
+			time.Since(lastFlush) >= resultsFlushInterval ||
+			isLastItem
+
+		if shouldFlush {
+			if err := w.store.FlushResults(j.ID); err != nil {
+				log.Printf("[worker] WARN: FlushResults idx=%d job=%s: %v", idx, j.ID, err)
+				if db.IsTransientConnectionError(err) {
+					log.Printf("[worker] WARN: job %s pausado por indisponibilidade transitória do banco; progresso persistido será retomado", j.ID)
+					return
+				}
 			}
+			lastFlush = time.Now()
+			itemsSinceFlush = 0
 		}
 		if latest, err := w.store.Get(j.ID); err == nil && latest != nil {
 			j = latest
