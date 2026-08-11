@@ -1,10 +1,10 @@
 ---
 criado: 2026-08-10 00:00
 origem: Depuração — Loops de polling residuais mantendo o NeonDB ativo.md (docs/Debbugs/) — conversa com Claude, a partir de evidência do painel Monitoring/System Operations do NeonDB
-status: a fazer
+status: feito
 ---
 
-# 21 — Eliminar rampa residual de backoff que mantém o NeonDB ativo entre 15 e 25 minutos (a fazer)
+# 21 — Eliminar rampa residual de backoff que mantém o NeonDB ativo entre 15 e 25 minutos (feito)
 
 ## Prompt recomendado para executar a atualização
 
