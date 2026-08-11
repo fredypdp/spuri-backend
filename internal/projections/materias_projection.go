@@ -120,6 +120,10 @@ func (p *MateriasProjection) Rebuild() error {
 	if _, err := p.client.DB().Exec(`TRUNCATE TABLE projection_materias CASCADE`); err != nil {
 		return fmt.Errorf("falha ao limpar: %w", err)
 	}
+	academiaCache, err := p.newAcademiaExistenceCache()
+	if err != nil {
+		return fmt.Errorf("erro ao preparar cache de academias para rebuild: %w", err)
+	}
 	rows, err := p.client.DB().Query(`
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
@@ -147,7 +151,7 @@ func (p *MateriasProjection) Rebuild() error {
 		if prevHash.Valid {
 			event.PreviousHash = &prevHash.String
 		}
-		if err := p.Handle(event); err != nil {
+		if err := p.handleForRebuild(event, academiaCache); err != nil {
 			if errors.Is(err, ErrMateriaAcademiaNotProjected) {
 				skipped++
 				log.Printf("[WARN] [materias] evento %d ignorado no rebuild: %v", event.ID, err)
@@ -161,11 +165,46 @@ func (p *MateriasProjection) Rebuild() error {
 	return rows.Err()
 }
 
+func (p *MateriasProjection) handleForRebuild(event db.Event, academiaCache *ExistenceCache) error {
+	if event.AggregateType == "MateriaDisciplinar" && event.EventType == "MateriaCriada" {
+		return p.applyMateriaCriada(event, academiaCache.Exists)
+	}
+	return p.Handle(event)
+}
+
+func (p *MateriasProjection) newAcademiaExistenceCache() (*ExistenceCache, error) {
+	rows, err := p.client.DB().Query(`SELECT codigo_academia FROM projection_academias`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var seed []string
+	for rows.Next() {
+		var codigo string
+		if err := rows.Scan(&codigo); err != nil {
+			return nil, err
+		}
+		seed = append(seed, codigo)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return NewExistenceCache(seed, p.academiaExists), nil
+}
+
 // ============================================================================
 // Handlers de evento
 // ============================================================================
 
 func (p *MateriasProjection) handleMateriaCriada(event db.Event) error {
+	return p.applyMateriaCriada(event, p.academiaExists)
+}
+
+func (p *MateriasProjection) applyMateriaCriada(
+	event db.Event,
+	checkAcademiaExists func(string) (bool, error),
+) error {
 	var payload struct {
 		Nome, Type, CodigoAcademia string
 		AnosAcademicos             []string
@@ -184,7 +223,7 @@ func (p *MateriasProjection) handleMateriaCriada(event db.Event) error {
 		return fmt.Errorf("codigo_academia inválido no evento %d", event.ID)
 	}
 
-	academiaExists, err := p.academiaExists(payload.CodigoAcademia)
+	academiaExists, err := checkAcademiaExists(payload.CodigoAcademia)
 	if err != nil {
 		return fmt.Errorf("erro ao verificar academia da matéria: %w", err)
 	}

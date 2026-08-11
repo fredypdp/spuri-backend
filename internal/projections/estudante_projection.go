@@ -111,6 +111,15 @@ func (p *EstudanteProjection) Rebuild() error {
 		return fmt.Errorf("falha ao limpar projection_estudantes: %w", err)
 	}
 
+	academiaCache, err := p.newAcademiaExistenceCache()
+	if err != nil {
+		return fmt.Errorf("erro ao preparar cache de academias para rebuild: %w", err)
+	}
+	cursoCache, err := p.newCursoExistenceCache()
+	if err != nil {
+		return fmt.Errorf("erro ao preparar cache de cursos para rebuild: %w", err)
+	}
+
 	rows, err := p.client.DB().Query(`
 		SELECT id, event_id, aggregate_id, aggregate_type, event_type,
 			event_version, payload, metadata, occurred_at, recorded_at,
@@ -138,7 +147,7 @@ func (p *EstudanteProjection) Rebuild() error {
 		if prevHash.Valid {
 			event.PreviousHash = &prevHash.String
 		}
-		if err := p.Handle(event); err != nil {
+		if err := p.handleForRebuild(event, academiaCache, cursoCache); err != nil {
 			return fmt.Errorf("erro ao processar evento %d (type=%s): %w", event.ID, event.EventType, err)
 		}
 		count++
@@ -153,11 +162,73 @@ func (p *EstudanteProjection) clear() error {
 	return err
 }
 
+// handleForRebuild despacha um evento durante Rebuild(). Para o único tipo de
+// evento que consulta outra projeção por evento (EstudanteCriadoComVinculo),
+// usa os caches em memória em vez da checagem direta ao banco. Todos os
+// outros tipos de evento continuam por Handle(), sem nenhuma mudança de
+// comportamento em relação a hoje.
+func (p *EstudanteProjection) handleForRebuild(event db.Event, academiaCache, cursoCache *ExistenceCache) error {
+	if event.AggregateType == "Estudante" && event.EventType == "EstudanteCriadoComVinculo" {
+		return p.applyEstudanteCriadoComVinculo(event, academiaCache.Exists, cursoCache.Exists)
+	}
+	return p.Handle(event)
+}
+
+func (p *EstudanteProjection) newAcademiaExistenceCache() (*ExistenceCache, error) {
+	rows, err := p.client.DB().Query(`SELECT codigo_academia FROM projection_academias`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var seed []string
+	for rows.Next() {
+		var codigo string
+		if err := rows.Scan(&codigo); err != nil {
+			return nil, err
+		}
+		seed = append(seed, codigo)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return NewExistenceCache(seed, p.academiaExists), nil
+}
+
+func (p *EstudanteProjection) newCursoExistenceCache() (*ExistenceCache, error) {
+	rows, err := p.client.DB().Query(`SELECT id::text FROM projection_cursos`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var seed []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		seed = append(seed, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return NewExistenceCache(seed, p.cursoExists), nil
+}
+
 // ============================================================================
 // Handlers de eventos
 // ============================================================================
 
 func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) error {
+	return p.applyEstudanteCriadoComVinculo(event, p.academiaExists, p.cursoExistsChecker())
+}
+
+func (p *EstudanteProjection) applyEstudanteCriadoComVinculo(
+	event db.Event,
+	checkAcademiaExists func(string) (bool, error),
+	checkCursoExists func(string) (bool, error),
+) error {
 	var payload struct {
 		Nome                     string                                   `json:"Nome"`
 		CodigoEstudante          string                                   `json:"CodigoEstudante"`
@@ -219,7 +290,7 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 	// e depois PARA de avançar o checkpoint — travando TODOS os eventos seguintes.
 	// Solução: verificar a existência e, se não existir ainda, retornar nil
 	// (o evento será reprocessado no próximo tick do polling, ~1s depois).
-	academiaExists, err := p.academiaExists(payload.CodigoAcademia)
+	academiaExists, err := checkAcademiaExists(payload.CodigoAcademia)
 	if err != nil {
 		// Erro de banco ao verificar — propagar para retry
 		return fmt.Errorf("handleEstudanteCriadoComVinculo: erro ao verificar academia: %w", err)
@@ -243,8 +314,8 @@ func (p *EstudanteProjection) handleEstudanteCriadoComVinculo(event db.Event) er
 	// A diferença aqui é que cursos SÃO opcionais no estudante, então podemos
 	// usar nil sem perda de consistência crítica (diferente da academia, que é
 	// obrigatória e bloqueia tudo se não existir).
-	resolvedCursoMedio, resolvedCursoSuperior := p.resolveCursoIDs(
-		cursoMedioIDStr, cursoSuperiorIDStr, event.EventID,
+	resolvedCursoMedio, resolvedCursoSuperior := p.resolveCursoIDsWithChecker(
+		cursoMedioIDStr, cursoSuperiorIDStr, event.EventID, checkCursoExists,
 	)
 
 	// FIX BUG #4: o INSERT original verificava RowsAffected == 0 e retornava
@@ -339,8 +410,21 @@ func (p *EstudanteProjection) resolveCursoIDs(
 	cursoSuperiorID *string,
 	eventID uuid.UUID,
 ) (*string, *string) {
+	return p.resolveCursoIDsWithChecker(cursoMedioID, cursoSuperiorID, eventID, p.cursoExists)
+}
+
+func (p *EstudanteProjection) cursoExistsChecker() func(string) (bool, error) {
+	return p.cursoExists
+}
+
+func (p *EstudanteProjection) resolveCursoIDsWithChecker(
+	cursoMedioID *string,
+	cursoSuperiorID *string,
+	eventID uuid.UUID,
+	checkCursoExists func(string) (bool, error),
+) (*string, *string) {
 	if cursoMedioID != nil {
-		exists, err := p.cursoExists(*cursoMedioID)
+		exists, err := checkCursoExists(*cursoMedioID)
 		if err != nil || !exists {
 			log.Printf("[WARN] [estudantes] evento=%s: curso_medio_id=%s não encontrado em projection_cursos — inserindo NULL",
 				eventID, *cursoMedioID)
@@ -348,7 +432,7 @@ func (p *EstudanteProjection) resolveCursoIDs(
 		}
 	}
 	if cursoSuperiorID != nil {
-		exists, err := p.cursoExists(*cursoSuperiorID)
+		exists, err := checkCursoExists(*cursoSuperiorID)
 		if err != nil || !exists {
 			log.Printf("[WARN] [estudantes] evento=%s: curso_superior_id=%s não encontrado em projection_cursos — inserindo NULL",
 				eventID, *cursoSuperiorID)
