@@ -1,10 +1,10 @@
 ---
 criado: 2026-08-10 00:00
 origem: (1) Confirmação por e-mail da equipa de suporte AppyPay sobre autenticação de webhooks via cabeçalho HTTP; (2) decisão do Fredy de mover o parâmetro `resource` do pedido de token OAuth2 para variável de ambiente, por não ser específico de cada academia
-status: pendente
+status: feito
 ---
 
-# Cabeçalho de webhook configurável e `resource` AppyPay via variável de ambiente (pendente)
+# Cabeçalho de webhook configurável e `resource` AppyPay via variável de ambiente (feito)
 
 ## Prompt recomendado para executar a atualização
 

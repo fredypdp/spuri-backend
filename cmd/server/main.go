@@ -87,6 +87,9 @@ func initDB() error {
 	if err := finance.ValidateEncryptionConfig(); err != nil {
 		return fmt.Errorf("configuração de criptografia financeira inválida: %w", err)
 	}
+	if err := finance.ValidateAppyPayResourceConfig(); err != nil {
+		return fmt.Errorf("configuração AppyPay inválida: %w", err)
+	}
 	config := db.DefaultConfig()
 	var err error
 	dbClient, err = db.NewClient(config)

@@ -62,18 +62,40 @@ func EndpointsAtuais() Endpoints {
 	return Endpoints{"https://login.microsoftonline.com/appypaydev.onmicrosoft.com/oauth2/token", "https://gwy-api-tst.appypay.co.ao/v2.0"}
 }
 
+// appyPayResource retorna o "resource" (UUID) exigido pela AppyPay no pedido
+// de token OAuth2 client_credentials. Ao contrário de client_id/client_secret,
+// este valor identifica a própria API da AppyPay (audience do token), não o
+// merchant que está a autenticar — por isso é o mesmo para todas as
+// academias e para o Spuri no mesmo ambiente, e vem de variável de ambiente
+// em vez de ser configurado por credencial.
+func appyPayResource() (string, error) {
+	v := strings.TrimSpace(os.Getenv("APPYPAY_RESOURCE"))
+	if v == "" {
+		return "", errors.New("APPYPAY_RESOURCE não configurada")
+	}
+	return v, nil
+}
+
+// ValidateAppyPayResourceConfig valida no arranque do servidor que
+// APPYPAY_RESOURCE está definida, antes de qualquer tentativa de gerar um
+// token AppyPay.
+func ValidateAppyPayResourceConfig() error {
+	_, err := appyPayResource()
+	return err
+}
+
 type CredentialInput struct {
-	ContextoTipo     string `json:"contexto_tipo"`
-	CodigoAcademia   string `json:"codigo_academia,omitempty"`
-	Ambiente         string `json:"ambiente"`
-	ClientID         string `json:"client_id"`
-	ClientSecret     string `json:"client_secret"`
-	Resource         string `json:"resource"`
-	GPOPaymentMethod string `json:"gpo_payment_method"`
-	REFPaymentMethod string `json:"ref_payment_method"`
-	WebhookAuthType  string `json:"webhook_auth_type,omitempty"` // basic or api_key
-	WebhookUsername  string `json:"webhook_username,omitempty"`
-	WebhookSecret    string `json:"webhook_secret,omitempty"`
+	ContextoTipo      string `json:"contexto_tipo"`
+	CodigoAcademia    string `json:"codigo_academia,omitempty"`
+	Ambiente          string `json:"ambiente"`
+	ClientID          string `json:"client_id"`
+	ClientSecret      string `json:"client_secret"`
+	GPOPaymentMethod  string `json:"gpo_payment_method"`
+	REFPaymentMethod  string `json:"ref_payment_method"`
+	WebhookAuthType   string `json:"webhook_auth_type,omitempty"` // basic or api_key
+	WebhookUsername   string `json:"webhook_username,omitempty"`
+	WebhookSecret     string `json:"webhook_secret,omitempty"`
+	WebhookHeaderName string `json:"webhook_header_name,omitempty"` // nome do cabeçalho HTTP quando webhook_auth_type="api_key"; padrão "X-API-Key"
 }
 type CredentialView struct {
 	ID                   uuid.UUID `json:"id"`
@@ -81,10 +103,10 @@ type CredentialView struct {
 	CodigoAcademia       string    `json:"codigo_academia,omitempty"`
 	Ambiente             string    `json:"ambiente"`
 	ClientIDMask         string    `json:"client_id_mask"`
-	ResourceMask         string    `json:"resource_mask"`
 	GPOPaymentMethodMask string    `json:"gpo_payment_method_mask"`
 	REFPaymentMethodMask string    `json:"ref_payment_method_mask"`
 	WebhookAuthType      string    `json:"webhook_auth_type,omitempty"`
+	WebhookHeaderName    string    `json:"webhook_header_name,omitempty"`
 	UpdatedAt            time.Time `json:"updated_at"`
 }
 type ChargeRequest struct {
@@ -153,6 +175,27 @@ func mask(v string) string {
 	}
 	return "****" + v[len(v)-4:]
 }
+
+const defaultWebhookHeaderName = "X-API-Key"
+
+// validHTTPHeaderName aceita apenas os caracteres permitidos em um
+// field-name de cabeçalho HTTP por RFC 7230 (token). Case-insensitive por
+// natureza do protocolo — http.Header.Get já canonicaliza antes de comparar.
+func validHTTPHeaderName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		switch {
+		case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+		case strings.ContainsRune("!#$%&'*+-.^_`|~", r):
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func validContext(c, academy string) error {
 	if c == ContextoSpuri && academy == "" {
 		return nil
@@ -177,7 +220,7 @@ func (s *Service) ConfigureCredential(ctx context.Context, id *uuid.UUID, in Cre
 	if in.Ambiente != AmbienteAtual() {
 		return CredentialView{}, errors.New("credenciais devem pertencer ao ambiente ativo")
 	}
-	if strings.TrimSpace(userID) == "" || strings.TrimSpace(in.ClientID) == "" || strings.TrimSpace(in.ClientSecret) == "" || strings.TrimSpace(in.Resource) == "" || !strings.HasPrefix(in.GPOPaymentMethod, "GPO_") || !strings.HasPrefix(in.REFPaymentMethod, "REF_") {
+	if strings.TrimSpace(userID) == "" || strings.TrimSpace(in.ClientID) == "" || strings.TrimSpace(in.ClientSecret) == "" || !strings.HasPrefix(in.GPOPaymentMethod, "GPO_") || !strings.HasPrefix(in.REFPaymentMethod, "REF_") {
 		return CredentialView{}, errors.New("credenciais AppyPay incompletas ou inválidas")
 	}
 	if in.WebhookAuthType != "" && in.WebhookAuthType != "basic" && in.WebhookAuthType != "api_key" {
@@ -189,6 +232,15 @@ func (s *Service) ConfigureCredential(ctx context.Context, id *uuid.UUID, in Cre
 	if in.WebhookAuthType == "api_key" && in.WebhookSecret == "" {
 		return CredentialView{}, errors.New("API Key de webhook exige segredo")
 	}
+	if in.WebhookAuthType == "api_key" {
+		in.WebhookHeaderName = strings.TrimSpace(in.WebhookHeaderName)
+		if in.WebhookHeaderName == "" {
+			in.WebhookHeaderName = defaultWebhookHeaderName
+		}
+		if !validHTTPHeaderName(in.WebhookHeaderName) {
+			return CredentialView{}, errors.New("webhook_header_name deve ser um nome de cabeçalho HTTP válido")
+		}
+	}
 	credentialID := uuid.New()
 	if id != nil {
 		credentialID = *id
@@ -198,12 +250,12 @@ func (s *Service) ConfigureCredential(ctx context.Context, id *uuid.UUID, in Cre
 	} else if found, err := s.findCredentialID(ctx, in.ContextoTipo, in.CodigoAcademia, in.Ambiente); err == nil {
 		credentialID = found
 	}
-	view := CredentialView{ID: credentialID, ContextoTipo: in.ContextoTipo, CodigoAcademia: in.CodigoAcademia, Ambiente: in.Ambiente, ClientIDMask: mask(in.ClientID), ResourceMask: mask(in.Resource), GPOPaymentMethodMask: mask(in.GPOPaymentMethod), REFPaymentMethodMask: mask(in.REFPaymentMethod), WebhookAuthType: in.WebhookAuthType, UpdatedAt: time.Now().UTC()}
-	payload := map[string]any{"credential_id": credentialID.String(), "contexto_tipo": view.ContextoTipo, "codigo_academia": view.CodigoAcademia, "ambiente": view.Ambiente, "client_id_mask": view.ClientIDMask, "resource_mask": view.ResourceMask, "gpo_payment_method_mask": view.GPOPaymentMethodMask, "ref_payment_method_mask": view.REFPaymentMethodMask, "webhook_auth_type": view.WebhookAuthType, "updated_at": view.UpdatedAt}
+	view := CredentialView{ID: credentialID, ContextoTipo: in.ContextoTipo, CodigoAcademia: in.CodigoAcademia, Ambiente: in.Ambiente, ClientIDMask: mask(in.ClientID), GPOPaymentMethodMask: mask(in.GPOPaymentMethod), REFPaymentMethodMask: mask(in.REFPaymentMethod), WebhookAuthType: in.WebhookAuthType, WebhookHeaderName: in.WebhookHeaderName, UpdatedAt: time.Now().UTC()}
+	payload := map[string]any{"credential_id": credentialID.String(), "contexto_tipo": view.ContextoTipo, "codigo_academia": view.CodigoAcademia, "ambiente": view.Ambiente, "client_id_mask": view.ClientIDMask, "gpo_payment_method_mask": view.GPOPaymentMethodMask, "ref_payment_method_mask": view.REFPaymentMethodMask, "webhook_auth_type": view.WebhookAuthType, "webhook_header_name": view.WebhookHeaderName, "updated_at": view.UpdatedAt}
 	if err := s.record(ctx, credentialID, "CredenciaisAppyPayConfiguradas", payload, userID, userType, ip); err != nil {
 		return CredentialView{}, err
 	}
-	if err := s.saveSecrets(ctx, credentialID, map[string]string{"client_id": in.ClientID, "client_secret": in.ClientSecret, "resource": in.Resource, "gpo_method": in.GPOPaymentMethod, "ref_method": in.REFPaymentMethod, "webhook_username": in.WebhookUsername, "webhook_secret": in.WebhookSecret}); err != nil {
+	if err := s.saveSecrets(ctx, credentialID, map[string]string{"client_id": in.ClientID, "client_secret": in.ClientSecret, "gpo_method": in.GPOPaymentMethod, "ref_method": in.REFPaymentMethod, "webhook_username": in.WebhookUsername, "webhook_secret": in.WebhookSecret}); err != nil {
 		return CredentialView{}, err
 	}
 	return view, nil
@@ -412,8 +464,8 @@ func (s *Service) ConsultCharge(ctx context.Context, contexto, academia, identif
 }
 
 type credentialSecrets struct {
-	ID                                         uuid.UUID
-	ClientID, ClientSecret, Resource, GPO, REF string
+	ID                               uuid.UUID
+	ClientID, ClientSecret, GPO, REF string
 }
 
 func (c credentialSecrets) method(requested string) (string, error) {
@@ -439,7 +491,7 @@ func (s *Service) loadCredential(ctx context.Context, contexto, academia string)
 	if err != nil {
 		return credentialSecrets{}, err
 	}
-	return credentialSecrets{ID: id, ClientID: values["client_id"], ClientSecret: values["client_secret"], Resource: values["resource"], GPO: values["gpo_method"], REF: values["ref_method"]}, nil
+	return credentialSecrets{ID: id, ClientID: values["client_id"], ClientSecret: values["client_secret"], GPO: values["gpo_method"], REF: values["ref_method"]}, nil
 }
 func (s *Service) findCredentialID(ctx context.Context, contexto, academia, ambiente string) (uuid.UUID, error) {
 	var id uuid.UUID
@@ -509,7 +561,11 @@ func (s *Service) token(ctx context.Context, cred credentialSecrets) (string, er
 	if ok && time.Until(cached.expiresAt) > time.Minute {
 		return cached.value, nil
 	}
-	form := url.Values{"grant_type": {"client_credentials"}, "client_id": {cred.ClientID}, "client_secret": {cred.ClientSecret}, "resource": {cred.Resource}}
+	resource, err := appyPayResource()
+	if err != nil {
+		return "", err
+	}
+	form := url.Values{"grant_type": {"client_credentials"}, "client_id": {cred.ClientID}, "client_secret": {cred.ClientSecret}, "resource": {resource}}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, EndpointsAtuais().TokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", err
@@ -588,7 +644,7 @@ func (s *Service) loadSecrets(ctx context.Context, id uuid.UUID) (map[string]str
 		}
 		out[typ] = v
 	}
-	for _, required := range []string{"client_id", "client_secret", "resource", "gpo_method", "ref_method"} {
+	for _, required := range []string{"client_id", "client_secret", "gpo_method", "ref_method"} {
 		if out[required] == "" {
 			return nil, errors.New("cofre de credenciais AppyPay incompleto")
 		}
@@ -597,13 +653,17 @@ func (s *Service) loadSecrets(ctx context.Context, id uuid.UUID) (map[string]str
 }
 
 // AuthenticateWebhook accepts either the configured HTTP Basic credentials or
-// an X-API-Key. It never reveals which configured account matched.
+// the HTTP header configured for API Key auth (webhook_header_name, com
+// padrão "X-API-Key" quando a credencial não define um nome próprio). A
+// AppyPay confirmou por e-mail que o painel de configuração de webhooks só
+// envia credenciais via cabeçalho HTTP — nunca via query parameter, nunca no
+// corpo do POST. It never reveals which configured account matched.
 type WebhookOwner struct {
 	CredentialID                 uuid.UUID
 	ContextoTipo, CodigoAcademia string
 }
 
-func (s *Service) AuthenticateWebhook(ctx context.Context, basicUser, basicPassword, apiKey string) (WebhookOwner, error) {
+func (s *Service) AuthenticateWebhook(ctx context.Context, basicUser, basicPassword string, headers http.Header) (WebhookOwner, error) {
 	rows, err := s.client.DB().QueryContext(ctx, `SELECT id,payload FROM financeiro_credenciais_appypay WHERE payload->>'webhook_auth_type' IN ('basic','api_key')`)
 	if err != nil {
 		return WebhookOwner{}, err
@@ -616,9 +676,10 @@ func (s *Service) AuthenticateWebhook(ctx context.Context, basicUser, basicPassw
 			return WebhookOwner{}, err
 		}
 		var meta struct {
-			WebhookAuthType string `json:"webhook_auth_type"`
-			ContextoTipo    string `json:"contexto_tipo"`
-			CodigoAcademia  string `json:"codigo_academia"`
+			WebhookAuthType   string `json:"webhook_auth_type"`
+			WebhookHeaderName string `json:"webhook_header_name"`
+			ContextoTipo      string `json:"contexto_tipo"`
+			CodigoAcademia    string `json:"codigo_academia"`
 		}
 		if json.Unmarshal(raw, &meta) != nil {
 			continue
@@ -630,8 +691,15 @@ func (s *Service) AuthenticateWebhook(ctx context.Context, basicUser, basicPassw
 		if meta.WebhookAuthType == "basic" && basicUser != "" && constantTimeEqual(basicUser, secrets["webhook_username"]) && constantTimeEqual(basicPassword, secrets["webhook_secret"]) {
 			return WebhookOwner{CredentialID: id, ContextoTipo: meta.ContextoTipo, CodigoAcademia: meta.CodigoAcademia}, nil
 		}
-		if meta.WebhookAuthType == "api_key" && apiKey != "" && constantTimeEqual(apiKey, secrets["webhook_secret"]) {
-			return WebhookOwner{CredentialID: id, ContextoTipo: meta.ContextoTipo, CodigoAcademia: meta.CodigoAcademia}, nil
+		if meta.WebhookAuthType == "api_key" {
+			headerName := strings.TrimSpace(meta.WebhookHeaderName)
+			if headerName == "" {
+				headerName = defaultWebhookHeaderName
+			}
+			candidate := headers.Get(headerName)
+			if candidate != "" && constantTimeEqual(candidate, secrets["webhook_secret"]) {
+				return WebhookOwner{CredentialID: id, ContextoTipo: meta.ContextoTipo, CodigoAcademia: meta.CodigoAcademia}, nil
+			}
 		}
 	}
 	return WebhookOwner{}, errors.New("webhook não autenticado")

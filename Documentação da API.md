@@ -7042,11 +7042,11 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
   "codigo_academia": "LDA20261",
   "client_id": "appy-client-id",
   "client_secret": "appy-client-secret",
-  "resource": "2aed7612-de64-46b5-9e59-1f48f8902d14",
   "gpo_payment_method": "GPO_METHOD_ID",
   "ref_payment_method": "REF_METHOD_ID",
   "webhook_auth_type": "api_key",
-  "webhook_secret": "segredo-do-webhook"
+  "webhook_secret": "segredo-do-webhook",
+  "webhook_header_name": "X-API-Key"
 }
 ```
 
@@ -7059,18 +7059,18 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
   "codigo_academia": "LDA20261",
   "ambiente": "test",
   "client_id_mask": "appy**********id",
-  "resource_mask": "http**********2.0",
   "gpo_payment_method_mask": "GPO_**********_ID",
   "ref_payment_method_mask": "REF_**********_ID",
   "webhook_auth_type": "api_key",
+  "webhook_header_name": "X-API-Key",
   "updated_at": "2026-08-08T12:00:00Z"
 }
 ```
 
 **Regras de negócio:**
 
-- `client_id`, `client_secret`, `resource`, `gpo_payment_method` e `ref_payment_method` são obrigatórios.
-- `webhook_auth_type="basic"` exige `webhook_username` e `webhook_secret`; `webhook_auth_type="api_key"` exige `webhook_secret` e o gateway deve enviar esse segredo em `X-API-Key`.
+- `client_id`, `client_secret`, `gpo_payment_method` e `ref_payment_method` são obrigatórios. `resource` não é enviado neste endpoint: é lido da variável de ambiente `APPYPAY_RESOURCE`, com o mesmo valor para todas as academias e para o Spuri no mesmo ambiente.
+- `webhook_auth_type="basic"` exige `webhook_username` e `webhook_secret`; `webhook_auth_type="api_key"` exige `webhook_secret` e, opcionalmente, `webhook_header_name` (nome do cabeçalho HTTP em que a AppyPay deve enviar o segredo; padrão `X-API-Key` quando omitido). O nome deve corresponder exatamente ao configurado no campo "nome" do painel de webhooks da AppyPay.
 - Uma academia não pode criar credenciais para `spuri` nem para outra academia.
 - O backend cifra segredos em armazenamento próprio e grava no ledger apenas metadados/máscaras.
 
@@ -7087,6 +7087,7 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 **Regras de negócio:**
 
 - A atualização revalida todas as regras do cadastro de credenciais; envie o conjunto completo de campos obrigatórios.
+- A atualização é sempre uma substituição completa: reenvie `webhook_header_name` para preservar um nome customizado, pois sua omissão restaura o padrão `X-API-Key`. `resource` continua fora do corpo da requisição e vem de `APPYPAY_RESOURCE`.
 - A rota não expõe o valor antigo nem o novo valor dos segredos.
 - Academia só pode manter o escopo no próprio contexto; mudança para `spuri` ou outra academia é bloqueada por autorização.
 
@@ -7113,10 +7114,10 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
     "codigo_academia": "LDA20261",
     "ambiente": "test",
     "client_id_mask": "appy**********id",
-    "resource_mask": "http**********2.0",
     "gpo_payment_method_mask": "GPO_**********_ID",
     "ref_payment_method_mask": "REF_**********_ID",
     "webhook_auth_type": "api_key",
+    "webhook_header_name": "X-API-Key",
     "updated_at": "2026-08-08T12:00:00Z"
   }
 ]
@@ -7369,7 +7370,7 @@ Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e 
 
 **Escopo da rota:** entrada pública para notificações AppyPay do método GPO.
 
-**Proteção:** pública no roteamento HTTP, autenticada por credencial AppyPay cadastrada. Use `Authorization: Basic ...` quando `webhook_auth_type="basic"` ou `X-API-Key` quando `webhook_auth_type="api_key"`.
+**Proteção:** pública no roteamento HTTP, autenticada por credencial AppyPay cadastrada. Use `Authorization: Basic ...` quando `webhook_auth_type="basic"`; para `webhook_auth_type="api_key"`, o nome do cabeçalho é configurável por credencial em `webhook_header_name` (padrão `X-API-Key`). A AppyPay confirmou que a autenticação do webhook sempre viaja por cabeçalho HTTP, nunca por query parameter.
 
 **Request JSON:**
 
@@ -7394,7 +7395,7 @@ Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e 
 
 **Escopo da rota:** entrada pública para notificações AppyPay do método REF.
 
-**Proteção:** igual ao webhook GPO: autenticação por Basic Auth ou `X-API-Key` conforme a credencial dona do webhook.
+**Proteção:** igual ao webhook GPO: autenticação por Basic Auth ou por API Key no cabeçalho configurado pela credencial (`webhook_header_name`, padrão `X-API-Key`). A AppyPay confirmou que essa autenticação sempre viaja por cabeçalho HTTP, nunca por query parameter.
 
 **Request JSON:**
 

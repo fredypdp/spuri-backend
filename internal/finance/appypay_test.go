@@ -39,6 +39,46 @@ func TestEncryptionKeyRequiresStrongMaterial(t *testing.T) {
 	}
 }
 
+func TestValidHTTPHeaderName(t *testing.T) {
+	for _, name := range []string{"X-API-Key", "Authorization", "X-Spuri-Webhook-Secret"} {
+		if !validHTTPHeaderName(name) {
+			t.Fatalf("nome de cabeçalho válido foi rejeitado: %q", name)
+		}
+	}
+	for _, name := range []string{"", "X API Key", "X-API-Key:"} {
+		if validHTTPHeaderName(name) {
+			t.Fatalf("nome de cabeçalho inválido foi aceite: %q", name)
+		}
+	}
+}
+
+func TestAppyPayResourceConfig(t *testing.T) {
+	t.Setenv("APPYPAY_RESOURCE", "")
+	if _, err := appyPayResource(); err == nil {
+		t.Fatal("esperava falha sem APPYPAY_RESOURCE")
+	}
+	if err := ValidateAppyPayResourceConfig(); err == nil {
+		t.Fatal("validação aceitou APPYPAY_RESOURCE vazia")
+	}
+	if err := os.Unsetenv("APPYPAY_RESOURCE"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := appyPayResource(); err == nil {
+		t.Fatal("esperava falha com APPYPAY_RESOURCE ausente")
+	}
+	if err := ValidateAppyPayResourceConfig(); err == nil {
+		t.Fatal("validação aceitou APPYPAY_RESOURCE ausente")
+	}
+
+	t.Setenv("APPYPAY_RESOURCE", "  resource-de-teste  ")
+	if got, err := appyPayResource(); err != nil || got != "resource-de-teste" {
+		t.Fatalf("resource inválido: %q, %v", got, err)
+	}
+	if err := ValidateAppyPayResourceConfig(); err != nil {
+		t.Fatalf("validação rejeitou APPYPAY_RESOURCE definida: %v", err)
+	}
+}
+
 func TestCredentialMethodMatchesConfiguredIDWithoutCaseSensitivity(t *testing.T) {
 	credentials := credentialSecrets{GPO: "GPO_53c70da3-1c88", REF: "REF_42ef"}
 	if got, err := credentials.method("gpo_53C70DA3-1C88"); err != nil || got != credentials.GPO {
