@@ -27,7 +27,7 @@ Esta tarefa parte de uma auditoria completa do módulo financeiro atual (pós-ro
 | --- | --- | --- |
 | Tipo do `amount` | `float64` (Go) / `number<double>` (AppyPay), único tipo permitido em todo o módulo | Contrato explícito, documentado e testado; obrigatório também nas Fases 2/3/4 |
 | Precisão monetária | Função utilitária centralizada de arredondamento (2 casas) e de comparação com tolerância | Elimina divergências de reconciliação por imprecisão de `float64` |
-| Cancelamento — quem | Spuri (`fpp`) ou a Academia dona da cobrança | Reaproveita `authorizeFinanceScope` já existente |
+| Cancelamento — quem | Spuri (`fpp`) cancela só as suas próprias cobranças (`contexto="spuri"`); cada Academia cancela só as suas | Regra mais restrita que o padrão geral de `authorizeFinanceScope` — admin não tem acesso irrestrito aqui |
 | Cancelamento — como | Operação interna do Spuri (evento no ledger); **nunca** chama a API da AppyPay para REF/GPO/QR | Não existe endpoint equivalente na documentação AppyPay para esses métodos |
 | Cancelamento — quando | Apenas enquanto a cobrança não estiver paga; reconsulta obrigatória à AppyPay antes de cancelar | Reduz (sem eliminar) risco de corrida com pagamento assíncrono |
 | Corrida pós-cancelamento | Evento de conflito dedicado, nunca aceite/ignorado silenciosamente | Preserva auditoria e força reconciliação manual FPP |
@@ -89,7 +89,7 @@ Permitir que Spuri (role `fpp`) ou a Academia dona da cobrança cancelem uma cob
 2. Antes de cancelar, o sistema **deve** reconsultar o estado mais recente da cobrança junto da AppyPay (reaproveitando a lógica já usada por `ConsultCharge`) para reduzir a janela de corrida entre cancelamento e confirmação assíncrona de pagamento. Se a reconsulta já mostrar sucesso, o cancelamento é rejeitado e o estado atual (pago) é devolvido ao chamador.
 3. Mesmo com o passo 2, pode ainda existir corrida (a AppyPay processa alguns métodos de forma assíncrona). Se, **depois** de uma cobrança ter sido cancelada localmente, uma nova consulta ou webhook indicar sucesso de pagamento para essa mesma cobrança, o sistema deve gravar um evento de conflito dedicado (`CobrancaAppyPayConflitoPosCancelamento`) — nunca aceitar o pagamento silenciosamente como se nada tivesse acontecido, nem ignorá-lo. Este conflito deve ficar visível para reconciliação manual por um admin `fpp`.
 4. Uma cobrança cancelada é definitiva: não pode ser reaberta. Se for necessário cobrar novamente, deve ser criada uma nova cobrança (novo `merchantTransactionId`), seguindo o fluxo normal já existente.
-5. Autorização: Spuri (`fpp`) pode cancelar qualquer cobrança; uma Academia só pode cancelar cobranças do seu próprio contexto (`contexto_tipo="academia"` e `codigo_academia` correspondente) — reaproveitar exatamente `authorizeFinanceScope`, já usado pelos demais endpoints financeiros.
+5. **Autorização — regra mais restrita do que o padrão geral do módulo:** nos demais endpoints financeiros já existentes (`ConfigureCredential`, `CreateCharge`, `ConsultCharge`), `authorizeFinanceScope` dá a um admin `fpp` acesso irrestrito a qualquer academia, porque a plataforma configura/gera cobranças em nome delas. Para o **cancelamento**, essa amplitude não se aplica: cada parte só pode cancelar as **suas próprias** cobranças. Spuri (`fpp`) só pode cancelar cobranças do seu próprio contexto (`contexto_tipo="spuri"`, sem `codigo_academia` — cobranças que a própria plataforma gerou para si, não em nome de uma academia); uma Academia só pode cancelar cobranças do seu próprio contexto (`contexto_tipo="academia"` e `codigo_academia` correspondente). Um admin `fpp` **nunca** pode cancelar uma cobrança pertencente a uma academia, mesmo tendo, via outros endpoints, permissão para configurar credenciais ou criar/consultar cobranças em nome delas.
 6. Aplica-se a cobranças criadas via `CreateCharge` (REF e GPO) e via `CreateGPOQRCode` (QR Code) — ambas persistem na mesma tabela `financeiro_cobrancas`.
 7. Além do endpoint direto desta seção, `CancelCharge` também é acionado automaticamente pela Fase 2/3 (mensalidade) quando a academia anula uma obrigação de mensalidade que já tenha uma cobrança em aberto associada — ver Fase 3, seção 5. `CancelCharge` deve ser implementado como uma função de serviço reutilizável (não só como handler HTTP) exatamente para permitir essa chamada interna.
 8. **Limitação inerente à AppyPay:** como não existe endpoint de cancelamento real para REF/GPO/QR (ver "Contexto"), marcar uma cobrança como `cancelada` no Spuri impede o **fluxo interno** (o estudante não a verá mais como pagável na plataforma, não poderá gerar outra para o mesmo mês enquanto esta existir em aberto), mas **não invalida tecnicamente** a referência/QR já emitido do lado da AppyPay/banco até ela expirar naturalmente. Um pagamento ainda pode, em teoria, concretizar-se por essa via já cancelada — é precisamente esse cenário que o item 3 (evento de conflito) cobre. Esta limitação deve ficar documentada de forma explícita e visível (`Documentação.md`), para que ninguém assuma uma garantia de invalidação que a AppyPay não oferece.
@@ -105,7 +105,7 @@ Adicionar o evento `CobrancaAppyPayCancelada` ao aggregate `Financeiro` (`intern
 Adicionar `func (s *Service) CancelCharge(ctx context.Context, contexto, academia, identifier, motivo, actorID, actorType, ip string) (ChargeResult, error)` em `internal/finance/appypay.go`:
 
 - carregar a cobrança via `loadCharge` (já existente);
-- validar `contexto`/`academia` exatamente como `ConsultCharge` já faz (`row.Contexto != contexto || row.Academia != academia` → `ErrNotFound`);
+- validar `contexto`/`academia` contra `row.Contexto`/`row.Academia` — **mas, ao contrário de `ConsultCharge`, sem aceitar `contexto`/`academia` em aberto para admin**: quando `actorType` for `admin`, exigir explicitamente `row.Contexto == finance.ContextoSpuri` (rejeitar com `ErrNotFound`, sem distinguir na resposta se a cobrança existe ou pertence a uma academia, para não vazar informação); quando `actorType` for `academia`, exigir `row.Contexto == finance.ContextoAcademia && row.Academia == academia` exatamente como hoje;
 - rejeitar se `row.Status` já corresponder a um estado terminal (cancelada, falhada, ou sucesso — comparar de forma tolerante a maiúsculas/minúsculas contra o valor documentado pela AppyPay, `"Success"`, além dos estados internos `"cancelada"`/`"falhada"`);
 - reconsultar o estado atual junto da AppyPay reaproveitando a lógica interna já usada por `ConsultCharge` (idealmente extraindo essa lógica de consulta para uma função privada partilhada, para não duplicar código);
 - se a reconsulta indicar sucesso, **não** cancelar — devolver o estado atualizado e um erro claro;
@@ -113,7 +113,7 @@ Adicionar `func (s *Service) CancelCharge(ctx context.Context, contexto, academi
 
 ### 2.3 Novo endpoint HTTP
 
-Adicionar `POST /financeiro/cobrancas/:id/cancelar` em `internal/handlers/financeiro_handlers.go`, seguindo o mesmo padrão dos handlers existentes (`authorizeFinanceScope`, extração de `id`/`t` do contexto de autenticação, chamada ao serviço, resposta JSON). Aceitar `motivo` opcional no corpo do pedido.
+Adicionar `POST /financeiro/cobrancas/:id/cancelar` em `internal/handlers/financeiro_handlers.go`. **Não reaproveitar `authorizeFinanceScope` tal como está** para este endpoint especificamente — essa função concede a admins acesso irrestrito a qualquer `contexto`/`academia`, o que contraria a regra de negócio (item 5) deste cancelamento. Implementar (ou adaptar) uma verificação de autorização própria para este endpoint: extrair ator/tipo do contexto de autenticação como os demais handlers já fazem, mas aplicar a restrição do item 5 antes de chamar `CancelCharge` — a validação definitiva de posse continua a acontecer dentro de `CancelCharge` (item 2.2), mas o handler não deve permitir que um admin passe livremente qualquer `codigo_academia`. Aceitar `motivo` opcional no corpo do pedido.
 
 ### 2.4 Atualizar a projeção
 
@@ -129,14 +129,15 @@ Implementar a gravação do evento `CobrancaAppyPayConflitoPosCancelamento` semp
 
 ### 2.7 Testes obrigatórios
 
-1. cancelar cobrança pendente com sucesso, autor Spuri (`fpp`);
+1. cancelar cobrança de contexto `spuri` com sucesso, autor Spuri (`fpp`);
 2. cancelar cobrança pendente com sucesso, autor Academia dona da cobrança;
 3. Academia tentando cancelar cobrança de **outra** academia → rejeitado, sem vazar existência da cobrança (mesmo padrão de `ErrNotFound` já usado noutros pontos);
-4. tentar cancelar cobrança já paga (reconsulta mostra sucesso) → rejeitado, estado devolvido corretamente, nenhum evento de cancelamento gravado;
-5. tentar cancelar cobrança já cancelada → rejeitado;
-6. tentar cancelar cobrança já falhada → rejeitado;
-7. simular corrida: cobrança cancelada localmente e, em seguida, uma consulta simulando resposta de sucesso da AppyPay → evento de conflito gravado, nenhuma alteração indevida ao status `cancelada`;
-8. cancelamento aplicado a uma cobrança criada via QR Code (`CreateGPOQRCode`) funciona da mesma forma.
+4. **admin `fpp` tentando cancelar uma cobrança de contexto `academia` (de qualquer academia) → rejeitado**, mesmo sendo admin — confirma que o acesso irrestrito de `authorizeFinanceScope` para admins não se aplica a este endpoint;
+5. tentar cancelar cobrança já paga (reconsulta mostra sucesso) → rejeitado, estado devolvido corretamente, nenhum evento de cancelamento gravado;
+6. tentar cancelar cobrança já cancelada → rejeitado;
+7. tentar cancelar cobrança já falhada → rejeitado;
+8. simular corrida: cobrança cancelada localmente e, em seguida, uma consulta simulando resposta de sucesso da AppyPay → evento de conflito gravado, nenhuma alteração indevida ao status `cancelada`;
+9. cancelamento aplicado a uma cobrança criada via QR Code (`CreateGPOQRCode`) funciona da mesma forma, respeitando a mesma restrição de autorização.
 
 ---
 
@@ -164,8 +165,8 @@ A tarefa só deve ser considerada concluída quando:
 1. `float64` for o único tipo usado para valores monetários em todo `internal/finance`, com o contrato documentado explicitamente no código;
 2. `roundAmount` e `amountsEqual` existirem, estiverem testados e forem usados em todos os pontos do módulo que arredondam ou comparam valores monetários;
 3. validação rejeitar `amount` com mais de 2 casas decimais e `amount <= 0`, com testes cobrindo ambos;
-4. `CancelCharge` existir, reaproveitar `loadCharge` e `authorizeFinanceScope`, e recusar cancelamento de cobranças já pagas, canceladas ou falhadas;
-5. o endpoint `POST /financeiro/cobrancas/:id/cancelar` existir e seguir o padrão de autorização já usado pelos demais endpoints financeiros;
+4. `CancelCharge` existir, reaproveitar `loadCharge`, aplicar a autorização restrita do item 5 (admin só cancela contexto `spuri`; academia só cancela o seu próprio contexto), e recusar cancelamento de cobranças já pagas, canceladas ou falhadas;
+5. o endpoint `POST /financeiro/cobrancas/:id/cancelar` existir e **não** conceder a admins o acesso irrestrito que `authorizeFinanceScope` concede noutros endpoints do módulo;
 6. a projeção tratar corretamente `CobrancaAppyPayCancelada` e `CobrancaAppyPayConflitoPosCancelamento`;
 7. o cenário de corrida (cancelamento seguido de sucesso tardio) estiver coberto por teste e gravar o evento de conflito, sem jamais marcar a cobrança como paga depois de cancelada;
 8. QR Code (GPO) puder ser cancelado pelo mesmo mecanismo, com teste dedicado;

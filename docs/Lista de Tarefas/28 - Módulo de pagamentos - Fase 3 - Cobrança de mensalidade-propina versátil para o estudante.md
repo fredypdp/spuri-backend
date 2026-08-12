@@ -99,7 +99,7 @@ A partir de uma seleção válida (seção 2), gerar automaticamente, sem interv
 
 ## Regra de negócio
 
-- O valor da cobrança é a soma dos valores configurados (Fase 2) para cada mês selecionado, usando `roundAmount` (Fase 1) sobre o total.
+- O valor da cobrança é a soma do valor **histórico** de cada mês selecionado — resolvido exatamente pela regra da Fase 2, Seção 6 (ano académico/curso e preço em vigor na data de referência de cada mês, nunca os valores atuais) — usando `roundAmount` (Fase 1) sobre o total. Esta fase não reimplementa nem simplifica essa resolução; reutiliza-a diretamente.
 - Uma única cobrança AppyPay cobre todos os meses selecionados numa mesma seleção — não gerar uma cobrança por mês. O payload da cobrança deve conter, de forma auditável, a lista exata de `(ano_letivo, mês)` cobertos (ex.: no campo `description` legível e também estruturado em `paymentInfo`/campo próprio do payload gravado no ledger), para permitir a confirmação atômica da seção 4.
 - A cobrança é criada via `Service.CreateCharge` (REF/GPO) ou `Service.CreateGPOQRCode` (QR Code), com `ContextoTipo="academia"`, `CodigoAcademia` do estudante, ator/autor sendo o próprio estudante (registrar isso no evento, mesmo sendo uma ação "automática" do sistema em nome da academia).
 - Enquanto uma seleção anterior do mesmo estudante ainda não tiver sido concluída (paga, falhada ou cancelada), o estudante não deve conseguir iniciar uma nova seleção sobre os mesmos meses — evitar cobranças duplicadas para o mesmo mês pendente.
@@ -118,8 +118,9 @@ Antes de gerar uma nova cobrança para um mês, verificar se já existe uma cobr
 
 1. seleção de um mês gera uma cobrança de valor igual ao configurado para aquele mês;
 2. seleção de múltiplos meses gera uma única cobrança cujo valor é a soma exata dos meses selecionados (usando `roundAmount`);
-3. tentar selecionar novamente um mês que já tem cobrança em aberto → rejeitado;
-4. falha na criação da cobrança na AppyPay (ex.: erro de rede) não deixa nenhum mês marcado como pago nem em estado inconsistente.
+3. seleção incluindo um mês de um ano letivo anterior, já com ano académico/preço diferentes dos atuais → cobrança usa o valor histórico correto (Fase 2, Seção 6), não o valor/ano atual do estudante;
+4. tentar selecionar novamente um mês que já tem cobrança em aberto → rejeitado;
+5. falha na criação da cobrança na AppyPay (ex.: erro de rede) não deixa nenhum mês marcado como pago nem em estado inconsistente.
 
 ---
 

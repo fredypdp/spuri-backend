@@ -123,7 +123,7 @@ Permitir que o pagador (quem submeteu a solicitação) escolha o método de paga
 1. A cobrança só pode ser gerada enquanto a solicitação estiver exatamente em `aprovada_pendente_pagamento_matricula`. Fora desse estado (pendente, reprovada, cancelada, ou já vinculada), a tentativa deve ser rejeitada com erro claro.
 2. Autenticação do pagador nesta ação é por posse do `codigo_solicitacao` (não existe login para quem ainda não é estudante) — ver "Contexto" sobre a entropia do código. O pagador informa o `codigo_solicitacao` e o método escolhido (dentre os habilitados pela academia); não há outro dado de identificação necessário, mas o endpoint deve responder com erro genérico e uniforme para código inexistente/errado ou estado inválido, sem distinguir os dois casos na mensagem (para não vazar existência de códigos por enumeração).
 3. Só pode existir uma cobrança em aberto por solicitação. Se o pagador tentar gerar uma nova cobrança enquanto já existir uma em aberto (criada, não paga, não cancelada, não falhada), o pedido deve ser rejeitado, informando a cobrança já existente (ou instruindo a cancelá-la primeiro — reaproveitando o cancelamento da seção 2.3, se a academia permitir; decisão de UX a validar com o Spuri durante a implementação).
-4. Valor da cobrança é exatamente o configurado (seção 1) para o nível/ano da solicitação, sem alteração pelo pagador.
+4. **Valor fixado no momento da aprovação, não no momento do pagamento:** o valor da cobrança é o que estava configurado (seção 1) para o nível/ano da solicitação **no instante em que ela entrou em `aprovada_pendente_pagamento_matricula`** (seção 2), e deve ser gravado nesse momento (no próprio evento da seção 2.2) — não recalculado a partir da configuração atual quando o pagador finalmente aciona a geração da cobrança (seção 3.1). Isto segue o mesmo princípio da Fase 2 (Seção 6): se a academia mudar o valor da matrícula entretanto, isso não deve afetar solicitações já aprovadas e pendentes de pagamento. O pagador nunca pode alterar este valor.
 5. A cobrança é criada com `ContextoTipo="academia"`, associada de forma auditável à `SolicitacaoMatricula` de origem (`codigo_solicitacao` no payload), para permitir a confirmação da seção 4 e o cancelamento em cascata da seção 2.3.
 
 ## Escopo obrigatório
@@ -139,11 +139,12 @@ Se ainda não existir, criar também uma rota pública mínima de consulta (ex.:
 ### 3.3 Testes obrigatórios
 
 1. gerar cobrança com a solicitação em `aprovada_pendente_pagamento_matricula` e método habilitado → sucesso, valor correto;
-2. tentar gerar cobrança com `codigo_solicitacao` inexistente ou solicitação fora do estado correto → rejeitado com a mesma mensagem genérica em ambos os casos;
-3. tentar gerar cobrança com método não habilitado pela academia para matrícula → rejeitado;
-4. tentar gerar uma segunda cobrança enquanto já existe uma em aberto → rejeitado;
-5. falha na criação da cobrança na AppyPay (ex.: erro de rede) não deixa a solicitação num estado inconsistente, e permite nova tentativa;
-6. o endpoint de consulta (3.2) não expõe dados pessoais além do necessário para decidir o pagamento.
+2. academia muda o valor da matrícula depois de uma solicitação já aprovada (pendente de pagamento): a cobrança gerada usa o valor fixado na aprovação, não o novo valor;
+3. tentar gerar cobrança com `codigo_solicitacao` inexistente ou solicitação fora do estado correto → rejeitado com a mesma mensagem genérica em ambos os casos;
+4. tentar gerar cobrança com método não habilitado pela academia para matrícula → rejeitado;
+5. tentar gerar uma segunda cobrança enquanto já existe uma em aberto → rejeitado;
+6. falha na criação da cobrança na AppyPay (ex.: erro de rede) não deixa a solicitação num estado inconsistente, e permite nova tentativa;
+7. o endpoint de consulta (3.2) não expõe dados pessoais além do necessário para decidir o pagamento.
 
 ---
 
