@@ -1,7 +1,7 @@
 ---
 criado: 2026-08-12 00:00
 origem: Depuração da implementação da Tarefa 23 (docs/Debbugs/) — conversa com Claude, o orquestrador; execução por Codex
-status: a fazer
+status: feito
 prioridade: alta — regressão de integridade de dados, não apenas de desempenho
 ---
 
