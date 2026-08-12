@@ -31,6 +31,7 @@ Interpretação adotada para "a academia recebe essas informações e gera a cob
 | Seleção de múltiplos meses | O primeiro selecionado deve ser o mês pendente mais antigo; os demais podem ser quaisquer outros meses pendentes, sem exigência de sequência entre si | Segue exatamente a regra do pedido original |
 | Cobrança gerada | Uma única cobrança AppyPay cobrindo a soma dos meses selecionados | Evita múltiplas cobranças fragmentadas para uma única intenção de pagamento |
 | Confirmação de pagamento | Marca atomicamente todos os meses cobertos pela cobrança como pagos | Nunca marca pagamento parcial de uma cobrança única |
+| Anulação (Fase 2) de mês com cobrança em aberto | Cancela automaticamente a cobrança inteira (Fase 1) | Evita cobrança "órfã" ainda disponível para pagamento após a obrigação deixar de existir; limitação residual documentada (ver seção 5) |
 
 ---
 
@@ -152,6 +153,33 @@ Garantir que, se a gravação de algum dos eventos de pagamento (quando há múl
 
 ---
 
+# 5. Cancelamento em cascata quando uma obrigação coberta é anulada
+
+## Objetivo
+
+Garantir que, se a academia anular uma obrigação de mensalidade (Fase 2, `ObrigacaoMensalidadeAnulada`) que já tenha uma cobrança em aberto associada (gerada por esta fase e ainda não paga), essa cobrança seja automaticamente cancelada — evitando que continue disponível para pagamento apesar de a obrigação já não existir.
+
+## Regra de negócio
+
+- Ao processar o evento `ObrigacaoMensalidadeAnulada` (Fase 2), o sistema deve verificar se existe alguma cobrança em aberto (criada, não paga, não cancelada, não falhada — Fase 1) cujo payload cubra o `(ano_letivo, mês)` anulado. Se existir, acionar `Service.CancelCharge` (Fase 1) para essa cobrança, com autor igual ao autor da anulação e motivo derivado (ex.: `"obrigação anulada pela academia"`).
+- Se a cobrança cobrir **outros** meses além do anulado (seleção múltipla, seção 2), o cancelamento em cascata cancela a cobrança **inteira** — a AppyPay não permite cancelar/alterar parcialmente uma cobrança já criada. Os demais meses cobertos por essa cobrança voltam ao estado `pendente` e podem ser selecionados novamente numa nova cobrança.
+- **Limitação inerente à AppyPay, não resolvida por esta regra:** mesmo depois de o Spuri marcar a cobrança como `cancelada`, uma referência (REF) ou QR Code já gerado pode continuar tecnicamente pagável do lado da AppyPay/banco até expirar, porque não existe endpoint de cancelamento real para esses métodos (ver Fase 1, Contexto). Isto significa que, em casos raros, um estudante pode ainda conseguir pagar uma cobrança que o Spuri já considera cancelada. É exatamente para isto que serve o evento `CobrancaAppyPayConflitoPosCancelamento` da Fase 1 — este cenário deve ser tratado como conflito para reconciliação manual FPP, nunca como pagamento válido silencioso, mas **não há forma de o Spuri impedir a transação em si de se concretizar do lado da AppyPay**. Documente esta limitação de forma visível (ex.: no `Documentação.md`) para que a equipa não assuma uma garantia que a AppyPay não oferece.
+
+## Escopo obrigatório
+
+### 5.1 Integração com o evento de anulação
+
+Implementar o gatilho descrito na regra de negócio, reaproveitando `Service.CancelCharge` (Fase 1) sem duplicar a sua lógica de validação/reconsulta.
+
+### 5.2 Testes obrigatórios
+
+1. anular uma obrigação com cobrança em aberto cobrindo exatamente aquele mês → cobrança cancelada automaticamente;
+2. anular uma obrigação coberta por uma cobrança que também cobre outros meses ainda pendentes → cobrança inteira cancelada, os outros meses voltam a `pendente` e ficam novamente selecionáveis;
+3. anular uma obrigação sem nenhuma cobrança em aberto associada → nenhuma chamada a `CancelCharge`, sem erro;
+4. anular uma obrigação cuja cobrança já foi paga → `CancelCharge` rejeita corretamente (comportamento já garantido pela Fase 1), e o sistema não deve tratar isso como falha da anulação em si — a anulação da obrigação e o cancelamento da cobrança são operações distintas; se a cobrança já estiver paga, registrar esse conflito, mas a anulação da obrigação (para fins futuros) continua válida.
+
+---
+
 # Fora de escopo
 
 - Parcelamento de uma única mensalidade em múltiplos pagamentos menores.
@@ -178,8 +206,9 @@ A tarefa só deve ser considerada concluída quando:
 4. a geração da cobrança for automática, sem exigir ação manual de um funcionário da academia, e cobrir exatamente os meses selecionados numa única cobrança;
 5. duplicidade de cobrança para o mesmo mês estiver bloqueada;
 6. a confirmação de pagamento marcar atomicamente todos os meses cobertos, com idempotência testada;
-7. todos os testes das seções 1 a 4 passarem;
-8. `Documentação.md` estiver atualizada com o novo fluxo, endpoints e eventos.
+7. a anulação de uma obrigação com cobrança em aberto cancelar automaticamente essa cobrança (seção 5), com a limitação residual da AppyPay documentada de forma explícita;
+8. todos os testes das seções 1 a 5 passarem;
+9. `Documentação.md` estiver atualizada com o novo fluxo, endpoints, eventos e a limitação residual descrita na seção 5.
 
 ## Procedimento de conclusão
 
