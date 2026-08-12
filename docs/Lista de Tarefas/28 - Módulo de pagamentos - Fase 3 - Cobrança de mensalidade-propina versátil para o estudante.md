@@ -187,6 +187,7 @@ Implementar o gatilho descrito na regra de negócio, reaproveitando `Service.Can
 - Troca de método de pagamento depois de a cobrança já ter sido criada (o estudante deve cancelar — Fase 1 — e selecionar novamente, se aplicável).
 - Reembolso de mensalidade já paga.
 - Notificação ao estudante/encarregado sobre confirmação de pagamento (módulo WhatsApp, ainda em desenho).
+- Pagamento de pendências junto de uma academia **diferente** da atual (ex.: estudante transferido — Fase 2, seção 3, item 2 — que ainda tem meses pendentes na academia anterior). O endpoint de seleção (seção 2.1) opera sempre no contexto da academia atual do estudante (`contexto_tipo="academia"`, `codigo_academia` do vínculo ativo); liquidar dívida de uma academia anterior, se necessário no futuro, deve ser tarefa própria.
 
 # Riscos e mitigações
 

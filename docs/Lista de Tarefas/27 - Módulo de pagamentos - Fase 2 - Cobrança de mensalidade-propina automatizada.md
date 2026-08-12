@@ -31,9 +31,9 @@ Auditoria do código relevante:
 | Granularidade da configuração de valor | Fundamental: por (nível, ano). Médio/Superior: por (curso, ano) | Reflete que cursos diferentes podem ter valores diferentes |
 | Mês final de cobrança | Configurável por ano académico, valor `6` (junho) ou `7` (julho) | Limitado ao mês final do período letivo fixo já existente (nunca ultrapassa) |
 | Cálculo de meses devidos/pagos | Projeção derivada, calculada sob procura, sem cron | Não compromete o comportamento de idle do NeonDB |
-| Identidade do mês devido | Chave única `(estudante, ano_letivo, mês)` | Reinicia a cada ano letivo; pendências de anos anteriores continuam pendentes e distinguíveis |
+| Identidade do mês devido | Chave única `(estudante, academia, ano_letivo, mês)` | Reinicia a cada ano letivo; distingue academias diferentes se o estudante transferir; pendências de anos anteriores continuam pendentes e distinguíveis |
 | Entrada a meio do ano letivo | Mês de início de cobrança configurável, válido apenas no ano letivo de entrada | A partir do ano letivo seguinte, prevalece a regra normal do período completo |
-| Isenção individual | Evento auditável por (estudante, ano_letivo, mês), reversível apenas por novo evento explícito | Nunca apaga o histórico; nunca é feito por admin `fpp`, só pela própria academia |
+| Isenção individual | Evento auditável por (estudante, academia, ano_letivo, mês), reversível apenas por novo evento explícito | Nunca apaga o histórico; nunca é feito por admin `fpp`, só pela própria academia |
 | Consulta de mensalidades | Academia dona, o próprio estudante, ou qualquer admin `fpp` sem restrição | Leitura é irrestrita para supervisão; ações (anular/reativar) não são |
 | Valor de mês pendente | Sempre resolvido pelo ano académico/curso e pelo preço **em vigor na data de referência daquele mês**, nunca pelo estado/preço atuais | Meses de anos letivos anteriores mantêm o valor correto mesmo após progressão do estudante ou mudança de preço |
 
@@ -115,7 +115,7 @@ Sem exigir qualquer configuração manual por estudante, determinar automaticame
 ## Regra de negócio
 
 1. O conjunto de meses "devidos" por um estudante num ano letivo é: do mês de início do período letivo fixo do seu tipo (`09` escolar, `10` superior) — ou do mês de início configurado pela academia para o ano letivo de entrada dela na plataforma (ver seção 4), se aplicável — até `mes_fim_cobranca` configurado para o `(nível/curso, ano académico)` em que o estudante se encontra naquele ano letivo.
-2. Cada mês devido tem uma identidade única e estável: a chave composta `(codigo_estudante, ano_letivo, mês)`. Esta chave é o que garante que pendências de anos letivos anteriores continuam pendentes e distinguíveis de pendências do ano letivo corrente — nunca reutilizar apenas "mês" isolado como chave, porque isso colidiria entre anos letivos diferentes.
+2. Cada mês devido tem uma identidade única e estável: a chave composta `(codigo_estudante, codigo_academia, ano_letivo, mês)` — **inclui a academia**, não apenas estudante+ano_letivo+mês. Isto é necessário porque `Estudante.CodigoAcademia` não é fixo: o estudante pode ser desvinculado de uma academia e reintegrado noutra (`DesvincularDaAcademia`/`Reintegrar`, já existentes no aggregate `Estudante`) — nesse caso, pendências geradas enquanto ele estava na academia anterior pertencem a essa academia especificamente, e nunca devem ser confundidas com pendências da academia atual, mesmo que o mês/ano_letivo coincidam. Esta chave também garante que pendências de anos letivos anteriores continuam pendentes e distinguíveis das do ano letivo corrente — nunca reutilizar apenas "mês" isolado, nem apenas "mês+ano_letivo" sem a academia, como chave.
 3. Este conjunto reinicia a cada novo ano letivo (o cálculo do item 1 é sempre relativo ao ano letivo corrente do estudante), mas pendências de anos letivos anteriores **não desaparecem** — continuam consultáveis e pendentes até serem pagas (Fase 3) ou anuladas (seção 5).
 4. Um mês só passa de "pendente" para "pago" através de um evento de pagamento real (produzido pela Fase 3) — nunca por inferência silenciosa dentro desta fase.
 5. Esta fase **não** cria nenhuma cobrança na AppyPay. É puramente contabilística/interna ao Spuri.
@@ -129,7 +129,7 @@ Implementar o cálculo dos meses devidos/pagos como uma função/projeção deri
 
 ### 3.2 Endpoint de consulta
 
-Criar uma rota de consulta (ex.: `GET /financeiro/mensalidades/estudante/:codigo`) que devolve, para um estudante, a lista de meses do ano letivo corrente com o respetivo estado (`pendente`/`pago`/`anulado`), acessível pela academia dona do estudante, por **qualquer** admin `fpp` — sem restrição por academia, uma vez que a supervisão financeira da plataforma abrange todas as academias — ou pelo próprio estudante autenticado.
+Criar uma rota de consulta (ex.: `GET /financeiro/mensalidades/estudante/:codigo`) que devolve, para um estudante, a lista de meses do ano letivo corrente com o respetivo estado (`pendente`/`pago`/`anulado`), acessível pela academia dona do estudante, por **qualquer** admin `fpp` — sem restrição por academia, uma vez que a supervisão financeira da plataforma abrange todas as academias — ou pelo próprio estudante autenticado. Quando o pedido for feito por uma academia, a resposta deve conter **apenas** as pendências cuja chave (ver item 2 da regra de negócio) pertence a essa academia — nunca pendências que o estudante tenha noutra academia (passada ou presente). Quando o pedido for feito pelo próprio estudante ou por um admin `fpp`, a resposta pode (e deve, se o estudante tiver histórico em mais de uma academia) agrupar as pendências por `codigo_academia`, deixando claro a qual instituição cada mês pertence.
 
 ### 3.3 Testes obrigatórios
 
@@ -181,9 +181,9 @@ Permitir que a academia isente um estudante específico do dever de pagar um ou 
 
 ## Regra de negócio
 
-- Evento `ObrigacaoMensalidadeAnulada`, escopado a `(codigo_estudante, ano_letivo, mês)` (podendo aceitar múltiplos meses num único pedido, desde que cada um gere rastreabilidade individual), com `motivo` opcional.
+- Evento `ObrigacaoMensalidadeAnulada`, escopado a `(codigo_estudante, codigo_academia, ano_letivo, mês)` (podendo aceitar múltiplos meses num único pedido, desde que cada um gere rastreabilidade individual), com `motivo` opcional. `codigo_academia` é sempre a academia autora da anulação (só pode anular as suas próprias obrigações — ver autorização abaixo), por isso não introduz ambiguidade adicional na prática, mas mantém a chave consistente com a seção 3.
 - A partir da gravação deste evento, aquele(s) mês(es) deixa(m) de aparecer como pendente(s) para aquele estudante especificamente — não afeta outros meses do mesmo estudante nem qualquer outro estudante.
-- O evento nunca é apagado nem substituído por atualização direta — é permanente no ledger, disponível para auditoria. Uma anulação **pode** ser desfeita, mas apenas através de um novo evento explícito, `ObrigacaoMensalidadeReativada`, escopado à mesma chave `(codigo_estudante, ano_letivo, mês)` — nunca por remoção/alteração do evento de anulação original. Após a reativação, o mês volta ao estado `pendente` (ou `pago`, se entretanto tiver sido pago por outra via — ver validação abaixo).
+- O evento nunca é apagado nem substituído por atualização direta — é permanente no ledger, disponível para auditoria. Uma anulação **pode** ser desfeita, mas apenas através de um novo evento explícito, `ObrigacaoMensalidadeReativada`, escopado à mesma chave `(codigo_estudante, codigo_academia, ano_letivo, mês)` — nunca por remoção/alteração do evento de anulação original. Após a reativação, o mês volta ao estado `pendente` (ou `pago`, se entretanto tiver sido pago por outra via — ver validação abaixo).
 - **Autorização: exclusiva da academia dona do estudante.** Nenhum admin `fpp` pode anular nem reativar a obrigação de mensalidade de nenhum estudante, mesmo podendo consultar livremente o estado de qualquer estudante (seção 3.2) — isenção/reativação de mensalidade é uma decisão de negócio que pertence unicamente à academia, não à plataforma. Isto é uma restrição deliberadamente mais estrita do que o padrão geral de acesso irrestrito de admins usado noutros pontos do módulo financeiro (ver também Fase 1, regra de negócio do cancelamento de cobrança, que segue o mesmo princípio de restringir por dono do recurso).
 
 ## Escopo obrigatório
@@ -216,28 +216,29 @@ Garantir que o sistema sabe sempre, com exatidão, quanto cobrar por um mês pen
 
 ## Regra de negócio
 
-1. **Ano académico/curso histórico:** o valor de um mês pendente `(codigo_estudante, ano_letivo, mês)` nunca é determinado a partir do ano académico/curso **atual** do estudante — é determinado a partir do ano académico/curso em que o estudante **estava matriculado naquele `ano_letivo` específico**, na academia em questão. Isto é necessário porque o estudante progride de ano (e, no médio/superior, pode mudar de curso) a cada novo ano letivo, e um mês pendente de um ano letivo anterior deve continuar a ser valorizado com base em quem o estudante era **naquele** ano letivo, não em quem é hoje. Esta informação já existe no sistema através do histórico de turma por ano letivo (`HistoricoEstudantesAnoLetivo`, na projeção de turmas) — a determinação do valor deve consultar essa fonte (ou equivalente), nunca o estado corrente do `Estudante`.
-2. **Preço histórico:** o valor configurado pela academia (seção 1) é versionado — cada reconfiguração gera um novo evento `MensalidadeConfigurada`, sem apagar o anterior (já estabelecido). Ao determinar o valor de um mês específico, o sistema deve usar a configuração que estava **em vigor na data de referência daquele mês** (o início do mês civil correspondente àquele `(ano_letivo, mês)`) — nunca a configuração mais recente/atual. Concretamente: se a academia mudar o valor da mensalidade a meio do ano letivo, essa mudança só se aplica a meses cuja data de referência seja **posterior** à mudança; meses cuja data de referência seja anterior à mudança — mesmo que ainda estejam pendentes de pagamento — continuam a ser cobrados ao preço que estava em vigor quando esse mês passou a ser devido, independentemente de quando o estudante efetivamente vier a pagá-lo.
-3. Estas duas regras aplicam-se em conjunto: o valor final de um mês pendente é sempre "o preço que a academia tinha configurado, para o ano académico/curso em que o estudante estava, ambos na data de referência daquele mês" — nunca uma combinação de dados atuais com dados históricos.
+1. **Academia, ano académico e curso históricos:** o valor de um mês pendente `(codigo_estudante, codigo_academia, ano_letivo, mês)` nunca é determinado a partir do vínculo **atual** do estudante (nem a academia atual, nem o ano académico/curso atual) — é determinado a partir de **exatamente onde e como o estudante estava matriculado naquele `ano_letivo` específico**: a academia em questão (que já faz parte da chave — ver seção 3, item 2, sobre transferência entre academias) e, dentro dela, o ano académico (fundamental) ou o curso+ano académico (médio/superior — a mesma granularidade da seção 1: fundamental é só por ano, médio e superior são sempre por curso+ano, nunca só por ano). Isto é necessário porque o estudante progride de ano (e, no médio/superior, pode mudar de curso, ou até de academia) a cada novo ano letivo, e um mês pendente de um ano letivo anterior deve continuar a ser valorizado com base em quem o estudante era **naquele** ano letivo, nessa academia específica — não em quem é hoje. Esta informação já existe no sistema através do histórico de turma por ano letivo (`HistoricoEstudantesAnoLetivo`, na projeção de turmas) — a determinação do valor deve consultar essa fonte (ou equivalente), nunca o estado corrente do `Estudante`.
+2. **Preço histórico:** o valor configurado pela academia (seção 1) é versionado por `(academia, nível/ano[, curso])` — cada reconfiguração gera um novo evento `MensalidadeConfigurada`, sem apagar o anterior (já estabelecido). Ao determinar o valor de um mês específico, o sistema deve usar a configuração **dessa mesma academia e dessa mesma combinação nível/ano[/curso]** que estava **em vigor na data de referência daquele mês** (o início do mês civil correspondente àquele `(ano_letivo, mês)`) — nunca a configuração mais recente/atual, nem a de outra academia ou de outro curso/ano. Concretamente: se a academia mudar o valor da mensalidade a meio do ano letivo, essa mudança só se aplica a meses cuja data de referência seja **posterior** à mudança; meses cuja data de referência seja anterior à mudança — mesmo que ainda estejam pendentes de pagamento — continuam a ser cobrados ao preço que estava em vigor quando esse mês passou a ser devido, independentemente de quando o estudante efetivamente vier a pagá-lo.
+3. Estas duas regras aplicam-se sempre em conjunto, pela **mesma combinação exata**: o valor final de um mês pendente é sempre "o preço que **aquela academia específica** tinha configurado para **aquele ano académico (fundamental) ou aquele curso+ano académico (médio/superior) específico**, ambos na data de referência daquele mês" — nunca uma combinação de dados atuais com dados históricos, nem de uma academia/curso diferente daquela em que o estudante efetivamente estava.
 4. Esta resolução de valor é usada tanto pela consulta de meses pendentes (seção 3.2, para informar o estudante quanto vai pagar antes de confirmar) como pela geração da cobrança em si (Fase 3) — a Fase 3 não deve reimplementar nem repetir esta lógica, apenas reutilizá-la.
 
 ## Escopo obrigatório
 
 ### 6.1 Resolução do vínculo histórico
 
-Implementar a função que, dado `(codigo_estudante, codigo_academia, ano_letivo)`, devolve o `(nível, ano académico, curso_id?)` em que o estudante estava matriculado naquele ano letivo, reaproveitando o histórico já existente de turma/ano letivo em vez de recriar essa informação.
+Implementar a função que, dado `(codigo_estudante, codigo_academia, ano_letivo)`, devolve o `(nível, ano académico, curso_id?)` — `curso_id` presente apenas para médio/superior, ausente para fundamental — em que o estudante estava matriculado **naquela academia específica**, naquele ano letivo, reaproveitando o histórico já existente de turma/ano letivo em vez de recriar essa informação.
 
 ### 6.2 Resolução do preço histórico
 
-Implementar a função que, dado `(codigo_academia, nível/ano/curso, data de referência)`, devolve a configuração de mensalidade (`valor`, `mes_fim_cobranca`) que estava em vigor naquela data, considerando o histórico completo de `MensalidadeConfigurada` (não apenas a versão mais recente).
+Implementar a função que, dado `(codigo_academia, nível/ano[/curso_id], data de referência)`, devolve a configuração de mensalidade (`valor`, `mes_fim_cobranca`) **daquela academia, para exatamente aquela combinação de nível/ano[/curso]**, que estava em vigor naquela data, considerando o histórico completo de `MensalidadeConfigurada` (não apenas a versão mais recente).
 
 ### 6.3 Testes obrigatórios
 
 1. estudante progride de ano académico entre dois anos letivos (ex.: `6_ano_fundamental` em 2025_2026, `7_ano_fundamental` em 2026_2027): um mês pendente de 2025_2026 é valorizado com o preço configurado para `6_ano_fundamental`, mesmo que hoje o estudante já esteja em `7_ano_fundamental`;
-2. estudante muda de curso entre anos letivos (médio/superior): mesmo princípio do teste anterior, aplicado a `curso_id`;
-3. academia muda o valor da mensalidade a meio do ano letivo: meses com data de referência anterior à mudança continuam a ser cobrados ao preço antigo; meses com data de referência posterior usam o novo preço — mesmo que todos ainda estejam pendentes no momento da consulta/pagamento;
-4. estudante paga, já depois da mudança de preço, um mês antigo ainda pendente: o valor cobrado é o preço antigo (o vigente na data de referência do mês), não o preço atual;
-5. o valor devolvido pela consulta de meses pendentes (seção 3.2) é idêntico ao valor efetivamente usado na geração da cobrança (Fase 3) para o mesmo mês.
+2. estudante muda de curso entre anos letivos (médio/superior): mesmo princípio do teste anterior, aplicado a `curso_id` — o preço usado é sempre o do curso em que ele estava naquele ano letivo, nunca o do curso atual;
+3. estudante é desvinculado de uma academia e reintegrado noutra entre dois anos letivos: um mês pendente da academia anterior é valorizado com a configuração **dessa** academia (nível/ano/curso e preço), nunca com a configuração da academia atual;
+4. academia muda o valor da mensalidade a meio do ano letivo: meses com data de referência anterior à mudança continuam a ser cobrados ao preço antigo; meses com data de referência posterior usam o novo preço — mesmo que todos ainda estejam pendentes no momento da consulta/pagamento;
+5. estudante paga, já depois da mudança de preço, um mês antigo ainda pendente: o valor cobrado é o preço antigo (o vigente na data de referência do mês), não o preço atual;
+6. o valor devolvido pela consulta de meses pendentes (seção 3.2) é idêntico ao valor efetivamente usado na geração da cobrança (Fase 3) para o mesmo mês.
 
 ---
 
@@ -254,7 +255,7 @@ Implementar a função que, dado `(codigo_academia, nível/ano/curso, data de re
 | Risco | Mitigação |
 | --- | --- |
 | Alterar valor/mês final a meio do ano letivo afeta retroativamente meses já pagos ou já vencidos | Mudanças de configuração só afetam o cálculo de meses **ainda não vencidos**; nunca recalcular retroativamente o que já foi pago ou já estava vencido antes da mudança |
-| Confundir "mês/ano civil" com "ano letivo" na chave de unicidade | Usar sempre a chave composta `(codigo_estudante, ano_letivo, mês)`, nunca mês isolado |
+| Confundir "mês/ano civil" com "ano letivo", ou confundir pendências de academias diferentes, na chave de unicidade | Usar sempre a chave composta `(codigo_estudante, codigo_academia, ano_letivo, mês)`, nunca mês isolado nem mês+ano_letivo sem a academia |
 | Configuração de mês final de cobrança ultrapassar o período letivo académico fixo | Validação explícita contra `periodoLetivoEscolar`/`periodoLetivoSuperior` (seção 2.1) |
 | Mês de início de cobrança da seção 4 "vazar" para anos letivos seguintes | Escopo estrito por `(academia, ano_letivo)`, testado explicitamente (4.3.2) |
 | Cobrar um mês pendente com o ano académico/curso ou o preço errados após o estudante progredir ou a academia mudar o valor | Resolução histórica obrigatória (seção 6), nunca a partir do estado/preço atuais, testada explicitamente (6.3) |
@@ -269,7 +270,7 @@ A tarefa só deve ser considerada concluída quando:
 3. a configuração de valor respeitar a granularidade definida (fundamental por ano; médio/superior por curso+ano);
 4. `mes_fim_cobranca` aceitar apenas `6` ou `7` e nunca exceder o período letivo fixo;
 5. o cálculo de meses devidos/pagos funcionar sob procura, sem depender de nenhum processo agendado por tempo;
-6. a chave `(codigo_estudante, ano_letivo, mês)` for usada de forma consistente e testada entre transições de ano letivo;
+6. a chave `(codigo_estudante, codigo_academia, ano_letivo, mês)` for usada de forma consistente e testada entre transições de ano letivo e entre academias (transferência de estudante);
 7. o mês de início de cobrança para entrada a meio de ano letivo funcionar apenas no ano letivo em que foi definido;
 8. a anulação individual de mensalidade funcionar com auditoria completa, sem apagar o histórico, com reativação disponível via `ObrigacaoMensalidadeReativada`, e ambas as ações restritas exclusivamente à academia (nunca a admin `fpp`);
 9. a consulta de mensalidades (seção 3.2) funcionar sem restrição de academia para qualquer admin `fpp`;
