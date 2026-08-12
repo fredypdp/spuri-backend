@@ -190,6 +190,44 @@ func ConsultarCobrancaAppyPay(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, out)
 }
+
+// CancelarCobrancaAppyPay intentionally does not use authorizeFinanceScope:
+// FPP admins may cancel only Spuri's own charges, never a charge belonging to
+// an academy. The service repeats this ownership check before recording.
+func CancelarCobrancaAppyPay(c *gin.Context) {
+	var in struct {
+		Motivo string `json:"motivo"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		utils.RespondWithValidationError(c, errors.New("payload inválido"))
+		return
+	}
+	id, actorType, ownAcademy, ok := financeActor(c)
+	if !ok {
+		utils.RespondWithUnauthorizedError(c)
+		return
+	}
+	contexto, academia := "", ""
+	switch actorType {
+	case "academia":
+		contexto, academia = finance.ContextoAcademia, ownAcademy
+	case "admin":
+		if !financeAdminAllowed(c) {
+			utils.RespondWithForbiddenError(c, "sem permissão para cancelar esta cobrança")
+			return
+		}
+		contexto = finance.ContextoSpuri
+	default:
+		utils.RespondWithForbiddenError(c, "sem permissão para cancelar esta cobrança")
+		return
+	}
+	out, err := FinanceiroService.CancelCharge(c.Request.Context(), contexto, academia, c.Param("id"), in.Motivo, id.String(), actorType, c.ClientIP())
+	if err != nil {
+		financeError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, out)
+}
 func ReceberWebhookAppyPay(metodo string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		owner, err := FinanceiroService.AuthenticateWebhook(c.Request.Context(), c.Request.Header)

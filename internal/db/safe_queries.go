@@ -100,6 +100,8 @@ var validEventTypes = map[string]bool{
 	"CobrancaAppyPayCriada":                              true,
 	"CobrancaAppyPayFalhou":                              true,
 	"CobrancaAppyPayConsultada":                          true,
+	"CobrancaAppyPayCancelada":                           true,
+	"CobrancaAppyPayConflitoPosCancelamento":             true,
 	"QRCodeAppyPaySolicitado":                            true,
 	"QRCodeAppyPayGerado":                                true,
 	"QRCodeAppyPayFalhou":                                true,

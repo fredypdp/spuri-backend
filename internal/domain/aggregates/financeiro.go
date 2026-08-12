@@ -12,6 +12,14 @@ import (
 type Financeiro struct{ *BaseAggregate }
 type EventoFinanceiro struct{ BaseEvent }
 
+// Event names owned by the Financeiro ledger aggregate. CobrancaAppyPayCancelada
+// is a local Spuri cancellation; CobrancaAppyPayConflitoPosCancelamento records
+// a provider Success observed after that definitive local cancellation.
+const (
+	CobrancaAppyPayCancelada               = "CobrancaAppyPayCancelada"
+	CobrancaAppyPayConflitoPosCancelamento = "CobrancaAppyPayConflitoPosCancelamento"
+)
+
 func NewFinanceiro() *Financeiro { return NewFinanceiroWithID(uuid.New()) }
 func NewFinanceiroWithID(id uuid.UUID) *Financeiro {
 	return &Financeiro{BaseAggregate: &BaseAggregate{ID: id, UncommittedEvents: []DomainEvent{}}}

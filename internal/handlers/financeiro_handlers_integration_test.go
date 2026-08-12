@@ -90,3 +90,34 @@ func TestIntegrationFinanceRejectsNonFPPAdmins(t *testing.T) {
 		})
 	}
 }
+
+func TestIntegrationFinanceFPPAdminCannotCancelAcademyCharge(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	client := integrationFinanceClient(t)
+	merchant := "INTCANCEL" + uuid.NewString()[:6]
+	chargeID := uuid.New()
+	payload, _ := json.Marshal(map[string]any{"status": "criada"})
+	if _, err := client.DB().Exec(`INSERT INTO financeiro_cobrancas (id,merchant_transaction_id,contexto_tipo,codigo_academia,payload) VALUES ($1,$2,'academia','ACA-CANCEL',$3)`, chargeID, merchant, payload); err != nil {
+		t.Fatal(err)
+	}
+	adminID := uuid.New()
+	if _, err := client.DB().Exec(`INSERT INTO projection_admins (id,nome,email,senha_hash,role,status) VALUES ($1,'fpp-cancel',$2,'hash','fpp','ativo')`, adminID, "fpp-cancel-"+uuid.NewString()+"@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	previousService := FinanceiroService
+	FinanceiroService = finance.NewService(client)
+	t.Cleanup(func() { FinanceiroService = previousService })
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/financeiro/appypay/cobrancas/"+merchant+"/cancelar", bytes.NewBufferString(`{}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	ctx.Params = gin.Params{{Key: "id", Value: merchant}}
+	ctx.Set("dbClient", client)
+	ctx.Set("user_id", adminID)
+	ctx.Set("user_type", "admin")
+
+	CancelarCobrancaAppyPay(ctx)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("admin FPP recebeu status %d, quer 404: %s", recorder.Code, recorder.Body.String())
+	}
+}

@@ -72,6 +72,8 @@ func TestValidateEventTypeAcceptsEventsDiscoveredInCode(t *testing.T) {
 		"SolicitacaoMatriculaAprovada",
 		"SolicitacaoMatriculaReprovada",
 		"SolicitacaoMatriculaCancelada",
+		"CobrancaAppyPayCancelada",
+		"CobrancaAppyPayConflitoPosCancelamento",
 	}
 
 	for _, eventType := range eventTypes {

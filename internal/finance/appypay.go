@@ -1,4 +1,10 @@
 // Package finance is the only package allowed to call AppyPay's HTTP API.
+//
+// Monetary contract: every monetary value in this package and in payment
+// phases 2, 3 and 4 is float64. This deliberately mirrors AppyPay's
+// number<double> contract. New internal fields (such as ValorMensalidade and
+// ValorMatricula) must use float64 plus roundAmount and amountsEqual below;
+// cents, strings, decimal libraries, and local rounding rules are forbidden.
 package finance
 
 import (
@@ -15,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -46,6 +53,17 @@ var (
 	// ErrConflict denotes an idempotency key that is currently being processed.
 	ErrConflict = errors.New("operação financeira equivalente em processamento")
 )
+
+const amountTolerance = 0.005
+
+// roundAmount rounds a monetary amount to two decimal places using half away
+// from zero (math.Round's documented rule). It is the sole monetary rounding
+// rule for this module and the payment phases built on it.
+func roundAmount(v float64) float64 { return math.Round(v*100) / 100 }
+
+// amountsEqual compares monetary float64 values using half a cent of
+// tolerance, avoiding direct floating-point equality for money.
+func amountsEqual(a, b float64) bool { return math.Abs(a-b) <= amountTolerance }
 
 type Endpoints struct{ TokenURL, APIBaseURL string }
 
@@ -287,6 +305,7 @@ func (s *Service) CreateCharge(ctx context.Context, in ChargeRequest, actorID, a
 	if err := validateCharge(&in); err != nil {
 		return ChargeResult{}, err
 	}
+	in.Amount = roundAmount(in.Amount)
 	credential, err := s.loadCredential(ctx, in.ContextoTipo, in.CodigoAcademia)
 	if err != nil {
 		return ChargeResult{}, err
@@ -338,11 +357,13 @@ func (s *Service) CreateCharge(ctx context.Context, in ChargeRequest, actorID, a
 	return ChargeResult{ID: id, ProviderChargeID: providerID, MerchantTransactionID: in.MerchantTransactionID, Status: status, Response: response}, nil
 }
 func (s *Service) CreateGPOQRCode(ctx context.Context, in QRCodeRequest, actorID, actorType, ip string) (QRCodeResult, error) {
-	if in.Currency == "" {
-		in.Currency = "AOA"
+	if err := validateQRCode(&in); err != nil {
+		return QRCodeResult{}, err
 	}
-	if in.Amount <= 0 || strings.TrimSpace(in.Description) == "" {
-		return QRCodeResult{}, errors.New("amount e description são obrigatórios")
+	in.Amount = roundAmount(in.Amount)
+	if in.MinAmount != nil {
+		v := roundAmount(*in.MinAmount)
+		in.MinAmount = &v
 	}
 	if in.MerchantTransactionID == "" {
 		in.MerchantTransactionID = merchantID()
@@ -418,7 +439,78 @@ func (s *Service) ConsultCharge(ctx context.Context, contexto, academia, identif
 	if row.Contexto != contexto || row.Academia != academia {
 		return ChargeResult{}, fmt.Errorf("%w: cobrança não encontrada no contexto", ErrNotFound)
 	}
-	cred, err := s.loadCredential(ctx, contexto, academia)
+	return s.consultCharge(ctx, row, actorID, actorType, ip)
+}
+
+// CancelCharge only cancels the local Spuri charge record. AppyPay has no
+// equivalent cancellation endpoint for REF, GPO, or GPO QR Codes, so a fresh
+// provider consultation is mandatory before the cancellation is recorded.
+func (s *Service) CancelCharge(ctx context.Context, contexto, academia, identifier, motivo, actorID, actorType, ip string) (ChargeResult, error) {
+	if strings.TrimSpace(identifier) == "" {
+		return ChargeResult{}, errors.New("id da cobrança é obrigatório")
+	}
+	row, err := s.loadCharge(ctx, identifier)
+	if err != nil {
+		return ChargeResult{}, err
+	}
+	if row.Contexto != contexto || row.Academia != academia || !canCancelCharge(row, academia, actorType) {
+		return ChargeResult{}, fmt.Errorf("%w: cobrança não encontrada no contexto", ErrNotFound)
+	}
+	if isTerminalChargeStatus(row.Status) {
+		return ChargeResult{ID: row.ID, ProviderChargeID: row.ProviderID, MerchantTransactionID: row.Merchant, Status: row.Status}, errors.New("cobrança já está em estado terminal e não pode ser cancelada")
+	}
+	current, err := s.consultCharge(ctx, row, actorID, actorType, ip)
+	if err != nil {
+		return current, err
+	}
+	if isSuccessfulChargeStatus(current.Status) {
+		return current, errors.New("cobrança já foi paga e não pode ser cancelada")
+	}
+	payload := make(map[string]any, len(row.Payload)+4)
+	for key, value := range row.Payload {
+		payload[key] = value
+	}
+	payload["charge_id"] = row.ID.String()
+	payload["contexto_tipo"] = row.Contexto
+	payload["codigo_academia"] = row.Academia
+	payload["provider_charge_id"] = current.ProviderChargeID
+	payload["status"] = "cancelada"
+	payload["response"] = sanitize(current.Response)
+	if motivo = strings.TrimSpace(motivo); motivo != "" {
+		payload["motivo"] = motivo
+	}
+	if err = s.record(ctx, row.ID, "CobrancaAppyPayCancelada", payload, actorID, actorType, ip); err != nil {
+		return ChargeResult{}, err
+	}
+	return ChargeResult{ID: row.ID, ProviderChargeID: current.ProviderChargeID, MerchantTransactionID: row.Merchant, Status: "cancelada", Response: current.Response}, nil
+}
+
+func canCancelCharge(row chargeRow, academia, actorType string) bool {
+	switch actorType {
+	case "admin":
+		return row.Contexto == ContextoSpuri && row.Academia == ""
+	case "academia":
+		return row.Contexto == ContextoAcademia && row.Academia == academia
+	default:
+		return false
+	}
+}
+
+func isSuccessfulChargeStatus(status string) bool {
+	return strings.EqualFold(strings.TrimSpace(status), "Success")
+}
+
+func isTerminalChargeStatus(status string) bool {
+	return strings.EqualFold(strings.TrimSpace(status), "cancelada") ||
+		strings.EqualFold(strings.TrimSpace(status), "falhada") ||
+		isSuccessfulChargeStatus(status)
+}
+
+// consultCharge is shared by normal consultation and cancellation's mandatory
+// pre-check. A late Success after local cancellation is preserved as a
+// reconciliation conflict and never changes the local cancelled status.
+func (s *Service) consultCharge(ctx context.Context, row chargeRow, actorID, actorType, ip string) (ChargeResult, error) {
+	cred, err := s.loadCredential(ctx, row.Contexto, row.Academia)
 	if err != nil {
 		return ChargeResult{}, err
 	}
@@ -443,6 +535,17 @@ func (s *Service) ConsultCharge(ctx context.Context, contexto, academia, identif
 	payload["status"] = status
 	payload["response"] = sanitize(response)
 	providerID := first(responseID(response), row.ProviderID)
+	if strings.EqualFold(row.Status, "cancelada") && isSuccessfulChargeStatus(status) {
+		// Keep the cancellation definitive in the read model. The provider
+		// result is recorded for manual FPP reconciliation instead of silently
+		// accepting a payment that raced with local cancellation.
+		payload["status"] = "cancelada"
+		payload["provider_status"] = status
+		if err = s.record(ctx, row.ID, "CobrancaAppyPayConflitoPosCancelamento", payload, actorID, actorType, ip); err != nil {
+			return ChargeResult{}, err
+		}
+		return ChargeResult{ID: row.ID, ProviderChargeID: providerID, MerchantTransactionID: row.Merchant, Status: "cancelada", Response: response}, nil
+	}
 	if status != row.Status || providerID != row.ProviderID || !sameJSON(payload["response"], previousResponse) {
 		if err = s.record(ctx, row.ID, "CobrancaAppyPayConsultada", payload, actorID, actorType, ip); err != nil {
 			return ChargeResult{}, err
@@ -790,8 +893,11 @@ func validateCharge(in *ChargeRequest) error {
 	if err := validContext(in.ContextoTipo, in.CodigoAcademia); err != nil {
 		return err
 	}
-	if in.Amount <= 0 || strings.TrimSpace(in.Description) == "" {
+	if !validAmount(in.Amount) || strings.TrimSpace(in.Description) == "" {
 		return errors.New("amount e description são obrigatórios")
+	}
+	if roundAmount(in.Amount) != in.Amount {
+		return errors.New("amount deve ter no máximo duas casas decimais")
 	}
 	if in.Currency == "" {
 		in.Currency = "AOA"
@@ -823,6 +929,35 @@ func validateCharge(in *ChargeRequest) error {
 	}
 	return nil
 }
+
+func validateQRCode(in *QRCodeRequest) error {
+	if err := validContext(in.ContextoTipo, in.CodigoAcademia); err != nil {
+		return err
+	}
+	if !validAmount(in.Amount) || strings.TrimSpace(in.Description) == "" {
+		return errors.New("amount e description são obrigatórios")
+	}
+	if roundAmount(in.Amount) != in.Amount {
+		return errors.New("amount deve ter no máximo duas casas decimais")
+	}
+	if in.Currency == "" {
+		in.Currency = "AOA"
+	}
+	if !strings.EqualFold(in.Currency, "AOA") {
+		return errors.New("currency deve ser AOA")
+	}
+	if in.MinAmount != nil {
+		if !validAmount(*in.MinAmount) {
+			return errors.New("minAmount deve ser maior que zero")
+		}
+		if roundAmount(*in.MinAmount) != *in.MinAmount {
+			return errors.New("minAmount deve ter no máximo duas casas decimais")
+		}
+	}
+	return nil
+}
+
+func validAmount(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) && v > 0 }
 func merchantID() string {
 	b := make([]byte, 7)
 	_, _ = rand.Read(b)
@@ -840,10 +975,14 @@ func validMerchantID(value string) bool {
 	return true
 }
 func chargePayload(id uuid.UUID, in ChargeRequest, providerID, status string, response map[string]any) map[string]any {
-	return map[string]any{"charge_id": id.String(), "contexto_tipo": in.ContextoTipo, "codigo_academia": in.CodigoAcademia, "amount": in.Amount, "currency": in.Currency, "description": in.Description, "merchant_transaction_id": in.MerchantTransactionID, "payment_method": in.PaymentMethod, "payment_info": in.PaymentInfo, "options": in.Options, "notify": in.Notify, "async": in.Async, "provider_charge_id": providerID, "status": status, "response": sanitize(response)}
+	return map[string]any{"charge_id": id.String(), "contexto_tipo": in.ContextoTipo, "codigo_academia": in.CodigoAcademia, "amount": roundAmount(in.Amount), "currency": in.Currency, "description": in.Description, "merchant_transaction_id": in.MerchantTransactionID, "payment_method": in.PaymentMethod, "payment_info": in.PaymentInfo, "options": in.Options, "notify": in.Notify, "async": in.Async, "provider_charge_id": providerID, "status": status, "response": sanitize(response)}
 }
 func qrCodePayload(id uuid.UUID, in QRCodeRequest, typ, providerID, status string, response map[string]any) map[string]any {
-	return map[string]any{"charge_id": id.String(), "contexto_tipo": in.ContextoTipo, "codigo_academia": in.CodigoAcademia, "amount": in.Amount, "currency": in.Currency, "description": in.Description, "merchant_transaction_id": in.MerchantTransactionID, "provider_charge_id": providerID, "status": status, "payment_method": "GPO", "qr_code_type": typ, "min_amount": in.MinAmount, "max_transactions": in.MaxTransactions, "start_date": in.StartDate, "end_date": in.EndDate, "response": sanitize(response)}
+	var minAmount any
+	if in.MinAmount != nil {
+		minAmount = roundAmount(*in.MinAmount)
+	}
+	return map[string]any{"charge_id": id.String(), "contexto_tipo": in.ContextoTipo, "codigo_academia": in.CodigoAcademia, "amount": roundAmount(in.Amount), "currency": in.Currency, "description": in.Description, "merchant_transaction_id": in.MerchantTransactionID, "provider_charge_id": providerID, "status": status, "payment_method": "GPO", "qr_code_type": typ, "min_amount": minAmount, "max_transactions": in.MaxTransactions, "start_date": in.StartDate, "end_date": in.EndDate, "response": sanitize(response)}
 }
 func responseID(v map[string]any) string {
 	for _, k := range []string{"id", "chargeId", "charge_id"} {

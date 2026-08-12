@@ -336,6 +336,7 @@ func setupRouter() *gin.Engine {
 			financeiro.POST("/appypay/cobrancas", handlers.CriarCobrancaAppyPay)
 			financeiro.POST("/appypay/qr-codes", handlers.GerarQRCodeAppyPay)
 			financeiro.GET("/appypay/cobrancas/:id", handlers.ConsultarCobrancaAppyPay)
+			financeiro.POST("/appypay/cobrancas/:id/cancelar", handlers.CancelarCobrancaAppyPay)
 		}
 	}
 

@@ -3,13 +3,50 @@ package finance
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"spuri/internal/db"
 )
+
+type appyPayMockTransport struct{ status string }
+
+func (t *appyPayMockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	body := `{"id":"provider-charge","status":"Pending"}`
+	switch {
+	case strings.Contains(req.URL.Path, "/oauth2/token"):
+		body = `{"access_token":"test-token","expires_in":3600}`
+	case req.Method == http.MethodGet:
+		body = `{"id":"provider-charge","status":"` + t.status + `"}`
+	case strings.HasSuffix(req.URL.Path, "/qr-codes"):
+		body = `{"id":"provider-qr","status":"Pending","qrCodeArr":"base64-qr"}`
+	}
+	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+}
+
+func integrationMerchant(prefix string) string {
+	return prefix + strings.ReplaceAll(uuid.NewString(), "-", "")[:15-len(prefix)]
+}
+
+func configureIntegrationCredential(t *testing.T, service *Service, contexto, academia string) {
+	t.Helper()
+	_, err := service.ConfigureCredential(context.Background(), nil, CredentialInput{
+		ContextoTipo:     contexto,
+		CodigoAcademia:   academia,
+		ClientID:         "integration-client",
+		ClientSecret:     "integration-secret",
+		GPOPaymentMethod: "GPO_INTEGRATION",
+		REFPaymentMethod: "REF_INTEGRATION",
+	}, "integration-test", "sistema", "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+}
 
 func integrationClient(t *testing.T) *db.Client {
 	t.Helper()
@@ -143,5 +180,99 @@ func TestIntegrationWebhookAuthConfigurableHeaderAndResourceFreeCredentials(t *t
 	noWebhookHeaders.Set("X-API-Key", "")
 	if _, err = service.AuthenticateWebhook(ctx, noWebhookHeaders); err == nil {
 		t.Fatal("credencial sem webhook_secret configurado não deveria autenticar nada")
+	}
+}
+
+func TestIntegrationCancelChargeAndLateSuccessConflict(t *testing.T) {
+	client := integrationClient(t)
+	t.Setenv("ENV", "test")
+	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
+	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	ctx := context.Background()
+	mock := &appyPayMockTransport{status: "Pending"}
+	service := NewService(client)
+	service.httpClient = &http.Client{Transport: mock}
+	configureIntegrationCredential(t, service, ContextoSpuri, "")
+	configureIntegrationCredential(t, service, ContextoAcademia, "CANCELACA1")
+	configureIntegrationCredential(t, service, ContextoAcademia, "CANCELACA2")
+
+	newCharge := func(contexto, academia, merchant string) ChargeResult {
+		t.Helper()
+		out, err := service.CreateCharge(ctx, ChargeRequest{ContextoTipo: contexto, CodigoAcademia: academia, Amount: 10, Description: "Cobrança de teste", MerchantTransactionID: merchant, PaymentMethod: "REF"}, "integration-test", "admin", "127.0.0.1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+
+	spuri := newCharge(ContextoSpuri, "", integrationMerchant("S"))
+	cancelled, err := service.CancelCharge(ctx, ContextoSpuri, "", spuri.MerchantTransactionID, "emitida em duplicado", "fpp-test", "admin", "127.0.0.1")
+	if err != nil || cancelled.Status != "cancelada" {
+		t.Fatalf("cancelamento Spuri = %#v, %v", cancelled, err)
+	}
+
+	academy := newCharge(ContextoAcademia, "CANCELACA1", integrationMerchant("A"))
+	if _, err = service.CancelCharge(ctx, ContextoAcademia, "CANCELACA1", academy.MerchantTransactionID, "anulada", "academy-test", "academia", "127.0.0.1"); err != nil {
+		t.Fatalf("academia dona não cancelou a cobrança: %v", err)
+	}
+	foreign := newCharge(ContextoAcademia, "CANCELACA2", integrationMerchant("B"))
+	if _, err = service.CancelCharge(ctx, ContextoAcademia, "CANCELACA1", foreign.MerchantTransactionID, "", "academy-test", "academia", "127.0.0.1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("academia externa recebeu %v, queria ErrNotFound", err)
+	}
+	if _, err = service.CancelCharge(ctx, ContextoAcademia, "CANCELACA2", foreign.MerchantTransactionID, "", "fpp-test", "admin", "127.0.0.1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("admin cancelou cobrança de academia: %v", err)
+	}
+
+	if _, err = service.CancelCharge(ctx, ContextoSpuri, "", spuri.MerchantTransactionID, "", "fpp-test", "admin", "127.0.0.1"); err == nil {
+		t.Fatal("cobrança já cancelada foi cancelada novamente")
+	}
+
+	paid := newCharge(ContextoSpuri, "", integrationMerchant("P"))
+	mock.status = "Success"
+	result, err := service.CancelCharge(ctx, ContextoSpuri, "", paid.MerchantTransactionID, "", "fpp-test", "admin", "127.0.0.1")
+	if err == nil || result.Status != "Success" {
+		t.Fatalf("cancelamento de cobrança paga = %#v, %v", result, err)
+	}
+	var canceledEvents int
+	if err = client.DB().QueryRow(`SELECT COUNT(*) FROM spuri_ledger WHERE aggregate_id=$1 AND event_type='CobrancaAppyPayCancelada'`, paid.ID).Scan(&canceledEvents); err != nil {
+		t.Fatal(err)
+	}
+	if canceledEvents != 0 {
+		t.Fatal("cobrança paga gravou evento de cancelamento")
+	}
+
+	mock.status = "Success"
+	conflict, err := service.ConsultCharge(ctx, ContextoSpuri, "", spuri.MerchantTransactionID, "fpp-test", "admin", "127.0.0.1")
+	if err != nil || conflict.Status != "cancelada" {
+		t.Fatalf("sucesso tardio alterou cobrança cancelada: %#v, %v", conflict, err)
+	}
+	var conflicts int
+	if err = client.DB().QueryRow(`SELECT COUNT(*) FROM spuri_ledger WHERE aggregate_id=$1 AND event_type='CobrancaAppyPayConflitoPosCancelamento'`, spuri.ID).Scan(&conflicts); err != nil {
+		t.Fatal(err)
+	}
+	if conflicts != 1 {
+		t.Fatalf("conflitos pós-cancelamento = %d, queria 1", conflicts)
+	}
+
+	mock.status = "Pending"
+	qr, err := service.CreateGPOQRCode(ctx, QRCodeRequest{ContextoTipo: ContextoAcademia, CodigoAcademia: "CANCELACA1", Amount: 10, Description: "QR de teste", MerchantTransactionID: integrationMerchant("Q")}, "academy-test", "academia", "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.CancelCharge(ctx, ContextoAcademia, "CANCELACA1", qr.MerchantTransactionID, "QR substituído", "academy-test", "academia", "127.0.0.1"); err != nil {
+		t.Fatalf("QR Code não foi cancelado: %v", err)
+	}
+
+	failedID := uuid.New()
+	failedMerchant := integrationMerchant("F")
+	failedPayload, err := json.Marshal(map[string]any{"charge_id": failedID.String(), "contexto_tipo": ContextoSpuri, "merchant_transaction_id": failedMerchant, "status": "falhada"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = client.DB().ExecContext(ctx, `INSERT INTO financeiro_cobrancas (id,merchant_transaction_id,contexto_tipo,payload) VALUES ($1,$2,$3,$4)`, failedID, failedMerchant, ContextoSpuri, failedPayload); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.CancelCharge(ctx, ContextoSpuri, "", failedMerchant, "", "fpp-test", "admin", "127.0.0.1"); err == nil {
+		t.Fatal("cobrança falhada foi cancelada")
 	}
 }

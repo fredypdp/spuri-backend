@@ -1,6 +1,7 @@
 package finance
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -8,6 +9,76 @@ import (
 	"github.com/google/uuid"
 	"spuri/internal/db"
 )
+
+func TestAmountContractRoundingComparisonAndJSONRoundTrip(t *testing.T) {
+	const amount = 12345.67
+	raw, err := json.Marshal(struct {
+		Amount float64 `json:"amount"`
+	}{Amount: amount})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Amount float64 `json:"amount"`
+	}
+	if err = json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Amount != amount {
+		t.Fatalf("round-trip JSON mudou amount: got %v want %v", decoded.Amount, amount)
+	}
+	if got := roundAmount(10.005); got != 10.01 {
+		t.Fatalf("roundAmount(10.005) = %v, want 10.01", got)
+	}
+	if !amountsEqual(0.1+0.2, 0.3) {
+		t.Fatal("erro típico de float64 deveria estar dentro da tolerância monetária")
+	}
+	if amountsEqual(10.00, 10.01) {
+		t.Fatal("valores diferentes por um cêntimo não podem ser iguais")
+	}
+}
+
+func TestChargeValidationRejectsInvalidMonetaryAmounts(t *testing.T) {
+	base := ChargeRequest{
+		ContextoTipo:   ContextoAcademia,
+		CodigoAcademia: "ACA1",
+		Amount:         10,
+		Description:    "Teste",
+		PaymentMethod:  "GPO",
+		PaymentInfo:    map[string]any{"phoneNumber": "900000000"},
+	}
+	for _, amount := range []float64{15.999, 0, -0.01} {
+		in := base
+		in.Amount = amount
+		if err := validateCharge(&in); err == nil {
+			t.Fatalf("amount inválido %v foi aceite", amount)
+		}
+	}
+	min := 1.999
+	qr := QRCodeRequest{ContextoTipo: ContextoAcademia, CodigoAcademia: "ACA1", Amount: 10, Description: "Teste", QRCodeType: "MULTIPLE", MinAmount: &min}
+	if err := validateQRCode(&qr); err == nil {
+		t.Fatal("minAmount com mais de duas casas foi aceite")
+	}
+}
+
+func TestCancelChargeAuthorizationAndTerminalStatuses(t *testing.T) {
+	spuri := chargeRow{Contexto: ContextoSpuri}
+	academy := chargeRow{Contexto: ContextoAcademia, Academia: "ACA1"}
+	if !canCancelCharge(spuri, "", "admin") {
+		t.Fatal("admin deveria poder cancelar cobrança do próprio contexto Spuri")
+	}
+	if canCancelCharge(academy, "", "admin") {
+		t.Fatal("admin não pode cancelar cobrança de academia")
+	}
+	if !canCancelCharge(academy, "ACA1", "academia") || canCancelCharge(academy, "ACA2", "academia") {
+		t.Fatal("isolamento de cancelamento por academia inválido")
+	}
+	for _, status := range []string{"cancelada", "FALHADA", "Success", "SUCCESS"} {
+		if !isTerminalChargeStatus(status) {
+			t.Fatalf("estado terminal %q não foi reconhecido", status)
+		}
+	}
+}
 
 func TestEncryptionRoundTripAndNoFallbackKey(t *testing.T) {
 	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
@@ -103,7 +174,7 @@ func TestQRCodeIdempotencyPayloadAndPersistedResult(t *testing.T) {
 	if _, err := qrCodeResultFromRow(row, ContextoAcademia, "ACA2"); err != ErrConflict {
 		t.Fatalf("QR de outra academia foi exposto: %v", err)
 	}
-	for _, event := range []string{"QRCodeAppyPaySolicitado", "QRCodeAppyPayGerado", "QRCodeAppyPayFalhou"} {
+	for _, event := range []string{"QRCodeAppyPaySolicitado", "QRCodeAppyPayGerado", "QRCodeAppyPayFalhou", "CobrancaAppyPayCancelada", "CobrancaAppyPayConflitoPosCancelamento"} {
 		if err := db.ValidateEventType(event); err != nil {
 			t.Fatalf("evento QR não foi autorizado no ledger: %s: %v", event, err)
 		}

@@ -1,11 +1,11 @@
 ---
 criado: 2026-08-12 00:00
 origem: pedido direto do Spuri (evolução do módulo financeiro após a tarefa 17)
-status: pendente
+status: feito
 depende_de: nenhuma (esta é a Fase 1 — as Fases 2, 3 e 4 dependem desta)
 ---
 
-# Módulo de pagamentos — Fase 1 — Bases: tipo do `amount` e cancelamento de cobrança (pendente)
+# Módulo de pagamentos — Fase 1 — Bases: tipo do amount e cancelamento de cobrança (feito)
 
 ## Prompt recomendado para executar a atualização
 

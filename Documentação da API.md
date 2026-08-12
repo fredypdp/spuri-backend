@@ -7014,6 +7014,8 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 - Segredos AppyPay (`client_secret`, credenciais de webhook, métodos de pagamento sensíveis) nunca são devolvidos em resposta; a API retorna apenas máscaras e metadados.
 - `ENV=development` ou `ENV=test` usa o gateway TEST; `ENV=production` usa o gateway PROD. O ambiente persistido em credenciais e cobranças segue essa resolução do backend.
 - Cada cobrança ou QR Code exige credenciais ativas para o contexto resolvido antes de chamar a AppyPay.
+- Todo valor monetário do módulo usa `float64`, em conformidade com o `number<double>` da AppyPay. Valores de entrada devem ter no máximo duas casas decimais; antes de chamar o gateway o backend aplica arredondamento *half away from zero* a duas casas, e comparações monetárias usam tolerância de meio cêntimo. Os futuros campos `ValorMensalidade`, `ValorMatricula` e equivalentes devem reutilizar esse mesmo contrato.
+- O cancelamento de uma cobrança REF, GPO ou QR Code é exclusivamente interno ao Spuri: a AppyPay não documenta endpoint de cancelamento para esses métodos. Por isso, o cancelamento deixa de exibir/cobrar pela plataforma, mas não invalida tecnicamente uma referência ou QR já emitido no banco/gateway até a expiração; qualquer sucesso detectado depois dele é registrado como conflito para reconciliação manual FPP.
 - Os webhooks são públicos por necessidade do gateway, mas autenticados pelo segredo de webhook cadastrado na credencial do contexto, enviado pela AppyPay num cabeçalho HTTP configurável (`webhook_header_name`, padrão `X-API-Key`). Eventos aceitos ou duplicados respondem `200` e são tratados de forma idempotente pelo identificador do evento.
 - Erros das rotas autenticadas seguem o envelope global `{error, message, request_id, details?}`. Webhooks públicos retornam apenas status HTTP para reduzir acoplamento com o gateway.
 
@@ -7025,6 +7027,7 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 | `POST` | `/financeiro/appypay/cobrancas` | Cria cobrança AppyPay GPO ou REF genérica. |
 | `POST` | `/financeiro/appypay/qr-codes` | Gera QR Code GPO e devolve `qrCodeArr` em base64 quando enviado pela AppyPay. |
 | `GET` | `/financeiro/appypay/cobrancas/:id` | Consulta cobrança por id AppyPay ou `merchantTransactionId`. |
+| `POST` | `/financeiro/appypay/cobrancas/:id/cancelar` | Cancela localmente uma cobrança pendente do próprio contexto. |
 | `POST` | `/webhooks/appypay/gpo` | Recebe webhook público AppyPay para eventos GPO. |
 | `POST` | `/webhooks/appypay/ref` | Recebe webhook público AppyPay para eventos REF. |
 
@@ -7138,7 +7141,7 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 |---|---|---|---|
 | `contexto_tipo` | string | Sim para admin FPP; não efetivo para academia | Contexto financeiro: `spuri` ou `academia`. Para um usuário de academia, omita o campo ou envie `academia`; qualquer outro valor é recusado e o backend fixa o contexto como `academia`. |
 | `codigo_academia` | string | Sim quando o contexto final for `academia` e o chamador for admin FPP | Código da academia dona da cobrança. Para usuário de academia, omita o campo ou envie o código presente no token; outro código é recusado e o backend usa o valor do token. Não se aplica ao contexto `spuri`. |
-| `amount` | número | Sim | Valor da cobrança, estritamente maior que zero. |
+| `amount` | número (`float64`) | Sim | Valor da cobrança, estritamente maior que zero, com no máximo duas casas decimais. O contrato segue `number<double>` da AppyPay. |
 | `currency` | string | Não | Moeda da cobrança. Aceita somente `AOA`; se omitida, o backend usa `AOA`. |
 | `description` | string | Sim | Descrição não vazia da cobrança, por exemplo a mensalidade ou o serviço cobrado. |
 | `merchantTransactionId` | string | Não | Identificador externo da transação. Deve ser alfanumérico, sem espaços ou símbolos, com no máximo 15 caracteres. Se omitido, é gerado pelo backend. Reutilize o mesmo valor ao repetir uma tentativa: ele é a chave de idempotência global e também pode ser usado no `GET /financeiro/appypay/cobrancas/:id`. |
@@ -7233,7 +7236,7 @@ Neste caso, `currency` assume `AOA` e a AppyPay gera os dados de referência seg
 **Regras de negócio:**
 
 - Exige credenciais AppyPay configuradas para o contexto resolvido.
-- `amount` deve ser positivo; `currency`, `description` e `paymentMethod` devem ser coerentes com o método configurado na credencial.
+- `amount` deve ser positivo e ter no máximo duas casas decimais; `currency`, `description` e `paymentMethod` devem ser coerentes com o método configurado na credencial.
 - `merchantTransactionId` é a referência externa recomendada para idempotência e posterior consulta.
 - O mesmo `merchantTransactionId` devolve o resultado já persistido e não cria uma nova cobrança. Enquanto a primeira requisição ainda estiver sendo processada, a repetição recebe `409` e pode ser tentada novamente.
 - A cobrança é registrada no ledger como solicitação e, conforme resposta da AppyPay, como criada ou falhada.
@@ -7250,12 +7253,12 @@ Neste caso, `currency` assume `AOA` e a AppyPay gera os dados de referência seg
 |---|---|---|---|
 | `contexto_tipo` | string | Sim para admin FPP; não efetivo para academia | Contexto financeiro: `spuri` ou `academia`. Para uma academia autenticada, omita o campo ou envie `academia`; outro valor é recusado e o backend fixa o contexto como `academia`. |
 | `codigo_academia` | string | Sim quando o contexto final for `academia` e o chamador for admin FPP | Academia dona do QR Code. Para uma academia autenticada, omita o campo ou envie o código do token; outro código é recusado e o backend usa o valor do token. Não se aplica a `spuri`. |
-| `amount` | número | Sim | Valor do QR Code, estritamente maior que zero. |
+| `amount` | número (`float64`) | Sim | Valor do QR Code, estritamente maior que zero e com no máximo duas casas decimais. |
 | `currency` | string | Não | Moeda do QR Code. Se omitida, o backend usa `AOA`. |
 | `description` | string | Sim | Descrição não vazia do pagamento. |
 | `merchantTransactionId` | string | Não | Referência externa e chave de idempotência. Deve ser alfanumérica e ter no máximo 15 caracteres. Se omitida, é gerada pelo backend. |
 | `qrCodeType` | string | Não | Tipo do QR Code: `SINGLE` (padrão) para uma utilização ou `MULTIPLE` para múltiplas utilizações dentro dos limites informados. O valor é normalizado para maiúsculas. |
-| `minAmount` | número | Sim para `MULTIPLE` | Valor mínimo aceito em cada pagamento do QR Code múltiplo. Não é usado no tipo `SINGLE`. |
+| `minAmount` | número (`float64`) | Sim para `MULTIPLE` | Valor mínimo positivo, com no máximo duas casas decimais, aceito em cada pagamento do QR Code múltiplo. Não é usado no tipo `SINGLE`. |
 | `maxTransactions` | inteiro | Sim para `MULTIPLE` | Quantidade máxima de pagamentos permitidos pelo QR Code múltiplo. Não é usado no tipo `SINGLE`. |
 | `startDate` | string | Sim para `MULTIPLE` | Início da validade do QR Code múltiplo, no formato esperado pela AppyPay. Não é usado no tipo `SINGLE`. |
 | `endDate` | string | Sim para `MULTIPLE` | Fim da validade do QR Code múltiplo, no formato esperado pela AppyPay. Não é usado no tipo `SINGLE`. |
@@ -7351,7 +7354,7 @@ Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e 
   "merchant_transaction_id": "P2608LDA000001",
   "status": "paga",
   "response": {
-    "status": "Paid",
+    "status": "Success",
     "paidAt": "2026-08-08T12:30:00Z"
   }
 }
@@ -7362,8 +7365,33 @@ Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e 
 - A consulta respeita isolamento por contexto: academia não consulta cobrança de outra academia nem do `spuri`.
 - O `:id` pode ser o identificador retornado pelo provider ou o `merchantTransactionId` informado na criação.
 - A consulta grava evento financeiro apenas quando o estado, identificador do provider ou resposta relevante mudar; consultas sem mudança não poluem o ledger.
+- Se a consulta detectar `Success` da AppyPay depois de a cobrança ter sido cancelada localmente, grava `CobrancaAppyPayConflitoPosCancelamento` e preserva o status local `cancelada`, para reconciliação manual por admin FPP.
 
-#### 19.7 POST /webhooks/appypay/gpo
+#### 19.7 POST /financeiro/appypay/cobrancas/:id/cancelar
+
+**Escopo da rota:** cancela localmente uma cobrança REF, GPO ou QR Code ainda não paga. Não chama endpoint de cancelamento da AppyPay, pois esse endpoint não é documentado para esses métodos.
+
+**Proteção:** autenticado + academia dona da própria cobrança, ou admin FPP somente quando a cobrança pertence ao contexto `spuri`. Ao contrário das demais operações financeiras, admin FPP nunca pode cancelar cobrança de academia.
+
+**Request JSON:**
+
+```json
+{
+  "motivo": "cobrança emitida em duplicado"
+}
+```
+
+`motivo` é opcional. O corpo não aceita contexto nem código de academia: eles são fixados pelo ator autenticado.
+
+**Response 200:** a mesma estrutura da consulta, com `status: "cancelada"`.
+
+**Regras de negócio:**
+
+- Antes de registrar `CobrancaAppyPayCancelada`, o backend reconsulta a AppyPay. Se o estado mais recente já for `Success`, não cancela nem grava evento de cancelamento.
+- Cobranças `cancelada`, `falhada` ou `Success` não podem ser canceladas novamente ou reabertas. Para cobrar de novo, crie uma nova cobrança com outro `merchantTransactionId`.
+- O evento `CobrancaAppyPayCancelada` é interno ao ledger Spuri. Uma referência/QR já emitido pode continuar tecnicamente pagável fora da plataforma até expirar; sucesso tardio gera `CobrancaAppyPayConflitoPosCancelamento`, sem alterar o status local cancelado.
+
+#### 19.8 POST /webhooks/appypay/gpo
 
 **Escopo da rota:** entrada pública para notificações AppyPay do método GPO.
 
@@ -7388,7 +7416,7 @@ Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e 
 - Webhook sem autenticação válida retorna `401`; JSON inválido ou sem identificador retorna `400`.
 - Evento já recebido responde `200` novamente e não duplica o processamento.
 
-#### 19.8 POST /webhooks/appypay/ref
+#### 19.9 POST /webhooks/appypay/ref
 
 **Escopo da rota:** entrada pública para notificações AppyPay do método REF.
 
