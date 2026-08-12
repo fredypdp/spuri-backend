@@ -192,8 +192,7 @@ func ConsultarCobrancaAppyPay(c *gin.Context) {
 }
 func ReceberWebhookAppyPay(metodo string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		user, password, _ := c.Request.BasicAuth()
-		owner, err := FinanceiroService.AuthenticateWebhook(c.Request.Context(), user, password, c.Request.Header)
+		owner, err := FinanceiroService.AuthenticateWebhook(c.Request.Context(), c.Request.Header)
 		if err != nil {
 			c.Status(http.StatusUnauthorized)
 			return

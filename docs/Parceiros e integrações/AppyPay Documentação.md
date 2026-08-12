@@ -8377,11 +8377,11 @@ Obrigatório para **REF** (sempre) e recomendado/obrigatório para **GPO** quand
 
 - Público, acessível por HTTP/HTTPS, aceitando `POST` com corpo JSON.
 - Responder **HTTP 200** para confirmar recepção — qualquer outro código é interpretado pela AppyPay como falha de entrega.
-- Suportar autenticação do lado do Spuri via **Basic Auth** ou **API Key** (configurável, conforme suportado pela AppyPay).
+- Suportar autenticação do lado do Spuri via um único cabeçalho HTTP configurável (nome + valor) — a AppyPay confirmou por e-mail que o painel de configuração de webhooks só oferece esse par nome/valor, sem campos separados de utilizador/senha; por isso o Spuri não suporta mais um modo alternativo de Basic Auth para webhook (removido — ver tarefa de simplificação do método de autenticação de webhook).
 - **Idempotente:** o mesmo `id`/`merchantTransactionId` pode ser recebido mais de uma vez (ex.: problemas de comunicação, ou no caso de REF, uma notificação por cada tentativa de comunicação com o provedor). O processamento não pode duplicar efeitos (ex.: marcar uma propina como paga duas vezes).
 - Ao receber, é recomendado confirmar o estado com um `GET /charges/{id}` antes de aplicar efeitos de negócio irreversíveis.
 
 ### Nota de segurança e persistência (reforça a secção "Persistência financeira no Spuri" abaixo)
 
-- `client_id`, `client_secret`, `resource` e quaisquer chaves de API/Webhook (por Spuri e por academia) são gravados cifrados no banco de dados — nunca em texto plano, nunca em payloads de eventos ou em respostas públicas da API do Spuri.
+- `client_id`, `client_secret` e quaisquer chaves de API/Webhook (por Spuri e por academia) são gravados cifrados no banco de dados — nunca em texto plano, nunca em payloads de eventos ou em respostas públicas da API do Spuri. `resource` é exceção: não é mais gravado por credencial — vem da variável de ambiente `APPYPAY_RESOURCE`, com o mesmo valor para todas as academias e para o Spuri no mesmo ambiente.
 - Segue-se o mesmo padrão de Event Sourcing/CQRS já usado no resto do sistema (ver `internal/db/event_store.go`, `internal/projections`): mudanças financeiras são eventos no `spuri_ledger` (`aggregate_type = "Financeiro"`); tabelas de leitura são projeções reconstruíveis.

@@ -1,10 +1,10 @@
 ---
 criado: 2026-08-12 00:00
 origem: decisão do Fredy — eliminar o modo "Basic Auth" de webhook, mantendo apenas o método que a AppyPay de fato oferece (um único cabeçalho HTTP configurável)
-status: pendente
+status: feito
 ---
 
-# Simplificar autenticação de webhook AppyPay para um único método (pendente)
+# Simplificar autenticação de webhook AppyPay para um único método (feito)
 
 ## Prompt recomendado para executar a atualização
 
