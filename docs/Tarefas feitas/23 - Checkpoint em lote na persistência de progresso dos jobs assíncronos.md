@@ -1,10 +1,10 @@
 ---
 criado: 2026-08-10 00:00
 origem: Continuação da investigação de otimização de processos pesados (Tarefas 21/22) — conversa com Claude, a pedido explícito de avaliar todos os processos assíncronos (lançamento de notas em lote, cadastro de estudantes em lote, etc.)
-status: a fazer
+status: feito
 ---
 
-# 23 — Checkpoint em lote na persistência de progresso dos jobs assíncronos (a fazer)
+# 23 — Checkpoint em lote na persistência de progresso dos jobs assíncronos (feito)
 
 ## Prompt recomendado para executar a atualização
 
