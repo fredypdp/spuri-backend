@@ -23,6 +23,7 @@ const (
 	ObrigacaoMensalidadeAnulada            = "ObrigacaoMensalidadeAnulada"
 	ObrigacaoMensalidadeReativada          = "ObrigacaoMensalidadeReativada"
 	MensalidadePaga                        = "MensalidadePaga"
+	MatriculaConfigurada                   = "MatriculaConfigurada"
 )
 
 func NewFinanceiro() *Financeiro { return NewFinanceiroWithID(uuid.New()) }

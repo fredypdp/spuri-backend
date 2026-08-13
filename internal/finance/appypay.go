@@ -137,8 +137,9 @@ type ChargeRequest struct {
 	Notify                map[string]any `json:"notify,omitempty"`
 	Async                 bool           `json:"async"`
 	// These fields are auditable Spuri metadata and are not forwarded to AppyPay.
-	Mensalidades    []MensalidadeSelecaoMes `json:"mensalidades,omitempty"`
-	CodigoEstudante string                  `json:"codigo_estudante,omitempty"`
+	Mensalidades      []MensalidadeSelecaoMes `json:"mensalidades,omitempty"`
+	CodigoEstudante   string                  `json:"codigo_estudante,omitempty"`
+	CodigoSolicitacao string                  `json:"codigo_solicitacao,omitempty"`
 }
 type QRCodeRequest struct {
 	ContextoTipo          string   `json:"contexto_tipo"`
@@ -153,8 +154,9 @@ type QRCodeRequest struct {
 	StartDate             string   `json:"startDate,omitempty"`
 	EndDate               string   `json:"endDate,omitempty"`
 	// Mensalidades is ledger metadata only; it is never sent to AppyPay.
-	Mensalidades    []MensalidadeSelecaoMes `json:"mensalidades,omitempty"`
-	CodigoEstudante string                  `json:"codigo_estudante,omitempty"`
+	Mensalidades      []MensalidadeSelecaoMes `json:"mensalidades,omitempty"`
+	CodigoEstudante   string                  `json:"codigo_estudante,omitempty"`
+	CodigoSolicitacao string                  `json:"codigo_solicitacao,omitempty"`
 }
 type ChargeResult struct {
 	ID                    uuid.UUID      `json:"id"`
@@ -840,7 +842,16 @@ func (s *Service) AcceptWebhook(ctx context.Context, metodo, eventID string, own
 			updated["status"] = "Success"
 			updated["provider_charge_id"] = first(responseID(payload), charge.ProviderID)
 			updated["response"] = sanitize(payload)
-			if s.record(ctx, charge.ID, "CobrancaAppyPayConsultada", updated, "appypay:webhook", "sistema", "webhook") == nil {
+			eventType := "CobrancaAppyPayConsultada"
+			if strings.EqualFold(charge.Status, "cancelada") {
+				// A provider may still settle a REF/GPO/QR after Spuri's local
+				// cancellation. Preserve cancellation and leave an explicit audit
+				// conflict for FPP reconciliation.
+				updated["status"] = "cancelada"
+				updated["provider_status"] = "Success"
+				eventType = "CobrancaAppyPayConflitoPosCancelamento"
+			}
+			if s.record(ctx, charge.ID, eventType, updated, "appypay:webhook", "sistema", "webhook") == nil && eventType == "CobrancaAppyPayConsultada" {
 				_ = s.confirmMensalidadeCharge(ctx, charge.ID, "appypay:webhook", "sistema", "webhook")
 			}
 		}
@@ -1007,14 +1018,14 @@ func validMerchantID(value string) bool {
 	return true
 }
 func chargePayload(id uuid.UUID, in ChargeRequest, providerID, status string, response map[string]any) map[string]any {
-	return map[string]any{"charge_id": id.String(), "contexto_tipo": in.ContextoTipo, "codigo_academia": in.CodigoAcademia, "codigo_estudante": in.CodigoEstudante, "mensalidades": in.Mensalidades, "amount": roundAmount(in.Amount), "currency": in.Currency, "description": in.Description, "merchant_transaction_id": in.MerchantTransactionID, "payment_method": in.PaymentMethod, "payment_info": in.PaymentInfo, "options": in.Options, "notify": in.Notify, "async": in.Async, "provider_charge_id": providerID, "status": status, "response": sanitize(response)}
+	return map[string]any{"charge_id": id.String(), "contexto_tipo": in.ContextoTipo, "codigo_academia": in.CodigoAcademia, "codigo_estudante": in.CodigoEstudante, "codigo_solicitacao": in.CodigoSolicitacao, "mensalidades": in.Mensalidades, "amount": roundAmount(in.Amount), "currency": in.Currency, "description": in.Description, "merchant_transaction_id": in.MerchantTransactionID, "payment_method": in.PaymentMethod, "payment_info": in.PaymentInfo, "options": in.Options, "notify": in.Notify, "async": in.Async, "provider_charge_id": providerID, "status": status, "response": sanitize(response)}
 }
 func qrCodePayload(id uuid.UUID, in QRCodeRequest, typ, providerID, status string, response map[string]any) map[string]any {
 	var minAmount any
 	if in.MinAmount != nil {
 		minAmount = roundAmount(*in.MinAmount)
 	}
-	return map[string]any{"charge_id": id.String(), "contexto_tipo": in.ContextoTipo, "codigo_academia": in.CodigoAcademia, "codigo_estudante": in.CodigoEstudante, "amount": roundAmount(in.Amount), "currency": in.Currency, "description": in.Description, "merchant_transaction_id": in.MerchantTransactionID, "provider_charge_id": providerID, "status": status, "payment_method": "GPO", "qr_code_type": typ, "mensalidades": in.Mensalidades, "min_amount": minAmount, "max_transactions": in.MaxTransactions, "start_date": in.StartDate, "end_date": in.EndDate, "response": sanitize(response)}
+	return map[string]any{"charge_id": id.String(), "contexto_tipo": in.ContextoTipo, "codigo_academia": in.CodigoAcademia, "codigo_estudante": in.CodigoEstudante, "codigo_solicitacao": in.CodigoSolicitacao, "amount": roundAmount(in.Amount), "currency": in.Currency, "description": in.Description, "merchant_transaction_id": in.MerchantTransactionID, "provider_charge_id": providerID, "status": status, "payment_method": "GPO", "qr_code_type": typ, "mensalidades": in.Mensalidades, "min_amount": minAmount, "max_transactions": in.MaxTransactions, "start_date": in.StartDate, "end_date": in.EndDate, "response": sanitize(response)}
 }
 func responseID(v map[string]any) string {
 	for _, k := range []string{"id", "chargeId", "charge_id"} {

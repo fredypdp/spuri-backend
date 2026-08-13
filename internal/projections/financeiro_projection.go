@@ -68,6 +68,23 @@ func (p *FinanceiroProjection) Handle(e db.Event) error {
 		return err
 	}
 	switch e.EventType {
+	case "MatriculaConfigurada":
+		var in struct {
+			CodigoAcademia   string   `json:"codigo_academia"`
+			Nivel            string   `json:"nivel"`
+			AnoAcademico     string   `json:"ano_academico"`
+			CursoID          *string  `json:"curso_id"`
+			Valor            float64  `json:"valor"`
+			MetodosPagamento []string `json:"metodos_pagamento"`
+		}
+		if err := json.Unmarshal(e.Payload, &in); err != nil {
+			return err
+		}
+		if in.CodigoAcademia == "" || in.Nivel == "" || in.AnoAcademico == "" || in.Valor <= 0 || len(in.MetodosPagamento) == 0 {
+			return fmt.Errorf("evento MatriculaConfigurada inválido")
+		}
+		_, err := p.client.DB().Exec(`INSERT INTO financeiro_matricula_configuracoes (event_id,aggregate_id,codigo_academia,nivel,ano_academico,curso_id,valor,metodos_pagamento,vigente_em) VALUES ($1,$2,$3,$4,$5,NULLIF($6,'')::uuid,$7,$8,$9) ON CONFLICT (event_id) DO NOTHING`, e.EventID, e.AggregateID, in.CodigoAcademia, in.Nivel, in.AnoAcademico, stringValue(in.CursoID), in.Valor, in.MetodosPagamento, e.OccurredAt)
+		return err
 	case "MensalidadeConfigurada":
 		var in struct {
 			CodigoAcademia   string   `json:"codigo_academia"`

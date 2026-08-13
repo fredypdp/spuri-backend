@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"crypto/rand"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +20,7 @@ import (
 
 	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
+	"spuri/internal/finance"
 	"spuri/internal/middleware"
 	"spuri/internal/projections"
 	"spuri/internal/services"
@@ -325,6 +327,29 @@ func AprovarSolicitacaoMatricula(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
+	// A configured admission fee deliberately stops here: approval reserves the
+	// student code but does not create a linked Estudante until payment succeeds.
+	nivel, ano, curso := escopoMatriculaSolicitacao(agg)
+	if cfg, cfgErr := FinanceiroService.ResolveMatriculaConfiguracao(c.Request.Context(), academia.CodigoAcademia, nivel, ano, curso); cfgErr == nil {
+		repo := getRepository(c).WithContext(c.Request.Context())
+		audit := db.AuditContext{UserID: academia.ID.String(), UserType: "academia", IP: c.ClientIP()}
+		if err := agg.Aprovar(academia.ID, codigoEstudante); err == nil {
+			err = agg.MarcarPendentePagamentoMatricula(cfg.Valor, cfg.MetodosPagamento)
+		}
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		if err := repo.SaveWithAudit(agg, audit); err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "solicitação aprovada, aguardando pagamento de matrícula", "codigo_solicitacao": agg.CodigoSolicitacao, "codigo_estudante_gerado": codigoEstudante, "status": aggregates.StatusSolicitacaoAprovadaPendentePagamentoMatricula})
+		return
+	} else if !errors.Is(cfgErr, finance.ErrNotFound) {
+		utils.RespondWithInternalError(c, cfgErr)
+		return
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(services.GetDefaultPassword("estudante", codigoEstudante)), bcrypt.DefaultCost)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
@@ -358,6 +383,204 @@ func AprovarSolicitacaoMatricula(c *gin.Context) {
 	}
 	cancelarSolicitacoesConcorrentes(c, repo, audit, agg, codigoEstudante)
 	c.JSON(http.StatusOK, gin.H{"message": "solicitação aprovada e estudante registado com sucesso", "codigo_solicitacao": agg.CodigoSolicitacao, "codigo_estudante_gerado": codigoEstudante})
+}
+
+const solicitacaoPagamentoIndisponivel = "solicitação não disponível para pagamento de matrícula"
+
+// ConsultarStatusSolicitacaoMatricula is deliberately minimal: possession of
+// the random request code is the credential, never an authorization to read
+// the applicant's documents or personal data.
+func ConsultarStatusSolicitacaoMatricula(c *gin.Context) {
+	var status, academia string
+	var valor sql.NullFloat64
+	var metodos []string
+	err := getDbClient(c).DB().QueryRowContext(c.Request.Context(), `SELECT status,codigo_academia,valor_matricula::float8,metodos_pagamento_matricula FROM projection_solicitacoes_matricula WHERE codigo_solicitacao=$1`, c.Param("codigo")).Scan(&status, &academia, &valor, &metodos)
+	if err != nil {
+		utils.RespondWithError(c, http.StatusNotFound, solicitacaoPagamentoIndisponivel, nil)
+		return
+	}
+	if status != aggregates.StatusSolicitacaoAprovadaPendentePagamentoMatricula {
+		c.JSON(http.StatusOK, gin.H{"status": status, "codigo_academia": academia})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": status, "codigo_academia": academia, "valor_matricula": valor.Float64, "metodos_pagamento": metodos})
+}
+
+func BuscarSolicitacoesMatricula(c *gin.Context) {
+	campos := []string{"telefone", "telefone_encarregado", "email", "bilhete_identidade", "bilhete_identidade_encarregado"}
+	values := make([]string, len(campos))
+	n := 0
+	for i, k := range campos {
+		values[i] = strings.TrimSpace(c.Query(k))
+		if values[i] != "" {
+			n++
+		}
+	}
+	if n < 2 {
+		c.JSON(http.StatusOK, gin.H{"solicitacoes": []gin.H{}})
+		return
+	}
+	rows, err := getDbClient(c).DB().QueryContext(c.Request.Context(), `SELECT codigo_solicitacao,nome,codigo_academia,created_at,status FROM projection_solicitacoes_matricula WHERE (NULLIF($1,'') IS NULL OR telefone=$1) AND (NULLIF($2,'') IS NULL OR telefone_encarregado=$2) AND (NULLIF($3,'') IS NULL OR email=$3) AND (NULLIF($4,'') IS NULL OR bilhete_identidade=$4) AND (NULLIF($5,'') IS NULL OR bilhete_identidade_encarregado=$5) ORDER BY created_at DESC`, values[0], values[1], values[2], values[3], values[4])
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	defer rows.Close()
+	out := []gin.H{}
+	for rows.Next() {
+		var codigo, nome, academia, status string
+		var created time.Time
+		if err := rows.Scan(&codigo, &nome, &academia, &created, &status); err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		out = append(out, gin.H{"codigo_solicitacao": codigo, "nome_estudante": nome, "academia": academia, "data_submissao": created, "status": status})
+	}
+	if err := rows.Err(); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"solicitacoes": out})
+}
+
+func IniciarPagamentoMatricula(c *gin.Context) {
+	var in finance.MatriculaPagamentoInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		utils.RespondWithValidationError(c, errors.New("payload inválido"))
+		return
+	}
+	in.CodigoSolicitacao = c.Param("codigo")
+	out, err := FinanceiroService.IniciarPagamentoMatricula(c.Request.Context(), in, c.ClientIP())
+	if err != nil {
+		utils.RespondWithError(c, http.StatusConflict, solicitacaoPagamentoIndisponivel, nil)
+		return
+	}
+	if strings.EqualFold(out.Charge.Status, "success") {
+		_ = efetivarVinculoMatriculaPaga(c, in.CodigoSolicitacao)
+	}
+	c.JSON(http.StatusCreated, out)
+}
+
+func CancelarSolicitacaoMatricula(c *gin.Context) {
+	academia, ok := currentAcademiaDTO(c)
+	if !ok {
+		return
+	}
+	_, agg, ok := loadSolicitacaoByCodigo(c, c.Param("codigo"))
+	if !ok {
+		return
+	}
+	if agg.CodigoAcademia != academia.CodigoAcademia {
+		utils.RespondWithForbiddenError(c, "solicitação não pertence à academia autenticada")
+		return
+	}
+	var req struct {
+		Motivo string `json:"motivo"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Motivo) == "" {
+		utils.RespondWithValidationError(c, errors.New("motivo é obrigatório"))
+		return
+	}
+	if err := FinanceiroService.CancelarCobrancaMatriculaAberta(c.Request.Context(), agg.CodigoSolicitacao, req.Motivo, academia.ID.String(), "academia", c.ClientIP()); err != nil {
+		financeError(c, err)
+		return
+	}
+	if err := agg.CancelarPendentePagamentoMatricula(req.Motivo); err != nil {
+		utils.RespondWithConflictError(c, err.Error())
+		return
+	}
+	if err := getRepository(c).WithContext(c.Request.Context()).SaveWithAudit(agg, db.AuditContext{UserID: academia.ID.String(), UserType: "academia", IP: c.ClientIP()}); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "solicitação cancelada com sucesso"})
+}
+
+// efetivarVinculoMatriculaPaga is safe on webhook redelivery: the terminal
+// aggregate transition is checked before an Estudante can be created again.
+func efetivarVinculoMatriculaPaga(c *gin.Context, codigo string) error {
+	_, agg, ok := loadSolicitacaoByCodigo(c, codigo)
+	if !ok {
+		return errors.New("solicitação não encontrada")
+	}
+	if agg.Status != aggregates.StatusSolicitacaoAprovadaPendentePagamentoMatricula {
+		return nil
+	}
+	if agg.CodigoEstudanteGerado == nil {
+		return errors.New("solicitação sem código de estudante reservado")
+	}
+	// The reservation made during approval is intentionally released while the
+	// applicant waits to pay. Acquire it again immediately before creating the
+	// student so concurrent webhook deliveries cannot create duplicate records.
+	var biGuard *db.UniqueGuardReservation
+	guardConsumed := false
+	if agg.BilheteIdentidade != nil && strings.TrimSpace(*agg.BilheteIdentidade) != "" {
+		var err error
+		biGuard, err = db.NewUniqueOperationGuard(getDbClient(c)).WithContext(c.Request.Context()).Reserve("estudante:bilhete_identidade", db.CanonicalGuardKey(*agg.BilheteIdentidade), db.UniqueGuardOptions{UserID: "appypay:matricula", UserType: "sistema", Metadata: map[string]interface{}{"origem": "pagamento_matricula"}})
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if biGuard != nil && !guardConsumed {
+				_ = biGuard.Release()
+			}
+		}()
+		existente, err := getEstudanteProjection(c).GetByBilheteIdentidadePrincipal(*agg.BilheteIdentidade)
+		if err != nil {
+			return err
+		}
+		if existente != nil {
+			return errors.New("bilhete de identidade já cadastrado")
+		}
+	}
+	academia, err := getAcademiaProjection(c).GetByCodigo(agg.CodigoAcademia)
+	if err != nil || academia == nil {
+		return errors.New("academia não encontrada")
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(services.GetDefaultPassword("estudante", *agg.CodigoEstudanteGerado)), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	est := aggregates.NewEstudante()
+	if err = est.CriarComVinculo(agg.Nome, *agg.CodigoEstudanteGerado, string(hash), agg.Email, utils.NormalizePhonePtr(agg.Telefone), utils.NormalizePhonePtr(agg.TelefoneEncarregado), agg.BilheteIdentidade, agg.BilheteIdentidadeEncarregado, agg.Genero, agg.DataNascimento, agg.AnoEscolarFundamental, agg.AnoEscolarMedio, agg.AnoSuperior, agg.CursoMedioID, agg.CursoSuperiorID, &academia.ID, academia.CodigoAcademia, agg.Documentos); err != nil {
+		return err
+	}
+	repo := getRepository(c).WithContext(c.Request.Context())
+	audit := db.AuditContext{UserID: "appypay:matricula", UserType: "sistema", IP: c.ClientIP()}
+	if err = repo.SaveWithAudit(est, audit); err != nil {
+		return err
+	}
+	if biGuard != nil {
+		if err = biGuard.Consume(est.GetID()); err != nil {
+			return err
+		}
+		guardConsumed = true
+	}
+	if err = agg.VincularAposPagamento(); err != nil {
+		return err
+	}
+	return repo.SaveWithAudit(agg, audit)
+}
+
+func escopoMatriculaSolicitacao(s *aggregates.SolicitacaoMatricula) (nivel, ano string, curso *string) {
+	if s.AnoEscolarFundamental != nil && strings.TrimSpace(*s.AnoEscolarFundamental) != "" {
+		return finance.NivelFundamental, *s.AnoEscolarFundamental, nil
+	}
+	if s.AnoEscolarMedio != nil && strings.TrimSpace(*s.AnoEscolarMedio) != "" {
+		if s.CursoMedioID != nil {
+			v := s.CursoMedioID.String()
+			return finance.NivelMedio, *s.AnoEscolarMedio, &v
+		}
+		return finance.NivelMedio, *s.AnoEscolarMedio, nil
+	}
+	if s.AnoSuperior != nil && strings.TrimSpace(*s.AnoSuperior) != "" {
+		if s.CursoSuperiorID != nil {
+			v := s.CursoSuperiorID.String()
+			return finance.NivelSuperior, *s.AnoSuperior, &v
+		}
+		return finance.NivelSuperior, *s.AnoSuperior, nil
+	}
+	return "", "", nil
 }
 
 func ReprovarSolicitacaoMatricula(c *gin.Context) {

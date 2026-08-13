@@ -7829,3 +7829,13 @@ Envia uma mensagem de teste através do endpoint `POST /messages` da Ziett, com 
   "ziett_service": "core"
 }
 ```
+
+## Cobrança de matrícula por solicitação
+
+`POST` ou `PUT /financeiro/matriculas/configuracoes` configura a taxa por `nivel`, `ano_academico` e, para médio/superior, `curso_id`, com `valor` monetário positivo (máximo duas casas) e `metodos_pagamento` (`REF`, `GPO`, `GPO_QR`). É permitido para academias públicas e privadas, exige credencial AppyPay e oferta válida do ano/curso. `GET /financeiro/matriculas/configuracoes` lista as configurações vigentes.
+
+Sem configuração, a aprovação mantém o vínculo imediato. Com taxa configurada, a solicitação recebe `aprovada_pendente_pagamento_matricula`: o valor e os métodos são congelados, o código do estudante é reservado, mas ainda não existe estudante, vínculo nem cobrança. Os eventos são `SolicitacaoMatriculaAprovada`, `SolicitacaoMatriculaAprovadaPendentePagamento` e `SolicitacaoMatriculaVinculada`.
+
+As rotas públicas, limitadas por IP, são `GET /solicitacao-matricula/busca` (exige ao menos dois campos exatos entre telefone, telefone do encarregado, e-mail e BIs e só devolve dados de reconhecimento), `GET /solicitacao-matricula/:codigo/status` (estado e, se pendente, valor/métodos) e `POST /solicitacao-matricula/:codigo/pagamento-matricula` (método e telefone opcional GPO). O valor cobrado é sempre o congelado na aprovação e só há uma cobrança aberta por solicitação.
+
+`PUT /academia/solicitacao-matricula/:codigo/cancelar` cancela uma solicitação pendente e sua cobrança local aberta. Se a cobrança já foi paga, o cancelamento é rejeitado. Uma confirmação `Success` por webhook efetiva o vínculo de forma idempotente. REF/GPO/QR não têm cancelamento real no provider: pagamento posterior ao cancelamento local é um conflito financeiro para reconciliação manual.

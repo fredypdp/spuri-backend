@@ -37,6 +37,10 @@ func (p *SolicitacaoMatriculaProjection) Handle(event db.Event) error {
 		return p.handleReprovada(event)
 	case "SolicitacaoMatriculaCancelada":
 		return p.handleCancelada(event)
+	case "SolicitacaoMatriculaAprovadaPendentePagamento":
+		return p.handleAprovadaPendentePagamento(event)
+	case "SolicitacaoMatriculaVinculada":
+		return p.handleVinculada(event)
 	default:
 		return nil
 	}
@@ -159,7 +163,29 @@ func (p *SolicitacaoMatriculaProjection) handleCancelada(event db.Event) error {
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return err
 	}
-	_, err := p.client.DB().Exec(`UPDATE projection_solicitacoes_matricula SET status='cancelada', motivo_reprovacao=$1, updated_at=$2, version=$3, last_event_id=$4 WHERE id=$5`, payload.Motivo, payload.CancelledAt, event.EventVersion, event.EventID, event.AggregateID)
+	_, err := p.client.DB().Exec(`UPDATE projection_solicitacoes_matricula SET status='cancelada', motivo_reprovacao=$1, codigo_estudante_gerado=NULL, updated_at=$2, version=$3, last_event_id=$4 WHERE id=$5`, payload.Motivo, payload.CancelledAt, event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
+func (p *SolicitacaoMatriculaProjection) handleAprovadaPendentePagamento(event db.Event) error {
+	var payload struct {
+		Valor            float64   `json:"Valor"`
+		MetodosPagamento []string  `json:"MetodosPagamento"`
+		OccurredAt       time.Time `json:"OccurredAt"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return err
+	}
+	_, err := p.client.DB().Exec(`UPDATE projection_solicitacoes_matricula SET status='aprovada_pendente_pagamento_matricula', valor_matricula=$1, metodos_pagamento_matricula=$2, updated_at=$3, version=$4, last_event_id=$5 WHERE id=$6`, payload.Valor, pq.Array(payload.MetodosPagamento), payload.OccurredAt, event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
+func (p *SolicitacaoMatriculaProjection) handleVinculada(event db.Event) error {
+	var payload struct {
+		OccurredAt time.Time `json:"OccurredAt"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return err
+	}
+	_, err := p.client.DB().Exec(`UPDATE projection_solicitacoes_matricula SET status='aprovada', updated_at=$1, version=$2, last_event_id=$3 WHERE id=$4`, payload.OccurredAt, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
 
@@ -190,6 +216,8 @@ type SolicitacaoMatriculaDTO struct {
 	CreatedAt                    time.Time                                `json:"created_at"`
 	UpdatedAt                    time.Time                                `json:"updated_at"`
 	Version                      int                                      `json:"version"`
+	ValorMatricula               *float64                                 `json:"valor_matricula,omitempty"`
+	MetodosPagamentoMatricula    []string                                 `json:"metodos_pagamento_matricula,omitempty"`
 }
 
 type SolicitacaoListResult struct {
@@ -227,7 +255,7 @@ func (p *SolicitacaoMatriculaProjection) List(status []string, codigosAcademia [
 	if err := p.client.DB().QueryRow("SELECT COUNT(*) FROM projection_solicitacoes_matricula "+where, args...).Scan(&total); err != nil {
 		return nil, err
 	}
-	q := fmt.Sprintf(`SELECT id, codigo_solicitacao, codigo_academia, nome, genero, data_nascimento, email, telefone, telefone_encarregado, bilhete_identidade, bilhete_identidade_encarregado, ano_escolar_fundamental, ano_escolar_medio, curso_medio_id, ano_superior, curso_superior_id, status, motivo_reprovacao, solicitacoes_semelhantes, documentos, codigo_estudante_gerado, aprovada_por, reprovada_por, created_at, updated_at, version FROM projection_solicitacoes_matricula %s ORDER BY created_at DESC LIMIT $%d OFFSET $%d`, where, i, i+1)
+	q := fmt.Sprintf(`SELECT id, codigo_solicitacao, codigo_academia, nome, genero, data_nascimento, email, telefone, telefone_encarregado, bilhete_identidade, bilhete_identidade_encarregado, ano_escolar_fundamental, ano_escolar_medio, curso_medio_id, ano_superior, curso_superior_id, status, motivo_reprovacao, solicitacoes_semelhantes, documentos, codigo_estudante_gerado, aprovada_por, reprovada_por, created_at, updated_at, version, valor_matricula, metodos_pagamento_matricula FROM projection_solicitacoes_matricula %s ORDER BY created_at DESC LIMIT $%d OFFSET $%d`, where, i, i+1)
 	args = append(args, limit, offset)
 	rows, err := p.client.DB().Query(q, args...)
 	if err != nil {
@@ -262,7 +290,7 @@ func (p *SolicitacaoMatriculaProjection) CountPendingByFundamentalAnos(codigoAca
 }
 
 func (p *SolicitacaoMatriculaProjection) query(where string, args ...interface{}) (*sql.Rows, error) {
-	return p.client.DB().Query(`SELECT id, codigo_solicitacao, codigo_academia, nome, genero, data_nascimento, email, telefone, telefone_encarregado, bilhete_identidade, bilhete_identidade_encarregado, ano_escolar_fundamental, ano_escolar_medio, curso_medio_id, ano_superior, curso_superior_id, status, motivo_reprovacao, solicitacoes_semelhantes, documentos, codigo_estudante_gerado, aprovada_por, reprovada_por, created_at, updated_at, version FROM projection_solicitacoes_matricula `+where, args...)
+	return p.client.DB().Query(`SELECT id, codigo_solicitacao, codigo_academia, nome, genero, data_nascimento, email, telefone, telefone_encarregado, bilhete_identidade, bilhete_identidade_encarregado, ano_escolar_fundamental, ano_escolar_medio, curso_medio_id, ano_superior, curso_superior_id, status, motivo_reprovacao, solicitacoes_semelhantes, documentos, codigo_estudante_gerado, aprovada_por, reprovada_por, created_at, updated_at, version, valor_matricula, metodos_pagamento_matricula FROM projection_solicitacoes_matricula `+where, args...)
 }
 
 func scanSolicitacao(row interface{ Scan(...interface{}) error }) (*SolicitacaoMatriculaDTO, error) {
@@ -270,8 +298,10 @@ func scanSolicitacao(row interface{ Scan(...interface{}) error }) (*SolicitacaoM
 	var docs []byte
 	var semelhantes []string
 	var email, telefone, telefoneEncarregado, bi, biResp, anoFund, anoMedio, anoSup, motivo, codEst sql.NullString
+	var valor sql.NullFloat64
+	var metodos []string
 	var cursoMedio, cursoSuperior, aprovadaPor, reprovadaPor uuid.NullUUID
-	err := row.Scan(&dto.ID, &dto.CodigoSolicitacao, &dto.CodigoAcademia, &dto.Nome, &dto.Genero, &dto.DataNascimento, &email, &telefone, &telefoneEncarregado, &bi, &biResp, &anoFund, &anoMedio, &cursoMedio, &anoSup, &cursoSuperior, &dto.Status, &motivo, pq.Array(&semelhantes), &docs, &codEst, &aprovadaPor, &reprovadaPor, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version)
+	err := row.Scan(&dto.ID, &dto.CodigoSolicitacao, &dto.CodigoAcademia, &dto.Nome, &dto.Genero, &dto.DataNascimento, &email, &telefone, &telefoneEncarregado, &bi, &biResp, &anoFund, &anoMedio, &cursoMedio, &anoSup, &cursoSuperior, &dto.Status, &motivo, pq.Array(&semelhantes), &docs, &codEst, &aprovadaPor, &reprovadaPor, &dto.CreatedAt, &dto.UpdatedAt, &dto.Version, &valor, pq.Array(&metodos))
 	if err != nil {
 		return nil, err
 	}
@@ -305,6 +335,10 @@ func scanSolicitacao(row interface{ Scan(...interface{}) error }) (*SolicitacaoM
 	if codEst.Valid {
 		dto.CodigoEstudanteGerado = &codEst.String
 	}
+	if valor.Valid {
+		dto.ValorMatricula = &valor.Float64
+	}
+	dto.MetodosPagamentoMatricula = metodos
 	if cursoMedio.Valid {
 		dto.CursoMedioID = &cursoMedio.UUID
 	}

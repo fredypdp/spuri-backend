@@ -1,11 +1,11 @@
 ---
 criado: 2026-08-12 00:00
 origem: pedido direto do Spuri (evolução do módulo financeiro após a tarefa 17)
-status: pendente
+status: feito
 depende_de: "26 - Módulo de pagamentos - Fase 1 - Bases (tipo do amount e cancelamento de cobrança).md"
 ---
 
-# Módulo de pagamentos — Fase 4 — Cobrança de matrícula (pendente)
+# Módulo de pagamentos — Fase 4 — Cobrança de matrícula (feito)
 
 ## Prompt recomendado para executar a atualização
 

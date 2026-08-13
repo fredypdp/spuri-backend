@@ -66,6 +66,43 @@ func ListarConfiguracoesMensalidade(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"codigo_academia": codigo, "configuracoes": out})
 }
 
+func ConfigurarMatricula(c *gin.Context) {
+	var in finance.MatriculaConfiguracaoInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		utils.RespondWithValidationError(c, errors.New("payload inválido"))
+		return
+	}
+	if !authorizeMensalidadeAcademia(c, &in.CodigoAcademia) {
+		utils.RespondWithForbiddenError(c, "sem permissão para configurar matrícula desta academia")
+		return
+	}
+	id, typ, _, ok := financeActor(c)
+	if !ok {
+		utils.RespondWithUnauthorizedError(c)
+		return
+	}
+	out, err := FinanceiroService.ConfigureMatricula(c.Request.Context(), in, id.String(), typ, c.ClientIP())
+	if err != nil {
+		financeError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, out)
+}
+
+func ListarConfiguracoesMatricula(c *gin.Context) {
+	codigo := c.Query("codigo_academia")
+	if !authorizeMensalidadeAcademia(c, &codigo) {
+		utils.RespondWithForbiddenError(c, "sem permissão para consultar matrículas desta academia")
+		return
+	}
+	out, err := FinanceiroService.ListMatriculaConfiguracoes(c.Request.Context(), codigo)
+	if err != nil {
+		financeError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"codigo_academia": codigo, "configuracoes": out})
+}
+
 func DefinirMesInicioCobranca(c *gin.Context) {
 	var in finance.MesInicioCobrancaInput
 	if err := c.ShouldBindJSON(&in); err != nil {

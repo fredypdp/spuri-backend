@@ -12,10 +12,11 @@ import (
 )
 
 const (
-	StatusSolicitacaoPendente  = "pendente"
-	StatusSolicitacaoAprovada  = "aprovada"
-	StatusSolicitacaoReprovada = "reprovada"
-	StatusSolicitacaoCancelada = "cancelada"
+	StatusSolicitacaoPendente                           = "pendente"
+	StatusSolicitacaoAprovada                           = "aprovada"
+	StatusSolicitacaoReprovada                          = "reprovada"
+	StatusSolicitacaoCancelada                          = "cancelada"
+	StatusSolicitacaoAprovadaPendentePagamentoMatricula = "aprovada_pendente_pagamento_matricula"
 )
 
 type SolicitacaoMatricula struct {
@@ -42,6 +43,8 @@ type SolicitacaoMatricula struct {
 	CodigoEstudanteGerado        *string
 	AprovadaPor                  *uuid.UUID
 	ReprovadaPor                 *uuid.UUID
+	ValorMatricula               *float64
+	MetodosPagamentoMatricula    []string
 	CreatedAt                    time.Time
 	UpdatedAt                    time.Time
 }
@@ -67,9 +70,46 @@ func (s *SolicitacaoMatricula) Apply(event DomainEvent) error {
 		return s.applyReprovada(event)
 	case "SolicitacaoMatriculaCancelada":
 		return s.applyCancelada(event)
+	case "SolicitacaoMatriculaAprovadaPendentePagamento":
+		return s.applyAprovadaPendentePagamento(event)
+	case "SolicitacaoMatriculaVinculada":
+		return s.applyVinculada(event)
 	default:
 		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
 	}
+}
+
+// MarcarPendentePagamentoMatricula fixes the approved price in the immutable
+// request stream.  It intentionally does not create an Estudante or a charge.
+func (s *SolicitacaoMatricula) MarcarPendentePagamentoMatricula(valor float64, metodos []string) error {
+	aprovadaNestaTransacao := false
+	for _, event := range s.UncommittedEvents {
+		if event.GetEventType() == "SolicitacaoMatriculaAprovada" {
+			aprovadaNestaTransacao = true
+		}
+	}
+	if (s.Status != StatusSolicitacaoAprovada && !aprovadaNestaTransacao) || valor <= 0 || len(metodos) == 0 {
+		return fmt.Errorf("solicitação aprovada, valor e métodos de pagamento são obrigatórios")
+	}
+	ev := &SolicitacaoMatriculaAprovadaPendentePagamentoEvent{BaseEvent: BaseEvent{EventType: "SolicitacaoMatriculaAprovadaPendentePagamento", AggregateID: s.ID}, CodigoSolicitacao: s.CodigoSolicitacao, CodigoAcademia: s.CodigoAcademia, Valor: valor, MetodosPagamento: metodos, OccurredAt: time.Now().UTC()}
+	s.RaiseEvent(ev)
+	return nil
+}
+
+func (s *SolicitacaoMatricula) VincularAposPagamento() error {
+	if s.Status != StatusSolicitacaoAprovadaPendentePagamentoMatricula {
+		return fmt.Errorf("solicitação não está pendente de pagamento de matrícula")
+	}
+	s.RaiseEvent(&SolicitacaoMatriculaVinculadaEvent{BaseEvent: BaseEvent{EventType: "SolicitacaoMatriculaVinculada", AggregateID: s.ID}, OccurredAt: time.Now().UTC()})
+	return nil
+}
+
+func (s *SolicitacaoMatricula) CancelarPendentePagamentoMatricula(motivo string) error {
+	if s.Status != StatusSolicitacaoAprovadaPendentePagamentoMatricula || strings.TrimSpace(motivo) == "" {
+		return fmt.Errorf("somente solicitação pendente de pagamento de matrícula pode ser cancelada com motivo")
+	}
+	s.RaiseEvent(&SolicitacaoMatriculaCanceladaEvent{BaseEvent: BaseEvent{EventType: "SolicitacaoMatriculaCancelada", AggregateID: s.ID}, CodigoSolicitacao: s.CodigoSolicitacao, CodigoAcademia: s.CodigoAcademia, Motivo: strings.TrimSpace(motivo), CancelledAt: time.Now().UTC()})
+	return nil
 }
 
 func (s *SolicitacaoMatricula) Criar(codigoSolicitacao, codigoAcademia, nome, genero string, dataNascimento time.Time, email, telefone, telefoneEncarregado, bi, biResp, anoFund, anoMedio *string, cursoMedioID *uuid.UUID, anoSuperior *string, cursoSuperiorID *uuid.UUID, documentos map[string]DocumentoMatricula, solicitacoesSemelhantes []string) error {
@@ -443,6 +483,28 @@ type SolicitacaoMatriculaAprovadaEvent struct {
 	ApprovedAt            time.Time
 }
 
+type SolicitacaoMatriculaAprovadaPendentePagamentoEvent struct {
+	BaseEvent
+	CodigoSolicitacao string
+	CodigoAcademia    string
+	Valor             float64
+	MetodosPagamento  []string
+	OccurredAt        time.Time
+}
+
+func (e *SolicitacaoMatriculaAprovadaPendentePagamentoEvent) GetPayload() interface{} { return e }
+func (e *SolicitacaoMatriculaAprovadaPendentePagamentoEvent) ToJSON() ([]byte, error) {
+	return json.Marshal(e)
+}
+
+type SolicitacaoMatriculaVinculadaEvent struct {
+	BaseEvent
+	OccurredAt time.Time
+}
+
+func (e *SolicitacaoMatriculaVinculadaEvent) GetPayload() interface{} { return e }
+func (e *SolicitacaoMatriculaVinculadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
 func (e *SolicitacaoMatriculaAprovadaEvent) GetPayload() interface{} { return e }
 func (e *SolicitacaoMatriculaAprovadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
@@ -535,6 +597,30 @@ func (s *SolicitacaoMatricula) applyCancelada(event DomainEvent) error {
 	}
 	s.Status = StatusSolicitacaoCancelada
 	s.MotivoReprovacao = &ev.Motivo
+	s.CodigoEstudanteGerado = nil
 	s.UpdatedAt = ev.CancelledAt
+	return nil
+}
+
+func (s *SolicitacaoMatricula) applyAprovadaPendentePagamento(event DomainEvent) error {
+	data, _ := json.Marshal(event.GetPayload())
+	var ev SolicitacaoMatriculaAprovadaPendentePagamentoEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+	s.Status = StatusSolicitacaoAprovadaPendentePagamentoMatricula
+	s.ValorMatricula = &ev.Valor
+	s.MetodosPagamentoMatricula = append([]string(nil), ev.MetodosPagamento...)
+	s.UpdatedAt = ev.OccurredAt
+	return nil
+}
+func (s *SolicitacaoMatricula) applyVinculada(event DomainEvent) error {
+	data, _ := json.Marshal(event.GetPayload())
+	var ev SolicitacaoMatriculaVinculadaEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+	s.Status = StatusSolicitacaoAprovada
+	s.UpdatedAt = ev.OccurredAt
 	return nil
 }

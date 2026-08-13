@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
+	"golang.org/x/time/rate"
 
 	"spuri/internal/db"
 	"spuri/internal/finance"
@@ -250,6 +251,11 @@ func setupRouter() *gin.Engine {
 	router.POST("/login", middleware.LoginRateLimit(), handlers.Login)
 	router.POST("/bootstrap", middleware.LoginRateLimit(), handlers.BootstrapAdminFPP)
 	router.POST("/solicitacao-matricula", handlers.CriarSolicitacaoMatricula)
+	// Search and payment have independent public financial rate limits so an
+	// exhausted search bucket cannot suppress a legitimate payment attempt.
+	router.GET("/solicitacao-matricula/busca", middleware.RateLimitMiddleware(middleware.NewRateLimiter(rate.Every(time.Minute/20), 5, time.Minute)), handlers.BuscarSolicitacoesMatricula)
+	router.GET("/solicitacao-matricula/:codigo/status", middleware.RateLimitMiddleware(middleware.NewRateLimiter(rate.Every(time.Minute/20), 5, time.Minute)), handlers.ConsultarStatusSolicitacaoMatricula)
+	router.POST("/solicitacao-matricula/:codigo/pagamento-matricula", middleware.RateLimitMiddleware(middleware.NewRateLimiter(rate.Every(time.Minute/20), 5, time.Minute)), handlers.IniciarPagamentoMatricula)
 	// Webhooks são públicos por necessidade do gateway, mas autenticados pelo
 	// próprio módulo antes de qualquer evento ser aceite.
 	router.POST("/webhooks/appypay/gpo", handlers.ReceberWebhookAppyPay("GPO"))
@@ -347,6 +353,9 @@ func setupRouter() *gin.Engine {
 			financeiro.POST("/mensalidades/inicio-cobranca", handlers.DefinirMesInicioCobranca)
 			financeiro.POST("/mensalidades/obrigacoes/anular", handlers.AnularObrigacoesMensalidade)
 			financeiro.POST("/mensalidades/obrigacoes/reativar", handlers.ReativarObrigacoesMensalidade)
+			financeiro.POST("/matriculas/configuracoes", handlers.ConfigurarMatricula)
+			financeiro.PUT("/matriculas/configuracoes", handlers.ConfigurarMatricula)
+			financeiro.GET("/matriculas/configuracoes", handlers.ListarConfiguracoesMatricula)
 		}
 	}
 
@@ -424,6 +433,7 @@ func setupRouter() *gin.Engine {
 		academia.POST("/anos-letivos/finalizar", handlers.FinalizarAnoLetivoAcademia)
 		academia.PUT("/solicitacao-matricula/:codigo/aprovar", handlers.AprovarSolicitacaoMatricula)
 		academia.PUT("/solicitacao-matricula/:codigo/reprovar", handlers.ReprovarSolicitacaoMatricula)
+		academia.PUT("/solicitacao-matricula/:codigo/cancelar", handlers.CancelarSolicitacaoMatricula)
 		academia.PUT("/solicitacoes-edicao-estudante/nome/:codigo/aprovar", handlers.DecidirSolicitacaoEdicaoDadoEstudanteHandler("nome", true))
 		academia.PUT("/solicitacoes-edicao-estudante/nome/:codigo/reprovar", handlers.DecidirSolicitacaoEdicaoDadoEstudanteHandler("nome", false))
 		academia.PUT("/solicitacoes-edicao-estudante/bilhete-identidade/:codigo/aprovar", handlers.DecidirSolicitacaoEdicaoDadoEstudanteHandler("bilhete_identidade", true))
