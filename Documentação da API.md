@@ -1189,6 +1189,61 @@ Registra uma nova academia via `multipart/form-data`. Criada com status `inativo
 
 ---
 
+### POST /academia/registo-publico
+
+Permite que uma academia se autocadastre na plataforma **sem autenticação prévia**, via `multipart/form-data`. Usa exatamente as mesmas regras de validação de `POST /dominis/academia/register` (`nif` obrigatório, único, 10 dígitos; `alvara` obrigatório, PDF válido até 10MB, armazenado em `{codigo_academia}/Documentação formal/`). A academia é sempre criada com status `inativo` — apenas um admin com role `adm` ou `fpp` pode ativá-la, via `PUT /dominis/academia/:codigo/ativar`. Login antes da ativação retorna erro de "academia inativa".
+
+**Proteção**: nenhuma (rota pública)
+
+**Diferença em relação ao cadastro por admin**: aceita um campo opcional `senha` (string, 6–128 caracteres). Se enviado, essa senha é definida como a senha de acesso da academia. Se omitido, a senha inicial é o próprio `codigo_academia`, como no fluxo administrativo.
+
+**Request:**
+
+```json
+{
+  "nivel": "escola",
+  "type": "public",
+  "nome": "Escola Primária Ngola Kiluanje",
+  "nif": "0012345678",
+  "alvara": "@./alvara.pdf;type=application/pdf",
+  "provincia": "luanda",
+  "endereco": "Rua Direita, 123",
+  "telefone": "+244923000000",
+  "email": "escola@exemplo.ao",
+  "website": "https://escola.ao",
+  "nivel_escolar": "fundamental",
+  "anos_academicos": ["1_ano_fundamental", "2_ano_fundamental", "9_ano_fundamental"],
+  "cursos": [],
+  "senha": "minhaSenhaSegura123"
+}
+```
+
+**Response 201:**
+
+```json
+{
+  "message": "cadastro recebido com sucesso. a conta fica inativa até que um administrador (role adm ou fpp) a ative.",
+  "codigo_academia": "LDA20261",
+  "data": {
+    "id": "uuid",
+    "nome": "string",
+    "nif": "0012345678",
+    "type": "public",
+    "provincia": "LDA",
+    "codigo_academia": "LDA20261",
+    "status": "inativo"
+  },
+  "aviso": "guarde o código da academia: ele é o seu identificador de login. você definiu sua própria senha no cadastro."
+}
+```
+
+**Erros:**
+
+- `400` — `nivel` inválido, `type` inválido, `nif` ausente/inválido, `alvara` ausente/não PDF/acima de 10MB, campos obrigatórios ausentes, `anos_academicos` inválidos, ou `senha` fora do intervalo de 6–128 caracteres
+- `409` — `nif` já cadastrado em outra academia
+
+---
+
 ### PUT /dominis/academia/:codigo/ativar
 
 Ativa uma academia inativa.

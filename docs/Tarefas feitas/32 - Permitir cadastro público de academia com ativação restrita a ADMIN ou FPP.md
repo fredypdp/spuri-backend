@@ -1,10 +1,10 @@
 ---
 criado: 2026-08-13 00:00
 origem: solicitação do usuário
-status: pendente
+status: feito
 ---
 
-# Permitir cadastro público de academia com ativação restrita a ADMIN ou FPP (pendente)
+# Permitir cadastro público de academia com ativação restrita a ADMIN ou FPP (feito)
 
 ## Prompt recomendado para executar a atualização
 

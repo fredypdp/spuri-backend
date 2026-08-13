@@ -222,6 +222,217 @@ func RegisterAcademia(c *gin.Context) {
 }
 
 // ============================================================================
+// POST /academia/registo-publico
+// ============================================================================
+//
+// RegisterAcademiaPublica permite que uma academia se autocadastre na
+// plataforma sem autenticação prévia. É uma variação pública do fluxo
+// administrativo (RegisterAcademia) — usa exatamente as mesmas validações
+// e o mesmo agregado, mas SEM exigir um admin executor autenticado.
+//
+// Diferença deliberada em relação a RegisterAcademia: como não há um admin
+// para comunicar a senha padrão à academia fora de banda, o cadastro
+// público aceita um campo opcional "senha" (multipart/form-data) definido
+// pela própria academia. Se omitido, cai no mesmo padrão já usado pelo
+// fluxo administrativo (services.GetDefaultPassword). RegisterAcademia
+// (fluxo admin) permanece inalterado — continua sempre usando a senha
+// padrão baseada no código, sem aceitar senha customizada.
+//
+// Segurança:
+//   - academia.Criar() sempre inicia o status como "inativo" (ver
+//     applyAcademiaCriada em internal/domain/aggregates/academia.go) —
+//     este comportamento já é automático e não pode ser sobrescrito pelo
+//     cliente, pois RegisterAcademiaRequest não possui campo de status.
+//   - Apenas um admin com role "adm" ou "fpp" pode ativar a conta, através
+//     das rotas já existentes PUT /dominis/academia/:codigo/ativar
+//     (middleware.RequireAdm()) — nenhuma mudança necessária nessas rotas.
+//   - Login com conta "inativo" já é bloqueado pelo handler Login
+//     (internal/handlers/auth_handlers.go) — nenhuma mudança necessária.
+func RegisterAcademiaPublica(c *gin.Context) {
+	req, alvara, ok := bindRegisterAcademiaRequest(c)
+	if !ok {
+		return
+	}
+
+	if req.Nivel != "escola" && req.Nivel != "superior" {
+		utils.RespondWithValidationError(c, fmt.Errorf("nivel deve ser 'escola' ou 'superior'"))
+		return
+	}
+	req.Type = strings.TrimSpace(strings.ToLower(req.Type))
+	if req.Type != "public" && req.Type != "private" {
+		utils.RespondWithValidationError(c, fmt.Errorf("type deve ser 'public' ou 'private'"))
+		return
+	}
+
+	if err := utils.ValidateNome(req.Nome); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if err := utils.ValidateEndereco(req.Endereco); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if err := utils.ValidateNIF(req.NIF); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if alvara == nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("alvara é obrigatório"))
+		return
+	}
+	alvaraPDF, err := readAndValidatePDF("alvara", alvara)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	// Senha customizada opcional — exclusiva do cadastro público. Lida
+	// diretamente do multipart/form-data já parseado por
+	// bindRegisterAcademiaRequest (c.PostForm não reprocessa o body).
+	senhaCustomizada := strings.TrimSpace(c.PostForm("senha"))
+	if senhaCustomizada != "" {
+		if err := utils.ValidateSenha(senhaCustomizada); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+	}
+
+	codigoProvincia, err := validarProvincia(req.Provincia)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	if req.NivelEscolar != nil {
+		nivel := *req.NivelEscolar
+		if nivel == "medio" && len(req.AnosAcademicos) > 0 {
+			utils.RespondWithValidationError(c, fmt.Errorf(
+				"escolas de nivel_escolar 'medio' não devem definir anos_academicos",
+			))
+			return
+		}
+		if nivel == "fundamental" || nivel == "misto" {
+			if len(req.AnosAcademicos) == 0 {
+				utils.RespondWithValidationError(c, fmt.Errorf(
+					"escolas de nivel_escolar '%s' devem definir anos_academicos "+
+						"(ex: 1_ano_fundamental, 2_ano_fundamental, ...)",
+					nivel,
+				))
+				return
+			}
+			if err := utils.ValidateAnosFundamental(req.AnosAcademicos); err != nil {
+				utils.RespondWithValidationError(c, err)
+				return
+			}
+		}
+	}
+
+	client := getDbClient(c)
+	existing, err := getAcademiaProjection(c).GetByNIF(req.NIF)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if existing != nil {
+		utils.RespondWithConflictError(c, "nif já cadastrado em outra academia")
+		return
+	}
+	codigoAcademia, err := generateCodigoAcademia(codigoProvincia, client.DB())
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	senhaFinal := senhaCustomizada
+	senhaEraCustomizada := senhaCustomizada != ""
+	if senhaFinal == "" {
+		senhaFinal = services.GetDefaultPassword("academia", codigoAcademia)
+	}
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(senhaFinal), bcrypt.DefaultCost)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	academia := aggregates.NewAcademia()
+	if err := academia.Criar(
+		req.Nivel,
+		req.Type,
+		req.Nome,
+		req.NIF,
+		codigoAcademia,
+		string(hashedPassword),
+		codigoProvincia,
+		req.Endereco,
+		req.Telefone,
+		req.Email,
+		req.Website,
+		req.NivelEscolar,
+		req.Cursos,
+		req.AnosAcademicos,
+		nil,
+	); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	repository := getRepository(c)
+	audit := db.AuditContext{
+		UserID:   "publico",
+		UserType: "publico",
+		IP:       c.ClientIP(),
+	}
+	provider := getStorageProvider(c)
+	if provider == nil {
+		p, _ := storage.NewStorageProvider()
+		provider = p
+	}
+	dir := fmt.Sprintf("%s/Documentação formal", codigoAcademia)
+	if provider == nil {
+		utils.RespondWithInternalError(c, fmt.Errorf("storage indisponível"))
+		return
+	}
+	if err := provider.EnsureDir(dir); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if _, err := provider.Upload(fmt.Sprintf("%s/alvara_%s.pdf", dir, codigoAcademia), bytes.NewReader(alvaraPDF.data), alvaraPDF.size); err != nil {
+		_ = provider.Delete(dir)
+		utils.RespondWithInternalError(c, fmt.Errorf("falha no upload do alvara: %w", err))
+		return
+	}
+
+	if err := repository.SaveWithAudit(academia, audit); err != nil {
+		_ = provider.Delete(dir)
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	log.Printf("Academia auto-registada (cadastro público, pendente de ativação): %s (%s)", req.Nome, codigoAcademia)
+
+	aviso := "guarde o código da academia: ele é o seu identificador de login. você definiu sua própria senha no cadastro."
+	if !senhaEraCustomizada {
+		aviso = "guarde o código da academia: ele é o identificador de login e também a senha inicial. altere a senha assim que a conta for ativada."
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"message":         "cadastro recebido com sucesso. a conta fica inativa até que um administrador (role adm ou fpp) a ative.",
+		"codigo_academia": codigoAcademia,
+		"data": gin.H{
+			"id":              academia.ID,
+			"nome":            req.Nome,
+			"nif":             req.NIF,
+			"type":            req.Type,
+			"provincia":       codigoProvincia,
+			"codigo_academia": codigoAcademia,
+			"status":          "inativo",
+		},
+		"aviso": aviso,
+	})
+}
+
+// ============================================================================
 // PUT /academia/dados
 // ============================================================================
 

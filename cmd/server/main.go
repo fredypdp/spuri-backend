@@ -251,6 +251,7 @@ func setupRouter() *gin.Engine {
 	router.POST("/login", middleware.LoginRateLimit(), handlers.Login)
 	router.POST("/bootstrap", middleware.LoginRateLimit(), handlers.BootstrapAdminFPP)
 	router.POST("/solicitacao-matricula", handlers.CriarSolicitacaoMatricula)
+	router.POST("/academia/registo-publico", handlers.RegisterAcademiaPublica)
 	// Search and payment have independent public financial rate limits so an
 	// exhausted search bucket cannot suppress a legitimate payment attempt.
 	router.GET("/solicitacao-matricula/busca", middleware.RateLimitMiddleware(middleware.NewRateLimiter(rate.Every(time.Minute/20), 5, time.Minute)), handlers.BuscarSolicitacoesMatricula)
