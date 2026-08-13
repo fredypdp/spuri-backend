@@ -326,6 +326,9 @@ func setupRouter() *gin.Engine {
 		protected.GET("/documentos/solicitacoes-matricula/:codigo/:campo/download", handlers.DownloadDocumentoSolicitacaoMatricula)
 		protected.GET("/avaliacoes-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetAvaliacoesFinaisEstudante)
 		protected.GET("/turmas-estudante/:codigo", handlers.GetTurmasEstudante)
+		// Consulta de mensalidades também é acessível ao próprio estudante; as
+		// demais ações financeiras ficam no grupo academia/admin abaixo.
+		protected.GET("/financeiro/mensalidades/estudante/:codigo", handlers.ConsultarMensalidadesEstudante)
 
 		financeiro := protected.Group("/financeiro")
 		financeiro.Use(middleware.RequireAcademiaOuAdmin())
@@ -337,6 +340,12 @@ func setupRouter() *gin.Engine {
 			financeiro.POST("/appypay/qr-codes", handlers.GerarQRCodeAppyPay)
 			financeiro.GET("/appypay/cobrancas/:id", handlers.ConsultarCobrancaAppyPay)
 			financeiro.POST("/appypay/cobrancas/:id/cancelar", handlers.CancelarCobrancaAppyPay)
+			financeiro.POST("/mensalidades/configuracoes", handlers.ConfigurarMensalidade)
+			financeiro.PUT("/mensalidades/configuracoes", handlers.ConfigurarMensalidade)
+			financeiro.GET("/mensalidades/configuracoes", handlers.ListarConfiguracoesMensalidade)
+			financeiro.POST("/mensalidades/inicio-cobranca", handlers.DefinirMesInicioCobranca)
+			financeiro.POST("/mensalidades/obrigacoes/anular", handlers.AnularObrigacoesMensalidade)
+			financeiro.POST("/mensalidades/obrigacoes/reativar", handlers.ReativarObrigacoesMensalidade)
 		}
 	}
 

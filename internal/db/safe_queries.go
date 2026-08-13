@@ -106,6 +106,14 @@ var validEventTypes = map[string]bool{
 	"QRCodeAppyPayGerado":                                true,
 	"QRCodeAppyPayFalhou":                                true,
 	"WebhookAppyPayRecebido":                             true,
+	"MensalidadeConfigurada":                             true,
+	"MesInicioCobrancaDefinido":                          true,
+	"ObrigacaoMensalidadeAnulada":                        true,
+	"ObrigacaoMensalidadeReativada":                      true,
+	// MensalidadePaga is emitted by Phase 3. It is registered now so this
+	// projection can consume a real payment event without any compatibility
+	// path or inferred payment state.
+	"MensalidadePaga": true,
 }
 
 // validAggregateTypes é o mapa canônico de aggregate types permitidos no ledger.

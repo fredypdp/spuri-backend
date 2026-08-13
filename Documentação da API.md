@@ -7002,13 +7002,13 @@ A documentação cobre todas as rotas registradas em `cmd/server/main.go`: públ
 
 ## 19. Financeiro / AppyPay
 
-### Processos e Regras de Negócio — Financeiro / AppyPay
+### Processos e Regras de Negócio — Financeiro / AppyPay e mensalidades
 
 O módulo financeiro integra o backend com a AppyPay para gerir credenciais, criar cobranças GPO/REF, gerar QR Codes GPO, consultar cobranças e receber webhooks do gateway. As operações financeiras são auditadas no ledger com aggregate `Financeiro`; as tabelas `financeiro_*` funcionam como projeções/read models e índices operacionais de consulta e idempotência.
 
 **Regras gerais do escopo financeiro:**
 
-- Todas as rotas `/financeiro/*` exigem autenticação e aceitam somente usuários do tipo `academia` ou `admin` FPP.
+- Todas as rotas `/financeiro/*` exigem autenticação. As rotas de administração aceitam somente `academia` ou admin FPP; a consulta de mensalidades de um estudante também pode ser feita pelo próprio estudante autenticado.
 - Academia autenticada opera apenas no próprio contexto: o backend força `contexto_tipo="academia"` e `codigo_academia` igual ao código do token, mesmo que esses campos venham vazios no request.
 - Admin FPP pode operar o contexto global `spuri` e contextos de academias específicas; admins `adm` e `gerente`, estudantes e usuários anônimos não administram o módulo financeiro.
 - Segredos AppyPay (`client_secret`, credenciais de webhook, métodos de pagamento sensíveis) nunca são devolvidos em resposta; a API retorna apenas máscaras e metadados.
@@ -7028,6 +7028,12 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 | `POST` | `/financeiro/appypay/qr-codes` | Gera QR Code GPO e devolve `qrCodeArr` em base64 quando enviado pela AppyPay. |
 | `GET` | `/financeiro/appypay/cobrancas/:id` | Consulta cobrança por id AppyPay ou `merchantTransactionId`. |
 | `POST` | `/financeiro/appypay/cobrancas/:id/cancelar` | Cancela localmente uma cobrança pendente do próprio contexto. |
+| `POST` | `/financeiro/mensalidades/configuracoes` | Versiona o valor e mês final de cobrança por ano/curso de academia privada. |
+| `GET` | `/financeiro/mensalidades/configuracoes` | Lista a configuração vigente de mensalidade de uma academia. |
+| `POST` | `/financeiro/mensalidades/inicio-cobranca` | Define o mês inicial excepcional para uma academia que entrou no ano letivo em curso. |
+| `GET` | `/financeiro/mensalidades/estudante/:codigo` | Calcula sob consulta os meses devidos, pagos ou anulados, inclusive históricos. |
+| `POST` | `/financeiro/mensalidades/obrigacoes/anular` | Anula, com evento por mês, obrigações de estudante da própria academia. |
+| `POST` | `/financeiro/mensalidades/obrigacoes/reativar` | Reativa obrigações antes anuladas da própria academia. |
 | `POST` | `/webhooks/appypay/gpo` | Recebe webhook público AppyPay para eventos GPO. |
 | `POST` | `/webhooks/appypay/ref` | Recebe webhook público AppyPay para eventos REF. |
 
@@ -7367,7 +7373,56 @@ Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e 
 - A consulta grava evento financeiro apenas quando o estado, identificador do provider ou resposta relevante mudar; consultas sem mudança não poluem o ledger.
 - Se a consulta detectar `Success` da AppyPay depois de a cobrança ter sido cancelada localmente, grava `CobrancaAppyPayConflitoPosCancelamento` e preserva o status local `cancelada`, para reconciliação manual por admin FPP.
 
-#### 19.7 POST /financeiro/appypay/cobrancas/:id/cancelar
+#### 19.7 Mensalidades/propinas automatizadas
+
+Esta fase não cria cobranças na AppyPay. Ela apenas mantém uma projeção sob demanda das obrigações mensais de academias `private`, usando a chave estável `(codigo_estudante, codigo_academia, ano_letivo, mes)`. Academias `public` não podem configurar nem geram mensalidades.
+
+O valor é sempre `float64`, maior que zero e com até duas casas decimais. A configuração é versionada pelo evento `MensalidadeConfigurada`: fundamental usa `nivel=fundamental` + `ano_academico`; médio e superior também exigem `curso_id`. A resolução de cada mês consulta o preço que estava vigente no primeiro dia daquele mês e a turma histórica do estudante naquele ano letivo, portanto não usa curso, ano ou academia atuais para pendências antigas.
+
+`mes_fim_cobranca` aceita somente `6` ou `7`; não altera os períodos letivos imutáveis. A exceção de entrada no meio do ano é o evento `MesInicioCobrancaDefinido`, estritamente por `(academia, ano_letivo)`, e só limita o ano especificado.
+
+**POST `/financeiro/mensalidades/configuracoes`**
+
+Academia dona ou admin FPP. Para academia autenticada, `codigo_academia` é imposto pelo token.
+
+```json
+{
+  "codigo_academia": "ACA001",
+  "nivel": "medio",
+  "ano_academico": "1_ano_medio",
+  "curso_id": "550e8400-e29b-41d4-a716-446655440000",
+  "valor": 25000.00,
+  "mes_fim_cobranca": 7
+}
+```
+
+**POST `/financeiro/mensalidades/inicio-cobranca`**
+
+Academia dona ou admin FPP. `mes_inicio` não pode anteceder setembro (escolar) ou outubro (superior), nem ultrapassar o mês final configurado.
+
+```json
+{"codigo_academia":"ACA001","ano_letivo":"2026_2027","mes_inicio":1}
+```
+
+**GET `/financeiro/mensalidades/estudante/:codigo`**
+
+Academia recebe apenas obrigações da sua própria chave de academia; estudante só consulta o seu código; admin FPP pode consultar qualquer estudante e recebe os grupos de todas as academias históricas. Cada item inclui `estado` (`pendente`, `pago` ou `anulado`), `valor`, vínculo histórico e IDs dos eventos de auditoria relacionados.
+
+**POST `/financeiro/mensalidades/obrigacoes/anular`** e **POST `/financeiro/mensalidades/obrigacoes/reativar`**
+
+Exclusivos da academia dona; admin FPP recebe `403` mesmo tendo acesso de leitura. Cada mês gera, respectivamente, `ObrigacaoMensalidadeAnulada` ou `ObrigacaoMensalidadeReativada`; eventos anteriores nunca são apagados. Uma reativação só é aceita para mês atualmente anulado e não pago.
+
+```json
+{
+  "codigo_estudante": "EST0001",
+  "codigo_academia": "ACA001",
+  "ano_letivo": "2026_2027",
+  "meses": [1, 2],
+  "motivo": "bolsa social"
+}
+```
+
+#### 19.8 POST /financeiro/appypay/cobrancas/:id/cancelar
 
 **Escopo da rota:** cancela localmente uma cobrança REF, GPO ou QR Code ainda não paga. Não chama endpoint de cancelamento da AppyPay, pois esse endpoint não é documentado para esses métodos.
 

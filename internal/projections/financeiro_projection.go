@@ -33,6 +33,54 @@ func (p *FinanceiroProjection) Handle(e db.Event) error {
 		return err
 	}
 	switch e.EventType {
+	case "MensalidadeConfigurada":
+		var in struct {
+			CodigoAcademia string  `json:"codigo_academia"`
+			Nivel          string  `json:"nivel"`
+			AnoAcademico   string  `json:"ano_academico"`
+			CursoID        *string `json:"curso_id"`
+			Valor          float64 `json:"valor"`
+			MesFimCobranca int     `json:"mes_fim_cobranca"`
+		}
+		if err := json.Unmarshal(e.Payload, &in); err != nil {
+			return err
+		}
+		if in.CodigoAcademia == "" || in.Nivel == "" || in.AnoAcademico == "" || in.Valor <= 0 {
+			return fmt.Errorf("evento MensalidadeConfigurada invÃ¡lido")
+		}
+		_, err := p.client.DB().Exec(`INSERT INTO financeiro_mensalidade_configuracoes (event_id,aggregate_id,codigo_academia,nivel,ano_academico,curso_id,valor,mes_fim_cobranca,vigente_em) VALUES ($1,$2,$3,$4,$5,NULLIF($6,'' )::uuid,$7,$8,$9) ON CONFLICT (event_id) DO NOTHING`, e.EventID, e.AggregateID, in.CodigoAcademia, in.Nivel, in.AnoAcademico, stringValue(in.CursoID), in.Valor, in.MesFimCobranca, e.OccurredAt)
+		return err
+	case "MesInicioCobrancaDefinido":
+		var in struct {
+			CodigoAcademia string `json:"codigo_academia"`
+			AnoLetivo      string `json:"ano_letivo"`
+			MesInicio      int    `json:"mes_inicio"`
+		}
+		if err := json.Unmarshal(e.Payload, &in); err != nil {
+			return err
+		}
+		if in.CodigoAcademia == "" || in.AnoLetivo == "" || in.MesInicio < 1 || in.MesInicio > 12 {
+			return fmt.Errorf("evento MesInicioCobrancaDefinido invÃ¡lido")
+		}
+		_, err := p.client.DB().Exec(`INSERT INTO financeiro_mensalidade_inicio_cobranca (event_id,aggregate_id,codigo_academia,ano_letivo,mes_inicio,definido_em) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (event_id) DO NOTHING`, e.EventID, e.AggregateID, in.CodigoAcademia, in.AnoLetivo, in.MesInicio, e.OccurredAt)
+		return err
+	case "ObrigacaoMensalidadeAnulada", "ObrigacaoMensalidadeReativada", "MensalidadePaga":
+		var in struct {
+			CodigoEstudante string `json:"codigo_estudante"`
+			CodigoAcademia  string `json:"codigo_academia"`
+			AnoLetivo       string `json:"ano_letivo"`
+			Mes             int    `json:"mes"`
+			Motivo          string `json:"motivo"`
+		}
+		if err := json.Unmarshal(e.Payload, &in); err != nil {
+			return err
+		}
+		if in.CodigoEstudante == "" || in.CodigoAcademia == "" || in.AnoLetivo == "" || in.Mes < 1 || in.Mes > 12 {
+			return fmt.Errorf("evento de obrigaÃ§Ã£o mensal invÃ¡lido")
+		}
+		tipo := map[string]string{"ObrigacaoMensalidadeAnulada": "anulada", "ObrigacaoMensalidadeReativada": "reativada", "MensalidadePaga": "paga"}[e.EventType]
+		_, err := p.client.DB().Exec(`INSERT INTO financeiro_mensalidade_obrigacoes_eventos (event_id,aggregate_id,codigo_estudante,codigo_academia,ano_letivo,mes,tipo,motivo,ocorrido_em) VALUES ($1,$2,$3,$4,$5,$6,$7,NULLIF($8,''),$9) ON CONFLICT (event_id) DO NOTHING`, e.EventID, e.AggregateID, in.CodigoEstudante, in.CodigoAcademia, in.AnoLetivo, in.Mes, tipo, in.Motivo, e.OccurredAt)
+		return err
 	case "CredenciaisAppyPayConfiguradas":
 		contexto, _ := v["contexto_tipo"].(string)
 		academia, _ := v["codigo_academia"].(string)
@@ -64,7 +112,7 @@ func (p *FinanceiroProjection) Handle(e db.Event) error {
 
 func (p *FinanceiroProjection) Rebuild() error {
 	// Secrets are operational material and intentionally survive a ledger replay.
-	if _, err := p.client.DB().Exec(`DELETE FROM financeiro_webhooks_recebidos; DELETE FROM financeiro_cobrancas; DELETE FROM financeiro_credenciais_appypay;`); err != nil {
+	if _, err := p.client.DB().Exec(`DELETE FROM financeiro_mensalidade_obrigacoes_eventos; DELETE FROM financeiro_mensalidade_inicio_cobranca; DELETE FROM financeiro_mensalidade_configuracoes; DELETE FROM financeiro_webhooks_recebidos; DELETE FROM financeiro_cobrancas; DELETE FROM financeiro_credenciais_appypay;`); err != nil {
 		return err
 	}
 	rows, err := p.client.DB().Query(`SELECT id,event_id,aggregate_id,aggregate_type,event_type,event_version,payload,metadata,occurred_at,recorded_at,ledger_hash,previous_hash FROM spuri_ledger WHERE aggregate_type='Financeiro' ORDER BY id`)
@@ -86,6 +134,13 @@ func (p *FinanceiroProjection) Rebuild() error {
 		}
 	}
 	return rows.Err()
+}
+
+func stringValue(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }
 
 // ApplyNow is used immediately after appending a ledger event. It invokes the

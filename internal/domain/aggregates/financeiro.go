@@ -18,6 +18,11 @@ type EventoFinanceiro struct{ BaseEvent }
 const (
 	CobrancaAppyPayCancelada               = "CobrancaAppyPayCancelada"
 	CobrancaAppyPayConflitoPosCancelamento = "CobrancaAppyPayConflitoPosCancelamento"
+	MensalidadeConfigurada                 = "MensalidadeConfigurada"
+	MesInicioCobrancaDefinido              = "MesInicioCobrancaDefinido"
+	ObrigacaoMensalidadeAnulada            = "ObrigacaoMensalidadeAnulada"
+	ObrigacaoMensalidadeReativada          = "ObrigacaoMensalidadeReativada"
+	MensalidadePaga                        = "MensalidadePaga"
 )
 
 func NewFinanceiro() *Financeiro { return NewFinanceiroWithID(uuid.New()) }
@@ -39,3 +44,31 @@ func (f *Financeiro) Apply(event DomainEvent) error {
 	return nil
 }
 func (e EventoFinanceiro) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+// ConfiguracaoMensalidade is the dedicated financial aggregate for one
+// academy. It deliberately shares the Financeiro ledger stream type: the
+// ledger therefore retains one audited, ordered event stream per academy,
+// while the financial projection derives every read model from it.
+//
+// The aggregate has no mutable shortcut state. Reconfigurations, exemptions
+// and future payment confirmations are all immutable events.
+type ConfiguracaoMensalidade struct{ *BaseAggregate }
+
+func NewConfiguracaoMensalidadeWithID(id uuid.UUID) *ConfiguracaoMensalidade {
+	return &ConfiguracaoMensalidade{BaseAggregate: &BaseAggregate{ID: id, UncommittedEvents: []DomainEvent{}}}
+}
+
+func (c *ConfiguracaoMensalidade) GetType() string { return "Financeiro" }
+func (c *ConfiguracaoMensalidade) Registrar(eventType string, payload map[string]any) {
+	c.RaiseEvent(&EventoFinanceiro{BaseEvent: BaseEvent{EventType: eventType, AggregateID: c.ID, Payload: payload}})
+}
+func (c *ConfiguracaoMensalidade) Apply(event DomainEvent) error {
+	if event.GetAggregateID() == uuid.Nil {
+		return fmt.Errorf("aggregate de mensalidade invÃ¡lido")
+	}
+	if c.ID == uuid.Nil {
+		c.ID = event.GetAggregateID()
+	}
+	c.Version++
+	return nil
+}
