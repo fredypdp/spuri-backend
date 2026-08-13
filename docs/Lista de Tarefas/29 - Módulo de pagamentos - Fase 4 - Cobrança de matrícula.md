@@ -35,6 +35,7 @@ Isto expõe uma limitação real do sistema atual: **não existe hoje nenhum end
 | Aprovação sem cobrança configurada | Fluxo atual inalterado — vínculo imediato | Retrocompatível com academias que não cobram matrícula |
 | Aprovação com cobrança configurada | Estudante **não** é vinculado imediatamente; solicitação entra em estado de pagamento pendente | Vínculo só ocorre após confirmação de pagamento |
 | Quem aciona a geração da cobrança | O próprio pagador (solicitante), escolhendo o método entre os habilitados pela academia, via novo endpoint público autenticado por posse do `codigo_solicitacao` | Cobrança gerada na hora, nunca previamente pela plataforma — mesmo princípio da Fase 3 |
+| Recuperar o `codigo_solicitacao` | Busca pública por pelo menos 2 dos campos: telefone/BI do estudante, telefone/BI do encarregado, e-mail | Mais fácil para o utilizador do que decorar o código; exigir 2 campos evita descoberta em massa por um único dado não secreto |
 | Confirmação de pagamento | Dispara `CriarComVinculo`, o fluxo natural já existente | Sem duplicar nem reinventar a criação do estudante |
 
 ---
@@ -132,11 +133,20 @@ Permitir que o pagador (quem submeteu a solicitação) escolha o método de paga
 
 Criar rota pública (ex.: `POST /solicitacao-matricula/:codigo/pagamento-matricula`) que recebe o método escolhido, valida o estado da solicitação (regra 1), valida que o método pertence ao conjunto habilitado pela academia (seção 1), verifica ausência de cobrança em aberto (regra 3), e chama `Service.CreateCharge` (REF/GPO) ou `Service.CreateGPOQRCode` com os dados da regra de negócio. Aplicar limitação de taxa (rate limiting) a este endpoint — mesmo com um `codigo_solicitacao` de alta entropia, é uma ação financeira pública e deve ser protegida contra automação abusiva, seguindo qualquer mecanismo de rate limiting já existente no projeto ou, na ausência de um, propor o mínimo necessário para este endpoint especificamente.
 
-### 3.2 Consulta do estado da solicitação pelo pagador
+### 3.2 Busca de solicitações por dados de contacto/identificação
 
-Se ainda não existir, criar também uma rota pública mínima de consulta (ex.: `GET /solicitacao-matricula/:codigo/status`) que devolve apenas o essencial para o pagador saber se há matrícula pendente de pagamento e, se sim, quais métodos estão disponíveis e qual o valor — sem expor dados sensíveis da solicitação (documentos, dados pessoais completos) que hoje só a academia/admin veem.
+Além do `codigo_solicitacao`, permitir encontrar a solicitação por dados que o utilizador tem mais facilidade em lembrar: telefone do estudante, telefone do encarregado, e-mail, BI do estudante, BI do encarregado. Todos esses campos já existem em `SolicitacaoMatricula`/`projection_solicitacoes_matricula`.
 
-### 3.3 Testes obrigatórios
+- Criar rota pública de busca (ex.: `GET /solicitacao-matricula/busca`), aceitando qualquer combinação dos campos acima como parâmetros.
+- **Por segurança, a busca só devolve resultados quando pelo menos dois campos diferentes forem fornecidos e corresponderem à mesma solicitação** (ex.: telefone + BI, ou e-mail + telefone) — nunca a partir de um único campo isolado. Diferente do `codigo_solicitacao` (gerado aleatoriamente, imprevisível), telefone/BI/e-mail não são segredos — podem ser conhecidos por terceiros — por isso exigir pelo menos dois em conjunto eleva significativamente a dificuldade de uma tentativa de descoberta em massa, mantendo a busca genuinamente mais fácil para o utilizador legítimo do que decorar um código aleatório. Usar correspondência exata (sem parcial/fuzzy).
+- Aplicar rate limiting dedicado a este endpoint, pela mesma razão do endpoint de geração de cobrança (seção 3.1).
+- O resultado é uma **lista** (pode haver mais de uma solicitação correspondente — ex.: o mesmo encarregado submeteu para mais de um educando, ou o mesmo estudante submeteu mais de uma vez), contendo apenas o suficiente para o utilizador reconhecer a sua solicitação: nome do estudante, academia, data de submissão, estado atual, e o `codigo_solicitacao` de cada resultado — é esse código que o utilizador usa a seguir nos endpoints já existentes. **Não** incluir aqui valor, métodos de pagamento nem qualquer outro dado sensível — isso continua exclusivo da consulta detalhada (seção 3.3).
+
+### 3.3 Consulta detalhada do estado da solicitação pelo pagador
+
+Se ainda não existir, criar também uma rota pública mínima de consulta por `codigo_solicitacao` (ex.: `GET /solicitacao-matricula/:codigo/status`) que devolve apenas o essencial para o pagador saber se há matrícula pendente de pagamento e, se sim, quais métodos estão disponíveis e qual o valor — sem expor dados sensíveis da solicitação (documentos, dados pessoais completos) que hoje só a academia/admin veem.
+
+### 3.4 Testes obrigatórios
 
 1. gerar cobrança com a solicitação em `aprovada_pendente_pagamento_matricula` e método habilitado → sucesso, valor correto;
 2. academia muda o valor da matrícula depois de uma solicitação já aprovada (pendente de pagamento): a cobrança gerada usa o valor fixado na aprovação, não o novo valor;
@@ -144,7 +154,12 @@ Se ainda não existir, criar também uma rota pública mínima de consulta (ex.:
 4. tentar gerar cobrança com método não habilitado pela academia para matrícula → rejeitado;
 5. tentar gerar uma segunda cobrança enquanto já existe uma em aberto → rejeitado;
 6. falha na criação da cobrança na AppyPay (ex.: erro de rede) não deixa a solicitação num estado inconsistente, e permite nova tentativa;
-7. o endpoint de consulta (3.2) não expõe dados pessoais além do necessário para decidir o pagamento.
+7. o endpoint de consulta detalhada (3.3) não expõe dados pessoais além do necessário para decidir o pagamento;
+8. busca (3.2) com um único campo fornecido (ex.: só telefone) → nenhum resultado devolvido, mesmo que exista correspondência;
+9. busca (3.2) com dois campos fornecidos e ambos correspondendo à mesma solicitação → solicitação devolvida na lista, com `codigo_solicitacao`, sem valor/métodos;
+10. busca (3.2) com dois campos fornecidos onde só um corresponde (ex.: telefone certo, BI de outra pessoa) → nenhum resultado;
+11. busca (3.2) que corresponde a mais de uma solicitação (ex.: mesmo telefone de encarregado usado em duas submissões) → lista com todas as correspondências;
+12. rate limiting do endpoint de busca (3.2) impede tentativas excessivas.
 
 ---
 
@@ -191,6 +206,7 @@ Estender o ponto de confirmação de pagamento (`ConsultCharge`/webhook) para re
 | Estudante em pagamento pendente aparecer indevidamente como vinculado em alguma listagem já existente | Teste dedicado (seção 2.4.3) cobrindo todas as listagens/contagens relevantes de estudantes da academia |
 | Falha na criação da cobrança deixar a solicitação "presa" sem caminho para nova tentativa | Tratamento explícito de falha com possibilidade de nova tentativa (seção 3.1) |
 | `codigo_solicitacao` ser a única credencial de um endpoint público que aciona uma cobrança financeira | Alta entropia do código (~36¹¹ combinações, `crypto/rand`), resposta genérica e uniforme para código inválido/estado inválido (evita enumeração), e rate limiting dedicado ao endpoint (seção 3.1) |
+| Endpoint de busca por telefone/BI/e-mail (seção 3.2) ser usado para descobrir solicitações de terceiros, já que esses dados não são secretos | Exigência de pelo menos 2 campos coincidentes (nunca um só), correspondência exata, rate limiting dedicado, e resultado sem valor/métodos de pagamento — só o suficiente para identificar e recuperar o `codigo_solicitacao` |
 | Solicitante gerar múltiplas cobranças para a mesma matrícula | Verificação de cobrança em aberto antes de permitir nova geração (seção 3, regra 3) |
 
 # Critérios de aceite
@@ -206,8 +222,9 @@ A tarefa só deve ser considerada concluída quando:
 7. a confirmação de pagamento vincular o estudante pelo processo natural já existente (`CriarComVinculo`), de forma idempotente;
 8. cancelamento de solicitação pendente de pagamento cancelar automaticamente qualquer cobrança em aberto associada, e o conflito de pagamento tardio pós-cancelamento estar coberto por teste;
 9. o endpoint de geração de cobrança tiver rate limiting e respostas genéricas contra enumeração de `codigo_solicitacao`;
-10. todos os testes das seções 1 a 4 passarem;
-11. `Documentação.md` estiver atualizada com o novo estado de solicitação, os novos endpoints públicos, os novos eventos, e o novo comportamento condicional na aprovação.
+10. o endpoint de busca por telefone/BI/e-mail exigir pelo menos 2 campos coincidentes, nunca devolver valor/métodos de pagamento, e ter rate limiting próprio;
+11. todos os testes das seções 1 a 4 passarem;
+12. `Documentação.md` estiver atualizada com o novo estado de solicitação, os novos endpoints públicos, os novos eventos, e o novo comportamento condicional na aprovação.
 
 ## Procedimento de conclusão
 
