@@ -1,11 +1,11 @@
 ---
 criado: 2026-08-13 00:00
 origem: depuração pós-implementação das tarefas 26 e 27, feita pelo Spuri (Claude como orquestrador/auditor)
-status: pendente
+status: feito
 depende_de: nenhuma (as tarefas 26 e 27 já foram implementadas — commits `1f20a3d` e `bd30f40`; esta tarefa corrige e reforça essa implementação, não a substitui)
 ---
 
-# Correção pós-implementação das Fases 1 e 2 do módulo de pagamentos (pendente)
+# Correção pós-implementação das Fases 1 e 2 do módulo de pagamentos (feito)
 
 ## Prompt recomendado para executar a atualização
 

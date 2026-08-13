@@ -34,21 +34,7 @@ func TestMensalidadeAggregateIDIsStableAndScopedByAcademy(t *testing.T) {
 func TestMensalidadeStatePrecedence(t *testing.T) {
 	// A precedÃªncia efetiva preserva um pagamento real mesmo diante de um
 	// evento histÃ³rico de anulaÃ§Ã£o e permite reativaÃ§Ã£o somente do anulado.
-	state := EstadoPendente
-	for _, typ := range []string{"anulada", "reativada", "paga", "anulada"} {
-		switch typ {
-		case "anulada":
-			if state != EstadoPago {
-				state = EstadoAnulado
-			}
-		case "reativada":
-			if state == EstadoAnulado {
-				state = EstadoPendente
-			}
-		case "paga":
-			state = EstadoPago
-		}
-	}
+	state := precedenciaEstado([]string{"anulada", "reativada", "paga", "anulada"})
 	if state != EstadoPago {
 		t.Fatalf("estado final = %s, want pago", state)
 	}

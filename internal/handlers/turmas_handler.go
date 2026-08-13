@@ -793,6 +793,18 @@ func AtualizarTurma(c *gin.Context) {
 		utils.RespondWithInternalError(c, fmt.Errorf("erro ao converter agregado"))
 		return
 	}
+	// A projecao tambem recebe historico durante a finalizacao do ano letivo,
+	// evento que nao pertence ao stream da Turma. Hidratamos essa informacao
+	// antes do comando para que AtualizarDados preserve a identidade academica
+	// em todos os anos que ja tiveram estudantes.
+	if len(turmaDTO.HistoricoEstudantesAnoLetivo) > 0 {
+		if turma.HistoricoAnosLetivos == nil {
+			turma.HistoricoAnosLetivos = map[string]struct{}{}
+		}
+		for anoLetivo := range turmaDTO.HistoricoEstudantesAnoLetivo {
+			turma.HistoricoAnosLetivos[anoLetivo] = struct{}{}
+		}
+	}
 
 	if err := turma.AtualizarDados(req.Nivel, req.CursoID, req.Turno, academiaID); err != nil {
 		utils.RespondWithValidationError(c, err)

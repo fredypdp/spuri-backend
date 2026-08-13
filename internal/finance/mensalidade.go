@@ -458,8 +458,8 @@ func (s *Service) estadoObrigacao(ctx context.Context, estudante, academia, anoL
 		return "", nil, err
 	}
 	defer rows.Close()
-	state := EstadoPendente
 	var audit []uuid.UUID
+	var eventos []string
 	for rows.Next() {
 		var id uuid.UUID
 		var typ string
@@ -467,6 +467,20 @@ func (s *Service) estadoObrigacao(ctx context.Context, estudante, academia, anoL
 			return "", nil, err
 		}
 		audit = append(audit, id)
+		eventos = append(eventos, typ)
+	}
+	if err := rows.Err(); err != nil {
+		return "", nil, err
+	}
+	return precedenciaEstado(eventos), audit, nil
+}
+
+// precedenciaEstado centraliza a regra dos eventos imutáveis de obrigação.
+// Um pagamento real prevalece sobre anulação posterior, e uma reativação só
+// produz efeito quando a obrigação está anulada.
+func precedenciaEstado(eventos []string) string {
+	state := EstadoPendente
+	for _, typ := range eventos {
 		switch typ {
 		case "anulada":
 			if state != EstadoPago {
@@ -480,7 +494,7 @@ func (s *Service) estadoObrigacao(ctx context.Context, estudante, academia, anoL
 			state = EstadoPago
 		}
 	}
-	return state, audit, rows.Err()
+	return state
 }
 
 type mesReferencia struct {

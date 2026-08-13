@@ -20,9 +20,12 @@ type Turma struct {
 	CursoID        *uuid.UUID
 	Turno          string   // "manha", "tarde", "noite"
 	Estudantes     []string // lista de codigo_estudante
-	Status         string   // "ativo", "inativo", "deletado"
-	CreatedAt      time.Time
-	DeletedAt      *time.Time
+	// HistoricoAnosLetivos é reconstruído dos eventos de vínculo com ano letivo.
+	// Ele impede que a identidade acadêmica seja reescrita retroativamente.
+	HistoricoAnosLetivos map[string]struct{}
+	Status               string // "ativo", "inativo", "deletado"
+	CreatedAt            time.Time
+	DeletedAt            *time.Time
 
 	// FIX T-01: campos de auditoria de ativação/desativação.
 	StatusAlteradoPor uuid.UUID
@@ -37,8 +40,9 @@ func NewTurma() *Turma {
 			Version:           0,
 			UncommittedEvents: []DomainEvent{},
 		},
-		Estudantes: []string{},
-		Status:     "ativo",
+		Estudantes:           []string{},
+		HistoricoAnosLetivos: map[string]struct{}{},
+		Status:               "ativo",
 	}
 }
 
@@ -216,6 +220,9 @@ func (t *Turma) AtualizarDados(nivel *string, cursoID *uuid.UUID, turno *string,
 	if turno != nil && *turno != "manha" && *turno != "tarde" && *turno != "noite" {
 		return fmt.Errorf("turno deve ser 'manha', 'tarde' ou 'noite'")
 	}
+	if t.temHistoricoLetivo() && (nivelAlterado(t.Nivel, nivel) || cursoAlterado(t.CursoID, cursoID)) {
+		return fmt.Errorf("não é possível alterar nivel ou curso_id de turma com histórico de anos letivos")
+	}
 	event := &TurmaDadosAtualizadosEvent{
 		BaseEvent:     BaseEvent{EventType: "TurmaDadosAtualizados", AggregateID: t.ID},
 		Nivel:         nivel,
@@ -225,6 +232,21 @@ func (t *Turma) AtualizarDados(nivel *string, cursoID *uuid.UUID, turno *string,
 	}
 	t.RaiseEvent(event)
 	return t.Apply(event)
+}
+
+func (t *Turma) temHistoricoLetivo() bool {
+	return len(t.HistoricoAnosLetivos) > 0
+}
+
+func nivelAlterado(atual string, novo *string) bool {
+	return novo != nil && *novo != atual
+}
+
+func cursoAlterado(atual, novo *uuid.UUID) bool {
+	if novo == nil {
+		return false
+	}
+	return atual == nil || *atual != *novo
 }
 
 // Deletar emite TurmaDeletada.
@@ -305,6 +327,12 @@ func (t *Turma) applyEstudanteAdicionado(event DomainEvent) error {
 		return fmt.Errorf("applyEstudanteAdicionado: unmarshal error: %w", err)
 	}
 	t.Estudantes = append(t.Estudantes, ev.CodigoEstudante)
+	if ev.AnoLectivo != "" {
+		if t.HistoricoAnosLetivos == nil {
+			t.HistoricoAnosLetivos = map[string]struct{}{}
+		}
+		t.HistoricoAnosLetivos[ev.AnoLectivo] = struct{}{}
+	}
 	return nil
 }
 
