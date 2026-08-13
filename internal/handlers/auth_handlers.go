@@ -190,8 +190,12 @@ func Login(c *gin.Context) {
 	// (ex.: finalizado/regularização), enquanto admins e academias continuam
 	// exigindo status exatamente "ativo".
 	statusBloqueado := userStatus != "ativo"
+	acessoRestritoFinanceiro := false
 	if userType == "estudante" {
-		statusBloqueado = userStatus == "inativo"
+		// An inactive student receives only the narrowly scoped financial token.
+		// All ordinary protected routes remain rejected by AuthMiddleware.
+		acessoRestritoFinanceiro = userStatus == "inativo"
+		statusBloqueado = false
 	}
 	if statusBloqueado {
 		log.Printf("[INFO] [Login] Conta bloqueada por status — type: %s, identifier: %s, status: %s",
@@ -210,7 +214,12 @@ func Login(c *gin.Context) {
 	}
 
 	// ── Emissão do JWT ─────────────────────────────────────────────────────
-	token, err := middleware.GenerateToken(userID, userType)
+	var token string
+	if acessoRestritoFinanceiro {
+		token, err = middleware.GenerateRestrictedFinanceToken(userID, userType)
+	} else {
+		token, err = middleware.GenerateToken(userID, userType)
+	}
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return

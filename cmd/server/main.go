@@ -329,6 +329,7 @@ func setupRouter() *gin.Engine {
 		// Consulta de mensalidades também é acessível ao próprio estudante; as
 		// demais ações financeiras ficam no grupo academia/admin abaixo.
 		protected.GET("/financeiro/mensalidades/estudante/:codigo", handlers.ConsultarMensalidadesEstudante)
+		protected.POST("/financeiro/mensalidades/pagamento", handlers.IniciarPagamentoMensalidades)
 
 		financeiro := protected.Group("/financeiro")
 		financeiro.Use(middleware.RequireAcademiaOuAdmin())

@@ -132,7 +132,44 @@ func ConsultarMensalidadesEstudante(c *gin.Context) {
 		financeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"codigo_estudante": codigo, "mensalidades": out})
+	metodos := map[string][]string{}
+	academias := map[string]bool{}
+	for _, mensalidade := range out {
+		academias[mensalidade.CodigoAcademia] = true
+	}
+	for academia := range academias {
+		if itens, err := FinanceiroService.MetodosPagamentoMensalidade(c.Request.Context(), academia); err == nil {
+			metodos[academia] = itens
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"codigo_estudante": codigo, "mensalidades": out, "metodos_pagamento_por_academia": metodos})
+}
+
+// IniciarPagamentoMensalidades is intentionally outside the academy/admin
+// financial group: only the authenticated student may express this intent.
+func IniciarPagamentoMensalidades(c *gin.Context) {
+	var in finance.MensalidadePagamentoInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		utils.RespondWithValidationError(c, errors.New("payload inválido"))
+		return
+	}
+	id, typ, _, ok := financeActor(c)
+	if !ok || typ != "estudante" {
+		utils.RespondWithForbiddenError(c, "somente o estudante pode iniciar pagamento de mensalidades")
+		return
+	}
+	var codigo string
+	if err := getDBClient(c).DB().QueryRowContext(c.Request.Context(), `SELECT codigo_estudante FROM projection_estudantes WHERE id=$1`, id).Scan(&codigo); err != nil {
+		utils.RespondWithUnauthorizedError(c)
+		return
+	}
+	in.CodigoEstudante = codigo
+	out, err := FinanceiroService.IniciarPagamentoMensalidades(c.Request.Context(), in, id.String(), typ, c.ClientIP())
+	if err != nil {
+		financeError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, out)
 }
 
 func AnularObrigacoesMensalidade(c *gin.Context)   { alterarObrigacoesMensalidadeHandler(c, false) }

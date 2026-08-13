@@ -1,11 +1,25 @@
 package finance
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+func TestMensalidadeSelectionPayloadIsStructuredAndRoundTrippable(t *testing.T) {
+	months := []MensalidadeSelecaoMes{{AnoLetivo: "2025_2026", Mes: 9}, {AnoLetivo: "2025_2026", Mes: 1}}
+	payload := chargePayload(uuid.New(), ChargeRequest{Mensalidades: months, CodigoEstudante: "EST001"}, "", "criada", nil)
+	got := mensalidadesDoPayload(payload)
+	if len(got) != 2 || got[0] != months[0] || got[1] != months[1] {
+		raw, _ := json.Marshal(payload)
+		t.Fatalf("meses não foram preservados no payload: %s", raw)
+	}
+	if payload["codigo_estudante"] != "EST001" {
+		t.Fatal("payload deve manter o estudante para a confirmação posterior")
+	}
+}
 
 func TestMensalidadeAnoLetivoEMesesRespeitamPeriodosFixos(t *testing.T) {
 	if !anoLetivoValido("2026_2027") || anoLetivoValido("2026_2028") {

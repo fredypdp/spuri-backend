@@ -136,6 +136,9 @@ type ChargeRequest struct {
 	Options               map[string]any `json:"options,omitempty"`
 	Notify                map[string]any `json:"notify,omitempty"`
 	Async                 bool           `json:"async"`
+	// These fields are auditable Spuri metadata and are not forwarded to AppyPay.
+	Mensalidades    []MensalidadeSelecaoMes `json:"mensalidades,omitempty"`
+	CodigoEstudante string                  `json:"codigo_estudante,omitempty"`
 }
 type QRCodeRequest struct {
 	ContextoTipo          string   `json:"contexto_tipo"`
@@ -149,6 +152,9 @@ type QRCodeRequest struct {
 	MaxTransactions       *int     `json:"maxTransactions,omitempty"`
 	StartDate             string   `json:"startDate,omitempty"`
 	EndDate               string   `json:"endDate,omitempty"`
+	// Mensalidades is ledger metadata only; it is never sent to AppyPay.
+	Mensalidades    []MensalidadeSelecaoMes `json:"mensalidades,omitempty"`
+	CodigoEstudante string                  `json:"codigo_estudante,omitempty"`
 }
 type ChargeResult struct {
 	ID                    uuid.UUID      `json:"id"`
@@ -354,7 +360,11 @@ func (s *Service) CreateCharge(ctx context.Context, in ChargeRequest, actorID, a
 	if err = s.record(ctx, id, "CobrancaAppyPayCriada", chargePayload(id, in, providerID, status, response), actorID, actorType, ip); err != nil {
 		return ChargeResult{}, err
 	}
-	return ChargeResult{ID: id, ProviderChargeID: providerID, MerchantTransactionID: in.MerchantTransactionID, Status: status, Response: response}, nil
+	result := ChargeResult{ID: id, ProviderChargeID: providerID, MerchantTransactionID: in.MerchantTransactionID, Status: status, Response: response}
+	if isSuccessfulChargeStatus(status) {
+		_ = s.confirmMensalidadeCharge(ctx, id, actorID, actorType, ip)
+	}
+	return result, nil
 }
 func (s *Service) CreateGPOQRCode(ctx context.Context, in QRCodeRequest, actorID, actorType, ip string) (QRCodeResult, error) {
 	if err := validateQRCode(&in); err != nil {
@@ -426,7 +436,11 @@ func (s *Service) CreateGPOQRCode(ctx context.Context, in QRCodeRequest, actorID
 		return QRCodeResult{}, err
 	}
 	qr, _ := response["qrCodeArr"].(string)
-	return QRCodeResult{ChargeResult: ChargeResult{ID: id, ProviderChargeID: providerID, MerchantTransactionID: in.MerchantTransactionID, Status: status, Response: response}, QRCodeArr: qr}, nil
+	result := QRCodeResult{ChargeResult: ChargeResult{ID: id, ProviderChargeID: providerID, MerchantTransactionID: in.MerchantTransactionID, Status: status, Response: response}, QRCodeArr: qr}
+	if isSuccessfulChargeStatus(status) {
+		_ = s.confirmMensalidadeCharge(ctx, id, actorID, actorType, ip)
+	}
+	return result, nil
 }
 func (s *Service) ConsultCharge(ctx context.Context, contexto, academia, identifier, actorID, actorType, ip string) (ChargeResult, error) {
 	if identifier == "" {
@@ -439,7 +453,11 @@ func (s *Service) ConsultCharge(ctx context.Context, contexto, academia, identif
 	if row.Contexto != contexto || row.Academia != academia {
 		return ChargeResult{}, fmt.Errorf("%w: cobrança não encontrada no contexto", ErrNotFound)
 	}
-	return s.consultCharge(ctx, row, actorID, actorType, ip)
+	result, err := s.consultCharge(ctx, row, actorID, actorType, ip)
+	if err == nil && isSuccessfulChargeStatus(result.Status) {
+		_ = s.confirmMensalidadeCharge(ctx, row.ID, actorID, actorType, ip)
+	}
+	return result, err
 }
 
 // CancelCharge only cancels the local Spuri charge record. AppyPay has no
@@ -813,6 +831,20 @@ func (s *Service) AcceptWebhook(ctx context.Context, metodo, eventID string, own
 		_, _ = s.client.DB().ExecContext(ctx, `DELETE FROM financeiro_webhooks_recebidos WHERE event_id=$1`, eventID)
 		return false, err
 	}
+	if isSuccessfulChargeStatus(responseStatus(payload)) {
+		if charge, loadErr := s.loadCharge(ctx, eventID); loadErr == nil && charge.Contexto == owner.ContextoTipo && charge.Academia == owner.CodigoAcademia {
+			updated := make(map[string]any, len(charge.Payload)+3)
+			for k, v := range charge.Payload {
+				updated[k] = v
+			}
+			updated["status"] = "Success"
+			updated["provider_charge_id"] = first(responseID(payload), charge.ProviderID)
+			updated["response"] = sanitize(payload)
+			if s.record(ctx, charge.ID, "CobrancaAppyPayConsultada", updated, "appypay:webhook", "sistema", "webhook") == nil {
+				_ = s.confirmMensalidadeCharge(ctx, charge.ID, "appypay:webhook", "sistema", "webhook")
+			}
+		}
+	}
 	return true, nil
 }
 
@@ -825,7 +857,7 @@ type chargeRow struct {
 func (s *Service) loadCharge(ctx context.Context, identifier string) (chargeRow, error) {
 	var r chargeRow
 	var raw []byte
-	err := s.client.DB().QueryRowContext(ctx, `SELECT id,COALESCE(provider_charge_id,''),merchant_transaction_id,contexto_tipo,COALESCE(codigo_academia,''),payload FROM financeiro_cobrancas WHERE provider_charge_id=$1 OR merchant_transaction_id=$1`, identifier).Scan(&r.ID, &r.ProviderID, &r.Merchant, &r.Contexto, &r.Academia, &raw)
+	err := s.client.DB().QueryRowContext(ctx, `SELECT id,COALESCE(provider_charge_id,''),merchant_transaction_id,contexto_tipo,COALESCE(codigo_academia,''),payload FROM financeiro_cobrancas WHERE id::text=$1 OR provider_charge_id=$1 OR merchant_transaction_id=$1`, identifier).Scan(&r.ID, &r.ProviderID, &r.Merchant, &r.Contexto, &r.Academia, &raw)
 	if err != nil {
 		return r, fmt.Errorf("%w: cobrança não encontrada", ErrNotFound)
 	}
@@ -975,14 +1007,14 @@ func validMerchantID(value string) bool {
 	return true
 }
 func chargePayload(id uuid.UUID, in ChargeRequest, providerID, status string, response map[string]any) map[string]any {
-	return map[string]any{"charge_id": id.String(), "contexto_tipo": in.ContextoTipo, "codigo_academia": in.CodigoAcademia, "amount": roundAmount(in.Amount), "currency": in.Currency, "description": in.Description, "merchant_transaction_id": in.MerchantTransactionID, "payment_method": in.PaymentMethod, "payment_info": in.PaymentInfo, "options": in.Options, "notify": in.Notify, "async": in.Async, "provider_charge_id": providerID, "status": status, "response": sanitize(response)}
+	return map[string]any{"charge_id": id.String(), "contexto_tipo": in.ContextoTipo, "codigo_academia": in.CodigoAcademia, "codigo_estudante": in.CodigoEstudante, "mensalidades": in.Mensalidades, "amount": roundAmount(in.Amount), "currency": in.Currency, "description": in.Description, "merchant_transaction_id": in.MerchantTransactionID, "payment_method": in.PaymentMethod, "payment_info": in.PaymentInfo, "options": in.Options, "notify": in.Notify, "async": in.Async, "provider_charge_id": providerID, "status": status, "response": sanitize(response)}
 }
 func qrCodePayload(id uuid.UUID, in QRCodeRequest, typ, providerID, status string, response map[string]any) map[string]any {
 	var minAmount any
 	if in.MinAmount != nil {
 		minAmount = roundAmount(*in.MinAmount)
 	}
-	return map[string]any{"charge_id": id.String(), "contexto_tipo": in.ContextoTipo, "codigo_academia": in.CodigoAcademia, "amount": roundAmount(in.Amount), "currency": in.Currency, "description": in.Description, "merchant_transaction_id": in.MerchantTransactionID, "provider_charge_id": providerID, "status": status, "payment_method": "GPO", "qr_code_type": typ, "min_amount": minAmount, "max_transactions": in.MaxTransactions, "start_date": in.StartDate, "end_date": in.EndDate, "response": sanitize(response)}
+	return map[string]any{"charge_id": id.String(), "contexto_tipo": in.ContextoTipo, "codigo_academia": in.CodigoAcademia, "codigo_estudante": in.CodigoEstudante, "amount": roundAmount(in.Amount), "currency": in.Currency, "description": in.Description, "merchant_transaction_id": in.MerchantTransactionID, "provider_charge_id": providerID, "status": status, "payment_method": "GPO", "qr_code_type": typ, "mensalidades": in.Mensalidades, "min_amount": minAmount, "max_transactions": in.MaxTransactions, "start_date": in.StartDate, "end_date": in.EndDate, "response": sanitize(response)}
 }
 func responseID(v map[string]any) string {
 	for _, k := range []string{"id", "chargeId", "charge_id"} {

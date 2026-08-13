@@ -1,11 +1,11 @@
 ---
 criado: 2026-08-12 00:00
 origem: pedido direto do Spuri (evolução do módulo financeiro após a tarefa 17)
-status: pendente
+status: feito
 depende_de: "27 - Módulo de pagamentos - Fase 2 - Cobrança de mensalidade-propina automatizada.md"
 ---
 
-# Módulo de pagamentos — Fase 3 — Cobrança de mensalidade/propina versátil para o estudante (pendente)
+# Módulo de pagamentos — Fase 3 — Cobrança de mensalidade/propina versátil para o estudante (feito)
 
 ## Prompt recomendado para executar a atualização
 

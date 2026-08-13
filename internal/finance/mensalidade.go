@@ -27,22 +27,24 @@ const (
 )
 
 type MensalidadeConfiguracaoInput struct {
-	CodigoAcademia string  `json:"codigo_academia"`
-	Nivel          string  `json:"nivel"`
-	AnoAcademico   string  `json:"ano_academico"`
-	CursoID        *string `json:"curso_id,omitempty"`
-	Valor          float64 `json:"valor"`
-	MesFimCobranca int     `json:"mes_fim_cobranca"`
+	CodigoAcademia   string   `json:"codigo_academia"`
+	Nivel            string   `json:"nivel"`
+	AnoAcademico     string   `json:"ano_academico"`
+	CursoID          *string  `json:"curso_id,omitempty"`
+	Valor            float64  `json:"valor"`
+	MesFimCobranca   int      `json:"mes_fim_cobranca"`
+	MetodosPagamento []string `json:"metodos_pagamento"`
 }
 
 type MensalidadeConfiguracaoView struct {
-	CodigoAcademia string     `json:"codigo_academia"`
-	Nivel          string     `json:"nivel"`
-	AnoAcademico   string     `json:"ano_academico"`
-	CursoID        *uuid.UUID `json:"curso_id,omitempty"`
-	Valor          float64    `json:"valor"`
-	MesFimCobranca int        `json:"mes_fim_cobranca"`
-	VigenteEm      time.Time  `json:"vigente_em"`
+	CodigoAcademia   string     `json:"codigo_academia"`
+	Nivel            string     `json:"nivel"`
+	AnoAcademico     string     `json:"ano_academico"`
+	CursoID          *uuid.UUID `json:"curso_id,omitempty"`
+	Valor            float64    `json:"valor"`
+	MesFimCobranca   int        `json:"mes_fim_cobranca"`
+	MetodosPagamento []string   `json:"metodos_pagamento"`
+	VigenteEm        time.Time  `json:"vigente_em"`
 }
 
 type MesInicioCobrancaInput struct {
@@ -74,6 +76,24 @@ type MensalidadeMesView struct {
 	EventosAuditoria []uuid.UUID `json:"eventos_auditoria,omitempty"`
 }
 
+type MensalidadeSelecaoMes struct {
+	AnoLetivo string `json:"ano_letivo"`
+	Mes       int    `json:"mes"`
+}
+
+type MensalidadePagamentoInput struct {
+	CodigoEstudante string                  `json:"-"`
+	CodigoAcademia  string                  `json:"codigo_academia"`
+	Meses           []MensalidadeSelecaoMes `json:"meses"`
+	MetodoPagamento string                  `json:"metodo_pagamento"`
+	Telefone        string                  `json:"telefone,omitempty"`
+}
+
+type MensalidadePagamentoView struct {
+	Charge ChargeResult            `json:"cobranca"`
+	Meses  []MensalidadeSelecaoMes `json:"meses"`
+}
+
 type mensalidadeVinculo struct {
 	CodigoAcademia string
 	AnoLetivo      string
@@ -92,7 +112,7 @@ func (s *Service) ConfigureMensalidade(ctx context.Context, in MensalidadeConfig
 		return MensalidadeConfiguracaoView{}, err
 	}
 	in.Valor = roundAmount(in.Valor)
-	payload := map[string]any{"codigo_academia": in.CodigoAcademia, "nivel": in.Nivel, "ano_academico": in.AnoAcademico, "curso_id": optionalString(in.CursoID), "valor": in.Valor, "mes_fim_cobranca": in.MesFimCobranca}
+	payload := map[string]any{"codigo_academia": in.CodigoAcademia, "nivel": in.Nivel, "ano_academico": in.AnoAcademico, "curso_id": optionalString(in.CursoID), "valor": in.Valor, "mes_fim_cobranca": in.MesFimCobranca, "metodos_pagamento": in.MetodosPagamento}
 	if err := s.recordMensalidade(ctx, in.CodigoAcademia, aggregates.MensalidadeConfigurada, payload, actorID, actorType, ip); err != nil {
 		return MensalidadeConfiguracaoView{}, err
 	}
@@ -108,7 +128,7 @@ func (s *Service) ConfigureMensalidade(ctx context.Context, in MensalidadeConfig
 }
 
 func (s *Service) ListMensalidadeConfiguracoes(ctx context.Context, codigoAcademia string) ([]MensalidadeConfiguracaoView, error) {
-	rows, err := s.client.DB().QueryContext(ctx, `SELECT DISTINCT ON (nivel,ano_academico,curso_id) nivel,ano_academico,curso_id,valor::float8,mes_fim_cobranca,vigente_em FROM financeiro_mensalidade_configuracoes WHERE codigo_academia=$1 ORDER BY nivel,ano_academico,curso_id,vigente_em DESC,event_id DESC`, codigoAcademia)
+	rows, err := s.client.DB().QueryContext(ctx, `SELECT DISTINCT ON (nivel,ano_academico,curso_id) nivel,ano_academico,curso_id,valor::float8,mes_fim_cobranca,metodos_pagamento,vigente_em FROM financeiro_mensalidade_configuracoes WHERE codigo_academia=$1 ORDER BY nivel,ano_academico,curso_id,vigente_em DESC,event_id DESC`, codigoAcademia)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +138,7 @@ func (s *Service) ListMensalidadeConfiguracoes(ctx context.Context, codigoAcadem
 		var v MensalidadeConfiguracaoView
 		var curso sql.NullString
 		v.CodigoAcademia = codigoAcademia
-		if err := rows.Scan(&v.Nivel, &v.AnoAcademico, &curso, &v.Valor, &v.MesFimCobranca, &v.VigenteEm); err != nil {
+		if err := rows.Scan(&v.Nivel, &v.AnoAcademico, &curso, &v.Valor, &v.MesFimCobranca, &v.MetodosPagamento, &v.VigenteEm); err != nil {
 			return nil, err
 		}
 		if curso.Valid {
@@ -177,7 +197,93 @@ func (s *Service) alterarObrigacoesMensalidade(ctx context.Context, in Obrigacao
 			return err
 		}
 	}
+	if eventType == aggregates.ObrigacaoMensalidadeAnulada {
+		for _, mes := range in.Meses {
+			// The annulment is already committed. A charge that won the provider
+			// race is reconciled by CancelCharge and never invalidates it.
+			_ = s.cancelOpenMensalidadeCharges(ctx, in.CodigoEstudante, in.CodigoAcademia, in.AnoLetivo, mes, actorID, actorType, ip)
+		}
+	}
 	return nil
+}
+
+// IniciarPagamentoMensalidades is the student-only orchestration layer. It
+// never exposes CreateCharge as a student action; it creates one academy-owned
+// charge after validating every selected due month locally.
+func (s *Service) IniciarPagamentoMensalidades(ctx context.Context, in MensalidadePagamentoInput, actorID, actorType, ip string) (MensalidadePagamentoView, error) {
+	in.CodigoEstudante, in.CodigoAcademia = strings.TrimSpace(in.CodigoEstudante), strings.TrimSpace(in.CodigoAcademia)
+	in.MetodoPagamento = strings.ToUpper(strings.TrimSpace(in.MetodoPagamento))
+	if in.CodigoEstudante == "" || in.CodigoAcademia == "" || len(in.Meses) == 0 || actorType != "estudante" || strings.TrimSpace(actorID) == "" {
+		return MensalidadePagamentoView{}, errors.New("somente o estudante pode enviar codigo_academia e pelo menos um mês")
+	}
+	metodos, err := s.metodosPagamentoMensalidade(ctx, in.CodigoAcademia)
+	if err != nil {
+		return MensalidadePagamentoView{}, err
+	}
+	if !contains(metodos, in.MetodoPagamento) {
+		return MensalidadePagamentoView{}, errors.New("método de pagamento não está habilitado para propina nesta academia")
+	}
+	all, err := s.ListMensalidades(ctx, in.CodigoEstudante, &in.CodigoAcademia)
+	if err != nil {
+		return MensalidadePagamentoView{}, err
+	}
+	pendentes := make([]MensalidadeMesView, 0)
+	for _, v := range all {
+		if v.Estado == EstadoPendente {
+			pendentes = append(pendentes, v)
+		}
+	}
+	if len(pendentes) == 0 {
+		return MensalidadePagamentoView{}, errors.New("não há mensalidades pendentes nesta academia")
+	}
+	selected, total := map[string]bool{}, 0.0
+	for _, m := range in.Meses {
+		key := m.AnoLetivo + ":" + strconv.Itoa(m.Mes)
+		if selected[key] {
+			return MensalidadePagamentoView{}, errors.New("mês selecionado mais de uma vez")
+		}
+		selected[key] = true
+		found := false
+		for _, due := range pendentes {
+			if due.AnoLetivo == m.AnoLetivo && due.Mes == m.Mes {
+				total += due.Valor
+				found = true
+				break
+			}
+		}
+		if !found {
+			return MensalidadePagamentoView{}, fmt.Errorf("mensalidade %s/%02d não está pendente", m.AnoLetivo, m.Mes)
+		}
+		open, err := s.mensalidadeTemCobrancaAberta(ctx, in.CodigoEstudante, in.CodigoAcademia, m.AnoLetivo, m.Mes)
+		if err != nil {
+			return MensalidadePagamentoView{}, err
+		}
+		if open {
+			return MensalidadePagamentoView{}, fmt.Errorf("mensalidade %s/%02d já possui cobrança em aberto", m.AnoLetivo, m.Mes)
+		}
+	}
+	oldest := pendentes[0]
+	if !selected[oldest.AnoLetivo+":"+strconv.Itoa(oldest.Mes)] {
+		return MensalidadePagamentoView{}, fmt.Errorf("a seleção deve incluir a mensalidade pendente mais antiga: %s/%02d", oldest.AnoLetivo, oldest.Mes)
+	}
+	total = roundAmount(total)
+	description, merchant := fmt.Sprintf("Propinas %s: %d mensalidade(s)", in.CodigoAcademia, len(in.Meses)), merchantID()
+	if in.MetodoPagamento == "GPO_QR" {
+		qr, err := s.CreateGPOQRCode(ctx, QRCodeRequest{ContextoTipo: ContextoAcademia, CodigoAcademia: in.CodigoAcademia, CodigoEstudante: in.CodigoEstudante, Amount: total, Currency: "AOA", Description: description, MerchantTransactionID: merchant, Mensalidades: in.Meses}, actorID, actorType, ip)
+		if err != nil {
+			return MensalidadePagamentoView{}, err
+		}
+		return MensalidadePagamentoView{Charge: qr.ChargeResult, Meses: in.Meses}, nil
+	}
+	info := map[string]any{}
+	if in.MetodoPagamento == "GPO" {
+		info["phoneNumber"] = strings.TrimSpace(in.Telefone)
+	}
+	charge, err := s.CreateCharge(ctx, ChargeRequest{ContextoTipo: ContextoAcademia, CodigoAcademia: in.CodigoAcademia, CodigoEstudante: in.CodigoEstudante, Mensalidades: in.Meses, Amount: total, Currency: "AOA", Description: description, MerchantTransactionID: merchant, PaymentMethod: in.MetodoPagamento, PaymentInfo: info}, actorID, actorType, ip)
+	if err != nil {
+		return MensalidadePagamentoView{}, err
+	}
+	return MensalidadePagamentoView{Charge: charge, Meses: in.Meses}, nil
 }
 
 // ListMensalidades derives every due month from historical turma membership,
@@ -257,6 +363,23 @@ func (s *Service) validateConfiguracaoMensalidade(ctx context.Context, in *Mensa
 	}
 	if in.MesFimCobranca != 6 && in.MesFimCobranca != 7 {
 		return errors.New("mes_fim_cobranca deve ser 6 ou 7")
+	}
+	seenMethods := map[string]bool{}
+	for i, method := range in.MetodosPagamento {
+		method = strings.ToUpper(strings.TrimSpace(method))
+		if method != "GPO" && method != "REF" && method != "GPO_QR" {
+			return errors.New("metodos_pagamento aceita apenas GPO, REF ou GPO_QR")
+		}
+		if seenMethods[method] {
+			return errors.New("metodos_pagamento não pode conter duplicados")
+		}
+		seenMethods[method] = true
+		in.MetodosPagamento[i] = method
+	}
+	if len(in.MetodosPagamento) > 0 {
+		if _, err := s.loadCredential(ctx, ContextoAcademia, in.CodigoAcademia); err != nil {
+			return errors.New("não é possível habilitar propina sem credenciais AppyPay da academia")
+		}
 	}
 	var typ, nivelAcademia string
 	var anosRaw []byte
@@ -554,5 +677,105 @@ func nullableUUID(v *uuid.UUID) any {
 		return nil
 	}
 	return v.String()
+}
+
+func (s *Service) metodosPagamentoMensalidade(ctx context.Context, academia string) ([]string, error) {
+	rows, err := s.client.DB().QueryContext(ctx, `SELECT DISTINCT unnest(metodos_pagamento) FROM (
+		SELECT DISTINCT ON (nivel,ano_academico,curso_id) metodos_pagamento
+		FROM financeiro_mensalidade_configuracoes WHERE codigo_academia=$1
+		ORDER BY nivel,ano_academico,curso_id,vigente_em DESC,event_id DESC
+	) configuracoes`, academia)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		out = append(out, strings.ToUpper(v))
+	}
+	return out, rows.Err()
+}
+
+func (s *Service) MetodosPagamentoMensalidade(ctx context.Context, academia string) ([]string, error) {
+	return s.metodosPagamentoMensalidade(ctx, academia)
+}
+
+func (s *Service) mensalidadeTemCobrancaAberta(ctx context.Context, estudante, academia, ano string, mes int) (bool, error) {
+	var exists bool
+	err := s.client.DB().QueryRowContext(ctx, `SELECT EXISTS (
+		SELECT 1 FROM financeiro_mensalidade_cobrancas m JOIN financeiro_cobrancas c ON c.id=m.charge_id
+		WHERE m.codigo_estudante=$1 AND m.codigo_academia=$2 AND m.ano_letivo=$3 AND m.mes=$4
+		AND lower(COALESCE(c.payload->>'status','')) NOT IN ('success','cancelada','falhada')
+	)`, estudante, academia, ano, mes).Scan(&exists)
+	return exists, err
+}
+
+func (s *Service) cancelOpenMensalidadeCharges(ctx context.Context, estudante, academia, ano string, mes int, actorID, actorType, ip string) error {
+	rows, err := s.client.DB().QueryContext(ctx, `SELECT c.id::text FROM financeiro_mensalidade_cobrancas m JOIN financeiro_cobrancas c ON c.id=m.charge_id
+		WHERE m.codigo_estudante=$1 AND m.codigo_academia=$2 AND m.ano_letivo=$3 AND m.mes=$4
+		AND lower(COALESCE(c.payload->>'status','')) NOT IN ('success','cancelada','falhada')`, estudante, academia, ano, mes)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		_, _ = s.CancelCharge(ctx, ContextoAcademia, academia, id, "obrigação anulada pela academia", actorID, actorType, ip)
+	}
+	return rows.Err()
+}
+
+// confirmMensalidadeCharge stores one ledger event for the whole charge. The
+// projector expands it transactionally into the monthly payment facts, so a
+// multi-month confirmation is never visible partially.
+func (s *Service) confirmMensalidadeCharge(ctx context.Context, chargeID uuid.UUID, actorID, actorType, ip string) error {
+	var exists bool
+	if err := s.client.DB().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM financeiro_mensalidade_obrigacoes_eventos WHERE charge_id=$1)`, chargeID).Scan(&exists); err != nil || exists {
+		return err
+	}
+	row, err := s.loadCharge(ctx, chargeID.String())
+	if err != nil || !isSuccessfulChargeStatus(row.Status) {
+		return err
+	}
+	months := mensalidadesDoPayload(row.Payload)
+	if len(months) == 0 {
+		return nil
+	}
+	estudante, _ := row.Payload["codigo_estudante"].(string)
+	// Student identity is stored in the structured selection payload, never
+	// inferred from an untrusted provider response.
+	if info, ok := row.Payload["payment_info"].(map[string]any); ok {
+		estudante, _ = info["codigo_estudante"].(string)
+	}
+	if estudante == "" {
+		return errors.New("cobrança de mensalidade sem estudante")
+	}
+	payload := map[string]any{"charge_id": chargeID.String(), "codigo_estudante": estudante, "codigo_academia": row.Academia, "meses": months}
+	return s.record(ctx, chargeID, "MensalidadesCobrancaConfirmada", payload, actorID, actorType, ip)
+}
+
+func mensalidadesDoPayload(payload map[string]any) []MensalidadeSelecaoMes {
+	var raw any = payload["mensalidades"]
+	if raw == nil {
+		if info, ok := payload["payment_info"].(map[string]any); ok {
+			raw = info["mensalidades"]
+		}
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var months []MensalidadeSelecaoMes
+	if json.Unmarshal(b, &months) != nil {
+		return nil
+	}
+	return months
 }
 func jsonUnmarshal(raw []byte, target any) error { return json.Unmarshal(raw, target) }

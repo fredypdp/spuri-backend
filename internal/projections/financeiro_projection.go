@@ -1,6 +1,7 @@
 package projections
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,40 @@ import (
 	"github.com/google/uuid"
 	"spuri/internal/db"
 )
+
+func (p *FinanceiroProjection) upsertMensalidadeCobrancas(chargeID uuid.UUID, academia string, payload map[string]any) error {
+	raw := payload["mensalidades"]
+	estudante, _ := payload["codigo_estudante"].(string)
+	if raw == nil {
+		if info, ok := payload["payment_info"].(map[string]any); ok {
+			raw = info["mensalidades"]
+			estudante, _ = info["codigo_estudante"].(string)
+		}
+	}
+	if raw == nil || estudante == "" || academia == "" {
+		return nil
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return err
+	}
+	var meses []struct {
+		AnoLetivo string `json:"ano_letivo"`
+		Mes       int    `json:"mes"`
+	}
+	if err := json.Unmarshal(b, &meses); err != nil {
+		return err
+	}
+	for _, mes := range meses {
+		if mes.AnoLetivo == "" || mes.Mes < 1 || mes.Mes > 12 {
+			return fmt.Errorf("mês associado à cobrança inválido")
+		}
+		if _, err := p.client.DB().Exec(`INSERT INTO financeiro_mensalidade_cobrancas (charge_id,codigo_estudante,codigo_academia,ano_letivo,mes) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, chargeID, estudante, academia, mes.AnoLetivo, mes.Mes); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // FinanceiroProjection is the sole writer of financial read models. Its event
 // payloads are deliberately secret-free, allowing deterministic replay.
@@ -35,12 +70,13 @@ func (p *FinanceiroProjection) Handle(e db.Event) error {
 	switch e.EventType {
 	case "MensalidadeConfigurada":
 		var in struct {
-			CodigoAcademia string  `json:"codigo_academia"`
-			Nivel          string  `json:"nivel"`
-			AnoAcademico   string  `json:"ano_academico"`
-			CursoID        *string `json:"curso_id"`
-			Valor          float64 `json:"valor"`
-			MesFimCobranca int     `json:"mes_fim_cobranca"`
+			CodigoAcademia   string   `json:"codigo_academia"`
+			Nivel            string   `json:"nivel"`
+			AnoAcademico     string   `json:"ano_academico"`
+			CursoID          *string  `json:"curso_id"`
+			Valor            float64  `json:"valor"`
+			MesFimCobranca   int      `json:"mes_fim_cobranca"`
+			MetodosPagamento []string `json:"metodos_pagamento"`
 		}
 		if err := json.Unmarshal(e.Payload, &in); err != nil {
 			return err
@@ -48,7 +84,7 @@ func (p *FinanceiroProjection) Handle(e db.Event) error {
 		if in.CodigoAcademia == "" || in.Nivel == "" || in.AnoAcademico == "" || in.Valor <= 0 {
 			return fmt.Errorf("evento MensalidadeConfigurada invÃ¡lido")
 		}
-		_, err := p.client.DB().Exec(`INSERT INTO financeiro_mensalidade_configuracoes (event_id,aggregate_id,codigo_academia,nivel,ano_academico,curso_id,valor,mes_fim_cobranca,vigente_em) VALUES ($1,$2,$3,$4,$5,NULLIF($6,'' )::uuid,$7,$8,$9) ON CONFLICT (event_id) DO NOTHING`, e.EventID, e.AggregateID, in.CodigoAcademia, in.Nivel, in.AnoAcademico, stringValue(in.CursoID), in.Valor, in.MesFimCobranca, e.OccurredAt)
+		_, err := p.client.DB().Exec(`INSERT INTO financeiro_mensalidade_configuracoes (event_id,aggregate_id,codigo_academia,nivel,ano_academico,curso_id,valor,mes_fim_cobranca,metodos_pagamento,vigente_em) VALUES ($1,$2,$3,$4,$5,NULLIF($6,'' )::uuid,$7,$8,$9,$10) ON CONFLICT (event_id) DO NOTHING`, e.EventID, e.AggregateID, in.CodigoAcademia, in.Nivel, in.AnoAcademico, stringValue(in.CursoID), in.Valor, in.MesFimCobranca, in.MetodosPagamento, e.OccurredAt)
 		return err
 	case "MesInicioCobrancaDefinido":
 		var in struct {
@@ -81,6 +117,37 @@ func (p *FinanceiroProjection) Handle(e db.Event) error {
 		tipo := map[string]string{"ObrigacaoMensalidadeAnulada": "anulada", "ObrigacaoMensalidadeReativada": "reativada", "MensalidadePaga": "paga"}[e.EventType]
 		_, err := p.client.DB().Exec(`INSERT INTO financeiro_mensalidade_obrigacoes_eventos (event_id,aggregate_id,codigo_estudante,codigo_academia,ano_letivo,mes,tipo,motivo,ocorrido_em) VALUES ($1,$2,$3,$4,$5,$6,$7,NULLIF($8,''),$9) ON CONFLICT (event_id) DO NOTHING`, e.EventID, e.AggregateID, in.CodigoEstudante, in.CodigoAcademia, in.AnoLetivo, in.Mes, tipo, in.Motivo, e.OccurredAt)
 		return err
+	case "MensalidadesCobrancaConfirmada":
+		var in struct {
+			ChargeID        string `json:"charge_id"`
+			CodigoEstudante string `json:"codigo_estudante"`
+			CodigoAcademia  string `json:"codigo_academia"`
+			Meses           []struct {
+				AnoLetivo string `json:"ano_letivo"`
+				Mes       int    `json:"mes"`
+			} `json:"meses"`
+		}
+		if err := json.Unmarshal(e.Payload, &in); err != nil {
+			return err
+		}
+		chargeID, err := uuid.Parse(in.ChargeID)
+		if err != nil || in.CodigoEstudante == "" || in.CodigoAcademia == "" || len(in.Meses) == 0 {
+			return fmt.Errorf("evento de confirmação de mensalidade inválido")
+		}
+		tx, err := p.client.BeginTx(context.Background())
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		for _, mes := range in.Meses {
+			if mes.AnoLetivo == "" || mes.Mes < 1 || mes.Mes > 12 {
+				return fmt.Errorf("mês de confirmação inválido")
+			}
+			if _, err = tx.Exec(`INSERT INTO financeiro_mensalidade_obrigacoes_eventos (event_id,aggregate_id,codigo_estudante,codigo_academia,ano_letivo,mes,tipo,charge_id,ocorrido_em) VALUES ($1,$2,$3,$4,$5,$6,'paga',$7,$8) ON CONFLICT (charge_id, codigo_estudante, codigo_academia, ano_letivo, mes) DO NOTHING`, e.EventID, e.AggregateID, in.CodigoEstudante, in.CodigoAcademia, mes.AnoLetivo, mes.Mes, chargeID, e.OccurredAt); err != nil {
+				return err
+			}
+		}
+		return tx.Commit()
 	case "CredenciaisAppyPayConfiguradas":
 		contexto, _ := v["contexto_tipo"].(string)
 		academia, _ := v["codigo_academia"].(string)
@@ -96,7 +163,10 @@ func (p *FinanceiroProjection) Handle(e db.Event) error {
 			return fmt.Errorf("evento financeiro sem merchant_transaction_id")
 		}
 		_, err := p.client.DB().Exec(`INSERT INTO financeiro_cobrancas (id,provider_charge_id,merchant_transaction_id,contexto_tipo,codigo_academia,payload,updated_at) VALUES ($1,NULLIF($2,''),$3,$4,NULLIF($5,''),$6,CURRENT_TIMESTAMP) ON CONFLICT (id) DO UPDATE SET provider_charge_id=COALESCE(EXCLUDED.provider_charge_id,financeiro_cobrancas.provider_charge_id),payload=EXCLUDED.payload,updated_at=CURRENT_TIMESTAMP`, e.AggregateID, provider, merchant, contexto, academia, e.Payload)
-		return err
+		if err != nil {
+			return err
+		}
+		return p.upsertMensalidadeCobrancas(e.AggregateID, academia, v)
 	case "WebhookAppyPayRecebido":
 		id, _ := v["event_id"].(string)
 		metodo, _ := v["metodo"].(string)

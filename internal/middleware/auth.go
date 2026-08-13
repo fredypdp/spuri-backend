@@ -20,8 +20,9 @@ import (
 )
 
 type Claims struct {
-	UserID   uuid.UUID `json:"user_id"`
-	UserType string    `json:"user_type"`
+	UserID                   uuid.UUID `json:"user_id"`
+	UserType                 string    `json:"user_type"`
+	AcessoRestritoFinanceiro bool      `json:"acesso_restrito_financeiro,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -70,11 +71,20 @@ func getJWTExpiryHours() int {
 }
 
 func GenerateToken(userID uuid.UUID, userType string) (string, error) {
+	return generateToken(userID, userType, false)
+}
+
+func GenerateRestrictedFinanceToken(userID uuid.UUID, userType string) (string, error) {
+	return generateToken(userID, userType, true)
+}
+
+func generateToken(userID uuid.UUID, userType string, restrictedFinance bool) (string, error) {
 	expiryHours := getJWTExpiryHours()
 
 	claims := Claims{
-		UserID:   userID,
-		UserType: userType,
+		UserID:                   userID,
+		UserType:                 userType,
+		AcessoRestritoFinanceiro: restrictedFinance,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(expiryHours) * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -147,7 +157,12 @@ func AuthMiddleware() gin.HandlerFunc {
 		// incluindo admin. A verificação é universal — qualquer tipo de usuário
 		// desativado é bloqueado aqui, independentemente de middlewares específicos
 		// de role. Isso fecha o gap nas rotas do grupo "protected".
-		if err := verificarStatusUsuario(c, claims.UserID, claims.UserType); err != nil {
+		if claims.AcessoRestritoFinanceiro && (claims.UserType != "estudante" || !rotaFinanceiraRestrita(c.Request.URL.Path)) {
+			utils.RespondWithError(c, http.StatusForbidden, "sessão restrita exclusivamente ao pagamento de mensalidades", nil)
+			c.Abort()
+			return
+		}
+		if err := verificarStatusUsuario(c, claims.UserID, claims.UserType); err != nil && !(claims.AcessoRestritoFinanceiro && claims.UserType == "estudante" && statusInativo(err)) {
 			log.Printf("❌ [AuthMiddleware] Usuário inativo ou não encontrado - UserID: %s, Type: %s: %v",
 				claims.UserID, claims.UserType, err)
 			utils.RespondWithError(c, http.StatusUnauthorized,
@@ -158,10 +173,16 @@ func AuthMiddleware() gin.HandlerFunc {
 
 		c.Set("user_id", claims.UserID)
 		c.Set("user_type", claims.UserType)
+		c.Set("acesso_restrito_financeiro", claims.AcessoRestritoFinanceiro)
 
 		log.Printf("✅ [AuthMiddleware] Autenticado - UserID: %s, UserType: %s", claims.UserID, claims.UserType)
 		c.Next()
 	}
+}
+
+func statusInativo(err error) bool { _, ok := err.(*statusInativoError); return ok }
+func rotaFinanceiraRestrita(path string) bool {
+	return strings.HasPrefix(path, "/financeiro/mensalidades/estudante/") || path == "/financeiro/mensalidades/pagamento"
 }
 
 // OptionalAuthMiddleware autentica a requisição quando um token Bearer é enviado,

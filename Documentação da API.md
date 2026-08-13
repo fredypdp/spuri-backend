@@ -7373,9 +7373,9 @@ Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e 
 - A consulta grava evento financeiro apenas quando o estado, identificador do provider ou resposta relevante mudar; consultas sem mudança não poluem o ledger.
 - Se a consulta detectar `Success` da AppyPay depois de a cobrança ter sido cancelada localmente, grava `CobrancaAppyPayConflitoPosCancelamento` e preserva o status local `cancelada`, para reconciliação manual por admin FPP.
 
-#### 19.7 Mensalidades/propinas automatizadas
+#### 19.7 Mensalidades/propinas e pagamento pelo estudante
 
-Esta fase não cria cobranças na AppyPay. Ela apenas mantém uma projeção sob demanda das obrigações mensais de academias `private`, usando a chave estável `(codigo_estudante, codigo_academia, ano_letivo, mes)`. Academias `public` não podem configurar nem geram mensalidades.
+A projeção de obrigações mensais usa a chave estável `(codigo_estudante, codigo_academia, ano_letivo, mes)`. Academias `public` não podem configurar nem geram mensalidades. O estudante pode selecionar meses pendentes de uma única academia e o Spuri cria automaticamente, no contexto financeiro dessa academia, uma única cobrança AppyPay: o estudante nunca chama a rota genérica de criação de cobrança.
 
 O valor é sempre `float64`, maior que zero e com até duas casas decimais. A configuração é versionada pelo evento `MensalidadeConfigurada`: fundamental usa `nivel=fundamental` + `ano_academico`; médio e superior também exigem `curso_id`. A resolução de cada mês consulta o preço que estava vigente no primeiro dia daquele mês e a turma histórica do estudante naquele ano letivo, portanto não usa curso, ano ou academia atuais para pendências antigas.
 
@@ -7392,7 +7392,8 @@ Academia dona ou admin FPP. Para academia autenticada, `codigo_academia` é impo
   "ano_academico": "1_ano_medio",
   "curso_id": "550e8400-e29b-41d4-a716-446655440000",
   "valor": 25000.00,
-  "mes_fim_cobranca": 7
+  "mes_fim_cobranca": 7,
+  "metodos_pagamento": ["REF", "GPO_QR"]
 }
 ```
 
@@ -7406,11 +7407,31 @@ Academia dona ou admin FPP. `mes_inicio` não pode anteceder setembro (escolar) 
 
 **GET `/financeiro/mensalidades/estudante/:codigo`**
 
-Academia recebe apenas obrigações da sua própria chave de academia; estudante só consulta o seu código; admin FPP pode consultar qualquer estudante e recebe os grupos de todas as academias históricas. Cada item inclui `estado` (`pendente`, `pago` ou `anulado`), `valor`, vínculo histórico e IDs dos eventos de auditoria relacionados.
+Academia recebe apenas obrigações da sua própria chave de academia; estudante só consulta o seu código; admin FPP pode consultar qualquer estudante e recebe os grupos de todas as academias históricas. Cada item inclui `estado` (`pendente`, `pago` ou `anulado`), `valor`, vínculo histórico e IDs dos eventos de auditoria relacionados. A resposta também traz `metodos_pagamento_por_academia`; uma lista vazia significa que o pagamento de propina está desativado.
+
+`metodos_pagamento` é um subconjunto de `GPO`, `REF` e `GPO_QR`. Só pode ser habilitado quando a academia possui credencial AppyPay; a ausência explícita de métodos não permite iniciar pagamento.
+
+**POST `/financeiro/mensalidades/pagamento`**
+
+Exclusivo do próprio estudante (inclusive sessão financeira restrita). O pedido informa a academia histórica ou atual, os meses e o método:
+
+```json
+{
+  "codigo_academia":"ACA001",
+  "meses":[{"ano_letivo":"2025_2026","mes":10},{"ano_letivo":"2025_2026","mes":1}],
+  "metodo_pagamento":"REF"
+}
+```
+
+A seleção deve conter o mês pendente mais antigo daquela academia; meses adicionais podem ser quaisquer outros pendentes da mesma academia. Pagos, anulados, duplicados ou meses já cobertos por cobrança aberta são recusados antes da chamada AppyPay. O valor é a soma dos preços históricos, arredondada pela regra financeira única, e a resposta traz uma única `cobranca` e os meses associados. Ao receber `Success` por consulta ou webhook, `MensalidadesCobrancaConfirmada` grava os pagamentos de todos os meses da cobrança numa única transação projetada; repetições são idempotentes.
+
+Um estudante sem vínculo ativo recebe, no login, uma claim `acesso_restrito_financeiro`; ela só permite esta rota e a sua consulta de mensalidades. Não libera perfil, notas, faltas ou qualquer outra rota protegida e não reintegra o estudante em academia alguma.
 
 **POST `/financeiro/mensalidades/obrigacoes/anular`** e **POST `/financeiro/mensalidades/obrigacoes/reativar`**
 
 Exclusivos da academia dona; admin FPP recebe `403` mesmo tendo acesso de leitura. Cada mês gera, respectivamente, `ObrigacaoMensalidadeAnulada` ou `ObrigacaoMensalidadeReativada`; eventos anteriores nunca são apagados. Uma reativação só é aceita para mês atualmente anulado e não pago.
+
+Ao anular mês coberto por cobrança ainda aberta, a plataforma tenta cancelar a cobrança inteira; os demais meses cobertos voltam a pendente. AppyPay não oferece cancelamento real de REF/GPO/QR emitidos: referência ou QR pode continuar pagável até expirar. Um `Success` tardio é registrado como `CobrancaAppyPayConflitoPosCancelamento` para reconciliação manual FPP, nunca aceito silenciosamente como pagamento.
 
 ```json
 {
