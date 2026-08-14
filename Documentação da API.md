@@ -2769,7 +2769,8 @@ Para implementar o cliente de forma segura:
 5. Quando enviados, os documentos são enviados ao storage definitivo em `{codigo_academia}/estudantes/{codigo_estudante}/documentos/`.
 6. Senha padrão = código do estudante (ex: `ABC1234`).
 7. Estudante é criado com **status `ativo`**, vinculado à academia e com o mapa `documentos` gravado no evento `EstudanteCriadoComVinculo` e na projeção.
-8. Se qualquer validação ou persistência falhar após upload parcial, o diretório de documentos do estudante é removido para evitar ficheiros órfãos.
+8. Opcionalmente, se `codigo_turma` for informado, a turma é pré-validada antes de uploads/gravações e o vínculo é tentado após a persistência do estudante.
+9. Se qualquer validação ou persistência falhar após upload parcial, o diretório de documentos do estudante é removido para evitar ficheiros órfãos.
 
 **Regras de validação:**
 
@@ -2825,6 +2826,7 @@ Cadastra um novo estudante vinculado à academia autenticada. O cadastro direto 
 | `curso_medio_id` | condicional | UUID de curso médio ativo da academia, quando o ano médio for informado. |
 | `ano_superior` | condicional | Ano superior canônico, quando aplicável. |
 | `curso_superior_id` | condicional | UUID de curso superior ativo da academia, quando o ano superior for informado. |
+| `codigo_turma` | não | Código da turma ativa da mesma academia para vincular o estudante imediatamente após o cadastro. A existência, status e compatibilidade com ano/curso são validadas antes de qualquer upload ou gravação. |
 
 **Ficheiros PDF aceitos:**
 
@@ -2852,6 +2854,7 @@ telefone_encarregado=924000000
 bilhete_identidade=001234567LA089
 bilhete_identidade_encarregado=009876543LA089
 ano_escolar_fundamental=7_ano_fundamental
+codigo_turma=TURMA-A
 ```
 
 **Request — multipart/form-data com documentos obrigatórios:**
@@ -2915,6 +2918,9 @@ curl -X POST https://api.exemplo.ao/academia/estudante/register \
     "id": "uuid",
     "codigo_estudante": "ABC1234",
     "codigo_academia": "LDA20261",
+    "status": "ativo",
+    "codigo_turma": "TURMA-A",
+    "turma_vinculada": true,
     "documentos": {
       "bi_encarregado": {
         "path": "LDA20261/estudantes/ABC1234/documentos/bi_encarregado_ABC1234.pdf",
@@ -2926,6 +2932,8 @@ curl -X POST https://api.exemplo.ao/academia/estudante/register \
 }
 ```
 
+Quando `codigo_turma` é informado e a vinculação pós-criação falha por uma condição concorrente rara, a resposta continua `201` porque o estudante já foi persistido, mas `data.turma_vinculada` vem `false` e `data.turma_aviso` orienta tentar novamente via `POST /academia/turma/:codigo/estudante`. Se `codigo_turma` não for informado, os campos `codigo_turma`, `turma_vinculada` e `turma_aviso` não aparecem na resposta.
+
 **Erros:**
 
 - `400` — `Content-Type` diferente de `multipart/form-data`
@@ -2933,6 +2941,8 @@ curl -X POST https://api.exemplo.ao/academia/estudante/register \
 - `400` — ano académico em formato incorreto ou incompatível com a academia/curso
 - `400` — ficheiro não PDF, sem assinatura `%PDF`, com extensão diferente de `.pdf` ou acima de 10MB
 - `400` — BI do estudante igual ao BI do encarregado, ou BI do estudante já cadastrado
+- `400` — turma informada está inativa/deletada ou é incompatível com ano/curso do estudante
+- `404` — `codigo_turma` informado não existe ou não pertence à academia autenticada
 
 ---
 
@@ -2953,20 +2963,21 @@ Cadastra estudantes em lote. O campo `com_arquivo` é obrigatório e define o co
       "data_nascimento": "2010-05-20",
       "telefone_encarregado": "924000000",
       "bilhete_identidade_encarregado": "009876543LA089",
-      "ano_escolar_fundamental": "1_ano_fundamental"
+      "ano_escolar_fundamental": "1_ano_fundamental",
+      "codigo_turma": "TURMA-A"
     }
   ]
 }
 ```
 
-Neste modo a requisição retorna imediatamente `202 Accepted` e cria um job de background, igual aos demais endpoints `/async` em lote. Use `poll_url` (`GET /jobs/:id`) ou `sse_url` (`GET /jobs/stream`) para acompanhar progresso, desempenho e resultados item a item. Durante o processamento são validados somente os campos textuais pelas mesmas regras de `POST /academia/estudante/register`, sem cobrança de PDFs. Cada estudante criado fica com `status = "pendente_documentos"` e não deve ser tratado como ativo até concluir a documentação pela rota posterior. Envio de arquivos com `com_arquivo: false` ou `com_arquivo` ausente/inválido é rejeitado.
+Neste modo a requisição retorna imediatamente `202 Accepted` e cria um job de background, igual aos demais endpoints `/async` em lote. Use `poll_url` (`GET /jobs/:id`) ou `sse_url` (`GET /jobs/stream`) para acompanhar progresso, desempenho e resultados item a item. Durante o processamento são validados somente os campos textuais pelas mesmas regras de `POST /academia/estudante/register`, sem cobrança de PDFs. Cada estudante criado fica com `status = "pendente_documentos"` e não deve ser tratado como ativo até concluir a documentação pela rota posterior. Quando um item inclui `codigo_turma`, a validação e a vinculação acontecem independentemente para aquele item, sem depender da ordem de processamento dos demais estudantes do lote, e o resultado individual pode trazer `codigo_turma`, `turma_vinculada` e `turma_aviso`. Envio de arquivos com `com_arquivo: false` ou `com_arquivo` ausente/inválido é rejeitado.
 
 **Modo com arquivos (`multipart/form-data`)**
 
 Campos:
 
 - `com_arquivo=true`;
-- `estudantes`: JSON array com os mesmos campos textuais e um `codigo_temporario` único por estudante;
+- `estudantes`: JSON array com os mesmos campos textuais, `codigo_turma` opcional por item e um `codigo_temporario` único por estudante;
 - arquivos nomeados como `<codigo_temporario>.<campo_documental>`, por exemplo `tmp-1.bi_estudante` e `tmp-1.bi_encarregado`.
 
 ```bash
@@ -4892,7 +4903,7 @@ Histórico por ano letivo e eventos permanecem disponíveis para auditoria.
 
 ### `POST /academia/turma/:codigo/estudante`
 
-Adiciona estudante à turma.
+Adiciona estudante à turma. Esta rota continua existindo para vincular ou corrigir vínculos de estudantes já cadastrados; o cadastro de estudante também aceita vinculação direta quando recebe `codigo_turma`.
 
 **Proteção:** academia ativa.
 

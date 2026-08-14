@@ -45,6 +45,7 @@ type CadastroEstudanteAcademiaRequest struct {
 	CursoMedioID        string                                   `json:"curso_medio_id"`
 	CursoSuperiorID     string                                   `json:"curso_superior_id"`
 	Documentos          map[string]aggregates.DocumentoMatricula `json:"documentos,omitempty"`
+	CodigoTurma         string                                   `json:"codigo_turma"`
 }
 
 func RegisterEstudantePorAcademia(c *gin.Context) {
@@ -78,7 +79,7 @@ func registerEstudantePorAcademiaMultipart(c *gin.Context) {
 		Email: get("email"), Telefone: get("telefone"), TelefoneEncarregado: get("telefone_encarregado"),
 		BilheteIdentidade: get("bilhete_identidade"), BilheteEncarregado: get("bilhete_identidade_encarregado"),
 		AnoEscolar: get("ano_escolar_fundamental"), AnoEscolarMedio: get("ano_escolar_medio"), AnoSuperior: get("ano_superior"),
-		CursoMedioID: get("curso_medio_id"), CursoSuperiorID: get("curso_superior_id"),
+		CursoMedioID: get("curso_medio_id"), CursoSuperiorID: get("curso_superior_id"), CodigoTurma: get("codigo_turma"),
 	}
 
 	files := map[string]uploadedPDF{}
@@ -121,6 +122,27 @@ func registerEstudantePorAcademiaComRequestModo(c *gin.Context, req CadastroEstu
 	if academia == nil {
 		utils.RespondWithError(c, http.StatusNotFound, "academia não encontrada", nil)
 		return
+	}
+
+	codigoTurma := strings.TrimSpace(req.CodigoTurma)
+	if codigoTurma != "" {
+		turmaDTO, err := getTurmasProjection(c).GetByCodigoTurma(codigoTurma, academia.CodigoAcademia)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		if turmaDTO == nil {
+			utils.RespondWithNotFoundError(c, "turma não encontrada ou não pertence a esta academia")
+			return
+		}
+		if turmaDTO.Status != "ativo" {
+			utils.RespondWithValidationError(c, fmt.Errorf("turma '%s' está %s e não pode receber estudantes", codigoTurma, turmaDTO.Status))
+			return
+		}
+		if err := validarCompatibilidadeEstudanteTurma(nil, nil, academia.AnosAcademicos, turmaDTO.Nivel, turmaDTO.CursoID, stringPtrIfNotBlank(req.AnoEscolar), stringPtrIfNotBlank(req.AnoEscolarMedio), stringPtrIfNotBlank(req.AnoSuperior), stringPtrIfNotBlank(req.CursoMedioID), stringPtrIfNotBlank(req.CursoSuperiorID)); err != nil {
+			utils.RespondWithValidationError(c, fmt.Errorf("estudante incompatível com esta turma: %w", err))
+			return
+		}
 	}
 
 	cursoMedioUUID, cursoSuperiorUUID, err := validarCursosMatriculaCommon(c, academia.CodigoAcademia, req.CursoMedioID, req.CursoSuperiorID)
@@ -272,6 +294,17 @@ func registerEstudantePorAcademiaComRequestModo(c *gin.Context, req CadastroEstu
 	}
 	log.Printf("Estudante criado por academia %s: %s - %s", academia.CodigoAcademia, codigoEstudante, req.Nome)
 	data := gin.H{"id": estudante.ID, "codigo_estudante": codigoEstudante, "codigo_academia": academia.CodigoAcademia, "documentos": documentos, "status": estudante.Status}
+	if codigoTurma != "" {
+		data["codigo_turma"] = codigoTurma
+		if err := vincularEstudanteATurma(c, academia, codigoEstudante, req.AnoEscolar, req.AnoEscolarMedio, req.AnoSuperior, req.CursoMedioID, req.CursoSuperiorID, codigoTurma, true, academiaID); err != nil {
+			aviso := fmt.Sprintf("não foi possível vincular à turma '%s': %v. Use POST /academia/turma/%s/estudante para tentar novamente.", codigoTurma, err, codigoTurma)
+			log.Printf("[WARN] falha ao vincular estudante recém-criado à turma: codigo_estudante=%s codigo_turma=%s erro=%v", codigoEstudante, codigoTurma, err)
+			data["turma_vinculada"] = false
+			data["turma_aviso"] = aviso
+		} else {
+			data["turma_vinculada"] = true
+		}
+	}
 	if estudante.Status == "pendente_documentos" {
 		data["documentos_faltantes"] = aggregates.DocumentosMatriculaFaltantes(bilhetePtr, bilheteRespPtr, anoEscolarPtr, anoEscolarMedioPtr, anoSuperiorPtr, documentos)
 	}
