@@ -1,11 +1,11 @@
 ---
 criado: 2026-08-14 22:46
 origem: depuração pós-implementação da tarefa 33 (Fases 1-4 do módulo de pagamentos), feita pelo Spuri (Claude como orquestrador/auditor, verificação com Go 1.24 + PostgreSQL real, `go test ./internal/finance/... -run TestIntegration` corrido de facto contra banco real, várias vezes, em isolamento)
-status: pendente
+status: feito
 depende_de: nenhuma (a tarefa 33 já foi implementada; esta tarefa corrige regressões e lacunas que a tarefa 33 não resolveu ou resolveu apenas parcialmente)
 ---
 
-# Correção pós-implementação da tarefa 33 (pendente)
+# Correção pós-implementação da tarefa 33 (feito)
 
 ## Prompt recomendado para executar a atualização
 
