@@ -95,24 +95,24 @@ func alterarAnosAcademicos(c *gin.Context, op string) {
 			return
 		}
 	default:
-		responderErroAnosValidacao(c, "type", "valor_invalido", fmt.Sprintf("O campo 'type' recebeu '%s', mas só aceita: 'fundamental', 'medio' ou 'superior'. Use 'fundamental' para anos do ensino fundamental, 'medio' para cursos médios e 'superior' para cursos superiores.", req.Type))
+		responderErroAnosValidacao(c, "type", "valor_invalido", fmt.Sprintf("O campo 'type' recebeu '%s', mas só aceita: 'fundamental', 'medio' ou 'superior'. Use 'fundamental' para anos do %s, 'medio' para cursos médios e 'superior' para cursos superiores.", req.Type, utils.RotuloEnsinoFundamentalGenerico))
 		return
 	}
 }
 
 func alterarAnosFundamental(c *gin.Context, academiaDTO *projections.AcademiaDTO, req anosAcademicosRequest, op string) error {
 	if academiaDTO.Nivel != "escola" || academiaDTO.NivelEscolar == nil || (*academiaDTO.NivelEscolar != "fundamental" && *academiaDTO.NivelEscolar != "misto") {
-		return newAnosValidationError("type", "nivel_incompativel", fmt.Sprintf("Esta academia não pode gerenciar anos do ensino fundamental porque o nível cadastrado é nivel='%s' e nivel_escolar='%s'. Somente academias escolares com nivel_escolar 'fundamental' ou 'misto' podem alterar anos fundamentais.", academiaDTO.Nivel, stringPtrValue(academiaDTO.NivelEscolar)))
+		return newAnosValidationError("type", "nivel_incompativel", fmt.Sprintf("Esta academia não pode gerenciar anos do %s porque o nível cadastrado é nivel='%s' e nivel_escolar='%s'. Somente academias escolares com nivel_escolar 'fundamental' ou 'misto' podem alterar anos do %s.", utils.RotuloEnsinoFundamentalGenerico, academiaDTO.Nivel, stringPtrValue(academiaDTO.NivelEscolar), utils.RotuloEnsinoFundamentalGenerico))
 	}
 	if len(req.AnosAcademicos) == 0 {
-		return newAnosValidationError("anos_academicos", "campo_obrigatorio", "Informe pelo menos um ano no campo 'anos_academicos'. Exemplo válido para fundamental: ['1_ano_fundamental', '2_ano_fundamental'].")
+		return newAnosValidationError("anos_academicos", "campo_obrigatorio", "Informe pelo menos um ano no campo 'anos_academicos'. Exemplo válido para o "+utils.RotuloEnsinoFundamentalGenerico+": ['1_ano_fundamental', '2_ano_fundamental'].")
 	}
 	if err := utils.ValidateAnosFundamental(req.AnosAcademicos); err != nil {
 		return newAnosValidationError("anos_academicos", "formato_invalido", err.Error())
 	}
 	novos := combinarAnos(academiaDTO.AnosAcademicos, req.AnosAcademicos, op)
 	if len(novos) == 0 {
-		return newAnosValidationError("anos_academicos", "remocao_invalida", "A operação removeria todos os anos acadêmicos. Academias fundamental/misto precisam manter pelo menos um ano ativo.")
+		return newAnosValidationError("anos_academicos", "remocao_invalida", "A operação removeria todos os anos acadêmicos. Academias do "+utils.RotuloEnsinoFundamentalGenerico+" ou mistas precisam manter pelo menos um ano ativo.")
 	}
 	removidos := valoresRemovidos(academiaDTO.AnosAcademicos, novos)
 	if len(removidos) > 0 {

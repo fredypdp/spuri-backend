@@ -346,7 +346,7 @@ func validarMatriculaEmAndamento(estudante *projections.EstudanteDTO) error {
 		}
 	default:
 		if estudante.StatusEscolarFundamental != "em_andamento" {
-			return fmt.Errorf("matrícula no ensino fundamental do estudante não está em andamento")
+			return fmt.Errorf("matrícula no " + utils.RotuloEnsinoFundamentalGenerico + " do estudante não está em andamento")
 		}
 	}
 	return nil

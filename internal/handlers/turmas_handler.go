@@ -370,14 +370,14 @@ func validarCompatibilidadeEstudanteTurma(
 		}
 		if anoEscolar == nil || *anoEscolar == "" {
 			return fmt.Errorf(
-				"estudante não possui ano escolar fundamental definido — configure o ano escolar antes de vincular à turma '%s'",
+				"estudante não possui ano escolar do "+utils.RotuloEnsinoFundamentalGenerico+" definido — configure o ano escolar antes de vincular à turma '%s'",
 				nivel,
 			)
 		}
 		if *anoEscolar != nivel {
 			return fmt.Errorf(
-				"estudante está no %s mas a turma é do nível %s",
-				*anoEscolar, nivel,
+				"estudante está na %s mas a turma é do nível %s",
+				utils.RotuloClasseFundamental(*anoEscolar), utils.RotuloClasseFundamental(nivel),
 			)
 		}
 

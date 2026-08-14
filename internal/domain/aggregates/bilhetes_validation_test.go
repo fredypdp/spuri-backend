@@ -169,8 +169,8 @@ func TestValidarDocumentosMatriculaRegrasAcademicasPorAno(t *testing.T) {
 	}
 
 	anoSetimo := "7_ano_fundamental"
-	if err := ValidarDocumentosMatricula(&bi, &biResp, &anoSetimo, nil, nil, docsIdentificacao); err == nil || !strings.Contains(err.Error(), "certificado do 6.º ano fundamental") {
-		t.Fatalf("7_ano_fundamental deve exigir certificado do 6.º ano ou declaração, recebeu %v", err)
+	if err := ValidarDocumentosMatricula(&bi, &biResp, &anoSetimo, nil, nil, docsIdentificacao); err == nil || !strings.Contains(err.Error(), "certificado da 6ª Classe") {
+		t.Fatalf("7_ano_fundamental deve exigir certificado da 6ª Classe ou declaração, recebeu %v", err)
 	}
 	docsSetimo := map[string]DocumentoMatricula{
 		"bi_encarregado":                {Path: "bi-encarregado.pdf"},
@@ -178,7 +178,7 @@ func TestValidarDocumentosMatriculaRegrasAcademicasPorAno(t *testing.T) {
 		"certificado_6_ano_fundamental": {Path: "certificado.pdf"},
 	}
 	if err := ValidarDocumentosMatricula(&bi, &biResp, &anoSetimo, nil, nil, docsSetimo); err != nil {
-		t.Fatalf("7_ano_fundamental deve aceitar certificado do 6.º ano: %v", err)
+		t.Fatalf("7_ano_fundamental deve aceitar certificado da 6ª Classe: %v", err)
 	}
 
 	anoMedio := "1_ano_medio"

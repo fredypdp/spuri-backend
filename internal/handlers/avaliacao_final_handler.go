@@ -1411,7 +1411,7 @@ func calcularProximoAnoFundamental(
 		}
 	}
 	if posAtual == -1 {
-		return nil, fmt.Errorf("nivel_atual '%s' não pertence à sequência fundamental (1_ano_fundamental..9_ano_fundamental)", nivelAtual)
+		return nil, fmt.Errorf("nivel_atual '%s' não pertence à sequência do "+utils.RotuloEnsinoFundamentalGenerico+" (1_ano_fundamental..9_ano_fundamental)", nivelAtual)
 	}
 
 	if !aprovado {

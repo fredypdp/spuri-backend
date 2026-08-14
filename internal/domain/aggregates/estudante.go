@@ -707,7 +707,7 @@ func (e *Estudante) InterromperFundamental(motivo string, interrompidoPor uuid.U
 		return fmt.Errorf("motivo é obrigatório")
 	}
 	if e.StatusEscolarFundamental != "em_andamento" {
-		return fmt.Errorf("só pode interromper fundamental em andamento")
+		return fmt.Errorf("só pode interromper o " + utils.RotuloEnsinoFundamentalGenerico + " em andamento")
 	}
 	event := &FundamentalInterrompidoEvent{BaseEvent: BaseEvent{EventType: "FundamentalInterrompido", AggregateID: e.ID}, Motivo: motivo, InterrompidoPor: interrompidoPor, InterrompidoAt: time.Now()}
 	e.RaiseEvent(event)

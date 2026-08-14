@@ -277,7 +277,7 @@ func validarCamposPorNivelRegraAvaliacaoFinal(req regraAvaliacaoFinalDTO) error 
 		}
 		for _, ano := range req.AnosAcademicos {
 			if strings.Contains(ano, "|") {
-				return fmt.Errorf("anos_academicos de regra fundamental deve ser array simples de strings; não envie escopo por curso")
+				return fmt.Errorf("anos_academicos de regra do " + utils.RotuloEnsinoFundamentalGenerico + " deve ser array simples de strings; não envie escopo por curso")
 			}
 		}
 		if req.LimiteMateriasPendentes != nil {
@@ -539,7 +539,7 @@ func validarEscopoRegraAvaliacaoFinal(tipoEnsino string, niveis []string) error 
 		switch tipoEnsino {
 		case "fundamental":
 			if err := utils.ValidateAnoFundamental(nivel); err != nil {
-				return fmt.Errorf("anos_academicos inválido para fundamental: %w", err)
+				return fmt.Errorf("anos_academicos inválido para o "+utils.RotuloEnsinoFundamentalGenerico+": %w", err)
 			}
 		case "medio":
 			partes := strings.Split(nivel, "|")
@@ -569,7 +569,7 @@ func validarAnosOfertadosRegraAvaliacaoFinal(nivel string, escopos, anosAcademia
 	}
 	for _, ano := range escopos {
 		if len(ofertados) > 0 && !ofertados[strings.TrimSpace(ano)] {
-			return fmt.Errorf("ano_academico fundamental não ofertado pela academia: %s", ano)
+			return fmt.Errorf("ano acadêmico do %s não ofertado pela academia: %s", utils.RotuloEnsinoFundamentalGenerico, utils.RotuloClasseFundamental(ano))
 		}
 	}
 	return nil
@@ -596,7 +596,7 @@ func validarMateriasAplicaveisRegraAvaliacaoFinal(c *gin.Context, codigoAcademia
 		}
 		if nivel == "fundamental" {
 			if curso != "" {
-				return fmt.Errorf("materias_aplicaveis fundamental não aceita curso_id")
+				return fmt.Errorf("materias_aplicaveis do " + utils.RotuloEnsinoFundamentalGenerico + " não aceita curso_id")
 			}
 			if !escopoOK[ano] {
 				return fmt.Errorf("materias_aplicaveis ano_academico fora dos anos_academicos da regra: %s", ano)

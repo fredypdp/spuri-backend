@@ -2101,7 +2101,7 @@ Adiciona/habilita novos escopos acadêmicos sem remover os escopos existentes. N
 
 | `type` | Onde altera | Campos aceitos | Campos obrigatórios | Resultado |
 | --- | --- | --- | --- | --- |
-| `fundamental` | Academia autenticada (`projection_academias.anos_academicos`) | `type`, `anos_academicos` | `type`, `anos_academicos` | Une os anos enviados com os anos fundamentais já ativos. |
+| `fundamental` | Academia autenticada (`projection_academias.anos_academicos`) | `type`, `anos_academicos` | `type`, `anos_academicos` | Une os anos enviados com os anos do Ensino Primário e Iº Ciclo já ativos. |
 | `medio` | Não altera por esta rota | nenhum fluxo de escrita permitido | n/a | Retorna erro estruturado. Cursos médios têm anos fixos derivados de `modelo`. |
 | `superior` | Não altera por esta rota | nenhum fluxo de escrita permitido | n/a | Retorna erro estruturado. Cursos superiores não aceitam adição direta de anos/períodos por `/academia/anos-academicos`. |
 
@@ -2236,13 +2236,13 @@ item apontando o campo exato que deve ser corrigido.
 ```json
 {
   "error": "VALIDATION_ERROR",
-  "message": "O campo 'type' recebeu '', mas só aceita: 'fundamental', 'medio' ou 'superior'. Use 'fundamental' para anos do ensino fundamental, 'medio' para cursos médios e 'superior' para cursos superiores.",
+  "message": "O campo 'type' recebeu '', mas só aceita: 'fundamental', 'medio' ou 'superior'. Use 'fundamental' para anos do Ensino Primário e Iº Ciclo, 'medio' para cursos médios e 'superior' para cursos superiores.",
   "request_id": "uuid-da-requisicao",
   "details": [
     {
       "field": "type",
       "code": "valor_invalido",
-      "message": "O campo 'type' recebeu '', mas só aceita: 'fundamental', 'medio' ou 'superior'. Use 'fundamental' para anos do ensino fundamental, 'medio' para cursos médios e 'superior' para cursos superiores."
+      "message": "O campo 'type' recebeu '', mas só aceita: 'fundamental', 'medio' ou 'superior'. Use 'fundamental' para anos do Ensino Primário e Iº Ciclo, 'medio' para cursos médios e 'superior' para cursos superiores."
     }
   ]
 }
@@ -3640,7 +3640,7 @@ Aprova uma solicitação pendente de revinculação do estudante indicado em `:c
 - Apenas estudante `inativo` por desvinculação pode ser revinculado.
 - A aprovação grava `EstudanteReintegrado`, define `status = "ativo"` e reativa a etapa indicada/derivada.
 - A retomada deve usar a última posição acadêmica do estudante naquela mesma academia: nível, ano fundamental, ano médio, curso médio, ano superior, semestre atual e curso superior conforme aplicável.
-- No fundamental, a aprovação é bloqueada quando houver progressão posterior em outra academia; o retorno só é permitido no mesmo ano fundamental da desvinculação.
+- No fundamental, a aprovação é bloqueada quando houver progressão posterior em outra academia; o retorno só é permitido no mesmo ano do Ensino Primário e Iº Ciclo da desvinculação.
 - No médio e no superior, cursos informados precisam existir, estar ativos, pertencer à academia e ter tipo compatível; se omitidos, a aprovação reutiliza o curso anterior válido daquela academia.
 - O evento final inclui referência da solicitação aprovada e snapshot da posição acadêmica retomada.
 
@@ -3711,7 +3711,7 @@ Cria uma solicitação pública de matrícula para a academia informada.
 | `telefone_encarregado` | texto | não | Telefone do encarregado; normalizado/validado quando enviado. |
 | `bilhete_identidade` | texto | não | BI do candidato; normalizado/validado quando enviado. |
 | `bilhete_identidade_encarregado` | texto | não | BI do encarregado; normalizado/validado quando enviado. |
-| `ano_escolar_fundamental` | texto | condicional | Use quando a solicitação for para ensino fundamental. |
+| `ano_escolar_fundamental` | texto | condicional | Use quando a solicitação for para o Ensino Primário e Iº Ciclo. |
 | `ano_escolar_medio` | texto | condicional | Use quando a solicitação for para ensino médio. |
 | `ano_superior` | texto | condicional | Use quando a solicitação for para ensino superior. |
 | `curso_medio_id` | UUID | condicional | Curso `medio`, `ativo` e da mesma academia; usado com `ano_escolar_medio`. |
@@ -5525,7 +5525,7 @@ A academia monta uma cadeia declarando uma regra raiz e, opcionalmente, regras d
 | Campo | Fundamental | Médio | Superior |
 |---|---:|---:|---:|
 | `nivel` | `fundamental` | `medio` | `superior` |
-| `anos_academicos` | Obrigatório e não vazio; array simples de anos fundamentais | Obrigatório; lista de objetos `{curso_id, anos_academicos}` por curso médio | Rejeitado |
+| `anos_academicos` | Obrigatório e não vazio; array simples de anos do Ensino Primário e Iº Ciclo | Obrigatório; lista de objetos `{curso_id, anos_academicos}` por curso médio | Rejeitado |
 | `materias_aplicaveis` | Opcional; lista de itens `{ano_academico, materias}` | Opcional; lista de itens `{curso_id, ano_academico, materias}` | Opcional; lista de itens `{curso_id, ano_academico, materias}` com ano derivado dos semestres |
 | `limite_materias_pendentes` | Regras fixas do sistema | Regras fixas do sistema; sem pendências escolares | Obrigatório, `>= 0` |
 | `aplica_se_reprovado_em_type` | Ausente na raiz; presente em descendente | Ausente na raiz; presente em descendente | Ausente na raiz; presente em descendente |
@@ -5653,9 +5653,9 @@ Observações importantes que vêm diretamente do comportamento fixo do backend:
 - O backend avalia cada matéria fundamental ativa aplicável ao ano do estudante, respeitando `materias_aplicaveis` se configurado.
 - Cada matéria recebe `nota_final` própria; aprovação direta exige que todas as matérias avaliadas atinjam a mínima.
 - Uma ou mais matérias abaixo da mínima reprovam a etapa e podem acionar regra descendente por matéria reprovada.
-- Fundamental não permite aprovação com pendência: regra fundamental não tem `limite_materias_pendentes` e matérias fundamentais não aceitam `pendencia_permitida`/`pendencia_nivel_conclusao`.
-- Aprovado em ano intermediário progride para o próximo ano fundamental. Se a academia não oferta o próximo ano, o evento registra o motivo `academia_sem_oferta_do_proximo_ano_academico_fundamental`, mantém o ciclo em andamento e não adiciona turma automaticamente.
-- Aprovado no `9_ano_fundamental` finaliza o ciclo fundamental. Reprovado permanece no mesmo ano.
+- Fundamental não permite aprovação com pendência: regra do Ensino Primário e Iº Ciclo não tem `limite_materias_pendentes` e matérias do Ensino Primário e Iº Ciclo não aceitam `pendencia_permitida`/`pendencia_nivel_conclusao`.
+- Aprovado em ano intermediário progride para o próximo ano do Ensino Primário e Iº Ciclo. Se a academia não oferta o próximo ano, o evento registra o motivo `academia_sem_oferta_do_proximo_ano_academico_fundamental`, mantém o ciclo em andamento e não adiciona turma automaticamente.
+- Aprovado no `9_ano_fundamental` finaliza o ciclo do Ensino Primário e Iº Ciclo. Reprovado permanece no mesmo ano.
 
 #### 15.1.7 Médio
 
@@ -5728,10 +5728,10 @@ Devem falhar com erro de validação ou bloqueio funcional:
 - Payload de regra com `tipo_ensino`; use `nivel`.
 - Academia mista criando regra sem `nivel` ou tentando criar regra `superior`.
 - Academia não mista criando regra de nível incompatível com sua configuração.
-- `anos_academicos` ausente em regra fundamental ou presente em Médio/Superior.
+- `anos_academicos` ausente em regra do Ensino Primário e Iº Ciclo ou presente em Médio/Superior.
 - `limite_materias_pendentes` enviado em regra escolar, ausente em regra superior ou negativo.
 - `materias_aplicaveis` fora do escopo do curso/ano/período aplicável deve ser tratada como configuração inválida ou ineficaz operacionalmente; QA deve validar esse cenário contra a base de matérias da academia.
-- Descendente órfã, descendente que aponta para si mesma, ciclo de dependências ou escopo fundamental diferente da raiz.
+- Descendente órfã, descendente que aponta para si mesma, ciclo de dependências ou escopo do Ensino Primário e Iº Ciclo diferente da raiz.
 - Fórmula Fundamental/Médio sem período explícito (`[categoria]`).
 - Fórmula Superior com período explícito (`[categoria,periodo]`).
 - Fórmula com categoria inexistente, período inválido, divisão por zero, caracteres fora da gramática ou categorias enviadas que não batem com a fórmula.
