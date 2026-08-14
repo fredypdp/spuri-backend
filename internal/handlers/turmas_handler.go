@@ -520,6 +520,83 @@ func inferirTipoEnsinoPorNivel(nivel string) string {
 	return "desconhecido"
 }
 
+func vincularEstudanteATurma(
+	c *gin.Context,
+	academiaDTO *projections.AcademiaDTO,
+	codigoEstudante string,
+	anoEscolar, anoEscolarMedio, anoSuperior string,
+	cursoMedioID, cursoSuperiorID string,
+	codigoTurma string,
+	ignorarChecagemDuplicidade bool,
+	atuadoPor uuid.UUID,
+) error {
+	turmasProj := getTurmasProjection(c)
+	turmaDTO, err := turmasProj.GetByCodigoTurma(codigoTurma, academiaDTO.CodigoAcademia)
+	if err != nil {
+		return err
+	}
+	if turmaDTO == nil {
+		return fmt.Errorf("turma não encontrada ou não pertence a esta academia")
+	}
+	if turmaDTO.Status != "ativo" {
+		return fmt.Errorf("turma '%s' está %s e não pode receber estudantes", codigoTurma, turmaDTO.Status)
+	}
+
+	if !ignorarChecagemDuplicidade {
+		turmasAtuais, err := turmasProj.ListByEstudante(codigoEstudante, &academiaDTO.CodigoAcademia)
+		if err != nil {
+			return err
+		}
+		for _, t := range turmasAtuais {
+			if t.ID != turmaDTO.ID && t.Status != "deletado" {
+				return fmt.Errorf("estudante já pertence à turma '%s' e não pode ser vinculado a múltiplas turmas", t.CodigoTurma)
+			}
+		}
+	}
+
+	if err := validarCompatibilidadeEstudanteTurma(
+		nil, nil,
+		academiaDTO.AnosAcademicos,
+		turmaDTO.Nivel,
+		turmaDTO.CursoID,
+		stringPtrIfNotBlank(anoEscolar),
+		stringPtrIfNotBlank(anoEscolarMedio),
+		stringPtrIfNotBlank(anoSuperior),
+		stringPtrIfNotBlank(cursoMedioID),
+		stringPtrIfNotBlank(cursoSuperiorID),
+	); err != nil {
+		return fmt.Errorf("estudante incompatível com esta turma: %w", err)
+	}
+
+	anoLectivo, err := resolverAnoLetivoAcademia(academiaDTO.AnoLetivo, academiaDTO.CodigoAcademia)
+	if err != nil {
+		return err
+	}
+
+	audit := db.AuditContext{UserID: atuadoPor.String(), UserType: "academia", IP: c.ClientIP()}
+	repository := getRepository(c)
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		agg, err := repository.Load(turmaDTO.ID, "Turma")
+		if err != nil {
+			return err
+		}
+		turma, ok := agg.(*aggregates.Turma)
+		if !ok {
+			return fmt.Errorf("erro ao converter agregado")
+		}
+		if err := turma.AdicionarEstudanteNoAnoLectivo(codigoEstudante, anoLectivo, atuadoPor); err != nil {
+			return err
+		}
+		if err := repository.SaveWithAudit(turma, audit); err != nil {
+			lastErr = err
+			continue
+		}
+		return nil
+	}
+	return lastErr
+}
+
 // AdicionarEstudanteATurma adiciona um estudante à turma.
 // Rota: POST /academia/turmas/:codigo/estudantes
 //
@@ -541,16 +618,13 @@ func AdicionarEstudanteATurma(c *gin.Context) {
 		return
 	}
 
-	academiaProj := getAcademiaProjection(c)
-	academiaDTO, err := academiaProj.GetByID(academiaID)
+	academiaDTO, err := getAcademiaProjection(c).GetByID(academiaID)
 	if err != nil || academiaDTO == nil {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
 
-	// Verifica se o estudante pertence à academia
-	estudanteProj := getEstudanteProjection(c)
-	estudanteDTO, err := estudanteProj.GetByCodigo(req.CodigoEstudante)
+	estudanteDTO, err := getEstudanteProjection(c).GetByCodigo(req.CodigoEstudante)
 	if err != nil || estudanteDTO == nil {
 		utils.RespondWithNotFoundError(c, "estudante")
 		return
@@ -560,75 +634,8 @@ func AdicionarEstudanteATurma(c *gin.Context) {
 		return
 	}
 
-	turmasProj := getTurmasProjection(c)
-	turmaDTO, err := turmasProj.GetByCodigoTurma(codigoTurma, academiaDTO.CodigoAcademia)
-	if err != nil || turmaDTO == nil {
-		utils.RespondWithNotFoundError(c, "turma")
-		return
-	}
-	// Regra: estudante só pode pertencer a uma turma por vez.
-	turmasAtuais, err := turmasProj.ListByEstudante(req.CodigoEstudante, &academiaDTO.CodigoAcademia)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-	for _, t := range turmasAtuais {
-		if t.ID != turmaDTO.ID && t.Status != "deletado" {
-			utils.RespondWithValidationError(c, fmt.Errorf(
-				"estudante já pertence à turma '%s' e não pode ser vinculado a múltiplas turmas",
-				t.CodigoTurma,
-			))
-			return
-		}
-	}
-
-	// ── Validação de compatibilidade estudante ↔ turma ────────────────────
-	if err := validarCompatibilidadeEstudanteTurma(
-		nil, nil,
-		academiaDTO.AnosAcademicos,
-		turmaDTO.Nivel,
-		turmaDTO.CursoID,
-		estudanteDTO.AnoEscolar,
-		estudanteDTO.AnoEscolarMedio,
-		estudanteDTO.AnoSuperior,
-		estudanteDTO.CursoMedioID,
-		estudanteDTO.CursoSuperiorID,
-	); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("estudante incompatível com esta turma: %w", err))
-		return
-	}
-
-	repository := getRepository(c)
-	agg, err := repository.Load(turmaDTO.ID, "Turma")
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-
-	turma, ok := agg.(*aggregates.Turma)
-	if !ok {
-		utils.RespondWithInternalError(c, fmt.Errorf("erro ao converter agregado"))
-		return
-	}
-
-	anoLectivo, err := resolverAnoLetivoAcademia(academiaDTO.AnoLetivo, academiaDTO.CodigoAcademia)
-	if err != nil {
+	if err := vincularEstudanteATurma(c, academiaDTO, req.CodigoEstudante, derefString(estudanteDTO.AnoEscolar), derefString(estudanteDTO.AnoEscolarMedio), derefString(estudanteDTO.AnoSuperior), derefString(estudanteDTO.CursoMedioID), derefString(estudanteDTO.CursoSuperiorID), codigoTurma, false, academiaID); err != nil {
 		utils.RespondWithValidationError(c, err)
-		return
-	}
-
-	if err := turma.AdicionarEstudanteNoAnoLectivo(req.CodigoEstudante, anoLectivo, academiaID); err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
-	}
-
-	audit := db.AuditContext{
-		UserID:   academiaID.String(),
-		UserType: "academia",
-		IP:       c.ClientIP(),
-	}
-	if err := repository.SaveWithAudit(turma, audit); err != nil {
-		utils.RespondWithInternalError(c, err)
 		return
 	}
 
@@ -637,6 +644,13 @@ func AdicionarEstudanteATurma(c *gin.Context) {
 		"codigo_turma":     codigoTurma,
 		"codigo_estudante": req.CodigoEstudante,
 	})
+}
+
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 // RemoverEstudanteDaTurma remove um estudante da turma.

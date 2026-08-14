@@ -106,6 +106,7 @@ type cadastroEstudanteJSONItem struct {
 	AnoSuperior            string                                   `json:"ano_superior"`
 	CursoMedioID           string                                   `json:"curso_medio_id"`
 	CursoSuperiorID        string                                   `json:"curso_superior_id"`
+	CodigoTurma            string                                   `json:"codigo_turma"`
 	DeclaracaoAnoAcademico string                                   `json:"declaracao_ano_academico"`
 	Documentos             map[string]aggregates.DocumentoMatricula `json:"documentos"`
 	Arquivos               map[string]asyncUploadedPDF              `json:"arquivos,omitempty"`
@@ -130,6 +131,7 @@ func (item cadastroEstudanteJSONItem) toCadastroRequest() (CadastroEstudanteAcad
 		AnoSuperior:         strings.TrimSpace(item.AnoSuperior),
 		CursoMedioID:        strings.TrimSpace(item.CursoMedioID),
 		CursoSuperiorID:     strings.TrimSpace(item.CursoSuperiorID),
+		CodigoTurma:         strings.TrimSpace(item.CodigoTurma),
 		Documentos:          item.Documentos,
 	}, strings.TrimSpace(item.DeclaracaoAnoAcademico), nil
 }

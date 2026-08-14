@@ -105,13 +105,14 @@ func TestCadastroEstudanteJSONItemToCadastroRequest(t *testing.T) {
 		BilheteEncarregado:     " 002LA000000 ",
 		AnoEscolar:             " 1_ano_fundamental ",
 		DeclaracaoAnoAcademico: " 1_ano_fundamental ",
+		CodigoTurma:            " TURMA-A ",
 	}
 
 	req, declaracaoAnoAcademico, err := item.toCadastroRequest()
 	if err != nil {
 		t.Fatalf("não esperava erro: %v", err)
 	}
-	if req.Nome != "Ana Maria" || req.Email != "ana@example.com" || req.AnoEscolar != "1_ano_fundamental" {
+	if req.Nome != "Ana Maria" || req.Email != "ana@example.com" || req.AnoEscolar != "1_ano_fundamental" || req.CodigoTurma != "TURMA-A" {
 		t.Fatalf("campos textuais não foram normalizados: %+v", req)
 	}
 	if declaracaoAnoAcademico != "1_ano_fundamental" {
