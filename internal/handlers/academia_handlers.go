@@ -232,11 +232,9 @@ func RegisterAcademia(c *gin.Context) {
 //
 // Diferença deliberada em relação a RegisterAcademia: como não há um admin
 // para comunicar a senha padrão à academia fora de banda, o cadastro
-// público aceita um campo opcional "senha" (multipart/form-data) definido
-// pela própria academia. Se omitido, cai no mesmo padrão já usado pelo
-// fluxo administrativo (services.GetDefaultPassword). RegisterAcademia
-// (fluxo admin) permanece inalterado — continua sempre usando a senha
-// padrão baseada no código, sem aceitar senha customizada.
+// público exige o campo "senha" (multipart/form-data) definido pela própria
+// academia. RegisterAcademia (fluxo admin) permanece inalterado — continua
+// sempre usando a senha padrão baseada no código, sem aceitar senha customizada.
 //
 // Segurança:
 //   - academia.Criar() sempre inicia o status como "inativo" (ver
@@ -287,15 +285,17 @@ func RegisterAcademiaPublica(c *gin.Context) {
 		return
 	}
 
-	// Senha customizada opcional — exclusiva do cadastro público. Lida
-	// diretamente do multipart/form-data já parseado por
-	// bindRegisterAcademiaRequest (c.PostForm não reprocessa o body).
-	senhaCustomizada := strings.TrimSpace(c.PostForm("senha"))
-	if senhaCustomizada != "" {
-		if err := utils.ValidateSenha(senhaCustomizada); err != nil {
-			utils.RespondWithValidationError(c, err)
-			return
-		}
+	// Senha obrigatória — exclusiva do cadastro público. Lida diretamente do
+	// multipart/form-data já parseado por bindRegisterAcademiaRequest (c.PostForm
+	// não reprocessa o body).
+	senha := strings.TrimSpace(c.PostForm("senha"))
+	if senha == "" {
+		utils.RespondWithValidationError(c, fmt.Errorf("senha é obrigatória"))
+		return
+	}
+	if err := utils.ValidateSenha(senha); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
 	}
 
 	codigoProvincia, err := validarProvincia(req.Provincia)
@@ -344,12 +344,7 @@ func RegisterAcademiaPublica(c *gin.Context) {
 		return
 	}
 
-	senhaFinal := senhaCustomizada
-	senhaEraCustomizada := senhaCustomizada != ""
-	if senhaFinal == "" {
-		senhaFinal = services.GetDefaultPassword("academia", codigoAcademia)
-	}
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(senhaFinal), bcrypt.DefaultCost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(senha), bcrypt.DefaultCost)
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
 		return
@@ -412,9 +407,6 @@ func RegisterAcademiaPublica(c *gin.Context) {
 	log.Printf("Academia auto-registada (cadastro público, pendente de ativação): %s (%s)", req.Nome, codigoAcademia)
 
 	aviso := "guarde o código da academia: ele é o seu identificador de login. você definiu sua própria senha no cadastro."
-	if !senhaEraCustomizada {
-		aviso = "guarde o código da academia: ele é o identificador de login e também a senha inicial. altere a senha assim que a conta for ativada."
-	}
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message":         "cadastro recebido com sucesso. a conta fica inativa até que um administrador (role adm ou fpp) a ative.",
