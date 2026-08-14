@@ -2,11 +2,11 @@
 criado: 2026-08-13 00:00
 atualizado: 2026-08-14 00:00
 origem: Solicitação direta do dono do produto (orquestrado via Claude, execução via Codex)
-status: pendente
+status: feito
 repositorio: fredypdp/spuri-backend (branch main)
 ---
 
-# Cadastro de estudante já vinculado a uma turma (pendente)
+# Cadastro de estudante já vinculado a uma turma (feito)
 
 ## Prompt recomendado para executar a atualização
 
