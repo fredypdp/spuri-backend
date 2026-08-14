@@ -1,11 +1,11 @@
 ---
 criado: 2026-08-14 00:00
 origem: depuração pós-implementação das Fases 3, 4 e da correção 31, feita pelo Spuri (Claude como orquestrador/auditor, verificação com Go 1.24 + PostgreSQL real)
-status: pendente
+status: feito
 depende_de: nenhuma (as tarefas 26-29 e 31 já foram implementadas; esta tarefa corrige e reforça essa implementação, não a substitui)
 ---
 
-# Correção final do módulo de pagamentos — Fases 1 a 4 (pendente)
+# Correção final do módulo de pagamentos — Fases 1 a 4 (feito)
 
 ## Prompt recomendado para executar a atualização
 
