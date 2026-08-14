@@ -300,8 +300,10 @@ func (s *Service) ListMensalidades(ctx context.Context, codigoEstudante string, 
 		if err != nil {
 			return nil, err
 		}
+		natural := mesNaturalInicioAnoLetivo(v.Nivel)
+		inicioPos := posicaoNoAnoLetivo(inicio, natural)
 		for _, ref := range mesesAnoLetivo(v.AnoLetivo, v.Nivel) {
-			if ref.Month < inicio {
+			if posicaoNoAnoLetivo(ref.Month, natural) < inicioPos {
 				continue
 			}
 			cfg, err := s.resolveConfiguracao(ctx, v.CodigoAcademia, v.Nivel, v.AnoAcademico, v.CursoID, ref.Data)
@@ -311,7 +313,7 @@ func (s *Service) ListMensalidades(ctx context.Context, codigoEstudante string, 
 			if err != nil {
 				return nil, err
 			}
-			if ref.Month > cfg.MesFimCobranca {
+			if posicaoNoAnoLetivo(ref.Month, natural) > posicaoNoAnoLetivo(cfg.MesFimCobranca, natural) {
 				continue
 			}
 			state, audit, err := s.estadoObrigacao(ctx, codigoEstudante, v.CodigoAcademia, v.AnoLetivo, ref.Month)
@@ -451,19 +453,13 @@ func (s *Service) validateMesInicioCobranca(ctx context.Context, in *MesInicioCo
 	if typ != "private" {
 		return errors.New("mensalidade só pode ser configurada por academia privada")
 	}
-	natural := 9
-	if nivel == "superior" {
-		natural = 10
-	}
-	if in.MesInicio < natural {
-		return fmt.Errorf("mes_inicio não pode ser anterior a %02d", natural)
-	}
+	natural := mesNaturalInicioAnoLetivo(nivel)
 	var menor sql.NullInt64
 	err = s.client.DB().QueryRowContext(ctx, `SELECT MIN(mes_fim_cobranca) FROM (SELECT DISTINCT ON (nivel,ano_academico,curso_id) mes_fim_cobranca FROM financeiro_mensalidade_configuracoes WHERE codigo_academia=$1 ORDER BY nivel,ano_academico,curso_id,vigente_em DESC,event_id DESC) c`, in.CodigoAcademia).Scan(&menor)
 	if err != nil {
 		return err
 	}
-	if menor.Valid && in.MesInicio > int(menor.Int64) {
+	if menor.Valid && posicaoNoAnoLetivo(in.MesInicio, natural) > posicaoNoAnoLetivo(int(menor.Int64), natural) {
 		return errors.New("mes_inicio não pode ser posterior ao mes_fim_cobranca configurado")
 	}
 	return nil
@@ -561,10 +557,7 @@ func (s *Service) vinculosMensalidade(ctx context.Context, estudante string, som
 }
 
 func (s *Service) mesInicioEfetivo(ctx context.Context, academia, anoLetivo, nivel string) (int, error) {
-	natural := 9
-	if nivel == NivelSuperior {
-		natural = 10
-	}
+	natural := mesNaturalInicioAnoLetivo(nivel)
 	var mes int
 	err := s.client.DB().QueryRowContext(ctx, `SELECT mes_inicio FROM financeiro_mensalidade_inicio_cobranca WHERE codigo_academia=$1 AND ano_letivo=$2 ORDER BY definido_em DESC,event_id DESC LIMIT 1`, academia, anoLetivo).Scan(&mes)
 	if err == sql.ErrNoRows {
@@ -573,10 +566,32 @@ func (s *Service) mesInicioEfetivo(ctx context.Context, academia, anoLetivo, niv
 	if err != nil {
 		return 0, err
 	}
-	if mes < natural {
+	if !mesValido(mes) {
 		return 0, errors.New("configuração de mes_inicio inconsistente")
 	}
 	return mes, nil
+}
+
+// mesNaturalInicioAnoLetivo devolve o mês de calendário em que o ano letivo
+// começa para o nível informado. Fundamental e médio começam em setembro;
+// superior começa em outubro.
+func mesNaturalInicioAnoLetivo(nivel string) int {
+	if nivel == NivelSuperior || nivel == "superior" {
+		return 10
+	}
+	return 9
+}
+
+// posicaoNoAnoLetivo devolve a posição ordinal do mês dentro do ano letivo
+// (1 = primeiro mês cobrável, crescente), para que meses de calendário de
+// anos civis diferentes dentro do mesmo ano letivo sejam comparáveis.
+// natural é o mês de calendário em que o ano letivo começa (9 para os
+// níveis fundamental/médio, 10 para superior).
+func posicaoNoAnoLetivo(mes, natural int) int {
+	if mes >= natural {
+		return mes - natural + 1
+	}
+	return mes + (12 - natural) + 1
 }
 
 func (s *Service) estadoObrigacao(ctx context.Context, estudante, academia, anoLetivo string, mes int) (string, []uuid.UUID, error) {

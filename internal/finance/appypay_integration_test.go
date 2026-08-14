@@ -28,7 +28,11 @@ func (t *appyPayMockTransport) RoundTrip(req *http.Request) (*http.Response, err
 	case strings.Contains(req.URL.Path, "/oauth2/token"):
 		body = `{"access_token":"test-token","expires_in":3600}`
 	case req.Method == http.MethodGet:
-		body = `{"id":"provider-charge","status":"` + t.status + `"}`
+		providerID := strings.TrimPrefix(req.URL.EscapedPath(), "/v2.0/charges/")
+		if providerID == req.URL.EscapedPath() || providerID == "" {
+			providerID = req.URL.Query().Get("merchantTransactionId")
+		}
+		body = `{"id":"` + providerID + `","status":"` + t.status + `"}`
 	case strings.HasSuffix(req.URL.Path, "/qr-codes"):
 		body = `{"id":"` + t.providerID("qr") + `","status":"Pending","qrCodeArr":"base64-qr"}`
 	case req.Method == http.MethodPost:

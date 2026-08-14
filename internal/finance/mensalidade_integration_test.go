@@ -268,8 +268,8 @@ func TestIntegrationMensalidadeMesInicioEValidadePorAno(t *testing.T) {
 	if err := service.validateMesInicioCobranca(context.Background(), &MesInicioCobrancaInput{CodigoAcademia: academia, AnoLetivo: "2026_2027", MesInicio: 8}); err == nil {
 		t.Fatal("mes_inicio anterior ao periodo natural foi aceite")
 	}
-	if err := service.validateMesInicioCobranca(context.Background(), &MesInicioCobrancaInput{CodigoAcademia: academia, AnoLetivo: "2026_2027", MesInicio: 10}); err == nil {
-		t.Fatal("mes_inicio posterior ao fim foi aceite")
+	if err := service.validateMesInicioCobranca(context.Background(), &MesInicioCobrancaInput{CodigoAcademia: academia, AnoLetivo: "2026_2027", MesInicio: 10}); err != nil {
+		t.Fatalf("mes_inicio de outubro deve ser aceito dentro da ordem do ano letivo: %v", err)
 	}
 	valores, err := service.ListMensalidades(context.Background(), "EST-INICIO", nil)
 	if err != nil {
@@ -277,6 +277,15 @@ func TestIntegrationMensalidadeMesInicioEValidadePorAno(t *testing.T) {
 	}
 	_ = mensalidadePorMes(t, valores, academia, "2025_2026", 1)
 	_ = mensalidadePorMes(t, valores, academia, "2026_2027", 9)
+	meses2026 := 0
+	for _, valor := range valores {
+		if valor.CodigoAcademia == academia && valor.AnoLetivo == "2026_2027" {
+			meses2026++
+		}
+	}
+	if meses2026 != 11 {
+		t.Fatalf("mensalidades de 2026_2027 = %d, queria 11", meses2026)
+	}
 }
 
 func TestIntegrationMensalidadeAnularEReativar(t *testing.T) {
