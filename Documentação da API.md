@@ -1195,7 +1195,7 @@ Permite que uma academia se autocadastre na plataforma **sem autenticação pré
 
 **Proteção**: nenhuma (rota pública)
 
-**Diferença em relação ao cadastro por admin**: aceita um campo opcional `senha` (string, 6–128 caracteres). Se enviado, essa senha é definida como a senha de acesso da academia. Se omitido, a senha inicial é o próprio `codigo_academia`, como no fluxo administrativo.
+**Diferença em relação ao cadastro por admin**: exige o campo `senha` (string, 6–128 caracteres). Essa senha é definida como a senha de acesso da academia. Diferentemente do fluxo administrativo, este endpoint público não usa fallback para a senha padrão baseada no `codigo_academia`.
 
 **Request:**
 
@@ -1239,7 +1239,7 @@ Permite que uma academia se autocadastre na plataforma **sem autenticação pré
 
 **Erros:**
 
-- `400` — `nivel` inválido, `type` inválido, `nif` ausente/inválido, `alvara` ausente/não PDF/acima de 10MB, campos obrigatórios ausentes, `anos_academicos` inválidos, ou `senha` fora do intervalo de 6–128 caracteres
+- `400` — `nivel` inválido, `type` inválido, `nif` ausente/inválido, `alvara` ausente/não PDF/acima de 10MB, campos obrigatórios ausentes, `anos_academicos` inválidos, `senha` ausente/vazia ou fora do intervalo de 6–128 caracteres
 - `409` — `nif` já cadastrado em outra academia
 
 ---

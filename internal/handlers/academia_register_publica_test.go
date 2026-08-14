@@ -60,7 +60,7 @@ func TestRegisterAcademiaPublicaForcesNilCriadoPor(t *testing.T) {
 	}
 }
 
-func TestRegisterAcademiaPublicaAllowsCustomPasswordWithFallback(t *testing.T) {
+func TestRegisterAcademiaPublicaRequiresCustomPassword(t *testing.T) {
 	source, err := os.ReadFile("academia_handlers.go")
 	if err != nil {
 		t.Fatalf("read academia handler source: %v", err)
@@ -69,13 +69,16 @@ func TestRegisterAcademiaPublicaAllowsCustomPasswordWithFallback(t *testing.T) {
 
 	mustContain := []string{
 		`c.PostForm("senha")`,
-		"utils.ValidateSenha(senhaCustomizada)",
-		`services.GetDefaultPassword("academia", codigoAcademia)`,
+		`fmt.Errorf("senha é obrigatória")`,
+		"utils.ValidateSenha(senha)",
 	}
 	for _, term := range mustContain {
 		if !strings.Contains(fn, term) {
-			t.Fatalf("RegisterAcademiaPublica deve aceitar senha customizada opcional com fallback para o padrão — não encontrado: %q", term)
+			t.Fatalf("RegisterAcademiaPublica deve exigir senha customizada — não encontrado: %q", term)
 		}
+	}
+	if strings.Contains(fn, `services.GetDefaultPassword("academia", codigoAcademia)`) {
+		t.Fatal("RegisterAcademiaPublica não deve usar fallback de senha padrão; senha deve ser obrigatória")
 	}
 }
 

@@ -19,7 +19,7 @@ Antes de escrever este documento, o repositório real foi clonado e lido integra
 3. **Login de academia `"inativo"` já é bloqueado.** Em `internal/handlers/auth_handlers.go`, o handler `Login` já verifica o status da academia e retorna erro com a mensagem `"academia inativa. Entre em contato com o administrador."` quando o status não é `"ativo"`. **Nenhuma mudança é necessária aqui.**
 4. **Existe precedente direto de rota pública para criação de entidade**: `router.POST("/solicitacao-matricula", handlers.CriarSolicitacaoMatricula)`, registrada solta em `router`, sem grupo, sem middleware.
 5. **`RegisterAcademia` (fluxo atual, restrito a admin `fpp`) já usa exatamente as funções que a nova rota pública vai reaproveitar**: `bindRegisterAcademiaRequest`, `validarProvincia`, `generateCodigoAcademia`, `readAndValidatePDF`, `utils.ValidateSenha`, `services.GetDefaultPassword`. Nenhuma dessas funções precisa ser criada ou alterada.
-6. **Senha padrão hoje é o próprio `codigo_academia`** (`services.GetDefaultPassword("academia", codigo) → codigo`). Isso funciona no fluxo admin porque o admin, presumivelmente, comunica essa convenção à escola por fora. No cadastro público não existe esse canal — por isso esta tarefa adiciona um campo opcional `senha` exclusivo do cadastro público (ver seção 2).
+6. **Senha padrão hoje é o próprio `codigo_academia`** (`services.GetDefaultPassword("academia", codigo) → codigo`). Isso funciona no fluxo admin porque o admin, presumivelmente, comunica essa convenção à escola por fora. No cadastro público não existe esse canal — por isso esta tarefa adiciona um campo obrigatório `senha` exclusivo do cadastro público (ver seção 2).
 
 **Conclusão:** a tarefa é cirúrgica. Não é necessário criar arquivo novo, não é necessário alterar nenhum import existente em `academia_handlers.go` (a nova função usa apenas símbolos que o arquivo já importa), e não é necessário tocar em `AtivarAcademia`, `DesativarAcademia` ou `Login`.
 
@@ -317,13 +317,13 @@ func RegisterAcademiaPublica(c *gin.Context) {
 
 | Campo | Origem | Obrigatório | Regra |
 | --- | --- | --- | --- |
-| `senha` | `multipart/form-data`, novo | Não | Se enviado, validar com `utils.ValidateSenha` (mínimo 6, máximo 128 caracteres — já existente em `internal/utils/validation.go`, mesma função usada em `internal/handlers/profile_handlers.go` para troca de senha). Se ausente ou vazio, usar `services.GetDefaultPassword("academia", codigoAcademia)`, exatamente como o fluxo admin já faz hoje. |
+| `senha` | `multipart/form-data`, novo | Sim | Deve ser enviada e não pode ser vazia. Validar com `utils.ValidateSenha` (mínimo 6, máximo 128 caracteres — já existente em `internal/utils/validation.go`, mesma função usada em `internal/handlers/profile_handlers.go` para troca de senha). Não usar fallback para `services.GetDefaultPassword` no cadastro público. |
 
 `RegisterAcademia` (fluxo admin, `POST /dominis/academia/register`) **não deve ganhar esse campo** — continua exclusivamente com a senha padrão baseada no código, sem nenhuma alteração de código nessa função.
 
 ### 1.3 Por que não alterar `RegisterAcademiaRequest` nem `bindRegisterAcademiaRequest`
 
-O campo `senha` é lido diretamente via `c.PostForm("senha")` dentro da própria `RegisterAcademiaPublica`, **depois** de chamar `bindRegisterAcademiaRequest`. Isso é seguro porque `bindRegisterAcademiaRequest` já chama `c.Request.ParseMultipartForm` antes, e `c.PostForm` lê do formulário multipart já parseado em memória — não há re-leitura do body HTTP. Essa abordagem evita qualquer alteração na struct/função compartilhada com `RegisterAcademia`, eliminando risco de regressão no fluxo admin.
+O campo obrigatório `senha` é lido diretamente via `c.PostForm("senha")` dentro da própria `RegisterAcademiaPublica`, **depois** de chamar `bindRegisterAcademiaRequest`. Isso é seguro porque `bindRegisterAcademiaRequest` já chama `c.Request.ParseMultipartForm` antes, e `c.PostForm` lê do formulário multipart já parseado em memória — não há re-leitura do body HTTP. Essa abordagem evita qualquer alteração na struct/função compartilhada com `RegisterAcademia`, eliminando risco de regressão no fluxo admin.
 
 ---
 
@@ -502,7 +502,7 @@ Caso o projeto já possua testes de integração HTTP+DB para `RegisterAcademia`
 1. Cadastro público completo e válido (com `alvara` PDF) → `201`, `status` retornado como `"inativo"`.
 2. Cadastro público sem `alvara` → `400`.
 3. Cadastro público com `nif` duplicado → `409`.
-4. Cadastro público sem campo `senha` → sucesso, e a senha efetivamente gravada (hash) corresponde a `services.GetDefaultPassword("academia", codigoAcademia)`.
+4. Cadastro público sem campo `senha` → erro 400 informando que `senha` é obrigatória.
 5. Cadastro público com `senha` de 3 caracteres → `400` (abaixo do mínimo de `utils.ValidateSenha`).
 6. Cadastro público com `senha` válida (ex.: 8 caracteres) → sucesso, e login subsequente com essa senha funciona **somente depois** que um admin `adm`/`fpp` ativar a conta (login antes disso deve retornar o erro de "academia inativa" já existente).
 7. `PUT /dominis/academia/:codigo/ativar` chamado por um admin `gerente` (não `adm`/`fpp`) sobre uma academia criada pelo cadastro público → `403` (comportamento já existente, apenas confirmando que nada quebrou).
@@ -523,7 +523,7 @@ Permite que uma academia se autocadastre na plataforma **sem autenticação pré
 
 **Proteção**: nenhuma (rota pública)
 
-**Diferença em relação ao cadastro por admin**: aceita um campo opcional `senha` (string, 6–128 caracteres). Se enviado, essa senha é definida como a senha de acesso da academia. Se omitido, a senha inicial é o próprio `codigo_academia`, como no fluxo administrativo.
+**Diferença em relação ao cadastro por admin**: exige o campo `senha` (string, 6–128 caracteres). Essa senha é definida como a senha de acesso da academia; não há fallback para o `codigo_academia` no cadastro público.
 
 **Request:**
 
@@ -596,7 +596,7 @@ A tarefa só deve ser considerada concluída quando:
 3. uma academia criada por essa rota nascer sempre com status `inativo` (comportamento automático de `Academia.Criar()`, sem código adicional);
 4. `PUT /dominis/academia/:codigo/ativar` e `PUT /dominis/academia/:codigo/desativar` continuarem funcionando sem nenhuma alteração de código, restritos a `adm`/`fpp`;
 5. login de uma academia criada pela nova rota, antes de ser ativada, continuar retornando o erro já existente de "academia inativa", sem nenhuma alteração em `Login`;
-6. o campo opcional `senha` funcionar conforme a seção 1.2 — validado com `utils.ValidateSenha` quando enviado, com fallback para `services.GetDefaultPassword` quando omitido — e `RegisterAcademia` (fluxo admin) **não** ganhar esse campo;
+6. o campo obrigatório `senha` funcionar conforme a seção 1.2 — validado com `utils.ValidateSenha` e sem fallback para `services.GetDefaultPassword` quando omitido — e `RegisterAcademia` (fluxo admin) **não** ganhar esse campo;
 7. `internal/handlers/academia_register_publica_test.go` existir com todos os testes da seção 3, e todos passarem;
 8. `Documentação da API.md` estar atualizada conforme a seção 4;
 9. `go build ./...`, `go vet ./...`, `gofmt -l .` e `go test ./...` rodarem limpos, sem erros, sem `redeclared`, sem `undefined`, sem arquivos mal formatados — **esta checagem é obrigatória e não foi possível ser feita no ambiente de investigação usado para escrever este documento** (ver "Limitação desta validação", no início);
