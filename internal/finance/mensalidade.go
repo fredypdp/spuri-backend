@@ -106,7 +106,7 @@ type mensalidadeVinculo struct {
 // price. Historical prices are resolved later by the reference month.
 func (s *Service) ConfigureMensalidade(ctx context.Context, in MensalidadeConfiguracaoInput, actorID, actorType, ip string) (MensalidadeConfiguracaoView, error) {
 	if s.client == nil {
-		return MensalidadeConfiguracaoView{}, errors.New("serviÃ§o financeiro nÃ£o inicializado")
+		return MensalidadeConfiguracaoView{}, errors.New("serviço financeiro não inicializado")
 	}
 	if err := s.validateConfiguracaoMensalidade(ctx, &in); err != nil {
 		return MensalidadeConfiguracaoView{}, err
@@ -170,7 +170,7 @@ func (s *Service) ReativarObrigacoesMensalidade(ctx context.Context, in Obrigaca
 func (s *Service) alterarObrigacoesMensalidade(ctx context.Context, in ObrigacaoMensalidadeInput, eventType, actorID, actorType, ip string) error {
 	in.CodigoEstudante, in.CodigoAcademia, in.AnoLetivo = strings.TrimSpace(in.CodigoEstudante), strings.TrimSpace(in.CodigoAcademia), strings.TrimSpace(in.AnoLetivo)
 	if in.CodigoEstudante == "" || in.CodigoAcademia == "" || !anoLetivoValido(in.AnoLetivo) || len(in.Meses) == 0 {
-		return errors.New("estudante, academia, ano_letivo vÃ¡lido e meses sÃ£o obrigatÃ³rios")
+		return errors.New("estudante, academia, ano_letivo válido e meses são obrigatórios")
 	}
 	seen := map[int]bool{}
 	for _, mes := range in.Meses {
@@ -186,10 +186,10 @@ func (s *Service) alterarObrigacoesMensalidade(ctx context.Context, in Obrigacao
 			return err
 		}
 		if eventType == aggregates.ObrigacaoMensalidadeAnulada && state == EstadoPago {
-			return errors.New("nÃ£o Ã© possÃ­vel anular uma mensalidade jÃ¡ paga")
+			return errors.New("não é possível anular uma mensalidade já paga")
 		}
 		if eventType == aggregates.ObrigacaoMensalidadeReativada && state != EstadoAnulado {
-			return errors.New("sÃ³ Ã© possÃ­vel reativar uma mensalidade anulada e nÃ£o paga")
+			return errors.New("só é possível reativar uma mensalidade anulada e não paga")
 		}
 	}
 	for _, mes := range in.Meses {
@@ -339,7 +339,7 @@ func (s *Service) ResolveMensalidade(ctx context.Context, codigoEstudante, codig
 
 func (s *Service) mesDevido(ctx context.Context, estudante, academia, anoLetivo string, mes int) (MensalidadeMesView, error) {
 	if !mesValido(mes) || !anoLetivoValido(anoLetivo) {
-		return MensalidadeMesView{}, errors.New("mÃªs ou ano_letivo invÃ¡lido")
+		return MensalidadeMesView{}, errors.New("mês ou ano_letivo inválido")
 	}
 	all, err := s.ListMensalidades(ctx, estudante, &academia)
 	if err != nil {
@@ -350,16 +350,16 @@ func (s *Service) mesDevido(ctx context.Context, estudante, academia, anoLetivo 
 			return v, nil
 		}
 	}
-	return MensalidadeMesView{}, errors.New("mÃªs fora do perÃ­odo de mensalidade configurado")
+	return MensalidadeMesView{}, errors.New("mês fora do período de mensalidade configurado")
 }
 
 func (s *Service) validateConfiguracaoMensalidade(ctx context.Context, in *MensalidadeConfiguracaoInput) error {
 	in.CodigoAcademia, in.Nivel, in.AnoAcademico = strings.TrimSpace(in.CodigoAcademia), strings.ToLower(strings.TrimSpace(in.Nivel)), strings.TrimSpace(in.AnoAcademico)
 	if in.CodigoAcademia == "" || !nivelValido(in.Nivel) || in.AnoAcademico == "" {
-		return errors.New("codigo_academia, nivel e ano_academico sÃ£o obrigatÃ³rios")
+		return errors.New("codigo_academia, nivel e ano_academico são obrigatórios")
 	}
 	if in.Valor <= 0 || roundAmount(in.Valor) != in.Valor {
-		return errors.New("valor deve ser maior que zero e ter no mÃ¡ximo duas casas decimais")
+		return errors.New("valor deve ser maior que zero e ter no máximo duas casas decimais")
 	}
 	if in.MesFimCobranca != 6 && in.MesFimCobranca != 7 {
 		return errors.New("mes_fim_cobranca deve ser 6 ou 7")
@@ -391,7 +391,7 @@ func (s *Service) validateConfiguracaoMensalidade(ctx context.Context, in *Mensa
 		return err
 	}
 	if typ != "private" {
-		return errors.New("mensalidade sÃ³ pode ser configurada por academia privada")
+		return errors.New("mensalidade só pode ser configurada por academia privada")
 	}
 	// Both immutable teaching periods currently finish in July. Keep the
 	// financial limit explicit so it cannot silently outgrow a future period.
@@ -403,33 +403,33 @@ func (s *Service) validateConfiguracaoMensalidade(ctx context.Context, in *Mensa
 	}
 	if in.Nivel == NivelFundamental {
 		if in.CursoID != nil && strings.TrimSpace(*in.CursoID) != "" {
-			return errors.New("curso_id nÃ£o Ã© permitido para ensino fundamental")
+			return errors.New("curso_id não é permitido para ensino fundamental")
 		}
 		var anos []string
 		if err := jsonUnmarshal(anosRaw, &anos); err != nil || !contains(anos, in.AnoAcademico) {
-			return errors.New("ano_academico fundamental nÃ£o Ã© oferecido pela academia")
+			return errors.New("ano_academico fundamental não é oferecido pela academia")
 		}
 		return nil
 	}
 	if in.CursoID == nil || strings.TrimSpace(*in.CursoID) == "" {
-		return errors.New("curso_id Ã© obrigatÃ³rio para ensino mÃ©dio e superior")
+		return errors.New("curso_id é obrigatório para ensino médio e superior")
 	}
 	cursoID, err := uuid.Parse(*in.CursoID)
 	if err != nil {
-		return errors.New("curso_id invÃ¡lido")
+		return errors.New("curso_id inválido")
 	}
 	var cursoTipo, codigoCurso string
 	var anosRawCurso []byte
 	err = s.client.DB().QueryRowContext(ctx, `SELECT type,codigo_academia,anos_academicos FROM projection_cursos WHERE id=$1 AND deleted_at IS NULL`, cursoID).Scan(&cursoTipo, &codigoCurso, &anosRawCurso)
 	if err == sql.ErrNoRows {
-		return errors.New("curso nÃ£o encontrado")
+		return errors.New("curso não encontrado")
 	}
 	if err != nil {
 		return err
 	}
 	var anos []string
 	if codigoCurso != in.CodigoAcademia || cursoTipo != in.Nivel || jsonUnmarshal(anosRawCurso, &anos) != nil || !contains(anos, in.AnoAcademico) {
-		return errors.New("curso ou ano_academico nÃ£o Ã© oferecido pela academia")
+		return errors.New("curso ou ano_academico não é oferecido pela academia")
 	}
 	return nil
 }
@@ -437,7 +437,7 @@ func (s *Service) validateConfiguracaoMensalidade(ctx context.Context, in *Mensa
 func (s *Service) validateMesInicioCobranca(ctx context.Context, in *MesInicioCobrancaInput) error {
 	in.CodigoAcademia, in.AnoLetivo = strings.TrimSpace(in.CodigoAcademia), strings.TrimSpace(in.AnoLetivo)
 	if in.CodigoAcademia == "" || !anoLetivoValido(in.AnoLetivo) || !mesValido(in.MesInicio) {
-		return errors.New("codigo_academia, ano_letivo vÃ¡lido e mes_inicio sÃ£o obrigatÃ³rios")
+		return errors.New("codigo_academia, ano_letivo válido e mes_inicio são obrigatórios")
 	}
 	var typ, nivel string
 	err := s.client.DB().QueryRowContext(ctx, `SELECT type,nivel FROM projection_academias WHERE codigo_academia=$1`, in.CodigoAcademia).Scan(&typ, &nivel)
@@ -448,14 +448,14 @@ func (s *Service) validateMesInicioCobranca(ctx context.Context, in *MesInicioCo
 		return err
 	}
 	if typ != "private" {
-		return errors.New("mensalidade sÃ³ pode ser configurada por academia privada")
+		return errors.New("mensalidade só pode ser configurada por academia privada")
 	}
 	natural := 9
 	if nivel == "superior" {
 		natural = 10
 	}
 	if in.MesInicio < natural {
-		return fmt.Errorf("mes_inicio nÃ£o pode ser anterior a %02d", natural)
+		return fmt.Errorf("mes_inicio não pode ser anterior a %02d", natural)
 	}
 	var menor sql.NullInt64
 	err = s.client.DB().QueryRowContext(ctx, `SELECT MIN(mes_fim_cobranca) FROM (SELECT DISTINCT ON (nivel,ano_academico,curso_id) mes_fim_cobranca FROM financeiro_mensalidade_configuracoes WHERE codigo_academia=$1 ORDER BY nivel,ano_academico,curso_id,vigente_em DESC,event_id DESC) c`, in.CodigoAcademia).Scan(&menor)
@@ -463,14 +463,14 @@ func (s *Service) validateMesInicioCobranca(ctx context.Context, in *MesInicioCo
 		return err
 	}
 	if menor.Valid && in.MesInicio > int(menor.Int64) {
-		return errors.New("mes_inicio nÃ£o pode ser posterior ao mes_fim_cobranca configurado")
+		return errors.New("mes_inicio não pode ser posterior ao mes_fim_cobranca configurado")
 	}
 	return nil
 }
 
 func (s *Service) recordMensalidade(ctx context.Context, codigoAcademia, event string, payload map[string]any, userID, userType, ip string) error {
 	if strings.TrimSpace(userID) == "" {
-		return errors.New("autor do evento financeiro Ã© obrigatÃ³rio")
+		return errors.New("autor do evento financeiro é obrigatório")
 	}
 	agg := aggregates.NewConfiguracaoMensalidadeWithID(mensalidadeAggregateID(codigoAcademia))
 	agg.Registrar(event, payload)
@@ -487,9 +487,12 @@ func mensalidadeAggregateID(codigoAcademia string) uuid.UUID {
 func (s *Service) resolveConfiguracao(ctx context.Context, academia, nivel, ano string, curso *uuid.UUID, referencia time.Time) (MensalidadeConfiguracaoView, error) {
 	var out MensalidadeConfiguracaoView
 	var cursoText sql.NullString
-	err := s.client.DB().QueryRowContext(ctx, `SELECT curso_id,valor::float8,mes_fim_cobranca,vigente_em FROM financeiro_mensalidade_configuracoes WHERE codigo_academia=$1 AND nivel=$2 AND ano_academico=$3 AND curso_id IS NOT DISTINCT FROM $4 AND vigente_em <= $5 ORDER BY vigente_em DESC,event_id DESC LIMIT 1`, academia, nivel, ano, nullableUUID(curso), referencia.UTC()).Scan(&cursoText, &out.Valor, &out.MesFimCobranca, &out.VigenteEm)
+	// The first configuration is the best information available for every
+	// earlier month of that academic year. Later configurations remain forward
+	// only: they win only when their effective date is not after the reference.
+	err := s.client.DB().QueryRowContext(ctx, `SELECT curso_id,valor::float8,mes_fim_cobranca,vigente_em FROM financeiro_mensalidade_configuracoes WHERE codigo_academia=$1 AND nivel=$2 AND ano_academico=$3 AND curso_id IS NOT DISTINCT FROM $4 ORDER BY CASE WHEN vigente_em <= $5 THEN 0 ELSE 1 END, CASE WHEN vigente_em <= $5 THEN vigente_em END DESC, CASE WHEN vigente_em > $5 THEN vigente_em END ASC, event_id DESC LIMIT 1`, academia, nivel, ano, nullableUUID(curso), referencia.UTC()).Scan(&cursoText, &out.Valor, &out.MesFimCobranca, &out.VigenteEm)
 	if err == sql.ErrNoRows {
-		return out, fmt.Errorf("%w: configuraÃ§Ã£o de mensalidade", ErrNotFound)
+		return out, fmt.Errorf("%w: configuração de mensalidade", ErrNotFound)
 	}
 	if err != nil {
 		return out, err
@@ -507,7 +510,7 @@ func (s *Service) resolveConfiguracao(ctx context.Context, academia, nivel, ano 
 
 func (s *Service) vinculosMensalidade(ctx context.Context, estudante string, somenteAcademia *string) ([]mensalidadeVinculo, error) {
 	if estudante == "" {
-		return nil, errors.New("codigo_estudante Ã© obrigatÃ³rio")
+		return nil, errors.New("codigo_estudante é obrigatório")
 	}
 	args := []any{estudante}
 	filter := ""
@@ -570,7 +573,7 @@ func (s *Service) mesInicioEfetivo(ctx context.Context, academia, anoLetivo, niv
 		return 0, err
 	}
 	if mes < natural {
-		return 0, errors.New("configuraÃ§Ã£o de mes_inicio inconsistente")
+		return 0, errors.New("configuração de mes_inicio inconsistente")
 	}
 	return mes, nil
 }

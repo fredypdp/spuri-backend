@@ -32,11 +32,11 @@ func authorizeMensalidadeAcademia(c *gin.Context, codigo *string) bool {
 func ConfigurarMensalidade(c *gin.Context) {
 	var in finance.MensalidadeConfiguracaoInput
 	if err := c.ShouldBindJSON(&in); err != nil {
-		utils.RespondWithValidationError(c, errors.New("payload invÃ¡lido"))
+		utils.RespondWithValidationError(c, errors.New("payload inválido"))
 		return
 	}
 	if !authorizeMensalidadeAcademia(c, &in.CodigoAcademia) {
-		utils.RespondWithForbiddenError(c, "sem permissÃ£o para configurar mensalidade desta academia")
+		utils.RespondWithForbiddenError(c, "sem permissão para configurar mensalidade desta academia")
 		return
 	}
 	id, typ, _, ok := financeActor(c)
@@ -55,7 +55,7 @@ func ConfigurarMensalidade(c *gin.Context) {
 func ListarConfiguracoesMensalidade(c *gin.Context) {
 	codigo := c.Query("codigo_academia")
 	if !authorizeMensalidadeAcademia(c, &codigo) {
-		utils.RespondWithForbiddenError(c, "sem permissÃ£o para consultar mensalidades desta academia")
+		utils.RespondWithForbiddenError(c, "sem permissão para consultar mensalidades desta academia")
 		return
 	}
 	out, err := FinanceiroService.ListMensalidadeConfiguracoes(c.Request.Context(), codigo)
@@ -106,11 +106,11 @@ func ListarConfiguracoesMatricula(c *gin.Context) {
 func DefinirMesInicioCobranca(c *gin.Context) {
 	var in finance.MesInicioCobrancaInput
 	if err := c.ShouldBindJSON(&in); err != nil {
-		utils.RespondWithValidationError(c, errors.New("payload invÃ¡lido"))
+		utils.RespondWithValidationError(c, errors.New("payload inválido"))
 		return
 	}
 	if !authorizeMensalidadeAcademia(c, &in.CodigoAcademia) {
-		utils.RespondWithForbiddenError(c, "sem permissÃ£o para definir o inÃ­cio de cobranÃ§a desta academia")
+		utils.RespondWithForbiddenError(c, "sem permissão para definir o início de cobrança desta academia")
 		return
 	}
 	id, typ, _, ok := financeActor(c)
@@ -146,22 +146,22 @@ func ConsultarMensalidadesEstudante(c *gin.Context) {
 	switch typ {
 	case "estudante":
 		if actorID.String() != estudanteID {
-			utils.RespondWithForbiddenError(c, "vocÃª sÃ³ pode consultar as suas mensalidades")
+			utils.RespondWithForbiddenError(c, "você só pode consultar as suas mensalidades")
 			return
 		}
 	case "academia":
 		if !academiaPossuiVinculoMensalidade(c, codigo, own) {
-			utils.RespondWithForbiddenError(c, "estudante nÃ£o pertence a esta academia")
+			utils.RespondWithForbiddenError(c, "estudante não pertence a esta academia")
 			return
 		}
 		somenteAcademia = &own
 	case "admin":
 		if !financeAdminAllowed(c) {
-			utils.RespondWithForbiddenError(c, "sem permissÃ£o financeira FPP")
+			utils.RespondWithForbiddenError(c, "sem permissão financeira FPP")
 			return
 		}
 	default:
-		utils.RespondWithForbiddenError(c, "sem permissÃ£o para consultar mensalidades")
+		utils.RespondWithForbiddenError(c, "sem permissão para consultar mensalidades")
 		return
 	}
 	out, err := FinanceiroService.ListMensalidades(c.Request.Context(), codigo, somenteAcademia)
@@ -215,7 +215,7 @@ func ReativarObrigacoesMensalidade(c *gin.Context) { alterarObrigacoesMensalidad
 func alterarObrigacoesMensalidadeHandler(c *gin.Context, reativar bool) {
 	var in finance.ObrigacaoMensalidadeInput
 	if err := c.ShouldBindJSON(&in); err != nil {
-		utils.RespondWithValidationError(c, errors.New("payload invÃ¡lido"))
+		utils.RespondWithValidationError(c, errors.New("payload inválido"))
 		return
 	}
 	id, typ, own, ok := financeActor(c)
@@ -229,12 +229,12 @@ func alterarObrigacoesMensalidadeHandler(c *gin.Context, reativar bool) {
 		return
 	}
 	if strings.TrimSpace(in.CodigoAcademia) != "" && in.CodigoAcademia != own {
-		utils.RespondWithForbiddenError(c, "a academia sÃ³ pode alterar as suas prÃ³prias mensalidades")
+		utils.RespondWithForbiddenError(c, "a academia só pode alterar as suas próprias mensalidades")
 		return
 	}
 	in.CodigoAcademia = own
 	if !academiaPossuiVinculoMensalidade(c, in.CodigoEstudante, own) {
-		utils.RespondWithForbiddenError(c, "estudante nÃ£o pertence a esta academia")
+		utils.RespondWithForbiddenError(c, "estudante não pertence a esta academia")
 		return
 	}
 	var err error

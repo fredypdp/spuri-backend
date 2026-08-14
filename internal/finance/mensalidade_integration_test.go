@@ -2,6 +2,7 @@ package finance
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,7 +14,7 @@ func mensalidadeCodigo() string { return "MEN" + uuid.NewString()[:8] }
 
 func seedMensalidadeAcademia(t *testing.T, client *db.Client, codigo, natureza, nivel, anoLetivo string) {
 	t.Helper()
-	anos := `null`
+	anos := any(nil)
 	nivelEscolar := "fundamental"
 	if nivel == "superior" {
 		nivelEscolar = ""
@@ -23,9 +24,14 @@ func seedMensalidadeAcademia(t *testing.T, client *db.Client, codigo, natureza, 
 		anos = `["6_ano_fundamental","7_ano_fundamental"]`
 	}
 	_, err := client.DB().Exec(`INSERT INTO projection_academias
-		(id,nivel,nome,codigo_academia,senha_hash,provincia,endereco,nivel_escolar,status,cursos,anos_academicos,type,ano_letivo,created_at)
-		VALUES ($1,$2,$3,$4,'hash','LUA','endereco',NULLIF($5,''),'ativo','[]'::jsonb,$6::jsonb,$7,$8,CURRENT_TIMESTAMP)`,
-		uuid.New(), map[bool]string{true: "superior", false: "escola"}[nivel == "superior"], "Academia de teste", codigo, nivelEscolar, anos, natureza, anoLetivo)
+		(id,nivel,nome,nif,codigo_academia,senha_hash,provincia,endereco,nivel_escolar,status,cursos,anos_academicos,type,ano_letivo,created_at)
+		VALUES ($1,$2,$3,$4,$5,'hash','LUA','endereco',NULLIF($6,''),'ativo','[]'::jsonb,$7::jsonb,$8,$9,CURRENT_TIMESTAMP)`,
+		uuid.New(), map[bool]string{true: "superior", false: "escola"}[nivel == "superior"], "Academia de teste", strings.Map(func(r rune) rune {
+			if r >= '0' && r <= '9' {
+				return r
+			}
+			return -1
+		}, uuid.NewString())[:10], codigo, nivelEscolar, anos, natureza, anoLetivo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,6 +124,35 @@ func TestIntegrationMensalidadeResolvePrecoHistorico(t *testing.T) {
 	}
 	if got := mensalidadePorMes(t, valores, academia, "2025_2026", 1).Valor; got != 1500 {
 		t.Fatalf("janeiro apos nova configuracao = %.2f, queria 1500", got)
+	}
+}
+
+func TestIntegrationMensalidadePrimeiraConfiguracaoRetroageSemReescreverHistorico(t *testing.T) {
+	client := integrationClient(t)
+	ctx := context.Background()
+	academia := mensalidadeCodigo()
+	seedMensalidadeAcademia(t, client, academia, "private", "fundamental", "2025_2026")
+	seedMensalidadeTurma(t, client, academia, "T-RETRO", "2025_2026", "EST-RETRO", nil)
+	seedMensalidadeConfiguracao(t, client, academia, NivelFundamental, "6_ano_fundamental", nil, 1000, 7, time.Date(2025, 11, 1, 0, 0, 0, 0, time.UTC))
+
+	valores, err := NewService(client).ListMensalidades(ctx, "EST-RETRO", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := mensalidadePorMes(t, valores, academia, "2025_2026", 9).Valor; got != 1000 {
+		t.Fatalf("primeira configuracao nao retroagiu para setembro: %.2f", got)
+	}
+
+	seedMensalidadeConfiguracao(t, client, academia, NivelFundamental, "6_ano_fundamental", nil, 1500, 7, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	valores, err = NewService(client).ListMensalidades(ctx, "EST-RETRO", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := mensalidadePorMes(t, valores, academia, "2025_2026", 9).Valor; got != 1000 {
+		t.Fatalf("setembro historico foi reescrito: %.2f", got)
+	}
+	if got := mensalidadePorMes(t, valores, academia, "2025_2026", 1).Valor; got != 1500 {
+		t.Fatalf("janeiro apos reconfiguracao = %.2f, queria 1500", got)
 	}
 }
 

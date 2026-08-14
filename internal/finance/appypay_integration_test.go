@@ -4,17 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
 	"spuri/internal/db"
 )
 
-type appyPayMockTransport struct{ status string }
+type appyPayMockTransport struct {
+	status string
+	mu     sync.Mutex
+	nextID int
+}
 
 func (t *appyPayMockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	body := `{"id":"provider-charge","status":"Pending"}`
@@ -24,9 +30,18 @@ func (t *appyPayMockTransport) RoundTrip(req *http.Request) (*http.Response, err
 	case req.Method == http.MethodGet:
 		body = `{"id":"provider-charge","status":"` + t.status + `"}`
 	case strings.HasSuffix(req.URL.Path, "/qr-codes"):
-		body = `{"id":"provider-qr","status":"Pending","qrCodeArr":"base64-qr"}`
+		body = `{"id":"` + t.providerID("qr") + `","status":"Pending","qrCodeArr":"base64-qr"}`
+	case req.Method == http.MethodPost:
+		body = `{"id":"` + t.providerID("charge") + `","status":"Pending"}`
 	}
 	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+}
+
+func (t *appyPayMockTransport) providerID(kind string) string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.nextID++
+	return fmt.Sprintf("provider-%s-%d", kind, t.nextID)
 }
 
 func integrationMerchant(prefix string) string {
@@ -72,6 +87,19 @@ func integrationClient(t *testing.T) *db.Client {
 	return client
 }
 
+func seedMatriculaPendente(t *testing.T, client *db.Client, academia string, valor float64) string {
+	t.Helper()
+	codigo := "SOL" + strings.ReplaceAll(uuid.NewString(), "-", "")[:8]
+	_, err := client.DB().Exec(`INSERT INTO projection_solicitacoes_matricula
+		(id,codigo_solicitacao,codigo_academia,nome,genero,data_nascimento,email,telefone,telefone_encarregado,bilhete_identidade,bilhete_identidade_encarregado,ano_escolar_fundamental,status,documentos,codigo_estudante_gerado,valor_matricula,metodos_pagamento_matricula,created_at,updated_at)
+		VALUES ($1,$2,$3,'Estudante de integração','feminino','2012-01-02',$4,$5,$6,$7,$8,'6_ano_fundamental','aprovada_pendente_pagamento_matricula','{}'::jsonb,$9,$10,ARRAY['REF'],CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
+		uuid.New(), codigo, academia, codigo+"@example.test", "244"+codigo[3:], "923"+codigo[3:], "BI-"+codigo, "BI-RESP-"+codigo, "EST"+codigo[3:7], valor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return codigo
+}
+
 func TestIntegrationAcceptWebhookIsIdempotent(t *testing.T) {
 	client := integrationClient(t)
 	service := NewService(client)
@@ -97,6 +125,87 @@ func TestIntegrationAcceptWebhookIsIdempotent(t *testing.T) {
 	}
 	if received != 1 || ledger != 1 {
 		t.Fatalf("efeito duplicado: recebidos=%d ledger=%d", received, ledger)
+	}
+}
+
+func TestIntegrationMatriculaPagamentoFixaValorImpedeDuplicidadeECancelaEmCascata(t *testing.T) {
+	client := integrationClient(t)
+	t.Setenv("ENV", "test")
+	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
+	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	service := NewService(client)
+	service.httpClient = &http.Client{Transport: &appyPayMockTransport{status: "Pending"}}
+	academia := "MAT" + uuid.NewString()[:8]
+	configureIntegrationCredential(t, service, ContextoAcademia, academia)
+	codigo := seedMatriculaPendente(t, client, academia, 1250.50)
+
+	var estudantes int
+	if err := client.DB().QueryRow(`SELECT COUNT(*) FROM projection_estudantes WHERE codigo_estudante=$1`, "EST"+codigo[3:7]).Scan(&estudantes); err != nil {
+		t.Fatal(err)
+	}
+	if estudantes != 0 {
+		t.Fatal("solicitacao pendente criou estudante antes do pagamento")
+	}
+	primeira, err := service.IniciarPagamentoMatricula(context.Background(), MatriculaPagamentoInput{CodigoSolicitacao: codigo, MetodoPagamento: "REF"}, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var valor float64
+	if err = client.DB().QueryRow(`SELECT (payload->>'amount')::float8 FROM financeiro_cobrancas WHERE id=$1`, primeira.Charge.ID).Scan(&valor); err != nil {
+		t.Fatal(err)
+	}
+	if valor != 1250.50 {
+		t.Fatalf("valor da cobrança = %.2f, queria o valor fixado 1250.50", valor)
+	}
+	if _, err = service.IniciarPagamentoMatricula(context.Background(), MatriculaPagamentoInput{CodigoSolicitacao: codigo, MetodoPagamento: "REF"}, "127.0.0.1"); err == nil {
+		t.Fatal("segunda cobrança de matrícula aberta foi aceita")
+	}
+	if err = service.CancelarCobrancaMatriculaAberta(context.Background(), codigo, "solicitação cancelada", uuid.NewString(), "academia", "127.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	var status string
+	if err = client.DB().QueryRow(`SELECT payload->>'status' FROM financeiro_cobrancas WHERE id=$1`, primeira.Charge.ID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "cancelada" {
+		t.Fatalf("cobrança após cancelamento = %q", status)
+	}
+}
+
+func TestIntegrationMatriculaWebhookTardioMantemCancelamentoERegistraConflito(t *testing.T) {
+	client := integrationClient(t)
+	t.Setenv("ENV", "test")
+	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
+	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	service := NewService(client)
+	service.httpClient = &http.Client{Transport: &appyPayMockTransport{status: "Pending"}}
+	academia := "MAT" + uuid.NewString()[:8]
+	configureIntegrationCredential(t, service, ContextoAcademia, academia)
+	codigo := seedMatriculaPendente(t, client, academia, 900)
+	charge, err := service.IniciarPagamentoMatricula(context.Background(), MatriculaPagamentoInput{CodigoSolicitacao: codigo, MetodoPagamento: "REF"}, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = service.CancelarCobrancaMatriculaAberta(context.Background(), codigo, "solicitação cancelada", uuid.NewString(), "academia", "127.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := service.AcceptWebhook(context.Background(), "REF", "evt-"+uuid.NewString(), WebhookOwner{CredentialID: uuid.New(), ContextoTipo: ContextoAcademia, CodigoAcademia: academia}, map[string]any{"id": charge.Charge.ProviderChargeID, "status": "Success"})
+	if err != nil || !accepted {
+		t.Fatalf("webhook tardio = accepted %t, err %v", accepted, err)
+	}
+	var status, codigoNoEvento string
+	if err = client.DB().QueryRow(`SELECT payload->>'status',payload->>'codigo_solicitacao' FROM financeiro_cobrancas WHERE id=$1`, charge.Charge.ID).Scan(&status, &codigoNoEvento); err != nil {
+		t.Fatal(err)
+	}
+	if status != "cancelada" || codigoNoEvento != codigo {
+		t.Fatalf("webhook tardio alterou cobrança: status=%q codigo=%q", status, codigoNoEvento)
+	}
+	var conflitos int
+	if err = client.DB().QueryRow(`SELECT COUNT(*) FROM spuri_ledger WHERE aggregate_type='Financeiro' AND aggregate_id=$1 AND event_type='CobrancaAppyPayConflitoPosCancelamento' AND payload->>'codigo_solicitacao'=$2`, charge.Charge.ID, codigo).Scan(&conflitos); err != nil {
+		t.Fatal(err)
+	}
+	if conflitos != 1 {
+		t.Fatalf("conflitos pós-cancelamento = %d, queria 1", conflitos)
 	}
 }
 
