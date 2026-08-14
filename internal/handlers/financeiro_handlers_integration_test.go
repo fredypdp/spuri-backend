@@ -2,18 +2,77 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"spuri/internal/db"
+	"spuri/internal/domain/aggregates"
 	"spuri/internal/finance"
+	"spuri/internal/projections"
 )
+
+type handlerAppyPayMockTransport struct{}
+
+func (handlerAppyPayMockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	body := `{"id":"provider-charge-handler","status":"Pending"}`
+	if strings.Contains(req.URL.Path, "/oauth2/token") {
+		body = `{"access_token":"test-token","expires_in":3600}`
+	}
+	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+}
+
+func seedAcademiaParaMatriculaWebhook(t *testing.T, client *db.Client, codigo string) {
+	t.Helper()
+	_, err := client.DB().Exec(`INSERT INTO projection_academias
+		(id,nivel,nome,nif,codigo_academia,senha_hash,provincia,endereco,nivel_escolar,status,cursos,anos_academicos,type,ano_letivo,created_at)
+		VALUES ($1,'escola','Academia webhook',$2,$3,'hash','LUA','endereco','fundamental','ativo','[]'::jsonb,'["1_ano_fundamental"]'::jsonb,'private','2026_2027',CURRENT_TIMESTAMP)`,
+		uuid.New(), strings.ReplaceAll(uuid.NewString(), "-", "")[:10], codigo)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func seedSolicitacaoMatriculaPendenteComLedger(t *testing.T, client *db.Client, academia string, valor float64) (codigo, codigoEstudante string) {
+	t.Helper()
+	codigo = "SOL" + strings.ReplaceAll(uuid.NewString(), "-", "")[:8]
+	codigoEstudante = "EST" + codigo[3:7]
+	email := strings.ToLower(codigo) + "@example.test"
+	telefone := "244" + codigo[3:]
+	telefoneResp := "923" + codigo[3:]
+	bi := "BI-" + codigo
+	biResp := "BI-RESP-" + codigo
+	ano := "1_ano_fundamental"
+	docs := map[string]aggregates.DocumentoMatricula{
+		"bi_estudante":   {Tipo: "bi_estudante", Path: "docs/bi-estudante.pdf"},
+		"bi_encarregado": {Tipo: "bi_encarregado", Path: "docs/bi-encarregado.pdf"},
+	}
+	sol := aggregates.NewSolicitacaoMatricula()
+	if err := sol.Criar(codigo, academia, "Estudante Webhook", "feminino", time.Date(2017, 1, 2, 0, 0, 0, 0, time.UTC), &email, &telefone, &telefoneResp, &bi, &biResp, &ano, nil, nil, nil, nil, docs, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := sol.Aprovar(uuid.New(), codigoEstudante); err != nil {
+		t.Fatal(err)
+	}
+	if err := sol.MarcarPendentePagamentoMatricula(valor, []string{"REF"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.NewAggregateRepository(client).SaveWithAudit(sol, db.AuditContext{UserID: "integration-test", UserType: "sistema", IP: "127.0.0.1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := projections.NewSolicitacaoMatriculaProjection(client).Rebuild(); err != nil {
+		t.Fatal(err)
+	}
+	return codigo, codigoEstudante
+}
 
 func seedSolicitacaoMatriculaParaBusca(t *testing.T, client *db.Client) (codigo, telefone, email string) {
 	t.Helper()
@@ -161,5 +220,103 @@ func TestIntegrationFinanceFPPAdminCannotCancelAcademyCharge(t *testing.T) {
 	CancelarCobrancaAppyPay(ctx)
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("admin FPP recebeu status %d, quer 404: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestIntegrationReceberWebhookAppyPayEfetivaVinculoMatricula(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	client := integrationFinanceClient(t)
+	t.Setenv("ENV", "test")
+	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
+	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+
+	academia := "WH" + strings.ReplaceAll(uuid.NewString(), "-", "")[:8]
+	seedAcademiaParaMatriculaWebhook(t, client, academia)
+	codigo, codigoEstudante := seedSolicitacaoMatriculaPendenteComLedger(t, client, academia, 750)
+
+	service := finance.NewService(client)
+	service.SetHTTPClient(&http.Client{Transport: handlerAppyPayMockTransport{}})
+	_, err := service.ConfigureCredential(context.Background(), nil, finance.CredentialInput{
+		ContextoTipo:     finance.ContextoAcademia,
+		CodigoAcademia:   academia,
+		ClientID:         "integration-client",
+		ClientSecret:     "integration-secret",
+		GPOPaymentMethod: "GPO_INTEGRATION",
+		REFPaymentMethod: "REF_INTEGRATION",
+		WebhookSecret:    "webhook-secret-" + codigo,
+	}, "integration-test", "sistema", "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	charge, err := service.IniciarPagamentoMatricula(context.Background(), finance.MatriculaPagamentoInput{CodigoSolicitacao: codigo, MetodoPagamento: "REF"}, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	previousService := FinanceiroService
+	FinanceiroService = service
+	t.Cleanup(func() { FinanceiroService = previousService })
+	repository := db.NewAggregateRepository(client)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("dbClient", client)
+		c.Set("repository", repository)
+	})
+	router.POST("/financeiro/appypay/webhooks/ref", ReceberWebhookAppyPay("REF"))
+
+	eventID := charge.Charge.ProviderChargeID
+	payload, _ := json.Marshal(map[string]any{"id": eventID, "status": "Success"})
+	postWebhook := func() *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/financeiro/appypay/webhooks/ref", bytes.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-API-Key", "webhook-secret-"+codigo)
+		router.ServeHTTP(rec, req)
+		return rec
+	}
+
+	first := postWebhook()
+	if first.Code != http.StatusOK {
+		t.Fatalf("webhook retornou %d: %s", first.Code, first.Body.String())
+	}
+	if err := projections.NewSolicitacaoMatriculaProjection(client).Rebuild(); err != nil {
+		t.Fatal(err)
+	}
+	if err := projections.NewEstudanteProjection(client).Rebuild(); err != nil {
+		t.Fatal(err)
+	}
+	var status string
+	if err := client.DB().QueryRow(`SELECT status FROM projection_solicitacoes_matricula WHERE codigo_solicitacao=$1`, codigo).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "aprovada" {
+		t.Fatalf("status da solicitação = %q, queria aprovada", status)
+	}
+	var estudantes int
+	if err := client.DB().QueryRow(`SELECT COUNT(*) FROM projection_estudantes WHERE codigo_estudante=$1 AND codigo_academia=$2 AND ano_escolar_fundamental='1_ano_fundamental'`, codigoEstudante, academia).Scan(&estudantes); err != nil {
+		t.Fatal(err)
+	}
+	if estudantes != 1 {
+		t.Fatalf("estudantes criados = %d, queria 1", estudantes)
+	}
+	second := postWebhook()
+	if second.Code != http.StatusOK {
+		t.Fatalf("webhook idempotente retornou %d: %s", second.Code, second.Body.String())
+	}
+	if err := projections.NewEstudanteProjection(client).Rebuild(); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.DB().QueryRow(`SELECT COUNT(*) FROM projection_estudantes WHERE codigo_estudante=$1`, codigoEstudante).Scan(&estudantes); err != nil {
+		t.Fatal(err)
+	}
+	if estudantes != 1 {
+		t.Fatalf("webhook duplicou estudante: %d", estudantes)
+	}
+	var vinculacoes int
+	if err := client.DB().QueryRow(`SELECT COUNT(*) FROM spuri_ledger WHERE aggregate_type='SolicitacaoMatricula' AND aggregate_id=(SELECT id FROM projection_solicitacoes_matricula WHERE codigo_solicitacao=$1) AND event_type='SolicitacaoMatriculaVinculada'`, codigo).Scan(&vinculacoes); err != nil {
+		t.Fatal(err)
+	}
+	if vinculacoes != 1 {
+		t.Fatalf("eventos de vinculação = %d, queria 1", vinculacoes)
 	}
 }

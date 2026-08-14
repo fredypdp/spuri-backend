@@ -192,6 +192,14 @@ func NewService(client *db.Client) *Service {
 	return &Service{client: client, repository: repo, projection: projection, httpClient: &http.Client{Timeout: 20 * time.Second}, tokens: map[uuid.UUID]tokenEntry{}}
 }
 
+// SetHTTPClient overrides the AppyPay HTTP client. It is intended for tests and
+// controlled integrations that need a custom RoundTripper.
+func (s *Service) SetHTTPClient(client *http.Client) {
+	if client != nil {
+		s.httpClient = client
+	}
+}
+
 func mask(v string) string {
 	if len(v) <= 4 {
 		return "****"
