@@ -18,7 +18,7 @@ import (
 	"spuri/internal/utils"
 )
 
-func rejeitarCamposLegadosSumarioFaltas(c *gin.Context) bool {
+func rejeitarCamposLegadosSumarioFaltas(c *gin.Context, camposExtras ...string) bool {
 	body, err := c.GetRawData()
 	if err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("payload inválido"))
@@ -30,7 +30,8 @@ func rejeitarCamposLegadosSumarioFaltas(c *gin.Context) bool {
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return false
 	}
-	for _, campo := range []string{"sumario_id", "sumario_titulo"} {
+	camposNaoSuportados := append([]string{"sumario_id", "sumario_titulo"}, camposExtras...)
+	for _, campo := range camposNaoSuportados {
 		if _, ok := raw[campo]; ok {
 			utils.RespondWithValidationError(c, fmt.Errorf("campo não suportado em falta: %s", campo))
 			return true
@@ -52,6 +53,7 @@ func RegistrarFaltas(c *gin.Context) {
 	var req struct {
 		CodigoEstudante      string     `json:"codigo_estudante"       binding:"required"`
 		Data                 utils.Date `json:"data"                binding:"required"`
+		Periodo              string     `json:"periodo"             binding:"required"`
 		MateriaDisciplinarID string     `json:"materia_disciplinar_id" binding:"required"`
 		Quantidade           int        `json:"quantidade"             binding:"required,min=1"`
 		Observacao           *string    `json:"observacao"`
@@ -59,12 +61,12 @@ func RegistrarFaltas(c *gin.Context) {
 
 	if err := decodeStrictJSON(c, &req); err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf(
-			"dados obrigatórios: codigo_estudante, data, materia_disciplinar_id e quantidade",
+			"dados obrigatórios: codigo_estudante, data, periodo, materia_disciplinar_id e quantidade",
 		))
 		return
 	}
-	if strings.TrimSpace(req.CodigoEstudante) == "" || strings.TrimSpace(req.MateriaDisciplinarID) == "" || req.Quantidade <= 0 {
-		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatorios: codigo_estudante, data, materia_disciplinar_id e quantidade"))
+	if strings.TrimSpace(req.CodigoEstudante) == "" || strings.TrimSpace(req.Periodo) == "" || strings.TrimSpace(req.MateriaDisciplinarID) == "" || req.Quantidade <= 0 {
+		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatorios: codigo_estudante, data, periodo, materia_disciplinar_id e quantidade"))
 		return
 	}
 
@@ -127,6 +129,19 @@ func RegistrarFaltas(c *gin.Context) {
 		return
 	}
 
+	periodosValidos, err := resolverPeriodosValidos(c, tipoLetivo, materiaDTO.CursoID)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if tipoLetivo == aggregates.TipoSuperior && materiaDTO.Periodo != nil && req.Periodo != *materiaDTO.Periodo {
+		utils.RespondWithValidationError(c, fmt.Errorf(
+			"periodo '%s' invalido para a materia '%s'. Periodo definido: '%s'",
+			req.Periodo, materiaDTO.Nome, *materiaDTO.Periodo,
+		))
+		return
+	}
+
 	// Inferir anoAcademico com bloqueio de incompatibilidade estudante x matéria
 	anoAcademico, err := inferirAnoAcademicoFaltas(estudanteDTO.AnoEscolar, materiaDTO.AnosAcademicos, materiaDTO.Nome, estudanteDTO.AnoEscolarMedio)
 	if err != nil {
@@ -150,11 +165,13 @@ func RegistrarFaltas(c *gin.Context) {
 		academiaDTO.CodigoAcademia,
 		anoLectivo,
 		anoAcademico,
+		req.Periodo,
 		req.Data.Time,
 		materiaID,
 		req.Quantidade,
 		req.Observacao,
 		userID,
+		periodosValidos,
 		aggregates.MaxQuantidadeFaltasPadrao,
 	)
 	if err != nil {
@@ -176,15 +193,20 @@ func RegistrarFaltas(c *gin.Context) {
 		req.CodigoEstudante, req.Quantidade, materiaDTO.Nome, anoAcademico)
 
 	c.JSON(http.StatusCreated, gin.H{
-		"message":       "faltas registradas com sucesso",
-		"estudante":     req.CodigoEstudante,
-		"materia":       materiaDTO.Nome,
-		"quantidade":    req.Quantidade,
-		"ano_academico": anoAcademico,
+		"message":          "faltas registradas com sucesso",
+		"estudante":        req.CodigoEstudante,
+		"materia":          materiaDTO.Nome,
+		"quantidade":       req.Quantidade,
+		"periodo":          req.Periodo,
+		"periodos_validos": periodosValidos,
+		"ano_academico":    anoAcademico,
 	})
 }
 
 func CorrigirFalta(c *gin.Context) {
+	if rejeitarCamposLegadosSumarioFaltas(c, "periodo") {
+		return
+	}
 	userID, _ := middleware.GetUserID(c)
 	faltaID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -242,7 +264,7 @@ func CorrigirFalta(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	if err := estudante.CorrigirFalta(faltaID, academia.CodigoAcademia, falta.AnoLectivo, falta.Data.Time, materiaID, req.Quantidade, req.Observacao, req.Motivo, userID, aggregates.MaxQuantidadeFaltasPadrao); err != nil {
+	if err := estudante.CorrigirFalta(faltaID, academia.CodigoAcademia, falta.AnoLectivo, falta.Periodo, falta.Data.Time, materiaID, req.Quantidade, req.Observacao, req.Motivo, userID, aggregates.MaxQuantidadeFaltasPadrao); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -303,19 +325,19 @@ func GetFaltasEstudante(c *gin.Context) {
 	for _, falta := range faltas {
 		if !matchesFiltroString(filtros.anoLectivos, falta.AnoLectivo) ||
 			!matchesFiltroString(filtros.anoAcademicos, falta.AnoAcademico) ||
+			!matchesFiltroString(filtros.periodos, falta.Periodo) ||
 			!matchesFiltroString(filtros.materiasDisciplinares, falta.MateriaDisciplinarID) ||
 			!matchesFiltroString(filtros.codigosAcademia, falta.CodigoAcademia) {
 			continue
 		}
 
-		if len(filtros.cursoIDs) > 0 || len(filtros.periodos) > 0 {
+		if len(filtros.cursoIDs) > 0 {
 			materiaMetaAtual, err := getMateriaMeta(materiasProj, materiaMetaCache, falta.MateriaDisciplinarID)
 			if err != nil {
 				utils.RespondWithInternalError(c, err)
 				return
 			}
-			if !matchesFiltroString(filtros.cursoIDs, materiaMetaAtual.cursoID) ||
-				!matchesFiltroString(filtros.periodos, materiaMetaAtual.periodo) {
+			if !matchesFiltroString(filtros.cursoIDs, materiaMetaAtual.cursoID) {
 				continue
 			}
 		}

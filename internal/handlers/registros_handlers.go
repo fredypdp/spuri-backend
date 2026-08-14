@@ -50,6 +50,7 @@ type FaltaRegistroResponse struct {
 	AcademiaNome         string     `json:"academia_nome"`
 	AnoLectivo           string     `json:"ano_lectivo"`
 	AnoAcademico         string     `json:"ano_academico"`
+	Periodo              string     `json:"periodo"`
 	Data                 utils.Date `json:"data"`
 	MateriaDisciplinarID string     `json:"materia_disciplinar_id"`
 	MateriaNome          string     `json:"materia_nome"`
@@ -215,7 +216,7 @@ func ListarFaltas(c *gin.Context) {
 		SELECT
 			f.id, f.codigo_estudante, e.nome as estudante_nome,
 			f.codigo_academia, a.nome as academia_nome, f.ano_lectivo, f.ano_academico,
-			f.data, f.materia_disciplinar_id, COALESCE(m.nome, '') as materia_nome,
+			f.periodo, f.data, f.materia_disciplinar_id, COALESCE(m.nome, '') as materia_nome,
 			f.quantidade, f.observacao, f.registrado_por, f.valor_anterior,
 			f.motivo_correcao, f.corrigido_por, f.corrigido_em, f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
@@ -228,7 +229,7 @@ func ListarFaltas(c *gin.Context) {
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON f.materia_disciplinar_id = m.id
 	`
-	whereSQL, args := filtros.buildWhereSQL("f", false)
+	whereSQL, args := filtros.buildWhereSQL("f", true)
 	orderPagination := fmt.Sprintf(" ORDER BY f.registered_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
 	argsRows := append(append([]interface{}{}, args...), limit, offset)
 
@@ -252,7 +253,7 @@ func ListarFaltas(c *gin.Context) {
 		if err := rows.Scan(
 			&falta.ID, &falta.CodigoEstudante, &falta.EstudanteNome,
 			&falta.CodigoAcademia, &falta.AcademiaNome, &falta.AnoLectivo, &falta.AnoAcademico,
-			&falta.Data, &falta.MateriaDisciplinarID, &falta.MateriaNome,
+			&falta.Periodo, &falta.Data, &falta.MateriaDisciplinarID, &falta.MateriaNome,
 			&falta.Quantidade, &falta.Observacao, &falta.RegistradoPor, &falta.ValorAnterior,
 			&falta.MotivoCorrecao, &falta.CorrigidoPor, &falta.CorrigidoEm, &falta.RegisteredAt, &falta.EventID, &falta.Version,
 		); err != nil {
