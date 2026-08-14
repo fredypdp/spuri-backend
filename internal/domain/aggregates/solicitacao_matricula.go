@@ -420,9 +420,9 @@ func validarDeclaracaoAnoAnterior(documentos map[string]DocumentoMatricula, espe
 func certificadoObrigatorioParaAno(ano string) (string, string) {
 	switch ano {
 	case "7_ano_fundamental":
-		return "certificado_6_ano_fundamental", "certificado do 6.º ano fundamental"
+		return "certificado_6_ano_fundamental", "certificado da " + utils.RotuloClasseFundamental("6_ano_fundamental")
 	case "1_ano_medio":
-		return "certificado_9_ano_fundamental", "certificado do 9.º ano fundamental"
+		return "certificado_9_ano_fundamental", "certificado da " + utils.RotuloClasseFundamental("9_ano_fundamental")
 	case "1_ano_superior":
 		return "certificado_ensino_medio", "certificado do ensino médio"
 	default:

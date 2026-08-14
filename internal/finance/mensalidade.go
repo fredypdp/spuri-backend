@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
+	"spuri/internal/utils"
 )
 
 const (
@@ -403,11 +404,11 @@ func (s *Service) validateConfiguracaoMensalidade(ctx context.Context, in *Mensa
 	}
 	if in.Nivel == NivelFundamental {
 		if in.CursoID != nil && strings.TrimSpace(*in.CursoID) != "" {
-			return errors.New("curso_id não é permitido para ensino fundamental")
+			return errors.New("curso_id não é permitido para o " + utils.RotuloEnsinoFundamentalGenerico)
 		}
 		var anos []string
 		if err := jsonUnmarshal(anosRaw, &anos); err != nil || !contains(anos, in.AnoAcademico) {
-			return errors.New("ano_academico fundamental não é oferecido pela academia")
+			return errors.New("ano acadêmico do " + utils.RotuloEnsinoFundamentalGenerico + " não é oferecido pela academia")
 		}
 		return nil
 	}

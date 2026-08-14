@@ -821,7 +821,7 @@ func certificateFieldForMatricula(c *gin.Context, academia *projections.Academia
 	}
 	if strings.HasSuffix(year, "_ano_fundamental") {
 		if academia.Nivel != "escola" {
-			return "", fmt.Errorf("o ano fundamental informado não pertence a uma academia de nível superior")
+			return "", fmt.Errorf("o ano do " + utils.RotuloEnsinoFundamentalGenerico + " informado não pertence a uma academia de nível superior")
 		}
 		if year == "7_ano_fundamental" {
 			return "certificado_6_ano_fundamental", nil
@@ -873,9 +873,9 @@ func ensureActiveCourseYear(c *gin.Context, codigoAcademia, tipo, year string) e
 func documentLabel(field string) string {
 	switch field {
 	case "certificado_6_ano_fundamental":
-		return "certificado do 6.º ano fundamental"
+		return "certificado da " + utils.RotuloClasseFundamental("6_ano_fundamental")
 	case "certificado_9_ano_fundamental":
-		return "certificado do 9.º ano fundamental"
+		return "certificado da " + utils.RotuloClasseFundamental("9_ano_fundamental")
 	case "certificado_ensino_medio":
 		return "certificado do ensino médio"
 	default:

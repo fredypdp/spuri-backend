@@ -389,7 +389,7 @@ func ValidateAnosFundamental(anos []string) error {
 		// Valida formato [n]_ano_fundamental com n no intervalo 1–9
 		if !strings.HasSuffix(trimmed, "_ano_fundamental") {
 			return fmt.Errorf(
-				"ano '%s' inválido para o ensino fundamental. "+
+				"ano '%s' inválido para o "+RotuloEnsinoFundamentalGenerico+". "+
 					"Formato esperado: [1-9]_ano_fundamental (ex.: 1_ano_fundamental, 9_ano_fundamental)",
 				trimmed,
 			)
@@ -398,7 +398,7 @@ func ValidateAnosFundamental(anos []string) error {
 		n, err := strconv.Atoi(numStr)
 		if err != nil || n < 1 || n > 9 {
 			return fmt.Errorf(
-				"ano '%s' inválido para o ensino fundamental. "+
+				"ano '%s' inválido para o "+RotuloEnsinoFundamentalGenerico+". "+
 					"O número deve ser entre 1 e 9 (ex.: 1_ano_fundamental … 9_ano_fundamental)",
 				trimmed,
 			)
@@ -476,7 +476,7 @@ func ValidateAnosMateria(tipo string, anos []string) error {
 	switch tipo {
 	case "fundamental":
 		if len(anos) == 0 {
-			return fmt.Errorf("matérias fundamentais devem ter pelo menos um ano em anos_academicos")
+			return fmt.Errorf("matérias do " + RotuloEnsinoFundamentalGenerico + " devem ter pelo menos um ano em anos_academicos")
 		}
 		return ValidateAnosFundamental(anos)
 
