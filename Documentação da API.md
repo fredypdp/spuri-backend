@@ -420,6 +420,7 @@ interface FaltaDTO {
   codigo_academia: string
   ano_lectivo: string
   ano_academico: string
+  periodo: string              // 1_trimestre, 2_trimestre, 3_trimestre, 1_semestre ou 2_semestre
   data: date                  // date-only (ISO: YYYY-MM-DD)
   materia_disciplinar_id: string
   materia_nome?: string
@@ -472,6 +473,7 @@ interface FaltaRegistroDTO {
   academia_nome: string
   ano_lectivo: string
   ano_academico: string
+  periodo: string              // 1_trimestre, 2_trimestre, 3_trimestre, 1_semestre ou 2_semestre
   data: date
   materia_disciplinar_id: string
   materia_nome: string
@@ -4618,6 +4620,8 @@ Ativa matérias em lote.
 ]
 ```
 
+**Nota de contrato:** esta é uma mudança breaking; `POST /academia/faltas-aluno` e `POST /academia/faltas-aluno/async` rejeitam itens sem `periodo`.
+
 **Response 202:** job assíncrono com acompanhamento por polling ou SSE.
 
 ### `PUT /academia/materia/desativar/async`
@@ -4633,6 +4637,8 @@ Desativa matérias em lote.
   { "id": "uuid-da-materia" }
 ]
 ```
+
+**Nota de contrato:** esta é uma mudança breaking; `POST /academia/faltas-aluno` e `POST /academia/faltas-aluno/async` rejeitam itens sem `periodo`.
 
 **Response 202:** job assíncrono com resultados por item.
 
@@ -4654,6 +4660,8 @@ Atualiza dados de matérias em lote.
 ]
 ```
 
+**Nota de contrato:** esta é uma mudança breaking; `POST /academia/faltas-aluno` e `POST /academia/faltas-aluno/async` rejeitam itens sem `periodo`.
+
 **Response 202:** job assíncrono com resultados por item.
 
 ### `DELETE /academia/materia/async`
@@ -4669,6 +4677,8 @@ Remove logicamente matérias em lote.
   { "id": "uuid-da-materia" }
 ]
 ```
+
+**Nota de contrato:** esta é uma mudança breaking; `POST /academia/faltas-aluno` e `POST /academia/faltas-aluno/async` rejeitam itens sem `periodo`.
 
 **Response 202:** job assíncrono com preservação histórica igual à rota síncrona.
 
@@ -4954,6 +4964,8 @@ Cria turmas em lote por job assíncrono.
 ]
 ```
 
+**Nota de contrato:** esta é uma mudança breaking; `POST /academia/faltas-aluno` e `POST /academia/faltas-aluno/async` rejeitam itens sem `periodo`.
+
 **Response 202:** job assíncrono com `job_id`, `status`, `total_items`, `poll_url` e `sse_url`.
 
 ### `POST /academia/turma/estudante/async`
@@ -4973,6 +4985,8 @@ Adiciona estudantes a turmas em lote.
 ]
 ```
 
+**Nota de contrato:** esta é uma mudança breaking; `POST /academia/faltas-aluno` e `POST /academia/faltas-aluno/async` rejeitam itens sem `periodo`.
+
 **Response 202:** job assíncrono; cada item aplica as mesmas validações da rota síncrona.
 
 ### `PUT /academia/turma/ativar/async`
@@ -4989,6 +5003,8 @@ Ativa turmas em lote.
 ]
 ```
 
+**Nota de contrato:** esta é uma mudança breaking; `POST /academia/faltas-aluno` e `POST /academia/faltas-aluno/async` rejeitam itens sem `periodo`.
+
 **Response 202:** job assíncrono.
 
 ### `PUT /academia/turma/desativar/async`
@@ -5004,6 +5020,8 @@ Desativa turmas em lote.
   { "codigo_turma": "10A" }
 ]
 ```
+
+**Nota de contrato:** esta é uma mudança breaking; `POST /academia/faltas-aluno` e `POST /academia/faltas-aluno/async` rejeitam itens sem `periodo`.
 
 **Response 202:** job assíncrono.
 
@@ -5024,6 +5042,8 @@ Atualiza dados de turmas em lote.
 ]
 ```
 
+**Nota de contrato:** esta é uma mudança breaking; `POST /academia/faltas-aluno` e `POST /academia/faltas-aluno/async` rejeitam itens sem `periodo`.
+
 **Response 202:** job assíncrono com resultados por item.
 
 ### `DELETE /academia/turma/async`
@@ -5039,6 +5059,8 @@ Remove logicamente turmas em lote.
   { "codigo_turma": "10A" }
 ]
 ```
+
+**Nota de contrato:** esta é uma mudança breaking; `POST /academia/faltas-aluno` e `POST /academia/faltas-aluno/async` rejeitam itens sem `periodo`.
 
 **Response 202:** job assíncrono.
 
@@ -5058,6 +5080,8 @@ Remove estudantes de turmas em lote.
   }
 ]
 ```
+
+**Nota de contrato:** esta é uma mudança breaking; `POST /academia/faltas-aluno` e `POST /academia/faltas-aluno/async` rejeitam itens sem `periodo`.
 
 **Response 202:** job assíncrono; histórico por ano letivo é preservado.
 
@@ -5323,17 +5347,20 @@ Registra faltas individuais.
 {
   "codigo_estudante": "EST-2026-0001",
   "data": "2026-03-15",
+  "periodo": "1_trimestre",
   "materia_disciplinar_id": "uuid-da-materia",
   "quantidade": 2,
   "observacao": "Ausência justificada posteriormente"
 }
 ```
 
-**Campos obrigatórios:** `codigo_estudante`, `data`, `materia_disciplinar_id` e `quantidade`.
+**Campos obrigatórios:** `codigo_estudante`, `data`, `periodo`, `materia_disciplinar_id` e `quantidade`.
 
 **Regras de validação:**
 
 - `quantidade` deve ser maior que zero.
+- `periodo` é obrigatório e deve ser um dos períodos válidos: para tipo escolar, `1_trimestre`, `2_trimestre` ou `3_trimestre`; para tipo superior, um período configurado no curso.
+- Para matérias do tipo superior com período fixo, `periodo` deve ser exatamente igual ao período definido na matéria.
 - A academia precisa ter ano letivo ativo.
 - O estudante precisa pertencer à academia autenticada.
 - A matéria precisa pertencer à academia e ser compatível com o estudante.
@@ -5347,6 +5374,8 @@ Registra faltas individuais.
   "estudante": "EST-2026-0001",
   "materia": "Matemática",
   "quantidade": 2,
+  "periodo": "1_trimestre",
+  "periodos_validos": ["1_trimestre", "2_trimestre", "3_trimestre"],
   "ano_academico": "10_ano_medio"
 }
 ```
@@ -5369,7 +5398,7 @@ Corrige uma falta por evento compensatório; o lançamento original permanece in
 }
 ```
 
-**Regras:** `motivo` é obrigatório; `quantidade` deve estar entre 1 e 100; `observacao` aceita no máximo 2000 caracteres. A data e a matéria são derivadas do registro existente.
+**Regras:** `motivo` é obrigatório; `quantidade` deve estar entre 1 e 100; `observacao` aceita no máximo 2000 caracteres. A data, a matéria e o período são derivados do registro existente; `periodo` é imutável e não é aceito no corpo desta rota.
 
 **Response 200:**
 
@@ -5389,7 +5418,7 @@ Lista faltas a partir da projeção global.
 
 - `limit`, `offset` — paginação.
 - `ano_letivo`, `ano_academico`, `curso_id`, `codigo_turma`, `periodo`, `materia_disciplinar_id`, `codigo_academia` — filtros; aceitam repetição ou valores separados por vírgula.
-- Em faltas, `periodo` filtra o período da matéria disciplinar.
+- Em faltas, `periodo` filtra o período do próprio registro de falta, no mesmo formato usado por notas.
 - Para admin, `codigo_turma` exige `codigo_academia`.
 - `corrigido=true|false` filtra registros que já receberam (ou não receberam) evento compensatório de correção.
 - Para academia, `codigo_academia` é sempre forçado para a própria instituição.
@@ -5407,6 +5436,7 @@ Lista faltas a partir da projeção global.
       "academia_nome": "Academia Exemplo",
       "ano_lectivo": "2025_2026",
       "ano_academico": "10_ano_medio",
+      "periodo": "1_trimestre",
       "data": "2026-03-15",
       "materia_disciplinar_id": "uuid-da-materia",
       "materia_nome": "Matemática",
@@ -5439,7 +5469,7 @@ Retorna as faltas de um estudante específico.
 
 **Autorização:** estudante só consulta o próprio código; academia só consulta estudante da própria instituição; admin pode consultar qualquer estudante.
 
-**Query params:** `ano_letivo`, `ano_academico`, `curso_id`, `periodo`, `materia_disciplinar_id` e `codigo_academia`.
+**Query params:** `ano_letivo`, `ano_academico`, `curso_id`, `periodo`, `materia_disciplinar_id` e `codigo_academia`. O filtro `periodo` usa o período do próprio registro de falta, não o período da matéria.
 
 **Response 200:**
 
@@ -5450,6 +5480,7 @@ Retorna as faltas de um estudante específico.
   "faltas": [
     {
       "id": "uuid",
+      "periodo": "1_trimestre",
       "quantidade": 2,
       "registrado_por": "uuid-da-academia",
       "valor_anterior": 1,
@@ -5475,11 +5506,14 @@ Registra faltas em lote por job assíncrono.
   {
     "codigo_estudante": "EST-2026-0001",
     "data": "2026-03-15",
+    "periodo": "1_trimestre",
     "materia_disciplinar_id": "uuid-da-materia",
     "quantidade": 2
   }
 ]
 ```
+
+**Nota de contrato:** esta é uma mudança breaking; `POST /academia/faltas-aluno` e `POST /academia/faltas-aluno/async` rejeitam itens sem `periodo`.
 
 **Response 202:** job assíncrono com acompanhamento em `GET /jobs/:id` e `GET /jobs/stream`.
 

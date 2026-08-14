@@ -1,11 +1,11 @@
 ---
 criado: 2026-08-13 00:00
 origem: Solicitação direta do dono do produto (orquestrado via Claude, execução via Codex)
-status: pendente
+status: feito
 repositorio: fredypdp/spuri-backend (branch main)
 ---
 
-# Adicionar `periodo` em Falta, com as mesmas características do período de Nota (pendente)
+# Adicionar periodo em Falta, com as mesmas caracteristicas do periodo de Nota (feito)
 
 ## Prompt recomendado para executar a atualização
 

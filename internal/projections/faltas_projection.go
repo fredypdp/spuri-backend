@@ -136,6 +136,7 @@ func (p *FaltasProjection) handleFaltasRegistradasTx(tx *sql.Tx, event db.Event)
 		CodigoAcademia       string    `json:"CodigoAcademia"`
 		AnoLectivo           string    `json:"AnoLectivo"`
 		AnoAcademico         string    `json:"AnoAcademico"`
+		Periodo              string    `json:"Periodo"`
 		Data                 time.Time `json:"Data"`
 		MateriaDisciplinarID string    `json:"MateriaDisciplinarID"`
 		Quantidade           int       `json:"Quantidade"`
@@ -150,13 +151,13 @@ func (p *FaltasProjection) handleFaltasRegistradasTx(tx *sql.Tx, event db.Event)
 	_, err := tx.Exec(`
 		INSERT INTO projection_faltas (
 			codigo_estudante, codigo_academia, ano_lectivo, ano_academico,
-			data, materia_disciplinar_id, quantidade, observacao,
+			periodo, data, materia_disciplinar_id, quantidade, observacao,
 			registered_at, registrado_por, event_id, version
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		ON CONFLICT ON CONSTRAINT uq_falta_unica DO NOTHING
 	`,
 		payload.CodigoEstudante, payload.CodigoAcademia, payload.AnoLectivo, payload.AnoAcademico,
-		payload.Data.UTC(), payload.MateriaDisciplinarID, payload.Quantidade, payload.Observacao,
+		payload.Periodo, payload.Data.UTC(), payload.MateriaDisciplinarID, payload.Quantidade, payload.Observacao,
 		payload.RegisteredAt.UTC(), payload.RegistradoPor, event.EventID, event.EventVersion,
 	)
 	if err != nil {
@@ -197,6 +198,7 @@ type FaltaDTO struct {
 	CodigoAcademia       string     `json:"codigo_academia"`
 	AnoLectivo           string     `json:"ano_lectivo"`
 	AnoAcademico         string     `json:"ano_academico"`
+	Periodo              string     `json:"periodo"`
 	Data                 utils.Date `json:"data"`
 	MateriaDisciplinarID string     `json:"materia_disciplinar_id"`
 	MateriaNome          *string    `json:"materia_nome,omitempty"`
@@ -215,7 +217,7 @@ type FaltaDTO struct {
 func (p *FaltasProjection) GetByID(id string) (*FaltaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
-			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
+			f.periodo, f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
@@ -235,7 +237,7 @@ func (p *FaltasProjection) GetByID(id string) (*FaltaDTO, error) {
 func (p *FaltasProjection) GetByEstudante(codigoEstudante string) ([]FaltaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
-			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
+			f.periodo, f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
@@ -252,7 +254,7 @@ func (p *FaltasProjection) GetByEstudante(codigoEstudante string) ([]FaltaDTO, e
 func (p *FaltasProjection) GetByAcademia(codigoAcademia string) ([]FaltaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
-			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
+			f.periodo, f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
@@ -269,7 +271,7 @@ func (p *FaltasProjection) GetByAcademia(codigoAcademia string) ([]FaltaDTO, err
 func (p *FaltasProjection) GetByPeriodo(codigoEstudante, anoLectivo string, dataInicio, dataFim time.Time) ([]FaltaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
-			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
+			f.periodo, f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
@@ -288,7 +290,7 @@ func (p *FaltasProjection) GetByPeriodo(codigoEstudante, anoLectivo string, data
 func (p *FaltasProjection) GetAll() ([]FaltaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
-			f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
+			f.periodo, f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
@@ -307,7 +309,7 @@ func scanFaltas(rows *sql.Rows) ([]FaltaDTO, error) {
 		var f FaltaDTO
 		if err := rows.Scan(
 			&f.ID, &f.CodigoEstudante, &f.CodigoAcademia, &f.AnoLectivo, &f.AnoAcademico,
-			&f.Data, &f.MateriaDisciplinarID, &f.MateriaNome, &f.Quantidade, &f.Observacao, &f.RegistradoPor, &f.ValorAnterior, &f.MotivoCorrecao, &f.CorrigidoPor, &f.CorrigidoEm,
+			&f.Periodo, &f.Data, &f.MateriaDisciplinarID, &f.MateriaNome, &f.Quantidade, &f.Observacao, &f.RegistradoPor, &f.ValorAnterior, &f.MotivoCorrecao, &f.CorrigidoPor, &f.CorrigidoEm,
 			&f.RegisteredAt, &f.EventID, &f.Version,
 		); err != nil {
 			continue

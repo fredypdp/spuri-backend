@@ -104,7 +104,7 @@ func setupRegistrosCorrecaoIntegration(t *testing.T) *registrosCorrecaoFixture {
 	if err := estudante.RegistrarNota(academia.CodigoAcademia, "2026", ano, "1_trimestre", materiaID, aggregates.TipoEscolar, "nota_professor", 8, nil, []string{"nota_professor", "prova_trimestral"}, aggregates.PeriodosEscolar, academia.ID, 10); err != nil {
 		t.Fatalf("registrar nota inicial: %v", err)
 	}
-	if err := estudante.RegistrarFalta(academia.CodigoAcademia, "2026", ano, time.Date(2026, 2, 10, 0, 0, 0, 0, time.UTC), materiaID, 2, nil, academia.ID, aggregates.MaxQuantidadeFaltasPadrao); err != nil {
+	if err := estudante.RegistrarFalta(academia.CodigoAcademia, "2026", ano, "1_trimestre", time.Date(2026, 2, 10, 0, 0, 0, 0, time.UTC), materiaID, 2, nil, academia.ID, aggregates.PeriodosEscolar, aggregates.MaxQuantidadeFaltasPadrao); err != nil {
 		t.Fatalf("registrar falta inicial: %v", err)
 	}
 	if err := repository.SaveWithAudit(estudante, db.AuditContext{UserID: academia.ID.String(), UserType: "academia", IP: "127.0.0.1"}); err != nil {
