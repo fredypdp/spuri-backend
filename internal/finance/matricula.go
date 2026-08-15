@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/utils"
 )
@@ -62,7 +63,7 @@ func (s *Service) ListMatriculaConfiguracoes(ctx context.Context, academia strin
 		var v MatriculaConfiguracaoView
 		var curso sql.NullString
 		v.CodigoAcademia = academia
-		if err := rows.Scan(&v.Nivel, &v.AnoAcademico, &curso, &v.Valor, &v.MetodosPagamento, &v.VigenteEm); err != nil {
+		if err := rows.Scan(&v.Nivel, &v.AnoAcademico, &curso, &v.Valor, pq.Array(&v.MetodosPagamento), &v.VigenteEm); err != nil {
 			return nil, err
 		}
 		if curso.Valid {
@@ -81,7 +82,7 @@ func (s *Service) ListMatriculaConfiguracoes(ctx context.Context, academia strin
 func (s *Service) ResolveMatriculaConfiguracao(ctx context.Context, academia, nivel, ano string, curso *string) (MatriculaConfiguracaoView, error) {
 	var v MatriculaConfiguracaoView
 	var raw sql.NullString
-	err := s.client.DB().QueryRowContext(ctx, `SELECT valor::float8,metodos_pagamento,vigente_em,curso_id FROM financeiro_matricula_configuracoes WHERE codigo_academia=$1 AND nivel=$2 AND ano_academico=$3 AND curso_id IS NOT DISTINCT FROM NULLIF($4,'')::uuid ORDER BY vigente_em DESC,event_id DESC LIMIT 1`, strings.TrimSpace(academia), strings.ToLower(strings.TrimSpace(nivel)), strings.TrimSpace(ano), optionalString(curso)).Scan(&v.Valor, &v.MetodosPagamento, &v.VigenteEm, &raw)
+	err := s.client.DB().QueryRowContext(ctx, `SELECT valor::float8,metodos_pagamento,vigente_em,curso_id FROM financeiro_matricula_configuracoes WHERE codigo_academia=$1 AND nivel=$2 AND ano_academico=$3 AND curso_id IS NOT DISTINCT FROM NULLIF($4,'')::uuid ORDER BY vigente_em DESC,event_id DESC LIMIT 1`, strings.TrimSpace(academia), strings.ToLower(strings.TrimSpace(nivel)), strings.TrimSpace(ano), optionalString(curso)).Scan(&v.Valor, pq.Array(&v.MetodosPagamento), &v.VigenteEm, &raw)
 	if err == sql.ErrNoRows {
 		return MatriculaConfiguracaoView{}, ErrNotFound
 	}
@@ -168,7 +169,7 @@ func (s *Service) IniciarPagamentoMatricula(ctx context.Context, in MatriculaPag
 	var academia, status string
 	var valor sql.NullFloat64
 	var metodos []string
-	err := s.client.DB().QueryRowContext(ctx, `SELECT codigo_academia,status,valor_matricula::float8,metodos_pagamento_matricula FROM projection_solicitacoes_matricula WHERE codigo_solicitacao=$1`, in.CodigoSolicitacao).Scan(&academia, &status, &valor, &metodos)
+	err := s.client.DB().QueryRowContext(ctx, `SELECT codigo_academia,status,valor_matricula::float8,metodos_pagamento_matricula FROM projection_solicitacoes_matricula WHERE codigo_solicitacao=$1`, in.CodigoSolicitacao).Scan(&academia, &status, &valor, pq.Array(&metodos))
 	if err != nil || status != "aprovada_pendente_pagamento_matricula" || !valor.Valid {
 		return MatriculaPagamentoView{}, errors.New("solicitação não disponível para pagamento de matrícula")
 	}

@@ -35,10 +35,28 @@ func seedAcademiaParaMatriculaWebhook(t *testing.T, client *db.Client, codigo st
 	_, err := client.DB().Exec(`INSERT INTO projection_academias
 		(id,nivel,nome,nif,codigo_academia,senha_hash,provincia,endereco,nivel_escolar,status,cursos,anos_academicos,type,ano_letivo,created_at)
 		VALUES ($1,'escola','Academia webhook',$2,$3,'hash','LUA','endereco','fundamental','ativo','[]'::jsonb,'["1_ano_fundamental"]'::jsonb,'private','2026_2027',CURRENT_TIMESTAMP)`,
-		uuid.New(), strings.ReplaceAll(uuid.NewString(), "-", "")[:10], codigo)
+		uuid.New(), strings.Map(func(r rune) rune {
+			if r >= '0' && r <= '9' {
+				return r
+			}
+			return -1
+		}, uuid.NewString())[:10], codigo)
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func geraDigitos(n int) string {
+	digitos := strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' {
+			return r
+		}
+		return -1
+	}, uuid.NewString())
+	for len(digitos) < n {
+		digitos += "0"
+	}
+	return digitos[:n]
 }
 
 func seedSolicitacaoMatriculaPendenteComLedger(t *testing.T, client *db.Client, academia string, valor float64) (codigo, codigoEstudante string) {
@@ -46,8 +64,8 @@ func seedSolicitacaoMatriculaPendenteComLedger(t *testing.T, client *db.Client, 
 	codigo = "SOL" + strings.ReplaceAll(uuid.NewString(), "-", "")[:8]
 	codigoEstudante = "EST" + codigo[3:7]
 	email := strings.ToLower(codigo) + "@example.test"
-	telefone := "244" + codigo[3:]
-	telefoneResp := "923" + codigo[3:]
+	telefone := geraDigitos(9)
+	telefoneResp := geraDigitos(9)
 	bi := "BI-" + codigo
 	biResp := "BI-RESP-" + codigo
 	ano := "1_ano_fundamental"
@@ -56,7 +74,7 @@ func seedSolicitacaoMatriculaPendenteComLedger(t *testing.T, client *db.Client, 
 		"bi_encarregado": {Tipo: "bi_encarregado", Path: "docs/bi-encarregado.pdf"},
 	}
 	sol := aggregates.NewSolicitacaoMatricula()
-	if err := sol.Criar(codigo, academia, "Estudante Webhook", "feminino", time.Date(2017, 1, 2, 0, 0, 0, 0, time.UTC), &email, &telefone, &telefoneResp, &bi, &biResp, &ano, nil, nil, nil, nil, docs, nil); err != nil {
+	if err := sol.Criar(codigo, academia, "Estudante Webhook", "feminino", time.Date(2017, 1, 2, 0, 0, 0, 0, time.UTC), &email, &telefone, &telefoneResp, &bi, &biResp, &ano, nil, nil, nil, nil, docs, []string{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := sol.Aprovar(uuid.New(), codigoEstudante); err != nil {
@@ -80,7 +98,7 @@ func seedSolicitacaoMatriculaParaBusca(t *testing.T, client *db.Client) (codigo,
 	telefone, email = "244"+codigo[3:], strings.ToLower(codigo)+"@example.test"
 	_, err := client.DB().Exec(`INSERT INTO projection_solicitacoes_matricula
 		(id,codigo_solicitacao,codigo_academia,nome,genero,data_nascimento,email,telefone,telefone_encarregado,bilhete_identidade,bilhete_identidade_encarregado,ano_escolar_fundamental,status,documentos,codigo_estudante_gerado,valor_matricula,metodos_pagamento_matricula,created_at,updated_at)
-		VALUES ($1,$2,'ACA-BUSCA','Estudante buscável','feminino','2012-01-02',$3,$4,'923000000','BI-' || $2,'BI-RESP-' || $2,'6_ano_fundamental','aprovada_pendente_pagamento_matricula','{}'::jsonb,'EST0001',1250,ARRAY['REF'],CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, uuid.New(), codigo, email, telefone)
+		VALUES ($1,$2,'ACA-BUSCA','Estudante buscável','feminino','2012-01-02',$3,$4,'923000000',$5,$6,'6_ano_fundamental','aprovada_pendente_pagamento_matricula','{}'::jsonb,'EST0001',1250,ARRAY['REF'],CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, uuid.New(), codigo, email, telefone, "BI-"+codigo, "BI-RESP-"+codigo)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -18,8 +17,6 @@ import (
 
 type appyPayMockTransport struct {
 	status string
-	mu     sync.Mutex
-	nextID int
 }
 
 func (t *appyPayMockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -42,10 +39,7 @@ func (t *appyPayMockTransport) RoundTrip(req *http.Request) (*http.Response, err
 }
 
 func (t *appyPayMockTransport) providerID(kind string) string {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.nextID++
-	return fmt.Sprintf("provider-%s-%d", kind, t.nextID)
+	return fmt.Sprintf("provider-%s-%s", kind, uuid.NewString())
 }
 
 func integrationMerchant(prefix string) string {
@@ -193,7 +187,7 @@ func TestIntegrationMatriculaWebhookTardioMantemCancelamentoERegistraConflito(t 
 	if err = service.CancelarCobrancaMatriculaAberta(context.Background(), codigo, "solicitação cancelada", uuid.NewString(), "academia", "127.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
-	accepted, err := service.AcceptWebhook(context.Background(), "REF", "evt-"+uuid.NewString(), WebhookOwner{CredentialID: uuid.New(), ContextoTipo: ContextoAcademia, CodigoAcademia: academia}, map[string]any{"id": charge.Charge.ProviderChargeID, "status": "Success"})
+	accepted, err := service.AcceptWebhook(context.Background(), "REF", charge.Charge.ProviderChargeID, WebhookOwner{CredentialID: uuid.New(), ContextoTipo: ContextoAcademia, CodigoAcademia: academia}, map[string]any{"id": charge.Charge.ProviderChargeID, "status": "Success"})
 	if err != nil || !accepted {
 		t.Fatalf("webhook tardio = accepted %t, err %v", accepted, err)
 	}

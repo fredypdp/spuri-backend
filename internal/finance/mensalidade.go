@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/utils"
@@ -139,7 +140,7 @@ func (s *Service) ListMensalidadeConfiguracoes(ctx context.Context, codigoAcadem
 		var v MensalidadeConfiguracaoView
 		var curso sql.NullString
 		v.CodigoAcademia = codigoAcademia
-		if err := rows.Scan(&v.Nivel, &v.AnoAcademico, &curso, &v.Valor, &v.MesFimCobranca, &v.MetodosPagamento, &v.VigenteEm); err != nil {
+		if err := rows.Scan(&v.Nivel, &v.AnoAcademico, &curso, &v.Valor, &v.MesFimCobranca, pq.Array(&v.MetodosPagamento), &v.VigenteEm); err != nil {
 			return nil, err
 		}
 		if curso.Valid {

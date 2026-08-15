@@ -132,7 +132,7 @@ func (p *FinanceiroProjection) Handle(e db.Event) error {
 			return fmt.Errorf("evento de obrigaÃ§Ã£o mensal invÃ¡lido")
 		}
 		tipo := map[string]string{"ObrigacaoMensalidadeAnulada": "anulada", "ObrigacaoMensalidadeReativada": "reativada", "MensalidadePaga": "paga"}[e.EventType]
-		_, err := p.client.DB().Exec(`INSERT INTO financeiro_mensalidade_obrigacoes_eventos (event_id,aggregate_id,codigo_estudante,codigo_academia,ano_letivo,mes,tipo,motivo,ocorrido_em) VALUES ($1,$2,$3,$4,$5,$6,$7,NULLIF($8,''),$9) ON CONFLICT (event_id) DO NOTHING`, e.EventID, e.AggregateID, in.CodigoEstudante, in.CodigoAcademia, in.AnoLetivo, in.Mes, tipo, in.Motivo, e.OccurredAt)
+		_, err := p.client.DB().Exec(`INSERT INTO financeiro_mensalidade_obrigacoes_eventos (event_id,aggregate_id,codigo_estudante,codigo_academia,ano_letivo,mes,tipo,motivo,ocorrido_em) VALUES ($1,$2,$3,$4,$5,$6,$7,NULLIF($8,''),$9) ON CONFLICT (event_id, codigo_estudante, codigo_academia, ano_letivo, mes) DO NOTHING`, e.EventID, e.AggregateID, in.CodigoEstudante, in.CodigoAcademia, in.AnoLetivo, in.Mes, tipo, in.Motivo, e.OccurredAt)
 		return err
 	case "MensalidadesCobrancaConfirmada":
 		var in struct {
@@ -160,7 +160,7 @@ func (p *FinanceiroProjection) Handle(e db.Event) error {
 			if mes.AnoLetivo == "" || mes.Mes < 1 || mes.Mes > 12 {
 				return fmt.Errorf("mês de confirmação inválido")
 			}
-			if _, err = tx.Exec(`INSERT INTO financeiro_mensalidade_obrigacoes_eventos (event_id,aggregate_id,codigo_estudante,codigo_academia,ano_letivo,mes,tipo,charge_id,ocorrido_em) VALUES ($1,$2,$3,$4,$5,$6,'paga',$7,$8) ON CONFLICT (charge_id, codigo_estudante, codigo_academia, ano_letivo, mes) DO NOTHING`, e.EventID, e.AggregateID, in.CodigoEstudante, in.CodigoAcademia, mes.AnoLetivo, mes.Mes, chargeID, e.OccurredAt); err != nil {
+			if _, err = tx.Exec(`INSERT INTO financeiro_mensalidade_obrigacoes_eventos (event_id,aggregate_id,codigo_estudante,codigo_academia,ano_letivo,mes,tipo,charge_id,ocorrido_em) VALUES ($1,$2,$3,$4,$5,$6,'paga',$7,$8) ON CONFLICT (charge_id, codigo_estudante, codigo_academia, ano_letivo, mes) WHERE charge_id IS NOT NULL DO NOTHING`, e.EventID, e.AggregateID, in.CodigoEstudante, in.CodigoAcademia, mes.AnoLetivo, mes.Mes, chargeID, e.OccurredAt); err != nil {
 				return err
 			}
 		}
