@@ -66,3 +66,35 @@ func TestRegistrarNotaRespeitaTetoDoAggregate(t *testing.T) {
 		t.Fatal("nota acima do teto deveria ser rejeitada pelo aggregate")
 	}
 }
+
+func TestRegistrarFaltaTipoEscolarComPeriodoValido(t *testing.T) {
+	e, academia := estudanteParaRegistro()
+	if err := e.RegistrarFalta(academia, "2026", "7_ano_fundamental", "1_trimestre", time.Date(2026, 2, 2, 0, 0, 0, 0, time.UTC), uuid.New(), 1, nil, uuid.New(), PeriodosEscolar, MaxQuantidadeFaltasPadrao); err != nil {
+		t.Fatalf("RegistrarFalta escolar com periodo valido retornou erro: %v", err)
+	}
+}
+
+func TestCorrigirFaltaAceitaChaveLegadaSemPeriodo(t *testing.T) {
+	e, academia := estudanteParaRegistro()
+	materia := uuid.New()
+	data := time.Date(2026, 3, 4, 0, 0, 0, 0, time.UTC)
+	evento := &FaltasRegistradasEvent{
+		BaseEvent:            BaseEvent{EventType: "FaltasRegistradas", AggregateID: e.ID},
+		CodigoEstudante:      e.CodigoEstudante,
+		CodigoAcademia:       academia,
+		AnoLectivo:           "2026",
+		AnoAcademico:         "1_ano_superior",
+		Periodo:              "",
+		Data:                 data,
+		MateriaDisciplinarID: materia,
+		Quantidade:           1,
+		RegisteredAt:         time.Now(),
+		RegistradoPor:        uuid.New(),
+	}
+	if err := e.Apply(evento); err != nil {
+		t.Fatalf("apply de falta legada: %v", err)
+	}
+	if err := e.CorrigirFalta(uuid.New(), academia, "2026", "1_semestre", data, materia, 2, nil, "ajuste de falta historica", uuid.New(), MaxQuantidadeFaltasPadrao); err != nil {
+		t.Fatalf("CorrigirFalta deveria aceitar chave legada sem periodo: %v", err)
+	}
+}

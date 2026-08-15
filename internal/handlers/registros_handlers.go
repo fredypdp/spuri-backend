@@ -216,7 +216,7 @@ func ListarFaltas(c *gin.Context) {
 		SELECT
 			f.id, f.codigo_estudante, e.nome as estudante_nome,
 			f.codigo_academia, a.nome as academia_nome, f.ano_lectivo, f.ano_academico,
-			f.periodo, f.data, f.materia_disciplinar_id, COALESCE(m.nome, '') as materia_nome,
+			COALESCE(f.periodo, ''), f.data, f.materia_disciplinar_id, COALESCE(m.nome, '') as materia_nome,
 			f.quantidade, f.observacao, f.registrado_por, f.valor_anterior,
 			f.motivo_correcao, f.corrigido_por, f.corrigido_em, f.registered_at, f.event_id, f.version
 		FROM projection_faltas f

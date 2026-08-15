@@ -217,7 +217,7 @@ type FaltaDTO struct {
 func (p *FaltasProjection) GetByID(id string) (*FaltaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
-			f.periodo, f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
+			COALESCE(f.periodo, ''), f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
@@ -237,7 +237,7 @@ func (p *FaltasProjection) GetByID(id string) (*FaltaDTO, error) {
 func (p *FaltasProjection) GetByEstudante(codigoEstudante string) ([]FaltaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
-			f.periodo, f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
+			COALESCE(f.periodo, ''), f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
@@ -254,7 +254,7 @@ func (p *FaltasProjection) GetByEstudante(codigoEstudante string) ([]FaltaDTO, e
 func (p *FaltasProjection) GetByAcademia(codigoAcademia string) ([]FaltaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
-			f.periodo, f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
+			COALESCE(f.periodo, ''), f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
@@ -271,7 +271,7 @@ func (p *FaltasProjection) GetByAcademia(codigoAcademia string) ([]FaltaDTO, err
 func (p *FaltasProjection) GetByPeriodo(codigoEstudante, anoLectivo string, dataInicio, dataFim time.Time) ([]FaltaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
-			f.periodo, f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
+			COALESCE(f.periodo, ''), f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
@@ -290,7 +290,7 @@ func (p *FaltasProjection) GetByPeriodo(codigoEstudante, anoLectivo string, data
 func (p *FaltasProjection) GetAll() ([]FaltaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
-			f.periodo, f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
+			COALESCE(f.periodo, ''), f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
