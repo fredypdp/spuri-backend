@@ -85,8 +85,10 @@ var validEventTypes = map[string]bool{
 	// ── Solicitação de Matrícula ───────────────────────────────────────────────
 	"SolicitacaoMatriculaCriada":                         true,
 	"SolicitacaoMatriculaAprovada":                       true,
+	"SolicitacaoMatriculaAprovadaPendentePagamento":      true,
 	"SolicitacaoMatriculaReprovada":                      true,
 	"SolicitacaoMatriculaCancelada":                      true,
+	"SolicitacaoMatriculaVinculada":                      true,
 	"SolicitacaoEdicaoDadoEstudanteCriada":               true,
 	"SolicitacaoEdicaoDadoEstudanteAprovada":             true,
 	"SolicitacaoEdicaoDadoEstudanteReprovada":            true,
