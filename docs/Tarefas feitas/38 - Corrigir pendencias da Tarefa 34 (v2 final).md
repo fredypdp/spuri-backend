@@ -2,12 +2,12 @@
 criado: 2026-08-14 00:00
 atualizado: 2026-08-15 00:00
 origem: v2 — reauditoria completa contra o HEAD atual de fredypdp/spuri-backend (branch main), feita clonando o repositório e lendo o código linha a linha (não apenas o diff do commit cf0f2be). Substitui integralmente a v1 deste documento.
-status: pendente
+status: feito
 prioridade: alta — o Problema C abaixo é uma regressão de dados em produção (faltas históricas somem de todas as consultas e não podem ser corrigidas), não apenas dívida de documentação/testes.
 repositorio: fredypdp/spuri-backend (branch main)
 ---
 
-# 38 — Corrigir pendências da Tarefa 34 (nota de contrato duplicada, testes de periodo ausentes e regressão crítica de leitura/correção de faltas históricas) — v2 FINAL
+# 37 — Corrigir pendências da Tarefa 34 (nota de contrato duplicada, testes de periodo ausentes e regressão crítica de leitura/correção de faltas históricas) — v2 FINAL (feito)
 
 ## Por que esta versão existe
 

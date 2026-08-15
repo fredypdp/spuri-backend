@@ -133,7 +133,19 @@ func (e *Estudante) CorrigirFalta(faltaAnteriorID uuid.UUID, codigoAcademia, ano
 		return fmt.Errorf("quantidade deve estar entre 1 e %d", maxQuantidade)
 	}
 	chave := chaveFalta(e.CodigoEstudante, codigoAcademia, anoLectivo, periodo, data, materiaID)
-	if e.FaltasRegistradasPorChave == nil || !e.FaltasRegistradasPorChave[chave] {
+	encontrada := e.FaltasRegistradasPorChave != nil && e.FaltasRegistradasPorChave[chave]
+	if !encontrada && periodo != "" {
+		// Compatibilidade com faltas registradas antes da Tarefa 34: o evento
+		// FaltasRegistradas gravado no ledger não tinha o campo Periodo, então,
+		// ao ser repetido (replay), a chave em memória foi indexada com
+		// periodo="" — mesmo que a projeção (via migration 107_periodo_faltas.sql)
+		// tenha preenchido retroativamente um periodo determinístico (matérias
+		// tipo superior). Sem este fallback, a correção dessas faltas falha com
+		// "falta original não encontrada" mesmo quando a falta existe.
+		chaveLegado := chaveFalta(e.CodigoEstudante, codigoAcademia, anoLectivo, "", data, materiaID)
+		encontrada = e.FaltasRegistradasPorChave != nil && e.FaltasRegistradasPorChave[chaveLegado]
+	}
+	if !encontrada {
 		return fmt.Errorf("falta original não encontrada para correção")
 	}
 	event := &FaltaCorrigidaEvent{BaseEvent: BaseEvent{EventType: "FaltaCorrigida", AggregateID: e.ID}, FaltaAnteriorID: faltaAnteriorID, CodigoAcademia: codigoAcademia, AnoLectivo: anoLectivo, Periodo: periodo, Data: data, MateriaDisciplinarID: materiaID, NovaQuantidade: novaQuantidade, NovaObservacao: novaObservacao, Motivo: strings.TrimSpace(motivo), CorrigidoPor: corrigidoPor, CorrigidoEm: time.Now()}

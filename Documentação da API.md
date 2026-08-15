@@ -4631,8 +4631,6 @@ Ativa matérias em lote.
 ]
 ```
 
-**Nota de contrato:** esta é uma mudança breaking; `POST /academia/faltas-aluno` e `POST /academia/faltas-aluno/async` rejeitam itens sem `periodo`.
-
 **Response 202:** job assíncrono com acompanhamento por polling ou SSE.
 
 ### `PUT /academia/materia/desativar/async`
@@ -4648,8 +4646,6 @@ Desativa matérias em lote.
   { "id": "uuid-da-materia" }
 ]
 ```
-
-**Nota de contrato:** esta é uma mudança breaking; `POST /academia/faltas-aluno` e `POST /academia/faltas-aluno/async` rejeitam itens sem `periodo`.
 
 **Response 202:** job assíncrono com resultados por item.
 
@@ -4671,8 +4667,6 @@ Atualiza dados de matérias em lote.
 ]
 ```
 
-**Nota de contrato:** esta é uma mudança breaking; `POST /academia/faltas-aluno` e `POST /academia/faltas-aluno/async` rejeitam itens sem `periodo`.
-
 **Response 202:** job assíncrono com resultados por item.
 
 ### `DELETE /academia/materia/async`
@@ -4688,8 +4682,6 @@ Remove logicamente matérias em lote.
   { "id": "uuid-da-materia" }
 ]
 ```
-
-**Nota de contrato:** esta é uma mudança breaking; `POST /academia/faltas-aluno` e `POST /academia/faltas-aluno/async` rejeitam itens sem `periodo`.
 
 **Response 202:** job assíncrono com preservação histórica igual à rota síncrona.
 
@@ -4975,8 +4967,6 @@ Cria turmas em lote por job assíncrono.
 ]
 ```
 
-**Nota de contrato:** esta é uma mudança breaking; `POST /academia/faltas-aluno` e `POST /academia/faltas-aluno/async` rejeitam itens sem `periodo`.
-
 **Response 202:** job assíncrono com `job_id`, `status`, `total_items`, `poll_url` e `sse_url`.
 
 ### `POST /academia/turma/estudante/async`
@@ -4996,8 +4986,6 @@ Adiciona estudantes a turmas em lote.
 ]
 ```
 
-**Nota de contrato:** esta é uma mudança breaking; `POST /academia/faltas-aluno` e `POST /academia/faltas-aluno/async` rejeitam itens sem `periodo`.
-
 **Response 202:** job assíncrono; cada item aplica as mesmas validações da rota síncrona.
 
 ### `PUT /academia/turma/ativar/async`
@@ -5014,8 +5002,6 @@ Ativa turmas em lote.
 ]
 ```
 
-**Nota de contrato:** esta é uma mudança breaking; `POST /academia/faltas-aluno` e `POST /academia/faltas-aluno/async` rejeitam itens sem `periodo`.
-
 **Response 202:** job assíncrono.
 
 ### `PUT /academia/turma/desativar/async`
@@ -5031,8 +5017,6 @@ Desativa turmas em lote.
   { "codigo_turma": "10A" }
 ]
 ```
-
-**Nota de contrato:** esta é uma mudança breaking; `POST /academia/faltas-aluno` e `POST /academia/faltas-aluno/async` rejeitam itens sem `periodo`.
 
 **Response 202:** job assíncrono.
 
@@ -5053,8 +5037,6 @@ Atualiza dados de turmas em lote.
 ]
 ```
 
-**Nota de contrato:** esta é uma mudança breaking; `POST /academia/faltas-aluno` e `POST /academia/faltas-aluno/async` rejeitam itens sem `periodo`.
-
 **Response 202:** job assíncrono com resultados por item.
 
 ### `DELETE /academia/turma/async`
@@ -5070,8 +5052,6 @@ Remove logicamente turmas em lote.
   { "codigo_turma": "10A" }
 ]
 ```
-
-**Nota de contrato:** esta é uma mudança breaking; `POST /academia/faltas-aluno` e `POST /academia/faltas-aluno/async` rejeitam itens sem `periodo`.
 
 **Response 202:** job assíncrono.
 
@@ -5091,8 +5071,6 @@ Remove estudantes de turmas em lote.
   }
 ]
 ```
-
-**Nota de contrato:** esta é uma mudança breaking; `POST /academia/faltas-aluno` e `POST /academia/faltas-aluno/async` rejeitam itens sem `periodo`.
 
 **Response 202:** job assíncrono; histórico por ano letivo é preservado.
 
