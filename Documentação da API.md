@@ -1090,7 +1090,7 @@ Define nova senha usando o token de recuperação.
 	  { nome: 'BENGUELA', codigo: 'BGU' },
 	  { nome: 'BIE', codigo: 'BIE' },
 	  { nome: 'CABINDA', codigo: 'CAB' },
-	  { nome: 'CUANDO CUBANGO', codigo: 'CND' },
+	  { nome: 'CUANDO', codigo: 'CND' },
 	  { nome: 'CUANZA NORTE', codigo: 'CNO' },
 	  { nome: 'CUANZA SUL', codigo: 'CUS' },
 	  { nome: 'CUBANGO', codigo: 'CBG' },
