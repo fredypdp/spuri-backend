@@ -1,12 +1,12 @@
 ---
 criado: 2026-08-15 00:00
 origem: Depuração pós-implementação da Tarefa 35 (docs/Lista de Tarefas/35 - Cadastro de estudante vinculado a turma (individual e em massa).md, commits 9f8c73f e d11b1fe) — conversa com Claude, o orquestrador; auditoria feita clonando fredypdp/spuri-backend e lendo o código linha a linha
-status: pendente
+status: feito
 prioridade: média-alta — o código funcional está correto (auditado e confirmado), mas há uma regressão de código HTTP não coberta por nenhum teste, e nenhum dos 11 testes obrigatórios da especificação original foi implementado
 repositorio: fredypdp/spuri-backend (branch main)
 ---
 
-# 39 — Corrigir pendências da Tarefa 35 (testes obrigatórios ausentes e regressão de código HTTP em `AdicionarEstudanteATurma`)
+# 38 — Corrigir pendências da Tarefa 35 (testes obrigatórios ausentes e regressão de código HTTP em AdicionarEstudanteATurma) (feito)
 
 ## Prompt recomendado para executar a atualização
 
