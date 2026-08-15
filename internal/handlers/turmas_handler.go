@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -13,6 +14,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
+
+var errTurmaNaoEncontradaParaVinculo = errors.New("turma não encontrada ou não pertence a esta academia")
 
 // CriarTurma cria uma nova turma para a academia autenticada.
 // Rota: POST /academia/turmas
@@ -536,7 +539,7 @@ func vincularEstudanteATurma(
 		return err
 	}
 	if turmaDTO == nil {
-		return fmt.Errorf("turma não encontrada ou não pertence a esta academia")
+		return errTurmaNaoEncontradaParaVinculo
 	}
 	if turmaDTO.Status != "ativo" {
 		return fmt.Errorf("turma '%s' está %s e não pode receber estudantes", codigoTurma, turmaDTO.Status)
@@ -635,7 +638,11 @@ func AdicionarEstudanteATurma(c *gin.Context) {
 	}
 
 	if err := vincularEstudanteATurma(c, academiaDTO, req.CodigoEstudante, derefString(estudanteDTO.AnoEscolar), derefString(estudanteDTO.AnoEscolarMedio), derefString(estudanteDTO.AnoSuperior), derefString(estudanteDTO.CursoMedioID), derefString(estudanteDTO.CursoSuperiorID), codigoTurma, false, academiaID); err != nil {
-		utils.RespondWithValidationError(c, err)
+		if errors.Is(err, errTurmaNaoEncontradaParaVinculo) {
+			utils.RespondWithNotFoundError(c, "turma")
+		} else {
+			utils.RespondWithValidationError(c, err)
+		}
 		return
 	}
 
