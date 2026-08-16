@@ -1,7 +1,7 @@
 ---
 criado: 2026-08-15 12:05
 origem: Auditoria profunda do módulo financeiro pós-tarefa 37, conduzida por Claude (Anthropic) com ambiente real (Go 1.24 + PostgreSQL 16), executando build, vet e toda a suíte de testes de integração repetidamente contra banco limpo.
-status: pendente
+status: feito
 depende_de: "37 - Correção pós-implementação da tarefa 33 (bug crítico de mensalidades e outros).md"
 ---
 
