@@ -1,7 +1,7 @@
 ---
 criado: 2026-08-16 17:30
 origem: Depuração profunda do módulo de pagamento (fluxo de matrícula/inscrição de estudante e mensalidade) conduzida por Claude (Anthropic) em ambiente real (Go 1.24, PostgreSQL 16, repositório clonado e compilado de fato), a pedido do Fredy, para auditar se as tarefas 41 e 44 foram corretamente implementadas. Resultado: **ambas as tarefas foram implementadas exatamente como especificado, sem nenhum bug de código encontrado.** O único trabalho pendente é administrativo (checklist de integração nunca confirmado por falta de PostgreSQL nas sessões anteriores do Codex, e arquivos de tarefa nunca movidos/atualizados). Esta tarefa existe só para fechar essa pendência de forma mecânica.
-status: pendente
+status: feito
 relacionado: "41 - Redesign da autenticação de webhook AppyPay (secret gerado pelo servidor).md, 42 - Correção de bugs críticos de integridade do ledger no módulo de mensalidades e matrícula (auditoria pós-tarefa 40).md, 44 - Correção de bug crítico de confirmação de matrícula via consulta de cobrança AppyPay (auditoria pós-tarefa 42).md, 45 - Pendências ambientais da tarefa 44 (checklist e publicação de PR).md"
 ---
 
