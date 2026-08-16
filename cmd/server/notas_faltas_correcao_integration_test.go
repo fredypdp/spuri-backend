@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,18 +25,20 @@ import (
 // ledger and projections. They deliberately require an isolated database because
 // the projection rebuilds replay the complete ledger.
 type registrosCorrecaoFixture struct {
-	client        *db.Client
-	repository    *db.AggregateRepository
-	router        *gin.Engine
-	academia      *aggregates.Academia
-	outraAcademia *aggregates.Academia
-	estudante     *aggregates.Estudante
-	codigoAluno   string
-	materiaID     uuid.UUID
-	notaID        uuid.UUID
-	faltaID       string
-	token         string
-	tokenOutra    string
+	client              *db.Client
+	repository          *db.AggregateRepository
+	router              *gin.Engine
+	academia            *aggregates.Academia
+	outraAcademia       *aggregates.Academia
+	estudante           *aggregates.Estudante
+	codigoAluno         string
+	materiaID           uuid.UUID
+	codigoAlunoSuperior string
+	materiaSuperiorID   uuid.UUID
+	notaID              uuid.UUID
+	faltaID             string
+	token               string
+	tokenOutra          string
 }
 
 func setupRegistrosCorrecaoIntegration(t *testing.T) *registrosCorrecaoFixture {
@@ -89,6 +92,31 @@ func setupRegistrosCorrecaoIntegration(t *testing.T) *registrosCorrecaoFixture {
 	if err := repository.SaveWithAudit(estudante, db.AuditContext{UserID: academia.ID.String(), UserType: "academia", IP: "127.0.0.1"}); err != nil {
 		t.Fatalf("salvar estudante: %v", err)
 	}
+	anoSuperior := "1_ano_superior"
+	codigoAlunoSuperior := fmt.Sprintf("%07d", (sequence+1)%10_000_000)
+	estudanteSuperior := aggregates.NewEstudante()
+	if err := estudanteSuperior.CriarComVinculo("Aluno superior de integração", codigoAlunoSuperior, "hash", nil, nil, nil, nil, nil, "F", time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), nil, nil, &anoSuperior, nil, nil, &academia.ID, academia.CodigoAcademia); err != nil {
+		t.Fatalf("criar estudante superior: %v", err)
+	}
+	if err := repository.SaveWithAudit(estudanteSuperior, db.AuditContext{UserID: academia.ID.String(), UserType: "academia", IP: "127.0.0.1"}); err != nil {
+		t.Fatalf("salvar estudante superior: %v", err)
+	}
+
+	cursoSuperiorID := uuid.New()
+	if _, err := client.DB().Exec(`
+		INSERT INTO projection_cursos (id, nome, type, nivel, periodos, codigo_academia, status, created_at)
+		VALUES ($1, 'Curso Superior integração', 'superior', '[]'::jsonb, '["1_semestre","2_semestre"]'::jsonb, $2, 'ativo', CURRENT_TIMESTAMP)
+	`, cursoSuperiorID, academia.CodigoAcademia); err != nil {
+		t.Fatalf("inserir curso superior: %v", err)
+	}
+	materiaSuperiorID := uuid.New()
+	if _, err := client.DB().Exec(`
+		INSERT INTO projection_materias (id, nome, type, codigo_academia, curso_id, periodo, anos_academicos, status, created_at)
+		VALUES ($1, 'Cálculo I integração', 'superior', $2, $3, '1_semestre', '["1_ano_superior"]'::jsonb, 'ativo', CURRENT_TIMESTAMP)
+	`, materiaSuperiorID, academia.CodigoAcademia, cursoSuperiorID); err != nil {
+		t.Fatalf("inserir materia superior: %v", err)
+	}
+
 	if err := projections.NewEstudanteProjection(client).Rebuild(); err != nil {
 		t.Fatalf("rebuild estudantes: %v", err)
 	}
@@ -136,7 +164,7 @@ func setupRegistrosCorrecaoIntegration(t *testing.T) *registrosCorrecaoFixture {
 
 	return &registrosCorrecaoFixture{
 		client: client, repository: repository, router: setupRouter(), academia: academia, outraAcademia: outraAcademia,
-		estudante: estudante, codigoAluno: codigoAluno, materiaID: materiaID, notaID: notaID, faltaID: faltaID,
+		estudante: estudante, codigoAluno: codigoAluno, materiaID: materiaID, codigoAlunoSuperior: codigoAlunoSuperior, materiaSuperiorID: materiaSuperiorID, notaID: notaID, faltaID: faltaID,
 		token: token, tokenOutra: tokenOutra,
 	}
 }
@@ -331,4 +359,146 @@ func assertRespostaContemAuditoriaCorrecao(t *testing.T, body []byte, campo, aca
 		}
 	}
 	t.Fatalf("resposta de %s não expôs campos de auditoria da correção: %s", campo, body)
+}
+
+func registrarFaltaCorrecao(t *testing.T, fx *registrosCorrecaoFixture, codigo, periodo string, materia uuid.UUID, data string) *httptest.ResponseRecorder {
+	t.Helper()
+	body := fmt.Sprintf(`{"codigo_estudante":"%s","data":"%s","periodo":"%s","materia_disciplinar_id":"%s","quantidade":1}`, codigo, data, periodo, materia)
+	return requestCorrecao(fx.router, fx.token, http.MethodPost, "/academia/faltas-aluno", body)
+}
+
+func TestFaltasPeriodo02EscolarComPeriodoInvalidoRetorna400(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fx := setupRegistrosCorrecaoIntegration(t)
+	w := registrarFaltaCorrecao(t, fx, fx.codigoAluno, "4_trimestre", fx.materiaID, "2026-02-11")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d %s", w.Code, w.Body.String())
+	}
+}
+func TestFaltasPeriodo03EscolarSemPeriodoRetorna400(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fx := setupRegistrosCorrecaoIntegration(t)
+	body := fmt.Sprintf(`{"codigo_estudante":"%s","data":"2026-02-12","materia_disciplinar_id":"%s","quantidade":1}`, fx.codigoAluno, fx.materiaID)
+	w := requestCorrecao(fx.router, fx.token, http.MethodPost, "/academia/faltas-aluno", body)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "periodo") {
+		t.Fatalf("status=%d %s", w.Code, w.Body.String())
+	}
+}
+func TestFaltasPeriodo04SuperiorComPeriodoDaMateriaTemSucesso(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fx := setupRegistrosCorrecaoIntegration(t)
+	w := registrarFaltaCorrecao(t, fx, fx.codigoAlunoSuperior, "1_semestre", fx.materiaSuperiorID, "2026-02-13")
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status=%d %s", w.Code, w.Body.String())
+	}
+}
+func TestFaltasPeriodo05SuperiorComPeriodoDiferenteDaMateriaRetorna400(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fx := setupRegistrosCorrecaoIntegration(t)
+	w := registrarFaltaCorrecao(t, fx, fx.codigoAlunoSuperior, "2_semestre", fx.materiaSuperiorID, "2026-02-14")
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "periodo '2_semestre' invalido") {
+		t.Fatalf("status=%d %s", w.Code, w.Body.String())
+	}
+}
+func TestFaltasPeriodo06PatchComPeriodoNoCorpoRejeitaCampoLegado(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fx := setupRegistrosCorrecaoIntegration(t)
+	w := requestCorrecao(fx.router, fx.token, http.MethodPatch, "/academia/faltas-aluno/"+fx.faltaID, `{"quantidade":1,"motivo":"ajuste","periodo":"2_trimestre"}`)
+	if w.Code < 400 || !strings.Contains(w.Body.String(), "periodo") {
+		t.Fatalf("status=%d %s", w.Code, w.Body.String())
+	}
+}
+func TestFaltasPeriodo07PatchSemPeriodoPreservaPeriodoOriginal(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fx := setupRegistrosCorrecaoIntegration(t)
+	w := requestCorrecao(fx.router, fx.token, http.MethodPatch, "/academia/faltas-aluno/"+fx.faltaID, `{"quantidade":1,"motivo":"ajuste sem periodo"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d %s", w.Code, w.Body.String())
+	}
+	dto, err := projections.NewFaltasProjection(fx.client).GetByID(fx.faltaID)
+	if err != nil || dto.Periodo != "1_trimestre" {
+		t.Fatalf("periodo=%q err=%v", dto.Periodo, err)
+	}
+}
+func TestFaltasPeriodo08ListarFaltasFiltraPorPeriodo(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fx := setupRegistrosCorrecaoIntegration(t)
+	_ = registrarFaltaCorrecao(t, fx, fx.codigoAluno, "2_trimestre", fx.materiaID, "2026-02-15")
+	_ = projections.NewFaltasProjection(fx.client).Rebuild()
+	w := requestCorrecao(fx.router, fx.token, http.MethodGet, "/faltas?periodo=1_trimestre", "")
+	if w.Code != http.StatusOK || strings.Contains(w.Body.String(), "2_trimestre") {
+		t.Fatalf("status=%d %s", w.Code, w.Body.String())
+	}
+}
+func TestFaltasPeriodo09FaltasEstudanteFiltraPorPeriodo(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fx := setupRegistrosCorrecaoIntegration(t)
+	_ = registrarFaltaCorrecao(t, fx, fx.codigoAluno, "2_trimestre", fx.materiaID, "2026-02-16")
+	_ = projections.NewFaltasProjection(fx.client).Rebuild()
+	w := requestCorrecao(fx.router, fx.token, http.MethodGet, "/faltas-estudante/"+fx.codigoAluno+"?periodo=2_trimestre", "")
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "2_trimestre") {
+		t.Fatalf("status=%d %s", w.Code, w.Body.String())
+	}
+}
+func TestFaltasPeriodo10RebuildPreservaPeriodo(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fx := setupRegistrosCorrecaoIntegration(t)
+	if err := projections.NewFaltasProjection(fx.client).Rebuild(); err != nil {
+		t.Fatal(err)
+	}
+	dto, err := projections.NewFaltasProjection(fx.client).GetByID(fx.faltaID)
+	if err != nil || dto.Periodo != "1_trimestre" {
+		t.Fatalf("periodo=%q err=%v", dto.Periodo, err)
+	}
+}
+func TestFaltasPeriodo11MesmaChaveComPeriodoDiferenteAceitaAmbas(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fx := setupRegistrosCorrecaoIntegration(t)
+	d := "2026-02-17"
+	if w := registrarFaltaCorrecao(t, fx, fx.codigoAluno, "1_trimestre", fx.materiaID, d); w.Code != http.StatusCreated {
+		t.Fatalf("1 status=%d %s", w.Code, w.Body.String())
+	}
+	if w := registrarFaltaCorrecao(t, fx, fx.codigoAluno, "2_trimestre", fx.materiaID, d); w.Code != http.StatusCreated {
+		t.Fatalf("2 status=%d %s", w.Code, w.Body.String())
+	}
+}
+func TestFaltasPeriodo12BackfillMigracaoPreservaHistoricaSemPeriodo(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fx := setupRegistrosCorrecaoIntegration(t)
+	id1, id2 := uuid.NewString(), uuid.NewString()
+	_, err := fx.client.DB().Exec(`INSERT INTO projection_faltas (id,codigo_estudante,codigo_academia,ano_lectivo,ano_academico,periodo,data,materia_disciplinar_id,quantidade,registered_at,event_id,version) VALUES ($1,$2,$3,'2026','1_ano_superior',NULL,'2026-02-18',$4,1,CURRENT_TIMESTAMP,'x',1),($5,$2,$3,'2026','1_ano_fundamental',NULL,'2026-02-19',$6,1,CURRENT_TIMESTAMP,'y',1)`, id1, fx.codigoAlunoSuperior, fx.academia.CodigoAcademia, fx.materiaSuperiorID.String(), id2, fx.materiaID.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = fx.client.DB().Exec(`UPDATE projection_faltas f SET periodo = m.periodo FROM projection_materias m WHERE f.materia_disciplinar_id::uuid = m.id AND m.type = 'superior' AND m.periodo IS NOT NULL AND f.periodo IS NULL`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dtos, err := projections.NewFaltasProjection(fx.client).GetByEstudante(fx.codigoAlunoSuperior)
+	if err != nil || len(dtos) == 0 {
+		t.Fatalf("dtos=%v err=%v", len(dtos), err)
+	}
+}
+func TestFaltasPeriodo13GetByPeriodoMantemIntervaloEPeriodo(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fx := setupRegistrosCorrecaoIntegration(t)
+	dtos, err := projections.NewFaltasProjection(fx.client).GetByPeriodo(fx.codigoAluno, "2026", time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 2, 28, 0, 0, 0, 0, time.UTC))
+	if err != nil || len(dtos) == 0 || dtos[0].Periodo == "" {
+		t.Fatalf("dtos=%v err=%v", len(dtos), err)
+	}
+}
+func TestFaltasPeriodo15HistoricaSemPeriodoListavelECorrigivel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fx := setupRegistrosCorrecaoIntegration(t)
+	if _, err := fx.client.DB().Exec(`UPDATE projection_faltas SET periodo=NULL WHERE id=$1`, fx.faltaID); err != nil {
+		t.Fatal(err)
+	}
+	w := requestCorrecao(fx.router, fx.token, http.MethodGet, "/faltas-estudante/"+fx.codigoAluno, "")
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"periodo":""`) {
+		t.Fatalf("list status=%d %s", w.Code, w.Body.String())
+	}
+	w = requestCorrecao(fx.router, fx.token, http.MethodPatch, "/academia/faltas-aluno/"+fx.faltaID, `{"quantidade":1,"motivo":"ajuste historico"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("patch status=%d %s", w.Code, w.Body.String())
+	}
 }
