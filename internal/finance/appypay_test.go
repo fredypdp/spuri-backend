@@ -110,16 +110,31 @@ func TestEncryptionKeyRequiresStrongMaterial(t *testing.T) {
 	}
 }
 
-func TestValidHTTPHeaderName(t *testing.T) {
-	for _, name := range []string{"X-API-Key", "Authorization", "X-Spuri-Webhook-Secret"} {
-		if !validHTTPHeaderName(name) {
-			t.Fatalf("nome de cabeçalho válido foi rejeitado: %q", name)
+func TestWebhookHeaderNameIsFixedGlobalConstant(t *testing.T) {
+	if WebhookHeaderName != "X-Spuri-Webhook-Secret" {
+		t.Fatalf("WebhookHeaderName mudou de valor sem atualizar esta expectativa: %q", WebhookHeaderName)
+	}
+}
+
+func TestGenerateWebhookSecretLengthAlphabetAndUniqueness(t *testing.T) {
+	first, err := generateWebhookSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != webhookSecretLength {
+		t.Fatalf("segredo de webhook com tamanho %d, queria %d", len(first), webhookSecretLength)
+	}
+	for _, r := range first {
+		if !strings.ContainsRune(webhookSecretAlphabet, r) {
+			t.Fatalf("segredo de webhook contém caractere fora do alfabeto esperado: %q", r)
 		}
 	}
-	for _, name := range []string{"", "X API Key", "X-API-Key:"} {
-		if validHTTPHeaderName(name) {
-			t.Fatalf("nome de cabeçalho inválido foi aceite: %q", name)
-		}
+	second, err := generateWebhookSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("duas chamadas a generateWebhookSecret produziram o mesmo valor")
 	}
 }
 

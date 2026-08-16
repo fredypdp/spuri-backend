@@ -61,11 +61,10 @@ func TestIntegrationConsultarCobrancaAppyPayNaoEfetivaMatriculaAposSuccess(t *te
 	transport := &matriculaConsultaMockTransport{status: "Pending"}
 	service := finance.NewService(client)
 	service.SetHTTPClient(&http.Client{Transport: transport})
-	if _, err := service.ConfigureCredential(context.Background(), nil, finance.CredentialInput{
+	if _, _, err := service.ConfigureCredential(context.Background(), nil, finance.CredentialInput{
 		ContextoTipo: finance.ContextoAcademia, CodigoAcademia: academia,
 		ClientID: "integration-client", ClientSecret: "integration-secret",
 		GPOPaymentMethod: "GPO_INTEGRATION", REFPaymentMethod: "REF_INTEGRATION",
-		WebhookSecret: "webhook-secret-" + codigo,
 	}, "integration-test", "sistema", "127.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
