@@ -1,7 +1,7 @@
 ---
 criado: 2026-08-16 03:00
 origem: Auditoria profunda do módulo de pagamento (cobrança/pagamento de mensalidades e matrícula) conduzida por Claude (Anthropic) com ambiente real (Go 1.24 + PostgreSQL 16), executando build, vet e toda a suíte de testes de integração repetidamente contra banco limpo. Foco da auditoria: integridade, auditoria, gravação e leitura correta dos dados no ledger.
-status: pendente
+status: feito
 depende_de: "40 - Correção de bugs críticos de produção descobertos na auditoria pós-tarefa 37 (módulo financeiro).md"
 ---
 
