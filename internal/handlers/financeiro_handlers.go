@@ -188,6 +188,24 @@ func ConsultarCobrancaAppyPay(c *gin.Context) {
 		financeError(c, err)
 		return
 	}
+	// A cobrança pode ser de matrícula: diferente de uma cobrança de
+	// mensalidade (confirmada via confirmMensalidadeCharge dentro do
+	// próprio ConsultCharge), a efetivação do vínculo de matrícula
+	// (criação do estudante e transição da solicitação) não faz parte do
+	// pacote financeiro e precisa ser acionada aqui, exatamente como já é
+	// feito em ReceberWebhookAppyPay e na criação síncrona da cobrança em
+	// IniciarPagamentoMatricula. Sem isto, uma cobrança de matrícula que só
+	// é confirmada pela AppyPay quando alguém consulta o status (fluxo
+	// normal para GPO/REF, que nunca retornam "success" na criação) nunca
+	// efetiva a matrícula.
+	if strings.EqualFold(strings.TrimSpace(out.Status), "success") {
+		if codigo, err := FinanceiroService.CodigoSolicitacaoDaCobranca(c.Request.Context(), c.Param("id")); err == nil && codigo != "" {
+			if err := efetivarVinculoMatriculaPaga(c, codigo); err != nil {
+				utils.RespondWithInternalError(c, err)
+				return
+			}
+		}
+	}
 	c.JSON(http.StatusOK, out)
 }
 
