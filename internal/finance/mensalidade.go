@@ -331,7 +331,7 @@ func (s *Service) ListMensalidades(ctx context.Context, codigoEstudante string, 
 		if result[i].CodigoAcademia != result[j].CodigoAcademia {
 			return result[i].CodigoAcademia < result[j].CodigoAcademia
 		}
-		return result[i].Mes < result[j].Mes
+		return result[i].DataReferencia.Before(result[j].DataReferencia)
 	})
 	return result, nil
 }
@@ -768,12 +768,11 @@ func (s *Service) confirmMensalidadeCharge(ctx context.Context, chargeID uuid.UU
 	if len(months) == 0 {
 		return nil
 	}
+	// Student identity is stored in the structured selection payload (set by
+	// CreateCharge/CreateGPOQRCode from the validated ChargeRequest), never
+	// inferred from payment_info, which only carries provider-specific
+	// parameters (e.g. GPO's phoneNumber) and never a student code.
 	estudante, _ := row.Payload["codigo_estudante"].(string)
-	// Student identity is stored in the structured selection payload, never
-	// inferred from an untrusted provider response.
-	if info, ok := row.Payload["payment_info"].(map[string]any); ok {
-		estudante, _ = info["codigo_estudante"].(string)
-	}
 	if estudante == "" {
 		return errors.New("cobrança de mensalidade sem estudante")
 	}

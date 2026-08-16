@@ -116,6 +116,14 @@ var validEventTypes = map[string]bool{
 	// projection can consume a real payment event without any compatibility
 	// path or inferred payment state.
 	"MensalidadePaga": true,
+	// MatriculaConfigurada e MensalidadesCobrancaConfirmada já eram emitidos
+	// por internal/finance (matricula.go e mensalidade.go) e já eram
+	// tratados por FinanceiroProjection.Handle, mas faltavam nesta
+	// whitelist: todo SaveWithAudit/AppendTx para esses dois tipos de
+	// evento era rejeitado com "tipo de evento inválido" antes mesmo de
+	// tentar gravar no ledger.
+	"MatriculaConfigurada":           true,
+	"MensalidadesCobrancaConfirmada": true,
 }
 
 // validAggregateTypes é o mapa canônico de aggregate types permitidos no ledger.
