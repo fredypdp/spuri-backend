@@ -10,7 +10,7 @@ depende_de: "42 - Correção de bugs críticos de integridade do ledger no módu
 ## Prompt recomendado para executar a atualização
 
 ```
-Leia por completo o arquivo "docs/Lista de Tarefas/43 - Correção de bug crítico de confirmação de matrícula
+Leia por completo o arquivo "docs/Lista de Tarefas/44 - Correção de bug crítico de confirmação de matrícula
 via consulta de cobrança AppyPay (auditoria pós-tarefa 42).md". Ele contém 1 correção já totalmente
 especificada e validada (diff exato, arquivo e trecho a substituir), mais 1 arquivo de teste de regressão
 novo, completo e já validado, que reproduz o bug antes da correção e passa depois dela. Não é necessário
