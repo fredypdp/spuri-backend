@@ -1,7 +1,7 @@
 ---
 criado: 2026-08-16 00:00
 origem: Auditoria profunda pós-implementação das Tarefas 38 e 39 (docs/Tarefas feitas/38 - Corrigir pendencias da Tarefa 34 (v2 final).md e docs/Tarefas feitas/39 - Corrigir pendencias da Tarefa 35 (testes ausentes e regressao HTTP em AdicionarEstudanteATurma).md), conduzida por Claude (Anthropic) clonando fredypdp/spuri-backend e lendo o código linha a linha (COALESCE nas 5+1 queries de faltas, fallback de chave legada em CorrigirFalta, sentinel error + errors.Is em AdicionarEstudanteATurma, migração 107, e todos os arquivos *_test.go relevantes).
-status: pendente
+status: feito
 prioridade: alta — os 24 testes de regressão listados abaixo são a única prova de que duas correções críticas (leitura/correção de faltas históricas sem período; código HTTP de vínculo estudante↔turma) continuam funcionando; sem eles, qualquer regressão futura nesses dois pontos passa despercebida, exatamente como já aconteceu uma vez em cada um.
 depende_de:
   - "docs/Tarefas feitas/38 - Corrigir pendencias da Tarefa 34 (v2 final).md"
