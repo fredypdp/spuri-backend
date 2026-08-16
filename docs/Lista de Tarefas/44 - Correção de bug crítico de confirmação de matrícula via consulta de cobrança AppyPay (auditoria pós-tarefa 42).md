@@ -399,9 +399,9 @@ diferente da especificada acima sem antes reportar o erro exato.
    - `internal/handlers/financeiro_matricula_consulta_test.go`
 
 Se todos os itens passarem, a tarefa está concluída. Mova este arquivo de
-`docs/Lista de Tarefas/43 - Correção de bug crítico de confirmação de matrícula via consulta de cobrança
+`docs/Lista de Tarefas/44 - Correção de bug crítico de confirmação de matrícula via consulta de cobrança
 AppyPay (auditoria pós-tarefa 42).md` para
-`docs/Tarefas feitas/43 - Correção de bug crítico de confirmação de matrícula via consulta de cobrança
+`docs/Tarefas feitas/44 - Correção de bug crítico de confirmação de matrícula via consulta de cobrança
 AppyPay (auditoria pós-tarefa 42).md`, e atualize o front-matter (`status: feito`) antes de finalizar.
 
 Aproveite também para mover
