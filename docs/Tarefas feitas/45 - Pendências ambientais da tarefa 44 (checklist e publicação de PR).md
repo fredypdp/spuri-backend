@@ -1,7 +1,7 @@
 ---
 criado: 2026-08-16 16:00
 origem: Execução da tarefa 44 pelo Codex neste ambiente, após aplicação do diff especificado para confirmação de matrícula via consulta de cobrança AppyPay.
-status: pendente
+status: feito
 relacionado: "44 - Correção de bug crítico de confirmação de matrícula via consulta de cobrança AppyPay (auditoria pós-tarefa 42).md"
 ---
 
@@ -80,11 +80,11 @@ Alternatively, populate the GH_TOKEN environment variable with a GitHub API auth
 
 ## Como concluir esta pendência
 
-1. Executar a checklist completa da tarefa 44 em um ambiente com:
-   - `psql` disponível;
-   - PostgreSQL acessível em `localhost:5432` com usuário/senha compatíveis com a checklist (`postgres` / `postgres`).
-2. Se todos os itens passarem, mover:
-   - a tarefa 44 para `docs/Tarefas feitas` e alterar `status: feito`;
-   - a tarefa 42 para `docs/Tarefas feitas` e alterar `status: feito`.
-3. Criar o PR a partir da branch contendo o commit `0942233` (ou commit posterior que preserve a correção),
-   usando uma sessão com ferramenta `make_pr` disponível ou GitHub CLI autenticado.
+Resolvido pela tarefa 46 (fechamento administrativo pós-auditoria) em 16 de agosto de 2026:
+
+1. O checklist completo da tarefa 44 foi executado com sucesso (5 execuções de `internal/handlers` e 5
+   de `internal/finance`, banco recriado do zero a cada vez, todas verdes).
+2. As tarefas 44 e 42 foram movidas para `docs/Tarefas feitas/` com `status: feito`.
+3. O PR não precisou ser criado por ferramenta: o Fredy mesclou manualmente a PR #540 (tarefa 44) e a
+   PR #541 (tarefa 41) diretamente no `main` (confirmável em `git log --graph`, merges nos commits
+   `e8cfffe` e `e29ea77`).

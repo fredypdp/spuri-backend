@@ -1,7 +1,7 @@
 ---
 criado: 2026-08-16 15:30
 origem: Auditoria profunda do módulo de pagamento (cobrança/pagamento de mensalidades e matrícula) conduzida por Claude (Anthropic) com ambiente real (Go 1.24.4 + PostgreSQL 16), executando build, vet e as suítes de integração repetidamente contra banco limpo. Foco da auditoria: integridade, auditoria, gravação e leitura correta dos dados no ledger. Conduzida como continuação direta da auditoria que originou a tarefa 42, desta vez com a tarefa 42 já verificada como corretamente implementada (checklist de aceitação completo re-executado e confirmado, 5x cada suíte, contra banco recriado do zero).
-status: pendente
+status: feito
 depende_de: "42 - Correção de bugs críticos de integridade do ledger no módulo de mensalidades e matrícula (auditoria pós-tarefa 40).md"
 ---
 
