@@ -14,11 +14,14 @@ Leia por completo o arquivo "docs/Lista de Tarefas/46 - Fechamento administrativ
 tarefas 41, 42, 44 e 45 (nenhum bug encontrado).md". Ele não contém nenhuma correção de código — uma
 auditoria completa já confirmou que o código das tarefas 41 e 44 está correto. O documento contém apenas
 comandos de validação (para você reconfirmar no seu próprio ambiente) e instruções mecânicas de arquivo
-(mover, renomear, editar front-matter). Não há nenhuma decisão de design a tomar. Execute a seção "Passo
-1" até o fim; se qualquer comando falhar com um resultado diferente do esperado (documentado ao lado de
-cada comando), pare e reporte o erro exato — não prossiga para os passos seguintes nem tente investigar
-ou corrigir nada por conta própria. Se todos os comandos do Passo 1 baterem com o resultado esperado,
-prossiga mecanicamente pelos Passos 2 a 6, na ordem, e então confirme os "Critérios de aceite" ao final.
+(mover, renomear, editar front-matter). Não há nenhuma decisão de design a tomar. Execute a subseção "1.A"
+do "Passo 1" até o fim; se qualquer comando dela falhar, pare e reporte o erro exato — não prossiga nem
+tente investigar por conta própria. Em seguida tente a subseção "1.B": se seu ambiente tiver ou conseguir
+instalar PostgreSQL, execute-a por completo; se não tiver (por exemplo, `apt-get` retornando "403
+Forbidden" e nenhum Docker disponível), siga o "Plano B" descrito ao final da seção "Passo 1" em vez de
+travar — isso é uma limitação de ambiente já prevista no documento, não um erro seu. Depois de concluir o
+Passo 1 (com 1.B completo ou com o Plano B aplicado), prossiga mecanicamente pelos Passos 2 a 6, na ordem,
+e então confirme os "Critérios de aceite" ao final.
 ```
 
 ## Contexto
@@ -104,41 +107,60 @@ tarefas 41, 44 e 45 já pediam e que nunca pôde ser concluída.
 
 ---
 
-## Passo 1 — Reconfirmar o checklist de integração no seu ambiente
+## Passo 1 — Reconfirmar o checklist no seu ambiente (com plano B para ambiente sem PostgreSQL)
 
-Estes comandos já foram executados com sucesso na auditoria (resultado documentado no Passo 2). Rode-os de
-novo no seu próprio ambiente só para confirmar que o mesmo resultado se reproduz aqui — é o passo que as
-duas sessões anteriores do Codex não conseguiram completar por falta de PostgreSQL.
+Estes comandos já foram executados com sucesso na auditoria (resultado documentado no Passo 2). O passo
+está dividido em duas partes: **1.A** (não depende de banco de dados — sempre deve ser possível rodar, e é
+bloqueante) e **1.B** (depende de PostgreSQL — é o melhor esforço possível; se o seu ambiente já provou não
+ter acesso a `apt`/Docker/PostgreSQL, siga o plano B descrito no final desta seção em vez de travar aqui).
 
-### 1.1. Se `psql`/PostgreSQL não estiver disponível no seu ambiente
+**Nota sobre uma execução anterior desta mesma tarefa 46 (Codex, 2026-08-16):** ela reportou `go version
+go1.25.1` disponível (ok — o `go.mod` pede `go 1.24.0`/`toolchain go1.24.12`, e `1.25.1` satisfaz isso sem
+precisar baixar nenhum toolchain adicional), mas `psql` ausente, `pg_isready`/`service postgresql`
+inexistentes, `docker` ausente, e a tentativa de `apt-get install postgresql` falhou com `403 Forbidden` em
+múltiplos repositórios — ou seja, **sem acesso a rede para instalar pacotes** nesse ambiente. Se você está
+rodando nesse mesmo tipo de ambiente (sandbox sem saída para repositórios `apt`, sem Docker pré-instalado),
+não tente de novo instalar PostgreSQL por `apt` — vá direto para o **Plano B** ao final desta seção.
 
-Se `which psql` não encontrar nada, instale e suba um PostgreSQL local (testado e funcional em ambiente
-Ubuntu/Debian; ajuste conforme a distribuição do seu ambiente se for diferente):
-
-```bash
-apt-get update && apt-get install -y postgresql postgresql-contrib
-service postgresql start
-su postgres -c "psql -c \"ALTER USER postgres PASSWORD 'postgres';\""
-su postgres -c "createdb spuri_test"
-```
-
-Confirme que `pg_hba.conf` permite conexão TCP em `127.0.0.1`/`localhost` com senha (`scram-sha-256` ou
-`md5`) — a instalação padrão do pacote `postgresql` do Ubuntu já vem assim configurada por padrão; não é
-necessário editar nada manualmente se você seguiu os comandos acima.
-
-### 1.2. Confirmar build/vet/gofmt limpos
+### 1.A. Verificações que NÃO dependem de banco de dados (bloqueante — sempre deve passar)
 
 ```bash
 gofmt -l .
 go build ./...
 go vet ./...
 go test ./...
+grep -rn "validHTTPHeaderName\|defaultWebhookHeaderName" --include="*.go" .
+grep -rn "webhook_auth_type\|WebhookAuthType\|webhook_username\|WebhookUsername" --include="*.go" .
+grep -n "X-API-Key" "Documentação da API.md" "docs/Parceiros e integrações/AppyPay Documentação.md"
 ```
 
-**Resultado esperado (confirmado na auditoria):** as 4 saídas terminam sem nenhum erro; `gofmt -l .` não
-lista nenhum arquivo; `go test ./...` termina com `ok` em todos os pacotes.
+**Resultado esperado (confirmado na auditoria, e já reproduzido numa execução anterior desta mesma tarefa
+46):** as 4 primeiras saídas terminam sem nenhum erro; `gofmt -l .` não lista nenhum arquivo; `go test
+./...` termina com `ok` em todos os pacotes; as 3 buscas `grep` não retornam nenhuma linha.
 
-### 1.3. Suíte `internal/finance`, 5 execuções seguidas, banco recriado a cada vez
+**Se qualquer comando do 1.A falhar ou produzir uma linha inesperada, pare aqui e reporte o erro exato —
+isso não tem relação com PostgreSQL e significaria que algo mudou no repositório desde esta auditoria (16
+de agosto de 2026, commit `e29ea77`).** Não prossiga para o Passo 2 nem tente corrigir nada por conta
+própria.
+
+### 1.B. Verificações que dependem de PostgreSQL (melhor esforço — não bloqueante se o ambiente não suportar)
+
+**Só tente esta subseção se `which psql` encontrar o binário, ou se você conseguir de fato subir um
+PostgreSQL local (via `apt`, um binário portátil já presente no ambiente, ou Docker).** Se `apt-get install
+postgresql` falhar com `403 Forbidden` (ou qualquer erro de rede/permissão) e não houver Docker disponível
+(`which docker` vazio), **não insista** — isso é uma limitação estrutural do ambiente de execução, não algo
+que se resolve tentando de novo ou com um comando diferente. Vá direto ao Plano B.
+
+Se PostgreSQL estiver disponível:
+
+```bash
+apt-get update && apt-get install -y postgresql postgresql-contrib   # pular se já disponível
+service postgresql start
+su postgres -c "psql -c \"ALTER USER postgres PASSWORD 'postgres';\""
+su postgres -c "createdb spuri_test"
+```
+
+Depois, rode os dois blocos abaixo (5 execuções cada, banco recriado do zero a cada vez):
 
 ```bash
 for i in 1 2 3 4 5; do
@@ -151,13 +173,6 @@ for i in 1 2 3 4 5; do
 done
 ```
 
-**Resultado esperado (confirmado na auditoria):** as 5 execuções terminam `PASS`/`ok`, sem nenhum `FAIL`.
-Confirme especificamente que `TestIntegrationWebhookSecretGeneratedOnceGlobalHeaderAndRotation` e
-`TestIntegrationPagamentoMensalidadeConfirmadoPelaAppyPayMarcaComoPago` aparecem como `--- PASS` em cada
-execução.
-
-### 1.4. Suíte `internal/handlers`, 5 execuções seguidas, banco recriado a cada vez
-
 ```bash
 for i in 1 2 3 4 5; do
   psql -c "DROP DATABASE IF EXISTS spuri_test;" -U postgres -h localhost
@@ -169,27 +184,39 @@ for i in 1 2 3 4 5; do
 done
 ```
 
-**Resultado esperado (confirmado na auditoria):** as 5 execuções terminam `PASS`/`ok`, sem nenhum `FAIL`.
-Confirme especificamente que `TestIntegrationConsultarCobrancaAppyPayNaoEfetivaMatriculaAposSuccess` e
-`TestIntegrationReceberWebhookAppyPayEfetivaVinculoMatricula` aparecem como `--- PASS` em cada execução.
+**Resultado esperado (confirmado na auditoria):** as 10 execuções (5+5) terminam `PASS`/`ok`, sem nenhum
+`FAIL`, incluindo `TestIntegrationWebhookSecretGeneratedOnceGlobalHeaderAndRotation`,
+`TestIntegrationConsultarCobrancaAppyPayNaoEfetivaMatriculaAposSuccess` e
+`TestIntegrationReceberWebhookAppyPayEfetivaVinculoMatricula`.
 
-### 1.5. Critérios de limpeza de código (rápidos, sem banco)
+**Se você conseguiu rodar esta subseção 1.B e algum teste falhou de verdade (não por problema de conexão
+com o banco) — pare aqui e reporte o erro exato, com o output completo. Isso seria uma divergência real
+em relação ao que a auditoria encontrou e precisa ser investigado antes de fechar as tarefas.**
 
-```bash
-grep -rn "validHTTPHeaderName\|defaultWebhookHeaderName" --include="*.go" .
-grep -rn "webhook_auth_type\|WebhookAuthType\|webhook_username\|WebhookUsername" --include="*.go" .
-grep -n "X-API-Key" "Documentação da API.md" "docs/Parceiros e integrações/AppyPay Documentação.md"
-```
+**Não use, sob nenhuma circunstância, as credenciais de produção/Aiven ou qualquer `DATABASE_URL` real do
+Spuri para rodar estes testes.** Use exclusivamente um banco local descartável (`spuri_test`, como acima).
+Se não for possível subir um banco local, não tente contornar isso conectando num banco real — siga o
+Plano B abaixo.
 
-**Resultado esperado (confirmado na auditoria):** as 3 buscas não retornam nenhuma linha.
+### Plano B — Se PostgreSQL não estiver disponível e não houver como instalá-lo neste ambiente
 
-**Se qualquer um dos comandos acima (1.2 a 1.5) produzir um resultado diferente do documentado — qualquer
-`FAIL`, qualquer saída de erro, ou qualquer linha retornada pelas buscas do item 1.5 — pare aqui e reporte
-o erro exato, com o output completo do comando que falhou. Não prossiga para o Passo 2 nem tente corrigir
-nada por conta própria: isso significaria que algo mudou no repositório desde esta auditoria (16 de agosto
-de 2026, commit `e29ea77`), e precisa ser investigado antes de fechar as tarefas.**
+Isto é esperado e aceitável: já aconteceu nas 3 sessões anteriores que tentaram esta validação (as duas
+execuções originais do Codex nas tarefas 41 e 44, e a tentativa mais recente desta própria tarefa 46). A
+subseção 1.B do checklist de integração **já foi executada com sucesso, de forma real e completa, pela
+auditoria que originou este documento** (ambiente separado, com Go 1.24 e PostgreSQL 16 genuinamente
+instalados e rodando) — os resultados completos, incluindo a comparação antes/depois da tarefa 41 e as 10
+execuções (5+5) do checklist da tarefa 44, estão documentados na seção "Contexto" no topo deste documento.
 
-Se todos os itens do Passo 1 baterem com o resultado esperado, prossiga para o Passo 2.
+Se a subseção 1.A passou por completo (é a parte que não depende de PostgreSQL, e deve funcionar mesmo em
+ambiente restrito, já que só precisa do Go) e a subseção 1.B não pôde ser executada por limitação
+comprovada do ambiente (erro de rede/permissão ao tentar instalar PostgreSQL, sem Docker disponível — não
+por falta de tentativa), **prossiga para o Passo 2 mesmo assim**, usando a versão alternativa da Nota de
+validação indicada logo abaixo (a que menciona explicitamente que a reconfirmação de integração não foi
+possível neste ambiente específico, mas já foi feita e documentada pela auditoria).
+
+Se todos os itens do Passo 1.A passaram, e ou (a) o Passo 1.B também passou por completo, ou (b) o Passo
+1.B não pôde ser tentado por limitação comprovada de ambiente (não por erro de código) — prossiga para o
+Passo 2.
 
 ---
 
@@ -245,13 +272,32 @@ validação de integração, ambiente real (Go 1.24, PostgreSQL 16, repositório
   mensalidade. Não há nenhuma falha pré-existente no `main` para reportar separadamente ao Fredy.
 - `TestIntegrationWebhookSecretGeneratedOnceGlobalHeaderAndRotation` e as demais suítes de webhook passam
   isoladamente e dentro da suíte completa, 5 execuções seguidas contra banco recriado a cada vez.
-- Reconfirmado neste ambiente (Codex) na execução do Passo 1 da tarefa 46: [PREENCHER — "confirmado, mesmo
-  resultado" ou detalhar qualquer divergência encontrada].
+- Reconfirmado neste ambiente (Codex) na execução do Passo 1 da tarefa 46: [PREENCHER — ver as duas opções
+  logo abaixo].
 ```
 
-Depois de colar o texto acima, substitua o trecho `[PREENCHER — ...]` pelo resultado real da sua própria
-execução do Passo 1 desta tarefa 46 (ex.: `"confirmado, mesmo resultado da auditoria — todas as 10
-execuções de integração (5 finance + 5 handlers) terminaram ok, sem nenhum FAIL"`).
+Depois de colar o texto acima, substitua o trecho `[PREENCHER — ...]` por **uma das duas opções abaixo**,
+conforme o que aconteceu na sua execução do Passo 1:
+
+**Opção A — se você conseguiu rodar a subseção 1.B (PostgreSQL disponível) com sucesso:**
+```
+confirmado, mesmo resultado da auditoria — todas as 10 execuções de integração (5 finance + 5 handlers)
+terminaram ok, sem nenhum FAIL
+```
+
+**Opção B — se a subseção 1.B não pôde ser executada por limitação de ambiente (sem `apt`/Docker/PostgreSQL
+disponíveis), mas a subseção 1.A (build/vet/gofmt/testes sem banco) passou:**
+```
+não reproduzido neste ambiente (Codex) — sem acesso a PostgreSQL: `psql` ausente, `apt-get install
+postgresql` falhou com 403 Forbidden nos repositórios, sem Docker disponível (`docker: command not
+found`). A subseção 1.A (independente de banco) foi confirmada com sucesso: gofmt/build/vet/test/greps
+limpos. A validação de integração com PostgreSQL real, incluindo a comparação main puro vs. branco com
+esta tarefa aplicada, permanece a executada e documentada pela auditoria acima (Claude, ambiente
+separado) — aceita como evidência suficiente dado que este ambiente de execução não tem como reproduzi-la.
+```
+
+Use exatamente o texto de uma das duas opções (ajustando só se o seu resultado divergir em algum detalhe
+específico — por exemplo, uma mensagem de erro diferente de "403 Forbidden").
 
 ---
 
@@ -398,8 +444,12 @@ diretamente no `main` — não é mais necessário criar nenhum PR.
 
 ## Critérios de aceite
 
-1. Todos os comandos do Passo 1 terminam exatamente com o resultado documentado ao lado de cada um — sem
-   nenhum `FAIL`, sem nenhuma saída de erro, sem nenhuma linha retornada pelas 3 buscas do item 1.5.
+1. Todos os comandos da subseção 1.A terminam exatamente com o resultado documentado — sem nenhum `FAIL`,
+   sem nenhuma saída de erro, sem nenhuma linha retornada pelas 3 buscas `grep`. A subseção 1.B ou (a)
+   também termina limpa (10/10 execuções verdes), ou (b) foi corretamente identificada como impossível de
+   executar por limitação comprovada do ambiente (sem invenção nem tentativa forçada de contornar com
+   credenciais reais) — qualquer um dos dois casos é aceitável, desde que documentado na Nota de validação
+   conforme o Passo 2.
 2. `git status --short` mostra apenas movimentações de arquivo (`R` ou `D`+`A` conforme o cliente git) e
    edições de conteúdo dentro dos arquivos `.md` listados no Resumo executivo — nenhum arquivo `.go`,
    `.sql`, `go.mod` ou `go.sum` aparece na saída.
