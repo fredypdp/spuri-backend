@@ -98,6 +98,7 @@ var validEventTypes = map[string]bool{
 	"DataNascimentoEstudanteAlteradaPorSolicitacao":      true,
 	"TelefoneEncarregadoAlterado":                        true,
 	"CredenciaisAppyPayConfiguradas":                     true,
+	"SegredoWebhookAppyPayRotacionado":                   true,
 	"CobrancaAppyPaySolicitada":                          true,
 	"CobrancaAppyPayCriada":                              true,
 	"CobrancaAppyPayFalhou":                              true,

@@ -172,6 +172,9 @@ func (p *FinanceiroProjection) Handle(e db.Event) error {
 		ambiente, _ := v["ambiente"].(string)
 		_, err := p.client.DB().Exec(`INSERT INTO financeiro_credenciais_appypay (id,contexto_tipo,codigo_academia,ambiente,payload,updated_at) VALUES ($1,$2,NULLIF($3,''),$4,$5,CURRENT_TIMESTAMP) ON CONFLICT (id) DO UPDATE SET contexto_tipo=EXCLUDED.contexto_tipo,codigo_academia=EXCLUDED.codigo_academia,ambiente=EXCLUDED.ambiente,payload=EXCLUDED.payload,updated_at=CURRENT_TIMESTAMP`, e.AggregateID, contexto, academia, ambiente, e.Payload)
 		return err
+	case "SegredoWebhookAppyPayRotacionado":
+		_, err := p.client.DB().Exec(`UPDATE financeiro_credenciais_appypay SET updated_at=CURRENT_TIMESTAMP WHERE id=$1`, e.AggregateID)
+		return err
 	case "CobrancaAppyPaySolicitada", "CobrancaAppyPayCriada", "CobrancaAppyPayFalhou", "CobrancaAppyPayConsultada", "CobrancaAppyPayCancelada", "CobrancaAppyPayConflitoPosCancelamento", "QRCodeAppyPaySolicitado", "QRCodeAppyPayGerado", "QRCodeAppyPayFalhou":
 		merchant, _ := v["merchant_transaction_id"].(string)
 		provider, _ := v["provider_charge_id"].(string)

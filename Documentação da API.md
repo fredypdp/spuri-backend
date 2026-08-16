@@ -7089,12 +7089,12 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 - Todas as rotas `/financeiro/*` exigem autenticação. As rotas de administração aceitam somente `academia` ou admin FPP; a consulta de mensalidades de um estudante também pode ser feita pelo próprio estudante autenticado.
 - Academia autenticada opera apenas no próprio contexto: o backend força `contexto_tipo="academia"` e `codigo_academia` igual ao código do token, mesmo que esses campos venham vazios no request.
 - Admin FPP pode operar o contexto global `spuri` e contextos de academias específicas; admins `adm` e `gerente`, estudantes e usuários anônimos não administram o módulo financeiro.
-- Segredos AppyPay (`client_secret`, credenciais de webhook, métodos de pagamento sensíveis) nunca são devolvidos em resposta; a API retorna apenas máscaras e metadados.
+- Segredos AppyPay (`client_secret`, métodos de pagamento sensíveis) nunca são devolvidos em resposta; a API retorna apenas máscaras e metadados. A única exceção deliberada é o segredo de webhook (`webhook_secret`): como é gerado pelo servidor e o usuário precisa colá-lo no painel da AppyPay, ele é devolvido em texto plano apenas na criação da credencial (seção 19.1) e nas rotas dedicadas de consulta/rotação (seções 19.10 e 19.11) — nunca em `PUT`, listagem ou qualquer outra resposta.
 - `ENV=development` ou `ENV=test` usa o gateway TEST; `ENV=production` usa o gateway PROD. O ambiente persistido em credenciais e cobranças segue essa resolução do backend.
 - Cada cobrança ou QR Code exige credenciais ativas para o contexto resolvido antes de chamar a AppyPay.
 - Todo valor monetário do módulo usa `float64`, em conformidade com o `number<double>` da AppyPay. Valores de entrada devem ter no máximo duas casas decimais; antes de chamar o gateway o backend aplica arredondamento *half away from zero* a duas casas, e comparações monetárias usam tolerância de meio cêntimo. Os futuros campos `ValorMensalidade`, `ValorMatricula` e equivalentes devem reutilizar esse mesmo contrato.
 - O cancelamento de uma cobrança REF, GPO ou QR Code é exclusivamente interno ao Spuri: a AppyPay não documenta endpoint de cancelamento para esses métodos. Por isso, o cancelamento deixa de exibir/cobrar pela plataforma, mas não invalida tecnicamente uma referência ou QR já emitido no banco/gateway até a expiração; qualquer sucesso detectado depois dele é registrado como conflito para reconciliação manual FPP.
-- Os webhooks são públicos por necessidade do gateway, mas autenticados pelo segredo de webhook cadastrado na credencial do contexto, enviado pela AppyPay num cabeçalho HTTP configurável (`webhook_header_name`, padrão `X-API-Key`). Eventos aceitos ou duplicados respondem `200` e são tratados de forma idempotente pelo identificador do evento.
+- Os webhooks são públicos por necessidade do gateway, mas autenticados pelo segredo de webhook gerado automaticamente na criação da credencial, enviado pela AppyPay num único cabeçalho HTTP fixo para toda a plataforma (`webhook_header_name`, sempre `X-Spuri-Webhook-Secret`). Eventos aceitos ou duplicados respondem `200` e são tratados de forma idempotente pelo identificador do evento.
 - Erros das rotas autenticadas seguem o envelope global `{error, message, request_id, details?}`. Webhooks públicos retornam apenas status HTTP para reduzir acoplamento com o gateway.
 
 | Método | Rota | Escopo resumido |
@@ -7102,6 +7102,8 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 | `POST` | `/financeiro/appypay/credenciais` | Cria/configura credenciais cifradas para `spuri` ou `academia`. |
 | `PUT` | `/financeiro/appypay/credenciais/:id` | Substitui a configuração de uma credencial existente pelo `id`. |
 | `GET` | `/financeiro/appypay/credenciais` | Lista credenciais mascaradas por contexto autorizado. |
+| `GET` | `/financeiro/appypay/credenciais/:id/webhook-secret` | Consulta o segredo de webhook atual (texto plano) de uma credencial. |
+| `POST` | `/financeiro/appypay/credenciais/:id/webhook-secret/rotacionar` | Gera um novo segredo de webhook, invalidando o anterior. |
 | `POST` | `/financeiro/appypay/cobrancas` | Cria cobrança AppyPay GPO ou REF genérica. |
 | `POST` | `/financeiro/appypay/qr-codes` | Gera QR Code GPO e devolve `qrCodeArr` em base64 quando enviado pela AppyPay. |
 | `GET` | `/financeiro/appypay/cobrancas/:id` | Consulta cobrança por id AppyPay ou `merchantTransactionId`. |
@@ -7130,9 +7132,7 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
   "client_id": "appy-client-id",
   "client_secret": "appy-client-secret",
   "gpo_payment_method": "GPO_METHOD_ID",
-  "ref_payment_method": "REF_METHOD_ID",
-  "webhook_secret": "segredo-do-webhook",
-  "webhook_header_name": "X-API-Key"
+  "ref_payment_method": "REF_METHOD_ID"
 }
 ```
 
@@ -7147,7 +7147,8 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
   "client_id_mask": "appy**********id",
   "gpo_payment_method_mask": "GPO_**********_ID",
   "ref_payment_method_mask": "REF_**********_ID",
-  "webhook_header_name": "X-API-Key",
+  "webhook_header_name": "X-Spuri-Webhook-Secret",
+  "webhook_secret": "aB3xY9kLm2PqRtZ",
   "updated_at": "2026-08-08T12:00:00Z"
 }
 ```
@@ -7155,13 +7156,13 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 **Regras de negócio:**
 
 - `client_id`, `client_secret`, `gpo_payment_method` e `ref_payment_method` são obrigatórios. `resource` não é enviado neste endpoint: é lido da variável de ambiente `APPYPAY_RESOURCE`, com o mesmo valor para todas as academias e para o Spuri no mesmo ambiente.
-- `webhook_secret` é opcional: quando omitido, a credencial não autentica nenhum webhook (as rotas continuam recebendo eventos, mas nada é aceito). Quando informado, `webhook_header_name` pode ser enviado para escolher o nome do cabeçalho HTTP em que a AppyPay deve mandar esse segredo; o padrão é `X-API-Key` quando omitido. O nome deve corresponder exatamente ao configurado no campo "nome" do painel de webhooks da AppyPay — a AppyPay confirmou que esse painel só oferece um único par nome/valor de cabeçalho HTTP, por isso não existe mais um modo de autenticação alternativo (ex.: Basic Auth) para o webhook.
+- O segredo de webhook não é enviado pelo cliente: o backend gera automaticamente um valor alfanumérico de 15 caracteres na criação da credencial e devolve-o em texto plano apenas nesta resposta (campo `webhook_secret`), para o usuário colar no painel de webhooks da AppyPay. O nome do cabeçalho HTTP (`webhook_header_name`) é fixo para toda a plataforma (`X-Spuri-Webhook-Secret`) e não é mais configurável por credencial — a AppyPay confirmou que o painel deles só oferece um único par nome/valor de cabeçalho HTTP, por isso também não existe modo de autenticação alternativo (ex.: Basic Auth) para o webhook.
 - Uma academia não pode criar credenciais para `spuri` nem para outra academia.
 - O backend cifra segredos em armazenamento próprio e grava no ledger apenas metadados/máscaras.
 
 #### 19.2 PUT /financeiro/appypay/credenciais/:id
 
-**Escopo da rota:** atualização/substituição completa da credencial identificada por `:id`. Use para rotação de `client_secret`, troca de métodos GPO/REF ou alteração do modo de autenticação de webhook.
+**Escopo da rota:** atualização/substituição completa dos dados de conta AppyPay (`client_id`, `client_secret`, métodos GPO/REF) da credencial identificada por `:id`. Não altera o segredo de webhook — para isso, use `POST .../webhook-secret/rotacionar` (seção 19.11).
 
 **Proteção:** autenticado + academia dona do próprio contexto ou admin FPP. O `id` precisa ser UUID válido.
 
@@ -7172,7 +7173,7 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 **Regras de negócio:**
 
 - A atualização revalida todas as regras do cadastro de credenciais; envie o conjunto completo de campos obrigatórios.
-- A atualização é sempre uma substituição completa: reenvie `webhook_header_name` para preservar um nome customizado, pois sua omissão restaura o padrão `X-API-Key`. `resource` continua fora do corpo da requisição e vem de `APPYPAY_RESOURCE`.
+- A atualização é sempre uma substituição completa dos dados de conta (`client_id`, `client_secret`, métodos GPO/REF); o segredo de webhook nunca é alterado por este endpoint — ele só muda por rotação explícita (`POST .../webhook-secret/rotacionar`, seção 19.11). `resource` continua fora do corpo da requisição e vem de `APPYPAY_RESOURCE`.
 - A rota não expõe o valor antigo nem o novo valor dos segredos.
 - Academia só pode manter o escopo no próprio contexto; mudança para `spuri` ou outra academia é bloqueada por autorização.
 
@@ -7201,7 +7202,7 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
     "client_id_mask": "appy**********id",
     "gpo_payment_method_mask": "GPO_**********_ID",
     "ref_payment_method_mask": "REF_**********_ID",
-    "webhook_header_name": "X-API-Key",
+    "webhook_header_name": "X-Spuri-Webhook-Secret",
     "updated_at": "2026-08-08T12:00:00Z"
   }
 ]
@@ -7211,7 +7212,7 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 
 - Academias sempre recebem somente a própria credencial.
 - Admin FPP pode filtrar por contexto; sem filtro, recebe as credenciais autorizadas pela consulta.
-- Máscaras não devem ser usadas como segredos pelo cliente; qualquer rotação exige `PUT` com os segredos reais.
+- Máscaras não devem ser usadas como segredos pelo cliente; rotação de `client_secret`/métodos exige `PUT` com os segredos reais. O segredo de webhook tem rotação própria (`POST .../credenciais/:id/webhook-secret/rotacionar`, seção 19.11) e nunca aparece mascarado aqui — só em texto pleno pelas rotas dedicadas (seções 19.1, 19.10 e 19.11).
 
 #### 19.4 POST /financeiro/appypay/cobrancas
 
@@ -7549,7 +7550,7 @@ Ao anular mês coberto por cobrança ainda aberta, a plataforma tenta cancelar a
 
 **Escopo da rota:** entrada pública para notificações AppyPay do método GPO.
 
-**Proteção:** pública no roteamento HTTP, autenticada pelo segredo de webhook cadastrado na credencial, enviado no cabeçalho HTTP configurado em `webhook_header_name` (padrão `X-API-Key`). A AppyPay confirmou que a autenticação do webhook sempre viaja por cabeçalho HTTP, nunca por query parameter — por isso este é o único método suportado.
+**Proteção:** pública no roteamento HTTP, autenticada pelo segredo de webhook gerado pelo servidor, enviado no único cabeçalho HTTP fixo da plataforma (`webhook_header_name`, sempre `X-Spuri-Webhook-Secret`). A AppyPay confirmou que a autenticação do webhook sempre viaja por cabeçalho HTTP, nunca por query parameter — por isso este é o único método suportado.
 
 **Request JSON:**
 
@@ -7574,7 +7575,7 @@ Ao anular mês coberto por cobrança ainda aberta, a plataforma tenta cancelar a
 
 **Escopo da rota:** entrada pública para notificações AppyPay do método REF.
 
-**Proteção:** igual ao webhook GPO: autenticação pelo segredo de webhook no cabeçalho HTTP configurado pela credencial (`webhook_header_name`, padrão `X-API-Key`). A AppyPay confirmou que essa autenticação sempre viaja por cabeçalho HTTP, nunca por query parameter.
+**Proteção:** igual ao webhook GPO: autenticação pelo segredo de webhook no único cabeçalho HTTP fixo da plataforma (`webhook_header_name`, sempre `X-Spuri-Webhook-Secret`). A AppyPay confirmou que essa autenticação sempre viaja por cabeçalho HTTP, nunca por query parameter.
 
 **Request JSON:**
 
@@ -7593,6 +7594,41 @@ Ao anular mês coberto por cobrança ainda aberta, a plataforma tenta cancelar a
 
 - Aplica as mesmas regras de autenticação, validação mínima e idempotência do webhook GPO.
 - O método registrado internamente é `REF`, permitindo separar auditoria e reconciliação por canal AppyPay.
+
+#### 19.10 GET /financeiro/appypay/credenciais/:id/webhook-secret
+
+**Escopo da rota:** consulta do segredo de webhook atual, em texto plano, de uma credencial já cadastrada. Existe porque o segredo é gerado pelo servidor — o usuário precisa desta rota (ou da resposta de criação, seção 19.1) para saber o que colar no painel da AppyPay.
+
+**Proteção:** autenticado + dono do contexto da credencial (a própria academia, ou admin com permissão `fpp`), resolvido a partir do `id` da credencial.
+
+**Response 200:**
+
+```json
+{
+  "webhook_secret": "aB3xY9kLm2PqRtZ",
+  "webhook_header_name": "X-Spuri-Webhook-Secret"
+}
+```
+
+**Regras de negócio:**
+
+- `webhook_header_name` devolvido aqui é sempre a mesma constante fixa da plataforma; existe no corpo apenas para o cliente não precisar hardcodar o valor.
+- `id` inexistente ou fora do contexto autorizado retorna `404`; falta de permissão retorna `403`.
+
+#### 19.11 POST /financeiro/appypay/credenciais/:id/webhook-secret/rotacionar
+
+**Escopo da rota:** gera um novo segredo de webhook para a credencial, invalidando o anterior imediatamente.
+
+**Proteção:** igual à seção 19.10.
+
+**Request JSON:** corpo vazio.
+
+**Response 200:** igual à seção 19.10, com o novo valor de `webhook_secret`.
+
+**Regras de negócio:**
+
+- A rotação é imediata e definitiva: o segredo anterior deixa de autenticar assim que a rotação é gravada, mesmo que o painel da AppyPay ainda não tenha sido atualizado com o novo valor — trate como uma operação disruptiva, não como um agendamento.
+- Cada rotação grava um evento próprio no ledger (`SegredoWebhookAppyPayRotacionado`) para auditoria, sem expor o valor do segredo no payload do evento.
 
 **Erros comuns das rotas autenticadas:**
 

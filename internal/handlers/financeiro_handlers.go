@@ -51,6 +51,26 @@ func authorizeFinanceScope(c *gin.Context, context *string, academy *string) boo
 	}
 	return t == "admin" && financeAdminAllowed(c)
 }
+
+// credentialScopeAuthorized resolve o contexto/academia dono de uma
+// credencial AppyPay pelo seu id e reaplica authorizeFinanceScope — o mesmo
+// mecanismo que já garante que uma academia só mexe nas próprias credenciais
+// e que um admin precisa da permissão "fpp". Usado pelas rotas de consulta e
+// rotação do segredo de webhook. Já escreve a resposta de erro (404 ou 403)
+// no contexto quando retorna false.
+func credentialScopeAuthorized(c *gin.Context, id uuid.UUID) bool {
+	contexto, academia, err := FinanceiroService.CredentialScope(c.Request.Context(), id)
+	if err != nil {
+		financeError(c, err)
+		return false
+	}
+	if !authorizeFinanceScope(c, &contexto, &academia) {
+		utils.RespondWithForbiddenError(c, "sem permissão para esta credencial AppyPay")
+		return false
+	}
+	return true
+}
+
 func financeError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, finance.ErrNotFound):
@@ -62,6 +82,15 @@ func financeError(c *gin.Context, err error) {
 	default:
 		utils.RespondWithValidationError(c, err)
 	}
+}
+
+// CredencialAppyPayCriada é a resposta exclusiva de POST .../credenciais: é a
+// única vez que o segredo de webhook aparece "de graça" numa resposta, fora
+// do GET .../webhook-secret dedicado — porque é a única oportunidade em que o
+// usuário ainda não tem como consultá-lo de outra forma.
+type CredencialAppyPayCriada struct {
+	finance.CredentialView
+	WebhookSecret string `json:"webhook_secret,omitempty"`
 }
 
 func ConfigurarCredencialAppyPay(c *gin.Context) {
@@ -79,12 +108,12 @@ func ConfigurarCredencialAppyPay(c *gin.Context) {
 		utils.RespondWithUnauthorizedError(c)
 		return
 	}
-	out, err := FinanceiroService.ConfigureCredential(c.Request.Context(), nil, in, id.String(), t, c.ClientIP())
+	out, webhookSecret, err := FinanceiroService.ConfigureCredential(c.Request.Context(), nil, in, id.String(), t, c.ClientIP())
 	if err != nil {
 		financeError(c, err)
 		return
 	}
-	c.JSON(http.StatusCreated, out)
+	c.JSON(http.StatusCreated, CredencialAppyPayCriada{CredentialView: out, WebhookSecret: webhookSecret})
 }
 func AtualizarCredencialAppyPay(c *gin.Context) {
 	idParam, err := uuid.Parse(c.Param("id"))
@@ -106,7 +135,11 @@ func AtualizarCredencialAppyPay(c *gin.Context) {
 		utils.RespondWithUnauthorizedError(c)
 		return
 	}
-	out, err := FinanceiroService.ConfigureCredential(c.Request.Context(), &idParam, in, id.String(), t, c.ClientIP())
+	// O segundo retorno (segredo em texto plano) só vem preenchido quando a
+	// credencial ainda não tinha nenhum segredo de webhook — não deveria
+	// acontecer numa atualização de credencial já existente; se acontecer, o
+	// usuário ainda pode recuperá-lo em seguida via GET .../webhook-secret.
+	out, _, err := FinanceiroService.ConfigureCredential(c.Request.Context(), &idParam, in, id.String(), t, c.ClientIP())
 	if err != nil {
 		financeError(c, err)
 		return
@@ -127,6 +160,52 @@ func ListarCredenciaisAppyPay(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, out)
 }
+
+// ConsultarSegredoWebhookAppyPay devolve o segredo de webhook atual em texto
+// plano. Só o dono do contexto (a própria academia, ou admin com permissão
+// "fpp") pode consultar.
+func ConsultarSegredoWebhookAppyPay(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		utils.RespondWithValidationError(c, errors.New("id inválido"))
+		return
+	}
+	if !credentialScopeAuthorized(c, id) {
+		return
+	}
+	secret, err := FinanceiroService.WebhookSecret(c.Request.Context(), id)
+	if err != nil {
+		financeError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"webhook_secret": secret, "webhook_header_name": finance.WebhookHeaderName})
+}
+
+// RotacionarSegredoWebhookAppyPay gera um novo segredo de webhook,
+// invalidando o anterior imediatamente. Mesma autorização de
+// ConsultarSegredoWebhookAppyPay.
+func RotacionarSegredoWebhookAppyPay(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		utils.RespondWithValidationError(c, errors.New("id inválido"))
+		return
+	}
+	if !credentialScopeAuthorized(c, id) {
+		return
+	}
+	actorID, actorType, _, ok := financeActor(c)
+	if !ok {
+		utils.RespondWithUnauthorizedError(c)
+		return
+	}
+	secret, err := FinanceiroService.RotateWebhookSecret(c.Request.Context(), id, actorID.String(), actorType, c.ClientIP())
+	if err != nil {
+		financeError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"webhook_secret": secret, "webhook_header_name": finance.WebhookHeaderName})
+}
+
 func CriarCobrancaAppyPay(c *gin.Context) {
 	var in finance.ChargeRequest
 	if err := c.ShouldBindJSON(&in); err != nil {
@@ -187,6 +266,24 @@ func ConsultarCobrancaAppyPay(c *gin.Context) {
 	if err != nil {
 		financeError(c, err)
 		return
+	}
+	// A cobrança pode ser de matrícula: diferente de uma cobrança de
+	// mensalidade (confirmada via confirmMensalidadeCharge dentro do
+	// próprio ConsultCharge), a efetivação do vínculo de matrícula
+	// (criação do estudante e transição da solicitação) não faz parte do
+	// pacote financeiro e precisa ser acionada aqui, exatamente como já é
+	// feito em ReceberWebhookAppyPay e na criação síncrona da cobrança em
+	// IniciarPagamentoMatricula. Sem isto, uma cobrança de matrícula que só
+	// é confirmada pela AppyPay quando alguém consulta o status (fluxo
+	// normal para GPO/REF, que nunca retornam "success" na criação) nunca
+	// efetiva a matrícula.
+	if strings.EqualFold(strings.TrimSpace(out.Status), "success") {
+		if codigo, err := FinanceiroService.CodigoSolicitacaoDaCobranca(c.Request.Context(), c.Param("id")); err == nil && codigo != "" {
+			if err := efetivarVinculoMatriculaPaga(c, codigo); err != nil {
+				utils.RespondWithInternalError(c, err)
+				return
+			}
+		}
 	}
 	c.JSON(http.StatusOK, out)
 }

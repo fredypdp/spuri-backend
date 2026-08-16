@@ -1556,7 +1556,17 @@ Esta sessão de orquestração (a que escreveu este documento) **não teve acess
 
 ## Nota de validação
 
-*A preencher por quem executar esta tarefa (Codex), com o resultado real de `gofmt`, `go build`, `go vet`, da suíte de testes unitária e de integração, e do "Passo obrigatório de investigação" acima — antes de mover este documento para `docs/Tarefas feitas/`.*
+Execução Codex em 2026-08-16:
+
+- `gofmt -l .`: passou, sem listar arquivos.
+- `go build ./...`: passou.
+- `go vet ./...`: passou.
+- `go test ./...`: passou sem `RUN_POSTGRES_INTEGRATION=1`.
+- Critério de limpeza `rg -n "validHTTPHeaderName|defaultWebhookHeaderName" --glob '*.go' .`: passou, sem resultados.
+- Critério de limpeza `rg -n "webhook_auth_type|WebhookAuthType|webhook_username|WebhookUsername" --glob '*.go' .`: passou, sem resultados.
+- Inspeção de `X-API-Key` em `Documentação da API.md` e `docs/Parceiros e integrações/AppyPay Documentação.md`: passou, sem resultados nas duas documentações.
+
+Validação de integração e passo obrigatório de investigação: **não concluídos neste ambiente**. O cliente `psql` não está disponível (`psql: command not found`) e o PostgreSQL esperado em `localhost:5432` recusou conexão (`dial tcp [::1]:5432: connect: connection refused`). A tentativa de executar o teste novo isolado com `RUN_POSTGRES_INTEGRATION=1 ... go test ./internal/finance/... -run TestIntegrationWebhookSecretGeneratedOnceGlobalHeaderAndRotation -v` falhou antes de validar o cenário pelo mesmo motivo de ambiente. Portanto, a comparação exigida entre `main` puro e branch alterada, bem como as suítes completas de integração `internal/finance` e `internal/handlers`, ainda precisam ser executadas em ambiente com PostgreSQL/`psql` disponíveis antes de mover esta tarefa para `docs/Tarefas feitas/`.
 
 Diferente das tarefas anteriores deste módulo (24 e 30), o código desta tarefa **não foi revalidado com `go build`/`go test` reais** durante a sessão de orquestração que escreveu este documento — o ambiente disponível não tinha Go nem PostgreSQL, apenas leitura do repositório via `codeload.github.com`/`api.github.com`. O desenho foi revisado cuidadosamente, linha a linha, contra o estado real e atual (agosto de 2026) de todos os arquivos citados, mas a validação mecânica de compilação e testes — incluindo a investigação de falhas pré-existentes acima — fica inteiramente a cargo de quem executar esta tarefa.
 

@@ -254,14 +254,13 @@ func TestIntegrationReceberWebhookAppyPayEfetivaVinculoMatricula(t *testing.T) {
 
 	service := finance.NewService(client)
 	service.SetHTTPClient(&http.Client{Transport: handlerAppyPayMockTransport{}})
-	_, err := service.ConfigureCredential(context.Background(), nil, finance.CredentialInput{
+	_, webhookSecret, err := service.ConfigureCredential(context.Background(), nil, finance.CredentialInput{
 		ContextoTipo:     finance.ContextoAcademia,
 		CodigoAcademia:   academia,
 		ClientID:         "integration-client",
 		ClientSecret:     "integration-secret",
 		GPOPaymentMethod: "GPO_INTEGRATION",
 		REFPaymentMethod: "REF_INTEGRATION",
-		WebhookSecret:    "webhook-secret-" + codigo,
 	}, "integration-test", "sistema", "127.0.0.1")
 	if err != nil {
 		t.Fatal(err)
@@ -288,7 +287,7 @@ func TestIntegrationReceberWebhookAppyPayEfetivaVinculoMatricula(t *testing.T) {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/financeiro/appypay/webhooks/ref", bytes.NewReader(payload))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-API-Key", "webhook-secret-"+codigo)
+		req.Header.Set(finance.WebhookHeaderName, webhookSecret)
 		router.ServeHTTP(rec, req)
 		return rec
 	}

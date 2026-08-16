@@ -344,6 +344,8 @@ func setupRouter() *gin.Engine {
 			financeiro.POST("/appypay/credenciais", handlers.ConfigurarCredencialAppyPay)
 			financeiro.PUT("/appypay/credenciais/:id", handlers.AtualizarCredencialAppyPay)
 			financeiro.GET("/appypay/credenciais", handlers.ListarCredenciaisAppyPay)
+			financeiro.GET("/appypay/credenciais/:id/webhook-secret", handlers.ConsultarSegredoWebhookAppyPay)
+			financeiro.POST("/appypay/credenciais/:id/webhook-secret/rotacionar", handlers.RotacionarSegredoWebhookAppyPay)
 			financeiro.POST("/appypay/cobrancas", handlers.CriarCobrancaAppyPay)
 			financeiro.POST("/appypay/qr-codes", handlers.GerarQRCodeAppyPay)
 			financeiro.GET("/appypay/cobrancas/:id", handlers.ConsultarCobrancaAppyPay)

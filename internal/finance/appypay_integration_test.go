@@ -48,7 +48,7 @@ func integrationMerchant(prefix string) string {
 
 func configureIntegrationCredential(t *testing.T, service *Service, contexto, academia string) {
 	t.Helper()
-	_, err := service.ConfigureCredential(context.Background(), nil, CredentialInput{
+	_, _, err := service.ConfigureCredential(context.Background(), nil, CredentialInput{
 		ContextoTipo:     contexto,
 		CodigoAcademia:   academia,
 		ClientID:         "integration-client",
@@ -207,86 +207,107 @@ func TestIntegrationMatriculaWebhookTardioMantemCancelamentoERegistraConflito(t 
 	}
 }
 
-func TestIntegrationWebhookAuthConfigurableHeaderAndResourceFreeCredentials(t *testing.T) {
+func TestIntegrationWebhookSecretGeneratedOnceGlobalHeaderAndRotation(t *testing.T) {
 	client := integrationClient(t)
 	service := NewService(client)
 	ctx := context.Background()
 	t.Setenv("ENV", "test")
 	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
-	suffix := uuid.NewString()[:8]
 
-	customAcademy := "INT" + uuid.NewString()[:8]
-	custom, err := service.ConfigureCredential(ctx, nil, CredentialInput{
-		ContextoTipo:      ContextoAcademia,
-		CodigoAcademia:    customAcademy,
-		ClientID:          "client-custom",
-		ClientSecret:      "secret-custom",
-		GPOPaymentMethod:  "GPO_CUSTOM",
-		REFPaymentMethod:  "REF_CUSTOM",
-		WebhookSecret:     "custom-webhook-secret-" + suffix,
-		WebhookHeaderName: "X-Spuri-Webhook-Secret",
+	academia := "INT" + uuid.NewString()[:8]
+	created, firstSecret, err := service.ConfigureCredential(ctx, nil, CredentialInput{
+		ContextoTipo:     ContextoAcademia,
+		CodigoAcademia:   academia,
+		ClientID:         "client-webhook",
+		ClientSecret:     "secret-webhook",
+		GPOPaymentMethod: "GPO_WEBHOOK",
+		REFPaymentMethod: "REF_WEBHOOK",
 	}, "integration-test", "sistema", "127.0.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if custom.WebhookHeaderName != "X-Spuri-Webhook-Secret" {
-		t.Fatalf("nome de cabeçalho não persistido: %q", custom.WebhookHeaderName)
+	if firstSecret == "" {
+		t.Fatal("nenhum segredo de webhook foi gerado na criação da credencial")
 	}
-	if _, err = service.loadCredential(ctx, ContextoAcademia, customAcademy); err != nil {
-		t.Fatalf("credencial sem resource no cofre não recarregou: %v", err)
-	}
-	customHeaders := http.Header{}
-	customHeaders.Set("X-Spuri-Webhook-Secret", "custom-webhook-secret-"+suffix)
-	owner, err := service.AuthenticateWebhook(ctx, customHeaders)
-	if err != nil || owner.CredentialID != custom.ID {
-		t.Fatalf("cabeçalho customizado não autenticou: owner=%#v err=%v", owner, err)
-	}
-	wrongHeaders := http.Header{}
-	wrongHeaders.Set("X-API-Key", "custom-webhook-secret-"+suffix)
-	if _, err = service.AuthenticateWebhook(ctx, wrongHeaders); err == nil {
-		t.Fatal("X-API-Key autenticou credencial configurada para cabeçalho customizado")
+	if created.WebhookHeaderName != WebhookHeaderName {
+		t.Fatalf("view não expõe a constante global de cabeçalho: %q", created.WebhookHeaderName)
 	}
 
-	legacyID := uuid.New()
-	legacyAcademy := "INT" + uuid.NewString()[:8]
-	legacyPayload, err := json.Marshal(map[string]any{
-		"credential_id":       legacyID.String(),
-		"contexto_tipo":       ContextoAcademia,
-		"codigo_academia":     legacyAcademy,
-		"ambiente":            AmbienteTeste,
-		"webhook_header_name": "X-API-Key",
-	})
+	stored, err := service.WebhookSecret(ctx, created.ID)
+	if err != nil || stored != firstSecret {
+		t.Fatalf("WebhookSecret() = %q, %v; queria %q", stored, err, firstSecret)
+	}
+
+	contexto, resolvedAcademia, err := service.CredentialScope(ctx, created.ID)
+	if err != nil || contexto != ContextoAcademia || resolvedAcademia != academia {
+		t.Fatalf("CredentialScope() = %q, %q, %v", contexto, resolvedAcademia, err)
+	}
+
+	okHeaders := http.Header{}
+	okHeaders.Set(WebhookHeaderName, firstSecret)
+	owner, err := service.AuthenticateWebhook(ctx, okHeaders)
+	if err != nil || owner.CredentialID != created.ID {
+		t.Fatalf("segredo correto não autenticou: owner=%#v err=%v", owner, err)
+	}
+
+	wrongValueHeaders := http.Header{}
+	wrongValueHeaders.Set(WebhookHeaderName, "valor-errado")
+	if _, err = service.AuthenticateWebhook(ctx, wrongValueHeaders); err == nil {
+		t.Fatal("valor de segredo errado autenticou")
+	}
+
+	wrongHeaderNameHeaders := http.Header{}
+	wrongHeaderNameHeaders.Set("X-API-Key", firstSecret)
+	if _, err = service.AuthenticateWebhook(ctx, wrongHeaderNameHeaders); err == nil {
+		t.Fatal("cabeçalho fora do nome global autenticou")
+	}
+
+	if _, err = service.AuthenticateWebhook(ctx, http.Header{}); err == nil {
+		t.Fatal("requisição sem nenhum cabeçalho autenticou")
+	}
+
+	updated, secondSecret, err := service.ConfigureCredential(ctx, &created.ID, CredentialInput{
+		ContextoTipo:     ContextoAcademia,
+		CodigoAcademia:   academia,
+		ClientID:         "client-webhook-atualizado",
+		ClientSecret:     "secret-webhook-atualizado",
+		GPOPaymentMethod: "GPO_WEBHOOK",
+		REFPaymentMethod: "REF_WEBHOOK",
+	}, "integration-test", "sistema", "127.0.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = client.DB().ExecContext(ctx, `INSERT INTO financeiro_credenciais_appypay (id,contexto_tipo,codigo_academia,ambiente,payload) VALUES ($1,$2,$3,$4,$5::jsonb)`, legacyID, ContextoAcademia, legacyAcademy, AmbienteTeste, legacyPayload); err != nil {
-		t.Fatal(err)
+	if secondSecret != "" {
+		t.Fatalf("atualização de credencial já existente regenerou o segredo: %q", secondSecret)
 	}
-	if err = service.saveSecrets(ctx, legacyID, map[string]string{"client_id": "legacy-client", "client_secret": "legacy-secret", "gpo_method": "GPO_LEGACY", "ref_method": "REF_LEGACY", "webhook_secret": "legacy-webhook-secret-" + suffix}); err != nil {
-		t.Fatal(err)
-	}
-	legacyHeaders := http.Header{}
-	legacyHeaders.Set("X-API-Key", "legacy-webhook-secret-"+suffix)
-	owner, err = service.AuthenticateWebhook(ctx, legacyHeaders)
-	if err != nil || owner.CredentialID != legacyID {
-		t.Fatalf("fallback X-API-Key para credencial legada falhou: owner=%#v err=%v", owner, err)
+	if stored, err = service.WebhookSecret(ctx, updated.ID); err != nil || stored != firstSecret {
+		t.Fatalf("atualização alterou o segredo existente: %q, %v", stored, err)
 	}
 
-	noWebhookAcademy := "INT" + uuid.NewString()[:8]
-	if _, err = service.ConfigureCredential(ctx, nil, CredentialInput{
-		ContextoTipo:     ContextoAcademia,
-		CodigoAcademia:   noWebhookAcademy,
-		ClientID:         "client-no-webhook",
-		ClientSecret:     "secret-no-webhook",
-		GPOPaymentMethod: "GPO_NOWEBHOOK",
-		REFPaymentMethod: "REF_NOWEBHOOK",
-	}, "integration-test", "sistema", "127.0.0.1"); err != nil {
+	rotated, err := service.RotateWebhookSecret(ctx, created.ID, "integration-test", "sistema", "127.0.0.1")
+	if err != nil || rotated == "" || rotated == firstSecret {
+		t.Fatalf("rotação inválida: %q, %v", rotated, err)
+	}
+	if stored, err = service.WebhookSecret(ctx, created.ID); err != nil || stored != rotated {
+		t.Fatalf("segredo pós-rotação = %q, %v; queria %q", stored, err, rotated)
+	}
+	oldHeaders := http.Header{}
+	oldHeaders.Set(WebhookHeaderName, firstSecret)
+	if _, err = service.AuthenticateWebhook(ctx, oldHeaders); err == nil {
+		t.Fatal("segredo antigo continuou autenticando após rotação")
+	}
+	newHeaders := http.Header{}
+	newHeaders.Set(WebhookHeaderName, rotated)
+	if owner, err = service.AuthenticateWebhook(ctx, newHeaders); err != nil || owner.CredentialID != created.ID {
+		t.Fatalf("segredo novo pós-rotação não autenticou: owner=%#v err=%v", owner, err)
+	}
+
+	var rotationEvents int
+	if err = client.DB().QueryRow(`SELECT COUNT(*) FROM spuri_ledger WHERE aggregate_id=$1 AND event_type='SegredoWebhookAppyPayRotacionado'`, created.ID).Scan(&rotationEvents); err != nil {
 		t.Fatal(err)
 	}
-	noWebhookHeaders := http.Header{}
-	noWebhookHeaders.Set("X-API-Key", "")
-	if _, err = service.AuthenticateWebhook(ctx, noWebhookHeaders); err == nil {
-		t.Fatal("credencial sem webhook_secret configurado não deveria autenticar nada")
+	if rotationEvents != 1 {
+		t.Fatalf("eventos de rotação registrados = %d, queria 1", rotationEvents)
 	}
 }
 
