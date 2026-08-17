@@ -92,7 +92,12 @@ type MensalidadePagamentoInput struct {
 }
 
 type MensalidadePagamentoView struct {
-	Charge ChargeResult            `json:"cobranca"`
+	// Charge é QRCodeResult (não ChargeResult) para que o campo QRCodeArr (o
+	// conteúdo do QR Code) chegue nesta resposta quando
+	// metodo_pagamento = "GPO_QR". Para qualquer outro método, QRCodeArr
+	// fica vazio e é omitido do JSON (omitempty). Ver Problema 2 em
+	// docs/Lista de Tarefas/Problemas de Backend - Modulo de Pagamentos.md.
+	Charge QRCodeResult            `json:"cobranca"`
 	Meses  []MensalidadeSelecaoMes `json:"meses"`
 }
 
@@ -275,7 +280,7 @@ func (s *Service) IniciarPagamentoMensalidades(ctx context.Context, in Mensalida
 		if err != nil {
 			return MensalidadePagamentoView{}, err
 		}
-		return MensalidadePagamentoView{Charge: qr.ChargeResult, Meses: in.Meses}, nil
+		return MensalidadePagamentoView{Charge: qr, Meses: in.Meses}, nil
 	}
 	info := map[string]any{}
 	if in.MetodoPagamento == "GPO" {
@@ -285,7 +290,7 @@ func (s *Service) IniciarPagamentoMensalidades(ctx context.Context, in Mensalida
 	if err != nil {
 		return MensalidadePagamentoView{}, err
 	}
-	return MensalidadePagamentoView{Charge: charge, Meses: in.Meses}, nil
+	return MensalidadePagamentoView{Charge: QRCodeResult{ChargeResult: charge}, Meses: in.Meses}, nil
 }
 
 // ListMensalidades derives every due month from historical turma membership,

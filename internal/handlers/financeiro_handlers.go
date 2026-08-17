@@ -288,6 +288,30 @@ func ConsultarCobrancaAppyPay(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
+// ListarCobrancasAppyPay lista cobranças (mensalidade, matrícula ou avulsa)
+// do contexto autorizado, com filtros opcionais por estado e origem e
+// paginação — resolve o Problema 1 documentado em
+// docs/Lista de Tarefas/Problemas de Backend - Modulo de Pagamentos.md.
+// Mesma autorização de ConsultarCobrancaAppyPay/ListarCredenciaisAppyPay:
+// uma academia só vê as próprias cobranças; um admin precisa da permissão
+// "fpp" e pode consultar qualquer contexto/academia via query string.
+func ListarCobrancasAppyPay(c *gin.Context) {
+	contexto := c.Query("contexto_tipo")
+	academia := c.Query("codigo_academia")
+	if !authorizeFinanceScope(c, &contexto, &academia) {
+		utils.RespondWithForbiddenError(c, "sem permissão para este contexto financeiro")
+		return
+	}
+	limit := parseBoundedInt(c.Query("limit"), 50, 1, 1000)
+	offset := parseBoundedInt(c.Query("offset"), 0, 0, 1_000_000)
+	res, err := FinanceiroService.ListCobrancas(c.Request.Context(), contexto, academia, c.QueryArray("estado"), c.QueryArray("tipo"), limit, offset)
+	if err != nil {
+		financeError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"cobrancas": res.Cobrancas, "total": len(res.Cobrancas), "total_geral": res.Total, "limit": limit, "offset": offset})
+}
+
 // CancelarCobrancaAppyPay intentionally does not use authorizeFinanceScope:
 // FPP admins may cancel only Spuri's own charges, never a charge belonging to
 // an academy. The service repeats this ownership check before recording.

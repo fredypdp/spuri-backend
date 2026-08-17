@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/projections"
@@ -168,6 +169,47 @@ type QRCodeResult struct {
 	ChargeResult
 	QRCodeArr string `json:"qrCodeArr,omitempty"`
 }
+
+// CobrancaResumo é o resumo de uma cobrança devolvido pela listagem
+// GET /financeiro/cobrancas. Deliberadamente não inclui payment_info,
+// response nem qrCodeArr — esses detalhes completos continuam disponíveis
+// apenas em GET /financeiro/appypay/cobrancas/:id, para quem já sabe o
+// identificador da cobrança. Ver Problema 1 em
+// docs/Lista de Tarefas/Problemas de Backend - Modulo de Pagamentos.md.
+type CobrancaResumo struct {
+	ID                    uuid.UUID `json:"id"`
+	ProviderChargeID      string    `json:"provider_charge_id,omitempty"`
+	MerchantTransactionID string    `json:"merchant_transaction_id"`
+	ContextoTipo          string    `json:"contexto_tipo"`
+	CodigoAcademia        string    `json:"codigo_academia,omitempty"`
+	// Origem é derivada do payload da cobrança, nunca persistida
+	// separadamente: "matricula" quando há codigo_solicitacao,
+	// "mensalidade" quando há codigo_estudante (e não há
+	// codigo_solicitacao), "avulsa" nos demais casos (cobrança criada
+	// diretamente via POST /financeiro/appypay/cobrancas ou /appypay/qr-codes
+	// sem vínculo a mensalidade nem matrícula).
+	Origem    string  `json:"origem"`
+	Status    string  `json:"status"`
+	Valor     float64 `json:"valor"`
+	Moeda     string  `json:"moeda,omitempty"`
+	Descricao string  `json:"descricao,omitempty"`
+	// MetodoPagamento reflete "GPO_QR" (não apenas "GPO") quando a cobrança
+	// tem qr_code_type no payload — CreateGPOQRCode grava payment_method
+	// como "GPO" internamente, então sem este ajuste a origem QR ficaria
+	// indistinguível de um GPO comum nesta listagem.
+	MetodoPagamento   string                  `json:"metodo_pagamento,omitempty"`
+	CodigoEstudante   string                  `json:"codigo_estudante,omitempty"`
+	CodigoSolicitacao string                  `json:"codigo_solicitacao,omitempty"`
+	Mensalidades      []MensalidadeSelecaoMes `json:"mensalidades,omitempty"`
+	AtualizadoEm      time.Time               `json:"atualizado_em"`
+}
+
+// CobrancaListResult é o resultado paginado de ListCobrancas.
+type CobrancaListResult struct {
+	Cobrancas []CobrancaResumo `json:"cobrancas"`
+	Total     int              `json:"total"`
+}
+
 type tokenEntry struct {
 	value     string
 	expiresAt time.Time
@@ -537,6 +579,115 @@ func (s *Service) CancelCharge(ctx context.Context, contexto, academia, identifi
 		return ChargeResult{}, err
 	}
 	return ChargeResult{ID: row.ID, ProviderChargeID: current.ProviderChargeID, MerchantTransactionID: row.Merchant, Status: "cancelada", Response: current.Response}, nil
+}
+
+// ListCobrancas lista cobranças AppyPay (mensalidade, matrícula ou avulsa)
+// filtrando por contexto/academia, estado (status) e origem, com paginação.
+// contexto e academia vazios não restringem a consulta — o mesmo padrão de
+// filtro opcional já usado em ListCredentials. estados e origens vazios
+// também não restringem. limit/offset devem já vir validados (bounded) por
+// quem chama (ver handlers.ListarCobrancasAppyPay).
+//
+// O filtro de estado é um match exato (case-sensitive) sobre o texto cru
+// persistido em payload->>'status' — o mesmo texto devolvido no campo
+// "status" de GET /financeiro/appypay/cobrancas/:id. Esse campo mistura
+// estados internos do Spuri ("solicitada", "criada", "cancelada", "falhada")
+// com estados crus devolvidos pela AppyPay ("Success", "Pending", "Failed",
+// etc.) — este método deliberadamente não normaliza nada, pelo mesmo motivo
+// que isSuccessfulChargeStatus/isTerminalChargeStatus já fazem sua própria
+// comparação case-insensitive em vez de normalizar o dado persistido.
+func (s *Service) ListCobrancas(ctx context.Context, contexto, academia string, estados, origens []string, limit, offset int) (*CobrancaListResult, error) {
+	if s.client == nil {
+		return nil, errors.New("serviço financeiro não inicializado")
+	}
+	where := "WHERE 1=1"
+	args := []any{}
+	i := 1
+	if contexto != "" {
+		where += fmt.Sprintf(" AND contexto_tipo=$%d", i)
+		args = append(args, contexto)
+		i++
+	}
+	if academia != "" {
+		where += fmt.Sprintf(" AND codigo_academia=$%d", i)
+		args = append(args, academia)
+		i++
+	}
+	if len(estados) > 0 {
+		where += fmt.Sprintf(" AND payload->>'status' = ANY($%d)", i)
+		args = append(args, pq.Array(estados))
+		i++
+	}
+	if len(origens) > 0 {
+		clauses := make([]string, 0, len(origens))
+		for _, origem := range origens {
+			switch origem {
+			case "matricula":
+				clauses = append(clauses, "COALESCE(payload->>'codigo_solicitacao','') <> ''")
+			case "mensalidade":
+				clauses = append(clauses, "(COALESCE(payload->>'codigo_solicitacao','') = '' AND COALESCE(payload->>'codigo_estudante','') <> '')")
+			case "avulsa":
+				clauses = append(clauses, "(COALESCE(payload->>'codigo_solicitacao','') = '' AND COALESCE(payload->>'codigo_estudante','') = '')")
+			default:
+				return nil, fmt.Errorf("tipo de cobrança inválido: %s", origem)
+			}
+		}
+		where += " AND (" + strings.Join(clauses, " OR ") + ")"
+	}
+	var total int
+	if err := s.client.DB().QueryRowContext(ctx, "SELECT COUNT(*) FROM financeiro_cobrancas "+where, args...).Scan(&total); err != nil {
+		return nil, err
+	}
+	q := fmt.Sprintf(`SELECT id, COALESCE(provider_charge_id,''), merchant_transaction_id, contexto_tipo, COALESCE(codigo_academia,''), payload, updated_at FROM financeiro_cobrancas %s ORDER BY updated_at DESC LIMIT $%d OFFSET $%d`, where, i, i+1)
+	args = append(args, limit, offset)
+	rows, err := s.client.DB().QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []CobrancaResumo{}
+	for rows.Next() {
+		var dto CobrancaResumo
+		var rawPayload []byte
+		if err := rows.Scan(&dto.ID, &dto.ProviderChargeID, &dto.MerchantTransactionID, &dto.ContextoTipo, &dto.CodigoAcademia, &rawPayload, &dto.AtualizadoEm); err != nil {
+			return nil, err
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(rawPayload, &payload); err != nil {
+			return nil, err
+		}
+		dto.Status, _ = payload["status"].(string)
+		dto.Valor, _ = payload["amount"].(float64)
+		dto.Moeda, _ = payload["currency"].(string)
+		dto.Descricao, _ = payload["description"].(string)
+		dto.MetodoPagamento, _ = payload["payment_method"].(string)
+		if qrType, ok := payload["qr_code_type"].(string); ok && qrType != "" {
+			dto.MetodoPagamento = "GPO_QR"
+		}
+		dto.CodigoEstudante, _ = payload["codigo_estudante"].(string)
+		dto.CodigoSolicitacao, _ = payload["codigo_solicitacao"].(string)
+		switch {
+		case dto.CodigoSolicitacao != "":
+			dto.Origem = "matricula"
+		case dto.CodigoEstudante != "":
+			dto.Origem = "mensalidade"
+		default:
+			dto.Origem = "avulsa"
+		}
+		if mesesRaw, ok := payload["mensalidades"]; ok && mesesRaw != nil {
+			if b, err := json.Marshal(mesesRaw); err == nil {
+				var meses []MensalidadeSelecaoMes
+				if json.Unmarshal(b, &meses) == nil {
+					dto.Mensalidades = meses
+				}
+			}
+		}
+		out = append(out, dto)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return &CobrancaListResult{Cobrancas: out, Total: total}, nil
 }
 
 func canCancelCharge(row chargeRow, academia, actorType string) bool {
