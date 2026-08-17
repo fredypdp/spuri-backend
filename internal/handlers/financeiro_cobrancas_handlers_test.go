@@ -100,7 +100,7 @@ func TestIntegrationListarCobrancasAppyPayRejeitaAdminSemPermissaoFPP(t *testing
 	gin.SetMode(gin.TestMode)
 	client := integrationFinanceClient(t)
 	adminID := uuid.New()
-	if _, err := client.DB().Exec(`INSERT INTO projection_admins (id,nome,email,senha_hash,role,status) VALUES ($1,'gerente-lst',$2,'hash','gerente','ativo')`, adminID, "gerente-lst-"+uuid.NewString()+"@example.test"); err != nil {
+	if _, err := client.DB().Exec(`INSERT INTO projection_admins (id,nome,email,senha_hash,role,status,created_by) VALUES ($1,'gerente-lst',$2,'hash','gerente','ativo',$1)`, adminID, "gerente-lst-"+uuid.NewString()+"@example.test"); err != nil {
 		t.Fatal(err)
 	}
 	recorder := httptest.NewRecorder()

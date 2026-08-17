@@ -6,7 +6,7 @@ origem: auditoria da tarefa 47 ("Correção de dois problemas de backend do mód
   (internal/handlers/mensalidade_handlers.go, internal/middleware/auth.go, migrations/, "Documentação da
   API.md") e validação ao vivo da SQL nova contra um PostgreSQL 16 real (115 migrations aplicadas do zero no
   ambiente de orquestração).
-status: pendente
+status: feito
 depende_de: "47 - Correção de dois problemas de backend do módulo de pagamentos (listagem de cobranças e QR
   Code na resposta de pagamento).md" (já implementada e mesclada — commit 594e238, PR #544)
 ---
