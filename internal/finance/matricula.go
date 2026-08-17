@@ -38,7 +38,9 @@ type MatriculaPagamentoInput struct {
 	Telefone          string `json:"telefone,omitempty"`
 }
 type MatriculaPagamentoView struct {
-	Charge ChargeResult `json:"cobranca"`
+	// Charge é QRCodeResult pelo mesmo motivo documentado em
+	// MensalidadePagamentoView (internal/finance/mensalidade.go).
+	Charge QRCodeResult `json:"cobranca"`
 }
 
 func (s *Service) ConfigureMatricula(ctx context.Context, in MatriculaConfiguracaoInput, actorID, actorType, ip string) (MatriculaConfiguracaoView, error) {
@@ -189,7 +191,7 @@ func (s *Service) IniciarPagamentoMatricula(ctx context.Context, in MatriculaPag
 		if err != nil {
 			return MatriculaPagamentoView{}, err
 		}
-		return MatriculaPagamentoView{Charge: qr.ChargeResult}, nil
+		return MatriculaPagamentoView{Charge: qr}, nil
 	}
 	info := map[string]any{}
 	if in.MetodoPagamento == "GPO" {
@@ -199,7 +201,7 @@ func (s *Service) IniciarPagamentoMatricula(ctx context.Context, in MatriculaPag
 	if err != nil {
 		return MatriculaPagamentoView{}, err
 	}
-	return MatriculaPagamentoView{Charge: charge}, nil
+	return MatriculaPagamentoView{Charge: QRCodeResult{ChargeResult: charge}}, nil
 }
 func (s *Service) matriculaTemCobrancaAberta(ctx context.Context, codigo string) (bool, error) {
 	var ok bool
