@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"errors"
 	"net/http"
 	"strings"
@@ -305,6 +306,63 @@ func ListarCobrancasAppyPay(c *gin.Context) {
 	limit := parseBoundedInt(c.Query("limit"), 50, 1, 1000)
 	offset := parseBoundedInt(c.Query("offset"), 0, 0, 1_000_000)
 	res, err := FinanceiroService.ListCobrancas(c.Request.Context(), contexto, academia, c.QueryArray("estado"), c.QueryArray("tipo"), limit, offset)
+	if err != nil {
+		financeError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"cobrancas": res.Cobrancas, "total": len(res.Cobrancas), "total_geral": res.Total, "limit": limit, "offset": offset})
+}
+
+// ConsultarCobrancasEstudante lista TODAS as cobranças (mensalidade,
+// matrícula ou avulsa) já associadas a um estudante, em qualquer estado —
+// diferente de ListarCobrancasAppyPay (academia/admin, dentro do próprio
+// contexto), esta rota é acessível ao próprio estudante para consultar o seu
+// histórico completo de pagamentos, exatamente como ConsultarMensalidadesEstudante
+// já faz para as obrigações de mensalidade (mesmo desenho de autorização em
+// três vias: estudante só o próprio código, academia só com vínculo e
+// restrita à própria academia, admin com permissão "fpp").
+func ConsultarCobrancasEstudante(c *gin.Context) {
+	codigo := strings.TrimSpace(c.Param("codigo"))
+	var estudanteID string
+	err := getDBClient(c).DB().QueryRowContext(c.Request.Context(), `SELECT id::text FROM projection_estudantes WHERE codigo_estudante=$1`, codigo).Scan(&estudanteID)
+	if err == sql.ErrNoRows {
+		utils.RespondWithNotFoundError(c, "estudante")
+		return
+	}
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	actorID, typ, own, ok := financeActor(c)
+	if !ok {
+		utils.RespondWithUnauthorizedError(c)
+		return
+	}
+	var somenteAcademia *string
+	switch typ {
+	case "estudante":
+		if actorID.String() != estudanteID {
+			utils.RespondWithForbiddenError(c, "você só pode consultar os seus próprios pagamentos")
+			return
+		}
+	case "academia":
+		if !academiaPossuiVinculoMensalidade(c, codigo, own) {
+			utils.RespondWithForbiddenError(c, "estudante não pertence a esta academia")
+			return
+		}
+		somenteAcademia = &own
+	case "admin":
+		if !financeAdminAllowed(c) {
+			utils.RespondWithForbiddenError(c, "sem permissão financeira FPP")
+			return
+		}
+	default:
+		utils.RespondWithForbiddenError(c, "sem permissão para consultar pagamentos")
+		return
+	}
+	limit := parseBoundedInt(c.Query("limit"), 50, 1, 1000)
+	offset := parseBoundedInt(c.Query("offset"), 0, 0, 1_000_000)
+	res, err := FinanceiroService.ListCobrancasEstudante(c.Request.Context(), codigo, somenteAcademia, c.QueryArray("estado"), limit, offset)
 	if err != nil {
 		financeError(c, err)
 		return
