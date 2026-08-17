@@ -1,7 +1,7 @@
 ---
 criado: 2026-08-16
 origem: "docs/Lista de Tarefas/Problemas de Backend - Modulo de Pagamentos.md" (levantamento feito durante a preparação da tarefa de frontend do módulo de pagamentos). Esta tarefa foi orquestrada por Claude (Anthropic) a partir da leitura completa do código-fonte relevante de spuri-backend (branch main): cmd/server/main.go, internal/handlers/financeiro_handlers.go, internal/handlers/solicitacao_matricula_handlers.go, internal/finance/appypay.go, internal/finance/mensalidade.go, internal/finance/matricula.go, internal/projections/financeiro_projection.go, internal/domain/aggregates/financeiro.go, internal/domain/models.go, migrations/097 a 108, e os arquivos de teste existentes do módulo financeiro.
-status: pendente
+status: feito
 depende_de: nenhuma
 ---
 

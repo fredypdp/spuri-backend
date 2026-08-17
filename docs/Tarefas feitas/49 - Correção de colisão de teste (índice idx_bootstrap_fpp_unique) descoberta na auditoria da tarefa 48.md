@@ -4,7 +4,7 @@ origem: auditoria da tarefa 48 (commit `bf9457b`, PR #545), feita por Claude (An
   documentação da tarefa 48 foram conferidos byte a byte contra a especificação — 100% corretos, nada a
   corrigir ali. Esta tarefa é sobre um problema diferente, encontrado ao rodar a suíte de testes completa
   (não só os testes novos) contra um PostgreSQL 16 real, com as 115 migrations do projeto aplicadas.
-status: pendente
+status: feito
 depende_de: "47 - Correção de dois problemas de backend do módulo de pagamentos (...).md" e
   "48 - Auditoria da tarefa 47 + endpoint de consulta do estudante + atualização da documentação da API.md"
   (ambas já mescladas)
