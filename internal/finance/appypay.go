@@ -15,6 +15,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -647,40 +648,121 @@ func (s *Service) ListCobrancas(ctx context.Context, contexto, academia string, 
 	defer rows.Close()
 	out := []CobrancaResumo{}
 	for rows.Next() {
-		var dto CobrancaResumo
-		var rawPayload []byte
-		if err := rows.Scan(&dto.ID, &dto.ProviderChargeID, &dto.MerchantTransactionID, &dto.ContextoTipo, &dto.CodigoAcademia, &rawPayload, &dto.AtualizadoEm); err != nil {
+		dto, err := scanCobrancaResumo(rows)
+		if err != nil {
 			return nil, err
 		}
-		var payload map[string]any
-		if err := json.Unmarshal(rawPayload, &payload); err != nil {
-			return nil, err
-		}
-		dto.Status, _ = payload["status"].(string)
-		dto.Valor, _ = payload["amount"].(float64)
-		dto.Moeda, _ = payload["currency"].(string)
-		dto.Descricao, _ = payload["description"].(string)
-		dto.MetodoPagamento, _ = payload["payment_method"].(string)
-		if qrType, ok := payload["qr_code_type"].(string); ok && qrType != "" {
-			dto.MetodoPagamento = "GPO_QR"
-		}
-		dto.CodigoEstudante, _ = payload["codigo_estudante"].(string)
-		dto.CodigoSolicitacao, _ = payload["codigo_solicitacao"].(string)
-		switch {
-		case dto.CodigoSolicitacao != "":
-			dto.Origem = "matricula"
-		case dto.CodigoEstudante != "":
-			dto.Origem = "mensalidade"
-		default:
-			dto.Origem = "avulsa"
-		}
-		if mesesRaw, ok := payload["mensalidades"]; ok && mesesRaw != nil {
-			if b, err := json.Marshal(mesesRaw); err == nil {
-				var meses []MensalidadeSelecaoMes
-				if json.Unmarshal(b, &meses) == nil {
-					dto.Mensalidades = meses
-				}
+		out = append(out, dto)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return &CobrancaListResult{Cobrancas: out, Total: total}, nil
+}
+
+// scanCobrancaResumo lê uma linha de financeiro_cobrancas (id,
+// provider_charge_id, merchant_transaction_id, contexto_tipo,
+// codigo_academia, payload, updated_at, nesta ordem exata) e deriva os
+// campos resumidos a partir do payload persistido. Compartilhado por
+// ListCobrancas e ListCobrancasEstudante para não duplicar a lógica de
+// derivação de origem/método/mensalidades — extraído durante a tarefa 48 sem
+// nenhuma mudança de comportamento em relação ao que ListCobrancas já fazia
+// inline desde a tarefa 47.
+func scanCobrancaResumo(rows *sql.Rows) (CobrancaResumo, error) {
+	var dto CobrancaResumo
+	var rawPayload []byte
+	if err := rows.Scan(&dto.ID, &dto.ProviderChargeID, &dto.MerchantTransactionID, &dto.ContextoTipo, &dto.CodigoAcademia, &rawPayload, &dto.AtualizadoEm); err != nil {
+		return CobrancaResumo{}, err
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(rawPayload, &payload); err != nil {
+		return CobrancaResumo{}, err
+	}
+	dto.Status, _ = payload["status"].(string)
+	dto.Valor, _ = payload["amount"].(float64)
+	dto.Moeda, _ = payload["currency"].(string)
+	dto.Descricao, _ = payload["description"].(string)
+	dto.MetodoPagamento, _ = payload["payment_method"].(string)
+	if qrType, ok := payload["qr_code_type"].(string); ok && qrType != "" {
+		dto.MetodoPagamento = "GPO_QR"
+	}
+	dto.CodigoEstudante, _ = payload["codigo_estudante"].(string)
+	dto.CodigoSolicitacao, _ = payload["codigo_solicitacao"].(string)
+	switch {
+	case dto.CodigoSolicitacao != "":
+		dto.Origem = "matricula"
+	case dto.CodigoEstudante != "":
+		dto.Origem = "mensalidade"
+	default:
+		dto.Origem = "avulsa"
+	}
+	if mesesRaw, ok := payload["mensalidades"]; ok && mesesRaw != nil {
+		if b, err := json.Marshal(mesesRaw); err == nil {
+			var meses []MensalidadeSelecaoMes
+			if json.Unmarshal(b, &meses) == nil {
+				dto.Mensalidades = meses
 			}
+		}
+	}
+	return dto, nil
+}
+
+// ListCobrancasEstudante lista TODAS as cobranças de um estudante (qualquer
+// origem, qualquer estado por padrão) — usada por
+// GET /financeiro/cobrancas/estudante/:codigo, a consulta do próprio
+// estudante (ou de uma academia/admin autorizados) ao histórico de
+// pagamentos dele. Diferente de ListCobrancas (visão de academia/admin sobre
+// cobranças recebidas, filtrada por contexto/academia), esta consulta é
+// centrada no estudante: ele pode ter mensalidades e matrícula em mais de
+// uma academia (histórico), e o próprio estudante ou um admin FPP devem ver
+// tudo.
+//
+// somenteAcademia, quando não nil, restringe o resultado a essa academia —
+// usado quando quem chama é uma academia (só pode ver os pagamentos que o
+// estudante fez à própria academia, nunca o histórico completo dele noutras
+// academias). Estudante e admin FPP chamam com somenteAcademia nil. Mesmo
+// padrão já usado por ListMensalidades.
+//
+// Inclui a cobrança de matrícula do estudante mesmo que o payload dela não
+// tenha codigo_estudante (só codigo_solicitacao) — resolvido via o vínculo
+// já existente em projection_solicitacoes_matricula.codigo_estudante_gerado,
+// preenchido quando a solicitação é aprovada.
+func (s *Service) ListCobrancasEstudante(ctx context.Context, codigoEstudante string, somenteAcademia *string, estados []string, limit, offset int) (*CobrancaListResult, error) {
+	if s.client == nil {
+		return nil, errors.New("serviço financeiro não inicializado")
+	}
+	if codigoEstudante == "" {
+		return nil, errors.New("código do estudante é obrigatório")
+	}
+	where := `WHERE (payload->>'codigo_estudante' = $1 OR payload->>'codigo_solicitacao' IN (SELECT codigo_solicitacao FROM projection_solicitacoes_matricula WHERE codigo_estudante_gerado = $1))`
+	args := []any{codigoEstudante}
+	i := 2
+	if somenteAcademia != nil {
+		where += fmt.Sprintf(" AND codigo_academia=$%d", i)
+		args = append(args, *somenteAcademia)
+		i++
+	}
+	if len(estados) > 0 {
+		where += fmt.Sprintf(" AND payload->>'status' = ANY($%d)", i)
+		args = append(args, pq.Array(estados))
+		i++
+	}
+	var total int
+	if err := s.client.DB().QueryRowContext(ctx, "SELECT COUNT(*) FROM financeiro_cobrancas "+where, args...).Scan(&total); err != nil {
+		return nil, err
+	}
+	q := fmt.Sprintf(`SELECT id, COALESCE(provider_charge_id,''), merchant_transaction_id, contexto_tipo, COALESCE(codigo_academia,''), payload, updated_at FROM financeiro_cobrancas %s ORDER BY updated_at DESC LIMIT $%d OFFSET $%d`, where, i, i+1)
+	args = append(args, limit, offset)
+	rows, err := s.client.DB().QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []CobrancaResumo{}
+	for rows.Next() {
+		dto, err := scanCobrancaResumo(rows)
+		if err != nil {
+			return nil, err
 		}
 		out = append(out, dto)
 	}

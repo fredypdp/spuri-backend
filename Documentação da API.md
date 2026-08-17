@@ -7086,7 +7086,7 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 
 **Regras gerais do escopo financeiro:**
 
-- Todas as rotas `/financeiro/*` exigem autenticação. As rotas de administração aceitam somente `academia` ou admin FPP; a consulta de mensalidades de um estudante também pode ser feita pelo próprio estudante autenticado.
+- Todas as rotas `/financeiro/*` exigem autenticação. As rotas de administração aceitam somente `academia` ou admin FPP; a consulta de mensalidades e a consulta do histórico de cobranças (seção 19.8) de um estudante também podem ser feitas pelo próprio estudante autenticado.
 - Academia autenticada opera apenas no próprio contexto: o backend força `contexto_tipo="academia"` e `codigo_academia` igual ao código do token, mesmo que esses campos venham vazios no request.
 - Admin FPP pode operar o contexto global `spuri` e contextos de academias específicas; admins `adm` e `gerente`, estudantes e usuários anônimos não administram o módulo financeiro.
 - Segredos AppyPay (`client_secret`, métodos de pagamento sensíveis) nunca são devolvidos em resposta; a API retorna apenas máscaras e metadados. A única exceção deliberada é o segredo de webhook (`webhook_secret`): como é gerado pelo servidor e o usuário precisa colá-lo no painel da AppyPay, ele é devolvido em texto plano apenas na criação da credencial (seção 19.1) e nas rotas dedicadas de consulta/rotação (seções 19.10 e 19.11) — nunca em `PUT`, listagem ou qualquer outra resposta.
@@ -7107,6 +7107,8 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 | `POST` | `/financeiro/appypay/cobrancas` | Cria cobrança AppyPay GPO ou REF genérica. |
 | `POST` | `/financeiro/appypay/qr-codes` | Gera QR Code GPO e devolve `qrCodeArr` em base64 quando enviado pela AppyPay. |
 | `GET` | `/financeiro/appypay/cobrancas/:id` | Consulta cobrança por id AppyPay ou `merchantTransactionId`. |
+| `GET` | `/financeiro/cobrancas` | Lista cobranças (mensalidade, matrícula, avulsa) do contexto autorizado, com filtros e paginação. |
+| `GET` | `/financeiro/cobrancas/estudante/:codigo` | Lista todas as cobranças de um estudante, em qualquer estado — acessível ao próprio estudante. |
 | `POST` | `/financeiro/appypay/cobrancas/:id/cancelar` | Cancela localmente uma cobrança pendente do próprio contexto. |
 | `POST` | `/financeiro/mensalidades/configuracoes` | Versiona o valor e mês final de cobrança por ano/curso de academia privada. |
 | `GET` | `/financeiro/mensalidades/configuracoes` | Lista a configuração vigente de mensalidade de uma academia. |
@@ -7452,7 +7454,82 @@ Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e 
 - A consulta grava evento financeiro apenas quando o estado, identificador do provider ou resposta relevante mudar; consultas sem mudança não poluem o ledger.
 - Se a consulta detectar `Success` da AppyPay depois de a cobrança ter sido cancelada localmente, grava `CobrancaAppyPayConflitoPosCancelamento` e preserva o status local `cancelada`, para reconciliação manual por admin FPP.
 
-#### 19.7 Mensalidades/propinas e pagamento pelo estudante
+#### 19.7 GET /financeiro/cobrancas
+
+**Escopo da rota:** lista cobranças (mensalidade, matrícula ou avulsa) do contexto autorizado, com paginação e filtros por estado e origem — visão de academia/admin sobre pagamentos recebidos. Para o estudante consultar o próprio histórico de pagamentos, use 19.8.
+
+**Proteção:** autenticado + academia do próprio contexto ou admin FPP. Estudantes recebem `403` nesta rota.
+
+**Query params:**
+
+| Campo | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `contexto_tipo` | string | Não | Contexto financeiro consultado. Para academia autenticada é forçado para `academia`. |
+| `codigo_academia` | string | Não | Academia dona das cobranças. Para academia autenticada é forçado para o código do token. |
+| `estado` | string, repetível | Não | Filtra pelo texto exato (case-sensitive) persistido em `status` — mistura estados internos (`solicitada`, `criada`, `cancelada`, `falhada`) e estados crus da AppyPay (`Success`, `Pending`, `Failed`, etc). Repita o parâmetro para casar mais de um valor (`?estado=Success&estado=Pending`). |
+| `tipo` | string, repetível | Não | Filtra por origem: `matricula`, `mensalidade` ou `avulsa`. |
+| `limit` | inteiro | Não | Itens por página. Padrão 50, mínimo 1, máximo 1000. |
+| `offset` | inteiro | Não | Deslocamento de paginação. Padrão 0. |
+
+**Response 200:**
+
+```json
+{
+  "cobrancas": [
+    {
+      "id": "4d2bbf53-c8c0-4c9a-a3f4-5a0f0cf988d1",
+      "provider_charge_id": "APPYPAY-987654",
+      "merchant_transaction_id": "P2608LDA000001",
+      "contexto_tipo": "academia",
+      "codigo_academia": "ACA001",
+      "origem": "mensalidade",
+      "status": "Success",
+      "valor": 1000.00,
+      "moeda": "AOA",
+      "descricao": "Mensalidade outubro/2025",
+      "metodo_pagamento": "GPO",
+      "codigo_estudante": "EST0001",
+      "mensalidades": [{"ano_letivo": "2025_2026", "mes": 10}],
+      "atualizado_em": "2026-08-08T12:30:00Z"
+    }
+  ],
+  "total": 1,
+  "total_geral": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+**Regras de negócio:**
+
+- Não devolve `payment_info`, `response` (resposta crua da AppyPay) nem `qrCodeArr`; para o detalhe completo de uma cobrança específica, use 19.6.
+- `origem` é derivada do payload persistido, nunca gravada separadamente: `matricula` quando a cobrança tem `codigo_solicitacao`, `mensalidade` quando tem `codigo_estudante` (e não tem `codigo_solicitacao`), `avulsa` nos demais casos.
+- Ordenação sempre por `updated_at DESC` (atividade mais recente primeiro); não há campo de data de criação separado nesta listagem.
+- `total` é o número de itens nesta página; `total_geral` é o total real que casa com os filtros aplicados.
+
+#### 19.8 GET /financeiro/cobrancas/estudante/:codigo
+
+**Escopo da rota:** lista TODAS as cobranças que um estudante já teve, em qualquer estado, academia ou origem — incluindo a cobrança da matrícula original, mesmo que ela tenha sido paga antes de o estudante existir como tal. É a visão do próprio estudante sobre o seu histórico de pagamentos. Para a visão de academia/admin sobre cobranças recebidas, use 19.7.
+
+**Proteção:** o próprio estudante (`:codigo` deve ser o código do token), academia à qual o estudante pertence ou pertenceu (mesmo vínculo histórico de `GET /financeiro/mensalidades/estudante/:codigo`), ou admin FPP.
+
+**Query params:**
+
+| Campo | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `estado` | string, repetível | Não | Mesmo filtro de 19.7. Sem filtro, devolve todos os estados. |
+| `limit` | inteiro | Não | Itens por página. Padrão 50, mínimo 1, máximo 1000. |
+| `offset` | inteiro | Não | Deslocamento de paginação. Padrão 0. |
+
+**Response 200:** mesma estrutura de 19.7.
+
+**Regras de negócio:**
+
+- Diferente de 19.7, esta consulta não aceita `contexto_tipo` nem `codigo_academia`: um estudante pode ter mensalidades e matrícula em mais de uma academia (histórico), e o histórico mostra tudo — exceto quando quem consulta é uma academia, caso em que o resultado é restrito às cobranças feitas a essa academia especificamente (uma academia nunca vê pagamentos que o estudante fez a outra academia, mesmo com vínculo histórico com as duas).
+- A cobrança de matrícula é resolvida pelo vínculo `codigo_estudante_gerado`, já gravado em `projection_solicitacoes_matricula` quando a solicitação é aprovada — o payload da cobrança de matrícula em si nunca grava `codigo_estudante`, porque a cobrança é anterior ao registo do estudante.
+- Sem filtro de `estado`, a listagem inclui cobranças pendentes, falhadas e canceladas, não só as pagas — intencional: o objetivo é o estudante conseguir ver tudo que já teve, não só os pagamentos concluídos.
+
+#### 19.9 Mensalidades/propinas e pagamento pelo estudante
 
 A projeção de obrigações mensais usa a chave estável `(codigo_estudante, codigo_academia, ano_letivo, mes)`. Academias `public` não podem configurar nem geram mensalidades. O estudante pode selecionar meses pendentes de uma única academia e o Spuri cria automaticamente, no contexto financeiro dessa academia, uma única cobrança AppyPay: o estudante nunca chama a rota genérica de criação de cobrança.
 
@@ -7502,7 +7579,7 @@ Exclusivo do próprio estudante (inclusive sessão financeira restrita). O pedid
 }
 ```
 
-A seleção deve conter o mês pendente mais antigo daquela academia; meses adicionais podem ser quaisquer outros pendentes da mesma academia. Pagos, anulados, duplicados ou meses já cobertos por cobrança aberta são recusados antes da chamada AppyPay. O valor é a soma dos preços históricos, arredondada pela regra financeira única, e a resposta traz uma única `cobranca` e os meses associados. Ao receber `Success` por consulta ou webhook, `MensalidadesCobrancaConfirmada` grava os pagamentos de todos os meses da cobrança numa única transação projetada; repetições são idempotentes.
+A seleção deve conter o mês pendente mais antigo daquela academia; meses adicionais podem ser quaisquer outros pendentes da mesma academia. Pagos, anulados, duplicados ou meses já cobertos por cobrança aberta são recusados antes da chamada AppyPay. O valor é a soma dos preços históricos, arredondada pela regra financeira única, e a resposta traz uma única `cobranca` e os meses associados. Quando `metodo_pagamento` é `GPO_QR`, `cobranca` inclui `qrCodeArr` em base64 (mesmo campo documentado em 19.5); nos demais métodos, o campo fica ausente. Ao receber `Success` por consulta ou webhook, `MensalidadesCobrancaConfirmada` grava os pagamentos de todos os meses da cobrança numa única transação projetada; repetições são idempotentes.
 
 Um estudante sem vínculo ativo recebe, no login, uma claim `acesso_restrito_financeiro`; ela só permite esta rota e a sua consulta de mensalidades. Não libera perfil, notas, faltas ou qualquer outra rota protegida e não reintegra o estudante em academia alguma.
 
@@ -7522,7 +7599,7 @@ Ao anular mês coberto por cobrança ainda aberta, a plataforma tenta cancelar a
 }
 ```
 
-#### 19.8 POST /financeiro/appypay/cobrancas/:id/cancelar
+#### 19.10 POST /financeiro/appypay/cobrancas/:id/cancelar
 
 **Escopo da rota:** cancela localmente uma cobrança REF, GPO ou QR Code ainda não paga. Não chama endpoint de cancelamento da AppyPay, pois esse endpoint não é documentado para esses métodos.
 
@@ -7546,7 +7623,7 @@ Ao anular mês coberto por cobrança ainda aberta, a plataforma tenta cancelar a
 - Cobranças `cancelada`, `falhada` ou `Success` não podem ser canceladas novamente ou reabertas. Para cobrar de novo, crie uma nova cobrança com outro `merchantTransactionId`.
 - O evento `CobrancaAppyPayCancelada` é interno ao ledger Spuri. Uma referência/QR já emitido pode continuar tecnicamente pagável fora da plataforma até expirar; sucesso tardio gera `CobrancaAppyPayConflitoPosCancelamento`, sem alterar o status local cancelado.
 
-#### 19.8 POST /webhooks/appypay/gpo
+#### 19.11 POST /webhooks/appypay/gpo
 
 **Escopo da rota:** entrada pública para notificações AppyPay do método GPO.
 
@@ -7571,7 +7648,7 @@ Ao anular mês coberto por cobrança ainda aberta, a plataforma tenta cancelar a
 - Webhook sem autenticação válida retorna `401`; JSON inválido ou sem identificador retorna `400`.
 - Evento já recebido responde `200` novamente e não duplica o processamento.
 
-#### 19.9 POST /webhooks/appypay/ref
+#### 19.12 POST /webhooks/appypay/ref
 
 **Escopo da rota:** entrada pública para notificações AppyPay do método REF.
 
@@ -7595,7 +7672,7 @@ Ao anular mês coberto por cobrança ainda aberta, a plataforma tenta cancelar a
 - Aplica as mesmas regras de autenticação, validação mínima e idempotência do webhook GPO.
 - O método registrado internamente é `REF`, permitindo separar auditoria e reconciliação por canal AppyPay.
 
-#### 19.10 GET /financeiro/appypay/credenciais/:id/webhook-secret
+#### 19.13 GET /financeiro/appypay/credenciais/:id/webhook-secret
 
 **Escopo da rota:** consulta do segredo de webhook atual, em texto plano, de uma credencial já cadastrada. Existe porque o segredo é gerado pelo servidor — o usuário precisa desta rota (ou da resposta de criação, seção 19.1) para saber o que colar no painel da AppyPay.
 
@@ -7615,7 +7692,7 @@ Ao anular mês coberto por cobrança ainda aberta, a plataforma tenta cancelar a
 - `webhook_header_name` devolvido aqui é sempre a mesma constante fixa da plataforma; existe no corpo apenas para o cliente não precisar hardcodar o valor.
 - `id` inexistente ou fora do contexto autorizado retorna `404`; falta de permissão retorna `403`.
 
-#### 19.11 POST /financeiro/appypay/credenciais/:id/webhook-secret/rotacionar
+#### 19.14 POST /financeiro/appypay/credenciais/:id/webhook-secret/rotacionar
 
 **Escopo da rota:** gera um novo segredo de webhook para a credencial, invalidando o anterior imediatamente.
 
@@ -7950,6 +8027,6 @@ Envia uma mensagem de teste através do endpoint `POST /messages` da Ziett, com 
 
 Sem configuração, a aprovação mantém o vínculo imediato. Com taxa configurada, a solicitação recebe `aprovada_pendente_pagamento_matricula`: o valor e os métodos são congelados, o código do estudante é reservado, mas ainda não existe estudante, vínculo nem cobrança. Os eventos são `SolicitacaoMatriculaAprovada`, `SolicitacaoMatriculaAprovadaPendentePagamento` e `SolicitacaoMatriculaVinculada`.
 
-As rotas públicas, limitadas por IP, são `GET /solicitacao-matricula/busca` (exige ao menos dois campos exatos entre telefone, telefone do encarregado, e-mail e BIs e só devolve dados de reconhecimento), `GET /solicitacao-matricula/:codigo/status` (estado e, se pendente, valor/métodos) e `POST /solicitacao-matricula/:codigo/pagamento-matricula` (método e telefone opcional GPO). O valor cobrado é sempre o congelado na aprovação e só há uma cobrança aberta por solicitação.
+As rotas públicas, limitadas por IP, são `GET /solicitacao-matricula/busca` (exige ao menos dois campos exatos entre telefone, telefone do encarregado, e-mail e BIs e só devolve dados de reconhecimento), `GET /solicitacao-matricula/:codigo/status` (estado e, se pendente, valor/métodos) e `POST /solicitacao-matricula/:codigo/pagamento-matricula` (método e telefone opcional GPO). O valor cobrado é sempre o congelado na aprovação e só há uma cobrança aberta por solicitação. A resposta traz `cobranca` no mesmo formato do módulo financeiro (seção 19): quando `metodo_pagamento` é `GPO_QR`, inclui `qrCodeArr` em base64 (ver 19.5); nos demais métodos, o campo fica ausente.
 
 `PUT /academia/solicitacao-matricula/:codigo/cancelar` cancela uma solicitação pendente e sua cobrança local aberta. Se a cobrança já foi paga, o cancelamento é rejeitado. Uma confirmação `Success` por webhook efetiva o vínculo de forma idempotente. REF/GPO/QR não têm cancelamento real no provider: pagamento posterior ao cancelamento local é um conflito financeiro para reconciliação manual.
