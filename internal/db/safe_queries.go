@@ -125,6 +125,15 @@ var validEventTypes = map[string]bool{
 	// tentar gravar no ledger.
 	"MatriculaConfigurada":           true,
 	"MensalidadesCobrancaConfirmada": true,
+	// NotaCorrigida e FaltaCorrigida são emitidos por
+	// Estudante.CorrigirNota/CorrigirFalta (estudante_notas.go /
+	// estudante_falta.go) desde a Tarefa 33/35, mas nunca constavam nesta
+	// whitelist: todo SaveWithAudit para uma correção de nota ou falta era
+	// rejeitado com "tipo de evento inválido" antes de tentar gravar no
+	// ledger, fazendo a rota PATCH /academia/notas-aluno/{id} e
+	// /academia/faltas-aluno/{id} retornar 500 sempre.
+	"NotaCorrigida":  true,
+	"FaltaCorrigida": true,
 }
 
 // validAggregateTypes é o mapa canônico de aggregate types permitidos no ledger.
