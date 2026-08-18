@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"os"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
@@ -41,6 +43,7 @@ func setupTurmaVinculoIntegration(t *testing.T) *turmaVinculoFixture {
 	if os.Getenv("SPURI_RUN_DB_INTEGRITY_TESTS") != "1" {
 		t.Skip("set SPURI_RUN_DB_INTEGRITY_TESTS=1 with an isolated PostgreSQL database to run")
 	}
+	t.Setenv("ENV", "test")
 	prev, _ := os.Getwd()
 	_ = os.Chdir("../..")
 	t.Cleanup(func() { _ = os.Chdir(prev) })
@@ -63,6 +66,18 @@ func setupTurmaVinculoIntegration(t *testing.T) *turmaVinculoFixture {
 	seq := time.Now().UnixNano()
 	academia := criarAcademiaCorrecao(t, repository, seq, "V")
 	outra := criarAcademiaCorrecao(t, repository, seq, "W")
+	if err := academia.DefinirAnoLetivo("2025_2026", "escolar", academia.ID); err != nil {
+		t.Fatalf("definir ano letivo academia: %v", err)
+	}
+	if err := repository.SaveWithAudit(academia, db.AuditContext{UserID: academia.ID.String(), UserType: "academia", IP: "127.0.0.1"}); err != nil {
+		t.Fatalf("salvar ano letivo academia: %v", err)
+	}
+	if err := outra.DefinirAnoLetivo("2025_2026", "escolar", outra.ID); err != nil {
+		t.Fatalf("definir ano letivo outra academia: %v", err)
+	}
+	if err := repository.SaveWithAudit(outra, db.AuditContext{UserID: outra.ID.String(), UserType: "academia", IP: "127.0.0.1"}); err != nil {
+		t.Fatalf("salvar ano letivo outra academia: %v", err)
+	}
 	if err := projections.NewAcademiaProjection(client).Rebuild(); err != nil {
 		t.Fatalf("rebuild academias: %v", err)
 	}
@@ -106,7 +121,10 @@ func montarMultipartCadastroEstudante(t *testing.T, campos map[string]string, co
 	}
 	if comArquivos {
 		for _, f := range []string{"bi_encarregado", "cedula_estudante"} {
-			part, err := w.CreateFormFile(f, f+".pdf")
+			header := make(textproto.MIMEHeader)
+			header.Set("Content-Disposition", fmt.Sprintf(`form-data; name=%q; filename=%q`, f, f+".pdf"))
+			header.Set("Content-Type", "application/pdf")
+			part, err := w.CreatePart(header)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -121,8 +139,20 @@ func montarMultipartCadastroEstudante(t *testing.T, campos map[string]string, co
 	return body, w.FormDataContentType()
 }
 
+func geraDigitosTurmaVinculo(n int) string {
+	digitos := strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' {
+			return r
+		}
+		return -1
+	}, uuid.NewString())
+	for len(digitos) < n {
+		digitos += "0"
+	}
+	return digitos[:n]
+}
 func camposCadastro(nome string) map[string]string {
-	return map[string]string{"nome": nome, "genero": "masculino", "data_nascimento": "2014-01-01", "ano_escolar_fundamental": "1_ano_fundamental", "telefone_encarregado": "912345678", "bilhete_identidade_encarregado": "BI" + strings.ReplaceAll(nome, " ", "")}
+	return map[string]string{"nome": nome, "genero": "masculino", "data_nascimento": "2014-01-01", "ano_escolar_fundamental": "1_ano_fundamental", "telefone_encarregado": "9" + geraDigitosTurmaVinculo(8), "bilhete_identidade_encarregado": "BI" + strings.ReplaceAll(nome, " ", "")}
 }
 
 func postCadastro(t *testing.T, fx *turmaVinculoFixture, campos map[string]string) *httptest.ResponseRecorder {
@@ -290,23 +320,81 @@ func jobCadastro(t *testing.T, fx *turmaVinculoFixture, item map[string]string) 
 func TestTurmaVinculo08CadastroEmMassaTrataItensComESemCodigoTurmaDeFormaIndependente(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	fx := setupTurmaVinculoIntegration(t)
-	for i, cod := range []string{"", fx.turmaAtiva.CodigoTurma, "TURMA_INEXISTENTE"} {
-		item := camposCadastro(fmt.Sprintf("Aluno job %d", i))
-		item["codigo_turma"] = cod
-		w := jobCadastro(t, fx, item)
-		if w.Code < 200 || w.Code > 299 {
-			t.Fatalf("item %d status=%d %s", i, w.Code, w.Body.String())
-		}
+
+	item0 := camposCadastro("Aluno job Um")
+	w0 := jobCadastro(t, fx, item0)
+	if w0.Code < 200 || w0.Code > 299 {
+		t.Fatalf("item sem turma: status=%d %s", w0.Code, w0.Body.String())
+	}
+	if v, ok := dataMap(decodeMap(t, w0.Body.Bytes()))["turma_vinculada"]; ok {
+		t.Fatalf("item sem turma não deveria ter turma_vinculada no payload: %v", v)
+	}
+
+	item1 := camposCadastro("Aluno job Dois")
+	item1["codigo_turma"] = fx.turmaAtiva.CodigoTurma
+	w1 := jobCadastro(t, fx, item1)
+	if w1.Code < 200 || w1.Code > 299 || dataMap(decodeMap(t, w1.Body.Bytes()))["turma_vinculada"] != true {
+		t.Fatalf("item com turma válida: status=%d %s", w1.Code, w1.Body.String())
+	}
+
+	item2 := camposCadastro("Aluno job Tres")
+	item2["codigo_turma"] = "TURMA_INEXISTENTE"
+	w2 := jobCadastro(t, fx, item2)
+	if w2.Code != 404 {
+		t.Fatalf("item com turma inexistente deveria falhar com 404: status=%d %s", w2.Code, w2.Body.String())
+	}
+	if estudanteCount(t, fx, item2["nome"]) != 0 {
+		t.Fatal("item com turma inexistente não deveria criar estudante")
 	}
 }
 func TestTurmaVinculo09FalhaPosCriacaoGeraTurmaAvisoSemAbortarCadastro(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	fx := setupTurmaVinculoIntegration(t)
+	// A turma existe, está ativa e é compatível — passa na pré-checagem de
+	// registerEstudantePorAcademiaComRequestModo. Mas a academia usada aqui
+	// nunca teve DefinirAnoLetivo chamado, então vincularEstudanteATurma
+	// falha depois de o estudante já ter sido persistido (resolverAnoLetivoAcademia
+	// erro), gerando turma_vinculada=false + turma_aviso sem abortar o cadastro.
+	academiaSemAnoLetivo := criarAcademiaCorrecao(t, fx.repository, time.Now().UnixNano(), "Z")
+	if err := projections.NewAcademiaProjection(fx.client).Rebuild(); err != nil {
+		t.Fatalf("rebuild academias: %v", err)
+	}
+	turma := aggregates.NewTurma()
+	if err := turma.Criar("9A", academiaSemAnoLetivo.CodigoAcademia, "1_ano_fundamental", nil, "manha", academiaSemAnoLetivo.ID); err != nil {
+		t.Fatalf("criar turma sem ano letivo: %v", err)
+	}
+	if err := fx.repository.SaveWithAudit(turma, db.AuditContext{UserID: academiaSemAnoLetivo.ID.String(), UserType: "academia", IP: "127.0.0.1"}); err != nil {
+		t.Fatalf("salvar turma sem ano letivo: %v", err)
+	}
+	if err := projections.NewTurmasProjection(fx.client).Rebuild(); err != nil {
+		t.Fatalf("rebuild turmas: %v", err)
+	}
+	tokenSemAnoLetivo, err := middleware.GenerateToken(academiaSemAnoLetivo.ID, "academia")
+	if err != nil {
+		t.Fatalf("token: %v", err)
+	}
+
 	item := camposCadastro("Aluno job aviso")
-	item["codigo_turma"] = fx.turmaInativa.CodigoTurma
-	w := jobCadastro(t, fx, item)
+	item["codigo_turma"] = "9A"
+	b, _ := json.Marshal(item)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/jobs/item", bytes.NewReader(b))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Set("user_id", academiaSemAnoLetivo.ID)
+	c.Set("user_type", "academia")
+	c.Set("dbClient", fx.client)
+	c.Set("repository", fx.repository)
+	c.Set("projManager", projManager)
+	_ = tokenSemAnoLetivo
+	handlers.RegisterEstudantePorAcademiaJobItem(c)
+
 	if w.Code < 200 || w.Code > 299 || !strings.Contains(w.Body.String(), "turma_aviso") {
 		t.Fatalf("status=%d %s", w.Code, w.Body.String())
+	}
+	_ = projections.NewEstudanteProjection(fx.client).Rebuild()
+	if estudanteCount(t, fx, item["nome"]) != 1 {
+		t.Fatal("estudante deveria ter sido criado apesar da falha de vínculo")
 	}
 }
 func TestTurmaVinculo10ConflitoOtimistaNoVinculoTemRetryOuFalhaLimpaSemCorromperTurma(t *testing.T) {
@@ -320,6 +408,9 @@ func TestTurmaVinculo10ConflitoOtimistaNoVinculoTemRetryOuFalhaLimpaSemCorromper
 			t.Fatalf("cadastro %d: %d %s", i, w.Code, w.Body.String())
 		}
 		codes[i] = codigoEstudante(decodeMap(t, w.Body.Bytes()))
+	}
+	if err := projections.NewEstudanteProjection(fx.client).Rebuild(); err != nil {
+		t.Fatalf("rebuild estudantes: %v", err)
 	}
 	var wg sync.WaitGroup
 	for _, cod := range codes {
@@ -349,6 +440,9 @@ func TestTurmaVinculo11AdicionarEstudanteATurmaRotaManualPreservaStatusERegraDup
 		t.Fatalf("cadastro: %d %s", w.Code, w.Body.String())
 	}
 	cod := codigoEstudante(decodeMap(t, w.Body.Bytes()))
+	if err := projections.NewEstudanteProjection(fx.client).Rebuild(); err != nil {
+		t.Fatalf("rebuild estudantes: %v", err)
+	}
 	call := func(turma string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, "/academia/turma/"+turma+"/estudante", strings.NewReader(`{"codigo_estudante":"`+cod+`"}`))
 		req.Header.Set("Authorization", "Bearer "+fx.token)
@@ -359,6 +453,9 @@ func TestTurmaVinculo11AdicionarEstudanteATurmaRotaManualPreservaStatusERegraDup
 	}
 	if rr := call(fx.turmaAtiva.CodigoTurma); rr.Code != 200 {
 		t.Fatalf("ativo: %d %s", rr.Code, rr.Body.String())
+	}
+	if err := projections.NewTurmasProjection(fx.client).Rebuild(); err != nil {
+		t.Fatalf("rebuild turmas: %v", err)
 	}
 	if rr := call("TURMA_INEXISTENTE"); rr.Code != 404 {
 		t.Fatalf("inexistente: %d %s", rr.Code, rr.Body.String())

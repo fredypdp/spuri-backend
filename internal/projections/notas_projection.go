@@ -149,16 +149,17 @@ func (p *NotasProjection) handleNotasRegistradas(event db.Event) error {
 		return fmt.Errorf("handleNotasRegistradas: parse error: %w", err)
 	}
 
+	notaID := uuid.NewSHA1(uuid.NameSpaceOID, []byte("spuri:nota:"+payload.CodigoEstudante+":"+payload.CodigoAcademia+":"+payload.AnoLectivo+":"+payload.Periodo+":"+payload.MateriaDisciplinarID+":"+payload.Tipo+":"+payload.Categoria))
 	result, err := p.client.DB().Exec(`
 		INSERT INTO projection_notas (
-			codigo_estudante, codigo_academia, ano_lectivo, ano_academico,
+			id, codigo_estudante, codigo_academia, ano_lectivo, ano_academico,
 			periodo, materia_disciplinar_id, tipo, categoria, nota, observacao,
 			registered_at, registrado_por, event_id, version
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 		ON CONFLICT (codigo_estudante, codigo_academia, ano_lectivo, periodo, materia_disciplinar_id, tipo, categoria)
 		DO NOTHING
 	`,
-		payload.CodigoEstudante, payload.CodigoAcademia, payload.AnoLectivo, payload.AnoAcademico,
+		notaID, payload.CodigoEstudante, payload.CodigoAcademia, payload.AnoLectivo, payload.AnoAcademico,
 		payload.Periodo, payload.MateriaDisciplinarID, payload.Tipo, payload.Categoria,
 		payload.Nota, payload.Observacao,
 		payload.RegisteredAt, payload.RegistradoPor, event.EventID, event.EventVersion,

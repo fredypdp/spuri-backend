@@ -7,6 +7,8 @@ import (
 	"spuri/internal/db"
 	"spuri/internal/utils"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type FaltasProjection struct {
@@ -148,15 +150,16 @@ func (p *FaltasProjection) handleFaltasRegistradasTx(tx *sql.Tx, event db.Event)
 		return fmt.Errorf("parse error FaltasRegistradas: %w", err)
 	}
 
+	faltaID := uuid.NewSHA1(uuid.NameSpaceOID, []byte("spuri:falta:"+payload.CodigoEstudante+":"+payload.CodigoAcademia+":"+payload.Data.UTC().Format("2006-01-02")+":"+payload.MateriaDisciplinarID+":"+payload.Periodo))
 	_, err := tx.Exec(`
 		INSERT INTO projection_faltas (
-			codigo_estudante, codigo_academia, ano_lectivo, ano_academico,
+			id, codigo_estudante, codigo_academia, ano_lectivo, ano_academico,
 			periodo, data, materia_disciplinar_id, quantidade, observacao,
 			registered_at, registrado_por, event_id, version
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 		ON CONFLICT ON CONSTRAINT uq_falta_unica DO NOTHING
 	`,
-		payload.CodigoEstudante, payload.CodigoAcademia, payload.AnoLectivo, payload.AnoAcademico,
+		faltaID, payload.CodigoEstudante, payload.CodigoAcademia, payload.AnoLectivo, payload.AnoAcademico,
 		payload.Periodo, payload.Data.UTC(), payload.MateriaDisciplinarID, payload.Quantidade, payload.Observacao,
 		payload.RegisteredAt.UTC(), payload.RegistradoPor, event.EventID, event.EventVersion,
 	)
