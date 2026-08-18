@@ -1,5 +1,5 @@
 ---
-status: a fazer
+status: feito
 ---
 
 # Tarefa 53 — Corrigir bugs de teste da Tarefa 50 e bug real de concorrência em `SaveWithAudit` (ledger)

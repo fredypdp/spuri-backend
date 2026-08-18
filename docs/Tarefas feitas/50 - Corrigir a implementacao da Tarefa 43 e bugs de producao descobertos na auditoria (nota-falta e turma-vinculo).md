@@ -1,5 +1,5 @@
 ---
-status: a fazer
+status: feito
 ---
 
 # Tarefa 50 — Corrigir a implementação da Tarefa 43 e bugs de produção descobertos na auditoria pós-implementação
