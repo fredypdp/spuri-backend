@@ -359,8 +359,8 @@ func TestIntegrationRebuildNotasEFaltasMantemRegistrosCorrigidos(t *testing.T) {
 		}
 	}
 	segundo := snapshotRegistrosCorrigidos(t, fx.client, fx.notaID, fx.faltaID)
-	if primeiro != segundo {
-		t.Fatalf("rebuild não foi determinístico: primeiro=%+v segundo=%+v", primeiro, segundo)
+	if !snapshotsIguais(primeiro, segundo) {
+		t.Fatalf("rebuild não foi determinístico: primeiro=%s segundo=%s", formatSnapshot(primeiro), formatSnapshot(segundo))
 	}
 	if primeiro.Nota != 7.5 || primeiro.NotaAnterior == nil || *primeiro.NotaAnterior != 8 || primeiro.Falta != 1 || primeiro.FaltaAnterior == nil || *primeiro.FaltaAnterior != 2 {
 		t.Fatalf("estado reconstruído não preservou as correções: %+v", primeiro)
@@ -372,6 +372,42 @@ type snapshotRegistrosCorrecao struct {
 	NotaAnterior  *float64
 	Falta         int
 	FaltaAnterior *int
+}
+
+// snapshotsIguais compara dois snapshots por valor. snapshotRegistrosCorrecao
+// tem campos *float64/*int (NotaAnterior/FaltaAnterior); comparar a struct
+// diretamente com `!=` compara endereço de ponteiro, não o valor apontado, e
+// por isso falha sempre — mesmo entre dois snapshots com valores idênticos —
+// já que cada leitura via Scan() aloca ponteiros novos.
+func snapshotsIguais(a, b snapshotRegistrosCorrecao) bool {
+	if a.Nota != b.Nota || a.Falta != b.Falta {
+		return false
+	}
+	if (a.NotaAnterior == nil) != (b.NotaAnterior == nil) {
+		return false
+	}
+	if a.NotaAnterior != nil && *a.NotaAnterior != *b.NotaAnterior {
+		return false
+	}
+	if (a.FaltaAnterior == nil) != (b.FaltaAnterior == nil) {
+		return false
+	}
+	if a.FaltaAnterior != nil && *a.FaltaAnterior != *b.FaltaAnterior {
+		return false
+	}
+	return true
+}
+
+func formatSnapshot(s snapshotRegistrosCorrecao) string {
+	notaAnterior := "nil"
+	if s.NotaAnterior != nil {
+		notaAnterior = fmt.Sprintf("%v", *s.NotaAnterior)
+	}
+	faltaAnterior := "nil"
+	if s.FaltaAnterior != nil {
+		faltaAnterior = fmt.Sprintf("%v", *s.FaltaAnterior)
+	}
+	return fmt.Sprintf("{Nota:%v NotaAnterior:%s Falta:%v FaltaAnterior:%s}", s.Nota, notaAnterior, s.Falta, faltaAnterior)
 }
 
 func snapshotRegistrosCorrigidos(t *testing.T, client *db.Client, notaID uuid.UUID, faltaID string) snapshotRegistrosCorrecao {

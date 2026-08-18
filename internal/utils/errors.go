@@ -380,7 +380,22 @@ func IsSerializationFailure(err error) bool {
 	}
 	var pqErr *pq.Error
 	if errors.As(err, &pqErr) {
-		return string(pqErr.Code) == "40001" || string(pqErr.Code) == "40P01"
+		if string(pqErr.Code) == "40001" || string(pqErr.Code) == "40P01" {
+			return true
+		}
+		// 23505 (unique_violation) na constraint de unicidade de versão do
+		// ledger (aggregate_id, event_version) é o mesmo conflito de escrita
+		// concorrente que 40001 detecta preventivamente: duas transações leem
+		// a mesma versão corrente do aggregate e tentam inserir o mesmo
+		// próximo event_version. Sob SERIALIZABLE, o SSI do Postgres nem
+		// sempre aborta a segunda transação antes do INSERT físico — quando a
+		// primeira já comitou, a segunda esbarra na constraint de unicidade
+		// em vez de receber 40001. Tratar como retryable aqui é seguro porque
+		// esta função tem um único call site (SaveWithAudit), cujo próprio
+		// propósito é resolver exatamente esta corrida relendo a versão.
+		if string(pqErr.Code) == "23505" && pqErr.Constraint == "spuri_ledger_aggregate_id_event_version_key" {
+			return true
+		}
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "sqlstate 40001") || strings.Contains(msg, "serialization_failure") || strings.Contains(msg, "sqlstate 40p01") || strings.Contains(msg, "deadlock detected")

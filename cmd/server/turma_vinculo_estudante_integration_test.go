@@ -190,8 +190,17 @@ func codigoEstudante(m map[string]any) string {
 }
 func estudanteCount(t *testing.T, fx *turmaVinculoFixture, nome string) int {
 	t.Helper()
+	return estudanteCountPorAcademia(t, fx, nome, fx.academia.CodigoAcademia)
+}
+
+// estudanteCountPorAcademia escopa a contagem por codigo_academia. Contar só
+// por nome (sem escopo) acumula matches de execuções anteriores no mesmo
+// banco — por exemplo, com nomes fixos de fixture repetidos entre rodadas de
+// `-count=N` — e produz falsos negativos em testes que esperam count==1.
+func estudanteCountPorAcademia(t *testing.T, fx *turmaVinculoFixture, nome, codigoAcademia string) int {
+	t.Helper()
 	var n int
-	if err := fx.client.DB().QueryRow(`SELECT count(*) FROM projection_estudantes WHERE nome=$1`, nome).Scan(&n); err != nil {
+	if err := fx.client.DB().QueryRow(`SELECT count(*) FROM projection_estudantes WHERE nome=$1 AND codigo_academia=$2`, nome, codigoAcademia).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	return n
@@ -393,7 +402,7 @@ func TestTurmaVinculo09FalhaPosCriacaoGeraTurmaAvisoSemAbortarCadastro(t *testin
 		t.Fatalf("status=%d %s", w.Code, w.Body.String())
 	}
 	_ = projections.NewEstudanteProjection(fx.client).Rebuild()
-	if estudanteCount(t, fx, item["nome"]) != 1 {
+	if estudanteCountPorAcademia(t, fx, item["nome"], academiaSemAnoLetivo.CodigoAcademia) != 1 {
 		t.Fatal("estudante deveria ter sido criado apesar da falha de vínculo")
 	}
 }
@@ -402,7 +411,7 @@ func TestTurmaVinculo10ConflitoOtimistaNoVinculoTemRetryOuFalhaLimpaSemCorromper
 	fx := setupTurmaVinculoIntegration(t)
 	codes := make([]string, 2)
 	for i := range codes {
-		c := camposCadastro(fmt.Sprintf("Aluno concorrente %d", i))
+		c := camposCadastro(fmt.Sprintf("Aluno concorrente %s", string(rune('A'+i))))
 		w := postCadastro(t, fx, c)
 		if w.Code != 201 {
 			t.Fatalf("cadastro %d: %d %s", i, w.Code, w.Body.String())

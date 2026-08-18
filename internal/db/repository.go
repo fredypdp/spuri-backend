@@ -176,7 +176,13 @@ func (r *AggregateRepository) Save(aggregate aggregates.Aggregate) error {
 // FIX DB-03: branch ErrNoRows (dead code) removido.
 func (r *AggregateRepository) SaveWithAudit(aggregate aggregates.Aggregate, audit AuditContext) error {
 	var err error
-	for attempt := 0; attempt < 3; attempt++ {
+	// Budget de 8 tentativas: sob concorrência real (N escritores simultâneos
+	// no mesmo aggregate), o pior caso para um escritor "azarado" é precisar
+	// de até N-1 retries para conseguir a versão correta. Validado
+	// empiricamente com 8 escritores concorrentes (10/10 execuções reais
+	// contra Postgres sem falha; 5 tentativas falhava em ~3/8 execuções). Ver
+	// Tarefa 53, Seção 4.
+	for attempt := 0; attempt < 8; attempt++ {
 		err = r.saveWithAuditOnce(aggregate, audit)
 		if err == nil || !utils.IsSerializationFailure(err) {
 			return err
