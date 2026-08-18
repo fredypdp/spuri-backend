@@ -2,7 +2,7 @@
 status: a fazer
 ---
 
-# Tarefa 44 — Corrigir a implementação da Tarefa 43 e bugs de produção descobertos na auditoria pós-implementação
+# Tarefa 50 — Corrigir a implementação da Tarefa 43 e bugs de produção descobertos na auditoria pós-implementação
 
 ## Prompt recomendado para Codex
 
