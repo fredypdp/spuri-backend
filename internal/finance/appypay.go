@@ -620,20 +620,11 @@ func (s *Service) ListCobrancas(ctx context.Context, contexto, academia string, 
 		i++
 	}
 	if len(origens) > 0 {
-		clauses := make([]string, 0, len(origens))
-		for _, origem := range origens {
-			switch origem {
-			case "matricula":
-				clauses = append(clauses, "COALESCE(payload->>'codigo_solicitacao','') <> ''")
-			case "mensalidade":
-				clauses = append(clauses, "(COALESCE(payload->>'codigo_solicitacao','') = '' AND COALESCE(payload->>'codigo_estudante','') <> '')")
-			case "avulsa":
-				clauses = append(clauses, "(COALESCE(payload->>'codigo_solicitacao','') = '' AND COALESCE(payload->>'codigo_estudante','') = '')")
-			default:
-				return nil, fmt.Errorf("tipo de cobrança inválido: %s", origem)
-			}
+		clause, err := origensClause(origens)
+		if err != nil {
+			return nil, err
 		}
-		where += " AND (" + strings.Join(clauses, " OR ") + ")"
+		where += clause
 	}
 	var total int
 	if err := s.client.DB().QueryRowContext(ctx, "SELECT COUNT(*) FROM financeiro_cobrancas "+where, args...).Scan(&total); err != nil {
@@ -658,6 +649,32 @@ func (s *Service) ListCobrancas(ctx context.Context, contexto, academia string, 
 		return nil, err
 	}
 	return &CobrancaListResult{Cobrancas: out, Total: total}, nil
+}
+
+// origensClause monta a cláusula SQL "AND (...)" que filtra
+// financeiro_cobrancas pelo tipo de cobrança derivado do payload
+// (mensalidade, matrícula ou avulsa) — a mesma derivação usada por
+// scanCobrancaResumo. Devolve "" (sem filtro) quando origens está vazio.
+// Extraída durante a tarefa 49 para ser compartilhada por ListCobrancas e
+// ListCobrancasEstudante e nunca divergir entre as duas.
+func origensClause(origens []string) (string, error) {
+	if len(origens) == 0 {
+		return "", nil
+	}
+	clauses := make([]string, 0, len(origens))
+	for _, origem := range origens {
+		switch origem {
+		case "matricula":
+			clauses = append(clauses, "COALESCE(payload->>'codigo_solicitacao','') <> ''")
+		case "mensalidade":
+			clauses = append(clauses, "(COALESCE(payload->>'codigo_solicitacao','') = '' AND COALESCE(payload->>'codigo_estudante','') <> '')")
+		case "avulsa":
+			clauses = append(clauses, "(COALESCE(payload->>'codigo_solicitacao','') = '' AND COALESCE(payload->>'codigo_estudante','') = '')")
+		default:
+			return "", fmt.Errorf("tipo de cobrança inválido: %s", origem)
+		}
+	}
+	return " AND (" + strings.Join(clauses, " OR ") + ")", nil
 }
 
 // scanCobrancaResumo lê uma linha de financeiro_cobrancas (id,
@@ -727,7 +744,7 @@ func scanCobrancaResumo(rows *sql.Rows) (CobrancaResumo, error) {
 // tenha codigo_estudante (só codigo_solicitacao) — resolvido via o vínculo
 // já existente em projection_solicitacoes_matricula.codigo_estudante_gerado,
 // preenchido quando a solicitação é aprovada.
-func (s *Service) ListCobrancasEstudante(ctx context.Context, codigoEstudante string, somenteAcademia *string, estados []string, limit, offset int) (*CobrancaListResult, error) {
+func (s *Service) ListCobrancasEstudante(ctx context.Context, codigoEstudante string, somenteAcademia *string, estados, origens []string, limit, offset int) (*CobrancaListResult, error) {
 	if s.client == nil {
 		return nil, errors.New("serviço financeiro não inicializado")
 	}
@@ -746,6 +763,13 @@ func (s *Service) ListCobrancasEstudante(ctx context.Context, codigoEstudante st
 		where += fmt.Sprintf(" AND payload->>'status' = ANY($%d)", i)
 		args = append(args, pq.Array(estados))
 		i++
+	}
+	if len(origens) > 0 {
+		clause, err := origensClause(origens)
+		if err != nil {
+			return nil, err
+		}
+		where += clause
 	}
 	var total int
 	if err := s.client.DB().QueryRowContext(ctx, "SELECT COUNT(*) FROM financeiro_cobrancas "+where, args...).Scan(&total); err != nil {

@@ -1,7 +1,7 @@
 ---
 criado: 2026-08-19
 origem: Claude (orquestrador) — a pedido de Fredy Luís, Fundador e CEO da Spuri
-status: pendente
+status: concluída
 tarefa: 49b — Correções adicionais das páginas /financas/* (subtelas, terminologia, backend pendente)
 ---
 
