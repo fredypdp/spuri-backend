@@ -16,6 +16,7 @@ import (
 // view.Charge.QRCodeArr == "" mesmo com a AppyPay (simulada aqui pelo mock
 // transport) devolvendo qrCodeArr normalmente.
 func TestIntegrationPagamentoMensalidadeGPOQRDevolveQRCodeArr(t *testing.T) {
+	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
 	client := integrationClient(t)
 	service := NewService(client)
 	ctx := context.Background()
@@ -58,6 +59,7 @@ func TestIntegrationPagamentoMensalidadeGPOQRDevolveQRCodeArr(t *testing.T) {
 // TestIntegrationPagamentoMensalidadeGPOQRDevolveQRCodeArr para o fluxo de
 // matrícula.
 func TestIntegrationPagamentoMatriculaGPOQRDevolveQRCodeArr(t *testing.T) {
+	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
 	client := integrationClient(t)
 	service := NewService(client)
 	ctx := context.Background()

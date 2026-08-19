@@ -380,23 +380,35 @@ func IsSerializationFailure(err error) bool {
 	}
 	var pqErr *pq.Error
 	if errors.As(err, &pqErr) {
-		if string(pqErr.Code) == "40001" || string(pqErr.Code) == "40P01" {
-			return true
-		}
-		// 23505 (unique_violation) na constraint de unicidade de versão do
-		// ledger (aggregate_id, event_version) é o mesmo conflito de escrita
-		// concorrente que 40001 detecta preventivamente: duas transações leem
-		// a mesma versão corrente do aggregate e tentam inserir o mesmo
-		// próximo event_version. Sob SERIALIZABLE, o SSI do Postgres nem
-		// sempre aborta a segunda transação antes do INSERT físico — quando a
-		// primeira já comitou, a segunda esbarra na constraint de unicidade
-		// em vez de receber 40001. Tratar como retryable aqui é seguro porque
-		// esta função tem um único call site (SaveWithAudit), cujo próprio
-		// propósito é resolver exatamente esta corrida relendo a versão.
-		if string(pqErr.Code) == "23505" && pqErr.Constraint == "spuri_ledger_aggregate_id_event_version_key" {
-			return true
-		}
+		return string(pqErr.Code) == "40001" || string(pqErr.Code) == "40P01"
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "sqlstate 40001") || strings.Contains(msg, "serialization_failure") || strings.Contains(msg, "sqlstate 40p01") || strings.Contains(msg, "deadlock detected")
+}
+
+// IsAggregateVersionConflict identifies a duplicate-key violation on
+// spuri_ledger's UNIQUE(aggregate_id, event_version) constraint.
+//
+// Sob isolamento SERIALIZABLE, uma corrida entre duas transações que leem
+// COALESCE(MAX(event_version)) e depois inserem a próxima versão do mesmo
+// aggregate É o exemplo clássico de conflito que o SSI do Postgres deveria
+// sinalizar como 40001 (serialization_failure). Na prática, com concorrência
+// alta (mais de duas transações disputando a mesma linha), o Postgres às
+// vezes detecta o conflito apenas no momento da checagem do índice único,
+// retornando 23505 (unique_violation) em vez de 40001 — e SaveWithAudit
+// tratava isso como falha definitiva, sem retentar, mesmo sendo exatamente o
+// mesmo tipo de conflito de concorrência que IsSerializationFailure já
+// retenta. Só o nome exato desta constraint é aceito propositalmente: um
+// 23505 em qualquer outra constraint (ex.: código de estudante duplicado) é
+// uma violação de regra de negócio real e não deve ser retentado.
+func IsAggregateVersionConflict(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		return string(pqErr.Code) == "23505" && pqErr.Constraint == "spuri_ledger_aggregate_id_event_version_key"
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "sqlstate 23505") && strings.Contains(msg, "spuri_ledger_aggregate_id_event_version_key")
 }

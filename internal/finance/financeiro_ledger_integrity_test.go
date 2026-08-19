@@ -104,6 +104,7 @@ func TestIntegrationConfigureMatriculaGravaNoLedgerEProjectaCorretamente(t *test
 // confirmação fica de facto registada no ledger (evento
 // MensalidadesCobrancaConfirmada) e refletida como "pago" na leitura.
 func TestIntegrationPagamentoMensalidadeConfirmadoPelaAppyPayMarcaComoPago(t *testing.T) {
+	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
 	client := integrationClient(t)
 	service := NewService(client)
 	ctx := context.Background()
