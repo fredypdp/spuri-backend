@@ -116,6 +116,37 @@ func ConfigurarCredencialAppyPay(c *gin.Context) {
 	}
 	c.JSON(http.StatusCreated, CredencialAppyPayCriada{CredentialView: out, WebhookSecret: webhookSecret})
 }
+
+// RemoverCredencialAppyPay remove as credenciais AppyPay configuradas para
+// o contexto do ator autenticado (academia própria, ou "spuri" para um
+// admin com permissão "fpp"). A partir deste comando, qualquer tentativa
+// de gerar cobrança nesse contexto volta a ser bloqueada por ausência de
+// credenciais, exatamente como antes de nunca terem sido configuradas.
+func RemoverCredencialAppyPay(c *gin.Context) {
+	var in struct {
+		ContextoTipo   string `json:"contexto_tipo"`
+		CodigoAcademia string `json:"codigo_academia"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		utils.RespondWithValidationError(c, errors.New("payload inválido"))
+		return
+	}
+	if !authorizeFinanceScope(c, &in.ContextoTipo, &in.CodigoAcademia) {
+		utils.RespondWithForbiddenError(c, "sem permissão para remover estas credenciais")
+		return
+	}
+	id, t, _, ok := financeActor(c)
+	if !ok {
+		utils.RespondWithUnauthorizedError(c)
+		return
+	}
+	if err := FinanceiroService.RemoveCredential(c.Request.Context(), in.ContextoTipo, in.CodigoAcademia, id.String(), t, c.ClientIP()); err != nil {
+		financeError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 func AtualizarCredencialAppyPay(c *gin.Context) {
 	idParam, err := uuid.Parse(c.Param("id"))
 	if err != nil {

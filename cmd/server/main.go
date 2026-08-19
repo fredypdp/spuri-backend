@@ -347,6 +347,7 @@ func setupRouter() *gin.Engine {
 			financeiro.POST("/appypay/credenciais", handlers.ConfigurarCredencialAppyPay)
 			financeiro.PUT("/appypay/credenciais/:id", handlers.AtualizarCredencialAppyPay)
 			financeiro.GET("/appypay/credenciais", handlers.ListarCredenciaisAppyPay)
+			financeiro.DELETE("/appypay/credenciais", handlers.RemoverCredencialAppyPay)
 			financeiro.GET("/appypay/credenciais/:id/webhook-secret", handlers.ConsultarSegredoWebhookAppyPay)
 			financeiro.POST("/appypay/credenciais/:id/webhook-secret/rotacionar", handlers.RotacionarSegredoWebhookAppyPay)
 			financeiro.POST("/appypay/cobrancas", handlers.CriarCobrancaAppyPay)
@@ -357,12 +358,15 @@ func setupRouter() *gin.Engine {
 			financeiro.POST("/mensalidades/configuracoes", handlers.ConfigurarMensalidade)
 			financeiro.PUT("/mensalidades/configuracoes", handlers.ConfigurarMensalidade)
 			financeiro.GET("/mensalidades/configuracoes", handlers.ListarConfiguracoesMensalidade)
+			financeiro.DELETE("/mensalidades/configuracoes", handlers.RemoverConfiguracaoMensalidade)
 			financeiro.POST("/mensalidades/inicio-cobranca", handlers.DefinirMesInicioCobranca)
+			financeiro.DELETE("/mensalidades/inicio-cobranca", handlers.RemoverMesInicioCobranca)
 			financeiro.POST("/mensalidades/obrigacoes/anular", handlers.AnularObrigacoesMensalidade)
 			financeiro.POST("/mensalidades/obrigacoes/reativar", handlers.ReativarObrigacoesMensalidade)
 			financeiro.POST("/matriculas/configuracoes", handlers.ConfigurarMatricula)
 			financeiro.PUT("/matriculas/configuracoes", handlers.ConfigurarMatricula)
 			financeiro.GET("/matriculas/configuracoes", handlers.ListarConfiguracoesMatricula)
+			financeiro.DELETE("/matriculas/configuracoes", handlers.RemoverConfiguracaoMatricula)
 		}
 	}
 

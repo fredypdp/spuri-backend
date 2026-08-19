@@ -19,11 +19,15 @@ const (
 	CobrancaAppyPayCancelada               = "CobrancaAppyPayCancelada"
 	CobrancaAppyPayConflitoPosCancelamento = "CobrancaAppyPayConflitoPosCancelamento"
 	MensalidadeConfigurada                 = "MensalidadeConfigurada"
+	MensalidadeConfiguracaoRemovida        = "MensalidadeConfiguracaoRemovida"
 	MesInicioCobrancaDefinido              = "MesInicioCobrancaDefinido"
+	MesInicioCobrancaRemovido              = "MesInicioCobrancaRemovido"
 	ObrigacaoMensalidadeAnulada            = "ObrigacaoMensalidadeAnulada"
 	ObrigacaoMensalidadeReativada          = "ObrigacaoMensalidadeReativada"
 	MensalidadePaga                        = "MensalidadePaga"
 	MatriculaConfigurada                   = "MatriculaConfigurada"
+	MatriculaConfiguracaoRemovida          = "MatriculaConfiguracaoRemovida"
+	CredenciaisAppyPayRemovidas            = "CredenciaisAppyPayRemovidas"
 )
 
 func NewFinanceiro() *Financeiro { return NewFinanceiroWithID(uuid.New()) }

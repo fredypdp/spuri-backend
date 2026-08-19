@@ -135,7 +135,7 @@ func (s *Service) ConfigureMensalidade(ctx context.Context, in MensalidadeConfig
 }
 
 func (s *Service) ListMensalidadeConfiguracoes(ctx context.Context, codigoAcademia string) ([]MensalidadeConfiguracaoView, error) {
-	rows, err := s.client.DB().QueryContext(ctx, `SELECT DISTINCT ON (nivel,ano_academico,curso_id) nivel,ano_academico,curso_id,valor::float8,mes_fim_cobranca,metodos_pagamento,vigente_em FROM financeiro_mensalidade_configuracoes WHERE codigo_academia=$1 ORDER BY nivel,ano_academico,curso_id,vigente_em DESC,event_id DESC`, codigoAcademia)
+	rows, err := s.client.DB().QueryContext(ctx, `SELECT nivel,ano_academico,curso_id,valor::float8,mes_fim_cobranca,metodos_pagamento,vigente_em FROM financeiro_mensalidade_configuracoes_atual WHERE codigo_academia=$1 ORDER BY nivel,ano_academico,curso_id`, codigoAcademia)
 	if err != nil {
 		return nil, err
 	}
@@ -165,6 +165,57 @@ func (s *Service) DefinirMesInicioCobranca(ctx context.Context, in MesInicioCobr
 		return err
 	}
 	return s.recordMensalidade(ctx, in.CodigoAcademia, aggregates.MesInicioCobrancaDefinido, map[string]any{"codigo_academia": in.CodigoAcademia, "ano_letivo": in.AnoLetivo, "mes_inicio": in.MesInicio}, actorID, actorType, ip)
+}
+
+// RemoveMensalidadeConfiguracao remove a configuração de mensalidade
+// (preço + métodos de pagamento) atualmente vigente para um escopo
+// (academia+nível+ano acadêmico+curso). É registrada como um novo evento
+// imutável (MensalidadeConfiguracaoRemovida) — nenhuma linha de
+// financeiro_mensalidade_configuracoes é apagada ou reescrita, então o
+// preço histórico de meses já cobrados antes da remoção continua
+// resolvendo exatamente igual (ver resolveConfiguracao). A partir deste
+// comando, o escopo passa a não ter configuração ativa: novas tentativas
+// de pagamento para meses de referência a partir de agora falham, e
+// metodosPagamentoMensalidade/ListMensalidadeConfiguracoes deixam de
+// listar este escopo.
+func (s *Service) RemoveMensalidadeConfiguracao(ctx context.Context, codigoAcademia, nivel, anoAcademico string, cursoID *uuid.UUID, actorID, actorType, ip string) error {
+	if s.client == nil {
+		return errors.New("serviço financeiro não inicializado")
+	}
+	codigoAcademia, nivel, anoAcademico = strings.TrimSpace(codigoAcademia), strings.TrimSpace(nivel), strings.TrimSpace(anoAcademico)
+	if codigoAcademia == "" || nivel == "" || anoAcademico == "" {
+		return errors.New("academia, nível e ano acadêmico são obrigatórios")
+	}
+	if _, err := s.resolveConfiguracao(ctx, codigoAcademia, nivel, anoAcademico, cursoID, time.Now().UTC()); err != nil {
+		return fmt.Errorf("%w: nenhuma configuração de mensalidade ativa para este escopo", ErrNotFound)
+	}
+	payload := map[string]any{"codigo_academia": codigoAcademia, "nivel": nivel, "ano_academico": anoAcademico, "curso_id": optionalUUID(cursoID)}
+	return s.recordMensalidade(ctx, codigoAcademia, aggregates.MensalidadeConfiguracaoRemovida, payload, actorID, actorType, ip)
+}
+
+// RemoveMesInicioCobranca remove a redefinição de mês de início de
+// cobrança para um ano letivo, fazendo o sistema voltar a usar o mês
+// natural padrão (início do ano letivo) como se DefinirMesInicioCobranca
+// nunca tivesse sido chamado para este ano letivo. O evento
+// MesInicioCobrancaDefinido original permanece intacto no ledger.
+func (s *Service) RemoveMesInicioCobranca(ctx context.Context, codigoAcademia, anoLetivo, actorID, actorType, ip string) error {
+	if s.client == nil {
+		return errors.New("serviço financeiro não inicializado")
+	}
+	codigoAcademia, anoLetivo = strings.TrimSpace(codigoAcademia), strings.TrimSpace(anoLetivo)
+	if codigoAcademia == "" || !anoLetivoValido(anoLetivo) {
+		return errors.New("academia e ano_letivo válido são obrigatórios")
+	}
+	var existe bool
+	err := s.client.DB().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM financeiro_mensalidade_inicio_cobranca_atual WHERE codigo_academia=$1 AND ano_letivo=$2)`, codigoAcademia, anoLetivo).Scan(&existe)
+	if err != nil {
+		return err
+	}
+	if !existe {
+		return fmt.Errorf("%w: nenhum mês de início de cobrança definido para este ano letivo", ErrNotFound)
+	}
+	payload := map[string]any{"codigo_academia": codigoAcademia, "ano_letivo": anoLetivo}
+	return s.recordMensalidade(ctx, codigoAcademia, aggregates.MesInicioCobrancaRemovido, payload, actorID, actorType, ip)
 }
 
 func (s *Service) AnularObrigacoesMensalidade(ctx context.Context, in ObrigacaoMensalidadeInput, actorID, actorType, ip string) error {
@@ -461,7 +512,7 @@ func (s *Service) validateMesInicioCobranca(ctx context.Context, in *MesInicioCo
 	}
 	natural := mesNaturalInicioAnoLetivo(nivel)
 	var menor sql.NullInt64
-	err = s.client.DB().QueryRowContext(ctx, `SELECT MIN(mes_fim_cobranca) FROM (SELECT DISTINCT ON (nivel,ano_academico,curso_id) mes_fim_cobranca FROM financeiro_mensalidade_configuracoes WHERE codigo_academia=$1 ORDER BY nivel,ano_academico,curso_id,vigente_em DESC,event_id DESC) c`, in.CodigoAcademia).Scan(&menor)
+	err = s.client.DB().QueryRowContext(ctx, `SELECT MIN(mes_fim_cobranca) FROM financeiro_mensalidade_configuracoes_atual WHERE codigo_academia=$1`, in.CodigoAcademia).Scan(&menor)
 	if err != nil {
 		return err
 	}
@@ -499,6 +550,25 @@ func (s *Service) resolveConfiguracao(ctx context.Context, academia, nivel, ano 
 	}
 	if err != nil {
 		return out, err
+	}
+	// A configuração resolvida acima é a versão que estava (ou passará a
+	// estar) vigente. Se ela já foi removida — isto é, existe um evento
+	// MensalidadeConfiguracaoRemovida cujo removido_em cai entre o
+	// vigente_em dessa versão e a referência que estamos resolvendo — o
+	// escopo está sem configuração ativa NAQUELA data, mesmo que uma
+	// versão mais antiga já tenha existido um dia. Isso nunca reescreve
+	// preços já resolvidos para referências ANTERIORES à remoção: o
+	// filtro removido_em <= referencia garante que meses já cobrados
+	// antes da remoção continuam resolvendo normalmente.
+	if !out.VigenteEm.After(referencia.UTC()) {
+		var removidoEm time.Time
+		errRem := s.client.DB().QueryRowContext(ctx, `SELECT removido_em FROM financeiro_mensalidade_configuracoes_remocoes WHERE codigo_academia=$1 AND nivel=$2 AND ano_academico=$3 AND curso_id IS NOT DISTINCT FROM $4 AND removido_em >= $5 AND removido_em <= $6 ORDER BY removido_em DESC LIMIT 1`, academia, nivel, ano, nullableUUID(curso), out.VigenteEm, referencia.UTC()).Scan(&removidoEm)
+		if errRem == nil {
+			return MensalidadeConfiguracaoView{}, fmt.Errorf("%w: configuração de mensalidade removida", ErrNotFound)
+		}
+		if errRem != sql.ErrNoRows {
+			return out, errRem
+		}
 	}
 	out.CodigoAcademia, out.Nivel, out.AnoAcademico = academia, nivel, ano
 	if cursoText.Valid {
@@ -565,7 +635,7 @@ func (s *Service) vinculosMensalidade(ctx context.Context, estudante string, som
 func (s *Service) mesInicioEfetivo(ctx context.Context, academia, anoLetivo, nivel string) (int, error) {
 	natural := mesNaturalInicioAnoLetivo(nivel)
 	var mes int
-	err := s.client.DB().QueryRowContext(ctx, `SELECT mes_inicio FROM financeiro_mensalidade_inicio_cobranca WHERE codigo_academia=$1 AND ano_letivo=$2 ORDER BY definido_em DESC,event_id DESC LIMIT 1`, academia, anoLetivo).Scan(&mes)
+	err := s.client.DB().QueryRowContext(ctx, `SELECT mes_inicio FROM financeiro_mensalidade_inicio_cobranca_atual WHERE codigo_academia=$1 AND ano_letivo=$2`, academia, anoLetivo).Scan(&mes)
 	if err == sql.ErrNoRows {
 		return natural, nil
 	}
@@ -705,11 +775,7 @@ func nullableUUID(v *uuid.UUID) any {
 }
 
 func (s *Service) metodosPagamentoMensalidade(ctx context.Context, academia string) ([]string, error) {
-	rows, err := s.client.DB().QueryContext(ctx, `SELECT DISTINCT unnest(metodos_pagamento) FROM (
-		SELECT DISTINCT ON (nivel,ano_academico,curso_id) metodos_pagamento
-		FROM financeiro_mensalidade_configuracoes WHERE codigo_academia=$1
-		ORDER BY nivel,ano_academico,curso_id,vigente_em DESC,event_id DESC
-	) configuracoes`, academia)
+	rows, err := s.client.DB().QueryContext(ctx, `SELECT DISTINCT unnest(metodos_pagamento) FROM financeiro_mensalidade_configuracoes_atual WHERE codigo_academia=$1`, academia)
 	if err != nil {
 		return nil, err
 	}

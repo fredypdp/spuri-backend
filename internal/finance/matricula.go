@@ -55,7 +55,7 @@ func (s *Service) ConfigureMatricula(ctx context.Context, in MatriculaConfigurac
 	return s.ResolveMatriculaConfiguracao(ctx, in.CodigoAcademia, in.Nivel, in.AnoAcademico, in.CursoID)
 }
 func (s *Service) ListMatriculaConfiguracoes(ctx context.Context, academia string) ([]MatriculaConfiguracaoView, error) {
-	rows, err := s.client.DB().QueryContext(ctx, `SELECT DISTINCT ON (nivel,ano_academico,curso_id) nivel,ano_academico,curso_id,valor::float8,metodos_pagamento,vigente_em FROM financeiro_matricula_configuracoes WHERE codigo_academia=$1 ORDER BY nivel,ano_academico,curso_id,vigente_em DESC,event_id DESC`, strings.TrimSpace(academia))
+	rows, err := s.client.DB().QueryContext(ctx, `SELECT nivel,ano_academico,curso_id,valor::float8,metodos_pagamento,vigente_em FROM financeiro_matricula_configuracoes_atual WHERE codigo_academia=$1 ORDER BY nivel,ano_academico,curso_id`, strings.TrimSpace(academia))
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +84,7 @@ func (s *Service) ListMatriculaConfiguracoes(ctx context.Context, academia strin
 func (s *Service) ResolveMatriculaConfiguracao(ctx context.Context, academia, nivel, ano string, curso *string) (MatriculaConfiguracaoView, error) {
 	var v MatriculaConfiguracaoView
 	var raw sql.NullString
-	err := s.client.DB().QueryRowContext(ctx, `SELECT valor::float8,metodos_pagamento,vigente_em,curso_id FROM financeiro_matricula_configuracoes WHERE codigo_academia=$1 AND nivel=$2 AND ano_academico=$3 AND curso_id IS NOT DISTINCT FROM NULLIF($4,'')::uuid ORDER BY vigente_em DESC,event_id DESC LIMIT 1`, strings.TrimSpace(academia), strings.ToLower(strings.TrimSpace(nivel)), strings.TrimSpace(ano), optionalString(curso)).Scan(&v.Valor, pq.Array(&v.MetodosPagamento), &v.VigenteEm, &raw)
+	err := s.client.DB().QueryRowContext(ctx, `SELECT valor::float8,metodos_pagamento,vigente_em,curso_id FROM financeiro_matricula_configuracoes_atual WHERE codigo_academia=$1 AND nivel=$2 AND ano_academico=$3 AND curso_id IS NOT DISTINCT FROM NULLIF($4,'')::uuid`, strings.TrimSpace(academia), strings.ToLower(strings.TrimSpace(nivel)), strings.TrimSpace(ano), optionalString(curso)).Scan(&v.Valor, pq.Array(&v.MetodosPagamento), &v.VigenteEm, &raw)
 	if err == sql.ErrNoRows {
 		return MatriculaConfiguracaoView{}, ErrNotFound
 	}
@@ -101,6 +101,34 @@ func (s *Service) ResolveMatriculaConfiguracao(ctx context.Context, academia, ni
 	}
 	return v, nil
 }
+
+// RemoveMatriculaConfiguracao remove a configuração de matrícula
+// atualmente vigente para um escopo (academia+nível+ano acadêmico+curso).
+// Diferente da mensalidade, a matrícula não tem resolução histórica por
+// data (ResolveMatriculaConfiguracao sempre usa a versão mais recente), de
+// modo que a remoção simplesmente faz o escopo deixar de ter configuração
+// vigente a partir de agora — o evento MatriculaConfigurada original nunca
+// é apagado ou reescrito no ledger.
+func (s *Service) RemoveMatriculaConfiguracao(ctx context.Context, codigoAcademia, nivel, anoAcademico string, cursoID *uuid.UUID, actorID, actorType, ip string) error {
+	if s.client == nil {
+		return errors.New("serviço financeiro não inicializado")
+	}
+	codigoAcademia, nivel, anoAcademico = strings.TrimSpace(codigoAcademia), strings.ToLower(strings.TrimSpace(nivel)), strings.TrimSpace(anoAcademico)
+	if codigoAcademia == "" || nivel == "" || anoAcademico == "" {
+		return errors.New("academia, nível e ano acadêmico são obrigatórios")
+	}
+	var cursoText *string
+	if cursoID != nil {
+		s := cursoID.String()
+		cursoText = &s
+	}
+	if _, err := s.ResolveMatriculaConfiguracao(ctx, codigoAcademia, nivel, anoAcademico, cursoText); err != nil {
+		return fmt.Errorf("%w: nenhuma configuração de matrícula ativa para este escopo", ErrNotFound)
+	}
+	payload := map[string]any{"codigo_academia": codigoAcademia, "nivel": nivel, "ano_academico": anoAcademico, "curso_id": optionalUUID(cursoID)}
+	return s.recordMensalidade(ctx, codigoAcademia, aggregates.MatriculaConfiguracaoRemovida, payload, actorID, actorType, ip)
+}
+
 func (s *Service) validateConfiguracaoMatricula(ctx context.Context, in *MatriculaConfiguracaoInput) error {
 	in.CodigoAcademia, in.Nivel, in.AnoAcademico = strings.TrimSpace(in.CodigoAcademia), strings.ToLower(strings.TrimSpace(in.Nivel)), strings.TrimSpace(in.AnoAcademico)
 	if in.CodigoAcademia == "" || !nivelValido(in.Nivel) || in.AnoAcademico == "" {

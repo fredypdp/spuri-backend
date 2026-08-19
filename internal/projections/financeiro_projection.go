@@ -86,6 +86,21 @@ func (p *FinanceiroProjection) Handle(e db.Event) error {
 		}
 		_, err := p.client.DB().Exec(`INSERT INTO financeiro_matricula_configuracoes (event_id,aggregate_id,codigo_academia,nivel,ano_academico,curso_id,valor,metodos_pagamento,vigente_em) VALUES ($1,$2,$3,$4,$5,NULLIF($6,'')::uuid,$7,$8,$9) ON CONFLICT (event_id) DO NOTHING`, e.EventID, e.AggregateID, in.CodigoAcademia, in.Nivel, in.AnoAcademico, stringValue(in.CursoID), in.Valor, pq.Array(in.MetodosPagamento), e.OccurredAt)
 		return err
+	case "MatriculaConfiguracaoRemovida":
+		var in struct {
+			CodigoAcademia string  `json:"codigo_academia"`
+			Nivel          string  `json:"nivel"`
+			AnoAcademico   string  `json:"ano_academico"`
+			CursoID        *string `json:"curso_id"`
+		}
+		if err := json.Unmarshal(e.Payload, &in); err != nil {
+			return err
+		}
+		if in.CodigoAcademia == "" || in.Nivel == "" || in.AnoAcademico == "" {
+			return fmt.Errorf("evento MatriculaConfiguracaoRemovida inválido")
+		}
+		_, err := p.client.DB().Exec(`INSERT INTO financeiro_matricula_configuracoes_remocoes (event_id,aggregate_id,codigo_academia,nivel,ano_academico,curso_id,removido_em) VALUES ($1,$2,$3,$4,$5,NULLIF($6,'')::uuid,$7) ON CONFLICT (event_id) DO NOTHING`, e.EventID, e.AggregateID, in.CodigoAcademia, in.Nivel, in.AnoAcademico, stringValue(in.CursoID), e.OccurredAt)
+		return err
 	case "MensalidadeConfigurada":
 		var in struct {
 			CodigoAcademia   string   `json:"codigo_academia"`
@@ -104,6 +119,21 @@ func (p *FinanceiroProjection) Handle(e db.Event) error {
 		}
 		_, err := p.client.DB().Exec(`INSERT INTO financeiro_mensalidade_configuracoes (event_id,aggregate_id,codigo_academia,nivel,ano_academico,curso_id,valor,mes_fim_cobranca,metodos_pagamento,vigente_em) VALUES ($1,$2,$3,$4,$5,NULLIF($6,'' )::uuid,$7,$8,$9,$10) ON CONFLICT (event_id) DO NOTHING`, e.EventID, e.AggregateID, in.CodigoAcademia, in.Nivel, in.AnoAcademico, stringValue(in.CursoID), in.Valor, in.MesFimCobranca, pq.Array(in.MetodosPagamento), e.OccurredAt)
 		return err
+	case "MensalidadeConfiguracaoRemovida":
+		var in struct {
+			CodigoAcademia string  `json:"codigo_academia"`
+			Nivel          string  `json:"nivel"`
+			AnoAcademico   string  `json:"ano_academico"`
+			CursoID        *string `json:"curso_id"`
+		}
+		if err := json.Unmarshal(e.Payload, &in); err != nil {
+			return err
+		}
+		if in.CodigoAcademia == "" || in.Nivel == "" || in.AnoAcademico == "" {
+			return fmt.Errorf("evento MensalidadeConfiguracaoRemovida inválido")
+		}
+		_, err := p.client.DB().Exec(`INSERT INTO financeiro_mensalidade_configuracoes_remocoes (event_id,aggregate_id,codigo_academia,nivel,ano_academico,curso_id,removido_em) VALUES ($1,$2,$3,$4,$5,NULLIF($6,'')::uuid,$7) ON CONFLICT (event_id) DO NOTHING`, e.EventID, e.AggregateID, in.CodigoAcademia, in.Nivel, in.AnoAcademico, stringValue(in.CursoID), e.OccurredAt)
+		return err
 	case "MesInicioCobrancaDefinido":
 		var in struct {
 			CodigoAcademia string `json:"codigo_academia"`
@@ -117,6 +147,19 @@ func (p *FinanceiroProjection) Handle(e db.Event) error {
 			return fmt.Errorf("evento MesInicioCobrancaDefinido invÃ¡lido")
 		}
 		_, err := p.client.DB().Exec(`INSERT INTO financeiro_mensalidade_inicio_cobranca (event_id,aggregate_id,codigo_academia,ano_letivo,mes_inicio,definido_em) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (event_id) DO NOTHING`, e.EventID, e.AggregateID, in.CodigoAcademia, in.AnoLetivo, in.MesInicio, e.OccurredAt)
+		return err
+	case "MesInicioCobrancaRemovido":
+		var in struct {
+			CodigoAcademia string `json:"codigo_academia"`
+			AnoLetivo      string `json:"ano_letivo"`
+		}
+		if err := json.Unmarshal(e.Payload, &in); err != nil {
+			return err
+		}
+		if in.CodigoAcademia == "" || in.AnoLetivo == "" {
+			return fmt.Errorf("evento MesInicioCobrancaRemovido inválido")
+		}
+		_, err := p.client.DB().Exec(`INSERT INTO financeiro_mensalidade_inicio_cobranca_remocoes (event_id,aggregate_id,codigo_academia,ano_letivo,removido_em) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (event_id) DO NOTHING`, e.EventID, e.AggregateID, in.CodigoAcademia, in.AnoLetivo, e.OccurredAt)
 		return err
 	case "ObrigacaoMensalidadeAnulada", "ObrigacaoMensalidadeReativada", "MensalidadePaga":
 		var in struct {
@@ -172,6 +215,16 @@ func (p *FinanceiroProjection) Handle(e db.Event) error {
 		ambiente, _ := v["ambiente"].(string)
 		_, err := p.client.DB().Exec(`INSERT INTO financeiro_credenciais_appypay (id,contexto_tipo,codigo_academia,ambiente,payload,updated_at) VALUES ($1,$2,NULLIF($3,''),$4,$5,CURRENT_TIMESTAMP) ON CONFLICT (id) DO UPDATE SET contexto_tipo=EXCLUDED.contexto_tipo,codigo_academia=EXCLUDED.codigo_academia,ambiente=EXCLUDED.ambiente,payload=EXCLUDED.payload,updated_at=CURRENT_TIMESTAMP`, e.AggregateID, contexto, academia, ambiente, e.Payload)
 		return err
+	case "CredenciaisAppyPayRemovidas":
+		// Remove apenas a linha da PROJEÇÃO (estado de leitura atual). O
+		// evento em si permanece para sempre no ledger, imutável. O cofre
+		// de segredos (financeiro_segredos_appypay) NÃO é tocado aqui:
+		// ele vive fora do replay do ledger e é limpo diretamente pelo
+		// Service, no mesmo comando que grava este evento (ver
+		// Service.RemoveCredential em appypay.go), exatamente como
+		// ConfigureCredential grava segredos fora da projeção.
+		_, err := p.client.DB().Exec(`DELETE FROM financeiro_credenciais_appypay WHERE id=$1`, e.AggregateID)
+		return err
 	case "SegredoWebhookAppyPayRotacionado":
 		_, err := p.client.DB().Exec(`UPDATE financeiro_credenciais_appypay SET updated_at=CURRENT_TIMESTAMP WHERE id=$1`, e.AggregateID)
 		return err
@@ -203,7 +256,7 @@ func (p *FinanceiroProjection) Handle(e db.Event) error {
 
 func (p *FinanceiroProjection) Rebuild() error {
 	// Secrets are operational material and intentionally survive a ledger replay.
-	if _, err := p.client.DB().Exec(`DELETE FROM financeiro_mensalidade_obrigacoes_eventos; DELETE FROM financeiro_mensalidade_inicio_cobranca; DELETE FROM financeiro_mensalidade_configuracoes; DELETE FROM financeiro_mensalidade_cobrancas; DELETE FROM financeiro_matricula_configuracoes; DELETE FROM financeiro_webhooks_recebidos; DELETE FROM financeiro_cobrancas; DELETE FROM financeiro_credenciais_appypay;`); err != nil {
+	if _, err := p.client.DB().Exec(`DELETE FROM financeiro_mensalidade_obrigacoes_eventos; DELETE FROM financeiro_mensalidade_inicio_cobranca; DELETE FROM financeiro_mensalidade_inicio_cobranca_remocoes; DELETE FROM financeiro_mensalidade_configuracoes; DELETE FROM financeiro_mensalidade_configuracoes_remocoes; DELETE FROM financeiro_mensalidade_cobrancas; DELETE FROM financeiro_matricula_configuracoes; DELETE FROM financeiro_matricula_configuracoes_remocoes; DELETE FROM financeiro_webhooks_recebidos; DELETE FROM financeiro_cobrancas; DELETE FROM financeiro_credenciais_appypay;`); err != nil {
 		return err
 	}
 	rows, err := p.client.DB().Query(`SELECT id,event_id,aggregate_id,aggregate_type,event_type,event_version,payload,metadata,occurred_at,recorded_at,ledger_hash,previous_hash FROM spuri_ledger WHERE aggregate_type='Financeiro' ORDER BY id`)
