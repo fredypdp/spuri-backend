@@ -98,6 +98,7 @@ var validEventTypes = map[string]bool{
 	"DataNascimentoEstudanteAlteradaPorSolicitacao":      true,
 	"TelefoneEncarregadoAlterado":                        true,
 	"CredenciaisAppyPayConfiguradas":                     true,
+	"CredenciaisAppyPayRemovidas":                        true,
 	"SegredoWebhookAppyPayRotacionado":                   true,
 	"CobrancaAppyPaySolicitada":                          true,
 	"CobrancaAppyPayCriada":                              true,
@@ -110,7 +111,9 @@ var validEventTypes = map[string]bool{
 	"QRCodeAppyPayFalhou":                                true,
 	"WebhookAppyPayRecebido":                             true,
 	"MensalidadeConfigurada":                             true,
+	"MensalidadeConfiguracaoRemovida":                    true,
 	"MesInicioCobrancaDefinido":                          true,
+	"MesInicioCobrancaRemovido":                          true,
 	"ObrigacaoMensalidadeAnulada":                        true,
 	"ObrigacaoMensalidadeReativada":                      true,
 	// MensalidadePaga is emitted by Phase 3. It is registered now so this
@@ -124,6 +127,7 @@ var validEventTypes = map[string]bool{
 	// evento era rejeitado com "tipo de evento inválido" antes mesmo de
 	// tentar gravar no ledger.
 	"MatriculaConfigurada":           true,
+	"MatriculaConfiguracaoRemovida":  true,
 	"MensalidadesCobrancaConfirmada": true,
 	// NotaCorrigida e FaltaCorrigida são emitidos por
 	// Estudante.CorrigirNota/CorrigirFalta (estudante_notas.go /

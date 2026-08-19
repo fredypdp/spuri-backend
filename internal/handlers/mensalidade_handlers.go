@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"spuri/internal/db"
 	"spuri/internal/finance"
 	"spuri/internal/utils"
@@ -66,6 +67,47 @@ func ListarConfiguracoesMensalidade(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"codigo_academia": codigo, "configuracoes": out})
 }
 
+// RemoverConfiguracaoMensalidadeInput identifica o escopo (mesma tripla
+// nível+ano acadêmico+curso usada para configurar) cuja configuração de
+// mensalidade deve deixar de estar ativa.
+type RemoverConfiguracaoMensalidadeInput struct {
+	CodigoAcademia string  `json:"codigo_academia"`
+	Nivel          string  `json:"nivel"`
+	AnoAcademico   string  `json:"ano_academico"`
+	CursoID        *string `json:"curso_id,omitempty"`
+}
+
+func RemoverConfiguracaoMensalidade(c *gin.Context) {
+	var in RemoverConfiguracaoMensalidadeInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		utils.RespondWithValidationError(c, errors.New("payload inválido"))
+		return
+	}
+	if !authorizeMensalidadeAcademia(c, &in.CodigoAcademia) {
+		utils.RespondWithForbiddenError(c, "sem permissão para remover configuração de mensalidade desta academia")
+		return
+	}
+	id, typ, _, ok := financeActor(c)
+	if !ok {
+		utils.RespondWithUnauthorizedError(c)
+		return
+	}
+	var cursoID *uuid.UUID
+	if in.CursoID != nil && strings.TrimSpace(*in.CursoID) != "" {
+		parsed, err := uuid.Parse(*in.CursoID)
+		if err != nil {
+			utils.RespondWithValidationError(c, errors.New("curso_id inválido"))
+			return
+		}
+		cursoID = &parsed
+	}
+	if err := FinanceiroService.RemoveMensalidadeConfiguracao(c.Request.Context(), in.CodigoAcademia, in.Nivel, in.AnoAcademico, cursoID, id.String(), typ, c.ClientIP()); err != nil {
+		financeError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 func ConfigurarMatricula(c *gin.Context) {
 	var in finance.MatriculaConfiguracaoInput
 	if err := c.ShouldBindJSON(&in); err != nil {
@@ -103,6 +145,37 @@ func ListarConfiguracoesMatricula(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"codigo_academia": codigo, "configuracoes": out})
 }
 
+func RemoverConfiguracaoMatricula(c *gin.Context) {
+	var in RemoverConfiguracaoMensalidadeInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		utils.RespondWithValidationError(c, errors.New("payload inválido"))
+		return
+	}
+	if !authorizeMensalidadeAcademia(c, &in.CodigoAcademia) {
+		utils.RespondWithForbiddenError(c, "sem permissão para remover configuração de matrícula desta academia")
+		return
+	}
+	id, typ, _, ok := financeActor(c)
+	if !ok {
+		utils.RespondWithUnauthorizedError(c)
+		return
+	}
+	var cursoID *uuid.UUID
+	if in.CursoID != nil && strings.TrimSpace(*in.CursoID) != "" {
+		parsed, err := uuid.Parse(*in.CursoID)
+		if err != nil {
+			utils.RespondWithValidationError(c, errors.New("curso_id inválido"))
+			return
+		}
+		cursoID = &parsed
+	}
+	if err := FinanceiroService.RemoveMatriculaConfiguracao(c.Request.Context(), in.CodigoAcademia, in.Nivel, in.AnoAcademico, cursoID, id.String(), typ, c.ClientIP()); err != nil {
+		financeError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 func DefinirMesInicioCobranca(c *gin.Context) {
 	var in finance.MesInicioCobrancaInput
 	if err := c.ShouldBindJSON(&in); err != nil {
@@ -123,6 +196,36 @@ func DefinirMesInicioCobranca(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusCreated)
+}
+
+// RemoverMesInicioCobrancaInput identifica a academia e o ano letivo cuja
+// redefinição de mês de início de cobrança deve deixar de valer, voltando
+// o sistema a usar o mês natural padrão do ano letivo.
+type RemoverMesInicioCobrancaInput struct {
+	CodigoAcademia string `json:"codigo_academia"`
+	AnoLetivo      string `json:"ano_letivo"`
+}
+
+func RemoverMesInicioCobranca(c *gin.Context) {
+	var in RemoverMesInicioCobrancaInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		utils.RespondWithValidationError(c, errors.New("payload inválido"))
+		return
+	}
+	if !authorizeMensalidadeAcademia(c, &in.CodigoAcademia) {
+		utils.RespondWithForbiddenError(c, "sem permissão para remover o início de cobrança desta academia")
+		return
+	}
+	id, typ, _, ok := financeActor(c)
+	if !ok {
+		utils.RespondWithUnauthorizedError(c)
+		return
+	}
+	if err := FinanceiroService.RemoveMesInicioCobranca(c.Request.Context(), in.CodigoAcademia, in.AnoLetivo, id.String(), typ, c.ClientIP()); err != nil {
+		financeError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 func ConsultarMensalidadesEstudante(c *gin.Context) {

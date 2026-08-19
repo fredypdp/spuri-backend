@@ -386,6 +386,45 @@ func (s *Service) ListCredentials(ctx context.Context, contexto, academia string
 	return out, rows.Err()
 }
 
+// RemoveCredential remove as credenciais AppyPay configuradas para um
+// contexto (academia ou spuri) no ambiente ativo. A remoção é registrada
+// como um novo evento imutável no ledger (CredenciaisAppyPayRemovidas) — o
+// evento CredenciaisAppyPayConfiguradas original nunca é apagado ou
+// reescrito, apenas deixa de ser o fato mais recente. A partir deste
+// comando, loadCredential volta a falhar com ErrNotFound para este
+// contexto, bloqueando qualquer nova cobrança (mensalidade, matrícula ou
+// cobrança avulsa) exatamente como bloquearia se a credencial nunca
+// tivesse existido. O cofre de segredos (financeiro_segredos_appypay) é
+// limpo neste mesmo comando, já que essa tabela vive fora do replay do
+// ledger (não é reconstruída a partir de eventos).
+func (s *Service) RemoveCredential(ctx context.Context, contextoTipo, codigoAcademia, userID, userType, ip string) error {
+	if s.client == nil {
+		return errors.New("serviço financeiro não inicializado")
+	}
+	contextoTipo = strings.ToLower(strings.TrimSpace(contextoTipo))
+	if err := validContext(contextoTipo, codigoAcademia); err != nil {
+		return err
+	}
+	ambiente := AmbienteAtual()
+	credentialID, err := s.findCredentialID(ctx, contextoTipo, codigoAcademia, ambiente)
+	if err != nil {
+		return fmt.Errorf("%w: credenciais AppyPay não configuradas para este contexto", ErrNotFound)
+	}
+	payload := map[string]any{
+		"credential_id":   credentialID.String(),
+		"contexto_tipo":   contextoTipo,
+		"codigo_academia": codigoAcademia,
+		"ambiente":        ambiente,
+	}
+	if err := s.record(ctx, credentialID, "CredenciaisAppyPayRemovidas", payload, userID, userType, ip); err != nil {
+		return err
+	}
+	if _, err := s.client.DB().ExecContext(ctx, `DELETE FROM financeiro_segredos_appypay WHERE credential_id=$1`, credentialID); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Service) CreateCharge(ctx context.Context, in ChargeRequest, actorID, actorType, ip string) (ChargeResult, error) {
 	if err := validateCharge(&in); err != nil {
 		return ChargeResult{}, err
