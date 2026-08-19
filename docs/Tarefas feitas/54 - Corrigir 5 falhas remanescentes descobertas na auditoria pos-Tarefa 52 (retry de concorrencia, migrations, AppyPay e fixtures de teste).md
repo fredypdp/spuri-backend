@@ -1,5 +1,5 @@
 ---
-status: a fazer
+status: feito
 ---
 
 # Tarefa 54 — Corrigir 5 falhas remanescentes descobertas na auditoria pós-Tarefa 52 (retry de concorrência do event store, migrations, AppyPay e fixtures de teste)

@@ -32,14 +32,9 @@ func TestLedgerAppendOnlyTriggersAndIntegrityIfDatabaseAvailable(t *testing.T) {
 		t.Skip("set SPURI_RUN_DB_INTEGRITY_TESTS=1 with an isolated PostgreSQL database to run")
 	}
 
-	previousDir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir("../.."); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(previousDir) })
+	prevDir, _ := os.Getwd()
+	_ = os.Chdir("../..")
+	t.Cleanup(func() { _ = os.Chdir(prevDir) })
 
 	client, err := NewClient(DefaultConfig())
 	if err != nil {

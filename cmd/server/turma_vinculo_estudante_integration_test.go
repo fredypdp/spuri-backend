@@ -411,7 +411,7 @@ func TestTurmaVinculo10ConflitoOtimistaNoVinculoTemRetryOuFalhaLimpaSemCorromper
 	fx := setupTurmaVinculoIntegration(t)
 	codes := make([]string, 2)
 	for i := range codes {
-		c := camposCadastro(fmt.Sprintf("Aluno concorrente %s", string(rune('A'+i))))
+		c := camposCadastro(fmt.Sprintf("Aluno concorrente %s", []string{"um", "dois"}[i]))
 		w := postCadastro(t, fx, c)
 		if w.Code != 201 {
 			t.Fatalf("cadastro %d: %d %s", i, w.Code, w.Body.String())

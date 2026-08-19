@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/google/uuid"
@@ -175,21 +176,32 @@ func (r *AggregateRepository) Save(aggregate aggregates.Aggregate) error {
 // FIX DB-02: versão lida dentro da tx Serializable via getAggregateVersionTx.
 // FIX DB-03: branch ErrNoRows (dead code) removido.
 func (r *AggregateRepository) SaveWithAudit(aggregate aggregates.Aggregate, audit AuditContext) error {
+	// maxAttempts=10: com N gravações verdadeiramente simultâneas no mesmo
+	// aggregate, o pior caso realista pode exigir até N-1 retentativas antes
+	// de vencer a corrida. 3 tentativas bastavam para 2-3 gravações
+	// concorrentes, mas eram insuficientes sob contenção maior (ver
+	// repository_concurrency_test.go, workers=8) — o writer mais azarado
+	// esgotava as tentativas e retornava erro definitivo em vez de
+	// eventualmente conseguir gravar.
+	const maxAttempts = 10
 	var err error
-	// Budget de 8 tentativas: sob concorrência real (N escritores simultâneos
-	// no mesmo aggregate), o pior caso para um escritor "azarado" é precisar
-	// de até N-1 retries para conseguir a versão correta. Validado
-	// empiricamente com 8 escritores concorrentes (10/10 execuções reais
-	// contra Postgres sem falha; 5 tentativas falhava em ~3/8 execuções). Ver
-	// Tarefa 53, Seção 4.
-	for attempt := 0; attempt < 8; attempt++ {
+	for attempt := 0; attempt < maxAttempts; attempt++ {
 		err = r.saveWithAuditOnce(aggregate, audit)
-		if err == nil || !utils.IsSerializationFailure(err) {
+		if err == nil || !(utils.IsSerializationFailure(err) || utils.IsAggregateVersionConflict(err)) {
 			return err
 		}
 		// The serializable transaction was rolled back and no event was cleared,
 		// so persistence can safely be retried with a short bounded backoff.
-		time.Sleep(time.Duration(20*(attempt+1)) * time.Millisecond)
+		// IsAggregateVersionConflict cobre o caso em que o Postgres reporta a
+		// mesma corrida de concorrência como 23505 (unique_violation) em vez de
+		// 40001 (serialization_failure) — ver comentário na função.
+		//
+		// O jitter aleatório evita que writers que colidiram no mesmo instante
+		// acordem nos mesmos intervalos e colidam de novo em lockstep — um
+		// backoff puramente linear e determinístico não resolve isso sozinho.
+		backoff := time.Duration(15*(attempt+1)) * time.Millisecond
+		jitter := time.Duration(rand.Intn(15*(attempt+1)+1)) * time.Millisecond
+		time.Sleep(backoff + jitter)
 	}
 	return err
 }
