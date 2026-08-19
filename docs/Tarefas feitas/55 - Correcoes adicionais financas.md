@@ -2,10 +2,10 @@
 criado: 2026-08-19
 origem: Claude (orquestrador) — a pedido de Fredy Luís, Fundador e CEO da Spuri
 status: concluída
-tarefa: 49b — Correções adicionais das páginas /financas/* (subtelas, terminologia, backend pendente)
+tarefa: Correções adicionais das páginas /financas/* (subtelas, terminologia, backend pendente)
 ---
 
-# Tarefa 49b — Correções adicionais das páginas `/financas/*`
+# Correções adicionais das páginas `/financas/*`
 
 ## Prompt recomendado para o Codex
 
