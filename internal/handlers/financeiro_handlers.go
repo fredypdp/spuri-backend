@@ -362,7 +362,7 @@ func ConsultarCobrancasEstudante(c *gin.Context) {
 	}
 	limit := parseBoundedInt(c.Query("limit"), 50, 1, 1000)
 	offset := parseBoundedInt(c.Query("offset"), 0, 0, 1_000_000)
-	res, err := FinanceiroService.ListCobrancasEstudante(c.Request.Context(), codigo, somenteAcademia, c.QueryArray("estado"), limit, offset)
+	res, err := FinanceiroService.ListCobrancasEstudante(c.Request.Context(), codigo, somenteAcademia, c.QueryArray("estado"), c.QueryArray("tipo"), limit, offset)
 	if err != nil {
 		financeError(c, err)
 		return
