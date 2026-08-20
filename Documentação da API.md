@@ -7304,6 +7304,10 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 | `POST` | `/financeiro/matriculas/configuracoes` | Versiona valor e métodos de pagamento da taxa de matrícula por nível/ano/curso de uma academia. |
 | `PUT` | `/financeiro/matriculas/configuracoes` | Idêntico ao `POST` acima — mesma rota, mesmo efeito (nova versão da configuração). |
 | `GET` | `/financeiro/matriculas/configuracoes` | Lista as configurações vigentes de taxa de matrícula de uma academia. |
+| `DELETE` | `/financeiro/appypay/credenciais` | Remove as credenciais AppyPay vigentes de um contexto (evento imutável; bloqueia novas cobranças nesse contexto). |
+| `DELETE` | `/financeiro/mensalidades/configuracoes` | Remove a configuração vigente de mensalidade de um escopo, sem apagar o histórico de preço já cobrado. |
+| `DELETE` | `/financeiro/mensalidades/inicio-cobranca` | Remove a exceção de início de cobrança, voltando ao mês natural do ano letivo. |
+| `DELETE` | `/financeiro/matriculas/configuracoes` | Remove a configuração vigente de taxa de matrícula de um escopo. |
 | `POST` | `/webhooks/appypay/gpo` | Recebe webhook público AppyPay para eventos GPO. |
 | `POST` | `/webhooks/appypay/ref` | Recebe webhook público AppyPay para eventos REF. |
 
@@ -8111,6 +8115,92 @@ A taxa de matrícula abaixo é apenas a configuração financeira feita pela aca
 ```
 
 **Regras de negócio:** devolve apenas a versão mais recente de cada combinação `(nivel, ano_academico, curso_id)`, não o histórico completo.
+
+#### 19.23 DELETE /financeiro/appypay/credenciais
+
+**Escopo da rota:** remove as credenciais AppyPay vigentes de um contexto (`spuri` ou `academia`), respeitando event sourcing — nenhum evento é apagado do ledger, a remoção é registrada como um novo evento imutável.
+
+**Proteção:** igual à 19.1.
+
+**Request JSON:**
+
+```json
+{ "contexto_tipo": "academia", "codigo_academia": "LDA20261" }
+```
+
+**Response 204:** corpo vazio.
+
+**Regras de negócio:** grava `CredenciaisAppyPayRemovidas`; o evento `CredenciaisAppyPayConfiguradas` original permanece no ledger, apenas deixa de ser o fato mais recente. A partir deste comando, qualquer tentativa de gerar cobrança nesse contexto (seções 19.4, 19.5, 19.18, 9.11) volta a ser bloqueada por ausência de credenciais, exatamente como antes de terem sido configuradas alguma vez. O cofre operacional de segredos é limpo no mesmo comando. Configurar novamente (19.1) funciona normalmente a qualquer momento depois.
+
+**Erros comuns:** `404` nenhuma credencial configurada para o contexto no ambiente atual (inclusive ao tentar remover uma segunda vez), `403` sem permissão.
+
+#### 19.24 DELETE /financeiro/mensalidades/configuracoes
+
+**Escopo da rota:** remove a configuração vigente de mensalidade (valor, mês final, métodos de pagamento) de um escopo `(nivel, ano_academico, curso_id)`.
+
+**Proteção:** igual à 19.14.
+
+**Request JSON:**
+
+```json
+{
+  "codigo_academia": "ACA001",
+  "nivel": "medio",
+  "ano_academico": "1_ano_medio",
+  "curso_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+`curso_id` é opcional e segue as mesmas regras de presença/ausência por nível da 19.14.
+
+**Response 204:** corpo vazio.
+
+**Regras de negócio:** grava `MensalidadeConfiguracaoRemovida`; nunca apaga nem reescreve nenhuma linha de configuração anterior, então o preço de um mês já cobrado antes da remoção continua resolvendo normalmente em 19.17. A partir da remoção, o escopo deixa de aparecer em 19.15 e nenhum método de pagamento fica habilitado para essa combinação (novas tentativas de pagamento falham como se nunca tivesse existido configuração). Configurar novamente (19.14) cria uma nova versão normalmente, sem preencher retroativamente o intervalo em que o escopo ficou sem configuração.
+
+**Erros comuns:** `404` nenhuma configuração ativa para o escopo (inclusive numa segunda remoção), `403` sem permissão.
+
+#### 19.25 DELETE /financeiro/mensalidades/inicio-cobranca
+
+**Escopo da rota:** remove a exceção de mês de início de cobrança de um ano letivo, revertendo ao mês natural (setembro para fundamental/médio, outubro para superior).
+
+**Proteção:** igual à 19.16.
+
+**Request JSON:**
+
+```json
+{ "codigo_academia": "ACA001", "ano_letivo": "2026_2027" }
+```
+
+**Response 204:** corpo vazio.
+
+**Regras de negócio:** grava `MesInicioCobrancaRemovido`; o evento `MesInicioCobrancaDefinido` original permanece no ledger. A partir da remoção, a listagem de mensalidades do estudante (19.17) volta a considerar o mês natural do ano letivo para esse par `(academia, ano_letivo)`. Redefinir novamente (19.16) funciona normalmente.
+
+**Erros comuns:** `404` nenhuma exceção definida para o ano letivo (inclusive numa segunda remoção), `403` sem permissão.
+
+#### 19.26 DELETE /financeiro/matriculas/configuracoes
+
+**Escopo da rota:** remove a configuração vigente de taxa de matrícula de um escopo `(nivel, ano_academico, curso_id)`.
+
+**Proteção:** igual à 19.21.
+
+**Request JSON:**
+
+```json
+{
+  "codigo_academia": "ACA001",
+  "nivel": "medio",
+  "ano_academico": "1_ano_medio",
+  "curso_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+`curso_id` é opcional e segue as mesmas regras de presença/ausência por nível da 19.21.
+
+**Response 204:** corpo vazio.
+
+**Regras de negócio:** grava `MatriculaConfiguracaoRemovida`; o evento de configuração original permanece no ledger. A partir da remoção, o escopo deixa de aparecer em 19.22 e a matrícula volta a ser gratuita para essa combinação — mesmo comportamento de nunca ter tido configuração (ver 19.21). Configurar novamente cria uma nova versão normalmente.
+
+**Erros comuns:** `404` nenhuma configuração ativa para o escopo (inclusive numa segunda remoção), `403` sem permissão.
 
 Nas rotas de `/financeiro/*` (excepto o fluxo público 9.9–9.12), `404` só representa recurso referenciado inexistente, `409` só representa operação equivalente já em processamento por idempotência do mesmo `merchantTransactionId`, e `503` só representa falha de comunicação com a AppyPay. Qualquer outra violação de regra de negócio — mesmo mensagens que soem como conflito, por exemplo mensalidade com cobrança aberta ou cobrança já paga e não cancelável — responde `400`; não infira `409` pelo texto da mensagem.
 

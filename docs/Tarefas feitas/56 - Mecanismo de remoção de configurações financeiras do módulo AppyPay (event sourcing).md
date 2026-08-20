@@ -1,4 +1,40 @@
-# Tarefa para o Codex — Módulo Financeiro (spuri-backend)
+---
+criado: 2026-08-19
+origem: Claude (orquestrador) — a pedido de Fredy Luís, Fundador e CEO da Spuri
+status: concluída
+tarefa: Mecanismo de remoção de configurações financeiras respeitando event sourcing (credenciais AppyPay, mensalidade, início de cobrança, matrícula)
+---
+
+# Mecanismo de remoção de configurações financeiras (event sourcing)
+
+> Registro da tarefa depois de concluída. O texto abaixo é o documento de execução
+> original entregue ao Codex — mantido como está por ser a fonte mais precisa do
+> raciocínio e do design adotado — seguido de uma nota de fechamento com o resultado
+> real e a auditoria pós-implementação.
+
+## Nota de fechamento (pós-implementação)
+
+- **Commit:** `8e92c44 feat(financeiro): mecanismo de remoção de configurações`, mesclado em
+  `main` via PR #557 (`2dabace Merge pull request #557 from
+  fredypdp/codex/atualizar-tarefa-financeiro-conforme-documentacao`).
+- **Execução:** Codex aplicou o patch fornecido e commitou sem alterações manuais.
+- **Auditoria pós-implementação (Claude, sandbox próprio com PostgreSQL 16 real):**
+  código bit-a-bit idêntico ao patch original nos 10 arquivos de produção e nos 4
+  arquivos de teste; suite completa (`go test ./...`) rodada duas vezes do zero contra
+  banco recém-criado, a partir de um clone limpo do estado atual de `main` — 100% dos
+  testes passam, incluindo os 6 testes novos de remoção. `gofmt -l .` e `go vet ./...`
+  limpos. **Nenhum bug encontrado; nenhuma correção de código foi necessária.**
+- **Gap encontrado e corrigido nesta mesma auditoria:** a seção 19 de
+  `Documentação da API.md` não tinha as 4 rotas `DELETE` novas — nem na tabela-resumo
+  nem como subseções. Adicionadas as subseções 19.23–19.26 e as 4 linhas na
+  tabela-resumo, seguindo exatamente o estilo/convenção das subseções vizinhas
+  (19.1–19.22). Este próprio arquivo de tarefa também foi movido de
+  `docs/Lista de Tarefas/` para `docs/Tarefas feitas/` nesta auditoria, e o arquivo
+  `financeiro_remocao_configuracoes.patch` (artefato temporário de entrega, sem
+  precedente de ser mantido em `docs/` por nenhuma outra tarefa) foi removido — o
+  conteúdo já está permanentemente preservado no commit `8e92c44`.
+
+---
 
 **Autor da investigação/implementação:** Claude (orquestrador), com validação real em
 PostgreSQL 16 + Go 1.24 num sandbox próprio (clone limpo do repositório, migrations
