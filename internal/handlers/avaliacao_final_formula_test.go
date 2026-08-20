@@ -157,7 +157,7 @@ func TestTiposAvaliacaoFinalDespertadosPorCategoriaRaizNaoDisparaDescendente(t *
 		{Type: "exame_recurso", AplicaSeReprovadoEmType: &dep, NotaDespertadora: &notaRecurso},
 	}
 
-	disparados := tiposAvaliacaoFinalDespertadosPorCategoria(regras, &regras[0], "exame_final")
+	disparados := tiposAvaliacaoFinalDespertadosPorCategoria(regras, &regras[0], "exame_final", "3_trimestre")
 	if !disparados["normal"] {
 		t.Fatalf("gatilho da raiz deveria disparar a raiz: %v", disparados)
 	}
@@ -175,11 +175,37 @@ func TestTiposAvaliacaoFinalDespertadosPorCategoriaDescendenteDisparaApenasDesce
 		{Type: "exame_recurso", AplicaSeReprovadoEmType: &dep, NotaDespertadora: &notaRecurso},
 	}
 
-	disparados := tiposAvaliacaoFinalDespertadosPorCategoria(regras, &regras[0], "exame_recurso")
+	disparados := tiposAvaliacaoFinalDespertadosPorCategoria(regras, &regras[0], "exame_recurso", "3_trimestre")
 	if disparados["normal"] {
 		t.Fatalf("gatilho de descendente não deve recalcular raiz: %v", disparados)
 	}
 	if !disparados["exame_recurso"] {
 		t.Fatalf("gatilho de descendente deveria disparar descendente: %v", disparados)
+	}
+}
+
+func TestTiposAvaliacaoFinalDespertadosRespeitaPeriodoDaFormula(t *testing.T) {
+	nota := "prova_trimestral"
+	regras := []regraAvaliacaoFinalDTO{{Type: "normal", Formula: "([nota_professor,1_trimestre]+[prova_trimestral,1_trimestre]+[nota_professor,2_trimestre]+[prova_trimestral,2_trimestre]+[nota_professor,3_trimestre]+[prova_trimestral,3_trimestre])/6", NotaDespertadora: &nota}}
+
+	if disparados := tiposAvaliacaoFinalDespertadosPorCategoria(regras, &regras[0], "prova_trimestral", "1_trimestre"); len(disparados) != 0 {
+		t.Fatalf("gatilho não deve disparar no período errado: %#v", disparados)
+	}
+	if disparados := tiposAvaliacaoFinalDespertadosPorCategoria(regras, &regras[0], "prova_trimestral", "3_trimestre"); !disparados["normal"] {
+		t.Fatalf("gatilho deve disparar no período de fechamento: %#v", disparados)
+	}
+}
+
+func TestNotasFormulaCompletasNaoRemoveSubstituicaoPorZero(t *testing.T) {
+	notas := map[string]map[string][]float64{"nota_professor": {"1_trimestre": {8}}}
+	if notasFormulaCompletas("([nota_professor,1_trimestre]+[prova_trimestral,1_trimestre])/2", notas) {
+		t.Fatal("fórmula incompleta não deve estar pronta para fechamento automático")
+	}
+	faltantes, err := substituirNotasAusentesPorZero("([nota_professor,1_trimestre]+[prova_trimestral,1_trimestre])/2", notas)
+	if err != nil {
+		t.Fatalf("substituirNotasAusentesPorZero retornou erro: %v", err)
+	}
+	if len(faltantes) != 1 || faltantes[0].Categoria != "prova_trimestral" || faltantes[0].Periodo != "1_trimestre" {
+		t.Fatalf("faltantes inesperados: %#v", faltantes)
 	}
 }

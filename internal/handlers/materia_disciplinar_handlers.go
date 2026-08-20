@@ -62,6 +62,7 @@ func CriarMateria(c *gin.Context) {
 	}
 
 	var periodosCurso []string
+	modeloCursoMedio := ""
 	if (tipoMateria == "medio" || tipoMateria == "superior") && req.CursoID != nil {
 		cursosProj := getCursosProjection(c)
 		cursoDTO, _ := cursosProj.GetByID(*req.CursoID)
@@ -81,6 +82,9 @@ func CriarMateria(c *gin.Context) {
 			return
 		}
 		periodosCurso = cursoDTO.Periodos
+		if tipoMateria == "medio" {
+			modeloCursoMedio = strings.TrimSpace(cursoDTO.Modelo)
+		}
 
 		// Para superior: garantir que o curso tem periodos definidos
 		if tipoMateria == "superior" && len(cursoDTO.Periodos) == 0 {
@@ -105,7 +109,7 @@ func CriarMateria(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
-	if err := validarAnosAcademicosMateria(tipoMateria, req.AnosAcademicos); err != nil {
+	if err := validarAnosAcademicosMateria(tipoMateria, req.AnosAcademicos, modeloCursoMedio); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -400,15 +404,19 @@ func AtualizarDadosMateria(c *gin.Context) {
 		anosParaValidacao = *req.AnosAcademicos
 	}
 	var periodosCurso []string
+	modeloCursoMedio := ""
 	cursoIDParaValidacao := materia.CursoID
 	if req.CursoID != nil {
 		cursoIDParaValidacao = req.CursoID
 	}
-	if materia.Type == "superior" && cursoIDParaValidacao != nil {
+	if (materia.Type == "medio" || materia.Type == "superior") && cursoIDParaValidacao != nil {
 		cursosProj := getCursosProjection(c)
 		cursoDTO, err := cursosProj.GetByID(*cursoIDParaValidacao)
 		if err == nil && cursoDTO != nil {
 			periodosCurso = cursoDTO.Periodos
+			if materia.Type == "medio" {
+				modeloCursoMedio = strings.TrimSpace(cursoDTO.Modelo)
+			}
 		}
 	}
 	if materia.Type != "superior" && req.PendenciaPermitida != nil {
@@ -424,7 +432,7 @@ func AtualizarDadosMateria(c *gin.Context) {
 		return
 	}
 	if req.AnosAcademicos != nil {
-		if err := validarAnosAcademicosMateria(materia.Type, *req.AnosAcademicos); err != nil {
+		if err := validarAnosAcademicosMateria(materia.Type, *req.AnosAcademicos, modeloCursoMedio); err != nil {
 			utils.RespondWithValidationError(c, err)
 			return
 		}
@@ -482,15 +490,13 @@ func resolverTipoMateria(nivelAcademia string, nivelEscolar *string, tipoReq *st
 	}
 }
 
-func validarAnosAcademicosMateria(tipoMateria string, anosAcademicos []string) error {
+func validarAnosAcademicosMateria(tipoMateria string, anosAcademicos []string, modeloCursoMedio string) error {
 	if len(anosAcademicos) == 0 {
 		return fmt.Errorf("anos_academicos é obrigatório para matérias")
 	}
-	if tipoMateria == "medio" {
-		for _, ano := range anosAcademicos {
-			if strings.TrimSpace(ano) == "4_ano_medio" {
-				return fmt.Errorf("não é permitido criar ou atualizar matérias para o 4º ano do ensino médio")
-			}
+	if tipoMateria == "medio" && containsString(anosAcademicos, "4_ano_medio") {
+		if strings.TrimSpace(modeloCursoMedio) != aggregates.ModeloCursoMedioTecnico || len(anosAcademicos) != 1 {
+			return fmt.Errorf("4_ano_medio só é permitido para a matéria de PAP de curso médio técnico")
 		}
 	}
 	return nil
