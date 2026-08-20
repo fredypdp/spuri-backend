@@ -138,3 +138,17 @@ func TestCategoriasEscolaresFixasDaAcademiaExpõeEscopoLeitura(t *testing.T) {
 		t.Fatalf("metadados de categoria fixa inesperados: %#v", primeira)
 	}
 }
+
+func TestCalcularProximoAnoCursoLiceuETecnicoFinalizamNoUltimoAno(t *testing.T) {
+	liceu := []string{"1_ano_medio", "2_ano_medio", "3_ano_medio"}
+	if prox, err := calcularProximoAnoEmSequencia(liceu, "3_ano_medio", true); err != nil || prox != nil {
+		t.Fatalf("liceu deve finalizar no 3_ano_medio, prox=%v err=%v", prox, err)
+	}
+	tecnico := []string{"1_ano_medio", "2_ano_medio", "3_ano_medio", "4_ano_medio"}
+	if prox, err := calcularProximoAnoEmSequencia(tecnico, "4_ano_medio", true); err != nil || prox != nil {
+		t.Fatalf("técnico deve finalizar no 4_ano_medio, prox=%v err=%v", prox, err)
+	}
+	if prox, err := calcularProximoAnoEmSequencia(tecnico, "3_ano_medio", true); err != nil || prox == nil || *prox != "4_ano_medio" {
+		t.Fatalf("técnico deve avançar do 3º para o 4º ano, prox=%v err=%v", prox, err)
+	}
+}

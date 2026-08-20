@@ -340,7 +340,11 @@ func tentarAvaliacoesFinaisAutomaticas(
 		}
 	}
 	categoriaAlterada = strings.TrimSpace(categoriaAlterada)
-	tiposDisparados := tiposAvaliacaoFinalDespertadosPorCategoria(regras, raiz, categoriaAlterada)
+	periodoAlterado := ""
+	if overlay != nil {
+		periodoAlterado = overlay.Periodo
+	}
+	tiposDisparados := tiposAvaliacaoFinalDespertadosPorCategoria(regras, raiz, categoriaAlterada, periodoAlterado)
 	if len(tiposDisparados) == 0 {
 		return nil, nil
 	}
@@ -433,19 +437,71 @@ func tentarAvaliacoesFinaisAutomaticas(
 	return resultados, nil
 }
 
-func tiposAvaliacaoFinalDespertadosPorCategoria(regras []regraAvaliacaoFinalDTO, raiz *regraAvaliacaoFinalDTO, categoriaAlterada string) map[string]bool {
+func tiposAvaliacaoFinalDespertadosPorCategoria(regras []regraAvaliacaoFinalDTO, raiz *regraAvaliacaoFinalDTO, categoriaAlterada, periodoAlterado string) map[string]bool {
 	categoriaAlterada = strings.TrimSpace(categoriaAlterada)
+	periodoAlterado = strings.TrimSpace(periodoAlterado)
 	tiposDisparados := map[string]bool{}
-	if raiz != nil && raiz.NotaDespertadora != nil && categoriaAlterada == strings.TrimSpace(*raiz.NotaDespertadora) {
+	if regraDespertadaPorNota(raiz, categoriaAlterada, periodoAlterado) {
 		tiposDisparados[raiz.Type] = true
 		return tiposDisparados
 	}
-	for _, regra := range regras {
-		if regra.AplicaSeReprovadoEmType != nil && regra.NotaDespertadora != nil && categoriaAlterada == strings.TrimSpace(*regra.NotaDespertadora) {
+	for i := range regras {
+		regra := &regras[i]
+		if regra.AplicaSeReprovadoEmType != nil && regraDespertadaPorNota(regra, categoriaAlterada, periodoAlterado) {
 			tiposDisparados[regra.Type] = true
 		}
 	}
 	return tiposDisparados
+}
+
+func regraDespertadaPorNota(regra *regraAvaliacaoFinalDTO, categoriaAlterada, periodoAlterado string) bool {
+	if regra == nil || regra.NotaDespertadora == nil || categoriaAlterada != strings.TrimSpace(*regra.NotaDespertadora) {
+		return false
+	}
+	periodoFechamento, err := periodoFechamentoCategoriaNaFormula(regra.Formula, categoriaAlterada)
+	if err != nil || periodoFechamento == "" {
+		return true
+	}
+	if periodoAlterado == "" {
+		return false
+	}
+	return periodoAlterado == periodoFechamento
+}
+
+func periodoFechamentoCategoriaNaFormula(formula, categoria string) (string, error) {
+	refs, err := referenciasFormulaAvaliacao(formula)
+	if err != nil {
+		return "", err
+	}
+	periodoFechamento := ""
+	maiorOrdem := -1
+	for _, ref := range refs {
+		if strings.TrimSpace(ref.Categoria) != categoria {
+			continue
+		}
+		periodo := strings.TrimSpace(ref.Periodo)
+		ordem := ordemPeriodoAvaliacao(periodo)
+		if ordem > maiorOrdem {
+			maiorOrdem = ordem
+			periodoFechamento = periodo
+		}
+	}
+	return periodoFechamento, nil
+}
+
+func ordemPeriodoAvaliacao(periodo string) int {
+	periodo = strings.TrimSpace(periodo)
+	if periodo == "" {
+		return 0
+	}
+	var n int
+	if _, err := fmt.Sscanf(periodo, "%d_trimestre", &n); err == nil {
+		return n
+	}
+	if _, err := fmt.Sscanf(periodo, "%d_semestre", &n); err == nil {
+		return n
+	}
+	return 1
 }
 
 func cursoIDEstudantePorNivel(tipoEnsino string, estudanteDTO *projections.EstudanteDTO) *string {
@@ -747,9 +803,6 @@ func calcularResultadoMateriasAvaliacaoFinal(
 	var soma float64
 	reprovadasPendenciaveis := []projections.MateriaDTO{}
 	for _, materia := range materias {
-		if overlay != nil && overlay.MateriaID != "" && overlay.MateriaID != materia.ID.String() {
-			continue
-		}
 		formulaExecucao := regra.Formula
 		if tipoEnsino == "superior" {
 			if materia.Periodo == nil || *materia.Periodo == "" {
@@ -768,12 +821,8 @@ func calcularResultadoMateriasAvaliacaoFinal(
 			notasFormula[overlay.Categoria][overlay.Periodo] = append(notasFormula[overlay.Categoria][overlay.Periodo], overlay.Nota)
 		}
 		notasSubstituidasZero := []aggregates.NotaReferenciaAvaliacaoFinal{}
-		if overlay != nil && overlay.MateriaID == materia.ID.String() {
-			var err error
-			notasSubstituidasZero, err = substituirNotasAusentesPorZero(formulaExecucao, notasFormula)
-			if err != nil {
-				return nil, 0, false, false, nil, fmt.Errorf("matéria %s: %w", materia.ID, err)
-			}
+		if !notasFormulaCompletas(formulaExecucao, notasFormula) {
+			return nil, 0, false, false, nil, fmt.Errorf("matéria %s: nota ausente para fechamento da avaliação final", materia.ID)
 		}
 		nota, err := calcularFormulaAvaliacao(formulaExecucao, notasFormula)
 		if err != nil {
@@ -818,6 +867,19 @@ func calcularResultadoMateriasAvaliacaoFinal(
 		return nil, 0, false, false, nil, fmt.Errorf("nenhuma matéria aplicável recebeu nota-gatilho para avaliação final")
 	}
 	return resultados, soma / float64(len(resultados)), aprovado, aprovadoComPendencia, pendencias, nil
+}
+
+func notasFormulaCompletas(formula string, notas map[string]map[string][]float64) bool {
+	refs, err := referenciasFormulaAvaliacao(formula)
+	if err != nil {
+		return false
+	}
+	for _, ref := range refs {
+		if len(notas[ref.Categoria][ref.Periodo]) == 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func referenciasFormulaAvaliacao(formula string) ([]aggregates.NotaReferenciaAvaliacaoFinal, error) {
@@ -1467,26 +1529,28 @@ func calcularProximoAnoCurso(
 		return nil, fmt.Errorf("curso '%s' não possui anos_academicos definidos", curso.Nome)
 	}
 
+	proximo, err := calcularProximoAnoEmSequencia(curso.AnosAcademicos, nivelAtual, aprovado)
+	if err != nil {
+		return nil, fmt.Errorf("nivel_atual '%s' não pertence ao curso '%s'", nivelAtual, curso.Nome)
+	}
+	return proximo, nil
+}
+
+func calcularProximoAnoEmSequencia(anosAcademicos []string, nivelAtual string, aprovado bool) (*string, error) {
 	posAtual := -1
-	for i, n := range curso.AnosAcademicos {
+	for i, n := range anosAcademicos {
 		if n == nivelAtual {
 			posAtual = i
 			break
 		}
 	}
 	if posAtual == -1 {
-		return nil, fmt.Errorf("nivel_atual '%s' não pertence ao curso '%s'", nivelAtual, curso.Nome)
+		return nil, fmt.Errorf("nivel_atual '%s' não pertence à sequência acadêmica", nivelAtual)
 	}
-
-	if !aprovado {
+	if !aprovado || posAtual == len(anosAcademicos)-1 {
 		return nil, nil
 	}
-
-	if posAtual == len(curso.AnosAcademicos)-1 {
-		return nil, nil
-	}
-
-	proximo := curso.AnosAcademicos[posAtual+1]
+	proximo := anosAcademicos[posAtual+1]
 	return &proximo, nil
 }
 

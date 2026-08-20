@@ -70,11 +70,11 @@ func TestMateriaMedioPermiteMaisDeUmAnoAcademico(t *testing.T) {
 	}
 }
 
-func TestMateriaMedioBloqueiaQuartoAno(t *testing.T) {
+func TestMateriaMedioPermiteQuartoAnoParaPAPValidadaNoHandler(t *testing.T) {
 	materia := NewMateriaDisciplinar()
 
 	err := materia.Criar("PAP", "medio", []string{"4_ano_medio"}, "ACA001", nil, nil, nil, uuid.New())
-	if err == nil {
-		t.Fatal("esperava erro ao criar matéria média para o 4º ano")
+	if err != nil {
+		t.Fatalf("aggregate deve permitir 4_ano_medio; restrição de curso técnico fica no handler: %v", err)
 	}
 }
