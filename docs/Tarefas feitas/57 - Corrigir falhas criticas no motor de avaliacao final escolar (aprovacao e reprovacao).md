@@ -1,7 +1,7 @@
 ---
 criado: 2026-08-20 00:00
 origem: Depuração solicitada pelo usuário e executada por Claude (Anthropic) em sandbox com PostgreSQL real
-status: pendente
+status: feito
 prioridade: crítica
 ---
 
