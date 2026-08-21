@@ -43,7 +43,7 @@ func TestIntegrationListCobrancasFiltraOrigemEstadoEIsolaPorAcademia(t *testing.
 	insert(academiaA, "cancelada", "", "SOL-LST-1") // matrícula cancelada
 	insert(academiaB, "criada", "", "")             // outra academia, não deve aparecer para A
 
-	todas, err := service.ListCobrancas(ctx, ContextoAcademia, academiaA, nil, nil, 50, 0)
+	todas, err := service.ListCobrancas(ctx, ContextoAcademia, academiaA, nil, nil, nil, nil, "", "", 50, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestIntegrationListCobrancasFiltraOrigemEstadoEIsolaPorAcademia(t *testing.
 		t.Fatalf("esperava 3 cobranças da academia A, obteve %d", todas.Total)
 	}
 
-	pagas, err := service.ListCobrancas(ctx, ContextoAcademia, academiaA, []string{"Success"}, nil, 50, 0)
+	pagas, err := service.ListCobrancas(ctx, ContextoAcademia, academiaA, []string{"Success"}, nil, nil, nil, "", "", 50, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestIntegrationListCobrancasFiltraOrigemEstadoEIsolaPorAcademia(t *testing.
 		t.Fatalf("filtro por estado=Success deveria devolver só a cobrança de mensalidade: %#v", pagas)
 	}
 
-	matriculas, err := service.ListCobrancas(ctx, ContextoAcademia, academiaA, nil, []string{"matricula"}, 50, 0)
+	matriculas, err := service.ListCobrancas(ctx, ContextoAcademia, academiaA, nil, []string{"matricula"}, nil, nil, "", "", 50, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestIntegrationListCobrancasFiltraOrigemEstadoEIsolaPorAcademia(t *testing.
 		t.Fatalf("filtro por tipo=matricula incorreto: %#v", matriculas)
 	}
 
-	pagina, err := service.ListCobrancas(ctx, ContextoAcademia, academiaA, nil, nil, 1, 0)
+	pagina, err := service.ListCobrancas(ctx, ContextoAcademia, academiaA, nil, nil, nil, nil, "", "", 1, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestIntegrationListCobrancasFiltraOrigemEstadoEIsolaPorAcademia(t *testing.
 		t.Fatalf("paginação incorreta: len=%d total=%d", len(pagina.Cobrancas), pagina.Total)
 	}
 
-	outraAcademia, err := service.ListCobrancas(ctx, ContextoAcademia, academiaB, nil, nil, 50, 0)
+	outraAcademia, err := service.ListCobrancas(ctx, ContextoAcademia, academiaB, nil, nil, nil, nil, "", "", 50, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
