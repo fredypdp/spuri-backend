@@ -413,9 +413,6 @@ func tentarAvaliacoesFinaisAutomaticas(
 				overlay,
 			)
 			if err != nil {
-				if strings.Contains(err.Error(), "nota ausente") {
-					continue
-				}
 				return resultados, err
 			}
 			if !registrado {
@@ -820,9 +817,9 @@ func calcularResultadoMateriasAvaliacaoFinal(
 			}
 			notasFormula[overlay.Categoria][overlay.Periodo] = append(notasFormula[overlay.Categoria][overlay.Periodo], overlay.Nota)
 		}
-		notasSubstituidasZero := []aggregates.NotaReferenciaAvaliacaoFinal{}
-		if !notasFormulaCompletas(formulaExecucao, notasFormula) {
-			return nil, 0, false, false, nil, fmt.Errorf("matéria %s: nota ausente para fechamento da avaliação final", materia.ID)
+		notasSubstituidasZero, err := substituirNotasAusentesPorZero(formulaExecucao, notasFormula)
+		if err != nil {
+			return nil, 0, false, false, nil, fmt.Errorf("matéria %s: %w", materia.ID, err)
 		}
 		nota, err := calcularFormulaAvaliacao(formulaExecucao, notasFormula)
 		if err != nil {
@@ -867,19 +864,6 @@ func calcularResultadoMateriasAvaliacaoFinal(
 		return nil, 0, false, false, nil, fmt.Errorf("nenhuma matéria aplicável recebeu nota-gatilho para avaliação final")
 	}
 	return resultados, soma / float64(len(resultados)), aprovado, aprovadoComPendencia, pendencias, nil
-}
-
-func notasFormulaCompletas(formula string, notas map[string]map[string][]float64) bool {
-	refs, err := referenciasFormulaAvaliacao(formula)
-	if err != nil {
-		return false
-	}
-	for _, ref := range refs {
-		if len(notas[ref.Categoria][ref.Periodo]) == 0 {
-			return false
-		}
-	}
-	return true
 }
 
 func referenciasFormulaAvaliacao(formula string) ([]aggregates.NotaReferenciaAvaliacaoFinal, error) {
