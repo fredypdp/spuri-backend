@@ -1,7 +1,7 @@
 ---
 criado: 2026-08-21
 origem: docs/Debbugs/Depurar correcao das falhas criticas no motor de avaliacao final escolar.md
-status: pendente
+status: feito
 tipo: correcao_critica_pre_producao
 ---
 
