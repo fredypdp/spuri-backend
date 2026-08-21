@@ -196,16 +196,31 @@ func TestTiposAvaliacaoFinalDespertadosRespeitaPeriodoDaFormula(t *testing.T) {
 	}
 }
 
-func TestNotasFormulaCompletasNaoRemoveSubstituicaoPorZero(t *testing.T) {
-	notas := map[string]map[string][]float64{"nota_professor": {"1_trimestre": {8}}}
-	if notasFormulaCompletas("([nota_professor,1_trimestre]+[prova_trimestral,1_trimestre])/2", notas) {
-		t.Fatal("fórmula incompleta não deve estar pronta para fechamento automático")
+func TestSubstituirNotasAusentesPorZeroContinuaAtivaAposFechamentoPorPeriodo(t *testing.T) {
+	formula := "([nota_professor,1_trimestre]+[prova_trimestral,1_trimestre]+[nota_professor,2_trimestre]+[prova_trimestral,2_trimestre]+[nota_professor,3_trimestre]+[prova_trimestral,3_trimestre])/6"
+	notas := map[string]map[string][]float64{
+		"prova_trimestral": {
+			"1_trimestre": {7},
+			"2_trimestre": {8},
+			"3_trimestre": {9},
+		},
+		// nota_professor nunca foi lançada em nenhum trimestre (cenário real: professor esqueceu).
 	}
-	faltantes, err := substituirNotasAusentesPorZero("([nota_professor,1_trimestre]+[prova_trimestral,1_trimestre])/2", notas)
+
+	faltantes, err := substituirNotasAusentesPorZero(formula, notas)
 	if err != nil {
 		t.Fatalf("substituirNotasAusentesPorZero retornou erro: %v", err)
 	}
-	if len(faltantes) != 1 || faltantes[0].Categoria != "prova_trimestral" || faltantes[0].Periodo != "1_trimestre" {
-		t.Fatalf("faltantes inesperados: %#v", faltantes)
+	if len(faltantes) != 3 {
+		t.Fatalf("esperava 3 referências substituídas por zero (nota_professor x3), obteve: %#v", faltantes)
+	}
+
+	nota, err := calcularFormulaAvaliacao(formula, notas)
+	if err != nil {
+		t.Fatalf("cálculo da fórmula não deveria falhar mesmo com nota_professor ausente: %v", err)
+	}
+	esperado := (0.0 + 7 + 0.0 + 8 + 0.0 + 9) / 6
+	if nota != esperado {
+		t.Fatalf("nota final inesperada: got=%v want=%v", nota, esperado)
 	}
 }
