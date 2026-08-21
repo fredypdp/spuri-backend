@@ -621,22 +621,16 @@ func (s *Service) CancelCharge(ctx context.Context, contexto, academia, identifi
 	return ChargeResult{ID: row.ID, ProviderChargeID: current.ProviderChargeID, MerchantTransactionID: row.Merchant, Status: "cancelada", Response: current.Response}, nil
 }
 
-// ListCobrancas lista cobranças AppyPay (mensalidade, matrícula ou avulsa)
-// filtrando por contexto/academia, estado (status) e origem, com paginação.
-// contexto e academia vazios não restringem a consulta — o mesmo padrão de
-// filtro opcional já usado em ListCredentials. estados e origens vazios
-// também não restringem. limit/offset devem já vir validados (bounded) por
-// quem chama (ver handlers.ListarCobrancasAppyPay).
-//
-// O filtro de estado é um match exato (case-sensitive) sobre o texto cru
-// persistido em payload->>'status' — o mesmo texto devolvido no campo
-// "status" de GET /financeiro/appypay/cobrancas/:id. Esse campo mistura
-// estados internos do Spuri ("solicitada", "criada", "cancelada", "falhada")
-// com estados crus devolvidos pela AppyPay ("Success", "Pending", "Failed",
-// etc.) — este método deliberadamente não normaliza nada, pelo mesmo motivo
-// que isSuccessfulChargeStatus/isTerminalChargeStatus já fazem sua própria
-// comparação case-insensitive em vez de normalizar o dado persistido.
-func (s *Service) ListCobrancas(ctx context.Context, contexto, academia string, estados, origens []string, limit, offset int) (*CobrancaListResult, error) {
+// ListCobrancas lista cobranças de um contexto/academia, com filtros
+// opcionais de estado e origem. turmaID, cursoID, anoAcademico e anoLetivo
+// (introduzidos na tarefa 58) restringem adicionalmente o resultado às
+// cobranças de mensalidade vinculadas a esse escopo (turma, curso, ano
+// acadêmico ou ano letivo) — ver chargeIDsEscopoMensalidade. Como esse
+// escopo só existe para cobranças de ORIGEM mensalidade, usar qualquer um
+// desses quatro filtros exclui automaticamente cobranças de matrícula e
+// avulsas do resultado; isso é intencional. Quando nenhum dos quatro é
+// informado, o comportamento é idêntico ao anterior à tarefa 58.
+func (s *Service) ListCobrancas(ctx context.Context, contexto, academia string, estados, origens []string, turmaID, cursoID *uuid.UUID, anoAcademico, anoLetivo string, limit, offset int) (*CobrancaListResult, error) {
 	if s.client == nil {
 		return nil, errors.New("serviço financeiro não inicializado")
 	}
@@ -664,6 +658,15 @@ func (s *Service) ListCobrancas(ctx context.Context, contexto, academia string, 
 			return nil, err
 		}
 		where += clause
+	}
+	if turmaID != nil || cursoID != nil || anoAcademico != "" || anoLetivo != "" {
+		chargeIDs, err := s.chargeIDsEscopoMensalidade(ctx, academia, turmaID, cursoID, anoAcademico, anoLetivo)
+		if err != nil {
+			return nil, err
+		}
+		where += fmt.Sprintf(" AND id = ANY($%d::uuid[])", i)
+		args = append(args, pq.Array(chargeIDs))
+		i++
 	}
 	var total int
 	if err := s.client.DB().QueryRowContext(ctx, "SELECT COUNT(*) FROM financeiro_cobrancas "+where, args...).Scan(&total); err != nil {
@@ -763,27 +766,15 @@ func scanCobrancaResumo(rows *sql.Rows) (CobrancaResumo, error) {
 	return dto, nil
 }
 
-// ListCobrancasEstudante lista TODAS as cobranças de um estudante (qualquer
-// origem, qualquer estado por padrão) — usada por
-// GET /financeiro/cobrancas/estudante/:codigo, a consulta do próprio
-// estudante (ou de uma academia/admin autorizados) ao histórico de
-// pagamentos dele. Diferente de ListCobrancas (visão de academia/admin sobre
-// cobranças recebidas, filtrada por contexto/academia), esta consulta é
-// centrada no estudante: ele pode ter mensalidades e matrícula em mais de
-// uma academia (histórico), e o próprio estudante ou um admin FPP devem ver
-// tudo.
-//
-// somenteAcademia, quando não nil, restringe o resultado a essa academia —
-// usado quando quem chama é uma academia (só pode ver os pagamentos que o
-// estudante fez à própria academia, nunca o histórico completo dele noutras
-// academias). Estudante e admin FPP chamam com somenteAcademia nil. Mesmo
-// padrão já usado por ListMensalidades.
-//
-// Inclui a cobrança de matrícula do estudante mesmo que o payload dela não
-// tenha codigo_estudante (só codigo_solicitacao) — resolvido via o vínculo
-// já existente em projection_solicitacoes_matricula.codigo_estudante_gerado,
-// preenchido quando a solicitação é aprovada.
-func (s *Service) ListCobrancasEstudante(ctx context.Context, codigoEstudante string, somenteAcademia *string, estados, origens []string, limit, offset int) (*CobrancaListResult, error) {
+// turmaID, cursoID, anoAcademico e anoLetivo (tarefa 58) filtram
+// adicionalmente por escopo de mensalidade, igual a ListCobrancas. Como o
+// escopo exige codigo_academia (ver escopoMensalidadeEstudantes), esses
+// quatro filtros só têm efeito quando somenteAcademia não é nil (chamada de
+// uma academia) — quando o estudante ou um admin FPP consultam sem
+// restringir a academia, informar qualquer um desses quatro filtros
+// devolve erro de validação, porque não há uma única academia para resolver
+// o escopo de turma/curso contra o histórico do estudante.
+func (s *Service) ListCobrancasEstudante(ctx context.Context, codigoEstudante string, somenteAcademia *string, estados, origens []string, turmaID, cursoID *uuid.UUID, anoAcademico, anoLetivo string, limit, offset int) (*CobrancaListResult, error) {
 	if s.client == nil {
 		return nil, errors.New("serviço financeiro não inicializado")
 	}
@@ -809,6 +800,19 @@ func (s *Service) ListCobrancasEstudante(ctx context.Context, codigoEstudante st
 			return nil, err
 		}
 		where += clause
+	}
+	if turmaID != nil || cursoID != nil || anoAcademico != "" || anoLetivo != "" {
+		academiaEscopo := ""
+		if somenteAcademia != nil {
+			academiaEscopo = *somenteAcademia
+		}
+		chargeIDs, err := s.chargeIDsEscopoMensalidade(ctx, academiaEscopo, turmaID, cursoID, anoAcademico, anoLetivo)
+		if err != nil {
+			return nil, err
+		}
+		where += fmt.Sprintf(" AND id = ANY($%d::uuid[])", i)
+		args = append(args, pq.Array(chargeIDs))
+		i++
 	}
 	var total int
 	if err := s.client.DB().QueryRowContext(ctx, "SELECT COUNT(*) FROM financeiro_cobrancas "+where, args...).Scan(&total); err != nil {

@@ -1,11 +1,11 @@
 ---
 criado: 2026-08-21 00:00
 origem: Pedido do usuário (Spuri), orquestrado por Claude (Anthropic) em sandbox com PostgreSQL 16 e Go 1.24 reais
-status: pendente
+status: feito
 prioridade: alta
 ---
 
-# Pendências de mensalidade sem cobrança + filtros de escopo acadêmico em cobranças
+# Pendências de mensalidade sem cobrança + filtros de escopo acadêmico em cobranças (feito)
 
 ## 0. Leia isto primeiro — sobre o seu ambiente (Codex)
 

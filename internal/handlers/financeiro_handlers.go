@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -327,6 +328,22 @@ func ConsultarCobrancaAppyPay(c *gin.Context) {
 // Mesma autorização de ConsultarCobrancaAppyPay/ListarCredenciaisAppyPay:
 // uma academia só vê as próprias cobranças; um admin precisa da permissão
 // "fpp" e pode consultar qualquer contexto/academia via query string.
+
+// parseOptionalUUIDQuery lê um parâmetro de query opcional como UUID. Devolve
+// nil quando o parâmetro não foi informado, e erro quando foi informado mas
+// não é um UUID válido.
+func parseOptionalUUIDQuery(c *gin.Context, param string) (*uuid.UUID, error) {
+	raw := strings.TrimSpace(c.Query(param))
+	if raw == "" {
+		return nil, nil
+	}
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%s inválido", param)
+	}
+	return &id, nil
+}
+
 func ListarCobrancasAppyPay(c *gin.Context) {
 	contexto := c.Query("contexto_tipo")
 	academia := c.Query("codigo_academia")
@@ -334,14 +351,40 @@ func ListarCobrancasAppyPay(c *gin.Context) {
 		utils.RespondWithForbiddenError(c, "sem permissão para este contexto financeiro")
 		return
 	}
+	turmaID, err := parseOptionalUUIDQuery(c, "turma_id")
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	cursoID, err := parseOptionalUUIDQuery(c, "curso_id")
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	anoAcademico := c.Query("ano_academico")
+	anoLetivo := c.Query("ano_letivo")
 	limit := parseBoundedInt(c.Query("limit"), 50, 1, 1000)
 	offset := parseBoundedInt(c.Query("offset"), 0, 0, 1_000_000)
-	res, err := FinanceiroService.ListCobrancas(c.Request.Context(), contexto, academia, c.QueryArray("estado"), c.QueryArray("tipo"), limit, offset)
+	res, err := FinanceiroService.ListCobrancas(c.Request.Context(), contexto, academia, c.QueryArray("estado"), c.QueryArray("tipo"), turmaID, cursoID, anoAcademico, anoLetivo, limit, offset)
 	if err != nil {
 		financeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"cobrancas": res.Cobrancas, "total": len(res.Cobrancas), "total_geral": res.Total, "limit": limit, "offset": offset})
+	body := gin.H{"cobrancas": res.Cobrancas, "total": len(res.Cobrancas), "total_geral": res.Total, "limit": limit, "offset": offset}
+	// pendencias_sem_cobranca só é computado quando pelo menos um dos
+	// quatro filtros de escopo (turma_id, curso_id, ano_academico,
+	// ano_letivo) é informado junto de codigo_academia — sem isso, a
+	// varredura seria sobre a academia inteira sem limite. Ver
+	// finance.PendenciasSemCobranca.
+	if turmaID != nil || cursoID != nil || anoAcademico != "" || anoLetivo != "" {
+		pendencias, err := FinanceiroService.PendenciasSemCobranca(c.Request.Context(), academia, turmaID, cursoID, anoAcademico, anoLetivo)
+		if err != nil {
+			financeError(c, err)
+			return
+		}
+		body["pendencias_sem_cobranca"] = pendencias
+	}
+	c.JSON(http.StatusOK, body)
 }
 
 // ConsultarCobrancasEstudante lista TODAS as cobranças (mensalidade,
@@ -391,14 +434,38 @@ func ConsultarCobrancasEstudante(c *gin.Context) {
 		utils.RespondWithForbiddenError(c, "sem permissão para consultar pagamentos")
 		return
 	}
+	turmaID, err := parseOptionalUUIDQuery(c, "turma_id")
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	cursoID, err := parseOptionalUUIDQuery(c, "curso_id")
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	anoAcademico := c.Query("ano_academico")
+	anoLetivo := c.Query("ano_letivo")
 	limit := parseBoundedInt(c.Query("limit"), 50, 1, 1000)
 	offset := parseBoundedInt(c.Query("offset"), 0, 0, 1_000_000)
-	res, err := FinanceiroService.ListCobrancasEstudante(c.Request.Context(), codigo, somenteAcademia, c.QueryArray("estado"), c.QueryArray("tipo"), limit, offset)
+	res, err := FinanceiroService.ListCobrancasEstudante(c.Request.Context(), codigo, somenteAcademia, c.QueryArray("estado"), c.QueryArray("tipo"), turmaID, cursoID, anoAcademico, anoLetivo, limit, offset)
 	if err != nil {
 		financeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"cobrancas": res.Cobrancas, "total": len(res.Cobrancas), "total_geral": res.Total, "limit": limit, "offset": offset})
+	body := gin.H{"cobrancas": res.Cobrancas, "total": len(res.Cobrancas), "total_geral": res.Total, "limit": limit, "offset": offset}
+	// pendencias_sem_cobranca é sempre calculado aqui (sem exigir nenhum
+	// filtro extra): esta consulta já está inerentemente delimitada a UM
+	// estudante, então não há o mesmo risco de varredura sem limite que
+	// existe em ListarCobrancasAppyPay. Ver
+	// finance.PendenciasSemCobrancaEstudante.
+	pendencias, err := FinanceiroService.PendenciasSemCobrancaEstudante(c.Request.Context(), codigo, somenteAcademia)
+	if err != nil {
+		financeError(c, err)
+		return
+	}
+	body["pendencias_sem_cobranca"] = pendencias
+	c.JSON(http.StatusOK, body)
 }
 
 // CancelarCobrancaAppyPay intentionally does not use authorizeFinanceScope:
