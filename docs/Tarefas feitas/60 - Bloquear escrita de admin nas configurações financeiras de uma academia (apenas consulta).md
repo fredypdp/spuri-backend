@@ -1,7 +1,7 @@
 ---
 criado: 2026-08-22
 origem: Claude (orquestrador) — a pedido de Fredy Luís, Fundador e CEO da Spuri
-status: pendente
+status: concluída
 tarefa: Bloquear escrita (criar/atualizar/remover/rotacionar) de admin nas configurações financeiras de uma academia no módulo de finança; admin passa a poder apenas consultar. Confirmado que o isolamento academia-vs-academia já está correto (sem ação necessária nessa parte).
 ---
 
@@ -146,7 +146,7 @@ Note que estes quatro handlers **já usavam** `authorizeFinanceScope` antes dest
 correção — a mudança de assinatura da função exige que **todo** chamador passe o novo
 parâmetro, mas o valor escolhido para estes quatro (`false`) preserva **exatamente** o
 comportamento que já existia. Isto está refletido no patch anexo (arquivo
-`59_bloquear_escrita_admin_configuracoes_financeiras.patch`) e é a razão de o diff mexer
+`60_bloquear_escrita_admin_configuracoes_financeiras.patch`) e é a razão de o diff mexer
 nessas 4 linhas mesmo sem mudar o comportamento delas — é só a assinatura da função que
 mudou, não a regra de autorização aplicada a elas.
 
@@ -178,14 +178,13 @@ onde já eram chamadas.
 
 ## 4. Como aplicar — patch anexo (método principal)
 
-O arquivo **`59_bloquear_escrita_admin_configuracoes_financeiras.patch`** (anexo a este
-documento, para colocar na raiz do repositório `spuri-backend` antes de aplicar) contém o
-diff exato e completo das duas mudanças. Já foi validado com `git apply --check` a partir
-de um clone limpo do `main` mais recente do GitHub (checado no momento da entrega desta
-tarefa) — deve aplicar sem conflito.
+O arquivo **`60_bloquear_escrita_admin_configuracoes_financeiras.patch`**, localizado em
+`docs/Lista de Tarefas/`, contém o diff exato e completo das duas mudanças. Já foi
+validado com `git apply --check` a partir de um clone limpo do `main` mais recente do
+GitHub (checado no momento da entrega desta tarefa) — deve aplicar sem conflito.
 
 ```bash
-git apply 59_bloquear_escrita_admin_configuracoes_financeiras.patch
+git apply docs/Lista\ de\ Tarefas/60_bloquear_escrita_admin_configuracoes_financeiras.patch
 ```
 
 Se por algum motivo o `main` tiver avançado o suficiente desde a entrega para o patch não
@@ -293,7 +292,7 @@ módulo do repositório.
 
 1. No repositório `spuri-backend`, na raiz, aplicar o patch:
    ```bash
-   git apply 59_bloquear_escrita_admin_configuracoes_financeiras.patch
+   git apply docs/Lista\ de\ Tarefas/60_bloquear_escrita_admin_configuracoes_financeiras.patch
    ```
    Se falhar, ver seção 5 (método alternativo com arquivos completos) — e se mesmo assim
    houver dúvida sobre conflito com mudanças novas nesses arquivos, parar e reportar em

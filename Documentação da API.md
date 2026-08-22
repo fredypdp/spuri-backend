@@ -7272,42 +7272,42 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 
 - Todas as rotas `/financeiro/*` exigem autenticação. As rotas de administração aceitam somente `academia` ou admin FPP; a consulta de mensalidades e a consulta do histórico de cobranças (seção 19.8) de um estudante também podem ser feitas pelo próprio estudante autenticado.
 - Academia autenticada opera apenas no próprio contexto: o backend força `contexto_tipo="academia"` e `codigo_academia` igual ao código do token, mesmo que esses campos venham vazios no request.
-- Admin FPP pode operar o contexto global `spuri` e contextos de academias específicas; admins `adm` e `gerente`, estudantes e usuários anônimos não administram o módulo financeiro.
+- Admin FPP pode **consultar** o contexto global `spuri` e os contextos de academias específicas. Nas configurações financeiras de uma academia — credenciais AppyPay, mensalidades, taxa de matrícula e mês de início de cobrança — somente a própria academia pode criar, atualizar, remover ou rotacionar; tentativas de escrita por admin FPP retornam `403`. O admin FPP mantém escrita nessas configurações apenas no contexto global `spuri`. Essa restrição não se aplica às operações transacionais de cobrança e QR Code, cujo comportamento administrativo permanece o mesmo.
 - Segredos AppyPay (`client_secret`, métodos de pagamento sensíveis) nunca são devolvidos em resposta; a API retorna apenas máscaras e metadados. A única exceção deliberada é o segredo de webhook (`webhook_secret`): como é gerado pelo servidor e o usuário precisa colá-lo no painel da AppyPay, ele é devolvido em texto plano apenas na criação da credencial (seção 19.1) e nas rotas dedicadas de consulta/rotação (seções 19.12 e 19.13) — nunca em `PUT`, listagem ou qualquer outra resposta.
 - `ENV=development` ou `ENV=test` usa o gateway TEST; `ENV=production` usa o gateway PROD. O ambiente persistido em credenciais e cobranças segue essa resolução do backend.
 - Cada cobrança ou QR Code exige credenciais ativas para o contexto resolvido antes de chamar a AppyPay.
 - Todo valor monetário do módulo usa `float64`, em conformidade com o `number<double>` da AppyPay. Valores de entrada devem ter no máximo duas casas decimais; antes de chamar o gateway o backend aplica arredondamento *half away from zero* a duas casas, e comparações monetárias usam tolerância de meio cêntimo. Os futuros campos `ValorMensalidade`, `ValorMatricula` e equivalentes devem reutilizar esse mesmo contrato.
 - O cancelamento de uma cobrança REF, GPO ou QR Code é exclusivamente interno ao Spuri: a AppyPay não documenta endpoint de cancelamento para esses métodos. Por isso, o cancelamento deixa de exibir/cobrar pela plataforma, mas não invalida tecnicamente uma referência ou QR já emitido no banco/gateway até a expiração; qualquer sucesso detectado depois dele é registrado como conflito para reconciliação manual FPP.
 - Os webhooks são públicos por necessidade do gateway, mas autenticados pelo segredo de webhook gerado automaticamente na criação da credencial, enviado pela AppyPay num único cabeçalho HTTP fixo para toda a plataforma (`webhook_header_name`, sempre `X-Spuri-Webhook-Secret`). Eventos aceitos ou duplicados respondem `200` e são tratados de forma idempotente pelo identificador do evento.
-- A taxa de matrícula é configurada pela academia ou pelo admin FPP em `/financeiro/matriculas/configuracoes` (seção 19.21), mas a cobrança em si nunca é criada por uma rota de `/financeiro/*`: ela nasce quando o próprio candidato aprovado paga pelas rotas públicas da seção 9, especialmente 9.10 e 9.11.
+- A taxa de matrícula é configurada pela própria academia em `/financeiro/matriculas/configuracoes` (seção 19.21); admin FPP pode apenas consultá-la. A cobrança em si nunca é criada por uma rota de `/financeiro/*`: ela nasce quando o próprio candidato aprovado paga pelas rotas públicas da seção 9, especialmente 9.10 e 9.11.
 - Erros das rotas autenticadas seguem o envelope global `{error, message, request_id, details?}`. Webhooks públicos retornam apenas status HTTP para reduzir acoplamento com o gateway.
 
 | Método | Rota | Escopo resumido |
 |---|---|---|
-| `POST` | `/financeiro/appypay/credenciais` | Cria/configura credenciais cifradas para `spuri` ou `academia`. |
-| `PUT` | `/financeiro/appypay/credenciais/:id` | Substitui a configuração de uma credencial existente pelo `id`. |
+| `POST` | `/financeiro/appypay/credenciais` | Cria credenciais para a própria academia ou, para admin FPP, somente `spuri`. |
+| `PUT` | `/financeiro/appypay/credenciais/:id` | Substitui credencial da própria academia ou, para admin FPP, somente do contexto `spuri`. |
 | `GET` | `/financeiro/appypay/credenciais` | Lista credenciais mascaradas por contexto autorizado. |
 | `GET` | `/financeiro/appypay/credenciais/:id/webhook-secret` | Consulta o segredo de webhook atual (texto plano) de uma credencial. |
-| `POST` | `/financeiro/appypay/credenciais/:id/webhook-secret/rotacionar` | Gera um novo segredo de webhook, invalidando o anterior. |
+| `POST` | `/financeiro/appypay/credenciais/:id/webhook-secret/rotacionar` | Gera novo segredo da própria academia ou, para admin FPP, somente de `spuri`. |
 | `POST` | `/financeiro/appypay/cobrancas` | Cria cobrança AppyPay GPO ou REF genérica. |
 | `POST` | `/financeiro/appypay/qr-codes` | Gera QR Code GPO e devolve `qrCodeArr` em base64 quando enviado pela AppyPay. |
 | `GET` | `/financeiro/appypay/cobrancas/:id` | Consulta cobrança por id AppyPay ou `merchantTransactionId`. |
 | `GET` | `/financeiro/cobrancas` | Lista cobranças (mensalidade, matrícula, avulsa) do contexto autorizado, com filtros e paginação. |
 | `GET` | `/financeiro/cobrancas/estudante/:codigo` | Lista todas as cobranças de um estudante, em qualquer estado — acessível ao próprio estudante. |
 | `POST` | `/financeiro/appypay/cobrancas/:id/cancelar` | Cancela localmente uma cobrança pendente do próprio contexto. |
-| `POST` | `/financeiro/mensalidades/configuracoes` | Versiona o valor e mês final de cobrança por ano/curso de academia privada. |
+| `POST` | `/financeiro/mensalidades/configuracoes` | A própria academia privada versiona valor e mês final de cobrança por ano/curso. |
 | `GET` | `/financeiro/mensalidades/configuracoes` | Lista a configuração vigente de mensalidade de uma academia. |
-| `POST` | `/financeiro/mensalidades/inicio-cobranca` | Define o mês inicial excepcional para uma academia que entrou no ano letivo em curso. |
+| `POST` | `/financeiro/mensalidades/inicio-cobranca` | A própria academia define mês inicial excepcional ao entrar no ano letivo em curso. |
 | `GET` | `/financeiro/mensalidades/estudante/:codigo` | Calcula sob consulta os meses devidos, pagos ou anulados, inclusive históricos. |
 | `POST` | `/financeiro/mensalidades/obrigacoes/anular` | Anula, com evento por mês, obrigações de estudante da própria academia. |
 | `POST` | `/financeiro/mensalidades/obrigacoes/reativar` | Reativa obrigações antes anuladas da própria academia. |
-| `POST` | `/financeiro/matriculas/configuracoes` | Versiona valor e métodos de pagamento da taxa de matrícula por nível/ano/curso de uma academia. |
-| `PUT` | `/financeiro/matriculas/configuracoes` | Idêntico ao `POST` acima — mesma rota, mesmo efeito (nova versão da configuração). |
+| `POST` | `/financeiro/matriculas/configuracoes` | A própria academia versiona valor e métodos da taxa de matrícula por nível/ano/curso. |
+| `PUT` | `/financeiro/matriculas/configuracoes` | Idêntico ao `POST` acima — mesma rota, mesmo efeito (nova versão da própria academia). |
 | `GET` | `/financeiro/matriculas/configuracoes` | Lista as configurações vigentes de taxa de matrícula de uma academia. |
-| `DELETE` | `/financeiro/appypay/credenciais` | Remove as credenciais AppyPay vigentes de um contexto (evento imutável; bloqueia novas cobranças nesse contexto). |
-| `DELETE` | `/financeiro/mensalidades/configuracoes` | Remove a configuração vigente de mensalidade de um escopo, sem apagar o histórico de preço já cobrado. |
-| `DELETE` | `/financeiro/mensalidades/inicio-cobranca` | Remove a exceção de início de cobrança, voltando ao mês natural do ano letivo. |
-| `DELETE` | `/financeiro/matriculas/configuracoes` | Remove a configuração vigente de taxa de matrícula de um escopo. |
+| `DELETE` | `/financeiro/appypay/credenciais` | Remove credenciais da própria academia ou, para admin FPP, somente de `spuri`. |
+| `DELETE` | `/financeiro/mensalidades/configuracoes` | A própria academia remove a configuração vigente sem apagar o histórico de preço cobrado. |
+| `DELETE` | `/financeiro/mensalidades/inicio-cobranca` | A própria academia remove a exceção de início de cobrança, voltando ao mês natural. |
+| `DELETE` | `/financeiro/matriculas/configuracoes` | A própria academia remove a configuração vigente de taxa de matrícula. |
 | `POST` | `/webhooks/appypay/gpo` | Recebe webhook público AppyPay para eventos GPO. |
 | `POST` | `/webhooks/appypay/ref` | Recebe webhook público AppyPay para eventos REF. |
 
@@ -7315,7 +7315,7 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 
 **Escopo da rota:** configuração inicial de credenciais AppyPay de um contexto financeiro. Use para cadastrar o contexto global `spuri` ou a credencial de uma academia. Não consulta saldos, não cria cobrança e não retorna segredos em claro.
 
-**Proteção:** autenticado + academia dona do próprio contexto ou admin FPP. Para academia, `contexto_tipo` e `codigo_academia` são resolvidos pelo token. Para admin FPP, `contexto_tipo` deve ser `spuri` ou `academia`; quando for `academia`, `codigo_academia` identifica a instituição.
+**Proteção:** autenticado + academia dona do próprio contexto ou admin FPP exclusivamente para o contexto `spuri`. Para academia, `contexto_tipo` e `codigo_academia` são resolvidos pelo token. Admin FPP recebe `403` ao tentar configurar credenciais de uma academia.
 
 **Request JSON:**
 
@@ -7352,13 +7352,14 @@ O módulo financeiro integra o backend com a AppyPay para gerir credenciais, cri
 - `client_id`, `client_secret`, `gpo_payment_method` e `ref_payment_method` são obrigatórios. `resource` não é enviado neste endpoint: é lido da variável de ambiente `APPYPAY_RESOURCE`, com o mesmo valor para todas as academias e para o Spuri no mesmo ambiente.
 - O segredo de webhook não é enviado pelo cliente: o backend gera automaticamente um valor alfanumérico de 15 caracteres na criação da credencial e devolve-o em texto plano apenas nesta resposta (campo `webhook_secret`), para o usuário colar no painel de webhooks da AppyPay. O nome do cabeçalho HTTP (`webhook_header_name`) é fixo para toda a plataforma (`X-Spuri-Webhook-Secret`) e não é mais configurável por credencial — a AppyPay confirmou que o painel deles só oferece um único par nome/valor de cabeçalho HTTP, por isso também não existe modo de autenticação alternativo (ex.: Basic Auth) para o webhook.
 - Uma academia não pode criar credenciais para `spuri` nem para outra academia.
+- Admin FPP não pode criar credenciais de academia; pode configurar somente as credenciais do contexto global `spuri`.
 - O backend cifra segredos em armazenamento próprio e grava no ledger apenas metadados/máscaras.
 
 #### 19.2 PUT /financeiro/appypay/credenciais/:id
 
 **Escopo da rota:** atualização/substituição completa dos dados de conta AppyPay (`client_id`, `client_secret`, métodos GPO/REF) da credencial identificada por `:id`. Não altera o segredo de webhook — para isso, use `POST .../webhook-secret/rotacionar` (seção 19.13).
 
-**Proteção:** autenticado + academia dona do próprio contexto ou admin FPP. O `id` precisa ser UUID válido.
+**Proteção:** autenticado + academia dona do próprio contexto ou admin FPP exclusivamente quando a credencial pertence ao contexto `spuri`. O `id` precisa ser UUID válido; admin FPP recebe `403` para atualizar credencial de academia.
 
 **Request JSON:** igual ao `POST /financeiro/appypay/credenciais`.
 
@@ -7808,7 +7809,7 @@ Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e 
 
 **Escopo da rota:** gera um novo segredo de webhook para a credencial, invalidando o anterior imediatamente.
 
-**Proteção:** igual à seção 19.12.
+**Proteção:** academia dona da credencial ou admin FPP somente para credencial do contexto `spuri`. Admin FPP pode consultar o segredo de credencial de academia pela seção 19.12, mas não pode rotacioná-lo.
 
 **Request JSON:** corpo vazio.
 
@@ -7822,7 +7823,7 @@ A obrigação mensal usa a chave estável `(codigo_estudante, codigo_academia, a
 
 **Escopo da rota:** versiona valor, mês final e métodos de pagamento da mensalidade/propina por nível, ano e curso de uma academia privada.
 
-**Proteção:** academia dona (código forçado pelo token) ou admin FPP; para admin, `codigo_academia` é obrigatório.
+**Proteção:** exclusiva da academia dona; `codigo_academia` é forçado pelo token. Admin FPP recebe `403` para criar ou versionar configuração de mensalidade de academia.
 
 **Campos do request:**
 
@@ -7873,7 +7874,7 @@ A obrigação mensal usa a chave estável `(codigo_estudante, codigo_academia, a
 
 **Escopo da rota:** lista as configurações de mensalidade actualmente vigentes para uma academia.
 
-**Proteção:** igual à 19.14.
+**Proteção:** academia dona (código forçado pelo token) ou admin FPP em consulta; para admin, `codigo_academia` é obrigatório.
 
 **Query params:** `codigo_academia` obrigatório para admin; forçado pelo token para academia.
 
@@ -7903,7 +7904,7 @@ A obrigação mensal usa a chave estável `(codigo_estudante, codigo_academia, a
 
 **Escopo da rota:** define uma exceção pontual de início de cobrança para academia privada que entrou no ano letivo fora do mês natural.
 
-**Proteção:** academia dona ou admin FPP.
+**Proteção:** exclusiva da academia dona. Admin FPP recebe `403` para definir início de cobrança de academia.
 
 **Request JSON:**
 
@@ -8037,13 +8038,13 @@ Quando `metodo_pagamento` é `GPO_QR`, `cobranca` inclui `qrCodeArr` em base64.
 
 **Erros comuns:** `400` mês não anulado, `403` academia sem vínculo ou admin FPP.
 
-A taxa de matrícula abaixo é apenas a configuração financeira feita pela academia/FPP. O pagamento pelo candidato é público e está descrito em 9.10 e 9.11.
+A taxa de matrícula abaixo é apenas a configuração financeira feita pela própria academia; admin FPP tem acesso somente de consulta. O pagamento pelo candidato é público e está descrito em 9.10 e 9.11.
 
 #### 19.21 POST e PUT /financeiro/matriculas/configuracoes
 
 **Escopo da rota:** versiona valor e métodos de pagamento da taxa de matrícula por nível, ano e curso.
 
-**Proteção:** academia dona (código forçado pelo token) ou admin FPP; para admin, `codigo_academia` é obrigatório.
+**Proteção:** exclusiva da academia dona; `codigo_academia` é forçado pelo token. Admin FPP recebe `403` para criar ou versionar configuração de taxa de matrícula de academia.
 
 **Campos do request:**
 
@@ -8091,7 +8092,7 @@ A taxa de matrícula abaixo é apenas a configuração financeira feita pela aca
 
 **Escopo da rota:** lista as configurações vigentes da taxa de matrícula de uma academia.
 
-**Proteção:** igual à 19.21.
+**Proteção:** academia dona (código forçado pelo token) ou admin FPP em consulta; para admin, `codigo_academia` é obrigatório.
 
 **Query params:** `codigo_academia` obrigatório para admin; forçado pelo token para academia.
 
@@ -8120,7 +8121,7 @@ A taxa de matrícula abaixo é apenas a configuração financeira feita pela aca
 
 **Escopo da rota:** remove as credenciais AppyPay vigentes de um contexto (`spuri` ou `academia`), respeitando event sourcing — nenhum evento é apagado do ledger, a remoção é registrada como um novo evento imutável.
 
-**Proteção:** igual à 19.1.
+**Proteção:** academia dona do próprio contexto ou admin FPP exclusivamente para o contexto `spuri`. Admin FPP recebe `403` ao remover credenciais de academia.
 
 **Request JSON:**
 
