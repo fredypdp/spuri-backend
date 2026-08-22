@@ -35,7 +35,17 @@ func financeAdminAllowed(c *gin.Context) bool {
 	}
 	return verificarPermissaoAdmin(c, "fpp") == nil
 }
-func authorizeFinanceScope(c *gin.Context, context *string, academy *string) bool {
+
+// authorizeFinanceScope autoriza o ator autenticado a agir sobre um contexto
+// financeiro (contexto_tipo + codigo_academia). Uma academia só pode agir
+// sobre o próprio contexto (forçado por referência). Um admin com permissão
+// "fpp" pode sempre CONSULTAR (write=false) qualquer contexto, inclusive o de
+// qualquer academia — mas nunca pode CRIAR, ATUALIZAR, REMOVER ou ROTACIONAR
+// (write=true) as configurações financeiras de uma academia especificamente;
+// essa capacidade de escrita continua disponível apenas para o contexto
+// "spuri" (as configurações do próprio Spuri, que não pertencem a nenhuma
+// academia) e para a própria academia sobre si mesma.
+func authorizeFinanceScope(c *gin.Context, context *string, academy *string, write bool) bool {
 	_, t, own, ok := financeActor(c)
 	if !ok {
 		return false
@@ -51,22 +61,30 @@ func authorizeFinanceScope(c *gin.Context, context *string, academy *string) boo
 		*academy = own
 		return true
 	}
-	return t == "admin" && financeAdminAllowed(c)
+	if t != "admin" || !financeAdminAllowed(c) {
+		return false
+	}
+	if write && *context == finance.ContextoAcademia {
+		return false
+	}
+	return true
 }
 
 // credentialScopeAuthorized resolve o contexto/academia dono de uma
 // credencial AppyPay pelo seu id e reaplica authorizeFinanceScope — o mesmo
 // mecanismo que já garante que uma academia só mexe nas próprias credenciais
-// e que um admin precisa da permissão "fpp". Usado pelas rotas de consulta e
-// rotação do segredo de webhook. Já escreve a resposta de erro (404 ou 403)
-// no contexto quando retorna false.
-func credentialScopeAuthorized(c *gin.Context, id uuid.UUID) bool {
+// e que um admin precisa da permissão "fpp" para consultar (e nunca pode
+// escrever no contexto de uma academia). Usado pelas rotas de consulta e
+// rotação do segredo de webhook: write=false para consulta, write=true para
+// rotação (que gera um novo segredo, invalidando o anterior). Já escreve a
+// resposta de erro (404 ou 403) no contexto quando retorna false.
+func credentialScopeAuthorized(c *gin.Context, id uuid.UUID, write bool) bool {
 	contexto, academia, err := FinanceiroService.CredentialScope(c.Request.Context(), id)
 	if err != nil {
 		financeError(c, err)
 		return false
 	}
-	if !authorizeFinanceScope(c, &contexto, &academia) {
+	if !authorizeFinanceScope(c, &contexto, &academia, write) {
 		utils.RespondWithForbiddenError(c, "sem permissão para esta credencial AppyPay")
 		return false
 	}
@@ -101,7 +119,7 @@ func ConfigurarCredencialAppyPay(c *gin.Context) {
 		utils.RespondWithValidationError(c, errors.New("payload inválido"))
 		return
 	}
-	if !authorizeFinanceScope(c, &in.ContextoTipo, &in.CodigoAcademia) {
+	if !authorizeFinanceScope(c, &in.ContextoTipo, &in.CodigoAcademia, true) {
 		utils.RespondWithForbiddenError(c, "sem permissão para configurar estas credenciais")
 		return
 	}
@@ -132,7 +150,7 @@ func RemoverCredencialAppyPay(c *gin.Context) {
 		utils.RespondWithValidationError(c, errors.New("payload inválido"))
 		return
 	}
-	if !authorizeFinanceScope(c, &in.ContextoTipo, &in.CodigoAcademia) {
+	if !authorizeFinanceScope(c, &in.ContextoTipo, &in.CodigoAcademia, true) {
 		utils.RespondWithForbiddenError(c, "sem permissão para remover estas credenciais")
 		return
 	}
@@ -159,7 +177,7 @@ func AtualizarCredencialAppyPay(c *gin.Context) {
 		utils.RespondWithValidationError(c, errors.New("payload inválido"))
 		return
 	}
-	if !authorizeFinanceScope(c, &in.ContextoTipo, &in.CodigoAcademia) {
+	if !authorizeFinanceScope(c, &in.ContextoTipo, &in.CodigoAcademia, true) {
 		utils.RespondWithForbiddenError(c, "sem permissão para configurar estas credenciais")
 		return
 	}
@@ -182,7 +200,7 @@ func AtualizarCredencialAppyPay(c *gin.Context) {
 func ListarCredenciaisAppyPay(c *gin.Context) {
 	contexto := c.Query("contexto_tipo")
 	academia := c.Query("codigo_academia")
-	if !authorizeFinanceScope(c, &contexto, &academia) {
+	if !authorizeFinanceScope(c, &contexto, &academia, false) {
 		utils.RespondWithForbiddenError(c, "sem permissão para consultar credenciais financeiras")
 		return
 	}
@@ -203,7 +221,7 @@ func ConsultarSegredoWebhookAppyPay(c *gin.Context) {
 		utils.RespondWithValidationError(c, errors.New("id inválido"))
 		return
 	}
-	if !credentialScopeAuthorized(c, id) {
+	if !credentialScopeAuthorized(c, id, false) {
 		return
 	}
 	secret, err := FinanceiroService.WebhookSecret(c.Request.Context(), id)
@@ -223,7 +241,7 @@ func RotacionarSegredoWebhookAppyPay(c *gin.Context) {
 		utils.RespondWithValidationError(c, errors.New("id inválido"))
 		return
 	}
-	if !credentialScopeAuthorized(c, id) {
+	if !credentialScopeAuthorized(c, id, true) {
 		return
 	}
 	actorID, actorType, _, ok := financeActor(c)
@@ -245,7 +263,11 @@ func CriarCobrancaAppyPay(c *gin.Context) {
 		utils.RespondWithValidationError(c, errors.New("payload inválido"))
 		return
 	}
-	if !authorizeFinanceScope(c, &in.ContextoTipo, &in.CodigoAcademia) {
+	// Fora do escopo de "configurações financeiras": criar uma cobrança não
+	// é uma configuração de academia, é uma operação transacional pontual —
+	// o admin FPP continua podendo emiti-la em qualquer contexto, como já
+	// era o comportamento antes desta correção (write=false).
+	if !authorizeFinanceScope(c, &in.ContextoTipo, &in.CodigoAcademia, false) {
 		utils.RespondWithForbiddenError(c, "sem permissão para este contexto financeiro")
 		return
 	}
@@ -267,7 +289,10 @@ func GerarQRCodeAppyPay(c *gin.Context) {
 		utils.RespondWithValidationError(c, errors.New("payload inválido"))
 		return
 	}
-	if !authorizeFinanceScope(c, &in.ContextoTipo, &in.CodigoAcademia) {
+	// Fora do escopo de "configurações financeiras": gerar QR Code é uma
+	// operação transacional de uma cobrança já existente, não uma
+	// configuração de academia (write=false, preserva comportamento anterior).
+	if !authorizeFinanceScope(c, &in.ContextoTipo, &in.CodigoAcademia, false) {
 		utils.RespondWithForbiddenError(c, "sem permissão para este contexto financeiro")
 		return
 	}
@@ -286,7 +311,7 @@ func GerarQRCodeAppyPay(c *gin.Context) {
 func ConsultarCobrancaAppyPay(c *gin.Context) {
 	contexto := c.Query("contexto_tipo")
 	academia := c.Query("codigo_academia")
-	if !authorizeFinanceScope(c, &contexto, &academia) {
+	if !authorizeFinanceScope(c, &contexto, &academia, false) {
 		utils.RespondWithForbiddenError(c, "sem permissão para este contexto financeiro")
 		return
 	}
@@ -347,7 +372,7 @@ func parseOptionalUUIDQuery(c *gin.Context, param string) (*uuid.UUID, error) {
 func ListarCobrancasAppyPay(c *gin.Context) {
 	contexto := c.Query("contexto_tipo")
 	academia := c.Query("codigo_academia")
-	if !authorizeFinanceScope(c, &contexto, &academia) {
+	if !authorizeFinanceScope(c, &contexto, &academia, false) {
 		utils.RespondWithForbiddenError(c, "sem permissão para este contexto financeiro")
 		return
 	}

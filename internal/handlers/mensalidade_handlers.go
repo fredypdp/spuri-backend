@@ -13,9 +13,13 @@ import (
 	"spuri/internal/utils"
 )
 
-// configure/list are academy-owned resources; FPP may supervise or configure
-// them, while exemption decisions below remain academy-exclusive.
-func authorizeMensalidadeAcademia(c *gin.Context, codigo *string) bool {
+// configure/list are academy-owned resources; FPP may only supervise
+// (consultar/listar) them — an admin can never create, update, or remove a
+// specific academy's mensalidade/matrícula/mês-de-início configuration
+// (write=true is always denied for the "admin" actor type). Exemption
+// decisions (anular/reativar obrigações) remain academy-exclusive and don't
+// use this function at all.
+func authorizeMensalidadeAcademia(c *gin.Context, codigo *string, write bool) bool {
 	_, typ, own, ok := financeActor(c)
 	if !ok {
 		return false
@@ -27,7 +31,10 @@ func authorizeMensalidadeAcademia(c *gin.Context, codigo *string) bool {
 		*codigo = own
 		return true
 	}
-	return typ == "admin" && financeAdminAllowed(c) && strings.TrimSpace(*codigo) != ""
+	if typ != "admin" || !financeAdminAllowed(c) || strings.TrimSpace(*codigo) == "" {
+		return false
+	}
+	return !write
 }
 
 func ConfigurarMensalidade(c *gin.Context) {
@@ -36,7 +43,7 @@ func ConfigurarMensalidade(c *gin.Context) {
 		utils.RespondWithValidationError(c, errors.New("payload inválido"))
 		return
 	}
-	if !authorizeMensalidadeAcademia(c, &in.CodigoAcademia) {
+	if !authorizeMensalidadeAcademia(c, &in.CodigoAcademia, true) {
 		utils.RespondWithForbiddenError(c, "sem permissão para configurar mensalidade desta academia")
 		return
 	}
@@ -55,7 +62,7 @@ func ConfigurarMensalidade(c *gin.Context) {
 
 func ListarConfiguracoesMensalidade(c *gin.Context) {
 	codigo := c.Query("codigo_academia")
-	if !authorizeMensalidadeAcademia(c, &codigo) {
+	if !authorizeMensalidadeAcademia(c, &codigo, false) {
 		utils.RespondWithForbiddenError(c, "sem permissão para consultar mensalidades desta academia")
 		return
 	}
@@ -83,7 +90,7 @@ func RemoverConfiguracaoMensalidade(c *gin.Context) {
 		utils.RespondWithValidationError(c, errors.New("payload inválido"))
 		return
 	}
-	if !authorizeMensalidadeAcademia(c, &in.CodigoAcademia) {
+	if !authorizeMensalidadeAcademia(c, &in.CodigoAcademia, true) {
 		utils.RespondWithForbiddenError(c, "sem permissão para remover configuração de mensalidade desta academia")
 		return
 	}
@@ -114,7 +121,7 @@ func ConfigurarMatricula(c *gin.Context) {
 		utils.RespondWithValidationError(c, errors.New("payload inválido"))
 		return
 	}
-	if !authorizeMensalidadeAcademia(c, &in.CodigoAcademia) {
+	if !authorizeMensalidadeAcademia(c, &in.CodigoAcademia, true) {
 		utils.RespondWithForbiddenError(c, "sem permissão para configurar matrícula desta academia")
 		return
 	}
@@ -133,7 +140,7 @@ func ConfigurarMatricula(c *gin.Context) {
 
 func ListarConfiguracoesMatricula(c *gin.Context) {
 	codigo := c.Query("codigo_academia")
-	if !authorizeMensalidadeAcademia(c, &codigo) {
+	if !authorizeMensalidadeAcademia(c, &codigo, false) {
 		utils.RespondWithForbiddenError(c, "sem permissão para consultar matrículas desta academia")
 		return
 	}
@@ -151,7 +158,7 @@ func RemoverConfiguracaoMatricula(c *gin.Context) {
 		utils.RespondWithValidationError(c, errors.New("payload inválido"))
 		return
 	}
-	if !authorizeMensalidadeAcademia(c, &in.CodigoAcademia) {
+	if !authorizeMensalidadeAcademia(c, &in.CodigoAcademia, true) {
 		utils.RespondWithForbiddenError(c, "sem permissão para remover configuração de matrícula desta academia")
 		return
 	}
@@ -182,7 +189,7 @@ func DefinirMesInicioCobranca(c *gin.Context) {
 		utils.RespondWithValidationError(c, errors.New("payload inválido"))
 		return
 	}
-	if !authorizeMensalidadeAcademia(c, &in.CodigoAcademia) {
+	if !authorizeMensalidadeAcademia(c, &in.CodigoAcademia, true) {
 		utils.RespondWithForbiddenError(c, "sem permissão para definir o início de cobrança desta academia")
 		return
 	}
@@ -212,7 +219,7 @@ func RemoverMesInicioCobranca(c *gin.Context) {
 		utils.RespondWithValidationError(c, errors.New("payload inválido"))
 		return
 	}
-	if !authorizeMensalidadeAcademia(c, &in.CodigoAcademia) {
+	if !authorizeMensalidadeAcademia(c, &in.CodigoAcademia, true) {
 		utils.RespondWithForbiddenError(c, "sem permissão para remover o início de cobrança desta academia")
 		return
 	}
