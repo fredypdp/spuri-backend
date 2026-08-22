@@ -153,7 +153,12 @@ func (s *Service) cobrancasExistentesMensalidade(ctx context.Context, academia s
 // mesma convenção já usada em internal/handlers/avaliacao_final_regras.go
 // (uuidStrings) para parâmetros ANY($n::uuid[]) via pq.Array — pq.Array não
 // suporta []uuid.UUID diretamente por reflection.
-func (s *Service) chargeIDsEscopoMensalidade(ctx context.Context, academia string, turmaID, cursoID *uuid.UUID, anoAcademico, anoLetivo string) ([]string, error) {
+// mes (tarefa 60) filtra adicionalmente por um mês específico de calendário
+// (1-12) dentro do escopo já resolvido — não substitui os filtros de
+// turma/curso/ano_academico/ano_letivo, apenas os refina, porque um mês
+// sozinho não delimita o suficiente (poderia abranger vários anos letivos
+// de vários estudantes).
+func (s *Service) chargeIDsEscopoMensalidade(ctx context.Context, academia string, turmaID, cursoID *uuid.UUID, anoAcademico, anoLetivo string, mes *int) ([]string, error) {
 	vinculos, err := s.escopoMensalidadeEstudantes(ctx, academia, turmaID, cursoID, anoAcademico, anoLetivo)
 	if err != nil {
 		return nil, err
@@ -171,7 +176,13 @@ func (s *Service) chargeIDsEscopoMensalidade(ctx context.Context, academia strin
 	for e := range estudantesSet {
 		estudantes = append(estudantes, e)
 	}
-	rows, err := s.client.DB().QueryContext(ctx, `SELECT DISTINCT charge_id, codigo_estudante, ano_letivo FROM financeiro_mensalidade_cobrancas WHERE codigo_academia=$1 AND codigo_estudante = ANY($2)`, academia, pq.Array(estudantes))
+	q := `SELECT DISTINCT charge_id, codigo_estudante, ano_letivo FROM financeiro_mensalidade_cobrancas WHERE codigo_academia=$1 AND codigo_estudante = ANY($2)`
+	args := []any{academia, pq.Array(estudantes)}
+	if mes != nil {
+		q += " AND mes=$3"
+		args = append(args, *mes)
+	}
+	rows, err := s.client.DB().QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +216,10 @@ func (s *Service) chargeIDsEscopoMensalidade(ctx context.Context, academia strin
 // delimitado (uma turma, um ano acadêmico, um curso ou um ano letivo, nunca
 // a academia inteira sem filtro), então o custo de N chamadas sequenciais é
 // aceitável nesse volume.
-func (s *Service) PendenciasSemCobranca(ctx context.Context, academia string, turmaID, cursoID *uuid.UUID, anoAcademico, anoLetivo string) ([]MensalidadeMesView, error) {
+// mes (tarefa 60) restringe adicionalmente o resultado a um único mês de
+// calendário (1-12) — mesmo raciocínio de chargeIDsEscopoMensalidade: só
+// refina um escopo já resolvido pelos outros filtros, nunca os substitui.
+func (s *Service) PendenciasSemCobranca(ctx context.Context, academia string, turmaID, cursoID *uuid.UUID, anoAcademico, anoLetivo string, mes *int) ([]MensalidadeMesView, error) {
 	if s.client == nil {
 		return nil, errors.New("serviço financeiro não inicializado")
 	}
@@ -240,6 +254,9 @@ func (s *Service) PendenciasSemCobranca(ctx context.Context, academia string, tu
 		}
 		for _, m := range meses {
 			if m.Estado != EstadoPendente {
+				continue
+			}
+			if mes != nil && m.Mes != *mes {
 				continue
 			}
 			chaveVinculo := m.CodigoEstudante + "|" + m.AnoLetivo + "|" + m.AnoAcademico + "|" + optionalUUID(m.CursoID)

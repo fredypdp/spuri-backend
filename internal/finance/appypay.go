@@ -630,7 +630,12 @@ func (s *Service) CancelCharge(ctx context.Context, contexto, academia, identifi
 // desses quatro filtros exclui automaticamente cobranças de matrícula e
 // avulsas do resultado; isso é intencional. Quando nenhum dos quatro é
 // informado, o comportamento é idêntico ao anterior à tarefa 58.
-func (s *Service) ListCobrancas(ctx context.Context, contexto, academia string, estados, origens []string, turmaID, cursoID *uuid.UUID, anoAcademico, anoLetivo string, limit, offset int) (*CobrancaListResult, error) {
+// mes (tarefa 60) restringe adicionalmente a um mês de calendário (1-12)
+// dentro do escopo — ver chargeIDsEscopoMensalidade. Só tem efeito quando
+// combinado com pelo menos um dos quatro filtros de escopo acima; sozinho,
+// não delimita o suficiente (haveria estudantes de vários anos letivos
+// diferentes com cobranças naquele mesmo mês de calendário).
+func (s *Service) ListCobrancas(ctx context.Context, contexto, academia string, estados, origens []string, turmaID, cursoID *uuid.UUID, anoAcademico, anoLetivo string, mes *int, limit, offset int) (*CobrancaListResult, error) {
 	if s.client == nil {
 		return nil, errors.New("serviço financeiro não inicializado")
 	}
@@ -660,7 +665,7 @@ func (s *Service) ListCobrancas(ctx context.Context, contexto, academia string, 
 		where += clause
 	}
 	if turmaID != nil || cursoID != nil || anoAcademico != "" || anoLetivo != "" {
-		chargeIDs, err := s.chargeIDsEscopoMensalidade(ctx, academia, turmaID, cursoID, anoAcademico, anoLetivo)
+		chargeIDs, err := s.chargeIDsEscopoMensalidade(ctx, academia, turmaID, cursoID, anoAcademico, anoLetivo, mes)
 		if err != nil {
 			return nil, err
 		}
@@ -774,7 +779,12 @@ func scanCobrancaResumo(rows *sql.Rows) (CobrancaResumo, error) {
 // restringir a academia, informar qualquer um desses quatro filtros
 // devolve erro de validação, porque não há uma única academia para resolver
 // o escopo de turma/curso contra o histórico do estudante.
-func (s *Service) ListCobrancasEstudante(ctx context.Context, codigoEstudante string, somenteAcademia *string, estados, origens []string, turmaID, cursoID *uuid.UUID, anoAcademico, anoLetivo string, limit, offset int) (*CobrancaListResult, error) {
+// mes (tarefa 60) tem o mesmo efeito de ListCobrancas: só delimita a mais
+// junto de um dos quatro filtros acima. Nenhum endpoint HTTP expõe este
+// parâmetro para ListCobrancasEstudante ainda — a assinatura só ganhou o
+// parâmetro para poder compartilhar chargeIDsEscopoMensalidade com
+// ListCobrancas sem duplicar código; ver tarefa 60 para o contexto completo.
+func (s *Service) ListCobrancasEstudante(ctx context.Context, codigoEstudante string, somenteAcademia *string, estados, origens []string, turmaID, cursoID *uuid.UUID, anoAcademico, anoLetivo string, mes *int, limit, offset int) (*CobrancaListResult, error) {
 	if s.client == nil {
 		return nil, errors.New("serviço financeiro não inicializado")
 	}
@@ -806,7 +816,7 @@ func (s *Service) ListCobrancasEstudante(ctx context.Context, codigoEstudante st
 		if somenteAcademia != nil {
 			academiaEscopo = *somenteAcademia
 		}
-		chargeIDs, err := s.chargeIDsEscopoMensalidade(ctx, academiaEscopo, turmaID, cursoID, anoAcademico, anoLetivo)
+		chargeIDs, err := s.chargeIDsEscopoMensalidade(ctx, academiaEscopo, turmaID, cursoID, anoAcademico, anoLetivo, mes)
 		if err != nil {
 			return nil, err
 		}

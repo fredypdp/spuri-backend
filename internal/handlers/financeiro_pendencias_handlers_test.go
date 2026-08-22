@@ -165,3 +165,54 @@ func TestIntegrationConsultarCobrancasEstudanteIncluiPendenciasSemCobranca(t *te
 		t.Fatalf("esperava pendencias_sem_cobranca não vazio: %s", recorder.Body.String())
 	}
 }
+
+// TestIntegrationListarCobrancasAppyPayFiltraPorMes cobre, no nível HTTP, o
+// filtro mes (tarefa 60): combinado com ano_letivo, restringe tanto
+// cobrancas quanto pendencias_sem_cobranca a um único mês de calendário —
+// é este par de parâmetros que o passo final do drill-down do frontend usa.
+func TestIntegrationListarCobrancasAppyPayFiltraPorMes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	client := integrationFinanceClient(t)
+	academia := "MES" + strings.ReplaceAll(uuid.NewString(), "-", "")[:7]
+	estudante := "ESTHMS1"
+	seedAcademiaEscolarPrivadaComTurma(t, client, academia, "T-HTTP-MES", "2026_2027", "7_ano_fundamental", estudante)
+	seedMensalidadeConfigParaHTTP(t, client, academia, "7_ano_fundamental", 15000)
+
+	previousService := FinanceiroService
+	FinanceiroService = finance.NewService(client)
+	t.Cleanup(func() { FinanceiroService = previousService })
+
+	call := func(query string) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest(http.MethodGet, "/financeiro/cobrancas?"+query, nil)
+		ctx.Set("dbClient", client)
+		ctx.Set("user_id", uuid.New())
+		ctx.Set("user_type", "academia")
+		ctx.Set("codigo_academia", academia)
+		ListarCobrancasAppyPay(ctx)
+		return recorder
+	}
+
+	comMesInvalido := call("ano_letivo=2026_2027&mes=13")
+	if comMesInvalido.Code != http.StatusBadRequest {
+		t.Fatalf("mes=13 deveria ser rejeitado com 400, obteve %d: %s", comMesInvalido.Code, comMesInvalido.Body.String())
+	}
+
+	comMesSetembro := call("ano_letivo=2026_2027&mes=9")
+	if comMesSetembro.Code != http.StatusOK {
+		t.Fatalf("mes=9 = %d: %s", comMesSetembro.Code, comMesSetembro.Body.String())
+	}
+	var body struct {
+		PendenciasSemCobranca []finance.MensalidadeMesView `json:"pendencias_sem_cobranca"`
+	}
+	if err := json.Unmarshal(comMesSetembro.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.PendenciasSemCobranca) != 1 {
+		t.Fatalf("esperava exatamente 1 pendência filtrando por mes=9, obteve %d: %s", len(body.PendenciasSemCobranca), comMesSetembro.Body.String())
+	}
+	if body.PendenciasSemCobranca[0].Mes != 9 {
+		t.Fatalf("esperava mes=9, obteve %d", body.PendenciasSemCobranca[0].Mes)
+	}
+}

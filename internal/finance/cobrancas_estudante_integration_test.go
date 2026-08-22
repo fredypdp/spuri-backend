@@ -45,7 +45,7 @@ func TestIntegrationListCobrancasEstudanteIncluiMensalidadeEMatricula(t *testing
 	insert("Failed", codigoEstudante, "")    // mensalidade falhada — deve aparecer também (todos os estados)
 	insert("Success", "OUTRO12", "")         // de outro estudante — não deve aparecer
 
-	res, err := service.ListCobrancasEstudante(ctx, codigoEstudante, nil, nil, nil, nil, nil, "", "", 50, 0)
+	res, err := service.ListCobrancasEstudante(ctx, codigoEstudante, nil, nil, nil, nil, nil, "", "", nil, 50, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestIntegrationListCobrancasEstudanteIncluiMensalidadeEMatricula(t *testing
 		t.Fatalf("cobrança falhada não apareceu (listagem deveria incluir todos os estados por padrão): %#v", res.Cobrancas)
 	}
 
-	pagas, err := service.ListCobrancasEstudante(ctx, codigoEstudante, nil, []string{"Success"}, nil, nil, nil, "", "", 50, 0)
+	pagas, err := service.ListCobrancasEstudante(ctx, codigoEstudante, nil, []string{"Success"}, nil, nil, nil, "", "", nil, 50, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestIntegrationListCobrancasEstudanteIncluiMensalidadeEMatricula(t *testing
 	// tarefa 49: o próprio estudante também precisa conseguir filtrar por
 	// tipo de cobrança (mensalidade/matrícula/avulsa), mesmo mecanismo que
 	// ListCobrancas já oferece à academia/admin.
-	somenteMensalidade, err := service.ListCobrancasEstudante(ctx, codigoEstudante, nil, nil, []string{"mensalidade"}, nil, nil, "", "", 50, 0)
+	somenteMensalidade, err := service.ListCobrancasEstudante(ctx, codigoEstudante, nil, nil, []string{"mensalidade"}, nil, nil, "", "", nil, 50, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestIntegrationListCobrancasEstudanteIncluiMensalidadeEMatricula(t *testing
 		}
 	}
 
-	somenteMatricula, err := service.ListCobrancasEstudante(ctx, codigoEstudante, nil, nil, []string{"matricula"}, nil, nil, "", "", 50, 0)
+	somenteMatricula, err := service.ListCobrancasEstudante(ctx, codigoEstudante, nil, nil, []string{"matricula"}, nil, nil, "", "", nil, 50, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestIntegrationListCobrancasEstudanteIncluiMensalidadeEMatricula(t *testing
 		t.Fatalf("filtro por tipo=matricula deveria devolver só a cobrança da matrícula original, obteve %#v", somenteMatricula.Cobrancas)
 	}
 
-	if _, err := service.ListCobrancasEstudante(ctx, codigoEstudante, nil, nil, []string{"invalido"}, nil, nil, "", "", 50, 0); err == nil {
+	if _, err := service.ListCobrancasEstudante(ctx, codigoEstudante, nil, nil, []string{"invalido"}, nil, nil, "", "", nil, 50, 0); err == nil {
 		t.Fatal("esperava erro para tipo de cobrança inválido")
 	}
 }
@@ -132,7 +132,7 @@ func TestIntegrationListCobrancasEstudanteSomenteAcademiaIsolaOutraAcademia(t *t
 	insert(academiaA)
 	insert(academiaB)
 
-	semRestricao, err := service.ListCobrancasEstudante(ctx, estudante, nil, nil, nil, nil, nil, "", "", 50, 0)
+	semRestricao, err := service.ListCobrancasEstudante(ctx, estudante, nil, nil, nil, nil, nil, "", "", nil, 50, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestIntegrationListCobrancasEstudanteSomenteAcademiaIsolaOutraAcademia(t *t
 		t.Fatalf("sem somenteAcademia deveria ver as 2 cobranças (histórico completo), obteve %d", semRestricao.Total)
 	}
 
-	comRestricao, err := service.ListCobrancasEstudante(ctx, estudante, &academiaA, nil, nil, nil, nil, "", "", 50, 0)
+	comRestricao, err := service.ListCobrancasEstudante(ctx, estudante, &academiaA, nil, nil, nil, nil, "", "", nil, 50, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
