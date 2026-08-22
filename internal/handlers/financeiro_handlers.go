@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -369,6 +370,21 @@ func parseOptionalUUIDQuery(c *gin.Context, param string) (*uuid.UUID, error) {
 	return &id, nil
 }
 
+// parseOptionalMesQuery lê um parâmetro de query opcional como mês de
+// calendário (1-12). Devolve nil quando o parâmetro não foi informado, e
+// erro quando foi informado mas não é um inteiro entre 1 e 12.
+func parseOptionalMesQuery(c *gin.Context, param string) (*int, error) {
+	raw := strings.TrimSpace(c.Query(param))
+	if raw == "" {
+		return nil, nil
+	}
+	mes, err := strconv.Atoi(raw)
+	if err != nil || mes < 1 || mes > 12 {
+		return nil, fmt.Errorf("%s deve ser um mês entre 1 e 12", param)
+	}
+	return &mes, nil
+}
+
 func ListarCobrancasAppyPay(c *gin.Context) {
 	contexto := c.Query("contexto_tipo")
 	academia := c.Query("codigo_academia")
@@ -388,9 +404,14 @@ func ListarCobrancasAppyPay(c *gin.Context) {
 	}
 	anoAcademico := c.Query("ano_academico")
 	anoLetivo := c.Query("ano_letivo")
+	mes, err := parseOptionalMesQuery(c, "mes")
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 	limit := parseBoundedInt(c.Query("limit"), 50, 1, 1000)
 	offset := parseBoundedInt(c.Query("offset"), 0, 0, 1_000_000)
-	res, err := FinanceiroService.ListCobrancas(c.Request.Context(), contexto, academia, c.QueryArray("estado"), c.QueryArray("tipo"), turmaID, cursoID, anoAcademico, anoLetivo, limit, offset)
+	res, err := FinanceiroService.ListCobrancas(c.Request.Context(), contexto, academia, c.QueryArray("estado"), c.QueryArray("tipo"), turmaID, cursoID, anoAcademico, anoLetivo, mes, limit, offset)
 	if err != nil {
 		financeError(c, err)
 		return
@@ -399,10 +420,10 @@ func ListarCobrancasAppyPay(c *gin.Context) {
 	// pendencias_sem_cobranca só é computado quando pelo menos um dos
 	// quatro filtros de escopo (turma_id, curso_id, ano_academico,
 	// ano_letivo) é informado junto de codigo_academia — sem isso, a
-	// varredura seria sobre a academia inteira sem limite. Ver
-	// finance.PendenciasSemCobranca.
+	// varredura seria sobre a academia inteira sem limite. mes (tarefa 60)
+	// só refina esse escopo, nunca o substitui. Ver finance.PendenciasSemCobranca.
 	if turmaID != nil || cursoID != nil || anoAcademico != "" || anoLetivo != "" {
-		pendencias, err := FinanceiroService.PendenciasSemCobranca(c.Request.Context(), academia, turmaID, cursoID, anoAcademico, anoLetivo)
+		pendencias, err := FinanceiroService.PendenciasSemCobranca(c.Request.Context(), academia, turmaID, cursoID, anoAcademico, anoLetivo, mes)
 		if err != nil {
 			financeError(c, err)
 			return
@@ -473,7 +494,10 @@ func ConsultarCobrancasEstudante(c *gin.Context) {
 	anoLetivo := c.Query("ano_letivo")
 	limit := parseBoundedInt(c.Query("limit"), 50, 1, 1000)
 	offset := parseBoundedInt(c.Query("offset"), 0, 0, 1_000_000)
-	res, err := FinanceiroService.ListCobrancasEstudante(c.Request.Context(), codigo, somenteAcademia, c.QueryArray("estado"), c.QueryArray("tipo"), turmaID, cursoID, anoAcademico, anoLetivo, limit, offset)
+	// mes não é exposto como parâmetro de query nesta rota ainda (só em
+	// GET /financeiro/cobrancas, tarefa 60) — passamos nil para manter o
+	// comportamento anterior inalterado aqui.
+	res, err := FinanceiroService.ListCobrancasEstudante(c.Request.Context(), codigo, somenteAcademia, c.QueryArray("estado"), c.QueryArray("tipo"), turmaID, cursoID, anoAcademico, anoLetivo, nil, limit, offset)
 	if err != nil {
 		financeError(c, err)
 		return

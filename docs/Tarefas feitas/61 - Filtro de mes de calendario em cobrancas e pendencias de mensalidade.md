@@ -1,7 +1,7 @@
 ---
 criado: 2026-08-22 00:00
 origem: Pedido do usuário (Spuri), orquestrado por Claude (Anthropic) em sandbox com PostgreSQL 16 e Go 1.24 reais
-status: pendente
+status: feito
 prioridade: alta
 depende_de: "59 - Pendencias de mensalidade sem cobranca e filtros de escopo academico em cobrancas.md"
 ---

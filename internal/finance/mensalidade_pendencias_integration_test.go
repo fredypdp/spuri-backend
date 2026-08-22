@@ -76,7 +76,7 @@ func TestIntegrationPendenciasSemCobrancaExcluiQuandoJaExisteTentativa(t *testin
 	// não deve aparecer como "pendência sem cobrança" para esse mês.
 	seedFinanceiroCobrancaMensalidade(t, client, academia, "ESTPN02", "falhada", "2026_2027", 9, 15000)
 
-	res, err := service.PendenciasSemCobranca(ctx, academia, nil, nil, "", "2026_2027")
+	res, err := service.PendenciasSemCobranca(ctx, academia, nil, nil, "", "2026_2027", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,10 +121,10 @@ func TestIntegrationPendenciasSemCobrancaExigeEscopo(t *testing.T) {
 	ctx := context.Background()
 
 	academia := mensalidadeCodigo()
-	if _, err := service.PendenciasSemCobranca(ctx, academia, nil, nil, "", ""); err == nil {
+	if _, err := service.PendenciasSemCobranca(ctx, academia, nil, nil, "", "", nil); err == nil {
 		t.Fatal("esperava erro de validação sem nenhum filtro de escopo")
 	}
-	if _, err := service.PendenciasSemCobranca(ctx, "", nil, nil, "", "2026_2027"); err == nil {
+	if _, err := service.PendenciasSemCobranca(ctx, "", nil, nil, "", "2026_2027", nil); err == nil {
 		t.Fatal("esperava erro de validação sem codigo_academia")
 	}
 }
@@ -174,7 +174,7 @@ func TestIntegrationListCobrancasFiltraPorEscopoMensalidade(t *testing.T) {
 	seedFinanceiroCobrancaMensalidade(t, client, academia, "ESTFL01", "Success", "2026_2027", 9, 15000)
 	seedFinanceiroCobrancaMensalidade(t, client, academia, "ESTFL02", "Success", "2026_2027", 9, 16000)
 
-	semFiltro, err := service.ListCobrancas(ctx, ContextoAcademia, academia, nil, nil, nil, nil, "", "", 50, 0)
+	semFiltro, err := service.ListCobrancas(ctx, ContextoAcademia, academia, nil, nil, nil, nil, "", "", nil, 50, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestIntegrationListCobrancasFiltraPorEscopoMensalidade(t *testing.T) {
 		t.Fatalf("esperava 2 cobranças sem filtro de escopo, obteve %d", semFiltro.Total)
 	}
 
-	comFiltroAno, err := service.ListCobrancas(ctx, ContextoAcademia, academia, nil, nil, nil, nil, "7_ano_fundamental", "", 50, 0)
+	comFiltroAno, err := service.ListCobrancas(ctx, ContextoAcademia, academia, nil, nil, nil, nil, "7_ano_fundamental", "", nil, 50, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,11 +190,90 @@ func TestIntegrationListCobrancasFiltraPorEscopoMensalidade(t *testing.T) {
 		t.Fatalf("as duas turmas são 7_ano_fundamental (mesmo ano_academico); esperava 2, obteve %d", comFiltroAno.Total)
 	}
 
-	comFiltroAnoLetivoInexistente, err := service.ListCobrancas(ctx, ContextoAcademia, academia, nil, nil, nil, nil, "", "2099_2100", 50, 0)
+	comFiltroAnoLetivoInexistente, err := service.ListCobrancas(ctx, ContextoAcademia, academia, nil, nil, nil, nil, "", "2099_2100", nil, 50, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if comFiltroAnoLetivoInexistente.Total != 0 {
 		t.Fatalf("ano_letivo inexistente deveria devolver 0 cobranças, obteve %d", comFiltroAnoLetivoInexistente.Total)
+	}
+}
+
+// TestIntegrationListCobrancasFiltraPorMes cobre a tarefa 60: mes restringe
+// ainda mais um escopo já delimitado por ano_letivo (ou outro dos quatro
+// filtros) a um único mês de calendário — necessário para o fluxo de
+// drill-down do frontend (ano letivo -> mês -> lista) paginar corretamente
+// sem precisar buscar o ano letivo inteiro para filtrar no cliente.
+func TestIntegrationListCobrancasFiltraPorMes(t *testing.T) {
+	client := integrationClient(t)
+	service := NewService(client)
+	ctx := context.Background()
+
+	academia := mensalidadeCodigo()
+	seedMensalidadeAcademia(t, client, academia, "private", "fundamental", "2026_2027")
+	seedMensalidadeTurma(t, client, academia, "T-MES-A", "2026_2027", "ESTMS01", nil)
+
+	seedFinanceiroCobrancaMensalidade(t, client, academia, "ESTMS01", "Success", "2026_2027", 9, 15000)
+	seedFinanceiroCobrancaMensalidade(t, client, academia, "ESTMS01", "Success", "2026_2027", 10, 15000)
+
+	mesNove := 9
+	comMes, err := service.ListCobrancas(ctx, ContextoAcademia, academia, nil, nil, nil, nil, "", "2026_2027", &mesNove, 50, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if comMes.Total != 1 {
+		t.Fatalf("esperava 1 cobrança filtrando por mes=9, obteve %d", comMes.Total)
+	}
+
+	mesDez := 12
+	comMesSemCobranca, err := service.ListCobrancas(ctx, ContextoAcademia, academia, nil, nil, nil, nil, "", "2026_2027", &mesDez, 50, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if comMesSemCobranca.Total != 0 {
+		t.Fatalf("dezembro não tem cobrança nenhuma; esperava 0, obteve %d", comMesSemCobranca.Total)
+	}
+
+	semMes, err := service.ListCobrancas(ctx, ContextoAcademia, academia, nil, nil, nil, nil, "", "2026_2027", nil, 50, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if semMes.Total != 2 {
+		t.Fatalf("sem filtro de mes, esperava as 2 cobranças (setembro e outubro), obteve %d", semMes.Total)
+	}
+}
+
+// TestIntegrationPendenciasSemCobrancaFiltraPorMes cobre o mesmo filtro
+// aplicado a PendenciasSemCobranca — o passo final do drill-down do
+// frontend precisa das pendências de UM mês específico, não do ano letivo
+// inteiro.
+func TestIntegrationPendenciasSemCobrancaFiltraPorMes(t *testing.T) {
+	client := integrationClient(t)
+	service := NewService(client)
+	ctx := context.Background()
+
+	academia := mensalidadeCodigo()
+	seedMensalidadeAcademia(t, client, academia, "private", "fundamental", "2026_2027")
+	seedMensalidadeTurma(t, client, academia, "T-MESP-A", "2026_2027", "ESTMP01", nil)
+	seedMensalidadeConfiguracao(t, client, academia, NivelFundamental, "7_ano_fundamental", nil, 15000, 7, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+
+	mesSetembro := 9
+	res, err := service.PendenciasSemCobranca(ctx, academia, nil, nil, "", "2026_2027", &mesSetembro)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("esperava exatamente 1 pendência (setembro), obteve %d: %#v", len(res), res)
+	}
+	if res[0].Mes != 9 {
+		t.Fatalf("esperava mes=9, obteve %d", res[0].Mes)
+	}
+
+	semMes, err := service.PendenciasSemCobranca(ctx, academia, nil, nil, "", "2026_2027", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(semMes) <= 1 {
+		t.Fatalf("sem filtro de mes, esperava mais de 1 pendência (todo o ano letivo), obteve %d", len(semMes))
 	}
 }
