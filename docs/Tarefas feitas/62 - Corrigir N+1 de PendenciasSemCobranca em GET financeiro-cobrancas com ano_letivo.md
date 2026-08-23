@@ -1,8 +1,9 @@
 ---
 criado: 2026-08-23
 origem: docs/Debbugs/Depurar lentidao de varios minutos em GET financeiro-cobrancas com ano_letivo.md
-status: pendente
+status: concluido
 tipo: correcao_critica_performance
+concluido: 2026-08-23
 ---
 
 # Corrigir N+1 de `PendenciasSemCobranca` em `GET /financeiro/cobrancas` com `ano_letivo`

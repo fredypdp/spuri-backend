@@ -277,3 +277,61 @@ func TestIntegrationPendenciasSemCobrancaFiltraPorMes(t *testing.T) {
 		t.Fatalf("sem filtro de mes, esperava mais de 1 pendência (todo o ano letivo), obteve %d", len(semMes))
 	}
 }
+
+// TestIntegrationPendenciasSemCobrancaNaoDuplicaEstudanteEmDuasTurmasMesmoAno
+// cobre um caso de borda da correção de performance de PendenciasSemCobranca
+// (tarefa "GET /financeiro/cobrancas — lentidão de vários minutos com
+// ano_letivo"): escopoMensalidadeEstudantes inclui turma_id na
+// deduplicação (SELECT DISTINCT ... turma_id, ...), diferente de
+// vinculosMensalidade (que dedupe por academia+ano_letivo+nivel+
+// ano_academico+curso_id, SEM turma_id). Um estudante que aparece em DUAS
+// turmas diferentes para a MESMA combinação (ex.: transferência de turma no
+// meio do ano letivo histórico) produz duas linhas distintas em
+// escopoMensalidadeEstudantes — PendenciasSemCobranca precisa deduplicar
+// essas linhas antes de expandir os meses, ou listaria cada mês pendente
+// duas vezes para esse estudante.
+func TestIntegrationPendenciasSemCobrancaNaoDuplicaEstudanteEmDuasTurmasMesmoAno(t *testing.T) {
+	client := integrationClient(t)
+	service := NewService(client)
+	ctx := context.Background()
+
+	academia := mensalidadeCodigo()
+	seedMensalidadeAcademia(t, client, academia, "private", "fundamental", "2026_2027")
+	seedMensalidadeConfiguracao(t, client, academia, NivelFundamental, "6_ano_fundamental", nil, 15000, 7, time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC))
+	seedMensalidadeTurma(t, client, academia, "T-DUP-A", "2020_2021", "ESTDUP01", nil)
+	seedMensalidadeTurma(t, client, academia, "T-DUP-B", "2020_2021", "ESTDUP01", nil)
+
+	mesSetembro := 9
+	res, err := service.PendenciasSemCobranca(ctx, academia, nil, nil, "", "2020_2021", &mesSetembro)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, m := range res {
+		if m.CodigoEstudante == "ESTDUP01" && m.Mes == 9 {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("esperava exatamente 1 pendência para ESTDUP01/setembro (estudante em 2 turmas do mesmo ano), obteve %d: %#v", count, res)
+	}
+
+	semMes, err := service.PendenciasSemCobranca(ctx, academia, nil, nil, "", "2020_2021", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	porMes := map[int]int{}
+	for _, m := range semMes {
+		if m.CodigoEstudante == "ESTDUP01" {
+			porMes[m.Mes]++
+		}
+	}
+	if len(porMes) == 0 {
+		t.Fatal("esperava pendências para ESTDUP01 no ano letivo inteiro")
+	}
+	for mes, qtd := range porMes {
+		if qtd != 1 {
+			t.Fatalf("mês %d apareceu %d vezes para ESTDUP01 (esperava exatamente 1)", mes, qtd)
+		}
+	}
+}
