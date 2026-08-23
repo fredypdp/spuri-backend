@@ -36,9 +36,7 @@ type obrigacaoEstadoBatch struct {
 // (estudante, ano_letivo, mes) em memória.
 //
 // A chave do mapa devolvido é "codigo_estudante|ano_letivo|mes" (mes como
-// string via strconv.Itoa) — o mesmo formato de chave já usado por
-// cobrancasExistentesMensalidade, para que o chamador possa reaproveitar a
-// mesma chave nas duas consultas.
+// string via strconv.Itoa).
 //
 // Um par (estudante, mes) ausente do mapa devolvido nunca teve nenhum
 // evento de obrigação registrado — o chamador deve tratar essa ausência

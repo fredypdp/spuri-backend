@@ -112,35 +112,6 @@ func (s *Service) escopoMensalidadeEstudantes(ctx context.Context, academia stri
 	return out, rows.Err()
 }
 
-// cobrancasExistentesMensalidade devolve o conjunto de (codigo_estudante,
-// ano_letivo, mes) que JÁ tiveram alguma tentativa de cobrança de
-// mensalidade registrada, qualquer que tenha sido o resultado (sucesso,
-// falha, cancelada). financeiro_mensalidade_cobrancas é escrita a cada
-// evento de cobrança de mensalidade (ver upsertMensalidadeCobrancas em
-// internal/projections/financeiro_projection.go), então esta é a fonte
-// definitiva para "existiu tentativa" — independente do estado atual da
-// cobrança ou da obrigação.
-func (s *Service) cobrancasExistentesMensalidade(ctx context.Context, academia string, estudantes []string) (map[string]bool, error) {
-	out := map[string]bool{}
-	if len(estudantes) == 0 {
-		return out, nil
-	}
-	rows, err := s.client.DB().QueryContext(ctx, `SELECT DISTINCT codigo_estudante, ano_letivo, mes FROM financeiro_mensalidade_cobrancas WHERE codigo_academia=$1 AND codigo_estudante = ANY($2)`, academia, pq.Array(estudantes))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var estudante, ano string
-		var mes int
-		if err := rows.Scan(&estudante, &ano, &mes); err != nil {
-			return nil, err
-		}
-		out[estudante+"|"+ano+"|"+strconv.Itoa(mes)] = true
-	}
-	return out, rows.Err()
-}
-
 // chargeIDsEscopoMensalidade devolve os IDs de financeiro_cobrancas cujas
 // mensalidades pertencem ao escopo pedido (turma/curso/ano_academico/
 // ano_letivo), resolvido via o mesmo escopoMensalidadeEstudantes usado por
@@ -202,24 +173,38 @@ func (s *Service) chargeIDsEscopoMensalidade(ctx context.Context, academia strin
 }
 
 // PendenciasSemCobranca lista os meses de mensalidade em estado "pendente"
-// que NUNCA tiveram nenhuma tentativa de cobrança registrada, para o
-// conjunto de estudantes definido pelo escopo obrigatório informado (ver
+// (nunca marcados como pagos nem anulados) para o conjunto de estudantes
+// definido pelo escopo obrigatório informado (ver
 // escopoMensalidadeEstudantes). É esta lista que resolve o problema de a
 // academia não enxergar, em nenhuma consulta, a dívida de um estudante que
-// ainda não gerou (nem tentou gerar) nenhuma cobrança — hoje só o próprio
-// estudante vê isso, via GET /financeiro/mensalidades/estudante/:codigo.
+// ainda não pagou — hoje só o próprio estudante vê isso, via
+// GET /financeiro/mensalidades/estudante/:codigo.
 //
-// ATENÇÃO — histórico de performance (ver docs/Debbugs/ e docs/Lista de
-// Tarefas/ da tarefa "GET /financeiro/cobrancas — lentidão de vários
-// minutos com ano_letivo"): esta função já chamou ListMensalidades (que
-// dispara ~37 consultas SQL sequenciais por estudante) uma vez por
-// estudante do escopo, presumindo que o escopo era sempre pequeno (uma
-// turma, um curso, um ano acadêmico OU um ano letivo). Essa premissa não se
-// sustenta para ano_letivo sozinho — o filtro que o frontend usa em
-// /financas/pagamentos, junto de mes — porque ano_letivo casa com TODOS os
-// estudantes da ACADEMIA INTEIRA naquele ano, não com uma turma. Numa
-// academia de porte médio isso já significava milhares de idas ao banco em
-// série dentro de uma única requisição HTTP.
+// ATENÇÃO — histórico do critério de exclusão (ver docs/Debbugs/ e
+// docs/Lista de Tarefas/ da tarefa "GET /financeiro/cobrancas —
+// pendências_sem_cobranca some meses com cobrança falhada"): esta função já
+// excluiu, além dos meses com Estado != EstadoPendente (pago/anulado, a
+// única fonte correta, vinda de financeiro_mensalidade_obrigacoes_eventos),
+// qualquer mês que já tivesse QUALQUER linha em
+// financeiro_mensalidade_cobrancas — uma tabela de vínculo escrita a cada
+// evento do CICLO DE VIDA de uma cobrança (solicitada, criada, consultada,
+// falhou, cancelada, QR gerado, QR falhou — ver upsertMensalidadeCobrancas
+// em internal/projections/financeiro_projection.go), não só quando ela é
+// paga. Isso escondia de "pendências sem cobrança" qualquer mês cuja única
+// tentativa tivesse FALHADO (ex.: GPO_QR expirado, cartão recusado): o mês
+// continuava por pagar, mas desaparecia de toda visão agregada da
+// academia — só reaparecia se o estudante estivesse entre os poucos meses
+// exibidos na listagem normal de cobranças (e, numa cobrança que agrupa
+// vários meses numa única tentativa, um mês "escondido" nem sempre é óbvio
+// de identificar ali). A decisão de produto (Fredy, 2026-08-23) foi listar
+// tudo que ainda não foi pago, tentativa falhada ou não — o critério de
+// exclusão passou a ser exclusivamente Estado != EstadoPendente.
+// financeiro_mensalidade_cobrancas continua existindo e sendo escrita
+// normalmente; só deixou de ser consultada por esta função (e por
+// PendenciasSemCobrancaEstudante, o mesmo caminho para um único
+// estudante) — ela permanece a fonte usada por chargeIDsEscopoMensalidade
+// para vincular cobranças de mensalidade ao escopo na listagem normal
+// (ListCobrancas), o que é um propósito diferente e não muda.
 //
 // A implementação atual NÃO chama ListMensalidades nem vinculosMensalidade
 // por estudante: os vínculos já vêm, para todo o escopo de uma vez, de
@@ -287,10 +272,6 @@ func (s *Service) PendenciasSemCobranca(ctx context.Context, academia string, tu
 		anosLetivos = append(anosLetivos, a)
 	}
 
-	existentes, err := s.cobrancasExistentesMensalidade(ctx, academia, estudantes)
-	if err != nil {
-		return nil, err
-	}
 	estados, err := s.estadosObrigacaoBatch(ctx, academia, anosLetivos, estudantes)
 	if err != nil {
 		return nil, err
@@ -349,9 +330,6 @@ func (s *Service) PendenciasSemCobranca(ctx context.Context, academia string, tu
 			if estado != EstadoPendente {
 				continue
 			}
-			if existentes[chaveMes] {
-				continue
-			}
 			out = append(out, MensalidadeMesView{
 				CodigoEstudante:  v.CodigoEstudante,
 				CodigoAcademia:   v.CodigoAcademia,
@@ -382,7 +360,15 @@ func (s *Service) PendenciasSemCobranca(ctx context.Context, academia string, tu
 // adicional, porque já está inerentemente limitada a um único estudante.
 // Usada por ConsultarCobrancasEstudante para que a consulta de pagamentos de
 // um estudante específico traga também os meses que ele deve mas ainda não
-// tentou pagar, sem exigir nenhum filtro extra do chamador.
+// pagou, sem exigir nenhum filtro extra do chamador.
+//
+// Até 2026-08-23 também excluía qualquer mês que já tivesse alguma
+// tentativa de cobrança registrada (mesmo falhada) — ver o comentário
+// histórico em PendenciasSemCobranca, que documenta por que esse critério
+// foi removido em favor de Estado != EstadoPendente sozinho (a fonte
+// correta, vinda dos eventos de obrigação já computados por
+// ListMensalidades). ListMensalidades já devolve Estado corretamente
+// calculado por mês; esta função só precisa filtrar por ele.
 func (s *Service) PendenciasSemCobrancaEstudante(ctx context.Context, codigoEstudante string, somenteAcademia *string) ([]MensalidadeMesView, error) {
 	if s.client == nil {
 		return nil, errors.New("serviço financeiro não inicializado")
@@ -400,30 +386,5 @@ func (s *Service) PendenciasSemCobrancaEstudante(ctx context.Context, codigoEstu
 			pendentes = append(pendentes, m)
 		}
 	}
-	if len(pendentes) == 0 {
-		return []MensalidadeMesView{}, nil
-	}
-	academiasSet := map[string]bool{}
-	for _, m := range pendentes {
-		academiasSet[m.CodigoAcademia] = true
-	}
-	existentes := map[string]bool{}
-	for academia := range academiasSet {
-		parcial, err := s.cobrancasExistentesMensalidade(ctx, academia, []string{codigoEstudante})
-		if err != nil {
-			return nil, err
-		}
-		for k := range parcial {
-			existentes[k] = true
-		}
-	}
-	out := []MensalidadeMesView{}
-	for _, m := range pendentes {
-		chave := m.CodigoEstudante + "|" + m.AnoLetivo + "|" + strconv.Itoa(m.Mes)
-		if existentes[chave] {
-			continue
-		}
-		out = append(out, m)
-	}
-	return out, nil
+	return pendentes, nil
 }
