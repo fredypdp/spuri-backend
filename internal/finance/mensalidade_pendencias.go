@@ -209,16 +209,49 @@ func (s *Service) chargeIDsEscopoMensalidade(ctx context.Context, academia strin
 // ainda não gerou (nem tentou gerar) nenhuma cobrança — hoje só o próprio
 // estudante vê isso, via GET /financeiro/mensalidades/estudante/:codigo.
 //
-// Reaproveita ListMensalidades (já testado, mesma função usada por
-// ConsultarMensalidadesEstudante) uma vez por estudante do escopo, em vez de
-// re-derivar mesInicioEfetivo/resolveConfiguracao/precedenciaEstado em SQL
-// batch: o escopo obrigatório garante que o número de estudantes é sempre
-// delimitado (uma turma, um ano acadêmico, um curso ou um ano letivo, nunca
-// a academia inteira sem filtro), então o custo de N chamadas sequenciais é
-// aceitável nesse volume.
+// ATENÇÃO — histórico de performance (ver docs/Debbugs/ e docs/Lista de
+// Tarefas/ da tarefa "GET /financeiro/cobrancas — lentidão de vários
+// minutos com ano_letivo"): esta função já chamou ListMensalidades (que
+// dispara ~37 consultas SQL sequenciais por estudante) uma vez por
+// estudante do escopo, presumindo que o escopo era sempre pequeno (uma
+// turma, um curso, um ano acadêmico OU um ano letivo). Essa premissa não se
+// sustenta para ano_letivo sozinho — o filtro que o frontend usa em
+// /financas/pagamentos, junto de mes — porque ano_letivo casa com TODOS os
+// estudantes da ACADEMIA INTEIRA naquele ano, não com uma turma. Numa
+// academia de porte médio isso já significava milhares de idas ao banco em
+// série dentro de uma única requisição HTTP.
+//
+// A implementação atual NÃO chama ListMensalidades nem vinculosMensalidade
+// por estudante: os vínculos já vêm, para todo o escopo de uma vez, de
+// escopoMensalidadeEstudantes (uma única consulta que já precisava rodar
+// para resolver o escopo). O que ainda depende de I/O é tratado assim:
+//   - mesInicioEfetivo e resolveConfiguracao (chamadas sem alteração,
+//     mesmo comportamento e mesma assinatura de sempre) dependem só de
+//     (academia, ano_letivo, nivel) e de (academia, nivel, ano_academico,
+//     curso_id, mês) respectivamente — nunca do estudante. São memoizadas
+//     nesta chamada: uma única consulta por combinação distinta, e não
+//     mais uma consulta por estudante.
+//   - estadoObrigacao (que É por estudante) foi convertida, só para este
+//     caminho multi-estudante, em estadosObrigacaoBatch
+//     (mensalidade_pendencias_batch.go): uma única consulta para todos os
+//     estudantes do escopo, em vez de uma consulta por (estudante, mês).
+//     estadoObrigacao em si continua existindo, inalterada, para o
+//     caminho por estudante (ListMensalidades / PendenciasSemCobrancaEstudante).
+//
+// Um mesmo estudante pode aparecer em escopoMensalidadeEstudantes mais de
+// uma vez com o MESMO (ano_letivo, nivel, ano_academico, curso_id) — só
+// diferindo por turma_id (ex.: transferência de turma no meio do ano
+// letivo histórico) — porque aquela função inclui turma_id na
+// deduplicação. Para não listar o mesmo mês duas vezes, os vínculos são
+// deduplicados aqui com a MESMA chave que vinculosMensalidade já usa (sem
+// turma_id) antes de processá-los.
+//
 // mes (tarefa 60) restringe adicionalmente o resultado a um único mês de
 // calendário (1-12) — mesmo raciocínio de chargeIDsEscopoMensalidade: só
 // refina um escopo já resolvido pelos outros filtros, nunca os substitui.
+// É aplicado o quanto antes (antes mesmo de resolver a configuração do
+// mês) para evitar trabalho descartado quando o chamador já sabe que só
+// quer um mês — o caso comum vindo do frontend.
 func (s *Service) PendenciasSemCobranca(ctx context.Context, academia string, turmaID, cursoID *uuid.UUID, anoAcademico, anoLetivo string, mes *int) ([]MensalidadeMesView, error) {
 	if s.client == nil {
 		return nil, errors.New("serviço financeiro não inicializado")
@@ -230,44 +263,109 @@ func (s *Service) PendenciasSemCobranca(ctx context.Context, academia string, tu
 	if len(vinculos) == 0 {
 		return []MensalidadeMesView{}, nil
 	}
+
+	vinculosVistos := map[string]bool{}
+	vinculosUnicos := make([]mensalidadeEscopoVinculo, 0, len(vinculos))
 	estudantesSet := map[string]bool{}
-	vinculoValido := map[string]bool{}
+	anosLetivosSet := map[string]bool{}
 	for _, v := range vinculos {
+		chaveVinculo := v.CodigoEstudante + "|" + v.CodigoAcademia + "|" + v.AnoLetivo + "|" + v.Nivel + "|" + v.AnoAcademico + "|" + optionalUUID(v.CursoID)
+		if vinculosVistos[chaveVinculo] {
+			continue
+		}
+		vinculosVistos[chaveVinculo] = true
+		vinculosUnicos = append(vinculosUnicos, v)
 		estudantesSet[v.CodigoEstudante] = true
-		vinculoValido[v.CodigoEstudante+"|"+v.AnoLetivo+"|"+v.AnoAcademico+"|"+optionalUUID(v.CursoID)] = true
+		anosLetivosSet[v.AnoLetivo] = true
 	}
 	estudantes := make([]string, 0, len(estudantesSet))
 	for e := range estudantesSet {
 		estudantes = append(estudantes, e)
+	}
+	anosLetivos := make([]string, 0, len(anosLetivosSet))
+	for a := range anosLetivosSet {
+		anosLetivos = append(anosLetivos, a)
 	}
 
 	existentes, err := s.cobrancasExistentesMensalidade(ctx, academia, estudantes)
 	if err != nil {
 		return nil, err
 	}
+	estados, err := s.estadosObrigacaoBatch(ctx, academia, anosLetivos, estudantes)
+	if err != nil {
+		return nil, err
+	}
+
+	inicioCache := map[string]int{}
+	cfgCache := map[string]MensalidadeConfiguracaoView{}
+	cfgNaoEncontrada := map[string]bool{}
 
 	out := []MensalidadeMesView{}
-	for _, estudante := range estudantes {
-		meses, err := s.ListMensalidades(ctx, estudante, &academia)
-		if err != nil {
-			return nil, err
+	for _, v := range vinculosUnicos {
+		chaveInicio := v.CodigoAcademia + "|" + v.AnoLetivo + "|" + v.Nivel
+		inicio, temInicio := inicioCache[chaveInicio]
+		if !temInicio {
+			inicio, err = s.mesInicioEfetivo(ctx, v.CodigoAcademia, v.AnoLetivo, v.Nivel)
+			if err != nil {
+				return nil, err
+			}
+			inicioCache[chaveInicio] = inicio
 		}
-		for _, m := range meses {
-			if m.Estado != EstadoPendente {
+		natural := mesNaturalInicioAnoLetivo(v.Nivel)
+		inicioPos := posicaoNoAnoLetivo(inicio, natural)
+		for _, ref := range mesesAnoLetivo(v.AnoLetivo, v.Nivel) {
+			if posicaoNoAnoLetivo(ref.Month, natural) < inicioPos {
 				continue
 			}
-			if mes != nil && m.Mes != *mes {
+			if mes != nil && ref.Month != *mes {
 				continue
 			}
-			chaveVinculo := m.CodigoEstudante + "|" + m.AnoLetivo + "|" + m.AnoAcademico + "|" + optionalUUID(m.CursoID)
-			if !vinculoValido[chaveVinculo] {
+			chaveCfg := v.CodigoAcademia + "|" + v.Nivel + "|" + v.AnoAcademico + "|" + optionalUUID(v.CursoID) + "|" + ref.Data.Format("2006-01")
+			cfg, temCfg := cfgCache[chaveCfg]
+			if !temCfg {
+				if cfgNaoEncontrada[chaveCfg] {
+					continue
+				}
+				cfg, err = s.resolveConfiguracao(ctx, v.CodigoAcademia, v.Nivel, v.AnoAcademico, v.CursoID, ref.Data)
+				if errors.Is(err, ErrNotFound) {
+					cfgNaoEncontrada[chaveCfg] = true
+					continue
+				}
+				if err != nil {
+					return nil, err
+				}
+				cfgCache[chaveCfg] = cfg
+			}
+			if posicaoNoAnoLetivo(ref.Month, natural) > posicaoNoAnoLetivo(cfg.MesFimCobranca, natural) {
 				continue
 			}
-			chaveCobranca := m.CodigoEstudante + "|" + m.AnoLetivo + "|" + strconv.Itoa(m.Mes)
-			if existentes[chaveCobranca] {
+			chaveMes := v.CodigoEstudante + "|" + v.AnoLetivo + "|" + strconv.Itoa(ref.Month)
+			estado := EstadoPendente
+			var audit []uuid.UUID
+			if info, ok := estados[chaveMes]; ok {
+				estado = info.Estado
+				audit = info.Audit
+			}
+			if estado != EstadoPendente {
 				continue
 			}
-			out = append(out, m)
+			if existentes[chaveMes] {
+				continue
+			}
+			out = append(out, MensalidadeMesView{
+				CodigoEstudante:  v.CodigoEstudante,
+				CodigoAcademia:   v.CodigoAcademia,
+				AnoLetivo:        v.AnoLetivo,
+				Mes:              ref.Month,
+				DataReferencia:   ref.Data,
+				Nivel:            v.Nivel,
+				AnoAcademico:     v.AnoAcademico,
+				CursoID:          v.CursoID,
+				Valor:            cfg.Valor,
+				MesFimCobranca:   cfg.MesFimCobranca,
+				Estado:           estado,
+				EventosAuditoria: audit,
+			})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {

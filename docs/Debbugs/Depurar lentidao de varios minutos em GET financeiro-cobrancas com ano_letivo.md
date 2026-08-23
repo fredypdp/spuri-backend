@@ -1,8 +1,8 @@
 ---
 data: 2026-08-23
-status: causa_raiz_confirmada_correcao_pronta_para_execucao
+status: corrigido_via_62_corrigir_n1_pendencias_sem_cobranca
 auditor: Claude (orquestrador) — depuração profunda com PostgreSQL 16 e Go 1.24 reais em sandbox
-tarefa_correcao: docs/Lista de Tarefas/Corrigir N+1 de PendenciasSemCobranca em GET financeiro-cobrancas com ano_letivo.md
+tarefa_correcao: docs/Tarefas feitas/62 - Corrigir N+1 de PendenciasSemCobranca em GET financeiro-cobrancas com ano_letivo.md
 ---
 
 # Depuração profunda — `GET /financeiro/cobrancas` trava por vários minutos quando `ano_letivo` é informado
