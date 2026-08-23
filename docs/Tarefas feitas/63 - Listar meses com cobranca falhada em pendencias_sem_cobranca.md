@@ -1,8 +1,9 @@
 ---
 criado: 2026-08-23
 origem: docs/Debbugs/Depurar pendencias_sem_cobranca esconde meses com cobranca falhada.md
-status: pendente
+status: concluido
 tipo: correcao_regra_de_negocio
+concluido: 2026-08-23
 depende_de: docs/Tarefas feitas/62 - Corrigir N+1 de PendenciasSemCobranca em GET financeiro-cobrancas com ano_letivo.md
 ---
 

@@ -1,6 +1,6 @@
 ---
 data: 2026-08-23
-status: causa_raiz_confirmada_correcao_pronta_para_execucao
+status: corrigido_via_63_listar_meses_com_cobranca_falhada_em_pendencias_sem_cobranca
 auditor: Claude (orquestrador) — depuração com PostgreSQL 16 real em sandbox
 tarefa_correcao: docs/Lista de Tarefas/63 - Listar meses com cobranca falhada em pendencias_sem_cobranca.md
 relacionado_a: docs/Tarefas feitas/62 - Corrigir N+1 de PendenciasSemCobranca em GET financeiro-cobrancas com ano_letivo.md
