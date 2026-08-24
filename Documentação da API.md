@@ -7649,7 +7649,7 @@ Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e 
 
 #### 19.7 GET /financeiro/cobrancas
 
-**Escopo da rota:** lista cobranças (mensalidade, matrícula ou avulsa) do contexto autorizado, com paginação e filtros por estado e origem — visão de academia/admin sobre pagamentos recebidos. Quando filtrada por turma, curso, ano acadêmico ou ano letivo, também devolve as pendências de mensalidade que nunca tiveram nenhuma cobrança criada — ver `pendencias_sem_cobranca` abaixo. Para o estudante consultar o próprio histórico de pagamentos, use 19.8.
+**Escopo da rota:** lista, numa única lista paginada, os pagamentos (mensalidade, matrícula ou avulsa) do contexto autorizado — visão de academia/admin sobre pagamentos recebidos e pendentes. Quando filtrada por turma, curso, ano acadêmico ou ano letivo, a lista também inclui as pendências de mensalidade que ainda não foram pagas e não têm nenhuma cobrança real vinculada — ver `pendencia_sem_cobranca` abaixo. Para o estudante consultar o próprio histórico de pagamentos, use 19.8.
 
 **Proteção:** autenticado + academia do próprio contexto ou admin FPP. Estudantes recebem `403` nesta rota.
 
@@ -7659,12 +7659,12 @@ Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e 
 |---|---|---|---|
 | `contexto_tipo` | string | Não | Contexto financeiro consultado. Para academia autenticada é forçado para `academia`. |
 | `codigo_academia` | string | Não | Academia dona das cobranças. Para academia autenticada é forçado para o código do token. |
-| `estado` | string, repetível | Não | Filtra pelo texto exato (case-sensitive) persistido em `status` — mistura estados internos (`solicitada`, `criada`, `cancelada`, `falhada`) e estados crus da AppyPay (`Success`, `Pending`, `Failed`, etc). Repita o parâmetro para casar mais de um valor (`?estado=Success&estado=Pending`). |
-| `tipo` | string, repetível | Não | Filtra por origem: `matricula`, `mensalidade` ou `avulsa`. |
-| `turma_id` | UUID | Não | Restringe a cobranças de mensalidade vinculadas a esta turma. Só afeta cobranças de origem `mensalidade` — ver regras de negócio. |
-| `curso_id` | UUID | Não | Restringe a cobranças de mensalidade vinculadas a este curso. Mesma ressalva de `turma_id`. |
-| `ano_academico` | string | Não | Restringe a cobranças de mensalidade deste ano/classe (ex.: `7_ano_fundamental`). Mesma ressalva de `turma_id`. |
-| `ano_letivo` | string | Não | Restringe a cobranças de mensalidade deste ano letivo (ex.: `2026_2027`). Mesma ressalva de `turma_id`. |
+| `estado` | string, repetível | Não | Filtra pelo texto exato (case-sensitive) persistido em `status` de uma cobrança real — mistura estados internos (`solicitada`, `criada`, `cancelada`, `falhada`) e estados crus da AppyPay (`Success`, `Pending`, `Failed`, etc). Repita o parâmetro para casar mais de um valor (`?estado=Success&estado=Pending`). **Não filtra os itens sintéticos** (`pendencia_sem_cobranca: true`) — esses sempre têm `status: "pendente"` e sempre aparecem, independente deste filtro (ver regras de negócio). |
+| `tipo` | string, repetível | Não | Filtra por origem: `matricula`, `mensalidade` ou `avulsa`. Mesma ressalva de `estado`: não filtra os itens sintéticos, que são sempre `origem: "mensalidade"`. |
+| `turma_id` | UUID | Não | Restringe a pagamentos de mensalidade vinculados a esta turma. Só afeta cobranças reais de origem `mensalidade` — ver regras de negócio. |
+| `curso_id` | UUID | Não | Restringe a pagamentos de mensalidade vinculados a este curso. Mesma ressalva de `turma_id`. |
+| `ano_academico` | string | Não | Restringe a pagamentos de mensalidade deste ano/classe (ex.: `7_ano_fundamental`). Mesma ressalva de `turma_id`. |
+| `ano_letivo` | string | Não | Restringe a pagamentos de mensalidade deste ano letivo (ex.: `2026_2027`). Mesma ressalva de `turma_id`. |
 | `mes` | inteiro (1-12) | Não | Restringe a um mês de calendário específico. Só tem efeito quando combinado com pelo menos um dos quatro filtros acima; sozinho, é ignorado silenciosamente (não delimita o suficiente — um mês de calendário pode abranger estudantes de vários anos letivos diferentes). `400` se fora do intervalo 1-12. |
 | `limit` | inteiro | Não | Itens por página. Padrão 50, mínimo 1, máximo 1000. |
 | `offset` | inteiro | Não | Deslocamento de paginação. Padrão 0. |
@@ -7673,7 +7673,20 @@ Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e 
 
 ```json
 {
-  "cobrancas": [
+  "pagamentos": [
+    {
+      "codigo_academia": "ACA001",
+      "origem": "mensalidade",
+      "status": "pendente",
+      "valor": 15000.00,
+      "moeda": "AOA",
+      "descricao": "Propinas ACA001: 1 mensalidade(s) — pendência sem cobrança gerada",
+      "codigo_estudante": "EST0002",
+      "mensalidades": [{"ano_letivo": "2025_2026", "mes": 9}],
+      "pendencia_sem_cobranca": true,
+      "id": "b6f2e6b1-3f1a-5e9c-8f2a-1a2b3c4d5e6f",
+      "contexto_tipo": "academia"
+    },
     {
       "id": "4d2bbf53-c8c0-4c9a-a3f4-5a0f0cf988d1",
       "provider_charge_id": "APPYPAY-987654",
@@ -7688,43 +7701,32 @@ Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e 
       "metodo_pagamento": "GPO",
       "codigo_estudante": "EST0001",
       "mensalidades": [{"ano_letivo": "2025_2026", "mes": 10}],
-      "atualizado_em": "2026-08-08T12:30:00Z"
+      "atualizado_em": "2026-08-08T12:30:00Z",
+      "pendencia_sem_cobranca": false
     }
   ],
-  "total": 1,
-  "total_geral": 1,
+  "total": 2,
+  "total_geral": 2,
   "limit": 50,
-  "offset": 0,
-  "pendencias_sem_cobranca": [
-    {
-      "codigo_estudante": "EST0002",
-      "codigo_academia": "ACA001",
-      "ano_letivo": "2025_2026",
-      "mes": 9,
-      "data_referencia": "2025-09-01T00:00:00Z",
-      "nivel": "fundamental",
-      "ano_academico": "7_ano_fundamental",
-      "valor": 15000.00,
-      "mes_fim_cobranca": 7,
-      "estado": "pendente",
-      "eventos_auditoria": []
-    }
-  ]
+  "offset": 0
 }
 ```
 
 **Regras de negócio:**
 
-- Não devolve `payment_info`, `response` (resposta crua da AppyPay) nem `qrCodeArr`; para o detalhe completo de uma cobrança específica, use 19.6.
-- `origem` é derivada do payload persistido, nunca gravada separadamente: `matricula` quando a cobrança tem `codigo_solicitacao`, `mensalidade` quando tem `codigo_estudante` (e não tem `codigo_solicitacao`), `avulsa` nos demais casos.
-- Ordenação sempre por `updated_at DESC` (atividade mais recente primeiro); não há campo de data de criação separado nesta listagem.
-- `total` é o número de itens nesta página; `total_geral` é o total real que casa com os filtros aplicados.
-- `turma_id`, `curso_id`, `ano_academico` e `ano_letivo` só têm efeito sobre cobranças de origem `mensalidade`: usar qualquer um deles exclui automaticamente cobranças de `matricula` e `avulsa` do resultado, porque essas duas origens não têm um vínculo de turma/ano letivo resolvível (a cobrança de matrícula antecede a atribuição de turma do estudante).
-- `pendencias_sem_cobranca` traz, no formato do mesmo objeto devolvido por 19.17 (`MensalidadeMesView`), os meses de mensalidade em estado `pendente` que **nunca tiveram nenhuma cobrança criada nem tentada** — o caso em que o estudante deve um mês mas a academia não tem nenhum registo de cobrança para consultar. Um mês com uma tentativa de cobrança já feita (mesmo que tenha falhado ou esteja pendente) **não** aparece aqui, porque já está visível no array `cobrancas` normalmente. Este campo só é computado — e só aparece na resposta — quando pelo menos um dos quatro filtros de escopo (`turma_id`, `curso_id`, `ano_academico` ou `ano_letivo`) é informado junto de `codigo_academia`; sem nenhum filtro de escopo, o campo fica ausente da resposta (não é uma lista vazia, é a chave inteira que não vem), para evitar varrer a academia inteira sem limite a cada chamada.
+- Cada item de `pagamentos` tem o mesmo formato — o mesmo objeto que antes era só uma "cobrança" ganhou o campo `pendencia_sem_cobranca`, e todo item o traz, dos dois tipos:
+  - `pendencia_sem_cobranca: false` — um pagamento real, com todos os campos vindos de uma cobrança de fato criada (`id` real, `atualizado_em` presente, e opcionalmente `provider_charge_id`/`merchant_transaction_id`/`metodo_pagamento` quando fizer sentido). Não devolve `payment_info`, `response` (resposta crua da AppyPay) nem `qrCodeArr`; para o detalhe completo de uma cobrança específica, use 19.6.
+  - `pendencia_sem_cobranca: true` — um mês de mensalidade que ainda não foi pago (nem anulado) e não tem **nenhuma** cobrança real vinculada (nem sequer uma tentativa falhada) — sintetizado a partir da mesma computação de 19.17 (`MensalidadeMesView`). `id` é determinístico (hash estável de academia+estudante+ano_letivo+mês — a mesma pendência sempre tem o mesmo `id` entre chamadas, útil como key de lista no cliente), `status` é sempre `"pendente"`, `atualizado_em` é sempre ausente (não existe nenhuma atividade real para reportar), e `metodo_pagamento`/`provider_charge_id`/`merchant_transaction_id` também ficam ausentes.
+- **`status: "pendente"` pode vir de dois casos diferentes**, e é `pendencia_sem_cobranca` que desambigua qual: (a) uma cobrança real cujo status ainda não foi resolvido pelo provedor (`pendencia_sem_cobranca: false` — a cobrança foi de fato tentada e a AppyPay devolveu um estado não-terminal); ou (b) uma pendência sintética (`pendencia_sem_cobranca: true` — não existe nenhuma cobrança para este mês).
+- Um mês com uma cobrança real **falhada** aparece como item real (`status: "falhada"`, `pendencia_sem_cobranca: false`) — **não** gera também um item sintético duplicado para o mesmo mês, mesmo continuando a valer como "ainda não pago" internamente (ver 19.17 e a tarefa que corrigiu esse critério). A cobrança real, com seu histórico verdadeiro, já é a representação desse mês na lista.
+- `origem` é derivada do payload persistido para itens reais, nunca gravada separadamente: `matricula` quando a cobrança tem `codigo_solicitacao`, `mensalidade` quando tem `codigo_estudante` (e não tem `codigo_solicitacao`), `avulsa` nos demais casos. Itens sintéticos são sempre `origem: "mensalidade"`.
+- **Ordenação:** itens sintéticos (`pendencia_sem_cobranca: true`) sempre vêm primeiro — representam ação pendente ("isto ainda precisa de uma cobrança"). Depois vêm os itens reais, por `updated_at DESC` (atividade mais recente primeiro). A paginação (`limit`/`offset`) percorre essa ordem combinada como uma lista única.
+- `total` é o número de itens nesta página; `total_geral` é o total real (pendências sintéticas + cobranças reais) que casa com os filtros aplicados.
+- `turma_id`, `curso_id`, `ano_academico` e `ano_letivo` só têm efeito sobre cobranças reais de origem `mensalidade`: usar qualquer um deles exclui automaticamente cobranças de `matricula` e `avulsa` do resultado, porque essas duas origens não têm um vínculo de turma/ano letivo resolvível (a cobrança de matrícula antecede a atribuição de turma do estudante). Pendências sintéticas só existem para `mensalidade`, então também dependem de pelo menos um desses quatro filtros — sem nenhum, nenhum item sintético é computado nem aparece na lista (evita varrer a academia inteira sem limite a cada chamada).
 
 #### 19.8 GET /financeiro/cobrancas/estudante/:codigo
 
-**Escopo da rota:** lista TODAS as cobranças que um estudante já teve, em qualquer estado, academia ou origem — incluindo a cobrança da matrícula original, mesmo que ela tenha sido paga antes de o estudante existir como tal. Também devolve, sempre, as pendências de mensalidade desse estudante que nunca tiveram nenhuma cobrança criada — ver `pendencias_sem_cobranca` abaixo. É a visão do próprio estudante sobre o seu histórico de pagamentos. Para a visão de academia/admin sobre cobranças recebidas, use 19.7.
+**Escopo da rota:** lista, numa única lista paginada, TODOS os pagamentos que um estudante já teve — cobranças reais, em qualquer estado, academia ou origem (incluindo a cobrança da matrícula original, mesmo que ela tenha sido paga antes de o estudante existir como tal), e pendências de mensalidade que ainda não têm nenhuma cobrança real vinculada. Mesmo formato de resposta de 19.7 — ver `pendencia_sem_cobranca` ali. É a visão do próprio estudante sobre o seu histórico de pagamentos. Para a visão de academia/admin sobre cobranças recebidas, use 19.7.
 
 **Proteção:** o próprio estudante (`:codigo` deve ser o código do token), academia à qual o estudante pertence ou pertenceu (mesmo vínculo histórico de `GET /financeiro/mensalidades/estudante/:codigo`), ou admin FPP.
 
@@ -7741,18 +7743,19 @@ Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e 
 | `limit` | inteiro | Não | Itens por página. Padrão 50, mínimo 1, máximo 1000. |
 | `offset` | inteiro | Não | Deslocamento de paginação. Padrão 0. |
 
-**Response 200:** mesma estrutura de 19.7, incluindo `pendencias_sem_cobranca` — com uma diferença importante, ver regras de negócio.
+**Response 200:** mesma estrutura de 19.7 — com uma diferença importante, ver regras de negócio.
 
 **Regras de negócio:**
 
 - Diferente de 19.7, esta consulta não aceita `contexto_tipo` nem `codigo_academia`: um estudante pode ter mensalidades e matrícula em mais de uma academia (histórico), e o histórico mostra tudo — exceto quando quem consulta é uma academia, caso em que o resultado é restrito às cobranças feitas a essa academia especificamente (uma academia nunca vê pagamentos que o estudante fez a outra academia, mesmo com vínculo histórico com as duas).
 - A cobrança de matrícula é resolvida pelo vínculo `codigo_estudante_gerado`, já gravado em `projection_solicitacoes_matricula` quando a solicitação é aprovada — o payload da cobrança de matrícula em si nunca grava `codigo_estudante`, porque a cobrança é anterior ao registo do estudante.
-- Sem filtro de `estado`, a listagem inclui cobranças pendentes, falhadas e canceladas, não só as pagas — intencional: o objetivo é o estudante conseguir ver tudo que já teve, não só os pagamentos concluídos.
-- `turma_id`, `curso_id`, `ano_academico` e `ano_letivo` seguem a mesma restrição de 19.7 (só afetam cobranças de origem `mensalidade`), mas só têm efeito quando quem consulta é uma academia (o resultado já está então restrito a uma única academia); quando quem consulta é o próprio estudante ou admin FPP sem restringir a academia, esses quatro filtros são ignorados.
-- **Diferença chave em relação a 19.7:** `pendencias_sem_cobranca` aqui é **sempre** calculado e sempre presente na resposta (mesmo vazio, `[]`), sem exigir nenhum dos quatro filtros de escopo — porque esta consulta já está inerentemente limitada a um único estudante, então não há o mesmo risco de varredura sem limite que existe em 19.7 (que precisa de pelo menos um filtro para ficar presente).
+- Sem filtro de `estado`, a listagem inclui cobranças reais pendentes, falhadas e canceladas, não só as pagas — intencional: o objetivo é o estudante conseguir ver tudo que já teve, não só os pagamentos concluídos.
+- `turma_id`, `curso_id`, `ano_academico` e `ano_letivo` seguem a mesma restrição de 19.7 (só afetam cobranças reais de origem `mensalidade`), mas só têm efeito quando quem consulta é uma academia (o resultado já está então restrito a uma única academia); quando quem consulta é o próprio estudante ou admin FPP sem restringir a academia, esses quatro filtros são ignorados.
+- **Diferença chave em relação a 19.7:** os itens sintéticos (`pendencia_sem_cobranca: true`) aqui são **sempre** calculados, sem exigir nenhum dos quatro filtros de escopo — porque esta consulta já está inerentemente limitada a um único estudante, então não há o mesmo risco de varredura sem limite que existe em 19.7 (que precisa de pelo menos um filtro para computar pendências).
 - **Não aceita** o parâmetro `mes` — só disponível em 19.7 por enquanto.
 
 **Erros comuns:** `404` estudante inexistente, `403` estudante tentando ver outro código, academia sem vínculo ou admin sem `fpp`.
+
 
 #### 19.9 POST /financeiro/appypay/cobrancas/:id/cancelar
 

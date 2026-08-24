@@ -1,6 +1,6 @@
 ---
 data: 2026-08-24
-status: desenho_pronto_correcao_implementada_pronta_para_execucao
+status: corrigido_via_64_unificar_cobrancas_e_pendencias_sem_cobranca_numa_unica_lista_paginada
 auditor: Claude (orquestrador) — desenho e implementação com PostgreSQL 16, Go 1.24, Node 22 e Next.js reais em sandbox
 tarefa_correcao_backend: docs/Lista de Tarefas/64 - Unificar cobrancas e pendencias_sem_cobranca numa unica lista paginada.md
 tarefa_correcao_frontend: entregue separadamente para o repositório spuripainel (sem convenção docs/Lista de Tarefas própria) — ver "65 - Consumir a lista unificada de pagamentos (dependente da tarefa 64 do backend).md"
