@@ -1608,7 +1608,7 @@ A obrigatoriedade dos documentos e as validações cadastrais comuns são aplica
 
 ### DELETE /dominis/academia/:codigo
 
-Remove logicamente uma academia pelo padrão de event sourcing. A operação grava o evento `AcademiaDeletada` no ledger com contexto de auditoria (`user_id`, `user_type=admin`, IP, motivo e executor) e marca a projeção como `status=deletado`; os dados históricos permanecem auditáveis. Após a deleção, o backend ignora/neutraliza chaves operacionais de cadastro da projeção, permitindo cadastrar outra academia com o mesmo NIF/e-mail e demais dados cadastrais sem bloqueio nas validações de unicidade.
+Remove logicamente uma academia pelo padrão de event sourcing. A operação grava o evento `AcademiaDeletada` no ledger com contexto de auditoria (`user_id`, `user_type=admin`, IP, motivo e executor) e marca a projeção como `status=deletado`; os dados históricos permanecem auditáveis. Após a deleção, o backend também remove do armazenamento MEGA/local o diretório `{codigo_academia}/Documentação formal` com os documentos formais da academia e ignora/neutraliza chaves operacionais de cadastro da projeção, permitindo cadastrar outra academia com o mesmo NIF/e-mail e demais dados cadastrais sem bloqueio nas validações de unicidade.
 
 **Proteção**: autenticado + admin role `fpp`
 
@@ -1637,6 +1637,7 @@ Remove logicamente uma academia pelo padrão de event sourcing. A operação gra
 - `400` — motivo ausente/vazio
 - `403` — administrador executor não encontrado ou sem role `fpp`
 - `404` — academia não encontrada ou já deletada
+- `500` — falha ao persistir o evento auditável ou ao deletar os documentos da academia no storage
 
 ---
 

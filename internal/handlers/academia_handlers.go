@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"mime/multipart"
@@ -678,6 +679,21 @@ func DeletarAcademia(c *gin.Context) {
 	audit := db.AuditContext{UserID: adminUserID.String(), UserType: "admin", IP: c.ClientIP()}
 	if err := repository.SaveWithAudit(academia, audit); err != nil {
 		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	provider := getStorageProvider(c)
+	if provider == nil {
+		p, _ := storage.NewStorageProvider()
+		provider = p
+	}
+	if provider == nil {
+		utils.RespondWithInternalError(c, fmt.Errorf("storage indisponível para deletar documentos da academia"))
+		return
+	}
+	documentosDir := fmt.Sprintf("%s/Documentação formal", codigoAcademia)
+	if err := provider.Delete(documentosDir); err != nil && !errors.Is(err, storage.ErrNotFound) {
+		utils.RespondWithInternalError(c, fmt.Errorf("falha ao deletar documentos da academia: %w", err))
 		return
 	}
 
