@@ -197,9 +197,11 @@ interface AcademiaDTO {
   website?: string
   nivel_escolar?: NivelEscolar    // apenas para nivel='escola'
   anos_academicos?: string[]      // anos do fundamental (ex: ['1_ano_fundamental'])
-  status: string                  // 'ativo' | 'inativo'
+  status: string                  // 'ativo' | 'inativo' | 'deletado'
   cursos: string[]                // lista de nomes de cursos
-  motivo_desativacao?: string     // apenas para admin ver
+  motivo_desativacao?: string     // apenas para admin ver; também usado como motivo da deleção
+  deleted_at?: string             // presente quando status='deletado'
+  deletado_por?: string           // UUID do admin FPP executor
   total_estudantes: number
   ano_letivo?: string             // ex: '2025_2026'
   tipo_ano_letivo?: string        // 'escolar' | 'superior'
@@ -1600,6 +1602,42 @@ A obrigatoriedade dos documentos e as validações cadastrais comuns são aplica
 - Os uploads obrigatórios são concluídos antes da criação de `SolicitacaoMatriculaCriada` ou `EstudanteCriadoComVinculo`.
 - Se validação ou upload falhar, nenhuma solicitação, estudante, matrícula, vínculo ou evento correlato é gravado no ledger.
 - Se uma falha posterior ocorrer depois de upload parcial, o backend tenta remover o diretório de destino no storage e retorna o erro principal ao cliente.
+
+---
+
+
+### DELETE /dominis/academia/:codigo
+
+Remove logicamente uma academia pelo padrão de event sourcing. A operação grava o evento `AcademiaDeletada` no ledger com contexto de auditoria (`user_id`, `user_type=admin`, IP, motivo e executor) e marca a projeção como `status=deletado`; os dados históricos permanecem auditáveis. Após a deleção, o backend também remove do armazenamento MEGA/local o diretório `{codigo_academia}/Documentação formal` com os documentos formais da academia e ignora/neutraliza chaves operacionais de cadastro da projeção, permitindo cadastrar outra academia com o mesmo NIF/e-mail e demais dados cadastrais sem bloqueio nas validações de unicidade.
+
+**Proteção**: autenticado + admin role `fpp`
+
+**Path Params:**
+
+- `codigo` — código da academia
+
+**Request:**
+
+```json
+{
+  "motivo": "string"  // obrigatório; deve justificar a deleção auditável
+}
+```
+
+**Response 200:**
+
+```json
+{
+  "message": "academia deletada com sucesso"
+}
+```
+
+**Erros:**
+
+- `400` — motivo ausente/vazio
+- `403` — administrador executor não encontrado ou sem role `fpp`
+- `404` — academia não encontrada ou já deletada
+- `500` — falha ao persistir o evento auditável ou ao deletar os documentos da academia no storage
 
 ---
 

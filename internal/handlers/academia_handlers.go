@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"mime/multipart"
@@ -621,6 +622,88 @@ func DesativarAcademia(c *gin.Context) {
 	})
 
 	c.JSON(http.StatusOK, gin.H{"message": "academia desativada com sucesso"})
+}
+
+func DeletarAcademia(c *gin.Context) {
+	codigoAcademia := c.Param("codigo")
+	adminUserID, _ := middleware.GetUserID(c)
+
+	adminProj := getAdminProjection(c)
+	executorAdmin, err := adminProj.GetByID(adminUserID)
+	if err != nil || executorAdmin == nil {
+		utils.RespondWithForbiddenError(c, "administrador executor não encontrado")
+		return
+	}
+	if executorAdmin.Role != "fpp" {
+		utils.RespondWithForbiddenError(c, "apenas admin com role 'fpp' pode deletar academias")
+		return
+	}
+
+	var req struct {
+		Motivo string `json:"motivo" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Motivo) == "" {
+		utils.RespondWithValidationError(c, fmt.Errorf("motivo é obrigatório"))
+		return
+	}
+
+	academiaProj := getAcademiaProjection(c)
+	academiaDTO, err := academiaProj.GetByCodigo(codigoAcademia)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if academiaDTO == nil || academiaDTO.Status == "deletado" {
+		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+
+	repository := getRepository(c)
+	agg, err := repository.Load(academiaDTO.ID, "Academia")
+	if err != nil {
+		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+
+	academia, ok := agg.(*aggregates.Academia)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
+
+	if err := academia.Deletar(req.Motivo, adminUserID); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	audit := db.AuditContext{UserID: adminUserID.String(), UserType: "admin", IP: c.ClientIP()}
+	if err := repository.SaveWithAudit(academia, audit); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	provider := getStorageProvider(c)
+	if provider == nil {
+		p, _ := storage.NewStorageProvider()
+		provider = p
+	}
+	if provider == nil {
+		utils.RespondWithInternalError(c, fmt.Errorf("storage indisponível para deletar documentos da academia"))
+		return
+	}
+	documentosDir := fmt.Sprintf("%s/Documentação formal", codigoAcademia)
+	if err := provider.Delete(documentosDir); err != nil && !errors.Is(err, storage.ErrNotFound) {
+		utils.RespondWithInternalError(c, fmt.Errorf("falha ao deletar documentos da academia: %w", err))
+		return
+	}
+
+	registrarAcaoAdmin(c, adminUserID, "deletar_academia", map[string]interface{}{
+		"academia_id":     academiaDTO.ID.String(),
+		"codigo_academia": codigoAcademia,
+		"motivo":          strings.TrimSpace(req.Motivo),
+	})
+
+	c.JSON(http.StatusOK, gin.H{"message": "academia deletada com sucesso"})
 }
 
 // ============================================================================
