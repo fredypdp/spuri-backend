@@ -531,6 +531,7 @@ func setupRouter() *gin.Engine {
 		admin.POST("/academia/register", middleware.RequireFPP(), handlers.RegisterAcademia)
 		admin.PUT("/academia/:codigo/ativar", middleware.RequireAdm(), handlers.AtivarAcademia)
 		admin.PUT("/academia/:codigo/desativar", middleware.RequireAdm(), handlers.DesativarAcademia)
+		admin.DELETE("/academia/:codigo", middleware.RequireFPP(), handlers.DeletarAcademia)
 		admin.PUT("/admin/:id/ativar", middleware.RequireAdm(), handlers.AtivarAdmin)
 		admin.PUT("/admin/:id/desativar", middleware.RequireAdm(), handlers.DesativarAdmin)
 		admin.GET("/admin-lista", handlers.ListarTodosAdmins)

@@ -41,6 +41,7 @@ func (p *AcademiaProjection) Handle(event db.Event) error {
 			"AcademiaCriada":                            p.handleAcademiaCriada,
 			"AcademiaAtivada":                           p.handleStatusChange("ativo"),
 			"AcademiaDesativada":                        p.handleAcademiaDesativada,
+			"AcademiaDeletada":                          p.handleAcademiaDeletada,
 			"CursosAtualizados":                         p.handleCursosAtualizados,
 			"AcademiaDadosAtualizados":                  p.handleAcademiaDadosAtualizados,
 			"EmailVerificado":                           p.handleEmailVerificado,
@@ -72,6 +73,7 @@ func (p *AcademiaProjection) HandleTx(tx *sql.Tx, event db.Event) error {
 			"AcademiaCriada":                            p.handleAcademiaCriadaTx,
 			"AcademiaAtivada":                           p.handleStatusChangeTx("ativo"),
 			"AcademiaDesativada":                        p.handleAcademiaDesativadaTx,
+			"AcademiaDeletada":                          p.handleAcademiaDeletadaTx,
 			"CursosAtualizados":                         p.handleCursosAtualizadosTx,
 			"AcademiaDadosAtualizados":                  p.handleAcademiaDadosAtualizadosTx,
 			"EmailVerificado":                           p.handleEmailVerificadoTx,
@@ -129,6 +131,10 @@ func (p *AcademiaProjection) handleStatusChangeTx(status string) func(*sql.Tx, d
 
 func (p *AcademiaProjection) handleAcademiaDesativadaTx(tx *sql.Tx, event db.Event) error {
 	return p.handleAcademiaDesativada(event)
+}
+
+func (p *AcademiaProjection) handleAcademiaDeletadaTx(tx *sql.Tx, event db.Event) error {
+	return p.handleAcademiaDeletada(event)
 }
 
 func (p *AcademiaProjection) handleCursosAtualizadosTx(tx *sql.Tx, event db.Event) error {
@@ -353,6 +359,64 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 		payload.NivelEscolar, anosValue, cursosJSON,
 		payload.CreatedAt, event.EventVersion, event.EventID,
 	)
+	return err
+}
+
+// handleAcademiaDeletada marca a academia como deletada sem apagar o ledger.
+// As colunas únicas operacionais de cadastro são neutralizadas com prefixo do ID
+// para que novos cadastros possam reutilizar NIF/e-mail sem colisão na projeção.
+func (p *AcademiaProjection) handleAcademiaDeletada(event db.Event) error {
+	var payload struct {
+		CodigoAcademia string    `json:"CodigoAcademia"`
+		Motivo         string    `json:"Motivo"`
+		DeletadoPor    string    `json:"DeletadoPor"`
+		DeletedAt      time.Time `json:"DeletedAt"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("handleAcademiaDeletada: parse error: %w", err)
+	}
+
+	result, err := p.client.DB().Exec(`
+		UPDATE projection_academias
+		SET status             = 'deletado',
+		    motivo_desativacao = $1,
+		    deleted_at         = $2,
+		    deletado_por       = $3,
+		    nif                = CONCAT('__deleted__', id::text, '__', nif),
+		    email              = CASE WHEN email IS NULL THEN NULL ELSE CONCAT('__deleted__', id::text, '__', email) END,
+		    updated_at         = CURRENT_TIMESTAMP,
+		    version            = $4,
+		    last_event_id      = $5
+		WHERE id = $6 AND status <> 'deletado'
+	`, payload.Motivo, payload.DeletedAt, payload.DeletadoPor, event.EventVersion, event.EventID, event.AggregateID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("handleAcademiaDeletada: RowsAffected error: %w", err)
+	}
+	if rowsAffected > 0 {
+		return nil
+	}
+
+	codigo := strings.TrimSpace(payload.CodigoAcademia)
+	if codigo == "" {
+		return nil
+	}
+	_, err = p.client.DB().Exec(`
+		UPDATE projection_academias
+		SET status             = 'deletado',
+		    motivo_desativacao = $1,
+		    deleted_at         = $2,
+		    deletado_por       = $3,
+		    nif                = CONCAT('__deleted__', id::text, '__', nif),
+		    email              = CASE WHEN email IS NULL THEN NULL ELSE CONCAT('__deleted__', id::text, '__', email) END,
+		    updated_at         = CURRENT_TIMESTAMP,
+		    version            = $4,
+		    last_event_id      = $5
+		WHERE codigo_academia = $6 AND status <> 'deletado'
+	`, payload.Motivo, payload.DeletedAt, payload.DeletadoPor, event.EventVersion, event.EventID, codigo)
 	return err
 }
 
@@ -856,7 +920,7 @@ func (p *AcademiaProjection) GetByNIF(nif string) (*AcademiaDTO, error) {
 			created_at, updated_at, total_estudantes, version,
 			ano_letivo, tipo_ano_letivo, ano_letivo_ativado_em, anos_letivos_lista, documentos_obrigatorios
 		FROM projection_academias
-		WHERE nif = $1
+		WHERE nif = $1 AND status <> 'deletado'
 	`, nif)
 	return scanAcademia(row)
 }
@@ -870,7 +934,7 @@ func (p *AcademiaProjection) GetByEmail(email string) (*AcademiaDTO, error) {
 			created_at, updated_at, total_estudantes, version,
 			ano_letivo, tipo_ano_letivo, ano_letivo_ativado_em, anos_letivos_lista, documentos_obrigatorios
 		FROM projection_academias
-		WHERE email = $1
+		WHERE email = $1 AND status <> 'deletado'
 	`, email)
 	return scanAcademia(row)
 }
