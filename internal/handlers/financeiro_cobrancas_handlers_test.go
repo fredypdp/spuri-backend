@@ -58,10 +58,10 @@ func TestIntegrationListarCobrancasAppyPayFiltraPorEscopoEEstado(t *testing.T) {
 	}
 
 	var body struct {
-		Cobrancas []struct {
+		Pagamentos []struct {
 			Origem string `json:"origem"`
 			Status string `json:"status"`
-		} `json:"cobrancas"`
+		} `json:"pagamentos"`
 		TotalGeral int `json:"total_geral"`
 	}
 
@@ -80,7 +80,7 @@ func TestIntegrationListarCobrancasAppyPayFiltraPorEscopoEEstado(t *testing.T) {
 	if err := json.Unmarshal(filtrada.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.TotalGeral != 1 || len(body.Cobrancas) != 1 || body.Cobrancas[0].Origem != "mensalidade" {
+	if body.TotalGeral != 1 || len(body.Pagamentos) != 1 || body.Pagamentos[0].Origem != "mensalidade" {
 		t.Fatalf("filtro por estado=Success deveria devolver só a cobrança de mensalidade paga: %s", filtrada.Body.String())
 	}
 

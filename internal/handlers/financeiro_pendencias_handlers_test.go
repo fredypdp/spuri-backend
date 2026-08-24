@@ -54,13 +54,14 @@ func seedMensalidadeConfigParaHTTP(t *testing.T, client *db.Client, academia, an
 	}
 }
 
-// TestIntegrationListarCobrancasAppyPayComEscopoRetornaPendenciasSemCobranca
-// cobre, no nível HTTP, o problema 1 da tarefa 58: um estudante que nunca
-// tentou nenhuma cobrança de mensalidade é invisível para a academia em
-// GET /financeiro/cobrancas — a menos que ela informe um filtro de escopo
-// (aqui, ano_letivo), caso em que a resposta passa a incluir
-// pendencias_sem_cobranca com os meses que faltam.
-func TestIntegrationListarCobrancasAppyPayComEscopoRetornaPendenciasSemCobranca(t *testing.T) {
+// TestIntegrationListarCobrancasAppyPayComEscopoRetornaPendenciaSemCobranca
+// cobre, no nível HTTP, o problema original da tarefa 58 (um estudante que
+// nunca tentou nenhuma cobrança de mensalidade é invisível para a academia
+// em GET /financeiro/cobrancas a menos que ela informe um filtro de
+// escopo), já na forma unificada desta tarefa: quando ano_letivo é
+// informado, a pendência aparece dentro de "pagamentos", com
+// pendencia_sem_cobranca=true — não mais num array separado.
+func TestIntegrationListarCobrancasAppyPayComEscopoRetornaPendenciaSemCobranca(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	client := integrationFinanceClient(t)
 	academia := "PND" + strings.ReplaceAll(uuid.NewString(), "-", "")[:7]
@@ -85,51 +86,61 @@ func TestIntegrationListarCobrancasAppyPayComEscopoRetornaPendenciasSemCobranca(
 	}
 
 	// Sem filtro de escopo: nenhuma cobrança foi criada ainda, e
-	// pendencias_sem_cobranca não é computado (evita varredura sem limite).
+	// pendências não são computadas (evita varredura sem limite) — a
+	// lista unificada fica vazia.
 	semEscopo := call("")
 	if semEscopo.Code != http.StatusOK {
 		t.Fatalf("sem escopo = %d: %s", semEscopo.Code, semEscopo.Body.String())
 	}
-	var bodySemEscopo map[string]json.RawMessage
+	var bodySemEscopo struct {
+		Pagamentos []finance.PagamentoResumo `json:"pagamentos"`
+		TotalGeral int                       `json:"total_geral"`
+	}
 	if err := json.Unmarshal(semEscopo.Body.Bytes(), &bodySemEscopo); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := bodySemEscopo["pendencias_sem_cobranca"]; ok {
-		t.Fatalf("sem filtro de escopo, pendencias_sem_cobranca não deveria aparecer na resposta: %s", semEscopo.Body.String())
+	if len(bodySemEscopo.Pagamentos) != 0 || bodySemEscopo.TotalGeral != 0 {
+		t.Fatalf("sem filtro de escopo, esperava lista vazia (nenhuma cobrança real, pendências não computadas): %s", semEscopo.Body.String())
 	}
 
 	// Com ano_letivo: o estudante nunca tentou nenhuma cobrança, então
-	// TODOS os meses pendentes dele devem vir em pendencias_sem_cobranca.
+	// TODOS os meses pendentes dele devem vir em "pagamentos", com
+	// pendencia_sem_cobranca=true.
 	comEscopo := call("ano_letivo=2026_2027")
 	if comEscopo.Code != http.StatusOK {
 		t.Fatalf("com escopo = %d: %s", comEscopo.Code, comEscopo.Body.String())
 	}
 	var body struct {
-		Cobrancas             []any                        `json:"cobrancas"`
-		PendenciasSemCobranca []finance.MensalidadeMesView `json:"pendencias_sem_cobranca"`
+		Pagamentos []finance.PagamentoResumo `json:"pagamentos"`
 	}
 	if err := json.Unmarshal(comEscopo.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.PendenciasSemCobranca) == 0 {
-		t.Fatalf("esperava pendencias_sem_cobranca não vazio: %s", comEscopo.Body.String())
+	if len(body.Pagamentos) == 0 {
+		t.Fatalf("esperava pagamentos não vazio: %s", comEscopo.Body.String())
 	}
-	for _, p := range body.PendenciasSemCobranca {
+	for _, p := range body.Pagamentos {
+		if !p.PendenciaSemCobranca {
+			t.Fatalf("esperava só pendências sintéticas nesta academia (nenhuma cobrança real criada): %#v", p)
+		}
 		if p.CodigoEstudante != estudante {
 			t.Fatalf("pendência de outro estudante inesperada: %#v", p)
 		}
-		if p.Estado != finance.EstadoPendente {
-			t.Fatalf("esperava estado pendente, obteve %q", p.Estado)
+		if p.Status != finance.EstadoPendente {
+			t.Fatalf("esperava status pendente, obteve %q", p.Status)
+		}
+		if p.AtualizadoEm != nil {
+			t.Fatalf("pendência sintética não deveria ter atualizado_em: %#v", p)
 		}
 	}
 }
 
-// TestIntegrationConsultarCobrancasEstudanteIncluiPendenciasSemCobranca
+// TestIntegrationConsultarCobrancasEstudanteIncluiPendenciaSemCobranca
 // cobre, no nível HTTP, a versão por estudante (sempre calculada, sem
 // exigir filtro de escopo): a própria academia, consultando o histórico de
-// UM estudante específico, já enxerga os meses que ele deve e nunca tentou
-// pagar — sem precisar de nenhum parâmetro extra.
-func TestIntegrationConsultarCobrancasEstudanteIncluiPendenciasSemCobranca(t *testing.T) {
+// UM estudante específico, já enxerga dentro de "pagamentos" os meses que
+// ele deve e nunca tentou pagar, marcados com pendencia_sem_cobranca=true.
+func TestIntegrationConsultarCobrancasEstudanteIncluiPendenciaSemCobranca(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	client := integrationFinanceClient(t)
 	academia := "PNDE" + strings.ReplaceAll(uuid.NewString(), "-", "")[:6]
@@ -156,20 +167,26 @@ func TestIntegrationConsultarCobrancasEstudanteIncluiPendenciasSemCobranca(t *te
 		t.Fatalf("academia consultando estudante vinculado = %d: %s", recorder.Code, recorder.Body.String())
 	}
 	var body struct {
-		PendenciasSemCobranca []finance.MensalidadeMesView `json:"pendencias_sem_cobranca"`
+		Pagamentos []finance.PagamentoResumo `json:"pagamentos"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.PendenciasSemCobranca) == 0 {
-		t.Fatalf("esperava pendencias_sem_cobranca não vazio: %s", recorder.Body.String())
+	achouPendencia := false
+	for _, p := range body.Pagamentos {
+		if p.PendenciaSemCobranca {
+			achouPendencia = true
+		}
+	}
+	if !achouPendencia {
+		t.Fatalf("esperava ao menos 1 pendência sintética em pagamentos: %s", recorder.Body.String())
 	}
 }
 
 // TestIntegrationListarCobrancasAppyPayFiltraPorMes cobre, no nível HTTP, o
-// filtro mes (tarefa 60): combinado com ano_letivo, restringe tanto
-// cobrancas quanto pendencias_sem_cobranca a um único mês de calendário —
-// é este par de parâmetros que o passo final do drill-down do frontend usa.
+// filtro mes (tarefa 60): combinado com ano_letivo, restringe a lista
+// unificada "pagamentos" a um único mês de calendário — é este par de
+// parâmetros que o passo final do drill-down do frontend usa.
 func TestIntegrationListarCobrancasAppyPayFiltraPorMes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	client := integrationFinanceClient(t)
@@ -204,15 +221,15 @@ func TestIntegrationListarCobrancasAppyPayFiltraPorMes(t *testing.T) {
 		t.Fatalf("mes=9 = %d: %s", comMesSetembro.Code, comMesSetembro.Body.String())
 	}
 	var body struct {
-		PendenciasSemCobranca []finance.MensalidadeMesView `json:"pendencias_sem_cobranca"`
+		Pagamentos []finance.PagamentoResumo `json:"pagamentos"`
 	}
 	if err := json.Unmarshal(comMesSetembro.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.PendenciasSemCobranca) != 1 {
-		t.Fatalf("esperava exatamente 1 pendência filtrando por mes=9, obteve %d: %s", len(body.PendenciasSemCobranca), comMesSetembro.Body.String())
+	if len(body.Pagamentos) != 1 {
+		t.Fatalf("esperava exatamente 1 pagamento filtrando por mes=9, obteve %d: %s", len(body.Pagamentos), comMesSetembro.Body.String())
 	}
-	if body.PendenciasSemCobranca[0].Mes != 9 {
-		t.Fatalf("esperava mes=9, obteve %d", body.PendenciasSemCobranca[0].Mes)
+	if len(body.Pagamentos[0].Mensalidades) != 1 || body.Pagamentos[0].Mensalidades[0].Mes != 9 {
+		t.Fatalf("esperava mes=9 em mensalidades[0], obteve %#v", body.Pagamentos[0].Mensalidades)
 	}
 }

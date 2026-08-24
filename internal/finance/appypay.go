@@ -202,7 +202,15 @@ type CobrancaResumo struct {
 	CodigoEstudante   string                  `json:"codigo_estudante,omitempty"`
 	CodigoSolicitacao string                  `json:"codigo_solicitacao,omitempty"`
 	Mensalidades      []MensalidadeSelecaoMes `json:"mensalidades,omitempty"`
-	AtualizadoEm      time.Time               `json:"atualizado_em"`
+	// AtualizadoEm é ponteiro (não time.Time) desde a unificação de
+	// pendências_sem_cobranca em ListarPagamentosUnificado
+	// (pagamentos_unificado.go): um item sintetizado a partir de uma
+	// pendência sem cobrança (PendenciaSemCobranca=true) nunca teve
+	// nenhuma atividade real, então não há nenhum "atualizado em" honesto
+	// para devolver — nil (omitido do JSON) em vez de inventar uma data.
+	// Para uma cobrança real, continua sempre presente (a coluna é
+	// NOT NULL em financeiro_cobrancas).
+	AtualizadoEm *time.Time `json:"atualizado_em,omitempty"`
 }
 
 // CobrancaListResult é o resultado paginado de ListCobrancas.

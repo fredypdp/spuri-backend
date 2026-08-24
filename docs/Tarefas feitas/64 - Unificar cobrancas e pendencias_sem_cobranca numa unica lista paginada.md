@@ -1,7 +1,8 @@
 ---
 criado: 2026-08-24
 origem: docs/Debbugs/Desenhar unificacao de cobrancas e pendencias_sem_cobranca numa unica lista paginada.md
-status: pendente
+status: concluido
+concluido: 2026-08-24
 tipo: nova_funcionalidade_refactor_de_contrato
 depende_de: docs/Tarefas feitas/63 - Listar meses com cobranca falhada em pendencias_sem_cobranca.md
 gera_dependencia_para: tarefa 65 (repositório spuripainel — frontend, aplicar DEPOIS desta)

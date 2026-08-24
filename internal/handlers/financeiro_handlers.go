@@ -411,26 +411,34 @@ func ListarCobrancasAppyPay(c *gin.Context) {
 	}
 	limit := parseBoundedInt(c.Query("limit"), 50, 1, 1000)
 	offset := parseBoundedInt(c.Query("offset"), 0, 0, 1_000_000)
-	res, err := FinanceiroService.ListCobrancas(c.Request.Context(), contexto, academia, c.QueryArray("estado"), c.QueryArray("tipo"), turmaID, cursoID, anoAcademico, anoLetivo, mes, limit, offset)
-	if err != nil {
-		financeError(c, err)
-		return
-	}
-	body := gin.H{"cobrancas": res.Cobrancas, "total": len(res.Cobrancas), "total_geral": res.Total, "limit": limit, "offset": offset}
-	// pendencias_sem_cobranca só é computado quando pelo menos um dos
+	estados := c.QueryArray("estado")
+	origens := c.QueryArray("tipo")
+	// pendências sem cobrança só são computadas quando pelo menos um dos
 	// quatro filtros de escopo (turma_id, curso_id, ano_academico,
 	// ano_letivo) é informado junto de codigo_academia — sem isso, a
 	// varredura seria sobre a academia inteira sem limite. mes (tarefa 60)
 	// só refina esse escopo, nunca o substitui. Ver finance.PendenciasSemCobranca.
+	var pendencias []finance.MensalidadeMesView
 	if turmaID != nil || cursoID != nil || anoAcademico != "" || anoLetivo != "" {
-		pendencias, err := FinanceiroService.PendenciasSemCobranca(c.Request.Context(), academia, turmaID, cursoID, anoAcademico, anoLetivo, mes)
+		pendencias, err = FinanceiroService.PendenciasSemCobranca(c.Request.Context(), academia, turmaID, cursoID, anoAcademico, anoLetivo, mes)
 		if err != nil {
 			financeError(c, err)
 			return
 		}
-		body["pendencias_sem_cobranca"] = pendencias
+		pendencias, err = FinanceiroService.FiltrarPendenciasComCobrancaRealVinculada(c.Request.Context(), pendencias)
+		if err != nil {
+			financeError(c, err)
+			return
+		}
 	}
-	c.JSON(http.StatusOK, body)
+	res, err := finance.ListarPagamentosUnificado(pendencias, func(limitCobrancas, offsetCobrancas int) (*finance.CobrancaListResult, error) {
+		return FinanceiroService.ListCobrancas(c.Request.Context(), contexto, academia, estados, origens, turmaID, cursoID, anoAcademico, anoLetivo, mes, limitCobrancas, offsetCobrancas)
+	}, limit, offset)
+	if err != nil {
+		financeError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"pagamentos": res.Pagamentos, "total": len(res.Pagamentos), "total_geral": res.Total, "limit": limit, "offset": offset})
 }
 
 // ConsultarCobrancasEstudante lista TODAS as cobranças (mensalidade,
@@ -494,16 +502,9 @@ func ConsultarCobrancasEstudante(c *gin.Context) {
 	anoLetivo := c.Query("ano_letivo")
 	limit := parseBoundedInt(c.Query("limit"), 50, 1, 1000)
 	offset := parseBoundedInt(c.Query("offset"), 0, 0, 1_000_000)
-	// mes não é exposto como parâmetro de query nesta rota ainda (só em
-	// GET /financeiro/cobrancas, tarefa 60) — passamos nil para manter o
-	// comportamento anterior inalterado aqui.
-	res, err := FinanceiroService.ListCobrancasEstudante(c.Request.Context(), codigo, somenteAcademia, c.QueryArray("estado"), c.QueryArray("tipo"), turmaID, cursoID, anoAcademico, anoLetivo, nil, limit, offset)
-	if err != nil {
-		financeError(c, err)
-		return
-	}
-	body := gin.H{"cobrancas": res.Cobrancas, "total": len(res.Cobrancas), "total_geral": res.Total, "limit": limit, "offset": offset}
-	// pendencias_sem_cobranca é sempre calculado aqui (sem exigir nenhum
+	estados := c.QueryArray("estado")
+	origens := c.QueryArray("tipo")
+	// pendências sem cobrança são sempre calculadas aqui (sem exigir nenhum
 	// filtro extra): esta consulta já está inerentemente delimitada a UM
 	// estudante, então não há o mesmo risco de varredura sem limite que
 	// existe em ListarCobrancasAppyPay. Ver
@@ -513,8 +514,22 @@ func ConsultarCobrancasEstudante(c *gin.Context) {
 		financeError(c, err)
 		return
 	}
-	body["pendencias_sem_cobranca"] = pendencias
-	c.JSON(http.StatusOK, body)
+	pendencias, err = FinanceiroService.FiltrarPendenciasComCobrancaRealVinculada(c.Request.Context(), pendencias)
+	if err != nil {
+		financeError(c, err)
+		return
+	}
+	// mes não é exposto como parâmetro de query nesta rota ainda (só em
+	// GET /financeiro/cobrancas, tarefa 60) — passamos nil para manter o
+	// comportamento anterior inalterado aqui.
+	res, err := finance.ListarPagamentosUnificado(pendencias, func(limitCobrancas, offsetCobrancas int) (*finance.CobrancaListResult, error) {
+		return FinanceiroService.ListCobrancasEstudante(c.Request.Context(), codigo, somenteAcademia, estados, origens, turmaID, cursoID, anoAcademico, anoLetivo, nil, limitCobrancas, offsetCobrancas)
+	}, limit, offset)
+	if err != nil {
+		financeError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"pagamentos": res.Pagamentos, "total": len(res.Pagamentos), "total_geral": res.Total, "limit": limit, "offset": offset})
 }
 
 // CancelarCobrancaAppyPay intentionally does not use authorizeFinanceScope:
