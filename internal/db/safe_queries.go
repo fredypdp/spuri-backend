@@ -38,6 +38,7 @@ var validEventTypes = map[string]bool{
 	"AcademiaCriada":                            true,
 	"AcademiaAtivada":                           true,
 	"AcademiaDesativada":                        true,
+	"AcademiaDeletada":                          true,
 	"AcademiaDadosAtualizados":                  true,
 	"CursosAtualizados":                         true,
 	"AcademiaSenhaAlterada":                     true,

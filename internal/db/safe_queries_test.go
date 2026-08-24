@@ -30,6 +30,7 @@ func TestValidateEventTypeAcceptsEventsDiscoveredInCode(t *testing.T) {
 		"AcademiaCriada",
 		"AcademiaAtivada",
 		"AcademiaDesativada",
+		"AcademiaDeletada",
 		"AcademiaDadosAtualizados",
 		"CursosAtualizados",
 		"AcademiaSenhaAlterada",

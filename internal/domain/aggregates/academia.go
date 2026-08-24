@@ -47,6 +47,8 @@ type Academia struct {
 	AtivadoEm     time.Time
 	DesativadoPor uuid.UUID
 	DesativadoEm  time.Time
+	DeletadoPor   uuid.UUID
+	DeletadoEm    time.Time
 
 	// TotalEstudantes é mantido apenas pela projeção — não pelo aggregate.
 	TotalEstudantes int
@@ -93,6 +95,8 @@ func (a *Academia) Apply(event DomainEvent) error {
 		return a.applyAcademiaAtivada(event)
 	case "AcademiaDesativada":
 		return a.applyAcademiaDesativada(event)
+	case "AcademiaDeletada":
+		return a.applyAcademiaDeletada(event)
 	case "CursosAtualizados":
 		return a.applyCursosAtualizados(event)
 	case "AcademiaDadosAtualizados":
@@ -261,6 +265,30 @@ func (a *Academia) Desativar(motivo string, desativadoPor uuid.UUID) error {
 		Motivo:         motivo,
 		DesativadoPor:  desativadoPor,
 		DeactivatedAt:  time.Now(),
+	}
+
+	a.RaiseEvent(event)
+	return a.Apply(event)
+}
+
+// Deletar registra a remoção lógica e auditável da academia.
+// O evento preserva o histórico no ledger e marca a projeção como deletada para
+// liberar as validações de unicidade de NIF/e-mail/código nas próximas criações.
+func (a *Academia) Deletar(motivo string, deletadoPor uuid.UUID) error {
+	if a.Status == "deletado" {
+		return fmt.Errorf("academia já está deletada")
+	}
+	motivo = strings.TrimSpace(motivo)
+	if motivo == "" {
+		return fmt.Errorf("motivo é obrigatório")
+	}
+
+	event := &AcademiaDeletadaEvent{
+		BaseEvent:      BaseEvent{EventType: "AcademiaDeletada", AggregateID: a.ID},
+		CodigoAcademia: a.CodigoAcademia,
+		Motivo:         motivo,
+		DeletadoPor:    deletadoPor,
+		DeletedAt:      time.Now(),
 	}
 
 	a.RaiseEvent(event)
@@ -507,6 +535,21 @@ func (a *Academia) applyAcademiaDesativada(event DomainEvent) error {
 	a.Status = "inativo"
 	a.DesativadoPor = ev.DesativadoPor
 	a.DesativadoEm = ev.DeactivatedAt
+	return nil
+}
+
+func (a *Academia) applyAcademiaDeletada(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyAcademiaDeletada: marshal error: %w", err)
+	}
+	var ev AcademiaDeletadaEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyAcademiaDeletada: unmarshal error: %w", err)
+	}
+	a.Status = "deletado"
+	a.DeletadoPor = ev.DeletadoPor
+	a.DeletadoEm = ev.DeletedAt
 	return nil
 }
 
@@ -761,6 +804,19 @@ type AcademiaDesativadaEvent struct {
 
 func (e *AcademiaDesativadaEvent) GetPayload() interface{} { return e }
 func (e *AcademiaDesativadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+// AcademiaDeletadaEvent registra remoção lógica irreversível, mantendo auditoria
+// no ledger e liberando unicidade operacional para novos cadastros.
+type AcademiaDeletadaEvent struct {
+	BaseEvent
+	CodigoAcademia string
+	Motivo         string
+	DeletadoPor    uuid.UUID
+	DeletedAt      time.Time
+}
+
+func (e *AcademiaDeletadaEvent) GetPayload() interface{} { return e }
+func (e *AcademiaDeletadaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 type CursosAtualizadosEvent struct {
 	BaseEvent
