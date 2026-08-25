@@ -429,6 +429,13 @@ func (m *MegaProvider) Delete(remotePath string) error {
 	if errors.Is(err, ErrNotFound) {
 		return ErrNotFound
 	}
+	if err == nil {
+		// go-mega removes only the deleted node from its in-memory lookup. When a
+		// folder is deleted, its former parent can still retain a reference to it,
+		// which makes a subsequent recursive quota walk fail with ENOENT. Discard
+		// the cached filesystem so the next operation reloads the remote tree.
+		m.resetMegaSession()
+	}
 	return err
 }
 
