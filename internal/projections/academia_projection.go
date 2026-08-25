@@ -363,9 +363,9 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 }
 
 // handleAcademiaDeletada marca a academia como deletada sem apagar o ledger.
-// A reutilização de NIF/e-mail é garantida pelos índices únicos parciais que
-// consideram somente academias ainda não deletadas. Não alteramos os dados
-// originais, pois o NIF possui formato e tamanho regulamentados.
+// A reutilização do NIF é garantida pelo índice único parcial que considera
+// somente academias ainda não deletadas. Não alteramos os dados originais,
+// pois o NIF possui formato e tamanho regulamentados.
 func (p *AcademiaProjection) handleAcademiaDeletada(event db.Event) error {
 	var payload struct {
 		CodigoAcademia string    `json:"CodigoAcademia"`
