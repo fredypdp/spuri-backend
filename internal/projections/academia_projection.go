@@ -363,8 +363,9 @@ func (p *AcademiaProjection) handleAcademiaCriada(event db.Event) error {
 }
 
 // handleAcademiaDeletada marca a academia como deletada sem apagar o ledger.
-// As colunas únicas operacionais de cadastro são neutralizadas com prefixo do ID
-// para que novos cadastros possam reutilizar NIF/e-mail sem colisão na projeção.
+// A reutilização de NIF/e-mail é garantida pelos índices únicos parciais que
+// consideram somente academias ainda não deletadas. Não alteramos os dados
+// originais, pois o NIF possui formato e tamanho regulamentados.
 func (p *AcademiaProjection) handleAcademiaDeletada(event db.Event) error {
 	var payload struct {
 		CodigoAcademia string    `json:"CodigoAcademia"`
@@ -382,8 +383,6 @@ func (p *AcademiaProjection) handleAcademiaDeletada(event db.Event) error {
 		    motivo_desativacao = $1,
 		    deleted_at         = $2,
 		    deletado_por       = $3,
-		    nif                = CONCAT('__deleted__', id::text, '__', nif),
-		    email              = CASE WHEN email IS NULL THEN NULL ELSE CONCAT('__deleted__', id::text, '__', email) END,
 		    updated_at         = CURRENT_TIMESTAMP,
 		    version            = $4,
 		    last_event_id      = $5
@@ -410,8 +409,6 @@ func (p *AcademiaProjection) handleAcademiaDeletada(event db.Event) error {
 		    motivo_desativacao = $1,
 		    deleted_at         = $2,
 		    deletado_por       = $3,
-		    nif                = CONCAT('__deleted__', id::text, '__', nif),
-		    email              = CASE WHEN email IS NULL THEN NULL ELSE CONCAT('__deleted__', id::text, '__', email) END,
 		    updated_at         = CURRENT_TIMESTAMP,
 		    version            = $4,
 		    last_event_id      = $5
