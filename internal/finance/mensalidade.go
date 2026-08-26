@@ -346,23 +346,21 @@ func (s *Service) IniciarPagamentoMensalidades(ctx context.Context, in Mensalida
 		return MensalidadePagamentoView{}, fmt.Errorf("a seleção deve incluir a mensalidade pendente mais antiga: %s/%02d", oldest.AnoLetivo, oldest.Mes)
 	}
 	total = roundAmount(total)
-	description, merchant := fmt.Sprintf("Propinas %s: %d mensalidade(s)", in.CodigoAcademia, len(in.Meses)), merchantID()
-	if in.MetodoPagamento == "GPO_QR" {
-		qr, err := s.CreateGPOQRCode(ctx, QRCodeRequest{ContextoTipo: ContextoAcademia, CodigoAcademia: in.CodigoAcademia, CodigoEstudante: in.CodigoEstudante, Amount: total, Currency: "AOA", Description: description, MerchantTransactionID: merchant, Mensalidades: in.Meses}, actorID, actorType, ip)
-		if err != nil {
-			return MensalidadePagamentoView{}, err
-		}
-		return MensalidadePagamentoView{Charge: qr, Meses: in.Meses}, nil
-	}
-	info := map[string]any{}
-	if in.MetodoPagamento == "GPO" {
-		info["phoneNumber"] = strings.TrimSpace(in.Telefone)
-	}
-	charge, err := s.CreateCharge(ctx, ChargeRequest{ContextoTipo: ContextoAcademia, CodigoAcademia: in.CodigoAcademia, CodigoEstudante: in.CodigoEstudante, Mensalidades: in.Meses, Amount: total, Currency: "AOA", Description: description, MerchantTransactionID: merchant, PaymentMethod: in.MetodoPagamento, PaymentInfo: info}, actorID, actorType, ip)
+	description := fmt.Sprintf("Propinas %s: %d mensalidade(s)", in.CodigoAcademia, len(in.Meses))
+	result, err := s.gerarCobranca(ctx, gerarCobrancaInput{
+		CodigoAcademia:        in.CodigoAcademia,
+		MetodoPagamento:       in.MetodoPagamento,
+		Amount:                total,
+		Description:           description,
+		MerchantTransactionID: merchantID(),
+		Telefone:              in.Telefone,
+		CodigoEstudante:       in.CodigoEstudante,
+		Mensalidades:          in.Meses,
+	}, actorID, actorType, ip)
 	if err != nil {
 		return MensalidadePagamentoView{}, err
 	}
-	return MensalidadePagamentoView{Charge: QRCodeResult{ChargeResult: charge}, Meses: in.Meses}, nil
+	return MensalidadePagamentoView{Charge: result, Meses: in.Meses}, nil
 }
 
 // ListMensalidades derives every due month from historical turma membership,
