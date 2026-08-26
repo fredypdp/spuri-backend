@@ -38,6 +38,40 @@ func pendenciasFake(n int) []MensalidadeMesView {
 	return out
 }
 
+// TestDeveIncluirPendenciasSemCobranca cobre a decisão que corrige o bug
+// relatado em produção: filtrar GET /financeiro/cobrancas por
+// estado=Failed continuava devolvendo pendências sintéticas (sempre
+// status="pendente"), porque nada olhava para o filtro antes de computá-
+// -las. Uma pendência sintética é sempre origem="mensalidade" e
+// status="pendente" — qualquer filtro que exclua explicitamente um dos
+// dois deve excluir as pendências do resultado.
+func TestDeveIncluirPendenciasSemCobranca(t *testing.T) {
+	casos := []struct {
+		nome             string
+		estados, origens []string
+		esperado         bool
+	}{
+		{"sem nenhum filtro", nil, nil, true},
+		{"estado=pendente (o próprio valor das pendências)", []string{EstadoPendente}, nil, true},
+		{"estado=Failed exclui pendências — bug relatado", []string{"Failed"}, nil, false},
+		{"estado=Failed,pendente inclui (um dos valores casa)", []string{"Failed", EstadoPendente}, nil, true},
+		{"tipo=mensalidade inclui (o próprio valor das pendências)", nil, []string{"mensalidade"}, true},
+		{"tipo=matricula exclui pendências", nil, []string{"matricula"}, false},
+		{"tipo=matricula,mensalidade inclui (um dos valores casa)", nil, []string{"matricula", "mensalidade"}, true},
+		{"estado e tipo compatíveis inclui", []string{EstadoPendente}, []string{"mensalidade"}, true},
+		{"estado compatível mas tipo incompatível exclui", []string{EstadoPendente}, []string{"matricula"}, false},
+		{"estado incompatível mas tipo compatível exclui", []string{"Failed"}, []string{"mensalidade"}, false},
+	}
+	for _, c := range casos {
+		t.Run(c.nome, func(t *testing.T) {
+			got := DeveIncluirPendenciasSemCobranca(c.estados, c.origens)
+			if got != c.esperado {
+				t.Fatalf("DeveIncluirPendenciasSemCobranca(%v, %v) = %v, esperava %v", c.estados, c.origens, got, c.esperado)
+			}
+		})
+	}
+}
+
 // TestListarPagamentosUnificadoSemPendencias cobre o caso mais comum hoje
 // (nenhum filtro de escopo em GET /financeiro/cobrancas): sem pendências,
 // o resultado deve ser um passthrough exato das cobranças reais, com o
@@ -62,8 +96,8 @@ func TestListarPagamentosUnificadoSemPendencias(t *testing.T) {
 		t.Fatalf("esperava total=120, obteve %d", res.Total)
 	}
 	for _, p := range res.Pagamentos {
-		if p.PendenciaSemCobranca {
-			t.Fatalf("nenhum item deveria ter PendenciaSemCobranca=true: %#v", p)
+		if p.Status == EstadoPendente {
+			t.Fatalf("nenhum item deveria ter Status=%q (pendência sintética): %#v", EstadoPendente, p)
 		}
 	}
 }
@@ -86,8 +120,8 @@ func TestListarPagamentosUnificadoPaginaSoComPendencias(t *testing.T) {
 		t.Fatalf("esperava 30 itens (todos de pendências), obteve %d", len(res.Pagamentos))
 	}
 	for i, p := range res.Pagamentos {
-		if !p.PendenciaSemCobranca {
-			t.Fatalf("item %d deveria ser uma pendência sintética: %#v", i, p)
+		if p.Status != EstadoPendente {
+			t.Fatalf("item %d deveria ser uma pendência sintética (Status=%q): %#v", i, EstadoPendente, p)
 		}
 	}
 	if res.Total != 60 {
@@ -112,12 +146,12 @@ func TestListarPagamentosUnificadoPaginaMista(t *testing.T) {
 		t.Fatalf("esperava 30 itens (25 pendências + 5 cobranças), obteve %d", len(res.Pagamentos))
 	}
 	for i := 0; i < 25; i++ {
-		if !res.Pagamentos[i].PendenciaSemCobranca {
-			t.Fatalf("item %d deveria ser pendência", i)
+		if res.Pagamentos[i].Status != EstadoPendente {
+			t.Fatalf("item %d deveria ser pendência (Status=%q)", i, EstadoPendente)
 		}
 	}
 	for i := 25; i < 30; i++ {
-		if res.Pagamentos[i].PendenciaSemCobranca {
+		if res.Pagamentos[i].Status == EstadoPendente {
 			t.Fatalf("item %d deveria ser cobrança real", i)
 		}
 	}
@@ -153,7 +187,7 @@ func TestListarPagamentosUnificadoPaginaSoComCobrancasAposPendencias(t *testing.
 		t.Fatalf("esperava 30 itens, obteve %d", len(res.Pagamentos))
 	}
 	for _, p := range res.Pagamentos {
-		if p.PendenciaSemCobranca {
+		if p.Status == EstadoPendente {
 			t.Fatalf("nenhum item desta página deveria ser pendência: %#v", p)
 		}
 	}
@@ -182,8 +216,8 @@ func TestListarPagamentosUnificadoLimiteExatoNoFinalDasPendencias(t *testing.T) 
 		t.Fatalf("pagina1: esperava 30 itens, obteve %d", len(pagina1.Pagamentos))
 	}
 	for _, p := range pagina1.Pagamentos {
-		if !p.PendenciaSemCobranca {
-			t.Fatalf("pagina1: todos os itens deveriam ser pendências: %#v", p)
+		if p.Status != EstadoPendente {
+			t.Fatalf("pagina1: todos os itens deveriam ser pendências (Status=%q): %#v", EstadoPendente, p)
 		}
 	}
 
@@ -195,7 +229,7 @@ func TestListarPagamentosUnificadoLimiteExatoNoFinalDasPendencias(t *testing.T) 
 		t.Fatalf("pagina2: esperava 30 itens, obteve %d", len(pagina2.Pagamentos))
 	}
 	for _, p := range pagina2.Pagamentos {
-		if p.PendenciaSemCobranca {
+		if p.Status == EstadoPendente {
 			t.Fatalf("pagina2: nenhum item deveria ser pendência: %#v", p)
 		}
 	}
@@ -233,9 +267,6 @@ func TestPendenciaParaPagamentoResumoIDDeterministico(t *testing.T) {
 	b := pendenciaParaPagamentoResumo(m)
 	if a.ID != b.ID {
 		t.Fatalf("a mesma pendência produziu ids diferentes entre chamadas: %s vs %s", a.ID, b.ID)
-	}
-	if !a.PendenciaSemCobranca {
-		t.Fatal("esperava PendenciaSemCobranca=true")
 	}
 	if a.Status != EstadoPendente {
 		t.Fatalf("esperava status=%q, obteve %q", EstadoPendente, a.Status)

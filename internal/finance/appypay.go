@@ -203,9 +203,9 @@ type CobrancaResumo struct {
 	CodigoSolicitacao string                  `json:"codigo_solicitacao,omitempty"`
 	Mensalidades      []MensalidadeSelecaoMes `json:"mensalidades,omitempty"`
 	// AtualizadoEm é ponteiro (não time.Time) desde a unificação de
-	// pendências_sem_cobranca em ListarPagamentosUnificado
+	// pendências sintéticas em ListarPagamentosUnificado
 	// (pagamentos_unificado.go): um item sintetizado a partir de uma
-	// pendência sem cobrança (PendenciaSemCobranca=true) nunca teve
+	// pendência sintética nunca teve
 	// nenhuma atividade real, então não há nenhum "atualizado em" honesto
 	// para devolver — nil (omitido do JSON) em vez de inventar uma data.
 	// Para uma cobrança real, continua sempre presente (a coluna é
@@ -467,7 +467,7 @@ func (s *Service) CreateCharge(ctx context.Context, in ChargeRequest, actorID, a
 		}
 		return ChargeResult{}, err
 	}
-	payload := chargePayload(id, in, "", "solicitada", nil)
+	payload := chargePayload(id, in, "", EstadoCobrancaAguardandoPagamento, nil)
 	if err = s.record(ctx, id, "CobrancaAppyPaySolicitada", payload, actorID, actorType, ip); err != nil {
 		_ = s.releaseChargeReservation(ctx, in.MerchantTransactionID, id)
 		return ChargeResult{}, err
@@ -479,9 +479,12 @@ func (s *Service) CreateCharge(ctx context.Context, in ChargeRequest, actorID, a
 		return ChargeResult{ID: id, MerchantTransactionID: in.MerchantTransactionID, Status: "falhada"}, err
 	}
 	providerID := responseID(response)
-	status := responseStatus(response)
+	status := normalizeChargeStatus(responseStatus(response))
 	if status == "" {
-		status = "criada"
+		// A AppyPay respondeu 2xx sem nenhum campo de status no corpo — a
+		// cobrança foi aceita mas ainda não temos nenhuma informação sobre
+		// sua resolução, exatamente o significado de aguardando pagamento.
+		status = EstadoCobrancaAguardandoPagamento
 	}
 	if err = s.record(ctx, id, "CobrancaAppyPayCriada", chargePayload(id, in, providerID, status, response), actorID, actorType, ip); err != nil {
 		return ChargeResult{}, err
@@ -543,7 +546,7 @@ func (s *Service) CreateGPOQRCode(ctx context.Context, in QRCodeRequest, actorID
 		body["startDate"] = in.StartDate
 		body["endDate"] = in.EndDate
 	}
-	if err = s.record(ctx, id, "QRCodeAppyPaySolicitado", qrCodePayload(id, in, typ, "", "solicitada", nil), actorID, actorType, ip); err != nil {
+	if err = s.record(ctx, id, "QRCodeAppyPaySolicitado", qrCodePayload(id, in, typ, "", EstadoCobrancaAguardandoPagamento, nil), actorID, actorType, ip); err != nil {
 		_ = s.releaseChargeReservation(ctx, in.MerchantTransactionID, id)
 		return QRCodeResult{}, err
 	}
@@ -553,9 +556,11 @@ func (s *Service) CreateGPOQRCode(ctx context.Context, in QRCodeRequest, actorID
 		return QRCodeResult{}, err
 	}
 	providerID := responseID(response)
-	status := responseStatus(response)
+	status := normalizeChargeStatus(responseStatus(response))
 	if status == "" {
-		status = "criada"
+		// Mesmo raciocínio de CreateCharge: 2xx sem status = aceito, ainda
+		// sem resolução conhecida.
+		status = EstadoCobrancaAguardandoPagamento
 	}
 	payload := qrCodePayload(id, in, typ, providerID, status, response)
 	if err = s.record(ctx, id, "QRCodeAppyPayGerado", payload, actorID, actorType, ip); err != nil {
@@ -662,7 +667,7 @@ func (s *Service) ListCobrancas(ctx context.Context, contexto, academia string, 
 	}
 	if len(estados) > 0 {
 		where += fmt.Sprintf(" AND payload->>'status' = ANY($%d)", i)
-		args = append(args, pq.Array(estados))
+		args = append(args, pq.Array(estadosCobrancaEquivalentes(estados)))
 		i++
 	}
 	if len(origens) > 0 {
@@ -704,6 +709,35 @@ func (s *Service) ListCobrancas(ctx context.Context, contexto, academia string, 
 		return nil, err
 	}
 	return &CobrancaListResult{Cobrancas: out, Total: total}, nil
+}
+
+// estadosCobrancaEquivalentes expande os valores de filtro "estado"
+// informados pelo chamador para o conjunto completo de valores brutos que
+// scanCobrancaResumo/normalizeChargeStatus tratam como equivalentes, antes
+// de montar a cláusula SQL "payload->>'status' = ANY($n)" em ListCobrancas/
+// ListCobrancasEstudante. Necessário porque esse filtro SQL compara o valor
+// BRUTO gravado no ledger — e cobranças criadas antes desta tarefa ainda
+// têm, no payload de eventos já gravados (o ledger é append-only, ver
+// spuri_ledger), os valores antigos "solicitada"/"criada"/"Requested"/
+// "Pending" em vez do estado canônico EstadoCobrancaAguardandoPagamento.
+// Sem esta expansão, filtrar por estado=aguardando_pagamento encontraria só
+// as cobranças criadas DEPOIS do deploy desta tarefa, escondendo qualquer
+// cobrança antiga que ainda esteja nesse estado — inconsistente com o que
+// scanCobrancaResumo mostra ao ler a mesma linha (que já normaliza na
+// leitura). Qualquer outro valor de filtro (Success, Failed, Cancelled,
+// Expired, ou qualquer string não reconhecida, incluindo EstadoPendente)
+// passa inalterado — só "aguardando_pagamento" tem essa equivalência
+// histórica com valores brutos diferentes de si mesmo.
+func estadosCobrancaEquivalentes(estados []string) []string {
+	out := make([]string, 0, len(estados))
+	for _, estado := range estados {
+		if strings.EqualFold(strings.TrimSpace(estado), EstadoCobrancaAguardandoPagamento) {
+			out = append(out, EstadoCobrancaAguardandoPagamento, "Pending", "Requested", "solicitada", "criada")
+			continue
+		}
+		out = append(out, estado)
+	}
+	return out
 }
 
 // origensClause monta a cláusula SQL "AND (...)" que filtra
@@ -750,7 +784,8 @@ func scanCobrancaResumo(rows *sql.Rows) (CobrancaResumo, error) {
 	if err := json.Unmarshal(rawPayload, &payload); err != nil {
 		return CobrancaResumo{}, err
 	}
-	dto.Status, _ = payload["status"].(string)
+	rawStatus, _ := payload["status"].(string)
+	dto.Status = normalizeChargeStatus(rawStatus)
 	dto.Valor, _ = payload["amount"].(float64)
 	dto.Moeda, _ = payload["currency"].(string)
 	dto.Descricao, _ = payload["description"].(string)
@@ -809,7 +844,7 @@ func (s *Service) ListCobrancasEstudante(ctx context.Context, codigoEstudante st
 	}
 	if len(estados) > 0 {
 		where += fmt.Sprintf(" AND payload->>'status' = ANY($%d)", i)
-		args = append(args, pq.Array(estados))
+		args = append(args, pq.Array(estadosCobrancaEquivalentes(estados)))
 		i++
 	}
 	if len(origens) > 0 {
@@ -872,10 +907,73 @@ func isSuccessfulChargeStatus(status string) bool {
 	return strings.EqualFold(strings.TrimSpace(status), "Success")
 }
 
+// isTerminalChargeStatus reporta se uma cobrança real chegou a um estado do
+// qual nunca mais sai sozinha (não há mais nada que a AppyPay ou o Spuri
+// vão fazer para resolvê-la). Cobre os dois estados locais ("cancelada" —
+// cancelamento feito pelo Spuri; "falhada" — a própria chamada HTTP para a
+// AppyPay falhou, sem chegar a existir uma cobrança do lado do provedor) e
+// os quatro estados terminais documentados pela própria AppyPay e devolvidos
+// verbatim (ver docs/Parceiros e integrações/AppyPay Documentação.md):
+// Success (paga), Failed (recusada pelo processador), Cancelled (cancelada
+// do lado da AppyPay) e Expired (referência REF expirou sem pagamento).
+//
+// Antes desta correção só "cancelada"/"falhada"/Success eram reconhecidos:
+// uma cobrança devolvida pela AppyPay como Failed/Cancelled/Expired não era
+// terminal aos olhos desta função, o que tinha dois efeitos colaterais
+// reais — (1) CancelCharge não bloqueava uma segunda tentativa de
+// cancelamento sobre uma cobrança já resolvida, podendo sobrescrever um
+// status Failed genuíno com "cancelada", perdendo a razão real da falha; e
+// (2) o SQL equivalente (chargeAbertaStatusExcluidos, mensalidade.go)
+// tratava essa cobrança como "em aberto" para sempre. Precisa ficar
+// manualmente sincronizada com chargeAbertaStatusExcluidos.
 func isTerminalChargeStatus(status string) bool {
-	return strings.EqualFold(strings.TrimSpace(status), "cancelada") ||
-		strings.EqualFold(strings.TrimSpace(status), "falhada") ||
-		isSuccessfulChargeStatus(status)
+	trimmed := strings.TrimSpace(status)
+	switch {
+	case strings.EqualFold(trimmed, "cancelada"),
+		strings.EqualFold(trimmed, "falhada"),
+		strings.EqualFold(trimmed, "Failed"),
+		strings.EqualFold(trimmed, "Cancelled"),
+		strings.EqualFold(trimmed, "Expired"):
+		return true
+	default:
+		return isSuccessfulChargeStatus(trimmed)
+	}
+}
+
+// normalizeChargeStatus traduz o vocabulário histórico/bruto de status de
+// uma cobrança real para o estado canônico único
+// EstadoCobrancaAguardandoPagamento (mensalidade.go), sempre que o valor de
+// entrada representar "cobrança gerada/tentada junto à AppyPay, ainda sem
+// resolução": os estados locais intermediários que o Spuri gravava antes
+// desta tarefa ("solicitada", gravado antes de qualquer chamada ao
+// provedor; "criada", o fallback usado quando o provedor responde 2xx sem
+// nenhum campo de status) e os estados brutos que a própria AppyPay
+// documenta para esta mesma fase ("Requested" e "Pending" — ver docs/
+// Parceiros e integrações/AppyPay Documentação.md). Qualquer outro valor
+// (Success, Failed, Cancelled, Expired, ou o próprio
+// EstadoCobrancaAguardandoPagamento) é devolvido inalterado — a função é
+// idempotente e pode ser chamada tanto sobre um valor bruto recém-recebido
+// da AppyPay quanto sobre um valor já gravado (histórico ou canônico).
+//
+// Entrada vazia é devolvida vazia: normalizeChargeStatus nunca decide um
+// fallback por conta própria, porque o fallback correto depende do
+// contexto de quem chama (ex.: CreateCharge trata "" como uma cobrança
+// nova ainda sem informação = aguardando pagamento; já consultCharge trata
+// "" como "o provedor não devolveu nada desta vez, mantém o status
+// anterior").
+func normalizeChargeStatus(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	switch {
+	case trimmed == "":
+		return ""
+	case strings.EqualFold(trimmed, "Pending"),
+		strings.EqualFold(trimmed, "Requested"),
+		strings.EqualFold(trimmed, "solicitada"),
+		strings.EqualFold(trimmed, "criada"):
+		return EstadoCobrancaAguardandoPagamento
+	default:
+		return trimmed
+	}
 }
 
 // consultCharge is shared by normal consultation and cancellation's mandatory
@@ -894,8 +992,11 @@ func (s *Service) consultCharge(ctx context.Context, row chargeRow, actorID, act
 	if err != nil {
 		return ChargeResult{}, err
 	}
-	status := responseStatus(response)
+	status := normalizeChargeStatus(responseStatus(response))
 	if status == "" {
+		// AppyPay não devolveu nenhum campo de status desta vez — mantém o
+		// status anterior (row.Status já vem normalizado por loadCharge) em
+		// vez de assumir um novo estado.
 		status = row.Status
 	}
 	previousResponse := row.Payload["response"]
@@ -1226,17 +1327,35 @@ func (s *Service) AcceptWebhook(ctx context.Context, metodo, eventID string, own
 		_, _ = s.client.DB().ExecContext(ctx, `DELETE FROM financeiro_webhooks_recebidos WHERE event_id=$1`, eventID)
 		return false, err
 	}
-	if isSuccessfulChargeStatus(responseStatus(payload)) {
-		if charge, loadErr := s.loadCharge(ctx, eventID); loadErr == nil && charge.Contexto == owner.ContextoTipo && charge.Academia == owner.CodigoAcademia {
+	// Reflete no read model qualquer estado que o webhook reporte — sucesso
+	// (Success) ou qualquer um dos outros três estados terminais que a
+	// própria AppyPay documenta (Failed, Cancelled, Expired). Antes desta
+	// correção só um webhook de sucesso atualizava a cobrança: um webhook
+	// avisando que uma referência REF expirou ou que um GPO foi recusado
+	// era gravado em WebhookAppyPayRecebido (acima) mas nunca refletia em
+	// financeiro_cobrancas, deixando a cobrança "presa" em
+	// aguardando_pagamento até alguém consultá-la manualmente.
+	if raw := responseStatus(payload); raw != "" {
+		normalized := normalizeChargeStatus(raw)
+		success := isSuccessfulChargeStatus(normalized)
+		if charge, loadErr := s.loadCharge(ctx, eventID); loadErr == nil && charge.Contexto == owner.ContextoTipo && charge.Academia == owner.CodigoAcademia &&
+			// Um webhook atrasado e não-bem-sucedido nunca sobrescreve uma
+			// cobrança que já chegou a um estado terminal (ex.: já paga, já
+			// cancelada) — só um sucesso tem tratamento de conflito próprio
+			// (abaixo) que pode correr por cima de um estado terminal local.
+			(success || !isTerminalChargeStatus(charge.Status)) {
 			updated := make(map[string]any, len(charge.Payload)+3)
 			for k, v := range charge.Payload {
 				updated[k] = v
 			}
-			updated["status"] = "Success"
+			updated["status"] = normalized
+			if success {
+				updated["status"] = "Success"
+			}
 			updated["provider_charge_id"] = first(responseID(payload), charge.ProviderID)
 			updated["response"] = sanitize(payload)
 			eventType := "CobrancaAppyPayConsultada"
-			if strings.EqualFold(charge.Status, "cancelada") {
+			if success && strings.EqualFold(charge.Status, "cancelada") {
 				// A provider may still settle a REF/GPO/QR after Spuri's local
 				// cancellation. Preserve cancellation and leave an explicit audit
 				// conflict for FPP reconciliation.
@@ -1244,7 +1363,7 @@ func (s *Service) AcceptWebhook(ctx context.Context, metodo, eventID string, own
 				updated["provider_status"] = "Success"
 				eventType = "CobrancaAppyPayConflitoPosCancelamento"
 			}
-			if s.record(ctx, charge.ID, eventType, updated, "appypay:webhook", "sistema", "webhook") == nil && eventType == "CobrancaAppyPayConsultada" {
+			if s.record(ctx, charge.ID, eventType, updated, "appypay:webhook", "sistema", "webhook") == nil && success && eventType == "CobrancaAppyPayConsultada" {
 				_ = s.confirmMensalidadeCharge(ctx, charge.ID, "appypay:webhook", "sistema", "webhook")
 			}
 		}
@@ -1268,7 +1387,8 @@ func (s *Service) loadCharge(ctx context.Context, identifier string) (chargeRow,
 	if err = json.Unmarshal(raw, &r.Payload); err != nil {
 		return r, err
 	}
-	r.Status, _ = r.Payload["status"].(string)
+	rawStatus, _ := r.Payload["status"].(string)
+	r.Status = normalizeChargeStatus(rawStatus)
 	return r, nil
 }
 

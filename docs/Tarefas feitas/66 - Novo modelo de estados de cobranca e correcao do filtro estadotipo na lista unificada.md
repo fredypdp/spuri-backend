@@ -1,8 +1,9 @@
 ---
 criado: 2026-08-26
 origem: conversa com Fredy (Claude como orquestrador, Codex como executor)
-status: pendente
+status: concluido
 tipo: correcao_de_bug_e_redesenho_de_contrato
+concluido: 2026-08-26
 depende_de: docs/Tarefas feitas/64 - Unificar cobrancas e pendencias_sem_cobranca numa unica lista paginada.md
 gera_dependencia_para: tarefa companion no repositório spuripainel (frontend) — ver seção 0
 ---

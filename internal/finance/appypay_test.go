@@ -73,10 +73,101 @@ func TestCancelChargeAuthorizationAndTerminalStatuses(t *testing.T) {
 	if !canCancelCharge(academy, "ACA1", "academia") || canCancelCharge(academy, "ACA2", "academia") {
 		t.Fatal("isolamento de cancelamento por academia inválido")
 	}
-	for _, status := range []string{"cancelada", "FALHADA", "Success", "SUCCESS"} {
+	// Antes desta tarefa só "cancelada"/"falhada"/"Success" eram
+	// reconhecidos como terminal — "Failed", "Cancelled" e "Expired"
+	// (documentados pela própria AppyPay) ficavam de fora, o que permitia
+	// re-cancelar uma cobrança já resolvida e mantinha uma "mensalidade
+	// aberta" presa para sempre (ver TestIntegrationMensalidadeComCobrancaFalhadaNaAppyPayPermiteNovaTentativa).
+	for _, status := range []string{"cancelada", "FALHADA", "Success", "SUCCESS", "Failed", "FAILED", "Cancelled", "CANCELLED", "Expired", "EXPIRED"} {
 		if !isTerminalChargeStatus(status) {
 			t.Fatalf("estado terminal %q não foi reconhecido", status)
 		}
+	}
+	// aguardando_pagamento (e os valores brutos/locais que normalizeChargeStatus
+	// traduz para ele) é o único estado não-terminal possível para uma
+	// cobrança real — nunca deve ser tratado como terminal.
+	for _, status := range []string{EstadoCobrancaAguardandoPagamento, "Pending", "Requested", "solicitada", "criada", ""} {
+		if isTerminalChargeStatus(status) {
+			t.Fatalf("estado %q não deveria ser terminal", status)
+		}
+	}
+}
+
+// TestNormalizeChargeStatus cobre a tradução central do novo modelo de
+// estados: os valores locais intermediários ("solicitada", "criada") e os
+// valores brutos que a própria AppyPay documenta para "cobrança gerada,
+// ainda sem resolução" ("Requested", "Pending") devem virar o estado
+// canônico único EstadoCobrancaAguardandoPagamento — em qualquer
+// combinação de maiúsculas/minúsculas, já que a AppyPay não garante uma
+// caixa fixa. Qualquer outro valor (terminal ou já canônico) deve passar
+// inalterado — a função é idempotente. Entrada vazia continua vazia: quem
+// decide o fallback é o chamador (CreateCharge/CreateGPOQRCode tratam ""
+// como aguardando_pagamento; consultCharge tem preferido preservar o
+// status anterior).
+func TestNormalizeChargeStatus(t *testing.T) {
+	awaiting := map[string]bool{
+		"Pending": true, "pending": true, "PENDING": true,
+		"Requested": true, "requested": true,
+		"solicitada": true, "SOLICITADA": true,
+		"criada": true, "CRIADA": true,
+		EstadoCobrancaAguardandoPagamento: true,
+	}
+	for raw := range awaiting {
+		if got := normalizeChargeStatus(raw); got != EstadoCobrancaAguardandoPagamento {
+			t.Fatalf("normalizeChargeStatus(%q) = %q, esperava %q", raw, got, EstadoCobrancaAguardandoPagamento)
+		}
+	}
+	passthrough := []string{"Success", "Failed", "Cancelled", "Expired", "falhada", "cancelada", "algo-desconhecido"}
+	for _, raw := range passthrough {
+		if got := normalizeChargeStatus(raw); got != raw {
+			t.Fatalf("normalizeChargeStatus(%q) deveria devolver o valor inalterado, obteve %q", raw, got)
+		}
+	}
+	if got := normalizeChargeStatus(""); got != "" {
+		t.Fatalf("normalizeChargeStatus(\"\") deveria devolver \"\", obteve %q", got)
+	}
+	// Idempotência: aplicar duas vezes sobre o próprio resultado não muda
+	// nada — importante porque scanCobrancaResumo/loadCharge normalizam
+	// tanto valores brutos históricos quanto valores já canônicos.
+	for _, raw := range append(passthrough, EstadoCobrancaAguardandoPagamento) {
+		once := normalizeChargeStatus(raw)
+		twice := normalizeChargeStatus(once)
+		if once != twice {
+			t.Fatalf("normalizeChargeStatus não é idempotente para %q: 1a chamada=%q, 2a chamada=%q", raw, once, twice)
+		}
+	}
+}
+
+// TestEstadosCobrancaEquivalentes cobre a expansão do filtro estado=
+// aguardando_pagamento para o conjunto de valores brutos históricos
+// equivalentes (ver ListCobrancas/ListCobrancasEstudante) — sem essa
+// expansão, filtrar por esse novo estado canônico não encontraria nenhuma
+// cobrança criada antes desta tarefa (ainda gravada como "Pending",
+// "Requested", "solicitada" ou "criada" no payload do ledger, imutável).
+func TestEstadosCobrancaEquivalentes(t *testing.T) {
+	got := estadosCobrancaEquivalentes([]string{"aguardando_pagamento"})
+	esperado := map[string]bool{"aguardando_pagamento": true, "Pending": true, "Requested": true, "solicitada": true, "criada": true}
+	if len(got) != len(esperado) {
+		t.Fatalf("esperava %d valores equivalentes, obteve %d: %#v", len(esperado), len(got), got)
+	}
+	for _, v := range got {
+		if !esperado[v] {
+			t.Fatalf("valor inesperado na expansão: %q (lista completa: %#v)", v, got)
+		}
+	}
+	// Qualquer outro estado passa inalterado — não tem equivalência
+	// histórica com outros valores brutos.
+	for _, outros := range [][]string{{"Success"}, {"Failed"}, {"Cancelled"}, {"Expired"}, {"pendente"}} {
+		out := estadosCobrancaEquivalentes(outros)
+		if len(out) != 1 || out[0] != outros[0] {
+			t.Fatalf("esperava %v inalterado, obteve %v", outros, out)
+		}
+	}
+	// Uma lista com múltiplos estados só expande o que casa com
+	// aguardando_pagamento, preservando os demais.
+	misto := estadosCobrancaEquivalentes([]string{"Success", "aguardando_pagamento"})
+	if len(misto) != 6 {
+		t.Fatalf("esperava 6 valores (1 Success + 5 da expansão), obteve %d: %#v", len(misto), misto)
 	}
 }
 

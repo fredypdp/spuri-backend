@@ -166,11 +166,8 @@ func TestIntegrationListarCobrancasHandlerFluxoUnificado(t *testing.T) {
 	estudantesVistos := map[string]bool{}
 	for _, p := range res.Pagamentos {
 		estudantesVistos[p.CodigoEstudante] = true
-		if p.PendenciaSemCobranca {
+		if p.Status == EstadoPendente {
 			pendentesSinteticas++
-			if p.Status != EstadoPendente {
-				t.Fatalf("pendência sintética deveria ter status=%q, obteve %q", EstadoPendente, p.Status)
-			}
 			if p.AtualizadoEm != nil {
 				t.Fatalf("pendência sintética deveria ter AtualizadoEm nil, obteve %v", p.AtualizadoEm)
 			}
@@ -202,11 +199,11 @@ func TestIntegrationListarCobrancasHandlerFluxoUnificado(t *testing.T) {
 
 	// Ordem: pendências primeiro, cobranças reais depois.
 	for i := 0; i < 3; i++ {
-		if !res.Pagamentos[i].PendenciaSemCobranca {
+		if res.Pagamentos[i].Status != EstadoPendente {
 			t.Fatalf("item %d deveria ser pendência (pendências vêm primeiro)", i)
 		}
 	}
-	if res.Pagamentos[3].PendenciaSemCobranca {
+	if res.Pagamentos[3].Status == EstadoPendente {
 		t.Fatal("item 3 deveria ser a cobrança real (por último)")
 	}
 }

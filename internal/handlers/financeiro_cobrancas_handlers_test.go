@@ -75,6 +75,36 @@ func TestIntegrationListarCobrancasAppyPayFiltraPorEscopoEEstado(t *testing.T) {
 	if body.TotalGeral != 3 {
 		t.Fatalf("academia A deveria ver 3 cobranças próprias, viu %d: %s", body.TotalGeral, all.Body.String())
 	}
+	// A cobrança "criada" foi inserida diretamente no banco (bypassando o
+	// Service), simulando uma cobrança criada ANTES desta tarefa — o
+	// status bruto histórico "criada" nunca deveria voltar ao chamador
+	// como está: scanCobrancaResumo normaliza a leitura para o estado
+	// canônico único aguardando_pagamento, mesmo para uma linha que nunca
+	// passou pelo novo código de escrita.
+	var achouCriadaComoAguardando bool
+	for _, p := range body.Pagamentos {
+		if p.Status == "criada" {
+			t.Fatalf("status bruto histórico \"criada\" vazou para a API sem normalizar: %#v", p)
+		}
+		if p.Status == finance.EstadoCobrancaAguardandoPagamento && p.Origem == "avulsa" {
+			achouCriadaComoAguardando = true
+		}
+	}
+	if !achouCriadaComoAguardando {
+		t.Fatalf("esperava a cobrança \"criada\" normalizada para %q: %s", finance.EstadoCobrancaAguardandoPagamento, all.Body.String())
+	}
+
+	// Filtrar por estado=aguardando_pagamento (o novo nome canônico) deve
+	// encontrar essa MESMA cobrança histórica, mesmo o valor gravado no
+	// banco ainda sendo o bruto "criada" — é a expansão de
+	// estadosCobrancaEquivalentes que garante essa equivalência no SQL.
+	porNovoEstado := call(academiaA, "estado=aguardando_pagamento")
+	if err := json.Unmarshal(porNovoEstado.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.TotalGeral != 1 || len(body.Pagamentos) != 1 || body.Pagamentos[0].Status != finance.EstadoCobrancaAguardandoPagamento {
+		t.Fatalf("filtro por estado=aguardando_pagamento deveria encontrar a cobrança histórica \"criada\": %s", porNovoEstado.Body.String())
+	}
 
 	filtrada := call(academiaA, "estado=Success")
 	if err := json.Unmarshal(filtrada.Body.Bytes(), &body); err != nil {

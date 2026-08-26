@@ -2,6 +2,7 @@ package finance
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -311,6 +312,96 @@ func TestIntegrationMensalidadeAnularEReativar(t *testing.T) {
 	}
 	if err := service.ReativarObrigacoesMensalidade(context.Background(), in, uuid.NewString(), "academia", "127.0.0.1"); err == nil {
 		t.Fatal("reativacao de mensalidade paga foi aceite")
+	}
+}
+
+// TestIntegrationMensalidadeComCobrancaFalhadaNaAppyPayPermiteNovaTentativa
+// cobre um bug real de produção: mensalidadeTemCobrancaAberta (usada por
+// IniciarPagamentoMensalidades para bloquear uma segunda tentativa
+// enquanto já existe uma cobrança "em aberto" para o mesmo mês) só
+// reconhecia os estados terminais locais ("cancelada", "falhada") e
+// "Success" — uma cobrança com o estado bruto "Failed" devolvido pela
+// própria AppyPay (recusa no processador, ver docs/Parceiros e
+// integrações/AppyPay Documentação.md) nunca entrava nessa lista e por
+// isso ficava "presa" como em aberto para sempre, bloqueando
+// indefinidamente qualquer nova tentativa de pagamento do mesmo mês —
+// mesmo a cobrança anterior já tendo definitivamente falhado no provedor.
+func TestIntegrationMensalidadeComCobrancaFalhadaNaAppyPayPermiteNovaTentativa(t *testing.T) {
+	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
+	client := integrationClient(t)
+	service := NewService(client)
+	ctx := context.Background()
+
+	academia := mensalidadeCodigo()
+	estudante := "EST-RETRY-" + uuid.NewString()[:8]
+	seedMensalidadeAcademia(t, client, academia, "private", "fundamental", "2025_2026")
+	seedMensalidadeTurma(t, client, academia, "T-RETRY", "2025_2026", estudante, nil)
+	seedMensalidadeConfiguracao(t, client, academia, NivelFundamental, "6_ano_fundamental", nil, 1000, 7, time.Date(2025, 8, 1, 0, 0, 0, 0, time.UTC))
+	if _, err := client.DB().Exec(`UPDATE financeiro_mensalidade_configuracoes SET metodos_pagamento='{GPO}' WHERE codigo_academia=$1`, academia); err != nil {
+		t.Fatal(err)
+	}
+	configureIntegrationCredential(t, service, ContextoAcademia, academia)
+	transport := &appyPayMockTransport{status: "Pending"}
+	service.SetHTTPClient(&http.Client{Transport: transport})
+
+	pendentes, err := service.ListMensalidades(ctx, estudante, &academia)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pendentes) == 0 {
+		t.Fatal("esperava pelo menos uma mensalidade pendente")
+	}
+	alvo := pendentes[0]
+	meses := []MensalidadeSelecaoMes{{AnoLetivo: alvo.AnoLetivo, Mes: alvo.Mes}}
+
+	// 1a tentativa: cria a cobrança (POST /charges do mock sempre devolve
+	// "Pending" — vira EstadoCobrancaAguardandoPagamento após a
+	// normalização desta tarefa).
+	primeira, err := service.IniciarPagamentoMensalidades(ctx, MensalidadePagamentoInput{
+		CodigoEstudante: estudante, CodigoAcademia: academia, Meses: meses,
+		MetodoPagamento: "GPO", Telefone: "923000000",
+	}, estudante, "estudante", "127.0.0.1")
+	if err != nil {
+		t.Fatalf("1a tentativa de pagamento falhou: %v", err)
+	}
+	if primeira.Charge.Status != EstadoCobrancaAguardandoPagamento {
+		t.Fatalf("esperava status=%q logo após criar a cobrança, obteve %q", EstadoCobrancaAguardandoPagamento, primeira.Charge.Status)
+	}
+
+	// Uma 2a tentativa imediata (sem a AppyPay ter resolvido a 1a) deve
+	// continuar bloqueada — comportamento que já existia antes desta
+	// tarefa e continua correto: a cobrança está aberta de verdade.
+	if _, err := service.IniciarPagamentoMensalidades(ctx, MensalidadePagamentoInput{
+		CodigoEstudante: estudante, CodigoAcademia: academia, Meses: meses,
+		MetodoPagamento: "GPO", Telefone: "923000000",
+	}, estudante, "estudante", "127.0.0.1"); err == nil {
+		t.Fatal("esperava bloqueio de 2a tentativa enquanto a 1a cobrança ainda está aguardando pagamento")
+	}
+
+	// A AppyPay resolve a 1a cobrança como Failed (recusada no
+	// processador) — o Spuri descobre isso numa consulta, exatamente como
+	// aconteceria via webhook ou verificação manual.
+	transport.status = "Failed"
+	consultada, err := service.ConsultCharge(ctx, ContextoAcademia, academia, primeira.Charge.ID.String(), estudante, "estudante", "127.0.0.1")
+	if err != nil {
+		t.Fatalf("ConsultCharge falhou: %v", err)
+	}
+	if consultada.Status != "Failed" {
+		t.Fatalf("esperava status=Failed após a consulta, obteve %q", consultada.Status)
+	}
+
+	// A 2a tentativa agora deve ser aceite: a cobrança anterior já está
+	// definitivamente resolvida (Failed), não "em aberto" — este é
+	// exatamente o bug corrigido nesta tarefa.
+	segunda, err := service.IniciarPagamentoMensalidades(ctx, MensalidadePagamentoInput{
+		CodigoEstudante: estudante, CodigoAcademia: academia, Meses: meses,
+		MetodoPagamento: "GPO", Telefone: "923000000",
+	}, estudante, "estudante", "127.0.0.1")
+	if err != nil {
+		t.Fatalf("esperava que a 2a tentativa fosse aceite após a 1a cobrança ter falhado no provedor, obteve erro: %v", err)
+	}
+	if segunda.Charge.ID == primeira.Charge.ID {
+		t.Fatal("a 2a tentativa deveria ter criado uma cobrança nova, não reutilizado a 1a")
 	}
 }
 

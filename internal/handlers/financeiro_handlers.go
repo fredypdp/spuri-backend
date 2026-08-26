@@ -418,8 +418,15 @@ func ListarCobrancasAppyPay(c *gin.Context) {
 	// ano_letivo) é informado junto de codigo_academia — sem isso, a
 	// varredura seria sobre a academia inteira sem limite. mes (tarefa 60)
 	// só refina esse escopo, nunca o substitui. Ver finance.PendenciasSemCobranca.
+	//
+	// Além do escopo, uma pendência sintética só entra na lista se ela não
+	// for excluída pelos filtros estado/tipo — ver
+	// finance.DeveIncluirPendenciasSemCobranca para o porquê: toda
+	// pendência sintética é sempre estado="pendente" e tipo="mensalidade",
+	// então pedir estado=Failed (por exemplo) deve excluí-las, não trazê-las
+	// de qualquer forma.
 	var pendencias []finance.MensalidadeMesView
-	if turmaID != nil || cursoID != nil || anoAcademico != "" || anoLetivo != "" {
+	if (turmaID != nil || cursoID != nil || anoAcademico != "" || anoLetivo != "") && finance.DeveIncluirPendenciasSemCobranca(estados, origens) {
 		pendencias, err = FinanceiroService.PendenciasSemCobranca(c.Request.Context(), academia, turmaID, cursoID, anoAcademico, anoLetivo, mes)
 		if err != nil {
 			financeError(c, err)
@@ -505,19 +512,26 @@ func ConsultarCobrancasEstudante(c *gin.Context) {
 	estados := c.QueryArray("estado")
 	origens := c.QueryArray("tipo")
 	// pendências sem cobrança são sempre calculadas aqui (sem exigir nenhum
-	// filtro extra): esta consulta já está inerentemente delimitada a UM
-	// estudante, então não há o mesmo risco de varredura sem limite que
-	// existe em ListarCobrancasAppyPay. Ver
+	// filtro extra de escopo): esta consulta já está inerentemente
+	// delimitada a UM estudante, então não há o mesmo risco de varredura
+	// sem limite que existe em ListarCobrancasAppyPay. Ver
 	// finance.PendenciasSemCobrancaEstudante.
-	pendencias, err := FinanceiroService.PendenciasSemCobrancaEstudante(c.Request.Context(), codigo, somenteAcademia)
-	if err != nil {
-		financeError(c, err)
-		return
-	}
-	pendencias, err = FinanceiroService.FiltrarPendenciasComCobrancaRealVinculada(c.Request.Context(), pendencias)
-	if err != nil {
-		financeError(c, err)
-		return
+	//
+	// Mesmo assim, um filtro de estado/tipo que exclua explicitamente
+	// "pendente"/"mensalidade" deve excluir as pendências sintéticas do
+	// resultado — ver finance.DeveIncluirPendenciasSemCobranca.
+	var pendencias []finance.MensalidadeMesView
+	if finance.DeveIncluirPendenciasSemCobranca(estados, origens) {
+		pendencias, err = FinanceiroService.PendenciasSemCobrancaEstudante(c.Request.Context(), codigo, somenteAcademia)
+		if err != nil {
+			financeError(c, err)
+			return
+		}
+		pendencias, err = FinanceiroService.FiltrarPendenciasComCobrancaRealVinculada(c.Request.Context(), pendencias)
+		if err != nil {
+			financeError(c, err)
+			return
+		}
 	}
 	// mes não é exposto como parâmetro de query nesta rota ainda (só em
 	// GET /financeiro/cobrancas, tarefa 60) — passamos nil para manter o
