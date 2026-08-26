@@ -1,7 +1,7 @@
 ---
 criado: 2026-08-26
 origem: "Auditoria solicitada por Fredy Luís ao módulo financeiro (internal/finance), para confirmar que existe, para cada método de pagamento aceite pelo sistema (REF, GPO, GPO_QR), apenas uma função de geração de cobrança reutilizada por todo o sistema. Esta tarefa foi orquestrada por Claude (Anthropic) a partir da leitura completa do código-fonte de spuri-backend (branch main): internal/finance/appypay.go, internal/finance/matricula.go, internal/finance/mensalidade.go, internal/finance/pagamentos_unificado.go, internal/handlers/financeiro_handlers.go, e de uma busca exaustiva (grep) por todos os pontos do repositório que chamam CreateCharge e CreateGPOQRCode."
-status: pendente
+status: feito
 depende_de: nenhuma
 ---
 

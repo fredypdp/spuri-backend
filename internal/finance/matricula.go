@@ -214,22 +214,19 @@ func (s *Service) IniciarPagamentoMatricula(ctx context.Context, in MatriculaPag
 		return MatriculaPagamentoView{}, errors.New("solicitação já possui cobrança de matrícula em aberto")
 	}
 	desc := "Taxa de matrícula " + academia
-	if in.MetodoPagamento == "GPO_QR" {
-		qr, err := s.CreateGPOQRCode(ctx, QRCodeRequest{ContextoTipo: ContextoAcademia, CodigoAcademia: academia, CodigoSolicitacao: in.CodigoSolicitacao, Amount: valor.Float64, Currency: "AOA", Description: desc, MerchantTransactionID: merchantID()}, "solicitacao:"+in.CodigoSolicitacao, "solicitante", ip)
-		if err != nil {
-			return MatriculaPagamentoView{}, err
-		}
-		return MatriculaPagamentoView{Charge: qr}, nil
-	}
-	info := map[string]any{}
-	if in.MetodoPagamento == "GPO" {
-		info["phoneNumber"] = strings.TrimSpace(in.Telefone)
-	}
-	charge, err := s.CreateCharge(ctx, ChargeRequest{ContextoTipo: ContextoAcademia, CodigoAcademia: academia, CodigoSolicitacao: in.CodigoSolicitacao, Amount: valor.Float64, Currency: "AOA", Description: desc, MerchantTransactionID: merchantID(), PaymentMethod: in.MetodoPagamento, PaymentInfo: info}, "solicitacao:"+in.CodigoSolicitacao, "solicitante", ip)
+	result, err := s.gerarCobranca(ctx, gerarCobrancaInput{
+		CodigoAcademia:        academia,
+		MetodoPagamento:       in.MetodoPagamento,
+		Amount:                valor.Float64,
+		Description:           desc,
+		MerchantTransactionID: merchantID(),
+		Telefone:              in.Telefone,
+		CodigoSolicitacao:     in.CodigoSolicitacao,
+	}, "solicitacao:"+in.CodigoSolicitacao, "solicitante", ip)
 	if err != nil {
 		return MatriculaPagamentoView{}, err
 	}
-	return MatriculaPagamentoView{Charge: QRCodeResult{ChargeResult: charge}}, nil
+	return MatriculaPagamentoView{Charge: result}, nil
 }
 func (s *Service) matriculaTemCobrancaAberta(ctx context.Context, codigo string) (bool, error) {
 	var ok bool
