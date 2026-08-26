@@ -1,7 +1,8 @@
 ---
 criado: 2026-08-25
 origem: docs/Debbugs/Depurar arquivos de alvara nao chegando ao Mega real.md
-status: pendente
+status: concluido
+concluido: 2026-08-26
 tipo: correcao_bug_critico_mais_ferramenta_de_recuperacao
 ---
 

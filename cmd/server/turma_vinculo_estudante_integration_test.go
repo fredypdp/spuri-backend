@@ -44,6 +44,8 @@ func setupTurmaVinculoIntegration(t *testing.T) *turmaVinculoFixture {
 		t.Skip("set SPURI_RUN_DB_INTEGRITY_TESTS=1 with an isolated PostgreSQL database to run")
 	}
 	t.Setenv("ENV", "test")
+	t.Setenv("STORAGE_PROVIDER", "local")
+	t.Setenv("MEGA_LOCAL_ROOT", t.TempDir())
 	prev, _ := os.Getwd()
 	_ = os.Chdir("../..")
 	t.Cleanup(func() { _ = os.Chdir(prev) })

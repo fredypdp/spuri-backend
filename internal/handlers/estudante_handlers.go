@@ -181,7 +181,11 @@ func registerEstudantePorAcademiaComRequestModo(c *gin.Context, req CadastroEstu
 	}
 	provider := getStorageProvider(c)
 	if provider == nil {
-		p, _ := storage.NewStorageProvider()
+		p, err := storage.NewStorageProvider()
+		if err != nil {
+			utils.RespondWithError(c, http.StatusServiceUnavailable, err.Error(), err)
+			return
+		}
 		provider = p
 	}
 	dir := fmt.Sprintf("%s/estudantes/%s/documentos", academia.CodigoAcademia, codigoEstudante)
@@ -931,7 +935,12 @@ func CompletarDocumentosEstudantePendente(c *gin.Context) {
 	}
 	provider := getStorageProvider(c)
 	if provider == nil {
-		provider, _ = storage.NewStorageProvider()
+		var err error
+		provider, err = storage.NewStorageProvider()
+		if err != nil {
+			utils.RespondWithError(c, http.StatusServiceUnavailable, err.Error(), err)
+			return
+		}
 	}
 	dir := fmt.Sprintf("%s/estudantes/%s/documentos", academia.CodigoAcademia, codigo)
 	if err := provider.EnsureDir(dir); err != nil {

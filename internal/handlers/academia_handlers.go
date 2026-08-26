@@ -183,7 +183,11 @@ func RegisterAcademia(c *gin.Context) {
 	}
 	provider := getStorageProvider(c)
 	if provider == nil {
-		p, _ := storage.NewStorageProvider()
+		p, err := storage.NewStorageProvider()
+		if err != nil {
+			utils.RespondWithError(c, http.StatusServiceUnavailable, err.Error(), err)
+			return
+		}
 		provider = p
 	}
 	dir := fmt.Sprintf("%s/Documentação formal", codigoAcademia)
@@ -381,7 +385,11 @@ func RegisterAcademiaPublica(c *gin.Context) {
 	}
 	provider := getStorageProvider(c)
 	if provider == nil {
-		p, _ := storage.NewStorageProvider()
+		p, err := storage.NewStorageProvider()
+		if err != nil {
+			utils.RespondWithError(c, http.StatusServiceUnavailable, err.Error(), err)
+			return
+		}
 		provider = p
 	}
 	dir := fmt.Sprintf("%s/Documentação formal", codigoAcademia)
@@ -684,7 +692,11 @@ func DeletarAcademia(c *gin.Context) {
 
 	provider := getStorageProvider(c)
 	if provider == nil {
-		p, _ := storage.NewStorageProvider()
+		p, err := storage.NewStorageProvider()
+		if err != nil {
+			utils.RespondWithError(c, http.StatusServiceUnavailable, err.Error(), err)
+			return
+		}
 		provider = p
 	}
 	if provider == nil {

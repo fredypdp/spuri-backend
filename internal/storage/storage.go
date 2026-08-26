@@ -143,11 +143,37 @@ func NewLocalProvider() StorageProvider {
 	return &MegaProvider{root: root, rootFolder: strings.Trim(strings.TrimSpace(os.Getenv("MEGA_ROOT_FOLDER")), "/"), local: true}
 }
 
+// useLocalMegaFallback decide se o provider deve operar sobre o filesystem
+// local (fake) em vez do Mega remoto real.
+//
+// Regra (corrigida — ver docs/Debbugs/Depurar arquivos de alvara nao
+// chegando ao Mega real.md): o único jeito de ativar o fallback local é
+// STORAGE_PROVIDER=local, explícito. Nenhuma outra variável — em especial
+// ENV — jamais ativa o fallback local, mesmo que ENV=test (usado, para um
+// propósito completamente diferente, para selecionar o ambiente de sandbox
+// da AppyPay em internal/finance/appypay.go). Antes desta correção,
+// ENV=test sozinho já bastava para ativar o fallback local quando
+// STORAGE_PROVIDER não estava definido — e, num bug ainda pior, mesmo
+// quando STORAGE_PROVIDER=mega estava definido explicitamente com
+// credenciais Mega válidas. As duas brechas foram fechadas: armazenamento
+// de arquivos é sempre o Mega remoto real, a não ser que alguém peça
+// explicitamente o contrário com STORAGE_PROVIDER=local.
 func useLocalMegaFallback() bool {
-	return strings.EqualFold(strings.TrimSpace(os.Getenv("ENV")), "test") || strings.ToLower(strings.TrimSpace(os.Getenv("STORAGE_PROVIDER"))) == "local"
+	return strings.ToLower(strings.TrimSpace(os.Getenv("STORAGE_PROVIDER"))) == "local"
 }
 
-func (m *MegaProvider) ProviderName() string { return "mega" }
+// ProviderName identifica o backend efetivamente ativo. Retorna "mega"
+// apenas quando este provider está de fato falando com o Mega remoto real;
+// no modo de fallback local (ver useLocalMegaFallback) retorna
+// "mega-local", para que nada — nem o endpoint de diagnóstico
+// GET /dominis/storage/quota, nem logs, nem qualquer outro consumidor —
+// possa confundir os dois modos.
+func (m *MegaProvider) ProviderName() string {
+	if m.local {
+		return "mega-local"
+	}
+	return "mega"
+}
 
 func (m *MegaProvider) clean(remotePath string) (string, error) {
 	clean := filepath.ToSlash(filepath.Clean(strings.TrimPrefix(remotePath, "/")))

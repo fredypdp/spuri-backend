@@ -2,7 +2,7 @@
 data: 2026-08-25
 status: corrigido_via_65_corrigir_fallback_local_silencioso_do_storage_mega_e_criar_migracao_de_recuperacao
 auditor: Claude (orquestrador) — depuração com PostgreSQL 16 e Go 1.24 reais em sandbox, testes ao vivo do binário compilado, e simulação completa da tarefa de correção num clone novo do zero
-tarefa_correcao: docs/Lista de Tarefas/65 - Corrigir fallback local silencioso do storage Mega e criar migracao de recuperacao.md
+tarefa_correcao: docs/Tarefas feitas/65 - Corrigir fallback local silencioso do storage Mega e criar migracao de recuperacao.md
 ---
 
 # Depuração — arquivos de alvará de "cadastros independentes" de academia não aparecem no Mega real

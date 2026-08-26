@@ -115,7 +115,33 @@ func initStorage() error {
 		return err
 	}
 	storageProvider = provider
+	logStorageProviderStartup(provider)
 	return nil
+}
+
+// logStorageProviderStartup registra, de forma bem visível, qual backend de
+// armazenamento de arquivos está realmente ativo nesta instância. Existe
+// porque um provider em modo de fallback local historicamente não deixava
+// nenhum rastro nos logs de inicialização — ver
+// docs/Debbugs/Depurar arquivos de alvara nao chegando ao Mega real.md.
+func logStorageProviderStartup(provider storage.StorageProvider) {
+	name := provider.ProviderName()
+	if name != "mega-local" {
+		rootFolder := strings.Trim(strings.TrimSpace(os.Getenv("MEGA_ROOT_FOLDER")), "/")
+		log.Printf("[INFO] armazenamento de arquivos: Mega remoto ativo (provider=%q, root_folder=%q)", name, rootFolder)
+		return
+	}
+
+	localRoot := strings.TrimSpace(os.Getenv("MEGA_LOCAL_ROOT"))
+	if localRoot == "" {
+		localRoot = "data/mega_storage"
+	}
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("ENV")))
+	if env == "production" {
+		log.Printf("[ALERTA] armazenamento de arquivos rodando em MODO LOCAL (provider=%q) com ENV=production — alvarás e outros documentos NÃO estão sendo enviados ao Mega real, ficam em %q e podem ser perdidos em redeploys. Verifique a variável STORAGE_PROVIDER (deve ser \"mega\", nunca \"local\", em produção).", name, localRoot)
+		return
+	}
+	log.Printf("[INFO] armazenamento de arquivos: modo local (provider=%q), diretório=%q, ambiente=%q", name, localRoot, env)
 }
 
 func initProjections() error {
@@ -537,6 +563,7 @@ func setupRouter() *gin.Engine {
 		admin.GET("/admin-lista", handlers.ListarTodosAdmins)
 		admin.GET("/metrics", handlers.GetSystemMetrics)
 		admin.GET("/storage/quota", handlers.GetStorageQuota)
+		admin.POST("/storage/migrar-local-para-mega", middleware.RequireFPP(), handlers.MigrarStorageLocalParaMega)
 		admin.GET("/solicitacoes-matricula", handlers.ListarSolicitacoesMatriculaAdmin)
 		admin.POST("/projections/rebuild/:name", middleware.RequireFPP(), handlers.RebuildProjection)
 		admin.POST("/projections/rebuild/:name/async", middleware.RequireFPP(), handlers.RebuildProjectionAsync)
