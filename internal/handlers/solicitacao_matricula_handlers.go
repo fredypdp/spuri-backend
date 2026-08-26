@@ -173,7 +173,11 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 	}
 	provider := getStorageProvider(c)
 	if provider == nil {
-		p, _ := storage.NewStorageProvider()
+		p, err := storage.NewStorageProvider()
+		if err != nil {
+			utils.RespondWithError(c, http.StatusServiceUnavailable, err.Error(), err)
+			return
+		}
 		provider = p
 	}
 	dir := fmt.Sprintf("%s/matriculas/matricula_%s", codigoAcademia, codigo)

@@ -6927,6 +6927,8 @@ Retorna o uso de armazenamento da conta configurada no provider ativo, discrimin
 
 **Response 200:**
 
+`provider` identifica o backend efetivamente ativo nesta instância: `"mega"` quando é de fato o Mega remoto real, ou `"mega-local"` quando a instância está rodando em modo de fallback local (ver `STORAGE_PROVIDER` e `ENV` na seção "20. Armazenamento" mais abaixo) — nunca `"mega"` nesse segundo caso, para não mascarar o modo ativo.
+
 ```json
 {
   "provider": "mega",
@@ -6975,6 +6977,49 @@ Retorna o uso de armazenamento da conta configurada no provider ativo, discrimin
 | Status | Quando ocorre |
 | --- | --- |
 | `503` | provider de armazenamento indisponível ou falha ao obter quota |
+
+#### POST /dominis/storage/migrar-local-para-mega
+
+Ferramenta administrativa de recuperação: reenvia para o Mega remoto real qualquer arquivo que tenha ficado apenas no fallback local (`MEGA_LOCAL_ROOT`), preservando o caminho relativo. Não apaga nem sobrescreve nada — um arquivo já existente no mesmo caminho no destino é apenas reportado, nunca substituído, então é seguro chamar mais de uma vez. Existe para o cenário descrito em `docs/Debbugs/Depurar arquivos de alvara nao chegando ao Mega real.md`.
+
+**Proteção real**: autenticado + admin com role `fpp`.
+
+**Pré-condição**: só executa quando o provider ativo é de fato o Mega remoto (`ProviderName() == "mega"`); se a instância estiver rodando em `mega-local`, retorna `400` explicando que não há para onde migrar.
+
+**Request:** sem payload
+
+**Response 200 ou 207** (207 quando `falharam > 0`):
+
+```json
+{
+  "local_root": "data/mega_storage",
+  "total_encontrados": 2,
+  "migrados": 1,
+  "ja_existiam": 1,
+  "falharam": 0,
+  "arquivos": [
+    {
+      "path": "ACA001/Documentação formal/alvara_ACA001.pdf",
+      "size_bytes": 48213,
+      "status": "migrado"
+    },
+    {
+      "path": "ACA002/alvara_ACA002.pdf",
+      "size_bytes": 51022,
+      "status": "ja_existia_no_destino"
+    }
+  ]
+}
+```
+
+`status` de cada arquivo é `"migrado"`, `"ja_existia_no_destino"` ou `"falhou"` (com campo `erro` adicional nesse último caso).
+
+**Erros principais:**
+
+| Status | Quando ocorre |
+| --- | --- |
+| `400` | provider ativo não é o Mega remoto real (nada a migrar) |
+| `503` | provider de armazenamento indisponível |
 
 ## 17. Jobs Assíncronos
 
@@ -8327,7 +8372,11 @@ Configuração local/teste:
 
 - `STORAGE_PROVIDER=local`: seleciona o provider local compatível com a mesma interface, sem conexão externa.
 - `MEGA_LOCAL_ROOT`: diretório local usado pelo provider local (padrão `data/mega_storage`).
-- `ENV=test`: permite usar o provider local nos testes automatizados.
+- `ENV`: **não tem nenhum efeito** sobre qual storage é usado (mesmo `ENV=test`, usado para o sandbox da AppyPay). O único jeito de ativar o storage local é `STORAGE_PROVIDER=local`, explícito — sem ele, um deploy sem `MEGA_EMAIL`/`MEGA_PASSWORD` válidos falha alto na inicialização em vez de cair, em silêncio, para o storage local. Ver `docs/Debbugs/Depurar arquivos de alvara nao chegando ao Mega real.md` para o incidente que motivou essa regra.
+
+A cada inicialização, o backend registra em log qual backend está de fato ativo (`[INFO] armazenamento de arquivos: Mega remoto ativo ...` ou, em modo local, `[INFO]`/`[ALERTA] armazenamento de arquivos: modo local ...`) — não há mais inicialização silenciosa em nenhum dos dois modos.
+
+Caso arquivos tenham ficado gravados apenas no fallback local por engano (`STORAGE_PROVIDER` mal configurado em algum deploy anterior), `POST /dominis/storage/migrar-local-para-mega` (role `fpp`, ver seção 16) reenvia para o Mega real tudo que ainda estiver em `MEGA_LOCAL_ROOT`, sem apagar nem sobrescrever nada.
 
 Os documentos de matrícula continuam sendo gravados em `{codigo_academia}/matriculas/matricula_{codigo_solicitacao}/`; documentos formais seguem `{codigo_academia}/Documentação formal/`; documentos de estudantes seguem `{codigo_academia}/Estudantes/{codigo_estudante}/`. `EnsureDir` cria a hierarquia de pastas de forma idempotente, `Upload` envia o conteúdo para o caminho lógico solicitado e retorna metadados internos do projeto (`path`, `file_url`, `download_url`). Nas respostas de consulta, o backend normaliza `download_url` para uma rota autenticada própria do escopo consultado, mesmo quando o metadado persistido contém link legado do storage. O front end deve baixar documentos pelas rotas autenticadas de download do backend (`/documentos/academias/{codigo_academia}/alvara/download`, `/documentos/estudantes/{codigo_estudante}/{campo}/download`, `/documentos/solicitacoes-matricula/{codigo_solicitacao}/{campo}/download`, `/estudante/solicitacoes-edicao/{codigo_solicitacao}/documento/download`, `/academia/documentos/solicitacoes-edicao-estudante/{codigo_solicitacao}/documento/download`, `/estudante/documentos/{campo}/download` ou `/academia/documentos/...`), e não por credenciais, links privados ou IDs internos do Mega. `Read` faz o download para arquivo temporário e entrega um stream fechado pelo handler; `Delete`, `Move` e `Rename` normalizam paths e erros externos. `GetQuota` é suportado no provider local; no Mega real, limitações do MEGAcmd para quota detalhada por diretório são expostas como operação não suportada em vez de simular sucesso.
 
@@ -8493,6 +8542,8 @@ Quando a configuração do Mega ou da quota estiver incompleta ou inválida, a r
 
 **Request:** sem payload
 **Response 200:**
+
+`provider` identifica o backend efetivamente ativo nesta instância: `"mega"` quando é de fato o Mega remoto real, ou `"mega-local"` quando a instância está rodando em modo de fallback local (ver `STORAGE_PROVIDER` e `ENV` logo acima) — nunca `"mega"` nesse segundo caso, para não mascarar o modo ativo.
 
 ```json
 {
