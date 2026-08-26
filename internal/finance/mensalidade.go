@@ -26,6 +26,27 @@ const (
 	EstadoPendente = "pendente"
 	EstadoPago     = "pago"
 	EstadoAnulado  = "anulado"
+
+	// EstadoCobrancaAguardandoPagamento é o estado canônico de uma cobrança
+	// REAL (financeiro_cobrancas) que já foi gerada/tentada junto à AppyPay
+	// mas ainda não foi resolvida — ver normalizeChargeStatus em appypay.go
+	// para a tradução completa (cobre os estados locais intermediários
+	// "solicitada"/"criada" e os estados brutos "Requested"/"Pending" que a
+	// própria AppyPay devolve nesta fase, ambos documentados em
+	// docs/Parceiros e integrações/AppyPay Documentação.md).
+	//
+	// Deliberadamente DISTINTO de EstadoPendente ("pendente"): EstadoPendente
+	// é reservado exclusivamente para uma OBRIGAÇÃO de mensalidade (ou uma
+	// pendência sintética em PagamentoResumo, ver pagamentos_unificado.go)
+	// que NUNCA teve nenhuma cobrança gerada nem tentada — uma cobrança real
+	// nunca usa "pendente" como seu status; assim que qualquer cobrança é
+	// gerada (mesmo antes de qualquer resposta do provedor), o status passa
+	// a ser EstadoCobrancaAguardandoPagamento até resolver para um estado
+	// terminal (pago, falhado, cancelado ou expirado). Essa separação é o
+	// que permite ao status, sozinho, dizer se existe ou não uma cobrança
+	// real por trás de um item da lista unificada de pagamentos — sem
+	// precisar de nenhum campo booleano adicional.
+	EstadoCobrancaAguardandoPagamento = "aguardando_pagamento"
 )
 
 type MensalidadeConfiguracaoInput struct {
@@ -795,12 +816,30 @@ func (s *Service) MetodosPagamentoMensalidade(ctx context.Context, academia stri
 	return s.metodosPagamentoMensalidade(ctx, academia)
 }
 
+// chargeAbertaStatusExcluidos é a lista (em minúsculas) de todo status
+// TERMINAL que uma cobrança real pode ter — usada para excluir cobranças
+// "em aberto" nas consultas SQL diretas abaixo e em matriculaTemCobrancaAberta/
+// CancelarCobrancaMatriculaAberta (matricula.go). Precisa ficar em sincronia
+// manual com isTerminalChargeStatus (appypay.go): as duas listam exatamente
+// os mesmos estados terminais, mas isTerminalChargeStatus não pode ser
+// chamada aqui porque estas são consultas SQL, não Go, sobre linhas que
+// ainda não foram carregadas em memória. Cobre tanto os estados locais
+// ("cancelada", "falhada") quanto os quatro estados terminais que a própria
+// AppyPay documenta e devolve verbatim (Success, Failed, Cancelled, Expired
+// — ver docs/Parceiros e integrações/AppyPay Documentação.md): antes desta
+// correção, uma cobrança com status bruto "Failed"/"Cancelled"/"Expired" da
+// AppyPay nunca entrava nesta lista e por isso ficava "presa" como em
+// aberto para sempre — bloqueando indefinidamente uma nova tentativa de
+// pagamento do mesmo mês/matrícula mesmo depois de a cobrança anterior já
+// ter definitivamente falhado no provedor.
+const chargeAbertaStatusExcluidos = `'success','cancelada','falhada','failed','cancelled','expired'`
+
 func (s *Service) mensalidadeTemCobrancaAberta(ctx context.Context, estudante, academia, ano string, mes int) (bool, error) {
 	var exists bool
 	err := s.client.DB().QueryRowContext(ctx, `SELECT EXISTS (
 		SELECT 1 FROM financeiro_mensalidade_cobrancas m JOIN financeiro_cobrancas c ON c.id=m.charge_id
 		WHERE m.codigo_estudante=$1 AND m.codigo_academia=$2 AND m.ano_letivo=$3 AND m.mes=$4
-		AND lower(COALESCE(c.payload->>'status','')) NOT IN ('success','cancelada','falhada')
+		AND lower(COALESCE(c.payload->>'status','')) NOT IN (`+chargeAbertaStatusExcluidos+`)
 	)`, estudante, academia, ano, mes).Scan(&exists)
 	return exists, err
 }
@@ -808,7 +847,7 @@ func (s *Service) mensalidadeTemCobrancaAberta(ctx context.Context, estudante, a
 func (s *Service) cancelOpenMensalidadeCharges(ctx context.Context, estudante, academia, ano string, mes int, actorID, actorType, ip string) error {
 	rows, err := s.client.DB().QueryContext(ctx, `SELECT c.id::text FROM financeiro_mensalidade_cobrancas m JOIN financeiro_cobrancas c ON c.id=m.charge_id
 		WHERE m.codigo_estudante=$1 AND m.codigo_academia=$2 AND m.ano_letivo=$3 AND m.mes=$4
-		AND lower(COALESCE(c.payload->>'status','')) NOT IN ('success','cancelada','falhada')`, estudante, academia, ano, mes)
+		AND lower(COALESCE(c.payload->>'status','')) NOT IN (`+chargeAbertaStatusExcluidos+`)`, estudante, academia, ano, mes)
 	if err != nil {
 		return err
 	}

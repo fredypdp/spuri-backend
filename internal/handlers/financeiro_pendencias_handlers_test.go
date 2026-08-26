@@ -54,14 +54,15 @@ func seedMensalidadeConfigParaHTTP(t *testing.T, client *db.Client, academia, an
 	}
 }
 
-// TestIntegrationListarCobrancasAppyPayComEscopoRetornaPendenciaSemCobranca
+// TestIntegrationListarCobrancasAppyPayComEscopoRetornaPendenciaSintetica
 // cobre, no nível HTTP, o problema original da tarefa 58 (um estudante que
 // nunca tentou nenhuma cobrança de mensalidade é invisível para a academia
 // em GET /financeiro/cobrancas a menos que ela informe um filtro de
 // escopo), já na forma unificada desta tarefa: quando ano_letivo é
 // informado, a pendência aparece dentro de "pagamentos", com
-// pendencia_sem_cobranca=true — não mais num array separado.
-func TestIntegrationListarCobrancasAppyPayComEscopoRetornaPendenciaSemCobranca(t *testing.T) {
+// status="pendente" — o único sinal, desde esta tarefa, de que não existe
+// nenhuma cobrança real por trás do item.
+func TestIntegrationListarCobrancasAppyPayComEscopoRetornaPendenciaSintetica(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	client := integrationFinanceClient(t)
 	academia := "PND" + strings.ReplaceAll(uuid.NewString(), "-", "")[:7]
@@ -105,7 +106,7 @@ func TestIntegrationListarCobrancasAppyPayComEscopoRetornaPendenciaSemCobranca(t
 
 	// Com ano_letivo: o estudante nunca tentou nenhuma cobrança, então
 	// TODOS os meses pendentes dele devem vir em "pagamentos", com
-	// pendencia_sem_cobranca=true.
+	// status="pendente".
 	comEscopo := call("ano_letivo=2026_2027")
 	if comEscopo.Code != http.StatusOK {
 		t.Fatalf("com escopo = %d: %s", comEscopo.Code, comEscopo.Body.String())
@@ -120,14 +121,11 @@ func TestIntegrationListarCobrancasAppyPayComEscopoRetornaPendenciaSemCobranca(t
 		t.Fatalf("esperava pagamentos não vazio: %s", comEscopo.Body.String())
 	}
 	for _, p := range body.Pagamentos {
-		if !p.PendenciaSemCobranca {
-			t.Fatalf("esperava só pendências sintéticas nesta academia (nenhuma cobrança real criada): %#v", p)
+		if p.Status != finance.EstadoPendente {
+			t.Fatalf("esperava só pendências sintéticas (status=%q) nesta academia (nenhuma cobrança real criada): %#v", finance.EstadoPendente, p)
 		}
 		if p.CodigoEstudante != estudante {
 			t.Fatalf("pendência de outro estudante inesperada: %#v", p)
-		}
-		if p.Status != finance.EstadoPendente {
-			t.Fatalf("esperava status pendente, obteve %q", p.Status)
 		}
 		if p.AtualizadoEm != nil {
 			t.Fatalf("pendência sintética não deveria ter atualizado_em: %#v", p)
@@ -135,12 +133,106 @@ func TestIntegrationListarCobrancasAppyPayComEscopoRetornaPendenciaSemCobranca(t
 	}
 }
 
-// TestIntegrationConsultarCobrancasEstudanteIncluiPendenciaSemCobranca
-// cobre, no nível HTTP, a versão por estudante (sempre calculada, sem
-// exigir filtro de escopo): a própria academia, consultando o histórico de
-// UM estudante específico, já enxerga dentro de "pagamentos" os meses que
-// ele deve e nunca tentou pagar, marcados com pendencia_sem_cobranca=true.
-func TestIntegrationConsultarCobrancasEstudanteIncluiPendenciaSemCobranca(t *testing.T) {
+// TestIntegrationListarCobrancasAppyPayFiltroEstadoExcluiPendenciasSinteticas
+// reproduz, no nível HTTP, o bug relatado em produção: uma academia
+// consultou GET /financeiro/cobrancas?...&estado=Failed&tipo=mensalidade&
+// ano_letivo=...&mes=... e recebeu de volta todos os pagamentos do mês
+// (não só os Failed), porque a computação de pendências sintéticas nunca
+// olhava para o filtro de estado antes desta tarefa — toda pendência é
+// sempre status="pendente", nunca "Failed", mas entrava na lista do mesmo
+// jeito. Com o mesmo escopo usado no relato original (ano_letivo e mes),
+// nenhum estudante tentou nenhuma cobrança ainda: o resultado filtrado por
+// estado=Failed deve vir vazio, e não "todos os pagamentos".
+func TestIntegrationListarCobrancasAppyPayFiltroEstadoExcluiPendenciasSinteticas(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	client := integrationFinanceClient(t)
+	academia := "BUG" + strings.ReplaceAll(uuid.NewString(), "-", "")[:7]
+	estudante := "ESTBUG1"
+	seedAcademiaEscolarPrivadaComTurma(t, client, academia, "T-HTTP-BUG", "2026_2027", "7_ano_fundamental", estudante)
+	seedMensalidadeConfigParaHTTP(t, client, academia, "7_ano_fundamental", 15000)
+
+	previousService := FinanceiroService
+	FinanceiroService = finance.NewService(client)
+	t.Cleanup(func() { FinanceiroService = previousService })
+
+	call := func(query string) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest(http.MethodGet, "/financeiro/cobrancas?"+query, nil)
+		ctx.Set("dbClient", client)
+		ctx.Set("user_id", uuid.New())
+		ctx.Set("user_type", "academia")
+		ctx.Set("codigo_academia", academia)
+		ListarCobrancasAppyPay(ctx)
+		return recorder
+	}
+
+	// Confirma primeiro que, sem o filtro de estado, a pendência sintética
+	// aparece normalmente (mesma cobertura do teste anterior) — isolando
+	// que a mudança de comportamento vem exclusivamente do filtro estado.
+	semFiltro := call("ano_letivo=2026_2027&mes=3")
+	var bodySemFiltro struct {
+		Pagamentos []finance.PagamentoResumo `json:"pagamentos"`
+		TotalGeral int                       `json:"total_geral"`
+	}
+	if err := json.Unmarshal(semFiltro.Body.Bytes(), &bodySemFiltro); err != nil {
+		t.Fatal(err)
+	}
+	if bodySemFiltro.TotalGeral == 0 {
+		t.Fatalf("sem filtro de estado, esperava ver a pendência sintética de março: %s", semFiltro.Body.String())
+	}
+
+	// Reproduz exatamente a query relatada (adaptada ao escopo deste
+	// teste): estado=Failed nunca deveria trazer pendências sintéticas,
+	// já que nenhuma delas tem esse status.
+	comFiltro := call("estado=Failed&tipo=mensalidade&ano_letivo=2026_2027&mes=3&limit=30&offset=0")
+	if comFiltro.Code != http.StatusOK {
+		t.Fatalf("com filtro estado=Failed = %d: %s", comFiltro.Code, comFiltro.Body.String())
+	}
+	var bodyComFiltro struct {
+		Pagamentos []finance.PagamentoResumo `json:"pagamentos"`
+		TotalGeral int                       `json:"total_geral"`
+	}
+	if err := json.Unmarshal(comFiltro.Body.Bytes(), &bodyComFiltro); err != nil {
+		t.Fatal(err)
+	}
+	if bodyComFiltro.TotalGeral != 0 || len(bodyComFiltro.Pagamentos) != 0 {
+		t.Fatalf("estado=Failed não deveria trazer nenhuma pendência sintética (nenhuma cobrança real existe nesta academia): %s", comFiltro.Body.String())
+	}
+
+	// tipo=matricula (excluindo mensalidade) também deve excluir as
+	// pendências, já que toda pendência sintética é sempre mensalidade.
+	comTipoMatricula := call("tipo=matricula&ano_letivo=2026_2027&mes=3")
+	var bodyTipoMatricula struct {
+		TotalGeral int `json:"total_geral"`
+	}
+	if err := json.Unmarshal(comTipoMatricula.Body.Bytes(), &bodyTipoMatricula); err != nil {
+		t.Fatal(err)
+	}
+	if bodyTipoMatricula.TotalGeral != 0 {
+		t.Fatalf("tipo=matricula não deveria trazer pendências sintéticas de mensalidade: %s", comTipoMatricula.Body.String())
+	}
+
+	// E, de volta, estado=pendente (o próprio valor das pendências)
+	// continua trazendo-as normalmente.
+	comEstadoPendente := call("estado=pendente&ano_letivo=2026_2027&mes=3")
+	var bodyEstadoPendente struct {
+		TotalGeral int `json:"total_geral"`
+	}
+	if err := json.Unmarshal(comEstadoPendente.Body.Bytes(), &bodyEstadoPendente); err != nil {
+		t.Fatal(err)
+	}
+	if bodyEstadoPendente.TotalGeral == 0 {
+		t.Fatalf("estado=pendente deveria continuar trazendo a pendência sintética: %s", comEstadoPendente.Body.String())
+	}
+}
+
+// TestIntegrationConsultarCobrancasEstudanteIncluiPendenciaSintetica cobre,
+// no nível HTTP, a versão por estudante (sempre calculada, sem exigir
+// filtro de escopo): a própria academia, consultando o histórico de UM
+// estudante específico, já enxerga dentro de "pagamentos" os meses que ele
+// deve e nunca tentou pagar, marcados com status="pendente".
+func TestIntegrationConsultarCobrancasEstudanteIncluiPendenciaSintetica(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	client := integrationFinanceClient(t)
 	academia := "PNDE" + strings.ReplaceAll(uuid.NewString(), "-", "")[:6]
@@ -174,7 +266,7 @@ func TestIntegrationConsultarCobrancasEstudanteIncluiPendenciaSemCobranca(t *tes
 	}
 	achouPendencia := false
 	for _, p := range body.Pagamentos {
-		if p.PendenciaSemCobranca {
+		if p.Status == finance.EstadoPendente {
 			achouPendencia = true
 		}
 	}

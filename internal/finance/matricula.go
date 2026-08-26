@@ -233,7 +233,7 @@ func (s *Service) IniciarPagamentoMatricula(ctx context.Context, in MatriculaPag
 }
 func (s *Service) matriculaTemCobrancaAberta(ctx context.Context, codigo string) (bool, error) {
 	var ok bool
-	err := s.client.DB().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM financeiro_cobrancas WHERE payload->>'codigo_solicitacao'=$1 AND COALESCE(payload->>'status','') NOT IN ('Success','success','cancelada','falhada'))`, codigo).Scan(&ok)
+	err := s.client.DB().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM financeiro_cobrancas WHERE payload->>'codigo_solicitacao'=$1 AND lower(COALESCE(payload->>'status','')) NOT IN (`+chargeAbertaStatusExcluidos+`))`, codigo).Scan(&ok)
 	return ok, err
 }
 
@@ -248,7 +248,7 @@ func (s *Service) CodigoSolicitacaoDaCobranca(ctx context.Context, identifier st
 	return strings.TrimSpace(codigo), nil
 }
 func (s *Service) CancelarCobrancaMatriculaAberta(ctx context.Context, codigo, motivo, actorID, actorType, ip string) error {
-	rows, err := s.client.DB().QueryContext(ctx, `SELECT id::text,codigo_academia FROM financeiro_cobrancas WHERE payload->>'codigo_solicitacao'=$1 AND COALESCE(payload->>'status','') NOT IN ('Success','success','cancelada','falhada')`, codigo)
+	rows, err := s.client.DB().QueryContext(ctx, `SELECT id::text,codigo_academia FROM financeiro_cobrancas WHERE payload->>'codigo_solicitacao'=$1 AND lower(COALESCE(payload->>'status','')) NOT IN (`+chargeAbertaStatusExcluidos+`)`, codigo)
 	if err != nil {
 		return err
 	}

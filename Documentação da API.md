@@ -7687,7 +7687,7 @@ Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e 
 
 #### 19.7 GET /financeiro/cobrancas
 
-**Escopo da rota:** lista, numa única lista paginada, os pagamentos (mensalidade, matrícula ou avulsa) do contexto autorizado — visão de academia/admin sobre pagamentos recebidos e pendentes. Quando filtrada por turma, curso, ano acadêmico ou ano letivo, a lista também inclui as pendências de mensalidade que ainda não foram pagas e não têm nenhuma cobrança real vinculada — ver `pendencia_sem_cobranca` abaixo. Para o estudante consultar o próprio histórico de pagamentos, use 19.8.
+**Escopo da rota:** lista, numa única lista paginada, os pagamentos (mensalidade, matrícula ou avulsa) do contexto autorizado — visão de academia/admin sobre pagamentos recebidos e pendentes. Quando filtrada por turma, curso, ano acadêmico ou ano letivo, a lista também inclui as pendências de mensalidade que ainda não foram pagas e não têm nenhuma cobrança real vinculada — ver as regras de negócio abaixo sobre `status: "pendente"`. Para o estudante consultar o próprio histórico de pagamentos, use 19.8.
 
 **Proteção:** autenticado + academia do próprio contexto ou admin FPP. Estudantes recebem `403` nesta rota.
 
@@ -7697,8 +7697,8 @@ Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e 
 |---|---|---|---|
 | `contexto_tipo` | string | Não | Contexto financeiro consultado. Para academia autenticada é forçado para `academia`. |
 | `codigo_academia` | string | Não | Academia dona das cobranças. Para academia autenticada é forçado para o código do token. |
-| `estado` | string, repetível | Não | Filtra pelo texto exato (case-sensitive) persistido em `status` de uma cobrança real — mistura estados internos (`solicitada`, `criada`, `cancelada`, `falhada`) e estados crus da AppyPay (`Success`, `Pending`, `Failed`, etc). Repita o parâmetro para casar mais de um valor (`?estado=Success&estado=Pending`). **Não filtra os itens sintéticos** (`pendencia_sem_cobranca: true`) — esses sempre têm `status: "pendente"` e sempre aparecem, independente deste filtro (ver regras de negócio). |
-| `tipo` | string, repetível | Não | Filtra por origem: `matricula`, `mensalidade` ou `avulsa`. Mesma ressalva de `estado`: não filtra os itens sintéticos, que são sempre `origem: "mensalidade"`. |
+| `estado` | string, repetível | Não | Filtra pelo estado de uma cobrança real. Aceita o texto exato persistido em `status` — estados internos (`cancelada`, `falhada`) e estados crus da AppyPay (`Success`, `Failed`, `Cancelled`, `Expired`) — mais o estado canônico `aguardando_pagamento` (cobrança gerada/tentada, ainda sem resolução do provedor; casa também com cobranças antigas gravadas antes desta forma existir). Repita o parâmetro para casar mais de um valor (`?estado=Success&estado=aguardando_pagamento`). Também filtra os itens sintéticos: como toda pendência sintética tem sempre `status: "pendente"`, um filtro de `estado` que não inclua `"pendente"` exclui as pendências do resultado (ver regras de negócio). |
+| `tipo` | string, repetível | Não | Filtra por origem: `matricula`, `mensalidade` ou `avulsa`. Mesma lógica de `estado`: como toda pendência sintética é sempre `origem: "mensalidade"`, um filtro de `tipo` que não inclua `"mensalidade"` exclui as pendências do resultado. |
 | `turma_id` | UUID | Não | Restringe a pagamentos de mensalidade vinculados a esta turma. Só afeta cobranças reais de origem `mensalidade` — ver regras de negócio. |
 | `curso_id` | UUID | Não | Restringe a pagamentos de mensalidade vinculados a este curso. Mesma ressalva de `turma_id`. |
 | `ano_academico` | string | Não | Restringe a pagamentos de mensalidade deste ano/classe (ex.: `7_ano_fundamental`). Mesma ressalva de `turma_id`. |
@@ -7721,9 +7721,24 @@ Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e 
       "descricao": "Propinas ACA001: 1 mensalidade(s) — pendência sem cobrança gerada",
       "codigo_estudante": "EST0002",
       "mensalidades": [{"ano_letivo": "2025_2026", "mes": 9}],
-      "pendencia_sem_cobranca": true,
       "id": "b6f2e6b1-3f1a-5e9c-8f2a-1a2b3c4d5e6f",
       "contexto_tipo": "academia"
+    },
+    {
+      "id": "7c1a9e2d-...",
+      "provider_charge_id": "APPYPAY-987655",
+      "merchant_transaction_id": "P2608LDA000002",
+      "contexto_tipo": "academia",
+      "codigo_academia": "ACA001",
+      "origem": "mensalidade",
+      "status": "aguardando_pagamento",
+      "valor": 1000.00,
+      "moeda": "AOA",
+      "descricao": "Mensalidade novembro/2025",
+      "metodo_pagamento": "GPO",
+      "codigo_estudante": "EST0003",
+      "mensalidades": [{"ano_letivo": "2025_2026", "mes": 11}],
+      "atualizado_em": "2026-08-25T09:10:00Z"
     },
     {
       "id": "4d2bbf53-c8c0-4c9a-a3f4-5a0f0cf988d1",
@@ -7739,12 +7754,11 @@ Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e 
       "metodo_pagamento": "GPO",
       "codigo_estudante": "EST0001",
       "mensalidades": [{"ano_letivo": "2025_2026", "mes": 10}],
-      "atualizado_em": "2026-08-08T12:30:00Z",
-      "pendencia_sem_cobranca": false
+      "atualizado_em": "2026-08-08T12:30:00Z"
     }
   ],
-  "total": 2,
-  "total_geral": 2,
+  "total": 3,
+  "total_geral": 3,
   "limit": 50,
   "offset": 0
 }
@@ -7752,19 +7766,21 @@ Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e 
 
 **Regras de negócio:**
 
-- Cada item de `pagamentos` tem o mesmo formato — o mesmo objeto que antes era só uma "cobrança" ganhou o campo `pendencia_sem_cobranca`, e todo item o traz, dos dois tipos:
-  - `pendencia_sem_cobranca: false` — um pagamento real, com todos os campos vindos de uma cobrança de fato criada (`id` real, `atualizado_em` presente, e opcionalmente `provider_charge_id`/`merchant_transaction_id`/`metodo_pagamento` quando fizer sentido). Não devolve `payment_info`, `response` (resposta crua da AppyPay) nem `qrCodeArr`; para o detalhe completo de uma cobrança específica, use 19.6.
-  - `pendencia_sem_cobranca: true` — um mês de mensalidade que ainda não foi pago (nem anulado) e não tem **nenhuma** cobrança real vinculada (nem sequer uma tentativa falhada) — sintetizado a partir da mesma computação de 19.17 (`MensalidadeMesView`). `id` é determinístico (hash estável de academia+estudante+ano_letivo+mês — a mesma pendência sempre tem o mesmo `id` entre chamadas, útil como key de lista no cliente), `status` é sempre `"pendente"`, `atualizado_em` é sempre ausente (não existe nenhuma atividade real para reportar), e `metodo_pagamento`/`provider_charge_id`/`merchant_transaction_id` também ficam ausentes.
-- **`status: "pendente"` pode vir de dois casos diferentes**, e é `pendencia_sem_cobranca` que desambigua qual: (a) uma cobrança real cujo status ainda não foi resolvido pelo provedor (`pendencia_sem_cobranca: false` — a cobrança foi de fato tentada e a AppyPay devolveu um estado não-terminal); ou (b) uma pendência sintética (`pendencia_sem_cobranca: true` — não existe nenhuma cobrança para este mês).
-- Um mês com uma cobrança real **falhada** aparece como item real (`status: "falhada"`, `pendencia_sem_cobranca: false`) — **não** gera também um item sintético duplicado para o mesmo mês, mesmo continuando a valer como "ainda não pago" internamente (ver 19.17 e a tarefa que corrigiu esse critério). A cobrança real, com seu histórico verdadeiro, já é a representação desse mês na lista.
+- Cada item de `pagamentos` tem o mesmo formato, dos dois tipos possíveis — `status` sozinho já diz qual é:
+  - Qualquer `status` diferente de `"pendente"` (incluindo `"aguardando_pagamento"`) — um pagamento real, com todos os campos vindos de uma cobrança de fato criada (`id` real, `atualizado_em` presente, e opcionalmente `provider_charge_id`/`merchant_transaction_id`/`metodo_pagamento` quando fizer sentido). Não devolve `payment_info`, `response` (resposta crua da AppyPay) nem `qrCodeArr`; para o detalhe completo de uma cobrança específica, use 19.6.
+  - `status: "pendente"` — um mês de mensalidade que ainda não foi pago (nem anulado) e não tem **nenhuma** cobrança real vinculada (nem sequer uma tentativa falhada) — sintetizado a partir da mesma computação de 19.17 (`MensalidadeMesView`). `id` é determinístico (hash estável de academia+estudante+ano_letivo+mês — a mesma pendência sempre tem o mesmo `id` entre chamadas, útil como key de lista no cliente), `atualizado_em` é sempre ausente (não existe nenhuma atividade real para reportar), e `metodo_pagamento`/`provider_charge_id`/`merchant_transaction_id` também ficam ausentes.
+- **`status` sozinho já diz se existe uma cobrança real por trás do item** — `"pendente"` é exclusivo das pendências sintéticas; uma cobrança real nunca usa esse valor. Assim que uma cobrança é gerada/tentada (mesmo antes de qualquer resposta do provedor), seu status passa a ser `"aguardando_pagamento"` — o estado canônico que substitui os antigos `"solicitada"`/`"criada"` (gravados localmente antes de qualquer resposta da AppyPay) e os estados crus `"Requested"`/`"Pending"` que a própria AppyPay documenta para essa mesma fase (cobrança gerada, ainda sem resolução). Cobranças criadas antes desta forma existir, se ainda não resolvidas, continuam sendo lidas e filtradas como `"aguardando_pagamento"` também (equivalência histórica, não é preciso reprocessar nada).
+- Estados terminais de uma cobrança real (não mudam mais sozinhos): `"Success"` (paga), `"Failed"` (recusada no processador da AppyPay), `"Cancelled"` (cancelada do lado da AppyPay), `"Expired"` (referência REF expirada sem pagamento), `"falhada"` (a chamada à AppyPay falhou, sem chegar a existir cobrança do lado do provedor) e `"cancelada"` (cancelamento feito pelo Spuri, 19.9).
+- Um mês com uma cobrança real **falhada** aparece como item real (`status: "falhada"` ou `"Failed"`) — **não** gera também um item sintético duplicado para o mesmo mês, mesmo continuando a valer como "ainda não pago" internamente (ver 19.17 e a tarefa que corrigiu esse critério). A cobrança real, com seu histórico verdadeiro, já é a representação desse mês na lista.
 - `origem` é derivada do payload persistido para itens reais, nunca gravada separadamente: `matricula` quando a cobrança tem `codigo_solicitacao`, `mensalidade` quando tem `codigo_estudante` (e não tem `codigo_solicitacao`), `avulsa` nos demais casos. Itens sintéticos são sempre `origem: "mensalidade"`.
-- **Ordenação:** itens sintéticos (`pendencia_sem_cobranca: true`) sempre vêm primeiro — representam ação pendente ("isto ainda precisa de uma cobrança"). Depois vêm os itens reais, por `updated_at DESC` (atividade mais recente primeiro). A paginação (`limit`/`offset`) percorre essa ordem combinada como uma lista única.
+- **Ordenação:** itens sintéticos (`status: "pendente"`) sempre vêm primeiro — representam ação pendente ("isto ainda precisa de uma cobrança"). Depois vêm os itens reais, por `updated_at DESC` (atividade mais recente primeiro). A paginação (`limit`/`offset`) percorre essa ordem combinada como uma lista única.
 - `total` é o número de itens nesta página; `total_geral` é o total real (pendências sintéticas + cobranças reais) que casa com os filtros aplicados.
 - `turma_id`, `curso_id`, `ano_academico` e `ano_letivo` só têm efeito sobre cobranças reais de origem `mensalidade`: usar qualquer um deles exclui automaticamente cobranças de `matricula` e `avulsa` do resultado, porque essas duas origens não têm um vínculo de turma/ano letivo resolvível (a cobrança de matrícula antecede a atribuição de turma do estudante). Pendências sintéticas só existem para `mensalidade`, então também dependem de pelo menos um desses quatro filtros — sem nenhum, nenhum item sintético é computado nem aparece na lista (evita varrer a academia inteira sem limite a cada chamada).
+- **Itens sintéticos respeitam `estado` e `tipo`:** como toda pendência sintética é sempre `status: "pendente"` e `origem: "mensalidade"`, informar `estado` sem incluir `"pendente"`, ou `tipo` sem incluir `"mensalidade"`, exclui as pendências do resultado — mesmo dentro do escopo de turma/curso/ano onde elas normalmente apareceriam. Sem nenhum desses dois filtros, pendências continuam incluídas normalmente.
 
 #### 19.8 GET /financeiro/cobrancas/estudante/:codigo
 
-**Escopo da rota:** lista, numa única lista paginada, TODOS os pagamentos que um estudante já teve — cobranças reais, em qualquer estado, academia ou origem (incluindo a cobrança da matrícula original, mesmo que ela tenha sido paga antes de o estudante existir como tal), e pendências de mensalidade que ainda não têm nenhuma cobrança real vinculada. Mesmo formato de resposta de 19.7 — ver `pendencia_sem_cobranca` ali. É a visão do próprio estudante sobre o seu histórico de pagamentos. Para a visão de academia/admin sobre cobranças recebidas, use 19.7.
+**Escopo da rota:** lista, numa única lista paginada, TODOS os pagamentos que um estudante já teve — cobranças reais, em qualquer estado, academia ou origem (incluindo a cobrança da matrícula original, mesmo que ela tenha sido paga antes de o estudante existir como tal), e pendências de mensalidade que ainda não têm nenhuma cobrança real vinculada. Mesmo formato de resposta de 19.7 — ver as regras de negócio ali sobre `status: "pendente"`. É a visão do próprio estudante sobre o seu histórico de pagamentos. Para a visão de academia/admin sobre cobranças recebidas, use 19.7.
 
 **Proteção:** o próprio estudante (`:codigo` deve ser o código do token), academia à qual o estudante pertence ou pertenceu (mesmo vínculo histórico de `GET /financeiro/mensalidades/estudante/:codigo`), ou admin FPP.
 
@@ -7772,7 +7788,7 @@ Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e 
 
 | Campo | Tipo | Obrigatório | Descrição |
 |---|---|---|---|
-| `estado` | string, repetível | Não | Mesmo filtro de 19.7. Sem filtro, devolve todos os estados. |
+| `estado` | string, repetível | Não | Mesmo filtro de 19.7 (inclusive a equivalência histórica de `aguardando_pagamento` e o efeito sobre itens sintéticos). Sem filtro, devolve todos os estados. |
 | `tipo` | string, repetível | Não | Mesmo filtro de 19.7: `matricula`, `mensalidade` ou `avulsa`. |
 | `turma_id` | UUID | Não | Mesmo filtro de 19.7. Só tem efeito quando quem consulta é a academia (isto é, quando o contexto de uma única academia já está resolvido) — ver regras de negócio. |
 | `curso_id` | UUID | Não | Mesma ressalva de `turma_id`. |
@@ -7789,7 +7805,7 @@ Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e 
 - A cobrança de matrícula é resolvida pelo vínculo `codigo_estudante_gerado`, já gravado em `projection_solicitacoes_matricula` quando a solicitação é aprovada — o payload da cobrança de matrícula em si nunca grava `codigo_estudante`, porque a cobrança é anterior ao registo do estudante.
 - Sem filtro de `estado`, a listagem inclui cobranças reais pendentes, falhadas e canceladas, não só as pagas — intencional: o objetivo é o estudante conseguir ver tudo que já teve, não só os pagamentos concluídos.
 - `turma_id`, `curso_id`, `ano_academico` e `ano_letivo` seguem a mesma restrição de 19.7 (só afetam cobranças reais de origem `mensalidade`), mas só têm efeito quando quem consulta é uma academia (o resultado já está então restrito a uma única academia); quando quem consulta é o próprio estudante ou admin FPP sem restringir a academia, esses quatro filtros são ignorados.
-- **Diferença chave em relação a 19.7:** os itens sintéticos (`pendencia_sem_cobranca: true`) aqui são **sempre** calculados, sem exigir nenhum dos quatro filtros de escopo — porque esta consulta já está inerentemente limitada a um único estudante, então não há o mesmo risco de varredura sem limite que existe em 19.7 (que precisa de pelo menos um filtro para computar pendências).
+- **Diferença chave em relação a 19.7:** os itens sintéticos (`status: "pendente"`) aqui são **sempre** calculados, sem exigir nenhum dos quatro filtros de escopo — porque esta consulta já está inerentemente limitada a um único estudante, então não há o mesmo risco de varredura sem limite que existe em 19.7 (que precisa de pelo menos um filtro para computar pendências). Mesmo assim, um `estado`/`tipo` que exclua `"pendente"`/`"mensalidade"` continua excluindo-os, igual a 19.7.
 - **Não aceita** o parâmetro `mes` — só disponível em 19.7 por enquanto.
 
 **Erros comuns:** `404` estudante inexistente, `403` estudante tentando ver outro código, academia sem vínculo ou admin sem `fpp`.
@@ -7816,7 +7832,7 @@ Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e 
 **Regras de negócio:**
 
 - Antes de registrar `CobrancaAppyPayCancelada`, o backend reconsulta a AppyPay. Se o estado mais recente já for `Success`, não cancela nem grava evento de cancelamento.
-- Cobranças `cancelada`, `falhada` ou `Success` não podem ser canceladas novamente ou reabertas. Para cobrar de novo, crie uma nova cobrança com outro `merchantTransactionId`.
+- Cobranças em qualquer estado terminal — `cancelada`, `falhada`, `Success`, `Failed`, `Cancelled` ou `Expired` — não podem ser canceladas novamente ou reabertas. Para cobrar de novo, crie uma nova cobrança com outro `merchantTransactionId`.
 - O evento `CobrancaAppyPayCancelada` é interno ao ledger Spuri. Uma referência/QR já emitido pode continuar tecnicamente pagável fora da plataforma até expirar; sucesso tardio gera `CobrancaAppyPayConflitoPosCancelamento`, sem alterar o status local cancelado.
 
 #### 19.10 POST /webhooks/appypay/gpo
@@ -7838,7 +7854,7 @@ Para `MULTIPLE`, os quatro campos adicionais são obrigatórios. Seus valores e 
 
 **Response 200:** corpo vazio.
 
-**Regras de negócio:** evento sem autenticação válida retorna `401`; JSON inválido ou sem identificador retorna `400`; reentregas com o mesmo identificador respondem `200` e são idempotentes.
+**Regras de negócio:** evento sem autenticação válida retorna `401`; JSON inválido ou sem identificador retorna `400`; reentregas com o mesmo identificador respondem `200` e são idempotentes. O `status` reportado é refletido na cobrança correspondente sempre que ela ainda não estiver num estado terminal — não só em sucesso: um webhook de `Failed`, `Cancelled` ou `Expired` também atualiza `status` (ver 19.7), evitando que a cobrança fique presa em `aguardando_pagamento` até uma consulta manual (19.6).
 
 #### 19.11 POST /webhooks/appypay/ref
 

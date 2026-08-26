@@ -207,6 +207,70 @@ func TestIntegrationMatriculaWebhookTardioMantemCancelamentoERegistraConflito(t 
 	}
 }
 
+// TestIntegrationAcceptWebhookReflecteEstadoNaoSucesso cobre a
+// generalização de AcceptWebhook feita nesta tarefa: antes, só um webhook
+// de sucesso atualizava financeiro_cobrancas — um webhook avisando que uma
+// referência REF expirou (ou que um GPO foi recusado) era gravado em
+// WebhookAppyPayRecebido mas nunca refletia na cobrança, que ficava presa
+// em aguardando_pagamento até alguém consultá-la manualmente. Cobre
+// também a guarda que impede um segundo webhook terminal de sobrescrever
+// um estado terminal já registrado.
+func TestIntegrationAcceptWebhookReflecteEstadoNaoSucesso(t *testing.T) {
+	client := integrationClient(t)
+	t.Setenv("ENV", "test")
+	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
+	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	service := NewService(client)
+	service.httpClient = &http.Client{Transport: &appyPayMockTransport{status: "Pending"}}
+	academia := "MAT" + uuid.NewString()[:8]
+	configureIntegrationCredential(t, service, ContextoAcademia, academia)
+	codigo := seedMatriculaPendente(t, client, academia, 900)
+	charge, err := service.IniciarPagamentoMatricula(context.Background(), MatriculaPagamentoInput{CodigoSolicitacao: codigo, MetodoPagamento: "REF"}, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if charge.Charge.Status != EstadoCobrancaAguardandoPagamento {
+		t.Fatalf("esperava status=%q logo após criar a cobrança, obteve %q", EstadoCobrancaAguardandoPagamento, charge.Charge.Status)
+	}
+
+	owner := WebhookOwner{CredentialID: uuid.New(), ContextoTipo: ContextoAcademia, CodigoAcademia: academia}
+	accepted, err := service.AcceptWebhook(context.Background(), "REF", charge.Charge.ProviderChargeID, owner, map[string]any{"id": charge.Charge.ProviderChargeID, "status": "Expired"})
+	if err != nil || !accepted {
+		t.Fatalf("webhook Expired = accepted %t, err %v", accepted, err)
+	}
+	statusAtual := func() string {
+		var status string
+		if err := client.DB().QueryRow(`SELECT payload->>'status' FROM financeiro_cobrancas WHERE id=$1`, charge.Charge.ID).Scan(&status); err != nil {
+			t.Fatal(err)
+		}
+		return status
+	}
+	if got := statusAtual(); got != "Expired" {
+		t.Fatalf("esperava status=Expired refletido na cobrança após o webhook, obteve %q", got)
+	}
+
+	// Um segundo webhook tardio (ex.: reentrega), com um estado terminal
+	// DIFERENTE, não deve sobrescrever o Expired já registrado — só um
+	// eventID diferente (aqui o id interno da cobrança, que loadCharge
+	// também reconhece) passa pela deduplicação de
+	// financeiro_webhooks_recebidos para realmente exercer a guarda.
+	accepted2, err := service.AcceptWebhook(context.Background(), "REF", charge.Charge.ID.String(), owner, map[string]any{"id": charge.Charge.ProviderChargeID, "status": "Failed"})
+	if err != nil || !accepted2 {
+		t.Fatalf("segundo webhook = accepted %t, err %v", accepted2, err)
+	}
+	if got := statusAtual(); got != "Expired" {
+		t.Fatalf("um segundo webhook terminal não deveria sobrescrever Expired, obteve %q", got)
+	}
+
+	var confirmacoes int
+	if err = client.DB().QueryRow(`SELECT COUNT(*) FROM spuri_ledger WHERE aggregate_type='Financeiro' AND aggregate_id=$1 AND event_type='MensalidadesCobrancaConfirmada'`, charge.Charge.ID).Scan(&confirmacoes); err != nil {
+		t.Fatal(err)
+	}
+	if confirmacoes != 0 {
+		t.Fatalf("um webhook não-sucesso nunca deveria confirmar pagamento, obteve %d confirmações", confirmacoes)
+	}
+}
+
 func TestIntegrationWebhookSecretGeneratedOnceGlobalHeaderAndRotation(t *testing.T) {
 	client := integrationClient(t)
 	service := NewService(client)

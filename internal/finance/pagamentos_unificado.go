@@ -104,24 +104,31 @@ func (s *Service) FiltrarPendenciasComCobrancaRealVinculada(ctx context.Context,
 // e fixado aqui; não tem nenhum significado além de ser constante.
 var pendenciaNamespace = uuid.MustParse("c8ede658-7791-4abf-a329-164fba114d8f")
 
-// PagamentoResumo é CobrancaResumo mais um único campo adicional,
-// PendenciaSemCobranca — ver ListarPagamentosUnificado para o porquê da
-// unificação. Quando PendenciaSemCobranca é true, o item foi sintetizado a
-// partir de uma pendência de mensalidade sem NENHUMA cobrança criada (nem
-// tentada) — não existe uma linha real em financeiro_cobrancas por trás
-// dele. Quando é false, é uma cobrança real, com todos os campos vindos de
-// financeiro_cobrancas exatamente como sempre foi.
+// PagamentoResumo é a unidade da lista unificada de pagamentos — ver
+// ListarPagamentosUnificado para o porquê da unificação. Hoje é idêntico a
+// CobrancaResumo (o embedding existe para permitir voltar a crescer com
+// campos exclusivos da composição, sem repetir todos os campos de
+// CobrancaResumo, se algum dia precisar).
 //
-// Status == "pendente" pode vir de QUALQUER um dos dois casos: uma
-// cobrança real cujo status ainda não foi resolvido pelo provedor
-// (PendenciaSemCobranca=false — o pagamento foi tentado e a AppyPay
-// retornou um estado não-terminal), ou uma pendência sintética
-// (PendenciaSemCobranca=true — não tem cobrança gerada). O campo
-// PendenciaSemCobranca é o que desambigua os dois — sem ele, os dois casos
-// seriam indistinguíveis só pelo status.
+// Existem dois casos possíveis por trás de cada item, e Status sozinho já
+// diz qual é, sem precisar de nenhum campo booleano adicional:
+//   - Status == EstadoPendente ("pendente"): pendência sintética — NENHUMA
+//     cobrança foi gerada nem tentada para este mês; não existe uma linha
+//     real em financeiro_cobrancas por trás dele (ver
+//     pendenciaParaPagamentoResumo).
+//   - Qualquer outro Status (incluindo
+//     EstadoCobrancaAguardandoPagamento, "aguardando_pagamento" —
+//     mensalidade.go): cobrança real, com todos os campos vindos de
+//     financeiro_cobrancas exatamente como sempre foi. Uma cobrança real
+//     NUNCA tem Status == EstadoPendente — assim que uma cobrança é
+//     gerada/tentada (mesmo antes de qualquer resposta do provedor), seu
+//     status passa a ser EstadoCobrancaAguardandoPagamento, nunca
+//     "pendente" (ver normalizeChargeStatus, appypay.go). É essa garantia
+//     que torna redundante o campo booleano que existia antes desta tarefa:
+//     os dois casos já eram, e continuam sendo,
+//     completamente distinguíveis só pelo Status.
 type PagamentoResumo struct {
 	CobrancaResumo
-	PendenciaSemCobranca bool `json:"pendencia_sem_cobranca"`
 }
 
 // PagamentoListResult é o resultado paginado de ListarPagamentosUnificado —
@@ -135,7 +142,7 @@ type PagamentoListResult struct {
 }
 
 // pendenciaParaPagamentoResumo sintetiza um PagamentoResumo
-// (PendenciaSemCobranca=true) a partir de uma MensalidadeMesView. Não
+// a partir de uma MensalidadeMesView. Não
 // inventa nenhum dado que não exista de verdade na pendência: campos que
 // só fazem sentido para uma cobrança real e que a pendência não tem
 // (provider_charge_id, merchant_transaction_id, método de pagamento,
@@ -164,8 +171,34 @@ func pendenciaParaPagamentoResumo(m MensalidadeMesView) PagamentoResumo {
 			CodigoEstudante: m.CodigoEstudante,
 			Mensalidades:    []MensalidadeSelecaoMes{{AnoLetivo: m.AnoLetivo, Mes: m.Mes}},
 		},
-		PendenciaSemCobranca: true,
 	}
+}
+
+// DeveIncluirPendenciasSemCobranca decide se a computação de pendências sem
+// cobrança (PendenciasSemCobranca/PendenciasSemCobrancaEstudante) deve
+// acontecer antes de montar a lista unificada — ver ListarPagamentosUnificado.
+// Uma pendência sem cobrança é SEMPRE origem "mensalidade" e SEMPRE
+// Status == EstadoPendente ("pendente"): se o chamador filtrou estado ou
+// tipo (origem) de um jeito que exclua explicitamente "pendente" ou
+// "mensalidade" respectivamente, incluir pendências no resultado
+// desrespeitaria o filtro pedido.
+//
+// Corrige um bug real: antes desta função existir, os dois handlers
+// (ListarCobrancasAppyPay, ConsultarCobrancasEstudante) computavam
+// pendências sem nunca olhar para estados/origens — filtrar por
+// estado=Failed continuava devolvendo todas as pendências sintéticas do
+// escopo pedido (todas "pendente", nunca "Failed"), porque nada impedia
+// isso. Sem nenhum filtro informado em qualquer um dos dois argumentos
+// (slice vazia), pendências continuam incluídas — mesmo comportamento de
+// sempre.
+func DeveIncluirPendenciasSemCobranca(estados, origens []string) bool {
+	if len(estados) > 0 && !contains(estados, EstadoPendente) {
+		return false
+	}
+	if len(origens) > 0 && !contains(origens, "mensalidade") {
+		return false
+	}
+	return true
 }
 
 // ListarPagamentosUnificado combina, numa única lista paginada, as
@@ -246,7 +279,7 @@ func ListarPagamentosUnificado(pendencias []MensalidadeMesView, buscarCobrancas 
 	}
 	if limiteCobrancas > 0 {
 		for _, c := range res.Cobrancas {
-			itens = append(itens, PagamentoResumo{CobrancaResumo: c, PendenciaSemCobranca: false})
+			itens = append(itens, PagamentoResumo{CobrancaResumo: c})
 		}
 	}
 
