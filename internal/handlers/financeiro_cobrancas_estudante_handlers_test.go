@@ -79,6 +79,82 @@ func TestIntegrationConsultarCobrancasEstudanteEstudanteVeTodosOsEstados(t *test
 	}
 }
 
+// TestIntegrationConsultarCobrancasEstudanteFiltroEstadoFailedIncluiFalhadaLocal
+// reproduz, no nível HTTP, o bug relatado por Fredy: GET
+// /financeiro/cobrancas/estudante/:codigo?estado=Failed devolvia uma lista
+// vazia mesmo o estudante tendo cobranças reais falhadas — porque essas
+// cobranças foram gravadas com o valor local "falhada" (a própria chamada
+// HTTP à AppyPay falhou, nunca chegando a existir cobrança do lado do
+// provedor), e o filtro SQL antes desta tarefa só reconhecia o valor
+// "Failed" (recusa do processador). As duas são "falhas" do ponto de vista
+// de quem consulta — ver estadosCobrancaEquivalentes (tarefa 69). A linha
+// inserida com "falhada" simula uma cobrança criada antes do deploy desta
+// tarefa (ledger imutável); CreateCharge/CreateGPOQRCode já não gravam
+// mais esse valor daqui pra frente (ver
+// TestIntegrationCreateChargeECreateGPOQRCodeFalhaLocalGravaFailed em
+// appypay_integration_test.go), mas a linha antiga tem que continuar
+// aparecendo — e aparecendo já como "Failed", nunca como "falhada", já
+// que normalizeChargeStatus normaliza isso na leitura. Reproduzido também
+// para academia/admin em
+// TestIntegrationListarCobrancasAppyPayFiltroFailedIncluiFalhadaLocal
+// (financeiro_cobrancas_handlers_test.go), já que os dois handlers
+// compartilham a mesma função de expansão do filtro.
+func TestIntegrationConsultarCobrancasEstudanteFiltroEstadoFailedIncluiFalhadaLocal(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	client := integrationFinanceClient(t)
+	academia := "COBEST" + strings.ReplaceAll(uuid.NewString(), "-", "")[:4]
+	codigoEstudante := "ESTCOB4"
+	estudanteID := seedEstudanteParaCobrancas(t, client, codigoEstudante, academia)
+
+	insert := func(status string) {
+		payload := map[string]any{"status": status, "amount": 300.0, "currency": "AOA", "description": "teste", "payment_method": "GPO", "codigo_estudante": codigoEstudante}
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		merchant := "COB" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+		if _, err := client.DB().Exec(`INSERT INTO financeiro_cobrancas (id,merchant_transaction_id,contexto_tipo,codigo_academia,payload) VALUES ($1,$2,'academia',$3,$4)`,
+			uuid.New(), merchant, academia, raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert("falhada")
+	insert("Failed")
+	insert("Success")
+
+	previousService := FinanceiroService
+	FinanceiroService = finance.NewService(client)
+	t.Cleanup(func() { FinanceiroService = previousService })
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/financeiro/cobrancas/estudante/"+codigoEstudante+"?estado=Failed&limit=30&offset=0", nil)
+	ctx.Params = gin.Params{{Key: "codigo", Value: codigoEstudante}}
+	ctx.Set("dbClient", client)
+	ctx.Set("user_id", estudanteID)
+	ctx.Set("user_type", "estudante")
+
+	ConsultarCobrancasEstudante(ctx)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("estudante filtrando estado=Failed = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var bodyFailed struct {
+		Pagamentos []finance.PagamentoResumo `json:"pagamentos"`
+		TotalGeral int                       `json:"total_geral"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &bodyFailed); err != nil {
+		t.Fatal(err)
+	}
+	if bodyFailed.TotalGeral != 2 {
+		t.Fatalf("estado=Failed deveria trazer as 2 cobranças falhadas (gravada como \"Failed\" e a histórica gravada como \"falhada\"), obteve %d: %s", bodyFailed.TotalGeral, recorder.Body.String())
+	}
+	for _, p := range bodyFailed.Pagamentos {
+		if p.Status != "Failed" {
+			t.Fatalf("esperava só status=\"Failed\" no resultado (normalizado), obteve %q: %s", p.Status, recorder.Body.String())
+		}
+	}
+}
+
 // TestIntegrationConsultarCobrancasEstudanteRejeitaOutroEstudante garante
 // que um estudante não consegue consultar o histórico de outro, mesmo
 // sabendo o código dele.

@@ -176,8 +176,13 @@ func TestIntegrationListarCobrancasHandlerFluxoUnificado(t *testing.T) {
 			if p.CodigoEstudante != "ESTFLXFL" {
 				t.Fatalf("única cobrança real esperada era de ESTFLXFL, veio de %s", p.CodigoEstudante)
 			}
-			if p.Status != "falhada" {
-				t.Fatalf("esperava status=falhada na cobrança real, obteve %q", p.Status)
+			// Desde a tarefa 69, o valor bruto histórico "falhada" (usado
+			// aqui só como fixture — simula uma cobrança criada antes
+			// dessa tarefa) normaliza para "Failed" na leitura, junto com
+			// o valor que a própria AppyPay usa — ver
+			// normalizeChargeStatus em appypay.go.
+			if p.Status != "Failed" {
+				t.Fatalf("esperava status=Failed (falhada normalizado) na cobrança real, obteve %q", p.Status)
 			}
 			if p.AtualizadoEm == nil {
 				t.Fatal("cobrança real deveria ter AtualizadoEm preenchido")
