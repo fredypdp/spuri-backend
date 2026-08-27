@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -160,11 +161,20 @@ type QRCodeRequest struct {
 	CodigoSolicitacao string                  `json:"codigo_solicitacao,omitempty"`
 }
 type ChargeResult struct {
-	ID                    uuid.UUID      `json:"id"`
-	ProviderChargeID      string         `json:"provider_charge_id,omitempty"`
-	MerchantTransactionID string         `json:"merchant_transaction_id"`
-	Status                string         `json:"status"`
-	Response              map[string]any `json:"response,omitempty"`
+	ID                    uuid.UUID `json:"id"`
+	ProviderChargeID      string    `json:"provider_charge_id,omitempty"`
+	MerchantTransactionID string    `json:"merchant_transaction_id"`
+	Status                string    `json:"status"`
+	// CodigoProvedor/MensagemProvedor/FonteProvedor/CategoriaMotivo expõem o
+	// motivo real devolvido pela AppyPay (responseStatus.code/message/source
+	// de POST/webhook, ou o do último transactionEvent de GET /charges) toda
+	// vez que a cobrança não está simplesmente aguardando pagamento — ver
+	// extractProviderOutcome/applyProviderOutcome nesta mesma package.
+	CodigoProvedor   *int           `json:"codigo_provedor,omitempty"`
+	MensagemProvedor string         `json:"mensagem_provedor,omitempty"`
+	FonteProvedor    string         `json:"fonte_provedor,omitempty"`
+	CategoriaMotivo  string         `json:"categoria_motivo,omitempty"`
+	Response         map[string]any `json:"response,omitempty"`
 }
 type QRCodeResult struct {
 	ChargeResult
@@ -189,11 +199,19 @@ type CobrancaResumo struct {
 	// codigo_solicitacao), "avulsa" nos demais casos (cobrança criada
 	// diretamente via POST /financeiro/appypay/cobrancas ou /appypay/qr-codes
 	// sem vínculo a mensalidade nem matrícula).
-	Origem    string  `json:"origem"`
-	Status    string  `json:"status"`
-	Valor     float64 `json:"valor"`
-	Moeda     string  `json:"moeda,omitempty"`
-	Descricao string  `json:"descricao,omitempty"`
+	Origem string `json:"origem"`
+	Status string `json:"status"`
+	// CodigoProvedor/MensagemProvedor/FonteProvedor/CategoriaMotivo: ver o
+	// comentário equivalente em ChargeResult, acima de CreateCharge. Mesma
+	// origem de dado (payload["codigo_provedor"] etc.), lida aqui para a
+	// listagem em vez de para uma única cobrança.
+	CodigoProvedor   *int    `json:"codigo_provedor,omitempty"`
+	MensagemProvedor string  `json:"mensagem_provedor,omitempty"`
+	FonteProvedor    string  `json:"fonte_provedor,omitempty"`
+	CategoriaMotivo  string  `json:"categoria_motivo,omitempty"`
+	Valor            float64 `json:"valor"`
+	Moeda            string  `json:"moeda,omitempty"`
+	Descricao        string  `json:"descricao,omitempty"`
 	// MetodoPagamento reflete "GPO_QR" (não apenas "GPO") quando a cobrança
 	// tem qr_code_type no payload — CreateGPOQRCode grava payment_method
 	// como "GPO" internamente, então sem este ajuste a origem QR ficaria
@@ -479,17 +497,26 @@ func (s *Service) CreateCharge(ctx context.Context, in ChargeRequest, actorID, a
 		return ChargeResult{ID: id, MerchantTransactionID: in.MerchantTransactionID, Status: "Failed"}, err
 	}
 	providerID := responseID(response)
-	status := normalizeChargeStatus(responseStatus(response))
+	outcome := extractProviderOutcome(response)
+	status := normalizeChargeStatus(outcome.Status)
 	if status == "" {
-		// A AppyPay respondeu 2xx sem nenhum campo de status no corpo — a
-		// cobrança foi aceita mas ainda não temos nenhuma informação sobre
-		// sua resolução, exatamente o significado de aguardando pagamento.
+		// A AppyPay respondeu 2xx sem nenhum campo de status reconhecível no
+		// corpo — a cobrança foi aceita mas ainda não temos nenhuma
+		// informação sobre sua resolução, exatamente o significado de
+		// aguardando pagamento.
 		status = EstadoCobrancaAguardandoPagamento
 	}
-	if err = s.record(ctx, id, "CobrancaAppyPayCriada", chargePayload(id, in, providerID, status, response), actorID, actorType, ip); err != nil {
+	created := chargePayload(id, in, providerID, status, response)
+	applyProviderOutcome(created, outcome)
+	if err = s.record(ctx, id, "CobrancaAppyPayCriada", created, actorID, actorType, ip); err != nil {
 		return ChargeResult{}, err
 	}
 	result := ChargeResult{ID: id, ProviderChargeID: providerID, MerchantTransactionID: in.MerchantTransactionID, Status: status, Response: response}
+	if outcome.HasCode {
+		code := outcome.Code
+		result.CodigoProvedor = &code
+	}
+	result.MensagemProvedor, result.FonteProvedor, result.CategoriaMotivo = outcome.Message, outcome.Source, outcome.Categoria
 	if isSuccessfulChargeStatus(status) {
 		_ = s.confirmMensalidadeCharge(ctx, id, actorID, actorType, ip)
 	}
@@ -556,18 +583,26 @@ func (s *Service) CreateGPOQRCode(ctx context.Context, in QRCodeRequest, actorID
 		return QRCodeResult{}, err
 	}
 	providerID := responseID(response)
-	status := normalizeChargeStatus(responseStatus(response))
+	outcome := extractProviderOutcome(response)
+	status := normalizeChargeStatus(outcome.Status)
 	if status == "" {
-		// Mesmo raciocínio de CreateCharge: 2xx sem status = aceito, ainda
-		// sem resolução conhecida.
+		// Mesmo raciocínio de CreateCharge: 2xx sem status reconhecível =
+		// aceito, ainda sem resolução conhecida.
 		status = EstadoCobrancaAguardandoPagamento
 	}
 	payload := qrCodePayload(id, in, typ, providerID, status, response)
+	applyProviderOutcome(payload, outcome)
 	if err = s.record(ctx, id, "QRCodeAppyPayGerado", payload, actorID, actorType, ip); err != nil {
 		return QRCodeResult{}, err
 	}
 	qr, _ := response["qrCodeArr"].(string)
-	result := QRCodeResult{ChargeResult: ChargeResult{ID: id, ProviderChargeID: providerID, MerchantTransactionID: in.MerchantTransactionID, Status: status, Response: response}, QRCodeArr: qr}
+	chargeResult := ChargeResult{ID: id, ProviderChargeID: providerID, MerchantTransactionID: in.MerchantTransactionID, Status: status, Response: response}
+	if outcome.HasCode {
+		code := outcome.Code
+		chargeResult.CodigoProvedor = &code
+	}
+	chargeResult.MensagemProvedor, chargeResult.FonteProvedor, chargeResult.CategoriaMotivo = outcome.Message, outcome.Source, outcome.Categoria
+	result := QRCodeResult{ChargeResult: chargeResult, QRCodeArr: qr}
 	if isSuccessfulChargeStatus(status) {
 		_ = s.confirmMensalidadeCharge(ctx, id, actorID, actorType, ip)
 	}
@@ -808,6 +843,13 @@ func scanCobrancaResumo(rows *sql.Rows) (CobrancaResumo, error) {
 	}
 	rawStatus, _ := payload["status"].(string)
 	dto.Status = normalizeChargeStatus(rawStatus)
+	if codigo, ok := payload["codigo_provedor"].(float64); ok {
+		c := int(codigo)
+		dto.CodigoProvedor = &c
+	}
+	dto.MensagemProvedor, _ = payload["mensagem_provedor"].(string)
+	dto.FonteProvedor, _ = payload["fonte_provedor"].(string)
+	dto.CategoriaMotivo, _ = payload["categoria_motivo"].(string)
 	dto.Valor, _ = payload["amount"].(float64)
 	dto.Moeda, _ = payload["currency"].(string)
 	dto.Descricao, _ = payload["description"].(string)
@@ -1028,22 +1070,30 @@ func (s *Service) consultCharge(ctx context.Context, row chargeRow, actorID, act
 	if err != nil {
 		return ChargeResult{}, err
 	}
-	status := normalizeChargeStatus(responseStatus(response))
+	outcome := extractProviderOutcome(response)
+	status := normalizeChargeStatus(outcome.Status)
 	if status == "" {
-		// AppyPay não devolveu nenhum campo de status desta vez — mantém o
-		// status anterior (row.Status já vem normalizado por loadCharge) em
-		// vez de assumir um novo estado.
+		// AppyPay não devolveu nenhum campo de status reconhecível desta vez
+		// — mantém o status anterior (row.Status já vem normalizado por
+		// loadCharge) em vez de assumir um novo estado.
 		status = row.Status
 	}
 	previousResponse := row.Payload["response"]
-	payload := make(map[string]any, len(row.Payload)+3)
+	payload := make(map[string]any, len(row.Payload)+7)
 	for key, value := range row.Payload {
 		payload[key] = value
 	}
 	payload["provider_charge_id"] = first(responseID(response), row.ProviderID)
 	payload["status"] = status
 	payload["response"] = sanitize(response)
+	applyProviderOutcome(payload, outcome)
 	providerID := first(responseID(response), row.ProviderID)
+	result := ChargeResult{ID: row.ID, ProviderChargeID: providerID, MerchantTransactionID: row.Merchant, Status: status, Response: response}
+	if outcome.HasCode {
+		code := outcome.Code
+		result.CodigoProvedor = &code
+	}
+	result.MensagemProvedor, result.FonteProvedor, result.CategoriaMotivo = outcome.Message, outcome.Source, outcome.Categoria
 	if strings.EqualFold(row.Status, "cancelada") && isSuccessfulChargeStatus(status) {
 		// Keep the cancellation definitive in the read model. The provider
 		// result is recorded for manual FPP reconciliation instead of silently
@@ -1053,14 +1103,15 @@ func (s *Service) consultCharge(ctx context.Context, row chargeRow, actorID, act
 		if err = s.record(ctx, row.ID, "CobrancaAppyPayConflitoPosCancelamento", payload, actorID, actorType, ip); err != nil {
 			return ChargeResult{}, err
 		}
-		return ChargeResult{ID: row.ID, ProviderChargeID: providerID, MerchantTransactionID: row.Merchant, Status: "cancelada", Response: response}, nil
+		result.Status = "cancelada"
+		return result, nil
 	}
 	if status != row.Status || providerID != row.ProviderID || !sameJSON(payload["response"], previousResponse) {
 		if err = s.record(ctx, row.ID, "CobrancaAppyPayConsultada", payload, actorID, actorType, ip); err != nil {
 			return ChargeResult{}, err
 		}
 	}
-	return ChargeResult{ID: row.ID, ProviderChargeID: providerID, MerchantTransactionID: row.Merchant, Status: status, Response: response}, nil
+	return result, nil
 }
 
 type credentialSecrets struct {
@@ -1371,8 +1422,9 @@ func (s *Service) AcceptWebhook(ctx context.Context, metodo, eventID string, own
 	// era gravado em WebhookAppyPayRecebido (acima) mas nunca refletia em
 	// financeiro_cobrancas, deixando a cobrança "presa" em
 	// aguardando_pagamento até alguém consultá-la manualmente.
-	if raw := responseStatus(payload); raw != "" {
-		normalized := normalizeChargeStatus(raw)
+	outcome := extractProviderOutcome(payload)
+	if outcome.Status != "" || outcome.HasCode {
+		normalized := normalizeChargeStatus(outcome.Status)
 		success := isSuccessfulChargeStatus(normalized)
 		if charge, loadErr := s.loadCharge(ctx, eventID); loadErr == nil && charge.Contexto == owner.ContextoTipo && charge.Academia == owner.CodigoAcademia &&
 			// Um webhook atrasado e não-bem-sucedido nunca sobrescreve uma
@@ -1380,7 +1432,7 @@ func (s *Service) AcceptWebhook(ctx context.Context, metodo, eventID string, own
 			// cancelada) — só um sucesso tem tratamento de conflito próprio
 			// (abaixo) que pode correr por cima de um estado terminal local.
 			(success || !isTerminalChargeStatus(charge.Status)) {
-			updated := make(map[string]any, len(charge.Payload)+3)
+			updated := make(map[string]any, len(charge.Payload)+7)
 			for k, v := range charge.Payload {
 				updated[k] = v
 			}
@@ -1390,6 +1442,7 @@ func (s *Service) AcceptWebhook(ctx context.Context, metodo, eventID string, own
 			}
 			updated["provider_charge_id"] = first(responseID(payload), charge.ProviderID)
 			updated["response"] = sanitize(payload)
+			applyProviderOutcome(updated, outcome)
 			eventType := "CobrancaAppyPayConsultada"
 			if success && strings.EqualFold(charge.Status, "cancelada") {
 				// A provider may still settle a REF/GPO/QR after Spuri's local
@@ -1442,6 +1495,22 @@ func (s *Service) releaseChargeReservation(ctx context.Context, merchant string,
 	return err
 }
 
+// applyPersistedProviderFields preenche os campos de motivo de um
+// ChargeResult a partir de um payload já persistido (financeiro_cobrancas),
+// para que uma resposta idempotente (mesmo merchantTransactionId reenviado)
+// devolva exatamente a mesma informação que a criação original devolveu —
+// ver applyProviderOutcome, gravado neste mesmo payload em CreateCharge/
+// CreateGPOQRCode/consultCharge/AcceptWebhook.
+func applyPersistedProviderFields(result *ChargeResult, payload map[string]any) {
+	if codigo, ok := payload["codigo_provedor"].(float64); ok {
+		c := int(codigo)
+		result.CodigoProvedor = &c
+	}
+	result.MensagemProvedor, _ = payload["mensagem_provedor"].(string)
+	result.FonteProvedor, _ = payload["fonte_provedor"].(string)
+	result.CategoriaMotivo, _ = payload["categoria_motivo"].(string)
+}
+
 func (s *Service) existingChargeResult(ctx context.Context, merchant, contexto, academia string) (ChargeResult, error) {
 	row, err := s.loadCharge(ctx, merchant)
 	if err != nil {
@@ -1453,7 +1522,9 @@ func (s *Service) existingChargeResult(ctx context.Context, merchant, contexto, 
 		return ChargeResult{}, ErrConflict
 	}
 	response, _ := row.Payload["response"].(map[string]any)
-	return ChargeResult{ID: row.ID, ProviderChargeID: row.ProviderID, MerchantTransactionID: row.Merchant, Status: row.Status, Response: response}, nil
+	result := ChargeResult{ID: row.ID, ProviderChargeID: row.ProviderID, MerchantTransactionID: row.Merchant, Status: row.Status, Response: response}
+	applyPersistedProviderFields(&result, row.Payload)
+	return result, nil
 }
 
 func (s *Service) existingQRCodeResult(ctx context.Context, merchant, contexto, academia string) (QRCodeResult, error) {
@@ -1473,7 +1544,9 @@ func qrCodeResultFromRow(row chargeRow, contexto, academia string) (QRCodeResult
 	}
 	response, _ := row.Payload["response"].(map[string]any)
 	qr, _ := response["qrCodeArr"].(string)
-	return QRCodeResult{ChargeResult: ChargeResult{ID: row.ID, ProviderChargeID: row.ProviderID, MerchantTransactionID: row.Merchant, Status: row.Status, Response: response}, QRCodeArr: qr}, nil
+	chargeResult := ChargeResult{ID: row.ID, ProviderChargeID: row.ProviderID, MerchantTransactionID: row.Merchant, Status: row.Status, Response: response}
+	applyPersistedProviderFields(&chargeResult, row.Payload)
+	return QRCodeResult{ChargeResult: chargeResult, QRCodeArr: qr}, nil
 }
 
 func sameJSON(a, b any) bool {
@@ -1512,10 +1585,26 @@ func validateCharge(in *ChargeRequest) error {
 		return errors.New("GPO exige paymentInfo.phoneNumber")
 	}
 	if strings.HasPrefix(m, "REF") && len(in.PaymentInfo) > 0 {
-		for _, k := range []string{"referenceNumber", "dueDate", "nib"} {
-			value, ok := in.PaymentInfo[k].(string)
-			if !ok || strings.TrimSpace(value) == "" {
-				return fmt.Errorf("REF com paymentInfo exige %s", k)
+		// Duas formas válidas de paymentInfo para REF:
+		//  1. Só dueDate (o caso introduzido nesta tarefa): a referência
+		//     continua gerada pelo gateway (AppyPay escolhe
+		//     referenceNumber), só o prazo de expiração é customizado —
+		//     ver gerarCobranca em cobranca_geracao.go e o comentário sobre
+		//     a hipótese ainda não confirmada contra o ambiente real da
+		//     AppyPay.
+		//  2. Os três campos completos (referenceNumber+dueDate+nib): a
+		//     forma "referência gerada pelo comerciante" documentada pela
+		//     AppyPay. Nenhum chamador atual usa esta forma — mantida por
+		//     integridade caso um chamador futuro precise dela.
+		_, hasDueDateOnly := in.PaymentInfo["dueDate"].(string)
+		if hasDueDateOnly && len(in.PaymentInfo) == 1 {
+			// válido: só dueDate.
+		} else {
+			for _, k := range []string{"referenceNumber", "dueDate", "nib"} {
+				value, ok := in.PaymentInfo[k].(string)
+				if !ok || strings.TrimSpace(value) == "" {
+					return fmt.Errorf("REF com paymentInfo exige %s (ou apenas dueDate sozinho)", k)
+				}
 			}
 		}
 	}
@@ -1582,6 +1671,17 @@ func responseID(v map[string]any) string {
 			return x
 		}
 	}
+	// GET /charges/{id} (e GET /charges?merchantTransactionId=...) devolvem
+	// tudo dentro de um envelope "payment" — ver
+	// extractProviderOutcome, logo abaixo, para o mesmo problema aplicado ao
+	// status.
+	if payment, ok := v["payment"].(map[string]any); ok {
+		for _, k := range []string{"id", "chargeId", "charge_id"} {
+			if x, ok := payment[k].(string); ok {
+				return x
+			}
+		}
+	}
 	return ""
 }
 func responseStatus(v map[string]any) string {
@@ -1592,6 +1692,123 @@ func responseStatus(v map[string]any) string {
 	}
 	return ""
 }
+
+// providerOutcome carrega tudo o que a Spuri consegue aprender de uma única
+// resposta/webhook da AppyPay sobre o resultado real de uma cobrança: o
+// status usado para acionar a máquina de estados interna (Status, já
+// resolvido — ver resolveOutcomeStatus), mais tudo o que é preciso para
+// explicar "porquê" a um humano (Code/Message/Source, crus, exatamente como
+// a AppyPay os enviou) e uma categoria de melhor esforço para filtragem
+// programática (Categoria).
+type providerOutcome struct {
+	Status    string
+	Code      int
+	HasCode   bool
+	Message   string
+	Source    string
+	Categoria string
+}
+
+func extractProviderOutcome(v map[string]any) providerOutcome {
+	if payment, ok := v["payment"].(map[string]any); ok {
+		out := providerOutcome{}
+		if s, ok := payment["status"].(string); ok {
+			out.Status = s
+		}
+		if events, ok := payment["transactionEvents"].([]any); ok && len(events) > 0 {
+			if last, ok := events[len(events)-1].(map[string]any); ok {
+				if rs, ok := last["responseStatus"].(map[string]any); ok {
+					applyResponseStatus(&out, rs)
+				}
+			}
+		}
+		if out.Status != "" || out.HasCode {
+			resolveOutcomeStatus(&out)
+			return out
+		}
+	}
+	if rs, ok := v["responseStatus"].(map[string]any); ok {
+		out := providerOutcome{}
+		applyResponseStatus(&out, rs)
+		if out.Status != "" || out.HasCode {
+			resolveOutcomeStatus(&out)
+			return out
+		}
+	}
+	out := providerOutcome{Status: responseStatus(v)}
+	resolveOutcomeStatus(&out)
+	return out
+}
+
+func applyResponseStatus(out *providerOutcome, rs map[string]any) {
+	if s, ok := rs["status"].(string); ok {
+		out.Status = s
+	}
+	if m, ok := rs["message"].(string); ok {
+		out.Message = m
+	}
+	if src, ok := rs["source"].(string); ok {
+		out.Source = src
+	}
+	switch c := rs["code"].(type) {
+	case float64:
+		out.Code = int(c)
+		out.HasCode = true
+	case string:
+		if n, err := strconv.Atoi(strings.TrimSpace(c)); err == nil {
+			out.Code = n
+			out.HasCode = true
+		}
+	}
+}
+
+func resolveOutcomeStatus(out *providerOutcome) {
+	if out.HasCode {
+		if info, ok := appyPayCodeOutcomes[out.Code]; ok {
+			out.Status = info.Estado
+			out.Categoria = info.Categoria
+			return
+		}
+		out.Categoria = "desconhecido"
+		if out.Status == "" {
+			out.Status = "Failed"
+		}
+	}
+}
+
+func applyProviderOutcome(payload map[string]any, outcome providerOutcome) {
+	if outcome.HasCode {
+		payload["codigo_provedor"] = outcome.Code
+	}
+	if outcome.Message != "" {
+		payload["mensagem_provedor"] = outcome.Message
+	}
+	if outcome.Source != "" {
+		payload["fonte_provedor"] = outcome.Source
+	}
+	if outcome.Categoria != "" {
+		payload["categoria_motivo"] = outcome.Categoria
+	}
+}
+
+type appyPayCodeInfo struct {
+	Estado    string
+	Categoria string
+}
+
+var appyPayCodeOutcomes = map[int]appyPayCodeInfo{
+	100: {"Success", ""}, 101: {"Pending", ""}, 102: {"Pending", ""}, 103: {"Success", ""}, 319: {"Pending", ""}, 1100: {"Success", ""},
+	231: {"Cancelled", "recusado_pelo_cliente"}, 219: {"Cancelled", "recusado_pelo_cliente"},
+	209: {"Cancelled", "saldo_insuficiente"}, 203: {"Cancelled", "saldo_insuficiente"}, 204: {"Cancelled", "saldo_insuficiente"},
+	210: {"Cancelled", "tempo_esgotado"}, 211: {"Cancelled", "tempo_esgotado"},
+	200: {"Cancelled", "recusado_pelo_processador"}, 206: {"Cancelled", "recusado_pelo_processador"}, 208: {"Cancelled", "recusado_pelo_processador"}, 217: {"Cancelled", "recusado_pelo_processador"}, 227: {"Cancelled", "recusado_pelo_processador"}, 230: {"Cancelled", "recusado_pelo_processador"}, 205: {"Cancelled", "recusado_pelo_processador"}, 207: {"Cancelled", "recusado_pelo_processador"}, 218: {"Cancelled", "recusado_pelo_processador"}, 226: {"Cancelled", "recusado_pelo_processador"},
+	201: {"Cancelled", "recusado_pelo_emissor"}, 212: {"Cancelled", "recusado_pelo_emissor"}, 213: {"Cancelled", "recusado_pelo_emissor"}, 214: {"Cancelled", "recusado_pelo_emissor"}, 215: {"Cancelled", "recusado_pelo_emissor"}, 216: {"Cancelled", "recusado_pelo_emissor"}, 220: {"Cancelled", "recusado_pelo_emissor"}, 221: {"Cancelled", "recusado_pelo_emissor"}, 222: {"Cancelled", "recusado_pelo_emissor"}, 223: {"Cancelled", "recusado_pelo_emissor"}, 224: {"Cancelled", "recusado_pelo_emissor"}, 225: {"Cancelled", "recusado_pelo_emissor"}, 228: {"Cancelled", "recusado_pelo_emissor"}, 229: {"Cancelled", "recusado_pelo_emissor"}, 202: {"Cancelled", "recusado_pelo_emissor"},
+	245: {"Expired", "referencia_expirada"}, 762: {"Failed", "referencia_invalida"}, 763: {"Failed", "referencia_duplicada"},
+	233: {"Cancelled", "conta_invalida"}, 238: {"Cancelled", "recusado_pelo_processador"}, 239: {"Cancelled", "recusado_pelo_cliente"}, 240: {"Cancelled", "recusado_pelo_processador"}, 242: {"Cancelled", "conta_invalida"}, 243: {"Cancelled", "pin_invalido"}, 244: {"Cancelled", "erro_interno_provedor"}, 246: {"Failed", "erro_interno_provedor"}, 247: {"Failed", "erro_interno_provedor"}, 248: {"Failed", "erro_interno_provedor"}, 309: {"Failed", "erro_comunicacao"}, 310: {"Failed", "erro_interno_provedor"}, 311: {"Failed", "erro_interno_provedor"}, 312: {"Failed", "erro_interno_provedor"}, 313: {"Failed", "erro_interno_provedor"}, 314: {"Failed", "erro_comunicacao"}, 315: {"Failed", "erro_interno_provedor"}, 316: {"Failed", "erro_interno_provedor"}, 317: {"Failed", "erro_interno_provedor"}, 413: {"Failed", "erro_interno_provedor"}, 414: {"Failed", "erro_interno_provedor"}, 415: {"Failed", "erro_interno_provedor"}, 416: {"Failed", "erro_interno_provedor"}, 417: {"Failed", "erro_interno_provedor"}, 418: {"Failed", "erro_interno_provedor"}, 759: {"Failed", "valor_minimo"},
+	249: {"Cancelled", "erro_interno_provedor"}, 318: {"Failed", "erro_interno_provedor"}, 301: {"Failed", "erro_interno_provedor"}, 302: {"Failed", "erro_interno_provedor"}, 306: {"Failed", "erro_comunicacao"}, 308: {"Failed", "erro_interno_provedor"}, 402: {"Failed", "erro_interno_provedor"}, 403: {"Failed", "erro_interno_provedor"}, 404: {"Failed", "erro_interno_provedor"}, 405: {"Failed", "erro_interno_provedor"}, 406: {"Failed", "erro_comunicacao"}, 407: {"Failed", "erro_comunicacao"}, 408: {"Failed", "erro_interno_provedor"}, 410: {"Failed", "erro_interno_provedor"}, 411: {"Failed", "erro_interno_provedor"}, 412: {"Failed", "erro_interno_provedor"}, 440: {"Failed", "erro_interno_provedor"}, 900: {"Failed", "erro_desconhecido"}, 901: {"Failed", "erro_desconhecido"}, 1101: {"Failed", "conta_inativa"}, 1102: {"Failed", "conta_inativa"}, 1103: {"Failed", "conta_inativa"}, 1104: {"Failed", "conta_inativa"}, 1105: {"Failed", "conta_inativa"}, -1: {"Failed", "erro_desconhecido"},
+	717: {"Failed", "dados_invalidos"}, 718: {"Failed", "dados_invalidos"}, 719: {"Failed", "dados_invalidos"}, 720: {"Failed", "transacao_nao_encontrada"}, 726: {"Failed", "referencia_duplicada"}, 760: {"Failed", "dados_invalidos"}, 761: {"Failed", "dados_invalidos"}, 800: {"Failed", "dados_invalidos"}, 803: {"Failed", "dados_invalidos"}, 500: {"Failed", "erro_interno_provedor"}, 501: {"Failed", "erro_interno_provedor"}, 502: {"Failed", "erro_interno_provedor"}, 503: {"Failed", "erro_interno_provedor"}, 504: {"Failed", "erro_interno_provedor"}, 505: {"Failed", "erro_interno_provedor"}, 507: {"Failed", "erro_interno_provedor"}, 508: {"Failed", "erro_interno_provedor"}, 801: {"Failed", "dados_invalidos"}, 802: {"Failed", "dados_invalidos"},
+}
+
 func first(a, b string) string {
 	if a != "" {
 		return a

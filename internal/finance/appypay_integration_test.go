@@ -16,11 +16,29 @@ import (
 )
 
 type appyPayMockTransport struct {
-	status string
+	status  string
+	code    int
+	message string
+	source  string
+}
+
+func (t *appyPayMockTransport) responseStatusJSON() string {
+	code, message, source := t.code, t.message, t.source
+	if source == "" {
+		source = "GPO"
+	}
+	extra := ""
+	if code != 0 {
+		extra = fmt.Sprintf(`,"code":%d`, code)
+	}
+	if message != "" {
+		extra += fmt.Sprintf(`,"message":%q`, message)
+	}
+	return fmt.Sprintf(`{"successful":true,"status":%q,"source":%q%s}`, t.status, source, extra)
 }
 
 func (t *appyPayMockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	body := `{"id":"provider-charge","status":"Pending"}`
+	body := `{"id":"provider-charge","responseStatus":` + t.responseStatusJSON() + `}`
 	switch {
 	case strings.Contains(req.URL.Path, "/oauth2/token"):
 		body = `{"access_token":"test-token","expires_in":3600}`
@@ -29,11 +47,11 @@ func (t *appyPayMockTransport) RoundTrip(req *http.Request) (*http.Response, err
 		if providerID == req.URL.EscapedPath() || providerID == "" {
 			providerID = req.URL.Query().Get("merchantTransactionId")
 		}
-		body = `{"id":"` + providerID + `","status":"` + t.status + `"}`
+		body = `{"payment":{"id":"` + providerID + `","status":"` + t.status + `","transactionEvents":[{"responseStatus":` + t.responseStatusJSON() + `}]}}`
 	case strings.HasSuffix(req.URL.Path, "/qr-codes"):
-		body = `{"id":"` + t.providerID("qr") + `","status":"Pending","qrCodeArr":"base64-qr"}`
+		body = `{"id":"` + t.providerID("qr") + `","responseStatus":{"successful":true,"status":"Pending","source":"GPO"},"qrCodeArr":"base64-qr"}`
 	case req.Method == http.MethodPost:
-		body = `{"id":"` + t.providerID("charge") + `","status":"Pending"}`
+		body = `{"id":"` + t.providerID("charge") + `","responseStatus":{"successful":true,"status":"Pending","source":"GPO"}}`
 	}
 	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
 }
@@ -187,7 +205,7 @@ func TestIntegrationMatriculaWebhookTardioMantemCancelamentoERegistraConflito(t 
 	if err = service.CancelarCobrancaMatriculaAberta(context.Background(), codigo, "solicitação cancelada", uuid.NewString(), "academia", "127.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
-	accepted, err := service.AcceptWebhook(context.Background(), "REF", charge.Charge.ProviderChargeID, WebhookOwner{CredentialID: uuid.New(), ContextoTipo: ContextoAcademia, CodigoAcademia: academia}, map[string]any{"id": charge.Charge.ProviderChargeID, "status": "Success"})
+	accepted, err := service.AcceptWebhook(context.Background(), "REF", charge.Charge.ProviderChargeID, WebhookOwner{CredentialID: uuid.New(), ContextoTipo: ContextoAcademia, CodigoAcademia: academia}, map[string]any{"id": charge.Charge.ProviderChargeID, "responseStatus": map[string]any{"status": "Success", "code": float64(100)}})
 	if err != nil || !accepted {
 		t.Fatalf("webhook tardio = accepted %t, err %v", accepted, err)
 	}
@@ -234,7 +252,7 @@ func TestIntegrationAcceptWebhookReflecteEstadoNaoSucesso(t *testing.T) {
 	}
 
 	owner := WebhookOwner{CredentialID: uuid.New(), ContextoTipo: ContextoAcademia, CodigoAcademia: academia}
-	accepted, err := service.AcceptWebhook(context.Background(), "REF", charge.Charge.ProviderChargeID, owner, map[string]any{"id": charge.Charge.ProviderChargeID, "status": "Expired"})
+	accepted, err := service.AcceptWebhook(context.Background(), "REF", charge.Charge.ProviderChargeID, owner, map[string]any{"id": charge.Charge.ProviderChargeID, "responseStatus": map[string]any{"status": "Failed", "code": float64(245), "message": "The payment has expired", "source": "REF"}})
 	if err != nil || !accepted {
 		t.Fatalf("webhook Expired = accepted %t, err %v", accepted, err)
 	}
@@ -246,7 +264,15 @@ func TestIntegrationAcceptWebhookReflecteEstadoNaoSucesso(t *testing.T) {
 		return status
 	}
 	if got := statusAtual(); got != "Expired" {
-		t.Fatalf("esperava status=Expired refletido na cobrança após o webhook, obteve %q", got)
+		t.Fatalf("esperava status=Expired refletido na cobrança após o webhook (via código 245, mesmo com o literal da AppyPay vindo apenas como Failed), obteve %q", got)
+	}
+	var codigoProvedor int
+	var categoria string
+	if err := client.DB().QueryRow(`SELECT (payload->>'codigo_provedor')::int, payload->>'categoria_motivo' FROM financeiro_cobrancas WHERE id=$1`, charge.Charge.ID).Scan(&codigoProvedor, &categoria); err != nil {
+		t.Fatal(err)
+	}
+	if codigoProvedor != 245 || categoria != "referencia_expirada" {
+		t.Fatalf("motivo persistido = código %d categoria %q, queria 245/referencia_expirada", codigoProvedor, categoria)
 	}
 
 	// Um segundo webhook tardio (ex.: reentrega), com um estado terminal
@@ -254,7 +280,7 @@ func TestIntegrationAcceptWebhookReflecteEstadoNaoSucesso(t *testing.T) {
 	// eventID diferente (aqui o id interno da cobrança, que loadCharge
 	// também reconhece) passa pela deduplicação de
 	// financeiro_webhooks_recebidos para realmente exercer a guarda.
-	accepted2, err := service.AcceptWebhook(context.Background(), "REF", charge.Charge.ID.String(), owner, map[string]any{"id": charge.Charge.ProviderChargeID, "status": "Failed"})
+	accepted2, err := service.AcceptWebhook(context.Background(), "REF", charge.Charge.ID.String(), owner, map[string]any{"id": charge.Charge.ProviderChargeID, "responseStatus": map[string]any{"status": "Failed"}})
 	if err != nil || !accepted2 {
 		t.Fatalf("segundo webhook = accepted %t, err %v", accepted2, err)
 	}
@@ -559,5 +585,57 @@ func TestIntegrationCancelChargeAndLateSuccessConflict(t *testing.T) {
 	}
 	if _, err = service.CancelCharge(ctx, ContextoSpuri, "", failedMerchant, "", "fpp-test", "admin", "127.0.0.1"); err == nil {
 		t.Fatal("cobrança falhada foi cancelada")
+	}
+}
+
+func TestIntegrationConsultChargeRefleteCanceladoGPOPorCodigo(t *testing.T) {
+	client := integrationClient(t)
+	t.Setenv("ENV", "test")
+	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
+	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	service := NewService(client)
+	mock := &appyPayMockTransport{status: "Pending"}
+	service.httpClient = &http.Client{Transport: mock}
+	academia := "GPO" + uuid.NewString()[:8]
+	configureIntegrationCredential(t, service, ContextoAcademia, academia)
+
+	charge, err := service.CreateCharge(context.Background(), ChargeRequest{ContextoTipo: ContextoAcademia, CodigoAcademia: academia, Amount: 500, Currency: "AOA", Description: "Propina", MerchantTransactionID: integrationMerchant("G"), PaymentMethod: "GPO", PaymentInfo: map[string]any{"phoneNumber": "900000002"}}, "estudante-1", "estudante", "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if charge.Status != EstadoCobrancaAguardandoPagamento {
+		t.Fatalf("status logo após criar = %q, queria %q", charge.Status, EstadoCobrancaAguardandoPagamento)
+	}
+	mock.status, mock.code, mock.message, mock.source = "Failed", 209, "Insufficient funds", "GPO"
+	result, err := service.ConsultCharge(context.Background(), ContextoAcademia, academia, charge.MerchantTransactionID, "estudante-1", "estudante", "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "Cancelled" {
+		t.Fatalf("status após consulta = %q, queria Cancelled", result.Status)
+	}
+	if result.CodigoProvedor == nil || *result.CodigoProvedor != 209 {
+		t.Fatalf("CodigoProvedor = %v, queria 209", result.CodigoProvedor)
+	}
+	if result.CategoriaMotivo != "saldo_insuficiente" {
+		t.Fatalf("CategoriaMotivo = %q, queria saldo_insuficiente", result.CategoriaMotivo)
+	}
+	if result.MensagemProvedor != "Insufficient funds" {
+		t.Fatalf("MensagemProvedor = %q, queria Insufficient funds", result.MensagemProvedor)
+	}
+	var codigoNoBanco int
+	var categoriaNoBanco, mensagemNoBanco string
+	if err := client.DB().QueryRow(`SELECT (payload->>'codigo_provedor')::int, payload->>'categoria_motivo', payload->>'mensagem_provedor' FROM financeiro_cobrancas WHERE id=$1`, charge.ID).Scan(&codigoNoBanco, &categoriaNoBanco, &mensagemNoBanco); err != nil {
+		t.Fatal(err)
+	}
+	if codigoNoBanco != 209 || categoriaNoBanco != "saldo_insuficiente" || mensagemNoBanco != "Insufficient funds" {
+		t.Fatalf("motivo persistido = código %d categoria %q mensagem %q", codigoNoBanco, categoriaNoBanco, mensagemNoBanco)
+	}
+	again, err := service.CreateCharge(context.Background(), ChargeRequest{ContextoTipo: ContextoAcademia, CodigoAcademia: academia, Amount: 500, Currency: "AOA", Description: "Propina", MerchantTransactionID: charge.MerchantTransactionID, PaymentMethod: "GPO", PaymentInfo: map[string]any{"phoneNumber": "900000002"}}, "estudante-1", "estudante", "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.CodigoProvedor == nil || *again.CodigoProvedor != 209 || again.CategoriaMotivo != "saldo_insuficiente" {
+		t.Fatalf("resultado idempotente não preservou o motivo: %+v", again)
 	}
 }
