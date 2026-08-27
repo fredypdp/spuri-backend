@@ -271,6 +271,99 @@ func TestIntegrationAcceptWebhookReflecteEstadoNaoSucesso(t *testing.T) {
 	}
 }
 
+// failingProviderTransport simula uma falha na própria chamada HTTP à
+// AppyPay (timeout, DNS, conexão recusada — qualquer erro que nunca chega
+// a produzir uma resposta do provedor), distinta de um 2xx com
+// status="Failed" no corpo (essa a AppyPay processou; esta aqui o Spuri
+// nem conseguiu enviar). Usado por
+// TestIntegrationCreateChargeECreateGPOQRCodeFalhaLocalGravaFailed (tarefa
+// 69) para provar que CreateCharge/CreateGPOQRCode gravam e devolvem
+// "Failed" (não mais "falhada") quando isso acontece.
+type failingProviderTransport struct{}
+
+func (t *failingProviderTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if strings.Contains(req.URL.Path, "/oauth2/token") {
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"access_token":"test-token","expires_in":3600}`)), Request: req}, nil
+	}
+	return nil, errors.New("conexão recusada (simulado)")
+}
+
+// TestIntegrationCreateChargeECreateGPOQRCodeFalhaLocalGravaFailed
+// reproduz a causa raiz do bug relatado por Fredy (tarefa 69): antes desta
+// tarefa, quando a própria chamada HTTP à AppyPay falhava (sem chegar a
+// existir uma cobrança do lado do provedor), CreateCharge e CreateGPOQRCode
+// gravavam o valor local "falhada" — diferente do valor "Failed" que a
+// AppyPay usa quando o PROCESSADOR recusa a cobrança — e filtrar
+// estado=Failed nunca encontrava essas cobranças (ver
+// TestEstadosCobrancaEquivalentes em appypay_test.go, e os testes de
+// integração em internal/handlers/financeiro_cobrancas_handlers_test.go e
+// financeiro_cobrancas_estudante_handlers_test.go, que cobrem o mesmo
+// cenário pelo lado HTTP). Daqui pra frente as duas funções gravam
+// "Failed" diretamente: este teste confirma isso tanto no valor devolvido
+// por CreateCharge quanto no payload persistido por ambas — CreateGPOQRCode
+// não devolve o status no result de erro (só gerarCobranca/o chamador HTTP
+// consomem esse retorno), então o caminho do QR code só é verificável via
+// o payload persistido, por isso o MerchantTransactionID é fixado
+// explicitamente (para poder localizar a linha depois, já que o ID gerado
+// internamente não é devolvido em caso de erro).
+func TestIntegrationCreateChargeECreateGPOQRCodeFalhaLocalGravaFailed(t *testing.T) {
+	client := integrationClient(t)
+	t.Setenv("ENV", "test")
+	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
+	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	service := NewService(client)
+	service.SetHTTPClient(&http.Client{Transport: &failingProviderTransport{}})
+	academia := "FAL" + uuid.NewString()[:8]
+	configureIntegrationCredential(t, service, ContextoAcademia, academia)
+
+	chargeResult, err := service.CreateCharge(context.Background(), ChargeRequest{
+		ContextoTipo: ContextoAcademia, CodigoAcademia: academia,
+		Amount: 500, Currency: "AOA", Description: "teste falha local", PaymentMethod: "REF",
+	}, "actor", "academia", "127.0.0.1")
+	if err == nil {
+		t.Fatal("esperava erro na chamada com transporte falho")
+	}
+	if chargeResult.Status != "Failed" {
+		t.Fatalf("CreateCharge com falha local devolveu Status=%q, queria \"Failed\"", chargeResult.Status)
+	}
+	var persistedCharge string
+	if err = client.DB().QueryRow(`SELECT payload->>'status' FROM financeiro_cobrancas WHERE id=$1`, chargeResult.ID).Scan(&persistedCharge); err != nil {
+		t.Fatal(err)
+	}
+	if persistedCharge != "Failed" {
+		t.Fatalf("payload persistido de CreateCharge com falha local = %q, queria \"Failed\"", persistedCharge)
+	}
+
+	qrMerchant := integrationMerchant("QRFAL")
+	_, err = service.CreateGPOQRCode(context.Background(), QRCodeRequest{
+		ContextoTipo: ContextoAcademia, CodigoAcademia: academia,
+		Amount: 500, Currency: "AOA", Description: "teste falha local QR",
+		MerchantTransactionID: qrMerchant,
+	}, "actor", "academia", "127.0.0.1")
+	if err == nil {
+		t.Fatal("esperava erro na chamada de QR code com transporte falho")
+	}
+	var persistedQR string
+	if err = client.DB().QueryRow(`SELECT payload->>'status' FROM financeiro_cobrancas WHERE merchant_transaction_id=$1`, qrMerchant).Scan(&persistedQR); err != nil {
+		t.Fatal(err)
+	}
+	if persistedQR != "Failed" {
+		t.Fatalf("payload persistido de CreateGPOQRCode com falha local = %q, queria \"Failed\"", persistedQR)
+	}
+
+	// Consequência prática: as duas já aparecem sob estado=Failed sem
+	// precisar da equivalência com "falhada" — a expansão em
+	// estadosCobrancaEquivalentes só é necessária para cobranças criadas
+	// antes desta tarefa.
+	result, err := service.ListCobrancas(context.Background(), ContextoAcademia, academia, []string{"Failed"}, nil, nil, nil, "", "", nil, 30, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 2 {
+		t.Fatalf("ListCobrancas estado=Failed = %d cobranças, queria 2", result.Total)
+	}
+}
+
 func TestIntegrationWebhookSecretGeneratedOnceGlobalHeaderAndRotation(t *testing.T) {
 	client := integrationClient(t)
 	service := NewService(client)

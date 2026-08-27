@@ -123,6 +123,70 @@ func TestIntegrationListarCobrancasAppyPayFiltraPorEscopoEEstado(t *testing.T) {
 	}
 }
 
+// TestIntegrationListarCobrancasAppyPayFiltroFailedIncluiFalhadaLocal
+// reproduz, no nível HTTP, a mesma causa raiz de
+// TestIntegrationConsultarCobrancasEstudanteFiltroEstadoFailedIncluiFalhadaLocal
+// (financeiro_cobrancas_estudante_handlers_test.go) mas pelo lado de
+// academia/admin: Fredy relatou que o mesmo erro (estado=Failed devolvendo
+// vazio mesmo havendo cobranças falhadas) também acontece em GET
+// /financeiro/cobrancas — ver estadosCobrancaEquivalentes (tarefa 69). A
+// linha inserida com "falhada" simula uma cobrança criada antes do deploy
+// desta tarefa (ledger imutável) — CreateCharge/CreateGPOQRCode já não
+// gravam mais esse valor daqui pra frente.
+func TestIntegrationListarCobrancasAppyPayFiltroFailedIncluiFalhadaLocal(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	client := integrationFinanceClient(t)
+	academia := "LSTF" + strings.ReplaceAll(uuid.NewString(), "-", "")[:6]
+
+	insert := func(status string) {
+		payload := map[string]any{"status": status, "amount": 250.0, "currency": "AOA", "description": "teste", "payment_method": "GPO"}
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		merchant := "LSF" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+		if _, err := client.DB().Exec(`INSERT INTO financeiro_cobrancas (id,merchant_transaction_id,contexto_tipo,codigo_academia,payload) VALUES ($1,$2,'academia',$3,$4)`,
+			uuid.New(), merchant, academia, raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert("falhada")
+	insert("Failed")
+	insert("Success")
+
+	previousService := FinanceiroService
+	FinanceiroService = finance.NewService(client)
+	t.Cleanup(func() { FinanceiroService = previousService })
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/financeiro/cobrancas?estado=Failed", nil)
+	ctx.Set("dbClient", client)
+	ctx.Set("user_id", uuid.New())
+	ctx.Set("user_type", "academia")
+	ctx.Set("codigo_academia", academia)
+	ListarCobrancasAppyPay(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("academia filtrando estado=Failed = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var bodyFailed struct {
+		Pagamentos []finance.PagamentoResumo `json:"pagamentos"`
+		TotalGeral int                       `json:"total_geral"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &bodyFailed); err != nil {
+		t.Fatal(err)
+	}
+	if bodyFailed.TotalGeral != 2 {
+		t.Fatalf("estado=Failed deveria trazer as 2 cobranças falhadas (gravada como \"Failed\" e a histórica gravada como \"falhada\"), obteve %d: %s", bodyFailed.TotalGeral, recorder.Body.String())
+	}
+	for _, p := range bodyFailed.Pagamentos {
+		if p.Status != "Failed" {
+			t.Fatalf("esperava só status=\"Failed\" no resultado (normalizado), obteve %q: %s", p.Status, recorder.Body.String())
+		}
+	}
+}
+
 // TestIntegrationListarCobrancasAppyPayRejeitaAdminSemPermissaoFPP garante
 // que a nova rota usa a mesma autorização das demais rotas de /financeiro:
 // um admin sem a permissão "fpp" não pode listar cobranças.

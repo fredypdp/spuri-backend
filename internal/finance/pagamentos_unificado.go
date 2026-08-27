@@ -34,7 +34,7 @@ import (
 // continua válida: um mês com cobrança falhada continua contando como
 // pendente. O que esta função resolve é só evitar que ele apareça DUAS
 // vezes na lista final — uma vez como a cobrança real (com seu status
-// verdadeiro, ex. "falhada") e outra vez como uma pendência sintética
+// verdadeiro, ex. "Failed") e outra vez como uma pendência sintética
 // redundante para o mesmo mês.
 func (s *Service) mesesComCobrancaRealVinculada(ctx context.Context, academia string, estudantes []string) (map[string]bool, error) {
 	out := map[string]bool{}

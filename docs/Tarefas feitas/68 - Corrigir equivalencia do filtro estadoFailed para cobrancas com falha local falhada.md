@@ -1,8 +1,9 @@
 ---
 criado: 2026-08-27
 origem: conversa com Fredy (Claude como orquestrador, Codex como executor)
-status: pronto_para_execucao
+status: concluido
 tipo: correcao_de_bug
+concluido: 2026-08-27
 depende_de: docs/Tarefas feitas/66 - Novo modelo de estados de cobranca e correcao do filtro estadotipo na lista unificada.md
 gera_dependencia_para: tarefa companion no repositório spuripainel (frontend) — ver seção 0
 ---

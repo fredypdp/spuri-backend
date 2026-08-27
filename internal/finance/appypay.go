@@ -475,8 +475,8 @@ func (s *Service) CreateCharge(ctx context.Context, in ChargeRequest, actorID, a
 	providerBody := map[string]any{"amount": in.Amount, "currency": in.Currency, "description": in.Description, "merchantTransactionId": in.MerchantTransactionID, "paymentMethod": method, "paymentInfo": in.PaymentInfo, "options": in.Options, "notify": in.Notify}
 	response, err := s.callJSON(ctx, credential, http.MethodPost, "/charges", providerBody, in.Async)
 	if err != nil {
-		_ = s.record(ctx, id, "CobrancaAppyPayFalhou", chargePayload(id, in, "", "falhada", map[string]any{"error": "provider_request_failed"}), actorID, actorType, ip)
-		return ChargeResult{ID: id, MerchantTransactionID: in.MerchantTransactionID, Status: "falhada"}, err
+		_ = s.record(ctx, id, "CobrancaAppyPayFalhou", chargePayload(id, in, "", "Failed", map[string]any{"error": "provider_request_failed"}), actorID, actorType, ip)
+		return ChargeResult{ID: id, MerchantTransactionID: in.MerchantTransactionID, Status: "Failed"}, err
 	}
 	providerID := responseID(response)
 	status := normalizeChargeStatus(responseStatus(response))
@@ -552,7 +552,7 @@ func (s *Service) CreateGPOQRCode(ctx context.Context, in QRCodeRequest, actorID
 	}
 	response, err := s.callJSON(ctx, cred, http.MethodPost, "/qr-codes", body, false)
 	if err != nil {
-		_ = s.record(ctx, id, "QRCodeAppyPayFalhou", qrCodePayload(id, in, typ, "", "falhada", map[string]any{"error": "provider_request_failed"}), actorID, actorType, ip)
+		_ = s.record(ctx, id, "QRCodeAppyPayFalhou", qrCodePayload(id, in, typ, "", "Failed", map[string]any{"error": "provider_request_failed"}), actorID, actorType, ip)
 		return QRCodeResult{}, err
 	}
 	providerID := responseID(response)
@@ -724,18 +724,40 @@ func (s *Service) ListCobrancas(ctx context.Context, contexto, academia string, 
 // as cobranças criadas DEPOIS do deploy desta tarefa, escondendo qualquer
 // cobrança antiga que ainda esteja nesse estado — inconsistente com o que
 // scanCobrancaResumo mostra ao ler a mesma linha (que já normaliza na
-// leitura). Qualquer outro valor de filtro (Success, Failed, Cancelled,
-// Expired, ou qualquer string não reconhecida, incluindo EstadoPendente)
-// passa inalterado — só "aguardando_pagamento" tem essa equivalência
-// histórica com valores brutos diferentes de si mesmo.
+// leitura).
+//
+// A mesma lacuna existia para "Failed" (bug relatado por Fredy: GET
+// .../estudante/:codigo?estado=Failed devolvia vazio mesmo havendo
+// cobranças falhadas do estudante, reproduzido também para academia/admin
+// — ver tarefa 69). "Failed" é o valor cru que a própria AppyPay devolve
+// quando o PROCESSADOR recusa a cobrança (docs/Parceiros e integrações/
+// AppyPay Documentação.md). Antes da tarefa 69, CreateCharge/
+// CreateGPOQRCode gravavam um valor local diferente, "falhada", quando a
+// própria chamada HTTP à AppyPay falhava — nunca chegando a existir uma
+// cobrança do lado do provedor, então a AppyPay nunca teve chance de
+// devolver "Failed". Por decisão de Fredy, esta tarefa unifica os dois:
+// daqui pra frente CreateCharge/CreateGPOQRCode gravam "Failed"
+// diretamente nesse caso — "falhada" só continua a existir como o valor
+// BRUTO de cobranças criadas antes do deploy desta tarefa (o ledger é
+// append-only, imutável), exatamente a mesma situação de
+// aguardando_pagamento/Pending/Requested/solicitada/criada acima, só que
+// para o estado terminal Failed em vez do estado aguardando_pagamento.
+//
+// Qualquer outro valor de filtro (Success, Cancelled, Expired, ou qualquer
+// string não reconhecida, incluindo EstadoPendente) passa inalterado — só
+// "aguardando_pagamento" e "Failed" têm equivalência com valores brutos
+// históricos diferentes de si mesmos.
 func estadosCobrancaEquivalentes(estados []string) []string {
 	out := make([]string, 0, len(estados))
 	for _, estado := range estados {
-		if strings.EqualFold(strings.TrimSpace(estado), EstadoCobrancaAguardandoPagamento) {
+		switch {
+		case strings.EqualFold(strings.TrimSpace(estado), EstadoCobrancaAguardandoPagamento):
 			out = append(out, EstadoCobrancaAguardandoPagamento, "Pending", "Requested", "solicitada", "criada")
-			continue
+		case strings.EqualFold(strings.TrimSpace(estado), "Failed"):
+			out = append(out, "Failed", "falhada")
+		default:
+			out = append(out, estado)
 		}
-		out = append(out, estado)
 	}
 	return out
 }
@@ -941,17 +963,29 @@ func isTerminalChargeStatus(status string) bool {
 }
 
 // normalizeChargeStatus traduz o vocabulário histórico/bruto de status de
-// uma cobrança real para o estado canônico único
-// EstadoCobrancaAguardandoPagamento (mensalidade.go), sempre que o valor de
-// entrada representar "cobrança gerada/tentada junto à AppyPay, ainda sem
-// resolução": os estados locais intermediários que o Spuri gravava antes
-// desta tarefa ("solicitada", gravado antes de qualquer chamada ao
-// provedor; "criada", o fallback usado quando o provedor responde 2xx sem
-// nenhum campo de status) e os estados brutos que a própria AppyPay
-// documenta para esta mesma fase ("Requested" e "Pending" — ver docs/
-// Parceiros e integrações/AppyPay Documentação.md). Qualquer outro valor
-// (Success, Failed, Cancelled, Expired, ou o próprio
-// EstadoCobrancaAguardandoPagamento) é devolvido inalterado — a função é
+// uma cobrança real para os estados canônicos únicos que a API expõe,
+// sempre que o valor de entrada tiver um equivalente canônico:
+//
+//   - EstadoCobrancaAguardandoPagamento (mensalidade.go): os estados locais
+//     intermediários que o Spuri gravava antes da tarefa 66 ("solicitada",
+//     gravado antes de qualquer chamada ao provedor; "criada", o fallback
+//     usado quando o provedor responde 2xx sem nenhum campo de status) e os
+//     estados brutos que a própria AppyPay documenta para esta mesma fase
+//     ("Requested" e "Pending" — ver docs/Parceiros e integrações/AppyPay
+//     Documentação.md).
+//   - "Failed": desde a tarefa 69, também "falhada" — o valor local que
+//     CreateCharge/CreateGPOQRCode gravavam antes desta tarefa quando a
+//     própria chamada HTTP à AppyPay falhava (nunca chegando a existir uma
+//     cobrança do lado do provedor, então a AppyPay nunca teve chance de
+//     devolver "Failed" — ver estadosCobrancaEquivalentes, que resolve o
+//     mesmo problema do lado do filtro SQL). Daqui pra frente
+//     CreateCharge/CreateGPOQRCode já gravam "Failed" diretamente nesse caso;
+//     "falhada" só volta a aparecer como o valor BRUTO de uma cobrança
+//     criada antes do deploy desta tarefa — e mesmo assim nunca chega ao
+//     chamador, porque normalizeChargeStatus a traduz aqui na leitura.
+//
+// Qualquer outro valor (Success, Cancelled, Expired, os dois canônicos
+// acima, ou uma string não reconhecida) é devolvido inalterado — a função é
 // idempotente e pode ser chamada tanto sobre um valor bruto recém-recebido
 // da AppyPay quanto sobre um valor já gravado (histórico ou canônico).
 //
@@ -971,6 +1005,8 @@ func normalizeChargeStatus(raw string) string {
 		strings.EqualFold(trimmed, "solicitada"),
 		strings.EqualFold(trimmed, "criada"):
 		return EstadoCobrancaAguardandoPagamento
+	case strings.EqualFold(trimmed, "falhada"):
+		return "Failed"
 	default:
 		return trimmed
 	}
