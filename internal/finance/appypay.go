@@ -212,6 +212,22 @@ type CobrancaResumo struct {
 	Valor            float64 `json:"valor"`
 	Moeda            string  `json:"moeda,omitempty"`
 	Descricao        string  `json:"descricao,omitempty"`
+	// MensalidadesEmAberto é o subconjunto de Mensalidades cujo estado da
+	// obrigação (financeiro_mensalidade_obrigacoes_eventos, mesma regra de
+	// precedenciaEstado usada por estadoObrigacao/PendenciasSemCobranca)
+	// ainda é EstadoPendente no momento da consulta. Só populado por
+	// PreencherMensalidadesEmAberto (pagamentos_unificado.go), chamada
+	// automaticamente ao final de ListCobrancas/ListCobrancasEstudante,
+	// para Origem == "mensalidade" com Status terminal de falha
+	// (Failed/Cancelled/Expired/falhada/cancelada — nunca para Success nem
+	// para aguardando_pagamento, que já é auto-explicativo). Existe porque
+	// FiltrarPendenciasComCobrancaRealVinculada (tarefa 64) remove de
+	// propósito a pendência sintética duplicada do mesmo mês da listagem
+	// unificada — sem este campo, uma cobrança Failed não informava, por
+	// si só, se a dívida daquele mês continuava em aberto (relatado por
+	// Fredy: a academia via "Failed" sem nenhum sinal de que o estudante
+	// ainda devia).
+	MensalidadesEmAberto []MensalidadeSelecaoMes `json:"mensalidades_em_aberto,omitempty"`
 	// MetodoPagamento reflete "GPO_QR" (não apenas "GPO") quando a cobrança
 	// tem qr_code_type no payload — CreateGPOQRCode grava payment_method
 	// como "GPO" internamente, então sem este ajuste a origem QR ficaria
@@ -743,6 +759,9 @@ func (s *Service) ListCobrancas(ctx context.Context, contexto, academia string, 
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	if err := s.PreencherMensalidadesEmAberto(ctx, out); err != nil {
+		return nil, err
+	}
 	return &CobrancaListResult{Cobrancas: out, Total: total}, nil
 }
 
@@ -951,6 +970,9 @@ func (s *Service) ListCobrancasEstudante(ctx context.Context, codigoEstudante st
 		out = append(out, dto)
 	}
 	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.PreencherMensalidadesEmAberto(ctx, out); err != nil {
 		return nil, err
 	}
 	return &CobrancaListResult{Cobrancas: out, Total: total}, nil

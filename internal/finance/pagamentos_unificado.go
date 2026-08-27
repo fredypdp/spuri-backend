@@ -174,6 +174,88 @@ func pendenciaParaPagamentoResumo(m MensalidadeMesView) PagamentoResumo {
 	}
 }
 
+// PreencherMensalidadesEmAberto enriquece, em lote (uma consulta por
+// academia envolvida, nunca N+1), cada CobrancaResumo de Origem ==
+// "mensalidade" cujo Status seja um estado terminal de falha
+// (Failed/Cancelled/Expired/falhada/cancelada) com
+// CobrancaResumo.MensalidadesEmAberto — o subconjunto de Mensalidades cujo
+// estado de obrigação ainda é EstadoPendente, pela mesma regra de
+// precedência que estadoObrigacao/PendenciasSemCobranca usam
+// (precedenciaEstado, via estadosObrigacaoBatch).
+//
+// Cobranças Success nunca são tocadas (isSuccessfulChargeStatus) nem
+// cobranças ainda aguardando_pagamento (não é terminal): nesses dois casos
+// o próprio Status já é auto-explicativo, e consultar a obrigação seria
+// trabalho redundante. Cobranças de outra Origem (matricula/avulsa) ou sem
+// CodigoEstudante/CodigoAcademia/Mensalidades também são ignoradas — não
+// têm obrigação de mensalidade para consultar.
+//
+// Motivação: FiltrarPendenciasComCobrancaRealVinculada (tarefa 64) remove
+// de propósito a pendência sintética duplicada do mesmo mês da listagem
+// unificada quando já existe uma cobrança real vinculada — dedup correto
+// para não repetir a mesma linha duas vezes. O efeito colateral não
+// intencional: uma cobrança Failed, sozinha, não informava se o mês
+// continuava em aberto ou se tinha sido resolvido de outra forma (ex.:
+// anulado pela academia) — quem consultasse GET /cobrancas via a academia
+// via "Failed" sem nenhum sinal de que a mensalidade ainda estava por
+// pagar, embora o próprio estudante, ao consultar pendências, continuasse
+// vendo a opção de pagar normalmente (Estado nunca sai de pendente só por
+// causa de uma tentativa falhada — ver Tarefa 63). Este campo fecha essa
+// lacuna sem desfazer a deduplicação.
+//
+// Chamada automaticamente ao final de ListCobrancas e ListCobrancasEstudante
+// (appypay.go), sobre a página já carregada — nunca refaz nem pagina a
+// consulta principal de financeiro_cobrancas.
+func (s *Service) PreencherMensalidadesEmAberto(ctx context.Context, cobrancas []CobrancaResumo) error {
+	porAcademia := map[string][]int{}
+	for idx := range cobrancas {
+		c := &cobrancas[idx]
+		if c.Origem != "mensalidade" || c.CodigoAcademia == "" || c.CodigoEstudante == "" || len(c.Mensalidades) == 0 {
+			continue
+		}
+		if isSuccessfulChargeStatus(c.Status) || !isTerminalChargeStatus(c.Status) {
+			continue
+		}
+		porAcademia[c.CodigoAcademia] = append(porAcademia[c.CodigoAcademia], idx)
+	}
+	for academia, indices := range porAcademia {
+		anosSet := map[string]bool{}
+		estudantesSet := map[string]bool{}
+		for _, idx := range indices {
+			estudantesSet[cobrancas[idx].CodigoEstudante] = true
+			for _, m := range cobrancas[idx].Mensalidades {
+				anosSet[m.AnoLetivo] = true
+			}
+		}
+		anos := make([]string, 0, len(anosSet))
+		for a := range anosSet {
+			anos = append(anos, a)
+		}
+		estudantes := make([]string, 0, len(estudantesSet))
+		for e := range estudantesSet {
+			estudantes = append(estudantes, e)
+		}
+		estados, err := s.estadosObrigacaoBatch(ctx, academia, anos, estudantes)
+		if err != nil {
+			return err
+		}
+		for _, idx := range indices {
+			c := &cobrancas[idx]
+			for _, m := range c.Mensalidades {
+				chave := c.CodigoEstudante + "|" + m.AnoLetivo + "|" + strconv.Itoa(m.Mes)
+				estado := EstadoPendente
+				if b, ok := estados[chave]; ok {
+					estado = b.Estado
+				}
+				if estado == EstadoPendente {
+					c.MensalidadesEmAberto = append(c.MensalidadesEmAberto, m)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // DeveIncluirPendenciasSemCobranca decide se a computação de pendências sem
 // cobrança (PendenciasSemCobranca/PendenciasSemCobrancaEstudante) deve
 // acontecer antes de montar a lista unificada — ver ListarPagamentosUnificado.
