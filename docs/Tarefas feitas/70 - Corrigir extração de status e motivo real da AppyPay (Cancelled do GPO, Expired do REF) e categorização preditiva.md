@@ -1,13 +1,14 @@
 ---
 criado: 2026-08-27
 origem: conversa com Fredy (Claude como orquestrador — depuração e implementação com PostgreSQL 16 real em sandbox, Codex como executor)
-status: pendente
+status: feito
 tipo: correcao_de_bug
+concluido: 2026-08-27
 depende_de: nenhuma
 nota_de_numeracao: esta tarefa foi originalmente escrita como "68", mas esse número foi tomado enquanto o documento era escrito por "68 - Corrigir equivalencia do filtro estadoFailed para cobrancas com falha local falhada" (commit 598e142, PR #578) — sem relação com o conteúdo desta tarefa. Renumerada para 70. Os diffs abaixo já foram gerados e revalidados (build + vet + gofmt + suíte inteira com PostgreSQL real) contra o estado atual do repositório, já incluindo o commit 598e142.
 ---
 
-# Corrigir a extração de status e motivo real da AppyPay (Cancelled do GPO, Expired do REF) e adicionar categorização preditiva de motivos
+# Corrigir a extração de status e motivo real da AppyPay (Cancelled do GPO, Expired do REF) e categorização preditiva de motivos (feito)
 
 ## 0. Leia isto primeiro — sobre esta tarefa e sobre o seu ambiente (Codex)
 
