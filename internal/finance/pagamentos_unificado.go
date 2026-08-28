@@ -22,26 +22,45 @@ import (
 )
 
 // mesesComCobrancaRealVinculada devolve o conjunto de (codigo_estudante,
-// ano_letivo, mes) que já têm PELO MENOS uma cobrança real vinculada em
-// financeiro_mensalidade_cobrancas — mesmo que ela tenha falhado. Mesma
-// consulta que a função cobrancasExistentesMensalidade fazia antes da
-// tarefa 63 (removida ali) — mas usada aqui para um propósito DIFERENTE:
-// deduplicação na composição da lista unificada (ver
-// filtrarPendenciasComCobrancaRealVinculada), não para decidir se um mês
+// ano_letivo, mes) que já têm PELO MENOS uma cobrança real "em aberto"
+// vinculada em financeiro_mensalidade_cobrancas — mesma regra de
+// chargeAbertaStatusExcluidos que mensalidadeTemCobrancaAberta usa para
+// decidir se uma nova tentativa de pagamento pode ser iniciada
+// (mensalidade.go). Antes da tarefa 73, QUALQUER cobrança vinculada (até
+// uma já Failed/Cancelled/Expired) contava, o que escondia a pendência
+// sintética mesmo quando o mês já podia ser tentado de novo — relatado por
+// Fredy: a academia via só a cobrança "Failed" na consulta sem filtros,
+// sem a pendência aparecer ao lado dela mostrando que o estudante ainda
+// podia pagar.
+//
+// Agora só uma cobrança "em aberto" (aguardando_pagamento — a única coisa
+// que de fato bloqueia mensalidadeTemCobrancaAberta) esconde a pendência:
+// enquanto há uma tentativa em curso, duplicar o convite para pagar de
+// novo seria confuso. Uma cobrança que já chegou a um estado terminal de
+// falha (Failed/Cancelled/Expired/falhada/cancelada) NÃO esconde mais a
+// pendência — as duas aparecem lado a lado na lista unificada: a
+// pendência (ainda pagável) e a(s) tentativa(s) falhada(s) (histórico).
+// Uma cobrança Success também não esconde nada aqui porque o mês já nem
+// chega a esta função como pendência: Estado deixa de ser EstadoPendente
+// assim que ela é registrada (ver PendenciasSemCobranca/tarefa 63), então
+// já é filtrado a montante.
+//
+// Mesma consulta que a função cobrancasExistentesMensalidade fazia antes
+// da tarefa 63 (removida ali) — mas usada aqui para um propósito
+// DIFERENTE: deduplicação na composição da lista unificada (ver
+// FiltrarPendenciasComCobrancaRealVinculada), não para decidir se um mês
 // está pago. Essa decisão continua sendo feita exclusivamente por
 // Estado != EstadoPendente, dentro de PendenciasSemCobranca/
-// PendenciasSemCobrancaEstudante — nenhuma das duas muda, e a tarefa 63
-// continua válida: um mês com cobrança falhada continua contando como
-// pendente. O que esta função resolve é só evitar que ele apareça DUAS
-// vezes na lista final — uma vez como a cobrança real (com seu status
-// verdadeiro, ex. "Failed") e outra vez como uma pendência sintética
-// redundante para o mesmo mês.
+// PendenciasSemCobrancaEstudante — nenhuma das duas muda.
 func (s *Service) mesesComCobrancaRealVinculada(ctx context.Context, academia string, estudantes []string) (map[string]bool, error) {
 	out := map[string]bool{}
 	if len(estudantes) == 0 {
 		return out, nil
 	}
-	rows, err := s.client.DB().QueryContext(ctx, `SELECT DISTINCT codigo_estudante, ano_letivo, mes FROM financeiro_mensalidade_cobrancas WHERE codigo_academia=$1 AND codigo_estudante = ANY($2)`, academia, pq.Array(estudantes))
+	rows, err := s.client.DB().QueryContext(ctx, `SELECT DISTINCT m.codigo_estudante, m.ano_letivo, m.mes
+		FROM financeiro_mensalidade_cobrancas m JOIN financeiro_cobrancas c ON c.id=m.charge_id
+		WHERE m.codigo_academia=$1 AND m.codigo_estudante = ANY($2)
+		AND lower(COALESCE(c.payload->>'status','')) NOT IN (`+chargeAbertaStatusExcluidos+`)`, academia, pq.Array(estudantes))
 	if err != nil {
 		return nil, err
 	}

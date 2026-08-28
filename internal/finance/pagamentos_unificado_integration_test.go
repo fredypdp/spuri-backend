@@ -9,14 +9,14 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestIntegrationFiltrarPendenciasComCobrancaRealVinculadaRemoveApenasOsVinculados
+// TestIntegrationFiltrarPendenciasComCobrancaRealVinculadaMantemFalhadaExcluiApenasAberta
 // cobre a razão de existir FiltrarPendenciasComCobrancaRealVinculada: desde
 // a tarefa 63, PendenciasSemCobranca inclui corretamente qualquer mês
 // ainda não pago, mesmo com uma tentativa de cobrança falhada — mas isso
 // significa que, ao montar a lista unificada, esse mês apareceria duas
 // vezes (uma como a cobrança real falhada, outra como pendência sintética
 // redundante) se não for filtrado antes.
-func TestIntegrationFiltrarPendenciasComCobrancaRealVinculadaRemoveApenasOsVinculados(t *testing.T) {
+func TestIntegrationFiltrarPendenciasComCobrancaRealVinculadaMantemFalhadaExcluiApenasAberta(t *testing.T) {
 	client := integrationClient(t)
 	service := NewService(client)
 	ctx := context.Background()
@@ -24,31 +24,42 @@ func TestIntegrationFiltrarPendenciasComCobrancaRealVinculadaRemoveApenasOsVincu
 	academia := mensalidadeCodigo()
 	seedMensalidadeAcademia(t, client, academia, "private", "fundamental", "2026_2027")
 	seedMensalidadeConfiguracao(t, client, academia, NivelFundamental, "7_ano_fundamental", nil, 15000, 7, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
-	// ESTVINC1 tem uma cobrança falhada para setembro — continua contando
-	// como pendente (tarefa 63), mas não deve gerar pendência sintética
-	// duplicada para o mesmo mês.
+	// ESTVINC1 tem uma cobrança FALHADA para setembro — continua contando
+	// como pendente (tarefa 63) E, desde a tarefa 73, volta a aparecer
+	// como pendência sintética separada da cobrança real (o mês pode ser
+	// tentado de novo — mensalidadeTemCobrancaAberta não bloqueia
+	// falhada/Failed/cancelada/Cancelled/Expired).
 	seedMensalidadeTurma(t, client, academia, "T-VINC-A", "2026_2027", "ESTVINC1", nil)
 	// ESTVINC2 nunca teve nenhuma tentativa — continua aparecendo como
 	// pendência sintética normalmente.
 	seedMensalidadeTurma(t, client, academia, "T-VINC-B", "2026_2027", "ESTVINC2", nil)
+	// ESTVINC3 tem uma cobrança ABERTA (aguardando_pagamento) para
+	// setembro — essa SIM deve continuar escondendo a pendência sintética,
+	// para não convidar a uma segunda tentativa enquanto a primeira ainda
+	// está em curso (mensalidadeTemCobrancaAberta bloqueia esse caso).
+	seedMensalidadeTurma(t, client, academia, "T-VINC-C", "2026_2027", "ESTVINC3", nil)
 
-	chargeID := uuid.New()
-	payload, err := json.Marshal(map[string]any{
-		"status": "falhada", "amount": 15000, "currency": "AOA", "description": "Propinas: 1 mensalidade(s)",
-		"payment_method": "GPO_QR", "codigo_estudante": "ESTVINC1",
-		"mensalidades": []MensalidadeSelecaoMes{{AnoLetivo: "2026_2027", Mes: 9}},
-	})
-	if err != nil {
-		t.Fatal(err)
+	inserirCobranca := func(estudante, status string) {
+		chargeID := uuid.New()
+		payload, err := json.Marshal(map[string]any{
+			"status": status, "amount": 15000, "currency": "AOA", "description": "Propinas: 1 mensalidade(s)",
+			"payment_method": "GPO_QR", "codigo_estudante": estudante,
+			"mensalidades": []MensalidadeSelecaoMes{{AnoLetivo: "2026_2027", Mes: 9}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := client.DB().Exec(`INSERT INTO financeiro_cobrancas (id,merchant_transaction_id,contexto_tipo,codigo_academia,payload) VALUES ($1,$2,'academia',$3,$4)`,
+			chargeID, integrationMerchant("VINC"), academia, payload); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := client.DB().Exec(`INSERT INTO financeiro_mensalidade_cobrancas (charge_id,codigo_estudante,codigo_academia,ano_letivo,mes) VALUES ($1,$2,$3,'2026_2027',9)`,
+			chargeID, estudante, academia); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if _, err := client.DB().Exec(`INSERT INTO financeiro_cobrancas (id,merchant_transaction_id,contexto_tipo,codigo_academia,payload) VALUES ($1,$2,'academia',$3,$4)`,
-		chargeID, integrationMerchant("VINC"), academia, payload); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := client.DB().Exec(`INSERT INTO financeiro_mensalidade_cobrancas (charge_id,codigo_estudante,codigo_academia,ano_letivo,mes) VALUES ($1,'ESTVINC1',$2,'2026_2027',9)`,
-		chargeID, academia); err != nil {
-		t.Fatal(err)
-	}
+	inserirCobranca("ESTVINC1", "falhada")
+	inserirCobranca("ESTVINC3", "aguardando_pagamento")
 
 	mesSetembro := 9
 	pendencias, err := service.PendenciasSemCobranca(ctx, academia, nil, nil, "", "2026_2027", &mesSetembro)
@@ -69,19 +80,20 @@ func TestIntegrationFiltrarPendenciasComCobrancaRealVinculadaRemoveApenasOsVincu
 	if err != nil {
 		t.Fatal(err)
 	}
+	presentes := map[string]bool{}
 	for _, p := range filtradas {
-		if p.CodigoEstudante == "ESTVINC1" && p.Mes == 9 {
-			t.Fatalf("ESTVINC1/setembro já tem cobrança real vinculada (falhada); não deveria sobrar em pendências após o filtro: %#v", p)
+		if p.Mes == 9 {
+			presentes[p.CodigoEstudante] = true
 		}
 	}
-	achouEst2 := false
-	for _, p := range filtradas {
-		if p.CodigoEstudante == "ESTVINC2" && p.Mes == 9 {
-			achouEst2 = true
-		}
+	if !presentes["ESTVINC1"] {
+		t.Fatal("BUG: ESTVINC1/setembro tem só uma cobrança FALHADA (mês retentável); a pendência sintética deveria continuar aparecendo ao lado dela, não desaparecer")
 	}
-	if !achouEst2 {
+	if !presentes["ESTVINC2"] {
 		t.Fatal("ESTVINC2/setembro nunca teve nenhuma cobrança; deveria continuar em pendências após o filtro")
+	}
+	if presentes["ESTVINC3"] {
+		t.Fatal("BUG: ESTVINC3/setembro tem uma cobrança ABERTA (aguardando_pagamento); a pendência sintética duplicada não deveria aparecer enquanto essa tentativa está em curso")
 	}
 }
 
@@ -152,14 +164,16 @@ func TestIntegrationListarCobrancasHandlerFluxoUnificado(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Total esperado para setembro: 3 pendências sintéticas (FLX01-03) +
-	// 1 cobrança real falhada (FLXFL) = 4. ESTFLXPG (pago) não entra em
+	// Total esperado para setembro: 4 pendências sintéticas (FLX01-03 +
+	// FLXFL — desde a tarefa 73, uma cobrança falhada NÃO esconde mais a
+	// pendência sintética do mesmo mês, porque o mês continua retentável)
+	// + 1 cobrança real falhada (FLXFL) = 5. ESTFLXPG (pago) não entra em
 	// nenhuma das duas fontes.
-	if res.Total != 4 {
-		t.Fatalf("esperava total=4 (3 pendências + 1 cobrança falhada), obteve %d: %#v", res.Total, res.Pagamentos)
+	if res.Total != 5 {
+		t.Fatalf("esperava total=5 (4 pendências + 1 cobrança falhada), obteve %d: %#v", res.Total, res.Pagamentos)
 	}
-	if len(res.Pagamentos) != 4 {
-		t.Fatalf("esperava 4 itens na página, obteve %d", len(res.Pagamentos))
+	if len(res.Pagamentos) != 5 {
+		t.Fatalf("esperava 5 itens na página, obteve %d", len(res.Pagamentos))
 	}
 
 	var pendentesSinteticas, cobrancasReais int
@@ -189,8 +203,8 @@ func TestIntegrationListarCobrancasHandlerFluxoUnificado(t *testing.T) {
 			}
 		}
 	}
-	if pendentesSinteticas != 3 {
-		t.Fatalf("esperava 3 pendências sintéticas, obteve %d", pendentesSinteticas)
+	if pendentesSinteticas != 4 {
+		t.Fatalf("esperava 4 pendências sintéticas (FLX01-03 + FLXFL), obteve %d", pendentesSinteticas)
 	}
 	if cobrancasReais != 1 {
 		t.Fatalf("esperava 1 cobrança real, obteve %d", cobrancasReais)
@@ -203,12 +217,12 @@ func TestIntegrationListarCobrancasHandlerFluxoUnificado(t *testing.T) {
 	}
 
 	// Ordem: pendências primeiro, cobranças reais depois.
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 4; i++ {
 		if res.Pagamentos[i].Status != EstadoPendente {
 			t.Fatalf("item %d deveria ser pendência (pendências vêm primeiro)", i)
 		}
 	}
-	if res.Pagamentos[3].Status == EstadoPendente {
-		t.Fatal("item 3 deveria ser a cobrança real (por último)")
+	if res.Pagamentos[4].Status == EstadoPendente {
+		t.Fatal("item 4 deveria ser a cobrança real (por último)")
 	}
 }
