@@ -220,13 +220,14 @@ type CobrancaResumo struct {
 	// automaticamente ao final de ListCobrancas/ListCobrancasEstudante,
 	// para Origem == "mensalidade" com Status terminal de falha
 	// (Failed/Cancelled/Expired/falhada/cancelada — nunca para Success nem
-	// para aguardando_pagamento, que já é auto-explicativo). Existe porque
-	// FiltrarPendenciasComCobrancaRealVinculada (tarefa 64) remove de
-	// propósito a pendência sintética duplicada do mesmo mês da listagem
-	// unificada — sem este campo, uma cobrança Failed não informava, por
-	// si só, se a dívida daquele mês continuava em aberto (relatado por
-	// Fredy: a academia via "Failed" sem nenhum sinal de que o estudante
-	// ainda devia).
+	// para aguardando_pagamento, que já é auto-explicativo). Desde a
+	// tarefa 73, a pendência sintética do mesmo mês também volta a
+	// aparecer como item separado na listagem unificada (só cobranças "em
+	// aberto" — aguardando_pagamento — continuam escondendo-a; ver
+	// mesesComCobrancaRealVinculada), então este campo hoje é redundante
+	// com aquele item na maioria dos casos — mantido por não quebrar
+	// contrato de API e por continuar útil quando o chamador não pediu a
+	// pendência sem cobrança (DeveIncluirPendenciasSemCobranca == false).
 	MensalidadesEmAberto []MensalidadeSelecaoMes `json:"mensalidades_em_aberto,omitempty"`
 	// MetodoPagamento reflete "GPO_QR" (não apenas "GPO") quando a cobrança
 	// tem qr_code_type no payload — CreateGPOQRCode grava payment_method
