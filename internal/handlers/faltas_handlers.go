@@ -18,20 +18,31 @@ import (
 	"spuri/internal/utils"
 )
 
-func rejeitarCamposLegadosSumarioFaltas(c *gin.Context, camposExtras ...string) bool {
+func campoPresenteNoPayload(c *gin.Context, campo string) (bool, error) {
+	body, err := c.GetRawData()
+	if err != nil {
+		return false, fmt.Errorf("payload inválido")
+	}
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return false, nil
+	}
+	_, ok := raw[campo]
+	return ok, nil
+}
+func rejeitarCamposImutaveisFalta(c *gin.Context, campos ...string) bool {
 	body, err := c.GetRawData()
 	if err != nil {
 		utils.RespondWithValidationError(c, fmt.Errorf("payload inválido"))
 		return true
 	}
 	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
-
 	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(body, &raw); err != nil {
+	if json.Unmarshal(body, &raw) != nil {
 		return false
 	}
-	camposNaoSuportados := append([]string{"sumario_id", "sumario_titulo"}, camposExtras...)
-	for _, campo := range camposNaoSuportados {
+	for _, campo := range campos {
 		if _, ok := raw[campo]; ok {
 			utils.RespondWithValidationError(c, fmt.Errorf("campo não suportado em falta: %s", campo))
 			return true
@@ -45,9 +56,6 @@ func rejeitarCamposLegadosSumarioFaltas(c *gin.Context, camposExtras ...string) 
 // ============================================================================
 
 func RegistrarFaltas(c *gin.Context) {
-	if rejeitarCamposLegadosSumarioFaltas(c) {
-		return
-	}
 	userID, _ := middleware.GetUserID(c)
 
 	var req struct {
@@ -57,6 +65,7 @@ func RegistrarFaltas(c *gin.Context) {
 		MateriaDisciplinarID string     `json:"materia_disciplinar_id" binding:"required"`
 		Quantidade           int        `json:"quantidade"             binding:"required,min=1"`
 		Observacao           *string    `json:"observacao"`
+		SumarioID            *uuid.UUID `json:"sumario_id"`
 	}
 
 	if err := decodeStrictJSON(c, &req); err != nil {
@@ -149,6 +158,24 @@ func RegistrarFaltas(c *gin.Context) {
 		return
 	}
 
+	var sumarioTitulo *string
+	if req.SumarioID != nil {
+		sumario, err := getSumariosProjection(c).GetByID(*req.SumarioID)
+		if err != nil || sumario == nil {
+			utils.RespondWithNotFoundError(c, "sumario")
+			return
+		}
+		if sumario.CodigoAcademia != academiaDTO.CodigoAcademia {
+			utils.RespondWithForbiddenError(c, "sumário não pertence a esta academia")
+			return
+		}
+		if sumario.MateriaID != materiaID.String() || sumario.Periodo != req.Periodo || sumario.AnoAcademico != anoAcademico {
+			utils.RespondWithValidationError(c, fmt.Errorf("sumário incompatível com a falta"))
+			return
+		}
+		sumarioTitulo = &sumario.SumarioTitulo
+	}
+
 	repository := getRepository(c)
 	estudanteAgg, err := repository.Load(estudanteDTO.ID, "Estudante")
 	if err != nil {
@@ -173,6 +200,7 @@ func RegistrarFaltas(c *gin.Context) {
 		userID,
 		periodosValidos,
 		aggregates.MaxQuantidadeFaltasPadrao,
+		req.SumarioID, sumarioTitulo,
 	)
 	if err != nil {
 		utils.RespondWithValidationError(c, err)
@@ -204,7 +232,7 @@ func RegistrarFaltas(c *gin.Context) {
 }
 
 func CorrigirFalta(c *gin.Context) {
-	if rejeitarCamposLegadosSumarioFaltas(c, "periodo") {
+	if rejeitarCamposImutaveisFalta(c, "periodo") {
 		return
 	}
 	userID, _ := middleware.GetUserID(c)
@@ -214,12 +242,22 @@ func CorrigirFalta(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Quantidade int     `json:"quantidade" binding:"required,min=1"`
-		Observacao *string `json:"observacao"`
-		Motivo     string  `json:"motivo" binding:"required"`
+		Quantidade int        `json:"quantidade" binding:"required,min=1"`
+		Observacao *string    `json:"observacao"`
+		Motivo     string     `json:"motivo" binding:"required"`
+		SumarioID  *uuid.UUID `json:"sumario_id"`
 	}
 	if err := decodeStrictJSON(c, &req); err != nil {
 		utils.RespondWithValidationError(c, err)
+		return
+	}
+	sumarioIDPresente, err := campoPresenteNoPayload(c, "sumario_id")
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if sumarioIDPresente && req.SumarioID == nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("sumario_id não pode ser definido como null; use o endpoint de desvínculo"))
 		return
 	}
 	if req.Quantidade > 100 || strings.TrimSpace(req.Motivo) == "" {
@@ -264,7 +302,20 @@ func CorrigirFalta(c *gin.Context) {
 		utils.RespondWithInternalError(c, err)
 		return
 	}
-	if err := estudante.CorrigirFalta(faltaID, academia.CodigoAcademia, falta.AnoLectivo, falta.Periodo, falta.Data.Time, materiaID, req.Quantidade, req.Observacao, req.Motivo, userID, aggregates.MaxQuantidadeFaltasPadrao); err != nil {
+	var novoSumarioTitulo *string
+	if sumarioIDPresente {
+		sumario, err := getSumariosProjection(c).GetByID(*req.SumarioID)
+		if err != nil || sumario == nil {
+			utils.RespondWithNotFoundError(c, "sumario")
+			return
+		}
+		if sumario.CodigoAcademia != academia.CodigoAcademia || sumario.MateriaID != falta.MateriaDisciplinarID || sumario.Periodo != falta.Periodo || sumario.AnoAcademico != falta.AnoAcademico {
+			utils.RespondWithValidationError(c, fmt.Errorf("sumário incompatível com a falta"))
+			return
+		}
+		novoSumarioTitulo = &sumario.SumarioTitulo
+	}
+	if err := estudante.CorrigirFalta(faltaID, academia.CodigoAcademia, falta.AnoLectivo, falta.Periodo, falta.Data.Time, materiaID, req.Quantidade, req.Observacao, req.Motivo, userID, aggregates.MaxQuantidadeFaltasPadrao, sumarioIDPresente, req.SumarioID, novoSumarioTitulo); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
@@ -351,4 +402,60 @@ func GetFaltasEstudante(c *gin.Context) {
 		"faltas":           faltasFiltradas,
 		"total":            len(faltasFiltradas),
 	})
+}
+
+func DesvincularSumarioFalta(c *gin.Context) {
+	userID, ok := middleware.GetUserID(c)
+	if !ok {
+		utils.RespondWithUnauthorizedError(c)
+		return
+	}
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("id inválido"))
+		return
+	}
+	f, err := getFaltasProjection(c).GetByID(id.String())
+	if err != nil || f == nil {
+		utils.RespondWithNotFoundError(c, "falta")
+		return
+	}
+	a, err := getAcademiaProjection(c).GetByID(userID)
+	if err != nil || a == nil || f.CodigoAcademia != a.CodigoAcademia {
+		utils.RespondWithForbiddenError(c, "falta não pertence a esta academia")
+		return
+	}
+	if f.SumarioID == nil {
+		c.JSON(http.StatusOK, gin.H{"message": "falta já não possui sumário vinculado", "id": id})
+		return
+	}
+	student, err := getEstudanteProjection(c).GetByCodigo(f.CodigoEstudante)
+	if err != nil || student == nil {
+		utils.RespondWithNotFoundError(c, "estudante")
+		return
+	}
+	agg, err := getRepository(c).Load(student.ID, "Estudante")
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	e, ok := agg.(*aggregates.Estudante)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
+	mid, err := uuid.Parse(f.MateriaDisciplinarID)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if err := e.CorrigirFalta(id, a.CodigoAcademia, f.AnoLectivo, f.Periodo, f.Data.Time, mid, f.Quantidade, f.Observacao, "Sumário desvinculado via endpoint dedicado", userID, aggregates.MaxQuantidadeFaltasPadrao, true, nil, nil); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if err := getRepository(c).SaveWithAudit(e, db.AuditContext{UserID: userID.String(), UserType: "academia", IP: c.ClientIP()}); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "sumário desvinculado com sucesso", "id": id})
 }

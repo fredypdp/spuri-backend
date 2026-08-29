@@ -152,6 +152,7 @@ func initProjections() error {
 	projManager.RegisterProjection("academias", projections.NewAcademiaProjection(dbClient))
 	projManager.RegisterProjection("cursos", projections.NewCursosProjection(dbClient))
 	projManager.RegisterProjection("materias", projections.NewMateriasProjection(dbClient))
+	projManager.RegisterProjection("sumarios", projections.NewSumariosProjection(dbClient))
 	projManager.RegisterProjection("categorias_nota", projections.NewCategoriasNotaProjection(dbClient))
 
 	// ── Tier 2 — dependem de academias/cursos ────────────────────────────
@@ -442,6 +443,8 @@ func setupRouter() *gin.Engine {
 	academiaRead.Use(middleware.ValidarStatusAcademia())
 	{
 		academiaRead.GET("/materias", handlers.ListarMaterias)
+		academiaRead.GET("/sumarios", handlers.ListarSumarios)
+		academiaRead.GET("/sumario/:id", handlers.GetSumario)
 		academiaRead.GET("/materia/:id", handlers.GetMateria)
 		academiaRead.GET("/turmas", handlers.ListarTurmasAcademia)
 		academiaRead.GET("/turma/:codigo", handlers.GetTurma)
@@ -509,6 +512,10 @@ func setupRouter() *gin.Engine {
 
 		// ── Matérias ──────────────────────────────────────────────────────
 		academia.POST("/materia", handlers.CriarMateria)
+		academia.POST("/sumario", handlers.CriarSumario)
+		academia.PUT("/sumario/:id/dados", handlers.AtualizarDadosSumario)
+		academia.DELETE("/sumario/:id", handlers.DeletarSumario)
+		academia.PUT("/faltas-aluno/:id/desvincular-sumario", handlers.DesvincularSumarioFalta)
 		academia.PUT("/materia/:id/ativar", handlers.AtivarMateria)
 		academia.PUT("/materia/:id/desativar", handlers.DesativarMateria)
 		academia.PUT("/materia/:id/dados", handlers.AtualizarDadosMateria)
