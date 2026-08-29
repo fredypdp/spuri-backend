@@ -91,6 +91,10 @@ func getMateriasProjection(c *gin.Context) *projections.MateriasProjection {
 	return projections.NewMateriasProjection(getDbClient(c))
 }
 
+func getSumariosProjection(c *gin.Context) *projections.SumariosProjection {
+	return projections.NewSumariosProjection(getDbClient(c))
+}
+
 func getNotasProjection(c *gin.Context) *projections.NotasProjection {
 	return projections.NewNotasProjection(getDbClient(c))
 }

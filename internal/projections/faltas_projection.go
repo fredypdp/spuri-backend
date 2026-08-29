@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"spuri/internal/db"
 	"spuri/internal/utils"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -134,17 +135,19 @@ func (p *FaltasProjection) handleFaltasRegistradas(event db.Event) error {
 
 func (p *FaltasProjection) handleFaltasRegistradasTx(tx *sql.Tx, event db.Event) error {
 	var payload struct {
-		CodigoEstudante      string    `json:"CodigoEstudante"`
-		CodigoAcademia       string    `json:"CodigoAcademia"`
-		AnoLectivo           string    `json:"AnoLectivo"`
-		AnoAcademico         string    `json:"AnoAcademico"`
-		Periodo              string    `json:"Periodo"`
-		Data                 time.Time `json:"Data"`
-		MateriaDisciplinarID string    `json:"MateriaDisciplinarID"`
-		Quantidade           int       `json:"Quantidade"`
-		Observacao           *string   `json:"Observacao"`
-		RegisteredAt         time.Time `json:"RegisteredAt"`
-		RegistradoPor        string    `json:"RegistradoPor"`
+		CodigoEstudante      string     `json:"CodigoEstudante"`
+		CodigoAcademia       string     `json:"CodigoAcademia"`
+		AnoLectivo           string     `json:"AnoLectivo"`
+		AnoAcademico         string     `json:"AnoAcademico"`
+		Periodo              string     `json:"Periodo"`
+		Data                 time.Time  `json:"Data"`
+		MateriaDisciplinarID string     `json:"MateriaDisciplinarID"`
+		Quantidade           int        `json:"Quantidade"`
+		Observacao           *string    `json:"Observacao"`
+		RegisteredAt         time.Time  `json:"RegisteredAt"`
+		RegistradoPor        string     `json:"RegistradoPor"`
+		SumarioID            *uuid.UUID `json:"SumarioID"`
+		SumarioTitulo        *string    `json:"SumarioTitulo"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("parse error FaltasRegistradas: %w", err)
@@ -155,13 +158,13 @@ func (p *FaltasProjection) handleFaltasRegistradasTx(tx *sql.Tx, event db.Event)
 		INSERT INTO projection_faltas (
 			id, codigo_estudante, codigo_academia, ano_lectivo, ano_academico,
 			periodo, data, materia_disciplinar_id, quantidade, observacao,
-			registered_at, registrado_por, event_id, version
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+			registered_at, registrado_por, sumario_id, sumario_titulo, event_id, version
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 		ON CONFLICT ON CONSTRAINT uq_falta_unica DO NOTHING
 	`,
 		faltaID, payload.CodigoEstudante, payload.CodigoAcademia, payload.AnoLectivo, payload.AnoAcademico,
 		payload.Periodo, payload.Data.UTC(), payload.MateriaDisciplinarID, payload.Quantidade, payload.Observacao,
-		payload.RegisteredAt.UTC(), payload.RegistradoPor, event.EventID, event.EventVersion,
+		payload.RegisteredAt.UTC(), payload.RegistradoPor, payload.SumarioID, payload.SumarioTitulo, event.EventID, event.EventVersion,
 	)
 	if err != nil {
 		return fmt.Errorf("handleFaltasRegistradasTx: exec error: %w", err)
@@ -171,17 +174,28 @@ func (p *FaltasProjection) handleFaltasRegistradasTx(tx *sql.Tx, event db.Event)
 
 func (p *FaltasProjection) handleFaltaCorrigida(event db.Event) error {
 	var payload struct {
-		FaltaAnteriorID string    `json:"FaltaAnteriorID"`
-		NovaQuantidade  int       `json:"NovaQuantidade"`
-		NovaObservacao  *string   `json:"NovaObservacao"`
-		Motivo          string    `json:"Motivo"`
-		CorrigidoPor    string    `json:"CorrigidoPor"`
-		CorrigidoEm     time.Time `json:"CorrigidoEm"`
+		FaltaAnteriorID   string     `json:"FaltaAnteriorID"`
+		NovaQuantidade    int        `json:"NovaQuantidade"`
+		NovaObservacao    *string    `json:"NovaObservacao"`
+		Motivo            string     `json:"Motivo"`
+		CorrigidoPor      string     `json:"CorrigidoPor"`
+		CorrigidoEm       time.Time  `json:"CorrigidoEm"`
+		SumarioAlterado   bool       `json:"SumarioAlterado"`
+		NovoSumarioID     *uuid.UUID `json:"NovoSumarioID"`
+		NovoSumarioTitulo *string    `json:"NovoSumarioTitulo"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleFaltaCorrigida: parse error: %w", err)
 	}
-	result, err := p.client.DB().Exec(`UPDATE projection_faltas SET quantidade=$2, observacao=$3, valor_anterior=quantidade, motivo_correcao=$4, corrigido_por=$5, corrigido_em=$6, event_id=$7, version=$8 WHERE id=$1`, payload.FaltaAnteriorID, payload.NovaQuantidade, payload.NovaObservacao, payload.Motivo, payload.CorrigidoPor, payload.CorrigidoEm, event.EventID, event.EventVersion)
+	sets := []string{"quantidade=$2", "observacao=$3", "valor_anterior=quantidade", "motivo_correcao=$4", "corrigido_por=$5", "corrigido_em=$6", "event_id=$7", "version=$8"}
+	args := []interface{}{payload.FaltaAnteriorID, payload.NovaQuantidade, payload.NovaObservacao, payload.Motivo, payload.CorrigidoPor, payload.CorrigidoEm, event.EventID, event.EventVersion}
+	if payload.SumarioAlterado {
+		args = append(args, payload.NovoSumarioID)
+		sets = append(sets, fmt.Sprintf("sumario_id=$%d", len(args)))
+		args = append(args, payload.NovoSumarioTitulo)
+		sets = append(sets, fmt.Sprintf("sumario_titulo=$%d", len(args)))
+	}
+	result, err := p.client.DB().Exec("UPDATE projection_faltas SET "+strings.Join(sets, ", ")+" WHERE id=$1", args...)
 	if err != nil {
 		return fmt.Errorf("handleFaltaCorrigida: exec error: %w", err)
 	}
@@ -214,13 +228,15 @@ type FaltaDTO struct {
 	CorrigidoEm          *time.Time `json:"corrigido_em,omitempty"`
 	RegisteredAt         string     `json:"registered_at"`
 	EventID              string     `json:"event_id"`
+	SumarioID            *string    `json:"sumario_id,omitempty"`
+	SumarioTitulo        *string    `json:"sumario_titulo,omitempty"`
 	Version              int        `json:"version"`
 }
 
 func (p *FaltasProjection) GetByID(id string) (*FaltaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
-			COALESCE(f.periodo, ''), f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
+			COALESCE(f.periodo, ''), f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em, f.sumario_id, f.sumario_titulo,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
@@ -240,7 +256,7 @@ func (p *FaltasProjection) GetByID(id string) (*FaltaDTO, error) {
 func (p *FaltasProjection) GetByEstudante(codigoEstudante string) ([]FaltaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
-			COALESCE(f.periodo, ''), f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
+			COALESCE(f.periodo, ''), f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em, f.sumario_id, f.sumario_titulo,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
@@ -257,7 +273,7 @@ func (p *FaltasProjection) GetByEstudante(codigoEstudante string) ([]FaltaDTO, e
 func (p *FaltasProjection) GetByAcademia(codigoAcademia string) ([]FaltaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
-			COALESCE(f.periodo, ''), f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
+			COALESCE(f.periodo, ''), f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em, f.sumario_id, f.sumario_titulo,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
@@ -274,7 +290,7 @@ func (p *FaltasProjection) GetByAcademia(codigoAcademia string) ([]FaltaDTO, err
 func (p *FaltasProjection) GetByPeriodo(codigoEstudante, anoLectivo string, dataInicio, dataFim time.Time) ([]FaltaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
-			COALESCE(f.periodo, ''), f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
+			COALESCE(f.periodo, ''), f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em, f.sumario_id, f.sumario_titulo,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
@@ -293,7 +309,7 @@ func (p *FaltasProjection) GetByPeriodo(codigoEstudante, anoLectivo string, data
 func (p *FaltasProjection) GetAll() ([]FaltaDTO, error) {
 	rows, err := p.client.DB().Query(`
 		SELECT f.id, f.codigo_estudante, f.codigo_academia, f.ano_lectivo, f.ano_academico,
-			COALESCE(f.periodo, ''), f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em,
+			COALESCE(f.periodo, ''), f.data, f.materia_disciplinar_id, m.nome, f.quantidade, f.observacao, f.registrado_por, f.valor_anterior, f.motivo_correcao, f.corrigido_por, f.corrigido_em, f.sumario_id, f.sumario_titulo,
 			f.registered_at, f.event_id, f.version
 		FROM projection_faltas f
 		LEFT JOIN projection_materias m ON m.id = f.materia_disciplinar_id::uuid
@@ -312,7 +328,7 @@ func scanFaltas(rows *sql.Rows) ([]FaltaDTO, error) {
 		var f FaltaDTO
 		if err := rows.Scan(
 			&f.ID, &f.CodigoEstudante, &f.CodigoAcademia, &f.AnoLectivo, &f.AnoAcademico,
-			&f.Periodo, &f.Data, &f.MateriaDisciplinarID, &f.MateriaNome, &f.Quantidade, &f.Observacao, &f.RegistradoPor, &f.ValorAnterior, &f.MotivoCorrecao, &f.CorrigidoPor, &f.CorrigidoEm,
+			&f.Periodo, &f.Data, &f.MateriaDisciplinarID, &f.MateriaNome, &f.Quantidade, &f.Observacao, &f.RegistradoPor, &f.ValorAnterior, &f.MotivoCorrecao, &f.CorrigidoPor, &f.CorrigidoEm, &f.SumarioID, &f.SumarioTitulo,
 			&f.RegisteredAt, &f.EventID, &f.Version,
 		); err != nil {
 			continue

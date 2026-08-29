@@ -30,6 +30,8 @@ type FaltasRegistradasEvent struct {
 	Observacao           *string
 	RegisteredAt         time.Time
 	RegistradoPor        uuid.UUID
+	SumarioID            *uuid.UUID `json:"sumario_id,omitempty"`
+	SumarioTitulo        *string    `json:"sumario_titulo,omitempty"`
 }
 
 func (e *FaltasRegistradasEvent) GetPayload() interface{} { return e }
@@ -48,6 +50,9 @@ type FaltaCorrigidaEvent struct {
 	Motivo               string
 	CorrigidoPor         uuid.UUID
 	CorrigidoEm          time.Time
+	SumarioAlterado      bool       `json:"sumario_alterado,omitempty"`
+	NovoSumarioID        *uuid.UUID `json:"novo_sumario_id,omitempty"`
+	NovoSumarioTitulo    *string    `json:"novo_sumario_titulo,omitempty"`
 }
 
 func (e *FaltaCorrigidaEvent) GetPayload() interface{} { return e }
@@ -82,7 +87,16 @@ func (e *Estudante) RegistrarFalta(
 	registradoPor uuid.UUID,
 	periodosValidos []string,
 	maxQuantidade int,
+	sumarioArgs ...interface{},
 ) error {
+	var sumarioID *uuid.UUID
+	var sumarioTitulo *string
+	if len(sumarioArgs) > 0 {
+		sumarioID, _ = sumarioArgs[0].(*uuid.UUID)
+	}
+	if len(sumarioArgs) > 1 {
+		sumarioTitulo, _ = sumarioArgs[1].(*string)
+	}
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
 	}
@@ -113,13 +127,26 @@ func (e *Estudante) RegistrarFalta(
 		Observacao:           observacao,
 		RegisteredAt:         time.Now(),
 		RegistradoPor:        registradoPor,
+		SumarioID:            sumarioID, SumarioTitulo: sumarioTitulo,
 	}
 
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
 
-func (e *Estudante) CorrigirFalta(faltaAnteriorID uuid.UUID, codigoAcademia, anoLectivo, periodo string, data time.Time, materiaID uuid.UUID, novaQuantidade int, novaObservacao *string, motivo string, corrigidoPor uuid.UUID, maxQuantidade int) error {
+func (e *Estudante) CorrigirFalta(faltaAnteriorID uuid.UUID, codigoAcademia, anoLectivo, periodo string, data time.Time, materiaID uuid.UUID, novaQuantidade int, novaObservacao *string, motivo string, corrigidoPor uuid.UUID, maxQuantidade int, sumarioArgs ...interface{}) error {
+	var sumarioAlterado bool
+	var novoSumarioID *uuid.UUID
+	var novoSumarioTitulo *string
+	if len(sumarioArgs) > 0 {
+		sumarioAlterado, _ = sumarioArgs[0].(bool)
+	}
+	if len(sumarioArgs) > 1 {
+		novoSumarioID, _ = sumarioArgs[1].(*uuid.UUID)
+	}
+	if len(sumarioArgs) > 2 {
+		novoSumarioTitulo, _ = sumarioArgs[2].(*string)
+	}
 	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademia {
 		return fmt.Errorf("estudante não pertence a esta academia")
 	}
@@ -148,7 +175,7 @@ func (e *Estudante) CorrigirFalta(faltaAnteriorID uuid.UUID, codigoAcademia, ano
 	if !encontrada {
 		return fmt.Errorf("falta original não encontrada para correção")
 	}
-	event := &FaltaCorrigidaEvent{BaseEvent: BaseEvent{EventType: "FaltaCorrigida", AggregateID: e.ID}, FaltaAnteriorID: faltaAnteriorID, CodigoAcademia: codigoAcademia, AnoLectivo: anoLectivo, Periodo: periodo, Data: data, MateriaDisciplinarID: materiaID, NovaQuantidade: novaQuantidade, NovaObservacao: novaObservacao, Motivo: strings.TrimSpace(motivo), CorrigidoPor: corrigidoPor, CorrigidoEm: time.Now()}
+	event := &FaltaCorrigidaEvent{BaseEvent: BaseEvent{EventType: "FaltaCorrigida", AggregateID: e.ID}, FaltaAnteriorID: faltaAnteriorID, CodigoAcademia: codigoAcademia, AnoLectivo: anoLectivo, Periodo: periodo, Data: data, MateriaDisciplinarID: materiaID, NovaQuantidade: novaQuantidade, NovaObservacao: novaObservacao, Motivo: strings.TrimSpace(motivo), CorrigidoPor: corrigidoPor, CorrigidoEm: time.Now(), SumarioAlterado: sumarioAlterado, NovoSumarioID: novoSumarioID, NovoSumarioTitulo: novoSumarioTitulo}
 	e.RaiseEvent(event)
 	return e.Apply(event)
 }
