@@ -54,6 +54,11 @@ type Estudante struct {
 
 	// Mapa de faltas registradas por chave composta
 	FaltasRegistradasPorChave map[string]bool
+
+	// Tarefa 73: campos de auditoria de deleção lógica (event sourcing),
+	// espelham DeletadoPor/DeletadoEm de Academia (migration 110).
+	DeletedAt   time.Time
+	DeletadoPor uuid.UUID
 }
 
 func NewEstudante() *Estudante {
@@ -124,6 +129,8 @@ func (e *Estudante) Apply(event DomainEvent) error {
 		return e.applySenhaAlterada(event)
 	case "EmailVerificadoEstudante":
 		return e.applyEmailVerificado(event)
+	case "EstudanteDeletado":
+		return e.applyEstudanteDeletado(event)
 	default:
 		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
 	}
@@ -252,6 +259,18 @@ type EstudanteDesvinculadoDaAcademiaEvent struct {
 
 func (e *EstudanteDesvinculadoDaAcademiaEvent) GetPayload() interface{} { return e }
 func (e *EstudanteDesvinculadoDaAcademiaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+// EstudanteDeletadoEvent — Tarefa 73. Autodeleção lógica e auditável do
+// estudante. DeletadoPor é sempre igual ao AggregateID (self-service).
+type EstudanteDeletadoEvent struct {
+	BaseEvent
+	Motivo      string
+	DeletadoPor uuid.UUID
+	DeletedAt   time.Time
+}
+
+func (e *EstudanteDeletadoEvent) GetPayload() interface{} { return e }
+func (e *EstudanteDeletadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 type EstudanteReintegradoEvent struct {
 	BaseEvent
@@ -898,6 +917,45 @@ func (e *Estudante) AlterarCurso(cursoID uuid.UUID, tipoEnsino string) error {
 	return e.Apply(event)
 }
 
+// Deletar executa a deleção lógica (soft delete) e auditável do estudante.
+//
+// Regra de negócio (Tarefa 73): autodeleção — só o próprio estudante pode
+// deletar sua conta (validação de identidade é responsabilidade do handler,
+// via middleware.RequireEstudante + GetUserID, igual a qualquer outra rota em
+// /estudante/*). Só é permitida quando o estudante NÃO está vinculado a
+// nenhuma academia no momento.
+//
+// IMPORTANTE: "vinculado" aqui significa e.Status IN ('ativo',
+// 'pendente_documentos') — NUNCA e.CodigoAcademia == nil. CodigoAcademia
+// permanece preenchido para sempre após o primeiro vínculo (ver
+// applyEstudanteDesvinculadoDaAcademia, que só muda Status), então checar
+// CodigoAcademia aqui bloquearia a autodeleção de qualquer estudante que já
+// teve uma academia, mesmo depois de devidamente desvinculado.
+//
+// O registro nunca é fisicamente apagado — apenas marcado como 'deletado'.
+// Notas, faltas e avaliações já lançadas permanecem intactas e consultáveis
+// (nenhuma FK em cascata as remove).
+func (e *Estudante) Deletar(motivo string, deletadoPor uuid.UUID) error {
+	if e.Status == "deletado" {
+		return fmt.Errorf("estudante já está deletado")
+	}
+	if e.Status != "inativo" {
+		return fmt.Errorf("estudante está vinculado a uma academia — desvincule-se antes de deletar a conta")
+	}
+	if motivo == "" {
+		return fmt.Errorf("motivo da deleção é obrigatório")
+	}
+
+	event := &EstudanteDeletadoEvent{
+		BaseEvent:   BaseEvent{EventType: "EstudanteDeletado", AggregateID: e.ID},
+		Motivo:      motivo,
+		DeletadoPor: deletadoPor,
+		DeletedAt:   time.Now(),
+	}
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
 // ============================================================================
 // Apply handlers
 // ============================================================================
@@ -1048,6 +1106,21 @@ func (e *Estudante) applySuperiorInativo(DomainEvent) error { e.StatusSuperior =
 
 func (e *Estudante) applyEstudanteDesvinculadoDaAcademia(DomainEvent) error {
 	e.Status = "inativo"
+	return nil
+}
+
+func (e *Estudante) applyEstudanteDeletado(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyEstudanteDeletado: marshal error: %w", err)
+	}
+	var ev EstudanteDeletadoEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyEstudanteDeletado: unmarshal error: %w", err)
+	}
+	e.Status = "deletado"
+	e.DeletadoPor = ev.DeletadoPor
+	e.DeletedAt = ev.DeletedAt
 	return nil
 }
 

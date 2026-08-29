@@ -623,6 +623,97 @@ func DesativarAdmin(c *gin.Context) {
 	})
 }
 
+// DeletarAdmin executa a deleção lógica e auditável de um administrador.
+//
+// Tarefa 73 — regra de negócio: a hierarquia é validada por
+// executor.ValidatePermission(targetAdmin.Role), o MESMO método já usado por
+// AtivarAdmin/DesativarAdmin (adminHierarchy: fpp=3, adm=2, gerente=1; nega
+// quando myLevel <= targetLevel). Isso garante, na prática:
+//   - fpp pode deletar adm e gerente, mas não outro fpp;
+//   - adm pode deletar gerente, mas não outro adm nem fpp;
+//   - gerente não pode deletar ninguém (nenhum role tem level < 1);
+//   - nenhum cargo deleta outro usuário do MESMO cargo.
+func DeletarAdmin(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+
+	targetID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("ID de administrador inválido"))
+		return
+	}
+
+	var req struct {
+		Motivo string `json:"motivo" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("motivo é obrigatório"))
+		return
+	}
+
+	if targetID == userID {
+		utils.RespondWithValidationError(c, fmt.Errorf("você não pode deletar sua própria conta"))
+		return
+	}
+
+	repository := getRepository(c)
+	targetAdminAgg, err := repository.Load(targetID, "Admin")
+	if err != nil {
+		utils.RespondWithNotFoundError(c, "administrador")
+		return
+	}
+
+	targetAdmin, ok := targetAdminAgg.(*aggregates.Admin)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado para target admin"))
+		return
+	}
+
+	executorAgg, err := repository.Load(userID, "Admin")
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	executor, ok := executorAgg.(*aggregates.Admin)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado para executor"))
+		return
+	}
+
+	if err := executor.ValidatePermission(targetAdmin.Role); err != nil {
+		utils.RespondWithForbiddenError(c, fmt.Sprintf("permissão negada para deletar admin com role '%s': %s", targetAdmin.Role, err.Error()))
+		return
+	}
+
+	if err := targetAdmin.Deletar(req.Motivo, userID); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "admin",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(targetAdmin, audit); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	registrarAcaoAdmin(c, userID, "admin_deletado", map[string]interface{}{
+		"target_admin_id": targetID.String(),
+		"target_email":    targetAdmin.Email,
+		"target_role":     targetAdmin.Role,
+		"motivo":          req.Motivo,
+	})
+
+	log.Printf("Admin deletado: %s (role: %s) - Motivo: %s (por: %s)", targetAdmin.Email, targetAdmin.Role, req.Motivo, userID)
+	c.JSON(http.StatusOK, gin.H{
+		"message": "administrador deletado com sucesso",
+		"email":   targetAdmin.Email,
+	})
+}
+
 func AtualizarRoleAdmin(c *gin.Context) {
 	userID, _ := middleware.GetUserID(c)
 

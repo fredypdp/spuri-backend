@@ -237,6 +237,13 @@ func (a *Academia) Ativar() error {
 // Etapa 4 deve migrar os handlers de academia para chamar este método
 // em vez de Ativar().
 func (a *Academia) AtivarComAutor(ativadoPor uuid.UUID) error {
+	// Tarefa 73 (correção de bug pré-existente): uma academia deletada é um
+	// estado terminal — sem esta guarda, este método "ressuscitava" uma
+	// academia deletada de volta para 'ativo', silenciosamente revertendo a
+	// deleção auditada. Ver documento da tarefa para detalhes.
+	if a.Status == "deletado" {
+		return fmt.Errorf("academia foi deletada e não pode ser reativada")
+	}
 	if a.Status == "ativo" {
 		return fmt.Errorf("academia já está ativa")
 	}
@@ -255,6 +262,11 @@ func (a *Academia) AtivarComAutor(ativadoPor uuid.UUID) error {
 // Desativar registra o evento de desativação.
 // FIX C9: DesativadoPor adicionado ao payload do evento para auditoria forense.
 func (a *Academia) Desativar(motivo string, desativadoPor uuid.UUID) error {
+	// Tarefa 73 (correção de bug pré-existente): mesma guarda de estado
+	// terminal aplicada em AtivarComAutor acima.
+	if a.Status == "deletado" {
+		return fmt.Errorf("academia foi deletada e não pode ser desativada")
+	}
 	if a.Status == "inativo" {
 		return fmt.Errorf("academia já está inativa")
 	}

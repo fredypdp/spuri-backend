@@ -28,6 +28,7 @@ var validEventTypes = map[string]bool{
 	"SuperiorAbandonado":                        true,
 	"EstudanteDesvinculadoDaAcademia":           true,
 	"EstudanteReintegrado":                      true,
+	"EstudanteDeletado":                         true, // Tarefa 73
 	// ── Email Estudante ──────────────────────────────────────────────────────
 	"EmailVerificadoEstudante": true,
 	// ── Avaliação Final ───────────────────────────────────────────────────────
@@ -57,6 +58,7 @@ var validEventTypes = map[string]bool{
 	"AdminSenhaAlterada":    true,
 	"AcaoAdminRegistrada":   true,
 	"AdminRoleAtualizado":   true,
+	"AdminDeletado":         true, // Tarefa 73
 	// ── Notas e Faltas ────────────────────────────────────────────────────────
 	"NotasRegistradas":  true,
 	"FaltasRegistradas": true,

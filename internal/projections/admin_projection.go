@@ -63,6 +63,7 @@ func (p *AdminProjection) Handle(event db.Event) error {
 		"AdminRoleAtualizado":   p.handleAdminRoleAtualizado,
 		"EmailVerificado":       p.handleEmailVerificado,
 		"AdminSenhaAlterada":    p.handleAdminSenhaAlterada,
+		"AdminDeletado":         p.handleAdminDeletado,
 	}
 	if handler, ok := handlers[event.EventType]; ok {
 		return handler(event)
@@ -164,6 +165,37 @@ func (p *AdminProjection) handleStatusChange(status string) func(db.Event) error
 		`, status, event.EventVersion, event.EventID, event.AggregateID)
 		return err
 	}
+}
+
+// handleAdminDeletado — Tarefa 73. Espelha handleAcademiaDeletada, mas sem o
+// fallback histórico por chave natural (codigo_academia) daquele handler:
+// esse fallback existe lá só por causa de um bug antigo e corrigido do
+// repository.Load (FIX-REPO-03) que não se aplica a este evento novo.
+// WHERE ... AND status <> 'deletado' torna o handler seguro para reprocessar
+// (rebuild/replay) sem efeitos colaterais.
+func (p *AdminProjection) handleAdminDeletado(event db.Event) error {
+	if event.AggregateID == uuid.Nil {
+		return fmt.Errorf("handleAdminDeletado: UUID inválido no evento")
+	}
+	var payload struct {
+		Motivo      string
+		DeletadoPor uuid.UUID
+		DeletedAt   time.Time
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("handleAdminDeletado: parse error: %w", err)
+	}
+	_, err := p.client.DB().Exec(`
+		UPDATE projection_admins
+		SET status       = 'deletado',
+		    deleted_at   = $1,
+		    deletado_por = $2,
+		    updated_at   = CURRENT_TIMESTAMP,
+		    version      = $3,
+		    last_event_id = $4
+		WHERE id = $5 AND status <> 'deletado'
+	`, payload.DeletedAt, payload.DeletadoPor, event.EventVersion, event.EventID, event.AggregateID)
+	return err
 }
 
 func (p *AdminProjection) handleAcaoAdminRegistrada(event db.Event) error {
@@ -351,7 +383,7 @@ func (p *AdminProjection) GetByEmail(email string) (*AdminDTO, error) {
 	row := p.client.DB().QueryRow(`
 		SELECT id, nome, email, senha_hash, role, status, email_verificado, telefone, telefone_verificado,
 			created_by, created_at, updated_at, version, total_acoes_realizadas
-		FROM projection_admins WHERE email = $1
+		FROM projection_admins WHERE email = $1 AND status <> 'deletado'
 	`, email)
 	return scanAdmin(row)
 }
@@ -366,6 +398,7 @@ func (p *AdminProjection) GetAll() ([]AdminDTO, error) {
 		SELECT id, nome, email, senha_hash, role, status, email_verificado, telefone, telefone_verificado,
 			created_by, created_at, updated_at, version, total_acoes_realizadas
 		FROM projection_admins
+		WHERE status <> 'deletado'
 		ORDER BY created_at DESC
 	`)
 	if err != nil {

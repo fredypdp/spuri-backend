@@ -497,4 +497,9 @@ func (r *AggregateRepository) GetEventByID(eventID uuid.UUID) (*Event, error) {
 	return r.eventStore.GetEventByID(r.ctx, eventID)
 }
 
+// GetEventsByTypes — Tarefa 73/2, ver EventStore.GetEventsByTypes.
+func (r *AggregateRepository) GetEventsByTypes(eventTypes []string, limit, offset int) ([]Event, error) {
+	return r.eventStore.GetEventsByTypes(r.ctx, eventTypes, limit, offset)
+}
+
 // placeholder - wrong file, ignore
