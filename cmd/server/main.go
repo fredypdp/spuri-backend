@@ -416,6 +416,7 @@ func setupRouter() *gin.Engine {
 		estudante.POST("/solicitacoes-status/interrupcao", handlers.CriarSolicitacaoStatusAcademicoHandler("interrupcao"))
 		estudante.POST("/solicitacoes-status/desvinculacao", handlers.CriarSolicitacaoStatusAcademicoHandler("desvinculacao"))
 		estudante.POST("/solicitacoes-status/revinculacao/:codigo_academia", handlers.CriarSolicitacaoStatusAcademicoHandler("revinculacao"))
+		estudante.DELETE("/conta", handlers.DeletarContaEstudante) // Tarefa 73
 	}
 
 	// ── Rotas de leitura compartilhadas de academia ────────────────────────
@@ -560,6 +561,8 @@ func setupRouter() *gin.Engine {
 		admin.DELETE("/academia/:codigo", middleware.RequireFPP(), handlers.DeletarAcademia)
 		admin.PUT("/admin/:id/ativar", middleware.RequireAdm(), handlers.AtivarAdmin)
 		admin.PUT("/admin/:id/desativar", middleware.RequireAdm(), handlers.DesativarAdmin)
+		admin.DELETE("/admin/:id", middleware.RequireAdm(), handlers.DeletarAdmin)                  // Tarefa 73
+		admin.GET("/auditoria/delecoes", middleware.RequireAdm(), handlers.ListarAuditoriaDelecoes) // Tarefa 73/2
 		admin.GET("/admin-lista", handlers.ListarTodosAdmins)
 		admin.GET("/metrics", handlers.GetSystemMetrics)
 		admin.GET("/storage/quota", handlers.GetStorageQuota)

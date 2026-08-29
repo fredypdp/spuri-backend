@@ -44,6 +44,11 @@ type Admin struct {
 	DeactivatedAt time.Time
 	DeactivatedBy uuid.UUID
 
+	// Tarefa 73: campos de auditoria de deleção lógica (event sourcing),
+	// espelham DeletadoPor/DeletadoEm de Academia (migration 110).
+	DeletedAt   time.Time
+	DeletadoPor uuid.UUID
+
 	TotalAcoesRealizadas int
 }
 
@@ -81,6 +86,8 @@ func (a *Admin) Apply(event DomainEvent) error {
 		return a.applyAdminRoleAtualizado(event)
 	case "AdminSenhaAlterada":
 		return a.applyAdminSenhaAlterada(event)
+	case "AdminDeletado":
+		return a.applyAdminDeletado(event)
 	default:
 		return fmt.Errorf("tipo de evento desconhecido: %s", event.GetEventType())
 	}
@@ -144,6 +151,12 @@ func (a *Admin) VerificarEmail() error {
 }
 
 func (a *Admin) Ativar(adminID uuid.UUID) error {
+	// Tarefa 73: um admin deletado é um estado terminal — nunca pode ser
+	// reativado por este fluxo (mesmo gap que existia em Academia.AtivarComAutor
+	// antes da correção desta tarefa; ver documento da tarefa).
+	if a.Status == "deletado" {
+		return fmt.Errorf("administrador foi deletado e não pode ser reativado")
+	}
 	if a.Status == "ativo" {
 		return fmt.Errorf("administrador já está ativo")
 	}
@@ -159,6 +172,10 @@ func (a *Admin) Ativar(adminID uuid.UUID) error {
 }
 
 func (a *Admin) Desativar(adminID uuid.UUID, motivo string) error {
+	// Tarefa 73: estado terminal — ver comentário em Ativar acima.
+	if a.Status == "deletado" {
+		return fmt.Errorf("administrador foi deletado e não pode ser desativado")
+	}
 	if a.Status == "inativo" {
 		return fmt.Errorf("administrador já está inativo")
 	}
@@ -168,6 +185,37 @@ func (a *Admin) Desativar(adminID uuid.UUID, motivo string) error {
 		DeactivatedBy: adminID,
 		Motivo:        motivo,
 		DeactivatedAt: time.Now(),
+	}
+
+	a.RaiseEvent(event)
+	return a.Apply(event)
+}
+
+// Deletar executa a deleção lógica (soft delete) e auditável do administrador.
+//
+// Regra de negócio (Tarefa 73): a hierarquia de quem pode deletar quem NÃO é
+// validada aqui dentro — é responsabilidade do chamador invocar
+// executor.ValidatePermission(a.Role) ANTES de chamar Deletar (exatamente como
+// já é feito hoje em DesativarAdmin/AtivarAdmin). Isso mantém a mesma separação
+// de responsabilidades já usada no resto do aggregate: a "regra de quem pode"
+// vive em ValidatePermission, a "transição de estado" vive aqui.
+//
+// O registro nunca é fisicamente apagado — apenas marcado como 'deletado',
+// preservando o histórico (admin_action_log e quaisquer referências por ID
+// continuam válidas).
+func (a *Admin) Deletar(motivo string, deletadoPor uuid.UUID) error {
+	if a.Status == "deletado" {
+		return fmt.Errorf("administrador já está deletado")
+	}
+	if motivo == "" {
+		return fmt.Errorf("motivo da deleção é obrigatório")
+	}
+
+	event := &AdminDeletadoEvent{
+		BaseEvent:   BaseEvent{EventType: "AdminDeletado", AggregateID: a.ID},
+		Motivo:      motivo,
+		DeletadoPor: deletadoPor,
+		DeletedAt:   time.Now(),
 	}
 
 	a.RaiseEvent(event)
@@ -369,6 +417,21 @@ func (a *Admin) applyAdminDesativado(event DomainEvent) error {
 	return nil
 }
 
+func (a *Admin) applyAdminDeletado(event DomainEvent) error {
+	data, err := json.Marshal(event.GetPayload())
+	if err != nil {
+		return fmt.Errorf("applyAdminDeletado: marshal error: %w", err)
+	}
+	var ev AdminDeletadoEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("applyAdminDeletado: unmarshal error: %w", err)
+	}
+	a.Status = "deletado"
+	a.DeletadoPor = ev.DeletadoPor
+	a.DeletedAt = ev.DeletedAt
+	return nil
+}
+
 // applyAcaoAdminRegistrada — FIX AD-01: deserializa o payload para detectar
 // corrupção silenciosa de Detalhes (map[string]interface{}).
 // O aggregate apenas incrementa o contador; os detalhes são usados só pela projeção.
@@ -477,6 +540,17 @@ type AdminDesativadoEvent struct {
 
 func (e *AdminDesativadoEvent) GetPayload() interface{} { return e }
 func (e *AdminDesativadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+// AdminDeletadoEvent — Tarefa 73. Deleção lógica e auditável de administrador.
+type AdminDeletadoEvent struct {
+	BaseEvent
+	Motivo      string
+	DeletadoPor uuid.UUID
+	DeletedAt   time.Time
+}
+
+func (e *AdminDeletadoEvent) GetPayload() interface{} { return e }
+func (e *AdminDeletadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 type AcaoAdminRegistradaEvent struct {
 	BaseEvent

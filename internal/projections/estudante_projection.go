@@ -81,6 +81,8 @@ func (p *EstudanteProjection) Handle(event db.Event) error {
 		return p.handleStatusSuperiorInativo(event)
 	case "EstudanteDesvinculadoDaAcademia":
 		return p.handleEstudanteDesvinculadoDaAcademia(event)
+	case "EstudanteDeletado":
+		return p.handleEstudanteDeletado(event)
 	case "EstudanteReintegrado":
 		return p.handleEstudanteReintegrado(event)
 	case "DadosPessoaisAtualizados", "NomeEstudanteAlteradoPorSolicitacao", "BilheteIdentidadeEstudanteAlteradoPorSolicitacao", "BilheteIdentidadeEncarregadoAlteradoPorSolicitacao", "DataNascimentoEstudanteAlteradaPorSolicitacao", "TelefoneEncarregadoAlterado":
@@ -597,6 +599,31 @@ func (p *EstudanteProjection) handleEstudanteDesvinculadoDaAcademia(event db.Eve
 	return err
 }
 
+// handleEstudanteDeletado — Tarefa 73. Autodeleção do estudante. Espelha
+// handleAdminDeletado/handleAcademiaDeletada. WHERE ... AND status <>
+// 'deletado' torna o handler seguro para reprocessar (rebuild/replay).
+func (p *EstudanteProjection) handleEstudanteDeletado(event db.Event) error {
+	var payload struct {
+		Motivo      string
+		DeletadoPor uuid.UUID
+		DeletedAt   time.Time
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return fmt.Errorf("handleEstudanteDeletado: parse error: %w", err)
+	}
+	_, err := p.client.DB().Exec(`
+		UPDATE projection_estudantes
+		SET status        = 'deletado',
+		    deleted_at    = $1,
+		    deletado_por  = $2,
+		    updated_at    = CURRENT_TIMESTAMP,
+		    version       = $3,
+		    last_event_id = $4
+		WHERE id = $5 AND status <> 'deletado'
+	`, payload.DeletedAt, payload.DeletadoPor, event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
+
 func (p *EstudanteProjection) handleEstudanteReintegrado(event db.Event) error {
 	var payload struct {
 		TipoEnsino      string     `json:"TipoEnsino"`
@@ -1105,13 +1132,13 @@ func (p *EstudanteProjection) GetByCodigo(codigo string) (*EstudanteDTO, error) 
 
 func (p *EstudanteProjection) GetByEmail(email string) (*EstudanteDTO, error) {
 	return scanEstudante(p.client.DB().QueryRow(
-		`SELECT `+estudanteCols+` FROM projection_estudantes WHERE email = $1`, email,
+		`SELECT `+estudanteCols+` FROM projection_estudantes WHERE email = $1 AND status <> 'deletado'`, email,
 	))
 }
 
 func (p *EstudanteProjection) GetAll() ([]EstudanteDTO, error) {
 	rows, err := p.client.DB().Query(
-		`SELECT ` + estudanteCols + ` FROM projection_estudantes ORDER BY nome ASC`,
+		`SELECT ` + estudanteCols + ` FROM projection_estudantes WHERE status <> 'deletado' ORDER BY nome ASC`,
 	)
 	if err != nil {
 		return nil, err
@@ -1122,7 +1149,7 @@ func (p *EstudanteProjection) GetAll() ([]EstudanteDTO, error) {
 
 func (p *EstudanteProjection) GetByAcademia(codigoAcademia string) ([]EstudanteDTO, error) {
 	rows, err := p.client.DB().Query(
-		`SELECT `+estudanteCols+` FROM projection_estudantes WHERE codigo_academia = $1 ORDER BY nome ASC`,
+		`SELECT `+estudanteCols+` FROM projection_estudantes WHERE codigo_academia = $1 AND status <> 'deletado' ORDER BY nome ASC`,
 		codigoAcademia,
 	)
 	if err != nil {
@@ -1130,6 +1157,28 @@ func (p *EstudanteProjection) GetByAcademia(codigoAcademia string) ([]EstudanteD
 	}
 	defer rows.Close()
 	return scanEstudanteRows(rows)
+}
+
+// CountVinculadosAtivos retorna quantos estudantes estão HOJE vinculados
+// (status 'ativo' ou 'pendente_documentos') à academia informada.
+//
+// Tarefa 73: usado por DeletarAcademia para bloquear a deleção enquanto
+// houver estudantes vinculados. NÃO conta estudantes com status 'inativo'
+// (desvinculados) nem 'deletado' — codigo_academia permanece preenchido
+// nesses estudantes apenas para fins históricos (ver comentário em
+// handleEstudanteDesvinculadoDaAcademia), então NUNCA use
+// "codigo_academia = X" sozinho como proxy de "vinculado atualmente".
+func (p *EstudanteProjection) CountVinculadosAtivos(codigoAcademia string) (int, error) {
+	var count int
+	err := p.client.DB().QueryRow(`
+		SELECT COUNT(*) FROM projection_estudantes
+		 WHERE codigo_academia = $1
+		   AND status IN ('ativo', 'pendente_documentos')
+	`, codigoAcademia).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("CountVinculadosAtivos: %w", err)
+	}
+	return count, nil
 }
 
 func jsonbOrEmpty(documentos map[string]aggregates.DocumentoMatricula) []byte {
@@ -1257,6 +1306,7 @@ func (p *EstudanteProjection) GetByBilheteIdentidadePrincipal(bilhete string) (*
 	return scanEstudante(p.client.DB().QueryRow(
 		`SELECT `+estudanteCols+` FROM projection_estudantes
 		 WHERE lower(btrim(bilhete_identidade)) = lower(btrim($1))
+		   AND status <> 'deletado'
 		 LIMIT 1`,
 		bilhete,
 	))
@@ -1267,6 +1317,7 @@ func (p *EstudanteProjection) GetByBilheteIdentidadePrincipalExcludingID(bilhete
 		`SELECT `+estudanteCols+` FROM projection_estudantes
 		 WHERE lower(btrim(bilhete_identidade)) = lower(btrim($1))
 		   AND id <> $2
+		   AND status <> 'deletado'
 		 LIMIT 1`,
 		bilhete,
 		estudanteID,

@@ -443,6 +443,12 @@ func ListarEstudantes(c *gin.Context) {
 		}
 	}
 
+	// Tarefa 73/2: nunca retornar estudantes deletados nesta listagem geral,
+	// independentemente de quais outros filtros de status foram combinados
+	// acima ("deletado" nem é um valor aceito no filtro ?status=). Quem
+	// precisa consultar deleções usa o endpoint dedicado de auditoria.
+	conditions = append(conditions, "e.status <> 'deletado'")
+
 	baseQuery := selectCols + ` e
 		LEFT JOIN projection_turmas t
 		  ON t.codigo_academia = e.codigo_academia
@@ -978,4 +984,65 @@ func CompletarDocumentosEstudantePendente(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "documentos carregados com sucesso", "data": gin.H{"codigo_estudante": codigo, "status": "ativo", "documentos": documentos}})
+}
+
+// ============================================================================
+// DELETE /estudante/conta — autodeleção (Tarefa 73)
+// ============================================================================
+
+// DeletarContaEstudante executa a autodeleção lógica e auditável da própria
+// conta do estudante autenticado.
+//
+// Regra de negócio: só é permitida quando o estudante NÃO está vinculado a
+// nenhuma academia no momento (Estudante.Deletar valida e.Status == "inativo"
+// — NUNCA CodigoAcademia == nil, ver comentário no aggregate). Se o estudante
+// ainda estiver vinculado, ele precisa primeiro solicitar e ter aprovada a
+// desvinculação (fluxo já existente: POST /estudante/solicitacoes-status/desvinculacao)
+// antes de poder deletar a conta.
+//
+// Notas, faltas e avaliações já lançadas permanecem intactas e consultáveis.
+func DeletarContaEstudante(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+
+	var req struct {
+		Motivo string `json:"motivo" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Motivo) == "" {
+		utils.RespondWithValidationError(c, fmt.Errorf("motivo é obrigatório"))
+		return
+	}
+
+	repository := getRepository(c)
+	agg, err := repository.Load(userID, "Estudante")
+	if err != nil {
+		utils.RespondWithNotFoundError(c, "estudante")
+		return
+	}
+
+	estudante, ok := agg.(*aggregates.Estudante)
+	if !ok {
+		utils.RespondWithInternalError(c, fmt.Errorf("tipo de aggregate inesperado"))
+		return
+	}
+
+	if err := estudante.Deletar(req.Motivo, userID); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	audit := db.AuditContext{
+		UserID:   userID.String(),
+		UserType: "estudante",
+		IP:       c.ClientIP(),
+	}
+	if err := repository.SaveWithAudit(estudante, audit); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+
+	log.Printf("Estudante autodeletado: %s - Motivo: %s", estudante.CodigoEstudante, req.Motivo)
+	c.JSON(http.StatusOK, gin.H{
+		"message":          "conta deletada com sucesso",
+		"codigo_estudante": estudante.CodigoEstudante,
+	})
 }

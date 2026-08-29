@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 )
 
 type Event struct {
@@ -196,6 +197,42 @@ func (es *EventStore) GetEventsByType(
 		ORDER BY recorded_at DESC, id DESC
 		LIMIT $2`,
 		eventType, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao buscar eventos: %w", err)
+	}
+	defer rows.Close()
+
+	return scanEvents(rows)
+}
+
+// GetEventsByTypes — Tarefa 73/2. Como GetEventsByType, mas aceita múltiplos
+// tipos de evento numa única query (ex: os 3 tipos de deleção) e suporta
+// paginação (offset), usado pelo endpoint de auditoria de deleções.
+func (es *EventStore) GetEventsByTypes(
+	ctx context.Context,
+	eventTypes []string,
+	limit, offset int,
+) ([]Event, error) {
+	for _, et := range eventTypes {
+		if err := ValidateEventType(et); err != nil {
+			return nil, err
+		}
+	}
+
+	limit = ValidateLimit(limit)
+	offset = ValidateOffset(offset)
+
+	rows, err := es.client.db.QueryContext(ctx, `
+		SELECT
+			id, event_id, aggregate_id, aggregate_type, event_type,
+			event_version, payload, metadata, occurred_at, recorded_at,
+			ledger_hash, previous_hash
+		FROM spuri_ledger
+		WHERE event_type = ANY($1)
+		ORDER BY recorded_at DESC, id DESC
+		LIMIT $2 OFFSET $3`,
+		pq.Array(eventTypes), limit, offset,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar eventos: %w", err)

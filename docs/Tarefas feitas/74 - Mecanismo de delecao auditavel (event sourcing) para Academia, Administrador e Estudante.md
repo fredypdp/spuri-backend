@@ -1,9 +1,10 @@
 ---
 criado: 2026-08-28
 atualizado: 2026-08-29
-status: pronto_para_execucao
+status: concluido
 tipo: feature_nova_delecao_auditavel_event_sourcing
 patch: tarefa74_delecao_auditavel.patch
+concluido: 2026-08-29
 ---
 
 # Tarefa 74 — Mecanismo de deleção auditável (event sourcing) para Academia, Administrador e Estudante

@@ -666,6 +666,22 @@ func DeletarAcademia(c *gin.Context) {
 		return
 	}
 
+	// Tarefa 73 (correção de bug encontrado): a academia só pode ser deletada
+	// quando não há NENHUM estudante vinculado a ela no momento. "Vinculado" é
+	// status IN ('ativo','pendente_documentos') — NUNCA codigo_academia IS NULL,
+	// porque codigo_academia permanece preenchido para sempre em cada estudante
+	// mesmo após ele se desvincular (ver EstudanteProjection.CountVinculadosAtivos).
+	estudanteProj := getEstudanteProjection(c)
+	totalVinculados, err := estudanteProj.CountVinculadosAtivos(codigoAcademia)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if totalVinculados > 0 {
+		utils.RespondWithConflictError(c, fmt.Sprintf("a academia ainda possui %d estudante(s) vinculado(s) — desvincule todos antes de deletar", totalVinculados))
+		return
+	}
+
 	repository := getRepository(c)
 	agg, err := repository.Load(academiaDTO.ID, "Academia")
 	if err != nil {
@@ -762,13 +778,16 @@ func ListarTodasAcademias(c *gin.Context) {
 			statusFilter, limit, offset,
 		)
 	default:
-		if err = client.DB().QueryRow(`SELECT COUNT(*) FROM projection_academias`).Scan(&totalGeral); err != nil {
+		// Tarefa 73/2: sem filtro explícito de status, nunca retornar academias
+		// deletadas nesta listagem geral — quem precisa delas usa o endpoint
+		// dedicado de auditoria de deleções.
+		if err = client.DB().QueryRow(`SELECT COUNT(*) FROM projection_academias WHERE status <> 'deletado'`).Scan(&totalGeral); err != nil {
 			log.Printf("[ERROR] ListarTodasAcademias: erro ao contar academias: %v", err)
 			utils.RespondWithInternalError(c, err)
 			return
 		}
 		rows, err = client.DB().Query(
-			baseSelect+` ORDER BY pa.nome ASC LIMIT $1 OFFSET $2`,
+			baseSelect+` WHERE pa.status <> 'deletado' ORDER BY pa.nome ASC LIMIT $1 OFFSET $2`,
 			limit, offset,
 		)
 	}
