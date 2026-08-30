@@ -2,7 +2,7 @@
 modificado: 29-08-2026 00:00
 criado: 05-04-2026 13:01
 ---
-Versão atual: 2.4.0
+Versão atual: 2.5.0
 ## Índice
 
 1. [Convenções Globais](#1-convenções-globais)
@@ -50,6 +50,7 @@ Versão atual: 2.4.0
 19. [Financeiro / AppyPay](#19-financeiro--appypay)
 20. [Armazenamento](#20-armazenamento)
 21. [Integrações Externas / Ziett (Teste)](#21-integrações-externas--ziett-teste)
+22. [Sumários](#22-sumários)
 
 ---
 
@@ -435,6 +436,8 @@ interface FaltaDTO {
   materia_nome?: string
   quantidade: number
   observacao?: string
+  sumario_id?: string          // UUID — vínculo opcional com o sumário/aula (ver 2.14 Sumário)
+  sumario_titulo?: string      // snapshot do título do sumário no momento do vínculo; não muda se o sumário for renomeado depois
   registered_at: string
   event_id: string
   version: number
@@ -488,6 +491,8 @@ interface FaltaRegistroDTO {
   materia_nome: string
   quantidade: number
   observacao?: string
+  sumario_id?: string          // UUID — vínculo opcional com o sumário/aula (ver 2.14 Sumário)
+  sumario_titulo?: string      // snapshot do título do sumário no momento do vínculo
   registered_at: string
   event_id: string
   version: number
@@ -518,6 +523,30 @@ interface AvaliacaoFinalDTO {
 ```
 
 ---
+
+### 2.14 Sumário
+
+```typescript
+interface SumarioDTO {
+  id: string
+  codigo_academia: string
+  sumario_titulo: string
+  descricao?: string
+  periodo: string              // 1_trimestre..3_trimestre (escolar) ou N_semestre (superior, igual ao período da matéria)
+  ano_academico: string        // deve pertencer aos anos_academicos da matéria vinculada
+  nivel: string                 // 'fundamental' | 'medio' | 'superior' — espelha MateriaDTO.type
+  type: string                  // 'escolar' | 'superior' — derivado de nivel
+  curso_id?: string             // UUID — inferido automaticamente da matéria, nunca aceito do cliente
+  materia_id: string            // UUID
+  criado_por?: string           // UUID
+  status: string                 // 'ativo' | 'deletado' — não há estado 'inativo' para sumário
+  created_at: string
+  updated_at: string
+  version: number
+}
+```
+
+Representa o registro de uma aula (sumário). `curso_id`, `nivel` e `type` são sempre derivados de `materia_id` no momento da criação — o cliente nunca os envia diretamente. Usado em: seção 22 (Sumários) e opcionalmente referenciado por `FaltaDTO.sumario_id`/`sumario_titulo` (2.11).
 
 ---
 
@@ -5584,7 +5613,7 @@ Registra notas em lote por job assíncrono.
 
 ### Processos de negócio — Faltas
 
-Faltas são registros acadêmicos imutáveis vinculados a estudante, academia, ano letivo ativo, ano acadêmico inferido e matéria disciplinar. A correção é permitida exclusivamente por evento compensatório auditado, sem apagar o lançamento original. A academia autenticada registra faltas apenas para estudantes da própria instituição e matérias compatíveis. A data do lançamento é validada no intervalo do ano letivo ativo calculado a partir do tipo da academia e da matéria.
+Faltas são registros acadêmicos imutáveis vinculados a estudante, academia, ano letivo ativo, ano acadêmico inferido e matéria disciplinar. A correção é permitida exclusivamente por evento compensatório auditado, sem apagar o lançamento original. A academia autenticada registra faltas apenas para estudantes da própria instituição e matérias compatíveis. A data do lançamento é validada no intervalo do ano letivo ativo calculado a partir do tipo da academia e da matéria. Uma falta pode, opcionalmente, ser vinculada a um sumário/aula (ver seção 22) da mesma matéria, período e ano acadêmico — o vínculo grava um snapshot do título do sumário, que não muda se o sumário for renomeado depois.
 
 ### `POST /academia/faltas-aluno`
 
@@ -5601,11 +5630,12 @@ Registra faltas individuais.
   "periodo": "1_trimestre",
   "materia_disciplinar_id": "uuid-da-materia",
   "quantidade": 2,
-  "observacao": "Ausência justificada posteriormente"
+  "observacao": "Ausência justificada posteriormente",
+  "sumario_id": "uuid-do-sumario"
 }
 ```
 
-**Campos obrigatórios:** `codigo_estudante`, `data`, `periodo`, `materia_disciplinar_id` e `quantidade`.
+**Campos obrigatórios:** `codigo_estudante`, `data`, `periodo`, `materia_disciplinar_id` e `quantidade`. `sumario_id` é opcional.
 
 **Regras de validação:**
 
@@ -5616,6 +5646,7 @@ Registra faltas individuais.
 - O estudante precisa pertencer à academia autenticada.
 - A matéria precisa pertencer à academia e ser compatível com o estudante.
 - `data` deve estar dentro do intervalo permitido para o ano letivo ativo.
+- Se `sumario_id` for informado, o sumário precisa existir, pertencer à mesma academia e ter `materia_id`, `periodo` e `ano_academico` idênticos aos da falta sendo registrada — caso contrário, `400`. Se omitido, a falta é registrada normalmente sem vínculo.
 
 **Response 201:**
 
@@ -5645,11 +5676,18 @@ Corrige uma falta por evento compensatório; o lançamento original permanece in
 {
   "quantidade": 2,
   "observacao": "Quantidade confirmada após revisão",
-  "motivo": "Erro de digitacao no lançamento original"
+  "motivo": "Erro de digitacao no lançamento original",
+  "sumario_id": "uuid-do-sumario"
 }
 ```
 
 **Regras:** `motivo` é obrigatório; `quantidade` deve estar entre 1 e 100; `observacao` aceita no máximo 2000 caracteres. A data, a matéria e o período são derivados do registro existente; `periodo` é imutável e não é aceito no corpo desta rota.
+
+`sumario_id` é opcional e tem semântica própria (diferente de `observacao`, que é sempre substituída):
+
+- **Omitido** — o vínculo de sumário atual (se houver) não é alterado.
+- **Presente com um UUID válido e compatível** (mesma matéria/período/ano_academico da falta) — troca o vínculo e atualiza o snapshot `sumario_titulo`.
+- **Presente como `null`** — rejeitado com `400`. Para remover o vínculo, use `PUT /academia/faltas-aluno/:id/desvincular-sumario` (não é possível fazer isso por este endpoint).
 
 **Response 200:**
 
@@ -5657,7 +5695,27 @@ Corrige uma falta por evento compensatório; o lançamento original permanece in
 { "message": "falta corrigida com sucesso", "id": "uuid-da-falta" }
 ```
 
-**Erros:** `400` para motivo ausente, JSON inválido ou quantidade fora da escala; `403` quando a falta pertence a outra academia; `404` quando o ID não existe.
+**Erros:** `400` para motivo ausente, JSON inválido, quantidade fora da escala, `sumario_id: null` ou sumário incompatível; `403` quando a falta pertence a outra academia; `404` quando o ID não existe.
+
+### `PUT /academia/faltas-aluno/:id/desvincular-sumario`
+
+Remove o vínculo de sumário de uma falta, preservando o registro original (mesmo mecanismo de evento compensatório usado pela correção — internamente reaproveita `CorrigirFalta` com quantidade e observação inalteradas).
+
+**Proteção:** academia ativa e dona da falta.
+
+**Path params:** `id` — UUID da falta.
+
+**Request:** corpo vazio (`{}`).
+
+**Response 200:**
+
+```json
+{ "message": "sumário desvinculado com sucesso", "id": "uuid-da-falta" }
+```
+
+Se a falta já não tiver sumário vinculado, a rota responde `200` com `{ "message": "falta já não possui sumário vinculado", "id": "uuid-da-falta" }` em vez de erro — é idempotente.
+
+**Erros:** `403` quando a falta pertence a outra academia; `404` quando o ID não existe.
 
 ### `GET /faltas`
 
@@ -5693,6 +5751,8 @@ Lista faltas a partir da projeção global.
       "materia_nome": "Matemática",
       "quantidade": 2,
       "observacao": "Ausência justificada posteriormente",
+      "sumario_id": "uuid-do-sumario",
+      "sumario_titulo": "Introdução à Revolução Industrial",
       "registrado_por": "uuid-da-academia",
       "valor_anterior": 1,
       "motivo_correcao": "Quantidade corrigida após conferencia",
@@ -5733,6 +5793,8 @@ Retorna as faltas de um estudante específico.
       "id": "uuid",
       "periodo": "1_trimestre",
       "quantidade": 2,
+      "sumario_id": "uuid-do-sumario",
+      "sumario_titulo": "Introdução à Revolução Industrial",
       "registrado_por": "uuid-da-academia",
       "valor_anterior": 1,
       "motivo_correcao": "Quantidade corrigida após conferencia",
@@ -5743,6 +5805,8 @@ Retorna as faltas de um estudante específico.
   "total": 0
 }
 ```
+
+(este exemplo mostra apenas um subconjunto de campos, por brevidade — a resposta real inclui todos os campos de `FaltaDTO`, seção 2.11)
 
 ### `POST /academia/faltas-aluno/async`
 
@@ -8811,3 +8875,138 @@ Envia uma mensagem de teste através do endpoint `POST /messages` da Ziett, com 
   "ziett_service": "core"
 }
 ```
+
+---
+
+## 22. Sumários
+
+### Processos de negócio — Sumários
+
+Um sumário representa o registro de uma aula: título, matéria, período e ano acadêmico. É sempre vinculado a uma matéria disciplinar (`materia_id`), da qual `curso_id`, `nivel` (fundamental/médio/superior) e `type` (escolar/superior) são derivados automaticamente — o cliente nunca envia esses três campos diretamente. `periodo` e `ano_academico` seguem as mesmas regras de compatibilidade já usadas por faltas e notas: para matéria superior, `periodo` deve ser igual ao período fixo da matéria; para fundamental/médio, um dos três trimestres; `ano_academico` deve pertencer a `anos_academicos` da matéria. `materia_id`, `periodo` e `ano_academico` são imutáveis após a criação — para corrigi-los, delete o sumário e crie outro. Diferente de Matéria/Curso, não existe estado `inativo`: apenas `ativo` e `deletado` (soft delete). Deletar um sumário nunca é bloqueado por já ter faltas vinculadas — a falta preserva um snapshot do título (`sumario_titulo`, ver 2.11) mesmo depois que o sumário é deletado ou renomeado.
+
+### `GET /academia/sumarios`
+
+Lista os sumários ativos da academia.
+
+**Proteção:** admin ou academia ativa.
+
+**Query params:**
+
+- `materia_id`, `periodo`, `ano_academico` — filtros opcionais, combináveis (todos como igualdade exata). Úteis para buscar sumários compatíveis com uma falta específica antes de vincular.
+- `codigo_academia` — obrigatório quando o autenticado é admin; ignorado/forçado para a própria academia quando o autenticado é academia.
+
+**Response 200:**
+
+```json
+{
+  "sumarios": [
+    {
+      "id": "uuid-do-sumario",
+      "codigo_academia": "ACAD001",
+      "sumario_titulo": "Introdução à Revolução Industrial",
+      "descricao": "Contexto histórico e principais transformações econômicas",
+      "periodo": "1_trimestre",
+      "ano_academico": "8_ano_fundamental",
+      "nivel": "fundamental",
+      "type": "escolar",
+      "materia_id": "uuid-da-materia",
+      "criado_por": "uuid-da-academia",
+      "status": "ativo",
+      "created_at": "2026-08-20T10:00:00Z",
+      "updated_at": "2026-08-20T10:00:00Z",
+      "version": 1
+    }
+  ]
+}
+```
+
+### `GET /academia/sumario/:id`
+
+Retorna um sumário específico.
+
+**Proteção:** admin ou academia ativa, dona do sumário.
+
+**Path params:** `id` — UUID do sumário.
+
+**Response 200:** objeto `SumarioDTO` (ver 2.14).
+
+**Erros:** `403` quando o sumário pertence a outra academia; `404` quando o ID não existe.
+
+### `POST /academia/sumario`
+
+Cria um sumário.
+
+**Proteção:** academia ativa.
+
+**Request:**
+
+```json
+{
+  "sumario_titulo": "Introdução à Revolução Industrial",
+  "descricao": "Contexto histórico e principais transformações econômicas",
+  "materia_id": "uuid-da-materia",
+  "periodo": "1_trimestre",
+  "ano_academico": "8_ano_fundamental"
+}
+```
+
+**Campos obrigatórios:** `sumario_titulo`, `materia_id`, `periodo`, `ano_academico`. `descricao` é opcional. `curso_id`, `nivel` e `type` **não são aceitos** — são sempre inferidos de `materia_id`.
+
+**Regras de validação:**
+
+- `sumario_titulo` deve ter entre 3 e 200 caracteres.
+- `descricao`, se enviada, no máximo 2000 caracteres.
+- `materia_id` precisa existir e pertencer à academia autenticada.
+- `periodo`: se a matéria for do tipo superior, deve ser exatamente igual ao período definido na matéria; caso contrário, deve ser `1_trimestre`, `2_trimestre` ou `3_trimestre`.
+- `ano_academico` deve pertencer a `anos_academicos` da matéria.
+
+**Response 201:**
+
+```json
+{ "message": "sumário criado com sucesso", "id": "uuid-do-sumario" }
+```
+
+**Erros:** `400` para campos ausentes/fora de formato, período ou ano_academico incompatíveis com a matéria; `403` quando a matéria pertence a outra academia; `404` quando `materia_id` não existe.
+
+### `PUT /academia/sumario/:id/dados`
+
+Atualiza título e/ou descrição de um sumário. Não permite alterar `materia_id`, `periodo`, `ano_academico`, `curso_id`, `nivel` ou `type` — envie qualquer um desses campos e a rota responde `400` sem aplicar nenhuma mudança.
+
+**Proteção:** academia ativa, dona do sumário.
+
+**Path params:** `id` — UUID do sumário.
+
+**Request:**
+
+```json
+{
+  "sumario_titulo": "Revolução Industrial: causas e consequências",
+  "descricao": "Descrição revisada"
+}
+```
+
+Ambos os campos são opcionais e independentes — envie apenas o que quiser alterar.
+
+**Response 200:**
+
+```json
+{ "message": "sumário atualizado com sucesso" }
+```
+
+**Erros:** `400` para título fora do tamanho permitido ou tentativa de alterar campo imutável; `403` quando o sumário pertence a outra academia; `404` quando o ID não existe.
+
+### `DELETE /academia/sumario/:id`
+
+Remove logicamente (soft delete) um sumário. Nunca é bloqueado por o sumário já estar vinculado a faltas — essas faltas preservam o snapshot `sumario_titulo` (2.11) e continuam válidas normalmente.
+
+**Proteção:** academia ativa, dona do sumário.
+
+**Path params:** `id` — UUID do sumário.
+
+**Response 200:**
+
+```json
+{ "message": "sumário deletado com sucesso" }
+```
+
+**Erros:** `403` quando o sumário pertence a outra academia; `404` quando o ID não existe ou já está deletado.
