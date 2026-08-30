@@ -1,8 +1,8 @@
 ---
 data: 2026-08-30
-status: corrigido_via_75_corrigir_efetivacao_de_matricula_via_webhook_appypay_e_paymentinfo_vazio_em_post_charges
+status: corrigido_via_77_corrigir_efetivacao_de_matricula_via_webhook_appypay_e_paymentinfo_vazio_em_post_charges
 auditor: Claude (orquestrador) — auditoria linha a linha contra docs/Parceiros e integrações/AppyPay Documentação.md, com PostgreSQL 16 real e Go 1.24 real em sandbox
-tarefa_correcao: docs/Lista de Tarefas/78 - Corrigir efetivação de matrícula via webhook AppyPay e paymentInfo vazio em POST charges.md
+tarefa_correcao: docs/Lista de Tarefas/77 - Corrigir efetivação de matrícula via webhook AppyPay e paymentInfo vazio em POST charges.md
 relacionado_a: docs/Tarefas feitas/70 - Corrigir extração de status e motivo real da AppyPay (Cancelled do GPO, Expired do REF) e categorização preditiva.md
 ---
 
