@@ -7,7 +7,7 @@ depende_de: nenhuma
 debug: docs/Debbugs/Auditoria de conformidade AppyPay (autenticação e geração de cobrança).md
 ---
 
-# Tarefa 78 — Corrigir efetivação de matrícula via webhook AppyPay e `paymentInfo`/`options`/`notify` vazios em `POST /charges`
+# Tarefa 77 — Corrigir efetivação de matrícula via webhook AppyPay e `paymentInfo`/`options`/`notify` vazios em `POST /charges`
 
 ## 0. Leia isto primeiro — sobre esta tarefa e sobre o seu ambiente (Codex)
 
