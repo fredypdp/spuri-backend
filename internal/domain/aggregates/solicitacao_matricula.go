@@ -72,6 +72,8 @@ func (s *SolicitacaoMatricula) Apply(event DomainEvent) error {
 		return s.applyCancelada(event)
 	case "SolicitacaoMatriculaAprovadaPendentePagamento":
 		return s.applyAprovadaPendentePagamento(event)
+	case "SolicitacaoMatriculaValorPendenteAtualizado":
+		return s.applyValorPendenteAtualizado(event)
 	case "SolicitacaoMatriculaVinculada":
 		return s.applyVinculada(event)
 	default:
@@ -92,6 +94,16 @@ func (s *SolicitacaoMatricula) MarcarPendentePagamentoMatricula(valor float64, m
 		return fmt.Errorf("solicitação aprovada, valor e métodos de pagamento são obrigatórios")
 	}
 	ev := &SolicitacaoMatriculaAprovadaPendentePagamentoEvent{BaseEvent: BaseEvent{EventType: "SolicitacaoMatriculaAprovadaPendentePagamento", AggregateID: s.ID}, CodigoSolicitacao: s.CodigoSolicitacao, CodigoAcademia: s.CodigoAcademia, Valor: valor, MetodosPagamento: metodos, OccurredAt: time.Now().UTC()}
+	s.RaiseEvent(ev)
+	return nil
+}
+
+// AtualizarValorPendentePagamentoMatricula reprecifica uma solicitação já aprovada e aguardando pagamento.
+func (s *SolicitacaoMatricula) AtualizarValorPendentePagamentoMatricula(valor float64, metodos []string) error {
+	if s.Status != StatusSolicitacaoAprovadaPendentePagamentoMatricula || valor <= 0 || len(metodos) == 0 {
+		return fmt.Errorf("solicitação deve estar pendente de pagamento de matrícula, com valor e métodos de pagamento válidos")
+	}
+	ev := &SolicitacaoMatriculaValorPendenteAtualizadoEvent{BaseEvent: BaseEvent{EventType: "SolicitacaoMatriculaValorPendenteAtualizado", AggregateID: s.ID}, CodigoSolicitacao: s.CodigoSolicitacao, CodigoAcademia: s.CodigoAcademia, Valor: valor, MetodosPagamento: metodos, OccurredAt: time.Now().UTC()}
 	s.RaiseEvent(ev)
 	return nil
 }
@@ -497,6 +509,20 @@ func (e *SolicitacaoMatriculaAprovadaPendentePagamentoEvent) ToJSON() ([]byte, e
 	return json.Marshal(e)
 }
 
+type SolicitacaoMatriculaValorPendenteAtualizadoEvent struct {
+	BaseEvent
+	CodigoSolicitacao string
+	CodigoAcademia    string
+	Valor             float64
+	MetodosPagamento  []string
+	OccurredAt        time.Time
+}
+
+func (e *SolicitacaoMatriculaValorPendenteAtualizadoEvent) GetPayload() interface{} { return e }
+func (e *SolicitacaoMatriculaValorPendenteAtualizadoEvent) ToJSON() ([]byte, error) {
+	return json.Marshal(e)
+}
+
 type SolicitacaoMatriculaVinculadaEvent struct {
 	BaseEvent
 	OccurredAt time.Time
@@ -614,6 +640,18 @@ func (s *SolicitacaoMatricula) applyAprovadaPendentePagamento(event DomainEvent)
 	s.UpdatedAt = ev.OccurredAt
 	return nil
 }
+func (s *SolicitacaoMatricula) applyValorPendenteAtualizado(event DomainEvent) error {
+	data, _ := json.Marshal(event.GetPayload())
+	var ev SolicitacaoMatriculaValorPendenteAtualizadoEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return err
+	}
+	s.ValorMatricula = &ev.Valor
+	s.MetodosPagamentoMatricula = append([]string(nil), ev.MetodosPagamento...)
+	s.UpdatedAt = ev.OccurredAt
+	return nil
+}
+
 func (s *SolicitacaoMatricula) applyVinculada(event DomainEvent) error {
 	data, _ := json.Marshal(event.GetPayload())
 	var ev SolicitacaoMatriculaVinculadaEvent

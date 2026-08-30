@@ -1,11 +1,11 @@
 ---
 criado: 2026-08-30 00:00
 origem: Orquestração Claude (decisão de produto do usuário, esclarecida em 2ª rodada; investigação, validação de mecanismo e redação por Claude)
-status: pendente
+status: feito
 substitui: "09 - Exigir escolha de vigência (cobranças pendentes vs mês específico) ao alterar preço da mensalidade.md" (OBSOLETO — apague esse arquivo se ainda existir; o desenho lá descrito só alcançava o mês corrente em diante e não cobria matrícula, o que não atende ao pedido real do usuário)
 ---
 
-# Permitir que uma atualização de preço (mensalidade ou matrícula) escolha entre reprecificar tudo que está pendente ou só valer a partir de agora (pendente)
+# Implementada — permitir que uma atualização de preço (mensalidade ou matrícula) escolha entre reprecificar tudo que está pendente ou só valer a partir de agora (pendente)
 
 ## Prompt recomendado para executar a atualização
 

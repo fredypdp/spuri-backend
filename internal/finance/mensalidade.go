@@ -57,6 +57,7 @@ type MensalidadeConfiguracaoInput struct {
 	Valor            float64  `json:"valor"`
 	MesFimCobranca   int      `json:"mes_fim_cobranca"`
 	MetodosPagamento []string `json:"metodos_pagamento"`
+	ModoVigencia     string   `json:"modo_vigencia"`
 }
 
 type MensalidadeConfiguracaoView struct {
@@ -68,6 +69,7 @@ type MensalidadeConfiguracaoView struct {
 	MesFimCobranca   int        `json:"mes_fim_cobranca"`
 	MetodosPagamento []string   `json:"metodos_pagamento"`
 	VigenteEm        time.Time  `json:"vigente_em"`
+	ModoVigencia     string     `json:"modo_vigencia,omitempty"`
 }
 
 type MesInicioCobrancaInput struct {
@@ -140,7 +142,7 @@ func (s *Service) ConfigureMensalidade(ctx context.Context, in MensalidadeConfig
 		return MensalidadeConfiguracaoView{}, err
 	}
 	in.Valor = roundAmount(in.Valor)
-	payload := map[string]any{"codigo_academia": in.CodigoAcademia, "nivel": in.Nivel, "ano_academico": in.AnoAcademico, "curso_id": optionalString(in.CursoID), "valor": in.Valor, "mes_fim_cobranca": in.MesFimCobranca, "metodos_pagamento": in.MetodosPagamento}
+	payload := map[string]any{"codigo_academia": in.CodigoAcademia, "nivel": in.Nivel, "ano_academico": in.AnoAcademico, "curso_id": optionalString(in.CursoID), "valor": in.Valor, "mes_fim_cobranca": in.MesFimCobranca, "metodos_pagamento": in.MetodosPagamento, "modo_vigencia": in.ModoVigencia}
 	if err := s.recordMensalidade(ctx, in.CodigoAcademia, aggregates.MensalidadeConfigurada, payload, actorID, actorType, ip); err != nil {
 		return MensalidadeConfiguracaoView{}, err
 	}
@@ -156,7 +158,7 @@ func (s *Service) ConfigureMensalidade(ctx context.Context, in MensalidadeConfig
 }
 
 func (s *Service) ListMensalidadeConfiguracoes(ctx context.Context, codigoAcademia string) ([]MensalidadeConfiguracaoView, error) {
-	rows, err := s.client.DB().QueryContext(ctx, `SELECT nivel,ano_academico,curso_id,valor::float8,mes_fim_cobranca,metodos_pagamento,vigente_em FROM financeiro_mensalidade_configuracoes_atual WHERE codigo_academia=$1 ORDER BY nivel,ano_academico,curso_id`, codigoAcademia)
+	rows, err := s.client.DB().QueryContext(ctx, `SELECT nivel,ano_academico,curso_id,valor::float8,mes_fim_cobranca,metodos_pagamento,vigente_em,modo_vigencia FROM financeiro_mensalidade_configuracoes_atual WHERE codigo_academia=$1 ORDER BY nivel,ano_academico,curso_id`, codigoAcademia)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +168,7 @@ func (s *Service) ListMensalidadeConfiguracoes(ctx context.Context, codigoAcadem
 		var v MensalidadeConfiguracaoView
 		var curso sql.NullString
 		v.CodigoAcademia = codigoAcademia
-		if err := rows.Scan(&v.Nivel, &v.AnoAcademico, &curso, &v.Valor, &v.MesFimCobranca, pq.Array(&v.MetodosPagamento), &v.VigenteEm); err != nil {
+		if err := rows.Scan(&v.Nivel, &v.AnoAcademico, &curso, &v.Valor, &v.MesFimCobranca, pq.Array(&v.MetodosPagamento), &v.VigenteEm, &v.ModoVigencia); err != nil {
 			return nil, err
 		}
 		if curso.Valid {
@@ -382,7 +384,11 @@ func (s *Service) ListMensalidades(ctx context.Context, codigoEstudante string, 
 			if posicaoNoAnoLetivo(ref.Month, natural) < inicioPos {
 				continue
 			}
-			cfg, err := s.resolveConfiguracao(ctx, v.CodigoAcademia, v.Nivel, v.AnoAcademico, v.CursoID, ref.Data)
+			state, audit, err := s.estadoObrigacao(ctx, codigoEstudante, v.CodigoAcademia, v.AnoLetivo, ref.Month)
+			if err != nil {
+				return nil, err
+			}
+			cfg, err := s.resolveConfiguracaoEfetiva(ctx, v.CodigoAcademia, v.Nivel, v.AnoAcademico, v.CursoID, ref.Data, state == EstadoPendente)
 			if errors.Is(err, ErrNotFound) {
 				continue
 			}
@@ -391,10 +397,6 @@ func (s *Service) ListMensalidades(ctx context.Context, codigoEstudante string, 
 			}
 			if posicaoNoAnoLetivo(ref.Month, natural) > posicaoNoAnoLetivo(cfg.MesFimCobranca, natural) {
 				continue
-			}
-			state, audit, err := s.estadoObrigacao(ctx, codigoEstudante, v.CodigoAcademia, v.AnoLetivo, ref.Month)
-			if err != nil {
-				return nil, err
 			}
 			result = append(result, MensalidadeMesView{CodigoEstudante: codigoEstudante, CodigoAcademia: v.CodigoAcademia, AnoLetivo: v.AnoLetivo, Mes: ref.Month, DataReferencia: ref.Data, Nivel: v.Nivel, AnoAcademico: v.AnoAcademico, CursoID: v.CursoID, Valor: cfg.Valor, MesFimCobranca: cfg.MesFimCobranca, Estado: state, EventosAuditoria: audit})
 		}
@@ -439,6 +441,9 @@ func (s *Service) validateConfiguracaoMensalidade(ctx context.Context, in *Mensa
 	}
 	if in.Valor <= 0 || roundAmount(in.Valor) != in.Valor {
 		return errors.New("valor deve ser maior que zero e ter no máximo duas casas decimais")
+	}
+	if !modoVigenciaValido(in.ModoVigencia) {
+		return errors.New(`modo_vigencia é obrigatório: informe "cobrancas_pendentes" ou "a_partir_da_atualizacao"`)
 	}
 	if in.MesFimCobranca != 6 && in.MesFimCobranca != 7 {
 		return errors.New("mes_fim_cobranca deve ser 6 ou 7")
@@ -563,7 +568,7 @@ func (s *Service) resolveConfiguracao(ctx context.Context, academia, nivel, ano 
 	// The first configuration is the best information available for every
 	// earlier month of that academic year. Later configurations remain forward
 	// only: they win only when their effective date is not after the reference.
-	err := s.client.DB().QueryRowContext(ctx, `SELECT curso_id,valor::float8,mes_fim_cobranca,vigente_em FROM financeiro_mensalidade_configuracoes WHERE codigo_academia=$1 AND nivel=$2 AND ano_academico=$3 AND curso_id IS NOT DISTINCT FROM $4 ORDER BY CASE WHEN vigente_em <= $5 THEN 0 ELSE 1 END, CASE WHEN vigente_em <= $5 THEN vigente_em END DESC, CASE WHEN vigente_em > $5 THEN vigente_em END ASC, event_id DESC LIMIT 1`, academia, nivel, ano, nullableUUID(curso), referencia.UTC()).Scan(&cursoText, &out.Valor, &out.MesFimCobranca, &out.VigenteEm)
+	err := s.client.DB().QueryRowContext(ctx, `SELECT curso_id,valor::float8,mes_fim_cobranca,vigente_em FROM financeiro_mensalidade_configuracoes WHERE codigo_academia=$1 AND nivel=$2 AND ano_academico=$3 AND curso_id IS NOT DISTINCT FROM $4 ORDER BY CASE WHEN vigente_em <= $5 THEN 0 ELSE 1 END, CASE WHEN vigente_em <= $5 THEN vigente_em END DESC, CASE WHEN vigente_em > $5 THEN vigente_em END ASC, sequencia DESC LIMIT 1`, academia, nivel, ano, nullableUUID(curso), referencia.UTC()).Scan(&cursoText, &out.Valor, &out.MesFimCobranca, &out.VigenteEm)
 	if err == sql.ErrNoRows {
 		return out, fmt.Errorf("%w: configuração de mensalidade", ErrNotFound)
 	}

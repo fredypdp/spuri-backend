@@ -39,6 +39,8 @@ func (p *SolicitacaoMatriculaProjection) Handle(event db.Event) error {
 		return p.handleCancelada(event)
 	case "SolicitacaoMatriculaAprovadaPendentePagamento":
 		return p.handleAprovadaPendentePagamento(event)
+	case "SolicitacaoMatriculaValorPendenteAtualizado":
+		return p.handleValorPendenteAtualizado(event)
 	case "SolicitacaoMatriculaVinculada":
 		return p.handleVinculada(event)
 	default:
@@ -178,6 +180,19 @@ func (p *SolicitacaoMatriculaProjection) handleAprovadaPendentePagamento(event d
 	_, err := p.client.DB().Exec(`UPDATE projection_solicitacoes_matricula SET status='aprovada_pendente_pagamento_matricula', valor_matricula=$1, metodos_pagamento_matricula=$2, updated_at=$3, version=$4, last_event_id=$5 WHERE id=$6`, payload.Valor, pq.Array(payload.MetodosPagamento), payload.OccurredAt, event.EventVersion, event.EventID, event.AggregateID)
 	return err
 }
+func (p *SolicitacaoMatriculaProjection) handleValorPendenteAtualizado(event db.Event) error {
+	var payload struct {
+		Valor            float64   `json:"Valor"`
+		MetodosPagamento []string  `json:"MetodosPagamento"`
+		OccurredAt       time.Time `json:"OccurredAt"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return err
+	}
+	_, err := p.client.DB().Exec(`UPDATE projection_solicitacoes_matricula SET valor_matricula=$1, metodos_pagamento_matricula=$2, updated_at=$3, version=$4, last_event_id=$5 WHERE id=$6`, payload.Valor, pq.Array(payload.MetodosPagamento), payload.OccurredAt, event.EventVersion, event.EventID, event.AggregateID)
+	return err
+}
+
 func (p *SolicitacaoMatriculaProjection) handleVinculada(event db.Event) error {
 	var payload struct {
 		OccurredAt time.Time `json:"OccurredAt"`

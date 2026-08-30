@@ -8187,6 +8187,7 @@ A obrigação mensal usa a chave estável `(codigo_estudante, codigo_academia, a
 | `valor` | número (`float64`) | Sim | Maior que zero, no máximo duas casas decimais. |
 | `mes_fim_cobranca` | inteiro | Sim | Apenas `6` ou `7`. |
 | `metodos_pagamento` | array string | Não | Itens `GPO`, `REF` ou `GPO_QR`, sem duplicados; lista vazia desactiva pagamento de propina para a combinação. Se não vazia, exige credencial AppyPay. |
+| `modo_vigencia` | string | Sim | `cobrancas_pendentes` reprecifica toda obrigação pendente sem cobrança real, inclusive meses atrasados; `a_partir_da_atualizacao` preserva o comportamento histórico e só vale para cobranças posteriores. |
 
 **Request JSON:**
 
@@ -8198,7 +8199,8 @@ A obrigação mensal usa a chave estável `(codigo_estudante, codigo_academia, a
   "curso_id": "550e8400-e29b-41d4-a716-446655440000",
   "valor": 25000.00,
   "mes_fim_cobranca": 7,
-  "metodos_pagamento": ["REF", "GPO_QR"]
+  "metodos_pagamento": ["REF", "GPO_QR"],
+  "modo_vigencia": "cobrancas_pendentes"
 }
 ```
 
@@ -8213,11 +8215,12 @@ A obrigação mensal usa a chave estável `(codigo_estudante, codigo_academia, a
   "valor": 25000.00,
   "mes_fim_cobranca": 7,
   "metodos_pagamento": ["REF", "GPO_QR"],
-  "vigente_em": "2026-08-08T12:00:00Z"
+  "vigente_em": "2026-08-08T12:00:00Z",
+  "modo_vigencia": "cobrancas_pendentes"
 }
 ```
 
-**Regras de negócio:** `POST` e `PUT` usam o mesmo handler e têm o mesmo efeito: não actualizam uma versão in-place nem recebem `:id`; cada chamada válida cria nova versão com `vigente_em` do servidor, mesmo que o payload seja idêntico, preservando histórico para meses passados.
+**Regras de negócio:** `POST` e `PUT` usam o mesmo handler e têm o mesmo efeito: não actualizam uma versão in-place nem recebem `:id`; cada chamada válida cria nova versão com `vigente_em` do servidor. `modo_vigencia` é obrigatório: `cobrancas_pendentes` aplica o novo valor a toda obrigação ainda pendente e sem cobrança real, de qualquer mês; `a_partir_da_atualizacao` mantém a resolução histórica por mês de referência.
 
 **Erros comuns:** `400` payload/regra inválida, `404` academia/curso inexistente, `403` sem permissão.
 
@@ -8407,6 +8410,7 @@ A taxa de matrícula abaixo é apenas a configuração financeira feita pela pr�
 | `curso_id` | UUID | Médio/superior | Obrigatório para `medio`/`superior` e proibido para `fundamental`; mesmas regras de vínculo curso↔academia↔ano de 19.14. |
 | `valor` | número (`float64`) | Sim | Maior que zero, no máximo duas casas decimais. |
 | `metodos_pagamento` | array string | Sim | Pelo menos um item; `GPO`, `REF` ou `GPO_QR`, sem duplicados; exige credencial AppyPay. |
+| `modo_vigencia` | string | Sim | `cobrancas_pendentes` reprecifica solicitações aprovadas e pendentes sem cobrança real; `a_partir_da_atualizacao` só vale para novas aprovações. |
 
 **Request JSON:**
 
@@ -8417,7 +8421,8 @@ A taxa de matrícula abaixo é apenas a configuração financeira feita pela pr�
   "ano_academico": "1_ano_medio",
   "curso_id": "550e8400-e29b-41d4-a716-446655440000",
   "valor": 15000.00,
-  "metodos_pagamento": ["REF", "GPO"]
+  "metodos_pagamento": ["REF", "GPO"],
+  "modo_vigencia": "cobrancas_pendentes"
 }
 ```
 
@@ -8431,11 +8436,13 @@ A taxa de matrícula abaixo é apenas a configuração financeira feita pela pr�
   "curso_id": "550e8400-e29b-41d4-a716-446655440000",
   "valor": 15000.00,
   "metodos_pagamento": ["REF", "GPO"],
-  "vigente_em": "2026-08-08T12:00:00Z"
+  "vigente_em": "2026-08-08T12:00:00Z",
+  "modo_vigencia": "cobrancas_pendentes",
+  "repricing_pendentes": {"atualizadas": 2, "ignoradas": 1, "falhas": 0}
 }
 ```
 
-**Regras de negócio:** diferentemente da mensalidade, academias públicas e privadas podem configurar taxa de matrícula. `POST` e `PUT` têm o mesmo efeito: cada chamada válida cria nova versão, nunca update in-place. Sem configuração para a combinação da solicitação, a matrícula continua gratuita e a aprovação cria o estudante imediatamente. Com configuração vigente, a aprovação exige pagamento antes da criação do estudante; valor e métodos ficam congelados na solicitação no momento da aprovação.
+**Regras de negócio:** diferentemente da mensalidade, academias públicas e privadas podem configurar taxa de matrícula. `POST` e `PUT` têm o mesmo efeito: cada chamada válida cria nova versão, nunca update in-place. `modo_vigencia` é obrigatório: `cobrancas_pendentes` reprecifica solicitações já aprovadas e pendentes que ainda não possuem cobrança real; `a_partir_da_atualizacao` mantém seu valor congelado e só vale para novas aprovações. `repricing_pendentes` só aparece na resposta do primeiro modo. Sem configuração para a combinação da solicitação, a matrícula continua gratuita e a aprovação cria o estudante imediatamente.
 
 **Erros comuns:** `400` payload/regra inválida, `404` academia/curso inexistente, `403` sem permissão.
 

@@ -110,14 +110,19 @@ func (p *FinanceiroProjection) Handle(e db.Event) error {
 			Valor            float64  `json:"valor"`
 			MesFimCobranca   int      `json:"mes_fim_cobranca"`
 			MetodosPagamento []string `json:"metodos_pagamento"`
+			ModoVigencia     string   `json:"modo_vigencia"`
 		}
 		if err := json.Unmarshal(e.Payload, &in); err != nil {
 			return err
 		}
 		if in.CodigoAcademia == "" || in.Nivel == "" || in.AnoAcademico == "" || in.Valor <= 0 {
-			return fmt.Errorf("evento MensalidadeConfigurada invÃ¡lido")
+			return fmt.Errorf("evento MensalidadeConfigurada inválido")
 		}
-		_, err := p.client.DB().Exec(`INSERT INTO financeiro_mensalidade_configuracoes (event_id,aggregate_id,codigo_academia,nivel,ano_academico,curso_id,valor,mes_fim_cobranca,metodos_pagamento,vigente_em) VALUES ($1,$2,$3,$4,$5,NULLIF($6,'' )::uuid,$7,$8,$9,$10) ON CONFLICT (event_id) DO NOTHING`, e.EventID, e.AggregateID, in.CodigoAcademia, in.Nivel, in.AnoAcademico, stringValue(in.CursoID), in.Valor, in.MesFimCobranca, pq.Array(in.MetodosPagamento), e.OccurredAt)
+		modoVigencia := in.ModoVigencia
+		if modoVigencia == "" {
+			modoVigencia = "a_partir_da_atualizacao"
+		}
+		_, err := p.client.DB().Exec(`INSERT INTO financeiro_mensalidade_configuracoes (event_id,aggregate_id,codigo_academia,nivel,ano_academico,curso_id,valor,mes_fim_cobranca,metodos_pagamento,vigente_em,sequencia,modo_vigencia) VALUES ($1,$2,$3,$4,$5,NULLIF($6,'' )::uuid,$7,$8,$9,$10,$11,$12) ON CONFLICT (event_id) DO NOTHING`, e.EventID, e.AggregateID, in.CodigoAcademia, in.Nivel, in.AnoAcademico, stringValue(in.CursoID), in.Valor, in.MesFimCobranca, pq.Array(in.MetodosPagamento), e.OccurredAt, e.ID, modoVigencia)
 		return err
 	case "MensalidadeConfiguracaoRemovida":
 		var in struct {

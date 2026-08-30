@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/utils"
 )
@@ -22,15 +23,23 @@ type MatriculaConfiguracaoInput struct {
 	CursoID          *string  `json:"curso_id,omitempty"`
 	Valor            float64  `json:"valor"`
 	MetodosPagamento []string `json:"metodos_pagamento"`
+	ModoVigencia     string   `json:"modo_vigencia"`
 }
 type MatriculaConfiguracaoView struct {
-	CodigoAcademia   string     `json:"codigo_academia"`
-	Nivel            string     `json:"nivel"`
-	AnoAcademico     string     `json:"ano_academico"`
-	CursoID          *uuid.UUID `json:"curso_id,omitempty"`
-	Valor            float64    `json:"valor"`
-	MetodosPagamento []string   `json:"metodos_pagamento"`
-	VigenteEm        time.Time  `json:"vigente_em"`
+	CodigoAcademia   string                    `json:"codigo_academia"`
+	Nivel            string                    `json:"nivel"`
+	AnoAcademico     string                    `json:"ano_academico"`
+	CursoID          *uuid.UUID                `json:"curso_id,omitempty"`
+	Valor            float64                   `json:"valor"`
+	MetodosPagamento []string                  `json:"metodos_pagamento"`
+	VigenteEm        time.Time                 `json:"vigente_em"`
+	ModoVigencia     string                    `json:"modo_vigencia,omitempty"`
+	Repricing        *MatriculaRepricingResumo `json:"repricing_pendentes,omitempty"`
+}
+type MatriculaRepricingResumo struct {
+	Atualizadas int `json:"atualizadas"`
+	Ignoradas   int `json:"ignoradas"`
+	Falhas      int `json:"falhas"`
 }
 type MatriculaPagamentoInput struct {
 	CodigoSolicitacao string `json:"-"`
@@ -48,11 +57,20 @@ func (s *Service) ConfigureMatricula(ctx context.Context, in MatriculaConfigurac
 		return MatriculaConfiguracaoView{}, err
 	}
 	in.Valor = roundAmount(in.Valor)
-	payload := map[string]any{"codigo_academia": in.CodigoAcademia, "nivel": in.Nivel, "ano_academico": in.AnoAcademico, "curso_id": optionalString(in.CursoID), "valor": in.Valor, "metodos_pagamento": in.MetodosPagamento}
+	payload := map[string]any{"codigo_academia": in.CodigoAcademia, "nivel": in.Nivel, "ano_academico": in.AnoAcademico, "curso_id": optionalString(in.CursoID), "valor": in.Valor, "metodos_pagamento": in.MetodosPagamento, "modo_vigencia": in.ModoVigencia}
 	if err := s.recordMensalidade(ctx, in.CodigoAcademia, aggregates.MatriculaConfigurada, payload, actorID, actorType, ip); err != nil {
 		return MatriculaConfiguracaoView{}, err
 	}
-	return s.ResolveMatriculaConfiguracao(ctx, in.CodigoAcademia, in.Nivel, in.AnoAcademico, in.CursoID)
+	out, err := s.ResolveMatriculaConfiguracao(ctx, in.CodigoAcademia, in.Nivel, in.AnoAcademico, in.CursoID)
+	if err != nil {
+		return MatriculaConfiguracaoView{}, err
+	}
+	out.ModoVigencia = in.ModoVigencia
+	if in.ModoVigencia == ModoVigenciaCobrancasPendentes {
+		resumo := s.reprecificarSolicitacoesMatriculaPendentes(ctx, in.CodigoAcademia, in.Nivel, in.AnoAcademico, in.CursoID, out.Valor, out.MetodosPagamento, actorID, actorType, ip)
+		out.Repricing = &resumo
+	}
+	return out, nil
 }
 func (s *Service) ListMatriculaConfiguracoes(ctx context.Context, academia string) ([]MatriculaConfiguracaoView, error) {
 	rows, err := s.client.DB().QueryContext(ctx, `SELECT nivel,ano_academico,curso_id,valor::float8,metodos_pagamento,vigente_em FROM financeiro_matricula_configuracoes_atual WHERE codigo_academia=$1 ORDER BY nivel,ano_academico,curso_id`, strings.TrimSpace(academia))
@@ -133,6 +151,9 @@ func (s *Service) validateConfiguracaoMatricula(ctx context.Context, in *Matricu
 	in.CodigoAcademia, in.Nivel, in.AnoAcademico = strings.TrimSpace(in.CodigoAcademia), strings.ToLower(strings.TrimSpace(in.Nivel)), strings.TrimSpace(in.AnoAcademico)
 	if in.CodigoAcademia == "" || !nivelValido(in.Nivel) || in.AnoAcademico == "" {
 		return errors.New("codigo_academia, nivel e ano_academico são obrigatórios")
+	}
+	if !modoVigenciaValido(in.ModoVigencia) {
+		return errors.New(`modo_vigencia é obrigatório: informe "cobrancas_pendentes" ou "a_partir_da_atualizacao"`)
 	}
 	if in.Valor <= 0 || !amountsEqual(roundAmount(in.Valor), in.Valor) {
 		return errors.New("valor deve ser maior que zero e ter no máximo duas casas decimais")
@@ -260,4 +281,67 @@ func (s *Service) CancelarCobrancaMatriculaAberta(ctx context.Context, codigo, m
 		}
 	}
 	return rows.Err()
+}
+
+func (s *Service) reprecificarSolicitacoesMatriculaPendentes(ctx context.Context, academia, nivel, ano string, curso *string, novoValor float64, novosMetodos []string, actorID, actorType, ip string) MatriculaRepricingResumo {
+	resumo := MatriculaRepricingResumo{}
+	var rows *sql.Rows
+	var err error
+	switch nivel {
+	case NivelFundamental:
+		rows, err = s.client.DB().QueryContext(ctx, `SELECT id, codigo_solicitacao FROM projection_solicitacoes_matricula WHERE codigo_academia=$1 AND status='aprovada_pendente_pagamento_matricula' AND ano_escolar_fundamental=$2`, academia, ano)
+	case NivelMedio:
+		rows, err = s.client.DB().QueryContext(ctx, `SELECT id, codigo_solicitacao FROM projection_solicitacoes_matricula WHERE codigo_academia=$1 AND status='aprovada_pendente_pagamento_matricula' AND ano_escolar_medio=$2 AND curso_medio_id IS NOT DISTINCT FROM NULLIF($3,'')::uuid`, academia, ano, optionalString(curso))
+	case NivelSuperior:
+		rows, err = s.client.DB().QueryContext(ctx, `SELECT id, codigo_solicitacao FROM projection_solicitacoes_matricula WHERE codigo_academia=$1 AND status='aprovada_pendente_pagamento_matricula' AND ano_superior=$2 AND curso_superior_id IS NOT DISTINCT FROM NULLIF($3,'')::uuid`, academia, ano, optionalString(curso))
+	default:
+		return resumo
+	}
+	if err != nil {
+		resumo.Falhas++
+		return resumo
+	}
+	defer rows.Close()
+	type alvo struct {
+		id     uuid.UUID
+		codigo string
+	}
+	var alvos []alvo
+	for rows.Next() {
+		var a alvo
+		if rows.Scan(&a.id, &a.codigo) == nil {
+			alvos = append(alvos, a)
+		}
+	}
+	if rows.Err() != nil {
+		resumo.Falhas++
+		return resumo
+	}
+	for _, a := range alvos {
+		aberto, e := s.matriculaTemCobrancaAberta(ctx, a.codigo)
+		if e != nil || aberto {
+			resumo.Ignoradas++
+			continue
+		}
+		loaded, e := s.repository.WithContext(ctx).Load(a.id, "SolicitacaoMatricula")
+		if e != nil {
+			resumo.Falhas++
+			continue
+		}
+		agg, ok := loaded.(*aggregates.SolicitacaoMatricula)
+		if !ok {
+			resumo.Falhas++
+			continue
+		}
+		if e = agg.AtualizarValorPendentePagamentoMatricula(novoValor, novosMetodos); e != nil {
+			resumo.Ignoradas++
+			continue
+		}
+		if e = s.repository.WithContext(ctx).SaveWithAudit(agg, db.AuditContext{UserID: actorID, UserType: actorType, IP: ip}); e != nil {
+			resumo.Falhas++
+			continue
+		}
+		resumo.Atualizadas++
+	}
+	return resumo
 }
