@@ -57,6 +57,19 @@ func (t *capturingAppyPayTransport) paymentInfo() map[string]any {
 	return pi
 }
 
+// lastBodyHasKey reporta se a última requisição POST /charges enviada à
+// AppyPay incluiu literalmente a chave informada no corpo JSON — não apenas
+// se o valor era vazio. Usado para provar que campos opcionais sem conteúdo
+// (paymentInfo/options/notify) são omitidos do corpo, e não enviados como
+// "{}" ou "null" (ver docs/Debbugs/Auditoria de conformidade AppyPay
+// (autenticação e geração de cobrança).md).
+func (t *capturingAppyPayTransport) lastBodyHasKey(key string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	_, ok := t.lastBody[key]
+	return ok
+}
+
 // TestIntegrationGerarCobrancaMensalidadeGPOEnviaPhoneNumberNormalizado
 // prova que, após a extração de gerarCobranca (internal/finance/cobranca_geracao.go),
 // o fluxo de mensalidade continua enviando paymentInfo.phoneNumber já sem
@@ -184,6 +197,15 @@ func TestIntegrationGerarCobrancaREFNaoEnviaPhoneNumber(t *testing.T) {
 		if _, ok := pi["phoneNumber"]; ok {
 			t.Fatalf("REF não deveria enviar phoneNumber, obteve paymentInfo=%#v", pi)
 		}
+		// REF com referência gerada pelo gateway: a documentação da AppyPay
+		// mostra o corpo de POST /charges sem a chave "paymentInfo" (nem
+		// vazia). options/notify também não são usados por gerarCobranca e
+		// devem ficar totalmente ausentes, não "null".
+		for _, chave := range []string{"paymentInfo", "options", "notify"} {
+			if transport.lastBodyHasKey(chave) {
+				t.Fatalf("REF com referência gerada pelo gateway não deveria enviar a chave %q, corpo=%#v", chave, transport.lastBody)
+			}
+		}
 	})
 
 	t.Run("matricula", func(t *testing.T) {
@@ -202,6 +224,11 @@ func TestIntegrationGerarCobrancaREFNaoEnviaPhoneNumber(t *testing.T) {
 		pi := transport.paymentInfo()
 		if _, ok := pi["phoneNumber"]; ok {
 			t.Fatalf("REF não deveria enviar phoneNumber, obteve paymentInfo=%#v", pi)
+		}
+		for _, chave := range []string{"paymentInfo", "options", "notify"} {
+			if transport.lastBodyHasKey(chave) {
+				t.Fatalf("REF com referência gerada pelo gateway não deveria enviar a chave %q, corpo=%#v", chave, transport.lastBody)
+			}
 		}
 	})
 }

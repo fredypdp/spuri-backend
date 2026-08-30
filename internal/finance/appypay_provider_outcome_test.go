@@ -109,6 +109,67 @@ func TestExtractProviderOutcomeSemNenhumaInformacao(t *testing.T) {
 	}
 }
 
+// TestIsSuccessfulProviderPayloadRespondeAoFormatoRealDeWebhookDaAppyPay
+// prova que IsSuccessfulProviderPayload lê corretamente o formato real de
+// webhook da AppyPay — status dentro de "responseStatus", nunca solto na
+// raiz do payload (ver seção "Merchant Webhooks" de docs/Parceiros e
+// integrações/AppyPay Documentação.md) — e não regride para payloads sem
+// "responseStatus" nenhum.
+func TestIsSuccessfulProviderPayloadRespondeAoFormatoRealDeWebhookDaAppyPay(t *testing.T) {
+	casos := []struct {
+		nome    string
+		payload map[string]any
+		quer    bool
+	}{
+		{
+			nome: "webhook real de sucesso (responseStatus aninhado)",
+			payload: map[string]any{
+				"id":                    "56985af8-7256-408c-8e71-99d63dd2074b",
+				"merchantTransactionId": "030000000301201",
+				"amount":                float64(100),
+				"responseStatus": map[string]any{
+					"successful": true,
+					"status":     "Success",
+					"code":       float64(100),
+					"message":    "Transaction Approved",
+					"source":     "GPO",
+				},
+			},
+			quer: true,
+		},
+		{
+			nome: "webhook real de falha (responseStatus aninhado)",
+			payload: map[string]any{
+				"id": "outro-id",
+				"responseStatus": map[string]any{
+					"successful": false,
+					"status":     "Failed",
+					"code":       float64(231),
+					"source":     "GPO",
+				},
+			},
+			quer: false,
+		},
+		{
+			nome:    "payload sem responseStatus e sem status solto: nunca é sucesso",
+			payload: map[string]any{"id": "sem-informacao"},
+			quer:    false,
+		},
+		{
+			nome:    "compatibilidade com status solto na raiz (formato usado por mocks de teste)",
+			payload: map[string]any{"id": "id-legado", "status": "Success"},
+			quer:    true,
+		},
+	}
+	for _, c := range casos {
+		t.Run(c.nome, func(t *testing.T) {
+			if got := IsSuccessfulProviderPayload(c.payload); got != c.quer {
+				t.Fatalf("IsSuccessfulProviderPayload(%#v) = %t, queria %t", c.payload, got, c.quer)
+			}
+		})
+	}
+}
+
 func TestAppyPayCodeOutcomesConsistency(t *testing.T) {
 	estadosValidos := map[string]bool{"Success": true, "Pending": true, "Cancelled": true, "Expired": true, "Failed": true}
 	for code, info := range appyPayCodeOutcomes {

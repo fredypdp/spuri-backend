@@ -282,7 +282,22 @@ func TestIntegrationReceberWebhookAppyPayEfetivaVinculoMatricula(t *testing.T) {
 	router.POST("/financeiro/appypay/webhooks/ref", ReceberWebhookAppyPay("REF"))
 
 	eventID := charge.Charge.ProviderChargeID
-	payload, _ := json.Marshal(map[string]any{"id": eventID, "status": "Success"})
+	// Formato real de um webhook da AppyPay (ver seção "Merchant Webhooks" de
+	// docs/Parceiros e integrações/AppyPay Documentação.md): o status vem
+	// dentro de "responseStatus", nunca em um campo solto "status"/"state"
+	// na raiz do payload.
+	payload, _ := json.Marshal(map[string]any{
+		"id":                    eventID,
+		"merchantTransactionId": charge.Charge.MerchantTransactionID,
+		"amount":                750,
+		"responseStatus": map[string]any{
+			"successful": true,
+			"status":     "Success",
+			"code":       100,
+			"message":    "Transaction Approved",
+			"source":     "REF",
+		},
+	})
 	postWebhook := func() *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/financeiro/appypay/webhooks/ref", bytes.NewReader(payload))
