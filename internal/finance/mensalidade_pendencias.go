@@ -301,13 +301,22 @@ func (s *Service) PendenciasSemCobranca(ctx context.Context, academia string, tu
 			if mes != nil && ref.Month != *mes {
 				continue
 			}
+			chaveMes := v.CodigoEstudante + "|" + v.AnoLetivo + "|" + strconv.Itoa(ref.Month)
+			estado := EstadoPendente
+			var audit []uuid.UUID
+			if info, ok := estados[chaveMes]; ok {
+				estado, audit = info.Estado, info.Audit
+			}
+			if estado != EstadoPendente {
+				continue
+			}
 			chaveCfg := v.CodigoAcademia + "|" + v.Nivel + "|" + v.AnoAcademico + "|" + optionalUUID(v.CursoID) + "|" + ref.Data.Format("2006-01")
 			cfg, temCfg := cfgCache[chaveCfg]
 			if !temCfg {
 				if cfgNaoEncontrada[chaveCfg] {
 					continue
 				}
-				cfg, err = s.resolveConfiguracao(ctx, v.CodigoAcademia, v.Nivel, v.AnoAcademico, v.CursoID, ref.Data)
+				cfg, err = s.resolveConfiguracaoEfetiva(ctx, v.CodigoAcademia, v.Nivel, v.AnoAcademico, v.CursoID, ref.Data, true)
 				if errors.Is(err, ErrNotFound) {
 					cfgNaoEncontrada[chaveCfg] = true
 					continue
@@ -318,16 +327,6 @@ func (s *Service) PendenciasSemCobranca(ctx context.Context, academia string, tu
 				cfgCache[chaveCfg] = cfg
 			}
 			if posicaoNoAnoLetivo(ref.Month, natural) > posicaoNoAnoLetivo(cfg.MesFimCobranca, natural) {
-				continue
-			}
-			chaveMes := v.CodigoEstudante + "|" + v.AnoLetivo + "|" + strconv.Itoa(ref.Month)
-			estado := EstadoPendente
-			var audit []uuid.UUID
-			if info, ok := estados[chaveMes]; ok {
-				estado = info.Estado
-				audit = info.Audit
-			}
-			if estado != EstadoPendente {
 				continue
 			}
 			out = append(out, MensalidadeMesView{
