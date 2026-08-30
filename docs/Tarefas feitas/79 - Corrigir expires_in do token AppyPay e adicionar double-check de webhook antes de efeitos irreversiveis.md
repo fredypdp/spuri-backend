@@ -1,7 +1,8 @@
 ---
 criado: 2026-08-30
 origem: conversa com Fredy (Claude como orquestrador — segunda rodada de auditoria de conformidade com docs/Parceiros e integrações/AppyPay Documentação.md, desta vez focada em prontidão para produção do módulo de pagamentos como um todo; PostgreSQL 16 + Go 1.24 reais em sandbox; Codex como executor)
-status: pendente
+status: concluido
+concluido: 2026-08-30
 tipo: correcao_de_bug
 depende_de: "78 - Reprecificar cobrancas pendentes de mensalidade e matricula (todos os meses) ou so a partir da atualizacao.md" (já concluída e mergeada — este documento foi escrito e validado sobre o main atual, que já inclui essa tarefa)
 debug: docs/Debbugs/Auditoria de conformidade AppyPay (autenticação e geração de cobrança).md

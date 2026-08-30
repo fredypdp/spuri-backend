@@ -24,8 +24,21 @@ type handlerAppyPayMockTransport struct{}
 
 func (handlerAppyPayMockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	body := `{"id":"provider-charge-handler","status":"Pending"}`
-	if strings.Contains(req.URL.Path, "/oauth2/token") {
+	switch {
+	case strings.Contains(req.URL.Path, "/oauth2/token"):
 		body = `{"access_token":"test-token","expires_in":3600}`
+	case req.Method == http.MethodGet:
+		// Formato real de GET /charges/{id} (seção "Get a charge" da
+		// documentação AppyPay): o status vem dentro de "payment.status",
+		// nunca num campo solto "status" na raiz — diferente do corpo
+		// simplificado usado acima para a criação da cobrança (que este
+		// teste não usa para decidir nada). AcceptWebhook confirma um
+		// webhook de sucesso com exatamente este GET antes de aplicar um
+		// efeito irreversível (ver liveChargeStatus em
+		// internal/finance/appypay.go); devolver aqui o mesmo resultado que
+		// o webhook do teste relata (Success) reflete o cenário sendo
+		// testado — a AppyPay já confirmou o pagamento.
+		body = `{"payment":{"id":"provider-charge-handler","status":"Success","transactionEvents":[{"responseStatus":{"successful":true,"status":"Success","code":100,"source":"REF"}}]}}`
 	}
 	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
 }

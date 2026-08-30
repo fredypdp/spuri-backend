@@ -1,7 +1,10 @@
 package finance
 
 import (
+	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -299,6 +302,52 @@ func TestAppyPayResourceConfig(t *testing.T) {
 	}
 	if err := ValidateAppyPayResourceConfig(); err != nil {
 		t.Fatalf("validação rejeitou APPYPAY_RESOURCE definida: %v", err)
+	}
+}
+
+// appyPayTokenTransport simula a resposta do endpoint de token da AppyPay
+// com um corpo de expires_in configurável, para exercitar token() com os
+// dois formatos que o campo pode assumir na prática.
+type appyPayTokenTransport struct{ expiresInJSON string }
+
+func (t appyPayTokenTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	body := `{"access_token":"tok-` + uuid.NewString() + `","expires_in":` + t.expiresInJSON + `}`
+	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+}
+
+// TestTokenAceitaExpiresInComoStringOuNumero cobre o formato real da
+// resposta do endpoint de token da AppyPay (secção "Get a token" de
+// docs/Parceiros e integrações/AppyPay Documentação.md): expires_in vem
+// como STRING JSON (ex.: "expires_in": "3599") — comportamento do endpoint
+// v1 do Azure AD (login.microsoftonline.com/{tenant}/oauth2/token, que é o
+// que a AppyPay usa), diferente do endpoint v2.0, que usa número. Antes
+// desta correção o campo era um int puro: json.Unmarshal de uma string
+// JSON para um campo int falha, e token() tratava qualquer erro de
+// unmarshal como falha de autenticação total — mesmo com access_token
+// presente e válido no mesmo payload. Cobre também o formato numérico puro,
+// usado por todos os mocks de teste deste pacote, para garantir que a
+// correção não regride o que já funcionava.
+func TestTokenAceitaExpiresInComoStringOuNumero(t *testing.T) {
+	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
+	casos := []struct {
+		nome          string
+		expiresInJSON string
+	}{
+		{"string, formato real da AppyPay", `"3599"`},
+		{"número, formato usado pelos mocks de teste", `3600`},
+	}
+	for _, c := range casos {
+		t.Run(c.nome, func(t *testing.T) {
+			s := NewService(nil)
+			s.SetHTTPClient(&http.Client{Transport: appyPayTokenTransport{expiresInJSON: c.expiresInJSON}})
+			token, err := s.token(context.Background(), credentialSecrets{ID: uuid.New(), ClientID: "client-x", ClientSecret: "secret-y"})
+			if err != nil {
+				t.Fatalf("token() falhou com expires_in=%s: %v", c.expiresInJSON, err)
+			}
+			if token == "" {
+				t.Fatal("token vazio")
+			}
+		})
 	}
 }
 

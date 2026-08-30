@@ -123,11 +123,11 @@ func TestIntegrationAcceptWebhookIsIdempotent(t *testing.T) {
 	owner := WebhookOwner{CredentialID: uuid.New(), ContextoTipo: ContextoAcademia, CodigoAcademia: "INTWEBHOOK"}
 	payload := map[string]any{"id": eventID, "status": "Paid"}
 
-	accepted, err := service.AcceptWebhook(context.Background(), "GPO", eventID, owner, payload)
+	accepted, _, err := service.AcceptWebhook(context.Background(), "GPO", eventID, owner, payload)
 	if err != nil || !accepted {
 		t.Fatalf("primeiro webhook = accepted %t, err %v", accepted, err)
 	}
-	accepted, err = service.AcceptWebhook(context.Background(), "GPO", eventID, owner, payload)
+	accepted, _, err = service.AcceptWebhook(context.Background(), "GPO", eventID, owner, payload)
 	if err != nil || accepted {
 		t.Fatalf("webhook repetido = accepted %t, err %v", accepted, err)
 	}
@@ -205,7 +205,7 @@ func TestIntegrationMatriculaWebhookTardioMantemCancelamentoERegistraConflito(t 
 	if err = service.CancelarCobrancaMatriculaAberta(context.Background(), codigo, "solicitação cancelada", uuid.NewString(), "academia", "127.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
-	accepted, err := service.AcceptWebhook(context.Background(), "REF", charge.Charge.ProviderChargeID, WebhookOwner{CredentialID: uuid.New(), ContextoTipo: ContextoAcademia, CodigoAcademia: academia}, map[string]any{"id": charge.Charge.ProviderChargeID, "responseStatus": map[string]any{"status": "Success", "code": float64(100)}})
+	accepted, _, err := service.AcceptWebhook(context.Background(), "REF", charge.Charge.ProviderChargeID, WebhookOwner{CredentialID: uuid.New(), ContextoTipo: ContextoAcademia, CodigoAcademia: academia}, map[string]any{"id": charge.Charge.ProviderChargeID, "responseStatus": map[string]any{"status": "Success", "code": float64(100)}})
 	if err != nil || !accepted {
 		t.Fatalf("webhook tardio = accepted %t, err %v", accepted, err)
 	}
@@ -222,6 +222,134 @@ func TestIntegrationMatriculaWebhookTardioMantemCancelamentoERegistraConflito(t 
 	}
 	if conflitos != 1 {
 		t.Fatalf("conflitos pós-cancelamento = %d, queria 1", conflitos)
+	}
+}
+
+// methodAwareMockTransport permite controlar, de forma independente, o
+// resultado de um GET (a consulta ao vivo usada pelo double-check de
+// segurança de AcceptWebhook — ver liveChargeStatus) separadamente do POST
+// de criação da cobrança e do endpoint de token. getStatus define o status
+// devolvido pelo GET; se getErr não for nil, o GET falha com esse erro em
+// vez de responder (simula a AppyPay upstream indisponível).
+type methodAwareMockTransport struct {
+	getStatus string
+	getErr    error
+}
+
+func (t *methodAwareMockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	switch {
+	case strings.Contains(req.URL.Path, "/oauth2/token"):
+		return methodAwareJSON(req, `{"access_token":"test-token","expires_in":3600}`), nil
+	case req.Method == http.MethodGet:
+		if t.getErr != nil {
+			return nil, t.getErr
+		}
+		providerID := strings.TrimPrefix(req.URL.EscapedPath(), "/v2.0/charges/")
+		if providerID == req.URL.EscapedPath() || providerID == "" {
+			providerID = req.URL.Query().Get("merchantTransactionId")
+		}
+		return methodAwareJSON(req, `{"payment":{"id":"`+providerID+`","status":"`+t.getStatus+`","transactionEvents":[{"responseStatus":{"successful":true,"status":"`+t.getStatus+`","source":"REF"}}]}}`), nil
+	default:
+		return methodAwareJSON(req, `{"id":"provider-`+uuid.NewString()+`","responseStatus":{"successful":true,"status":"Pending","source":"REF"}}`), nil
+	}
+}
+
+func methodAwareJSON(req *http.Request, body string) *http.Response {
+	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}
+}
+
+// TestIntegrationAcceptWebhookConfirmaSucessoQuandoConsultaAoVivoConcorda
+// cobre o double-check de segurança recomendado pela documentação da
+// AppyPay ("Important: As a security measure, double check the transaction
+// by calling the GET /charges endpoint" — secção "Merchant Webhooks"):
+// quando o webhook alega sucesso e a consulta ao vivo concorda,
+// confirmedSuccess deve ser true.
+func TestIntegrationAcceptWebhookConfirmaSucessoQuandoConsultaAoVivoConcorda(t *testing.T) {
+	client := integrationClient(t)
+	t.Setenv("ENV", "test")
+	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
+	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	service := NewService(client)
+	service.SetHTTPClient(&http.Client{Transport: &methodAwareMockTransport{getStatus: "Success"}})
+	academia := "MAT" + uuid.NewString()[:8]
+	configureIntegrationCredential(t, service, ContextoAcademia, academia)
+	codigo := seedMatriculaPendente(t, client, academia, 900)
+	charge, err := service.IniciarPagamentoMatricula(context.Background(), MatriculaPagamentoInput{CodigoSolicitacao: codigo, MetodoPagamento: "REF"}, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := WebhookOwner{CredentialID: uuid.New(), ContextoTipo: ContextoAcademia, CodigoAcademia: academia}
+	accepted, confirmed, err := service.AcceptWebhook(context.Background(), "REF", charge.Charge.ProviderChargeID, owner, map[string]any{"id": charge.Charge.ProviderChargeID, "responseStatus": map[string]any{"status": "Success", "code": float64(100)}})
+	if err != nil || !accepted || !confirmed {
+		t.Fatalf("accepted=%t confirmed=%t err=%v, queria accepted=true confirmed=true", accepted, confirmed, err)
+	}
+	var status string
+	if err := client.DB().QueryRow(`SELECT payload->>'status' FROM financeiro_cobrancas WHERE id=$1`, charge.Charge.ID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "Success" {
+		t.Fatalf("status da cobrança = %q, queria Success", status)
+	}
+}
+
+// TestIntegrationAcceptWebhookNaoConfirmaSucessoQuandoConsultaAoVivoDiscorda
+// cobre o mesmo double-check no caso em que ele realmente pega algo: o
+// webhook alega sucesso mas a consulta ao vivo diz Pending. confirmedSuccess
+// deve ser false (nenhum efeito irreversível é disparado) e o estado
+// persistido deve refletir a consulta ao vivo — autoritativa — em vez da
+// alegação do webhook.
+func TestIntegrationAcceptWebhookNaoConfirmaSucessoQuandoConsultaAoVivoDiscorda(t *testing.T) {
+	client := integrationClient(t)
+	t.Setenv("ENV", "test")
+	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
+	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	service := NewService(client)
+	service.SetHTTPClient(&http.Client{Transport: &methodAwareMockTransport{getStatus: "Pending"}})
+	academia := "MAT" + uuid.NewString()[:8]
+	configureIntegrationCredential(t, service, ContextoAcademia, academia)
+	codigo := seedMatriculaPendente(t, client, academia, 900)
+	charge, err := service.IniciarPagamentoMatricula(context.Background(), MatriculaPagamentoInput{CodigoSolicitacao: codigo, MetodoPagamento: "REF"}, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := WebhookOwner{CredentialID: uuid.New(), ContextoTipo: ContextoAcademia, CodigoAcademia: academia}
+	accepted, confirmed, err := service.AcceptWebhook(context.Background(), "REF", charge.Charge.ProviderChargeID, owner, map[string]any{"id": charge.Charge.ProviderChargeID, "responseStatus": map[string]any{"status": "Success", "code": float64(100)}})
+	if err != nil || !accepted || confirmed {
+		t.Fatalf("accepted=%t confirmed=%t err=%v, queria accepted=true confirmed=false", accepted, confirmed, err)
+	}
+	var status string
+	if err := client.DB().QueryRow(`SELECT payload->>'status' FROM financeiro_cobrancas WHERE id=$1`, charge.Charge.ID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != EstadoCobrancaAguardandoPagamento {
+		t.Fatalf("status da cobrança = %q, queria %q (autoritativo, da consulta ao vivo)", status, EstadoCobrancaAguardandoPagamento)
+	}
+}
+
+// TestIntegrationAcceptWebhookConfirmaSucessoQuandoConsultaAoVivoFalha cobre
+// o fallback do double-check: se a consulta ao vivo falhar (upstream
+// indisponível, timeout), AcceptWebhook cai para confiar no webhook em vez
+// de bloquear a confirmação — nunca deixa uma cobrança presa por causa de
+// uma falha temporária do próprio double-check (mesmo raciocínio do Bug 1
+// já corrigido, em que o webhook nunca efetivava a matrícula).
+func TestIntegrationAcceptWebhookConfirmaSucessoQuandoConsultaAoVivoFalha(t *testing.T) {
+	client := integrationClient(t)
+	t.Setenv("ENV", "test")
+	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
+	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	service := NewService(client)
+	service.SetHTTPClient(&http.Client{Transport: &methodAwareMockTransport{getErr: errors.New("upstream indisponível (simulado)")}})
+	academia := "MAT" + uuid.NewString()[:8]
+	configureIntegrationCredential(t, service, ContextoAcademia, academia)
+	codigo := seedMatriculaPendente(t, client, academia, 900)
+	charge, err := service.IniciarPagamentoMatricula(context.Background(), MatriculaPagamentoInput{CodigoSolicitacao: codigo, MetodoPagamento: "REF"}, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := WebhookOwner{CredentialID: uuid.New(), ContextoTipo: ContextoAcademia, CodigoAcademia: academia}
+	accepted, confirmed, err := service.AcceptWebhook(context.Background(), "REF", charge.Charge.ProviderChargeID, owner, map[string]any{"id": charge.Charge.ProviderChargeID, "responseStatus": map[string]any{"status": "Success", "code": float64(100)}})
+	if err != nil || !accepted || !confirmed {
+		t.Fatalf("accepted=%t confirmed=%t err=%v, queria accepted=true confirmed=true (fallback)", accepted, confirmed, err)
 	}
 }
 
@@ -252,7 +380,7 @@ func TestIntegrationAcceptWebhookReflecteEstadoNaoSucesso(t *testing.T) {
 	}
 
 	owner := WebhookOwner{CredentialID: uuid.New(), ContextoTipo: ContextoAcademia, CodigoAcademia: academia}
-	accepted, err := service.AcceptWebhook(context.Background(), "REF", charge.Charge.ProviderChargeID, owner, map[string]any{"id": charge.Charge.ProviderChargeID, "responseStatus": map[string]any{"status": "Failed", "code": float64(245), "message": "The payment has expired", "source": "REF"}})
+	accepted, _, err := service.AcceptWebhook(context.Background(), "REF", charge.Charge.ProviderChargeID, owner, map[string]any{"id": charge.Charge.ProviderChargeID, "responseStatus": map[string]any{"status": "Failed", "code": float64(245), "message": "The payment has expired", "source": "REF"}})
 	if err != nil || !accepted {
 		t.Fatalf("webhook Expired = accepted %t, err %v", accepted, err)
 	}
@@ -280,7 +408,7 @@ func TestIntegrationAcceptWebhookReflecteEstadoNaoSucesso(t *testing.T) {
 	// eventID diferente (aqui o id interno da cobrança, que loadCharge
 	// também reconhece) passa pela deduplicação de
 	// financeiro_webhooks_recebidos para realmente exercer a guarda.
-	accepted2, err := service.AcceptWebhook(context.Background(), "REF", charge.Charge.ID.String(), owner, map[string]any{"id": charge.Charge.ProviderChargeID, "responseStatus": map[string]any{"status": "Failed"}})
+	accepted2, _, err := service.AcceptWebhook(context.Background(), "REF", charge.Charge.ID.String(), owner, map[string]any{"id": charge.Charge.ProviderChargeID, "responseStatus": map[string]any{"status": "Failed"}})
 	if err != nil || !accepted2 {
 		t.Fatalf("segundo webhook = accepted %t, err %v", accepted2, err)
 	}

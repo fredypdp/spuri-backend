@@ -118,7 +118,7 @@ func TestIntegrationHandlersRemocaoFinanceiraRespeitamEscopoDaAcademia(t *testin
 	}
 	if _, err := FinanceiroService.ConfigureMensalidade(ctx.Request.Context(), finance.MensalidadeConfiguracaoInput{
 		CodigoAcademia: academiaDona, Nivel: finance.NivelFundamental, AnoAcademico: "7_ano_fundamental",
-		Valor: 5000, MesFimCobranca: 7, MetodosPagamento: []string{"GPO_QR"},
+		Valor: 5000, MesFimCobranca: 7, MetodosPagamento: []string{"GPO_QR"}, ModoVigencia: finance.ModoVigenciaAPartirDaAtualizacao,
 	}, uuid.NewString(), "academia", "127.0.0.1"); err != nil {
 		t.Fatalf("ConfigureMensalidade falhou: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestIntegrationHandlersRemocaoFinanceiraRespeitamEscopoDaAcademia(t *testin
 	// 4) Configuração de matrícula.
 	if _, err := FinanceiroService.ConfigureMatricula(ctx.Request.Context(), finance.MatriculaConfiguracaoInput{
 		CodigoAcademia: academiaDona, Nivel: finance.NivelFundamental, AnoAcademico: "7_ano_fundamental",
-		Valor: 15000, MetodosPagamento: []string{"GPO_QR"},
+		Valor: 15000, MetodosPagamento: []string{"GPO_QR"}, ModoVigencia: finance.ModoVigenciaAPartirDaAtualizacao,
 	}, uuid.NewString(), "academia", "127.0.0.1"); err != nil {
 		t.Fatalf("ConfigureMatricula falhou: %v", err)
 	}

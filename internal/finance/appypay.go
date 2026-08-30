@@ -1320,8 +1320,8 @@ func (s *Service) token(ctx context.Context, cred credentialSecrets) (string, er
 		return "", fmt.Errorf("%w: token AppyPay recusado: HTTP %d", ErrUpstream, res.StatusCode)
 	}
 	var out struct {
-		AccessToken string `json:"access_token"`
-		ExpiresIn   int    `json:"expires_in"`
+		AccessToken string          `json:"access_token"`
+		ExpiresIn   flexibleSeconds `json:"expires_in"`
 	}
 	if err = json.Unmarshal(raw, &out); err != nil || out.AccessToken == "" {
 		return "", fmt.Errorf("%w: resposta de token AppyPay inválida", ErrUpstream)
@@ -1333,6 +1333,40 @@ func (s *Service) token(ctx context.Context, cred credentialSecrets) (string, er
 	s.tokens[cred.ID] = tokenEntry{out.AccessToken, time.Now().Add(time.Duration(out.ExpiresIn) * time.Second)}
 	s.mu.Unlock()
 	return out.AccessToken, nil
+}
+
+// flexibleSeconds decodifica um campo de segundos (usado aqui para
+// expires_in) que a AppyPay pode enviar como número JSON puro OU como
+// string JSON contendo um número. O endpoint real de token da AppyPay
+// (login.microsoftonline.com/{tenant}/oauth2/token, o endpoint "v1" do
+// Azure AD, não o "v2.0") devolve expires_in como STRING
+// (ex.: "expires_in": "3599") — documentado no exemplo de resposta da
+// secção "Get a token" e comportamento conhecido do próprio Azure AD v1
+// (distinto do endpoint v2.0, que usa número). Antes desta correção o
+// campo era declarado como int puro: json.Unmarshal de uma string JSON
+// para um campo int retorna erro, e token() tratava qualquer erro de
+// unmarshal como falha de autenticação total — mesmo com access_token
+// presente e válido no mesmo payload. Ver
+// docs/Debbugs/Auditoria de conformidade AppyPay — autenticação e geração
+// de cobrança (produção).md.
+type flexibleSeconds int
+
+func (f *flexibleSeconds) UnmarshalJSON(b []byte) error {
+	var asInt int
+	if err := json.Unmarshal(b, &asInt); err == nil {
+		*f = flexibleSeconds(asInt)
+		return nil
+	}
+	var asString string
+	if err := json.Unmarshal(b, &asString); err != nil {
+		return err
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(asString))
+	if err != nil {
+		return err
+	}
+	*f = flexibleSeconds(n)
+	return nil
 }
 
 func (s *Service) record(ctx context.Context, id uuid.UUID, event string, payload map[string]any, userID, userType, ip string) error {
@@ -1435,26 +1469,62 @@ func (s *Service) AuthenticateWebhook(ctx context.Context, headers http.Header) 
 	return WebhookOwner{}, errors.New("webhook não autenticado")
 }
 
+// liveChargeStatus faz uma consulta ao vivo (GET /charges/{id}) e devolve o
+// status autoritativo reportado pela AppyPay nesse exato momento. É a
+// medida de segurança que a própria documentação da AppyPay recomenda antes
+// de tratar um webhook de sucesso como definitivo — "Important: As a
+// security measure, double check the transaction by calling the GET
+// /charges endpoint" (secção "Merchant Webhooks"), reforçada na secção
+// interna "Escopo do Módulo Financeiro Base": "Ao receber, é recomendado
+// confirmar o estado com um GET /charges/{id} antes de aplicar efeitos de
+// negócio irreversíveis".
+//
+// Não persiste nada por si própria — quem chama decide o que gravar a
+// partir do status devolvido. O segundo valor devolvido é false quando a
+// consulta em si falhou (upstream indisponível, timeout, credencial
+// temporariamente inacessível) ou não devolveu nenhum status reconhecível
+// — nesses casos quem chama deve cair para confiar no que o webhook
+// reportou, em vez de bloquear a confirmação: um GET indisponível não pode
+// deixar uma cobrança presa sem nunca confirmar um pagamento que a própria
+// AppyPay já reportou como bem-sucedido no webhook (o mesmo raciocínio do
+// Bug 1 já corrigido, em que o webhook nunca efetivava a matrícula).
+func (s *Service) liveChargeStatus(ctx context.Context, charge chargeRow) (status string, ok bool) {
+	cred, err := s.loadCredential(ctx, charge.Contexto, charge.Academia)
+	if err != nil {
+		return "", false
+	}
+	path := "/charges/" + url.PathEscape(charge.ProviderID)
+	if charge.ProviderID == "" {
+		path = "/charges?merchantTransactionId=" + url.QueryEscape(charge.Merchant)
+	}
+	response, err := s.callJSON(ctx, cred, http.MethodGet, path, nil, false)
+	if err != nil {
+		return "", false
+	}
+	status = normalizeChargeStatus(extractProviderOutcome(response).Status)
+	return status, status != ""
+}
+
 // AcceptWebhook reserves its event id first in the dedicated idempotency index.
 // If ledger persistence fails the reservation is removed, so a delivery retry is
 // still processed. No charge side-effect is executed here.
-func (s *Service) AcceptWebhook(ctx context.Context, metodo, eventID string, owner WebhookOwner, payload map[string]any) (bool, error) {
+func (s *Service) AcceptWebhook(ctx context.Context, metodo, eventID string, owner WebhookOwner, payload map[string]any) (accepted bool, confirmedSuccess bool, err error) {
 	metodo = strings.ToUpper(metodo)
 	if (metodo != "GPO" && metodo != "REF") || strings.TrimSpace(eventID) == "" {
-		return false, errors.New("webhook inválido")
+		return false, false, errors.New("webhook inválido")
 	}
 	res, err := s.client.DB().ExecContext(ctx, `INSERT INTO financeiro_webhooks_recebidos(event_id,metodo) VALUES($1,$2) ON CONFLICT(event_id) DO NOTHING`, eventID, metodo)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	affected, _ := res.RowsAffected()
 	if affected == 0 {
-		return false, nil
+		return false, false, nil
 	}
 	data := map[string]any{"event_id": eventID, "metodo": metodo, "credential_id": owner.CredentialID.String(), "contexto_tipo": owner.ContextoTipo, "codigo_academia": owner.CodigoAcademia, "payload": sanitize(payload)}
 	if err = s.record(ctx, uuid.New(), "WebhookAppyPayRecebido", data, "appypay:webhook", "sistema", "webhook"); err != nil {
 		_, _ = s.client.DB().ExecContext(ctx, `DELETE FROM financeiro_webhooks_recebidos WHERE event_id=$1`, eventID)
-		return false, err
+		return false, false, err
 	}
 	// Reflete no read model qualquer estado que o webhook reporte — sucesso
 	// (Success) ou qualquer um dos outros três estados terminais que a
@@ -1474,6 +1544,19 @@ func (s *Service) AcceptWebhook(ctx context.Context, metodo, eventID string, own
 			// cancelada) — só um sucesso tem tratamento de conflito próprio
 			// (abaixo) que pode correr por cima de um estado terminal local.
 			(success || !isTerminalChargeStatus(charge.Status)) {
+			// Double-check: um webhook de sucesso "normal" (a cobrança não
+			// está cancelada localmente) só é tratado como definitivo depois
+			// de uma consulta ao vivo concordar. O caso de sucesso chegando
+			// depois de um cancelamento local (abaixo, eventType
+			// CobrancaAppyPayConflitoPosCancelamento) já não dispara nenhum
+			// efeito irreversível por si só — é só um registo de conflito
+			// para reconciliação manual — então não precisa do double-check.
+			if success && !strings.EqualFold(charge.Status, "cancelada") {
+				if live, ok := s.liveChargeStatus(ctx, charge); ok {
+					normalized = live
+					success = isSuccessfulChargeStatus(live)
+				}
+			}
 			updated := make(map[string]any, len(charge.Payload)+7)
 			for k, v := range charge.Payload {
 				updated[k] = v
@@ -1495,11 +1578,12 @@ func (s *Service) AcceptWebhook(ctx context.Context, metodo, eventID string, own
 				eventType = "CobrancaAppyPayConflitoPosCancelamento"
 			}
 			if s.record(ctx, charge.ID, eventType, updated, "appypay:webhook", "sistema", "webhook") == nil && success && eventType == "CobrancaAppyPayConsultada" {
+				confirmedSuccess = true
 				_ = s.confirmMensalidadeCharge(ctx, charge.ID, "appypay:webhook", "sistema", "webhook")
 			}
 		}
 	}
-	return true, nil
+	return true, confirmedSuccess, nil
 }
 
 type chargeRow struct {
