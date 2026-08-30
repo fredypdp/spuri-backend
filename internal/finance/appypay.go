@@ -507,7 +507,26 @@ func (s *Service) CreateCharge(ctx context.Context, in ChargeRequest, actorID, a
 		_ = s.releaseChargeReservation(ctx, in.MerchantTransactionID, id)
 		return ChargeResult{}, err
 	}
-	providerBody := map[string]any{"amount": in.Amount, "currency": in.Currency, "description": in.Description, "merchantTransactionId": in.MerchantTransactionID, "paymentMethod": method, "paymentInfo": in.PaymentInfo, "options": in.Options, "notify": in.Notify}
+	providerBody := map[string]any{"amount": in.Amount, "currency": in.Currency, "description": in.Description, "merchantTransactionId": in.MerchantTransactionID, "paymentMethod": method}
+	// paymentInfo/options/notify só entram no corpo quando têm conteúdo real.
+	// providerBody é um map[string]any bruto (não uma struct com `omitempty`),
+	// então json.Marshal sempre serializa toda chave presente no map — mesmo
+	// que o valor seja um map[string]any{} vazio (vira "{}", não é omitido).
+	// Isto importa sobretudo para REF com referência gerada pelo gateway, onde
+	// a documentação da AppyPay mostra o corpo sem a chave "paymentInfo": um
+	// objeto vazio ali pode ser lido pela AppyPay como "o merchant tentou
+	// enviar uma referência própria, mas sem os campos exigidos", em vez de
+	// "nenhuma referência própria, gerar automaticamente". Ver
+	// docs/Debbugs/Auditoria de conformidade AppyPay (autenticação e geração de cobrança).md.
+	if len(in.PaymentInfo) > 0 {
+		providerBody["paymentInfo"] = in.PaymentInfo
+	}
+	if len(in.Options) > 0 {
+		providerBody["options"] = in.Options
+	}
+	if len(in.Notify) > 0 {
+		providerBody["notify"] = in.Notify
+	}
 	response, err := s.callJSON(ctx, credential, http.MethodPost, "/charges", providerBody, in.Async)
 	if err != nil {
 		_ = s.record(ctx, id, "CobrancaAppyPayFalhou", chargePayload(id, in, "", "Failed", map[string]any{"error": "provider_request_failed"}), actorID, actorType, ip)
@@ -1761,6 +1780,25 @@ func extractProviderOutcome(v map[string]any) providerOutcome {
 	out := providerOutcome{Status: responseStatus(v)}
 	resolveOutcomeStatus(&out)
 	return out
+}
+
+// IsSuccessfulProviderPayload informa se um payload cru vindo da AppyPay —
+// seja a resposta síncrona de POST /charges ou /qr-codes, seja o corpo de um
+// webhook — representa um pagamento concluído com sucesso.
+//
+// É a MESMA extração/normalização usada por CreateCharge, CreateGPOQRCode e
+// ConsultCharge (extractProviderOutcome + normalizeChargeStatus), incluindo
+// a leitura correta de "responseStatus.status"/"responseStatus.successful",
+// que é onde a AppyPay realmente coloca o status (nunca em campos soltos
+// "status"/"state" na raiz do payload — ver seção "Merchant Webhooks" de
+// docs/Parceiros e integrações/AppyPay Documentação.md). Qualquer código
+// fora deste pacote que precise reagir a um sucesso da AppyPay (por exemplo,
+// um handler HTTP de webhook decidindo se efetiva uma matrícula) deve
+// chamar esta função em vez de reimplementar sua própria leitura do
+// payload — ver docs/Debbugs/Auditoria de conformidade AppyPay (autenticação
+// e geração de cobrança).md para o bug que isto substitui.
+func IsSuccessfulProviderPayload(payload map[string]any) bool {
+	return isSuccessfulChargeStatus(normalizeChargeStatus(extractProviderOutcome(payload).Status))
 }
 
 func applyResponseStatus(out *providerOutcome, rs map[string]any) {

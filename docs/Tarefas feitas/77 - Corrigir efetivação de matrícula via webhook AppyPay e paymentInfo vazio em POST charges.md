@@ -1,7 +1,8 @@
 ---
 criado: 2026-08-30
 origem: conversa com Fredy (Claude como orquestrador — auditoria de conformidade com docs/Parceiros e integrações/AppyPay Documentação.md, PostgreSQL 16 + Go 1.24 reais em sandbox, Codex como executor)
-status: pronto_para_execucao
+status: concluido
+concluido: 2026-08-30
 tipo: correcao_de_bug
 depende_de: nenhuma
 debug: docs/Debbugs/Auditoria de conformidade AppyPay (autenticação e geração de cobrança).md

@@ -604,7 +604,7 @@ func ReceberWebhookAppyPay(metodo string) gin.HandlerFunc {
 			c.Status(http.StatusInternalServerError)
 			return
 		}
-		if isSuccessfulWebhook(payload) {
+		if finance.IsSuccessfulProviderPayload(payload) {
 			if codigo, err := FinanceiroService.CodigoSolicitacaoDaCobranca(c.Request.Context(), eventID); err == nil && codigo != "" {
 				if err := efetivarVinculoMatriculaPaga(c, codigo); err != nil {
 					c.Status(http.StatusInternalServerError)
@@ -614,17 +614,6 @@ func ReceberWebhookAppyPay(metodo string) gin.HandlerFunc {
 		}
 		c.Status(http.StatusOK)
 	}
-}
-func isSuccessfulWebhook(payload map[string]any) bool {
-	return strings.EqualFold(strings.TrimSpace(webhookStatus(payload)), "success")
-}
-func webhookStatus(payload map[string]any) string {
-	for _, k := range []string{"status", "state"} {
-		if v, ok := payload[k].(string); ok {
-			return v
-		}
-	}
-	return ""
 }
 func webhookID(payload map[string]any) string {
 	for _, k := range []string{"id", "merchantTransactionId", "merchant_transaction_id"} {
