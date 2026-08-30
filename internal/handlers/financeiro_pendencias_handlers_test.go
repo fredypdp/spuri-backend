@@ -46,9 +46,12 @@ func seedAcademiaEscolarPrivadaComTurma(t *testing.T, client *db.Client, academi
 
 func seedMensalidadeConfigParaHTTP(t *testing.T, client *db.Client, academia, anoAcademico string, valor float64) {
 	t.Helper()
+	// Ver o comentário equivalente em seedMensalidadeConfiguracao
+	// (internal/finance/mensalidade_integration_test.go) sobre por que
+	// sequencia usa nextval('spuri_ledger_id_seq') num seed direto de teste.
 	if _, err := client.DB().Exec(`INSERT INTO financeiro_mensalidade_configuracoes
-		(event_id,aggregate_id,codigo_academia,nivel,ano_academico,curso_id,valor,mes_fim_cobranca,vigente_em)
-		VALUES ($1,$2,$3,'fundamental',$4,NULL,$5,7,'2026-01-01')`,
+		(event_id,aggregate_id,codigo_academia,nivel,ano_academico,curso_id,valor,mes_fim_cobranca,vigente_em,sequencia)
+		VALUES ($1,$2,$3,'fundamental',$4,NULL,$5,7,'2026-01-01',nextval('spuri_ledger_id_seq'))`,
 		uuid.New(), uuid.New(), academia, anoAcademico, valor); err != nil {
 		t.Fatal(err)
 	}

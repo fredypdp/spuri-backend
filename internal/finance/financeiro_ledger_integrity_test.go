@@ -25,7 +25,7 @@ func TestIntegrationConfigureMensalidadeGravaNoLedgerEProjectaCorretamente(t *te
 
 	view, err := service.ConfigureMensalidade(ctx, MensalidadeConfiguracaoInput{
 		CodigoAcademia: academia, Nivel: NivelFundamental, AnoAcademico: "6_ano_fundamental",
-		Valor: 1000, MesFimCobranca: 7, MetodosPagamento: []string{"GPO", "REF"},
+		Valor: 1000, MesFimCobranca: 7, MetodosPagamento: []string{"GPO", "REF"}, ModoVigencia: ModoVigenciaAPartirDaAtualizacao,
 	}, "admin-teste", "academia", "127.0.0.1")
 	if err != nil {
 		t.Fatalf("ConfigureMensalidade retornou erro: %v", err)
@@ -68,7 +68,7 @@ func TestIntegrationConfigureMatriculaGravaNoLedgerEProjectaCorretamente(t *test
 
 	view, err := service.ConfigureMatricula(ctx, MatriculaConfiguracaoInput{
 		CodigoAcademia: academia, Nivel: NivelFundamental, AnoAcademico: "6_ano_fundamental",
-		Valor: 5000, MetodosPagamento: []string{"GPO"},
+		Valor: 5000, MetodosPagamento: []string{"GPO"}, ModoVigencia: ModoVigenciaAPartirDaAtualizacao,
 	}, "admin-teste", "academia", "127.0.0.1")
 	if err != nil {
 		t.Fatalf("ConfigureMatricula retornou erro: %v", err)
@@ -233,7 +233,7 @@ func TestIntegrationRebuildFinanceiroReconstroiConfiguracoesEcobrancasMensalidad
 
 	if _, err := service.ConfigureMatricula(ctx, MatriculaConfiguracaoInput{
 		CodigoAcademia: academia, Nivel: NivelFundamental, AnoAcademico: "6_ano_fundamental",
-		Valor: 5000, MetodosPagamento: []string{"GPO"},
+		Valor: 5000, MetodosPagamento: []string{"GPO"}, ModoVigencia: ModoVigenciaAPartirDaAtualizacao,
 	}, "admin-teste", "academia", "127.0.0.1"); err != nil {
 		t.Fatalf("ConfigureMatricula falhou: %v", err)
 	}

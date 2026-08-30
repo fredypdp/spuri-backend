@@ -88,9 +88,16 @@ func seedMensalidadeConfiguracao(t *testing.T, client *db.Client, academia, nive
 	if curso != nil {
 		cursoID = *curso
 	}
+	// sequencia é NOT NULL sem default (migração 116, tarefa 78) — em
+	// produção vem sempre de spuri_ledger.id (a única fonte real de ordem
+	// cronológica do sistema); aqui, para não inserir uma linha de ledger
+	// só para popular este seed direto de teste, reserva-se um valor da
+	// mesma sequence real (spuri_ledger_id_seq), que continua
+	// monotonicamente crescente e nunca colide com sequencia já usada por
+	// eventos reais no mesmo banco de teste.
 	_, err := client.DB().Exec(`INSERT INTO financeiro_mensalidade_configuracoes
-		(event_id,aggregate_id,codigo_academia,nivel,ano_academico,curso_id,valor,mes_fim_cobranca,vigente_em)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, uuid.New(), uuid.New(), academia, nivel, ano, cursoID, valor, fim, vigente)
+		(event_id,aggregate_id,codigo_academia,nivel,ano_academico,curso_id,valor,mes_fim_cobranca,vigente_em,sequencia)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,nextval('spuri_ledger_id_seq'))`, uuid.New(), uuid.New(), academia, nivel, ano, cursoID, valor, fim, vigente)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,17 +228,17 @@ func TestIntegrationMensalidadeValidaGranularidade(t *testing.T) {
 	seedMensalidadeAcademia(t, client, publica, "public", "fundamental", "2026_2027")
 	seedMensalidadeAcademia(t, client, privada, "private", "medio", "2026_2027")
 	curso := seedMensalidadeCurso(t, client, privada)
-	if err := service.validateConfiguracaoMensalidade(context.Background(), &MensalidadeConfiguracaoInput{CodigoAcademia: publica, Nivel: NivelFundamental, AnoAcademico: "6_ano_fundamental", Valor: 10, MesFimCobranca: 6}); err == nil {
+	if err := service.validateConfiguracaoMensalidade(context.Background(), &MensalidadeConfiguracaoInput{CodigoAcademia: publica, Nivel: NivelFundamental, AnoAcademico: "6_ano_fundamental", Valor: 10, MesFimCobranca: 6, ModoVigencia: ModoVigenciaAPartirDaAtualizacao}); err == nil {
 		t.Fatal("academia publica aceitou configuracao")
 	}
-	if err := service.validateConfiguracaoMensalidade(context.Background(), &MensalidadeConfiguracaoInput{CodigoAcademia: privada, Nivel: NivelMedio, AnoAcademico: "1_ano_medio", Valor: 10, MesFimCobranca: 6}); err == nil {
+	if err := service.validateConfiguracaoMensalidade(context.Background(), &MensalidadeConfiguracaoInput{CodigoAcademia: privada, Nivel: NivelMedio, AnoAcademico: "1_ano_medio", Valor: 10, MesFimCobranca: 6, ModoVigencia: ModoVigenciaAPartirDaAtualizacao}); err == nil {
 		t.Fatal("curso obrigatorio no medio foi aceite sem curso_id")
 	}
 	cursoTexto := curso.String()
-	if err := service.validateConfiguracaoMensalidade(context.Background(), &MensalidadeConfiguracaoInput{CodigoAcademia: privada, Nivel: NivelMedio, AnoAcademico: "1_ano_medio", CursoID: &cursoTexto, Valor: 10, MesFimCobranca: 6}); err != nil {
+	if err := service.validateConfiguracaoMensalidade(context.Background(), &MensalidadeConfiguracaoInput{CodigoAcademia: privada, Nivel: NivelMedio, AnoAcademico: "1_ano_medio", CursoID: &cursoTexto, Valor: 10, MesFimCobranca: 6, ModoVigencia: ModoVigenciaAPartirDaAtualizacao}); err != nil {
 		t.Fatalf("curso medio oferecido foi rejeitado: %v", err)
 	}
-	if err := service.validateConfiguracaoMensalidade(context.Background(), &MensalidadeConfiguracaoInput{CodigoAcademia: privada, Nivel: NivelMedio, AnoAcademico: "9_ano_medio", CursoID: &cursoTexto, Valor: 10, MesFimCobranca: 6}); err == nil {
+	if err := service.validateConfiguracaoMensalidade(context.Background(), &MensalidadeConfiguracaoInput{CodigoAcademia: privada, Nivel: NivelMedio, AnoAcademico: "9_ano_medio", CursoID: &cursoTexto, Valor: 10, MesFimCobranca: 6, ModoVigencia: ModoVigenciaAPartirDaAtualizacao}); err == nil {
 		t.Fatal("ano nao oferecido foi aceite")
 	}
 }
@@ -242,12 +249,12 @@ func TestIntegrationMensalidadeValidaMesFim(t *testing.T) {
 	seedMensalidadeAcademia(t, client, academia, "private", "fundamental", "2026_2027")
 	service := NewService(client)
 	for _, fim := range []int{6, 7} {
-		if err := service.validateConfiguracaoMensalidade(context.Background(), &MensalidadeConfiguracaoInput{CodigoAcademia: academia, Nivel: NivelFundamental, AnoAcademico: "6_ano_fundamental", Valor: 10, MesFimCobranca: fim}); err != nil {
+		if err := service.validateConfiguracaoMensalidade(context.Background(), &MensalidadeConfiguracaoInput{CodigoAcademia: academia, Nivel: NivelFundamental, AnoAcademico: "6_ano_fundamental", Valor: 10, MesFimCobranca: fim, ModoVigencia: ModoVigenciaAPartirDaAtualizacao}); err != nil {
 			t.Fatalf("mes_fim %d foi rejeitado: %v", fim, err)
 		}
 	}
 	for _, fim := range []int{5, 8} {
-		if err := service.validateConfiguracaoMensalidade(context.Background(), &MensalidadeConfiguracaoInput{CodigoAcademia: academia, Nivel: NivelFundamental, AnoAcademico: "6_ano_fundamental", Valor: 10, MesFimCobranca: fim}); err == nil {
+		if err := service.validateConfiguracaoMensalidade(context.Background(), &MensalidadeConfiguracaoInput{CodigoAcademia: academia, Nivel: NivelFundamental, AnoAcademico: "6_ano_fundamental", Valor: 10, MesFimCobranca: fim, ModoVigencia: ModoVigenciaAPartirDaAtualizacao}); err == nil {
 			t.Fatalf("mes_fim %d foi aceite", fim)
 		}
 	}

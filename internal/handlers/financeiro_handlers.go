@@ -600,11 +600,12 @@ func ReceberWebhookAppyPay(metodo string) gin.HandlerFunc {
 			c.Status(http.StatusBadRequest)
 			return
 		}
-		if _, err := FinanceiroService.AcceptWebhook(c.Request.Context(), metodo, eventID, owner, payload); err != nil {
+		_, confirmedSuccess, err := FinanceiroService.AcceptWebhook(c.Request.Context(), metodo, eventID, owner, payload)
+		if err != nil {
 			c.Status(http.StatusInternalServerError)
 			return
 		}
-		if finance.IsSuccessfulProviderPayload(payload) {
+		if confirmedSuccess {
 			if codigo, err := FinanceiroService.CodigoSolicitacaoDaCobranca(c.Request.Context(), eventID); err == nil && codigo != "" {
 				if err := efetivarVinculoMatriculaPaga(c, codigo); err != nil {
 					c.Status(http.StatusInternalServerError)

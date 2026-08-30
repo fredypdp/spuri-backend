@@ -23,7 +23,7 @@ func TestIntegrationRemoveMatriculaConfiguracaoFluxoDeComando(t *testing.T) {
 	}
 	if _, err := service.ConfigureMatricula(context.Background(), MatriculaConfiguracaoInput{
 		CodigoAcademia: academia, Nivel: NivelFundamental, AnoAcademico: "7_ano_fundamental",
-		Valor: 15000, MetodosPagamento: []string{"GPO_QR"},
+		Valor: 15000, MetodosPagamento: []string{"GPO_QR"}, ModoVigencia: ModoVigenciaAPartirDaAtualizacao,
 	}, uuid.NewString(), "academia", "127.0.0.1"); err != nil {
 		t.Fatalf("ConfigureMatricula falhou: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestIntegrationRemoveMatriculaConfiguracaoFluxoDeComando(t *testing.T) {
 	// Reconfigurar depois de remover funciona.
 	if _, err := service.ConfigureMatricula(context.Background(), MatriculaConfiguracaoInput{
 		CodigoAcademia: academia, Nivel: NivelFundamental, AnoAcademico: "7_ano_fundamental",
-		Valor: 20000, MetodosPagamento: []string{"GPO_QR"},
+		Valor: 20000, MetodosPagamento: []string{"GPO_QR"}, ModoVigencia: ModoVigenciaAPartirDaAtualizacao,
 	}, uuid.NewString(), "academia", "127.0.0.1"); err != nil {
 		t.Fatalf("reconfiguração após remoção não deveria falhar: %v", err)
 	}

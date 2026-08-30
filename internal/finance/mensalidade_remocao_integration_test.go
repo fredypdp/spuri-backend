@@ -103,7 +103,7 @@ func TestIntegrationRemoveMensalidadeConfiguracaoFluxoDeComando(t *testing.T) {
 	}
 	if _, err := service.ConfigureMensalidade(context.Background(), MensalidadeConfiguracaoInput{
 		CodigoAcademia: academia, Nivel: NivelFundamental, AnoAcademico: "7_ano_fundamental",
-		Valor: 5000, MesFimCobranca: 7, MetodosPagamento: []string{"GPO_QR"},
+		Valor: 5000, MesFimCobranca: 7, MetodosPagamento: []string{"GPO_QR"}, ModoVigencia: ModoVigenciaAPartirDaAtualizacao,
 	}, uuid.NewString(), "academia", "127.0.0.1"); err != nil {
 		t.Fatalf("ConfigureMensalidade falhou: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestIntegrationRemoveMensalidadeConfiguracaoFluxoDeComando(t *testing.T) {
 
 	if _, err := service.ConfigureMensalidade(context.Background(), MensalidadeConfiguracaoInput{
 		CodigoAcademia: academia, Nivel: NivelFundamental, AnoAcademico: "7_ano_fundamental",
-		Valor: 6000, MesFimCobranca: 7, MetodosPagamento: []string{"GPO_QR"},
+		Valor: 6000, MesFimCobranca: 7, MetodosPagamento: []string{"GPO_QR"}, ModoVigencia: ModoVigenciaAPartirDaAtualizacao,
 	}, uuid.NewString(), "academia", "127.0.0.1"); err != nil {
 		t.Fatalf("reconfiguração após remoção não deveria falhar: %v", err)
 	}
