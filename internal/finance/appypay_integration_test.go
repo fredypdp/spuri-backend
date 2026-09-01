@@ -460,6 +460,81 @@ func (t *failingProviderTransport) RoundTrip(req *http.Request) (*http.Response,
 // o payload persistido, por isso o MerchantTransactionID é fixado
 // explicitamente (para poder localizar a linha depois, já que o ID gerado
 // internamente não é devolvido em caso de erro).
+func TestIntegrationCreateChargeREFNuncaEClassificadaComoPagamentoSucedidoNaCriacao(t *testing.T) {
+	// docs/Parceiros e integrações/AppyPay Documentação.md ("Supported
+	// Payment Methods" > "Validations and Limitations") documenta REF como
+	// o único método com "Webhook: Always required" — o pagamento da
+	// referência acontece depois, fora da API, num multibanco/balcão. A
+	// tabela de códigos lista "Applies To: ... REF ..." para o código 100
+	// ("Thank you! The payment has been successfully registered"), o mesmo
+	// código usado por UMM/GPO para pagamento realmente concluído. Simula
+	// esse cenário (código 100 na resposta síncrona de CRIAÇÃO de uma
+	// cobrança REF) e confirma que CreateCharge nunca o trata como
+	// pagamento confirmado.
+	client := integrationClient(t)
+	t.Setenv("ENV", "test")
+	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
+	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	service := NewService(client)
+	service.SetHTTPClient(&http.Client{Transport: &appyPayMockTransport{
+		status: "Success", code: 100, message: "Thank you! The payment has been successfully registered", source: "REF",
+	}})
+	academia := "REP" + uuid.NewString()[:8]
+	configureIntegrationCredential(t, service, ContextoAcademia, academia)
+
+	result, err := service.CreateCharge(context.Background(), ChargeRequest{
+		ContextoTipo: ContextoAcademia, CodigoAcademia: academia,
+		Amount: 3500, Currency: "AOA", Description: "teste referência criada, ainda não paga",
+		MerchantTransactionID: integrationMerchant("REFPAG"),
+		PaymentMethod:         "REF",
+	}, "actor", "academia", "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != EstadoCobrancaAguardandoPagamento {
+		t.Fatalf("CreateCharge REF com code=100/status=Success (simulando resposta síncrona de criação) devolveu Status=%q; queria %q — REF só confirma por webhook/consulta, nunca na criação", result.Status, EstadoCobrancaAguardandoPagamento)
+	}
+	if isSuccessfulChargeStatus(result.Status) {
+		t.Fatalf("isSuccessfulChargeStatus(%q) = true — a resposta síncrona de criação de uma referência REF nunca pode ser tratada como pagamento confirmado", result.Status)
+	}
+}
+
+func TestIntegrationCreateGPOQRCodeCriacaoNuncaEClassificadaComoPagamentoSucedido(t *testing.T) {
+	// Reproduz byte a byte a resposta real e documentada da AppyPay para
+	// "Post a GPO QR Code" (docs/Parceiros e integrações/AppyPay
+	// Documentação.md): responseStatus.status="Active", code=103 — o
+	// literal "Active" já deixa claro que o QR foi só CRIADO, ninguém
+	// pagou. Antes da correção, o código 103 fazia CreateGPOQRCode devolver
+	// Status="Success", e o chamador (IniciarPagamentoMatricula /
+	// IniciarPagamentoMensalidades) efetivava a matrícula ou dava a
+	// mensalidade como paga imediatamente — sem nenhum pagamento real.
+	client := integrationClient(t)
+	t.Setenv("ENV", "test")
+	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
+	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	service := NewService(client)
+	service.SetHTTPClient(&http.Client{Transport: &appyPayMockTransport{
+		status: "Active", code: 103, message: "QR code successfully created.", source: "GPO",
+	}})
+	academia := "QRP" + uuid.NewString()[:8]
+	configureIntegrationCredential(t, service, ContextoAcademia, academia)
+
+	result, err := service.CreateGPOQRCode(context.Background(), QRCodeRequest{
+		ContextoTipo: ContextoAcademia, CodigoAcademia: academia,
+		Amount: 3500, Currency: "AOA", Description: "teste QR code criado, ainda não pago",
+		MerchantTransactionID: integrationMerchant("QRPAG"),
+	}, "actor", "academia", "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ChargeResult.Status != EstadoCobrancaAguardandoPagamento {
+		t.Fatalf("CreateGPOQRCode com resposta de criação (code=103, status literal=Active) devolveu Status=%q; queria %q — a criação do QR nunca pode ser tratada como pagamento confirmado", result.ChargeResult.Status, EstadoCobrancaAguardandoPagamento)
+	}
+	if isSuccessfulChargeStatus(result.ChargeResult.Status) {
+		t.Fatalf("isSuccessfulChargeStatus(%q) = true — criar um QR code não pode nunca ser considerado pagamento bem-sucedido", result.ChargeResult.Status)
+	}
+}
+
 func TestIntegrationCreateChargeECreateGPOQRCodeFalhaLocalGravaFailed(t *testing.T) {
 	client := integrationClient(t)
 	t.Setenv("ENV", "test")

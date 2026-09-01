@@ -542,6 +542,33 @@ func (s *Service) CreateCharge(ctx context.Context, in ChargeRequest, actorID, a
 		// aguardando pagamento.
 		status = EstadoCobrancaAguardandoPagamento
 	}
+	if strings.HasPrefix(method, "REF") && isSuccessfulChargeStatus(status) {
+		// docs/Parceiros e integrações/AppyPay Documentação.md ("Supported
+		// Payment Methods" > "Validations and Limitations") documenta REF
+		// como o único método de pagamento com "Webhook: Always required" —
+		// ao contrário de GPO/UMM/eTPA ("Required for async request"), REF
+		// NUNCA se confirma de forma síncrona: o cliente paga a referência
+		// depois, num multibanco/balcão, fora desta chamada. A confirmação
+		// só pode legitimamente chegar depois, por webhook ou consulta
+		// (AcceptWebhook/consultCharge — nenhum dos dois é tocado por este
+		// bloco).
+		//
+		// O código 100 ("Thank you! The payment has been successfully
+		// registered") aparece na tabela de códigos da AppyPay com "Applies
+		// To" incluindo REF, ao lado de UMM/GPO/FTBAI — métodos onde 100
+		// pode sim significar pagamento realmente concluído na hora. Não há
+		// nada na documentação garantindo que a AppyPay nunca devolve um
+		// código dessa família na resposta síncrona de CRIAÇÃO de uma
+		// referência (só que ela não deveria, dado que o pagamento em si só
+		// acontece depois, fora da API). Por isso, e pela mesma razão que
+		// motivou a correção do código 103 em CreateGPOQRCode: nunca confiar
+		// numa classificação "Success" vinda da chamada de criação para REF,
+		// custe o que custar — o pior cenário de aceitar por engano é
+		// idêntico ao do QR code (matrícula/mensalidade efetivada sem
+		// pagamento real), e o custo de bloquear é zero, porque REF genuíno
+		// sempre confirma depois mesmo assim.
+		status = EstadoCobrancaAguardandoPagamento
+	}
 	created := chargePayload(id, in, providerID, status, response)
 	applyProviderOutcome(created, outcome)
 	if err = s.record(ctx, id, "CobrancaAppyPayCriada", created, actorID, actorType, ip); err != nil {
@@ -624,6 +651,33 @@ func (s *Service) CreateGPOQRCode(ctx context.Context, in QRCodeRequest, actorID
 	if status == "" {
 		// Mesmo raciocínio de CreateCharge: 2xx sem status reconhecível =
 		// aceito, ainda sem resolução conhecida.
+		status = EstadoCobrancaAguardandoPagamento
+	}
+	if outcome.HasCode && outcome.Code == 103 {
+		// O código 103 na documentação da AppyPay ("Post a GPO QR Code",
+		// resposta de exemplo) significa exclusivamente "QR code criado com
+		// sucesso" — o próprio campo literal "status" da resposta real é
+		// "Active" (QR pronto para ser escaneado), nunca "pago". Só existe
+		// nesta chamada de CRIAÇÃO; uma vez o cliente realmente pagar
+		// escaneando o QR, a confirmação chega depois por webhook ou
+		// consulta (consultCharge/AcceptWebhook), com um código diferente
+		// (100/1100) — aí sim tratado como sucesso real de pagamento pela
+		// mesma appyPayCodeOutcomes.
+		//
+		// appyPayCodeOutcomes mapeia 103 para "Success" porque é esse o
+		// bracket que a própria documentação da AppyPay usa para o código —
+		// mas ali "Success" quer dizer "a operação de API pedida (criar o
+		// QR) teve sucesso", não "o pagamento foi recebido". Antes desta
+		// correção, normalizeChargeStatus(outcome.Status) devolvia
+		// "Success" tal e qual, isSuccessfulChargeStatus via true, e
+		// CreateGPOQRCode chamava confirmMensalidadeCharge e o chamador
+		// (IniciarPagamentoMatricula/IniciarPagamentoMensalidades) efetivava
+		// a matrícula ou dava a mensalidade como paga — tudo isso só por
+		// gerar o QR code, antes de qualquer pagamento real acontecer.
+		//
+		// Código/mensagem/fonte do provedor continuam preservados abaixo
+		// (via applyProviderOutcome) para auditoria; só o status usado nas
+		// decisões de pagamento é que nunca pode ser "Success" aqui.
 		status = EstadoCobrancaAguardandoPagamento
 	}
 	payload := qrCodePayload(id, in, typ, providerID, status, response)
