@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -337,6 +338,81 @@ func streamDocumentoAcademiaPorCodigo(c *gin.Context, codigoAcademia, campo stri
 		Path:        path,
 		FileURL:     path,
 		DownloadURL: academiaDocumentoDownloadURL(academia.CodigoAcademia, campo),
+	})
+}
+
+// UploadDocumentoAcademia permite anexar — ou substituir — um documento
+// formal da academia (hoje apenas "alvara") depois do cadastro, quando ele
+// não foi enviado no momento do registo (POST /dominis/academia/cadastro ou
+// POST /academia/cadastro, ambos com alvara agora opcional). Espelha
+// exatamente o escopo e as regras de permissão de DownloadDocumentoAcademia:
+// mesma rota "protected" (fora de /academia, /estudante e /dominis) e mesma
+// função canAccessAcademiaDocument — admin ou a própria academia dona do
+// codigo_academia. Reenviar para uma academia que já tem alvara substitui o
+// arquivo existente (mesmo path determinístico usado no cadastro e no
+// download).
+func UploadDocumentoAcademia(c *gin.Context) {
+	codigoAcademia := strings.TrimSpace(c.Param("codigo"))
+	campo := strings.TrimSpace(c.Param("campo"))
+	if strings.ToLower(campo) != "alvara" {
+		utils.RespondWithNotFoundError(c, "documento")
+		return
+	}
+
+	academia, err := getAcademiaProjection(c).GetByCodigo(codigoAcademia)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	if academia == nil {
+		utils.RespondWithNotFoundError(c, "academia")
+		return
+	}
+	if !canAccessAcademiaDocument(c, academia.CodigoAcademia) {
+		utils.RespondWithForbiddenError(c, "sem permissão para enviar documento desta academia")
+		return
+	}
+
+	fh, err := c.FormFile("alvara")
+	if err != nil {
+		utils.RespondWithValidationError(c, fmt.Errorf("alvara é obrigatório"))
+		return
+	}
+	alvaraPDF, err := readAndValidatePDF("alvara", fh)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
+	provider := getStorageProvider(c)
+	if provider == nil {
+		p, err := storage.NewStorageProvider()
+		if err != nil {
+			utils.RespondWithError(c, http.StatusServiceUnavailable, err.Error(), err)
+			return
+		}
+		provider = p
+	}
+
+	dir := fmt.Sprintf("%s/Documentação formal", academia.CodigoAcademia)
+	if err := provider.EnsureDir(dir); err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	path := fmt.Sprintf("%s/alvara_%s.pdf", dir, academia.CodigoAcademia)
+	// Delete-then-upload garante substituição limpa caso já exista um alvara
+	// no mesmo path (correção de um envio anterior); ErrNotFound (primeiro
+	// envio) é ignorado de propósito, mesmo padrão usado no resto do pacote.
+	_ = provider.Delete(path)
+	if _, err := provider.Upload(path, bytes.NewReader(alvaraPDF.data), alvaraPDF.size); err != nil {
+		utils.RespondWithInternalError(c, fmt.Errorf("falha no upload do alvara: %w", err))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":         "alvará enviado com sucesso",
+		"codigo_academia": academia.CodigoAcademia,
+		"download_url":    academiaDocumentoDownloadURL(academia.CodigoAcademia, "alvara"),
 	})
 }
 

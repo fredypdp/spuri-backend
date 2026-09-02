@@ -15,7 +15,7 @@ func TestBindRegisterAcademiaRequestInvalidJSONUsesStandardErrorEnvelope(t *test
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/dominis/academia/register", strings.NewReader(`{"nivel":`))
+	c.Request = httptest.NewRequest(http.MethodPost, "/dominis/academia/cadastro", strings.NewReader(`{"nivel":`))
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	_, _, ok := bindRegisterAcademiaRequest(c)
@@ -30,7 +30,7 @@ func TestBindRegisterAcademiaRequestInvalidMultipartUsesStandardErrorEnvelope(t 
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/dominis/academia/register", strings.NewReader("not-a-multipart-body"))
+	c.Request = httptest.NewRequest(http.MethodPost, "/dominis/academia/cadastro", strings.NewReader("not-a-multipart-body"))
 	c.Request.Header.Set("Content-Type", "multipart/form-data; boundary=spuri")
 
 	_, _, ok := bindRegisterAcademiaRequest(c)
