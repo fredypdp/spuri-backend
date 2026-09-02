@@ -27,7 +27,7 @@ import (
 )
 
 // ============================================================================
-// POST /admin/academia/register
+// POST /dominis/academia/cadastro
 // ============================================================================
 
 type RegisterAcademiaRequest struct {
@@ -89,14 +89,17 @@ func RegisterAcademia(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
-	if alvara == nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("alvara é obrigatório"))
-		return
-	}
-	alvaraPDF, err := readAndValidatePDF("alvara", alvara)
-	if err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
+	// alvara é opcional no cadastro: pode ser enviado agora ou depois, via
+	// POST /documentos/academias/{codigo_academia}/alvara/upload.
+	var alvaraPDF uploadedPDF
+	temAlvara := alvara != nil
+	if temAlvara {
+		var err error
+		alvaraPDF, err = readAndValidatePDF("alvara", alvara)
+		if err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
 	}
 
 	// validarProvincia converte nome completo → código 3 letras (ex: "Luanda" → "LDA").
@@ -195,14 +198,16 @@ func RegisterAcademia(c *gin.Context) {
 		utils.RespondWithInternalError(c, fmt.Errorf("storage indisponível"))
 		return
 	}
-	if err := provider.EnsureDir(dir); err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-	if _, err := provider.Upload(fmt.Sprintf("%s/alvara_%s.pdf", dir, codigoAcademia), bytes.NewReader(alvaraPDF.data), alvaraPDF.size); err != nil {
-		_ = provider.Delete(dir)
-		utils.RespondWithInternalError(c, fmt.Errorf("falha no upload do alvara: %w", err))
-		return
+	if temAlvara {
+		if err := provider.EnsureDir(dir); err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		if _, err := provider.Upload(fmt.Sprintf("%s/alvara_%s.pdf", dir, codigoAcademia), bytes.NewReader(alvaraPDF.data), alvaraPDF.size); err != nil {
+			_ = provider.Delete(dir)
+			utils.RespondWithInternalError(c, fmt.Errorf("falha no upload do alvara: %w", err))
+			return
+		}
 	}
 
 	if err := repository.SaveWithAudit(academia, audit); err != nil {
@@ -212,7 +217,7 @@ func RegisterAcademia(c *gin.Context) {
 	}
 
 	log.Printf("Academia registada: %s (%s) por admin %s", req.Nome, codigoAcademia, userID)
-	c.JSON(http.StatusCreated, gin.H{
+	response := gin.H{
 		"message":         "academia registada com sucesso",
 		"codigo_academia": codigoAcademia,
 		"data": gin.H{
@@ -223,11 +228,18 @@ func RegisterAcademia(c *gin.Context) {
 			"provincia":       codigoProvincia,
 			"codigo_academia": codigoAcademia,
 		},
-	})
+	}
+	if !temAlvara {
+		response["aviso"] = fmt.Sprintf(
+			"alvará não enviado no cadastro. envie depois em POST /documentos/academias/%s/alvara/upload.",
+			codigoAcademia,
+		)
+	}
+	c.JSON(http.StatusCreated, response)
 }
 
 // ============================================================================
-// POST /academia/registo-publico
+// POST /academia/cadastro
 // ============================================================================
 //
 // RegisterAcademiaPublica permite que uma academia se autocadastre na
@@ -280,14 +292,17 @@ func RegisterAcademiaPublica(c *gin.Context) {
 		utils.RespondWithValidationError(c, err)
 		return
 	}
-	if alvara == nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("alvara é obrigatório"))
-		return
-	}
-	alvaraPDF, err := readAndValidatePDF("alvara", alvara)
-	if err != nil {
-		utils.RespondWithValidationError(c, err)
-		return
+	// alvara é opcional no cadastro: pode ser enviado agora ou depois, via
+	// POST /documentos/academias/{codigo_academia}/alvara/upload.
+	var alvaraPDF uploadedPDF
+	temAlvara := alvara != nil
+	if temAlvara {
+		var err error
+		alvaraPDF, err = readAndValidatePDF("alvara", alvara)
+		if err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
 	}
 
 	// Senha obrigatória — exclusiva do cadastro público. Lida diretamente do
@@ -397,14 +412,16 @@ func RegisterAcademiaPublica(c *gin.Context) {
 		utils.RespondWithInternalError(c, fmt.Errorf("storage indisponível"))
 		return
 	}
-	if err := provider.EnsureDir(dir); err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-	if _, err := provider.Upload(fmt.Sprintf("%s/alvara_%s.pdf", dir, codigoAcademia), bytes.NewReader(alvaraPDF.data), alvaraPDF.size); err != nil {
-		_ = provider.Delete(dir)
-		utils.RespondWithInternalError(c, fmt.Errorf("falha no upload do alvara: %w", err))
-		return
+	if temAlvara {
+		if err := provider.EnsureDir(dir); err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		if _, err := provider.Upload(fmt.Sprintf("%s/alvara_%s.pdf", dir, codigoAcademia), bytes.NewReader(alvaraPDF.data), alvaraPDF.size); err != nil {
+			_ = provider.Delete(dir)
+			utils.RespondWithInternalError(c, fmt.Errorf("falha no upload do alvara: %w", err))
+			return
+		}
 	}
 
 	if err := repository.SaveWithAudit(academia, audit); err != nil {
@@ -416,6 +433,12 @@ func RegisterAcademiaPublica(c *gin.Context) {
 	log.Printf("Academia auto-registada (cadastro público, pendente de ativação): %s (%s)", req.Nome, codigoAcademia)
 
 	aviso := "guarde o código da academia: ele é o seu identificador de login. você definiu sua própria senha no cadastro."
+	if !temAlvara {
+		aviso += fmt.Sprintf(
+			" alvará não enviado no cadastro. envie depois em POST /documentos/academias/%s/alvara/upload.",
+			codigoAcademia,
+		)
+	}
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message":         "cadastro recebido com sucesso. a conta fica inativa até que um administrador (role adm ou fpp) a ative.",
@@ -1526,7 +1549,7 @@ func bindRegisterAcademiaRequest(c *gin.Context) (RegisterAcademiaRequest, *mult
 		return req, fh, true
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: nivel, type, nome, nif, provincia, endereco e alvara"))
+		utils.RespondWithValidationError(c, fmt.Errorf("dados obrigatórios: nivel, type, nome, nif, provincia, endereco"))
 		return req, nil, false
 	}
 	return req, nil, true
