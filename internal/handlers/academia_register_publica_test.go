@@ -94,7 +94,7 @@ func TestRegisterAcademiaDoesNotAcceptCustomPassword(t *testing.T) {
 	}
 }
 
-func TestAcademiaRegistoPublicoRouteIsPublic(t *testing.T) {
+func TestAcademiaCadastroPublicoRouteIsPublic(t *testing.T) {
 	source, err := os.ReadFile("../../cmd/server/main.go")
 	if err != nil {
 		t.Fatalf("read main.go source: %v", err)
@@ -102,18 +102,18 @@ func TestAcademiaRegistoPublicoRouteIsPublic(t *testing.T) {
 
 	var routeLine string
 	for _, line := range strings.Split(string(source), "\n") {
-		if strings.Contains(line, "/academia/registo-publico") {
+		if strings.Contains(line, "/academia/cadastro") {
 			routeLine = line
 			break
 		}
 	}
 	if routeLine == "" {
-		t.Fatal("rota POST /academia/registo-publico não encontrada em cmd/server/main.go")
+		t.Fatal("rota POST /academia/cadastro não encontrada em cmd/server/main.go")
 	}
 	if strings.Contains(routeLine, "middleware.") {
-		t.Fatalf("rota /academia/registo-publico deve ser pública, sem middleware de autenticação: %q", routeLine)
+		t.Fatalf("rota /academia/cadastro deve ser pública, sem middleware de autenticação: %q", routeLine)
 	}
 	if !strings.Contains(routeLine, "router.POST(") {
-		t.Fatalf("rota /academia/registo-publico deve ser registrada diretamente em router.POST, fora de grupos autenticados: %q", routeLine)
+		t.Fatalf("rota /academia/cadastro deve ser registrada diretamente em router.POST, fora de grupos autenticados: %q", routeLine)
 	}
 }

@@ -278,7 +278,7 @@ func setupRouter() *gin.Engine {
 	router.POST("/login", middleware.LoginRateLimit(), handlers.Login)
 	router.POST("/bootstrap", middleware.LoginRateLimit(), handlers.BootstrapAdminFPP)
 	router.POST("/solicitacao-matricula", handlers.CriarSolicitacaoMatricula)
-	router.POST("/academia/registo-publico", handlers.RegisterAcademiaPublica)
+	router.POST("/academia/cadastro", handlers.RegisterAcademiaPublica)
 	// Search and payment have independent public financial rate limits so an
 	// exhausted search bucket cannot suppress a legitimate payment attempt.
 	router.GET("/solicitacao-matricula/busca", middleware.RateLimitMiddleware(middleware.NewRateLimiter(rate.Every(time.Minute/20), 5, time.Minute)), handlers.BuscarSolicitacoesMatricula)
@@ -356,6 +356,7 @@ func setupRouter() *gin.Engine {
 		protected.GET("/anos-letivos/configuracoes", handlers.ListarConfiguracoesAnosLetivos)
 		protected.GET("/solicitacoes-matricula", middleware.RequireAdmin(), handlers.ListarSolicitacoesMatriculaAdmin)
 		protected.GET("/documentos/academias/:codigo/:campo/download", handlers.DownloadDocumentoAcademia)
+		protected.POST("/documentos/academias/:codigo/:campo/upload", handlers.UploadDocumentoAcademia)
 		protected.GET("/documentos/estudantes/:codigo/:campo/download", handlers.DownloadDocumentoEstudante)
 		protected.GET("/documentos/solicitacoes-matricula/:codigo/:campo/download", handlers.DownloadDocumentoSolicitacaoMatricula)
 		protected.GET("/avaliacoes-estudante/:codigo", middleware.RequireAcademiaOuAdmin(), handlers.GetAvaliacoesFinaisEstudante)
@@ -562,7 +563,7 @@ func setupRouter() *gin.Engine {
 	admin.Use(middleware.RequireAdmin())
 	{
 		admin.POST("/register", middleware.RequireFPP(), handlers.RegisterAdmin)
-		admin.POST("/academia/register", middleware.RequireFPP(), handlers.RegisterAcademia)
+		admin.POST("/academia/cadastro", middleware.RequireFPP(), handlers.RegisterAcademia)
 		admin.PUT("/academia/:codigo/ativar", middleware.RequireAdm(), handlers.AtivarAcademia)
 		admin.PUT("/academia/:codigo/desativar", middleware.RequireAdm(), handlers.DesativarAcademia)
 		admin.DELETE("/academia/:codigo", middleware.RequireFPP(), handlers.DeletarAcademia)

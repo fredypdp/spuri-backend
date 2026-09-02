@@ -48,12 +48,12 @@ func TestAdminSistemaAnoLetivoRouteIsRegistered(t *testing.T) {
 	}
 }
 
-func TestDominisAcademiaRegisterUnauthorizedUsesStandardErrorEnvelope(t *testing.T) {
+func TestDominisAcademiaCadastroUnauthorizedUsesStandardErrorEnvelope(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	router := setupRouter()
 
-	req := httptest.NewRequest(http.MethodPost, "/dominis/academia/register", nil)
+	req := httptest.NewRequest(http.MethodPost, "/dominis/academia/cadastro", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 

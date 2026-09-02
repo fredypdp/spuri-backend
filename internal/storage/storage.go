@@ -519,7 +519,14 @@ func (m *MegaProvider) Read(remotePath string) (io.ReadCloser, error) {
 		if err != nil {
 			return nil, err
 		}
-		return os.Open(p)
+		f, err := os.Open(p)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil, ErrNotFound
+			}
+			return nil, err
+		}
+		return f, nil
 	}
 	tmp, err := os.CreateTemp("", "spuri-mega-download-*")
 	if err != nil {

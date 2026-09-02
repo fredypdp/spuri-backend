@@ -1165,13 +1165,15 @@ Define nova senha usando o token de recuperação.
 | Desativação exige motivo                                      | Registado no ledger e na projeção para auditoria       |
 
 
-### POST /dominis/academia/register
+### POST /dominis/academia/cadastro
 
-Registra uma nova academia via `multipart/form-data`. Criada com status `inativo`. `nif` é obrigatório, string única de exatamente 10 dígitos, inclusive para academias inativas. `alvara` é arquivo obrigatório, deve ser PDF válido com até 10MB e é armazenado em `{codigo_academia}/Documentação formal/`. O front end pode ler esse documento pela rota autenticada `GET /documentos/academias/{codigo_academia}/alvara/download`.
+Registra uma nova academia via `multipart/form-data`. Criada com status `inativo`. `nif` é obrigatório, string única de exatamente 10 dígitos, inclusive para academias inativas. `alvara` é opcional: quando enviado, deve ser PDF válido com até 10MB e é armazenado em `{codigo_academia}/Documentação formal/`. Quando não for enviado no cadastro, envie-o depois por `POST /documentos/academias/{codigo_academia}/alvara/upload`. O front end pode ler esse documento pela rota autenticada `GET /documentos/academias/{codigo_academia}/alvara/download`.
 
-**Proteção**: autenticado + admin (qualquer role)
+**Proteção**: autenticado + admin com role `fpp`
 
 **Request — Escola:**
+
+O campo `alvara` abaixo é opcional e pode ser omitido.
 
 ```json
 {
@@ -1193,6 +1195,8 @@ Registra uma nova academia via `multipart/form-data`. Criada com status `inativo
 
 **Request — Universidade:**
 
+O campo `alvara` abaixo é opcional e pode ser omitido.
+
 ```json
 {
   "nivel": "superior",
@@ -1207,6 +1211,8 @@ Registra uma nova academia via `multipart/form-data`. Criada com status `inativo
 ```
 
 **Response 201:**
+
+Quando o `alvara` não é enviado, a resposta também inclui `aviso` com a URL de upload posterior.
 
 ```json
 {
@@ -1224,20 +1230,22 @@ Registra uma nova academia via `multipart/form-data`. Criada com status `inativo
 
 **Erros:**
 
-- `400` — `nivel` inválido, `type` inválido (`public`/`private`) ou ausente, `nif` ausente/inválido, `alvara` ausente/não PDF/acima de 10MB, campos obrigatórios ausentes ou anos_academicos inválidos
+- `400` — `nivel` inválido, `type` inválido (`public`/`private`) ou ausente, `nif` ausente/inválido, `alvara` não PDF/acima de 10MB quando enviado, campos obrigatórios ausentes ou anos_academicos inválidos
 - `409` — academia ou `nif` já existe
 
 ---
 
-### POST /academia/registo-publico
+### POST /academia/cadastro
 
-Permite que uma academia se autocadastre na plataforma **sem autenticação prévia**, via `multipart/form-data`. Usa exatamente as mesmas regras de validação de `POST /dominis/academia/register` (`nif` obrigatório, único, 10 dígitos; `alvara` obrigatório, PDF válido até 10MB, armazenado em `{codigo_academia}/Documentação formal/`). A academia é sempre criada com status `inativo` — apenas um admin com role `adm` ou `fpp` pode ativá-la, via `PUT /dominis/academia/:codigo/ativar`. Login antes da ativação retorna erro de "academia inativa".
+Permite que uma academia se autocadastre na plataforma **sem autenticação prévia**, via `multipart/form-data`. Usa exatamente as mesmas regras de validação de `POST /dominis/academia/cadastro`: `nif` é obrigatório, único e tem 10 dígitos; `alvara` é opcional e, quando enviado, deve ser PDF válido de até 10MB, armazenado em `{codigo_academia}/Documentação formal/`. Caso não seja enviado no cadastro, use posteriormente `POST /documentos/academias/{codigo_academia}/alvara/upload`. A academia é sempre criada com status `inativo` — apenas um admin com role `adm` ou `fpp` pode ativá-la, via `PUT /dominis/academia/:codigo/ativar`. Login antes da ativação retorna erro de "academia inativa".
 
 **Proteção**: nenhuma (rota pública)
 
 **Diferença em relação ao cadastro por admin**: exige o campo `senha` (string, 6–128 caracteres). Essa senha é definida como a senha de acesso da academia. Diferentemente do fluxo administrativo, este endpoint público não usa fallback para a senha padrão baseada no `codigo_academia`.
 
 **Request:**
+
+O campo `alvara` abaixo é opcional e pode ser omitido.
 
 ```json
 {
@@ -1260,6 +1268,8 @@ Permite que uma academia se autocadastre na plataforma **sem autenticação pré
 
 **Response 201:**
 
+Quando o `alvara` não é enviado, o campo `aviso` também informa a URL de upload posterior.
+
 ```json
 {
   "message": "cadastro recebido com sucesso. a conta fica inativa até que um administrador (role adm ou fpp) a ative.",
@@ -1279,7 +1289,7 @@ Permite que uma academia se autocadastre na plataforma **sem autenticação pré
 
 **Erros:**
 
-- `400` — `nivel` inválido, `type` inválido, `nif` ausente/inválido, `alvara` ausente/não PDF/acima de 10MB, campos obrigatórios ausentes, `anos_academicos` inválidos, `senha` ausente/vazia ou fora do intervalo de 6–128 caracteres
+- `400` — `nivel` inválido, `type` inválido, `nif` ausente/inválido, `alvara` não PDF/acima de 10MB quando enviado, campos obrigatórios ausentes, `anos_academicos` inválidos, `senha` ausente/vazia ou fora do intervalo de 6–128 caracteres
 - `409` — `nif` já cadastrado em outra academia
 
 ---
@@ -7543,7 +7553,7 @@ Use `poll_url` (`GET /jobs/:id`) e/ou `sse_url` (`GET /jobs/stream`).
 
 |Endpoint|Proteção|Payload por item|Resposta|Limite|
 |---|---|---|---|---|
-|`POST /dominis/academia/register/async`|admin|igual ao `POST /dominis/academia/register`|`202` (job criado)|500|
+|`POST /dominis/academia/register/async`|admin|igual ao `POST /dominis/academia/cadastro`|`202` (job criado)|500|
 |`PUT /dominis/academia/ativar/async`|admin role `adm`|igual ao `PUT /dominis/academia/:codigo/ativar`|`202` (job criado)|500|
 |`PUT /dominis/academia/desativar/async`|admin role `adm`|igual ao `PUT /dominis/academia/:codigo/desativar`|`202` (job criado)|500|
 |`PUT /dominis/admin/ativar/async`|admin role `adm`|igual ao `PUT /dominis/admin/:id/ativar` (`id` vai no item)|`202` (job criado)|500|
@@ -8645,6 +8655,41 @@ Faz stream inline do alvará/documento formal da academia pelo backend, sem expo
 |`403`|Usuário autenticado não tem permissão para a academia informada.|
 |`404`|Academia ou documento não encontrado.|
 |`503`|Storage indisponível ou falha de leitura no provider configurado.|
+
+### POST /documentos/academias/{codigo_academia}/alvara/upload
+
+Envia ou substitui o alvará da academia depois do cadastro. O endpoint aceita exclusivamente o campo de rota `alvara`; qualquer outro valor de `{campo}` retorna `404`. Um reenvio substitui o arquivo anterior no caminho `{codigo_academia}/Documentação formal/alvara_{codigo_academia}.pdf`.
+
+**Escopo da rota**: global autenticado (`protected`), fora dos prefixos `/academia`, `/estudante` e `/dominis`.
+
+**Proteção**: autenticado. Permitido para admin ou para a própria academia dona do `codigo_academia`. Estudantes e academias de outro código recebem `403 Forbidden`.
+
+**Request**: `multipart/form-data`.
+
+|Campo|Tipo|Obrigatório|Descrição|
+|---|---|---|---|
+|`alvara`|arquivo PDF|Sim|Alvará em PDF válido de até 10MB.|
+
+**Response 200:**
+
+```json
+{
+  "message": "alvará enviado com sucesso",
+  "codigo_academia": "LDA20261",
+  "download_url": "/documentos/academias/LDA20261/alvara/download"
+}
+```
+
+**Erros:**
+
+|Status|Quando ocorre|
+|---|---|
+|`400`|Campo `alvara` ausente, arquivo não é PDF válido ou excede 10MB.|
+|`401`|Token ausente ou inválido.|
+|`403`|Usuário autenticado não tem permissão para a academia informada.|
+|`404`|Academia não encontrada ou `{campo}` diferente de `alvara`.|
+|`500`|Falha ao criar diretório ou enviar o documento ao storage.|
+|`503`|Provider de storage indisponível.|
 
 ### GET /documentos/estudantes/{codigo_estudante}/{campo}/download
 
