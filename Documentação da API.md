@@ -1167,7 +1167,7 @@ Define nova senha usando o token de recuperação.
 
 ### POST /dominis/academia/cadastro
 
-Registra uma nova academia via `multipart/form-data`. Criada com status `inativo`. `nif` é obrigatório, string única de exatamente 10 dígitos, inclusive para academias inativas. `alvara` é opcional: quando enviado, deve ser PDF válido com até 10MB e é armazenado em `{codigo_academia}/Documentação formal/`. Quando não for enviado no cadastro, envie-o depois por `POST /documentos/academias/{codigo_academia}/alvara/upload`. O front end pode ler esse documento pela rota autenticada `GET /documentos/academias/{codigo_academia}/alvara/download`.
+Registra uma nova academia via `multipart/form-data`. Criada com status `inativo`. `nif` é obrigatório, string de exatamente 10 dígitos — **não é único**: a mesma entidade fiscal pode estar associada a mais de uma academia na plataforma (ver "Solicitações de alteração de NIF de academia" para como o NIF é alterado depois do cadastro). `alvara` é opcional: quando enviado, deve ser PDF válido com até 10MB e é armazenado em `{codigo_academia}/Documentação formal/`. Quando não for enviado no cadastro, envie-o depois por `POST /documentos/academias/{codigo_academia}/alvara/upload`. O front end pode ler esse documento pela rota autenticada `GET /documentos/academias/{codigo_academia}/alvara/download`.
 
 **Proteção**: autenticado + admin com role `fpp`
 
@@ -1231,13 +1231,12 @@ Quando o `alvara` não é enviado, a resposta também inclui `aviso` com a URL d
 **Erros:**
 
 - `400` — `nivel` inválido, `type` inválido (`public`/`private`) ou ausente, `nif` ausente/inválido, `alvara` não PDF/acima de 10MB quando enviado, campos obrigatórios ausentes ou anos_academicos inválidos
-- `409` — academia ou `nif` já existe
 
 ---
 
 ### POST /academia/cadastro
 
-Permite que uma academia se autocadastre na plataforma **sem autenticação prévia**, via `multipart/form-data`. Usa exatamente as mesmas regras de validação de `POST /dominis/academia/cadastro`: `nif` é obrigatório, único e tem 10 dígitos; `alvara` é opcional e, quando enviado, deve ser PDF válido de até 10MB, armazenado em `{codigo_academia}/Documentação formal/`. Caso não seja enviado no cadastro, use posteriormente `POST /documentos/academias/{codigo_academia}/alvara/upload`. A academia é sempre criada com status `inativo` — apenas um admin com role `adm` ou `fpp` pode ativá-la, via `PUT /dominis/academia/:codigo/ativar`. Login antes da ativação retorna erro de "academia inativa".
+Permite que uma academia se autocadastre na plataforma **sem autenticação prévia**, via `multipart/form-data`. Usa exatamente as mesmas regras de validação de `POST /dominis/academia/cadastro`: `nif` é obrigatório e tem 10 dígitos (não é único — ver nota acima); `alvara` é opcional e, quando enviado, deve ser PDF válido de até 10MB, armazenado em `{codigo_academia}/Documentação formal/`. Caso não seja enviado no cadastro, use posteriormente `POST /documentos/academias/{codigo_academia}/alvara/upload`. A academia é sempre criada com status `inativo` — apenas um admin com role `adm` ou `fpp` pode ativá-la, via `PUT /dominis/academia/:codigo/ativar`. Login antes da ativação retorna erro de "academia inativa".
 
 **Proteção**: nenhuma (rota pública)
 
@@ -1290,7 +1289,6 @@ Quando o `alvara` não é enviado, o campo `aviso` também informa a URL de uplo
 **Erros:**
 
 - `400` — `nivel` inválido, `type` inválido, `nif` ausente/inválido, `alvara` não PDF/acima de 10MB quando enviado, campos obrigatórios ausentes, `anos_academicos` inválidos, `senha` ausente/vazia ou fora do intervalo de 6–128 caracteres
-- `409` — `nif` já cadastrado em outra academia
 
 ---
 
@@ -1380,8 +1378,144 @@ Atualiza os dados cadastrais da academia autenticada.
 }
 ```
 
-**Nota**: `telefone`, `email`, `anos_academicos`, `cursos`, `type`, `nivel_escolar` e `nif` não são aceitos nesta rota. Use `PUT /me/email` e `PUT /me/telefone` para contatos, `POST/DELETE /academia/anos-academicos` para anos acadêmicos e as rotas `/academia/curso` para cursos. Alterações de `type` e `nivel_escolar` exigem documento comprobativo pelo fluxo dedicado da tarefa 07 e ficam indisponíveis por este caminho. Se qualquer campo não permitido aparecer no payload, a requisição falha inteira com `400` e nenhum campo é alterado.
+**Nota**: `telefone`, `email`, `anos_academicos`, `cursos`, `type`, `nivel_escolar` e `nif` não são aceitos nesta rota. Use `PUT /me/email` e `PUT /me/telefone` para contatos, `POST/DELETE /academia/anos-academicos` para anos acadêmicos e as rotas `/academia/curso` para cursos. Alterações de `type` e `nivel_escolar` exigem documento comprobativo pelo fluxo dedicado da tarefa 07 e ficam indisponíveis por este caminho. Alteração de `nif` exige aprovação de um Admin (role `adm` ou `fpp`) pelo fluxo abaixo. Se qualquer campo não permitido aparecer no payload, a requisição falha inteira com `400` e nenhum campo é alterado.
 
+---
+
+### Solicitações de alteração de NIF de academia
+
+`nif` não é um dado único entre academias — a mesma entidade fiscal pode estar associada a mais de uma academia na plataforma. Ainda assim, a alteração do `nif` de uma academia já cadastrada exige aprovação: a academia solicita, e só um Admin (role `adm` ou `fpp`) pode aprovar ou reprovar. Aprovar aplica o novo `nif` imediatamente; reprovar não altera nenhum dado. Diferente das solicitações de edição de dados de estudante, este fluxo não exige documento comprobativo.
+
+#### POST /academia/solicitacoes-nif
+
+Cria uma solicitação de alteração de NIF para a academia autenticada. Nada é alterado em `nif` neste momento — apenas o pedido é registrado com status `pendente`.
+
+**Proteção**: autenticado + academia ativa
+
+**Request:**
+
+```json
+{
+  "novo_nif": "0098765432"
+}
+```
+
+**Response 201:**
+
+```json
+{
+  "message": "solicitação de alteração de NIF criada com sucesso",
+  "codigo_solicitacao": "SNF12345678",
+  "nif_atual": "0012345678",
+  "nif_solicitado": "0098765432",
+  "status": "pendente"
+}
+```
+
+**Regras de negócio:** `novo_nif` precisa ter exatamente 10 dígitos e ser diferente do `nif` atual da academia. Só pode existir uma solicitação `pendente` por academia — uma segunda tentativa retorna `409` mesmo sob concorrência (índice único parcial no banco, além da guarda de operação única).
+
+**Erros:** `400` `novo_nif` ausente/inválido ou igual ao atual; `409` já existe solicitação pendente para esta academia.
+
+---
+
+#### GET /academia/solicitacoes-nif
+
+Lista as solicitações de alteração de NIF da própria academia autenticada, em qualquer status.
+
+**Proteção**: autenticado + academia ativa
+
+**Query Params:** `status` — filtro opcional por `pendente`, `aprovada` ou `reprovada`; `limit` (padrão 50, teto 100); `offset` (padrão 0).
+
+**Request:** sem payload
+
+**Response 200:** mesmo formato de `GET /dominis/solicitacoes-nif-academia` abaixo, restrito à própria academia.
+
+---
+
+#### GET /dominis/solicitacoes-nif-academia
+
+Lista solicitações de alteração de NIF de qualquer academia. Visível a qualquer admin autenticado; a decisão (aprovar/reprovar) exige role `adm` ou `fpp`.
+
+**Proteção**: autenticado + admin
+
+**Query Params:** `status`, `codigo_academia` — ambos opcionais; `limit` (padrão 50, teto 100); `offset` (padrão 0).
+
+**Request:** sem payload
+
+**Response 200:**
+
+```json
+{
+  "solicitacoes": [
+    {
+      "codigo_solicitacao": "SNF12345678",
+      "codigo_academia": "LDA20261",
+      "nif_atual": "0012345678",
+      "nif_solicitado": "0098765432",
+      "status": "pendente",
+      "motivo_reprovacao": null,
+      "solicitado_por": "LDA20261",
+      "decidido_por": null,
+      "created_at": "2026-09-03T00:00:00Z",
+      "updated_at": "2026-09-03T00:00:00Z",
+      "version": 1
+    }
+  ],
+  "limit": 50,
+  "offset": 0,
+  "total": 1
+}
+```
+
+---
+
+#### PUT /dominis/solicitacoes-nif-academia/:codigo/aprovar
+
+Aprova uma solicitação pendente de alteração de NIF. Aplica o `nif_solicitado` na academia imediatamente.
+
+**Proteção**: autenticado + admin com role `adm` ou `fpp`
+
+**Path Params:** `codigo` — `codigo_solicitacao`
+
+**Request:** sem payload
+
+**Response 200:**
+
+```json
+{
+  "message": "solicitação decidida com sucesso",
+  "codigo_solicitacao": "SNF12345678",
+  "status": "aprovada"
+}
+```
+
+**Regras de negócio:** a solicitação precisa estar `pendente`. Grava `AcademiaNIFAlteradoPorSolicitacao` na academia (formato revalidado) e só então marca a solicitação como `aprovada`; se a alteração na academia falhar, a solicitação permanece `pendente` e nada é persistido.
+
+**Erros:** `403` role insuficiente (`gerente` não pode decidir); `404` solicitação inexistente; `409` solicitação já decidida.
+
+---
+
+#### PUT /dominis/solicitacoes-nif-academia/:codigo/reprovar
+
+Reprova uma solicitação pendente de alteração de NIF. Nenhum dado da academia é alterado.
+
+**Proteção**: autenticado + admin com role `adm` ou `fpp`
+
+**Path Params:** `codigo` — `codigo_solicitacao`
+
+**Request:**
+
+```json
+{
+  "motivo_reprovacao": "NIF não confere com o registro da AGT"
+}
+```
+
+**Response 200:** igual ao endpoint de aprovação, com `status = "reprovada"`.
+
+**Regras de negócio:** exige `motivo_reprovacao` não vazio. Grava `SolicitacaoAlteracaoNIFAcademiaReprovada`; `nif` da academia permanece inalterado.
+
+**Erros:** `400` `motivo_reprovacao` ausente/vazio; `403` role insuficiente; `404` solicitação inexistente; `409` solicitação já decidida.
 ---
 
 ### Solicitações de edição de dados sensíveis de estudantes

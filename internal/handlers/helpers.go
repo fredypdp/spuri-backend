@@ -132,6 +132,10 @@ func getSolicitacaoMatriculaProjection(c *gin.Context) *projections.SolicitacaoM
 	return projections.NewSolicitacaoMatriculaProjection(getDbClient(c))
 }
 
+func getSolicitacaoAlteracaoNIFAcademiaProjection(c *gin.Context) *projections.SolicitacaoAlteracaoNIFAcademiaProjection {
+	return projections.NewSolicitacaoAlteracaoNIFAcademiaProjection(getDbClient(c))
+}
+
 // ============================================================================
 // Helpers de permissão admin
 // ============================================================================

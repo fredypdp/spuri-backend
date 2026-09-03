@@ -167,6 +167,7 @@ func initProjections() error {
 	projManager.RegisterProjection("avaliacao_final", projections.NewAvaliacaoFinalProjection(dbClient))
 	projManager.RegisterProjection("solicitacoes_matricula", projections.NewSolicitacaoMatriculaProjection(dbClient))
 	projManager.RegisterProjection("solicitacoes_edicao_dados_estudante", projections.NewSolicitacaoEdicaoDadoEstudanteProjection(dbClient))
+	projManager.RegisterProjection("solicitacoes_alteracao_nif_academia", projections.NewSolicitacaoAlteracaoNIFAcademiaProjection(dbClient))
 	projManager.RegisterProjection("financeiro", projections.NewFinanceiroProjection(dbClient))
 
 	db.SetLedgerWriteHook(projManager.Wake)
@@ -469,6 +470,8 @@ func setupRouter() *gin.Engine {
 	academia.Use(middleware.ValidarStatusAcademia())
 	{
 		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
+		academia.POST("/solicitacoes-nif", handlers.CriarSolicitacaoAlteracaoNIFAcademiaHandler)
+		academia.GET("/solicitacoes-nif", handlers.ListarSolicitacoesNIFAcademia)
 		academia.POST("/definir-ano-letivo", handlers.DefinirAnoLetivoAcademia)
 		academia.POST("/anos-academicos", handlers.AdicionarAnosAcademicos)
 		academia.DELETE("/anos-academicos", handlers.RemoverAnosAcademicos)
@@ -567,6 +570,9 @@ func setupRouter() *gin.Engine {
 		admin.PUT("/academia/:codigo/ativar", middleware.RequireAdm(), handlers.AtivarAcademia)
 		admin.PUT("/academia/:codigo/desativar", middleware.RequireAdm(), handlers.DesativarAcademia)
 		admin.DELETE("/academia/:codigo", middleware.RequireFPP(), handlers.DeletarAcademia)
+		admin.GET("/solicitacoes-nif-academia", handlers.ListarSolicitacoesNIFAdmin)
+		admin.PUT("/solicitacoes-nif-academia/:codigo/aprovar", middleware.RequireAdm(), handlers.DecidirSolicitacaoAlteracaoNIFAcademiaHandler(true))
+		admin.PUT("/solicitacoes-nif-academia/:codigo/reprovar", middleware.RequireAdm(), handlers.DecidirSolicitacaoAlteracaoNIFAcademiaHandler(false))
 		admin.PUT("/admin/:id/ativar", middleware.RequireAdm(), handlers.AtivarAdmin)
 		admin.PUT("/admin/:id/desativar", middleware.RequireAdm(), handlers.DesativarAdmin)
 		admin.DELETE("/admin/:id", middleware.RequireAdm(), handlers.DeletarAdmin)                  // Tarefa 73
