@@ -133,16 +133,11 @@ func RegisterAcademia(c *gin.Context) {
 		}
 	}
 
+	// Tarefa 81: nif deixou de ser único entre academias — mesma entidade
+	// fiscal pode estar associada a mais de uma academia na plataforma.
+	// Alteração de nif após o cadastro exige aprovação via
+	// POST /academia/solicitacoes-nif.
 	client := getDbClient(c)
-	existing, err := getAcademiaProjection(c).GetByNIF(req.NIF)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-	if existing != nil {
-		utils.RespondWithConflictError(c, "nif já cadastrado em outra academia")
-		return
-	}
 	codigoAcademia, err := generateCodigoAcademia(codigoProvincia, client.DB())
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
@@ -348,16 +343,11 @@ func RegisterAcademiaPublica(c *gin.Context) {
 		}
 	}
 
+	// Tarefa 81: nif deixou de ser único entre academias — mesma entidade
+	// fiscal pode estar associada a mais de uma academia na plataforma.
+	// Alteração de nif após o cadastro exige aprovação via
+	// POST /academia/solicitacoes-nif.
 	client := getDbClient(c)
-	existing, err := getAcademiaProjection(c).GetByNIF(req.NIF)
-	if err != nil {
-		utils.RespondWithInternalError(c, err)
-		return
-	}
-	if existing != nil {
-		utils.RespondWithConflictError(c, "nif já cadastrado em outra academia")
-		return
-	}
 	codigoAcademia, err := generateCodigoAcademia(codigoProvincia, client.DB())
 	if err != nil {
 		utils.RespondWithInternalError(c, err)

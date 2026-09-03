@@ -54,7 +54,7 @@ func rejectAcademiaDadosRestrictedFields(c *gin.Context) bool {
 		"cursos":          "O campo 'cursos' não é aceito em PUT /academia/dados. Use as rotas /academia/curso para gerir cursos.",
 		"type":            "O campo 'type' não é aceito em PUT /academia/dados. A alteração exige documento comprobativo pelo fluxo dedicado da tarefa 07 e está temporariamente indisponível por este caminho.",
 		"nivel_escolar":   "O campo 'nivel_escolar' não é aceito em PUT /academia/dados. A alteração exige documento comprobativo pelo fluxo dedicado da tarefa 07 e está temporariamente indisponível por este caminho.",
-		"nif":             "O campo 'nif' não é aceito em PUT /academia/dados. A alteração de NIF exige fluxo dedicado com validações próprias.",
+		"nif":             "O campo 'nif' não é aceito em PUT /academia/dados. Use POST /academia/solicitacoes-nif para solicitar a alteração — a mudança só é aplicada após aprovação de um Admin (role adm ou fpp).",
 	}
 	for _, field := range []string{"telefone", "email", "anos_academicos", "cursos", "type", "nivel_escolar", "nif"} {
 		if _, ok := raw[field]; ok {

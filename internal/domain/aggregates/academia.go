@@ -99,7 +99,11 @@ func (a *Academia) Apply(event DomainEvent) error {
 		return a.applyAcademiaDeletada(event)
 	case "CursosAtualizados":
 		return a.applyCursosAtualizados(event)
-	case "AcademiaDadosAtualizados":
+	case "AcademiaDadosAtualizados", "AcademiaNIFAlteradoPorSolicitacao":
+		// AcademiaNIFAlteradoPorSolicitacao reaproveita applyAcademiaDadosAtualizados:
+		// o evento carrega apenas o campo NIF (mesmo nome/tipo de campo), então o
+		// unmarshal genérico já popula ev.NIF corretamente. Mesmo padrão usado por
+		// Estudante para os eventos "*PorSolicitacao" (ver estudante.go Apply()).
 		return a.applyAcademiaDadosAtualizados(event)
 	case "EmailVerificado":
 		return a.applyEmailVerificado(event)
@@ -373,6 +377,39 @@ func (a *Academia) AtualizarDados(
 		EmailAlterado:    emailAlterado,
 		TelefoneAlterado: telefoneAlterado,
 		UpdatedAt:        time.Now(),
+	}
+
+	a.RaiseEvent(event)
+	return a.Apply(event)
+}
+
+// AlterarNIFPorSolicitacao altera o NIF da academia como resultado da
+// aprovação de uma SolicitacaoAlteracaoNIFAcademia por um Admin (role "adm"
+// ou "fpp"). NIF não é mais um dado único entre academias (Tarefa 81) — a
+// única via de alteração é este fluxo de solicitação; PUT /academia/dados
+// continua rejeitando o campo "nif" (ver rejectAcademiaDadosRestrictedFields).
+//
+// O evento gerado é reduzido ao campo alterado e reaproveita
+// applyAcademiaDadosAtualizados / handleAcademiaDadosAtualizados através do
+// mesmo dispatch multi-case usado por "AcademiaDadosAtualizados" — mesmo
+// padrão de Estudante.AlterarNomePorSolicitacao.
+func (a *Academia) AlterarNIFPorSolicitacao(novoNif, codigoSolicitacao, decididoPor string) error {
+	nif := strings.TrimSpace(novoNif)
+	if err := utils.ValidateNIF(nif); err != nil {
+		return err
+	}
+	codigoSolicitacao = strings.TrimSpace(codigoSolicitacao)
+	decididoPor = strings.TrimSpace(decididoPor)
+	if codigoSolicitacao == "" || decididoPor == "" {
+		return fmt.Errorf("codigo_solicitacao e decidido_por são obrigatórios")
+	}
+
+	event := &AcademiaNIFAlteradoPorSolicitacaoEvent{
+		BaseEvent:         BaseEvent{EventType: "AcademiaNIFAlteradoPorSolicitacao", AggregateID: a.ID},
+		NIF:               &nif,
+		CodigoSolicitacao: codigoSolicitacao,
+		DecididoPor:       decididoPor,
+		UpdatedAt:         time.Now(),
 	}
 
 	a.RaiseEvent(event)
@@ -859,6 +896,23 @@ type AcademiaDadosAtualizadosEvent struct {
 
 func (e *AcademiaDadosAtualizadosEvent) GetPayload() interface{} { return e }
 func (e *AcademiaDadosAtualizadosEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+// AcademiaNIFAlteradoPorSolicitacaoEvent é intencionalmente reduzido ao campo
+// NIF (mesmo nome de campo de AcademiaDadosAtualizadosEvent.NIF) para que
+// Apply() e a projeção reaproveitem os handlers de "AcademiaDadosAtualizados"
+// sem duplicar lógica de merge — CodigoSolicitacao e DecididoPor ficam
+// gravados no ledger para auditoria, mas não são usados pelos handlers
+// reaproveitados.
+type AcademiaNIFAlteradoPorSolicitacaoEvent struct {
+	BaseEvent
+	NIF               *string
+	CodigoSolicitacao string
+	DecididoPor       string
+	UpdatedAt         time.Time
+}
+
+func (e *AcademiaNIFAlteradoPorSolicitacaoEvent) GetPayload() interface{} { return e }
+func (e *AcademiaNIFAlteradoPorSolicitacaoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
 // AcademiaSenhaAlteradaEvent — FIX C1: evento de senha via event sourcing.
 type AcademiaSenhaAlteradaEvent struct {
