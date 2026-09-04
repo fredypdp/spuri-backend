@@ -141,6 +141,18 @@ var validEventTypes = map[string]bool{
 	// /academia/faltas-aluno/{id} retornar 500 sempre.
 	"NotaCorrigida":  true,
 	"FaltaCorrigida": true,
+	// ── Solicitação de Alteração de NIF da Academia (Tarefas 81-82) ────────────
+	// SolicitacaoAlteracaoNIFAcademiaCriada/Aprovada/Reprovada são emitidos por
+	// aggregates.SolicitacaoAlteracaoNIFAcademia (solicitacao_alteracao_nif_academia.go)
+	// desde a Tarefa 81, mas ficaram de fora desta whitelist quando a feature foi
+	// implementada: todo AppendTx/SaveWithAudit para essas solicitações era
+	// rejeitado com "tipo de evento inválido" antes de tentar gravar no ledger,
+	// fazendo POST /academia/solicitacoes-nif e PUT
+	// /admin/solicitacoes-nif-academia/{codigo}/aprovar|reprovar retornarem 500
+	// sempre (mesma classe de bug já vista com NotaCorrigida/FaltaCorrigida acima).
+	"SolicitacaoAlteracaoNIFAcademiaCriada":    true,
+	"SolicitacaoAlteracaoNIFAcademiaAprovada":  true,
+	"SolicitacaoAlteracaoNIFAcademiaReprovada": true,
 }
 
 // validAggregateTypes é o mapa canônico de aggregate types permitidos no ledger.
@@ -155,6 +167,9 @@ var validAggregateTypes = map[string]bool{
 	"SolicitacaoEdicaoDadoEstudante": true,
 	"System":                         true,
 	"Financeiro":                     true,
+	// SolicitacaoAlteracaoNIFAcademia (Tarefas 81-82): ver comentário
+	// equivalente em validEventTypes acima sobre o mesmo bug de registro.
+	"SolicitacaoAlteracaoNIFAcademia": true,
 }
 
 // ValidateEventType verifica se o tipo de evento é permitido.
