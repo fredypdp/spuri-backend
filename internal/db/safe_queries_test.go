@@ -75,6 +75,16 @@ func TestValidateEventTypeAcceptsEventsDiscoveredInCode(t *testing.T) {
 		"SolicitacaoMatriculaCancelada",
 		"CobrancaAppyPayCancelada",
 		"CobrancaAppyPayConflitoPosCancelamento",
+		// ── Solicitação de Alteração de NIF da Academia (Tarefas 81-82) ──────────
+		// SolicitacaoAlteracaoNIFAcademiaCriada/Aprovada/Reprovada são emitidos
+		// por aggregates.SolicitacaoAlteracaoNIFAcademia desde a Tarefa 81, mas
+		// nunca constaram nesta whitelist: todo AppendTx/SaveWithAudit para essas
+		// solicitações era rejeitado com "tipo de evento inválido" antes de
+		// tentar gravar no ledger, fazendo POST /academia/solicitacoes-nif e as
+		// rotas de aprovação/reprovação retornarem 500 sempre.
+		"SolicitacaoAlteracaoNIFAcademiaCriada",
+		"SolicitacaoAlteracaoNIFAcademiaAprovada",
+		"SolicitacaoAlteracaoNIFAcademiaReprovada",
 	}
 
 	for _, eventType := range eventTypes {
@@ -100,6 +110,9 @@ func TestValidateAggregateTypeAcceptsAggregatesDiscoveredInCode(t *testing.T) {
 		"Turma",
 		"SolicitacaoMatricula",
 		"System",
+		// SolicitacaoAlteracaoNIFAcademia (Tarefas 81-82): mesmo bug de
+		// registro incompleto na whitelist descrito acima para os event types.
+		"SolicitacaoAlteracaoNIFAcademia",
 	}
 
 	for _, aggregateType := range aggregateTypes {
