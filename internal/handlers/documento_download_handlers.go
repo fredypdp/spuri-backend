@@ -344,13 +344,10 @@ func streamDocumentoAcademiaPorCodigo(c *gin.Context, codigoAcademia, campo stri
 // UploadDocumentoAcademia permite anexar — ou substituir — um documento
 // formal da academia (hoje apenas "alvara") depois do cadastro, quando ele
 // não foi enviado no momento do registo (POST /dominis/academia/cadastro ou
-// POST /academia/cadastro, ambos com alvara agora opcional). Espelha
-// exatamente o escopo e as regras de permissão de DownloadDocumentoAcademia:
-// mesma rota "protected" (fora de /academia, /estudante e /dominis) e mesma
-// função canAccessAcademiaDocument — admin ou a própria academia dona do
-// codigo_academia. Reenviar para uma academia que já tem alvara substitui o
-// arquivo existente (mesmo path determinístico usado no cadastro e no
-// download).
+// POST /academia/cadastro, ambos com alvara agora opcional). Apenas a própria
+// academia dona do codigo_academia pode enviá-lo; admins mantêm acesso somente
+// para download. Reenviar para uma academia que já tem alvara substitui o
+// arquivo existente (mesmo path determinístico usado no cadastro e no download).
 func UploadDocumentoAcademia(c *gin.Context) {
 	codigoAcademia := strings.TrimSpace(c.Param("codigo"))
 	campo := strings.TrimSpace(c.Param("campo"))
@@ -368,8 +365,8 @@ func UploadDocumentoAcademia(c *gin.Context) {
 		utils.RespondWithNotFoundError(c, "academia")
 		return
 	}
-	if !canAccessAcademiaDocument(c, academia.CodigoAcademia) {
-		utils.RespondWithForbiddenError(c, "sem permissão para enviar documento desta academia")
+	if !canUploadAcademiaDocument(c, academia.CodigoAcademia) {
+		utils.RespondWithForbiddenError(c, "apenas a própria academia pode enviar ou atualizar este documento")
 		return
 	}
 
@@ -440,6 +437,20 @@ func canAccessAcademiaDocument(c *gin.Context, codigoAcademia string) bool {
 	if userType == "admin" {
 		return true
 	}
+	if userType != "academia" {
+		return false
+	}
+	userID, _ := middleware.GetUserID(c)
+	academia, _ := getAcademiaProjection(c).GetByID(userID)
+	return academia != nil && academia.CodigoAcademia == codigoAcademia
+}
+
+// canUploadAcademiaDocument, diferente de canAccessAcademiaDocument, NÃO
+// concede acesso a admin: enviar/substituir um documento formal da academia
+// (ex.: alvará) é uma escrita nos dados da própria academia, exclusiva dela
+// — admin pode consultar (canAccessAcademiaDocument), mas não alterar.
+func canUploadAcademiaDocument(c *gin.Context, codigoAcademia string) bool {
+	userType, _ := middleware.GetUserType(c)
 	if userType != "academia" {
 		return false
 	}
