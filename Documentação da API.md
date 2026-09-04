@@ -8796,7 +8796,7 @@ Envia ou substitui o alvará da academia depois do cadastro. O endpoint aceita e
 
 **Escopo da rota**: global autenticado (`protected`), fora dos prefixos `/academia`, `/estudante` e `/dominis`.
 
-**Proteção**: autenticado. Permitido para admin ou para a própria academia dona do `codigo_academia`. Estudantes e academias de outro código recebem `403 Forbidden`.
+**Proteção**: autenticado. Permitido **apenas para a própria academia dona** do `codigo_academia` — diferente do endpoint de download, admin não pode enviar/substituir este documento (só consultar). Estudantes, academias de outro código e qualquer admin recebem `403 Forbidden`.
 
 **Request**: `multipart/form-data`.
 
