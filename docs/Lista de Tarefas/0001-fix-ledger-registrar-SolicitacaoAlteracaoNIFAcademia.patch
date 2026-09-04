@@ -1,0 +1,115 @@
+From 8a7f0ecb5799290688f0836d5a1a41b2bbc11a0b Mon Sep 17 00:00:00 2001
+From: Claude <claude@anthropic.com>
+Date: Fri, 4 Sep 2026 13:59:32 +0000
+Subject: [PATCH] fix(ledger): registrar SolicitacaoAlteracaoNIFAcademia na
+ whitelist do ledger
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A feature de alteração de NIF de academia (Tarefas 81-82, commit a4d4ddc)
+introduziu o aggregate SolicitacaoAlteracaoNIFAcademia e os event types
+SolicitacaoAlteracaoNIFAcademiaCriada/Aprovada/Reprovada, mas nunca
+atualizou as whitelists validAggregateTypes/validEventTypes em
+internal/db/safe_queries.go.
+
+Como EventStore.AppendTx (usado por AggregateRepository.Save) chama
+ValidateAggregateType/ValidateEventType antes de qualquer INSERT no
+ledger, toda tentativa de:
+  - POST /academia/solicitacoes-nif
+  - PUT /admin/solicitacoes-nif-academia/{codigo}/aprovar
+  - PUT /admin/solicitacoes-nif-academia/{codigo}/reprovar
+falhava com 'erro ao salvar evento: tipo de aggregate inválido:
+SolicitacaoAlteracaoNIFAcademia', sem nunca chegar a escrever no banco
+(a validação ocorre dentro da transação, então não há dado órfão/parcial
+para corrigir — só é preciso registrar os tipos).
+
+Esta é a mesma classe de bug já documentada no arquivo para
+NotaCorrigida/FaltaCorrigida: toda vez que um novo aggregate/evento é
+adicionado ao domínio, ele precisa ser explicitamente adicionado a estas
+duas whitelists, e isso é fácil de esquecer.
+
+Mudanças:
+  - internal/db/safe_queries.go: adiciona 'SolicitacaoAlteracaoNIFAcademia'
+    a validAggregateTypes e os 3 event types correspondentes a
+    validEventTypes.
+  - internal/db/safe_queries_test.go: adiciona casos de regressão para os
+    4 tipos na suíte existente (falham sem a correção acima, reproduzindo
+    o erro relatado; passam com ela).
+
+Validado localmente: go build ./..., go vet ./... e go test ./... (todos
+os pacotes) passam após a correção; testes de
+internal/domain/aggregates/solicitacao_alteracao_nif_academia_test.go
+continuam passando sem alteração.
+---
+ internal/db/safe_queries.go      | 15 +++++++++++++++
+ internal/db/safe_queries_test.go | 13 +++++++++++++
+ 2 files changed, 28 insertions(+)
+
+diff --git a/internal/db/safe_queries.go b/internal/db/safe_queries.go
+index badd43f..11f1477 100644
+--- a/internal/db/safe_queries.go
++++ b/internal/db/safe_queries.go
+@@ -141,6 +141,18 @@ var validEventTypes = map[string]bool{
+ 	// /academia/faltas-aluno/{id} retornar 500 sempre.
+ 	"NotaCorrigida":  true,
+ 	"FaltaCorrigida": true,
++	// ── Solicitação de Alteração de NIF da Academia (Tarefas 81-82) ────────────
++	// SolicitacaoAlteracaoNIFAcademiaCriada/Aprovada/Reprovada são emitidos por
++	// aggregates.SolicitacaoAlteracaoNIFAcademia (solicitacao_alteracao_nif_academia.go)
++	// desde a Tarefa 81, mas ficaram de fora desta whitelist quando a feature foi
++	// implementada: todo AppendTx/SaveWithAudit para essas solicitações era
++	// rejeitado com "tipo de evento inválido" antes de tentar gravar no ledger,
++	// fazendo POST /academia/solicitacoes-nif e PUT
++	// /admin/solicitacoes-nif-academia/{codigo}/aprovar|reprovar retornarem 500
++	// sempre (mesma classe de bug já vista com NotaCorrigida/FaltaCorrigida acima).
++	"SolicitacaoAlteracaoNIFAcademiaCriada":    true,
++	"SolicitacaoAlteracaoNIFAcademiaAprovada":  true,
++	"SolicitacaoAlteracaoNIFAcademiaReprovada": true,
+ }
+ 
+ // validAggregateTypes é o mapa canônico de aggregate types permitidos no ledger.
+@@ -155,6 +167,9 @@ var validAggregateTypes = map[string]bool{
+ 	"SolicitacaoEdicaoDadoEstudante": true,
+ 	"System":                         true,
+ 	"Financeiro":                     true,
++	// SolicitacaoAlteracaoNIFAcademia (Tarefas 81-82): ver comentário
++	// equivalente em validEventTypes acima sobre o mesmo bug de registro.
++	"SolicitacaoAlteracaoNIFAcademia": true,
+ }
+ 
+ // ValidateEventType verifica se o tipo de evento é permitido.
+diff --git a/internal/db/safe_queries_test.go b/internal/db/safe_queries_test.go
+index 4bbf871..bb2f349 100644
+--- a/internal/db/safe_queries_test.go
++++ b/internal/db/safe_queries_test.go
+@@ -75,6 +75,16 @@ func TestValidateEventTypeAcceptsEventsDiscoveredInCode(t *testing.T) {
+ 		"SolicitacaoMatriculaCancelada",
+ 		"CobrancaAppyPayCancelada",
+ 		"CobrancaAppyPayConflitoPosCancelamento",
++		// ── Solicitação de Alteração de NIF da Academia (Tarefas 81-82) ──────────
++		// SolicitacaoAlteracaoNIFAcademiaCriada/Aprovada/Reprovada são emitidos
++		// por aggregates.SolicitacaoAlteracaoNIFAcademia desde a Tarefa 81, mas
++		// nunca constaram nesta whitelist: todo AppendTx/SaveWithAudit para essas
++		// solicitações era rejeitado com "tipo de evento inválido" antes de
++		// tentar gravar no ledger, fazendo POST /academia/solicitacoes-nif e as
++		// rotas de aprovação/reprovação retornarem 500 sempre.
++		"SolicitacaoAlteracaoNIFAcademiaCriada",
++		"SolicitacaoAlteracaoNIFAcademiaAprovada",
++		"SolicitacaoAlteracaoNIFAcademiaReprovada",
+ 	}
+ 
+ 	for _, eventType := range eventTypes {
+@@ -100,6 +110,9 @@ func TestValidateAggregateTypeAcceptsAggregatesDiscoveredInCode(t *testing.T) {
+ 		"Turma",
+ 		"SolicitacaoMatricula",
+ 		"System",
++		// SolicitacaoAlteracaoNIFAcademia (Tarefas 81-82): mesmo bug de
++		// registro incompleto na whitelist descrito acima para os event types.
++		"SolicitacaoAlteracaoNIFAcademia",
+ 	}
+ 
+ 	for _, aggregateType := range aggregateTypes {
+-- 
+2.43.0
+
