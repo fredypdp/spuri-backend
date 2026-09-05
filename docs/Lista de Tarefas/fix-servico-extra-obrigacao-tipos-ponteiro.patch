@@ -1,0 +1,44 @@
+diff --git a/internal/handlers/servico_extra_solicitacao_handlers.go b/internal/handlers/servico_extra_solicitacao_handlers.go
+index 0ba86da..bd8ffe7 100644
+--- a/internal/handlers/servico_extra_solicitacao_handlers.go
++++ b/internal/handlers/servico_extra_solicitacao_handlers.go
+@@ -334,11 +334,23 @@ func pendenciasServicoExtra(c *gin.Context, s *aggregates.SolicitacaoServicoExtr
+ 		utils.RespondWithNotFoundError(c, "serviço extra")
+ 		return
+ 	}
++	// ServicoExtraDTO.Preco e .TipoCobranca são *float64/*string (nulos quando
++	// pago=false — ver CHECK chk_servico_extra_pago_campos na migration 118).
++	// Este código só é alcançado quando a inscrição está vinculada a um serviço
++	// com tipo_cobranca mensal/unico, o que implica pago=true e portanto ambos
++	// não-nulos na prática; ainda assim, checamos explicitamente em vez de
++	// desreferenciar direto, para nunca dar panic (500 cru) se essa invariante
++	// for quebrada por qualquer caminho futuro. Sem isto, o build falhava:
++	// "cannot use serv.TipoCobranca (variable of type *string) as string value".
++	if serv.Preco == nil || serv.TipoCobranca == nil {
++		utils.RespondWithInternalError(c, errors.New("serviço extra sem preço configurado"))
++		return
++	}
+ 	fim := time.Now()
+ 	if s.Status == aggregates.StatusInscricaoCancelada {
+ 		fim = s.UpdatedAt
+ 	}
+-	out, err := FinanceiroService.PendenciasServicoExtra(c.Request.Context(), s.GetID().String(), serv.TipoCobranca, serv.Preco, s.VinculadaEm, fim)
++	out, err := FinanceiroService.PendenciasServicoExtra(c.Request.Context(), s.GetID().String(), *serv.TipoCobranca, *serv.Preco, s.VinculadaEm, fim)
+ 	if err != nil {
+ 		utils.RespondWithInternalError(c, err)
+ 		return
+@@ -407,7 +419,13 @@ func IniciarPagamentoServicoExtraObrigacao(c *gin.Context) {
+ 		utils.RespondWithNotFoundError(c, "serviço extra")
+ 		return
+ 	}
+-	out, err := FinanceiroService.IniciarPagamentoServicoExtraObrigacao(c.Request.Context(), in, serv.CodigoAcademia, serv.Preco, serv.MetodosPagamento, c.ClientIP())
++	// Mesmo motivo do comentário em pendenciasServicoExtra acima:
++	// ServicoExtraDTO.Preco é *float64, precisa ser desreferenciado.
++	if serv.Preco == nil {
++		utils.RespondWithInternalError(c, errors.New("serviço extra sem preço configurado"))
++		return
++	}
++	out, err := FinanceiroService.IniciarPagamentoServicoExtraObrigacao(c.Request.Context(), in, serv.CodigoAcademia, *serv.Preco, serv.MetodosPagamento, c.ClientIP())
+ 	if err != nil {
+ 		financeError(c, err)
+ 		return
