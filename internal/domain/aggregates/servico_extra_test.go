@@ -14,8 +14,12 @@ func TestServicoExtraValidation(t *testing.T) {
 	if !s.Ativo {
 		t.Fatal("should start active")
 	}
-	if e := NewServicoExtra().Criar("A", "x", "", "", false, 1, "", nil, false, 0, nil, nil, false, "", nil, id); e == nil {
-		t.Fatal("free service with price accepted")
+	gratuito := NewServicoExtra()
+	if e := gratuito.Criar("A", "x", "", "", false, 1, "", nil, false, 0, nil, nil, false, "", nil, id); e != nil {
+		t.Fatal(e)
+	}
+	if gratuito.Preco != 0 || gratuito.TipoCobranca != "" {
+		t.Fatal("free service billing fields were not cleared")
 	}
 	if e := NewServicoExtra().Criar("A", "x", "", "", true, 1, "anual", []string{"GPO"}, false, 0, nil, nil, false, "", nil, id); e == nil {
 		t.Fatal("invalid billing type accepted")
@@ -43,5 +47,26 @@ func TestServicoExtraDeactivate(t *testing.T) {
 	}
 	if e := s.Reativar(uuid.New()); e == nil {
 		t.Fatal("second reactivate accepted")
+	}
+}
+
+func TestServicoExtraAtualizarDesligarPagoZeraCampos(t *testing.T) {
+	s := NewServicoExtra()
+	if err := s.Criar("A", "x", "", "", true, 1, "mensal", []string{"GPO"}, false, 0, nil, nil, false, "", nil, uuid.New()); err != nil {
+		t.Fatal(err)
+	}
+	pago := false
+	if err := s.Atualizar(nil, nil, nil, &pago, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, uuid.New()); err != nil {
+		t.Fatal(err)
+	}
+	if s.Pago || s.Preco != 0 || s.TipoCobranca != "" || len(s.MetodosPagamento) != 0 {
+		t.Fatalf("campos de cobrança não foram zerados: %+v", s)
+	}
+}
+
+func TestServicoExtraGratuitoComTaxaInscricaoValida(t *testing.T) {
+	s := NewServicoExtra()
+	if err := s.Criar("A", "x", "", "", false, 0, "", nil, true, 1, []string{"GPO"}, nil, false, "", nil, uuid.New()); err != nil {
+		t.Fatalf("serviço gratuito com taxa válida foi rejeitado: %v", err)
 	}
 }
