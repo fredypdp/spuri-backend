@@ -166,6 +166,28 @@ var validEventTypes = map[string]bool{
 	"SolicitacaoAlteracaoNIFAcademiaCriada":    true,
 	"SolicitacaoAlteracaoNIFAcademiaAprovada":  true,
 	"SolicitacaoAlteracaoNIFAcademiaReprovada": true,
+	// AcademiaNIFAlteradoPorSolicitacao é emitido por Academia.AlterarNIFPorSolicitacao
+	// (academia.go) desde a Tarefa 81/82, mas ficou de fora desta whitelist pela mesma
+	// razão do trio acima: todo SaveWithAudit para a alteração efetiva do NIF (chamado
+	// por aplicarAlteracaoNIFAprovada, ANTES de aprovar a solicitação) era rejeitado com
+	// "tipo de evento inválido" antes de tentar gravar no ledger, fazendo PUT
+	// /dominis/solicitacoes-nif-academia/{codigo}/aprovar retornar 500 sempre — o
+	// aprovar nunca chegava a persistir a solicitação como aprovada.
+	"AcademiaNIFAlteradoPorSolicitacao": true,
+	// ── Descobertos por varredura estática (ver internal/db/safe_queries_test.go) ──
+	// Estes dois grupos tinham a mesma classe de bug — emitidos pelo domínio, tratados
+	// pela projeção correspondente, mas nunca chegaram a esta whitelist:
+	// SolicitacaoMatriculaValorPendenteAtualizado é emitido por
+	// SolicitacaoMatricula.AtualizarValorPendentePagamentoMatricula (solicitacao_matricula.go);
+	// ainda não há handler HTTP que chame esse método, mas ficaria sujeito ao mesmo 500
+	// no instante em que uma rota passasse a chamá-lo.
+	"SolicitacaoMatriculaValorPendenteAtualizado": true,
+	// SumarioCriado/DadosAtualizados/Deletado são emitidos por aggregates.Sumario
+	// (sumario.go) e servidos por POST/PUT/DELETE /academia/sumario (rotas ativas em
+	// main.go) — toda criação, edição ou remoção de sumário de aula retornava 500.
+	"SumarioCriado":           true,
+	"SumarioDadosAtualizados": true,
+	"SumarioDeletado":         true,
 }
 
 // validAggregateTypes é o mapa canônico de aggregate types permitidos no ledger.
@@ -185,6 +207,10 @@ var validAggregateTypes = map[string]bool{
 	// SolicitacaoAlteracaoNIFAcademia (Tarefas 81-82): ver comentário
 	// equivalente em validEventTypes acima sobre o mesmo bug de registro.
 	"SolicitacaoAlteracaoNIFAcademia": true,
+	// Sumario: mesmo bug de registro incompleto — aggregates.Sumario.GetType()
+	// retorna "Sumario", mas o tipo nunca constou nesta whitelist (ver comentário
+	// sobre SumarioCriado/DadosAtualizados/Deletado em validEventTypes acima).
+	"Sumario": true,
 }
 
 // ValidateEventType verifica se o tipo de evento é permitido.
