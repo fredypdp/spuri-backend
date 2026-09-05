@@ -7,7 +7,13 @@ import (
 )
 
 var validEventTypes = map[string]bool{
-	"SchemaCreated": true,
+	"SchemaCreated":                                     true,
+	"SolicitacaoServicoExtraCriada":                     true,
+	"SolicitacaoServicoExtraAprovadaPendentePagamento":  true,
+	"SolicitacaoServicoExtraVinculada":                  true,
+	"SolicitacaoServicoExtraReprovada":                  true,
+	"SolicitacaoServicoExtraCanceladaAntesDaVinculacao": true,
+	"SolicitacaoServicoExtraCancelada":                  true,
 	// ── Estudante ────────────────────────────────────────────────────────────
 	"EstudanteCriadoComVinculo":      true,
 	"EstudanteDocumentosCompletados": true,
@@ -161,6 +167,7 @@ var validEventTypes = map[string]bool{
 
 // validAggregateTypes é o mapa canônico de aggregate types permitidos no ledger.
 var validAggregateTypes = map[string]bool{
+	"SolicitacaoServicoExtra":        true,
 	"Estudante":                      true,
 	"Academia":                       true,
 	"Admin":                          true,

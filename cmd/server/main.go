@@ -152,6 +152,7 @@ func initProjections() error {
 	projManager.RegisterProjection("academias", projections.NewAcademiaProjection(dbClient))
 	projManager.RegisterProjection("cursos", projections.NewCursosProjection(dbClient))
 	projManager.RegisterProjection("servicos_extras", projections.NewServicoExtraProjection(dbClient))
+	projManager.RegisterProjection("solicitacoes_servico_extra", projections.NewSolicitacaoServicoExtraProjection(dbClient))
 	projManager.RegisterProjection("materias", projections.NewMateriasProjection(dbClient))
 	projManager.RegisterProjection("sumarios", projections.NewSumariosProjection(dbClient))
 	projManager.RegisterProjection("categorias_nota", projections.NewCategoriasNotaProjection(dbClient))
@@ -368,6 +369,7 @@ func setupRouter() *gin.Engine {
 		// demais ações financeiras ficam no grupo academia/admin abaixo.
 		protected.GET("/financeiro/mensalidades/estudante/:codigo", handlers.ConsultarMensalidadesEstudante)
 		protected.POST("/financeiro/mensalidades/pagamento", handlers.IniciarPagamentoMensalidades)
+		protected.POST("/financeiro/servicos-extras/taxa-inscricao/pagamento", handlers.IniciarPagamentoTaxaInscricaoServicoExtra)
 		// Idem para o histórico de cobranças do estudante (mensalidade, matrícula
 		// e avulsas, em qualquer estado) — ver tarefa 48.
 		protected.GET("/financeiro/cobrancas/estudante/:codigo", handlers.ConsultarCobrancasEstudante)
@@ -406,6 +408,9 @@ func setupRouter() *gin.Engine {
 	estudante.Use(middleware.AuthMiddleware())
 	estudante.Use(middleware.RequireEstudante())
 	{
+		estudante.POST("/servicos-extras/:id/solicitacao", handlers.SolicitarServicoExtra)
+		estudante.GET("/servicos-extras/minhas-inscricoes", handlers.ListarMinhasInscricoesServicoExtra)
+		estudante.PUT("/servicos-extras/minhas-inscricoes/:id/cancelar", handlers.CancelarSolicitacaoServicoExtraEstudante)
 		estudante.PUT("/encarregado/telefone", handlers.AtualizarTelefoneEncarregado)
 		estudante.GET("/solicitacoes-edicao", handlers.ListarSolicitacoesEdicaoEstudante)
 		estudante.GET("/solicitacoes-edicao/:codigo/documento/download", handlers.DownloadDocumentoSolicitacaoEdicaoEstudante)
@@ -449,6 +454,8 @@ func setupRouter() *gin.Engine {
 		academiaRead.GET("/materias", handlers.ListarMaterias)
 		academiaRead.GET("/servicos-extras", handlers.ListarServicosExtrasAcademia)
 		academiaRead.GET("/servicos-extras/:id", handlers.GetServicoExtra)
+		academiaRead.GET("/servicos-extras/solicitacoes", handlers.ListarSolicitacoesServicoExtraAcademia)
+		academiaRead.GET("/servicos-extras/solicitacoes/:id", handlers.GetSolicitacaoServicoExtraAcademia)
 		academiaRead.GET("/sumarios", handlers.ListarSumarios)
 		academiaRead.GET("/sumario/:id", handlers.GetSumario)
 		academiaRead.GET("/materia/:id", handlers.GetMateria)
@@ -478,6 +485,9 @@ func setupRouter() *gin.Engine {
 		academia.PUT("/servicos-extras/:id", handlers.AtualizarServicoExtra)
 		academia.PUT("/servicos-extras/:id/desativar", handlers.DesativarServicoExtra)
 		academia.PUT("/servicos-extras/:id/reativar", handlers.ReativarServicoExtra)
+		academia.PUT("/servicos-extras/solicitacoes/:id/aprovar", handlers.AprovarSolicitacaoServicoExtra)
+		academia.PUT("/servicos-extras/solicitacoes/:id/reprovar", handlers.ReprovarSolicitacaoServicoExtra)
+		academia.PUT("/servicos-extras/inscricoes/:id/cancelar", handlers.CancelarSolicitacaoServicoExtraAcademia)
 		academia.POST("/solicitacoes-nif", handlers.CriarSolicitacaoAlteracaoNIFAcademiaHandler)
 		academia.GET("/solicitacoes-nif", handlers.ListarSolicitacoesNIFAcademia)
 		academia.POST("/definir-ano-letivo", handlers.DefinirAnoLetivoAcademia)

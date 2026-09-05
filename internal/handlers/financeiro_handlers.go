@@ -343,6 +343,12 @@ func ConsultarCobrancaAppyPay(c *gin.Context) {
 				return
 			}
 		}
+		if codigo, err := FinanceiroService.CodigoInscricaoServicoExtraDaCobranca(c.Request.Context(), c.Param("id")); err == nil && codigo != "" {
+			if err := efetivarVinculoServicoExtraPago(c, codigo); err != nil {
+				utils.RespondWithInternalError(c, err)
+				return
+			}
+		}
 	}
 	c.JSON(http.StatusOK, out)
 }
@@ -608,6 +614,12 @@ func ReceberWebhookAppyPay(metodo string) gin.HandlerFunc {
 		if confirmedSuccess {
 			if codigo, err := FinanceiroService.CodigoSolicitacaoDaCobranca(c.Request.Context(), eventID); err == nil && codigo != "" {
 				if err := efetivarVinculoMatriculaPaga(c, codigo); err != nil {
+					c.Status(http.StatusInternalServerError)
+					return
+				}
+			}
+			if codigo, err := FinanceiroService.CodigoInscricaoServicoExtraDaCobranca(c.Request.Context(), eventID); err == nil && codigo != "" {
+				if err := efetivarVinculoServicoExtraPago(c, codigo); err != nil {
 					c.Status(http.StatusInternalServerError)
 					return
 				}

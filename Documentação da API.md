@@ -9219,3 +9219,10 @@ A academia pode configurar serviços adicionais, como transporte e atividades ex
 
 ### 20.5 Listar e consultar serviços extras
 **Proteção:** `GET /academia/servicos-extras` e `GET /academia/servicos-extras/:id` exigem academia ou admin autenticado. A listagem pública `GET /academia/servico/:codigo_academia/servicos-extras` retorna somente serviços ativos.
+
+
+### 19.20 Pagamento de taxa de inscrição de serviço extra
+`POST /financeiro/servicos-extras/taxa-inscricao/pagamento?solicitacao_id={uuid}` (estudante autenticado) inicia o pagamento da taxa já aprovada. O corpo aceita `metodo_pagamento` e, para GPO, `telefone`.
+
+### 20. Serviços Extras — inscrições
+Estudantes podem criar solicitações em `POST /estudante/servicos-extras/:id/solicitacao`, consultar `GET /estudante/servicos-extras/minhas-inscricoes` e cancelar vínculos próprios. Academias listam, aprovam, reprovam ou cancelam solicitações em `/academia/servicos-extras/solicitacoes` e `/academia/servicos-extras/inscricoes/:id/cancelar`. As listagens financeiras aceitam `origem=servico_extra` para filtrar exclusivamente taxas de inscrição de serviços extras.

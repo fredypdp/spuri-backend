@@ -139,9 +139,10 @@ type ChargeRequest struct {
 	Notify                map[string]any `json:"notify,omitempty"`
 	Async                 bool           `json:"async"`
 	// These fields are auditable Spuri metadata and are not forwarded to AppyPay.
-	Mensalidades      []MensalidadeSelecaoMes `json:"mensalidades,omitempty"`
-	CodigoEstudante   string                  `json:"codigo_estudante,omitempty"`
-	CodigoSolicitacao string                  `json:"codigo_solicitacao,omitempty"`
+	Mensalidades           []MensalidadeSelecaoMes `json:"mensalidades,omitempty"`
+	CodigoEstudante        string                  `json:"codigo_estudante,omitempty"`
+	CodigoSolicitacao      string                  `json:"codigo_solicitacao,omitempty"`
+	CodigoInscricaoServico string                  `json:"codigo_inscricao_servico,omitempty"`
 }
 type QRCodeRequest struct {
 	ContextoTipo          string   `json:"contexto_tipo"`
@@ -156,9 +157,10 @@ type QRCodeRequest struct {
 	StartDate             string   `json:"startDate,omitempty"`
 	EndDate               string   `json:"endDate,omitempty"`
 	// Mensalidades is ledger metadata only; it is never sent to AppyPay.
-	Mensalidades      []MensalidadeSelecaoMes `json:"mensalidades,omitempty"`
-	CodigoEstudante   string                  `json:"codigo_estudante,omitempty"`
-	CodigoSolicitacao string                  `json:"codigo_solicitacao,omitempty"`
+	Mensalidades           []MensalidadeSelecaoMes `json:"mensalidades,omitempty"`
+	CodigoEstudante        string                  `json:"codigo_estudante,omitempty"`
+	CodigoSolicitacao      string                  `json:"codigo_solicitacao,omitempty"`
+	CodigoInscricaoServico string                  `json:"codigo_inscricao_servico,omitempty"`
 }
 type ChargeResult struct {
 	ID                    uuid.UUID `json:"id"`
@@ -233,10 +235,11 @@ type CobrancaResumo struct {
 	// tem qr_code_type no payload — CreateGPOQRCode grava payment_method
 	// como "GPO" internamente, então sem este ajuste a origem QR ficaria
 	// indistinguível de um GPO comum nesta listagem.
-	MetodoPagamento   string                  `json:"metodo_pagamento,omitempty"`
-	CodigoEstudante   string                  `json:"codigo_estudante,omitempty"`
-	CodigoSolicitacao string                  `json:"codigo_solicitacao,omitempty"`
-	Mensalidades      []MensalidadeSelecaoMes `json:"mensalidades,omitempty"`
+	MetodoPagamento        string                  `json:"metodo_pagamento,omitempty"`
+	CodigoEstudante        string                  `json:"codigo_estudante,omitempty"`
+	CodigoSolicitacao      string                  `json:"codigo_solicitacao,omitempty"`
+	CodigoInscricaoServico string                  `json:"codigo_inscricao_servico,omitempty"`
+	Mensalidades           []MensalidadeSelecaoMes `json:"mensalidades,omitempty"`
 	// AtualizadoEm é ponteiro (não time.Time) desde a unificação de
 	// pendências sintéticas em ListarPagamentosUnificado
 	// (pagamentos_unificado.go): um item sintetizado a partir de uma
@@ -905,10 +908,12 @@ func origensClause(origens []string) (string, error) {
 		switch origem {
 		case "matricula":
 			clauses = append(clauses, "COALESCE(payload->>'codigo_solicitacao','') <> ''")
+		case "servico_extra":
+			clauses = append(clauses, "(COALESCE(payload->>'codigo_solicitacao','') = '' AND COALESCE(payload->>'codigo_inscricao_servico','') <> '')")
 		case "mensalidade":
-			clauses = append(clauses, "(COALESCE(payload->>'codigo_solicitacao','') = '' AND COALESCE(payload->>'codigo_estudante','') <> '')")
+			clauses = append(clauses, "(COALESCE(payload->>'codigo_solicitacao','') = '' AND COALESCE(payload->>'codigo_inscricao_servico','') = '' AND COALESCE(payload->>'codigo_estudante','') <> '')")
 		case "avulsa":
-			clauses = append(clauses, "(COALESCE(payload->>'codigo_solicitacao','') = '' AND COALESCE(payload->>'codigo_estudante','') = '')")
+			clauses = append(clauses, "(COALESCE(payload->>'codigo_solicitacao','') = '' AND COALESCE(payload->>'codigo_inscricao_servico','') = '' AND COALESCE(payload->>'codigo_estudante','') = '')")
 		default:
 			return "", fmt.Errorf("tipo de cobrança inválido: %s", origem)
 		}
@@ -952,9 +957,12 @@ func scanCobrancaResumo(rows *sql.Rows) (CobrancaResumo, error) {
 	}
 	dto.CodigoEstudante, _ = payload["codigo_estudante"].(string)
 	dto.CodigoSolicitacao, _ = payload["codigo_solicitacao"].(string)
+	dto.CodigoInscricaoServico, _ = payload["codigo_inscricao_servico"].(string)
 	switch {
 	case dto.CodigoSolicitacao != "":
 		dto.Origem = "matricula"
+	case dto.CodigoInscricaoServico != "":
+		dto.Origem = "servico_extra"
 	case dto.CodigoEstudante != "":
 		dto.Origem = "mensalidade"
 	default:
@@ -1847,14 +1855,16 @@ func validMerchantID(value string) bool {
 	return true
 }
 func chargePayload(id uuid.UUID, in ChargeRequest, providerID, status string, response map[string]any) map[string]any {
-	return map[string]any{"charge_id": id.String(), "contexto_tipo": in.ContextoTipo, "codigo_academia": in.CodigoAcademia, "codigo_estudante": in.CodigoEstudante, "codigo_solicitacao": in.CodigoSolicitacao, "mensalidades": in.Mensalidades, "amount": roundAmount(in.Amount), "currency": in.Currency, "description": in.Description, "merchant_transaction_id": in.MerchantTransactionID, "payment_method": in.PaymentMethod, "payment_info": in.PaymentInfo, "options": in.Options, "notify": in.Notify, "async": in.Async, "provider_charge_id": providerID, "status": status, "response": sanitize(response)}
+	return map[string]any{"charge_id": id.String(), "contexto_tipo": in.ContextoTipo, "codigo_academia": in.CodigoAcademia, "codigo_estudante": in.CodigoEstudante, "codigo_solicitacao": in.CodigoSolicitacao,
+		"codigo_inscricao_servico": in.CodigoInscricaoServico, "mensalidades": in.Mensalidades, "amount": roundAmount(in.Amount), "currency": in.Currency, "description": in.Description, "merchant_transaction_id": in.MerchantTransactionID, "payment_method": in.PaymentMethod, "payment_info": in.PaymentInfo, "options": in.Options, "notify": in.Notify, "async": in.Async, "provider_charge_id": providerID, "status": status, "response": sanitize(response)}
 }
 func qrCodePayload(id uuid.UUID, in QRCodeRequest, typ, providerID, status string, response map[string]any) map[string]any {
 	var minAmount any
 	if in.MinAmount != nil {
 		minAmount = roundAmount(*in.MinAmount)
 	}
-	return map[string]any{"charge_id": id.String(), "contexto_tipo": in.ContextoTipo, "codigo_academia": in.CodigoAcademia, "codigo_estudante": in.CodigoEstudante, "codigo_solicitacao": in.CodigoSolicitacao, "amount": roundAmount(in.Amount), "currency": in.Currency, "description": in.Description, "merchant_transaction_id": in.MerchantTransactionID, "provider_charge_id": providerID, "status": status, "payment_method": "GPO", "qr_code_type": typ, "mensalidades": in.Mensalidades, "min_amount": minAmount, "max_transactions": in.MaxTransactions, "start_date": in.StartDate, "end_date": in.EndDate, "response": sanitize(response)}
+	return map[string]any{"charge_id": id.String(), "contexto_tipo": in.ContextoTipo, "codigo_academia": in.CodigoAcademia, "codigo_estudante": in.CodigoEstudante, "codigo_solicitacao": in.CodigoSolicitacao,
+		"codigo_inscricao_servico": in.CodigoInscricaoServico, "amount": roundAmount(in.Amount), "currency": in.Currency, "description": in.Description, "merchant_transaction_id": in.MerchantTransactionID, "provider_charge_id": providerID, "status": status, "payment_method": "GPO", "qr_code_type": typ, "mensalidades": in.Mensalidades, "min_amount": minAmount, "max_transactions": in.MaxTransactions, "start_date": in.StartDate, "end_date": in.EndDate, "response": sanitize(response)}
 }
 func responseID(v map[string]any) string {
 	for _, k := range []string{"id", "chargeId", "charge_id"} {
