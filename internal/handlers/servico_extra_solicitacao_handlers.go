@@ -16,6 +16,39 @@ import (
 	"time"
 )
 
+// solicitacaoServicoExtraToJSON serializa o aggregate em memória (ou lido via
+// repository.Load) com chaves snake_case, consistente com o restante da API.
+// Mesma motivação de servicoExtraToJSON em servico_extra_handlers.go: sem
+// isto, estas respostas usavam os nomes de campo do Go direto (PascalCase),
+// diferente até da própria rota irmã ListarSolicitacoesServicoExtraAcademia
+// (que já monta snake_case manualmente a partir do SQL) — bug encontrado na
+// auditoria pós-implementação.
+func solicitacaoServicoExtraToJSON(s *aggregates.SolicitacaoServicoExtra) gin.H {
+	var vinculadaEm interface{}
+	if !s.VinculadaEm.IsZero() {
+		vinculadaEm = s.VinculadaEm
+	}
+	return gin.H{
+		"id":                               s.GetID(),
+		"servico_extra_id":                 s.ServicoExtraID,
+		"codigo_academia":                  s.CodigoAcademia,
+		"codigo_estudante":                 s.CodigoEstudante,
+		"status":                           s.Status,
+		"motivo_reprovacao":                s.MotivoReprovacao,
+		"motivo_cancelamento":              s.MotivoCancelamento,
+		"cancelada_por":                    s.CanceladaPor,
+		"documento_path":                   s.DocumentoPath,
+		"documento_url":                    s.DocumentoURL,
+		"valor_taxa_inscricao":             s.ValorTaxaInscricao,
+		"metodos_pagamento_taxa_inscricao": s.MetodosPagamentoTaxaInscricao,
+		"aprovada_por":                     s.AprovadaPor,
+		"reprovada_por":                    s.ReprovadaPor,
+		"vinculada_em":                     vinculadaEm,
+		"created_at":                       s.CreatedAt,
+		"updated_at":                       s.UpdatedAt,
+	}
+}
+
 func loadSolicitacaoServicoExtra(c *gin.Context, id uuid.UUID) (*aggregates.SolicitacaoServicoExtra, bool) {
 	a, e := getRepository(c).WithContext(c.Request.Context()).Load(id, "SolicitacaoServicoExtra")
 	if e != nil {
@@ -119,7 +152,7 @@ func SolicitarServicoExtra(c *gin.Context) {
 		return
 	}
 	guardConsumed = true
-	c.JSON(http.StatusCreated, gin.H{"data": s})
+	c.JSON(http.StatusCreated, gin.H{"data": solicitacaoServicoExtraToJSON(s)})
 }
 func solicFromParam(c *gin.Context) (*aggregates.SolicitacaoServicoExtra, bool) {
 	id, e := uuid.Parse(c.Param("id"))
@@ -352,7 +385,7 @@ func GetSolicitacaoServicoExtraAcademia(c *gin.Context) {
 		utils.RespondWithForbiddenError(c, "solicitação não pertence à academia")
 		return
 	}
-	c.JSON(200, gin.H{"data": s})
+	c.JSON(200, gin.H{"data": solicitacaoServicoExtraToJSON(s)})
 }
 
 func DownloadDocumentoSolicitacaoServicoExtraAcademia(c *gin.Context) {
@@ -405,14 +438,14 @@ func ListarMinhasInscricoesServicoExtra(c *gin.Context) {
 		return
 	}
 	defer rows.Close()
-	out := []*aggregates.SolicitacaoServicoExtra{}
+	out := []gin.H{}
 	for rows.Next() {
 		var sid uuid.UUID
 		if rows.Scan(&sid) != nil {
 			continue
 		}
 		if s, ok := loadSolicitacaoServicoExtra(c, sid); ok {
-			out = append(out, s)
+			out = append(out, solicitacaoServicoExtraToJSON(s))
 		}
 	}
 	c.JSON(200, gin.H{"inscricoes": out, "total": len(out)})
