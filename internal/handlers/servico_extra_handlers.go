@@ -65,6 +65,45 @@ func academy(c *gin.Context) (string, uuid.UUID, bool) {
 	return a.CodigoAcademia, id, true
 }
 func ptr[T any](v T) *T { return &v }
+
+// servicoExtraToJSON serializa o aggregate em memória com as MESMAS chaves
+// snake_case de ServicoExtraDTO (internal/projections/servico_extra_projection.go),
+// para que criar/atualizar/ativar/desativar devolvam exatamente o mesmo
+// formato que listar/buscar (que leem a projeção). Sem isto, as respostas de
+// mutação serializavam os nomes de campo do Go direto (PascalCase: "Nome",
+// "CodigoAcademia", ...) por falta de tags json no aggregate, incoerente com
+// o resto da API — bug encontrado na auditoria pós-implementação.
+func servicoExtraToJSON(s *aggregates.ServicoExtra) gin.H {
+	var preco, valorTaxa *float64
+	var tipoCobranca *string
+	if s.Pago {
+		preco, tipoCobranca = ptr(s.Preco), ptr(s.TipoCobranca)
+	}
+	if s.TemTaxaInscricao {
+		valorTaxa = ptr(s.ValorTaxaInscricao)
+	}
+	return gin.H{
+		"id":                               s.GetID(),
+		"codigo_academia":                  s.CodigoAcademia,
+		"nome":                             s.Nome,
+		"descricao":                        s.Descricao,
+		"categoria":                        s.Categoria,
+		"pago":                             s.Pago,
+		"preco":                            preco,
+		"tipo_cobranca":                    tipoCobranca,
+		"metodos_pagamento":                s.MetodosPagamento,
+		"tem_taxa_inscricao":               s.TemTaxaInscricao,
+		"valor_taxa_inscricao":             valorTaxa,
+		"metodos_pagamento_taxa_inscricao": s.MetodosPagamentoTaxaInscricao,
+		"anos_academicos_disponiveis":      s.AnosAcademicosDisponiveis,
+		"documento_obrigatorio":            s.DocumentoObrigatorio,
+		"documento_instrucoes":             s.DocumentoInstrucoes,
+		"detalhes_personalizados":          s.DetalhesPersonalizados,
+		"ativo":                            s.Ativo,
+		"created_at":                       s.CreatedAt,
+		"updated_at":                       s.UpdatedAt,
+	}
+}
 func CriarServicoExtra(c *gin.Context) {
 	var r servicoExtraPayload
 	if e := bindServicoExtraPayload(c, &r); e != nil {
@@ -99,7 +138,7 @@ func CriarServicoExtra(c *gin.Context) {
 		utils.RespondWithInternalError(c, e)
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"message": "serviço extra criado com sucesso", "data": s})
+	c.JSON(http.StatusCreated, gin.H{"message": "serviço extra criado com sucesso", "data": servicoExtraToJSON(s)})
 }
 func loadServico(c *gin.Context) (*aggregates.ServicoExtra, uuid.UUID, bool) {
 	id, e := uuid.Parse(c.Param("id"))
@@ -165,7 +204,7 @@ func AtualizarServicoExtra(c *gin.Context) {
 		utils.RespondWithInternalError(c, e)
 		return
 	}
-	c.JSON(200, gin.H{"message": "serviço extra atualizado com sucesso", "data": s})
+	c.JSON(200, gin.H{"message": "serviço extra atualizado com sucesso", "data": servicoExtraToJSON(s)})
 }
 func cond[T any](r servicoExtraPayload, k string, v T) *T {
 	if r.informado[k] {
@@ -192,7 +231,7 @@ func toggle(c *gin.Context, on bool) {
 		utils.RespondWithInternalError(c, e)
 		return
 	}
-	c.JSON(200, gin.H{"data": s})
+	c.JSON(200, gin.H{"data": servicoExtraToJSON(s)})
 }
 func DesativarServicoExtra(c *gin.Context) { toggle(c, false) }
 func ReativarServicoExtra(c *gin.Context)  { toggle(c, true) }
