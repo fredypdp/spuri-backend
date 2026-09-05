@@ -183,6 +183,22 @@ func (p *FinanceiroProjection) Handle(e db.Event) error {
 		tipo := map[string]string{"ObrigacaoMensalidadeAnulada": "anulada", "ObrigacaoMensalidadeReativada": "reativada", "MensalidadePaga": "paga"}[e.EventType]
 		_, err := p.client.DB().Exec(`INSERT INTO financeiro_mensalidade_obrigacoes_eventos (event_id,aggregate_id,codigo_estudante,codigo_academia,ano_letivo,mes,tipo,motivo,ocorrido_em) VALUES ($1,$2,$3,$4,$5,$6,$7,NULLIF($8,''),$9) ON CONFLICT (event_id, codigo_estudante, codigo_academia, ano_letivo, mes) DO NOTHING`, e.EventID, e.AggregateID, in.CodigoEstudante, in.CodigoAcademia, in.AnoLetivo, in.Mes, tipo, in.Motivo, e.OccurredAt)
 		return err
+	case "ObrigacaoServicoExtraAnulada", "ObrigacaoServicoExtraReativada", "ServicoExtraLancamentoPago":
+		var in struct {
+			SolicitacaoID  string `json:"solicitacao_id"`
+			TipoLancamento string `json:"tipo_lancamento"`
+			Ano            *int   `json:"ano"`
+			Mes            *int   `json:"mes"`
+		}
+		if err := json.Unmarshal(e.Payload, &in); err != nil {
+			return err
+		}
+		if in.SolicitacaoID == "" || (in.TipoLancamento != "mensalidade" && in.TipoLancamento != "preco_unico") {
+			return fmt.Errorf("evento de obrigação de serviço extra inválido")
+		}
+		tipo := map[string]string{"ObrigacaoServicoExtraAnulada": "anulada", "ObrigacaoServicoExtraReativada": "reativada", "ServicoExtraLancamentoPago": "paga"}[e.EventType]
+		_, err := p.client.DB().Exec(`INSERT INTO financeiro_servico_extra_obrigacoes_eventos (event_id,solicitacao_id,tipo_lancamento,ano,mes,tipo,ocorrido_em) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (event_id) DO NOTHING`, e.EventID, in.SolicitacaoID, in.TipoLancamento, in.Ano, in.Mes, tipo, e.OccurredAt)
+		return err
 	case "MensalidadesCobrancaConfirmada":
 		var in struct {
 			ChargeID        string `json:"charge_id"`

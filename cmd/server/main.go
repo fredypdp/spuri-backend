@@ -370,6 +370,7 @@ func setupRouter() *gin.Engine {
 		protected.GET("/financeiro/mensalidades/estudante/:codigo", handlers.ConsultarMensalidadesEstudante)
 		protected.POST("/financeiro/mensalidades/pagamento", handlers.IniciarPagamentoMensalidades)
 		protected.POST("/financeiro/servicos-extras/taxa-inscricao/pagamento", handlers.IniciarPagamentoTaxaInscricaoServicoExtra)
+		protected.POST("/financeiro/servicos-extras/obrigacao/pagamento", handlers.IniciarPagamentoServicoExtraObrigacao)
 		// Idem para o histórico de cobranças do estudante (mensalidade, matrícula
 		// e avulsas, em qualquer estado) — ver tarefa 48.
 		protected.GET("/financeiro/cobrancas/estudante/:codigo", handlers.ConsultarCobrancasEstudante)
@@ -388,6 +389,8 @@ func setupRouter() *gin.Engine {
 			financeiro.GET("/appypay/cobrancas/:id", handlers.ConsultarCobrancaAppyPay)
 			financeiro.POST("/appypay/cobrancas/:id/cancelar", handlers.CancelarCobrancaAppyPay)
 			financeiro.GET("/cobrancas", handlers.ListarCobrancasAppyPay)
+			financeiro.POST("/servicos-extras/obrigacao/anular", handlers.AnularObrigacaoServicoExtra)
+			financeiro.POST("/servicos-extras/obrigacao/reativar", handlers.ReativarObrigacaoServicoExtra)
 			financeiro.POST("/mensalidades/configuracoes", handlers.ConfigurarMensalidade)
 			financeiro.PUT("/mensalidades/configuracoes", handlers.ConfigurarMensalidade)
 			financeiro.GET("/mensalidades/configuracoes", handlers.ListarConfiguracoesMensalidade)
@@ -410,6 +413,7 @@ func setupRouter() *gin.Engine {
 	{
 		estudante.POST("/servicos-extras/:id/solicitacao", handlers.SolicitarServicoExtra)
 		estudante.GET("/servicos-extras/minhas-inscricoes", handlers.ListarMinhasInscricoesServicoExtra)
+		estudante.GET("/servicos-extras/minhas-inscricoes/:id/pendencias", handlers.MinhasPendenciasServicoExtra)
 		estudante.PUT("/servicos-extras/minhas-inscricoes/:id/cancelar", handlers.CancelarSolicitacaoServicoExtraEstudante)
 		estudante.PUT("/encarregado/telefone", handlers.AtualizarTelefoneEncarregado)
 		estudante.GET("/solicitacoes-edicao", handlers.ListarSolicitacoesEdicaoEstudante)
@@ -456,6 +460,7 @@ func setupRouter() *gin.Engine {
 		academiaRead.GET("/servicos-extras/:id", handlers.GetServicoExtra)
 		academiaRead.GET("/servicos-extras/solicitacoes", handlers.ListarSolicitacoesServicoExtraAcademia)
 		academiaRead.GET("/servicos-extras/solicitacoes/:id", handlers.GetSolicitacaoServicoExtraAcademia)
+		academiaRead.GET("/servicos-extras/inscricoes/:id/pendencias", handlers.PendenciasServicoExtraAcademia)
 		academiaRead.GET("/sumarios", handlers.ListarSumarios)
 		academiaRead.GET("/sumario/:id", handlers.GetSumario)
 		academiaRead.GET("/materia/:id", handlers.GetMateria)

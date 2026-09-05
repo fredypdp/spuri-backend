@@ -56,7 +56,7 @@ func (p *SolicitacaoServicoExtraProjection) Handle(e db.Event) error {
 			UpdatedAt   time.Time
 		}
 		json.Unmarshal(e.Payload, &v)
-		_, err := p.client.DB().Exec(`UPDATE projection_solicitacoes_servico_extra SET status='vinculada',aprovada_por=COALESCE(NULLIF($1::uuid,'00000000-0000-0000-0000-000000000000'),aprovada_por),updated_at=$2,version=$3,last_event_id=$4 WHERE id=$5`, v.AprovadaPor, v.UpdatedAt, e.EventVersion, e.EventID, e.AggregateID)
+		_, err := p.client.DB().Exec(`UPDATE projection_solicitacoes_servico_extra SET status='vinculada',aprovada_por=COALESCE(NULLIF($1::uuid,'00000000-0000-0000-0000-000000000000'),aprovada_por),vinculada_em=COALESCE(vinculada_em,$2),updated_at=$2,version=$3,last_event_id=$4 WHERE id=$5`, v.AprovadaPor, v.UpdatedAt, e.EventVersion, e.EventID, e.AggregateID)
 		return err
 	case "SolicitacaoServicoExtraReprovada":
 		return p.end(e, "reprovada", "motivo_reprovacao", "reprovada_por")

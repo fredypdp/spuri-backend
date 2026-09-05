@@ -129,6 +129,9 @@ var validEventTypes = map[string]bool{
 	"MesInicioCobrancaRemovido":                          true,
 	"ObrigacaoMensalidadeAnulada":                        true,
 	"ObrigacaoMensalidadeReativada":                      true,
+	"ObrigacaoServicoExtraAnulada":                       true,
+	"ObrigacaoServicoExtraReativada":                     true,
+	"ServicoExtraLancamentoPago":                         true,
 	// MensalidadePaga is emitted by Phase 3. It is registered now so this
 	// projection can consume a real payment event without any compatibility
 	// path or inferred payment state.
