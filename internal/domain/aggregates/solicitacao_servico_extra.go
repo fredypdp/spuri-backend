@@ -45,8 +45,9 @@ type SolicitacaoServicoExtra struct {
 	AprovadaPor  uuid.UUID
 	ReprovadaPor uuid.UUID
 
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	VinculadaEm time.Time
 }
 
 func NewSolicitacaoServicoExtra() *SolicitacaoServicoExtra {
@@ -342,6 +343,9 @@ func (s *SolicitacaoServicoExtra) applyVinculada(event DomainEvent) error {
 		s.AprovadaPor = p.AprovadaPor
 	}
 	s.UpdatedAt = p.UpdatedAt
+	if s.VinculadaEm.IsZero() {
+		s.VinculadaEm = p.UpdatedAt
+	}
 	return nil
 }
 

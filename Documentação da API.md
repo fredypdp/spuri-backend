@@ -9225,4 +9225,10 @@ A academia pode configurar serviços adicionais, como transporte e atividades ex
 `POST /financeiro/servicos-extras/taxa-inscricao/pagamento?solicitacao_id={uuid}` (estudante autenticado) inicia o pagamento da taxa já aprovada. O corpo aceita `metodo_pagamento` e, para GPO, `telefone`.
 
 ### 20. Serviços Extras — inscrições
-Estudantes podem criar solicitações em `POST /estudante/servicos-extras/:id/solicitacao`, consultar `GET /estudante/servicos-extras/minhas-inscricoes` e cancelar vínculos próprios. Academias listam, aprovam, reprovam ou cancelam solicitações em `/academia/servicos-extras/solicitacoes` e `/academia/servicos-extras/inscricoes/:id/cancelar`. As listagens financeiras aceitam `origem=servico_extra` para filtrar exclusivamente taxas de inscrição de serviços extras.
+Estudantes podem criar solicitações em `POST /estudante/servicos-extras/:id/solicitacao`, consultar `GET /estudante/servicos-extras/minhas-inscricoes` e cancelar vínculos próprios. Academias listam, aprovam, reprovam ou cancelam solicitações em `/academia/servicos-extras/solicitacoes` e `/academia/servicos-extras/inscricoes/:id/cancelar`. As listagens financeiras aceitam `origem=servico_extra` para filtrar exclusivamente taxas de inscrição de serviços extras. Uma inscrição pode ter cobranças de `taxa_inscricao`, `mensalidade` ou `preco_unico`, sempre com `origem=servico_extra`.
+
+### 20.7 Pendências e pagamento
+- `GET /estudante/servicos-extras/minhas-inscricoes/:id/pendencias` lista as pendências da própria inscrição.
+- `GET /academia/servicos-extras/inscricoes/:id/pendencias` oferece a visão da academia.
+- `POST /financeiro/servicos-extras/obrigacao/pagamento` inicia o pagamento de uma mensalidade ou preço único.
+- `POST /financeiro/servicos-extras/obrigacao/anular` e `/reativar` administram uma obrigação individual da inscrição.

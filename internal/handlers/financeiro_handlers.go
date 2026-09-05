@@ -343,10 +343,15 @@ func ConsultarCobrancaAppyPay(c *gin.Context) {
 				return
 			}
 		}
-		if codigo, err := FinanceiroService.CodigoInscricaoServicoExtraDaCobranca(c.Request.Context(), c.Param("id")); err == nil && codigo != "" {
-			if err := efetivarVinculoServicoExtraPago(c, codigo); err != nil {
-				utils.RespondWithInternalError(c, err)
-				return
+		if codigo, tipo, mes, ano, err := FinanceiroService.DadosServicoExtraDaCobranca(c.Request.Context(), c.Param("id")); err == nil && codigo != "" {
+			switch tipo {
+			case "taxa_inscricao":
+				if err := efetivarVinculoServicoExtraPago(c, codigo); err != nil {
+					utils.RespondWithInternalError(c, err)
+					return
+				}
+			case "mensalidade", "preco_unico":
+				_ = FinanceiroService.ConfirmarLancamentoServicoExtraPago(c.Request.Context(), codigo, tipo, ano, mes, id.String(), t, c.ClientIP())
 			}
 		}
 	}
@@ -618,10 +623,15 @@ func ReceberWebhookAppyPay(metodo string) gin.HandlerFunc {
 					return
 				}
 			}
-			if codigo, err := FinanceiroService.CodigoInscricaoServicoExtraDaCobranca(c.Request.Context(), eventID); err == nil && codigo != "" {
-				if err := efetivarVinculoServicoExtraPago(c, codigo); err != nil {
-					c.Status(http.StatusInternalServerError)
-					return
+			if codigo, tipo, mes, ano, err := FinanceiroService.DadosServicoExtraDaCobranca(c.Request.Context(), eventID); err == nil && codigo != "" {
+				switch tipo {
+				case "taxa_inscricao":
+					if err := efetivarVinculoServicoExtraPago(c, codigo); err != nil {
+						c.Status(http.StatusInternalServerError)
+						return
+					}
+				case "mensalidade", "preco_unico":
+					_ = FinanceiroService.ConfirmarLancamentoServicoExtraPago(c.Request.Context(), codigo, tipo, ano, mes, "appypay:servico_extra", "sistema", c.ClientIP())
 				}
 			}
 		}

@@ -12,6 +12,7 @@ import (
 	"spuri/internal/middleware"
 	"spuri/internal/utils"
 	"strings"
+	"time"
 )
 
 func loadSolicitacaoServicoExtra(c *gin.Context, id uuid.UUID) (*aggregates.SolicitacaoServicoExtra, bool) {
@@ -184,7 +185,15 @@ func IniciarPagamentoTaxaInscricaoServicoExtra(c *gin.Context) {
 		return
 	}
 	if strings.EqualFold(out.Charge.Status, "success") {
-		_ = efetivarVinculoServicoExtraPago(c, sid)
+		codigo, tipo, mes, ano, err := FinanceiroService.DadosServicoExtraDaCobranca(c.Request.Context(), out.Charge.ID.String())
+		if err == nil && codigo != "" {
+			switch tipo {
+			case "taxa_inscricao":
+				_ = efetivarVinculoServicoExtraPago(c, codigo)
+			case "mensalidade", "preco_unico":
+				_ = FinanceiroService.ConfirmarLancamentoServicoExtraPago(c.Request.Context(), codigo, tipo, ano, mes, id.String(), typ, c.ClientIP())
+			}
+		}
 	}
 	c.JSON(http.StatusCreated, out)
 }
@@ -314,3 +323,136 @@ func ListarMinhasInscricoesServicoExtra(c *gin.Context) {
 	}
 	c.JSON(200, gin.H{"inscricoes": out, "total": len(out)})
 }
+
+func pendenciasServicoExtra(c *gin.Context, s *aggregates.SolicitacaoServicoExtra) {
+	if s.Status != aggregates.StatusInscricaoVinculada && s.Status != aggregates.StatusInscricaoCancelada {
+		c.JSON(http.StatusOK, gin.H{"pendencias": []finance.ServicoExtraPendenciaView{}})
+		return
+	}
+	serv, err := getServicosExtrasProjection(c).GetByID(s.ServicoExtraID)
+	if err != nil || serv == nil {
+		utils.RespondWithNotFoundError(c, "serviço extra")
+		return
+	}
+	fim := time.Now()
+	if s.Status == aggregates.StatusInscricaoCancelada {
+		fim = s.UpdatedAt
+	}
+	out, err := FinanceiroService.PendenciasServicoExtra(c.Request.Context(), s.GetID().String(), serv.TipoCobranca, serv.Preco, s.VinculadaEm, fim)
+	if err != nil {
+		utils.RespondWithInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"pendencias": out})
+}
+func MinhasPendenciasServicoExtra(c *gin.Context) {
+	s, ok := solicFromParam(c)
+	if !ok {
+		return
+	}
+	id, _ := middleware.GetUserID(c)
+	est, err := getEstudanteProjection(c).GetByID(id)
+	if err != nil || est == nil || s.CodigoEstudante != est.CodigoEstudante {
+		utils.RespondWithForbiddenError(c, "solicitação não pertence ao estudante")
+		return
+	}
+	pendenciasServicoExtra(c, s)
+}
+func PendenciasServicoExtraAcademia(c *gin.Context) {
+	s, ok := solicFromParam(c)
+	if !ok {
+		return
+	}
+	codigo, _, ok := academy(c)
+	if !ok {
+		return
+	}
+	if s.CodigoAcademia != codigo {
+		utils.RespondWithForbiddenError(c, "solicitação não pertence à academia")
+		return
+	}
+	pendenciasServicoExtra(c, s)
+}
+func IniciarPagamentoServicoExtraObrigacao(c *gin.Context) {
+	var in finance.ServicoExtraObrigacaoPagamentoInput
+	if c.ShouldBindJSON(&in) != nil {
+		utils.RespondWithValidationError(c, errors.New("payload inválido"))
+		return
+	}
+	id, typ, _, ok := financeActor(c)
+	if !ok || typ != "estudante" {
+		utils.RespondWithForbiddenError(c, "somente o estudante pode iniciar pagamento")
+		return
+	}
+	sid, err := uuid.Parse(in.SolicitacaoID)
+	if err != nil {
+		utils.RespondWithValidationError(c, errors.New("solicitacao_id inválido"))
+		return
+	}
+	s, ok := loadSolicitacaoServicoExtra(c, sid)
+	if !ok {
+		return
+	}
+	var estudante string
+	if err = getDBClient(c).DB().QueryRowContext(c.Request.Context(), `SELECT codigo_estudante FROM projection_estudantes WHERE id=$1`, id).Scan(&estudante); err != nil || s.CodigoEstudante != estudante {
+		utils.RespondWithForbiddenError(c, "esta solicitação não pertence ao estudante autenticado")
+		return
+	}
+	if s.Status != aggregates.StatusInscricaoVinculada {
+		utils.RespondWithConflictError(c, "solicitação não possui obrigações pagáveis")
+		return
+	}
+	serv, err := getServicosExtrasProjection(c).GetByID(s.ServicoExtraID)
+	if err != nil || serv == nil {
+		utils.RespondWithNotFoundError(c, "serviço extra")
+		return
+	}
+	out, err := FinanceiroService.IniciarPagamentoServicoExtraObrigacao(c.Request.Context(), in, serv.CodigoAcademia, serv.Preco, serv.MetodosPagamento, c.ClientIP())
+	if err != nil {
+		financeError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, out)
+}
+func alterarObrigacaoServicoExtra(c *gin.Context, reativar bool) {
+	var in struct {
+		SolicitacaoID  string `json:"solicitacao_id"`
+		TipoLancamento string `json:"tipo_lancamento"`
+		Ano            int    `json:"ano"`
+		Mes            int    `json:"mes"`
+		Motivo         string `json:"motivo"`
+	}
+	if c.ShouldBindJSON(&in) != nil {
+		utils.RespondWithValidationError(c, errors.New("payload inválido"))
+		return
+	}
+	sid, err := uuid.Parse(in.SolicitacaoID)
+	if err != nil {
+		utils.RespondWithValidationError(c, errors.New("solicitacao_id inválido"))
+		return
+	}
+	s, ok := loadSolicitacaoServicoExtra(c, sid)
+	if !ok {
+		return
+	}
+	codigo, actor, ok := academy(c)
+	if !ok {
+		return
+	}
+	if s.CodigoAcademia != codigo {
+		utils.RespondWithForbiddenError(c, "solicitação não pertence à academia")
+		return
+	}
+	if reativar {
+		err = FinanceiroService.ReativarObrigacaoServicoExtra(c.Request.Context(), in.SolicitacaoID, in.TipoLancamento, in.Ano, in.Mes, in.Motivo, actor.String(), "academia", c.ClientIP())
+	} else {
+		err = FinanceiroService.AnularObrigacaoServicoExtra(c.Request.Context(), in.SolicitacaoID, in.TipoLancamento, in.Ano, in.Mes, in.Motivo, actor.String(), "academia", c.ClientIP())
+	}
+	if err != nil {
+		financeError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+func AnularObrigacaoServicoExtra(c *gin.Context)   { alterarObrigacaoServicoExtra(c, false) }
+func ReativarObrigacaoServicoExtra(c *gin.Context) { alterarObrigacaoServicoExtra(c, true) }
