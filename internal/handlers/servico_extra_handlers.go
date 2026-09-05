@@ -219,6 +219,16 @@ func GetServicoExtra(c *gin.Context) {
 		utils.RespondWithNotFoundError(c, "serviço extra")
 		return
 	}
+	if role, _ := middleware.GetUserType(c); role != "admin" {
+		codigo, _, ok := academy(c)
+		if !ok {
+			return
+		}
+		if x.CodigoAcademia != codigo {
+			utils.RespondWithForbiddenError(c, "serviço extra não pertence a esta academia")
+			return
+		}
+	}
 	c.JSON(200, gin.H{"data": x})
 }
 func ListarServicosExtrasPublico(c *gin.Context) {
