@@ -151,6 +151,7 @@ func initProjections() error {
 	projManager.RegisterProjection("admins", projections.NewAdminProjection(dbClient))
 	projManager.RegisterProjection("academias", projections.NewAcademiaProjection(dbClient))
 	projManager.RegisterProjection("cursos", projections.NewCursosProjection(dbClient))
+	projManager.RegisterProjection("servicos_extras", projections.NewServicoExtraProjection(dbClient))
 	projManager.RegisterProjection("materias", projections.NewMateriasProjection(dbClient))
 	projManager.RegisterProjection("sumarios", projections.NewSumariosProjection(dbClient))
 	projManager.RegisterProjection("categorias_nota", projections.NewCategoriasNotaProjection(dbClient))
@@ -309,6 +310,7 @@ func setupRouter() *gin.Engine {
 	// ── Rotas públicas com autenticação opcional ─────────────────────────
 	router.GET("/academias", middleware.OptionalAuthMiddleware(), handlers.ListarTodasAcademias)
 	router.GET("/academia/cursos", middleware.OptionalAuthMiddleware(), handlers.ListarCursos)
+	router.GET("/academia/servico/:codigo_academia/servicos-extras", middleware.OptionalAuthMiddleware(), handlers.ListarServicosExtrasPublico)
 	router.GET("/academia/curso/:id", middleware.OptionalAuthMiddleware(), handlers.GetCurso)
 	router.GET("/consultar-academia/:codigo", middleware.OptionalAuthMiddleware(), handlers.GetAcademiaPorCodigo)
 
@@ -445,6 +447,8 @@ func setupRouter() *gin.Engine {
 	academiaRead.Use(middleware.ValidarStatusAcademia())
 	{
 		academiaRead.GET("/materias", handlers.ListarMaterias)
+		academiaRead.GET("/servicos-extras", handlers.ListarServicosExtrasAcademia)
+		academiaRead.GET("/servicos-extras/:id", handlers.GetServicoExtra)
 		academiaRead.GET("/sumarios", handlers.ListarSumarios)
 		academiaRead.GET("/sumario/:id", handlers.GetSumario)
 		academiaRead.GET("/materia/:id", handlers.GetMateria)
@@ -470,6 +474,10 @@ func setupRouter() *gin.Engine {
 	academia.Use(middleware.ValidarStatusAcademia())
 	{
 		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
+		academia.POST("/servicos-extras", handlers.CriarServicoExtra)
+		academia.PUT("/servicos-extras/:id", handlers.AtualizarServicoExtra)
+		academia.PUT("/servicos-extras/:id/desativar", handlers.DesativarServicoExtra)
+		academia.PUT("/servicos-extras/:id/reativar", handlers.ReativarServicoExtra)
 		academia.POST("/solicitacoes-nif", handlers.CriarSolicitacaoAlteracaoNIFAcademiaHandler)
 		academia.GET("/solicitacoes-nif", handlers.ListarSolicitacoesNIFAcademia)
 		academia.POST("/definir-ano-letivo", handlers.DefinirAnoLetivoAcademia)
