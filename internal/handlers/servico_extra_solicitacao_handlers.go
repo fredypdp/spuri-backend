@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
@@ -54,15 +55,70 @@ func SolicitarServicoExtra(c *gin.Context) {
 		utils.RespondWithConflictError(c, "já existe solicitação ativa para este serviço")
 		return
 	}
+	guard, e := db.NewUniqueOperationGuard(getDbClient(c)).WithContext(c.Request.Context()).Reserve(
+		"solicitacao_servico_extra:ativa",
+		db.CanonicalGuardKey(sid.String(), est.CodigoEstudante),
+		db.UniqueGuardOptions{UserID: uid.String(), UserType: "estudante"},
+	)
+	if e != nil {
+		utils.RespondWithConflictError(c, "já existe solicitação ativa para este serviço")
+		return
+	}
+	guardConsumed := false
+	defer func() {
+		if !guardConsumed {
+			_ = guard.Release()
+		}
+	}()
+
+	var documentoPath, documentoURL string
+	// A solicitação pode não ter documento; nesse caso, uma requisição sem
+	// multipart/form-data continua válida quando o serviço não o exige.
+	_ = c.Request.ParseMultipartForm(MaxPDFUploadBytes + 1024)
+	if fh, err := c.FormFile("documento"); err != nil {
+		if serv.DocumentoObrigatorio {
+			utils.RespondWithValidationError(c, fmt.Errorf("documento é obrigatório para este serviço"))
+			return
+		}
+	} else {
+		pdf, err := readAndValidatePDF("documento", fh)
+		if err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+		provider := getStorageProvider(c)
+		if provider == nil {
+			utils.RespondWithInternalError(c, errors.New("storage não configurado"))
+			return
+		}
+		path := fmt.Sprintf("%s/estudantes/%s/servicos_extras/%s.pdf", serv.CodigoAcademia, est.CodigoEstudante, sid)
+		stored, err := provider.Upload(path, bytes.NewReader(pdf.data), pdf.size)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+		documentoPath, documentoURL = stored.Path, stored.FileURL
+	}
 	s := aggregates.NewSolicitacaoServicoExtra()
-	if e = s.Criar(sid, serv.CodigoAcademia, est.CodigoEstudante, "", ""); e != nil {
+	if e = s.Criar(sid, serv.CodigoAcademia, est.CodigoEstudante, documentoPath, documentoURL); e != nil {
+		if documentoPath != "" {
+			_ = getStorageProvider(c).Delete(documentoPath)
+		}
 		utils.RespondWithValidationError(c, e)
 		return
 	}
 	if e = getRepository(c).SaveWithAudit(s, db.AuditContext{UserID: uid.String(), UserType: "estudante", IP: c.ClientIP()}); e != nil {
+		if documentoPath != "" {
+			_ = getStorageProvider(c).Delete(documentoPath)
+		}
 		utils.RespondWithInternalError(c, e)
 		return
 	}
+	if e = guard.Consume(s.GetID()); e != nil {
+		utils.RespondWithInternalError(c, e)
+		return
+	}
+	guardConsumed = true
 	c.JSON(http.StatusCreated, gin.H{"data": s})
 }
 func solicFromParam(c *gin.Context) (*aggregates.SolicitacaoServicoExtra, bool) {
@@ -297,6 +353,44 @@ func GetSolicitacaoServicoExtraAcademia(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"data": s})
+}
+
+func DownloadDocumentoSolicitacaoServicoExtraAcademia(c *gin.Context) {
+	s, ok := solicFromParam(c)
+	if !ok {
+		return
+	}
+	codigo, _, ok := academy(c)
+	if !ok {
+		return
+	}
+	if s.CodigoAcademia != codigo {
+		utils.RespondWithForbiddenError(c, "solicitação não pertence à academia")
+		return
+	}
+	downloadDocumentoServicoExtra(c, s)
+}
+
+func DownloadDocumentoSolicitacaoServicoExtraEstudante(c *gin.Context) {
+	s, ok := solicFromParam(c)
+	if !ok {
+		return
+	}
+	id, _ := middleware.GetUserID(c)
+	est, e := getEstudanteProjection(c).GetByID(id)
+	if e != nil || est == nil || s.CodigoEstudante != est.CodigoEstudante {
+		utils.RespondWithForbiddenError(c, "solicitação não pertence ao estudante")
+		return
+	}
+	downloadDocumentoServicoExtra(c, s)
+}
+
+func downloadDocumentoServicoExtra(c *gin.Context, s *aggregates.SolicitacaoServicoExtra) {
+	if s.DocumentoPath == "" {
+		utils.RespondWithNotFoundError(c, "documento")
+		return
+	}
+	streamDocumento(c, "documento_servico_extra", aggregates.DocumentoMatricula{Path: s.DocumentoPath, FileURL: s.DocumentoURL})
 }
 func ListarMinhasInscricoesServicoExtra(c *gin.Context) {
 	id, _ := middleware.GetUserID(c)
