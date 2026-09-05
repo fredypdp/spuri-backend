@@ -9196,3 +9196,26 @@ Remove logicamente (soft delete) um sumário. Nunca é bloqueado por o sumário 
 ```
 
 **Erros:** `403` quando o sumário pertence a outra academia; `404` quando o ID não existe ou já está deletado.
+
+## 20. Serviços Extras
+
+A academia pode configurar serviços adicionais, como transporte e atividades extracurriculares. Serviços pagos ou com taxa de inscrição exigem credenciais AppyPay configuradas.
+
+### 20.1 Criar serviço extra
+**Proteção:** academia autenticada e ativa. `POST /academia/servicos-extras`.
+
+**Request body:** `nome` (obrigatório), `descricao`, `categoria`, `pago`, `preco`, `tipo_cobranca` (`unico` ou `mensal`), `metodos_pagamento` (`GPO`, `REF`, `GPO_QR`), `tem_taxa_inscricao`, `valor_taxa_inscricao`, `metodos_pagamento_taxa_inscricao`, `anos_academicos_disponiveis`, `documento_obrigatorio`, `documento_instrucoes` e `detalhes_personalizados`.
+
+**Regras de negócio:** campos financeiros são obrigatórios apenas quando a respectiva cobrança estiver ativa; lista de anos vazia disponibiliza o serviço para todos os anos.
+
+### 20.2 Atualizar serviço extra
+**Proteção:** academia proprietária autenticada e ativa. `PUT /academia/servicos-extras/:id`. Aceita os mesmos campos da criação de forma parcial.
+
+### 20.3 Desativar serviço extra
+**Proteção:** academia proprietária autenticada e ativa. `PUT /academia/servicos-extras/:id/desativar`.
+
+### 20.4 Reativar serviço extra
+**Proteção:** academia proprietária autenticada e ativa. `PUT /academia/servicos-extras/:id/reativar`.
+
+### 20.5 Listar e consultar serviços extras
+**Proteção:** `GET /academia/servicos-extras` e `GET /academia/servicos-extras/:id` exigem academia ou admin autenticado. A listagem pública `GET /academia/servico/:codigo_academia/servicos-extras` retorna somente serviços ativos.
