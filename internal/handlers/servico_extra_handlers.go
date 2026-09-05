@@ -15,20 +15,36 @@ import (
 )
 
 type servicoExtraPayload struct {
-	Nome                          string
-	Descricao                     string
-	Categoria                     string
-	Pago                          bool
-	Preco                         float64
-	TipoCobranca                  string
-	MetodosPagamento              []string
-	TemTaxaInscricao              bool
-	ValorTaxaInscricao            float64
-	MetodosPagamentoTaxaInscricao []string
-	AnosAcademicosDisponiveis     []string
-	DocumentoObrigatorio          bool
-	DocumentoInstrucoes           string
-	DetalhesPersonalizados        map[string]interface{}
+	// Tags json explícitas são obrigatórias aqui: sem elas, encoding/json só
+	// casa um campo do JSON de entrada com um campo do struct por
+	// correspondência exata OU por strings.EqualFold — e EqualFold NÃO ignora
+	// "_", só maiúsculas/minúsculas. "tipo_cobranca" (13 chars) nunca é igual,
+	// nem por fold, a "TipoCobranca" (12 chars, sem underscore). Sem as tags
+	// abaixo, todo campo com mais de uma palavra (tipo_cobranca,
+	// metodos_pagamento, tem_taxa_inscricao, valor_taxa_inscricao,
+	// metodos_pagamento_taxa_inscricao, anos_academicos_disponiveis,
+	// documento_obrigatorio, documento_instrucoes) ficava sempre no zero-value
+	// depois do json.Unmarshal(b, r) abaixo, mesmo com bindServicoExtraPayload
+	// validando corretamente que o cliente enviou essas chaves — confirmado
+	// isolando exatamente esta lógica num programa Go mínimo. Só "nome",
+	// "pago", "preco", "categoria" e "descricao" (uma palavra) funcionavam por
+	// coincidência. Na prática isto tornava impossível criar qualquer serviço
+	// pago, com taxa de inscrição, com documento obrigatório ou com restrição
+	// de anos acadêmicos — bug encontrado na auditoria pós-implementação.
+	Nome                          string                 `json:"nome"`
+	Descricao                     string                 `json:"descricao"`
+	Categoria                     string                 `json:"categoria"`
+	Pago                          bool                   `json:"pago"`
+	Preco                         float64                `json:"preco"`
+	TipoCobranca                  string                 `json:"tipo_cobranca"`
+	MetodosPagamento              []string               `json:"metodos_pagamento"`
+	TemTaxaInscricao              bool                   `json:"tem_taxa_inscricao"`
+	ValorTaxaInscricao            float64                `json:"valor_taxa_inscricao"`
+	MetodosPagamentoTaxaInscricao []string               `json:"metodos_pagamento_taxa_inscricao"`
+	AnosAcademicosDisponiveis     []string               `json:"anos_academicos_disponiveis"`
+	DocumentoObrigatorio          bool                   `json:"documento_obrigatorio"`
+	DocumentoInstrucoes           string                 `json:"documento_instrucoes"`
+	DetalhesPersonalizados        map[string]interface{} `json:"detalhes_personalizados"`
 	informado                     map[string]bool
 }
 
