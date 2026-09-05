@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS projection_solicitacoes_servico_extra (
+ id UUID PRIMARY KEY, servico_extra_id UUID NOT NULL, codigo_academia VARCHAR(50) NOT NULL, codigo_estudante VARCHAR(20) NOT NULL, status VARCHAR(50) NOT NULL CHECK (status IN ('pendente','aprovada_pendente_pagamento_taxa_inscricao','vinculada','reprovada','cancelada_antes_da_vinculacao','cancelada')), motivo_reprovacao TEXT, motivo_cancelamento TEXT, cancelada_por VARCHAR(10) CHECK (cancelada_por IN ('academia','estudante')), documento_path TEXT, documento_url TEXT, valor_taxa_inscricao NUMERIC(14,2), metodos_pagamento_taxa_inscricao TEXT[], aprovada_por UUID, reprovada_por UUID, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL, version INTEGER NOT NULL DEFAULT 0, last_event_id UUID
+);
+CREATE INDEX IF NOT EXISTS idx_sol_servico_extra_academia ON projection_solicitacoes_servico_extra(codigo_academia, status);
+CREATE INDEX IF NOT EXISTS idx_sol_servico_extra_estudante ON projection_solicitacoes_servico_extra(codigo_estudante, status);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_sol_servico_extra_ativa ON projection_solicitacoes_servico_extra (servico_extra_id, codigo_estudante) WHERE status IN ('pendente','aprovada_pendente_pagamento_taxa_inscricao','vinculada');

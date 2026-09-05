@@ -86,6 +86,9 @@ func getEstudanteProjection(c *gin.Context) *projections.EstudanteProjection {
 func getServicosExtrasProjection(c *gin.Context) *projections.ServicoExtraProjection {
 	return projections.NewServicoExtraProjection(getDbClient(c))
 }
+func getSolicitacoesServicoExtraProjection(c *gin.Context) *projections.SolicitacaoServicoExtraProjection {
+	return projections.NewSolicitacaoServicoExtraProjection(getDbClient(c))
+}
 
 func getCursosProjection(c *gin.Context) *projections.CursosProjection {
 	return projections.NewCursosProjection(getDbClient(c))

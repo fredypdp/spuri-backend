@@ -16,15 +16,16 @@ import (
 // eles nunca são enviados à AppyPay (ver comentário de ChargeRequest em
 // appypay.go).
 type gerarCobrancaInput struct {
-	CodigoAcademia        string
-	MetodoPagamento       string // "REF", "GPO" ou "GPO_QR" — já normalizado (TrimSpace+ToUpper) pelo chamador
-	Amount                float64
-	Description           string
-	MerchantTransactionID string
-	Telefone              string // usado apenas quando MetodoPagamento == "GPO"; ignorado nos demais casos
-	CodigoEstudante       string
-	CodigoSolicitacao     string
-	Mensalidades          []MensalidadeSelecaoMes
+	CodigoAcademia         string
+	MetodoPagamento        string // "REF", "GPO" ou "GPO_QR" — já normalizado (TrimSpace+ToUpper) pelo chamador
+	Amount                 float64
+	Description            string
+	MerchantTransactionID  string
+	Telefone               string // usado apenas quando MetodoPagamento == "GPO"; ignorado nos demais casos
+	CodigoEstudante        string
+	CodigoSolicitacao      string
+	CodigoInscricaoServico string
+	Mensalidades           []MensalidadeSelecaoMes
 }
 
 // gerarCobranca é a única função do módulo financeiro que decide, a partir
@@ -56,15 +57,16 @@ type gerarCobrancaInput struct {
 func (s *Service) gerarCobranca(ctx context.Context, in gerarCobrancaInput, actorID, actorType, ip string) (QRCodeResult, error) {
 	if in.MetodoPagamento == "GPO_QR" {
 		qr, err := s.CreateGPOQRCode(ctx, QRCodeRequest{
-			ContextoTipo:          ContextoAcademia,
-			CodigoAcademia:        in.CodigoAcademia,
-			CodigoEstudante:       in.CodigoEstudante,
-			CodigoSolicitacao:     in.CodigoSolicitacao,
-			Amount:                in.Amount,
-			Currency:              "AOA",
-			Description:           in.Description,
-			MerchantTransactionID: in.MerchantTransactionID,
-			Mensalidades:          in.Mensalidades,
+			ContextoTipo:           ContextoAcademia,
+			CodigoAcademia:         in.CodigoAcademia,
+			CodigoEstudante:        in.CodigoEstudante,
+			CodigoSolicitacao:      in.CodigoSolicitacao,
+			CodigoInscricaoServico: in.CodigoInscricaoServico,
+			Amount:                 in.Amount,
+			Currency:               "AOA",
+			Description:            in.Description,
+			MerchantTransactionID:  in.MerchantTransactionID,
+			Mensalidades:           in.Mensalidades,
 		}, actorID, actorType, ip)
 		if err != nil {
 			return QRCodeResult{}, err
@@ -76,17 +78,18 @@ func (s *Service) gerarCobranca(ctx context.Context, in gerarCobrancaInput, acto
 		info["phoneNumber"] = strings.TrimSpace(in.Telefone)
 	}
 	charge, err := s.CreateCharge(ctx, ChargeRequest{
-		ContextoTipo:          ContextoAcademia,
-		CodigoAcademia:        in.CodigoAcademia,
-		CodigoEstudante:       in.CodigoEstudante,
-		CodigoSolicitacao:     in.CodigoSolicitacao,
-		Mensalidades:          in.Mensalidades,
-		Amount:                in.Amount,
-		Currency:              "AOA",
-		Description:           in.Description,
-		MerchantTransactionID: in.MerchantTransactionID,
-		PaymentMethod:         in.MetodoPagamento,
-		PaymentInfo:           info,
+		ContextoTipo:           ContextoAcademia,
+		CodigoAcademia:         in.CodigoAcademia,
+		CodigoEstudante:        in.CodigoEstudante,
+		CodigoSolicitacao:      in.CodigoSolicitacao,
+		CodigoInscricaoServico: in.CodigoInscricaoServico,
+		Mensalidades:           in.Mensalidades,
+		Amount:                 in.Amount,
+		Currency:               "AOA",
+		Description:            in.Description,
+		MerchantTransactionID:  in.MerchantTransactionID,
+		PaymentMethod:          in.MetodoPagamento,
+		PaymentInfo:            info,
 	}, actorID, actorType, ip)
 	if err != nil {
 		return QRCodeResult{}, err
