@@ -89,4 +89,7 @@ func TestServicoExtraCursosDisponiveisValidation(t *testing.T) {
 	if e := NewServicoExtra().Criar("A", "x", "", "", false, 0, "", nil, false, 0, nil, nil, []string{cursoID + "|6_ano_fundamental"}, false, "", nil, id); e == nil {
 		t.Fatal("ano fundamental escopado a curso foi aceito")
 	}
+	if e := NewServicoExtra().Criar("A", "x", "", "", false, 0, "", nil, false, 0, nil, []string{"2_ano_medio"}, nil, false, "", nil, id); e == nil {
+		t.Fatal("ano médio solto em anos_academicos_disponiveis foi aceito (suporte legado deveria ter sido removido)")
+	}
 }
