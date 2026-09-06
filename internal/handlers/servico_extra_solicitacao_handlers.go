@@ -79,6 +79,12 @@ func SolicitarServicoExtra(c *gin.Context) {
 		utils.RespondWithForbiddenError(c, "serviço extra indisponível")
 		return
 	}
+	if len(serv.AnosAcademicosDisponiveis) > 0 || len(serv.CursosDisponiveis) > 0 {
+		if !estudanteElegivelServicoExtra(serv, est) {
+			utils.RespondWithForbiddenError(c, "este serviço não está disponível para o seu ano/curso atual")
+			return
+		}
+	}
 	active, e := getSolicitacoesServicoExtraProjection(c).ExisteAtiva(sid, est.CodigoEstudante)
 	if e != nil {
 		utils.RespondWithInternalError(c, e)
