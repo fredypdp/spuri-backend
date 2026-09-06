@@ -138,7 +138,9 @@ func validarPosseCursosDisponiveis(c *gin.Context, codigoAcademia string, cursos
 }
 
 // estudanteElegivelServicoExtra cruza as restrições do serviço com o ano e
-// curso atuais do estudante. Anos legados sem curso continuam elegíveis.
+// curso atuais do estudante. anos_academicos_disponiveis só cobre
+// fundamental (sem curso); médio e superior são verificados sempre via
+// cursos_disponiveis — não há mais fallback de ano solto para esses dois.
 func estudanteElegivelServicoExtra(serv *projections.ServicoExtraDTO, est *projections.EstudanteDTO) bool {
 	contains := func(list []string, v string) bool {
 		for _, x := range list {
@@ -149,12 +151,6 @@ func estudanteElegivelServicoExtra(serv *projections.ServicoExtraDTO, est *proje
 		return false
 	}
 	if est.AnoEscolar != nil && contains(serv.AnosAcademicosDisponiveis, *est.AnoEscolar) {
-		return true
-	}
-	if est.AnoEscolarMedio != nil && contains(serv.AnosAcademicosDisponiveis, *est.AnoEscolarMedio) {
-		return true
-	}
-	if est.AnoSuperior != nil && contains(serv.AnosAcademicosDisponiveis, *est.AnoSuperior) {
 		return true
 	}
 	if est.CursoMedioID != nil && est.AnoEscolarMedio != nil && contains(serv.CursosDisponiveis, *est.CursoMedioID+"|"+*est.AnoEscolarMedio) {
