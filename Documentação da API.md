@@ -9204,12 +9204,12 @@ A academia pode configurar serviços adicionais, como transporte e atividades ex
 ### 20.1 Criar serviço extra
 **Proteção:** academia autenticada e ativa. `POST /academia/servicos-extras`.
 
-**Request body:** `nome` (obrigatório), `descricao`, `categoria`, `pago`, `preco`, `tipo_cobranca` (`unico` ou `mensal`), `metodos_pagamento` (`GPO`, `REF`, `GPO_QR`), `tem_taxa_inscricao`, `valor_taxa_inscricao`, `metodos_pagamento_taxa_inscricao`, `anos_academicos_disponiveis`, `documento_obrigatorio`, `documento_instrucoes` e `detalhes_personalizados`.
+**Request body:** `nome` (obrigatório), `descricao`, `categoria`, `pago`, `preco`, `tipo_cobranca` (`unico` ou `mensal`), `metodos_pagamento` (`GPO`, `REF`, `GPO_QR`), `tem_taxa_inscricao`, `valor_taxa_inscricao`, `metodos_pagamento_taxa_inscricao`, `anos_academicos_disponiveis`, `cursos_disponiveis`, `documento_obrigatorio`, `documento_instrucoes` e `detalhes_personalizados`.
 
-**Regras de negócio:** campos financeiros são obrigatórios apenas quando a respectiva cobrança estiver ativa; lista de anos vazia disponibiliza o serviço para todos os anos.
+**Regras de negócio:** campos financeiros são obrigatórios apenas quando a respectiva cobrança estiver ativa; `anos_academicos_disponiveis` e `cursos_disponiveis` vazios (ambos) disponibilizam o serviço para todos os anos/cursos. `anos_academicos_disponiveis` aceita anos soltos (`N_ano_fundamental`/`N_ano_medio`/`N_ano_superior`) sem vínculo com curso — para fundamental é o único formato possível; para médio/superior um ano solto vale para qualquer curso da academia, por compatibilidade. `cursos_disponiveis` restringe a um curso específico: cada item é `"<curso_id>|<ano_academico>"`, com ano médio ou superior. O curso precisa pertencer à mesma academia, não estar deletado, ter o tipo correspondente ao ano e conter o ano entre seus anos acadêmicos. As duas listas são combináveis. Em `POST /estudante/servicos-extras/:id/solicitacao`, se o serviço tiver restrições, o estudante só consegue se inscrever quando seu ano/curso atual corresponder a uma das listas; caso contrário recebe `403`.
 
 ### 20.2 Atualizar serviço extra
-**Proteção:** academia proprietária autenticada e ativa. `PUT /academia/servicos-extras/:id`. Aceita os mesmos campos da criação de forma parcial.
+**Proteção:** academia proprietária autenticada e ativa. `PUT /academia/servicos-extras/:id`. Aceita os mesmos campos da criação (incluindo `cursos_disponiveis`) de forma parcial.
 
 ### 20.3 Desativar serviço extra
 **Proteção:** academia proprietária autenticada e ativa. `PUT /academia/servicos-extras/:id/desativar`.

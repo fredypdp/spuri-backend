@@ -43,6 +43,7 @@ type ServicoExtra struct {
 	MetodosPagamentoTaxaInscricao []string
 
 	AnosAcademicosDisponiveis []string
+	CursosDisponiveis         []string
 
 	DocumentoObrigatorio bool
 	DocumentoInstrucoes  string
@@ -76,6 +77,7 @@ func NewServicoExtra() *ServicoExtra {
 		MetodosPagamento:              []string{},
 		MetodosPagamentoTaxaInscricao: []string{},
 		AnosAcademicosDisponiveis:     []string{},
+		CursosDisponiveis:             []string{},
 		DetalhesPersonalizados:        map[string]interface{}{},
 		Ativo:                         true,
 	}
@@ -101,6 +103,7 @@ type ServicoExtraCriadoEvent struct {
 	ValorTaxaInscricao            float64
 	MetodosPagamentoTaxaInscricao []string
 	AnosAcademicosDisponiveis     []string
+	CursosDisponiveis             []string
 	DocumentoObrigatorio          bool
 	DocumentoInstrucoes           string
 	DetalhesPersonalizados        map[string]interface{}
@@ -127,6 +130,7 @@ type ServicoExtraAtualizadoEvent struct {
 	ValorTaxaInscricao            *float64
 	MetodosPagamentoTaxaInscricao *[]string
 	AnosAcademicosDisponiveis     *[]string
+	CursosDisponiveis             *[]string
 	DocumentoObrigatorio          *bool
 	DocumentoInstrucoes           *string
 	DetalhesPersonalizados        map[string]interface{} // nil = não alterar; não-nil substitui o mapa inteiro
@@ -190,6 +194,7 @@ func (s *ServicoExtra) Criar(
 	pago bool, preco float64, tipoCobranca string, metodosPagamento []string,
 	temTaxaInscricao bool, valorTaxaInscricao float64, metodosPagamentoTaxaInscricao []string,
 	anosAcademicosDisponiveis []string,
+	cursosDisponiveis []string,
 	documentoObrigatorio bool, documentoInstrucoes string,
 	detalhesPersonalizados map[string]interface{},
 	criadoPor uuid.UUID,
@@ -217,6 +222,9 @@ func (s *ServicoExtra) Criar(
 	if err := validarAnosAcademicosServicoExtra(anosAcademicosDisponiveis); err != nil {
 		return err
 	}
+	if err := validarCursosDisponiveisServicoExtra(cursosDisponiveis); err != nil {
+		return err
+	}
 	if !pago {
 		preco = 0
 		tipoCobranca = ""
@@ -242,6 +250,7 @@ func (s *ServicoExtra) Criar(
 		ValorTaxaInscricao:            valorTaxaInscricao,
 		MetodosPagamentoTaxaInscricao: metodosPagamentoTaxaInscricao,
 		AnosAcademicosDisponiveis:     anosAcademicosDisponiveis,
+		CursosDisponiveis:             cursosDisponiveis,
 		DocumentoObrigatorio:          documentoObrigatorio,
 		DocumentoInstrucoes:           strings.TrimSpace(documentoInstrucoes),
 		DetalhesPersonalizados:        detalhesPersonalizados,
@@ -265,6 +274,7 @@ func (s *ServicoExtra) Atualizar(
 	pago *bool, preco *float64, tipoCobranca *string, metodosPagamento *[]string,
 	temTaxaInscricao *bool, valorTaxaInscricao *float64, metodosPagamentoTaxaInscricao *[]string,
 	anosAcademicosDisponiveis *[]string,
+	cursosDisponiveis *[]string,
 	documentoObrigatorio *bool, documentoInstrucoes *string,
 	detalhesPersonalizados map[string]interface{},
 	atualizadoPor uuid.UUID,
@@ -324,6 +334,11 @@ func (s *ServicoExtra) Atualizar(
 			return err
 		}
 	}
+	if cursosDisponiveis != nil {
+		if err := validarCursosDisponiveisServicoExtra(*cursosDisponiveis); err != nil {
+			return err
+		}
+	}
 
 	// Zera campos que deixaram de se aplicar, para o resultado final nunca
 	// violar o CHECK constraint da tabela (ex.: desligar `pago` sem zerar
@@ -356,6 +371,7 @@ func (s *ServicoExtra) Atualizar(
 		ValorTaxaInscricao:            valorTaxaInscricao,
 		MetodosPagamentoTaxaInscricao: metodosPagamentoTaxaInscricao,
 		AnosAcademicosDisponiveis:     anosAcademicosDisponiveis,
+		CursosDisponiveis:             cursosDisponiveis,
 		DocumentoObrigatorio:          documentoObrigatorio,
 		DocumentoInstrucoes:           documentoInstrucoes,
 		DetalhesPersonalizados:        detalhesPersonalizados,
@@ -417,6 +433,7 @@ func (s *ServicoExtra) applyCriado(event DomainEvent) error {
 	s.ValorTaxaInscricao = p.ValorTaxaInscricao
 	s.MetodosPagamentoTaxaInscricao = p.MetodosPagamentoTaxaInscricao
 	s.AnosAcademicosDisponiveis = p.AnosAcademicosDisponiveis
+	s.CursosDisponiveis = p.CursosDisponiveis
 	s.DocumentoObrigatorio = p.DocumentoObrigatorio
 	s.DocumentoInstrucoes = p.DocumentoInstrucoes
 	s.DetalhesPersonalizados = p.DetalhesPersonalizados
@@ -468,6 +485,9 @@ func (s *ServicoExtra) applyAtualizado(event DomainEvent) error {
 	}
 	if p.AnosAcademicosDisponiveis != nil {
 		s.AnosAcademicosDisponiveis = *p.AnosAcademicosDisponiveis
+	}
+	if p.CursosDisponiveis != nil {
+		s.CursosDisponiveis = *p.CursosDisponiveis
 	}
 	if p.DocumentoObrigatorio != nil {
 		s.DocumentoObrigatorio = *p.DocumentoObrigatorio
@@ -557,6 +577,34 @@ func validarAnosAcademicosServicoExtra(anos []string) error {
 			}
 		default:
 			return fmt.Errorf("formato de ano acadêmico inválido: %q", ano)
+		}
+	}
+	return nil
+}
+
+// validarCursosDisponiveisServicoExtra valida somente o formato
+// "<curso_id>|<ano_academico>". Cursos fundamentais não existem no sistema.
+func validarCursosDisponiveisServicoExtra(cursos []string) error {
+	for _, item := range cursos {
+		partes := strings.SplitN(item, "|", 2)
+		if len(partes) != 2 || partes[0] == "" || partes[1] == "" {
+			return fmt.Errorf("formato de curso_disponivel inválido: %q — esperado \"<curso_id>|<ano_academico>\"", item)
+		}
+		if _, err := uuid.Parse(partes[0]); err != nil {
+			return fmt.Errorf("curso_id inválido em %q: %v", item, err)
+		}
+		ano := partes[1]
+		switch {
+		case strings.HasSuffix(ano, "_ano_medio"):
+			if err := utils.ValidateAnoMedio(ano); err != nil {
+				return err
+			}
+		case strings.HasSuffix(ano, "_ano_superior"):
+			if err := utils.ValidateAnoSuperior(ano); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("ano_academico inválido em %q: deve terminar em _ano_medio ou _ano_superior (fundamental não usa curso)", item)
 		}
 	}
 	return nil
