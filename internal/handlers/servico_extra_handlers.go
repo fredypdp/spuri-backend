@@ -10,6 +10,7 @@ import (
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/finance"
 	"spuri/internal/middleware"
+	"spuri/internal/projections"
 	"spuri/internal/utils"
 	"strings"
 )
@@ -42,6 +43,7 @@ type servicoExtraPayload struct {
 	ValorTaxaInscricao            float64                `json:"valor_taxa_inscricao"`
 	MetodosPagamentoTaxaInscricao []string               `json:"metodos_pagamento_taxa_inscricao"`
 	AnosAcademicosDisponiveis     []string               `json:"anos_academicos_disponiveis"`
+	CursosDisponiveis             []string               `json:"cursos_disponiveis"`
 	DocumentoObrigatorio          bool                   `json:"documento_obrigatorio"`
 	DocumentoInstrucoes           string                 `json:"documento_instrucoes"`
 	DetalhesPersonalizados        map[string]interface{} `json:"detalhes_personalizados"`
@@ -55,7 +57,7 @@ func bindServicoExtraPayload(c *gin.Context, r *servicoExtraPayload) error {
 	if e := d.Decode(&raw); e != nil {
 		return fmt.Errorf("dados invalidos")
 	}
-	allowed := map[string]bool{"nome": true, "descricao": true, "categoria": true, "pago": true, "preco": true, "tipo_cobranca": true, "metodos_pagamento": true, "tem_taxa_inscricao": true, "valor_taxa_inscricao": true, "metodos_pagamento_taxa_inscricao": true, "anos_academicos_disponiveis": true, "documento_obrigatorio": true, "documento_instrucoes": true, "detalhes_personalizados": true}
+	allowed := map[string]bool{"nome": true, "descricao": true, "categoria": true, "pago": true, "preco": true, "tipo_cobranca": true, "metodos_pagamento": true, "tem_taxa_inscricao": true, "valor_taxa_inscricao": true, "metodos_pagamento_taxa_inscricao": true, "anos_academicos_disponiveis": true, "cursos_disponiveis": true, "documento_obrigatorio": true, "documento_instrucoes": true, "detalhes_personalizados": true}
 	for k := range raw {
 		if !allowed[k] {
 			return fmt.Errorf("campo não suportado em serviço extra: %s", k)
@@ -81,6 +83,88 @@ func academy(c *gin.Context) (string, uuid.UUID, bool) {
 	return a.CodigoAcademia, id, true
 }
 func ptr[T any](v T) *T { return &v }
+
+// validarPosseCursosDisponiveis confirma que cada curso pertence à academia,
+// não foi deletado, possui o tipo esperado e oferece o ano informado.
+func validarPosseCursosDisponiveis(c *gin.Context, codigoAcademia string, cursosDisponiveis []string) error {
+	cursosProj := getCursosProjection(c)
+	cache := map[uuid.UUID]*projections.CursoDTO{}
+	for _, item := range cursosDisponiveis {
+		partes := strings.SplitN(item, "|", 2)
+		if len(partes) != 2 {
+			continue
+		}
+		cursoID, err := uuid.Parse(partes[0])
+		if err != nil {
+			continue
+		}
+		curso, ok := cache[cursoID]
+		if !ok {
+			curso, err = cursosProj.GetByID(cursoID)
+			if err != nil {
+				return fmt.Errorf("erro ao verificar curso %s: %v", cursoID, err)
+			}
+			cache[cursoID] = curso
+		}
+		if curso == nil {
+			return fmt.Errorf("curso %s não encontrado", cursoID)
+		}
+		if curso.CodigoAcademia != codigoAcademia {
+			return fmt.Errorf("curso %s não pertence a esta academia", cursoID)
+		}
+		if curso.Status == "deletado" {
+			return fmt.Errorf("curso %s foi removido e não pode ser usado em serviços extras", cursoID)
+		}
+		ano := partes[1]
+		tipoEsperado := "medio"
+		if strings.HasSuffix(ano, "_ano_superior") {
+			tipoEsperado = "superior"
+		}
+		if curso.Type != tipoEsperado {
+			return fmt.Errorf("ano %q não corresponde ao tipo do curso %s (%s)", ano, cursoID, curso.Type)
+		}
+		anoValido := false
+		for _, a := range curso.AnosAcademicos {
+			if a == ano {
+				anoValido = true
+				break
+			}
+		}
+		if !anoValido {
+			return fmt.Errorf("ano %q não faz parte dos anos acadêmicos do curso %s", ano, cursoID)
+		}
+	}
+	return nil
+}
+
+// estudanteElegivelServicoExtra cruza as restrições do serviço com o ano e
+// curso atuais do estudante. Anos legados sem curso continuam elegíveis.
+func estudanteElegivelServicoExtra(serv *projections.ServicoExtraDTO, est *projections.EstudanteDTO) bool {
+	contains := func(list []string, v string) bool {
+		for _, x := range list {
+			if x == v {
+				return true
+			}
+		}
+		return false
+	}
+	if est.AnoEscolar != nil && contains(serv.AnosAcademicosDisponiveis, *est.AnoEscolar) {
+		return true
+	}
+	if est.AnoEscolarMedio != nil && contains(serv.AnosAcademicosDisponiveis, *est.AnoEscolarMedio) {
+		return true
+	}
+	if est.AnoSuperior != nil && contains(serv.AnosAcademicosDisponiveis, *est.AnoSuperior) {
+		return true
+	}
+	if est.CursoMedioID != nil && est.AnoEscolarMedio != nil && contains(serv.CursosDisponiveis, *est.CursoMedioID+"|"+*est.AnoEscolarMedio) {
+		return true
+	}
+	if est.CursoSuperiorID != nil && est.AnoSuperior != nil && contains(serv.CursosDisponiveis, *est.CursoSuperiorID+"|"+*est.AnoSuperior) {
+		return true
+	}
+	return false
+}
 
 // servicoExtraToJSON serializa o aggregate em memória com as MESMAS chaves
 // snake_case de ServicoExtraDTO (internal/projections/servico_extra_projection.go),
@@ -112,6 +196,7 @@ func servicoExtraToJSON(s *aggregates.ServicoExtra) gin.H {
 		"valor_taxa_inscricao":             valorTaxa,
 		"metodos_pagamento_taxa_inscricao": s.MetodosPagamentoTaxaInscricao,
 		"anos_academicos_disponiveis":      s.AnosAcademicosDisponiveis,
+		"cursos_disponiveis":               s.CursosDisponiveis,
 		"documento_obrigatorio":            s.DocumentoObrigatorio,
 		"documento_instrucoes":             s.DocumentoInstrucoes,
 		"detalhes_personalizados":          s.DetalhesPersonalizados,
@@ -145,8 +230,12 @@ func CriarServicoExtra(c *gin.Context) {
 			return
 		}
 	}
+	if e := validarPosseCursosDisponiveis(c, codigo, r.CursosDisponiveis); e != nil {
+		utils.RespondWithValidationError(c, e)
+		return
+	}
 	s := aggregates.NewServicoExtra()
-	if e := s.Criar(codigo, r.Nome, r.Descricao, r.Categoria, r.Pago, r.Preco, r.TipoCobranca, r.MetodosPagamento, r.TemTaxaInscricao, r.ValorTaxaInscricao, r.MetodosPagamentoTaxaInscricao, r.AnosAcademicosDisponiveis, r.DocumentoObrigatorio, r.DocumentoInstrucoes, r.DetalhesPersonalizados, id); e != nil {
+	if e := s.Criar(codigo, r.Nome, r.Descricao, r.Categoria, r.Pago, r.Preco, r.TipoCobranca, r.MetodosPagamento, r.TemTaxaInscricao, r.ValorTaxaInscricao, r.MetodosPagamentoTaxaInscricao, r.AnosAcademicosDisponiveis, r.CursosDisponiveis, r.DocumentoObrigatorio, r.DocumentoInstrucoes, r.DetalhesPersonalizados, id); e != nil {
 		utils.RespondWithValidationError(c, e)
 		return
 	}
@@ -207,11 +296,17 @@ func AtualizarServicoExtra(c *gin.Context) {
 			return
 		}
 	}
+	if r.informado["cursos_disponiveis"] {
+		if e := validarPosseCursosDisponiveis(c, s.CodigoAcademia, r.CursosDisponiveis); e != nil {
+			utils.RespondWithValidationError(c, e)
+			return
+		}
+	}
 	var detalhes map[string]interface{}
 	if r.informado["detalhes_personalizados"] {
 		detalhes = r.DetalhesPersonalizados
 	}
-	e := s.Atualizar(cond(r, "nome", r.Nome), cond(r, "descricao", r.Descricao), cond(r, "categoria", r.Categoria), cond(r, "pago", r.Pago), cond(r, "preco", r.Preco), cond(r, "tipo_cobranca", r.TipoCobranca), cond(r, "metodos_pagamento", r.MetodosPagamento), cond(r, "tem_taxa_inscricao", r.TemTaxaInscricao), cond(r, "valor_taxa_inscricao", r.ValorTaxaInscricao), cond(r, "metodos_pagamento_taxa_inscricao", r.MetodosPagamentoTaxaInscricao), cond(r, "anos_academicos_disponiveis", r.AnosAcademicosDisponiveis), cond(r, "documento_obrigatorio", r.DocumentoObrigatorio), cond(r, "documento_instrucoes", r.DocumentoInstrucoes), detalhes, id)
+	e := s.Atualizar(cond(r, "nome", r.Nome), cond(r, "descricao", r.Descricao), cond(r, "categoria", r.Categoria), cond(r, "pago", r.Pago), cond(r, "preco", r.Preco), cond(r, "tipo_cobranca", r.TipoCobranca), cond(r, "metodos_pagamento", r.MetodosPagamento), cond(r, "tem_taxa_inscricao", r.TemTaxaInscricao), cond(r, "valor_taxa_inscricao", r.ValorTaxaInscricao), cond(r, "metodos_pagamento_taxa_inscricao", r.MetodosPagamentoTaxaInscricao), cond(r, "anos_academicos_disponiveis", r.AnosAcademicosDisponiveis), cond(r, "cursos_disponiveis", r.CursosDisponiveis), cond(r, "documento_obrigatorio", r.DocumentoObrigatorio), cond(r, "documento_instrucoes", r.DocumentoInstrucoes), detalhes, id)
 	if e != nil {
 		utils.RespondWithValidationError(c, e)
 		return
