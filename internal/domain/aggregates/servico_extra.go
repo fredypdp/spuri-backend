@@ -556,27 +556,19 @@ func validarCamposTaxaInscricao(temTaxaInscricao bool, valor float64, metodos []
 }
 
 // validarAnosAcademicosServicoExtra valida apenas o FORMATO de cada ano
-// informado, despachando para o validador correto pelo sufixo. Lista vazia
-// é válida e significa "disponível para todos os anos" — não validar como
-// erro. Deliberadamente NÃO cruza com cursos/turmas reais da academia (ver
-// decisão de design 7 no documento da tarefa).
+// informado. Lista vazia é válida e significa "disponível para todos os anos
+// fundamentais". Só aceita anos de ensino fundamental — médio e superior são
+// sempre escopados a um curso específico via cursos_disponiveis (ver
+// validarCursosDisponiveisServicoExtra), nunca soltos aqui. (Anos soltos de
+// médio/superior eram aceitos por compatibilidade até a Tarefa 87b; removido
+// porque nenhum registro existente usava esse formato.)
 func validarAnosAcademicosServicoExtra(anos []string) error {
 	for _, ano := range anos {
-		switch {
-		case strings.HasSuffix(ano, "_ano_fundamental"):
-			if err := utils.ValidateAnoFundamental(ano); err != nil {
-				return err
-			}
-		case strings.HasSuffix(ano, "_ano_medio"):
-			if err := utils.ValidateAnoMedio(ano); err != nil {
-				return err
-			}
-		case strings.HasSuffix(ano, "_ano_superior"):
-			if err := utils.ValidateAnoSuperior(ano); err != nil {
-				return err
-			}
-		default:
-			return fmt.Errorf("formato de ano acadêmico inválido: %q", ano)
+		if !strings.HasSuffix(ano, "_ano_fundamental") {
+			return fmt.Errorf("anos_academicos_disponiveis só aceita anos do ensino fundamental (%q inválido) — para médio/superior use cursos_disponiveis", ano)
+		}
+		if err := utils.ValidateAnoFundamental(ano); err != nil {
+			return err
 		}
 	}
 	return nil
