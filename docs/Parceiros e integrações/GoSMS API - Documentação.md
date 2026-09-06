@@ -62,7 +62,7 @@ O spec OpenAPI fornecido não inclui o corpo (schema/exemplo) de nenhuma respost
 
 **Atualização (06/09/2026):** foi enviada uma SMS de teste real (`POST /v1/messages`, para `972475676`), o que permitiu capturar quase tudo o que faltava — ver secções 5.1, 5.2, 5.4 e 5.6. Duas coisas importantes que isto revelou:
 
-1. **A API usa nomes de campo inconsistentes para o mesmo ID.** O ID do envio em si (o "lote") aparece como `id` na resposta de `POST /v1/messages` e de `GET /v1/messages`, mas como `parent_id` na resposta de `GET /v1/messages/recipient`. Já o ID de cada destinatário dentro desse envio aparece sempre como `message_id` (dentro do array `recipients`, e também no `GET /v1/messages/recipient`) — nome que colide com o parâmetro `message_id` do próprio `GET /v1/messages/one`, cuja descrição no spec ("ID da Mensagem") sugere ser o ID do lote, não o do destinatário. É provavelmente por isto que a primeira tentativa de `GET /v1/messages/one` (secção 5.7) devolveu erro — ver detalhes lá.
+1. **A API usa nomes de campo inconsistentes para o mesmo ID — e isso troca até os parâmetros de query.** O ID do envio em si (o "lote") aparece como `id` na resposta de `POST /v1/messages` e de `GET /v1/messages`, mas como `parent_id` na resposta de `GET /v1/messages/recipient`. Já o ID de cada destinatário dentro desse envio aparece sempre como `message_id` (dentro do array `recipients`, e também no `GET /v1/messages/recipient`). **Confirmado:** em `GET /v1/messages/one`, o parâmetro `message_id` espera na verdade o ID do destinatário, e `id` espera o ID do envio — invertido face à leitura literal das descrições do spec (ver secção 5.7).
 2. **Existe um segundo formato de erro**, diferente do capturado antes:
    ```json
    {
@@ -361,28 +361,51 @@ Listar todas as mensagens enviadas dentro de um intervalo de datas.
 
 **Query params:**
 
-| Parâmetro    | Tipo     | Descrição                                                          |
-|---------------|----------|--------------------------------------------------------------------------|
-| `message_id` | `string` | ID da mensagem.                                                         |
-| `id`         | `string` | ID do número de destino da SMS no contexto de uma mensagem.            |
+| Parâmetro    | Tipo     | Descrição (do spec)                                                    | Uso real confirmado                                    |
+|---------------|----------|--------------------------------------------------------------------------|----------------------------------------------------------|
+| `message_id` | `string` | ID da mensagem.                                                         | ID do **destinatário dentro do envio** (não do envio em si) |
+| `id`         | `string` | ID do número de destino da SMS no contexto de uma mensagem.            | ID do **envio** (o mesmo `id`/`parent_id` visto noutros endpoints) |
 
 **Respostas:**
 
 | Código | Descrição (do spec)          | Corpo             |
 |--------|----------------------------------|--------------------|
-| `200`  | Pedido Realizado com sucesso     | 🔶 ainda não confirmado — ver tentativa abaixo |
+| `200`  | Pedido Realizado com sucesso     | ✅ capturado em 06/09/2026 |
 
-**Tentativa feita em 06/09/2026**, com `message_id=4cffa53b-4f05-4334-b866-455b7ccdc15e` (o `id` do envio, seguindo a descrição "ID da Mensagem" do spec) e `id=5b7e0e2d-a7a3-40b5-aa39-0dddd31fa8e0` (o `message_id` do destinatário dentro do envio, seguindo a descrição "ID do número de destino"):
+**Confirmado:** ao contrário do que a descrição do spec sugere, o parâmetro `message_id` espera o ID do **destinatário dentro do envio** (o que a API chama `message_id` no array `recipients`), e o parâmetro `id` espera o ID do **envio em si** (o que a API chama `id`/`parent_id` noutros endpoints) — invertido face à leitura literal de "`message_id`: ID da Mensagem" / "`id`: ID do número de destino". Usar assim:
 
-```json
-{ "errors": [{ "message": "mensagem inexistente" }] }
+```bash
+curl -s "https://api.go-sms.co.ao/v1/messages/one?message_id=5b7e0e2d-a7a3-40b5-aa39-0dddd31fa8e0&id=4cffa53b-4f05-4334-b866-455b7ccdc15e" \
+  -H "Authorization: Token <TOKEN_REAL>"
 ```
 
-> Não encontrou a mensagem com esta combinação. A julgar pela inconsistência de nomes descrita na secção 4, é possível que os dois parâmetros estejam trocados em relação ao que a descrição sugere — vale testar ao contrário (`message_id=5b7e0e2d...` e `id=4cffa53b...`), sem custo:
-> ```bash
-> curl -s "https://api.go-sms.co.ao/v1/messages/one?message_id=5b7e0e2d-a7a3-40b5-aa39-0dddd31fa8e0&id=4cffa53b-4f05-4334-b866-455b7ccdc15e" -H "Authorization: Token <TOKEN_REAL>"
-> ```
-> Se continuar a dar erro, o problema pode não ser a troca de parâmetros, mas outro motivo (ex: o endpoint pode exigir outro tipo de ID ainda não visto, ou ter algum atraso de indexação como o observado em [5.5](#55-listar-mensagens-por-intervalo-de-datas)).
+```json
+{
+  "id": "4cffa53b-4f05-4334-b866-455b7ccdc15e",
+  "content": "Spuri Reen",
+  "cost": "8.8",
+  "size": 10,
+  "gsm": true,
+  "parts": 1,
+  "from": "SPURI",
+  "created_at": "2026-09-06T21:06:18.907+01:00",
+  "recipients": [
+    {
+      "phone_number": "972475676",
+      "message_status": "DELIVERED",
+      "message_id": "5b7e0e2d-a7a3-40b5-aa39-0dddd31fa8e0",
+      "group_name": "Sem grupo de envio"
+    }
+  ],
+  "total_recipients": 1,
+  "recipients_pending": 0,
+  "recipients_delivered": 1,
+  "recipients_refused": 0,
+  "total_pdus": 1
+}
+```
+
+> Corpo idêntico ao de um item de `GET /v1/messages` (secção 5.2) — mesma forma, só que devolve uma única mensagem específica em vez de uma lista.
 
 ---
 
@@ -533,8 +556,9 @@ Listar todas as mensagens enviadas dentro de um intervalo de datas.
 
 ## 8. O que ainda falta capturar
 
-1. **`GET /v1/messages/one`** — a combinação de IDs usada não funcionou (secção 5.7); testar a troca dos dois parâmetros (comando já pronto lá em cima, sem custo).
-2. **`4XX` de `POST /v1/messages`** — só temos exemplos de erro de outros endpoints (secção 4), nenhum de um envio malsucedido em si (ex: número inválido, remetente não aprovado, saldo insuficiente). Não é essencial e não vale gastar crédito só para provocar isto de propósito.
-3. **`POST /v1/senders/`** (`201`) — endpoint de escrita, cria um remetente real na conta; continua não testado de propósito.
-4. **Anomalia da secção 5.5** — `GET /v1/messages/date` devolveu vazio para um intervalo que devia incluir a mensagem enviada; vale confirmar mais tarde se foi só atraso de indexação.
-5. Itens menores já assinalados nas suas secções: forma dos itens (quando não vazios) de `/v1/senders/pending` e `/v1/recharges`, que dependem de eventos que ainda não aconteceram nesta conta (um remetente pendente de aprovação, um carregamento de crédito).
+1. **`4XX` de `POST /v1/messages`** — só temos exemplos de erro de outros endpoints (secção 4), nenhum de um envio malsucedido em si (ex: número inválido, remetente não aprovado, saldo insuficiente). Não é essencial e não vale gastar crédito só para provocar isto de propósito.
+2. **`POST /v1/senders/`** (`201`) — endpoint de escrita, cria um remetente real na conta; continua não testado de propósito.
+3. **Anomalia da secção 5.5** — `GET /v1/messages/date` devolveu vazio para um intervalo que devia incluir a mensagem enviada; vale confirmar mais tarde se foi só atraso de indexação.
+4. Itens menores já assinalados nas suas secções: forma dos itens (quando não vazios) de `/v1/senders/pending` e `/v1/recharges`, que dependem de eventos que ainda não aconteceram nesta conta (um remetente pendente de aprovação, um carregamento de crédito).
+
+Nenhum destes é bloqueante — são todos casos de borda ou ações de escrita que consomem recursos reais da conta.
