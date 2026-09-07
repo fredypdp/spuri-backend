@@ -1,7 +1,7 @@
 ---
 criado: 07-09-2026
 origem: Fredy + Claude (localização do vazamento)
-status: pendente
+status: feita
 tipo: documentação / segurança (spuri-backend)
 prioridade: ALTA — credencial real exposta em texto puro no repositório
 ---
