@@ -1,0 +1,38 @@
+diff --git a/internal/domain/aggregates/solicitacao_servico_extra.go b/internal/domain/aggregates/solicitacao_servico_extra.go
+index c3f5a7f..cc3e5ff 100644
+--- a/internal/domain/aggregates/solicitacao_servico_extra.go
++++ b/internal/domain/aggregates/solicitacao_servico_extra.go
+@@ -251,9 +251,13 @@ func (s *SolicitacaoServicoExtra) VincularAposPagamento() error {
+ 
+ // CancelarAntesDaVinculacao desiste de uma solicitação já aprovada mas ainda
+ // aguardando pagamento da taxa — nunca chegou a vincular.
++// CancelarAntesDaVinculacao desiste de uma solicitação que ainda não chegou
++// a vincular — seja porque a academia ainda nem decidiu (pendente), seja
++// porque já aprovou e está esperando o pagamento da taxa de inscrição. Nos
++// dois casos o resultado é o mesmo estado terminal: nunca chegou a vincular.
+ func (s *SolicitacaoServicoExtra) CancelarAntesDaVinculacao(motivo, canceladaPor string) error {
+-	if s.Status != StatusInscricaoAprovadaPendentePagamentoTaxa {
+-		return fmt.Errorf("apenas solicitações aguardando pagamento de taxa podem ser canceladas neste estágio (status atual: %s)", s.Status)
++	if s.Status != StatusInscricaoPendente && s.Status != StatusInscricaoAprovadaPendentePagamentoTaxa {
++		return fmt.Errorf("apenas solicitações pendentes ou aguardando pagamento de taxa podem ser canceladas neste estágio (status atual: %s)", s.Status)
+ 	}
+ 	if canceladaPor != "academia" && canceladaPor != "estudante" {
+ 		return fmt.Errorf("cancelada_por deve ser 'academia' ou 'estudante'")
+diff --git a/internal/handlers/servico_extra_solicitacao_handlers.go b/internal/handlers/servico_extra_solicitacao_handlers.go
+index 0398172..16e9327 100644
+--- a/internal/handlers/servico_extra_solicitacao_handlers.go
++++ b/internal/handlers/servico_extra_solicitacao_handlers.go
+@@ -294,7 +294,12 @@ func IniciarPagamentoTaxaInscricaoServicoExtra(c *gin.Context) {
+ }
+ func cancelarSolicitacaoServicoExtra(c *gin.Context, s *aggregates.SolicitacaoServicoExtra, motivo, por, actor string) {
+ 	var e error
+-	if s.Status == aggregates.StatusInscricaoAprovadaPendentePagamentoTaxa {
++	if s.Status == aggregates.StatusInscricaoPendente {
++		// Ainda nem foi decidida pela academia — não há cobrança nenhuma
++		// criada para esta solicitação neste estágio, então não há nada a
++		// estornar no financeiro antes de cancelar.
++		e = s.CancelarAntesDaVinculacao(motivo, por)
++	} else if s.Status == aggregates.StatusInscricaoAprovadaPendentePagamentoTaxa {
+ 		e = FinanceiroService.CancelarCobrancaTaxaInscricaoServicoAberta(c.Request.Context(), s.GetID().String(), motivo, actor, por, c.ClientIP())
+ 		if e == nil {
+ 			e = s.CancelarAntesDaVinculacao(motivo, por)
