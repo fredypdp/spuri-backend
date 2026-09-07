@@ -1,7 +1,7 @@
 ---
 criado: 07-09-2026
 origem: Fredy + Claude (auditoria pós-Tarefa 88)
-status: pendente
+status: feita
 tipo: documentação (spuri-backend)
 depende_de: Tarefa 88 (implementada) e Tarefa 89 (correção crítica — deve estar aplicada, pois este
   documento descreve o comportamento final já com ela)
