@@ -47,6 +47,42 @@ func validarCategoriaServico(c *gin.Context, codigoAcademia string, categoriaID 
 	}
 	return nil
 }
+
+// validarNomeCategoriaServicoDisponivel verifica, ANTES de gerar o evento
+// (CategoriaServicoCriada/Renomeada/Reativada), se já existe outra categoria
+// ATIVA com o mesmo nome (ignorando maiúsculas/minúsculas) nesta academia.
+//
+// Esta pré-checagem existe porque a unicidade de nome só é garantida por um
+// índice único parcial na PROJEÇÃO (ux_categorias_servico_nome_ativo em
+// projection_categorias_servico), não no event store. SaveWithAudit só grava
+// o evento no ledger — a projeção é atualizada depois, de forma assíncrona,
+// pelo Projection Manager. Sem esta pré-checagem, dois eventos com nomes
+// colidentes são aceitos normalmente pelo ledger (o handler HTTP responde
+// sucesso para ambos), mas quando o Manager tenta aplicar o SEGUNDO evento na
+// projeção, o INSERT/UPDATE viola o índice único. Esse erro não é
+// transitório, então processEventWithRetry (internal/projections/manager.go)
+// esgota as 3 tentativas e o checkpoint da projeção "categorias_servico" para
+// de avançar PERMANENTEMENTE nesse evento — bloqueando toda criação, edição,
+// ativação e desativação de categoria de serviço, em QUALQUER academia, até
+// intervenção manual. Um rebuild da projeção não resolve sozinho, pois
+// replaya os mesmos eventos na mesma ordem e falha exatamente no mesmo ponto.
+func validarNomeCategoriaServicoDisponivel(c *gin.Context, codigoAcademia, nome string, excluirID *uuid.UUID) error {
+	nome = strings.TrimSpace(nome)
+	cats, err := getCategoriasServicoProjection(c).GetByAcademia(codigoAcademia, true)
+	if err != nil {
+		return fmt.Errorf("erro ao verificar nome de categoria: %v", err)
+	}
+	for _, existente := range cats {
+		if excluirID != nil && existente.ID == *excluirID {
+			continue
+		}
+		if strings.EqualFold(existente.Nome, nome) {
+			return fmt.Errorf("já existe uma categoria de serviço ativa com este nome nesta academia")
+		}
+	}
+	return nil
+}
+
 func CriarCategoriaServico(c *gin.Context) {
 	var r categoriaServicoPayload
 	if err := bindCategoriaServicoPayload(c, &r); err != nil {
@@ -55,6 +91,10 @@ func CriarCategoriaServico(c *gin.Context) {
 	}
 	codigo, id, ok := academy(c)
 	if !ok {
+		return
+	}
+	if err := validarNomeCategoriaServicoDisponivel(c, codigo, r.Nome, nil); err != nil {
+		utils.RespondWithValidationError(c, err)
 		return
 	}
 	cat := aggregates.NewCategoriaServico()
@@ -100,6 +140,11 @@ func AtualizarCategoriaServico(c *gin.Context) {
 	if !ok {
 		return
 	}
+	catID := cat.GetID()
+	if err := validarNomeCategoriaServicoDisponivel(c, cat.CodigoAcademia, r.Nome, &catID); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 	if err := cat.Renomear(r.Nome, id); err != nil {
 		utils.RespondWithValidationError(c, err)
 		return
@@ -117,6 +162,11 @@ func toggleCategoriaServico(c *gin.Context, ativar bool) {
 	}
 	var err error
 	if ativar {
+		catID := cat.GetID()
+		if err = validarNomeCategoriaServicoDisponivel(c, cat.CodigoAcademia, cat.Nome, &catID); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
 		err = cat.Reativar(id)
 	} else {
 		err = cat.Desativar(id)
