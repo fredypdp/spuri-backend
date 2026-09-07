@@ -1,7 +1,7 @@
 ---
 criado: 06-09-2026
 origem: Fredy + Claude (orquestração)
-status: concluída (integração PostgreSQL pendente no ambiente)
+status: feita
 tipo: backend (spuri-backend)
 depende_de: Tarefas 83-86 (Módulo de Serviços Extras) já implementadas
 ---
