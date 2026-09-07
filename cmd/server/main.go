@@ -152,6 +152,7 @@ func initProjections() error {
 	projManager.RegisterProjection("academias", projections.NewAcademiaProjection(dbClient))
 	projManager.RegisterProjection("cursos", projections.NewCursosProjection(dbClient))
 	projManager.RegisterProjection("servicos_extras", projections.NewServicoExtraProjection(dbClient))
+	projManager.RegisterProjection("categorias_servico", projections.NewCategoriaServicoProjection(dbClient))
 	projManager.RegisterProjection("solicitacoes_servico_extra", projections.NewSolicitacaoServicoExtraProjection(dbClient))
 	projManager.RegisterProjection("materias", projections.NewMateriasProjection(dbClient))
 	projManager.RegisterProjection("sumarios", projections.NewSumariosProjection(dbClient))
@@ -458,6 +459,7 @@ func setupRouter() *gin.Engine {
 	{
 		academiaRead.GET("/materias", handlers.ListarMaterias)
 		academiaRead.GET("/servicos-extras", handlers.ListarServicosExtrasAcademia)
+		academiaRead.GET("/categorias-servico", handlers.ListarCategoriasServico)
 		academiaRead.GET("/servicos-extras/:id", handlers.GetServicoExtra)
 		academiaRead.GET("/servicos-extras/solicitacoes", handlers.ListarSolicitacoesServicoExtraAcademia)
 		academiaRead.GET("/servicos-extras/solicitacoes/:id/documento/download", handlers.DownloadDocumentoSolicitacaoServicoExtraAcademia)
@@ -489,6 +491,10 @@ func setupRouter() *gin.Engine {
 	{
 		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
 		academia.POST("/servicos-extras", handlers.CriarServicoExtra)
+		academia.POST("/categorias-servico", handlers.CriarCategoriaServico)
+		academia.PUT("/categorias-servico/:id", handlers.AtualizarCategoriaServico)
+		academia.PUT("/categorias-servico/:id/desativar", handlers.DesativarCategoriaServico)
+		academia.PUT("/categorias-servico/:id/reativar", handlers.ReativarCategoriaServico)
 		academia.PUT("/servicos-extras/:id", handlers.AtualizarServicoExtra)
 		academia.PUT("/servicos-extras/:id/desativar", handlers.DesativarServicoExtra)
 		academia.PUT("/servicos-extras/:id/reativar", handlers.ReativarServicoExtra)
