@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"spuri/internal/db"
+	"spuri/internal/domain/aggregates"
 	"time"
 )
 
@@ -70,31 +71,32 @@ func (p *ServicoExtraProjection) Rebuild() error {
 }
 
 type ServicoExtraDTO struct {
-	ID                            uuid.UUID              `json:"id"`
-	CodigoAcademia                string                 `json:"codigo_academia"`
-	Nome                          string                 `json:"nome"`
-	Descricao                     string                 `json:"descricao"`
-	Categoria                     string                 `json:"categoria"`
-	Pago                          bool                   `json:"pago"`
-	Preco                         *float64               `json:"preco"`
-	TipoCobranca                  *string                `json:"tipo_cobranca"`
-	MetodosPagamento              []string               `json:"metodos_pagamento"`
-	TemTaxaInscricao              bool                   `json:"tem_taxa_inscricao"`
-	ValorTaxaInscricao            *float64               `json:"valor_taxa_inscricao"`
-	MetodosPagamentoTaxaInscricao []string               `json:"metodos_pagamento_taxa_inscricao"`
-	AnosAcademicosDisponiveis     []string               `json:"anos_academicos_disponiveis"`
-	CursosDisponiveis             []string               `json:"cursos_disponiveis"`
-	DocumentoObrigatorio          bool                   `json:"documento_obrigatorio"`
-	DocumentoInstrucoes           string                 `json:"documento_instrucoes"`
-	DetalhesPersonalizados        map[string]interface{} `json:"detalhes_personalizados"`
-	Ativo                         bool                   `json:"ativo"`
-	CreatedAt                     time.Time              `json:"created_at"`
-	UpdatedAt                     time.Time              `json:"updated_at"`
+	ID                            uuid.UUID                                  `json:"id"`
+	CodigoAcademia                string                                     `json:"codigo_academia"`
+	Nome                          string                                     `json:"nome"`
+	Descricao                     string                                     `json:"descricao"`
+	CategoriaServicoID            *uuid.UUID                                 `json:"categoria_servico_id,omitempty"`
+	Pago                          bool                                       `json:"pago"`
+	Preco                         *float64                                   `json:"preco"`
+	TipoCobranca                  *string                                    `json:"tipo_cobranca"`
+	MetodosPagamento              []string                                   `json:"metodos_pagamento"`
+	TemTaxaInscricao              bool                                       `json:"tem_taxa_inscricao"`
+	ValorTaxaInscricao            *float64                                   `json:"valor_taxa_inscricao"`
+	MetodosPagamentoTaxaInscricao []string                                   `json:"metodos_pagamento_taxa_inscricao"`
+	AnosAcademicosDisponiveis     []string                                   `json:"anos_academicos_disponiveis"`
+	CursosDisponiveis             []string                                   `json:"cursos_disponiveis"`
+	DocumentoObrigatorio          bool                                       `json:"documento_obrigatorio"`
+	DocumentoInstrucoes           string                                     `json:"documento_instrucoes"`
+	DetalhesPersonalizados        map[string]aggregates.DetalhePersonalizado `json:"detalhes_personalizados"`
+	Ativo                         bool                                       `json:"ativo"`
+	CreatedAt                     time.Time                                  `json:"created_at"`
+	UpdatedAt                     time.Time                                  `json:"updated_at"`
 }
 
 func (p *ServicoExtraProjection) created(e db.Event) error {
 	var x struct {
-		CodigoAcademia, Nome, Descricao, Categoria                                  string
+		CodigoAcademia, Nome, Descricao                                             string
+		CategoriaServicoID                                                          *uuid.UUID
 		Pago                                                                        bool
 		Preco                                                                       float64
 		TipoCobranca                                                                string
@@ -104,7 +106,7 @@ func (p *ServicoExtraProjection) created(e db.Event) error {
 		MetodosPagamentoTaxaInscricao, AnosAcademicosDisponiveis, CursosDisponiveis []string
 		DocumentoObrigatorio                                                        bool
 		DocumentoInstrucoes                                                         string
-		DetalhesPersonalizados                                                      map[string]interface{}
+		DetalhesPersonalizados                                                      map[string]aggregates.DetalhePersonalizado
 		CriadoPor                                                                   uuid.UUID
 		CreatedAt                                                                   time.Time
 	}
@@ -121,7 +123,7 @@ func (p *ServicoExtraProjection) created(e db.Event) error {
 	if x.TemTaxaInscricao {
 		taxa = x.ValorTaxaInscricao
 	}
-	_, err := p.client.DB().Exec(`INSERT INTO projection_servicos_extras(id,codigo_academia,nome,descricao,categoria,pago,preco,tipo_cobranca,metodos_pagamento,tem_taxa_inscricao,valor_taxa_inscricao,metodos_pagamento_taxa_inscricao,anos_academicos_disponiveis,cursos_disponiveis,documento_obrigatorio,documento_instrucoes,detalhes_personalizados,ativo,criado_por,created_at,updated_at,version,last_event_id) VALUES($1,$2,$3,NULLIF($4,''),NULLIF($5,''),$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NULLIF($16,''),$17,true,$18,$19,$19,$20,$21) ON CONFLICT(id) DO NOTHING`, e.AggregateID, x.CodigoAcademia, x.Nome, x.Descricao, x.Categoria, x.Pago, preco, tipo, pq.Array(x.MetodosPagamento), x.TemTaxaInscricao, taxa, pq.Array(x.MetodosPagamentoTaxaInscricao), pq.Array(x.AnosAcademicosDisponiveis), pq.Array(x.CursosDisponiveis), x.DocumentoObrigatorio, x.DocumentoInstrucoes, string(d), x.CriadoPor, x.CreatedAt, e.EventVersion, e.EventID)
+	_, err := p.client.DB().Exec(`INSERT INTO projection_servicos_extras(id,codigo_academia,nome,descricao,categoria_servico_id,pago,preco,tipo_cobranca,metodos_pagamento,tem_taxa_inscricao,valor_taxa_inscricao,metodos_pagamento_taxa_inscricao,anos_academicos_disponiveis,cursos_disponiveis,documento_obrigatorio,documento_instrucoes,detalhes_personalizados,ativo,criado_por,created_at,updated_at,version,last_event_id) VALUES($1,$2,$3,NULLIF($4,''),$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NULLIF($16,''),$17,true,$18,$19,$19,$20,$21) ON CONFLICT(id) DO NOTHING`, e.AggregateID, x.CodigoAcademia, x.Nome, x.Descricao, x.CategoriaServicoID, x.Pago, preco, tipo, pq.Array(x.MetodosPagamento), x.TemTaxaInscricao, taxa, pq.Array(x.MetodosPagamentoTaxaInscricao), pq.Array(x.AnosAcademicosDisponiveis), pq.Array(x.CursosDisponiveis), x.DocumentoObrigatorio, x.DocumentoInstrucoes, string(d), x.CriadoPor, x.CreatedAt, e.EventVersion, e.EventID)
 	return err
 }
 func (p *ServicoExtraProjection) updated(e db.Event) error {
@@ -129,7 +131,20 @@ func (p *ServicoExtraProjection) updated(e db.Event) error {
 	if err := json.Unmarshal(e.Payload, &x); err != nil {
 		return err
 	}
-	fields := map[string]string{"Nome": "nome", "Descricao": "descricao", "Categoria": "categoria", "Pago": "pago", "Preco": "preco", "TipoCobranca": "tipo_cobranca", "MetodosPagamento": "metodos_pagamento", "TemTaxaInscricao": "tem_taxa_inscricao", "ValorTaxaInscricao": "valor_taxa_inscricao", "MetodosPagamentoTaxaInscricao": "metodos_pagamento_taxa_inscricao", "AnosAcademicosDisponiveis": "anos_academicos_disponiveis", "CursosDisponiveis": "cursos_disponiveis", "DocumentoObrigatorio": "documento_obrigatorio", "DocumentoInstrucoes": "documento_instrucoes", "DetalhesPersonalizados": "detalhes_personalizados"}
+	fields := map[string]string{"Nome": "nome", "Descricao": "descricao", "Pago": "pago", "Preco": "preco", "TipoCobranca": "tipo_cobranca", "MetodosPagamento": "metodos_pagamento", "TemTaxaInscricao": "tem_taxa_inscricao", "ValorTaxaInscricao": "valor_taxa_inscricao", "MetodosPagamentoTaxaInscricao": "metodos_pagamento_taxa_inscricao", "AnosAcademicosDisponiveis": "anos_academicos_disponiveis", "CursosDisponiveis": "cursos_disponiveis", "DocumentoObrigatorio": "documento_obrigatorio", "DocumentoInstrucoes": "documento_instrucoes", "DetalhesPersonalizados": "detalhes_personalizados"}
+	if informado, ok := x["CategoriaServicoIDInformado"]; ok && string(informado) == "true" {
+		if categoriaID, ok := x["CategoriaServicoID"]; ok && string(categoriaID) != "null" {
+			var id uuid.UUID
+			if err := json.Unmarshal(categoriaID, &id); err != nil {
+				return err
+			}
+			if _, err := p.client.DB().Exec(`UPDATE projection_servicos_extras SET categoria_servico_id=$1 WHERE id=$2`, id, e.AggregateID); err != nil {
+				return err
+			}
+		} else if _, err := p.client.DB().Exec(`UPDATE projection_servicos_extras SET categoria_servico_id=NULL WHERE id=$1`, e.AggregateID); err != nil {
+			return err
+		}
+	}
 	for k, col := range fields {
 		if v, ok := x[k]; ok && string(v) != "null" {
 			var val interface{}
@@ -152,7 +167,7 @@ func (p *ServicoExtraProjection) active(e db.Event, v bool) error {
 func (p *ServicoExtraProjection) scan(row interface{ Scan(...interface{}) error }) (*ServicoExtraDTO, error) {
 	var d ServicoExtraDTO
 	var detalhes []byte
-	err := row.Scan(&d.ID, &d.CodigoAcademia, &d.Nome, &d.Descricao, &d.Categoria, &d.Pago, &d.Preco, &d.TipoCobranca, pq.Array(&d.MetodosPagamento), &d.TemTaxaInscricao, &d.ValorTaxaInscricao, pq.Array(&d.MetodosPagamentoTaxaInscricao), pq.Array(&d.AnosAcademicosDisponiveis), pq.Array(&d.CursosDisponiveis), &d.DocumentoObrigatorio, &d.DocumentoInstrucoes, &detalhes, &d.Ativo, &d.CreatedAt, &d.UpdatedAt)
+	err := row.Scan(&d.ID, &d.CodigoAcademia, &d.Nome, &d.Descricao, &d.CategoriaServicoID, &d.Pago, &d.Preco, &d.TipoCobranca, pq.Array(&d.MetodosPagamento), &d.TemTaxaInscricao, &d.ValorTaxaInscricao, pq.Array(&d.MetodosPagamentoTaxaInscricao), pq.Array(&d.AnosAcademicosDisponiveis), pq.Array(&d.CursosDisponiveis), &d.DocumentoObrigatorio, &d.DocumentoInstrucoes, &detalhes, &d.Ativo, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +175,7 @@ func (p *ServicoExtraProjection) scan(row interface{ Scan(...interface{}) error 
 	return &d, nil
 }
 
-const servicoCols = `id,codigo_academia,nome,COALESCE(descricao,''),COALESCE(categoria,''),pago,preco,tipo_cobranca,metodos_pagamento,tem_taxa_inscricao,valor_taxa_inscricao,metodos_pagamento_taxa_inscricao,anos_academicos_disponiveis,cursos_disponiveis,documento_obrigatorio,COALESCE(documento_instrucoes,''),detalhes_personalizados,ativo,created_at,updated_at`
+const servicoCols = `id,codigo_academia,nome,COALESCE(descricao,''),categoria_servico_id,pago,preco,tipo_cobranca,metodos_pagamento,tem_taxa_inscricao,valor_taxa_inscricao,metodos_pagamento_taxa_inscricao,anos_academicos_disponiveis,cursos_disponiveis,documento_obrigatorio,COALESCE(documento_instrucoes,''),detalhes_personalizados,ativo,created_at,updated_at`
 
 func (p *ServicoExtraProjection) GetByID(id uuid.UUID) (*ServicoExtraDTO, error) {
 	d, e := p.scan(p.client.DB().QueryRow(`SELECT `+servicoCols+` FROM projection_servicos_extras WHERE id=$1`, id))
