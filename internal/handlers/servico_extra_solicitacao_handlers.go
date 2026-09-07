@@ -294,7 +294,12 @@ func IniciarPagamentoTaxaInscricaoServicoExtra(c *gin.Context) {
 }
 func cancelarSolicitacaoServicoExtra(c *gin.Context, s *aggregates.SolicitacaoServicoExtra, motivo, por, actor string) {
 	var e error
-	if s.Status == aggregates.StatusInscricaoAprovadaPendentePagamentoTaxa {
+	if s.Status == aggregates.StatusInscricaoPendente {
+		// Ainda nem foi decidida pela academia — não há cobrança nenhuma
+		// criada para esta solicitação neste estágio, então não há nada a
+		// estornar no financeiro antes de cancelar.
+		e = s.CancelarAntesDaVinculacao(motivo, por)
+	} else if s.Status == aggregates.StatusInscricaoAprovadaPendentePagamentoTaxa {
 		e = FinanceiroService.CancelarCobrancaTaxaInscricaoServicoAberta(c.Request.Context(), s.GetID().String(), motivo, actor, por, c.ClientIP())
 		if e == nil {
 			e = s.CancelarAntesDaVinculacao(motivo, por)

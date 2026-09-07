@@ -249,11 +249,13 @@ func (s *SolicitacaoServicoExtra) VincularAposPagamento() error {
 	return s.Apply(event)
 }
 
-// CancelarAntesDaVinculacao desiste de uma solicitação já aprovada mas ainda
-// aguardando pagamento da taxa — nunca chegou a vincular.
+// CancelarAntesDaVinculacao desiste de uma solicitação que ainda não chegou
+// a vincular — seja porque a academia ainda nem decidiu (pendente), seja
+// porque já aprovou e está esperando o pagamento da taxa de inscrição. Nos
+// dois casos o resultado é o mesmo estado terminal: nunca chegou a vincular.
 func (s *SolicitacaoServicoExtra) CancelarAntesDaVinculacao(motivo, canceladaPor string) error {
-	if s.Status != StatusInscricaoAprovadaPendentePagamentoTaxa {
-		return fmt.Errorf("apenas solicitações aguardando pagamento de taxa podem ser canceladas neste estágio (status atual: %s)", s.Status)
+	if s.Status != StatusInscricaoPendente && s.Status != StatusInscricaoAprovadaPendentePagamentoTaxa {
+		return fmt.Errorf("apenas solicitações pendentes ou aguardando pagamento de taxa podem ser canceladas neste estágio (status atual: %s)", s.Status)
 	}
 	if canceladaPor != "academia" && canceladaPor != "estudante" {
 		return fmt.Errorf("cancelada_por deve ser 'academia' ou 'estudante'")

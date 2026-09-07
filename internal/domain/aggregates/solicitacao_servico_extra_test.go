@@ -90,8 +90,11 @@ func TestSolicitacaoServicoExtraVincularAposPagamento(t *testing.T) {
 
 func TestSolicitacaoServicoExtraCancelar(t *testing.T) {
 	pendente := novaSolicitacaoServicoExtra(t)
-	if err := pendente.CancelarAntesDaVinculacao("motivo", "estudante"); err == nil {
-		t.Fatal("cancelamento antes do vínculo em pendente foi aceito")
+	if err := pendente.CancelarAntesDaVinculacao("motivo", "estudante"); err != nil {
+		t.Fatalf("cancelamento antes do vínculo em pendente falhou: %v", err)
+	}
+	if pendente.Status != StatusInscricaoCanceladaAntesDaVinculacao {
+		t.Fatalf("status da solicitação pendente cancelada = %q", pendente.Status)
 	}
 	if err := pendente.Cancelar("motivo", "estudante"); err == nil {
 		t.Fatal("cancelamento em pendente foi aceito")
