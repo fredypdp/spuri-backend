@@ -31,7 +31,7 @@ Todos os paths abaixo são relativos a esta base — ex: `/v1/messages` signific
 Todos os endpoints exigem o header `Authorization`, com um token obtido no Portal GoSMS:
 
 ```http
-Authorization: Token a9eb6ea6-5777-4848-a9ed-8cbffc74a503
+Authorization: Token <TOKEN_REAL>
 ```
 
 O spec não indica o endereço do Portal GoSMS nem o fluxo de obtenção/rotação do token — apenas que o token "está disponível no Portal GoSMS". Isso deve ser confirmado com o fornecedor ou com quem já tenha acesso à conta.
@@ -120,7 +120,7 @@ Permite enviar uma SMS para um ou mais números de telefone.
 
 ```bash
 curl -X POST https://api.go-sms.co.ao/v1/messages \
-  -H "Authorization: Token a9eb6ea6-5777-4848-a9ed-8cbffc74a503" \
+  -H "Authorization: Token <TOKEN_REAL>" \
   -H "Content-Type: application/json" \
   -d '{
     "message": "Mensagem de teste.",
