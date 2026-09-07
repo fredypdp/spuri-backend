@@ -3,6 +3,7 @@ package aggregates
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -28,10 +29,10 @@ import (
 type ServicoExtra struct {
 	BaseAggregate
 
-	CodigoAcademia string
-	Nome           string
-	Descricao      string
-	Categoria      string
+	CodigoAcademia     string
+	Nome               string
+	Descricao          string
+	CategoriaServicoID *uuid.UUID
 
 	Pago             bool
 	Preco            float64
@@ -48,12 +49,92 @@ type ServicoExtra struct {
 	DocumentoObrigatorio bool
 	DocumentoInstrucoes  string
 
-	DetalhesPersonalizados map[string]interface{}
+	DetalhesPersonalizados map[string]DetalhePersonalizado
 
 	Ativo     bool
 	CriadoPor uuid.UUID
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// DetalhePersonalizado define uma personalização tipada de um serviço extra.
+type DetalhePersonalizado struct {
+	Rotulo string      `json:"rotulo"`
+	Valor  interface{} `json:"valor"`
+	Tipo   string      `json:"tipo"`
+}
+
+var tiposPersonalizadosValidos = map[string]bool{"texto": true, "numero": true, "booleano": true, "data": true, "hora": true, "lista_texto": true}
+
+const maxDetalhesPersonalizados = 30
+
+var chaveDetalhePersonalizadoRegex = regexp.MustCompile(`^[a-z][a-z0-9_]{0,49}$`)
+
+func validarDetalhesPersonalizados(m map[string]DetalhePersonalizado) error {
+	if len(m) > maxDetalhesPersonalizados {
+		return fmt.Errorf("no máximo %d detalhes personalizados são permitidos", maxDetalhesPersonalizados)
+	}
+	for chave, d := range m {
+		if !chaveDetalhePersonalizadoRegex.MatchString(chave) {
+			return fmt.Errorf("chave de detalhe personalizado inválida: %q (use letras minúsculas, números e _, começando por letra, até 50 caracteres)", chave)
+		}
+		if strings.TrimSpace(d.Rotulo) == "" {
+			return fmt.Errorf("detalhe personalizado %q precisa de um rótulo", chave)
+		}
+		if len(d.Rotulo) > 100 {
+			return fmt.Errorf("rótulo do detalhe personalizado %q deve ter no máximo 100 caracteres", chave)
+		}
+		if !tiposPersonalizadosValidos[d.Tipo] {
+			return fmt.Errorf("tipo de detalhe personalizado %q inválido para %q: use texto, numero, booleano, data, hora ou lista_texto", d.Tipo, chave)
+		}
+		if err := validarValorPersonalizado(chave, d.Tipo, d.Valor); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func validarValorPersonalizado(chave, tipo string, valor interface{}) error {
+	switch tipo {
+	case "texto":
+		if _, ok := valor.(string); !ok {
+			return fmt.Errorf("valor de %q deve ser texto", chave)
+		}
+	case "numero":
+		if _, ok := valor.(float64); !ok {
+			return fmt.Errorf("valor de %q deve ser numérico", chave)
+		}
+	case "booleano":
+		if _, ok := valor.(bool); !ok {
+			return fmt.Errorf("valor de %q deve ser verdadeiro ou falso", chave)
+		}
+	case "data":
+		s, ok := valor.(string)
+		if !ok {
+			return fmt.Errorf("valor de %q deve ser uma data no formato AAAA-MM-DD", chave)
+		}
+		if _, err := time.Parse("2006-01-02", s); err != nil {
+			return fmt.Errorf("valor de %q não é uma data válida (use AAAA-MM-DD)", chave)
+		}
+	case "hora":
+		s, ok := valor.(string)
+		if !ok {
+			return fmt.Errorf("valor de %q deve ser uma hora no formato HH:MM", chave)
+		}
+		if _, err := time.Parse("15:04", s); err != nil {
+			return fmt.Errorf("valor de %q não é uma hora válida (use HH:MM)", chave)
+		}
+	case "lista_texto":
+		lst, ok := valor.([]interface{})
+		if !ok {
+			return fmt.Errorf("valor de %q deve ser uma lista de textos", chave)
+		}
+		for _, item := range lst {
+			if _, ok := item.(string); !ok {
+				return fmt.Errorf("todos os itens de %q devem ser texto", chave)
+			}
+		}
+	}
+	return nil
 }
 
 const (
@@ -78,7 +159,7 @@ func NewServicoExtra() *ServicoExtra {
 		MetodosPagamentoTaxaInscricao: []string{},
 		AnosAcademicosDisponiveis:     []string{},
 		CursosDisponiveis:             []string{},
-		DetalhesPersonalizados:        map[string]interface{}{},
+		DetalhesPersonalizados:        map[string]DetalhePersonalizado{},
 		Ativo:                         true,
 	}
 }
@@ -94,7 +175,7 @@ type ServicoExtraCriadoEvent struct {
 	CodigoAcademia                string
 	Nome                          string
 	Descricao                     string
-	Categoria                     string
+	CategoriaServicoID            *uuid.UUID
 	Pago                          bool
 	Preco                         float64
 	TipoCobranca                  string
@@ -106,7 +187,7 @@ type ServicoExtraCriadoEvent struct {
 	CursosDisponiveis             []string
 	DocumentoObrigatorio          bool
 	DocumentoInstrucoes           string
-	DetalhesPersonalizados        map[string]interface{}
+	DetalhesPersonalizados        map[string]DetalhePersonalizado
 	CriadoPor                     uuid.UUID
 	CreatedAt                     time.Time
 }
@@ -121,7 +202,8 @@ type ServicoExtraAtualizadoEvent struct {
 	BaseEvent
 	Nome                          *string
 	Descricao                     *string
-	Categoria                     *string
+	CategoriaServicoID            *uuid.UUID
+	CategoriaServicoIDInformado   bool
 	Pago                          *bool
 	Preco                         *float64
 	TipoCobranca                  *string
@@ -133,7 +215,7 @@ type ServicoExtraAtualizadoEvent struct {
 	CursosDisponiveis             *[]string
 	DocumentoObrigatorio          *bool
 	DocumentoInstrucoes           *string
-	DetalhesPersonalizados        map[string]interface{} // nil = não alterar; não-nil substitui o mapa inteiro
+	DetalhesPersonalizados        map[string]DetalhePersonalizado // nil = não alterar; não-nil substitui o mapa inteiro
 	AtualizadoPor                 uuid.UUID
 	UpdatedAt                     time.Time
 }
@@ -190,13 +272,13 @@ func (s *ServicoExtra) Apply(event DomainEvent) error {
 // internal/finance (evitaria ciclo de import) e só valida consistência
 // interna dos campos.
 func (s *ServicoExtra) Criar(
-	codigoAcademia, nome, descricao, categoria string,
+	codigoAcademia, nome, descricao string, categoriaServicoID *uuid.UUID,
 	pago bool, preco float64, tipoCobranca string, metodosPagamento []string,
 	temTaxaInscricao bool, valorTaxaInscricao float64, metodosPagamentoTaxaInscricao []string,
 	anosAcademicosDisponiveis []string,
 	cursosDisponiveis []string,
 	documentoObrigatorio bool, documentoInstrucoes string,
-	detalhesPersonalizados map[string]interface{},
+	detalhesPersonalizados map[string]DetalhePersonalizado,
 	criadoPor uuid.UUID,
 ) error {
 	if strings.TrimSpace(codigoAcademia) == "" {
@@ -233,7 +315,10 @@ func (s *ServicoExtra) Criar(
 		valorTaxaInscricao = 0
 	}
 	if detalhesPersonalizados == nil {
-		detalhesPersonalizados = map[string]interface{}{}
+		detalhesPersonalizados = map[string]DetalhePersonalizado{}
+	}
+	if err := validarDetalhesPersonalizados(detalhesPersonalizados); err != nil {
+		return err
 	}
 
 	event := &ServicoExtraCriadoEvent{
@@ -241,7 +326,7 @@ func (s *ServicoExtra) Criar(
 		CodigoAcademia:                codigoAcademia,
 		Nome:                          strings.TrimSpace(nome),
 		Descricao:                     strings.TrimSpace(descricao),
-		Categoria:                     strings.TrimSpace(categoria),
+		CategoriaServicoID:            categoriaServicoID,
 		Pago:                          pago,
 		Preco:                         preco,
 		TipoCobranca:                  tipoCobranca,
@@ -270,13 +355,13 @@ func (s *ServicoExtra) Criar(
 // valores efetivos (atual + alteração) antes de validar, nunca valida só o
 // campo isolado que veio no payload.
 func (s *ServicoExtra) Atualizar(
-	nome, descricao, categoria *string,
+	nome, descricao *string, categoriaServicoID *uuid.UUID, categoriaServicoIDInformado bool,
 	pago *bool, preco *float64, tipoCobranca *string, metodosPagamento *[]string,
 	temTaxaInscricao *bool, valorTaxaInscricao *float64, metodosPagamentoTaxaInscricao *[]string,
 	anosAcademicosDisponiveis *[]string,
 	cursosDisponiveis *[]string,
 	documentoObrigatorio *bool, documentoInstrucoes *string,
-	detalhesPersonalizados map[string]interface{},
+	detalhesPersonalizados map[string]DetalhePersonalizado,
 	atualizadoPor uuid.UUID,
 ) error {
 	if nome != nil && strings.TrimSpace(*nome) == "" {
@@ -358,11 +443,18 @@ func (s *ServicoExtra) Atualizar(
 		metodosPagamentoTaxaInscricao = &vazios
 	}
 
+	if detalhesPersonalizados != nil {
+		if err := validarDetalhesPersonalizados(detalhesPersonalizados); err != nil {
+			return err
+		}
+	}
+
 	event := &ServicoExtraAtualizadoEvent{
 		BaseEvent:                     BaseEvent{EventType: "ServicoExtraAtualizado", AggregateID: s.ID},
 		Nome:                          nome,
 		Descricao:                     descricao,
-		Categoria:                     categoria,
+		CategoriaServicoID:            categoriaServicoID,
+		CategoriaServicoIDInformado:   categoriaServicoIDInformado,
 		Pago:                          pago,
 		Preco:                         preco,
 		TipoCobranca:                  tipoCobranca,
@@ -424,7 +516,7 @@ func (s *ServicoExtra) applyCriado(event DomainEvent) error {
 	s.CodigoAcademia = p.CodigoAcademia
 	s.Nome = p.Nome
 	s.Descricao = p.Descricao
-	s.Categoria = p.Categoria
+	s.CategoriaServicoID = p.CategoriaServicoID
 	s.Pago = p.Pago
 	s.Preco = p.Preco
 	s.TipoCobranca = p.TipoCobranca
@@ -459,8 +551,8 @@ func (s *ServicoExtra) applyAtualizado(event DomainEvent) error {
 	if p.Descricao != nil {
 		s.Descricao = *p.Descricao
 	}
-	if p.Categoria != nil {
-		s.Categoria = *p.Categoria
+	if p.CategoriaServicoIDInformado {
+		s.CategoriaServicoID = p.CategoriaServicoID
 	}
 	if p.Pago != nil {
 		s.Pago = *p.Pago

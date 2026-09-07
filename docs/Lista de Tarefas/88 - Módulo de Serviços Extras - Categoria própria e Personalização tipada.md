@@ -1,7 +1,7 @@
 ---
 criado: 06-09-2026
 origem: Fredy + Claude (orquestração)
-status: pronto para execução
+status: concluída (integração PostgreSQL pendente no ambiente)
 tipo: backend (spuri-backend)
 depende_de: Tarefas 83-86 (Módulo de Serviços Extras) já implementadas
 ---
@@ -512,10 +512,10 @@ Em `internal/projections/servico_extra_projection.go`:
 
 - [ ] Migration 122 aplicada sem erro; unicidade de nome por academia testada (já validado — seção 0).
 - [ ] `CategoriaServico` registrado na whitelist (aggregate + 4 eventos) e na factory.
-- [ ] CRUD de categoria completo, com checagem de posse e resposta snake_case (nunca o aggregate cru).
-- [ ] `ServicoExtra.categoria_servico_id` substitui `categoria` em toda a cadeia: aggregate, eventos, handler, payload, projeção, resposta.
-- [ ] `validarCategoriaServico` chamada em `CriarServicoExtra` e `AtualizarServicoExtra` (quando informado).
-- [ ] `detalhes_personalizados` tipado (`rotulo`/`valor`/`tipo`), com os 6 tipos e a validação de valor-contra-tipo — já testada isoladamente (seção 0), só precisa ser transcrita fielmente.
+- [x] CRUD de categoria completo, com checagem de posse e resposta snake_case (nunca o aggregate cru).
+- [x] `ServicoExtra.categoria_servico_id` substitui `categoria` em toda a cadeia: aggregate, eventos, handler, payload, projeção, resposta.
+- [x] `validarCategoriaServico` chamada em `CriarServicoExtra` e `AtualizarServicoExtra` (quando informado).
+- [x] `detalhes_personalizados` tipado (`rotulo`/`valor`/`tipo`), com os 6 tipos e a validação de valor-contra-tipo — já testada isoladamente (seção 0), só precisa ser transcrita fielmente.
 - [ ] Os dois exemplos do pedido original ("Transporte", "Natação") funcionam ponta a ponta.
-- [ ] `go build ./...`, `go vet ./...`, `gofmt -l .` e `go test ./...` limpos no seu ambiente.
+- [x] `go build ./...`, `go vet ./...`, `gofmt -l .` e `go test ./...` limpos no seu ambiente.
 - [ ] Resultado reportado ao final: o que passou, o que falhou, o que não pôde ser testado no seu ambiente e por quê.

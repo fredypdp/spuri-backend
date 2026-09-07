@@ -32,21 +32,21 @@ type servicoExtraPayload struct {
 	// coincidência. Na prática isto tornava impossível criar qualquer serviço
 	// pago, com taxa de inscrição, com documento obrigatório ou com restrição
 	// de anos acadêmicos — bug encontrado na auditoria pós-implementação.
-	Nome                          string                 `json:"nome"`
-	Descricao                     string                 `json:"descricao"`
-	Categoria                     string                 `json:"categoria"`
-	Pago                          bool                   `json:"pago"`
-	Preco                         float64                `json:"preco"`
-	TipoCobranca                  string                 `json:"tipo_cobranca"`
-	MetodosPagamento              []string               `json:"metodos_pagamento"`
-	TemTaxaInscricao              bool                   `json:"tem_taxa_inscricao"`
-	ValorTaxaInscricao            float64                `json:"valor_taxa_inscricao"`
-	MetodosPagamentoTaxaInscricao []string               `json:"metodos_pagamento_taxa_inscricao"`
-	AnosAcademicosDisponiveis     []string               `json:"anos_academicos_disponiveis"`
-	CursosDisponiveis             []string               `json:"cursos_disponiveis"`
-	DocumentoObrigatorio          bool                   `json:"documento_obrigatorio"`
-	DocumentoInstrucoes           string                 `json:"documento_instrucoes"`
-	DetalhesPersonalizados        map[string]interface{} `json:"detalhes_personalizados"`
+	Nome                          string                                     `json:"nome"`
+	Descricao                     string                                     `json:"descricao"`
+	CategoriaServicoID            *uuid.UUID                                 `json:"categoria_servico_id"`
+	Pago                          bool                                       `json:"pago"`
+	Preco                         float64                                    `json:"preco"`
+	TipoCobranca                  string                                     `json:"tipo_cobranca"`
+	MetodosPagamento              []string                                   `json:"metodos_pagamento"`
+	TemTaxaInscricao              bool                                       `json:"tem_taxa_inscricao"`
+	ValorTaxaInscricao            float64                                    `json:"valor_taxa_inscricao"`
+	MetodosPagamentoTaxaInscricao []string                                   `json:"metodos_pagamento_taxa_inscricao"`
+	AnosAcademicosDisponiveis     []string                                   `json:"anos_academicos_disponiveis"`
+	CursosDisponiveis             []string                                   `json:"cursos_disponiveis"`
+	DocumentoObrigatorio          bool                                       `json:"documento_obrigatorio"`
+	DocumentoInstrucoes           string                                     `json:"documento_instrucoes"`
+	DetalhesPersonalizados        map[string]aggregates.DetalhePersonalizado `json:"detalhes_personalizados"`
 	informado                     map[string]bool
 }
 
@@ -57,7 +57,7 @@ func bindServicoExtraPayload(c *gin.Context, r *servicoExtraPayload) error {
 	if e := d.Decode(&raw); e != nil {
 		return fmt.Errorf("dados invalidos")
 	}
-	allowed := map[string]bool{"nome": true, "descricao": true, "categoria": true, "pago": true, "preco": true, "tipo_cobranca": true, "metodos_pagamento": true, "tem_taxa_inscricao": true, "valor_taxa_inscricao": true, "metodos_pagamento_taxa_inscricao": true, "anos_academicos_disponiveis": true, "cursos_disponiveis": true, "documento_obrigatorio": true, "documento_instrucoes": true, "detalhes_personalizados": true}
+	allowed := map[string]bool{"nome": true, "descricao": true, "categoria_servico_id": true, "pago": true, "preco": true, "tipo_cobranca": true, "metodos_pagamento": true, "tem_taxa_inscricao": true, "valor_taxa_inscricao": true, "metodos_pagamento_taxa_inscricao": true, "anos_academicos_disponiveis": true, "cursos_disponiveis": true, "documento_obrigatorio": true, "documento_instrucoes": true, "detalhes_personalizados": true}
 	for k := range raw {
 		if !allowed[k] {
 			return fmt.Errorf("campo não suportado em serviço extra: %s", k)
@@ -183,7 +183,7 @@ func servicoExtraToJSON(s *aggregates.ServicoExtra) gin.H {
 		"codigo_academia":                  s.CodigoAcademia,
 		"nome":                             s.Nome,
 		"descricao":                        s.Descricao,
-		"categoria":                        s.Categoria,
+		"categoria_servico_id":             s.CategoriaServicoID,
 		"pago":                             s.Pago,
 		"preco":                            preco,
 		"tipo_cobranca":                    tipoCobranca,
@@ -226,12 +226,16 @@ func CriarServicoExtra(c *gin.Context) {
 			return
 		}
 	}
+	if e := validarCategoriaServico(c, codigo, r.CategoriaServicoID); e != nil {
+		utils.RespondWithValidationError(c, e)
+		return
+	}
 	if e := validarPosseCursosDisponiveis(c, codigo, r.CursosDisponiveis); e != nil {
 		utils.RespondWithValidationError(c, e)
 		return
 	}
 	s := aggregates.NewServicoExtra()
-	if e := s.Criar(codigo, r.Nome, r.Descricao, r.Categoria, r.Pago, r.Preco, r.TipoCobranca, r.MetodosPagamento, r.TemTaxaInscricao, r.ValorTaxaInscricao, r.MetodosPagamentoTaxaInscricao, r.AnosAcademicosDisponiveis, r.CursosDisponiveis, r.DocumentoObrigatorio, r.DocumentoInstrucoes, r.DetalhesPersonalizados, id); e != nil {
+	if e := s.Criar(codigo, r.Nome, r.Descricao, r.CategoriaServicoID, r.Pago, r.Preco, r.TipoCobranca, r.MetodosPagamento, r.TemTaxaInscricao, r.ValorTaxaInscricao, r.MetodosPagamentoTaxaInscricao, r.AnosAcademicosDisponiveis, r.CursosDisponiveis, r.DocumentoObrigatorio, r.DocumentoInstrucoes, r.DetalhesPersonalizados, id); e != nil {
 		utils.RespondWithValidationError(c, e)
 		return
 	}
@@ -292,17 +296,23 @@ func AtualizarServicoExtra(c *gin.Context) {
 			return
 		}
 	}
+	if r.informado["categoria_servico_id"] {
+		if e := validarCategoriaServico(c, s.CodigoAcademia, r.CategoriaServicoID); e != nil {
+			utils.RespondWithValidationError(c, e)
+			return
+		}
+	}
 	if r.informado["cursos_disponiveis"] {
 		if e := validarPosseCursosDisponiveis(c, s.CodigoAcademia, r.CursosDisponiveis); e != nil {
 			utils.RespondWithValidationError(c, e)
 			return
 		}
 	}
-	var detalhes map[string]interface{}
+	var detalhes map[string]aggregates.DetalhePersonalizado
 	if r.informado["detalhes_personalizados"] {
 		detalhes = r.DetalhesPersonalizados
 	}
-	e := s.Atualizar(cond(r, "nome", r.Nome), cond(r, "descricao", r.Descricao), cond(r, "categoria", r.Categoria), cond(r, "pago", r.Pago), cond(r, "preco", r.Preco), cond(r, "tipo_cobranca", r.TipoCobranca), cond(r, "metodos_pagamento", r.MetodosPagamento), cond(r, "tem_taxa_inscricao", r.TemTaxaInscricao), cond(r, "valor_taxa_inscricao", r.ValorTaxaInscricao), cond(r, "metodos_pagamento_taxa_inscricao", r.MetodosPagamentoTaxaInscricao), cond(r, "anos_academicos_disponiveis", r.AnosAcademicosDisponiveis), cond(r, "cursos_disponiveis", r.CursosDisponiveis), cond(r, "documento_obrigatorio", r.DocumentoObrigatorio), cond(r, "documento_instrucoes", r.DocumentoInstrucoes), detalhes, id)
+	e := s.Atualizar(cond(r, "nome", r.Nome), cond(r, "descricao", r.Descricao), r.CategoriaServicoID, r.informado["categoria_servico_id"], cond(r, "pago", r.Pago), cond(r, "preco", r.Preco), cond(r, "tipo_cobranca", r.TipoCobranca), cond(r, "metodos_pagamento", r.MetodosPagamento), cond(r, "tem_taxa_inscricao", r.TemTaxaInscricao), cond(r, "valor_taxa_inscricao", r.ValorTaxaInscricao), cond(r, "metodos_pagamento_taxa_inscricao", r.MetodosPagamentoTaxaInscricao), cond(r, "anos_academicos_disponiveis", r.AnosAcademicosDisponiveis), cond(r, "cursos_disponiveis", r.CursosDisponiveis), cond(r, "documento_obrigatorio", r.DocumentoObrigatorio), cond(r, "documento_instrucoes", r.DocumentoInstrucoes), detalhes, id)
 	if e != nil {
 		utils.RespondWithValidationError(c, e)
 		return
