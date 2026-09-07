@@ -1,7 +1,7 @@
 ---
 criado: 07-09-2026
 origem: Fredy + Claude (auditoria pós-Tarefa 88)
-status: pendente
+status: concluido
 tipo: backend (spuri-backend) — correção crítica
 depende_de: Tarefa 88 (Módulo de Serviços Extras — Categoria própria e Personalização tipada), já implementada e íntegra
 prioridade: CRÍTICA — risco real de travamento permanente de uma projeção em produção
