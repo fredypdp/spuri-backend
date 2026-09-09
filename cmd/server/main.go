@@ -458,6 +458,7 @@ func setupRouter() *gin.Engine {
 		estudante.PUT("/encarregado/telefone", handlers.AtualizarTelefoneEncarregado)
 		estudante.GET("/solicitacoes-edicao", handlers.ListarSolicitacoesEdicaoEstudante)
 		estudante.GET("/solicitacoes-edicao/:codigo/documento/download", handlers.DownloadDocumentoSolicitacaoEdicaoEstudante)
+		estudante.PUT("/bilhete-identidade", handlers.AtualizarBilheteIdentidadeSemAcademia)
 		estudante.POST("/solicitacoes-edicao/nome", handlers.CriarSolicitacaoEdicaoDadoEstudanteHandler("nome"))
 		estudante.POST("/solicitacoes-edicao/bilhete-identidade", handlers.CriarSolicitacaoEdicaoDadoEstudanteHandler("bilhete_identidade"))
 		estudante.POST("/solicitacoes-edicao/bilhete-identidade-encarregado", handlers.CriarSolicitacaoEdicaoDadoEstudanteHandler("bilhete_identidade_encarregado"))
@@ -528,6 +529,7 @@ func setupRouter() *gin.Engine {
 	academia.Use(middleware.ValidarStatusAcademia())
 	{
 		academia.PUT("/dados", handlers.AtualizarDadosAcademia)
+		academia.PUT("/nivel-escolar", handlers.AtualizarNivelEscolarAcademia)
 		academia.POST("/servicos-extras", handlers.CriarServicoExtra)
 		academia.POST("/categorias-servico", handlers.CriarCategoriaServico)
 		academia.PUT("/categorias-servico/:id", handlers.AtualizarCategoriaServico)

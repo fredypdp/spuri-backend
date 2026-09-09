@@ -65,8 +65,8 @@ func TestRejectAcademiaDadosRestrictedFieldsRejectsDedicatedAndSensitiveFields(t
 		{"email", `{"nome":"Nova","email":"novo@example.com"}`, "PUT /me/email"},
 		{"anos_academicos", `{"nome":"Nova","anos_academicos":["1_ano_fundamental"]}`, "POST/DELETE /academia/anos-academicos"},
 		{"cursos", `{"cursos":["Informática"]}`, "/academia/curso"},
-		{"type", `{"type":"public"}`, "tarefa 07"},
-		{"nivel_escolar", `{"nivel_escolar":"medio"}`, "tarefa 07"},
+		{"type", `{"type":"public"}`, "não pode ser alterado posteriormente"},
+		{"nivel_escolar", `{"nivel_escolar":"medio"}`, "PUT /academia/nivel-escolar"},
 	}
 
 	for _, tc := range cases {

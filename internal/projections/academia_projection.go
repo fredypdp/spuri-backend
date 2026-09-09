@@ -668,10 +668,19 @@ func (p *AcademiaProjection) handleAcademiaDadosAtualizados(event db.Event) erro
 		argIdx++
 	}
 	if payload.AnosAcademicos != nil {
-		anosJSON, _ := json.Marshal(payload.AnosAcademicos)
-		setClauses = append(setClauses, fmt.Sprintf("anos_academicos = $%d", argIdx))
-		args = append(args, string(anosJSON))
-		argIdx++
+		if len(payload.AnosAcademicos) == 0 {
+			// anos_academicos vazio precisa ser SQL NULL, não '[]'::jsonb: a
+			// constraint check_anos_academicos_nivel exige NULL quando
+			// nivel_escolar='medio' e rejeita '[]' (jsonb não-NULL). Isso é
+			// exercitado por PUT /academia/nivel-escolar ao sair de
+			// fundamental/misto para medio.
+			setClauses = append(setClauses, "anos_academicos = NULL")
+		} else {
+			anosJSON, _ := json.Marshal(payload.AnosAcademicos)
+			setClauses = append(setClauses, fmt.Sprintf("anos_academicos = $%d", argIdx))
+			args = append(args, string(anosJSON))
+			argIdx++
+		}
 	}
 	if payload.Cursos != nil {
 		cursosJSON, _ := json.Marshal(payload.Cursos)
