@@ -85,7 +85,7 @@ func (p *EstudanteProjection) Handle(event db.Event) error {
 		return p.handleEstudanteDeletado(event)
 	case "EstudanteReintegrado":
 		return p.handleEstudanteReintegrado(event)
-	case "DadosPessoaisAtualizados", "NomeEstudanteAlteradoPorSolicitacao", "BilheteIdentidadeEstudanteAlteradoPorSolicitacao", "BilheteIdentidadeEncarregadoAlteradoPorSolicitacao", "DataNascimentoEstudanteAlteradaPorSolicitacao", "TelefoneEncarregadoAlterado":
+	case "DadosPessoaisAtualizados", "NomeEstudanteAlteradoPorSolicitacao", "BilheteIdentidadeEstudanteAlteradoPorSolicitacao", "BilheteIdentidadeEstudanteAlteradoDiretamente", "BilheteIdentidadeEncarregadoAlteradoPorSolicitacao", "DataNascimentoEstudanteAlteradaPorSolicitacao", "TelefoneEncarregadoAlterado":
 		return p.handleDadosPessoaisAtualizados(event)
 	case "DadosAcademicosAtualizados":
 		return p.handleDadosAcademicosAtualizados(event)

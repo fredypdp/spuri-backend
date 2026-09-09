@@ -52,8 +52,8 @@ func rejectAcademiaDadosRestrictedFields(c *gin.Context) bool {
 		"email":           "O campo 'email' não é aceito em PUT /academia/dados. Use PUT /me/email para alterar o e-mail da academia pelo fluxo dedicado.",
 		"anos_academicos": "O campo 'anos_academicos' não é aceito em PUT /academia/dados. Use POST/DELETE /academia/anos-academicos para adicionar ou remover anos acadêmicos.",
 		"cursos":          "O campo 'cursos' não é aceito em PUT /academia/dados. Use as rotas /academia/curso para gerir cursos.",
-		"type":            "O campo 'type' não é aceito em PUT /academia/dados. A alteração exige documento comprobativo pelo fluxo dedicado da tarefa 07 e está temporariamente indisponível por este caminho.",
-		"nivel_escolar":   "O campo 'nivel_escolar' não é aceito em PUT /academia/dados. A alteração exige documento comprobativo pelo fluxo dedicado da tarefa 07 e está temporariamente indisponível por este caminho.",
+		"type":            "O campo 'type' não é aceito em PUT /academia/dados. O tipo (público/privado) é definido apenas no cadastro da academia e não pode ser alterado posteriormente por nenhuma rota.",
+		"nivel_escolar":   "O campo 'nivel_escolar' não é aceito em PUT /academia/dados. Use PUT /academia/nivel-escolar para alterar o nível escolar pelo fluxo dedicado, que valida dependências ativas antes de aplicar a mudança.",
 		"nif":             "O campo 'nif' não é aceito em PUT /academia/dados. Use POST /academia/solicitacoes-nif para solicitar a alteração — a mudança só é aplicada após aprovação de um Admin (role adm ou fpp).",
 	}
 	for _, field := range []string{"telefone", "email", "anos_academicos", "cursos", "type", "nivel_escolar", "nif"} {
