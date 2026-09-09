@@ -89,6 +89,12 @@ func getServicosExtrasProjection(c *gin.Context) *projections.ServicoExtraProjec
 func getCategoriasServicoProjection(c *gin.Context) *projections.CategoriaServicoProjection {
 	return projections.NewCategoriaServicoProjection(getDbClient(c))
 }
+func getRemetentesComunicacaoProjection(c *gin.Context) *projections.RemetenteComunicacaoProjection {
+	return projections.NewRemetenteComunicacaoProjection(getDbClient(c))
+}
+func getMensagensComunicacaoProjection(c *gin.Context) *projections.MensagemComunicacaoProjection {
+	return projections.NewMensagemComunicacaoProjection(getDbClient(c))
+}
 func getSolicitacoesServicoExtraProjection(c *gin.Context) *projections.SolicitacaoServicoExtraProjection {
 	return projections.NewSolicitacaoServicoExtraProjection(getDbClient(c))
 }

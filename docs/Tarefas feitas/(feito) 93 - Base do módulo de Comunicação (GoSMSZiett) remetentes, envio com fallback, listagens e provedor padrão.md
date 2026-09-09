@@ -1,10 +1,10 @@
 ---
 criado: 2026-09-09
 origem: Fredy (orquestrado via Claude)
-status: pendente
+status: feito
 ---
 
-# 93 — Base do módulo de Comunicação (GoSMS/Ziett): remetentes, envio com fallback, listagens e provedor padrão
+# (feito) 93 — Base do módulo de Comunicação (GoSMS/Ziett): remetentes, envio com fallback, listagens e provedor padrão
 
 ## Prompt recomendado para executar a atualização
 
@@ -1968,3 +1968,8 @@ O sistema tenta primeiro o provedor padrão; se esse provedor não tiver remeten
 1. Confirme que todos os critérios de aceite acima estão satisfeitos.
 2. Mova este documento de `docs/Lista de Tarefas/` para `docs/Tarefas feitas/`, renomeando o arquivo para incluir "(feito)" no início do título dentro do arquivo, e adicione ao final um parágrafo curto "Resultado" descrevendo o que foi efetivamente feito e qualquer desvio pontual (ex.: pequenos ajustes de assinatura de função) em relação ao que este documento pedia.
 3. Não abra pull request nem faça merge — deixe o commit pronto para o Fredy revisar.
+
+
+## Resultado
+
+Implementada a base do módulo de Comunicação com os provedores GoSMS e Ziett: migrations, agregados e projeções event-sourced, cifra própria de tokens, clientes HTTP, handlers, rotas, validação de arranque e documentação da API. Foram também adicionados testes unitários para os agregados e a criptografia; não houve desvios funcionais em relação ao especificado.

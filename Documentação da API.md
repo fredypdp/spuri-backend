@@ -9281,3 +9281,28 @@ Estudantes podem criar solicitações em `POST /estudante/servicos-extras/:id/so
 - `GET /academia/servicos-extras/inscricoes/:id/pendencias` oferece a visão da academia.
 - `POST /financeiro/servicos-extras/obrigacao/pagamento` inicia o pagamento de uma mensalidade ou preço único.
 - `POST /financeiro/servicos-extras/obrigacao/anular` e `/reativar` administram uma obrigação individual da inscrição.
+
+## 24. Comunicação
+
+Módulo de envio de SMS institucional via GoSMS ou Ziett. O remetente (Sender ID do GoSMS, ou remitter_id do Ziett) e o respetivo token de API são configurados uma única vez por provedor, diretamente no Spuri — nenhuma chamada é feita à API do provedor para "criar" o remetente; o Spuri apenas grava o que já existe e está aprovado do lado do provedor. Remetente é sempre global (não pertence a nenhuma academia).
+
+### 24.1 Cadastrar remetente
+`POST /comunicacao/remetentes` (admin FPP). Rota única para GOSMS ou ZIETT. **Request body:** `provedor` (`GOSMS` ou `ZIETT`), `identificador` (nome do Sender ID de 1 a 11 caracteres alfanuméricos maiúsculos para GOSMS; UUID do remitter_id para ZIETT), `token_api` (texto plano — é cifrado antes de ser gravado e nunca é devolvido em nenhuma resposta).
+
+Existe no máximo um remetente por provedor. Cadastrar novamente para um provedor que já tem remetente configurado **substitui** o remetente existente (mesmo registo, histórico preservado no ledger de auditoria). Retorna `201` na primeira configuração de um provedor, `200` nas seguintes. A resposta nunca inclui o token — apenas `token_configurado: true`.
+
+### 24.2 Listar remetentes
+`GET /comunicacao/remetentes` (qualquer administrador). Devolve os remetentes configurados (no máximo dois — um por provedor), sem o token de API.
+
+### 24.3 Provedor padrão
+`GET /admin/comunicacao/provedor-padrao` e `PUT /admin/comunicacao/provedor-padrao` (admin FPP). Configuração única e global (não existe por academia). **Request body do PUT:** `provedor_padrao` (`GOSMS` ou `ZIETT`). Enquanto nenhum admin FPP tiver definido o provedor padrão, `POST /comunicacao/mensagens` responde `400` e não tenta enviar nada.
+
+### 24.4 Enviar mensagem
+`POST /comunicacao/mensagens` (administrador ou academia autenticada). Rota única — envia para **um** destinatário por chamada. **Request body:** `destinatario` (número móvel angolano; aceita com ou sem prefixo `+244`/`0`), `conteudo` (texto da SMS, até 1000 caracteres).
+
+O sistema tenta primeiro o provedor padrão; se esse provedor não tiver remetente configurado, ou a tentativa de envio falhar, tenta automaticamente o outro provedor. A mensagem é sempre registada (`enviada` ou `falhou`), com o detalhe de cada tentativa (`provedor`, `sucesso`, `mensagem_externa_id` ou `erro_mensagem`) em `detalhes_tentativas`. Responde `201` quando pelo menos um provedor teve sucesso; `502` quando ambos falharam (o corpo da resposta de erro ainda inclui o registo completo da mensagem e das tentativas).
+
+### 24.5 Listar mensagens
+`GET /comunicacao/mensagens` (administrador ou academia autenticada). Aceita paginação (`?limit=&offset=`, limite padrão e máximo iguais aos demais endpoints de listagem do sistema). Uma academia só vê as mensagens que ela própria enviou; um administrador vê todas, com filtro opcional `?codigo_academia=`.
+
+**Protecção:** `/comunicacao/mensagens` (enviar e listar) exige autenticação de administrador (qualquer role) ou academia. `/comunicacao/remetentes` exige autenticação de administrador — cadastrar exige especificamente role FPP. `/admin/comunicacao/provedor-padrao` exige role FPP tanto para consultar quanto para definir.
