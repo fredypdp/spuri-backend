@@ -21,6 +21,7 @@ import (
 	"spuri/internal/jobs"
 	"spuri/internal/middleware"
 	"spuri/internal/projections"
+	"spuri/internal/services"
 	"spuri/internal/storage"
 	"spuri/internal/utils"
 )
@@ -91,6 +92,9 @@ func initDB() error {
 	if err := finance.ValidateAppyPayResourceConfig(); err != nil {
 		return fmt.Errorf("configuração AppyPay inválida: %w", err)
 	}
+	if err := services.ValidateComunicacaoEncryptionConfig(); err != nil {
+		return fmt.Errorf("configuração de criptografia de comunicação inválida: %w", err)
+	}
 	config := db.DefaultConfig()
 	var err error
 	dbClient, err = db.NewClient(config)
@@ -153,6 +157,8 @@ func initProjections() error {
 	projManager.RegisterProjection("cursos", projections.NewCursosProjection(dbClient))
 	projManager.RegisterProjection("servicos_extras", projections.NewServicoExtraProjection(dbClient))
 	projManager.RegisterProjection("categorias_servico", projections.NewCategoriaServicoProjection(dbClient))
+	projManager.RegisterProjection("remetentes_comunicacao", projections.NewRemetenteComunicacaoProjection(dbClient))
+	projManager.RegisterProjection("mensagens_comunicacao", projections.NewMensagemComunicacaoProjection(dbClient))
 	projManager.RegisterProjection("solicitacoes_servico_extra", projections.NewSolicitacaoServicoExtraProjection(dbClient))
 	projManager.RegisterProjection("materias", projections.NewMateriasProjection(dbClient))
 	projManager.RegisterProjection("sumarios", projections.NewSumariosProjection(dbClient))
@@ -333,6 +339,38 @@ func setupRouter() *gin.Engine {
 	integracoes.Use(middleware.RequireFPP())
 	{
 		integracoes.POST("/ziett/mensagens/teste", handlers.EnviarMensagemTesteZiettSMS)
+	}
+
+	// ── Módulo de comunicação (base): enviar/listar mensagens ────────────
+	// Disponível para administradores (qualquer role) e academias. Uma
+	// academia só vê/envia em nome de si própria; um admin vê tudo, com
+	// filtro opcional por codigo_academia na listagem.
+	comunicacaoMensagens := router.Group("/comunicacao")
+	comunicacaoMensagens.Use(middleware.AuthMiddleware())
+	comunicacaoMensagens.Use(middleware.RequireAcademiaOuAdmin())
+	{
+		comunicacaoMensagens.POST("/mensagens", handlers.EnviarMensagemComunicacao)
+		comunicacaoMensagens.GET("/mensagens", handlers.ListarMensagensComunicacao)
+	}
+
+	// ── Módulo de comunicação (base): remetentes (apenas administradores) ─
+	// Cadastrar exige role FPP (checado dentro do handler); listar aceita
+	// qualquer role de administrador.
+	comunicacaoAdmin := router.Group("/comunicacao")
+	comunicacaoAdmin.Use(middleware.AuthMiddleware())
+	comunicacaoAdmin.Use(middleware.RequireAdmin())
+	{
+		comunicacaoAdmin.POST("/remetentes", handlers.CriarRemetenteComunicacao)
+		comunicacaoAdmin.GET("/remetentes", handlers.ListarRemetentesComunicacao)
+	}
+
+	// ── Módulo de comunicação (base): provedor padrão (apenas FPP) ───────
+	adminComunicacao := router.Group("/admin/comunicacao")
+	adminComunicacao.Use(middleware.AuthMiddleware())
+	adminComunicacao.Use(middleware.RequireAdmin())
+	{
+		adminComunicacao.GET("/provedor-padrao", handlers.ConsultarProvedorPadraoComunicacao)
+		adminComunicacao.PUT("/provedor-padrao", handlers.DefinirProvedorPadraoComunicacao)
 	}
 
 	// ── Rotas autenticadas (qualquer tipo) ────────────────────────────────

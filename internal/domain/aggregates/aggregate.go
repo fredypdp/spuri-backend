@@ -152,6 +152,10 @@ func (f *DefaultAggregateFactory) Create(aggregateType string) (Aggregate, error
 		return NewSolicitacaoAlteracaoNIFAcademia(), nil
 	case "Financeiro":
 		return NewFinanceiro(), nil
+	case "RemetenteComunicacao":
+		return NewRemetenteComunicacao(), nil
+	case "MensagemComunicacao":
+		return NewMensagemComunicacao(), nil
 	default:
 		log.Printf("[ERROR] Tipo de agregado desconhecido: %s", aggregateType)
 		return nil, fmt.Errorf("tipo de agregado desconhecido: %s", aggregateType)
