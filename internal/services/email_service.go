@@ -384,6 +384,66 @@ func (s *EmailService) SendAdminWelcomeEmail(email, nome, senhaTemporaria, role 
 	return s.sendEmailViaEmailJS(email, nome, templateAdmin, params)
 }
 
+// AcademiaCadastradaInfo agrupa os dados (não sensíveis) da academia recém
+// autocadastrada usados no email de aviso enviado aos administradores com
+// permissão de ativação. Nenhum campo aqui inclui dados de acesso (senha,
+// hash) — o admin apenas revisa e decide ativar ou não pelo painel.
+type AcademiaCadastradaInfo struct {
+	Nome           string
+	CodigoAcademia string
+	NIF            string
+	Nivel          string // "escola" ou "superior"
+	Type           string // "public" ou "private"
+	Provincia      string // código de 3 letras, ex: "LDA"
+}
+
+// SendAcademiaCadastradaEmail avisa um administrador (role 'adm' ou 'fpp',
+// email verificado — ver AdminProjection.GetAdminsParaNotificarNovaAcademia)
+// que uma nova academia se autocadastrou via POST /academia/cadastro e está
+// pendente de análise/ativação no painel.
+//
+// Assim como as demais notificações deste serviço, falha aqui NUNCA deve
+// bloquear o fluxo que a originou — é responsabilidade do chamador apenas
+// logar o erro e seguir (ver uso em internal/handlers/academia_handlers.go).
+//
+// Diferente de SendAdminWelcomeEmail, esta função NÃO cai para
+// templateReset como fallback quando EMAILJS_TEMPLATE_ACADEMIA_CADASTRADA
+// não está configurado: o conteúdo de um email de "redefinir senha" não faz
+// sentido nenhum para um aviso de "academia pendente de análise" — enviar
+// com o template errado confundiria o admin em vez de ajudar. Sem o
+// template dedicado configurado, o aviso apenas é logado no servidor.
+func (s *EmailService) SendAcademiaCadastradaEmail(adminEmail, adminNome string, info AcademiaCadastradaInfo) error {
+	if !s.enabled {
+		log.Printf("[EMAIL] ⚠️  Serviço desabilitado — aviso de nova academia %s (%s) não enviado para admin %s",
+			info.Nome, info.CodigoAcademia, adminEmail)
+		return nil // não é erro: mesmo modo degradado usado em SendAdminWelcomeEmail
+	}
+
+	if adminEmail == "" {
+		return fmt.Errorf("email do admin vazio")
+	}
+
+	templateID := os.Getenv("EMAILJS_TEMPLATE_ACADEMIA_CADASTRADA")
+	if templateID == "" {
+		log.Printf("[EMAIL] ⚠️  EMAILJS_TEMPLATE_ACADEMIA_CADASTRADA não configurado — aviso de nova academia %s (%s) não enviado para admin %s",
+			info.Nome, info.CodigoAcademia, adminEmail)
+		return nil // não bloqueia: só não há template dedicado configurado ainda
+	}
+
+	params := map[string]string{
+		"user_name":          adminNome,
+		"academia_nome":      info.Nome,
+		"academia_codigo":    info.CodigoAcademia,
+		"academia_nif":       info.NIF,
+		"academia_nivel":     info.Nivel,
+		"academia_tipo":      info.Type,
+		"academia_provincia": info.Provincia,
+		"painel_url":         fmt.Sprintf("%s/academias", s.frontendURL),
+	}
+
+	return s.sendEmailViaEmailJS(adminEmail, adminNome, templateID, params)
+}
+
 // GetDefaultPassword retorna a senha padrão para estudantes e academias.
 // O código do estudante/academia é conhecido pelo operador que criou o registro,
 // tornando este mecanismo aceitável para esses perfis.
