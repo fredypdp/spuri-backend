@@ -1,7 +1,7 @@
 ---
 criado: 2026-09-08
 origem: Fredy + Claude (orquestração)
-status: pronta para implementação — já validada com Postgres real e suíte completa passando
+status: feito
 depende_de: nenhuma
 bloqueia: "Tarefa (frontend/spuripainel) - BI do estudante sem academia e ajustes de nivel_escolar"
 ---
