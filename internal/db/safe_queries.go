@@ -189,9 +189,11 @@ var validEventTypes = map[string]bool{
 	// SumarioCriado/DadosAtualizados/Deletado são emitidos por aggregates.Sumario
 	// (sumario.go) e servidos por POST/PUT/DELETE /academia/sumario (rotas ativas em
 	// main.go) — toda criação, edição ou remoção de sumário de aula retornava 500.
-	"SumarioCriado":           true,
-	"SumarioDadosAtualizados": true,
-	"SumarioDeletado":         true,
+	"SumarioCriado":                   true,
+	"SumarioDadosAtualizados":         true,
+	"SumarioDeletado":                 true,
+	"RemetenteComunicacaoConfigurado": true,
+	"MensagemComunicacaoRegistrada":   true,
 }
 
 // validAggregateTypes é o mapa canônico de aggregate types permitidos no ledger.
@@ -215,7 +217,9 @@ var validAggregateTypes = map[string]bool{
 	// Sumario: mesmo bug de registro incompleto — aggregates.Sumario.GetType()
 	// retorna "Sumario", mas o tipo nunca constou nesta whitelist (ver comentário
 	// sobre SumarioCriado/DadosAtualizados/Deletado em validEventTypes acima).
-	"Sumario": true,
+	"Sumario":              true,
+	"RemetenteComunicacao": true,
+	"MensagemComunicacao":  true,
 }
 
 // ValidateEventType verifica se o tipo de evento é permitido.
