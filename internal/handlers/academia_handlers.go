@@ -422,6 +422,8 @@ func RegisterAcademiaPublica(c *gin.Context) {
 
 	log.Printf("Academia auto-registada (cadastro público, pendente de ativação): %s (%s)", req.Nome, codigoAcademia)
 
+	notificarAdminsSobreNovaAcademiaPendente(c, req, codigoAcademia, codigoProvincia)
+
 	aviso := "guarde o código da academia: ele é o seu identificador de login. você definiu sua própria senha no cadastro."
 	if !temAlvara {
 		aviso += fmt.Sprintf(
@@ -444,6 +446,47 @@ func RegisterAcademiaPublica(c *gin.Context) {
 		},
 		"aviso": aviso,
 	})
+}
+
+// notificarAdminsSobreNovaAcademiaPendente avisa por email todos os
+// administradores com permissão de ativar academias (role 'adm' ou 'fpp',
+// ativos, com email verificado — ver AdminProjection.GetAdminsParaNotificarNovaAcademia)
+// sempre que uma academia se autocadastra via POST /academia/cadastro e fica
+// pendente de análise/ativação.
+//
+// Chamada apenas em RegisterAcademiaPublica (autocadastro). O cadastro feito
+// por um admin fpp em POST /dominis/academia/cadastro (RegisterAcademia) não
+// aciona este aviso — quem cadastrou já é, ele mesmo, um admin com permissão
+// de ativação e já sabe da academia que acabou de criar.
+//
+// Bloqueio: NUNCA. O cadastro já foi concluído com sucesso (evento já
+// persistido) antes desta chamada — qualquer falha aqui é só logada, no
+// mesmo padrão não bloqueante do restante do serviço de email do projeto.
+func notificarAdminsSobreNovaAcademiaPendente(c *gin.Context, req RegisterAcademiaRequest, codigoAcademia, codigoProvincia string) {
+	admins, err := getAdminProjection(c).GetAdminsParaNotificarNovaAcademia()
+	if err != nil {
+		log.Printf("[WARN] notificarAdminsSobreNovaAcademiaPendente: falha ao buscar administradores para notificar sobre %s: %v", codigoAcademia, err)
+		return
+	}
+	if len(admins) == 0 {
+		log.Printf("[WARN] notificarAdminsSobreNovaAcademiaPendente: nenhum admin com permissão de ativação e email verificado encontrado — academia %s (%s) ficou sem notificação por email", req.Nome, codigoAcademia)
+		return
+	}
+
+	emailSvc := getEmailService(c)
+	info := services.AcademiaCadastradaInfo{
+		Nome:           req.Nome,
+		CodigoAcademia: codigoAcademia,
+		NIF:            req.NIF,
+		Nivel:          req.Nivel,
+		Type:           req.Type,
+		Provincia:      codigoProvincia,
+	}
+	for _, admin := range admins {
+		if emailErr := emailSvc.SendAcademiaCadastradaEmail(admin.Email, admin.Nome, info); emailErr != nil {
+			log.Printf("[WARN] notificarAdminsSobreNovaAcademiaPendente: falha ao notificar admin %s sobre academia %s: %v", admin.Email, codigoAcademia, emailErr)
+		}
+	}
 }
 
 // ============================================================================

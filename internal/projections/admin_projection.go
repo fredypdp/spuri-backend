@@ -425,6 +425,55 @@ func (p *AdminProjection) GetAll() ([]AdminDTO, error) {
 	return result, rows.Err()
 }
 
+// GetAdminsParaNotificarNovaAcademia retorna os administradores que devem
+// ser avisados por email sempre que uma academia se autocadastra via
+// POST /academia/cadastro (RegisterAcademiaPublica) e fica pendente de
+// análise/ativação.
+//
+// Critério — o mesmo exigido para efetivamente ativar uma academia via
+// PUT /dominis/academia/:codigo/ativar (middleware.RequireAdm()):
+//   - role 'adm' ou 'fpp' (RequireAdm() exige nível >= 2 na hierarquia
+//     fpp=3, adm=2, gerente=1 — ver internal/middleware/admin_auth_middleware.go).
+//     'gerente' nunca é retornado: não tem permissão para ativar.
+//   - status = 'ativo': um admin 'inativo' não consegue autenticar nem agir
+//     no painel mesmo que receba o email (RequireAdminRole bloqueia com
+//     "administrador inativo") — notificá-lo não teria utilidade.
+//   - email_verificado = TRUE: RequireAdminRole bloqueia toda rota /dominis
+//     para admin sem email verificado — de nada adianta avisar quem ainda
+//     não confirmou o próprio email, e essa é exatamente a exigência já
+//     pedida para este aviso.
+func (p *AdminProjection) GetAdminsParaNotificarNovaAcademia() ([]AdminDTO, error) {
+	rows, err := p.client.DB().Query(`
+		SELECT id, nome, email, senha_hash, role, status, email_verificado, telefone, telefone_verificado,
+			created_by, created_at, updated_at, version, total_acoes_realizadas
+		FROM projection_admins
+		WHERE status = 'ativo' AND email_verificado = TRUE AND role IN ('adm', 'fpp')
+		ORDER BY created_at ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []AdminDTO
+	for rows.Next() {
+		var dto AdminDTO
+		var createdBy sql.NullString
+		if err := rows.Scan(
+			&dto.ID, &dto.Nome, &dto.Email, &dto.SenhaHash, &dto.Role, &dto.Status,
+			&dto.EmailVerificado, &dto.Telefone, &dto.TelefoneVerificado, &createdBy, &dto.CreatedAt, &dto.UpdatedAt,
+			&dto.Version, &dto.TotalAcoesRealizadas,
+		); err != nil {
+			continue
+		}
+		if createdBy.Valid {
+			cid, _ := uuid.Parse(createdBy.String)
+			dto.CreatedBy = &cid
+		}
+		result = append(result, dto)
+	}
+	return result, rows.Err()
+}
+
 func scanAdmin(row *sql.Row) (*AdminDTO, error) {
 	var dto AdminDTO
 	var createdBy sql.NullString
