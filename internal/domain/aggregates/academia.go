@@ -752,6 +752,15 @@ func uniqueStrings(values []string) []string {
 // Validações internas
 // ============================================================================
 
+// ValidarAnosAcademicosParaNivelEscolar expõe validarAnosAcademicos para reuso
+// fora do pacote aggregates (handler de PUT /academia/nivel-escolar). Mantém
+// a mesma regra usada em Academia.Criar: fundamental/misto exigem
+// anos_academicos não vazio e validado por utils.ValidateAnosFundamental;
+// medio exige anos_academicos vazio.
+func ValidarAnosAcademicosParaNivelEscolar(nivelEscolar string, anos []string) ([]string, error) {
+	return validarAnosAcademicos("escola", &nivelEscolar, anos)
+}
+
 func validarAnosAcademicos(tipo string, nivelEscolar *string, anos []string) ([]string, error) {
 	if tipo == "superior" {
 		return nil, nil

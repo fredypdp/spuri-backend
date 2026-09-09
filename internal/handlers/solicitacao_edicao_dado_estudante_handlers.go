@@ -32,8 +32,18 @@ func CriarSolicitacaoEdicaoDadoEstudanteHandler(campo string) gin.HandlerFunc {
 			utils.RespondWithNotFoundError(c, "estudante")
 			return
 		}
-		if est.CodigoAcademia == nil || strings.TrimSpace(*est.CodigoAcademia) == "" {
-			utils.RespondWithValidationError(c, fmt.Errorf("estudante sem academia vinculada"))
+		// "Vinculado a uma academia" é Status IN ('ativo', 'pendente_documentos')
+		// — NUNCA est.CodigoAcademia == nil, porque codigo_academia permanece
+		// preenchido para sempre em cada estudante mesmo após desvinculação
+		// (ver comentário em Estudante.Deletar e EstudanteProjection.CountVinculadosAtivos).
+		// Antes desta correção, esta checagem usava CodigoAcademia == nil, que
+		// nunca é verdadeiro na prática: um estudante desvinculado (Status =
+		// 'inativo') continuava passando por aqui e a solicitação ia parar na
+		// fila de aprovação da academia da qual ele já tinha saído. Estudantes
+		// não vinculados usam PUT /estudante/bilhete-identidade (sem aprovação)
+		// em vez desta rota.
+		if est.Status != "ativo" && est.Status != "pendente_documentos" {
+			utils.RespondWithValidationError(c, fmt.Errorf("estudante sem academia vinculada no momento (status atual: %s); use PUT /estudante/bilhete-identidade para autoatualizar sem aprovação", est.Status))
 			return
 		}
 		if err := c.Request.ParseMultipartForm(MaxPDFUploadBytes + 1024); err != nil {

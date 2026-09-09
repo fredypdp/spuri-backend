@@ -121,7 +121,7 @@ func (e *Estudante) Apply(event DomainEvent) error {
 		return e.applyAvaliacaoFinalEscolar(event)
 	case "AvaliacaoFinalSuperior":
 		return e.applyAvaliacaoFinalSuperior(event)
-	case "DadosPessoaisAtualizados", "NomeEstudanteAlteradoPorSolicitacao", "BilheteIdentidadeEstudanteAlteradoPorSolicitacao", "BilheteIdentidadeEncarregadoAlteradoPorSolicitacao", "DataNascimentoEstudanteAlteradaPorSolicitacao", "TelefoneEncarregadoAlterado":
+	case "DadosPessoaisAtualizados", "NomeEstudanteAlteradoPorSolicitacao", "BilheteIdentidadeEstudanteAlteradoPorSolicitacao", "BilheteIdentidadeEstudanteAlteradoDiretamente", "BilheteIdentidadeEncarregadoAlteradoPorSolicitacao", "DataNascimentoEstudanteAlteradaPorSolicitacao", "TelefoneEncarregadoAlterado":
 		return e.applyDadosPessoaisAtualizados(event)
 	case "DadosAcademicosAtualizados":
 		return e.applyDadosAcademicosAtualizados(event)
@@ -1365,6 +1365,41 @@ type NomeEstudanteAlteradoPorSolicitacaoEvent struct {
 
 func (e *NomeEstudanteAlteradoPorSolicitacaoEvent) GetPayload() interface{} { return e }
 func (e *NomeEstudanteAlteradoPorSolicitacaoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
+
+// AlterarBilheteIdentidadeSemAcademia altera o BI diretamente, sem
+// solicitação/aprovação. Só deve ser chamado pelo handler quando o estudante
+// NÃO está vinculado a nenhuma academia no momento — o que significa
+// e.Status != "ativo" && e.Status != "pendente_documentos" (NUNCA
+// e.CodigoAcademia == nil: esse campo permanece preenchido para sempre após
+// o primeiro vínculo, mesmo depois de desvinculado — ver comentário em
+// Estudante.Deletar). Quando o estudante está vinculado, o único caminho é
+// AlterarBilheteIdentidadePorSolicitacao, que exige aprovação da academia.
+// A checagem de status é responsabilidade do handler
+// (PUT /estudante/bilhete-identidade), não deste método.
+func (e *Estudante) AlterarBilheteIdentidadeSemAcademia(novo string) error {
+	v := strings.TrimSpace(novo)
+	if v == "" {
+		return fmt.Errorf("bilhete_identidade é obrigatório")
+	}
+	ev := &BilheteIdentidadeEstudanteAlteradoDiretamenteEvent{
+		BaseEvent:         BaseEvent{EventType: "BilheteIdentidadeEstudanteAlteradoDiretamente", AggregateID: e.ID},
+		BilheteIdentidade: &v,
+		UpdatedAt:         time.Now(),
+	}
+	e.RaiseEvent(ev)
+	return e.Apply(ev)
+}
+
+type BilheteIdentidadeEstudanteAlteradoDiretamenteEvent struct {
+	BaseEvent
+	BilheteIdentidade *string
+	UpdatedAt         time.Time
+}
+
+func (e *BilheteIdentidadeEstudanteAlteradoDiretamenteEvent) GetPayload() interface{} { return e }
+func (e *BilheteIdentidadeEstudanteAlteradoDiretamenteEvent) ToJSON() ([]byte, error) {
+	return json.Marshal(e)
+}
 
 type BilheteIdentidadeEstudanteAlteradoPorSolicitacaoEvent struct {
 	BaseEvent

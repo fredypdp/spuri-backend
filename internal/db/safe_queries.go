@@ -111,6 +111,7 @@ var validEventTypes = map[string]bool{
 	"SolicitacaoEdicaoDadoEstudanteReprovada":            true,
 	"NomeEstudanteAlteradoPorSolicitacao":                true,
 	"BilheteIdentidadeEstudanteAlteradoPorSolicitacao":   true,
+	"BilheteIdentidadeEstudanteAlteradoDiretamente":      true,
 	"BilheteIdentidadeEncarregadoAlteradoPorSolicitacao": true,
 	"DataNascimentoEstudanteAlteradaPorSolicitacao":      true,
 	"TelefoneEncarregadoAlterado":                        true,
