@@ -483,7 +483,7 @@ func notificarAdminsSobreNovaAcademiaPendente(c *gin.Context, req RegisterAcadem
 		Provincia:      codigoProvincia,
 	}
 	for _, admin := range admins {
-		if emailErr := emailSvc.SendAcademiaCadastradaEmail(admin.Email, admin.Nome, info); emailErr != nil {
+		if emailErr := emailSvc.SendAcademiaCadastradaEmailSMTP(admin.Email, admin.Nome, info); emailErr != nil {
 			log.Printf("[WARN] notificarAdminsSobreNovaAcademiaPendente: falha ao notificar admin %s sobre academia %s: %v", admin.Email, codigoAcademia, emailErr)
 		}
 	}

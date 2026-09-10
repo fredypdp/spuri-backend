@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"math/big"
@@ -442,6 +443,45 @@ func (s *EmailService) SendAcademiaCadastradaEmail(adminEmail, adminNome string,
 	}
 
 	return s.sendEmailViaEmailJS(adminEmail, adminNome, templateID, params)
+}
+
+// SendAcademiaCadastradaEmailSMTP avisa um administrador que uma nova academia
+// se autocadastrou e está pendente de análise/ativação no painel. O HTML é
+// construído no backend, sem template EmailJS, e os destinatários continuam
+// sendo obtidos dinamicamente pela projeção de administradores.
+func (s *EmailService) SendAcademiaCadastradaEmailSMTP(adminEmail, adminNome string, info AcademiaCadastradaInfo) error {
+	cfg, ok := loadSMTPConfig()
+	if !ok {
+		log.Printf("[EMAIL-SMTP] ⚠️  EMAIL_HOST/EMAIL_USER/EMAIL_PASS não configurados — aviso de nova academia %s (%s) não enviado para admin %s",
+			info.Nome, info.CodigoAcademia, adminEmail)
+		return nil
+	}
+	if adminEmail == "" {
+		return fmt.Errorf("email do admin vazio")
+	}
+
+	painelURL := fmt.Sprintf("%s/academias", s.frontendURL)
+	subject := fmt.Sprintf("Nova instituição cadastrada: %s", info.Nome)
+	textBody := fmt.Sprintf(
+		"Olá %s!\n\nA instituição %s (código %s, NIF %s, %s, %s, província %s) concluiu o autocadastro no Spuri e está inativa, aguardando análise.\n\nAcesse o painel para revisar: %s\n",
+		adminNome, info.Nome, info.CodigoAcademia, info.NIF, info.Type, info.Nivel, info.Provincia, painelURL,
+	)
+	htmlBody := renderAcademiaCadastradaHTML(adminNome, info, painelURL)
+	if err := sendSMTPEmail(cfg, adminEmail, adminNome, subject, textBody, htmlBody); err != nil {
+		return fmt.Errorf("smtp: %w", err)
+	}
+	return nil
+}
+
+// renderAcademiaCadastradaHTML monta e escapa o HTML do aviso de cadastro.
+func renderAcademiaCadastradaHTML(adminNome string, info AcademiaCadastradaInfo, painelURL string) string {
+	esc := html.EscapeString
+	const tpl = `<!DOCTYPE html>
+<html lang="pt-AO"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background-color:#F9FAFB;font-family:'Segoe UI',Arial,sans-serif;">
+<table role="presentation" width="100%%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:40px 16px;"><table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%%;max-width:600px;background:#FFFFFF;border-radius:24px;border:1px solid #E4E7EC;"><tr><td style="border-radius:24px 24px 0 0;height:5px;background:#465FFF;"></td></tr><tr><td style="padding:30px 40px 22px;text-align:center;border-bottom:1px solid #F2F4F7;"><span style="font-size:18px;font-weight:700;color:#172741;">Spuri</span></td></tr><tr><td style="padding:40px;"><p style="margin:0 0 6px;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#465FFF;">Novo cadastro pendente</p><h1 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#172741;">Uma instituição acabou de se cadastrar</h1><p style="margin:0;font-size:15px;line-height:1.65;color:#344054;">Olá, <strong>%s</strong>! A instituição <strong>%s</strong> concluiu o autocadastro no Spuri e está com a conta <strong>inativa</strong>, aguardando a sua análise.</p><table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="margin-top:24px;border-radius:16px;background:#F9FAFB;border:1px solid #F2F4F7;"><tr><td style="padding:20px 22px;"><p style="margin:0 0 6px;font-size:13px;color:#344054;"><strong>Código:</strong> %s</p><p style="margin:0 0 6px;font-size:13px;color:#344054;"><strong>NIF:</strong> %s</p><p style="margin:0 0 6px;font-size:13px;color:#344054;"><strong>Tipo:</strong> %s</p><p style="margin:0 0 6px;font-size:13px;color:#344054;"><strong>Nível:</strong> %s</p><p style="margin:0;font-size:13px;color:#344054;"><strong>Província:</strong> %s</p></td></tr></table><div style="text-align:center;margin-top:28px;"><a href="%s" style="display:inline-block;padding:14px 34px;background:#465FFF;color:#FFFFFF;text-decoration:none;border-radius:12px;font-size:15px;font-weight:600;">Analisar no Painel</a></div></td></tr><tr><td style="background:#F9FAFB;padding:26px 40px;text-align:center;border-top:1px solid #F2F4F7;border-radius:0 0 24px 24px;"><p style="margin:0;font-size:13px;font-weight:600;color:#172741;">Spuri</p><p style="margin:4px 0 0;font-size:12px;color:#667085;">Confiança e eficiência na gestão académica.</p></td></tr></table></td></tr></table>
+</body></html>`
+	return fmt.Sprintf(tpl, esc(adminNome), esc(info.Nome), esc(info.CodigoAcademia), esc(info.NIF), esc(info.Type), esc(info.Nivel), esc(info.Provincia), painelURL)
 }
 
 // GetDefaultPassword retorna a senha padrão para estudantes e academias.
