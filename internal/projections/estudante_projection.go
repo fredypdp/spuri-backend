@@ -669,6 +669,11 @@ func (p *EstudanteProjection) handleDadosPessoaisAtualizados(event db.Event) err
 		EmailAlterado         bool       `json:"EmailAlterado"`
 		TelefoneAlterado      bool       `json:"TelefoneAlterado"`
 		TelefoneEncAlterado   bool       `json:"TelefoneEncAlterado"`
+		// DocumentoBI (Tarefa 98): presente somente quando o evento de
+		// origem é BilheteIdentidadeEstudanteAlteradoPorSolicitacao com
+		// documento anexo — substitui Documentos["bi_estudante"] na
+		// projeção, espelhando applyDadosPessoaisAtualizados no aggregate.
+		DocumentoBI *aggregates.DocumentoMatricula `json:"DocumentoBI"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleDadosPessoaisAtualizados: parse error: %w", err)
@@ -720,6 +725,15 @@ func (p *EstudanteProjection) handleDadosPessoaisAtualizados(event db.Event) err
 	if payload.DataNascimento != nil {
 		setClauses = append(setClauses, fmt.Sprintf("data_nascimento = $%d", idx))
 		args = append(args, *payload.DataNascimento)
+		idx++
+	}
+	if payload.DocumentoBI != nil {
+		docJSON, err := json.Marshal(payload.DocumentoBI)
+		if err != nil {
+			return fmt.Errorf("handleDadosPessoaisAtualizados: falha ao serializar DocumentoBI: %w", err)
+		}
+		setClauses = append(setClauses, fmt.Sprintf("documentos = documentos || jsonb_build_object('bi_estudante', $%d::jsonb)", idx))
+		args = append(args, string(docJSON))
 		idx++
 	}
 

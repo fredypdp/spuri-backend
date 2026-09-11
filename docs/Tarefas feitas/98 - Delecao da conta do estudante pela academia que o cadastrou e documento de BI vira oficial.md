@@ -1,7 +1,7 @@
 ---
 criado: 2026-09-11
 origem: Fredy + Claude (orquestração)
-status: pronto_para_execucao
+status: feito
 depende_de: nenhuma
 bloqueia: "Tarefa (frontend/spuripainel) - botão de deletar conta de estudante para a academia"
 ---
