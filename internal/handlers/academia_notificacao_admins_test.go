@@ -19,7 +19,7 @@ func TestRegisterAcademiaPublicaNotificaAdminsRegistroAcademia(t *testing.T) {
 
 	mustContain(t, source, "func notificarAdminsSobreNovaAcademiaPendente(")
 	mustContain(t, source, "GetAdminsParaNotificarNovaAcademia()")
-	mustContain(t, source, "SendAcademiaCadastradaEmailSMTP(")
+	mustContain(t, source, "SendAcademiaCadastradaEmailBrevo(")
 
 	publicaBody := extractFuncBody(t, source, "func RegisterAcademiaPublica(")
 	if !strings.Contains(publicaBody, "notificarAdminsSobreNovaAcademiaPendente(") {

@@ -473,6 +473,35 @@ func (s *EmailService) SendAcademiaCadastradaEmailSMTP(adminEmail, adminNome str
 	return nil
 }
 
+// SendAcademiaCadastradaEmailBrevo avisa um administrador que uma nova
+// academia se autocadastrou e está pendente de análise/ativação no painel.
+//
+// Envia via a API HTTP do Brevo, em vez de SMTP puro, reaproveitando o mesmo
+// HTML do caminho SMTP. Falhas nunca devem bloquear o fluxo de cadastro.
+func (s *EmailService) SendAcademiaCadastradaEmailBrevo(adminEmail, adminNome string, info AcademiaCadastradaInfo) error {
+	cfg, ok := loadBrevoConfig()
+	if !ok {
+		log.Printf("[EMAIL-BREVO] ⚠️  BREVO_API_KEY/EMAIL_FROM/EMAIL_USER não configurados — aviso de nova academia %s (%s) não enviado para admin %s",
+			info.Nome, info.CodigoAcademia, adminEmail)
+		return nil
+	}
+	if adminEmail == "" {
+		return fmt.Errorf("email do admin vazio")
+	}
+
+	painelURL := fmt.Sprintf("%s/academias", s.frontendURL)
+	subject := fmt.Sprintf("Nova instituição cadastrada: %s", info.Nome)
+	textBody := fmt.Sprintf(
+		"Olá %s!\n\nA instituição %s (código %s, NIF %s, %s, %s, província %s) concluiu o autocadastro no Spuri e está inativa, aguardando análise.\n\nAcesse o painel para revisar: %s\n",
+		adminNome, info.Nome, info.CodigoAcademia, info.NIF, info.Type, info.Nivel, info.Provincia, painelURL,
+	)
+	htmlBody := renderAcademiaCadastradaHTML(adminNome, info, painelURL)
+	if err := sendBrevoEmail(cfg, adminEmail, adminNome, subject, textBody, htmlBody); err != nil {
+		return fmt.Errorf("brevo: %w", err)
+	}
+	return nil
+}
+
 // renderAcademiaCadastradaHTML monta e escapa o HTML do aviso de cadastro.
 func renderAcademiaCadastradaHTML(adminNome string, info AcademiaCadastradaInfo, painelURL string) string {
 	esc := html.EscapeString
