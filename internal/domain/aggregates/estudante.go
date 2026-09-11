@@ -260,8 +260,13 @@ type EstudanteDesvinculadoDaAcademiaEvent struct {
 func (e *EstudanteDesvinculadoDaAcademiaEvent) GetPayload() interface{} { return e }
 func (e *EstudanteDesvinculadoDaAcademiaEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
 
-// EstudanteDeletadoEvent — Tarefa 73. Autodeleção lógica e auditável do
-// estudante. DeletadoPor é sempre igual ao AggregateID (self-service).
+// EstudanteDeletadoEvent — Tarefa 73. Deleção lógica e auditável do
+// estudante. Até a Tarefa 98, DeletadoPor era sempre igual ao AggregateID
+// (só existia autodeleção via Estudante.Deletar). A Tarefa 98 introduziu
+// Estudante.DeletarPorAcademia, então DeletadoPor agora também pode ser o ID
+// da academia que cadastrou o estudante — para distinguir os dois casos,
+// compare DeletadoPor com o AggregateID (iguais = autodeleção) ou consulte
+// AuditContext.UserType gravado no metadata do evento no ledger.
 type EstudanteDeletadoEvent struct {
 	BaseEvent
 	Motivo      string
@@ -306,6 +311,10 @@ type DadosPessoaisAtualizadosEvent struct {
 	TelefoneAlterado      bool
 	TelefoneEncAlterado   bool
 	UpdatedAt             time.Time
+	// DocumentoBI (Tarefa 98): presente somente quando o evento de origem é
+	// BilheteIdentidadeEstudanteAlteradoPorSolicitacao com documento anexo.
+	// Ver applyDadosPessoaisAtualizados.
+	DocumentoBI *DocumentoMatricula
 }
 
 func (e *DadosPessoaisAtualizadosEvent) GetPayload() interface{} { return e }
@@ -935,6 +944,10 @@ func (e *Estudante) AlterarCurso(cursoID uuid.UUID, tipoEnsino string) error {
 // O registro nunca é fisicamente apagado — apenas marcado como 'deletado'.
 // Notas, faltas e avaliações já lançadas permanecem intactas e consultáveis
 // (nenhuma FK em cascata as remove).
+//
+// Ver também DeletarPorAcademia (Tarefa 98): via de deleção alternativa,
+// acionada pela academia que cadastrou o estudante, enquanto ele ainda está
+// vinculado — o caminho oposto deste método (que exige desvinculação prévia).
 func (e *Estudante) Deletar(motivo string, deletadoPor uuid.UUID) error {
 	if e.Status == "deletado" {
 		return fmt.Errorf("estudante já está deletado")
@@ -942,6 +955,51 @@ func (e *Estudante) Deletar(motivo string, deletadoPor uuid.UUID) error {
 	if e.Status != "inativo" {
 		return fmt.Errorf("estudante está vinculado a uma academia — desvincule-se antes de deletar a conta")
 	}
+	if motivo == "" {
+		return fmt.Errorf("motivo da deleção é obrigatório")
+	}
+
+	event := &EstudanteDeletadoEvent{
+		BaseEvent:   BaseEvent{EventType: "EstudanteDeletado", AggregateID: e.ID},
+		Motivo:      motivo,
+		DeletadoPor: deletadoPor,
+		DeletedAt:   time.Now(),
+	}
+	e.RaiseEvent(event)
+	return e.Apply(event)
+}
+
+// DeletarPorAcademia executa a deleção lógica (soft delete) e auditável do
+// estudante a pedido da academia à qual ele está atualmente vinculado.
+//
+// Regra de negócio (Tarefa 98): ao contrário de Deletar (autodeleção, que
+// exige o estudante já desvinculado), esta via é acionada pela ACADEMIA
+// enquanto o estudante ainda está vinculado a ela — mas só quando essa
+// academia foi a que originalmente cadastrou o estudante no Spuri. Este
+// método valida apenas os invariantes que o aggregate consegue checar
+// sozinho a partir do seu próprio estado (vínculo atual com
+// codigoAcademiaSolicitante); a confirmação de que codigoAcademiaSolicitante
+// é de fato a academia de cadastro original depende do histórico de eventos
+// no ledger (primeiro evento = EstudanteCriadoComVinculo) e por isso é
+// responsabilidade do handler, ANTES de chamar este método — ver
+// handlers.DeletarContaEstudantePorAcademia.
+//
+// "Vinculado" aqui é e.Status IN ('ativo', 'pendente_documentos') — o mesmo
+// critério usado em todo o resto do código (ver comentário em Deletar acima).
+//
+// DeletadoPor recebe o ID da academia (não mais sempre o ID do próprio
+// estudante) — ver comentário em EstudanteDeletadoEvent.
+func (e *Estudante) DeletarPorAcademia(motivo, codigoAcademiaSolicitante string, deletadoPor uuid.UUID) error {
+	if e.Status == "deletado" {
+		return fmt.Errorf("estudante já está deletado")
+	}
+	if e.Status != "ativo" && e.Status != "pendente_documentos" {
+		return fmt.Errorf("estudante não está vinculado a esta academia no momento")
+	}
+	if e.CodigoAcademia == nil || *e.CodigoAcademia != codigoAcademiaSolicitante {
+		return fmt.Errorf("estudante não pertence a esta academia")
+	}
+	motivo = strings.TrimSpace(motivo)
 	if motivo == "" {
 		return fmt.Errorf("motivo da deleção é obrigatório")
 	}
@@ -1214,6 +1272,15 @@ func (e *Estudante) applyDadosPessoaisAtualizados(event DomainEvent) error {
 	if ev.DataNascimento != nil {
 		e.DataNascimento = *ev.DataNascimento
 	}
+	// Tarefa 98: documento da solicitação de edição de BI substitui o
+	// documento oficial do estudante — mesmo que não houvesse nenhum
+	// documento em Documentos["bi_estudante"] ainda.
+	if ev.DocumentoBI != nil {
+		if e.Documentos == nil {
+			e.Documentos = map[string]DocumentoMatricula{}
+		}
+		e.Documentos["bi_estudante"] = *ev.DocumentoBI
+	}
 	return nil
 }
 
@@ -1319,12 +1386,22 @@ func (e *Estudante) AlterarNomePorSolicitacao(novo, codigoSolicitacao, decididoP
 	e.RaiseEvent(ev)
 	return e.Apply(ev)
 }
-func (e *Estudante) AlterarBilheteIdentidadePorSolicitacao(novo, codigoSolicitacao, decididoPor string) error {
+// AlterarBilheteIdentidadePorSolicitacao altera o BI do estudante após
+// aprovação da academia. documento é opcional (pode ser nil): quando
+// presente (Tarefa 98), é o documento anexado à solicitação de edição, que
+// passa a ser o documento oficial do BI do estudante
+// (Estudante.Documentos["bi_estudante"]) — substituindo o anterior, mesmo
+// que não houvesse nenhum documento registrado ainda. Quem monta esse
+// DocumentoMatricula (promovendo o arquivo temporário da solicitação para o
+// caminho definitivo no storage) é o handler
+// (handlers.aplicarEdicaoAprovada), não este método — o aggregate só grava o
+// que recebe.
+func (e *Estudante) AlterarBilheteIdentidadePorSolicitacao(novo, codigoSolicitacao, decididoPor string, documento *DocumentoMatricula) error {
 	v := strings.TrimSpace(novo)
 	if v == "" {
 		return fmt.Errorf("bilhete_identidade é obrigatório")
 	}
-	ev := &BilheteIdentidadeEstudanteAlteradoPorSolicitacaoEvent{BaseEvent: BaseEvent{EventType: "BilheteIdentidadeEstudanteAlteradoPorSolicitacao", AggregateID: e.ID}, BilheteIdentidade: &v, CodigoSolicitacao: codigoSolicitacao, DecididoPor: decididoPor, UpdatedAt: time.Now()}
+	ev := &BilheteIdentidadeEstudanteAlteradoPorSolicitacaoEvent{BaseEvent: BaseEvent{EventType: "BilheteIdentidadeEstudanteAlteradoPorSolicitacao", AggregateID: e.ID}, BilheteIdentidade: &v, CodigoSolicitacao: codigoSolicitacao, DecididoPor: decididoPor, UpdatedAt: time.Now(), DocumentoBI: documento}
 	e.RaiseEvent(ev)
 	return e.Apply(ev)
 }
@@ -1406,6 +1483,11 @@ type BilheteIdentidadeEstudanteAlteradoPorSolicitacaoEvent struct {
 	BilheteIdentidade              *string
 	CodigoSolicitacao, DecididoPor string
 	UpdatedAt                      time.Time
+	// DocumentoBI é opcional (Tarefa 98): quando presente, substitui
+	// Estudante.Documentos["bi_estudante"] pelo documento anexado à
+	// solicitação de edição aprovada — mesmo que não houvesse nenhum
+	// documento registrado ainda. Ver applyDadosPessoaisAtualizados.
+	DocumentoBI *DocumentoMatricula
 }
 
 func (e *BilheteIdentidadeEstudanteAlteradoPorSolicitacaoEvent) GetPayload() interface{} { return e }

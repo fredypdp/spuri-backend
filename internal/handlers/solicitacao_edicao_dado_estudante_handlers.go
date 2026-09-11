@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
@@ -214,11 +215,35 @@ func aplicarEdicaoAprovada(c *gin.Context, sol *projections.SolicitacaoEdicaoDad
 		return err
 	}
 	agg := loaded.(*aggregates.Estudante)
+
+	// Tarefa 98: quando a solicitação aprovada é de bilhete_identidade, o
+	// documento anexado a ela passa a ser o documento oficial do BI do
+	// estudante (Estudante.Documentos["bi_estudante"]), substituindo
+	// qualquer documento anterior — mesmo que não houvesse nenhum ainda.
+	// Promove o documento ANTES de gravar o evento: se a promoção falhar,
+	// nada no estudante é alterado e a solicitação continua pendente para
+	// nova tentativa. promoverDocumentoBIParaOficial usa cópia (Read +
+	// Upload), não Move — se a gravação do evento abaixo falhar depois, o
+	// documento temporário original em sol.DocumentoTemporarioPath permanece
+	// intacto e a aprovação pode ser refeita sem perda de dados.
+	var documentoBI *aggregates.DocumentoMatricula
+	var docAntigoBI aggregates.DocumentoMatricula
+	var tinhaDocAntigoBI bool
+	if sol.Campo == aggregates.CampoEdicaoBI {
+		docAntigoBI, tinhaDocAntigoBI = agg.Documentos["bi_estudante"]
+		doc, err := promoverDocumentoBIParaOficial(c, sol.CodigoAcademia, sol.CodigoEstudante, sol.DocumentoTemporarioPath)
+		if err != nil {
+			utils.RespondWithInternalError(c, fmt.Errorf("falha ao promover documento do bilhete de identidade: %w", err))
+			return err
+		}
+		documentoBI = doc
+	}
+
 	switch sol.Campo {
 	case aggregates.CampoEdicaoNome:
 		err = agg.AlterarNomePorSolicitacao(sol.ValorSolicitado, sol.CodigoSolicitacao, decididoPor)
 	case aggregates.CampoEdicaoBI:
-		err = agg.AlterarBilheteIdentidadePorSolicitacao(sol.ValorSolicitado, sol.CodigoSolicitacao, decididoPor)
+		err = agg.AlterarBilheteIdentidadePorSolicitacao(sol.ValorSolicitado, sol.CodigoSolicitacao, decididoPor, documentoBI)
 	case aggregates.CampoEdicaoBIEncarregado:
 		err = agg.AlterarBilheteIdentidadeEncarregadoPorSolicitacao(sol.ValorSolicitado, sol.CodigoSolicitacao, decididoPor)
 	case aggregates.CampoEdicaoDataNascimento:
@@ -226,15 +251,78 @@ func aplicarEdicaoAprovada(c *gin.Context, sol *projections.SolicitacaoEdicaoDad
 		err = agg.AlterarDataNascimentoPorSolicitacao(dt, sol.CodigoSolicitacao, decididoPor)
 	}
 	if err != nil {
+		limparDocumentoBIOrfao(c, documentoBI, sol.CodigoSolicitacao, "erro de validação")
 		utils.RespondWithValidationError(c, err)
 		return err
 	}
 	audit := db.AuditContext{UserID: decididoPor, UserType: "academia", IP: c.ClientIP()}
 	if err := getRepository(c).SaveWithAudit(agg, audit); err != nil {
+		limparDocumentoBIOrfao(c, documentoBI, sol.CodigoSolicitacao, "erro ao salvar solicitação")
 		utils.RespondWithInternalError(c, err)
 		return err
 	}
+	// Só remove o documento de BI anterior DEPOIS do evento confirmado no
+	// ledger — se o SaveWithAudit acima tivesse falhado, o documento antigo
+	// continuaria sendo o oficial (estado consistente para nova tentativa).
+	if sol.Campo == aggregates.CampoEdicaoBI && tinhaDocAntigoBI && strings.TrimSpace(docAntigoBI.Path) != "" && docAntigoBI.Path != documentoBI.Path {
+		if p := getStorageProvider(c); p != nil {
+			if delErr := p.Delete(docAntigoBI.Path); delErr != nil {
+				log.Printf("[WARN] falha ao remover documento de BI anterior %s do estudante %s: %v", docAntigoBI.Path, sol.CodigoEstudante, delErr)
+			}
+		}
+	}
 	return nil
+}
+
+// promoverDocumentoBIParaOficial copia (Read + Upload) o documento temporário
+// de uma solicitação de edição de bilhete_identidade para o caminho
+// definitivo dos documentos de identificação do estudante — o mesmo padrão
+// usado no cadastro (ver storagePathDocumentoEstudante), com um DocumentoID
+// novo. Copia em vez de mover para que o documento temporário original só
+// seja removido depois de o evento de aprovação ser gravado com sucesso (ver
+// aplicarEdicaoAprovada); assim, uma falha após a cópia não perde o arquivo
+// original nem deixa o estudante sem documento de BI.
+func promoverDocumentoBIParaOficial(c *gin.Context, codigoAcademia, codigoEstudante, tempPath string) (*aggregates.DocumentoMatricula, error) {
+	provider := getStorageProvider(c)
+	if provider == nil {
+		return nil, fmt.Errorf("storage não configurado")
+	}
+	rc, err := provider.Read(tempPath)
+	if err != nil {
+		return nil, fmt.Errorf("falha ao ler documento temporário: %w", err)
+	}
+	defer rc.Close()
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return nil, fmt.Errorf("falha ao ler documento temporário: %w", err)
+	}
+	downloadURL := estudanteDocumentoDownloadURL(codigoEstudante, "bi_estudante")
+	_, doc := documentoMatriculaNormalizado("bi_estudante", "", downloadURL, "", "")
+	destPath := fmt.Sprintf("%s/estudantes/%s/documentos/identificacao/%s/%s.pdf", codigoAcademia, codigoEstudante, doc.Tipo, doc.DocumentoID)
+	stored, err := provider.Upload(destPath, bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, fmt.Errorf("falha ao gravar documento definitivo: %w", err)
+	}
+	doc.Path = stored.Path
+	doc.FileURL = stored.FileURL
+	return &doc, nil
+}
+
+// limparDocumentoBIOrfao remove (best-effort) uma cópia de documento de BI já
+// promovida para o caminho definitivo quando um passo POSTERIOR falha (a
+// alteração no aggregate ou a gravação do evento) — evita deixar um arquivo
+// órfão sem nenhuma referência no ledger. Não fatal: falha aqui só gera log.
+func limparDocumentoBIOrfao(c *gin.Context, documento *aggregates.DocumentoMatricula, codigoSolicitacao, motivo string) {
+	if documento == nil {
+		return
+	}
+	p := getStorageProvider(c)
+	if p == nil {
+		return
+	}
+	if err := p.Delete(documento.Path); err != nil {
+		log.Printf("[WARN] falha ao limpar documento de BI órfão %s (solicitação %s, %s): %v", documento.Path, codigoSolicitacao, motivo, err)
+	}
 }
 
 func AtualizarTelefoneEncarregado(c *gin.Context) {

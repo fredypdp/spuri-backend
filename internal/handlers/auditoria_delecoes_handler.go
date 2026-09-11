@@ -117,8 +117,18 @@ func ListarAuditoriaDelecoes(c *gin.Context) {
 				item["identificador"] = est.CodigoEstudante
 				item["nome"] = est.Nome
 			}
-			// Estudante é sempre autodeleção — deletado_por == entidade_id,
-			// não há um "executor" terceiro a resolver aqui.
+			// Tarefa 98: até então, estudante era sempre autodeleção
+			// (deletado_por == entidade_id). Agora a academia que cadastrou
+			// o estudante também pode deletar a conta dele enquanto
+			// vinculado — nesse caso deletado_por é o ID da academia, não
+			// do próprio estudante.
+			if payload.DeletadoPor == event.AggregateID {
+				item["deletado_por_tipo"] = "estudante"
+			} else if executor, err := academiaProj.GetByID(payload.DeletadoPor); err == nil && executor != nil {
+				item["deletado_por_tipo"] = "academia"
+				item["deletado_por_nome"] = executor.Nome
+				item["deletado_por_codigo_academia"] = executor.CodigoAcademia
+			}
 		}
 
 		resultado = append(resultado, item)

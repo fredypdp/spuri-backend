@@ -577,6 +577,7 @@ func setupRouter() *gin.Engine {
 		academia.POST("/estudante/:codigo/desvincular/reprovar", handlers.ReprovarSolicitacaoStatusAcademicoHandler("desvinculacao"))
 		academia.POST("/estudante/:codigo/revincular", handlers.AprovarSolicitacaoStatusAcademicoHandler("revinculacao"))
 		academia.POST("/estudante/:codigo/revincular/reprovar", handlers.ReprovarSolicitacaoStatusAcademicoHandler("revinculacao"))
+		academia.DELETE("/estudante/:codigo/conta", handlers.DeletarContaEstudantePorAcademia) // Tarefa 98
 
 		// ── Cursos ────────────────────────────────────────────────────────
 		academia.POST("/curso", handlers.CriarCurso)
