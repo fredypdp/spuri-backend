@@ -93,7 +93,7 @@ func publishAndReturnEnqueuedJob(c *gin.Context, j *jobs.Job, userID uuid.UUID) 
 	}
 
 	c.JSON(http.StatusAccepted, gin.H{
-		"message":     "job criado com sucesso — use GET /jobs/:id ou GET /jobs/stream para acompanhar o progresso",
+		"message":     "job criado com sucesso. acompanhe o progresso pelo painel.",
 		"job_id":      j.ID,
 		"total_items": j.TotalItems,
 		"status":      j.Status,
