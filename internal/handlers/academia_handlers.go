@@ -426,10 +426,7 @@ func RegisterAcademiaPublica(c *gin.Context) {
 
 	aviso := "guarde o código da academia: ele é o seu identificador de login. você definiu sua própria senha no cadastro."
 	if !temAlvara {
-		aviso += fmt.Sprintf(
-			" alvará não enviado no cadastro. envie depois em POST /documentos/academias/%s/alvara/upload.",
-			codigoAcademia,
-		)
+		aviso += " alvará não enviado no cadastro. você poderá enviá-lo mais tarde, pelo painel, após a ativação da conta."
 	}
 
 	c.JSON(http.StatusCreated, gin.H{

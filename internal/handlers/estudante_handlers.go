@@ -301,10 +301,9 @@ func registerEstudantePorAcademiaComRequestModo(c *gin.Context, req CadastroEstu
 	if codigoTurma != "" {
 		data["codigo_turma"] = codigoTurma
 		if err := vincularEstudanteATurma(c, academia, codigoEstudante, req.AnoEscolar, req.AnoEscolarMedio, req.AnoSuperior, req.CursoMedioID, req.CursoSuperiorID, codigoTurma, true, academiaID); err != nil {
-			aviso := fmt.Sprintf("não foi possível vincular à turma '%s': %v. Use POST /academia/turma/%s/estudante para tentar novamente.", codigoTurma, err, codigoTurma)
 			log.Printf("[WARN] falha ao vincular estudante recém-criado à turma: codigo_estudante=%s codigo_turma=%s erro=%v", codigoEstudante, codigoTurma, err)
 			data["turma_vinculada"] = false
-			data["turma_aviso"] = aviso
+			data["turma_aviso"] = fmt.Sprintf("o estudante foi cadastrado com sucesso, mas não foi possível vinculá-lo automaticamente à turma '%s'. Vincule manualmente na tela de Turmas.", codigoTurma)
 		} else {
 			data["turma_vinculada"] = true
 		}

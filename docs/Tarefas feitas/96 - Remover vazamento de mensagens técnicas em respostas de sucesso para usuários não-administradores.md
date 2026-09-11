@@ -1,7 +1,7 @@
 ---
 criado: 11-09-2026
 origem: Fredy + Claude (depuração completa do código, front-end e back-end)
-status: pendente de execução pelo Codex
+status: feita
 tipo: correção de segurança / privacidade (spuri-backend)
 prioridade: ALTA — duas das três correções já vazam texto técnico para usuários finais não-administradores em produção agora
 ---
