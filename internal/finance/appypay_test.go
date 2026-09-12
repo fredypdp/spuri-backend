@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"testing"
 
@@ -221,7 +220,7 @@ func TestEstadosCobrancaEquivalentes(t *testing.T) {
 }
 
 func TestEncryptionRoundTripAndNoFallbackKey(t *testing.T) {
-	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	t.Setenv("JWT_SECRET", "test-only-secret-material-at-least-32")
 	ciphertext, err := encrypt("segredo AppyPay")
 	if err != nil {
 		t.Fatal(err)
@@ -233,20 +232,23 @@ func TestEncryptionRoundTripAndNoFallbackKey(t *testing.T) {
 	if err != nil || plain != "segredo AppyPay" {
 		t.Fatalf("round trip inválido: %q %v", plain, err)
 	}
-	os.Unsetenv("FINANCE_ENCRYPTION_KEY")
+	t.Setenv("JWT_SECRET", "")
 	if _, err := encrypt("x"); err == nil {
-		t.Fatal("esperava falha sem FINANCE_ENCRYPTION_KEY")
+		t.Fatal("esperava falha sem JWT_SECRET")
 	}
 }
 
-func TestEncryptionKeyRequiresStrongMaterial(t *testing.T) {
-	t.Setenv("FINANCE_ENCRYPTION_KEY", "123")
+func TestEncryptionKeyOnlyRequiresNonEmptySecret(t *testing.T) {
+	t.Setenv("JWT_SECRET", "")
 	if err := ValidateEncryptionConfig(); err == nil {
-		t.Fatal("chave curta foi aceite")
+		t.Fatal("JWT_SECRET ausente foi aceite")
 	}
-	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	// JWT_SECRET não ganha nenhum requisito novo de tamanho — um valor
+	// curto deve ser aceito, exatamente como já é hoje para a assinatura
+	// de tokens JWT.
+	t.Setenv("JWT_SECRET", "123")
 	if err := ValidateEncryptionConfig(); err != nil {
-		t.Fatalf("chave válida foi rejeitada: %v", err)
+		t.Fatalf("chave curta (mas não vazia) foi rejeitada: %v", err)
 	}
 }
 

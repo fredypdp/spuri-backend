@@ -259,7 +259,7 @@ func TestIntegrationReceberWebhookAppyPayEfetivaVinculoMatricula(t *testing.T) {
 	client := integrationFinanceClient(t)
 	t.Setenv("ENV", "test")
 	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
-	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	t.Setenv("JWT_SECRET", "test-only-secret-material-at-least-32")
 
 	academia := "WH" + strings.ReplaceAll(uuid.NewString(), "-", "")[:8]
 	seedAcademiaParaMatriculaWebhook(t, client, academia)

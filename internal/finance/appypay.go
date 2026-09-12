@@ -14,7 +14,6 @@ import (
 	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
@@ -37,6 +36,7 @@ import (
 	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
 	"spuri/internal/projections"
+	"spuri/internal/security"
 )
 
 const (
@@ -2066,19 +2066,16 @@ func sanitize(v any) any {
 		return v
 	}
 }
+
+// financeKeyLabel separa criptograficamente a chave financeira derivada de
+// JWT_SECRET de qualquer outra chave derivada da mesma raiz (ex.:
+// comunicação) — ver spuri/internal/security.
+const financeKeyLabel = "spuri:finance-encryption:v1"
+
+// key deriva a chave AES-256 atual (a partir de JWT_SECRET) usada para
+// cifrar e decifrar todo segredo financeiro.
 func key() ([]byte, error) {
-	v := strings.TrimSpace(os.Getenv("FINANCE_ENCRYPTION_KEY"))
-	if v == "" {
-		return nil, errors.New("FINANCE_ENCRYPTION_KEY é obrigatória")
-	}
-	if decoded, err := base64.StdEncoding.DecodeString(v); err == nil && len(decoded) == 32 {
-		return decoded, nil
-	}
-	if len(v) < 32 {
-		return nil, errors.New("FINANCE_ENCRYPTION_KEY deve ter pelo menos 32 caracteres ou ser Base64 de 32 bytes")
-	}
-	sum := sha256.Sum256([]byte(v))
-	return sum[:], nil
+	return security.DeriveKey(financeKeyLabel)
 }
 
 // ValidateEncryptionConfig validates the mandatory financial-secret key at
@@ -2129,4 +2126,5 @@ func decrypt(v string) (string, error) {
 	plain, err := gcm.Open(nil, raw[:gcm.NonceSize()], raw[gcm.NonceSize():], nil)
 	return string(plain), err
 }
+
 func constantTimeEqual(a, b string) bool { return hmac.Equal([]byte(a), []byte(b)) }

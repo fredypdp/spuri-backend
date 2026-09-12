@@ -23,7 +23,7 @@ import (
 // -> ListarPagamentosUnificado.
 func TestIntegrationListaUnificadaMostraPendenciaEFalhaJuntasSemFiltros(t *testing.T) {
 	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
-	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	t.Setenv("JWT_SECRET", "test-only-secret-material-at-least-32")
 	client := integrationClient(t)
 	service := NewService(client)
 	ctx := context.Background()
