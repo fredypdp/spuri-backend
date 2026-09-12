@@ -315,6 +315,10 @@ type DadosPessoaisAtualizadosEvent struct {
 	// BilheteIdentidadeEstudanteAlteradoPorSolicitacao com documento anexo.
 	// Ver applyDadosPessoaisAtualizados.
 	DocumentoBI *DocumentoMatricula
+	// DocumentoBIEncarregado: presente somente quando o evento de origem é
+	// BilheteIdentidadeEncarregadoAlteradoPorSolicitacao com documento
+	// anexo. Ver applyDadosPessoaisAtualizados.
+	DocumentoBIEncarregado *DocumentoMatricula
 }
 
 func (e *DadosPessoaisAtualizadosEvent) GetPayload() interface{} { return e }
@@ -1281,6 +1285,15 @@ func (e *Estudante) applyDadosPessoaisAtualizados(event DomainEvent) error {
 		}
 		e.Documentos["bi_estudante"] = *ev.DocumentoBI
 	}
+	// Documento do BI do encarregado anexado a uma solicitação de edição de
+	// bilhete_identidade_encarregado aprovada — mesmo tratamento do BI do
+	// estudante acima, mas para Documentos["bi_encarregado"].
+	if ev.DocumentoBIEncarregado != nil {
+		if e.Documentos == nil {
+			e.Documentos = map[string]DocumentoMatricula{}
+		}
+		e.Documentos["bi_encarregado"] = *ev.DocumentoBIEncarregado
+	}
 	return nil
 }
 
@@ -1386,6 +1399,7 @@ func (e *Estudante) AlterarNomePorSolicitacao(novo, codigoSolicitacao, decididoP
 	e.RaiseEvent(ev)
 	return e.Apply(ev)
 }
+
 // AlterarBilheteIdentidadePorSolicitacao altera o BI do estudante após
 // aprovação da academia. documento é opcional (pode ser nil): quando
 // presente (Tarefa 98), é o documento anexado à solicitação de edição, que
@@ -1405,12 +1419,23 @@ func (e *Estudante) AlterarBilheteIdentidadePorSolicitacao(novo, codigoSolicitac
 	e.RaiseEvent(ev)
 	return e.Apply(ev)
 }
-func (e *Estudante) AlterarBilheteIdentidadeEncarregadoPorSolicitacao(novo, codigoSolicitacao, decididoPor string) error {
+
+// AlterarBilheteIdentidadeEncarregadoPorSolicitacao altera o BI do
+// encarregado (responsável) após aprovação da academia. documento é
+// opcional (pode ser nil): quando presente, é o documento anexado à
+// solicitação de edição, que passa a ser o documento oficial do BI do
+// encarregado (Estudante.Documentos["bi_encarregado"]) — substituindo o
+// anterior, mesmo que não houvesse nenhum documento registrado ainda. Quem
+// monta esse DocumentoMatricula (promovendo o arquivo temporário da
+// solicitação para o caminho definitivo no storage) é o handler
+// (handlers.aplicarEdicaoAprovada), não este método — o aggregate só grava
+// o que recebe.
+func (e *Estudante) AlterarBilheteIdentidadeEncarregadoPorSolicitacao(novo, codigoSolicitacao, decididoPor string, documento *DocumentoMatricula) error {
 	v := strings.TrimSpace(novo)
 	if v == "" {
 		return fmt.Errorf("bilhete_identidade_encarregado é obrigatório")
 	}
-	ev := &BilheteIdentidadeEncarregadoAlteradoPorSolicitacaoEvent{BaseEvent: BaseEvent{EventType: "BilheteIdentidadeEncarregadoAlteradoPorSolicitacao", AggregateID: e.ID}, BilheteIdentidadeResp: &v, CodigoSolicitacao: codigoSolicitacao, DecididoPor: decididoPor, UpdatedAt: time.Now()}
+	ev := &BilheteIdentidadeEncarregadoAlteradoPorSolicitacaoEvent{BaseEvent: BaseEvent{EventType: "BilheteIdentidadeEncarregadoAlteradoPorSolicitacao", AggregateID: e.ID}, BilheteIdentidadeResp: &v, CodigoSolicitacao: codigoSolicitacao, DecididoPor: decididoPor, UpdatedAt: time.Now(), DocumentoBIEncarregado: documento}
 	e.RaiseEvent(ev)
 	return e.Apply(ev)
 }
@@ -1500,6 +1525,11 @@ type BilheteIdentidadeEncarregadoAlteradoPorSolicitacaoEvent struct {
 	BilheteIdentidadeResp          *string
 	CodigoSolicitacao, DecididoPor string
 	UpdatedAt                      time.Time
+	// DocumentoBIEncarregado é opcional: quando presente, substitui
+	// Estudante.Documentos["bi_encarregado"] pelo documento anexado à
+	// solicitação de edição aprovada — mesmo que não houvesse nenhum
+	// documento registrado ainda. Ver applyDadosPessoaisAtualizados.
+	DocumentoBIEncarregado *DocumentoMatricula
 }
 
 func (e *BilheteIdentidadeEncarregadoAlteradoPorSolicitacaoEvent) GetPayload() interface{} { return e }
