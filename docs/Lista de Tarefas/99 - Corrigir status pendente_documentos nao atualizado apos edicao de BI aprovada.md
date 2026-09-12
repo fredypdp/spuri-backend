@@ -1,7 +1,7 @@
 ---
 criado: 2026-09-12
 origem: Claude (orquestrador) — diagnóstico e correção pré-validados com PostgreSQL real antes de virar tarefa
-status: pronto para execução pelo Codex
+status: concluída
 repositório: https://github.com/fredypdp/rastreio-backend
 branch base: main
 ---
@@ -877,15 +877,15 @@ causa raiz manifestada em dois campos irmãos.
 
 ## 8. Checklist final
 
-- [ ] Patch aplicado (via `git apply` ou manualmente) nos 4 arquivos da
+- [x] Patch aplicado (via `git apply` ou manualmente) nos 4 arquivos da
       seção 2.
-- [ ] `go build ./...` sem erros.
-- [ ] `go vet ./...` sem apontamentos.
-- [ ] `gofmt -l` sem saída nos 4 arquivos.
-- [ ] `go test ./...` com `ok` em todos os pacotes com teste (SKIPs em
+- [x] `go build ./...` sem erros.
+- [x] `go vet ./...` sem apontamentos.
+- [x] `gofmt -l` sem saída nos 4 arquivos.
+- [x] `go test ./...` com `ok` em todos os pacotes com teste (SKIPs em
       testes de integração são esperados e aceitáveis).
-- [ ] Nenhuma mudança em `go.mod` / `go.sum`.
-- [ ] Commit com mensagem sugerida abaixo (ou equivalente).
+- [x] Nenhuma mudança em `go.mod` / `go.sum`.
+- [x] Commit com mensagem sugerida abaixo (ou equivalente).
 
 ### Mensagem de commit sugerida
 
