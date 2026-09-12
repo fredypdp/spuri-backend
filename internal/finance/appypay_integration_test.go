@@ -148,7 +148,7 @@ func TestIntegrationMatriculaPagamentoFixaValorImpedeDuplicidadeECancelaEmCascat
 	client := integrationClient(t)
 	t.Setenv("ENV", "test")
 	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
-	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	t.Setenv("JWT_SECRET", "test-only-secret-material-at-least-32")
 	service := NewService(client)
 	service.httpClient = &http.Client{Transport: &appyPayMockTransport{status: "Pending"}}
 	academia := "MAT" + uuid.NewString()[:8]
@@ -192,7 +192,7 @@ func TestIntegrationMatriculaWebhookTardioMantemCancelamentoERegistraConflito(t 
 	client := integrationClient(t)
 	t.Setenv("ENV", "test")
 	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
-	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	t.Setenv("JWT_SECRET", "test-only-secret-material-at-least-32")
 	service := NewService(client)
 	service.httpClient = &http.Client{Transport: &appyPayMockTransport{status: "Pending"}}
 	academia := "MAT" + uuid.NewString()[:8]
@@ -268,7 +268,7 @@ func TestIntegrationAcceptWebhookConfirmaSucessoQuandoConsultaAoVivoConcorda(t *
 	client := integrationClient(t)
 	t.Setenv("ENV", "test")
 	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
-	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	t.Setenv("JWT_SECRET", "test-only-secret-material-at-least-32")
 	service := NewService(client)
 	service.SetHTTPClient(&http.Client{Transport: &methodAwareMockTransport{getStatus: "Success"}})
 	academia := "MAT" + uuid.NewString()[:8]
@@ -302,7 +302,7 @@ func TestIntegrationAcceptWebhookNaoConfirmaSucessoQuandoConsultaAoVivoDiscorda(
 	client := integrationClient(t)
 	t.Setenv("ENV", "test")
 	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
-	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	t.Setenv("JWT_SECRET", "test-only-secret-material-at-least-32")
 	service := NewService(client)
 	service.SetHTTPClient(&http.Client{Transport: &methodAwareMockTransport{getStatus: "Pending"}})
 	academia := "MAT" + uuid.NewString()[:8]
@@ -336,7 +336,7 @@ func TestIntegrationAcceptWebhookConfirmaSucessoQuandoConsultaAoVivoFalha(t *tes
 	client := integrationClient(t)
 	t.Setenv("ENV", "test")
 	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
-	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	t.Setenv("JWT_SECRET", "test-only-secret-material-at-least-32")
 	service := NewService(client)
 	service.SetHTTPClient(&http.Client{Transport: &methodAwareMockTransport{getErr: errors.New("upstream indisponível (simulado)")}})
 	academia := "MAT" + uuid.NewString()[:8]
@@ -365,7 +365,7 @@ func TestIntegrationAcceptWebhookReflecteEstadoNaoSucesso(t *testing.T) {
 	client := integrationClient(t)
 	t.Setenv("ENV", "test")
 	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
-	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	t.Setenv("JWT_SECRET", "test-only-secret-material-at-least-32")
 	service := NewService(client)
 	service.httpClient = &http.Client{Transport: &appyPayMockTransport{status: "Pending"}}
 	academia := "MAT" + uuid.NewString()[:8]
@@ -474,7 +474,7 @@ func TestIntegrationCreateChargeREFNuncaEClassificadaComoPagamentoSucedidoNaCria
 	client := integrationClient(t)
 	t.Setenv("ENV", "test")
 	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
-	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	t.Setenv("JWT_SECRET", "test-only-secret-material-at-least-32")
 	service := NewService(client)
 	service.SetHTTPClient(&http.Client{Transport: &appyPayMockTransport{
 		status: "Success", code: 100, message: "Thank you! The payment has been successfully registered", source: "REF",
@@ -511,7 +511,7 @@ func TestIntegrationCreateGPOQRCodeCriacaoNuncaEClassificadaComoPagamentoSucedid
 	client := integrationClient(t)
 	t.Setenv("ENV", "test")
 	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
-	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	t.Setenv("JWT_SECRET", "test-only-secret-material-at-least-32")
 	service := NewService(client)
 	service.SetHTTPClient(&http.Client{Transport: &appyPayMockTransport{
 		status: "Active", code: 103, message: "QR code successfully created.", source: "GPO",
@@ -539,7 +539,7 @@ func TestIntegrationCreateChargeECreateGPOQRCodeFalhaLocalGravaFailed(t *testing
 	client := integrationClient(t)
 	t.Setenv("ENV", "test")
 	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
-	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	t.Setenv("JWT_SECRET", "test-only-secret-material-at-least-32")
 	service := NewService(client)
 	service.SetHTTPClient(&http.Client{Transport: &failingProviderTransport{}})
 	academia := "FAL" + uuid.NewString()[:8]
@@ -598,7 +598,7 @@ func TestIntegrationWebhookSecretGeneratedOnceGlobalHeaderAndRotation(t *testing
 	service := NewService(client)
 	ctx := context.Background()
 	t.Setenv("ENV", "test")
-	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	t.Setenv("JWT_SECRET", "test-only-secret-material-at-least-32")
 
 	academia := "INT" + uuid.NewString()[:8]
 	created, firstSecret, err := service.ConfigureCredential(ctx, nil, CredentialInput{
@@ -701,7 +701,7 @@ func TestIntegrationCancelChargeAndLateSuccessConflict(t *testing.T) {
 	client := integrationClient(t)
 	t.Setenv("ENV", "test")
 	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
-	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	t.Setenv("JWT_SECRET", "test-only-secret-material-at-least-32")
 	ctx := context.Background()
 	mock := &appyPayMockTransport{status: "Pending"}
 	service := NewService(client)
@@ -795,7 +795,7 @@ func TestIntegrationConsultChargeRefleteCanceladoGPOPorCodigo(t *testing.T) {
 	client := integrationClient(t)
 	t.Setenv("ENV", "test")
 	t.Setenv("APPYPAY_RESOURCE", "integration-resource")
-	t.Setenv("FINANCE_ENCRYPTION_KEY", "test-only-secret-material-at-least-32")
+	t.Setenv("JWT_SECRET", "test-only-secret-material-at-least-32")
 	service := NewService(client)
 	mock := &appyPayMockTransport{status: "Pending"}
 	service.httpClient = &http.Client{Transport: mock}

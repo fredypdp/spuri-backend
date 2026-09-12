@@ -23,7 +23,7 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/spuri_test?sslmode=disable
-      FINANCE_ENCRYPTION_KEY: ci-finance-encryption-key-at-least-32
+      JWT_SECRET: ci-unified-jwt-secret
       RUN_POSTGRES_INTEGRATION: "1"
     steps:
       - uses: actions/checkout@v4

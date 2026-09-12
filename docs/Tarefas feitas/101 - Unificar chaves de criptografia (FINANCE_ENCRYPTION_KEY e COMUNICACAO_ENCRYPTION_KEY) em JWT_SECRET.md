@@ -1,10 +1,10 @@
 ---
 criado: 2026-09-12 00:00
 origem: decisão do Fredy — a plataforma ainda é pequena e manter três variáveis de ambiente diferentes para criptografia (JWT_SECRET, FINANCE_ENCRYPTION_KEY, COMUNICACAO_ENCRYPTION_KEY) é uma complexidade operacional desnecessária no estágio atual. As credenciais existentes serão redefinidas manualmente pelas rotas já existentes, não por uma ferramenta de migração automática. Orquestrado e pré-validado pelo Claude (ver "Nota de validação" abaixo) contra um PostgreSQL real antes de virar tarefa para o Codex.
-status: pendente
+status: feito
 ---
 
-# Unificar chaves de criptografia (FINANCE_ENCRYPTION_KEY e COMUNICACAO_ENCRYPTION_KEY) em JWT_SECRET (pendente)
+# Unificar chaves de criptografia (FINANCE_ENCRYPTION_KEY e COMUNICACAO_ENCRYPTION_KEY) em JWT_SECRET (feito)
 
 ## Prompt recomendado para executar esta tarefa
 
@@ -755,4 +755,9 @@ Depois dos critérios de aceite passarem, mova este arquivo de `docs/Lista de Ta
 
 ## Nota de validação do Codex
 
-_(preencher depois de rodar build/vet/test neste ambiente — build, vet, resultado de cada `go test`, e qualquer divergência encontrada em relação ao que este documento descreve)_
+- **Build:** `go build ./...` terminou sem erro.
+- **Vet:** `go vet ./...` terminou sem erro.
+- **Testes direcionados:** `go test ./internal/security/... ./internal/finance/... ./internal/services/...` terminou sem erro. Os testes unitários novos de `internal/security`, `internal/finance` e `internal/services` passaram; os testes de integração sem PostgreSQL mantiveram o comportamento de `SKIP` esperado.
+- **Suíte completa:** `go test ./...` terminou sem erro, com os skips de integração esperados neste ambiente.
+- **Verificações adicionais:** `gofmt` foi aplicado aos arquivos Go alterados e `git diff --check` terminou sem erro. `go.mod` e `go.sum` não foram alterados; `internal/middleware/auth.go` também não foi alterado.
+- **Divergência documentada:** a busca literal pelas antigas variáveis ainda encontra referências históricas neste próprio documento, em outras tarefas já concluídas e nas migrations que preservam o valor histórico de `key_id`. Conforme a seção 3.2, essas migrations não foram alteradas; nenhum código de produção, teste ativo, exemplo de ambiente ou workflow de CI lê as antigas variáveis.
