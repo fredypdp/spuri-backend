@@ -1,0 +1,1443 @@
+diff --git a/cmd/server/main.go b/cmd/server/main.go
+index cec13e2..04ea3eb 100644
+--- a/cmd/server/main.go
++++ b/cmd/server/main.go
+@@ -157,6 +157,7 @@ func initProjections() error {
+ 	projManager.RegisterProjection("cursos", projections.NewCursosProjection(dbClient))
+ 	projManager.RegisterProjection("servicos_extras", projections.NewServicoExtraProjection(dbClient))
+ 	projManager.RegisterProjection("categorias_servico", projections.NewCategoriaServicoProjection(dbClient))
++	projManager.RegisterProjection("documentos_extra", projections.NewDocumentoExtraProjection(dbClient))
+ 	projManager.RegisterProjection("remetentes_comunicacao", projections.NewRemetenteComunicacaoProjection(dbClient))
+ 	projManager.RegisterProjection("mensagens_comunicacao", projections.NewMensagemComunicacaoProjection(dbClient))
+ 	projManager.RegisterProjection("solicitacoes_servico_extra", projections.NewSolicitacaoServicoExtraProjection(dbClient))
+@@ -499,6 +500,7 @@ func setupRouter() *gin.Engine {
+ 		academiaRead.GET("/materias", handlers.ListarMaterias)
+ 		academiaRead.GET("/servicos-extras", handlers.ListarServicosExtrasAcademia)
+ 		academiaRead.GET("/categorias-servico", handlers.ListarCategoriasServico)
++		academiaRead.GET("/documentos-extra", handlers.ListarDocumentosExtraAcademia)
+ 		academiaRead.GET("/servicos-extras/:id", handlers.GetServicoExtra)
+ 		academiaRead.GET("/servicos-extras/solicitacoes", handlers.ListarSolicitacoesServicoExtraAcademia)
+ 		academiaRead.GET("/servicos-extras/solicitacoes/:id/documento/download", handlers.DownloadDocumentoSolicitacaoServicoExtraAcademia)
+@@ -535,6 +537,10 @@ func setupRouter() *gin.Engine {
+ 		academia.PUT("/categorias-servico/:id", handlers.AtualizarCategoriaServico)
+ 		academia.PUT("/categorias-servico/:id/desativar", handlers.DesativarCategoriaServico)
+ 		academia.PUT("/categorias-servico/:id/reativar", handlers.ReativarCategoriaServico)
++		academia.POST("/documentos-extra", handlers.CriarDocumentoExtra)
++		academia.PUT("/documentos-extra/:id", handlers.AtualizarDocumentoExtra)
++		academia.PUT("/documentos-extra/:id/desativar", handlers.DesativarDocumentoExtra)
++		academia.PUT("/documentos-extra/:id/reativar", handlers.ReativarDocumentoExtra)
+ 		academia.PUT("/servicos-extras/:id", handlers.AtualizarServicoExtra)
+ 		academia.PUT("/servicos-extras/:id/desativar", handlers.DesativarServicoExtra)
+ 		academia.PUT("/servicos-extras/:id/reativar", handlers.ReativarServicoExtra)
+diff --git a/internal/db/safe_queries.go b/internal/db/safe_queries.go
+index 49288d8..6cdeb1d 100644
+--- a/internal/db/safe_queries.go
++++ b/internal/db/safe_queries.go
+@@ -195,6 +195,11 @@ var validEventTypes = map[string]bool{
+ 	"SumarioDeletado":                 true,
+ 	"RemetenteComunicacaoConfigurado": true,
+ 	"MensagemComunicacaoRegistrada":   true,
++	// ── Documentos extra (catálogo por academia) ─────────────────────────────
++	"DocumentoExtraCriado":     true,
++	"DocumentoExtraAtualizado": true,
++	"DocumentoExtraDesativado": true,
++	"DocumentoExtraReativado":  true,
+ }
+ 
+ // validAggregateTypes é o mapa canônico de aggregate types permitidos no ledger.
+@@ -221,6 +226,7 @@ var validAggregateTypes = map[string]bool{
+ 	"Sumario":              true,
+ 	"RemetenteComunicacao": true,
+ 	"MensagemComunicacao":  true,
++	"DocumentoExtra":       true,
+ }
+ 
+ // ValidateEventType verifica se o tipo de evento é permitido.
+diff --git a/internal/domain/aggregates/aggregate.go b/internal/domain/aggregates/aggregate.go
+index 1c1e132..bc87a42 100644
+--- a/internal/domain/aggregates/aggregate.go
++++ b/internal/domain/aggregates/aggregate.go
+@@ -136,6 +136,8 @@ func (f *DefaultAggregateFactory) Create(aggregateType string) (Aggregate, error
+ 		return NewServicoExtra(), nil
+ 	case "CategoriaServico":
+ 		return NewCategoriaServico(), nil
++	case "DocumentoExtra":
++		return NewDocumentoExtra(), nil
+ 	case "SolicitacaoServicoExtra":
+ 		return NewSolicitacaoServicoExtra(), nil
+ 	case "MateriaDisciplinar":
+diff --git a/internal/domain/aggregates/documento_extra.go b/internal/domain/aggregates/documento_extra.go
+new file mode 100644
+index 0000000..25ca4f0
+--- /dev/null
++++ b/internal/domain/aggregates/documento_extra.go
+@@ -0,0 +1,277 @@
++package aggregates
++
++import (
++	"encoding/json"
++	"fmt"
++	"strings"
++	"time"
++
++	"github.com/google/uuid"
++	"spuri/internal/utils"
++)
++
++// TiposDocumentoExtraPermitidos define os únicos valores aceitos para o
++// campo Tipo de um DocumentoExtra — mesma ideia de conjunto fechado usada em
++// TipoDetalhePersonalizado (ver Módulo de Serviços Extras).
++var TiposDocumentoExtraPermitidos = map[string]bool{"pdf": true, "jpg": true}
++
++// DocumentoExtra é a definição, mantida pela academia, de um documento
++// adicional (além dos fixos do sistema: BI, cédula, declaração, certificados)
++// exigido — ou apenas oferecido — no cadastro direto e na solicitação de
++// matrícula do estudante, para um ano_academico específico.
++//
++// Cada estudante que efetivamente envia o arquivo correspondente tem esse
++// envio registrado em projection_estudantes.documentos, na chave
++// "documento_extra.<DocumentoExtra.ID>" — este aggregate guarda apenas a
++// DEFINIÇÃO (rótulo, tipo exigido, obrigatoriedade, escopo), não os arquivos.
++type DocumentoExtra struct {
++	BaseAggregate
++
++	CodigoAcademia string
++	Rotulo         string
++	Tipo           string // "pdf" | "jpg"
++	Obrigatorio    bool
++	Nivel          string // fundamental | medio | superior — derivado de AnoAcademico, nunca aceito diretamente do payload
++	AnoAcademico   string // ex.: "6_ano_fundamental", "2_ano_medio", "1_ano_superior"
++	Ativo          bool
++	CriadoPor      uuid.UUID
++	CreatedAt      time.Time
++	UpdatedAt      time.Time
++}
++
++func NewDocumentoExtra() *DocumentoExtra {
++	return &DocumentoExtra{BaseAggregate: BaseAggregate{ID: uuid.New(), Version: 0, UncommittedEvents: []DomainEvent{}}, Ativo: true}
++}
++
++func (d *DocumentoExtra) GetType() string { return "DocumentoExtra" }
++
++// ============================================================================
++// Eventos
++// ============================================================================
++
++type DocumentoExtraCriadoEvent struct {
++	BaseEvent
++	CodigoAcademia string
++	Rotulo         string
++	Tipo           string
++	Obrigatorio    bool
++	Nivel          string
++	AnoAcademico   string
++	CriadoPor      uuid.UUID
++	CreatedAt      time.Time
++}
++
++func (e *DocumentoExtraCriadoEvent) GetPayload() interface{} { return e }
++func (e *DocumentoExtraCriadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
++
++type DocumentoExtraAtualizadoEvent struct {
++	BaseEvent
++	Rotulo        string
++	Tipo          string
++	Obrigatorio   bool
++	Nivel         string
++	AnoAcademico  string
++	AtualizadoPor uuid.UUID
++	UpdatedAt     time.Time
++}
++
++func (e *DocumentoExtraAtualizadoEvent) GetPayload() interface{} { return e }
++func (e *DocumentoExtraAtualizadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
++
++type DocumentoExtraDesativadoEvent struct {
++	BaseEvent
++	DesativadoPor uuid.UUID
++	UpdatedAt     time.Time
++}
++
++func (e *DocumentoExtraDesativadoEvent) GetPayload() interface{} { return e }
++func (e *DocumentoExtraDesativadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
++
++type DocumentoExtraReativadoEvent struct {
++	BaseEvent
++	ReativadoPor uuid.UUID
++	UpdatedAt    time.Time
++}
++
++func (e *DocumentoExtraReativadoEvent) GetPayload() interface{} { return e }
++func (e *DocumentoExtraReativadoEvent) ToJSON() ([]byte, error) { return json.Marshal(e) }
++
++// ============================================================================
++// Apply
++// ============================================================================
++
++func (d *DocumentoExtra) Apply(event DomainEvent) error {
++	switch event.GetEventType() {
++	case "DocumentoExtraCriado":
++		return d.applyCriado(event)
++	case "DocumentoExtraAtualizado":
++		return d.applyAtualizado(event)
++	case "DocumentoExtraDesativado":
++		d.Ativo = false
++		return nil
++	case "DocumentoExtraReativado":
++		d.Ativo = true
++		return nil
++	default:
++		return fmt.Errorf("tipo de evento desconhecido para DocumentoExtra: %s", event.GetEventType())
++	}
++}
++
++// ============================================================================
++// Validação interna compartilhada
++// ============================================================================
++
++// validarCamposDocumentoExtra normaliza e valida rotulo/tipo/ano_academico,
++// derivando nivel a partir de ano_academico via NivelDoAnoAcademico — mesma
++// função já usada para os documentos fixos de matrícula (solicitacao_matricula.go),
++// garantindo que "nivel" nunca seja uma entrada independente e divergente do
++// ano informado.
++func validarCamposDocumentoExtra(rotulo, tipo, anoAcademico string) (string, string, string, string, error) {
++	rotulo = strings.TrimSpace(rotulo)
++	if rotulo == "" {
++		return "", "", "", "", fmt.Errorf("rotulo é obrigatório")
++	}
++	if len(rotulo) > 150 {
++		return "", "", "", "", fmt.Errorf("rotulo deve ter no máximo 150 caracteres")
++	}
++	tipo = strings.TrimSpace(strings.ToLower(tipo))
++	if !TiposDocumentoExtraPermitidos[tipo] {
++		return "", "", "", "", fmt.Errorf("tipo deve ser 'pdf' ou 'jpg'")
++	}
++	anoAcademico = strings.TrimSpace(anoAcademico)
++	if anoAcademico == "" {
++		return "", "", "", "", fmt.Errorf("ano_academico é obrigatório")
++	}
++	var err error
++	switch {
++	case strings.HasSuffix(anoAcademico, "_ano_fundamental"):
++		err = utils.ValidateAnoFundamental(anoAcademico)
++	case strings.HasSuffix(anoAcademico, "_ano_medio"):
++		err = utils.ValidateAnoMedio(anoAcademico)
++	case strings.HasSuffix(anoAcademico, "_ano_superior"):
++		err = utils.ValidateAnoSuperior(anoAcademico)
++	default:
++		err = fmt.Errorf("use o formato N_ano_fundamental, N_ano_medio ou N_ano_superior")
++	}
++	if err != nil {
++		return "", "", "", "", fmt.Errorf("ano_academico inválido: %w", err)
++	}
++	nivel := NivelDoAnoAcademico(anoAcademico)
++	return rotulo, tipo, nivel, anoAcademico, nil
++}
++
++// ============================================================================
++// Comandos
++// ============================================================================
++
++func (d *DocumentoExtra) Criar(codigoAcademia, rotulo, tipo string, obrigatorio bool, anoAcademico string, criadoPor uuid.UUID) error {
++	if strings.TrimSpace(codigoAcademia) == "" {
++		return fmt.Errorf("codigo_academia é obrigatório")
++	}
++	rotulo, tipo, nivel, anoAcademico, err := validarCamposDocumentoExtra(rotulo, tipo, anoAcademico)
++	if err != nil {
++		return err
++	}
++	e := &DocumentoExtraCriadoEvent{
++		BaseEvent:      BaseEvent{EventType: "DocumentoExtraCriado", AggregateID: d.ID},
++		CodigoAcademia: codigoAcademia,
++		Rotulo:         rotulo,
++		Tipo:           tipo,
++		Obrigatorio:    obrigatorio,
++		Nivel:          nivel,
++		AnoAcademico:   anoAcademico,
++		CriadoPor:      criadoPor,
++		CreatedAt:      time.Now(),
++	}
++	d.RaiseEvent(e)
++	return d.Apply(e)
++}
++
++// Atualizar edita rotulo/tipo/obrigatorio/ano_academico de uma definição já
++// existente. A mudança vale apenas prospectivamente: documentos já enviados
++// por estudantes mantêm o path/tipo com que foram gravados — trocar o tipo
++// aqui não invalida nem re-exige arquivos antigos, apenas passa a valer para
++// os próximos cadastros/matrículas.
++func (d *DocumentoExtra) Atualizar(rotulo, tipo string, obrigatorio bool, anoAcademico string, atualizadoPor uuid.UUID) error {
++	rotulo, tipo, nivel, anoAcademico, err := validarCamposDocumentoExtra(rotulo, tipo, anoAcademico)
++	if err != nil {
++		return err
++	}
++	e := &DocumentoExtraAtualizadoEvent{
++		BaseEvent:     BaseEvent{EventType: "DocumentoExtraAtualizado", AggregateID: d.ID},
++		Rotulo:        rotulo,
++		Tipo:          tipo,
++		Obrigatorio:   obrigatorio,
++		Nivel:         nivel,
++		AnoAcademico:  anoAcademico,
++		AtualizadoPor: atualizadoPor,
++		UpdatedAt:     time.Now(),
++	}
++	d.RaiseEvent(e)
++	return d.Apply(e)
++}
++
++// Desativar é uma remoção lógica: preserva o histórico (definição continua
++// existindo e continua referenciada por documentos já enviados), apenas para
++// de ser exigida/oferecida em novos cadastros e matrículas a partir de agora.
++func (d *DocumentoExtra) Desativar(p uuid.UUID) error {
++	if !d.Ativo {
++		return fmt.Errorf("documento extra já está inativo")
++	}
++	e := &DocumentoExtraDesativadoEvent{BaseEvent: BaseEvent{EventType: "DocumentoExtraDesativado", AggregateID: d.ID}, DesativadoPor: p, UpdatedAt: time.Now()}
++	d.RaiseEvent(e)
++	return d.Apply(e)
++}
++
++func (d *DocumentoExtra) Reativar(p uuid.UUID) error {
++	if d.Ativo {
++		return fmt.Errorf("documento extra já está ativo")
++	}
++	e := &DocumentoExtraReativadoEvent{BaseEvent: BaseEvent{EventType: "DocumentoExtraReativado", AggregateID: d.ID}, ReativadoPor: p, UpdatedAt: time.Now()}
++	d.RaiseEvent(e)
++	return d.Apply(e)
++}
++
++// ============================================================================
++// Apply handlers
++// ============================================================================
++
++func (d *DocumentoExtra) applyCriado(e DomainEvent) error {
++	b, err := json.Marshal(e.GetPayload())
++	if err != nil {
++		return err
++	}
++	var p DocumentoExtraCriadoEvent
++	if err = json.Unmarshal(b, &p); err != nil {
++		return err
++	}
++	d.CodigoAcademia = p.CodigoAcademia
++	d.Rotulo = p.Rotulo
++	d.Tipo = p.Tipo
++	d.Obrigatorio = p.Obrigatorio
++	d.Nivel = p.Nivel
++	d.AnoAcademico = p.AnoAcademico
++	d.Ativo = true
++	d.CriadoPor = p.CriadoPor
++	d.CreatedAt = p.CreatedAt
++	d.UpdatedAt = p.CreatedAt
++	return nil
++}
++
++func (d *DocumentoExtra) applyAtualizado(e DomainEvent) error {
++	b, err := json.Marshal(e.GetPayload())
++	if err != nil {
++		return err
++	}
++	var p DocumentoExtraAtualizadoEvent
++	if err = json.Unmarshal(b, &p); err != nil {
++		return err
++	}
++	d.Rotulo = p.Rotulo
++	d.Tipo = p.Tipo
++	d.Obrigatorio = p.Obrigatorio
++	d.Nivel = p.Nivel
++	d.AnoAcademico = p.AnoAcademico
++	d.UpdatedAt = p.UpdatedAt
++	return nil
++}
+diff --git a/internal/domain/aggregates/documento_extra_test.go b/internal/domain/aggregates/documento_extra_test.go
+new file mode 100644
+index 0000000..9aa478a
+--- /dev/null
++++ b/internal/domain/aggregates/documento_extra_test.go
+@@ -0,0 +1,82 @@
++package aggregates
++
++import (
++	"testing"
++
++	"github.com/google/uuid"
++)
++
++func TestDocumentoExtraLifecycle(t *testing.T) {
++	d := NewDocumentoExtra()
++
++	// rotulo vazio
++	if err := d.Criar("ACA", "", "pdf", true, "6_ano_fundamental", uuid.New()); err == nil {
++		t.Fatal("rotulo vazio aceito")
++	}
++	// tipo invalido
++	if err := d.Criar("ACA", "Foto 3x4", "png", true, "6_ano_fundamental", uuid.New()); err == nil {
++		t.Fatal("tipo invalido aceito")
++	}
++	// ano_academico invalido
++	if err := d.Criar("ACA", "Foto 3x4", "jpg", true, "99_ano_fundamental", uuid.New()); err == nil {
++		t.Fatal("ano_academico invalido aceito")
++	}
++	// ano_academico em formato desconhecido
++	if err := d.Criar("ACA", "Foto 3x4", "jpg", true, "fundamental", uuid.New()); err == nil {
++		t.Fatal("ano_academico sem sufixo reconhecido aceito")
++	}
++
++	if err := d.Criar("ACA", " Foto 3x4 ", "JPG", true, "6_ano_fundamental", uuid.New()); err != nil {
++		t.Fatal(err)
++	}
++	if !d.Ativo || d.Rotulo != "Foto 3x4" || d.Tipo != "jpg" || d.Nivel != "fundamental" || d.AnoAcademico != "6_ano_fundamental" || !d.Obrigatorio {
++		t.Fatalf("estado inesperado após Criar: %+v", d)
++	}
++
++	// nivel derivado corretamente para médio e superior também
++	dMedio := NewDocumentoExtra()
++	if err := dMedio.Criar("ACA", "Ficha médica", "pdf", false, "2_ano_medio", uuid.New()); err != nil {
++		t.Fatal(err)
++	}
++	if dMedio.Nivel != "medio" {
++		t.Fatalf("nivel esperado 'medio', obtido %q", dMedio.Nivel)
++	}
++	dSuperior := NewDocumentoExtra()
++	if err := dSuperior.Criar("ACA", "Comprovativo", "pdf", false, "1_ano_superior", uuid.New()); err != nil {
++		t.Fatal(err)
++	}
++	if dSuperior.Nivel != "superior" {
++		t.Fatalf("nivel esperado 'superior', obtido %q", dSuperior.Nivel)
++	}
++
++	// Atualizar
++	if err := d.Atualizar("", "pdf", false, "6_ano_fundamental", uuid.New()); err == nil {
++		t.Fatal("rotulo vazio aceito em Atualizar")
++	}
++	if err := d.Atualizar("Foto tipo passe", "pdf", false, "7_ano_fundamental", uuid.New()); err != nil {
++		t.Fatal(err)
++	}
++	if d.Rotulo != "Foto tipo passe" || d.Tipo != "pdf" || d.Obrigatorio || d.AnoAcademico != "7_ano_fundamental" {
++		t.Fatalf("estado inesperado após Atualizar: %+v", d)
++	}
++
++	// Desativar / Reativar
++	if err := d.Desativar(uuid.New()); err != nil {
++		t.Fatal(err)
++	}
++	if d.Ativo {
++		t.Fatal("deveria estar inativo")
++	}
++	if err := d.Desativar(uuid.New()); err == nil {
++		t.Fatal("dupla desativação aceita")
++	}
++	if err := d.Reativar(uuid.New()); err != nil {
++		t.Fatal(err)
++	}
++	if !d.Ativo {
++		t.Fatal("deveria estar ativo")
++	}
++	if err := d.Reativar(uuid.New()); err == nil {
++		t.Fatal("dupla reativação aceita")
++	}
++}
+diff --git a/internal/domain/aggregates/solicitacao_matricula.go b/internal/domain/aggregates/solicitacao_matricula.go
+index 2a99170..4484665 100644
+--- a/internal/domain/aggregates/solicitacao_matricula.go
++++ b/internal/domain/aggregates/solicitacao_matricula.go
+@@ -241,6 +241,11 @@ type DocumentoMatricula struct {
+ 	Path         string `json:"path"`
+ 	FileURL      string `json:"file_url"`
+ 	DownloadURL  string `json:"download_url"`
++	// DocumentoExtraID referencia o id da definição em
++	// projection_documentos_extra (catálogo mantido pela academia) quando
++	// este documento é um "documento extra" — vazio para os documentos
++	// fixos do sistema (BI, cédula, declaração, certificados).
++	DocumentoExtraID string `json:"documento_extra_id,omitempty"`
+ }
+ 
+ func (d DocumentoMatricula) TemReferenciaArquivo() bool {
+diff --git a/internal/handlers/auth_email_handlers.go b/internal/handlers/auth_email_handlers.go
+index f3265ce..60818db 100644
+--- a/internal/handlers/auth_email_handlers.go
++++ b/internal/handlers/auth_email_handlers.go
+@@ -485,6 +485,18 @@ func ResetarSenha(c *gin.Context) {
+ 		return
+ 	}
+ 
++	// Valida ANTES de consumir o token (VerifyToken é de uso único): uma
++	// senha muito curta não deve queimar o link de recuperação, senão o
++	// usuário precisaria solicitar um novo email só por causa disso.
++	// Gap encontrado nesta tarefa: este era o único fluxo de definição de
++	// senha (troca própria, cadastro de academia, recuperação) que não
++	// passava por ValidateSenha — a regra de tamanho mínimo não era
++	// aplicada aqui antes desta correção.
++	if err := utils.ValidateSenha(req.NovaSenha); err != nil {
++		utils.RespondWithValidationError(c, err)
++		return
++	}
++
+ 	// VerifyToken valida e consome o token — prevenindo replay attacks.
+ 	emailSvc := getEmailService(c)
+ 	tokenInfo, err := emailSvc.VerifyToken(token, "recuperacao_senha")
+diff --git a/internal/handlers/documento_download_handlers.go b/internal/handlers/documento_download_handlers.go
+index 5d30322..8459087 100644
+--- a/internal/handlers/documento_download_handlers.go
++++ b/internal/handlers/documento_download_handlers.go
+@@ -547,22 +547,32 @@ func streamDocumento(c *gin.Context, campo string, doc aggregates.DocumentoMatri
+ 	}
+ 	defer r.Close()
+ 
+-	filename := safeDocumentFilename(campo)
+-	c.Header("Content-Type", "application/pdf")
++	// Documentos fixos são sempre PDF (doc.Tipo, para eles, é o nome do
++	// campo/categoria — nunca literalmente "pdf" ou "jpg", ver
++	// documentoMatriculaNormalizadoComBase). Documentos extra (item da
++	// tarefa "documentos_extra") podem ser PDF ou JPG, conforme
++	// DocumentoExtra.Tipo, propagado para DocumentoMatricula.Tipo em
++	// armazenarDocumentosExtra — daí o content-type/extensão condicionais.
++	contentType, ext := "application/pdf", ".pdf"
++	if doc.Tipo == "jpg" {
++		contentType, ext = "image/jpeg", ".jpg"
++	}
++	filename := safeDocumentFilename(campo, ext)
++	c.Header("Content-Type", contentType)
+ 	c.Header("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, filename))
+ 	c.Header("Cache-Control", "private, max-age=300")
+ 	c.Status(http.StatusOK)
+ 	_, _ = io.Copy(c.Writer, r)
+ }
+ 
+-func safeDocumentFilename(campo string) string {
++func safeDocumentFilename(campo, ext string) string {
+ 	campo = strings.TrimSpace(strings.ToLower(campo))
+ 	campo = strings.NewReplacer("/", "_", "\\", "_", "\x00", "_", "\"", "_", "'", "_").Replace(campo)
+ 	if campo == "" || campo == "." || campo == ".." {
+ 		campo = "documento"
+ 	}
+-	if !strings.HasSuffix(campo, ".pdf") {
+-		campo += ".pdf"
++	if !strings.HasSuffix(campo, ext) {
++		campo += ext
+ 	}
+ 	return campo
+ }
+diff --git a/internal/handlers/documento_download_handlers_test.go b/internal/handlers/documento_download_handlers_test.go
+index 0e30301..aa2ee93 100644
+--- a/internal/handlers/documento_download_handlers_test.go
++++ b/internal/handlers/documento_download_handlers_test.go
+@@ -15,8 +15,19 @@ func TestSafeDocumentFilename(t *testing.T) {
+ 		"../segredo\".pdf": ".._segredo_.pdf",
+ 	}
+ 	for input, want := range cases {
+-		if got := safeDocumentFilename(input); got != want {
+-			t.Fatalf("safeDocumentFilename(%q) = %q, want %q", input, got, want)
++		if got := safeDocumentFilename(input, ".pdf"); got != want {
++			t.Fatalf("safeDocumentFilename(%q, \".pdf\") = %q, want %q", input, got, want)
++		}
++	}
++	// Documento extra do tipo jpg (item 2-4 da tarefa "documentos_extra"):
++	// mesma função, extensão .jpg.
++	jpgCases := map[string]string{
++		"documento_extra.abc123": "documento_extra.abc123.jpg",
++		"foto.jpg":               "foto.jpg",
++	}
++	for input, want := range jpgCases {
++		if got := safeDocumentFilename(input, ".jpg"); got != want {
++			t.Fatalf("safeDocumentFilename(%q, \".jpg\") = %q, want %q", input, got, want)
+ 		}
+ 	}
+ }
+@@ -131,3 +142,29 @@ func TestDocumentoEstudantePorCampoEscopoNaoConfundeAnos(t *testing.T) {
+ 		t.Fatalf("path = %q, want docs/medio/3.pdf", doc.Path)
+ 	}
+ }
++
++// TestDocumentoEstudantePorCampoEscopoResolveDocumentoExtra confirma que a
++// rota de download JÁ EXISTENTE (documentoEstudantePorCampoEscopo, usada por
++// streamDocumentoEstudante/streamDocumentoSolicitacaoMatricula) resolve
++// corretamente a chave "documento_extra.<id>" usada por armazenarDocumentosExtra,
++// por match direto no mapa — nenhuma rota nova precisou ser criada para
++// permitir o download de documentos extra, só esta chave ser reconhecida
++// (o que ela já é, por ser um lookup direto documentos[campo]).
++func TestDocumentoEstudantePorCampoEscopoResolveDocumentoExtra(t *testing.T) {
++	documentos := map[string]aggregates.DocumentoMatricula{
++		"documento_extra.3f1e2c4a-0000-0000-0000-000000000001": {
++			Tipo:             "jpg",
++			Nivel:            "fundamental",
++			AnoAcademico:     "6_ano_fundamental",
++			DocumentoExtraID: "3f1e2c4a-0000-0000-0000-000000000001",
++			Path:             "docs/extra/foto.jpg",
++		},
++	}
++	doc, ok := documentoEstudantePorCampoEscopo(documentos, "documento_extra.3f1e2c4a-0000-0000-0000-000000000001", "", "")
++	if !ok {
++		t.Fatalf("documento extra não encontrado pela chave direta")
++	}
++	if doc.Path != "docs/extra/foto.jpg" || doc.Tipo != "jpg" {
++		t.Fatalf("documento extra resolvido incorretamente: %+v", doc)
++	}
++}
+diff --git a/internal/handlers/documento_extra_handlers.go b/internal/handlers/documento_extra_handlers.go
+new file mode 100644
+index 0000000..02ea8e0
+--- /dev/null
++++ b/internal/handlers/documento_extra_handlers.go
+@@ -0,0 +1,197 @@
++package handlers
++
++import (
++	"encoding/json"
++	"fmt"
++	"net/http"
++	"strings"
++
++	"github.com/gin-gonic/gin"
++	"github.com/google/uuid"
++	"spuri/internal/db"
++	"spuri/internal/domain/aggregates"
++	"spuri/internal/utils"
++)
++
++// validarRotuloAnoDocumentoExtraDisponivel verifica, ANTES de gerar o evento
++// (DocumentoExtraCriado/Atualizado/Reativado), se já existe outro documento
++// extra ATIVO com o mesmo rótulo (ignorando maiúsculas/minúsculas) para o
++// mesmo ano_academico nesta academia.
++//
++// Pré-checagem obrigatória pelo mesmo motivo documentado em
++// validarNomeCategoriaServicoDisponivel (categoria_servico_handlers.go): a
++// unicidade (ux_documentos_extra_rotulo_ano_ativo) é garantida pela
++// PROJEÇÃO, não pelo ledger. Sem esta checagem, dois eventos colidentes são
++// aceitos pelo ledger e o SEGUNDO trava o checkpoint da projeção
++// "documentos_extra" permanentemente ao tentar aplicar o INSERT/UPDATE que
++// viola o índice único — confirmado neste projeto via teste manual de
++// ponta a ponta antes desta pré-checagem existir.
++func validarRotuloAnoDocumentoExtraDisponivel(c *gin.Context, codigoAcademia, anoAcademico, rotulo string, excluirID *uuid.UUID) error {
++	rotulo = strings.TrimSpace(rotulo)
++	docs, err := getDocumentosExtraProjection(c).GetByAcademia(codigoAcademia, true)
++	if err != nil {
++		return fmt.Errorf("erro ao verificar rótulo de documento extra: %v", err)
++	}
++	for _, existente := range docs {
++		if excluirID != nil && existente.ID == *excluirID {
++			continue
++		}
++		if existente.AnoAcademico == anoAcademico && strings.EqualFold(existente.Rotulo, rotulo) {
++			return fmt.Errorf("já existe um documento extra ativo com este rótulo para este ano acadêmico")
++		}
++	}
++	return nil
++}
++
++type documentoExtraPayload struct {
++	Rotulo       string `json:"rotulo"`
++	Tipo         string `json:"tipo"`
++	Obrigatorio  bool   `json:"obrigatorio"`
++	AnoAcademico string `json:"ano_academico"`
++}
++
++func bindDocumentoExtraPayload(c *gin.Context, r *documentoExtraPayload) error {
++	d := json.NewDecoder(c.Request.Body)
++	d.DisallowUnknownFields()
++	if err := d.Decode(r); err != nil {
++		return fmt.Errorf("dados invalidos")
++	}
++	return nil
++}
++
++func documentoExtraToJSON(doc *aggregates.DocumentoExtra) gin.H {
++	return gin.H{
++		"id":              doc.GetID(),
++		"codigo_academia": doc.CodigoAcademia,
++		"rotulo":          doc.Rotulo,
++		"tipo":            doc.Tipo,
++		"obrigatorio":     doc.Obrigatorio,
++		"nivel":           doc.Nivel,
++		"ano_academico":   doc.AnoAcademico,
++		"ativo":           doc.Ativo,
++		"created_at":      doc.CreatedAt,
++		"updated_at":      doc.UpdatedAt,
++	}
++}
++
++func CriarDocumentoExtra(c *gin.Context) {
++	var r documentoExtraPayload
++	if err := bindDocumentoExtraPayload(c, &r); err != nil {
++		utils.RespondWithValidationError(c, err)
++		return
++	}
++	codigo, id, ok := academy(c)
++	if !ok {
++		return
++	}
++	// Pré-checagem de unicidade ANTES de gerar o evento — ver comentário em
++	// validarRotuloAnoDocumentoExtraDisponivel sobre por que isto é
++	// obrigatório (checkpoint da projeção trava permanentemente, para TODAS
++	// as academias, se um duplicado chegar a ser aceito no ledger).
++	if err := validarRotuloAnoDocumentoExtraDisponivel(c, codigo, strings.TrimSpace(r.AnoAcademico), r.Rotulo, nil); err != nil {
++		utils.RespondWithValidationError(c, err)
++		return
++	}
++	doc := aggregates.NewDocumentoExtra()
++	if err := doc.Criar(codigo, r.Rotulo, r.Tipo, r.Obrigatorio, r.AnoAcademico, id); err != nil {
++		utils.RespondWithValidationError(c, err)
++		return
++	}
++	if err := getRepository(c).SaveWithAudit(doc, db.AuditContext{UserID: id.String(), UserType: "academia", IP: c.ClientIP()}); err != nil {
++		utils.RespondWithInternalError(c, err)
++		return
++	}
++	c.JSON(http.StatusCreated, gin.H{"message": "documento extra criado com sucesso", "data": documentoExtraToJSON(doc)})
++}
++
++func loadDocumentoExtra(c *gin.Context) (*aggregates.DocumentoExtra, uuid.UUID, bool) {
++	id, err := uuid.Parse(c.Param("id"))
++	if err != nil {
++		utils.RespondWithValidationError(c, fmt.Errorf("ID de documento extra inválido"))
++		return nil, uuid.Nil, false
++	}
++	codigo, user, ok := academy(c)
++	if !ok {
++		return nil, user, false
++	}
++	x, err := getRepository(c).Load(id, "DocumentoExtra")
++	if err != nil {
++		utils.RespondWithNotFoundError(c, "documento extra")
++		return nil, user, false
++	}
++	doc, ok := x.(*aggregates.DocumentoExtra)
++	if !ok || doc.CodigoAcademia != codigo {
++		utils.RespondWithForbiddenError(c, "documento extra não pertence a esta academia")
++		return nil, user, false
++	}
++	return doc, user, true
++}
++
++func AtualizarDocumentoExtra(c *gin.Context) {
++	var r documentoExtraPayload
++	if err := bindDocumentoExtraPayload(c, &r); err != nil {
++		utils.RespondWithValidationError(c, err)
++		return
++	}
++	doc, id, ok := loadDocumentoExtra(c)
++	if !ok {
++		return
++	}
++	docID := doc.GetID()
++	if err := validarRotuloAnoDocumentoExtraDisponivel(c, doc.CodigoAcademia, strings.TrimSpace(r.AnoAcademico), r.Rotulo, &docID); err != nil {
++		utils.RespondWithValidationError(c, err)
++		return
++	}
++	if err := doc.Atualizar(r.Rotulo, r.Tipo, r.Obrigatorio, r.AnoAcademico, id); err != nil {
++		utils.RespondWithValidationError(c, err)
++		return
++	}
++	if err := getRepository(c).SaveWithAudit(doc, db.AuditContext{UserID: id.String(), UserType: "academia", IP: c.ClientIP()}); err != nil {
++		utils.RespondWithInternalError(c, err)
++		return
++	}
++	c.JSON(http.StatusOK, gin.H{"message": "documento extra atualizado com sucesso", "data": documentoExtraToJSON(doc)})
++}
++
++func toggleDocumentoExtra(c *gin.Context, ativar bool) {
++	doc, id, ok := loadDocumentoExtra(c)
++	if !ok {
++		return
++	}
++	var err error
++	if ativar {
++		docID := doc.GetID()
++		if err = validarRotuloAnoDocumentoExtraDisponivel(c, doc.CodigoAcademia, doc.AnoAcademico, doc.Rotulo, &docID); err != nil {
++			utils.RespondWithValidationError(c, err)
++			return
++		}
++		err = doc.Reativar(id)
++	} else {
++		err = doc.Desativar(id)
++	}
++	if err != nil {
++		utils.RespondWithValidationError(c, err)
++		return
++	}
++	if err = getRepository(c).SaveWithAudit(doc, db.AuditContext{UserID: id.String(), UserType: "academia", IP: c.ClientIP()}); err != nil {
++		utils.RespondWithInternalError(c, err)
++		return
++	}
++	c.JSON(http.StatusOK, gin.H{"data": documentoExtraToJSON(doc)})
++}
++func DesativarDocumentoExtra(c *gin.Context) { toggleDocumentoExtra(c, false) }
++func ReativarDocumentoExtra(c *gin.Context)  { toggleDocumentoExtra(c, true) }
++
++func ListarDocumentosExtraAcademia(c *gin.Context) {
++	codigo, _, ok := academy(c)
++	if !ok {
++		return
++	}
++	ativosOnly := c.Query("ativos") == "true"
++	docs, err := getDocumentosExtraProjection(c).GetByAcademia(codigo, ativosOnly)
++	if err != nil {
++		utils.RespondWithInternalError(c, err)
++		return
++	}
++	c.JSON(http.StatusOK, gin.H{"documentos_extra": docs, "total": len(docs)})
++}
+diff --git a/internal/handlers/documento_extra_upload.go b/internal/handlers/documento_extra_upload.go
+new file mode 100644
+index 0000000..bb89554
+--- /dev/null
++++ b/internal/handlers/documento_extra_upload.go
+@@ -0,0 +1,193 @@
++package handlers
++
++import (
++	"bytes"
++	"fmt"
++	"io"
++	"mime/multipart"
++	"path/filepath"
++	"strings"
++
++	"github.com/google/uuid"
++	"spuri/internal/domain/aggregates"
++	"spuri/internal/projections"
++	"spuri/internal/storage"
++)
++
++// extraDocFieldPrefix é o prefixo de campo multipart usado pelo frontend
++// para enviar um arquivo de documento extra: "documento_extra_<id do
++// catálogo>" (ex.: "documento_extra_3f1e2c4a-...").
++const extraDocFieldPrefix = "documento_extra_"
++
++// documentoExtraUpload pareia o arquivo enviado com a definição de catálogo
++// (DocumentoExtraDTO) que ele pretende satisfazer.
++type documentoExtraUpload struct {
++	Catalog projections.DocumentoExtraDTO
++	File    uploadedPDF
++}
++
++// readAndValidateDocumentoExtra valida tamanho (mesmo limite de 10MB de
++// MaxPDFUploadBytes, reaproveitado — "o limite de tamanho mantém-se o
++// mesmo") e assinatura do arquivo, de acordo com o `tipo` configurado pela
++// academia para este documento extra ("pdf" ou "jpg"). Mesma técnica de
++// validação (Content-Type + extensão + magic bytes) já usada por
++// readAndValidatePDF para os documentos fixos.
++func readAndValidateDocumentoExtra(rotulo string, fh *multipart.FileHeader, tipoEsperado string) (uploadedPDF, error) {
++	if fh.Size > MaxPDFUploadBytes {
++		return uploadedPDF{}, fmt.Errorf("%s deve ter no máximo 10MB", rotulo)
++	}
++	ct := fh.Header.Get("Content-Type")
++	ext := strings.ToLower(filepath.Ext(fh.Filename))
++	switch tipoEsperado {
++	case "pdf":
++		if !strings.EqualFold(ct, "application/pdf") || ext != ".pdf" {
++			return uploadedPDF{}, fmt.Errorf("%s deve ser um arquivo PDF", rotulo)
++		}
++	case "jpg":
++		if !(strings.EqualFold(ct, "image/jpeg") || strings.EqualFold(ct, "image/jpg")) || (ext != ".jpg" && ext != ".jpeg") {
++			return uploadedPDF{}, fmt.Errorf("%s deve ser um arquivo JPG", rotulo)
++		}
++	default:
++		return uploadedPDF{}, fmt.Errorf("tipo de documento extra desconhecido para %s", rotulo)
++	}
++	file, err := fh.Open()
++	if err != nil {
++		return uploadedPDF{}, err
++	}
++	defer file.Close()
++	data, err := io.ReadAll(io.LimitReader(file, MaxPDFUploadBytes+1))
++	if err != nil {
++		return uploadedPDF{}, err
++	}
++	if int64(len(data)) > MaxPDFUploadBytes {
++		return uploadedPDF{}, fmt.Errorf("%s deve ter no máximo 10MB", rotulo)
++	}
++	switch tipoEsperado {
++	case "pdf":
++		if len(data) < 4 || string(data[:4]) != "%PDF" {
++			return uploadedPDF{}, fmt.Errorf("%s não possui assinatura PDF válida", rotulo)
++		}
++	case "jpg":
++		if len(data) < 3 || data[0] != 0xFF || data[1] != 0xD8 || data[2] != 0xFF {
++			return uploadedPDF{}, fmt.Errorf("%s não possui assinatura JPEG válida", rotulo)
++		}
++	}
++	return uploadedPDF{field: rotulo, data: data, size: int64(len(data))}, nil
++}
++
++// parseDocumentosExtra varre o multipart form já parseado (c.Request.ParseMultipartForm
++// deve ter sido chamado antes) por campos "documento_extra_<id>", validando
++// cada um contra `catalogo` — as definições ATIVAS desta academia para o
++// ano_academico do estudante sendo cadastrado/matriculado
++// (projections.DocumentoExtraProjection.GetAtivosPorAnoAcademico).
++//
++// Allowlist estrita: qualquer campo "documento_extra_*" que não corresponda
++// a um id presente em `catalogo` é rejeitado — mesma filosofia de
++// validarCamposArquivoMatricula para os documentos fixos, evitando que um
++// cliente envie arquivos para ids de outra academia ou de outro ano.
++func parseDocumentosExtra(form *multipart.Form, catalogo []projections.DocumentoExtraDTO) (map[string]documentoExtraUpload, error) {
++	out := map[string]documentoExtraUpload{}
++	if form == nil {
++		return out, nil
++	}
++	porID := make(map[string]projections.DocumentoExtraDTO, len(catalogo))
++	for _, d := range catalogo {
++		porID[d.ID.String()] = d
++	}
++	for field, headers := range form.File {
++		if !strings.HasPrefix(field, extraDocFieldPrefix) {
++			continue
++		}
++		if len(headers) == 0 {
++			continue
++		}
++		catalogID := strings.TrimPrefix(field, extraDocFieldPrefix)
++		cat, ok := porID[catalogID]
++		if !ok {
++			return nil, fmt.Errorf("documento extra não aplicável a este cadastro: %s", catalogID)
++		}
++		pdf, err := readAndValidateDocumentoExtra(cat.Rotulo, headers[0], cat.Tipo)
++		if err != nil {
++			return nil, err
++		}
++		out[catalogID] = documentoExtraUpload{Catalog: cat, File: pdf}
++	}
++	return out, nil
++}
++
++// validarObrigatoriedadeDocumentosExtra garante que todo documento extra
++// com obrigatorio=true em `catalogo` foi efetivamente enviado em `enviados`.
++// Assim como a validação dos documentos fixos (aggregates.ValidarDocumentosMatricula),
++// esta checagem deve ser pulada quando a academia registra o estudante em
++// modo "pendente de documentos".
++func validarObrigatoriedadeDocumentosExtra(catalogo []projections.DocumentoExtraDTO, enviados map[string]documentoExtraUpload) error {
++	for _, cat := range catalogo {
++		if !cat.Obrigatorio {
++			continue
++		}
++		if _, ok := enviados[cat.ID.String()]; !ok {
++			return fmt.Errorf("documento obrigatório ausente: %s", cat.Rotulo)
++		}
++	}
++	return nil
++}
++
++// storagePathDocumentoExtra monta o caminho de armazenamento no formato
++// pedido para esta tarefa: ".../documento_extra/{id do documento}/...".
++// {id do documento} aqui é o id da DEFINIÇÃO no catálogo (DocumentoExtra.ID)
++// — não o id do arquivo em si, que vira o nome do arquivo
++// (documento_id.{ext}, mesmo padrão dos documentos fixos).
++func storagePathDocumentoExtra(baseDir, catalogID, tipo string) (string, string) {
++	documentoID := uuid.NewString()
++	return documentoID, fmt.Sprintf("%s/documento_extra/%s/%s.%s", baseDir, catalogID, documentoID, tipo)
++}
++
++// armazenarDocumentosExtra envia cada arquivo validado ao storage provider e
++// devolve o mapa pronto para ser mesclado no `documentos` do estudante, sob
++// a chave "documento_extra.<id do catálogo>". `downloadURL` monta a URL de
++// download definitiva para cada campo — reaproveita as MESMAS rotas
++// genéricas de download já existentes para os documentos fixos
++// (estudanteDocumentoDownloadURL / solicitacaoDocumentoDownloadURL etc.),
++// já que elas resolvem "campo" por lookup direto na chave do mapa
++// Documentos (ver documentoEstudantePorCampoEscopo) — chaves com ponto,
++// como a nossa, já são um padrão existente (ex.: "nivel.ano.campo" para
++// declarações), então nenhuma rota nova precisou ser criada.
++func armazenarDocumentosExtra(provider storage.StorageProvider, dir string, enviados map[string]documentoExtraUpload, downloadURL func(campo string) string) (map[string]aggregates.DocumentoMatricula, error) {
++	out := map[string]aggregates.DocumentoMatricula{}
++	for catalogID, up := range enviados {
++		documentoID, storagePath := storagePathDocumentoExtra(dir, catalogID, up.Catalog.Tipo)
++		stored, err := provider.Upload(storagePath, bytes.NewReader(up.File.data), up.File.size)
++		if err != nil {
++			return nil, err
++		}
++		campo := "documento_extra." + catalogID
++		out[campo] = aggregates.DocumentoMatricula{
++			DocumentoID:      documentoID,
++			Tipo:             up.Catalog.Tipo,
++			Nivel:            up.Catalog.Nivel,
++			AnoAcademico:     up.Catalog.AnoAcademico,
++			DocumentoExtraID: catalogID,
++			Path:             stored.Path,
++			FileURL:          stored.FileURL,
++			DownloadURL:      downloadURL(campo),
++		}
++	}
++	return out, nil
++}
++
++// resolverAnoAcademicoParaDocumentosExtra escolhe, entre os três campos de
++// ano possíveis de uma matrícula/cadastro, qual está preenchido — mesma
++// regra de exclusividade mútua já validada em aggregates.ValidarDocumentosMatricula
++// (um estudante pertence a exatamente um nível por vez).
++func resolverAnoAcademicoParaDocumentosExtra(anoFundamental, anoMedio, anoSuperior *string) string {
++	if anoFundamental != nil && strings.TrimSpace(*anoFundamental) != "" {
++		return strings.TrimSpace(*anoFundamental)
++	}
++	if anoMedio != nil && strings.TrimSpace(*anoMedio) != "" {
++		return strings.TrimSpace(*anoMedio)
++	}
++	if anoSuperior != nil && strings.TrimSpace(*anoSuperior) != "" {
++		return strings.TrimSpace(*anoSuperior)
++	}
++	return ""
++}
+diff --git a/internal/handlers/estudante_handlers.go b/internal/handlers/estudante_handlers.go
+index e09f48f..dfde3e8 100644
+--- a/internal/handlers/estudante_handlers.go
++++ b/internal/handlers/estudante_handlers.go
+@@ -150,6 +150,31 @@ func registerEstudantePorAcademiaComRequestModo(c *gin.Context, req CadastroEstu
+ 		utils.RespondWithValidationError(c, err)
+ 		return
+ 	}
++	// Documentos extra (catálogo definido pela academia) — pulados por
++	// completo no modo "pendente de documentos", mesmo tratamento dado aos
++	// documentos fixos (PularValidacaoDocumentos), já que este modo registra
++	// o estudante deliberadamente sem nenhum arquivo por enquanto.
++	var catalogoDocsExtra []projections.DocumentoExtraDTO
++	var docsExtraEnviados map[string]documentoExtraUpload
++	if !pendenteDocumentos {
++		anoAcademicoDocsExtra := resolverAnoAcademicoParaDocumentosExtra(stringPtrIfNotBlank(req.AnoEscolar), stringPtrIfNotBlank(req.AnoEscolarMedio), stringPtrIfNotBlank(req.AnoSuperior))
++		if anoAcademicoDocsExtra != "" {
++			catalogoDocsExtra, err = getDocumentosExtraProjection(c).GetAtivosPorAnoAcademico(academia.CodigoAcademia, anoAcademicoDocsExtra)
++			if err != nil {
++				utils.RespondWithInternalError(c, err)
++				return
++			}
++		}
++		docsExtraEnviados, err = parseDocumentosExtra(c.Request.MultipartForm, catalogoDocsExtra)
++		if err != nil {
++			utils.RespondWithValidationError(c, err)
++			return
++		}
++		if err := validarObrigatoriedadeDocumentosExtra(catalogoDocsExtra, docsExtraEnviados); err != nil {
++			utils.RespondWithValidationError(c, err)
++			return
++		}
++	}
+ 	documentosParaValidacao := documentosMatriculaParaValidacao(files, declaracaoAnoAcademico)
+ 	for campo, documento := range req.Documentos {
+ 		key, doc := documentoMatriculaNormalizadoComBase(campo, declaracaoAnoAcademico, "", documento)
+@@ -189,7 +214,7 @@ func registerEstudantePorAcademiaComRequestModo(c *gin.Context, req CadastroEstu
+ 		provider = p
+ 	}
+ 	dir := fmt.Sprintf("%s/estudantes/%s/documentos", academia.CodigoAcademia, codigoEstudante)
+-	if len(files) > 0 {
++	if len(files) > 0 || len(docsExtraEnviados) > 0 {
+ 		if err := provider.EnsureDir(dir); err != nil {
+ 			utils.RespondWithInternalError(c, err)
+ 			return
+@@ -216,6 +241,24 @@ func registerEstudantePorAcademiaComRequestModo(c *gin.Context, req CadastroEstu
+ 		key, doc := documentoMatriculaNormalizado(field, declaracaoAnoAcademico, estudanteDocumentoDownloadURL(codigoEstudante, storageTipo), stored.Path, stored.FileURL)
+ 		documentos[key] = doc
+ 	}
++	if len(docsExtraEnviados) > 0 {
++		docsExtraArmazenados, err := armazenarDocumentosExtra(provider, dir, docsExtraEnviados, func(campo string) string {
++			return estudanteDocumentoDownloadURL(codigoEstudante, campo)
++		})
++		if err != nil {
++			_ = provider.Delete(dir)
++			if permitirPendenciaDocumentosEmFalhaStorage(c, pendenteDocumentos) {
++				log.Printf("[WARN] falha no upload dos documentos extra; cadastrando estudante %s em pendência documental para repescagem: %v", req.Nome, err)
++				registerEstudantePorAcademiaComRequestModo(c, req, nil, declaracaoAnoAcademico, true)
++				return
++			}
++			utils.RespondWithInternalError(c, fmt.Errorf("falha no upload dos documentos extra: %w", err))
++			return
++		}
++		for key, doc := range docsExtraArmazenados {
++			documentos[key] = doc
++		}
++	}
+ 
+ 	defaultPassword := services.GetDefaultPassword("estudante", codigoEstudante)
+ 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(defaultPassword), bcrypt.DefaultCost)
+@@ -933,6 +976,36 @@ func CompletarDocumentosEstudantePendente(c *gin.Context) {
+ 	for k, v := range docsVal {
+ 		docsCompletosVal[k] = v
+ 	}
++	// Documentos extra: mesma lógica do cadastro direto, usando o ano
++	// acadêmico já registrado para este estudante (proj.AnoEscolar/
++	// AnoEscolarMedio/AnoSuperior — imutável neste fluxo de repescagem).
++	anoAcademicoDocsExtra := resolverAnoAcademicoParaDocumentosExtra(proj.AnoEscolar, proj.AnoEscolarMedio, proj.AnoSuperior)
++	var catalogoDocsExtra []projections.DocumentoExtraDTO
++	if anoAcademicoDocsExtra != "" {
++		catalogoDocsExtra, err = getDocumentosExtraProjection(c).GetAtivosPorAnoAcademico(academia.CodigoAcademia, anoAcademicoDocsExtra)
++		if err != nil {
++			utils.RespondWithInternalError(c, err)
++			return
++		}
++	}
++	docsExtraEnviados, err := parseDocumentosExtra(c.Request.MultipartForm, catalogoDocsExtra)
++	if err != nil {
++		utils.RespondWithValidationError(c, err)
++		return
++	}
++	docsExtraJaEnviados := map[string]documentoExtraUpload{}
++	for _, cat := range catalogoDocsExtra {
++		if doc, ok := docsCompletosVal["documento_extra."+cat.ID.String()]; ok && doc.TemReferenciaArquivo() {
++			docsExtraJaEnviados[cat.ID.String()] = documentoExtraUpload{Catalog: cat}
++		}
++	}
++	for id, up := range docsExtraEnviados {
++		docsExtraJaEnviados[id] = up
++	}
++	if err := validarObrigatoriedadeDocumentosExtra(catalogoDocsExtra, docsExtraJaEnviados); err != nil {
++		utils.RespondWithValidationError(c, err)
++		return
++	}
+ 	if _, err := services.ValidateMatriculaCommon(services.MatriculaCommonInput{Contexto: services.MatriculaContextCadastroDireto, Nome: proj.Nome, Genero: proj.Genero, DataNascimento: proj.DataNascimento, Email: proj.Email, TelefoneEstudante: proj.Telefone, TelefoneEncarregado: proj.TelefoneEncarregado, BilheteIdentidade: proj.BilheteIdentidade, BilheteIdentidadeEncarregado: proj.BilheteIdentidadeResp, AnoEscolarFundamental: proj.AnoEscolar, AnoEscolarMedio: proj.AnoEscolarMedio, AnoSuperior: proj.AnoSuperior, Documentos: docsCompletosVal}); err != nil {
+ 		faltantes := aggregates.DocumentosMatriculaFaltantes(proj.BilheteIdentidade, proj.BilheteIdentidadeResp, proj.AnoEscolar, proj.AnoEscolarMedio, proj.AnoSuperior, docsCompletosVal)
+ 		utils.RespondWithErrorData(c, http.StatusBadRequest, err.Error(), err, gin.H{"documentos_faltantes": faltantes})
+@@ -964,6 +1037,19 @@ func CompletarDocumentosEstudantePendente(c *gin.Context) {
+ 		key, doc := documentoMatriculaNormalizado(field, strings.TrimSpace(c.PostForm("declaracao_ano_academico")), estudanteDocumentoDownloadURL(codigo, storageTipo), stored.Path, stored.FileURL)
+ 		documentos[key] = doc
+ 	}
++	if len(docsExtraEnviados) > 0 {
++		docsExtraArmazenados, err := armazenarDocumentosExtra(provider, dir, docsExtraEnviados, func(campo string) string {
++			return estudanteDocumentoDownloadURL(codigo, campo)
++		})
++		if err != nil {
++			_ = provider.Delete(dir)
++			utils.RespondWithInternalError(c, fmt.Errorf("falha no upload dos documentos extra: %w", err))
++			return
++		}
++		for key, doc := range docsExtraArmazenados {
++			documentos[key] = doc
++		}
++	}
+ 	agg := aggregates.NewEstudante()
+ 	loaded, err := getRepository(c).Load(proj.ID, "Estudante")
+ 	if err != nil {
+diff --git a/internal/handlers/helpers.go b/internal/handlers/helpers.go
+index 27d69f1..3212e9f 100644
+--- a/internal/handlers/helpers.go
++++ b/internal/handlers/helpers.go
+@@ -89,6 +89,9 @@ func getServicosExtrasProjection(c *gin.Context) *projections.ServicoExtraProjec
+ func getCategoriasServicoProjection(c *gin.Context) *projections.CategoriaServicoProjection {
+ 	return projections.NewCategoriaServicoProjection(getDbClient(c))
+ }
++func getDocumentosExtraProjection(c *gin.Context) *projections.DocumentoExtraProjection {
++	return projections.NewDocumentoExtraProjection(getDbClient(c))
++}
+ func getRemetentesComunicacaoProjection(c *gin.Context) *projections.RemetenteComunicacaoProjection {
+ 	return projections.NewRemetenteComunicacaoProjection(getDbClient(c))
+ }
+diff --git a/internal/handlers/solicitacao_matricula_handlers.go b/internal/handlers/solicitacao_matricula_handlers.go
+index 084981b..91689db 100644
+--- a/internal/handlers/solicitacao_matricula_handlers.go
++++ b/internal/handlers/solicitacao_matricula_handlers.go
+@@ -166,6 +166,29 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
+ 		}
+ 	}
+ 
++	// Documentos extra (catálogo definido pela academia para este
++	// ano_academico) — sempre obrigatórios quando configurados como tal,
++	// já que este fluxo público não tem um modo "pendente de documentos"
++	// como o cadastro direto.
++	anoAcademicoDocsExtra := resolverAnoAcademicoParaDocumentosExtra(anoFundPtr, anoMedioPtr, anoSupPtr)
++	var catalogoDocsExtra []projections.DocumentoExtraDTO
++	if anoAcademicoDocsExtra != "" {
++		catalogoDocsExtra, err = getDocumentosExtraProjection(c).GetAtivosPorAnoAcademico(codigoAcademia, anoAcademicoDocsExtra)
++		if err != nil {
++			utils.RespondWithInternalError(c, err)
++			return
++		}
++	}
++	docsExtraEnviados, err := parseDocumentosExtra(c.Request.MultipartForm, catalogoDocsExtra)
++	if err != nil {
++		utils.RespondWithValidationError(c, err)
++		return
++	}
++	if err := validarObrigatoriedadeDocumentosExtra(catalogoDocsExtra, docsExtraEnviados); err != nil {
++		utils.RespondWithValidationError(c, err)
++		return
++	}
++
+ 	codigo, err := generateUniqueCodigoSolicitacao(getDbClient(c))
+ 	if err != nil {
+ 		utils.RespondWithInternalError(c, err)
+@@ -197,6 +220,19 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
+ 		key, doc := documentoMatriculaNormalizado(field, get("declaracao_ano_academico"), solicitacaoDocumentoDownloadURL(codigo, storageTipo), stored.Path, stored.FileURL)
+ 		documentos[key] = doc
+ 	}
++	if len(docsExtraEnviados) > 0 {
++		docsExtraArmazenados, err := armazenarDocumentosExtra(provider, dir, docsExtraEnviados, func(campo string) string {
++			return solicitacaoDocumentoDownloadURL(codigo, campo)
++		})
++		if err != nil {
++			_ = provider.Delete(dir)
++			utils.RespondWithInternalError(c, fmt.Errorf("falha no upload dos documentos extra: %w", err))
++			return
++		}
++		for key, doc := range docsExtraArmazenados {
++			documentos[key] = doc
++		}
++	}
+ 
+ 	emailPtr := validado.Email
+ 	telPtr := validado.TelefoneEstudante
+diff --git a/internal/projections/documento_extra_projection.go b/internal/projections/documento_extra_projection.go
+new file mode 100644
+index 0000000..95cebea
+--- /dev/null
++++ b/internal/projections/documento_extra_projection.go
+@@ -0,0 +1,191 @@
++package projections
++
++import (
++	"database/sql"
++	"encoding/json"
++	"fmt"
++	"time"
++
++	"github.com/google/uuid"
++	"spuri/internal/db"
++)
++
++type DocumentoExtraProjection struct{ client *db.Client }
++
++func NewDocumentoExtraProjection(c *db.Client) *DocumentoExtraProjection {
++	return &DocumentoExtraProjection{c}
++}
++func (p *DocumentoExtraProjection) Name() string { return "documentos_extra" }
++func (p *DocumentoExtraProjection) GetLastProcessedEventID() (int64, error) {
++	var v int64
++	err := p.client.DB().QueryRow(`SELECT last_processed_event_id FROM projection_checkpoints WHERE projection_name=$1`, p.Name()).Scan(&v)
++	if err == sql.ErrNoRows {
++		return 0, nil
++	}
++	return v, err
++}
++func (p *DocumentoExtraProjection) UpdateCheckpoint(id int64) error {
++	_, err := p.client.DB().Exec(`INSERT INTO projection_checkpoints (projection_name,last_processed_event_id,last_processed_at,events_processed) VALUES($1,$2,CURRENT_TIMESTAMP,1) ON CONFLICT(projection_name) DO UPDATE SET last_processed_event_id=$2,last_processed_at=CURRENT_TIMESTAMP,events_processed=projection_checkpoints.events_processed+1`, p.Name(), id)
++	return err
++}
++func (p *DocumentoExtraProjection) Handle(e db.Event) error {
++	if e.AggregateType != "DocumentoExtra" {
++		return nil
++	}
++	switch e.EventType {
++	case "DocumentoExtraCriado":
++		return p.created(e)
++	case "DocumentoExtraAtualizado":
++		return p.updated(e)
++	case "DocumentoExtraDesativado":
++		return p.active(e, false)
++	case "DocumentoExtraReativado":
++		return p.active(e, true)
++	}
++	return nil
++}
++func (p *DocumentoExtraProjection) Rebuild() error {
++	if _, err := p.client.DB().Exec(`TRUNCATE projection_documentos_extra CASCADE`); err != nil {
++		return err
++	}
++	rows, err := p.client.DB().Query(`SELECT id,event_id,aggregate_id,aggregate_type,event_type,event_version,payload,metadata,occurred_at,recorded_at,ledger_hash,previous_hash FROM spuri_ledger WHERE aggregate_type='DocumentoExtra' ORDER BY id`)
++	if err != nil {
++		return err
++	}
++	defer rows.Close()
++	for rows.Next() {
++		var e db.Event
++		var prev sql.NullString
++		if err = rows.Scan(&e.ID, &e.EventID, &e.AggregateID, &e.AggregateType, &e.EventType, &e.EventVersion, &e.Payload, &e.Metadata, &e.OccurredAt, &e.RecordedAt, &e.LedgerHash, &prev); err != nil {
++			return err
++		}
++		if prev.Valid {
++			e.PreviousHash = &prev.String
++		}
++		if err = p.Handle(e); err != nil {
++			return err
++		}
++	}
++	return rows.Err()
++}
++
++type DocumentoExtraDTO struct {
++	ID             uuid.UUID `json:"id"`
++	CodigoAcademia string    `json:"codigo_academia"`
++	Rotulo         string    `json:"rotulo"`
++	Tipo           string    `json:"tipo"`
++	Obrigatorio    bool      `json:"obrigatorio"`
++	Nivel          string    `json:"nivel"`
++	AnoAcademico   string    `json:"ano_academico"`
++	Ativo          bool      `json:"ativo"`
++	CreatedAt      time.Time `json:"created_at"`
++	UpdatedAt      time.Time `json:"updated_at"`
++}
++
++func (p *DocumentoExtraProjection) created(e db.Event) error {
++	var x struct {
++		CodigoAcademia string
++		Rotulo         string
++		Tipo           string
++		Obrigatorio    bool
++		Nivel          string
++		AnoAcademico   string
++		CriadoPor      uuid.UUID
++		CreatedAt      time.Time
++	}
++	if err := json.Unmarshal(e.Payload, &x); err != nil {
++		return err
++	}
++	_, err := p.client.DB().Exec(
++		`INSERT INTO projection_documentos_extra(id,codigo_academia,rotulo,tipo,obrigatorio,nivel,ano_academico,ativo,criado_por,created_at,updated_at,version,last_event_id)
++		 VALUES($1,$2,$3,$4,$5,$6,$7,true,$8,$9,$9,$10,$11) ON CONFLICT(id) DO NOTHING`,
++		e.AggregateID, x.CodigoAcademia, x.Rotulo, x.Tipo, x.Obrigatorio, x.Nivel, x.AnoAcademico, x.CriadoPor, x.CreatedAt, e.EventVersion, e.EventID)
++	return err
++}
++func (p *DocumentoExtraProjection) updated(e db.Event) error {
++	var x struct {
++		Rotulo       string
++		Tipo         string
++		Obrigatorio  bool
++		Nivel        string
++		AnoAcademico string
++	}
++	if err := json.Unmarshal(e.Payload, &x); err != nil {
++		return err
++	}
++	_, err := p.client.DB().Exec(
++		`UPDATE projection_documentos_extra SET rotulo=$1,tipo=$2,obrigatorio=$3,nivel=$4,ano_academico=$5,version=$6,last_event_id=$7,updated_at=CURRENT_TIMESTAMP WHERE id=$8`,
++		x.Rotulo, x.Tipo, x.Obrigatorio, x.Nivel, x.AnoAcademico, e.EventVersion, e.EventID, e.AggregateID)
++	return err
++}
++func (p *DocumentoExtraProjection) active(e db.Event, ativo bool) error {
++	_, err := p.client.DB().Exec(`UPDATE projection_documentos_extra SET ativo=$1,version=$2,last_event_id=$3,updated_at=CURRENT_TIMESTAMP WHERE id=$4`, ativo, e.EventVersion, e.EventID, e.AggregateID)
++	return err
++}
++func (p *DocumentoExtraProjection) scan(row interface{ Scan(...interface{}) error }) (*DocumentoExtraDTO, error) {
++	var d DocumentoExtraDTO
++	err := row.Scan(&d.ID, &d.CodigoAcademia, &d.Rotulo, &d.Tipo, &d.Obrigatorio, &d.Nivel, &d.AnoAcademico, &d.Ativo, &d.CreatedAt, &d.UpdatedAt)
++	if err != nil {
++		return nil, err
++	}
++	return &d, nil
++}
++
++const documentoExtraCols = `id,codigo_academia,rotulo,tipo,obrigatorio,nivel,ano_academico,ativo,created_at,updated_at`
++
++func (p *DocumentoExtraProjection) GetByID(id uuid.UUID) (*DocumentoExtraDTO, error) {
++	d, err := p.scan(p.client.DB().QueryRow(`SELECT `+documentoExtraCols+` FROM projection_documentos_extra WHERE id=$1`, id))
++	if err == sql.ErrNoRows {
++		return nil, nil
++	}
++	return d, err
++}
++func (p *DocumentoExtraProjection) GetByAcademia(codigo string, ativosOnly bool) ([]DocumentoExtraDTO, error) {
++	q := `SELECT ` + documentoExtraCols + ` FROM projection_documentos_extra WHERE codigo_academia=$1`
++	if ativosOnly {
++		q += ` AND ativo=true`
++	}
++	q += ` ORDER BY ano_academico, rotulo`
++	rows, err := p.client.DB().Query(q, codigo)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	out := []DocumentoExtraDTO{}
++	for rows.Next() {
++		d, err := p.scan(rows)
++		if err != nil {
++			return nil, err
++		}
++		out = append(out, *d)
++	}
++	if err := rows.Err(); err != nil {
++		return nil, fmt.Errorf("listar documentos extra: %w", err)
++	}
++	return out, nil
++}
++
++// GetAtivosPorAnoAcademico retorna as definições ATIVAS desta academia que se
++// aplicam a um ano_academico específico — usado no cadastro direto e na
++// solicitação de matrícula para saber quais documentos extra validar/exigir.
++func (p *DocumentoExtraProjection) GetAtivosPorAnoAcademico(codigo, anoAcademico string) ([]DocumentoExtraDTO, error) {
++	rows, err := p.client.DB().Query(
++		`SELECT `+documentoExtraCols+` FROM projection_documentos_extra WHERE codigo_academia=$1 AND ano_academico=$2 AND ativo=true ORDER BY rotulo`,
++		codigo, anoAcademico)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	out := []DocumentoExtraDTO{}
++	for rows.Next() {
++		d, err := p.scan(rows)
++		if err != nil {
++			return nil, err
++		}
++		out = append(out, *d)
++	}
++	if err := rows.Err(); err != nil {
++		return nil, fmt.Errorf("listar documentos extra por ano acadêmico: %w", err)
++	}
++	return out, nil
++}
+diff --git a/internal/utils/errors.go b/internal/utils/errors.go
+index c9f1d91..463dd87 100644
+--- a/internal/utils/errors.go
++++ b/internal/utils/errors.go
+@@ -327,7 +327,7 @@ func SafeErrorMessage(err error) string {
+ 		{"timeout", "Operação demorou muito tempo"},
+ 		{"bilhete", "Bilhete de identidade inválido (deve conter 12 números e 2 letras)"},
+ 		{"email", "Formato de email inválido"},
+-		{"senha", "Senha deve ter no mínimo 6 caracteres"},
++		{"senha", "Senha deve ter no mínimo 8 caracteres"},
+ 		{"provincia", "Província inválida"},
+ 		{"role", "Perfil de acesso inválido"},
+ 		{"type", "Tipo inválido"},
+diff --git a/internal/utils/validation.go b/internal/utils/validation.go
+index 6df976c..baa5454 100644
+--- a/internal/utils/validation.go
++++ b/internal/utils/validation.go
+@@ -173,9 +173,9 @@ func ValidateEmail(email string) error {
+ func ValidateSenha(senha string) error {
+ 	log.Printf("🔐 [ValidateSenha] Validando senha - Length: %d", len(senha))
+ 
+-	if len(senha) < 6 {
++	if len(senha) < 8 {
+ 		log.Printf("❌ [ValidateSenha] Senha muito curta: %d caracteres", len(senha))
+-		return fmt.Errorf("senha deve ter no mínimo 6 caracteres")
++		return fmt.Errorf("senha deve ter no mínimo 8 caracteres")
+ 	}
+ 
+ 	if len(senha) > 128 {
+diff --git a/migrations/126_documentos_extra.sql b/migrations/126_documentos_extra.sql
+new file mode 100644
+index 0000000..f841f2e
+--- /dev/null
++++ b/migrations/126_documentos_extra.sql
+@@ -0,0 +1,38 @@
++BEGIN;
++
++CREATE TABLE IF NOT EXISTS projection_documentos_extra (
++    id UUID PRIMARY KEY,
++    codigo_academia VARCHAR(50) NOT NULL,
++    rotulo VARCHAR(150) NOT NULL,
++    tipo VARCHAR(10) NOT NULL CHECK (tipo IN ('pdf', 'jpg')),
++    obrigatorio BOOLEAN NOT NULL DEFAULT false,
++    nivel VARCHAR(20) NOT NULL CHECK (nivel IN ('fundamental', 'medio', 'superior')),
++    ano_academico VARCHAR(30) NOT NULL,
++    ativo BOOLEAN NOT NULL DEFAULT true,
++    criado_por UUID NOT NULL,
++    created_at TIMESTAMPTZ NOT NULL,
++    updated_at TIMESTAMPTZ NOT NULL,
++    version INTEGER NOT NULL DEFAULT 0,
++    last_event_id UUID
++);
++
++CREATE INDEX IF NOT EXISTS idx_documentos_extra_academia ON projection_documentos_extra(codigo_academia, ativo);
++
++-- Uma academia não pode ter dois documentos extra ativos com o mesmo rótulo
++-- para o mesmo ano acadêmico (mesma proteção usada em categorias de serviço,
++-- ux_categorias_servico_nome_ativo, para os mesmos motivos: evitar ambiguidade
++-- de nomes visíveis ao estudante/encarregado no momento do upload).
++CREATE UNIQUE INDEX IF NOT EXISTS ux_documentos_extra_rotulo_ano_ativo
++    ON projection_documentos_extra (codigo_academia, ano_academico, lower(rotulo))
++    WHERE ativo = true;
++
++COMMENT ON TABLE projection_documentos_extra IS
++    'Catálogo de documentos adicionais que cada academia pode exigir (ou apenas oferecer) no cadastro direto e na solicitação de matrícula do estudante, além dos documentos fixos do sistema (BI, cédula, declaração, certificados). Cada linha é uma definição reutilizada por todos os estudantes daquele ano_academico; o arquivo enviado por um estudante específico fica em projection_estudantes.documentos, na chave documento_extra.<id>.';
++COMMENT ON COLUMN projection_documentos_extra.tipo IS
++    'Formato de arquivo exigido para este documento: pdf ou jpg. Reaproveita o mesmo limite de tamanho MaxPDFUploadBytes (10MB) já usado pelos documentos fixos.';
++COMMENT ON COLUMN projection_documentos_extra.nivel IS
++    'Nível acadêmico do ano informado em ano_academico (derivado no backend, nunca aceito diretamente do payload) — fundamental | medio | superior.';
++COMMENT ON COLUMN projection_documentos_extra.ano_academico IS
++    'Ano acadêmico canônico ao qual esta exigência se aplica (ex.: 6_ano_fundamental, 2_ano_medio, 1_ano_superior) — mesmo domínio validado por utils.ValidateAnoFundamental/ValidateAnoMedio/ValidateAnoSuperior. Uma exigência vale para um único ano; para cobrir vários anos, a academia cria uma definição por ano.';
++
++COMMIT;
