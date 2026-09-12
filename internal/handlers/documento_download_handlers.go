@@ -547,22 +547,32 @@ func streamDocumento(c *gin.Context, campo string, doc aggregates.DocumentoMatri
 	}
 	defer r.Close()
 
-	filename := safeDocumentFilename(campo)
-	c.Header("Content-Type", "application/pdf")
+	// Documentos fixos são sempre PDF (doc.Tipo, para eles, é o nome do
+	// campo/categoria — nunca literalmente "pdf" ou "jpg", ver
+	// documentoMatriculaNormalizadoComBase). Documentos extra (item da
+	// tarefa "documentos_extra") podem ser PDF ou JPG, conforme
+	// DocumentoExtra.Tipo, propagado para DocumentoMatricula.Tipo em
+	// armazenarDocumentosExtra — daí o content-type/extensão condicionais.
+	contentType, ext := "application/pdf", ".pdf"
+	if doc.Tipo == "jpg" {
+		contentType, ext = "image/jpeg", ".jpg"
+	}
+	filename := safeDocumentFilename(campo, ext)
+	c.Header("Content-Type", contentType)
 	c.Header("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, filename))
 	c.Header("Cache-Control", "private, max-age=300")
 	c.Status(http.StatusOK)
 	_, _ = io.Copy(c.Writer, r)
 }
 
-func safeDocumentFilename(campo string) string {
+func safeDocumentFilename(campo, ext string) string {
 	campo = strings.TrimSpace(strings.ToLower(campo))
 	campo = strings.NewReplacer("/", "_", "\\", "_", "\x00", "_", "\"", "_", "'", "_").Replace(campo)
 	if campo == "" || campo == "." || campo == ".." {
 		campo = "documento"
 	}
-	if !strings.HasSuffix(campo, ".pdf") {
-		campo += ".pdf"
+	if !strings.HasSuffix(campo, ext) {
+		campo += ext
 	}
 	return campo
 }

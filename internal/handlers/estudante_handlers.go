@@ -150,6 +150,31 @@ func registerEstudantePorAcademiaComRequestModo(c *gin.Context, req CadastroEstu
 		utils.RespondWithValidationError(c, err)
 		return
 	}
+	// Documentos extra (catálogo definido pela academia) — pulados por
+	// completo no modo "pendente de documentos", mesmo tratamento dado aos
+	// documentos fixos (PularValidacaoDocumentos), já que este modo registra
+	// o estudante deliberadamente sem nenhum arquivo por enquanto.
+	var catalogoDocsExtra []projections.DocumentoExtraDTO
+	var docsExtraEnviados map[string]documentoExtraUpload
+	if !pendenteDocumentos {
+		anoAcademicoDocsExtra := resolverAnoAcademicoParaDocumentosExtra(stringPtrIfNotBlank(req.AnoEscolar), stringPtrIfNotBlank(req.AnoEscolarMedio), stringPtrIfNotBlank(req.AnoSuperior))
+		if anoAcademicoDocsExtra != "" {
+			catalogoDocsExtra, err = getDocumentosExtraProjection(c).GetAtivosPorAnoAcademico(academia.CodigoAcademia, anoAcademicoDocsExtra)
+			if err != nil {
+				utils.RespondWithInternalError(c, err)
+				return
+			}
+		}
+		docsExtraEnviados, err = parseDocumentosExtra(c.Request.MultipartForm, catalogoDocsExtra)
+		if err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+		if err := validarObrigatoriedadeDocumentosExtra(catalogoDocsExtra, docsExtraEnviados); err != nil {
+			utils.RespondWithValidationError(c, err)
+			return
+		}
+	}
 	documentosParaValidacao := documentosMatriculaParaValidacao(files, declaracaoAnoAcademico)
 	for campo, documento := range req.Documentos {
 		key, doc := documentoMatriculaNormalizadoComBase(campo, declaracaoAnoAcademico, "", documento)
@@ -189,7 +214,7 @@ func registerEstudantePorAcademiaComRequestModo(c *gin.Context, req CadastroEstu
 		provider = p
 	}
 	dir := fmt.Sprintf("%s/estudantes/%s/documentos", academia.CodigoAcademia, codigoEstudante)
-	if len(files) > 0 {
+	if len(files) > 0 || len(docsExtraEnviados) > 0 {
 		if err := provider.EnsureDir(dir); err != nil {
 			utils.RespondWithInternalError(c, err)
 			return
@@ -215,6 +240,24 @@ func registerEstudantePorAcademiaComRequestModo(c *gin.Context, req CadastroEstu
 		}
 		key, doc := documentoMatriculaNormalizado(field, declaracaoAnoAcademico, estudanteDocumentoDownloadURL(codigoEstudante, storageTipo), stored.Path, stored.FileURL)
 		documentos[key] = doc
+	}
+	if len(docsExtraEnviados) > 0 {
+		docsExtraArmazenados, err := armazenarDocumentosExtra(provider, dir, docsExtraEnviados, func(campo string) string {
+			return estudanteDocumentoDownloadURL(codigoEstudante, campo)
+		})
+		if err != nil {
+			_ = provider.Delete(dir)
+			if permitirPendenciaDocumentosEmFalhaStorage(c, pendenteDocumentos) {
+				log.Printf("[WARN] falha no upload dos documentos extra; cadastrando estudante %s em pendência documental para repescagem: %v", req.Nome, err)
+				registerEstudantePorAcademiaComRequestModo(c, req, nil, declaracaoAnoAcademico, true)
+				return
+			}
+			utils.RespondWithInternalError(c, fmt.Errorf("falha no upload dos documentos extra: %w", err))
+			return
+		}
+		for key, doc := range docsExtraArmazenados {
+			documentos[key] = doc
+		}
 	}
 
 	defaultPassword := services.GetDefaultPassword("estudante", codigoEstudante)
@@ -933,6 +976,36 @@ func CompletarDocumentosEstudantePendente(c *gin.Context) {
 	for k, v := range docsVal {
 		docsCompletosVal[k] = v
 	}
+	// Documentos extra: mesma lógica do cadastro direto, usando o ano
+	// acadêmico já registrado para este estudante (proj.AnoEscolar/
+	// AnoEscolarMedio/AnoSuperior — imutável neste fluxo de repescagem).
+	anoAcademicoDocsExtra := resolverAnoAcademicoParaDocumentosExtra(proj.AnoEscolar, proj.AnoEscolarMedio, proj.AnoSuperior)
+	var catalogoDocsExtra []projections.DocumentoExtraDTO
+	if anoAcademicoDocsExtra != "" {
+		catalogoDocsExtra, err = getDocumentosExtraProjection(c).GetAtivosPorAnoAcademico(academia.CodigoAcademia, anoAcademicoDocsExtra)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+	}
+	docsExtraEnviados, err := parseDocumentosExtra(c.Request.MultipartForm, catalogoDocsExtra)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	docsExtraJaEnviados := map[string]documentoExtraUpload{}
+	for _, cat := range catalogoDocsExtra {
+		if doc, ok := docsCompletosVal["documento_extra."+cat.ID.String()]; ok && doc.TemReferenciaArquivo() {
+			docsExtraJaEnviados[cat.ID.String()] = documentoExtraUpload{Catalog: cat}
+		}
+	}
+	for id, up := range docsExtraEnviados {
+		docsExtraJaEnviados[id] = up
+	}
+	if err := validarObrigatoriedadeDocumentosExtra(catalogoDocsExtra, docsExtraJaEnviados); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
 	if _, err := services.ValidateMatriculaCommon(services.MatriculaCommonInput{Contexto: services.MatriculaContextCadastroDireto, Nome: proj.Nome, Genero: proj.Genero, DataNascimento: proj.DataNascimento, Email: proj.Email, TelefoneEstudante: proj.Telefone, TelefoneEncarregado: proj.TelefoneEncarregado, BilheteIdentidade: proj.BilheteIdentidade, BilheteIdentidadeEncarregado: proj.BilheteIdentidadeResp, AnoEscolarFundamental: proj.AnoEscolar, AnoEscolarMedio: proj.AnoEscolarMedio, AnoSuperior: proj.AnoSuperior, Documentos: docsCompletosVal}); err != nil {
 		faltantes := aggregates.DocumentosMatriculaFaltantes(proj.BilheteIdentidade, proj.BilheteIdentidadeResp, proj.AnoEscolar, proj.AnoEscolarMedio, proj.AnoSuperior, docsCompletosVal)
 		utils.RespondWithErrorData(c, http.StatusBadRequest, err.Error(), err, gin.H{"documentos_faltantes": faltantes})
@@ -963,6 +1036,19 @@ func CompletarDocumentosEstudantePendente(c *gin.Context) {
 		}
 		key, doc := documentoMatriculaNormalizado(field, strings.TrimSpace(c.PostForm("declaracao_ano_academico")), estudanteDocumentoDownloadURL(codigo, storageTipo), stored.Path, stored.FileURL)
 		documentos[key] = doc
+	}
+	if len(docsExtraEnviados) > 0 {
+		docsExtraArmazenados, err := armazenarDocumentosExtra(provider, dir, docsExtraEnviados, func(campo string) string {
+			return estudanteDocumentoDownloadURL(codigo, campo)
+		})
+		if err != nil {
+			_ = provider.Delete(dir)
+			utils.RespondWithInternalError(c, fmt.Errorf("falha no upload dos documentos extra: %w", err))
+			return
+		}
+		for key, doc := range docsExtraArmazenados {
+			documentos[key] = doc
+		}
 	}
 	agg := aggregates.NewEstudante()
 	loaded, err := getRepository(c).Load(proj.ID, "Estudante")

@@ -166,6 +166,29 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 		}
 	}
 
+	// Documentos extra (catálogo definido pela academia para este
+	// ano_academico) — sempre obrigatórios quando configurados como tal,
+	// já que este fluxo público não tem um modo "pendente de documentos"
+	// como o cadastro direto.
+	anoAcademicoDocsExtra := resolverAnoAcademicoParaDocumentosExtra(anoFundPtr, anoMedioPtr, anoSupPtr)
+	var catalogoDocsExtra []projections.DocumentoExtraDTO
+	if anoAcademicoDocsExtra != "" {
+		catalogoDocsExtra, err = getDocumentosExtraProjection(c).GetAtivosPorAnoAcademico(codigoAcademia, anoAcademicoDocsExtra)
+		if err != nil {
+			utils.RespondWithInternalError(c, err)
+			return
+		}
+	}
+	docsExtraEnviados, err := parseDocumentosExtra(c.Request.MultipartForm, catalogoDocsExtra)
+	if err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+	if err := validarObrigatoriedadeDocumentosExtra(catalogoDocsExtra, docsExtraEnviados); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
 	codigo, err := generateUniqueCodigoSolicitacao(getDbClient(c))
 	if err != nil {
 		utils.RespondWithInternalError(c, err)
@@ -196,6 +219,19 @@ func CriarSolicitacaoMatricula(c *gin.Context) {
 		}
 		key, doc := documentoMatriculaNormalizado(field, get("declaracao_ano_academico"), solicitacaoDocumentoDownloadURL(codigo, storageTipo), stored.Path, stored.FileURL)
 		documentos[key] = doc
+	}
+	if len(docsExtraEnviados) > 0 {
+		docsExtraArmazenados, err := armazenarDocumentosExtra(provider, dir, docsExtraEnviados, func(campo string) string {
+			return solicitacaoDocumentoDownloadURL(codigo, campo)
+		})
+		if err != nil {
+			_ = provider.Delete(dir)
+			utils.RespondWithInternalError(c, fmt.Errorf("falha no upload dos documentos extra: %w", err))
+			return
+		}
+		for key, doc := range docsExtraArmazenados {
+			documentos[key] = doc
+		}
 	}
 
 	emailPtr := validado.Email

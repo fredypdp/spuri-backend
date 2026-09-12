@@ -195,6 +195,11 @@ var validEventTypes = map[string]bool{
 	"SumarioDeletado":                 true,
 	"RemetenteComunicacaoConfigurado": true,
 	"MensagemComunicacaoRegistrada":   true,
+	// ── Documentos extra (catálogo por academia) ─────────────────────────────
+	"DocumentoExtraCriado":     true,
+	"DocumentoExtraAtualizado": true,
+	"DocumentoExtraDesativado": true,
+	"DocumentoExtraReativado":  true,
 }
 
 // validAggregateTypes é o mapa canônico de aggregate types permitidos no ledger.
@@ -221,6 +226,7 @@ var validAggregateTypes = map[string]bool{
 	"Sumario":              true,
 	"RemetenteComunicacao": true,
 	"MensagemComunicacao":  true,
+	"DocumentoExtra":       true,
 }
 
 // ValidateEventType verifica se o tipo de evento é permitido.

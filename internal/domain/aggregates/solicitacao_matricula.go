@@ -241,6 +241,11 @@ type DocumentoMatricula struct {
 	Path         string `json:"path"`
 	FileURL      string `json:"file_url"`
 	DownloadURL  string `json:"download_url"`
+	// DocumentoExtraID referencia o id da definição em
+	// projection_documentos_extra (catálogo mantido pela academia) quando
+	// este documento é um "documento extra" — vazio para os documentos
+	// fixos do sistema (BI, cédula, declaração, certificados).
+	DocumentoExtraID string `json:"documento_extra_id,omitempty"`
 }
 
 func (d DocumentoMatricula) TemReferenciaArquivo() bool {
