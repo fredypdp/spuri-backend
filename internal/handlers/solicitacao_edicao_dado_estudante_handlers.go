@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"spuri/internal/db"
 	"spuri/internal/domain/aggregates"
@@ -231,12 +232,34 @@ func aplicarEdicaoAprovada(c *gin.Context, sol *projections.SolicitacaoEdicaoDad
 	var tinhaDocAntigoBI bool
 	if sol.Campo == aggregates.CampoEdicaoBI {
 		docAntigoBI, tinhaDocAntigoBI = agg.Documentos["bi_estudante"]
-		doc, err := promoverDocumentoBIParaOficial(c, sol.CodigoAcademia, sol.CodigoEstudante, sol.DocumentoTemporarioPath)
+		doc, err := promoverDocumentoBIParaOficial(c, sol.CodigoAcademia, sol.CodigoEstudante, sol.DocumentoTemporarioPath, "bi_estudante")
 		if err != nil {
 			utils.RespondWithInternalError(c, fmt.Errorf("falha ao promover documento do bilhete de identidade: %w", err))
 			return err
 		}
 		documentoBI = doc
+	}
+
+	// Mesma lógica do bloco acima, mas para o documento do BI do
+	// ENCARREGADO (responsável): antes desta correção, o documento anexado
+	// à solicitação de bilhete_identidade_encarregado nunca era promovido a
+	// oficial — só o número era gravado (AlterarBilheteIdentidadeEncarregado-
+	// PorSolicitacao), e o PDF enviado era descartado junto com o arquivo
+	// temporário da solicitação (ver limpeza de DocumentoTemporarioPath em
+	// DecidirSolicitacaoEdicaoDadoEstudanteHandler). Isso deixava
+	// Documentos["bi_encarregado"] sempre ausente por essa via, mesmo
+	// quando essa era a única pendência de documentos do estudante.
+	var documentoBIEncarregado *aggregates.DocumentoMatricula
+	var docAntigoBIEncarregado aggregates.DocumentoMatricula
+	var tinhaDocAntigoBIEncarregado bool
+	if sol.Campo == aggregates.CampoEdicaoBIEncarregado {
+		docAntigoBIEncarregado, tinhaDocAntigoBIEncarregado = agg.Documentos["bi_encarregado"]
+		doc, err := promoverDocumentoBIParaOficial(c, sol.CodigoAcademia, sol.CodigoEstudante, sol.DocumentoTemporarioPath, "bi_encarregado")
+		if err != nil {
+			utils.RespondWithInternalError(c, fmt.Errorf("falha ao promover documento do bilhete de identidade do encarregado: %w", err))
+			return err
+		}
+		documentoBIEncarregado = doc
 	}
 
 	switch sol.Campo {
@@ -245,25 +268,50 @@ func aplicarEdicaoAprovada(c *gin.Context, sol *projections.SolicitacaoEdicaoDad
 	case aggregates.CampoEdicaoBI:
 		err = agg.AlterarBilheteIdentidadePorSolicitacao(sol.ValorSolicitado, sol.CodigoSolicitacao, decididoPor, documentoBI)
 	case aggregates.CampoEdicaoBIEncarregado:
-		err = agg.AlterarBilheteIdentidadeEncarregadoPorSolicitacao(sol.ValorSolicitado, sol.CodigoSolicitacao, decididoPor)
+		err = agg.AlterarBilheteIdentidadeEncarregadoPorSolicitacao(sol.ValorSolicitado, sol.CodigoSolicitacao, decididoPor, documentoBIEncarregado)
 	case aggregates.CampoEdicaoDataNascimento:
 		dt, _ := time.Parse("2006-01-02", sol.ValorSolicitado)
 		err = agg.AlterarDataNascimentoPorSolicitacao(dt, sol.CodigoSolicitacao, decididoPor)
 	}
 	if err != nil {
 		limparDocumentoBIOrfao(c, documentoBI, sol.CodigoSolicitacao, "erro de validação")
+		limparDocumentoBIOrfao(c, documentoBIEncarregado, sol.CodigoSolicitacao, "erro de validação")
 		utils.RespondWithValidationError(c, err)
 		return err
+	}
+	// Bug: uma edição aprovada (ex.: bilhete_identidade ou bilhete_identidade_
+	// encarregado, cujo documento acaba de ser promovido a oficial acima)
+	// pode ser exatamente a pendência que faltava para um estudante
+	// 'pendente_documentos'. Sem este passo, o
+	// campo/documento era atualizado mas o status ficava 'pendente_documentos'
+	// para sempre, mesmo com todos os documentos obrigatórios completos.
+	// CompletarDocumentosPendentes já faz a verificação correta (só ativa se
+	// TODOS os documentos exigidos por ValidarDocumentosMatricula estiverem
+	// presentes) e é seguro chamar com um mapa vazio: reutiliza agg.Documentos
+	// (já com o documento desta edição, se houver) sem sobrescrever nada. Se
+	// ainda faltar algo, o método retorna erro e o estudante simplesmente
+	// continua pendente — não é uma falha da aprovação em si, por isso o erro
+	// é ignorado aqui (apenas logado) e não interrompe o fluxo.
+	if agg.Status == "pendente_documentos" {
+		if academiaUUID, parseErr := uuid.Parse(decididoPor); parseErr == nil {
+			if err := agg.CompletarDocumentosPendentes(map[string]aggregates.DocumentoMatricula{}, academiaUUID); err != nil {
+				log.Printf("[INFO] estudante %s segue pendente_documentos após edição de %s: %v", sol.CodigoEstudante, sol.Campo, err)
+			}
+		} else {
+			log.Printf("[WARN] não foi possível verificar conclusão de documentos pendentes do estudante %s: decididoPor %q inválido: %v", sol.CodigoEstudante, decididoPor, parseErr)
+		}
 	}
 	audit := db.AuditContext{UserID: decididoPor, UserType: "academia", IP: c.ClientIP()}
 	if err := getRepository(c).SaveWithAudit(agg, audit); err != nil {
 		limparDocumentoBIOrfao(c, documentoBI, sol.CodigoSolicitacao, "erro ao salvar solicitação")
+		limparDocumentoBIOrfao(c, documentoBIEncarregado, sol.CodigoSolicitacao, "erro ao salvar solicitação")
 		utils.RespondWithInternalError(c, err)
 		return err
 	}
-	// Só remove o documento de BI anterior DEPOIS do evento confirmado no
-	// ledger — se o SaveWithAudit acima tivesse falhado, o documento antigo
-	// continuaria sendo o oficial (estado consistente para nova tentativa).
+	// Só remove o documento de BI (do estudante ou do encarregado) anterior
+	// DEPOIS do evento confirmado no ledger — se o SaveWithAudit acima
+	// tivesse falhado, o documento antigo continuaria sendo o oficial
+	// (estado consistente para nova tentativa).
 	if sol.Campo == aggregates.CampoEdicaoBI && tinhaDocAntigoBI && strings.TrimSpace(docAntigoBI.Path) != "" && docAntigoBI.Path != documentoBI.Path {
 		if p := getStorageProvider(c); p != nil {
 			if delErr := p.Delete(docAntigoBI.Path); delErr != nil {
@@ -271,18 +319,26 @@ func aplicarEdicaoAprovada(c *gin.Context, sol *projections.SolicitacaoEdicaoDad
 			}
 		}
 	}
+	if sol.Campo == aggregates.CampoEdicaoBIEncarregado && tinhaDocAntigoBIEncarregado && strings.TrimSpace(docAntigoBIEncarregado.Path) != "" && docAntigoBIEncarregado.Path != documentoBIEncarregado.Path {
+		if p := getStorageProvider(c); p != nil {
+			if delErr := p.Delete(docAntigoBIEncarregado.Path); delErr != nil {
+				log.Printf("[WARN] falha ao remover documento de BI do encarregado anterior %s do estudante %s: %v", docAntigoBIEncarregado.Path, sol.CodigoEstudante, delErr)
+			}
+		}
+	}
 	return nil
 }
 
 // promoverDocumentoBIParaOficial copia (Read + Upload) o documento temporário
-// de uma solicitação de edição de bilhete_identidade para o caminho
-// definitivo dos documentos de identificação do estudante — o mesmo padrão
-// usado no cadastro (ver storagePathDocumentoEstudante), com um DocumentoID
-// novo. Copia em vez de mover para que o documento temporário original só
-// seja removido depois de o evento de aprovação ser gravado com sucesso (ver
-// aplicarEdicaoAprovada); assim, uma falha após a cópia não perde o arquivo
-// original nem deixa o estudante sem documento de BI.
-func promoverDocumentoBIParaOficial(c *gin.Context, codigoAcademia, codigoEstudante, tempPath string) (*aggregates.DocumentoMatricula, error) {
+// de uma solicitação de edição de bilhete_identidade (do estudante ou do
+// encarregado, conforme tipoDocumento: "bi_estudante" ou "bi_encarregado")
+// para o caminho definitivo dos documentos de identificação do estudante —
+// o mesmo padrão usado no cadastro (ver storagePathDocumentoEstudante), com
+// um DocumentoID novo. Copia em vez de mover para que o documento temporário
+// original só seja removido depois de o evento de aprovação ser gravado com
+// sucesso (ver aplicarEdicaoAprovada); assim, uma falha após a cópia não
+// perde o arquivo original nem deixa o estudante sem o documento de BI.
+func promoverDocumentoBIParaOficial(c *gin.Context, codigoAcademia, codigoEstudante, tempPath, tipoDocumento string) (*aggregates.DocumentoMatricula, error) {
 	provider := getStorageProvider(c)
 	if provider == nil {
 		return nil, fmt.Errorf("storage não configurado")
@@ -296,8 +352,8 @@ func promoverDocumentoBIParaOficial(c *gin.Context, codigoAcademia, codigoEstuda
 	if err != nil {
 		return nil, fmt.Errorf("falha ao ler documento temporário: %w", err)
 	}
-	downloadURL := estudanteDocumentoDownloadURL(codigoEstudante, "bi_estudante")
-	_, doc := documentoMatriculaNormalizado("bi_estudante", "", downloadURL, "", "")
+	downloadURL := estudanteDocumentoDownloadURL(codigoEstudante, tipoDocumento)
+	_, doc := documentoMatriculaNormalizado(tipoDocumento, "", downloadURL, "", "")
 	destPath := fmt.Sprintf("%s/estudantes/%s/documentos/identificacao/%s/%s.pdf", codigoAcademia, codigoEstudante, doc.Tipo, doc.DocumentoID)
 	stored, err := provider.Upload(destPath, bytes.NewReader(data), int64(len(data)))
 	if err != nil {

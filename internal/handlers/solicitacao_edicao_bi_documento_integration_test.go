@@ -3,15 +3,18 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
 	"spuri/internal/db"
+	"spuri/internal/domain/aggregates"
 	"spuri/internal/projections"
 	"spuri/internal/storage"
 )
@@ -238,5 +241,297 @@ func TestAprovarSolicitacaoEdicaoBISubstituiDocumentoAnterior(t *testing.T) {
 	}
 	if _, err := provider.Read(doc1.Path); err == nil {
 		t.Fatal("documento antigo ainda está acessível após substituição — deveria ter sido removido")
+	}
+}
+
+// criarEstudantePendenteDocumentosParaTeste cria (via evento real) um
+// estudante fundamental vinculado a uma academia, em status
+// 'pendente_documentos', já com bilhete_identidade preenchido (bilheteInicial)
+// mas SEM o documento oficial Documentos["bi_estudante"] — essa é a ÚNICA
+// pendência (bi_encarregado já está presente). Serve para testar o caso
+// relatado: a academia aprova uma solicitação de edição de BI do estudante,
+// o documento é promovido, mas o status permanece 'pendente_documentos'.
+func criarEstudantePendenteDocumentosParaTeste(t *testing.T, client *db.Client, bilheteInicial string) (uuid.UUID, string) {
+	t.Helper()
+	codigoAcademia := "IT" + uuid.New().String()[:8]
+	academiaID := criarAcademiaEscolarParaTeste(t, client, codigoAcademia, "fundamental", []string{"1_ano_fundamental"})
+
+	estID := uuid.New()
+	agg := &aggregates.Estudante{}
+	agg.SetID(estID)
+	codigoEstudante := "E" + uuid.New().String()[:6]
+	anoEscolar := "1_ano_fundamental"
+	telefoneEncarregado := fmt.Sprintf("9%08d", time.Now().UnixNano()%100000000)
+	bilheteResp := "999999999999ZZ"
+	// bi_estudante deliberadamente ausente dos documentos: é a única
+	// pendência deste estudante (bilhete já informado, mas sem o PDF).
+	documentos := map[string]aggregates.DocumentoMatricula{
+		"bi_encarregado": {Path: "teste/bi_encarregado.pdf"},
+	}
+	if err := agg.CriarComVinculoPendenteDocumentos(
+		"Estudante Teste "+codigoEstudante, codigoEstudante, "hash",
+		nil, nil, &telefoneEncarregado, &bilheteInicial, &bilheteResp,
+		"masculino", time.Date(2015, 1, 1, 0, 0, 0, 0, time.UTC),
+		&anoEscolar, nil, nil, nil, nil,
+		&academiaID, codigoAcademia, documentos,
+	); err != nil {
+		t.Fatalf("erro ao criar estudante pendente de documentos de teste: %v", err)
+	}
+	repository := db.NewAggregateRepository(client)
+	if err := repository.SaveWithAudit(agg, db.AuditContext{UserID: "integration-test", UserType: "sistema", IP: "127.0.0.1"}); err != nil {
+		t.Fatalf("erro ao salvar estudante de teste: %v", err)
+	}
+	if err := projections.NewEstudanteProjection(client).Rebuild(); err != nil {
+		t.Fatalf("erro ao reconstruir projeção de estudantes: %v", err)
+	}
+	return estID, codigoAcademia
+}
+
+// setupSolicitacaoEdicaoBIEncarregadoTestRouter é o equivalente de
+// setupSolicitacaoEdicaoBITestRouter, mas para o campo
+// bilhete_identidade_encarregado (rotas registradas em cmd/server/main.go).
+func setupSolicitacaoEdicaoBIEncarregadoTestRouter(client *db.Client, userID uuid.UUID, userType string) *gin.Engine {
+	repository := db.NewAggregateRepository(client)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set("dbClient", client)
+		c.Set("repository", repository)
+		c.Set("user_id", userID)
+		c.Set("user_type", userType)
+		c.Set("storageProvider", storage.NewLocalProvider())
+	})
+	router.POST("/estudante/solicitacoes-edicao/bilhete-identidade-encarregado", CriarSolicitacaoEdicaoDadoEstudanteHandler("bilhete_identidade_encarregado"))
+	router.PUT("/academia/solicitacoes-edicao-estudante/bilhete-identidade-encarregado/:codigo/aprovar", DecidirSolicitacaoEdicaoDadoEstudanteHandler("bilhete_identidade_encarregado", true))
+	router.PUT("/academia/solicitacoes-edicao-estudante/bilhete-identidade-encarregado/:codigo/reprovar", DecidirSolicitacaoEdicaoDadoEstudanteHandler("bilhete_identidade_encarregado", false))
+	return router
+}
+
+func criarSolicitacaoEdicaoBIEncarregadoParaTeste(t *testing.T, client *db.Client, router *gin.Engine, novoValor string, conteudoPDF []byte) string {
+	t.Helper()
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	if err := w.WriteField("novo_valor", novoValor); err != nil {
+		t.Fatalf("erro ao escrever campo novo_valor: %v", err)
+	}
+	part, err := createPDFFormFile(w, "documento", "bi_encarregado.pdf")
+	if err != nil {
+		t.Fatalf("erro ao criar campo de arquivo: %v", err)
+	}
+	if _, err := part.Write(conteudoPDF); err != nil {
+		t.Fatalf("erro ao escrever PDF de teste: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("erro ao fechar multipart writer: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/estudante/solicitacoes-edicao/bilhete-identidade-encarregado", &buf)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("esperava 201 ao criar solicitação de edição de BI do encarregado, recebeu %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		CodigoSolicitacao string `json:"codigo_solicitacao"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("erro ao decodificar resposta de criação: %v", err)
+	}
+	if err := projections.NewSolicitacaoEdicaoDadoEstudanteProjection(client).Rebuild(); err != nil {
+		t.Fatalf("erro ao reconstruir projeção de solicitações de edição: %v", err)
+	}
+	return resp.CodigoSolicitacao
+}
+
+func aprovarSolicitacaoEdicaoBIEncarregado(t *testing.T, client *db.Client, router *gin.Engine, codigoSolicitacao string) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/academia/solicitacoes-edicao-estudante/bilhete-identidade-encarregado/"+codigoSolicitacao+"/aprovar", nil)
+	router.ServeHTTP(rec, req)
+	if rec.Code == http.StatusOK {
+		if err := projections.NewSolicitacaoEdicaoDadoEstudanteProjection(client).Rebuild(); err != nil {
+			t.Fatalf("erro ao reconstruir projeção de solicitações de edição após decisão: %v", err)
+		}
+	}
+	return rec
+}
+
+// syncEstudanteProjectionEventosRecentes é como syncEstudanteProjectionAposEvento,
+// mas processa os ÚLTIMOS n eventos do estudante (em vez de só o último) — em
+// produção, o projManager assíncrono processa cada evento do ledger em
+// ordem, um a um (ver Manager.processProjection), então uma aprovação que
+// gera dois eventos no mesmo SaveWithAudit (ex.: edição de campo +
+// EstudanteDocumentosCompletados, quando essa edição completa a última
+// pendência) precisa ter AMBOS replicados na projeção, na mesma ordem, para
+// o teste refletir fielmente o que aconteceria em produção.
+func syncEstudanteProjectionEventosRecentes(t *testing.T, client *db.Client, estID uuid.UUID, n int) {
+	t.Helper()
+	repository := db.NewAggregateRepository(client)
+	historico, err := repository.GetEventHistory(estID)
+	if err != nil || len(historico) < n {
+		t.Fatalf("erro ao buscar histórico do estudante para sincronizar projeção: %v (eventos=%d, esperado>=%d)", err, len(historico), n)
+	}
+	proj := projections.NewEstudanteProjection(client)
+	for _, evt := range historico[len(historico)-n:] {
+		if err := proj.Handle(evt); err != nil {
+			t.Fatalf("erro ao processar evento %s na projeção de estudantes: %v", evt.EventType, err)
+		}
+	}
+}
+
+// TestAprovarSolicitacaoEdicaoBICompletaDocumentosPendentes cobre o bug
+// relatado: um estudante 'pendente_documentos' cuja ÚNICA pendência é o
+// documento bi_estudante consegue, via solicitação de edição de BI aprovada
+// pela academia, anexar esse documento — mas o status do estudante
+// permanecia 'pendente_documentos' mesmo depois de todos os documentos
+// obrigatórios estarem completos.
+func TestAprovarSolicitacaoEdicaoBICompletaDocumentosPendentes(t *testing.T) {
+	client := nivelEscolarTestClient(t)
+	bilheteInicial := generateBITest()
+	estID, codigoAcademia := criarEstudantePendenteDocumentosParaTeste(t, client, bilheteInicial)
+
+	estAntes, err := projections.NewEstudanteProjection(client).GetByID(estID)
+	if err != nil || estAntes == nil {
+		t.Fatalf("erro ao buscar estudante de teste: %v", err)
+	}
+	if estAntes.Status != "pendente_documentos" {
+		t.Fatalf("pré-condição do teste falhou: status = %q, want pendente_documentos", estAntes.Status)
+	}
+	if _, ok := estAntes.Documentos["bi_estudante"]; ok {
+		t.Fatal("pré-condição do teste falhou: estudante já tinha documento bi_estudante")
+	}
+
+	academia, err := projections.NewAcademiaProjection(client).GetByCodigo(codigoAcademia)
+	if err != nil || academia == nil {
+		t.Fatalf("erro ao buscar academia de teste: %v", err)
+	}
+
+	routerEstudante := setupSolicitacaoEdicaoBITestRouter(client, estID, "estudante")
+	routerAcademia := setupSolicitacaoEdicaoBITestRouter(client, academia.ID, "academia")
+
+	// Edita o BI para um novo número, anexando finalmente o documento —
+	// esta deveria ser a última pendência do estudante.
+	novoBI := generateBITest()
+	codigoSolicitacao := criarSolicitacaoEdicaoBIParaTeste(t, client, routerEstudante, novoBI, minimalPDFBytesForTest())
+
+	rec := aprovarSolicitacaoEdicaoBI(t, client, routerAcademia, codigoSolicitacao)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("esperava 200 ao aprovar solicitação, recebeu %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Esta aprovação produz DOIS eventos no mesmo SaveWithAudit: a edição do
+	// BI (DadosPessoaisAtualizados) e, se a correção funcionar,
+	// EstudanteDocumentosCompletados logo em seguida — replicamos os dois.
+	syncEstudanteProjectionEventosRecentes(t, client, estID, 2)
+	estApos, err := projections.NewEstudanteProjection(client).GetByID(estID)
+	if err != nil || estApos == nil {
+		t.Fatalf("erro ao buscar estudante após aprovação: %v", err)
+	}
+	if estApos.BilheteIdentidade == nil || *estApos.BilheteIdentidade != novoBI {
+		t.Fatalf("BilheteIdentidade = %v, want %q", estApos.BilheteIdentidade, novoBI)
+	}
+	if _, ok := estApos.Documentos["bi_estudante"]; !ok {
+		t.Fatal("Documentos[\"bi_estudante\"] ausente após aprovação")
+	}
+	if estApos.Status != "ativo" {
+		t.Fatalf("BUG: Status = %q, want \"ativo\" — o documento do BI foi completado mas o status pendente_documentos não foi atualizado", estApos.Status)
+	}
+}
+
+// criarEstudantePendenteDocumentosEncarregadoParaTeste é o espelho de
+// criarEstudantePendenteDocumentosParaTeste, mas a ÚNICA pendência é o
+// documento oficial do BI do ENCARREGADO (Documentos["bi_encarregado"]):
+// bilhete_identidade e bi_estudante já estão completos, bilhete_identidade_
+// encarregado já tem um número (bilheteRespInicial), mas falta o PDF.
+func criarEstudantePendenteDocumentosEncarregadoParaTeste(t *testing.T, client *db.Client, bilheteRespInicial string) (uuid.UUID, string) {
+	t.Helper()
+	codigoAcademia := "IT" + uuid.New().String()[:8]
+	academiaID := criarAcademiaEscolarParaTeste(t, client, codigoAcademia, "fundamental", []string{"1_ano_fundamental"})
+
+	estID := uuid.New()
+	agg := &aggregates.Estudante{}
+	agg.SetID(estID)
+	codigoEstudante := "E" + uuid.New().String()[:6]
+	anoEscolar := "1_ano_fundamental"
+	telefoneEncarregado := fmt.Sprintf("9%08d", time.Now().UnixNano()%100000000)
+	bilheteEstudante := generateBITest()
+	// bi_encarregado deliberadamente ausente dos documentos: é a única
+	// pendência deste estudante (bi_estudante já está completo).
+	documentos := map[string]aggregates.DocumentoMatricula{
+		"bi_estudante": {Path: "teste/bi_estudante.pdf"},
+	}
+	if err := agg.CriarComVinculoPendenteDocumentos(
+		"Estudante Teste "+codigoEstudante, codigoEstudante, "hash",
+		nil, nil, &telefoneEncarregado, &bilheteEstudante, &bilheteRespInicial,
+		"masculino", time.Date(2015, 1, 1, 0, 0, 0, 0, time.UTC),
+		&anoEscolar, nil, nil, nil, nil,
+		&academiaID, codigoAcademia, documentos,
+	); err != nil {
+		t.Fatalf("erro ao criar estudante pendente de documentos de teste: %v", err)
+	}
+	repository := db.NewAggregateRepository(client)
+	if err := repository.SaveWithAudit(agg, db.AuditContext{UserID: "integration-test", UserType: "sistema", IP: "127.0.0.1"}); err != nil {
+		t.Fatalf("erro ao salvar estudante de teste: %v", err)
+	}
+	if err := projections.NewEstudanteProjection(client).Rebuild(); err != nil {
+		t.Fatalf("erro ao reconstruir projeção de estudantes: %v", err)
+	}
+	return estID, codigoAcademia
+}
+
+// TestAprovarSolicitacaoEdicaoBIEncarregadoPromoveDocumentoECompletaPendencia
+// cobre o segundo gap encontrado junto do bug relatado: o documento anexado
+// a uma solicitação de bilhete_identidade_encarregado aprovada nunca era
+// promovido a Documentos["bi_encarregado"] (só o número era atualizado) — ao
+// contrário do que já acontecia para o BI do próprio estudante. Isso também
+// impedia esta via de completar um estudante 'pendente_documentos' cuja
+// única pendência fosse justamente o documento do BI do encarregado.
+func TestAprovarSolicitacaoEdicaoBIEncarregadoPromoveDocumentoECompletaPendencia(t *testing.T) {
+	client := nivelEscolarTestClient(t)
+	bilheteRespInicial := generateBITest()
+	estID, codigoAcademia := criarEstudantePendenteDocumentosEncarregadoParaTeste(t, client, bilheteRespInicial)
+
+	estAntes, err := projections.NewEstudanteProjection(client).GetByID(estID)
+	if err != nil || estAntes == nil {
+		t.Fatalf("erro ao buscar estudante de teste: %v", err)
+	}
+	if estAntes.Status != "pendente_documentos" {
+		t.Fatalf("pré-condição do teste falhou: status = %q, want pendente_documentos", estAntes.Status)
+	}
+	if _, ok := estAntes.Documentos["bi_encarregado"]; ok {
+		t.Fatal("pré-condição do teste falhou: estudante já tinha documento bi_encarregado")
+	}
+
+	academia, err := projections.NewAcademiaProjection(client).GetByCodigo(codigoAcademia)
+	if err != nil || academia == nil {
+		t.Fatalf("erro ao buscar academia de teste: %v", err)
+	}
+
+	routerEstudante := setupSolicitacaoEdicaoBIEncarregadoTestRouter(client, estID, "estudante")
+	routerAcademia := setupSolicitacaoEdicaoBIEncarregadoTestRouter(client, academia.ID, "academia")
+
+	novoBIResp := generateBITest()
+	codigoSolicitacao := criarSolicitacaoEdicaoBIEncarregadoParaTeste(t, client, routerEstudante, novoBIResp, minimalPDFBytesForTest())
+
+	rec := aprovarSolicitacaoEdicaoBIEncarregado(t, client, routerAcademia, codigoSolicitacao)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("esperava 200 ao aprovar solicitação, recebeu %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Duas eventos no mesmo SaveWithAudit, como no teste do BI do
+	// estudante: a edição do campo e, se a correção funcionar,
+	// EstudanteDocumentosCompletados.
+	syncEstudanteProjectionEventosRecentes(t, client, estID, 2)
+	estApos, err := projections.NewEstudanteProjection(client).GetByID(estID)
+	if err != nil || estApos == nil {
+		t.Fatalf("erro ao buscar estudante após aprovação: %v", err)
+	}
+	if estApos.BilheteIdentidadeResp == nil || *estApos.BilheteIdentidadeResp != novoBIResp {
+		t.Fatalf("BilheteIdentidadeResp = %v, want %q", estApos.BilheteIdentidadeResp, novoBIResp)
+	}
+	if _, ok := estApos.Documentos["bi_encarregado"]; !ok {
+		t.Fatal("BUG: Documentos[\"bi_encarregado\"] ausente após aprovação — o documento anexado não foi promovido a oficial")
+	}
+	if estApos.Status != "ativo" {
+		t.Fatalf("BUG: Status = %q, want \"ativo\" — o documento do BI do encarregado foi completado mas o status pendente_documentos não foi atualizado", estApos.Status)
 	}
 }

@@ -674,6 +674,11 @@ func (p *EstudanteProjection) handleDadosPessoaisAtualizados(event db.Event) err
 		// documento anexo — substitui Documentos["bi_estudante"] na
 		// projeção, espelhando applyDadosPessoaisAtualizados no aggregate.
 		DocumentoBI *aggregates.DocumentoMatricula `json:"DocumentoBI"`
+		// DocumentoBIEncarregado: presente somente quando o evento de
+		// origem é BilheteIdentidadeEncarregadoAlteradoPorSolicitacao com
+		// documento anexo — substitui Documentos["bi_encarregado"] na
+		// projeção, espelhando applyDadosPessoaisAtualizados no aggregate.
+		DocumentoBIEncarregado *aggregates.DocumentoMatricula `json:"DocumentoBIEncarregado"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("handleDadosPessoaisAtualizados: parse error: %w", err)
@@ -727,14 +732,33 @@ func (p *EstudanteProjection) handleDadosPessoaisAtualizados(event db.Event) err
 		args = append(args, *payload.DataNascimento)
 		idx++
 	}
+	// DocumentoBI e DocumentoBIEncarregado, quando presentes, acumulam-se
+	// numa ÚNICA expressão/atribuição à coluna documentos (em vez de dois
+	// setClauses independentes) — um UPDATE não pode ter duas atribuições
+	// separadas à mesma coluna. Na prática os dois nunca vêm preenchidos no
+	// mesmo evento hoje (vêm de solicitações de campos diferentes), mas a
+	// combinação abaixo é segura mesmo se isso mudar no futuro.
+	documentosExpr := "documentos"
 	if payload.DocumentoBI != nil {
 		docJSON, err := json.Marshal(payload.DocumentoBI)
 		if err != nil {
 			return fmt.Errorf("handleDadosPessoaisAtualizados: falha ao serializar DocumentoBI: %w", err)
 		}
-		setClauses = append(setClauses, fmt.Sprintf("documentos = documentos || jsonb_build_object('bi_estudante', $%d::jsonb)", idx))
+		documentosExpr += fmt.Sprintf(" || jsonb_build_object('bi_estudante', $%d::jsonb)", idx)
 		args = append(args, string(docJSON))
 		idx++
+	}
+	if payload.DocumentoBIEncarregado != nil {
+		docJSON, err := json.Marshal(payload.DocumentoBIEncarregado)
+		if err != nil {
+			return fmt.Errorf("handleDadosPessoaisAtualizados: falha ao serializar DocumentoBIEncarregado: %w", err)
+		}
+		documentosExpr += fmt.Sprintf(" || jsonb_build_object('bi_encarregado', $%d::jsonb)", idx)
+		args = append(args, string(docJSON))
+		idx++
+	}
+	if documentosExpr != "documentos" {
+		setClauses = append(setClauses, fmt.Sprintf("documentos = %s", documentosExpr))
 	}
 
 	if len(setClauses) == 0 {
