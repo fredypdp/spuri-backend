@@ -327,7 +327,7 @@ func SafeErrorMessage(err error) string {
 		{"timeout", "Operação demorou muito tempo"},
 		{"bilhete", "Bilhete de identidade inválido (deve conter 12 números e 2 letras)"},
 		{"email", "Formato de email inválido"},
-		{"senha", "Senha deve ter no mínimo 6 caracteres"},
+		{"senha", "Senha deve ter no mínimo 8 caracteres"},
 		{"provincia", "Província inválida"},
 		{"role", "Perfil de acesso inválido"},
 		{"type", "Tipo inválido"},

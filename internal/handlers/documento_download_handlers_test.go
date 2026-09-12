@@ -15,8 +15,19 @@ func TestSafeDocumentFilename(t *testing.T) {
 		"../segredo\".pdf": ".._segredo_.pdf",
 	}
 	for input, want := range cases {
-		if got := safeDocumentFilename(input); got != want {
-			t.Fatalf("safeDocumentFilename(%q) = %q, want %q", input, got, want)
+		if got := safeDocumentFilename(input, ".pdf"); got != want {
+			t.Fatalf("safeDocumentFilename(%q, \".pdf\") = %q, want %q", input, got, want)
+		}
+	}
+	// Documento extra do tipo jpg (item 2-4 da tarefa "documentos_extra"):
+	// mesma função, extensão .jpg.
+	jpgCases := map[string]string{
+		"documento_extra.abc123": "documento_extra.abc123.jpg",
+		"foto.jpg":               "foto.jpg",
+	}
+	for input, want := range jpgCases {
+		if got := safeDocumentFilename(input, ".jpg"); got != want {
+			t.Fatalf("safeDocumentFilename(%q, \".jpg\") = %q, want %q", input, got, want)
 		}
 	}
 }
@@ -129,5 +140,31 @@ func TestDocumentoEstudantePorCampoEscopoNaoConfundeAnos(t *testing.T) {
 	}
 	if doc.Path != "docs/medio/3.pdf" {
 		t.Fatalf("path = %q, want docs/medio/3.pdf", doc.Path)
+	}
+}
+
+// TestDocumentoEstudantePorCampoEscopoResolveDocumentoExtra confirma que a
+// rota de download JÁ EXISTENTE (documentoEstudantePorCampoEscopo, usada por
+// streamDocumentoEstudante/streamDocumentoSolicitacaoMatricula) resolve
+// corretamente a chave "documento_extra.<id>" usada por armazenarDocumentosExtra,
+// por match direto no mapa — nenhuma rota nova precisou ser criada para
+// permitir o download de documentos extra, só esta chave ser reconhecida
+// (o que ela já é, por ser um lookup direto documentos[campo]).
+func TestDocumentoEstudantePorCampoEscopoResolveDocumentoExtra(t *testing.T) {
+	documentos := map[string]aggregates.DocumentoMatricula{
+		"documento_extra.3f1e2c4a-0000-0000-0000-000000000001": {
+			Tipo:             "jpg",
+			Nivel:            "fundamental",
+			AnoAcademico:     "6_ano_fundamental",
+			DocumentoExtraID: "3f1e2c4a-0000-0000-0000-000000000001",
+			Path:             "docs/extra/foto.jpg",
+		},
+	}
+	doc, ok := documentoEstudantePorCampoEscopo(documentos, "documento_extra.3f1e2c4a-0000-0000-0000-000000000001", "", "")
+	if !ok {
+		t.Fatalf("documento extra não encontrado pela chave direta")
+	}
+	if doc.Path != "docs/extra/foto.jpg" || doc.Tipo != "jpg" {
+		t.Fatalf("documento extra resolvido incorretamente: %+v", doc)
 	}
 }

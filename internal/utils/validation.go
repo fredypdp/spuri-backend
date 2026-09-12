@@ -173,9 +173,9 @@ func ValidateEmail(email string) error {
 func ValidateSenha(senha string) error {
 	log.Printf("🔐 [ValidateSenha] Validando senha - Length: %d", len(senha))
 
-	if len(senha) < 6 {
+	if len(senha) < 8 {
 		log.Printf("❌ [ValidateSenha] Senha muito curta: %d caracteres", len(senha))
-		return fmt.Errorf("senha deve ter no mínimo 6 caracteres")
+		return fmt.Errorf("senha deve ter no mínimo 8 caracteres")
 	}
 
 	if len(senha) > 128 {

@@ -485,6 +485,18 @@ func ResetarSenha(c *gin.Context) {
 		return
 	}
 
+	// Valida ANTES de consumir o token (VerifyToken é de uso único): uma
+	// senha muito curta não deve queimar o link de recuperação, senão o
+	// usuário precisaria solicitar um novo email só por causa disso.
+	// Gap encontrado nesta tarefa: este era o único fluxo de definição de
+	// senha (troca própria, cadastro de academia, recuperação) que não
+	// passava por ValidateSenha — a regra de tamanho mínimo não era
+	// aplicada aqui antes desta correção.
+	if err := utils.ValidateSenha(req.NovaSenha); err != nil {
+		utils.RespondWithValidationError(c, err)
+		return
+	}
+
 	// VerifyToken valida e consome o token — prevenindo replay attacks.
 	emailSvc := getEmailService(c)
 	tokenInfo, err := emailSvc.VerifyToken(token, "recuperacao_senha")
